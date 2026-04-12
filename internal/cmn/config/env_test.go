@@ -13,12 +13,24 @@ import (
 )
 
 func TestLoadBaseEnv(t *testing.T) {
+	windowsExpected := runtime.GOOS == "windows"
+
 	testCases := []struct {
 		name     string
 		expected bool
 	}{
 		{"TEST_VAR_BASE_ENV", false},
 		{"DAGU_TEST_BASE_ENV", true},
+
+		// Windows-specific user profile and install roots should only pass
+		// through on Windows builds.
+		{"APPDATA", windowsExpected},
+		{"LOCALAPPDATA", windowsExpected},
+		{"USERNAME", windowsExpected},
+		{"USERDOMAIN", windowsExpected},
+		{"PROGRAMFILES", windowsExpected},
+		{"PROGRAMFILES(X86)", windowsExpected},
+		{"PROGRAMDATA", windowsExpected},
 
 		// Docker daemon connection vars must pass through.
 		{"DOCKER_HOST", true},
