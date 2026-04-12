@@ -1,9 +1,9 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type { components } from '../../../../api/v1/schema';
-import { parse as parseYaml } from 'yaml';
 import { dereferenceSchema, type JSONSchema } from '@/lib/schema-utils';
+import { parse as parseYaml } from 'yaml';
+import type { components } from '../../../../api/v1/schema';
 
 export interface EditorCustomStepTypeHint {
   name: string;
@@ -150,8 +150,28 @@ function isStepLikeSchema(schema: JSONSchema): boolean {
   );
 }
 
+function hasStepSpecificProperties(schema: JSONSchema): boolean {
+  const properties = schema.properties;
+  if (!properties) {
+    return false;
+  }
+
+  return (
+    'name' in properties ||
+    'command' in properties ||
+    'script' in properties ||
+    'depends' in properties ||
+    'working_dir' in properties ||
+    'parallel' in properties ||
+    'call' in properties
+  );
+}
+
 function isStepSchemaCandidate(schema: JSONSchema): boolean {
   if (!isStepLikeSchema(schema)) {
+    return false;
+  }
+  if (!hasStepSpecificProperties(schema)) {
     return false;
   }
 
@@ -177,8 +197,13 @@ function augmentStepSchema(
 
   const typeSchema = stepSchema.properties?.type;
   if (isRecord(typeSchema)) {
+    const clonedTypeSchema = cloneJson(typeSchema as JSONSchema);
+    stepSchema.properties = {
+      ...stepSchema.properties,
+      type: clonedTypeSchema,
+    };
     augmentExecutorTypeSchema(
-      typeSchema as JSONSchema,
+      clonedTypeSchema,
       customTypeNames,
       customTypeDescriptions
     );
@@ -212,7 +237,10 @@ function collectStepSchemaPaths(schema: JSONSchema): string[][] {
   const pathMap = new Map<string, string[]>();
 
   visitSchemas(schema, (candidate, path) => {
-    if (candidate.$ref === '#/definitions/step' || isStepSchemaCandidate(candidate)) {
+    if (
+      candidate.$ref === '#/definitions/step' ||
+      isStepSchemaCandidate(candidate)
+    ) {
       pathMap.set(path.join('/'), path);
     }
   });

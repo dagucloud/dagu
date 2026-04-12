@@ -1,8 +1,12 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 /**
  * DAGEditor component provides a Monaco editor for editing DAG YAML definitions.
  *
  * @module features/dags/components/dag-editor
  */
+import type { JSONSchema } from '@/lib/schema-utils';
 import { cn } from '@/lib/utils';
 import MonacoEditor, { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
@@ -11,7 +15,6 @@ import {
   type JSONSchema as MonacoJSONSchema,
 } from 'monaco-yaml';
 import { useEffect, useRef } from 'react';
-import type { JSONSchema } from '@/lib/schema-utils';
 
 // Get schema URL from config (getConfig() is available at module load time)
 declare function getConfig(): { basePath: string };
@@ -177,6 +180,23 @@ function DAGEditor({
   const editorDidMount = (editor: monaco.editor.IStandaloneCodeEditor) => {
     editorRef.current = editor;
 
+    if (!readOnly) {
+      editor.addAction({
+        id: 'dagu.triggerSuggest',
+        label: 'Trigger Autocomplete',
+        precondition:
+          '!editorReadonly && editorHasCompletionItemProvider && !suggestWidgetVisible',
+        keybindings: [
+          monaco.KeyMod.CtrlCmd | monaco.KeyCode.Space,
+          monaco.KeyMod.WinCtrl | monaco.KeyCode.Space,
+        ],
+        keybindingContext: 'textInputFocus',
+        run: async (activeEditor) => {
+          await activeEditor.getAction('editor.action.triggerSuggest')?.run();
+        },
+      });
+    }
+
     // Format document after a short delay
     setTimeout(() => {
       editor.getAction('editor.action.formatDocument')?.run();
@@ -236,6 +256,7 @@ function DAGEditor({
           quickSuggestions: readOnly
             ? false
             : { other: true, comments: false, strings: true },
+          suggestOnTriggerCharacters: !readOnly,
           formatOnType: !readOnly,
           formatOnPaste: !readOnly,
           renderValidationDecorations: readOnly ? 'off' : 'on',

@@ -33,12 +33,14 @@ vi.mock('../DAGDetailsContent', () => ({
     dag,
     activeTab,
     dagRunId,
+    editorHints,
     forceEnqueue,
     onEnqueue,
   }: {
     dag: { name: string };
     activeTab: string;
     dagRunId?: string;
+    editorHints?: { inheritedCustomStepTypes?: unknown[] };
     forceEnqueue?: boolean;
     onEnqueue?: (
       params: string,
@@ -51,6 +53,7 @@ vi.mock('../DAGDetailsContent', () => ({
         Previewing {dag.name} [{activeTab}]{' '}
         {forceEnqueue ? 'forced' : 'default'} {dagRunId || 'latest'}
       </div>
+      <div>Inherited hints: {editorHints?.inheritedCustomStepTypes?.length ?? 0}</div>
       {onEnqueue ? (
         <button
           type="button"
@@ -228,6 +231,36 @@ describe('DAGDetailsSidePanel', () => {
     expect(
       screen.getByText('Previewing example-dag [history] forced latest')
     ).toBeInTheDocument();
+  });
+
+  it('passes editor hints through to the modal DAG spec flow', () => {
+    vi.mocked(useDAGSSE).mockReturnValue(liveState);
+    vi.mocked(useDAGRunSSE).mockReturnValue(liveState);
+    useQueryMock.mockImplementation((path) => {
+      if (path === '/dags/{fileName}') {
+        return {
+          data: {
+            dag: { name: 'example-dag' },
+            filePath: '/tmp/example.yaml',
+            latestDAGRun: undefined,
+            localDags: [],
+            editorHints: {
+              inheritedCustomStepTypes: [{ name: 'greet' }],
+            },
+          },
+          error: undefined,
+          mutate: vi.fn(),
+        } as never;
+      }
+
+      return {
+        data: undefined,
+      } as never;
+    });
+
+    renderPanel();
+
+    expect(screen.getByText('Inherited hints: 1')).toBeInTheDocument();
   });
 
   it('tracks the returned dag run, switches to status, and revalidates after enqueue', async () => {

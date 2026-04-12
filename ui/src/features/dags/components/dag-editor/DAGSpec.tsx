@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 /**
  * DAGSpec component displays and allows editing of a DAG specification.
  *
@@ -27,7 +30,6 @@ import LoadingIndicator from '../../../../ui/LoadingIndicator';
 import { DAGContext } from '../../contexts/DAGContext';
 import { DAGStepTable } from '../dag-details';
 import { FlowchartType, Graph } from '../visualization';
-import DAGAttributes from './DAGAttributes';
 import {
   buildAugmentedDAGSchema,
   customStepTypeHintsEqual,
@@ -35,6 +37,7 @@ import {
   mergeCustomStepTypeHints,
   toInheritedCustomStepTypeHints,
 } from './customStepSchema';
+import DAGAttributes from './DAGAttributes';
 import DAGEditorWithDocs from './DAGEditorWithDocs';
 import ExternalChangeDialog from './ExternalChangeDialog';
 
