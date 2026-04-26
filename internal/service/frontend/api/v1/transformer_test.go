@@ -131,6 +131,35 @@ func TestToDAGDetailsIncludesArtifactsDir(t *testing.T) {
 	assert.Equal(t, "/var/lib/dagu/artifacts", *details.Artifacts.Dir)
 }
 
+func TestToNodeIncludesNormalizedPushBackHistory(t *testing.T) {
+	node := &exec.Node{
+		Step: core.Step{
+			Name: "review",
+			Approval: &core.ApprovalConfig{
+				Input: []string{"FEEDBACK"},
+			},
+		},
+		Status:            core.NodeWaiting,
+		StartedAt:         "2026-04-26T06:00:00Z",
+		FinishedAt:        "2026-04-26T06:01:00Z",
+		Stdout:            "stdout.log",
+		Stderr:            "stderr.log",
+		ApprovalIteration: 1,
+		PushBackInputs:    map[string]string{"FEEDBACK": "revise the summary", "IGNORED": "x"},
+	}
+
+	result := toNode(node)
+
+	require.NotNil(t, result.PushBackHistory)
+	require.Len(t, *result.PushBackHistory, 1)
+	entry := (*result.PushBackHistory)[0]
+	assert.Equal(t, 1, entry.Iteration)
+	require.NotNil(t, entry.Inputs)
+	assert.Equal(t, "revise the summary", (*entry.Inputs)["FEEDBACK"])
+	_, ok := (*entry.Inputs)["IGNORED"]
+	assert.False(t, ok)
+}
+
 func TestToDAGIncludesTypedSchedules(t *testing.T) {
 	cronSchedule, err := core.NewCronSchedule("*/5 * * * *")
 	require.NoError(t, err)

@@ -5,6 +5,7 @@ import { Check, RotateCcw } from 'lucide-react';
 import React, { useState } from 'react';
 import { components, NodeStatus, Stream } from '../../../../api/v1/schema';
 import { InlineLogViewer } from '../common/InlineLogViewer';
+import PushBackHistory from '../common/PushBackHistory';
 import { StepReviewModal } from '../dag-execution/StepReviewModal';
 
 type DAGRunDetails = components['schemas']['DAGRunDetails'];
@@ -70,6 +71,10 @@ function ApprovalCard({
           </Button>
         </div>
       </div>
+
+      {node.pushBackHistory && node.pushBackHistory.length > 0 && (
+        <PushBackHistory history={node.pushBackHistory} />
+      )}
 
       {/* Step Output */}
       <div>
@@ -164,6 +169,7 @@ export function ApprovalTab({ dagRun, dagName }: ApprovalTabProps) {
           visible={!!reviewState}
           dismissModal={() => setReviewState(null)}
           step={reviewState.node.step}
+          pushBackHistory={reviewState.node.pushBackHistory}
           onApprove={reviewState.action === 'approve' ? handleApprove : undefined}
           onPushBack={reviewState.action === 'retry' ? handlePushBack : undefined}
         />

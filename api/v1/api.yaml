@@ -7696,6 +7696,9 @@ components:
           items:
             type: string
           description: "Subset of input fields that must be provided"
+        rewindTo:
+          type: string
+          description: "Optional step name to restart from when the approver pushes the step back. Must reference the step itself or an upstream dependency."
 
     Error:
       type: object
@@ -8817,6 +8820,11 @@ components:
           additionalProperties:
             type: string
           description: "Key-value inputs from the last push-back, injected as environment variables during re-execution"
+        pushBackHistory:
+          type: array
+          description: "Chronological push-back history for this step"
+          items:
+            $ref: "#/components/schemas/PushBackHistoryEntry"
       required:
         - step
         - stdout
@@ -8827,6 +8835,27 @@ components:
         - statusLabel
         - retryCount
         - doneCount
+
+    PushBackHistoryEntry:
+      type: object
+      description: "One push-back event recorded for an approval step"
+      properties:
+        iteration:
+          type: integer
+          description: "Push-back iteration number"
+        by:
+          type: string
+          description: "Authenticated user who pushed the step back"
+        at:
+          type: string
+          description: "RFC3339 timestamp when the push-back was recorded"
+        inputs:
+          type: object
+          additionalProperties:
+            type: string
+          description: "Inputs provided for this push-back event"
+      required:
+        - iteration
 
     SubDAGRun:
       type: object

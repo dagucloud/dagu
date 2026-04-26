@@ -1044,15 +1044,6 @@ func buildCurrentExecutable(t *testing.T, root string) string {
 	t.Helper()
 
 	builtExecutableOnce.Do(func() {
-		prebuiltPath := filepath.Join(root, ".local", "bin", "dagu")
-		if runtime.GOOS == "windows" {
-			prebuiltPath += ".exe"
-		}
-		if fi, err := os.Stat(prebuiltPath); err == nil && !fi.IsDir() {
-			builtExecutablePath = prebuiltPath
-			return
-		}
-
 		tmpDir, err := os.MkdirTemp("", "dagu-test-bin-*")
 		if err != nil {
 			builtExecutableErr = fmt.Errorf("failed to create temp dir for test executable: %w", err)

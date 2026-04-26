@@ -1668,6 +1668,10 @@
                 "type": "string"
               },
               "description": "Subset of input fields that must be provided by the approver."
+            },
+            "rewind_to": {
+              "type": "string",
+              "description": "Optional step name or ID to restart from when the step is pushed back. Must reference the step itself or an upstream dependency."
             }
           },
           "description": "Human approval gate for this step. When configured, the step executes its command first, then pauses the DAG and waits for human approval before proceeding to dependent steps. The approver can provide input values that become available as environment variables in subsequent steps."

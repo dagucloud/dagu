@@ -140,6 +140,50 @@ func TestValidateSteps(t *testing.T) {
 		assert.NoError(t, ValidateSteps(dag))
 	})
 
+	t.Run("approval rewind_to resolves upstream step IDs", func(t *testing.T) {
+		t.Parallel()
+		dag := &DAG{
+			Steps: []Step{
+				{Name: "prepare", ID: "prepare_id", ExecutorConfig: testExecConfig},
+				{
+					Name:           "review",
+					Depends:        []string{"prepare"},
+					ExecutorConfig: testExecConfig,
+					Approval: &ApprovalConfig{
+						RewindTo: "prepare_id",
+					},
+				},
+			},
+		}
+
+		err := ValidateSteps(dag)
+		require.NoError(t, err)
+		require.NotNil(t, dag.Steps[1].Approval)
+		assert.Equal(t, "prepare", dag.Steps[1].Approval.RewindTo)
+	})
+
+	t.Run("approval rewind_to rejects non-upstream steps", func(t *testing.T) {
+		t.Parallel()
+		dag := &DAG{
+			Steps: []Step{
+				{Name: "prepare", ExecutorConfig: testExecConfig},
+				{
+					Name:           "review",
+					Depends:        []string{"prepare"},
+					ExecutorConfig: testExecConfig,
+					Approval: &ApprovalConfig{
+						RewindTo: "sidecar",
+					},
+				},
+				{Name: "sidecar", Depends: []string{"prepare"}, ExecutorConfig: testExecConfig},
+			},
+		}
+
+		err := ValidateSteps(dag)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "approval.rewind_to")
+	})
+
 	t.Run("empty DAG passes validation", func(t *testing.T) {
 		t.Parallel()
 		dag := &DAG{Steps: []Step{}}

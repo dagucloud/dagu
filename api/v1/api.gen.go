@@ -784,6 +784,9 @@ type ApprovalConfig struct {
 	// Prompt Message displayed to the approver
 	Prompt *string `json:"prompt,omitempty"`
 
+	// RewindTo Optional step name to restart from when the approver pushes the step back. Must reference the step itself or an upstream dependency.
+	RewindTo *string `json:"rewindTo,omitempty"`
+
 	// Required Subset of input fields that must be provided
 	Required *[]string `json:"required,omitempty"`
 }
@@ -1996,6 +1999,9 @@ type Node struct {
 	// PushBackInputs Key-value inputs from the last push-back, injected as environment variables during re-execution
 	PushBackInputs *map[string]string `json:"pushBackInputs,omitempty"`
 
+	// PushBackHistory Chronological push-back history for this step
+	PushBackHistory *[]PushBackHistoryEntry `json:"pushBackHistory,omitempty"`
+
 	// RejectedAt RFC3339 timestamp when the step was rejected
 	RejectedAt *string `json:"rejectedAt,omitempty"`
 
@@ -2041,6 +2047,21 @@ type Node struct {
 
 	// SubRunsRepeated List of repeated sub DAG-runs when using repeatPolicy
 	SubRunsRepeated *[]SubDAGRun `json:"subRunsRepeated,omitempty"`
+}
+
+// PushBackHistoryEntry One push-back event recorded for an approval step
+type PushBackHistoryEntry struct {
+	// At RFC3339 timestamp when the push-back was recorded
+	At *string `json:"at,omitempty"`
+
+	// By Authenticated user who pushed the step back
+	By *string `json:"by,omitempty"`
+
+	// Inputs Inputs provided for this push-back event
+	Inputs *map[string]string `json:"inputs,omitempty"`
+
+	// Iteration Push-back iteration number
+	Iteration int `json:"iteration"`
 }
 
 // NodeStatus Numeric status code indicating current node state:

@@ -83,6 +83,7 @@ func ValidateSteps(dag *DAG) error {
 	validateNameIDConflicts(dag, stepNames, stepIDs, &errs)
 	resolveStepDependencies(dag)
 	validateDependenciesExist(dag, stepNames, &errs)
+	validateApprovalRewindTargets(dag, stepNames, &errs)
 
 	for _, step := range dag.Steps {
 		errs = append(errs, validateStep(step)...)
@@ -177,6 +178,61 @@ func validateDependenciesExist(dag *DAG, stepNames map[string]struct{}, errs *Er
 	}
 }
 
+func validateApprovalRewindTargets(dag *DAG, stepNames map[string]struct{}, errs *ErrorList) {
+	stepByName := make(map[string]Step, len(dag.Steps))
+	for _, step := range dag.Steps {
+		stepByName[step.Name] = step
+	}
+
+	for _, step := range dag.Steps {
+		if step.Approval == nil || step.Approval.RewindTo == "" {
+			continue
+		}
+
+		target := step.Approval.RewindTo
+		if _, exists := stepNames[target]; !exists {
+			*errs = append(*errs, NewValidationError("approval.rewind_to", target,
+				fmt.Errorf("step %s approval.rewind_to references non-existent step %s", step.Name, target)))
+			continue
+		}
+
+		if target == step.Name {
+			continue
+		}
+
+		if !isUpstreamDependency(stepByName, step.Name, target) {
+			*errs = append(*errs, NewValidationError("approval.rewind_to", target,
+				fmt.Errorf("step %s approval.rewind_to must reference the step itself or an upstream dependency", step.Name)))
+		}
+	}
+}
+
+func isUpstreamDependency(stepByName map[string]Step, stepName, target string) bool {
+	start, ok := stepByName[stepName]
+	if !ok {
+		return false
+	}
+
+	queue := append([]string(nil), start.Depends...)
+	visited := make(map[string]struct{}, len(queue))
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		if current == target {
+			return true
+		}
+		if _, ok := visited[current]; ok {
+			continue
+		}
+		visited[current] = struct{}{}
+		if step, ok := stepByName[current]; ok {
+			queue = append(queue, step.Depends...)
+		}
+	}
+
+	return false
+}
+
 func validateStep(step Step) ErrorList {
 	var errs ErrorList
 
@@ -262,6 +318,11 @@ func resolveStepDependencies(dag *DAG) {
 		for j, dep := range dag.Steps[i].Depends {
 			if name, exists := idToName[dep]; exists {
 				dag.Steps[i].Depends[j] = name
+			}
+		}
+		if dag.Steps[i].Approval != nil {
+			if name, exists := idToName[dag.Steps[i].Approval.RewindTo]; exists {
+				dag.Steps[i].Approval.RewindTo = name
 			}
 		}
 	}

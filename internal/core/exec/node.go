@@ -8,6 +8,14 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 )
 
+// PushBackEntry records one push-back event for a step approval cycle.
+type PushBackEntry struct {
+	Iteration int               `json:"iteration"`
+	By        string            `json:"by,omitempty"`
+	At        string            `json:"at,omitempty"`
+	Inputs    map[string]string `json:"inputs,omitempty"`
+}
+
 // Node represents a DAG step with its execution state for persistence
 type Node struct {
 	Step            core.Step            `json:"step,omitzero"`
@@ -42,6 +50,8 @@ type Node struct {
 	// PushBackInputs stores the inputs from the last push-back.
 	// These are injected as environment variables when the step re-executes.
 	PushBackInputs map[string]string `json:"pushBackInputs,omitempty"`
+	// PushBackHistory stores the chronological push-back inputs for this step.
+	PushBackHistory []PushBackEntry `json:"pushBackHistory,omitempty"`
 	// ChatMessages stores the session messages for chat/LLM steps.
 	// This field is populated during execution and synced via status updates
 	// in shared-nothing mode where workers don't have filesystem access.

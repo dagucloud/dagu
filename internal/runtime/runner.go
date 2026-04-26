@@ -443,20 +443,36 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 
 	ctx = node.SetupEnv(ctx)
 
-	// Inject push-back inputs as environment variables for re-execution.
-	// Only declared input fields are allowed to prevent arbitrary env overwrite.
-	if approval := node.Step().Approval; approval != nil && len(node.State().PushBackInputs) > 0 {
+	// Inject push-back inputs as environment variables for any step being
+	// re-executed within the rewound scope.
+	if node.State().ApprovalIteration > 0 {
+		state := node.State()
 		env := GetEnv(ctx)
-		allowed := make(map[string]struct{}, len(approval.Input))
-		for _, key := range approval.Input {
-			allowed[key] = struct{}{}
+		var allowedInputs []string
+		if approval := node.Step().Approval; approval != nil {
+			allowedInputs = approval.Input
 		}
-		for k, v := range node.State().PushBackInputs {
-			if _, ok := allowed[k]; !ok {
-				logger.Warn(ctx, "Ignoring unexpected push-back input", slog.String("input", k))
-				continue
-			}
+		filteredInputs := exec.FilterPushBackInputs(allowedInputs, state.PushBackInputs)
+		for k, v := range filteredInputs {
 			env = env.WithEnvVars(k, v)
+		}
+		if approval := node.Step().Approval; approval != nil && len(filteredInputs) != len(state.PushBackInputs) {
+			allowed := make(map[string]struct{}, len(approval.Input))
+			for _, key := range approval.Input {
+				allowed[key] = struct{}{}
+			}
+			for k := range state.PushBackInputs {
+				if _, ok := allowed[k]; ok {
+					continue
+				}
+				logger.Warn(ctx, "Ignoring unexpected push-back input", slog.String("input", k))
+			}
+		}
+		payload, err := marshalPushBackPayload(allowedInputs, state)
+		if err != nil {
+			logger.Warn(ctx, "Failed to marshal push-back payload", tag.Error(err))
+		} else if payload != "" {
+			env = env.WithEnvVars(exec.EnvKeyDAGPushBack, payload)
 		}
 		ctx = WithEnv(ctx, env)
 	}

@@ -94,6 +94,8 @@ type NodeState struct {
 	ApprovalIteration int
 	// PushBackInputs stores inputs from the last push-back for env var injection.
 	PushBackInputs map[string]string
+	// PushBackHistory stores the chronological push-back feedback for this step.
+	PushBackHistory []exec.PushBackEntry
 }
 
 // Parallel represents the evaluated parallel execution configuration for a node.

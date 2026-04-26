@@ -1605,7 +1605,12 @@ func (a *API) PushBackDAGRunStep(ctx context.Context, request api.PushBackDAGRun
 		return nil, fmt.Errorf("error serializing status for rollback: %w", err)
 	}
 
-	applyPushBack(ctx, node, dagStatus, request.Body)
+	if err := applyPushBack(ctx, node, dagStatus, request.Body); err != nil {
+		return &api.PushBackDAGRunStep400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: err.Error(),
+		}, nil
+	}
 
 	if err := a.updateDAGRunStatus(ctx, ref, *dagStatus); err != nil {
 		return nil, fmt.Errorf("error updating status: %w", err)
@@ -1703,7 +1708,12 @@ func (a *API) PushBackSubDAGRunStep(ctx context.Context, request api.PushBackSub
 		return nil, fmt.Errorf("error serializing status for rollback: %w", err)
 	}
 
-	applyPushBack(ctx, node, dagStatus, request.Body)
+	if err := applyPushBack(ctx, node, dagStatus, request.Body); err != nil {
+		return &api.PushBackSubDAGRunStep400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: err.Error(),
+		}, nil
+	}
 
 	if err := a.updateDAGRunStatus(ctx, rootRef, *dagStatus); err != nil {
 		return nil, fmt.Errorf("error updating sub DAG-run status: %w", err)
@@ -3317,27 +3327,65 @@ func validatePushBackInputs(step core.Step, body *api.PushBackStepRequest) error
 	return checkMissingInputs(step.Approval.Required, provided)
 }
 
-func applyPushBack(_ context.Context, node *exec.Node, status *exec.DAGRunStatus, body *api.PushBackStepRequest) {
-	node.ApprovalIteration++
-	node.Status = core.NodeNotStarted
-	node.StartedAt = "-"
-	node.FinishedAt = "-"
-	node.Error = ""
+func applyPushBack(ctx context.Context, node *exec.Node, status *exec.DAGRunStatus, body *api.PushBackStepRequest) error {
+	targetName := node.Step.Name
+	if node.Step.Approval != nil && strings.TrimSpace(node.Step.Approval.RewindTo) != "" {
+		targetName = strings.TrimSpace(node.Step.Approval.RewindTo)
+	}
+	targetIdx := findStepByName(status.Nodes, targetName)
+	if targetIdx < 0 {
+		return fmt.Errorf("step %s approval.rewind_to references non-existent step %s", node.Step.Name, targetName)
+	}
 
+	nextIteration := node.ApprovalIteration + 1
+	var inputs map[string]string
 	if body != nil && body.Inputs != nil {
-		node.PushBackInputs = *body.Inputs
-	} else {
-		node.PushBackInputs = nil
+		inputs = cloneStringMap(*body.Inputs)
 	}
+	allowedInputs := pushBackAllowedInputs(node.Step)
+	filteredInputs := exec.FilterPushBackInputs(allowedInputs, inputs)
+	history := buildPushBackHistory(ctx, node, allowedInputs, nextIteration, filteredInputs)
 
-	// Clear downstream nodes so they re-execute after the push-back step
-	dependents := findDependentNodes(status.Nodes, node.Step.Name)
-	for _, dep := range dependents {
-		dep.Status = core.NodeNotStarted
-		dep.StartedAt = "-"
-		dep.FinishedAt = "-"
-		dep.Error = ""
+	// Reset the configured rewind target and everything that depends on it.
+	rewoundNodes := append([]*exec.Node{status.Nodes[targetIdx]}, findDependentNodes(status.Nodes, targetName)...)
+	for _, rewoundNode := range rewoundNodes {
+		resetNodeForManualReexecution(rewoundNode)
+		setPushBackContext(rewoundNode, nextIteration, filteredInputs, history)
 	}
+	return nil
+}
+
+func buildPushBackHistory(ctx context.Context, node *exec.Node, allowedInputs []string, nextIteration int, inputs map[string]string) []exec.PushBackEntry {
+	history := exec.NormalizePushBackHistory(allowedInputs, node.ApprovalIteration, node.PushBackInputs, node.PushBackHistory)
+	var actor string
+	if user, ok := auth.UserFromContext(ctx); ok && user != nil {
+		actor = user.Username
+	}
+	history = append(history, exec.PushBackEntry{
+		Iteration: nextIteration,
+		By:        actor,
+		At:        time.Now().UTC().Format(time.RFC3339),
+		Inputs:    cloneStringMap(inputs),
+	})
+	return history
+}
+
+func resetNodeForManualReexecution(node *exec.Node) {
+	step := node.Step
+	*node = *exec.NewNodeFromStep(step)
+}
+
+func setPushBackContext(node *exec.Node, iteration int, inputs map[string]string, history []exec.PushBackEntry) {
+	node.ApprovalIteration = iteration
+	node.PushBackInputs = cloneStringMap(inputs)
+	node.PushBackHistory = exec.ClonePushBackHistory(history)
+}
+
+func pushBackAllowedInputs(step core.Step) []string {
+	if step.Approval == nil {
+		return nil
+	}
+	return step.Approval.Input
 }
 
 // findDependentNodes returns all nodes that directly or transitively depend on the given step.

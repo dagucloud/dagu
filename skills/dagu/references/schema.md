@@ -89,7 +89,7 @@
 | `call` | string | — | Sub-DAG name (for `dag` executor) |
 | `params` | string or map | — | Sub-DAG parameters |
 | `parallel` | object or array | — | Parallel execution: `{items, max_concurrent}` (default max_concurrent: 10) |
-| `approval` | object | — | Approval gate: `{prompt, input: [fields], required: [fields]}` |
+| `approval` | object | — | Approval gate: `{prompt, input: [fields], required: [fields], rewind_to}` |
 | `llm` | object | — | LLM config for `chat` steps |
 | `messages` | array | — | Chat messages: `[{role, content}]` |
 | `agent` | object | — | Agent config: `{model, tools, skills, soul, memory, prompt, max_iterations, safe_mode}` |

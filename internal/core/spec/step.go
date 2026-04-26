@@ -190,6 +190,8 @@ type approvalConfig struct {
 	Input []string `yaml:"input,omitempty"`
 	// Required is the subset of Input fields that must be provided.
 	Required []string `yaml:"required,omitempty"`
+	// RewindTo is the step name or ID to restart from on push-back.
+	RewindTo string `yaml:"rewind_to,omitempty"`
 }
 
 // repeatPolicy defines the repeat policy for a step.
@@ -1972,6 +1974,7 @@ func buildStepApproval(_ StepBuildContext, s *step, result *core.Step) error {
 		Prompt:   s.Approval.Prompt,
 		Input:    s.Approval.Input,
 		Required: s.Approval.Required,
+		RewindTo: s.Approval.RewindTo,
 	}
 	// Validate required fields are subset of input
 	for _, req := range result.Approval.Required {

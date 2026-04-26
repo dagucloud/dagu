@@ -43,6 +43,9 @@ const (
 	// EnvKeyDAGRunArtifactsDir holds the path to the per-DAG-run artifacts directory.
 	EnvKeyDAGRunArtifactsDir = "DAG_RUN_ARTIFACTS_DIR"
 
+	// EnvKeyDAGPushBack exposes the current push-back iteration and history as JSON.
+	EnvKeyDAGPushBack = "DAG_PUSHBACK"
+
 	// EnvKeyExternalStepRetry enables parent-managed step retries for sub-DAG runs.
 	// When set, retriable step failures transition to a queued retry state instead of
 	// sleeping inline inside the child DAG process.

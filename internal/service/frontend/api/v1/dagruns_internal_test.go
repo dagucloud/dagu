@@ -5,12 +5,14 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
 	openapiv1 "github.com/dagucloud/dagu/api/v1"
+	"github.com/dagucloud/dagu/internal/auth"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/goccy/go-yaml"
@@ -93,6 +95,222 @@ func TestDeriveManualDAGRunStatusMixedNotStartedAndSucceededIsNonRunning(t *test
 	}, core.Succeeded)
 
 	assert.Equal(t, core.PartiallySucceeded, status)
+}
+
+func TestApplyPushBackRewindToResetsNamedStepAndDependents(t *testing.T) {
+	t.Parallel()
+
+	inputs := map[string]string{"FEEDBACK": "try again"}
+	status := &exec.DAGRunStatus{
+		Nodes: []*exec.Node{
+			{
+				Step:       core.Step{Name: "bootstrap"},
+				Status:     core.NodeSucceeded,
+				StartedAt:  "started",
+				FinishedAt: "finished",
+			},
+			{
+				Step:       core.Step{Name: "prepare", Depends: []string{"bootstrap"}},
+				Status:     core.NodeSucceeded,
+				StartedAt:  "started",
+				FinishedAt: "finished",
+			},
+			{
+				Step:       core.Step{Name: "sidecar", Depends: []string{"prepare"}},
+				Status:     core.NodeSucceeded,
+				StartedAt:  "started",
+				FinishedAt: "finished",
+			},
+			{
+				Step: core.Step{
+					Name:    "review",
+					Depends: []string{"prepare"},
+					Approval: &core.ApprovalConfig{
+						Input:    []string{"FEEDBACK"},
+						RewindTo: "prepare",
+					},
+				},
+				Status:     core.NodeWaiting,
+				StartedAt:  "started",
+				FinishedAt: "finished",
+			},
+			{
+				Step:       core.Step{Name: "deploy", Depends: []string{"review"}},
+				Status:     core.NodeNotStarted,
+				StartedAt:  "-",
+				FinishedAt: "-",
+			},
+			{
+				Step:       core.Step{Name: "notify", Depends: []string{"bootstrap"}},
+				Status:     core.NodeSucceeded,
+				StartedAt:  "started",
+				FinishedAt: "finished",
+			},
+		},
+	}
+
+	err := applyPushBack(context.Background(), status.Nodes[3], status, &openapiv1.PushBackStepRequest{
+		Inputs: &inputs,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, core.NodeSucceeded, status.Nodes[0].Status)
+	assert.Equal(t, core.NodeNotStarted, status.Nodes[1].Status)
+	assert.Equal(t, core.NodeNotStarted, status.Nodes[2].Status)
+	assert.Equal(t, core.NodeNotStarted, status.Nodes[3].Status)
+	assert.Equal(t, core.NodeNotStarted, status.Nodes[4].Status)
+	assert.Equal(t, core.NodeSucceeded, status.Nodes[5].Status)
+	assert.Equal(t, "-", status.Nodes[1].StartedAt)
+	assert.Equal(t, "-", status.Nodes[2].StartedAt)
+	assert.Equal(t, "-", status.Nodes[3].StartedAt)
+	assert.Equal(t, "", status.Nodes[3].Error)
+	assert.Zero(t, status.Nodes[0].ApprovalIteration)
+	assert.Nil(t, status.Nodes[0].PushBackInputs)
+	assert.Zero(t, status.Nodes[5].ApprovalIteration)
+	assert.Nil(t, status.Nodes[5].PushBackInputs)
+
+	for _, idx := range []int{1, 2, 3, 4} {
+		assert.Equal(t, 1, status.Nodes[idx].ApprovalIteration)
+		assert.Equal(t, inputs, status.Nodes[idx].PushBackInputs)
+	}
+
+	rawNode, err := json.Marshal(status.Nodes[3])
+	require.NoError(t, err)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(rawNode, &payload))
+
+	history, ok := payload["pushBackHistory"].([]any)
+	require.True(t, ok)
+	require.Len(t, history, 1)
+
+	first, ok := history[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, float64(1), first["iteration"])
+
+	historyInputs, ok := first["inputs"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "try again", historyInputs["FEEDBACK"])
+
+	for _, idx := range []int{1, 2, 4} {
+		rawNode, err := json.Marshal(status.Nodes[idx])
+		require.NoError(t, err)
+
+		var payload map[string]any
+		require.NoError(t, json.Unmarshal(rawNode, &payload))
+
+		history, ok := payload["pushBackHistory"].([]any)
+		require.True(t, ok)
+		require.Len(t, history, 1)
+
+		first, ok := history[0].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, float64(1), first["iteration"])
+
+		historyInputs, ok := first["inputs"].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, "try again", historyInputs["FEEDBACK"])
+	}
+}
+
+func TestApplyPushBackAppendsLegacyPushBackInputsToHistory(t *testing.T) {
+	t.Parallel()
+
+	firstInputs := map[string]string{"FEEDBACK": "first pass"}
+	secondInputs := map[string]string{"FEEDBACK": "second pass"}
+	status := &exec.DAGRunStatus{
+		Nodes: []*exec.Node{
+			{
+				Step: core.Step{
+					Name: "review",
+					Approval: &core.ApprovalConfig{
+						Input: []string{"FEEDBACK"},
+					},
+				},
+				Status:            core.NodeWaiting,
+				ApprovalIteration: 1,
+				PushBackInputs:    firstInputs,
+			},
+		},
+	}
+
+	err := applyPushBack(context.Background(), status.Nodes[0], status, &openapiv1.PushBackStepRequest{
+		Inputs: &secondInputs,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, 2, status.Nodes[0].ApprovalIteration)
+	assert.Equal(t, secondInputs, status.Nodes[0].PushBackInputs)
+
+	rawNode, err := json.Marshal(status.Nodes[0])
+	require.NoError(t, err)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(rawNode, &payload))
+
+	history, ok := payload["pushBackHistory"].([]any)
+	require.True(t, ok)
+	require.Len(t, history, 2)
+
+	first, ok := history[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, float64(1), first["iteration"])
+	firstHistoryInputs, ok := first["inputs"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "first pass", firstHistoryInputs["FEEDBACK"])
+
+	second, ok := history[1].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, float64(2), second["iteration"])
+	secondHistoryInputs, ok := second["inputs"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "second pass", secondHistoryInputs["FEEDBACK"])
+}
+
+func TestApplyPushBackRecordsAuthenticatedUserInHistory(t *testing.T) {
+	t.Parallel()
+
+	inputs := map[string]string{"FEEDBACK": "needs revision"}
+	status := &exec.DAGRunStatus{
+		Nodes: []*exec.Node{
+			{
+				Step: core.Step{
+					Name: "review",
+					Approval: &core.ApprovalConfig{
+						Input: []string{"FEEDBACK"},
+					},
+				},
+				Status: core.NodeWaiting,
+			},
+		},
+	}
+
+	ctx := auth.WithUser(context.Background(), &auth.User{Username: "reviewer1"})
+	err := applyPushBack(ctx, status.Nodes[0], status, &openapiv1.PushBackStepRequest{
+		Inputs: &inputs,
+	})
+	require.NoError(t, err)
+
+	require.Len(t, status.Nodes[0].PushBackHistory, 1)
+	assert.Equal(t, "reviewer1", status.Nodes[0].PushBackHistory[0].By)
+
+	rawNode, err := json.Marshal(status.Nodes[0])
+	require.NoError(t, err)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(rawNode, &payload))
+
+	history, ok := payload["pushBackHistory"].([]any)
+	require.True(t, ok)
+	require.Len(t, history, 1)
+
+	first, ok := history[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "reviewer1", first["by"])
+	at, ok := first["at"].(string)
+	require.True(t, ok)
+	_, err = time.Parse(time.RFC3339, at)
+	require.NoError(t, err)
 }
 
 func TestApplyInlineEnqueueLabels_ArrayLabels(t *testing.T) {

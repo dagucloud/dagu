@@ -153,6 +153,7 @@ func toStep(obj core.Step) api.Step {
 			Prompt:   ptrOf(obj.Approval.Prompt),
 			Input:    ptrOf(obj.Approval.Input),
 			Required: ptrOf(obj.Approval.Required),
+			RewindTo: ptrOf(obj.Approval.RewindTo),
 		}
 	}
 
@@ -341,11 +342,43 @@ func toNode(node *exec.Node) api.Node {
 		ApprovedBy:        ptrOf(node.ApprovedBy),
 		ApprovalInputs:    ptrOf(node.ApprovalInputs),
 		PushBackInputs:    ptrOf(node.PushBackInputs),
+		PushBackHistory:   ptrOf(toPushBackHistory(node)),
 		RejectedAt:        ptrOf(node.RejectedAt),
 		RejectedBy:        ptrOf(node.RejectedBy),
 		RejectionReason:   ptrOf(node.RejectionReason),
 		ApprovalIteration: ptrOf(node.ApprovalIteration),
 	}
+}
+
+func toPushBackHistory(node *exec.Node) []api.PushBackHistoryEntry {
+	if node == nil {
+		return nil
+	}
+
+	var allowedInputs []string
+	if node.Step.Approval != nil {
+		allowedInputs = node.Step.Approval.Input
+	}
+	history := exec.NormalizePushBackHistory(
+		allowedInputs,
+		node.ApprovalIteration,
+		node.PushBackInputs,
+		node.PushBackHistory,
+	)
+	if len(history) == 0 {
+		return nil
+	}
+
+	items := make([]api.PushBackHistoryEntry, len(history))
+	for i, entry := range history {
+		items[i] = api.PushBackHistoryEntry{
+			Iteration: entry.Iteration,
+			By:        ptrOf(entry.By),
+			At:        ptrOf(entry.At),
+			Inputs:    ptrOf(entry.Inputs),
+		}
+	}
+	return items
 }
 
 func toSubDAGRuns(subDAGRuns []exec.SubDAGRun) []api.SubDAGRun {

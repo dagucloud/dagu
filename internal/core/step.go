@@ -344,6 +344,9 @@ type ApprovalConfig struct {
 	Input []string `json:"input,omitempty"`
 	// Required is the subset of Input fields that must be provided.
 	Required []string `json:"required,omitempty"`
+	// RewindTo is the step name or ID to restart from on push-back.
+	// When empty, push-back re-executes the approval step itself.
+	RewindTo string `json:"rewindTo,omitempty"`
 }
 
 const (

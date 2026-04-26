@@ -52,6 +52,7 @@ import { InlineLogViewer } from '../common/InlineLogViewer';
 import StatusUpdateModal from '../dag-execution/StatusUpdateModal';
 import HarnessStepSummary from './HarnessStepSummary';
 import { SubDAGRunsList } from './SubDAGRunsList';
+import PushBackHistory from '../common/PushBackHistory';
 
 /**
  * Props for the NodeStatusTableRow component
@@ -602,6 +603,12 @@ function NodeStatusTableRow({
                     </span>
                   </div>
                 )}
+              {node.pushBackHistory && node.pushBackHistory.length > 0 && (
+                <PushBackHistory
+                  history={node.pushBackHistory}
+                  className="pt-1"
+                />
+              )}
               {/* Rejection info */}
               {node.rejectedBy && (
                 <div className="text-xs text-muted-foreground leading-tight">
@@ -1036,6 +1043,9 @@ function NodeStatusTableRow({
                 </span>
               </div>
             )}
+          {node.pushBackHistory && node.pushBackHistory.length > 0 && (
+            <PushBackHistory history={node.pushBackHistory} className="pt-1" />
+          )}
           {/* Rejection info */}
           {node.rejectedBy && (
             <div className="text-xs text-muted-foreground">

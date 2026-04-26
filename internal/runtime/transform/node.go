@@ -53,6 +53,7 @@ func ToNode(n *exec.Node) *runtime.Node {
 		RejectionReason:   n.RejectionReason,
 		ApprovalIteration: n.ApprovalIteration,
 		PushBackInputs:    n.PushBackInputs,
+		PushBackHistory:   clonePushBackHistory(n.PushBackHistory),
 	})
 }
 
@@ -96,5 +97,29 @@ func newNode(node runtime.NodeData) *exec.Node {
 		RejectionReason:   node.State.RejectionReason,
 		ApprovalIteration: node.State.ApprovalIteration,
 		PushBackInputs:    node.State.PushBackInputs,
+		PushBackHistory:   clonePushBackHistory(node.State.PushBackHistory),
 	}
+}
+
+func clonePushBackHistory(src []exec.PushBackEntry) []exec.PushBackEntry {
+	if len(src) == 0 {
+		return nil
+	}
+
+	dst := make([]exec.PushBackEntry, len(src))
+	for i, entry := range src {
+		dst[i] = exec.PushBackEntry{
+			Iteration: entry.Iteration,
+			By:        entry.By,
+			At:        entry.At,
+		}
+		if len(entry.Inputs) > 0 {
+			inputs := make(map[string]string, len(entry.Inputs))
+			for key, value := range entry.Inputs {
+				inputs[key] = value
+			}
+			dst[i].Inputs = inputs
+		}
+	}
+	return dst
 }

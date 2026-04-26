@@ -5,6 +5,7 @@ package runtime_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path"
@@ -3649,6 +3650,123 @@ func TestSetupPushBackConversation(t *testing.T) {
 		msgs := node.GetChatMessages()
 		assert.Empty(t, msgs)
 	})
+}
+
+func TestPushBackInputsExposeJSONHistoryEnv(t *testing.T) {
+	t.Parallel()
+
+	if windowsShellTest() {
+		t.Skip("Skipping Unix-specific env assertion on Windows")
+	}
+
+	r := setupRunner(t)
+	step := newStep("review",
+		withScript("printf '%s\\n' \"$FEEDBACK\"\nprintf '%s' \"$DAG_PUSHBACK\""),
+		withApproval(&core.ApprovalConfig{
+			Input: []string{"FEEDBACK"},
+		}),
+	)
+
+	plan := r.newPlan(t, step)
+	node := plan.GetNodeByName("review")
+	require.NotNil(t, node)
+
+	node.SetApprovalIteration(1)
+	node.SetPushBackInputs(map[string]string{"FEEDBACK": "needs more detail"})
+
+	result := plan.assertRun(t, core.Waiting)
+	result.assertNodeStatus(t, "review", core.NodeWaiting)
+
+	output, err := os.ReadFile(result.nodeByName(t, "review").GetStdout())
+	require.NoError(t, err)
+
+	lines := strings.SplitN(strings.TrimSpace(string(output)), "\n", 2)
+	require.Len(t, lines, 2)
+	assert.Equal(t, "needs more detail", lines[0])
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal([]byte(lines[1]), &payload))
+
+	assert.Equal(t, float64(1), payload["iteration"])
+
+	inputs, ok := payload["inputs"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "needs more detail", inputs["FEEDBACK"])
+
+	history, ok := payload["history"].([]any)
+	require.True(t, ok)
+	require.Len(t, history, 1)
+
+	first, ok := history[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, float64(1), first["iteration"])
+
+	historyInputs, ok := first["inputs"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "needs more detail", historyInputs["FEEDBACK"])
+}
+
+func TestPushBackInputsExposeJSONHistoryEnvForRewoundStep(t *testing.T) {
+	t.Parallel()
+
+	if windowsShellTest() {
+		t.Skip("Skipping Unix-specific env assertion on Windows")
+	}
+
+	r := setupRunner(t)
+	step := newStep("prepare",
+		withScript("printf '%s\\n' \"$FEEDBACK\"\nprintf '%s' \"$DAG_PUSHBACK\""),
+	)
+
+	plan := r.newPlan(t, step)
+	node := plan.GetNodeByName("prepare")
+	require.NotNil(t, node)
+
+	node.SetApprovalIteration(2)
+	node.SetPushBackInputs(map[string]string{"FEEDBACK": "rerun from review"})
+	node.SetPushBackHistory([]exec.PushBackEntry{
+		{
+			Iteration: 1,
+			By:        "reviewer-a",
+			At:        "2026-04-26T06:10:00Z",
+			Inputs:    map[string]string{"FEEDBACK": "first pass"},
+		},
+		{
+			Iteration: 2,
+			By:        "reviewer-b",
+			At:        "2026-04-26T06:20:00Z",
+			Inputs:    map[string]string{"FEEDBACK": "rerun from review"},
+		},
+	})
+
+	result := plan.assertRun(t, core.Succeeded)
+	result.assertNodeStatus(t, "prepare", core.NodeSucceeded)
+
+	output, err := os.ReadFile(result.nodeByName(t, "prepare").GetStdout())
+	require.NoError(t, err)
+
+	lines := strings.SplitN(strings.TrimSpace(string(output)), "\n", 2)
+	require.Len(t, lines, 2)
+	assert.Equal(t, "rerun from review", lines[0])
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal([]byte(lines[1]), &payload))
+
+	assert.Equal(t, float64(2), payload["iteration"])
+	assert.Equal(t, "reviewer-b", payload["by"])
+	assert.Equal(t, "2026-04-26T06:20:00Z", payload["at"])
+
+	inputs, ok := payload["inputs"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "rerun from review", inputs["FEEDBACK"])
+
+	history, ok := payload["history"].([]any)
+	require.True(t, ok)
+	require.Len(t, history, 2)
+	second, ok := history[1].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "reviewer-b", second["by"])
+	assert.Equal(t, "2026-04-26T06:20:00Z", second["at"])
 }
 
 func TestWaitStep(t *testing.T) {

@@ -869,6 +869,7 @@ func skippedEditRetryNodeState(source *exec.Node) runtime.NodeState {
 	state.RejectionReason = source.RejectionReason
 	state.ApprovalIteration = source.ApprovalIteration
 	state.PushBackInputs = cloneStringMap(source.PushBackInputs)
+	state.PushBackHistory = clonePushBackHistory(source.PushBackHistory)
 	return state
 }
 
@@ -890,6 +891,22 @@ func cloneStringMap(src map[string]string) map[string]string {
 	}
 	dst := make(map[string]string, len(src))
 	maps.Copy(dst, src)
+	return dst
+}
+
+func clonePushBackHistory(src []exec.PushBackEntry) []exec.PushBackEntry {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make([]exec.PushBackEntry, len(src))
+	for i, entry := range src {
+		dst[i] = exec.PushBackEntry{
+			Iteration: entry.Iteration,
+			By:        entry.By,
+			At:        entry.At,
+			Inputs:    cloneStringMap(entry.Inputs),
+		}
+	}
 	return dst
 }
 
