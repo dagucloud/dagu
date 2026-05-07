@@ -348,7 +348,7 @@ step_types:
 		} {
 			workspaceBaseDir := filepath.Join(dir, "workspaces", workspaceName)
 			require.NoError(t, os.MkdirAll(workspaceBaseDir, 0o750))
-			require.NoError(t, os.WriteFile(filepath.Join(workspaceBaseDir, "base.yaml"), []byte(fmt.Sprintf(`
+			require.NoError(t, os.WriteFile(filepath.Join(workspaceBaseDir, "base.yaml"), fmt.Appendf(nil, `
 step_types:
   %s:
     type: command
@@ -358,7 +358,7 @@ step_types:
       additionalProperties: false
     template:
       command: echo workspace
-`, stepTypeName)), 0o600))
+`, stepTypeName), 0o600))
 		}
 
 		result := GenerateSystemPrompt(SystemPromptParams{
