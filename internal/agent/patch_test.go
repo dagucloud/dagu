@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -35,6 +36,13 @@ func patchInput(path, operation string, extra ...string) json.RawMessage {
 		base.WriteString(fmt.Sprintf(`, %q: %q`, extra[i], extra[i+1]))
 	}
 	return json.RawMessage(base.String() + "}")
+}
+
+func skipIfWindowsFileMode(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX file permissions are not applicable on Windows")
+	}
 }
 
 func TestPatchTool_Create(t *testing.T) {
@@ -151,6 +159,7 @@ func TestPatchTool_Replace(t *testing.T) {
 
 	t.Run("preserves existing file mode", func(t *testing.T) {
 		t.Parallel()
+		skipIfWindowsFileMode(t)
 
 		filePath := filepath.Join(t.TempDir(), "mode.txt")
 		require.NoError(t, os.WriteFile(filePath, []byte("hello world"), 0o640))
@@ -231,6 +240,7 @@ func TestPatchTool_Append(t *testing.T) {
 
 	t.Run("preserves existing file mode", func(t *testing.T) {
 		t.Parallel()
+		skipIfWindowsFileMode(t)
 
 		filePath := filepath.Join(t.TempDir(), "mode.txt")
 		require.NoError(t, os.WriteFile(filePath, []byte("one\n"), 0o640))
@@ -306,6 +316,7 @@ func TestPatchTool_Insert(t *testing.T) {
 
 	t.Run("preserves existing file mode", func(t *testing.T) {
 		t.Parallel()
+		skipIfWindowsFileMode(t)
 
 		filePath := filepath.Join(t.TempDir(), "mode.txt")
 		require.NoError(t, os.WriteFile(filePath, []byte("one\nthree\n"), 0o640))
