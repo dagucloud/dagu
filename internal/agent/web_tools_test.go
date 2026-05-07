@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -40,7 +42,7 @@ func TestWebSearchTool_TavilySearchUsesBearerAuthAndNormalizesResults(t *testing
 	tool := NewWebSearchTool(WebToolsConfig{
 		Enabled: true,
 		Backend: WebToolsBackendTavily,
-		Tavily: TavilyWebToolsConfig{
+		Tavily: &TavilyWebToolsConfig{
 			APIKey:  "tvly-test",
 			BaseURL: server.URL,
 		},
@@ -87,7 +89,7 @@ func TestWebExtractTool_RejectsUnsafeURLsBeforeRequest(t *testing.T) {
 	tool := NewWebExtractTool(WebToolsConfig{
 		Enabled: true,
 		Backend: WebToolsBackendTavily,
-		Tavily: TavilyWebToolsConfig{
+		Tavily: &TavilyWebToolsConfig{
 			APIKey:  "tvly-test",
 			BaseURL: server.URL,
 		},
@@ -134,7 +136,7 @@ func TestWebExtractTool_TavilyExtractUsesBearerAuthAndNormalizesHermesResults(t 
 	tool := NewWebExtractTool(WebToolsConfig{
 		Enabled: true,
 		Backend: WebToolsBackendTavily,
-		Tavily: TavilyWebToolsConfig{
+		Tavily: &TavilyWebToolsConfig{
 			APIKey:  "tvly-test",
 			BaseURL: server.URL,
 		},
@@ -178,7 +180,7 @@ func TestCreateTools_IncludesWebToolsOnlyWhenConfigured(t *testing.T) {
 	toolsWithDefaultBackend := CreateTools(ToolConfig{
 		WebTools: &WebToolsConfig{
 			Enabled: true,
-			Tavily: TavilyWebToolsConfig{
+			Tavily: &TavilyWebToolsConfig{
 				APIKey: "tvly-test",
 			},
 		},
@@ -190,7 +192,7 @@ func TestCreateTools_IncludesWebToolsOnlyWhenConfigured(t *testing.T) {
 		WebTools: &WebToolsConfig{
 			Enabled: true,
 			Backend: WebToolsBackendTavily,
-			Tavily: TavilyWebToolsConfig{
+			Tavily: &TavilyWebToolsConfig{
 				APIKey: "tvly-test",
 			},
 		},
@@ -204,14 +206,26 @@ func TestResolveWebToolsConfig_CentralizesDefaults(t *testing.T) {
 
 	cfg := ResolveWebToolsConfig(WebToolsConfig{
 		Enabled: true,
-		Tavily: TavilyWebToolsConfig{
+		Tavily: &TavilyWebToolsConfig{
 			APIKey: "  tvly-test  ",
 		},
 	})
 
 	assert.Equal(t, WebToolsBackendTavily, cfg.Backend)
+	require.NotNil(t, cfg.Tavily)
 	assert.Equal(t, "tvly-test", cfg.Tavily.APIKey)
 	assert.Equal(t, DefaultTavilyBaseURL, cfg.Tavily.BaseURL)
 	assert.Equal(t, MaxTavilySearchLimit, cfg.Tavily.MaxResults)
 	assert.Equal(t, DefaultTavilySearchDepth, cfg.Tavily.SearchDepth)
+}
+
+func TestTruncateForToolOutput_PreservesUTF8(t *testing.T) {
+	t.Parallel()
+
+	content := strings.Repeat("a", maxWebToolOutputBytes-1) + "世tail"
+
+	out := truncateForToolOutput(content)
+
+	assert.True(t, utf8.ValidString(out))
+	assert.True(t, strings.HasSuffix(out, "\n... [truncated]"))
 }

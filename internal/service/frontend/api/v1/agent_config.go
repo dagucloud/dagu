@@ -251,17 +251,21 @@ func toAPIWebToolsConfig(cfg *agent.WebToolsConfig) *api.AgentWebToolsConfig {
 		Enabled: &enabled,
 		Backend: &backend,
 	}
-	apiKeyConfigured := strings.TrimSpace(cfg.Tavily.APIKey) != ""
+	tavilyCfg := agent.TavilyWebToolsConfig{}
+	if cfg.Tavily != nil {
+		tavilyCfg = *cfg.Tavily
+	}
+	apiKeyConfigured := strings.TrimSpace(tavilyCfg.APIKey) != ""
 	tavily := &api.AgentTavilyWebToolsConfig{
 		ApiKeyConfigured: &apiKeyConfigured,
 	}
-	if cfg.Tavily.BaseURL != "" {
-		tavily.BaseUrl = ptrOf(cfg.Tavily.BaseURL)
+	if tavilyCfg.BaseURL != "" {
+		tavily.BaseUrl = ptrOf(tavilyCfg.BaseURL)
 	}
-	if cfg.Tavily.MaxResults > 0 {
-		tavily.MaxResults = ptrOf(cfg.Tavily.MaxResults)
+	if tavilyCfg.MaxResults > 0 {
+		tavily.MaxResults = ptrOf(tavilyCfg.MaxResults)
 	}
-	if cfg.Tavily.SearchDepth != "" {
+	if tavilyCfg.SearchDepth != "" {
 		searchDepth := api.AgentTavilyWebToolsConfigSearchDepth(resolved.Tavily.SearchDepth)
 		tavily.SearchDepth = &searchDepth
 	}
@@ -284,6 +288,9 @@ func applyWebToolsUpdate(cfg *agent.Config, update *api.AgentWebToolsConfig) err
 		next.Backend = agent.WebToolsBackendTavily
 	}
 	if update.Tavily != nil {
+		if next.Tavily == nil {
+			next.Tavily = &agent.TavilyWebToolsConfig{}
+		}
 		if clear := update.Tavily.ClearApiKey; clear != nil && *clear {
 			next.Tavily.APIKey = ""
 		}

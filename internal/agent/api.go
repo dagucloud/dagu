@@ -520,6 +520,10 @@ func cloneWebToolsConfig(cfg *WebToolsConfig) *WebToolsConfig {
 		return nil
 	}
 	out := *cfg
+	if cfg.Tavily != nil {
+		tavily := *cfg.Tavily
+		out.Tavily = &tavily
+	}
 	return &out
 }
 

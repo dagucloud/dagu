@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/internal/llm"
 )
@@ -248,6 +249,9 @@ func ResolveWebToolsConfig(cfg WebToolsConfig) WebToolsConfig {
 	if cfg.Backend == "" {
 		cfg.Backend = WebToolsBackendTavily
 	}
+	if cfg.Tavily == nil {
+		cfg.Tavily = &TavilyWebToolsConfig{}
+	}
 	cfg.Tavily.APIKey = strings.TrimSpace(cfg.Tavily.APIKey)
 	cfg.Tavily.BaseURL = strings.TrimSpace(cfg.Tavily.BaseURL)
 	if cfg.Tavily.BaseURL == "" {
@@ -279,13 +283,17 @@ func ValidateWebToolsConfig(cfg WebToolsConfig) error {
 	if backend != WebToolsBackendTavily {
 		return fmt.Errorf("unsupported web tools backend")
 	}
-	if _, err := ValidateTavilyBaseURL(cfg.Tavily.BaseURL); err != nil {
+	tavily := TavilyWebToolsConfig{}
+	if cfg.Tavily != nil {
+		tavily = *cfg.Tavily
+	}
+	if _, err := ValidateTavilyBaseURL(tavily.BaseURL); err != nil {
 		return fmt.Errorf("webTools.tavily.baseUrl %w", err)
 	}
-	if cfg.Tavily.MaxResults != 0 && (cfg.Tavily.MaxResults < 1 || cfg.Tavily.MaxResults > MaxTavilySearchLimit) {
+	if tavily.MaxResults != 0 && (tavily.MaxResults < 1 || tavily.MaxResults > MaxTavilySearchLimit) {
 		return fmt.Errorf("webTools.tavily.maxResults must be between 1 and %d", MaxTavilySearchLimit)
 	}
-	depth := strings.TrimSpace(cfg.Tavily.SearchDepth)
+	depth := strings.TrimSpace(tavily.SearchDepth)
 	if depth != "" && depth != DefaultTavilySearchDepth && depth != "advanced" {
 		return fmt.Errorf("webTools.tavily.searchDepth must be basic or advanced")
 	}
@@ -471,7 +479,11 @@ func truncateForToolOutput(content string) string {
 	if len(content) <= maxWebToolOutputBytes {
 		return content
 	}
-	return content[:maxWebToolOutputBytes] + "\n... [truncated]"
+	cutoff := maxWebToolOutputBytes
+	for cutoff > 0 && !utf8.RuneStart(content[cutoff]) {
+		cutoff--
+	}
+	return content[:cutoff] + "\n... [truncated]"
 }
 
 func validateExtractURL(rawURL string) (string, error) {

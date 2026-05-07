@@ -127,7 +127,7 @@ func TestBuildSnapshotForDAG_CapturesLocalSubDAGRequirements(t *testing.T) {
 	configStore.config.WebTools = &WebToolsConfig{
 		Enabled: true,
 		Backend: WebToolsBackendTavily,
-		Tavily: TavilyWebToolsConfig{
+		Tavily: &TavilyWebToolsConfig{
 			APIKey: "tvly-test",
 		},
 	}
@@ -192,7 +192,9 @@ func TestBuildSnapshotForDAG_CapturesLocalSubDAGRequirements(t *testing.T) {
 	require.NotNil(t, decoded)
 
 	assert.Equal(t, []string{"child-model", "default-model"}, modelIDs(decoded.Models))
+	require.NotNil(t, decoded.Config)
 	require.NotNil(t, decoded.Config.WebTools)
+	require.NotNil(t, decoded.Config.WebTools.Tavily)
 	assert.Equal(t, "tvly-test", decoded.Config.WebTools.Tavily.APIKey)
 	assert.Equal(t, []string{"helper"}, soulIDs(decoded.Souls))
 	require.NotNil(t, decoded.Memory)

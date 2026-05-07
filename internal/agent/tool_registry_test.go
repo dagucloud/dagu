@@ -93,7 +93,7 @@ func TestRegisteredTools_FactoriesProduceValidTools(t *testing.T) {
 		WebTools: &WebToolsConfig{
 			Enabled: true,
 			Backend: WebToolsBackendTavily,
-			Tavily: TavilyWebToolsConfig{
+			Tavily: &TavilyWebToolsConfig{
 				APIKey: "tvly-test",
 			},
 		},
@@ -121,7 +121,7 @@ func TestCreateTools_UsesRegistry(t *testing.T) {
 		WebTools: &WebToolsConfig{
 			Enabled: true,
 			Backend: WebToolsBackendTavily,
-			Tavily: TavilyWebToolsConfig{
+			Tavily: &TavilyWebToolsConfig{
 				APIKey: "tvly-test",
 			},
 		},

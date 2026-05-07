@@ -43,9 +43,9 @@ const (
 
 // WebToolsConfig configures first-class agent web tools such as web_search and web_extract.
 type WebToolsConfig struct {
-	Enabled bool                 `json:"enabled,omitempty"`
-	Backend WebToolsBackend      `json:"backend,omitempty"`
-	Tavily  TavilyWebToolsConfig `json:"tavily"`
+	Enabled bool                  `json:"enabled,omitempty"`
+	Backend WebToolsBackend       `json:"backend,omitempty"`
+	Tavily  *TavilyWebToolsConfig `json:"tavily,omitempty"`
 }
 
 // TavilyWebToolsConfig configures Tavily-backed web tools.

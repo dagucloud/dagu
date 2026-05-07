@@ -201,6 +201,7 @@ func TestUpdateAgentConfig(t *testing.T) {
 		require.NotNil(t, updateResp.WebTools.Tavily.ApiKeyConfigured)
 		assert.True(t, *updateResp.WebTools.Tavily.ApiKeyConfigured)
 		assert.Nil(t, updateResp.WebTools.Tavily.ApiKey)
+		require.NotNil(t, setup.configStore.config.WebTools.Tavily)
 		assert.Equal(t, "tvly-secret", setup.configStore.config.WebTools.Tavily.APIKey)
 
 		getRespRaw, err := setup.api.GetAgentConfig(adminCtx(), apigen.GetAgentConfigRequestObject{})
@@ -228,6 +229,7 @@ func TestUpdateAgentConfig(t *testing.T) {
 		require.NotNil(t, clearResp.WebTools.Tavily)
 		require.NotNil(t, clearResp.WebTools.Tavily.ApiKeyConfigured)
 		assert.False(t, *clearResp.WebTools.Tavily.ApiKeyConfigured)
+		require.NotNil(t, setup.configStore.config.WebTools.Tavily)
 		assert.Empty(t, setup.configStore.config.WebTools.Tavily.APIKey)
 	})
 
@@ -235,6 +237,18 @@ func TestUpdateAgentConfig(t *testing.T) {
 		t.Parallel()
 
 		setup := newAgentTestSetup(t)
+		setup.configStore.config.WebTools = &agent.WebToolsConfig{
+			Enabled: true,
+			Backend: agent.WebToolsBackendTavily,
+			Tavily: &agent.TavilyWebToolsConfig{
+				APIKey:      "tvly-existing",
+				BaseURL:     "https://api.tavily.com",
+				MaxResults:  5,
+				SearchDepth: "basic",
+			},
+		}
+		original := *setup.configStore.config.WebTools
+		originalTavily := *setup.configStore.config.WebTools.Tavily
 		enabled := true
 		backend := apigen.AgentWebToolsBackendTavily
 		baseURL := "http://127.0.0.1:8080"
@@ -251,7 +265,11 @@ func TestUpdateAgentConfig(t *testing.T) {
 			},
 		})
 		require.Error(t, err)
-		assert.Nil(t, setup.configStore.config.WebTools)
+		require.NotNil(t, setup.configStore.config.WebTools)
+		require.NotNil(t, setup.configStore.config.WebTools.Tavily)
+		assert.Equal(t, original.Enabled, setup.configStore.config.WebTools.Enabled)
+		assert.Equal(t, original.Backend, setup.configStore.config.WebTools.Backend)
+		assert.Equal(t, originalTavily, *setup.configStore.config.WebTools.Tavily)
 	})
 
 	t.Run("invalid tool policy returns error", func(t *testing.T) {

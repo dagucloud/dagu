@@ -119,7 +119,7 @@ func TestBuildToolsIncludesConfiguredWebTools(t *testing.T) {
 		WebTools: &agent.WebToolsConfig{
 			Enabled: true,
 			Backend: agent.WebToolsBackendTavily,
-			Tavily: agent.TavilyWebToolsConfig{
+			Tavily: &agent.TavilyWebToolsConfig{
 				APIKey: "tvly-test",
 			},
 		},
