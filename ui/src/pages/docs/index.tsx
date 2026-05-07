@@ -29,12 +29,8 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 import { useDocTreeSSE } from '@/hooks/useDocTreeSSE';
 import { sseFallbackOptions, useSSECacheSync } from '@/hooks/useSSECacheSync';
 import {
-  DEFAULT_WORKSPACE_DISPLAY_NAME,
-  isMutableWorkspaceSelection,
   sanitizeWorkspaceName,
-  workspaceTargetSelectionQuery,
   workspaceTargetQueryForWorkspace,
-  WorkspaceTargetQuery,
   workspaceNameForSelection,
   workspaceSelectionKey,
   workspaceSelectionQuery,
@@ -46,6 +42,7 @@ import DocTabEditorPanel from './components/DocTabEditorPanel';
 import DocTreeSidebar from './components/DocTreeSidebar';
 import { RenameDocModal } from './components/RenameDocModal';
 import { normalizeDocPathFromURL } from './lib/doc-url';
+import type { DocMutationTarget } from './lib/doc-mutation';
 import type { ContextAction } from './components/DocArboristNode';
 
 function titleFromPath(docPath: string): string {
@@ -80,12 +77,6 @@ function docPathMatches(docPath: string, targetPath: string): boolean {
   return docPath === targetPath || docPath.startsWith(targetPath + '/');
 }
 
-function mutationWorkspaceFromQuery(
-  query: WorkspaceTargetQuery | null
-): string | null {
-  return normalizedDocWorkspace(query?.workspace);
-}
-
 function DocsContent() {
   const appBarContext = useContext(AppBarContext);
   const remoteNode = appBarContext.selectedRemoteNode || 'local';
@@ -102,13 +93,7 @@ function DocsContent() {
     () => workspaceSelectionQuery(workspaceSelection),
     [workspaceSelection]
   );
-  const workspaceTargetQuery = React.useMemo(
-    () => workspaceTargetSelectionQuery(workspaceSelection),
-    [workspaceSelection]
-  );
   const canWrite = useCanWrite();
-  const canMutateDocs =
-    canWrite && isMutableWorkspaceSelection(workspaceSelection);
 
   const { setContext } = usePageContext();
   const {
@@ -135,6 +120,7 @@ function DocsContent() {
   // Modal state
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [createParentDir, setCreateParentDir] = useState('');
+  const [createWorkspace, setCreateWorkspace] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -150,10 +136,9 @@ function DocsContent() {
   const [deleteWorkspace, setDeleteWorkspace] = useState<string | null>(null);
 
   // Batch delete state
-  const [batchDeletePaths, setBatchDeletePaths] = useState<string[]>([]);
-  const [batchDeleteWorkspace, setBatchDeleteWorkspace] = useState<
-    string | null
-  >(null);
+  const [batchDeleteTargets, setBatchDeleteTargets] = useState<
+    DocMutationTarget[]
+  >([]);
   const [batchDeleteConfirmOpen, setBatchDeleteConfirmOpen] = useState(false);
 
   // Sort preferences
@@ -285,59 +270,50 @@ function DocsContent() {
     [openDoc, isMobile]
   );
 
-  // Track selected IDs from sidebar for batch operations
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const handleSelectionChange = useCallback((ids: string[]) => {
-    setSelectedIds(ids);
-  }, []);
-
   // Context menu actions
   const handleContextAction = useCallback(
     (action: ContextAction) => {
       switch (action.type) {
         case 'create':
           setCreateParentDir(action.parentDir);
+          setCreateWorkspace(normalizedDocWorkspace(action.workspace));
           setCreateError(null);
           setCreateModalOpen(true);
           break;
         case 'rename':
           setRenameDocPath(action.docPath);
-          setRenameWorkspace(mutationWorkspaceFromQuery(workspaceTargetQuery));
+          setRenameWorkspace(normalizedDocWorkspace(action.workspace));
           setRenameError(null);
           setRenameModalOpen(true);
           break;
         case 'delete':
           setDeleteDocPath(action.docPath);
           setDeleteDocTitle(action.title);
-          setDeleteWorkspace(mutationWorkspaceFromQuery(workspaceTargetQuery));
+          setDeleteWorkspace(normalizedDocWorkspace(action.workspace));
           setDeleteConfirmOpen(true);
           break;
         case 'deleteBatch':
-          setBatchDeletePaths([...action.paths]);
-          setBatchDeleteWorkspace(
-            mutationWorkspaceFromQuery(workspaceTargetQuery)
-          );
+          setBatchDeleteTargets([...action.targets]);
           setBatchDeleteConfirmOpen(true);
           break;
       }
     },
-    [workspaceTargetQuery]
+    []
   );
 
   // Create handler
   const handleCreate = useCallback(
     async (path: string) => {
-      if (!canMutateDocs || !workspaceTargetQuery) {
-        setCreateError(
-          `Select a workspace or ${DEFAULT_WORKSPACE_DISPLAY_NAME} before creating.`
-        );
+      if (!canWrite) {
+        setCreateError('You do not have permission to create documents');
         return;
       }
       setCreateLoading(true);
       setCreateError(null);
       try {
+        const mutationQuery = workspaceTargetQueryForWorkspace(createWorkspace);
         const { error } = await client.POST('/docs', {
-          params: { query: { remoteNode, ...workspaceTargetQuery } },
+          params: { query: { remoteNode, ...mutationQuery } },
           body: { id: path, content: '' },
         });
         if (error) {
@@ -345,10 +321,7 @@ function DocsContent() {
           return;
         }
         mutate();
-        const createdWorkspace = normalizedDocWorkspace(
-          workspaceTargetQuery.workspace
-        );
-        openDoc(path, titleFromPath(path), createdWorkspace);
+        openDoc(path, titleFromPath(path), createWorkspace);
         showToast('Document created');
         setCreateModalOpen(false);
       } catch {
@@ -358,10 +331,10 @@ function DocsContent() {
       }
     },
     [
-      canMutateDocs,
+      canWrite,
       client,
+      createWorkspace,
       remoteNode,
-      workspaceTargetQuery,
       mutate,
       openDoc,
       showToast,
@@ -371,10 +344,8 @@ function DocsContent() {
   // Rename handler (from modal)
   const handleRenameModal = useCallback(
     async (newPath: string) => {
-      if (!canMutateDocs || !workspaceTargetQuery) {
-        setRenameError(
-          `Select a workspace or ${DEFAULT_WORKSPACE_DISPLAY_NAME} before renaming.`
-        );
+      if (!canWrite) {
+        setRenameError('You do not have permission to rename documents');
         return;
       }
       setRenameLoading(true);
@@ -420,9 +391,8 @@ function DocsContent() {
     },
     [
       client,
-      canMutateDocs,
+      canWrite,
       remoteNode,
-      workspaceTargetQuery,
       renameDocPath,
       renameWorkspace,
       mutate,
@@ -434,19 +404,23 @@ function DocsContent() {
 
   // Shared path-change handler for rename and move
   const handlePathChange = useCallback(
-    async (oldPath: string, newPath: string, action: 'renamed' | 'moved') => {
-      if (!canMutateDocs || !workspaceTargetQuery) {
-        showToast(
-          `Select a workspace or ${DEFAULT_WORKSPACE_DISPLAY_NAME} before editing documents`
-        );
+    async (
+      oldPath: string,
+      newPath: string,
+      action: 'renamed' | 'moved',
+      workspace?: string | null
+    ) => {
+      if (!canWrite) {
+        showToast('You do not have permission to edit documents');
         return;
       }
-      const mutationWorkspace =
-        mutationWorkspaceFromQuery(workspaceTargetQuery);
+      const mutationWorkspace = normalizedDocWorkspace(workspace);
       try {
+        const mutationQuery =
+          workspaceTargetQueryForWorkspace(mutationWorkspace);
         const { error } = await client.POST('/docs/doc/rename', {
           params: {
-            query: { remoteNode, path: oldPath, ...workspaceTargetQuery },
+            query: { remoteNode, path: oldPath, ...mutationQuery },
           },
           body: { newPath },
         });
@@ -481,10 +455,9 @@ function DocsContent() {
       }
     },
     [
-      canMutateDocs,
+      canWrite,
       client,
       remoteNode,
-      workspaceTargetQuery,
       mutate,
       tabs,
       updateTab,
@@ -493,14 +466,14 @@ function DocsContent() {
   );
 
   const handleInlineRename = useCallback(
-    (oldPath: string, newPath: string) =>
-      handlePathChange(oldPath, newPath, 'renamed'),
+    (oldPath: string, newPath: string, workspace?: string | null) =>
+      handlePathChange(oldPath, newPath, 'renamed', workspace),
     [handlePathChange]
   );
 
   const handleMove = useCallback(
-    (oldPath: string, newPath: string) =>
-      handlePathChange(oldPath, newPath, 'moved'),
+    (oldPath: string, newPath: string, workspace?: string | null) =>
+      handlePathChange(oldPath, newPath, 'moved', workspace),
     [handlePathChange]
   );
 
@@ -515,10 +488,8 @@ function DocsContent() {
 
   // Delete handler (supports both files and directories)
   const handleDelete = useCallback(async () => {
-    if (!canMutateDocs || !workspaceTargetQuery) {
-      showToast(
-        `Select a workspace or ${DEFAULT_WORKSPACE_DISPLAY_NAME} before deleting documents`
-      );
+    if (!canWrite) {
+      showToast('You do not have permission to delete documents');
       setDeleteConfirmOpen(false);
       return;
     }
@@ -553,9 +524,8 @@ function DocsContent() {
     }
   }, [
     client,
-    canMutateDocs,
+    canWrite,
     remoteNode,
-    workspaceTargetQuery,
     deleteDocPath,
     deleteWorkspace,
     mutate,
@@ -568,58 +538,76 @@ function DocsContent() {
 
   // Batch delete handler
   const handleBatchDelete = useCallback(async () => {
-    if (!canMutateDocs || !workspaceTargetQuery) {
-      showToast(
-        `Select a workspace or ${DEFAULT_WORKSPACE_DISPLAY_NAME} before deleting documents`
-      );
+    if (!canWrite) {
+      showToast('You do not have permission to delete documents');
       setBatchDeleteConfirmOpen(false);
-      setBatchDeletePaths([]);
+      setBatchDeleteTargets([]);
       return;
     }
     try {
-      const mutationQuery =
-        workspaceTargetQueryForWorkspace(batchDeleteWorkspace);
-      const { data, error } = await client.POST('/docs/delete-batch', {
-        params: { query: { remoteNode, ...mutationQuery } },
-        body: { paths: batchDeletePaths },
-      });
-      if (error) {
-        showToast('Failed to delete documents');
-        return;
+      const grouped = new Map<string, DocMutationTarget[]>();
+      for (const target of batchDeleteTargets) {
+        const workspace = normalizedDocWorkspace(target.workspace);
+        const key = workspace ?? '';
+        grouped.set(key, [...(grouped.get(key) ?? []), target]);
+      }
+
+      let deletedCount = 0;
+      let failedCount = 0;
+      const deletedByWorkspace = new Map<string, Set<string>>();
+
+      for (const [workspaceKey, targets] of grouped.entries()) {
+        const workspace = workspaceKey || null;
+        const mutationQuery = workspaceTargetQueryForWorkspace(workspace);
+        const { data, error } = await client.POST('/docs/delete-batch', {
+          params: { query: { remoteNode, ...mutationQuery } },
+          body: { paths: targets.map((target) => target.path) },
+        });
+        if (error) {
+          failedCount += targets.length;
+          continue;
+        }
+        deletedCount += data.deleted.length;
+        failedCount += data.failed?.length || 0;
+        const previousDeleted = Array.from(
+          deletedByWorkspace.get(workspaceKey) ?? []
+        );
+        deletedByWorkspace.set(
+          workspaceKey,
+          new Set([...previousDeleted, ...data.deleted])
+        );
       }
       mutate();
-      // Close tabs for all deleted paths (exact + prefix for directories)
-      const deletedSet = new Set(data.deleted);
+
       for (const tab of tabs) {
+        const workspaceKey = normalizedDocWorkspace(tab.workspace) ?? '';
+        const deletedSet = deletedByWorkspace.get(workspaceKey);
+        if (!deletedSet) continue;
         const shouldClose =
-          docWorkspaceMatches(tab.workspace, batchDeleteWorkspace) &&
-          (deletedSet.has(tab.docPath) ||
-            [...deletedSet].some((dp) => tab.docPath.startsWith(dp + '/')));
+          deletedSet.has(tab.docPath) ||
+          [...deletedSet].some((dp) => tab.docPath.startsWith(dp + '/'));
         if (shouldClose) {
           clearDraft(tab.id);
           markTabSaved(tab.id);
           closeTab(tab.id);
         }
       }
-      const failCount = data.failed?.length || 0;
-      if (failCount > 0) {
-        showToast(`Deleted ${data.deleted.length}, ${failCount} failed`);
+      if (failedCount > 0) {
+        showToast(`Deleted ${deletedCount}, ${failedCount} failed`);
       } else {
-        showToast(`Deleted ${data.deleted.length} items`);
+        showToast(`Deleted ${deletedCount} items`);
       }
     } catch {
       showToast('Failed to delete documents');
     } finally {
       setBatchDeleteConfirmOpen(false);
-      setBatchDeletePaths([]);
+      setBatchDeleteTargets([]);
     }
   }, [
-    batchDeletePaths,
-    batchDeleteWorkspace,
-    canMutateDocs,
+    batchDeleteTargets,
+    canWrite,
     client,
     remoteNode,
-    workspaceTargetQuery,
     mutate,
     tabs,
     closeTab,
@@ -630,12 +618,11 @@ function DocsContent() {
 
   // Batch delete from selection bar
   const handleBatchDeleteFromBar = useCallback(
-    (paths: string[]) => {
-      setBatchDeletePaths(paths);
-      setBatchDeleteWorkspace(mutationWorkspaceFromQuery(workspaceTargetQuery));
+    (targets: DocMutationTarget[]) => {
+      setBatchDeleteTargets(targets);
       setBatchDeleteConfirmOpen(true);
     },
-    [workspaceTargetQuery]
+    []
   );
 
   // Delete triggered from tab menu or editor header
@@ -658,6 +645,7 @@ function DocsContent() {
       onContextAction={handleContextAction}
       onCreateNew={() => {
         setCreateParentDir('');
+        setCreateWorkspace(null);
         setCreateError(null);
         setCreateModalOpen(true);
       }}
@@ -665,8 +653,6 @@ function DocsContent() {
       onRename={handleInlineRename}
       onMove={handleMove}
       onBatchDelete={handleBatchDeleteFromBar}
-      onSelectionChange={handleSelectionChange}
-      canMutate={canMutateDocs}
       activeDocContent={activeDocContent}
       onHeadingClick={handleHeadingClick}
       sortField={docSortField}
@@ -756,13 +742,13 @@ function DocsContent() {
         </ConfirmModal>
         <ConfirmModal
           title="Delete Documents"
-          buttonText={`Delete ${batchDeletePaths.length} items`}
+          buttonText={`Delete ${batchDeleteTargets.length} items`}
           visible={batchDeleteConfirmOpen}
           dismissModal={() => setBatchDeleteConfirmOpen(false)}
           onSubmit={handleBatchDelete}
         >
           <p className="text-sm text-muted-foreground">
-            Are you sure you want to delete {batchDeletePaths.length} items?
+            Are you sure you want to delete {batchDeleteTargets.length} items?
             This cannot be undone.
           </p>
         </ConfirmModal>
@@ -814,13 +800,13 @@ function DocsContent() {
       </ConfirmModal>
       <ConfirmModal
         title="Delete Documents"
-        buttonText={`Delete ${batchDeletePaths.length} items`}
+        buttonText={`Delete ${batchDeleteTargets.length} items`}
         visible={batchDeleteConfirmOpen}
         dismissModal={() => setBatchDeleteConfirmOpen(false)}
         onSubmit={handleBatchDelete}
       >
         <p className="text-sm text-muted-foreground">
-          Are you sure you want to delete {batchDeletePaths.length} items? This
+          Are you sure you want to delete {batchDeleteTargets.length} items? This
           cannot be undone.
         </p>
       </ConfirmModal>
