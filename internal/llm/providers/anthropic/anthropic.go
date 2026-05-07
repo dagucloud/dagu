@@ -323,33 +323,20 @@ func (p *Provider) convertTools(tools []llm.Tool) []any {
 
 	result := make([]any, len(tools))
 	for i, t := range tools {
-		// Extract properties and required from the Parameters schema
-		var props map[string]any
-		var required []string
-		if t.Function.Parameters != nil {
-			if p, ok := t.Function.Parameters["properties"].(map[string]any); ok {
-				props = p
-			}
-			if r, ok := t.Function.Parameters["required"].([]any); ok {
-				required = make([]string, len(r))
-				for j, v := range r {
-					if s, ok := v.(string); ok {
-						required[j] = s
-					}
-				}
-			}
-		}
 		result[i] = tool{
 			Name:        t.Function.Name,
 			Description: t.Function.Description,
-			InputSchema: inputSchema{
-				Type:       "object",
-				Properties: props,
-				Required:   required,
-			},
+			InputSchema: anthropicInputSchema(t.Function.Parameters),
 		}
 	}
 	return result
+}
+
+func anthropicInputSchema(parameters map[string]any) map[string]any {
+	if len(parameters) == 0 {
+		return map[string]any{"type": "object"}
+	}
+	return parameters
 }
 
 // getThinkingBudget determines the token budget for thinking mode.
@@ -477,15 +464,9 @@ type message struct {
 
 // Tool calling types
 type tool struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description,omitempty"`
-	InputSchema inputSchema `json:"input_schema"`
-}
-
-type inputSchema struct {
-	Type       string         `json:"type"` // always "object"
-	Properties map[string]any `json:"properties,omitempty"`
-	Required   []string       `json:"required,omitempty"`
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	InputSchema map[string]any `json:"input_schema"`
 }
 
 type messagesRequest struct {

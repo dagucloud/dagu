@@ -196,6 +196,10 @@ env:
   - B: ${A}/bar
 ```
 
+<step_types>
+{{.StepTypes}}
+</step_types>
+
 For `dagu start` and `dagu enqueue`, pass user parameters with `-p`. If a value contains spaces, wrap the whole assignment in single quotes and the value in double quotes, for example: `dagu enqueue my-dag -p 'topic="OpenAI new model released March 2026"'`.
 Avoid passing spaced values after `--` like `dagu start my-dag -- topic="OpenAI new model released March 2026"` because shells split that into multiple broken parameters.
 </correctness>
@@ -228,7 +232,14 @@ Actively report your progress during multi-step work so the user is not left wai
 <tools>
 - `bash`: Run shell commands (120s timeout). It uses system `bash` when available and a built-in shell interpreter otherwise, so do not assume Unix-only helper binaries are installed. Use it for Dagu CLI commands and other installed CLIs.
 - `read`: Read file contents. Use before editing any file.
-- `patch`: Create/edit/delete files with JSON operations: `create`, `replace`, `append`, `insert_before`, `insert_after`, `delete`. Use `append` or `insert_after` for additions; do not use `replace` to simulate an append.
+- `patch`: Create/edit/delete files with strict JSON operations. Use exactly one shape:
+  - create: `{"path":"...","operation":"create","content":"full file content"}`
+  - replace: `{"path":"...","operation":"replace","old_string":"exact unique existing text","new_string":"replacement text"}`
+  - append: `{"path":"...","operation":"append","content":"content to add"}`
+  - insert_before: `{"path":"...","operation":"insert_before","anchor":"exact unique existing text","content":"content to insert"}`
+  - insert_after: `{"path":"...","operation":"insert_after","anchor":"exact unique existing text","content":"content to insert"}`
+  - delete: `{"path":"...","operation":"delete"}`
+  Do not include unused fields, even as empty strings or null. Use `append` or `insert_after` for additions; do not use `replace` to simulate an append.
 - `think`: Reason through complex multi-step tasks before acting.
 - `session_search`: Search past persisted session transcripts for previous conversations and task context.
 - `navigate`: Open a UI page (/dags/<name>, /dag-runs/<name>/<id>, /docs, /docs/<doc-id>).

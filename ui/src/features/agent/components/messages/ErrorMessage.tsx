@@ -1,13 +1,22 @@
 import type React from 'react';
 import { XCircle } from 'lucide-react';
 
-export function ErrorMessage({ content }: { content: string }): React.ReactNode {
+import { Alert, AlertDescription } from '@/components/ui/alert';
+
+export function ErrorMessage({
+  content,
+}: {
+  content: string;
+}): React.ReactNode {
   return (
-    <div className="pl-1">
-      <div className="flex items-start gap-1.5 text-red-500">
-        <XCircle className="h-3 w-3 mt-0.5 flex-shrink-0" />
-        <p className="whitespace-pre-wrap break-words">{content}</p>
-      </div>
-    </div>
+    <Alert
+      variant="destructive"
+      className="px-3 py-2 text-sm [&>svg]:left-3 [&>svg]:top-2.5 [&>svg~*]:pl-6"
+    >
+      <XCircle className="h-4 w-4" aria-hidden="true" />
+      <AlertDescription className="whitespace-pre-wrap break-words text-xs">
+        {content}
+      </AlertDescription>
+    </Alert>
   );
 }

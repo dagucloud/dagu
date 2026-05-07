@@ -30,14 +30,19 @@ type chatInputSpillFile struct {
 }
 
 func (a *API) prepareChatContent(ctx context.Context, sessionID string, req ChatRequest) (string, error) {
+	_, llmContent, err := a.prepareChatDisplayAndLLMContent(ctx, sessionID, req)
+	return llmContent, err
+}
+
+func (a *API) prepareChatDisplayAndLLMContent(ctx context.Context, sessionID string, req ChatRequest) (string, string, error) {
 	if req.Message == "" {
-		return "", ErrMessageRequired
+		return "", "", ErrMessageRequired
 	}
 	message, err := a.materializeChatInput(sessionID, req.Message)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	return a.formatMessage(ctx, message, req.DAGContexts), nil
+	return message, a.formatMessage(ctx, message, req.DAGContexts), nil
 }
 
 func (a *API) materializeChatInput(sessionID, raw string) (string, error) {

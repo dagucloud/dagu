@@ -1144,7 +1144,7 @@ func (a *API) CreateSession(ctx context.Context, user UserIdentity, req ChatRequ
 	}))
 	mgr.registry = &sessionRegistry{sessions: &a.sessions, parent: mgr}
 
-	messageWithContext, err := a.prepareChatContent(ctx, id, req)
+	displayMessage, messageWithContext, err := a.prepareChatDisplayAndLLMContent(ctx, id, req)
 	if err != nil {
 		a.logger.Error("Failed to prepare chat content", "error", err)
 		return "", "", ErrFailedToProcessMessage
@@ -1155,7 +1155,7 @@ func (a *API) CreateSession(ctx context.Context, user UserIdentity, req ChatRequ
 	a.persistNewSession(ctx, id, user.UserID, dagName, model, now)
 	a.sessions.Store(id, mgr)
 
-	if err := mgr.AcceptUserMessage(ctx, provider, model, modelCfg.Model, messageWithContext); err != nil {
+	if err := mgr.AcceptUserMessageWithLLMContent(ctx, provider, model, modelCfg.Model, displayMessage, messageWithContext); err != nil {
 		a.logger.Error("Failed to accept user message", "error", err)
 		a.sessions.Delete(id)
 		a.clearDAGRunWatchesForSession(id)
@@ -1343,16 +1343,16 @@ type ChatQueueResult struct {
 	Started   bool
 }
 
-func (a *API) prepareSessionMessage(ctx context.Context, mgr *SessionManager, user UserIdentity, req ChatRequest) (llm.Provider, string, string, string, error) {
+func (a *API) prepareSessionMessage(ctx context.Context, mgr *SessionManager, user UserIdentity, req ChatRequest) (llm.Provider, string, string, string, string, error) {
 	provider, model, resolvedModel, err := a.prepareSessionRuntime(ctx, mgr, user, req)
 	if err != nil {
-		return nil, "", "", "", err
+		return nil, "", "", "", "", err
 	}
-	messageWithContext, err := a.prepareChatContent(ctx, mgr.ID(), req)
+	displayMessage, messageWithContext, err := a.prepareChatDisplayAndLLMContent(ctx, mgr.ID(), req)
 	if err != nil {
-		return nil, "", "", "", err
+		return nil, "", "", "", "", err
 	}
-	return provider, model, resolvedModel, messageWithContext, nil
+	return provider, model, resolvedModel, displayMessage, messageWithContext, nil
 }
 
 func (a *API) prepareSessionRuntime(ctx context.Context, mgr *SessionManager, user UserIdentity, req ChatRequest) (llm.Provider, string, string, error) {
@@ -1429,12 +1429,12 @@ func (a *API) EnqueueChatMessage(ctx context.Context, sessionID string, user Use
 	if err != nil {
 		return ChatQueueResult{}, err
 	}
-	messageWithContext, err := a.prepareChatContent(ctx, targetSessionID, req)
+	displayMessage, messageWithContext, err := a.prepareChatDisplayAndLLMContent(ctx, targetSessionID, req)
 	if err != nil {
 		a.logger.Error("Failed to prepare queued chat content", "error", err)
 		return ChatQueueResult{}, ErrFailedToProcessMessage
 	}
-	queued, err := targetMgr.EnqueueChatMessage(ctx, provider, model, resolvedModel, messageWithContext)
+	queued, err := targetMgr.EnqueueChatMessageWithLLMContent(ctx, provider, model, resolvedModel, displayMessage, messageWithContext)
 	if err != nil {
 		a.logger.Error("Failed to enqueue chat message", "error", err)
 		return ChatQueueResult{}, ErrFailedToProcessMessage
@@ -1487,13 +1487,13 @@ func (a *API) FlushQueuedChatMessage(ctx context.Context, sessionID string, user
 		targetMgr.RestoreQueuedChatInput(text)
 		return ChatQueueResult{}, err
 	}
-	messageWithContext, err := a.prepareChatContent(ctx, targetSessionID, req)
+	displayMessage, messageWithContext, err := a.prepareChatDisplayAndLLMContent(ctx, targetSessionID, req)
 	if err != nil {
 		targetMgr.RestoreQueuedChatInput(text)
 		a.logger.Error("Failed to prepare queued chat content", "error", err)
 		return ChatQueueResult{}, ErrFailedToProcessMessage
 	}
-	if err := targetMgr.AcceptUserMessage(ctx, provider, model, resolvedModel, messageWithContext); err != nil {
+	if err := targetMgr.AcceptUserMessageWithLLMContent(ctx, provider, model, resolvedModel, displayMessage, messageWithContext); err != nil {
 		targetMgr.RestoreQueuedChatInput(text)
 		a.logger.Error("Failed to flush queued chat message", "error", err)
 		return ChatQueueResult{}, ErrFailedToProcessMessage
@@ -1653,7 +1653,7 @@ func (a *API) SendMessage(ctx context.Context, sessionID string, user UserIdenti
 	if !ok {
 		return ErrSessionNotFound
 	}
-	provider, model, resolvedModel, messageWithContext, err := a.prepareSessionMessage(ctx, mgr, user, req)
+	provider, model, resolvedModel, displayMessage, messageWithContext, err := a.prepareSessionMessage(ctx, mgr, user, req)
 	if err != nil {
 		if errors.Is(err, ErrMessageRequired) || errors.Is(err, ErrAgentNotConfigured) {
 			return err
@@ -1661,7 +1661,7 @@ func (a *API) SendMessage(ctx context.Context, sessionID string, user UserIdenti
 		a.logger.Error("Failed to prepare chat content", "error", err)
 		return ErrFailedToProcessMessage
 	}
-	if err := mgr.AcceptUserMessage(ctx, provider, model, resolvedModel, messageWithContext); err != nil {
+	if err := mgr.AcceptUserMessageWithLLMContent(ctx, provider, model, resolvedModel, displayMessage, messageWithContext); err != nil {
 		a.logger.Error("Failed to accept user message", "error", err)
 		return ErrFailedToProcessMessage
 	}

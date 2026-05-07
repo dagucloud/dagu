@@ -1,6 +1,14 @@
-import { useState, useCallback, useEffect, useRef, KeyboardEvent, ChangeEvent } from 'react';
+import {
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+  KeyboardEvent,
+  ChangeEvent,
+} from 'react';
 import { Send, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -18,7 +26,12 @@ import { useAvailableModels } from '../hooks/useAvailableModels';
 import { useAvailableSouls } from '../hooks/useAvailableSouls';
 
 interface ChatInputProps {
-  onSend: (message: string, dagContexts?: DAGContext[], model?: string, soulId?: string) => void;
+  onSend: (
+    message: string,
+    dagContexts?: DAGContext[],
+    model?: string,
+    soulId?: string
+  ) => void;
   onCancel?: () => void;
   isWorking: boolean;
   disabled?: boolean;
@@ -111,11 +124,14 @@ export function ChatInput({
       ? [currentPageDoc, ...additionalDocs]
       : additionalDocs;
     if (allDocs.length > 0) {
-      const docPrefix = allDocs.map((d) => `[Doc: ${d.id} | ${d.title}]`).join(' ');
+      const docPrefix = allDocs
+        .map((d) => `[Doc: ${d.id} | ${d.title}]`)
+        .join(' ');
       finalMessage = `${docPrefix}\n${finalMessage}`;
     }
 
-    const soulValue = selectedSoul && selectedSoul !== '__default__' ? selectedSoul : undefined;
+    const soulValue =
+      selectedSoul && selectedSoul !== '__default__' ? selectedSoul : undefined;
     onSend(
       finalMessage,
       allContexts.length > 0 ? allContexts : undefined,
@@ -124,7 +140,18 @@ export function ChatInput({
     );
     setMessage('');
     setSelectedDocs([]);
-  }, [message, isPending, disabled, onSend, selectedDags, currentPageDag, selectedModel, selectedDocs, currentPageDoc, selectedSoul]);
+  }, [
+    message,
+    isPending,
+    disabled,
+    onSend,
+    selectedDags,
+    currentPageDag,
+    selectedModel,
+    selectedDocs,
+    currentPageDoc,
+    selectedSoul,
+  ]);
 
   const handleChange = useCallback(
     (e: ChangeEvent<HTMLTextAreaElement>) => {
@@ -135,7 +162,11 @@ export function ChatInput({
       // Detect '@' at start or after whitespace to open doc menu.
       if (pos > 0 && val[pos - 1] === '@') {
         const charBefore = pos > 1 ? val[pos - 2] : undefined;
-        if (charBefore === undefined || charBefore === ' ' || charBefore === '\n') {
+        if (
+          charBefore === undefined ||
+          charBefore === ' ' ||
+          charBefore === '\n'
+        ) {
           setAtStart(pos - 1);
           setAtMenuOpen(true);
           setAtQuery('');
@@ -153,7 +184,6 @@ export function ChatInput({
           setAtQuery(query);
         }
       }
-
     },
     [atMenuOpen, atStart]
   );
@@ -191,10 +221,14 @@ export function ChatInput({
         if (consumed) return;
       }
 
-
       // Ignore Enter during IME composition (e.g., Japanese input conversion)
       // Check both isComposing and our manual ref for cross-browser compatibility
-      if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !isComposingRef.current) {
+      if (
+        e.key === 'Enter' &&
+        !e.shiftKey &&
+        !e.nativeEvent.isComposing &&
+        !isComposingRef.current
+      ) {
         e.preventDefault();
         handleSend();
       }
@@ -211,7 +245,7 @@ export function ChatInput({
   }, []);
 
   return (
-    <div className="p-2 border-t border-border bg-background relative">
+    <div className="relative border-t border-border bg-card p-3">
       {/* DAG Picker with chips */}
       <DAGPicker
         selectedDags={selectedDags}
@@ -239,7 +273,7 @@ export function ChatInput({
 
       {/* Model & soul selector row */}
       {(models.length > 0 || (souls.length > 0 && !hasActiveSession)) && (
-        <div className="mb-1.5 flex items-center gap-2">
+        <div className="mb-2 flex items-center gap-2">
           {models.length > 0 && (
             <Select value={selectedModel} onValueChange={setSelectedModel}>
               <SelectTrigger className="h-7 text-xs w-auto min-w-[140px] max-w-[200px]">
@@ -260,7 +294,9 @@ export function ChatInput({
                 <SelectValue placeholder="default" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__default__" className="text-xs">default</SelectItem>
+                <SelectItem value="__default__" className="text-xs">
+                  default
+                </SelectItem>
                 {souls.map((s) => (
                   <SelectItem key={s.id} value={s.id} className="text-xs">
                     {s.name}
@@ -274,9 +310,10 @@ export function ChatInput({
 
       {/* Input row */}
       <div className="flex items-end gap-2">
-        <textarea
+        <Textarea
           ref={textareaRef}
           autoFocus
+          aria-label="Message agent"
           value={message}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
@@ -286,14 +323,12 @@ export function ChatInput({
           disabled={disabled}
           rows={1}
           className={cn(
-            'flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm',
-            'placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-ring',
-            'min-h-[36px] max-h-[120px]',
-            disabled && 'opacity-50 cursor-not-allowed'
+            'max-h-[120px] min-h-[40px] flex-1 overflow-y-auto bg-background py-2 shadow-none',
+            disabled && 'cursor-not-allowed opacity-50'
           )}
           style={{
             height: 'auto',
-            minHeight: '36px',
+            minHeight: '40px',
           }}
           onInput={(e) => {
             const target = e.target as HTMLTextAreaElement;
@@ -303,22 +338,24 @@ export function ChatInput({
         />
         {showPauseButton ? (
           <Button
-            size="sm"
+            size="icon"
             variant="destructive"
             onClick={onCancel}
-            className="h-9 w-9 p-0"
+            className="h-10 w-10"
             title="Stop"
+            aria-label="Stop agent"
           >
             <Square className="h-4 w-4" />
           </Button>
         ) : (
           <Button
-            size="sm"
+            size="icon"
             variant="primary"
             onClick={handleSend}
             disabled={!message.trim() || disabled}
-            className="h-9 w-9 p-0"
+            className="h-10 w-10"
             title="Send"
+            aria-label="Send message"
           >
             <Send className="h-4 w-4" />
           </Button>

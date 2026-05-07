@@ -126,6 +126,49 @@ func TestBuildRequestBody_WebSearch(t *testing.T) {
 		wsTool := tools[1].(map[string]any)
 		assert.Equal(t, "web_search_20260209", wsTool["type"])
 	})
+
+	t.Run("function tools preserve full input schema", func(t *testing.T) {
+		t.Parallel()
+		req := &llm.ChatRequest{
+			Model:    "claude-sonnet-4-20250514",
+			Messages: []llm.Message{{Role: llm.RoleUser, Content: "Hello"}},
+			Tools: []llm.Tool{{
+				Type: "function",
+				Function: llm.ToolFunction{
+					Name:        "strict_tool",
+					Description: "A strict tool",
+					Parameters: map[string]any{
+						"type": "object",
+						"oneOf": []any{
+							map[string]any{
+								"type":                 "object",
+								"additionalProperties": false,
+								"properties": map[string]any{
+									"operation":  map[string]any{"type": "string", "enum": []any{"replace"}},
+									"old_string": map[string]any{"type": "string"},
+									"new_string": map[string]any{"type": "string"},
+								},
+								"required": []any{"operation", "old_string", "new_string"},
+							},
+						},
+					},
+				},
+			}},
+		}
+		body, err := provider.buildRequestBody(req, false)
+		require.NoError(t, err)
+
+		var parsed map[string]any
+		require.NoError(t, json.Unmarshal(body, &parsed))
+
+		tools := parsed["tools"].([]any)
+		require.Len(t, tools, 1)
+		inputSchema := tools[0].(map[string]any)["input_schema"].(map[string]any)
+		assert.Contains(t, inputSchema, "oneOf")
+		variants := inputSchema["oneOf"].([]any)
+		require.Len(t, variants, 1)
+		assert.Equal(t, false, variants[0].(map[string]any)["additionalProperties"])
+	})
 }
 
 func TestChat_WebSearchResponseBlocks(t *testing.T) {

@@ -578,6 +578,45 @@ func TestAPI_SendMessage_SpillsOversizedFollowUp(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
+func TestAPI_CreateSession_StoresDisplayMessageWithoutDAGContext(t *testing.T) {
+	t.Parallel()
+
+	model := testModelConfig("dag-context-display-model")
+	api, _ := testAPIWithModels(t, model)
+	api.dagStore = &dagDefManageTestStore{
+		dags: []*core.DAG{{
+			Name:     "sample_parallel_report",
+			Location: "/Users/hamadayouta/.dagu/dags/sample_parallel_report.yaml",
+		}},
+	}
+
+	reqCh := make(chan *llm.ChatRequest, 1)
+	api.providers.Set(model.ToLLMConfig(), newCapturingProvider(reqCh, simpleStopResponse("done")))
+
+	user := UserIdentity{UserID: defaultUserID, Username: defaultUserID, Role: defaultUserRole}
+	sessionID, _, err := api.CreateSession(context.Background(), user, ChatRequest{
+		Message: "What does this DAG do?",
+		DAGContexts: []DAGContext{{
+			DAGFile: "sample_parallel_report",
+		}},
+	})
+	require.NoError(t, err)
+
+	req := waitForRequest(t, reqCh, time.Second)
+	require.NotEmpty(t, req.Messages)
+	userMsg := req.Messages[len(req.Messages)-1]
+	assert.Contains(t, userMsg.Content, "Referenced DAGs")
+	assert.Contains(t, userMsg.Content, "sample_parallel_report")
+	assert.Contains(t, userMsg.Content, "What does this DAG do?")
+
+	detail, err := api.GetSessionDetail(context.Background(), sessionID, user.UserID)
+	require.NoError(t, err)
+	require.NotEmpty(t, detail.Messages)
+	assert.Equal(t, "What does this DAG do?", detail.Messages[0].Content)
+	require.NotNil(t, detail.Messages[0].LLMData)
+	assert.Contains(t, detail.Messages[0].LLMData.Content, "Referenced DAGs")
+}
+
 func TestAPI_EnqueueChatMessage_QueuesRawOversizedText(t *testing.T) {
 	t.Parallel()
 
