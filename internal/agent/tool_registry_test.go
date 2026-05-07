@@ -34,6 +34,7 @@ func TestRegisteredTools_ContainsAllExpected(t *testing.T) {
 		"dag_def_manage",
 		"dag_run_manage",
 		"remote_agent", "list_contexts",
+		"web_search", "web_extract",
 	}
 
 	regs := RegisteredTools()

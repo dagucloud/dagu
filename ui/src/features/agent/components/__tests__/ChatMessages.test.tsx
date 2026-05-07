@@ -191,6 +191,25 @@ describe('ChatMessages tool activity', () => {
     ).toBeInTheDocument();
   });
 
+  it('uses short labels for web tools', () => {
+    renderMessages([
+      toolCallMessage('msg-1', 'call-1', 'web_search', {
+        query: 'Dagu latest release',
+        limit: 5,
+      }),
+      toolCallMessage('msg-2', 'call-2', 'web_extract', {
+        urls: ['https://docs.dagu.sh'],
+      }),
+    ]);
+
+    expect(
+      screen.getByRole('button', { name: /search web/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /read web page/i })
+    ).toBeInTheDocument();
+  });
+
   it('does not display paired tool result text or status', () => {
     const longResult =
       'patch failed while creating a sample DAG. '.repeat(4) +

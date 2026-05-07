@@ -255,6 +255,17 @@ func TestGenerateSystemPrompt(t *testing.T) {
 		assert.Contains(t, result, "`session_search`: Search past persisted session transcripts")
 	})
 
+	t.Run("documents web tools using exact tool names", func(t *testing.T) {
+		t.Parallel()
+
+		result := GenerateSystemPrompt(SystemPromptParams{Role: auth.RoleDeveloper})
+
+		assert.Contains(t, result, "`web_search`: Search the public web")
+		assert.Contains(t, result, "`web_extract`: Extract readable text")
+		assert.NotContains(t, result, "search_files")
+		assert.NotContains(t, result, "read_file")
+	})
+
 	t.Run("documents runbook tool for docs store moves and deletes", func(t *testing.T) {
 		t.Parallel()
 		env := EnvironmentInfo{DocsDir: "/dags/docs"}
