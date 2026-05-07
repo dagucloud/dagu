@@ -174,6 +174,23 @@ func baseConfigCustomStepTypeSources(env EnvironmentInfo, access *auth.Workspace
 	if workspaceDir == "" {
 		return sources
 	}
+	info, err := os.Stat(workspaceDir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			sources = append(sources, customStepTypeSource{
+				label: fmt.Sprintf("workspace base config directory (`%s`)", workspaceDir),
+				err:   err,
+			})
+		}
+		return sources
+	}
+	if !info.IsDir() {
+		sources = append(sources, customStepTypeSource{
+			label: fmt.Sprintf("workspace base config directory (`%s`)", workspaceDir),
+			err:   fmt.Errorf("%s is not a directory", workspaceDir),
+		})
+		return sources
+	}
 	entries, err := os.ReadDir(workspaceDir)
 	if err != nil {
 		if !os.IsNotExist(err) {

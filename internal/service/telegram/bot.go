@@ -69,6 +69,7 @@ type Bot struct {
 	notificationStateFile string
 	logger                *slog.Logger
 	incomingDelay         time.Duration
+	incomingAfterFunc     func(time.Duration, func())
 	typingDelay           time.Duration
 }
 
@@ -101,6 +102,7 @@ func New(cfg Config, agentAPI AgentService, logger *slog.Logger) (*Bot, error) {
 		notificationStateFile: cfg.NotificationStateFile,
 		logger:                logger,
 		incomingDelay:         defaultIncomingBatchDelay,
+		incomingAfterFunc:     func(delay time.Duration, f func()) { time.AfterFunc(delay, f) },
 		typingDelay:           defaultTypingRefreshInterval,
 	}, nil
 }
@@ -226,7 +228,11 @@ func (b *Bot) enqueueIncomingMessage(ctx context.Context, cs *chatState, chatID 
 	if delay <= 0 {
 		delay = defaultIncomingBatchDelay
 	}
-	time.AfterFunc(delay, func() {
+	afterFunc := b.incomingAfterFunc
+	if afterFunc == nil {
+		afterFunc = func(delay time.Duration, f func()) { time.AfterFunc(delay, f) }
+	}
+	afterFunc(delay, func() {
 		b.flushIncomingMessages(ctx, cs, chatID, gen)
 	})
 }
