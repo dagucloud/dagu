@@ -677,6 +677,7 @@ func (r *Runner) setupPushBackConversation(ctx context.Context, node *Node) {
 
 func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) context.Context {
 	env := NewPlanEnv(ctx, node.Step(), plan)
+	node.SetWorkingDir(env.WorkingDir)
 
 	// Load output variables and approval inputs from predecessor nodes (dependencies)
 	// This traverses backwards from the current node to find all nodes it depends on
@@ -767,6 +768,7 @@ func (r *Runner) setupEnvironEventHandler(
 	existingEnv := GetEnv(ctx)
 
 	env := NewPlanEnv(ctx, node.Step(), plan)
+	node.SetWorkingDir(env.WorkingDir)
 
 	// Add DAG_RUN_STATUS to scope
 	env.Scope = env.Scope.WithEntry(

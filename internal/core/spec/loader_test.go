@@ -5,6 +5,7 @@ package spec_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -1230,6 +1231,57 @@ func TestLoadPreservesSourceFileForFileBasedDAG(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, dagFile, dag.Location)
 	assert.Equal(t, dagFile, dag.SourceFile)
+}
+
+func TestLoadYAMLWithOpts_MarksConfiguredWorkingDirExplicit(t *testing.T) {
+	t.Parallel()
+
+	t.Run("FromYAML", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		dag, err := spec.LoadYAMLWithOpts(context.Background(), fmt.Appendf(nil, `
+working_dir: %q
+steps:
+  - name: step1
+    command: echo hello
+`, workDir), spec.BuildOpts{})
+		require.NoError(t, err)
+		assert.Equal(t, workDir, dag.WorkingDir)
+		assert.True(t, dag.WorkingDirExplicit)
+	})
+
+	t.Run("FromBaseConfigContent", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		dag, err := spec.LoadYAMLWithOpts(context.Background(), []byte(`
+steps:
+  - name: step1
+    command: echo hello
+`), spec.BuildOpts{
+			BaseConfigContent: fmt.Appendf(nil, "working_dir: %q", workDir),
+		})
+		require.NoError(t, err)
+		assert.Equal(t, workDir, dag.WorkingDir)
+		assert.True(t, dag.WorkingDirExplicit)
+	})
+
+	t.Run("FromDefaultWorkingDir", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		dag, err := spec.LoadYAMLWithOpts(context.Background(), []byte(`
+steps:
+  - name: step1
+    command: echo hello
+`), spec.BuildOpts{
+			DefaultWorkingDir: workDir,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, workDir, dag.WorkingDir)
+		assert.True(t, dag.WorkingDirExplicit)
+	})
 }
 
 func TestLoadYAMLWithOpts_PreservesLegacyContract(t *testing.T) {

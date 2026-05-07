@@ -145,6 +145,14 @@ func WithLogFilePath(logFilePath string) StatusOption {
 	}
 }
 
+// WithWorkingDir returns a StatusOption that sets the effective dag-run
+// working directory path.
+func WithWorkingDir(workingDir string) StatusOption {
+	return func(s *exec.DAGRunStatus) {
+		s.WorkingDir = workingDir
+	}
+}
+
 // WithArchiveDir returns a StatusOption that sets the artifact/archive directory path.
 func WithArchiveDir(archiveDir string) StatusOption {
 	return func(s *exec.DAGRunStatus) {

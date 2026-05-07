@@ -960,6 +960,7 @@ func (a *Agent) nodeToModelNode(nodeData runtime.NodeData) *exec.Node {
 		Step:            nodeData.Step,
 		Stdout:          nodeData.State.Stdout,
 		Stderr:          nodeData.State.Stderr,
+		WorkingDir:      nodeData.State.WorkingDir,
 		StartedAt:       stringutil.FormatTime(nodeData.State.StartedAt),
 		FinishedAt:      stringutil.FormatTime(nodeData.State.FinishedAt),
 		Status:          nodeData.State.Status,
@@ -1124,6 +1125,7 @@ func (a *Agent) Status(ctx context.Context) exec.DAGRunStatus {
 		statusOpts := []transform.StatusOption{
 			transform.WithAttemptID(a.dagRunAttemptID),
 			transform.WithHierarchyRefs(a.rootDAGRun, a.parentDAGRun),
+			transform.WithWorkingDir(a.evaluatedWorkingDir),
 			transform.WithArchiveDir(a.artifactDir),
 			transform.WithTriggerType(a.triggerType),
 			transform.WithAutoRetryCount(a.currentAutoRetryCount()),
@@ -1155,6 +1157,7 @@ func (a *Agent) Status(ctx context.Context) exec.DAGRunStatus {
 		transform.WithFinishedAt(a.plan.FinishAt()),
 		transform.WithNodes(a.plan.NodeData()),
 		transform.WithLogFilePath(a.logFile),
+		transform.WithWorkingDir(a.evaluatedWorkingDir),
 		transform.WithArchiveDir(a.artifactDir),
 		transform.WithOnInitNode(a.runner.HandlerNode(core.HandlerOnInit)),
 		transform.WithOnExitNode(a.runner.HandlerNode(core.HandlerOnExit)),

@@ -60,3 +60,44 @@ func TestEnsureQueueDispatchRetryTarget_MissingStatusReturnsNotQueued(t *testing
 	require.ErrorAs(t, err, &notQueuedErr)
 	assert.False(t, notQueuedErr.HasStatus)
 }
+
+func TestRestoreRetryExecutionContext_BackfillsStoredWorkingDirSnapshot(t *testing.T) {
+	t.Parallel()
+
+	dagDir := t.TempDir()
+	workDir := t.TempDir()
+	dag := &core.DAG{
+		Name:       "retry-test",
+		Location:   filepath.Join(dagDir, "retry-test.yaml"),
+		WorkingDir: workDir,
+	}
+	status := &exec.DAGRunStatus{}
+
+	restoreRetryExecutionContext(dag, status, nil)
+
+	assert.Equal(t, workDir, status.WorkingDir)
+	assert.Equal(t, workDir, dag.WorkingDir)
+	assert.True(t, dag.WorkingDirExplicit)
+}
+
+func TestRestoreRetryExecutionContext_BackfillsAttemptWorkDirSnapshot(t *testing.T) {
+	t.Parallel()
+
+	dagDir := t.TempDir()
+	attemptWorkDir := t.TempDir()
+	dag := &core.DAG{
+		Name:       "retry-test",
+		Location:   filepath.Join(dagDir, "retry-test.yaml"),
+		WorkingDir: dagDir,
+	}
+	status := &exec.DAGRunStatus{}
+	attempt := &exec.MockDAGRunAttempt{}
+	attempt.On("WorkDir").Return(attemptWorkDir).Once()
+
+	restoreRetryExecutionContext(dag, status, attempt)
+
+	assert.Equal(t, attemptWorkDir, status.WorkingDir)
+	assert.Equal(t, attemptWorkDir, dag.WorkingDir)
+	assert.True(t, dag.WorkingDirExplicit)
+	attempt.AssertExpectations(t)
+}

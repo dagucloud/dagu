@@ -5,6 +5,7 @@ package dirlock
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -40,6 +41,16 @@ func TestNew(t *testing.T) {
 		require.Equal(t, 10*time.Second, dl.opts.StaleThreshold)
 		require.Equal(t, 100*time.Millisecond, dl.opts.RetryInterval)
 	})
+}
+
+func TestRetryableLockStateError_WindowsAccessDenied(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-specific lock error")
+	}
+
+	err := errors.New(`CreateFile C:\locks\.dagu_lock: Access is denied.`)
+
+	require.True(t, isRetryableLockStateError(err))
 }
 
 func TestTryLock(t *testing.T) {

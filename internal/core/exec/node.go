@@ -21,6 +21,7 @@ type Node struct {
 	Step            core.Step            `json:"step,omitzero"`
 	Stdout          string               `json:"stdout"` // standard output log file path
 	Stderr          string               `json:"stderr"` // standard error log file path
+	WorkingDir      string               `json:"workingDir,omitempty"`
 	StartedAt       string               `json:"startedAt"`
 	FinishedAt      string               `json:"finishedAt"`
 	Status          core.NodeStatus      `json:"status"`
