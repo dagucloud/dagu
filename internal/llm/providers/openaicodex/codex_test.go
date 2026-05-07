@@ -84,6 +84,50 @@ func TestConvertMessages_OmitsEmptyFunctionCallItemID(t *testing.T) {
 	assert.Equal(t, "call-1", toolResult["call_id"])
 }
 
+func TestConvertTools_RemovesUnsupportedTopLevelSchemaKeywords(t *testing.T) {
+	t.Parallel()
+
+	tools := convertTools([]llm.Tool{{
+		Type: "function",
+		Function: llm.ToolFunction{
+			Name:        "patch",
+			Description: "Patch files",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"operation": map[string]any{
+						"type": "string",
+						"enum": []any{"create", "replace"},
+					},
+				},
+				"required": []any{"operation"},
+				"oneOf": []any{
+					map[string]any{"required": []any{"operation", "content"}},
+				},
+				"anyOf": []any{},
+				"allOf": []any{},
+				"enum":  []any{"invalid-top-level-enum"},
+				"not":   map[string]any{"required": []any{"forbidden"}},
+			},
+		},
+	}})
+
+	require.Len(t, tools, 1)
+	params, ok := tools[0]["parameters"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "object", params["type"])
+	assert.NotContains(t, params, "oneOf")
+	assert.NotContains(t, params, "anyOf")
+	assert.NotContains(t, params, "allOf")
+	assert.NotContains(t, params, "enum")
+	assert.NotContains(t, params, "not")
+	assert.Equal(t, []any{"operation"}, params["required"])
+
+	props := params["properties"].(map[string]any)
+	operation := props["operation"].(map[string]any)
+	assert.Equal(t, []any{"create", "replace"}, operation["enum"])
+}
+
 func TestStreamResponse_CollectsTextToolCallsAndUsage(t *testing.T) {
 	t.Parallel()
 

@@ -416,10 +416,29 @@ func convertTools(tools []llm.Tool) []map[string]any {
 			"type":        "function",
 			"name":        tool.Function.Name,
 			"description": tool.Function.Description,
-			"parameters":  tool.Function.Parameters,
+			"parameters":  codexToolParameters(tool.Function.Parameters),
 		})
 	}
 	return result
+}
+
+func codexToolParameters(parameters map[string]any) map[string]any {
+	converted := make(map[string]any, len(parameters)+2)
+	for key, value := range parameters {
+		converted[key] = value
+	}
+	converted["type"] = "object"
+	if _, ok := converted["properties"]; !ok {
+		converted["properties"] = map[string]any{}
+	}
+
+	// The ChatGPT Codex responses endpoint currently rejects top-level JSON
+	// Schema composition keywords for function parameters. Keep nested property
+	// constraints intact, but send a plain object schema at the top level.
+	for _, key := range []string{"oneOf", "anyOf", "allOf", "enum", "not"} {
+		delete(converted, key)
+	}
+	return converted
 }
 
 func splitToolCallID(value string) (callID, itemID string) {
