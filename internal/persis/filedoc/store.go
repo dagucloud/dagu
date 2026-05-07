@@ -233,12 +233,9 @@ func (s *Store) refreshIndexLocked(ctx context.Context) error {
 		return fmt.Errorf("filedoc: docs path %s is not a directory", s.baseDir)
 	}
 
-	root, ok := s.dirs[""]
-	if !ok || !fingerprintsEqual(root.ModTime, root.Size, root.Mode, info) {
-		s.recordDirLocked("", s.baseDir, info)
-		if err := s.scanDirLocked(ctx, "", s.baseDir, false); err != nil {
-			return err
-		}
+	s.recordDirLocked("", s.baseDir, info)
+	if err := s.scanDirLocked(ctx, "", s.baseDir, false); err != nil {
+		return err
 	}
 
 	dirIDs := make([]string, 0, len(s.dirs))
@@ -267,9 +264,6 @@ func (s *Store) refreshIndexLocked(ctx context.Context) error {
 		}
 		if !info.IsDir() {
 			s.removeDirSubtreeLocked(id)
-			continue
-		}
-		if fingerprintsEqual(entry.ModTime, entry.Size, entry.Mode, info) {
 			continue
 		}
 		s.recordDirLocked(id, entry.AbsPath, info)
