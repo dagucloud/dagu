@@ -6,7 +6,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
-	"os"
+	"sort"
 	"strings"
 
 	"github.com/dagucloud/dagu/internal/cmn/logger"
@@ -74,10 +74,7 @@ func runValidate(ctx *Context, args []string) error {
 		return errors.New(formatValidationErrors(args[0], vErr))
 	}
 
-	deprecatedWarnings, err := collectDeprecatedSyntaxWarnings(args[0])
-	if err != nil {
-		return errors.New(formatValidationErrors(args[0], err))
-	}
+	deprecatedWarnings := collectDeprecatedSyntaxWarnings(dag)
 	for _, warning := range deprecatedWarnings {
 		logger.Warn(ctx, warning, tag.File(args[0]))
 	}
@@ -90,12 +87,25 @@ func runValidate(ctx *Context, args []string) error {
 	return nil
 }
 
-func collectDeprecatedSyntaxWarnings(file string) ([]string, error) {
-	data, err := os.ReadFile(file)
-	if err != nil {
-		return nil, err
+func collectDeprecatedSyntaxWarnings(dag *core.DAG) []string {
+	if dag == nil {
+		return nil
 	}
-	return spec.DeprecatedSyntaxWarnings(data), nil
+
+	warnings := spec.DeprecatedSyntaxWarnings(dag.YamlData)
+	if len(dag.LocalDAGs) == 0 {
+		return warnings
+	}
+
+	names := make([]string, 0, len(dag.LocalDAGs))
+	for name := range dag.LocalDAGs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		warnings = append(warnings, spec.DeprecatedSyntaxWarnings(dag.LocalDAGs[name].YamlData)...)
+	}
+	return warnings
 }
 
 // formatValidationErrors builds a readable error output from a (possibly wrapped) error.
