@@ -85,7 +85,7 @@ type DAGRunWatchInfo struct {
 	Notified      bool             `json:"notified"`
 	CreatedAt     time.Time        `json:"createdAt"`
 	CompletedAt   *time.Time       `json:"completedAt,omitempty"`
-	LastCheckedAt time.Time        `json:"lastCheckedAt,omitempty"`
+	LastCheckedAt time.Time        `json:"lastCheckedAt"`
 	LastError     string           `json:"lastError,omitempty"`
 }
 
