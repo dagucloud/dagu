@@ -233,6 +233,61 @@ func TestUpdateAgentConfig(t *testing.T) {
 		assert.Empty(t, setup.configStore.config.WebTools.Tavily.APIKey)
 	})
 
+	t.Run("updates firecrawl web tools without exposing api key", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newAgentTestSetup(t)
+		enabled := true
+		backend := apigen.AgentWebToolsBackendFirecrawl
+		apiKey := "fc-secret"
+		maxResults := 25
+
+		resp, err := setup.api.UpdateAgentConfig(adminCtx(), apigen.UpdateAgentConfigRequestObject{
+			Body: &apigen.UpdateAgentConfigRequest{
+				WebTools: &apigen.AgentWebToolsConfig{
+					Enabled: &enabled,
+					Backend: &backend,
+					Firecrawl: &apigen.AgentFirecrawlWebToolsConfig{
+						ApiKey:     &apiKey,
+						MaxResults: &maxResults,
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		updateResp, ok := resp.(apigen.UpdateAgentConfig200JSONResponse)
+		require.True(t, ok)
+		require.NotNil(t, updateResp.WebTools)
+		require.NotNil(t, updateResp.WebTools.Firecrawl)
+		require.NotNil(t, updateResp.WebTools.Firecrawl.ApiKeyConfigured)
+		assert.True(t, *updateResp.WebTools.Firecrawl.ApiKeyConfigured)
+		assert.Nil(t, updateResp.WebTools.Firecrawl.ApiKey)
+		require.NotNil(t, setup.configStore.config.WebTools.Firecrawl)
+		assert.Equal(t, "fc-secret", setup.configStore.config.WebTools.Firecrawl.APIKey)
+		assert.Equal(t, maxResults, setup.configStore.config.WebTools.Firecrawl.MaxResults)
+
+		clear := true
+		clearRespRaw, err := setup.api.UpdateAgentConfig(adminCtx(), apigen.UpdateAgentConfigRequestObject{
+			Body: &apigen.UpdateAgentConfigRequest{
+				WebTools: &apigen.AgentWebToolsConfig{
+					Firecrawl: &apigen.AgentFirecrawlWebToolsConfig{
+						ClearApiKey: &clear,
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		clearResp, ok := clearRespRaw.(apigen.UpdateAgentConfig200JSONResponse)
+		require.True(t, ok)
+		require.NotNil(t, clearResp.WebTools)
+		require.NotNil(t, clearResp.WebTools.Firecrawl)
+		require.NotNil(t, clearResp.WebTools.Firecrawl.ApiKeyConfigured)
+		assert.False(t, *clearResp.WebTools.Firecrawl.ApiKeyConfigured)
+		require.NotNil(t, setup.configStore.config.WebTools.Firecrawl)
+		assert.Empty(t, setup.configStore.config.WebTools.Firecrawl.APIKey)
+	})
+
 	t.Run("rejects unsafe tavily base url", func(t *testing.T) {
 		t.Parallel()
 
@@ -270,6 +325,44 @@ func TestUpdateAgentConfig(t *testing.T) {
 		assert.Equal(t, original.Enabled, setup.configStore.config.WebTools.Enabled)
 		assert.Equal(t, original.Backend, setup.configStore.config.WebTools.Backend)
 		assert.Equal(t, originalTavily, *setup.configStore.config.WebTools.Tavily)
+	})
+
+	t.Run("rejects unsafe firecrawl base url", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newAgentTestSetup(t)
+		setup.configStore.config.WebTools = &agent.WebToolsConfig{
+			Enabled: true,
+			Backend: agent.WebToolsBackendFirecrawl,
+			Firecrawl: &agent.FirecrawlWebToolsConfig{
+				APIKey:     "fc-existing",
+				BaseURL:    "https://api.firecrawl.dev",
+				MaxResults: 5,
+			},
+		}
+		original := *setup.configStore.config.WebTools
+		originalFirecrawl := *setup.configStore.config.WebTools.Firecrawl
+		enabled := true
+		backend := apigen.AgentWebToolsBackendFirecrawl
+		baseURL := "http://127.0.0.1:8080"
+
+		_, err := setup.api.UpdateAgentConfig(adminCtx(), apigen.UpdateAgentConfigRequestObject{
+			Body: &apigen.UpdateAgentConfigRequest{
+				WebTools: &apigen.AgentWebToolsConfig{
+					Enabled: &enabled,
+					Backend: &backend,
+					Firecrawl: &apigen.AgentFirecrawlWebToolsConfig{
+						BaseUrl: &baseURL,
+					},
+				},
+			},
+		})
+		require.Error(t, err)
+		require.NotNil(t, setup.configStore.config.WebTools)
+		require.NotNil(t, setup.configStore.config.WebTools.Firecrawl)
+		assert.Equal(t, original.Enabled, setup.configStore.config.WebTools.Enabled)
+		assert.Equal(t, original.Backend, setup.configStore.config.WebTools.Backend)
+		assert.Equal(t, originalFirecrawl, *setup.configStore.config.WebTools.Firecrawl)
 	})
 
 	t.Run("invalid tool policy returns error", func(t *testing.T) {

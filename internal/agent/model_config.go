@@ -39,13 +39,16 @@ type WebToolsBackend string
 const (
 	// WebToolsBackendTavily uses Tavily's hosted Search and Extract APIs.
 	WebToolsBackendTavily WebToolsBackend = "tavily"
+	// WebToolsBackendFirecrawl uses Firecrawl's hosted Search and Scrape APIs.
+	WebToolsBackendFirecrawl WebToolsBackend = "firecrawl"
 )
 
 // WebToolsConfig configures first-class agent web tools such as web_search and web_extract.
 type WebToolsConfig struct {
-	Enabled bool                  `json:"enabled,omitempty"`
-	Backend WebToolsBackend       `json:"backend,omitempty"`
-	Tavily  *TavilyWebToolsConfig `json:"tavily,omitempty"`
+	Enabled   bool                     `json:"enabled,omitempty"`
+	Backend   WebToolsBackend          `json:"backend,omitempty"`
+	Tavily    *TavilyWebToolsConfig    `json:"tavily,omitempty"`
+	Firecrawl *FirecrawlWebToolsConfig `json:"firecrawl,omitempty"`
 }
 
 // TavilyWebToolsConfig configures Tavily-backed web tools.
@@ -54,6 +57,13 @@ type TavilyWebToolsConfig struct {
 	BaseURL     string `json:"baseUrl,omitempty"`
 	MaxResults  int    `json:"maxResults,omitempty"`
 	SearchDepth string `json:"searchDepth,omitempty"`
+}
+
+// FirecrawlWebToolsConfig configures Firecrawl-backed web tools.
+type FirecrawlWebToolsConfig struct {
+	APIKey     string `json:"apiKey,omitempty"`
+	BaseURL    string `json:"baseUrl,omitempty"`
+	MaxResults int    `json:"maxResults,omitempty"`
 }
 
 // BashRuleAction is the decision a bash rule applies when matched.

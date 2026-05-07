@@ -4608,6 +4608,7 @@ export interface components {
             enabled?: boolean;
             backend?: components["schemas"]["AgentWebToolsBackend"];
             tavily?: components["schemas"]["AgentTavilyWebToolsConfig"];
+            firecrawl?: components["schemas"]["AgentFirecrawlWebToolsConfig"];
         };
         /** @description Tavily web tool settings */
         AgentTavilyWebToolsConfig: {
@@ -4629,6 +4630,22 @@ export interface components {
              * @enum {string}
              */
             searchDepth?: AgentTavilyWebToolsConfigSearchDepth;
+        };
+        /** @description Firecrawl web tool settings */
+        AgentFirecrawlWebToolsConfig: {
+            /** @description Firecrawl API key. Write-only; omitted from responses. */
+            apiKey?: string;
+            /** @description Clear the stored Firecrawl API key when true */
+            clearApiKey?: boolean;
+            /** @description Whether a Firecrawl API key is stored */
+            readonly apiKeyConfigured?: boolean;
+            /**
+             * Format: uri
+             * @description Optional Firecrawl-compatible base URL
+             */
+            baseUrl?: string;
+            /** @description Maximum search results allowed per web_search call */
+            maxResults?: number;
         };
         /** @description Model configuration */
         ModelConfigResponse: {
@@ -14571,11 +14588,14 @@ export enum AgentBashRuleAction {
     deny = "deny"
 }
 export enum AgentWebToolsBackend {
-    tavily = "tavily"
+    tavily = "tavily",
+    firecrawl = "firecrawl"
 }
 export enum AgentTavilyWebToolsConfigSearchDepth {
     basic = "basic",
-    advanced = "advanced"
+    advanced = "advanced",
+    fast = "fast",
+    ultra_fast = "ultra-fast"
 }
 export enum ModelConfigResponseProvider {
     anthropic = "anthropic",

@@ -10843,7 +10843,7 @@ components:
 
     AgentWebToolsBackend:
       type: string
-      enum: [tavily]
+      enum: [tavily, firecrawl]
       description: "Backend provider for agent web tools"
 
     AgentWebToolsConfig:
@@ -10857,6 +10857,8 @@ components:
           $ref: "#/components/schemas/AgentWebToolsBackend"
         tavily:
           $ref: "#/components/schemas/AgentTavilyWebToolsConfig"
+        firecrawl:
+          $ref: "#/components/schemas/AgentFirecrawlWebToolsConfig"
 
     AgentTavilyWebToolsConfig:
       type: object
@@ -10885,8 +10887,34 @@ components:
           description: "Maximum search results allowed per web_search call"
         searchDepth:
           type: string
-          enum: [basic, advanced]
+          enum: [basic, advanced, fast, ultra-fast]
           description: "Tavily search depth"
+
+    AgentFirecrawlWebToolsConfig:
+      type: object
+      description: "Firecrawl web tool settings"
+      properties:
+        apiKey:
+          type: string
+          writeOnly: true
+          description: "Firecrawl API key. Write-only; omitted from responses."
+        clearApiKey:
+          type: boolean
+          writeOnly: true
+          description: "Clear the stored Firecrawl API key when true"
+        apiKeyConfigured:
+          type: boolean
+          readOnly: true
+          description: "Whether a Firecrawl API key is stored"
+        baseUrl:
+          type: string
+          format: uri
+          description: "Optional Firecrawl-compatible base URL"
+        maxResults:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: "Maximum search results allowed per web_search call"
 
     ModelConfigResponse:
       type: object

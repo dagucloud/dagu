@@ -251,25 +251,53 @@ func toAPIWebToolsConfig(cfg *agent.WebToolsConfig) *api.AgentWebToolsConfig {
 		Enabled: &enabled,
 		Backend: &backend,
 	}
-	tavilyCfg := agent.TavilyWebToolsConfig{}
-	if cfg.Tavily != nil {
-		tavilyCfg = *cfg.Tavily
+	if cfg.Tavily != nil || resolved.Backend == agent.WebToolsBackendTavily {
+		tavilyCfg := agent.TavilyWebToolsConfig{}
+		if cfg.Tavily != nil {
+			tavilyCfg = *cfg.Tavily
+		}
+		apiKeyConfigured := strings.TrimSpace(tavilyCfg.APIKey) != ""
+		tavily := &api.AgentTavilyWebToolsConfig{
+			ApiKeyConfigured: &apiKeyConfigured,
+		}
+		if resolved.Backend == agent.WebToolsBackendTavily && resolved.Tavily != nil {
+			tavilyCfg.BaseURL = resolved.Tavily.BaseURL
+			tavilyCfg.MaxResults = resolved.Tavily.MaxResults
+			tavilyCfg.SearchDepth = resolved.Tavily.SearchDepth
+		}
+		if tavilyCfg.BaseURL != "" {
+			tavily.BaseUrl = ptrOf(tavilyCfg.BaseURL)
+		}
+		if tavilyCfg.MaxResults > 0 {
+			tavily.MaxResults = ptrOf(tavilyCfg.MaxResults)
+		}
+		if tavilyCfg.SearchDepth != "" {
+			searchDepthValue := api.AgentTavilyWebToolsConfigSearchDepth(tavilyCfg.SearchDepth)
+			tavily.SearchDepth = &searchDepthValue
+		}
+		resp.Tavily = tavily
 	}
-	apiKeyConfigured := strings.TrimSpace(tavilyCfg.APIKey) != ""
-	tavily := &api.AgentTavilyWebToolsConfig{
-		ApiKeyConfigured: &apiKeyConfigured,
+	if cfg.Firecrawl != nil || resolved.Backend == agent.WebToolsBackendFirecrawl {
+		firecrawlCfg := agent.FirecrawlWebToolsConfig{}
+		if cfg.Firecrawl != nil {
+			firecrawlCfg = *cfg.Firecrawl
+		}
+		apiKeyConfigured := strings.TrimSpace(firecrawlCfg.APIKey) != ""
+		firecrawl := &api.AgentFirecrawlWebToolsConfig{
+			ApiKeyConfigured: &apiKeyConfigured,
+		}
+		if resolved.Backend == agent.WebToolsBackendFirecrawl && resolved.Firecrawl != nil {
+			firecrawlCfg.BaseURL = resolved.Firecrawl.BaseURL
+			firecrawlCfg.MaxResults = resolved.Firecrawl.MaxResults
+		}
+		if firecrawlCfg.BaseURL != "" {
+			firecrawl.BaseUrl = ptrOf(firecrawlCfg.BaseURL)
+		}
+		if firecrawlCfg.MaxResults > 0 {
+			firecrawl.MaxResults = ptrOf(firecrawlCfg.MaxResults)
+		}
+		resp.Firecrawl = firecrawl
 	}
-	if tavilyCfg.BaseURL != "" {
-		tavily.BaseUrl = ptrOf(tavilyCfg.BaseURL)
-	}
-	if tavilyCfg.MaxResults > 0 {
-		tavily.MaxResults = ptrOf(tavilyCfg.MaxResults)
-	}
-	if tavilyCfg.SearchDepth != "" {
-		searchDepth := api.AgentTavilyWebToolsConfigSearchDepth(resolved.Tavily.SearchDepth)
-		tavily.SearchDepth = &searchDepth
-	}
-	resp.Tavily = tavily
 	return resp
 }
 
@@ -314,6 +342,30 @@ func applyWebToolsUpdate(cfg *agent.Config, update *api.AgentWebToolsConfig) err
 			next.Tavily.SearchDepth = strings.TrimSpace(string(*update.Tavily.SearchDepth))
 		}
 	}
+	if update.Firecrawl != nil {
+		if next.Firecrawl == nil {
+			next.Firecrawl = &agent.FirecrawlWebToolsConfig{}
+		}
+		if clear := update.Firecrawl.ClearApiKey; clear != nil && *clear {
+			next.Firecrawl.APIKey = ""
+		}
+		if update.Firecrawl.ApiKey != nil {
+			apiKey := strings.TrimSpace(*update.Firecrawl.ApiKey)
+			if apiKey != "" {
+				next.Firecrawl.APIKey = apiKey
+			}
+		}
+		if update.Firecrawl.BaseUrl != nil {
+			baseURL, err := agent.ValidateFirecrawlBaseURL(*update.Firecrawl.BaseUrl)
+			if err != nil {
+				return fmt.Errorf("webTools.firecrawl.baseUrl %w", err)
+			}
+			next.Firecrawl.BaseURL = baseURL
+		}
+		if update.Firecrawl.MaxResults != nil {
+			next.Firecrawl.MaxResults = *update.Firecrawl.MaxResults
+		}
+	}
 	if err := agent.ValidateWebToolsConfig(next); err != nil {
 		return err
 	}
@@ -350,6 +402,22 @@ func sanitizeWebToolsForAudit(update *api.AgentWebToolsConfig) map[string]any {
 			tavily["search_depth"] = *update.Tavily.SearchDepth
 		}
 		out["tavily"] = tavily
+	}
+	if update.Firecrawl != nil {
+		firecrawl := map[string]any{}
+		if update.Firecrawl.ApiKey != nil && strings.TrimSpace(*update.Firecrawl.ApiKey) != "" {
+			firecrawl["api_key_provided"] = true
+		}
+		if update.Firecrawl.ClearApiKey != nil {
+			firecrawl["clear_api_key"] = *update.Firecrawl.ClearApiKey
+		}
+		if update.Firecrawl.BaseUrl != nil {
+			firecrawl["base_url"] = *update.Firecrawl.BaseUrl
+		}
+		if update.Firecrawl.MaxResults != nil {
+			firecrawl["max_results"] = *update.Firecrawl.MaxResults
+		}
+		out["firecrawl"] = firecrawl
 	}
 	return out
 }

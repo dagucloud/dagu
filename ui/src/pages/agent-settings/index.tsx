@@ -68,6 +68,9 @@ type AgentBashRule = components['schemas']['AgentBashRule'];
 type UpdateAgentConfigRequest =
   components['schemas']['UpdateAgentConfigRequest'];
 type AgentAuthProviderStatus = components['schemas']['AgentAuthProviderStatus'];
+type WebSearchBackend = 'model' | AgentWebToolsBackend;
+
+const MODEL_WEB_SEARCH_BACKEND: WebSearchBackend = 'model';
 
 type SavedAgentConfig = {
   enabled: boolean;
@@ -77,9 +80,12 @@ type SavedAgentConfig = {
   webSearchMaxUses?: number;
   webToolsEnabled: boolean;
   webToolsBackend?: AgentWebToolsBackend;
+  webBackend: WebSearchBackend;
   tavilyApiKeyConfigured: boolean;
   tavilyMaxResults?: number;
   tavilySearchDepth?: AgentTavilyWebToolsConfigSearchDepth;
+  firecrawlApiKeyConfigured: boolean;
+  firecrawlMaxResults?: number;
 };
 
 type ToolMeta = {
@@ -150,6 +156,21 @@ function canonicalizeToolPolicy(
   };
 }
 
+function webBackendFromConfig(
+  data: components['schemas']['AgentConfigResponse']
+): WebSearchBackend {
+  if (data.webTools?.enabled) {
+    return data.webTools.backend || AgentWebToolsBackend.tavily;
+  }
+  return MODEL_WEB_SEARCH_BACKEND;
+}
+
+function webAccessEnabledFromConfig(
+  data: components['schemas']['AgentConfigResponse']
+): boolean {
+  return Boolean(data.webSearch?.enabled || data.webTools?.enabled);
+}
+
 export default function AgentSettingsPage({
   mode = 'settings',
 }: AgentSettingsPageProps): ReactNode {
@@ -182,11 +203,13 @@ export default function AgentSettingsPage({
   const [bashRuleIds, setBashRuleIds] = useState<string[]>([]);
   const [models, setModels] = useState<ModelConfig[]>([]);
   const [presets, setPresets] = useState<ModelPreset[]>([]);
-  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const [webAccessEnabled, setWebAccessEnabled] = useState(false);
+  const [webBackend, setWebBackend] = useState<WebSearchBackend>(
+    MODEL_WEB_SEARCH_BACKEND
+  );
   const [webSearchMaxUses, setWebSearchMaxUses] = useState<
     number | undefined
   >();
-  const [webToolsEnabled, setWebToolsEnabled] = useState(false);
   const [webToolsBackend, setWebToolsBackend] = useState<AgentWebToolsBackend>(
     AgentWebToolsBackend.tavily
   );
@@ -200,6 +223,13 @@ export default function AgentSettingsPage({
     useState<AgentTavilyWebToolsConfigSearchDepth>(
       AgentTavilyWebToolsConfigSearchDepth.basic
     );
+  const [firecrawlApiKeyConfigured, setFirecrawlApiKeyConfigured] =
+    useState(false);
+  const [firecrawlApiKeyInput, setFirecrawlApiKeyInput] = useState('');
+  const [firecrawlClearApiKey, setFirecrawlClearApiKey] = useState(false);
+  const [firecrawlMaxResults, setFirecrawlMaxResults] = useState<
+    number | undefined
+  >();
 
   // Modal states
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -253,9 +283,11 @@ export default function AgentSettingsPage({
         setEnabled(data.enabled ?? false);
         setDefaultModelId(data.defaultModelId);
         setToolPolicy(normalizedPolicy);
-        setWebSearchEnabled(data.webSearch?.enabled ?? false);
+        const nextWebAccessEnabled = webAccessEnabledFromConfig(data);
+        const nextWebBackend = webBackendFromConfig(data);
+        setWebAccessEnabled(nextWebAccessEnabled);
+        setWebBackend(nextWebBackend);
         setWebSearchMaxUses(data.webSearch?.maxUses ?? undefined);
-        setWebToolsEnabled(data.webTools?.enabled ?? false);
         setWebToolsBackend(
           data.webTools?.backend || AgentWebToolsBackend.tavily
         );
@@ -269,6 +301,14 @@ export default function AgentSettingsPage({
           data.webTools?.tavily?.searchDepth ??
             AgentTavilyWebToolsConfigSearchDepth.basic
         );
+        setFirecrawlApiKeyConfigured(
+          data.webTools?.firecrawl?.apiKeyConfigured ?? false
+        );
+        setFirecrawlApiKeyInput('');
+        setFirecrawlClearApiKey(false);
+        setFirecrawlMaxResults(
+          data.webTools?.firecrawl?.maxResults ?? undefined
+        );
         setSavedConfig({
           enabled: data.enabled ?? false,
           defaultModelId: data.defaultModelId,
@@ -277,12 +317,17 @@ export default function AgentSettingsPage({
           webSearchMaxUses: data.webSearch?.maxUses ?? undefined,
           webToolsEnabled: data.webTools?.enabled ?? false,
           webToolsBackend: data.webTools?.backend || AgentWebToolsBackend.tavily,
+          webBackend: nextWebBackend,
           tavilyApiKeyConfigured:
             data.webTools?.tavily?.apiKeyConfigured ?? false,
           tavilyMaxResults: data.webTools?.tavily?.maxResults ?? undefined,
           tavilySearchDepth:
             data.webTools?.tavily?.searchDepth ??
             AgentTavilyWebToolsConfigSearchDepth.basic,
+          firecrawlApiKeyConfigured:
+            data.webTools?.firecrawl?.apiKeyConfigured ?? false,
+          firecrawlMaxResults:
+            data.webTools?.firecrawl?.maxResults ?? undefined,
         });
         setBashRuleIds(
           buildBashRuleIDs(normalizedPolicy.bash?.rules?.length || 0)
@@ -369,33 +414,66 @@ export default function AgentSettingsPage({
       }
       if (
         !savedConfig ||
-        webSearchEnabled !== savedConfig.webSearchEnabled ||
-        webSearchMaxUses !== savedConfig.webSearchMaxUses
+        (webAccessEnabled &&
+          webBackend === MODEL_WEB_SEARCH_BACKEND) !==
+          savedConfig.webSearchEnabled ||
+        (webAccessEnabled &&
+          webBackend === MODEL_WEB_SEARCH_BACKEND &&
+          webSearchMaxUses !== savedConfig.webSearchMaxUses)
       ) {
         requestBody.webSearch = {
-          enabled: webSearchEnabled,
-          maxUses: webSearchMaxUses,
+          enabled:
+            webAccessEnabled && webBackend === MODEL_WEB_SEARCH_BACKEND,
+          maxUses:
+            webAccessEnabled && webBackend === MODEL_WEB_SEARCH_BACKEND
+              ? webSearchMaxUses
+              : undefined,
         };
       }
       const tavilyApiKey = tavilyApiKeyInput.trim();
+      const firecrawlApiKey = firecrawlApiKeyInput.trim();
+      const selectedToolBackend =
+        webBackend === MODEL_WEB_SEARCH_BACKEND
+          ? webToolsBackend
+          : (webBackend as AgentWebToolsBackend);
+      const nextWebToolsEnabled =
+        webAccessEnabled && webBackend !== MODEL_WEB_SEARCH_BACKEND;
       if (
         !savedConfig ||
-        webToolsEnabled !== savedConfig.webToolsEnabled ||
-        webToolsBackend !== savedConfig.webToolsBackend ||
+        nextWebToolsEnabled !== savedConfig.webToolsEnabled ||
+        selectedToolBackend !== savedConfig.webToolsBackend ||
         tavilyMaxResults !== savedConfig.tavilyMaxResults ||
         tavilySearchDepth !== savedConfig.tavilySearchDepth ||
         tavilyApiKey !== '' ||
-        tavilyClearApiKey
+        tavilyClearApiKey ||
+        firecrawlMaxResults !== savedConfig.firecrawlMaxResults ||
+        firecrawlApiKey !== '' ||
+        firecrawlClearApiKey
       ) {
         requestBody.webTools = {
-          enabled: webToolsEnabled,
-          backend: webToolsBackend,
-          tavily: {
-            maxResults: tavilyMaxResults,
-            searchDepth: tavilySearchDepth,
-            ...(tavilyApiKey !== '' ? { apiKey: tavilyApiKey } : {}),
-            ...(tavilyClearApiKey ? { clearApiKey: true } : {}),
-          },
+          enabled: nextWebToolsEnabled,
+          backend: selectedToolBackend,
+          ...(selectedToolBackend === AgentWebToolsBackend.tavily
+            ? {
+                tavily: {
+                  maxResults: tavilyMaxResults,
+                  searchDepth: tavilySearchDepth,
+                  ...(tavilyApiKey !== '' ? { apiKey: tavilyApiKey } : {}),
+                  ...(tavilyClearApiKey ? { clearApiKey: true } : {}),
+                },
+              }
+            : {}),
+          ...(selectedToolBackend === AgentWebToolsBackend.firecrawl
+            ? {
+                firecrawl: {
+                  maxResults: firecrawlMaxResults,
+                  ...(firecrawlApiKey !== ''
+                    ? { apiKey: firecrawlApiKey }
+                    : {}),
+                  ...(firecrawlClearApiKey ? { clearApiKey: true } : {}),
+                },
+              }
+            : {}),
         };
       }
 
@@ -417,9 +495,11 @@ export default function AgentSettingsPage({
       setEnabled(data.enabled ?? false);
       setDefaultModelId(data.defaultModelId);
       setToolPolicy(normalizedPolicy);
-      setWebSearchEnabled(data.webSearch?.enabled ?? false);
+      const nextWebAccessEnabled = webAccessEnabledFromConfig(data);
+      const nextWebBackend = webBackendFromConfig(data);
+      setWebAccessEnabled(nextWebAccessEnabled);
+      setWebBackend(nextWebBackend);
       setWebSearchMaxUses(data.webSearch?.maxUses ?? undefined);
-      setWebToolsEnabled(data.webTools?.enabled ?? false);
       setWebToolsBackend(data.webTools?.backend || AgentWebToolsBackend.tavily);
       setTavilyApiKeyConfigured(
         data.webTools?.tavily?.apiKeyConfigured ?? false
@@ -431,6 +511,12 @@ export default function AgentSettingsPage({
         data.webTools?.tavily?.searchDepth ??
           AgentTavilyWebToolsConfigSearchDepth.basic
       );
+      setFirecrawlApiKeyConfigured(
+        data.webTools?.firecrawl?.apiKeyConfigured ?? false
+      );
+      setFirecrawlApiKeyInput('');
+      setFirecrawlClearApiKey(false);
+      setFirecrawlMaxResults(data.webTools?.firecrawl?.maxResults ?? undefined);
       setSavedConfig({
         enabled: data.enabled ?? false,
         defaultModelId: data.defaultModelId,
@@ -439,12 +525,17 @@ export default function AgentSettingsPage({
         webSearchMaxUses: data.webSearch?.maxUses ?? undefined,
         webToolsEnabled: data.webTools?.enabled ?? false,
         webToolsBackend: data.webTools?.backend || AgentWebToolsBackend.tavily,
+        webBackend: nextWebBackend,
         tavilyApiKeyConfigured:
           data.webTools?.tavily?.apiKeyConfigured ?? false,
         tavilyMaxResults: data.webTools?.tavily?.maxResults ?? undefined,
         tavilySearchDepth:
           data.webTools?.tavily?.searchDepth ??
           AgentTavilyWebToolsConfigSearchDepth.basic,
+        firecrawlApiKeyConfigured:
+          data.webTools?.firecrawl?.apiKeyConfigured ?? false,
+        firecrawlMaxResults:
+          data.webTools?.firecrawl?.maxResults ?? undefined,
       });
       updateConfig({ agentEnabled: data.enabled ?? false });
       setSuccess('Configuration saved successfully');
@@ -658,7 +749,7 @@ export default function AgentSettingsPage({
           </h1>
           <p className="text-sm text-muted-foreground">
             {isToolsPage
-              ? 'Control agent tool access, model web search, Tavily tools, and bash policy'
+              ? 'Control agent tool access, web search backend, and bash policy'
               : 'Configure the AI assistant for workflow generation'}
           </p>
         </div>
@@ -733,93 +824,86 @@ export default function AgentSettingsPage({
       {/* Tool Permissions */}
       {isToolsPage && (
         <>
-          {/* Model Web Search */}
-          <div className="card-obsidian p-4 space-y-4 max-w-xl">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="web-search" className="text-sm font-medium">
-                  Model Web Search
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  Enable provider-native web search on supported models
-                </p>
-              </div>
-              <Switch
-                id="web-search"
-                checked={webSearchEnabled}
-                onCheckedChange={setWebSearchEnabled}
-              />
-            </div>
-
-            {webSearchEnabled && (
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">
-                  Max Uses per Request
-                </Label>
-                <Input
-                  type="number"
-                  min={1}
-                  className="h-8 text-xs max-w-[200px]"
-                  placeholder="No limit"
-                  value={webSearchMaxUses ?? ''}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === '') {
-                      setWebSearchMaxUses(undefined);
-                      return;
-                    }
-                    const parsed = parseInt(val, 10);
-                    setWebSearchMaxUses(
-                      Number.isNaN(parsed) || parsed < 1 ? undefined : parsed
-                    );
-                  }}
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Tavily Web Tools */}
+          {/* Web Search Backend */}
           <div className="card-obsidian p-4 space-y-4 max-w-xl">
             <div className="flex items-center justify-between gap-4">
               <div className="space-y-0.5">
-                <Label htmlFor="web-tools" className="text-sm font-medium">
-                  Tavily Web Tools
+                <Label htmlFor="web-access" className="text-sm font-medium">
+                  Web Search Backend
                 </Label>
                 <p className="text-xs text-muted-foreground">
-                  Enable the web_search and web_extract function tools
+                  Choose provider-native search or a hosted web tool backend
                 </p>
               </div>
               <Switch
-                id="web-tools"
-                checked={webToolsEnabled}
-                onCheckedChange={setWebToolsEnabled}
+                id="web-access"
+                checked={webAccessEnabled}
+                onCheckedChange={setWebAccessEnabled}
               />
             </div>
 
-            {webToolsEnabled && (
+            {webAccessEnabled && (
               <div className="space-y-4">
                 <div className="space-y-1">
                   <Label className="text-xs text-muted-foreground">
                     Backend
                   </Label>
                   <Select
-                    value={webToolsBackend}
-                    onValueChange={(value) =>
-                      setWebToolsBackend(value as AgentWebToolsBackend)
-                    }
+                    value={webBackend}
+                    onValueChange={(value) => {
+                      const next = value as WebSearchBackend;
+                      setWebBackend(next);
+                      if (next !== MODEL_WEB_SEARCH_BACKEND) {
+                        setWebToolsBackend(next as AgentWebToolsBackend);
+                      }
+                    }}
                   >
                     <SelectTrigger className="h-8 text-xs max-w-[220px]">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value={MODEL_WEB_SEARCH_BACKEND}>
+                        Model Web Search
+                      </SelectItem>
                       <SelectItem value={AgentWebToolsBackend.tavily}>
                         Tavily
+                      </SelectItem>
+                      <SelectItem value={AgentWebToolsBackend.firecrawl}>
+                        Firecrawl
                       </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
-                {webToolsBackend === AgentWebToolsBackend.tavily && (
+                {webBackend === MODEL_WEB_SEARCH_BACKEND && (
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">
+                      Max Uses per Request
+                    </Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      className="h-8 text-xs max-w-[200px]"
+                      placeholder="No limit"
+                      value={webSearchMaxUses ?? ''}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === '') {
+                          setWebSearchMaxUses(undefined);
+                          return;
+                        }
+                        const parsed = parseInt(val, 10);
+                        setWebSearchMaxUses(
+                          Number.isNaN(parsed) || parsed < 1
+                            ? undefined
+                            : parsed
+                        );
+                      }}
+                    />
+                  </div>
+                )}
+
+                {webBackend === AgentWebToolsBackend.tavily && (
                   <div className="space-y-3">
                     <div className="space-y-1">
                       <Label className="text-xs text-muted-foreground">
@@ -932,9 +1016,106 @@ export default function AgentSettingsPage({
                             >
                               Advanced
                             </SelectItem>
+                            <SelectItem
+                              value={AgentTavilyWebToolsConfigSearchDepth.fast}
+                            >
+                              Fast
+                            </SelectItem>
+                            <SelectItem
+                              value={
+                                AgentTavilyWebToolsConfigSearchDepth.ultra_fast
+                              }
+                            >
+                              Ultra Fast
+                            </SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {webBackend === AgentWebToolsBackend.firecrawl && (
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">
+                        Firecrawl API Key
+                      </Label>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Input
+                          type="password"
+                          className="h-8 text-xs max-w-[320px]"
+                          placeholder={
+                            firecrawlApiKeyConfigured &&
+                            !firecrawlClearApiKey
+                              ? 'Configured'
+                              : 'fc-...'
+                          }
+                          value={firecrawlApiKeyInput}
+                          onChange={(e) => {
+                            setFirecrawlApiKeyInput(e.target.value);
+                            if (e.target.value.trim() !== '') {
+                              setFirecrawlClearApiKey(false);
+                            }
+                          }}
+                        />
+                        {firecrawlApiKeyConfigured && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-xs"
+                            onClick={() => {
+                              setFirecrawlApiKeyInput('');
+                              setFirecrawlClearApiKey(true);
+                            }}
+                          >
+                            Clear Key
+                          </Button>
+                        )}
+                      </div>
+                      <p
+                        className={`text-xs ${
+                          firecrawlClearApiKey
+                            ? 'text-amber-600'
+                            : firecrawlApiKeyConfigured
+                              ? 'text-green-600'
+                              : 'text-muted-foreground'
+                        }`}
+                      >
+                        {firecrawlClearApiKey
+                          ? 'Key will be cleared on save'
+                          : firecrawlApiKeyConfigured
+                            ? 'Key configured'
+                            : 'Key not set'}
+                      </p>
+                    </div>
+
+                    <div className="space-y-1 max-w-[200px]">
+                      <Label className="text-xs text-muted-foreground">
+                        Max Results
+                      </Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={100}
+                        className="h-8 text-xs"
+                        placeholder="5"
+                        value={firecrawlMaxResults ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val === '') {
+                            setFirecrawlMaxResults(undefined);
+                            return;
+                          }
+                          const parsed = parseInt(val, 10);
+                          setFirecrawlMaxResults(
+                            Number.isNaN(parsed) || parsed < 1
+                              ? undefined
+                              : Math.min(parsed, 100)
+                          );
+                        }}
+                      />
                     </div>
                   </div>
                 )}

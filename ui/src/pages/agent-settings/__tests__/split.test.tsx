@@ -59,7 +59,7 @@ function createAgentData() {
         denyBehavior: AgentBashPolicyDenyBehavior.ask_user,
       },
     },
-    webSearch: { enabled: false },
+    webSearch: { enabled: true },
   };
 }
 
@@ -153,8 +153,8 @@ describe('agent settings split pages', () => {
 
     expect(await screen.findByText('Tool Permissions')).toBeVisible();
     expect(screen.getByText('Shell')).toBeVisible();
+    expect(screen.getByText('Web Search Backend')).toBeVisible();
     expect(screen.getByText('Model Web Search')).toBeVisible();
-    expect(screen.getByText('Tavily Web Tools')).toBeVisible();
     expect(screen.queryByText('Main Model')).not.toBeInTheDocument();
     expect(screen.queryByText('Models')).not.toBeInTheDocument();
     expect(getMock).not.toHaveBeenCalledWith(

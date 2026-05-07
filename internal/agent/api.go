@@ -524,6 +524,10 @@ func cloneWebToolsConfig(cfg *WebToolsConfig) *WebToolsConfig {
 		tavily := *cfg.Tavily
 		out.Tavily = &tavily
 	}
+	if cfg.Firecrawl != nil {
+		firecrawl := *cfg.Firecrawl
+		out.Firecrawl = &firecrawl
+	}
 	return &out
 }
 
