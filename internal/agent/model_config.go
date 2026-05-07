@@ -45,7 +45,7 @@ const (
 type WebToolsConfig struct {
 	Enabled bool                 `json:"enabled,omitempty"`
 	Backend WebToolsBackend      `json:"backend,omitempty"`
-	Tavily  TavilyWebToolsConfig `json:"tavily,omitempty"`
+	Tavily  TavilyWebToolsConfig `json:"tavily"`
 }
 
 // TavilyWebToolsConfig configures Tavily-backed web tools.
