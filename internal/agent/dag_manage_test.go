@@ -191,6 +191,7 @@ func TestDAGRunManageMessagesFallbackToStatusOnReadError(t *testing.T) {
 		"dagRunId": "run-1",
 	})
 	require.False(t, out.IsError, out.Content)
+	got = map[string]any{}
 	require.NoError(t, json.Unmarshal([]byte(out.Content), &got))
 	messages = got["messages"].([]any)
 	require.Len(t, messages, 1)
