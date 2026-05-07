@@ -76,8 +76,8 @@ func (s *mockRunbookDocStore) Get(_ context.Context, id string) (*Doc, error) {
 	if !ok {
 		return nil, ErrDocNotFound
 	}
-	copy := *doc
-	return &copy, nil
+	docCopy := *doc
+	return &docCopy, nil
 }
 
 func (s *mockRunbookDocStore) Create(_ context.Context, id, content string) error {
@@ -287,7 +287,7 @@ func TestRunbookManageTool_AvailabilityAndInputErrors(t *testing.T) {
 	assert.True(t, out.IsError)
 	assert.Contains(t, out.Content, "Failed to parse")
 
-	out = tool.Run(ToolContext{}, runbookInput(t, map[string]any{"action": "list"}))
+	out = tool.Run(ToolContext{Context: context.Background()}, runbookInput(t, map[string]any{"action": "list"}))
 	assert.False(t, out.IsError, out.Content)
 
 	out = tool.Run(ToolContext{Context: context.Background()}, runbookInput(t, map[string]any{"action": "bogus"}))
