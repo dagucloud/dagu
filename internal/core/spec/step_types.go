@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -990,12 +991,7 @@ func buildCustomStepFromSpecWithStack(
 }
 
 func customStepStackContains(stack []string, name string) bool {
-	for _, existing := range stack {
-		if existing == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(stack, name)
 }
 
 func buildExpandedCustomStep(
