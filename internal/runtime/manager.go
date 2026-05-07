@@ -214,6 +214,9 @@ func (m *Manager) IsRunning(ctx context.Context, dag *core.DAG, dagRunID string)
 	if st != nil && st.DAGRunID == dagRunID && st.Status == core.Running {
 		return true
 	}
+	if m.procStore == nil {
+		return false
+	}
 
 	runRef := exec.NewDAGRunRef(dag.Name, dagRunID)
 	if alive, err := m.procStore.IsRunAlive(ctx, dag.ProcGroup(), runRef); err == nil && alive {

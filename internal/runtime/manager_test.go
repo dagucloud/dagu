@@ -519,6 +519,15 @@ steps:
 
 		require.False(t, th.DAGRunMgr.IsRunning(ctx, dag.DAG, dagRunID))
 	})
+	t.Run("IsRunningWithoutProcStoreReturnsFalse", func(t *testing.T) {
+		dag := th.DAG(t, `steps:
+  - name: "1"
+    command: "exit 0"
+`)
+		mgr := runtime.NewManager(nil, nil, th.Config)
+
+		require.False(t, mgr.IsRunning(th.Context, dag.DAG, uuid.Must(uuid.NewV7()).String()))
+	})
 }
 
 func testNewStatus(dag *core.DAG, dagRunID string, dagStatus core.Status, nodeStatus core.NodeStatus) exec.DAGRunStatus {
