@@ -1,22 +1,15 @@
-import type React from 'react';
-import { XCircle } from 'lucide-react';
-
-import { Alert, AlertDescription } from '@/components/ui/alert';
-
 export function ErrorMessage({
   content,
 }: {
   content: string;
 }): React.ReactNode {
   return (
-    <Alert
-      variant="destructive"
-      className="px-3 py-2 text-sm [&>svg]:left-3 [&>svg]:top-2.5 [&>svg~*]:pl-6"
-    >
-      <XCircle className="h-4 w-4" aria-hidden="true" />
-      <AlertDescription className="whitespace-pre-wrap break-words text-xs">
-        {content}
-      </AlertDescription>
-    </Alert>
+    <div className="flex pr-8">
+      <div className="max-w-full border-l-2 border-destructive/50 py-1 pl-2.5 pr-2 text-xs leading-relaxed">
+        <span className="whitespace-pre-wrap break-words font-mono text-[11px] text-foreground">
+          {content}
+        </span>
+      </div>
+    </div>
   );
 }

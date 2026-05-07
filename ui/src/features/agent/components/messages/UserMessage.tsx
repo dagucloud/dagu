@@ -13,7 +13,7 @@ export function UserMessage({
     <div className="flex justify-end pl-10">
       <div
         className={cn(
-          'max-w-[85%] rounded-md border border-primary/20 bg-primary px-3 py-2 text-sm text-primary-foreground shadow-sm',
+          'max-w-[85%] rounded-md border border-primary/15 bg-muted/70 px-3 py-2 text-sm text-foreground shadow-sm dark:bg-muted/40',
           isPending && 'opacity-60'
         )}
       >

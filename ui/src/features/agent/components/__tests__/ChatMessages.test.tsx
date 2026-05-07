@@ -8,13 +8,18 @@ import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { ChatMessages } from '../ChatMessages';
 import type { Message } from '../../types';
 
-function renderMessages(messages: Message[]) {
+function renderMessages(
+  messages: Message[],
+  options?: {
+    isWorking?: boolean;
+  }
+) {
   return render(
     <UserPreferencesProvider>
       <ChatMessages
         messages={messages}
         pendingUserMessage={null}
-        isWorking={false}
+        isWorking={options?.isWorking ?? false}
       />
     </UserPreferencesProvider>
   );
@@ -127,6 +132,44 @@ describe('ChatMessages tool activity', () => {
     expect(screen.queryByText(/\$0\.01/)).not.toBeInTheDocument();
   });
 
+  it('renders chat errors as raw developer text', () => {
+    const { container } = renderMessages([
+      {
+        id: 'msg-1',
+        session_id: 'session-1',
+        type: 'error',
+        sequence_id: 1,
+        content:
+          "LLM request failed: openai-codex API error (status 400): Invalid schema for function 'patch'",
+        created_at: '2026-05-07T00:00:00Z',
+      },
+    ]);
+
+    expect(screen.getByText(/LLM request failed/i)).toBeInTheDocument();
+    expect(container.textContent).not.toContain('ERROR:');
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('renders the working state as a quiet ASCII indicator', () => {
+    const { container } = renderMessages(
+      [
+        {
+          id: 'msg-1',
+          session_id: 'session-1',
+          type: 'assistant',
+          sequence_id: 1,
+          content: 'Creating the DAG.',
+          created_at: '2026-05-07T00:00:00Z',
+        },
+      ],
+      { isWorking: true }
+    );
+
+    expect(container.textContent).toContain('...');
+    expect(screen.queryByText(/Agent is working/i)).not.toBeInTheDocument();
+    expect(container.querySelector('.animate-spin')).toBeNull();
+  });
+
   it('uses action-specific short labels for tools', () => {
     renderMessages([
       patchMessage('msg-1', 'call-1', {
@@ -187,5 +230,24 @@ describe('ChatMessages tool activity', () => {
     ]);
 
     expect(screen.getByText('Standalone tool result')).toBeInTheDocument();
+  });
+
+  it('does not render navigation ui_action messages', () => {
+    renderMessages([
+      {
+        id: 'msg-1',
+        session_id: 'session-1',
+        type: 'ui_action',
+        sequence_id: 1,
+        ui_action: {
+          type: 'navigate',
+          path: '/dags/sample_parallel_report.yaml',
+        },
+        created_at: '2026-05-07T00:00:00Z',
+      },
+    ]);
+
+    expect(screen.queryByText('Navigation')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Navigating to/i)).not.toBeInTheDocument();
   });
 });

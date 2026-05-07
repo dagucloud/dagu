@@ -1,7 +1,4 @@
 import { useCallback, useLayoutEffect, useMemo, useRef } from 'react';
-import { Loader2 } from 'lucide-react';
-
-import { Badge } from '@/components/ui/badge';
 
 import { DelegateInfo, Message, UserPromptResponse } from '../types';
 import { CommandApprovalMessage } from './CommandApprovalMessage';
@@ -10,7 +7,6 @@ import {
   UserMessage,
   AssistantMessage,
   ErrorMessage,
-  UIActionMessage,
   ToolResultMessage,
 } from './messages';
 
@@ -130,14 +126,26 @@ export function ChatMessages({
           <UserMessage content={pendingUserMessage} isPending />
         )}
         {isWorking && !hasPendingPrompt && (
-          <div className="flex items-center gap-2">
-            <Badge variant="warning" className="h-6 px-2">
-              <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
-              Agent is working
-            </Badge>
-          </div>
+          <WorkingIndicator />
         )}
       </div>
+    </div>
+  );
+}
+
+function WorkingIndicator(): React.ReactNode {
+  return (
+    <div
+      role="status"
+      aria-label="Agent response in progress"
+      className="flex pl-1"
+    >
+      <span
+        aria-hidden="true"
+        className="inline-block font-mono text-sm leading-none text-muted-foreground motion-safe:animate-pulse motion-reduce:animate-none"
+      >
+        ...
+      </span>
     </div>
   );
 }
@@ -211,7 +219,7 @@ function MessageItem({
     case 'error':
       return <ErrorMessage content={message.content ?? ''} />;
     case 'ui_action':
-      return <UIActionMessage action={message.ui_action} />;
+      return null;
     case 'user_prompt':
       if (!message.user_prompt || !onPromptRespond) return null;
       if (message.user_prompt.prompt_type === 'command_approval') {
