@@ -10,6 +10,7 @@ import (
 	"syscall"
 )
 
+// unsupportedListenErrorForTest returns a Unix unsupported-listen error.
 func unsupportedListenErrorForTest() error {
 	return &net.OpError{
 		Op:  "listen",

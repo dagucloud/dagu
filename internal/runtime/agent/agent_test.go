@@ -857,12 +857,14 @@ type fakeSocketServer struct {
 	serveErr error
 }
 
+// fakeSocketServerFactory returns a socket factory with deterministic serve behavior.
 func fakeSocketServerFactory(serveErr error) agent.SocketServerFactory {
 	return func(string, sock.HTTPHandlerFunc) (agent.SocketServer, error) {
 		return &fakeSocketServer{serveErr: serveErr}, nil
 	}
 }
 
+// Serve reports the configured startup result through the listen channel.
 func (s *fakeSocketServer) Serve(_ context.Context, listen chan error) error {
 	if listen != nil {
 		listen <- s.serveErr
@@ -870,6 +872,7 @@ func (s *fakeSocketServer) Serve(_ context.Context, listen chan error) error {
 	return s.serveErr
 }
 
+// Shutdown is a no-op for the fake socket server.
 func (*fakeSocketServer) Shutdown(context.Context) error {
 	return nil
 }

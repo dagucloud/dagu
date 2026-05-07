@@ -11,6 +11,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// unsupportedListenErrorForTest returns a Windows unsupported-listen error.
 func unsupportedListenErrorForTest() error {
 	return &net.OpError{
 		Op:  "listen",

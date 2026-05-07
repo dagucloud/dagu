@@ -225,6 +225,7 @@ type SocketServer interface {
 // SocketServerFactory creates a local status/control transport.
 type SocketServerFactory func(addr string, handlerFunc sock.HTTPHandlerFunc) (SocketServer, error)
 
+// defaultSocketServerFactory creates the production Unix socket server.
 func defaultSocketServerFactory(addr string, handlerFunc sock.HTTPHandlerFunc) (SocketServer, error) {
 	return sock.NewServer(addr, handlerFunc)
 }
