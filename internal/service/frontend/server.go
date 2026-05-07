@@ -774,7 +774,6 @@ func initAgentAPI(ctx context.Context, store *fileagentconfig.Store, modelStore 
 		Logger:                slog.Default(),
 		SessionStore:          sessStore,
 		DAGStore:              dagStore,
-		DAGDefinitionStore:    dagStore,
 		DAGRunStore:           dagRunStore,
 		Hooks:                 hooks,
 		EventService:          eventSvc,

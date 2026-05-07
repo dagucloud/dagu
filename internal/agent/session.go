@@ -59,7 +59,7 @@ type SessionManager struct {
 	memoryStore           MemoryStore
 	docStore              DocStore
 	workspaceStore        workspacepkg.Store
-	dagDefinitionStore    exec.DAGStore
+	dagStore              exec.DAGStore
 	dagRunStore           exec.DAGRunStore
 	dagRunWatcher         DAGRunWatcher
 	dagName               string
@@ -109,8 +109,8 @@ type SessionManagerConfig struct {
 	MemoryStore     MemoryStore
 	DocStore        DocStore
 	WorkspaceStore  workspacepkg.Store
-	// DAGDefinitionStore provides DAG definitions for dag_def_manage.
-	DAGDefinitionStore exec.DAGStore
+	// DAGStore provides DAG metadata and definitions for DAG management tools.
+	DAGStore exec.DAGStore
 	// DAGRunStore provides DAG run history for dag_run_manage.
 	DAGRunStore exec.DAGRunStore
 	// DAGRunWatcher provides session-local run watches for dag_run_manage.
@@ -208,7 +208,7 @@ func NewSessionManager(cfg SessionManagerConfig) *SessionManager {
 		memoryStore:           cfg.MemoryStore,
 		docStore:              cfg.DocStore,
 		workspaceStore:        cfg.WorkspaceStore,
-		dagDefinitionStore:    cfg.DAGDefinitionStore,
+		dagStore:              cfg.DAGStore,
 		dagRunStore:           cfg.DAGRunStore,
 		dagRunWatcher:         cfg.DAGRunWatcher,
 		dagName:               cfg.DAGName,
@@ -840,7 +840,7 @@ func (sm *SessionManager) createLoop(provider llm.Provider, model string, histor
 		History:  history,
 		Tools: CreateTools(ToolConfig{
 			DAGsDir:               sm.environment.DAGsDir,
-			DAGStore:              sm.dagDefinitionStore,
+			DAGStore:              sm.dagStore,
 			DAGRunStore:           sm.dagRunStore,
 			DAGRunWatcher:         sm.dagRunWatcher,
 			DocStore:              sm.docStore,

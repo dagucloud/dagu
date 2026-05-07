@@ -94,8 +94,7 @@ type API struct {
 	providers             *ProviderCache
 	workingDir            string
 	logger                *slog.Logger
-	dagStore              DAGMetadataStore // For resolving DAG file paths
-	dagDefinitionStore    exec.DAGStore    // For dag_def_manage
+	dagStore              exec.DAGStore    // For resolving DAG file paths and dag_def_manage
 	dagRunStore           exec.DAGRunStore // For dag_run_manage
 	dagRunWatcher         DAGRunWatcher    // For dag_run_manage watch actions
 	environment           EnvironmentInfo
@@ -117,8 +116,7 @@ type APIConfig struct {
 	WorkingDir            string
 	Logger                *slog.Logger
 	SessionStore          SessionStore
-	DAGStore              DAGMetadataStore // For resolving DAG file paths
-	DAGDefinitionStore    exec.DAGStore    // For dag_def_manage
+	DAGStore              exec.DAGStore    // For resolving DAG file paths and dag_def_manage
 	DAGRunStore           exec.DAGRunStore // For dag_run_manage
 	DAGRunWatcher         DAGRunWatcher    // Optional override for dag_run_manage watch actions
 	Environment           EnvironmentInfo
@@ -160,13 +158,6 @@ func NewAPI(cfg APIConfig) *API {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	dagDefinitionStore := cfg.DAGDefinitionStore
-	if dagDefinitionStore == nil {
-		if store, ok := cfg.DAGStore.(exec.DAGStore); ok {
-			dagDefinitionStore = store
-		}
-	}
-
 	api := &API{
 		configStore:           cfg.ConfigStore,
 		modelStore:            cfg.ModelStore,
@@ -176,7 +167,6 @@ func NewAPI(cfg APIConfig) *API {
 		logger:                logger,
 		store:                 cfg.SessionStore,
 		dagStore:              cfg.DAGStore,
-		dagDefinitionStore:    dagDefinitionStore,
 		dagRunStore:           cfg.DAGRunStore,
 		dagRunWatcher:         cfg.DAGRunWatcher,
 		environment:           cfg.Environment,
@@ -591,7 +581,7 @@ func (a *API) buildSessionManagerConfig(id string, user UserIdentity, cfg sessio
 		MemoryStore:           a.memoryStore,
 		DocStore:              a.docStore,
 		WorkspaceStore:        a.workspaceStore,
-		DAGDefinitionStore:    a.dagDefinitionStore,
+		DAGStore:              a.dagStore,
 		DAGRunStore:           a.dagRunStore,
 		DAGRunWatcher:         a.dagRunWatcher,
 		DAGName:               cfg.dagName,
