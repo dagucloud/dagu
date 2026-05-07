@@ -8,6 +8,7 @@ type Props = {
   onClick?: (id: string) => void;
   onDoubleClick?: (id: string) => void;
   onRightClick?: (id: string) => void;
+  fallback?: React.ReactNode;
 };
 
 // Helper function to get computed CSS variable value with fallback
@@ -89,6 +90,7 @@ function Mermaid({
   onClick,
   onDoubleClick,
   onRightClick,
+  fallback,
 }: Props) {
   const mermaidRef = React.useRef<HTMLDivElement>(null); // Ref for the inner div holding the SVG
   const scrollContainerRef = React.useRef<HTMLDivElement>(null); // Ref for the outer scrollable div
@@ -100,6 +102,7 @@ function Mermaid({
   const [uniqueId] = React.useState(
     () => `mermaid-${Math.random().toString(36).substr(2, 9)}`
   );
+  const [renderError, setRenderError] = React.useState<string | null>(null);
 
   // Extract background-related styles for the scroll container
   const { background, backgroundSize, backgroundColor, ...contentStyle } =
@@ -137,6 +140,7 @@ function Mermaid({
     }
 
     try {
+      setRenderError(null);
       // Reinitialize Mermaid to pick up current theme
       initializeMermaid();
 
@@ -254,12 +258,9 @@ function Mermaid({
       }
     } catch (error: unknown) {
       console.error('Mermaid render error:', error);
+      setRenderError(String(error));
       if (mermaidRef.current) {
-        mermaidRef.current.innerHTML = `
-          <div style="color: red; padding: 10px; white-space: pre-wrap;">
-            Error rendering diagram: ${String(error)}
-          </div>
-        `;
+        mermaidRef.current.innerHTML = '';
       }
     }
   };
@@ -317,11 +318,13 @@ function Mermaid({
         ref={mermaidRef} // Keep ref for mermaid rendering target
         style={{
           ...mStyle,
+          display: renderError ? 'none' : mStyle.display,
           // Remove overflow from inner div, let outer div handle it
           // overflow: 'auto',
           // maxHeight: '80vh', // Max height is now on the outer div
         }}
       />
+      {renderError && fallback}
     </div>
   );
 }

@@ -1078,7 +1078,7 @@ func (srv *Server) setupAssetRoutes(r *chi.Mux, basePath string) {
 	}
 
 	r.Get(assetsPath, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "max-age=86400")
+		w.Header().Set("Cache-Control", cacheControlForAsset(r.URL.Path))
 
 		// Serve schemas from shared package instead of embedded assets
 		if strings.HasSuffix(r.URL.Path, "dag.schema.json") {
@@ -1097,6 +1097,13 @@ func (srv *Server) setupAssetRoutes(r *chi.Mux, basePath string) {
 		}
 		fileServer.ServeHTTP(w, r)
 	})
+}
+
+func cacheControlForAsset(assetPath string) string {
+	if strings.HasSuffix(strings.ToLower(path.Base(assetPath)), ".js") {
+		return "no-cache, no-store, must-revalidate"
+	}
+	return "max-age=86400"
 }
 
 func (srv *Server) setupOIDCRoutes(r *chi.Mux, basePath string) {

@@ -204,10 +204,13 @@ function Graph({
       const id = toMermaidNodeId(step.name);
       const c = graphStatusMap[status] || '';
 
-      // Check if this is a sub dagRun node (has a call property)
-      const subDAGName = step.call;
+      const subRuns = [
+        ...(node?.subRuns ?? []),
+        ...(node?.subRunsRepeated ?? []),
+      ];
+      const subDAGName = step.call || subRuns[0]?.dagName;
       // Check if this is a sub dagRun node (has a 'run' property)
-      const isSubDAGRun = !!step.call;
+      const isSubDAGRun = !!subDAGName;
       const hasParallelExecutions = !!step.parallel;
       // Check if this is a router step
       const isRouterStep =
@@ -217,12 +220,12 @@ function Graph({
       // Escape any special characters in the label to prevent Mermaid parsing errors
       let label = step.id || step.name;
       if (isSubDAGRun && subDAGName) {
-        if (hasParallelExecutions && node?.subRuns) {
+        if (hasParallelExecutions && subRuns.length > 0) {
           // Show parallel execution count in the label - avoid brackets in stadium nodes
-          label = `${step.name} → ${subDAGName} x${node.subRuns.length}`;
+          label = `${step.name} -> ${subDAGName} x${subRuns.length}`;
         } else {
           // Single sub DAG run
-          label = `${step.name} → ${subDAGName}`;
+          label = `${step.name} -> ${subDAGName}`;
         }
       }
 
@@ -458,6 +461,15 @@ function Graph({
           onClick={selectOnClick ? onClickNode : undefined}
           onDoubleClick={onDoubleClickNode ?? onClickNode}
           onRightClick={onRightClickNode}
+          fallback={
+            <GraphFallback
+              steps={steps}
+              selectOnClick={selectOnClick}
+              onClickNode={onClickNode}
+              onDoubleClickNode={onDoubleClickNode ?? onClickNode}
+              onRightClickNode={onRightClickNode}
+            />
+          }
         />
       </div>
 
@@ -489,6 +501,256 @@ function Graph({
       )}
     </div>
   );
+}
+
+function isRuntimeNode(
+  stepOrNode: components['schemas']['Step'] | components['schemas']['Node']
+): stepOrNode is components['schemas']['Node'] {
+  return 'step' in stepOrNode;
+}
+
+function getStepLabel(
+  step: components['schemas']['Step'],
+  node?: components['schemas']['Node']
+): string {
+  const subRuns = [...(node?.subRuns ?? []), ...(node?.subRunsRepeated ?? [])];
+  const subDAGName = step.call || subRuns[0]?.dagName;
+  const hasParallelExecutions = !!step.parallel;
+
+  if (!subDAGName) {
+    return step.id || step.name;
+  }
+  if (hasParallelExecutions && subRuns.length > 0) {
+    return `${step.name} -> ${subDAGName} x${subRuns.length}`;
+  }
+  return `${step.name} -> ${subDAGName}`;
+}
+
+type FallbackNode = {
+  id: string;
+  name: string;
+  label: string;
+  depends: string[];
+  status: NodeStatus;
+};
+
+type GraphFallbackProps = {
+  steps?: Steps;
+  selectOnClick: boolean;
+  onClickNode?: onClickNode;
+  onDoubleClickNode?: onClickNode;
+  onRightClickNode?: onRightClickNode;
+};
+
+function GraphFallback({
+  steps,
+  selectOnClick,
+  onClickNode,
+  onDoubleClickNode,
+  onRightClickNode,
+}: GraphFallbackProps): React.JSX.Element | null {
+  const clickTimeoutsRef = React.useRef<
+    Map<string, ReturnType<typeof setTimeout>>
+  >(new Map());
+
+  React.useEffect(() => {
+    return () => {
+      clickTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
+      clickTimeoutsRef.current.clear();
+    };
+  }, []);
+
+  const nodes = React.useMemo<FallbackNode[]>(() => {
+    return (steps ?? []).map((stepOrNode) => {
+      const node = isRuntimeNode(stepOrNode) ? stepOrNode : undefined;
+      const step = isRuntimeNode(stepOrNode) ? stepOrNode.step : stepOrNode;
+      return {
+        id: toMermaidNodeId(step.name),
+        name: step.name,
+        label: getStepLabel(step, node),
+        depends: step.depends ?? [],
+        status: node?.status ?? NodeStatus.NotStarted,
+      };
+    });
+  }, [steps]);
+
+  const handleClick = React.useCallback(
+    (id: string) => {
+      if (!selectOnClick || !onClickNode) {
+        return;
+      }
+      const existingTimeout = clickTimeoutsRef.current.get(id);
+      if (existingTimeout) {
+        clearTimeout(existingTimeout);
+      }
+      const timeout = setTimeout(() => {
+        clickTimeoutsRef.current.delete(id);
+        onClickNode(id);
+      }, 250);
+      clickTimeoutsRef.current.set(id, timeout);
+    },
+    [onClickNode, selectOnClick]
+  );
+
+  const handleDoubleClick = React.useCallback(
+    (id: string) => {
+      const existingTimeout = clickTimeoutsRef.current.get(id);
+      if (existingTimeout) {
+        clearTimeout(existingTimeout);
+        clickTimeoutsRef.current.delete(id);
+      }
+      onDoubleClickNode?.(id);
+    },
+    [onDoubleClickNode]
+  );
+
+  const handleRightClick = React.useCallback(
+    (event: React.MouseEvent, id: string) => {
+      if (!onRightClickNode) {
+        return;
+      }
+      event.preventDefault();
+      const existingTimeout = clickTimeoutsRef.current.get(id);
+      if (existingTimeout) {
+        clearTimeout(existingTimeout);
+        clickTimeoutsRef.current.delete(id);
+      }
+      onRightClickNode(id);
+    },
+    [onRightClickNode]
+  );
+
+  if (nodes.length === 0) {
+    return null;
+  }
+
+  const hasInteraction =
+    (selectOnClick && !!onClickNode) ||
+    !!onDoubleClickNode ||
+    !!onRightClickNode;
+
+  return (
+    <div
+      aria-label="Workflow graph"
+      className="min-w-full p-6 pr-24"
+      data-testid="graph-fallback"
+      role="list"
+    >
+      <div className="flex flex-wrap items-start gap-3">
+        {nodes.map((node) => (
+          <div key={node.id} role="listitem">
+            {hasInteraction ? (
+              <button
+                aria-label={`Inspect ${node.name}`}
+                className={fallbackNodeClassName(node.status, true)}
+                onClick={() => handleClick(node.id)}
+                onContextMenu={(event) => handleRightClick(event, node.id)}
+                onDoubleClick={() => handleDoubleClick(node.id)}
+                title={node.name}
+                type="button"
+              >
+                <FallbackNodeContent node={node} />
+              </button>
+            ) : (
+              <div
+                className={fallbackNodeClassName(node.status, false)}
+                title={node.name}
+              >
+                <FallbackNodeContent node={node} />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FallbackNodeContent({ node }: { node: FallbackNode }) {
+  const visibleDepends = node.depends.slice(0, 2);
+  const hiddenDepends = node.depends.length - visibleDepends.length;
+
+  return (
+    <>
+      <span
+        aria-hidden="true"
+        className={cn(
+          'h-2.5 w-2.5 flex-shrink-0 rounded-full',
+          fallbackStatusDotClassName(node.status)
+        )}
+      />
+      <span className="min-w-0 flex-1 truncate font-medium">{node.label}</span>
+      {visibleDepends.length > 0 && (
+        <span className="flex min-w-0 max-w-full flex-wrap gap-1">
+          {visibleDepends.map((dep) => (
+            <span
+              className="max-w-28 truncate rounded border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+              key={dep}
+              title={dep}
+            >
+              {dep}
+            </span>
+          ))}
+          {hiddenDepends > 0 && (
+            <span className="rounded border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              +{hiddenDepends}
+            </span>
+          )}
+        </span>
+      )}
+    </>
+  );
+}
+
+function fallbackNodeClassName(
+  status: NodeStatus,
+  interactive: boolean
+): string {
+  return cn(
+    'flex min-h-12 w-72 max-w-72 items-center gap-2 rounded-md border bg-card px-3 py-2 text-left text-sm shadow-sm',
+    fallbackStatusBorderClassName(status),
+    interactive &&
+      'cursor-pointer transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
+  );
+}
+
+function fallbackStatusBorderClassName(status: NodeStatus): string {
+  switch (status) {
+    case NodeStatus.Success:
+    case NodeStatus.Running:
+      return 'border-l-4 border-l-success';
+    case NodeStatus.Retrying:
+    case NodeStatus.Waiting:
+    case NodeStatus.PartialSuccess:
+      return 'border-l-4 border-l-warning';
+    case NodeStatus.Failed:
+    case NodeStatus.Rejected:
+      return 'border-l-4 border-l-destructive';
+    case NodeStatus.Aborted:
+      return 'border-l-4 border-l-primary';
+    default:
+      return 'border-l-4 border-l-muted-foreground/60';
+  }
+}
+
+function fallbackStatusDotClassName(status: NodeStatus): string {
+  switch (status) {
+    case NodeStatus.Success:
+      return 'bg-success';
+    case NodeStatus.Running:
+      return 'bg-success animate-pulse';
+    case NodeStatus.Retrying:
+    case NodeStatus.Waiting:
+    case NodeStatus.PartialSuccess:
+      return 'bg-warning';
+    case NodeStatus.Failed:
+    case NodeStatus.Rejected:
+      return 'bg-destructive';
+    case NodeStatus.Aborted:
+      return 'bg-primary';
+    default:
+      return 'bg-muted-foreground/60';
+  }
 }
 
 /**
