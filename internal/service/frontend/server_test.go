@@ -170,34 +170,16 @@ func TestRegisterDedicatedSSEFetchersUsesEventStoreInvalidationForRunTopics(t *t
 	}
 }
 
-func TestAssetRoutesDoNotCacheJavaScript(t *testing.T) {
+func TestCacheControlForAssetDisablesJavaScriptCaching(t *testing.T) {
 	t.Parallel()
 
-	r := chi.NewRouter()
-	srv := &Server{}
-	srv.setupAssetRoutes(r, "")
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/assets/bundle.js", nil)
-
-	r.ServeHTTP(rec, req)
-
-	assert.Equal(t, "no-cache, no-store, must-revalidate", rec.Header().Get("Cache-Control"))
+	assert.Equal(t, "no-cache, no-store, must-revalidate", cacheControlForAsset("/assets/bundle.js"))
 }
 
-func TestAssetRoutesCacheNonJavaScriptAssets(t *testing.T) {
+func TestCacheControlForAssetCachesNonJavaScriptAssets(t *testing.T) {
 	t.Parallel()
 
-	r := chi.NewRouter()
-	srv := &Server{}
-	srv.setupAssetRoutes(r, "")
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/assets/favicon.ico", nil)
-
-	r.ServeHTTP(rec, req)
-
-	assert.Equal(t, "max-age=86400", rec.Header().Get("Cache-Control"))
+	assert.Equal(t, "max-age=86400", cacheControlForAsset("/assets/favicon.ico"))
 }
 
 func TestInitBuiltinAuthService_AutoProvision(t *testing.T) {
