@@ -25,7 +25,7 @@ export function ChatHistoryTab({ dagRun }: ChatHistoryTabProps) {
     );
   }, [dagRun.nodes]);
 
-  // Determine default selected step: last finished chat step
+  // Determine default selected step: last finished chat/agent step
   const defaultStep = useMemo(() => {
     const finishedStatuses = [
       NodeStatus.Success,
@@ -64,8 +64,21 @@ export function ChatHistoryTab({ dagRun }: ChatHistoryTabProps) {
     }
   }, [dagRun.dagRunId, defaultStep, userSelectedStep]);
 
+  const selectedStepExists = useMemo(() => {
+    return historySteps.some((n) => n.step.name === selectedStep);
+  }, [historySteps, selectedStep]);
+
+  useEffect(() => {
+    if (selectedStep && !selectedStepExists) {
+      setUserSelectedStep(false);
+      setSelectedStep(defaultStep);
+    }
+  }, [defaultStep, selectedStep, selectedStepExists]);
+
+  const resolvedStep = selectedStepExists ? selectedStep : defaultStep;
+
   // Get selected node info
-  const selectedNode = historySteps.find((n) => n.step.name === selectedStep);
+  const selectedNode = historySteps.find((n) => n.step.name === resolvedStep);
   const isSelectedActive = isActiveNodeStatus(selectedNode?.status);
 
   // Determine if this is a sub-DAG run
@@ -91,7 +104,7 @@ export function ChatHistoryTab({ dagRun }: ChatHistoryTabProps) {
         </label>
         <select
           id="chat-step-select"
-          value={selectedStep || ''}
+          value={resolvedStep || ''}
           onChange={(e) => {
             setUserSelectedStep(true);
             setSelectedStep(e.target.value);
@@ -110,11 +123,11 @@ export function ChatHistoryTab({ dagRun }: ChatHistoryTabProps) {
       </div>
 
       {/* Messages table - only for selected step */}
-      {selectedStep && (
+      {resolvedStep && (
         <StepMessagesTable
           dagName={dagRun.name}
           dagRunId={dagRun.dagRunId}
-          stepName={selectedStep}
+          stepName={resolvedStep}
           isActive={isSelectedActive}
           subDAGRunId={isSubDAGRun ? dagRun.dagRunId : undefined}
           rootDagName={isSubDAGRun ? dagRun.rootDAGRunName : undefined}

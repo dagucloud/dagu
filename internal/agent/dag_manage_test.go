@@ -130,6 +130,19 @@ func TestDAGRunManageReadStepLogAndMessages(t *testing.T) {
 	assert.Equal(t, "assistant", messages[0].(map[string]any)["role"])
 }
 
+func TestDAGRunManageListRejectsConflictingTimeFilters(t *testing.T) {
+	tool := NewDAGRunManageTool(&dagRunManageTestStore{})
+
+	out := runJSONTool(t, tool, map[string]any{
+		"action": "list",
+		"last":   "1h",
+		"from":   "2026-05-07",
+	})
+
+	require.True(t, out.IsError)
+	assert.Contains(t, out.Content, "cannot use --last with --from or --to")
+}
+
 func TestDAGRunManageDiagnoseCollectsFailedStepContext(t *testing.T) {
 	logFile := writeTempLog(t, "ok\npanic: boom\n")
 	store := &dagRunManageTestStore{
@@ -334,6 +347,46 @@ func TestDAGRunWatchRegistryClearSessionRemovesActiveWatches(t *testing.T) {
 		WatchID:   info.WatchID,
 	})
 	require.Error(t, err)
+}
+
+func TestDAGRunWatchRegistryCompleteDoesNotCancelNotifyContextBeforeNotify(t *testing.T) {
+	status := &exec.DAGRunStatus{
+		Name:     "build",
+		DAGRunID: "run-1",
+		Status:   core.Succeeded,
+	}
+	parentCtx, cancelWatch := context.WithCancel(context.Background())
+	notifyCtx, cancelNotify := context.WithTimeout(parentCtx, time.Second)
+	defer cancelNotify()
+
+	registry := newDAGRunWatchRegistry(
+		&dagRunManageTestStore{status: status},
+		func(ctx context.Context, _ DAGRunWatchRequest, _ DAGRunWatchInfo, _ *exec.DAGRunStatus) error {
+			assert.NoError(t, ctx.Err())
+			return nil
+		},
+		slog.Default(),
+	)
+	watchID := "watch-1"
+	registry.watches[watchID] = &dagRunWatchEntry{
+		req: DAGRunWatchRequest{
+			SessionID: "session-1",
+			DAGName:   "build",
+			DAGRunID:  "run-1",
+			NotifyOn:  []string{"terminal"},
+		},
+		info: DAGRunWatchInfo{
+			WatchID:  watchID,
+			DAGName:  "build",
+			DAGRunID: "run-1",
+			State:    DAGRunWatchStateRunning,
+		},
+		cancel: cancelWatch,
+	}
+
+	_, err := registry.complete(notifyCtx, watchID, status)
+	require.NoError(t, err)
+	assert.ErrorIs(t, parentCtx.Err(), context.Canceled)
 }
 
 func TestDAGRunWatchRegistryExpiresStuckRun(t *testing.T) {

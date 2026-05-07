@@ -355,9 +355,7 @@ func (r *dagRunWatchRegistry) complete(ctx context.Context, watchID string, stat
 	entry.info.LastCheckedAt = now
 	entry.info.CompletedAt = &now
 	entry.info.LastError = ""
-	if entry.cancel != nil {
-		entry.cancel()
-	}
+	cancel := entry.cancel
 	shouldNotify := r.notify != nil && dagRunWatchShouldNotify(entry.req, status) && !entry.info.Notified && !entry.notifying
 	if shouldNotify {
 		entry.notifying = true
@@ -367,6 +365,9 @@ func (r *dagRunWatchRegistry) complete(ctx context.Context, watchID string, stat
 	r.mu.Unlock()
 
 	if !shouldNotify {
+		if cancel != nil {
+			cancel()
+		}
 		return info, nil
 	}
 	if err := r.notify(ctx, req, info, status); err != nil {
@@ -377,6 +378,9 @@ func (r *dagRunWatchRegistry) complete(ctx context.Context, watchID string, stat
 			info = entry.info
 		}
 		r.mu.Unlock()
+		if cancel != nil {
+			cancel()
+		}
 		return info, err
 	}
 
@@ -387,6 +391,9 @@ func (r *dagRunWatchRegistry) complete(ctx context.Context, watchID string, stat
 		info = entry.info
 	}
 	r.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 	return info, nil
 }
 

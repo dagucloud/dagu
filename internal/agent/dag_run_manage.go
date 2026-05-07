@@ -284,6 +284,9 @@ func dagRunManageList(ctx context.Context, store exec.DAGRunStore, args dagRunMa
 		}
 		opts = append(opts, exec.WithStatuses(statuses))
 	}
+	if args.Last != "" && (args.From != "" || args.To != "") {
+		return toolError("cannot use --last with --from or --to (conflicting time range specifications)")
+	}
 	if args.Last != "" {
 		from, err := parseDAGManageRelativeTime(args.Last, time.Now())
 		if err != nil {
