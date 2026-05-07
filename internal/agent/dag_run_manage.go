@@ -34,25 +34,25 @@ func init() {
 }
 
 type dagRunManageInput struct {
-	Action      string              `json:"action"`
-	DAGName     string              `json:"dagName,omitempty"`
-	DAGRunID    string              `json:"dagRunId,omitempty"`
-	SubDAGRunID string              `json:"subDAGRunId,omitempty"`
-	WatchID     string              `json:"watchId,omitempty"`
-	StepName    string              `json:"stepName,omitempty"`
-	Stream      string              `json:"stream,omitempty"`
-	Status      dagManageStringList `json:"status,omitempty"`
-	Labels      dagManageStringList `json:"labels,omitempty"`
-	NotifyOn    dagManageStringList `json:"notifyOn,omitempty"`
-	Last        string              `json:"last,omitempty"`
-	From        string              `json:"from,omitempty"`
-	To          string              `json:"to,omitempty"`
-	Limit       int                 `json:"limit,omitempty"`
-	Cursor      string              `json:"cursor,omitempty"`
-	Head        int                 `json:"head,omitempty"`
-	Tail        int                 `json:"tail,omitempty"`
-	Offset      int                 `json:"offset,omitempty"`
-	Encoding    string              `json:"encoding,omitempty"`
+	Action      string   `json:"action"`
+	DAGName     string   `json:"dagName,omitempty"`
+	DAGRunID    string   `json:"dagRunId,omitempty"`
+	SubDAGRunID string   `json:"subDAGRunId,omitempty"`
+	WatchID     string   `json:"watchId,omitempty"`
+	StepName    string   `json:"stepName,omitempty"`
+	Stream      string   `json:"stream,omitempty"`
+	Status      []string `json:"status,omitempty"`
+	Labels      []string `json:"labels,omitempty"`
+	NotifyOn    []string `json:"notifyOn,omitempty"`
+	Last        string   `json:"last,omitempty"`
+	From        string   `json:"from,omitempty"`
+	To          string   `json:"to,omitempty"`
+	Limit       int      `json:"limit,omitempty"`
+	Cursor      string   `json:"cursor,omitempty"`
+	Head        int      `json:"head,omitempty"`
+	Tail        int      `json:"tail,omitempty"`
+	Offset      int      `json:"offset,omitempty"`
+	Encoding    string   `json:"encoding,omitempty"`
 	// DiagnoseOnFailure defaults to true for watch notifications.
 	DiagnoseOnFailure *bool `json:"diagnoseOnFailure,omitempty"`
 }
@@ -64,47 +64,6 @@ type dagRunManageLogRef struct {
 	SubDAGRunID string `json:"subDAGRunId,omitempty"`
 	StepName    string `json:"stepName,omitempty"`
 	Stream      string `json:"stream"`
-}
-
-type dagRunManageRunSummary struct {
-	DAGName      string                        `json:"dagName"`
-	DAGRunID     string                        `json:"dagRunId"`
-	SubDAGRunID  string                        `json:"subDAGRunId,omitempty"`
-	AttemptID    string                        `json:"attemptId,omitempty"`
-	AttemptKey   string                        `json:"attemptKey,omitempty"`
-	Status       string                        `json:"status"`
-	TriggerType  string                        `json:"triggerType,omitempty"`
-	WorkerID     string                        `json:"workerId,omitempty"`
-	PID          exec.PID                      `json:"pid,omitempty"`
-	StartedAt    string                        `json:"startedAt,omitempty"`
-	FinishedAt   string                        `json:"finishedAt,omitempty"`
-	QueuedAt     string                        `json:"queuedAt,omitempty"`
-	ScheduleTime string                        `json:"scheduleTime,omitempty"`
-	Error        string                        `json:"error,omitempty"`
-	Params       string                        `json:"params,omitempty"`
-	ParamsList   []string                      `json:"paramsList,omitempty"`
-	Labels       []string                      `json:"labels,omitempty"`
-	LogRefs      map[string]dagRunManageLogRef `json:"logRefs,omitempty"`
-	Nodes        []dagRunManageNodeSummary     `json:"nodes,omitempty"`
-	Root         *dagRunManageRef              `json:"root,omitempty"`
-	Parent       *dagRunManageRef              `json:"parent,omitempty"`
-}
-
-type dagRunManageRef struct {
-	DAGName  string `json:"dagName"`
-	DAGRunID string `json:"dagRunId"`
-}
-
-type dagRunManageNodeSummary struct {
-	StepName     string                        `json:"stepName"`
-	Status       string                        `json:"status"`
-	ExecutorType string                        `json:"executorType,omitempty"`
-	StartedAt    string                        `json:"startedAt,omitempty"`
-	FinishedAt   string                        `json:"finishedAt,omitempty"`
-	RetryCount   int                           `json:"retryCount,omitempty"`
-	Error        string                        `json:"error,omitempty"`
-	LogRefs      map[string]dagRunManageLogRef `json:"logRefs,omitempty"`
-	SubRuns      []exec.SubDAGRun              `json:"subRuns,omitempty"`
 }
 
 type dagRunManageLogOutput struct {
@@ -120,31 +79,6 @@ type dagRunManageLogOutput struct {
 	TotalLines  int    `json:"totalLines"`
 	HasMore     bool   `json:"hasMore"`
 	IsEstimate  bool   `json:"isEstimate"`
-}
-
-type dagManageStringList []string
-
-func (l *dagManageStringList) UnmarshalJSON(data []byte) error {
-	raw := strings.TrimSpace(string(data))
-	if raw == "" || raw == "null" {
-		*l = nil
-		return nil
-	}
-	var single string
-	if err := json.Unmarshal(data, &single); err == nil {
-		if single == "" {
-			*l = nil
-			return nil
-		}
-		*l = splitDAGManageList(single)
-		return nil
-	}
-	var values []string
-	if err := json.Unmarshal(data, &values); err != nil {
-		return err
-	}
-	*l = values
-	return nil
 }
 
 // NewDAGRunManageTool creates an agent tool for DAG run inspection and watches.
@@ -264,7 +198,7 @@ func dagRunManageWatch(toolCtx ToolContext, watcher DAGRunWatcher, args dagRunMa
 		DAGName:           args.DAGName,
 		DAGRunID:          args.DAGRunID,
 		SubDAGRunID:       args.SubDAGRunID,
-		NotifyOn:          []string(args.NotifyOn),
+		NotifyOn:          args.NotifyOn,
 		DiagnoseOnFailure: diagnoseOnFailure,
 	})
 	if err != nil {
@@ -341,10 +275,10 @@ func dagRunManageList(ctx context.Context, store exec.DAGRunStore, args dagRunMa
 		opts = append(opts, exec.WithCursor(args.Cursor))
 	}
 	if len(args.Labels) > 0 {
-		opts = append(opts, exec.WithLabels([]string(args.Labels)))
+		opts = append(opts, exec.WithLabels(args.Labels))
 	}
 	if len(args.Status) > 0 {
-		statuses, err := parseDAGRunStatuses([]string(args.Status))
+		statuses, err := parseDAGRunStatuses(args.Status)
 		if err != nil {
 			return toolError("%v", err)
 		}
@@ -376,9 +310,12 @@ func dagRunManageList(ctx context.Context, store exec.DAGRunStore, args dagRunMa
 	if err != nil {
 		return toolError("Failed to list DAG runs: %v", err)
 	}
-	items := make([]dagRunManageRunSummary, 0, len(page.Items))
+	items := make([]map[string]any, 0, len(page.Items))
 	for _, status := range page.Items {
-		items = append(items, summarizeDAGRunStatus(status, ""))
+		if status == nil {
+			continue
+		}
+		items = append(items, dagRunManageStatusPayload(status, "", false))
 	}
 	return dagManageJSON(map[string]any{
 		"action":     "list",
@@ -391,18 +328,18 @@ func dagRunManageList(ctx context.Context, store exec.DAGRunStore, args dagRunMa
 }
 
 func dagRunManageGet(ctx context.Context, store exec.DAGRunStore, args dagRunManageInput) ToolOut {
-	status, _, out, ok := dagRunManageFindStatus(ctx, store, args)
+	status, _, out, ok := dagRunManageReadStatusForTool(ctx, store, args)
 	if !ok {
 		return out
 	}
 	return dagManageJSON(map[string]any{
 		"action": "get",
-		"run":    summarizeDAGRunStatus(status, args.SubDAGRunID),
+		"run":    dagRunManageStatusPayload(status, args.SubDAGRunID, true),
 	})
 }
 
 func dagRunManageReadLog(ctx context.Context, store exec.DAGRunStore, args dagRunManageInput) ToolOut {
-	status, _, out, ok := dagRunManageFindStatus(ctx, store, args)
+	status, _, out, ok := dagRunManageReadStatusForTool(ctx, store, args)
 	if !ok {
 		return out
 	}
@@ -429,7 +366,7 @@ func dagRunManageReadLog(ctx context.Context, store exec.DAGRunStore, args dagRu
 }
 
 func dagRunManageReadMessages(ctx context.Context, store exec.DAGRunStore, args dagRunManageInput) ToolOut {
-	status, attempt, out, ok := dagRunManageFindStatus(ctx, store, args)
+	status, attempt, out, ok := dagRunManageReadStatusForTool(ctx, store, args)
 	if !ok {
 		return out
 	}
@@ -457,7 +394,7 @@ func dagRunManageReadMessages(ctx context.Context, store exec.DAGRunStore, args 
 }
 
 func dagRunManageDiagnose(ctx context.Context, store exec.DAGRunStore, args dagRunManageInput) ToolOut {
-	status, attempt, out, ok := dagRunManageFindStatus(ctx, store, args)
+	status, attempt, out, ok := dagRunManageReadStatusForTool(ctx, store, args)
 	if !ok {
 		return out
 	}
@@ -495,10 +432,11 @@ func dagRunManageDiagnose(ctx context.Context, store exec.DAGRunStore, args dagR
 		}
 	}
 
-	var primarySummary *dagRunManageNodeSummary
+	primaryName := ""
+	primaryStatus := ""
 	if primary != nil {
-		summary := summarizeDAGRunNode(status.Name, status.DAGRunID, args.SubDAGRunID, primary)
-		primarySummary = &summary
+		primaryName = primary.Step.Name
+		primaryStatus = primary.Status.String()
 	}
 
 	errs := make([]string, 0)
@@ -507,93 +445,176 @@ func dagRunManageDiagnose(ctx context.Context, store exec.DAGRunStore, args dagR
 	}
 
 	return dagManageJSON(map[string]any{
-		"action":            "diagnose",
-		"dagName":           status.Name,
-		"dagRunId":          status.DAGRunID,
-		"subDAGRunId":       args.SubDAGRunID,
-		"status":            status.Status.String(),
-		"error":             status.Error,
-		"errors":            errs,
-		"primaryFailedStep": primarySummary,
-		"logs":              logs,
-		"messages":          messages,
-		"messageCount":      len(messages),
+		"action":                  "diagnose",
+		"dagName":                 status.Name,
+		"dagRunId":                status.DAGRunID,
+		"subDAGRunId":             args.SubDAGRunID,
+		"status":                  status.Status.String(),
+		"error":                   status.Error,
+		"errors":                  errs,
+		"primaryFailedStep":       primary,
+		"primaryFailedStepName":   primaryName,
+		"primaryFailedStepStatus": primaryStatus,
+		"logs":                    logs,
+		"messages":                messages,
+		"messageCount":            len(messages),
 	})
 }
 
-func dagRunManageFindStatus(ctx context.Context, store exec.DAGRunStore, args dagRunManageInput) (*exec.DAGRunStatus, exec.DAGRunAttempt, ToolOut, bool) {
+func dagRunManageReadStatusForTool(ctx context.Context, store exec.DAGRunStore, args dagRunManageInput) (*exec.DAGRunStatus, exec.DAGRunAttempt, ToolOut, bool) {
 	if args.DAGName == "" {
 		return nil, nil, toolError("dagName is required"), false
 	}
 	if args.DAGRunID == "" {
 		return nil, nil, toolError("dagRunId is required"), false
 	}
-	root := exec.NewDAGRunRef(args.DAGName, args.DAGRunID)
-	var (
-		attempt exec.DAGRunAttempt
-		err     error
-	)
-	if args.SubDAGRunID != "" {
-		attempt, err = store.FindSubAttempt(ctx, root, args.SubDAGRunID)
-	} else {
-		attempt, err = store.FindAttempt(ctx, root)
-	}
+	status, attempt, err := readDAGRunStatus(ctx, store, args.DAGName, args.DAGRunID, args.SubDAGRunID)
 	if err != nil {
-		return nil, nil, toolError("Failed to find DAG run: %v", err), false
-	}
-	status, err := attempt.ReadStatus(ctx)
-	if err != nil {
-		return nil, nil, toolError("Failed to read DAG run status: %v", err), false
+		return nil, nil, toolError("%v", err), false
 	}
 	return status, attempt, ToolOut{}, true
 }
 
-func summarizeDAGRunStatus(status *exec.DAGRunStatus, subDAGRunID string) dagRunManageRunSummary {
+func readDAGRunStatus(ctx context.Context, store exec.DAGRunStore, dagName, dagRunID, subDAGRunID string) (*exec.DAGRunStatus, exec.DAGRunAttempt, error) {
+	if store == nil {
+		return nil, nil, errors.New("dag-run store is not configured")
+	}
+	root := exec.NewDAGRunRef(dagName, dagRunID)
+	var (
+		attempt exec.DAGRunAttempt
+		err     error
+	)
+	if subDAGRunID != "" {
+		attempt, err = store.FindSubAttempt(ctx, root, subDAGRunID)
+	} else {
+		attempt, err = store.FindAttempt(ctx, root)
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to find DAG run: %w", err)
+	}
+	status, err := attempt.ReadStatus(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read DAG run status: %w", err)
+	}
+	return status, attempt, nil
+}
+
+func dagRunManageStatusPayload(status *exec.DAGRunStatus, subDAGRunID string, includeRun bool) map[string]any {
 	if status == nil {
-		return dagRunManageRunSummary{}
+		return map[string]any{}
 	}
-	nodes := make([]dagRunManageNodeSummary, 0, len(status.Nodes))
-	for _, node := range status.Nodes {
-		nodes = append(nodes, summarizeDAGRunNode(status.Name, status.DAGRunID, subDAGRunID, node))
+	out := map[string]any{
+		"dagName":  status.Name,
+		"dagRunId": status.DAGRunID,
+		"status":   status.Status.String(),
 	}
-	out := dagRunManageRunSummary{
-		DAGName:      status.Name,
-		DAGRunID:     status.DAGRunID,
-		SubDAGRunID:  subDAGRunID,
-		AttemptID:    status.AttemptID,
-		AttemptKey:   status.AttemptKey,
-		Status:       status.Status.String(),
-		TriggerType:  status.TriggerType.String(),
-		WorkerID:     status.WorkerID,
-		PID:          status.PID,
-		StartedAt:    status.StartedAt,
-		FinishedAt:   status.FinishedAt,
-		QueuedAt:     status.QueuedAt,
-		ScheduleTime: status.ScheduleTime,
-		Error:        status.Error,
-		Params:       status.Params,
-		ParamsList:   status.ParamsList,
-		Labels:       status.Labels,
-		Nodes:        nodes,
-	}
-	if status.Log != "" {
-		out.LogRefs = map[string]dagRunManageLogRef{
-			"scheduler": newDAGRunManageLogRef(status.Name, status.DAGRunID, subDAGRunID, "", "scheduler"),
+	for key, value := range map[string]string{
+		"subDAGRunId":  subDAGRunID,
+		"attemptId":    status.AttemptID,
+		"attemptKey":   status.AttemptKey,
+		"workerId":     status.WorkerID,
+		"startedAt":    status.StartedAt,
+		"finishedAt":   status.FinishedAt,
+		"queuedAt":     status.QueuedAt,
+		"scheduleTime": status.ScheduleTime,
+		"error":        status.Error,
+		"params":       status.Params,
+	} {
+		if value != "" {
+			out[key] = value
 		}
 	}
+	if len(status.ParamsList) > 0 {
+		out["paramsList"] = status.ParamsList
+	}
+	if len(status.Labels) > 0 {
+		out["labels"] = status.Labels
+	}
+	if status.TriggerType != core.TriggerTypeUnknown {
+		out["triggerType"] = status.TriggerType.String()
+	}
+	if nodes := dagRunManageNodePayloads(status.Name, status.DAGRunID, subDAGRunID, status); len(nodes) > 0 {
+		out["nodes"] = nodes
+	}
+	if refs := dagRunManageLogRefs(status.Name, status.DAGRunID, subDAGRunID, status); len(refs) > 0 {
+		out["logRefs"] = refs
+	}
+	if refs := dagRunManageStepLogRefs(status.Name, status.DAGRunID, subDAGRunID, status); len(refs) > 0 {
+		out["stepLogRefs"] = refs
+	}
 	if !status.Root.Zero() {
-		out.Root = &dagRunManageRef{DAGName: status.Root.Name, DAGRunID: status.Root.ID}
+		out["root"] = status.Root
 	}
 	if !status.Parent.Zero() {
-		out.Parent = &dagRunManageRef{DAGName: status.Parent.Name, DAGRunID: status.Parent.ID}
+		out["parent"] = status.Parent
+	}
+	if includeRun {
+		out["run"] = status
 	}
 	return out
 }
 
-func summarizeDAGRunNode(dagName, dagRunID, subDAGRunID string, node *exec.Node) dagRunManageNodeSummary {
-	if node == nil {
-		return dagRunManageNodeSummary{}
+func dagRunManageLogRefs(dagName, dagRunID, subDAGRunID string, status *exec.DAGRunStatus) map[string]dagRunManageLogRef {
+	if status.Log != "" {
+		return map[string]dagRunManageLogRef{
+			"scheduler": newDAGRunManageLogRef(dagName, dagRunID, subDAGRunID, "", "scheduler"),
+		}
 	}
+	return nil
+}
+
+func dagRunManageNodePayloads(dagName, dagRunID, subDAGRunID string, status *exec.DAGRunStatus) []map[string]any {
+	nodes := make([]map[string]any, 0, len(status.Nodes))
+	for _, node := range status.Nodes {
+		if node == nil {
+			continue
+		}
+		item := map[string]any{
+			"stepName": node.Step.Name,
+			"status":   node.Status.String(),
+		}
+		for key, value := range map[string]string{
+			"executorType": node.Step.ExecutorConfig.Type,
+			"startedAt":    node.StartedAt,
+			"finishedAt":   node.FinishedAt,
+			"error":        node.Error,
+		} {
+			if value != "" {
+				item[key] = value
+			}
+		}
+		if node.RetryCount > 0 {
+			item["retryCount"] = node.RetryCount
+		}
+		if len(node.SubRuns) > 0 {
+			item["subRuns"] = node.SubRuns
+		}
+		if refs := dagRunManageNodeLogRefs(dagName, dagRunID, subDAGRunID, node); len(refs) > 0 {
+			item["logRefs"] = refs
+		}
+		nodes = append(nodes, item)
+	}
+	return nodes
+}
+
+func dagRunManageStepLogRefs(dagName, dagRunID, subDAGRunID string, status *exec.DAGRunStatus) map[string]map[string]dagRunManageLogRef {
+	refs := map[string]map[string]dagRunManageLogRef{}
+	for _, node := range status.Nodes {
+		if node == nil || node.Step.Name == "" {
+			continue
+		}
+		nodeRefs := dagRunManageNodeLogRefs(dagName, dagRunID, subDAGRunID, node)
+		if len(nodeRefs) > 0 {
+			refs[node.Step.Name] = nodeRefs
+		}
+	}
+	if len(refs) == 0 {
+		return nil
+	}
+	return refs
+}
+
+func dagRunManageNodeLogRefs(dagName, dagRunID, subDAGRunID string, node *exec.Node) map[string]dagRunManageLogRef {
 	refs := map[string]dagRunManageLogRef{}
 	if node.Stdout != "" {
 		refs["stdout"] = newDAGRunManageLogRef(dagName, dagRunID, subDAGRunID, node.Step.Name, "stdout")
@@ -602,19 +623,9 @@ func summarizeDAGRunNode(dagName, dagRunID, subDAGRunID string, node *exec.Node)
 		refs["stderr"] = newDAGRunManageLogRef(dagName, dagRunID, subDAGRunID, node.Step.Name, "stderr")
 	}
 	if len(refs) == 0 {
-		refs = nil
+		return nil
 	}
-	return dagRunManageNodeSummary{
-		StepName:     node.Step.Name,
-		Status:       node.Status.String(),
-		ExecutorType: node.Step.ExecutorConfig.Type,
-		StartedAt:    node.StartedAt,
-		FinishedAt:   node.FinishedAt,
-		RetryCount:   node.RetryCount,
-		Error:        node.Error,
-		LogRefs:      refs,
-		SubRuns:      node.SubRuns,
-	}
+	return refs
 }
 
 func newDAGRunManageLogRef(dagName, dagRunID, subDAGRunID, stepName, stream string) dagRunManageLogRef {
@@ -827,20 +838,6 @@ func clampAgentLimit(value, defaultValue, maxValue int) int {
 		return maxValue
 	}
 	return value
-}
-
-func splitDAGManageList(value string) []string {
-	fields := strings.FieldsFunc(value, func(r rune) bool {
-		return r == ',' || r == ' '
-	})
-	out := make([]string, 0, len(fields))
-	for _, field := range fields {
-		field = strings.TrimSpace(field)
-		if field != "" {
-			out = append(out, field)
-		}
-	}
-	return out
 }
 
 func dagManageJSON(v any) ToolOut {

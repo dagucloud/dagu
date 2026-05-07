@@ -75,7 +75,8 @@ func TestDAGRunManageListUsesCursorAndReturnsLogRefs(t *testing.T) {
 	assert.Equal(t, "agent-step", node["stepName"])
 	assert.Equal(t, "agent", node["executorType"])
 
-	logRefs := node["logRefs"].(map[string]any)
+	stepRefs := item["stepLogRefs"].(map[string]any)
+	logRefs := stepRefs["agent-step"].(map[string]any)
 	assert.Equal(t, "stdout", logRefs["stdout"].(map[string]any)["stream"])
 	assert.Equal(t, "stderr", logRefs["stderr"].(map[string]any)["stream"])
 }
@@ -159,7 +160,7 @@ func TestDAGRunManageDiagnoseCollectsFailedStepContext(t *testing.T) {
 	var got map[string]any
 	require.NoError(t, json.Unmarshal([]byte(out.Content), &got))
 	assert.Equal(t, "failed", got["status"])
-	assert.Equal(t, "agent-step", got["primaryFailedStep"].(map[string]any)["stepName"])
+	assert.Equal(t, "agent-step", got["primaryFailedStepName"])
 
 	logs := got["logs"].(map[string]any)
 	assert.Contains(t, logs["scheduler"].(map[string]any)["content"], "panic: boom")
@@ -398,7 +399,7 @@ func TestDAGDefManageListGetValidateAndSchema(t *testing.T) {
 	var getGot map[string]any
 	require.NoError(t, json.Unmarshal([]byte(getOut.Content), &getGot))
 	assert.Contains(t, getGot["spec"], "go test")
-	assert.EqualValues(t, 1, getGot["stepCount"])
+	assert.EqualValues(t, 1, getGot["summary"].(map[string]any)["stepCount"])
 
 	validateOut := runJSONTool(t, tool, map[string]any{
 		"action": "validate",

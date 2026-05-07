@@ -190,7 +190,7 @@ func (r *dagRunWatchRegistry) Watch(ctx context.Context, req DAGRunWatchRequest)
 	}
 	r.mu.Unlock()
 
-	status, err := r.readStatus(ctx, req.DAGName, req.DAGRunID, req.SubDAGRunID)
+	status, _, err := readDAGRunStatus(ctx, r.store, req.DAGName, req.DAGRunID, req.SubDAGRunID)
 	if err != nil {
 		return DAGRunWatchInfo{}, err
 	}
@@ -252,7 +252,7 @@ func (r *dagRunWatchRegistry) Status(ctx context.Context, req DAGRunWatchStatusR
 		return info, nil
 	}
 
-	status, readErr := r.readStatus(ctx, entry.req.DAGName, entry.req.DAGRunID, entry.req.SubDAGRunID)
+	status, _, readErr := readDAGRunStatus(ctx, r.store, entry.req.DAGName, entry.req.DAGRunID, entry.req.SubDAGRunID)
 	if readErr != nil {
 		return r.markWatchError(watchID, readErr.Error()), nil
 	}
@@ -318,7 +318,7 @@ func (r *dagRunWatchRegistry) poll(ctx context.Context, watchID string) {
 		}
 
 		statusCtx, cancelStatus := context.WithTimeout(ctx, r.pollTimeout())
-		status, err := r.readStatus(statusCtx, req.DAGName, req.DAGRunID, req.SubDAGRunID)
+		status, _, err := readDAGRunStatus(statusCtx, r.store, req.DAGName, req.DAGRunID, req.SubDAGRunID)
 		cancelStatus()
 		if err != nil {
 			r.markWatchError(watchID, err.Error())
@@ -411,30 +411,6 @@ func (r *dagRunWatchRegistry) findWatch(sessionID, watchID, dagName, dagRunID, s
 	}
 	copied := *entry
 	return watchID, &copied, nil
-}
-
-func (r *dagRunWatchRegistry) readStatus(ctx context.Context, dagName, dagRunID, subDAGRunID string) (*exec.DAGRunStatus, error) {
-	if r.store == nil {
-		return nil, errors.New("dag-run store is not configured")
-	}
-	root := exec.NewDAGRunRef(dagName, dagRunID)
-	var (
-		attempt exec.DAGRunAttempt
-		err     error
-	)
-	if subDAGRunID != "" {
-		attempt, err = r.store.FindSubAttempt(ctx, root, subDAGRunID)
-	} else {
-		attempt, err = r.store.FindAttempt(ctx, root)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to find DAG run: %w", err)
-	}
-	status, err := attempt.ReadStatus(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read DAG run status: %w", err)
-	}
-	return status, nil
 }
 
 func (r *dagRunWatchRegistry) updateWatchStatus(watchID string, status *exec.DAGRunStatus) DAGRunWatchInfo {

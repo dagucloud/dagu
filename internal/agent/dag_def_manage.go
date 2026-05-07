@@ -7,8 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"strconv"
 	"strings"
 
 	agentschema "github.com/dagucloud/dagu/internal/agent/schema"
@@ -33,31 +31,17 @@ func init() {
 }
 
 type dagDefManageInput struct {
-	Action  string              `json:"action"`
-	DAGName string              `json:"dagName,omitempty"`
-	Spec    string              `json:"spec,omitempty"`
-	Path    string              `json:"path,omitempty"`
-	Query   string              `json:"query,omitempty"`
-	Labels  dagManageStringList `json:"labels,omitempty"`
-	Limit   int                 `json:"limit,omitempty"`
-	Cursor  string              `json:"cursor,omitempty"`
-	Page    int                 `json:"page,omitempty"`
-	Sort    string              `json:"sort,omitempty"`
-	Order   string              `json:"order,omitempty"`
-	Full    bool                `json:"full,omitempty"`
-}
-
-type dagDefManageDAGSummary struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description,omitempty"`
-	Group       string   `json:"group,omitempty"`
-	Type        string   `json:"type,omitempty"`
-	Location    string   `json:"location,omitempty"`
-	SourceFile  string   `json:"sourceFile,omitempty"`
-	Labels      []string `json:"labels,omitempty"`
-	StepCount   int      `json:"stepCount"`
-	Steps       []string `json:"steps,omitempty"`
-	Suspended   bool     `json:"suspended,omitempty"`
+	Action  string   `json:"action"`
+	DAGName string   `json:"dagName,omitempty"`
+	Spec    string   `json:"spec,omitempty"`
+	Path    string   `json:"path,omitempty"`
+	Query   string   `json:"query,omitempty"`
+	Labels  []string `json:"labels,omitempty"`
+	Limit   int      `json:"limit,omitempty"`
+	Page    int      `json:"page,omitempty"`
+	Sort    string   `json:"sort,omitempty"`
+	Order   string   `json:"order,omitempty"`
+	Full    bool     `json:"full,omitempty"`
 }
 
 // NewDAGDefManageTool creates an agent tool for read-only DAG definition inspection.
@@ -82,7 +66,6 @@ func NewDAGDefManageTool(store exec.DAGStore) *AgentTool {
 						"query":   map[string]any{"type": "string", "description": "Optional name filter for list."},
 						"labels":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional labels filter for list."},
 						"limit":   map[string]any{"type": "integer", "description": "Maximum items for list (default 50, max 200)."},
-						"cursor":  map[string]any{"type": "string", "description": "Opaque cursor returned by list."},
 						"page":    map[string]any{"type": "integer", "description": "Optional page number for list when no cursor is available."},
 						"sort":    map[string]any{"type": "string", "description": "Optional list sort field, e.g. name, updated_at, created_at, nextRun."},
 						"order":   map[string]any{"type": "string", "description": "Optional sort order: asc or desc."},
@@ -130,13 +113,7 @@ func dagDefManageRun(toolCtx ToolContext, input json.RawMessage, store exec.DAGS
 
 func dagDefManageList(ctx context.Context, store exec.DAGStore, args dagDefManageInput) ToolOut {
 	limit := clampAgentLimit(args.Limit, 50, 200)
-	page, err := decodeDAGDefCursor(args.Cursor)
-	if err != nil {
-		return toolError("%v", err)
-	}
-	if page == 0 {
-		page = args.Page
-	}
+	page := args.Page
 	if page <= 0 {
 		page = 1
 	}
@@ -148,32 +125,27 @@ func dagDefManageList(ctx context.Context, store exec.DAGStore, args dagDefManag
 	result, warnings, err := store.List(ctx, exec.ListDAGsOptions{
 		Paginator: &paginator,
 		Name:      nameFilter,
-		Labels:    []string(args.Labels),
+		Labels:    args.Labels,
 		Sort:      args.Sort,
 		Order:     args.Order,
 	})
 	if err != nil {
 		return toolError("Failed to list DAG definitions: %v", err)
 	}
-	items := make([]dagDefManageDAGSummary, 0, len(result.Items))
+	items := make([]map[string]any, 0, len(result.Items))
 	for _, dag := range result.Items {
 		if dag == nil {
 			continue
 		}
-		items = append(items, summarizeDAGDefinition(dag, store.IsSuspended(ctx, dag.Name)))
-	}
-	nextCursor := ""
-	if result.HasNextPage {
-		nextCursor = encodeDAGDefCursor(result.NextPage)
+		items = append(items, dagDefManageSummary(dag, store.IsSuspended(ctx, dag.Name)))
 	}
 	return dagManageJSON(map[string]any{
 		"action":      "list",
 		"items":       items,
 		"limit":       limit,
-		"cursor":      args.Cursor,
-		"nextCursor":  nextCursor,
-		"hasMore":     nextCursor != "",
+		"hasMore":     result.HasNextPage,
 		"currentPage": result.CurrentPage,
+		"nextPage":    result.NextPage,
 		"totalPages":  result.TotalPages,
 		"totalCount":  result.TotalCount,
 		"warnings":    warnings,
@@ -192,20 +164,12 @@ func dagDefManageGet(ctx context.Context, store exec.DAGStore, args dagDefManage
 	if err != nil {
 		return toolError("Failed to get DAG spec: %v", err)
 	}
-	summary := summarizeDAGDefinition(dag, store.IsSuspended(ctx, args.DAGName))
+	summary := dagDefManageSummary(dag, store.IsSuspended(ctx, args.DAGName))
 	return dagManageJSON(map[string]any{
-		"action":      "get",
-		"name":        summary.Name,
-		"description": summary.Description,
-		"group":       summary.Group,
-		"type":        summary.Type,
-		"location":    summary.Location,
-		"sourceFile":  summary.SourceFile,
-		"labels":      summary.Labels,
-		"stepCount":   summary.StepCount,
-		"steps":       summary.Steps,
-		"suspended":   summary.Suspended,
-		"spec":        raw,
+		"action":  "get",
+		"summary": summary,
+		"dag":     dag,
+		"spec":    raw,
 	})
 }
 
@@ -232,7 +196,8 @@ func dagDefManageValidate(ctx context.Context, store exec.DAGStore, args dagDefM
 	return dagManageJSON(map[string]any{
 		"action":    "validate",
 		"valid":     true,
-		"dag":       summarizeDAGDefinition(dag, false),
+		"dag":       dag,
+		"summary":   dagDefManageSummary(dag, false),
 		"stepCount": len(dag.Steps),
 	})
 }
@@ -257,26 +222,39 @@ func dagDefManageSchema(args dagDefManageInput) ToolOut {
 	})
 }
 
-func summarizeDAGDefinition(dag *core.DAG, suspended bool) dagDefManageDAGSummary {
+func dagDefManageSummary(dag *core.DAG, suspended bool) map[string]any {
 	if dag == nil {
-		return dagDefManageDAGSummary{}
+		return map[string]any{}
 	}
 	steps := make([]string, 0, len(dag.Steps))
 	for _, step := range dag.Steps {
 		steps = append(steps, step.Name)
 	}
-	return dagDefManageDAGSummary{
-		Name:        dag.Name,
-		Description: dag.Description,
-		Group:       dag.Group,
-		Type:        dag.Type,
-		Location:    dag.Location,
-		SourceFile:  dag.SourceFile,
-		Labels:      dag.Labels.Strings(),
-		StepCount:   len(dag.Steps),
-		Steps:       steps,
-		Suspended:   suspended,
+	out := map[string]any{
+		"name":      dag.Name,
+		"stepCount": len(dag.Steps),
 	}
+	for key, value := range map[string]string{
+		"description": dag.Description,
+		"group":       dag.Group,
+		"type":        dag.Type,
+		"location":    dag.Location,
+		"sourceFile":  dag.SourceFile,
+	} {
+		if value != "" {
+			out[key] = value
+		}
+	}
+	if labels := dag.Labels.Strings(); len(labels) > 0 {
+		out["labels"] = labels
+	}
+	if len(steps) > 0 {
+		out["steps"] = steps
+	}
+	if suspended {
+		out["suspended"] = true
+	}
+	return out
 }
 
 func dagDefValidationErrors(err error) []string {
@@ -285,23 +263,4 @@ func dagDefValidationErrors(err error) []string {
 		return errList.ToStringList()
 	}
 	return []string{err.Error()}
-}
-
-func encodeDAGDefCursor(page int) string {
-	return fmt.Sprintf("page:%d", page)
-}
-
-func decodeDAGDefCursor(cursor string) (int, error) {
-	if strings.TrimSpace(cursor) == "" {
-		return 0, nil
-	}
-	page, ok := strings.CutPrefix(cursor, "page:")
-	if !ok {
-		return 0, fmt.Errorf("invalid cursor")
-	}
-	n, err := strconv.Atoi(page)
-	if err != nil || n <= 0 {
-		return 0, fmt.Errorf("invalid cursor")
-	}
-	return n, nil
 }
