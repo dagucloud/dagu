@@ -22,6 +22,8 @@ import {
   AgentBashPolicyDefaultBehavior,
   AgentBashPolicyDenyBehavior,
   AgentBashRuleAction,
+  AgentTavilyWebToolsConfigSearchDepth,
+  AgentWebToolsBackend,
   components,
 } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
@@ -73,6 +75,11 @@ type SavedAgentConfig = {
   toolPolicy: AgentToolPolicy;
   webSearchEnabled: boolean;
   webSearchMaxUses?: number;
+  webToolsEnabled: boolean;
+  webToolsBackend?: AgentWebToolsBackend;
+  tavilyApiKeyConfigured: boolean;
+  tavilyMaxResults?: number;
+  tavilySearchDepth?: AgentTavilyWebToolsConfigSearchDepth;
 };
 
 type ToolMeta = {
@@ -179,6 +186,20 @@ export default function AgentSettingsPage({
   const [webSearchMaxUses, setWebSearchMaxUses] = useState<
     number | undefined
   >();
+  const [webToolsEnabled, setWebToolsEnabled] = useState(false);
+  const [webToolsBackend, setWebToolsBackend] = useState<AgentWebToolsBackend>(
+    AgentWebToolsBackend.tavily
+  );
+  const [tavilyApiKeyConfigured, setTavilyApiKeyConfigured] = useState(false);
+  const [tavilyApiKeyInput, setTavilyApiKeyInput] = useState('');
+  const [tavilyClearApiKey, setTavilyClearApiKey] = useState(false);
+  const [tavilyMaxResults, setTavilyMaxResults] = useState<
+    number | undefined
+  >();
+  const [tavilySearchDepth, setTavilySearchDepth] =
+    useState<AgentTavilyWebToolsConfigSearchDepth>(
+      AgentTavilyWebToolsConfigSearchDepth.basic
+    );
 
   // Modal states
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -234,12 +255,34 @@ export default function AgentSettingsPage({
         setToolPolicy(normalizedPolicy);
         setWebSearchEnabled(data.webSearch?.enabled ?? false);
         setWebSearchMaxUses(data.webSearch?.maxUses ?? undefined);
+        setWebToolsEnabled(data.webTools?.enabled ?? false);
+        setWebToolsBackend(
+          data.webTools?.backend || AgentWebToolsBackend.tavily
+        );
+        setTavilyApiKeyConfigured(
+          data.webTools?.tavily?.apiKeyConfigured ?? false
+        );
+        setTavilyApiKeyInput('');
+        setTavilyClearApiKey(false);
+        setTavilyMaxResults(data.webTools?.tavily?.maxResults ?? undefined);
+        setTavilySearchDepth(
+          data.webTools?.tavily?.searchDepth ??
+            AgentTavilyWebToolsConfigSearchDepth.basic
+        );
         setSavedConfig({
           enabled: data.enabled ?? false,
           defaultModelId: data.defaultModelId,
           toolPolicy: normalizedPolicy,
           webSearchEnabled: data.webSearch?.enabled ?? false,
           webSearchMaxUses: data.webSearch?.maxUses ?? undefined,
+          webToolsEnabled: data.webTools?.enabled ?? false,
+          webToolsBackend: data.webTools?.backend || AgentWebToolsBackend.tavily,
+          tavilyApiKeyConfigured:
+            data.webTools?.tavily?.apiKeyConfigured ?? false,
+          tavilyMaxResults: data.webTools?.tavily?.maxResults ?? undefined,
+          tavilySearchDepth:
+            data.webTools?.tavily?.searchDepth ??
+            AgentTavilyWebToolsConfigSearchDepth.basic,
         });
         setBashRuleIds(
           buildBashRuleIDs(normalizedPolicy.bash?.rules?.length || 0)
@@ -334,6 +377,27 @@ export default function AgentSettingsPage({
           maxUses: webSearchMaxUses,
         };
       }
+      const tavilyApiKey = tavilyApiKeyInput.trim();
+      if (
+        !savedConfig ||
+        webToolsEnabled !== savedConfig.webToolsEnabled ||
+        webToolsBackend !== savedConfig.webToolsBackend ||
+        tavilyMaxResults !== savedConfig.tavilyMaxResults ||
+        tavilySearchDepth !== savedConfig.tavilySearchDepth ||
+        tavilyApiKey !== '' ||
+        tavilyClearApiKey
+      ) {
+        requestBody.webTools = {
+          enabled: webToolsEnabled,
+          backend: webToolsBackend,
+          tavily: {
+            maxResults: tavilyMaxResults,
+            searchDepth: tavilySearchDepth,
+            ...(tavilyApiKey !== '' ? { apiKey: tavilyApiKey } : {}),
+            ...(tavilyClearApiKey ? { clearApiKey: true } : {}),
+          },
+        };
+      }
 
       if (Object.keys(requestBody).length === 0) {
         setSuccess('No changes to save');
@@ -355,12 +419,32 @@ export default function AgentSettingsPage({
       setToolPolicy(normalizedPolicy);
       setWebSearchEnabled(data.webSearch?.enabled ?? false);
       setWebSearchMaxUses(data.webSearch?.maxUses ?? undefined);
+      setWebToolsEnabled(data.webTools?.enabled ?? false);
+      setWebToolsBackend(data.webTools?.backend || AgentWebToolsBackend.tavily);
+      setTavilyApiKeyConfigured(
+        data.webTools?.tavily?.apiKeyConfigured ?? false
+      );
+      setTavilyApiKeyInput('');
+      setTavilyClearApiKey(false);
+      setTavilyMaxResults(data.webTools?.tavily?.maxResults ?? undefined);
+      setTavilySearchDepth(
+        data.webTools?.tavily?.searchDepth ??
+          AgentTavilyWebToolsConfigSearchDepth.basic
+      );
       setSavedConfig({
         enabled: data.enabled ?? false,
         defaultModelId: data.defaultModelId,
         toolPolicy: normalizedPolicy,
         webSearchEnabled: data.webSearch?.enabled ?? false,
         webSearchMaxUses: data.webSearch?.maxUses ?? undefined,
+        webToolsEnabled: data.webTools?.enabled ?? false,
+        webToolsBackend: data.webTools?.backend || AgentWebToolsBackend.tavily,
+        tavilyApiKeyConfigured:
+          data.webTools?.tavily?.apiKeyConfigured ?? false,
+        tavilyMaxResults: data.webTools?.tavily?.maxResults ?? undefined,
+        tavilySearchDepth:
+          data.webTools?.tavily?.searchDepth ??
+          AgentTavilyWebToolsConfigSearchDepth.basic,
       });
       updateConfig({ agentEnabled: data.enabled ?? false });
       setSuccess('Configuration saved successfully');
@@ -574,7 +658,7 @@ export default function AgentSettingsPage({
           </h1>
           <p className="text-sm text-muted-foreground">
             {isToolsPage
-              ? 'Control agent tool access, web search, and bash command policy'
+              ? 'Control agent tool access, model web search, Tavily tools, and bash policy'
               : 'Configure the AI assistant for workflow generation'}
           </p>
         </div>
@@ -649,15 +733,15 @@ export default function AgentSettingsPage({
       {/* Tool Permissions */}
       {isToolsPage && (
         <>
-          {/* Web Search */}
+          {/* Model Web Search */}
           <div className="card-obsidian p-4 space-y-4 max-w-xl">
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label htmlFor="web-search" className="text-sm font-medium">
-                  Web Search
+                  Model Web Search
                 </Label>
                 <p className="text-xs text-muted-foreground">
-                  Enable provider-native web search for agent sessions
+                  Enable provider-native web search on supported models
                 </p>
               </div>
               <Switch
@@ -690,6 +774,170 @@ export default function AgentSettingsPage({
                     );
                   }}
                 />
+              </div>
+            )}
+          </div>
+
+          {/* Tavily Web Tools */}
+          <div className="card-obsidian p-4 space-y-4 max-w-xl">
+            <div className="flex items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <Label htmlFor="web-tools" className="text-sm font-medium">
+                  Tavily Web Tools
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Enable the web_search and web_extract function tools
+                </p>
+              </div>
+              <Switch
+                id="web-tools"
+                checked={webToolsEnabled}
+                onCheckedChange={setWebToolsEnabled}
+              />
+            </div>
+
+            {webToolsEnabled && (
+              <div className="space-y-4">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">
+                    Backend
+                  </Label>
+                  <Select
+                    value={webToolsBackend}
+                    onValueChange={(value) =>
+                      setWebToolsBackend(value as AgentWebToolsBackend)
+                    }
+                  >
+                    <SelectTrigger className="h-8 text-xs max-w-[220px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={AgentWebToolsBackend.tavily}>
+                        Tavily
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {webToolsBackend === AgentWebToolsBackend.tavily && (
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">
+                        Tavily API Key
+                      </Label>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Input
+                          type="password"
+                          className="h-8 text-xs max-w-[320px]"
+                          placeholder={
+                            tavilyApiKeyConfigured && !tavilyClearApiKey
+                              ? 'Configured'
+                              : 'tvly-...'
+                          }
+                          value={tavilyApiKeyInput}
+                          onChange={(e) => {
+                            setTavilyApiKeyInput(e.target.value);
+                            if (e.target.value.trim() !== '') {
+                              setTavilyClearApiKey(false);
+                            }
+                          }}
+                        />
+                        {tavilyApiKeyConfigured && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-xs"
+                            onClick={() => {
+                              setTavilyApiKeyInput('');
+                              setTavilyClearApiKey(true);
+                            }}
+                          >
+                            Clear Key
+                          </Button>
+                        )}
+                      </div>
+                      <p
+                        className={`text-xs ${
+                          tavilyClearApiKey
+                            ? 'text-amber-600'
+                            : tavilyApiKeyConfigured
+                              ? 'text-green-600'
+                              : 'text-muted-foreground'
+                        }`}
+                      >
+                        {tavilyClearApiKey
+                          ? 'Key will be cleared on save'
+                          : tavilyApiKeyConfigured
+                            ? 'Key configured'
+                            : 'Key not set'}
+                      </p>
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">
+                          Max Results
+                        </Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={20}
+                          className="h-8 text-xs"
+                          placeholder="5"
+                          value={tavilyMaxResults ?? ''}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === '') {
+                              setTavilyMaxResults(undefined);
+                              return;
+                            }
+                            const parsed = parseInt(val, 10);
+                            setTavilyMaxResults(
+                              Number.isNaN(parsed) || parsed < 1
+                                ? undefined
+                                : Math.min(parsed, 20)
+                            );
+                          }}
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">
+                          Search Depth
+                        </Label>
+                        <Select
+                          value={tavilySearchDepth}
+                          onValueChange={(value) =>
+                            setTavilySearchDepth(
+                              value as AgentTavilyWebToolsConfigSearchDepth
+                            )
+                          }
+                        >
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem
+                              value={
+                                AgentTavilyWebToolsConfigSearchDepth.basic
+                              }
+                            >
+                              Basic
+                            </SelectItem>
+                            <SelectItem
+                              value={
+                                AgentTavilyWebToolsConfigSearchDepth.advanced
+                              }
+                            >
+                              Advanced
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

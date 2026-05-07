@@ -147,6 +147,7 @@ type sessionRuntimeConfig struct {
 	safeMode        bool
 	soul            *Soul
 	webSearch       *llm.WebSearchRequest
+	webTools        *WebToolsConfig
 	thinkingEffort  llm.ThinkingEffort
 	inputCostPer1M  float64
 	outputCostPer1M float64
@@ -334,6 +335,14 @@ func (a *API) loadWebSearch(ctx context.Context) *llm.WebSearchRequest {
 	}
 }
 
+func (a *API) loadWebTools(ctx context.Context) *WebToolsConfig {
+	cfg, err := a.configStore.Load(ctx)
+	if err != nil || cfg == nil || cfg.WebTools == nil || !cfg.WebTools.Enabled {
+		return nil
+	}
+	return cloneWebToolsConfig(cfg.WebTools)
+}
+
 // loadSoulWithOverride loads a soul by explicit ID override, falling back to the
 // global default from config. Use this for session creation where the client may
 // specify a soul.
@@ -506,6 +515,14 @@ func cloneWebSearchRequest(req *llm.WebSearchRequest) *llm.WebSearchRequest {
 	return &out
 }
 
+func cloneWebToolsConfig(cfg *WebToolsConfig) *WebToolsConfig {
+	if cfg == nil {
+		return nil
+	}
+	out := *cfg
+	return &out
+}
+
 func modelThinkingEffort(modelCfg *ModelConfig) llm.ThinkingEffort {
 	if modelCfg == nil || !modelCfg.SupportsThinking {
 		return ""
@@ -534,6 +551,7 @@ func (a *API) defaultSessionRuntime(ctx context.Context, dagName string, safeMod
 		safeMode:        safeMode,
 		soul:            a.loadSelectedSoul(ctx),
 		webSearch:       cloneWebSearchRequest(a.loadWebSearch(ctx)),
+		webTools:        a.loadWebTools(ctx),
 		thinkingEffort:  modelThinkingEffort(modelCfg),
 		inputCostPer1M:  modelCfg.InputCostPer1M,
 		outputCostPer1M: modelCfg.OutputCostPer1M,
@@ -558,6 +576,7 @@ func (a *API) runtimeConfigForSession(ctx context.Context, mgr *SessionManager, 
 		safeMode:        mgr.safeMode,
 		soul:            mgr.soul,
 		webSearch:       cloneWebSearchRequest(mgr.webSearch),
+		webTools:        cloneWebToolsConfig(mgr.webTools),
 		thinkingEffort:  modelThinkingEffort(modelCfg),
 		inputCostPer1M:  modelCfg.InputCostPer1M,
 		outputCostPer1M: modelCfg.OutputCostPer1M,
@@ -588,6 +607,7 @@ func (a *API) buildSessionManagerConfig(id string, user UserIdentity, cfg sessio
 		SessionStore:          a.store,
 		Soul:                  cfg.soul,
 		WebSearch:             cfg.webSearch,
+		WebTools:              cfg.webTools,
 		ThinkingEffort:        cfg.thinkingEffort,
 		RemoteContextResolver: a.remoteContextResolver,
 	}
@@ -938,6 +958,7 @@ func (a *API) reactivateSession(ctx context.Context, id string, user UserIdentit
 		safeMode:        true, // Default to safe mode for reactivated sessions
 		soul:            a.loadSelectedSoul(ctx),
 		webSearch:       a.loadWebSearch(ctx),
+		webTools:        a.loadWebTools(ctx),
 		thinkingEffort:  thinkingEffort,
 		inputCostPer1M:  inputCost,
 		outputCostPer1M: outputCost,
@@ -1138,6 +1159,7 @@ func (a *API) CreateSession(ctx context.Context, user UserIdentity, req ChatRequ
 		safeMode:        req.SafeMode,
 		soul:            a.loadSoulWithOverride(ctx, req.SoulID),
 		webSearch:       a.loadWebSearch(ctx),
+		webTools:        a.loadWebTools(ctx),
 		thinkingEffort:  modelThinkingEffort(modelCfg),
 		inputCostPer1M:  modelCfg.InputCostPer1M,
 		outputCostPer1M: modelCfg.OutputCostPer1M,

@@ -87,7 +87,17 @@ func TestRegisteredTools_HaveMetadata(t *testing.T) {
 func TestRegisteredTools_FactoriesProduceValidTools(t *testing.T) {
 	t.Parallel()
 
-	cfg := ToolConfig{DAGsDir: "/tmp/test-dags", RemoteContextResolver: &testRemoteContextResolver{}}
+	cfg := ToolConfig{
+		DAGsDir:               "/tmp/test-dags",
+		RemoteContextResolver: &testRemoteContextResolver{},
+		WebTools: &WebToolsConfig{
+			Enabled: true,
+			Backend: WebToolsBackendTavily,
+			Tavily: TavilyWebToolsConfig{
+				APIKey: "tvly-test",
+			},
+		},
+	}
 	for _, reg := range RegisteredTools() {
 		t.Run(reg.Name, func(t *testing.T) {
 			t.Parallel()
@@ -105,7 +115,17 @@ func TestRegisteredTools_FactoriesProduceValidTools(t *testing.T) {
 func TestCreateTools_UsesRegistry(t *testing.T) {
 	t.Parallel()
 
-	tools := CreateTools(ToolConfig{DAGsDir: "/tmp/dags", RemoteContextResolver: &testRemoteContextResolver{}})
+	tools := CreateTools(ToolConfig{
+		DAGsDir:               "/tmp/dags",
+		RemoteContextResolver: &testRemoteContextResolver{},
+		WebTools: &WebToolsConfig{
+			Enabled: true,
+			Backend: WebToolsBackendTavily,
+			Tavily: TavilyWebToolsConfig{
+				APIKey: "tvly-test",
+			},
+		},
+	})
 	regs := RegisteredTools()
 
 	assert.Len(t, tools, len(regs), "CreateTools should produce one tool per registration")

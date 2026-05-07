@@ -10758,6 +10758,8 @@ components:
           description: "ID of the currently selected soul"
         webSearch:
           $ref: "#/components/schemas/AgentWebSearchConfig"
+        webTools:
+          $ref: "#/components/schemas/AgentWebToolsConfig"
 
     UpdateAgentConfigRequest:
       type: object
@@ -10777,6 +10779,8 @@ components:
           description: "ID of the soul to select"
         webSearch:
           $ref: "#/components/schemas/AgentWebSearchConfig"
+        webTools:
+          $ref: "#/components/schemas/AgentWebToolsConfig"
 
     AgentToolPolicy:
       type: object
@@ -10836,6 +10840,53 @@ components:
           type: integer
           minimum: 1
           description: "Maximum number of search invocations per request"
+
+    AgentWebToolsBackend:
+      type: string
+      enum: [tavily]
+      description: "Backend provider for agent web tools"
+
+    AgentWebToolsConfig:
+      type: object
+      description: "First-class web_search and web_extract tool configuration"
+      properties:
+        enabled:
+          type: boolean
+          description: "Whether provider-backed web tools are enabled"
+        backend:
+          $ref: "#/components/schemas/AgentWebToolsBackend"
+        tavily:
+          $ref: "#/components/schemas/AgentTavilyWebToolsConfig"
+
+    AgentTavilyWebToolsConfig:
+      type: object
+      description: "Tavily web tool settings"
+      properties:
+        apiKey:
+          type: string
+          writeOnly: true
+          description: "Tavily API key. Write-only; omitted from responses."
+        clearApiKey:
+          type: boolean
+          writeOnly: true
+          description: "Clear the stored Tavily API key when true"
+        apiKeyConfigured:
+          type: boolean
+          readOnly: true
+          description: "Whether a Tavily API key is stored"
+        baseUrl:
+          type: string
+          format: uri
+          description: "Optional Tavily-compatible base URL"
+        maxResults:
+          type: integer
+          minimum: 1
+          maximum: 20
+          description: "Maximum search results allowed per web_search call"
+        searchDepth:
+          type: string
+          enum: [basic, advanced]
+          description: "Tavily search depth"
 
     ModelConfigResponse:
       type: object

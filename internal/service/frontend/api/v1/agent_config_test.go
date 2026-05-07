@@ -171,6 +171,89 @@ func TestUpdateAgentConfig(t *testing.T) {
 		require.Equal(t, denyBehavior, *updateResp.ToolPolicy.Bash.DenyBehavior)
 	})
 
+	t.Run("updates web tools without exposing api key", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newAgentTestSetup(t)
+		enabled := true
+		backend := apigen.AgentWebToolsBackendTavily
+		apiKey := "tvly-secret"
+		maxResults := 8
+
+		resp, err := setup.api.UpdateAgentConfig(adminCtx(), apigen.UpdateAgentConfigRequestObject{
+			Body: &apigen.UpdateAgentConfigRequest{
+				WebTools: &apigen.AgentWebToolsConfig{
+					Enabled: &enabled,
+					Backend: &backend,
+					Tavily: &apigen.AgentTavilyWebToolsConfig{
+						ApiKey:     &apiKey,
+						MaxResults: &maxResults,
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		updateResp, ok := resp.(apigen.UpdateAgentConfig200JSONResponse)
+		require.True(t, ok)
+		require.NotNil(t, updateResp.WebTools)
+		require.NotNil(t, updateResp.WebTools.Tavily)
+		require.NotNil(t, updateResp.WebTools.Tavily.ApiKeyConfigured)
+		assert.True(t, *updateResp.WebTools.Tavily.ApiKeyConfigured)
+		assert.Nil(t, updateResp.WebTools.Tavily.ApiKey)
+		assert.Equal(t, "tvly-secret", setup.configStore.config.WebTools.Tavily.APIKey)
+
+		getRespRaw, err := setup.api.GetAgentConfig(adminCtx(), apigen.GetAgentConfigRequestObject{})
+		require.NoError(t, err)
+		getResp, ok := getRespRaw.(apigen.GetAgentConfig200JSONResponse)
+		require.True(t, ok)
+		require.NotNil(t, getResp.WebTools)
+		require.NotNil(t, getResp.WebTools.Tavily)
+		assert.Nil(t, getResp.WebTools.Tavily.ApiKey)
+
+		clear := true
+		clearRespRaw, err := setup.api.UpdateAgentConfig(adminCtx(), apigen.UpdateAgentConfigRequestObject{
+			Body: &apigen.UpdateAgentConfigRequest{
+				WebTools: &apigen.AgentWebToolsConfig{
+					Tavily: &apigen.AgentTavilyWebToolsConfig{
+						ClearApiKey: &clear,
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		clearResp, ok := clearRespRaw.(apigen.UpdateAgentConfig200JSONResponse)
+		require.True(t, ok)
+		require.NotNil(t, clearResp.WebTools)
+		require.NotNil(t, clearResp.WebTools.Tavily)
+		require.NotNil(t, clearResp.WebTools.Tavily.ApiKeyConfigured)
+		assert.False(t, *clearResp.WebTools.Tavily.ApiKeyConfigured)
+		assert.Empty(t, setup.configStore.config.WebTools.Tavily.APIKey)
+	})
+
+	t.Run("rejects unsafe tavily base url", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newAgentTestSetup(t)
+		enabled := true
+		backend := apigen.AgentWebToolsBackendTavily
+		baseURL := "http://127.0.0.1:8080"
+
+		_, err := setup.api.UpdateAgentConfig(adminCtx(), apigen.UpdateAgentConfigRequestObject{
+			Body: &apigen.UpdateAgentConfigRequest{
+				WebTools: &apigen.AgentWebToolsConfig{
+					Enabled: &enabled,
+					Backend: &backend,
+					Tavily: &apigen.AgentTavilyWebToolsConfig{
+						BaseUrl: &baseURL,
+					},
+				},
+			},
+		})
+		require.Error(t, err)
+		assert.Nil(t, setup.configStore.config.WebTools)
+	})
+
 	t.Run("invalid tool policy returns error", func(t *testing.T) {
 		t.Parallel()
 

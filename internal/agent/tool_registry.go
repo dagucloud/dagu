@@ -46,6 +46,9 @@ type ToolConfig struct {
 	// RemoteContextResolver provides access to remote CLI contexts for remote_agent tools.
 	// Nil means remote context tools are not available.
 	RemoteContextResolver RemoteContextResolver
+	// WebTools configures provider-backed web_search and web_extract tools.
+	// Nil or disabled means web tools are not exposed to the model.
+	WebTools *WebToolsConfig
 }
 
 // toolRegistry holds all registered tools. Populated by init() calls.

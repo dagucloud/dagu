@@ -148,12 +148,13 @@ describe('agent settings split pages', () => {
     expect(screen.queryByLabelText('Enable Agent')).not.toBeInTheDocument();
   });
 
-  it('shows tool permissions and web search on the tools page', async () => {
+  it('shows tool permissions and web access controls on the tools page', async () => {
     renderPage(<AgentToolsPage />);
 
     expect(await screen.findByText('Tool Permissions')).toBeVisible();
     expect(screen.getByText('Shell')).toBeVisible();
-    expect(screen.getByText('Web Search')).toBeVisible();
+    expect(screen.getByText('Model Web Search')).toBeVisible();
+    expect(screen.getByText('Tavily Web Tools')).toBeVisible();
     expect(screen.queryByText('Main Model')).not.toBeInTheDocument();
     expect(screen.queryByText('Models')).not.toBeInTheDocument();
     expect(getMock).not.toHaveBeenCalledWith(

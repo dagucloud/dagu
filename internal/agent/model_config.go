@@ -22,6 +22,7 @@ type Config struct {
 	ToolPolicy     ToolPolicyConfig `json:"toolPolicy"`
 	SelectedSoulID string           `json:"selectedSoulId,omitempty"`
 	WebSearch      *WebSearchConfig `json:"webSearch,omitempty"`
+	WebTools       *WebToolsConfig  `json:"webTools,omitempty"`
 }
 
 // WebSearchConfig configures provider-native web search for agent sessions.
@@ -30,6 +31,29 @@ type WebSearchConfig struct {
 	Enabled bool `json:"enabled,omitempty"`
 	// MaxUses limits search invocations per request.
 	MaxUses *int `json:"maxUses,omitempty"`
+}
+
+// WebToolsBackend identifies a hosted web tool provider.
+type WebToolsBackend string
+
+const (
+	// WebToolsBackendTavily uses Tavily's hosted Search and Extract APIs.
+	WebToolsBackendTavily WebToolsBackend = "tavily"
+)
+
+// WebToolsConfig configures first-class agent web tools such as web_search and web_extract.
+type WebToolsConfig struct {
+	Enabled bool                 `json:"enabled,omitempty"`
+	Backend WebToolsBackend      `json:"backend,omitempty"`
+	Tavily  TavilyWebToolsConfig `json:"tavily,omitempty"`
+}
+
+// TavilyWebToolsConfig configures Tavily-backed web tools.
+type TavilyWebToolsConfig struct {
+	APIKey      string `json:"apiKey,omitempty"`
+	BaseURL     string `json:"baseUrl,omitempty"`
+	MaxResults  int    `json:"maxResults,omitempty"`
+	SearchDepth string `json:"searchDepth,omitempty"`
 }
 
 // BashRuleAction is the decision a bash rule applies when matched.

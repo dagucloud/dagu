@@ -4545,6 +4545,7 @@ export interface components {
             /** @description ID of the currently selected soul */
             selectedSoulId?: string | null;
             webSearch?: components["schemas"]["AgentWebSearchConfig"];
+            webTools?: components["schemas"]["AgentWebToolsConfig"];
         };
         /** @description Request to update AI agent configuration */
         UpdateAgentConfigRequest: {
@@ -4556,6 +4557,7 @@ export interface components {
             /** @description ID of the soul to select */
             selectedSoulId?: string | null;
             webSearch?: components["schemas"]["AgentWebSearchConfig"];
+            webTools?: components["schemas"]["AgentWebToolsConfig"];
         };
         /** @description Global tool permission policy for AI agent sessions */
         AgentToolPolicy: {
@@ -4594,6 +4596,39 @@ export interface components {
             enabled?: boolean;
             /** @description Maximum number of search invocations per request */
             maxUses?: number;
+        };
+        /**
+         * @description Backend provider for agent web tools
+         * @enum {string}
+         */
+        AgentWebToolsBackend: AgentWebToolsBackend;
+        /** @description First-class web_search and web_extract tool configuration */
+        AgentWebToolsConfig: {
+            /** @description Whether provider-backed web tools are enabled */
+            enabled?: boolean;
+            backend?: components["schemas"]["AgentWebToolsBackend"];
+            tavily?: components["schemas"]["AgentTavilyWebToolsConfig"];
+        };
+        /** @description Tavily web tool settings */
+        AgentTavilyWebToolsConfig: {
+            /** @description Tavily API key. Write-only; omitted from responses. */
+            apiKey?: string;
+            /** @description Clear the stored Tavily API key when true */
+            clearApiKey?: boolean;
+            /** @description Whether a Tavily API key is stored */
+            readonly apiKeyConfigured?: boolean;
+            /**
+             * Format: uri
+             * @description Optional Tavily-compatible base URL
+             */
+            baseUrl?: string;
+            /** @description Maximum search results allowed per web_search call */
+            maxResults?: number;
+            /**
+             * @description Tavily search depth
+             * @enum {string}
+             */
+            searchDepth?: AgentTavilyWebToolsConfigSearchDepth;
         };
         /** @description Model configuration */
         ModelConfigResponse: {
@@ -14534,6 +14569,13 @@ export enum AgentBashPolicyDenyBehavior {
 export enum AgentBashRuleAction {
     allow = "allow",
     deny = "deny"
+}
+export enum AgentWebToolsBackend {
+    tavily = "tavily"
+}
+export enum AgentTavilyWebToolsConfigSearchDepth {
+    basic = "basic",
+    advanced = "advanced"
 }
 export enum ModelConfigResponseProvider {
     anthropic = "anthropic",
