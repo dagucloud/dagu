@@ -23,6 +23,11 @@ const STATUS_CLASSES: Record<PatchViewStatus, string> = {
   failed: 'text-red-600 dark:text-red-400',
 };
 
+function splitPatchPreviewLines(value: string): string[] {
+  const lines = value.split('\n');
+  return lines[lines.length - 1] === '' ? lines.slice(0, -1) : lines;
+}
+
 export function PatchToolViewer({ args, toolName, toolResult }: ToolViewerProps): React.ReactNode {
   const { preferences } = useUserPreferences();
   const isDark = preferences.theme === 'dark';
@@ -36,8 +41,8 @@ export function PatchToolViewer({ args, toolName, toolResult }: ToolViewerProps)
 
   // Append and insert operations - show added content without implying an applied diff
   if ((operation === 'append' || operation === 'insert_before' || operation === 'insert_after') && content !== undefined) {
-    const lines = content.split('\n');
-    const anchorLines = anchor ? anchor.split('\n') : [];
+    const lines = splitPatchPreviewLines(content);
+    const anchorLines = anchor ? splitPatchPreviewLines(anchor) : [];
     const filename = path?.split('/').pop() || path;
 
     return (
@@ -68,7 +73,7 @@ export function PatchToolViewer({ args, toolName, toolResult }: ToolViewerProps)
 
   // Create operation - show file creation with content preview (all additions)
   if (operation === 'create' && content !== undefined) {
-    const lines = content.split('\n');
+    const lines = splitPatchPreviewLines(content);
     const filename = path?.split('/').pop() || path;
 
     return (

@@ -299,7 +299,7 @@ func patchDelete(path string) ToolOut {
 
 func validateNoFields(operation PatchOperation, rawFields map[string]json.RawMessage, fields ...string) error {
 	for _, field := range fields {
-		if _, ok := rawFields[field]; ok {
+		if raw, ok := rawFields[field]; ok && strings.TrimSpace(string(raw)) != "null" {
 			return fmt.Errorf("%s is not allowed for %s operation", field, operation)
 		}
 	}

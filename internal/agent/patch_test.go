@@ -177,6 +177,23 @@ func TestPatchTool_Replace(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "hello world", string(content))
 	})
+
+	t.Run("allows forbidden fields with null values", func(t *testing.T) {
+		t.Parallel()
+
+		filePath := filepath.Join(t.TempDir(), "test.txt")
+		require.NoError(t, os.WriteFile(filePath, []byte("hello world"), 0o600))
+
+		result := tool.Run(ToolContext{}, json.RawMessage(fmt.Sprintf(
+			`{"path":%q,"operation":"replace","old_string":"world","new_string":"universe","content":null,"anchor":null}`,
+			filePath,
+		)))
+
+		assert.False(t, result.IsError, result.Content)
+		content, err := os.ReadFile(filePath)
+		require.NoError(t, err)
+		assert.Equal(t, "hello universe", string(content))
+	})
 }
 
 func TestPatchTool_Append(t *testing.T) {

@@ -89,6 +89,21 @@ describe('ChatMessages patch tool status', () => {
     expect(screen.queryByText('Patch applied')).not.toBeInTheDocument();
   });
 
+  it('does not count a trailing newline as an extra append preview line', () => {
+    renderMessages([
+      patchMessage('msg-1', 'call-1', {
+        path: '/tmp/MEMORY.md',
+        operation: 'append',
+        content: '- new preference\n',
+      }),
+    ]);
+    openPatch();
+
+    expect(screen.getByText('+1')).toBeInTheDocument();
+    expect(screen.queryByText('+2')).not.toBeInTheDocument();
+    expect(screen.getByText('- new preference')).toBeInTheDocument();
+  });
+
   it('marks a matching failed tool result on the patch preview', () => {
     renderMessages([
       patchMessage('msg-1', 'call-1', replaceArgs),
