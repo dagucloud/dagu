@@ -614,6 +614,31 @@ func (sm *SessionManager) enqueueImmediateUserMessage(ctx context.Context, conte
 	return nil
 }
 
+func (sm *SessionManager) enqueueInternalUserMessage(provider llm.Provider, modelID string, resolvedModel string, content string) error {
+	if provider == nil {
+		return errors.New("LLM provider is required")
+	}
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return errors.New("message is required")
+	}
+	if err := sm.ensureLoop(provider, modelID, resolvedModel); err != nil {
+		return err
+	}
+
+	llmMsg := llm.Message{Role: llm.RoleUser, Content: content}
+	sm.mu.Lock()
+	sm.bumpLastActivityLocked(time.Now())
+	loop := sm.loop
+	sm.mu.Unlock()
+	if loop == nil {
+		return errors.New("session loop not initialized")
+	}
+	sm.SetWorking(true)
+	loop.QueueUserMessage(llmMsg)
+	return nil
+}
+
 // EnqueueChatMessage accepts bot text for a session. When the agent is already
 // working, the text is merged into a single queued follow-up and marked as a
 // safe-boundary interrupt instead of immediately entering LLM history.

@@ -351,11 +351,14 @@ func TestDAGRunWatchRegistryNotifiesTerminalRun(t *testing.T) {
 	require.NotNil(t, notifiedStatus)
 	assert.Equal(t, core.Failed, notifiedStatus.Status)
 
-	message := formatDAGRunWatchNotification(notifiedReq, notifiedInfo, notifiedStatus)
-	assert.Contains(t, message, "DAG run finished: build/run-1")
+	message := formatDAGRunWatchAgentEvent(notifiedReq, notifiedInfo, notifiedStatus)
+	assert.Contains(t, message, "A watched DAG run finished.")
+	assert.Contains(t, message, "DAG: build")
+	assert.Contains(t, message, "Run ID: run-1")
 	assert.Contains(t, message, "Status: failed")
 	assert.Contains(t, message, "Primary failed step: test")
 	assert.Contains(t, message, "dag_run_manage")
+	assert.Contains(t, message, "Do not quote it verbatim.")
 }
 
 func TestDAGRunWatchRegistryDeduplicatesActiveRun(t *testing.T) {

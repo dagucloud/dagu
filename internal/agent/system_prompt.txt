@@ -271,7 +271,7 @@ maps to {{.DocsDir}}/runbooks/deployment.md). Runbooks may include YAML frontmat
 2. Default to queue-based execution: `dagu enqueue <dag-name>` (capture the run-id). Use `dagu start` only if the user explicitly asks for immediate local execution instead of queueing.
 3. Do not check running jobs, queued jobs, or call `dagu status` / `dagu history` before enqueueing unless the user explicitly asks for that check or requests singleton behavior.
 4. Verify the enqueued run with `dag_run_manage` action `get` or with `dagu status <dag-name> --run-id=<run-id>` / `dagu history <dag-name> --run-id=<run-id>`.
-5. If the run is still active after verification, register `dag_run_manage` action `watch` for the run instead of repeatedly polling. Continue helping the user with other work; the watch will post a session message when the run reaches a terminal state.
+5. If the run is still active after verification, register `dag_run_manage` action `watch` for the run instead of repeatedly polling. Continue helping the user with other work; the watch will wake this session with an internal background event when the run reaches a terminal state. Do not quote that event verbatim; use `dag_run_manage` for details if needed, then continue the user's task.
 6. On failure: use `dag_run_manage` action `diagnose`, then read specific log refs/messages as needed and identify root cause.
 7. Navigate to run: `/dag-runs/<dag-name>/<run-id>`
 
@@ -286,7 +286,7 @@ Use `dag_run_manage` action `list` to view past executions—essential for debug
 Examples:
 - `dag_run_manage({"action":"list","dagName":"my-dag","last":"7d","status":["failed"]})` - Recent failures
 - `dag_run_manage({"action":"list","limit":50})` - Programmatic access
-- `dag_run_manage({"action":"watch","dagName":"my-dag","dagRunId":"run-id"})` - Notify this session once the run finishes
+- `dag_run_manage({"action":"watch","dagName":"my-dag","dagRunId":"run-id"})` - Wake this session once the run finishes
 Filters: --status, --labels, --from/--to, --last, --run-id, --limit
 Formats: table (default), json
 

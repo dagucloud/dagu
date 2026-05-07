@@ -1377,6 +1377,23 @@ func (a *API) prepareSessionRuntime(ctx context.Context, mgr *SessionManager, us
 	return provider, model, modelCfg.Model, nil
 }
 
+func (a *API) prepareInternalSessionRuntime(ctx context.Context, mgr *SessionManager, user UserIdentity) (llm.Provider, string, string, error) {
+	mgr.UpdateUserContext(user)
+
+	model := selectModel("", mgr.GetModel(), a.getDefaultModelID(ctx))
+	provider, modelCfg, err := a.resolveProvider(ctx, model)
+	if err != nil {
+		a.logger.Error("Failed to get LLM provider", "error", err)
+		return nil, "", "", ErrAgentNotConfigured
+	}
+
+	mgr.UpdatePricing(modelCfg.InputCostPer1M, modelCfg.OutputCostPer1M)
+	mgr.UpdateThinkingEffort(modelThinkingEffort(modelCfg))
+	mgr.UpdateLoopProvider(provider, modelCfg.Model)
+	a.persistSessionModel(ctx, mgr, model)
+	return provider, model, modelCfg.Model, nil
+}
+
 // EnqueueChatMessage accepts bot chat input for an existing session. Idle sessions
 // start immediately, while working sessions merge the text into a queued
 // safe-boundary interrupt turn.
@@ -1483,6 +1500,23 @@ func (a *API) FlushQueuedChatMessage(ctx context.Context, sessionID string, user
 	}
 	targetMgr.CompleteQueuedChatFlush()
 	return ChatQueueResult{SessionID: targetSessionID, Rotated: rotated, Started: true}, nil
+}
+
+func (a *API) enqueueInternalAgentMessage(ctx context.Context, sessionID string, user UserIdentity, content string) error {
+	mgr, ok := a.getOrReactivateSession(ctx, sessionID, user)
+	if !ok {
+		return ErrSessionNotFound
+	}
+
+	provider, model, resolvedModel, err := a.prepareInternalSessionRuntime(ctx, mgr, user)
+	if err != nil {
+		return err
+	}
+	if err := mgr.enqueueInternalUserMessage(provider, model, resolvedModel, content); err != nil {
+		a.logger.Error("Failed to enqueue internal agent message", "error", err)
+		return ErrFailedToProcessMessage
+	}
+	return nil
 }
 
 // isValidUUID checks if a string is a valid UUID.

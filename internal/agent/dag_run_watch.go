@@ -14,7 +14,6 @@ import (
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/llm"
 	"github.com/google/uuid"
 )
 
@@ -610,44 +609,42 @@ func dagRunWatchKey(sessionID, dagName, dagRunID, subDAGRunID string) string {
 	return strings.Join([]string{sessionID, dagName, dagRunID, subDAGRunID}, "\x00")
 }
 
-func formatDAGRunWatchNotification(req DAGRunWatchRequest, info DAGRunWatchInfo, status *exec.DAGRunStatus) string {
-	target := req.DAGName + "/" + req.DAGRunID
-	if req.SubDAGRunID != "" {
-		target += " (subDAGRunId: " + req.SubDAGRunID + ")"
-	}
+func formatDAGRunWatchAgentEvent(req DAGRunWatchRequest, info DAGRunWatchInfo, status *exec.DAGRunStatus) string {
 	statusText := info.Status
 	if statusText == "" && status != nil {
 		statusText = status.Status.String()
 	}
+
 	lines := []string{
-		"DAG run finished: " + target,
+		"A watched DAG run finished.",
+		"",
+		"DAG: " + req.DAGName,
+		"Run ID: " + req.DAGRunID,
 		"Status: " + statusText,
 		"Watch ID: " + info.WatchID,
+	}
+	if req.SubDAGRunID != "" {
+		lines = append(lines, "Sub DAG Run ID: "+req.SubDAGRunID)
 	}
 	if status != nil && status.Error != "" {
 		lines = append(lines, "Error: "+status.Error)
 	}
 	if req.DiagnoseOnFailure && status != nil && !status.Status.IsSuccess() {
 		if node := firstFailedDAGRunNode(status); node != nil {
-			stepLine := fmt.Sprintf("Primary failed step: %s (%s)", node.Step.Name, node.Status.String())
-			lines = append(lines, stepLine)
+			lines = append(lines, fmt.Sprintf("Primary failed step: %s (%s)", node.Step.Name, node.Status.String()))
 			if node.Error != "" {
 				lines = append(lines, "Step error: "+node.Error)
 			}
 		}
 	}
-	lines = append(lines, "Use `dag_run_manage` with action `get`, `diagnose`, `read_log`, or `read_messages` for details.")
+	lines = append(lines,
+		"",
+		"This is an internal background event, not a user message. Do not quote it verbatim.",
+		"Continue the user's task. Use dag_run_manage get, diagnose, read_log, or read_messages only when details are needed.",
+	)
 	return strings.Join(lines, "\n")
 }
 
 func (a *API) notifyDAGRunWatch(ctx context.Context, req DAGRunWatchRequest, info DAGRunWatchInfo, status *exec.DAGRunStatus) error {
-	content := formatDAGRunWatchNotification(req, info, status)
-	llmMsg := llm.Message{Role: llm.RoleAssistant, Content: content}
-	_, err := a.AppendExternalMessage(ctx, req.SessionID, req.User, Message{
-		Type:      MessageTypeAssistant,
-		Content:   content,
-		CreatedAt: time.Now(),
-		LLMData:   &llmMsg,
-	})
-	return err
+	return a.enqueueInternalAgentMessage(ctx, req.SessionID, req.User, formatDAGRunWatchAgentEvent(req, info, status))
 }
