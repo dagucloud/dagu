@@ -130,6 +130,73 @@ func TestDAGRunManageReadStepLogAndMessages(t *testing.T) {
 	assert.Equal(t, "assistant", messages[0].(map[string]any)["role"])
 }
 
+func TestDAGRunManageReadStepLogRequiresStepStream(t *testing.T) {
+	logFile := writeTempLog(t, "scheduler\n")
+	tool := NewDAGRunManageTool(&dagRunManageTestStore{
+		status: &exec.DAGRunStatus{
+			Name:     "build",
+			DAGRunID: "run-1",
+			Log:      logFile,
+			Nodes: []*exec.Node{{
+				Step:   core.Step{Name: "agent-step"},
+				Status: core.NodeFailed,
+				Stderr: logFile,
+			}},
+		},
+	})
+
+	out := runJSONTool(t, tool, map[string]any{
+		"action":   "read_log",
+		"dagName":  "build",
+		"dagRunId": "run-1",
+		"stepName": "agent-step",
+	})
+
+	require.True(t, out.IsError)
+	assert.Contains(t, out.Content, "stream is required when stepName is set")
+}
+
+func TestDAGRunManageMessagesFallbackToStatusOnReadError(t *testing.T) {
+	fallback := []exec.LLMMessage{{Role: exec.RoleAssistant, Content: "fallback from status"}}
+	tool := NewDAGRunManageTool(&dagRunManageTestStore{
+		status: &exec.DAGRunStatus{
+			Name:     "build",
+			DAGRunID: "run-1",
+			Status:   core.Failed,
+			Nodes: []*exec.Node{{
+				Step:         core.Step{Name: "agent-step", ExecutorConfig: core.ExecutorConfig{Type: "agent"}},
+				Status:       core.NodeFailed,
+				ChatMessages: fallback,
+			}},
+		},
+		messageErr: errors.New("messages file missing"),
+	})
+
+	out := runJSONTool(t, tool, map[string]any{
+		"action":   "read_messages",
+		"dagName":  "build",
+		"dagRunId": "run-1",
+		"stepName": "agent-step",
+	})
+	require.False(t, out.IsError, out.Content)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal([]byte(out.Content), &got))
+	messages := got["messages"].([]any)
+	require.Len(t, messages, 1)
+	assert.Equal(t, "fallback from status", messages[0].(map[string]any)["content"])
+
+	out = runJSONTool(t, tool, map[string]any{
+		"action":   "diagnose",
+		"dagName":  "build",
+		"dagRunId": "run-1",
+	})
+	require.False(t, out.IsError, out.Content)
+	require.NoError(t, json.Unmarshal([]byte(out.Content), &got))
+	messages = got["messages"].([]any)
+	require.Len(t, messages, 1)
+	assert.Equal(t, "fallback from status", messages[0].(map[string]any)["content"])
+}
+
 func TestDAGRunManageListRejectsConflictingTimeFilters(t *testing.T) {
 	tool := NewDAGRunManageTool(&dagRunManageTestStore{})
 
@@ -490,10 +557,11 @@ func writeTempLog(t *testing.T, content string) string {
 }
 
 type dagRunManageTestStore struct {
-	page     exec.DAGRunStatusPage
-	status   *exec.DAGRunStatus
-	messages []exec.LLMMessage
-	listOpts exec.ListDAGRunStatusesOptions
+	page       exec.DAGRunStatusPage
+	status     *exec.DAGRunStatus
+	messages   []exec.LLMMessage
+	messageErr error
+	listOpts   exec.ListDAGRunStatusesOptions
 }
 
 type dagRunManageFakeWatcher struct {
@@ -550,11 +618,11 @@ func (s *dagRunManageTestStore) CompareAndSwapLatestAttemptStatus(context.Contex
 }
 
 func (s *dagRunManageTestStore) FindAttempt(context.Context, exec.DAGRunRef) (exec.DAGRunAttempt, error) {
-	return &dagRunManageTestAttempt{status: s.status, messages: s.messages}, nil
+	return &dagRunManageTestAttempt{status: s.status, messages: s.messages, messageErr: s.messageErr}, nil
 }
 
 func (s *dagRunManageTestStore) FindSubAttempt(context.Context, exec.DAGRunRef, string) (exec.DAGRunAttempt, error) {
-	return &dagRunManageTestAttempt{status: s.status, messages: s.messages}, nil
+	return &dagRunManageTestAttempt{status: s.status, messages: s.messages, messageErr: s.messageErr}, nil
 }
 
 func (s *dagRunManageTestStore) CreateSubAttempt(context.Context, exec.DAGRunRef, string) (exec.DAGRunAttempt, error) {
@@ -574,8 +642,9 @@ func (s *dagRunManageTestStore) RemoveDAGRun(context.Context, exec.DAGRunRef, ..
 }
 
 type dagRunManageTestAttempt struct {
-	status   *exec.DAGRunStatus
-	messages []exec.LLMMessage
+	status     *exec.DAGRunStatus
+	messages   []exec.LLMMessage
+	messageErr error
 }
 
 func (a *dagRunManageTestAttempt) ID() string {
@@ -609,6 +678,9 @@ func (a *dagRunManageTestAttempt) WriteStepMessages(context.Context, string, []e
 	return nil
 }
 func (a *dagRunManageTestAttempt) ReadStepMessages(context.Context, string) ([]exec.LLMMessage, error) {
+	if a.messageErr != nil {
+		return nil, a.messageErr
+	}
 	return a.messages, nil
 }
 func (a *dagRunManageTestAttempt) WorkDir() string { return "" }

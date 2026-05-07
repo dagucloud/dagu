@@ -346,9 +346,15 @@ func dagRunManageReadLog(ctx context.Context, store exec.DAGRunStore, args dagRu
 	if !ok {
 		return out
 	}
+	if args.StepName != "" && strings.TrimSpace(args.Stream) == "" {
+		return toolError("stream is required when stepName is set; use stdout or stderr")
+	}
 	stream := normalizeDAGRunLogStream(args.Stream)
 	if stream == "" {
 		return toolError("stream is required and must be one of: scheduler, stdout, stderr")
+	}
+	if args.StepName != "" && stream == "scheduler" {
+		return toolError("scheduler logs do not use stepName; omit stepName or use stdout/stderr")
 	}
 	logPath, err := selectDAGRunManageLogPath(status, args.StepName, stream)
 	if err != nil {
@@ -376,14 +382,9 @@ func dagRunManageReadMessages(ctx context.Context, store exec.DAGRunStore, args 
 	if strings.TrimSpace(args.StepName) == "" {
 		return toolError("stepName is required for read_messages")
 	}
-	messages, err := attempt.ReadStepMessages(ctx, args.StepName)
+	messages, err := dagRunManageStepMessages(ctx, status, attempt, args.StepName)
 	if err != nil {
 		return toolError("Failed to read step messages: %v", err)
-	}
-	if len(messages) == 0 {
-		if node, err := status.NodeByName(args.StepName); err == nil {
-			messages = node.ChatMessages
-		}
 	}
 	return dagManageJSON(map[string]any{
 		"action":      "read_messages",
@@ -428,11 +429,7 @@ func dagRunManageDiagnose(ctx context.Context, store exec.DAGRunStore, args dagR
 		if primary.Stderr != "" {
 			logs["stderr"] = readDAGManageLogForDiagnose(primary.Stderr, logArgs)
 		}
-		var err error
-		messages, err = attempt.ReadStepMessages(ctx, primary.Step.Name)
-		if err == nil && len(messages) == 0 {
-			messages = primary.ChatMessages
-		}
+		messages, _ = dagRunManageStepMessages(ctx, status, attempt, primary.Step.Name)
 	}
 
 	primaryName := ""
@@ -500,6 +497,20 @@ func readDAGRunStatus(ctx context.Context, store exec.DAGRunStore, dagName, dagR
 		return nil, nil, fmt.Errorf("failed to read DAG run status: %w", err)
 	}
 	return status, attempt, nil
+}
+
+func dagRunManageStepMessages(ctx context.Context, status *exec.DAGRunStatus, attempt exec.DAGRunAttempt, stepName string) ([]exec.LLMMessage, error) {
+	messages, readErr := attempt.ReadStepMessages(ctx, stepName)
+	if readErr == nil && len(messages) > 0 {
+		return messages, nil
+	}
+	if node, err := status.NodeByName(stepName); err == nil && len(node.ChatMessages) > 0 {
+		return node.ChatMessages, nil
+	}
+	if readErr != nil {
+		return nil, readErr
+	}
+	return messages, nil
 }
 
 func dagRunManageStatusPayload(status *exec.DAGRunStatus, subDAGRunID string, includeRun bool) map[string]any {
