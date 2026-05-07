@@ -396,11 +396,6 @@ type ControlPlaneStorePostgresAgentDef struct {
 	Pool         *PostgresPoolDef `mapstructure:"pool"`
 }
 
-type DAGRunStoreDef = ControlPlaneStoreDef
-type DAGRunStorePostgresDef = ControlPlaneStorePostgresDef
-type DAGRunStorePostgresRoleDef = ControlPlaneStorePostgresRoleDef
-type DAGRunStorePostgresAgentDef = ControlPlaneStorePostgresAgentDef
-
 // SessionDef configures agent session storage.
 type SessionDef struct {
 	MaxPerUser *int `mapstructure:"max_per_user"` // Default: 100; 0 = unlimited

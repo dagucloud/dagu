@@ -265,6 +265,32 @@ func TestInitBuiltinAuthService_AutoProvision(t *testing.T) {
 	})
 }
 
+func TestUsesSharedControlPlaneStore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		backend config.ControlPlaneStoreBackend
+		want    bool
+	}{
+		{name: "default file backend", want: false},
+		{name: "explicit file backend", backend: config.ControlPlaneStoreBackendFile, want: false},
+		{name: "postgres backend", backend: config.ControlPlaneStoreBackendPostgres, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &config.Config{
+				ControlPlaneStore: config.ControlPlaneStoreConfig{
+					Backend: tt.backend,
+				},
+			}
+			assert.Equal(t, tt.want, usesSharedControlPlaneStore(cfg))
+		})
+	}
+}
+
 // TestInitBuiltinAuthService_UserCanAuthenticate verifies that the auto-provisioned
 // user can actually authenticate (password was hashed correctly).
 func TestInitBuiltinAuthService_UserCanAuthenticate(t *testing.T) {

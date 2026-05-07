@@ -104,24 +104,30 @@ func WithWebhookEncryptor(encryptor *cmncrypto.Encryptor) Option {
 // NewDAGRunStore creates the configured DAG-run store. This keeps current
 // DAG-run call sites narrow while the broader control-plane store is adopted.
 func NewDAGRunStore(ctx context.Context, cfg *config.Config, opts ...Option) (exec.DAGRunStore, error) {
-	store, err := New(ctx, cfg, opts...)
-	if err != nil {
-		return nil, err
-	}
-	if store != nil {
-		return store.DAGRuns(), nil
+	if cfg == nil {
+		return nil, fmt.Errorf("config must not be nil")
 	}
 
 	options := defaultOptions(cfg)
 	for _, opt := range opts {
 		opt(&options)
 	}
-	return newFileDAGRunStore(cfg, options), nil
+
+	switch cfg.ControlPlaneStore.Backend {
+	case "", config.ControlPlaneStoreBackendFile:
+		return newFileDAGRunStore(cfg, options), nil
+	case config.ControlPlaneStoreBackendPostgres:
+		store, err := New(ctx, cfg, opts...)
+		if err != nil {
+			return nil, err
+		}
+		return store.DAGRuns(), nil
+	default:
+		return nil, fmt.Errorf("unsupported control-plane store backend %q", cfg.ControlPlaneStore.Backend)
+	}
 }
 
-// New creates the configured shared control-plane store. It returns nil for
-// the file backend because existing file stores are still constructed at their
-// current ownership boundaries.
+// New creates the configured shared control-plane store.
 func New(ctx context.Context, cfg *config.Config, opts ...Option) (Store, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config must not be nil")
@@ -133,7 +139,7 @@ func New(ctx context.Context, cfg *config.Config, opts ...Option) (Store, error)
 
 	switch cfg.ControlPlaneStore.Backend {
 	case "", config.ControlPlaneStoreBackendFile:
-		return nil, nil
+		return newFileStore(ctx, cfg, options)
 	case config.ControlPlaneStoreBackendPostgres:
 		pgCfg, err := postgresRoleConfig(cfg.ControlPlaneStore.Postgres, options.Role)
 		if err != nil {

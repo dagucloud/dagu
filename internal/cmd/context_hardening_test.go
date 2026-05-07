@@ -162,7 +162,7 @@ control_plane_store:
 	}
 }
 
-func TestNewContext_InitializesControlPlaneStoreForDAGRunCommands(t *testing.T) {
+func TestNewContext_UsesFileDAGRunStoreWithoutAggregateForDAGRunCommands(t *testing.T) {
 	t.Parallel()
 
 	home := t.TempDir()
@@ -174,6 +174,22 @@ func TestNewContext_InitializesControlPlaneStoreForDAGRunCommands(t *testing.T) 
 	ctx, err := NewContext(command, nil)
 	require.NoError(t, err)
 	assert.Nil(t, ctx.ControlPlaneStore)
+	assert.NotNil(t, ctx.DAGRunStore)
+	assert.NotNil(t, ctx.DAGRunMgr)
+}
+
+func TestNewContext_InitializesFileControlPlaneStoreForServer(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	command := &cobra.Command{Use: "server"}
+	initFlags(command)
+	command.SetContext(context.Background())
+	require.NoError(t, command.Flags().Set("dagu-home", home))
+
+	ctx, err := NewContext(command, nil)
+	require.NoError(t, err)
+	assert.NotNil(t, ctx.ControlPlaneStore)
 	assert.NotNil(t, ctx.DAGRunStore)
 	assert.NotNil(t, ctx.DAGRunMgr)
 }

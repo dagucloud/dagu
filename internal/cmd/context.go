@@ -359,13 +359,14 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	)
 	if contextNeedsDAGRunStore(cmd) && !shouldDeferAgentDAGRunStore(cmd, cfg) {
 		var err error
-		controlStore, err = newContextControlPlaneStore(baseCtx, ctx, cmd, cfg)
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize control-plane store: %w", err)
-		}
-		if controlStore != nil {
+		if shouldOpenContextControlPlaneStore(cmd, cfg) {
+			controlStore, err = newContextControlPlaneStore(baseCtx, ctx, cmd, cfg)
+			if err != nil {
+				return nil, fmt.Errorf("failed to initialize control-plane store: %w", err)
+			}
 			drs = controlStore.DAGRuns()
-		} else {
+		}
+		if drs == nil {
 			drs, err = newContextDAGRunStore(baseCtx, ctx, cmd, cfg)
 			if err != nil {
 				return nil, fmt.Errorf("failed to initialize DAG-run store: %w", err)
@@ -675,9 +676,22 @@ func newContextControlPlaneStore(baseCtx, cacheCtx context.Context, cmd *cobra.C
 	return controlplanestore.New(baseCtx, cfg, opts...)
 }
 
+func shouldOpenContextControlPlaneStore(cmd *cobra.Command, cfg *config.Config) bool {
+	if cmd == nil || cfg == nil {
+		return false
+	}
+	switch cfg.ControlPlaneStore.Backend {
+	case config.ControlPlaneStoreBackendPostgres:
+		return true
+	case "", config.ControlPlaneStoreBackendFile:
+		return cmd.Name() == "server" || cmd.Name() == "start-all"
+	default:
+		return true
+	}
+}
+
 func shouldAttachWebhookEncryptor(cmd *cobra.Command, cfg *config.Config) bool {
 	return cfg != nil &&
-		cfg.ControlPlaneStore.Backend == config.ControlPlaneStoreBackendPostgres &&
 		cmd != nil &&
 		(cmd.Name() == "server" || cmd.Name() == "start-all")
 }

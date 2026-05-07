@@ -610,7 +610,7 @@ func initBuiltinAuthService(ctx context.Context, cfg *config.Config, collector *
 
 	// Auto-provision initial admin if configured and no users exist.
 	if setupRequired && cfg.Server.Auth.Builtin.InitialAdmin.IsConfigured() {
-		if err := provisionInitialAdmin(ctx, cfg, authSvc, controlStore != nil); err != nil {
+		if err := provisionInitialAdmin(ctx, cfg, authSvc, usesSharedControlPlaneStore(cfg)); err != nil {
 			return nil, false, err
 		}
 		setupRequired = false
@@ -692,6 +692,14 @@ func initAuthStores(ctx context.Context, cfg *config.Config, collector *telemetr
 		apiKeyStore:  apiKeyStore,
 		webhookStore: webhookStore,
 	}, nil
+}
+
+func usesSharedControlPlaneStore(cfg *config.Config) bool {
+	if cfg == nil {
+		return false
+	}
+	return cfg.ControlPlaneStore.Backend != "" &&
+		cfg.ControlPlaneStore.Backend != config.ControlPlaneStoreBackendFile
 }
 
 func provisionInitialAdmin(ctx context.Context, cfg *config.Config, authSvc *authservice.Service, useSharedStore bool) error {

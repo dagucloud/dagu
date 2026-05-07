@@ -252,18 +252,6 @@ type ControlPlaneStorePostgresRoleConfig struct {
 	Pool         PostgresPoolConfig
 }
 
-// Backward-compatible aliases for the unreleased DAG-run-only store naming.
-type DAGRunStoreBackend = ControlPlaneStoreBackend
-
-const (
-	DAGRunStoreBackendFile     = ControlPlaneStoreBackendFile
-	DAGRunStoreBackendPostgres = ControlPlaneStoreBackendPostgres
-)
-
-type DAGRunStoreConfig = ControlPlaneStoreConfig
-type DAGRunStorePostgresConfig = ControlPlaneStorePostgresConfig
-type DAGRunStorePostgresRoleConfig = ControlPlaneStorePostgresRoleConfig
-
 // SessionConfig contains configuration for agent session cleanup.
 type SessionConfig struct {
 	MaxPerUser int // Default: 100; 0 = unlimited
