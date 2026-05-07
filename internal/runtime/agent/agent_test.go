@@ -5,6 +5,7 @@ package agent_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
+	"github.com/dagucloud/dagu/internal/cmn/sock"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime/agent"
@@ -284,6 +286,74 @@ steps:
 		require.NoError(t, readErr)
 		require.Equal(t, core.Failed, latest.Status)
 		require.NotEmpty(t, latest.FinishedAt)
+	})
+	t.Run("UnsupportedSocketTransportContinuesRun", func(t *testing.T) {
+		th := test.Setup(t)
+		dag := th.DAG(t, `steps:
+  - "exit 0"
+`)
+		dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{
+			SocketServerFactory: fakeSocketServerFactory(
+				fmt.Errorf("%w: synthetic unsupported transport", sock.ErrUnsupported),
+			),
+		}))
+
+		dagAgent.RunSuccess(t)
+		dag.AssertLatestStatus(t, core.Succeeded)
+	})
+	t.Run("UnsupportedSocketTransportCanStopWithAbortFlag", func(t *testing.T) {
+		th := test.Setup(t)
+		runDir := t.TempDir()
+		startedFile := filepath.Join(runDir, "started")
+		releaseFile := filepath.Join(runDir, "release")
+		dagRunID := "test-dag-run-no-socket-stop"
+		t.Cleanup(func() {
+			_ = os.WriteFile(releaseFile, []byte("cleanup"), 0600)
+		})
+		dag := th.DAG(t, fmt.Sprintf(`steps:
+  - command: %q
+`, signalFileThenWaitScript(startedFile, releaseFile, 50*time.Millisecond)))
+		dagAgent := dag.Agent(
+			test.WithDAGRunID(dagRunID),
+			test.WithAgentOptions(agent.Options{
+				SocketServerFactory: fakeSocketServerFactory(
+					fmt.Errorf("%w: synthetic unsupported transport", sock.ErrUnsupported),
+				),
+			}),
+		)
+		runErr := make(chan error, 1)
+		go func() {
+			runErr <- dagAgent.Run(th.Context)
+		}()
+
+		waitForTestFile(t, startedFile, 2*time.Minute)
+		require.Eventually(t, func() bool {
+			status, err := th.DAGRunMgr.GetCurrentStatus(th.Context, dag.DAG, dagRunID)
+			return err == nil && status != nil && status.Status == core.Running
+		}, 10*time.Second, 100*time.Millisecond)
+
+		require.NoError(t, th.DAGRunMgr.Stop(th.Context, dag.DAG, dagRunID))
+
+		select {
+		case err := <-runErr:
+			require.NoError(t, err)
+		case <-time.After(30 * time.Second):
+			require.FailNow(t, "timed out waiting for DAG run to stop via abort flag")
+		}
+		dag.AssertLatestStatus(t, core.Aborted)
+	})
+	t.Run("SocketStartupFailureRemainsFatal", func(t *testing.T) {
+		th := test.Setup(t)
+		dag := th.DAG(t, `steps:
+  - "exit 0"
+`)
+		dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{
+			SocketServerFactory: fakeSocketServerFactory(errors.New("synthetic bind failure")),
+		}))
+
+		err := dagAgent.Run(th.Context)
+		require.ErrorContains(t, err, "failed to start the unix socket server")
+		require.ErrorContains(t, err, "synthetic bind failure")
 	})
 	t.Run("FailureHandlerRunsInline", func(t *testing.T) {
 		th := test.Setup(t)
@@ -781,6 +851,27 @@ type mockResponseWriter struct {
 	status int
 	body   string
 	header *http.Header
+}
+
+type fakeSocketServer struct {
+	serveErr error
+}
+
+func fakeSocketServerFactory(serveErr error) agent.SocketServerFactory {
+	return func(string, sock.HTTPHandlerFunc) (agent.SocketServer, error) {
+		return &fakeSocketServer{serveErr: serveErr}, nil
+	}
+}
+
+func (s *fakeSocketServer) Serve(_ context.Context, listen chan error) error {
+	if listen != nil {
+		listen <- s.serveErr
+	}
+	return s.serveErr
+}
+
+func (*fakeSocketServer) Shutdown(context.Context) error {
+	return nil
 }
 
 func (h *mockResponseWriter) Header() http.Header {

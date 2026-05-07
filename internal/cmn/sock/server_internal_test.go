@@ -6,6 +6,7 @@ package sock
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -60,4 +61,22 @@ func TestNewHTTPServerConfiguresTimeouts(t *testing.T) {
 	httpServer := srv.newHTTPServer(context.Background())
 	require.Equal(t, defaultTimeout, httpServer.ReadHeaderTimeout)
 	require.Equal(t, idleTimeout, httpServer.IdleTimeout)
+}
+
+func TestWrapListenErrorMarksUnsupportedTransport(t *testing.T) {
+	t.Parallel()
+
+	err := wrapListenError(unsupportedListenErrorForTest())
+
+	require.ErrorIs(t, err, ErrUnsupported)
+}
+
+func TestWrapListenErrorPreservesOtherErrors(t *testing.T) {
+	t.Parallel()
+
+	original := errors.New("bind permission denied")
+	err := wrapListenError(original)
+
+	require.ErrorIs(t, err, original)
+	require.NotErrorIs(t, err, ErrUnsupported)
 }

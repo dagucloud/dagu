@@ -207,11 +207,24 @@ func (m *Manager) GenDAGRunID(_ context.Context) (string, error) {
 	return id.String(), nil
 }
 
-// IsRunning checks if a dag-run is currently running by querying its status.
-// Returns true if the status can be retrieved without error, indicating the DAG is running.
+// IsRunning checks if a dag-run is currently running. It prefers the live socket
+// status and falls back to a fresh proc heartbeat plus persisted running status.
 func (m *Manager) IsRunning(ctx context.Context, dag *core.DAG, dagRunID string) bool {
 	st, _ := m.currentStatus(ctx, dag, dagRunID)
-	return st != nil && st.DAGRunID == dagRunID && st.Status == core.Running
+	if st != nil && st.DAGRunID == dagRunID && st.Status == core.Running {
+		return true
+	}
+
+	runRef := exec.NewDAGRunRef(dag.Name, dagRunID)
+	if alive, err := m.procStore.IsRunAlive(ctx, dag.ProcGroup(), runRef); err == nil && alive {
+		st, err := m.getPersistedOrCurrentStatus(ctx, dag, dagRunID)
+		if err != nil {
+			return false
+		}
+		return st.DAGRunID == dagRunID && st.Status == core.Running
+	}
+
+	return false
 }
 
 // GetCurrentStatus retrieves the current status of a dag-run by its run ID.
