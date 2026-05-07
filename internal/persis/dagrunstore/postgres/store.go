@@ -155,7 +155,7 @@ func (s *Store) createRootAttempt(ctx context.Context, dag *core.DAG, timestamp 
 			return fmt.Errorf("lock dag-run: %w", err)
 		}
 
-		base, findErr := q.FindAnyRootAttempt(ctx, db.FindAnyRootAttemptParams{
+		run, findErr := q.FindRootRun(ctx, db.FindRootRunParams{
 			DagName:  dag.Name,
 			DagRunID: dagRunID,
 		})
@@ -170,14 +170,21 @@ func (s *Store) createRootAttempt(ctx context.Context, dag *core.DAG, timestamp 
 			return fmt.Errorf("%w: %s", exec.ErrDAGRunAlreadyExists, dagRunID)
 		} else if !errors.Is(findErr, pgx.ErrNoRows) {
 			return findErr
+		} else {
+			workspaceName, workspaceValid := workspaceFromLabels(dag.Labels)
+			createdRun, err := s.createRun(ctx, q, dag.Name, dagRunID, exec.NewDAGRunRef(dag.Name, dagRunID), true, timestamp, workspaceName, workspaceValid)
+			if err != nil {
+				return err
+			}
+			run = createdRun
 		}
 
 		runCreatedAt := timestamp
-		if opts.Retry {
-			runCreatedAt = timeFromTimestamptz(base.RunCreatedAt)
+		if findErr == nil {
+			runCreatedAt = timeFromTimestamptz(run.RunCreatedAt)
 		}
 
-		created, err := s.insertAttempt(ctx, q, dag, dagRunID, exec.NewDAGRunRef(dag.Name, dagRunID), true, runCreatedAt, timestamp, opts.AttemptID)
+		created, err := s.insertAttempt(ctx, q, run.ID, dag, dagRunID, exec.NewDAGRunRef(dag.Name, dagRunID), true, runCreatedAt, timestamp, opts.AttemptID)
 		if err != nil {
 			return err
 		}
@@ -204,7 +211,7 @@ func (s *Store) createSubAttempt(ctx context.Context, dag *core.DAG, timestamp t
 		if err := q.LockDAGRunKey(ctx, dagLockKey(root.Name, root.ID)); err != nil {
 			return fmt.Errorf("lock root dag-run: %w", err)
 		}
-		if _, err := q.FindAnyRootAttempt(ctx, db.FindAnyRootAttemptParams{
+		if _, err := q.FindRootRun(ctx, db.FindRootRunParams{
 			DagName:  root.Name,
 			DagRunID: root.ID,
 		}); err != nil {
@@ -214,7 +221,29 @@ func (s *Store) createSubAttempt(ctx context.Context, dag *core.DAG, timestamp t
 			return err
 		}
 
-		created, err := s.insertAttempt(ctx, q, dag, dagRunID, root, false, timestamp, timestamp, opts.AttemptID)
+		run, findErr := q.FindSubRun(ctx, db.FindSubRunParams{
+			RootDagName:  root.Name,
+			RootDagRunID: root.ID,
+			DagRunID:     dagRunID,
+		})
+		if findErr != nil {
+			if !errors.Is(findErr, pgx.ErrNoRows) {
+				return findErr
+			}
+			workspaceName, workspaceValid := workspaceFromLabels(dag.Labels)
+			createdRun, err := s.createRun(ctx, q, dag.Name, dagRunID, root, false, timestamp, workspaceName, workspaceValid)
+			if err != nil {
+				return err
+			}
+			run = createdRun
+		}
+
+		runCreatedAt := timestamp
+		if findErr == nil {
+			runCreatedAt = timeFromTimestamptz(run.RunCreatedAt)
+		}
+
+		created, err := s.insertAttempt(ctx, q, run.ID, dag, dagRunID, root, false, runCreatedAt, timestamp, opts.AttemptID)
 		if err != nil {
 			return err
 		}
@@ -227,9 +256,38 @@ func (s *Store) createSubAttempt(ctx context.Context, dag *core.DAG, timestamp t
 	return s.attemptFromRow(row)
 }
 
+func (s *Store) createRun(
+	ctx context.Context,
+	q *db.Queries,
+	dagName string,
+	dagRunID string,
+	root exec.DAGRunRef,
+	isRoot bool,
+	runCreatedAt time.Time,
+	workspace sql.NullString,
+	workspaceValid bool,
+) (db.DaguDagRun, error) {
+	rowID, err := uuid.NewV7()
+	if err != nil {
+		return db.DaguDagRun{}, err
+	}
+	return q.CreateRun(ctx, db.CreateRunParams{
+		ID:             rowID,
+		DagName:        dagName,
+		DagRunID:       dagRunID,
+		RootDagName:    root.Name,
+		RootDagRunID:   root.ID,
+		IsRoot:         isRoot,
+		RunCreatedAt:   timestamptz(runCreatedAt),
+		Workspace:      workspace,
+		WorkspaceValid: workspaceValid,
+	})
+}
+
 func (s *Store) insertAttempt(
 	ctx context.Context,
 	q *db.Queries,
+	runID uuid.UUID,
 	dag *core.DAG,
 	dagRunID string,
 	root exec.DAGRunRef,
@@ -258,6 +316,7 @@ func (s *Store) insertAttempt(
 
 	return q.CreateAttempt(ctx, db.CreateAttemptParams{
 		ID:               rowID,
+		RunID:            runID,
 		DagName:          dag.Name,
 		DagRunID:         dagRunID,
 		RootDagName:      root.Name,
@@ -291,7 +350,7 @@ func (s *Store) RecentAttempts(ctx context.Context, name string, itemLimit int) 
 
 	attempts := make([]exec.DAGRunAttempt, 0, len(rows))
 	for _, row := range rows {
-		attempt, err := s.attemptFromRecentRow(row)
+		attempt, err := s.attemptFromRow(row)
 		if err != nil {
 			logger.Warn(ctx, "postgres dag-run store: failed to decode recent attempt; skipping",
 				tag.Error(err),
@@ -351,7 +410,7 @@ func (s *Store) latestRootAttempt(ctx context.Context, dagRun exec.DAGRunRef) (d
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return db.DaguDagRunAttempt{}, err
 	}
-	if _, anyErr := s.queries.FindAnyRootAttempt(ctx, db.FindAnyRootAttemptParams{
+	if _, anyErr := s.queries.FindRootRun(ctx, db.FindRootRunParams{
 		DagName:  dagRun.Name,
 		DagRunID: dagRun.ID,
 	}); anyErr == nil {
@@ -718,19 +777,19 @@ func (s *Store) attemptFromRow(row db.DaguDagRunAttempt) (*Attempt, error) {
 	return newAttempt(s.queries, row)
 }
 
-func (s *Store) attemptFromRecentRow(row db.RecentAttemptsByNameRow) (*Attempt, error) {
-	return newAttempt(s.queries, db.DaguDagRunAttempt(row))
-}
-
-func statusFromListRow(row db.ListRootStatusRowsRow) (*exec.DAGRunStatus, error) {
-	return statusFromRow(db.DaguDagRunAttempt(row))
+func statusFromListRow(row db.DaguDagRun) (*exec.DAGRunStatus, error) {
+	return statusFromJSON(row.StatusData)
 }
 
 func statusFromRow(row db.DaguDagRunAttempt) (*exec.DAGRunStatus, error) {
-	if len(row.StatusData) == 0 {
+	return statusFromJSON(row.StatusData)
+}
+
+func statusFromJSON(data []byte) (*exec.DAGRunStatus, error) {
+	if len(data) == 0 {
 		return nil, exec.ErrNoStatusData
 	}
-	return exec.StatusFromJSON(string(row.StatusData))
+	return exec.StatusFromJSON(string(data))
 }
 
 func updateStatus(ctx context.Context, q *db.Queries, id uuid.UUID, status exec.DAGRunStatus) error {

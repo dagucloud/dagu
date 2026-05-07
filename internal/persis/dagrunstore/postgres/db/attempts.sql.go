@@ -16,6 +16,7 @@ import (
 const createAttempt = `-- name: CreateAttempt :one
 INSERT INTO dagu_dag_run_attempts (
     id,
+    run_id,
     dag_name,
     dag_run_id,
     root_dag_name,
@@ -41,13 +42,15 @@ INSERT INTO dagu_dag_run_attempts (
     $10,
     $11,
     $12,
-    $13
+    $13,
+    $14
 )
-RETURNING id, dag_name, dag_run_id, root_dag_name, root_dag_run_id, is_root, attempt_id, run_created_at, attempt_created_at, workspace, workspace_valid, status, started_at, finished_at, status_data, dag_data, outputs_data, messages_data, cancel_requested, hidden, local_work_dir, created_at, updated_at
+RETURNING id, run_id, dag_name, dag_run_id, root_dag_name, root_dag_run_id, is_root, attempt_id, run_created_at, attempt_created_at, workspace, workspace_valid, status, started_at, finished_at, status_data, dag_data, outputs_data, messages_data, cancel_requested, hidden, local_work_dir, created_at, updated_at
 `
 
 type CreateAttemptParams struct {
 	ID               uuid.UUID          `json:"id"`
+	RunID            uuid.UUID          `json:"run_id"`
 	DagName          string             `json:"dag_name"`
 	DagRunID         string             `json:"dag_run_id"`
 	RootDagName      string             `json:"root_dag_name"`
@@ -65,6 +68,7 @@ type CreateAttemptParams struct {
 func (q *Queries) CreateAttempt(ctx context.Context, arg CreateAttemptParams) (DaguDagRunAttempt, error) {
 	row := q.db.QueryRow(ctx, createAttempt,
 		arg.ID,
+		arg.RunID,
 		arg.DagName,
 		arg.DagRunID,
 		arg.RootDagName,
@@ -81,6 +85,7 @@ func (q *Queries) CreateAttempt(ctx context.Context, arg CreateAttemptParams) (D
 	var i DaguDagRunAttempt
 	err := row.Scan(
 		&i.ID,
+		&i.RunID,
 		&i.DagName,
 		&i.DagRunID,
 		&i.RootDagName,
@@ -107,15 +112,101 @@ func (q *Queries) CreateAttempt(ctx context.Context, arg CreateAttemptParams) (D
 	return i, err
 }
 
+const createRun = `-- name: CreateRun :one
+INSERT INTO dagu_dag_runs (
+    id,
+    dag_name,
+    dag_run_id,
+    root_dag_name,
+    root_dag_run_id,
+    is_root,
+    run_created_at,
+    workspace,
+    workspace_valid
+) VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6,
+    $7,
+    $8,
+    $9
+)
+RETURNING id, dag_name, dag_run_id, root_dag_name, root_dag_run_id, is_root, run_created_at, latest_attempt_id, latest_attempt_created_at, workspace, workspace_valid, status, started_at, finished_at, status_data, created_at, updated_at
+`
+
+type CreateRunParams struct {
+	ID             uuid.UUID          `json:"id"`
+	DagName        string             `json:"dag_name"`
+	DagRunID       string             `json:"dag_run_id"`
+	RootDagName    string             `json:"root_dag_name"`
+	RootDagRunID   string             `json:"root_dag_run_id"`
+	IsRoot         bool               `json:"is_root"`
+	RunCreatedAt   pgtype.Timestamptz `json:"run_created_at"`
+	Workspace      sql.NullString     `json:"workspace"`
+	WorkspaceValid bool               `json:"workspace_valid"`
+}
+
+func (q *Queries) CreateRun(ctx context.Context, arg CreateRunParams) (DaguDagRun, error) {
+	row := q.db.QueryRow(ctx, createRun,
+		arg.ID,
+		arg.DagName,
+		arg.DagRunID,
+		arg.RootDagName,
+		arg.RootDagRunID,
+		arg.IsRoot,
+		arg.RunCreatedAt,
+		arg.Workspace,
+		arg.WorkspaceValid,
+	)
+	var i DaguDagRun
+	err := row.Scan(
+		&i.ID,
+		&i.DagName,
+		&i.DagRunID,
+		&i.RootDagName,
+		&i.RootDagRunID,
+		&i.IsRoot,
+		&i.RunCreatedAt,
+		&i.LatestAttemptID,
+		&i.LatestAttemptCreatedAt,
+		&i.Workspace,
+		&i.WorkspaceValid,
+		&i.Status,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.StatusData,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const deleteDAGRunRows = `-- name: DeleteDAGRunRows :many
-WITH deleted AS (
-    DELETE FROM dagu_dag_run_attempts
-    WHERE root_dag_name = $1
-      AND root_dag_run_id = $2
-    RETURNING dag_run_id
+WITH root_run AS (
+    SELECT r.id
+    FROM dagu_dag_runs AS r
+    WHERE r.is_root
+      AND r.dag_name = $1
+      AND r.dag_run_id = $2
+),
+doomed AS (
+    SELECT r.id, r.dag_run_id
+    FROM dagu_dag_runs AS r
+    WHERE r.id IN (SELECT id FROM root_run)
+       OR (
+           r.root_dag_name = $1
+           AND r.root_dag_run_id = $2
+       )
+),
+deleted AS (
+    DELETE FROM dagu_dag_runs AS r
+    WHERE r.id IN (SELECT id FROM doomed)
 )
 SELECT DISTINCT dag_run_id
-FROM deleted
+FROM doomed
 ORDER BY dag_run_id
 `
 
@@ -144,24 +235,23 @@ func (q *Queries) DeleteDAGRunRows(ctx context.Context, arg DeleteDAGRunRowsPara
 	return items, nil
 }
 
-const findAnyRootAttempt = `-- name: FindAnyRootAttempt :one
-SELECT id, dag_name, dag_run_id, root_dag_name, root_dag_run_id, is_root, attempt_id, run_created_at, attempt_created_at, workspace, workspace_valid, status, started_at, finished_at, status_data, dag_data, outputs_data, messages_data, cancel_requested, hidden, local_work_dir, created_at, updated_at
-FROM dagu_dag_run_attempts
+const findRootRun = `-- name: FindRootRun :one
+SELECT id, dag_name, dag_run_id, root_dag_name, root_dag_run_id, is_root, run_created_at, latest_attempt_id, latest_attempt_created_at, workspace, workspace_valid, status, started_at, finished_at, status_data, created_at, updated_at
+FROM dagu_dag_runs
 WHERE is_root
   AND dag_name = $1
   AND dag_run_id = $2
-ORDER BY run_created_at ASC, attempt_created_at ASC, id ASC
 LIMIT 1
 `
 
-type FindAnyRootAttemptParams struct {
+type FindRootRunParams struct {
 	DagName  string `json:"dag_name"`
 	DagRunID string `json:"dag_run_id"`
 }
 
-func (q *Queries) FindAnyRootAttempt(ctx context.Context, arg FindAnyRootAttemptParams) (DaguDagRunAttempt, error) {
-	row := q.db.QueryRow(ctx, findAnyRootAttempt, arg.DagName, arg.DagRunID)
-	var i DaguDagRunAttempt
+func (q *Queries) FindRootRun(ctx context.Context, arg FindRootRunParams) (DaguDagRun, error) {
+	row := q.db.QueryRow(ctx, findRootRun, arg.DagName, arg.DagRunID)
+	var i DaguDagRun
 	err := row.Scan(
 		&i.ID,
 		&i.DagName,
@@ -169,21 +259,56 @@ func (q *Queries) FindAnyRootAttempt(ctx context.Context, arg FindAnyRootAttempt
 		&i.RootDagName,
 		&i.RootDagRunID,
 		&i.IsRoot,
-		&i.AttemptID,
 		&i.RunCreatedAt,
-		&i.AttemptCreatedAt,
+		&i.LatestAttemptID,
+		&i.LatestAttemptCreatedAt,
 		&i.Workspace,
 		&i.WorkspaceValid,
 		&i.Status,
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.StatusData,
-		&i.DagData,
-		&i.OutputsData,
-		&i.MessagesData,
-		&i.CancelRequested,
-		&i.Hidden,
-		&i.LocalWorkDir,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const findSubRun = `-- name: FindSubRun :one
+SELECT id, dag_name, dag_run_id, root_dag_name, root_dag_run_id, is_root, run_created_at, latest_attempt_id, latest_attempt_created_at, workspace, workspace_valid, status, started_at, finished_at, status_data, created_at, updated_at
+FROM dagu_dag_runs
+WHERE NOT is_root
+  AND root_dag_name = $1
+  AND root_dag_run_id = $2
+  AND dag_run_id = $3
+LIMIT 1
+`
+
+type FindSubRunParams struct {
+	RootDagName  string `json:"root_dag_name"`
+	RootDagRunID string `json:"root_dag_run_id"`
+	DagRunID     string `json:"dag_run_id"`
+}
+
+func (q *Queries) FindSubRun(ctx context.Context, arg FindSubRunParams) (DaguDagRun, error) {
+	row := q.db.QueryRow(ctx, findSubRun, arg.RootDagName, arg.RootDagRunID, arg.DagRunID)
+	var i DaguDagRun
+	err := row.Scan(
+		&i.ID,
+		&i.DagName,
+		&i.DagRunID,
+		&i.RootDagName,
+		&i.RootDagRunID,
+		&i.IsRoot,
+		&i.RunCreatedAt,
+		&i.LatestAttemptID,
+		&i.LatestAttemptCreatedAt,
+		&i.Workspace,
+		&i.WorkspaceValid,
+		&i.Status,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.StatusData,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -191,7 +316,7 @@ func (q *Queries) FindAnyRootAttempt(ctx context.Context, arg FindAnyRootAttempt
 }
 
 const getAttempt = `-- name: GetAttempt :one
-SELECT id, dag_name, dag_run_id, root_dag_name, root_dag_run_id, is_root, attempt_id, run_created_at, attempt_created_at, workspace, workspace_valid, status, started_at, finished_at, status_data, dag_data, outputs_data, messages_data, cancel_requested, hidden, local_work_dir, created_at, updated_at
+SELECT id, run_id, dag_name, dag_run_id, root_dag_name, root_dag_run_id, is_root, attempt_id, run_created_at, attempt_created_at, workspace, workspace_valid, status, started_at, finished_at, status_data, dag_data, outputs_data, messages_data, cancel_requested, hidden, local_work_dir, created_at, updated_at
 FROM dagu_dag_run_attempts
 WHERE id = $1
 `
@@ -201,6 +326,7 @@ func (q *Queries) GetAttempt(ctx context.Context, id uuid.UUID) (DaguDagRunAttem
 	var i DaguDagRunAttempt
 	err := row.Scan(
 		&i.ID,
+		&i.RunID,
 		&i.DagName,
 		&i.DagRunID,
 		&i.RootDagName,
@@ -228,14 +354,15 @@ func (q *Queries) GetAttempt(ctx context.Context, id uuid.UUID) (DaguDagRunAttem
 }
 
 const latestAttemptByName = `-- name: LatestAttemptByName :one
-SELECT id, dag_name, dag_run_id, root_dag_name, root_dag_run_id, is_root, attempt_id, run_created_at, attempt_created_at, workspace, workspace_valid, status, started_at, finished_at, status_data, dag_data, outputs_data, messages_data, cancel_requested, hidden, local_work_dir, created_at, updated_at
-FROM dagu_dag_run_attempts
-WHERE is_root
-  AND dag_name = $1
-  AND NOT hidden
-  AND status_data IS NOT NULL
-  AND (NOT $2::boolean OR run_created_at >= $3::timestamptz)
-ORDER BY run_created_at DESC, dag_run_id ASC, attempt_created_at DESC, id DESC
+SELECT a.id, a.run_id, a.dag_name, a.dag_run_id, a.root_dag_name, a.root_dag_run_id, a.is_root, a.attempt_id, a.run_created_at, a.attempt_created_at, a.workspace, a.workspace_valid, a.status, a.started_at, a.finished_at, a.status_data, a.dag_data, a.outputs_data, a.messages_data, a.cancel_requested, a.hidden, a.local_work_dir, a.created_at, a.updated_at
+FROM dagu_dag_runs r
+JOIN dagu_dag_run_attempts a ON a.id = r.latest_attempt_id
+WHERE r.is_root
+  AND r.dag_name = $1
+  AND r.status_data IS NOT NULL
+  AND NOT a.hidden
+  AND (NOT $2::boolean OR r.run_created_at >= $3::timestamptz)
+ORDER BY r.run_created_at DESC, r.dag_run_id ASC
 LIMIT 1
 `
 
@@ -250,6 +377,7 @@ func (q *Queries) LatestAttemptByName(ctx context.Context, arg LatestAttemptByNa
 	var i DaguDagRunAttempt
 	err := row.Scan(
 		&i.ID,
+		&i.RunID,
 		&i.DagName,
 		&i.DagRunID,
 		&i.RootDagName,
@@ -277,14 +405,14 @@ func (q *Queries) LatestAttemptByName(ctx context.Context, arg LatestAttemptByNa
 }
 
 const latestRootAttempt = `-- name: LatestRootAttempt :one
-SELECT id, dag_name, dag_run_id, root_dag_name, root_dag_run_id, is_root, attempt_id, run_created_at, attempt_created_at, workspace, workspace_valid, status, started_at, finished_at, status_data, dag_data, outputs_data, messages_data, cancel_requested, hidden, local_work_dir, created_at, updated_at
-FROM dagu_dag_run_attempts
-WHERE is_root
-  AND dag_name = $1
-  AND dag_run_id = $2
-  AND NOT hidden
-  AND status_data IS NOT NULL
-ORDER BY attempt_created_at DESC, id DESC
+SELECT a.id, a.run_id, a.dag_name, a.dag_run_id, a.root_dag_name, a.root_dag_run_id, a.is_root, a.attempt_id, a.run_created_at, a.attempt_created_at, a.workspace, a.workspace_valid, a.status, a.started_at, a.finished_at, a.status_data, a.dag_data, a.outputs_data, a.messages_data, a.cancel_requested, a.hidden, a.local_work_dir, a.created_at, a.updated_at
+FROM dagu_dag_runs r
+JOIN dagu_dag_run_attempts a ON a.id = r.latest_attempt_id
+WHERE r.is_root
+  AND r.dag_name = $1
+  AND r.dag_run_id = $2
+  AND r.status_data IS NOT NULL
+  AND NOT a.hidden
 LIMIT 1
 `
 
@@ -298,6 +426,7 @@ func (q *Queries) LatestRootAttempt(ctx context.Context, arg LatestRootAttemptPa
 	var i DaguDagRunAttempt
 	err := row.Scan(
 		&i.ID,
+		&i.RunID,
 		&i.DagName,
 		&i.DagRunID,
 		&i.RootDagName,
@@ -325,16 +454,16 @@ func (q *Queries) LatestRootAttempt(ctx context.Context, arg LatestRootAttemptPa
 }
 
 const latestRootAttemptForUpdate = `-- name: LatestRootAttemptForUpdate :one
-SELECT id, dag_name, dag_run_id, root_dag_name, root_dag_run_id, is_root, attempt_id, run_created_at, attempt_created_at, workspace, workspace_valid, status, started_at, finished_at, status_data, dag_data, outputs_data, messages_data, cancel_requested, hidden, local_work_dir, created_at, updated_at
-FROM dagu_dag_run_attempts
-WHERE is_root
-  AND dag_name = $1
-  AND dag_run_id = $2
-  AND NOT hidden
-  AND status_data IS NOT NULL
-ORDER BY attempt_created_at DESC, id DESC
+SELECT a.id, a.run_id, a.dag_name, a.dag_run_id, a.root_dag_name, a.root_dag_run_id, a.is_root, a.attempt_id, a.run_created_at, a.attempt_created_at, a.workspace, a.workspace_valid, a.status, a.started_at, a.finished_at, a.status_data, a.dag_data, a.outputs_data, a.messages_data, a.cancel_requested, a.hidden, a.local_work_dir, a.created_at, a.updated_at
+FROM dagu_dag_runs r
+JOIN dagu_dag_run_attempts a ON a.id = r.latest_attempt_id
+WHERE r.is_root
+  AND r.dag_name = $1
+  AND r.dag_run_id = $2
+  AND r.status_data IS NOT NULL
+  AND NOT a.hidden
 LIMIT 1
-FOR UPDATE
+FOR UPDATE OF r, a
 `
 
 type LatestRootAttemptForUpdateParams struct {
@@ -347,6 +476,7 @@ func (q *Queries) LatestRootAttemptForUpdate(ctx context.Context, arg LatestRoot
 	var i DaguDagRunAttempt
 	err := row.Scan(
 		&i.ID,
+		&i.RunID,
 		&i.DagName,
 		&i.DagRunID,
 		&i.RootDagName,
@@ -374,15 +504,15 @@ func (q *Queries) LatestRootAttemptForUpdate(ctx context.Context, arg LatestRoot
 }
 
 const latestSubAttempt = `-- name: LatestSubAttempt :one
-SELECT id, dag_name, dag_run_id, root_dag_name, root_dag_run_id, is_root, attempt_id, run_created_at, attempt_created_at, workspace, workspace_valid, status, started_at, finished_at, status_data, dag_data, outputs_data, messages_data, cancel_requested, hidden, local_work_dir, created_at, updated_at
-FROM dagu_dag_run_attempts
-WHERE NOT is_root
-  AND root_dag_name = $1
-  AND root_dag_run_id = $2
-  AND dag_run_id = $3
-  AND NOT hidden
-  AND status_data IS NOT NULL
-ORDER BY attempt_created_at DESC, id DESC
+SELECT a.id, a.run_id, a.dag_name, a.dag_run_id, a.root_dag_name, a.root_dag_run_id, a.is_root, a.attempt_id, a.run_created_at, a.attempt_created_at, a.workspace, a.workspace_valid, a.status, a.started_at, a.finished_at, a.status_data, a.dag_data, a.outputs_data, a.messages_data, a.cancel_requested, a.hidden, a.local_work_dir, a.created_at, a.updated_at
+FROM dagu_dag_runs r
+JOIN dagu_dag_run_attempts a ON a.id = r.latest_attempt_id
+WHERE NOT r.is_root
+  AND r.root_dag_name = $1
+  AND r.root_dag_run_id = $2
+  AND r.dag_run_id = $3
+  AND r.status_data IS NOT NULL
+  AND NOT a.hidden
 LIMIT 1
 `
 
@@ -397,6 +527,7 @@ func (q *Queries) LatestSubAttempt(ctx context.Context, arg LatestSubAttemptPara
 	var i DaguDagRunAttempt
 	err := row.Scan(
 		&i.ID,
+		&i.RunID,
 		&i.DagName,
 		&i.DagRunID,
 		&i.RootDagName,
@@ -424,24 +555,20 @@ func (q *Queries) LatestSubAttempt(ctx context.Context, arg LatestSubAttemptPara
 }
 
 const listRemovableRunsByCount = `-- name: ListRemovableRunsByCount :many
-WITH latest AS (
-    SELECT DISTINCT ON (dag_run_id) dag_run_id, status, run_created_at, status_data
-    FROM dagu_dag_run_attempts
-    WHERE is_root
-      AND dag_name = $1
-      AND NOT hidden
-    ORDER BY dag_run_id, attempt_created_at DESC, id DESC
-),
-terminal AS (
-    SELECT dag_run_id, run_created_at
-    FROM latest
-    WHERE status_data IS NOT NULL
-      AND status <> ALL($2::integer[])
+WITH terminal AS (
+    SELECT r.dag_run_id, r.run_created_at
+    FROM dagu_dag_runs AS r
+    WHERE r.is_root
+      AND r.dag_name = $1
+      AND r.status_data IS NOT NULL
+      AND r.status <> ALL($2::integer[])
 ),
 ranked AS (
-    SELECT dag_run_id, run_created_at
-    FROM latest
-    ORDER BY run_created_at DESC, dag_run_id ASC
+    SELECT r.dag_run_id, r.run_created_at
+    FROM dagu_dag_runs AS r
+    WHERE r.is_root
+      AND r.dag_name = $1
+    ORDER BY r.run_created_at DESC, r.dag_run_id ASC
     OFFSET $3::integer
 ),
 removable AS (
@@ -481,31 +608,25 @@ func (q *Queries) ListRemovableRunsByCount(ctx context.Context, arg ListRemovabl
 }
 
 const listRemovableRunsByDays = `-- name: ListRemovableRunsByDays :many
-WITH latest AS (
-    SELECT DISTINCT ON (dag_run_id) dag_run_id, status, run_created_at, updated_at, status_data
-    FROM dagu_dag_run_attempts
-    WHERE is_root
-      AND dag_name = $3
-      AND NOT hidden
-    ORDER BY dag_run_id, attempt_created_at DESC, id DESC
-)
 SELECT dag_run_id
-FROM latest
-WHERE run_created_at < $1::timestamptz
-  AND updated_at < $1::timestamptz
+FROM dagu_dag_runs
+WHERE is_root
+  AND dag_name = $1
+  AND run_created_at < $2::timestamptz
+  AND updated_at < $2::timestamptz
   AND status_data IS NOT NULL
-  AND status <> ALL($2::integer[])
+  AND status <> ALL($3::integer[])
 ORDER BY run_created_at ASC, dag_run_id ASC
 `
 
 type ListRemovableRunsByDaysParams struct {
+	DagName        string             `json:"dag_name"`
 	Cutoff         pgtype.Timestamptz `json:"cutoff"`
 	ActiveStatuses []int32            `json:"active_statuses"`
-	DagName        string             `json:"dag_name"`
 }
 
 func (q *Queries) ListRemovableRunsByDays(ctx context.Context, arg ListRemovableRunsByDaysParams) ([]string, error) {
-	rows, err := q.db.Query(ctx, listRemovableRunsByDays, arg.Cutoff, arg.ActiveStatuses, arg.DagName)
+	rows, err := q.db.Query(ctx, listRemovableRunsByDays, arg.DagName, arg.Cutoff, arg.ActiveStatuses)
 	if err != nil {
 		return nil, err
 	}
@@ -525,17 +646,11 @@ func (q *Queries) ListRemovableRunsByDays(ctx context.Context, arg ListRemovable
 }
 
 const listRootStatusRows = `-- name: ListRootStatusRows :many
-WITH latest AS (
-    SELECT DISTINCT ON (dag_name, dag_run_id) id, dag_name, dag_run_id, root_dag_name, root_dag_run_id, is_root, attempt_id, run_created_at, attempt_created_at, workspace, workspace_valid, status, started_at, finished_at, status_data, dag_data, outputs_data, messages_data, cancel_requested, hidden, local_work_dir, created_at, updated_at
-    FROM dagu_dag_run_attempts
-    WHERE is_root
-      AND NOT hidden
-      AND status_data IS NOT NULL
-    ORDER BY dag_name, dag_run_id, attempt_created_at DESC, id DESC
-)
-SELECT id, dag_name, dag_run_id, root_dag_name, root_dag_run_id, is_root, attempt_id, run_created_at, attempt_created_at, workspace, workspace_valid, status, started_at, finished_at, status_data, dag_data, outputs_data, messages_data, cancel_requested, hidden, local_work_dir, created_at, updated_at
-FROM latest
-WHERE ($1::text = '' OR dag_name::text = $1::text)
+SELECT id, dag_name, dag_run_id, root_dag_name, root_dag_run_id, is_root, run_created_at, latest_attempt_id, latest_attempt_created_at, workspace, workspace_valid, status, started_at, finished_at, status_data, created_at, updated_at
+FROM dagu_dag_runs
+WHERE is_root
+  AND status_data IS NOT NULL
+  AND ($1::text = '' OR dag_name::text = $1::text)
   AND ($2::text = '' OR status_data ->> 'name' ILIKE '%' || $2::text || '%')
   AND ($3::text = '' OR dag_run_id::text LIKE '%' || $3::text || '%')
   AND (NOT $4::boolean OR run_created_at >= $5::timestamptz)
@@ -587,33 +702,7 @@ type ListRootStatusRowsParams struct {
 	PageLimit              int32              `json:"page_limit"`
 }
 
-type ListRootStatusRowsRow struct {
-	ID               uuid.UUID          `json:"id"`
-	DagName          string             `json:"dag_name"`
-	DagRunID         string             `json:"dag_run_id"`
-	RootDagName      string             `json:"root_dag_name"`
-	RootDagRunID     string             `json:"root_dag_run_id"`
-	IsRoot           bool               `json:"is_root"`
-	AttemptID        string             `json:"attempt_id"`
-	RunCreatedAt     pgtype.Timestamptz `json:"run_created_at"`
-	AttemptCreatedAt pgtype.Timestamptz `json:"attempt_created_at"`
-	Workspace        sql.NullString     `json:"workspace"`
-	WorkspaceValid   bool               `json:"workspace_valid"`
-	Status           pgtype.Int4        `json:"status"`
-	StartedAt        pgtype.Timestamptz `json:"started_at"`
-	FinishedAt       pgtype.Timestamptz `json:"finished_at"`
-	StatusData       []byte             `json:"status_data"`
-	DagData          []byte             `json:"dag_data"`
-	OutputsData      []byte             `json:"outputs_data"`
-	MessagesData     []byte             `json:"messages_data"`
-	CancelRequested  bool               `json:"cancel_requested"`
-	Hidden           bool               `json:"hidden"`
-	LocalWorkDir     string             `json:"local_work_dir"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
-}
-
-func (q *Queries) ListRootStatusRows(ctx context.Context, arg ListRootStatusRowsParams) ([]ListRootStatusRowsRow, error) {
+func (q *Queries) ListRootStatusRows(ctx context.Context, arg ListRootStatusRowsParams) ([]DaguDagRun, error) {
 	rows, err := q.db.Query(ctx, listRootStatusRows,
 		arg.ExactName,
 		arg.NameContains,
@@ -636,9 +725,9 @@ func (q *Queries) ListRootStatusRows(ctx context.Context, arg ListRootStatusRows
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListRootStatusRowsRow{}
+	items := []DaguDagRun{}
 	for rows.Next() {
-		var i ListRootStatusRowsRow
+		var i DaguDagRun
 		if err := rows.Scan(
 			&i.ID,
 			&i.DagName,
@@ -646,21 +735,15 @@ func (q *Queries) ListRootStatusRows(ctx context.Context, arg ListRootStatusRows
 			&i.RootDagName,
 			&i.RootDagRunID,
 			&i.IsRoot,
-			&i.AttemptID,
 			&i.RunCreatedAt,
-			&i.AttemptCreatedAt,
+			&i.LatestAttemptID,
+			&i.LatestAttemptCreatedAt,
 			&i.Workspace,
 			&i.WorkspaceValid,
 			&i.Status,
 			&i.StartedAt,
 			&i.FinishedAt,
 			&i.StatusData,
-			&i.DagData,
-			&i.OutputsData,
-			&i.MessagesData,
-			&i.CancelRequested,
-			&i.Hidden,
-			&i.LocalWorkDir,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -710,63 +793,34 @@ func (q *Queries) MergeAttemptStepMessages(ctx context.Context, arg MergeAttempt
 }
 
 const recentAttemptsByName = `-- name: RecentAttemptsByName :many
-WITH latest AS (
-    SELECT DISTINCT ON (dag_run_id) id, dag_name, dag_run_id, root_dag_name, root_dag_run_id, is_root, attempt_id, run_created_at, attempt_created_at, workspace, workspace_valid, status, started_at, finished_at, status_data, dag_data, outputs_data, messages_data, cancel_requested, hidden, local_work_dir, created_at, updated_at
-    FROM dagu_dag_run_attempts
-    WHERE is_root
-      AND dag_name = $2
-      AND NOT hidden
-      AND status_data IS NOT NULL
-    ORDER BY dag_run_id, attempt_created_at DESC, id DESC
-)
-SELECT id, dag_name, dag_run_id, root_dag_name, root_dag_run_id, is_root, attempt_id, run_created_at, attempt_created_at, workspace, workspace_valid, status, started_at, finished_at, status_data, dag_data, outputs_data, messages_data, cancel_requested, hidden, local_work_dir, created_at, updated_at
-FROM latest
-ORDER BY run_created_at DESC, dag_run_id ASC
-LIMIT $1::integer
+SELECT a.id, a.run_id, a.dag_name, a.dag_run_id, a.root_dag_name, a.root_dag_run_id, a.is_root, a.attempt_id, a.run_created_at, a.attempt_created_at, a.workspace, a.workspace_valid, a.status, a.started_at, a.finished_at, a.status_data, a.dag_data, a.outputs_data, a.messages_data, a.cancel_requested, a.hidden, a.local_work_dir, a.created_at, a.updated_at
+FROM dagu_dag_runs r
+JOIN dagu_dag_run_attempts a ON a.id = r.latest_attempt_id
+WHERE r.is_root
+  AND r.dag_name = $1
+  AND r.status_data IS NOT NULL
+  AND NOT a.hidden
+ORDER BY r.run_created_at DESC, r.dag_run_id ASC
+LIMIT $2::integer
 `
 
 type RecentAttemptsByNameParams struct {
-	ItemLimit int32  `json:"item_limit"`
 	DagName   string `json:"dag_name"`
+	ItemLimit int32  `json:"item_limit"`
 }
 
-type RecentAttemptsByNameRow struct {
-	ID               uuid.UUID          `json:"id"`
-	DagName          string             `json:"dag_name"`
-	DagRunID         string             `json:"dag_run_id"`
-	RootDagName      string             `json:"root_dag_name"`
-	RootDagRunID     string             `json:"root_dag_run_id"`
-	IsRoot           bool               `json:"is_root"`
-	AttemptID        string             `json:"attempt_id"`
-	RunCreatedAt     pgtype.Timestamptz `json:"run_created_at"`
-	AttemptCreatedAt pgtype.Timestamptz `json:"attempt_created_at"`
-	Workspace        sql.NullString     `json:"workspace"`
-	WorkspaceValid   bool               `json:"workspace_valid"`
-	Status           pgtype.Int4        `json:"status"`
-	StartedAt        pgtype.Timestamptz `json:"started_at"`
-	FinishedAt       pgtype.Timestamptz `json:"finished_at"`
-	StatusData       []byte             `json:"status_data"`
-	DagData          []byte             `json:"dag_data"`
-	OutputsData      []byte             `json:"outputs_data"`
-	MessagesData     []byte             `json:"messages_data"`
-	CancelRequested  bool               `json:"cancel_requested"`
-	Hidden           bool               `json:"hidden"`
-	LocalWorkDir     string             `json:"local_work_dir"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
-}
-
-func (q *Queries) RecentAttemptsByName(ctx context.Context, arg RecentAttemptsByNameParams) ([]RecentAttemptsByNameRow, error) {
-	rows, err := q.db.Query(ctx, recentAttemptsByName, arg.ItemLimit, arg.DagName)
+func (q *Queries) RecentAttemptsByName(ctx context.Context, arg RecentAttemptsByNameParams) ([]DaguDagRunAttempt, error) {
+	rows, err := q.db.Query(ctx, recentAttemptsByName, arg.DagName, arg.ItemLimit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []RecentAttemptsByNameRow{}
+	items := []DaguDagRunAttempt{}
 	for rows.Next() {
-		var i RecentAttemptsByNameRow
+		var i DaguDagRunAttempt
 		if err := rows.Scan(
 			&i.ID,
+			&i.RunID,
 			&i.DagName,
 			&i.DagRunID,
 			&i.RootDagName,
@@ -801,6 +855,22 @@ func (q *Queries) RecentAttemptsByName(ctx context.Context, arg RecentAttemptsBy
 }
 
 const renameDAGRuns = `-- name: RenameDAGRuns :exec
+WITH renamed_runs AS (
+    UPDATE dagu_dag_runs
+    SET dag_name = CASE WHEN is_root AND dag_name::text = $1::text THEN $2 ELSE dag_name END,
+        root_dag_name = CASE WHEN root_dag_name::text = $1::text THEN $2 ELSE root_dag_name END,
+        status_data = CASE
+            WHEN is_root
+             AND dag_name::text = $1::text
+             AND status_data IS NOT NULL
+            THEN jsonb_set(status_data, '{name}', to_jsonb($2::text), true)
+            ELSE status_data
+        END,
+        updated_at = now()
+    WHERE root_dag_name::text = $1::text
+       OR (is_root AND dag_name::text = $1::text)
+    RETURNING id
+)
 UPDATE dagu_dag_run_attempts
 SET dag_name = CASE WHEN is_root AND dag_name::text = $1::text THEN $2 ELSE dag_name END,
     root_dag_name = CASE WHEN root_dag_name::text = $1::text THEN $2 ELSE root_dag_name END,
@@ -812,8 +882,7 @@ SET dag_name = CASE WHEN is_root AND dag_name::text = $1::text THEN $2 ELSE dag_
         ELSE status_data
     END,
     updated_at = now()
-WHERE root_dag_name::text = $1::text
-   OR (is_root AND dag_name::text = $1::text)
+WHERE run_id IN (SELECT id FROM renamed_runs)
 `
 
 type RenameDAGRunsParams struct {
@@ -839,10 +908,50 @@ func (q *Queries) SetAttemptCancelRequested(ctx context.Context, id uuid.UUID) e
 }
 
 const setAttemptHidden = `-- name: SetAttemptHidden :exec
-UPDATE dagu_dag_run_attempts
-SET hidden = true,
+WITH hidden_attempt AS (
+    UPDATE dagu_dag_run_attempts AS a
+    SET hidden = true,
+        updated_at = now()
+    WHERE a.id = $1
+    RETURNING a.id, a.run_id
+),
+latest AS (
+    SELECT a.id, a.run_id, a.dag_name, a.dag_run_id, a.root_dag_name, a.root_dag_run_id, a.is_root, a.attempt_id, a.run_created_at, a.attempt_created_at, a.workspace, a.workspace_valid, a.status, a.started_at, a.finished_at, a.status_data, a.dag_data, a.outputs_data, a.messages_data, a.cancel_requested, a.hidden, a.local_work_dir, a.created_at, a.updated_at
+    FROM dagu_dag_run_attempts a
+    JOIN hidden_attempt h ON a.run_id = h.run_id
+    WHERE a.id <> h.id
+      AND NOT a.hidden
+      AND a.status_data IS NOT NULL
+    ORDER BY a.attempt_created_at DESC, a.id DESC
+    LIMIT 1
+),
+summary_updated AS (
+    UPDATE dagu_dag_runs r
+    SET latest_attempt_id = l.id,
+        latest_attempt_created_at = l.attempt_created_at,
+        workspace = l.workspace,
+        workspace_valid = l.workspace_valid,
+        status = l.status,
+        started_at = l.started_at,
+        finished_at = l.finished_at,
+        status_data = l.status_data,
+        updated_at = now()
+    FROM latest l
+    WHERE r.id = l.run_id
+    RETURNING r.id
+)
+UPDATE dagu_dag_runs r
+SET latest_attempt_id = NULL,
+    latest_attempt_created_at = NULL,
+    workspace = NULL,
+    workspace_valid = true,
+    status = NULL,
+    started_at = NULL,
+    finished_at = NULL,
+    status_data = NULL,
     updated_at = now()
-WHERE id = $1
+WHERE r.id IN (SELECT run_id FROM hidden_attempt)
+  AND NOT EXISTS (SELECT 1 FROM summary_updated)
 `
 
 func (q *Queries) SetAttemptHidden(ctx context.Context, id uuid.UUID) error {
@@ -902,15 +1011,37 @@ func (q *Queries) UpdateAttemptOutputs(ctx context.Context, arg UpdateAttemptOut
 }
 
 const updateAttemptStatus = `-- name: UpdateAttemptStatus :exec
-UPDATE dagu_dag_run_attempts
-SET status_data = $1,
-    status = $2,
-    workspace = $3,
-    workspace_valid = $4,
-    started_at = $5,
-    finished_at = $6,
+WITH updated_attempt AS (
+    UPDATE dagu_dag_run_attempts AS a
+    SET status_data = $1,
+        status = $2,
+        workspace = $3,
+        workspace_valid = $4,
+        started_at = $5,
+        finished_at = $6,
+        updated_at = now()
+    WHERE a.id = $7
+    RETURNING a.id, a.run_id, a.attempt_created_at, a.workspace, a.workspace_valid, a.status, a.started_at, a.finished_at, a.status_data, a.hidden
+)
+UPDATE dagu_dag_runs r
+SET latest_attempt_id = ua.id,
+    latest_attempt_created_at = ua.attempt_created_at,
+    workspace = ua.workspace,
+    workspace_valid = ua.workspace_valid,
+    status = ua.status,
+    started_at = ua.started_at,
+    finished_at = ua.finished_at,
+    status_data = ua.status_data,
     updated_at = now()
-WHERE id = $7
+FROM updated_attempt ua
+WHERE r.id = ua.run_id
+  AND NOT ua.hidden
+  AND (
+      r.latest_attempt_id IS NULL
+      OR r.latest_attempt_created_at IS NULL
+      OR ua.attempt_created_at > r.latest_attempt_created_at
+      OR (ua.attempt_created_at = r.latest_attempt_created_at AND ua.id >= r.latest_attempt_id)
+  )
 `
 
 type UpdateAttemptStatusParams struct {

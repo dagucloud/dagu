@@ -11,8 +11,29 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type DaguDagRun struct {
+	ID                     uuid.UUID          `json:"id"`
+	DagName                string             `json:"dag_name"`
+	DagRunID               string             `json:"dag_run_id"`
+	RootDagName            string             `json:"root_dag_name"`
+	RootDagRunID           string             `json:"root_dag_run_id"`
+	IsRoot                 bool               `json:"is_root"`
+	RunCreatedAt           pgtype.Timestamptz `json:"run_created_at"`
+	LatestAttemptID        uuid.NullUUID      `json:"latest_attempt_id"`
+	LatestAttemptCreatedAt pgtype.Timestamptz `json:"latest_attempt_created_at"`
+	Workspace              sql.NullString     `json:"workspace"`
+	WorkspaceValid         bool               `json:"workspace_valid"`
+	Status                 pgtype.Int4        `json:"status"`
+	StartedAt              pgtype.Timestamptz `json:"started_at"`
+	FinishedAt             pgtype.Timestamptz `json:"finished_at"`
+	StatusData             []byte             `json:"status_data"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
+}
+
 type DaguDagRunAttempt struct {
 	ID               uuid.UUID          `json:"id"`
+	RunID            uuid.UUID          `json:"run_id"`
 	DagName          string             `json:"dag_name"`
 	DagRunID         string             `json:"dag_run_id"`
 	RootDagName      string             `json:"root_dag_name"`

@@ -19,6 +19,11 @@ sql:
             go_type:
               import: "github.com/google/uuid"
               type: "UUID"
+          - db_type: "dagu_uuid_v7"
+            nullable: true
+            go_type:
+              import: "github.com/google/uuid"
+              type: "NullUUID"
           - db_type: "dagu_dag_name"
             go_type: "string"
           - db_type: "dagu_dag_run_id"

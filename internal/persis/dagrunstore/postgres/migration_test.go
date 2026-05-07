@@ -21,6 +21,10 @@ func TestMigrationUsesExistingIdentifierConstraints(t *testing.T) {
 	require.NoError(t, err)
 
 	sqlText := string(data)
+	assertSQLFragment(t, sqlText, "CREATE TABLE dagu_dag_runs")
+	assertSQLFragment(t, sqlText, "CREATE TABLE dagu_dag_run_attempts")
+	assertSQLFragment(t, sqlText, "run_id dagu_uuid_v7 NOT NULL REFERENCES dagu_dag_runs(id) ON DELETE CASCADE")
+	assertSQLFragment(t, sqlText, "latest_attempt_id dagu_uuid_v7")
 	assertSQLFragment(t, sqlText, "VALUE ~ '^[a-zA-Z0-9_.-]+$'")
 	assertSQLFragment(t, sqlText, "char_length(VALUE) <= 40")
 	assertSQLFragment(t, sqlText, "VALUE ~ '^[-a-zA-Z0-9_]+$'")
