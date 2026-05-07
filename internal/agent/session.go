@@ -70,6 +70,7 @@ type SessionManager struct {
 	delegates             map[string]DelegateSnapshot // guarded by mu
 	soul                  *Soul
 	webSearch             *llm.WebSearchRequest
+	webTools              *WebToolsConfig
 	remoteContextResolver RemoteContextResolver
 	promptWaitInterval    time.Duration
 }
@@ -127,6 +128,8 @@ type SessionManagerConfig struct {
 	Soul *Soul
 	// WebSearch configures provider-native web search for this session.
 	WebSearch *llm.WebSearchRequest
+	// WebTools configures first-class web_search and web_extract tools.
+	WebTools *WebToolsConfig
 	// RemoteContextResolver provides access to remote CLI contexts for remote_agent tools.
 	RemoteContextResolver RemoteContextResolver
 	// Delegates seeds known delegate sessions when restoring from storage.
@@ -218,6 +221,7 @@ func NewSessionManager(cfg SessionManagerConfig) *SessionManager {
 		registry:              cfg.Registry,
 		soul:                  cfg.Soul,
 		webSearch:             cfg.WebSearch,
+		webTools:              cfg.WebTools,
 		remoteContextResolver: cfg.RemoteContextResolver,
 		promptWaitInterval:    promptWaitInterval,
 	}
@@ -871,6 +875,7 @@ func (sm *SessionManager) createLoop(provider llm.Provider, model string, histor
 			DocStore:              sm.docStore,
 			WorkspaceStore:        sm.workspaceStore,
 			RemoteContextResolver: sm.remoteContextResolver,
+			WebTools:              sm.webTools,
 		}),
 		RecordMessage: sm.createRecordMessageFunc(),
 		Logger:        sm.logger,

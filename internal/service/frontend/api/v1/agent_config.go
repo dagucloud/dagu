@@ -5,8 +5,10 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"net/http"
+	"strings"
 
 	"github.com/dagucloud/dagu/api/v1"
 	"github.com/dagucloud/dagu/internal/agent"
@@ -96,7 +98,7 @@ func (a *API) UpdateAgentConfig(ctx context.Context, request api.UpdateAgentConf
 	}
 
 	if err := applyAgentConfigUpdates(cfg, request.Body); err != nil {
-		return nil, ErrInvalidToolPolicy
+		return nil, invalidAgentConfigError(err)
 	}
 
 	// Validate that the selected soul exists (only when explicitly changed).
@@ -149,6 +151,18 @@ func (a *API) requireAgentConfigManagement() error {
 	return nil
 }
 
+func invalidAgentConfigError(err error) *Error {
+	message := "Invalid agent configuration"
+	if err != nil {
+		message += ": " + err.Error()
+	}
+	return &Error{
+		Code:       api.ErrorCodeBadRequest,
+		Message:    message,
+		HTTPStatus: http.StatusBadRequest,
+	}
+}
+
 func toAgentConfigResponse(cfg *agent.Config) api.AgentConfigResponse {
 	resp := api.AgentConfigResponse{
 		Enabled:        &cfg.Enabled,
@@ -161,6 +175,9 @@ func toAgentConfigResponse(cfg *agent.Config) api.AgentConfigResponse {
 			Enabled: &cfg.WebSearch.Enabled,
 			MaxUses: cfg.WebSearch.MaxUses,
 		}
+	}
+	if cfg.WebTools != nil {
+		resp.WebTools = toAPIWebToolsConfig(cfg.WebTools)
 	}
 	return resp
 }
@@ -191,6 +208,11 @@ func applyAgentConfigUpdates(cfg *agent.Config, update *api.UpdateAgentConfigReq
 		ws.MaxUses = update.WebSearch.MaxUses
 		cfg.WebSearch = ws
 	}
+	if update.WebTools != nil {
+		if err := applyWebToolsUpdate(cfg, update.WebTools); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -212,7 +234,192 @@ func buildAgentConfigChanges(update *api.UpdateAgentConfigRequest) map[string]an
 	if update.WebSearch != nil {
 		changes["web_search"] = update.WebSearch
 	}
+	if update.WebTools != nil {
+		changes["web_tools"] = sanitizeWebToolsForAudit(update.WebTools)
+	}
 	return changes
+}
+
+func toAPIWebToolsConfig(cfg *agent.WebToolsConfig) *api.AgentWebToolsConfig {
+	if cfg == nil {
+		return nil
+	}
+	resolved := agent.ResolveWebToolsConfig(*cfg)
+	enabled := cfg.Enabled
+	backend := api.AgentWebToolsBackend(resolved.Backend)
+	resp := &api.AgentWebToolsConfig{
+		Enabled: &enabled,
+		Backend: &backend,
+	}
+	if cfg.Tavily != nil || resolved.Backend == agent.WebToolsBackendTavily {
+		tavilyCfg := agent.TavilyWebToolsConfig{}
+		if cfg.Tavily != nil {
+			tavilyCfg = *cfg.Tavily
+		}
+		apiKeyConfigured := strings.TrimSpace(tavilyCfg.APIKey) != ""
+		tavily := &api.AgentTavilyWebToolsConfig{
+			ApiKeyConfigured: &apiKeyConfigured,
+		}
+		if resolved.Backend == agent.WebToolsBackendTavily && resolved.Tavily != nil {
+			tavilyCfg.BaseURL = resolved.Tavily.BaseURL
+			tavilyCfg.MaxResults = resolved.Tavily.MaxResults
+			tavilyCfg.SearchDepth = resolved.Tavily.SearchDepth
+		}
+		if tavilyCfg.BaseURL != "" {
+			tavily.BaseUrl = ptrOf(tavilyCfg.BaseURL)
+		}
+		if tavilyCfg.MaxResults > 0 {
+			tavily.MaxResults = ptrOf(tavilyCfg.MaxResults)
+		}
+		if tavilyCfg.SearchDepth != "" {
+			searchDepthValue := api.AgentTavilyWebToolsConfigSearchDepth(tavilyCfg.SearchDepth)
+			tavily.SearchDepth = &searchDepthValue
+		}
+		resp.Tavily = tavily
+	}
+	if cfg.Firecrawl != nil || resolved.Backend == agent.WebToolsBackendFirecrawl {
+		firecrawlCfg := agent.FirecrawlWebToolsConfig{}
+		if cfg.Firecrawl != nil {
+			firecrawlCfg = *cfg.Firecrawl
+		}
+		apiKeyConfigured := strings.TrimSpace(firecrawlCfg.APIKey) != ""
+		firecrawl := &api.AgentFirecrawlWebToolsConfig{
+			ApiKeyConfigured: &apiKeyConfigured,
+		}
+		if resolved.Backend == agent.WebToolsBackendFirecrawl && resolved.Firecrawl != nil {
+			firecrawlCfg.BaseURL = resolved.Firecrawl.BaseURL
+			firecrawlCfg.MaxResults = resolved.Firecrawl.MaxResults
+		}
+		if firecrawlCfg.BaseURL != "" {
+			firecrawl.BaseUrl = ptrOf(firecrawlCfg.BaseURL)
+		}
+		if firecrawlCfg.MaxResults > 0 {
+			firecrawl.MaxResults = ptrOf(firecrawlCfg.MaxResults)
+		}
+		resp.Firecrawl = firecrawl
+	}
+	return resp
+}
+
+func applyWebToolsUpdate(cfg *agent.Config, update *api.AgentWebToolsConfig) error {
+	next := agent.WebToolsConfig{}
+	if cfg.WebTools != nil {
+		next = *cfg.WebTools
+	}
+	if update.Enabled != nil {
+		next.Enabled = *update.Enabled
+	}
+	if update.Backend != nil {
+		next.Backend = agent.WebToolsBackend(*update.Backend)
+	}
+	if next.Enabled && next.Backend == "" {
+		next.Backend = agent.WebToolsBackendTavily
+	}
+	if update.Tavily != nil {
+		if next.Tavily == nil {
+			next.Tavily = &agent.TavilyWebToolsConfig{}
+		}
+		if clear := update.Tavily.ClearApiKey; clear != nil && *clear {
+			next.Tavily.APIKey = ""
+		}
+		if update.Tavily.ApiKey != nil {
+			apiKey := strings.TrimSpace(*update.Tavily.ApiKey)
+			if apiKey != "" {
+				next.Tavily.APIKey = apiKey
+			}
+		}
+		if update.Tavily.BaseUrl != nil {
+			baseURL, err := agent.ValidateTavilyBaseURL(*update.Tavily.BaseUrl)
+			if err != nil {
+				return fmt.Errorf("webTools.tavily.baseUrl %w", err)
+			}
+			next.Tavily.BaseURL = baseURL
+		}
+		if update.Tavily.MaxResults != nil {
+			next.Tavily.MaxResults = *update.Tavily.MaxResults
+		}
+		if update.Tavily.SearchDepth != nil {
+			next.Tavily.SearchDepth = strings.TrimSpace(string(*update.Tavily.SearchDepth))
+		}
+	}
+	if update.Firecrawl != nil {
+		if next.Firecrawl == nil {
+			next.Firecrawl = &agent.FirecrawlWebToolsConfig{}
+		}
+		if clear := update.Firecrawl.ClearApiKey; clear != nil && *clear {
+			next.Firecrawl.APIKey = ""
+		}
+		if update.Firecrawl.ApiKey != nil {
+			apiKey := strings.TrimSpace(*update.Firecrawl.ApiKey)
+			if apiKey != "" {
+				next.Firecrawl.APIKey = apiKey
+			}
+		}
+		if update.Firecrawl.BaseUrl != nil {
+			baseURL, err := agent.ValidateFirecrawlBaseURL(*update.Firecrawl.BaseUrl)
+			if err != nil {
+				return fmt.Errorf("webTools.firecrawl.baseUrl %w", err)
+			}
+			next.Firecrawl.BaseURL = baseURL
+		}
+		if update.Firecrawl.MaxResults != nil {
+			next.Firecrawl.MaxResults = *update.Firecrawl.MaxResults
+		}
+	}
+	if err := agent.ValidateWebToolsConfig(next); err != nil {
+		return err
+	}
+	cfg.WebTools = &next
+	return nil
+}
+
+func sanitizeWebToolsForAudit(update *api.AgentWebToolsConfig) map[string]any {
+	out := map[string]any{}
+	if update == nil {
+		return out
+	}
+	if update.Enabled != nil {
+		out["enabled"] = *update.Enabled
+	}
+	if update.Backend != nil {
+		out["backend"] = *update.Backend
+	}
+	if update.Tavily != nil {
+		tavily := map[string]any{}
+		if update.Tavily.ApiKey != nil && strings.TrimSpace(*update.Tavily.ApiKey) != "" {
+			tavily["api_key_provided"] = true
+		}
+		if update.Tavily.ClearApiKey != nil {
+			tavily["clear_api_key"] = *update.Tavily.ClearApiKey
+		}
+		if update.Tavily.BaseUrl != nil {
+			tavily["base_url"] = *update.Tavily.BaseUrl
+		}
+		if update.Tavily.MaxResults != nil {
+			tavily["max_results"] = *update.Tavily.MaxResults
+		}
+		if update.Tavily.SearchDepth != nil {
+			tavily["search_depth"] = *update.Tavily.SearchDepth
+		}
+		out["tavily"] = tavily
+	}
+	if update.Firecrawl != nil {
+		firecrawl := map[string]any{}
+		if update.Firecrawl.ApiKey != nil && strings.TrimSpace(*update.Firecrawl.ApiKey) != "" {
+			firecrawl["api_key_provided"] = true
+		}
+		if update.Firecrawl.ClearApiKey != nil {
+			firecrawl["clear_api_key"] = *update.Firecrawl.ClearApiKey
+		}
+		if update.Firecrawl.BaseUrl != nil {
+			firecrawl["base_url"] = *update.Firecrawl.BaseUrl
+		}
+		if update.Firecrawl.MaxResults != nil {
+			firecrawl["max_results"] = *update.Firecrawl.MaxResults
+		}
+		out["firecrawl"] = firecrawl
+	}
+	return out
 }
 
 func toAPIToolPolicy(policy agent.ToolPolicyConfig) *api.AgentToolPolicy {

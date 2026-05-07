@@ -4,8 +4,11 @@
 package agentstep
 
 import (
+	"context"
+	"io"
 	"testing"
 
+	"github.com/dagucloud/dagu/internal/agent"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/llm"
 	"github.com/stretchr/testify/assert"
@@ -107,4 +110,29 @@ func TestContextToLLMHistory_ConvertsToolCalls(t *testing.T) {
 	assert.Equal(t, "function", tc.Type)
 	assert.Equal(t, "read", tc.Function.Name)
 	assert.Equal(t, `{"path":"/tmp/f"}`, tc.Function.Arguments)
+}
+
+func TestBuildToolsIncludesConfiguredWebTools(t *testing.T) {
+	t.Parallel()
+
+	cfg := &agent.Config{
+		WebTools: &agent.WebToolsConfig{
+			Enabled: true,
+			Backend: agent.WebToolsBackendTavily,
+			Tavily: &agent.TavilyWebToolsConfig{
+				APIKey: "tvly-test",
+			},
+		},
+	}
+	tools := buildTools(
+		context.Background(),
+		exec.Context{},
+		nil,
+		cfg,
+		agent.ResolveToolPolicy(agent.DefaultToolPolicy()),
+		io.Discard,
+	)
+
+	assert.NotNil(t, agent.GetToolByName(tools, "web_search"))
+	assert.NotNil(t, agent.GetToolByName(tools, "web_extract"))
 }

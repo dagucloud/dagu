@@ -124,6 +124,13 @@ func TestBuildSnapshotForDAG_CapturesLocalSubDAGRequirements(t *testing.T) {
 	ctx := context.Background()
 	configStore := newMockConfigStore(true)
 	configStore.config.DefaultModelID = "default-model"
+	configStore.config.WebTools = &WebToolsConfig{
+		Enabled: true,
+		Backend: WebToolsBackendTavily,
+		Tavily: &TavilyWebToolsConfig{
+			APIKey: "tvly-test",
+		},
+	}
 
 	modelStore := newMockModelStore().
 		addModel(testModelConfig("default-model")).
@@ -185,6 +192,10 @@ func TestBuildSnapshotForDAG_CapturesLocalSubDAGRequirements(t *testing.T) {
 	require.NotNil(t, decoded)
 
 	assert.Equal(t, []string{"child-model", "default-model"}, modelIDs(decoded.Models))
+	require.NotNil(t, decoded.Config)
+	require.NotNil(t, decoded.Config.WebTools)
+	require.NotNil(t, decoded.Config.WebTools.Tavily)
+	assert.Equal(t, "tvly-test", decoded.Config.WebTools.Tavily.APIKey)
 	assert.Equal(t, []string{"helper"}, soulIDs(decoded.Souls))
 	require.NotNil(t, decoded.Memory)
 	assert.Equal(t, "global memory", decoded.Memory.Global)
