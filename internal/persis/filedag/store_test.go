@@ -822,6 +822,48 @@ steps:
 	require.Equal(t, []string{"build"}, dag.Steps[1].Depends)
 }
 
+func TestLoadSpecWithWorkspaceBaseConfig(t *testing.T) {
+	rootDir := t.TempDir()
+	dagDir := filepath.Join(rootDir, "dags")
+	workspaceConfigDir := filepath.Join(rootDir, "workspaces")
+	require.NoError(t, os.MkdirAll(filepath.Join(workspaceConfigDir, "ops"), 0750))
+
+	baseConfig := filepath.Join(rootDir, "base.yaml")
+	require.NoError(t, os.WriteFile(baseConfig, []byte(`
+env:
+  GLOBAL_ONLY: "1"
+  SHARED: "global"
+log_dir: "/global/logs"
+`), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(workspaceConfigDir, "ops", "base.yaml"), []byte(`
+env:
+  WORKSPACE_ONLY: "1"
+  SHARED: "workspace"
+log_dir: "/workspace/logs"
+`), 0600))
+
+	store := New(
+		dagDir,
+		WithBaseConfig(baseConfig),
+		WithWorkspaceBaseConfigDir(workspaceConfigDir),
+		WithSkipExamples(true),
+	)
+	ctx := context.Background()
+
+	dag, err := store.LoadSpec(ctx, []byte(`name: workspace-config-dag
+labels:
+  - workspace=ops
+steps:
+  - name: step1
+    command: echo "hello"
+`))
+	require.NoError(t, err)
+	assert.Contains(t, dag.Env, "GLOBAL_ONLY=1")
+	assert.Contains(t, dag.Env, "WORKSPACE_ONLY=1")
+	assert.Contains(t, dag.Env, "SHARED=workspace")
+	assert.Equal(t, "/workspace/logs", dag.LogDir)
+}
+
 func TestGetMetadataRefreshesCacheWhenBaseConfigChanges(t *testing.T) {
 	rootDir := t.TempDir()
 	dagDir := filepath.Join(rootDir, "dags")
@@ -858,6 +900,49 @@ steps:
 	require.Equal(t, 1, cache.Size())
 }
 
+func TestGetMetadataRefreshesCacheWhenWorkspaceBaseConfigChanges(t *testing.T) {
+	rootDir := t.TempDir()
+	dagDir := filepath.Join(rootDir, "dags")
+	workspaceConfigDir := filepath.Join(rootDir, "workspaces")
+	require.NoError(t, os.MkdirAll(filepath.Join(workspaceConfigDir, "ops"), 0750))
+	require.NoError(t, os.MkdirAll(dagDir, 0750))
+
+	baseConfig := filepath.Join(rootDir, "base.yaml")
+	require.NoError(t, os.WriteFile(baseConfig, []byte("type: graph\n"), 0600))
+	workspaceBaseConfig := filepath.Join(workspaceConfigDir, "ops", "base.yaml")
+	require.NoError(t, os.WriteFile(workspaceBaseConfig, []byte("max_active_steps: 1\n"), 0600))
+
+	cache := fileutil.NewCache[*core.DAG]("dag_definition", 16, time.Hour)
+	store := New(
+		dagDir,
+		WithBaseConfig(baseConfig),
+		WithWorkspaceBaseConfigDir(workspaceConfigDir),
+		WithFileCache(cache),
+		WithSkipExamples(true),
+	)
+	ctx := context.Background()
+
+	require.NoError(t, os.WriteFile(filepath.Join(dagDir, "workspace-cache-refresh.yaml"), []byte(`name: workspace-cache-refresh
+labels:
+  - workspace=ops
+steps:
+  - name: step1
+    command: echo "hello"
+`), 0600))
+
+	dag, err := store.GetMetadata(ctx, "workspace-cache-refresh")
+	require.NoError(t, err)
+	require.Equal(t, 1, cache.Size())
+
+	time.Sleep(10 * time.Millisecond)
+	require.NoError(t, os.WriteFile(workspaceBaseConfig, []byte("max_active_steps: 2\n"), 0600))
+
+	reloaded, err := store.GetMetadata(ctx, "workspace-cache-refresh")
+	require.NoError(t, err)
+	require.NotSame(t, dag, reloaded)
+	require.Equal(t, 1, cache.Size())
+}
+
 func TestListRebuildsIndexWhenBaseConfigChanges(t *testing.T) {
 	rootDir := t.TempDir()
 	dagDir := filepath.Join(rootDir, "dags")
@@ -888,6 +973,56 @@ steps:
 
 	time.Sleep(10 * time.Millisecond)
 	require.NoError(t, os.WriteFile(baseConfig, []byte("type: chain\n"), 0600))
+
+	result, errList, err = store.List(ctx, exec.ListDAGsOptions{})
+	require.NoError(t, err)
+	require.Empty(t, errList)
+	require.Len(t, result.Items, 1)
+
+	indexInfoAfter, err := os.Stat(indexPath)
+	require.NoError(t, err)
+	require.True(t, indexInfoAfter.ModTime().After(indexInfoBefore.ModTime()))
+}
+
+func TestListRebuildsIndexWhenWorkspaceBaseConfigChanges(t *testing.T) {
+	rootDir := t.TempDir()
+	dagDir := filepath.Join(rootDir, "dags")
+	workspaceConfigDir := filepath.Join(rootDir, "workspaces")
+	require.NoError(t, os.MkdirAll(filepath.Join(workspaceConfigDir, "ops"), 0750))
+	require.NoError(t, os.MkdirAll(dagDir, 0750))
+
+	baseConfig := filepath.Join(rootDir, "base.yaml")
+	require.NoError(t, os.WriteFile(baseConfig, []byte("type: graph\n"), 0600))
+	workspaceBaseConfig := filepath.Join(workspaceConfigDir, "ops", "base.yaml")
+	require.NoError(t, os.WriteFile(workspaceBaseConfig, []byte("max_active_steps: 1\n"), 0600))
+
+	store := New(
+		dagDir,
+		WithBaseConfig(baseConfig),
+		WithWorkspaceBaseConfigDir(workspaceConfigDir),
+		WithSkipExamples(true),
+	)
+	ctx := context.Background()
+
+	require.NoError(t, os.WriteFile(filepath.Join(dagDir, "workspace-index-refresh.yaml"), []byte(`name: workspace-index-refresh
+labels:
+  - workspace=ops
+steps:
+  - name: step1
+    command: echo "hello"
+`), 0600))
+
+	result, errList, err := store.List(ctx, exec.ListDAGsOptions{})
+	require.NoError(t, err)
+	require.Empty(t, errList)
+	require.Len(t, result.Items, 1)
+
+	indexPath := filepath.Join(dagDir, dagindex.IndexFileName)
+	indexInfoBefore, err := os.Stat(indexPath)
+	require.NoError(t, err)
+
+	time.Sleep(10 * time.Millisecond)
+	require.NoError(t, os.WriteFile(workspaceBaseConfig, []byte("max_active_steps: 2\n"), 0600))
 
 	result, errList, err = store.List(ctx, exec.ListDAGsOptions{})
 	require.NoError(t, err)

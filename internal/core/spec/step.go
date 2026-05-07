@@ -57,6 +57,8 @@ type step struct {
 	// Output is the variable name to store the output.
 	// Can be a string for captured stdout or an object for structured step output.
 	Output any `yaml:"output,omitempty"`
+	// OutputSchema validates stdout JSON against an inline JSON Schema object.
+	OutputSchema any `yaml:"output_schema,omitempty"`
 	// Depends is the list of steps to depend on.
 	Depends types.StringOrArray `yaml:"depends,omitempty"`
 	// ContinueOn is the condition to continue on.
@@ -424,6 +426,7 @@ var stepTransformers = []stepTransform{
 	{"signal_on_stop", newStepTransformer("SignalOnStop", buildStepSignalOnStop)},
 	{"output", newStepTransformer("Output", buildStepOutput)},
 	{"structured_output", newStepTransformer("StructuredOutput", buildStepStructuredOutput)},
+	{"output_schema", newStepTransformer("OutputSchema", buildStepOutputSchema)},
 	{"env", newStepTransformer("Env", buildStepEnvs)},
 	{"preconditions", newStepTransformer("Preconditions", buildStepPreconditions)},
 }
@@ -1059,6 +1062,17 @@ func buildStepStructuredOutput(_ StepBuildContext, s *step) (map[string]core.Ste
 		return nil, nil
 	}
 	return cfg.StructuredOutput, nil
+}
+
+func buildStepOutputSchema(_ StepBuildContext, s *step) (map[string]any, error) {
+	if s.OutputSchema == nil {
+		return nil, nil
+	}
+	schemaMap, err := resolveOutputSchemaDeclaration("output_schema", s.OutputSchema)
+	if err != nil {
+		return nil, err
+	}
+	return schemaMap, nil
 }
 
 func buildStepEnvs(_ StepBuildContext, s *step) ([]string, error) {

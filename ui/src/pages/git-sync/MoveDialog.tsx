@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import { SyncStatus } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -14,7 +17,7 @@ import { Label } from '@/components/ui/label';
 import { ArrowRightLeft, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-type ItemKind = 'dag' | 'memory' | 'skill' | 'soul' | 'doc';
+type ItemKind = 'dag' | 'config' | 'memory' | 'skill' | 'soul' | 'doc';
 
 interface MoveDialogProps {
   open: boolean;
@@ -27,6 +30,7 @@ interface MoveDialogProps {
 }
 
 function deriveKind(id: string): ItemKind {
+  if (id === 'base' || /^workspaces\/[^/]+\/base$/.test(id)) return 'config';
   if (id.startsWith('memory/')) return 'memory';
   if (id.startsWith('skills/')) return 'skill';
   if (id.startsWith('souls/')) return 'soul';
@@ -64,6 +68,10 @@ export function MoveDialog({
     }
     if (newItemId.trim() === itemId) {
       setValidationError('New item ID must be different from the current one');
+      return false;
+    }
+    if (itemKind === 'config') {
+      setValidationError('Config items cannot be moved');
       return false;
     }
     const newKind = deriveKind(newItemId.trim());

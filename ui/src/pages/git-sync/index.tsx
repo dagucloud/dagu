@@ -67,8 +67,8 @@ type SyncConfigResponse = components['schemas']['SyncConfigResponse'];
 type SyncItemDiffResponse = components['schemas']['SyncItemDiffResponse'];
 type SyncItem = components['schemas']['SyncItem'];
 type StatusFilter = 'all' | 'modified' | 'untracked' | 'conflict' | 'missing';
-type TypeFilter = 'dag' | 'memory' | 'skill' | 'soul' | 'doc';
-type UISyncKind = 'dag' | 'memory' | 'skill' | 'soul' | 'doc';
+type TypeFilter = 'dag' | 'config' | 'memory' | 'skill' | 'soul' | 'doc';
+type UISyncKind = 'dag' | 'config' | 'memory' | 'skill' | 'soul' | 'doc';
 type SyncRow = { itemId: string; item: SyncItem; kind: UISyncKind };
 
 const statusFilters: StatusFilter[] = [
@@ -78,7 +78,14 @@ const statusFilters: StatusFilter[] = [
   'conflict',
   'missing',
 ];
-const typeFilters: TypeFilter[] = ['dag', 'memory', 'skill', 'soul', 'doc'];
+const typeFilters: TypeFilter[] = [
+  'dag',
+  'config',
+  'memory',
+  'skill',
+  'soul',
+  'doc',
+];
 
 function parseStatusFilter(value: string | null): StatusFilter {
   if (
@@ -96,6 +103,7 @@ function parseStatusFilter(value: string | null): StatusFilter {
 function parseTypeFilter(value: string | null): TypeFilter {
   if (
     value === 'dag' ||
+    value === 'config' ||
     value === 'memory' ||
     value === 'skill' ||
     value === 'soul' ||
@@ -107,6 +115,7 @@ function parseTypeFilter(value: string | null): TypeFilter {
 }
 
 function normalizeSyncItemKind(kind: SyncItemKind): UISyncKind {
+  if (kind === SyncItemKind.config) return 'config';
   if (kind === SyncItemKind.memory) return 'memory';
   if (kind === SyncItemKind.skill) return 'skill';
   if (kind === SyncItemKind.soul) return 'soul';
@@ -503,6 +512,7 @@ export default function GitSyncPage() {
   const typeCounts = useMemo(() => {
     const counts: Record<TypeFilter, number> = {
       dag: 0,
+      config: 0,
       memory: 0,
       skill: 0,
       soul: 0,
@@ -587,6 +597,7 @@ export default function GitSyncPage() {
 
   const selectedCounts = useMemo(() => {
     let dag = 0;
+    let config = 0;
     let memory = 0;
     let skill = 0;
     let soul = 0;
@@ -594,7 +605,8 @@ export default function GitSyncPage() {
     for (const dagID of selectedDags) {
       const row = rowByID.get(dagID);
       if (!row) continue;
-      if (row.kind === 'memory') memory += 1;
+      if (row.kind === 'config') config += 1;
+      else if (row.kind === 'memory') memory += 1;
       else if (row.kind === 'skill') skill += 1;
       else if (row.kind === 'soul') soul += 1;
       else if (row.kind === 'doc') doc += 1;
@@ -602,17 +614,19 @@ export default function GitSyncPage() {
     }
     return {
       dag,
+      config,
       memory,
       skill,
       soul,
       doc,
-      total: dag + memory + skill + soul + doc,
+      total: dag + config + memory + skill + soul + doc,
     };
   }, [selectedDags, rowByID]);
 
   const emptyStateMessage = useMemo(() => {
     const typeLabelMap: Record<string, string> = {
       dag: 'DAG',
+      config: 'config',
       memory: 'memory',
       skill: 'skill',
       soul: 'soul',
@@ -783,6 +797,7 @@ export default function GitSyncPage() {
                 (
                   {
                     dag: 'DAGs',
+                    config: 'Config',
                     memory: 'Memory',
                     skill: 'Skills',
                     soul: 'Souls',
@@ -806,6 +821,9 @@ export default function GitSyncPage() {
         {selectedCounts.total > 0 && (
           <span className="text-xs text-muted-foreground">
             Selected: {selectedCounts.dag} DAGs
+            {selectedCounts.config > 0
+              ? `, ${selectedCounts.config} config`
+              : ''}
             {selectedCounts.memory > 0
               ? `, ${selectedCounts.memory} memory`
               : ''}
@@ -869,7 +887,7 @@ export default function GitSyncPage() {
                   />
                 )}
               </TableHead>
-              <TableHead>DAG</TableHead>
+              <TableHead>Item</TableHead>
               <TableHead className="w-24">Status</TableHead>
               <TableHead className="w-28">Synced</TableHead>
               <TableHead className="w-28"></TableHead>
@@ -997,6 +1015,7 @@ export default function GitSyncPage() {
                         )}
                       <RowActionMenu
                         itemId={itemId}
+                        kind={kind}
                         status={item.status}
                         pushEnabled={!!config?.pushEnabled}
                         canWrite={canWrite}

@@ -27,6 +27,8 @@ import (
 
 var _ executor.Executor = (*harnessExecutor)(nil)
 var _ executor.ExitCoder = (*harnessExecutor)(nil)
+var _ executor.PushBackAware = (*harnessExecutor)(nil)
+var _ executor.PushBackPreviousStdoutAware = (*harnessExecutor)(nil)
 
 const failedStdoutTailLimit = 1024
 
@@ -42,16 +44,19 @@ type defaultConfigProvider interface {
 }
 
 type harnessExecutor struct {
-	mu         sync.Mutex
-	cmd        *exec.Cmd
-	stdout     io.Writer
-	stderr     io.Writer
-	exitCode   int
-	stderrTail *executor.TailWriter
-	configs    []providerConfig
-	prompt     string
-	script     string // piped to stdin if present
-	workDir    string
+	mu                     sync.Mutex
+	cmd                    *exec.Cmd
+	stdout                 io.Writer
+	stderr                 io.Writer
+	exitCode               int
+	stderrTail             *executor.TailWriter
+	configs                []providerConfig
+	prompt                 string
+	script                 string // piped to stdin if present
+	workDir                string
+	pushBackInputs         map[string]string
+	pushBackIteration      int
+	pushBackPreviousStdout string
 }
 
 func (e *harnessExecutor) ExitCode() int {
@@ -70,6 +75,43 @@ func (e *harnessExecutor) Kill(sig os.Signal) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return cmdutil.KillProcessGroup(e.cmd, sig)
+}
+
+func (e *harnessExecutor) SetPushBackContext(inputs map[string]string, iteration int) {
+	e.pushBackInputs = maps.Clone(inputs)
+	e.pushBackIteration = iteration
+}
+
+func (e *harnessExecutor) SetPushBackPreviousStdout(path string) {
+	e.pushBackPreviousStdout = path
+}
+
+func (e *harnessExecutor) effectivePrompt() string {
+	if e.pushBackIteration == 0 {
+		return e.prompt
+	}
+
+	var sb strings.Builder
+	sb.WriteString(e.prompt)
+	sb.WriteString("\n\n## Push-back Context\n\n")
+	fmt.Fprintf(&sb, "Push-back iteration: %d\n", e.pushBackIteration)
+	if e.pushBackPreviousStdout != "" {
+		fmt.Fprintf(&sb, "Previous stdout log: %s\n", e.pushBackPreviousStdout)
+	}
+
+	keys := make([]string, 0, len(e.pushBackInputs))
+	for key := range e.pushBackInputs {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	if len(keys) > 0 {
+		sb.WriteString("\nReviewer feedback:\n")
+		for _, key := range keys {
+			fmt.Fprintf(&sb, "- %s: %s\n", key, e.pushBackInputs[key])
+		}
+	}
+
+	return strings.TrimRight(sb.String(), "\n")
 }
 
 func (e *harnessExecutor) Run(ctx context.Context) error {
@@ -117,7 +159,7 @@ func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.
 	env := runtime.GetEnv(ctx)
 	tw := executor.NewTailWriterWithEncoding(e.stderrWriter(), 0, env.LogEncodingCharset)
 	e.stderrTail = tw
-	args, stdin, err := cfg.buildInvocation(e.prompt, e.script)
+	args, stdin, err := cfg.buildInvocation(e.effectivePrompt(), e.script)
 	if err != nil {
 		e.exitCode = 1
 		e.mu.Unlock()

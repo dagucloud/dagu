@@ -32,6 +32,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -39,7 +40,9 @@ import (
 	spectypes "github.com/dagucloud/dagu/internal/core/spec/types"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
+	"github.com/dagucloud/dagu/internal/runtime/transform"
 	"github.com/dagucloud/dagu/internal/service/audit"
+	"github.com/dagucloud/dagu/internal/workspace"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"github.com/goccy/go-yaml"
 	"github.com/goccy/go-yaml/parser"
@@ -446,7 +449,7 @@ func deleteInlineEnqueueMapValue(ms *yaml.MapSlice, key string) {
 	}
 }
 
-func (a *API) loadInlineDAG(ctx context.Context, specContent string, name *string, dagRunID string) (*core.DAG, func(), error) {
+func (a *API) loadInlineDAG(ctx context.Context, specContent string, name *string, dagRunID string, extraLoadOpts ...spec.LoadOption) (*core.DAG, func(), error) {
 	nameHint := "inline"
 	if name != nil && *name != "" {
 		if err := core.ValidateDAGName(*name); err != nil {
@@ -458,9 +461,12 @@ func (a *API) loadInlineDAG(ctx context.Context, specContent string, name *strin
 		}
 		nameHint = *name
 	} else {
+		validateOpts := append([]spec.LoadOption{
+			spec.WithoutEval(),
+		}, extraLoadOpts...)
 		dag, err := spec.LoadYAML(
 			ctx, []byte(specContent),
-			spec.WithoutEval(),
+			validateOpts...,
 		)
 		if err != nil {
 			return nil, func() {}, &Error{
@@ -492,7 +498,7 @@ func (a *API) loadInlineDAG(ctx context.Context, specContent string, name *strin
 		return nil, func() {}, fmt.Errorf("failed to write spec to temp file: %w", err)
 	}
 
-	loadOpts := []spec.LoadOption{}
+	loadOpts := append([]spec.LoadOption{}, extraLoadOpts...)
 	if name != nil && *name != "" {
 		loadOpts = append(loadOpts, spec.WithName(*name))
 	}
@@ -3026,7 +3032,19 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 		if nameOverride != "" {
 			inlineName = nameOverride
 		}
-		dag, cleanup, err = a.loadInlineDAG(ctx, string(snapshotDAG.YamlData), &inlineName, newDagRunID)
+		snapshotLoadOpts := []spec.LoadOption{
+			spec.WithDAGsDir(a.config.Paths.DAGsDir),
+		}
+		if len(snapshotDAG.BaseConfigData) > 0 {
+			snapshotLoadOpts = append(snapshotLoadOpts, spec.WithBaseConfigContent(snapshotDAG.BaseConfigData))
+		} else {
+			snapshotLoadOpts = append(snapshotLoadOpts,
+				spec.WithBaseConfig(a.config.Paths.BaseConfig),
+				spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(a.config.Paths.DAGsDir)),
+			)
+		}
+
+		dag, cleanup, err = a.loadInlineDAG(ctx, string(snapshotDAG.YamlData), &inlineName, newDagRunID, snapshotLoadOpts...)
 		if err != nil {
 			return rescheduleDAGRunResult{}, fmt.Errorf("failed to prepare reschedule snapshot: %w", err)
 		}
@@ -3046,8 +3064,14 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 	if opts.useCurrentDAGFile {
 		paramsToUse = currentFileParams
 	}
-	if err := a.enqueueDAGRun(ctx, dag, paramsToUse, newDagRunID, "", core.TriggerTypeManual, ""); err != nil {
-		return rescheduleDAGRunResult{}, fmt.Errorf("failed to enqueue dag-run: %w", err)
+	var enqueueErr error
+	if opts.useCurrentDAGFile {
+		enqueueErr = a.enqueueDAGRun(ctx, dag, paramsToUse, newDagRunID, "", core.TriggerTypeManual, "")
+	} else {
+		enqueueErr = a.enqueuePreparedDAGRun(ctx, dag, paramsToUse, newDagRunID, core.TriggerTypeManual)
+	}
+	if enqueueErr != nil {
+		return rescheduleDAGRunResult{}, fmt.Errorf("failed to enqueue dag-run: %w", enqueueErr)
 	}
 
 	queued := false
@@ -3070,6 +3094,113 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 		newDagRunID: newDagRunID,
 		queued:      queued,
 	}, nil
+}
+
+func (a *API) enqueuePreparedDAGRun(
+	ctx context.Context,
+	dag *core.DAG,
+	params string,
+	dagRunID string,
+	triggerType core.TriggerType,
+) error {
+	resolvedDAG, err := spec.ResolveRuntimeParams(ctx, dag, params, spec.ResolveRuntimeParamsOptions{
+		BaseConfig: a.config.Paths.BaseConfig,
+	})
+	if err != nil {
+		return &Error{
+			HTTPStatus: http.StatusBadRequest,
+			Code:       api.ErrorCodeBadRequest,
+			Message:    err.Error(),
+		}
+	}
+	dag = resolvedDAG
+
+	if err := buildErrorsToAPIError(dag.BuildErrors); err != nil {
+		return err
+	}
+	if err := core.ValidateStartParams(dag.DefaultParams, core.StartParamInput{
+		RawParams: params,
+	}); err != nil {
+		return &Error{
+			HTTPStatus: http.StatusBadRequest,
+			Code:       api.ErrorCodeBadRequest,
+			Message:    err.Error(),
+		}
+	}
+
+	queuedDAG := dag.Clone()
+	queuedDAG.Location = ""
+
+	now := time.Now()
+	attempt, err := a.dagRunStore.CreateAttempt(ctx, queuedDAG, now, dagRunID, exec.NewDAGRunAttemptOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to create queued dag-run attempt: %w", err)
+	}
+
+	logFile, err := logpath.Generate(ctx, a.config.Paths.LogDir, queuedDAG.LogDir, queuedDAG.Name, dagRunID)
+	if err != nil {
+		return fmt.Errorf("failed to generate queued dag-run log file: %w", err)
+	}
+	artifactDir, err := artifactDirForQueuedDAGRun(ctx, a.config.Paths.ArtifactDir, queuedDAG, dagRunID)
+	if err != nil {
+		return err
+	}
+
+	statusOpts := []transform.StatusOption{
+		transform.WithLogFilePath(logFile),
+		transform.WithArchiveDir(artifactDir),
+		transform.WithAttemptID(attempt.ID()),
+		transform.WithQueuedAt(stringutil.FormatTime(now)),
+		transform.WithPreconditions(queuedDAG.Preconditions),
+		transform.WithHierarchyRefs(
+			exec.NewDAGRunRef(queuedDAG.Name, dagRunID),
+			exec.DAGRunRef{},
+		),
+		transform.WithTriggerType(triggerType),
+	}
+	status := transform.NewStatusBuilder(queuedDAG).Create(dagRunID, core.Queued, 0, time.Time{}, statusOpts...)
+
+	if err := attempt.Open(ctx); err != nil {
+		return fmt.Errorf("failed to open queued dag-run attempt: %w", err)
+	}
+	if err := attempt.Write(ctx, status); err != nil {
+		_ = attempt.Close(ctx)
+		return fmt.Errorf("failed to save queued dag-run status: %w", err)
+	}
+	closeErr := attempt.Close(ctx)
+	if closeErr != nil {
+		logger.Warn(ctx, "Failed to close queued dag-run status before enqueue",
+			tag.Error(closeErr))
+	}
+
+	dagRun := exec.NewDAGRunRef(queuedDAG.Name, dagRunID)
+	if err := a.queueStore.Enqueue(ctx, queuedDAG.ProcGroup(), exec.QueuePriorityLow, dagRun); err != nil {
+		if closeErr != nil {
+			return errors.Join(
+				fmt.Errorf("failed to close queued dag-run attempt: %w", closeErr),
+				fmt.Errorf("failed to enqueue dag-run: %w", err),
+			)
+		}
+		return fmt.Errorf("failed to enqueue dag-run: %w", err)
+	}
+
+	return nil
+}
+
+func artifactDirForQueuedDAGRun(ctx context.Context, baseDir string, dag *core.DAG, dagRunID string) (string, error) {
+	if dag == nil || !dag.ArtifactsEnabled() {
+		return "", nil
+	}
+
+	dagArtifactDir := ""
+	if dag.Artifacts != nil {
+		dagArtifactDir = dag.Artifacts.Dir
+	}
+	artifactDir, err := logpath.GenerateDir(ctx, baseDir, dagArtifactDir, dag.Name, dagRunID)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate queued dag-run artifact directory: %w", err)
+	}
+	return artifactDir, nil
 }
 
 // GetSubDAGRuns returns timing and status information for all sub DAG runs.
@@ -3431,8 +3562,9 @@ func applyPushBack(ctx context.Context, node *exec.Node, status *exec.DAGRunStat
 	// Reset the configured rewind target and everything that depends on it.
 	rewoundNodes := append([]*exec.Node{status.Nodes[targetIdx]}, findDependentNodes(status.Nodes, targetName)...)
 	for _, rewoundNode := range rewoundNodes {
+		previousStdout := rewoundNode.Stdout
 		resetNodeForManualReexecution(rewoundNode)
-		setPushBackContext(rewoundNode, nextIteration, filteredInputs, history)
+		setPushBackContext(rewoundNode, nextIteration, filteredInputs, history, previousStdout)
 	}
 	return nil
 }
@@ -3457,10 +3589,11 @@ func resetNodeForManualReexecution(node *exec.Node) {
 	*node = *exec.NewNodeFromStep(step)
 }
 
-func setPushBackContext(node *exec.Node, iteration int, inputs map[string]string, history []exec.PushBackEntry) {
+func setPushBackContext(node *exec.Node, iteration int, inputs map[string]string, history []exec.PushBackEntry, previousStdout string) {
 	node.ApprovalIteration = iteration
 	node.PushBackInputs = cloneStringMap(inputs)
 	node.PushBackHistory = exec.ClonePushBackHistory(history)
+	node.PushBackPreviousStdout = previousStdout
 }
 
 func pushBackAllowedInputs(step core.Step) []string {
@@ -4255,6 +4388,7 @@ func (a *API) loadCurrentRescheduleDAG(ctx context.Context, sourceFile, nameOver
 
 	loadOpts := []spec.LoadOption{
 		spec.WithBaseConfig(a.config.Paths.BaseConfig),
+		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(a.config.Paths.DAGsDir)),
 		spec.WithDAGsDir(a.config.Paths.DAGsDir),
 	}
 	if nameOverride != "" {

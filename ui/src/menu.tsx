@@ -54,6 +54,7 @@ type NavItemProps = {
 
 type MainListItemsProps = {
   isOpen?: boolean;
+  onAgentModeToggle?: () => void;
   onNavItemClick?: () => void;
   onToggle?: () => void;
   customColor?: boolean;
@@ -445,7 +446,13 @@ export const mainListItems = React.forwardRef<
   HTMLDivElement,
   MainListItemsProps
 >(function MainListItems(
-  { isOpen = false, onNavItemClick, onToggle, customColor = false },
+  {
+    isOpen = false,
+    onAgentModeToggle,
+    onNavItemClick,
+    onToggle,
+    customColor = false,
+  },
   ref
 ) {
   const config = useConfig();
@@ -463,6 +470,7 @@ export const mainListItems = React.forwardRef<
   const canViewAuditLogs = useCanViewAuditLogs();
   const { preferences, updatePreference } = useUserPreferences();
   const { toggleChat } = useAgentChatContext();
+  const handleAgentClick = onAgentModeToggle ?? toggleChat;
 
   const theme = preferences.theme || 'dark';
   const title = config.title || DEFAULT_TITLE;
@@ -894,7 +902,7 @@ export const mainListItems = React.forwardRef<
         >
           {config.agentEnabled && (
             <SidebarButton
-              onClick={toggleChat}
+              onClick={handleAgentClick}
               icon={<Terminal size={18} />}
               label="Agent"
               isOpen={isOpen}

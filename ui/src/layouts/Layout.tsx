@@ -1,12 +1,16 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import { LicenseBanner } from '@/components/LicenseBanner';
 import { UpdateBanner } from '@/components/UpdateBanner';
 import { useConfig } from '@/contexts/ConfigContext';
 import { cn } from '@/lib/utils';
 import { getResponsiveTitleClass } from '@/lib/text-utils';
 import { Menu, Terminal, X } from 'lucide-react';
-import { useAgentChatContext } from '@/features/agent';
+import { AgentChatPanel, useAgentChatContext } from '@/features/agent';
 import * as React from 'react';
 import { useLocation } from 'react-router-dom';
+import { ContentNavigation } from './ContentNavigation';
 import { mainListItems as MainListItems } from '../menu';
 
 /**
@@ -66,11 +70,57 @@ function getSidebarOverlayColor(foreground: string, alpha: number): string {
 }
 
 // Constants
+const NAV_SIDEBAR_EXPANDED_WIDTH = 240;
+const NAV_SIDEBAR_COLLAPSED_WIDTH = 56;
+const AGENT_SIDEBAR_DEFAULT_WIDTH = 420;
+const AGENT_SIDEBAR_MIN_WIDTH = 320;
+const AGENT_SIDEBAR_MAX_WIDTH = 720;
+const AGENT_SIDEBAR_MIN_CONTENT_WIDTH = 360;
+const AGENT_SIDEBAR_WIDTH_STORAGE_KEY = 'agentSidebarWidth';
+
+type SidebarMode = 'navigation' | 'agent';
 
 type LayoutProps = {
   navbarColor?: string;
   children?: React.ReactElement | React.ReactElement[];
 };
+
+function getAgentSidebarMaxWidth(): number {
+  if (typeof window === 'undefined') {
+    return AGENT_SIDEBAR_MAX_WIDTH;
+  }
+
+  return Math.max(
+    AGENT_SIDEBAR_MIN_WIDTH,
+    Math.min(
+      AGENT_SIDEBAR_MAX_WIDTH,
+      window.innerWidth - AGENT_SIDEBAR_MIN_CONTENT_WIDTH
+    )
+  );
+}
+
+function clampAgentSidebarWidth(width: number): number {
+  return Math.min(
+    getAgentSidebarMaxWidth(),
+    Math.max(AGENT_SIDEBAR_MIN_WIDTH, Math.round(width))
+  );
+}
+
+function getInitialAgentSidebarWidth(): number {
+  try {
+    const saved = localStorage.getItem(AGENT_SIDEBAR_WIDTH_STORAGE_KEY);
+    if (saved) {
+      const parsed = Number(saved);
+      if (Number.isFinite(parsed)) {
+        return clampAgentSidebarWidth(parsed);
+      }
+    }
+  } catch {
+    // Ignore unavailable storage and fall back to the default width.
+  }
+
+  return clampAgentSidebarWidth(AGENT_SIDEBAR_DEFAULT_WIDTH);
+}
 
 /**
  * Render the application's main layout with a responsive sidebar and scrollable content area.
@@ -116,13 +166,74 @@ function Content({ navbarColor, children }: LayoutProps) {
     const saved = localStorage.getItem('sidebarExpanded');
     return saved ? saved === 'true' : true;
   });
+  const [sidebarMode, setSidebarMode] =
+    React.useState<SidebarMode>('navigation');
+  const [agentSidebarWidth, setAgentSidebarWidth] = React.useState(
+    getInitialAgentSidebarWidth
+  );
+  const [isResizingAgentSidebar, setIsResizingAgentSidebar] =
+    React.useState(false);
   // Mobile sidebar state (hidden by default)
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = React.useState(false);
+  const isAgentSidebarOpen = sidebarMode === 'agent' && config.agentEnabled;
 
   // Save sidebar state to localStorage when it changes
   React.useEffect(() => {
     localStorage.setItem('sidebarExpanded', isSidebarExpanded.toString());
   }, [isSidebarExpanded]);
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(
+        AGENT_SIDEBAR_WIDTH_STORAGE_KEY,
+        agentSidebarWidth.toString()
+      );
+    } catch {
+      // Ignore unavailable storage.
+    }
+  }, [agentSidebarWidth]);
+
+  React.useEffect(() => {
+    if (!config.agentEnabled && sidebarMode === 'agent') {
+      setSidebarMode('navigation');
+    }
+  }, [config.agentEnabled, sidebarMode]);
+
+  React.useEffect(() => {
+    if (!isResizingAgentSidebar) {
+      return undefined;
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      setAgentSidebarWidth(clampAgentSidebarWidth(event.clientX));
+    };
+    const handlePointerUp = () => setIsResizingAgentSidebar(false);
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+
+    document.addEventListener('pointermove', handlePointerMove);
+    document.addEventListener('pointerup', handlePointerUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    return () => {
+      document.removeEventListener('pointermove', handlePointerMove);
+      document.removeEventListener('pointerup', handlePointerUp);
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+    };
+  }, [isResizingAgentSidebar]);
+
+  React.useEffect(() => {
+    const handleResize = () => {
+      setAgentSidebarWidth((width) => clampAgentSidebarWidth(width));
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
 
   const isDesignWorkspace =
     location.pathname === '/design' || location.pathname.startsWith('/design/');
@@ -140,31 +251,110 @@ function Content({ navbarColor, children }: LayoutProps) {
     setIsSidebarExpanded(!isSidebarExpanded);
   };
 
+  const openAgentSidebar = () => {
+    if (config.agentEnabled) {
+      setSidebarMode('agent');
+    }
+  };
+
+  const closeAgentSidebar = () => {
+    setSidebarMode('navigation');
+  };
+
+  const startAgentSidebarResize = (
+    event: React.PointerEvent<HTMLDivElement>
+  ) => {
+    if (event.button !== 0) {
+      return;
+    }
+    event.preventDefault();
+    setIsResizingAgentSidebar(true);
+  };
+
+  const handleAgentSidebarResizeKeyDown = (
+    event: React.KeyboardEvent<HTMLDivElement>
+  ) => {
+    const step = event.shiftKey ? 40 : 16;
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      setAgentSidebarWidth((width) => clampAgentSidebarWidth(width - step));
+    } else if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      setAgentSidebarWidth((width) => clampAgentSidebarWidth(width + step));
+    }
+  };
+
+  const desktopSidebarWidth = isAgentSidebarOpen
+    ? agentSidebarWidth
+    : isSidebarExpanded
+      ? NAV_SIDEBAR_EXPANDED_WIDTH
+      : NAV_SIDEBAR_COLLAPSED_WIDTH;
+  const desktopSidebarStyle = {
+    ...(isAgentSidebarOpen ? {} : sidebarStyle),
+    width: desktopSidebarWidth,
+    transition: isResizingAgentSidebar
+      ? 'none'
+      : 'width 280ms cubic-bezier(0.4, 0, 0.2, 1)',
+  } as React.CSSProperties;
+
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background">
       {/* Sidebar - Desktop - Developer-tool */}
       <aside
+        data-testid="app-sidebar"
         className={cn(
-          'hidden md:block h-full border-r border-border z-20',
-          isSidebarExpanded ? 'w-[240px]' : 'w-[56px]',
-          !hasCustomColor && 'bg-sidebar text-sidebar-foreground',
-          hasCustomColor && 'custom-sidebar-color'
+          'hidden md:block h-full shrink-0 border-r border-border z-20',
+          isAgentSidebarOpen
+            ? 'bg-card text-foreground'
+            : [
+                !hasCustomColor && 'bg-sidebar text-sidebar-foreground',
+                hasCustomColor && 'custom-sidebar-color',
+              ]
         )}
-        style={{
-          ...sidebarStyle,
-          transition: 'width 280ms cubic-bezier(0.4, 0, 0.2, 1)',
-        }}
+        style={desktopSidebarStyle}
       >
         <div className="flex flex-col h-full">
-          <nav className="flex-1 overflow-y-auto min-h-0 px-2 py-3">
-            <MainListItems
-              isOpen={isSidebarExpanded}
-              onToggle={toggleSidebar}
-              customColor={hasCustomColor}
+          {isAgentSidebarOpen ? (
+            <AgentChatPanel
+              active
+              className="h-full"
+              defaultSidebarOpen={false}
+              onClose={closeAgentSidebar}
+              placeholder="Ask me to create a DAG, run a command..."
             />
-          </nav>
+          ) : (
+            <nav className="flex-1 overflow-y-auto min-h-0 px-2 py-3">
+              <MainListItems
+                isOpen={isSidebarExpanded}
+                onAgentModeToggle={openAgentSidebar}
+                onToggle={toggleSidebar}
+                customColor={hasCustomColor}
+              />
+            </nav>
+          )}
         </div>
       </aside>
+
+      {isAgentSidebarOpen && (
+        <div
+          role="separator"
+          aria-label="Resize agent panel"
+          aria-orientation="vertical"
+          aria-valuemin={AGENT_SIDEBAR_MIN_WIDTH}
+          aria-valuemax={getAgentSidebarMaxWidth()}
+          aria-valuenow={agentSidebarWidth}
+          tabIndex={0}
+          className={cn(
+            'hidden md:flex h-full w-1 shrink-0 cursor-col-resize items-center justify-center z-20',
+            'bg-border/30 transition-colors hover:bg-primary/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+            isResizingAgentSidebar && 'bg-primary/60'
+          )}
+          onPointerDown={startAgentSidebarResize}
+          onKeyDown={handleAgentSidebarResizeKeyDown}
+        >
+          <div className="h-8 w-px rounded-full bg-muted-foreground/40" />
+        </div>
+      )}
 
       {/* Main Content Area - Developer-tool */}
       <div className="flex flex-col flex-1 h-full overflow-hidden relative bg-background">
@@ -206,10 +396,13 @@ function Content({ navbarColor, children }: LayoutProps) {
         </header>
 
         {/* Scrollable Content - More Compact Padding */}
-        <main className="flex-1 overflow-auto">
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <ContentNavigation pathname={location.pathname} />
           <UpdateBanner />
           <LicenseBanner />
-          <div className="p-4 md:p-6 w-full h-full">{children}</div>
+          <div className="min-h-0 flex-1 overflow-auto p-4 md:p-6 w-full">
+            {children}
+          </div>
         </main>
       </div>
 

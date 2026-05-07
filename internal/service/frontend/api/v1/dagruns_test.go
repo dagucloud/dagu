@@ -907,6 +907,65 @@ func TestRescheduleDAGRunFromInlineEnqueueUsesPersistedSnapshot(t *testing.T) {
 	test.AssertInlineRescheduledRunParams(t, server, "inline_reschedule_enqueue", rescheduledRunID)
 }
 
+func TestRescheduleDAGRunUsesPersistedBaseConfigSnapshot(t *testing.T) {
+	dagName := "reschedule_base_snapshot"
+	server := test.SetupServer(t, test.WithConfigMutator(func(cfg *config.Config) {
+		cfg.Queues.Enabled = true
+		cfg.Queues.Config = []config.QueueConfig{
+			{Name: dagName, MaxActiveRuns: 1},
+		}
+	}))
+
+	require.NoError(t, os.WriteFile(server.Config.Paths.BaseConfig, []byte(`
+env:
+  BASE_FROM_SNAPSHOT: old
+`), 0600))
+
+	dagSpec := `steps:
+  - name: main
+    command: echo "$BASE_FROM_SNAPSHOT"`
+
+	_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+		Name: dagName,
+		Spec: &dagSpec,
+	}).ExpectStatus(http.StatusCreated).Send(t)
+
+	startResp := server.Client().Post(
+		fmt.Sprintf("/api/v1/dags/%s/start", dagName),
+		api.ExecuteDAGJSONRequestBody{},
+	).ExpectStatus(http.StatusOK).Send(t)
+
+	var startBody api.ExecuteDAG200JSONResponse
+	startResp.Unmarshal(t, &startBody)
+	require.NotEmpty(t, startBody.DagRunId)
+
+	waitForDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+		return status.Status == core.Succeeded
+	})
+
+	_, originalDAG := test.WaitForAttemptSnapshotWithDAG(t, server, dagName, startBody.DagRunId)
+	require.Contains(t, string(originalDAG.BaseConfigData), "BASE_FROM_SNAPSHOT: old")
+
+	require.NoError(t, os.WriteFile(server.Config.Paths.BaseConfig, []byte(`
+env:
+  BASE_FROM_SNAPSHOT: new
+`), 0600))
+
+	rescheduleResp := server.Client().Post(
+		fmt.Sprintf("/api/v1/dag-runs/%s/%s/reschedule", dagName, startBody.DagRunId),
+		api.RescheduleDAGRunJSONRequestBody{},
+	).ExpectStatus(http.StatusOK).Send(t)
+
+	var rescheduleBody api.RescheduleDAGRun200JSONResponse
+	rescheduleResp.Unmarshal(t, &rescheduleBody)
+	require.NotEmpty(t, rescheduleBody.DagRunId)
+	require.True(t, rescheduleBody.Queued)
+
+	_, rescheduledDAG := test.WaitForAttemptSnapshotWithDAG(t, server, dagName, rescheduleBody.DagRunId)
+	assert.Contains(t, string(rescheduledDAG.BaseConfigData), "BASE_FROM_SNAPSHOT: old")
+	assert.NotContains(t, string(rescheduledDAG.BaseConfigData), "BASE_FROM_SNAPSHOT: new")
+}
+
 func TestRescheduleDAGRunCanUseCurrentDAGFile(t *testing.T) {
 	server := test.SetupServer(t, test.WithConfigMutator(func(cfg *config.Config) {
 		cfg.Queues.Enabled = true

@@ -111,7 +111,7 @@ Options:
   --service-scope <scope>    Service scope: user or system
   --host <host>              Host address for the Dagu web UI
   --port <port>              Port for the Dagu web UI
-  --skills-dir <path>        Install the Dagu skill into this skills directory (repeatable)
+  --skills-dir <path>        Deprecated; use gh skill install dagucloud/dagu dagu instead
   --admin-username <name>    Initial admin username for builtin auth bootstrap
   --admin-password <pass>    Initial admin password for builtin auth bootstrap
   --open-browser <yes|no>    Open the Dagu URL after successful setup
@@ -2072,35 +2072,34 @@ verify_bootstrap_flow() {
 }
 
 install_skill() {
-    local output custom_dir
+    local custom_dir
     if [[ ${#EXPLICIT_SKILL_DIRS[@]} -eq 0 && "${SKILL_MODE:-skip}" != "auto" ]]; then
         return 0
     fi
     if [[ "$DRY_RUN" == "1" ]]; then
-        ui_info "Would install the Dagu AI skill"
+        ui_info "Would install the Dagu AI skill with the shared skills installer"
         return 0
     fi
     if [[ ${#EXPLICIT_SKILL_DIRS[@]} -gt 0 ]]; then
         for custom_dir in "${EXPLICIT_SKILL_DIRS[@]}"; do
-            ui_info "Installing Dagu AI skill into ${custom_dir}"
-            "${INSTALL_PATH}" ai install --skills-dir "${custom_dir}"
+            ui_warn "--skills-dir is no longer supported by the Dagu installer: ${custom_dir}"
         done
+        ui_warn "Install the skill with: gh skill install dagucloud/dagu dagu"
         return 0
     fi
-    output="$("${INSTALL_PATH}" ai install --yes 2>&1 || true)"
-    printf '%s\n' "${output}"
-    if printf '%s' "${output}" | grep -q "No AI coding tools detected"; then
-        if is_promptable && prompt_yes_no "No supported AI tool was detected. Install the Dagu skill into a custom skills directory instead?" "no"; then
-            custom_dir="$(prompt_text "Skills directory" "${HOME}/.agents/skills")"
-            if [[ -n "${custom_dir}" ]]; then
-                "${INSTALL_PATH}" ai install --skills-dir "${custom_dir}"
-                return 0
-            fi
+    if command -v gh >/dev/null 2>&1; then
+        if ! gh skill install dagucloud/dagu dagu; then
+            ui_warn "Failed to install the Dagu AI skill. Install manually with: gh skill install dagucloud/dagu dagu"
         fi
-        if is_promptable && command -v npx >/dev/null 2>&1 && prompt_yes_no "Use the shared skills installer instead?" "no"; then
-            npx skills add https://github.com/dagucloud/dagu --skill dagu
-        fi
+        return 0
     fi
+    if command -v npx >/dev/null 2>&1; then
+        if ! npx skills add https://github.com/dagucloud/dagu --skill dagu; then
+            ui_warn "Failed to install the Dagu AI skill. Install manually with: npx skills add https://github.com/dagucloud/dagu --skill dagu"
+        fi
+        return 0
+    fi
+    ui_warn "No shared skills installer was found. Install manually with: gh skill install dagucloud/dagu dagu"
 }
 
 open_browser_if_requested() {

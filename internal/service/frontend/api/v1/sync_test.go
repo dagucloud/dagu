@@ -767,18 +767,28 @@ func TestToAPISyncItems_IncludesKindAndPath(t *testing.T) {
 			Status:     gitsync.StatusUntracked,
 			ModifiedAt: &now, // No Kind set: should fallback by DAG ID
 		},
+		"base": {
+			Status:     gitsync.StatusModified,
+			Kind:       gitsync.DAGKindConfig,
+			ModifiedAt: &now,
+		},
 	}
 
 	apiItems := toAPISyncItems(states)
-	require.Len(t, apiItems, 2)
+	require.Len(t, apiItems, 3)
 
 	assert.Equal(t, "alpha", apiItems[0].ItemId)
 	assert.Equal(t, apigen.SyncItemKindDag, apiItems[0].Kind)
 	assert.Equal(t, "alpha.yaml", apiItems[0].FilePath)
 	assert.Equal(t, "alpha.yaml", apiItems[0].DisplayName)
 
-	assert.Equal(t, "memory/MEMORY", apiItems[1].ItemId)
-	assert.Equal(t, apigen.SyncItemKindMemory, apiItems[1].Kind)
-	assert.Equal(t, "memory/MEMORY.md", apiItems[1].FilePath)
-	assert.Equal(t, "memory/MEMORY.md", apiItems[1].DisplayName)
+	assert.Equal(t, "base", apiItems[1].ItemId)
+	assert.Equal(t, apigen.SyncItemKindConfig, apiItems[1].Kind)
+	assert.Equal(t, "base.yaml", apiItems[1].FilePath)
+	assert.Equal(t, "base.yaml", apiItems[1].DisplayName)
+
+	assert.Equal(t, "memory/MEMORY", apiItems[2].ItemId)
+	assert.Equal(t, apigen.SyncItemKindMemory, apiItems[2].Kind)
+	assert.Equal(t, "memory/MEMORY.md", apiItems[2].FilePath)
+	assert.Equal(t, "memory/MEMORY.md", apiItems[2].DisplayName)
 }

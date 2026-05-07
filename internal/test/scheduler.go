@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
+	"github.com/dagucloud/dagu/internal/workspace"
 	"github.com/stretchr/testify/require"
 )
 
@@ -63,6 +64,7 @@ func SetupScheduler(t *testing.T, opts ...HelperOption) *Scheduler {
 		helper.Config.Paths.DAGsDir,
 		filedag.WithFlagsBaseDir(helper.Config.Paths.SuspendFlagsDir),
 		filedag.WithBaseConfig(helper.Config.Paths.BaseConfig),
+		filedag.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(helper.Config.Paths.DAGsDir)),
 		filedag.WithSkipExamples(true),
 	)
 	drs := filedagrun.New(

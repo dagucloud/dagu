@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/llm"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
+	workspacepkg "github.com/dagucloud/dagu/internal/workspace"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -67,14 +68,16 @@ func getAuthenticatedUserIDFromContext(ctx context.Context) (string, bool) {
 
 func userIdentityFromContext(ctx context.Context) UserIdentity {
 	user := UserIdentity{
-		UserID:   defaultUserID,
-		Username: defaultUserID,
-		Role:     defaultUserRole,
+		UserID:          defaultUserID,
+		Username:        defaultUserID,
+		Role:            defaultUserRole,
+		WorkspaceAccess: auth.AllWorkspaceAccess(),
 	}
 	if authUser, ok := auth.UserFromContext(ctx); ok && authUser != nil {
 		user.UserID = authUser.ID
 		user.Username = authUser.Username
 		user.Role = authUser.Role
+		user.WorkspaceAccess = auth.CloneWorkspaceAccess(authUser.WorkspaceAccess)
 	}
 	user.IPAddress, _ = auth.ClientIPFromContext(ctx)
 	return user
@@ -95,6 +98,8 @@ type API struct {
 	environment           EnvironmentInfo
 	hooks                 *Hooks
 	memoryStore           MemoryStore
+	docStore              DocStore
+	workspaceStore        workspacepkg.Store
 	soulStore             SoulStore
 	remoteContextResolver RemoteContextResolver
 	oauthManager          *agentoauth.Manager
@@ -113,6 +118,8 @@ type APIConfig struct {
 	Environment           EnvironmentInfo
 	Hooks                 *Hooks
 	MemoryStore           MemoryStore
+	DocStore              DocStore
+	WorkspaceStore        workspacepkg.Store
 	RemoteContextResolver RemoteContextResolver
 	OAuthManager          *agentoauth.Manager
 	EventService          *eventstore.Service
@@ -160,6 +167,8 @@ func NewAPI(cfg APIConfig) *API {
 		environment:           cfg.Environment,
 		hooks:                 cfg.Hooks,
 		memoryStore:           cfg.MemoryStore,
+		docStore:              cfg.DocStore,
+		workspaceStore:        cfg.WorkspaceStore,
 		remoteContextResolver: cfg.RemoteContextResolver,
 		oauthManager:          cfg.OAuthManager,
 		eventService:          cfg.EventService,
@@ -561,6 +570,8 @@ func (a *API) buildSessionManagerConfig(id string, user UserIdentity, cfg sessio
 		InputCostPer1M:        cfg.inputCostPer1M,
 		OutputCostPer1M:       cfg.outputCostPer1M,
 		MemoryStore:           a.memoryStore,
+		DocStore:              a.docStore,
+		WorkspaceStore:        a.workspaceStore,
 		DAGName:               cfg.dagName,
 		SessionStore:          a.store,
 		Soul:                  cfg.soul,

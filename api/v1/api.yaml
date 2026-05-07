@@ -5138,6 +5138,141 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /settings/workspaces/{workspaceName}/base-config:
+    get:
+      summary: "Get workspace base configuration"
+      description: "Returns the workspace-scoped base DAG configuration YAML. Requires access to the workspace."
+      operationId: "getWorkspaceBaseConfig"
+      tags:
+        - "settings"
+      parameters:
+        - name: workspaceName
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/WorkspaceName"
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "Workspace base configuration"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  spec:
+                    type: string
+                    description: "The workspace base configuration in YAML format"
+                  errors:
+                    type: array
+                    items:
+                      type: string
+                    description: "List of validation errors in the configuration"
+                required:
+                  - spec
+                  - errors
+        "400":
+          description: "Invalid workspace"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Insufficient permissions"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Workspace not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    put:
+      summary: "Update workspace base configuration"
+      description: "Updates the workspace-scoped base DAG configuration YAML. Validates before saving. Requires write access to the workspace."
+      operationId: "updateWorkspaceBaseConfig"
+      tags:
+        - "settings"
+      parameters:
+        - name: workspaceName
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/WorkspaceName"
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                spec:
+                  type: string
+                  description: "The workspace base configuration in YAML format"
+              required:
+                - spec
+      responses:
+        "200":
+          description: "Workspace base configuration updated successfully"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errors:
+                    type: array
+                    items:
+                      type: string
+                    description: "List of validation warnings"
+                required:
+                  - errors
+        "400":
+          description: "Invalid configuration"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Insufficient permissions"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Workspace not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /settings/agent:
     get:
       summary: "Get agent configuration"
@@ -8689,6 +8824,10 @@ components:
           type: object
           additionalProperties: true
           description: "Resolved JSON Schema object used to validate and document with input"
+        outputSchema:
+          type: object
+          additionalProperties: true
+          description: "Resolved JSON Schema object used to validate stdout JSON output"
       required:
         - name
         - targetType
@@ -9404,6 +9543,9 @@ components:
           type: string
         title:
           type: string
+        description:
+          type: string
+          description: "Short document description from YAML frontmatter"
         workspace:
           type: string
           description: "Workspace that owns this document. Omitted for default documents."
@@ -9421,6 +9563,7 @@ components:
       required:
         - id
         - title
+        - description
         - hasMoreMatches
         - matches
 
@@ -10225,6 +10368,7 @@ components:
       description: "Type of sync item"
       enum:
         - dag
+        - config
         - memory
         - skill
         - soul
@@ -10993,12 +11137,16 @@ components:
       required:
         - id
         - title
+        - description
         - content
       properties:
         id:
           type: string
         title:
           type: string
+        description:
+          type: string
+          description: "Short document description from YAML frontmatter"
         workspace:
           type: string
           description: "Workspace that owns this document. Omitted for default documents."
@@ -11023,11 +11171,15 @@ components:
       required:
         - id
         - title
+        - description
       properties:
         id:
           type: string
         title:
           type: string
+        description:
+          type: string
+          description: "Short document description from YAML frontmatter"
         workspace:
           type: string
           description: "Workspace that owns this document. Omitted for default documents."
@@ -11090,11 +11242,15 @@ components:
       required:
         - id
         - title
+        - description
       properties:
         id:
           type: string
         title:
           type: string
+        description:
+          type: string
+          description: "Short document description from YAML frontmatter"
         workspace:
           type: string
           description: "Workspace that owns this document. Omitted for default documents."

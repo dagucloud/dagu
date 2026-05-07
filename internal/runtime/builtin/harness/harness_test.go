@@ -50,6 +50,26 @@ func TestProviderDefaultConfig(t *testing.T) {
 	})
 }
 
+func TestHarnessExecutorPushBackContextAugmentsPromptWithLogPath(t *testing.T) {
+	t.Parallel()
+
+	exec := &harnessExecutor{prompt: "Fix the implementation"}
+	exec.SetPushBackContext(map[string]string{
+		"FEEDBACK": "tighten the tests",
+		"SCOPE":    "unit only",
+	}, 2)
+	exec.SetPushBackPreviousStdout("/tmp/dagu/review.out")
+
+	prompt := exec.effectivePrompt()
+
+	assert.Contains(t, prompt, "Fix the implementation")
+	assert.Contains(t, prompt, "Push-back iteration: 2")
+	assert.Contains(t, prompt, "Previous stdout log: /tmp/dagu/review.out")
+	assert.Contains(t, prompt, "- FEEDBACK: tighten the tests")
+	assert.Contains(t, prompt, "- SCOPE: unit only")
+	assert.NotContains(t, prompt, "previous stdout content")
+}
+
 func TestConfigToFlags(t *testing.T) {
 	t.Run("reserved_keys_skipped", func(t *testing.T) {
 		flags := configToFlags(map[string]any{

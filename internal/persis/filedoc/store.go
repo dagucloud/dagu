@@ -35,12 +35,13 @@ const (
 
 // docFrontmatter holds the YAML fields in the doc file frontmatter.
 type docFrontmatter struct {
-	Title string `yaml:"title,omitempty"`
+	Title       string `yaml:"title,omitempty"`
+	Description string `yaml:"description,omitempty"`
 }
 
 // Store implements a file-based doc store.
 // Docs are stored as files: {baseDir}/{id}.md
-// Each file contains optional YAML frontmatter (title) and a Markdown body.
+// Each file contains optional YAML frontmatter (title, description) and a Markdown body.
 // Unlike the soul store, this has no cached index — it scans the filesystem
 // on every call, following the DAG store pattern.
 type Store struct {
@@ -120,12 +121,13 @@ func scopedDocID(prefix, id string) (string, error) {
 
 // parseDocFile parses a doc .md file into an agent.Doc.
 // The file format is optional YAML frontmatter between --- delimiters, followed by markdown body.
-// Content always contains the full file (including frontmatter); frontmatter is only parsed to extract the title.
+// Content always contains the full file (including frontmatter); frontmatter is parsed to extract title and description.
 func parseDocFile(data []byte, id string) (*agent.Doc, error) {
 	content := strings.ReplaceAll(string(data), "\r\n", "\n")
 	content = strings.TrimRight(content, "\n")
 
 	var title string
+	var description string
 
 	if strings.HasPrefix(content, "---\n") {
 		rest := content[4:]
@@ -143,6 +145,7 @@ func parseDocFile(data []byte, id string) (*agent.Doc, error) {
 			var fm docFrontmatter
 			if err := yaml.Unmarshal([]byte(frontmatterStr), &fm); err == nil {
 				title = fm.Title
+				description = fm.Description
 			}
 		}
 	}
@@ -152,9 +155,10 @@ func parseDocFile(data []byte, id string) (*agent.Doc, error) {
 	}
 
 	return &agent.Doc{
-		ID:      id,
-		Title:   title,
-		Content: content,
+		ID:          id,
+		Title:       title,
+		Description: description,
+		Content:     content,
 	}, nil
 }
 
@@ -254,7 +258,7 @@ func (s *Store) ListFlat(ctx context.Context, opts agent.ListDocsOptions) (*exec
 		}
 
 		items = append(items, flatDocItem{
-			meta: agent.DocMetadata{ID: doc.ID, Title: doc.Title, ModTime: modTime},
+			meta: agent.DocMetadata{ID: doc.ID, Title: doc.Title, Description: doc.Description, ModTime: modTime},
 		})
 		return nil
 	})
@@ -654,14 +658,17 @@ func (s *Store) Search(ctx context.Context, query string) ([]*agent.DocSearchRes
 
 		doc, parseErr := parseDocFile(data, id)
 		title := id
+		var description string
 		if parseErr == nil {
 			title = doc.Title
+			description = doc.Description
 		}
 
 		results = append(results, &agent.DocSearchResult{
-			ID:      id,
-			Title:   title,
-			Matches: matches,
+			ID:          id,
+			Title:       title,
+			Description: description,
+			Matches:     matches,
 		})
 		return nil
 	})
@@ -885,12 +892,15 @@ func (s *Store) SearchCursor(ctx context.Context, opts agent.SearchDocsOptions) 
 
 		doc, parseErr := parseDocFile(data, candidate.ID)
 		title := candidate.ID
+		var description string
 		if parseErr == nil {
 			title = doc.Title
+			description = doc.Description
 		}
 		item := agent.DocSearchResult{
 			ID:             candidate.ID,
 			Title:          title,
+			Description:    description,
 			Matches:        window.Matches,
 			HasMoreMatches: window.HasMore,
 		}

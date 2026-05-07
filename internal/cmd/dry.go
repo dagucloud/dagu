@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/runtime/agent"
+	"github.com/dagucloud/dagu/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -111,6 +112,7 @@ func runDry(ctx *Context, args []string) error {
 func loadDAGForDryRun(ctx *Context, args []string) (*core.DAG, error) {
 	loadOpts := []spec.LoadOption{
 		spec.WithBaseConfig(ctx.Config.Paths.BaseConfig),
+		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir)),
 		spec.WithDAGsDir(ctx.Config.Paths.DAGsDir),
 	}
 

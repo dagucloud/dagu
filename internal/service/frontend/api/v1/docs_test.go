@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	apigen "github.com/dagucloud/dagu/api/v1"
 	"github.com/dagucloud/dagu/internal/agent"
@@ -251,9 +252,10 @@ func (m *mockDocStore) Search(_ context.Context, query string) ([]*agent.DocSear
 				}
 			}
 			results = append(results, &agent.DocSearchResult{
-				ID:      doc.ID,
-				Title:   doc.Title,
-				Matches: matches,
+				ID:          doc.ID,
+				Title:       doc.Title,
+				Description: doc.Description,
+				Matches:     matches,
 			})
 		}
 	}
@@ -412,8 +414,10 @@ func (m *mockDocStore) ListFlat(_ context.Context, opts agent.ListDocsOptions) (
 			continue
 		}
 		items = append(items, agent.DocMetadata{
-			ID:    doc.ID,
-			Title: doc.Title,
+			ID:          doc.ID,
+			Title:       doc.Title,
+			Description: doc.Description,
+			ModTime:     time.Unix(1700000000, 0),
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
@@ -474,7 +478,7 @@ func TestListDocs(t *testing.T) {
 		t.Parallel()
 
 		setup := newDocTestSetup(t)
-		setup.store.docs["alpha"] = &agent.Doc{ID: "alpha", Title: "alpha", Content: "content-a"}
+		setup.store.docs["alpha"] = &agent.Doc{ID: "alpha", Title: "alpha", Description: "Alpha runbook", Content: "content-a"}
 		setup.store.docs["beta"] = &agent.Doc{ID: "beta", Title: "beta", Content: "content-b"}
 
 		resp, err := setup.api.ListDocs(adminCtx(), apigen.ListDocsRequestObject{
@@ -490,6 +494,7 @@ func TestListDocs(t *testing.T) {
 		require.True(t, ok)
 		require.NotNil(t, listResp.Items)
 		assert.Len(t, *listResp.Items, 2)
+		assert.Equal(t, "Alpha runbook", (*listResp.Items)[0].Description)
 	})
 
 	t.Run("tree mode returns nodes", func(t *testing.T) {
@@ -752,7 +757,7 @@ func TestGetDoc(t *testing.T) {
 		t.Parallel()
 
 		setup := newDocTestSetup(t)
-		setup.store.docs["my-doc"] = &agent.Doc{ID: "my-doc", Title: "my-doc", Content: "hello"}
+		setup.store.docs["my-doc"] = &agent.Doc{ID: "my-doc", Title: "my-doc", Description: "My doc description", Content: "hello"}
 
 		resp, err := setup.api.GetDoc(adminCtx(), apigen.GetDocRequestObject{
 			Params: apigen.GetDocParams{Path: "my-doc"},
@@ -764,6 +769,7 @@ func TestGetDoc(t *testing.T) {
 		assert.Equal(t, "my-doc", getResp.Id)
 		assert.Equal(t, "hello", getResp.Content)
 		assert.Equal(t, "my-doc", getResp.Title)
+		assert.Equal(t, "My doc description", getResp.Description)
 	})
 
 	t.Run("not found", func(t *testing.T) {
@@ -808,7 +814,7 @@ func TestSearchDocs(t *testing.T) {
 		t.Parallel()
 
 		setup := newDocTestSetup(t)
-		setup.store.docs["doc1"] = &agent.Doc{ID: "doc1", Title: "doc1", Content: "hello world"}
+		setup.store.docs["doc1"] = &agent.Doc{ID: "doc1", Title: "doc1", Description: "World runbook", Content: "hello world"}
 		setup.store.docs["doc2"] = &agent.Doc{ID: "doc2", Title: "doc2", Content: "goodbye world"}
 		setup.store.docs["doc3"] = &agent.Doc{ID: "doc3", Title: "doc3", Content: "nothing here"}
 
@@ -820,6 +826,7 @@ func TestSearchDocs(t *testing.T) {
 		searchResp, ok := resp.(apigen.SearchDocs200JSONResponse)
 		require.True(t, ok)
 		assert.Len(t, searchResp.Results, 2)
+		assert.Equal(t, "World runbook", searchResp.Results[0].Description)
 	})
 
 	t.Run("empty query", func(t *testing.T) {

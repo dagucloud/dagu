@@ -12,10 +12,11 @@ import (
 // CustomStepTypeEditorHint is editor-only metadata for a custom step type.
 // It is derived from the same validated spec pipeline as runtime expansion.
 type CustomStepTypeEditorHint struct {
-	Name        string
-	TargetType  string
-	Description string
-	InputSchema map[string]any
+	Name         string
+	TargetType   string
+	Description  string
+	InputSchema  map[string]any
+	OutputSchema map[string]any
 }
 
 // InheritedCustomStepTypeEditorHints returns editor hints for custom step types
@@ -83,9 +84,10 @@ func editorHintForCustomStepType(entry *customStepType) (CustomStepTypeEditorHin
 	}
 
 	return CustomStepTypeEditorHint{
-		Name:        entry.Name,
-		TargetType:  entry.Type,
-		Description: entry.Description,
-		InputSchema: schemaMap,
+		Name:         entry.Name,
+		TargetType:   entry.Type,
+		Description:  entry.Description,
+		InputSchema:  schemaMap,
+		OutputSchema: cloneMap(entry.OutputSchema),
 	}, true, nil
 }

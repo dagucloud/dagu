@@ -40,3 +40,10 @@ func (n *Node) SetPushBackHistory(history []exec.PushBackEntry) {
 	defer n.Data.mu.Unlock()
 	n.inner.State.PushBackHistory = exec.ClonePushBackHistory(history)
 }
+
+// SetPushBackPreviousStdout sets the previous stdout log path for testing.
+func (n *Node) SetPushBackPreviousStdout(path string) {
+	n.Data.mu.Lock()
+	defer n.Data.mu.Unlock()
+	n.inner.State.PushBackPreviousStdout = path
+}

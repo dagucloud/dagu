@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/llm"
+	workspacepkg "github.com/dagucloud/dagu/internal/workspace"
 	"github.com/google/uuid"
 )
 
@@ -55,6 +56,8 @@ type SessionManager struct {
 	thinkingEffort        llm.ThinkingEffort
 	totalCost             float64
 	memoryStore           MemoryStore
+	docStore              DocStore
+	workspaceStore        workspacepkg.Store
 	dagName               string
 	sessionStore          SessionStore
 	parentSessionID       string
@@ -100,6 +103,8 @@ type SessionManagerConfig struct {
 	OutputCostPer1M float64
 	ThinkingEffort  llm.ThinkingEffort
 	MemoryStore     MemoryStore
+	DocStore        DocStore
+	WorkspaceStore  workspacepkg.Store
 	DAGName         string
 	SessionStore    SessionStore
 	// ParentSessionID links this session to its parent (non-empty = sub-session).
@@ -191,6 +196,8 @@ func NewSessionManager(cfg SessionManagerConfig) *SessionManager {
 		thinkingEffort:        cfg.ThinkingEffort,
 		totalCost:             totalCost,
 		memoryStore:           cfg.MemoryStore,
+		docStore:              cfg.DocStore,
+		workspaceStore:        cfg.WorkspaceStore,
 		dagName:               cfg.DAGName,
 		sessionStore:          cfg.SessionStore,
 		parentSessionID:       cfg.ParentSessionID,
@@ -820,6 +827,8 @@ func (sm *SessionManager) createLoop(provider llm.Provider, model string, histor
 		History:  history,
 		Tools: CreateTools(ToolConfig{
 			DAGsDir:               sm.environment.DAGsDir,
+			DocStore:              sm.docStore,
+			WorkspaceStore:        sm.workspaceStore,
 			RemoteContextResolver: sm.remoteContextResolver,
 		}),
 		RecordMessage: sm.createRecordMessageFunc(),

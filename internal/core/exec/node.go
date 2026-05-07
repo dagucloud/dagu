@@ -53,6 +53,9 @@ type Node struct {
 	PushBackInputs map[string]string `json:"pushBackInputs,omitempty"`
 	// PushBackHistory stores the chronological push-back inputs for this step.
 	PushBackHistory []PushBackEntry `json:"pushBackHistory,omitempty"`
+	// PushBackPreviousStdout stores the stdout log path from the execution that
+	// was reset by the latest push-back.
+	PushBackPreviousStdout string `json:"pushBackPreviousStdout,omitempty"`
 	// ChatMessages stores the session messages for chat/LLM steps.
 	// This field is populated during execution and synced via status updates
 	// in shared-nothing mode where workers don't have filesystem access.

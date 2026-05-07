@@ -381,12 +381,27 @@ func TestParseDocFileNoFrontmatter(t *testing.T) {
 }
 
 func TestParseDocFileWithFrontmatter(t *testing.T) {
-	input := "---\ntitle: My Doc\n---\n# Content"
+	input := "---\ntitle: My Doc\ndescription: Helps the agent choose this runbook.\n---\n# Content"
 	doc, err := parseDocFile([]byte(input), "test")
 	require.NoError(t, err)
 	assert.Equal(t, "My Doc", doc.Title)
+	assert.Equal(t, "Helps the agent choose this runbook.", doc.Description)
 	// Content now includes the full file with frontmatter.
-	assert.Equal(t, "---\ntitle: My Doc\n---\n# Content", doc.Content)
+	assert.Equal(t, "---\ntitle: My Doc\ndescription: Helps the agent choose this runbook.\n---\n# Content", doc.Content)
+}
+
+func TestListFlatIncludesDescriptionFromFrontmatter(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	content := "---\ntitle: Restart API\ndescription: Restart the API service and verify health.\n---\n# Restart API"
+	require.NoError(t, store.Create(ctx, "runbooks/restart-api", content))
+
+	result, err := store.ListFlat(ctx, defaultFlatOpts(1, 50))
+	require.NoError(t, err)
+	require.Len(t, result.Items, 1)
+	assert.Equal(t, "Restart API", result.Items[0].Title)
+	assert.Equal(t, "Restart the API service and verify health.", result.Items[0].Description)
 }
 
 func TestListFlatSkipsNonConformingFiles(t *testing.T) {

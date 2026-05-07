@@ -86,6 +86,7 @@ func (srv *Server) newFrontendServer(listener net.Listener) (*frontend.Server, e
 		srv.QueueStore,
 		srv.ServiceRegistry,
 	)
+	collector.SetWorkerHeartbeatStore(srv.WorkerHeartbeatStore)
 	mr := telemetry.NewRegistry(collector)
 
 	// Pass the pre-bound listener to the server to avoid port race conditions

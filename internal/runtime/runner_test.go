@@ -3634,6 +3634,49 @@ func TestSetupPushBackConversation(t *testing.T) {
 		assert.Equal(t, "previous response", msgs[2].Content)
 	})
 
+	t.Run("LoadsOwnMessagesForPushedBackChatStep", func(t *testing.T) {
+		t.Parallel()
+
+		handler := newMockMessagesHandler()
+		handler.messages["chat1"] = []exec.LLMMessage{
+			{Role: exec.RoleSystem, Content: "be concise"},
+			{Role: exec.RoleUser, Content: "original prompt"},
+			{Role: exec.RoleAssistant, Content: "previous response"},
+		}
+		handler.messages["dep1"] = []exec.LLMMessage{
+			{Role: exec.RoleUser, Content: "dep message"},
+		}
+
+		r := setupRunner(t, withMessagesHandler(handler))
+
+		step := newStep("chat1",
+			withExecutorType(core.ExecutorTypeChat),
+			withDepends("dep1"),
+			withApproval(&core.ApprovalConfig{
+				Prompt: "review this",
+				Input:  []string{"FEEDBACK"},
+			}),
+		)
+
+		plan := r.newPlan(t, successStep("dep1"), step)
+		node := plan.GetNodeByName("chat1")
+		require.NotNil(t, node)
+		node.SetApprovalIteration(1)
+
+		ctx := context.Background()
+		r.runner.SetupChatMessages(ctx, node)
+		msgs := node.GetChatMessages()
+		require.Len(t, msgs, 1)
+		assert.Equal(t, "dep message", msgs[0].Content)
+
+		r.runner.SetupPushBackConversation(ctx, node)
+		msgs = node.GetChatMessages()
+		require.Len(t, msgs, 3)
+		assert.Equal(t, "be concise", msgs[0].Content)
+		assert.Equal(t, "original prompt", msgs[1].Content)
+		assert.Equal(t, "previous response", msgs[2].Content)
+	})
+
 	t.Run("NoOpForFirstExecution", func(t *testing.T) {
 		t.Parallel()
 
@@ -3687,12 +3730,13 @@ func TestSetupPushBackConversation(t *testing.T) {
 		assert.Empty(t, msgs)
 	})
 
-	t.Run("NoOpWithoutApproval", func(t *testing.T) {
+	t.Run("LoadsOwnMessagesForPushedBackAgentStepWithoutApprovalConfig", func(t *testing.T) {
 		t.Parallel()
 
 		handler := newMockMessagesHandler()
 		handler.messages["agent1"] = []exec.LLMMessage{
-			{Role: exec.RoleUser, Content: "should not load"},
+			{Role: exec.RoleUser, Content: "previous prompt"},
+			{Role: exec.RoleAssistant, Content: "previous response"},
 		}
 
 		r := setupRunner(t, withMessagesHandler(handler))
@@ -3709,7 +3753,9 @@ func TestSetupPushBackConversation(t *testing.T) {
 		r.runner.SetupPushBackConversation(ctx, node)
 
 		msgs := node.GetChatMessages()
-		assert.Empty(t, msgs)
+		require.Len(t, msgs, 2)
+		assert.Equal(t, "previous prompt", msgs[0].Content)
+		assert.Equal(t, "previous response", msgs[1].Content)
 	})
 
 	t.Run("GracefulOnReadError", func(t *testing.T) {
@@ -3747,7 +3793,7 @@ func TestPushBackInputsExposeJSONHistoryEnv(t *testing.T) {
 
 	r := setupRunner(t)
 	step := newStep("review",
-		withScript("printf '%s\\n' \"$FEEDBACK\"\nprintf '%s' \"$DAG_PUSHBACK\""),
+		withScript("printf '%s\\n' \"$FEEDBACK\"\nprintf '%s\\n' \"$DAG_PUSHBACK_ITERATION\"\nprintf '%s\\n' \"$DAG_PUSHBACK_PREVIOUS_STDOUT_FILE\"\nprintf '%s' \"$DAG_PUSHBACK\""),
 		withApproval(&core.ApprovalConfig{
 			Input: []string{"FEEDBACK"},
 		}),
@@ -3759,6 +3805,7 @@ func TestPushBackInputsExposeJSONHistoryEnv(t *testing.T) {
 
 	node.SetApprovalIteration(1)
 	node.SetPushBackInputs(map[string]string{"FEEDBACK": "needs more detail"})
+	node.SetPushBackPreviousStdout("/tmp/review-prev.out")
 
 	result := plan.assertRun(t, core.Waiting)
 	result.assertNodeStatus(t, "review", core.NodeWaiting)
@@ -3766,12 +3813,14 @@ func TestPushBackInputsExposeJSONHistoryEnv(t *testing.T) {
 	output, err := os.ReadFile(result.nodeByName(t, "review").GetStdout())
 	require.NoError(t, err)
 
-	lines := strings.SplitN(strings.TrimSpace(string(output)), "\n", 2)
-	require.Len(t, lines, 2)
+	lines := strings.SplitN(strings.TrimSpace(string(output)), "\n", 4)
+	require.Len(t, lines, 4)
 	assert.Equal(t, "needs more detail", lines[0])
+	assert.Equal(t, "1", lines[1])
+	assert.Equal(t, "/tmp/review-prev.out", lines[2])
 
 	var payload map[string]any
-	require.NoError(t, json.Unmarshal([]byte(lines[1]), &payload))
+	require.NoError(t, json.Unmarshal([]byte(lines[3]), &payload))
 
 	assert.Equal(t, float64(1), payload["iteration"])
 

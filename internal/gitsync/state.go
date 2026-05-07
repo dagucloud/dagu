@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/dagucloud/dagu/internal/workspace"
 )
 
 // SyncStatus represents the synchronization status of a DAG.
@@ -40,6 +42,7 @@ const (
 	agentSkillsDir = "skills"
 	agentSoulsDir  = "souls"
 	agentDocsDir   = "docs"
+	baseConfigID   = "base"
 )
 
 // DAGKind represents the type of tracked item in git sync.
@@ -60,11 +63,17 @@ const (
 
 	// DAGKindDoc indicates a document file under docs/.
 	DAGKindDoc DAGKind = "doc"
+
+	// DAGKindConfig indicates a global or workspace base config file.
+	DAGKindConfig DAGKind = "config"
 )
 
 // KindForDAGID returns the DAG kind derived from a DAG ID.
 func KindForDAGID(id string) DAGKind {
 	id = normalizeDAGIDSeparators(id)
+	if isConfigFile(id) {
+		return DAGKindConfig
+	}
 	if strings.HasPrefix(id, agentMemoryDir+"/") {
 		return DAGKindMemory
 	}
@@ -78,6 +87,29 @@ func KindForDAGID(id string) DAGKind {
 		return DAGKindDoc
 	}
 	return DAGKindDAG
+}
+
+func isConfigFile(id string) bool {
+	id = normalizeDAGIDSeparators(id)
+	if id == baseConfigID {
+		return true
+	}
+	_, ok := workspaceBaseConfigNameFromID(id)
+	return ok
+}
+
+func workspaceBaseConfigNameFromID(id string) (string, bool) {
+	parts := strings.Split(normalizeDAGIDSeparators(id), "/")
+	if len(parts) != 3 {
+		return "", false
+	}
+	if parts[0] != workspace.BaseConfigDirName || parts[2] != workspace.BaseConfigStem() {
+		return "", false
+	}
+	if err := workspace.ValidateName(parts[1]); err != nil {
+		return "", false
+	}
+	return parts[1], true
 }
 
 func normalizeDAGIDSeparators(id string) string {

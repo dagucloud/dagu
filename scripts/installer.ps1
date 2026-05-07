@@ -1128,33 +1128,30 @@ function Install-AISkill {
     }
     if ($DryRun) {
         if ($SkillMode -eq "explicit" -or $SkillMode -eq "auto") {
-            Write-Info "Would install the Dagu AI skill"
+            Write-Info "Would install the Dagu AI skill with the shared skills installer"
         }
         return
     }
     if ($SkillMode -eq "explicit" -and $SkillsDir.Count -gt 0) {
         foreach ($dir in $SkillsDir) {
-            & $DaguExe ai install --skills-dir $dir
+            Write-WarnMessage "--SkillsDir is no longer supported by the Dagu installer: $dir"
         }
-        return
+        Write-WarnMessage "Install the skill with: gh skill install dagucloud/dagu dagu"
     }
-    if ($SkillMode -eq "auto" -and $DetectedSkillTargets -gt 0) {
-        $output = & $DaguExe ai install --yes 2>&1 | Out-String
-        Write-Host $output.TrimEnd()
-        if ($output -match "No AI coding tools detected") {
-            Write-WarnMessage "No supported AI tool was detected."
-        }
-        return
-    }
-    if ((Test-Interactive) -and (Confirm-Choice "Install the Dagu AI skill into a custom skills directory?" $false)) {
-        $dir = Read-Default "Skills directory" (Join-Path ([Environment]::GetFolderPath("UserProfile")) ".agents\skills")
-        if ($dir) {
-            & $DaguExe ai install --skills-dir $dir
-            return
+    elseif ($SkillMode -eq "auto" -and (Get-Command gh -ErrorAction SilentlyContinue)) {
+        & gh skill install dagucloud/dagu dagu
+        if ($LASTEXITCODE -ne 0) {
+            Write-WarnMessage "Failed to install the Dagu AI skill. Install manually with: gh skill install dagucloud/dagu dagu"
         }
     }
-    if ((Test-Interactive) -and (Get-Command npx -ErrorAction SilentlyContinue) -and (Confirm-Choice "Use the shared skills installer instead?" $false)) {
+    elseif ($SkillMode -eq "auto" -and (Get-Command npx -ErrorAction SilentlyContinue)) {
         & npx skills add https://github.com/dagucloud/dagu --skill dagu
+        if ($LASTEXITCODE -ne 0) {
+            Write-WarnMessage "Failed to install the Dagu AI skill. Install manually with: npx skills add https://github.com/dagucloud/dagu --skill dagu"
+        }
+    }
+    else {
+        Write-WarnMessage "No shared skills installer was found. Install manually with: gh skill install dagucloud/dagu dagu"
     }
 }
 

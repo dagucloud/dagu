@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/dagucloud/dagu/internal/workspace"
 )
 
 // Service defines the interface for Git sync operations.
@@ -154,6 +156,7 @@ func fileExtensionForID(id string) string {
 type serviceImpl struct {
 	cfg          *Config
 	dagsDir      string
+	baseConfig   string
 	dataDir      string
 	stateManager *StateManager
 	gitClient    *GitClient
@@ -163,11 +166,16 @@ type serviceImpl struct {
 }
 
 // NewService creates a new Git sync service.
-func NewService(cfg *Config, dagsDir, dataDir string) Service {
+func NewService(cfg *Config, dagsDir, dataDir string, baseConfigPath ...string) Service {
 	repoPath := filepath.Join(dataDir, "gitsync", "repo")
+	baseConfig := ""
+	if len(baseConfigPath) > 0 {
+		baseConfig = baseConfigPath[0]
+	}
 	return &serviceImpl{
 		cfg:          cfg,
 		dagsDir:      dagsDir,
+		baseConfig:   baseConfig,
 		dataDir:      dataDir,
 		stateManager: NewStateManager(dataDir),
 		gitClient:    NewGitClient(cfg, repoPath),
@@ -453,6 +461,9 @@ func (s *serviceImpl) scanLocalDAGs(state *State) error {
 		}
 
 		dagID := strings.TrimSuffix(entry.Name(), ext)
+		if isConfigFile(dagID) {
+			continue
+		}
 
 		// Skip if already tracked
 		if _, exists := state.DAGs[dagID]; exists {
@@ -491,7 +502,54 @@ func (s *serviceImpl) scanLocalDAGs(state *State) error {
 	// Scan docs directory for .md files
 	s.scanDocFiles(state)
 
+	// Scan global and workspace base config files
+	s.scanConfigFiles(state)
+
 	return nil
+}
+
+// scanConfigFiles scans global and workspace base config files and adds them as untracked.
+func (s *serviceImpl) scanConfigFiles(state *State) {
+	s.scanConfigFile(state, baseConfigID, s.resolveBaseConfigPath(), DAGKindConfig)
+
+	workspaceConfigDir := workspace.BaseConfigDir(s.dagsDir)
+	entries, err := os.ReadDir(workspaceConfigDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || workspace.ValidateName(entry.Name()) != nil {
+			continue
+		}
+		itemID := path.Join(workspace.BaseConfigDirName, entry.Name(), workspace.BaseConfigStem())
+		s.scanConfigFile(state, itemID, workspace.BaseConfigPath(s.dagsDir, entry.Name()), DAGKindConfig)
+	}
+}
+
+func (s *serviceImpl) scanConfigFile(state *State, itemID, filePath string, kind DAGKind) {
+	if filePath == "" {
+		return
+	}
+	if _, exists := state.DAGs[itemID]; exists {
+		return
+	}
+
+	content, err := os.ReadFile(filePath) //nolint:gosec // path configured by server
+	if err != nil {
+		return
+	}
+
+	now := time.Now()
+	ds := &DAGState{
+		Status:     StatusUntracked,
+		Kind:       kind,
+		LocalHash:  ComputeContentHash(content),
+		ModifiedAt: &now,
+	}
+	if fi, err := os.Stat(filePath); err == nil {
+		updateStatCache(ds, fi)
+	}
+	state.DAGs[itemID] = ds
 }
 
 // scanMemoryFiles scans the memory directory for .md files and adds them as untracked.
@@ -1428,6 +1486,12 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 			Message: fmt.Sprintf("cannot move across kinds: source is %s, destination is %s", oldKind, newKind),
 		}
 	}
+	if oldKind == DAGKindConfig {
+		return &ValidationError{
+			Field:   "itemId",
+			Message: "config items cannot be moved",
+		}
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1987,6 +2051,12 @@ func (s *serviceImpl) dagIDToFilePath(dagID string) string {
 		dagID = decoded
 	}
 	dagID = normalizeDAGIDSeparators(dagID)
+	if dagID == baseConfigID {
+		return s.resolveBaseConfigPath()
+	}
+	if workspaceName, ok := workspaceBaseConfigNameFromID(dagID); ok {
+		return workspace.BaseConfigPath(s.dagsDir, workspaceName)
+	}
 	ext := fileExtensionForID(dagID)
 	return filepath.Join(s.dagsDir, filepath.FromSlash(dagID+ext))
 }
@@ -2015,6 +2085,13 @@ func decodeDAGID(dagID string) (string, error) {
 		}
 	}
 	return decoded, nil
+}
+
+func (s *serviceImpl) resolveBaseConfigPath() string {
+	if s.baseConfig != "" {
+		return s.baseConfig
+	}
+	return filepath.Join(s.dagsDir, workspace.BaseConfigFileName)
 }
 
 func normalizeDAGID(dagID string) (string, error) {
@@ -2096,6 +2173,12 @@ func (s *serviceImpl) safeDAGIDToFilePath(dagID string) (string, error) {
 	normalized, err := normalizeDAGID(dagID)
 	if err != nil {
 		return "", err
+	}
+	if normalized == baseConfigID {
+		return s.resolveBaseConfigPath(), nil
+	}
+	if workspaceName, ok := workspaceBaseConfigNameFromID(normalized); ok {
+		return safeJoinWithinBase(s.dagsDir, filepath.FromSlash(path.Join(workspace.BaseConfigDirName, workspaceName, workspace.BaseConfigFileName)))
 	}
 	ext := fileExtensionForID(normalized)
 	return safeJoinWithinBase(s.dagsDir, filepath.FromSlash(normalized+ext))

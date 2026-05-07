@@ -99,6 +99,9 @@ type NodeState struct {
 	PushBackInputs map[string]string
 	// PushBackHistory stores the chronological push-back feedback for this step.
 	PushBackHistory []exec.PushBackEntry
+	// PushBackPreviousStdout stores the stdout log path from the execution that
+	// was reset by the latest push-back.
+	PushBackPreviousStdout string
 }
 
 // Parallel represents the evaluated parallel execution configuration for a node.

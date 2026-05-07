@@ -127,7 +127,7 @@ func (oc *OutputCoordinator) setupExecutorIO(ctx context.Context, cmd executor.E
 		stdout = newFlushableMultiWriter(oc.stdoutWriter, oc.stdoutRedirectWriter)
 	}
 
-	needStdoutCapture := data.Step.Output != "" || data.Step.UsesStructuredOutputSource("stdout")
+	needStdoutCapture := data.Step.Output != "" || data.Step.HasOutputSchema() || data.Step.UsesStructuredOutputSource("stdout")
 	if needStdoutCapture && oc.outputReader == nil {
 		var err error
 		if oc.outputReader, oc.outputWriter, err = os.Pipe(); err != nil {

@@ -483,9 +483,10 @@ func (a *API) SearchDocs(ctx context.Context, request api.SearchDocsRequestObjec
 			continue
 		}
 		item := api.DocSearchResultItem{
-			Id:        r.ID,
-			Title:     r.Title,
-			Workspace: docWorkspaceValue(workspaceName, rawID, visibility, false),
+			Id:          r.ID,
+			Title:       r.Title,
+			Description: r.Description,
+			Workspace:   docWorkspaceValue(workspaceName, rawID, visibility, false),
 		}
 		if len(r.Matches) > 0 {
 			matches := make([]api.SearchMatchItem, 0, len(r.Matches))
@@ -790,9 +791,10 @@ func (a *API) GetDocContentData(ctx context.Context, docID string) (any, error) 
 
 func toDocResponse(doc *agent.Doc) api.DocResponse {
 	resp := api.DocResponse{
-		Id:      doc.ID,
-		Title:   doc.Title,
-		Content: doc.Content,
+		Id:          doc.ID,
+		Title:       doc.Title,
+		Description: doc.Description,
+		Content:     doc.Content,
 	}
 	if doc.FilePath != "" {
 		resp.FilePath = &doc.FilePath
@@ -808,8 +810,9 @@ func toDocResponse(doc *agent.Doc) api.DocResponse {
 
 func toDocMetadataResponse(m agent.DocMetadata) api.DocMetadataResponse {
 	resp := api.DocMetadataResponse{
-		Id:    m.ID,
-		Title: m.Title,
+		Id:          m.ID,
+		Title:       m.Title,
+		Description: m.Description,
 	}
 	if !m.ModTime.IsZero() {
 		t := m.ModTime

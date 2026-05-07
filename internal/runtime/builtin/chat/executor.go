@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -28,19 +29,22 @@ import (
 
 var _ executor.Executor = (*Executor)(nil)
 var _ executor.ChatMessageHandler = (*Executor)(nil)
+var _ executor.PushBackAware = (*Executor)(nil)
 var _ executor.SubRunProvider = (*Executor)(nil)
 var _ executor.ToolDefinitionProvider = (*Executor)(nil)
 
 // Executor implements the executor.Executor interface for chat steps.
 type Executor struct {
-	stdout          io.Writer
-	stderr          io.Writer
-	step            core.Step
-	providerType    llmpkg.ProviderType
-	apiKeyEnvVar    string
-	messages        []exec.LLMMessage
-	contextMessages []exec.LLMMessage
-	savedMessages   []exec.LLMMessage
+	stdout            io.Writer
+	stderr            io.Writer
+	step              core.Step
+	providerType      llmpkg.ProviderType
+	apiKeyEnvVar      string
+	messages          []exec.LLMMessage
+	contextMessages   []exec.LLMMessage
+	savedMessages     []exec.LLMMessage
+	pushBackInputs    map[string]string
+	pushBackIteration int
 
 	// Tool calling support
 	toolRegistry *ToolRegistry
@@ -153,6 +157,11 @@ func (e *Executor) GetMessages() []exec.LLMMessage {
 	return e.savedMessages
 }
 
+func (e *Executor) SetPushBackContext(inputs map[string]string, iteration int) {
+	e.pushBackInputs = inputs
+	e.pushBackIteration = iteration
+}
+
 // GetSubRuns returns the collected sub-DAG runs from tool executions.
 // This implements the SubRunProvider interface for UI drill-down functionality.
 func (e *Executor) GetSubRuns() []exec.SubDAGRun {
@@ -186,6 +195,66 @@ func buildMessageList(stepMsgs, contextMsgs []exec.LLMMessage) []exec.LLMMessage
 	result = append(result, stepOtherMsgs...)
 
 	return exec.DeduplicateSystemMessages(result)
+}
+
+func (e *Executor) executionMessages(ctx context.Context) ([]exec.LLMMessage, error) {
+	evaluatedMessages, err := evalMessages(ctx, e.messages)
+	if err != nil {
+		return nil, err
+	}
+	if e.pushBackIteration == 0 {
+		return buildMessageList(evaluatedMessages, e.contextMessages), nil
+	}
+
+	pushBackMessages := systemMessages(evaluatedMessages)
+	pushBackMessages = append(pushBackMessages, exec.LLMMessage{
+		Role:    exec.RoleUser,
+		Content: formatPushBackFeedback(e.pushBackInputs, e.pushBackIteration, e.step.Approval),
+	})
+	return buildMessageList(pushBackMessages, e.contextMessages), nil
+}
+
+func systemMessages(messages []exec.LLMMessage) []exec.LLMMessage {
+	var result []exec.LLMMessage
+	for _, msg := range messages {
+		if msg.Role == exec.RoleSystem {
+			result = append(result, msg)
+		}
+	}
+	return result
+}
+
+func formatPushBackFeedback(inputs map[string]string, iteration int, approval *core.ApprovalConfig) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "The reviewer has requested changes to your previous work for push-back iteration %d.\n", iteration)
+
+	var allowed map[string]struct{}
+	if approval != nil && len(approval.Input) > 0 {
+		allowed = make(map[string]struct{}, len(approval.Input))
+		for _, key := range approval.Input {
+			allowed[key] = struct{}{}
+		}
+	}
+
+	keys := make([]string, 0, len(inputs))
+	for key := range inputs {
+		if allowed != nil {
+			if _, ok := allowed[key]; !ok {
+				continue
+			}
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	if len(keys) > 0 {
+		sb.WriteString("\nReviewer feedback:\n")
+		for _, key := range keys {
+			fmt.Fprintf(&sb, "- %s: %s\n", key, inputs[key])
+		}
+	}
+
+	sb.WriteString("\nPlease revise your response based on this feedback.")
+	return sb.String()
 }
 
 // toLLMMessages converts execution.LLMMessage to llmpkg.Message for provider calls.
@@ -322,12 +391,11 @@ func maskSecretsForProvider(ctx context.Context, msgs []exec.LLMMessage) []exec.
 
 // Run executes the chat request.
 func (e *Executor) Run(ctx context.Context) error {
-	evaluatedMessages, err := evalMessages(ctx, e.messages)
+	allMessages, err := e.executionMessages(ctx)
 	if err != nil {
 		return err
 	}
 
-	allMessages := buildMessageList(evaluatedMessages, e.contextMessages)
 	models := e.step.LLM.GetModels()
 
 	// If only one model, use simple path (no fallback)

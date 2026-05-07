@@ -76,6 +76,33 @@ func TestService_PathHelpers(t *testing.T) {
 	require.Equal(t, "subdir/my_dag.yaml", repoPath)
 }
 
+func TestKindForDAGID_ConfigFiles(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, DAGKindConfig, KindForDAGID("base"))
+	assert.Equal(t, DAGKindConfig, KindForDAGID("workspaces/ops/base"))
+	// TestKindForDAGID_ConfigFiles expects KindForDAGID to reject reserved
+	// workspace names through workspace.ValidateName and fall back to DAG files.
+	assert.Equal(t, DAGKindDAG, KindForDAGID("workspaces/default/base"))
+	assert.Equal(t, DAGKindDAG, KindForDAGID("workspaces/ops/other"))
+}
+
+func TestDagIDPathHelpers_ConfigFiles(t *testing.T) {
+	s := &serviceImpl{
+		dagsDir:    "/dags",
+		baseConfig: filepath.Join("/config", "base.yaml"),
+		cfg:        &Config{Path: "subdir"},
+	}
+
+	assert.Equal(t, filepath.Join("/config", "base.yaml"), s.dagIDToFilePath("base"))
+	assert.Equal(t,
+		filepath.Join("/dags", "workspaces", "ops", "base.yaml"),
+		s.dagIDToFilePath("workspaces/ops/base"),
+	)
+	assert.Equal(t, "subdir/base.yaml", s.dagIDToRepoPath("base"))
+	assert.Equal(t, "subdir/workspaces/ops/base.yaml", s.dagIDToRepoPath("workspaces/ops/base"))
+}
+
 func TestIsMemoryFile(t *testing.T) {
 	t.Parallel()
 
@@ -162,6 +189,29 @@ func TestScanMemoryFiles(t *testing.T) {
 	assert.Contains(t, state.DAGs, dagID)
 	assert.Equal(t, StatusUntracked, state.DAGs[dagID].Status)
 	assert.Equal(t, DAGKindMemory, state.DAGs[dagID].Kind)
+}
+
+func TestScanLocalDAGs_ConfigFiles(t *testing.T) {
+	rootDir := t.TempDir()
+	dagsDir := filepath.Join(rootDir, "dags")
+	baseConfig := filepath.Join(rootDir, "base.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Join(dagsDir, "workspaces", "ops"), 0750))
+	require.NoError(t, os.WriteFile(baseConfig, []byte("env:\n  GLOBAL: 1\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dagsDir, "workspaces", "ops", "base.yaml"), []byte("env:\n  OPS: 1\n"), 0600))
+
+	s := &serviceImpl{
+		dagsDir:    dagsDir,
+		baseConfig: baseConfig,
+		cfg:        &Config{},
+	}
+	state := &State{DAGs: make(map[string]*DAGState)}
+
+	require.NoError(t, s.scanLocalDAGs(state))
+
+	require.Contains(t, state.DAGs, "base")
+	assert.Equal(t, DAGKindConfig, state.DAGs["base"].Kind)
+	require.Contains(t, state.DAGs, "workspaces/ops/base")
+	assert.Equal(t, DAGKindConfig, state.DAGs["workspaces/ops/base"].Kind)
 }
 
 func TestScanLocalDAGs_IgnoresNonMemoryMd(t *testing.T) {

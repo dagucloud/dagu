@@ -328,6 +328,9 @@ type UserIdentity struct {
 	IPAddress string
 	// Role is the authenticated user's role.
 	Role auth.Role
+	// WorkspaceAccess restricts the user's access to selected workspaces.
+	// Nil is treated as all-workspaces for backward compatibility.
+	WorkspaceAccess *auth.WorkspaceAccess
 }
 
 // SubSessionRegistry manages sub-session lifecycle for delegate tools.

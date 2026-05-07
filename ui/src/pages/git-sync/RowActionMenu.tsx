@@ -10,6 +10,7 @@ import { MoreHorizontal, EyeOff, Trash2, ArrowRightLeft } from 'lucide-react';
 
 interface RowActionMenuProps {
   itemId: string;
+  kind: 'dag' | 'config' | 'memory' | 'skill' | 'soul' | 'doc';
   status: SyncStatus;
   pushEnabled: boolean;
   canWrite: boolean;
@@ -44,6 +45,7 @@ const canMove: Record<SyncStatus, boolean> = {
 
 export function RowActionMenu({
   itemId,
+  kind,
   status,
   pushEnabled,
   canWrite,
@@ -55,7 +57,7 @@ export function RowActionMenu({
 
   const showForget = canForget[status];
   const showDelete = canDelete[status];
-  const showMove = canMove[status];
+  const showMove = kind !== 'config' && canMove[status];
 
   if (!showForget && !showDelete && !showMove) return null;
 

@@ -25,6 +25,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/persis/filedag/dagindex"
 	"github.com/dagucloud/dagu/internal/persis/filedag/grep"
+	"github.com/dagucloud/dagu/internal/workspace"
 	indexv1 "github.com/dagucloud/dagu/proto/index/v1"
 )
 
@@ -37,12 +38,13 @@ type Option func(*Options)
 
 // Options contains configuration options for the DAG repository
 type Options struct {
-	FlagsBaseDir          string                     // Base directory for flag store
-	FileCache             *fileutil.Cache[*core.DAG] // Optional cache for DAG objects
-	SearchPaths           []string                   // Additional search paths for DAG files
-	BaseConfigPath        string                     // Optional base config file applied when loading DAGs
-	SkipExamples          bool                       // Skip creating example DAGs
-	SkipDirectoryCreation bool                       // Skip creating base directory (for worker mode)
+	FlagsBaseDir           string                     // Base directory for flag store
+	FileCache              *fileutil.Cache[*core.DAG] // Optional cache for DAG objects
+	SearchPaths            []string                   // Additional search paths for DAG files
+	BaseConfigPath         string                     // Optional base config file applied when loading DAGs
+	WorkspaceBaseConfigDir string                     // Optional directory containing workspace base configs
+	SkipExamples           bool                       // Skip creating example DAGs
+	SkipDirectoryCreation  bool                       // Skip creating base directory (for worker mode)
 }
 
 // WithFileCache returns a DAGRepositoryOption that sets the file cache for DAG objects
@@ -71,6 +73,14 @@ func WithSearchPaths(paths []string) Option {
 func WithBaseConfig(path string) Option {
 	return func(o *Options) {
 		o.BaseConfigPath = path
+	}
+}
+
+// WithWorkspaceBaseConfigDir returns a DAGRepositoryOption that sets the directory
+// containing per-workspace base configs.
+func WithWorkspaceBaseConfigDir(dir string) Option {
+	return func(o *Options) {
+		o.WorkspaceBaseConfigDir = dir
 	}
 }
 
@@ -110,29 +120,31 @@ func New(baseDir string, opts ...Option) exec.DAGStore {
 	}
 
 	return &Storage{
-		baseDir:               baseDir,
-		flagsBaseDir:          options.FlagsBaseDir,
-		fileCache:             options.FileCache,
-		searchPaths:           searchPaths,
-		baseConfigPath:        options.BaseConfigPath,
-		baseConfigState:       describeBaseConfigState(options.BaseConfigPath),
-		skipExamples:          options.SkipExamples,
-		skipDirectoryCreation: options.SkipDirectoryCreation,
+		baseDir:                baseDir,
+		flagsBaseDir:           options.FlagsBaseDir,
+		fileCache:              options.FileCache,
+		searchPaths:            searchPaths,
+		baseConfigPath:         options.BaseConfigPath,
+		workspaceBaseConfigDir: options.WorkspaceBaseConfigDir,
+		baseConfigState:        describeBaseConfigStateSet(options.BaseConfigPath, options.WorkspaceBaseConfigDir),
+		skipExamples:           options.SkipExamples,
+		skipDirectoryCreation:  options.SkipDirectoryCreation,
 	}
 }
 
 // Storage implements the DAGRepository interface using the local filesystem
 type Storage struct {
-	baseDir               string                     // Base directory for DAG storage
-	flagsBaseDir          string                     // Base directory for flag store
-	fileCache             *fileutil.Cache[*core.DAG] // Optional cache for DAG objects
-	searchPaths           []string                   // Additional search paths for DAG files
-	baseConfigPath        string                     // Optional base config file applied when loading DAGs
-	baseConfigState       string                     // Last observed base config file state for cache/index invalidation
-	skipExamples          bool                       // Skip creating example DAGs
-	skipDirectoryCreation bool                       // Skip creating base directory (for worker mode)
-	baseConfigMu          sync.Mutex                 // Protects base config state refresh and invalidation
-	indexMu               sync.Mutex                 // Protects index load/rebuild/invalidate
+	baseDir                string                     // Base directory for DAG storage
+	flagsBaseDir           string                     // Base directory for flag store
+	fileCache              *fileutil.Cache[*core.DAG] // Optional cache for DAG objects
+	searchPaths            []string                   // Additional search paths for DAG files
+	baseConfigPath         string                     // Optional base config file applied when loading DAGs
+	workspaceBaseConfigDir string                     // Optional directory containing workspace base configs
+	baseConfigState        string                     // Last observed base config state for cache/index invalidation
+	skipExamples           bool                       // Skip creating example DAGs
+	skipDirectoryCreation  bool                       // Skip creating base directory (for worker mode)
+	baseConfigMu           sync.Mutex                 // Protects base config state refresh and invalidation
+	indexMu                sync.Mutex                 // Protects index load/rebuild/invalidate
 }
 
 func (store *Storage) useCachedLoads() bool {
@@ -164,16 +176,19 @@ func (store *Storage) defaultLoadOptions(opts ...spec.LoadOption) []spec.LoadOpt
 	if store.baseConfigPath != "" {
 		loadOpts = append(loadOpts, spec.WithBaseConfig(store.baseConfigPath))
 	}
+	if store.workspaceBaseConfigDir != "" {
+		loadOpts = append(loadOpts, spec.WithWorkspaceBaseConfigDir(store.workspaceBaseConfigDir))
+	}
 	loadOpts = append(loadOpts, opts...)
 	return loadOpts
 }
 
 func (store *Storage) refreshBaseConfigState() {
-	if store.baseConfigPath == "" {
+	if store.baseConfigPath == "" && store.workspaceBaseConfigDir == "" {
 		return
 	}
 
-	state := describeBaseConfigState(store.baseConfigPath)
+	state := describeBaseConfigStateSet(store.baseConfigPath, store.workspaceBaseConfigDir)
 
 	store.baseConfigMu.Lock()
 	defer store.baseConfigMu.Unlock()
@@ -187,6 +202,17 @@ func (store *Storage) refreshBaseConfigState() {
 	}
 	store.invalidateIndex()
 	store.baseConfigState = state
+}
+
+func describeBaseConfigStateSet(basePath, workspaceDir string) string {
+	parts := make([]string, 0, 2)
+	if basePath != "" {
+		parts = append(parts, "global="+describeBaseConfigState(basePath))
+	}
+	if workspaceDir != "" {
+		parts = append(parts, "workspaces="+describeWorkspaceBaseConfigState(workspaceDir))
+	}
+	return strings.Join(parts, "|")
 }
 
 func describeBaseConfigState(path string) string {
@@ -203,6 +229,40 @@ func describeBaseConfigState(path string) string {
 	}
 
 	return fmt.Sprintf("%d:%d", fi.Size(), fi.ModTime().UnixNano())
+}
+
+func describeWorkspaceBaseConfigState(dir string) string {
+	if dir == "" {
+		return ""
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "missing"
+		}
+		return "error:" + err.Error()
+	}
+
+	states := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		configPath := filepath.Join(dir, entry.Name(), workspace.BaseConfigFileName)
+		fi, err := os.Stat(configPath)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			states = append(states, entry.Name()+":error:"+err.Error())
+			continue
+		}
+		states = append(states, fmt.Sprintf("%s:%d:%d", entry.Name(), fi.Size(), fi.ModTime().UnixNano()))
+	}
+	sort.Strings(states)
+	return strings.Join(states, ",")
 }
 
 // Initialize ensures the storage is ready and creates example DAGs if needed

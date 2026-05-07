@@ -39,6 +39,7 @@ import (
 	runtimepkg "github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/agent"
 	"github.com/dagucloud/dagu/internal/service/frontend"
+	"github.com/dagucloud/dagu/internal/workspace"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -281,6 +282,7 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 		cfg.Paths.DAGsDir,
 		filedag.WithFlagsBaseDir(cfg.Paths.SuspendFlagsDir),
 		filedag.WithBaseConfig(cfg.Paths.BaseConfig),
+		filedag.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(cfg.Paths.DAGsDir)),
 		filedag.WithSkipExamples(true),
 	)
 	runStore := filedagrun.New(
@@ -565,6 +567,7 @@ func (h Helper) DAG(t *testing.T, yamlContent string) DAG {
 	if h.Config.Paths.BaseConfig != "" {
 		loadOpts = append(loadOpts, spec.WithBaseConfig(h.Config.Paths.BaseConfig))
 	}
+	loadOpts = append(loadOpts, spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(h.Config.Paths.DAGsDir)))
 	dag, err := spec.Load(h.Context, testFile, loadOpts...)
 	require.NoError(t, err, "failed to load test DAG")
 

@@ -112,12 +112,14 @@ func TestApplyPushBackRewindToResetsNamedStepAndDependents(t *testing.T) {
 			{
 				Step:       core.Step{Name: "prepare", Depends: []string{"bootstrap"}},
 				Status:     core.NodeSucceeded,
+				Stdout:     "/tmp/prepare-prev.out",
 				StartedAt:  "started",
 				FinishedAt: "finished",
 			},
 			{
 				Step:       core.Step{Name: "sidecar", Depends: []string{"prepare"}},
 				Status:     core.NodeSucceeded,
+				Stdout:     "/tmp/sidecar-prev.out",
 				StartedAt:  "started",
 				FinishedAt: "finished",
 			},
@@ -131,12 +133,14 @@ func TestApplyPushBackRewindToResetsNamedStepAndDependents(t *testing.T) {
 					},
 				},
 				Status:     core.NodeWaiting,
+				Stdout:     "/tmp/review-prev.out",
 				StartedAt:  "started",
 				FinishedAt: "finished",
 			},
 			{
 				Step:       core.Step{Name: "deploy", Depends: []string{"review"}},
 				Status:     core.NodeNotStarted,
+				Stdout:     "",
 				StartedAt:  "-",
 				FinishedAt: "-",
 			},
@@ -173,6 +177,10 @@ func TestApplyPushBackRewindToResetsNamedStepAndDependents(t *testing.T) {
 		assert.Equal(t, 1, status.Nodes[idx].ApprovalIteration)
 		assert.Equal(t, inputs, status.Nodes[idx].PushBackInputs)
 	}
+	assert.Equal(t, "/tmp/prepare-prev.out", status.Nodes[1].PushBackPreviousStdout)
+	assert.Equal(t, "/tmp/sidecar-prev.out", status.Nodes[2].PushBackPreviousStdout)
+	assert.Equal(t, "/tmp/review-prev.out", status.Nodes[3].PushBackPreviousStdout)
+	assert.Empty(t, status.Nodes[4].PushBackPreviousStdout)
 
 	rawNode, err := json.Marshal(status.Nodes[3])
 	require.NoError(t, err)

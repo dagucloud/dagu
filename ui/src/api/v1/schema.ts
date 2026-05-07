@@ -2188,6 +2188,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/settings/workspaces/{workspaceName}/base-config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get workspace base configuration
+         * @description Returns the workspace-scoped base DAG configuration YAML. Requires access to the workspace.
+         */
+        get: operations["getWorkspaceBaseConfig"];
+        /**
+         * Update workspace base configuration
+         * @description Updates the workspace-scoped base DAG configuration YAML. Validates before saving. Requires write access to the workspace.
+         */
+        put: operations["updateWorkspaceBaseConfig"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/settings/agent": {
         parameters: {
             query?: never;
@@ -3518,6 +3542,10 @@ export interface components {
             inputSchema: {
                 [key: string]: unknown;
             };
+            /** @description Resolved JSON Schema object used to validate stdout JSON output */
+            outputSchema?: {
+                [key: string]: unknown;
+            };
         };
         /** @description Scalar parameter value */
         ParamScalar: string | number | boolean;
@@ -3894,6 +3922,8 @@ export interface components {
         DocSearchPageItem: {
             id: string;
             title: string;
+            /** @description Short document description from YAML frontmatter */
+            description: string;
             /** @description Workspace that owns this document. Omitted for default documents. */
             workspace?: string;
             /** @description Whether additional snippets are available beyond the preview */
@@ -3946,9 +3976,9 @@ export interface components {
         };
         /** @description Precondition that must be satisfied before running a step or DAG-run */
         Condition: {
-            /** @description Expression or check to evaluate */
+            /** @description Expression or check to evaluate. When `expected` is omitted, the value runs as a command check using the same variable expansion rules as shell `command` steps. */
             condition: string;
-            /** @description Expected result of the condition evaluation */
+            /** @description Expected result of the condition evaluation. When set, Dagu compares the evaluated string output instead of using command exit status. */
             expected?: string;
             /** @description If true, inverts the condition result (run when condition does NOT match) */
             negate?: boolean;
@@ -4703,6 +4733,8 @@ export interface components {
         DocResponse: {
             id: string;
             title: string;
+            /** @description Short document description from YAML frontmatter */
+            description: string;
             /** @description Workspace that owns this document. Omitted for default documents. */
             workspace?: string;
             /** @description Full file content including YAML frontmatter */
@@ -4724,6 +4756,8 @@ export interface components {
         DocMetadataResponse: {
             id: string;
             title: string;
+            /** @description Short document description from YAML frontmatter */
+            description: string;
             /** @description Workspace that owns this document. Omitted for default documents. */
             workspace?: string;
             /**
@@ -4758,6 +4792,8 @@ export interface components {
         DocSearchResultItem: {
             id: string;
             title: string;
+            /** @description Short document description from YAML frontmatter */
+            description: string;
             /** @description Workspace that owns this document. Omitted for default documents. */
             workspace?: string;
             matches?: components["schemas"]["SearchMatchItem"][];
@@ -11393,6 +11429,161 @@ export interface operations {
             };
         };
     };
+    getWorkspaceBaseConfig: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                workspaceName: components["schemas"]["WorkspaceName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workspace base configuration */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description The workspace base configuration in YAML format */
+                        spec: string;
+                        /** @description List of validation errors in the configuration */
+                        errors: string[];
+                    };
+                };
+            };
+            /** @description Invalid workspace */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Workspace not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateWorkspaceBaseConfig: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                workspaceName: components["schemas"]["WorkspaceName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description The workspace base configuration in YAML format */
+                    spec: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Workspace base configuration updated successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description List of validation warnings */
+                        errors: string[];
+                    };
+                };
+            };
+            /** @description Invalid configuration */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Workspace not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     getAgentConfig: {
         parameters: {
             query?: {
@@ -14322,6 +14513,7 @@ export enum SyncSummary {
 }
 export enum SyncItemKind {
     dag = "dag",
+    config = "config",
     memory = "memory",
     skill = "skill",
     soul = "soul",

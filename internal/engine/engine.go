@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/fileserviceregistry"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
+	"github.com/dagucloud/dagu/internal/workspace"
 	"github.com/spf13/viper"
 )
 
@@ -204,6 +205,7 @@ func newDAGStore(cfg *config.Config, searchPaths []string, skipDirectoryCreation
 		filedag.WithFlagsBaseDir(cfg.Paths.SuspendFlagsDir),
 		filedag.WithSearchPaths(searchPaths),
 		filedag.WithBaseConfig(cfg.Paths.BaseConfig),
+		filedag.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(cfg.Paths.DAGsDir)),
 		filedag.WithSkipExamples(cfg.Core.SkipExamples),
 		filedag.WithSkipDirectoryCreation(skipDirectoryCreation),
 	)

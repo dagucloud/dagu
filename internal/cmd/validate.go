@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/spec"
+	"github.com/dagucloud/dagu/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -58,6 +59,7 @@ func runValidate(ctx *Context, args []string) error {
 	loadOpts := []spec.LoadOption{
 		spec.WithoutEval(),
 		spec.WithDAGsDir(ctx.Config.Paths.DAGsDir),
+		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir)),
 	}
 	if ctx.Config.Paths.BaseConfig != "" {
 		loadOpts = append(loadOpts, spec.WithBaseConfig(ctx.Config.Paths.BaseConfig))

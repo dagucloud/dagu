@@ -123,6 +123,12 @@ type PushBackAware interface {
 	SetPushBackContext(inputs map[string]string, iteration int)
 }
 
+// PushBackPreviousStdoutAware is implemented by executors that can consume the
+// previous stdout log path for push-back re-execution.
+type PushBackPreviousStdoutAware interface {
+	SetPushBackPreviousStdout(path string)
+}
+
 // SubRunProvider is an interface for executors that spawn sub-DAG runs.
 // This is used by executors like chat (with tools) to report sub-runs
 // for UI drill-down functionality.

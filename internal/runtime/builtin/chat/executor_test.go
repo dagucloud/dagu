@@ -123,6 +123,42 @@ func TestExecutor_SetContext(t *testing.T) {
 	assert.Equal(t, messages, executor.contextMessages)
 }
 
+func TestExecutor_PushBackExecutionMessagesUsePreviousConversationAndFeedback(t *testing.T) {
+	t.Parallel()
+
+	executor := &Executor{
+		messages: []exec.LLMMessage{
+			{Role: exec.RoleSystem, Content: "current system"},
+			{Role: exec.RoleUser, Content: "original YAML prompt should not repeat"},
+		},
+		contextMessages: []exec.LLMMessage{
+			{Role: exec.RoleSystem, Content: "previous system"},
+			{Role: exec.RoleUser, Content: "original prompt"},
+			{Role: exec.RoleAssistant, Content: "previous answer"},
+		},
+		step: core.Step{
+			Approval: &core.ApprovalConfig{Input: []string{"FEEDBACK"}},
+		},
+	}
+	executor.SetPushBackContext(map[string]string{
+		"FEEDBACK": "revise with more detail",
+		"IGNORED":  "do not include",
+	}, 2)
+
+	messages, err := executor.executionMessages(context.Background())
+	require.NoError(t, err)
+
+	require.Len(t, messages, 4)
+	assert.Equal(t, exec.RoleSystem, messages[0].Role)
+	assert.Equal(t, "current system", messages[0].Content)
+	assert.Equal(t, "original prompt", messages[1].Content)
+	assert.Equal(t, "previous answer", messages[2].Content)
+	assert.Contains(t, messages[3].Content, "iteration 2")
+	assert.Contains(t, messages[3].Content, "FEEDBACK: revise with more detail")
+	assert.NotContains(t, messages[3].Content, "IGNORED")
+	assert.NotContains(t, messages[3].Content, "original YAML prompt should not repeat")
+}
+
 func TestExecutor_GetMessages(t *testing.T) {
 	t.Parallel()
 

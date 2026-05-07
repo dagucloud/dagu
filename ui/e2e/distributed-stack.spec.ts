@@ -8,7 +8,6 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import {
   enqueueRunFromUI,
-  getQueue,
   getStepStdout,
   getWorkers,
   loadStack,
@@ -90,7 +89,9 @@ test('exercises the web UI against the real distributed shared-nothing worker st
     await expect(page.getByText('role=e2e')).toHaveCount(stack.workers.length);
 
     await page.goto(`/dags/${DAG_FILE}`);
-    await expect(page.getByText(DAG_NAME)).toBeVisible();
+    await expect(
+      page.getByRole('heading', { level: 1, name: DAG_NAME, exact: true })
+    ).toBeVisible();
 
     const firstRunId = await enqueueRunFromUI(page, DAG_FILE);
     const activeWorkerId = await waitForWorkerState(
@@ -128,15 +129,19 @@ test('exercises the web UI against the real distributed shared-nothing worker st
 
     await page.goto(`/queues/${stack.queues.shared}`);
     await expect(
-      page.getByText(stack.queues.shared, { exact: true }).first()
+      page.getByRole('link', { name: stack.queues.shared, exact: true })
     ).toBeVisible();
     await expect(page.getByText('Running (1)')).toBeVisible();
     await expect(page.getByText('Queued (1)')).toBeVisible();
-    await expect(page.getByText(DAG_NAME).first()).toBeVisible();
+    await expect(
+      page.getByRole('button', {
+        name: new RegExp(`\\b${escapeRegExp(DAG_NAME)}\\b`, 'i'),
+      })
+    ).toHaveCount(2);
 
     await page.goto('/system-status');
     await page.getByText(activeWorkerId).click();
-    await expect(page.getByText(DAG_NAME)).toBeVisible();
+    await expect(page.getByText(DAG_NAME, { exact: true })).toBeVisible();
 
     await releaseRuns();
 

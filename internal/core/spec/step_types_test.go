@@ -59,6 +59,175 @@ steps:
 	assert.Equal(t, "Send a greeting", step.Description)
 }
 
+func TestCustomStepTypes_OutputSchemaIsAttachedToExpandedStep(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+name: custom-step-output-schema
+step_types:
+  classify:
+    type: command
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        text:
+          type: string
+    output_schema:
+      type: object
+      additionalProperties: false
+      required: [category, confidence]
+      properties:
+        category:
+          type: string
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+    template:
+      command: echo '{"category":"bug","confidence":0.9}'
+steps:
+  - id: classify
+    type: classify
+    with:
+      text: crash on startup
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	require.NotNil(t, step.OutputSchema)
+	assert.Equal(t, "object", step.OutputSchema["type"])
+	assert.Contains(t, step.OutputSchema, "required")
+}
+
+func TestCustomStepTypes_RejectInvalidOutputSchema(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+name: custom-step-invalid-output-schema
+step_types:
+  classify:
+    type: command
+    input_schema:
+      type: object
+    output_schema:
+      type: string
+    template:
+      command: echo '{}'
+steps:
+  - type: classify
+`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "output_schema must resolve to an object schema")
+}
+
+func TestCustomStepTypes_AllowsRefObjectOutputSchema(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+name: custom-step-ref-output-schema
+step_types:
+  classify:
+    type: command
+    input_schema:
+      type: object
+    output_schema:
+      $ref: '#/$defs/result'
+      $defs:
+        result:
+          type: object
+          additionalProperties: false
+          properties:
+            category:
+              type: string
+    template:
+      command: echo '{"category":"bug"}'
+steps:
+  - type: classify
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+	require.NotNil(t, dag.Steps[0].OutputSchema)
+	assert.Equal(t, "#/$defs/result", dag.Steps[0].OutputSchema["$ref"])
+}
+
+func TestCustomStepTypes_AllowsComposedObjectOutputSchema(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+name: custom-step-composed-output-schema
+step_types:
+  classify:
+    type: command
+    input_schema:
+      type: object
+    output_schema:
+      anyOf:
+        - type: object
+          additionalProperties: false
+          properties:
+            category:
+              type: string
+        - type: object
+          additionalProperties: false
+          properties:
+            priority:
+              type: string
+    template:
+      command: echo '{"category":"bug"}'
+steps:
+  - type: classify
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+	require.NotNil(t, dag.Steps[0].OutputSchema)
+}
+
+func TestCustomStepTypes_RejectsMixedComposedOutputSchema(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+name: custom-step-mixed-composed-output-schema
+step_types:
+  classify:
+    type: command
+    input_schema:
+      type: object
+    output_schema:
+      anyOf:
+        - type: object
+        - type: string
+    template:
+      command: echo '{}'
+steps:
+  - type: classify
+`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "output_schema must resolve to an object schema")
+}
+
+func TestCustomStepTypes_AllowsUnconstrainedOutputSchema(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+name: custom-step-unconstrained-output-schema
+step_types:
+  classify:
+    type: command
+    input_schema:
+      type: object
+    output_schema: {}
+    template:
+      command: echo '{}'
+steps:
+  - type: classify
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+	assert.NotNil(t, dag.Steps[0].OutputSchema)
+}
+
 func TestCustomStepTypes_LegacyConfigAlias(t *testing.T) {
 	t.Parallel()
 

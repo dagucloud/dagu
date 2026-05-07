@@ -11,6 +11,7 @@ import (
 	"os"
 	"runtime/debug"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -539,6 +540,10 @@ func (r *Runner) setupNodeExecutionEnv(ctx context.Context, node *Node) context.
 	for k, v := range filteredInputs {
 		env = env.WithEnvVars(k, v)
 	}
+	env = env.WithEnvVars(exec.EnvKeyDAGPushBackIteration, strconv.Itoa(state.ApprovalIteration))
+	if state.PushBackPreviousStdout != "" {
+		env = env.WithEnvVars(exec.EnvKeyDAGPushBackPreviousStdoutFile, state.PushBackPreviousStdout)
+	}
 
 	if approval != nil && len(filteredInputs) != len(state.PushBackInputs) {
 		for k := range state.PushBackInputs {
@@ -634,15 +639,15 @@ func (r *Runner) saveChatMessages(ctx context.Context, node *Node) {
 }
 
 // setupPushBackConversation loads the step's own previous conversation for
-// agent steps being re-executed after push-back. This REPLACES any dependency
+// AI steps being re-executed after push-back. This REPLACES any dependency
 // messages (which are already embedded in the previous conversation from
-// iteration 0). Non-agent steps are unaffected.
+// iteration 0). Non-AI steps are unaffected.
 func (r *Runner) setupPushBackConversation(ctx context.Context, node *Node) {
 	if r.messagesHandler == nil {
 		return
 	}
 	step := node.Step()
-	if step.Approval == nil || !core.SupportsAgent(step.ExecutorConfig.Type) {
+	if !core.SupportsAgent(step.ExecutorConfig.Type) && !core.SupportsLLM(step.ExecutorConfig.Type) {
 		return
 	}
 	if node.State().ApprovalIteration == 0 {

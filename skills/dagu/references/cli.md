@@ -208,7 +208,10 @@ Start distributed worker: `dagu worker [--worker.id/-w <id>] [--worker.max-activ
 
 ## Other Commands
 
-- `dagu ai install [--yes/-y] [--skills-dir <path>]` — Install DAG authoring skill into AI coding tools (Claude Code, Codex, etc.)
+- `dagu agent [--model <model>] [--soul <soul>]` — Start an interactive Dagu agent chat using the current CLI context
+- `dagu agent -p <prompt> [--model <model>] [--soul <soul>]` — Send one non-interactive prompt to the Dagu agent
+- `dagu agent history [--limit <n>]` — List Dagu agent sessions
+- `dagu agent resume <session-id> [-p <prompt>] [--model <model>] [--soul <soul>]` — Resume interactively or send one non-interactive prompt to a Dagu agent session
 - `dagu example [id]` — Show built-in example DAGs
 - `dagu migrate history` — Migrate legacy DAG run history from the v1.16 layout to the v1.17+ format and archive the old data
 - `dagu version` — Show version

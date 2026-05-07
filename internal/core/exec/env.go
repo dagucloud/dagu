@@ -46,6 +46,12 @@ const (
 	// EnvKeyDAGPushBack exposes the current push-back iteration and history as JSON.
 	EnvKeyDAGPushBack = "DAG_PUSHBACK"
 
+	// EnvKeyDAGPushBackIteration exposes the current push-back iteration as a plain value.
+	EnvKeyDAGPushBackIteration = "DAG_PUSHBACK_ITERATION"
+
+	// EnvKeyDAGPushBackPreviousStdoutFile exposes the previous stdout log path for a pushed-back step.
+	EnvKeyDAGPushBackPreviousStdoutFile = "DAG_PUSHBACK_PREVIOUS_STDOUT_FILE"
+
 	// EnvKeyExternalStepRetry enables parent-managed step retries for sub-DAG runs.
 	// When set, retriable step failures transition to a queued retry state instead of
 	// sleeping inline inside the child DAG process.

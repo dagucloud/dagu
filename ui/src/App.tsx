@@ -66,6 +66,7 @@ import WorkflowDesignPage from './pages/design';
 import DocsPage from './pages/docs';
 import EventLogsPage from './pages/event-logs';
 import GitSyncPage from './pages/git-sync';
+import HomePage from './pages/home';
 import IntegrationsPage from './pages/integrations';
 import LicensePage from './pages/license';
 import LoginPage from './pages/login';
@@ -517,6 +518,10 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                           element={
                                             <OverviewPage initialTab="cockpit" />
                                           }
+                                        />
+                                        <Route
+                                          path="/home"
+                                          element={<HomePage />}
                                         />
                                         <Route
                                           path="/api-docs"

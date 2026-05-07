@@ -38,6 +38,7 @@ import (
 	rtagent "github.com/dagucloud/dagu/internal/runtime/agent"
 	runtimeexec "github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
+	"github.com/dagucloud/dagu/internal/workspace"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
 
@@ -256,6 +257,7 @@ func (e *Engine) loadYAML(ctx context.Context, data []byte, opts RunOptions) (*c
 func (e *Engine) loadOptions(opts RunOptions) []spec.LoadOption {
 	loadOpts := []spec.LoadOption{
 		spec.WithBaseConfig(e.cfg.Paths.BaseConfig),
+		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(e.cfg.Paths.DAGsDir)),
 		spec.WithDAGsDir(e.cfg.Paths.DAGsDir),
 	}
 	if opts.Name != "" {

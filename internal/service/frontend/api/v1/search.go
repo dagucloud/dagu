@@ -117,6 +117,7 @@ func toDocSearchPageItem(
 	return api.DocSearchPageItem{
 		Id:                item.ID,
 		Title:             item.Title,
+		Description:       item.Description,
 		Workspace:         docWorkspaceValue(workspaceName, item.ID, visibility, false),
 		HasMoreMatches:    item.HasMoreMatches,
 		NextMatchesCursor: optionalString(item.NextMatchesCursor),

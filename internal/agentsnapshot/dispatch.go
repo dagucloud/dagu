@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/fileagentmodel"
 	"github.com/dagucloud/dagu/internal/persis/fileagentsoul"
 	"github.com/dagucloud/dagu/internal/persis/filememory"
+	"github.com/dagucloud/dagu/internal/workspace"
 )
 
 // BuildFromPaths builds a worker snapshot from fresh filesystem-backed stores.
@@ -28,7 +29,10 @@ func BuildFromPaths(
 	var resolve agent.DAGResolver
 	if dagStore != nil {
 		resolve = func(ctx context.Context, name string) (*core.DAG, error) {
-			loadOpts := []spec.LoadOption{spec.WithBaseConfig(paths.BaseConfig)}
+			loadOpts := []spec.LoadOption{
+				spec.WithBaseConfig(paths.BaseConfig),
+				spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(paths.DAGsDir)),
+			}
 			return dagStore.GetDetails(ctx, name, loadOpts...)
 		}
 	}

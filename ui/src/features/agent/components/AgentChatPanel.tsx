@@ -23,6 +23,7 @@ type AgentChatPanelProps = {
   active?: boolean;
   className?: string;
   defaultSidebarOpen?: boolean;
+  onClose?: () => void;
   placeholder?: string;
   rememberSidebarState?: boolean;
   showDelegatePanels?: boolean;
@@ -56,6 +57,7 @@ export function AgentChatPanel({
   active = true,
   className,
   defaultSidebarOpen = true,
+  onClose,
   placeholder,
   rememberSidebarState = true,
   showDelegatePanels = true,
@@ -68,6 +70,7 @@ export function AgentChatPanel({
       className={className}
       controller={controller}
       defaultSidebarOpen={defaultSidebarOpen}
+      onClose={onClose}
       placeholder={placeholder}
       rememberSidebarState={rememberSidebarState}
       showDelegatePanels={showDelegatePanels}

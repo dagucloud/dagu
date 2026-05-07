@@ -59,6 +59,7 @@ import (
 	apiv1 "github.com/dagucloud/dagu/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/internal/service/resource"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
+	"github.com/dagucloud/dagu/internal/workspace"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -482,12 +483,24 @@ func commandFamilyName(cmd *cobra.Command) string {
 	if isContextCommand(cmd) {
 		return "context"
 	}
+	if isAgentCLICommand(cmd) {
+		return "agent"
+	}
 	return cmd.Name()
 }
 
 func isContextCommand(cmd *cobra.Command) bool {
 	for current := cmd; current != nil; current = current.Parent() {
 		if current.Name() == "context" {
+			return true
+		}
+	}
+	return false
+}
+
+func isAgentCLICommand(cmd *cobra.Command) bool {
+	for current := cmd; current != nil; current = current.Parent() {
+		if current.Name() == "agent" {
 			return true
 		}
 	}
@@ -573,7 +586,7 @@ func serviceForCommand(cmdName string) config.Service {
 		return config.ServiceWorker
 	case "coordinator":
 		return config.ServiceCoordinator
-	case "start", "restart", "retry", "dry", "exec":
+	case "start", "restart", "retry", "dry", "exec", "agent":
 		return config.ServiceAgent
 	default:
 		// For all other commands (status, stop, validate, etc.), load all config
@@ -685,7 +698,7 @@ func newControlPlaneWebhookEncryptor(cfg *config.Config) (*crypto.Encryptor, err
 // that displays progress or tree output.
 func isAgentCommand(cmdName string) bool {
 	switch cmdName {
-	case "start", "restart", "retry", "dry", "exec":
+	case "start", "restart", "retry", "dry", "exec", "agent":
 		return true
 	default:
 		return false
@@ -748,6 +761,7 @@ func (c *Context) NewServer(rs *resource.Service, opts ...frontend.ServerOption)
 		c.QueueStore,
 		c.ServiceRegistry,
 	)
+	collector.SetWorkerHeartbeatStore(c.WorkerHeartbeatStore)
 
 	// Register DAG definition cache for metrics
 	collector.RegisterCache(dc)
@@ -954,6 +968,7 @@ func (c *Context) dagStore(cfg dagStoreConfig) (exec.DAGStore, error) {
 		filedag.WithFlagsBaseDir(c.Config.Paths.SuspendFlagsDir),
 		filedag.WithSearchPaths(searchPaths),
 		filedag.WithBaseConfig(c.Config.Paths.BaseConfig),
+		filedag.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(c.Config.Paths.DAGsDir)),
 		filedag.WithFileCache(cfg.Cache),
 		filedag.WithSkipExamples(c.Config.Core.SkipExamples),
 		filedag.WithSkipDirectoryCreation(cfg.SkipDirectoryCreation),

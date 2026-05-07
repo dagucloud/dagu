@@ -84,7 +84,7 @@ import (
 	"github.com/dagucloud/dagu/internal/service/resource"
 	"github.com/dagucloud/dagu/internal/tunnel"
 	"github.com/dagucloud/dagu/internal/upgrade"
-	"github.com/dagucloud/dagu/internal/workspace"
+	workspacepkg "github.com/dagucloud/dagu/internal/workspace"
 )
 
 const (
@@ -412,7 +412,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		if controlStore != nil {
 			sessionStore = controlStore.Sessions()
 		}
-		agentAPI, err = initAgentAPI(ctx, agentConfigStore, agentModelStore, agentSoulStore, agentOAuthManager, &cfg.Paths, referencesDir, cfg.Server.Session.MaxPerUser, dr, auditSvc, auditEnabled, eventSvc, memoryStore, newRemoteNodeAdapter(remoteNodeResolver), sessionStore)
+		agentAPI, err = initAgentAPI(ctx, agentConfigStore, agentModelStore, agentSoulStore, agentOAuthManager, &cfg.Paths, referencesDir, cfg.Server.Session.MaxPerUser, dr, auditSvc, auditEnabled, eventSvc, memoryStore, docStore, wsStore, newRemoteNodeAdapter(remoteNodeResolver), sessionStore)
 		if err != nil {
 			logger.Warn(ctx, "Failed to initialize agent API", tag.Error(err))
 		}
@@ -791,7 +791,7 @@ func initAuditService(cfg *config.Config, controlStore controlplanestore.Store) 
 	return audit.New(store), store, nil
 }
 
-func initWorkspaceStore(cfg *config.Config, controlStore controlplanestore.Store) (workspace.Store, error) {
+func initWorkspaceStore(cfg *config.Config, controlStore controlplanestore.Store) (workspacepkg.Store, error) {
 	if controlStore != nil {
 		return controlStore.Workspaces(), nil
 	}
@@ -805,7 +805,7 @@ func initSyncService(ctx context.Context, cfg *config.Config) gitsync.Service {
 	}
 
 	syncCfg := gitsync.NewConfigFromGlobal(cfg.GitSync)
-	svc := gitsync.NewService(syncCfg, cfg.Paths.DAGsDir, cfg.Paths.DataDir)
+	svc := gitsync.NewService(syncCfg, cfg.Paths.DAGsDir, cfg.Paths.DataDir, cfg.Paths.BaseConfig)
 
 	if syncCfg.AutoSync.Enabled {
 		if err := svc.Start(ctx); err != nil {
@@ -827,7 +827,7 @@ func initSyncService(ctx context.Context, cfg *config.Config) gitsync.Service {
 
 // initAgentAPI creates and returns an agent API.
 // The API uses the config store to check enabled status and resolve providers via the model store.
-func initAgentAPI(ctx context.Context, store *fileagentconfig.Store, modelStore agent.ModelStore, soulStore agent.SoulStore, oauthManager *agentoauth.Manager, paths *config.PathsConfig, referencesDir string, sessionMaxPerUser int, dagStore exec.DAGStore, auditSvc *audit.Service, auditEnabled func() bool, eventSvc *eventstore.Service, memoryStore agent.MemoryStore, remoteResolver agent.RemoteContextResolver, sessStore agent.SessionStore) (*agent.API, error) {
+func initAgentAPI(ctx context.Context, store *fileagentconfig.Store, modelStore agent.ModelStore, soulStore agent.SoulStore, oauthManager *agentoauth.Manager, paths *config.PathsConfig, referencesDir string, sessionMaxPerUser int, dagStore exec.DAGStore, auditSvc *audit.Service, auditEnabled func() bool, eventSvc *eventstore.Service, memoryStore agent.MemoryStore, docStore agent.DocStore, workspaceStore workspacepkg.Store, remoteResolver agent.RemoteContextResolver, sessStore agent.SessionStore) (*agent.API, error) {
 	if sessStore == nil {
 		fileSessionStore, err := filesession.New(paths.SessionsDir, filesession.WithMaxPerUser(sessionMaxPerUser))
 		if err != nil {
@@ -854,6 +854,8 @@ func initAgentAPI(ctx context.Context, store *fileagentconfig.Store, modelStore 
 		Hooks:                 hooks,
 		EventService:          eventSvc,
 		MemoryStore:           memoryStore,
+		DocStore:              docStore,
+		WorkspaceStore:        workspaceStore,
 		OAuthManager:          oauthManager,
 		RemoteContextResolver: remoteResolver,
 		Environment: agent.EnvironmentInfo{
