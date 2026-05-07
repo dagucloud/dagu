@@ -54,6 +54,7 @@ function DocArboristNode({ node, style, dragHandle, onContextAction, canWrite, a
   }, [node.isEditing]);
 
   const handleClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
     if (node.isEditing) return;
     if (e.ctrlKey || e.metaKey) {
       node.selectMulti();
