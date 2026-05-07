@@ -31,6 +31,8 @@ func TestRegisteredTools_ContainsAllExpected(t *testing.T) {
 		"session_search",
 		"delegate",
 		"runbook_manage",
+		"dag_def_manage",
+		"dag_run_manage",
 		"remote_agent", "list_contexts",
 	}
 

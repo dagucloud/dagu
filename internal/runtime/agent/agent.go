@@ -532,6 +532,12 @@ func (a *Agent) Run(ctx context.Context) error {
 	if a.agentRemoteContextResolver != nil {
 		ctx = agentpkg.WithRemoteContextResolver(ctx, a.agentRemoteContextResolver)
 	}
+	if a.dagStore != nil {
+		ctx = agentpkg.WithDAGStore(ctx, a.dagStore)
+	}
+	if a.dagRunStore != nil {
+		ctx = agentpkg.WithDAGRunStore(ctx, a.dagRunStore)
+	}
 
 	// Add structured logging context
 	logFields := []slog.Attr{

@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/auth"
+	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/llm"
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
@@ -1438,6 +1440,64 @@ func TestAPI_FlushQueuedChatMessage_RestoresQueuedTextOnSpillFailure(t *testing.
 	assert.True(t, mgr.HasQueuedChatInput())
 	require.Len(t, mgr.queuedChatMessages, 1)
 	assert.Equal(t, raw, mgr.queuedChatMessages[0])
+}
+
+func TestAPI_NotifyDAGRunWatch_QueuesInternalAgentTurn(t *testing.T) {
+	t.Parallel()
+
+	model := testModelConfig("watch-model")
+	api, _ := testAPIWithModels(t, model)
+
+	reqCh := make(chan *llm.ChatRequest, 1)
+	api.providers.Set(model.ToLLMConfig(), newCapturingProvider(reqCh, simpleStopResponse("I checked the watched run.")))
+
+	user := UserIdentity{UserID: "user-1", Username: "user", Role: auth.RoleAdmin}
+	sessionID, err := api.CreateEmptySession(context.Background(), user, "youtube_summary_jp", false)
+	require.NoError(t, err)
+
+	watchReq := DAGRunWatchRequest{
+		SessionID: sessionID,
+		User:      user,
+		DAGName:   "youtube_summary_jp",
+		DAGRunID:  "run-1",
+	}
+	watchInfo := DAGRunWatchInfo{
+		WatchID:  "watch-1",
+		DAGName:  "youtube_summary_jp",
+		DAGRunID: "run-1",
+		Status:   core.Succeeded.String(),
+	}
+	status := &exec.DAGRunStatus{
+		Name:     "youtube_summary_jp",
+		DAGRunID: "run-1",
+		Status:   core.Succeeded,
+	}
+
+	require.NoError(t, api.notifyDAGRunWatch(context.Background(), watchReq, watchInfo, status))
+
+	llmReq := waitForRequest(t, reqCh, time.Second)
+	require.NotEmpty(t, llmReq.Messages)
+	internalMsg := llmReq.Messages[len(llmReq.Messages)-1]
+	assert.Equal(t, llm.RoleUser, internalMsg.Role)
+	assert.Contains(t, internalMsg.Content, "A watched DAG run finished.")
+	assert.Contains(t, internalMsg.Content, "DAG: youtube_summary_jp")
+	assert.Contains(t, internalMsg.Content, "Status: succeeded")
+	assert.NotContains(t, internalMsg.Content, "Use `dag_run_manage`")
+
+	require.Eventually(t, func() bool {
+		detail, err := api.GetSessionDetail(context.Background(), sessionID, user.UserID)
+		if err != nil || detail == nil {
+			return false
+		}
+		return len(detail.Messages) == 1
+	}, time.Second, 10*time.Millisecond)
+
+	detail, err := api.GetSessionDetail(context.Background(), sessionID, user.UserID)
+	require.NoError(t, err)
+	require.Len(t, detail.Messages, 1)
+	assert.Equal(t, MessageTypeAssistant, detail.Messages[0].Type)
+	assert.Equal(t, "I checked the watched run.", detail.Messages[0].Content)
+	assert.NotContains(t, detail.Messages[0].Content, "Watch ID")
 }
 
 func TestAPI_MaterializeChatInput_PrunesToNewestTenFiles(t *testing.T) {

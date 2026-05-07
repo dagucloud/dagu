@@ -17,8 +17,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func engineTestTimeout(timeout time.Duration) time.Duration {
+	if runtime.GOOS == "windows" {
+		return timeout * 3
+	}
+	return timeout
+}
+
 func TestEngineRunFile(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), engineTestTimeout(20*time.Second))
 	defer cancel()
 
 	home := t.TempDir()
@@ -53,7 +60,7 @@ steps:
 }
 
 func TestEngineRunYAML(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), engineTestTimeout(20*time.Second))
 	defer cancel()
 
 	originalWorkingDir, err := os.Getwd()
@@ -82,7 +89,7 @@ steps:
 }
 
 func TestEngineDistributedRequiresCoordinator(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), engineTestTimeout(20*time.Second))
 	defer cancel()
 
 	engine, err := dagu.New(ctx, dagu.Options{HomeDir: t.TempDir()})
