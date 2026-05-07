@@ -32,10 +32,6 @@ function makeFileNode() {
     submit: vi.fn(),
     reset: vi.fn(),
     edit: vi.fn(),
-    handleClick: vi.fn(() => {
-      select();
-      activate();
-    }),
   };
 }
 
@@ -43,9 +39,15 @@ describe('DocArboristNode', () => {
   it('activates a file once when the filename is clicked', async () => {
     const user = userEvent.setup();
     const node = makeFileNode();
+    const defaultRowClick = vi.fn(() => {
+      node.select();
+      node.activate();
+    });
 
     render(
-      <div onClick={node.handleClick}>
+      // Simulate react-arborist's default row click handler, which also
+      // activates the node if the custom node click bubbles to the row.
+      <div onClick={defaultRowClick}>
         <DocArboristNode
           node={node as never}
           tree={{} as never}
