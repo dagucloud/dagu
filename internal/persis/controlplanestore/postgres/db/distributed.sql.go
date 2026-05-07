@@ -22,10 +22,10 @@ SET claim_token = $1,
     owner_id = NULLIF($6, ''),
     owner_host = NULLIF($7, ''),
     owner_port = $8,
-    task_data = $9,
+    data = $9,
     updated_at = now()
 WHERE id = $10
-RETURNING id, queue_name, attempt_key, worker_selector, task_data, enqueued_at, claim_token, claimed_at, claim_expires_at, worker_id, poller_id, owner_id, owner_host, owner_port, created_at, updated_at
+RETURNING id, queue_name, attempt_key, worker_selector, data_version, data, enqueued_at, claim_token, claimed_at, claim_expires_at, worker_id, poller_id, owner_id, owner_host, owner_port, created_at, updated_at
 `
 
 type ClaimDispatchTaskByIDParams struct {
@@ -37,7 +37,7 @@ type ClaimDispatchTaskByIDParams struct {
 	OwnerID        interface{}        `json:"owner_id"`
 	OwnerHost      interface{}        `json:"owner_host"`
 	OwnerPort      pgtype.Int4        `json:"owner_port"`
-	TaskData       []byte             `json:"task_data"`
+	Data           []byte             `json:"data"`
 	ID             uuid.UUID          `json:"id"`
 }
 
@@ -51,7 +51,7 @@ func (q *Queries) ClaimDispatchTaskByID(ctx context.Context, arg ClaimDispatchTa
 		arg.OwnerID,
 		arg.OwnerHost,
 		arg.OwnerPort,
-		arg.TaskData,
+		arg.Data,
 		arg.ID,
 	)
 	var i DaguDispatchTask
@@ -60,7 +60,8 @@ func (q *Queries) ClaimDispatchTaskByID(ctx context.Context, arg ClaimDispatchTa
 		&i.QueueName,
 		&i.AttemptKey,
 		&i.WorkerSelector,
-		&i.TaskData,
+		&i.DataVersion,
+		&i.Data,
 		&i.EnqueuedAt,
 		&i.ClaimToken,
 		&i.ClaimedAt,
@@ -162,7 +163,7 @@ INSERT INTO dagu_dispatch_tasks (
     queue_name,
     attempt_key,
     worker_selector,
-    task_data,
+    data,
     enqueued_at
 ) VALUES (
     $1,
@@ -179,7 +180,7 @@ type EnqueueDispatchTaskParams struct {
 	QueueName      string             `json:"queue_name"`
 	AttemptKey     string             `json:"attempt_key"`
 	WorkerSelector []byte             `json:"worker_selector"`
-	TaskData       []byte             `json:"task_data"`
+	Data           []byte             `json:"data"`
 	EnqueuedAt     pgtype.Timestamptz `json:"enqueued_at"`
 }
 
@@ -189,14 +190,14 @@ func (q *Queries) EnqueueDispatchTask(ctx context.Context, arg EnqueueDispatchTa
 		arg.QueueName,
 		arg.AttemptKey,
 		arg.WorkerSelector,
-		arg.TaskData,
+		arg.Data,
 		arg.EnqueuedAt,
 	)
 	return err
 }
 
 const findClaimableDispatchTask = `-- name: FindClaimableDispatchTask :one
-SELECT id, queue_name, attempt_key, worker_selector, task_data, enqueued_at, claim_token, claimed_at, claim_expires_at, worker_id, poller_id, owner_id, owner_host, owner_port, created_at, updated_at
+SELECT id, queue_name, attempt_key, worker_selector, data_version, data, enqueued_at, claim_token, claimed_at, claim_expires_at, worker_id, poller_id, owner_id, owner_host, owner_port, created_at, updated_at
 FROM dagu_dispatch_tasks
 WHERE (claim_token IS NULL OR claim_expires_at <= now())
   AND worker_selector <@ $1::jsonb
@@ -213,7 +214,8 @@ func (q *Queries) FindClaimableDispatchTask(ctx context.Context, workerLabels []
 		&i.QueueName,
 		&i.AttemptKey,
 		&i.WorkerSelector,
-		&i.TaskData,
+		&i.DataVersion,
+		&i.Data,
 		&i.EnqueuedAt,
 		&i.ClaimToken,
 		&i.ClaimedAt,
@@ -230,7 +232,7 @@ func (q *Queries) FindClaimableDispatchTask(ctx context.Context, workerLabels []
 }
 
 const getActiveDistributedRun = `-- name: GetActiveDistributedRun :one
-SELECT attempt_key, dag_name, dag_run_id, root_dag_name, root_dag_run_id, attempt_id, worker_id, status, observed_at, data, created_at, updated_at
+SELECT attempt_key, dag_name, dag_run_id, root_dag_name, root_dag_run_id, attempt_id, worker_id, status, observed_at, data_version, data, created_at, updated_at
 FROM dagu_active_distributed_runs
 WHERE attempt_key = $1
 `
@@ -248,6 +250,7 @@ func (q *Queries) GetActiveDistributedRun(ctx context.Context, attemptKey string
 		&i.WorkerID,
 		&i.Status,
 		&i.ObservedAt,
+		&i.DataVersion,
 		&i.Data,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -256,7 +259,7 @@ func (q *Queries) GetActiveDistributedRun(ctx context.Context, attemptKey string
 }
 
 const getDAGRunLease = `-- name: GetDAGRunLease :one
-SELECT attempt_key, dag_name, dag_run_id, root_dag_name, root_dag_run_id, attempt_id, queue_name, worker_id, owner_id, owner_host, owner_port, claimed_at, last_heartbeat_at, data, created_at, updated_at
+SELECT attempt_key, dag_name, dag_run_id, root_dag_name, root_dag_run_id, attempt_id, queue_name, worker_id, owner_id, owner_host, owner_port, claimed_at, last_heartbeat_at, data_version, data, created_at, updated_at
 FROM dagu_dag_run_leases
 WHERE attempt_key = $1
 `
@@ -278,6 +281,7 @@ func (q *Queries) GetDAGRunLease(ctx context.Context, attemptKey string) (DaguDa
 		&i.OwnerPort,
 		&i.ClaimedAt,
 		&i.LastHeartbeatAt,
+		&i.DataVersion,
 		&i.Data,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -286,7 +290,7 @@ func (q *Queries) GetDAGRunLease(ctx context.Context, attemptKey string) (DaguDa
 }
 
 const getDispatchTaskClaim = `-- name: GetDispatchTaskClaim :one
-SELECT id, queue_name, attempt_key, worker_selector, task_data, enqueued_at, claim_token, claimed_at, claim_expires_at, worker_id, poller_id, owner_id, owner_host, owner_port, created_at, updated_at
+SELECT id, queue_name, attempt_key, worker_selector, data_version, data, enqueued_at, claim_token, claimed_at, claim_expires_at, worker_id, poller_id, owner_id, owner_host, owner_port, created_at, updated_at
 FROM dagu_dispatch_tasks
 WHERE claim_token = $1
 `
@@ -299,7 +303,8 @@ func (q *Queries) GetDispatchTaskClaim(ctx context.Context, claimToken uuid.Null
 		&i.QueueName,
 		&i.AttemptKey,
 		&i.WorkerSelector,
-		&i.TaskData,
+		&i.DataVersion,
+		&i.Data,
 		&i.EnqueuedAt,
 		&i.ClaimToken,
 		&i.ClaimedAt,
@@ -316,7 +321,7 @@ func (q *Queries) GetDispatchTaskClaim(ctx context.Context, claimToken uuid.Null
 }
 
 const getWorkerHeartbeat = `-- name: GetWorkerHeartbeat :one
-SELECT worker_id, labels, stats, last_heartbeat_at, data, created_at, updated_at
+SELECT worker_id, labels, stats, last_heartbeat_at, data_version, data, created_at, updated_at
 FROM dagu_worker_heartbeats
 WHERE worker_id = $1
 `
@@ -329,6 +334,7 @@ func (q *Queries) GetWorkerHeartbeat(ctx context.Context, workerID string) (Dagu
 		&i.Labels,
 		&i.Stats,
 		&i.LastHeartbeatAt,
+		&i.DataVersion,
 		&i.Data,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -353,7 +359,7 @@ func (q *Queries) HasOutstandingDispatchTaskAttempt(ctx context.Context, attempt
 }
 
 const listActiveDistributedRuns = `-- name: ListActiveDistributedRuns :many
-SELECT attempt_key, dag_name, dag_run_id, root_dag_name, root_dag_run_id, attempt_id, worker_id, status, observed_at, data, created_at, updated_at
+SELECT attempt_key, dag_name, dag_run_id, root_dag_name, root_dag_run_id, attempt_id, worker_id, status, observed_at, data_version, data, created_at, updated_at
 FROM dagu_active_distributed_runs
 ORDER BY observed_at DESC, attempt_key ASC
 `
@@ -377,6 +383,7 @@ func (q *Queries) ListActiveDistributedRuns(ctx context.Context) ([]DaguActiveDi
 			&i.WorkerID,
 			&i.Status,
 			&i.ObservedAt,
+			&i.DataVersion,
 			&i.Data,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -392,7 +399,7 @@ func (q *Queries) ListActiveDistributedRuns(ctx context.Context) ([]DaguActiveDi
 }
 
 const listAllDAGRunLeases = `-- name: ListAllDAGRunLeases :many
-SELECT attempt_key, dag_name, dag_run_id, root_dag_name, root_dag_run_id, attempt_id, queue_name, worker_id, owner_id, owner_host, owner_port, claimed_at, last_heartbeat_at, data, created_at, updated_at
+SELECT attempt_key, dag_name, dag_run_id, root_dag_name, root_dag_run_id, attempt_id, queue_name, worker_id, owner_id, owner_host, owner_port, claimed_at, last_heartbeat_at, data_version, data, created_at, updated_at
 FROM dagu_dag_run_leases
 ORDER BY last_heartbeat_at DESC, attempt_key ASC
 `
@@ -420,6 +427,7 @@ func (q *Queries) ListAllDAGRunLeases(ctx context.Context) ([]DaguDagRunLease, e
 			&i.OwnerPort,
 			&i.ClaimedAt,
 			&i.LastHeartbeatAt,
+			&i.DataVersion,
 			&i.Data,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -435,7 +443,7 @@ func (q *Queries) ListAllDAGRunLeases(ctx context.Context) ([]DaguDagRunLease, e
 }
 
 const listDAGRunLeasesByQueue = `-- name: ListDAGRunLeasesByQueue :many
-SELECT attempt_key, dag_name, dag_run_id, root_dag_name, root_dag_run_id, attempt_id, queue_name, worker_id, owner_id, owner_host, owner_port, claimed_at, last_heartbeat_at, data, created_at, updated_at
+SELECT attempt_key, dag_name, dag_run_id, root_dag_name, root_dag_run_id, attempt_id, queue_name, worker_id, owner_id, owner_host, owner_port, claimed_at, last_heartbeat_at, data_version, data, created_at, updated_at
 FROM dagu_dag_run_leases
 WHERE queue_name = $1
 ORDER BY last_heartbeat_at DESC, attempt_key ASC
@@ -464,6 +472,7 @@ func (q *Queries) ListDAGRunLeasesByQueue(ctx context.Context, queueName string)
 			&i.OwnerPort,
 			&i.ClaimedAt,
 			&i.LastHeartbeatAt,
+			&i.DataVersion,
 			&i.Data,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -479,7 +488,7 @@ func (q *Queries) ListDAGRunLeasesByQueue(ctx context.Context, queueName string)
 }
 
 const listWorkerHeartbeats = `-- name: ListWorkerHeartbeats :many
-SELECT worker_id, labels, stats, last_heartbeat_at, data, created_at, updated_at
+SELECT worker_id, labels, stats, last_heartbeat_at, data_version, data, created_at, updated_at
 FROM dagu_worker_heartbeats
 ORDER BY worker_id ASC
 `
@@ -498,6 +507,7 @@ func (q *Queries) ListWorkerHeartbeats(ctx context.Context) ([]DaguWorkerHeartbe
 			&i.Labels,
 			&i.Stats,
 			&i.LastHeartbeatAt,
+			&i.DataVersion,
 			&i.Data,
 			&i.CreatedAt,
 			&i.UpdatedAt,

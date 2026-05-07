@@ -101,7 +101,6 @@ INSERT INTO dagu_events (
     user_id,
     model,
     status,
-    event_data,
     data
 ) VALUES (
     $1,
@@ -120,8 +119,7 @@ INSERT INTO dagu_events (
     NULLIF($14, ''),
     NULLIF($15, ''),
     NULLIF($16, ''),
-    $17,
-    $18
+    $17
 )
 ON CONFLICT (event_id) DO NOTHING
 `
@@ -143,7 +141,6 @@ type EmitEventParams struct {
 	UserID         interface{}        `json:"user_id"`
 	Model          interface{}        `json:"model"`
 	Status         interface{}        `json:"status"`
-	EventData      []byte             `json:"event_data"`
 	Data           []byte             `json:"data"`
 }
 
@@ -165,14 +162,13 @@ func (q *Queries) EmitEvent(ctx context.Context, arg EmitEventParams) error {
 		arg.UserID,
 		arg.Model,
 		arg.Status,
-		arg.EventData,
 		arg.Data,
 	)
 	return err
 }
 
 const queryEvents = `-- name: QueryEvents :many
-SELECT id, event_id, schema_version, occurred_at, recorded_at, kind, event_type, source_service, source_instance, dag_name, dag_run_id, attempt_id, session_id, user_id, model, status, event_data, data, created_at
+SELECT id, event_id, schema_version, occurred_at, recorded_at, kind, event_type, source_service, source_instance, dag_name, dag_run_id, attempt_id, session_id, user_id, model, status, data_version, data, created_at
 FROM dagu_events
 WHERE (NOT $1::boolean OR kind = $2)
   AND (NOT $3::boolean OR event_type = $4)
@@ -268,7 +264,7 @@ func (q *Queries) QueryEvents(ctx context.Context, arg QueryEventsParams) ([]Dag
 			&i.UserID,
 			&i.Model,
 			&i.Status,
-			&i.EventData,
+			&i.DataVersion,
 			&i.Data,
 			&i.CreatedAt,
 		); err != nil {
@@ -283,7 +279,7 @@ func (q *Queries) QueryEvents(ctx context.Context, arg QueryEventsParams) ([]Dag
 }
 
 const queryEventsCursor = `-- name: QueryEventsCursor :many
-SELECT id, event_id, schema_version, occurred_at, recorded_at, kind, event_type, source_service, source_instance, dag_name, dag_run_id, attempt_id, session_id, user_id, model, status, event_data, data, created_at
+SELECT id, event_id, schema_version, occurred_at, recorded_at, kind, event_type, source_service, source_instance, dag_name, dag_run_id, attempt_id, session_id, user_id, model, status, data_version, data, created_at
 FROM dagu_events
 WHERE (NOT $1::boolean OR kind = $2)
   AND (NOT $3::boolean OR event_type = $4)
@@ -396,7 +392,7 @@ func (q *Queries) QueryEventsCursor(ctx context.Context, arg QueryEventsCursorPa
 			&i.UserID,
 			&i.Model,
 			&i.Status,
-			&i.EventData,
+			&i.DataVersion,
 			&i.Data,
 			&i.CreatedAt,
 		); err != nil {

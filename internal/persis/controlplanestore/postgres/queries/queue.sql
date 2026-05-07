@@ -5,7 +5,7 @@ INSERT INTO dagu_queue_items (
     priority,
     dag_name,
     dag_run_id,
-    payload,
+    data,
     enqueued_at
 ) VALUES (
     sqlc.arg(id),
@@ -13,7 +13,7 @@ INSERT INTO dagu_queue_items (
     sqlc.arg(priority),
     sqlc.arg(dag_name),
     sqlc.arg(dag_run_id),
-    sqlc.arg(payload),
+    sqlc.arg(data),
     sqlc.arg(enqueued_at)
 );
 

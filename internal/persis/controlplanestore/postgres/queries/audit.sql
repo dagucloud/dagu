@@ -7,7 +7,6 @@ INSERT INTO dagu_audit_entries (
     user_id,
     username,
     ip_address,
-    details,
     data
 ) VALUES (
     sqlc.arg(id),
@@ -17,7 +16,6 @@ INSERT INTO dagu_audit_entries (
     sqlc.arg(user_id),
     sqlc.arg(username),
     NULLIF(sqlc.arg(ip_address), ''),
-    sqlc.arg(details),
     sqlc.arg(data)
 );
 

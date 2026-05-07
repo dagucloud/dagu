@@ -50,7 +50,7 @@ func (q *Queries) DeleteStaleServiceInstances(ctx context.Context, arg DeleteSta
 }
 
 const listActiveServiceInstances = `-- name: ListActiveServiceInstances :many
-SELECT service_name, instance_id, host, port, status, started_at, last_heartbeat_at, data, created_at, updated_at
+SELECT service_name, instance_id, host, port, status, started_at, last_heartbeat_at, data_version, data, created_at, updated_at
 FROM dagu_service_instances
 WHERE service_name = $1
   AND last_heartbeat_at >= $2
@@ -79,6 +79,7 @@ func (q *Queries) ListActiveServiceInstances(ctx context.Context, arg ListActive
 			&i.Status,
 			&i.StartedAt,
 			&i.LastHeartbeatAt,
+			&i.DataVersion,
 			&i.Data,
 			&i.CreatedAt,
 			&i.UpdatedAt,

@@ -19,13 +19,13 @@ func TestRetentionQueriesUseLatestAttemptLikeFileStore(t *testing.T) {
 	daysQuery := namedQuery(t, queryText, "ListRemovableRunsByDays")
 	assert.NotContains(t, daysQuery, "WITH latest AS")
 	assert.Contains(t, daysQuery, "FROM dagu_dag_runs")
-	assert.Contains(t, daysQuery, "status_data IS NOT NULL")
+	assert.Contains(t, daysQuery, "data ? 'status'")
 	assert.Contains(t, daysQuery, "updated_at < sqlc.arg(cutoff)::timestamptz")
 
 	countQuery := namedQuery(t, queryText, "ListRemovableRunsByCount")
 	assert.NotContains(t, countQuery, "WITH latest AS")
 	assert.Contains(t, countQuery, "FROM dagu_dag_runs")
-	assert.Contains(t, countQuery, "status_data IS NOT NULL")
+	assert.Contains(t, countQuery, "data ? 'status'")
 }
 
 func TestListRootStatusRowsUsesRunSummary(t *testing.T) {
@@ -56,9 +56,9 @@ func TestSetAttemptHiddenExcludesHiddenAttemptFromSummaryRefresh(t *testing.T) {
 func TestRenameDAGRunsUpdatesRootStatusName(t *testing.T) {
 	query := namedQuery(t, readAttemptQueries(t), "RenameDAGRuns")
 
-	assert.Contains(t, query, "status_data = CASE")
+	assert.Contains(t, query, "data = CASE")
 	assert.Contains(t, query, "WHEN is_root")
-	assert.Contains(t, query, "jsonb_set(status_data, '{name}', to_jsonb(sqlc.arg(new_name)::text), true)")
+	assert.Contains(t, query, "jsonb_set(data, '{status,name}', to_jsonb(sqlc.arg(new_name)::text), true)")
 }
 
 func readAttemptQueries(t *testing.T) string {

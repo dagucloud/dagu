@@ -55,13 +55,13 @@ func newAttempt(queries *db.Queries, row db.DaguDagRunAttempt) (*Attempt, error)
 	}
 	att.hidden.Store(row.Hidden)
 	att.cancelRequested.Store(row.CancelRequested)
-	if len(row.DagData) > 0 {
-		var dag core.DAG
-		if err := json.Unmarshal(row.DagData, &dag); err != nil {
-			return nil, fmt.Errorf("unmarshal DAG data for dag %q run %q attempt %q: %w",
+	if len(row.Data) > 0 {
+		doc, err := attemptDocumentFromJSON(row.Data)
+		if err != nil {
+			return nil, fmt.Errorf("unmarshal DAG-run attempt data for dag %q run %q attempt %q: %w",
 				row.DagName, row.DagRunID, row.AttemptID, err)
 		}
-		att.dag = &dag
+		att.dag = doc.DAG
 	}
 	return att, nil
 }
@@ -83,7 +83,7 @@ func (att *Attempt) Open(ctx context.Context) error {
 		}
 		if err := att.queries.UpdateAttemptDAG(ctx, db.UpdateAttemptDAGParams{
 			ID:      att.id,
-			DagData: data,
+			DagJson: data,
 		}); err != nil {
 			return fmt.Errorf("persist DAG definition: %w", err)
 		}
@@ -144,14 +144,14 @@ func (att *Attempt) ReadDAG(ctx context.Context) (*core.DAG, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(row.DagData) == 0 {
+	doc, err := attemptDocumentFromJSON(row.Data)
+	if err != nil {
+		return nil, err
+	}
+	if doc.DAG == nil {
 		return nil, errors.New("DAG definition not found")
 	}
-	var dag core.DAG
-	if err := json.Unmarshal(row.DagData, &dag); err != nil {
-		return nil, fmt.Errorf("unmarshal DAG definition: %w", err)
-	}
-	return &dag, nil
+	return doc.DAG, nil
 }
 
 func (att *Attempt) SetDAG(dag *core.DAG) {
@@ -208,7 +208,7 @@ func (att *Attempt) WriteOutputs(ctx context.Context, outputs *exec.DAGRunOutput
 	}
 	return att.queries.UpdateAttemptOutputs(ctx, db.UpdateAttemptOutputsParams{
 		ID:          att.id,
-		OutputsData: data,
+		OutputsJson: data,
 	})
 }
 
@@ -217,17 +217,17 @@ func (att *Attempt) ReadOutputs(ctx context.Context) (*exec.DAGRunOutputs, error
 	if err != nil {
 		return nil, err
 	}
-	if len(row.OutputsData) == 0 {
+	doc, err := attemptDocumentFromJSON(row.Data)
+	if err != nil {
+		return nil, err
+	}
+	if doc.Outputs == nil {
 		return nil, nil
 	}
-	var outputs exec.DAGRunOutputs
-	if err := json.Unmarshal(row.OutputsData, &outputs); err != nil {
-		return nil, fmt.Errorf("unmarshal outputs: %w", err)
-	}
-	if outputs.Metadata.DAGRunID == "" {
+	if doc.Outputs.Metadata.DAGRunID == "" {
 		return nil, nil
 	}
-	return &outputs, nil
+	return doc.Outputs, nil
 }
 
 func (att *Attempt) WriteStepMessages(ctx context.Context, stepName string, messages []exec.LLMMessage) error {
@@ -239,9 +239,9 @@ func (att *Attempt) WriteStepMessages(ctx context.Context, stepName string, mess
 		return fmt.Errorf("marshal step messages: %w", err)
 	}
 	return att.queries.MergeAttemptStepMessages(ctx, db.MergeAttemptStepMessagesParams{
-		ID:       att.id,
-		StepName: stepName,
-		Messages: data,
+		ID:               att.id,
+		StepName:         stepName,
+		StepMessagesJson: data,
 	})
 }
 
@@ -250,14 +250,14 @@ func (att *Attempt) ReadStepMessages(ctx context.Context, stepName string) ([]ex
 	if err != nil {
 		return nil, err
 	}
-	if len(row.MessagesData) == 0 {
+	doc, err := attemptDocumentFromJSON(row.Data)
+	if err != nil {
+		return nil, err
+	}
+	if len(doc.Messages) == 0 {
 		return nil, nil
 	}
-	messagesByStep := map[string][]exec.LLMMessage{}
-	if err := json.Unmarshal(row.MessagesData, &messagesByStep); err != nil {
-		return nil, fmt.Errorf("unmarshal step messages: %w", err)
-	}
-	return messagesByStep[stepName], nil
+	return doc.Messages[stepName], nil
 }
 
 func (att *Attempt) WorkDir() string {

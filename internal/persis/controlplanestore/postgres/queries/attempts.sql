@@ -59,7 +59,7 @@ INSERT INTO dagu_dag_run_attempts (
     attempt_created_at,
     workspace,
     workspace_valid,
-    dag_data,
+    data,
     local_work_dir
 ) VALUES (
     sqlc.arg(id),
@@ -74,7 +74,7 @@ INSERT INTO dagu_dag_run_attempts (
     sqlc.arg(attempt_created_at),
     sqlc.narg(workspace),
     sqlc.arg(workspace_valid),
-    sqlc.narg(dag_data),
+    sqlc.arg(data),
     sqlc.arg(local_work_dir)
 )
 RETURNING *;
@@ -86,7 +86,7 @@ JOIN dagu_dag_run_attempts a ON a.id = r.latest_attempt_id
 WHERE r.is_root
   AND r.dag_name = sqlc.arg(dag_name)
   AND r.dag_run_id = sqlc.arg(dag_run_id)
-  AND r.status_data IS NOT NULL
+  AND r.data ? 'status'
   AND NOT a.hidden
 LIMIT 1;
 
@@ -97,7 +97,7 @@ JOIN dagu_dag_run_attempts a ON a.id = r.latest_attempt_id
 WHERE r.is_root
   AND r.dag_name = sqlc.arg(dag_name)
   AND r.dag_run_id = sqlc.arg(dag_run_id)
-  AND r.status_data IS NOT NULL
+  AND r.data ? 'status'
   AND NOT a.hidden
 LIMIT 1
 FOR UPDATE OF r, a;
@@ -110,7 +110,7 @@ WHERE NOT r.is_root
   AND r.root_dag_name = sqlc.arg(root_dag_name)
   AND r.root_dag_run_id = sqlc.arg(root_dag_run_id)
   AND r.dag_run_id = sqlc.arg(dag_run_id)
-  AND r.status_data IS NOT NULL
+  AND r.data ? 'status'
   AND NOT a.hidden
 LIMIT 1;
 
@@ -120,7 +120,7 @@ FROM dagu_dag_runs r
 JOIN dagu_dag_run_attempts a ON a.id = r.latest_attempt_id
 WHERE r.is_root
   AND r.dag_name = sqlc.arg(dag_name)
-  AND r.status_data IS NOT NULL
+  AND r.data ? 'status'
   AND NOT a.hidden
   AND (NOT sqlc.arg(has_from)::boolean OR r.run_created_at >= sqlc.arg(from_at)::timestamptz)
 ORDER BY r.run_created_at DESC, r.dag_run_id ASC
@@ -132,7 +132,7 @@ FROM dagu_dag_runs r
 JOIN dagu_dag_run_attempts a ON a.id = r.latest_attempt_id
 WHERE r.is_root
   AND r.dag_name = sqlc.arg(dag_name)
-  AND r.status_data IS NOT NULL
+  AND r.data ? 'status'
   AND NOT a.hidden
 ORDER BY r.run_created_at DESC, r.dag_run_id ASC
 LIMIT sqlc.arg(item_limit)::integer;
@@ -144,14 +144,14 @@ WHERE id = sqlc.arg(id);
 
 -- name: UpdateAttemptDAG :exec
 UPDATE dagu_dag_run_attempts
-SET dag_data = sqlc.arg(dag_data),
+SET data = jsonb_set(data, '{dag}', sqlc.arg(dag_json)::jsonb, true),
     updated_at = now()
 WHERE id = sqlc.arg(id);
 
 -- name: UpdateAttemptStatus :exec
 WITH updated_attempt AS (
     UPDATE dagu_dag_run_attempts AS a
-    SET status_data = sqlc.arg(status_data),
+    SET data = jsonb_set(data, '{status}', sqlc.arg(status_json)::jsonb, true),
         status = sqlc.arg(status)::dagu_status_code,
         workspace = sqlc.narg(workspace),
         workspace_valid = sqlc.arg(workspace_valid),
@@ -159,7 +159,7 @@ WITH updated_attempt AS (
         finished_at = sqlc.narg(finished_at),
         updated_at = now()
     WHERE a.id = sqlc.arg(id)
-    RETURNING a.id, a.run_id, a.attempt_created_at, a.workspace, a.workspace_valid, a.status, a.started_at, a.finished_at, a.status_data, a.hidden
+    RETURNING a.id, a.run_id, a.attempt_created_at, a.workspace, a.workspace_valid, a.status, a.started_at, a.finished_at, a.data, a.hidden
 )
 UPDATE dagu_dag_runs r
 SET latest_attempt_id = ua.id,
@@ -169,7 +169,7 @@ SET latest_attempt_id = ua.id,
     status = ua.status,
     started_at = ua.started_at,
     finished_at = ua.finished_at,
-    status_data = ua.status_data,
+    data = jsonb_build_object('status', ua.data -> 'status'),
     updated_at = now()
 FROM updated_attempt ua
 WHERE r.id = ua.run_id
@@ -183,22 +183,25 @@ WHERE r.id = ua.run_id
 
 -- name: UpdateAttemptOutputs :exec
 UPDATE dagu_dag_run_attempts
-SET outputs_data = sqlc.narg(outputs_data),
+SET data = CASE
+        WHEN sqlc.narg(outputs_json)::jsonb IS NULL THEN data - 'outputs'
+        ELSE jsonb_set(data, '{outputs}', sqlc.narg(outputs_json)::jsonb, true)
+    END,
     updated_at = now()
 WHERE id = sqlc.arg(id);
 
 -- name: UpdateAttemptMessages :exec
 UPDATE dagu_dag_run_attempts
-SET messages_data = sqlc.arg(messages_data),
+SET data = jsonb_set(data, '{messages}', sqlc.arg(messages_json)::jsonb, true),
     updated_at = now()
 WHERE id = sqlc.arg(id);
 
 -- name: MergeAttemptStepMessages :exec
 UPDATE dagu_dag_run_attempts
-SET messages_data = jsonb_set(
-        coalesce(messages_data, '{}'::jsonb),
-        ARRAY[sqlc.arg(step_name)::text],
-        sqlc.arg(messages)::jsonb,
+SET data = jsonb_set(
+        jsonb_set(data, '{messages}', coalesce(data -> 'messages', '{}'::jsonb), true),
+        ARRAY['messages', sqlc.arg(step_name)::text],
+        sqlc.arg(step_messages_json)::jsonb,
         true
     ),
     updated_at = now()
@@ -224,7 +227,7 @@ latest AS (
     JOIN hidden_attempt h ON a.run_id = h.run_id
     WHERE a.id <> h.id
       AND NOT a.hidden
-      AND a.status_data IS NOT NULL
+      AND a.data ? 'status'
     ORDER BY a.attempt_created_at DESC, a.id DESC
     LIMIT 1
 ),
@@ -237,7 +240,7 @@ summary_updated AS (
         status = l.status,
         started_at = l.started_at,
         finished_at = l.finished_at,
-        status_data = l.status_data,
+        data = jsonb_build_object('status', l.data -> 'status'),
         updated_at = now()
     FROM latest l
     WHERE r.id = l.run_id
@@ -251,7 +254,7 @@ SET latest_attempt_id = NULL,
     status = NULL,
     started_at = NULL,
     finished_at = NULL,
-    status_data = NULL,
+    data = '{}'::jsonb,
     updated_at = now()
 WHERE r.id IN (SELECT run_id FROM hidden_attempt)
   AND NOT EXISTS (SELECT 1 FROM summary_updated);
@@ -260,9 +263,9 @@ WHERE r.id IN (SELECT run_id FROM hidden_attempt)
 SELECT *
 FROM dagu_dag_runs
 WHERE is_root
-  AND status_data IS NOT NULL
+  AND data ? 'status'
   AND (sqlc.arg(exact_name)::text = '' OR dag_name::text = sqlc.arg(exact_name)::text)
-  AND (sqlc.arg(name_contains)::text = '' OR status_data ->> 'name' ILIKE '%' || sqlc.arg(name_contains)::text || '%')
+  AND (sqlc.arg(name_contains)::text = '' OR data #>> '{status,name}' ILIKE '%' || sqlc.arg(name_contains)::text || '%')
   AND (sqlc.arg(dag_run_id_contains)::text = '' OR dag_run_id::text LIKE '%' || sqlc.arg(dag_run_id_contains)::text || '%')
   AND (NOT sqlc.arg(has_from)::boolean OR run_created_at >= sqlc.arg(from_at)::timestamptz)
   AND (NOT sqlc.arg(has_to)::boolean OR run_created_at <= sqlc.arg(to_at)::timestamptz)
@@ -300,7 +303,7 @@ WHERE is_root
   AND dag_name = sqlc.arg(dag_name)
   AND run_created_at < sqlc.arg(cutoff)::timestamptz
   AND updated_at < sqlc.arg(cutoff)::timestamptz
-  AND status_data IS NOT NULL
+  AND data ? 'status'
   AND status <> ALL(sqlc.arg(active_statuses)::integer[])
 ORDER BY run_created_at ASC, dag_run_id ASC;
 
@@ -310,7 +313,7 @@ WITH terminal AS (
     FROM dagu_dag_runs AS r
     WHERE r.is_root
       AND r.dag_name = sqlc.arg(dag_name)
-      AND r.status_data IS NOT NULL
+      AND r.data ? 'status'
       AND r.status <> ALL(sqlc.arg(active_statuses)::integer[])
 ),
 ranked AS (
@@ -360,12 +363,12 @@ WITH renamed_runs AS (
     UPDATE dagu_dag_runs
     SET dag_name = CASE WHEN is_root AND dag_name::text = sqlc.arg(old_name)::text THEN sqlc.arg(new_name) ELSE dag_name END,
         root_dag_name = CASE WHEN root_dag_name::text = sqlc.arg(old_name)::text THEN sqlc.arg(new_name) ELSE root_dag_name END,
-        status_data = CASE
+        data = CASE
             WHEN is_root
              AND dag_name::text = sqlc.arg(old_name)::text
-             AND status_data IS NOT NULL
-            THEN jsonb_set(status_data, '{name}', to_jsonb(sqlc.arg(new_name)::text), true)
-            ELSE status_data
+             AND data ? 'status'
+            THEN jsonb_set(data, '{status,name}', to_jsonb(sqlc.arg(new_name)::text), true)
+            ELSE data
         END,
         updated_at = now()
     WHERE root_dag_name::text = sqlc.arg(old_name)::text
@@ -375,12 +378,12 @@ WITH renamed_runs AS (
 UPDATE dagu_dag_run_attempts
 SET dag_name = CASE WHEN is_root AND dag_name::text = sqlc.arg(old_name)::text THEN sqlc.arg(new_name) ELSE dag_name END,
     root_dag_name = CASE WHEN root_dag_name::text = sqlc.arg(old_name)::text THEN sqlc.arg(new_name) ELSE root_dag_name END,
-    status_data = CASE
+    data = CASE
         WHEN is_root
          AND dag_name::text = sqlc.arg(old_name)::text
-         AND status_data IS NOT NULL
-        THEN jsonb_set(status_data, '{name}', to_jsonb(sqlc.arg(new_name)::text), true)
-        ELSE status_data
+         AND data ? 'status'
+        THEN jsonb_set(data, '{status,name}', to_jsonb(sqlc.arg(new_name)::text), true)
+        ELSE data
     END,
     updated_at = now()
 WHERE run_id IN (SELECT id FROM renamed_runs);

@@ -21,7 +21,6 @@ INSERT INTO dagu_audit_entries (
     user_id,
     username,
     ip_address,
-    details,
     data
 ) VALUES (
     $1,
@@ -31,8 +30,7 @@ INSERT INTO dagu_audit_entries (
     $5,
     $6,
     NULLIF($7, ''),
-    $8,
-    $9
+    $8
 )
 `
 
@@ -44,7 +42,6 @@ type AppendAuditEntryParams struct {
 	UserID     string             `json:"user_id"`
 	Username   string             `json:"username"`
 	IpAddress  interface{}        `json:"ip_address"`
-	Details    []byte             `json:"details"`
 	Data       []byte             `json:"data"`
 }
 
@@ -57,7 +54,6 @@ func (q *Queries) AppendAuditEntry(ctx context.Context, arg AppendAuditEntryPara
 		arg.UserID,
 		arg.Username,
 		arg.IpAddress,
-		arg.Details,
 		arg.Data,
 	)
 	return err
@@ -100,7 +96,7 @@ func (q *Queries) CountAuditEntries(ctx context.Context, arg CountAuditEntriesPa
 }
 
 const queryAuditEntries = `-- name: QueryAuditEntries :many
-SELECT id, occurred_at, category, action, user_id, username, ip_address, details, data, created_at
+SELECT id, occurred_at, category, action, user_id, username, ip_address, data_version, data, created_at
 FROM dagu_audit_entries
 WHERE (NOT $1::boolean OR category = $2)
   AND (NOT $3::boolean OR user_id = $4)
@@ -152,7 +148,7 @@ func (q *Queries) QueryAuditEntries(ctx context.Context, arg QueryAuditEntriesPa
 			&i.UserID,
 			&i.Username,
 			&i.IpAddress,
-			&i.Details,
+			&i.DataVersion,
 			&i.Data,
 			&i.CreatedAt,
 		); err != nil {

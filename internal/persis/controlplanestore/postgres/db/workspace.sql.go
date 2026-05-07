@@ -61,7 +61,7 @@ func (q *Queries) DeleteWorkspace(ctx context.Context, id uuid.UUID) (int64, err
 }
 
 const getWorkspaceByID = `-- name: GetWorkspaceByID :one
-SELECT id, name, data, created_at, updated_at
+SELECT id, name, data_version, data, created_at, updated_at
 FROM dagu_workspaces
 WHERE id = $1
 `
@@ -72,6 +72,7 @@ func (q *Queries) GetWorkspaceByID(ctx context.Context, id uuid.UUID) (DaguWorks
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
+		&i.DataVersion,
 		&i.Data,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -80,7 +81,7 @@ func (q *Queries) GetWorkspaceByID(ctx context.Context, id uuid.UUID) (DaguWorks
 }
 
 const getWorkspaceByName = `-- name: GetWorkspaceByName :one
-SELECT id, name, data, created_at, updated_at
+SELECT id, name, data_version, data, created_at, updated_at
 FROM dagu_workspaces
 WHERE name = $1
 `
@@ -91,6 +92,7 @@ func (q *Queries) GetWorkspaceByName(ctx context.Context, name string) (DaguWork
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
+		&i.DataVersion,
 		&i.Data,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -99,7 +101,7 @@ func (q *Queries) GetWorkspaceByName(ctx context.Context, name string) (DaguWork
 }
 
 const listWorkspaces = `-- name: ListWorkspaces :many
-SELECT id, name, data, created_at, updated_at
+SELECT id, name, data_version, data, created_at, updated_at
 FROM dagu_workspaces
 ORDER BY name ASC, id ASC
 `
@@ -116,6 +118,7 @@ func (q *Queries) ListWorkspaces(ctx context.Context) ([]DaguWorkspace, error) {
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
+			&i.DataVersion,
 			&i.Data,
 			&i.CreatedAt,
 			&i.UpdatedAt,

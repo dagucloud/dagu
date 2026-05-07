@@ -7,6 +7,8 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
+	"strconv"
 	"testing"
 	"time"
 
@@ -84,6 +86,18 @@ func TestPostgresControlPlaneStoreIntegration(t *testing.T) {
 		status.Status = core.Queued
 		status.AttemptID = attempt.ID()
 		require.NoError(t, attempt.Write(ctx, status))
+		require.NoError(t, attempt.WriteOutputs(ctx, &exec.DAGRunOutputs{
+			Metadata: exec.OutputsMetadata{
+				DAGName:   "example",
+				DAGRunID:  "run-1",
+				AttemptID: attempt.ID(),
+				Status:    status.Status.String(),
+			},
+			Outputs: map[string]string{"result": "ok"},
+		}))
+		require.NoError(t, attempt.WriteStepMessages(ctx, "step-1", []exec.LLMMessage{
+			{Role: exec.RoleUser, Content: "hello"},
+		}))
 
 		found, err := store.DAGRuns().FindAttempt(ctx, exec.NewDAGRunRef("example", "run-1"))
 		require.NoError(t, err)
@@ -91,6 +105,51 @@ func TestPostgresControlPlaneStoreIntegration(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, core.Queued, readStatus.Status)
 		assert.Contains(t, readStatus.Labels, "workspace=ops")
+
+		var (
+			runVersion     int
+			runData        []byte
+			projectedName  string
+			projectedRunID string
+			projectedState string
+		)
+		require.NoError(t, store.pool.QueryRow(ctx, `
+SELECT data_version, data, data #>> '{status,name}', data #>> '{status,dagRunId}', data #>> '{status,status}'
+FROM dagu_dag_runs
+WHERE is_root AND dag_name = 'example' AND dag_run_id = 'run-1'
+`).Scan(&runVersion, &runData, &projectedName, &projectedRunID, &projectedState))
+		assert.Equal(t, 1, runVersion)
+		assert.Equal(t, "example", projectedName)
+		assert.Equal(t, "run-1", projectedRunID)
+		assert.Equal(t, strconv.Itoa(int(core.Queued)), projectedState)
+		var runDoc struct {
+			Status exec.DAGRunStatus `json:"status"`
+		}
+		require.NoError(t, json.Unmarshal(runData, &runDoc))
+		assert.Equal(t, readStatus.Status, runDoc.Status.Status)
+		assert.Equal(t, readStatus.DAGRunID, runDoc.Status.DAGRunID)
+
+		var (
+			attemptVersion int
+			attemptData    []byte
+		)
+		require.NoError(t, store.pool.QueryRow(ctx, `
+SELECT data_version, data
+FROM dagu_dag_run_attempts
+WHERE dag_name = 'example' AND dag_run_id = 'run-1' AND attempt_id = $1
+`, attempt.ID()).Scan(&attemptVersion, &attemptData))
+		assert.Equal(t, 1, attemptVersion)
+		var attemptDoc struct {
+			Status   exec.DAGRunStatus            `json:"status"`
+			DAG      core.DAG                     `json:"dag"`
+			Outputs  exec.DAGRunOutputs           `json:"outputs"`
+			Messages map[string][]exec.LLMMessage `json:"messages"`
+		}
+		require.NoError(t, json.Unmarshal(attemptData, &attemptDoc))
+		assert.Equal(t, "example", attemptDoc.DAG.Name)
+		assert.Equal(t, "ok", attemptDoc.Outputs.Outputs["result"])
+		require.Len(t, attemptDoc.Messages["step-1"], 1)
+		assert.Equal(t, "hello", attemptDoc.Messages["step-1"][0].Content)
 	})
 
 	t.Run("QueueLease", func(t *testing.T) {
@@ -100,6 +159,19 @@ func TestPostgresControlPlaneStoreIntegration(t *testing.T) {
 		items, err := store.Queue().List(ctx, "default")
 		require.NoError(t, err)
 		require.Len(t, items, 1)
+		var queueData []byte
+		var queueDataVersion int
+		require.NoError(t, store.pool.QueryRow(ctx, `
+SELECT data_version, data
+FROM dagu_queue_items
+WHERE queue_name = 'default' AND dag_name = 'example' AND dag_run_id = 'run-1'
+`).Scan(&queueDataVersion, &queueData))
+		assert.Equal(t, 1, queueDataVersion)
+		var queued struct {
+			DAGRun exec.DAGRunRef `json:"dagRun"`
+		}
+		require.NoError(t, json.Unmarshal(queueData, &queued))
+		assert.Equal(t, runRef, queued.DAGRun)
 
 		leased, err := store.ClaimByItemID(ctx, "default", items[0].ID(), "integration-test", time.Minute)
 		require.NoError(t, err)

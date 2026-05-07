@@ -47,7 +47,7 @@ SET lease_token = $1,
     lease_expires_at = $4,
     updated_at = now()
 WHERE id IN (SELECT id FROM picked)
-RETURNING id, queue_name, priority, dag_name, dag_run_id, payload, enqueued_at, lease_token, lease_owner, leased_at, lease_expires_at, created_at, updated_at
+RETURNING id, queue_name, priority, dag_name, dag_run_id, data_version, data, enqueued_at, lease_token, lease_owner, leased_at, lease_expires_at, created_at, updated_at
 `
 
 type ClaimQueueItemByIDParams struct {
@@ -75,7 +75,8 @@ func (q *Queries) ClaimQueueItemByID(ctx context.Context, arg ClaimQueueItemByID
 		&i.Priority,
 		&i.DagName,
 		&i.DagRunID,
-		&i.Payload,
+		&i.DataVersion,
+		&i.Data,
 		&i.EnqueuedAt,
 		&i.LeaseToken,
 		&i.LeaseOwner,
@@ -105,7 +106,7 @@ DELETE FROM dagu_queue_items
 WHERE queue_name = $1
   AND dag_name = $2
   AND dag_run_id = $3
-RETURNING id, queue_name, priority, dag_name, dag_run_id, payload, enqueued_at, lease_token, lease_owner, leased_at, lease_expires_at, created_at, updated_at
+RETURNING id, queue_name, priority, dag_name, dag_run_id, data_version, data, enqueued_at, lease_token, lease_owner, leased_at, lease_expires_at, created_at, updated_at
 `
 
 type DeleteQueueItemsByDAGRunParams struct {
@@ -129,7 +130,8 @@ func (q *Queries) DeleteQueueItemsByDAGRun(ctx context.Context, arg DeleteQueueI
 			&i.Priority,
 			&i.DagName,
 			&i.DagRunID,
-			&i.Payload,
+			&i.DataVersion,
+			&i.Data,
 			&i.EnqueuedAt,
 			&i.LeaseToken,
 			&i.LeaseOwner,
@@ -152,7 +154,7 @@ const deleteQueueItemsByIDs = `-- name: DeleteQueueItemsByIDs :many
 DELETE FROM dagu_queue_items
 WHERE queue_name = $1
   AND id = ANY($2::uuid[])
-RETURNING id, queue_name, priority, dag_name, dag_run_id, payload, enqueued_at, lease_token, lease_owner, leased_at, lease_expires_at, created_at, updated_at
+RETURNING id, queue_name, priority, dag_name, dag_run_id, data_version, data, enqueued_at, lease_token, lease_owner, leased_at, lease_expires_at, created_at, updated_at
 `
 
 type DeleteQueueItemsByIDsParams struct {
@@ -175,7 +177,8 @@ func (q *Queries) DeleteQueueItemsByIDs(ctx context.Context, arg DeleteQueueItem
 			&i.Priority,
 			&i.DagName,
 			&i.DagRunID,
-			&i.Payload,
+			&i.DataVersion,
+			&i.Data,
 			&i.EnqueuedAt,
 			&i.LeaseToken,
 			&i.LeaseOwner,
@@ -206,7 +209,7 @@ WITH picked AS (
 )
 DELETE FROM dagu_queue_items
 WHERE id IN (SELECT id FROM picked)
-RETURNING id, queue_name, priority, dag_name, dag_run_id, payload, enqueued_at, lease_token, lease_owner, leased_at, lease_expires_at, created_at, updated_at
+RETURNING id, queue_name, priority, dag_name, dag_run_id, data_version, data, enqueued_at, lease_token, lease_owner, leased_at, lease_expires_at, created_at, updated_at
 `
 
 func (q *Queries) DequeueQueueItemByName(ctx context.Context, queueName string) (DaguQueueItem, error) {
@@ -218,7 +221,8 @@ func (q *Queries) DequeueQueueItemByName(ctx context.Context, queueName string) 
 		&i.Priority,
 		&i.DagName,
 		&i.DagRunID,
-		&i.Payload,
+		&i.DataVersion,
+		&i.Data,
 		&i.EnqueuedAt,
 		&i.LeaseToken,
 		&i.LeaseOwner,
@@ -237,7 +241,7 @@ INSERT INTO dagu_queue_items (
     priority,
     dag_name,
     dag_run_id,
-    payload,
+    data,
     enqueued_at
 ) VALUES (
     $1,
@@ -256,7 +260,7 @@ type EnqueueQueueItemParams struct {
 	Priority   int32              `json:"priority"`
 	DagName    string             `json:"dag_name"`
 	DagRunID   string             `json:"dag_run_id"`
-	Payload    []byte             `json:"payload"`
+	Data       []byte             `json:"data"`
 	EnqueuedAt pgtype.Timestamptz `json:"enqueued_at"`
 }
 
@@ -267,14 +271,14 @@ func (q *Queries) EnqueueQueueItem(ctx context.Context, arg EnqueueQueueItemPara
 		arg.Priority,
 		arg.DagName,
 		arg.DagRunID,
-		arg.Payload,
+		arg.Data,
 		arg.EnqueuedAt,
 	)
 	return err
 }
 
 const listAllQueueItems = `-- name: ListAllQueueItems :many
-SELECT id, queue_name, priority, dag_name, dag_run_id, payload, enqueued_at, lease_token, lease_owner, leased_at, lease_expires_at, created_at, updated_at
+SELECT id, queue_name, priority, dag_name, dag_run_id, data_version, data, enqueued_at, lease_token, lease_owner, leased_at, lease_expires_at, created_at, updated_at
 FROM dagu_queue_items
 ORDER BY queue_name ASC, priority ASC, enqueued_at ASC, id ASC
 `
@@ -294,7 +298,8 @@ func (q *Queries) ListAllQueueItems(ctx context.Context) ([]DaguQueueItem, error
 			&i.Priority,
 			&i.DagName,
 			&i.DagRunID,
-			&i.Payload,
+			&i.DataVersion,
+			&i.Data,
 			&i.EnqueuedAt,
 			&i.LeaseToken,
 			&i.LeaseOwner,
@@ -314,7 +319,7 @@ func (q *Queries) ListAllQueueItems(ctx context.Context) ([]DaguQueueItem, error
 }
 
 const listQueueItemsByDAGName = `-- name: ListQueueItemsByDAGName :many
-SELECT id, queue_name, priority, dag_name, dag_run_id, payload, enqueued_at, lease_token, lease_owner, leased_at, lease_expires_at, created_at, updated_at
+SELECT id, queue_name, priority, dag_name, dag_run_id, data_version, data, enqueued_at, lease_token, lease_owner, leased_at, lease_expires_at, created_at, updated_at
 FROM dagu_queue_items
 WHERE queue_name = $1
   AND dag_name = $2
@@ -341,7 +346,8 @@ func (q *Queries) ListQueueItemsByDAGName(ctx context.Context, arg ListQueueItem
 			&i.Priority,
 			&i.DagName,
 			&i.DagRunID,
-			&i.Payload,
+			&i.DataVersion,
+			&i.Data,
 			&i.EnqueuedAt,
 			&i.LeaseToken,
 			&i.LeaseOwner,
@@ -361,7 +367,7 @@ func (q *Queries) ListQueueItemsByDAGName(ctx context.Context, arg ListQueueItem
 }
 
 const listQueueItemsByName = `-- name: ListQueueItemsByName :many
-SELECT id, queue_name, priority, dag_name, dag_run_id, payload, enqueued_at, lease_token, lease_owner, leased_at, lease_expires_at, created_at, updated_at
+SELECT id, queue_name, priority, dag_name, dag_run_id, data_version, data, enqueued_at, lease_token, lease_owner, leased_at, lease_expires_at, created_at, updated_at
 FROM dagu_queue_items
 WHERE queue_name = $1
 ORDER BY priority ASC, enqueued_at ASC, id ASC
@@ -382,7 +388,8 @@ func (q *Queries) ListQueueItemsByName(ctx context.Context, queueName string) ([
 			&i.Priority,
 			&i.DagName,
 			&i.DagRunID,
-			&i.Payload,
+			&i.DataVersion,
+			&i.Data,
 			&i.EnqueuedAt,
 			&i.LeaseToken,
 			&i.LeaseOwner,
@@ -402,7 +409,7 @@ func (q *Queries) ListQueueItemsByName(ctx context.Context, queueName string) ([
 }
 
 const listQueueItemsByNameCursor = `-- name: ListQueueItemsByNameCursor :many
-SELECT id, queue_name, priority, dag_name, dag_run_id, payload, enqueued_at, lease_token, lease_owner, leased_at, lease_expires_at, created_at, updated_at
+SELECT id, queue_name, priority, dag_name, dag_run_id, data_version, data, enqueued_at, lease_token, lease_owner, leased_at, lease_expires_at, created_at, updated_at
 FROM dagu_queue_items
 WHERE queue_name = $1
   AND (
@@ -452,7 +459,8 @@ func (q *Queries) ListQueueItemsByNameCursor(ctx context.Context, arg ListQueueI
 			&i.Priority,
 			&i.DagName,
 			&i.DagRunID,
-			&i.Payload,
+			&i.DataVersion,
+			&i.Data,
 			&i.EnqueuedAt,
 			&i.LeaseToken,
 			&i.LeaseOwner,

@@ -69,7 +69,7 @@ func (s *Store) Enqueue(ctx context.Context, name string, priority exec.QueuePri
 		Priority:   int32(priority), //nolint:gosec
 		DagName:    dagRun.Name,
 		DagRunID:   dagRun.ID,
-		Payload:    payload,
+		Data:       payload,
 		EnqueuedAt: timestamptz(now),
 	})
 }
@@ -313,7 +313,7 @@ type postgresQueuedItem struct {
 func queueItemFromRow(row db.DaguQueueItem) exec.QueuedItemData {
 	return &postgresQueuedItem{
 		id:       row.ID.String(),
-		payload:  row.Payload,
+		payload:  row.Data,
 		fallback: exec.NewDAGRunRef(row.DagName, row.DagRunID),
 	}
 }
@@ -321,7 +321,7 @@ func queueItemFromRow(row db.DaguQueueItem) exec.QueuedItemData {
 func leasedQueueItemFromRow(row db.DaguQueueItem) exec.LeasedQueueItemData {
 	item := &postgresQueuedItem{
 		id:       row.ID.String(),
-		payload:  row.Payload,
+		payload:  row.Data,
 		fallback: exec.NewDAGRunRef(row.DagName, row.DagRunID),
 	}
 	if row.LeaseToken.Valid {

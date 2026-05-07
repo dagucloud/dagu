@@ -30,10 +30,6 @@ func (s *auditStore) Append(ctx context.Context, entry *audit.Entry) error {
 		return err
 	}
 	entry.ID = idString
-	details, err := auditDetailsJSON(entry.Details)
-	if err != nil {
-		return err
-	}
 	data, err := json.Marshal(entry)
 	if err != nil {
 		return fmt.Errorf("marshal audit entry: %w", err)
@@ -46,7 +42,6 @@ func (s *auditStore) Append(ctx context.Context, entry *audit.Entry) error {
 		UserID:     entry.UserID,
 		Username:   entry.Username,
 		IpAddress:  entry.IPAddress,
-		Details:    details,
 		Data:       data,
 	})
 }
@@ -114,22 +109,5 @@ func auditEntryFromRow(row db.DaguAuditEntry) (*audit.Entry, error) {
 	entry.UserID = row.UserID
 	entry.Username = row.Username
 	entry.IPAddress = row.IpAddress.String
-	if len(row.Details) > 0 {
-		entry.Details = string(row.Details)
-	}
 	return &entry, nil
-}
-
-func auditDetailsJSON(details string) ([]byte, error) {
-	if details == "" {
-		return nil, nil
-	}
-	var raw json.RawMessage
-	if err := json.Unmarshal([]byte(details), &raw); err != nil {
-		return json.Marshal(map[string]string{"details": details})
-	}
-	if len(raw) == 0 || raw[0] != '{' {
-		return json.Marshal(map[string]json.RawMessage{"details": raw})
-	}
-	return []byte(details), nil
 }

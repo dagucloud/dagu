@@ -37,6 +37,54 @@ func TestMigrationUsesExistingIdentifierConstraints(t *testing.T) {
 	assertSQLFragment(t, sqlText, "attempt_id dagu_attempt_id")
 }
 
+func TestMigrationUsesCanonicalJSONDocuments(t *testing.T) {
+	data, err := migrations.FS.ReadFile("20260506000000_create_control_plane_store.sql")
+	require.NoError(t, err)
+
+	sqlText := string(data)
+	for _, tableName := range []string{
+		"dagu_dag_runs",
+		"dagu_dag_run_attempts",
+		"dagu_queue_items",
+		"dagu_dispatch_tasks",
+		"dagu_worker_heartbeats",
+		"dagu_dag_run_leases",
+		"dagu_active_distributed_runs",
+		"dagu_service_instances",
+		"dagu_audit_entries",
+		"dagu_users",
+		"dagu_api_keys",
+		"dagu_webhooks",
+		"dagu_workspaces",
+		"dagu_agent_sessions",
+		"dagu_agent_session_messages",
+		"dagu_events",
+	} {
+		body := createTableBody(t, sqlText, tableName)
+		assertSQLFragment(t, body, "data_version integer NOT NULL DEFAULT 1")
+		assertSQLFragment(t, body, "data jsonb NOT NULL")
+		assertSQLFragment(t, body, "CHECK (data_version = 1)")
+		assertSQLFragment(t, body, "CHECK (jsonb_typeof(data) = 'object')")
+	}
+
+	assert.NotContains(t, sqlText, "status_data")
+	assert.NotContains(t, sqlText, "dag_data")
+	assert.NotContains(t, sqlText, "outputs_data")
+	assert.NotContains(t, sqlText, "messages_data")
+	assert.NotContains(t, sqlText, "payload jsonb")
+	assert.NotContains(t, sqlText, "task_data jsonb")
+	assert.NotContains(t, sqlText, "details jsonb")
+	assert.NotContains(t, sqlText, "event_data jsonb")
+}
+
+func createTableBody(t *testing.T, sqlText, tableName string) string {
+	t.Helper()
+	pattern := regexp.MustCompile(`(?s)CREATE TABLE ` + regexp.QuoteMeta(tableName) + ` \((.*?)\);`)
+	matches := pattern.FindStringSubmatch(sqlText)
+	require.Len(t, matches, 2, "CREATE TABLE %s not found", tableName)
+	return matches[1]
+}
+
 func assertSQLFragment(t *testing.T, sqlText, fragment string) {
 	t.Helper()
 	quoted := regexp.QuoteMeta(fragment)

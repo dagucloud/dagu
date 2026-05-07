@@ -262,7 +262,7 @@ func (q *Queries) DeleteWebhookByDAGName(ctx context.Context, dagName string) (i
 }
 
 const getAPIKeyByID = `-- name: GetAPIKeyByID :one
-SELECT id, name, role, key_hash, key_prefix, created_by, workspace_access, last_used_at, data, created_at, updated_at
+SELECT id, name, role, key_hash, key_prefix, created_by, workspace_access, last_used_at, data_version, data, created_at, updated_at
 FROM dagu_api_keys
 WHERE id = $1
 `
@@ -279,6 +279,7 @@ func (q *Queries) GetAPIKeyByID(ctx context.Context, id uuid.UUID) (DaguApiKey, 
 		&i.CreatedBy,
 		&i.WorkspaceAccess,
 		&i.LastUsedAt,
+		&i.DataVersion,
 		&i.Data,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -287,7 +288,7 @@ func (q *Queries) GetAPIKeyByID(ctx context.Context, id uuid.UUID) (DaguApiKey, 
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, password_hash, role, auth_provider, oidc_issuer, oidc_subject, is_disabled, workspace_access, data, created_at, updated_at
+SELECT id, username, password_hash, role, auth_provider, oidc_issuer, oidc_subject, is_disabled, workspace_access, data_version, data, created_at, updated_at
 FROM dagu_users
 WHERE id = $1
 `
@@ -305,6 +306,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (DaguUser, erro
 		&i.OidcSubject,
 		&i.IsDisabled,
 		&i.WorkspaceAccess,
+		&i.DataVersion,
 		&i.Data,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -313,7 +315,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (DaguUser, erro
 }
 
 const getUserByOIDCIdentity = `-- name: GetUserByOIDCIdentity :one
-SELECT id, username, password_hash, role, auth_provider, oidc_issuer, oidc_subject, is_disabled, workspace_access, data, created_at, updated_at
+SELECT id, username, password_hash, role, auth_provider, oidc_issuer, oidc_subject, is_disabled, workspace_access, data_version, data, created_at, updated_at
 FROM dagu_users
 WHERE oidc_issuer = $1
   AND oidc_subject = $2
@@ -337,6 +339,7 @@ func (q *Queries) GetUserByOIDCIdentity(ctx context.Context, arg GetUserByOIDCId
 		&i.OidcSubject,
 		&i.IsDisabled,
 		&i.WorkspaceAccess,
+		&i.DataVersion,
 		&i.Data,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -345,7 +348,7 @@ func (q *Queries) GetUserByOIDCIdentity(ctx context.Context, arg GetUserByOIDCId
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, password_hash, role, auth_provider, oidc_issuer, oidc_subject, is_disabled, workspace_access, data, created_at, updated_at
+SELECT id, username, password_hash, role, auth_provider, oidc_issuer, oidc_subject, is_disabled, workspace_access, data_version, data, created_at, updated_at
 FROM dagu_users
 WHERE username = $1
 `
@@ -363,6 +366,7 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (DaguU
 		&i.OidcSubject,
 		&i.IsDisabled,
 		&i.WorkspaceAccess,
+		&i.DataVersion,
 		&i.Data,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -371,7 +375,7 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (DaguU
 }
 
 const getWebhookByDAGName = `-- name: GetWebhookByDAGName :one
-SELECT id, dag_name, token_hash, token_prefix, enabled, auth_mode, hmac_enforcement_mode, created_by, last_used_at, data, created_at, updated_at
+SELECT id, dag_name, token_hash, token_prefix, enabled, auth_mode, hmac_enforcement_mode, created_by, last_used_at, data_version, data, created_at, updated_at
 FROM dagu_webhooks
 WHERE dag_name = $1
 `
@@ -389,6 +393,7 @@ func (q *Queries) GetWebhookByDAGName(ctx context.Context, dagName string) (Dagu
 		&i.HmacEnforcementMode,
 		&i.CreatedBy,
 		&i.LastUsedAt,
+		&i.DataVersion,
 		&i.Data,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -397,7 +402,7 @@ func (q *Queries) GetWebhookByDAGName(ctx context.Context, dagName string) (Dagu
 }
 
 const getWebhookByID = `-- name: GetWebhookByID :one
-SELECT id, dag_name, token_hash, token_prefix, enabled, auth_mode, hmac_enforcement_mode, created_by, last_used_at, data, created_at, updated_at
+SELECT id, dag_name, token_hash, token_prefix, enabled, auth_mode, hmac_enforcement_mode, created_by, last_used_at, data_version, data, created_at, updated_at
 FROM dagu_webhooks
 WHERE id = $1
 `
@@ -415,6 +420,7 @@ func (q *Queries) GetWebhookByID(ctx context.Context, id uuid.UUID) (DaguWebhook
 		&i.HmacEnforcementMode,
 		&i.CreatedBy,
 		&i.LastUsedAt,
+		&i.DataVersion,
 		&i.Data,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -423,7 +429,7 @@ func (q *Queries) GetWebhookByID(ctx context.Context, id uuid.UUID) (DaguWebhook
 }
 
 const listAPIKeys = `-- name: ListAPIKeys :many
-SELECT id, name, role, key_hash, key_prefix, created_by, workspace_access, last_used_at, data, created_at, updated_at
+SELECT id, name, role, key_hash, key_prefix, created_by, workspace_access, last_used_at, data_version, data, created_at, updated_at
 FROM dagu_api_keys
 ORDER BY created_at DESC, id DESC
 `
@@ -446,6 +452,7 @@ func (q *Queries) ListAPIKeys(ctx context.Context) ([]DaguApiKey, error) {
 			&i.CreatedBy,
 			&i.WorkspaceAccess,
 			&i.LastUsedAt,
+			&i.DataVersion,
 			&i.Data,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -461,7 +468,7 @@ func (q *Queries) ListAPIKeys(ctx context.Context) ([]DaguApiKey, error) {
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, username, password_hash, role, auth_provider, oidc_issuer, oidc_subject, is_disabled, workspace_access, data, created_at, updated_at
+SELECT id, username, password_hash, role, auth_provider, oidc_issuer, oidc_subject, is_disabled, workspace_access, data_version, data, created_at, updated_at
 FROM dagu_users
 ORDER BY username ASC, id ASC
 `
@@ -485,6 +492,7 @@ func (q *Queries) ListUsers(ctx context.Context) ([]DaguUser, error) {
 			&i.OidcSubject,
 			&i.IsDisabled,
 			&i.WorkspaceAccess,
+			&i.DataVersion,
 			&i.Data,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -500,7 +508,7 @@ func (q *Queries) ListUsers(ctx context.Context) ([]DaguUser, error) {
 }
 
 const listWebhooks = `-- name: ListWebhooks :many
-SELECT id, dag_name, token_hash, token_prefix, enabled, auth_mode, hmac_enforcement_mode, created_by, last_used_at, data, created_at, updated_at
+SELECT id, dag_name, token_hash, token_prefix, enabled, auth_mode, hmac_enforcement_mode, created_by, last_used_at, data_version, data, created_at, updated_at
 FROM dagu_webhooks
 ORDER BY dag_name ASC, id ASC
 `
@@ -524,6 +532,7 @@ func (q *Queries) ListWebhooks(ctx context.Context) ([]DaguWebhook, error) {
 			&i.HmacEnforcementMode,
 			&i.CreatedBy,
 			&i.LastUsedAt,
+			&i.DataVersion,
 			&i.Data,
 			&i.CreatedAt,
 			&i.UpdatedAt,

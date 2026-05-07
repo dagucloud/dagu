@@ -37,29 +37,36 @@ func (s *Store) attemptFromRow(row db.DaguDagRunAttempt) (*Attempt, error) {
 }
 
 func statusFromListRow(row db.DaguDagRun) (*exec.DAGRunStatus, error) {
-	return statusFromJSON(row.StatusData)
+	return statusFromDocumentJSON(row.Data)
 }
 
 func statusFromRow(row db.DaguDagRunAttempt) (*exec.DAGRunStatus, error) {
-	return statusFromJSON(row.StatusData)
+	return statusFromDocumentJSON(row.Data)
 }
 
-func statusFromJSON(data []byte) (*exec.DAGRunStatus, error) {
+func statusFromDocumentJSON(data []byte) (*exec.DAGRunStatus, error) {
 	if len(data) == 0 {
 		return nil, exec.ErrNoStatusData
 	}
-	return exec.StatusFromJSON(string(data))
+	var doc dagRunDocument
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("unmarshal DAG-run document: %w", err)
+	}
+	if doc.Status == nil {
+		return nil, exec.ErrNoStatusData
+	}
+	return doc.Status, nil
 }
 
 func updateStatus(ctx context.Context, q *db.Queries, id uuid.UUID, status exec.DAGRunStatus) error {
-	data, err := json.Marshal(status)
+	data, err := marshalDAGRunStatus(status)
 	if err != nil {
 		return err
 	}
 	workspaceName, workspaceValid := workspaceFromLabels(core.NewLabels(status.Labels))
 	return q.UpdateAttemptStatus(ctx, db.UpdateAttemptStatusParams{
 		ID:             id,
-		StatusData:     data,
+		StatusJson:     data,
 		Status:         int32(status.Status), //nolint:gosec
 		Workspace:      workspaceName,
 		WorkspaceValid: workspaceValid,
@@ -68,13 +75,47 @@ func updateStatus(ctx context.Context, q *db.Queries, id uuid.UUID, status exec.
 	})
 }
 
-func marshalOptionalDAG(dag *core.DAG) ([]byte, error) {
-	if dag == nil {
-		return nil, nil
-	}
-	data, err := json.Marshal(dag)
+type dagRunDocument struct {
+	Status   *exec.DAGRunStatus           `json:"status,omitempty"`
+	DAG      *core.DAG                    `json:"dag,omitempty"`
+	Outputs  *exec.DAGRunOutputs          `json:"outputs,omitempty"`
+	Messages map[string][]exec.LLMMessage `json:"messages,omitempty"`
+}
+
+func marshalDAGRunStatus(status exec.DAGRunStatus) ([]byte, error) {
+	data, err := json.Marshal(status)
 	if err != nil {
-		return nil, fmt.Errorf("marshal DAG: %w", err)
+		return nil, fmt.Errorf("marshal DAG-run status: %w", err)
+	}
+	return data, nil
+}
+
+func marshalAttemptData(dag *core.DAG) ([]byte, error) {
+	doc := dagRunDocument{}
+	if dag != nil {
+		doc.DAG = dag
+	}
+	return marshalDAGRunDocument(doc)
+}
+
+func attemptDocumentFromJSON(data []byte) (*dagRunDocument, error) {
+	if len(data) == 0 {
+		return &dagRunDocument{}, nil
+	}
+	var doc dagRunDocument
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("unmarshal DAG-run attempt document: %w", err)
+	}
+	return &doc, nil
+}
+
+func marshalDAGRunDocument(doc dagRunDocument) ([]byte, error) {
+	data, err := json.Marshal(doc)
+	if err != nil {
+		return nil, fmt.Errorf("marshal DAG-run document: %w", err)
+	}
+	if string(data) == "null" {
+		return []byte("{}"), nil
 	}
 	return data, nil
 }

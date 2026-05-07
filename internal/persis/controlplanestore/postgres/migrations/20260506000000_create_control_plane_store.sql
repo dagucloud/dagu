@@ -81,11 +81,14 @@ CREATE TABLE dagu_dag_runs (
     status dagu_status_code,
     started_at timestamptz,
     finished_at timestamptz,
-    status_data jsonb,
+    data_version integer NOT NULL DEFAULT 1,
+    data jsonb NOT NULL DEFAULT '{}'::jsonb,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     CHECK (workspace IS NULL OR workspace_valid),
-    CHECK (status_data IS NULL OR jsonb_typeof(status_data) = 'object')
+    CHECK (data_version = 1),
+    CHECK (jsonb_typeof(data) = 'object'),
+    CHECK (NOT data ? 'status' OR jsonb_typeof(data -> 'status') = 'object')
 );
 
 CREATE TABLE dagu_dag_run_attempts (
@@ -104,20 +107,20 @@ CREATE TABLE dagu_dag_run_attempts (
     status dagu_status_code,
     started_at timestamptz,
     finished_at timestamptz,
-    status_data jsonb,
-    dag_data jsonb,
-    outputs_data jsonb,
-    messages_data jsonb NOT NULL DEFAULT '{}'::jsonb,
+    data_version integer NOT NULL DEFAULT 1,
+    data jsonb NOT NULL DEFAULT '{}'::jsonb,
     cancel_requested boolean NOT NULL DEFAULT false,
     hidden boolean NOT NULL DEFAULT false,
     local_work_dir text NOT NULL DEFAULT '',
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     CHECK (workspace IS NULL OR workspace_valid),
-    CHECK (status_data IS NULL OR jsonb_typeof(status_data) = 'object'),
-    CHECK (dag_data IS NULL OR jsonb_typeof(dag_data) = 'object'),
-    CHECK (outputs_data IS NULL OR jsonb_typeof(outputs_data) = 'object'),
-    CHECK (jsonb_typeof(messages_data) = 'object')
+    CHECK (data_version = 1),
+    CHECK (jsonb_typeof(data) = 'object'),
+    CHECK (NOT data ? 'status' OR jsonb_typeof(data -> 'status') = 'object'),
+    CHECK (NOT data ? 'dag' OR jsonb_typeof(data -> 'dag') = 'object'),
+    CHECK (NOT data ? 'outputs' OR jsonb_typeof(data -> 'outputs') = 'object'),
+    CHECK (NOT data ? 'messages' OR jsonb_typeof(data -> 'messages') = 'object')
 );
 
 CREATE UNIQUE INDEX dagu_dag_runs_root_identity_uidx
@@ -130,39 +133,39 @@ CREATE UNIQUE INDEX dagu_dag_runs_sub_identity_uidx
 
 CREATE INDEX dagu_dag_runs_list_order_idx
     ON dagu_dag_runs (run_created_at DESC, dag_name ASC, dag_run_id ASC)
-    WHERE is_root AND status_data IS NOT NULL;
+    WHERE is_root AND data ? 'status';
 
 CREATE INDEX dagu_dag_runs_workspace_idx
     ON dagu_dag_runs (workspace, run_created_at DESC)
-    WHERE is_root AND status_data IS NOT NULL;
+    WHERE is_root AND data ? 'status';
 
 CREATE INDEX dagu_dag_runs_status_idx
     ON dagu_dag_runs (status, run_created_at DESC)
-    WHERE is_root AND status_data IS NOT NULL;
+    WHERE is_root AND data ? 'status';
 
 CREATE INDEX dagu_dag_runs_started_at_idx
     ON dagu_dag_runs (started_at DESC)
-    WHERE is_root AND status_data IS NOT NULL;
+    WHERE is_root AND data ? 'status';
 
 CREATE INDEX dagu_dag_runs_finished_at_idx
     ON dagu_dag_runs (finished_at DESC)
-    WHERE is_root AND status_data IS NOT NULL;
+    WHERE is_root AND data ? 'status';
 
 CREATE INDEX dagu_dag_runs_cleanup_idx
     ON dagu_dag_runs (dag_name, run_created_at DESC, dag_run_id ASC)
     WHERE is_root;
 
-CREATE INDEX dagu_dag_runs_status_data_gin_idx
-    ON dagu_dag_runs USING gin (status_data jsonb_path_ops)
-    WHERE status_data IS NOT NULL;
+CREATE INDEX dagu_dag_runs_data_gin_idx
+    ON dagu_dag_runs USING gin (data jsonb_path_ops)
+    WHERE data ? 'status';
 
 CREATE INDEX dagu_dag_runs_labels_gin_idx
-    ON dagu_dag_runs USING gin ((status_data -> 'labels'))
-    WHERE status_data IS NOT NULL;
+    ON dagu_dag_runs USING gin ((data #> '{status,labels}'))
+    WHERE data ? 'status';
 
 CREATE INDEX dagu_dag_run_attempts_latest_by_run_idx
     ON dagu_dag_run_attempts (run_id, attempt_created_at DESC, id DESC)
-    WHERE NOT hidden AND status_data IS NOT NULL;
+    WHERE NOT hidden AND data ? 'status';
 
 CREATE INDEX dagu_dag_run_attempts_run_idx
     ON dagu_dag_run_attempts (run_id, attempt_created_at DESC, id DESC);
@@ -173,7 +176,8 @@ CREATE TABLE dagu_queue_items (
     priority dagu_queue_priority NOT NULL,
     dag_name dagu_dag_name NOT NULL,
     dag_run_id dagu_dag_run_id NOT NULL,
-    payload jsonb NOT NULL,
+    data_version integer NOT NULL DEFAULT 1,
+    data jsonb NOT NULL,
     enqueued_at timestamptz NOT NULL DEFAULT now(),
     lease_token dagu_uuid_v7,
     lease_owner text,
@@ -181,7 +185,8 @@ CREATE TABLE dagu_queue_items (
     lease_expires_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
-    CHECK (jsonb_typeof(payload) = 'object'),
+    CHECK (data_version = 1),
+    CHECK (jsonb_typeof(data) = 'object'),
     CHECK (
         (lease_token IS NULL AND lease_owner IS NULL AND leased_at IS NULL AND lease_expires_at IS NULL)
         OR (lease_token IS NOT NULL AND lease_owner IS NOT NULL AND leased_at IS NOT NULL AND lease_expires_at IS NOT NULL)
@@ -203,7 +208,8 @@ CREATE TABLE dagu_dispatch_tasks (
     queue_name text NOT NULL CHECK (queue_name <> ''),
     attempt_key text NOT NULL CHECK (attempt_key <> ''),
     worker_selector jsonb NOT NULL DEFAULT '{}'::jsonb,
-    task_data jsonb NOT NULL,
+    data_version integer NOT NULL DEFAULT 1,
+    data jsonb NOT NULL,
     enqueued_at timestamptz NOT NULL DEFAULT now(),
     claim_token dagu_uuid_v7,
     claimed_at timestamptz,
@@ -216,7 +222,8 @@ CREATE TABLE dagu_dispatch_tasks (
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     CHECK (jsonb_typeof(worker_selector) = 'object'),
-    CHECK (jsonb_typeof(task_data) = 'object'),
+    CHECK (data_version = 1),
+    CHECK (jsonb_typeof(data) = 'object'),
     CHECK (
         (claim_token IS NULL AND claimed_at IS NULL AND claim_expires_at IS NULL)
         OR (claim_token IS NOT NULL AND claimed_at IS NOT NULL AND claim_expires_at IS NOT NULL)
@@ -241,11 +248,13 @@ CREATE TABLE dagu_worker_heartbeats (
     labels jsonb NOT NULL DEFAULT '{}'::jsonb,
     stats jsonb,
     last_heartbeat_at timestamptz NOT NULL,
+    data_version integer NOT NULL DEFAULT 1,
     data jsonb NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     CHECK (jsonb_typeof(labels) = 'object'),
     CHECK (stats IS NULL OR jsonb_typeof(stats) = 'object'),
+    CHECK (data_version = 1),
     CHECK (jsonb_typeof(data) = 'object')
 );
 
@@ -266,9 +275,11 @@ CREATE TABLE dagu_dag_run_leases (
     owner_port integer,
     claimed_at timestamptz NOT NULL,
     last_heartbeat_at timestamptz NOT NULL,
+    data_version integer NOT NULL DEFAULT 1,
     data jsonb NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
+    CHECK (data_version = 1),
     CHECK (jsonb_typeof(data) = 'object')
 );
 
@@ -288,9 +299,11 @@ CREATE TABLE dagu_active_distributed_runs (
     worker_id text NOT NULL CHECK (worker_id <> ''),
     status dagu_status_code NOT NULL,
     observed_at timestamptz NOT NULL,
+    data_version integer NOT NULL DEFAULT 1,
     data jsonb NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
+    CHECK (data_version = 1),
     CHECK (jsonb_typeof(data) = 'object')
 );
 
@@ -305,10 +318,12 @@ CREATE TABLE dagu_service_instances (
     status dagu_service_status NOT NULL,
     started_at timestamptz NOT NULL,
     last_heartbeat_at timestamptz NOT NULL,
+    data_version integer NOT NULL DEFAULT 1,
     data jsonb NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (service_name, instance_id),
+    CHECK (data_version = 1),
     CHECK (jsonb_typeof(data) = 'object')
 );
 
@@ -323,10 +338,10 @@ CREATE TABLE dagu_audit_entries (
     user_id text NOT NULL,
     username text NOT NULL,
     ip_address text,
-    details jsonb,
+    data_version integer NOT NULL DEFAULT 1,
     data jsonb NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
-    CHECK (details IS NULL OR jsonb_typeof(details) = 'object'),
+    CHECK (data_version = 1),
     CHECK (jsonb_typeof(data) = 'object')
 );
 
@@ -349,10 +364,12 @@ CREATE TABLE dagu_users (
     oidc_subject text,
     is_disabled boolean NOT NULL DEFAULT false,
     workspace_access jsonb,
+    data_version integer NOT NULL DEFAULT 1,
     data jsonb NOT NULL,
     created_at timestamptz NOT NULL,
     updated_at timestamptz NOT NULL,
     CHECK (workspace_access IS NULL OR jsonb_typeof(workspace_access) = 'object'),
+    CHECK (data_version = 1),
     CHECK (jsonb_typeof(data) = 'object'),
     CHECK ((oidc_issuer IS NULL AND oidc_subject IS NULL) OR (oidc_issuer IS NOT NULL AND oidc_subject IS NOT NULL))
 );
@@ -370,10 +387,12 @@ CREATE TABLE dagu_api_keys (
     created_by text NOT NULL,
     workspace_access jsonb,
     last_used_at timestamptz,
+    data_version integer NOT NULL DEFAULT 1,
     data jsonb NOT NULL,
     created_at timestamptz NOT NULL,
     updated_at timestamptz NOT NULL,
     CHECK (workspace_access IS NULL OR jsonb_typeof(workspace_access) = 'object'),
+    CHECK (data_version = 1),
     CHECK (jsonb_typeof(data) = 'object')
 );
 
@@ -387,20 +406,24 @@ CREATE TABLE dagu_webhooks (
     hmac_enforcement_mode text,
     created_by text NOT NULL,
     last_used_at timestamptz,
+    data_version integer NOT NULL DEFAULT 1,
     data jsonb NOT NULL,
     created_at timestamptz NOT NULL,
     updated_at timestamptz NOT NULL,
     CHECK (auth_mode IS NULL OR auth_mode IN ('token_only', 'token_and_hmac', 'hmac_only')),
     CHECK (hmac_enforcement_mode IS NULL OR hmac_enforcement_mode IN ('strict', 'observe')),
+    CHECK (data_version = 1),
     CHECK (jsonb_typeof(data) = 'object')
 );
 
 CREATE TABLE dagu_workspaces (
     id dagu_uuid_v7 PRIMARY KEY,
     name dagu_workspace_name NOT NULL UNIQUE,
+    data_version integer NOT NULL DEFAULT 1,
     data jsonb NOT NULL,
     created_at timestamptz NOT NULL,
     updated_at timestamptz NOT NULL,
+    CHECK (data_version = 1),
     CHECK (jsonb_typeof(data) = 'object')
 );
 
@@ -412,9 +435,11 @@ CREATE TABLE dagu_agent_sessions (
     model text,
     parent_session_id dagu_uuid_v7 REFERENCES dagu_agent_sessions(id) ON DELETE CASCADE,
     delegate_task text,
+    data_version integer NOT NULL DEFAULT 1,
     data jsonb NOT NULL,
     created_at timestamptz NOT NULL,
     updated_at timestamptz NOT NULL,
+    CHECK (data_version = 1),
     CHECK (jsonb_typeof(data) = 'object')
 );
 
@@ -431,7 +456,9 @@ CREATE TABLE dagu_agent_session_messages (
     message_type text NOT NULL CHECK (message_type IN ('user', 'assistant', 'error', 'ui_action', 'user_prompt')),
     sequence_id bigint NOT NULL,
     created_at timestamptz NOT NULL,
+    data_version integer NOT NULL DEFAULT 1,
     data jsonb NOT NULL,
+    CHECK (data_version = 1),
     CHECK (jsonb_typeof(data) = 'object'),
     UNIQUE (session_id, sequence_id)
 );
@@ -456,10 +483,10 @@ CREATE TABLE dagu_events (
     user_id text,
     model text,
     status text,
-    event_data jsonb,
+    data_version integer NOT NULL DEFAULT 1,
     data jsonb NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
-    CHECK (event_data IS NULL OR jsonb_typeof(event_data) = 'object'),
+    CHECK (data_version = 1),
     CHECK (jsonb_typeof(data) = 'object')
 );
 

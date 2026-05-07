@@ -200,7 +200,7 @@ func (s *Store) insertAttempt(
 		}
 	}
 
-	dagData, err := marshalOptionalDAG(dag)
+	data, err := marshalAttemptData(dag)
 	if err != nil {
 		return db.DaguDagRunAttempt{}, err
 	}
@@ -220,7 +220,7 @@ func (s *Store) insertAttempt(
 		AttemptCreatedAt: timestamptz(attemptCreatedAt),
 		Workspace:        workspaceName,
 		WorkspaceValid:   workspaceValid,
-		DagData:          dagData,
+		Data:             data,
 		LocalWorkDir:     workDir,
 	})
 }

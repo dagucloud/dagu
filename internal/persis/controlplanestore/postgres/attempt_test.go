@@ -19,8 +19,8 @@ func TestNewAttemptReturnsDAGDataError(t *testing.T) {
 		DagName:   "example",
 		DagRunID:  "run-1",
 		AttemptID: "attempt-1",
-		DagData:   []byte("{"),
+		Data:      []byte("{"),
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), `unmarshal DAG data for dag "example" run "run-1" attempt "attempt-1"`)
+	assert.Contains(t, err.Error(), `unmarshal DAG-run attempt data for dag "example" run "run-1" attempt "attempt-1"`)
 }

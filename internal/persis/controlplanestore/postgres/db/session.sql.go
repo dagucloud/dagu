@@ -120,7 +120,7 @@ func (q *Queries) DeleteAgentSession(ctx context.Context, id uuid.UUID) (int64, 
 }
 
 const getAgentSession = `-- name: GetAgentSession :one
-SELECT id, user_id, dag_name, title, model, parent_session_id, delegate_task, data, created_at, updated_at
+SELECT id, user_id, dag_name, title, model, parent_session_id, delegate_task, data_version, data, created_at, updated_at
 FROM dagu_agent_sessions
 WHERE id = $1
 `
@@ -136,6 +136,7 @@ func (q *Queries) GetAgentSession(ctx context.Context, id uuid.UUID) (DaguAgentS
 		&i.Model,
 		&i.ParentSessionID,
 		&i.DelegateTask,
+		&i.DataVersion,
 		&i.Data,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -157,7 +158,7 @@ func (q *Queries) GetLatestAgentSessionSequenceID(ctx context.Context, sessionID
 }
 
 const listAgentSessionMessages = `-- name: ListAgentSessionMessages :many
-SELECT id, session_id, message_type, sequence_id, created_at, data
+SELECT id, session_id, message_type, sequence_id, created_at, data_version, data
 FROM dagu_agent_session_messages
 WHERE session_id = $1
 ORDER BY sequence_id ASC, id ASC
@@ -178,6 +179,7 @@ func (q *Queries) ListAgentSessionMessages(ctx context.Context, sessionID uuid.U
 			&i.MessageType,
 			&i.SequenceID,
 			&i.CreatedAt,
+			&i.DataVersion,
 			&i.Data,
 		); err != nil {
 			return nil, err
@@ -191,7 +193,7 @@ func (q *Queries) ListAgentSessionMessages(ctx context.Context, sessionID uuid.U
 }
 
 const listAgentSessionsByUser = `-- name: ListAgentSessionsByUser :many
-SELECT id, user_id, dag_name, title, model, parent_session_id, delegate_task, data, created_at, updated_at
+SELECT id, user_id, dag_name, title, model, parent_session_id, delegate_task, data_version, data, created_at, updated_at
 FROM dagu_agent_sessions
 WHERE user_id = $1
 ORDER BY updated_at DESC, id DESC
@@ -214,6 +216,7 @@ func (q *Queries) ListAgentSessionsByUser(ctx context.Context, userID string) ([
 			&i.Model,
 			&i.ParentSessionID,
 			&i.DelegateTask,
+			&i.DataVersion,
 			&i.Data,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -229,7 +232,7 @@ func (q *Queries) ListAgentSessionsByUser(ctx context.Context, userID string) ([
 }
 
 const listAgentSubSessions = `-- name: ListAgentSubSessions :many
-SELECT id, user_id, dag_name, title, model, parent_session_id, delegate_task, data, created_at, updated_at
+SELECT id, user_id, dag_name, title, model, parent_session_id, delegate_task, data_version, data, created_at, updated_at
 FROM dagu_agent_sessions
 WHERE parent_session_id = $1
 ORDER BY updated_at DESC, id DESC
@@ -252,6 +255,7 @@ func (q *Queries) ListAgentSubSessions(ctx context.Context, parentSessionID uuid
 			&i.Model,
 			&i.ParentSessionID,
 			&i.DelegateTask,
+			&i.DataVersion,
 			&i.Data,
 			&i.CreatedAt,
 			&i.UpdatedAt,

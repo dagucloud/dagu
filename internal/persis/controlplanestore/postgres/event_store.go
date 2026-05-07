@@ -46,10 +46,6 @@ func (s *eventStore) Emit(ctx context.Context, event *eventstore.Event) error {
 	if err != nil {
 		return fmt.Errorf("generate event row id: %w", err)
 	}
-	eventData, err := eventDataJSON(event.Data)
-	if err != nil {
-		return err
-	}
 	data, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("marshal event: %w", err)
@@ -71,7 +67,6 @@ func (s *eventStore) Emit(ctx context.Context, event *eventstore.Event) error {
 		UserID:         event.UserID,
 		Model:          event.Model,
 		Status:         event.Status,
-		EventData:      eventData,
 		Data:           data,
 	})
 }
@@ -256,23 +251,7 @@ func eventFromRow(row db.DaguEvent) (*eventstore.Event, error) {
 	event.UserID = row.UserID.String
 	event.Model = row.Model.String
 	event.Status = row.Status.String
-	if len(row.EventData) > 0 {
-		if err := json.Unmarshal(row.EventData, &event.Data); err != nil {
-			return nil, fmt.Errorf("unmarshal event data: %w", err)
-		}
-	}
 	return &event, nil
-}
-
-func eventDataJSON(data map[string]any) ([]byte, error) {
-	if len(data) == 0 {
-		return nil, nil
-	}
-	out, err := json.Marshal(data)
-	if err != nil {
-		return nil, fmt.Errorf("marshal event data: %w", err)
-	}
-	return out, nil
 }
 
 func encodePostgresEventCursor(filter eventstore.QueryFilter, row db.DaguEvent) (string, error) {

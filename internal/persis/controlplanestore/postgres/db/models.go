@@ -21,6 +21,7 @@ type DaguActiveDistributedRun struct {
 	WorkerID     string             `json:"worker_id"`
 	Status       int32              `json:"status"`
 	ObservedAt   pgtype.Timestamptz `json:"observed_at"`
+	DataVersion  int32              `json:"data_version"`
 	Data         []byte             `json:"data"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
@@ -34,6 +35,7 @@ type DaguAgentSession struct {
 	Model           pgtype.Text        `json:"model"`
 	ParentSessionID uuid.NullUUID      `json:"parent_session_id"`
 	DelegateTask    pgtype.Text        `json:"delegate_task"`
+	DataVersion     int32              `json:"data_version"`
 	Data            []byte             `json:"data"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
@@ -45,6 +47,7 @@ type DaguAgentSessionMessage struct {
 	MessageType string             `json:"message_type"`
 	SequenceID  int64              `json:"sequence_id"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	DataVersion int32              `json:"data_version"`
 	Data        []byte             `json:"data"`
 }
 
@@ -57,22 +60,23 @@ type DaguApiKey struct {
 	CreatedBy       string             `json:"created_by"`
 	WorkspaceAccess []byte             `json:"workspace_access"`
 	LastUsedAt      pgtype.Timestamptz `json:"last_used_at"`
+	DataVersion     int32              `json:"data_version"`
 	Data            []byte             `json:"data"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 }
 
 type DaguAuditEntry struct {
-	ID         uuid.UUID          `json:"id"`
-	OccurredAt pgtype.Timestamptz `json:"occurred_at"`
-	Category   string             `json:"category"`
-	Action     string             `json:"action"`
-	UserID     string             `json:"user_id"`
-	Username   string             `json:"username"`
-	IpAddress  pgtype.Text        `json:"ip_address"`
-	Details    []byte             `json:"details"`
-	Data       []byte             `json:"data"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	ID          uuid.UUID          `json:"id"`
+	OccurredAt  pgtype.Timestamptz `json:"occurred_at"`
+	Category    string             `json:"category"`
+	Action      string             `json:"action"`
+	UserID      string             `json:"user_id"`
+	Username    string             `json:"username"`
+	IpAddress   pgtype.Text        `json:"ip_address"`
+	DataVersion int32              `json:"data_version"`
+	Data        []byte             `json:"data"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
 type DaguDagRun struct {
@@ -90,7 +94,8 @@ type DaguDagRun struct {
 	Status                 pgtype.Int4        `json:"status"`
 	StartedAt              pgtype.Timestamptz `json:"started_at"`
 	FinishedAt             pgtype.Timestamptz `json:"finished_at"`
-	StatusData             []byte             `json:"status_data"`
+	DataVersion            int32              `json:"data_version"`
+	Data                   []byte             `json:"data"`
 	CreatedAt              pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
 }
@@ -111,10 +116,8 @@ type DaguDagRunAttempt struct {
 	Status           pgtype.Int4        `json:"status"`
 	StartedAt        pgtype.Timestamptz `json:"started_at"`
 	FinishedAt       pgtype.Timestamptz `json:"finished_at"`
-	StatusData       []byte             `json:"status_data"`
-	DagData          []byte             `json:"dag_data"`
-	OutputsData      []byte             `json:"outputs_data"`
-	MessagesData     []byte             `json:"messages_data"`
+	DataVersion      int32              `json:"data_version"`
+	Data             []byte             `json:"data"`
 	CancelRequested  bool               `json:"cancel_requested"`
 	Hidden           bool               `json:"hidden"`
 	LocalWorkDir     string             `json:"local_work_dir"`
@@ -136,6 +139,7 @@ type DaguDagRunLease struct {
 	OwnerPort       pgtype.Int4        `json:"owner_port"`
 	ClaimedAt       pgtype.Timestamptz `json:"claimed_at"`
 	LastHeartbeatAt pgtype.Timestamptz `json:"last_heartbeat_at"`
+	DataVersion     int32              `json:"data_version"`
 	Data            []byte             `json:"data"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
@@ -146,7 +150,8 @@ type DaguDispatchTask struct {
 	QueueName      string             `json:"queue_name"`
 	AttemptKey     string             `json:"attempt_key"`
 	WorkerSelector []byte             `json:"worker_selector"`
-	TaskData       []byte             `json:"task_data"`
+	DataVersion    int32              `json:"data_version"`
+	Data           []byte             `json:"data"`
 	EnqueuedAt     pgtype.Timestamptz `json:"enqueued_at"`
 	ClaimToken     uuid.NullUUID      `json:"claim_token"`
 	ClaimedAt      pgtype.Timestamptz `json:"claimed_at"`
@@ -177,7 +182,7 @@ type DaguEvent struct {
 	UserID         pgtype.Text        `json:"user_id"`
 	Model          pgtype.Text        `json:"model"`
 	Status         pgtype.Text        `json:"status"`
-	EventData      []byte             `json:"event_data"`
+	DataVersion    int32              `json:"data_version"`
 	Data           []byte             `json:"data"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 }
@@ -188,7 +193,8 @@ type DaguQueueItem struct {
 	Priority       int32              `json:"priority"`
 	DagName        string             `json:"dag_name"`
 	DagRunID       string             `json:"dag_run_id"`
-	Payload        []byte             `json:"payload"`
+	DataVersion    int32              `json:"data_version"`
+	Data           []byte             `json:"data"`
 	EnqueuedAt     pgtype.Timestamptz `json:"enqueued_at"`
 	LeaseToken     uuid.NullUUID      `json:"lease_token"`
 	LeaseOwner     pgtype.Text        `json:"lease_owner"`
@@ -206,6 +212,7 @@ type DaguServiceInstance struct {
 	Status          int32              `json:"status"`
 	StartedAt       pgtype.Timestamptz `json:"started_at"`
 	LastHeartbeatAt pgtype.Timestamptz `json:"last_heartbeat_at"`
+	DataVersion     int32              `json:"data_version"`
 	Data            []byte             `json:"data"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
@@ -221,6 +228,7 @@ type DaguUser struct {
 	OidcSubject     pgtype.Text        `json:"oidc_subject"`
 	IsDisabled      bool               `json:"is_disabled"`
 	WorkspaceAccess []byte             `json:"workspace_access"`
+	DataVersion     int32              `json:"data_version"`
 	Data            []byte             `json:"data"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
@@ -236,6 +244,7 @@ type DaguWebhook struct {
 	HmacEnforcementMode pgtype.Text        `json:"hmac_enforcement_mode"`
 	CreatedBy           string             `json:"created_by"`
 	LastUsedAt          pgtype.Timestamptz `json:"last_used_at"`
+	DataVersion         int32              `json:"data_version"`
 	Data                []byte             `json:"data"`
 	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
@@ -246,15 +255,17 @@ type DaguWorkerHeartbeat struct {
 	Labels          []byte             `json:"labels"`
 	Stats           []byte             `json:"stats"`
 	LastHeartbeatAt pgtype.Timestamptz `json:"last_heartbeat_at"`
+	DataVersion     int32              `json:"data_version"`
 	Data            []byte             `json:"data"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 }
 
 type DaguWorkspace struct {
-	ID        uuid.UUID          `json:"id"`
-	Name      string             `json:"name"`
-	Data      []byte             `json:"data"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID          uuid.UUID          `json:"id"`
+	Name        string             `json:"name"`
+	DataVersion int32              `json:"data_version"`
+	Data        []byte             `json:"data"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }

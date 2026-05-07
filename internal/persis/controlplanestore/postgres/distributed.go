@@ -101,7 +101,7 @@ func (s *dispatchTaskStore) Enqueue(ctx context.Context, task *coordinatorv1.Tas
 		QueueName:      task.QueueName,
 		AttemptKey:     task.AttemptKey,
 		WorkerSelector: selector,
-		TaskData:       taskData,
+		Data:           taskData,
 		EnqueuedAt:     timestamptz(time.Now().UTC()),
 	})
 }
@@ -130,7 +130,7 @@ func (s *dispatchTaskStore) ClaimNext(ctx context.Context, claim exec.DispatchTa
 			return err
 		}
 
-		task, err := taskFromJSON(row.TaskData)
+		task, err := taskFromJSON(row.Data)
 		if err != nil {
 			return err
 		}
@@ -165,7 +165,7 @@ func (s *dispatchTaskStore) ClaimNext(ctx context.Context, claim exec.DispatchTa
 			OwnerID:        claim.Owner.ID,
 			OwnerHost:      claim.Owner.Host,
 			OwnerPort:      pgtype.Int4{Int32: int32(claim.Owner.Port), Valid: true}, //nolint:gosec
-			TaskData:       taskData,
+			Data:           taskData,
 			ID:             row.ID,
 		})
 		if err != nil {
@@ -484,7 +484,7 @@ func taskFromJSON(data []byte) (*coordinatorv1.Task, error) {
 }
 
 func dispatchClaimFromRow(row db.DaguDispatchTask) (*exec.ClaimedDispatchTask, error) {
-	task, err := taskFromJSON(row.TaskData)
+	task, err := taskFromJSON(row.Data)
 	if err != nil {
 		return nil, err
 	}

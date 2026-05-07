@@ -4,14 +4,14 @@ INSERT INTO dagu_dispatch_tasks (
     queue_name,
     attempt_key,
     worker_selector,
-    task_data,
+    data,
     enqueued_at
 ) VALUES (
     sqlc.arg(id),
     sqlc.arg(queue_name),
     sqlc.arg(attempt_key),
     sqlc.arg(worker_selector),
-    sqlc.arg(task_data),
+    sqlc.arg(data),
     sqlc.arg(enqueued_at)
 );
 
@@ -34,7 +34,7 @@ SET claim_token = sqlc.arg(claim_token),
     owner_id = NULLIF(sqlc.arg(owner_id), ''),
     owner_host = NULLIF(sqlc.arg(owner_host), ''),
     owner_port = sqlc.arg(owner_port),
-    task_data = sqlc.arg(task_data),
+    data = sqlc.arg(data),
     updated_at = now()
 WHERE id = sqlc.arg(id)
 RETURNING *;

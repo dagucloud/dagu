@@ -16,7 +16,6 @@ INSERT INTO dagu_events (
     user_id,
     model,
     status,
-    event_data,
     data
 ) VALUES (
     sqlc.arg(id),
@@ -35,7 +34,6 @@ INSERT INTO dagu_events (
     NULLIF(sqlc.arg(user_id), ''),
     NULLIF(sqlc.arg(model), ''),
     NULLIF(sqlc.arg(status), ''),
-    sqlc.arg(event_data),
     sqlc.arg(data)
 )
 ON CONFLICT (event_id) DO NOTHING;
