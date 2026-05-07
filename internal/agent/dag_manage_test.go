@@ -179,9 +179,9 @@ func TestDAGRunManageMessagesFallbackToStatusOnReadError(t *testing.T) {
 		"stepName": "agent-step",
 	})
 	require.False(t, out.IsError, out.Content)
-	var got map[string]any
-	require.NoError(t, json.Unmarshal([]byte(out.Content), &got))
-	messages := got["messages"].([]any)
+	var readMessagesGot map[string]any
+	require.NoError(t, json.Unmarshal([]byte(out.Content), &readMessagesGot))
+	messages := readMessagesGot["messages"].([]any)
 	require.Len(t, messages, 1)
 	assert.Equal(t, "fallback from status", messages[0].(map[string]any)["content"])
 
@@ -191,11 +191,11 @@ func TestDAGRunManageMessagesFallbackToStatusOnReadError(t *testing.T) {
 		"dagRunId": "run-1",
 	})
 	require.False(t, out.IsError, out.Content)
-	got = map[string]any{}
-	require.NoError(t, json.Unmarshal([]byte(out.Content), &got))
-	messages = got["messages"].([]any)
-	require.Len(t, messages, 1)
-	assert.Equal(t, "fallback from status", messages[0].(map[string]any)["content"])
+	var diagnoseGot map[string]any
+	require.NoError(t, json.Unmarshal([]byte(out.Content), &diagnoseGot))
+	diagnoseMessages := diagnoseGot["messages"].([]any)
+	require.Len(t, diagnoseMessages, 1)
+	assert.Equal(t, "fallback from status", diagnoseMessages[0].(map[string]any)["content"])
 }
 
 func TestDAGRunManageListRejectsConflictingTimeFilters(t *testing.T) {
