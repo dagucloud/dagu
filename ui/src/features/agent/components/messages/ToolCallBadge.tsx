@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Terminal } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { ToolCall } from '../../types';
+import { ToolCall, ToolResult } from '../../types';
 import { ToolContentViewer } from '../ToolViewers';
 
 function parseToolArguments(jsonString: string): Record<string, unknown> {
@@ -12,8 +12,14 @@ function parseToolArguments(jsonString: string): Record<string, unknown> {
   }
 }
 
-export function ToolCallBadge({ toolCall }: { toolCall: ToolCall }): React.ReactNode {
-  const [expanded, setExpanded] = useState(true);
+export function ToolCallBadge({
+  toolCall,
+  toolResult,
+}: {
+  toolCall: ToolCall;
+  toolResult?: ToolResult;
+}): React.ReactNode {
+  const [expanded, setExpanded] = useState(false);
   const args = useMemo(() => parseToolArguments(toolCall.function.arguments), [toolCall.function.arguments]);
 
   return (
@@ -28,18 +34,26 @@ export function ToolCallBadge({ toolCall }: { toolCall: ToolCall }): React.React
       </button>
       {expanded && (
         <div className="px-2 py-1.5 border-t border-border bg-card dark:bg-surface">
-          <ToolContentViewer toolName={toolCall.function.name} args={args} />
+          <ToolContentViewer toolName={toolCall.function.name} args={args} toolResult={toolResult} />
         </div>
       )}
     </div>
   );
 }
 
-export function ToolCallList({ toolCalls, className }: { toolCalls: ToolCall[]; className?: string }): React.ReactNode {
+export function ToolCallList({
+  toolCalls,
+  className,
+  toolResultsByCallId,
+}: {
+  toolCalls: ToolCall[];
+  className?: string;
+  toolResultsByCallId?: Map<string, ToolResult>;
+}): React.ReactNode {
   return (
     <div className={cn('space-y-1', className)}>
       {toolCalls.map((tc) => (
-        <ToolCallBadge key={tc.id} toolCall={tc} />
+        <ToolCallBadge key={tc.id} toolCall={tc} toolResult={toolResultsByCallId?.get(tc.id)} />
       ))}
     </div>
   );

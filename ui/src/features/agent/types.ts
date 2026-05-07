@@ -168,10 +168,11 @@ export interface ReadToolInput {
 
 export interface PatchToolInput {
   path: string;
-  operation?: 'create' | 'replace' | 'delete';
+  operation?: 'create' | 'replace' | 'append' | 'insert_before' | 'insert_after' | 'delete';
   content?: string;
   old_string?: string;
   new_string?: string;
+  anchor?: string;
 }
 
 export interface ThinkToolInput {

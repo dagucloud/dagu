@@ -148,6 +148,266 @@ func TestPatchTool_Replace(t *testing.T) {
 		assert.True(t, result.IsError)
 		assert.Contains(t, result.Content, "required")
 	})
+
+	t.Run("preserves existing file mode", func(t *testing.T) {
+		t.Parallel()
+
+		filePath := filepath.Join(t.TempDir(), "mode.txt")
+		require.NoError(t, os.WriteFile(filePath, []byte("hello world"), 0o640))
+
+		result := tool.Run(ToolContext{}, patchInput(filePath, "replace", "old_string", "world", "new_string", "universe"))
+
+		assert.False(t, result.IsError, result.Content)
+		info, err := os.Stat(filePath)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o640), info.Mode().Perm())
+	})
+
+	t.Run("rejects ambiguous content field", func(t *testing.T) {
+		t.Parallel()
+
+		filePath := filepath.Join(t.TempDir(), "test.txt")
+		require.NoError(t, os.WriteFile(filePath, []byte("hello world"), 0o600))
+
+		result := tool.Run(ToolContext{}, patchInput(filePath, "replace", "old_string", "world", "new_string", "universe", "content", "extra"))
+
+		assert.True(t, result.IsError)
+		assert.Contains(t, result.Content, "content is not allowed")
+		content, err := os.ReadFile(filePath)
+		require.NoError(t, err)
+		assert.Equal(t, "hello world", string(content))
+	})
+}
+
+func TestPatchTool_Append(t *testing.T) {
+	t.Parallel()
+	tool := NewPatchTool("")
+
+	t.Run("appends to end of file without deleting existing content", func(t *testing.T) {
+		t.Parallel()
+
+		filePath := filepath.Join(t.TempDir(), "memory.md")
+		require.NoError(t, os.WriteFile(filePath, []byte("- existing\n"), 0o600))
+
+		result := tool.Run(ToolContext{}, patchInput(filePath, "append", "content", "- new\n"))
+
+		assert.False(t, result.IsError, result.Content)
+		assert.Contains(t, result.Content, "Appended")
+		content, err := os.ReadFile(filePath)
+		require.NoError(t, err)
+		assert.Equal(t, "- existing\n- new\n", string(content))
+	})
+
+	t.Run("adds newline before appending when file has no trailing newline", func(t *testing.T) {
+		t.Parallel()
+
+		filePath := filepath.Join(t.TempDir(), "memory.md")
+		require.NoError(t, os.WriteFile(filePath, []byte("- existing"), 0o600))
+
+		result := tool.Run(ToolContext{}, patchInput(filePath, "append", "content", "- new\n"))
+
+		assert.False(t, result.IsError, result.Content)
+		content, err := os.ReadFile(filePath)
+		require.NoError(t, err)
+		assert.Equal(t, "- existing\n- new\n", string(content))
+	})
+
+	t.Run("preserves existing file mode", func(t *testing.T) {
+		t.Parallel()
+
+		filePath := filepath.Join(t.TempDir(), "mode.txt")
+		require.NoError(t, os.WriteFile(filePath, []byte("one\n"), 0o640))
+
+		result := tool.Run(ToolContext{}, patchInput(filePath, "append", "content", "two\n"))
+
+		assert.False(t, result.IsError, result.Content)
+		info, err := os.Stat(filePath)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o640), info.Mode().Perm())
+	})
+
+	t.Run("rejects empty append content without writing", func(t *testing.T) {
+		t.Parallel()
+
+		filePath := filepath.Join(t.TempDir(), "test.txt")
+		require.NoError(t, os.WriteFile(filePath, []byte("one\n"), 0o600))
+
+		result := tool.Run(ToolContext{}, patchInput(filePath, "append", "content", ""))
+
+		assert.True(t, result.IsError)
+		assert.Contains(t, result.Content, "content is required")
+		content, err := os.ReadFile(filePath)
+		require.NoError(t, err)
+		assert.Equal(t, "one\n", string(content))
+	})
+}
+
+func TestPatchTool_Insert(t *testing.T) {
+	t.Parallel()
+	tool := NewPatchTool("")
+
+	t.Run("insert_after keeps anchor and inserts content after it", func(t *testing.T) {
+		t.Parallel()
+
+		filePath := filepath.Join(t.TempDir(), "memory.md")
+		initial := "- YouTube動画の要約は `youtube_summary_jp` DAGを使用する\n- 日本語で要約を取得する\n"
+		require.NoError(t, os.WriteFile(filePath, []byte(initial), 0o600))
+
+		result := tool.Run(ToolContext{}, patchInput(
+			filePath,
+			"insert_after",
+			"anchor", "- 日本語で要約を取得する\n",
+			"content", "- ユーザーを「きみ」と呼ばない\n",
+		))
+
+		assert.False(t, result.IsError, result.Content)
+		assert.Contains(t, result.Content, "Inserted")
+		content, err := os.ReadFile(filePath)
+		require.NoError(t, err)
+		assert.Equal(t, initial+"- ユーザーを「きみ」と呼ばない\n", string(content))
+	})
+
+	t.Run("insert_before keeps anchor and inserts content before it", func(t *testing.T) {
+		t.Parallel()
+
+		filePath := filepath.Join(t.TempDir(), "memory.md")
+		initial := "- first\n- third\n"
+		require.NoError(t, os.WriteFile(filePath, []byte(initial), 0o600))
+
+		result := tool.Run(ToolContext{}, patchInput(
+			filePath,
+			"insert_before",
+			"anchor", "- third\n",
+			"content", "- second\n",
+		))
+
+		assert.False(t, result.IsError, result.Content)
+		content, err := os.ReadFile(filePath)
+		require.NoError(t, err)
+		assert.Equal(t, "- first\n- second\n- third\n", string(content))
+	})
+
+	t.Run("preserves existing file mode", func(t *testing.T) {
+		t.Parallel()
+
+		filePath := filepath.Join(t.TempDir(), "mode.txt")
+		require.NoError(t, os.WriteFile(filePath, []byte("one\nthree\n"), 0o640))
+
+		result := tool.Run(ToolContext{}, patchInput(
+			filePath,
+			"insert_after",
+			"anchor", "one\n",
+			"content", "two\n",
+		))
+
+		assert.False(t, result.IsError, result.Content)
+		info, err := os.Stat(filePath)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o640), info.Mode().Perm())
+	})
+
+	t.Run("rejects empty insert content without writing", func(t *testing.T) {
+		t.Parallel()
+
+		filePath := filepath.Join(t.TempDir(), "test.txt")
+		require.NoError(t, os.WriteFile(filePath, []byte("one\n"), 0o600))
+
+		result := tool.Run(ToolContext{}, patchInput(filePath, "insert_after", "anchor", "one\n", "content", ""))
+
+		assert.True(t, result.IsError)
+		assert.Contains(t, result.Content, "content is required")
+		content, err := os.ReadFile(filePath)
+		require.NoError(t, err)
+		assert.Equal(t, "one\n", string(content))
+	})
+}
+
+func TestPatchTool_FailedEditsDoNotWrite(t *testing.T) {
+	t.Parallel()
+	tool := NewPatchTool("")
+
+	tests := []struct {
+		name     string
+		initial  string
+		input    json.RawMessage
+		contains string
+	}{
+		{
+			name:     "insert_after missing anchor",
+			initial:  "alpha\n",
+			input:    nil,
+			contains: "anchor not found",
+		},
+		{
+			name:     "insert_before duplicate anchor",
+			initial:  "same\nsame\n",
+			input:    nil,
+			contains: "2 times",
+		},
+		{
+			name:     "insert_after empty anchor",
+			initial:  "alpha\n",
+			input:    nil,
+			contains: "anchor is required",
+		},
+		{
+			name:     "replace missing old string",
+			initial:  "alpha\n",
+			input:    nil,
+			contains: "not found",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			filePath := filepath.Join(t.TempDir(), "test.txt")
+			require.NoError(t, os.WriteFile(filePath, []byte(tc.initial), 0o600))
+
+			input := tc.input
+			if input == nil {
+				switch tc.name {
+				case "insert_after missing anchor":
+					input = patchInput(filePath, "insert_after", "anchor", "missing\n", "content", "new\n")
+				case "insert_before duplicate anchor":
+					input = patchInput(filePath, "insert_before", "anchor", "same\n", "content", "new\n")
+				case "insert_after empty anchor":
+					input = patchInput(filePath, "insert_after", "anchor", "", "content", "new\n")
+				case "replace missing old string":
+					input = patchInput(filePath, "replace", "old_string", "missing\n", "new_string", "new\n")
+				}
+			}
+
+			result := tool.Run(ToolContext{}, input)
+
+			assert.True(t, result.IsError)
+			assert.Contains(t, result.Content, tc.contains)
+			content, err := os.ReadFile(filePath)
+			require.NoError(t, err)
+			assert.Equal(t, tc.initial, string(content))
+		})
+	}
+
+	t.Run("missing file returns error", func(t *testing.T) {
+		t.Parallel()
+
+		filePath := filepath.Join(t.TempDir(), "missing.txt")
+		result := tool.Run(ToolContext{}, patchInput(filePath, "append", "content", "new\n"))
+
+		assert.True(t, result.IsError)
+		assert.Contains(t, result.Content, "File not found")
+	})
+
+	t.Run("directory path returns error", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		result := tool.Run(ToolContext{}, patchInput(dir, "append", "content", "new\n"))
+
+		assert.True(t, result.IsError)
+		assert.Contains(t, result.Content, "is a directory")
+	})
 }
 
 func TestPatchTool_Delete(t *testing.T) {
@@ -176,6 +436,21 @@ func TestPatchTool_Delete(t *testing.T) {
 
 		assert.True(t, result.IsError)
 		assert.Contains(t, result.Content, "not found")
+	})
+
+	t.Run("rejects forbidden field even when empty", func(t *testing.T) {
+		t.Parallel()
+
+		filePath := filepath.Join(t.TempDir(), "delete-me.txt")
+		require.NoError(t, os.WriteFile(filePath, []byte("content"), 0o600))
+
+		result := tool.Run(ToolContext{}, patchInput(filePath, "delete", "content", ""))
+
+		assert.True(t, result.IsError)
+		assert.Contains(t, result.Content, "content is not allowed")
+		content, err := os.ReadFile(filePath)
+		require.NoError(t, err)
+		assert.Equal(t, "content", string(content))
 	})
 }
 

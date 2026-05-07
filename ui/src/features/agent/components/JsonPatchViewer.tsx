@@ -1,12 +1,28 @@
 import { useMemo } from 'react';
 import { useUserPreferences } from '@/contexts/UserPreference';
+import { cn } from '@/lib/utils';
 import { type JsonPatch, type DiffLine, computeDiffLines } from '../utils/diffUtils';
 
 interface JsonPatchViewerProps {
   patch: JsonPatch;
+  status?: PatchViewStatus;
 }
 
-export function JsonPatchViewer({ patch }: JsonPatchViewerProps): React.ReactNode {
+export type PatchViewStatus = 'proposed' | 'applied' | 'failed';
+
+const STATUS_LABELS: Record<PatchViewStatus, string> = {
+  proposed: 'Proposed patch',
+  applied: 'Patch applied',
+  failed: 'Patch failed',
+};
+
+const STATUS_CLASSES: Record<PatchViewStatus, string> = {
+  proposed: 'text-muted-foreground',
+  applied: 'text-green-600 dark:text-green-400',
+  failed: 'text-red-600 dark:text-red-400',
+};
+
+export function JsonPatchViewer({ patch, status = 'proposed' }: JsonPatchViewerProps): React.ReactNode {
   const { preferences } = useUserPreferences();
   const isDark = preferences.theme === 'dark';
 
@@ -26,12 +42,16 @@ export function JsonPatchViewer({ patch }: JsonPatchViewerProps): React.ReactNod
   }, [diffLines]);
 
   return (
-    <div className="rounded border border-border overflow-hidden text-xs font-mono">
+    <div className={cn(
+      'rounded border overflow-hidden text-xs font-mono',
+      status === 'failed' ? 'border-red-500/40' : 'border-border'
+    )}>
       {/* Header */}
       <div className="flex items-center gap-2 px-2 py-1 bg-muted border-b border-border text-muted-foreground">
         {patch.path && (
           <span className="truncate">{patch.path.split('/').pop()}</span>
         )}
+        <span className={cn('ml-auto', STATUS_CLASSES[status])}>{STATUS_LABELS[status]}</span>
         <span className="text-green-600 dark:text-green-400">+{stats.additions}</span>
         <span className="text-red-600 dark:text-red-400">-{stats.deletions}</span>
       </div>

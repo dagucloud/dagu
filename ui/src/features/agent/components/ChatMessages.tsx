@@ -61,6 +61,18 @@ export function ChatMessages({
     return ids;
   }, [messages]);
 
+  const toolResultsByCallId = useMemo(() => {
+    const results = new Map<string, NonNullable<Message['tool_results']>[number]>();
+    for (const msg of messages) {
+      if (msg.tool_results) {
+        for (const tr of msg.tool_results) {
+          if (tr.tool_call_id) results.set(tr.tool_call_id, tr);
+        }
+      }
+    }
+    return results;
+  }, [messages]);
+
   if (messages.length === 0 && !pendingUserMessage) {
     return (
       <div className="flex-1 flex items-center justify-center text-muted-foreground p-4 bg-popover">
@@ -91,6 +103,7 @@ export function ChatMessages({
           delegateStatuses={delegateStatuses}
           onOpenDelegate={onOpenDelegate}
           completedToolCallIds={completedToolCallIds}
+          toolResultsByCallId={toolResultsByCallId}
         />
       ))}
       {pendingUserMessage && (
@@ -116,9 +129,20 @@ interface MessageItemProps {
   delegateStatuses?: Record<string, DelegateInfo>;
   onOpenDelegate?: (id: string) => void;
   completedToolCallIds?: Set<string>;
+  toolResultsByCallId?: Map<string, NonNullable<Message['tool_results']>[number]>;
 }
 
-function MessageItem({ message, messages, messageIndex, onPromptRespond, answeredPrompts, delegateStatuses, onOpenDelegate, completedToolCallIds }: MessageItemProps): React.ReactNode {
+function MessageItem({
+  message,
+  messages,
+  messageIndex,
+  onPromptRespond,
+  answeredPrompts,
+  delegateStatuses,
+  onOpenDelegate,
+  completedToolCallIds,
+  toolResultsByCallId,
+}: MessageItemProps): React.ReactNode {
   const delegateIdsForToolCalls = useMemo(() => {
     const map = new Map<string, string[]>();
     if (message.type !== 'assistant' || !message.tool_calls) return map;
@@ -153,6 +177,7 @@ function MessageItem({ message, messages, messageIndex, onPromptRespond, answere
           onOpenDelegate={onOpenDelegate}
           completedToolCallIds={completedToolCallIds}
           delegateIdsForToolCalls={delegateIdsForToolCalls}
+          toolResultsByCallId={toolResultsByCallId}
         />
       );
     case 'error':

@@ -5,10 +5,12 @@ import { ThinkToolViewer } from './ThinkToolViewer';
 import { NavigateToolViewer } from './NavigateToolViewer';
 import { AskUserToolViewer } from './AskUserToolViewer';
 import { DefaultToolViewer } from './DefaultToolViewer';
+import type { ToolResult } from '../../types';
 
 export interface ToolViewerProps {
   toolName: string;
   args: Record<string, unknown>;
+  toolResult?: ToolResult;
 }
 
 const toolViewerRegistry: Record<string, React.FC<ToolViewerProps>> = {
@@ -20,9 +22,9 @@ const toolViewerRegistry: Record<string, React.FC<ToolViewerProps>> = {
   ask_user: AskUserToolViewer,
 };
 
-export function ToolContentViewer({ toolName, args }: ToolViewerProps): React.ReactNode {
+export function ToolContentViewer({ toolName, args, toolResult }: ToolViewerProps): React.ReactNode {
   const Viewer = toolViewerRegistry[toolName] || DefaultToolViewer;
-  return <Viewer args={args} toolName={toolName} />;
+  return <Viewer args={args} toolName={toolName} toolResult={toolResult} />;
 }
 
 export { BashToolViewer } from './BashToolViewer';
