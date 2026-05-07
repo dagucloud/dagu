@@ -122,6 +122,9 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
+      - name: Download Go modules
+        run: go mod download
+
       - name: Check formatting (go fmt)
         run: |
           go fmt ./...
