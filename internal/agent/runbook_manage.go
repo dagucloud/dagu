@@ -33,11 +33,14 @@ const (
 	runbookActionUpdate         runbookManageAction = "update"
 	runbookActionPatch          runbookManageAction = "patch"
 	runbookActionEnsureMetadata runbookManageAction = "ensure_metadata"
+	runbookActionMove           runbookManageAction = "move"
+	runbookActionDelete         runbookManageAction = "delete"
 )
 
 type runbookManageInput struct {
 	Action      runbookManageAction `json:"action"`
 	ID          string              `json:"id,omitempty"`
+	NewID       string              `json:"new_id,omitempty"`
 	Query       string              `json:"query,omitempty"`
 	Title       string              `json:"title,omitempty"`
 	Description string              `json:"description,omitempty"`
@@ -78,7 +81,7 @@ func init() {
 	RegisterTool(ToolRegistration{
 		Name:           runbookManageToolName,
 		Label:          "Runbook Manage",
-		Description:    "List, search, read, create, and update Markdown runbooks",
+		Description:    "List, search, read, create, update, move, and delete Markdown runbooks",
 		DefaultEnabled: true,
 		Factory: func(cfg ToolConfig) *AgentTool {
 			return NewRunbookManageToolWithWorkspaceStore(cfg.DocStore, cfg.WorkspaceStore)
@@ -99,18 +102,22 @@ func NewRunbookManageToolWithWorkspaceStore(store DocStore, workspaceStore works
 			Type: "function",
 			Function: llm.ToolFunction{
 				Name:        runbookManageToolName,
-				Description: "Manage Markdown runbooks in the Dagu docs store. Use this before complex or operational tasks to discover relevant runbooks, read the selected runbook, and keep runbooks updated when instructions are missing, stale, or wrong. Runbooks use optional YAML frontmatter with title and description.",
+				Description: "Manage Markdown runbooks and documents in the Dagu docs store. Use this before complex or operational tasks to discover relevant runbooks, read the selected runbook, and keep runbooks updated when instructions are missing, stale, or wrong. Use this tool, not patch, to move or delete docs-store documents. Runbooks use optional YAML frontmatter with title and description.",
 				Parameters: map[string]any{
 					"type": "object",
 					"properties": map[string]any{
 						"action": map[string]any{
 							"type":        "string",
-							"enum":        []string{"list", "search", "get", "create", "update", "patch", "ensure_metadata"},
-							"description": "Operation to perform. Use list/search first, get before acting, patch or ensure_metadata to keep runbooks current. Delete is intentionally unsupported for safety.",
+							"enum":        []string{"list", "search", "get", "create", "update", "patch", "ensure_metadata", "move", "delete"},
+							"description": "Operation to perform. Use list/search first, get before acting, patch or ensure_metadata to keep runbooks current, move to rename or relocate docs, and delete only when explicitly requested or confirmed.",
 						},
 						"id": map[string]any{
 							"type":        "string",
 							"description": "Runbook doc ID, relative path without .md, e.g. runbooks/deploy-production",
+						},
+						"new_id": map[string]any{
+							"type":        "string",
+							"description": "For move: destination doc ID, relative path without .md",
 						},
 						"query":       map[string]any{"type": "string", "description": "Search query"},
 						"title":       map[string]any{"type": "string", "description": "Runbook title metadata"},
@@ -129,7 +136,7 @@ func NewRunbookManageToolWithWorkspaceStore(store DocStore, workspaceStore works
 		},
 		Audit: &AuditInfo{
 			Action:          "runbook_manage",
-			DetailExtractor: ExtractFields("action", "id", "query"),
+			DetailExtractor: ExtractFields("action", "id", "new_id", "query"),
 		},
 	}
 }
@@ -174,26 +181,52 @@ func runbookManageRun(ctx ToolContext, input json.RawMessage, deps runbookManage
 			return out
 		}
 		return runbookEnsureMetadata(ctx, store, args)
+	case runbookActionMove:
+		if args.NewID == "" {
+			return toolError("new_id is required for move")
+		}
+		if out, denied := requireRunbookWriteIDs(ctx, deps, args.ID, args.NewID); denied {
+			return out
+		}
+		return runbookMove(ctx, store, args)
+	case runbookActionDelete:
+		if out, denied := requireRunbookWrite(ctx, deps, args.ID); denied {
+			return out
+		}
+		return runbookDelete(ctx, store, args)
 	default:
-		return toolError("Unknown action: %s. Use list, search, get, create, update, patch, or ensure_metadata.", args.Action)
+		return toolError("Unknown action: %s. Use list, search, get, create, update, patch, ensure_metadata, move, or delete.", args.Action)
 	}
 }
 
 func defaultToolContext() context.Context { return context.Background() }
 
 func requireRunbookWrite(ctx ToolContext, deps runbookManageDeps, id string) (ToolOut, bool) {
-	if err := validateRunbookID(id); err != nil {
-		return toolError("invalid runbook id: %v", err), true
+	return requireRunbookWriteIDs(ctx, deps, id)
+}
+
+func requireRunbookWriteIDs(ctx ToolContext, deps runbookManageDeps, ids ...string) (ToolOut, bool) {
+	for _, id := range ids {
+		if err := validateRunbookID(id); err != nil {
+			return toolError("invalid runbook id: %v", err), true
+		}
 	}
 	role, access, ok := runbookAuthContext(ctx)
 	if ok {
-		workspaceName, err := runbookWorkspaceName(ctx.Context, deps, id)
-		if err != nil {
-			return toolError("Failed to resolve runbook workspace: %v", err), true
-		}
-		effectiveRole, ok := auth.EffectiveRole(role, access, workspaceName)
-		if !ok || !effectiveRole.CanWrite() {
-			return toolError("Permission denied: runbook_manage write actions require write permission for workspace %q", workspaceName), true
+		checked := make(map[string]struct{}, len(ids))
+		for _, id := range ids {
+			workspaceName, err := runbookWorkspaceName(ctx.Context, deps, id)
+			if err != nil {
+				return toolError("Failed to resolve runbook workspace: %v", err), true
+			}
+			if _, ok := checked[workspaceName]; ok {
+				continue
+			}
+			checked[workspaceName] = struct{}{}
+			effectiveRole, ok := auth.EffectiveRole(role, access, workspaceName)
+			if !ok || !effectiveRole.CanWrite() {
+				return toolError("Permission denied: runbook_manage write actions require write permission for workspace %q", workspaceName), true
+			}
 		}
 	}
 	return ToolOut{}, false
@@ -431,6 +464,32 @@ func runbookEnsureMetadata(ctx ToolContext, store DocStore, args runbookManageIn
 		return toolError("Failed to update runbook metadata %q: %v", args.ID, err)
 	}
 	return runbookJSON(map[string]any{"id": args.ID, "updated": true, "action": "ensure_metadata"})
+}
+
+func runbookMove(ctx ToolContext, store DocStore, args runbookManageInput) ToolOut {
+	if err := validateRunbookID(args.ID); err != nil {
+		return toolError("invalid runbook id: %v", err)
+	}
+	if args.NewID == "" {
+		return toolError("new_id is required for move")
+	}
+	if err := validateRunbookID(args.NewID); err != nil {
+		return toolError("invalid destination runbook id: %v", err)
+	}
+	if err := store.Rename(ctx.Context, args.ID, args.NewID); err != nil {
+		return toolError("Failed to move runbook %q to %q: %v", args.ID, args.NewID, err)
+	}
+	return runbookJSON(map[string]any{"id": args.NewID, "old_id": args.ID, "updated": true, "action": "moved"})
+}
+
+func runbookDelete(ctx ToolContext, store DocStore, args runbookManageInput) ToolOut {
+	if err := validateRunbookID(args.ID); err != nil {
+		return toolError("invalid runbook id: %v", err)
+	}
+	if err := store.Delete(ctx.Context, args.ID); err != nil {
+		return toolError("Failed to delete runbook %q: %v", args.ID, err)
+	}
+	return runbookJSON(map[string]any{"id": args.ID, "updated": true, "action": "deleted"})
 }
 
 func validateRunbookID(id string) error {
