@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -381,6 +382,13 @@ func validateCustomActionSpec(name string, spec customStepTypeSpec) (*customStep
 			fmt.Errorf("custom action template must define exactly one of run or action"),
 		)
 	}
+	if invalidKeys := legacyExecutionKeys(spec.Template); len(invalidKeys) > 0 {
+		return nil, core.NewValidationError(
+			fmt.Sprintf("actions.%s.template", name),
+			spec.Template,
+			fmt.Errorf("template contains deprecated execution keys: %v", invalidKeys),
+		)
+	}
 
 	inputSchema, err := resolveCustomActionInputSchema(name, spec.InputSchema)
 	if err != nil {
@@ -402,6 +410,17 @@ func validateCustomActionSpec(name string, spec customStepTypeSpec) (*customStep
 		OutputSchema: outputSchema,
 		Template:     cloneMap(spec.Template),
 	}, nil
+}
+
+func legacyExecutionKeys(raw map[string]any) []string {
+	invalidKeys := make([]string, 0)
+	for key := range raw {
+		if _, ok := v2LegacyExecutionFields[key]; ok {
+			invalidKeys = append(invalidKeys, key)
+		}
+	}
+	sort.Strings(invalidKeys)
+	return invalidKeys
 }
 
 func resolveCustomStepTypeInputSchema(name string, schemaDecl any) (*jsonschema.Resolved, error) {
@@ -897,6 +916,27 @@ func buildCustomStepFromSpec(
 	customType *customStepType,
 	forcedName bool,
 ) (*core.Step, error) {
+	return buildCustomStepFromSpecWithStack(ctx, callSite, raw, defs, customType, forcedName, nil)
+}
+
+func buildCustomStepFromSpecWithStack(
+	ctx StepBuildContext,
+	callSite *step,
+	raw map[string]any,
+	defs *defaults,
+	customType *customStepType,
+	forcedName bool,
+	stack []string,
+) (*core.Step, error) {
+	if customStepStackContains(stack, customType.Name) {
+		return nil, core.NewValidationError(
+			"type",
+			customType.Name,
+			fmt.Errorf("recursive custom action reference: %s -> %s", strings.Join(stack, " -> "), customType.Name),
+		)
+	}
+	stack = append(stack, customType.Name)
+
 	if err := validateCustomStepCallSiteFields(callSite, raw); err != nil {
 		return nil, fmt.Errorf("step type %q: %w", customType.Name, err)
 	}
@@ -922,7 +962,7 @@ func buildCustomStepFromSpec(
 	if err != nil {
 		return nil, fmt.Errorf("step type %q: %w", customType.Name, err)
 	}
-	normalizedRaw, err := normalizeStepExecutionRaw(mergedRaw, nil)
+	normalizedRaw, err := normalizeStepExecutionRaw(mergedRaw, ctx.customStepTypes)
 	if err != nil {
 		return nil, fmt.Errorf("step type %q: failed to normalize expanded template: %w", customType.Name, err)
 	}
@@ -932,7 +972,7 @@ func buildCustomStepFromSpec(
 		return nil, fmt.Errorf("step type %q: failed to decode expanded template: %w", customType.Name, err)
 	}
 	applyDefaults(expandedSpec, defs, normalizedRaw)
-	builtStep, err := buildConcreteStep(ctx, expandedSpec)
+	builtStep, err := buildExpandedCustomStep(ctx, expandedSpec, normalizedRaw, defs, stack)
 	if err != nil {
 		return nil, fmt.Errorf("step type %q (resolves to %q): %w", customType.Name, customType.Type, err)
 	}
@@ -947,6 +987,30 @@ func buildCustomStepFromSpec(
 		builtStep.Description = customType.Description
 	}
 	return builtStep, nil
+}
+
+func customStepStackContains(stack []string, name string) bool {
+	for _, existing := range stack {
+		if existing == name {
+			return true
+		}
+	}
+	return false
+}
+
+func buildExpandedCustomStep(
+	ctx StepBuildContext,
+	expandedSpec *step,
+	normalizedRaw map[string]any,
+	defs *defaults,
+	stack []string,
+) (*core.Step, error) {
+	if registry := ctx.customStepTypes; registry != nil {
+		if nestedType, ok := registry.Lookup(expandedSpec.Type); ok {
+			return buildCustomStepFromSpecWithStack(ctx, expandedSpec, normalizedRaw, defs, nestedType, false, stack)
+		}
+	}
+	return buildConcreteStep(ctx, expandedSpec)
 }
 
 func mergeCustomStepRaw(

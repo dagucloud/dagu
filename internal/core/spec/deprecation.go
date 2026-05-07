@@ -48,7 +48,7 @@ func DeprecatedSyntaxWarnings(data []byte) []string {
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			return nil
+			return warnings
 		}
 		if len(doc) == 0 {
 			docIndex++

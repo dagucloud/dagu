@@ -93,6 +93,12 @@ func newHTTP(ctx context.Context, step core.Step) (executor.Executor, error) {
 	if url == "" {
 		url = reqCfg.URL
 	}
+	if url == "" {
+		return nil, fmt.Errorf("http executor: url is required (set via command, args, or with.url)")
+	}
+	if method == "" {
+		return nil, fmt.Errorf("http executor: method is required (set via command or with.method)")
+	}
 
 	ctx, cancel := context.WithCancel(ctx)
 

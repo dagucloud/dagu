@@ -344,6 +344,11 @@ actions:
       properties:
         text:
           type: string
+    output_schema:
+      type: object
+      properties:
+        ok:
+          type: boolean
     template:
       action: http.request
       with:
@@ -374,6 +379,108 @@ steps:
     command: echo legacy
 `,
 			wantErr: "did not validate",
+		},
+		{
+			name: "RejectRunAndExec",
+			spec: `
+steps:
+  - run: echo ok
+    exec:
+      command: /bin/echo
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectRunAndShellArgs",
+			spec: `
+steps:
+  - run: echo ok
+    shell_args: [-c]
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectActionAndCommand",
+			spec: `
+steps:
+  - action: log.write
+    command: echo legacy
+    with:
+      message: ok
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectActionAndCall",
+			spec: `
+steps:
+  - action: log.write
+    call: child
+    with:
+      message: ok
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectActionAndScript",
+			spec: `
+steps:
+  - action: log.write
+    script: echo legacy
+    with:
+      message: ok
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectActionExecMissingCommand",
+			spec: `
+steps:
+  - action: exec
+    with:
+      args: [hello]
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectActionJQFilterDataAndInput",
+			spec: `
+steps:
+  - action: jq.filter
+    with:
+      filter: .name
+      data:
+        name: Alice
+      input: input.json
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectActionNoopWithConfig",
+			spec: `
+steps:
+  - action: noop
+    with:
+      message: ignored
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectCustomActionTemplateLegacyExecutionField",
+			spec: `
+actions:
+  bad.notify:
+    input_schema:
+      type: object
+    template:
+      action: log.write
+      command: echo legacy
+      with:
+        message: ok
+steps:
+  - action: bad.notify
+`,
+			wantErr: "not: validated against",
 		},
 	}
 

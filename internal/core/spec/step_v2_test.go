@@ -276,6 +276,95 @@ steps:
 	assert.Equal(t, "object", step.OutputSchema["type"])
 }
 
+func TestStepSchemaV2_CustomActionRejectsLegacyTemplateFields(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+actions:
+  bad.notify:
+    input_schema:
+      type: object
+    template:
+      action: log.write
+      command: echo legacy
+      with:
+        message: hello
+steps:
+  - action: bad.notify
+`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "template contains deprecated execution keys: [command]")
+}
+
+func TestStepSchemaV2_CustomActionsCanComposeCustomActions(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+actions:
+  http.notify:
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+    template:
+      action: http.request
+      with:
+        method: POST
+        url: ${WEBHOOK_URL}
+        body: {$input: text}
+  slack.notify:
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+    template:
+      action: http.notify
+      with:
+        text: {$input: text}
+steps:
+  - action: slack.notify
+    with:
+      text: hello
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, "slack.notify_1", step.Name)
+	assert.Equal(t, "http", step.ExecutorConfig.Type)
+	assert.Equal(t, "POST", step.ExecutorConfig.Config["method"])
+	assert.Equal(t, "hello", step.ExecutorConfig.Config["body"])
+	assert.Equal(t, "slack.notify", step.ExecutorConfig.Metadata["custom_type"])
+}
+
+func TestStepSchemaV2_CustomActionsRejectRecursiveReferences(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+actions:
+  loop.a:
+    input_schema:
+      type: object
+    template:
+      action: loop.b
+  loop.b:
+    input_schema:
+      type: object
+    template:
+      action: loop.a
+steps:
+  - action: loop.a
+`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "recursive custom action reference: loop.a -> loop.b -> loop.a")
+}
+
 func TestStepSchemaV2_CustomActionsFromBaseConfig(t *testing.T) {
 	t.Parallel()
 

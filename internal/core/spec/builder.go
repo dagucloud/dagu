@@ -356,11 +356,11 @@ func buildStepFromSpec(
 	if raw != nil {
 		_, hasRun := raw["run"]
 		_, hasAction := raw["action"]
-		normalizedRaw, err := normalizeStepExecutionRaw(raw, ctx.customStepTypes)
-		if err != nil {
-			return nil, err
-		}
 		if hasRun || hasAction {
+			normalizedRaw, err := normalizeStepExecutionRaw(raw, ctx.customStepTypes)
+			if err != nil {
+				return nil, err
+			}
 			normalizedSpec, err := decodeStep(normalizedRaw)
 			if err != nil {
 				return nil, err

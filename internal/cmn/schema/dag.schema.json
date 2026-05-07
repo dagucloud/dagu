@@ -1923,23 +1923,22 @@
           }
         },
         {
-          "not": {
-            "required": ["run", "command"]
-          }
-        },
-        {
-          "not": {
-            "required": ["action", "type"]
-          }
-        },
-        {
           "if": {
             "required": ["run"]
           },
           "then": {
+            "not": { "$ref": "#/definitions/legacyStepExecutionFieldPresence" },
             "properties": {
               "with": { "$ref": "#/definitions/runWithConfig" }
             }
+          }
+        },
+        {
+          "if": {
+            "required": ["action"]
+          },
+          "then": {
+            "not": { "$ref": "#/definitions/legacyStepExecutionFieldPresence" }
           }
         },
         {
@@ -1964,6 +1963,227 @@
             "properties": {
               "with": { "$ref": "#/definitions/httpRequestActionConfig" }
             }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "exec" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/execActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "enum": ["docker.run", "container.run", "k8s.run", "kubernetes.run"] } },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "with": { "$ref": "#/definitions/optionalCommandActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "ssh.run" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/commandActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "enum": ["archive.create", "archive.extract", "archive.list"] } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/archiveExecutorConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "enum": ["s3.upload", "s3.download", "s3.list", "s3.delete"] } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/s3ExecutorConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "enum": ["sftp.upload", "sftp.download"] } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/sftpExecutorConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "enum": ["postgres.query", "sqlite.query"] } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/queryActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "enum": ["postgres.import", "sqlite.import"] } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/importActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "mail.send" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/mailExecutorConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "pattern": "^redis\\.[A-Za-z][A-Za-z0-9_-]*$" } },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "with": { "$ref": "#/definitions/redisExecutorConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "harness.run" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/harnessRunActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "jq.filter" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/jqFilterActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "log.write" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/logExecutorConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "router.route" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/routerRouteActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "chat.completion" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/chatCompletionActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "agent.run" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/agentRunActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "template.render" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/templateRenderActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "noop" } },
+            "required": ["action"]
+          },
+          "then": {
+            "anyOf": [
+              { "not": { "required": ["with"] } },
+              {
+                "properties": {
+                  "with": {
+                    "type": "object",
+                    "maxProperties": 0
+                  }
+                }
+              }
+            ]
           }
         },
         {
@@ -5401,6 +5621,26 @@
       ],
       "description": "Builtin or custom action name."
     },
+    "legacyStepExecutionFieldPresence": {
+      "anyOf": [
+        { "required": ["agent"] },
+        { "required": ["call"] },
+        { "required": ["command"] },
+        { "required": ["config"] },
+        { "required": ["exec"] },
+        { "required": ["llm"] },
+        { "required": ["messages"] },
+        { "required": ["params"] },
+        { "required": ["routes"] },
+        { "required": ["script"] },
+        { "required": ["shell"] },
+        { "required": ["shell_args"] },
+        { "required": ["shell_packages"] },
+        { "required": ["type"] },
+        { "required": ["value"] }
+      ],
+      "description": "Legacy execution fields that cannot be mixed with canonical run or action syntax."
+    },
     "runWithConfig": {
       "type": "object",
       "additionalProperties": false,
@@ -5466,6 +5706,216 @@
       ],
       "description": "Configuration for action: http.request."
     },
+    "execActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command"],
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Executable path or binary name to run directly."
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": ["string", "number", "boolean"]
+          },
+          "description": "Explicit argv entries passed to the executable without shell parsing."
+        }
+      },
+      "description": "Configuration for action: exec."
+    },
+    "optionalCommandActionConfig": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "command": {
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "array",
+              "items": {
+                "type": ["string", "number", "boolean"]
+              }
+            }
+          ],
+          "description": "Optional command or argv-like command list used as the executor primary input."
+        }
+      },
+      "description": "Action configuration with an optional command field."
+    },
+    "commandActionConfig": {
+      "type": "object",
+      "required": ["command"],
+      "additionalProperties": true,
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Command or script used as the executor primary input."
+        }
+      },
+      "description": "Action configuration with a required command field."
+    },
+    "queryActionConfig": {
+      "type": "object",
+      "required": ["query"],
+      "additionalProperties": true,
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "description": "SQL query used as the executor primary input."
+        }
+      },
+      "description": "Action configuration with a required SQL query field."
+    },
+    "importActionConfig": {
+      "type": "object",
+      "required": ["import"],
+      "additionalProperties": true,
+      "properties": {
+        "import": {
+          "$ref": "#/definitions/sqlImportConfig",
+          "description": "Import configuration used by SQL import actions."
+        }
+      },
+      "description": "Action configuration with a required import field."
+    },
+    "harnessRunActionConfig": {
+      "type": "object",
+      "required": ["prompt"],
+      "additionalProperties": true,
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Task prompt passed to the harness CLI."
+        },
+        "stdin": {
+          "type": "string",
+          "description": "Optional stdin content passed to the harness command."
+        }
+      },
+      "description": "Configuration for action: harness.run."
+    },
+    "jqFilterActionConfig": {
+      "type": "object",
+      "required": ["filter"],
+      "not": {
+        "required": ["data", "input"]
+      },
+      "additionalProperties": true,
+      "properties": {
+        "filter": {
+          "type": "string",
+          "minLength": 1,
+          "description": "jq filter expression."
+        },
+        "data": {
+          "description": "Inline JSON value to provide as jq input."
+        },
+        "input": {
+          "type": "string",
+          "description": "File path to read JSON input from."
+        }
+      },
+      "description": "Configuration for action: jq.filter."
+    },
+    "routerRouteActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "routes"],
+      "properties": {
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Route value or expression."
+        },
+        "routes": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "description": "Map of patterns to target step names."
+        }
+      },
+      "description": "Configuration for action: router.route."
+    },
+    "chatCompletionActionConfig": {
+      "type": "object",
+      "anyOf": [
+        { "required": ["prompt"] },
+        { "required": ["messages"] }
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "description": "User prompt converted to a single chat message."
+        },
+        "messages": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/llmMessage"
+          },
+          "description": "Explicit chat messages."
+        }
+      },
+      "description": "Configuration for action: chat.completion."
+    },
+    "agentRunActionConfig": {
+      "type": "object",
+      "anyOf": [
+        { "required": ["task"] },
+        { "required": ["prompt"] },
+        { "required": ["messages"] }
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "task": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Agent task prompt."
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "description": "User prompt converted to a single agent message."
+        },
+        "messages": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/llmMessage"
+          },
+          "description": "Explicit agent messages."
+        }
+      },
+      "description": "Configuration for action: agent.run."
+    },
+    "templateRenderActionConfig": {
+      "type": "object",
+      "required": ["template"],
+      "additionalProperties": true,
+      "properties": {
+        "template": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Template text rendered by the template executor."
+        }
+      },
+      "description": "Configuration for action: template.render."
+    },
     "customActions": {
       "type": "object",
       "propertyNames": {
@@ -5490,6 +5940,11 @@
           "additionalProperties": true,
           "description": "Inline JSON Schema object used to validate and default the action's with input."
         },
+        "output_schema": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Inline JSON Schema object used to validate stdout JSON emitted by the expanded step."
+        },
         "template": {
           "$ref": "#/definitions/customActionTemplate",
           "description": "Step fragment template expanded at build time. Must define exactly one of run or action."
@@ -5504,9 +5959,16 @@
         { "required": ["run"] },
         { "required": ["action"] }
       ],
-      "not": {
-        "required": ["run", "action"]
-      },
+      "allOf": [
+        {
+          "not": {
+            "required": ["run", "action"]
+          }
+        },
+        {
+          "not": { "$ref": "#/definitions/legacyStepExecutionFieldPresence" }
+        }
+      ],
       "properties": {
         "run": {
           "oneOf": [

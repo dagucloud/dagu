@@ -494,9 +494,9 @@ For more examples, see the [Examples documentation](https://docs.dagu.sh/writing
 
 Dagu includes built-in actions that run within the Dagu process (or worker). Local shell commands use `run`.
 
-| Action | Purpose |
+| Field / Action | Purpose |
 |----------|---------|
-| [`run`](https://docs.dagu.sh/step-types/shell) | Local shell commands and scripts (bash, sh, PowerShell, custom shells) |
+| [`run:` field](https://docs.dagu.sh/step-types/shell) | Local shell commands and scripts (bash, sh, PowerShell, custom shells) |
 | [`docker.run`](https://docs.dagu.sh/step-types/docker) | Run containers with registry auth, volume mounts, and resource limits |
 | [`kubernetes.run` / `k8s.run`](https://docs.dagu.sh/step-types/kubernetes) | Execute Kubernetes Jobs with namespace, image, and resource settings |
 | [`ssh.run`](https://docs.dagu.sh/step-types/ssh) | Remote command execution over SSH |
