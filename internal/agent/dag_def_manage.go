@@ -157,6 +157,9 @@ func dagDefManageList(ctx context.Context, store exec.DAGStore, args dagDefManag
 	}
 	items := make([]dagDefManageDAGSummary, 0, len(result.Items))
 	for _, dag := range result.Items {
+		if dag == nil {
+			continue
+		}
 		items = append(items, summarizeDAGDefinition(dag, store.IsSuspended(ctx, dag.Name)))
 	}
 	nextCursor := ""

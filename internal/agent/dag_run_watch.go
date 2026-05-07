@@ -22,6 +22,7 @@ const (
 	defaultDAGRunWatchPollInterval  = 5 * time.Second
 	defaultDAGRunWatchRetention     = 24 * time.Hour
 	defaultDAGRunWatchMaxDuration   = 7 * 24 * time.Hour
+	defaultDAGRunWatchPollTimeout   = 30 * time.Second
 	defaultDAGRunWatchMaxTotal      = 1024
 	defaultDAGRunWatchMaxPerSession = 64
 )
@@ -43,6 +44,10 @@ type DAGRunWatcher interface {
 	Watch(ctx context.Context, req DAGRunWatchRequest) (DAGRunWatchInfo, error)
 	Status(ctx context.Context, req DAGRunWatchStatusRequest) (DAGRunWatchInfo, error)
 	Cancel(ctx context.Context, req DAGRunWatchCancelRequest) (DAGRunWatchInfo, error)
+}
+
+type DAGRunWatchCleaner interface {
+	ClearSession(sessionID string) int
 }
 
 // DAGRunWatchRequest describes a new run watch.
@@ -312,16 +317,20 @@ func (r *dagRunWatchRegistry) poll(ctx context.Context, watchID string) {
 			return
 		}
 
-		status, err := r.readStatus(context.Background(), req.DAGName, req.DAGRunID, req.SubDAGRunID)
+		statusCtx, cancelStatus := context.WithTimeout(ctx, r.pollTimeout())
+		status, err := r.readStatus(statusCtx, req.DAGName, req.DAGRunID, req.SubDAGRunID)
+		cancelStatus()
 		if err != nil {
 			r.markWatchError(watchID, err.Error())
 			r.logger.Debug("failed to refresh DAG run watch", "watch_id", watchID, "dag", req.DAGName, "run_id", req.DAGRunID, "error", err)
 			continue
 		}
 		if isDAGRunWatchTerminal(status) {
-			if _, err := r.complete(context.Background(), watchID, status); err != nil {
+			notifyCtx, cancelNotify := context.WithTimeout(ctx, r.pollTimeout())
+			if _, err := r.complete(notifyCtx, watchID, status); err != nil {
 				r.logger.Warn("failed to notify DAG run watch", "watch_id", watchID, "dag", req.DAGName, "run_id", req.DAGRunID, "error", err)
 			}
+			cancelNotify()
 			return
 		}
 		r.updateWatchStatus(watchID, status)
@@ -453,6 +462,28 @@ func (r *dagRunWatchRegistry) markWatchError(watchID, message string) DAGRunWatc
 	return entry.info
 }
 
+func (r *dagRunWatchRegistry) ClearSession(sessionID string) int {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return 0
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	removed := 0
+	for watchID, entry := range r.watches {
+		if entry == nil || entry.req.SessionID != sessionID {
+			continue
+		}
+		if entry.cancel != nil {
+			entry.cancel()
+		}
+		delete(r.watches, watchID)
+		delete(r.byRun, dagRunWatchKey(entry.req.SessionID, entry.req.DAGName, entry.req.DAGRunID, entry.req.SubDAGRunID))
+		removed++
+	}
+	return removed
+}
+
 func (r *dagRunWatchRegistry) expireIfOverdue(watchID string, now time.Time) (DAGRunWatchInfo, bool) {
 	if r.maxDuration <= 0 {
 		return DAGRunWatchInfo{}, false
@@ -511,6 +542,13 @@ func (r *dagRunWatchRegistry) runningWatchCountLocked(sessionID string) int {
 		count++
 	}
 	return count
+}
+
+func (r *dagRunWatchRegistry) pollTimeout() time.Duration {
+	if r.pollInterval > defaultDAGRunWatchPollTimeout {
+		return r.pollInterval
+	}
+	return defaultDAGRunWatchPollTimeout
 }
 
 func normalizeDAGRunWatchRequest(req DAGRunWatchRequest) DAGRunWatchRequest {

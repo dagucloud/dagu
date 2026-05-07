@@ -308,6 +308,33 @@ func TestDAGRunWatchRegistryDeduplicatesActiveRun(t *testing.T) {
 	assert.Equal(t, DAGRunWatchStateCanceled, canceled.State)
 }
 
+func TestDAGRunWatchRegistryClearSessionRemovesActiveWatches(t *testing.T) {
+	store := &dagRunManageTestStore{
+		status: &exec.DAGRunStatus{
+			Name:     "build",
+			DAGRunID: "run-1",
+			Status:   core.Running,
+		},
+	}
+	registry := newDAGRunWatchRegistry(store, nil, slog.Default(), withDAGRunWatchPollInterval(time.Hour))
+	info, err := registry.Watch(context.Background(), DAGRunWatchRequest{
+		SessionID: "session-1",
+		User:      UserIdentity{UserID: "user-1"},
+		DAGName:   "build",
+		DAGRunID:  "run-1",
+	})
+	require.NoError(t, err)
+
+	removed := registry.ClearSession("session-1")
+	assert.Equal(t, 1, removed)
+
+	_, err = registry.Status(context.Background(), DAGRunWatchStatusRequest{
+		SessionID: "session-1",
+		WatchID:   info.WatchID,
+	})
+	require.Error(t, err)
+}
+
 func TestDAGRunWatchRegistryExpiresStuckRun(t *testing.T) {
 	store := &dagRunManageTestStore{
 		status: &exec.DAGRunStatus{

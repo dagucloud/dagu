@@ -1,7 +1,10 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import { components, NodeStatus } from '@/api/v1/schema';
 import { isActiveNodeStatus } from '@/lib/status-utils';
 import { Loader2 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { StepMessagesTable } from './StepMessagesTable';
 
 type DAGRunDetails = components['schemas']['DAGRunDetails'];
@@ -45,13 +48,21 @@ export function ChatHistoryTab({ dagRun }: ChatHistoryTabProps) {
   const [selectedStep, setSelectedStep] = useState<string | undefined>(
     defaultStep
   );
+  const [userSelectedStep, setUserSelectedStep] = useState(false);
+  const previousRunId = useRef(dagRun.dagRunId);
 
   // Update selectedStep when defaultStep changes (e.g., when nodes arrive or runs switch)
   useEffect(() => {
-    if (defaultStep) {
+    if (previousRunId.current !== dagRun.dagRunId) {
+      previousRunId.current = dagRun.dagRunId;
+      setUserSelectedStep(false);
+      setSelectedStep(defaultStep);
+      return;
+    }
+    if (defaultStep && !userSelectedStep) {
       setSelectedStep(defaultStep);
     }
-  }, [defaultStep]);
+  }, [dagRun.dagRunId, defaultStep, userSelectedStep]);
 
   // Get selected node info
   const selectedNode = historySteps.find((n) => n.step.name === selectedStep);
@@ -81,7 +92,10 @@ export function ChatHistoryTab({ dagRun }: ChatHistoryTabProps) {
         <select
           id="chat-step-select"
           value={selectedStep || ''}
-          onChange={(e) => setSelectedStep(e.target.value)}
+          onChange={(e) => {
+            setUserSelectedStep(true);
+            setSelectedStep(e.target.value);
+          }}
           className="h-6 px-2 text-xs border rounded bg-card focus:outline-none"
         >
           {historySteps.map((node) => (

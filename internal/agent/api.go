@@ -1168,6 +1168,7 @@ func (a *API) CreateSession(ctx context.Context, user UserIdentity, req ChatRequ
 	if err := mgr.AcceptUserMessage(ctx, provider, model, modelCfg.Model, messageWithContext); err != nil {
 		a.logger.Error("Failed to accept user message", "error", err)
 		a.sessions.Delete(id)
+		a.clearDAGRunWatchesForSession(id)
 		return "", "", ErrFailedToProcessMessage
 	}
 
@@ -1312,6 +1313,7 @@ func (a *API) CompactSessionIfNeeded(ctx context.Context, sessionID string, user
 		},
 	}); err != nil {
 		a.sessions.Delete(newID)
+		a.clearDAGRunWatchesForSession(newID)
 		return "", false, err
 	}
 
@@ -1327,6 +1329,7 @@ func (a *API) CompactSessionIfNeeded(ctx context.Context, sessionID string, user
 	}
 	if err := a.ensureSessionLoop(newMgr, provider, runtimeCfg); err != nil {
 		a.sessions.Delete(newID)
+		a.clearDAGRunWatchesForSession(newID)
 		if a.store != nil {
 			if delErr := a.store.DeleteSession(ctx, newID); delErr != nil && !errors.Is(delErr, ErrSessionNotFound) {
 				a.logger.Warn("Failed to roll back compacted session after loop init error", "session_id", newID, "error", delErr)
@@ -1337,6 +1340,7 @@ func (a *API) CompactSessionIfNeeded(ctx context.Context, sessionID string, user
 
 	_ = mgr.Cancel(ctx)
 	a.sessions.Delete(sessionID)
+	a.clearDAGRunWatchesForSession(sessionID)
 
 	return newID, true, nil
 }
@@ -1652,6 +1656,7 @@ func (a *API) CancelSession(ctx context.Context, sessionID, userID string) error
 		a.logger.Error("Failed to cancel session", "error", err)
 		return ErrFailedToCancel
 	}
+	a.clearDAGRunWatchesForSession(sessionID)
 
 	return nil
 }
@@ -1756,6 +1761,7 @@ func (a *API) cleanupIdleSessions() {
 				a.logger.Warn("Failed to cancel stuck session", "session_id", id, "error", err)
 			} else {
 				a.logger.Warn("Cancelled stuck session", "session_id", id)
+				a.clearDAGRunWatchesForSession(id)
 			}
 		}
 		// Cancelled sessions remain in the map until the next cleanup cycle
@@ -1773,7 +1779,19 @@ func (a *API) cleanupIdleSessions() {
 			}
 		}
 		a.sessions.Delete(id)
+		a.clearDAGRunWatchesForSession(id)
 		a.logger.Debug("Cleaned up idle session", "session_id", id)
+	}
+}
+
+func (a *API) clearDAGRunWatchesForSession(sessionID string) {
+	cleaner, ok := a.dagRunWatcher.(DAGRunWatchCleaner)
+	if !ok {
+		return
+	}
+	removed := cleaner.ClearSession(sessionID)
+	if removed > 0 {
+		a.logger.Debug("Cleared DAG run watches for session", "session_id", sessionID, "count", removed)
 	}
 }
 
