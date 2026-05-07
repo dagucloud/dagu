@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/internal/test"
 )
 
+// TestManager exercises DAG run manager status and control behavior.
 func TestManager(t *testing.T) {
 	th := test.Setup(t, test.WithBuiltExecutable())
 
@@ -530,11 +531,13 @@ steps:
 	})
 }
 
+// testNewStatus builds a minimal persisted DAG run status for manager tests.
 func testNewStatus(dag *core.DAG, dagRunID string, dagStatus core.Status, nodeStatus core.NodeStatus) exec.DAGRunStatus {
 	nodes := []runtime.NodeData{{State: runtime.NodeState{Status: nodeStatus}}}
 	return transform.NewStatusBuilder(dag).Create(dagRunID, dagStatus, 0, time.Now(), transform.WithNodes(nodes))
 }
 
+// startStatusSocketServer serves a fixed status over the DAG run socket.
 func startStatusSocketServer(t *testing.T, ctx context.Context, dag *core.DAG, dagRunID string, status exec.DAGRunStatus) func() {
 	t.Helper()
 

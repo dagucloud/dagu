@@ -63,6 +63,8 @@ func TestNewHTTPServerConfiguresTimeouts(t *testing.T) {
 	require.Equal(t, idleTimeout, httpServer.IdleTimeout)
 }
 
+// TestWrapListenErrorMarksUnsupportedTransport verifies capability failures are
+// exposed through ErrUnsupported.
 func TestWrapListenErrorMarksUnsupportedTransport(t *testing.T) {
 	t.Parallel()
 
@@ -71,6 +73,8 @@ func TestWrapListenErrorMarksUnsupportedTransport(t *testing.T) {
 	require.ErrorIs(t, err, ErrUnsupported)
 }
 
+// TestWrapListenErrorPreservesOtherErrors verifies bind/path errors keep their
+// original classification.
 func TestWrapListenErrorPreservesOtherErrors(t *testing.T) {
 	t.Parallel()
 
