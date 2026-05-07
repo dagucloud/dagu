@@ -8824,6 +8824,10 @@ components:
           type: object
           additionalProperties: true
           description: "Resolved JSON Schema object used to validate and document with input"
+        outputSchema:
+          type: object
+          additionalProperties: true
+          description: "Resolved JSON Schema object used to validate stdout JSON output"
       required:
         - name
         - targetType

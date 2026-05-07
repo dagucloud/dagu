@@ -513,6 +513,10 @@ func (a *API) buildDAGEditorHints(ctx context.Context, dag *core.DAG, fileName s
 			Name:        hint.Name,
 			TargetType:  hint.TargetType,
 		}
+		if len(hint.OutputSchema) > 0 {
+			outputSchema := hint.OutputSchema
+			apiHint.OutputSchema = &outputSchema
+		}
 		if hint.Description != "" {
 			desc := hint.Description
 			apiHint.Description = &desc

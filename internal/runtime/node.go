@@ -31,6 +31,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/goccy/go-yaml"
+	"github.com/google/jsonschema-go/jsonschema"
 )
 
 // systemVarPrefix is the prefix for temporary variables used internally by Dagu
@@ -48,6 +49,10 @@ type Node struct {
 	done         atomic.Bool
 	retryPolicy  RetryPolicy
 	cmdEvaluated atomic.Bool
+
+	outputSchemaOnce sync.Once
+	outputSchema     *jsonschema.Resolved
+	outputSchemaErr  error
 }
 
 func NewNode(step core.Step, state NodeState) *Node {
@@ -383,34 +388,134 @@ func (n *Node) handleCommandError(cmd executor.Executor, err error) (int, error)
 func (n *Node) captureOutput(ctx context.Context) error {
 	step := n.Step()
 
-	if step.Output != "" {
+	var stdout string
+	var stdoutCaptured bool
+	captureStdout := func() (string, error) {
+		if stdoutCaptured {
+			return stdout, nil
+		}
 		value, err := n.outputs.capturedOutput(ctx)
+		if err != nil {
+			return "", err
+		}
+		stdout = value
+		stdoutCaptured = true
+		return stdout, nil
+	}
+
+	var schemaOutput string
+	var schemaErr error
+	if step.HasOutputSchema() {
+		raw, err := captureStdout()
+		if err != nil {
+			schemaErr = fmt.Errorf("failed to capture stdout for output_schema: %w", err)
+		} else {
+			value, err := n.evaluateOutputSchema(ctx, raw)
+			if err != nil {
+				schemaErr = fmt.Errorf("failed to validate output_schema: %w", err)
+			} else {
+				schemaOutput = value
+			}
+		}
+		if schemaErr != nil && n.Error() == nil {
+			return schemaErr
+		}
+	}
+
+	if step.Output != "" {
+		value, err := captureStdout()
 		if err != nil {
 			return fmt.Errorf("failed to capture output: %w", err)
 		}
 		n.setVariable(step.Output, value)
+		if !step.HasStructuredOutput() && !step.HasOutputSchema() {
+			n.setOutputValue(value)
+			return nil
+		}
+	}
+
+	if step.HasStructuredOutput() {
+		value, err := n.evaluateStructuredOutput(ctx, stdout, stdoutCaptured)
+		if err != nil {
+			return fmt.Errorf("failed to evaluate structured output: %w", err)
+		}
 		n.setOutputValue(value)
 		return nil
 	}
 
-	if !step.HasStructuredOutput() {
-		return nil
+	if step.HasOutputSchema() {
+		n.setOutputValue(schemaOutput)
 	}
-
-	value, err := n.evaluateStructuredOutput(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to evaluate structured output: %w", err)
-	}
-	n.setOutputValue(value)
 	return nil
 }
 
-func (n *Node) evaluateStructuredOutput(ctx context.Context) (string, error) {
+func (n *Node) evaluateOutputSchema(ctx context.Context, raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", fmt.Errorf("output_schema requires stdout to contain a JSON value matching the schema")
+	}
+
+	var decoded any
+	if err := json.Unmarshal([]byte(trimmed), &decoded); err != nil {
+		return "", fmt.Errorf("failed to decode stdout JSON for output_schema: %w", err)
+	}
+	if err := n.validateOutputSchema(decoded); err != nil {
+		return "", err
+	}
+
+	data, err := json.Marshal(decoded)
+	if err != nil {
+		return "", fmt.Errorf("failed to serialize validated output_schema value: %w", err)
+	}
+	if int64(len(data)) > maxOutputSize(ctx) {
+		return "", fmt.Errorf("output exceeded maximum size limit of %d bytes", maxOutputSize(ctx))
+	}
+	return string(data), nil
+}
+
+func (n *Node) validateOutputSchema(value any) error {
+	resolved, err := n.resolvedOutputSchema()
+	if err != nil {
+		return err
+	}
+	if err := resolved.Validate(value); err != nil {
+		// Avoid wrapping the validation error because it may contain parts of stdout.
+		return fmt.Errorf("stdout JSON does not match output_schema")
+	}
+	return nil
+}
+
+func (n *Node) resolvedOutputSchema() (*jsonschema.Resolved, error) {
+	n.outputSchemaOnce.Do(func() {
+		data, err := json.Marshal(n.Step().OutputSchema)
+		if err != nil {
+			n.outputSchemaErr = fmt.Errorf("failed to marshal output_schema: %w", err)
+			return
+		}
+		var schema jsonschema.Schema
+		if err := json.Unmarshal(data, &schema); err != nil {
+			n.outputSchemaErr = fmt.Errorf("failed to parse output_schema: %w", err)
+			return
+		}
+		resolved, err := schema.Resolve(&jsonschema.ResolveOptions{ValidateDefaults: true})
+		if err != nil {
+			n.outputSchemaErr = fmt.Errorf("failed to resolve output_schema: %w", err)
+			return
+		}
+		n.outputSchema = resolved
+	})
+	if n.outputSchemaErr != nil {
+		return nil, n.outputSchemaErr
+	}
+	return n.outputSchema, nil
+}
+
+func (n *Node) evaluateStructuredOutput(ctx context.Context, stdout string, stdoutCaptured bool) (string, error) {
 	step := n.Step()
 	result := make(map[string]any, len(step.StructuredOutput))
 
 	for key, entry := range step.StructuredOutput {
-		value, err := n.resolveStructuredOutputEntry(ctx, key, entry)
+		value, err := n.resolveStructuredOutputEntry(ctx, key, entry, stdout, stdoutCaptured)
 		if err != nil {
 			return "", err
 		}
@@ -427,7 +532,7 @@ func (n *Node) evaluateStructuredOutput(ctx context.Context) (string, error) {
 	return string(data), nil
 }
 
-func (n *Node) resolveStructuredOutputEntry(ctx context.Context, key string, entry core.StepOutputEntry) (any, error) {
+func (n *Node) resolveStructuredOutputEntry(ctx context.Context, key string, entry core.StepOutputEntry, stdout string, stdoutCaptured bool) (any, error) {
 	if entry.HasValue {
 		value, err := n.evaluateStructuredLiteral(ctx, entry.Value)
 		if err != nil {
@@ -436,7 +541,7 @@ func (n *Node) resolveStructuredOutputEntry(ctx context.Context, key string, ent
 		return value, nil
 	}
 
-	raw, err := n.readStructuredOutputSource(ctx, key, entry)
+	raw, err := n.readStructuredOutputSource(ctx, key, entry, stdout, stdoutCaptured)
 	if err != nil {
 		return nil, err
 	}
@@ -453,9 +558,12 @@ func (n *Node) resolveStructuredOutputEntry(ctx context.Context, key string, ent
 	}
 }
 
-func (n *Node) readStructuredOutputSource(ctx context.Context, key string, entry core.StepOutputEntry) (string, error) {
+func (n *Node) readStructuredOutputSource(ctx context.Context, key string, entry core.StepOutputEntry, stdout string, stdoutCaptured bool) (string, error) {
 	switch entry.From {
 	case core.StepOutputSourceStdout:
+		if stdoutCaptured {
+			return stdout, nil
+		}
 		value, err := n.outputs.capturedOutput(ctx)
 		if err != nil {
 			return "", fmt.Errorf("%s: failed to capture stdout: %w", key, err)

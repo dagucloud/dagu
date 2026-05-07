@@ -3542,6 +3542,10 @@ export interface components {
             inputSchema: {
                 [key: string]: unknown;
             };
+            /** @description Resolved JSON Schema object used to validate stdout JSON output */
+            outputSchema?: {
+                [key: string]: unknown;
+            };
         };
         /** @description Scalar parameter value */
         ParamScalar: string | number | boolean;

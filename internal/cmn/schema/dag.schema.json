@@ -1463,6 +1463,11 @@
           ],
           "description": "Step output configuration. Use a string to capture stdout into a flat variable, or an object to publish structured step-scoped output for ${step.output.*} references."
         },
+        "output_schema": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Inline JSON Schema object used to validate stdout JSON before publishing step output."
+        },
         "depends": {
           "oneOf": [
             {
@@ -5267,6 +5272,11 @@
           "type": "object",
           "additionalProperties": true,
           "description": "Inline JSON Schema object used to validate and default the custom step's with input."
+        },
+        "output_schema": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Inline JSON Schema object used to validate stdout JSON emitted by the expanded step."
         },
         "template": {
           "type": "object",
