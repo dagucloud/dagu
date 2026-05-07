@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -153,9 +154,7 @@ func patchOperationSchema(operation PatchOperation, required []any, extraPropert
 			"description": fmt.Sprintf("Must be %q for this argument shape.", operation),
 		},
 	}
-	for name, schema := range extraProperties {
-		properties[name] = schema
-	}
+	maps.Copy(properties, extraProperties)
 	return map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
