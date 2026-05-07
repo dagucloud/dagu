@@ -351,6 +351,7 @@ jobs:
         run: |
           go test \
             -timeout=10m \
+            -tags postgres_integration \
             ./internal/persis/controlplanestore/postgres \
             -run TestPostgresControlPlaneStoreIntegration \
             -count=1

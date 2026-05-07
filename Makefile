@@ -203,6 +203,12 @@ test: bin
 	@go clean -testcache
 	@${LOCAL_BIN_DIR}/gotestsum ${GOTESTSUM_ARGS} -- ${GO_TEST_FLAGS} ${TEST_TARGET}
 
+# test-postgres runs PostgreSQL integration tests with testcontainers.
+.PHONY: test-postgres
+test-postgres:
+	@printf '%b\n' "${COLOR_GREEN}Running PostgreSQL integration tests...${COLOR_RESET}"
+	@go test -timeout=10m -tags postgres_integration ./internal/persis/controlplanestore/postgres -run TestPostgresControlPlaneStoreIntegration -count=1
+
 # test-coverage runs all tests with coverage.
 .PHONY: test-coverage
 test-coverage:
