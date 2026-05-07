@@ -34,35 +34,37 @@ var v2RunWithFields = map[string]struct{}{
 	"shell_packages": {},
 }
 
-var builtinActionNames = map[string]struct{}{
-	"agent.run":       {},
-	"archive.create":  {},
-	"archive.extract": {},
-	"archive.list":    {},
-	"chat.completion": {},
-	"container.run":   {},
-	"dag.run":         {},
-	"docker.run":      {},
-	"exec":            {},
-	"harness.run":     {},
-	"http.request":    {},
-	"jq.filter":       {},
-	"k8s.run":         {},
-	"kubernetes.run":  {},
-	"log.write":       {},
-	"mail.send":       {},
-	"noop":            {},
-	"postgres.query":  {},
-	"router.route":    {},
-	"s3.delete":       {},
-	"s3.download":     {},
-	"s3.list":         {},
-	"s3.upload":       {},
-	"sftp.download":   {},
-	"sftp.upload":     {},
-	"sqlite.query":    {},
-	"ssh.run":         {},
-	"template.render": {},
+type actionNormalizer func(normalized map[string]any, with map[string]any) error
+
+var builtinActionNormalizers = map[string]actionNormalizer{
+	"agent.run":       normalizeAgentAction,
+	"archive.create":  operationAction("archive", "create"),
+	"archive.extract": operationAction("archive", "extract"),
+	"archive.list":    operationAction("archive", "list"),
+	"chat.completion": normalizeChatAction,
+	"container.run":   commandAction("container", "command"),
+	"dag.run":         normalizeDagRunAction,
+	"docker.run":      commandAction("docker", "command"),
+	"exec":            normalizeExecAction,
+	"harness.run":     commandAction("harness", "prompt"),
+	"http.request":    normalizeHTTPRequestAction,
+	"jq.filter":       commandAction("jq", "filter"),
+	"k8s.run":         commandAction("k8s", "command"),
+	"kubernetes.run":  commandAction("kubernetes", "command"),
+	"log.write":       normalizeLogAction,
+	"mail.send":       typedAction("mail"),
+	"noop":            normalizeNoopAction,
+	"postgres.query":  commandAction("postgres", "query"),
+	"router.route":    normalizeRouterAction,
+	"s3.delete":       operationAction("s3", "delete"),
+	"s3.download":     operationAction("s3", "download"),
+	"s3.list":         operationAction("s3", "list"),
+	"s3.upload":       operationAction("s3", "upload"),
+	"sftp.download":   directionAction("sftp", "download"),
+	"sftp.upload":     directionAction("sftp", "upload"),
+	"sqlite.query":    commandAction("sqlite", "query"),
+	"ssh.run":         commandAction("ssh", "command"),
+	"template.render": normalizeTemplateAction,
 }
 
 func normalizeStepExecutionRaw(raw map[string]any, registry *customStepTypeRegistry) (map[string]any, error) {
@@ -158,69 +160,13 @@ func normalizeActionStep(normalized, raw map[string]any, registry *customStepTyp
 		return err
 	}
 
-	switch action {
-	case "dag.run":
-		return normalizeDagRunAction(normalized, with)
-	case "exec":
-		return normalizeExecAction(normalized, with)
-	case "http.request":
-		return normalizeHTTPRequestAction(normalized, with)
-	case "ssh.run":
-		return normalizeCommandAction(normalized, "ssh", with, "command")
-	case "sftp.upload":
-		return normalizeDirectionAction(normalized, "sftp", with, "upload")
-	case "sftp.download":
-		return normalizeDirectionAction(normalized, "sftp", with, "download")
-	case "docker.run":
-		return normalizeCommandAction(normalized, "docker", with, "command")
-	case "container.run":
-		return normalizeCommandAction(normalized, "container", with, "command")
-	case "k8s.run":
-		return normalizeCommandAction(normalized, "k8s", with, "command")
-	case "kubernetes.run":
-		return normalizeCommandAction(normalized, "kubernetes", with, "command")
-	case "postgres.query":
-		return normalizeCommandAction(normalized, "postgres", with, "query")
-	case "sqlite.query":
-		return normalizeCommandAction(normalized, "sqlite", with, "query")
-	case "jq.filter":
-		return normalizeCommandAction(normalized, "jq", with, "filter")
-	case "mail.send":
-		return normalizeTypedAction(normalized, "mail", with)
-	case "archive.extract":
-		return normalizeOperationAction(normalized, "archive", with, "extract")
-	case "archive.create":
-		return normalizeOperationAction(normalized, "archive", with, "create")
-	case "archive.list":
-		return normalizeOperationAction(normalized, "archive", with, "list")
-	case "s3.upload":
-		return normalizeOperationAction(normalized, "s3", with, "upload")
-	case "s3.download":
-		return normalizeOperationAction(normalized, "s3", with, "download")
-	case "s3.list":
-		return normalizeOperationAction(normalized, "s3", with, "list")
-	case "s3.delete":
-		return normalizeOperationAction(normalized, "s3", with, "delete")
-	case "template.render":
-		return normalizeTemplateAction(normalized, with)
-	case "log.write":
-		return normalizeLogAction(normalized, with)
-	case "router.route":
-		return normalizeRouterAction(normalized, with)
-	case "chat.completion":
-		return normalizeChatAction(normalized, with)
-	case "agent.run":
-		return normalizeAgentAction(normalized, with)
-	case "harness.run":
-		return normalizeCommandAction(normalized, "harness", with, "prompt")
-	case "noop":
-		return normalizeNoopAction(normalized, with)
-	default:
-		if strings.HasPrefix(action, "redis.") {
-			return normalizeRedisAction(normalized, with, strings.TrimPrefix(action, "redis."))
-		}
-		return core.NewValidationError("action", raw["action"], fmt.Errorf("unknown action %q", action))
+	if normalizer, ok := builtinActionNormalizers[action]; ok {
+		return normalizer(normalized, with)
 	}
+	if strings.HasPrefix(action, "redis.") {
+		return normalizeRedisAction(normalized, with, strings.TrimPrefix(action, "redis."))
+	}
+	return core.NewValidationError("action", raw["action"], fmt.Errorf("unknown action %q", action))
 }
 
 func actionWith(raw map[string]any) (map[string]any, error) {
@@ -271,6 +217,12 @@ func finishAction(normalized map[string]any, executorType string, with map[strin
 
 func normalizeTypedAction(normalized map[string]any, executorType string, with map[string]any) error {
 	return finishAction(normalized, executorType, with)
+}
+
+func typedAction(executorType string) actionNormalizer {
+	return func(normalized map[string]any, with map[string]any) error {
+		return normalizeTypedAction(normalized, executorType, with)
+	}
 }
 
 func normalizeHTTPRequestAction(normalized map[string]any, with map[string]any) error {
@@ -332,6 +284,12 @@ func normalizeCommandAction(normalized map[string]any, executorType string, with
 	return finishAction(normalized, executorType, with)
 }
 
+func commandAction(executorType, field string) actionNormalizer {
+	return func(normalized map[string]any, with map[string]any) error {
+		return normalizeCommandAction(normalized, executorType, with, field)
+	}
+}
+
 func normalizeDirectionAction(normalized map[string]any, executorType string, with map[string]any, direction string) error {
 	if with == nil {
 		with = map[string]any{}
@@ -343,9 +301,21 @@ func normalizeDirectionAction(normalized map[string]any, executorType string, wi
 	return finishAction(normalized, executorType, with)
 }
 
+func directionAction(executorType, direction string) actionNormalizer {
+	return func(normalized map[string]any, with map[string]any) error {
+		return normalizeDirectionAction(normalized, executorType, with, direction)
+	}
+}
+
 func normalizeOperationAction(normalized map[string]any, executorType string, with map[string]any, operation string) error {
 	normalized["command"] = operation
 	return finishAction(normalized, executorType, with)
+}
+
+func operationAction(executorType, operation string) actionNormalizer {
+	return func(normalized map[string]any, with map[string]any) error {
+		return normalizeOperationAction(normalized, executorType, with, operation)
+	}
 }
 
 func normalizeTemplateAction(normalized map[string]any, with map[string]any) error {
@@ -472,7 +442,7 @@ func normalizeNoopAction(normalized map[string]any, with map[string]any) error {
 
 func isBuiltinActionName(name string) bool {
 	name = strings.TrimSpace(name)
-	if _, ok := builtinActionNames[name]; ok {
+	if _, ok := builtinActionNormalizers[name]; ok {
 		return true
 	}
 	return strings.HasPrefix(name, "redis.") && strings.TrimPrefix(name, "redis.") != ""

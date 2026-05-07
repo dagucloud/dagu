@@ -4,10 +4,8 @@
 package cmd
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 
@@ -16,7 +14,6 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/workspace"
-	"github.com/goccy/go-yaml"
 	"github.com/spf13/cobra"
 )
 
@@ -77,7 +74,11 @@ func runValidate(ctx *Context, args []string) error {
 		return errors.New(formatValidationErrors(args[0], vErr))
 	}
 
-	for _, warning := range collectDeprecatedSyntaxWarnings(args[0]) {
+	deprecatedWarnings, err := collectDeprecatedSyntaxWarnings(args[0])
+	if err != nil {
+		return errors.New(formatValidationErrors(args[0], err))
+	}
+	for _, warning := range deprecatedWarnings {
 		logger.Warn(ctx, warning, tag.File(args[0]))
 	}
 
@@ -89,119 +90,12 @@ func runValidate(ctx *Context, args []string) error {
 	return nil
 }
 
-func collectDeprecatedSyntaxWarnings(file string) []string {
+func collectDeprecatedSyntaxWarnings(file string) ([]string, error) {
 	data, err := os.ReadFile(file)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-
-	var warnings []string
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	docIndex := 0
-	for {
-		var doc map[string]any
-		if err := decoder.Decode(&doc); err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return nil
-		}
-		if len(doc) == 0 {
-			docIndex++
-			continue
-		}
-		prefix := ""
-		if docIndex > 0 {
-			prefix = fmt.Sprintf("document[%d].", docIndex)
-		}
-		warnings = append(warnings, deprecatedSyntaxWarningsForDocument(prefix, doc)...)
-		docIndex++
-	}
-	return warnings
-}
-
-func deprecatedSyntaxWarningsForDocument(prefix string, doc map[string]any) []string {
-	var warnings []string
-	if _, ok := doc["step_types"]; ok {
-		warnings = append(warnings, fmt.Sprintf("Deprecated DAG syntax: %sstep_types is deprecated; use actions", prefix))
-	}
-	warnings = append(warnings, deprecatedSyntaxWarningsForSteps(prefix+"steps", doc["steps"])...)
-	if handlerRaw, ok := doc["handler_on"].(map[string]any); ok {
-		for name, raw := range handlerRaw {
-			warnings = append(warnings, deprecatedSyntaxWarningsForStep(fmt.Sprintf("%shandler_on.%s", prefix, name), raw)...)
-		}
-	}
-	return warnings
-}
-
-func deprecatedSyntaxWarningsForSteps(path string, raw any) []string {
-	switch steps := raw.(type) {
-	case []any:
-		warnings := make([]string, 0)
-		for i, stepRaw := range steps {
-			warnings = append(warnings, deprecatedSyntaxWarningsForStep(fmt.Sprintf("%s[%d]", path, i), stepRaw)...)
-		}
-		return warnings
-	case map[string]any:
-		warnings := make([]string, 0)
-		for name, stepRaw := range steps {
-			warnings = append(warnings, deprecatedSyntaxWarningsForStep(fmt.Sprintf("%s.%s", path, name), stepRaw)...)
-		}
-		return warnings
-	default:
-		return nil
-	}
-}
-
-func deprecatedSyntaxWarningsForStep(path string, raw any) []string {
-	switch step := raw.(type) {
-	case string:
-		return []string{fmt.Sprintf("Deprecated DAG syntax: %s string shorthand is deprecated; use run", path)}
-	case map[string]any:
-		return deprecatedSyntaxWarningsForStepMap(path, step)
-	default:
-		return nil
-	}
-}
-
-func deprecatedSyntaxWarningsForStepMap(path string, step map[string]any) []string {
-	replacements := map[string]string{
-		"agent":          "use action: agent.run with with",
-		"call":           "use action: dag.run with with.dag",
-		"command":        "use run",
-		"config":         "use with",
-		"exec":           "use action: exec",
-		"llm":            "use action: chat.completion with with",
-		"messages":       "use action: chat.completion or action: agent.run",
-		"params":         "use action: dag.run with with.params",
-		"routes":         "use action: router.route with with.routes",
-		"script":         "use run",
-		"shell":          "use run with with.shell",
-		"shell_args":     "use run with with.shell_args",
-		"shell_packages": "use run with with.shell_packages",
-		"type":           "use action",
-		"value":          "use action: router.route with with.value",
-	}
-
-	hasRun := false
-	if _, ok := step["run"]; ok {
-		hasRun = true
-	}
-	hasAction := false
-	if _, ok := step["action"]; ok {
-		hasAction = true
-	}
-
-	var warnings []string
-	for field, replacement := range replacements {
-		if _, ok := step[field]; ok {
-			warnings = append(warnings, fmt.Sprintf("Deprecated DAG syntax: %s.%s is deprecated; %s", path, field, replacement))
-		}
-	}
-	if _, ok := step["with"]; ok && !hasRun && !hasAction {
-		warnings = append(warnings, fmt.Sprintf("Deprecated DAG syntax: %s.with is deprecated with legacy execution syntax; use action with with", path))
-	}
-	return warnings
+	return spec.DeprecatedSyntaxWarnings(data), nil
 }
 
 // formatValidationErrors builds a readable error output from a (possibly wrapped) error.

@@ -182,47 +182,7 @@ func buildCustomStepActionRegistry(
 }
 
 func buildCustomStepTypeRegistry(base, local map[string]customStepTypeSpec) (*customStepTypeRegistry, error) {
-	if len(base) == 0 && len(local) == 0 {
-		return nil, nil
-	}
-
-	registry := &customStepTypeRegistry{
-		entries: make(map[string]*customStepType, len(base)+len(local)),
-	}
-
-	for name, spec := range base {
-		normalizedName := strings.TrimSpace(name)
-		if _, exists := registry.entries[normalizedName]; exists {
-			return nil, core.NewValidationError(
-				fmt.Sprintf("step_types.%s", normalizedName),
-				normalizedName,
-				fmt.Errorf("duplicate custom step type %q is defined in base config", normalizedName),
-			)
-		}
-		def, err := validateCustomStepTypeSpec(name, spec)
-		if err != nil {
-			return nil, err
-		}
-		registry.entries[normalizedName] = def
-	}
-
-	for name, spec := range local {
-		normalizedName := strings.TrimSpace(name)
-		if _, exists := registry.entries[normalizedName]; exists {
-			return nil, core.NewValidationError(
-				fmt.Sprintf("step_types.%s", normalizedName),
-				normalizedName,
-				fmt.Errorf("duplicate custom step type %q is defined in both base config and DAG", normalizedName),
-			)
-		}
-		def, err := validateCustomStepTypeSpec(name, spec)
-		if err != nil {
-			return nil, err
-		}
-		registry.entries[normalizedName] = def
-	}
-
-	return registry, nil
+	return buildCustomStepActionRegistry(base, local, nil, nil)
 }
 
 func addCustomStepTypeDefinitions(registry *customStepTypeRegistry, defs map[string]customStepTypeSpec, scope string) error {
@@ -266,8 +226,15 @@ func duplicateCustomDefinitionError(field, name string, existing *customStepType
 	return core.NewValidationError(
 		fmt.Sprintf("%s.%s", field, name),
 		name,
-		fmt.Errorf("duplicate custom step type %q is defined in %s", name, scope),
+		duplicateCustomStepTypeError(name, scope),
 	)
+}
+
+func duplicateCustomStepTypeError(name, scope string) error {
+	if scope == "DAG" {
+		return fmt.Errorf("duplicate custom step type %q is defined in both base config and DAG", name)
+	}
+	return fmt.Errorf("duplicate custom step type %q is defined in %s", name, scope)
 }
 
 func expandedCustomStepExecutorType(targetType string, rendered map[string]any) string {
