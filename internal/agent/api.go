@@ -95,6 +95,9 @@ type API struct {
 	workingDir            string
 	logger                *slog.Logger
 	dagStore              DAGMetadataStore // For resolving DAG file paths
+	dagDefinitionStore    exec.DAGStore    // For dag_def_manage
+	dagRunStore           exec.DAGRunStore // For dag_run_manage
+	dagRunWatcher         DAGRunWatcher    // For dag_run_manage watch actions
 	environment           EnvironmentInfo
 	hooks                 *Hooks
 	memoryStore           MemoryStore
@@ -115,6 +118,9 @@ type APIConfig struct {
 	Logger                *slog.Logger
 	SessionStore          SessionStore
 	DAGStore              DAGMetadataStore // For resolving DAG file paths
+	DAGDefinitionStore    exec.DAGStore    // For dag_def_manage
+	DAGRunStore           exec.DAGRunStore // For dag_run_manage
+	DAGRunWatcher         DAGRunWatcher    // Optional override for dag_run_manage watch actions
 	Environment           EnvironmentInfo
 	Hooks                 *Hooks
 	MemoryStore           MemoryStore
@@ -154,8 +160,14 @@ func NewAPI(cfg APIConfig) *API {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	dagDefinitionStore := cfg.DAGDefinitionStore
+	if dagDefinitionStore == nil {
+		if store, ok := cfg.DAGStore.(exec.DAGStore); ok {
+			dagDefinitionStore = store
+		}
+	}
 
-	return &API{
+	api := &API{
 		configStore:           cfg.ConfigStore,
 		modelStore:            cfg.ModelStore,
 		soulStore:             cfg.SoulStore,
@@ -164,6 +176,9 @@ func NewAPI(cfg APIConfig) *API {
 		logger:                logger,
 		store:                 cfg.SessionStore,
 		dagStore:              cfg.DAGStore,
+		dagDefinitionStore:    dagDefinitionStore,
+		dagRunStore:           cfg.DAGRunStore,
+		dagRunWatcher:         cfg.DAGRunWatcher,
 		environment:           cfg.Environment,
 		hooks:                 cfg.Hooks,
 		memoryStore:           cfg.MemoryStore,
@@ -173,6 +188,10 @@ func NewAPI(cfg APIConfig) *API {
 		oauthManager:          cfg.OAuthManager,
 		eventService:          cfg.EventService,
 	}
+	if api.dagRunWatcher == nil && api.dagRunStore != nil {
+		api.dagRunWatcher = newDAGRunWatchRegistry(api.dagRunStore, api.notifyDAGRunWatch, api.logger)
+	}
+	return api
 }
 
 // RegisterRoutes registers the agent SSE stream route on the given router.
@@ -572,6 +591,9 @@ func (a *API) buildSessionManagerConfig(id string, user UserIdentity, cfg sessio
 		MemoryStore:           a.memoryStore,
 		DocStore:              a.docStore,
 		WorkspaceStore:        a.workspaceStore,
+		DAGDefinitionStore:    a.dagDefinitionStore,
+		DAGRunStore:           a.dagRunStore,
+		DAGRunWatcher:         a.dagRunWatcher,
 		DAGName:               cfg.dagName,
 		SessionStore:          a.store,
 		Soul:                  cfg.soul,

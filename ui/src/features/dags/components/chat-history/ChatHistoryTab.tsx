@@ -11,11 +11,13 @@ interface ChatHistoryTabProps {
 }
 
 export function ChatHistoryTab({ dagRun }: ChatHistoryTabProps) {
-  // Find all chat steps (steps with type: 'chat' in executorConfig)
-  const chatSteps = useMemo(() => {
+  // Find all LLM-backed steps that persist message history.
+  const historySteps = useMemo(() => {
     return (
       dagRun.nodes?.filter(
-        (node) => node.step.executorConfig?.type === 'chat'
+        (node) =>
+          node.step.executorConfig?.type === 'chat' ||
+          node.step.executorConfig?.type === 'agent'
       ) || []
     );
   }, [dagRun.nodes]);
@@ -27,7 +29,7 @@ export function ChatHistoryTab({ dagRun }: ChatHistoryTabProps) {
       NodeStatus.Failed,
       NodeStatus.Aborted,
     ];
-    const finishedSteps = chatSteps.filter((n) =>
+    const finishedSteps = historySteps.filter((n) =>
       finishedStatuses.includes(n.status as NodeStatus)
     );
 
@@ -36,9 +38,9 @@ export function ChatHistoryTab({ dagRun }: ChatHistoryTabProps) {
       return finishedSteps[finishedSteps.length - 1]?.step.name;
     }
 
-    // Fallback to first chat step if none finished
-    return chatSteps[0]?.step.name;
-  }, [chatSteps]);
+    // Fallback to first history step if none finished
+    return historySteps[0]?.step.name;
+  }, [historySteps]);
 
   const [selectedStep, setSelectedStep] = useState<string | undefined>(
     defaultStep
@@ -52,7 +54,7 @@ export function ChatHistoryTab({ dagRun }: ChatHistoryTabProps) {
   }, [defaultStep]);
 
   // Get selected node info
-  const selectedNode = chatSteps.find((n) => n.step.name === selectedStep);
+  const selectedNode = historySteps.find((n) => n.step.name === selectedStep);
   const isSelectedActive = isActiveNodeStatus(selectedNode?.status);
 
   // Determine if this is a sub-DAG run
@@ -61,10 +63,10 @@ export function ChatHistoryTab({ dagRun }: ChatHistoryTabProps) {
     dagRun.rootDAGRunName &&
     dagRun.rootDAGRunId !== dagRun.dagRunId;
 
-  if (chatSteps.length === 0) {
+  if (historySteps.length === 0) {
     return (
       <div className="text-xs text-muted-foreground p-2">
-        No chat steps in this DAG run
+        No chat or agent steps in this DAG run
       </div>
     );
   }
@@ -82,7 +84,7 @@ export function ChatHistoryTab({ dagRun }: ChatHistoryTabProps) {
           onChange={(e) => setSelectedStep(e.target.value)}
           className="h-6 px-2 text-xs border rounded bg-card focus:outline-none"
         >
-          {chatSteps.map((node) => (
+          {historySteps.map((node) => (
             <option key={node.step.name} value={node.step.name}>
               {node.step.name} ({node.statusLabel})
             </option>

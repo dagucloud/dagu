@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/llm"
 	workspacepkg "github.com/dagucloud/dagu/internal/workspace"
 	"github.com/google/uuid"
@@ -58,6 +59,9 @@ type SessionManager struct {
 	memoryStore           MemoryStore
 	docStore              DocStore
 	workspaceStore        workspacepkg.Store
+	dagDefinitionStore    exec.DAGStore
+	dagRunStore           exec.DAGRunStore
+	dagRunWatcher         DAGRunWatcher
 	dagName               string
 	sessionStore          SessionStore
 	parentSessionID       string
@@ -105,8 +109,14 @@ type SessionManagerConfig struct {
 	MemoryStore     MemoryStore
 	DocStore        DocStore
 	WorkspaceStore  workspacepkg.Store
-	DAGName         string
-	SessionStore    SessionStore
+	// DAGDefinitionStore provides DAG definitions for dag_def_manage.
+	DAGDefinitionStore exec.DAGStore
+	// DAGRunStore provides DAG run history for dag_run_manage.
+	DAGRunStore exec.DAGRunStore
+	// DAGRunWatcher provides session-local run watches for dag_run_manage.
+	DAGRunWatcher DAGRunWatcher
+	DAGName       string
+	SessionStore  SessionStore
 	// ParentSessionID links this session to its parent (non-empty = sub-session).
 	ParentSessionID string
 	// DelegateTask is the task description given to the sub-agent.
@@ -198,6 +208,9 @@ func NewSessionManager(cfg SessionManagerConfig) *SessionManager {
 		memoryStore:           cfg.MemoryStore,
 		docStore:              cfg.DocStore,
 		workspaceStore:        cfg.WorkspaceStore,
+		dagDefinitionStore:    cfg.DAGDefinitionStore,
+		dagRunStore:           cfg.DAGRunStore,
+		dagRunWatcher:         cfg.DAGRunWatcher,
 		dagName:               cfg.DAGName,
 		sessionStore:          cfg.SessionStore,
 		parentSessionID:       cfg.ParentSessionID,
@@ -827,6 +840,9 @@ func (sm *SessionManager) createLoop(provider llm.Provider, model string, histor
 		History:  history,
 		Tools: CreateTools(ToolConfig{
 			DAGsDir:               sm.environment.DAGsDir,
+			DAGStore:              sm.dagDefinitionStore,
+			DAGRunStore:           sm.dagRunStore,
+			DAGRunWatcher:         sm.dagRunWatcher,
 			DocStore:              sm.docStore,
 			WorkspaceStore:        sm.workspaceStore,
 			RemoteContextResolver: sm.remoteContextResolver,

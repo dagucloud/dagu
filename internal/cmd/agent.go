@@ -254,6 +254,8 @@ func (c *Context) newAgentAPI() (*agent.API, error) {
 		WorkingDir:            c.Config.Paths.DAGsDir,
 		SessionStore:          sessStore,
 		DAGStore:              dagStore,
+		DAGDefinitionStore:    dagStore,
+		DAGRunStore:           c.DAGRunStore,
 		Hooks:                 hooks,
 		MemoryStore:           stores.MemoryStore,
 		OAuthManager:          stores.OAuthManager,
