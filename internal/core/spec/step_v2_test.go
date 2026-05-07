@@ -123,6 +123,25 @@ steps:
 	assert.Equal(t, `{"ok":true}`, step.ExecutorConfig.Config["body"])
 }
 
+func TestStepSchemaV2_ActionDockerRunAllowsImageDefaultCommand(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: run_image_default
+    action: docker.run
+    with:
+      image: alpine:3.20
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, "docker", step.ExecutorConfig.Type)
+	assert.Empty(t, step.Commands)
+	assert.Equal(t, "alpine:3.20", step.ExecutorConfig.Config["image"])
+}
+
 func TestStepSchemaV2_ActionJQFilterData(t *testing.T) {
 	t.Parallel()
 
@@ -143,6 +162,23 @@ steps:
 	require.Len(t, step.Commands, 1)
 	assert.Equal(t, ".name", step.Commands[0].CmdWithArgs)
 	assert.JSONEq(t, `{"name":"Alice"}`, step.Script)
+}
+
+func TestStepSchemaV2_ActionJQFilterRejectsDataAndInput(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: pick_name
+    action: jq.filter
+    with:
+      filter: .name
+      data:
+        name: Alice
+      input: /tmp/input.json
+`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `jq.filter does not allow both with.data and with.input`)
 }
 
 func TestStepSchemaV2_ActionSQLImport(t *testing.T) {

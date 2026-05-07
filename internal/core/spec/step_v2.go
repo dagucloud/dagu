@@ -43,15 +43,15 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"archive.extract": operationAction("archive", "extract"),
 	"archive.list":    operationAction("archive", "list"),
 	"chat.completion": normalizeChatAction,
-	"container.run":   commandAction("container", "command"),
+	"container.run":   optionalCommandAction("container", "command"),
 	"dag.run":         normalizeDagRunAction,
-	"docker.run":      commandAction("docker", "command"),
+	"docker.run":      optionalCommandAction("docker", "command"),
 	"exec":            normalizeExecAction,
 	"harness.run":     normalizeHarnessRunAction,
 	"http.request":    normalizeHTTPRequestAction,
 	"jq.filter":       normalizeJQFilterAction,
-	"k8s.run":         commandAction("k8s", "command"),
-	"kubernetes.run":  commandAction("kubernetes", "command"),
+	"k8s.run":         optionalCommandAction("k8s", "command"),
+	"kubernetes.run":  optionalCommandAction("kubernetes", "command"),
 	"log.write":       normalizeLogAction,
 	"mail.send":       typedAction("mail"),
 	"noop":            normalizeNoopAction,
@@ -293,6 +293,20 @@ func commandAction(executorType, field string) actionNormalizer {
 	}
 }
 
+func normalizeOptionalCommandAction(normalized map[string]any, executorType string, with map[string]any, field string) error {
+	if value, ok := with[field]; ok {
+		delete(with, field)
+		normalized["command"] = cloneAny(value)
+	}
+	return finishAction(normalized, executorType, with)
+}
+
+func optionalCommandAction(executorType, field string) actionNormalizer {
+	return func(normalized map[string]any, with map[string]any) error {
+		return normalizeOptionalCommandAction(normalized, executorType, with, field)
+	}
+}
+
 func normalizeHarnessRunAction(normalized map[string]any, with map[string]any) error {
 	if err := normalizeCommandAction(normalized, "harness", with, "prompt"); err != nil {
 		return err
@@ -371,6 +385,9 @@ func normalizeJQFilterAction(normalized map[string]any, with map[string]any) err
 	delete(with, "filter")
 	normalized["command"] = cloneAny(filter)
 	if data, ok := with["data"]; ok {
+		if _, hasInput := with["input"]; hasInput {
+			return core.NewValidationError("with", with, fmt.Errorf("jq.filter does not allow both with.data and with.input"))
+		}
 		script, err := stringifyActionData(data)
 		if err != nil {
 			return core.NewValidationError("with.data", data, err)
