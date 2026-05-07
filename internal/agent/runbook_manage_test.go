@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -64,12 +65,7 @@ func (s *mockRunbookDocStore) ListFlat(_ context.Context, opts ListDocsOptions) 
 
 func runbookTestRootExcluded(id string, roots []string) bool {
 	root, _, _ := strings.Cut(id, "/")
-	for _, excluded := range roots {
-		if root == excluded {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(roots, root)
 }
 
 func (s *mockRunbookDocStore) Get(_ context.Context, id string) (*Doc, error) {
@@ -171,10 +167,10 @@ func (s *mockRunbookWorkspaceStore) Delete(context.Context, string) error { retu
 func docFromContent(id, content string) *Doc {
 	title := id
 	description := ""
-	if strings.HasPrefix(content, "---\n") {
-		parts := strings.SplitN(strings.TrimPrefix(content, "---\n"), "\n---\n", 2)
+	if after, ok := strings.CutPrefix(content, "---\n"); ok {
+		parts := strings.SplitN(after, "\n---\n", 2)
 		if len(parts) == 2 {
-			for _, line := range strings.Split(parts[0], "\n") {
+			for line := range strings.SplitSeq(parts[0], "\n") {
 				if v, ok := strings.CutPrefix(line, "title: "); ok {
 					title = strings.Trim(v, `"`)
 				}
