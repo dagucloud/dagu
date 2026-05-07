@@ -166,8 +166,8 @@ func normalizeActionStep(normalized, raw map[string]any, registry *customStepTyp
 	if normalizer, ok := builtinActionNormalizers[action]; ok {
 		return normalizer(normalized, with)
 	}
-	if strings.HasPrefix(action, "redis.") {
-		return normalizeRedisAction(normalized, with, strings.TrimPrefix(action, "redis."))
+	if after, ok0 := strings.CutPrefix(action, "redis."); ok0 {
+		return normalizeRedisAction(normalized, with, after)
 	}
 	return core.NewValidationError("action", raw["action"], fmt.Errorf("unknown action %q", action))
 }
