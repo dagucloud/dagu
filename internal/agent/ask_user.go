@@ -100,7 +100,7 @@ func askUserRun(ctx ToolContext, input json.RawMessage) ToolOut {
 		return toolError("User prompt functionality is not available")
 	}
 
-	promptID := uuid.New().String()
+	promptID := uuid.Must(uuid.NewV7()).String()
 
 	var options []UserPromptOption
 	for i, opt := range args.Options {

@@ -37,6 +37,7 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/fileagentmodel"
 	"github.com/dagucloud/dagu/internal/persis/fileagentoauth"
 
+	"github.com/dagucloud/dagu/internal/persis/controlplanestore"
 	"github.com/dagucloud/dagu/internal/persis/dagrunstore"
 	"github.com/dagucloud/dagu/internal/persis/fileagentsoul"
 	"github.com/dagucloud/dagu/internal/persis/filebaseconfig"
@@ -75,6 +76,7 @@ type Context struct {
 
 	EventService              *eventstore.Service
 	EventSourceInstance       string
+	ControlPlaneStore         controlplanestore.Store
 	DAGRunStore               exec.DAGRunStore
 	DAGRunMgr                 runtime.Manager
 	ProcStore                 exec.ProcStore
@@ -104,6 +106,7 @@ func (c *Context) WithContext(ctx context.Context) *Context {
 		Quiet:                     c.Quiet,
 		EventService:              c.EventService,
 		EventSourceInstance:       c.EventSourceInstance,
+		ControlPlaneStore:         c.ControlPlaneStore,
 		DAGRunStore:               c.DAGRunStore,
 		DAGRunMgr:                 c.DAGRunMgr,
 		ProcStore:                 c.ProcStore,
@@ -157,6 +160,9 @@ func (c *Context) LogToFile(f *os.File) {
 func (c *Context) Close(ctx context.Context) error {
 	if c == nil {
 		return nil
+	}
+	if c.ControlPlaneStore != nil {
+		return c.ControlPlaneStore.Close()
 	}
 	return exec.CloseDAGRunStore(ctx, c.DAGRunStore)
 }
@@ -343,24 +349,50 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		return nil, fmt.Errorf("failed to validate proc directory %s: %w", cfg.Paths.ProcDir, err)
 	}
 	distributedDir := filepath.Join(cfg.Paths.DataDir, "distributed")
-	dagRunLeaseStore := filedistributed.NewDAGRunLeaseStore(distributedDir)
-	activeDistributedRunStore := filedistributed.NewActiveDistributedRunStore(distributedDir)
+	var dagRunLeaseStore exec.DAGRunLeaseStore = filedistributed.NewDAGRunLeaseStore(distributedDir)
+	var activeDistributedRunStore exec.ActiveDistributedRunStore = filedistributed.NewActiveDistributedRunStore(distributedDir)
 	var (
-		drs exec.DAGRunStore
-		drm runtime.Manager
+		controlStore controlplanestore.Store
+		drs          exec.DAGRunStore
+		drm          runtime.Manager
 	)
 	if contextNeedsDAGRunStore(cmd) && !shouldDeferAgentDAGRunStore(cmd, cfg) {
 		var err error
-		drs, err = newContextDAGRunStore(baseCtx, ctx, cmd, cfg)
+		controlStore, err = newContextControlPlaneStore(baseCtx, ctx, cmd, cfg)
 		if err != nil {
-			return nil, fmt.Errorf("failed to initialize DAG-run store: %w", err)
+			return nil, fmt.Errorf("failed to initialize control-plane store: %w", err)
 		}
-		drm = runtime.NewManager(drs, ps, cfg)
+		if controlStore != nil {
+			drs = controlStore.DAGRuns()
+		} else {
+			drs, err = newContextDAGRunStore(baseCtx, ctx, cmd, cfg)
+			if err != nil {
+				return nil, fmt.Errorf("failed to initialize DAG-run store: %w", err)
+			}
+		}
+		if drs != nil {
+			drm = runtime.NewManager(drs, ps, cfg)
+		}
 	}
 	qs := filequeue.New(cfg.Paths.QueueDir)
-	sm := fileserviceregistry.New(cfg.Paths.ServiceRegistryDir)
-	dispatchTaskStore := filedistributed.NewDispatchTaskStore(distributedDir)
-	workerHeartbeatStore := filedistributed.NewWorkerHeartbeatStore(distributedDir)
+	var sm exec.ServiceRegistry = fileserviceregistry.New(cfg.Paths.ServiceRegistryDir)
+	var dispatchTaskStore exec.DispatchTaskStore = filedistributed.NewDispatchTaskStore(distributedDir)
+	var workerHeartbeatStore exec.WorkerHeartbeatStore = filedistributed.NewWorkerHeartbeatStore(distributedDir)
+	if controlStore != nil {
+		qs = controlStore.Queue()
+		sm = controlStore.Services()
+		dispatchTaskStore = controlStore.DispatchTasks()
+		workerHeartbeatStore = controlStore.WorkerHeartbeats()
+		dagRunLeaseStore = controlStore.DAGRunLeases()
+		activeDistributedRunStore = controlStore.ActiveDistributedRuns()
+	}
+	if cfg.EventStore.Enabled && controlStore != nil {
+		eventSvc = eventstore.New(controlStore.Events())
+		ctx = eventstore.WithContext(ctx, eventSvc, eventstore.Source{
+			Service:  eventSourceServiceForCommand(cmd.Name()),
+			Instance: eventSourceInstance,
+		})
+	}
 
 	// Initialize license manager for server commands
 	var licMgr *license.Manager
@@ -415,6 +447,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		Quiet:                     quiet,
 		EventService:              eventSvc,
 		EventSourceInstance:       eventSourceInstance,
+		ControlPlaneStore:         controlStore,
 		DAGRunStore:               drs,
 		DAGRunMgr:                 drm,
 		Flags:                     flags,
@@ -548,17 +581,17 @@ func serviceForCommand(cmdName string) config.Service {
 	}
 }
 
-func dagRunStoreRoleForCommand(cmd *cobra.Command) dagrunstore.Role {
+func controlPlaneStoreRoleForCommand(cmd *cobra.Command) controlplanestore.Role {
 	if cmd == nil {
-		return dagrunstore.RoleServer
+		return controlplanestore.RoleServer
 	}
 	switch cmd.Name() {
 	case "scheduler":
-		return dagrunstore.RoleScheduler
+		return controlplanestore.RoleScheduler
 	case "start", "restart", "retry", "dry", "exec", "worker":
-		return dagrunstore.RoleAgent
+		return controlplanestore.RoleAgent
 	default:
-		return dagrunstore.RoleServer
+		return controlplanestore.RoleServer
 	}
 }
 
@@ -589,11 +622,11 @@ func newContextDAGRunStore(baseCtx, cacheCtx context.Context, cmd *cobra.Command
 	drsOpts := []dagrunstore.Option{
 		dagrunstore.WithLatestStatusToday(cfg.Server.LatestStatusToday),
 		dagrunstore.WithLocation(cfg.Core.Location),
-		dagrunstore.WithRole(dagRunStoreRoleForCommand(cmd)),
+		dagrunstore.WithRole(controlplanestore.Role(controlPlaneStoreRoleForCommand(cmd))),
 	}
 
 	switch cmd.Name() {
-	case "server", "start-all", "coordinator":
+	case "server", "start-all", "coordinator", "scheduler":
 		limits := cfg.Cache.Limits()
 		hc := fileutil.NewCache[*exec.DAGRunStatus]("dag_run_status", limits.DAGRun.Limit, limits.DAGRun.TTL)
 		hc.StartEviction(cacheCtx)
@@ -601,6 +634,51 @@ func newContextDAGRunStore(baseCtx, cacheCtx context.Context, cmd *cobra.Command
 	}
 
 	return dagrunstore.New(baseCtx, cfg, drsOpts...)
+}
+
+func newContextControlPlaneStore(baseCtx, cacheCtx context.Context, cmd *cobra.Command, cfg *config.Config) (controlplanestore.Store, error) {
+	opts := []controlplanestore.Option{
+		controlplanestore.WithLatestStatusToday(cfg.Server.LatestStatusToday),
+		controlplanestore.WithLocation(cfg.Core.Location),
+		controlplanestore.WithRole(controlPlaneStoreRoleForCommand(cmd)),
+	}
+
+	switch cmd.Name() {
+	case "server", "start-all", "coordinator", "scheduler":
+		limits := cfg.Cache.Limits()
+		hc := fileutil.NewCache[*exec.DAGRunStatus]("dag_run_status", limits.DAGRun.Limit, limits.DAGRun.TTL)
+		hc.StartEviction(cacheCtx)
+		opts = append(opts, controlplanestore.WithHistoryFileCache(hc))
+	}
+
+	if shouldAttachWebhookEncryptor(cmd, cfg) {
+		encryptor, err := newControlPlaneWebhookEncryptor(cfg)
+		if err != nil {
+			return nil, err
+		}
+		opts = append(opts, controlplanestore.WithWebhookEncryptor(encryptor))
+	}
+
+	return controlplanestore.New(baseCtx, cfg, opts...)
+}
+
+func shouldAttachWebhookEncryptor(cmd *cobra.Command, cfg *config.Config) bool {
+	return cfg != nil &&
+		cfg.ControlPlaneStore.Backend == config.ControlPlaneStoreBackendPostgres &&
+		cmd != nil &&
+		(cmd.Name() == "server" || cmd.Name() == "start-all")
+}
+
+func newControlPlaneWebhookEncryptor(cfg *config.Config) (*crypto.Encryptor, error) {
+	encKey, err := crypto.ResolveKey(cfg.Paths.DataDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve encryption key for control-plane webhook store: %w", err)
+	}
+	encryptor, err := crypto.NewEncryptor(encKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create encryptor for control-plane webhook store: %w", err)
+	}
+	return encryptor, nil
 }
 
 // isAgentCommand returns true if the command name is an agent command
@@ -637,15 +715,15 @@ func shouldDeferAgentDAGRunStore(cmd *cobra.Command, cfg *config.Config) bool {
 
 func postgresAgentDirectAccessDisabled(cfg *config.Config) bool {
 	return cfg != nil &&
-		cfg.DAGRunStore.Backend == config.DAGRunStoreBackendPostgres &&
-		!cfg.DAGRunStore.Postgres.Agent.DirectAccess
+		cfg.ControlPlaneStore.Backend == config.ControlPlaneStoreBackendPostgres &&
+		!cfg.ControlPlaneStore.Postgres.Agent.DirectAccess
 }
 
 func errPostgresAgentDirectAccessDisabled(command string) error {
 	if command == "" {
 		command = "agent command"
 	}
-	return fmt.Errorf("postgres DAG-run store direct agent access is disabled for %s; use coordinator/shared-nothing worker execution or set dag_run_store.postgres.agent.direct_access=true for local development", command)
+	return fmt.Errorf("postgres control-plane store direct agent access is disabled for %s; use coordinator/shared-nothing worker execution or set control_plane_store.postgres.agent.direct_access=true for local development", command)
 }
 
 // NewServer creates and returns a new web UI NewServer.
@@ -684,6 +762,9 @@ func (c *Context) NewServer(rs *resource.Service, opts ...frontend.ServerOption)
 	}
 	if c.WorkerHeartbeatStore != nil {
 		opts = append(opts, frontend.WithAPIOption(apiv1.WithWorkerHeartbeatStore(c.WorkerHeartbeatStore)))
+	}
+	if c.ControlPlaneStore != nil {
+		opts = append(opts, frontend.WithControlPlaneStore(c.ControlPlaneStore))
 	}
 	opts = append(opts, frontend.WithAPIOption(apiv1.WithSchedulerStateStore(
 		filewatermark.New(filepath.Join(c.Config.Paths.DataDir, "scheduler")),
@@ -740,16 +821,50 @@ func (c *Context) NewScheduler() (*scheduler.Scheduler, error) {
 
 	statusCache := fileutil.NewCache[*exec.DAGRunStatus]("scheduler_dag_run_status", limits.DAGRun.Limit, limits.DAGRun.TTL)
 	statusCache.StartEviction(c)
-	schedulerRunStore, err := dagrunstore.New(
-		c,
-		c.Config,
-		dagrunstore.WithRole(dagrunstore.RoleScheduler),
-		dagrunstore.WithLatestStatusToday(false),
-		dagrunstore.WithLocation(c.Config.Core.Location),
-		dagrunstore.WithHistoryFileCache(statusCache),
+	var (
+		schedulerRunStore          exec.DAGRunStore
+		schedulerQueueStore        = c.QueueStore
+		schedulerServiceRegistry   = c.ServiceRegistry
+		schedulerDAGRunLeaseStore  = c.DAGRunLeaseStore
+		schedulerDispatchTaskStore = c.DispatchTaskStore
+		schedulerControlPlaneStore controlplanestore.Store
 	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize scheduler DAG-run store: %w", err)
+	if c.Config.ControlPlaneStore.Backend == config.ControlPlaneStoreBackendPostgres {
+		if c.ControlPlaneStore != nil && controlPlaneStoreRoleForCommand(c.Command) == controlplanestore.RoleScheduler {
+			schedulerControlPlaneStore = c.ControlPlaneStore
+		} else {
+			schedulerControlPlaneStore, err = controlplanestore.New(
+				c,
+				c.Config,
+				controlplanestore.WithRole(controlplanestore.RoleScheduler),
+				controlplanestore.WithLatestStatusToday(false),
+				controlplanestore.WithLocation(c.Config.Core.Location),
+				controlplanestore.WithHistoryFileCache(statusCache),
+			)
+			if err != nil {
+				return nil, fmt.Errorf("failed to initialize scheduler control-plane store: %w", err)
+			}
+		}
+		if schedulerControlPlaneStore != nil {
+			schedulerRunStore = schedulerControlPlaneStore.DAGRuns()
+			schedulerQueueStore = schedulerControlPlaneStore.Queue()
+			schedulerServiceRegistry = schedulerControlPlaneStore.Services()
+			schedulerDAGRunLeaseStore = schedulerControlPlaneStore.DAGRunLeases()
+			schedulerDispatchTaskStore = schedulerControlPlaneStore.DispatchTasks()
+		}
+	}
+	if schedulerRunStore == nil {
+		schedulerRunStore, err = dagrunstore.New(
+			c,
+			c.Config,
+			dagrunstore.WithRole(dagrunstore.RoleScheduler),
+			dagrunstore.WithLatestStatusToday(false),
+			dagrunstore.WithLocation(c.Config.Core.Location),
+			dagrunstore.WithHistoryFileCache(statusCache),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize scheduler DAG-run store: %w", err)
+		}
 	}
 	ownsSchedulerRunStore := true
 	defer func() {
@@ -761,7 +876,7 @@ func (c *Context) NewScheduler() (*scheduler.Scheduler, error) {
 	}()
 	schedulerRunMgr := runtime.NewManager(schedulerRunStore, c.ProcStore, c.Config)
 
-	sched, err := scheduler.New(c.Config, m, schedulerRunMgr, schedulerRunStore, c.QueueStore, c.ProcStore, c.ServiceRegistry, coordinatorCli, wmStore)
+	sched, err := scheduler.New(c.Config, m, schedulerRunMgr, schedulerRunStore, schedulerQueueStore, c.ProcStore, schedulerServiceRegistry, coordinatorCli, wmStore)
 	if err != nil {
 		return nil, err
 	}
@@ -774,15 +889,15 @@ func (c *Context) NewScheduler() (*scheduler.Scheduler, error) {
 			sched.SetEventCollector(collector)
 		}
 	}
-	sched.SetDAGRunLeaseStore(c.DAGRunLeaseStore)
-	sched.SetDispatchTaskStore(c.DispatchTaskStore)
+	sched.SetDAGRunLeaseStore(schedulerDAGRunLeaseStore)
+	sched.SetDispatchTaskStore(schedulerDispatchTaskStore)
 	if c.LicenseManager != nil {
 		githubTracker := filegithubdispatch.New(filepath.Join(c.Config.Paths.DataDir, "github-dispatch"))
 		sched.SetGitHubDispatchWorker(scheduler.NewGitHubDispatchWorker(
 			c.Config,
 			dr,
 			schedulerRunStore,
-			c.QueueStore,
+			schedulerQueueStore,
 			&schedulerRunMgr,
 			c.LicenseManager,
 			license.NewCloudClient(c.Config.License.CloudURL),

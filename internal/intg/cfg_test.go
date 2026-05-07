@@ -481,7 +481,11 @@ steps:
 	t.Run("PerlScript", func(t *testing.T) {
 		t.Parallel()
 
-		dag := th.DAG(t, `steps:
+		dag := th.DAG(t, `env:
+  - LC_ALL: C
+  - LC_CTYPE: C
+  - LANG: C
+steps:
   - command: perl
     script: |
       use strict;
@@ -499,7 +503,11 @@ steps:
 	t.Run("Shebang", func(t *testing.T) {
 		t.Parallel()
 
-		dag := th.DAG(t, `steps:
+		dag := th.DAG(t, `env:
+  - LC_ALL: C
+  - LC_CTYPE: C
+  - LANG: C
+steps:
   - script: |
       #!env perl
       use strict;
@@ -517,7 +525,11 @@ steps:
 	t.Run("ShebangInCommand", func(t *testing.T) {
 		t.Parallel()
 
-		dag := th.DAG(t, `steps:
+		dag := th.DAG(t, `env:
+  - LC_ALL: C
+  - LC_CTYPE: C
+  - LANG: C
+steps:
   - |
       #!env perl
       use strict;

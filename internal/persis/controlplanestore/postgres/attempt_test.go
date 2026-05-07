@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagucloud/dagu/internal/persis/dagrunstore/postgres/db"
+	"github.com/dagucloud/dagu/internal/persis/controlplanestore/postgres/db"
 )
 
 func TestNewAttemptReturnsDAGDataError(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	osexec "os/exec"
 	"runtime"
 	"sync"
@@ -379,6 +380,8 @@ func (p *QueueProcessor) ProcessQueueItems(ctx context.Context, queueName string
 	)
 
 	var wg sync.WaitGroup
+	leaseStore, useLeases := p.queueStore.(exec.QueueLeaseStore)
+	leaseOwner := queueLeaseOwner(queueName)
 	for _, item := range runnableItems {
 		wg.Add(1)
 		go func(queuedItem exec.QueuedItemData) {
@@ -388,10 +391,34 @@ func (p *QueueProcessor) ProcessQueueItems(ctx context.Context, queueName string
 					logger.Error(ctx, "Queue item processing panicked", tag.Error(panicToError(r)))
 				}
 			}()
-			if !p.processDAG(ctx, queuedItem, queueName, q.incInflight, q.decInflight) {
+			processItem := queuedItem
+			leaseToken := ""
+			if useLeases {
+				leasedItem, err := leaseStore.ClaimByItemID(ctx, queueName, queuedItem.ID(), leaseOwner, p.leaseStaleThresholdOrDefault())
+				if err != nil {
+					if !errors.Is(err, exec.ErrQueueItemNotFound) {
+						logger.Error(ctx, "Failed to claim queue item lease", tag.Error(err))
+					}
+					return
+				}
+				processItem = leasedItem
+				leaseToken = leasedItem.LeaseToken()
+			}
+			if !p.processDAG(ctx, processItem, queueName, q.incInflight, q.decInflight) {
+				if leaseToken != "" {
+					if err := leaseStore.ReleaseLease(ctx, queueName, leaseToken); err != nil && !errors.Is(err, exec.ErrQueueItemNotFound) {
+						logger.Error(ctx, "Failed to release queue item lease", tag.Error(err))
+					}
+				}
 				return
 			}
-			data, err := queuedItem.Data()
+			if leaseToken != "" {
+				if err := leaseStore.AckLease(ctx, queueName, leaseToken); err != nil && !errors.Is(err, exec.ErrQueueItemNotFound) {
+					logger.Error(ctx, "Failed to acknowledge queue item lease", tag.Error(err))
+				}
+				return
+			}
+			data, err := processItem.Data()
 			if err != nil {
 				logger.Error(ctx, "Failed to get item data", tag.Error(err))
 				return
@@ -405,6 +432,14 @@ func (p *QueueProcessor) ProcessQueueItems(ctx context.Context, queueName string
 		}(item)
 	}
 	wg.Wait()
+}
+
+func queueLeaseOwner(queueName string) string {
+	hostname, err := os.Hostname()
+	if err != nil || hostname == "" {
+		hostname = "unknown"
+	}
+	return fmt.Sprintf("%s:%d:%s", hostname, os.Getpid(), queueName)
 }
 
 func (p *QueueProcessor) processDAG(ctx context.Context, item exec.QueuedItemData, queueName string, incInflight, decInflight func()) bool {

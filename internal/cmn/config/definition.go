@@ -78,19 +78,19 @@ type Definition struct {
 	DefaultExecutionMode string `mapstructure:"default_execution_mode"`
 
 	// Features
-	Monitoring  *MonitoringDef  `mapstructure:"monitoring"`
-	Metrics     *string         `mapstructure:"metrics"` // "public" or "private"
-	Cache       *string         `mapstructure:"cache"`   // "low", "normal", or "high"
-	Terminal    *TerminalDef    `mapstructure:"terminal"`
-	Audit       *AuditDef       `mapstructure:"audit"`
-	EventStore  *EventStoreDef  `mapstructure:"event_store"`
-	DAGRunStore *DAGRunStoreDef `mapstructure:"dag_run_store"`
-	Session     *SessionDef     `mapstructure:"session"`
-	SSE         *SSEDef         `mapstructure:"sse"`
-	GitSync     *GitSyncDef     `mapstructure:"git_sync"`
-	Tunnel      *TunnelDef      `mapstructure:"tunnel"`
-	Bots        *BotsDef        `mapstructure:"bots"`
-	License     *LicenseDef     `mapstructure:"license"`
+	Monitoring        *MonitoringDef        `mapstructure:"monitoring"`
+	Metrics           *string               `mapstructure:"metrics"` // "public" or "private"
+	Cache             *string               `mapstructure:"cache"`   // "low", "normal", or "high"
+	Terminal          *TerminalDef          `mapstructure:"terminal"`
+	Audit             *AuditDef             `mapstructure:"audit"`
+	EventStore        *EventStoreDef        `mapstructure:"event_store"`
+	ControlPlaneStore *ControlPlaneStoreDef `mapstructure:"control_plane_store"`
+	Session           *SessionDef           `mapstructure:"session"`
+	SSE               *SSEDef               `mapstructure:"sse"`
+	GitSync           *GitSyncDef           `mapstructure:"git_sync"`
+	Tunnel            *TunnelDef            `mapstructure:"tunnel"`
+	Bots              *BotsDef              `mapstructure:"bots"`
+	License           *LicenseDef           `mapstructure:"license"`
 }
 
 // -----------------------------------------------------------------------------
@@ -368,33 +368,38 @@ type EventStoreDef struct {
 	RetentionDays *int  `mapstructure:"retention_days"` // Default: 1
 }
 
-// DAGRunStoreDef configures DAG-run status persistence.
-type DAGRunStoreDef struct {
-	Backend  string                  `mapstructure:"backend"` // "file" or "postgres"
-	Postgres *DAGRunStorePostgresDef `mapstructure:"postgres"`
+// ControlPlaneStoreDef configures shared control-plane persistence.
+type ControlPlaneStoreDef struct {
+	Backend  string                        `mapstructure:"backend"` // "file" or "postgres"
+	Postgres *ControlPlaneStorePostgresDef `mapstructure:"postgres"`
 }
 
-// DAGRunStorePostgresDef configures PostgreSQL DAG-run status persistence.
-type DAGRunStorePostgresDef struct {
-	Server    *DAGRunStorePostgresRoleDef  `mapstructure:"server"`
-	Scheduler *DAGRunStorePostgresRoleDef  `mapstructure:"scheduler"`
-	Agent     *DAGRunStorePostgresAgentDef `mapstructure:"agent"`
+// ControlPlaneStorePostgresDef configures PostgreSQL control-plane persistence.
+type ControlPlaneStorePostgresDef struct {
+	Server    *ControlPlaneStorePostgresRoleDef  `mapstructure:"server"`
+	Scheduler *ControlPlaneStorePostgresRoleDef  `mapstructure:"scheduler"`
+	Agent     *ControlPlaneStorePostgresAgentDef `mapstructure:"agent"`
 }
 
-// DAGRunStorePostgresRoleDef configures PostgreSQL persistence for one Dagu process role.
-type DAGRunStorePostgresRoleDef struct {
+// ControlPlaneStorePostgresRoleDef configures PostgreSQL persistence for one Dagu process role.
+type ControlPlaneStorePostgresRoleDef struct {
 	DSN         string           `mapstructure:"dsn"`
 	AutoMigrate *bool            `mapstructure:"auto_migrate"`
 	Pool        *PostgresPoolDef `mapstructure:"pool"`
 }
 
-// DAGRunStorePostgresAgentDef configures PostgreSQL persistence for DAG execution processes.
-type DAGRunStorePostgresAgentDef struct {
+// ControlPlaneStorePostgresAgentDef configures PostgreSQL persistence for DAG execution processes.
+type ControlPlaneStorePostgresAgentDef struct {
 	DSN          string           `mapstructure:"dsn"`
 	AutoMigrate  *bool            `mapstructure:"auto_migrate"`
 	DirectAccess *bool            `mapstructure:"direct_access"`
 	Pool         *PostgresPoolDef `mapstructure:"pool"`
 }
+
+type DAGRunStoreDef = ControlPlaneStoreDef
+type DAGRunStorePostgresDef = ControlPlaneStorePostgresDef
+type DAGRunStorePostgresRoleDef = ControlPlaneStorePostgresRoleDef
+type DAGRunStorePostgresAgentDef = ControlPlaneStorePostgresAgentDef
 
 // SessionDef configures agent session storage.
 type SessionDef struct {

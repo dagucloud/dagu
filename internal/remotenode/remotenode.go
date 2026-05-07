@@ -40,7 +40,7 @@ type RemoteNode struct {
 func NewRemoteNode(name, description, apiBaseURL string, authType AuthType) *RemoteNode {
 	now := time.Now().UTC()
 	return &RemoteNode{
-		ID:          uuid.New().String(),
+		ID:          uuid.Must(uuid.NewV7()).String(),
 		Name:        name,
 		Description: description,
 		APIBaseURL:  apiBaseURL,

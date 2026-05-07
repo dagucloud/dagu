@@ -45,7 +45,7 @@ type User struct {
 func NewUser(username string, passwordHash string, role Role) *User {
 	now := time.Now().UTC()
 	return &User{
-		ID:              uuid.New().String(),
+		ID:              uuid.Must(uuid.NewV7()).String(),
 		Username:        username,
 		PasswordHash:    passwordHash,
 		Role:            role,

@@ -125,7 +125,7 @@ type SessionManagerConfig struct {
 func NewSessionManager(cfg SessionManagerConfig) *SessionManager {
 	id := cfg.ID
 	if id == "" {
-		id = uuid.New().String()
+		id = uuid.Must(uuid.NewV7()).String()
 	}
 
 	logger := cfg.Logger
@@ -540,7 +540,7 @@ func (s SessionSnapshot) StreamResponse() StreamResponse {
 func (sm *SessionManager) RecordExternalMessage(ctx context.Context, msg Message) (Message, error) {
 	msg.SessionID = sm.id
 	if msg.ID == "" {
-		msg.ID = uuid.New().String()
+		msg.ID = uuid.Must(uuid.NewV7()).String()
 	}
 
 	if msg.Type == MessageTypeAssistant && msg.Usage != nil {
@@ -714,7 +714,7 @@ func (sm *SessionManager) buildUserMessage(content string, llmMsg *llm.Message) 
 	sm.sequenceID++
 
 	msg := Message{
-		ID:         uuid.New().String(),
+		ID:         uuid.Must(uuid.NewV7()).String(),
 		SessionID:  sm.id,
 		Type:       MessageTypeUser,
 		SequenceID: sm.sequenceID,
@@ -965,7 +965,7 @@ func (sm *SessionManager) createRecordMessageFunc() MessageRecordFunc {
 	return func(ctx context.Context, msg Message) {
 		msg.SessionID = sm.id
 		if msg.ID == "" {
-			msg.ID = uuid.New().String()
+			msg.ID = uuid.Must(uuid.NewV7()).String()
 		}
 
 		// Calculate and accumulate cost for assistant messages with usage data

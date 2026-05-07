@@ -681,7 +681,7 @@ func newStreamSession(w http.ResponseWriter, mux *Multiplexer, fetchCtx context.
 	}
 
 	return &streamSession{
-		id:                uuid.NewString(),
+		id:                uuid.Must(uuid.NewV7()).String(),
 		w:                 w,
 		flusher:           flusher,
 		controller:        http.NewResponseController(w),

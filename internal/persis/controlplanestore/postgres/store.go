@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,12 +24,13 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	cmncrypto "github.com/dagucloud/dagu/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/persis/dagrunstore/postgres/db"
+	"github.com/dagucloud/dagu/internal/persis/controlplanestore/postgres/db"
 )
 
 var _ exec.DAGRunStore = (*Store)(nil)
@@ -41,7 +43,7 @@ type PoolConfig struct {
 	ConnMaxIdleTime int
 }
 
-// Config configures the PostgreSQL DAG-run store.
+// Config configures the PostgreSQL control-plane store.
 type Config struct {
 	DSN               string
 	LocalWorkDirBase  string
@@ -49,21 +51,30 @@ type Config struct {
 	LatestStatusToday bool
 	Location          *time.Location
 	Pool              PoolConfig
+	WebhookEncryptor  *cmncrypto.Encryptor
 }
 
-// Store persists DAG-run attempts in PostgreSQL.
+// Store persists control-plane data in PostgreSQL.
 type Store struct {
 	pool              *pgxpool.Pool
 	queries           *db.Queries
 	localWorkDirBase  string
 	latestStatusToday bool
 	location          *time.Location
+	webhookEncryptor  *cmncrypto.Encryptor
+	serviceMu         sync.Mutex
+	services          map[exec.ServiceName]*postgresServiceRegistration
 }
 
-// New creates a PostgreSQL-backed DAG-run store.
+// DAGRuns returns the DAG-run sub-store implemented by this PostgreSQL control-plane store.
+func (s *Store) DAGRuns() exec.DAGRunStore {
+	return s
+}
+
+// New creates a PostgreSQL-backed control-plane store.
 func New(ctx context.Context, cfg Config) (*Store, error) {
 	if cfg.DSN == "" {
-		return nil, errors.New("postgres dag-run store DSN must not be empty")
+		return nil, errors.New("postgres control-plane store DSN must not be empty")
 	}
 	if cfg.AutoMigrate {
 		if err := RunMigrations(ctx, cfg.DSN); err != nil {
@@ -73,17 +84,17 @@ func New(ctx context.Context, cfg Config) (*Store, error) {
 
 	poolCfg, err := pgxpool.ParseConfig(cfg.DSN)
 	if err != nil {
-		return nil, fmt.Errorf("parse postgres dag-run store DSN: %w", err)
+		return nil, fmt.Errorf("parse postgres control-plane store DSN: %w", err)
 	}
 	applyPoolConfig(poolCfg, cfg.Pool)
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
-		return nil, fmt.Errorf("open postgres dag-run store pool: %w", err)
+		return nil, fmt.Errorf("open postgres control-plane store pool: %w", err)
 	}
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
-		return nil, fmt.Errorf("ping postgres dag-run store: %w", err)
+		return nil, fmt.Errorf("ping postgres control-plane store: %w", err)
 	}
 
 	location := cfg.Location
@@ -97,12 +108,15 @@ func New(ctx context.Context, cfg Config) (*Store, error) {
 		localWorkDirBase:  cfg.LocalWorkDirBase,
 		latestStatusToday: cfg.LatestStatusToday,
 		location:          location,
+		webhookEncryptor:  cfg.WebhookEncryptor,
+		services:          make(map[exec.ServiceName]*postgresServiceRegistration),
 	}, nil
 }
 
 // Close closes the underlying PostgreSQL connection pool.
 func (s *Store) Close() error {
 	if s != nil && s.pool != nil {
+		s.Unregister(context.Background())
 		s.pool.Close()
 	}
 	return nil
@@ -801,7 +815,7 @@ func updateStatus(ctx context.Context, q *db.Queries, id uuid.UUID, status exec.
 	return q.UpdateAttemptStatus(ctx, db.UpdateAttemptStatusParams{
 		ID:             id,
 		StatusData:     data,
-		Status:         pgtype.Int4{Int32: int32(status.Status), Valid: true}, //nolint:gosec
+		Status:         int32(status.Status), //nolint:gosec
 		Workspace:      workspaceName,
 		WorkspaceValid: workspaceValid,
 		StartedAt:      parseStatusTime(status.StartedAt),

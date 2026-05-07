@@ -6,6 +6,7 @@ package exec
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/stretchr/testify/mock"
 )
@@ -41,6 +42,21 @@ type QueueStore interface {
 	QueueList(ctx context.Context) ([]string, error)
 	// Watcher returns a QueueWatcher for the queue data
 	QueueWatcher(ctx context.Context) QueueWatcher
+}
+
+// QueueLeaseStore optionally provides leased queue processing. A leased queue
+// item remains durable until the processor explicitly acknowledges it, so a
+// crashed processor does not lose the queued run.
+type QueueLeaseStore interface {
+	ClaimByItemID(ctx context.Context, name, itemID, owner string, leaseTimeout time.Duration) (LeasedQueueItemData, error)
+	AckLease(ctx context.Context, name, leaseToken string) error
+	ReleaseLease(ctx context.Context, name, leaseToken string) error
+}
+
+// LeasedQueueItemData is a queued item claimed by one processor.
+type LeasedQueueItemData interface {
+	QueuedItemData
+	LeaseToken() string
 }
 
 // QueueWatcher watches the queue state

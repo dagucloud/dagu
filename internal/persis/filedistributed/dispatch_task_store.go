@@ -78,7 +78,7 @@ func (s *DispatchTaskStore) Enqueue(_ context.Context, task *coordinatorv1.Task)
 	}
 
 	enqueuedAt := time.Now().UTC()
-	fileName := fmt.Sprintf("task_%020d_%s.json", enqueuedAt.UnixMilli(), uuid.NewString())
+	fileName := fmt.Sprintf("task_%020d_%s.json", enqueuedAt.UnixMilli(), uuid.Must(uuid.NewV7()).String())
 	record := dispatchTaskFile{
 		Version:      dispatchTaskStoreVersion,
 		Task:         cloneTask(task),
@@ -114,7 +114,7 @@ func (s *DispatchTaskStore) ClaimNext(_ context.Context, claim exec.DispatchTask
 			continue
 		}
 
-		claimToken := uuid.NewString()
+		claimToken := uuid.Must(uuid.NewV7()).String()
 		claimedAt := time.Now().UTC()
 		claimPath := s.claimPath(claimToken)
 		if err := ensureDir(filepath.Dir(claimPath)); err != nil {

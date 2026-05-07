@@ -12,27 +12,27 @@ import (
 
 // Config holds the overall configuration for the application.
 type Config struct {
-	Core            Core
-	Server          Server
-	EventStore      EventStoreConfig
-	DAGRunStore     DAGRunStoreConfig
-	Paths           PathsConfig
-	Secrets         SecretsConfig
-	UI              UI
-	Queues          Queues
-	Coordinator     Coordinator
-	Worker          Worker
-	Proc            Proc
-	Scheduler       Scheduler
-	Monitoring      MonitoringConfig
-	DefaultExecMode ExecutionMode
-	Cache           CacheMode
-	GitSync         GitSyncConfig
-	Tunnel          TunnelConfig
-	Bots            BotsConfig
-	License         LicenseConfig
-	Notices         []string
-	Warnings        []string
+	Core              Core
+	Server            Server
+	EventStore        EventStoreConfig
+	ControlPlaneStore ControlPlaneStoreConfig
+	Paths             PathsConfig
+	Secrets           SecretsConfig
+	UI                UI
+	Queues            Queues
+	Coordinator       Coordinator
+	Worker            Worker
+	Proc              Proc
+	Scheduler         Scheduler
+	Monitoring        MonitoringConfig
+	DefaultExecMode   ExecutionMode
+	Cache             CacheMode
+	GitSync           GitSyncConfig
+	Tunnel            TunnelConfig
+	Bots              BotsConfig
+	License           LicenseConfig
+	Notices           []string
+	Warnings          []string
 }
 
 // BotProvider identifies which bot integration to use.
@@ -223,34 +223,46 @@ type EventStoreConfig struct {
 	RetentionDays int  // Default: 1; 0 = keep forever
 }
 
-// DAGRunStoreBackend identifies a DAG-run status persistence backend.
-type DAGRunStoreBackend string
+// ControlPlaneStoreBackend identifies a shared control-plane persistence backend.
+type ControlPlaneStoreBackend string
 
 const (
-	DAGRunStoreBackendFile     DAGRunStoreBackend = "file"
-	DAGRunStoreBackendPostgres DAGRunStoreBackend = "postgres"
+	ControlPlaneStoreBackendFile     ControlPlaneStoreBackend = "file"
+	ControlPlaneStoreBackendPostgres ControlPlaneStoreBackend = "postgres"
 )
 
-// DAGRunStoreConfig holds DAG-run status persistence configuration.
-type DAGRunStoreConfig struct {
-	Backend  DAGRunStoreBackend
-	Postgres DAGRunStorePostgresConfig
+// ControlPlaneStoreConfig holds shared control-plane persistence configuration.
+type ControlPlaneStoreConfig struct {
+	Backend  ControlPlaneStoreBackend
+	Postgres ControlPlaneStorePostgresConfig
 }
 
-// DAGRunStorePostgresConfig holds PostgreSQL DAG-run store configuration.
-type DAGRunStorePostgresConfig struct {
-	Server    DAGRunStorePostgresRoleConfig
-	Scheduler DAGRunStorePostgresRoleConfig
-	Agent     DAGRunStorePostgresRoleConfig
+// ControlPlaneStorePostgresConfig holds PostgreSQL control-plane store configuration.
+type ControlPlaneStorePostgresConfig struct {
+	Server    ControlPlaneStorePostgresRoleConfig
+	Scheduler ControlPlaneStorePostgresRoleConfig
+	Agent     ControlPlaneStorePostgresRoleConfig
 }
 
-// DAGRunStorePostgresRoleConfig holds PostgreSQL settings for one Dagu process role.
-type DAGRunStorePostgresRoleConfig struct {
+// ControlPlaneStorePostgresRoleConfig holds PostgreSQL settings for one Dagu process role.
+type ControlPlaneStorePostgresRoleConfig struct {
 	DSN          string
 	AutoMigrate  bool
 	DirectAccess bool
 	Pool         PostgresPoolConfig
 }
+
+// Backward-compatible aliases for the unreleased DAG-run-only store naming.
+type DAGRunStoreBackend = ControlPlaneStoreBackend
+
+const (
+	DAGRunStoreBackendFile     = ControlPlaneStoreBackendFile
+	DAGRunStoreBackendPostgres = ControlPlaneStoreBackendPostgres
+)
+
+type DAGRunStoreConfig = ControlPlaneStoreConfig
+type DAGRunStorePostgresConfig = ControlPlaneStorePostgresConfig
+type DAGRunStorePostgresRoleConfig = ControlPlaneStorePostgresRoleConfig
 
 // SessionConfig contains configuration for agent session cleanup.
 type SessionConfig struct {
@@ -578,7 +590,7 @@ func (c *Config) Validate() error {
 	if err := c.validateEventStore(); err != nil {
 		return err
 	}
-	if err := c.validateDAGRunStore(); err != nil {
+	if err := c.validateControlPlaneStore(); err != nil {
 		return err
 	}
 	if err := c.validateBots(); err != nil {
@@ -635,28 +647,28 @@ func (c *Config) validateEventStore() error {
 	return nil
 }
 
-func (c *Config) validateDAGRunStore() error {
-	switch c.DAGRunStore.Backend {
-	case "", DAGRunStoreBackendFile:
+func (c *Config) validateControlPlaneStore() error {
+	switch c.ControlPlaneStore.Backend {
+	case "", ControlPlaneStoreBackendFile:
 		return nil
-	case DAGRunStoreBackendPostgres:
-		if err := validatePostgresPool("dag_run_store.postgres.server.pool", c.DAGRunStore.Postgres.Server.Pool); err != nil {
+	case ControlPlaneStoreBackendPostgres:
+		if err := validatePostgresPool("control_plane_store.postgres.server.pool", c.ControlPlaneStore.Postgres.Server.Pool); err != nil {
 			return err
 		}
-		if err := validatePostgresPool("dag_run_store.postgres.scheduler.pool", c.DAGRunStore.Postgres.Scheduler.Pool); err != nil {
+		if err := validatePostgresPool("control_plane_store.postgres.scheduler.pool", c.ControlPlaneStore.Postgres.Scheduler.Pool); err != nil {
 			return err
 		}
-		if err := validatePostgresPool("dag_run_store.postgres.agent.pool", c.DAGRunStore.Postgres.Agent.Pool); err != nil {
+		if err := validatePostgresPool("control_plane_store.postgres.agent.pool", c.ControlPlaneStore.Postgres.Agent.Pool); err != nil {
 			return err
 		}
-		if c.DAGRunStore.Postgres.Server.DSN == "" &&
-			c.DAGRunStore.Postgres.Scheduler.DSN == "" &&
-			c.DAGRunStore.Postgres.Agent.DSN == "" {
-			return fmt.Errorf("invalid dag_run_store.backend: postgres selected but no role DSNs configured")
+		if c.ControlPlaneStore.Postgres.Server.DSN == "" &&
+			c.ControlPlaneStore.Postgres.Scheduler.DSN == "" &&
+			c.ControlPlaneStore.Postgres.Agent.DSN == "" {
+			return fmt.Errorf("invalid control_plane_store.backend: postgres selected but no role DSNs configured")
 		}
 		return nil
 	default:
-		return fmt.Errorf("invalid dag_run_store.backend: %q", c.DAGRunStore.Backend)
+		return fmt.Errorf("invalid control_plane_store.backend: %q", c.ControlPlaneStore.Backend)
 	}
 }
 

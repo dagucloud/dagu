@@ -45,7 +45,7 @@ func requestCommandApprovalWithTimeout(
 		timeout = approvalTimeout
 	}
 
-	promptID := uuid.New().String()
+	promptID := uuid.Must(uuid.NewV7()).String()
 	emit(UserPrompt{
 		PromptID:   promptID,
 		PromptType: PromptTypeCommandApproval,

@@ -33,7 +33,7 @@ APP_NAME=dagu
 # Docker image build configuration
 DOCKER_CMD := docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7,linux/arm64/v8 --builder container --build-arg LDFLAGS="$(LDFLAGS)" --push --no-cache
 
-# PostgreSQL DAG-run store development configuration
+# PostgreSQL control-plane store development configuration
 DEV_PG_COMPOSE_FILE=$(SCRIPT_DIR)/compose.postgres.yaml
 DEV_PG_COMPOSE_PROJECT?=dagu-dev-pg
 DEV_PG_DSN?=postgres://dagu:dagu@localhost:54321/dagu?sslmode=disable
@@ -128,21 +128,21 @@ run: ${FE_BUNDLE_JS}
 	@printf '%b\n' "${COLOR_GREEN}Starting the frontend server and the scheduler...${COLOR_RESET}"
 	@DAGU_DEBUG=1 go run ./cmd start-all
 
-# dev-pg starts a local PostgreSQL instance and runs Dagu with the Postgres DAG-run store.
+# dev-pg starts a local PostgreSQL instance and runs Dagu with the Postgres control-plane store.
 .PHONY: dev-pg dev-pg-up dev-pg-wait dev-pg-start dev-pg-down
 dev-pg: dev-pg-start
 
 dev-pg-start: ${FE_BUNDLE_JS} dev-pg-wait
-	@printf '%b\n' "${COLOR_GREEN}Starting Dagu with PostgreSQL DAG-run store...${COLOR_RESET}"
+	@printf '%b\n' "${COLOR_GREEN}Starting Dagu with PostgreSQL control-plane store...${COLOR_RESET}"
 	@DAGU_DEBUG=1 \
-		DAGU_DAG_RUN_STORE_BACKEND=postgres \
-		DAGU_DAG_RUN_STORE_POSTGRES_SERVER_DSN='${DEV_PG_DSN}' \
-		DAGU_DAG_RUN_STORE_POSTGRES_SERVER_AUTO_MIGRATE=true \
-		DAGU_DAG_RUN_STORE_POSTGRES_SCHEDULER_DSN='${DEV_PG_DSN}' \
-		DAGU_DAG_RUN_STORE_POSTGRES_SCHEDULER_AUTO_MIGRATE=true \
-		DAGU_DAG_RUN_STORE_POSTGRES_AGENT_DSN='${DEV_PG_DSN}' \
-		DAGU_DAG_RUN_STORE_POSTGRES_AGENT_AUTO_MIGRATE=false \
-		DAGU_DAG_RUN_STORE_POSTGRES_AGENT_DIRECT_ACCESS=true \
+		DAGU_CONTROL_PLANE_STORE_BACKEND=postgres \
+		DAGU_CONTROL_PLANE_STORE_POSTGRES_SERVER_DSN='${DEV_PG_DSN}' \
+		DAGU_CONTROL_PLANE_STORE_POSTGRES_SERVER_AUTO_MIGRATE=true \
+		DAGU_CONTROL_PLANE_STORE_POSTGRES_SCHEDULER_DSN='${DEV_PG_DSN}' \
+		DAGU_CONTROL_PLANE_STORE_POSTGRES_SCHEDULER_AUTO_MIGRATE=true \
+		DAGU_CONTROL_PLANE_STORE_POSTGRES_AGENT_DSN='${DEV_PG_DSN}' \
+		DAGU_CONTROL_PLANE_STORE_POSTGRES_AGENT_AUTO_MIGRATE=false \
+		DAGU_CONTROL_PLANE_STORE_POSTGRES_AGENT_DIRECT_ACCESS=true \
 		go run ./cmd start-all
 
 dev-pg-wait: dev-pg-up
@@ -162,11 +162,11 @@ dev-pg-wait: dev-pg-up
 	fi
 
 dev-pg-up:
-	@printf '%b\n' "${COLOR_GREEN}Starting PostgreSQL for DAG-run store development...${COLOR_RESET}"
+	@printf '%b\n' "${COLOR_GREEN}Starting PostgreSQL for control-plane store development...${COLOR_RESET}"
 	@docker compose -p ${DEV_PG_COMPOSE_PROJECT} -f ${DEV_PG_COMPOSE_FILE} up -d postgres
 
 dev-pg-down:
-	@printf '%b\n' "${COLOR_GREEN}Stopping PostgreSQL DAG-run store development environment...${COLOR_RESET}"
+	@printf '%b\n' "${COLOR_GREEN}Stopping PostgreSQL control-plane store development environment...${COLOR_RESET}"
 	@docker compose -p ${DEV_PG_COMPOSE_PROJECT} -f ${DEV_PG_COMPOSE_FILE} down
 
 # server build the binary and start the server.

@@ -135,7 +135,7 @@ type Connection struct {
 func NewConnection(user *auth.User, shell string, conn *websocket.Conn, ipAddress string) *Connection {
 	now := time.Now()
 	return &Connection{
-		ID:         uuid.New().String(),
+		ID:         uuid.Must(uuid.NewV7()).String(),
 		User:       user,
 		IPAddress:  ipAddress,
 		Shell:      shell,

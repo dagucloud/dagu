@@ -15,16 +15,16 @@ import (
 
 func TestNewPostgresRequiresRoleSpecificDSN(t *testing.T) {
 	cfg := &config.Config{
-		DAGRunStore: config.DAGRunStoreConfig{
-			Backend: config.DAGRunStoreBackendPostgres,
-			Postgres: config.DAGRunStorePostgresConfig{
-				Server: config.DAGRunStorePostgresRoleConfig{
+		ControlPlaneStore: config.ControlPlaneStoreConfig{
+			Backend: config.ControlPlaneStoreBackendPostgres,
+			Postgres: config.ControlPlaneStorePostgresConfig{
+				Server: config.ControlPlaneStorePostgresRoleConfig{
 					DSN: "postgres://server@example.invalid/dagu",
 				},
-				Scheduler: config.DAGRunStorePostgresRoleConfig{
+				Scheduler: config.ControlPlaneStorePostgresRoleConfig{
 					DSN: "postgres://scheduler@example.invalid/dagu",
 				},
-				Agent: config.DAGRunStorePostgresRoleConfig{
+				Agent: config.ControlPlaneStorePostgresRoleConfig{
 					DirectAccess: true,
 				},
 			},
@@ -34,15 +34,15 @@ func TestNewPostgresRequiresRoleSpecificDSN(t *testing.T) {
 	_, err := New(context.Background(), cfg, WithRole(RoleAgent))
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "dag_run_store.postgres.agent.dsn is required")
+	assert.Contains(t, err.Error(), "control_plane_store.postgres.agent.dsn is required")
 }
 
 func TestNewPostgresRejectsAgentDirectAccessByDefault(t *testing.T) {
 	cfg := &config.Config{
-		DAGRunStore: config.DAGRunStoreConfig{
-			Backend: config.DAGRunStoreBackendPostgres,
-			Postgres: config.DAGRunStorePostgresConfig{
-				Agent: config.DAGRunStorePostgresRoleConfig{
+		ControlPlaneStore: config.ControlPlaneStoreConfig{
+			Backend: config.ControlPlaneStoreBackendPostgres,
+			Postgres: config.ControlPlaneStorePostgresConfig{
+				Agent: config.ControlPlaneStorePostgresRoleConfig{
 					DSN: "postgres://agent@example.invalid/dagu",
 				},
 			},
@@ -52,5 +52,5 @@ func TestNewPostgresRejectsAgentDirectAccessByDefault(t *testing.T) {
 	_, err := New(context.Background(), cfg, WithRole(RoleAgent))
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "dag_run_store.postgres.agent.direct_access must be true")
+	assert.Contains(t, err.Error(), "control_plane_store.postgres.agent.direct_access must be true")
 }

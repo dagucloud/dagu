@@ -157,7 +157,7 @@ func (s *Service) ProcessLogin(ctx context.Context, claims OIDCClaims) (*auth.Us
 		username = s.generateUniqueUsername(ctx, claims)
 
 		user = &auth.User{
-			ID:              uuid.New().String(),
+			ID:              uuid.Must(uuid.NewV7()).String(),
 			Username:        username,
 			Role:            role,
 			WorkspaceAccess: auth.AllWorkspaceAccess(),

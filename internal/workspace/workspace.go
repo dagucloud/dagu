@@ -27,7 +27,7 @@ type Workspace struct {
 func NewWorkspace(name, description string) *Workspace {
 	now := time.Now().UTC()
 	return &Workspace{
-		ID:          uuid.New().String(),
+		ID:          uuid.Must(uuid.NewV7()).String(),
 		Name:        name,
 		Description: description,
 		CreatedAt:   now,

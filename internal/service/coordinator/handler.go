@@ -509,7 +509,7 @@ func (h *Handler) ensureTaskAttemptMetadata(task *coordinatorv1.Task) {
 		return
 	}
 	if task.AttemptId == "" {
-		task.AttemptId = uuid.NewString()
+		task.AttemptId = uuid.Must(uuid.NewV7()).String()
 	}
 	if task.AttemptKey != "" {
 		return

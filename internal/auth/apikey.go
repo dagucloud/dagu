@@ -54,7 +54,7 @@ func NewAPIKey(name, description string, role Role, keyHash, keyPrefix, createdB
 	}
 	now := time.Now().UTC()
 	return &APIKey{
-		ID:              uuid.New().String(),
+		ID:              uuid.Must(uuid.NewV7()).String(),
 		Name:            name,
 		Description:     description,
 		Role:            role,

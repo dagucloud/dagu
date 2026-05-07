@@ -248,12 +248,14 @@ jobs:
     needs:
       - changes
       - golint
+      - test-postgres
       - test-ubuntu
       - test-windows
     if: >-
       always() &&
       needs.changes.outputs.e2e == 'true' &&
       (needs.golint.result == 'success' || needs.golint.result == 'skipped') &&
+      (needs.test-postgres.result == 'success' || needs.test-postgres.result == 'skipped') &&
       (needs.test-ubuntu.result == 'success' || needs.test-ubuntu.result == 'skipped') &&
       (needs.test-windows.result == 'success' || needs.test-windows.result == 'skipped')
     runs-on: ubuntu-latest
@@ -309,6 +311,46 @@ jobs:
         run: |
           make test-e2e-build
           make test-e2e-run
+
+  test-postgres:
+    name: test-postgres
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Verify Docker
+        run: docker info
+
+      - name: Pre-pull PostgreSQL image
+        shell: bash
+        run: |
+          image="postgres:18"
+          for attempt in 1 2 3 4; do
+            if docker pull "${image}"; then
+              break
+            fi
+            if [[ "${attempt}" -eq 4 ]]; then
+              echo "failed to pull ${image}" >&2
+              exit 1
+            fi
+            sleep "$((attempt * 5))"
+          done
+
+      - name: Test PostgreSQL control-plane store
+        run: |
+          go test \
+            -timeout=10m \
+            ./internal/persis/controlplanestore/postgres \
+            -run TestPostgresControlPlaneStoreIntegration \
+            -count=1
 
   test-windows:
     name: Test on windows-latest (${{ matrix.suite_index }}/${{ matrix.suite_total }})

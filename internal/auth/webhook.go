@@ -83,7 +83,7 @@ func NewWebhook(dagName, tokenHash, tokenPrefix, createdBy string) (*Webhook, er
 	}
 	now := time.Now().UTC()
 	return &Webhook{
-		ID:          uuid.New().String(),
+		ID:          uuid.Must(uuid.NewV7()).String(),
 		DAGName:     dagName,
 		TokenHash:   tokenHash,
 		TokenPrefix: tokenPrefix,

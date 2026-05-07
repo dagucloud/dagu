@@ -190,7 +190,7 @@ func makeRemoteAgentRun(resolver RemoteContextResolver) ToolFunc {
 		client := newRemoteHTTPClient(node.SkipTLSVerify)
 
 		// Generate idempotent session ID.
-		sessionID := uuid.New().String()
+		sessionID := uuid.Must(uuid.NewV7()).String()
 
 		// Create remote session.
 		if err := remoteCreateSession(deadlineCtx, client, &node, sessionID, args.Message); err != nil {

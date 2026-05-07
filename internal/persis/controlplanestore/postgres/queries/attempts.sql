@@ -152,7 +152,7 @@ WHERE id = sqlc.arg(id);
 WITH updated_attempt AS (
     UPDATE dagu_dag_run_attempts AS a
     SET status_data = sqlc.arg(status_data),
-        status = sqlc.arg(status),
+        status = sqlc.arg(status)::dagu_status_code,
         workspace = sqlc.narg(workspace),
         workspace_valid = sqlc.arg(workspace_valid),
         started_at = sqlc.narg(started_at),

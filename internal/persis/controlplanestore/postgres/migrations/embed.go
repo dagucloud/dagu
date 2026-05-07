@@ -5,7 +5,7 @@ package migrations
 
 import "embed"
 
-// FS contains PostgreSQL migrations for the DAG-run store.
+// FS contains PostgreSQL migrations for the control-plane store.
 //
 //go:embed *.sql
 var FS embed.FS

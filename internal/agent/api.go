@@ -1090,7 +1090,7 @@ func (a *API) CreateSession(ctx context.Context, user UserIdentity, req ChatRequ
 			}
 		}
 	} else {
-		id = uuid.New().String()
+		id = uuid.Must(uuid.NewV7()).String()
 	}
 
 	model := selectModel(req.Model, "", a.getDefaultModelID(ctx))
@@ -1150,7 +1150,7 @@ func (a *API) CreateEmptySession(ctx context.Context, user UserIdentity, dagName
 		return "", err
 	}
 
-	id := uuid.New().String()
+	id := uuid.Must(uuid.NewV7()).String()
 	a.newManagedSession(ctx, id, user, cfg, time.Now())
 	return id, nil
 }
@@ -1265,7 +1265,7 @@ func (a *API) CompactSessionIfNeeded(ctx context.Context, sessionID string, user
 		return "", false, fmt.Errorf("compaction summary was empty")
 	}
 
-	newID := uuid.New().String()
+	newID := uuid.Must(uuid.NewV7()).String()
 	newMgr := a.newManagedSession(ctx, newID, user, runtimeCfg, time.Now())
 	summaryContent := sessionSummaryPrefix + strings.TrimSpace(resp.Content)
 	if _, err := newMgr.RecordExternalMessage(ctx, Message{

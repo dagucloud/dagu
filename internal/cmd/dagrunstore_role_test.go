@@ -9,28 +9,28 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/dagucloud/dagu/internal/persis/dagrunstore"
+	"github.com/dagucloud/dagu/internal/persis/controlplanestore"
 )
 
-func TestDAGRunStoreRoleForCommand(t *testing.T) {
+func TestControlPlaneStoreRoleForCommand(t *testing.T) {
 	tests := []struct {
 		name string
-		want dagrunstore.Role
+		want controlplanestore.Role
 	}{
-		{name: "server", want: dagrunstore.RoleServer},
-		{name: "start-all", want: dagrunstore.RoleServer},
-		{name: "scheduler", want: dagrunstore.RoleScheduler},
-		{name: "start", want: dagrunstore.RoleAgent},
-		{name: "restart", want: dagrunstore.RoleAgent},
-		{name: "retry", want: dagrunstore.RoleAgent},
-		{name: "dry", want: dagrunstore.RoleAgent},
-		{name: "exec", want: dagrunstore.RoleAgent},
-		{name: "worker", want: dagrunstore.RoleAgent},
+		{name: "server", want: controlplanestore.RoleServer},
+		{name: "start-all", want: controlplanestore.RoleServer},
+		{name: "scheduler", want: controlplanestore.RoleScheduler},
+		{name: "start", want: controlplanestore.RoleAgent},
+		{name: "restart", want: controlplanestore.RoleAgent},
+		{name: "retry", want: controlplanestore.RoleAgent},
+		{name: "dry", want: controlplanestore.RoleAgent},
+		{name: "exec", want: controlplanestore.RoleAgent},
+		{name: "worker", want: controlplanestore.RoleAgent},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, dagRunStoreRoleForCommand(&cobra.Command{Use: tt.name}))
+			assert.Equal(t, tt.want, controlPlaneStoreRoleForCommand(&cobra.Command{Use: tt.name}))
 		})
 	}
 }

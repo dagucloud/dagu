@@ -82,7 +82,7 @@ func (a *API) newChatInputSpillName(sessionID string) string {
 	return fmt.Sprintf("%s-%s-%s.txt",
 		prefix,
 		time.Now().UTC().Format("20060102T150405.000000000Z"),
-		uuid.NewString(),
+		uuid.Must(uuid.NewV7()).String(),
 	)
 }
 

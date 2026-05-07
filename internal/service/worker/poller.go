@@ -145,7 +145,7 @@ func (p *Poller) ackTaskClaim(ctx context.Context, task *coordinatorv1.Task) err
 
 // pollForTask polls the coordinator for a task with retry on failure
 func (p *Poller) pollForTask(ctx context.Context, policy backoff.RetryPolicy) (*coordinatorv1.Task, error) {
-	pollerID := uuid.New().String()
+	pollerID := uuid.Must(uuid.NewV7()).String()
 
 	// Get current coordinator client state before polling
 	beforeMetrics := p.coordinatorCli.Metrics()

@@ -1014,7 +1014,7 @@ const updateAttemptStatus = `-- name: UpdateAttemptStatus :exec
 WITH updated_attempt AS (
     UPDATE dagu_dag_run_attempts AS a
     SET status_data = $1,
-        status = $2,
+        status = $2::dagu_status_code,
         workspace = $3,
         workspace_valid = $4,
         started_at = $5,
@@ -1046,7 +1046,7 @@ WHERE r.id = ua.run_id
 
 type UpdateAttemptStatusParams struct {
 	StatusData     []byte             `json:"status_data"`
-	Status         pgtype.Int4        `json:"status"`
+	Status         int32              `json:"status"`
 	Workspace      sql.NullString     `json:"workspace"`
 	WorkspaceValid bool               `json:"workspace_valid"`
 	StartedAt      pgtype.Timestamptz `json:"started_at"`

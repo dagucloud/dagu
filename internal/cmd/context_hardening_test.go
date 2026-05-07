@@ -133,19 +133,19 @@ func TestNewContext_RemoteExplicitFailsWhenContextStoreUnavailable(t *testing.T)
 	assert.Contains(t, err.Error(), "failed to initialize context store")
 }
 
-func TestNewContext_DefersPostgresDAGRunStoreForNonRuntimeCommands(t *testing.T) {
+func TestNewContext_DefersPostgresControlPlaneStoreForStaticCommands(t *testing.T) {
 	t.Parallel()
 
 	home := t.TempDir()
 	configPath := writeRawTestConfig(t, `
-dag_run_store:
+control_plane_store:
   backend: postgres
   postgres:
     scheduler:
       dsn: postgres://dagu:dagu@127.0.0.1:1/dagu?sslmode=disable
 `)
 
-	for _, name := range []string{"scheduler", "config"} {
+	for _, name := range []string{"config"} {
 		t.Run(name, func(t *testing.T) {
 			command := &cobra.Command{Use: name}
 			initFlags(command)
@@ -155,13 +155,14 @@ dag_run_store:
 
 			ctx, err := NewContext(command, nil)
 			require.NoError(t, err)
+			assert.Nil(t, ctx.ControlPlaneStore)
 			assert.Nil(t, ctx.DAGRunStore)
 			assert.Zero(t, ctx.DAGRunMgr)
 		})
 	}
 }
 
-func TestNewContext_InitializesDAGRunStoreForDAGRunCommands(t *testing.T) {
+func TestNewContext_InitializesControlPlaneStoreForDAGRunCommands(t *testing.T) {
 	t.Parallel()
 
 	home := t.TempDir()
@@ -172,6 +173,7 @@ func TestNewContext_InitializesDAGRunStoreForDAGRunCommands(t *testing.T) {
 
 	ctx, err := NewContext(command, nil)
 	require.NoError(t, err)
+	assert.Nil(t, ctx.ControlPlaneStore)
 	assert.NotNil(t, ctx.DAGRunStore)
 	assert.NotNil(t, ctx.DAGRunMgr)
 }
@@ -181,7 +183,7 @@ func TestNewContext_DefersPostgresAgentStoreForDispatchableCommands(t *testing.T
 
 	home := t.TempDir()
 	configPath := writeRawTestConfig(t, `
-dag_run_store:
+control_plane_store:
   backend: postgres
   postgres:
     agent:
@@ -198,6 +200,7 @@ dag_run_store:
 
 			ctx, err := NewContext(command, nil)
 			require.NoError(t, err)
+			assert.Nil(t, ctx.ControlPlaneStore)
 			assert.Nil(t, ctx.DAGRunStore)
 			assert.Zero(t, ctx.DAGRunMgr)
 		})
@@ -212,7 +215,7 @@ func TestNewContext_PostgresSharedNothingWorkerSkipsAgentStore(t *testing.T) {
 worker:
   coordinators:
     - 127.0.0.1:50055
-dag_run_store:
+control_plane_store:
   backend: postgres
   postgres:
     agent:
@@ -227,6 +230,7 @@ dag_run_store:
 	ctx, err := NewContext(command, nil)
 
 	require.NoError(t, err)
+	assert.Nil(t, ctx.ControlPlaneStore)
 	assert.Nil(t, ctx.DAGRunStore)
 	assert.Zero(t, ctx.DAGRunMgr)
 }
@@ -239,8 +243,8 @@ func TestTryExecuteDAGRejectsLocalPostgresWithoutDirectAccess(t *testing.T) {
 		Context: context.Background(),
 		Command: command,
 		Config: &config.Config{
-			DAGRunStore: config.DAGRunStoreConfig{
-				Backend: config.DAGRunStoreBackendPostgres,
+			ControlPlaneStore: config.ControlPlaneStoreConfig{
+				Backend: config.ControlPlaneStoreBackendPostgres,
 			},
 		},
 	}
@@ -257,7 +261,7 @@ func TestTryExecuteDAGRejectsLocalPostgresWithoutDirectAccess(t *testing.T) {
 	)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "dag_run_store.postgres.agent.direct_access=true")
+	assert.Contains(t, err.Error(), "control_plane_store.postgres.agent.direct_access=true")
 }
 
 func writeTestConfig(t *testing.T, home, contextsDir string) string {

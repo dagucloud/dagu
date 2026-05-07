@@ -39,7 +39,7 @@ func NewLockManager(client goredis.UniversalClient, cfg *Config) *LockManager {
 		client:  client,
 		cfg:     cfg,
 		lockKey: lockKeyPrefix + cfg.Lock,
-		lockVal: uuid.New().String(),
+		lockVal: uuid.Must(uuid.NewV7()).String(),
 	}
 }
 

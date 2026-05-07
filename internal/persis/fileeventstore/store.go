@@ -78,7 +78,7 @@ func (s *Store) Emit(_ context.Context, event *eventstore.Event) error {
 	if err != nil {
 		return fmt.Errorf("fileeventstore: marshal event: %w", err)
 	}
-	name := fmt.Sprintf("%020d-%s%s", recordedAt.UnixNano(), uuid.NewString(), inboxSuffix)
+	name := fmt.Sprintf("%020d-%s%s", recordedAt.UnixNano(), uuid.Must(uuid.NewV7()).String(), inboxSuffix)
 	path := filepath.Join(s.inboxDir, name)
 	if err := fileutil.WriteFileAtomic(path, data, filePermissions); err != nil {
 		return fmt.Errorf("fileeventstore: write inbox file: %w", err)

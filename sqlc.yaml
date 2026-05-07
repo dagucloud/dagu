@@ -1,12 +1,12 @@
 version: "2"
 sql:
   - engine: "postgresql"
-    queries: "internal/persis/dagrunstore/postgres/queries"
-    schema: "internal/persis/dagrunstore/postgres/migrations"
+    queries: "internal/persis/controlplanestore/postgres/queries"
+    schema: "internal/persis/controlplanestore/postgres/migrations"
     gen:
       go:
         package: "db"
-        out: "internal/persis/dagrunstore/postgres/db"
+        out: "internal/persis/controlplanestore/postgres/db"
         sql_package: "pgx/v5"
         emit_json_tags: true
         emit_empty_slices: true
@@ -26,8 +26,25 @@ sql:
               type: "NullUUID"
           - db_type: "dagu_dag_name"
             go_type: "string"
+          - db_type: "dagu_dag_name"
+            nullable: true
+            go_type:
+              import: "github.com/jackc/pgx/v5/pgtype"
+              type: "Text"
           - db_type: "dagu_dag_run_id"
             go_type: "string"
+          - db_type: "dagu_dag_run_id"
+            nullable: true
+            go_type:
+              import: "github.com/jackc/pgx/v5/pgtype"
+              type: "Text"
+          - db_type: "dagu_attempt_id"
+            go_type: "string"
+          - db_type: "dagu_attempt_id"
+            nullable: true
+            go_type:
+              import: "github.com/jackc/pgx/v5/pgtype"
+              type: "Text"
           - db_type: "dagu_workspace_name"
             nullable: false
             go_type: "string"
@@ -36,3 +53,27 @@ sql:
             go_type:
               import: "database/sql"
               type: "NullString"
+          - db_type: "dagu_label_key"
+            go_type: "string"
+          - db_type: "dagu_label_value"
+            go_type: "string"
+          - db_type: "dagu_status_code"
+            nullable: false
+            go_type: "int32"
+          - db_type: "dagu_status_code"
+            nullable: true
+            go_type:
+              import: "github.com/jackc/pgx/v5/pgtype"
+              type: "Int4"
+          - db_type: "dagu_queue_priority"
+            go_type: "int32"
+          - db_type: "dagu_service_name"
+            go_type: "string"
+          - db_type: "dagu_service_status"
+            go_type: "int32"
+          - db_type: "dagu_auth_role"
+            go_type: "string"
+          - db_type: "dagu_audit_category"
+            go_type: "string"
+          - db_type: "dagu_event_kind"
+            go_type: "string"

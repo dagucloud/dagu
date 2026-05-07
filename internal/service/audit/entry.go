@@ -50,7 +50,7 @@ type Entry struct {
 // NewEntry creates a new audit entry with a generated ID and current timestamp.
 func NewEntry(category Category, action, userID, username string) *Entry {
 	return &Entry{
-		ID:        uuid.New().String(),
+		ID:        uuid.Must(uuid.NewV7()).String(),
 		Timestamp: time.Now().UTC(),
 		Category:  category,
 		Action:    action,

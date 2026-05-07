@@ -178,7 +178,7 @@ func delegateRun(ctx ToolContext, input json.RawMessage) ToolOut {
 // runSingleDelegate executes one sub-agent for a single task.
 func runSingleDelegate(ctx ToolContext, task delegateTask) singleDelegateResult {
 	dc := ctx.Delegate
-	delegateID := uuid.New().String()
+	delegateID := uuid.Must(uuid.NewV7()).String()
 
 	logger := dc.Logger
 	if logger == nil {
@@ -250,7 +250,7 @@ func runSingleDelegate(ctx ToolContext, task delegateTask) singleDelegateResult 
 	// Message by value — the caller's copy keeps the assigned ID so
 	// forwardToParent sends a message with a real ID (not "").
 	userMsg := Message{
-		ID:        uuid.New().String(),
+		ID:        uuid.Must(uuid.NewV7()).String(),
 		Type:      MessageTypeUser,
 		Content:   userContent,
 		CreatedAt: time.Now(),
@@ -304,7 +304,7 @@ func runSingleDelegate(ctx ToolContext, task delegateTask) singleDelegateResult 
 		// every forwarded message has ID "" and the frontend dedup logic
 		// overwrites index 0, making only the last message visible.
 		if msg.ID == "" {
-			msg.ID = uuid.New().String()
+			msg.ID = uuid.Must(uuid.NewV7()).String()
 		}
 		msg.SessionID = delegateID
 		if _, err := subMgr.RecordExternalMessage(msgCtx, msg); err != nil {

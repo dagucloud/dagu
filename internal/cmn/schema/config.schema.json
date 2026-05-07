@@ -207,8 +207,8 @@
     "event_store": {
       "$ref": "#/definitions/EventStoreDef"
     },
-    "dag_run_store": {
-      "$ref": "#/definitions/DAGRunStoreDef"
+    "control_plane_store": {
+      "$ref": "#/definitions/ControlPlaneStoreDef"
     },
     "session": {
       "$ref": "#/definitions/SessionDef"
@@ -936,19 +936,19 @@
         }
       }
     },
-    "DAGRunStoreDef": {
+    "ControlPlaneStoreDef": {
       "type": "object",
-      "description": "DAG-run status persistence configuration.",
+      "description": "control-plane persistence configuration.",
       "additionalProperties": false,
       "properties": {
         "backend": {
           "type": "string",
-          "description": "DAG-run status persistence backend. Default: file.",
+          "description": "control-plane persistence backend. Default: file.",
           "enum": ["file", "postgres"],
           "default": "file"
         },
         "postgres": {
-          "$ref": "#/definitions/DAGRunStorePostgresDef"
+          "$ref": "#/definitions/ControlPlaneStorePostgresDef"
         }
       },
       "allOf": [
@@ -967,28 +967,28 @@
         }
       ]
     },
-    "DAGRunStorePostgresDef": {
+    "ControlPlaneStorePostgresDef": {
       "type": "object",
-      "description": "PostgreSQL DAG-run status store configuration.",
+      "description": "PostgreSQL control-plane store configuration.",
       "additionalProperties": false,
       "properties": {
         "server": {
-          "$ref": "#/definitions/DAGRunStorePostgresRoleDef",
+          "$ref": "#/definitions/ControlPlaneStorePostgresRoleDef",
           "description": "PostgreSQL settings used by the server/API process."
         },
         "scheduler": {
-          "$ref": "#/definitions/DAGRunStorePostgresRoleDef",
+          "$ref": "#/definitions/ControlPlaneStorePostgresRoleDef",
           "description": "PostgreSQL settings used by the scheduler process."
         },
         "agent": {
-          "$ref": "#/definitions/DAGRunStorePostgresAgentDef",
+          "$ref": "#/definitions/ControlPlaneStorePostgresAgentDef",
           "description": "PostgreSQL settings used by DAG execution processes."
         }
       }
     },
-    "DAGRunStorePostgresRoleDef": {
+    "ControlPlaneStorePostgresRoleDef": {
       "type": "object",
-      "description": "PostgreSQL DAG-run status store configuration for one Dagu process role.",
+      "description": "PostgreSQL control-plane store configuration for one Dagu process role.",
       "additionalProperties": false,
       "properties": {
         "dsn": {
@@ -997,16 +997,16 @@
         },
         "auto_migrate": {
           "type": "boolean",
-          "description": "Run DAG-run store migrations when this process role opens the store."
+          "description": "Run control-plane store migrations when this process role opens the store."
         },
         "pool": {
           "$ref": "#/definitions/PostgresPoolDef"
         }
       }
     },
-    "DAGRunStorePostgresAgentDef": {
+    "ControlPlaneStorePostgresAgentDef": {
       "type": "object",
-      "description": "PostgreSQL DAG-run status store configuration for DAG execution processes.",
+      "description": "PostgreSQL control-plane store configuration for DAG execution processes.",
       "additionalProperties": false,
       "properties": {
         "dsn": {
@@ -1015,11 +1015,11 @@
         },
         "auto_migrate": {
           "type": "boolean",
-          "description": "Run DAG-run store migrations when an agent process opens the store. Default: false."
+          "description": "Run control-plane store migrations when an agent process opens the store. Default: false."
         },
         "direct_access": {
           "type": "boolean",
-          "description": "Allow DAG execution processes to open the PostgreSQL DAG-run store directly. Default: false; production PostgreSQL deployments should use coordinator/shared-nothing worker execution instead."
+          "description": "Allow DAG execution processes to open the PostgreSQL control-plane store directly. Default: false; production PostgreSQL deployments should use coordinator/shared-nothing worker execution instead."
         },
         "pool": {
           "$ref": "#/definitions/PostgresPoolDef"

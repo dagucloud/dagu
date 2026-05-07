@@ -12,10 +12,10 @@ import (
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/lock"
 
-	"github.com/dagucloud/dagu/internal/persis/dagrunstore/postgres/migrations"
+	"github.com/dagucloud/dagu/internal/persis/controlplanestore/postgres/migrations"
 )
 
-// RunMigrations applies pending DAG-run store migrations.
+// RunMigrations applies pending control-plane store migrations.
 func RunMigrations(ctx context.Context, dsn string) error {
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {

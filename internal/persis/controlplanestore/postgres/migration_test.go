@@ -13,11 +13,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/internal/core"
-	"github.com/dagucloud/dagu/internal/persis/dagrunstore/postgres/migrations"
+	"github.com/dagucloud/dagu/internal/persis/controlplanestore/postgres/migrations"
 )
 
 func TestMigrationUsesExistingIdentifierConstraints(t *testing.T) {
-	data, err := migrations.FS.ReadFile("20260506000000_create_dag_run_attempts.sql")
+	data, err := migrations.FS.ReadFile("20260506000000_create_control_plane_store.sql")
 	require.NoError(t, err)
 
 	sqlText := string(data)
@@ -32,6 +32,9 @@ func TestMigrationUsesExistingIdentifierConstraints(t *testing.T) {
 	assertSQLFragment(t, sqlText, "VALUE ~ '^[A-Za-z0-9_-]+$'")
 	assertSQLFragment(t, sqlText, "lower(VALUE) NOT IN ('all', 'default')")
 	assertSQLFragment(t, sqlText, "VALUE::text ~* '^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'")
+	assertSQLFragment(t, sqlText, "dag_name dagu_dag_name")
+	assertSQLFragment(t, sqlText, "dag_run_id dagu_dag_run_id")
+	assertSQLFragment(t, sqlText, "attempt_id dagu_attempt_id")
 }
 
 func assertSQLFragment(t *testing.T, sqlText, fragment string) {

@@ -21,7 +21,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/persis/dagrunstore/postgres/db"
+	"github.com/dagucloud/dagu/internal/persis/controlplanestore/postgres/db"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
 )
 
