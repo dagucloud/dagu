@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,87 +78,36 @@ func NewPatchTool(dagsDir string) *AgentTool {
 }
 
 func patchToolParameters() map[string]any {
-	path := patchPathProperty()
-	operation := map[string]any{
-		"type":        "string",
-		"enum":        []any{"create", "replace", "append", "insert_before", "insert_after", "delete"},
-		"description": "The operation to perform. Each operation has its own required fields; do not include fields from another operation.",
-	}
-	content := map[string]any{
-		"type":        "string",
-		"description": "For create: full file content. For append and insert operations: content to add.",
-	}
-	oldString := map[string]any{
-		"type":        "string",
-		"description": "For replace only: exact unique text to find. Must be copied exactly from a prior read result.",
-	}
-	newString := map[string]any{
-		"type":        "string",
-		"description": "For replace only: replacement text. Use append or insert_after to add content instead.",
-	}
-	anchor := map[string]any{
-		"type":        "string",
-		"description": "For insert_before and insert_after only: exact unique text that must remain in the file.",
-	}
-
 	return map[string]any{
-		"type":                 "object",
-		"additionalProperties": false,
+		"type": "object",
 		"properties": map[string]any{
-			"path":       path,
-			"operation":  operation,
-			"content":    content,
-			"old_string": oldString,
-			"new_string": newString,
-			"anchor":     anchor,
+			"path": map[string]any{
+				"type":        "string",
+				"description": "The path to the file (absolute or relative to working directory)",
+			},
+			"operation": map[string]any{
+				"type":        "string",
+				"enum":        []string{"create", "replace", "append", "insert_before", "insert_after", "delete"},
+				"description": "The operation to perform: 'create' writes full file content, 'replace' replaces exact unique old_string with new_string, 'append' adds content at EOF, 'insert_before'/'insert_after' insert content around exact unique anchor, and 'delete' removes a file",
+			},
+			"content": map[string]any{
+				"type":        "string",
+				"description": "For 'create': the full content to write. For 'append' and insert operations: the content to add",
+			},
+			"old_string": map[string]any{
+				"type":        "string",
+				"description": "For 'replace': the exact unique text to find and replace. Must be copied exactly from a prior read result",
+			},
+			"new_string": map[string]any{
+				"type":        "string",
+				"description": "For 'replace': the text to replace old_string with. To append content, use append or insert_after instead",
+			},
+			"anchor": map[string]any{
+				"type":        "string",
+				"description": "For 'insert_before' and 'insert_after': the exact unique text that must remain in the file",
+			},
 		},
-		"required": []any{"path", "operation"},
-		"oneOf": []any{
-			patchOperationSchema(PatchOpCreate, []any{"path", "operation", "content"}, map[string]any{
-				"content": content,
-			}),
-			patchOperationSchema(PatchOpReplace, []any{"path", "operation", "old_string", "new_string"}, map[string]any{
-				"old_string": oldString,
-				"new_string": newString,
-			}),
-			patchOperationSchema(PatchOpAppend, []any{"path", "operation", "content"}, map[string]any{
-				"content": content,
-			}),
-			patchOperationSchema(PatchOpInsertBefore, []any{"path", "operation", "anchor", "content"}, map[string]any{
-				"anchor":  anchor,
-				"content": content,
-			}),
-			patchOperationSchema(PatchOpInsertAfter, []any{"path", "operation", "anchor", "content"}, map[string]any{
-				"anchor":  anchor,
-				"content": content,
-			}),
-			patchOperationSchema(PatchOpDelete, []any{"path", "operation"}, nil),
-		},
-	}
-}
-
-func patchPathProperty() map[string]any {
-	return map[string]any{
-		"type":        "string",
-		"description": "The path to the file (absolute or relative to working directory).",
-	}
-}
-
-func patchOperationSchema(operation PatchOperation, required []any, extraProperties map[string]any) map[string]any {
-	properties := map[string]any{
-		"path": patchPathProperty(),
-		"operation": map[string]any{
-			"type":        "string",
-			"enum":        []any{string(operation)},
-			"description": fmt.Sprintf("Must be %q for this argument shape.", operation),
-		},
-	}
-	maps.Copy(properties, extraProperties)
-	return map[string]any{
-		"type":                 "object",
-		"additionalProperties": false,
-		"properties":           properties,
-		"required":             required,
+		"required": []string{"path", "operation"},
 	}
 }
 

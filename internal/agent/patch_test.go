@@ -678,57 +678,30 @@ func TestPatchTool_Permissions(t *testing.T) {
 	assert.Contains(t, result.Content, "requires write permission")
 }
 
-func TestPatchTool_SchemaUsesOperationSpecificShapes(t *testing.T) {
+func TestPatchTool_SchemaUsesProviderCompatibleObject(t *testing.T) {
 	t.Parallel()
 
 	params := NewPatchTool("").Function.Parameters
-	assert.Equal(t, false, params["additionalProperties"])
-	variants, ok := params["oneOf"].([]any)
-	require.True(t, ok, "patch tool schema should use oneOf variants")
-	require.Len(t, variants, 6)
+	assert.Equal(t, "object", params["type"])
+	assert.NotContains(t, params, "oneOf")
+	assert.NotContains(t, params, "anyOf")
+	assert.NotContains(t, params, "allOf")
+	assert.NotContains(t, params, "not")
+	assert.NotContains(t, params, "additionalProperties")
+	assert.Equal(t, []string{"path", "operation"}, params["required"])
 
-	replaceSchema := requirePatchOperationSchema(t, variants, "replace")
-	replaceProps := requireSchemaProperties(t, replaceSchema)
-	assert.Equal(t, false, replaceSchema["additionalProperties"])
-	assert.ElementsMatch(t, []any{"path", "operation", "old_string", "new_string"}, replaceSchema["required"])
-	assert.Contains(t, replaceProps, "old_string")
-	assert.Contains(t, replaceProps, "new_string")
-	assert.NotContains(t, replaceProps, "content")
-	assert.NotContains(t, replaceProps, "anchor")
-
-	insertAfterSchema := requirePatchOperationSchema(t, variants, "insert_after")
-	insertAfterProps := requireSchemaProperties(t, insertAfterSchema)
-	assert.Equal(t, false, insertAfterSchema["additionalProperties"])
-	assert.ElementsMatch(t, []any{"path", "operation", "anchor", "content"}, insertAfterSchema["required"])
-	assert.Contains(t, insertAfterProps, "anchor")
-	assert.Contains(t, insertAfterProps, "content")
-	assert.NotContains(t, insertAfterProps, "old_string")
-	assert.NotContains(t, insertAfterProps, "new_string")
-}
-
-func requirePatchOperationSchema(t *testing.T, variants []any, operation string) map[string]any {
-	t.Helper()
-
-	for _, variant := range variants {
-		schema, ok := variant.(map[string]any)
-		require.True(t, ok)
-		props := requireSchemaProperties(t, schema)
-		opSchema, ok := props["operation"].(map[string]any)
-		require.True(t, ok)
-		if assert.ObjectsAreEqual([]any{operation}, opSchema["enum"]) {
-			return schema
-		}
-	}
-	t.Fatalf("schema variant for operation %q not found", operation)
-	return nil
-}
-
-func requireSchemaProperties(t *testing.T, schema map[string]any) map[string]any {
-	t.Helper()
-
-	props, ok := schema["properties"].(map[string]any)
+	props, ok := params["properties"].(map[string]any)
 	require.True(t, ok)
-	return props
+	assert.Contains(t, props, "path")
+	assert.Contains(t, props, "operation")
+	assert.Contains(t, props, "content")
+	assert.Contains(t, props, "old_string")
+	assert.Contains(t, props, "new_string")
+	assert.Contains(t, props, "anchor")
+
+	operation, ok := props["operation"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, []string{"create", "replace", "append", "insert_before", "insert_after", "delete"}, operation["enum"])
 }
 
 func TestCountLines(t *testing.T) {
