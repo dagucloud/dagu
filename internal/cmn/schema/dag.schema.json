@@ -5367,6 +5367,7 @@
             "log.write",
             "mail.send",
             "noop",
+            "postgres.import",
             "postgres.query",
             "router.route",
             "s3.delete",
@@ -5375,6 +5376,7 @@
             "s3.upload",
             "sftp.download",
             "sftp.upload",
+            "sqlite.import",
             "sqlite.query",
             "ssh.run",
             "template.render"

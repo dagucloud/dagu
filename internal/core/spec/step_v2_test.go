@@ -123,6 +123,77 @@ steps:
 	assert.Equal(t, `{"ok":true}`, step.ExecutorConfig.Config["body"])
 }
 
+func TestStepSchemaV2_ActionJQFilterData(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: pick_name
+    action: jq.filter
+    with:
+      filter: .name
+      data:
+        name: Alice
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, "jq", step.ExecutorConfig.Type)
+	require.Len(t, step.Commands, 1)
+	assert.Equal(t, ".name", step.Commands[0].CmdWithArgs)
+	assert.JSONEq(t, `{"name":"Alice"}`, step.Script)
+}
+
+func TestStepSchemaV2_ActionSQLImport(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: import_users
+    action: postgres.import
+    with:
+      dsn: ${DATABASE_URL}
+      import:
+        input_file: /data/users.csv
+        table: users
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, "postgres", step.ExecutorConfig.Type)
+	assert.Empty(t, step.Commands)
+	require.NotNil(t, step.ExecutorConfig.Config)
+	assert.Contains(t, step.ExecutorConfig.Config, "import")
+}
+
+func TestStepSchemaV2_ActionHarnessStdin(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: review
+    action: harness.run
+    with:
+      provider: codex
+      prompt: Review this patch
+      stdin: |
+        diff --git a/main.go b/main.go
+        ...
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, "harness", step.ExecutorConfig.Type)
+	require.Len(t, step.Commands, 1)
+	assert.Equal(t, "Review this patch", step.Commands[0].CmdWithArgs)
+	assert.Contains(t, step.Script, "diff --git")
+	require.NotNil(t, step.ExecutorConfig.Config)
+	assert.NotContains(t, step.ExecutorConfig.Config, "stdin")
+}
+
 func TestStepSchemaV2_CustomActions(t *testing.T) {
 	t.Parallel()
 

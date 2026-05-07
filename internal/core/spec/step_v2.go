@@ -4,6 +4,7 @@
 package spec
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -46,15 +47,16 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"dag.run":         normalizeDagRunAction,
 	"docker.run":      commandAction("docker", "command"),
 	"exec":            normalizeExecAction,
-	"harness.run":     commandAction("harness", "prompt"),
+	"harness.run":     normalizeHarnessRunAction,
 	"http.request":    normalizeHTTPRequestAction,
-	"jq.filter":       commandAction("jq", "filter"),
+	"jq.filter":       normalizeJQFilterAction,
 	"k8s.run":         commandAction("k8s", "command"),
 	"kubernetes.run":  commandAction("kubernetes", "command"),
 	"log.write":       normalizeLogAction,
 	"mail.send":       typedAction("mail"),
 	"noop":            normalizeNoopAction,
 	"postgres.query":  commandAction("postgres", "query"),
+	"postgres.import": importAction("postgres"),
 	"router.route":    normalizeRouterAction,
 	"s3.delete":       operationAction("s3", "delete"),
 	"s3.download":     operationAction("s3", "download"),
@@ -63,6 +65,7 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"sftp.download":   directionAction("sftp", "download"),
 	"sftp.upload":     directionAction("sftp", "upload"),
 	"sqlite.query":    commandAction("sqlite", "query"),
+	"sqlite.import":   importAction("sqlite"),
 	"ssh.run":         commandAction("ssh", "command"),
 	"template.render": normalizeTemplateAction,
 }
@@ -290,6 +293,38 @@ func commandAction(executorType, field string) actionNormalizer {
 	}
 }
 
+func normalizeHarnessRunAction(normalized map[string]any, with map[string]any) error {
+	if err := normalizeCommandAction(normalized, "harness", with, "prompt"); err != nil {
+		return err
+	}
+	cfg, _ := normalized["with"].(map[string]any)
+	if stdin, ok := cfg["stdin"]; ok {
+		text, ok := stdin.(string)
+		if !ok {
+			return core.NewValidationError("with.stdin", stdin, fmt.Errorf("with.stdin must be a string"))
+		}
+		normalized["script"] = text
+		delete(cfg, "stdin")
+		if len(cfg) == 0 {
+			delete(normalized, "with")
+		}
+	}
+	return nil
+}
+
+func normalizeImportAction(normalized map[string]any, executorType string, with map[string]any) error {
+	if _, err := requireActionField(with, "import"); err != nil {
+		return err
+	}
+	return finishAction(normalized, executorType, with)
+}
+
+func importAction(executorType string) actionNormalizer {
+	return func(normalized map[string]any, with map[string]any) error {
+		return normalizeImportAction(normalized, executorType, with)
+	}
+}
+
 func normalizeDirectionAction(normalized map[string]any, executorType string, with map[string]any, direction string) error {
 	if with == nil {
 		with = map[string]any{}
@@ -326,6 +361,40 @@ func normalizeTemplateAction(normalized map[string]any, with map[string]any) err
 	delete(with, "template")
 	normalized["script"] = template
 	return finishAction(normalized, "template", with)
+}
+
+func normalizeJQFilterAction(normalized map[string]any, with map[string]any) error {
+	filter, err := requireActionField(with, "filter")
+	if err != nil {
+		return err
+	}
+	delete(with, "filter")
+	normalized["command"] = cloneAny(filter)
+	if data, ok := with["data"]; ok {
+		script, err := stringifyActionData(data)
+		if err != nil {
+			return core.NewValidationError("with.data", data, err)
+		}
+		normalized["script"] = script
+		delete(with, "data")
+	}
+	return finishAction(normalized, "jq", with)
+}
+
+func stringifyActionData(data any) (string, error) {
+	switch val := data.(type) {
+	case string:
+		if strings.TrimSpace(val) == "" {
+			return "", fmt.Errorf("with.data must not be empty")
+		}
+		return val, nil
+	default:
+		encoded, err := json.Marshal(val)
+		if err != nil {
+			return "", fmt.Errorf("with.data must be JSON-serializable: %w", err)
+		}
+		return string(encoded), nil
+	}
 }
 
 func normalizeLogAction(normalized map[string]any, with map[string]any) error {
