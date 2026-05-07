@@ -13,7 +13,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/llm"
+	workspacepkg "github.com/dagucloud/dagu/internal/workspace"
 	"github.com/google/uuid"
 )
 
@@ -55,6 +57,11 @@ type SessionManager struct {
 	thinkingEffort        llm.ThinkingEffort
 	totalCost             float64
 	memoryStore           MemoryStore
+	docStore              DocStore
+	workspaceStore        workspacepkg.Store
+	dagStore              exec.DAGStore
+	dagRunStore           exec.DAGRunStore
+	dagRunWatcher         DAGRunWatcher
 	dagName               string
 	sessionStore          SessionStore
 	parentSessionID       string
@@ -100,8 +107,16 @@ type SessionManagerConfig struct {
 	OutputCostPer1M float64
 	ThinkingEffort  llm.ThinkingEffort
 	MemoryStore     MemoryStore
-	DAGName         string
-	SessionStore    SessionStore
+	DocStore        DocStore
+	WorkspaceStore  workspacepkg.Store
+	// DAGStore provides DAG metadata and definitions for DAG management tools.
+	DAGStore exec.DAGStore
+	// DAGRunStore provides DAG run history for dag_run_manage.
+	DAGRunStore exec.DAGRunStore
+	// DAGRunWatcher provides session-local run watches for dag_run_manage.
+	DAGRunWatcher DAGRunWatcher
+	DAGName       string
+	SessionStore  SessionStore
 	// ParentSessionID links this session to its parent (non-empty = sub-session).
 	ParentSessionID string
 	// DelegateTask is the task description given to the sub-agent.
@@ -191,6 +206,11 @@ func NewSessionManager(cfg SessionManagerConfig) *SessionManager {
 		thinkingEffort:        cfg.ThinkingEffort,
 		totalCost:             totalCost,
 		memoryStore:           cfg.MemoryStore,
+		docStore:              cfg.DocStore,
+		workspaceStore:        cfg.WorkspaceStore,
+		dagStore:              cfg.DAGStore,
+		dagRunStore:           cfg.DAGRunStore,
+		dagRunWatcher:         cfg.DAGRunWatcher,
 		dagName:               cfg.DAGName,
 		sessionStore:          cfg.SessionStore,
 		parentSessionID:       cfg.ParentSessionID,
@@ -594,6 +614,31 @@ func (sm *SessionManager) enqueueImmediateUserMessage(ctx context.Context, conte
 	return nil
 }
 
+func (sm *SessionManager) enqueueInternalUserMessage(provider llm.Provider, modelID string, resolvedModel string, content string) error {
+	if provider == nil {
+		return errors.New("LLM provider is required")
+	}
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return errors.New("message is required")
+	}
+	if err := sm.ensureLoop(provider, modelID, resolvedModel); err != nil {
+		return err
+	}
+
+	llmMsg := llm.Message{Role: llm.RoleUser, Content: content}
+	sm.mu.Lock()
+	sm.bumpLastActivityLocked(time.Now())
+	loop := sm.loop
+	sm.mu.Unlock()
+	if loop == nil {
+		return errors.New("session loop not initialized")
+	}
+	sm.SetWorking(true)
+	loop.QueueUserMessage(llmMsg)
+	return nil
+}
+
 // EnqueueChatMessage accepts bot text for a session. When the agent is already
 // working, the text is merged into a single queued follow-up and marked as a
 // safe-boundary interrupt instead of immediately entering LLM history.
@@ -820,6 +865,11 @@ func (sm *SessionManager) createLoop(provider llm.Provider, model string, histor
 		History:  history,
 		Tools: CreateTools(ToolConfig{
 			DAGsDir:               sm.environment.DAGsDir,
+			DAGStore:              sm.dagStore,
+			DAGRunStore:           sm.dagRunStore,
+			DAGRunWatcher:         sm.dagRunWatcher,
+			DocStore:              sm.docStore,
+			WorkspaceStore:        sm.workspaceStore,
 			RemoteContextResolver: sm.remoteContextResolver,
 		}),
 		RecordMessage: sm.createRecordMessageFunc(),

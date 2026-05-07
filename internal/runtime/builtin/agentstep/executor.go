@@ -309,6 +309,12 @@ func buildTools(ctx context.Context, dagCtx exec.Context, stepCfg *core.AgentSte
 			allTools["list_contexts"] = t
 		}
 	}
+	if dagStore := agent.GetDAGStore(ctx); dagStore != nil {
+		allTools["dag_def_manage"] = agent.NewDAGDefManageTool(dagStore)
+	}
+	if dagRunStore := agent.GetDAGRunStore(ctx); dagRunStore != nil {
+		allTools["dag_run_manage"] = agent.NewDAGRunManageTool(dagRunStore)
+	}
 
 	// Remove tools disabled by global policy (output is step-only, always kept).
 	for name := range allTools {

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -227,6 +229,72 @@ steps:
 		latestStatus, err := latestAttempt.ReadStatus(th.Context)
 		require.NoError(t, err)
 		require.Equal(t, core.Succeeded, latestStatus.Status)
+	})
+
+	t.Run("StepRetryPreservesExplicitWorkingDir", func(t *testing.T) {
+		t.Parallel()
+
+		th := test.SetupCommand(t)
+		workDir := t.TempDir()
+		shell := test.ForOS("sh", "powershell")
+		command := test.ForOS(`      pwd > observed.txt
+      if [ ! -f marker ]; then
+        touch marker
+        exit 1
+      fi
+      echo retry ok`, `      (Get-Location).Path | Set-Content -Path observed.txt -NoNewline
+      if (-not (Test-Path marker)) {
+        New-Item -ItemType File marker | Out-Null
+        exit 1
+      }
+      Write-Output "retry ok"`)
+
+		dagFile := th.DAG(t, fmt.Sprintf(`name: retry-working-dir
+working_dir: %q
+steps:
+  - name: target
+    shell: %s
+    command: |
+%s
+`, workDir, shell, command))
+
+		runID := "retry-working-dir-run"
+		err := th.RunCommandWithError(t, cmd.Start(), test.CmdTest{
+			Args: []string{"start", "--run-id", runID, dagFile.Location},
+		})
+		require.Error(t, err)
+
+		failedAttempt, err := th.DAGRunStore.FindAttempt(th.Context, exec.NewDAGRunRef(dagFile.Name, runID))
+		require.NoError(t, err)
+		failedStatus, err := failedAttempt.ReadStatus(th.Context)
+		require.NoError(t, err)
+		require.Equal(t, filepath.Clean(workDir), filepath.Clean(failedStatus.WorkingDir))
+		require.Len(t, failedStatus.Nodes, 1)
+		require.Equal(t, filepath.Clean(workDir), filepath.Clean(failedStatus.Nodes[0].WorkingDir))
+
+		th.RunCommand(t, cmd.Retry(), test.CmdTest{
+			Args: []string{"retry", "--run-id", runID, "--step", "target", dagFile.Name},
+		})
+
+		latestAttempt, err := th.DAGRunStore.FindAttempt(th.Context, exec.NewDAGRunRef(dagFile.Name, runID))
+		require.NoError(t, err)
+		latestStatus, err := latestAttempt.ReadStatus(th.Context)
+		require.NoError(t, err)
+		require.Equal(t, core.Succeeded, latestStatus.Status)
+
+		observed, err := os.ReadFile(filepath.Join(workDir, "observed.txt"))
+		require.NoError(t, err)
+		expectedDir := filepath.Clean(workDir)
+		observedDir := filepath.Clean(strings.TrimSpace(string(observed)))
+		if runtime.GOOS == "windows" {
+			expectedInfo, err := os.Stat(expectedDir)
+			require.NoError(t, err)
+			observedInfo, err := os.Stat(observedDir)
+			require.NoError(t, err)
+			require.True(t, os.SameFile(expectedInfo, observedInfo), "expected %q, got %q", expectedDir, observedDir)
+		} else {
+			require.Equal(t, expectedDir, observedDir)
+		}
 	})
 
 	t.Run("QueuedCatchupRetryRestoresEnvSecretsFromPersistedFullDAG", func(t *testing.T) {

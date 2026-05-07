@@ -9,11 +9,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/spec"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/harness"
@@ -342,6 +344,12 @@ schedule: "1"`,
 
 func TestBuildEnv(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
+	if runtime.GOOS == "windows" {
+		ctx = config.WithConfig(ctx, &config.Config{
+			Core: config.Core{DefaultShell: "cmd"},
+		})
+	}
 
 	type testCase struct {
 		name     string
@@ -398,7 +406,7 @@ steps:
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			dag, err := spec.LoadYAML(context.Background(), []byte(tc.yaml))
+			dag, err := spec.LoadYAML(ctx, []byte(tc.yaml))
 			require.NoError(t, err)
 			th := DAG{t: t, DAG: dag}
 			for key, val := range tc.expected {

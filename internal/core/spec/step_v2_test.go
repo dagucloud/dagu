@@ -244,6 +244,13 @@ actions:
       properties:
         text:
           type: string
+    output_schema:
+      type: object
+      additionalProperties: false
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
     template:
       action: http.request
       with:
@@ -265,6 +272,8 @@ steps:
 	assert.Equal(t, "hello", step.ExecutorConfig.Config["body"])
 	assert.Equal(t, "slack.notify", step.ExecutorConfig.Metadata["custom_type"])
 	assert.Equal(t, "Send Slack notification", step.Description)
+	require.NotNil(t, step.OutputSchema)
+	assert.Equal(t, "object", step.OutputSchema["type"])
 }
 
 func TestStepSchemaV2_CustomActionsFromBaseConfig(t *testing.T) {

@@ -39,6 +39,8 @@ type NodeState struct {
 	Stdout string
 	// Stderr is the log file path for the error log (stderr).
 	Stderr string
+	// WorkingDir is the effective working directory used for this node execution.
+	WorkingDir string
 	// StartedAt is the time when the node started.
 	StartedAt time.Time
 	// FinishedAt is the time when the node finished.
@@ -556,6 +558,14 @@ func (d *Data) SetExitCode(exitCode int) {
 	defer d.mu.Unlock()
 
 	d.inner.State.ExitCode = exitCode
+}
+
+// SetWorkingDir records the effective working directory for the node execution.
+func (d *Data) SetWorkingDir(workingDir string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.inner.State.WorkingDir = workingDir
 }
 
 func (d *Data) ClearState(s core.Step) {

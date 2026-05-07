@@ -5,6 +5,10 @@ package intg_test
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/internal/cmd"
@@ -102,4 +106,75 @@ steps:
 	// Verify that step2 and step3 were re-executed
 	require.Equal(t, core.NodeSucceeded.String(), retryStatus.Nodes[1].Status.String(), "step2 should have succeeded after retry")
 	require.Equal(t, core.NodeSucceeded.String(), retryStatus.Nodes[2].Status.String(), "step3 should have succeeded after retry")
+}
+
+func TestStepRetryReusesOriginalWorkingDir(t *testing.T) {
+	th := test.SetupCommand(t)
+
+	workDir := t.TempDir()
+	stepDir := filepath.Join(workDir, "child")
+	require.NoError(t, os.MkdirAll(stepDir, 0750))
+
+	shell := test.ForOS("sh", "powershell")
+	command := test.ForOS(`
+pwd >> observed.txt
+if [ ! -f marker ]; then
+  touch marker
+  exit 1
+fi
+echo retry ok >> observed.txt
+`, `
+(Get-Location).Path | Add-Content -Path observed.txt
+if (-not (Test-Path marker)) {
+  New-Item -ItemType File marker | Out-Null
+  exit 1
+}
+"retry ok" | Add-Content -Path observed.txt
+`)
+
+	th.CreateDAGFile(t, "retry_working_dir.yaml", fmt.Sprintf(`steps:
+  - name: target
+    working_dir: child
+    shell: %s
+    command: |
+%s
+`, shell, indentTestScript(command, 6)))
+
+	dagRunID := uuid.Must(uuid.NewV7()).String()
+	err := th.RunCommandWithError(t, cmd.Start(), test.CmdTest{
+		Args: []string{"start", "--run-id", dagRunID, "--default-working-dir", workDir, "retry_working_dir"},
+	})
+	require.Error(t, err)
+
+	ref := exec.NewDAGRunRef("retry_working_dir", dagRunID)
+	failedAttempt, err := th.DAGRunStore.FindAttempt(th.Context, ref)
+	require.NoError(t, err)
+	failedStatus, err := failedAttempt.ReadStatus(th.Context)
+	require.NoError(t, err)
+	require.Equal(t, canonicalTestPath(workDir), canonicalTestPath(failedStatus.WorkingDir))
+	require.Len(t, failedStatus.Nodes, 1)
+	require.Equal(t, canonicalTestPath(stepDir), canonicalTestPath(failedStatus.Nodes[0].WorkingDir))
+
+	th.RunCommand(t, cmd.Retry(), test.CmdTest{
+		Args: []string{"retry", "--run-id", dagRunID, "--step", "target", "retry_working_dir"},
+	})
+
+	retryAttempt, err := th.DAGRunStore.FindAttempt(th.Context, ref)
+	require.NoError(t, err)
+	retryStatus, err := retryAttempt.ReadStatus(th.Context)
+	require.NoError(t, err)
+	require.Equal(t, core.Succeeded, retryStatus.Status)
+
+	observed, err := os.ReadFile(filepath.Join(stepDir, "observed.txt"))
+	require.NoError(t, err)
+	observedOutput := string(observed)
+	observedWorkingDirCount := 0
+	expectedStepDir := canonicalTestPath(stepDir)
+	for line := range strings.SplitSeq(strings.ReplaceAll(observedOutput, "\r\n", "\n"), "\n") {
+		if canonicalTestPath(line) == expectedStepDir {
+			observedWorkingDirCount++
+		}
+	}
+	require.GreaterOrEqual(t, observedWorkingDirCount, 2, "step should run from the original step working directory before and during retry")
+	require.Contains(t, observedOutput, "retry ok")
 }

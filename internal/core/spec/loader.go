@@ -247,6 +247,7 @@ func LoadYAMLWithOpts(ctx context.Context, data []byte, opts BuildOpts) (*core.D
 	}
 
 	mainDAG.YamlData = data
+	markConfiguredWorkingDirsExplicit(mainDAG)
 
 	return mainDAG, nil
 }
@@ -376,10 +377,14 @@ func attachLocalDAGs(mainDAG *core.DAG, localDAGs []*core.DAG) error {
 	return nil
 }
 
-// applyWorkingDirFallback sets a working directory when the manifest omits one.
+// applyWorkingDirFallback marks configured working directories as explicit,
+// then synthesizes a fallback from filePath or the process working directory
+// when the manifest omits one, returning an error if the process working
+// directory cannot be determined.
 func applyWorkingDirFallback(dag *core.DAG, filePath string) error {
+	markConfiguredWorkingDirsExplicit(dag)
+
 	if dag.WorkingDir != "" {
-		dag.WorkingDirExplicit = true
 		return nil
 	}
 
@@ -394,6 +399,20 @@ func applyWorkingDirFallback(dag *core.DAG, filePath string) error {
 	}
 	dag.WorkingDir = wd
 	return nil
+}
+
+// markConfiguredWorkingDirsExplicit preserves configured working directories
+// without synthesizing fallback values for YAML-only loads.
+func markConfiguredWorkingDirsExplicit(dag *core.DAG) {
+	if dag == nil {
+		return
+	}
+	if dag.WorkingDir != "" {
+		dag.WorkingDirExplicit = true
+	}
+	for _, localDAG := range dag.LocalDAGs {
+		markConfiguredWorkingDirsExplicit(localDAG)
+	}
 }
 
 // loadDAGsFromFile loads all DAGs from a multi-document YAML file.

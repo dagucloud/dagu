@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/stretchr/testify/assert"
@@ -171,6 +172,12 @@ params:
 
 func TestInlineParamDefs_EvalResolvesDuringNormalBuild(t *testing.T) {
 	t.Setenv("WORK_DIR", "/tmp/work")
+	ctx := context.Background()
+	if runtime.GOOS == "windows" {
+		ctx = config.WithConfig(ctx, &config.Config{
+			Core: config.Core{DefaultShell: "cmd"},
+		})
+	}
 
 	yaml := []byte(`
 name: eval-params
@@ -181,10 +188,10 @@ params:
     eval: "$base_dir/output"
   - name: parallelism
     type: integer
-    eval: "` + "`printf 7`" + `"
+    eval: "` + "`echo 7`" + `"
 `)
 
-	dag, err := LoadYAML(context.Background(), yaml)
+	dag, err := LoadYAML(ctx, yaml)
 	require.NoError(t, err)
 	assert.Equal(t, []string{
 		"base_dir=/tmp/work/pipeline",

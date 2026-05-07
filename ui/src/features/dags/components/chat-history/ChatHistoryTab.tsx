@@ -1,7 +1,10 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import { components, NodeStatus } from '@/api/v1/schema';
 import { isActiveNodeStatus } from '@/lib/status-utils';
 import { Loader2 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { StepMessagesTable } from './StepMessagesTable';
 
 type DAGRunDetails = components['schemas']['DAGRunDetails'];
@@ -11,23 +14,25 @@ interface ChatHistoryTabProps {
 }
 
 export function ChatHistoryTab({ dagRun }: ChatHistoryTabProps) {
-  // Find all chat steps (steps with type: 'chat' in executorConfig)
-  const chatSteps = useMemo(() => {
+  // Find all LLM-backed steps that persist message history.
+  const historySteps = useMemo(() => {
     return (
       dagRun.nodes?.filter(
-        (node) => node.step.executorConfig?.type === 'chat'
+        (node) =>
+          node.step.executorConfig?.type === 'chat' ||
+          node.step.executorConfig?.type === 'agent'
       ) || []
     );
   }, [dagRun.nodes]);
 
-  // Determine default selected step: last finished chat step
+  // Determine default selected step: last finished chat/agent step
   const defaultStep = useMemo(() => {
     const finishedStatuses = [
       NodeStatus.Success,
       NodeStatus.Failed,
       NodeStatus.Aborted,
     ];
-    const finishedSteps = chatSteps.filter((n) =>
+    const finishedSteps = historySteps.filter((n) =>
       finishedStatuses.includes(n.status as NodeStatus)
     );
 
@@ -36,23 +41,44 @@ export function ChatHistoryTab({ dagRun }: ChatHistoryTabProps) {
       return finishedSteps[finishedSteps.length - 1]?.step.name;
     }
 
-    // Fallback to first chat step if none finished
-    return chatSteps[0]?.step.name;
-  }, [chatSteps]);
+    // Fallback to first history step if none finished
+    return historySteps[0]?.step.name;
+  }, [historySteps]);
 
   const [selectedStep, setSelectedStep] = useState<string | undefined>(
     defaultStep
   );
+  const [userSelectedStep, setUserSelectedStep] = useState(false);
+  const previousRunId = useRef(dagRun.dagRunId);
 
   // Update selectedStep when defaultStep changes (e.g., when nodes arrive or runs switch)
   useEffect(() => {
-    if (defaultStep) {
+    if (previousRunId.current !== dagRun.dagRunId) {
+      previousRunId.current = dagRun.dagRunId;
+      setUserSelectedStep(false);
+      setSelectedStep(defaultStep);
+      return;
+    }
+    if (defaultStep && !userSelectedStep) {
       setSelectedStep(defaultStep);
     }
-  }, [defaultStep]);
+  }, [dagRun.dagRunId, defaultStep, userSelectedStep]);
+
+  const selectedStepExists = useMemo(() => {
+    return historySteps.some((n) => n.step.name === selectedStep);
+  }, [historySteps, selectedStep]);
+
+  useEffect(() => {
+    if (selectedStep && !selectedStepExists) {
+      setUserSelectedStep(false);
+      setSelectedStep(defaultStep);
+    }
+  }, [defaultStep, selectedStep, selectedStepExists]);
+
+  const resolvedStep = selectedStepExists ? selectedStep : defaultStep;
 
   // Get selected node info
-  const selectedNode = chatSteps.find((n) => n.step.name === selectedStep);
+  const selectedNode = historySteps.find((n) => n.step.name === resolvedStep);
   const isSelectedActive = isActiveNodeStatus(selectedNode?.status);
 
   // Determine if this is a sub-DAG run
@@ -61,10 +87,10 @@ export function ChatHistoryTab({ dagRun }: ChatHistoryTabProps) {
     dagRun.rootDAGRunName &&
     dagRun.rootDAGRunId !== dagRun.dagRunId;
 
-  if (chatSteps.length === 0) {
+  if (historySteps.length === 0) {
     return (
       <div className="text-xs text-muted-foreground p-2">
-        No chat steps in this DAG run
+        No chat or agent steps in this DAG run
       </div>
     );
   }
@@ -78,11 +104,14 @@ export function ChatHistoryTab({ dagRun }: ChatHistoryTabProps) {
         </label>
         <select
           id="chat-step-select"
-          value={selectedStep || ''}
-          onChange={(e) => setSelectedStep(e.target.value)}
+          value={resolvedStep || ''}
+          onChange={(e) => {
+            setUserSelectedStep(true);
+            setSelectedStep(e.target.value);
+          }}
           className="h-6 px-2 text-xs border rounded bg-card focus:outline-none"
         >
-          {chatSteps.map((node) => (
+          {historySteps.map((node) => (
             <option key={node.step.name} value={node.step.name}>
               {node.step.name} ({node.statusLabel})
             </option>
@@ -94,11 +123,11 @@ export function ChatHistoryTab({ dagRun }: ChatHistoryTabProps) {
       </div>
 
       {/* Messages table - only for selected step */}
-      {selectedStep && (
+      {resolvedStep && (
         <StepMessagesTable
           dagName={dagRun.name}
           dagRunId={dagRun.dagRunId}
-          stepName={selectedStep}
+          stepName={resolvedStep}
           isActive={isSelectedActive}
           subDAGRunId={isSubDAGRun ? dagRun.dagRunId : undefined}
           rootDagName={isSubDAGRun ? dagRun.rootDAGRunName : undefined}

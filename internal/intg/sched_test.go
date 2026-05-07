@@ -65,11 +65,10 @@ steps:
 	})
 
 	clockBase := time.Date(2026, 1, 1, 0, 0, 59, 0, time.UTC)
-	clockStart := time.Now()
-	// Start close to the next minute boundary so the second cron tick lands
-	// almost immediately while still exercising the real scheduler dispatch path.
+	// Keep the simulated clock stable so scheduler startup latency cannot skip
+	// the initial tick. The cron loop advances its tick cursor independently.
 	schedulerInstance.SetClock(func() time.Time {
-		return clockBase.Add(time.Since(clockStart))
+		return clockBase
 	})
 
 	ctx, cancel := context.WithCancel(th.Context)
@@ -103,7 +102,7 @@ steps:
 			return true
 		}
 		return dispatchCount.Load() >= 2
-	}, cronScheduleRunsTwiceTimeout(), 5*time.Second)
+	}, cronScheduleRunsTwiceTimeout(), 50*time.Millisecond)
 	require.NoError(t, schedulerErr)
 
 	schedulerInstance.Stop(ctx)

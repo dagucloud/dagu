@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/llm"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
+	workspacepkg "github.com/dagucloud/dagu/internal/workspace"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -67,14 +68,16 @@ func getAuthenticatedUserIDFromContext(ctx context.Context) (string, bool) {
 
 func userIdentityFromContext(ctx context.Context) UserIdentity {
 	user := UserIdentity{
-		UserID:   defaultUserID,
-		Username: defaultUserID,
-		Role:     defaultUserRole,
+		UserID:          defaultUserID,
+		Username:        defaultUserID,
+		Role:            defaultUserRole,
+		WorkspaceAccess: auth.AllWorkspaceAccess(),
 	}
 	if authUser, ok := auth.UserFromContext(ctx); ok && authUser != nil {
 		user.UserID = authUser.ID
 		user.Username = authUser.Username
 		user.Role = authUser.Role
+		user.WorkspaceAccess = auth.CloneWorkspaceAccess(authUser.WorkspaceAccess)
 	}
 	user.IPAddress, _ = auth.ClientIPFromContext(ctx)
 	return user
@@ -91,10 +94,14 @@ type API struct {
 	providers             *ProviderCache
 	workingDir            string
 	logger                *slog.Logger
-	dagStore              DAGMetadataStore // For resolving DAG file paths
+	dagStore              exec.DAGStore    // For resolving DAG file paths and dag_def_manage
+	dagRunStore           exec.DAGRunStore // For dag_run_manage
+	dagRunWatcher         DAGRunWatcher    // For dag_run_manage watch actions
 	environment           EnvironmentInfo
 	hooks                 *Hooks
 	memoryStore           MemoryStore
+	docStore              DocStore
+	workspaceStore        workspacepkg.Store
 	soulStore             SoulStore
 	remoteContextResolver RemoteContextResolver
 	oauthManager          *agentoauth.Manager
@@ -109,10 +116,14 @@ type APIConfig struct {
 	WorkingDir            string
 	Logger                *slog.Logger
 	SessionStore          SessionStore
-	DAGStore              DAGMetadataStore // For resolving DAG file paths
+	DAGStore              exec.DAGStore    // For resolving DAG file paths and dag_def_manage
+	DAGRunStore           exec.DAGRunStore // For dag_run_manage
+	DAGRunWatcher         DAGRunWatcher    // Optional override for dag_run_manage watch actions
 	Environment           EnvironmentInfo
 	Hooks                 *Hooks
 	MemoryStore           MemoryStore
+	DocStore              DocStore
+	WorkspaceStore        workspacepkg.Store
 	RemoteContextResolver RemoteContextResolver
 	OAuthManager          *agentoauth.Manager
 	EventService          *eventstore.Service
@@ -147,8 +158,7 @@ func NewAPI(cfg APIConfig) *API {
 	if logger == nil {
 		logger = slog.Default()
 	}
-
-	return &API{
+	api := &API{
 		configStore:           cfg.ConfigStore,
 		modelStore:            cfg.ModelStore,
 		soulStore:             cfg.SoulStore,
@@ -157,13 +167,21 @@ func NewAPI(cfg APIConfig) *API {
 		logger:                logger,
 		store:                 cfg.SessionStore,
 		dagStore:              cfg.DAGStore,
+		dagRunStore:           cfg.DAGRunStore,
+		dagRunWatcher:         cfg.DAGRunWatcher,
 		environment:           cfg.Environment,
 		hooks:                 cfg.Hooks,
 		memoryStore:           cfg.MemoryStore,
+		docStore:              cfg.DocStore,
+		workspaceStore:        cfg.WorkspaceStore,
 		remoteContextResolver: cfg.RemoteContextResolver,
 		oauthManager:          cfg.OAuthManager,
 		eventService:          cfg.EventService,
 	}
+	if api.dagRunWatcher == nil && api.dagRunStore != nil {
+		api.dagRunWatcher = newDAGRunWatchRegistry(api.dagRunStore, api.notifyDAGRunWatch, api.logger)
+	}
+	return api
 }
 
 // RegisterRoutes registers the agent SSE stream route on the given router.
@@ -561,6 +579,11 @@ func (a *API) buildSessionManagerConfig(id string, user UserIdentity, cfg sessio
 		InputCostPer1M:        cfg.inputCostPer1M,
 		OutputCostPer1M:       cfg.outputCostPer1M,
 		MemoryStore:           a.memoryStore,
+		DocStore:              a.docStore,
+		WorkspaceStore:        a.workspaceStore,
+		DAGStore:              a.dagStore,
+		DAGRunStore:           a.dagRunStore,
+		DAGRunWatcher:         a.dagRunWatcher,
 		DAGName:               cfg.dagName,
 		SessionStore:          a.store,
 		Soul:                  cfg.soul,
@@ -1135,6 +1158,7 @@ func (a *API) CreateSession(ctx context.Context, user UserIdentity, req ChatRequ
 	if err := mgr.AcceptUserMessage(ctx, provider, model, modelCfg.Model, messageWithContext); err != nil {
 		a.logger.Error("Failed to accept user message", "error", err)
 		a.sessions.Delete(id)
+		a.clearDAGRunWatchesForSession(id)
 		return "", "", ErrFailedToProcessMessage
 	}
 
@@ -1279,6 +1303,7 @@ func (a *API) CompactSessionIfNeeded(ctx context.Context, sessionID string, user
 		},
 	}); err != nil {
 		a.sessions.Delete(newID)
+		a.clearDAGRunWatchesForSession(newID)
 		return "", false, err
 	}
 
@@ -1294,6 +1319,7 @@ func (a *API) CompactSessionIfNeeded(ctx context.Context, sessionID string, user
 	}
 	if err := a.ensureSessionLoop(newMgr, provider, runtimeCfg); err != nil {
 		a.sessions.Delete(newID)
+		a.clearDAGRunWatchesForSession(newID)
 		if a.store != nil {
 			if delErr := a.store.DeleteSession(ctx, newID); delErr != nil && !errors.Is(delErr, ErrSessionNotFound) {
 				a.logger.Warn("Failed to roll back compacted session after loop init error", "session_id", newID, "error", delErr)
@@ -1304,6 +1330,7 @@ func (a *API) CompactSessionIfNeeded(ctx context.Context, sessionID string, user
 
 	_ = mgr.Cancel(ctx)
 	a.sessions.Delete(sessionID)
+	a.clearDAGRunWatchesForSession(sessionID)
 
 	return newID, true, nil
 }
@@ -1343,6 +1370,23 @@ func (a *API) prepareSessionRuntime(ctx context.Context, mgr *SessionManager, us
 	}
 
 	mgr.SetSafeMode(req.SafeMode)
+	mgr.UpdatePricing(modelCfg.InputCostPer1M, modelCfg.OutputCostPer1M)
+	mgr.UpdateThinkingEffort(modelThinkingEffort(modelCfg))
+	mgr.UpdateLoopProvider(provider, modelCfg.Model)
+	a.persistSessionModel(ctx, mgr, model)
+	return provider, model, modelCfg.Model, nil
+}
+
+func (a *API) prepareInternalSessionRuntime(ctx context.Context, mgr *SessionManager, user UserIdentity) (llm.Provider, string, string, error) {
+	mgr.UpdateUserContext(user)
+
+	model := selectModel("", mgr.GetModel(), a.getDefaultModelID(ctx))
+	provider, modelCfg, err := a.resolveProvider(ctx, model)
+	if err != nil {
+		a.logger.Error("Failed to get LLM provider", "error", err)
+		return nil, "", "", ErrAgentNotConfigured
+	}
+
 	mgr.UpdatePricing(modelCfg.InputCostPer1M, modelCfg.OutputCostPer1M)
 	mgr.UpdateThinkingEffort(modelThinkingEffort(modelCfg))
 	mgr.UpdateLoopProvider(provider, modelCfg.Model)
@@ -1456,6 +1500,23 @@ func (a *API) FlushQueuedChatMessage(ctx context.Context, sessionID string, user
 	}
 	targetMgr.CompleteQueuedChatFlush()
 	return ChatQueueResult{SessionID: targetSessionID, Rotated: rotated, Started: true}, nil
+}
+
+func (a *API) enqueueInternalAgentMessage(ctx context.Context, sessionID string, user UserIdentity, content string) error {
+	mgr, ok := a.getOrReactivateSession(ctx, sessionID, user)
+	if !ok {
+		return ErrSessionNotFound
+	}
+
+	provider, model, resolvedModel, err := a.prepareInternalSessionRuntime(ctx, mgr, user)
+	if err != nil {
+		return err
+	}
+	if err := mgr.enqueueInternalUserMessage(provider, model, resolvedModel, content); err != nil {
+		a.logger.Error("Failed to enqueue internal agent message", "error", err)
+		return ErrFailedToProcessMessage
+	}
+	return nil
 }
 
 // isValidUUID checks if a string is a valid UUID.
@@ -1619,6 +1680,7 @@ func (a *API) CancelSession(ctx context.Context, sessionID, userID string) error
 		a.logger.Error("Failed to cancel session", "error", err)
 		return ErrFailedToCancel
 	}
+	a.clearDAGRunWatchesForSession(sessionID)
 
 	return nil
 }
@@ -1723,6 +1785,7 @@ func (a *API) cleanupIdleSessions() {
 				a.logger.Warn("Failed to cancel stuck session", "session_id", id, "error", err)
 			} else {
 				a.logger.Warn("Cancelled stuck session", "session_id", id)
+				a.clearDAGRunWatchesForSession(id)
 			}
 		}
 		// Cancelled sessions remain in the map until the next cleanup cycle
@@ -1740,7 +1803,19 @@ func (a *API) cleanupIdleSessions() {
 			}
 		}
 		a.sessions.Delete(id)
+		a.clearDAGRunWatchesForSession(id)
 		a.logger.Debug("Cleaned up idle session", "session_id", id)
+	}
+}
+
+func (a *API) clearDAGRunWatchesForSession(sessionID string) {
+	cleaner, ok := a.dagRunWatcher.(DAGRunWatchCleaner)
+	if !ok {
+		return
+	}
+	removed := cleaner.ClearSession(sessionID)
+	if removed > 0 {
+		a.logger.Debug("Cleared DAG run watches for session", "session_id", sessionID, "count", removed)
 	}
 }
 

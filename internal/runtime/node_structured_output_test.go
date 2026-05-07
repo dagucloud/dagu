@@ -5,6 +5,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -318,7 +319,7 @@ func TestNodeResolveStructuredOutputEntry(t *testing.T) {
 				tt.prepare(t, workDir, node)
 			}
 
-			got, err := node.resolveStructuredOutputEntry(ctx, "result", tt.entry)
+			got, err := node.resolveStructuredOutputEntry(ctx, "result", tt.entry, "", false)
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)
@@ -396,6 +397,155 @@ func TestNodeEvaluateStructuredLiteral(t *testing.T) {
 	}
 }
 
+func TestNodeCaptureOutputSchema(t *testing.T) {
+	t.Parallel()
+
+	validSchema := map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"required":             []any{"category", "confidence"},
+		"properties": map[string]any{
+			"category": map[string]any{"type": "string"},
+			"confidence": map[string]any{
+				"type":    "number",
+				"minimum": float64(0),
+				"maximum": float64(1),
+			},
+		},
+	}
+
+	t.Run("PublishesValidatedStdoutWhenNoOutputMapping", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		ctx := structuredOutputTestContext(t, nil, workDir)
+		node := NodeWithData(NodeData{
+			Step: core.Step{OutputSchema: validSchema},
+		})
+		node.outputs.outputCaptured = true
+		node.outputs.outputData = `{"category":"bug","confidence":0.9}`
+
+		require.NoError(t, node.captureOutput(ctx))
+		state := node.State()
+		require.NotNil(t, state.OutputValue)
+		assert.JSONEq(t, `{"category":"bug","confidence":0.9}`, *state.OutputValue)
+	})
+
+	t.Run("InvalidJSONFails", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		ctx := structuredOutputTestContext(t, nil, workDir)
+		node := NodeWithData(NodeData{
+			Step: core.Step{OutputSchema: validSchema},
+		})
+		node.outputs.outputCaptured = true
+		node.outputs.outputData = `not-json secret-value`
+
+		err := node.captureOutput(ctx)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to decode stdout JSON for output_schema")
+		assert.NotContains(t, err.Error(), "secret-value")
+	})
+
+	t.Run("EmptyStdoutFailsWithContractError", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		ctx := structuredOutputTestContext(t, nil, workDir)
+		node := NodeWithData(NodeData{
+			Step: core.Step{OutputSchema: validSchema},
+		})
+		node.outputs.outputCaptured = true
+		node.outputs.outputData = "  \n\t  "
+
+		err := node.captureOutput(ctx)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "output_schema requires stdout to contain a JSON value matching the schema")
+	})
+
+	t.Run("SchemaMismatchFails", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		ctx := structuredOutputTestContext(t, nil, workDir)
+		node := NodeWithData(NodeData{
+			Step: core.Step{OutputSchema: validSchema},
+		})
+		node.outputs.outputCaptured = true
+		node.outputs.outputData = `{"category":"leak-sentinel-bug","confidence":2}`
+
+		err := node.captureOutput(ctx)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "stdout JSON does not match output_schema")
+		assert.NotContains(t, err.Error(), "leak-sentinel-bug")
+	})
+
+	t.Run("PreservesExecutionErrorOverSchemaError", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		ctx := structuredOutputTestContext(t, nil, workDir)
+		node := NodeWithData(NodeData{
+			Step: core.Step{OutputSchema: validSchema},
+		})
+		node.outputs.outputCaptured = true
+		node.outputs.outputData = `not-json`
+		execErr := errors.New("executor failed")
+		node.SetError(execErr)
+
+		require.NoError(t, node.captureOutput(ctx))
+		assert.ErrorIs(t, node.Error(), execErr)
+	})
+
+	t.Run("ValidatesBeforeExplicitOutputMapping", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		ctx := structuredOutputTestContext(t, nil, workDir)
+		node := NodeWithData(NodeData{
+			Step: core.Step{
+				OutputSchema: validSchema,
+				StructuredOutput: map[string]core.StepOutputEntry{
+					"category": {
+						From:   core.StepOutputSourceStdout,
+						Decode: core.StepOutputDecodeJSON,
+						Select: ".category",
+					},
+				},
+			},
+		})
+		node.outputs.outputCaptured = true
+		node.outputs.outputData = `{"category":"bug","confidence":0.9}`
+
+		require.NoError(t, node.captureOutput(ctx))
+		state := node.State()
+		require.NotNil(t, state.OutputValue)
+		assert.JSONEq(t, `{"category":"bug"}`, *state.OutputValue)
+	})
+
+	t.Run("LegacyOutputVariableDoesNotOverrideSchemaOutput", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		ctx := structuredOutputTestContext(t, nil, workDir)
+		node := NodeWithData(NodeData{
+			Step: core.Step{
+				Output:       "CLASSIFY_RAW",
+				OutputSchema: validSchema,
+			},
+		})
+		node.outputs.outputCaptured = true
+		node.outputs.outputData = `{"category":"bug","confidence":0.9}`
+
+		require.NoError(t, node.captureOutput(ctx))
+		state := node.State()
+		require.NotNil(t, state.OutputValue)
+		assert.JSONEq(t, `{"category":"bug","confidence":0.9}`, *state.OutputValue)
+		assert.Equal(t, `{"category":"bug","confidence":0.9}`, node.OutputVariablesMap()["CLASSIFY_RAW"])
+	})
+}
+
 func TestNodeEvaluateStructuredOutput(t *testing.T) {
 	t.Parallel()
 
@@ -422,7 +572,7 @@ func TestNodeEvaluateStructuredOutput(t *testing.T) {
 			},
 		})
 
-		got, err := node.evaluateStructuredOutput(ctx)
+		got, err := node.evaluateStructuredOutput(ctx, "", false)
 		require.NoError(t, err)
 		assert.JSONEq(t, `{"version":"v1.2.3","meta":{"channel":"stable","approved":true}}`, got)
 	})
@@ -446,7 +596,7 @@ func TestNodeEvaluateStructuredOutput(t *testing.T) {
 			},
 		})
 
-		_, err := node.evaluateStructuredOutput(ctx)
+		_, err := node.evaluateStructuredOutput(ctx, "", false)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "output exceeded maximum size limit")
 	})
@@ -466,7 +616,7 @@ func TestNodeEvaluateStructuredOutput(t *testing.T) {
 			},
 		})
 
-		_, err := node.evaluateStructuredOutput(ctx)
+		_, err := node.evaluateStructuredOutput(ctx, "", false)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), `payload: unsupported output source "network"`)
 	})
