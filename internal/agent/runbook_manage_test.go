@@ -30,6 +30,7 @@ type mockRunbookDocStore struct {
 	updateErr              error
 	searchErr              error
 	ignoreExcludePathRoots bool
+	listContextNil         bool
 }
 
 func newMockRunbookDocStore() *mockRunbookDocStore {
@@ -40,7 +41,8 @@ func (s *mockRunbookDocStore) List(context.Context, ListDocsOptions) (*exec.Pagi
 	return nil, nil
 }
 
-func (s *mockRunbookDocStore) ListFlat(_ context.Context, opts ListDocsOptions) (*exec.PaginatedResult[DocMetadata], error) {
+func (s *mockRunbookDocStore) ListFlat(ctx context.Context, opts ListDocsOptions) (*exec.PaginatedResult[DocMetadata], error) {
+	s.listContextNil = ctx == nil
 	if s.listErr != nil {
 		return nil, s.listErr
 	}
@@ -293,6 +295,16 @@ func TestRunbookManageTool_AvailabilityAndInputErrors(t *testing.T) {
 	out = tool.Run(ToolContext{Context: context.Background()}, runbookInput(t, map[string]any{"action": "bogus"}))
 	assert.True(t, out.IsError)
 	assert.Contains(t, out.Content, "Unknown action")
+}
+
+func TestRunbookManageTool_DefaultContextFallback(t *testing.T) {
+	t.Parallel()
+	store := newMockRunbookDocStore()
+	tool := NewRunbookManageTool(store)
+
+	out := tool.Run(ToolContext{}, runbookInput(t, map[string]any{"action": "list"}))
+	assert.False(t, out.IsError, out.Content)
+	assert.False(t, store.listContextNil)
 }
 
 func TestRunbookManageTool_ListAndSearchErrors(t *testing.T) {
