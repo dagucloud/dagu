@@ -3,7 +3,11 @@
 
 package agent
 
-import "slices"
+import (
+	"slices"
+
+	workspacepkg "github.com/dagucloud/dagu/internal/workspace"
+)
 
 // ToolRegistration contains metadata and a factory for a single tool.
 // Each tool registers itself via init() so the registry is the single source of truth.
@@ -24,6 +28,11 @@ type ToolRegistration struct {
 type ToolConfig struct {
 	// DAGsDir is the directory containing DAG definition files.
 	DAGsDir string
+	// DocStore provides access to Markdown docs/runbooks for runbook_manage.
+	// Nil means runbook_manage reports unavailable when called.
+	DocStore DocStore
+	// WorkspaceStore provides workspace names for workspace-scoped tools.
+	WorkspaceStore workspacepkg.Store
 	// RemoteContextResolver provides access to remote CLI contexts for remote_agent tools.
 	// Nil means remote context tools are not available.
 	RemoteContextResolver RemoteContextResolver
