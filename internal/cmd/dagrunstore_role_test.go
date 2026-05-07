@@ -19,6 +19,7 @@ func TestControlPlaneStoreRoleForCommand(t *testing.T) {
 	}{
 		{name: "server", want: controlplanestore.RoleServer},
 		{name: "start-all", want: controlplanestore.RoleServer},
+		{name: "coordinator", want: controlplanestore.RoleCoordinator},
 		{name: "scheduler", want: controlplanestore.RoleScheduler},
 		{name: "start", want: controlplanestore.RoleAgent},
 		{name: "restart", want: controlplanestore.RoleAgent},

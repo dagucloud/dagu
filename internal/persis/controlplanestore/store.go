@@ -62,6 +62,8 @@ const (
 	RoleServer Role = "server"
 	// RoleScheduler is used by the scheduler process.
 	RoleScheduler Role = "scheduler"
+	// RoleCoordinator is used by the coordinator process.
+	RoleCoordinator Role = "coordinator"
 	// RoleAgent is used by DAG execution processes.
 	RoleAgent Role = "agent"
 )
@@ -183,6 +185,8 @@ func postgresRoleConfig(cfg config.ControlPlaneStorePostgresConfig, role Role) (
 		return cfg.Server, nil
 	case RoleScheduler:
 		return cfg.Scheduler, nil
+	case RoleCoordinator:
+		return cfg.Coordinator, nil
 	case RoleAgent:
 		return cfg.Agent, nil
 	default:

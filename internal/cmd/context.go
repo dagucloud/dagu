@@ -602,6 +602,8 @@ func controlPlaneStoreRoleForCommand(cmd *cobra.Command) controlplanestore.Role 
 	switch cmd.Name() {
 	case "scheduler":
 		return controlplanestore.RoleScheduler
+	case "coordinator":
+		return controlplanestore.RoleCoordinator
 	case "start", "restart", "retry", "dry", "exec", "worker":
 		return controlplanestore.RoleAgent
 	default:

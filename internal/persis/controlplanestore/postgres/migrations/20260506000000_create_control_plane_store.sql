@@ -32,19 +32,6 @@ CREATE DOMAIN dagu_workspace_name AS text
         AND VALUE ~ '^[A-Za-z0-9_-]+$'
     );
 
-CREATE DOMAIN dagu_label_key AS text
-    CHECK (
-        VALUE <> ''
-        AND char_length(VALUE) <= 63
-        AND VALUE ~ '^[a-zA-Z0-9][a-zA-Z0-9_.-]*$'
-    );
-
-CREATE DOMAIN dagu_label_value AS text
-    CHECK (
-        char_length(VALUE) <= 255
-        AND (VALUE = '' OR VALUE ~ '^[a-zA-Z0-9][a-zA-Z0-9_./-]*$')
-    );
-
 CREATE DOMAIN dagu_status_code AS integer
     CHECK (VALUE BETWEEN 0 AND 8);
 
@@ -523,8 +510,6 @@ DROP DOMAIN IF EXISTS dagu_service_status;
 DROP DOMAIN IF EXISTS dagu_service_name;
 DROP DOMAIN IF EXISTS dagu_queue_priority;
 DROP DOMAIN IF EXISTS dagu_status_code;
-DROP DOMAIN IF EXISTS dagu_label_value;
-DROP DOMAIN IF EXISTS dagu_label_key;
 DROP DOMAIN IF EXISTS dagu_workspace_name;
 DROP DOMAIN IF EXISTS dagu_attempt_id;
 DROP DOMAIN IF EXISTS dagu_dag_run_id;

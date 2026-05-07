@@ -376,9 +376,10 @@ type ControlPlaneStoreDef struct {
 
 // ControlPlaneStorePostgresDef configures PostgreSQL control-plane persistence.
 type ControlPlaneStorePostgresDef struct {
-	Server    *ControlPlaneStorePostgresRoleDef  `mapstructure:"server"`
-	Scheduler *ControlPlaneStorePostgresRoleDef  `mapstructure:"scheduler"`
-	Agent     *ControlPlaneStorePostgresAgentDef `mapstructure:"agent"`
+	Server      *ControlPlaneStorePostgresRoleDef  `mapstructure:"server"`
+	Scheduler   *ControlPlaneStorePostgresRoleDef  `mapstructure:"scheduler"`
+	Coordinator *ControlPlaneStorePostgresRoleDef  `mapstructure:"coordinator"`
+	Agent       *ControlPlaneStorePostgresAgentDef `mapstructure:"agent"`
 }
 
 // ControlPlaneStorePostgresRoleDef configures PostgreSQL persistence for one Dagu process role.

@@ -265,6 +265,15 @@ func TestLoad_Env(t *testing.T) {
 						ConnMaxIdleTime: 60,
 					},
 				},
+				Coordinator: ControlPlaneStorePostgresRoleConfig{
+					AutoMigrate: true,
+					Pool: PostgresPoolConfig{
+						MaxOpenConns:    10,
+						MaxIdleConns:    2,
+						ConnMaxLifetime: 300,
+						ConnMaxIdleTime: 60,
+					},
+				},
 				Agent: ControlPlaneStorePostgresRoleConfig{
 					AutoMigrate: false,
 					Pool: PostgresPoolConfig{
@@ -445,6 +454,14 @@ func TestLoad_ControlPlaneStore(t *testing.T) {
 			ConnMaxLifetime: 300,
 			ConnMaxIdleTime: 60,
 		}, cfg.ControlPlaneStore.Postgres.Scheduler.Pool)
+		assert.Empty(t, cfg.ControlPlaneStore.Postgres.Coordinator.DSN)
+		assert.True(t, cfg.ControlPlaneStore.Postgres.Coordinator.AutoMigrate)
+		assert.Equal(t, PostgresPoolConfig{
+			MaxOpenConns:    10,
+			MaxIdleConns:    2,
+			ConnMaxLifetime: 300,
+			ConnMaxIdleTime: 60,
+		}, cfg.ControlPlaneStore.Postgres.Coordinator.Pool)
 		assert.Empty(t, cfg.ControlPlaneStore.Postgres.Agent.DSN)
 		assert.False(t, cfg.ControlPlaneStore.Postgres.Agent.AutoMigrate)
 		assert.False(t, cfg.ControlPlaneStore.Postgres.Agent.DirectAccess)
@@ -477,6 +494,14 @@ control_plane_store:
         max_idle_conns: 2
         conn_max_lifetime: 180
         conn_max_idle_time: 40
+    coordinator:
+      dsn: postgres://dagu:coordinator@localhost:5432/dagu_coordinator?sslmode=disable
+      auto_migrate: false
+      pool:
+        max_open_conns: 12
+        max_idle_conns: 3
+        conn_max_lifetime: 210
+        conn_max_idle_time: 45
     agent:
       dsn: postgres://dagu:agent@localhost:5432/dagu_agent?sslmode=disable
       auto_migrate: true
@@ -505,6 +530,14 @@ control_plane_store:
 			ConnMaxLifetime: 180,
 			ConnMaxIdleTime: 40,
 		}, cfg.ControlPlaneStore.Postgres.Scheduler.Pool)
+		assert.Equal(t, "postgres://dagu:coordinator@localhost:5432/dagu_coordinator?sslmode=disable", cfg.ControlPlaneStore.Postgres.Coordinator.DSN)
+		assert.False(t, cfg.ControlPlaneStore.Postgres.Coordinator.AutoMigrate)
+		assert.Equal(t, PostgresPoolConfig{
+			MaxOpenConns:    12,
+			MaxIdleConns:    3,
+			ConnMaxLifetime: 210,
+			ConnMaxIdleTime: 45,
+		}, cfg.ControlPlaneStore.Postgres.Coordinator.Pool)
 		assert.Equal(t, "postgres://dagu:agent@localhost:5432/dagu_agent?sslmode=disable", cfg.ControlPlaneStore.Postgres.Agent.DSN)
 		assert.True(t, cfg.ControlPlaneStore.Postgres.Agent.AutoMigrate)
 		assert.True(t, cfg.ControlPlaneStore.Postgres.Agent.DirectAccess)
@@ -518,19 +551,22 @@ control_plane_store:
 
 	t.Run("PostgresFromEnv", func(t *testing.T) {
 		cfg := loadWithEnv(t, "# empty", map[string]string{
-			"DAGU_CONTROL_PLANE_STORE_BACKEND":                                 "postgres",
-			"DAGU_CONTROL_PLANE_STORE_POSTGRES_SERVER_DSN":                     "postgres://dagu:server@localhost:5432/dagu_env_server?sslmode=disable",
-			"DAGU_CONTROL_PLANE_STORE_POSTGRES_SERVER_AUTO_MIGRATE":            "false",
-			"DAGU_CONTROL_PLANE_STORE_POSTGRES_SERVER_POOL_MAX_OPEN_CONNS":     "19",
-			"DAGU_CONTROL_PLANE_STORE_POSTGRES_SERVER_POOL_MAX_IDLE_CONNS":     "4",
-			"DAGU_CONTROL_PLANE_STORE_POSTGRES_SERVER_POOL_CONN_MAX_LIFETIME":  "240",
-			"DAGU_CONTROL_PLANE_STORE_POSTGRES_SERVER_POOL_CONN_MAX_IDLE_TIME": "30",
-			"DAGU_CONTROL_PLANE_STORE_POSTGRES_SCHEDULER_DSN":                  "postgres://dagu:scheduler@localhost:5432/dagu_env_scheduler?sslmode=disable",
-			"DAGU_CONTROL_PLANE_STORE_POSTGRES_SCHEDULER_POOL_MAX_OPEN_CONNS":  "13",
-			"DAGU_CONTROL_PLANE_STORE_POSTGRES_AGENT_DSN":                      "postgres://dagu:agent@localhost:5432/dagu_env_agent?sslmode=disable",
-			"DAGU_CONTROL_PLANE_STORE_POSTGRES_AGENT_AUTO_MIGRATE":             "true",
-			"DAGU_CONTROL_PLANE_STORE_POSTGRES_AGENT_DIRECT_ACCESS":            "true",
-			"DAGU_CONTROL_PLANE_STORE_POSTGRES_AGENT_POOL_CONN_MAX_IDLE_TIME":  "15",
+			"DAGU_CONTROL_PLANE_STORE_BACKEND":                                  "postgres",
+			"DAGU_CONTROL_PLANE_STORE_POSTGRES_SERVER_DSN":                      "postgres://dagu:server@localhost:5432/dagu_env_server?sslmode=disable",
+			"DAGU_CONTROL_PLANE_STORE_POSTGRES_SERVER_AUTO_MIGRATE":             "false",
+			"DAGU_CONTROL_PLANE_STORE_POSTGRES_SERVER_POOL_MAX_OPEN_CONNS":      "19",
+			"DAGU_CONTROL_PLANE_STORE_POSTGRES_SERVER_POOL_MAX_IDLE_CONNS":      "4",
+			"DAGU_CONTROL_PLANE_STORE_POSTGRES_SERVER_POOL_CONN_MAX_LIFETIME":   "240",
+			"DAGU_CONTROL_PLANE_STORE_POSTGRES_SERVER_POOL_CONN_MAX_IDLE_TIME":  "30",
+			"DAGU_CONTROL_PLANE_STORE_POSTGRES_SCHEDULER_DSN":                   "postgres://dagu:scheduler@localhost:5432/dagu_env_scheduler?sslmode=disable",
+			"DAGU_CONTROL_PLANE_STORE_POSTGRES_SCHEDULER_POOL_MAX_OPEN_CONNS":   "13",
+			"DAGU_CONTROL_PLANE_STORE_POSTGRES_COORDINATOR_DSN":                 "postgres://dagu:coordinator@localhost:5432/dagu_env_coordinator?sslmode=disable",
+			"DAGU_CONTROL_PLANE_STORE_POSTGRES_COORDINATOR_AUTO_MIGRATE":        "false",
+			"DAGU_CONTROL_PLANE_STORE_POSTGRES_COORDINATOR_POOL_MAX_IDLE_CONNS": "5",
+			"DAGU_CONTROL_PLANE_STORE_POSTGRES_AGENT_DSN":                       "postgres://dagu:agent@localhost:5432/dagu_env_agent?sslmode=disable",
+			"DAGU_CONTROL_PLANE_STORE_POSTGRES_AGENT_AUTO_MIGRATE":              "true",
+			"DAGU_CONTROL_PLANE_STORE_POSTGRES_AGENT_DIRECT_ACCESS":             "true",
+			"DAGU_CONTROL_PLANE_STORE_POSTGRES_AGENT_POOL_CONN_MAX_IDLE_TIME":   "15",
 		})
 
 		assert.Equal(t, ControlPlaneStoreBackendPostgres, cfg.ControlPlaneStore.Backend)
@@ -549,6 +585,14 @@ control_plane_store:
 			ConnMaxLifetime: 300,
 			ConnMaxIdleTime: 60,
 		}, cfg.ControlPlaneStore.Postgres.Scheduler.Pool)
+		assert.Equal(t, "postgres://dagu:coordinator@localhost:5432/dagu_env_coordinator?sslmode=disable", cfg.ControlPlaneStore.Postgres.Coordinator.DSN)
+		assert.False(t, cfg.ControlPlaneStore.Postgres.Coordinator.AutoMigrate)
+		assert.Equal(t, PostgresPoolConfig{
+			MaxOpenConns:    10,
+			MaxIdleConns:    5,
+			ConnMaxLifetime: 300,
+			ConnMaxIdleTime: 60,
+		}, cfg.ControlPlaneStore.Postgres.Coordinator.Pool)
 		assert.Equal(t, "postgres://dagu:agent@localhost:5432/dagu_env_agent?sslmode=disable", cfg.ControlPlaneStore.Postgres.Agent.DSN)
 		assert.True(t, cfg.ControlPlaneStore.Postgres.Agent.AutoMigrate)
 		assert.True(t, cfg.ControlPlaneStore.Postgres.Agent.DirectAccess)
@@ -571,6 +615,9 @@ control_plane_store:
     scheduler:
       dsn: postgres://dagu:scheduler@localhost:5432/dagu_scheduler?sslmode=disable
       autoMigrate: false
+    coordinator:
+      dsn: postgres://dagu:coordinator@localhost:5432/dagu_coordinator?sslmode=disable
+      autoMigrate: false
     agent:
       dsn: postgres://dagu:agent@localhost:5432/dagu_agent?sslmode=disable
       autoMigrate: true
@@ -579,6 +626,7 @@ control_plane_store:
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "control_plane_store.postgres.server.automigrate -> control_plane_store.postgres.server.auto_migrate")
 		assert.Contains(t, err.Error(), "control_plane_store.postgres.scheduler.automigrate -> control_plane_store.postgres.scheduler.auto_migrate")
+		assert.Contains(t, err.Error(), "control_plane_store.postgres.coordinator.automigrate -> control_plane_store.postgres.coordinator.auto_migrate")
 		assert.Contains(t, err.Error(), "control_plane_store.postgres.agent.automigrate -> control_plane_store.postgres.agent.auto_migrate")
 	})
 
@@ -993,6 +1041,15 @@ scheduler:
 					},
 				},
 				Scheduler: ControlPlaneStorePostgresRoleConfig{
+					AutoMigrate: true,
+					Pool: PostgresPoolConfig{
+						MaxOpenConns:    10,
+						MaxIdleConns:    2,
+						ConnMaxLifetime: 300,
+						ConnMaxIdleTime: 60,
+					},
+				},
+				Coordinator: ControlPlaneStorePostgresRoleConfig{
 					AutoMigrate: true,
 					Pool: PostgresPoolConfig{
 						MaxOpenConns:    10,

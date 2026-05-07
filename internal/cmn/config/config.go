@@ -239,9 +239,10 @@ type ControlPlaneStoreConfig struct {
 
 // ControlPlaneStorePostgresConfig holds PostgreSQL control-plane store configuration.
 type ControlPlaneStorePostgresConfig struct {
-	Server    ControlPlaneStorePostgresRoleConfig
-	Scheduler ControlPlaneStorePostgresRoleConfig
-	Agent     ControlPlaneStorePostgresRoleConfig
+	Server      ControlPlaneStorePostgresRoleConfig
+	Scheduler   ControlPlaneStorePostgresRoleConfig
+	Coordinator ControlPlaneStorePostgresRoleConfig
+	Agent       ControlPlaneStorePostgresRoleConfig
 }
 
 // ControlPlaneStorePostgresRoleConfig holds PostgreSQL settings for one Dagu process role.
@@ -646,11 +647,15 @@ func (c *Config) validateControlPlaneStore() error {
 		if err := validatePostgresPool("control_plane_store.postgres.scheduler.pool", c.ControlPlaneStore.Postgres.Scheduler.Pool); err != nil {
 			return err
 		}
+		if err := validatePostgresPool("control_plane_store.postgres.coordinator.pool", c.ControlPlaneStore.Postgres.Coordinator.Pool); err != nil {
+			return err
+		}
 		if err := validatePostgresPool("control_plane_store.postgres.agent.pool", c.ControlPlaneStore.Postgres.Agent.Pool); err != nil {
 			return err
 		}
 		if c.ControlPlaneStore.Postgres.Server.DSN == "" &&
 			c.ControlPlaneStore.Postgres.Scheduler.DSN == "" &&
+			c.ControlPlaneStore.Postgres.Coordinator.DSN == "" &&
 			c.ControlPlaneStore.Postgres.Agent.DSN == "" {
 			return fmt.Errorf("invalid control_plane_store.backend: postgres selected but no role DSNs configured")
 		}

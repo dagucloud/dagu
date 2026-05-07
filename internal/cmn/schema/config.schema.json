@@ -980,6 +980,10 @@
           "$ref": "#/definitions/ControlPlaneStorePostgresRoleDef",
           "description": "PostgreSQL settings used by the scheduler process."
         },
+        "coordinator": {
+          "$ref": "#/definitions/ControlPlaneStorePostgresRoleDef",
+          "description": "PostgreSQL settings used by the coordinator process."
+        },
         "agent": {
           "$ref": "#/definitions/ControlPlaneStorePostgresAgentDef",
           "description": "PostgreSQL settings used by DAG execution processes."

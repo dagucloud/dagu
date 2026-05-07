@@ -454,6 +454,7 @@ func (l *ConfigLoader) loadControlPlaneStoreConfig(cfg *Config, _ Definition) {
 	}
 	cfg.ControlPlaneStore.Postgres.Server = l.loadControlPlaneStorePostgresRoleConfig("server")
 	cfg.ControlPlaneStore.Postgres.Scheduler = l.loadControlPlaneStorePostgresRoleConfig("scheduler")
+	cfg.ControlPlaneStore.Postgres.Coordinator = l.loadControlPlaneStorePostgresRoleConfig("coordinator")
 	cfg.ControlPlaneStore.Postgres.Agent = l.loadControlPlaneStorePostgresRoleConfig("agent")
 }
 
@@ -1637,6 +1638,11 @@ func (l *ConfigLoader) setViperDefaultValues(paths Paths) {
 	l.v.SetDefault("control_plane_store.postgres.scheduler.pool.max_idle_conns", 2)
 	l.v.SetDefault("control_plane_store.postgres.scheduler.pool.conn_max_lifetime", 300)
 	l.v.SetDefault("control_plane_store.postgres.scheduler.pool.conn_max_idle_time", 60)
+	l.v.SetDefault("control_plane_store.postgres.coordinator.auto_migrate", true)
+	l.v.SetDefault("control_plane_store.postgres.coordinator.pool.max_open_conns", 10)
+	l.v.SetDefault("control_plane_store.postgres.coordinator.pool.max_idle_conns", 2)
+	l.v.SetDefault("control_plane_store.postgres.coordinator.pool.conn_max_lifetime", 300)
+	l.v.SetDefault("control_plane_store.postgres.coordinator.pool.conn_max_idle_time", 60)
 	l.v.SetDefault("control_plane_store.postgres.agent.auto_migrate", false)
 	l.v.SetDefault("control_plane_store.postgres.agent.direct_access", false)
 	l.v.SetDefault("control_plane_store.postgres.agent.pool.max_open_conns", 2)
@@ -1703,6 +1709,12 @@ var envBindings = []envBinding{
 	{key: "control_plane_store.postgres.scheduler.pool.max_idle_conns", env: "CONTROL_PLANE_STORE_POSTGRES_SCHEDULER_POOL_MAX_IDLE_CONNS"},
 	{key: "control_plane_store.postgres.scheduler.pool.conn_max_lifetime", env: "CONTROL_PLANE_STORE_POSTGRES_SCHEDULER_POOL_CONN_MAX_LIFETIME"},
 	{key: "control_plane_store.postgres.scheduler.pool.conn_max_idle_time", env: "CONTROL_PLANE_STORE_POSTGRES_SCHEDULER_POOL_CONN_MAX_IDLE_TIME"},
+	{key: "control_plane_store.postgres.coordinator.dsn", env: "CONTROL_PLANE_STORE_POSTGRES_COORDINATOR_DSN"},
+	{key: "control_plane_store.postgres.coordinator.auto_migrate", env: "CONTROL_PLANE_STORE_POSTGRES_COORDINATOR_AUTO_MIGRATE"},
+	{key: "control_plane_store.postgres.coordinator.pool.max_open_conns", env: "CONTROL_PLANE_STORE_POSTGRES_COORDINATOR_POOL_MAX_OPEN_CONNS"},
+	{key: "control_plane_store.postgres.coordinator.pool.max_idle_conns", env: "CONTROL_PLANE_STORE_POSTGRES_COORDINATOR_POOL_MAX_IDLE_CONNS"},
+	{key: "control_plane_store.postgres.coordinator.pool.conn_max_lifetime", env: "CONTROL_PLANE_STORE_POSTGRES_COORDINATOR_POOL_CONN_MAX_LIFETIME"},
+	{key: "control_plane_store.postgres.coordinator.pool.conn_max_idle_time", env: "CONTROL_PLANE_STORE_POSTGRES_COORDINATOR_POOL_CONN_MAX_IDLE_TIME"},
 	{key: "control_plane_store.postgres.agent.dsn", env: "CONTROL_PLANE_STORE_POSTGRES_AGENT_DSN"},
 	{key: "control_plane_store.postgres.agent.auto_migrate", env: "CONTROL_PLANE_STORE_POSTGRES_AGENT_AUTO_MIGRATE"},
 	{key: "control_plane_store.postgres.agent.direct_access", env: "CONTROL_PLANE_STORE_POSTGRES_AGENT_DIRECT_ACCESS"},
