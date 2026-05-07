@@ -301,6 +301,98 @@ steps:
 	}
 }
 
+func TestDAGSchemaStepV2(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveDAGSchema(t)
+
+	tests := []struct {
+		name    string
+		spec    string
+		wantErr string
+	}{
+		{
+			name: "Run",
+			spec: `
+steps:
+  - run: echo ok
+    with:
+      shell: bash -e
+      shell_args: [-c]
+`,
+		},
+		{
+			name: "ActionDagRunParallel",
+			spec: `
+steps:
+  - action: dag.run
+    parallel:
+      items: [a, b]
+    with:
+      dag: child
+      params:
+        item: ${ITEM}
+`,
+		},
+		{
+			name: "CustomAction",
+			spec: `
+actions:
+  slack.notify:
+    input_schema:
+      type: object
+      properties:
+        text:
+          type: string
+    template:
+      action: http.request
+      with:
+        method: POST
+        url: ${SLACK_WEBHOOK_URL}
+steps:
+  - action: slack.notify
+    with:
+      text: hello
+`,
+		},
+		{
+			name: "RejectRunAndAction",
+			spec: `
+steps:
+  - run: echo ok
+    action: log.write
+    with:
+      message: ok
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectRunAndCommand",
+			spec: `
+steps:
+  - run: echo ok
+    command: echo legacy
+`,
+			wantErr: "did not validate",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc := mustParseYAMLDocument(t, tt.spec)
+			err := resolved.Validate(doc)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
 func TestDAGSchemaSchedule(t *testing.T) {
 	t.Parallel()
 

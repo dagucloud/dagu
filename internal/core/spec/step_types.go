@@ -31,10 +31,18 @@ type customStepTypeSpec struct {
 type customStepType struct {
 	Name        string
 	Type        string
+	Kind        customStepKind
 	Description string
 	InputSchema *jsonschema.Resolved
 	Template    map[string]any
 }
+
+type customStepKind string
+
+const (
+	customStepKindStepType customStepKind = "step_type"
+	customStepKindAction   customStepKind = "action"
+)
 
 type customStepTypeRegistry struct {
 	entries map[string]*customStepType
@@ -49,6 +57,8 @@ func (r *customStepTypeRegistry) Lookup(name string) (*customStepType, bool) {
 }
 
 var customStepTypeNameRegexp = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]*$`)
+
+var customActionNameRegexp = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]*(\.[A-Za-z][A-Za-z0-9_-]*)*$`)
 
 var customStepRuntimeExpressionRegexp = regexp.MustCompile("`[^`]+`|\\$\\{[^}]+\\}|\\$[A-Za-z_][A-Za-z0-9_]*")
 
@@ -139,9 +149,36 @@ var customStepForbiddenCallSiteFields = map[string]struct{}{
 	"routes":         {},
 	"script":         {},
 	"shell":          {},
+	"shell_args":     {},
 	"shell_packages": {},
 	"value":          {},
 	"working_dir":    {},
+}
+
+func buildCustomStepActionRegistry(
+	baseStepTypes, localStepTypes map[string]customStepTypeSpec,
+	baseActions, localActions map[string]customStepTypeSpec,
+) (*customStepTypeRegistry, error) {
+	if len(baseStepTypes) == 0 && len(localStepTypes) == 0 && len(baseActions) == 0 && len(localActions) == 0 {
+		return nil, nil
+	}
+
+	registry := &customStepTypeRegistry{
+		entries: make(map[string]*customStepType, len(baseStepTypes)+len(localStepTypes)+len(baseActions)+len(localActions)),
+	}
+	if err := addCustomStepTypeDefinitions(registry, baseStepTypes, "base config"); err != nil {
+		return nil, err
+	}
+	if err := addCustomActionDefinitions(registry, baseActions, "base config"); err != nil {
+		return nil, err
+	}
+	if err := addCustomStepTypeDefinitions(registry, localStepTypes, "DAG"); err != nil {
+		return nil, err
+	}
+	if err := addCustomActionDefinitions(registry, localActions, "DAG"); err != nil {
+		return nil, err
+	}
+	return registry, nil
 }
 
 func buildCustomStepTypeRegistry(base, local map[string]customStepTypeSpec) (*customStepTypeRegistry, error) {
@@ -186,6 +223,51 @@ func buildCustomStepTypeRegistry(base, local map[string]customStepTypeSpec) (*cu
 	}
 
 	return registry, nil
+}
+
+func addCustomStepTypeDefinitions(registry *customStepTypeRegistry, defs map[string]customStepTypeSpec, scope string) error {
+	for name, spec := range defs {
+		normalizedName := strings.TrimSpace(name)
+		if existing, exists := registry.entries[normalizedName]; exists {
+			return duplicateCustomDefinitionError("step_types", normalizedName, existing, scope)
+		}
+		def, err := validateCustomStepTypeSpec(name, spec)
+		if err != nil {
+			return err
+		}
+		registry.entries[normalizedName] = def
+	}
+	return nil
+}
+
+func addCustomActionDefinitions(registry *customStepTypeRegistry, defs map[string]customStepTypeSpec, scope string) error {
+	for name, spec := range defs {
+		normalizedName := strings.TrimSpace(name)
+		if existing, exists := registry.entries[normalizedName]; exists {
+			return duplicateCustomDefinitionError("actions", normalizedName, existing, scope)
+		}
+		def, err := validateCustomActionSpec(name, spec)
+		if err != nil {
+			return err
+		}
+		registry.entries[normalizedName] = def
+	}
+	return nil
+}
+
+func duplicateCustomDefinitionError(field, name string, existing *customStepType, scope string) error {
+	if existing != nil && existing.Kind == customStepKindAction {
+		return core.NewValidationError(
+			fmt.Sprintf("%s.%s", field, name),
+			name,
+			fmt.Errorf("duplicate custom action %q conflicts with an existing custom action or step type in %s", name, scope),
+		)
+	}
+	return core.NewValidationError(
+		fmt.Sprintf("%s.%s", field, name),
+		name,
+		fmt.Errorf("duplicate custom step type %q is defined in %s", name, scope),
+	)
 }
 
 func expandedCustomStepExecutorType(targetType string, rendered map[string]any) string {
@@ -269,6 +351,68 @@ func validateCustomStepTypeSpec(name string, spec customStepTypeSpec) (*customSt
 	return &customStepType{
 		Name:        name,
 		Type:        targetType,
+		Kind:        customStepKindStepType,
+		Description: strings.TrimSpace(spec.Description),
+		InputSchema: inputSchema,
+		Template:    cloneMap(spec.Template),
+	}, nil
+}
+
+func validateCustomActionSpec(name string, spec customStepTypeSpec) (*customStepType, error) {
+	name = strings.TrimSpace(name)
+	if !customActionNameRegexp.MatchString(name) {
+		return nil, core.NewValidationError(
+			fmt.Sprintf("actions.%s", name),
+			name,
+			fmt.Errorf("custom action names must match %s", customActionNameRegexp.String()),
+		)
+	}
+	if isBuiltinActionName(name) {
+		return nil, core.NewValidationError(
+			fmt.Sprintf("actions.%s", name),
+			name,
+			fmt.Errorf("custom action name %q conflicts with a builtin action", name),
+		)
+	}
+	if strings.TrimSpace(spec.Type) != "" {
+		return nil, core.NewValidationError(
+			fmt.Sprintf("actions.%s.type", name),
+			spec.Type,
+			fmt.Errorf("type is not supported for actions; put run or action in actions.%s.template", name),
+		)
+	}
+	if spec.InputSchema == nil {
+		return nil, core.NewValidationError(
+			fmt.Sprintf("actions.%s.input_schema", name),
+			nil,
+			fmt.Errorf("input_schema is required"),
+		)
+	}
+	if len(spec.Template) == 0 {
+		return nil, core.NewValidationError(
+			fmt.Sprintf("actions.%s.template", name),
+			spec.Template,
+			fmt.Errorf("template is required"),
+		)
+	}
+	_, hasRun := spec.Template["run"]
+	_, hasAction := spec.Template["action"]
+	if hasRun == hasAction {
+		return nil, core.NewValidationError(
+			fmt.Sprintf("actions.%s.template", name),
+			spec.Template,
+			fmt.Errorf("custom action template must define exactly one of run or action"),
+		)
+	}
+
+	inputSchema, err := resolveCustomActionInputSchema(name, spec.InputSchema)
+	if err != nil {
+		return nil, err
+	}
+
+	return &customStepType{
+		Name:        name,
+		Kind:        customStepKindAction,
 		Description: strings.TrimSpace(spec.Description),
 		InputSchema: inputSchema,
 		Template:    cloneMap(spec.Template),
@@ -276,10 +420,18 @@ func validateCustomStepTypeSpec(name string, spec customStepTypeSpec) (*customSt
 }
 
 func resolveCustomStepTypeInputSchema(name string, schemaDecl any) (*jsonschema.Resolved, error) {
+	return resolveCustomInputSchema(fmt.Sprintf("step_types.%s.input_schema", name), schemaDecl)
+}
+
+func resolveCustomActionInputSchema(name string, schemaDecl any) (*jsonschema.Resolved, error) {
+	return resolveCustomInputSchema(fmt.Sprintf("actions.%s.input_schema", name), schemaDecl)
+}
+
+func resolveCustomInputSchema(field string, schemaDecl any) (*jsonschema.Resolved, error) {
 	schemaMap, ok := schemaDecl.(map[string]any)
 	if !ok {
 		return nil, core.NewValidationError(
-			fmt.Sprintf("step_types.%s.input_schema", name),
+			field,
 			schemaDecl,
 			fmt.Errorf("input_schema must be an inline JSON Schema object"),
 		)
@@ -287,7 +439,7 @@ func resolveCustomStepTypeInputSchema(name string, schemaDecl any) (*jsonschema.
 	resolved, err := resolveSchemaDeclaration(schemaMap, "", "")
 	if err != nil {
 		return nil, core.NewValidationError(
-			fmt.Sprintf("step_types.%s.input_schema", name),
+			field,
 			schemaDecl,
 			err,
 		)
@@ -295,7 +447,7 @@ func resolveCustomStepTypeInputSchema(name string, schemaDecl any) (*jsonschema.
 	root := resolved.Schema()
 	if root == nil || !schemaDeclaresObject(root) {
 		return nil, core.NewValidationError(
-			fmt.Sprintf("step_types.%s.input_schema", name),
+			field,
 			schemaDecl,
 			fmt.Errorf("input_schema must resolve to an object schema"),
 		)
@@ -720,12 +872,16 @@ func buildCustomStepFromSpec(
 	if err != nil {
 		return nil, fmt.Errorf("step type %q: %w", customType.Name, err)
 	}
+	normalizedRaw, err := normalizeStepExecutionRaw(mergedRaw, nil)
+	if err != nil {
+		return nil, fmt.Errorf("step type %q: failed to normalize expanded template: %w", customType.Name, err)
+	}
 
-	expandedSpec, err := decodeStep(mergedRaw)
+	expandedSpec, err := decodeStep(normalizedRaw)
 	if err != nil {
 		return nil, fmt.Errorf("step type %q: failed to decode expanded template: %w", customType.Name, err)
 	}
-	applyDefaults(expandedSpec, defs, mergedRaw)
+	applyDefaults(expandedSpec, defs, normalizedRaw)
 	builtStep, err := buildConcreteStep(ctx, expandedSpec)
 	if err != nil {
 		return nil, fmt.Errorf("step type %q (resolves to %q): %w", customType.Name, customType.Type, err)
@@ -874,6 +1030,9 @@ func validateCustomStepCallSiteFields(callSite *step, raw map[string]any) error 
 	}
 	if !callSite.Shell.IsZero() {
 		return core.NewValidationError("shell", callSite.Shell.Value(), fmt.Errorf("field %q is not allowed when using a custom step type", "shell"))
+	}
+	if len(callSite.ShellArgs) > 0 {
+		return core.NewValidationError("shell_args", callSite.ShellArgs, fmt.Errorf("field %q is not allowed when using a custom step type", "shell_args"))
 	}
 	if len(callSite.ShellPackages) > 0 {
 		return core.NewValidationError("shell_packages", callSite.ShellPackages, fmt.Errorf("field %q is not allowed when using a custom step type", "shell_packages"))

@@ -33,6 +33,10 @@ type step struct {
 	Description string `yaml:"description,omitempty"`
 	// WorkingDir is the working directory of the step.
 	WorkingDir string `yaml:"working_dir,omitempty"`
+	// Run is the v2 canonical local command/script field.
+	Run any `yaml:"run,omitempty"`
+	// Action is the v2 canonical named action field.
+	Action string `yaml:"action,omitempty"`
 	// Command is the command to run (on shell).
 	Command any `yaml:"command,omitempty"`
 	// Exec is a structured argv form for direct execution without shell parsing.
@@ -40,6 +44,8 @@ type step struct {
 	// Shell is the shell to run the command. Default is `$SHELL` or `sh`.
 	// Can be a string (e.g., "bash -e") or an array (e.g., ["bash", "-e"]).
 	Shell types.ShellValue `yaml:"shell,omitempty"`
+	// ShellArgs is the list of additional arguments passed to the shell.
+	ShellArgs []string `yaml:"shell_args,omitempty"`
 	// ShellPackages is the list of packages to install.
 	// This is used only when the shell is `nix-shell`.
 	ShellPackages []string `yaml:"shell_packages,omitempty"`
@@ -653,7 +659,7 @@ func buildStepShellArgs(ctx StepBuildContext, s *step) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return result.Args, nil
+	return append(result.Args, s.ShellArgs...), nil
 }
 
 func buildStepTimeout(_ StepBuildContext, s *step) (time.Duration, error) {

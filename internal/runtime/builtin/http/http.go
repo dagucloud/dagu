@@ -33,6 +33,8 @@ type http struct {
 }
 
 type httpConfig struct {
+	Method        string            `json:"method" mapstructure:"method"`
+	URL           string            `json:"url" mapstructure:"url"`
 	Timeout       int               `json:"timeout" mapstructure:"timeout"`
 	Headers       map[string]string `json:"headers" mapstructure:"headers"`
 	Query         map[string]string `json:"query" mapstructure:"query"`
@@ -84,6 +86,12 @@ func newHTTP(ctx context.Context, step core.Step) (executor.Executor, error) {
 		if len(step.Args) > 0 {
 			url = step.Args[0]
 		}
+	}
+	if method == "" {
+		method = reqCfg.Method
+	}
+	if url == "" {
+		url = reqCfg.URL
 	}
 
 	ctx, cancel := context.WithCancel(ctx)

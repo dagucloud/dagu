@@ -751,7 +751,12 @@ func buildDocumentContext(ctx BuildContext, index int) BuildContext {
 
 // prepareDocumentContext builds the inherited context and destination DAG.
 func prepareDocumentContext(ctx BuildContext, baseDef, spec *dag) (BuildContext, *core.DAG, error) {
-	customStepTypes, err := buildCustomStepTypeRegistry(stepTypesOf(baseDef), stepTypesOf(spec))
+	customStepTypes, err := buildCustomStepActionRegistry(
+		stepTypesOf(baseDef),
+		stepTypesOf(spec),
+		actionsOf(baseDef),
+		actionsOf(spec),
+	)
 	if err != nil {
 		return ctx, nil, err
 	}
@@ -799,7 +804,7 @@ func buildBaseDAG(ctx BuildContext, baseDef *dag) (*core.DAG, error) {
 	buildOpts.Parameters = ""
 	buildOpts.ParametersList = nil
 
-	customStepTypes, err := buildCustomStepTypeRegistry(stepTypesOf(baseDef), nil)
+	customStepTypes, err := buildCustomStepActionRegistry(stepTypesOf(baseDef), nil, actionsOf(baseDef), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -824,6 +829,14 @@ func stepTypesOf(d *dag) map[string]customStepTypeSpec {
 		return nil
 	}
 	return d.StepTypes
+}
+
+// actionsOf returns the custom action declarations for a manifest.
+func actionsOf(d *dag) map[string]customStepTypeSpec {
+	if d == nil {
+		return nil
+	}
+	return d.Actions
 }
 
 // shouldInheritType reports whether a document should reuse the base DAG type.

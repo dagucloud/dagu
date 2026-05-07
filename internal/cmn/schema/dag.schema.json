@@ -585,7 +585,12 @@
     },
     "step_types": {
       "$ref": "#/definitions/customStepTypes",
-      "description": "Reusable custom step type definitions for this DAG. Base config and DAG-local step_types are merged per document, and duplicate names across scopes are rejected."
+      "deprecated": true,
+      "description": "Deprecated reusable custom step type definitions for this DAG. Use actions for new DAGs. Base config and DAG-local step_types are merged per document, and duplicate names across scopes are rejected."
+    },
+    "actions": {
+      "$ref": "#/definitions/customActions",
+      "description": "Reusable custom action definitions for this DAG. Base config and DAG-local actions are merged per document, and duplicate names across scopes are rejected."
     },
     "smtp": {
       "type": "object",
@@ -1387,6 +1392,26 @@
           "type": "string",
           "description": "Working directory for the step. Inherits from DAG's working_dir if not specified. Overrides DAG-level working_dir for this step."
         },
+        "run": {
+          "oneOf": [
+            {
+              "type": "string",
+              "description": "Local shell command or multi-line script to execute."
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": ["string", "number", "boolean"]
+              },
+              "description": "Multiple local shell commands to execute sequentially."
+            }
+          ],
+          "description": "Canonical v2 local command/script field. Use action for named executors."
+        },
+        "action": {
+          "$ref": "#/definitions/actionName",
+          "description": "Canonical v2 named action. Pair with with for action parameters."
+        },
         "command": {
           "oneOf": [
             {
@@ -1401,11 +1426,13 @@
               "description": "Multiple commands to execute sequentially. Each string is a separate command."
             }
           ],
-          "description": "Command(s) to execute. Can be a single shell command string, or an array of commands to run sequentially (stops on first failure)."
+          "deprecated": true,
+          "description": "Deprecated command(s) to execute. Use run for local shell commands or action with with for named executors."
         },
         "exec": {
           "$ref": "#/definitions/stepExec",
-          "description": "Structured direct-exec form for running a binary with explicit argv and no shell parsing. Mutually exclusive with command and script."
+          "deprecated": true,
+          "description": "Deprecated structured direct-exec form. Use action: exec with with.command and with.args."
         },
         "shell": {
           "oneOf": [
@@ -1421,18 +1448,29 @@
               "description": "Shell command as array (e.g., ['/bin/bash', '-e', '-o', 'pipefail'])"
             }
           ],
-          "description": "Shell to use for executing the command. Can be specified as a string with arguments (e.g., '/bin/bash -e') which will be automatically tokenized, or as an array for explicit argument separation. Overrides DAG-level shell if specified. Defaults to DAG-level shell, or $SHELL/sh if not specified."
+          "deprecated": true,
+          "description": "Deprecated step-level shell field. For v2 run steps, use with.shell."
+        },
+        "shell_args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "deprecated": true,
+          "description": "Deprecated step-level shell args field. For v2 run steps, use with.shell_args."
         },
         "shell_packages": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "description": "List of packages to install before executing the step. Useful for ensuring dependencies are available. It's only available when the shell is nix-shell."
+          "deprecated": true,
+          "description": "Deprecated step-level shell packages field. For v2 run steps, use with.shell_packages."
         },
         "script": {
           "type": "string",
-          "description": "Multi-line script content that will be executed. Gets piped into the command if specified, otherwise uses default shell."
+          "deprecated": true,
+          "description": "Deprecated multi-line script content. Use run with a multi-line string."
         },
         "stdout": {
           "type": "string",
@@ -1630,7 +1668,8 @@
         },
         "call": {
           "type": "string",
-          "description": "Name of a DAG to execute as a sub dag-run."
+          "deprecated": true,
+          "description": "Deprecated name of a DAG to execute as a sub dag-run. Use action: dag.run with with.dag."
         },
         "params": {
           "oneOf": [
@@ -1659,7 +1698,8 @@
               "description": "Named parameters as key-value pairs"
             }
           ],
-          "description": "Parameters for the step. Supports three formats: 1) String format: space-separated positional parameters (e.g., 'arg1 arg2') accessible as $1, $2. 2) Array format: named parameters as key-value objects preserving rich types (numbers, booleans, nested objects). 3) Object format: named parameters as simple key-value pairs. For sub-DAG execution (when 'call' or 'run' is specified), these are passed to the sub DAG and accessible as ${KEY}. Rich types are preserved when passing to executors that support them."
+          "deprecated": true,
+          "description": "Deprecated parameters field for legacy sub-DAG execution. Use action: dag.run with with.params."
         },
         "parallel": {
           "oneOf": [
@@ -1727,7 +1767,7 @@
               "description": "Parallel execution configuration with concurrency control"
             }
           ],
-          "description": "Configuration for parallel execution of sub DAGs. Only applicable when 'run' is specified. Allows processing multiple items concurrently using the same workflow definition."
+          "description": "Configuration for parallel execution of child DAGs. Currently only valid with action: dag.run. Allows processing multiple items concurrently using the same workflow definition."
         },
         "worker_selector": {
           "oneOf": [
@@ -1784,11 +1824,12 @@
         },
         "type": {
           "$ref": "#/definitions/executorType",
-          "description": "Builtin executor type or a custom step type name declared in step_types or base config. If omitted, Dagu infers the builtin type from other step fields. Cannot be used together with 'executor' field."
+          "deprecated": true,
+          "description": "Deprecated builtin executor type or custom step type name. Use action for new DAGs."
         },
         "with": {
           "$ref": "#/definitions/executorConfig",
-          "description": "Executor-specific configuration. For builtin types, this is the executor config object. For custom step types, this is the validated input object defined by step_types.<name>.input_schema."
+          "description": "Action parameters in v2. Also accepted as executor-specific configuration for deprecated type-based steps."
         },
         "config": {
           "$ref": "#/definitions/executorConfig",
@@ -1798,11 +1839,13 @@
         },
         "llm": {
           "$ref": "#/definitions/llmConfig",
-          "description": "LLM configuration for AI-powered steps. Required when type is 'chat'. Not used by 'agent' type (agent resolves models from Agent Settings)."
+          "deprecated": true,
+          "description": "Deprecated LLM configuration for type-based chat steps. Use action: chat.completion with with."
         },
         "agent": {
           "$ref": "#/definitions/agentStepConfig",
-          "description": "Agent configuration for AI agent steps. Only valid when type is 'agent'. Controls model, tools, safety, and iteration limits."
+          "deprecated": true,
+          "description": "Deprecated agent configuration for type-based agent steps. Use action: agent.run with with."
         },
         "approval": {
           "type": "object",
@@ -1838,7 +1881,8 @@
           "items": {
             "$ref": "#/definitions/llmMessage"
           },
-          "description": "Session messages for chat and agent steps. Only valid when type is 'chat' or 'agent'. Supports variable substitution with ${VAR}."
+          "deprecated": true,
+          "description": "Deprecated top-level messages for chat and agent steps. Use action with with.prompt or with.messages."
         },
         "tools": {
           "type": "array",
@@ -1849,7 +1893,8 @@
         },
         "value": {
           "type": "string",
-          "description": "Expression to evaluate for router step routing (e.g., '${STATUS}'). Only used when type is 'router'. Router steps require DAG type 'graph'."
+          "deprecated": true,
+          "description": "Deprecated router value. Use action: router.route with with.value."
         },
         "routes": {
           "type": "object",
@@ -1862,10 +1907,60 @@
               "minLength": 1
             }
           },
-          "description": "Map of patterns to target step names for routing. Keys are patterns (exact match or 're:regex'), values are arrays of step names. Target steps automatically depend on the router (no explicit depends needed). Each step can only be targeted by one route. Only used when type is 'router'. Router steps require DAG type 'graph'."
+          "deprecated": true,
+          "description": "Deprecated router routes. Use action: router.route with with.routes."
         }
       },
       "allOf": [
+        {
+          "not": {
+            "required": ["run", "action"]
+          }
+        },
+        {
+          "not": {
+            "required": ["run", "command"]
+          }
+        },
+        {
+          "not": {
+            "required": ["action", "type"]
+          }
+        },
+        {
+          "if": {
+            "required": ["run"]
+          },
+          "then": {
+            "properties": {
+              "with": { "$ref": "#/definitions/runWithConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "dag.run" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/dagRunActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "http.request" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/httpRequestActionConfig" }
+            }
+          }
+        },
         {
           "not": {
             "required": ["exec", "command"]
@@ -1882,7 +1977,7 @@
           }
         },
         {
-          "if": { "properties": { "type": { "const": "http" } } },
+          "if": { "properties": { "type": { "const": "http" } }, "required": ["type"] },
           "then": {
             "properties": {
               "with": { "$ref": "#/definitions/httpExecutorConfig" },
@@ -1895,7 +1990,7 @@
           }
         },
         {
-          "if": { "properties": { "type": { "const": "ssh" } } },
+          "if": { "properties": { "type": { "const": "ssh" } }, "required": ["type"] },
           "then": {
             "properties": {
               "with": { "$ref": "#/definitions/sshExecutorConfig" },
@@ -1908,7 +2003,7 @@
           }
         },
         {
-          "if": { "properties": { "type": { "const": "sftp" } } },
+          "if": { "properties": { "type": { "const": "sftp" } }, "required": ["type"] },
           "then": {
             "properties": {
               "with": { "$ref": "#/definitions/sftpExecutorConfig" },
@@ -1922,7 +2017,8 @@
         },
         {
           "if": {
-            "properties": { "type": { "enum": ["docker", "container"] } }
+            "properties": { "type": { "enum": ["docker", "container"] } },
+            "required": ["type"]
           },
           "then": {
             "properties": {
@@ -1936,7 +2032,7 @@
           }
         },
         {
-          "if": { "properties": { "type": { "const": "mail" } } },
+          "if": { "properties": { "type": { "const": "mail" } }, "required": ["type"] },
           "then": {
             "properties": {
               "with": { "$ref": "#/definitions/mailExecutorConfig" },
@@ -1949,7 +2045,7 @@
           }
         },
         {
-          "if": { "properties": { "type": { "const": "jq" } } },
+          "if": { "properties": { "type": { "const": "jq" } }, "required": ["type"] },
           "then": {
             "properties": {
               "with": { "$ref": "#/definitions/jqExecutorConfig" },
@@ -1962,7 +2058,7 @@
           }
         },
         {
-          "if": { "properties": { "type": { "const": "archive" } } },
+          "if": { "properties": { "type": { "const": "archive" } }, "required": ["type"] },
           "then": {
             "properties": {
               "with": { "$ref": "#/definitions/archiveExecutorConfig" },
@@ -1992,7 +2088,7 @@
           }
         },
         {
-          "if": { "properties": { "type": { "const": "postgres" } } },
+          "if": { "properties": { "type": { "const": "postgres" } }, "required": ["type"] },
           "then": {
             "properties": {
               "with": { "$ref": "#/definitions/postgresExecutorConfig" },
@@ -2005,7 +2101,7 @@
           }
         },
         {
-          "if": { "properties": { "type": { "const": "sqlite" } } },
+          "if": { "properties": { "type": { "const": "sqlite" } }, "required": ["type"] },
           "then": {
             "properties": {
               "with": { "$ref": "#/definitions/sqliteExecutorConfig" },
@@ -2018,7 +2114,7 @@
           }
         },
         {
-          "if": { "properties": { "type": { "const": "redis" } } },
+          "if": { "properties": { "type": { "const": "redis" } }, "required": ["type"] },
           "then": {
             "properties": {
               "with": { "$ref": "#/definitions/redisExecutorConfig" },
@@ -2032,7 +2128,8 @@
         },
         {
           "if": {
-            "properties": { "type": { "enum": ["kubernetes", "k8s"] } }
+            "properties": { "type": { "enum": ["kubernetes", "k8s"] } },
+            "required": ["type"]
           },
           "then": {
             "properties": {
@@ -2046,7 +2143,7 @@
           }
         },
         {
-          "if": { "properties": { "type": { "const": "s3" } } },
+          "if": { "properties": { "type": { "const": "s3" } }, "required": ["type"] },
           "then": {
             "properties": {
               "with": { "$ref": "#/definitions/s3ExecutorConfig" },
@@ -2059,7 +2156,7 @@
           }
         },
         {
-          "if": { "properties": { "type": { "const": "harness" } } },
+          "if": { "properties": { "type": { "const": "harness" } }, "required": ["type"] },
           "then": {
             "properties": {
               "with": { "$ref": "#/definitions/harnessExecutorConfig" },
@@ -2608,6 +2705,14 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "method": {
+          "type": "string",
+          "description": "HTTP method for action: http.request."
+        },
+        "url": {
+          "type": "string",
+          "description": "Request URL for action: http.request."
+        },
         "timeout": {
           "type": "integer",
           "minimum": 0,
@@ -5240,6 +5345,180 @@
       ],
       "description": "Builtin executor type or a custom step type name declared in step_types."
     },
+    "actionName": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "agent.run",
+            "archive.create",
+            "archive.extract",
+            "archive.list",
+            "chat.completion",
+            "container.run",
+            "dag.run",
+            "docker.run",
+            "exec",
+            "harness.run",
+            "http.request",
+            "jq.filter",
+            "k8s.run",
+            "kubernetes.run",
+            "log.write",
+            "mail.send",
+            "noop",
+            "postgres.query",
+            "router.route",
+            "s3.delete",
+            "s3.download",
+            "s3.list",
+            "s3.upload",
+            "sftp.download",
+            "sftp.upload",
+            "sqlite.query",
+            "ssh.run",
+            "template.render"
+          ],
+          "description": "Builtin action name."
+        },
+        {
+          "type": "string",
+          "pattern": "^redis\\.[A-Za-z][A-Za-z0-9_-]*$",
+          "description": "Redis operation action such as redis.get or redis.set."
+        },
+        {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*)*$",
+          "description": "Custom action name declared in actions or base config."
+        }
+      ],
+      "description": "Builtin or custom action name."
+    },
+    "runWithConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "shell": {
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          ],
+          "description": "Shell to use for this run step."
+        },
+        "shell_args": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Additional shell arguments for this run step."
+        },
+        "shell_packages": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Packages to install when the shell is nix-shell."
+        }
+      },
+      "description": "Shell settings accepted with run."
+    },
+    "dagRunActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dag"],
+      "properties": {
+        "dag": {
+          "type": "string",
+          "description": "Child DAG name or path."
+        },
+        "params": {
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  { "type": "string" },
+                  { "type": "object", "additionalProperties": true }
+                ]
+              }
+            },
+            { "type": "object", "additionalProperties": true }
+          ],
+          "description": "Parameters passed to the child DAG."
+        }
+      },
+      "description": "Configuration for action: dag.run."
+    },
+    "httpRequestActionConfig": {
+      "allOf": [
+        { "$ref": "#/definitions/httpExecutorConfig" },
+        {
+          "type": "object",
+          "required": ["method", "url"]
+        }
+      ],
+      "description": "Configuration for action: http.request."
+    },
+    "customActions": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*)*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/customActionDefinition"
+      },
+      "description": "Custom action definitions keyed by user-defined action name."
+    },
+    "customActionDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_schema", "template"],
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "Optional description applied when the expanded step does not set its own description."
+        },
+        "input_schema": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Inline JSON Schema object used to validate and default the action's with input."
+        },
+        "template": {
+          "$ref": "#/definitions/customActionTemplate",
+          "description": "Step fragment template expanded at build time. Must define exactly one of run or action."
+        }
+      },
+      "description": "Definition of a reusable custom action."
+    },
+    "customActionTemplate": {
+      "type": "object",
+      "additionalProperties": true,
+      "anyOf": [
+        { "required": ["run"] },
+        { "required": ["action"] }
+      ],
+      "not": {
+        "required": ["run", "action"]
+      },
+      "properties": {
+        "run": {
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "array",
+              "items": { "type": ["string", "number", "boolean"] }
+            }
+          ]
+        },
+        "action": {
+          "$ref": "#/definitions/actionName"
+        },
+        "with": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
     "customStepTypes": {
       "type": "object",
       "propertyNames": {
@@ -5313,7 +5592,7 @@
       },
       "allOf": [
         {
-          "if": { "properties": { "type": { "const": "http" } } },
+          "if": { "properties": { "type": { "const": "http" } }, "required": ["type"] },
           "then": {
             "properties": {
               "config": { "$ref": "#/definitions/httpExecutorConfig" }
@@ -5321,7 +5600,7 @@
           }
         },
         {
-          "if": { "properties": { "type": { "const": "ssh" } } },
+          "if": { "properties": { "type": { "const": "ssh" } }, "required": ["type"] },
           "then": {
             "properties": {
               "config": { "$ref": "#/definitions/sshExecutorConfig" }
@@ -5329,7 +5608,7 @@
           }
         },
         {
-          "if": { "properties": { "type": { "const": "sftp" } } },
+          "if": { "properties": { "type": { "const": "sftp" } }, "required": ["type"] },
           "then": {
             "properties": {
               "config": { "$ref": "#/definitions/sftpExecutorConfig" }
@@ -5338,7 +5617,8 @@
         },
         {
           "if": {
-            "properties": { "type": { "enum": ["docker", "container"] } }
+            "properties": { "type": { "enum": ["docker", "container"] } },
+            "required": ["type"]
           },
           "then": {
             "properties": {
@@ -5347,7 +5627,7 @@
           }
         },
         {
-          "if": { "properties": { "type": { "const": "mail" } } },
+          "if": { "properties": { "type": { "const": "mail" } }, "required": ["type"] },
           "then": {
             "properties": {
               "config": { "$ref": "#/definitions/mailExecutorConfig" }
@@ -5355,7 +5635,7 @@
           }
         },
         {
-          "if": { "properties": { "type": { "const": "jq" } } },
+          "if": { "properties": { "type": { "const": "jq" } }, "required": ["type"] },
           "then": {
             "properties": {
               "config": { "$ref": "#/definitions/jqExecutorConfig" }
@@ -5363,7 +5643,7 @@
           }
         },
         {
-          "if": { "properties": { "type": { "const": "archive" } } },
+          "if": { "properties": { "type": { "const": "archive" } }, "required": ["type"] },
           "then": {
             "properties": {
               "config": { "$ref": "#/definitions/archiveExecutorConfig" }
@@ -5383,7 +5663,7 @@
           }
         },
         {
-          "if": { "properties": { "type": { "const": "postgres" } } },
+          "if": { "properties": { "type": { "const": "postgres" } }, "required": ["type"] },
           "then": {
             "properties": {
               "config": { "$ref": "#/definitions/postgresExecutorConfig" }
@@ -5391,7 +5671,7 @@
           }
         },
         {
-          "if": { "properties": { "type": { "const": "sqlite" } } },
+          "if": { "properties": { "type": { "const": "sqlite" } }, "required": ["type"] },
           "then": {
             "properties": {
               "config": { "$ref": "#/definitions/sqliteExecutorConfig" }
@@ -5399,7 +5679,7 @@
           }
         },
         {
-          "if": { "properties": { "type": { "const": "redis" } } },
+          "if": { "properties": { "type": { "const": "redis" } }, "required": ["type"] },
           "then": {
             "properties": {
               "config": { "$ref": "#/definitions/redisExecutorConfig" }
@@ -5408,7 +5688,8 @@
         },
         {
           "if": {
-            "properties": { "type": { "enum": ["kubernetes", "k8s"] } }
+            "properties": { "type": { "enum": ["kubernetes", "k8s"] } },
+            "required": ["type"]
           },
           "then": {
             "properties": {
@@ -5417,7 +5698,7 @@
           }
         },
         {
-          "if": { "properties": { "type": { "const": "s3" } } },
+          "if": { "properties": { "type": { "const": "s3" } }, "required": ["type"] },
           "then": {
             "properties": {
               "config": { "$ref": "#/definitions/s3ExecutorConfig" }
@@ -5425,7 +5706,7 @@
           }
         },
         {
-          "if": { "properties": { "type": { "const": "harness" } } },
+          "if": { "properties": { "type": { "const": "harness" } }, "required": ["type"] },
           "then": {
             "properties": {
               "config": { "$ref": "#/definitions/harnessExecutorConfig" }
@@ -5433,7 +5714,7 @@
           }
         },
         {
-          "if": { "properties": { "type": { "enum": ["command", "shell"] } } },
+          "if": { "properties": { "type": { "enum": ["command", "shell"] } }, "required": ["type"] },
           "then": {
             "properties": {
               "config": {
@@ -5446,7 +5727,8 @@
         },
         {
           "if": {
-            "properties": { "type": { "enum": ["dag", "subworkflow"] } }
+            "properties": { "type": { "enum": ["dag", "subworkflow"] } },
+            "required": ["type"]
           },
           "then": {
             "properties": {
@@ -5459,7 +5741,7 @@
           }
         },
         {
-          "if": { "properties": { "type": { "const": "parallel" } } },
+          "if": { "properties": { "type": { "const": "parallel" } }, "required": ["type"] },
           "then": {
             "properties": {
               "config": {

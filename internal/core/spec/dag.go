@@ -88,6 +88,8 @@ type dag struct {
 	defaultsRaw map[string]any
 	// StepTypes defines custom step types that expand to builtin-backed steps.
 	StepTypes map[string]customStepTypeSpec `yaml:"step_types,omitempty"`
+	// Actions defines reusable v2 actions that expand to builtin actions or run steps.
+	Actions map[string]customStepTypeSpec `yaml:"actions,omitempty"`
 	// Steps is the list of steps to run.
 	Steps any `yaml:"steps,omitempty"` // []step or map[string]step
 	// SMTP is the SMTP configuration.

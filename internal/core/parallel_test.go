@@ -121,7 +121,7 @@ steps:
     parallel: ${ITEMS}
 `,
 			wantErr:    true,
-			wantErrMsg: "parallel execution is only supported for child-DAGs",
+			wantErrMsg: "parallel currently requires action: dag.run",
 		},
 		{
 			name: "ErrorParallelWithoutCommandOrRun",

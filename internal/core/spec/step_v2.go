@@ -1,0 +1,479 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package spec
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/dagucloud/dagu/internal/core"
+)
+
+var v2LegacyExecutionFields = map[string]struct{}{
+	"agent":          {},
+	"call":           {},
+	"command":        {},
+	"config":         {},
+	"exec":           {},
+	"llm":            {},
+	"messages":       {},
+	"params":         {},
+	"routes":         {},
+	"script":         {},
+	"shell":          {},
+	"shell_args":     {},
+	"shell_packages": {},
+	"type":           {},
+	"value":          {},
+}
+
+var v2RunWithFields = map[string]struct{}{
+	"shell":          {},
+	"shell_args":     {},
+	"shell_packages": {},
+}
+
+var builtinActionNames = map[string]struct{}{
+	"agent.run":       {},
+	"archive.create":  {},
+	"archive.extract": {},
+	"archive.list":    {},
+	"chat.completion": {},
+	"container.run":   {},
+	"dag.run":         {},
+	"docker.run":      {},
+	"exec":            {},
+	"harness.run":     {},
+	"http.request":    {},
+	"jq.filter":       {},
+	"k8s.run":         {},
+	"kubernetes.run":  {},
+	"log.write":       {},
+	"mail.send":       {},
+	"noop":            {},
+	"postgres.query":  {},
+	"router.route":    {},
+	"s3.delete":       {},
+	"s3.download":     {},
+	"s3.list":         {},
+	"s3.upload":       {},
+	"sftp.download":   {},
+	"sftp.upload":     {},
+	"sqlite.query":    {},
+	"ssh.run":         {},
+	"template.render": {},
+}
+
+func normalizeStepExecutionRaw(raw map[string]any, registry *customStepTypeRegistry) (map[string]any, error) {
+	if raw == nil {
+		return nil, nil
+	}
+
+	_, hasRun := raw["run"]
+	_, hasAction := raw["action"]
+	if !hasRun && !hasAction {
+		return raw, nil
+	}
+	if hasRun && hasAction {
+		return nil, core.NewValidationError("action", raw["action"], fmt.Errorf("run cannot be used together with action"))
+	}
+
+	normalized := cloneMap(raw)
+	if hasRun {
+		if err := normalizeRunStep(normalized, raw); err != nil {
+			return nil, err
+		}
+		return normalized, nil
+	}
+
+	if err := normalizeActionStep(normalized, raw, registry); err != nil {
+		return nil, err
+	}
+	return normalized, nil
+}
+
+func normalizeRunStep(normalized, raw map[string]any) error {
+	for field := range v2LegacyExecutionFields {
+		if _, exists := raw[field]; exists {
+			return core.NewValidationError("run", raw["run"], fmt.Errorf("run cannot be used together with %s", field))
+		}
+	}
+
+	runValue := raw["run"]
+	switch runValue.(type) {
+	case string, []any:
+	default:
+		return core.NewValidationError("run", runValue, fmt.Errorf("run must be a string or array"))
+	}
+
+	if withRaw, exists := raw["with"]; exists {
+		with, ok := withRaw.(map[string]any)
+		if !ok {
+			return core.NewValidationError("with", withRaw, fmt.Errorf("with must be an object"))
+		}
+		for key, val := range with {
+			if _, ok := v2RunWithFields[key]; !ok {
+				return core.NewValidationError("with", withRaw, fmt.Errorf("run only supports shell, shell_args, and shell_packages in with; got %q", key))
+			}
+			normalized[key] = cloneAny(val)
+		}
+		delete(normalized, "with")
+	}
+
+	normalized["command"] = cloneAny(runValue)
+	delete(normalized, "run")
+	return nil
+}
+
+func normalizeActionStep(normalized, raw map[string]any, registry *customStepTypeRegistry) error {
+	for field := range v2LegacyExecutionFields {
+		if _, exists := raw[field]; exists {
+			return core.NewValidationError("action", raw["action"], fmt.Errorf("action cannot be used together with %s", field))
+		}
+	}
+
+	action, ok := raw["action"].(string)
+	if !ok {
+		return core.NewValidationError("action", raw["action"], fmt.Errorf("action must be a string"))
+	}
+	action = strings.TrimSpace(action)
+	if action == "" {
+		return core.NewValidationError("action", raw["action"], fmt.Errorf("action is required"))
+	}
+	if strings.Contains(action, "@") {
+		return core.NewValidationError("action", raw["action"], fmt.Errorf("versioned action references are reserved for the future action registry"))
+	}
+
+	if registry != nil {
+		if customType, ok := registry.Lookup(action); ok && customType.Kind == customStepKindAction {
+			normalized["type"] = action
+			delete(normalized, "action")
+			return nil
+		}
+	}
+
+	with, err := actionWith(raw)
+	if err != nil {
+		return err
+	}
+
+	switch action {
+	case "dag.run":
+		return normalizeDagRunAction(normalized, with)
+	case "exec":
+		return normalizeExecAction(normalized, with)
+	case "http.request":
+		return normalizeHTTPRequestAction(normalized, with)
+	case "ssh.run":
+		return normalizeCommandAction(normalized, "ssh", with, "command")
+	case "sftp.upload":
+		return normalizeDirectionAction(normalized, "sftp", with, "upload")
+	case "sftp.download":
+		return normalizeDirectionAction(normalized, "sftp", with, "download")
+	case "docker.run":
+		return normalizeCommandAction(normalized, "docker", with, "command")
+	case "container.run":
+		return normalizeCommandAction(normalized, "container", with, "command")
+	case "k8s.run":
+		return normalizeCommandAction(normalized, "k8s", with, "command")
+	case "kubernetes.run":
+		return normalizeCommandAction(normalized, "kubernetes", with, "command")
+	case "postgres.query":
+		return normalizeCommandAction(normalized, "postgres", with, "query")
+	case "sqlite.query":
+		return normalizeCommandAction(normalized, "sqlite", with, "query")
+	case "jq.filter":
+		return normalizeCommandAction(normalized, "jq", with, "filter")
+	case "mail.send":
+		return normalizeTypedAction(normalized, "mail", with)
+	case "archive.extract":
+		return normalizeOperationAction(normalized, "archive", with, "extract")
+	case "archive.create":
+		return normalizeOperationAction(normalized, "archive", with, "create")
+	case "archive.list":
+		return normalizeOperationAction(normalized, "archive", with, "list")
+	case "s3.upload":
+		return normalizeOperationAction(normalized, "s3", with, "upload")
+	case "s3.download":
+		return normalizeOperationAction(normalized, "s3", with, "download")
+	case "s3.list":
+		return normalizeOperationAction(normalized, "s3", with, "list")
+	case "s3.delete":
+		return normalizeOperationAction(normalized, "s3", with, "delete")
+	case "template.render":
+		return normalizeTemplateAction(normalized, with)
+	case "log.write":
+		return normalizeLogAction(normalized, with)
+	case "router.route":
+		return normalizeRouterAction(normalized, with)
+	case "chat.completion":
+		return normalizeChatAction(normalized, with)
+	case "agent.run":
+		return normalizeAgentAction(normalized, with)
+	case "harness.run":
+		return normalizeCommandAction(normalized, "harness", with, "prompt")
+	case "noop":
+		return normalizeNoopAction(normalized, with)
+	default:
+		if strings.HasPrefix(action, "redis.") {
+			return normalizeRedisAction(normalized, with, strings.TrimPrefix(action, "redis."))
+		}
+		return core.NewValidationError("action", raw["action"], fmt.Errorf("unknown action %q", action))
+	}
+}
+
+func actionWith(raw map[string]any) (map[string]any, error) {
+	withRaw, exists := raw["with"]
+	if !exists {
+		return nil, nil
+	}
+	with, ok := withRaw.(map[string]any)
+	if !ok {
+		return nil, core.NewValidationError("with", withRaw, fmt.Errorf("with must be an object"))
+	}
+	return cloneMap(with), nil
+}
+
+func requireActionField(with map[string]any, field string) (any, error) {
+	if with == nil {
+		return nil, core.NewValidationError("with", nil, fmt.Errorf("with.%s is required", field))
+	}
+	value, exists := with[field]
+	if !exists {
+		return nil, core.NewValidationError("with", with, fmt.Errorf("with.%s is required", field))
+	}
+	return value, nil
+}
+
+func requireActionStringField(with map[string]any, field string) (string, error) {
+	value, err := requireActionField(with, field)
+	if err != nil {
+		return "", err
+	}
+	str, ok := value.(string)
+	if !ok || strings.TrimSpace(str) == "" {
+		return "", core.NewValidationError("with", with, fmt.Errorf("with.%s must be a non-empty string", field))
+	}
+	return strings.TrimSpace(str), nil
+}
+
+func finishAction(normalized map[string]any, executorType string, with map[string]any) error {
+	normalized["type"] = executorType
+	if len(with) == 0 {
+		delete(normalized, "with")
+	} else {
+		normalized["with"] = with
+	}
+	delete(normalized, "action")
+	return nil
+}
+
+func normalizeTypedAction(normalized map[string]any, executorType string, with map[string]any) error {
+	return finishAction(normalized, executorType, with)
+}
+
+func normalizeHTTPRequestAction(normalized map[string]any, with map[string]any) error {
+	if _, err := requireActionStringField(with, "method"); err != nil {
+		return err
+	}
+	if _, err := requireActionStringField(with, "url"); err != nil {
+		return err
+	}
+	return finishAction(normalized, "http", with)
+}
+
+func normalizeDagRunAction(normalized map[string]any, with map[string]any) error {
+	dagName, err := requireActionStringField(with, "dag")
+	if err != nil {
+		return err
+	}
+	for key := range with {
+		if key != "dag" && key != "params" {
+			return core.NewValidationError("with", with, fmt.Errorf("dag.run does not support with.%s", key))
+		}
+	}
+	normalized["call"] = dagName
+	if params, ok := with["params"]; ok {
+		normalized["params"] = cloneAny(params)
+	}
+	delete(normalized, "with")
+	delete(normalized, "action")
+	return nil
+}
+
+func normalizeExecAction(normalized map[string]any, with map[string]any) error {
+	command, err := requireActionStringField(with, "command")
+	if err != nil {
+		return err
+	}
+	exec := map[string]any{"command": command}
+	if args, ok := with["args"]; ok {
+		exec["args"] = cloneAny(args)
+	}
+	for key := range with {
+		if key != "command" && key != "args" {
+			return core.NewValidationError("with", with, fmt.Errorf("exec does not support with.%s", key))
+		}
+	}
+	normalized["exec"] = exec
+	delete(normalized, "with")
+	delete(normalized, "action")
+	return nil
+}
+
+func normalizeCommandAction(normalized map[string]any, executorType string, with map[string]any, field string) error {
+	value, err := requireActionField(with, field)
+	if err != nil {
+		return err
+	}
+	delete(with, field)
+	normalized["command"] = cloneAny(value)
+	return finishAction(normalized, executorType, with)
+}
+
+func normalizeDirectionAction(normalized map[string]any, executorType string, with map[string]any, direction string) error {
+	if with == nil {
+		with = map[string]any{}
+	}
+	if existing, ok := with["direction"]; ok && existing != direction {
+		return core.NewValidationError("with.direction", existing, fmt.Errorf("direction must be %q for this action", direction))
+	}
+	with["direction"] = direction
+	return finishAction(normalized, executorType, with)
+}
+
+func normalizeOperationAction(normalized map[string]any, executorType string, with map[string]any, operation string) error {
+	normalized["command"] = operation
+	return finishAction(normalized, executorType, with)
+}
+
+func normalizeTemplateAction(normalized map[string]any, with map[string]any) error {
+	template, err := requireActionStringField(with, "template")
+	if err != nil {
+		return err
+	}
+	delete(with, "template")
+	normalized["script"] = template
+	return finishAction(normalized, "template", with)
+}
+
+func normalizeLogAction(normalized map[string]any, with map[string]any) error {
+	if _, err := requireActionStringField(with, "message"); err != nil {
+		return err
+	}
+	return finishAction(normalized, "log", with)
+}
+
+func normalizeRouterAction(normalized map[string]any, with map[string]any) error {
+	value, err := requireActionStringField(with, "value")
+	if err != nil {
+		return err
+	}
+	routes, err := requireActionField(with, "routes")
+	if err != nil {
+		return err
+	}
+	normalized["value"] = value
+	normalized["routes"] = cloneAny(routes)
+	delete(normalized, "with")
+	normalized["type"] = "router"
+	delete(normalized, "action")
+	return nil
+}
+
+func normalizeChatAction(normalized map[string]any, with map[string]any) error {
+	messages, ok, err := actionMessages(with)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return core.NewValidationError("with", with, fmt.Errorf("chat.completion requires with.prompt or with.messages"))
+	}
+	normalized["messages"] = messages
+	delete(with, "prompt")
+	delete(with, "messages")
+	if len(with) > 0 {
+		normalized["llm"] = with
+	}
+	delete(normalized, "with")
+	normalized["type"] = "chat"
+	delete(normalized, "action")
+	return nil
+}
+
+func normalizeAgentAction(normalized map[string]any, with map[string]any) error {
+	messages, ok, err := actionMessages(with)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		task, err := requireActionStringField(with, "task")
+		if err != nil {
+			return core.NewValidationError("with", with, fmt.Errorf("agent.run requires with.task, with.prompt, or with.messages"))
+		}
+		messages = []any{map[string]any{"role": "user", "content": task}}
+		delete(with, "task")
+	}
+	normalized["messages"] = messages
+	delete(with, "prompt")
+	delete(with, "messages")
+	if len(with) > 0 {
+		normalized["agent"] = with
+	}
+	delete(normalized, "with")
+	normalized["type"] = "agent"
+	delete(normalized, "action")
+	return nil
+}
+
+func actionMessages(with map[string]any) ([]any, bool, error) {
+	if with == nil {
+		return nil, false, nil
+	}
+	if promptRaw, ok := with["prompt"]; ok {
+		prompt, ok := promptRaw.(string)
+		if !ok || strings.TrimSpace(prompt) == "" {
+			return nil, false, core.NewValidationError("with.prompt", promptRaw, fmt.Errorf("with.prompt must be a non-empty string"))
+		}
+		return []any{map[string]any{"role": "user", "content": prompt}}, true, nil
+	}
+	if messagesRaw, ok := with["messages"]; ok {
+		messages, ok := messagesRaw.([]any)
+		if !ok || len(messages) == 0 {
+			return nil, false, core.NewValidationError("with.messages", messagesRaw, fmt.Errorf("with.messages must be a non-empty array"))
+		}
+		return cloneAny(messages).([]any), true, nil
+	}
+	return nil, false, nil
+}
+
+func normalizeRedisAction(normalized map[string]any, with map[string]any, op string) error {
+	op = strings.TrimSpace(op)
+	if op == "" {
+		return core.NewValidationError("action", normalized["action"], fmt.Errorf("redis action requires an operation name"))
+	}
+	if with == nil {
+		with = map[string]any{}
+	}
+	if existing, ok := with["command"]; ok && !strings.EqualFold(fmt.Sprintf("%v", existing), op) {
+		return core.NewValidationError("with.command", existing, fmt.Errorf("command must be %q for this action", strings.ToUpper(op)))
+	}
+	with["command"] = strings.ToUpper(op)
+	return finishAction(normalized, "redis", with)
+}
+
+func normalizeNoopAction(normalized map[string]any, with map[string]any) error {
+	if len(with) > 0 {
+		return core.NewValidationError("with", with, fmt.Errorf("noop does not accept with"))
+	}
+	return finishAction(normalized, "noop", nil)
+}
+
+func isBuiltinActionName(name string) bool {
+	name = strings.TrimSpace(name)
+	if _, ok := builtinActionNames[name]; ok {
+		return true
+	}
+	return strings.HasPrefix(name, "redis.") && strings.TrimPrefix(name, "redis.") != ""
+}

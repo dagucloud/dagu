@@ -11,6 +11,8 @@ import (
 var configSchema = &jsonschema.Schema{
 	Type: "object",
 	Properties: map[string]*jsonschema.Schema{
+		"method":  {Type: "string", Description: "HTTP method for action: http.request"},
+		"url":     {Type: "string", Description: "Request URL for action: http.request"},
 		"timeout": {Type: "integer", Description: "Request timeout in seconds"},
 		"headers": {
 			Type:                 "object",
