@@ -291,6 +291,102 @@ func TestListTree(t *testing.T) {
 	assert.Equal(t, "readme.md", result.Items[1].Name)
 }
 
+func TestListRefreshesCachedIndexFromDirectoryFingerprints(t *testing.T) {
+	store := newTestStore(t)
+	store.indexCheckInterval = 0
+	ctx := context.Background()
+
+	result, err := store.ListFlat(ctx, defaultFlatOpts(1, 50))
+	require.NoError(t, err)
+	require.Empty(t, result.Items)
+	require.True(t, store.indexBuilt)
+
+	require.NoError(t, os.WriteFile(filepath.Join(store.baseDir, "external.md"), []byte("---\ntitle: External\n---\nbody"), 0600))
+
+	result, err = store.ListFlat(ctx, defaultFlatOpts(1, 50))
+	require.NoError(t, err)
+	require.Len(t, result.Items, 1)
+	assert.Equal(t, "external", result.Items[0].ID)
+	assert.Equal(t, "External", result.Items[0].Title)
+}
+
+func TestListRefreshesCachedIndexFromFileFingerprints(t *testing.T) {
+	store := newTestStore(t)
+	store.indexCheckInterval = 0
+	ctx := context.Background()
+
+	require.NoError(t, store.Create(ctx, "fingerprint", "---\ntitle: Old\n---\nbody"))
+	result, err := store.ListFlat(ctx, defaultFlatOpts(1, 50))
+	require.NoError(t, err)
+	require.Len(t, result.Items, 1)
+	assert.Equal(t, "Old", result.Items[0].Title)
+
+	require.NoError(t, os.WriteFile(filepath.Join(store.baseDir, "fingerprint.md"), []byte("---\ntitle: New\n---\nbody changed"), 0600))
+
+	result, err = store.ListFlat(ctx, defaultFlatOpts(1, 50))
+	require.NoError(t, err)
+	require.Len(t, result.Items, 1)
+	assert.Equal(t, "New", result.Items[0].Title)
+}
+
+func TestListDoesNotRefreshCachedIndexBeforeCheckInterval(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	result, err := store.ListFlat(ctx, defaultFlatOpts(1, 50))
+	require.NoError(t, err)
+	require.Empty(t, result.Items)
+
+	require.NoError(t, os.WriteFile(filepath.Join(store.baseDir, "external.md"), []byte("body"), 0600))
+
+	result, err = store.ListFlat(ctx, defaultFlatOpts(1, 50))
+	require.NoError(t, err)
+	require.Empty(t, result.Items)
+
+	store.mu.Lock()
+	store.indexCheckedAt = time.Now().Add(-store.indexCheckInterval - time.Second)
+	store.mu.Unlock()
+
+	result, err = store.ListFlat(ctx, defaultFlatOpts(1, 50))
+	require.NoError(t, err)
+	require.Len(t, result.Items, 1)
+	assert.Equal(t, "external", result.Items[0].ID)
+}
+
+func TestCachedIndexTracksStoreMutations(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	_, err := store.List(ctx, defaultListOpts(1, 50))
+	require.NoError(t, err)
+	require.True(t, store.indexBuilt)
+
+	require.NoError(t, store.Create(ctx, "runbooks/deploy", "---\ntitle: Deploy\n---\nbody"))
+	result, err := store.List(ctx, defaultListOpts(1, 50))
+	require.NoError(t, err)
+	require.Len(t, result.Items, 1)
+	assert.Equal(t, "runbooks", result.Items[0].ID)
+	require.Len(t, result.Items[0].Children, 1)
+	assert.Equal(t, "Deploy", result.Items[0].Children[0].Title)
+
+	require.NoError(t, store.Update(ctx, "runbooks/deploy", "---\ntitle: Deploy Updated\n---\nbody"))
+	flat, err := store.ListFlat(ctx, defaultFlatOpts(1, 50))
+	require.NoError(t, err)
+	require.Len(t, flat.Items, 1)
+	assert.Equal(t, "Deploy Updated", flat.Items[0].Title)
+
+	require.NoError(t, store.Rename(ctx, "runbooks", "ops"))
+	result, err = store.List(ctx, defaultListOpts(1, 50))
+	require.NoError(t, err)
+	require.Len(t, result.Items, 1)
+	assert.Equal(t, "ops", result.Items[0].ID)
+
+	require.NoError(t, store.Delete(ctx, "ops/deploy"))
+	result, err = store.List(ctx, defaultListOpts(1, 50))
+	require.NoError(t, err)
+	assert.Empty(t, result.Items)
+}
+
 func TestListTreeExcludePathRootsBeforePagination(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()

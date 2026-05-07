@@ -408,6 +408,7 @@ func (a *API) CreateDoc(ctx context.Context, request api.CreateDocRequestObject)
 		"doc_id":    id,
 		"workspace": workspaceName,
 	})
+	a.notifyDocMutation()
 
 	msg := fmt.Sprintf("Document %s created", id)
 	return api.CreateDoc201JSONResponse{Message: &msg}, nil
@@ -538,6 +539,7 @@ func (a *API) UpdateDoc(ctx context.Context, request api.UpdateDocRequestObject)
 		"doc_id":    request.Params.Path,
 		"workspace": workspaceName,
 	})
+	a.notifyDocMutation()
 
 	msg := "Document updated"
 	return api.UpdateDoc200JSONResponse{Message: &msg}, nil
@@ -572,6 +574,7 @@ func (a *API) DeleteDoc(ctx context.Context, request api.DeleteDocRequestObject)
 		"doc_id":    request.Params.Path,
 		"workspace": workspaceName,
 	})
+	a.notifyDocMutation()
 
 	return api.DeleteDoc204Response{}, nil
 }
@@ -616,6 +619,7 @@ func (a *API) RenameDoc(ctx context.Context, request api.RenameDocRequestObject)
 		"new_path":  request.Body.NewPath,
 		"workspace": workspaceName,
 	})
+	a.notifyDocMutation()
 
 	msg := fmt.Sprintf("Document renamed to %s", request.Body.NewPath)
 	return api.RenameDoc200JSONResponse{Message: &msg}, nil
@@ -678,6 +682,9 @@ func (a *API) DeleteDocBatch(ctx context.Context, request api.DeleteDocBatchRequ
 			Path:  visibleDocPath(workspaceName, f.ID),
 			Error: f.Error,
 		})
+	}
+	if len(visibleDeleted) > 0 {
+		a.notifyDocMutation()
 	}
 
 	msg := fmt.Sprintf("Deleted %d, failed %d", len(visibleDeleted), len(failed))
