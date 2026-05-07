@@ -504,3 +504,42 @@ func TestPlan_WaitingStepNames(t *testing.T) {
 		})
 	}
 }
+
+func TestCreateRetryPlan_PrefersPersistedNodeWorkingDir(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		nodeDir string
+	}{
+		{name: "restored dag step dir changed"},
+		{name: "persisted node step dir changed", nodeDir: "/stale-node-work"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dag := &core.DAG{
+				Name: "retry-work-dir",
+				Steps: []core.Step{
+					{Name: "target", Dir: "/changed-work"},
+				},
+			}
+			node := runtime.NodeWithData(runtime.NodeData{
+				Step: core.Step{Name: "target", Dir: tt.nodeDir},
+				State: runtime.NodeState{
+					Status:     core.NodeFailed,
+					WorkingDir: "/original-work",
+				},
+			})
+
+			plan, err := runtime.CreateRetryPlan(context.Background(), dag, node)
+			require.NoError(t, err)
+
+			target := plan.GetNodeByName("target")
+			require.NotNil(t, target)
+			require.Equal(t, "/original-work", target.Step().Dir)
+		})
+	}
+}

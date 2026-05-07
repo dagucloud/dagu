@@ -78,11 +78,24 @@ func parseScheduleTimeParam(ctx *Context) (string, error) {
 
 // restoreDAGFromStatus restores a DAG from a previous run's status and YAML.
 // It restores params from the status, loads dotenv, and rebuilds fields excluded
-// from JSON serialization (env, shell, workingDir, registryAuths, etc.).
+// from JSON serialization (env, params JSON, registryAuths, etc.).
 func restoreDAGFromStatus(ctx context.Context, dag *core.DAG, status *exec.DAGRunStatus) (*core.DAG, error) {
 	dag.Params = spec.QuoteRuntimeParams(status.ParamsList, dag.ParamDefs)
 	dag.LoadDotEnv(ctx)
-	return rebuildDAGFromYAML(ctx, dag)
+	restored, err := rebuildDAGFromYAML(ctx, dag)
+	if err != nil {
+		return nil, err
+	}
+	applyPersistedRunWorkingDir(restored, status)
+	return restored, nil
+}
+
+func applyPersistedRunWorkingDir(dag *core.DAG, status *exec.DAGRunStatus) {
+	if dag == nil || status == nil || status.WorkingDir == "" {
+		return
+	}
+	dag.WorkingDir = status.WorkingDir
+	dag.WorkingDirExplicit = true
 }
 
 // rebuildDAGFromYAML rebuilds a DAG from its YamlData using the spec loader.
