@@ -281,11 +281,11 @@ func TestSessionManager_EnqueueChatMessage_MergesWhileWorking(t *testing.T) {
 		t.Fatal("timed out waiting for active turn")
 	}
 
-	queued, err := sm.EnqueueChatMessage(context.Background(), provider, "config-id", "provider-model", "second")
+	queued, err := sm.EnqueueChatMessageWithLLMContent(context.Background(), provider, "config-id", "provider-model", "second", "second llm")
 	require.NoError(t, err)
 	assert.True(t, queued)
 
-	queued, err = sm.EnqueueChatMessage(context.Background(), provider, "config-id", "provider-model", "third")
+	queued, err = sm.EnqueueChatMessageWithLLMContent(context.Background(), provider, "config-id", "provider-model", "third", "third llm")
 	require.NoError(t, err)
 	assert.True(t, queued)
 
@@ -294,17 +294,19 @@ func TestSessionManager_EnqueueChatMessage_MergesWhileWorking(t *testing.T) {
 	assert.Equal(t, "first", msgs[0].Content)
 	assert.True(t, sm.HasQueuedChatInput())
 
-	text, ok := sm.BeginQueuedChatFlush()
+	text, llmText, ok := sm.BeginQueuedChatFlush()
 	require.True(t, ok)
 	assert.Equal(t, "second\n\nthird", text)
+	assert.Equal(t, "second llm\n\nthird llm", llmText)
 	assert.True(t, sm.HasQueuedChatInput(), "flush marker should keep queued state visible")
 
-	sm.RestoreQueuedChatInput(text)
+	sm.RestoreQueuedChatInput(text, llmText)
 	assert.True(t, sm.HasQueuedChatInput())
 
-	text, ok = sm.BeginQueuedChatFlush()
+	text, llmText, ok = sm.BeginQueuedChatFlush()
 	require.True(t, ok)
 	assert.Equal(t, "second\n\nthird", text)
+	assert.Equal(t, "second llm\n\nthird llm", llmText)
 	sm.CompleteQueuedChatFlush()
 	assert.False(t, sm.HasQueuedChatInput())
 

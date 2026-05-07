@@ -253,6 +253,29 @@ func TestRegisterDedicatedSSEFetchersUsesMutationInvalidationForDocTopics(t *tes
 	}
 }
 
+func TestCacheControlForAssetDisablesJavaScriptCaching(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "no-cache, no-store, must-revalidate", cacheControlForAsset("/assets/bundle.js"))
+	assert.Equal(t, "no-cache, no-store, must-revalidate", cacheControlForAsset("/assets/legacy.js"))
+}
+
+func TestCacheControlForAssetCachesContentHashedJavaScriptChunks(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(
+		t,
+		"max-age=31536000, immutable",
+		cacheControlForAsset("/assets/vendors.a1b2c3d4e5f6a1b2.bundle.js"),
+	)
+}
+
+func TestCacheControlForAssetCachesNonJavaScriptAssets(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "max-age=86400", cacheControlForAsset("/assets/favicon.ico"))
+}
+
 func TestInitBuiltinAuthService_AutoProvision(t *testing.T) {
 	t.Parallel()
 

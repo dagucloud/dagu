@@ -21,6 +21,11 @@ import (
 
 const queuedChatMessageSeparator = "\n\n"
 
+type queuedChatMessage struct {
+	displayContent string
+	llmContent     string
+}
+
 // SessionManager manages a single active session.
 // It links the Loop with SSE streaming and handles state management.
 // Lock ordering: mu must be acquired before promptsMu when both are needed.
@@ -36,7 +41,7 @@ type SessionManager struct {
 	lastHeartbeat         time.Time
 	model                 string
 	messages              []Message
-	queuedChatMessages    []string
+	queuedChatMessages    []queuedChatMessage
 	flushingQueuedChat    bool
 	subpub                *SubPub[StreamResponse]
 	working               bool
@@ -668,7 +673,10 @@ func (sm *SessionManager) EnqueueChatMessageWithLLMContent(ctx context.Context, 
 	sm.mu.Lock()
 	shouldQueue := sm.working || sm.hasQueuedChatInputLocked()
 	if shouldQueue {
-		sm.queuedChatMessages = append(sm.queuedChatMessages, displayContent)
+		sm.queuedChatMessages = append(sm.queuedChatMessages, queuedChatMessage{
+			displayContent: displayContent,
+			llmContent:     llmContent,
+		})
 		sm.bumpLastActivityLocked(time.Now())
 	}
 	loop := sm.loop
@@ -717,28 +725,39 @@ func (sm *SessionManager) AcceptUserMessageWithLLMContent(ctx context.Context, p
 
 // BeginQueuedChatFlush drains the current merged chat buffer and marks a flush
 // as in progress so concurrent enqueues continue merging instead of racing a new turn.
-func (sm *SessionManager) BeginQueuedChatFlush() (string, bool) {
+func (sm *SessionManager) BeginQueuedChatFlush() (string, string, bool) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	if sm.flushingQueuedChat || len(sm.queuedChatMessages) == 0 {
-		return "", false
+		return "", "", false
 	}
 	sm.flushingQueuedChat = true
-	text := strings.Join(append([]string(nil), sm.queuedChatMessages...), queuedChatMessageSeparator)
+	displayParts := make([]string, 0, len(sm.queuedChatMessages))
+	llmParts := make([]string, 0, len(sm.queuedChatMessages))
+	for _, msg := range sm.queuedChatMessages {
+		displayParts = append(displayParts, msg.displayContent)
+		llmParts = append(llmParts, msg.llmContent)
+	}
+	displayText := strings.Join(displayParts, queuedChatMessageSeparator)
+	llmText := strings.Join(llmParts, queuedChatMessageSeparator)
 	sm.queuedChatMessages = nil
-	return text, true
+	return displayText, llmText, true
 }
 
 // RestoreQueuedChatInput restores a drained merged chat buffer after a failed flush.
-func (sm *SessionManager) RestoreQueuedChatInput(text string) {
-	if text == "" {
+func (sm *SessionManager) RestoreQueuedChatInput(displayContent, llmContent string) {
+	if displayContent == "" && llmContent == "" {
 		sm.CompleteQueuedChatFlush()
 		return
 	}
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.flushingQueuedChat = false
-	sm.queuedChatMessages = append([]string{text}, sm.queuedChatMessages...)
+	restored := queuedChatMessage{
+		displayContent: displayContent,
+		llmContent:     llmContent,
+	}
+	sm.queuedChatMessages = append([]queuedChatMessage{restored}, sm.queuedChatMessages...)
 	sm.bumpLastActivityLocked(time.Now())
 }
 
@@ -888,10 +907,11 @@ func (sm *SessionManager) createLoop(provider llm.Provider, model string, histor
 		RecordMessage: sm.createRecordMessageFunc(),
 		Logger:        sm.logger,
 		SystemPrompt: GenerateSystemPrompt(SystemPromptParams{
-			Env:    sm.environment,
-			Memory: memory,
-			Role:   sm.user.Role,
-			Soul:   sm.soul,
+			Env:             sm.environment,
+			Memory:          memory,
+			Role:            sm.user.Role,
+			WorkspaceAccess: sm.user.WorkspaceAccess,
+			Soul:            sm.soul,
 		}),
 		WorkingDir:       sm.workingDir,
 		SessionID:        sm.id,

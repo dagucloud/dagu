@@ -641,12 +641,13 @@ func (a *API) ensureSessionLoop(mgr *SessionManager, provider llm.Provider, cfg 
 	return mgr.ensureLoop(provider, cfg.modelID, cfg.resolvedModel)
 }
 
-func (a *API) buildSystemPrompt(ctx context.Context, role auth.Role, dagName string, soul *Soul) string {
+func (a *API) buildSystemPrompt(ctx context.Context, user UserIdentity, dagName string, soul *Soul) string {
 	return GenerateSystemPrompt(SystemPromptParams{
-		Env:    a.environment,
-		Memory: a.loadMemoryContent(ctx, dagName),
-		Role:   role,
-		Soul:   soul,
+		Env:             a.environment,
+		Memory:          a.loadMemoryContent(ctx, dagName),
+		Role:            user.Role,
+		WorkspaceAccess: user.WorkspaceAccess,
+		Soul:            soul,
 	})
 }
 
@@ -1247,7 +1248,7 @@ func (a *API) GenerateAssistantMessage(ctx context.Context, sessionID string, us
 		}
 	}
 
-	systemPrompt := a.buildSystemPrompt(ctx, user.Role, runtimeCfg.dagName, runtimeCfg.soul)
+	systemPrompt := a.buildSystemPrompt(ctx, user, runtimeCfg.dagName, runtimeCfg.soul)
 	resp, err := a.runOneShotPrompt(ctx, provider, runtimeCfg.resolvedModel, systemPrompt, prompt)
 	if err != nil {
 		return Message{}, err
@@ -1338,7 +1339,7 @@ func (a *API) CompactSessionIfNeeded(ctx context.Context, sessionID string, user
 	}
 
 	mgr.mu.Lock()
-	queuedChatMessages := append([]string(nil), mgr.queuedChatMessages...)
+	queuedChatMessages := append([]queuedChatMessage(nil), mgr.queuedChatMessages...)
 	flushingQueuedChat := mgr.flushingQueuedChat
 	mgr.mu.Unlock()
 	if len(queuedChatMessages) > 0 || flushingQueuedChat {
@@ -1439,7 +1440,12 @@ func (a *API) EnqueueChatMessage(ctx context.Context, sessionID string, user Use
 	}
 
 	if mgr.IsWorking() || mgr.HasQueuedChatInput() {
-		queued, err := mgr.EnqueueChatMessage(ctx, provider, model, resolvedModel, req.Message)
+		displayMessage, messageWithContext, err := a.prepareQueuedChatDisplayAndLLMContent(ctx, req)
+		if err != nil {
+			a.logger.Error("Failed to prepare queued chat content", "error", err)
+			return ChatQueueResult{}, ErrFailedToProcessMessage
+		}
+		queued, err := mgr.EnqueueChatMessageWithLLMContent(ctx, provider, model, resolvedModel, displayMessage, messageWithContext)
 		if err != nil {
 			a.logger.Error("Failed to enqueue chat message", "error", err)
 			return ChatQueueResult{}, ErrFailedToProcessMessage
@@ -1484,47 +1490,40 @@ func (a *API) FlushQueuedChatMessage(ctx context.Context, sessionID string, user
 		return ChatQueueResult{SessionID: sessionID}, nil
 	}
 
-	text, ok := mgr.BeginQueuedChatFlush()
+	displayText, llmText, ok := mgr.BeginQueuedChatFlush()
 	if !ok {
 		return ChatQueueResult{SessionID: sessionID}, nil
 	}
 
-	targetSessionID := sessionID
-	rotated := false
-
 	targetSessionID, rotated, err := a.CompactSessionIfNeeded(ctx, sessionID, user)
 	if err != nil {
-		mgr.RestoreQueuedChatInput(text)
+		mgr.RestoreQueuedChatInput(displayText, llmText)
 		return ChatQueueResult{}, err
 	}
 
 	targetMgr, ok := a.getOrReactivateSession(ctx, targetSessionID, user)
 	if !ok {
-		if rotated {
-			mgr.RestoreQueuedChatInput(text)
-		} else {
-			mgr.RestoreQueuedChatInput(text)
-		}
+		mgr.RestoreQueuedChatInput(displayText, llmText)
 		return ChatQueueResult{}, ErrSessionNotFound
 	}
 
 	req := ChatRequest{
-		Message:  text,
+		Message:  displayText,
 		SafeMode: targetMgr.safeMode,
 	}
 	provider, model, resolvedModel, err := a.prepareSessionRuntime(ctx, targetMgr, user, req)
 	if err != nil {
-		targetMgr.RestoreQueuedChatInput(text)
+		targetMgr.RestoreQueuedChatInput(displayText, llmText)
 		return ChatQueueResult{}, err
 	}
-	displayMessage, messageWithContext, err := a.prepareChatDisplayAndLLMContent(ctx, targetSessionID, req)
+	displayMessage, messageWithContext, err := a.materializeQueuedChatDisplayAndLLMContent(targetSessionID, displayText, llmText)
 	if err != nil {
-		targetMgr.RestoreQueuedChatInput(text)
+		targetMgr.RestoreQueuedChatInput(displayText, llmText)
 		a.logger.Error("Failed to prepare queued chat content", "error", err)
 		return ChatQueueResult{}, ErrFailedToProcessMessage
 	}
 	if err := targetMgr.AcceptUserMessageWithLLMContent(ctx, provider, model, resolvedModel, displayMessage, messageWithContext); err != nil {
-		targetMgr.RestoreQueuedChatInput(text)
+		targetMgr.RestoreQueuedChatInput(displayText, llmText)
 		a.logger.Error("Failed to flush queued chat message", "error", err)
 		return ChatQueueResult{}, ErrFailedToProcessMessage
 	}

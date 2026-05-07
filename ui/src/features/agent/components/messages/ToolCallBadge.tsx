@@ -88,7 +88,7 @@ export function ToolCallBadge({
   const display = toolDisplay(toolCall.function.name, args);
 
   return (
-    <span className="inline-flex min-w-0 flex-col">
+    <div className="inline-flex min-w-0 flex-col">
       <button
         type="button"
         aria-expanded={expanded}
@@ -105,16 +105,16 @@ export function ToolCallBadge({
         )}
       </button>
       {expanded && (
-        <span className="mt-1 block rounded-sm border border-border/70 bg-muted/30 p-2 text-xs text-foreground">
+        <div className="mt-1 rounded-sm border border-border/70 bg-muted/30 p-2 text-xs text-foreground">
           <span className="mb-1 block text-[11px] text-muted-foreground">
             {toolCall.function.name}
           </span>
           <pre className="max-h-[180px] overflow-auto whitespace-pre-wrap break-words text-[11px] leading-relaxed">
             {JSON.stringify(args, null, 2)}
           </pre>
-        </span>
+        </div>
       )}
-    </span>
+    </div>
   );
 }
 

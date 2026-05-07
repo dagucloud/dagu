@@ -486,12 +486,13 @@ func (s *Store) removeDirIndexAfterDelete(ctx context.Context, id string) {
 }
 
 func (s *Store) rebuildIndexAfterMutation(ctx context.Context) {
+	rebuildCtx := context.Background()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.indexBuilt {
 		return
 	}
-	if err := s.rebuildIndexLocked(ctx); err != nil {
+	if err := s.rebuildIndexLocked(rebuildCtx); err != nil {
 		logger.Warn(ctx, "Failed to rebuild doc index", tag.Error(err))
 		return
 	}
@@ -920,6 +921,9 @@ func (s *Store) DeleteBatch(ctx context.Context, ids []string) ([]string, []agen
 			s.removeDocIndexAfterDelete(ctx, id)
 			deleted = append(deleted, id)
 			continue
+		} else if !os.IsNotExist(err) {
+			failed = append(failed, agent.DeleteError{ID: id, Error: err.Error()})
+			continue
 		}
 
 		// Try as directory.
@@ -929,11 +933,15 @@ func (s *Store) DeleteBatch(ctx context.Context, ids []string) ([]string, []agen
 			continue
 		}
 		info, err := os.Stat(dirPath)
-		if err != nil || !info.IsDir() {
+		if os.IsNotExist(err) || (err == nil && !info.IsDir()) {
 			// Not found → treat as success (idempotency).
 			s.removeDocIndexAfterDelete(ctx, id)
 			s.removeDirIndexAfterDelete(ctx, id)
 			deleted = append(deleted, id)
+			continue
+		}
+		if err != nil {
+			failed = append(failed, agent.DeleteError{ID: id, Error: err.Error()})
 			continue
 		}
 		if err := s.safeDeleteDir(dirPath); err != nil {

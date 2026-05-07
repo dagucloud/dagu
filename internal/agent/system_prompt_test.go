@@ -4,6 +4,7 @@
 package agent
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -337,6 +338,55 @@ step_types:
 
 		assert.Contains(t, result, "workspace `ops`")
 		assert.Contains(t, result, "`deploy_service` -> `command`")
+	})
+
+	t.Run("filters workspace base config files by workspace access", func(t *testing.T) {
+		dir := t.TempDir()
+		for workspaceName, stepTypeName := range map[string]string{
+			"ops":  "deploy_service",
+			"prod": "prod_release",
+		} {
+			workspaceBaseDir := filepath.Join(dir, "workspaces", workspaceName)
+			require.NoError(t, os.MkdirAll(workspaceBaseDir, 0o750))
+			require.NoError(t, os.WriteFile(filepath.Join(workspaceBaseDir, "base.yaml"), []byte(fmt.Sprintf(`
+step_types:
+  %s:
+    type: command
+    description: Workspace step
+    input_schema:
+      type: object
+      additionalProperties: false
+    template:
+      command: echo workspace
+`, stepTypeName)), 0o600))
+		}
+
+		result := GenerateSystemPrompt(SystemPromptParams{
+			Env:  EnvironmentInfo{DAGsDir: dir},
+			Role: auth.RoleViewer,
+			WorkspaceAccess: &auth.WorkspaceAccess{
+				Grants: []auth.WorkspaceGrant{{Workspace: "ops", Role: auth.RoleViewer}},
+			},
+		})
+
+		assert.Contains(t, result, "workspace `ops`")
+		assert.Contains(t, result, "`deploy_service` -> `command`")
+		assert.NotContains(t, result, "workspace `prod`")
+		assert.NotContains(t, result, "prod_release")
+	})
+
+	t.Run("surfaces workspace base config directory inspection errors", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "workspaces"), []byte("not a directory"), 0o600))
+
+		result := GenerateSystemPrompt(SystemPromptParams{
+			Env:  EnvironmentInfo{DAGsDir: dir},
+			Role: auth.RoleDeveloper,
+		})
+
+		assert.Contains(t, result, "workspace base config directory")
+		assert.Contains(t, result, "unable to inspect")
+		assert.NotContains(t, result, "none found in configured base config files")
 	})
 }
 

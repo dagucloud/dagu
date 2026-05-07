@@ -61,7 +61,7 @@ export function resolveDocTreeMove({
 }: ResolveMoveInput): {
   oldPath: string;
   newPath: string;
-  workspace?: string | null;
+  workspace: string | null;
 } | null {
   const workspace = normalizedDocMutationWorkspace(dragWorkspace);
   const destinationWorkspace = parentId

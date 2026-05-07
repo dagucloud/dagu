@@ -323,7 +323,7 @@ export function ChatInput({
           disabled={disabled}
           rows={1}
           className={cn(
-            'max-h-[120px] min-h-[40px] flex-1 overflow-y-auto bg-background py-2 shadow-none',
+            'max-h-[120px] min-h-[40px] flex-1 overflow-y-auto bg-background py-1 shadow-none',
             disabled && 'cursor-not-allowed opacity-50'
           )}
           style={{
@@ -336,7 +336,7 @@ export function ChatInput({
             target.style.height = `${Math.min(target.scrollHeight, 120)}px`;
           }}
         />
-        {showPauseButton ? (
+        {showPauseButton && (
           <Button
             size="icon"
             variant="destructive"
@@ -347,19 +347,18 @@ export function ChatInput({
           >
             <Square className="h-4 w-4" />
           </Button>
-        ) : (
-          <Button
-            size="icon"
-            variant="primary"
-            onClick={handleSend}
-            disabled={!message.trim() || disabled}
-            className="h-10 w-10"
-            title="Send"
-            aria-label="Send message"
-          >
-            <Send className="h-4 w-4" />
-          </Button>
         )}
+        <Button
+          size="icon"
+          variant="primary"
+          onClick={handleSend}
+          disabled={!message.trim() || disabled || isPending}
+          className="h-10 w-10"
+          title="Send"
+          aria-label="Send message"
+        >
+          <Send className="h-4 w-4" />
+        </Button>
       </div>
     </div>
   );

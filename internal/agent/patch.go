@@ -331,8 +331,18 @@ func validateRequiredFields(operation PatchOperation, rawFields map[string]json.
 		if !ok || strings.TrimSpace(string(raw)) == "null" {
 			return fmt.Errorf("%s is required for %s operation", field, operation)
 		}
+		var value string
+		if err := json.Unmarshal(raw, &value); err == nil &&
+			strings.TrimSpace(value) == "" &&
+			!requiredFieldAllowsEmptyString(operation, field) {
+			return fmt.Errorf("%s is required for %s operation", field, operation)
+		}
 	}
 	return nil
+}
+
+func requiredFieldAllowsEmptyString(operation PatchOperation, field string) bool {
+	return operation == PatchOpReplace && field == "new_string"
 }
 
 func readExistingRegularFile(path string) (string, os.FileMode, ToolOut) {

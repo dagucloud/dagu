@@ -387,6 +387,26 @@ func TestCachedIndexTracksStoreMutations(t *testing.T) {
 	assert.Empty(t, result.Items)
 }
 
+func TestRenameDirectoryRebuildsCachedIndexAfterCallerCancel(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, store.Create(ctx, "runbooks/deploy", "---\ntitle: Deploy\n---\nbody"))
+	flat, err := store.ListFlat(ctx, defaultFlatOpts(1, 50))
+	require.NoError(t, err)
+	require.Len(t, flat.Items, 1)
+	assert.Equal(t, "runbooks/deploy", flat.Items[0].ID)
+
+	canceledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+	require.NoError(t, store.Rename(canceledCtx, "runbooks", "ops"))
+
+	flat, err = store.ListFlat(ctx, defaultFlatOpts(1, 50))
+	require.NoError(t, err)
+	require.Len(t, flat.Items, 1)
+	assert.Equal(t, "ops/deploy", flat.Items[0].ID)
+}
+
 func TestListTreeExcludePathRootsBeforePagination(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()

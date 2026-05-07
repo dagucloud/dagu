@@ -193,6 +193,18 @@ func TestPatchTool_Replace(t *testing.T) {
 		assert.Contains(t, result.Content, "required")
 	})
 
+	t.Run("errors when old_string is whitespace", func(t *testing.T) {
+		t.Parallel()
+
+		filePath := filepath.Join(t.TempDir(), "test.txt")
+		require.NoError(t, os.WriteFile(filePath, []byte("content"), 0o600))
+
+		result := tool.Run(ToolContext{}, patchInput(filePath, "replace", "old_string", " \t\n", "new_string", "b"))
+
+		assert.True(t, result.IsError)
+		assert.Contains(t, result.Content, "old_string is required for replace operation")
+	})
+
 	t.Run("errors when new_string is missing", func(t *testing.T) {
 		t.Parallel()
 

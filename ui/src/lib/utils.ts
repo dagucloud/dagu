@@ -30,15 +30,14 @@ export function parseLabelParts(label: string): {
 export const parseTagParts = parseLabelParts;
 
 /**
- * Converts a step name to a valid Mermaid node ID by encoding
- * all non-ASCII-alphanumeric characters (including emojis, CJK characters,
- * and other Unicode) that could break Mermaid syntax.
- * Each character is encoded as its hex code point delimited by underscores
- * (e.g., 'ス' → 'u30b9_') to produce deterministic, collision-free IDs.
+ * Converts a step name to a deterministic Mermaid node ID by encoding every
+ * code point and adding a safe prefix. This avoids reserved Mermaid words,
+ * syntax-sensitive leading characters, and collisions between raw and encoded
+ * step names.
  */
 export function toMermaidNodeId(stepName: string): string {
-  return stepName.replace(
-    /[^a-zA-Z0-9_]/gu,
-    (ch) => `u${ch.codePointAt(0)!.toString(16)}_`
-  );
+  const encoded = Array.from(stepName)
+    .map((ch) => ch.codePointAt(0)!.toString(16))
+    .join('_');
+  return `node_${encoded || 'empty'}`;
 }

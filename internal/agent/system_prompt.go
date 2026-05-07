@@ -59,11 +59,12 @@ type systemPromptData struct {
 
 // SystemPromptParams holds all parameters for system prompt generation.
 type SystemPromptParams struct {
-	Env        EnvironmentInfo
-	CurrentDAG *CurrentDAG
-	Memory     MemoryContent
-	Role       auth.Role
-	Soul       *Soul
+	Env             EnvironmentInfo
+	CurrentDAG      *CurrentDAG
+	Memory          MemoryContent
+	Role            auth.Role
+	WorkspaceAccess *auth.WorkspaceAccess
+	Soul            *Soul
 }
 
 // GenerateSystemPrompt renders the system prompt template with the given parameters.
@@ -90,7 +91,7 @@ func GenerateSystemPrompt(p SystemPromptParams) string {
 		Memory:          memory,
 		User:            buildUserCapabilities(role),
 		SoulContent:     templateSoulContent,
-		StepTypes:       buildStepTypesPrompt(env),
+		StepTypes:       buildStepTypesPrompt(env, p.WorkspaceAccess),
 	}
 	if err := systemPromptTemplate.Execute(&buf, data); err != nil {
 		return fallbackPrompt(env)
@@ -113,14 +114,14 @@ type customStepTypeRef struct {
 	targetType string
 }
 
-func buildStepTypesPrompt(env EnvironmentInfo) string {
+func buildStepTypesPrompt(env EnvironmentInfo, access *auth.WorkspaceAccess) string {
 	var b strings.Builder
 	b.WriteString("Available step types are generated from runtime registrations and base config files.\n")
 	b.WriteString("- Builtin/runtime: ")
 	b.WriteString(formatStepTypeNames(spec.StepTypeNames()))
 	b.WriteString(". Omit `type` for plain command/script steps.\n")
 
-	sources := baseConfigCustomStepTypeSources(env)
+	sources := baseConfigCustomStepTypeSources(env, access)
 	if len(sources) == 0 {
 		b.WriteString("- Base config custom step types: none found in configured base config files.\n")
 	} else {
@@ -131,6 +132,10 @@ func buildStepTypesPrompt(env EnvironmentInfo) string {
 			b.WriteString(": ")
 			if source.err != nil {
 				b.WriteString("unable to inspect")
+				if msg := strings.TrimSpace(source.err.Error()); msg != "" {
+					b.WriteString(": ")
+					b.WriteString(msg)
+				}
 				b.WriteString(".\n")
 				continue
 			}
@@ -149,7 +154,7 @@ func buildStepTypesPrompt(env EnvironmentInfo) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func baseConfigCustomStepTypeSources(env EnvironmentInfo) []customStepTypeSource {
+func baseConfigCustomStepTypeSources(env EnvironmentInfo, access *auth.WorkspaceAccess) []customStepTypeSource {
 	var sources []customStepTypeSource
 	if strings.TrimSpace(env.BaseConfigFile) != "" {
 		if _, err := os.Stat(env.BaseConfigFile); err == nil {
@@ -171,18 +176,40 @@ func baseConfigCustomStepTypeSources(env EnvironmentInfo) []customStepTypeSource
 	}
 	entries, err := os.ReadDir(workspaceDir)
 	if err != nil {
+		if !os.IsNotExist(err) {
+			sources = append(sources, customStepTypeSource{
+				label: fmt.Sprintf("workspace base config directory (`%s`)", workspaceDir),
+				err:   err,
+			})
+		}
 		return sources
 	}
+	allWorkspaces, allowedWorkspaces := allowedWorkspaceStepTypes(access)
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
 		workspaceName := entry.Name()
+		if !allWorkspaces {
+			if _, ok := allowedWorkspaces[workspaceName]; !ok {
+				continue
+			}
+		}
 		if err := workspace.ValidateName(workspaceName); err != nil {
+			sources = append(sources, customStepTypeSource{
+				label: fmt.Sprintf("workspace `%s` base config", workspaceName),
+				err:   err,
+			})
 			continue
 		}
 		path := filepath.Join(workspaceDir, workspaceName, workspace.BaseConfigFileName)
 		if _, err := os.Stat(path); err != nil {
+			if !os.IsNotExist(err) {
+				sources = append(sources, customStepTypeSource{
+					label: fmt.Sprintf("workspace `%s` base config (`%s`)", workspaceName, path),
+					err:   err,
+				})
+			}
 			continue
 		}
 		sources = append(sources, customStepTypeSourceFromFile(
@@ -191,6 +218,21 @@ func baseConfigCustomStepTypeSources(env EnvironmentInfo) []customStepTypeSource
 		))
 	}
 	return sources
+}
+
+func allowedWorkspaceStepTypes(access *auth.WorkspaceAccess) (bool, map[string]struct{}) {
+	normalized := auth.NormalizeWorkspaceAccess(access)
+	if normalized.All {
+		return true, nil
+	}
+	allowed := make(map[string]struct{}, len(normalized.Grants))
+	for _, grant := range normalized.Grants {
+		name := strings.TrimSpace(grant.Workspace)
+		if name != "" {
+			allowed[name] = struct{}{}
+		}
+	}
+	return false, allowed
 }
 
 func customStepTypeSourceFromFile(label, path string) customStepTypeSource {

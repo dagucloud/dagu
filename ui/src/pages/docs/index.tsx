@@ -569,13 +569,7 @@ function DocsContent() {
         }
         deletedCount += data.deleted.length;
         failedCount += data.failed?.length || 0;
-        const previousDeleted = Array.from(
-          deletedByWorkspace.get(workspaceKey) ?? []
-        );
-        deletedByWorkspace.set(
-          workspaceKey,
-          new Set([...previousDeleted, ...data.deleted])
-        );
+        deletedByWorkspace.set(workspaceKey, new Set(data.deleted));
       }
       mutate();
 

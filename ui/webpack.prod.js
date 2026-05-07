@@ -49,7 +49,8 @@ module.exports = merge(common, {
     }),
   ],
   output: {
-    filename: 'bundle.js?v=0.0.0', // Add version query to prevent caching issues
+    filename: 'bundle.js',
+    chunkFilename: '[name].[contenthash:16].bundle.js',
     path: path.resolve(__dirname, 'dist'),
     publicPath: 'auto',
     clean: true,
