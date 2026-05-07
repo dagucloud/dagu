@@ -10,6 +10,7 @@ describe('toMermaidNodeId', () => {
     expect(toMermaidNodeId('extract (source)')).toBe(
       'node_65_78_74_72_61_63_74_20_28_73_6f_75_72_63_65_29'
     );
+    expect(toMermaidNodeId('a🚀')).toBe('node_61_1f680');
     expect(toMermaidNodeId('')).toBe('node_empty');
   });
 

@@ -1100,7 +1100,12 @@ func (srv *Server) setupAssetRoutes(r *chi.Mux, basePath string) {
 }
 
 func cacheControlForAsset(assetPath string) string {
-	if strings.HasSuffix(strings.ToLower(path.Base(assetPath)), ".js") {
+	base := path.Base(assetPath)
+	lowerBase := strings.ToLower(base)
+	if strings.HasSuffix(lowerBase, ".bundle.js") && !strings.EqualFold(base, "bundle.js") {
+		return "max-age=31536000, immutable"
+	}
+	if strings.HasSuffix(lowerBase, ".js") {
 		return "no-cache, no-store, must-revalidate"
 	}
 	return "max-age=86400"

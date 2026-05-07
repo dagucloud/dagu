@@ -679,12 +679,14 @@ function FallbackNodeContent({ node }: { node: FallbackNode }) {
           fallbackStatusDotClassName(node.status)
         )}
       />
-      <span className="min-w-0 flex-1 truncate font-medium">{node.label}</span>
+      <span className="min-w-0 flex-1 whitespace-normal break-words font-medium">
+        {node.label}
+      </span>
       {visibleDepends.length > 0 && (
         <span className="flex min-w-0 max-w-full flex-wrap gap-1">
           {visibleDepends.map((dep) => (
             <span
-              className="max-w-28 truncate rounded border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+              className="max-w-28 whitespace-normal break-words rounded border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
               key={dep}
               title={dep}
             >
@@ -692,7 +694,7 @@ function FallbackNodeContent({ node }: { node: FallbackNode }) {
             </span>
           ))}
           {hiddenDepends > 0 && (
-            <span className="rounded border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            <span className="whitespace-normal break-words rounded border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
               +{hiddenDepends}
             </span>
           )}
