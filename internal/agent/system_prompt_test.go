@@ -379,10 +379,7 @@ step_types:
 		dir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "workspaces"), []byte("not a directory"), 0o600))
 
-		result := GenerateSystemPrompt(SystemPromptParams{
-			Env:  EnvironmentInfo{DAGsDir: dir},
-			Role: auth.RoleDeveloper,
-		})
+		result := buildStepTypesPrompt(EnvironmentInfo{DAGsDir: dir}, nil)
 
 		assert.Contains(t, result, "workspace base config directory")
 		assert.Contains(t, result, "unable to inspect")
