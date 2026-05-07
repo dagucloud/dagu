@@ -126,17 +126,6 @@ func cleanDocPathPrefix(prefix string) (string, error) {
 	return prefix, nil
 }
 
-func (s *Store) scopedRoot(prefix string) (string, error) {
-	prefix, err := cleanDocPathPrefix(prefix)
-	if err != nil {
-		return "", err
-	}
-	if prefix == "" {
-		return s.baseDir, nil
-	}
-	return s.safePath(filepath.Join(s.baseDir, prefix), prefix)
-}
-
 func scopedDocID(prefix, id string) (string, error) {
 	prefix, err := cleanDocPathPrefix(prefix)
 	if err != nil {
