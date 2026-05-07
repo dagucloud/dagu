@@ -1,4 +1,4 @@
-import { DelegateInfo, TokenUsage, ToolCall } from '../../types';
+import { DelegateInfo, TokenUsage, ToolCall, ToolResult } from '../../types';
 import { formatCost } from '../../utils/formatCost';
 import { ToolCallList } from './ToolCallBadge';
 import { SubAgentChips } from './SubAgentChips';
@@ -12,6 +12,7 @@ export function AssistantMessage({
   onOpenDelegate,
   completedToolCallIds,
   delegateIdsForToolCalls,
+  toolResultsByCallId,
 }: {
   content: string;
   toolCalls?: ToolCall[];
@@ -21,6 +22,7 @@ export function AssistantMessage({
   onOpenDelegate?: (id: string) => void;
   completedToolCallIds?: Set<string>;
   delegateIdsForToolCalls?: Map<string, string[]>;
+  toolResultsByCallId?: Map<string, ToolResult>;
 }): React.ReactNode {
   const delegateCalls = toolCalls?.filter((tc) => tc.function.name === 'delegate') ?? [];
   const otherCalls = toolCalls?.filter((tc) => tc.function.name !== 'delegate') ?? [];
@@ -33,7 +35,7 @@ export function AssistantMessage({
         </p>
       )}
       {otherCalls.length > 0 && (
-        <ToolCallList toolCalls={otherCalls} className="pl-4" />
+        <ToolCallList toolCalls={otherCalls} className="pl-4" toolResultsByCallId={toolResultsByCallId} />
       )}
       {delegateCalls.map((tc) => (
         <SubAgentChips

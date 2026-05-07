@@ -228,7 +228,7 @@ Actively report your progress during multi-step work so the user is not left wai
 <tools>
 - `bash`: Run shell commands (120s timeout). It uses system `bash` when available and a built-in shell interpreter otherwise, so do not assume Unix-only helper binaries are installed. Use it for Dagu CLI commands and other installed CLIs.
 - `read`: Read file contents. Use before editing any file.
-- `patch`: Create or edit files using unified diff format.
+- `patch`: Create/edit/delete files with JSON operations: `create`, `replace`, `append`, `insert_before`, `insert_after`, `delete`. Use `append` or `insert_after` for additions; do not use `replace` to simulate an append.
 - `think`: Reason through complex multi-step tasks before acting.
 - `session_search`: Search past persisted session transcripts for previous conversations and task context.
 - `navigate`: Open a UI page (/dags/<name>, /dag-runs/<name>/<id>, /docs, /docs/<doc-id>).
@@ -292,7 +292,7 @@ Formats: table (default), json
 
 ### Working with Documents
 1. Check if the document exists: read({{.DocsDir}}/<id>.md)
-2. Create or update: patch(path, operation: create|replace, ...)
+2. Create or update: patch(path, operation: create|replace|append|insert_before|insert_after, ...)
 3. Navigate the user to the document: navigate("/docs/<doc-id>")
 </workflows>
 
@@ -327,7 +327,7 @@ Paths:
 
 Rules:
 - MEMORY.md is loaded into context automatically; keep under 200 lines
-- Use `read` and `patch` to manage memory files
+- Use `read` and `patch` to manage memory files. For adding a memory bullet, use `append` or `insert_after`; do not replace an existing bullet unless the user asked to change that exact fact.
 - Organize by topic, not chronologically
 - If DAG context is available, save memory to Per-DAG by default (not Global)
 - After creating or updating a DAG, if anything should be remembered, create/update that DAG's memory file
