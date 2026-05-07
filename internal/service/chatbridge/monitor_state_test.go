@@ -40,6 +40,16 @@ func notificationMonitorEventuallyTimeout(base time.Duration) time.Duration {
 	return base
 }
 
+func requireNotificationMonitorShutdown(t *testing.T, name string, done <-chan struct{}) {
+	t.Helper()
+
+	select {
+	case <-done:
+	case <-time.After(notificationMonitorEventuallyTimeout(2 * time.Second)):
+		t.Fatalf("timed out waiting for %s shutdown", name)
+	}
+}
+
 func TestNotificationMonitor_BootstrapsFromCurrentHeadAndOnlyDeliversFutureEvents(t *testing.T) {
 	t.Parallel()
 
@@ -233,16 +243,8 @@ func TestNotificationMonitor_StateLockAllowsSingleWriterAndTakeover(t *testing.T
 	defer func() {
 		cancel1()
 		cancel2()
-		select {
-		case <-done1:
-		case <-time.After(time.Second):
-			t.Fatal("timed out waiting for monitor-1 shutdown")
-		}
-		select {
-		case <-done2:
-		case <-time.After(time.Second):
-			t.Fatal("timed out waiting for monitor-2 shutdown")
-		}
+		requireNotificationMonitorShutdown(t, "monitor-1", done1)
+		requireNotificationMonitorShutdown(t, "monitor-2", done2)
 	}()
 
 	require.Eventually(t, func() bool {
@@ -299,11 +301,7 @@ func TestNotificationMonitor_StateLockAllowsSingleWriterAndTakeover(t *testing.T
 	switch firstOwner {
 	case "monitor-1":
 		cancel1()
-		select {
-		case <-done1:
-		case <-time.After(time.Second):
-			t.Fatal("timed out waiting for monitor-1 shutdown")
-		}
+		requireNotificationMonitorShutdown(t, "monitor-1", done1)
 		require.Eventually(t, func() bool {
 			monitor2.stateMu.Lock()
 			bootstrapped := monitor2.state.Bootstrapped
@@ -312,11 +310,7 @@ func TestNotificationMonitor_StateLockAllowsSingleWriterAndTakeover(t *testing.T
 		}, notificationMonitorEventuallyTimeout(2*time.Second), 10*time.Millisecond)
 	case "monitor-2":
 		cancel2()
-		select {
-		case <-done2:
-		case <-time.After(time.Second):
-			t.Fatal("timed out waiting for monitor-2 shutdown")
-		}
+		requireNotificationMonitorShutdown(t, "monitor-2", done2)
 		require.Eventually(t, func() bool {
 			monitor1.stateMu.Lock()
 			bootstrapped := monitor1.state.Bootstrapped
@@ -738,11 +732,7 @@ func TestNotificationMonitor_LockTheftSelfFencesActiveOwner(t *testing.T) {
 	}()
 	defer func() {
 		cancel()
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Fatal("timed out waiting for monitor shutdown")
-		}
+		requireNotificationMonitorShutdown(t, "monitor", done)
 	}()
 
 	require.Eventually(t, func() bool {
