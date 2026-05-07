@@ -2,7 +2,6 @@ import type { ReactElement } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import {
-  Bot,
   PanelLeft,
   Plus,
   Settings,
@@ -73,9 +72,6 @@ export function AgentChatModalHeader({
         >
           <PanelLeft className="h-4 w-4" />
         </Button>
-        <div className="flex size-7 flex-shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground">
-          <Bot className="h-4 w-4" aria-hidden="true" />
-        </div>
         <span className="truncate text-sm font-medium text-foreground">
           Agent
         </span>

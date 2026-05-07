@@ -1,5 +1,3 @@
-import { Bot } from 'lucide-react';
-
 import { Markdown } from '@/components/ui/markdown';
 
 import { DelegateInfo, ToolCall } from '../../types';
@@ -28,9 +26,6 @@ export function AssistantMessage({
 
   return (
     <div className="flex items-start gap-2 pr-2">
-      <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground">
-        <Bot className="h-4 w-4" aria-hidden="true" />
-      </div>
       <div className="min-w-0 flex-1 space-y-2">
         {content && (
           <div className="rounded-md border border-border bg-card px-3 py-2 text-card-foreground shadow-sm">

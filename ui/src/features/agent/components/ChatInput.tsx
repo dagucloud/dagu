@@ -245,7 +245,7 @@ export function ChatInput({
   }, []);
 
   return (
-    <div className="relative border-t border-border bg-card p-3">
+    <div className="relative shrink-0 border-t border-border bg-card p-3">
       {/* DAG Picker with chips */}
       <DAGPicker
         selectedDags={selectedDags}

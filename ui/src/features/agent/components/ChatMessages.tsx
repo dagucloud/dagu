@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { Bot, Loader2 } from 'lucide-react';
+import { useCallback, useLayoutEffect, useMemo, useRef } from 'react';
+import { Loader2 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 
@@ -36,7 +36,6 @@ export function ChatMessages({
   delegateStatuses,
   onOpenDelegate,
 }: ChatMessagesProps): React.ReactNode {
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
 
@@ -48,9 +47,12 @@ export function ChatMessages({
       el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (isNearBottomRef.current) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      const el = containerRef.current;
+      if (el) {
+        el.scrollTop = el.scrollHeight;
+      }
     }
   }, [messages, pendingUserMessage, isWorking]);
 
@@ -81,12 +83,9 @@ export function ChatMessages({
 
   if (messages.length === 0 && !pendingUserMessage) {
     return (
-      <div className="flex-1 bg-background">
+      <div className="min-h-0 flex-1 overflow-y-auto bg-background">
         <div className="flex h-full items-center justify-center p-6 text-center">
           <div className="max-w-xs">
-            <div className="mx-auto mb-3 flex size-10 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-sm">
-              <Bot className="h-5 w-5" aria-hidden="true" />
-            </div>
             <h3 className="text-sm font-medium text-foreground">
               Agent session ready
             </h3>
@@ -110,7 +109,7 @@ export function ChatMessages({
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      className="flex-1 overflow-y-auto bg-background px-3 py-4"
+      className="min-h-0 flex-1 overflow-y-auto bg-background px-3 py-4"
     >
       <div className="space-y-3">
         {messages.map((message, idx) => (
@@ -138,7 +137,6 @@ export function ChatMessages({
             </Badge>
           </div>
         )}
-        <div ref={messagesEndRef} />
       </div>
     </div>
   );
