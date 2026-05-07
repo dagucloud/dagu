@@ -106,6 +106,7 @@ type DAGRunStatus struct {
 	ProcGroup            string             `json:"procGroup,omitempty"`
 	SuspendFlagName      string             `json:"suspendFlagName,omitempty"`
 	Log                  string             `json:"log,omitempty"`
+	WorkingDir           string             `json:"workingDir,omitempty"`
 	ArchiveDir           string             `json:"archiveDir,omitempty"`
 	Error                string             `json:"error,omitempty"`
 	Params               string             `json:"params,omitempty"`

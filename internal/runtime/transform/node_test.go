@@ -25,6 +25,7 @@ func TestNodeFieldsRoundTrip(t *testing.T) {
 		Status:          core.NodeSucceeded,
 		Stdout:          "/tmp/stdout.log",
 		Stderr:          "/tmp/stderr.log",
+		WorkingDir:      "/tmp/original-work",
 		StartedAt:       "2024-01-15T10:00:00Z",
 		FinishedAt:      "2024-01-15T10:05:00Z",
 		RetriedAt:       "2024-01-15T10:01:00Z",

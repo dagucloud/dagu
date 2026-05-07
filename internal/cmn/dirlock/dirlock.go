@@ -217,7 +217,8 @@ func isRetryableLockStateError(err error) bool {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "cannot access the file") ||
+	return strings.Contains(msg, "access is denied") ||
+		strings.Contains(msg, "cannot access the file") ||
 		strings.Contains(msg, "sharing violation") ||
 		strings.Contains(msg, "used by another process")
 }

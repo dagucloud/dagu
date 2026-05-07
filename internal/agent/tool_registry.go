@@ -6,6 +6,7 @@ package agent
 import (
 	"slices"
 
+	"github.com/dagucloud/dagu/internal/core/exec"
 	workspacepkg "github.com/dagucloud/dagu/internal/workspace"
 )
 
@@ -28,6 +29,15 @@ type ToolRegistration struct {
 type ToolConfig struct {
 	// DAGsDir is the directory containing DAG definition files.
 	DAGsDir string
+	// DAGStore provides access to DAG definitions for dag_def_manage.
+	// Nil means dag_def_manage reports unavailable when called.
+	DAGStore exec.DAGStore
+	// DAGRunStore provides access to DAG run history for dag_run_manage.
+	// Nil means dag_run_manage reports unavailable when called.
+	DAGRunStore exec.DAGRunStore
+	// DAGRunWatcher provides session-local run watch registrations for dag_run_manage.
+	// Nil means dag_run_manage watch actions report unavailable when called.
+	DAGRunWatcher DAGRunWatcher
 	// DocStore provides access to Markdown docs/runbooks for runbook_manage.
 	// Nil means runbook_manage reports unavailable when called.
 	DocStore DocStore

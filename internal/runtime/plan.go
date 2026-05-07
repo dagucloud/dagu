@@ -156,9 +156,9 @@ func CreateStepRetryPlan(dag *core.DAG, nodes []*Node, stepName string) (*Plan, 
 	}
 	preserveRetryBudget := targetNode.State().Status == core.NodeRetrying
 
-	step, ok := steps[targetNode.Name()]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrMissingNode, targetNode.Name())
+	step, err := retryStepForNode(targetNode, steps)
+	if err != nil {
+		return nil, err
 	}
 
 	retryCount := targetNode.GetRetryCount()
@@ -205,13 +205,24 @@ func rebindRetryNodesToSteps(nodes []*Node, steps map[string]core.Step) error {
 		if node == nil {
 			continue
 		}
-		step, ok := steps[node.Name()]
-		if !ok {
-			return fmt.Errorf("%w: %s", ErrMissingNode, node.Name())
+		step, err := retryStepForNode(node, steps)
+		if err != nil {
+			return err
 		}
 		node.SetStep(step)
 	}
 	return nil
+}
+
+func retryStepForNode(node *Node, steps map[string]core.Step) (core.Step, error) {
+	step, ok := steps[node.Name()]
+	if !ok {
+		return core.Step{}, fmt.Errorf("%w: %s", ErrMissingNode, node.Name())
+	}
+	if workingDir := node.State().WorkingDir; workingDir != "" {
+		step.Dir = workingDir
+	}
+	return step, nil
 }
 
 // addEdge adds a directed edge from 'from' to 'to'.
@@ -283,9 +294,9 @@ func (p *Plan) setupRetry(ctx context.Context, steps map[string]core.Step) error
 				logger.Debug(ctx, "Clearing node state",
 					tag.Step(node.Name()),
 				)
-				step, ok := steps[node.Name()]
-				if !ok {
-					return fmt.Errorf("%w: %s", ErrMissingNode, node.Name())
+				step, err := retryStepForNode(node, steps)
+				if err != nil {
+					return err
 				}
 				node.ClearState(step)
 				toRetry[u] = true

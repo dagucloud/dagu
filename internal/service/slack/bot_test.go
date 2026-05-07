@@ -335,18 +335,21 @@ func TestBot_ProcessIncoming_BatchesRapidMessagesIntoSingleCreate(t *testing.T) 
 		logger:        logger,
 		incomingDelay: 10 * time.Millisecond,
 	}
+	var scheduledFlushes []func()
+	bot.incomingAfterFunc = func(_ time.Duration, fn func()) *time.Timer {
+		scheduledFlushes = append(scheduledFlushes, fn)
+		return nil
+	}
 
 	cs := bot.getOrCreateChat("D123", "D123", "")
 	bot.processIncoming(context.Background(), cs, "D123", "", "first")
 	assert.Equal(t, 1, client.postCount(), "first inbound message should post a thinking indicator immediately")
 	bot.processIncoming(context.Background(), cs, "D123", "", "second")
 	assert.Equal(t, 1, client.postCount(), "batched messages should reuse the current thinking indicator")
+	require.Len(t, scheduledFlushes, 2)
 
-	require.Eventually(t, func() bool {
-		service.mu.Lock()
-		defer service.mu.Unlock()
-		return len(service.createMessages) == 1
-	}, time.Second, 10*time.Millisecond)
+	scheduledFlushes[0]()
+	scheduledFlushes[1]()
 
 	service.mu.Lock()
 	defer service.mu.Unlock()

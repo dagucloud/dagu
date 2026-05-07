@@ -141,6 +141,7 @@ func TestStatusBuilderWithOptions(t *testing.T) {
 		transform.WithOnFailureNode(failureNode),
 		transform.WithOnAbortNode(abortNode),
 		transform.WithLogFilePath("/tmp/log.txt"),
+		transform.WithWorkingDir("/tmp/work"),
 		transform.WithPreconditions([]*core.Condition{{Condition: "test", Expected: "true"}}),
 		transform.WithHierarchyRefs(rootRef, parentRef),
 		transform.WithAttemptID("attempt-789"),
@@ -156,6 +157,7 @@ func TestStatusBuilderWithOptions(t *testing.T) {
 	assert.Equal(t, "failure-step", result.OnFailure.Step.Name)
 	assert.Equal(t, "abort-step", result.OnAbort.Step.Name)
 	assert.Equal(t, "/tmp/log.txt", result.Log)
+	assert.Equal(t, "/tmp/work", result.WorkingDir)
 	assert.Equal(t, 1, len(result.Preconditions))
 	assert.Equal(t, rootRef, result.Root)
 	assert.Equal(t, parentRef, result.Parent)

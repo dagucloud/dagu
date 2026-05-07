@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -170,6 +171,72 @@ func TestRestoreDAGFromStatus_PositionalParamsRemainOverrides(t *testing.T) {
 	result, err := restoreDAGFromStatus(context.Background(), dag, status)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"1=override"}, result.Params)
+}
+
+func TestRestoreDAGFromStatus_PreservesExplicitWorkingDirFromYAML(t *testing.T) {
+	t.Parallel()
+
+	workDir := t.TempDir()
+	dag := &core.DAG{
+		Name:       "test-dag",
+		WorkingDir: workDir,
+		YamlData: fmt.Appendf(nil, `
+working_dir: %q
+steps:
+  - name: test
+    command: pwd
+`, workDir),
+	}
+	status := &exec.DAGRunStatus{}
+
+	result, err := restoreDAGFromStatus(context.Background(), dag, status)
+	require.NoError(t, err)
+	assert.Equal(t, workDir, result.WorkingDir)
+	assert.True(t, result.WorkingDirExplicit)
+}
+
+func TestRestoreDAGFromStatus_PreservesBaseConfigWorkingDirAsExplicit(t *testing.T) {
+	t.Parallel()
+
+	workDir := t.TempDir()
+	dag := &core.DAG{
+		Name:       "test-dag",
+		WorkingDir: workDir,
+		YamlData: []byte(`
+steps:
+  - name: test
+    command: pwd
+`),
+		BaseConfigData: fmt.Appendf(nil, "working_dir: %q\n", workDir),
+	}
+	status := &exec.DAGRunStatus{}
+
+	result, err := restoreDAGFromStatus(context.Background(), dag, status)
+	require.NoError(t, err)
+	assert.Equal(t, workDir, result.WorkingDir)
+	assert.True(t, result.WorkingDirExplicit)
+}
+
+func TestRestoreDAGFromStatus_PrefersPersistedRunWorkingDir(t *testing.T) {
+	t.Parallel()
+
+	persistedWorkDir := t.TempDir()
+	dag := &core.DAG{
+		Name:       "test-dag",
+		WorkingDir: "/changed-work-dir",
+		YamlData: []byte(`
+working_dir: /changed-work-dir
+steps:
+  - name: test
+    command: pwd
+`),
+	}
+	status := &exec.DAGRunStatus{WorkingDir: persistedWorkDir}
+
+	result, err := restoreDAGFromStatus(context.Background(), dag, status)
+	require.NoError(t, err)
+	assert.Equal(t, persistedWorkDir, result.WorkingDir)
+	assert.True(t, result.WorkingDirExplicit)
 }
 
 func TestRebuildDAGFromYAML_RebuildEnvFromYAML(t *testing.T) {

@@ -78,6 +78,7 @@ type Bot struct {
 	notificationStateFile string
 	logger                *slog.Logger
 	incomingDelay         time.Duration
+	incomingAfterFunc     func(time.Duration, func()) *time.Timer
 }
 
 // New creates a new Slack bot instance.
@@ -117,6 +118,7 @@ func New(cfg Config, agentAPI AgentService, logger *slog.Logger) (*Bot, error) {
 		notificationStateFile: cfg.NotificationStateFile,
 		logger:                logger,
 		incomingDelay:         defaultIncomingBatchDelay,
+		incomingAfterFunc:     time.AfterFunc,
 	}, nil
 }
 
@@ -326,7 +328,7 @@ func (b *Bot) enqueueIncomingMessage(ctx context.Context, cs *chatState, convKey
 	if delay <= 0 {
 		delay = defaultIncomingBatchDelay
 	}
-	time.AfterFunc(delay, func() {
+	b.incomingAfterFunc(delay, func() {
 		b.flushIncomingMessages(ctx, cs, convKey, gen)
 	})
 }

@@ -6,8 +6,6 @@ package agent
 import (
 	"context"
 	"errors"
-
-	"github.com/dagucloud/dagu/internal/core"
 )
 
 // Sentinel errors for session store operations.
@@ -64,11 +62,6 @@ type MemoryStore interface {
 
 	// DeleteDAGMemory removes a DAG-specific MEMORY.md file.
 	DeleteDAGMemory(ctx context.Context, dagName string) error
-}
-
-// DAGMetadataStore resolves DAG metadata used by the agent API.
-type DAGMetadataStore interface {
-	GetMetadata(ctx context.Context, fileName string) (*core.DAG, error)
 }
 
 // SessionStore defines the interface for session persistence.
