@@ -77,6 +77,7 @@ const AGENT_SIDEBAR_MIN_WIDTH = 320;
 const AGENT_SIDEBAR_MAX_WIDTH = 720;
 const AGENT_SIDEBAR_MIN_CONTENT_WIDTH = 360;
 const AGENT_SIDEBAR_WIDTH_STORAGE_KEY = 'agentSidebarWidth';
+const SIDEBAR_MODE_STORAGE_KEY = 'sidebarMode';
 
 type SidebarMode = 'navigation' | 'agent';
 
@@ -120,6 +121,23 @@ function getInitialAgentSidebarWidth(): number {
   }
 
   return clampAgentSidebarWidth(AGENT_SIDEBAR_DEFAULT_WIDTH);
+}
+
+function isSidebarMode(value: string | null): value is SidebarMode {
+  return value === 'navigation' || value === 'agent';
+}
+
+function getInitialSidebarMode(): SidebarMode {
+  try {
+    const saved = localStorage.getItem(SIDEBAR_MODE_STORAGE_KEY);
+    if (isSidebarMode(saved)) {
+      return saved;
+    }
+  } catch {
+    // Ignore unavailable storage and fall back to navigation.
+  }
+
+  return 'navigation';
 }
 
 /**
@@ -167,7 +185,7 @@ function Content({ navbarColor, children }: LayoutProps) {
     return saved ? saved === 'true' : true;
   });
   const [sidebarMode, setSidebarMode] =
-    React.useState<SidebarMode>('navigation');
+    React.useState<SidebarMode>(getInitialSidebarMode);
   const [agentSidebarWidth, setAgentSidebarWidth] = React.useState(
     getInitialAgentSidebarWidth
   );
@@ -181,6 +199,14 @@ function Content({ navbarColor, children }: LayoutProps) {
   React.useEffect(() => {
     localStorage.setItem('sidebarExpanded', isSidebarExpanded.toString());
   }, [isSidebarExpanded]);
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_MODE_STORAGE_KEY, sidebarMode);
+    } catch {
+      // Ignore unavailable storage.
+    }
+  }, [sidebarMode]);
 
   React.useEffect(() => {
     try {
