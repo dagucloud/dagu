@@ -21,10 +21,10 @@ env:
 
 steps:
   - name: step1
-    command: echo "Step 1 running on worker $(hostname)"
+    run: echo "Step 1 running on worker $(hostname)"
 
   - name: step2
-    command: |
+    run: |
       echo "Step 2 - simulating work on worker $(hostname)"
       sleep 5
       echo "Step 2 complete"
@@ -32,7 +32,7 @@ steps:
       - step1
 
   - name: step3
-    command: |
+    run: |
       echo "Step 3 - parallel execution test $(hostname)"
       sleep 3
       echo "Step 3 done"
@@ -40,7 +40,7 @@ steps:
       - step1
 
   - name: step4
-    command: |
+    run: |
       echo "Final step on worker $(hostname)"
       echo "Environment: $TEST_ENV"
       echo "All steps completed successfully"

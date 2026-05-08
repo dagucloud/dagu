@@ -3527,7 +3527,7 @@ export interface components {
         };
         /** @description Editor-only metadata used to synthesize per-document schema hints */
         DAGEditorHints: {
-            /** @description Deprecated custom step types inherited from base config and available to the current DAG */
+            /** @description Deprecated legacy custom execution definitions inherited from base config and available to the current DAG */
             inheritedCustomStepTypes: components["schemas"]["InheritedCustomStepTypeHint"][];
             /** @description Custom actions inherited from base config and available to the current DAG */
             inheritedCustomActions?: components["schemas"]["InheritedCustomActionHint"][];
@@ -3547,13 +3547,13 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        /** @description Resolved editor hint for an inherited legacy custom step type */
+        /** @description Resolved editor hint for an inherited deprecated custom execution definition */
         InheritedCustomStepTypeHint: {
-            /** @description Legacy custom step type name */
+            /** @description Deprecated custom execution definition name */
             name: string;
-            /** @description Builtin executor type that the custom step expands to */
+            /** @description Builtin executor type that the deprecated custom definition expands to */
             targetType: string;
-            /** @description Optional custom step description */
+            /** @description Optional deprecated custom definition description */
             description?: string;
             /** @description Resolved JSON Schema object used to validate and document with input */
             inputSchema: {

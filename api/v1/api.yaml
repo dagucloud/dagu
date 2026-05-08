@@ -8824,7 +8824,7 @@ components:
       properties:
         inheritedCustomStepTypes:
           type: array
-          description: "Deprecated custom step types inherited from base config and available to the current DAG"
+          description: "Deprecated legacy custom execution definitions inherited from base config and available to the current DAG"
           items:
             $ref: "#/components/schemas/InheritedCustomStepTypeHint"
         inheritedCustomActions:
@@ -8859,17 +8859,17 @@ components:
 
     InheritedCustomStepTypeHint:
       type: object
-      description: "Resolved editor hint for an inherited legacy custom step type"
+      description: "Resolved editor hint for an inherited deprecated custom execution definition"
       properties:
         name:
           type: string
-          description: "Legacy custom step type name"
+          description: "Deprecated custom execution definition name"
         targetType:
           type: string
-          description: "Builtin executor type that the custom step expands to"
+          description: "Builtin executor type that the deprecated custom definition expands to"
         description:
           type: string
-          description: "Optional custom step description"
+          description: "Optional deprecated custom definition description"
         inputSchema:
           type: object
           additionalProperties: true

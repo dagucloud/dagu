@@ -131,7 +131,7 @@ function buildCustomTypeEnumBranch(
     enum: customTypeNames,
     enumDescriptions: customTypeDescriptions,
     description:
-      'Custom step type declared in step_types or inherited from base config.',
+      'Deprecated custom execution definition declared in step_types or inherited from base config.',
   };
 }
 
@@ -699,7 +699,7 @@ export function buildAugmentedDAGSchema(
     customTypeNames.push(stepType.name);
     customTypeDescriptions.push(
       stepType.description ||
-        `Custom step type expanding to ${stepType.targetType}.`
+        `Deprecated custom execution definition expanding to ${stepType.targetType}.`
     );
   }
 

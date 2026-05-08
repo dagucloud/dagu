@@ -5,7 +5,7 @@ params:
 steps:
   - name: greet
     # Dagu resolves ${TARGET} from run parameters before the shell sees it.
-    command: echo "hello ${TARGET}"
+    run: echo "hello ${TARGET}"
   - name: finish
-    command: echo "local embedded run complete"
+    run: echo "local embedded run complete"
     depends: [greet]
