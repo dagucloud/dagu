@@ -97,6 +97,7 @@ export function AgentChatPanelView({
     sessionState,
     sessions,
     hasMoreSessions,
+    isLoadingMore,
     isWorking,
     error,
     answeredPrompts,
@@ -274,6 +275,7 @@ export function AgentChatPanelView({
             onClose={toggleSidebar}
             onLoadMore={loadMoreSessions}
             hasMore={hasMoreSessions}
+            isLoadingMore={isLoadingMore}
           />
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             {errorBanner}

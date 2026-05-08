@@ -6348,12 +6348,14 @@ paths:
                 $ref: "#/components/schemas/Error"
     get:
       summary: "List agent sessions"
-      description: "Lists sessions for the current user with pagination."
+      description: "Lists sessions for the current user. `listAgentSessions` uses `AgentSessionPaginationMode=cursor` or an `AgentSessionCursor` value to return cursor pages and `nextCursor`; cursor mode rejects `Page` because mixed cursor/page requests are ambiguous, while `PerPage` still controls page size. Without cursor mode it uses `Page` and `PerPage` offset pagination. `RemoteNode` selects the target node for either pagination mode. Malformed or invalid cursor values return 400."
       operationId: "listAgentSessions"
       tags:
         - "agent"
       parameters:
         - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/AgentSessionPaginationMode"
+        - $ref: "#/components/parameters/AgentSessionCursor"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
       responses:
@@ -7332,6 +7334,27 @@ components:
         minimum: 1
         maximum: 1000
         default: 50
+
+    AgentSessionCursor:
+      name: cursor
+      in: query
+      description: "Opaque cursor for loading the next page of older agent sessions"
+      required: false
+      schema:
+        type: string
+        minLength: 1
+
+    AgentSessionPaginationMode:
+      name: paginationMode
+      in: query
+      description: "Pagination mode. Use `cursor` for the agent session sidebar infinite-loading flow; omit or use `offset` for compatibility pagination."
+      required: false
+      schema:
+        type: string
+        enum:
+          - offset
+          - cursor
+        default: offset
 
     Workspace:
       name: workspace
@@ -11673,6 +11696,9 @@ components:
             $ref: "#/components/schemas/AgentSessionWithState"
         pagination:
           $ref: "#/components/schemas/Pagination"
+        nextCursor:
+          type: string
+          description: "Opaque cursor for loading the next page of older sessions"
       required:
         - sessions
         - pagination

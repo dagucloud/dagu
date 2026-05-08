@@ -485,6 +485,24 @@ func TestSessionManager_GetSession(t *testing.T) {
 		assert.Equal(t, "user-456", sess.UserID)
 		assert.False(t, sess.CreatedAt.IsZero())
 	})
+
+	t.Run("uses first user message as title", func(t *testing.T) {
+		t.Parallel()
+
+		sm := NewSessionManager(SessionManagerConfig{
+			ID:   "sess-title",
+			User: UserIdentity{UserID: "user-title"},
+		})
+
+		_, err := sm.RecordExternalMessage(context.Background(), Message{
+			Type:    MessageTypeUser,
+			Content: "find flaky tests and summarize the root cause",
+		})
+		require.NoError(t, err)
+
+		sess := sm.GetSession()
+		assert.Equal(t, "find flaky tests and summarize the root cause", sess.Title)
+	})
 }
 
 func TestSessionManager_GetModel(t *testing.T) {

@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertCircle, MessageSquare, PanelLeftClose, PanelLeftOpen, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -29,6 +32,7 @@ export function EmbeddedAgentChat(): React.ReactElement {
     pendingUserMessage,
     sessions,
     hasMoreSessions,
+    isLoadingMore,
     isWorking,
     error,
     answeredPrompts,
@@ -139,6 +143,7 @@ export function EmbeddedAgentChat(): React.ReactElement {
           onClose={toggleSidebar}
           onLoadMore={loadMoreSessions}
           hasMore={hasMoreSessions}
+          isLoadingMore={isLoadingMore}
         />
         <div className="flex flex-col flex-1 min-w-0 min-h-0">
           {error && (

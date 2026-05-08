@@ -461,6 +461,248 @@ describe('useAgentChat fallback polling', () => {
     );
   });
 
+  it('loads additional sessions with the cursor returned by the previous page', async () => {
+    getMock.mockImplementation(async (path: string, request?: unknown) => {
+      if (path !== '/agent/sessions') {
+        throw new Error('unexpected request');
+      }
+      const params = request as {
+        params?: { query?: { cursor?: string; perPage?: number } };
+      };
+      if (!params.params?.query?.cursor) {
+        return {
+          data: {
+            sessions: [
+              {
+                session: {
+                  id: 'sess-1',
+                  title: 'first session',
+                  createdAt: '2026-05-08T10:00:00Z',
+                  updatedAt: '2026-05-08T10:00:00Z',
+                },
+                working: false,
+                hasPendingPrompt: false,
+                model: 'gpt-test',
+                totalCost: 0,
+              },
+            ],
+            nextCursor: 'cursor-1',
+            pagination: {
+              currentPage: 1,
+              totalPages: 2,
+            },
+          },
+        };
+      }
+      if (params.params.query.cursor === 'cursor-1') {
+        return {
+          data: {
+            sessions: [
+              {
+                session: {
+                  id: 'sess-2',
+                  title: 'second session',
+                  createdAt: '2026-05-08T09:00:00Z',
+                  updatedAt: '2026-05-08T09:00:00Z',
+                },
+                working: false,
+                hasPendingPrompt: false,
+                model: 'gpt-test',
+                totalCost: 0,
+              },
+            ],
+            pagination: {
+              currentPage: 1,
+              totalPages: 1,
+            },
+          },
+        };
+      }
+      throw new Error('unexpected cursor');
+    });
+
+    const { result } = renderHook(() => useAgentChatAlwaysActive(), {
+      wrapper: TestProviders,
+    });
+
+    await act(async () => {
+      await result.current.fetchSessions();
+    });
+    await act(async () => {
+      await result.current.loadMoreSessions();
+    });
+
+    expect(getMock).toHaveBeenNthCalledWith(
+      1,
+      '/agent/sessions',
+      expect.objectContaining({
+        params: {
+          query: {
+            remoteNode: 'local',
+            paginationMode: 'cursor',
+            perPage: 30,
+          },
+        },
+      })
+    );
+    expect(getMock).toHaveBeenNthCalledWith(
+      2,
+      '/agent/sessions',
+      expect.objectContaining({
+        params: {
+          query: {
+            remoteNode: 'local',
+            paginationMode: 'cursor',
+            perPage: 30,
+            cursor: 'cursor-1',
+          },
+        },
+      })
+    );
+    expect(result.current.sessions.map((session) => session.session.id)).toEqual(
+      ['sess-1', 'sess-2']
+    );
+    expect(result.current.hasMoreSessions).toBe(false);
+  });
+
+  it('ignores concurrent load more calls while a cursor page is already loading', async () => {
+    let resolveLoadMore:
+      | ((value: {
+          data: {
+            sessions: unknown[];
+            pagination: { currentPage: number; totalPages: number };
+          };
+        }) => void)
+      | undefined;
+
+    getMock.mockImplementation(async (path: string, request?: unknown) => {
+      if (path !== '/agent/sessions') {
+        throw new Error('unexpected request');
+      }
+      const params = request as {
+        params?: { query?: { cursor?: string } };
+      };
+      if (!params.params?.query?.cursor) {
+        return {
+          data: {
+            sessions: [
+              {
+                session: {
+                  id: 'sess-1',
+                  title: 'first session',
+                  createdAt: '2026-05-08T10:00:00Z',
+                  updatedAt: '2026-05-08T10:00:00Z',
+                },
+                working: false,
+                hasPendingPrompt: false,
+                model: 'gpt-test',
+                totalCost: 0,
+              },
+            ],
+            nextCursor: 'cursor-1',
+            pagination: {
+              currentPage: 1,
+              totalPages: 2,
+            },
+          },
+        };
+      }
+      return new Promise((resolve) => {
+        resolveLoadMore = resolve;
+      });
+    });
+
+    const { result } = renderHook(() => useAgentChatAlwaysActive(), {
+      wrapper: TestProviders,
+    });
+
+    await act(async () => {
+      await result.current.fetchSessions();
+    });
+
+    let firstLoad: Promise<void> | undefined;
+    act(() => {
+      firstLoad = result.current.loadMoreSessions();
+      void result.current.loadMoreSessions();
+    });
+
+    expect(getMock).toHaveBeenCalledTimes(2);
+    expect(result.current.isLoadingMore).toBe(true);
+
+    await act(async () => {
+      resolveLoadMore?.({
+        data: {
+          sessions: [],
+          pagination: {
+            currentPage: 1,
+            totalPages: 1,
+          },
+        },
+      });
+      await firstLoad;
+    });
+
+    expect(result.current.isLoadingMore).toBe(false);
+  });
+
+  it('clears the session list running marker when the selected session snapshot is idle', async () => {
+    getMock.mockImplementation(
+      async (
+        path: string,
+        request?: { params?: { path?: { sessionId?: string } } }
+      ) => {
+        if (path === '/agent/sessions') {
+          return {
+            data: {
+              sessions: [
+                {
+                  session: {
+                    id: 'sess-1',
+                    title: 'tracked session',
+                    createdAt: '2026-05-08T10:00:00Z',
+                    updatedAt: '2026-05-08T10:00:00Z',
+                  },
+                  working: true,
+                  hasPendingPrompt: false,
+                  model: 'gpt-test',
+                  totalCost: 0,
+                },
+              ],
+              pagination: {
+                currentPage: 1,
+                totalPages: 1,
+              },
+            },
+          };
+        }
+        if (request?.params?.path?.sessionId === 'sess-1') {
+          return {
+            data: makeSessionDetailResponse({
+              id: 'sess-1',
+              working: false,
+            }),
+          };
+        }
+        throw new Error('unexpected request');
+      }
+    );
+
+    const { result } = renderHook(() => useAgentChatAlwaysActive(), {
+      wrapper: TestProviders,
+    });
+
+    await act(async () => {
+      await result.current.fetchSessions();
+    });
+    expect(result.current.sessions[0]?.working).toBe(true);
+
+    await act(async () => {
+      await result.current.selectSession('sess-1');
+    });
+
+    expect(result.current.sessions[0]?.working).toBe(false);
+  });
+
   it('navigates when a delegate ui_action arrives via fallback polling', async () => {
     let delegateFetchCount = 0;
     getMock.mockImplementation(

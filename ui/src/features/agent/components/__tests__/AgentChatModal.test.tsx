@@ -114,6 +114,7 @@ describe('AgentChatModal', () => {
       sessionState: null,
       sessions: [],
       hasMoreSessions: false,
+      isLoadingMore: false,
       isWorking: false,
       error: null,
       answeredPrompts: {},
