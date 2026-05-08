@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { ReactElement } from 'react';
 
 import { cn } from '@/lib/utils';
@@ -28,6 +28,15 @@ export function SessionSidebar({
   hasMore,
 }: Props): ReactElement | null {
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const sortedSessions = useMemo(
+    () =>
+      [...sessions].sort(
+        (a, b) =>
+          new Date(b.session.updated_at).getTime() -
+          new Date(a.session.updated_at).getTime()
+      ),
+    [sessions]
+  );
 
   useEffect(() => {
     const el = sentinelRef.current;
@@ -49,7 +58,7 @@ export function SessionSidebar({
 
   const list = (
     <div className="flex flex-col h-full bg-card dark:bg-zinc-950 border-r border-border overflow-y-auto">
-        {sessions.map((sess) => (
+        {sortedSessions.map((sess) => (
           <button
             key={sess.session.id}
             onClick={() => handleSelect(sess.session.id)}
@@ -65,7 +74,7 @@ export function SessionSidebar({
             ) : (
               <span className="h-2 w-2 flex-shrink-0" />
             )}
-            <span className="truncate">{formatDate(sess.session.created_at)}</span>
+            <span className="truncate">{formatDate(sess.session.updated_at)}</span>
           </button>
         ))}
         {hasMore && <div ref={sentinelRef} className="h-6 flex-shrink-0" />}

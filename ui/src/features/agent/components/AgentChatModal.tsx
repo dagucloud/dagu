@@ -13,6 +13,7 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 import {
   ANIMATION_CLOSE_DURATION_MS,
   ANIMATION_OPEN_DURATION_MS,
+  LAST_SESSION_STORAGE_KEY,
   SESSION_SIDEBAR_STORAGE_KEY,
 } from '../constants';
 import { useAgentChatContext } from '../context/AgentChatContext';
@@ -42,6 +43,31 @@ function findLatestSession(
     }
   }
   return latest;
+}
+
+function readLastSessionId(): string | null {
+  try {
+    const value = localStorage.getItem(LAST_SESSION_STORAGE_KEY);
+    return value && value.trim() ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function rememberLastSessionId(sessionId: string): void {
+  try {
+    localStorage.setItem(LAST_SESSION_STORAGE_KEY, sessionId);
+  } catch {
+    /* ignore */
+  }
+}
+
+function forgetLastSessionId(): void {
+  try {
+    localStorage.removeItem(LAST_SESSION_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
 }
 
 export function AgentChatModal(): ReactElement | null {
@@ -124,16 +150,42 @@ export function AgentChatModal(): ReactElement | null {
       !hasAutoSelectedRef.current
     ) {
       hasAutoSelectedRef.current = true;
+      const rememberedSessionId = readLastSessionId();
       const latest = findLatestSession(sessions);
-      if (latest) {
-        selectSession(latest.session.id).catch((err) =>
+      const targetSessionId = rememberedSessionId ?? latest?.session.id;
+      if (targetSessionId) {
+        selectSession(targetSessionId).catch((err) => {
+          if (
+            rememberedSessionId &&
+            latest &&
+            latest.session.id !== rememberedSessionId
+          ) {
+            forgetLastSessionId();
+            selectSession(latest.session.id).catch((fallbackErr) =>
+              setError(
+                fallbackErr instanceof Error
+                  ? fallbackErr.message
+                  : 'Failed to load session'
+              )
+            );
+            return;
+          }
+          if (rememberedSessionId) {
+            forgetLastSessionId();
+          }
           setError(
             err instanceof Error ? err.message : 'Failed to load session'
-          )
-        );
+          );
+        });
       }
     }
-  }, [isOpen, sessions, sessionId, selectSession]);
+  }, [isOpen, sessions, sessionId, selectSession, setError]);
+
+  useEffect(() => {
+    if (sessionId) {
+      rememberLastSessionId(sessionId);
+    }
+  }, [sessionId]);
 
   const handleSend = useCallback(
     (
@@ -160,6 +212,7 @@ export function AgentChatModal(): ReactElement | null {
     // session list finishes loading, suppress the one-time auto-select for
     // this open cycle so the latest session does not get re-selected.
     hasAutoSelectedRef.current = true;
+    forgetLastSessionId();
     clearSession();
   }, [clearSession]);
 

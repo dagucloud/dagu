@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AgentChatModal } from '../AgentChatModal';
+import { LAST_SESSION_STORAGE_KEY } from '../../constants';
 import type { SessionWithState } from '../../types';
 
 const useAgentChatMock = vi.fn();
@@ -100,6 +101,8 @@ describe('AgentChatModal', () => {
   let selectSessionMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    localStorage.clear();
+
     clearSessionMock = vi.fn();
     fetchSessionsMock = vi.fn();
     selectSessionMock = vi.fn().mockResolvedValue(undefined);
@@ -143,6 +146,7 @@ describe('AgentChatModal', () => {
 
   afterEach(() => {
     cleanup();
+    localStorage.clear();
   });
 
   it('auto-selects the latest session on first open when the user has not chosen a fresh session', async () => {
@@ -160,6 +164,33 @@ describe('AgentChatModal', () => {
     await waitFor(() => {
       expect(selectSessionMock).toHaveBeenCalledWith('sess-2');
     });
+  });
+
+  it('auto-selects the remembered session instead of the latest session', async () => {
+    localStorage.setItem(LAST_SESSION_STORAGE_KEY, 'sess-1');
+
+    const { rerender } = render(<AgentChatModal />);
+
+    chatState.sessions = [
+      makeSession('sess-1', '2026-04-05T00:00:00Z'),
+      makeSession('sess-2', '2026-04-05T01:00:00Z'),
+    ];
+
+    rerender(<AgentChatModal />);
+
+    await waitFor(() => {
+      expect(selectSessionMock).toHaveBeenCalledWith('sess-1');
+    });
+    expect(selectSessionMock).not.toHaveBeenCalledWith('sess-2');
+  });
+
+  it('remembers the current opened session in browser storage', () => {
+    const { rerender } = render(<AgentChatModal />);
+
+    chatState.sessionId = 'sess-1';
+    rerender(<AgentChatModal />);
+
+    expect(localStorage.getItem(LAST_SESSION_STORAGE_KEY)).toBe('sess-1');
   });
 
   it('does not auto-select a previous session after the user clicks new session before sessions finish loading', () => {
