@@ -369,6 +369,50 @@ func TestResolveWebToolsConfig_CentralizesDefaults(t *testing.T) {
 	assert.Equal(t, MaxFirecrawlSearchLimit, firecrawlCfg.Firecrawl.MaxResults)
 }
 
+func TestResolveWebToolsConfig_DoesNotMutateInput(t *testing.T) {
+	t.Parallel()
+
+	tavily := &TavilyWebToolsConfig{
+		APIKey:      "  tvly-test  ",
+		BaseURL:     "  https://example.test/  ",
+		MaxResults:  0,
+		SearchDepth: "  basic  ",
+	}
+	cfg := ResolveWebToolsConfig(WebToolsConfig{
+		Enabled: true,
+		Tavily:  tavily,
+	})
+
+	require.NotSame(t, tavily, cfg.Tavily)
+	assert.Equal(t, "  tvly-test  ", tavily.APIKey)
+	assert.Equal(t, "  https://example.test/  ", tavily.BaseURL)
+	assert.Equal(t, 0, tavily.MaxResults)
+	assert.Equal(t, "  basic  ", tavily.SearchDepth)
+	assert.Equal(t, "tvly-test", cfg.Tavily.APIKey)
+	assert.Equal(t, "https://example.test", cfg.Tavily.BaseURL)
+	assert.Equal(t, MaxTavilySearchLimit, cfg.Tavily.MaxResults)
+	assert.Equal(t, DefaultTavilySearchDepth, cfg.Tavily.SearchDepth)
+
+	firecrawl := &FirecrawlWebToolsConfig{
+		APIKey:     "  fc-test  ",
+		BaseURL:    "  https://example.test/  ",
+		MaxResults: 0,
+	}
+	firecrawlCfg := ResolveWebToolsConfig(WebToolsConfig{
+		Enabled:   true,
+		Backend:   WebToolsBackendFirecrawl,
+		Firecrawl: firecrawl,
+	})
+
+	require.NotSame(t, firecrawl, firecrawlCfg.Firecrawl)
+	assert.Equal(t, "  fc-test  ", firecrawl.APIKey)
+	assert.Equal(t, "  https://example.test/  ", firecrawl.BaseURL)
+	assert.Equal(t, 0, firecrawl.MaxResults)
+	assert.Equal(t, "fc-test", firecrawlCfg.Firecrawl.APIKey)
+	assert.Equal(t, "https://example.test", firecrawlCfg.Firecrawl.BaseURL)
+	assert.Equal(t, MaxFirecrawlSearchLimit, firecrawlCfg.Firecrawl.MaxResults)
+}
+
 func TestTruncateForToolOutput_PreservesUTF8(t *testing.T) {
 	t.Parallel()
 
