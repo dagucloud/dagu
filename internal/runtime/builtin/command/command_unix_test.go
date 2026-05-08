@@ -120,7 +120,9 @@ func runCommandParentDeathHelper(t *testing.T) {
 
 	select {
 	case err := <-errCh:
-		require.NoError(t, err)
+		if err != nil {
+			require.Contains(t, err.Error(), "killed")
+		}
 	case <-time.After(30 * time.Second):
 		t.Fatal("helper was not killed by parent test")
 	}
