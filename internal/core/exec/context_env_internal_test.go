@@ -21,7 +21,7 @@ func TestManagedDAGRunEnvDefinitionsHaveUniqueKeys(t *testing.T) {
 	for _, env := range managedDAGRunEnvs {
 		require.NotEmpty(t, env.key)
 		if _, ok := seen[env.key]; ok {
-			t.Fatalf("duplicate managed DAG-run env key: %s", env.key)
+			require.Failf(t, "duplicate managed DAG-run env key", "%s", env.key)
 		}
 		seen[env.key] = struct{}{}
 	}
