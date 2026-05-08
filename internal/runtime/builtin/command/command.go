@@ -91,7 +91,17 @@ func (e *commandExecutor) Run(ctx context.Context) error {
 		}
 		return err
 	}
+	stopParentExitWatcher, err := cmdutil.StartParentExitWatcher(e.cmd)
+	if err != nil {
+		cmd := e.cmd
+		e.exitCode = 1
+		e.mu.Unlock()
+		_ = cmdutil.KillProcessGroup(cmd, os.Kill)
+		_ = cmd.Wait()
+		return fmt.Errorf("failed to start parent exit watcher: %w", err)
+	}
 	e.mu.Unlock()
+	defer stopParentExitWatcher()
 
 	// Wait for the command to finish or the context to be cancelled.
 	// This ensures timeout is enforced even if cmd.Wait() blocks due to
