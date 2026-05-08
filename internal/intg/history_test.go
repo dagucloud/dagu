@@ -4,8 +4,12 @@
 package intg_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"testing"
 	"time"
 
@@ -286,6 +290,23 @@ func TestHistoryCommand_EmptyResults(t *testing.T) {
 	})
 }
 
+func TestHistoryCommand_EmptyResultsJSONOutput(t *testing.T) {
+	th := test.SetupCommand(t)
+
+	stdout, stderr := captureOutput(t, func() {
+		th.RunCommand(t, cmd.History(), test.CmdTest{
+			Name: "EmptyJSON",
+			Args: []string{"history", "--run-id=non-existent-run-id", "--format=json"},
+		})
+	})
+
+	var payload []map[string]any
+	require.NoError(t, json.Unmarshal([]byte(stdout), &payload))
+	assert.Empty(t, payload)
+	assert.NotContains(t, stdout, "No DAG runs found")
+	assert.Contains(t, stderr, "No DAG runs found matching the specified filters.")
+}
+
 func TestHistoryCommand_Labels(t *testing.T) {
 	t.Parallel()
 
@@ -334,6 +355,41 @@ steps:
 	}
 	assert.True(t, names[dag1.Name])
 	assert.False(t, names[dag2.Name])
+}
+
+func captureOutput(t *testing.T, fn func()) (string, string) {
+	t.Helper()
+
+	oldStdout := os.Stdout
+	oldStderr := os.Stderr
+	stdoutR, stdoutW, err := os.Pipe()
+	require.NoError(t, err)
+	stderrR, stderrW, err := os.Pipe()
+	require.NoError(t, err)
+
+	os.Stdout = stdoutW
+	os.Stderr = stderrW
+	defer func() {
+		os.Stdout = oldStdout
+		os.Stderr = oldStderr
+	}()
+
+	fn()
+
+	require.NoError(t, stdoutW.Close())
+	require.NoError(t, stderrW.Close())
+
+	var stdout bytes.Buffer
+	_, err = io.Copy(&stdout, stdoutR)
+	require.NoError(t, err)
+	require.NoError(t, stdoutR.Close())
+
+	var stderr bytes.Buffer
+	_, err = io.Copy(&stderr, stderrR)
+	require.NoError(t, err)
+	require.NoError(t, stderrR.Close())
+
+	return stdout.String(), stderr.String()
 }
 
 func TestHistoryCommand_Limit(t *testing.T) {

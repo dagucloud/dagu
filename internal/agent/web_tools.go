@@ -336,6 +336,7 @@ func newConfiguredWebToolProvider(cfg WebToolsConfig) (webToolProvider, bool) {
 
 // ResolveWebToolsConfig applies runtime defaults and trimming for web tool config.
 func ResolveWebToolsConfig(cfg WebToolsConfig) WebToolsConfig {
+	cfg = *cloneWebToolsConfig(&cfg)
 	if cfg.Backend == "" {
 		cfg.Backend = WebToolsBackendTavily
 	}

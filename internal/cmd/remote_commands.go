@@ -306,8 +306,7 @@ func remoteRunHistory(ctx *Context, args []string) error {
 		return err
 	}
 	if len(runs) == 0 {
-		fmt.Println("No DAG runs found matching the specified filters.")
-		return nil
+		return renderEmptyHistory(format)
 	}
 	if len(runs) > limit {
 		runs = runs[:limit]
