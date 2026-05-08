@@ -94,7 +94,9 @@ type Agent struct {
 
 	// socketServer is the unix socket server to handle HTTP requests.
 	// It listens to the requests from the local client (e.g., frontend server).
-	socketServer *sock.Server
+	socketServer SocketServer
+	// socketServerFactory creates the local status/control transport.
+	socketServerFactory SocketServerFactory
 
 	// logDir is the directory to store the log files for each node in the DAG.
 	logDir string
@@ -214,6 +216,20 @@ type StatusPusher interface {
 	Push(ctx context.Context, status exec.DAGRunStatus) error
 }
 
+// SocketServer handles local status/control requests for a running DAG.
+type SocketServer interface {
+	Serve(ctx context.Context, listen chan error) error
+	Shutdown(ctx context.Context) error
+}
+
+// SocketServerFactory creates a local status/control transport.
+type SocketServerFactory func(addr string, handlerFunc sock.HTTPHandlerFunc) (SocketServer, error)
+
+// defaultSocketServerFactory creates the production Unix socket server.
+func defaultSocketServerFactory(addr string, handlerFunc sock.HTTPHandlerFunc) (SocketServer, error) {
+	return sock.NewServer(addr, handlerFunc)
+}
+
 // ArtifactFinalizer uploads or persists artifacts before the final terminal status is written.
 type ArtifactFinalizer interface {
 	Finalize(ctx context.Context, attemptID, dir string) error
@@ -290,6 +306,9 @@ type Options struct {
 	ArtifactDir string
 	// ArtifactFinalizer persists artifacts before the final terminal status is written.
 	ArtifactFinalizer ArtifactFinalizer
+	// SocketServerFactory creates the local status/control transport.
+	// When nil, the default Unix socket transport is used.
+	SocketServerFactory SocketServerFactory
 }
 
 // New creates a new Agent.
@@ -335,6 +354,10 @@ func New(
 		agentOAuthManager:          opts.AgentOAuthManager,
 		agentRemoteContextResolver: opts.AgentRemoteContextResolver,
 		scheduleTime:               opts.ScheduleTime,
+		socketServerFactory:        opts.SocketServerFactory,
+	}
+	if a.socketServerFactory == nil {
+		a.socketServerFactory = defaultSocketServerFactory
 	}
 
 	// Initialize progress display if enabled
@@ -731,21 +754,31 @@ func (a *Agent) Run(ctx context.Context) error {
 	go execWithRecovery(ctx, func() {
 		err := a.socketServer.Serve(ctx, listenerErrCh)
 		if err != nil && !errors.Is(err, sock.ErrServerRequestedShutdown) {
+			if errors.Is(err, sock.ErrUnsupported) {
+				return
+			}
 			logger.Error(ctx, "Failed to start socket frontend", tag.Error(err))
 		}
 	})
 
-	// Stop the socket server when the dag-run is finished.
-	defer func() {
-		if err := a.socketServer.Shutdown(ctx); err != nil {
-			logger.Error(ctx, "Failed to shutdown socket frontend", tag.Error(err))
-		}
-	}()
-
 	// It returns error if it failed to start the unix socket server.
 	if err := <-listenerErrCh; err != nil {
-		initErr = fmt.Errorf("failed to start the unix socket server: %w", err)
-		return initErr
+		if errors.Is(err, sock.ErrUnsupported) {
+			logger.Warn(ctx,
+				"Unix socket transport unavailable; continuing without live status/control socket",
+				tag.Error(err),
+			)
+		} else {
+			initErr = fmt.Errorf("failed to start the unix socket server: %w", err)
+			return initErr
+		}
+	} else {
+		// Stop the socket server when the dag-run is finished.
+		defer func() {
+			if err := a.socketServer.Shutdown(ctx); err != nil {
+				logger.Error(ctx, "Failed to shutdown socket frontend", tag.Error(err))
+			}
+		}()
 	}
 
 	// Start progress display if enabled
@@ -1819,7 +1852,7 @@ func (a *Agent) attemptOptions() exec.NewDAGRunAttemptOptions {
 
 // setupSocketServer creates a socket server instance.
 func (a *Agent) setupSocketServer(ctx context.Context) error {
-	socketServer, err := sock.NewServer(a.socketAddr(), a.HandleHTTP(ctx))
+	socketServer, err := a.socketServerFactory(a.socketAddr(), a.HandleHTTP(ctx))
 	if err != nil {
 		return err
 	}

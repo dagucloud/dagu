@@ -38,7 +38,7 @@ func init() {
 // SessionSearchInput defines the input parameters for the session_search tool.
 type SessionSearchInput struct {
 	Query string `json:"query"`
-	Limit int    `json:"limit,omitempty"`
+	Limit int    `json:"limit,omitempty" lenient:"true"`
 }
 
 type sessionSearchResult struct {
@@ -88,7 +88,7 @@ func NewSessionSearchTool() *AgentTool {
 
 func sessionSearchRun(ctx ToolContext, input json.RawMessage) ToolOut {
 	var args SessionSearchInput
-	if err := json.Unmarshal(input, &args); err != nil {
+	if err := decodeToolInput(input, &args); err != nil {
 		return toolError("Failed to parse input: %v", err)
 	}
 

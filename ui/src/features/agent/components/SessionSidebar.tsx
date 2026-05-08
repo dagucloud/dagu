@@ -1,4 +1,7 @@
-import { useEffect, useRef } from 'react';
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { useEffect, useMemo, useRef } from 'react';
 import type { ReactElement } from 'react';
 
 import { cn } from '@/lib/utils';
@@ -15,7 +18,12 @@ type Props = {
   onClose: () => void;
   onLoadMore: () => void;
   hasMore: boolean;
+  isLoadingMore: boolean;
 };
+
+function sessionTitle(sess: SessionWithState): string {
+  return sess.session.title?.replace(/\s+/g, ' ').trim() || 'New conversation';
+}
 
 export function SessionSidebar({
   isOpen,
@@ -26,19 +34,31 @@ export function SessionSidebar({
   onClose,
   onLoadMore,
   hasMore,
+  isLoadingMore,
 }: Props): ReactElement | null {
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const sortedSessions = useMemo(
+    () =>
+      [...sessions].sort(
+        (a, b) =>
+          new Date(b.session.updated_at).getTime() -
+          new Date(a.session.updated_at).getTime()
+      ),
+    [sessions]
+  );
 
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || !hasMore) return;
+    if (!el || !hasMore || isLoadingMore) return;
     const observer = new IntersectionObserver(
-      ([entry]) => { if (entry?.isIntersecting) onLoadMore(); },
+      ([entry]) => {
+        if (entry?.isIntersecting) onLoadMore();
+      },
       { threshold: 0.1 }
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [hasMore, onLoadMore]);
+  }, [hasMore, isLoadingMore, onLoadMore]);
 
   if (!isOpen) return null;
 
@@ -49,26 +69,41 @@ export function SessionSidebar({
 
   const list = (
     <div className="flex flex-col h-full bg-card dark:bg-zinc-950 border-r border-border overflow-y-auto">
-        {sessions.map((sess) => (
-          <button
-            key={sess.session.id}
-            onClick={() => handleSelect(sess.session.id)}
-            className={cn(
-              'w-full text-left px-3 py-1.5 text-xs flex items-center gap-1.5 hover:bg-accent/50 transition-colors',
-              sess.session.id === activeSessionId && 'bg-accent'
-            )}
-          >
-            {sess.has_pending_prompt ? (
-              <span className="h-2 w-2 rounded-full bg-orange-400 flex-shrink-0" role="img" aria-label="Waiting for input" />
-            ) : sess.working ? (
-              <span className="h-2 w-2 rounded-full bg-green-500 flex-shrink-0" role="img" aria-label="Running" />
-            ) : (
-              <span className="h-2 w-2 flex-shrink-0" />
-            )}
-            <span className="truncate">{formatDate(sess.session.created_at)}</span>
-          </button>
-        ))}
-        {hasMore && <div ref={sentinelRef} className="h-6 flex-shrink-0" />}
+      {sortedSessions.map((sess) => (
+        <button
+          key={sess.session.id}
+          onClick={() => handleSelect(sess.session.id)}
+          className={cn(
+            'w-full text-left px-3 py-2 text-xs flex items-start gap-2 hover:bg-accent/50 transition-colors',
+            sess.session.id === activeSessionId && 'bg-accent'
+          )}
+        >
+          {sess.has_pending_prompt ? (
+            <span
+              className="mt-1 h-2 w-2 rounded-full bg-orange-400 flex-shrink-0"
+              role="img"
+              aria-label="Waiting for input"
+            />
+          ) : sess.working ? (
+            <span
+              className="mt-1 h-2 w-2 rounded-full bg-green-500 flex-shrink-0"
+              role="img"
+              aria-label="Running"
+            />
+          ) : (
+            <span className="mt-1 h-2 w-2 flex-shrink-0" />
+          )}
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-foreground">
+              {sessionTitle(sess)}
+            </span>
+            <span className="block truncate text-[11px] text-muted-foreground">
+              {formatDate(sess.session.updated_at)}
+            </span>
+          </span>
+        </button>
+      ))}
+      {hasMore && <div ref={sentinelRef} className="h-6 flex-shrink-0" />}
     </div>
   );
 

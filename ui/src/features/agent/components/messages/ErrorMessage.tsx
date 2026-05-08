@@ -1,12 +1,14 @@
-import type React from 'react';
-import { XCircle } from 'lucide-react';
-
-export function ErrorMessage({ content }: { content: string }): React.ReactNode {
+export function ErrorMessage({
+  content,
+}: {
+  content: string;
+}): React.ReactNode {
   return (
-    <div className="pl-1">
-      <div className="flex items-start gap-1.5 text-red-500">
-        <XCircle className="h-3 w-3 mt-0.5 flex-shrink-0" />
-        <p className="whitespace-pre-wrap break-words">{content}</p>
+    <div className="flex pr-8">
+      <div className="max-w-full border-l-2 border-destructive/50 py-1 pl-2.5 pr-2 text-xs leading-relaxed">
+        <span className="whitespace-pre-wrap break-words font-mono text-[11px] text-foreground">
+          {content}
+        </span>
       </div>
     </div>
   );

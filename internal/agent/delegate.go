@@ -107,7 +107,7 @@ func delegateRun(ctx ToolContext, input json.RawMessage) ToolOut {
 	}
 
 	var args delegateInput
-	if err := json.Unmarshal(input, &args); err != nil {
+	if err := decodeToolInput(input, &args); err != nil {
 		return toolError("Invalid input: %v", err)
 	}
 

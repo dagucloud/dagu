@@ -5,6 +5,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -34,6 +35,7 @@ func TestRegisteredTools_ContainsAllExpected(t *testing.T) {
 		"dag_def_manage",
 		"dag_run_manage",
 		"remote_agent", "list_contexts",
+		"web_search", "web_extract",
 	}
 
 	regs := RegisteredTools()
@@ -87,7 +89,17 @@ func TestRegisteredTools_HaveMetadata(t *testing.T) {
 func TestRegisteredTools_FactoriesProduceValidTools(t *testing.T) {
 	t.Parallel()
 
-	cfg := ToolConfig{DAGsDir: "/tmp/test-dags", RemoteContextResolver: &testRemoteContextResolver{}}
+	cfg := ToolConfig{
+		DAGsDir:               "/tmp/test-dags",
+		RemoteContextResolver: &testRemoteContextResolver{},
+		WebTools: &WebToolsConfig{
+			Enabled: true,
+			Backend: WebToolsBackendTavily,
+			Tavily: &TavilyWebToolsConfig{
+				APIKey: "tvly-test",
+			},
+		},
+	}
 	for _, reg := range RegisteredTools() {
 		t.Run(reg.Name, func(t *testing.T) {
 			t.Parallel()
@@ -102,10 +114,64 @@ func TestRegisteredTools_FactoriesProduceValidTools(t *testing.T) {
 	}
 }
 
+func TestRegisteredTools_SchemasDoNotRejectExtraFields(t *testing.T) {
+	t.Parallel()
+
+	cfg := ToolConfig{
+		DAGsDir:               "/tmp/test-dags",
+		RemoteContextResolver: &testRemoteContextResolver{},
+		WebTools: &WebToolsConfig{
+			Enabled: true,
+			Backend: WebToolsBackendTavily,
+			Tavily:  &TavilyWebToolsConfig{APIKey: "tvly-test"},
+		},
+	}
+
+	for _, reg := range RegisteredTools() {
+		t.Run(reg.Name, func(t *testing.T) {
+			t.Parallel()
+
+			tool := reg.Factory(cfg)
+			require.NotNil(t, tool)
+			assertNoAdditionalPropertiesFalse(t, tool.Function.Parameters, tool.Function.Name)
+		})
+	}
+}
+
+func assertNoAdditionalPropertiesFalse(t *testing.T, node any, path string) {
+	t.Helper()
+
+	switch typed := node.(type) {
+	case map[string]any:
+		if value, ok := typed["additionalProperties"]; ok {
+			assert.NotEqual(t, false, value, "%s must not reject extra fields", path)
+		}
+		for key, value := range typed {
+			assertNoAdditionalPropertiesFalse(t, value, path+"."+key)
+		}
+	case []any:
+		for i, value := range typed {
+			assertNoAdditionalPropertiesFalse(t, value, fmt.Sprintf("%s[%d]", path, i))
+		}
+	case []string:
+		return
+	}
+}
+
 func TestCreateTools_UsesRegistry(t *testing.T) {
 	t.Parallel()
 
-	tools := CreateTools(ToolConfig{DAGsDir: "/tmp/dags", RemoteContextResolver: &testRemoteContextResolver{}})
+	tools := CreateTools(ToolConfig{
+		DAGsDir:               "/tmp/dags",
+		RemoteContextResolver: &testRemoteContextResolver{},
+		WebTools: &WebToolsConfig{
+			Enabled: true,
+			Backend: WebToolsBackendTavily,
+			Tavily: &TavilyWebToolsConfig{
+				APIKey: "tvly-test",
+			},
+		},
+	})
 	regs := RegisteredTools()
 
 	assert.Len(t, tools, len(regs), "CreateTools should produce one tool per registration")

@@ -109,12 +109,24 @@ func runHistory(ctx *Context, args []string) error {
 
 	// Handle empty results
 	if len(statuses) == 0 {
-		fmt.Println("No DAG runs found matching the specified filters.")
-		return nil
+		return renderEmptyHistory(format)
 	}
 
 	// Render output based on format
 	return renderHistory(format, statuses)
+}
+
+const noHistoryRunsMessage = "No DAG runs found matching the specified filters."
+
+func renderEmptyHistory(format string) error {
+	_, _ = fmt.Fprintln(os.Stderr, noHistoryRunsMessage)
+
+	switch format {
+	case "json", "csv":
+		return renderHistory(format, nil)
+	default:
+		return nil
+	}
 }
 
 // validateFormat checks if the output format is valid.

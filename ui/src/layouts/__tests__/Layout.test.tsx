@@ -47,10 +47,10 @@ const config = {
   agentEnabled: true,
 } as Config;
 
-function renderLayout(path: string): void {
-  render(
+function renderLayout(path: string, configOverride?: Partial<Config>) {
+  return render(
     <MemoryRouter initialEntries={[path]}>
-      <ConfigContext.Provider value={config}>
+      <ConfigContext.Provider value={{ ...config, ...configOverride }}>
         <Layout>
           <div>Page Content</div>
         </Layout>
@@ -125,10 +125,46 @@ describe('Layout', () => {
 
     expect(screen.queryByTestId('sidebar-menu')).toBeNull();
     expect(screen.getByTestId('agent-sidebar')).toBeVisible();
+    expect(localStorage.getItem('sidebarMode')).toBe('agent');
     expect(
       screen.getByRole('separator', { name: 'Resize agent panel' })
     ).toBeVisible();
     expect(screen.getByText('Page Content')).toBeVisible();
+  });
+
+  it('restores the agent sidebar mode after a reload', () => {
+    localStorage.setItem('sidebarMode', 'agent');
+
+    renderLayout('/cockpit');
+
+    expect(screen.queryByTestId('sidebar-menu')).toBeNull();
+    expect(screen.getByTestId('agent-sidebar')).toBeVisible();
+  });
+
+  it('persists navigation mode when the agent panel is closed', () => {
+    localStorage.setItem('sidebarMode', 'agent');
+    renderLayout('/cockpit');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close Agent' }));
+
+    expect(screen.getByTestId('sidebar-menu')).toBeVisible();
+    expect(localStorage.getItem('sidebarMode')).toBe('navigation');
+  });
+
+  it('falls back to navigation for invalid or unavailable agent mode', () => {
+    localStorage.setItem('sidebarMode', 'unknown');
+    const { unmount } = renderLayout('/cockpit');
+
+    expect(screen.getByTestId('sidebar-menu')).toBeVisible();
+    expect(screen.queryByTestId('agent-sidebar')).toBeNull();
+
+    unmount();
+    localStorage.setItem('sidebarMode', 'agent');
+    renderLayout('/cockpit', { agentEnabled: false });
+
+    expect(screen.getByTestId('sidebar-menu')).toBeVisible();
+    expect(screen.queryByTestId('agent-sidebar')).toBeNull();
+    expect(localStorage.getItem('sidebarMode')).toBe('navigation');
   });
 
   it('resizes the agent sidebar from the divider', () => {

@@ -1,7 +1,16 @@
 import type { ReactElement } from 'react';
+import { useNavigate } from 'react-router-dom';
 
-import { PanelLeft, Plus, Shield, ShieldOff, Terminal, X } from 'lucide-react';
+import {
+  PanelLeft,
+  Plus,
+  Settings,
+  Shield,
+  ShieldOff,
+  X,
+} from 'lucide-react';
 
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -26,7 +35,6 @@ type Props = {
   isMobile?: boolean;
 };
 
-
 export function AgentChatModalHeader({
   totalCost,
   isSidebarOpen,
@@ -36,9 +44,13 @@ export function AgentChatModalHeader({
   dragHandlers,
   isMobile,
 }: Props): ReactElement {
+  const navigate = useNavigate();
   const { preferences, updatePreference } = useUserPreferences();
   const activeDragHandlers =
     dragHandlers && !isMobile ? dragHandlers : undefined;
+  const handleOpenSettings = (): void => {
+    navigate('/agent');
+  };
 
   return (
     <div
@@ -49,20 +61,25 @@ export function AgentChatModalHeader({
       {...(activeDragHandlers || {})}
     >
       <div className="flex items-center gap-2 flex-1 min-w-0">
-        <button
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
           onClick={onToggleSidebar}
-          className="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground flex-shrink-0"
           title={isSidebarOpen ? 'Hide sessions' : 'Show sessions'}
+          aria-label={isSidebarOpen ? 'Hide sessions' : 'Show sessions'}
+          className="flex-shrink-0 text-muted-foreground hover:text-foreground"
         >
           <PanelLeft className="h-4 w-4" />
-        </button>
-        <Terminal className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-        <span className="text-xs font-medium text-foreground truncate">Agent</span>
+        </Button>
+        <span className="truncate text-sm font-medium text-foreground">
+          Agent
+        </span>
       </div>
       {totalCost != null && totalCost > 0 && (
-        <span className="text-[10px] text-muted-foreground/60 flex-shrink-0 tabular-nums">
+        <Badge variant="secondary" className="mr-1 flex-shrink-0 tabular-nums">
           {formatCost(totalCost)}
-        </span>
+        </Badge>
       )}
       <TooltipProvider delayDuration={300}>
         <div className="flex items-center gap-1 flex-shrink-0">
@@ -70,10 +87,16 @@ export function AgentChatModalHeader({
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
-                size="sm"
-                onClick={() => updatePreference('safeMode', !preferences.safeMode)}
-                className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
-                aria-label={preferences.safeMode ? 'Disable safe mode' : 'Enable safe mode'}
+                size="icon-sm"
+                onClick={() =>
+                  updatePreference('safeMode', !preferences.safeMode)
+                }
+                className="text-muted-foreground hover:text-foreground"
+                aria-label={
+                  preferences.safeMode
+                    ? 'Disable safe mode'
+                    : 'Enable safe mode'
+                }
                 aria-pressed={preferences.safeMode}
               >
                 {preferences.safeMode ? (
@@ -86,27 +109,46 @@ export function AgentChatModalHeader({
             <TooltipContent>
               <p>
                 {preferences.safeMode
-                  ? "Safe mode enabled: dangerous commands require approval"
-                  : "Safe mode disabled: all commands execute immediately"}
+                  ? 'Safe mode enabled: dangerous commands require approval'
+                  : 'Safe mode disabled: all commands execute immediately'}
               </p>
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                onClick={handleOpenSettings}
+                className="text-muted-foreground hover:text-foreground"
+                aria-label="Open agent settings"
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Open agent settings</p>
             </TooltipContent>
           </Tooltip>
           <Button
             variant="ghost"
-            size="sm"
+            size="icon-sm"
             onClick={onClearSession}
-            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+            className="text-muted-foreground hover:text-foreground"
             title="New session"
+            aria-label="New session"
           >
             <Plus className="h-4 w-4" />
           </Button>
           {onClose && (
             <Button
               variant="ghost"
-              size="sm"
+              size="icon-sm"
               onClick={onClose}
-              className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+              className="text-muted-foreground hover:text-foreground"
               title="Close"
+              aria-label="Close agent"
             >
               <X className="h-4 w-4" />
             </Button>

@@ -84,6 +84,7 @@ type API struct {
 	leaseStaleThreshold  time.Duration
 	schedulerStateStore  scheduler.WatermarkStore
 	dagMutationNotifier  func(fileName string)
+	docMutationNotifier  func()
 }
 
 // AuthService defines the interface for authentication operations.
@@ -256,6 +257,14 @@ func WithDAGMutationNotifier(fn func(fileName string)) APIOption {
 	}
 }
 
+// WithDocMutationNotifier returns an APIOption that is called after successful
+// document mutations that should invalidate live document views.
+func WithDocMutationNotifier(fn func()) APIOption {
+	return func(a *API) {
+		a.docMutationNotifier = fn
+	}
+}
+
 // WithDAGRunLeaseStore sets the shared distributed run lease store.
 func WithDAGRunLeaseStore(store exec.DAGRunLeaseStore) APIOption {
 	return func(a *API) {
@@ -334,6 +343,12 @@ func New(
 func (a *API) notifyDAGMutation(fileName string) {
 	if a.dagMutationNotifier != nil {
 		a.dagMutationNotifier(fileName)
+	}
+}
+
+func (a *API) notifyDocMutation() {
+	if a.docMutationNotifier != nil {
+		a.docMutationNotifier()
 	}
 }
 

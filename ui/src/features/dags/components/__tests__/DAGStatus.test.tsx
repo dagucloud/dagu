@@ -14,6 +14,7 @@ import {
 } from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { useClient } from '@/hooks/api';
+import { toMermaidNodeId } from '@/lib/utils';
 import { DAGContext } from '../../contexts/DAGContext';
 import DAGStatus from '../DAGStatus';
 
@@ -54,10 +55,16 @@ vi.mock('../visualization', () => ({
   }) => (
     <div>
       <div>Graph status: {steps?.[0]?.status}</div>
-      <button type="button" onClick={() => onClickNode?.('step')}>
+      <button
+        type="button"
+        onClick={() => onClickNode?.(toMermaidNodeId('step'))}
+      >
         Open step details
       </button>
-      <button type="button" onClick={() => onRightClickNode?.('step')}>
+      <button
+        type="button"
+        onClick={() => onRightClickNode?.(toMermaidNodeId('step'))}
+      >
         Open status modal
       </button>
     </div>

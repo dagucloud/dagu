@@ -6,11 +6,13 @@ package agent
 import (
 	"cmp"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -138,6 +140,17 @@ type SessionWithState struct {
 	TotalCost        float64 `json:"total_cost"`
 }
 
+// SessionCursorResult is a forward-only page of sessions.
+type SessionCursorResult struct {
+	Items      []SessionWithState
+	NextCursor string
+}
+
+type sessionListCursor struct {
+	ID        string    `json:"id"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type sessionRuntimeConfig struct {
 	modelID         string
 	resolvedModel   string
@@ -147,6 +160,7 @@ type sessionRuntimeConfig struct {
 	safeMode        bool
 	soul            *Soul
 	webSearch       *llm.WebSearchRequest
+	webTools        *WebToolsConfig
 	thinkingEffort  llm.ThinkingEffort
 	inputCostPer1M  float64
 	outputCostPer1M float64
@@ -334,6 +348,14 @@ func (a *API) loadWebSearch(ctx context.Context) *llm.WebSearchRequest {
 	}
 }
 
+func (a *API) loadWebTools(ctx context.Context) *WebToolsConfig {
+	cfg, err := a.configStore.Load(ctx)
+	if err != nil || cfg == nil || cfg.WebTools == nil || !cfg.WebTools.Enabled {
+		return nil
+	}
+	return cloneWebToolsConfig(cfg.WebTools)
+}
+
 // loadSoulWithOverride loads a soul by explicit ID override, falling back to the
 // global default from config. Use this for session creation where the client may
 // specify a soul.
@@ -506,6 +528,22 @@ func cloneWebSearchRequest(req *llm.WebSearchRequest) *llm.WebSearchRequest {
 	return &out
 }
 
+func cloneWebToolsConfig(cfg *WebToolsConfig) *WebToolsConfig {
+	if cfg == nil {
+		return nil
+	}
+	out := *cfg
+	if cfg.Tavily != nil {
+		tavily := *cfg.Tavily
+		out.Tavily = &tavily
+	}
+	if cfg.Firecrawl != nil {
+		firecrawl := *cfg.Firecrawl
+		out.Firecrawl = &firecrawl
+	}
+	return &out
+}
+
 func modelThinkingEffort(modelCfg *ModelConfig) llm.ThinkingEffort {
 	if modelCfg == nil || !modelCfg.SupportsThinking {
 		return ""
@@ -534,6 +572,7 @@ func (a *API) defaultSessionRuntime(ctx context.Context, dagName string, safeMod
 		safeMode:        safeMode,
 		soul:            a.loadSelectedSoul(ctx),
 		webSearch:       cloneWebSearchRequest(a.loadWebSearch(ctx)),
+		webTools:        a.loadWebTools(ctx),
 		thinkingEffort:  modelThinkingEffort(modelCfg),
 		inputCostPer1M:  modelCfg.InputCostPer1M,
 		outputCostPer1M: modelCfg.OutputCostPer1M,
@@ -558,6 +597,7 @@ func (a *API) runtimeConfigForSession(ctx context.Context, mgr *SessionManager, 
 		safeMode:        mgr.safeMode,
 		soul:            mgr.soul,
 		webSearch:       cloneWebSearchRequest(mgr.webSearch),
+		webTools:        cloneWebToolsConfig(mgr.webTools),
 		thinkingEffort:  modelThinkingEffort(modelCfg),
 		inputCostPer1M:  modelCfg.InputCostPer1M,
 		outputCostPer1M: modelCfg.OutputCostPer1M,
@@ -588,6 +628,7 @@ func (a *API) buildSessionManagerConfig(id string, user UserIdentity, cfg sessio
 		SessionStore:          a.store,
 		Soul:                  cfg.soul,
 		WebSearch:             cfg.webSearch,
+		WebTools:              cfg.webTools,
 		ThinkingEffort:        cfg.thinkingEffort,
 		RemoteContextResolver: a.remoteContextResolver,
 	}
@@ -613,12 +654,13 @@ func (a *API) ensureSessionLoop(mgr *SessionManager, provider llm.Provider, cfg 
 	return mgr.ensureLoop(provider, cfg.modelID, cfg.resolvedModel)
 }
 
-func (a *API) buildSystemPrompt(ctx context.Context, role auth.Role, dagName string, soul *Soul) string {
+func (a *API) buildSystemPrompt(ctx context.Context, user UserIdentity, dagName string, soul *Soul) string {
 	return GenerateSystemPrompt(SystemPromptParams{
-		Env:    a.environment,
-		Memory: a.loadMemoryContent(ctx, dagName),
-		Role:   role,
-		Soul:   soul,
+		Env:             a.environment,
+		Memory:          a.loadMemoryContent(ctx, dagName),
+		Role:            user.Role,
+		WorkspaceAccess: user.WorkspaceAccess,
+		Soul:            soul,
 	})
 }
 
@@ -938,6 +980,7 @@ func (a *API) reactivateSession(ctx context.Context, id string, user UserIdentit
 		safeMode:        true, // Default to safe mode for reactivated sessions
 		soul:            a.loadSelectedSoul(ctx),
 		webSearch:       a.loadWebSearch(ctx),
+		webTools:        a.loadWebTools(ctx),
 		thinkingEffort:  thinkingEffort,
 		inputCostPer1M:  inputCost,
 		outputCostPer1M: outputCost,
@@ -1138,13 +1181,14 @@ func (a *API) CreateSession(ctx context.Context, user UserIdentity, req ChatRequ
 		safeMode:        req.SafeMode,
 		soul:            a.loadSoulWithOverride(ctx, req.SoulID),
 		webSearch:       a.loadWebSearch(ctx),
+		webTools:        a.loadWebTools(ctx),
 		thinkingEffort:  modelThinkingEffort(modelCfg),
 		inputCostPer1M:  modelCfg.InputCostPer1M,
 		outputCostPer1M: modelCfg.OutputCostPer1M,
 	}))
 	mgr.registry = &sessionRegistry{sessions: &a.sessions, parent: mgr}
 
-	messageWithContext, err := a.prepareChatContent(ctx, id, req)
+	displayMessage, messageWithContext, err := a.prepareChatDisplayAndLLMContent(ctx, id, req)
 	if err != nil {
 		a.logger.Error("Failed to prepare chat content", "error", err)
 		return "", "", ErrFailedToProcessMessage
@@ -1155,7 +1199,7 @@ func (a *API) CreateSession(ctx context.Context, user UserIdentity, req ChatRequ
 	a.persistNewSession(ctx, id, user.UserID, dagName, model, now)
 	a.sessions.Store(id, mgr)
 
-	if err := mgr.AcceptUserMessage(ctx, provider, model, modelCfg.Model, messageWithContext); err != nil {
+	if err := mgr.AcceptUserMessageWithLLMContent(ctx, provider, model, modelCfg.Model, displayMessage, messageWithContext); err != nil {
 		a.logger.Error("Failed to accept user message", "error", err)
 		a.sessions.Delete(id)
 		a.clearDAGRunWatchesForSession(id)
@@ -1217,7 +1261,7 @@ func (a *API) GenerateAssistantMessage(ctx context.Context, sessionID string, us
 		}
 	}
 
-	systemPrompt := a.buildSystemPrompt(ctx, user.Role, runtimeCfg.dagName, runtimeCfg.soul)
+	systemPrompt := a.buildSystemPrompt(ctx, user, runtimeCfg.dagName, runtimeCfg.soul)
 	resp, err := a.runOneShotPrompt(ctx, provider, runtimeCfg.resolvedModel, systemPrompt, prompt)
 	if err != nil {
 		return Message{}, err
@@ -1308,7 +1352,7 @@ func (a *API) CompactSessionIfNeeded(ctx context.Context, sessionID string, user
 	}
 
 	mgr.mu.Lock()
-	queuedChatMessages := append([]string(nil), mgr.queuedChatMessages...)
+	queuedChatMessages := append([]queuedChatMessage(nil), mgr.queuedChatMessages...)
 	flushingQueuedChat := mgr.flushingQueuedChat
 	mgr.mu.Unlock()
 	if len(queuedChatMessages) > 0 || flushingQueuedChat {
@@ -1343,16 +1387,16 @@ type ChatQueueResult struct {
 	Started   bool
 }
 
-func (a *API) prepareSessionMessage(ctx context.Context, mgr *SessionManager, user UserIdentity, req ChatRequest) (llm.Provider, string, string, string, error) {
+func (a *API) prepareSessionMessage(ctx context.Context, mgr *SessionManager, user UserIdentity, req ChatRequest) (llm.Provider, string, string, string, string, error) {
 	provider, model, resolvedModel, err := a.prepareSessionRuntime(ctx, mgr, user, req)
 	if err != nil {
-		return nil, "", "", "", err
+		return nil, "", "", "", "", err
 	}
-	messageWithContext, err := a.prepareChatContent(ctx, mgr.ID(), req)
+	displayMessage, messageWithContext, err := a.prepareChatDisplayAndLLMContent(ctx, mgr.ID(), req)
 	if err != nil {
-		return nil, "", "", "", err
+		return nil, "", "", "", "", err
 	}
-	return provider, model, resolvedModel, messageWithContext, nil
+	return provider, model, resolvedModel, displayMessage, messageWithContext, nil
 }
 
 func (a *API) prepareSessionRuntime(ctx context.Context, mgr *SessionManager, user UserIdentity, req ChatRequest) (llm.Provider, string, string, error) {
@@ -1409,7 +1453,12 @@ func (a *API) EnqueueChatMessage(ctx context.Context, sessionID string, user Use
 	}
 
 	if mgr.IsWorking() || mgr.HasQueuedChatInput() {
-		queued, err := mgr.EnqueueChatMessage(ctx, provider, model, resolvedModel, req.Message)
+		displayMessage, messageWithContext, err := a.prepareQueuedChatDisplayAndLLMContent(ctx, req)
+		if err != nil {
+			a.logger.Error("Failed to prepare queued chat content", "error", err)
+			return ChatQueueResult{}, ErrFailedToProcessMessage
+		}
+		queued, err := mgr.EnqueueChatMessageWithLLMContent(ctx, provider, model, resolvedModel, displayMessage, messageWithContext)
 		if err != nil {
 			a.logger.Error("Failed to enqueue chat message", "error", err)
 			return ChatQueueResult{}, ErrFailedToProcessMessage
@@ -1429,12 +1478,12 @@ func (a *API) EnqueueChatMessage(ctx context.Context, sessionID string, user Use
 	if err != nil {
 		return ChatQueueResult{}, err
 	}
-	messageWithContext, err := a.prepareChatContent(ctx, targetSessionID, req)
+	displayMessage, messageWithContext, err := a.prepareChatDisplayAndLLMContent(ctx, targetSessionID, req)
 	if err != nil {
 		a.logger.Error("Failed to prepare queued chat content", "error", err)
 		return ChatQueueResult{}, ErrFailedToProcessMessage
 	}
-	queued, err := targetMgr.EnqueueChatMessage(ctx, provider, model, resolvedModel, messageWithContext)
+	queued, err := targetMgr.EnqueueChatMessageWithLLMContent(ctx, provider, model, resolvedModel, displayMessage, messageWithContext)
 	if err != nil {
 		a.logger.Error("Failed to enqueue chat message", "error", err)
 		return ChatQueueResult{}, ErrFailedToProcessMessage
@@ -1454,47 +1503,40 @@ func (a *API) FlushQueuedChatMessage(ctx context.Context, sessionID string, user
 		return ChatQueueResult{SessionID: sessionID}, nil
 	}
 
-	text, ok := mgr.BeginQueuedChatFlush()
+	displayText, llmText, ok := mgr.BeginQueuedChatFlush()
 	if !ok {
 		return ChatQueueResult{SessionID: sessionID}, nil
 	}
 
-	targetSessionID := sessionID
-	rotated := false
-
 	targetSessionID, rotated, err := a.CompactSessionIfNeeded(ctx, sessionID, user)
 	if err != nil {
-		mgr.RestoreQueuedChatInput(text)
+		mgr.RestoreQueuedChatInput(displayText, llmText)
 		return ChatQueueResult{}, err
 	}
 
 	targetMgr, ok := a.getOrReactivateSession(ctx, targetSessionID, user)
 	if !ok {
-		if rotated {
-			mgr.RestoreQueuedChatInput(text)
-		} else {
-			mgr.RestoreQueuedChatInput(text)
-		}
+		mgr.RestoreQueuedChatInput(displayText, llmText)
 		return ChatQueueResult{}, ErrSessionNotFound
 	}
 
 	req := ChatRequest{
-		Message:  text,
+		Message:  displayText,
 		SafeMode: targetMgr.safeMode,
 	}
 	provider, model, resolvedModel, err := a.prepareSessionRuntime(ctx, targetMgr, user, req)
 	if err != nil {
-		targetMgr.RestoreQueuedChatInput(text)
+		targetMgr.RestoreQueuedChatInput(displayText, llmText)
 		return ChatQueueResult{}, err
 	}
-	messageWithContext, err := a.prepareChatContent(ctx, targetSessionID, req)
+	displayMessage, messageWithContext, err := a.materializeQueuedChatDisplayAndLLMContent(targetSessionID, displayText, llmText)
 	if err != nil {
-		targetMgr.RestoreQueuedChatInput(text)
+		targetMgr.RestoreQueuedChatInput(displayText, llmText)
 		a.logger.Error("Failed to prepare queued chat content", "error", err)
 		return ChatQueueResult{}, ErrFailedToProcessMessage
 	}
-	if err := targetMgr.AcceptUserMessage(ctx, provider, model, resolvedModel, messageWithContext); err != nil {
-		targetMgr.RestoreQueuedChatInput(text)
+	if err := targetMgr.AcceptUserMessageWithLLMContent(ctx, provider, model, resolvedModel, displayMessage, messageWithContext); err != nil {
+		targetMgr.RestoreQueuedChatInput(displayText, llmText)
 		a.logger.Error("Failed to flush queued chat message", "error", err)
 		return ChatQueueResult{}, ErrFailedToProcessMessage
 	}
@@ -1530,6 +1572,7 @@ func (a *API) ListSessions(ctx context.Context, userID string) []SessionWithStat
 	activeIDs := make(map[string]struct{})
 	sessions := a.collectActiveSessions(userID, activeIDs)
 	sessions = a.appendPersistedSessions(ctx, userID, activeIDs, sessions)
+	sortSessionsNewestFirst(sessions)
 
 	if sessions == nil {
 		sessions = []SessionWithState{}
@@ -1538,7 +1581,7 @@ func (a *API) ListSessions(ctx context.Context, userID string) []SessionWithStat
 }
 
 // ListSessionsPaginated returns a paginated list of sessions for the given user.
-// Active sessions appear first, followed by persisted inactive sessions.
+// Sessions are ordered by last update time descending.
 func (a *API) ListSessionsPaginated(ctx context.Context, userID string, page, perPage int) exec.PaginatedResult[SessionWithState] {
 	pg := exec.NewPaginator(page, perPage)
 
@@ -1567,20 +1610,126 @@ func (a *API) ListSessionsPaginated(ctx context.Context, userID string, page, pe
 			}
 		}
 	}
+	sortSessionsNewestFirst(combined)
 
 	total := len(combined)
 	start := min(pg.Offset(), total)
 	end := min(pg.Offset()+pg.Limit(), total)
 	pageItems := combined[start:end]
 
+	a.loadVisibleStoredSessionCosts(ctx, activeIDs, pageItems)
+
+	return exec.NewPaginatedResult(pageItems, total, pg)
+}
+
+// ListSessionsCursor returns a forward-only page of sessions ordered by last
+// update time descending. The cursor is opaque and resumes after the last item
+// from the previous page.
+func (a *API) ListSessionsCursor(ctx context.Context, userID string, cursor string, perPage int) (SessionCursorResult, error) {
+	pg := exec.NewPaginator(1, perPage)
+
+	activeIDs := make(map[string]struct{})
+	sessions := a.collectActiveSessions(userID, activeIDs)
+	if a.store != nil {
+		persisted, err := a.store.ListSessions(ctx, userID)
+		if err != nil {
+			a.logger.Warn("Failed to list persisted sessions", "error", err)
+		} else {
+			for _, sess := range persisted {
+				if _, exists := activeIDs[sess.ID]; exists {
+					continue
+				}
+				if sess.ParentSessionID != "" {
+					continue
+				}
+				sessions = append(sessions, SessionWithState{
+					Session: *sess,
+					Working: false,
+				})
+			}
+		}
+	}
+	sortSessionsNewestFirst(sessions)
+
+	start := 0
+	if cursor != "" {
+		decoded, err := decodeSessionListCursor(cursor)
+		if err != nil {
+			return SessionCursorResult{}, err
+		}
+		start = len(sessions)
+		for i, sess := range sessions {
+			if sessionIsAfterCursor(sess.Session, decoded) {
+				start = i
+				break
+			}
+		}
+	}
+
+	end := min(start+pg.Limit(), len(sessions))
+	items := sessions[start:end]
+	a.loadVisibleStoredSessionCosts(ctx, activeIDs, items)
+
+	var nextCursor string
+	if end < len(sessions) && len(items) > 0 {
+		nextCursor = encodeSessionListCursor(items[len(items)-1].Session)
+	}
+
+	return SessionCursorResult{Items: items, NextCursor: nextCursor}, nil
+}
+
+func (a *API) loadVisibleStoredSessionCosts(ctx context.Context, activeIDs map[string]struct{}, pageItems []SessionWithState) {
 	// Load costs only for the visible page's inactive sessions.
 	for i := range pageItems {
 		if _, isActive := activeIDs[pageItems[i].Session.ID]; !isActive {
 			pageItems[i].TotalCost = a.getStoredSessionCost(ctx, pageItems[i].Session.ID)
 		}
 	}
+}
 
-	return exec.NewPaginatedResult(pageItems, total, pg)
+func sortSessionsNewestFirst(sessions []SessionWithState) {
+	slices.SortStableFunc(sessions, func(a, b SessionWithState) int {
+		if c := b.Session.UpdatedAt.Compare(a.Session.UpdatedAt); c != 0 {
+			return c
+		}
+		return cmp.Compare(b.Session.ID, a.Session.ID)
+	})
+}
+
+func sessionIsAfterCursor(sess Session, cursor sessionListCursor) bool {
+	if sess.UpdatedAt.Before(cursor.UpdatedAt) {
+		return true
+	}
+	if sess.UpdatedAt.Equal(cursor.UpdatedAt) && sess.ID < cursor.ID {
+		return true
+	}
+	return false
+}
+
+func encodeSessionListCursor(sess Session) string {
+	payload, err := json.Marshal(sessionListCursor{
+		ID:        sess.ID,
+		UpdatedAt: sess.UpdatedAt,
+	})
+	if err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(payload)
+}
+
+func decodeSessionListCursor(cursor string) (sessionListCursor, error) {
+	payload, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil {
+		return sessionListCursor{}, ErrInvalidSessionCursor
+	}
+	var decoded sessionListCursor
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		return sessionListCursor{}, ErrInvalidSessionCursor
+	}
+	if decoded.ID == "" || decoded.UpdatedAt.IsZero() {
+		return sessionListCursor{}, ErrInvalidSessionCursor
+	}
+	return decoded, nil
 }
 
 // GetSessionDetail returns session details including messages and state.
@@ -1653,7 +1802,7 @@ func (a *API) SendMessage(ctx context.Context, sessionID string, user UserIdenti
 	if !ok {
 		return ErrSessionNotFound
 	}
-	provider, model, resolvedModel, messageWithContext, err := a.prepareSessionMessage(ctx, mgr, user, req)
+	provider, model, resolvedModel, displayMessage, messageWithContext, err := a.prepareSessionMessage(ctx, mgr, user, req)
 	if err != nil {
 		if errors.Is(err, ErrMessageRequired) || errors.Is(err, ErrAgentNotConfigured) {
 			return err
@@ -1661,7 +1810,7 @@ func (a *API) SendMessage(ctx context.Context, sessionID string, user UserIdenti
 		a.logger.Error("Failed to prepare chat content", "error", err)
 		return ErrFailedToProcessMessage
 	}
-	if err := mgr.AcceptUserMessage(ctx, provider, model, resolvedModel, messageWithContext); err != nil {
+	if err := mgr.AcceptUserMessageWithLLMContent(ctx, provider, model, resolvedModel, displayMessage, messageWithContext); err != nil {
 		a.logger.Error("Failed to accept user message", "error", err)
 		return ErrFailedToProcessMessage
 	}

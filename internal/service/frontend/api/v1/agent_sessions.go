@@ -93,6 +93,8 @@ func mapAgentError(err error) error {
 		return errAgentNotConfigured
 	case errors.Is(err, agent.ErrSessionNotFound):
 		return errAgentSessionNotFound
+	case errors.Is(err, agent.ErrInvalidSessionCursor):
+		return errAgentBadRequest
 	case errors.Is(err, agent.ErrFailedToProcessMessage):
 		return errAgentProcessFailed
 	case errors.Is(err, agent.ErrFailedToCancel):
@@ -140,14 +142,58 @@ func (a *API) ListAgentSessions(ctx context.Context, request api.ListAgentSessio
 	}
 
 	user := extractUserContext(ctx)
-	page := valueOf(request.Params.Page)
 	perPage := valueOf(request.Params.PerPage)
+	cursorMode := request.Params.Cursor != nil ||
+		(request.Params.PaginationMode != nil && *request.Params.PaginationMode == api.ListAgentSessionsParamsPaginationModeCursor)
+	if cursorMode {
+		if request.Params.Page != nil {
+			return nil, errAgentBadRequest
+		}
+		cursor := ""
+		if request.Params.Cursor != nil {
+			cursor = string(*request.Params.Cursor)
+		}
+		result, err := a.agentAPI.ListSessionsCursor(ctx, user.UserID, cursor, perPage)
+		if err != nil {
+			return nil, mapAgentError(err)
+		}
+		return api.ListAgentSessions200JSONResponse{
+			Sessions:   toAPISessions(result.Items),
+			Pagination: cursorPagination(result.NextCursor),
+			NextCursor: emptyToNilString(result.NextCursor),
+		}, nil
+	}
+
+	page := valueOf(request.Params.Page)
 	result := a.agentAPI.ListSessionsPaginated(ctx, user.UserID, page, perPage)
 
 	return api.ListAgentSessions200JSONResponse{
 		Sessions:   toAPISessions(result.Items),
 		Pagination: toPagination(result),
 	}, nil
+}
+
+func cursorPagination(nextCursor string) api.Pagination {
+	totalPages := 1
+	nextPage := 1
+	if nextCursor != "" {
+		totalPages = 2
+		nextPage = 2
+	}
+	return api.Pagination{
+		CurrentPage:  1,
+		NextPage:     nextPage,
+		PrevPage:     1,
+		TotalPages:   totalPages,
+		TotalRecords: 0,
+	}
+}
+
+func emptyToNilString(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 // GetAgentSession returns session details including messages and state.

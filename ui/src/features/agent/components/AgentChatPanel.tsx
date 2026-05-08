@@ -5,6 +5,8 @@ import { ReactElement, useCallback, useEffect, useRef, useState } from 'react';
 
 import { AlertCircle, X } from 'lucide-react';
 
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/useIsMobile';
 
@@ -44,8 +46,7 @@ function findLatestSession(
     if (sess.session.parent_session_id) continue;
     if (
       !latest ||
-      new Date(sess.session.updated_at) >
-        new Date(latest.session.updated_at)
+      new Date(sess.session.updated_at) > new Date(latest.session.updated_at)
     ) {
       latest = sess;
     }
@@ -96,6 +97,7 @@ export function AgentChatPanelView({
     sessionState,
     sessions,
     hasMoreSessions,
+    isLoadingMore,
     isWorking,
     error,
     answeredPrompts,
@@ -148,7 +150,9 @@ export function AgentChatPanelView({
       const latest = findLatestSession(sessions);
       if (latest) {
         selectSession(latest.session.id).catch((err) =>
-          setError(err instanceof Error ? err.message : 'Failed to load session')
+          setError(
+            err instanceof Error ? err.message : 'Failed to load session'
+          )
         );
       }
     }
@@ -198,7 +202,9 @@ export function AgentChatPanelView({
         return;
       }
       selectSession(value).catch((err) =>
-        setError(err instanceof Error ? err.message : 'Failed to select session')
+        setError(
+          err instanceof Error ? err.message : 'Failed to select session'
+        )
       );
     },
     [selectSession, handleClearSession, setError]
@@ -219,20 +225,27 @@ export function AgentChatPanelView({
   );
 
   const errorBanner = error && (
-    <div className="mx-3 mt-2 flex items-start gap-2 rounded-md border border-destructive/20 bg-destructive/10 p-2">
-      <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-destructive" />
-      <div className="min-w-0 flex-1">
-        <p className="text-xs text-destructive">{error}</p>
+    <Alert
+      variant="destructive"
+      className="mx-3 mt-3 px-3 py-2 pr-10 text-xs [&>svg]:left-3 [&>svg]:top-2.5 [&>svg~*]:pl-6"
+    >
+      <AlertCircle className="h-4 w-4" aria-hidden="true" />
+      <div className="min-w-0">
+        <AlertDescription className="break-words text-xs">
+          {error}
+        </AlertDescription>
+        <Button
+          type="button"
+          aria-label="Dismiss chat error"
+          onClick={clearError}
+          variant="ghost"
+          size="icon-sm"
+          className="absolute right-2 top-1.5 h-6 w-6 text-destructive/70 hover:bg-destructive/10 hover:text-destructive"
+        >
+          <X className="h-3 w-3" />
+        </Button>
       </div>
-      <button
-        type="button"
-        aria-label="Dismiss chat error"
-        onClick={clearError}
-        className="flex-shrink-0 text-destructive/60 hover:text-destructive"
-      >
-        <X className="h-3 w-3" />
-      </button>
-    </div>
+    </Alert>
   );
 
   return (
@@ -262,6 +275,7 @@ export function AgentChatPanelView({
             onClose={toggleSidebar}
             onLoadMore={loadMoreSessions}
             hasMore={hasMoreSessions}
+            isLoadingMore={isLoadingMore}
           />
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             {errorBanner}

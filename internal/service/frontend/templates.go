@@ -55,17 +55,12 @@ func formatAssetVersion(version string, bundle []byte) string {
 
 func currentAssetVersion() string {
 	assetVersionOnce.Do(func() {
-		switch config.Version {
-		case "", "0.0.0", "dev":
-			data, err := assetsFS.ReadFile("assets/bundle.js")
-			if err != nil {
-				assetVersion = config.Version
-				return
-			}
-			assetVersion = formatAssetVersion(config.Version, data)
-		default:
+		data, err := assetsFS.ReadFile("assets/bundle.js")
+		if err != nil {
 			assetVersion = config.Version
+			return
 		}
+		assetVersion = formatAssetVersion(config.Version, data)
 	})
 	return assetVersion
 }

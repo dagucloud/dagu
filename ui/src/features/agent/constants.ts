@@ -15,3 +15,4 @@ export const DELEGATE_PANEL_MARGIN = 16;
 export const DELEGATE_PANEL_MIN_WIDTH = 280;
 export const DELEGATE_PANEL_MIN_HEIGHT = 200;
 export const SESSION_SIDEBAR_STORAGE_KEY = 'agent-chat-sidebar-open';
+export const LAST_SESSION_STORAGE_KEY = 'agent-chat-last-session-id';

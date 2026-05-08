@@ -153,7 +153,7 @@ func makeRemoteAgentRun(resolver RemoteContextResolver) ToolFunc {
 		}
 
 		var args remoteAgentInput
-		if err := json.Unmarshal(input, &args); err != nil {
+		if err := decodeToolInput(input, &args); err != nil {
 			return toolError("Failed to parse input: %v", err)
 		}
 

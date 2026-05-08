@@ -30,19 +30,19 @@ func TestEngineRunFile(t *testing.T) {
 
 	home := t.TempDir()
 	dagFile := filepath.Join(home, "embedded-file.yaml")
-	checkParamCommand := `test "$FOO" = "bar"`
-	checkParamShell := ""
-	if runtime.GOOS == "windows" {
-		checkParamCommand = `if ($env:FOO -ne "bar") { exit 1 }`
-		checkParamShell = `
-    shell: powershell`
-	}
+	testBinary, err := os.Executable()
+	require.NoError(t, err, "Executable()")
 	writeDAG(t, dagFile, fmt.Sprintf(`
 name: embedded-file
 steps:
   - name: check-param
-    command: %q%s
-`, checkParamCommand, checkParamShell))
+    exec:
+      command: %q
+      args:
+        - -test.run=TestEngineRunFileParamHelper
+    env:
+      DAGU_ENGINE_PARAM_HELPER: "1"
+`, testBinary))
 
 	engine, err := dagu.New(ctx, dagu.Options{HomeDir: home})
 	require.NoError(t, err, "New()")
@@ -57,6 +57,13 @@ steps:
 	require.Equal(t, "succeeded", status.Status)
 	require.Equal(t, "embedded-file", status.Name)
 	require.NotEmpty(t, status.RunID)
+}
+
+func TestEngineRunFileParamHelper(t *testing.T) {
+	if os.Getenv("DAGU_ENGINE_PARAM_HELPER") != "1" {
+		return
+	}
+	require.Equal(t, "bar", os.Getenv("FOO"))
 }
 
 func TestEngineRunYAML(t *testing.T) {

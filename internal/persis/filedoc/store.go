@@ -13,6 +13,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/agent"
@@ -31,6 +32,7 @@ const (
 	docDirPermissions      = 0750
 	filePermissions        = 0600
 	docSearchCursorVersion = 1
+	docIndexCheckInterval  = 5 * time.Second
 )
 
 // docFrontmatter holds the YAML fields in the doc file frontmatter.
@@ -42,16 +44,46 @@ type docFrontmatter struct {
 // Store implements a file-based doc store.
 // Docs are stored as files: {baseDir}/{id}.md
 // Each file contains optional YAML frontmatter (title, description) and a Markdown body.
-// Unlike the soul store, this has no cached index — it scans the filesystem
-// on every call, following the DAG store pattern.
 type Store struct {
 	baseDir string
+
+	mu                 sync.RWMutex
+	indexBuilt         bool
+	indexCheckedAt     time.Time
+	indexCheckInterval time.Duration
+	docs               map[string]docIndexEntry
+	dirs               map[string]docDirIndexEntry
+}
+
+type docIndexEntry struct {
+	ID          string
+	RelPath     string
+	AbsPath     string
+	Title       string
+	Description string
+	ModTime     time.Time
+	Size        int64
+	Mode        os.FileMode
+	Readable    bool
+}
+
+type docDirIndexEntry struct {
+	ID      string
+	AbsPath string
+	ModTime time.Time
+	Size    int64
+	Mode    os.FileMode
 }
 
 // New creates a new file-based doc store.
 func New(baseDir string) *Store {
 	_ = os.MkdirAll(baseDir, docDirPermissions) // best effort
-	return &Store{baseDir: baseDir}
+	return &Store{
+		baseDir:            baseDir,
+		indexCheckInterval: docIndexCheckInterval,
+		docs:               make(map[string]docIndexEntry),
+		dirs:               make(map[string]docDirIndexEntry),
+	}
 }
 
 // safePath validates that the given path stays within baseDir (preventing
@@ -94,17 +126,6 @@ func cleanDocPathPrefix(prefix string) (string, error) {
 	return prefix, nil
 }
 
-func (s *Store) scopedRoot(prefix string) (string, error) {
-	prefix, err := cleanDocPathPrefix(prefix)
-	if err != nil {
-		return "", err
-	}
-	if prefix == "" {
-		return s.baseDir, nil
-	}
-	return s.safePath(filepath.Join(s.baseDir, prefix), prefix)
-}
-
 func scopedDocID(prefix, id string) (string, error) {
 	prefix, err := cleanDocPathPrefix(prefix)
 	if err != nil {
@@ -117,6 +138,414 @@ func scopedDocID(prefix, id string) (string, error) {
 		return "", err
 	}
 	return prefix + "/" + id, nil
+}
+
+func joinDocID(parent, child string) string {
+	if parent == "" {
+		return child
+	}
+	return parent + "/" + child
+}
+
+func parentDocID(id string) string {
+	idx := strings.LastIndex(id, "/")
+	if idx < 0 {
+		return ""
+	}
+	return id[:idx]
+}
+
+func relativeDocID(id, prefix string) (string, bool) {
+	if prefix == "" {
+		return id, true
+	}
+	prefixWithSlash := prefix + "/"
+	if !strings.HasPrefix(id, prefixWithSlash) {
+		return "", false
+	}
+	rel := strings.TrimPrefix(id, prefixWithSlash)
+	return rel, rel != ""
+}
+
+func fingerprintsEqual(modTime time.Time, size int64, mode os.FileMode, info os.FileInfo) bool {
+	return modTime.Equal(info.ModTime()) && size == info.Size() && mode == info.Mode()
+}
+
+func (s *Store) ensureFreshIndex(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.indexBuilt {
+		if err := s.rebuildIndexLocked(ctx); err != nil {
+			return err
+		}
+		s.markIndexCheckedLocked()
+		return nil
+	}
+	if s.indexCheckInterval > 0 && time.Since(s.indexCheckedAt) < s.indexCheckInterval {
+		return nil
+	}
+	if err := s.refreshIndexLocked(ctx); err != nil {
+		return err
+	}
+	s.markIndexCheckedLocked()
+	return nil
+}
+
+func (s *Store) markIndexCheckedLocked() {
+	s.indexCheckedAt = time.Now()
+}
+
+func (s *Store) rebuildIndexLocked(ctx context.Context) error {
+	s.docs = make(map[string]docIndexEntry)
+	s.dirs = make(map[string]docDirIndexEntry)
+
+	info, err := os.Stat(s.baseDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			s.indexBuilt = true
+			return nil
+		}
+		return fmt.Errorf("filedoc: failed to access docs directory: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("filedoc: docs path %s is not a directory", s.baseDir)
+	}
+
+	s.recordDirLocked("", s.baseDir, info)
+	if err := s.scanDirLocked(ctx, "", s.baseDir, true); err != nil {
+		return err
+	}
+	s.indexBuilt = true
+	return nil
+}
+
+func (s *Store) refreshIndexLocked(ctx context.Context) error {
+	info, err := os.Stat(s.baseDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			s.docs = make(map[string]docIndexEntry)
+			s.dirs = make(map[string]docDirIndexEntry)
+			return nil
+		}
+		return fmt.Errorf("filedoc: failed to access docs directory: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("filedoc: docs path %s is not a directory", s.baseDir)
+	}
+
+	s.recordDirLocked("", s.baseDir, info)
+	if err := s.scanDirLocked(ctx, "", s.baseDir, false); err != nil {
+		return err
+	}
+
+	dirIDs := make([]string, 0, len(s.dirs))
+	for id := range s.dirs {
+		if id != "" {
+			dirIDs = append(dirIDs, id)
+		}
+	}
+	sort.Strings(dirIDs)
+	for _, id := range dirIDs {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		entry, ok := s.dirs[id]
+		if !ok {
+			continue
+		}
+		info, err := os.Stat(entry.AbsPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				s.removeDirSubtreeLocked(id)
+				continue
+			}
+			logger.Warn(ctx, "Skipping unreadable doc directory", tag.File(entry.AbsPath), tag.Error(err))
+			continue
+		}
+		if !info.IsDir() {
+			s.removeDirSubtreeLocked(id)
+			continue
+		}
+		s.recordDirLocked(id, entry.AbsPath, info)
+		if err := s.scanDirLocked(ctx, id, entry.AbsPath, false); err != nil {
+			return err
+		}
+	}
+
+	docIDs := make([]string, 0, len(s.docs))
+	for id := range s.docs {
+		docIDs = append(docIDs, id)
+	}
+	sort.Strings(docIDs)
+	for _, id := range docIDs {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		entry, ok := s.docs[id]
+		if !ok {
+			continue
+		}
+		info, err := os.Stat(entry.AbsPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				delete(s.docs, id)
+				continue
+			}
+			logger.Warn(ctx, "Skipping unreadable doc file", tag.File(entry.RelPath), tag.Error(err))
+			continue
+		}
+		if info.IsDir() {
+			delete(s.docs, id)
+			continue
+		}
+		if fingerprintsEqual(entry.ModTime, entry.Size, entry.Mode, info) {
+			continue
+		}
+		if err := s.upsertDocLocked(ctx, id, entry.AbsPath, info); err != nil {
+			logger.Warn(ctx, "Skipping doc with changed metadata", tag.File(entry.RelPath), tag.Error(err))
+		}
+	}
+
+	return nil
+}
+
+func (s *Store) scanDirLocked(ctx context.Context, dirID, absPath string, recurseExisting bool) error {
+	entries, err := os.ReadDir(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			s.removeDirSubtreeLocked(dirID)
+			return nil
+		}
+		return fmt.Errorf("filedoc: failed to read docs directory %s: %w", absPath, err)
+	}
+
+	seenDocs := make(map[string]struct{})
+	seenDirs := make(map[string]struct{})
+	for _, entry := range entries {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		name := entry.Name()
+		childAbsPath := filepath.Join(absPath, name)
+		if entry.IsDir() {
+			childID := joinDocID(dirID, name)
+			if err := agent.ValidateDocID(childID); err != nil {
+				continue
+			}
+			info, err := entry.Info()
+			if err != nil {
+				logger.Warn(ctx, "Skipping unreadable doc directory", tag.File(childAbsPath), tag.Error(err))
+				continue
+			}
+			seenDirs[childID] = struct{}{}
+			_, existed := s.dirs[childID]
+			s.recordDirLocked(childID, childAbsPath, info)
+			if !existed || recurseExisting {
+				if err := s.scanDirLocked(ctx, childID, childAbsPath, recurseExisting); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+
+		if filepath.Ext(name) != ".md" {
+			continue
+		}
+
+		childID := joinDocID(dirID, strings.TrimSuffix(name, ".md"))
+		relPath := filepath.ToSlash(joinDocID(dirID, name))
+		if err := agent.ValidateDocID(childID); err != nil {
+			logger.Debug(ctx, "Skipping non-conforming doc file", tag.File(relPath), tag.Reason(err.Error()))
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			logger.Warn(ctx, "Skipping unreadable doc file", tag.File(relPath), tag.Error(err))
+			continue
+		}
+		seenDocs[childID] = struct{}{}
+		current, exists := s.docs[childID]
+		if exists && fingerprintsEqual(current.ModTime, current.Size, current.Mode, info) {
+			continue
+		}
+		if err := s.upsertDocLocked(ctx, childID, childAbsPath, info); err != nil {
+			logger.Warn(ctx, "Skipping doc file", tag.File(relPath), tag.Error(err))
+		}
+	}
+
+	for id := range s.docs {
+		if parentDocID(id) != dirID {
+			continue
+		}
+		if _, ok := seenDocs[id]; !ok {
+			delete(s.docs, id)
+		}
+	}
+	for id := range s.dirs {
+		if id == "" || parentDocID(id) != dirID {
+			continue
+		}
+		if _, ok := seenDirs[id]; !ok {
+			s.removeDirSubtreeLocked(id)
+		}
+	}
+
+	return nil
+}
+
+func (s *Store) recordDirLocked(id, absPath string, info os.FileInfo) {
+	s.dirs[id] = docDirIndexEntry{
+		ID:      id,
+		AbsPath: absPath,
+		ModTime: info.ModTime(),
+		Size:    info.Size(),
+		Mode:    info.Mode(),
+	}
+}
+
+func (s *Store) upsertDocLocked(ctx context.Context, id, absPath string, info os.FileInfo) error {
+	data, err := os.ReadFile(absPath) //nolint:gosec // path comes from validated baseDir traversal
+	title := titleFromID(id)
+	var description string
+	readable := false
+	if err == nil {
+		doc, parseErr := parseDocFile(data, id)
+		if parseErr != nil {
+			return parseErr
+		}
+		title = doc.Title
+		description = doc.Description
+		readable = true
+	}
+	s.docs[id] = docIndexEntry{
+		ID:          id,
+		RelPath:     filepath.ToSlash(id + ".md"),
+		AbsPath:     absPath,
+		Title:       title,
+		Description: description,
+		ModTime:     info.ModTime(),
+		Size:        info.Size(),
+		Mode:        info.Mode(),
+		Readable:    readable,
+	}
+	return ctx.Err()
+}
+
+func (s *Store) upsertDocIndexAfterMutation(ctx context.Context, id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.indexBuilt {
+		return
+	}
+	filePath, err := s.docFilePath(id)
+	if err != nil {
+		logger.Warn(ctx, "Failed to update doc index", tag.File(id), tag.Error(err))
+		return
+	}
+	info, err := os.Stat(filePath)
+	if err != nil {
+		logger.Warn(ctx, "Failed to stat doc for index update", tag.File(id), tag.Error(err))
+		return
+	}
+	if err := s.upsertDocLocked(ctx, id, filePath, info); err != nil {
+		logger.Warn(ctx, "Failed to update doc index", tag.File(id), tag.Error(err))
+		return
+	}
+	s.recordParentDirsLocked(ctx, id)
+	s.markIndexCheckedLocked()
+}
+
+func (s *Store) removeDocIndexAfterDelete(ctx context.Context, id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.indexBuilt {
+		return
+	}
+	delete(s.docs, id)
+	s.pruneMissingParentsLocked(ctx, parentDocID(id))
+	s.markIndexCheckedLocked()
+}
+
+func (s *Store) removeDirIndexAfterDelete(ctx context.Context, id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.indexBuilt {
+		return
+	}
+	s.removeDirSubtreeLocked(id)
+	s.pruneMissingParentsLocked(ctx, parentDocID(id))
+	s.markIndexCheckedLocked()
+}
+
+func (s *Store) rebuildIndexAfterMutation(ctx context.Context) {
+	rebuildCtx := context.Background()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.indexBuilt {
+		return
+	}
+	if err := s.rebuildIndexLocked(rebuildCtx); err != nil {
+		logger.Warn(ctx, "Failed to rebuild doc index", tag.Error(err))
+		return
+	}
+	s.markIndexCheckedLocked()
+}
+
+func (s *Store) removeDirSubtreeLocked(id string) {
+	delete(s.dirs, id)
+	prefix := id + "/"
+	for docID := range s.docs {
+		if strings.HasPrefix(docID, prefix) {
+			delete(s.docs, docID)
+		}
+	}
+	for dirID := range s.dirs {
+		if strings.HasPrefix(dirID, prefix) {
+			delete(s.dirs, dirID)
+		}
+	}
+}
+
+func (s *Store) recordParentDirsLocked(ctx context.Context, id string) {
+	parent := parentDocID(id)
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		absPath := s.baseDir
+		if parent != "" {
+			absPath = filepath.Join(s.baseDir, filepath.FromSlash(parent))
+		}
+		info, err := os.Stat(absPath)
+		if err == nil && info.IsDir() {
+			s.recordDirLocked(parent, absPath, info)
+		}
+		if parent == "" {
+			return
+		}
+		parent = parentDocID(parent)
+	}
+}
+
+func (s *Store) pruneMissingParentsLocked(ctx context.Context, id string) {
+	for id != "" {
+		if ctx.Err() != nil {
+			return
+		}
+		absPath := filepath.Join(s.baseDir, filepath.FromSlash(id))
+		info, err := os.Stat(absPath)
+		if err == nil && info.IsDir() {
+			s.recordDirLocked(id, absPath, info)
+			return
+		}
+		delete(s.dirs, id)
+		id = parentDocID(id)
+	}
+	if info, err := os.Stat(s.baseDir); err == nil && info.IsDir() {
+		s.recordDirLocked("", s.baseDir, info)
+	}
 }
 
 // parseDocFile parses a doc .md file into an agent.Doc.
@@ -172,14 +601,17 @@ func titleFromID(id string) string {
 // List returns a paginated tree of doc nodes.
 func (s *Store) List(ctx context.Context, opts agent.ListDocsOptions) (*exec.PaginatedResult[*agent.DocTreeNode], error) {
 	sortField, sortOrder := normalizeSortParams(opts.Sort, opts.Order)
-	rootDir, err := s.scopedRoot(opts.PathPrefix)
+	pathPrefix, err := cleanDocPathPrefix(opts.PathPrefix)
 	if err != nil {
 		return nil, err
 	}
-	tree, err := s.buildTree(ctx, rootDir, sortField, sortOrder, opts.ExcludePathRoots)
-	if err != nil {
+	if err := s.ensureFreshIndex(ctx); err != nil {
 		return nil, err
 	}
+
+	s.mu.RLock()
+	tree := s.buildTreeFromIndexLocked(pathPrefix, sortField, sortOrder, opts.ExcludePathRoots)
+	s.mu.RUnlock()
 
 	pg := exec.NewPaginator(opts.Page, opts.PerPage)
 	total := len(tree)
@@ -199,72 +631,34 @@ type flatDocItem struct {
 // ListFlat returns a paginated flat list of doc metadata.
 func (s *Store) ListFlat(ctx context.Context, opts agent.ListDocsOptions) (*exec.PaginatedResult[agent.DocMetadata], error) {
 	sortField, sortOrder := normalizeSortParams(opts.Sort, opts.Order)
-	rootDir, err := s.scopedRoot(opts.PathPrefix)
+	pathPrefix, err := cleanDocPathPrefix(opts.PathPrefix)
 	if err != nil {
 		return nil, err
 	}
-	if info, statErr := os.Stat(rootDir); statErr != nil {
-		if os.IsNotExist(statErr) {
-			pg := exec.NewPaginator(opts.Page, opts.PerPage)
-			result := exec.NewPaginatedResult([]agent.DocMetadata{}, 0, pg)
-			return &result, nil
-		}
-		return nil, fmt.Errorf("filedoc: failed to access docs directory: %w", statErr)
-	} else if !info.IsDir() {
-		return nil, fmt.Errorf("filedoc: docs path %s is not a directory", rootDir)
+	if err := s.ensureFreshIndex(ctx); err != nil {
+		return nil, err
 	}
 
-	var items []flatDocItem
-
-	needMtime := sortField == "mtime"
-
-	err = filepath.WalkDir(rootDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
+	s.mu.RLock()
+	items := make([]flatDocItem, 0, len(s.docs))
+	for _, doc := range s.docs {
+		if !doc.Readable {
+			continue
 		}
-		if d.IsDir() || filepath.Ext(path) != ".md" {
-			return nil
+		id, ok := relativeDocID(doc.ID, pathPrefix)
+		if !ok || docPathRootExcluded(id, opts.ExcludePathRoots) {
+			continue
 		}
-
-		relPath, err := filepath.Rel(rootDir, path)
-		if err != nil {
-			return nil
-		}
-		id := strings.TrimSuffix(filepath.ToSlash(relPath), ".md")
-
-		if err := agent.ValidateDocID(id); err != nil {
-			logger.Debug(ctx, "Skipping non-conforming doc file", tag.File(relPath), tag.Reason(err.Error()))
-			return nil
-		}
-		if docPathRootExcluded(id, opts.ExcludePathRoots) {
-			return nil
-		}
-
-		data, err := os.ReadFile(path) //nolint:gosec // path constructed from baseDir
-		if err != nil {
-			return nil
-		}
-
-		doc, err := parseDocFile(data, id)
-		if err != nil {
-			return nil
-		}
-
-		var modTime time.Time
-		if needMtime {
-			if info, infoErr := d.Info(); infoErr == nil {
-				modTime = info.ModTime()
-			}
-		}
-
 		items = append(items, flatDocItem{
-			meta: agent.DocMetadata{ID: doc.ID, Title: doc.Title, Description: doc.Description, ModTime: modTime},
+			meta: agent.DocMetadata{
+				ID:          id,
+				Title:       doc.Title,
+				Description: doc.Description,
+				ModTime:     doc.ModTime,
+			},
 		})
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("filedoc: failed to walk directory: %w", err)
 	}
+	s.mu.RUnlock()
 
 	sort.Slice(items, func(i, j int) bool {
 		var less bool
@@ -346,7 +740,7 @@ func (s *Store) Get(_ context.Context, id string) (*agent.Doc, error) {
 }
 
 // Create creates a new doc file.
-func (s *Store) Create(_ context.Context, id, content string) error {
+func (s *Store) Create(ctx context.Context, id, content string) error {
 	if err := agent.ValidateDocID(id); err != nil {
 		return err
 	}
@@ -379,11 +773,12 @@ func (s *Store) Create(_ context.Context, id, content string) error {
 		return fmt.Errorf("filedoc: failed to write file: %w", err)
 	}
 
+	s.upsertDocIndexAfterMutation(ctx, id)
 	return nil
 }
 
 // Update modifies an existing doc file.
-func (s *Store) Update(_ context.Context, id, content string) error {
+func (s *Store) Update(ctx context.Context, id, content string) error {
 	if err := agent.ValidateDocID(id); err != nil {
 		return err
 	}
@@ -405,12 +800,13 @@ func (s *Store) Update(_ context.Context, id, content string) error {
 		return fmt.Errorf("filedoc: failed to write file: %w", err)
 	}
 
+	s.upsertDocIndexAfterMutation(ctx, id)
 	return nil
 }
 
 // Delete removes a doc file or directory and cleans up empty parent directories.
 // File takes precedence: if both foo.md and foo/ exist, Delete("foo") deletes the file.
-func (s *Store) Delete(_ context.Context, id string) error {
+func (s *Store) Delete(ctx context.Context, id string) error {
 	if err := agent.ValidateDocID(id); err != nil {
 		return err
 	}
@@ -425,6 +821,7 @@ func (s *Store) Delete(_ context.Context, id string) error {
 			return fmt.Errorf("filedoc: failed to delete file: %w", err)
 		}
 		s.cleanEmptyParents(filepath.Dir(filePath))
+		s.removeDocIndexAfterDelete(ctx, id)
 		return nil
 	}
 
@@ -441,6 +838,7 @@ func (s *Store) Delete(_ context.Context, id string) error {
 		return fmt.Errorf("filedoc: failed to delete directory: %w", err)
 	}
 	s.cleanEmptyParents(filepath.Dir(dirPath))
+	s.removeDirIndexAfterDelete(ctx, id)
 	return nil
 }
 
@@ -475,7 +873,7 @@ func (s *Store) safeDeleteDir(dirPath string) error {
 
 // DeleteBatch deletes multiple docs/directories in one operation.
 // Not-found items are treated as success (idempotency for safe retries).
-func (s *Store) DeleteBatch(_ context.Context, ids []string) ([]string, []agent.DeleteError, error) {
+func (s *Store) DeleteBatch(ctx context.Context, ids []string) ([]string, []agent.DeleteError, error) {
 	var deleted []string
 	var failed []agent.DeleteError
 
@@ -514,7 +912,11 @@ func (s *Store) DeleteBatch(_ context.Context, ids []string) ([]string, []agent.
 				continue
 			}
 			s.cleanEmptyParents(filepath.Dir(filePath))
+			s.removeDocIndexAfterDelete(ctx, id)
 			deleted = append(deleted, id)
+			continue
+		} else if !os.IsNotExist(err) {
+			failed = append(failed, agent.DeleteError{ID: id, Error: err.Error()})
 			continue
 		}
 
@@ -525,9 +927,15 @@ func (s *Store) DeleteBatch(_ context.Context, ids []string) ([]string, []agent.
 			continue
 		}
 		info, err := os.Stat(dirPath)
-		if err != nil || !info.IsDir() {
+		if os.IsNotExist(err) || (err == nil && !info.IsDir()) {
 			// Not found → treat as success (idempotency).
+			s.removeDocIndexAfterDelete(ctx, id)
+			s.removeDirIndexAfterDelete(ctx, id)
 			deleted = append(deleted, id)
+			continue
+		}
+		if err != nil {
+			failed = append(failed, agent.DeleteError{ID: id, Error: err.Error()})
 			continue
 		}
 		if err := s.safeDeleteDir(dirPath); err != nil {
@@ -535,6 +943,7 @@ func (s *Store) DeleteBatch(_ context.Context, ids []string) ([]string, []agent.
 			continue
 		}
 		s.cleanEmptyParents(filepath.Dir(dirPath))
+		s.removeDirIndexAfterDelete(ctx, id)
 		deletedPrefixes[id+"/"] = true
 		deleted = append(deleted, id)
 	}
@@ -558,7 +967,7 @@ func (s *Store) dirPath(id string) (string, error) {
 }
 
 // Rename moves a doc (file or directory) from oldID to newID.
-func (s *Store) Rename(_ context.Context, oldID, newID string) error {
+func (s *Store) Rename(ctx context.Context, oldID, newID string) error {
 	if err := agent.ValidateDocID(oldID); err != nil {
 		return err
 	}
@@ -588,6 +997,8 @@ func (s *Store) Rename(_ context.Context, oldID, newID string) error {
 			return fmt.Errorf("filedoc: failed to rename file: %w", err)
 		}
 		s.cleanEmptyParents(filepath.Dir(oldFilePath))
+		s.removeDocIndexAfterDelete(ctx, oldID)
+		s.upsertDocIndexAfterMutation(ctx, newID)
 		return nil
 	}
 
@@ -620,6 +1031,7 @@ func (s *Store) Rename(_ context.Context, oldID, newID string) error {
 		return fmt.Errorf("filedoc: failed to rename directory: %w", err)
 	}
 	s.cleanEmptyParents(filepath.Dir(oldDirPath))
+	s.rebuildIndexAfterMutation(ctx)
 	return nil
 }
 
@@ -627,37 +1039,27 @@ func (s *Store) Rename(_ context.Context, oldID, newID string) error {
 func (s *Store) Search(ctx context.Context, query string) ([]*agent.DocSearchResult, error) {
 	var results []*agent.DocSearchResult
 
-	err := filepath.WalkDir(s.baseDir, func(path string, d os.DirEntry, err error) error {
+	candidates, err := s.listSearchCandidates(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	for _, candidate := range candidates {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		data, err := os.ReadFile(candidate.AbsPath) //nolint:gosec // path constructed from baseDir
 		if err != nil {
-			return nil
-		}
-		if d.IsDir() || filepath.Ext(path) != ".md" {
-			return nil
-		}
-
-		relPath, err := filepath.Rel(s.baseDir, path)
-		if err != nil {
-			return nil
-		}
-		id := strings.TrimSuffix(filepath.ToSlash(relPath), ".md")
-
-		if err := agent.ValidateDocID(id); err != nil {
-			logger.Debug(ctx, "Skipping non-conforming doc file", tag.File(relPath), tag.Reason(err.Error()))
-			return nil
-		}
-
-		data, err := os.ReadFile(path) //nolint:gosec // path constructed from baseDir
-		if err != nil {
-			return nil
+			logger.Warn(ctx, "Failed to read doc while searching", tag.File(candidate.RelPath), tag.Error(err))
+			continue
 		}
 
 		matches, err := grep.Grep(data, query, grep.DefaultGrepOptions)
 		if err != nil {
-			return nil // no match or error — skip
+			continue // no match or error — skip
 		}
 
-		doc, parseErr := parseDocFile(data, id)
-		title := id
+		doc, parseErr := parseDocFile(data, candidate.ID)
+		title := candidate.ID
 		var description string
 		if parseErr == nil {
 			title = doc.Title
@@ -665,15 +1067,11 @@ func (s *Store) Search(ctx context.Context, query string) ([]*agent.DocSearchRes
 		}
 
 		results = append(results, &agent.DocSearchResult{
-			ID:          id,
+			ID:          candidate.ID,
 			Title:       title,
 			Description: description,
 			Matches:     matches,
 		})
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("filedoc: failed to search: %w", err)
 	}
 
 	sort.Slice(results, func(i, j int) bool {
@@ -709,58 +1107,28 @@ type docSearchCandidate struct {
 	AbsPath string
 }
 
-func ensureSearchRoot(rootDir string) (bool, error) {
-	info, err := os.Stat(rootDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, fmt.Errorf("filedoc: failed to access docs directory %s: %w", rootDir, err)
+func (s *Store) listSearchCandidates(ctx context.Context, pathPrefix string) ([]docSearchCandidate, error) {
+	if err := s.ensureFreshIndex(ctx); err != nil {
+		return nil, err
 	}
-	if !info.IsDir() {
-		return false, fmt.Errorf("filedoc: docs directory %s is not a directory", rootDir)
-	}
-	if _, err := os.ReadDir(rootDir); err != nil {
-		return false, fmt.Errorf("filedoc: failed to read docs directory %s: %w", rootDir, err)
-	}
-	return true, nil
-}
 
-func listSearchCandidates(ctx context.Context, rootDir string) ([]docSearchCandidate, error) {
-	candidates := make([]docSearchCandidate, 0)
-	err := filepath.WalkDir(rootDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			logger.Warn(ctx, "Skipping unreadable doc search entry", tag.File(path), tag.Error(err))
-			return nil
+	s.mu.RLock()
+	candidates := make([]docSearchCandidate, 0, len(s.docs))
+	for _, doc := range s.docs {
+		if !doc.Readable {
+			continue
 		}
-		if ctx.Err() != nil {
-			return ctx.Err()
+		id, ok := relativeDocID(doc.ID, pathPrefix)
+		if !ok {
+			continue
 		}
-		if d.IsDir() || filepath.Ext(path) != ".md" {
-			return nil
-		}
-
-		relPath, err := filepath.Rel(rootDir, path)
-		if err != nil {
-			logger.Warn(ctx, "Skipping doc with invalid relative path", tag.File(path), tag.Error(err))
-			return nil
-		}
-		id := strings.TrimSuffix(filepath.ToSlash(relPath), ".md")
-		if err := agent.ValidateDocID(id); err != nil {
-			logger.Debug(ctx, "Skipping non-conforming doc file", tag.File(relPath), tag.Reason(err.Error()))
-			return nil
-		}
-
 		candidates = append(candidates, docSearchCandidate{
 			ID:      id,
-			RelPath: filepath.ToSlash(relPath),
-			AbsPath: path,
+			RelPath: filepath.ToSlash(id + ".md"),
+			AbsPath: doc.AbsPath,
 		})
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("filedoc: failed to list searchable docs: %w", err)
 	}
+	s.mu.RUnlock()
 
 	sort.Slice(candidates, func(i, j int) bool {
 		return candidates[i].ID < candidates[j].ID
@@ -818,17 +1186,6 @@ func (s *Store) SearchCursor(ctx context.Context, opts agent.SearchDocsOptions) 
 		return nil, err
 	}
 	excludedRoots := normalizeExcludedPathRoots(opts.ExcludePathRoots)
-	rootDir, err := s.scopedRoot(pathPrefix)
-	if err != nil {
-		return nil, err
-	}
-	exists, err := ensureSearchRoot(rootDir)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return &exec.CursorResult[agent.DocSearchResult]{Items: []agent.DocSearchResult{}}, nil
-	}
 
 	cursor, err := decodeDocSearchCursor(opts.Cursor, opts.Query, pathPrefix, excludedRoots)
 	if err != nil {
@@ -842,7 +1199,7 @@ func (s *Store) SearchCursor(ctx context.Context, opts agent.SearchDocsOptions) 
 	var hasMore bool
 	var nextCursor string
 
-	candidates, err := listSearchCandidates(ctx, rootDir)
+	candidates, err := s.listSearchCandidates(ctx, pathPrefix)
 	if err != nil {
 		return nil, err
 	}
@@ -1006,121 +1363,90 @@ func normalizeSortParams(sortField agent.DocSortField, sortOrder agent.DocSortOr
 	return sf, so
 }
 
-// buildTree builds a tree of DocTreeNode from the filesystem.
-func (s *Store) buildTree(ctx context.Context, rootDir, sortField, sortOrder string, excludedRoots []string) ([]*agent.DocTreeNode, error) {
-	if info, err := os.Stat(rootDir); err != nil {
-		if os.IsNotExist(err) {
-			return []*agent.DocTreeNode{}, nil
-		}
-		return nil, fmt.Errorf("filedoc: failed to access docs directory: %w", err)
-	} else if !info.IsDir() {
-		return nil, fmt.Errorf("filedoc: docs path %s is not a directory", rootDir)
-	}
-
-	root := make(map[string]*agent.DocTreeNode)
+// buildTreeFromIndexLocked builds a tree of DocTreeNode from the cached index.
+// s.mu must be held by the caller.
+func (s *Store) buildTreeFromIndexLocked(pathPrefix, sortField, sortOrder string, excludedRoots []string) []*agent.DocTreeNode {
+	dirNodes := make(map[string]*agent.DocTreeNode)
+	dirEntries := make(map[string]docDirIndexEntry)
 	var topLevel []*agent.DocTreeNode
-	needMtime := sortField == "mtime"
 
-	err := filepath.WalkDir(rootDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
+	var ensureDirNode func(id string) *agent.DocTreeNode
+	ensureDirNode = func(id string) *agent.DocTreeNode {
+		if id == "" {
 			return nil
 		}
-		if path == rootDir {
-			return nil
+		if node, ok := dirNodes[id]; ok {
+			return node
 		}
-
-		relPath, err := filepath.Rel(rootDir, path)
-		if err != nil {
-			return nil
-		}
-		relPath = filepath.ToSlash(relPath)
-
-		if d.IsDir() {
-			if docPathRootExcluded(relPath, excludedRoots) {
-				return filepath.SkipDir
-			}
-			var modTime time.Time
-			if needMtime {
-				if info, infoErr := d.Info(); infoErr == nil {
-					modTime = info.ModTime()
-				}
-			}
-			node := &agent.DocTreeNode{
-				ID:       relPath,
-				Name:     d.Name(),
-				Type:     "directory",
-				Children: []*agent.DocTreeNode{},
-				ModTime:  modTime,
-			}
-			root[relPath] = node
-
-			parentDir := filepath.Dir(relPath)
-			if parentDir == "." {
-				topLevel = append(topLevel, node)
-			} else if parent, ok := root[parentDir]; ok {
-				parent.Children = append(parent.Children, node)
-			}
-			return nil
-		}
-
-		if filepath.Ext(path) != ".md" {
-			return nil
-		}
-
-		id := strings.TrimSuffix(relPath, ".md")
-		if docPathRootExcluded(id, excludedRoots) {
-			return nil
-		}
-
-		if err := agent.ValidateDocID(id); err != nil {
-			logger.Debug(ctx, "Skipping non-conforming doc file", tag.File(relPath), tag.Reason(err.Error()))
-			return nil
-		}
-
-		data, readErr := os.ReadFile(path) //nolint:gosec // path constructed from baseDir
-		var title string
-		if readErr == nil {
-			if doc, parseErr := parseDocFile(data, id); parseErr == nil {
-				title = doc.Title
-			}
-		}
-		if title == "" {
-			title = titleFromID(id)
-		}
-
-		var modTime time.Time
-		if needMtime {
-			if info, infoErr := d.Info(); infoErr == nil {
-				modTime = info.ModTime()
-			}
-		}
-
+		entry := dirEntries[id]
 		node := &agent.DocTreeNode{
-			ID:      id,
-			Name:    d.Name(),
-			Title:   title,
-			Type:    "file",
-			ModTime: modTime,
+			ID:       id,
+			Name:     filepath.Base(filepath.FromSlash(id)),
+			Type:     "directory",
+			Children: []*agent.DocTreeNode{},
+			ModTime:  entry.ModTime,
 		}
-
-		parentDir := filepath.Dir(relPath)
-		if parentDir == "." {
+		dirNodes[id] = node
+		parentID := parentDocID(id)
+		if parentID == "" {
 			topLevel = append(topLevel, node)
-		} else if parent, ok := root[parentDir]; ok {
+		} else {
+			parent := ensureDirNode(parentID)
 			parent.Children = append(parent.Children, node)
 		}
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("filedoc: failed to build tree: %w", err)
+		return node
 	}
 
-	if needMtime {
+	dirIDs := make([]string, 0, len(s.dirs))
+	for id := range s.dirs {
+		if id != "" {
+			dirIDs = append(dirIDs, id)
+		}
+	}
+	sort.Strings(dirIDs)
+	for _, fullID := range dirIDs {
+		id, ok := relativeDocID(fullID, pathPrefix)
+		if !ok || docPathRootExcluded(id, excludedRoots) {
+			continue
+		}
+		if id != "" {
+			dirEntries[id] = s.dirs[fullID]
+			ensureDirNode(id)
+		}
+	}
+
+	docIDs := make([]string, 0, len(s.docs))
+	for id := range s.docs {
+		docIDs = append(docIDs, id)
+	}
+	sort.Strings(docIDs)
+	for _, fullID := range docIDs {
+		doc := s.docs[fullID]
+		id, ok := relativeDocID(fullID, pathPrefix)
+		if !ok || docPathRootExcluded(id, excludedRoots) {
+			continue
+		}
+		node := &agent.DocTreeNode{
+			ID:      id,
+			Name:    filepath.Base(filepath.FromSlash(id)) + ".md",
+			Title:   doc.Title,
+			Type:    "file",
+			ModTime: doc.ModTime,
+		}
+		parentID := parentDocID(id)
+		if parentID == "" {
+			topLevel = append(topLevel, node)
+			continue
+		}
+		parent := ensureDirNode(parentID)
+		parent.Children = append(parent.Children, node)
+	}
+
+	if sortField == "mtime" {
 		propagateModTime(topLevel)
 	}
 	sortTreeNodes(topLevel, sortField, sortOrder)
-
-	return topLevel, nil
+	return topLevel
 }
 
 // propagateModTime recursively sets each directory's ModTime to the max of

@@ -10,6 +10,11 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import {
+  docMutationTargetForTreeNode,
+  isWorkspaceRootTreeNode,
+  type DocMutationTarget,
+} from '../lib/doc-mutation';
+import {
   ChevronDown,
   ChevronRight,
   FileText,
@@ -26,23 +31,53 @@ import { NodeRendererProps } from 'react-arborist';
 type DocTreeNodeResponse = components['schemas']['DocTreeNodeResponse'];
 
 export type ContextAction =
-  | { type: 'create'; parentDir: string }
-  | { type: 'rename'; docPath: string; title: string }
-  | { type: 'delete'; docPath: string; title: string; isDir: boolean; hasChildren: boolean }
-  | { type: 'deleteBatch'; paths: string[] };
+  | { type: 'create'; parentDir: string; workspace?: string | null }
+  | {
+      type: 'rename';
+      docPath: string;
+      title: string;
+      workspace?: string | null;
+    }
+  | {
+      type: 'delete';
+      docPath: string;
+      title: string;
+      isDir: boolean;
+      hasChildren: boolean;
+      workspace?: string | null;
+    }
+  | { type: 'deleteBatch'; targets: DocMutationTarget[] };
 
 type Props = NodeRendererProps<DocTreeNodeResponse> & {
   onContextAction: (action: ContextAction) => void;
   canWrite: boolean;
   activeDocPath?: string | null;
   selectedIds?: string[];
+  selectedTargets?: DocMutationTarget[];
 };
 
-function DocArboristNode({ node, style, dragHandle, onContextAction, canWrite, activeDocPath, selectedIds = [] }: Props) {
+function DocArboristNode({
+  node,
+  style,
+  dragHandle,
+  onContextAction,
+  canWrite,
+  activeDocPath,
+  selectedIds = [],
+  selectedTargets = [],
+}: Props) {
   const isDir = node.data.type === DocTreeNodeResponseType.directory;
   const displayTitle = node.data.title || node.data.name;
   const hasChildren = !!(node.data.children && node.data.children.length > 0);
   const isActiveDoc = !isDir && node.id === activeDocPath;
+  const mutationTarget = docMutationTargetForTreeNode(
+    node.id,
+    node.data.workspace ?? null
+  );
+  const isWorkspaceRoot = isWorkspaceRootTreeNode(
+    node.id,
+    node.data.workspace ?? null
+  );
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Focus input when editing starts
@@ -166,7 +201,11 @@ function DocArboristNode({ node, style, dragHandle, onContextAction, canWrite, a
               <DropdownMenuItem
                 onClick={(e) => {
                   e.stopPropagation();
-                  onContextAction({ type: 'create', parentDir: node.id });
+                  onContextAction({
+                    type: 'create',
+                    parentDir: mutationTarget.path,
+                    workspace: mutationTarget.workspace,
+                  });
                 }}
               >
                 <Plus className="h-3.5 w-3.5 mr-2" />
@@ -174,9 +213,16 @@ function DocArboristNode({ node, style, dragHandle, onContextAction, canWrite, a
               </DropdownMenuItem>
             )}
             <DropdownMenuItem
+              disabled={isWorkspaceRoot}
               onClick={(e) => {
                 e.stopPropagation();
-                node.edit();
+                if (isWorkspaceRoot) return;
+                onContextAction({
+                  type: 'rename',
+                  docPath: mutationTarget.path,
+                  title: displayTitle,
+                  workspace: mutationTarget.workspace,
+                });
               }}
             >
               <Pencil className="h-3.5 w-3.5 mr-2" />
@@ -186,20 +232,32 @@ function DocArboristNode({ node, style, dragHandle, onContextAction, canWrite, a
               onClick={(e) => {
                 e.stopPropagation();
                 if (selectedIds.length > 1 && node.isSelected) {
-                  onContextAction({ type: 'deleteBatch', paths: selectedIds });
+                  onContextAction({
+                    type: 'deleteBatch',
+                    targets: selectedTargets,
+                  });
                 } else {
                   onContextAction({
                     type: 'delete',
-                    docPath: node.id,
+                    docPath: mutationTarget.path,
                     title: displayTitle,
                     isDir,
                     hasChildren,
+                    workspace: mutationTarget.workspace,
                   });
                 }
               }}
+              disabled={
+                isWorkspaceRoot ||
+                (selectedIds.length > 1 &&
+                  node.isSelected &&
+                  selectedTargets.length === 0)
+              }
             >
               <Trash2 className="h-3.5 w-3.5 mr-2" />
-              {selectedIds.length > 1 && node.isSelected ? `Delete ${selectedIds.length} items` : 'Delete'}
+              {selectedIds.length > 1 && node.isSelected
+                ? `Delete ${selectedTargets.length} items`
+                : 'Delete'}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
