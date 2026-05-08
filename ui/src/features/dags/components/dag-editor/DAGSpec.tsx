@@ -40,9 +40,12 @@ import { DAGStepTable } from '../dag-details';
 import { FlowchartType, Graph } from '../visualization';
 import {
   buildAugmentedDAGSchema,
+  customActionHintsEqual,
   customStepTypeHintsEqual,
   extractLocalCustomStepTypeHints,
+  mergeCustomActionHints,
   mergeCustomStepTypeHints,
+  toInheritedCustomActionHints,
   toInheritedCustomStepTypeHints,
 } from './customStepSchema';
 import DAGAttributes from './DAGAttributes';
@@ -181,9 +184,16 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
   const [lastGoodLocalStepTypes, setLastGoodLocalStepTypes] = React.useState(
     () => extractLocalCustomStepTypeHints(serverSpec ?? '').stepTypes
   );
+  const [lastGoodLocalActions, setLastGoodLocalActions] = React.useState(
+    () => extractLocalCustomStepTypeHints(serverSpec ?? '').actions
+  );
 
   const inheritedCustomStepTypes = React.useMemo(
     () => toInheritedCustomStepTypeHints(editorHints),
+    [editorHints]
+  );
+  const inheritedCustomActions = React.useMemo(
+    () => toInheritedCustomActionHints(editorHints),
     [editorHints]
   );
 
@@ -201,6 +211,11 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
         ? previous
         : parsedLocalStepTypes.stepTypes
     );
+    setLastGoodLocalActions((previous) =>
+      customActionHintsEqual(previous, parsedLocalStepTypes.actions)
+        ? previous
+        : parsedLocalStepTypes.actions
+    );
   }, [parsedLocalStepTypes]);
 
   const effectiveLocalStepTypes = React.useMemo(() => {
@@ -214,6 +229,17 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
       ? lastGoodLocalStepTypes
       : parsedLocalStepTypes.stepTypes;
   }, [lastGoodLocalStepTypes, parsedLocalStepTypes]);
+  const effectiveLocalActions = React.useMemo(() => {
+    if (!parsedLocalStepTypes.ok) {
+      return lastGoodLocalActions;
+    }
+    return customActionHintsEqual(
+      lastGoodLocalActions,
+      parsedLocalStepTypes.actions
+    )
+      ? lastGoodLocalActions
+      : parsedLocalStepTypes.actions;
+  }, [lastGoodLocalActions, parsedLocalStepTypes]);
 
   const editorSchema = React.useMemo(() => {
     if (!baseSchema) {
@@ -224,9 +250,19 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
       mergeCustomStepTypeHints(
         inheritedCustomStepTypes,
         effectiveLocalStepTypes
+      ),
+      mergeCustomActionHints(
+        inheritedCustomActions,
+        effectiveLocalActions
       )
     );
-  }, [baseSchema, effectiveLocalStepTypes, inheritedCustomStepTypes]);
+  }, [
+    baseSchema,
+    effectiveLocalActions,
+    effectiveLocalStepTypes,
+    inheritedCustomActions,
+    inheritedCustomStepTypes,
+  ]);
 
   const editorModelUri = React.useMemo(
     () =>

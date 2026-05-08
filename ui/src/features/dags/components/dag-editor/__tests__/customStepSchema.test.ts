@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildAugmentedDAGSchema,
   extractLocalCustomStepTypeHints,
+  mergeCustomActionHints,
   mergeCustomStepTypeHints,
 } from '../customStepSchema';
 
@@ -37,6 +38,18 @@ const baseSchema: JSONSchema = {
         },
       ],
     },
+    actionName: {
+      anyOf: [
+        {
+          type: 'string',
+          enum: ['log.write', 'http.request'],
+        },
+        {
+          type: 'string',
+          pattern: '^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*)*$',
+        },
+      ],
+    },
     step: {
       type: 'object',
       properties: {
@@ -45,6 +58,9 @@ const baseSchema: JSONSchema = {
         },
         type: {
           $ref: '#/definitions/executorType',
+        },
+        action: {
+          $ref: '#/definitions/actionName',
         },
         with: {
           type: 'object',
@@ -83,11 +99,26 @@ const baseSchemaWithExecutorObject: JSONSchema = {
         },
       ],
     },
+    actionName: {
+      anyOf: [
+        {
+          type: 'string',
+          enum: ['log.write', 'http.request'],
+        },
+        {
+          type: 'string',
+          pattern: '^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*)*$',
+        },
+      ],
+    },
     executorObject: {
       type: 'object',
       properties: {
         type: {
           $ref: '#/definitions/executorType',
+        },
+        action: {
+          $ref: '#/definitions/actionName',
         },
         with: {
           type: 'object',
@@ -108,6 +139,9 @@ const baseSchemaWithExecutorObject: JSONSchema = {
         },
         type: {
           $ref: '#/definitions/executorType',
+        },
+        action: {
+          $ref: '#/definitions/actionName',
         },
         with: {
           type: 'object',
@@ -151,6 +185,18 @@ const baseSchemaWithConditionalRules = dereferenceSchema({
         },
       ],
     },
+    actionName: {
+      anyOf: [
+        {
+          type: 'string',
+          enum: ['log.write', 'http.request'],
+        },
+        {
+          type: 'string',
+          pattern: '^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*)*$',
+        },
+      ],
+    },
     httpConfig: {
       type: 'object',
       properties: {
@@ -167,6 +213,9 @@ const baseSchemaWithConditionalRules = dereferenceSchema({
         },
         type: {
           $ref: '#/definitions/executorType',
+        },
+        action: {
+          $ref: '#/definitions/actionName',
         },
         config: {
           type: 'object',
@@ -226,6 +275,34 @@ step_types:
       name: 'greet',
       targetType: 'command',
       description: 'Send a greeting',
+    });
+  });
+
+  it('extracts local custom actions from YAML', () => {
+    const result = extractLocalCustomStepTypeHints(`
+actions:
+  slack.notify:
+    description: Send Slack notification
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+    template:
+      action: http.request
+      with:
+        method: POST
+        url: \${SLACK_WEBHOOK_URL}
+        body: {$input: text}
+`);
+
+    expect(result.ok).toBe(true);
+    expect(result.actions).toHaveLength(1);
+    expect(result.actions[0]).toMatchObject({
+      name: 'slack.notify',
+      description: 'Send Slack notification',
     });
   });
 
@@ -300,6 +377,47 @@ steps:
     expect(propertySchema).toMatchObject({ type: 'integer' });
   });
 
+  it('preserves the local custom action definition when it overrides an inherited name', () => {
+    const merged = mergeCustomActionHints(
+      [
+        {
+          name: 'slack.notify',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              text: { type: 'string' },
+            },
+          },
+        },
+      ],
+      [
+        {
+          name: 'slack.notify',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              channel: { type: 'string' },
+            },
+          },
+        },
+      ]
+    );
+
+    const schema = buildAugmentedDAGSchema(baseSchema, [], merged);
+    const propertySchema = getSchemaAtPath(
+      schema,
+      ['steps', '0', 'with', 'channel'],
+      `
+steps:
+  - action: slack.notify
+    with:
+      channel: release
+`
+    );
+
+    expect(propertySchema).toMatchObject({ type: 'string' });
+  });
+
   it('augments dereferenced step schemas with custom with inference', () => {
     const schema = buildAugmentedDAGSchema(dereferencedBaseSchema, [
       {
@@ -359,6 +477,39 @@ steps:
 
     expect(propertyInfo?.enum).toEqual(
       expect.arrayContaining(['command', 'greet'])
+    );
+  });
+
+  it('shows builtin and custom action names in action docs for dereferenced schemas', () => {
+    const schema = buildAugmentedDAGSchema(dereferencedBaseSchema, [], [
+      {
+        name: 'slack.notify',
+        description: 'Send Slack notification',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            text: { type: 'string' },
+          },
+        },
+      },
+    ]);
+
+    const actionSchema = getSchemaAtPath(
+      schema,
+      ['steps', '0', 'action'],
+      `
+steps:
+  - action: slack.notify
+`
+    );
+    const propertyInfo = toPropertyInfo(actionSchema, 'action', [
+      'steps',
+      '0',
+      'action',
+    ]);
+
+    expect(propertyInfo?.enum).toEqual(
+      expect.arrayContaining(['log.write', 'slack.notify'])
     );
   });
 
@@ -583,5 +734,6 @@ steps:
 
     expect(result.ok).toBe(false);
     expect(result.stepTypes).toEqual([]);
+    expect(result.actions).toEqual([]);
   });
 });

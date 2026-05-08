@@ -2525,7 +2525,7 @@ export interface paths {
         };
         /**
          * List agent sessions
-         * @description Lists sessions for the current user. Use `paginationMode=cursor` and pass `cursor` to load the next page returned by `nextCursor`; `page` remains available for compatibility.
+         * @description Lists sessions for the current user. `listAgentSessions` uses `AgentSessionPaginationMode=cursor` or an `AgentSessionCursor` value to return cursor pages and `nextCursor`; cursor mode rejects `Page` because mixed cursor/page requests are ambiguous, while `PerPage` still controls page size. Without cursor mode it uses `Page` and `PerPage` offset pagination. `RemoteNode` selects the target node for either pagination mode. Malformed or invalid cursor values return 400.
          */
         get: operations["listAgentSessions"];
         put?: never;
@@ -3527,12 +3527,29 @@ export interface components {
         };
         /** @description Editor-only metadata used to synthesize per-document schema hints */
         DAGEditorHints: {
-            /** @description Custom step types inherited from base config and available to the current DAG */
+            /** @description Deprecated custom step types inherited from base config and available to the current DAG */
             inheritedCustomStepTypes: components["schemas"]["InheritedCustomStepTypeHint"][];
+            /** @description Custom actions inherited from base config and available to the current DAG */
+            inheritedCustomActions?: components["schemas"]["InheritedCustomActionHint"][];
         };
-        /** @description Resolved editor hint for an inherited custom step type */
+        /** @description Resolved editor hint for an inherited custom action */
+        InheritedCustomActionHint: {
+            /** @description Custom action name */
+            name: string;
+            /** @description Optional custom action description */
+            description?: string;
+            /** @description Resolved JSON Schema object used to validate and document with input */
+            inputSchema: {
+                [key: string]: unknown;
+            };
+            /** @description Resolved JSON Schema object used to validate stdout JSON output */
+            outputSchema?: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description Resolved editor hint for an inherited legacy custom step type */
         InheritedCustomStepTypeHint: {
-            /** @description Custom step type name */
+            /** @description Legacy custom step type name */
             name: string;
             /** @description Builtin executor type that the custom step expands to */
             targetType: string;

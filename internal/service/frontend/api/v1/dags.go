@@ -494,20 +494,28 @@ func (a *API) buildDAGEditorHints(ctx context.Context, dag *core.DAG, fileName s
 		}
 	}
 
-	hints, err := spec.InheritedCustomStepTypeEditorHints(baseConfigData)
+	stepHints, err := spec.InheritedCustomStepTypeEditorHints(baseConfigData)
 	if err != nil {
-		logger.Warn(ctx, "Failed to build inherited custom step editor hints",
+		logger.Warn(ctx, "Failed to build inherited custom editor hints",
 			slog.String("dagFile", fileName),
 			tag.Error(err),
 		)
 		return nil
 	}
-	if len(hints) == 0 {
+	actionHints, err := spec.InheritedCustomActionEditorHints(baseConfigData)
+	if err != nil {
+		logger.Warn(ctx, "Failed to build inherited custom editor hints",
+			slog.String("dagFile", fileName),
+			tag.Error(err),
+		)
+		return nil
+	}
+	if len(stepHints) == 0 && len(actionHints) == 0 {
 		return nil
 	}
 
-	editorHints := make([]api.InheritedCustomStepTypeHint, 0, len(hints))
-	for _, hint := range hints {
+	editorStepHints := make([]api.InheritedCustomStepTypeHint, 0, len(stepHints))
+	for _, hint := range stepHints {
 		apiHint := api.InheritedCustomStepTypeHint{
 			InputSchema: hint.InputSchema,
 			Name:        hint.Name,
@@ -521,11 +529,29 @@ func (a *API) buildDAGEditorHints(ctx context.Context, dag *core.DAG, fileName s
 			desc := hint.Description
 			apiHint.Description = &desc
 		}
-		editorHints = append(editorHints, apiHint)
+		editorStepHints = append(editorStepHints, apiHint)
+	}
+
+	editorActionHints := make([]api.InheritedCustomActionHint, 0, len(actionHints))
+	for _, hint := range actionHints {
+		apiHint := api.InheritedCustomActionHint{
+			InputSchema: hint.InputSchema,
+			Name:        hint.Name,
+		}
+		if len(hint.OutputSchema) > 0 {
+			outputSchema := hint.OutputSchema
+			apiHint.OutputSchema = &outputSchema
+		}
+		if hint.Description != "" {
+			desc := hint.Description
+			apiHint.Description = &desc
+		}
+		editorActionHints = append(editorActionHints, apiHint)
 	}
 
 	return &api.DAGEditorHints{
-		InheritedCustomStepTypes: editorHints,
+		InheritedCustomActions:   &editorActionHints,
+		InheritedCustomStepTypes: editorStepHints,
 	}
 }
 

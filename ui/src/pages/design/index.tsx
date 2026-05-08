@@ -34,9 +34,12 @@ import DAGEditorWithDocs from '@/features/dags/components/dag-editor/DAGEditorWi
 import ExternalChangeDialog from '@/features/dags/components/dag-editor/ExternalChangeDialog';
 import {
   buildAugmentedDAGSchema,
+  customActionHintsEqual,
   customStepTypeHintsEqual,
   extractLocalCustomStepTypeHints,
+  mergeCustomActionHints,
   mergeCustomStepTypeHints,
+  toInheritedCustomActionHints,
   toInheritedCustomStepTypeHints,
 } from '@/features/dags/components/dag-editor/customStepSchema';
 import { StepDetails } from '@/features/dags/components/step-details';
@@ -91,7 +94,7 @@ type DesignResizeSide = 'left' | 'right';
 const NEW_DAG_VALUE = '__new__';
 const DEFAULT_DRAFT_SPEC = `steps:
   - name: hello
-    command: echo hello
+    run: echo hello
 `;
 const DESIGN_LEFT_PANEL_STORAGE_KEY = 'workflowDesignLeftPanelWidth';
 const DESIGN_RIGHT_PANEL_STORAGE_KEY = 'workflowDesignRightPanelWidth';
@@ -239,6 +242,9 @@ function WorkflowDesignPage() {
   const [lastGoodLocalStepTypes, setLastGoodLocalStepTypes] = React.useState(
     () => extractLocalCustomStepTypeHints(editorValue).stepTypes
   );
+  const [lastGoodLocalActions, setLastGoodLocalActions] = React.useState(
+    () => extractLocalCustomStepTypeHints(editorValue).actions
+  );
 
   const parsedLocalStepTypes = React.useMemo(
     () => extractLocalCustomStepTypeHints(editorValue),
@@ -248,6 +254,10 @@ function WorkflowDesignPage() {
     () => toInheritedCustomStepTypeHints(undefined),
     []
   );
+  const inheritedCustomActions = React.useMemo(
+    () => toInheritedCustomActionHints(undefined),
+    []
+  );
 
   React.useEffect(() => {
     if (!parsedLocalStepTypes.ok) return;
@@ -255,6 +265,11 @@ function WorkflowDesignPage() {
       customStepTypeHintsEqual(previous, parsedLocalStepTypes.stepTypes)
         ? previous
         : parsedLocalStepTypes.stepTypes
+    );
+    setLastGoodLocalActions((previous) =>
+      customActionHintsEqual(previous, parsedLocalStepTypes.actions)
+        ? previous
+        : parsedLocalStepTypes.actions
     );
   }, [parsedLocalStepTypes]);
 
@@ -267,6 +282,15 @@ function WorkflowDesignPage() {
       ? lastGoodLocalStepTypes
       : parsedLocalStepTypes.stepTypes;
   }, [lastGoodLocalStepTypes, parsedLocalStepTypes]);
+  const effectiveLocalActions = React.useMemo(() => {
+    if (!parsedLocalStepTypes.ok) return lastGoodLocalActions;
+    return customActionHintsEqual(
+      lastGoodLocalActions,
+      parsedLocalStepTypes.actions
+    )
+      ? lastGoodLocalActions
+      : parsedLocalStepTypes.actions;
+  }, [lastGoodLocalActions, parsedLocalStepTypes]);
 
   const editorSchema = React.useMemo(() => {
     if (!baseSchema) return null;
@@ -275,9 +299,19 @@ function WorkflowDesignPage() {
       mergeCustomStepTypeHints(
         inheritedCustomStepTypes,
         effectiveLocalStepTypes
+      ),
+      mergeCustomActionHints(
+        inheritedCustomActions,
+        effectiveLocalActions
       )
     );
-  }, [baseSchema, inheritedCustomStepTypes, effectiveLocalStepTypes]);
+  }, [
+    baseSchema,
+    inheritedCustomStepTypes,
+    effectiveLocalStepTypes,
+    inheritedCustomActions,
+    effectiveLocalActions,
+  ]);
 
   const editorModelUri = React.useMemo(() => {
     const workspaceSegment = encodeURIComponent(

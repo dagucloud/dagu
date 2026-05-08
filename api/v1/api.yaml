@@ -8824,19 +8824,46 @@ components:
       properties:
         inheritedCustomStepTypes:
           type: array
-          description: "Custom step types inherited from base config and available to the current DAG"
+          description: "Deprecated custom step types inherited from base config and available to the current DAG"
           items:
             $ref: "#/components/schemas/InheritedCustomStepTypeHint"
+        inheritedCustomActions:
+          type: array
+          description: "Custom actions inherited from base config and available to the current DAG"
+          items:
+            $ref: "#/components/schemas/InheritedCustomActionHint"
       required:
         - inheritedCustomStepTypes
 
-    InheritedCustomStepTypeHint:
+    InheritedCustomActionHint:
       type: object
-      description: "Resolved editor hint for an inherited custom step type"
+      description: "Resolved editor hint for an inherited custom action"
       properties:
         name:
           type: string
-          description: "Custom step type name"
+          description: "Custom action name"
+        description:
+          type: string
+          description: "Optional custom action description"
+        inputSchema:
+          type: object
+          additionalProperties: true
+          description: "Resolved JSON Schema object used to validate and document with input"
+        outputSchema:
+          type: object
+          additionalProperties: true
+          description: "Resolved JSON Schema object used to validate stdout JSON output"
+      required:
+        - name
+        - inputSchema
+
+    InheritedCustomStepTypeHint:
+      type: object
+      description: "Resolved editor hint for an inherited legacy custom step type"
+      properties:
+        name:
+          type: string
+          description: "Legacy custom step type name"
         targetType:
           type: string
           description: "Builtin executor type that the custom step expands to"

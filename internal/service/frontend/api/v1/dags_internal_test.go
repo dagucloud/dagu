@@ -508,6 +508,22 @@ step_types:
         command: echo
         args:
           - {$input: message}
+actions:
+  slack.notify:
+    description: Send Slack notification
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+    template:
+      action: http.request
+      with:
+        method: POST
+        url: ${SLACK_WEBHOOK_URL}
+        body: {$input: text}
 `), 0o600))
 
 	dag := helper.DAG(t, `
@@ -538,6 +554,8 @@ steps:
 	require.True(t, ok)
 	require.NotNil(t, resp.EditorHints)
 	require.Len(t, resp.EditorHints.InheritedCustomStepTypes, 1)
+	require.NotNil(t, resp.EditorHints.InheritedCustomActions)
+	require.Len(t, *resp.EditorHints.InheritedCustomActions, 1)
 
 	hint := resp.EditorHints.InheritedCustomStepTypes[0]
 	require.Equal(t, "greet", hint.Name)
@@ -550,6 +568,17 @@ steps:
 	message, ok := properties["message"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "string", message["type"])
+
+	actionHint := (*resp.EditorHints.InheritedCustomActions)[0]
+	require.Equal(t, "slack.notify", actionHint.Name)
+	require.NotNil(t, actionHint.Description)
+	require.Equal(t, "Send Slack notification", *actionHint.Description)
+
+	actionProperties, ok := actionHint.InputSchema["properties"].(map[string]any)
+	require.True(t, ok)
+	text, ok := actionProperties["text"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "string", text["type"])
 }
 
 func TestGetDAGDetails_EditorHintsKeepDistinctDescriptions(t *testing.T) {

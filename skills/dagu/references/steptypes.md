@@ -280,7 +280,6 @@ steps:
           - bash
       skills:
         - my-skill-id
-      prompt: "Research and summarize ${TOPIC}"
       max_iterations: 50
       safe_mode: true
 ```
