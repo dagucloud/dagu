@@ -310,6 +310,13 @@ Formats: table (default), json
 3. Move or rename documents: `runbook_manage` action `move` with `id` and `new_id`.
 4. Delete documents only after explicit user confirmation: `runbook_manage` action `delete`.
 5. Navigate the user to the document: navigate("/docs/<doc-id>")
+
+### Best Practices
+- Use `$DAGU_ARTIFACT_DIR` to store artifacts (intermediate files and results) to enhance debuggability.
+- Utilize `log` step type to improve clarity for users.
+- For agent and chat LLM steps, select cost-effective models. Ensure that the selected models are currently available.
+- Verify each step by checking the available options for commands that depend on external commands to ensure the steps work as expected. Do not guess.
+
 </workflows>
 
 <configuration>
