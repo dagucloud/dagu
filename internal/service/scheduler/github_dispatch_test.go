@@ -284,7 +284,7 @@ func TestGitHubDispatchWorker_StartRunsLoopsUntilContextCanceled(t *testing.T) {
 
 	env := newDispatchTestEnv(t, "github-loop")
 	tracker := filegithubdispatch.New(filepath.Join(t.TempDir(), "tracker"))
-	client := &loopDispatchClient{}
+	client := &loopDispatchClient{pulled: make(chan struct{})}
 	licenses := newStubDispatchLicenseManager()
 	worker := NewGitHubDispatchWorker(
 		env.cfg,
@@ -302,12 +302,24 @@ func TestGitHubDispatchWorker_StartRunsLoopsUntilContextCanceled(t *testing.T) {
 	worker.reportGap = time.Millisecond
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
 	go func() {
-		time.Sleep(10 * time.Millisecond)
-		cancel()
+		defer close(done)
+		worker.Start(ctx)
 	}()
 
-	worker.Start(ctx)
+	select {
+	case <-client.pulled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("github dispatch worker did not pull")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("github dispatch worker did not stop")
+	}
 	assert.Greater(t, client.pullCalls, 0)
 }
 
@@ -470,10 +482,17 @@ func (s *stubDispatchClient) FinishGitHubDispatch(_ context.Context, jobID strin
 type loopDispatchClient struct {
 	stubDispatchClient
 	pullCalls int
+	pulled    chan struct{}
+	once      sync.Once
 }
 
 func (l *loopDispatchClient) PullGitHubDispatch(context.Context, license.PullGitHubDispatchRequest) (*license.GitHubDispatchJob, error) {
 	l.pullCalls++
+	if l.pulled != nil {
+		l.once.Do(func() {
+			close(l.pulled)
+		})
+	}
 	return nil, nil
 }
 
