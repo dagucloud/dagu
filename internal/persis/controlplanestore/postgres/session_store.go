@@ -167,11 +167,17 @@ func (s *sessionStore) AddMessage(ctx context.Context, sessionID string, msg *ag
 	if err != nil {
 		return agent.ErrInvalidSessionID
 	}
-	msgIDString, msgUUID, err := ensureUUIDv7String(msg.ID)
-	if err != nil {
+	var msgIDString string
+	var msgUUID uuid.UUID
+	if msg.ID == "" {
 		msgIDString, msgUUID, err = newUUIDv7String()
 		if err != nil {
 			return fmt.Errorf("generate message id: %w", err)
+		}
+	} else {
+		msgIDString, msgUUID, err = ensureUUIDv7String(msg.ID)
+		if err != nil {
+			return agent.ErrInvalidSessionID
 		}
 	}
 	msg.ID = msgIDString
@@ -185,7 +191,7 @@ func (s *sessionStore) AddMessage(ctx context.Context, sessionID string, msg *ag
 	}
 
 	return s.store.withTx(ctx, func(q *db.Queries) error {
-		row, err := q.GetAgentSession(ctx, sessionUUID)
+		row, err := q.GetAgentSessionForUpdate(ctx, sessionUUID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return agent.ErrSessionNotFound
 		}

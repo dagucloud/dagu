@@ -1113,7 +1113,11 @@ func (a *API) CreateSession(ctx context.Context, user UserIdentity, req ChatRequ
 			}
 		}
 	} else {
-		id = uuid.Must(uuid.NewV7()).String()
+		var err error
+		id, err = newUUIDv7String()
+		if err != nil {
+			return "", "", fmt.Errorf("generate session id: %w", err)
+		}
 	}
 
 	model := selectModel(req.Model, "", a.getDefaultModelID(ctx))
@@ -1174,7 +1178,10 @@ func (a *API) CreateEmptySession(ctx context.Context, user UserIdentity, dagName
 		return "", err
 	}
 
-	id := uuid.Must(uuid.NewV7()).String()
+	id, err := newUUIDv7String()
+	if err != nil {
+		return "", fmt.Errorf("generate session id: %w", err)
+	}
 	a.newManagedSession(ctx, id, user, cfg, time.Now())
 	return id, nil
 }
@@ -1289,7 +1296,10 @@ func (a *API) CompactSessionIfNeeded(ctx context.Context, sessionID string, user
 		return "", false, fmt.Errorf("compaction summary was empty")
 	}
 
-	newID := uuid.Must(uuid.NewV7()).String()
+	newID, err := newUUIDv7String()
+	if err != nil {
+		return "", false, fmt.Errorf("generate compacted session id: %w", err)
+	}
 	newMgr := a.newManagedSession(ctx, newID, user, runtimeCfg, time.Now())
 	summaryContent := sessionSummaryPrefix + strings.TrimSpace(resp.Content)
 	if _, err := newMgr.RecordExternalMessage(ctx, Message{
@@ -1523,6 +1533,14 @@ func (a *API) enqueueInternalAgentMessage(ctx context.Context, sessionID string,
 func isValidUUID(s string) bool {
 	_, err := uuid.Parse(s)
 	return err == nil
+}
+
+func newUUIDv7String() (string, error) {
+	id, err := uuid.NewV7()
+	if err != nil {
+		return "", err
+	}
+	return id.String(), nil
 }
 
 // ListSessions returns all sessions for the given user.

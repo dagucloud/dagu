@@ -42,6 +42,7 @@ FROM dagu_dag_runs
 WHERE NOT is_root
   AND root_dag_name = sqlc.arg(root_dag_name)
   AND root_dag_run_id = sqlc.arg(root_dag_run_id)
+  AND dag_name = sqlc.arg(dag_name)
   AND dag_run_id = sqlc.arg(dag_run_id)
 LIMIT 1;
 

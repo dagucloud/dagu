@@ -28,17 +28,25 @@ SELECT *
 FROM dagu_agent_sessions
 WHERE id = sqlc.arg(id);
 
+-- name: GetAgentSessionForUpdate :one
+SELECT *
+FROM dagu_agent_sessions
+WHERE id = sqlc.arg(id)
+FOR UPDATE;
+
 -- name: ListAgentSessionsByUser :many
 SELECT *
 FROM dagu_agent_sessions
 WHERE user_id = sqlc.arg(user_id)
-ORDER BY updated_at DESC, id DESC;
+ORDER BY updated_at DESC, id DESC
+LIMIT 500;
 
 -- name: ListAgentSubSessions :many
 SELECT *
 FROM dagu_agent_sessions
 WHERE parent_session_id = sqlc.arg(parent_session_id)
-ORDER BY updated_at DESC, id DESC;
+ORDER BY updated_at DESC, id DESC
+LIMIT 500;
 
 -- name: UpdateAgentSession :execrows
 UPDATE dagu_agent_sessions

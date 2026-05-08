@@ -155,9 +155,13 @@ func (s *Service) ProcessLogin(ctx context.Context, claims OIDCClaims) (*auth.Us
 
 	for attempt := range maxRetries {
 		username = s.generateUniqueUsername(ctx, claims)
+		id, err := uuid.NewV7()
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to generate user ID: %w", err)
+		}
 
 		user = &auth.User{
-			ID:              uuid.Must(uuid.NewV7()).String(),
+			ID:              id.String(),
 			Username:        username,
 			Role:            role,
 			WorkspaceAccess: auth.AllWorkspaceAccess(),

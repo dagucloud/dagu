@@ -166,6 +166,9 @@ func (s *userStore) Update(ctx context.Context, user *auth.User) error {
 	if !user.Role.Valid() {
 		return auth.ErrInvalidRole
 	}
+	if (user.OIDCIssuer == "") != (user.OIDCSubject == "") {
+		return auth.ErrOIDCIdentityNotFound
+	}
 	workspaceAccess, err := marshalWorkspaceAccess(user.WorkspaceAccess)
 	if err != nil {
 		return err
@@ -416,6 +419,15 @@ func (s *webhookStore) Update(ctx context.Context, webhook *auth.Webhook) error 
 	id, err := parseUUIDv7(webhook.ID)
 	if err != nil {
 		return auth.ErrInvalidWebhookID
+	}
+	if webhook.DAGName == "" {
+		return auth.ErrInvalidWebhookDAGName
+	}
+	if err := core.ValidateDAGName(webhook.DAGName); err != nil {
+		return auth.ErrInvalidWebhookDAGName
+	}
+	if webhook.TokenHash == "" {
+		return auth.ErrInvalidWebhookTokenHash
 	}
 	params, err := s.updateWebhookParams(id, webhook)
 	if err != nil {

@@ -858,7 +858,15 @@ func (c *Context) NewScheduler() (*scheduler.Scheduler, error) {
 		schedulerDAGRunLeaseStore  = c.DAGRunLeaseStore
 		schedulerDispatchTaskStore = c.DispatchTaskStore
 		schedulerControlPlaneStore controlplanestore.Store
+		ownsSchedulerControlStore  bool
 	)
+	defer func() {
+		if ownsSchedulerControlStore && schedulerControlPlaneStore != nil {
+			if closeErr := schedulerControlPlaneStore.Close(); closeErr != nil {
+				logger.Warn(c, "Failed to close scheduler control-plane store", tag.Error(closeErr))
+			}
+		}
+	}()
 	if c.Config.ControlPlaneStore.Backend == config.ControlPlaneStoreBackendPostgres {
 		if c.ControlPlaneStore != nil && controlPlaneStoreRoleForCommand(c.Command) == controlplanestore.RoleScheduler {
 			schedulerControlPlaneStore = c.ControlPlaneStore
@@ -874,6 +882,7 @@ func (c *Context) NewScheduler() (*scheduler.Scheduler, error) {
 			if err != nil {
 				return nil, fmt.Errorf("failed to initialize scheduler control-plane store: %w", err)
 			}
+			ownsSchedulerControlStore = true
 		}
 		if schedulerControlPlaneStore != nil {
 			schedulerRunStore = schedulerControlPlaneStore.DAGRuns()
@@ -909,6 +918,15 @@ func (c *Context) NewScheduler() (*scheduler.Scheduler, error) {
 	sched, err := scheduler.New(c.Config, m, schedulerRunMgr, schedulerRunStore, schedulerQueueStore, c.ProcStore, schedulerServiceRegistry, coordinatorCli, wmStore)
 	if err != nil {
 		return nil, err
+	}
+	if ownsSchedulerControlStore {
+		store := schedulerControlPlaneStore
+		sched.SetStoreCloser(func(ctx context.Context) {
+			if closeErr := store.Close(); closeErr != nil {
+				logger.Warn(ctx, "Failed to close scheduler control-plane store", tag.Error(closeErr))
+			}
+		})
+		ownsSchedulerControlStore = false
 	}
 	ownsSchedulerRunStore = false
 	if c.EventService != nil {

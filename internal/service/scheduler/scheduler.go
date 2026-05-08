@@ -54,6 +54,7 @@ type Scheduler struct {
 	lock                sync.Mutex
 	lifecycleMu         sync.Mutex
 	startupCancel       context.CancelFunc
+	storeCloser         func(context.Context)
 	lockHeld            atomic.Bool
 	clock               Clock // Clock function for getting current time
 	eventCollector      *fileeventstore.Collector
@@ -270,6 +271,15 @@ func (s *Scheduler) SetDispatchTaskStore(store exec.DispatchTaskStore) {
 		return
 	}
 	s.queueProcessor.dispatchTaskStore = store
+}
+
+// SetStoreCloser configures cleanup for the scheduler-owned persistence store.
+// If unset, Stop closes dagRunStore directly.
+func (s *Scheduler) SetStoreCloser(closer func(context.Context)) {
+	if s == nil {
+		return
+	}
+	s.storeCloser = closer
 }
 
 // SetRestartFunc overrides the planner's restart function for testing purposes.
@@ -772,6 +782,10 @@ func (s *Scheduler) Stop(ctx context.Context) {
 }
 
 func (s *Scheduler) closeDAGRunStore(ctx context.Context) {
+	if s.storeCloser != nil {
+		s.storeCloser(ctx)
+		return
+	}
 	if err := exec.CloseDAGRunStore(ctx, s.dagRunStore); err != nil {
 		logger.Warn(ctx, "Failed to close scheduler DAG-run store", tag.Error(err))
 	}

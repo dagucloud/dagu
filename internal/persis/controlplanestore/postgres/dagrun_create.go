@@ -117,6 +117,7 @@ func (s *Store) createSubAttempt(ctx context.Context, dag *core.DAG, timestamp t
 		run, findErr := q.FindSubRun(ctx, db.FindSubRunParams{
 			RootDagName:  root.Name,
 			RootDagRunID: root.ID,
+			DagName:      dag.Name,
 			DagRunID:     dagRunID,
 		})
 		if findErr != nil {

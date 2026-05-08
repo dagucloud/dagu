@@ -144,6 +144,32 @@ func (q *Queries) GetAgentSession(ctx context.Context, id uuid.UUID) (DaguAgentS
 	return i, err
 }
 
+const getAgentSessionForUpdate = `-- name: GetAgentSessionForUpdate :one
+SELECT id, user_id, dag_name, title, model, parent_session_id, delegate_task, data_version, data, created_at, updated_at
+FROM dagu_agent_sessions
+WHERE id = $1
+FOR UPDATE
+`
+
+func (q *Queries) GetAgentSessionForUpdate(ctx context.Context, id uuid.UUID) (DaguAgentSession, error) {
+	row := q.db.QueryRow(ctx, getAgentSessionForUpdate, id)
+	var i DaguAgentSession
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.DagName,
+		&i.Title,
+		&i.Model,
+		&i.ParentSessionID,
+		&i.DelegateTask,
+		&i.DataVersion,
+		&i.Data,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getLatestAgentSessionSequenceID = `-- name: GetLatestAgentSessionSequenceID :one
 SELECT COALESCE(max(sequence_id), 0)::bigint
 FROM dagu_agent_session_messages
@@ -197,6 +223,7 @@ SELECT id, user_id, dag_name, title, model, parent_session_id, delegate_task, da
 FROM dagu_agent_sessions
 WHERE user_id = $1
 ORDER BY updated_at DESC, id DESC
+LIMIT 500
 `
 
 func (q *Queries) ListAgentSessionsByUser(ctx context.Context, userID string) ([]DaguAgentSession, error) {
@@ -236,6 +263,7 @@ SELECT id, user_id, dag_name, title, model, parent_session_id, delegate_task, da
 FROM dagu_agent_sessions
 WHERE parent_session_id = $1
 ORDER BY updated_at DESC, id DESC
+LIMIT 500
 `
 
 func (q *Queries) ListAgentSubSessions(ctx context.Context, parentSessionID uuid.NullUUID) ([]DaguAgentSession, error) {

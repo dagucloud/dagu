@@ -8,12 +8,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/dagucloud/dagu/internal/cmn/logger"
+	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis/controlplanestore/postgres/db"
 )
@@ -81,6 +84,9 @@ func (s *Store) Register(ctx context.Context, serviceName exec.ServiceName, host
 
 // Unregister unregisters all service instances owned by this store.
 func (s *Store) Unregister(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	s.serviceMu.Lock()
 	registrations := s.services
 	s.services = make(map[exec.ServiceName]*postgresServiceRegistration)
@@ -91,10 +97,19 @@ func (s *Store) Unregister(ctx context.Context) {
 			reg.cancel()
 		}
 		reg.wg.Wait()
-		_, _ = s.queries.DeleteServiceInstance(ctx, db.DeleteServiceInstanceParams{
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		_, err := s.queries.DeleteServiceInstance(cleanupCtx, db.DeleteServiceInstanceParams{
 			ServiceName: string(reg.serviceName),
 			InstanceID:  reg.hostInfo.ID,
 		})
+		cancel()
+		if err != nil {
+			logger.Warn(ctx, "Failed to unregister service instance",
+				tag.Error(err),
+				slog.String("service", string(reg.serviceName)),
+				slog.String("instance_id", reg.hostInfo.ID),
+			)
+		}
 	}
 }
 

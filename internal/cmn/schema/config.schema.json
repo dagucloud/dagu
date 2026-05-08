@@ -1028,7 +1028,26 @@
         "pool": {
           "$ref": "#/definitions/PostgresPoolDef"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "direct_access": {
+                "const": true
+              }
+            },
+            "required": [
+              "direct_access"
+            ]
+          },
+          "then": {
+            "required": [
+              "dsn"
+            ]
+          }
+        }
+      ]
     },
     "SessionDef": {
       "type": "object",

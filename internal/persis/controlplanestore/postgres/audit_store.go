@@ -92,9 +92,20 @@ func auditQueryParams(filter audit.QueryFilter, limit, offset int) db.QueryAudit
 		StartTime:    timestamptz(filter.StartTime),
 		HasEndTime:   !filter.EndTime.IsZero(),
 		EndTime:      timestamptz(filter.EndTime),
-		RowLimit:     int32(limit),  //nolint:gosec
-		RowOffset:    int32(offset), //nolint:gosec
+		RowLimit:     clampInt32(limit),
+		RowOffset:    clampInt32(offset),
 	}
+}
+
+func clampInt32(value int) int32 {
+	const maxInt32 = int64(1<<31 - 1)
+	if value <= 0 {
+		return 0
+	}
+	if int64(value) > maxInt32 {
+		return int32(maxInt32)
+	}
+	return int32(value) //nolint:gosec
 }
 
 func auditEntryFromRow(row db.DaguAuditEntry) (*audit.Entry, error) {

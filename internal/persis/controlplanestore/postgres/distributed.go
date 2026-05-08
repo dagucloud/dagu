@@ -326,6 +326,7 @@ func (s *dagRunLeaseStore) Upsert(ctx context.Context, lease exec.DAGRunLease) e
 	if root.Zero() {
 		root = lease.DAGRun
 	}
+	lease.Root = root
 	data, err := json.Marshal(lease)
 	if err != nil {
 		return fmt.Errorf("marshal DAG-run lease: %w", err)
@@ -412,6 +413,7 @@ func (s *activeDistributedRunStore) Upsert(ctx context.Context, record exec.Acti
 	if root.Zero() {
 		root = record.DAGRun
 	}
+	record.Root = root
 	data, err := json.Marshal(record)
 	if err != nil {
 		return fmt.Errorf("marshal active distributed run: %w", err)

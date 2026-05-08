@@ -280,18 +280,25 @@ FROM dagu_dag_runs
 WHERE NOT is_root
   AND root_dag_name = $1
   AND root_dag_run_id = $2
-  AND dag_run_id = $3
+  AND dag_name = $3
+  AND dag_run_id = $4
 LIMIT 1
 `
 
 type FindSubRunParams struct {
 	RootDagName  string `json:"root_dag_name"`
 	RootDagRunID string `json:"root_dag_run_id"`
+	DagName      string `json:"dag_name"`
 	DagRunID     string `json:"dag_run_id"`
 }
 
 func (q *Queries) FindSubRun(ctx context.Context, arg FindSubRunParams) (DaguDagRun, error) {
-	row := q.db.QueryRow(ctx, findSubRun, arg.RootDagName, arg.RootDagRunID, arg.DagRunID)
+	row := q.db.QueryRow(ctx, findSubRun,
+		arg.RootDagName,
+		arg.RootDagRunID,
+		arg.DagName,
+		arg.DagRunID,
+	)
 	var i DaguDagRun
 	err := row.Scan(
 		&i.ID,

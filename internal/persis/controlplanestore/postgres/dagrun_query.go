@@ -103,6 +103,8 @@ func (s *Store) latestRootAttempt(ctx context.Context, dagRun exec.DAGRunRef) (d
 		DagRunID: dagRun.ID,
 	}); anyErr == nil {
 		return db.DaguDagRunAttempt{}, exec.ErrNoStatusData
+	} else if !errors.Is(anyErr, pgx.ErrNoRows) {
+		return db.DaguDagRunAttempt{}, anyErr
 	}
 	return db.DaguDagRunAttempt{}, fmt.Errorf("%w: %s", exec.ErrDAGRunIDNotFound, dagRun.ID)
 }
