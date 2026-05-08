@@ -11,13 +11,14 @@ import { formatDate } from '../../utils/formatDate';
 function makeSession(
   id: string,
   createdAt: string,
-  updatedAt: string
+  updatedAt: string,
+  title = `Session ${id}`
 ): SessionWithState {
   return {
     session: {
       id,
       user_id: 'user-1',
-      title: `Session ${id}`,
+      title,
       created_at: createdAt,
       updated_at: updatedAt,
     },
@@ -38,7 +39,8 @@ describe('SessionSidebar', () => {
     const newerUpdate = makeSession(
       'newer-update',
       '2026-05-08T09:49:00+09:00',
-      '2026-05-08T10:05:00+09:00'
+      '2026-05-08T10:05:00+09:00',
+      'why does the briefing workflow miss Tokyo events?'
     );
 
     render(
@@ -57,10 +59,11 @@ describe('SessionSidebar', () => {
       .getAllByRole('button')
       .map((button) => button.textContent?.trim());
 
-    expect(labels).toEqual([
-      formatDate(newerUpdate.session.updated_at),
-      formatDate(olderUpdate.session.updated_at),
-    ]);
+    expect(labels[0]).toContain(
+      'why does the briefing workflow miss Tokyo events?'
+    );
+    expect(labels[0]).toContain(formatDate(newerUpdate.session.updated_at));
+    expect(labels[1]).toContain(formatDate(olderUpdate.session.updated_at));
     expect(labels).not.toContain(formatDate(newerUpdate.session.created_at));
   });
 });

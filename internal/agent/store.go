@@ -10,9 +10,10 @@ import (
 
 // Sentinel errors for session store operations.
 var (
-	ErrSessionNotFound  = errors.New("session not found")
-	ErrInvalidSessionID = errors.New("invalid session ID")
-	ErrInvalidUserID    = errors.New("invalid user ID")
+	ErrSessionNotFound      = errors.New("session not found")
+	ErrInvalidSessionID     = errors.New("invalid session ID")
+	ErrInvalidUserID        = errors.New("invalid user ID")
+	ErrInvalidSessionCursor = errors.New("invalid session cursor")
 )
 
 // ConfigStore provides access to agent configuration.

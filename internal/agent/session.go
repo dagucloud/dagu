@@ -19,7 +19,10 @@ import (
 	"github.com/google/uuid"
 )
 
-const queuedChatMessageSeparator = "\n\n"
+const (
+	queuedChatMessageSeparator = "\n\n"
+	maxSessionTitleLength      = 50
+)
 
 type queuedChatMessage struct {
 	displayContent string
@@ -799,6 +802,7 @@ func (sm *SessionManager) buildUserMessage(content string, llmMsg *llm.Message) 
 		LLMData:    llmMsg,
 	}
 
+	sm.setTitleFromMessageLocked(msg)
 	sm.messages = append(sm.messages, msg)
 	return msg
 }
@@ -1079,9 +1083,28 @@ func (sm *SessionManager) appendMessage(msg Message) int64 {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
+	sm.setTitleFromMessageLocked(msg)
 	sm.messages = append(sm.messages, msg)
 	sm.sequenceID++
 	return sm.sequenceID
+}
+
+func (sm *SessionManager) setTitleFromMessageLocked(msg Message) {
+	if sm.title == "" && msg.Type == MessageTypeUser {
+		sm.title = titleFromUserMessage(msg.Content)
+	}
+}
+
+func titleFromUserMessage(content string) string {
+	title := strings.Join(strings.Fields(content), " ")
+	if title == "" {
+		return ""
+	}
+	runes := []rune(title)
+	if len(runes) <= maxSessionTitleLength {
+		return title
+	}
+	return string(runes[:maxSessionTitleLength-3]) + "..."
 }
 
 // createEmitUIActionFunc returns a function for emitting UI actions.

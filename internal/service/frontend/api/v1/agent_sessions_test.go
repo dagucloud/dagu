@@ -230,6 +230,52 @@ func TestListAgentSessions(t *testing.T) {
 		assert.Equal(t, 1, listResp.Pagination.PrevPage)
 	})
 
+	t.Run("returns cursor page with next cursor", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newSessionTestSetup(t)
+		now := time.Now()
+
+		for i := range 3 {
+			setup.sessionStore.sessions = append(setup.sessionStore.sessions, &agent.Session{
+				ID:        fmt.Sprintf("sess-%d", i+1),
+				UserID:    "admin-1",
+				CreatedAt: now.Add(time.Duration(-i) * time.Hour),
+				UpdatedAt: now.Add(time.Duration(-i) * time.Hour),
+			})
+		}
+
+		mode := apigen.ListAgentSessionsParamsPaginationModeCursor
+		resp, err := setup.api.ListAgentSessions(sessionAdminCtx(), apigen.ListAgentSessionsRequestObject{
+			Params: apigen.ListAgentSessionsParams{
+				PaginationMode: &mode,
+				PerPage:        new(2),
+			},
+		})
+		require.NoError(t, err)
+
+		listResp, ok := resp.(apigen.ListAgentSessions200JSONResponse)
+		require.True(t, ok)
+		require.Len(t, listResp.Sessions, 2)
+		assert.Equal(t, "sess-1", listResp.Sessions[0].SessionId)
+		assert.Equal(t, "sess-2", listResp.Sessions[1].SessionId)
+		require.NotNil(t, listResp.NextCursor)
+
+		resp, err = setup.api.ListAgentSessions(sessionAdminCtx(), apigen.ListAgentSessionsRequestObject{
+			Params: apigen.ListAgentSessionsParams{
+				Cursor:  listResp.NextCursor,
+				PerPage: new(2),
+			},
+		})
+		require.NoError(t, err)
+
+		listResp, ok = resp.(apigen.ListAgentSessions200JSONResponse)
+		require.True(t, ok)
+		require.Len(t, listResp.Sessions, 1)
+		assert.Equal(t, "sess-3", listResp.Sessions[0].SessionId)
+		assert.Nil(t, listResp.NextCursor)
+	})
+
 	t.Run("uses default pagination when no params", func(t *testing.T) {
 		t.Parallel()
 

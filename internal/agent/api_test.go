@@ -355,6 +355,40 @@ func TestAPI_ListSessionsPaginated(t *testing.T) {
 		assert.True(t, ids["persisted-1"], "persisted session should be present")
 	})
 
+	t.Run("cursor pagination returns stable next page", func(t *testing.T) {
+		t.Parallel()
+
+		api, store := createAPIWithSessionStore(t, newStopProvider("hello"))
+		base := time.Date(2026, time.May, 8, 10, 0, 0, 0, time.UTC)
+
+		for i := range 5 {
+			require.NoError(t, store.CreateSession(context.Background(), &Session{
+				ID:        fmt.Sprintf("sess-%d", i+1),
+				UserID:    defaultUserID,
+				CreatedAt: base.Add(-time.Duration(i) * time.Minute),
+				UpdatedAt: base.Add(-time.Duration(i) * time.Minute),
+			}))
+		}
+
+		first, err := api.ListSessionsCursor(context.Background(), defaultUserID, "", 2)
+		require.NoError(t, err)
+		require.Len(t, first.Items, 2)
+		assert.Equal(t, []string{"sess-1", "sess-2"}, []string{
+			first.Items[0].Session.ID,
+			first.Items[1].Session.ID,
+		})
+		require.NotEmpty(t, first.NextCursor)
+
+		second, err := api.ListSessionsCursor(context.Background(), defaultUserID, first.NextCursor, 2)
+		require.NoError(t, err)
+		require.Len(t, second.Items, 2)
+		assert.Equal(t, []string{"sess-3", "sess-4"}, []string{
+			second.Items[0].Session.ID,
+			second.Items[1].Session.ID,
+		})
+		require.NotEmpty(t, second.NextCursor)
+	})
+
 	t.Run("excludes sub-sessions", func(t *testing.T) {
 		t.Parallel()
 

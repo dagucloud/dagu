@@ -6,11 +6,13 @@ package agent
 import (
 	"cmp"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -136,6 +138,17 @@ type SessionWithState struct {
 	HasPendingPrompt bool    `json:"has_pending_prompt"`
 	Model            string  `json:"model,omitempty"`
 	TotalCost        float64 `json:"total_cost"`
+}
+
+// SessionCursorResult is a forward-only page of sessions.
+type SessionCursorResult struct {
+	Items      []SessionWithState
+	NextCursor string
+}
+
+type sessionListCursor struct {
+	ID        string    `json:"id"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type sessionRuntimeConfig struct {
@@ -1559,6 +1572,7 @@ func (a *API) ListSessions(ctx context.Context, userID string) []SessionWithStat
 	activeIDs := make(map[string]struct{})
 	sessions := a.collectActiveSessions(userID, activeIDs)
 	sessions = a.appendPersistedSessions(ctx, userID, activeIDs, sessions)
+	sortSessionsNewestFirst(sessions)
 
 	if sessions == nil {
 		sessions = []SessionWithState{}
@@ -1567,7 +1581,7 @@ func (a *API) ListSessions(ctx context.Context, userID string) []SessionWithStat
 }
 
 // ListSessionsPaginated returns a paginated list of sessions for the given user.
-// Active sessions appear first, followed by persisted inactive sessions.
+// Sessions are ordered by last update time descending.
 func (a *API) ListSessionsPaginated(ctx context.Context, userID string, page, perPage int) exec.PaginatedResult[SessionWithState] {
 	pg := exec.NewPaginator(page, perPage)
 
@@ -1596,20 +1610,110 @@ func (a *API) ListSessionsPaginated(ctx context.Context, userID string, page, pe
 			}
 		}
 	}
+	sortSessionsNewestFirst(combined)
 
 	total := len(combined)
 	start := min(pg.Offset(), total)
 	end := min(pg.Offset()+pg.Limit(), total)
 	pageItems := combined[start:end]
 
+	a.loadVisibleStoredSessionCosts(ctx, activeIDs, pageItems)
+
+	return exec.NewPaginatedResult(pageItems, total, pg)
+}
+
+// ListSessionsCursor returns a forward-only page of sessions ordered by last
+// update time descending. The cursor is opaque and resumes after the last item
+// from the previous page.
+func (a *API) ListSessionsCursor(ctx context.Context, userID string, cursor string, perPage int) (SessionCursorResult, error) {
+	pg := exec.NewPaginator(1, perPage)
+
+	activeIDs := make(map[string]struct{})
+	sessions := a.collectActiveSessions(userID, activeIDs)
+	sessions = a.appendPersistedSessions(ctx, userID, activeIDs, sessions)
+	sortSessionsNewestFirst(sessions)
+
+	start := 0
+	if cursor != "" {
+		decoded, err := decodeSessionListCursor(cursor)
+		if err != nil {
+			return SessionCursorResult{}, err
+		}
+		start = len(sessions)
+		for i, sess := range sessions {
+			if sessionIsAfterCursor(sess.Session, decoded) {
+				start = i
+				break
+			}
+		}
+	}
+
+	end := min(start+pg.Limit(), len(sessions))
+	items := sessions[start:end]
+	a.loadVisibleStoredSessionCosts(ctx, activeIDs, items)
+
+	var nextCursor string
+	if end < len(sessions) && len(items) > 0 {
+		nextCursor = encodeSessionListCursor(items[len(items)-1].Session)
+	}
+
+	return SessionCursorResult{Items: items, NextCursor: nextCursor}, nil
+}
+
+func (a *API) loadVisibleStoredSessionCosts(ctx context.Context, activeIDs map[string]struct{}, pageItems []SessionWithState) {
 	// Load costs only for the visible page's inactive sessions.
 	for i := range pageItems {
 		if _, isActive := activeIDs[pageItems[i].Session.ID]; !isActive {
 			pageItems[i].TotalCost = a.getStoredSessionCost(ctx, pageItems[i].Session.ID)
 		}
 	}
+}
 
-	return exec.NewPaginatedResult(pageItems, total, pg)
+func sortSessionsNewestFirst(sessions []SessionWithState) {
+	sort.SliceStable(sessions, func(i, j int) bool {
+		left := sessions[i].Session
+		right := sessions[j].Session
+		if !left.UpdatedAt.Equal(right.UpdatedAt) {
+			return left.UpdatedAt.After(right.UpdatedAt)
+		}
+		return left.ID > right.ID
+	})
+}
+
+func sessionIsAfterCursor(sess Session, cursor sessionListCursor) bool {
+	if sess.UpdatedAt.Before(cursor.UpdatedAt) {
+		return true
+	}
+	if sess.UpdatedAt.Equal(cursor.UpdatedAt) && sess.ID < cursor.ID {
+		return true
+	}
+	return false
+}
+
+func encodeSessionListCursor(sess Session) string {
+	payload, err := json.Marshal(sessionListCursor{
+		ID:        sess.ID,
+		UpdatedAt: sess.UpdatedAt,
+	})
+	if err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(payload)
+}
+
+func decodeSessionListCursor(cursor string) (sessionListCursor, error) {
+	payload, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil {
+		return sessionListCursor{}, ErrInvalidSessionCursor
+	}
+	var decoded sessionListCursor
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		return sessionListCursor{}, ErrInvalidSessionCursor
+	}
+	if decoded.ID == "" || decoded.UpdatedAt.IsZero() {
+		return sessionListCursor{}, ErrInvalidSessionCursor
+	}
+	return decoded, nil
 }
 
 // GetSessionDetail returns session details including messages and state.

@@ -7,7 +7,10 @@ import {
   useState,
 } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { components } from '@/api/v1/schema';
+import {
+  components,
+  ComponentsParametersAgentSessionPaginationMode,
+} from '@/api/v1/schema';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useUserPreferences } from '@/contexts/UserPreference';
 import { AppBarContext } from '@/contexts/AppBarContext';
@@ -209,6 +212,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
     sessions,
     hasMoreSessions,
     sessionPage,
+    sessionCursor,
     setSessionId,
     setMessages,
     setSessionState,
@@ -216,6 +220,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
     appendSessions,
     setHasMoreSessions,
     setSessionPage,
+    setSessionCursor,
     setPendingUserMessage,
     clearSession,
   } = useAgentChatContext();
@@ -323,6 +328,46 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
     consumeNavigateUIActions(sessionId, messages);
   }, [consumeNavigateUIActions, messages, sessionId]);
 
+  const updateSessionListEntry = useCallback(
+    (snapshot: StreamResponse) => {
+      const targetId = snapshot.session?.id ?? snapshot.session_state?.session_id;
+      if (!targetId || (!snapshot.session && !snapshot.session_state)) {
+        return;
+      }
+
+      setSessions((current) => {
+        let found = false;
+        const next = current.map((item) => {
+          if (item.session.id !== targetId) {
+            return item;
+          }
+
+          found = true;
+          const nextSession = snapshot.session
+            ? { ...item.session, ...snapshot.session }
+            : item.session;
+          const nextState = snapshot.session_state
+            ? {
+                working: snapshot.session_state.working,
+                has_pending_prompt: snapshot.session_state.has_pending_prompt,
+                model: snapshot.session_state.model ?? item.model,
+                total_cost: snapshot.session_state.total_cost ?? item.total_cost,
+              }
+            : {};
+
+          return {
+            ...item,
+            session: nextSession,
+            ...nextState,
+          };
+        });
+
+        return found ? next : current;
+      });
+    },
+    [setSessions]
+  );
+
   const applySessionSnapshot = useCallback(
     (snapshot: StreamResponse) => {
       const nextMessages = snapshot.messages || [];
@@ -338,6 +383,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
         setOptimisticWorking(false);
         setSessionState(snapshot.session_state);
       }
+      updateSessionListEntry(snapshot);
 
       const nextDelegates = snapshot.delegates || [];
       if (delegateCatalogHydratedRef.current) {
@@ -355,6 +401,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
       setPendingUserMessage,
       setMessages,
       setSessionState,
+      updateSessionListEntry,
       reconcileDelegateSnapshots,
     ]
   );
@@ -385,6 +432,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
         setOptimisticWorking(false);
         setSessionState(event.session_state);
       }
+      updateSessionListEntry(event);
 
       if (event.delegates) {
         if (delegateCatalogHydratedRef.current) {
@@ -421,6 +469,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
       setPendingUserMessage,
       setMessages,
       setSessionState,
+      updateSessionListEntry,
       reconcileDelegateSnapshots,
       handleDelegateEvent,
       handleDelegateMessages,
@@ -539,46 +588,59 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
   ]);
 
   const fetchSessionsPage = useCallback(
-    async (page: number): Promise<void> => {
+    async (cursor: string | null): Promise<void> => {
       try {
         const { data, error: apiError } = await client.GET('/agent/sessions', {
-          params: { query: { remoteNode, page, perPage: 30 } },
+          params: {
+            query: {
+              remoteNode,
+              paginationMode:
+                ComponentsParametersAgentSessionPaginationMode.cursor,
+              perPage: 30,
+              ...(cursor ? { cursor } : {}),
+            },
+          },
         });
         if (apiError)
           throw new Error(apiError.message || 'Failed to fetch sessions');
         if (!data) return;
 
         const converted = convertApiSessions(data.sessions);
-        if (page === 1) {
+        if (!cursor) {
           setSessions(converted);
+          setSessionPage(1);
         } else {
           appendSessions(converted);
+          setSessionPage(sessionPage + 1);
         }
-        setHasMoreSessions(
-          data.pagination.currentPage < data.pagination.totalPages
-        );
-        setSessionPage(page);
+        setSessionCursor(data.nextCursor ?? null);
+        setHasMoreSessions(Boolean(data.nextCursor));
       } catch (err) {
         setError(
           err instanceof Error ? err.message : 'Failed to fetch sessions'
         );
-        if (page === 1) setSessions([]);
+        if (!cursor) {
+          setSessions([]);
+          setSessionCursor(null);
+        }
       }
     },
     [
       client,
       remoteNode,
+      sessionPage,
       setSessions,
       appendSessions,
       setHasMoreSessions,
       setSessionPage,
+      setSessionCursor,
     ]
   );
 
   const loadMoreSessions = useCallback(async (): Promise<void> => {
-    if (!hasMoreSessions) return;
-    await fetchSessionsPage(sessionPage + 1);
-  }, [fetchSessionsPage, sessionPage, hasMoreSessions]);
+    if (!hasMoreSessions || !sessionCursor) return;
+    await fetchSessionsPage(sessionCursor);
+  }, [fetchSessionsPage, sessionCursor, hasMoreSessions]);
 
   const startSession = useCallback(
     async (
@@ -601,7 +663,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
         throw new Error(apiError.message || 'Failed to create session');
       allowInitialUIActionsRef.current = new Set([data.sessionId]);
       setSessionId(data.sessionId);
-      await fetchSessionsPage(1);
+      await fetchSessionsPage(null);
       return data.sessionId;
     },
     [client, remoteNode, setSessionId, fetchSessionsPage, preferences.safeMode]
@@ -709,7 +771,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
   );
 
   const fetchSessions = useCallback(async (): Promise<void> => {
-    await fetchSessionsPage(1);
+    await fetchSessionsPage(null);
   }, [fetchSessionsPage]);
 
   const selectSession = useCallback(
