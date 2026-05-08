@@ -307,13 +307,15 @@ func TestBot_HandleMessage_BatchesRapidMessagesIntoSingleCreate(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	api := &fakeTelegramAPI{}
 	service := newFakeTelegramAgentService("ignored")
+	var flushes []func()
 	bot := &Bot{
-		cfg:           Config{SafeMode: true},
-		agentAPI:      service,
-		botAPI:        api,
-		allowedChats:  map[int64]struct{}{123: {}},
-		logger:        logger,
-		incomingDelay: 10 * time.Millisecond,
+		cfg:               Config{SafeMode: true},
+		agentAPI:          service,
+		botAPI:            api,
+		allowedChats:      map[int64]struct{}{123: {}},
+		logger:            logger,
+		incomingDelay:     time.Hour,
+		incomingAfterFunc: func(_ time.Duration, f func()) { flushes = append(flushes, f) },
 	}
 
 	first := &tgbotapi.Message{Text: "first", Chat: &tgbotapi.Chat{ID: 123}}
@@ -323,11 +325,10 @@ func TestBot_HandleMessage_BatchesRapidMessagesIntoSingleCreate(t *testing.T) {
 	bot.handleMessage(context.Background(), second)
 	assert.Equal(t, 1, api.typingCount(), "batched messages should reuse the current typing loop")
 
-	require.Eventually(t, func() bool {
-		service.mu.Lock()
-		defer service.mu.Unlock()
-		return len(service.createMessages) == 1
-	}, time.Second, 10*time.Millisecond)
+	require.Len(t, flushes, 2)
+	for _, flush := range flushes {
+		flush()
+	}
 
 	service.mu.Lock()
 	defer service.mu.Unlock()

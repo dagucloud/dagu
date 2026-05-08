@@ -21,6 +21,11 @@ import (
 
 const queuedChatMessageSeparator = "\n\n"
 
+type queuedChatMessage struct {
+	displayContent string
+	llmContent     string
+}
+
 // SessionManager manages a single active session.
 // It links the Loop with SSE streaming and handles state management.
 // Lock ordering: mu must be acquired before promptsMu when both are needed.
@@ -36,7 +41,7 @@ type SessionManager struct {
 	lastHeartbeat         time.Time
 	model                 string
 	messages              []Message
-	queuedChatMessages    []string
+	queuedChatMessages    []queuedChatMessage
 	flushingQueuedChat    bool
 	subpub                *SubPub[StreamResponse]
 	working               bool
@@ -600,9 +605,9 @@ func (sm *SessionManager) RecordExternalMessage(ctx context.Context, msg Message
 	return msg, nil
 }
 
-func (sm *SessionManager) enqueueImmediateUserMessage(ctx context.Context, content string) error {
-	llmMsg := llm.Message{Role: llm.RoleUser, Content: content}
-	sm.recordAndPublishUserMessage(ctx, content, &llmMsg)
+func (sm *SessionManager) enqueueImmediateUserMessage(ctx context.Context, displayContent, llmContent string) error {
+	llmMsg := llm.Message{Role: llm.RoleUser, Content: llmContent}
+	sm.recordAndPublishUserMessage(ctx, displayContent, &llmMsg)
 
 	// Cancel any pending general prompts so the loop unblocks from WaitUserResponse.
 	sm.CancelPendingPrompts()
@@ -647,6 +652,10 @@ func (sm *SessionManager) enqueueInternalUserMessage(provider llm.Provider, mode
 // working, the text is merged into a single queued follow-up and marked as a
 // safe-boundary interrupt instead of immediately entering LLM history.
 func (sm *SessionManager) EnqueueChatMessage(ctx context.Context, provider llm.Provider, modelID string, resolvedModel string, content string) (bool, error) {
+	return sm.EnqueueChatMessageWithLLMContent(ctx, provider, modelID, resolvedModel, content, content)
+}
+
+func (sm *SessionManager) EnqueueChatMessageWithLLMContent(ctx context.Context, provider llm.Provider, modelID string, resolvedModel string, displayContent string, llmContent string) (bool, error) {
 	if provider == nil {
 		return false, errors.New("LLM provider is required")
 	}
@@ -656,15 +665,18 @@ func (sm *SessionManager) EnqueueChatMessage(ctx context.Context, provider llm.P
 	}
 
 	// If a general prompt is pending, route text as the prompt response.
-	if _, routed := sm.tryRouteToGeneralPrompt(content); routed {
-		sm.recordAndPublishUserMessage(ctx, content, nil)
+	if _, routed := sm.tryRouteToGeneralPrompt(displayContent); routed {
+		sm.recordAndPublishUserMessage(ctx, displayContent, nil)
 		return false, nil
 	}
 
 	sm.mu.Lock()
 	shouldQueue := sm.working || sm.hasQueuedChatInputLocked()
 	if shouldQueue {
-		sm.queuedChatMessages = append(sm.queuedChatMessages, content)
+		sm.queuedChatMessages = append(sm.queuedChatMessages, queuedChatMessage{
+			displayContent: displayContent,
+			llmContent:     llmContent,
+		})
 		sm.bumpLastActivityLocked(time.Now())
 	}
 	loop := sm.loop
@@ -680,7 +692,7 @@ func (sm *SessionManager) EnqueueChatMessage(ctx context.Context, provider llm.P
 		return true, nil
 	}
 
-	return false, sm.enqueueImmediateUserMessage(ctx, content)
+	return false, sm.enqueueImmediateUserMessage(ctx, displayContent, llmContent)
 }
 
 // AcceptUserMessage enqueues a user message, ensuring the loop is ready first.
@@ -688,6 +700,10 @@ func (sm *SessionManager) EnqueueChatMessage(ctx context.Context, provider llm.P
 // prompt response instead of starting a new LLM turn. This lets users answer
 // ask_user prompts by typing in the main chat input.
 func (sm *SessionManager) AcceptUserMessage(ctx context.Context, provider llm.Provider, modelID string, resolvedModel string, content string) error {
+	return sm.AcceptUserMessageWithLLMContent(ctx, provider, modelID, resolvedModel, content, content)
+}
+
+func (sm *SessionManager) AcceptUserMessageWithLLMContent(ctx context.Context, provider llm.Provider, modelID string, resolvedModel string, displayContent string, llmContent string) error {
 	if provider == nil {
 		return errors.New("LLM provider is required")
 	}
@@ -697,40 +713,51 @@ func (sm *SessionManager) AcceptUserMessage(ctx context.Context, provider llm.Pr
 	}
 
 	// If a general prompt is pending, route text as the prompt response.
-	if _, routed := sm.tryRouteToGeneralPrompt(content); routed {
+	if _, routed := sm.tryRouteToGeneralPrompt(displayContent); routed {
 		// Record for UI display only (LLMData=nil excludes from LLM history
 		// on session restore — the tool_result carries the response content).
-		sm.recordAndPublishUserMessage(ctx, content, nil)
+		sm.recordAndPublishUserMessage(ctx, displayContent, nil)
 		return nil
 	}
 
-	return sm.enqueueImmediateUserMessage(ctx, content)
+	return sm.enqueueImmediateUserMessage(ctx, displayContent, llmContent)
 }
 
 // BeginQueuedChatFlush drains the current merged chat buffer and marks a flush
 // as in progress so concurrent enqueues continue merging instead of racing a new turn.
-func (sm *SessionManager) BeginQueuedChatFlush() (string, bool) {
+func (sm *SessionManager) BeginQueuedChatFlush() (string, string, bool) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	if sm.flushingQueuedChat || len(sm.queuedChatMessages) == 0 {
-		return "", false
+		return "", "", false
 	}
 	sm.flushingQueuedChat = true
-	text := strings.Join(append([]string(nil), sm.queuedChatMessages...), queuedChatMessageSeparator)
+	displayParts := make([]string, 0, len(sm.queuedChatMessages))
+	llmParts := make([]string, 0, len(sm.queuedChatMessages))
+	for _, msg := range sm.queuedChatMessages {
+		displayParts = append(displayParts, msg.displayContent)
+		llmParts = append(llmParts, msg.llmContent)
+	}
+	displayText := strings.Join(displayParts, queuedChatMessageSeparator)
+	llmText := strings.Join(llmParts, queuedChatMessageSeparator)
 	sm.queuedChatMessages = nil
-	return text, true
+	return displayText, llmText, true
 }
 
 // RestoreQueuedChatInput restores a drained merged chat buffer after a failed flush.
-func (sm *SessionManager) RestoreQueuedChatInput(text string) {
-	if text == "" {
+func (sm *SessionManager) RestoreQueuedChatInput(displayContent, llmContent string) {
+	if displayContent == "" && llmContent == "" {
 		sm.CompleteQueuedChatFlush()
 		return
 	}
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.flushingQueuedChat = false
-	sm.queuedChatMessages = append([]string{text}, sm.queuedChatMessages...)
+	restored := queuedChatMessage{
+		displayContent: displayContent,
+		llmContent:     llmContent,
+	}
+	sm.queuedChatMessages = append([]queuedChatMessage{restored}, sm.queuedChatMessages...)
 	sm.bumpLastActivityLocked(time.Now())
 }
 
@@ -880,10 +907,11 @@ func (sm *SessionManager) createLoop(provider llm.Provider, model string, histor
 		RecordMessage: sm.createRecordMessageFunc(),
 		Logger:        sm.logger,
 		SystemPrompt: GenerateSystemPrompt(SystemPromptParams{
-			Env:    sm.environment,
-			Memory: memory,
-			Role:   sm.user.Role,
-			Soul:   sm.soul,
+			Env:             sm.environment,
+			Memory:          memory,
+			Role:            sm.user.Role,
+			WorkspaceAccess: sm.user.WorkspaceAccess,
+			Soul:            sm.soul,
 		}),
 		WorkingDir:       sm.workingDir,
 		SessionID:        sm.id,

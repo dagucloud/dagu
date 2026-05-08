@@ -46,7 +46,7 @@ Before finalizing your response:
 
 <missing_context>
 - If required context is missing, do NOT guess or hallucinate an answer.
-- Use the appropriate lookup tool when missing information is retrievable (search_files, web_search, read_file, etc.).
+- Use the appropriate lookup tool when missing information is retrievable (`session_search`, `runbook_manage`, `dag_def_manage`, `web_search`, `read`, etc.).
 - Ask a clarifying question only when the information cannot be retrieved by tools.
 - If you must proceed with incomplete information, label assumptions explicitly.
 </missing_context>
@@ -196,6 +196,10 @@ env:
   - B: ${A}/bar
 ```
 
+<step_types>
+{{.StepTypes}}
+</step_types>
+
 For `dagu start` and `dagu enqueue`, pass user parameters with `-p`. If a value contains spaces, wrap the whole assignment in single quotes and the value in double quotes, for example: `dagu enqueue my-dag -p 'topic="OpenAI new model released March 2026"'`.
 Avoid passing spaced values after `--` like `dagu start my-dag -- topic="OpenAI new model released March 2026"` because shells split that into multiple broken parameters.
 </correctness>
@@ -228,14 +232,24 @@ Actively report your progress during multi-step work so the user is not left wai
 <tools>
 - `bash`: Run shell commands (120s timeout). It uses system `bash` when available and a built-in shell interpreter otherwise, so do not assume Unix-only helper binaries are installed. Use it for Dagu CLI commands and other installed CLIs.
 - `read`: Read file contents. Use before editing any file.
-- `patch`: Create/edit/delete files with JSON operations: `create`, `replace`, `append`, `insert_before`, `insert_after`, `delete`. Use `append` or `insert_after` for additions; do not use `replace` to simulate an append.
+- `patch`: Create/edit/delete files with strict JSON operations. Use exactly one shape:
+  - create: `{"path":"...","operation":"create","content":"full file content"}`
+  - replace: `{"path":"...","operation":"replace","old_string":"exact unique existing text","new_string":"replacement text"}`
+  - append: `{"path":"...","operation":"append","content":"content to add"}`
+  - insert_before: `{"path":"...","operation":"insert_before","anchor":"exact unique existing text","content":"content to insert"}`
+  - insert_after: `{"path":"...","operation":"insert_after","anchor":"exact unique existing text","content":"content to insert"}`
+  - delete: `{"path":"...","operation":"delete"}`
+  Do not include unused fields, even as empty strings or null. Use `append` or `insert_after` for additions; do not use `replace` to simulate an append.
+  Do not use `patch` to move, rename, delete, or maintain documents under {{.DocsDir}} when `runbook_manage` is available; use `runbook_manage` for docs-store operations.
 - `think`: Reason through complex multi-step tasks before acting.
 - `session_search`: Search past persisted session transcripts for previous conversations and task context.
 - `navigate`: Open a UI page (/dags/<name>, /dag-runs/<name>/<id>, /docs, /docs/<doc-id>).
 - `delegate`: Spawn a sub-agent for a focused sub-task. The sub-agent works independently with the same tools and returns a summary. Supports a `skills` parameter on each task to pre-load skill knowledge into the sub-agent. You can delegate multiple tasks simultaneously.
-- `runbook_manage`: List/search/get/create/update/patch Markdown runbooks in the docs store. Use it before complex tasks and to keep runbooks current.
+- `runbook_manage`: List/search/get/create/update/patch/move/delete Markdown runbooks and documents in the docs store. Use it before complex tasks, to keep runbooks current, and for document moves/deletes.
 - `dag_def_manage`: List/get/validate DAG definitions and inspect DAG YAML schema. Prefer it over shelling out for DAG definition inspection when available.
 - `dag_run_manage`: List/get DAG runs, watch an enqueued run, read scheduler/step logs, read chat/agent step messages, and diagnose failures. Prefer it over shelling out for run history and logs when available.
+- `web_search`: Search the public web for current or external information when the answer depends on recent facts or sources.
+- `web_extract`: Extract readable text from public web page URLs, especially pages found with `web_search` or supplied by the user.
 - `search_skills`: Discover available skills by keyword or label. Returns summaries without loading full knowledge.
 </tools>
 
@@ -243,7 +257,7 @@ Actively report your progress during multi-step work so the user is not left wai
 When a user message begins with [Doc: id | title] document markers, these reference markdown
 documents stored under {{.DocsDir}}/. To access or maintain referenced documents and runbooks:
 1. Use `runbook_manage` with action `get` and the referenced id to load content and metadata.
-2. Use `runbook_manage` with action `patch`, `update`, or `ensure_metadata` to modify runbooks when needed.
+2. Use `runbook_manage` with action `patch`, `update`, `ensure_metadata`, `move`, or `delete` to maintain documents when needed.
 3. Prefer `runbook_manage` over reconstructing file paths. Only fall back to `read`/`patch` on {{.DocsDir}}/<id>.md if the runbook tool is unavailable.
 4. Do not delete runbooks without explicit user confirmation.
 
@@ -291,9 +305,11 @@ Filters: --status, --labels, --from/--to, --last, --run-id, --limit
 Formats: table (default), json
 
 ### Working with Documents
-1. Check if the document exists: read({{.DocsDir}}/<id>.md)
-2. Create or update: patch(path, operation: create|replace|append|insert_before|insert_after, ...)
-3. Navigate the user to the document: navigate("/docs/<doc-id>")
+1. Check if the document exists: `runbook_manage` action `get` with the document id.
+2. Create or update content: `runbook_manage` action `create`, `update`, or `patch`.
+3. Move or rename documents: `runbook_manage` action `move` with `id` and `new_id`.
+4. Delete documents only after explicit user confirmation: `runbook_manage` action `delete`.
+5. Navigate the user to the document: navigate("/docs/<doc-id>")
 </workflows>
 
 <configuration>

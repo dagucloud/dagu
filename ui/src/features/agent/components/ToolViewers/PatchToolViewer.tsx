@@ -35,7 +35,7 @@ export function PatchToolViewer({ args, toolName, toolResult }: ToolViewerProps)
   const status = patchStatus(toolResult);
 
   // Replace operation with old_string and new_string - use existing JsonPatchViewer
-  if (old_string !== undefined && new_string !== undefined) {
+  if (operation === 'replace' && old_string !== undefined && new_string !== undefined) {
     return <JsonPatchViewer patch={{ path, old_string, new_string }} status={status} />;
   }
 

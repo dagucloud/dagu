@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -126,6 +127,21 @@ func UnregisterExecutorTypeName(name string) {
 	}
 	delete(registeredExecutorTypeNames, name)
 	delete(builtinStepTypeNames, name)
+}
+
+// StepTypeNames returns the currently accepted builtin and runtime-registered
+// executor type names in sorted order. It excludes the implicit empty command
+// executor type; callers should mention omitted type handling separately.
+func StepTypeNames() []string {
+	stepTypeNamesMu.RLock()
+	defer stepTypeNamesMu.RUnlock()
+
+	names := make([]string, 0, len(builtinStepTypeNames))
+	for name := range builtinStepTypeNames {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 var customStepForbiddenCallSiteFields = map[string]struct{}{

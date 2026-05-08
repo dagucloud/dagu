@@ -90,6 +90,42 @@ func TestPatchTool_Create(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "new content", string(content))
 	})
+
+	t.Run("rejects unused operation-specific fields even when empty", func(t *testing.T) {
+		t.Parallel()
+
+		filePath := filepath.Join(t.TempDir(), "new.txt")
+		result := tool.Run(ToolContext{}, patchInput(
+			filePath,
+			"create",
+			"content", "hello world",
+			"old_string", "",
+			"new_string", "",
+			"anchor", "",
+		))
+
+		assert.True(t, result.IsError)
+		assert.Contains(t, result.Content, "old_string is not allowed")
+		_, err := os.Stat(filePath)
+		assert.True(t, os.IsNotExist(err))
+	})
+
+	t.Run("rejects meaningful operation-specific fields", func(t *testing.T) {
+		t.Parallel()
+
+		filePath := filepath.Join(t.TempDir(), "new.txt")
+		result := tool.Run(ToolContext{}, patchInput(
+			filePath,
+			"create",
+			"content", "hello world",
+			"old_string", "old",
+		))
+
+		assert.True(t, result.IsError)
+		assert.Contains(t, result.Content, "old_string is not allowed")
+		_, err := os.Stat(filePath)
+		assert.True(t, os.IsNotExist(err))
+	})
 }
 
 func TestPatchTool_Replace(t *testing.T) {
@@ -157,6 +193,47 @@ func TestPatchTool_Replace(t *testing.T) {
 		assert.Contains(t, result.Content, "required")
 	})
 
+	t.Run("errors when old_string is whitespace", func(t *testing.T) {
+		t.Parallel()
+
+		filePath := filepath.Join(t.TempDir(), "test.txt")
+		require.NoError(t, os.WriteFile(filePath, []byte("content"), 0o600))
+
+		result := tool.Run(ToolContext{}, patchInput(filePath, "replace", "old_string", " \t\n", "new_string", "b"))
+
+		assert.True(t, result.IsError)
+		assert.Contains(t, result.Content, "old_string is required for replace operation")
+	})
+
+	t.Run("errors when new_string is missing", func(t *testing.T) {
+		t.Parallel()
+
+		filePath := filepath.Join(t.TempDir(), "test.txt")
+		require.NoError(t, os.WriteFile(filePath, []byte("hello world"), 0o600))
+
+		result := tool.Run(ToolContext{}, patchInput(filePath, "replace", "old_string", "world"))
+
+		assert.True(t, result.IsError)
+		assert.Contains(t, result.Content, "new_string is required")
+		content, err := os.ReadFile(filePath)
+		require.NoError(t, err)
+		assert.Equal(t, "hello world", string(content))
+	})
+
+	t.Run("allows explicit empty new_string", func(t *testing.T) {
+		t.Parallel()
+
+		filePath := filepath.Join(t.TempDir(), "test.txt")
+		require.NoError(t, os.WriteFile(filePath, []byte("hello world"), 0o600))
+
+		result := tool.Run(ToolContext{}, patchInput(filePath, "replace", "old_string", " world", "new_string", ""))
+
+		assert.False(t, result.IsError, result.Content)
+		content, err := os.ReadFile(filePath)
+		require.NoError(t, err)
+		assert.Equal(t, "hello", string(content))
+	})
+
 	t.Run("preserves existing file mode", func(t *testing.T) {
 		t.Parallel()
 		skipIfWindowsFileMode(t)
@@ -187,7 +264,7 @@ func TestPatchTool_Replace(t *testing.T) {
 		assert.Equal(t, "hello world", string(content))
 	})
 
-	t.Run("allows forbidden fields with null values", func(t *testing.T) {
+	t.Run("rejects unused fields with null values", func(t *testing.T) {
 		t.Parallel()
 
 		filePath := filepath.Join(t.TempDir(), "test.txt")
@@ -198,10 +275,33 @@ func TestPatchTool_Replace(t *testing.T) {
 			filePath,
 		)))
 
-		assert.False(t, result.IsError, result.Content)
+		assert.True(t, result.IsError)
+		assert.Contains(t, result.Content, "content is not allowed")
 		content, err := os.ReadFile(filePath)
 		require.NoError(t, err)
-		assert.Equal(t, "hello universe", string(content))
+		assert.Equal(t, "hello world", string(content))
+	})
+
+	t.Run("rejects unused fields with empty string values", func(t *testing.T) {
+		t.Parallel()
+
+		filePath := filepath.Join(t.TempDir(), "test.txt")
+		require.NoError(t, os.WriteFile(filePath, []byte("hello world"), 0o600))
+
+		result := tool.Run(ToolContext{}, patchInput(
+			filePath,
+			"replace",
+			"old_string", "world",
+			"new_string", "universe",
+			"content", "",
+			"anchor", "",
+		))
+
+		assert.True(t, result.IsError)
+		assert.Contains(t, result.Content, "content is not allowed")
+		content, err := os.ReadFile(filePath)
+		require.NoError(t, err)
+		assert.Equal(t, "hello world", string(content))
 	})
 }
 
@@ -348,6 +448,28 @@ func TestPatchTool_Insert(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "one\n", string(content))
 	})
+
+	t.Run("rejects unused replace fields even when empty", func(t *testing.T) {
+		t.Parallel()
+
+		filePath := filepath.Join(t.TempDir(), "test.txt")
+		require.NoError(t, os.WriteFile(filePath, []byte("one\n"), 0o600))
+
+		result := tool.Run(ToolContext{}, patchInput(
+			filePath,
+			"insert_after",
+			"anchor", "one\n",
+			"content", "two\n",
+			"old_string", "",
+			"new_string", "",
+		))
+
+		assert.True(t, result.IsError)
+		assert.Contains(t, result.Content, "old_string is not allowed")
+		content, err := os.ReadFile(filePath)
+		require.NoError(t, err)
+		assert.Equal(t, "one\n", string(content))
+	})
 }
 
 func TestPatchTool_FailedEditsDoNotWrite(t *testing.T) {
@@ -466,13 +588,35 @@ func TestPatchTool_Delete(t *testing.T) {
 		assert.Contains(t, result.Content, "not found")
 	})
 
-	t.Run("rejects forbidden field even when empty", func(t *testing.T) {
+	t.Run("rejects unused fields even when empty", func(t *testing.T) {
 		t.Parallel()
 
 		filePath := filepath.Join(t.TempDir(), "delete-me.txt")
 		require.NoError(t, os.WriteFile(filePath, []byte("content"), 0o600))
 
-		result := tool.Run(ToolContext{}, patchInput(filePath, "delete", "content", ""))
+		result := tool.Run(ToolContext{}, patchInput(
+			filePath,
+			"delete",
+			"content", "",
+			"old_string", "",
+			"new_string", "",
+			"anchor", "",
+		))
+
+		assert.True(t, result.IsError)
+		assert.Contains(t, result.Content, "content is not allowed")
+		content, err := os.ReadFile(filePath)
+		require.NoError(t, err)
+		assert.Equal(t, "content", string(content))
+	})
+
+	t.Run("rejects meaningful forbidden field", func(t *testing.T) {
+		t.Parallel()
+
+		filePath := filepath.Join(t.TempDir(), "delete-me.txt")
+		require.NoError(t, os.WriteFile(filePath, []byte("content"), 0o600))
+
+		result := tool.Run(ToolContext{}, patchInput(filePath, "delete", "content", "extra"))
 
 		assert.True(t, result.IsError)
 		assert.Contains(t, result.Content, "content is not allowed")
@@ -544,6 +688,32 @@ func TestPatchTool_Permissions(t *testing.T) {
 	result := tool.Run(ToolContext{Role: auth.RoleOperator}, input)
 	assert.True(t, result.IsError)
 	assert.Contains(t, result.Content, "requires write permission")
+}
+
+func TestPatchTool_SchemaUsesProviderCompatibleObject(t *testing.T) {
+	t.Parallel()
+
+	params := NewPatchTool("").Function.Parameters
+	assert.Equal(t, "object", params["type"])
+	assert.NotContains(t, params, "oneOf")
+	assert.NotContains(t, params, "anyOf")
+	assert.NotContains(t, params, "allOf")
+	assert.NotContains(t, params, "not")
+	assert.NotContains(t, params, "additionalProperties")
+	assert.Equal(t, []string{"path", "operation"}, params["required"])
+
+	props, ok := params["properties"].(map[string]any)
+	require.True(t, ok)
+	assert.Contains(t, props, "path")
+	assert.Contains(t, props, "operation")
+	assert.Contains(t, props, "content")
+	assert.Contains(t, props, "old_string")
+	assert.Contains(t, props, "new_string")
+	assert.Contains(t, props, "anchor")
+
+	operation, ok := props["operation"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, []string{"create", "replace", "append", "insert_before", "insert_after", "delete"}, operation["enum"])
 }
 
 func TestCountLines(t *testing.T) {

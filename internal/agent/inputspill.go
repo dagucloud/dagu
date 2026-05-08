@@ -30,14 +30,41 @@ type chatInputSpillFile struct {
 }
 
 func (a *API) prepareChatContent(ctx context.Context, sessionID string, req ChatRequest) (string, error) {
+	_, llmContent, err := a.prepareChatDisplayAndLLMContent(ctx, sessionID, req)
+	return llmContent, err
+}
+
+func (a *API) prepareChatDisplayAndLLMContent(ctx context.Context, sessionID string, req ChatRequest) (string, string, error) {
 	if req.Message == "" {
-		return "", ErrMessageRequired
+		return "", "", ErrMessageRequired
 	}
 	message, err := a.materializeChatInput(sessionID, req.Message)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	return a.formatMessage(ctx, message, req.DAGContexts), nil
+	return message, a.formatMessage(ctx, message, req.DAGContexts), nil
+}
+
+func (a *API) prepareQueuedChatDisplayAndLLMContent(ctx context.Context, req ChatRequest) (string, string, error) {
+	if req.Message == "" {
+		return "", "", ErrMessageRequired
+	}
+	return req.Message, a.formatMessage(ctx, req.Message, req.DAGContexts), nil
+}
+
+func (a *API) materializeQueuedChatDisplayAndLLMContent(sessionID, displayContent, llmContent string) (string, string, error) {
+	displayMessage, err := a.materializeChatInput(sessionID, displayContent)
+	if err != nil {
+		return "", "", err
+	}
+	if displayContent == llmContent {
+		return displayMessage, displayMessage, nil
+	}
+	messageWithContext, err := a.materializeChatInput(sessionID, llmContent)
+	if err != nil {
+		return "", "", err
+	}
+	return displayMessage, messageWithContext, nil
 }
 
 func (a *API) materializeChatInput(sessionID, raw string) (string, error) {

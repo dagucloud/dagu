@@ -480,6 +480,13 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
 		srv.sseMultiplexer.WakeTopic(sse.TopicTypeDAG, fileName)
 	}))
+	apiOpts = append(apiOpts, apiv1.WithDocMutationNotifier(func() {
+		if srv.sseMultiplexer == nil {
+			return
+		}
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDocTree)
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDoc)
+	}))
 
 	// Pass license manager to API
 	if srv.licenseManager != nil {
@@ -1198,6 +1205,12 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 	registrar.RegisterFetcher(sse.TopicTypeDAGsList, srv.apiV1.GetDAGsListData)
 	registrar.RegisterFetcher(sse.TopicTypeDoc, srv.apiV1.GetDocContentData)
 	registrar.RegisterFetcher(sse.TopicTypeDocTree, srv.apiV1.GetDocTreeData)
+
+	// Document topics are invalidated by API doc mutations. They should not
+	// keep polling the docs store while an SSE connection is open.
+	registrar.SetRefreshMode(sse.TopicTypeDoc, sse.TopicRefreshModeOnDemand)
+	registrar.SetRefreshMode(sse.TopicTypeDocTree, sse.TopicRefreshModeOnDemand)
+	registrar.SetPublishOnWake(sse.TopicTypeDocTree, true)
 
 	// Run-driven topics have an event-store invalidation path. Keeping them on
 	// demand avoids repeated full-list and history reads while browsers are

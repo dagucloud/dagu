@@ -28,6 +28,8 @@ type mockRunbookDocStore struct {
 	getErr                 error
 	createErr              error
 	updateErr              error
+	deleteErr              error
+	renameErr              error
 	searchErr              error
 	ignoreExcludePathRoots bool
 	listContextNil         bool
@@ -105,6 +107,9 @@ func (s *mockRunbookDocStore) Update(_ context.Context, id, content string) erro
 }
 
 func (s *mockRunbookDocStore) Delete(_ context.Context, id string) error {
+	if s.deleteErr != nil {
+		return s.deleteErr
+	}
 	if _, ok := s.docs[id]; !ok {
 		return ErrDocNotFound
 	}
@@ -116,7 +121,23 @@ func (s *mockRunbookDocStore) DeleteBatch(context.Context, []string) ([]string, 
 	return nil, nil, nil
 }
 
-func (s *mockRunbookDocStore) Rename(context.Context, string, string) error { return nil }
+func (s *mockRunbookDocStore) Rename(_ context.Context, oldID, newID string) error {
+	if s.renameErr != nil {
+		return s.renameErr
+	}
+	doc, ok := s.docs[oldID]
+	if !ok {
+		return ErrDocNotFound
+	}
+	if _, ok := s.docs[newID]; ok {
+		return ErrDocAlreadyExists
+	}
+	docCopy := *doc
+	docCopy.ID = newID
+	s.docs[newID] = &docCopy
+	delete(s.docs, oldID)
+	return nil
+}
 
 func (s *mockRunbookDocStore) Search(_ context.Context, query string) ([]*DocSearchResult, error) {
 	if s.searchErr != nil {
@@ -261,6 +282,34 @@ func TestRunbookManageTool_CreatePatchEnsureMetadata(t *testing.T) {
 	assert.Equal(t, true, ensure["updated"])
 	assert.Contains(t, store.docs["runbooks/plain"].Content, "title: Plain")
 	assert.Contains(t, store.docs["runbooks/plain"].Content, "# Plain")
+}
+
+func TestRunbookManageTool_MoveDelete(t *testing.T) {
+	t.Parallel()
+	store := newMockRunbookDocStore()
+	store.docs["runbooks/plain"] = &Doc{ID: "runbooks/plain", Title: "Plain", Content: "# Plain\n"}
+	tool := NewRunbookManageTool(store)
+	ctx := ToolContext{Context: context.Background(), Role: auth.RoleAdmin}
+
+	move := decodeRunbookOutput(t, tool.Run(ctx, runbookInput(t, map[string]any{
+		"action": "move",
+		"id":     "runbooks/plain",
+		"new_id": "notes/plain",
+	})))
+	assert.Equal(t, "moved", move["action"])
+	assert.Equal(t, "runbooks/plain", move["old_id"])
+	assert.Equal(t, "notes/plain", move["id"])
+	assert.NotContains(t, store.docs, "runbooks/plain")
+	require.Contains(t, store.docs, "notes/plain")
+	assert.Equal(t, "# Plain\n", store.docs["notes/plain"].Content)
+
+	del := decodeRunbookOutput(t, tool.Run(ctx, runbookInput(t, map[string]any{
+		"action": "delete",
+		"id":     "notes/plain",
+	})))
+	assert.Equal(t, "deleted", del["action"])
+	assert.Equal(t, "notes/plain", del["id"])
+	assert.NotContains(t, store.docs, "notes/plain")
 }
 
 func TestRunbookManageTool_WritePermissionAndInvalidID(t *testing.T) {
@@ -413,16 +462,24 @@ func TestRunbookManageTool_EnforcesWorkspaceWriteRole(t *testing.T) {
 	t.Parallel()
 	store := newMockRunbookDocStore()
 	store.docs["ops/runbooks/restart"] = &Doc{ID: "ops/runbooks/restart", Title: "Restart", Content: "# Restart\n"}
-	tool := NewRunbookManageToolWithWorkspaceStore(store, &mockRunbookWorkspaceStore{workspaces: []*workspacepkg.Workspace{{Name: "ops"}}})
+	tool := NewRunbookManageToolWithWorkspaceStore(store, &mockRunbookWorkspaceStore{workspaces: []*workspacepkg.Workspace{{Name: "ops"}, {Name: "prod"}}})
 
 	viewerCtx := ToolContext{Context: context.Background(), User: UserIdentity{UserID: "u1", Role: auth.RoleViewer, WorkspaceAccess: &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{{Workspace: "ops", Role: auth.RoleViewer}}}}}
 	out := tool.Run(viewerCtx, runbookInput(t, map[string]any{"action": "patch", "id": "ops/runbooks/restart", "old_string": "Restart", "new_string": "Restart API"}))
 	assert.True(t, out.IsError)
 	assert.Contains(t, out.Content, "write permission")
 
+	out = tool.Run(viewerCtx, runbookInput(t, map[string]any{"action": "delete", "id": "ops/runbooks/restart"}))
+	assert.True(t, out.IsError)
+	assert.Contains(t, out.Content, "write permission")
+
 	managerCtx := ToolContext{Context: context.Background(), User: UserIdentity{UserID: "u1", Role: auth.RoleViewer, WorkspaceAccess: &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{{Workspace: "ops", Role: auth.RoleManager}}}}}
 	out = tool.Run(managerCtx, runbookInput(t, map[string]any{"action": "patch", "id": "ops/runbooks/restart", "old_string": "Restart", "new_string": "Restart API"}))
 	require.False(t, out.IsError, out.Content)
+
+	out = tool.Run(managerCtx, runbookInput(t, map[string]any{"action": "move", "id": "ops/runbooks/restart", "new_id": "prod/runbooks/restart"}))
+	assert.True(t, out.IsError)
+	assert.Contains(t, out.Content, `workspace "prod"`)
 }
 
 func TestRunbookManageTool_CreateUpdatePatchErrors(t *testing.T) {
@@ -501,6 +558,54 @@ func TestRunbookManageTool_CreateUpdatePatchErrors(t *testing.T) {
 	out = runbookCreate(ctx, store, runbookManageInput{ID: "../bad", Content: "# Bad"})
 	assert.True(t, out.IsError)
 	assert.Contains(t, out.Content, "invalid")
+}
+
+func TestRunbookManageTool_MoveDeleteErrors(t *testing.T) {
+	t.Parallel()
+	store := newMockRunbookDocStore()
+	store.docs["runbooks/existing"] = &Doc{ID: "runbooks/existing", Title: "Existing", Content: "# Existing\n"}
+	store.docs["notes/existing"] = &Doc{ID: "notes/existing", Title: "Existing note", Content: "# Existing note\n"}
+	tool := NewRunbookManageTool(store)
+	ctx := ToolContext{Context: context.Background(), Role: auth.RoleAdmin}
+
+	out := tool.Run(ctx, runbookInput(t, map[string]any{"action": "move", "id": "runbooks/existing"}))
+	assert.True(t, out.IsError)
+	assert.Contains(t, out.Content, "new_id is required")
+
+	out = runbookMove(ctx, store, runbookManageInput{ID: "runbooks/existing"})
+	assert.True(t, out.IsError)
+	assert.Contains(t, out.Content, "new_id is required")
+
+	out = tool.Run(ctx, runbookInput(t, map[string]any{"action": "move", "id": "runbooks/existing", "new_id": "../bad"}))
+	assert.True(t, out.IsError)
+	assert.Contains(t, out.Content, "invalid runbook id")
+
+	out = tool.Run(ctx, runbookInput(t, map[string]any{"action": "move", "id": "runbooks/missing", "new_id": "notes/new"}))
+	assert.True(t, out.IsError)
+	assert.Contains(t, out.Content, "doc not found")
+
+	out = tool.Run(ctx, runbookInput(t, map[string]any{"action": "move", "id": "runbooks/existing", "new_id": "notes/existing"}))
+	assert.True(t, out.IsError)
+	assert.Contains(t, out.Content, "doc already exists")
+
+	store.renameErr = errRunbookForced
+	out = tool.Run(ctx, runbookInput(t, map[string]any{"action": "move", "id": "runbooks/existing", "new_id": "notes/new"}))
+	assert.True(t, out.IsError)
+	assert.Contains(t, out.Content, "forced runbook error")
+	store.renameErr = nil
+
+	out = tool.Run(ctx, runbookInput(t, map[string]any{"action": "delete", "id": "../bad"}))
+	assert.True(t, out.IsError)
+	assert.Contains(t, out.Content, "invalid")
+
+	out = tool.Run(ctx, runbookInput(t, map[string]any{"action": "delete", "id": "runbooks/missing"}))
+	assert.True(t, out.IsError)
+	assert.Contains(t, out.Content, "doc not found")
+
+	store.deleteErr = errRunbookForced
+	out = tool.Run(ctx, runbookInput(t, map[string]any{"action": "delete", "id": "runbooks/existing"}))
+	assert.True(t, out.IsError)
+	assert.Contains(t, out.Content, "forced runbook error")
 }
 
 func TestRunbookManageTool_EnsureMetadataErrorsAndNoop(t *testing.T) {
@@ -584,18 +689,14 @@ func TestRunbookManageHelpers(t *testing.T) {
 	assert.Nil(t, roots)
 }
 
-func TestRunbookManageTool_RejectsDeleteAndUpdateWithoutContent(t *testing.T) {
+func TestRunbookManageTool_RejectsUpdateWithoutContent(t *testing.T) {
 	t.Parallel()
 	store := newMockRunbookDocStore()
 	store.docs["runbooks/plain"] = &Doc{ID: "runbooks/plain", Title: "Plain", Content: "# Plain\n"}
 	tool := NewRunbookManageTool(store)
 	ctx := ToolContext{Context: context.Background(), Role: auth.RoleAdmin}
 
-	out := tool.Run(ctx, runbookInput(t, map[string]any{"action": "delete", "id": "runbooks/plain"}))
-	assert.True(t, out.IsError)
-	assert.Contains(t, out.Content, "Unknown action")
-
-	out = tool.Run(ctx, runbookInput(t, map[string]any{"action": "update", "id": "runbooks/plain", "title": "Renamed"}))
+	out := tool.Run(ctx, runbookInput(t, map[string]any{"action": "update", "id": "runbooks/plain", "title": "Renamed"}))
 	assert.True(t, out.IsError)
 	assert.Contains(t, out.Content, "content is required")
 	assert.Equal(t, "# Plain\n", store.docs["runbooks/plain"].Content)

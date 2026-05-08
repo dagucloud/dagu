@@ -5,10 +5,16 @@ import { ReactElement, useCallback, useEffect, useRef, useState } from 'react';
 
 import { AlertCircle, X } from 'lucide-react';
 
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/useIsMobile';
 
-import { ANIMATION_CLOSE_DURATION_MS, ANIMATION_OPEN_DURATION_MS, SESSION_SIDEBAR_STORAGE_KEY } from '../constants';
+import {
+  ANIMATION_CLOSE_DURATION_MS,
+  ANIMATION_OPEN_DURATION_MS,
+  SESSION_SIDEBAR_STORAGE_KEY,
+} from '../constants';
 import { useAgentChatContext } from '../context/AgentChatContext';
 import { useAgentChat } from '../hooks/useAgentChat';
 import { useResizableDraggable } from '../hooks/useResizableDraggable';
@@ -30,8 +36,7 @@ function findLatestSession(
     if (sess.session.parent_session_id) continue;
     if (
       !latest ||
-      new Date(sess.session.updated_at) >
-        new Date(latest.session.updated_at)
+      new Date(sess.session.updated_at) > new Date(latest.session.updated_at)
     ) {
       latest = sess;
     }
@@ -40,7 +45,13 @@ function findLatestSession(
 }
 
 export function AgentChatModal(): ReactElement | null {
-  const { isOpen, isClosing, closeChat, initialInputValue, setInitialInputValue } = useAgentChatContext();
+  const {
+    isOpen,
+    isClosing,
+    closeChat,
+    initialInputValue,
+    setInitialInputValue,
+  } = useAgentChatContext();
   const isMobile = useIsMobile();
   const {
     sessionId,
@@ -77,14 +88,19 @@ export function AgentChatModal(): ReactElement | null {
     try {
       const saved = localStorage.getItem(SESSION_SIDEBAR_STORAGE_KEY);
       return saved !== 'false';
-    } catch { return true; }
+    } catch {
+      return true;
+    }
   });
 
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((prev) => {
       const next = !prev;
-      try { localStorage.setItem(SESSION_SIDEBAR_STORAGE_KEY, String(next)); }
-      catch { /* ignore */ }
+      try {
+        localStorage.setItem(SESSION_SIDEBAR_STORAGE_KEY, String(next));
+      } catch {
+        /* ignore */
+      }
       return next;
     });
   }, []);
@@ -111,14 +127,21 @@ export function AgentChatModal(): ReactElement | null {
       const latest = findLatestSession(sessions);
       if (latest) {
         selectSession(latest.session.id).catch((err) =>
-          setError(err instanceof Error ? err.message : 'Failed to load session')
+          setError(
+            err instanceof Error ? err.message : 'Failed to load session'
+          )
         );
       }
     }
   }, [isOpen, sessions, sessionId, selectSession]);
 
   const handleSend = useCallback(
-    (message: string, dagContexts?: DAGContext[], model?: string, soulId?: string): void => {
+    (
+      message: string,
+      dagContexts?: DAGContext[],
+      model?: string,
+      soulId?: string
+    ): void => {
       setInitialInputValue(null);
       // sendMessage handles its own error reporting via setError internally
       sendMessage(message, model, dagContexts, soulId).catch(() => {});
@@ -147,38 +170,52 @@ export function AgentChatModal(): ReactElement | null {
         return;
       }
       selectSession(value).catch((err) =>
-        setError(err instanceof Error ? err.message : 'Failed to select session')
+        setError(
+          err instanceof Error ? err.message : 'Failed to select session'
+        )
       );
     },
     [selectSession, handleClearSession, setError]
   );
 
-  const handleOpenDelegate = useCallback((id: string) => {
-    const info = delegateStatuses[id];
-    if (info) {
-      if (delegates.some((d) => d.id === id)) {
-        removeDelegate(id);
-      } else {
-        reopenDelegate(id, info.task);
+  const handleOpenDelegate = useCallback(
+    (id: string) => {
+      const info = delegateStatuses[id];
+      if (info) {
+        if (delegates.some((d) => d.id === id)) {
+          removeDelegate(id);
+        } else {
+          reopenDelegate(id, info.task);
+        }
       }
-    }
-  }, [delegateStatuses, delegates, reopenDelegate, removeDelegate]);
+    },
+    [delegateStatuses, delegates, reopenDelegate, removeDelegate]
+  );
 
   if (!isOpen) return null;
 
   const errorBanner = error && (
-    <div className="mx-3 mt-2 p-2 bg-destructive/10 border border-destructive/20 rounded-md flex items-start gap-2">
-      <AlertCircle className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />
-      <div className="flex-1 min-w-0">
-        <p className="text-xs text-destructive">{error}</p>
+    <Alert
+      variant="destructive"
+      className="mx-3 mt-3 px-3 py-2 pr-10 text-xs [&>svg]:left-3 [&>svg]:top-2.5 [&>svg~*]:pl-6"
+    >
+      <AlertCircle className="h-4 w-4" aria-hidden="true" />
+      <div className="min-w-0">
+        <AlertDescription className="break-words text-xs">
+          {error}
+        </AlertDescription>
+        <Button
+          type="button"
+          aria-label="Dismiss chat error"
+          onClick={clearError}
+          variant="ghost"
+          size="icon-sm"
+          className="absolute right-2 top-1.5 h-6 w-6 text-destructive/70 hover:bg-destructive/10 hover:text-destructive"
+        >
+          <X className="h-3 w-3" />
+        </Button>
       </div>
-      <button
-        onClick={clearError}
-        className="text-destructive/60 hover:text-destructive flex-shrink-0"
-      >
-        <X className="h-3 w-3" />
-      </button>
-    </div>
+    </Alert>
   );
 
   const content = (

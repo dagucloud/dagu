@@ -578,6 +578,107 @@ func TestAPI_SendMessage_SpillsOversizedFollowUp(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
+func TestAPI_CreateSession_StoresDisplayMessageWithoutDAGContext(t *testing.T) {
+	t.Parallel()
+
+	model := testModelConfig("dag-context-display-model")
+	api, _ := testAPIWithModels(t, model)
+	api.dagStore = &dagDefManageTestStore{
+		dags: []*core.DAG{{
+			Name:     "sample_parallel_report",
+			Location: "/Users/hamadayouta/.dagu/dags/sample_parallel_report.yaml",
+		}},
+	}
+
+	reqCh := make(chan *llm.ChatRequest, 1)
+	api.providers.Set(model.ToLLMConfig(), newCapturingProvider(reqCh, simpleStopResponse("done")))
+
+	user := UserIdentity{UserID: defaultUserID, Username: defaultUserID, Role: defaultUserRole}
+	sessionID, _, err := api.CreateSession(context.Background(), user, ChatRequest{
+		Message: "What does this DAG do?",
+		DAGContexts: []DAGContext{{
+			DAGFile: "sample_parallel_report",
+		}},
+	})
+	require.NoError(t, err)
+
+	req := waitForRequest(t, reqCh, time.Second)
+	require.NotEmpty(t, req.Messages)
+	userMsg := req.Messages[len(req.Messages)-1]
+	assert.Contains(t, userMsg.Content, "Referenced DAGs")
+	assert.Contains(t, userMsg.Content, "sample_parallel_report")
+	assert.Contains(t, userMsg.Content, "What does this DAG do?")
+
+	detail, err := api.GetSessionDetail(context.Background(), sessionID, user.UserID)
+	require.NoError(t, err)
+	require.NotEmpty(t, detail.Messages)
+	assert.Equal(t, "What does this DAG do?", detail.Messages[0].Content)
+	require.NotNil(t, detail.Messages[0].LLMData)
+	assert.Contains(t, detail.Messages[0].LLMData.Content, "Referenced DAGs")
+}
+
+func TestAPI_EnqueueChatMessage_QueuesLLMContentWithDAGContext(t *testing.T) {
+	t.Parallel()
+
+	model := testModelConfig("dag-context-queue-model")
+	api, _ := testAPIWithModels(t, model)
+	api.dagStore = &dagDefManageTestStore{
+		dags: []*core.DAG{{
+			Name:     "sample_parallel_report",
+			Location: "/Users/hamadayouta/.dagu/dags/sample_parallel_report.yaml",
+		}},
+	}
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	api.providers.Set(model.ToLLMConfig(), &mockLLMProvider{
+		chatFunc: func(ctx context.Context, _ *llm.ChatRequest) (*llm.ChatResponse, error) {
+			select {
+			case <-entered:
+			default:
+				close(entered)
+			}
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-release:
+				return simpleStopResponse("done"), nil
+			}
+		},
+	})
+
+	user := UserIdentity{UserID: defaultUserID, Username: defaultUserID, Role: auth.RoleAdmin}
+	sessionID, _, err := api.CreateSession(context.Background(), user, ChatRequest{Message: "start"})
+	require.NoError(t, err)
+
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for active turn")
+	}
+
+	result, err := api.EnqueueChatMessage(context.Background(), sessionID, user, ChatRequest{
+		Message: "What does this DAG do next?",
+		DAGContexts: []DAGContext{{
+			DAGFile: "sample_parallel_report",
+		}},
+	})
+	require.NoError(t, err)
+	assert.True(t, result.Queued)
+
+	mgrVal, ok := api.sessions.Load(sessionID)
+	require.True(t, ok)
+	mgr := mgrVal.(*SessionManager)
+	require.Len(t, mgr.queuedChatMessages, 1)
+	assert.Equal(t, "What does this DAG do next?", mgr.queuedChatMessages[0].displayContent)
+	assert.Contains(t, mgr.queuedChatMessages[0].llmContent, "Referenced DAGs")
+	assert.Contains(t, mgr.queuedChatMessages[0].llmContent, "sample_parallel_report")
+	assert.Contains(t, mgr.queuedChatMessages[0].llmContent, "What does this DAG do next?")
+
+	close(release)
+	_ = api.CancelSession(context.Background(), sessionID, user.UserID)
+}
+
 func TestAPI_EnqueueChatMessage_QueuesRawOversizedText(t *testing.T) {
 	t.Parallel()
 
@@ -623,7 +724,8 @@ func TestAPI_EnqueueChatMessage_QueuesRawOversizedText(t *testing.T) {
 	require.True(t, ok)
 	mgr := mgrVal.(*SessionManager)
 	require.Len(t, mgr.queuedChatMessages, 1)
-	assert.Equal(t, raw, mgr.queuedChatMessages[0])
+	assert.Equal(t, raw, mgr.queuedChatMessages[0].displayContent)
+	assert.Equal(t, raw, mgr.queuedChatMessages[0].llmContent)
 
 	spillDir := filepath.Join(dataDir, "agent", chatInputSpillDirName)
 	entries, err := os.ReadDir(spillDir)
@@ -1284,10 +1386,11 @@ func TestAPI_CompactSessionIfNeeded_CreatesSummarySession(t *testing.T) {
 	require.NotNil(t, mgr.loop)
 
 	expectedPrompt := GenerateSystemPrompt(SystemPromptParams{
-		Env:    mgr.environment,
-		Memory: mgr.loadMemory(),
-		Role:   mgr.user.Role,
-		Soul:   mgr.soul,
+		Env:             mgr.environment,
+		Memory:          mgr.loadMemory(),
+		Role:            mgr.user.Role,
+		WorkspaceAccess: mgr.user.WorkspaceAccess,
+		Soul:            mgr.soul,
 	})
 	assert.Equal(t, expectedPrompt, mgr.loop.systemPrompt)
 
@@ -1346,7 +1449,10 @@ func TestAPI_FlushQueuedChatMessage_RotatesAndStartsMergedTurn(t *testing.T) {
 	mgrVal, ok := api.sessions.Load(sessionID)
 	require.True(t, ok)
 	mgr := mgrVal.(*SessionManager)
-	mgr.queuedChatMessages = []string{"follow up", "and another"}
+	mgr.queuedChatMessages = []queuedChatMessage{
+		{displayContent: "follow up", llmContent: "follow up"},
+		{displayContent: "and another", llmContent: "and another"},
+	}
 
 	result, err := api.FlushQueuedChatMessage(context.Background(), sessionID, user)
 	require.NoError(t, err)
@@ -1395,7 +1501,10 @@ func TestAPI_FlushQueuedChatMessage_SpillsMergedTurnOnce(t *testing.T) {
 	mgrVal, ok := api.sessions.Load(sessionID)
 	require.True(t, ok)
 	mgr := mgrVal.(*SessionManager)
-	mgr.queuedChatMessages = []string{partA, partB}
+	mgr.queuedChatMessages = []queuedChatMessage{
+		{displayContent: partA, llmContent: partA},
+		{displayContent: partB, llmContent: partB},
+	}
 
 	result, err := api.FlushQueuedChatMessage(context.Background(), sessionID, user)
 	require.NoError(t, err)
@@ -1432,14 +1541,15 @@ func TestAPI_FlushQueuedChatMessage_RestoresQueuedTextOnSpillFailure(t *testing.
 	mgrVal, ok := api.sessions.Load(sessionID)
 	require.True(t, ok)
 	mgr := mgrVal.(*SessionManager)
-	mgr.queuedChatMessages = []string{raw}
+	mgr.queuedChatMessages = []queuedChatMessage{{displayContent: raw, llmContent: raw}}
 
 	result, err := api.FlushQueuedChatMessage(context.Background(), sessionID, user)
 	assert.ErrorIs(t, err, ErrFailedToProcessMessage)
 	assert.Equal(t, ChatQueueResult{}, result)
 	assert.True(t, mgr.HasQueuedChatInput())
 	require.Len(t, mgr.queuedChatMessages, 1)
-	assert.Equal(t, raw, mgr.queuedChatMessages[0])
+	assert.Equal(t, raw, mgr.queuedChatMessages[0].displayContent)
+	assert.Equal(t, raw, mgr.queuedChatMessages[0].llmContent)
 }
 
 func TestAPI_NotifyDAGRunWatch_QueuesInternalAgentTurn(t *testing.T) {
