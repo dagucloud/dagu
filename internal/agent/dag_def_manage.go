@@ -90,7 +90,7 @@ func dagDefManageRun(toolCtx ToolContext, input json.RawMessage, store exec.DAGS
 		return toolError("%s is unavailable: DAG store is not configured", dagDefManageToolName)
 	}
 	var args dagDefManageInput
-	if err := json.Unmarshal(input, &args); err != nil {
+	if err := decodeToolInput(input, &args); err != nil {
 		return toolError("Failed to parse input: %v", err)
 	}
 	if toolCtx.Context == nil {

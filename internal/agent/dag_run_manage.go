@@ -140,7 +140,7 @@ func NewDAGRunManageTool(store exec.DAGRunStore, watchers ...DAGRunWatcher) *Age
 
 func dagRunManageRun(toolCtx ToolContext, input json.RawMessage, store exec.DAGRunStore, watcher DAGRunWatcher) ToolOut {
 	var args dagRunManageInput
-	if err := json.Unmarshal(input, &args); err != nil {
+	if err := decodeToolInput(input, &args); err != nil {
 		return toolError("Failed to parse input: %v", err)
 	}
 	if toolCtx.Context == nil {

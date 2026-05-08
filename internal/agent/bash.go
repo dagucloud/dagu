@@ -89,7 +89,7 @@ func NewBashTool() *AgentTool {
 
 func bashRun(toolCtx ToolContext, input json.RawMessage) ToolOut {
 	var args BashToolInput
-	if err := json.Unmarshal(input, &args); err != nil {
+	if err := decodeToolInput(input, &args); err != nil {
 		return toolError("Failed to parse input: %v", err)
 	}
 	if args.Command == "" {

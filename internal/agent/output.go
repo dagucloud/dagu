@@ -42,7 +42,7 @@ func outputRunFunc(w io.Writer) ToolFunc {
 		var params struct {
 			Content string `json:"content"`
 		}
-		if err := json.Unmarshal(input, &params); err != nil {
+		if err := decodeToolInput(input, &params); err != nil {
 			return toolError("failed to parse output parameters: %v", err)
 		}
 		if params.Content == "" {

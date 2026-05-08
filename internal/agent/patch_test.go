@@ -91,7 +91,7 @@ func TestPatchTool_Create(t *testing.T) {
 		assert.Equal(t, "new content", string(content))
 	})
 
-	t.Run("rejects unused operation-specific fields even when empty", func(t *testing.T) {
+	t.Run("ignores unused operation-specific fields", func(t *testing.T) {
 		t.Parallel()
 
 		filePath := filepath.Join(t.TempDir(), "new.txt")
@@ -104,25 +104,23 @@ func TestPatchTool_Create(t *testing.T) {
 			"anchor", "",
 		))
 
-		assert.True(t, result.IsError)
-		assert.Contains(t, result.Content, "old_string is not allowed")
-		_, err := os.Stat(filePath)
-		assert.True(t, os.IsNotExist(err))
+		assert.False(t, result.IsError)
+		content, err := os.ReadFile(filePath)
+		require.NoError(t, err)
+		assert.Equal(t, "hello world", string(content))
 	})
 
-	t.Run("rejects meaningful operation-specific fields", func(t *testing.T) {
+	t.Run("rejects malformed required content", func(t *testing.T) {
 		t.Parallel()
 
 		filePath := filepath.Join(t.TempDir(), "new.txt")
-		result := tool.Run(ToolContext{}, patchInput(
+		result := tool.Run(ToolContext{}, json.RawMessage(fmt.Sprintf(
+			`{"path":%q,"operation":"create","content":{"wrong":"shape"},"old_string":"","anchor":""}`,
 			filePath,
-			"create",
-			"content", "hello world",
-			"old_string", "old",
-		))
+		)))
 
 		assert.True(t, result.IsError)
-		assert.Contains(t, result.Content, "old_string is not allowed")
+		assert.Contains(t, result.Content, "content must be a string")
 		_, err := os.Stat(filePath)
 		assert.True(t, os.IsNotExist(err))
 	})
@@ -249,7 +247,7 @@ func TestPatchTool_Replace(t *testing.T) {
 		assert.Equal(t, os.FileMode(0o640), info.Mode().Perm())
 	})
 
-	t.Run("rejects ambiguous content field", func(t *testing.T) {
+	t.Run("ignores irrelevant content field", func(t *testing.T) {
 		t.Parallel()
 
 		filePath := filepath.Join(t.TempDir(), "test.txt")
@@ -257,14 +255,13 @@ func TestPatchTool_Replace(t *testing.T) {
 
 		result := tool.Run(ToolContext{}, patchInput(filePath, "replace", "old_string", "world", "new_string", "universe", "content", "extra"))
 
-		assert.True(t, result.IsError)
-		assert.Contains(t, result.Content, "content is not allowed")
+		assert.False(t, result.IsError)
 		content, err := os.ReadFile(filePath)
 		require.NoError(t, err)
-		assert.Equal(t, "hello world", string(content))
+		assert.Equal(t, "hello universe", string(content))
 	})
 
-	t.Run("rejects unused fields with null values", func(t *testing.T) {
+	t.Run("ignores irrelevant fields with null values", func(t *testing.T) {
 		t.Parallel()
 
 		filePath := filepath.Join(t.TempDir(), "test.txt")
@@ -275,14 +272,13 @@ func TestPatchTool_Replace(t *testing.T) {
 			filePath,
 		)))
 
-		assert.True(t, result.IsError)
-		assert.Contains(t, result.Content, "content is not allowed")
+		assert.False(t, result.IsError)
 		content, err := os.ReadFile(filePath)
 		require.NoError(t, err)
-		assert.Equal(t, "hello world", string(content))
+		assert.Equal(t, "hello universe", string(content))
 	})
 
-	t.Run("rejects unused fields with empty string values", func(t *testing.T) {
+	t.Run("ignores irrelevant fields with empty string values", func(t *testing.T) {
 		t.Parallel()
 
 		filePath := filepath.Join(t.TempDir(), "test.txt")
@@ -297,11 +293,27 @@ func TestPatchTool_Replace(t *testing.T) {
 			"anchor", "",
 		))
 
-		assert.True(t, result.IsError)
-		assert.Contains(t, result.Content, "content is not allowed")
+		assert.False(t, result.IsError)
 		content, err := os.ReadFile(filePath)
 		require.NoError(t, err)
-		assert.Equal(t, "hello world", string(content))
+		assert.Equal(t, "hello universe", string(content))
+	})
+
+	t.Run("ignores malformed irrelevant fields", func(t *testing.T) {
+		t.Parallel()
+
+		filePath := filepath.Join(t.TempDir(), "test.txt")
+		require.NoError(t, os.WriteFile(filePath, []byte("hello world"), 0o600))
+
+		result := tool.Run(ToolContext{}, json.RawMessage(fmt.Sprintf(
+			`{"path":%q,"operation":"replace","old_string":"world","new_string":"universe","content":{"unused":true},"anchor":["unused"]}`,
+			filePath,
+		)))
+
+		assert.False(t, result.IsError)
+		content, err := os.ReadFile(filePath)
+		require.NoError(t, err)
+		assert.Equal(t, "hello universe", string(content))
 	})
 }
 
@@ -449,7 +461,7 @@ func TestPatchTool_Insert(t *testing.T) {
 		assert.Equal(t, "one\n", string(content))
 	})
 
-	t.Run("rejects unused replace fields even when empty", func(t *testing.T) {
+	t.Run("ignores unused replace fields", func(t *testing.T) {
 		t.Parallel()
 
 		filePath := filepath.Join(t.TempDir(), "test.txt")
@@ -464,11 +476,10 @@ func TestPatchTool_Insert(t *testing.T) {
 			"new_string", "",
 		))
 
-		assert.True(t, result.IsError)
-		assert.Contains(t, result.Content, "old_string is not allowed")
+		assert.False(t, result.IsError)
 		content, err := os.ReadFile(filePath)
 		require.NoError(t, err)
-		assert.Equal(t, "one\n", string(content))
+		assert.Equal(t, "one\ntwo\n", string(content))
 	})
 }
 
@@ -588,7 +599,7 @@ func TestPatchTool_Delete(t *testing.T) {
 		assert.Contains(t, result.Content, "not found")
 	})
 
-	t.Run("rejects unused fields even when empty", func(t *testing.T) {
+	t.Run("ignores unused fields", func(t *testing.T) {
 		t.Parallel()
 
 		filePath := filepath.Join(t.TempDir(), "delete-me.txt")
@@ -603,26 +614,9 @@ func TestPatchTool_Delete(t *testing.T) {
 			"anchor", "",
 		))
 
-		assert.True(t, result.IsError)
-		assert.Contains(t, result.Content, "content is not allowed")
-		content, err := os.ReadFile(filePath)
-		require.NoError(t, err)
-		assert.Equal(t, "content", string(content))
-	})
-
-	t.Run("rejects meaningful forbidden field", func(t *testing.T) {
-		t.Parallel()
-
-		filePath := filepath.Join(t.TempDir(), "delete-me.txt")
-		require.NoError(t, os.WriteFile(filePath, []byte("content"), 0o600))
-
-		result := tool.Run(ToolContext{}, patchInput(filePath, "delete", "content", "extra"))
-
-		assert.True(t, result.IsError)
-		assert.Contains(t, result.Content, "content is not allowed")
-		content, err := os.ReadFile(filePath)
-		require.NoError(t, err)
-		assert.Equal(t, "content", string(content))
+		assert.False(t, result.IsError)
+		_, err := os.Stat(filePath)
+		assert.True(t, os.IsNotExist(err))
 	})
 }
 

@@ -464,7 +464,7 @@ func validateWebProviderBaseURL(rawURL string) (string, error) {
 
 func webSearchRun(toolCtx ToolContext, input json.RawMessage, provider webToolProvider) ToolOut {
 	var args WebSearchToolInput
-	if err := json.Unmarshal(input, &args); err != nil {
+	if err := decodeToolInput(input, &args); err != nil {
 		return toolError("Failed to parse input: %v", err)
 	}
 	query := strings.TrimSpace(args.Query)
@@ -488,7 +488,7 @@ func webSearchRun(toolCtx ToolContext, input json.RawMessage, provider webToolPr
 
 func webExtractRun(toolCtx ToolContext, input json.RawMessage, provider webToolProvider) ToolOut {
 	var args WebExtractToolInput
-	if err := json.Unmarshal(input, &args); err != nil {
+	if err := decodeToolInput(input, &args); err != nil {
 		return toolError("Failed to parse input: %v", err)
 	}
 	if len(args.URLs) == 0 {

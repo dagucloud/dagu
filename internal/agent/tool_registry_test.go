@@ -5,6 +5,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -110,6 +111,50 @@ func TestRegisteredTools_FactoriesProduceValidTools(t *testing.T) {
 			assert.NotEmpty(t, tool.Function.Description)
 			assert.NotNil(t, tool.Run)
 		})
+	}
+}
+
+func TestRegisteredTools_SchemasDoNotRejectExtraFields(t *testing.T) {
+	t.Parallel()
+
+	cfg := ToolConfig{
+		DAGsDir:               "/tmp/test-dags",
+		RemoteContextResolver: &testRemoteContextResolver{},
+		WebTools: &WebToolsConfig{
+			Enabled: true,
+			Backend: WebToolsBackendTavily,
+			Tavily:  &TavilyWebToolsConfig{APIKey: "tvly-test"},
+		},
+	}
+
+	for _, reg := range RegisteredTools() {
+		t.Run(reg.Name, func(t *testing.T) {
+			t.Parallel()
+
+			tool := reg.Factory(cfg)
+			require.NotNil(t, tool)
+			assertNoAdditionalPropertiesFalse(t, tool.Function.Parameters, tool.Function.Name)
+		})
+	}
+}
+
+func assertNoAdditionalPropertiesFalse(t *testing.T, node any, path string) {
+	t.Helper()
+
+	switch typed := node.(type) {
+	case map[string]any:
+		if value, ok := typed["additionalProperties"]; ok {
+			assert.NotEqual(t, false, value, "%s must not reject extra fields", path)
+		}
+		for key, value := range typed {
+			assertNoAdditionalPropertiesFalse(t, value, path+"."+key)
+		}
+	case []any:
+		for i, value := range typed {
+			assertNoAdditionalPropertiesFalse(t, value, fmt.Sprintf("%s[%d]", path, i))
+		}
+	case []string:
+		return
 	}
 }
 

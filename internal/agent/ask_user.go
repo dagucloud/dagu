@@ -84,7 +84,7 @@ func NewAskUserTool() *AgentTool {
 
 func askUserRun(ctx ToolContext, input json.RawMessage) ToolOut {
 	var args AskUserToolInput
-	if err := json.Unmarshal(input, &args); err != nil {
+	if err := decodeToolInput(input, &args); err != nil {
 		return toolError("Failed to parse input: %v", err)
 	}
 

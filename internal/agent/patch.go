@@ -117,7 +117,7 @@ func patchRun(ctx ToolContext, input json.RawMessage, dagsDir string) ToolOut {
 	}
 
 	var args PatchToolInput
-	if err := json.Unmarshal(input, &args); err != nil {
+	if err := decodeToolInput(input, &args); err != nil {
 		return toolError("Failed to parse input: %v", err)
 	}
 	var rawFields map[string]json.RawMessage
@@ -133,49 +133,31 @@ func patchRun(ctx ToolContext, input json.RawMessage, dagsDir string) ToolOut {
 
 	switch args.Operation {
 	case PatchOpCreate:
-		if err := validateNoFields(args.Operation, rawFields, "old_string", "new_string", "anchor"); err != nil {
-			return toolError("%s", err.Error())
-		}
 		if err := validateRequiredFields(args.Operation, rawFields, "content"); err != nil {
 			return toolError("%s", err.Error())
 		}
 		return patchCreate(ctx.Context, path, args.Content, dagsDir)
 	case PatchOpReplace:
-		if err := validateNoFields(args.Operation, rawFields, "content", "anchor"); err != nil {
-			return toolError("%s", err.Error())
-		}
 		if err := validateRequiredFields(args.Operation, rawFields, "old_string", "new_string"); err != nil {
 			return toolError("%s", err.Error())
 		}
 		return patchReplace(ctx.Context, path, args.OldString, args.NewString, dagsDir)
 	case PatchOpAppend:
-		if err := validateNoFields(args.Operation, rawFields, "old_string", "new_string", "anchor"); err != nil {
-			return toolError("%s", err.Error())
-		}
 		if err := validateRequiredFields(args.Operation, rawFields, "content"); err != nil {
 			return toolError("%s", err.Error())
 		}
 		return patchAppend(ctx.Context, path, args.Content, dagsDir)
 	case PatchOpInsertBefore:
-		if err := validateNoFields(args.Operation, rawFields, "old_string", "new_string"); err != nil {
-			return toolError("%s", err.Error())
-		}
 		if err := validateRequiredFields(args.Operation, rawFields, "anchor", "content"); err != nil {
 			return toolError("%s", err.Error())
 		}
 		return patchInsert(ctx.Context, path, args.Anchor, args.Content, false, dagsDir)
 	case PatchOpInsertAfter:
-		if err := validateNoFields(args.Operation, rawFields, "old_string", "new_string"); err != nil {
-			return toolError("%s", err.Error())
-		}
 		if err := validateRequiredFields(args.Operation, rawFields, "anchor", "content"); err != nil {
 			return toolError("%s", err.Error())
 		}
 		return patchInsert(ctx.Context, path, args.Anchor, args.Content, true, dagsDir)
 	case PatchOpDelete:
-		if err := validateNoFields(args.Operation, rawFields, "content", "old_string", "new_string", "anchor"); err != nil {
-			return toolError("%s", err.Error())
-		}
 		return patchDelete(path)
 	default:
 		return toolError("Unknown operation: %s. Use 'create', 'replace', 'append', 'insert_before', 'insert_after', or 'delete'.", args.Operation)
@@ -316,15 +298,6 @@ func patchDelete(path string) ToolOut {
 	return ToolOut{Content: fmt.Sprintf("Deleted %s", path)}
 }
 
-func validateNoFields(operation PatchOperation, rawFields map[string]json.RawMessage, fields ...string) error {
-	for _, field := range fields {
-		if _, ok := rawFields[field]; ok {
-			return fmt.Errorf("%s is not allowed for %s operation", field, operation)
-		}
-	}
-	return nil
-}
-
 func validateRequiredFields(operation PatchOperation, rawFields map[string]json.RawMessage, fields ...string) error {
 	for _, field := range fields {
 		raw, ok := rawFields[field]
@@ -332,9 +305,10 @@ func validateRequiredFields(operation PatchOperation, rawFields map[string]json.
 			return fmt.Errorf("%s is required for %s operation", field, operation)
 		}
 		var value string
-		if err := json.Unmarshal(raw, &value); err == nil &&
-			strings.TrimSpace(value) == "" &&
-			!requiredFieldAllowsEmptyString(operation, field) {
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return fmt.Errorf("%s must be a string for %s operation", field, operation)
+		}
+		if strings.TrimSpace(value) == "" && !requiredFieldAllowsEmptyString(operation, field) {
 			return fmt.Errorf("%s is required for %s operation", field, operation)
 		}
 	}
