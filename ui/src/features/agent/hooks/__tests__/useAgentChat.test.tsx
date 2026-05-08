@@ -565,6 +565,86 @@ describe('useAgentChat fallback polling', () => {
     expect(result.current.hasMoreSessions).toBe(false);
   });
 
+  it('ignores concurrent load more calls while a cursor page is already loading', async () => {
+    let resolveLoadMore:
+      | ((value: {
+          data: {
+            sessions: unknown[];
+            pagination: { currentPage: number; totalPages: number };
+          };
+        }) => void)
+      | undefined;
+
+    getMock.mockImplementation(async (path: string, request?: unknown) => {
+      if (path !== '/agent/sessions') {
+        throw new Error('unexpected request');
+      }
+      const params = request as {
+        params?: { query?: { cursor?: string } };
+      };
+      if (!params.params?.query?.cursor) {
+        return {
+          data: {
+            sessions: [
+              {
+                session: {
+                  id: 'sess-1',
+                  title: 'first session',
+                  createdAt: '2026-05-08T10:00:00Z',
+                  updatedAt: '2026-05-08T10:00:00Z',
+                },
+                working: false,
+                hasPendingPrompt: false,
+                model: 'gpt-test',
+                totalCost: 0,
+              },
+            ],
+            nextCursor: 'cursor-1',
+            pagination: {
+              currentPage: 1,
+              totalPages: 2,
+            },
+          },
+        };
+      }
+      return new Promise((resolve) => {
+        resolveLoadMore = resolve;
+      });
+    });
+
+    const { result } = renderHook(() => useAgentChatAlwaysActive(), {
+      wrapper: TestProviders,
+    });
+
+    await act(async () => {
+      await result.current.fetchSessions();
+    });
+
+    let firstLoad: Promise<void> | undefined;
+    act(() => {
+      firstLoad = result.current.loadMoreSessions();
+      void result.current.loadMoreSessions();
+    });
+
+    expect(getMock).toHaveBeenCalledTimes(2);
+    expect(result.current.isLoadingMore).toBe(true);
+
+    await act(async () => {
+      resolveLoadMore?.({
+        data: {
+          sessions: [],
+          pagination: {
+            currentPage: 1,
+            totalPages: 1,
+          },
+        },
+      });
+      await firstLoad;
+    });
+
+    expect(result.current.isLoadingMore).toBe(false);
+  });
+
   it('clears the session list running marker when the selected session snapshot is idle', async () => {
     getMock.mockImplementation(
       async (

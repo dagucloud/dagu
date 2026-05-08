@@ -32,7 +32,7 @@ interface AgentChatContextType {
   setSessions: Dispatch<SetStateAction<SessionWithState[]>>;
   appendSessions: (sessions: SessionWithState[]) => void;
   setHasMoreSessions: (has: boolean) => void;
-  setSessionPage: (page: number) => void;
+  setSessionPage: Dispatch<SetStateAction<number>>;
   setSessionCursor: (cursor: string | null) => void;
   addMessage: (message: Message) => void;
   setPendingUserMessage: (message: string | null) => void;

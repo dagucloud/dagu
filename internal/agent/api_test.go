@@ -389,6 +389,28 @@ func TestAPI_ListSessionsPaginated(t *testing.T) {
 		require.NotEmpty(t, second.NextCursor)
 	})
 
+	t.Run("cursor pagination loads costs only for visible persisted sessions", func(t *testing.T) {
+		t.Parallel()
+
+		api, store := createAPIWithSessionStore(t, newStopProvider("hello"))
+		base := time.Date(2026, time.May, 8, 10, 0, 0, 0, time.UTC)
+
+		for i := range 5 {
+			require.NoError(t, store.CreateSession(context.Background(), &Session{
+				ID:        fmt.Sprintf("sess-%d", i+1),
+				UserID:    defaultUserID,
+				CreatedAt: base.Add(-time.Duration(i) * time.Minute),
+				UpdatedAt: base.Add(-time.Duration(i) * time.Minute),
+			}))
+		}
+
+		result, err := api.ListSessionsCursor(context.Background(), defaultUserID, "", 2)
+		require.NoError(t, err)
+		require.Len(t, result.Items, 2)
+		assert.Equal(t, 2, store.getMessagesCalls)
+		assert.Equal(t, 2, store.listSubSessionsCalls)
+	})
+
 	t.Run("excludes sub-sessions", func(t *testing.T) {
 		t.Parallel()
 

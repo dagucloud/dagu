@@ -211,7 +211,6 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
     sessionState,
     sessions,
     hasMoreSessions,
-    sessionPage,
     sessionCursor,
     setSessionId,
     setMessages,
@@ -230,7 +229,9 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
   const hydratedUIActionsRef = useRef<Set<string>>(new Set());
   const allowInitialUIActionsRef = useRef<Set<string>>(new Set());
   const delegateCatalogHydratedRef = useRef(false);
+  const isLoadingMoreRef = useRef(false);
   const [isSending, setIsSending] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [optimisticWorking, setOptimisticWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [answeredPrompts, setAnsweredPrompts] = useState<
@@ -611,7 +612,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
           setSessionPage(1);
         } else {
           appendSessions(converted);
-          setSessionPage(sessionPage + 1);
+          setSessionPage((prev) => prev + 1);
         }
         setSessionCursor(data.nextCursor ?? null);
         setHasMoreSessions(Boolean(data.nextCursor));
@@ -628,7 +629,6 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
     [
       client,
       remoteNode,
-      sessionPage,
       setSessions,
       appendSessions,
       setHasMoreSessions,
@@ -638,8 +638,15 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
   );
 
   const loadMoreSessions = useCallback(async (): Promise<void> => {
-    if (!hasMoreSessions || !sessionCursor) return;
-    await fetchSessionsPage(sessionCursor);
+    if (!hasMoreSessions || !sessionCursor || isLoadingMoreRef.current) return;
+    isLoadingMoreRef.current = true;
+    setIsLoadingMore(true);
+    try {
+      await fetchSessionsPage(sessionCursor);
+    } finally {
+      isLoadingMoreRef.current = false;
+      setIsLoadingMore(false);
+    }
   }, [fetchSessionsPage, sessionCursor, hasMoreSessions]);
 
   const startSession = useCallback(
@@ -835,6 +842,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
     sessionState,
     sessions,
     hasMoreSessions,
+    isLoadingMore,
     isWorking,
     error,
     answeredPrompts,

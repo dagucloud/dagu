@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -1630,7 +1630,25 @@ func (a *API) ListSessionsCursor(ctx context.Context, userID string, cursor stri
 
 	activeIDs := make(map[string]struct{})
 	sessions := a.collectActiveSessions(userID, activeIDs)
-	sessions = a.appendPersistedSessions(ctx, userID, activeIDs, sessions)
+	if a.store != nil {
+		persisted, err := a.store.ListSessions(ctx, userID)
+		if err != nil {
+			a.logger.Warn("Failed to list persisted sessions", "error", err)
+		} else {
+			for _, sess := range persisted {
+				if _, exists := activeIDs[sess.ID]; exists {
+					continue
+				}
+				if sess.ParentSessionID != "" {
+					continue
+				}
+				sessions = append(sessions, SessionWithState{
+					Session: *sess,
+					Working: false,
+				})
+			}
+		}
+	}
 	sortSessionsNewestFirst(sessions)
 
 	start := 0
@@ -1670,13 +1688,11 @@ func (a *API) loadVisibleStoredSessionCosts(ctx context.Context, activeIDs map[s
 }
 
 func sortSessionsNewestFirst(sessions []SessionWithState) {
-	sort.SliceStable(sessions, func(i, j int) bool {
-		left := sessions[i].Session
-		right := sessions[j].Session
-		if !left.UpdatedAt.Equal(right.UpdatedAt) {
-			return left.UpdatedAt.After(right.UpdatedAt)
+	slices.SortStableFunc(sessions, func(a, b SessionWithState) int {
+		if c := b.Session.UpdatedAt.Compare(a.Session.UpdatedAt); c != 0 {
+			return c
 		}
-		return left.ID > right.ID
+		return cmp.Compare(b.Session.ID, a.Session.ID)
 	})
 }
 

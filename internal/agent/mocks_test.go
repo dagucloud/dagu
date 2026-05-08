@@ -167,6 +167,9 @@ type mockSessionStore struct {
 	addMessageErr  error
 	getMessagesErr error
 	getSeqIDErr    error
+
+	getMessagesCalls     int
+	listSubSessionsCalls int
 }
 
 func newMockSessionStore() *mockSessionStore {
@@ -301,6 +304,7 @@ func (m *mockSessionStore) GetMessages(_ context.Context, sessionID string) ([]M
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.getMessagesCalls++
 
 	if err := m.requireSession(sessionID); err != nil {
 		return nil, err
@@ -339,6 +343,7 @@ func (m *mockSessionStore) ListSubSessions(_ context.Context, parentSessionID st
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.listSubSessionsCalls++
 
 	var result []*Session
 	for _, sess := range m.sessions {

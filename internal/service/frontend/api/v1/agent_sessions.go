@@ -159,8 +159,8 @@ func (a *API) ListAgentSessions(ctx context.Context, request api.ListAgentSessio
 		}
 		return api.ListAgentSessions200JSONResponse{
 			Sessions:   toAPISessions(result.Items),
-			Pagination: cursorPagination(len(result.Items), result.NextCursor),
-			NextCursor: ptrOf(result.NextCursor),
+			Pagination: cursorPagination(result.NextCursor),
+			NextCursor: emptyToNilString(result.NextCursor),
 		}, nil
 	}
 
@@ -173,7 +173,7 @@ func (a *API) ListAgentSessions(ctx context.Context, request api.ListAgentSessio
 	}, nil
 }
 
-func cursorPagination(count int, nextCursor string) api.Pagination {
+func cursorPagination(nextCursor string) api.Pagination {
 	totalPages := 1
 	nextPage := 1
 	if nextCursor != "" {
@@ -185,8 +185,15 @@ func cursorPagination(count int, nextCursor string) api.Pagination {
 		NextPage:     nextPage,
 		PrevPage:     1,
 		TotalPages:   totalPages,
-		TotalRecords: count,
+		TotalRecords: 0,
 	}
+}
+
+func emptyToNilString(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 // GetAgentSession returns session details including messages and state.

@@ -86,6 +86,7 @@ export function AgentChatModal(): ReactElement | null {
     sessionState,
     sessions,
     hasMoreSessions,
+    isLoadingMore,
     isWorking,
     error,
     answeredPrompts,
@@ -293,6 +294,7 @@ export function AgentChatModal(): ReactElement | null {
           onClose={toggleSidebar}
           onLoadMore={loadMoreSessions}
           hasMore={hasMoreSessions}
+          isLoadingMore={isLoadingMore}
         />
         <div className="flex flex-col flex-1 min-w-0 min-h-0">
           {errorBanner}

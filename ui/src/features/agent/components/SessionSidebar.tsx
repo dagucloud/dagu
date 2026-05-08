@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import { useEffect, useMemo, useRef } from 'react';
 import type { ReactElement } from 'react';
 
@@ -15,6 +18,7 @@ type Props = {
   onClose: () => void;
   onLoadMore: () => void;
   hasMore: boolean;
+  isLoadingMore: boolean;
 };
 
 function sessionTitle(sess: SessionWithState): string {
@@ -30,6 +34,7 @@ export function SessionSidebar({
   onClose,
   onLoadMore,
   hasMore,
+  isLoadingMore,
 }: Props): ReactElement | null {
   const sentinelRef = useRef<HTMLDivElement>(null);
   const sortedSessions = useMemo(
@@ -44,7 +49,7 @@ export function SessionSidebar({
 
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || !hasMore) return;
+    if (!el || !hasMore || isLoadingMore) return;
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry?.isIntersecting) onLoadMore();
@@ -53,7 +58,7 @@ export function SessionSidebar({
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [hasMore, onLoadMore]);
+  }, [hasMore, isLoadingMore, onLoadMore]);
 
   if (!isOpen) return null;
 

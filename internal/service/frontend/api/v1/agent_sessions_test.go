@@ -260,11 +260,13 @@ func TestListAgentSessions(t *testing.T) {
 		assert.Equal(t, "sess-1", listResp.Sessions[0].SessionId)
 		assert.Equal(t, "sess-2", listResp.Sessions[1].SessionId)
 		require.NotNil(t, listResp.NextCursor)
+		assert.Zero(t, listResp.Pagination.TotalRecords)
 
 		resp, err = setup.api.ListAgentSessions(sessionAdminCtx(), apigen.ListAgentSessionsRequestObject{
 			Params: apigen.ListAgentSessionsParams{
-				Cursor:  listResp.NextCursor,
-				PerPage: new(2),
+				PaginationMode: &mode,
+				Cursor:         listResp.NextCursor,
+				PerPage:        new(2),
 			},
 		})
 		require.NoError(t, err)
@@ -274,6 +276,7 @@ func TestListAgentSessions(t *testing.T) {
 		require.Len(t, listResp.Sessions, 1)
 		assert.Equal(t, "sess-3", listResp.Sessions[0].SessionId)
 		assert.Nil(t, listResp.NextCursor)
+		assert.Zero(t, listResp.Pagination.TotalRecords)
 	})
 
 	t.Run("uses default pagination when no params", func(t *testing.T) {

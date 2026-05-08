@@ -6348,7 +6348,7 @@ paths:
                 $ref: "#/components/schemas/Error"
     get:
       summary: "List agent sessions"
-      description: "Lists sessions for the current user. Use `paginationMode=cursor` and pass `cursor` to load the next page returned by `nextCursor`; `page` remains available for compatibility."
+      description: "Lists sessions for the current user. `listAgentSessions` uses `AgentSessionPaginationMode=cursor` or an `AgentSessionCursor` value to return cursor pages and `nextCursor`; cursor mode rejects `Page` because mixed cursor/page requests are ambiguous, while `PerPage` still controls page size. Without cursor mode it uses `Page` and `PerPage` offset pagination. `RemoteNode` selects the target node for either pagination mode. Malformed or invalid cursor values return 400."
       operationId: "listAgentSessions"
       tags:
         - "agent"

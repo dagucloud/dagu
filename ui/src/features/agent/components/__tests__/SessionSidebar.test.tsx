@@ -52,6 +52,7 @@ describe('SessionSidebar', () => {
         onClose={vi.fn()}
         onLoadMore={vi.fn()}
         hasMore={false}
+        isLoadingMore={false}
       />
     );
 
