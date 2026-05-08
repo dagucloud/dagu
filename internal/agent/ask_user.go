@@ -25,10 +25,10 @@ func init() {
 // AskUserToolInput is the input schema for the ask_user tool.
 type AskUserToolInput struct {
 	Question            string   `json:"question"`
-	Options             []string `json:"options"`
-	AllowFreeText       bool     `json:"allow_free_text"`
-	FreeTextPlaceholder string   `json:"free_text_placeholder,omitempty"`
-	MultiSelect         bool     `json:"multi_select"`
+	Options             []string `json:"options" lenient:"true"`
+	AllowFreeText       bool     `json:"allow_free_text" lenient:"true"`
+	FreeTextPlaceholder string   `json:"free_text_placeholder,omitempty" lenient:"true"`
+	MultiSelect         bool     `json:"multi_select" lenient:"true"`
 }
 
 const askUserDescription = "Ask the user a question and wait for their response. " +
@@ -84,7 +84,7 @@ func NewAskUserTool() *AgentTool {
 
 func askUserRun(ctx ToolContext, input json.RawMessage) ToolOut {
 	var args AskUserToolInput
-	if err := json.Unmarshal(input, &args); err != nil {
+	if err := decodeToolInput(input, &args); err != nil {
 		return toolError("Failed to parse input: %v", err)
 	}
 

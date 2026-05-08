@@ -32,16 +32,16 @@ func init() {
 
 type dagDefManageInput struct {
 	Action  string   `json:"action"`
-	DAGName string   `json:"dagName,omitempty"`
-	Spec    string   `json:"spec,omitempty"`
-	Path    string   `json:"path,omitempty"`
-	Query   string   `json:"query,omitempty"`
-	Labels  []string `json:"labels,omitempty"`
-	Limit   int      `json:"limit,omitempty"`
-	Page    int      `json:"page,omitempty"`
-	Sort    string   `json:"sort,omitempty"`
-	Order   string   `json:"order,omitempty"`
-	Full    bool     `json:"full,omitempty"`
+	DAGName string   `json:"dagName,omitempty" lenient:"true"`
+	Spec    string   `json:"spec,omitempty" lenient:"true"`
+	Path    string   `json:"path,omitempty" lenient:"true"`
+	Query   string   `json:"query,omitempty" lenient:"true"`
+	Labels  []string `json:"labels,omitempty" lenient:"true"`
+	Limit   int      `json:"limit,omitempty" lenient:"true"`
+	Page    int      `json:"page,omitempty" lenient:"true"`
+	Sort    string   `json:"sort,omitempty" lenient:"true"`
+	Order   string   `json:"order,omitempty" lenient:"true"`
+	Full    bool     `json:"full,omitempty" lenient:"true"`
 }
 
 // NewDAGDefManageTool creates an agent tool for read-only DAG definition inspection.
@@ -90,7 +90,7 @@ func dagDefManageRun(toolCtx ToolContext, input json.RawMessage, store exec.DAGS
 		return toolError("%s is unavailable: DAG store is not configured", dagDefManageToolName)
 	}
 	var args dagDefManageInput
-	if err := json.Unmarshal(input, &args); err != nil {
+	if err := decodeToolInput(input, &args); err != nil {
 		return toolError("Failed to parse input: %v", err)
 	}
 	if toolCtx.Context == nil {

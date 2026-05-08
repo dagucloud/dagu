@@ -151,7 +151,7 @@ type BashPolicyDecision struct {
 // ExtractBashCommand extracts the bash command string from tool input.
 func ExtractBashCommand(input json.RawMessage) (string, error) {
 	var args BashToolInput
-	if err := json.Unmarshal(input, &args); err != nil {
+	if err := decodeToolInput(input, &args); err != nil {
 		return "", fmt.Errorf("failed to parse bash input: %w", err)
 	}
 	return strings.TrimSpace(args.Command), nil

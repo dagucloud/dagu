@@ -4,6 +4,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"testing"
 
@@ -63,6 +64,55 @@ func TestGetToolByName(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDecodeToolInput(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ignores unknown and malformed optional fields", func(t *testing.T) {
+		t.Parallel()
+
+		var got struct {
+			Action string `json:"action"`
+			Limit  int    `json:"limit,omitempty" lenient:"true"`
+		}
+
+		err := decodeToolInput(json.RawMessage(`{
+			"action": "list",
+			"limit": "not-an-integer",
+			"extra": {"any": ["shape", 1, true]}
+		}`), &got)
+
+		require.NoError(t, err)
+		assert.Equal(t, "list", got.Action)
+		assert.Zero(t, got.Limit)
+	})
+
+	t.Run("rejects malformed known fields unless marked lenient", func(t *testing.T) {
+		t.Parallel()
+
+		var got struct {
+			Path string `json:"path"`
+		}
+
+		err := decodeToolInput(json.RawMessage(`{"path": 123, "extra": "ignored"}`), &got)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `field "path"`)
+		assert.Empty(t, got.Path)
+	})
+
+	t.Run("rejects invalid JSON", func(t *testing.T) {
+		t.Parallel()
+
+		var got struct {
+			Action string `json:"action"`
+		}
+
+		err := decodeToolInput(json.RawMessage(`{"action":`), &got)
+
+		require.Error(t, err)
+	})
 }
 
 func TestToolError(t *testing.T) {

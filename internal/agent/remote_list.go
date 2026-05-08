@@ -27,7 +27,7 @@ func init() {
 }
 
 type listContextsInput struct {
-	NameFilter string `json:"name_filter,omitempty"`
+	NameFilter string `json:"name_filter,omitempty" lenient:"true"`
 }
 
 func NewListContextsTool(resolver RemoteContextResolver) *AgentTool {
@@ -63,7 +63,7 @@ func makeListContextsRun(resolver RemoteContextResolver) ToolFunc {
 		}
 
 		var args listContextsInput
-		if err := json.Unmarshal(input, &args); err != nil {
+		if err := decodeToolInput(input, &args); err != nil {
 			return toolError("Failed to parse input: %v", err)
 		}
 

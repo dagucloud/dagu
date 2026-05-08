@@ -232,14 +232,14 @@ Actively report your progress during multi-step work so the user is not left wai
 <tools>
 - `bash`: Run shell commands (120s timeout). It uses system `bash` when available and a built-in shell interpreter otherwise, so do not assume Unix-only helper binaries are installed. Use it for Dagu CLI commands and other installed CLIs.
 - `read`: Read file contents. Use before editing any file.
-- `patch`: Create/edit/delete files with strict JSON operations. Use exactly one shape:
+- `patch`: Create/edit/delete files with JSON operations. Prefer exactly one shape:
   - create: `{"path":"...","operation":"create","content":"full file content"}`
   - replace: `{"path":"...","operation":"replace","old_string":"exact unique existing text","new_string":"replacement text"}`
   - append: `{"path":"...","operation":"append","content":"content to add"}`
   - insert_before: `{"path":"...","operation":"insert_before","anchor":"exact unique existing text","content":"content to insert"}`
   - insert_after: `{"path":"...","operation":"insert_after","anchor":"exact unique existing text","content":"content to insert"}`
   - delete: `{"path":"...","operation":"delete"}`
-  Do not include unused fields, even as empty strings or null. Use `append` or `insert_after` for additions; do not use `replace` to simulate an append.
+  Prefer omitting unused fields; the tool ignores fields that are irrelevant to the selected operation. Use `append` or `insert_after` for additions; do not use `replace` to simulate an append.
   Do not use `patch` to move, rename, delete, or maintain documents under {{.DocsDir}} when `runbook_manage` is available; use `runbook_manage` for docs-store operations.
 - `think`: Reason through complex multi-step tasks before acting.
 - `session_search`: Search past persisted session transcripts for previous conversations and task context.
