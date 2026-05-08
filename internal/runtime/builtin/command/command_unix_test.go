@@ -31,7 +31,7 @@ func TestCommandExecutor_CleansProcessGroupWhenParentDies(t *testing.T) {
 	pidFile := filepath.Join(tmpDir, "script.pid")
 	readyFile := filepath.Join(tmpDir, "helper.ready")
 
-	cmd := exec.Command(os.Args[0], "-test.run=TestCommandExecutor_CleansProcessGroupWhenParentDies")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestCommandExecutor_CleansProcessGroupWhenParentDies$")
 	cmd.Env = append(os.Environ(),
 		"DAGU_COMMAND_PARENT_DEATH_HELPER=1",
 		"DAGU_COMMAND_PARENT_DEATH_DIR="+tmpDir,
