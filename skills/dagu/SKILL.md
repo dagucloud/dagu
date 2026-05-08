@@ -13,7 +13,7 @@ Load only the reference file that matches the task.
 - Prefer `id` on every step. Omit `name` unless the display label must differ from the step ID.
 - Prefer `dagu enqueue` over `dagu start` for agent-run workflows.
 - Prefer `dagu schema ...` and `dagu validate ...` over guessing field names or shapes.
-- Prefer `type: template` when generating text files, prompts, or artifacts instead of assembling them with shell `echo` or heredocs.
+- Prefer `action: template.render` when generating text files, prompts, or artifacts instead of assembling them with shell `echo` or heredocs.
 - Prefer `DAG_RUN_ARTIFACTS_DIR` for file outputs when possible, as it provides a preview in the UI and automatically cleans up when the DAG run gets deleted.
 - Prefer string-form `output: VAR_NAME` for capturing small stdout values into flat variables.
 - Prefer object-form `output:` when downstream steps need structured values via `${step_id.output.*}`.
@@ -27,10 +27,10 @@ Load only the reference file that matches the task.
 - `${step_id.stdout}` is a log file path, not stdout content.
 - `env:` should use list-of-maps when values depend on earlier env vars.
 - `params:` values arrive as strings. The `params:` field supports JSON schema-like types and validation, check for schema to see how to specify types and validation rules.
-- Do not assume `bash` for `script:` steps. If a script depends on a specific interpreter, add a shebang such as `#!/bin/sh` or `#!/usr/bin/env bash` only after checking that shell exists on the target host or container. Otherwise keep the script portable or set `shell:` explicitly.
-- `parallel:` requires `call:` to a sub-DAG.
+- Do not assume `bash` for `run:` steps. If a script depends on a specific interpreter, add a shebang such as `#!/bin/sh` or `#!/usr/bin/env bash` only after checking that shell exists on the target host or container. Otherwise keep the script portable or set `with.shell:` explicitly.
+- `parallel:` currently requires `action: dag.run` to a child DAG.
 - Sub-DAGs do not inherit parent env vars; pass what you need via `params:`.
-- For arbitrary text inside shell steps, prefer `printenv VAR_NAME` or `type: template` over `${VAR}` interpolation.
+- For arbitrary text inside shell steps, prefer `printenv VAR_NAME` or `action: template.render` over `${VAR}` interpolation.
 - Object-form `output:` is step-scoped only today. Only string-form `output: VAR_NAME` is collected into final DAG `outputs.json`.
 - Object-form `output:` with `decode: json` or `decode: yaml` can act as lightweight runtime validation. Malformed data or an unresolved `select:` path fails the step, so normal `retry_policy` applies.
 - Use `dagu schema dag` to check the full list of available fields and their shapes.
@@ -55,18 +55,18 @@ params:
 
 steps:
   - id: render
-    type: template
+    action: template.render
     with:
       data:
         name: ${name}
         age: ${age}
         favorite_color: ${favorite_color}
-    script: |
-      Hello, {{ .name }}!
-      You are {{ .age }} years old.
-      {{- if .favorite_color }}
-      Your favorite color is {{ .favorite_color }}.
-      {{- end }}
+      template: |
+        Hello, {{ .name }}!
+        You are {{ .age }} years old.
+        {{- if .favorite_color }}
+        Your favorite color is {{ .favorite_color }}.
+        {{- end }}
     stdout: ${DAG_RUN_ARTIFACTS_DIR}/greeting.txt
 ```
 
@@ -75,7 +75,7 @@ steps:
 ```yaml
 steps:
   - id: inspect_build
-    command: echo '{"version":"v1.2.3","artifact":{"url":"https://example.test/app.tgz"}}'
+    run: echo '{"version":"v1.2.3","artifact":{"url":"https://example.test/app.tgz"}}'
     output:
       # decode + select act as a lightweight contract check:
       # malformed JSON or a missing selected field fails the step.
@@ -99,7 +99,7 @@ steps:
 
 Load only the file you need:
 
-- `references/steptypes.md` when choosing a step type or checking executor-specific caveats such as `dag`, `parallel`, `jq`, or `template`
+- `references/steptypes.md` when choosing an action or checking executor-specific caveats such as `dag.run`, `parallel`, `jq.filter`, or `template.render`
 - `references/cli.md` when you need command flags or lookup commands such as `dagu schema`, `dagu config`, or `dagu history`
 - `references/env.md` when execution environment variables, `DAGU_*` config vars, or `params:`/`env:` resolution order matters
 - `references/codingagent.md` only when the DAG itself runs AI coding agents as steps

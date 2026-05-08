@@ -54,7 +54,7 @@ type systemPromptData struct {
 	Memory      MemoryContent
 	User        *UserCapabilities
 	SoulContent string
-	StepTypes   string
+	Actions     string
 }
 
 // SystemPromptParams holds all parameters for system prompt generation.
@@ -91,7 +91,7 @@ func GenerateSystemPrompt(p SystemPromptParams) string {
 		Memory:          memory,
 		User:            buildUserCapabilities(role),
 		SoulContent:     templateSoulContent,
-		StepTypes:       buildStepTypesPrompt(env, p.WorkspaceAccess),
+		Actions:         buildActionsPrompt(env, p.WorkspaceAccess),
 	}
 	if err := systemPromptTemplate.Execute(&buf, data); err != nil {
 		return fallbackPrompt(env)
@@ -103,10 +103,15 @@ func GenerateSystemPrompt(p SystemPromptParams) string {
 	return result
 }
 
-type customStepTypeSource struct {
-	label string
-	refs  []customStepTypeRef
-	err   error
+type customActionSource struct {
+	label           string
+	actions         []customActionRef
+	legacyStepTypes []customStepTypeRef
+	err             error
+}
+
+type customActionRef struct {
+	name string
 }
 
 type customStepTypeRef struct {
@@ -114,18 +119,18 @@ type customStepTypeRef struct {
 	targetType string
 }
 
-func buildStepTypesPrompt(env EnvironmentInfo, access *auth.WorkspaceAccess) string {
+func buildActionsPrompt(env EnvironmentInfo, access *auth.WorkspaceAccess) string {
 	var b strings.Builder
-	b.WriteString("Available step types are generated from runtime registrations and base config files.\n")
-	b.WriteString("- Builtin/runtime: ")
-	b.WriteString(formatStepTypeNames(spec.StepTypeNames()))
-	b.WriteString(". Omit `type` for plain command/script steps.\n")
+	b.WriteString("Available actions are generated from the built-in action registry and base config files.\n")
+	b.WriteString("- Builtin actions: ")
+	b.WriteString(formatNames(spec.BuiltinActionNames()))
+	b.WriteString(". Use top-level `run:` for plain shell commands and scripts.\n")
 
-	sources := baseConfigCustomStepTypeSources(env, access)
+	sources := baseConfigCustomActionSources(env, access)
 	if len(sources) == 0 {
-		b.WriteString("- Base config custom step types: none found in configured base config files.\n")
+		b.WriteString("- Base config custom actions: none found in configured base config files.\n")
 	} else {
-		b.WriteString("- Base config custom step types:\n")
+		b.WriteString("- Base config custom actions:\n")
 		for _, source := range sources {
 			b.WriteString("  - ")
 			b.WriteString(source.label)
@@ -139,31 +144,39 @@ func buildStepTypesPrompt(env EnvironmentInfo, access *auth.WorkspaceAccess) str
 				b.WriteString(".\n")
 				continue
 			}
-			if len(source.refs) == 0 {
+			if len(source.actions) == 0 {
 				b.WriteString("none")
 				b.WriteString(".\n")
-				continue
+			} else {
+				b.WriteString(formatCustomActionRefs(source.actions))
+				b.WriteString(".\n")
 			}
-			b.WriteString(formatCustomStepTypeRefs(source.refs))
-			b.WriteString(".\n")
+			if len(source.legacyStepTypes) > 0 {
+				b.WriteString("  - ")
+				b.WriteString(source.label)
+				b.WriteString(" legacy `step_types:` entries: ")
+				b.WriteString(formatLegacyStepTypeRefs(source.legacyStepTypes))
+				b.WriteString(". Prefer `actions:` for new work.\n")
+			}
 		}
 	}
 
-	b.WriteString("- Current DAG-local custom step types: inspect `step_types:` in the DAG before deciding availability.\n")
-	b.WriteString("- For custom types, pass only declared `with:`/`config:` inputs; do not add executor fields hidden by the template.")
+	b.WriteString("- Current DAG-local custom actions: inspect `actions:` in the DAG before deciding availability.\n")
+	b.WriteString("- Legacy DAG-local `step_types:` entries may still exist for compatibility; prefer `actions:` for new work.\n")
+	b.WriteString("- For custom actions, pass only declared `with:` inputs; do not add executor fields hidden by the template.")
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func baseConfigCustomStepTypeSources(env EnvironmentInfo, access *auth.WorkspaceAccess) []customStepTypeSource {
-	var sources []customStepTypeSource
+func baseConfigCustomActionSources(env EnvironmentInfo, access *auth.WorkspaceAccess) []customActionSource {
+	var sources []customActionSource
 	if strings.TrimSpace(env.BaseConfigFile) != "" {
 		if _, err := os.Stat(env.BaseConfigFile); err == nil {
-			sources = append(sources, customStepTypeSourceFromFile(
+			sources = append(sources, customActionSourceFromFile(
 				fmt.Sprintf("global Base Config (`%s`)", env.BaseConfigFile),
 				env.BaseConfigFile,
 			))
 		} else if !os.IsNotExist(err) {
-			sources = append(sources, customStepTypeSource{
+			sources = append(sources, customActionSource{
 				label: fmt.Sprintf("global Base Config (`%s`)", env.BaseConfigFile),
 				err:   err,
 			})
@@ -177,7 +190,7 @@ func baseConfigCustomStepTypeSources(env EnvironmentInfo, access *auth.Workspace
 	info, err := os.Stat(workspaceDir)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			sources = append(sources, customStepTypeSource{
+			sources = append(sources, customActionSource{
 				label: fmt.Sprintf("workspace base config directory (`%s`)", workspaceDir),
 				err:   err,
 			})
@@ -185,7 +198,7 @@ func baseConfigCustomStepTypeSources(env EnvironmentInfo, access *auth.Workspace
 		return sources
 	}
 	if !info.IsDir() {
-		sources = append(sources, customStepTypeSource{
+		sources = append(sources, customActionSource{
 			label: fmt.Sprintf("workspace base config directory (`%s`)", workspaceDir),
 			err:   fmt.Errorf("%s is not a directory", workspaceDir),
 		})
@@ -194,14 +207,14 @@ func baseConfigCustomStepTypeSources(env EnvironmentInfo, access *auth.Workspace
 	entries, err := os.ReadDir(workspaceDir)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			sources = append(sources, customStepTypeSource{
+			sources = append(sources, customActionSource{
 				label: fmt.Sprintf("workspace base config directory (`%s`)", workspaceDir),
 				err:   err,
 			})
 		}
 		return sources
 	}
-	allWorkspaces, allowedWorkspaces := allowedWorkspaceStepTypes(access)
+	allWorkspaces, allowedWorkspaces := allowedWorkspaceActionSources(access)
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -213,7 +226,7 @@ func baseConfigCustomStepTypeSources(env EnvironmentInfo, access *auth.Workspace
 			}
 		}
 		if err := workspace.ValidateName(workspaceName); err != nil {
-			sources = append(sources, customStepTypeSource{
+			sources = append(sources, customActionSource{
 				label: fmt.Sprintf("workspace `%s` base config", workspaceName),
 				err:   err,
 			})
@@ -222,14 +235,14 @@ func baseConfigCustomStepTypeSources(env EnvironmentInfo, access *auth.Workspace
 		path := filepath.Join(workspaceDir, workspaceName, workspace.BaseConfigFileName)
 		if _, err := os.Stat(path); err != nil {
 			if !os.IsNotExist(err) {
-				sources = append(sources, customStepTypeSource{
+				sources = append(sources, customActionSource{
 					label: fmt.Sprintf("workspace `%s` base config (`%s`)", workspaceName, path),
 					err:   err,
 				})
 			}
 			continue
 		}
-		sources = append(sources, customStepTypeSourceFromFile(
+		sources = append(sources, customActionSourceFromFile(
 			fmt.Sprintf("workspace `%s` base config", workspaceName),
 			path,
 		))
@@ -237,7 +250,7 @@ func baseConfigCustomStepTypeSources(env EnvironmentInfo, access *auth.Workspace
 	return sources
 }
 
-func allowedWorkspaceStepTypes(access *auth.WorkspaceAccess) (bool, map[string]struct{}) {
+func allowedWorkspaceActionSources(access *auth.WorkspaceAccess) (bool, map[string]struct{}) {
 	normalized := auth.NormalizeWorkspaceAccess(access)
 	if normalized.All {
 		return true, nil
@@ -252,26 +265,34 @@ func allowedWorkspaceStepTypes(access *auth.WorkspaceAccess) (bool, map[string]s
 	return false, allowed
 }
 
-func customStepTypeSourceFromFile(label, path string) customStepTypeSource {
+func customActionSourceFromFile(label, path string) customActionSource {
 	data, err := os.ReadFile(path) //nolint:gosec
 	if err != nil {
-		return customStepTypeSource{label: label, err: err}
+		return customActionSource{label: label, err: err}
+	}
+	actionHints, err := spec.InheritedCustomActionEditorHints(data)
+	if err != nil {
+		return customActionSource{label: label, err: err}
 	}
 	hints, err := spec.InheritedCustomStepTypeEditorHints(data)
 	if err != nil {
-		return customStepTypeSource{label: label, err: err}
+		return customActionSource{label: label, err: err}
 	}
-	refs := make([]customStepTypeRef, 0, len(hints))
+	actions := make([]customActionRef, 0, len(actionHints))
+	for _, hint := range actionHints {
+		actions = append(actions, customActionRef{name: hint.Name})
+	}
+	legacyStepTypes := make([]customStepTypeRef, 0, len(hints))
 	for _, hint := range hints {
-		refs = append(refs, customStepTypeRef{
+		legacyStepTypes = append(legacyStepTypes, customStepTypeRef{
 			name:       hint.Name,
 			targetType: hint.TargetType,
 		})
 	}
-	return customStepTypeSource{label: label, refs: refs}
+	return customActionSource{label: label, actions: actions, legacyStepTypes: legacyStepTypes}
 }
 
-func formatStepTypeNames(names []string) string {
+func formatNames(names []string) string {
 	quoted := make([]string, 0, len(names))
 	for _, name := range names {
 		name = strings.TrimSpace(name)
@@ -283,7 +304,15 @@ func formatStepTypeNames(names []string) string {
 	return strings.Join(quoted, ", ")
 }
 
-func formatCustomStepTypeRefs(refs []customStepTypeRef) string {
+func formatCustomActionRefs(refs []customActionRef) string {
+	names := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		names = append(names, ref.name)
+	}
+	return formatNames(names)
+}
+
+func formatLegacyStepTypeRefs(refs []customStepTypeRef) string {
 	formatted := make([]string, 0, len(refs))
 	for _, ref := range refs {
 		formatted = append(formatted, fmt.Sprintf("`%s` -> `%s`", ref.name, ref.targetType))

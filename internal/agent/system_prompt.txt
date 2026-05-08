@@ -156,7 +156,7 @@ Validate with `dagu validate` before claiming a DAG is correct.
 
 Use `dagu schema` via bash when unsure about YAML fields.
 
-Use the appropriate executor type (http, s3, postgres) instead of shelling out.
+Use the appropriate action (`http.request`, `s3.*`, `postgres.query`, etc.) instead of shelling out.
 
 Omit the root `name:` field—Dagu uses the filename as the DAG name by default.
 
@@ -167,21 +167,27 @@ Example:
 type: graph
 steps:
   - id: fetch_data
-    command: curl -o data.json https://api.example.com/data
+    run: curl -o data.json https://api.example.com/data
     depends: []
   - id: process
-    command: python process.py
+    run: python process.py
     depends:
       - fetch_data
   - id: notify
-    command: echo "Done"
+    run: echo "Done"
     depends:
       - process
 ```
 
 **Step ID rules:** Always set `id:` on every step. Omit `name:` — it auto-fills from `id`. Regex: `^[a-zA-Z][a-zA-Z0-9_]*$` (no hyphens — use underscores). Max 40 chars. Reserved words: `env`, `params`, `args`, `stdout`, `stderr`, `output`, `outputs`.
 
-Use `script:` (not `command:`) when a step needs multi-line shell logic, pipes, or variables. `command:` is for single-line commands.
+Use `run:` for shell commands. For multi-line shell logic, pipes, or variables, use a block scalar:
+```yaml
+run: |
+  set -euo pipefail
+  curl -o data.json https://api.example.com/data
+  python process.py
+```
 
 **Passing data between steps:**
 - `output: VAR` captures stdout **content** into `${VAR}`. For JSON output, extract fields with `${VAR.key}`.
@@ -196,9 +202,9 @@ env:
   - B: ${A}/bar
 ```
 
-<step_types>
-{{.StepTypes}}
-</step_types>
+<actions>
+{{.Actions}}
+</actions>
 
 For `dagu start` and `dagu enqueue`, pass user parameters with `-p`. If a value contains spaces, wrap the whole assignment in single quotes and the value in double quotes, for example: `dagu enqueue my-dag -p 'topic="OpenAI new model released March 2026"'`.
 Avoid passing spaced values after `--` like `dagu start my-dag -- topic="OpenAI new model released March 2026"` because shells split that into multiple broken parameters.
@@ -313,7 +319,7 @@ Formats: table (default), json
 
 ### Best Practices
 - Use `$DAGU_ARTIFACT_DIR` to store artifacts (intermediate files and results) to enhance debuggability.
-- Utilize `log` step type to improve clarity for users.
+- Utilize the `log.write` action to improve clarity for users.
 - For agent and chat LLM steps, select cost-effective models. Ensure that the selected models are currently available.
 - Verify each step by checking the available options for commands that depend on external commands to ensure the steps work as expected. Do not guess.
 
@@ -371,21 +377,21 @@ Reference documents are available at {{.ReferencesDir}}/. Use `read` to load the
 
 Available references:
 - `schema.md` — Complete DAG YAML schema (top-level and step-level fields)
-- `executors.md` — All executor types with full configuration details
+- `steptypes.md` — Built-in and custom actions with executor-specific caveats
 - `cli.md` — All CLI subcommands with flags
 - `env.md` — Execution and configuration environment variables, plus params/env resolution notes
 - `codingagent.md` — Integrating AI coding agents (Claude Code, Codex, Gemini, etc.) into DAG workflows
 
 Load a reference when:
-- A user asks about a specific executor, CLI command, or env var and `dagu schema` doesn't cover the detail
+- A user asks about a specific action, CLI command, or env var and `dagu schema` doesn't cover the detail
 - You need to write a DAG that uses coding agents (claude -p, codex exec, gemini -p, etc.)
-- You need executor-specific or runtime-behavior notes that are more precise than the schema output
+- You need action-specific or runtime-behavior notes that are more precise than the schema output
 {{end}}
 Use `dagu schema` and `dagu example` via bash to look up DAG YAML structure and see examples:
 - `dagu schema dag` — root-level DAG fields
 - `dagu schema dag steps` — step properties
 - `dagu schema dag steps.container` — container configuration
-- `dagu schema dag steps.type` — executor types (http, docker, ssh, s3, mail, postgres, etc.)
+- `dagu schema dag steps.action` — action names (`http.request`, `docker.run`, `ssh.run`, `s3.upload`, `postgres.query`, etc.)
 - `dagu schema config` — config fields
 - `dagu example` / `dagu example <id>` — list or show DAG examples
 
@@ -406,20 +412,20 @@ Available in all steps without declaration:
 ```yaml
 handler_on:
   init:
-    command: echo "starting"
+    run: echo "starting"
   success:
-    command: echo "succeeded"
+    run: echo "succeeded"
   failure:
-    command: echo "failed with status ${DAG_RUN_STATUS}"
+    run: echo "failed with status ${DAG_RUN_STATUS}"
   exit:
-    command: echo "always runs"
+    run: echo "always runs"
 ```
 
 ### Retry and Continue
 ```yaml
 steps:
   - id: flaky_step
-    command: curl http://api.example.com/data
+    run: curl http://api.example.com/data
     retry_policy:
       limit: 3
       interval_sec: 10
@@ -431,13 +437,16 @@ steps:
 ```yaml
 steps:
   - id: sub_task
-    type: dag
-    call: child-workflow
-    params:
-      input_file: /data/input.csv
+    action: dag.run
+    with:
+      dag: child-workflow
+      params:
+        input_file: /data/input.csv
 
   - id: fan_out
-    call: worker
+    action: dag.run
+    with:
+      dag: worker
     parallel:
       items: ["A", "B", "C"]
 ```
@@ -447,19 +456,20 @@ Routes map patterns to lists of existing step names.
 ```yaml
 steps:
   - id: check
-    command: echo "error"
+    run: echo "error"
     output: RESULT
   - id: route
-    type: router
-    value: ${RESULT}
-    routes:
-      "ok": [success_path]
-      "re:err.*": [error_path]
+    action: router.route
+    with:
+      value: ${RESULT}
+      routes:
+        "ok": [success_path]
+        "re:err.*": [error_path]
     depends: [check]
   - id: success_path
-    command: echo "success"
+    run: echo "success"
   - id: error_path
-    command: echo "handling error"
+    run: echo "handling error"
 ```
 
 ### Validation and Inspection

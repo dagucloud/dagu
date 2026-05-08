@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/internal/auth"
-	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -54,27 +53,36 @@ func TestGenerateSystemPrompt(t *testing.T) {
 		assert.Contains(t, result, "Authenticated role: admin")
 	})
 
-	t.Run("includes available step type guidance", func(t *testing.T) {
+	t.Run("includes available action guidance", func(t *testing.T) {
 		t.Parallel()
 		env := EnvironmentInfo{
 			BaseConfigFile: "/config/base.yaml",
+			ReferencesDir:  "/data/agent/references",
 		}
 
 		result := GenerateSystemPrompt(SystemPromptParams{Env: env, Role: auth.RoleDeveloper})
+		legacyReference := "executor" + "s.md"
+		legacySchemaPath := "dagu schema dag steps." + "type"
 
-		assert.Contains(t, result, "<step_types>")
-		assert.Contains(t, result, "Available step types are generated from runtime registrations and base config files")
-		assert.Contains(t, result, "Builtin/runtime:")
-		assert.Contains(t, result, "`command`")
-		assert.Contains(t, result, "`shell`")
-		assert.Contains(t, result, "`kubernetes`")
-		assert.Contains(t, result, "`k8s`")
-		assert.Contains(t, result, "`chat`")
-		assert.Contains(t, result, "`agent`")
-		assert.Contains(t, result, "`harness`")
-		assert.Contains(t, result, "Omit `type` for plain command/script steps")
-		assert.Contains(t, result, "Base config custom step types")
-		assert.Contains(t, result, "Current DAG-local custom step types: inspect `step_types:`")
+		assert.Contains(t, result, "<actions>")
+		assert.Contains(t, result, "Available actions are generated from the built-in action registry and base config files")
+		assert.Contains(t, result, "Builtin actions:")
+		assert.Contains(t, result, "`dag.run`")
+		assert.Contains(t, result, "`http.request`")
+		assert.Contains(t, result, "`kubernetes.run`")
+		assert.Contains(t, result, "`k8s.run`")
+		assert.Contains(t, result, "`chat.completion`")
+		assert.Contains(t, result, "`agent.run`")
+		assert.Contains(t, result, "`harness.run`")
+		assert.Contains(t, result, "`redis.<operation>`")
+		assert.Contains(t, result, "Use top-level `run:` for plain shell commands and scripts")
+		assert.Contains(t, result, "Base config custom actions")
+		assert.Contains(t, result, "Current DAG-local custom actions: inspect `actions:`")
+		assert.Contains(t, result, "Legacy DAG-local `step_types:` entries")
+		assert.Contains(t, result, "`steptypes.md` — Built-in and custom actions")
+		assert.Contains(t, result, "dagu schema dag steps.action")
+		assert.NotContains(t, result, legacyReference)
+		assert.NotContains(t, result, legacySchemaPath)
 		assert.NotContains(t, result, "global Base Config (`/config/base.yaml`): unable to inspect")
 	})
 
@@ -280,18 +288,31 @@ func TestGenerateSystemPrompt(t *testing.T) {
 	})
 }
 
-func TestGenerateSystemPromptDynamicStepTypes(t *testing.T) {
-	t.Run("includes runtime registered step type names", func(t *testing.T) {
-		const customExecutorType = "dynamic_prompt_executor"
-		spec.RegisterExecutorTypeName(customExecutorType)
-		t.Cleanup(func() { spec.UnregisterExecutorTypeName(customExecutorType) })
+func TestGenerateSystemPromptDynamicActions(t *testing.T) {
+	t.Run("includes custom actions from base config file", func(t *testing.T) {
+		dir := t.TempDir()
+		baseConfigPath := filepath.Join(dir, "base.yaml")
+		require.NoError(t, os.WriteFile(baseConfigPath, []byte(`
+actions:
+  report.write:
+    description: Write a report
+    input_schema:
+      type: object
+      additionalProperties: false
+    template:
+      run: echo report
+`), 0o600))
 
-		result := GenerateSystemPrompt(SystemPromptParams{Role: auth.RoleDeveloper})
+		result := GenerateSystemPrompt(SystemPromptParams{
+			Env:  EnvironmentInfo{BaseConfigFile: baseConfigPath},
+			Role: auth.RoleDeveloper,
+		})
 
-		assert.Contains(t, result, "`dynamic_prompt_executor`")
+		assert.Contains(t, result, "global Base Config")
+		assert.Contains(t, result, "`report.write`")
 	})
 
-	t.Run("includes custom step types from base config file", func(t *testing.T) {
+	t.Run("includes legacy step_types from base config as migration-only entries", func(t *testing.T) {
 		dir := t.TempDir()
 		baseConfigPath := filepath.Join(dir, "base.yaml")
 		require.NoError(t, os.WriteFile(baseConfigPath, []byte(`
@@ -311,24 +332,24 @@ step_types:
 			Role: auth.RoleDeveloper,
 		})
 
-		assert.Contains(t, result, "global Base Config")
+		assert.Contains(t, result, "legacy `step_types:` entries")
 		assert.Contains(t, result, "`report_writer` -> `command`")
+		assert.Contains(t, result, "Prefer `actions:` for new work")
 	})
 
-	t.Run("includes custom step types from workspace base config files", func(t *testing.T) {
+	t.Run("includes custom actions from workspace base config files", func(t *testing.T) {
 		dir := t.TempDir()
 		workspaceBaseDir := filepath.Join(dir, "workspaces", "ops")
 		require.NoError(t, os.MkdirAll(workspaceBaseDir, 0o750))
 		require.NoError(t, os.WriteFile(filepath.Join(workspaceBaseDir, "base.yaml"), []byte(`
-step_types:
-  deploy_service:
-    type: command
+actions:
+  deploy.service:
     description: Deploy service
     input_schema:
       type: object
       additionalProperties: false
     template:
-      command: echo deploy
+      run: echo deploy
 `), 0o600))
 
 		result := GenerateSystemPrompt(SystemPromptParams{
@@ -337,28 +358,27 @@ step_types:
 		})
 
 		assert.Contains(t, result, "workspace `ops`")
-		assert.Contains(t, result, "`deploy_service` -> `command`")
+		assert.Contains(t, result, "`deploy.service`")
 	})
 
 	t.Run("filters workspace base config files by workspace access", func(t *testing.T) {
 		dir := t.TempDir()
-		for workspaceName, stepTypeName := range map[string]string{
-			"ops":  "deploy_service",
-			"prod": "prod_release",
+		for workspaceName, actionName := range map[string]string{
+			"ops":  "deploy.service",
+			"prod": "prod.release",
 		} {
 			workspaceBaseDir := filepath.Join(dir, "workspaces", workspaceName)
 			require.NoError(t, os.MkdirAll(workspaceBaseDir, 0o750))
 			require.NoError(t, os.WriteFile(filepath.Join(workspaceBaseDir, "base.yaml"), fmt.Appendf(nil, `
-step_types:
+actions:
   %s:
-    type: command
-    description: Workspace step
+    description: Workspace action
     input_schema:
       type: object
       additionalProperties: false
     template:
-      command: echo workspace
-`, stepTypeName), 0o600))
+      run: echo workspace
+`, actionName), 0o600))
 		}
 
 		result := GenerateSystemPrompt(SystemPromptParams{
@@ -370,20 +390,20 @@ step_types:
 		})
 
 		assert.Contains(t, result, "workspace `ops`")
-		assert.Contains(t, result, "`deploy_service` -> `command`")
+		assert.Contains(t, result, "`deploy.service`")
 		assert.NotContains(t, result, "workspace `prod`")
-		assert.NotContains(t, result, "prod_release")
+		assert.NotContains(t, result, "prod.release")
 	})
 
 	t.Run("surfaces workspace base config directory inspection errors", func(t *testing.T) {
 		dir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "workspaces"), []byte("not a directory"), 0o600))
 
-		result := buildStepTypesPrompt(EnvironmentInfo{DAGsDir: dir}, nil)
+		result := buildActionsPrompt(EnvironmentInfo{DAGsDir: dir}, nil)
 
 		assert.Contains(t, result, "workspace base config directory")
 		assert.Contains(t, result, "unable to inspect")
-		assert.NotContains(t, result, "none found in configured base config files")
+		assert.NotContains(t, result, "Base config custom actions: none found in configured base config files")
 	})
 }
 
