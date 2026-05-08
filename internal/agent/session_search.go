@@ -38,7 +38,7 @@ func init() {
 // SessionSearchInput defines the input parameters for the session_search tool.
 type SessionSearchInput struct {
 	Query string `json:"query"`
-	Limit int    `json:"limit,omitempty"`
+	Limit int    `json:"limit,omitempty" lenient:"true"`
 }
 
 type sessionSearchResult struct {

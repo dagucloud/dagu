@@ -39,15 +39,15 @@ const (
 
 type runbookManageInput struct {
 	Action      runbookManageAction `json:"action"`
-	ID          string              `json:"id,omitempty"`
-	NewID       string              `json:"new_id,omitempty"`
-	Query       string              `json:"query,omitempty"`
-	Title       string              `json:"title,omitempty"`
-	Description string              `json:"description,omitempty"`
-	Content     string              `json:"content,omitempty"`
-	OldString   string              `json:"old_string,omitempty"`
-	NewString   string              `json:"new_string,omitempty"`
-	Limit       int                 `json:"limit,omitempty"`
+	ID          string              `json:"id,omitempty" lenient:"true"`
+	NewID       string              `json:"new_id,omitempty" lenient:"true"`
+	Query       string              `json:"query,omitempty" lenient:"true"`
+	Title       string              `json:"title,omitempty" lenient:"true"`
+	Description string              `json:"description,omitempty" lenient:"true"`
+	Content     string              `json:"content,omitempty" lenient:"true"`
+	OldString   string              `json:"old_string,omitempty" lenient:"true"`
+	NewString   string              `json:"new_string,omitempty" lenient:"true"`
+	Limit       int                 `json:"limit,omitempty" lenient:"true"`
 }
 
 type runbookMetadataOutput struct {

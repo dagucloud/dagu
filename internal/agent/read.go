@@ -30,8 +30,8 @@ const (
 // ReadToolInput defines the input parameters for the read tool.
 type ReadToolInput struct {
 	Path   string `json:"path"`
-	Offset int    `json:"offset,omitempty"`
-	Limit  int    `json:"limit,omitempty"`
+	Offset int    `json:"offset,omitempty" lenient:"true"`
+	Limit  int    `json:"limit,omitempty" lenient:"true"`
 }
 
 // NewReadTool creates a new read tool for file reading.

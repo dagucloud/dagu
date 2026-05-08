@@ -35,26 +35,26 @@ func init() {
 
 type dagRunManageInput struct {
 	Action      string   `json:"action"`
-	DAGName     string   `json:"dagName,omitempty"`
-	DAGRunID    string   `json:"dagRunId,omitempty"`
-	SubDAGRunID string   `json:"subDAGRunId,omitempty"`
-	WatchID     string   `json:"watchId,omitempty"`
-	StepName    string   `json:"stepName,omitempty"`
-	Stream      string   `json:"stream,omitempty"`
-	Status      []string `json:"status,omitempty"`
-	Labels      []string `json:"labels,omitempty"`
-	NotifyOn    []string `json:"notifyOn,omitempty"`
-	Last        string   `json:"last,omitempty"`
-	From        string   `json:"from,omitempty"`
-	To          string   `json:"to,omitempty"`
-	Limit       int      `json:"limit,omitempty"`
-	Cursor      string   `json:"cursor,omitempty"`
-	Head        int      `json:"head,omitempty"`
-	Tail        int      `json:"tail,omitempty"`
-	Offset      int      `json:"offset,omitempty"`
-	Encoding    string   `json:"encoding,omitempty"`
+	DAGName     string   `json:"dagName,omitempty" lenient:"true"`
+	DAGRunID    string   `json:"dagRunId,omitempty" lenient:"true"`
+	SubDAGRunID string   `json:"subDAGRunId,omitempty" lenient:"true"`
+	WatchID     string   `json:"watchId,omitempty" lenient:"true"`
+	StepName    string   `json:"stepName,omitempty" lenient:"true"`
+	Stream      string   `json:"stream,omitempty" lenient:"true"`
+	Status      []string `json:"status,omitempty" lenient:"true"`
+	Labels      []string `json:"labels,omitempty" lenient:"true"`
+	NotifyOn    []string `json:"notifyOn,omitempty" lenient:"true"`
+	Last        string   `json:"last,omitempty" lenient:"true"`
+	From        string   `json:"from,omitempty" lenient:"true"`
+	To          string   `json:"to,omitempty" lenient:"true"`
+	Limit       int      `json:"limit,omitempty" lenient:"true"`
+	Cursor      string   `json:"cursor,omitempty" lenient:"true"`
+	Head        int      `json:"head,omitempty" lenient:"true"`
+	Tail        int      `json:"tail,omitempty" lenient:"true"`
+	Offset      int      `json:"offset,omitempty" lenient:"true"`
+	Encoding    string   `json:"encoding,omitempty" lenient:"true"`
 	// DiagnoseOnFailure defaults to true for watch notifications.
-	DiagnoseOnFailure *bool `json:"diagnoseOnFailure,omitempty"`
+	DiagnoseOnFailure *bool `json:"diagnoseOnFailure,omitempty" lenient:"true"`
 }
 
 type dagRunManageLogRef struct {

@@ -27,7 +27,7 @@ func init() {
 }
 
 type listContextsInput struct {
-	NameFilter string `json:"name_filter,omitempty"`
+	NameFilter string `json:"name_filter,omitempty" lenient:"true"`
 }
 
 func NewListContextsTool(resolver RemoteContextResolver) *AgentTool {

@@ -60,11 +60,10 @@ func isRootedPath(path string) bool {
 	return path[0] == '/' || path[0] == '\\'
 }
 
-// decodeToolInput decodes tool-call arguments leniently. Models sometimes send
-// optional fields that are irrelevant to the selected action, or include stale
-// fields from another operation. Unknown fields and malformed optional fields
-// should not block the tool; action-specific validation below each tool decides
-// which fields are actually required.
+// decodeToolInput decodes tool-call arguments while preserving compatibility
+// with loose model output. Unknown fields are ignored. Known fields are decoded
+// normally unless tagged with `lenient:"true"`, which lets action-specific
+// validation ignore irrelevant or optional malformed fields.
 func decodeToolInput(input json.RawMessage, dest any) error {
 	if strings.TrimSpace(string(input)) == "" {
 		input = json.RawMessage(`{}`)
@@ -103,7 +102,12 @@ func decodeToolInput(input json.RawMessage, dest any) error {
 		if !field.CanSet() {
 			continue
 		}
-		_ = json.Unmarshal(raw, field.Addr().Interface())
+		if err := json.Unmarshal(raw, field.Addr().Interface()); err != nil {
+			if fieldType.Tag.Get("lenient") == "true" {
+				continue
+			}
+			return fmt.Errorf("field %q: %w", name, err)
+		}
 	}
 
 	return nil

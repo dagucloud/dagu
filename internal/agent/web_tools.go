@@ -75,7 +75,7 @@ func init() {
 // WebSearchToolInput defines the input parameters for web_search.
 type WebSearchToolInput struct {
 	Query string `json:"query"`
-	Limit int    `json:"limit,omitempty"`
+	Limit int    `json:"limit,omitempty" lenient:"true"`
 }
 
 // WebExtractToolInput defines the input parameters for web_extract.

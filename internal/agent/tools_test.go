@@ -74,7 +74,7 @@ func TestDecodeToolInput(t *testing.T) {
 
 		var got struct {
 			Action string `json:"action"`
-			Limit  int    `json:"limit,omitempty"`
+			Limit  int    `json:"limit,omitempty" lenient:"true"`
 		}
 
 		err := decodeToolInput(json.RawMessage(`{
@@ -88,7 +88,7 @@ func TestDecodeToolInput(t *testing.T) {
 		assert.Zero(t, got.Limit)
 	})
 
-	t.Run("keeps malformed required fields at zero value for normal validation", func(t *testing.T) {
+	t.Run("rejects malformed known fields unless marked lenient", func(t *testing.T) {
 		t.Parallel()
 
 		var got struct {
@@ -97,7 +97,8 @@ func TestDecodeToolInput(t *testing.T) {
 
 		err := decodeToolInput(json.RawMessage(`{"path": 123, "extra": "ignored"}`), &got)
 
-		require.NoError(t, err)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `field "path"`)
 		assert.Empty(t, got.Path)
 	})
 

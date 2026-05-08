@@ -49,10 +49,10 @@ const (
 type PatchToolInput struct {
 	Path      string         `json:"path"`
 	Operation PatchOperation `json:"operation"`
-	Content   string         `json:"content,omitempty"`    // For create, append, and insert operations
-	OldString string         `json:"old_string,omitempty"` // For replace operation
-	NewString string         `json:"new_string,omitempty"` // For replace operation
-	Anchor    string         `json:"anchor,omitempty"`     // For insert operations
+	Content   string         `json:"content,omitempty" lenient:"true"`    // For create, append, and insert operations
+	OldString string         `json:"old_string,omitempty" lenient:"true"` // For replace operation
+	NewString string         `json:"new_string,omitempty" lenient:"true"` // For replace operation
+	Anchor    string         `json:"anchor,omitempty" lenient:"true"`     // For insert operations
 }
 
 // NewPatchTool creates a new patch tool for file editing.

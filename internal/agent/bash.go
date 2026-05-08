@@ -52,7 +52,7 @@ type commandRunResult struct {
 // BashToolInput defines the input parameters for the bash tool.
 type BashToolInput struct {
 	Command string `json:"command"`
-	Timeout int    `json:"timeout,omitempty"`
+	Timeout int    `json:"timeout,omitempty" lenient:"true"`
 }
 
 // NewBashTool creates a new bash tool for shell command execution.
