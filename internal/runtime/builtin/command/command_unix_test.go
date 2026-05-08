@@ -6,6 +6,7 @@
 package command
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -121,7 +122,7 @@ func runCommandParentDeathHelper(t *testing.T) {
 	select {
 	case err := <-errCh:
 		if err != nil {
-			require.Contains(t, err.Error(), "killed")
+			require.Truef(t, isSIGKILLExitError(err), "expected SIGKILL exit error, got %v", err)
 		}
 	case <-time.After(30 * time.Second):
 		t.Fatal("helper was not killed by parent test")
@@ -131,4 +132,13 @@ func runCommandParentDeathHelper(t *testing.T) {
 func processGroupAlive(pid int) bool {
 	err := syscall.Kill(-pid, 0)
 	return err == nil || err == syscall.EPERM
+}
+
+func isSIGKILLExitError(err error) bool {
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return false
+	}
+	status, ok := exitErr.Sys().(syscall.WaitStatus)
+	return ok && status.Signaled() && status.Signal() == syscall.SIGKILL
 }
