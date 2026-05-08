@@ -1,4 +1,11 @@
-import { useCallback, useLayoutEffect, useMemo, useRef } from 'react';
+import {
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from 'react';
+
+import { Loader2 } from 'lucide-react';
 
 import { DelegateInfo, Message, UserPromptResponse } from '../types';
 import { CommandApprovalMessage } from './CommandApprovalMessage';
@@ -77,7 +84,7 @@ export function ChatMessages({
     return ids;
   }, [messages]);
 
-  if (messages.length === 0 && !pendingUserMessage) {
+  if (messages.length === 0 && !pendingUserMessage && !isWorking) {
     return (
       <div className="min-h-0 flex-1 overflow-y-auto bg-background">
         <div className="flex h-full items-center justify-center p-6 text-center">
@@ -125,9 +132,7 @@ export function ChatMessages({
         {pendingUserMessage && (
           <UserMessage content={pendingUserMessage} isPending />
         )}
-        {isWorking && !hasPendingPrompt && (
-          <WorkingIndicator />
-        )}
+        {isWorking && !hasPendingPrompt && <WorkingIndicator />}
       </div>
     </div>
   );
@@ -138,14 +143,12 @@ function WorkingIndicator(): React.ReactNode {
     <div
       role="status"
       aria-label="Agent response in progress"
-      className="flex pl-1"
+      className="flex h-4 items-center pl-1"
     >
-      <span
+      <Loader2
         aria-hidden="true"
-        className="inline-block font-mono text-sm leading-none text-muted-foreground motion-safe:animate-pulse motion-reduce:animate-none"
-      >
-        ...
-      </span>
+        className="h-3 w-3 animate-spin text-muted-foreground"
+      />
     </div>
   );
 }

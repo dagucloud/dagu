@@ -150,7 +150,7 @@ describe('ChatMessages tool activity', () => {
     expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
-  it('renders the working state as a quiet ASCII indicator', () => {
+  it('renders the working state as a quiet rotating indicator', () => {
     const { container } = renderMessages(
       [
         {
@@ -165,9 +165,26 @@ describe('ChatMessages tool activity', () => {
       { isWorking: true }
     );
 
-    expect(container.textContent).toContain('...');
+    const status = screen.getByRole('status', {
+      name: 'Agent response in progress',
+    });
+
+    expect(status).toBeInTheDocument();
+    expect(status.textContent).toBe('');
     expect(screen.queryByText(/Agent is working/i)).not.toBeInTheDocument();
-    expect(container.querySelector('.animate-spin')).toBeNull();
+    expect(container.querySelector('.animate-spin')).not.toBeNull();
+    expect(container.querySelector('.animate-pulse')).toBeNull();
+  });
+
+  it('shows the rotating indicator while waiting for the first message', () => {
+    renderMessages([], { isWorking: true });
+
+    const status = screen.getByRole('status', {
+      name: 'Agent response in progress',
+    });
+
+    expect(status.querySelector('.animate-spin')).not.toBeNull();
+    expect(screen.queryByText('Agent session ready')).not.toBeInTheDocument();
   });
 
   it('uses action-specific short labels for tools', () => {
