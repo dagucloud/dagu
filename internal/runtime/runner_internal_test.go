@@ -146,7 +146,7 @@ func TestSetupVariables_StepEnvEvaluatesSequentiallyWithRuntimeVars(t *testing.T
 
 			result := AllEnvsMap(ctx)
 			assert.Equal(t, artifactDir, result["WORK_DIR"])
-			assert.Equal(t, filepath.Join(artifactDir, "current_idea.md"), result["CURRENT_IDEA_PATH"])
+			assert.Equal(t, filepath.Join(artifactDir, "current_idea.md"), filepath.Clean(result["CURRENT_IDEA_PATH"]))
 		})
 	}
 }

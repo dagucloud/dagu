@@ -321,9 +321,9 @@ func TestNewContext_DAGEnvCanReferenceRuntimeManagedDirs(t *testing.T) {
 	)
 
 	result := exec.GetContext(ctx).UserEnvsMap()
-	assert.Equal(t, filepath.Join(docsDir, dag.Name, "current-plan.md"), result["PLAN_PATH"])
+	assert.Equal(t, filepath.Join(docsDir, dag.Name, "current-plan.md"), filepath.Clean(result["PLAN_PATH"]))
 	assert.Equal(t, artifactDir, result["WORK_DIR"])
-	assert.Equal(t, filepath.Join(artifactDir, "current_idea.md"), result["CURRENT_IDEA_PATH"])
+	assert.Equal(t, filepath.Join(artifactDir, "current_idea.md"), filepath.Clean(result["CURRENT_IDEA_PATH"]))
 	assert.Equal(t, artifactDir, result[exec.EnvKeyDAGRunArtifactsDir])
 }
 
