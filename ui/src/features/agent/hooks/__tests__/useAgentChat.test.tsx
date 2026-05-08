@@ -336,6 +336,53 @@ describe('useAgentChat fallback polling', () => {
     expect(navigateMock).not.toHaveBeenCalled();
   });
 
+  it('does not replay historical navigate actions when a restored transcript loads after the session id', async () => {
+    let resolveSessionDetail:
+      | ((value: { data: ReturnType<typeof makeSessionDetailResponse> }) => void)
+      | undefined;
+    getMock.mockImplementation(
+      (
+        _path: string,
+        request?: { params?: { path?: { sessionId?: string } } }
+      ) => {
+        if (request?.params?.path?.sessionId === 'sess-1') {
+          return new Promise((resolve) => {
+            resolveSessionDetail = resolve;
+          });
+        }
+        throw new Error('unexpected request');
+      }
+    );
+
+    const { result } = renderHook(() => useAgentChatWithOpen(), {
+      wrapper: TestProviders,
+    });
+
+    act(() => {
+      result.current.openChat();
+    });
+
+    let selectPromise: Promise<void> = Promise.resolve();
+    act(() => {
+      selectPromise = result.current.selectSession('sess-1');
+    });
+
+    expect(result.current.sessionId).toBe('sess-1');
+    expect(navigateMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveSessionDetail?.({
+        data: makeSessionDetailResponse({
+          messages: [makeApiUIActionMessage('ui-1', '/dags/existing-dag')],
+        }),
+      });
+      await selectPromise;
+    });
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
   it('navigates when a ui_action arrives via fallback polling', async () => {
     const sessionResponses = [
       makeSessionDetailResponse({
