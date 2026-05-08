@@ -10,6 +10,7 @@ import (
 	"io"
 	"maps"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/config"
@@ -321,20 +322,25 @@ func NewContext(
 	}
 
 	maps.Copy(envs, stringutil.KeyValuesToMap(options.params))
-	maps.Copy(envs, stringutil.KeyValuesToMap(dag.Env))
+
+	runtimeEnvs := make(map[string]string, 4)
+	if options.workDir != "" {
+		runtimeEnvs[EnvKeyDAGRunWorkDir] = options.workDir
+	}
+	if options.artifactDir != "" {
+		runtimeEnvs[EnvKeyDAGRunArtifactsDir] = options.artifactDir
+	}
+	if dag.ParamsJSON != "" {
+		runtimeEnvs[EnvKeyDAGParamsJSONCompat] = dag.ParamsJSON
+		runtimeEnvs[EnvKeyDAGParamsJSON] = dag.ParamsJSON
+	}
+	maps.Copy(envs, runtimeEnvs)
+
+	maps.Copy(envs, evaluateDAGEnvRuntime(ctx, dag.Env, envs))
 	maps.Copy(envs, stringutil.KeyValuesToMap(options.envs))
 
 	// Set runtime-managed env vars after merges so user-defined params/env cannot override them.
-	if options.workDir != "" {
-		envs[EnvKeyDAGRunWorkDir] = options.workDir
-	}
-	if options.artifactDir != "" {
-		envs[EnvKeyDAGRunArtifactsDir] = options.artifactDir
-	}
-	if dag.ParamsJSON != "" {
-		envs[EnvKeyDAGParamsJSONCompat] = dag.ParamsJSON
-		envs[EnvKeyDAGParamsJSON] = dag.ParamsJSON
-	}
+	maps.Copy(envs, runtimeEnvs)
 
 	secretEnvs := stringutil.KeyValuesToMap(options.secretEnvs)
 
@@ -365,6 +371,38 @@ func NewContext(
 		LogWriterFactory:   options.logWriterFactory,
 		DefaultExecMode:    options.defaultExecMode,
 	})
+}
+
+func evaluateDAGEnvRuntime(ctx context.Context, envList []string, base map[string]string) map[string]string {
+	if len(envList) == 0 {
+		return nil
+	}
+
+	// DAG env is primarily evaluated during DAG loading. This runtime pass only
+	// resolves values that depend on run-scoped variables unavailable at load time.
+	result := make(map[string]string, len(envList))
+	scope := eval.NewEnvScope(nil, false)
+	if baseEnv := config.GetBaseEnv(ctx); baseEnv != nil {
+		scope = scope.WithEntries(stringutil.KeyValuesToMap(baseEnv.AsSlice()), eval.EnvSourceOS)
+	}
+	scope = scope.WithEntries(base, eval.EnvSourceDAGEnv)
+
+	for _, entry := range envList {
+		key, value, found := strings.Cut(entry, "=")
+		if !found {
+			continue
+		}
+
+		evalCtx := eval.WithEnvScope(ctx, scope)
+		evaluated, err := eval.String(evalCtx, value, eval.WithVariables(result), eval.WithoutSubstitute())
+		if err != nil {
+			evaluated = value
+		}
+		result[key] = evaluated
+		scope = scope.WithEntry(key, evaluated, eval.EnvSourceDAGEnv)
+	}
+
+	return result
 }
 
 // WithContext returns a new context with the given DAGContext.

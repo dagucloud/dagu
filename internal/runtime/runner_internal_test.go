@@ -85,3 +85,35 @@ func TestRunNodeExecution_ExternalStepRetrySkipsRepeatBookkeeping(t *testing.T) 
 	assert.Equal(t, 0, node.State().DoneCount)
 	assert.Equal(t, 1, node.State().RetryCount)
 }
+
+func TestSetupVariables_StepEnvEvaluatesSequentiallyWithRuntimeVars(t *testing.T) {
+	t.Parallel()
+
+	artifactDir := filepath.Join(t.TempDir(), "artifacts", "run-1")
+	step := core.Step{
+		Name: "render",
+		Env: []string{
+			"WORK_DIR=${DAG_RUN_ARTIFACTS_DIR}",
+			"CURRENT_IDEA_PATH=${WORK_DIR}/current_idea.md",
+		},
+	}
+	plan, err := NewPlan(step)
+	require.NoError(t, err)
+	node := plan.GetNodeByName(step.Name)
+	require.NotNil(t, node)
+
+	runner := New(&Config{})
+	ctx := NewContext(
+		context.Background(),
+		&core.DAG{Name: "test-dag", WorkingDir: t.TempDir()},
+		"run-1",
+		filepath.Join(t.TempDir(), "dag.log"),
+		WithArtifactDir(artifactDir),
+	)
+
+	ctx = runner.setupVariables(ctx, plan, node)
+
+	envs := AllEnvsMap(ctx)
+	assert.Equal(t, artifactDir, envs["WORK_DIR"])
+	assert.Equal(t, filepath.Join(artifactDir, "current_idea.md"), envs["CURRENT_IDEA_PATH"])
+}

@@ -719,7 +719,6 @@ func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) con
 	}
 
 	// Helper to evaluate and store environment variables
-	evaluatedEnvs := make(map[string]string)
 	addEnvVars := func(envList []string) {
 		for _, v := range envList {
 			key, value, found := strings.Cut(v, "=")
@@ -735,7 +734,7 @@ func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) con
 				)
 				continue
 			}
-			evaluatedEnvs[key] = evaluatedValue
+			env.Scope = env.Scope.WithEntry(key, evaluatedValue, eval.EnvSourceStepEnv)
 		}
 	}
 
@@ -748,11 +747,6 @@ func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) con
 		addEnvVars(ct.Env)
 	} else if dag := env.DAG; dag != nil && dag.Container != nil {
 		addEnvVars(dag.Container.Env)
-	}
-
-	// Update scope with evaluated step env vars
-	if len(evaluatedEnvs) > 0 {
-		env.Scope = env.Scope.WithEntries(evaluatedEnvs, eval.EnvSourceStepEnv)
 	}
 
 	return WithEnv(ctx, env)
