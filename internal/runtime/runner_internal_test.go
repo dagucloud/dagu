@@ -89,31 +89,64 @@ func TestRunNodeExecution_ExternalStepRetrySkipsRepeatBookkeeping(t *testing.T) 
 func TestSetupVariables_StepEnvEvaluatesSequentiallyWithRuntimeVars(t *testing.T) {
 	t.Parallel()
 
-	artifactDir := filepath.Join(t.TempDir(), "artifacts", "run-1")
-	step := core.Step{
-		Name: "render",
-		Env: []string{
-			"WORK_DIR=${DAG_RUN_ARTIFACTS_DIR}",
-			"CURRENT_IDEA_PATH=${WORK_DIR}/current_idea.md",
+	envs := []string{
+		"WORK_DIR=${DAG_RUN_ARTIFACTS_DIR}",
+		"CURRENT_IDEA_PATH=${WORK_DIR}/current_idea.md",
+	}
+	tests := []struct {
+		name         string
+		step         core.Step
+		dagContainer *core.Container
+	}{
+		{
+			name: "step env",
+			step: core.Step{
+				Name: "render",
+				Env:  envs,
+			},
+		},
+		{
+			name: "step container env",
+			step: core.Step{
+				Name:      "render",
+				Container: &core.Container{Env: envs},
+			},
+		},
+		{
+			name: "dag container fallback env",
+			step: core.Step{Name: "render"},
+			dagContainer: &core.Container{
+				Env: envs,
+			},
 		},
 	}
-	plan, err := NewPlan(step)
-	require.NoError(t, err)
-	node := plan.GetNodeByName(step.Name)
-	require.NotNil(t, node)
 
-	runner := New(&Config{})
-	ctx := NewContext(
-		context.Background(),
-		&core.DAG{Name: "test-dag", WorkingDir: t.TempDir()},
-		"run-1",
-		filepath.Join(t.TempDir(), "dag.log"),
-		WithArtifactDir(artifactDir),
-	)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			artifactDir := filepath.Join(t.TempDir(), "artifacts", "run-1")
+			plan, err := NewPlan(tt.step)
+			require.NoError(t, err)
+			node := plan.GetNodeByName(tt.step.Name)
+			require.NotNil(t, node)
 
-	ctx = runner.setupVariables(ctx, plan, node)
+			runner := New(&Config{})
+			ctx := NewContext(
+				context.Background(),
+				&core.DAG{
+					Name:       "test-dag",
+					WorkingDir: t.TempDir(),
+					Container:  tt.dagContainer,
+				},
+				"run-1",
+				filepath.Join(t.TempDir(), "dag.log"),
+				WithArtifactDir(artifactDir),
+			)
 
-	envs := AllEnvsMap(ctx)
-	assert.Equal(t, artifactDir, envs["WORK_DIR"])
-	assert.Equal(t, filepath.Join(artifactDir, "current_idea.md"), envs["CURRENT_IDEA_PATH"])
+			ctx = runner.setupVariables(ctx, plan, node)
+
+			result := AllEnvsMap(ctx)
+			assert.Equal(t, artifactDir, result["WORK_DIR"])
+			assert.Equal(t, filepath.Join(artifactDir, "current_idea.md"), result["CURRENT_IDEA_PATH"])
+		})
+	}
 }

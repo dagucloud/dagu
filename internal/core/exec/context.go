@@ -336,7 +336,7 @@ func NewContext(
 	}
 	maps.Copy(envs, runtimeEnvs)
 
-	maps.Copy(envs, evaluateDAGEnvRuntime(ctx, dag.Env, envs))
+	maps.Copy(envs, evaluateDAGEnvRuntime(ctx, dag.Env, envs, runtimeEnvs))
 	maps.Copy(envs, stringutil.KeyValuesToMap(options.envs))
 
 	// Set runtime-managed env vars after merges so user-defined params/env cannot override them.
@@ -373,7 +373,7 @@ func NewContext(
 	})
 }
 
-func evaluateDAGEnvRuntime(ctx context.Context, envList []string, base map[string]string) map[string]string {
+func evaluateDAGEnvRuntime(ctx context.Context, envList []string, base map[string]string, protected map[string]string) map[string]string {
 	if len(envList) == 0 {
 		return nil
 	}
@@ -390,6 +390,9 @@ func evaluateDAGEnvRuntime(ctx context.Context, envList []string, base map[strin
 	for _, entry := range envList {
 		key, value, found := strings.Cut(entry, "=")
 		if !found {
+			continue
+		}
+		if _, ok := protected[key]; ok {
 			continue
 		}
 

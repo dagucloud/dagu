@@ -309,6 +309,7 @@ func TestNewContext_DAGEnvCanReferenceRuntimeManagedDirs(t *testing.T) {
 		Env: []string{
 			"OUTPUT_FILE=current-plan.md",
 			"PLAN_PATH=${DAG_DOCS_DIR}/${OUTPUT_FILE}",
+			"DAG_RUN_ARTIFACTS_DIR=/tmp/wrong-artifacts",
 			"WORK_DIR=${DAG_RUN_ARTIFACTS_DIR}",
 			"CURRENT_IDEA_PATH=${WORK_DIR}/current_idea.md",
 		},
