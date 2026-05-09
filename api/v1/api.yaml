@@ -8824,7 +8824,7 @@ components:
       properties:
         inheritedLegacyDefinitions:
           type: array
-          description: "Deprecated legacy custom execution definitions inherited from base config and available to the current DAG"
+          description: "Deprecated legacy execution definitions inherited from base config and available to the current DAG"
           items:
             $ref: "#/components/schemas/InheritedLegacyDefinitionHint"
         inheritedCustomActions:
@@ -8859,17 +8859,17 @@ components:
 
     InheritedLegacyDefinitionHint:
       type: object
-      description: "Resolved editor hint for an inherited deprecated custom execution definition"
+      description: "Resolved editor hint for an inherited deprecated legacy execution definition"
       properties:
         name:
           type: string
-          description: "Deprecated custom execution definition name"
+          description: "Deprecated legacy execution definition name"
         targetType:
           type: string
-          description: "Builtin executor type that the deprecated custom definition expands to"
+          description: "Builtin executor type that the deprecated legacy execution definition expands to"
         description:
           type: string
-          description: "Optional deprecated custom definition description"
+          description: "Optional deprecated legacy execution definition description"
         inputSchema:
           type: object
           additionalProperties: true

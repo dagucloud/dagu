@@ -130,7 +130,7 @@ function buildLegacyDefinitionEnumBranch(
     enum: legacyTypeNames,
     enumDescriptions: legacyTypeDescriptions,
     description:
-      'Deprecated custom execution definition declared in step_types or inherited from base config.',
+      'Deprecated legacy execution definition declared in step_types or inherited from base config.',
   };
 }
 
@@ -703,7 +703,7 @@ export function buildAugmentedDAGSchema(
     legacyTypeNames.push(legacyDefinition.name);
     legacyTypeDescriptions.push(
       legacyDefinition.description ||
-        `Deprecated custom execution definition expanding to ${legacyDefinition.targetType}.`
+        `Deprecated legacy execution definition expanding to ${legacyDefinition.targetType}.`
     );
   }
 
