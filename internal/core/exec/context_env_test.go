@@ -14,19 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestManagedDAGRunEnvDefinitionsHaveUniqueKeys(t *testing.T) {
-	t.Parallel()
-
-	seen := make(map[string]struct{}, len(managedDAGRunEnvs))
-	for _, env := range managedDAGRunEnvs {
-		require.NotEmpty(t, env.key)
-		if _, ok := seen[env.key]; ok {
-			require.Failf(t, "duplicate managed DAG-run env key", "%s", env.key)
-		}
-		seen[env.key] = struct{}{}
-	}
-}
-
 func TestNewContext_ManagedDAGRunEnvsAreProtectedAndAvailableToDAGEnv(t *testing.T) {
 	t.Parallel()
 
@@ -49,7 +36,12 @@ func TestNewContext_ManagedDAGRunEnvsAreProtectedAndAvailableToDAGEnv(t *testing
 	require.NotEmpty(t, expected)
 
 	var optionEnvs []string
+	seen := make(map[string]struct{}, len(managedDAGRunEnvs))
 	for _, env := range managedDAGRunEnvs {
+		require.NotEmpty(t, env.key)
+		require.NotContains(t, seen, env.key)
+		seen[env.key] = struct{}{}
+
 		value, ok := expected[env.key]
 		if !ok {
 			continue
