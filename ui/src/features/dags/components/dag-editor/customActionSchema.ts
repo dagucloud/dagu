@@ -5,7 +5,7 @@ import { dereferenceSchema, type JSONSchema } from '@/lib/schema-utils';
 import { parse as parseYaml } from 'yaml';
 import type { components } from '../../../../api/v1/schema';
 
-export interface EditorCustomStepTypeHint {
+export interface EditorLegacyDefinitionHint {
   name: string;
   targetType: string;
   description?: string;
@@ -20,15 +20,17 @@ export interface EditorCustomActionHint {
   outputSchema?: JSONSchema;
 }
 
-export interface ExtractCustomStepTypesResult {
+export interface ExtractCustomDefinitionHintsResult {
   ok: boolean;
-  stepTypes: EditorCustomStepTypeHint[];
+  legacyDefinitions: EditorLegacyDefinitionHint[];
   actions: EditorCustomActionHint[];
 }
 
-const customStepTypeNamePattern = /^[A-Za-z][A-Za-z0-9_-]*$/;
-const customActionNamePattern = /^[A-Za-z][A-Za-z0-9_-]*(\.[A-Za-z][A-Za-z0-9_-]*)*$/;
-const localCustomSchemaDefinitionsKey = 'customStepTypeInputSchemas';
+const legacyDefinitionNamePattern = /^[A-Za-z][A-Za-z0-9_-]*$/;
+const customActionNamePattern =
+  /^[A-Za-z][A-Za-z0-9_-]*(\.[A-Za-z][A-Za-z0-9_-]*)*$/;
+const localLegacyDefinitionSchemaDefinitionsKey =
+  'legacyDefinitionInputSchemas';
 const localCustomActionSchemaDefinitionsKey = 'customActionInputSchemas';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -88,7 +90,7 @@ function appendUniqueAllOf(
   return result;
 }
 
-function customStepTypeHintKey(hint: EditorCustomStepTypeHint): string {
+function legacyDefinitionHintKey(hint: EditorLegacyDefinitionHint): string {
   return JSON.stringify({
     description: hint.description ?? '',
     inputSchema: hint.inputSchema,
@@ -107,29 +109,26 @@ function customActionHintKey(hint: EditorCustomActionHint): string {
   });
 }
 
-function isCustomTypeEnumBranch(
-  schema: JSONSchema,
-  customTypeNames: string[]
-): boolean {
+function isEnumBranchForNames(schema: JSONSchema, names: string[]): boolean {
   if (!Array.isArray(schema.enum)) {
     return false;
   }
 
-  if (schema.enum.length !== customTypeNames.length) {
+  if (schema.enum.length !== names.length) {
     return false;
   }
 
-  return customTypeNames.every((name, index) => schema.enum?.[index] === name);
+  return names.every((name, index) => schema.enum?.[index] === name);
 }
 
-function buildCustomTypeEnumBranch(
-  customTypeNames: string[],
-  customTypeDescriptions: string[]
+function buildLegacyDefinitionEnumBranch(
+  legacyTypeNames: string[],
+  legacyTypeDescriptions: string[]
 ): JSONSchema {
   return {
     type: 'string',
-    enum: customTypeNames,
-    enumDescriptions: customTypeDescriptions,
+    enum: legacyTypeNames,
+    enumDescriptions: legacyTypeDescriptions,
     description:
       'Deprecated custom execution definition declared in step_types or inherited from base config.',
   };
@@ -143,33 +142,34 @@ function buildCustomActionEnumBranch(
     type: 'string',
     enum: customActionNames,
     enumDescriptions: customActionDescriptions,
-    description: 'Custom action declared in actions or inherited from base config.',
+    description:
+      'Custom action declared in actions or inherited from base config.',
   };
 }
 
 function augmentExecutorTypeSchema(
   schema: JSONSchema,
-  customTypeNames: string[],
-  customTypeDescriptions: string[]
+  legacyTypeNames: string[],
+  legacyTypeDescriptions: string[]
 ) {
   if (!Array.isArray(schema.anyOf)) {
     return;
   }
 
-  const customTypeBranch = buildCustomTypeEnumBranch(
-    customTypeNames,
-    customTypeDescriptions
+  const legacyTypeBranch = buildLegacyDefinitionEnumBranch(
+    legacyTypeNames,
+    legacyTypeDescriptions
   );
-  const anyOfWithoutCustomBranch = schema.anyOf.filter(
+  const anyOfWithoutLegacyBranch = schema.anyOf.filter(
     (entry) =>
       !isRecord(entry) ||
-      !isCustomTypeEnumBranch(entry as JSONSchema, customTypeNames)
+      !isEnumBranchForNames(entry as JSONSchema, legacyTypeNames)
   );
 
   schema.anyOf = [
-    ...(anyOfWithoutCustomBranch.slice(0, 1) as JSONSchema[]),
-    customTypeBranch,
-    ...(anyOfWithoutCustomBranch.slice(1) as JSONSchema[]),
+    ...(anyOfWithoutLegacyBranch.slice(0, 1) as JSONSchema[]),
+    legacyTypeBranch,
+    ...(anyOfWithoutLegacyBranch.slice(1) as JSONSchema[]),
   ];
 }
 
@@ -189,7 +189,7 @@ function augmentActionNameSchema(
   const anyOfWithoutCustomBranch = schema.anyOf.filter(
     (entry) =>
       !isRecord(entry) ||
-      !isCustomTypeEnumBranch(entry as JSONSchema, customActionNames)
+      !isEnumBranchForNames(entry as JSONSchema, customActionNames)
   );
 
   schema.anyOf = [
@@ -255,16 +255,16 @@ function isStepSchemaCandidate(schema: JSONSchema): boolean {
   return hasCustomizableTypeSchema || hasCustomizableActionSchema;
 }
 
-function parseLocalCustomStepTypeHints(
+function parseLocalLegacyDefinitionHints(
   document: Record<string, unknown>
-): EditorCustomStepTypeHint[] {
-  const stepTypesValue = document.step_types;
-  if (!isRecord(stepTypesValue)) {
+): EditorLegacyDefinitionHint[] {
+  const legacyDefinitionsValue = document.step_types;
+  if (!isRecord(legacyDefinitionsValue)) {
     return [];
   }
 
-  const stepTypes: EditorCustomStepTypeHint[] = [];
-  for (const [rawName, rawDef] of Object.entries(stepTypesValue)) {
+  const legacyDefinitions: EditorLegacyDefinitionHint[] = [];
+  for (const [rawName, rawDef] of Object.entries(legacyDefinitionsValue)) {
     if (!isRecord(rawDef)) {
       continue;
     }
@@ -277,14 +277,14 @@ function parseLocalCustomStepTypeHints(
         ? rawDef.description.trim() || undefined
         : undefined;
 
-    if (!customStepTypeNamePattern.test(name) || !targetType) {
+    if (!legacyDefinitionNamePattern.test(name) || !targetType) {
       continue;
     }
     if (!isRecord(rawDef.input_schema)) {
       continue;
     }
 
-    stepTypes.push({
+    legacyDefinitions.push({
       name,
       targetType,
       description,
@@ -295,7 +295,7 @@ function parseLocalCustomStepTypeHints(
     });
   }
 
-  return stepTypes;
+  return legacyDefinitions;
 }
 
 function parseLocalCustomActionHints(
@@ -346,21 +346,21 @@ function sortCustomHintsByName<T extends { name: string }>(hints: T[]): T[] {
 
 function augmentStepSchema(
   stepSchema: JSONSchema,
-  customStepRules: JSONSchema[],
-  customTypeNames: string[],
-  customTypeDescriptions: string[],
+  legacyDefinitionRules: JSONSchema[],
+  legacyTypeNames: string[],
+  legacyTypeDescriptions: string[],
   customActionRules: JSONSchema[],
   customActionNames: string[],
   customActionDescriptions: string[]
 ) {
   stepSchema.allOf = appendUniqueAllOf(stepSchema.allOf, [
-    ...customStepRules,
+    ...legacyDefinitionRules,
     ...customActionRules,
   ]);
   suppressConditionalPropertySuggestions(stepSchema);
 
   const typeSchema = stepSchema.properties?.type;
-  if (customTypeNames.length > 0 && isRecord(typeSchema)) {
+  if (legacyTypeNames.length > 0 && isRecord(typeSchema)) {
     const clonedTypeSchema = cloneJson(typeSchema as JSONSchema);
     stepSchema.properties = {
       ...stepSchema.properties,
@@ -368,8 +368,8 @@ function augmentStepSchema(
     };
     augmentExecutorTypeSchema(
       clonedTypeSchema,
-      customTypeNames,
-      customTypeDescriptions
+      legacyTypeNames,
+      legacyTypeDescriptions
     );
   }
 
@@ -393,7 +393,9 @@ function markPropertiesAsDoNotSuggest(schema: JSONSchema | undefined) {
     return;
   }
 
-  for (const [propertyName, propertySchema] of Object.entries(schema.properties)) {
+  for (const [propertyName, propertySchema] of Object.entries(
+    schema.properties
+  )) {
     if (!isRecord(propertySchema)) {
       continue;
     }
@@ -478,22 +480,22 @@ function getNodeAtPath(root: unknown, path: string[]): JSONSchema | null {
   return isRecord(current) ? (current as JSONSchema) : null;
 }
 
-export function toInheritedCustomStepTypeHints(
+export function toInheritedLegacyDefinitionHints(
   editorHints?: components['schemas']['DAGEditorHints']
-): EditorCustomStepTypeHint[] {
-  const stepTypes: EditorCustomStepTypeHint[] = [];
+): EditorLegacyDefinitionHint[] {
+  const legacyDefinitions: EditorLegacyDefinitionHint[] = [];
 
-  for (const hint of editorHints?.inheritedCustomStepTypes ?? []) {
+  for (const hint of editorHints?.inheritedLegacyDefinitions ?? []) {
     if (!hint?.name || !hint?.targetType || !isRecord(hint.inputSchema)) {
       continue;
     }
 
     const name = hint.name.trim();
-    if (!customStepTypeNamePattern.test(name)) {
+    if (!legacyDefinitionNamePattern.test(name)) {
       continue;
     }
 
-    stepTypes.push({
+    legacyDefinitions.push({
       name,
       targetType: hint.targetType.trim(),
       description: hint.description?.trim() || undefined,
@@ -504,7 +506,7 @@ export function toInheritedCustomStepTypeHints(
     });
   }
 
-  return stepTypes;
+  return legacyDefinitions;
 }
 
 export function toInheritedCustomActionHints(
@@ -535,36 +537,36 @@ export function toInheritedCustomActionHints(
   return actions;
 }
 
-export function extractLocalCustomStepTypeHints(
+export function extractLocalCustomDefinitionHints(
   yamlContent: string
-): ExtractCustomStepTypesResult {
+): ExtractCustomDefinitionHintsResult {
   if (!yamlContent.trim()) {
-    return { ok: true, stepTypes: [], actions: [] };
+    return { ok: true, legacyDefinitions: [], actions: [] };
   }
 
   let document: unknown;
   try {
     document = parseYaml(yamlContent);
   } catch {
-    return { ok: false, stepTypes: [], actions: [] };
+    return { ok: false, legacyDefinitions: [], actions: [] };
   }
 
   if (!isRecord(document)) {
-    return { ok: true, stepTypes: [], actions: [] };
+    return { ok: true, legacyDefinitions: [], actions: [] };
   }
 
   return {
     ok: true,
-    stepTypes: parseLocalCustomStepTypeHints(document),
+    legacyDefinitions: parseLocalLegacyDefinitionHints(document),
     actions: parseLocalCustomActionHints(document),
   };
 }
 
-export function mergeCustomStepTypeHints(
-  inherited: EditorCustomStepTypeHint[],
-  local: EditorCustomStepTypeHint[]
-): EditorCustomStepTypeHint[] {
-  const merged = new Map<string, EditorCustomStepTypeHint>();
+export function mergeLegacyDefinitionHints(
+  inherited: EditorLegacyDefinitionHint[],
+  local: EditorLegacyDefinitionHint[]
+): EditorLegacyDefinitionHint[] {
+  const merged = new Map<string, EditorLegacyDefinitionHint>();
 
   for (const hint of inherited) {
     merged.set(hint.name.trim(), hint);
@@ -592,9 +594,9 @@ export function mergeCustomActionHints(
   return sortCustomHintsByName(Array.from(merged.values()));
 }
 
-export function customStepTypeHintsEqual(
-  left: EditorCustomStepTypeHint[],
-  right: EditorCustomStepTypeHint[]
+export function legacyDefinitionHintsEqual(
+  left: EditorLegacyDefinitionHint[],
+  right: EditorLegacyDefinitionHint[]
 ): boolean {
   if (left.length !== right.length) {
     return false;
@@ -606,7 +608,9 @@ export function customStepTypeHintsEqual(
     if (!leftHint || !rightHint) {
       return false;
     }
-    if (customStepTypeHintKey(leftHint) !== customStepTypeHintKey(rightHint)) {
+    if (
+      legacyDefinitionHintKey(leftHint) !== legacyDefinitionHintKey(rightHint)
+    ) {
       return false;
     }
   }
@@ -638,13 +642,13 @@ export function customActionHintsEqual(
 
 export function buildAugmentedDAGSchema(
   baseSchema: JSONSchema,
-  stepTypes: EditorCustomStepTypeHint[],
+  legacyDefinitions: EditorLegacyDefinitionHint[],
   actions: EditorCustomActionHint[] = []
 ): JSONSchema {
   const augmented = cloneJson(baseSchema);
   const definitions = augmented.definitions;
 
-  if (stepTypes.length === 0 && actions.length === 0) {
+  if (legacyDefinitions.length === 0 && actions.length === 0) {
     for (const path of collectStepSchemaPaths(augmented)) {
       const schema = getNodeAtPath(augmented, path);
       if (!schema || !isStepLikeSchema(schema)) {
@@ -660,26 +664,26 @@ export function buildAugmentedDAGSchema(
     return augmented;
   }
 
-  const customDefinitions: Record<string, JSONSchema> = {};
-  const customStepRules: JSONSchema[] = [];
-  const customTypeNames: string[] = [];
-  const customTypeDescriptions: string[] = [];
+  const legacyDefinitionDefinitions: Record<string, JSONSchema> = {};
+  const legacyDefinitionRules: JSONSchema[] = [];
+  const legacyTypeNames: string[] = [];
+  const legacyTypeDescriptions: string[] = [];
   const customActionDefinitions: Record<string, JSONSchema> = {};
   const customActionRules: JSONSchema[] = [];
   const customActionNames: string[] = [];
   const customActionDescriptions: string[] = [];
 
-  for (const stepType of stepTypes) {
-    const escapedName = escapeJsonPointerSegment(stepType.name);
-    const definitionPointer = `/definitions/${localCustomSchemaDefinitionsKey}/definitions/${escapedName}`;
-    customDefinitions[stepType.name] = rewriteInternalRefs(
-      cloneJson(stepType.inputSchema),
+  for (const legacyDefinition of legacyDefinitions) {
+    const escapedName = escapeJsonPointerSegment(legacyDefinition.name);
+    const definitionPointer = `/definitions/${localLegacyDefinitionSchemaDefinitionsKey}/definitions/${escapedName}`;
+    legacyDefinitionDefinitions[legacyDefinition.name] = rewriteInternalRefs(
+      cloneJson(legacyDefinition.inputSchema),
       definitionPointer
     ) as JSONSchema;
 
-    customStepRules.push({
+    legacyDefinitionRules.push({
       if: {
-        properties: { type: { const: stepType.name } },
+        properties: { type: { const: legacyDefinition.name } },
         required: ['type'],
       },
       then: {
@@ -696,10 +700,10 @@ export function buildAugmentedDAGSchema(
       },
     });
 
-    customTypeNames.push(stepType.name);
-    customTypeDescriptions.push(
-      stepType.description ||
-        `Deprecated custom execution definition expanding to ${stepType.targetType}.`
+    legacyTypeNames.push(legacyDefinition.name);
+    legacyTypeDescriptions.push(
+      legacyDefinition.description ||
+        `Deprecated custom execution definition expanding to ${legacyDefinition.targetType}.`
     );
   }
 
@@ -729,9 +733,9 @@ export function buildAugmentedDAGSchema(
     customActionDescriptions.push(action.description || 'Custom action.');
   }
 
-  if (stepTypes.length > 0) {
-    definitions[localCustomSchemaDefinitionsKey] = {
-      definitions: customDefinitions,
+  if (legacyDefinitions.length > 0) {
+    definitions[localLegacyDefinitionSchemaDefinitionsKey] = {
+      definitions: legacyDefinitionDefinitions,
     };
   }
   if (actions.length > 0) {
@@ -741,15 +745,15 @@ export function buildAugmentedDAGSchema(
   }
 
   const resolved = dereferenceSchema(augmented);
-  const resolvedCustomStepRules =
+  const resolvedLegacyDefinitionRules =
     dereferenceSchema({
       definitions: {
-        [localCustomSchemaDefinitionsKey]: {
-          definitions: customDefinitions,
+        [localLegacyDefinitionSchemaDefinitionsKey]: {
+          definitions: legacyDefinitionDefinitions,
         },
       },
-      allOf: cloneJson(customStepRules),
-    }).allOf ?? customStepRules;
+      allOf: cloneJson(legacyDefinitionRules),
+    }).allOf ?? legacyDefinitionRules;
   const resolvedCustomActionRules =
     dereferenceSchema({
       definitions: {
@@ -767,9 +771,9 @@ export function buildAugmentedDAGSchema(
     }
     augmentStepSchema(
       schema,
-      resolvedCustomStepRules,
-      customTypeNames,
-      customTypeDescriptions,
+      resolvedLegacyDefinitionRules,
+      legacyTypeNames,
+      legacyTypeDescriptions,
       resolvedCustomActionRules,
       customActionNames,
       customActionDescriptions

@@ -209,12 +209,12 @@ func TestGetDAGDetails_InvalidYAML_Returns200WithErrors(t *testing.T) {
 	require.NotEmpty(t, *resp.FilePath)
 }
 
-func TestUpdateDAGSpec_AllowsCustomStepTypeRuntimeVariableInput(t *testing.T) {
+func TestUpdateDAGSpec_AllowsLegacyDefinitionRuntimeVariableInput(t *testing.T) {
 	t.Parallel()
 
 	helper := test.Setup(t, test.WithStatusPersistence())
-	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "custom-step-runtime-save", []byte(`
-name: custom-step-runtime-save
+	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "legacy-definition-runtime-save", []byte(`
+name: legacy-definition-runtime-save
 steps:
   - run: echo original
 `))
@@ -233,7 +233,7 @@ steps:
 	)
 
 	specText := `
-name: custom-step-runtime-save
+name: legacy-definition-runtime-save
 type: graph
 step_types:
   repeat:
@@ -266,7 +266,7 @@ steps:
 `
 
 	respObj, err := api.UpdateDAGSpec(context.Background(), openapi.UpdateDAGSpecRequestObject{
-		FileName: "custom-step-runtime-save",
+		FileName: "legacy-definition-runtime-save",
 		Body: &openapi.UpdateDAGSpecJSONRequestBody{
 			Spec: specText,
 		},
@@ -487,7 +487,7 @@ steps:
 	require.Equal(t, []string{dag.FileName()}, notified)
 }
 
-func TestGetDAGDetails_EditorHintsIncludeInheritedCustomStepTypes(t *testing.T) {
+func TestGetDAGDetails_EditorHintsIncludeInheritedLegacyDefinitions(t *testing.T) {
 	t.Parallel()
 
 	helper := test.Setup(t, test.WithStatusPersistence())
@@ -553,11 +553,11 @@ steps:
 	resp, ok := respObj.(openapi.GetDAGDetails200JSONResponse)
 	require.True(t, ok)
 	require.NotNil(t, resp.EditorHints)
-	require.Len(t, resp.EditorHints.InheritedCustomStepTypes, 1)
+	require.Len(t, resp.EditorHints.InheritedLegacyDefinitions, 1)
 	require.NotNil(t, resp.EditorHints.InheritedCustomActions)
 	require.Len(t, *resp.EditorHints.InheritedCustomActions, 1)
 
-	hint := resp.EditorHints.InheritedCustomStepTypes[0]
+	hint := resp.EditorHints.InheritedLegacyDefinitions[0]
 	require.Equal(t, "greet", hint.Name)
 	require.Equal(t, "command", hint.TargetType)
 	require.NotNil(t, hint.Description)
@@ -634,12 +634,12 @@ steps:
 	resp, ok := respObj.(openapi.GetDAGDetails200JSONResponse)
 	require.True(t, ok)
 	require.NotNil(t, resp.EditorHints)
-	require.Len(t, resp.EditorHints.InheritedCustomStepTypes, 2)
+	require.Len(t, resp.EditorHints.InheritedLegacyDefinitions, 2)
 
-	require.NotNil(t, resp.EditorHints.InheritedCustomStepTypes[0].Description)
-	require.NotNil(t, resp.EditorHints.InheritedCustomStepTypes[1].Description)
-	require.Equal(t, "First description", *resp.EditorHints.InheritedCustomStepTypes[0].Description)
-	require.Equal(t, "Second description", *resp.EditorHints.InheritedCustomStepTypes[1].Description)
+	require.NotNil(t, resp.EditorHints.InheritedLegacyDefinitions[0].Description)
+	require.NotNil(t, resp.EditorHints.InheritedLegacyDefinitions[1].Description)
+	require.Equal(t, "First description", *resp.EditorHints.InheritedLegacyDefinitions[0].Description)
+	require.Equal(t, "Second description", *resp.EditorHints.InheritedLegacyDefinitions[1].Description)
 }
 
 func TestGetDAGDetails_InvalidYAMLStillReturnsEditorHints(t *testing.T) {
@@ -691,8 +691,8 @@ step_types:
 	require.True(t, ok)
 	require.NotEmpty(t, resp.Errors)
 	require.NotNil(t, resp.EditorHints)
-	require.Len(t, resp.EditorHints.InheritedCustomStepTypes, 1)
-	require.Equal(t, "greet", resp.EditorHints.InheritedCustomStepTypes[0].Name)
+	require.Len(t, resp.EditorHints.InheritedLegacyDefinitions, 1)
+	require.Equal(t, "greet", resp.EditorHints.InheritedLegacyDefinitions[0].Name)
 }
 
 func TestGetDAGDetails_NonExistent_Returns404(t *testing.T) {

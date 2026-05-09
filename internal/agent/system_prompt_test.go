@@ -78,7 +78,7 @@ func TestGenerateSystemPrompt(t *testing.T) {
 		assert.Contains(t, result, "Use top-level `run:` for plain shell commands and scripts")
 		assert.Contains(t, result, "Base config custom actions")
 		assert.Contains(t, result, "Current DAG-local custom actions: inspect `actions:`")
-		assert.Contains(t, result, "Legacy DAG-local `step_types:` entries")
+		assert.Contains(t, result, "Legacy DAG-local `step_types:` definitions")
 		assert.Contains(t, result, "`steptypes.md` — Built-in and custom actions")
 		assert.Contains(t, result, "dagu schema dag steps.action")
 		assert.NotContains(t, result, legacyReference)
@@ -312,7 +312,7 @@ actions:
 		assert.Contains(t, result, "`report.write`")
 	})
 
-	t.Run("includes legacy step_types from base config as migration-only entries", func(t *testing.T) {
+	t.Run("includes legacy step_types from base config as migration-only definitions", func(t *testing.T) {
 		dir := t.TempDir()
 		baseConfigPath := filepath.Join(dir, "base.yaml")
 		require.NoError(t, os.WriteFile(baseConfigPath, []byte(`
@@ -332,7 +332,7 @@ step_types:
 			Role: auth.RoleDeveloper,
 		})
 
-		assert.Contains(t, result, "legacy `step_types:` entries")
+		assert.Contains(t, result, "legacy `step_types:` definitions")
 		assert.Contains(t, result, "`report_writer` -> `command`")
 		assert.Contains(t, result, "Prefer `actions:` for new work")
 	})

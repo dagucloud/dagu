@@ -40,14 +40,16 @@ vi.mock('../DAGDetailsContent', () => ({
     dag: { name: string };
     activeTab: string;
     dagRunId?: string;
-    editorHints?: { inheritedCustomStepTypes?: unknown[] };
+    editorHints?: { inheritedLegacyDefinitions?: unknown[] };
     onRunStarted?: (dagRunId: string) => void;
   }) => (
     <div>
       <div>
         Previewing {dag.name} [{activeTab}] {dagRunId || 'latest'}
       </div>
-      <div>Inherited hints: {editorHints?.inheritedCustomStepTypes?.length ?? 0}</div>
+      <div>
+        Inherited hints: {editorHints?.inheritedLegacyDefinitions?.length ?? 0}
+      </div>
       {onRunStarted ? (
         <button type="button" onClick={() => onRunStarted('started-run')}>
           Mark Started
@@ -83,10 +85,7 @@ function renderPanel() {
     <MemoryRouter>
       <PageContextProvider>
         <AppBarContext.Provider value={appBarValue}>
-          <DAGDetailsPanel
-            fileName="example"
-            onClose={vi.fn()}
-          />
+          <DAGDetailsPanel fileName="example" onClose={vi.fn()} />
         </AppBarContext.Provider>
       </PageContextProvider>
     </MemoryRouter>
@@ -110,7 +109,7 @@ describe('DAGDetailsPanel', () => {
             latestDAGRun: undefined,
             localDags: [],
             editorHints: {
-              inheritedCustomStepTypes: [{ name: 'greet' }],
+              inheritedLegacyDefinitions: [{ name: 'greet' }],
             },
           },
           error: undefined,

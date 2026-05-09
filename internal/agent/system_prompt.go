@@ -104,17 +104,17 @@ func GenerateSystemPrompt(p SystemPromptParams) string {
 }
 
 type customActionSource struct {
-	label           string
-	actions         []customActionRef
-	legacyStepTypes []customStepTypeRef
-	err             error
+	label             string
+	actions           []customActionRef
+	legacyDefinitions []legacyDefinitionRef
+	err               error
 }
 
 type customActionRef struct {
 	name string
 }
 
-type customStepTypeRef struct {
+type legacyDefinitionRef struct {
 	name       string
 	targetType string
 }
@@ -151,18 +151,18 @@ func buildActionsPrompt(env EnvironmentInfo, access *auth.WorkspaceAccess) strin
 				b.WriteString(formatCustomActionRefs(source.actions))
 				b.WriteString(".\n")
 			}
-			if len(source.legacyStepTypes) > 0 {
+			if len(source.legacyDefinitions) > 0 {
 				b.WriteString("  - ")
 				b.WriteString(source.label)
-				b.WriteString(" legacy `step_types:` entries: ")
-				b.WriteString(formatLegacyStepTypeRefs(source.legacyStepTypes))
+				b.WriteString(" legacy `step_types:` definitions: ")
+				b.WriteString(formatLegacyDefinitionRefs(source.legacyDefinitions))
 				b.WriteString(". Prefer `actions:` for new work.\n")
 			}
 		}
 	}
 
 	b.WriteString("- Current DAG-local custom actions: inspect `actions:` in the DAG before deciding availability.\n")
-	b.WriteString("- Legacy DAG-local `step_types:` entries may still exist for compatibility; prefer `actions:` for new work.\n")
+	b.WriteString("- Legacy DAG-local `step_types:` definitions may still exist for compatibility; prefer `actions:` for new work.\n")
 	b.WriteString("- For custom actions, pass only declared `with:` inputs; do not add executor fields hidden by the template.")
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -274,7 +274,7 @@ func customActionSourceFromFile(label, path string) customActionSource {
 	if err != nil {
 		return customActionSource{label: label, err: err}
 	}
-	hints, err := spec.InheritedCustomStepTypeEditorHints(data)
+	hints, err := spec.InheritedLegacyDefinitionEditorHints(data)
 	if err != nil {
 		return customActionSource{label: label, err: err}
 	}
@@ -282,14 +282,14 @@ func customActionSourceFromFile(label, path string) customActionSource {
 	for _, hint := range actionHints {
 		actions = append(actions, customActionRef{name: hint.Name})
 	}
-	legacyStepTypes := make([]customStepTypeRef, 0, len(hints))
+	legacyDefinitions := make([]legacyDefinitionRef, 0, len(hints))
 	for _, hint := range hints {
-		legacyStepTypes = append(legacyStepTypes, customStepTypeRef{
+		legacyDefinitions = append(legacyDefinitions, legacyDefinitionRef{
 			name:       hint.Name,
 			targetType: hint.TargetType,
 		})
 	}
-	return customActionSource{label: label, actions: actions, legacyStepTypes: legacyStepTypes}
+	return customActionSource{label: label, actions: actions, legacyDefinitions: legacyDefinitions}
 }
 
 func formatNames(names []string) string {
@@ -312,7 +312,7 @@ func formatCustomActionRefs(refs []customActionRef) string {
 	return formatNames(names)
 }
 
-func formatLegacyStepTypeRefs(refs []customStepTypeRef) string {
+func formatLegacyDefinitionRefs(refs []legacyDefinitionRef) string {
 	formatted := make([]string, 0, len(refs))
 	for _, ref := range refs {
 		formatted = append(formatted, fmt.Sprintf("`%s` -> `%s`", ref.name, ref.targetType))

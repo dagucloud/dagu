@@ -41,13 +41,13 @@ import { FlowchartType, Graph } from '../visualization';
 import {
   buildAugmentedDAGSchema,
   customActionHintsEqual,
-  customStepTypeHintsEqual,
-  extractLocalCustomStepTypeHints,
+  extractLocalCustomDefinitionHints,
+  legacyDefinitionHintsEqual,
   mergeCustomActionHints,
-  mergeCustomStepTypeHints,
+  mergeLegacyDefinitionHints,
   toInheritedCustomActionHints,
-  toInheritedCustomStepTypeHints,
-} from './customStepSchema';
+  toInheritedLegacyDefinitionHints,
+} from './customActionSchema';
 import DAGAttributes from './DAGAttributes';
 import DAGEditorWithDocs from './DAGEditorWithDocs';
 import ExternalChangeDialog from './ExternalChangeDialog';
@@ -181,15 +181,17 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
     serverContent: serverSpec,
   });
 
-  const [lastGoodLocalStepTypes, setLastGoodLocalStepTypes] = React.useState(
-    () => extractLocalCustomStepTypeHints(serverSpec ?? '').stepTypes
-  );
+  const [lastGoodLegacyDefinitions, setLastGoodLegacyDefinitions] =
+    React.useState(
+      () =>
+        extractLocalCustomDefinitionHints(serverSpec ?? '').legacyDefinitions
+    );
   const [lastGoodLocalActions, setLastGoodLocalActions] = React.useState(
-    () => extractLocalCustomStepTypeHints(serverSpec ?? '').actions
+    () => extractLocalCustomDefinitionHints(serverSpec ?? '').actions
   );
 
-  const inheritedCustomStepTypes = React.useMemo(
-    () => toInheritedCustomStepTypeHints(editorHints),
+  const inheritedLegacyDefinitions = React.useMemo(
+    () => toInheritedLegacyDefinitionHints(editorHints),
     [editorHints]
   );
   const inheritedCustomActions = React.useMemo(
@@ -197,49 +199,52 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
     [editorHints]
   );
 
-  const parsedLocalStepTypes = React.useMemo(
-    () => extractLocalCustomStepTypeHints(currentValue ?? serverSpec ?? ''),
+  const parsedLocalDefinitions = React.useMemo(
+    () => extractLocalCustomDefinitionHints(currentValue ?? serverSpec ?? ''),
     [currentValue, serverSpec]
   );
 
   useEffect(() => {
-    if (!parsedLocalStepTypes.ok) {
+    if (!parsedLocalDefinitions.ok) {
       return;
     }
-    setLastGoodLocalStepTypes((previous) =>
-      customStepTypeHintsEqual(previous, parsedLocalStepTypes.stepTypes)
+    setLastGoodLegacyDefinitions((previous) =>
+      legacyDefinitionHintsEqual(
+        previous,
+        parsedLocalDefinitions.legacyDefinitions
+      )
         ? previous
-        : parsedLocalStepTypes.stepTypes
+        : parsedLocalDefinitions.legacyDefinitions
     );
     setLastGoodLocalActions((previous) =>
-      customActionHintsEqual(previous, parsedLocalStepTypes.actions)
+      customActionHintsEqual(previous, parsedLocalDefinitions.actions)
         ? previous
-        : parsedLocalStepTypes.actions
+        : parsedLocalDefinitions.actions
     );
-  }, [parsedLocalStepTypes]);
+  }, [parsedLocalDefinitions]);
 
-  const effectiveLocalStepTypes = React.useMemo(() => {
-    if (!parsedLocalStepTypes.ok) {
-      return lastGoodLocalStepTypes;
+  const effectiveLegacyDefinitions = React.useMemo(() => {
+    if (!parsedLocalDefinitions.ok) {
+      return lastGoodLegacyDefinitions;
     }
-    return customStepTypeHintsEqual(
-      lastGoodLocalStepTypes,
-      parsedLocalStepTypes.stepTypes
+    return legacyDefinitionHintsEqual(
+      lastGoodLegacyDefinitions,
+      parsedLocalDefinitions.legacyDefinitions
     )
-      ? lastGoodLocalStepTypes
-      : parsedLocalStepTypes.stepTypes;
-  }, [lastGoodLocalStepTypes, parsedLocalStepTypes]);
+      ? lastGoodLegacyDefinitions
+      : parsedLocalDefinitions.legacyDefinitions;
+  }, [lastGoodLegacyDefinitions, parsedLocalDefinitions]);
   const effectiveLocalActions = React.useMemo(() => {
-    if (!parsedLocalStepTypes.ok) {
+    if (!parsedLocalDefinitions.ok) {
       return lastGoodLocalActions;
     }
     return customActionHintsEqual(
       lastGoodLocalActions,
-      parsedLocalStepTypes.actions
+      parsedLocalDefinitions.actions
     )
       ? lastGoodLocalActions
-      : parsedLocalStepTypes.actions;
-  }, [lastGoodLocalActions, parsedLocalStepTypes]);
+      : parsedLocalDefinitions.actions;
+  }, [lastGoodLocalActions, parsedLocalDefinitions]);
 
   const editorSchema = React.useMemo(() => {
     if (!baseSchema) {
@@ -247,21 +252,18 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
     }
     return buildAugmentedDAGSchema(
       baseSchema,
-      mergeCustomStepTypeHints(
-        inheritedCustomStepTypes,
-        effectiveLocalStepTypes
+      mergeLegacyDefinitionHints(
+        inheritedLegacyDefinitions,
+        effectiveLegacyDefinitions
       ),
-      mergeCustomActionHints(
-        inheritedCustomActions,
-        effectiveLocalActions
-      )
+      mergeCustomActionHints(inheritedCustomActions, effectiveLocalActions)
     );
   }, [
     baseSchema,
     effectiveLocalActions,
-    effectiveLocalStepTypes,
+    effectiveLegacyDefinitions,
     inheritedCustomActions,
-    inheritedCustomStepTypes,
+    inheritedLegacyDefinitions,
   ]);
 
   const editorModelUri = React.useMemo(

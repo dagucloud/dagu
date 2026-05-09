@@ -3528,7 +3528,7 @@ export interface components {
         /** @description Editor-only metadata used to synthesize per-document schema hints */
         DAGEditorHints: {
             /** @description Deprecated legacy custom execution definitions inherited from base config and available to the current DAG */
-            inheritedCustomStepTypes: components["schemas"]["InheritedCustomStepTypeHint"][];
+            inheritedLegacyDefinitions: components["schemas"]["InheritedLegacyDefinitionHint"][];
             /** @description Custom actions inherited from base config and available to the current DAG */
             inheritedCustomActions?: components["schemas"]["InheritedCustomActionHint"][];
         };
@@ -3548,7 +3548,7 @@ export interface components {
             };
         };
         /** @description Resolved editor hint for an inherited deprecated custom execution definition */
-        InheritedCustomStepTypeHint: {
+        InheritedLegacyDefinitionHint: {
             /** @description Deprecated custom execution definition name */
             name: string;
             /** @description Builtin executor type that the deprecated custom definition expands to */

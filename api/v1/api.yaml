@@ -8822,18 +8822,18 @@ components:
       type: object
       description: "Editor-only metadata used to synthesize per-document schema hints"
       properties:
-        inheritedCustomStepTypes:
+        inheritedLegacyDefinitions:
           type: array
           description: "Deprecated legacy custom execution definitions inherited from base config and available to the current DAG"
           items:
-            $ref: "#/components/schemas/InheritedCustomStepTypeHint"
+            $ref: "#/components/schemas/InheritedLegacyDefinitionHint"
         inheritedCustomActions:
           type: array
           description: "Custom actions inherited from base config and available to the current DAG"
           items:
             $ref: "#/components/schemas/InheritedCustomActionHint"
       required:
-        - inheritedCustomStepTypes
+        - inheritedLegacyDefinitions
 
     InheritedCustomActionHint:
       type: object
@@ -8857,7 +8857,7 @@ components:
         - name
         - inputSchema
 
-    InheritedCustomStepTypeHint:
+    InheritedLegacyDefinitionHint:
       type: object
       description: "Resolved editor hint for an inherited deprecated custom execution definition"
       properties:
