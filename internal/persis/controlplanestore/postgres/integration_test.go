@@ -8,11 +8,14 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -53,6 +56,54 @@ func TestPostgresControlPlaneStoreIntegration(t *testing.T) {
 
 	dsn, err := container.ConnectionString(ctx, "sslmode=disable")
 	require.NoError(t, err)
+
+	t.Run("ConcurrentAutoMigration", func(t *testing.T) {
+		const clients = 6
+		var wg sync.WaitGroup
+		stores := make([]*Store, clients)
+		errs := make([]error, clients)
+		localWorkDirs := make([]string, clients)
+		for i := 0; i < clients; i++ {
+			localWorkDirs[i] = t.TempDir()
+		}
+		for i := 0; i < clients; i++ {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				stores[i], errs[i] = New(ctx, Config{
+					DSN:              dsn,
+					LocalWorkDirBase: localWorkDirs[i],
+					AutoMigrate:      true,
+					Pool: PoolConfig{
+						MaxOpenConns: 1,
+						MaxIdleConns: 1,
+					},
+				})
+			}(i)
+		}
+		wg.Wait()
+		for _, store := range stores {
+			if store != nil {
+				require.NoError(t, store.Close())
+			}
+		}
+		for _, err := range errs {
+			require.NoError(t, err)
+		}
+
+		verifyStore, err := New(ctx, Config{DSN: dsn, LocalWorkDirBase: t.TempDir()})
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			require.NoError(t, verifyStore.Close())
+		})
+		var applied int
+		require.NoError(t, verifyStore.pool.QueryRow(ctx, `
+SELECT count(*)::integer
+FROM goose_db_version
+WHERE version_id = 20260506000000 AND is_applied
+`).Scan(&applied))
+		assert.Equal(t, 1, applied)
+	})
 
 	encryptor, err := crypto.NewEncryptor("0123456789abcdef0123456789abcdef")
 	require.NoError(t, err)
@@ -152,6 +203,88 @@ WHERE dag_name = 'example' AND dag_run_id = 'run-1' AND attempt_id = $1
 		assert.Equal(t, "hello", attemptDoc.Messages["step-1"][0].Content)
 	})
 
+	t.Run("DAGRunRetentionListingAndAttemptSemantics", func(t *testing.T) {
+		now := time.Now().UTC()
+
+		retentionName := "retention-dag"
+		writePostgresRunStatus(t, ctx, store, retentionName, "old-final", now.Add(-48*time.Hour), core.Succeeded)
+		writePostgresRunStatus(t, ctx, store, retentionName, "old-active", now.Add(-47*time.Hour), core.Running)
+		writePostgresRunStatus(t, ctx, store, retentionName, "recent-final", now.Add(-time.Hour), core.Succeeded)
+		_, err := store.pool.Exec(ctx, `
+UPDATE dagu_dag_runs
+SET updated_at = run_created_at
+WHERE dag_name = $1 AND dag_run_id IN ('old-final', 'old-active')
+`, retentionName)
+		require.NoError(t, err)
+
+		removable, err := store.DAGRuns().RemoveOldDAGRuns(ctx, retentionName, 1, exec.WithDryRun())
+		require.NoError(t, err)
+		assert.Equal(t, []string{"old-final"}, removable)
+		removed, err := store.DAGRuns().RemoveOldDAGRuns(ctx, retentionName, 1)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"old-final"}, removed)
+		_, err = store.DAGRuns().FindAttempt(ctx, exec.NewDAGRunRef(retentionName, "old-final"))
+		assert.ErrorIs(t, err, exec.ErrDAGRunIDNotFound)
+		_, err = store.DAGRuns().FindAttempt(ctx, exec.NewDAGRunRef(retentionName, "old-active"))
+		require.NoError(t, err)
+
+		countName := "count-dag"
+		writePostgresRunStatus(t, ctx, store, countName, "keep-1", now.Add(-time.Minute), core.Succeeded)
+		writePostgresRunStatus(t, ctx, store, countName, "keep-2", now.Add(-2*time.Minute), core.Succeeded)
+		writePostgresRunStatus(t, ctx, store, countName, "drop-1", now.Add(-3*time.Minute), core.Succeeded)
+		page, err := store.DAGRuns().ListStatusesPage(ctx,
+			exec.WithExactName(countName),
+			exec.WithAllHistory(),
+			exec.WithLimit(2),
+		)
+		require.NoError(t, err)
+		require.Len(t, page.Items, 2)
+		assert.Equal(t, "keep-1", page.Items[0].DAGRunID)
+		assert.Equal(t, "keep-2", page.Items[1].DAGRunID)
+		require.NotEmpty(t, page.NextCursor)
+		nextPage, err := store.DAGRuns().ListStatusesPage(ctx,
+			exec.WithExactName(countName),
+			exec.WithAllHistory(),
+			exec.WithLimit(2),
+			exec.WithCursor(page.NextCursor),
+		)
+		require.NoError(t, err)
+		require.Len(t, nextPage.Items, 1)
+		assert.Equal(t, "drop-1", nextPage.Items[0].DAGRunID)
+
+		removedByCount, err := store.DAGRuns().RemoveOldDAGRuns(ctx, countName, -1, exec.WithRetentionRuns(2))
+		require.NoError(t, err)
+		assert.Equal(t, []string{"drop-1"}, removedByCount)
+
+		hiddenName := "hidden-dag"
+		hiddenDAG := &core.DAG{Name: hiddenName}
+		firstAttempt := writePostgresRunStatus(t, ctx, store, hiddenName, "retry-run", now.Add(-time.Second), core.Failed)
+		secondAttempt, err := store.DAGRuns().CreateAttempt(ctx, hiddenDAG, now, "retry-run", exec.NewDAGRunAttemptOptions{Retry: true})
+		require.NoError(t, err)
+		require.NoError(t, secondAttempt.Open(ctx))
+		secondStatus := exec.InitialStatus(hiddenDAG)
+		secondStatus.DAGRunID = "retry-run"
+		secondStatus.AttemptID = secondAttempt.ID()
+		secondStatus.Status = core.Succeeded
+		require.NoError(t, secondAttempt.Write(ctx, secondStatus))
+		require.NoError(t, secondAttempt.Close(ctx))
+		require.NoError(t, secondAttempt.Hide(ctx))
+		latest, err := store.DAGRuns().FindAttempt(ctx, exec.NewDAGRunRef(hiddenName, "retry-run"))
+		require.NoError(t, err)
+		assert.Equal(t, firstAttempt.ID(), latest.ID())
+		latestStatus, err := latest.ReadStatus(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, core.Failed, latestStatus.Status)
+
+		renameName := "rename-dag"
+		writePostgresRunStatus(t, ctx, store, renameName, "rename-run", now, core.Succeeded)
+		require.NoError(t, store.DAGRuns().RenameDAGRuns(ctx, renameName, "renamed-dag"))
+		renamedStatuses, err := store.DAGRuns().ListStatuses(ctx, exec.WithExactName("renamed-dag"), exec.WithAllHistory())
+		require.NoError(t, err)
+		require.Len(t, renamedStatuses, 1)
+		assert.Equal(t, "renamed-dag", renamedStatuses[0].Name)
+	})
+
 	t.Run("QueueLease", func(t *testing.T) {
 		runRef := exec.NewDAGRunRef("example", "run-1")
 		require.NoError(t, store.Queue().Enqueue(ctx, "default", exec.QueuePriorityHigh, runRef))
@@ -181,6 +314,85 @@ WHERE queue_name = 'default' AND dag_name = 'example' AND dag_run_id = 'run-1'
 		count, err := store.Queue().Len(ctx, "default")
 		require.NoError(t, err)
 		assert.Equal(t, 0, count)
+	})
+
+	t.Run("QueueLeaseConcurrencyAndExpiry", func(t *testing.T) {
+		runRef := exec.NewDAGRunRef("queue-concurrency", "run-1")
+		require.NoError(t, store.Queue().Enqueue(ctx, "concurrent", exec.QueuePriorityHigh, runRef))
+		items, err := store.Queue().List(ctx, "concurrent")
+		require.NoError(t, err)
+		require.Len(t, items, 1)
+
+		const claimers = 16
+		results := make(chan error, claimers)
+		tokens := make(chan string, claimers)
+		var wg sync.WaitGroup
+		for i := 0; i < claimers; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				leased, err := store.ClaimByItemID(ctx, "concurrent", items[0].ID(), "parallel-claimer", time.Minute)
+				if err == nil {
+					tokens <- leased.LeaseToken()
+				}
+				results <- err
+			}()
+		}
+		wg.Wait()
+		close(results)
+		close(tokens)
+
+		successes := 0
+		notFound := 0
+		for err := range results {
+			switch {
+			case err == nil:
+				successes++
+			case errors.Is(err, exec.ErrQueueItemNotFound):
+				notFound++
+			default:
+				require.NoError(t, err)
+			}
+		}
+		assert.Equal(t, 1, successes)
+		assert.Equal(t, claimers-1, notFound)
+		var token string
+		for token = range tokens {
+			break
+		}
+		require.NotEmpty(t, token)
+		require.NoError(t, store.AckLease(ctx, "concurrent", token))
+
+		require.NoError(t, store.Queue().Enqueue(ctx, "concurrent-expiry", exec.QueuePriorityHigh, exec.NewDAGRunRef("queue-concurrency", "run-2")))
+		expiringItems, err := store.Queue().List(ctx, "concurrent-expiry")
+		require.NoError(t, err)
+		require.Len(t, expiringItems, 1)
+		firstLease, err := store.ClaimByItemID(ctx, "concurrent-expiry", expiringItems[0].ID(), "first-owner", time.Hour)
+		require.NoError(t, err)
+		require.NotEmpty(t, firstLease.LeaseToken())
+		_, err = store.pool.Exec(ctx, `
+UPDATE dagu_queue_items
+SET lease_expires_at = now() - interval '1 second'
+WHERE id = $1::uuid
+`, expiringItems[0].ID())
+		require.NoError(t, err)
+		secondLease, err := store.ClaimByItemID(ctx, "concurrent-expiry", expiringItems[0].ID(), "second-owner", time.Hour)
+		require.NoError(t, err)
+		assert.NotEqual(t, firstLease.LeaseToken(), secondLease.LeaseToken())
+		require.NoError(t, store.AckLease(ctx, "concurrent-expiry", secondLease.LeaseToken()))
+	})
+
+	t.Run("DomainConstraints", func(t *testing.T) {
+		assertPostgresDomainAccepts(t, ctx, store, "SELECT $1::text::dagu_dag_name", "my-dag_1.0")
+		assertPostgresDomainRejects(t, ctx, store, "SELECT $1::text::dagu_dag_name", ".")
+		assertPostgresDomainRejects(t, ctx, store, "SELECT $1::text::dagu_dag_name", "..")
+		assertPostgresDomainRejects(t, ctx, store, "SELECT $1::text::dagu_dag_name", "has/slash")
+		assertPostgresDomainRejects(t, ctx, store, "SELECT $1::text::dagu_dag_name", "this-is-a-very-very-long-dag-name-that-is-way-too-long")
+		assertPostgresDomainRejects(t, ctx, store, "SELECT $1::text::dagu_dag_run_id", "run.with.dot")
+		assertPostgresDomainRejects(t, ctx, store, "SELECT $1::text::dagu_attempt_id", "attempt.with.dot")
+		assertPostgresDomainRejects(t, ctx, store, "SELECT $1::text::dagu_workspace_name", "default")
+		assertPostgresDomainRejects(t, ctx, store, "SELECT $1::integer::dagu_status_code", 99)
+		assertPostgresDomainRejects(t, ctx, store, "SELECT $1::uuid::dagu_uuid_v7", uuid.NewString())
 	})
 
 	t.Run("AuthWorkspaceAuditEventsSessions", func(t *testing.T) {
@@ -430,4 +642,35 @@ WHERE queue_name = 'default' AND dag_name = 'example' AND dag_run_id = 'run-1'
 		require.NoError(t, err)
 		assert.Empty(t, members)
 	})
+}
+
+func writePostgresRunStatus(t *testing.T, ctx context.Context, store *Store, dagName, runID string, at time.Time, status core.Status) exec.DAGRunAttempt {
+	t.Helper()
+	dag := &core.DAG{Name: dagName}
+	attempt, err := store.DAGRuns().CreateAttempt(ctx, dag, at.UTC(), runID, exec.NewDAGRunAttemptOptions{})
+	require.NoError(t, err)
+	require.NoError(t, attempt.Open(ctx))
+	runStatus := exec.InitialStatus(dag)
+	runStatus.DAGRunID = runID
+	runStatus.AttemptID = attempt.ID()
+	runStatus.Status = status
+	runStatus.CreatedAt = at.UTC().UnixMilli()
+	require.NoError(t, attempt.Write(ctx, runStatus))
+	require.NoError(t, attempt.Close(ctx))
+	return attempt
+}
+
+func assertPostgresDomainAccepts(t *testing.T, ctx context.Context, store *Store, query string, value any) {
+	t.Helper()
+	_, err := store.pool.Exec(ctx, query, value)
+	require.NoError(t, err)
+}
+
+func assertPostgresDomainRejects(t *testing.T, ctx context.Context, store *Store, query string, value any) {
+	t.Helper()
+	_, err := store.pool.Exec(ctx, query, value)
+	require.Error(t, err)
+	var pgErr *pgconn.PgError
+	require.True(t, errors.As(err, &pgErr), "expected PostgreSQL error, got %T: %v", err, err)
+	assert.Equal(t, "23514", pgErr.Code)
 }
