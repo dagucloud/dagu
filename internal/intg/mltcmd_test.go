@@ -426,7 +426,7 @@ steps:
 
 		_, err = spec.Load(th.Context, testFile)
 		require.Error(t, err, "expected error for multiple commands with jq executor")
-		require.Contains(t, err.Error(), `step type "jq" supports only one command`)
+		require.Contains(t, err.Error(), `action "jq" supports only one command`)
 		require.NotContains(t, err.Error(), "executor")
 	})
 

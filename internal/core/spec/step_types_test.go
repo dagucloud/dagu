@@ -701,7 +701,7 @@ steps:
   - type: greet
 `), WithBaseConfigContent(baseYAML))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), `duplicate custom step type "greet"`)
+	assert.Contains(t, err.Error(), `duplicate legacy step_types definition "greet"`)
 }
 
 func TestCustomStepTypes_DuplicateNameAcrossScopesAfterNormalization(t *testing.T) {
@@ -736,7 +736,7 @@ steps:
   - type: greet
 `), WithBaseConfigContent(baseYAML))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), `duplicate custom step type "greet"`)
+	assert.Contains(t, err.Error(), `duplicate legacy step_types definition "greet"`)
 }
 
 func TestCustomStepTypes_RejectsForbiddenCallSiteFields(t *testing.T) {

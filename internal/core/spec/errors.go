@@ -28,5 +28,5 @@ var (
 	ErrStepCommandIsEmpty                  = errors.New("step command is empty")
 	ErrStepCommandMustBeArrayOrString      = errors.New("step command must be an array of strings or a string")
 	ErrTimeoutSecMustBeNonNegative         = errors.New("timeout_sec must be >= 0")
-	ErrExecutorDoesNotSupportMultipleCmd   = errors.New("step type does not support multiple commands")
+	ErrExecutorDoesNotSupportMultipleCmd   = errors.New("action does not support multiple commands")
 )

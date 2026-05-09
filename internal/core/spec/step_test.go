@@ -2131,8 +2131,8 @@ func TestValidateMultipleCommands(t *testing.T) {
 
 			if tt.wantErr {
 				assert.Error(t, err)
-				assert.Contains(t, err.Error(), `step type "`+tt.executorType+`" supports only one command`)
-				assert.NotContains(t, err.Error(), "step type does not support multiple commands")
+				assert.Contains(t, err.Error(), `action "`+tt.executorType+`" supports only one command`)
+				assert.NotContains(t, err.Error(), "action does not support multiple commands")
 				assert.NotContains(t, err.Error(), "executor")
 				assert.True(t, errors.Is(err, ErrExecutorDoesNotSupportMultipleCmd))
 			} else {
@@ -2686,7 +2686,7 @@ func TestStepValidationMessagesUseYAMLTerms(t *testing.T) {
 					ExecutorConfig: core.ExecutorConfig{Type: "dag"},
 				})
 			},
-			want: `step type "dag" does not support command field`,
+			want: `action "dag" does not support command field`,
 		},
 		{
 			name: "unsupported multiple commands",
@@ -2699,7 +2699,7 @@ func TestStepValidationMessagesUseYAMLTerms(t *testing.T) {
 					ExecutorConfig: core.ExecutorConfig{Type: "http"},
 				})
 			},
-			want: `step type "http" supports only one command`,
+			want: `action "http" supports only one command`,
 		},
 		{
 			name: "unsupported llm",
@@ -2709,7 +2709,7 @@ func TestStepValidationMessagesUseYAMLTerms(t *testing.T) {
 					LLM:            &core.LLMConfig{Provider: "openai", Model: "gpt-4"},
 				})
 			},
-			want: `step type "shell" does not support llm field`,
+			want: `action "shell" does not support llm field`,
 		},
 		{
 			name: "unknown type",
@@ -2717,7 +2717,7 @@ func TestStepValidationMessagesUseYAMLTerms(t *testing.T) {
 				result := &core.Step{ExecutorConfig: core.ExecutorConfig{Config: make(map[string]any)}}
 				return buildStepExecutor(testStepBuildContext(), &step{Type: "non-existent"}, result)
 			},
-			want: `unknown step type "non-existent"`,
+			want: `unknown action "non-existent"`,
 		},
 	}
 

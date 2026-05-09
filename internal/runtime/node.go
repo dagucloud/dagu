@@ -824,7 +824,7 @@ func (n *Node) configureSubDAGExecutor(cmd executor.Executor, subRuns []SubDAGRu
 	if n.Step().Parallel == nil {
 		dagExecutor, ok := cmd.(executor.DAGExecutor)
 		if !ok {
-			return fmt.Errorf("step type %q does not support sub DAG execution", n.Step().ExecutorConfig.Type)
+			return fmt.Errorf("action %q does not support sub DAG execution", n.Step().ExecutorConfig.Type)
 		}
 		dagExecutor.SetParams(runParams(subRuns[0]))
 		return nil
@@ -832,7 +832,7 @@ func (n *Node) configureSubDAGExecutor(cmd executor.Executor, subRuns []SubDAGRu
 
 	parallelExecutor, ok := cmd.(executor.ParallelExecutor)
 	if !ok {
-		return fmt.Errorf("step type %q does not support parallel execution", n.Step().ExecutorConfig.Type)
+		return fmt.Errorf("action %q does not support parallel execution", n.Step().ExecutorConfig.Type)
 	}
 	parallelExecutor.SetParamsList(runParamsList(subRuns))
 	return nil

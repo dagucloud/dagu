@@ -842,7 +842,7 @@ func buildBaseDAG(ctx BuildContext, baseDef *dag) (*core.DAG, error) {
 	return baseDAG, nil
 }
 
-// stepTypesOf returns the custom step type declarations for a manifest.
+// stepTypesOf returns the deprecated legacy step_types declarations for a manifest.
 func stepTypesOf(d *dag) map[string]customStepTypeSpec {
 	if d == nil {
 		return nil

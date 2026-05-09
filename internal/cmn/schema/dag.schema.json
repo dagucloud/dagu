@@ -584,9 +584,9 @@
       "description": "Lifecycle event hooks that define commands to execute at various points in the DAG lifecycle: init (before steps), success, failure, abort, and exit (always runs last)."
     },
     "step_types": {
-      "$ref": "#/definitions/customStepTypes",
+      "$ref": "#/definitions/legacyExecutionDefinitions",
       "deprecated": true,
-      "description": "Deprecated reusable custom step type definitions for this DAG. Use actions for new DAGs. Base config and DAG-local step_types are merged per document, and duplicate names across scopes are rejected."
+      "description": "Deprecated reusable legacy execution definitions for this DAG. Use actions for new DAGs. Base config and DAG-local step_types are merged per document, and duplicate names across scopes are rejected."
     },
     "actions": {
       "$ref": "#/definitions/customActions",
@@ -1830,7 +1830,7 @@
         "type": {
           "$ref": "#/definitions/executorType",
           "deprecated": true,
-          "description": "Deprecated builtin executor type or custom step type name. Use action for new DAGs."
+          "description": "Deprecated builtin executor action or legacy definition name. Use action for new DAGs."
         },
         "with": {
           "$ref": "#/definitions/executorConfig",
@@ -5600,10 +5600,10 @@
         {
           "type": "string",
           "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
-          "description": "Deprecated custom step type name declared in step_types or base config."
+          "description": "Deprecated legacy definition name declared in step_types or base config."
         }
       ],
-      "description": "Deprecated builtin executor type or custom step type name declared in step_types. Use action for new DAGs."
+      "description": "Deprecated builtin executor action or legacy definition name declared in step_types. Use action for new DAGs."
     },
     "actionName": {
       "anyOf": [
@@ -6027,24 +6027,24 @@
         }
       }
     },
-    "customStepTypes": {
+    "legacyExecutionDefinitions": {
       "type": "object",
       "propertyNames": {
         "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
       },
       "additionalProperties": {
-        "$ref": "#/definitions/customStepTypeDefinition"
+        "$ref": "#/definitions/legacyExecutionDefinition"
       },
-      "description": "Deprecated custom step type definitions keyed by user-defined type name. Use actions for new DAGs."
+      "description": "Deprecated legacy execution definitions keyed by user-defined type name. Use actions for new DAGs."
     },
-    "customStepTypeDefinition": {
+    "legacyExecutionDefinition": {
       "type": "object",
       "additionalProperties": false,
       "required": ["type", "input_schema", "template"],
       "properties": {
         "type": {
           "$ref": "#/definitions/builtinExecutorType",
-          "description": "Deprecated builtin executor type or builtin alias that this custom step type expands to. Custom step types cannot target other custom step types."
+          "description": "Deprecated builtin executor action or builtin alias that this legacy definition expands to. Legacy step_types definitions cannot target other legacy definitions."
         },
         "description": {
           "type": "string",
@@ -6053,7 +6053,7 @@
         "input_schema": {
           "type": "object",
           "additionalProperties": true,
-          "description": "Inline JSON Schema object used to validate and default the deprecated custom step type's with input."
+          "description": "Inline JSON Schema object used to validate and default the deprecated legacy definition's with input."
         },
         "output_schema": {
           "type": "object",
@@ -6066,7 +6066,7 @@
           "description": "Step fragment template expanded at build time. Use {$input: path.to.value} for typed injection and Go template strings for string interpolation."
         }
       },
-      "description": "Definition of a deprecated reusable custom step type. Use customActionDefinition for new DAGs."
+      "description": "Definition of a deprecated reusable legacy execution definition. Use customActionDefinition for new DAGs."
     },
     "stepExec": {
       "type": "object",

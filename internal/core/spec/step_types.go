@@ -246,7 +246,7 @@ func duplicateCustomDefinitionError(field, name string, existing *customStepType
 		return core.NewValidationError(
 			fmt.Sprintf("%s.%s", field, name),
 			name,
-			fmt.Errorf("duplicate custom action %q conflicts with an existing custom action or step type in %s", name, scope),
+			fmt.Errorf("duplicate custom action %q conflicts with an existing custom action or legacy step_types definition in %s", name, scope),
 		)
 	}
 	return core.NewValidationError(
@@ -258,9 +258,9 @@ func duplicateCustomDefinitionError(field, name string, existing *customStepType
 
 func duplicateCustomStepTypeError(name, scope string) error {
 	if scope == "DAG" {
-		return fmt.Errorf("duplicate custom step type %q is defined in both base config and DAG", name)
+		return fmt.Errorf("duplicate legacy step_types definition %q is defined in both base config and DAG", name)
 	}
-	return fmt.Errorf("duplicate custom step type %q is defined in %s", name, scope)
+	return fmt.Errorf("duplicate legacy step_types definition %q is defined in %s", name, scope)
 }
 
 func expandedCustomStepExecutorType(targetType string, rendered map[string]any) string {
@@ -288,14 +288,14 @@ func validateCustomStepTypeSpec(name string, spec customStepTypeSpec) (*customSt
 		return nil, core.NewValidationError(
 			fmt.Sprintf("step_types.%s", name),
 			name,
-			fmt.Errorf("custom step type names must match %s", customStepTypeNameRegexp.String()),
+			fmt.Errorf("legacy step_types definition names must match %s", customStepTypeNameRegexp.String()),
 		)
 	}
 	if isBuiltinStepTypeName(name) {
 		return nil, core.NewValidationError(
 			fmt.Sprintf("step_types.%s", name),
 			name,
-			fmt.Errorf("custom step type name %q conflicts with a builtin step type", name),
+			fmt.Errorf("legacy step_types definition name %q conflicts with a builtin action", name),
 		)
 	}
 
@@ -311,7 +311,7 @@ func validateCustomStepTypeSpec(name string, spec customStepTypeSpec) (*customSt
 		return nil, core.NewValidationError(
 			fmt.Sprintf("step_types.%s.type", name),
 			spec.Type,
-			fmt.Errorf("unknown builtin step type %q", targetType),
+			fmt.Errorf("unknown builtin action %q", targetType),
 		)
 	}
 	if spec.InputSchema == nil {
@@ -1142,7 +1142,7 @@ func validateCustomStepCallSiteFields(callSite *step, raw map[string]any) error 
 				continue
 			}
 			if _, ok := customStepForbiddenCallSiteFields[key]; ok {
-				return core.NewValidationError(key, raw[key], fmt.Errorf("field %q is not allowed when using a custom step type", key))
+				return core.NewValidationError(key, raw[key], fmt.Errorf("field %q is not allowed when using a legacy step_types definition", key))
 			}
 		}
 		return nil
@@ -1155,49 +1155,49 @@ func validateCustomStepCallSiteFields(callSite *step, raw map[string]any) error 
 		return err
 	}
 	if callSite.WorkingDir != "" {
-		return core.NewValidationError("working_dir", callSite.WorkingDir, fmt.Errorf("field %q is not allowed when using a custom step type", "working_dir"))
+		return core.NewValidationError("working_dir", callSite.WorkingDir, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "working_dir"))
 	}
 	if callSite.Command != nil {
-		return core.NewValidationError("command", callSite.Command, fmt.Errorf("field %q is not allowed when using a custom step type", "command"))
+		return core.NewValidationError("command", callSite.Command, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "command"))
 	}
 	if callSite.Exec != nil {
-		return core.NewValidationError("exec", callSite.Exec, fmt.Errorf("field %q is not allowed when using a custom step type", "exec"))
+		return core.NewValidationError("exec", callSite.Exec, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "exec"))
 	}
 	if !callSite.Shell.IsZero() {
-		return core.NewValidationError("shell", callSite.Shell.Value(), fmt.Errorf("field %q is not allowed when using a custom step type", "shell"))
+		return core.NewValidationError("shell", callSite.Shell.Value(), fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "shell"))
 	}
 	if len(callSite.ShellArgs) > 0 {
-		return core.NewValidationError("shell_args", callSite.ShellArgs, fmt.Errorf("field %q is not allowed when using a custom step type", "shell_args"))
+		return core.NewValidationError("shell_args", callSite.ShellArgs, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "shell_args"))
 	}
 	if len(callSite.ShellPackages) > 0 {
-		return core.NewValidationError("shell_packages", callSite.ShellPackages, fmt.Errorf("field %q is not allowed when using a custom step type", "shell_packages"))
+		return core.NewValidationError("shell_packages", callSite.ShellPackages, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "shell_packages"))
 	}
 	if callSite.Script != "" {
-		return core.NewValidationError("script", callSite.Script, fmt.Errorf("field %q is not allowed when using a custom step type", "script"))
+		return core.NewValidationError("script", callSite.Script, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "script"))
 	}
 	if callSite.Call != "" {
-		return core.NewValidationError("call", callSite.Call, fmt.Errorf("field %q is not allowed when using a custom step type", "call"))
+		return core.NewValidationError("call", callSite.Call, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "call"))
 	}
 	if callSite.Params != nil {
-		return core.NewValidationError("params", callSite.Params, fmt.Errorf("field %q is not allowed when using a custom step type", "params"))
+		return core.NewValidationError("params", callSite.Params, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "params"))
 	}
 	if callSite.Parallel != nil {
-		return core.NewValidationError("parallel", callSite.Parallel, fmt.Errorf("field %q is not allowed when using a custom step type", "parallel"))
+		return core.NewValidationError("parallel", callSite.Parallel, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "parallel"))
 	}
 	if callSite.Container != nil {
-		return core.NewValidationError("container", callSite.Container, fmt.Errorf("field %q is not allowed when using a custom step type", "container"))
+		return core.NewValidationError("container", callSite.Container, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "container"))
 	}
 	if callSite.LLM != nil {
-		return core.NewValidationError("llm", callSite.LLM, fmt.Errorf("field %q is not allowed when using a custom step type", "llm"))
+		return core.NewValidationError("llm", callSite.LLM, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "llm"))
 	}
 	if len(callSite.Messages) > 0 {
-		return core.NewValidationError("messages", callSite.Messages, fmt.Errorf("field %q is not allowed when using a custom step type", "messages"))
+		return core.NewValidationError("messages", callSite.Messages, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "messages"))
 	}
 	if len(callSite.Routes) > 0 {
-		return core.NewValidationError("routes", callSite.Routes, fmt.Errorf("field %q is not allowed when using a custom step type", "routes"))
+		return core.NewValidationError("routes", callSite.Routes, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "routes"))
 	}
 	if strings.TrimSpace(callSite.Value) != "" {
-		return core.NewValidationError("value", callSite.Value, fmt.Errorf("field %q is not allowed when using a custom step type", "value"))
+		return core.NewValidationError("value", callSite.Value, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "value"))
 	}
 	return nil
 }
