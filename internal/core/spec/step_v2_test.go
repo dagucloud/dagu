@@ -296,6 +296,25 @@ steps:
 	assert.Contains(t, err.Error(), "template contains deprecated execution keys: [command]")
 }
 
+func TestStepSchemaV2_CustomActionErrorContext(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+actions:
+  bad.log:
+    input_schema:
+      type: object
+    template:
+      action: log.write
+      with: {}
+steps:
+  - action: bad.log
+`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `custom action "bad.log": failed to normalize expanded template`)
+	assert.Contains(t, err.Error(), "with.message is required")
+}
+
 func TestStepSchemaV2_CustomActionsCanComposeCustomActions(t *testing.T) {
 	t.Parallel()
 

@@ -766,6 +766,7 @@ steps:
       message: hello
 `))
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), `legacy step_types definition "greet"`)
 	assert.Contains(t, err.Error(), `field "command" is not allowed`)
 }
 

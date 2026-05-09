@@ -961,7 +961,7 @@ func buildCustomStepFromSpecWithStack(
 	stack = append(stack, customType.Name)
 
 	if err := validateCustomStepCallSiteFields(callSite, raw); err != nil {
-		return nil, fmt.Errorf("step type %q: %w", customType.Name, err)
+		return nil, fmt.Errorf("%s: %w", customDefinitionErrorContext(customType), err)
 	}
 
 	input := map[string]any{}
@@ -983,21 +983,21 @@ func buildCustomStepFromSpecWithStack(
 	}
 	mergedRaw, err := mergeCustomStepRaw(rendered, callSite, raw, customType, forcedName)
 	if err != nil {
-		return nil, fmt.Errorf("step type %q: %w", customType.Name, err)
+		return nil, fmt.Errorf("%s: %w", customDefinitionErrorContext(customType), err)
 	}
 	normalizedRaw, err := normalizeStepExecutionRaw(mergedRaw, ctx.customStepTypes)
 	if err != nil {
-		return nil, fmt.Errorf("step type %q: failed to normalize expanded template: %w", customType.Name, err)
+		return nil, fmt.Errorf("%s: failed to normalize expanded template: %w", customDefinitionErrorContext(customType), err)
 	}
 
 	expandedSpec, err := decodeStep(normalizedRaw)
 	if err != nil {
-		return nil, fmt.Errorf("step type %q: failed to decode expanded template: %w", customType.Name, err)
+		return nil, fmt.Errorf("%s: failed to decode expanded template: %w", customDefinitionErrorContext(customType), err)
 	}
 	applyDefaults(expandedSpec, defs, normalizedRaw)
 	builtStep, err := buildExpandedCustomStep(ctx, expandedSpec, normalizedRaw, defs, stack)
 	if err != nil {
-		return nil, fmt.Errorf("step type %q (resolves to %q): %w", customType.Name, customType.Type, err)
+		return nil, fmt.Errorf("%s (resolves to %q): %w", customDefinitionErrorContext(customType), customType.Type, err)
 	}
 	if builtStep.ExecutorConfig.Metadata == nil {
 		builtStep.ExecutorConfig.Metadata = make(map[string]any, 1)
@@ -1010,6 +1010,16 @@ func buildCustomStepFromSpecWithStack(
 		builtStep.Description = customType.Description
 	}
 	return builtStep, nil
+}
+
+func customDefinitionErrorContext(customType *customStepType) string {
+	if customType != nil && customType.Kind == customStepKindAction {
+		return fmt.Sprintf("custom action %q", customType.Name)
+	}
+	if customType == nil {
+		return "legacy step_types definition"
+	}
+	return fmt.Sprintf("legacy step_types definition %q", customType.Name)
 }
 
 func customStepStackContains(stack []string, name string) bool {
