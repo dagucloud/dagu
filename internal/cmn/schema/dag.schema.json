@@ -1979,12 +1979,23 @@
         },
         {
           "if": {
-            "properties": { "action": { "enum": ["docker.run", "container.run", "k8s.run", "kubernetes.run"] } },
+            "properties": { "action": { "enum": ["docker.run", "container.run"] } },
             "required": ["action"]
           },
           "then": {
             "properties": {
-              "with": { "$ref": "#/definitions/optionalCommandActionConfig" }
+              "with": { "$ref": "#/definitions/dockerExecutorConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "enum": ["k8s.run", "kubernetes.run"] } },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "with": { "$ref": "#/definitions/kubernetesExecutorConfig" }
             }
           }
         },
@@ -3145,6 +3156,18 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "command": {
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "array",
+              "items": {
+                "type": ["string", "number", "boolean"]
+              }
+            }
+          ],
+          "description": "Command or argv-like command list used as the container command for action: docker.run and action: container.run."
+        },
         "image": {
           "type": "string",
           "description": "Docker image to use for creating a new container (e.g., 'python:3.11', 'alpine:latest')."
@@ -5076,6 +5099,18 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "command": {
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "array",
+              "items": {
+                "type": ["string", "number", "boolean"]
+              }
+            }
+          ],
+          "description": "Command or argv-like command list used as the Kubernetes container command for action: k8s.run and action: kubernetes.run."
+        },
         "image": {
           "type": "string",
           "description": "Container image to run. Optional in raw step YAML because DAG or base kubernetes defaults may provide it, but required in the effective step config used at runtime."
@@ -5784,20 +5819,24 @@
       "description": "Action configuration with a required import field."
     },
     "harnessRunActionConfig": {
-      "type": "object",
-      "required": ["prompt"],
-      "additionalProperties": true,
-      "properties": {
-        "prompt": {
-          "type": "string",
-          "minLength": 1,
-          "description": "Task prompt passed to the harness CLI."
-        },
-        "stdin": {
-          "type": "string",
-          "description": "Optional stdin content passed to the harness command."
+      "allOf": [
+        { "$ref": "#/definitions/harnessExecutorConfig" },
+        {
+          "type": "object",
+          "required": ["prompt"],
+          "properties": {
+            "prompt": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Task prompt passed to the harness CLI."
+            },
+            "stdin": {
+              "type": "string",
+              "description": "Optional stdin content passed to the harness command."
+            }
+          }
         }
-      },
+      ],
       "description": "Configuration for action: harness.run."
     },
     "jqFilterActionConfig": {

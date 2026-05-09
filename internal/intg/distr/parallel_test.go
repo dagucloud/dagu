@@ -22,7 +22,9 @@ func TestParallel_MultipleItems(t *testing.T) {
 		f := newTestFixture(t, `
 steps:
   - name: process-items
-    call: child-worker
+    action: dag.run
+    with:
+      dag: child-worker
     parallel:
       items:
         - "item1"
@@ -37,7 +39,7 @@ worker_selector:
   type: test-worker
 steps:
   - name: process
-    command: echo "Processing $1 on worker"
+    run: echo "Processing $1 on worker"
     output: RESULT
 `, withWorkerCount(2), withLabels(map[string]string{"type": "test-worker"}), withLogPersistence())
 
@@ -83,7 +85,9 @@ func TestParallel_SameWorkerType(t *testing.T) {
 		f := newTestFixture(t, `
 steps:
   - name: process-regions
-    call: child-regional
+    action: dag.run
+    with:
+      dag: child-regional
     parallel:
       items:
         - "us-east"
@@ -97,7 +101,7 @@ worker_selector:
   type: test-worker
 steps:
   - name: process
-    command: |
+    run: |
       echo "Processing region: $1"
     output: RESULT
 `, withWorkerCount(3), withLabels(map[string]string{"type": "test-worker"}), withLogPersistence())
@@ -145,7 +149,9 @@ func TestParallel_PartialFailure(t *testing.T) {
 		f := newTestFixture(t, `
 steps:
   - name: process-items
-    call: child-worker
+    action: dag.run
+    with:
+      dag: child-worker
     parallel:
       items:
         - "ok"
@@ -157,7 +163,7 @@ worker_selector:
   type: test-worker
 steps:
   - name: run
-    command: |
+    run: |
 `+childCommand+`
 `, withLabels(map[string]string{"type": "test-worker"}), withLogPersistence())
 
@@ -182,7 +188,9 @@ func TestParallel_NoMatchingWorkers(t *testing.T) {
 		f := newTestFixture(t, `
 steps:
   - name: process-items
-    call: child-nonexistent
+    action: dag.run
+    with:
+      dag: child-nonexistent
     parallel:
       items: ["a", "b", "c"]
     output: RESULTS
@@ -193,7 +201,7 @@ worker_selector:
   type: nonexistent-worker
 steps:
   - name: process
-    command: echo "Should not run"
+    run: echo "Should not run"
 `, withWorkerCount(0))
 
 		agent := f.dagWrapper.Agent()
@@ -217,13 +225,17 @@ func TestParallel_MixedLocalAndDistributed(t *testing.T) {
 type: graph
 steps:
   - name: local-execution
-    call: child-local
+    action: dag.run
+    with:
+      dag: child-local
     parallel:
       items: ["3", "5"]
     output: LOCAL_RESULTS
     depends: []
   - name: distributed-execution
-    call: child-distributed
+    action: dag.run
+    with:
+      dag: child-distributed
     parallel:
       items: ["4", "6"]
     output: DISTRIBUTED_RESULTS
@@ -233,7 +245,7 @@ steps:
 name: child-local
 steps:
   - name: wait
-    command: |
+    run: |
       `+waitForReleaseFile+`
 
 ---
@@ -242,7 +254,7 @@ worker_selector:
   type: test-worker
 steps:
   - name: wait
-    command: |
+    run: |
       `+waitForReleaseFile+`
 `, withLabels(map[string]string{"type": "test-worker"}), withDAGsDir(tmpDir), withLogPersistence())
 

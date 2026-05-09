@@ -19,12 +19,12 @@ func TestJQExecutor(t *testing.T) {
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: extract-array-raw
-    type: jq
+    action: jq.filter
     with:
+      filter: '.data[]'
+      data: |
+        { "data": [1, 2, 3] }
       raw: true
-    script: |
-      { "data": [1, 2, 3] }
-    command: '.data[]'
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -43,12 +43,12 @@ func TestJQExecutor(t *testing.T) {
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: extract-array-json
-    type: jq
+    action: jq.filter
     with:
+      filter: '.data[]'
+      data: |
+        { "data": [1, 2, 3] }
       raw: false
-    script: |
-      { "data": [1, 2, 3] }
-    command: '.data[]'
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -67,12 +67,12 @@ func TestJQExecutor(t *testing.T) {
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: extract-strings-raw
-    type: jq
+    action: jq.filter
     with:
+      filter: '.messages[]'
+      data: |
+        { "messages": ["hello", "world"] }
       raw: true
-    script: |
-      { "messages": ["hello", "world"] }
-    command: '.messages[]'
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -91,12 +91,12 @@ func TestJQExecutor(t *testing.T) {
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: extract-strings-json
-    type: jq
+    action: jq.filter
     with:
+      filter: '.messages[]'
+      data: |
+        { "messages": ["hello", "world"] }
       raw: false
-    script: |
-      { "messages": ["hello", "world"] }
-    command: '.messages[]'
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -115,12 +115,12 @@ func TestJQExecutor(t *testing.T) {
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: extract-tsv
-    type: jq
+    action: jq.filter
     with:
+      filter: '.data[] | [., 100 * .] | @tsv'
+      data: |
+        { "data": [1, 2, 3] }
       raw: true
-    script: |
-      { "data": [1, 2, 3] }
-    command: '.data[] | [., 100 * .] | @tsv'
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -139,12 +139,12 @@ func TestJQExecutor(t *testing.T) {
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: extract-single-string-raw
-    type: jq
+    action: jq.filter
     with:
+      filter: .foo
+      data: |
+        {"foo": "bar"}
       raw: true
-    script: |
-      {"foo": "bar"}
-    command: .foo
     output: RESULT
 `)
 
@@ -164,12 +164,12 @@ func TestJQExecutor(t *testing.T) {
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: extract-single-string-json
-    type: jq
+    action: jq.filter
     with:
+      filter: .foo
+      data: |
+        {"foo": "bar"}
       raw: false
-    script: |
-      {"foo": "bar"}
-    command: .foo
     output: RESULT
 `)
 
@@ -189,12 +189,12 @@ func TestJQExecutor(t *testing.T) {
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: extract-single-number-raw
-    type: jq
+    action: jq.filter
     with:
+      filter: .value
+      data: |
+        {"value": 42}
       raw: true
-    script: |
-      {"value": 42}
-    command: .value
     output: RESULT
 `)
 
@@ -214,12 +214,12 @@ func TestJQExecutor(t *testing.T) {
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: extract-single-boolean-raw
-    type: jq
+    action: jq.filter
     with:
+      filter: .enabled
+      data: |
+        {"enabled": true, "disabled": false}
       raw: true
-    script: |
-      {"enabled": true, "disabled": false}
-    command: .enabled
     output: ENABLED
 `)
 
@@ -239,12 +239,12 @@ func TestJQExecutor(t *testing.T) {
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: extract-null-raw
-    type: jq
+    action: jq.filter
     with:
+      filter: .value
+      data: |
+        {"value": null}
       raw: true
-    script: |
-      {"value": null}
-    command: .value
     output: RESULT
 `)
 
@@ -266,12 +266,12 @@ func TestJQExecutor(t *testing.T) {
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: extract-object-raw
-    type: jq
+    action: jq.filter
     with:
+      filter: .user
+      data: |
+        {"user": {"name": "John", "age": 30}}
       raw: true
-    script: |
-      {"user": {"name": "John", "age": 30}}
-    command: .user
     output: RESULT
 `)
 
@@ -297,17 +297,17 @@ func TestJQExecutor(t *testing.T) {
 type: graph
 steps:
   - id: producer
-    command: 'echo ''{"items": [{"name": "a"}, {"name": "b"}]}'''
+    run: 'echo ''{"items": [{"name": "a"}, {"name": "b"}]}'''
     output: PRODUCER_OUT
 
   - id: filter
     depends:
       - producer
-    type: jq
+    action: jq.filter
     with:
+      filter: '.items[] | .name'
+      data: "file://${producer.stdout}"
       raw: true
-    script: "file://${producer.stdout}"
-    command: '.items[] | .name'
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -328,17 +328,17 @@ steps:
 type: graph
 steps:
   - id: producer
-    command: 'echo ''{"items": [{"name": "a"}, {"name": "b"}]}'''
+    run: 'echo ''{"items": [{"name": "a"}, {"name": "b"}]}'''
     output: PRODUCER_OUT
 
   - id: filter
     depends:
       - producer
-    type: jq
+    action: jq.filter
     with:
+      filter: '.items[] | .name'
       raw: true
       input: "${producer.stdout}"
-    command: '.items[] | .name'
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -359,17 +359,17 @@ steps:
 type: graph
 steps:
   - id: producer
-    command: 'echo ''{"items": [{"name": "a"}, {"name": "b"}]}'''
+    run: 'echo ''{"items": [{"name": "a"}, {"name": "b"}]}'''
     output: PRODUCER_OUT
 
   - id: filter
     depends:
       - producer
-    type: jq
+    action: jq.filter
     with:
+      filter: '.items[] | .name'
       raw: false
       input: "${producer.stdout}"
-    command: '.items[] | .name'
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -391,18 +391,18 @@ steps:
 type: graph
 steps:
   - id: producer
-    command: |
+    run: |
       python3 -c "import json; print(json.dumps({'items': [{'id': i, 'name': f'item-{i}'} for i in range(100)]}))"
     output: PRODUCER_OUT
 
   - id: filter
     depends:
       - producer
-    type: jq
+    action: jq.filter
     with:
+      filter: '[.items | length] | .[0]'
       raw: true
       input: "${producer.stdout}"
-    command: '[.items | length] | .[0]'
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -423,17 +423,17 @@ steps:
 type: graph
 steps:
   - id: producer
-    command: 'echo ''{"data": {"users": [{"name": "Alice", "email": "alice@example.com"}, {"name": "Bob", "email": "bob@example.com"}]}}'''
+    run: 'echo ''{"data": {"users": [{"name": "Alice", "email": "alice@example.com"}, {"name": "Bob", "email": "bob@example.com"}]}}'''
     output: PRODUCER_OUT
 
   - id: filter
     depends:
       - producer
-    type: jq
+    action: jq.filter
     with:
+      filter: '.data.users[] | .name'
       raw: true
       input: "${producer.stdout}"
-    command: '.data.users[] | .name'
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -452,12 +452,12 @@ steps:
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: extract-special-chars-raw
-    type: jq
+    action: jq.filter
     with:
+      filter: .message
+      data: |
+        {"message": "hello\nworld\ttab"}
       raw: true
-    script: |
-      {"message": "hello\nworld\ttab"}
-    command: .message
     output: RESULT
 `)
 

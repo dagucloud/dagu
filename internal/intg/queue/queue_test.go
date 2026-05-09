@@ -31,7 +31,7 @@ func TestBasicProcessing(t *testing.T) {
 name: echo-dag
 steps:
   - name: echo
-    command: echo hello
+    run: echo hello
 `).Enqueue(3).StartScheduler(30 * time.Second)
 
 	f.WaitDrain(35 * time.Second)
@@ -50,7 +50,7 @@ func TestParallelQueueFixturesRemainIsolated(t *testing.T) {
 name: echo-dag
 steps:
   - name: echo
-    command: echo hello
+    run: echo hello
 `).Enqueue(1).StartScheduler(20 * time.Second)
 			defer f.Stop()
 
@@ -123,7 +123,7 @@ name: batch-dag
 max_active_runs: 3
 steps:
   - name: sleep
-    command: %s
+    run: %s
 `, test.ShellQuote(test.Sleep(time.Second)))).Enqueue(3).StartScheduler(30 * time.Second)
 	defer f.Stop()
 
@@ -143,7 +143,7 @@ name: priority-dag
 max_active_runs: 1
 steps:
   - name: echo
-    command: echo done
+    run: echo done
 `).
 		EnqueueWithPriority(exec.QueuePriorityLow).
 		EnqueueWithPriority(exec.QueuePriorityLow).
@@ -175,7 +175,7 @@ name: retry-dag
 queue: retry-queue
 steps:
   - name: echo
-    command: echo retried
+    run: echo retried
 `, WithQueue("retry-queue"), WithGlobalQueue("retry-queue", 1)).
 		FailedRun()
 
@@ -228,7 +228,7 @@ env:
   - EXPORTED_SECRET: ${%s}
 steps:
   - name: capture
-    command: %q
+    run: %q
     output: RESULT
 `, rawVar, test.EnvOutput("EXPORTED_SECRET", rawVar)), WithQueue("queue-explicit-env"), WithGlobalQueue("queue-explicit-env", 1))
 
@@ -291,10 +291,10 @@ retry_policy:
   max_interval_sec: 1
 handler_on:
   failure:
-    command: %q
+    run: %q
 steps:
   - id: retry_step
-    command: echo retried
+    run: echo retried
 `, test.ForOS(
 			fmt.Sprintf("printf '%%s' %s > %s", test.PosixQuote("failed"), test.PosixQuote(markerPath)),
 			fmt.Sprintf("Set-Content -Path %s -Value %s -NoNewline", test.PowerShellQuote(markerPath), test.PowerShellQuote("failed")),
@@ -340,10 +340,10 @@ retry_policy:
   max_interval_sec: 1
 handler_on:
   failure:
-    command: %q
+    run: %q
 steps:
   - id: retry_step
-    command: echo retried
+    run: echo retried
 `, test.ForOS(
 			fmt.Sprintf("printf '%%s' %s > %s", test.PosixQuote("failed"), test.PosixQuote(markerPath)),
 			fmt.Sprintf("Set-Content -Path %s -Value %s -NoNewline", test.PowerShellQuote(markerPath), test.PowerShellQuote("failed")),
@@ -381,7 +381,7 @@ retry_policy:
   limit: 0
 steps:
   - id: retry_step
-    command: echo retried
+    run: echo retried
 `, WithQueue("retry-disabled-queue"), WithGlobalQueue("retry-disabled-queue", 1))
 
 		require.NoError(t, os.WriteFile(f.th.Config.Paths.BaseConfig, []byte(`
@@ -446,10 +446,10 @@ retry_policy:
   max_interval_sec: 1
 handler_on:
   failure:
-    command: %q
+    run: %q
 steps:
   - id: retry_step
-    command: echo retried
+    run: echo retried
 `, test.ForOS(
 			fmt.Sprintf("printf '%%s' %s > %s", test.PosixQuote("failed"), test.PosixQuote(markerPath)),
 			fmt.Sprintf("Set-Content -Path %s -Value %s -NoNewline", test.PowerShellQuote(markerPath), test.PowerShellQuote("failed")),
@@ -498,7 +498,7 @@ func TestCatchupQueuedHappyPath(t *testing.T) {
 name: catchup-local-test
 steps:
   - name: echo-step
-    command: echo catchup-local
+    run: echo catchup-local
 `)
 
 	runID := f.enqueueCatchup(scheduleTime)
@@ -529,7 +529,7 @@ schedule: "* * * * *"
 catchup_window: "2m"
 steps:
   - name: echo-step
-    command: echo catchup-from-watermark
+    run: echo catchup-from-watermark
 `)
 
 	f.seedWatermark(scheduledTime.Add(-time.Minute), scheduledTime.Add(-time.Minute))

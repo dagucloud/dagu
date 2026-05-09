@@ -56,7 +56,7 @@ func newEnqueueDAGRunFixture(t *testing.T, closeErr error) enqueueDAGRunFixture 
 	queueStore := &enqueueObservingQueueStore{attempt: attempt}
 	dag := th.DAG(t, `steps:
   - name: "step"
-    command: "true"
+    run: "true"
 `).DAG
 
 	ctx := &Context{

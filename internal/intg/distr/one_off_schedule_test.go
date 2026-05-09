@@ -28,7 +28,7 @@ worker_selector:
   test: "true"
 steps:
   - name: echo-step
-    command: echo "distributed-one-off"
+    run: echo "distributed-one-off"
 `)
 	defer f.cleanup()
 

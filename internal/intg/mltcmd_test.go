@@ -31,7 +31,7 @@ func TestMultipleCommands_Shell(t *testing.T) {
 		dag := th.DAG(t, `
 steps:
   - name: multi-cmd
-    command:
+    run:
       - echo hello
       - echo world
     output: OUT
@@ -51,7 +51,7 @@ steps:
 		dag := th.DAG(t, `
 steps:
   - name: multi-cmd
-    command:
+    run:
       - echo "first command"
       - echo "second command"
       - echo "third command"
@@ -74,7 +74,7 @@ env:
   - MY_VAR: hello
 steps:
   - name: multi-cmd
-    command:
+    run:
       - echo $MY_VAR
       - echo "${MY_VAR} world"
     output: OUT
@@ -94,7 +94,7 @@ steps:
 		dag := th.DAG(t, `
 steps:
   - name: multi-cmd
-    command:
+    run:
       - "false"
       - echo "should not run"
     output: OUT
@@ -110,7 +110,7 @@ steps:
 		dag := th.DAG(t, `
 steps:
   - name: multi-cmd
-    command:
+    run:
       - echo "first runs"
       - "false"
       - echo "should not run"
@@ -128,7 +128,7 @@ steps:
 shell: /bin/bash
 steps:
   - name: multi-cmd
-    command:
+    run:
       - echo "hello world" | tr 'h' 'H'
       - echo "foo bar" | tr 'f' 'F'
     output: OUT
@@ -149,7 +149,7 @@ steps:
 steps:
   - name: multi-cmd
     working_dir: /tmp
-    command:
+    run:
       - pwd
       - echo "done"
     output: OUT
@@ -170,12 +170,12 @@ steps:
 type: graph
 steps:
   - name: step1
-    command: echo "step1"
+    run: echo "step1"
     output: STEP1_OUT
   - name: step2
     depends:
       - step1
-    command:
+    run:
       - echo "from step2"
       - echo "done"
     output: STEP2_OUT
@@ -196,7 +196,7 @@ steps:
 		dag := th.DAG(t, `
 steps:
   - name: colon-test
-    command:
+    run:
       - echo SATID: 123
     output: OUT
 `)
@@ -228,7 +228,7 @@ steps:
       image: %s
       startup: command
       command: ["sh", "-c", "while true; do sleep 3600; done"]
-    command:
+    run:
       - echo hello
       - echo world
     output: OUT
@@ -256,7 +256,7 @@ steps:
       command: ["sh", "-c", "while true; do sleep 3600; done"]
       env:
         - MY_VAR=hello
-    command:
+    run:
       - printenv MY_VAR
       - echo "done"
     output: OUT
@@ -282,7 +282,7 @@ steps:
       image: %s
       startup: command
       command: ["sh", "-c", "while true; do sleep 3600; done"]
-    command:
+    run:
       - "false"
       - echo "should not run"
     output: OUT
@@ -304,7 +304,7 @@ steps:
       image: %s
       startup: command
       command: ["sh", "-c", "while true; do sleep 3600; done"]
-    command:
+    run:
       - echo "first runs"
       - "false"
       - echo "should not run"
@@ -324,7 +324,7 @@ container:
   image: %s
 steps:
   - name: multi-cmd
-    command:
+    run:
       - echo hello
       - echo world
     output: OUT
@@ -348,14 +348,14 @@ container:
   image: %s
 steps:
   - name: step1
-    command:
+    run:
       - echo "step1-cmd1"
       - echo "step1-cmd2"
     output: STEP1_OUT
   - name: step2
     depends:
       - step1
-    command:
+    run:
       - echo "step2-cmd1"
       - echo "step2-cmd2"
     output: STEP2_OUT
@@ -381,7 +381,7 @@ steps:
   - name: multi-cmd
     container:
       image: %s
-    command:
+    run:
       - echo hello
       - echo world
     output: OUT
@@ -414,11 +414,12 @@ func TestMultipleCommands_Validation(t *testing.T) {
 		yamlContent := `
 steps:
   - name: jq-multi
-    type: jq
-    command:
-      - ".foo"
-      - ".bar"
-    script: '{"foo": "bar"}'
+    action: jq.filter
+    with:
+      filter:
+        - ".foo"
+        - ".bar"
+      data: '{"foo": "bar"}'
 `
 		err := os.WriteFile(testFile, []byte(yamlContent), 0600)
 		require.NoError(t, err)
@@ -429,7 +430,7 @@ steps:
 		require.NotContains(t, err.Error(), "executor")
 	})
 
-	t.Run("HTTPExecutorRejectsMultipleCommands", func(t *testing.T) {
+	t.Run("HTTPExecutorRejectsNonStringMethod", func(t *testing.T) {
 		t.Parallel()
 
 		// Create a temp file with the DAG content
@@ -439,28 +440,27 @@ steps:
 		yamlContent := `
 steps:
   - name: http-multi
-    type: http
-    command:
-      - "GET https://example.com"
-      - "POST https://example.com"
+    action: http.request
+    with:
+      method: [GET, POST]
+      url: https://example.com
 `
 		err := os.WriteFile(testFile, []byte(yamlContent), 0600)
 		require.NoError(t, err)
 
 		_, err = spec.Load(th.Context, testFile)
-		require.Error(t, err, "expected error for multiple commands with http executor")
-		require.Contains(t, err.Error(), `step type "http" supports only one command`)
+		require.Error(t, err, "expected error for invalid http.request method")
+		require.Contains(t, err.Error(), `with.method must be a non-empty string`)
 		require.NotContains(t, err.Error(), "executor")
 	})
 
-	t.Run("ShellExecutorAllowsMultipleCommands", func(t *testing.T) {
+	t.Run("RunAllowsMultipleCommands", func(t *testing.T) {
 		t.Parallel()
 
 		dag := th.DAG(t, `
 steps:
   - name: shell-multi
-    type: shell
-    command:
+    run:
       - echo hello
       - echo world
     output: OUT
@@ -479,8 +479,7 @@ steps:
 		dag := th.DAG(t, `
 steps:
   - name: cmd-multi
-    type: command
-    command:
+    run:
       - echo hello
       - echo world
     output: OUT

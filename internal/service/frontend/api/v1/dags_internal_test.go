@@ -64,7 +64,7 @@ name: sse-next-run-dag
 schedule:
   - at: "%s"
 steps:
-  - command: echo hi
+  - run: echo hi
 `, scheduledAt.Format(time.RFC3339)))
 
 	state := &scheduler.SchedulerState{
@@ -126,12 +126,12 @@ func TestGetDAGsListDataUsesConfiguredListDefaults(t *testing.T) {
 	helper.DAG(t, `
 name: sse-sort-alpha
 steps:
-  - command: echo alpha
+  - run: echo alpha
 `)
 	helper.DAG(t, `
 name: sse-sort-zulu
 steps:
-  - command: echo zulu
+  - run: echo zulu
 `)
 
 	api := localapi.New(
@@ -216,7 +216,7 @@ func TestUpdateDAGSpec_AllowsCustomStepTypeRuntimeVariableInput(t *testing.T) {
 	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "custom-step-runtime-save", []byte(`
 name: custom-step-runtime-save
 steps:
-  - command: echo original
+  - run: echo original
 `))
 
 	api := localapi.New(
@@ -255,7 +255,7 @@ step_types:
           - {$input: count}
 steps:
   - id: produce
-    command: echo 3
+    run: echo 3
     output: COUNT
   - id: consume
     depends: [produce]
@@ -285,7 +285,7 @@ func TestUpdateDAGSpec_StepConfigAliasCompatibility(t *testing.T) {
 	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "step-config-alias-api", []byte(`
 name: step-config-alias-api
 steps:
-  - command: echo original
+  - run: echo original
 `))
 
 	api := localapi.New(
@@ -329,7 +329,7 @@ func TestUpdateDAGSpec_RejectsStepWithAndLegacyConfigTogether(t *testing.T) {
 	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "step-mixed-config-api", []byte(`
 name: step-mixed-config-api
 steps:
-  - command: echo original
+  - run: echo original
 `))
 
 	api := localapi.New(
@@ -407,7 +407,7 @@ func TestUpdateDAGSpec_NotifiesDAGMutation(t *testing.T) {
 name: dag-update-notify
 schedule: "34 * * * *"
 steps:
-  - command: echo original
+  - run: echo original
 `))
 
 	var notified []string
@@ -434,7 +434,7 @@ steps:
 name: dag-update-notify
 schedule: "43 * * * *"
 steps:
-  - command: echo updated
+  - run: echo updated
 `,
 		},
 	})
@@ -454,7 +454,7 @@ func TestUpdateDAGSuspensionState_NotifiesDAGMutation(t *testing.T) {
 name: dag-suspend-notify
 schedule: "43 * * * *"
 steps:
-  - command: echo original
+  - run: echo original
 `)
 
 	var notified []string
@@ -529,7 +529,7 @@ actions:
 	dag := helper.DAG(t, `
 name: inherited-editor-hints
 steps:
-  - command: echo hi
+  - run: echo hi
 `)
 
 	api := localapi.New(
@@ -610,7 +610,7 @@ step_types:
 	dag := helper.DAG(t, `
 name: inherited-editor-hint-descriptions
 steps:
-  - command: echo hi
+  - run: echo hi
 `)
 
 	api := localapi.New(
@@ -732,7 +732,7 @@ name: dag-details-next-run
 schedule:
   - at: "%s"
 steps:
-  - command: echo hi
+  - run: echo hi
 `, scheduledAt.Format(time.RFC3339)))
 
 	state := &scheduler.SchedulerState{

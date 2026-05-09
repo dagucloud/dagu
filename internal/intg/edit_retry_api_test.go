@@ -32,7 +32,7 @@ queue: intg_edit_retry
 type: graph
 steps:
   - name: build
-    command: %s
+    run: %s
     output: RESULT
   - name: consume
 %s
@@ -68,12 +68,12 @@ steps:
 %s
     output: RESULT
   - name: consume
-    command: %s
+    run: %s
     output: CONSUMED
     depends:
       - build
   - name: notify
-    command: %s
+    run: %s
     depends:
       - consume
 `, dagName, indentStepField(portableDirectFailureStepYAML(t)), editRetryEchoConsumedCommand(), editRetryEchoDoneCommand())
@@ -136,7 +136,7 @@ params:
   - problem: ""
 steps:
   - name: build
-    command: %s
+    run: %s
     output: RESULT
   - name: consume
 %s
@@ -177,7 +177,7 @@ steps:
 %s
     output: RESULT
   - name: consume
-    command: %s
+    run: %s
     depends:
       - build
 `, dagName, indentStepField(portableDirectFailureStepYAML(t)), editRetryEchoConsumedCommand())

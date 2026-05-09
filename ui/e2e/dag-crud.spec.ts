@@ -59,7 +59,7 @@ test.describe('DAG CRUD operations', () => {
 name: ${dagName}
 steps:
   - name: echo
-    command: echo "rename test"
+    run: echo "rename test"
 `
     );
     await waitForDAGAvailable(request, token, fileName);
@@ -94,7 +94,7 @@ steps:
 name: ${dagName}
 steps:
   - name: echo
-    command: echo "delete test"
+    run: echo "delete test"
 `
     );
     await waitForDAGAvailable(request, token, fileName);
@@ -138,7 +138,7 @@ name: ${dagName}
 schedule: "0 0 * * *"
 steps:
   - name: echo
-    command: echo "suspend test"
+    run: echo "suspend test"
 `
     );
     await waitForDAGAvailable(request, token, fileName);

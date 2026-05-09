@@ -28,18 +28,18 @@ func TestStartCommand(t *testing.T) {
 	dagStart := th.DAG(t, `max_active_runs: 1
 steps:
   - name: "1"
-    command: "true"
+    run: "true"
 `)
 
 	dagStartWithParams := th.DAG(t, `params: "p1 p2"
 steps:
   - name: "1"
-    command: "echo \"params is $1 and $2\""
+    run: "echo \"params is $1 and $2\""
 `)
 
 	dagStartWithDAGRunID := th.DAG(t, `steps:
   - name: "1"
-    command: "true"
+    run: "true"
 `)
 
 	tests := []test.CmdTest{
@@ -87,7 +87,7 @@ env:
   - EXPORTED_SECRET: ${CMD_START_EXPLICIT_ENV}
 steps:
   - name: "capture"
-    command: printf '%s|%s' "$EXPORTED_SECRET" "${CMD_START_EXPLICIT_ENV:-}"
+    run: printf '%s|%s' "$EXPORTED_SECRET" "${CMD_START_EXPLICIT_ENV:-}"
     output: RESULT
 `)
 
@@ -108,7 +108,7 @@ func TestCmdStart_BackwardCompatibility(t *testing.T) {
 params: KEY1=default1 KEY2=default2
 steps:
   - name: step1
-    command: echo $KEY1 $KEY2
+    run: echo $KEY1 $KEY2
 `
 		dagFile := th.CreateDAGFile(t, "test-params.yaml", dagContent)
 
@@ -127,7 +127,7 @@ steps:
 params: KEY=default
 steps:
   - name: step1
-    command: echo $KEY
+    run: echo $KEY
 `
 		dagFile := th.CreateDAGFile(t, "test-params-flag.yaml", dagContent)
 
@@ -155,12 +155,12 @@ func TestCmdStart_PositionalParamValidation(t *testing.T) {
 params: "p1 p2"
 steps:
   - name: step1
-    command: echo $1 $2
+    run: echo $1 $2
 `)
 	dagNoParamsFile := th.CreateDAGFile(t, "test-no-params.yaml", `
 steps:
   - name: step1
-    command: echo $1
+    run: echo $1
 `)
 
 	t.Run("AllowsTooFewAfterDash", func(t *testing.T) {
@@ -230,7 +230,7 @@ func TestCmdStart_FromRunID(t *testing.T) {
 		dag := th.DAG(t, `params: "alpha beta"
 steps:
   - name: "echo"
-    command: "echo $1 $2"
+    run: "echo $1 $2"
 `)
 
 		// Kick off an initial run so we have history to clone.
@@ -273,7 +273,7 @@ func TestCmdStart_DuplicateRunIDDoesNotOverwriteExistingAttempt(t *testing.T) {
 	dag := th.DAG(t, `name: duplicate-start-dag
 steps:
   - name: "1"
-    command: "true"
+    run: "true"
 `)
 
 	runID := "existing-run"
@@ -307,7 +307,7 @@ func TestCmdStart_AcceptsLegacyProcArtifactsDuringContextInit(t *testing.T) {
 	dag := th.DAG(t, `name: start-after-legacy-proc
 steps:
   - name: "1"
-    command: "true"
+    run: "true"
 `)
 
 	writeLegacyCommandProcFile(

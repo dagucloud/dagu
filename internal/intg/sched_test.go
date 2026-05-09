@@ -47,7 +47,7 @@ func TestCronScheduleRunsTwice(t *testing.T) {
 schedule: "*/1 * * * *"
 steps:
   - name: test-step
-    command: echo "hello"
+    run: echo "hello"
 `
 	dagFile := filepath.Join(dagsDir, "cron-test.yaml")
 	require.NoError(t, os.WriteFile(dagFile, []byte(dagContent), 0644))

@@ -173,7 +173,7 @@ func TestRepeatPolicy_CommandConditionWithHomeRelativeDAGEnvVar(t *testing.T) {
 	dag := th.DAG(t, fmt.Sprintf(`env:
   - TEST_FILE: %q
 steps:
-  - command: touch $TEST_FILE
+  - run: touch $TEST_FILE
     repeat_policy:
       repeat: while
       condition: test ! -f $TEST_FILE
@@ -280,7 +280,7 @@ func TestRepeatPolicy_UntilWithExitCode(t *testing.T) {
 	dag := th.DAG(t, fmt.Sprintf(`env:
   - COUNTER_FILE: %q
 steps:
-  - script: |
+  - run: |
 %s
     repeat_policy:
       # Using backward compatibility mode: exitCode only infers "while" mode
@@ -364,7 +364,7 @@ func TestRepeatPolicy_OnExitCode(t *testing.T) {
 	dag := th.DAG(t, fmt.Sprintf(`env:
   - COUNTER_FILE: %q
 steps:
-  - command: |
+  - run: |
 %s
     repeat_policy:
       exit_code: [1]

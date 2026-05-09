@@ -795,7 +795,7 @@ handler_on:
     with:
       message: handler-ok
 steps:
-  - command: echo run
+  - run: echo run
 `))
 	require.NoError(t, err)
 	require.NotNil(t, dag.HandlerOn.Success)
@@ -830,7 +830,7 @@ handler_on:
     config:
       message: goodbye
 steps:
-  - command: echo run
+  - run: echo run
 `))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `fields "with" and "config" cannot be used together`)
@@ -866,7 +866,7 @@ handler_on:
     timeout_sec: 0
     mail_on_error: false
 steps:
-  - command: echo run
+  - run: echo run
 `))
 	require.NoError(t, err)
 	require.NotNil(t, dag.HandlerOn.Success)
@@ -1084,7 +1084,7 @@ handler_on:
     with:
       message: handler-ok
 steps:
-  - command: echo run
+  - run: echo run
 `))
 	require.NoError(t, err)
 	require.NotNil(t, dag.HandlerOn.Success)
@@ -1099,7 +1099,8 @@ func TestStepExec_BuildsDirectCommand(t *testing.T) {
 	dag, err := LoadYAML(context.Background(), []byte(`
 name: exec-step
 steps:
-  - exec:
+  - action: exec
+    with:
       command: /bin/echo
       args: [hello, 3, true]
 `))
@@ -1114,7 +1115,7 @@ steps:
 	assert.Equal(t, []string{"hello", "3", "true"}, step.Commands[0].Args)
 }
 
-func TestStepExec_RejectsCommandConflict(t *testing.T) {
+func TestLegacyStepExec_RejectsCommandConflict(t *testing.T) {
 	t.Parallel()
 
 	_, err := LoadYAML(context.Background(), []byte(`

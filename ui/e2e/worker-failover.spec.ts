@@ -43,7 +43,7 @@ worker_selector:
   role: e2e
 steps:
   - name: long-step
-    command: sleep 12
+    run: sleep 12
 `
   );
   await waitForDAGAvailable(request, token, fileName);
@@ -106,7 +106,7 @@ worker_selector:
   role: e2e
 steps:
   - name: survivor-step
-    command: echo "survivor worker ok"
+    run: echo "survivor worker ok"
 `
     );
 

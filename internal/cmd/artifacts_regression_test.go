@@ -77,7 +77,7 @@ artifacts:
   enabled: true
 steps:
   - name: step1
-    command: echo "should-not-run"
+    run: echo "should-not-run"
 `), 0o600))
 
 	command := &cobra.Command{Use: "dry"}

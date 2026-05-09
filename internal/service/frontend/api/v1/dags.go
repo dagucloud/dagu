@@ -167,7 +167,7 @@ func (a *API) CreateNewDAG(ctx context.Context, request api.CreateNewDAGRequestO
 		yamlSpec = []byte(*request.Body.Spec)
 	} else {
 		yamlSpec = []byte(`steps:
-  - command: echo hello
+  - run: echo hello
 `)
 	}
 	if err := a.requireDAGWriteForWorkspace(ctx, workspaceName); err != nil {

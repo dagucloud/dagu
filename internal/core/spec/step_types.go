@@ -140,6 +140,13 @@ func UnregisterExecutorTypeName(name string) {
 	delete(builtinStepTypeNames, name)
 }
 
+func isRegisteredExecutorTypeName(name string) bool {
+	stepTypeNamesMu.RLock()
+	defer stepTypeNamesMu.RUnlock()
+	_, ok := registeredExecutorTypeNames[strings.TrimSpace(name)]
+	return ok
+}
+
 // StepTypeNames returns the currently accepted builtin and runtime-registered
 // executor type names in sorted order. It excludes the implicit empty command
 // executor type; callers should mention omitted type handling separately.

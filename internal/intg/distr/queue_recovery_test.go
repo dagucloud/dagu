@@ -29,7 +29,7 @@ worker_selector:
   tier: "queue"
 steps:
   - name: step1
-    command: echo "executed"
+    run: echo "executed"
 `,
 		withWorkerCount(queuedDispatchWorkerCount()),
 		withWorkerMaxActiveRuns(queuedDispatchWorkerMaxActiveRuns()),
@@ -91,7 +91,7 @@ worker_selector:
   tier: "queue"
 steps:
   - name: step1
-    command: echo "executed"
+    run: echo "executed"
 `, withWorkerCount(0), withWorkerMaxActiveRuns(1))
 	defer f.cleanup()
 
@@ -116,7 +116,7 @@ worker_selector:
   tier: "queue"
 steps:
   - name: step1
-    command: echo "executed"
+    run: echo "executed"
 `, withWorkerCount(0), withWorkerMaxActiveRuns(1))
 	defer f.cleanup()
 

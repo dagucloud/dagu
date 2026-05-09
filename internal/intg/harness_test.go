@@ -41,10 +41,10 @@ exit 1
 	th := test.SetupCommand(t, test.WithBuiltExecutable())
 	th.CreateDAGFile(t, "harness_codex_defaults.yaml", `
 steps:
-  - type: harness
+  - action: harness.run
     with:
+      prompt: hello
       provider: codex
-    command: hello
     output: RESULT
 `)
 
@@ -82,12 +82,12 @@ harnesses:
 
 steps:
   - name: review
-    type: harness
+    action: harness.run
     with:
       provider: passthrough
-    command: |
-      hey
-      you
+      prompt: |
+        hey
+        you
 `)
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()
@@ -134,9 +134,11 @@ harness:
 	th.CreateDAGFile(t, "harness_retry.yaml", `
 steps:
   - name: review
-    command: Review the repository
-    script: |
-      summarize the current branch
+    action: harness.run
+    with:
+      prompt: Review the repository
+      stdin: |
+        summarize the current branch
 `)
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()

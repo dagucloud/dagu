@@ -39,7 +39,7 @@ func TestServer_StartWithConfig(t *testing.T) {
 				th := test.Setup(t)
 				dagContent := `steps:
   - name: step1
-    command: echo "Hello, world!"
+    run: echo "Hello, world!"
 `
 				dag := th.DAG(t, dagContent)
 
@@ -56,7 +56,7 @@ func TestServer_StartWithConfig(t *testing.T) {
 log_dir: ${DAG_TMP_LOGS_DIR}/logs
 steps:
   - name: step1
-    command: echo "Hello, world!"
+    run: echo "Hello, world!"
 `
 				dag := th.DAG(t, dagContent)
 				return "", dag.Location

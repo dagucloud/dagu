@@ -32,15 +32,15 @@ params:
   - TEST_PARAM_1: my_param
 
 steps:
-  - command: echo "${TEST_PARAM_1}"
+  - run: echo "${TEST_PARAM_1}"
     output: PARAM_OUTPUT
   - env:
       - STEP_ENV_1: "${TEST_PARAM_1}_step1"
-    command: echo "${STEP_ENV_1}"
+    run: echo "${STEP_ENV_1}"
     output: STEP1_OUTPUT
   - env:
       - STEP_ENV_1: "${TEST_ENV_1:0:3}_step2"
-    command: echo "${STEP_ENV_1}"
+    run: echo "${STEP_ENV_1}"
     output: STEP2_OUTPUT
 `)
 		agent := dag.Agent()
@@ -61,7 +61,7 @@ params:
 
 steps:
   - name: step1
-    command: echo $SEN
+    run: echo $SEN
     env:
        - SEN: ${UID:0:5}
     output: STEP1_OUTPUT
@@ -87,7 +87,7 @@ if ([string]::IsNullOrEmpty($env:UNSET_OPTIONAL)) {
 		dag := th.DAG(t, `
 steps:
   - name: default-env
-    command: |
+    run: |
 `+indentTestScript(fallbackCommand, 6)+`
     output: FALLBACK_OUTPUT
 `)
@@ -112,10 +112,10 @@ steps:
 		dag := th.DAG(t, `
 steps:
   - name: write-to-workdir
-    command: |
+    run: |
 `+indentTestScript(writeCommand, 6)+`
   - name: read-from-workdir
-    command: |
+    run: |
 `+indentTestScript(readCommand, 6)+`
     output: WORKDIR_OUTPUT
 `)
@@ -146,14 +146,14 @@ steps:
 working_dir: `+explicitDirForYAML+`
 steps:
   - name: check-pwd
-    command: |
+    run: |
 `+indentTestScript(pwdCommand, 6)+`
     output: PWD_OUTPUT
   - name: write-to-workdir
-    command: |
+    run: |
 `+indentTestScript(writeCommand, 6)+`
   - name: read-from-workdir
-    command: |
+    run: |
 `+indentTestScript(readCommand, 6)+`
     output: WORKDIR_OUTPUT
 `)
@@ -176,7 +176,7 @@ params:
 env:
   - FULL_PATH: "${data_dir}/output"
 steps:
-  - command: echo "${FULL_PATH}"
+  - run: echo "${FULL_PATH}"
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -195,7 +195,7 @@ env:
   - DIR: "${base}/subdir"
   - FULL: "${DIR}/file.txt"
 steps:
-  - command: echo "${FULL}"
+  - run: echo "${FULL}"
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -230,12 +230,12 @@ type: graph
 steps:
   - id: producer
     name: producer
-    command: echo "HBL01_22OCT2025_0536"
+    run: echo "HBL01_22OCT2025_0536"
     output: PRODUCER_OUTPUT
   - id: substring_validate
     name: substring-validate
     depends: producer
-    command: |
+    run: |
 `+indentTestScript(validateScript, 6)+`
     output: SUBSTRING_VALIDATION
 `)
@@ -290,8 +290,10 @@ func TestSubDAGParamsReferencedInChildEnv(t *testing.T) {
 name: subdag-env-parent
 steps:
   - name: invoke-child
-    call: subdag-env-child
-    params: "data_dir=/mnt/data"
+    action: dag.run
+    with:
+      dag: subdag-env-child
+      params: "data_dir=/mnt/data"
 
 ---
 name: subdag-env-child
@@ -303,7 +305,7 @@ env:
   - OUTPUT_PATH: "${data_dir}/results"
 steps:
   - name: check-env
-    command: echo "${OUTPUT_PATH}"
+    run: echo "${OUTPUT_PATH}"
     output: RESULT
 `)
 

@@ -177,6 +177,10 @@ func normalizeActionStep(normalized, raw map[string]any, registry *customStepTyp
 		return err
 	}
 
+	if isRegisteredExecutorTypeName(action) {
+		return finishAction(normalized, action, with)
+	}
+
 	if normalizer, ok := builtinActionNormalizers[action]; ok {
 		return normalizer(normalized, with)
 	}

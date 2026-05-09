@@ -18,7 +18,9 @@ func TestSubDAG_LocalCallsDistributed(t *testing.T) {
 		f := newTestFixture(t, `
 steps:
   - name: run-local-on-worker
-    call: local-sub
+    action: dag.run
+    with:
+      dag: local-sub
     output: RESULT
 
 ---
@@ -27,7 +29,7 @@ worker_selector:
   type: test-worker
 steps:
   - name: worker-task
-    command: echo "Hello from worker"
+    run: echo "Hello from worker"
     output: MESSAGE
 `, withLabels(map[string]string{"type": "test-worker"}))
 
@@ -42,7 +44,9 @@ func TestSubDAG_CallStepWorkerSelector(t *testing.T) {
 		f := newTestFixture(t, `
 steps:
   - name: run-child-on-selected-worker
-    call: selected-child
+    action: dag.run
+    with:
+      dag: selected-child
     worker_selector:
       host: serverA
 
@@ -50,7 +54,7 @@ steps:
 name: selected-child
 steps:
   - name: child-task
-    command: echo "child executed on selected worker"
+    run: echo "child executed on selected worker"
 `, withLabels(map[string]string{"host": "serverA"}))
 		defer f.cleanup()
 
@@ -82,7 +86,9 @@ func TestSubDAG_FailurePropagation(t *testing.T) {
 		f := newTestFixture(t, `
 steps:
   - name: run-local-on-worker
-    call: local-sub
+    action: dag.run
+    with:
+      dag: local-sub
 
 ---
 name: local-sub
@@ -90,7 +96,7 @@ worker_selector:
   type: test-worker
 steps:
   - name: worker-task
-    command: |
+    run: |
       echo "Start task"
       exit 1
 `, withLabels(map[string]string{"type": "test-worker"}))
@@ -118,7 +124,9 @@ func TestSubDAG_NoMatchingWorker(t *testing.T) {
 		f := newTestFixture(t, `
 steps:
   - name: run-on-nonexistent-worker
-    call: local-sub
+    action: dag.run
+    with:
+      dag: local-sub
     output: RESULT
 
 ---
@@ -128,7 +136,7 @@ worker_selector:
   type: nonexistent-worker
 steps:
   - name: worker-task
-    command: echo "Should not run"
+    run: echo "Should not run"
     output: MESSAGE
 `, withWorkerCount(0))
 
@@ -152,14 +160,16 @@ worker_selector:
   type: child
 steps:
   - name: child-step
-    command: echo "child executed"
+    run: echo "child executed"
 `
 		f := newTestFixture(t, `
 name: parent-remote
 worker_selector:
   type: parent
 steps:
-  - call: child-remote
+  - action: dag.run
+    with:
+      dag: child-remote
 `, withLabels(map[string]string{"type": "parent"}))
 		defer f.cleanup()
 
@@ -182,7 +192,9 @@ func TestSubDAG_InSameFile(t *testing.T) {
 	t.Run("parentAndChildInSameYAMLFile", func(t *testing.T) {
 		f := newTestFixture(t, `
 steps:
-  - call: dotest
+  - action: dag.run
+    with:
+      dag: dotest
 params:
   - URL: default_value
 ---
@@ -191,7 +203,7 @@ worker_selector:
   foo: bar
 steps:
   - name: task
-    command: echo "Sub-DAG executed"
+    run: echo "Sub-DAG executed"
 `, withLabels(map[string]string{"foo": "bar"}))
 		defer f.cleanup()
 
@@ -221,14 +233,16 @@ worker_selector:
   test: "true"
 steps:
   - name: call-child
-    call: inline-child
+    action: dag.run
+    with:
+      dag: inline-child
 ---
 name: inline-child
 worker_selector:
   test: "true"
 steps:
   - name: task
-    command: echo "inline child executed"
+    run: echo "inline child executed"
 `)
 		defer f.cleanup()
 

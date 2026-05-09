@@ -22,7 +22,7 @@ func TestValidateOutputReferencesFromOutputSchema(t *testing.T) {
 type: graph
 steps:
   - id: classify
-    command: echo '{"category":"bug"}'
+    run: echo '{"category":"bug"}'
     output_schema:
       type: object
       additionalProperties: false
@@ -31,7 +31,7 @@ steps:
           type: string
   - id: route
     depends: [classify]
-    command: echo ${classify.output.priority}
+    run: echo ${classify.output.priority}
 `)
 
 		dag, err := spec.Load(context.Background(), testDAG)
@@ -50,7 +50,7 @@ steps:
 type: graph
 steps:
   - id: classify
-    command: echo '{"category":"bug","priority":"high"}'
+    run: echo '{"category":"bug","priority":"high"}'
     output_schema:
       type: object
       properties:
@@ -58,7 +58,7 @@ steps:
           type: string
   - id: route
     depends: [classify]
-    command: echo ${classify.output.priority}
+    run: echo ${classify.output.priority}
 `)
 
 		dag, err := spec.Load(context.Background(), testDAG)
@@ -73,7 +73,7 @@ steps:
 type: graph
 steps:
   - id: classify
-    command: echo '{"category":"bug"}'
+    run: echo '{"category":"bug"}'
     output_schema:
       type: object
       additionalProperties: false
@@ -82,7 +82,7 @@ steps:
           type: string
   - id: route
     depends: [classify]
-    command: echo ${classify.output.category}
+    run: echo ${classify.output.category}
 `)
 
 		dag, err := spec.Load(context.Background(), testDAG)
@@ -98,11 +98,11 @@ steps:
 type: graph
 steps:
   - id: classify
-    command: echo '{"category":"bug"}'
+    run: echo '{"category":"bug"}'
     output_schema: {}
   - id: route
     depends: [classify]
-    command: echo ${classify.output.category}
+    run: echo ${classify.output.category}
 `)
 
 		dag, err := spec.Load(context.Background(), testDAG)
@@ -121,7 +121,7 @@ func TestValidateOutputReferencesFromStructuredOutputMapping(t *testing.T) {
 type: graph
 steps:
   - id: build
-    command: echo '{"version":"v1.2.3"}'
+    run: echo '{"version":"v1.2.3"}'
     output:
       version:
         from: stdout
@@ -129,7 +129,7 @@ steps:
         select: .version
   - id: publish
     depends: [build]
-    command: echo ${build.output.artifact}
+    run: echo ${build.output.artifact}
 `)
 
 		dag, err := spec.Load(context.Background(), testDAG)
@@ -148,7 +148,7 @@ steps:
 type: graph
 steps:
   - id: build
-    command: echo '{"version":"v1.2.3"}'
+    run: echo '{"version":"v1.2.3"}'
     output:
       version:
         from: stdout
@@ -156,7 +156,7 @@ steps:
         select: .version
   - id: publish
     depends: [build]
-    command: echo ${build.output.version}
+    run: echo ${build.output.version}
 `)
 
 		dag, err := spec.Load(context.Background(), testDAG)

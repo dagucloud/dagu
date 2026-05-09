@@ -29,18 +29,19 @@ env:
   - INPUT: exact_value
 steps:
   - name: router
-    type: router
-    value: ${INPUT}
-    routes:
-      "exact_value": [route_a]
-      "other": [route_b]
+    action: router.route
+    with:
+      value: ${INPUT}
+      routes:
+        "exact_value": [route_a]
+        "other": [route_b]
 
   - name: route_a
-    command: echo "Route A executed"
+    run: echo "Route A executed"
     output: RESULT_A
 
   - name: route_b
-    command: echo "Route B executed"
+    run: echo "Route B executed"
     output: RESULT_B
 `,
 			expectedStatus: core.Succeeded,
@@ -56,18 +57,19 @@ env:
   - INPUT: apple_pie
 steps:
   - name: router
-    type: router
-    value: ${INPUT}
-    routes:
-      "re:^apple.*": [route_a]
-      "re:^banana.*": [route_b]
+    action: router.route
+    with:
+      value: ${INPUT}
+      routes:
+        "re:^apple.*": [route_a]
+        "re:^banana.*": [route_b]
 
   - name: route_a
-    command: echo "Apple route"
+    run: echo "Apple route"
     output: RESULT_A
 
   - name: route_b
-    command: echo "Banana route"
+    run: echo "Banana route"
     output: RESULT_B
 `,
 			expectedStatus: core.Succeeded,
@@ -83,18 +85,19 @@ env:
   - INPUT: unknown_value
 steps:
   - name: router
-    type: router
-    value: ${INPUT}
-    routes:
-      "specific": [route_a]
-      "re:.*": [default_route]
+    action: router.route
+    with:
+      value: ${INPUT}
+      routes:
+        "specific": [route_a]
+        "re:.*": [default_route]
 
   - name: route_a
-    command: echo "Specific route"
+    run: echo "Specific route"
     output: RESULT_A
 
   - name: default_route
-    command: echo "Default route"
+    run: echo "Default route"
     output: RESULT_DEFAULT
 `,
 			expectedStatus: core.Succeeded,
@@ -110,21 +113,22 @@ env:
   - INPUT: trigger
 steps:
   - name: router
-    type: router
-    value: ${INPUT}
-    routes:
-      "trigger": [step_a, step_b]
+    action: router.route
+    with:
+      value: ${INPUT}
+      routes:
+        "trigger": [step_a, step_b]
 
   - name: step_a
-    command: echo "Step A"
+    run: echo "Step A"
     output: RESULT_A
 
   - name: step_b
-    command: echo "Step B"
+    run: echo "Step B"
     output: RESULT_B
 
   - name: step_c
-    command: echo "Step C"
+    run: echo "Step C"
     output: RESULT_C
     depends:
       - step_a
@@ -144,23 +148,24 @@ env:
   - INPUT: success_code
 steps:
   - name: router
-    type: router
-    value: ${INPUT}
-    routes:
-      "re:^success.*": [handle_success]
-      "re:.*_code$": [handle_code]
-      "re:.*": [catch_all]
+    action: router.route
+    with:
+      value: ${INPUT}
+      routes:
+        "re:^success.*": [handle_success]
+        "re:.*_code$": [handle_code]
+        "re:.*": [catch_all]
 
   - name: handle_success
-    command: echo "Success handler"
+    run: echo "Success handler"
     output: SUCCESS
 
   - name: handle_code
-    command: echo "Code handler"
+    run: echo "Code handler"
     output: CODE
 
   - name: catch_all
-    command: echo "Catch all"
+    run: echo "Catch all"
     output: CATCH_ALL
 `,
 			expectedStatus: core.Succeeded,
@@ -178,17 +183,18 @@ env:
   - INPUT: no_match
 steps:
   - name: router
-    type: router
-    value: ${INPUT}
-    routes:
-      "specific_value": [route_a]
+    action: router.route
+    with:
+      value: ${INPUT}
+      routes:
+        "specific_value": [route_a]
 
   - name: route_a
-    command: echo "Route A"
+    run: echo "Route A"
     output: RESULT_A
 
   - name: always_runs
-    command: echo "Always runs"
+    run: echo "Always runs"
     output: ALWAYS
     depends:
       - router
@@ -206,18 +212,19 @@ env:
   - STATUS: production
 steps:
   - name: router
-    type: router
-    value: ${STATUS}
-    routes:
-      "production": [prod_handler]
-      "staging": [staging_handler]
+    action: router.route
+    with:
+      value: ${STATUS}
+      routes:
+        "production": [prod_handler]
+        "staging": [staging_handler]
 
   - name: prod_handler
-    command: echo "Production"
+    run: echo "Production"
     output: ENV
 
   - name: staging_handler
-    command: echo "Staging"
+    run: echo "Staging"
     output: ENV
 `,
 			expectedStatus: core.Succeeded,
@@ -258,29 +265,31 @@ env:
   - SUBCATEGORY: phone
 steps:
   - name: category_router
-    type: router
-    value: ${CATEGORY}
-    routes:
-      "electronics": [electronics_router]
-      "clothing": [clothing_handler]
+    action: router.route
+    with:
+      value: ${CATEGORY}
+      routes:
+        "electronics": [electronics_router]
+        "clothing": [clothing_handler]
 
   - name: electronics_router
-    type: router
-    value: ${SUBCATEGORY}
-    routes:
-      "phone": [phone_handler]
-      "laptop": [laptop_handler]
+    action: router.route
+    with:
+      value: ${SUBCATEGORY}
+      routes:
+        "phone": [phone_handler]
+        "laptop": [laptop_handler]
 
   - name: phone_handler
-    command: echo "Phone"
+    run: echo "Phone"
     output: RESULT
 
   - name: laptop_handler
-    command: echo "Laptop"
+    run: echo "Laptop"
     output: RESULT
 
   - name: clothing_handler
-    command: echo "Clothing"
+    run: echo "Clothing"
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -313,34 +322,35 @@ env:
   - MODE: premium
 steps:
   - name: router
-    type: router
-    value: ${MODE}
-    routes:
-      "premium": [premium_step1]
-      "standard": [standard_step1]
+    action: router.route
+    with:
+      value: ${MODE}
+      routes:
+        "premium": [premium_step1]
+        "standard": [standard_step1]
 
   # Premium branch: 3 steps
   - name: premium_step1
-    command: echo "Premium-1"
+    run: echo "Premium-1"
     output: P1
 
   - name: premium_step2
-    command: echo "Premium-2 with ${P1}"
+    run: echo "Premium-2 with ${P1}"
     output: P2
     depends: [premium_step1]
 
   - name: premium_step3
-    command: echo "Premium-3 with ${P2}"
+    run: echo "Premium-3 with ${P2}"
     output: FINAL
     depends: [premium_step2]
 
   # Standard branch: 2 steps
   - name: standard_step1
-    command: echo "Standard-1"
+    run: echo "Standard-1"
     output: S1
 
   - name: standard_step2
-    command: echo "Standard-2 with ${S1}"
+    run: echo "Standard-2 with ${S1}"
     output: FINAL
     depends: [standard_step1]
 `)
@@ -376,37 +386,38 @@ env:
   - TRIGGER: all
 steps:
   - name: setup
-    command: echo "Setup complete"
+    run: echo "Setup complete"
     output: SETUP
 
   - name: router
-    type: router
-    value: ${TRIGGER}
-    routes:
-      "all": [branch_a, branch_b, branch_c]
+    action: router.route
+    with:
+      value: ${TRIGGER}
+      routes:
+        "all": [branch_a, branch_b, branch_c]
     depends: [setup]
 
   # Three parallel branches
   - name: branch_a
-    command: echo "A:${SETUP}"
+    run: echo "A:${SETUP}"
     output: OUT_A
 
   - name: branch_b
-    command: echo "B:${SETUP}"
+    run: echo "B:${SETUP}"
     output: OUT_B
 
   - name: branch_c
-    command: echo "C:${SETUP}"
+    run: echo "C:${SETUP}"
     output: OUT_C
 
   # Fan-in: aggregator waits for all branches
   - name: aggregator
-    command: echo "Aggregated"
+    run: echo "Aggregated"
     output: AGGREGATED
     depends: [branch_a, branch_b, branch_c]
 
   - name: final
-    command: echo "Final"
+    run: echo "Final"
     output: FINAL
     depends: [aggregator]
 `)
@@ -443,23 +454,24 @@ steps:
 type: graph
 steps:
   - name: check_status
-    command: echo "success"
+    run: echo "success"
     output: STATUS
 
   - name: router
-    type: router
-    value: ${STATUS}
-    routes:
-      "success": [success_handler]
-      "failure": [failure_handler]
+    action: router.route
+    with:
+      value: ${STATUS}
+      routes:
+        "success": [success_handler]
+        "failure": [failure_handler]
     depends: [check_status]
 
   - name: success_handler
-    command: echo "Handling success"
+    run: echo "Handling success"
     output: RESULT
 
   - name: failure_handler
-    command: echo "Handling failure"
+    run: echo "Handling failure"
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -497,17 +509,18 @@ env:
   - INPUT: route_a
 steps:
   - name: router
-    type: router
-    value: ${INPUT}
-    routes:
-      "route_a": [step_a]
-      "route_b": [step_b]
+    action: router.route
+    with:
+      value: ${INPUT}
+      routes:
+        "route_a": [step_a]
+        "route_b": [step_b]
 
   - name: step_a
-    command: echo "A"
+    run: echo "A"
 
   - name: step_b
-    command: echo "B"
+    run: echo "B"
 `)
 		agent := dag.Agent()
 		agent.RunSuccess(t)
@@ -545,17 +558,18 @@ env:
   - MODE: full
 steps:
   - name: router
-    type: router
-    value: ${MODE}
-    routes:
-      "full": [process_a, process_b]
-      "minimal": [process_a]
+    action: router.route
+    with:
+      value: ${MODE}
+      routes:
+        "full": [process_a, process_b]
+        "minimal": [process_a]
 
   - name: process_a
-    command: echo "A"
+    run: echo "A"
 
   - name: process_b
-    command: echo "B"
+    run: echo "B"
 `
 		dagFile := th.CreateDAGFile(t, th.Config.Paths.DAGsDir, "duplicate_target_test.yaml", []byte(dagContent))
 

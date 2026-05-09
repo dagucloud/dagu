@@ -25,7 +25,7 @@ worker_selector:
   test: "true"
 steps:
   - name: sleep
-    command: sleep 2
+    run: sleep 2
 `, withProcConfig(distrTestProcHeartbeatInterval, distrTestProcHeartbeatInterval, distrTestProcStaleThreshold))
 	defer f.cleanup()
 
@@ -44,7 +44,7 @@ worker_selector:
   test: "true"
 steps:
   - name: sleep
-    command: sleep 2
+    run: sleep 2
 `, withProcConfig(distrTestProcHeartbeatInterval, distrTestProcHeartbeatInterval, distrTestProcStaleThreshold))
 	defer f.cleanup()
 

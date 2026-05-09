@@ -46,8 +46,9 @@ params:
 
 steps:
   - name: process-webhook
-    shell: bash
-    command: echo "$WEBHOOK_PAYLOAD"
+    run: echo "$WEBHOOK_PAYLOAD"
+    with:
+      shell: bash
     output: PAYLOAD_OUTPUT
 `)
 		agent := dag.Agent()
@@ -72,13 +73,14 @@ params:
 
 steps:
   - name: check-payload-contains-event
-    shell: bash
-    command: |
+    run: |
       if echo "$WEBHOOK_PAYLOAD" | grep -q "event"; then
         echo "found"
       else
         echo "not-found"
       fi
+    with:
+      shell: bash
     output: CHECK_RESULT
 `)
 		agent := dag.Agent()

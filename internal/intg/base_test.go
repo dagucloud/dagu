@@ -44,7 +44,7 @@ func TestBaseDAGSpecialEnvVarsInHandler(t *testing.T) {
 	// Create base DAG with handler_on: failure that captures special env vars
 	baseConfig := `handler_on:
   failure:
-    command: |
+    run: |
       echo "DAG_NAME=${DAG_NAME}" >> "` + outputFileForShell + `"
       echo "DAG_RUN_ID=${DAG_RUN_ID}" >> "` + outputFileForShell + `"
       echo "DAG_RUN_LOG_FILE=${DAG_RUN_LOG_FILE}" >> "` + outputFileForShell + `"
@@ -57,7 +57,7 @@ func TestBaseDAGSpecialEnvVarsInHandler(t *testing.T) {
 	// Create a DAG file that will fail
 	dagContent := `steps:
   - name: failing-step
-    command: exit 1
+    run: exit 1
 `
 	dagFile := th.CreateDAGFile(t, th.Config.Paths.DAGsDir, "test-base-env", []byte(dagContent))
 
@@ -126,7 +126,7 @@ func TestSkipBaseHandlers_SubDAGDoesNotInheritHandlers(t *testing.T) {
 	// Create base DAG with handler_on: failure that writes a marker file
 	baseConfig := `handler_on:
   failure:
-    command: echo "BASE_FAILURE_HANDLER_RAN" >> "` + markerFileForShell + `"
+    run: echo "BASE_FAILURE_HANDLER_RAN" >> "` + markerFileForShell + `"
 `
 	require.NoError(t, os.WriteFile(baseConfigPath, []byte(baseConfig), 0600))
 
@@ -134,7 +134,7 @@ func TestSkipBaseHandlers_SubDAGDoesNotInheritHandlers(t *testing.T) {
 	th := test.Setup(t)
 	dagContent := `steps:
   - name: failing-step
-    command: exit 1
+    run: exit 1
 `
 	dagFile := th.CreateDAGFile(t, th.Config.Paths.DAGsDir, "test-no-skip", []byte(dagContent))
 
@@ -163,7 +163,7 @@ func TestSkipBaseHandlers_ExplicitHandlersStillWork(t *testing.T) {
 	// Create base DAG with handler_on: failure
 	baseConfig := `handler_on:
   failure:
-    command: echo "BASE" >> "` + baseMarkerFileForShell + `"
+    run: echo "BASE" >> "` + baseMarkerFileForShell + `"
 `
 	require.NoError(t, os.WriteFile(baseConfigPath, []byte(baseConfig), 0600))
 
@@ -173,11 +173,11 @@ func TestSkipBaseHandlers_ExplicitHandlersStillWork(t *testing.T) {
 	// Create a DAG file with its own failure handler
 	dagContent := `handler_on:
   failure:
-    command: echo "DAG" >> "` + dagMarkerFileForShell + `"
+    run: echo "DAG" >> "` + dagMarkerFileForShell + `"
 
 steps:
   - name: failing-step
-    command: exit 1
+    run: exit 1
 `
 	dagFile := th.CreateDAGFile(t, th.Config.Paths.DAGsDir, "test-explicit-handler", []byte(dagContent))
 
@@ -239,15 +239,15 @@ func TestSkipBaseHandlers_AllHandlerTypesSkipped(t *testing.T) {
 	// Create base DAG with all handler types
 	baseConfig := `handler_on:
   init:
-    command: "true"
+    run: "true"
   success:
-    command: "true"
+    run: "true"
   failure:
-    command: "true"
+    run: "true"
   abort:
-    command: "true"
+    run: "true"
   exit:
-    command: "true"
+    run: "true"
 `
 	require.NoError(t, os.WriteFile(baseConfigPath, []byte(baseConfig), 0600))
 
@@ -257,7 +257,7 @@ func TestSkipBaseHandlers_AllHandlerTypesSkipped(t *testing.T) {
 	// Create a DAG file
 	dagContent := `steps:
   - name: step1
-    command: "true"
+    run: "true"
 `
 	dagFile := th.CreateDAGFile(t, th.Config.Paths.DAGsDir, "test-all-handlers", []byte(dagContent))
 

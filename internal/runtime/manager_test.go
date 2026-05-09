@@ -28,7 +28,7 @@ func TestManager(t *testing.T) {
 	t.Run("Valid", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
-    command: "exit 0"
+    run: "exit 0"
 `)
 		ctx := th.Context
 
@@ -65,7 +65,7 @@ func TestManager(t *testing.T) {
 	t.Run("UpdateStatus", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
-    command: "exit 0"
+    run: "exit 0"
 `)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
@@ -110,12 +110,14 @@ func TestManager(t *testing.T) {
 		dag := th.DAG(t, `
 steps:
   - name: "1"
-    call: tree_child
+    action: dag.run
+    with:
+      dag: tree_child
 ---
 name: tree_child
 steps:
   - name: "1"
-    command: "exit 0"
+    run: "exit 0"
 ---
 `)
 
@@ -156,7 +158,7 @@ steps:
 	t.Run("InvalidUpdateStatusWithInvalidDAGRunID", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
-    command: "exit 0"
+    run: "exit 0"
 `)
 		ctx := th.Context
 		cli := th.DAGRunMgr
@@ -172,7 +174,7 @@ steps:
 	t.Run("GetLatestStatusRepairsStaleRun", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
-    command: "exit 0"
+    run: "exit 0"
 `)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
@@ -204,7 +206,7 @@ steps:
 	t.Run("GetLatestStatusKeepsRunAliveWithFreshRunHeartbeat", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
-    command: "exit 0"
+    run: "exit 0"
 `)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
@@ -251,7 +253,7 @@ steps:
 	t.Run("GetSavedStatusRepairsStaleRun", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
-    command: "exit 0"
+    run: "exit 0"
 `)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
@@ -279,7 +281,7 @@ steps:
 	t.Run("GetLatestStatusKeepsFreshRunDuringStartupGrace", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
-    command: "exit 0"
+    run: "exit 0"
 `)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
@@ -316,7 +318,7 @@ steps:
 	t.Run("GetSavedStatusKeepsFreshRunDuringStartupGrace", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
-    command: "exit 0"
+    run: "exit 0"
 `)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
@@ -349,7 +351,7 @@ steps:
 	t.Run("GetSavedStatusDoesNotRepairDistributedRunWhenLeaseMissing", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
-    command: "exit 0"
+    run: "exit 0"
 `)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
@@ -378,7 +380,7 @@ steps:
 	t.Run("GetLatestStatusDoesNotReadLocalSocketForDistributedRun", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
-    command: "exit 0"
+    run: "exit 0"
 `)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
@@ -408,7 +410,7 @@ steps:
 	t.Run("GetCurrentStatusDoesNotReadLocalSocketForDistributedRun", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
-    command: "exit 0"
+    run: "exit 0"
 `)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
@@ -438,7 +440,7 @@ steps:
 	t.Run("GetLatestStatusDoesNotRepairDistributedRunWhenLeaseMissing", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
-    command: "exit 0"
+    run: "exit 0"
 `)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
@@ -466,7 +468,7 @@ steps:
 	t.Run("IsRunningFallsBackToFreshProcWithoutSocket", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
-    command: "exit 0"
+    run: "exit 0"
 `)
 		ctx := th.Context
 		dagRunID := uuid.Must(uuid.NewV7()).String()
@@ -500,7 +502,7 @@ steps:
 	t.Run("IsRunningIgnoresProcWithoutReadableRunningStatus", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
-    command: "exit 0"
+    run: "exit 0"
 `)
 		ctx := th.Context
 		dagRunID := uuid.Must(uuid.NewV7()).String()
@@ -523,7 +525,7 @@ steps:
 	t.Run("IsRunningWithoutProcStoreReturnsFalse", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
-    command: "exit 0"
+    run: "exit 0"
 `)
 		mgr := runtime.NewManager(nil, nil, th.Config)
 

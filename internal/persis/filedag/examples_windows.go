@@ -14,9 +14,9 @@ description: Execute steps one after another
 shell: powershell
 
 steps:
-  - command: Write-Output "Step 1 - Starting workflow"
-  - command: Write-Output "Step 2 - Processing data"
-  - command: Write-Output "Step 3 - Workflow complete"
+  - run: Write-Output "Step 1 - Starting workflow"
+  - run: Write-Output "Step 2 - Processing data"
+  - run: Write-Output "Step 3 - Workflow complete"
 `,
 
 	"example-02-parallel-execution.yaml": `# Parallel Execution
@@ -28,11 +28,11 @@ shell: powershell
 
 steps:
   - name: setup
-    command: Write-Output "Setting up environment"
+    run: Write-Output "Setting up environment"
 
   # These steps run in parallel after setup
   - name: task-a
-    command: |
+    run: |
       Write-Output "Task A starting"
       Start-Sleep -Seconds 2
       Write-Output "Task A complete"
@@ -40,7 +40,7 @@ steps:
       - setup
 
   - name: task-b
-    command: |
+    run: |
       Write-Output "Task B starting"
       Start-Sleep -Seconds 2
       Write-Output "Task B complete"
@@ -48,7 +48,7 @@ steps:
       - setup
 
   - name: task-c
-    command: |
+    run: |
       Write-Output "Task C starting"
       Start-Sleep -Seconds 2
       Write-Output "Task C complete"
@@ -57,7 +57,7 @@ steps:
 
   # Wait for all parallel tasks to complete
   - name: merge-results
-    command: Write-Output "All parallel tasks completed"
+    run: Write-Output "All parallel tasks completed"
     depends:
       - task-a
       - task-b
@@ -81,10 +81,10 @@ shell: powershell
 hist_retention_days: 7  # Keep 7 days of history (or use hist_retention_runs)
 
 steps:
-  - command: |
+  - run: |
       Write-Output "Running scheduled task"
       Write-Output "Current time: $(Get-Date)"
-  - command: Write-Output "Cleaning up old data"
+  - run: Write-Output "Cleaning up old data"
 `,
 
 	"example-04-nested-workflows.yaml": `# Nested Workflows
@@ -94,10 +94,12 @@ description: Example of nested workflows
 shell: powershell
 
 steps:
-  - command: Write-Output "Preparing data for sub-workflows"
-  - call: sub-workflow
-    params: "TASK_ID=123"
-  - command: Write-Output "Main workflow completed"
+  - run: Write-Output "Preparing data for sub-workflows"
+  - action: dag.run
+    with:
+      dag: sub-workflow
+      params: "TASK_ID=123"
+  - run: Write-Output "Main workflow completed"
 
 ---
 # Sub-workflow definition
@@ -108,8 +110,8 @@ params:
   - TASK_ID: "000"
 
 steps:
-  - command: Write-Output "Sub-workflow executing with TASK_ID=$env:TASK_ID"
-  - command: Write-Output "Sub-workflow step 2"
+  - run: Write-Output "Sub-workflow executing with TASK_ID=$env:TASK_ID"
+  - run: Write-Output "Sub-workflow step 2"
 `,
 
 	"example-05-container-workflow.yaml": `# Container-based Workflow
@@ -124,11 +126,11 @@ container:
 
 steps:
   # write data to a file
-  - |
+  - run: |
     python -c "with open('/data/output.txt', 'w') as f: f.write('Hello from Dagu!')"
 
   # read data from the file
-  - |
+  - run: |
     python -c "with open('/data/output.txt') as f: print(f.read())"
 `,
 }

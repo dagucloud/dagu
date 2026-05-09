@@ -24,7 +24,7 @@ func TestRecordEarlyFailure(t *testing.T) {
 		dag := th.DAG(t, `
 steps:
   - name: step1
-    command: echo hello
+    run: echo hello
 `)
 
 		dagRunID := "test-run-id-001"
@@ -61,7 +61,7 @@ steps:
 		dag := th.DAG(t, `
 steps:
   - name: step1
-    command: echo hello
+    run: echo hello
 `)
 
 		// First, run the DAG to create an attempt
@@ -122,7 +122,7 @@ steps:
 		dag := th.DAG(t, `
 steps:
   - name: step1
-    command: echo hello
+    run: echo hello
 `)
 
 		ctx := &cmd.Context{
@@ -144,7 +144,7 @@ steps:
 		dag := th.DAG(t, `
 steps:
   - name: step1
-    command: echo hello
+    run: echo hello
 `)
 
 		dagRunID := "early-failure-retry-test"

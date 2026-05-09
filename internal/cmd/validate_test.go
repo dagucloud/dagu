@@ -18,7 +18,7 @@ func TestValidateCommand(t *testing.T) {
 	t.Run("ValidSpec", func(t *testing.T) {
 		dag := th.DAG(t, `
 steps:
-  - echo ok
+  - run: echo ok
 `)
 
 		th.RunCommand(t, cmd.Validate(), test.CmdTest{
@@ -106,9 +106,9 @@ steps:
 		dagFile := th.CreateDAGFile(t, "invalid.yaml", `
 type: graph
 steps:
-  - echo A
+  - run: echo A
   - name: "b"
-    command: echo B
+    run: echo B
     depends: ["missing_step"]
 `)
 
@@ -124,7 +124,7 @@ steps:
 		dagFile := th.CreateDAGFile(t, "invalid_yaml.yaml", `
 steps:
   - name: "test"
-    command: echo test
+    run: echo test
   invalid yaml here: [[[
 `)
 

@@ -329,7 +329,7 @@ labels:
   - env=prod
 steps:
   - name: s1
-    command: echo hi
+    run: echo hi
 `)
 
 	patched, err := applyInlineEnqueueLabels(data, "team=backend")
@@ -348,7 +348,7 @@ func TestApplyInlineEnqueueLabels_CommaSeparatedStringLabels(t *testing.T) {
 labels: "daily, weekly"
 steps:
   - name: s1
-    command: echo hi
+    run: echo hi
 `)
 
 	patched, err := applyInlineEnqueueLabels(data, "team=backend")
@@ -368,7 +368,7 @@ func TestApplyInlineEnqueueLabels_SpaceSeparatedKeyValueLabels(t *testing.T) {
 labels: "env=prod team=platform"
 steps:
   - name: s1
-    command: echo hi
+    run: echo hi
 `)
 
 	patched, err := applyInlineEnqueueLabels(data, "team=backend")
@@ -390,7 +390,7 @@ labels:
   team: platform
 steps:
   - name: s1
-    command: echo hi
+    run: echo hi
 `)
 
 	patched, err := applyInlineEnqueueLabels(data, "priority=high")
@@ -411,7 +411,7 @@ tags:
   - env=prod
 steps:
   - name: s1
-    command: echo hi
+    run: echo hi
 `)
 
 	patched, err := applyInlineEnqueueLabels(data, "team=backend")
@@ -429,12 +429,12 @@ func TestApplyInlineEnqueueLabels_PreservesLaterDocuments(t *testing.T) {
 	data := []byte(`name: main
 steps:
   - name: s1
-    command: echo hi
+    run: echo hi
 ---
 name: child
 steps:
   - name: s2
-    command: echo bye
+    run: echo bye
 `)
 
 	patched, err := applyInlineEnqueueLabels(data, "env=prod")
@@ -700,7 +700,7 @@ harness:
     - provider: claude
       model: sonnet
 steps:
-  - command: "Review the repository"
+  - run: "Review the repository"
 `),
 	}
 

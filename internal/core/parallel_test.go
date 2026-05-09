@@ -30,7 +30,9 @@ func TestBuildParallel(t *testing.T) {
 			yaml: `
 steps:
   - name: process
-    call: workflows/processor
+    action: dag.run
+    with:
+      dag: workflows/processor
     parallel: ${ITEMS}
 `,
 			wantItems:    0,
@@ -42,7 +44,9 @@ steps:
 			yaml: `
 steps:
   - name: process
-    call: workflows/processor
+    action: dag.run
+    with:
+      dag: workflows/processor
     parallel:
       - item1
       - item2
@@ -57,7 +61,9 @@ steps:
 			yaml: `
 steps:
   - name: process
-    call: workflows/processor
+    action: dag.run
+    with:
+      dag: workflows/processor
     parallel:
       - SOURCE: s3://customers
       - SOURCE: s3://products
@@ -71,7 +77,9 @@ steps:
 			yaml: `
 steps:
   - name: process
-    call: workflows/processor
+    action: dag.run
+    with:
+      dag: workflows/processor
     parallel:
       max_concurrent: 2
       items:
@@ -87,7 +95,9 @@ steps:
 			yaml: `
 steps:
   - name: process
-    call: workflows/processor
+    action: dag.run
+    with:
+      dag: workflows/processor
     parallel:
       items: ${ITEMS}
       max_concurrent: 5
@@ -101,7 +111,9 @@ steps:
 			yaml: `
 steps:
   - name: process
-    call: workflows/processor
+    action: dag.run
+    with:
+      dag: workflows/processor
     parallel:
       items:
         - item1
@@ -117,7 +129,7 @@ steps:
 			yaml: `
 steps:
   - name: process
-    command: echo test
+    run: echo test
     parallel: ${ITEMS}
 `,
 			wantErr:    true,
@@ -137,7 +149,9 @@ steps:
 			yaml: `
 steps:
   - name: process
-    call: workflows/processor
+    action: dag.run
+    with:
+      dag: workflows/processor
     parallel:
       items: [1, 2, 3]
       max_concurrent: 0
@@ -150,7 +164,9 @@ steps:
 			yaml: `
 steps:
   - name: process
-    call: workflows/processor
+    action: dag.run
+    with:
+      dag: workflows/processor
     parallel:
       items: []
       max_concurrent: 5
@@ -211,12 +227,14 @@ func TestParallelWithSubDAG(t *testing.T) {
 	yaml := `
 steps:
   - name: process-regions
-    call: workflows/deploy
+    action: dag.run
+    with:
+      dag: workflows/deploy
+      params: VERSION=1.0.0
     parallel:
       - REGION: us-east-1
       - REGION: eu-west-1
       - REGION: ap-south-1
-    params: VERSION=1.0.0
 `
 	// Create a temporary file with the YAML content
 	tmpDir := t.TempDir()
@@ -257,7 +275,9 @@ env:
   - REGIONS: '["us-east-1", "eu-west-1"]'
 steps:
   - name: deploy-all
-    call: workflows/deploy
+    action: dag.run
+    with:
+      dag: workflows/deploy
     parallel: ${REGIONS}
 `,
 		},
@@ -267,11 +287,13 @@ steps:
 type: graph
 steps:
   - name: get-items
-    command: echo '["item1", "item2", "item3"]'
+    run: echo '["item1", "item2", "item3"]'
     output: ITEMS
 
   - name: process-all
-    call: workflows/processor
+    action: dag.run
+    with:
+      dag: workflows/processor
     parallel: ${ITEMS}
     depends: get-items
 `,

@@ -44,6 +44,18 @@ func newMockDAGRunStore() *mockDAGRunStore {
 	}
 }
 
+func registerCommandExecutorCapsForCoordinatorTest() {
+	caps := core.ExecutorCapabilities{
+		Command:          true,
+		MultipleCommands: true,
+		Script:           true,
+		Shell:            true,
+	}
+	core.RegisterExecutorCapabilities("", caps)
+	core.RegisterExecutorCapabilities("shell", caps)
+	core.RegisterExecutorCapabilities("command", caps)
+}
+
 func (m *mockDAGRunStore) addSubAttempt(rootRef exec.DAGRunRef, subDAGRunID string, status *exec.DAGRunStatus) *mockDAGRunAttempt {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -531,7 +543,7 @@ func TestHandler_Poll(t *testing.T) {
 			ParentDagRunName: "",
 			ParentDagRunId:   "",
 			DagRunId:         "run-123",
-			Definition:       "name: test-dag\nsteps:\n  - name: step1\n    command: echo hello",
+			Definition:       "name: test-dag\nsteps:\n  - name: step1\n    run: echo hello",
 		}
 
 		_, err := h.Dispatch(ctx, &coordinatorv1.DispatchRequest{
@@ -563,7 +575,7 @@ func TestHandler_Poll(t *testing.T) {
 			RootDagRunName: "test-dag",
 			RootDagRunId:   "run-123",
 			DagRunId:       "run-123",
-			Definition:     "name: test-dag\nsteps:\n  - name: step1\n    command: echo hello",
+			Definition:     "name: test-dag\nsteps:\n  - name: step1\n    run: echo hello",
 		}
 
 		_, err := h.Dispatch(ctx, &coordinatorv1.DispatchRequest{
@@ -602,7 +614,7 @@ func TestHandler_Poll(t *testing.T) {
 
 	t.Run("DispatchFailsWhenAttemptPreparationFails", func(t *testing.T) {
 		t.Parallel()
-		core.RegisterExecutorCapabilities("command", core.ExecutorCapabilities{Command: true})
+		registerCommandExecutorCapsForCoordinatorTest()
 
 		baseDir := filepath.Join(t.TempDir(), "distributed")
 		dispatchStore := filedistributed.NewDispatchTaskStore(baseDir)
@@ -624,7 +636,7 @@ func TestHandler_Poll(t *testing.T) {
 			Task: &coordinatorv1.Task{
 				DagRunId:   "run-123",
 				Target:     "test-dag",
-				Definition: "name: test-dag\nsteps:\n  - name: step1\n    type: command\n    command: echo hello",
+				Definition: "name: test-dag\nsteps:\n  - name: step1\n    run: echo hello",
 				QueueName:  "test-queue",
 			},
 		})
@@ -642,7 +654,7 @@ func TestHandler_Poll(t *testing.T) {
 
 	t.Run("DispatchMarksNewAttemptFailedWhenEnqueueFails", func(t *testing.T) {
 		t.Parallel()
-		core.RegisterExecutorCapabilities("command", core.ExecutorCapabilities{Command: true})
+		registerCommandExecutorCapsForCoordinatorTest()
 
 		heartbeatStore := filedistributed.NewWorkerHeartbeatStore(filepath.Join(t.TempDir(), "distributed"))
 		require.NoError(t, heartbeatStore.Upsert(context.Background(), exec.WorkerHeartbeatRecord{
@@ -661,7 +673,7 @@ func TestHandler_Poll(t *testing.T) {
 			Task: &coordinatorv1.Task{
 				DagRunId:   "run-123",
 				Target:     "test-dag",
-				Definition: "name: test-dag\nsteps:\n  - name: step1\n    type: command\n    command: echo hello",
+				Definition: "name: test-dag\nsteps:\n  - name: step1\n    run: echo hello",
 				QueueName:  "test-queue",
 			},
 		})
@@ -682,7 +694,7 @@ func TestHandler_Poll(t *testing.T) {
 
 	t.Run("DispatchLeavesReusedQueuedAttemptQueuedWhenEnqueueFails", func(t *testing.T) {
 		t.Parallel()
-		core.RegisterExecutorCapabilities("command", core.ExecutorCapabilities{Command: true})
+		registerCommandExecutorCapsForCoordinatorTest()
 
 		heartbeatStore := filedistributed.NewWorkerHeartbeatStore(filepath.Join(t.TempDir(), "distributed"))
 		require.NoError(t, heartbeatStore.Upsert(context.Background(), exec.WorkerHeartbeatRecord{
@@ -709,7 +721,7 @@ func TestHandler_Poll(t *testing.T) {
 			Task: &coordinatorv1.Task{
 				DagRunId:   "run-123",
 				Target:     "test-dag",
-				Definition: "name: test-dag\nsteps:\n  - name: step1\n    type: command\n    command: echo hello",
+				Definition: "name: test-dag\nsteps:\n  - name: step1\n    run: echo hello",
 				QueueName:  "test-queue",
 			},
 		})
@@ -766,7 +778,7 @@ func TestHandler_Poll(t *testing.T) {
 func TestHandler_DispatchRejectsStaleQueueDispatchRetry(t *testing.T) {
 	t.Parallel()
 
-	core.RegisterExecutorCapabilities("command", core.ExecutorCapabilities{Command: true})
+	registerCommandExecutorCapsForCoordinatorTest()
 
 	baseDir := filepath.Join(t.TempDir(), "distributed")
 	dispatchStore := filedistributed.NewDispatchTaskStore(baseDir)
@@ -804,7 +816,7 @@ func TestHandler_DispatchRejectsStaleQueueDispatchRetry(t *testing.T) {
 			Operation:      coordinatorv1.Operation_OPERATION_RETRY,
 			DagRunId:       "run-123",
 			Target:         "test-dag",
-			Definition:     "name: test-dag\nsteps:\n  - name: step1\n    type: command\n    command: echo hello",
+			Definition:     "name: test-dag\nsteps:\n  - name: step1\n    run: echo hello",
 			QueueName:      "test-queue",
 			PreviousStatus: previousStatus,
 		},

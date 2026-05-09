@@ -30,17 +30,17 @@ func TestRetryDAGAfterManualStatusUpdate(t *testing.T) {
 	th.CreateDAGFile(t, "test_retry.yaml", `type: graph
 steps:
   - name: step1
-    command: echo "step 1"
+    run: echo "step 1"
     output: OUT1
 
   - name: step2
-    command: echo "step 2"
+    run: echo "step 2"
     output: OUT2
     depends:
       - step1
 
   - name: step3
-    command: echo "step 3"
+    run: echo "step 3"
     output: OUT3
     depends:
       - step2
@@ -135,10 +135,11 @@ if (-not (Test-Path marker)) {
 	th.CreateDAGFile(t, "retry_working_dir.yaml", fmt.Sprintf(`steps:
   - name: target
     working_dir: child
-    shell: %s
-    command: |
+    run: |
 %s
-`, shell, indentTestScript(command, 6)))
+    with:
+      shell: %s
+`, indentTestScript(command, 6), shell))
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()
 	err := th.RunCommandWithError(t, cmd.Start(), test.CmdTest{

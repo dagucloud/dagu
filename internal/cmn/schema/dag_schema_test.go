@@ -30,7 +30,7 @@ func TestDAGSchemaParams(t *testing.T) {
 			spec: `
 params: first second
 steps:
-  - command: echo "$1 $2"
+  - run: echo "$1 $2"
 `,
 		},
 		{
@@ -40,7 +40,7 @@ params:
   - ENVIRONMENT: prod
   - COUNT: 3
 steps:
-  - command: echo "${ENVIRONMENT} ${COUNT}"
+  - run: echo "${ENVIRONMENT} ${COUNT}"
 `,
 		},
 		{
@@ -61,7 +61,7 @@ params:
     type: boolean
     default: false
 steps:
-  - command: echo "${region} ${count} ${debug}"
+  - run: echo "${region} ${count} ${debug}"
 `,
 		},
 		{
@@ -74,7 +74,7 @@ params:
     enum: [dev, staging, prod]
   - TAG: latest
 steps:
-  - command: echo "${environment} ${TAG}"
+  - run: echo "${environment} ${TAG}"
 `,
 		},
 		{
@@ -86,7 +86,7 @@ params:
     batch_size: 25
     environment: staging
 steps:
-  - command: echo done
+  - run: echo done
 `,
 		},
 		{
@@ -101,7 +101,7 @@ params:
       type: boolean
   additionalProperties: false
 steps:
-  - command: echo done
+  - run: echo done
 `,
 		},
 		{
@@ -114,7 +114,7 @@ params:
       type: string
   required: [region]
 steps:
-  - command: echo done
+  - run: echo done
 `,
 			wantErr: "params",
 		},
@@ -130,7 +130,7 @@ params:
   values:
     batch_size: 25
 steps:
-  - command: echo done
+  - run: echo done
 `,
 		},
 		{
@@ -141,7 +141,7 @@ params:
   values:
     batch_size: 25
 steps:
-  - command: echo done
+  - run: echo done
 `,
 		},
 		{
@@ -152,7 +152,7 @@ params:
     type: string
     minLength: 3
 steps:
-  - command: echo "${project_name}"
+  - run: echo "${project_name}"
 `,
 			wantErr: "params",
 		},
@@ -164,7 +164,7 @@ params:
       type: string
       default: demo
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 			wantErr: "params",
 		},
@@ -174,7 +174,7 @@ steps:
 params:
   - name: foo
 steps:
-  - command: echo "${foo}"
+  - run: echo "${foo}"
 `,
 			wantErr: "params",
 		},
@@ -185,7 +185,7 @@ params:
   schema: prod
   region: us
 steps:
-  - command: echo "${schema} ${region}"
+  - run: echo "${schema} ${region}"
 `,
 		},
 		{
@@ -196,7 +196,7 @@ params:
     foo: bar
   region: us
 steps:
-  - command: echo "${region}"
+  - run: echo "${region}"
 `,
 		},
 	}
@@ -231,7 +231,7 @@ func TestDAGSchemaStepOutputObject(t *testing.T) {
 			name: "LiteralObjectValue",
 			spec: `
 steps:
-  - command: echo hi
+  - run: echo hi
     output:
       meta:
         version: v1.2.3
@@ -241,7 +241,7 @@ steps:
 			name: "StructuredSourceEntry",
 			spec: `
 steps:
-  - command: echo hi
+  - run: echo hi
     output:
       version:
         from: stdout
@@ -253,7 +253,7 @@ steps:
 			name: "RejectInvalidStructuredSource",
 			spec: `
 steps:
-  - command: echo hi
+  - run: echo hi
     output:
       version:
         from: network
@@ -264,7 +264,7 @@ steps:
 			name: "RejectFileSourceWithoutPath",
 			spec: `
 steps:
-  - command: echo hi
+  - run: echo hi
     output:
       version:
         from: file
@@ -275,7 +275,7 @@ steps:
 			name: "RejectInvalidDecode",
 			spec: `
 steps:
-  - command: echo hi
+  - run: echo hi
     output:
       version:
         from: stdout
@@ -517,7 +517,7 @@ schedule:
   - kind: cron
     expression: "0 * * * *"
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 		},
 		{
@@ -528,7 +528,7 @@ schedule:
     kind: at
     at: "2026-03-29T02:10:00+01:00"
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 		},
 		{
@@ -537,7 +537,7 @@ steps:
 schedule:
   - kind: cron
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 			wantErr: "schedule",
 		},
@@ -547,7 +547,7 @@ steps:
 schedule:
   - kind: at
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 			wantErr: "schedule",
 		},
@@ -560,7 +560,7 @@ schedule:
     expression: "0 * * * *"
     at: "2026-03-29T02:10:00+01:00"
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 			wantErr: "schedule",
 		},
@@ -571,7 +571,7 @@ schedule:
   stop:
     kind: cron
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 			wantErr: "schedule",
 		},
@@ -613,7 +613,7 @@ retry_policy:
   backoff: 2.0
   max_interval_sec: 60
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 		},
 		{
@@ -626,7 +626,7 @@ retry_policy:
   backoff: false
   max_interval_sec: "60"
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 		},
 		{
@@ -636,7 +636,7 @@ name: retryable-dag
 retry_policy:
   limit: 0
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 		},
 		{
@@ -646,7 +646,7 @@ name: retryable-dag
 retry_policy:
   limit: "0"
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 		},
 		{
@@ -656,7 +656,7 @@ name: retryable-dag
 retry_policy:
   interval_sec: 10
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 			wantErr: "retry_policy",
 		},
@@ -668,7 +668,7 @@ retry_policy:
   limit: three
   interval_sec: 10
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 			wantErr: "retry_policy",
 		},
@@ -679,7 +679,7 @@ name: retryable-dag
 retry_policy:
   limit: -1
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 			wantErr: "retry_policy",
 		},
@@ -690,7 +690,7 @@ name: retryable-dag
 retry_policy:
   limit: "-1"
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 			wantErr: "retry_policy",
 		},
@@ -702,7 +702,7 @@ retry_policy:
   limit: 3
   interval_sec: later
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 			wantErr: "retry_policy",
 		},
@@ -714,7 +714,7 @@ retry_policy:
   limit: 1
   interval_sec: 0
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 			wantErr: "retry_policy",
 		},
@@ -726,7 +726,7 @@ retry_policy:
   limit: 1
   max_interval_sec: 0
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 			wantErr: "retry_policy",
 		},
@@ -739,7 +739,7 @@ retry_policy:
   interval_sec: 10
   backoff: 1.0
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 			wantErr: "retry_policy",
 		},
@@ -751,7 +751,7 @@ retry_policy:
   limit: 3
   unknown_retry_field: 10
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 			wantErr: "retry_policy",
 		},
@@ -784,7 +784,7 @@ retry_policy:
   interval_sec: 10
   exit_code: [1]
 steps:
-  - command: echo hi
+  - run: echo hi
 `)
 
 	err := resolved.Validate(doc)
@@ -798,7 +798,7 @@ func TestDAGSchemaStepRetryPolicyRejectsUnknownField(t *testing.T) {
 	resolved := mustResolveDAGSchema(t)
 	doc := mustParseYAMLDocument(t, `
 steps:
-  - command: echo hi
+  - run: echo hi
     retry_policy:
       limit: 1
       interval_sec: 5
@@ -824,9 +824,10 @@ func TestDAGSchemaStepWithFieldAndConfigAlias(t *testing.T) {
 			name: "CanonicalWith",
 			spec: `
 steps:
-  - type: http
-    command: GET https://example.com
+  - action: http.request
     with:
+      method: GET
+      url: https://example.com
       timeout: 30
 `,
 		},
@@ -885,7 +886,7 @@ func TestDAGSchemaLogStepRequiresMessage(t *testing.T) {
 			name: "CanonicalWith",
 			spec: `
 steps:
-  - type: log
+  - action: log.write
     with:
       message: hello
 `,
@@ -903,7 +904,7 @@ steps:
 			name: "RejectMissingWithOrConfig",
 			spec: `
 steps:
-  - type: log
+  - action: log.write
 `,
 			wantErr: "steps",
 		},
@@ -911,7 +912,7 @@ steps:
 			name: "RejectMissingMessage",
 			spec: `
 steps:
-  - type: log
+  - action: log.write
     with: {}
 `,
 			wantErr: "steps",
@@ -991,9 +992,9 @@ func TestDAGSchemaSSHExecutorPort(t *testing.T) {
 	resolved := mustResolveDAGSchema(t)
 	doc := mustParseYAMLDocument(t, `
 steps:
-  - type: ssh
-    command: hostname
+  - action: ssh.run
     with:
+      command: hostname
       host: example.com
       user: deploy
       port: 22
@@ -1017,12 +1018,11 @@ func TestDAGSchemaSFTPExecutor(t *testing.T) {
 			name: "WithConfig",
 			spec: `
 steps:
-  - type: sftp
+  - action: sftp.upload
     with:
       host: example.com
       user: deploy
       port: "22"
-      direction: upload
       source: ./backup.tar.gz
       destination: /srv/backups/backup.tar.gz
 `,
@@ -1031,12 +1031,11 @@ steps:
 			name: "NumericPorts",
 			spec: `
 steps:
-  - type: sftp
+  - action: sftp.upload
     with:
       host: example.com
       user: deploy
       port: 22
-      direction: upload
       source: ./backup.tar.gz
       destination: /srv/backups/backup.tar.gz
       bastion:
@@ -1061,7 +1060,7 @@ steps:
 			name: "RejectInvalidDirection",
 			spec: `
 steps:
-  - type: sftp
+  - action: sftp.upload
     with:
       host: example.com
       user: deploy
@@ -1076,12 +1075,11 @@ steps:
 			name: "RejectEmptySource",
 			spec: `
 steps:
-  - type: sftp
+  - action: sftp.upload
     with:
       host: example.com
       user: deploy
       port: "22"
-      direction: upload
       source: ""
       destination: /srv/backups/backup.tar.gz
 `,
@@ -1091,12 +1089,11 @@ steps:
 			name: "RejectUnknownConfigField",
 			spec: `
 steps:
-  - type: sftp
+  - action: sftp.upload
     with:
       host: example.com
       user: deploy
       port: "22"
-      direction: upload
       source: ./backup.tar.gz
       destination: /srv/backups/backup.tar.gz
       unknown_field: true
@@ -1143,10 +1140,10 @@ kubernetes:
 
 steps:
   - id: report
-    type: k8s
+    action: k8s.run
     with:
       image: alpine:3.20
-    command: echo hello
+      command: echo hello
 `,
 		},
 		{
@@ -1158,10 +1155,10 @@ kubernetes:
 
 steps:
   - id: report
-    type: k8s
+    action: k8s.run
     with:
       cleanup_policy: keep
-    command: echo hello
+      command: echo hello
 `,
 		},
 		{
@@ -1169,7 +1166,7 @@ steps:
 			spec: `
 steps:
   - id: report
-    type: kubernetes
+    action: kubernetes.run
     with:
       image: alpine:3.20
       namespace: batch
@@ -1185,7 +1182,7 @@ steps:
       volume_mounts:
         - name: scratch
           mount_path: /tmp/work
-    command: [sh, -c, "echo hello"]
+      command: [sh, -c, "echo hello"]
 `,
 		},
 		{
@@ -1197,7 +1194,7 @@ kubernetes:
 
 steps:
   - id: report
-    type: kubernetes
+    action: kubernetes.run
     with:
       image: alpine:3.20
       security_context:
@@ -1237,7 +1234,7 @@ steps:
           - action: Ignore
             on_pod_conditions:
               - type: DisruptionTarget
-    command: echo hello
+      command: echo hello
 `,
 		},
 		{
@@ -1261,12 +1258,12 @@ kubernetes:
 
 steps:
   - id: report
-    type: k8s
+    action: k8s.run
     with:
       image: alpine:3.20
       affinity: {}
       pod_failure_policy: {}
-    command: echo hello
+      command: echo hello
 `,
 		},
 		{
@@ -1277,10 +1274,10 @@ kubernetes:
 
 steps:
   - id: report
-    type: k8s
+    action: k8s.run
     with:
       image: alpine:3.20
-    command: echo hello
+      command: echo hello
 `,
 			wantErr: "kubernetes",
 		},
@@ -1289,12 +1286,12 @@ steps:
 			spec: `
 steps:
   - id: report
-    type: k8s
+    action: k8s.run
     with:
       image: alpine:3.20
       env:
         - value: missing-name
-    command: echo hello
+      command: echo hello
 `,
 			wantErr: "steps",
 		},
@@ -1303,12 +1300,12 @@ steps:
 			spec: `
 steps:
   - id: report
-    type: k8s
+    action: k8s.run
     with:
       image: alpine:3.20
       env_from:
         - prefix: APP_
-    command: echo hello
+      command: echo hello
 `,
 			wantErr: "steps",
 		},
@@ -1317,13 +1314,13 @@ steps:
 			spec: `
 steps:
   - id: report
-    type: k8s
+    action: k8s.run
     with:
       image: alpine:3.20
       security_context:
         seccomp_profile:
           localhost_profile: profiles/custom.json
-    command: echo hello
+      command: echo hello
 `,
 			wantErr: "steps",
 		},
@@ -1332,7 +1329,7 @@ steps:
 			spec: `
 steps:
   - id: report
-    type: k8s
+    action: k8s.run
     with:
       image: alpine:3.20
       pod_failure_policy:
@@ -1341,7 +1338,7 @@ steps:
             on_exit_codes:
               operator: In
               values: [42]
-    command: echo hello
+      command: echo hello
 `,
 			wantErr: "steps",
 		},
@@ -1350,11 +1347,11 @@ steps:
 			spec: `
 steps:
   - id: report
-    type: kubernetes
+    action: kubernetes.run
     with:
       image: alpine:3.20
       unknown_field: true
-    command: echo hello
+      command: echo hello
 `,
 			wantErr: "steps",
 		},
@@ -1363,7 +1360,7 @@ steps:
 			spec: `
 steps:
   - id: report
-    type: k8s
+    action: k8s.run
     with:
       image: alpine:3.20
       volumes:
@@ -1371,7 +1368,7 @@ steps:
           empty_dir: {}
           secret:
             secret_name: app-secret
-    command: echo hello
+      command: echo hello
 `,
 			wantErr: "steps",
 		},
@@ -1415,11 +1412,11 @@ harness:
       full-auto: true
 
 steps:
-  - command: Write tests
+  - run: Write tests
 
-  - type: harness
-    command: Fix bugs
+  - action: harness.run
     with:
+      prompt: Fix bugs
       model: opus
       effort: high
 `,
@@ -1435,9 +1432,9 @@ harnesses:
     prompt_flag: --prompt
 
 steps:
-  - type: harness
-    command: Summarize the repository state
+  - action: harness.run
     with:
+      prompt: Summarize the repository state
       provider: gemini
       model: gemini-2.5-pro
       yolo: true
@@ -1452,9 +1449,9 @@ harnesses:
     prompt_mode: flag
 
 steps:
-  - type: harness
-    command: Summarize the repository state
+  - action: harness.run
     with:
+      prompt: Summarize the repository state
       provider: gemini
 `,
 			wantErr: "harnesses",
@@ -1469,9 +1466,9 @@ harnesses:
     prompt_flag: --prompt
 
 steps:
-  - type: harness
-    command: Summarize the repository state
+  - action: harness.run
     with:
+      prompt: Summarize the repository state
       provider: gemini
 `,
 			wantErr: "harnesses",
@@ -1485,7 +1482,7 @@ harness:
     provider: codex
 
 steps:
-  - command: Write tests
+  - run: Write tests
 `,
 			wantErr: "harness",
 		},
@@ -1493,9 +1490,9 @@ steps:
 			name: "RejectNestedFallbackInFallbackProvider",
 			spec: `
 steps:
-  - type: harness
-    command: Write tests
+  - action: harness.run
     with:
+      prompt: Write tests
       provider: claude
       fallback:
         - provider: codex

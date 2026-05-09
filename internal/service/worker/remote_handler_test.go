@@ -237,12 +237,13 @@ artifacts:
   enabled: true
 steps:
   - name: %s
-    shell: powershell
-    command: |
+    run: |
       if (-not $env:DAG_RUN_ARTIFACTS_DIR) { throw 'DAG_RUN_ARTIFACTS_DIR not set' }
       New-Item -ItemType Directory -Path $env:DAG_RUN_ARTIFACTS_DIR -Force | Out-Null
       [System.IO.File]::WriteAllText((Join-Path $env:DAG_RUN_ARTIFACTS_DIR 'out.txt'), 'artifact')
       exit 1
+    with:
+      shell: powershell
 `, name, stepName)
 		}
 
@@ -251,11 +252,12 @@ artifacts:
   enabled: true
 steps:
   - name: %s
-    shell: powershell
-    command: |
+    run: |
       if (-not $env:DAG_RUN_ARTIFACTS_DIR) { throw 'DAG_RUN_ARTIFACTS_DIR not set' }
       New-Item -ItemType Directory -Path $env:DAG_RUN_ARTIFACTS_DIR -Force | Out-Null
       [System.IO.File]::WriteAllText((Join-Path $env:DAG_RUN_ARTIFACTS_DIR 'out.txt'), 'artifact')
+    with:
+      shell: powershell
 `, name, stepName)
 	}
 
@@ -265,10 +267,11 @@ artifacts:
   enabled: true
 steps:
   - name: %s
-    shell: /bin/sh
-    command: |
+    run: |
       printf "artifact" > "$DAG_RUN_ARTIFACTS_DIR/out.txt"
       exit 1
+    with:
+      shell: /bin/sh
 `, name, stepName)
 	}
 
@@ -277,9 +280,10 @@ artifacts:
   enabled: true
 steps:
   - name: %s
-    shell: /bin/sh
-    command: |
+    run: |
       printf "artifact" > "$DAG_RUN_ARTIFACTS_DIR/out.txt"
+    with:
+      shell: /bin/sh
 `, name, stepName)
 }
 
@@ -855,7 +859,7 @@ func TestHandleStart_InvalidSnapshotReportsInitFailure(t *testing.T) {
 		Definition: `
 steps:
   - name: main
-    command: echo hello
+    run: echo hello
 `,
 		AgentSnapshot: []byte("not-a-valid-snapshot"),
 	}
@@ -1031,7 +1035,7 @@ func TestLoadDAG(t *testing.T) {
 		dagDefinition := `name: inline-dag
 steps:
   - name: inline-step
-    command: echo inline
+    run: echo inline
 `
 
 		task := &coordinatorv1.Task{
@@ -1154,7 +1158,7 @@ func TestHandleRetry(t *testing.T) {
 		dag := th.DAG(t, `name: remote-catchup-dag
 steps:
   - name: step1
-    command: echo remote catchup
+    run: echo remote catchup
 `)
 
 		runID := "remote-catchup-run"
@@ -1226,7 +1230,7 @@ steps:
 		dagContent := `name: retry-dag
 steps:
   - name: step1
-    command: echo retry
+    run: echo retry
 `
 		err := os.WriteFile(dagFile, []byte(dagContent), 0644)
 		require.NoError(t, err)
@@ -1287,7 +1291,7 @@ func TestHandleStart_ExternalStepRetryQueuesPendingRetry(t *testing.T) {
 	dag := th.DAG(t, `name: remote-external-retry
 steps:
   - name: flaky
-    command: exit 1
+    run: exit 1
     retry_policy:
       limit: 1
       interval_sec: 30
@@ -1401,7 +1405,7 @@ func TestHandle_OperationStart(t *testing.T) {
 	dagContent := `name: start-dag
 steps:
   - name: step1
-    command: echo start
+    run: echo start
 `
 	err := os.WriteFile(dagFile, []byte(dagContent), 0644)
 	require.NoError(t, err)
@@ -1503,7 +1507,7 @@ func TestHandleStart_SuccessPathWithCleanup(t *testing.T) {
 	dagDefinition := `name: cleanup-test-dag
 steps:
   - name: step1
-    command: echo cleanup
+    run: echo cleanup
 `
 
 	task := &coordinatorv1.Task{
@@ -1527,7 +1531,7 @@ func TestHandleStart_QueuedRunFlag(t *testing.T) {
 	dagContent := `name: queued-flag-dag
 steps:
   - name: step1
-    command: echo queued
+    run: echo queued
 `
 
 	handler := &remoteTaskHandler{
@@ -1563,7 +1567,7 @@ func TestExecuteDAGRun_WithRetryConfig(t *testing.T) {
 	dagContent := `name: exec-retry-dag
 steps:
   - name: step1
-    command: echo exec
+    run: echo exec
 `
 	err := os.WriteFile(dagFile, []byte(dagContent), 0644)
 	require.NoError(t, err)
@@ -1684,7 +1688,7 @@ func TestHandleRetry_WithDefinitionAndCleanup(t *testing.T) {
 	dagDefinition := `name: def-cleanup-dag
 steps:
   - name: step1
-    command: echo cleanup
+    run: echo cleanup
 `
 
 	task := &coordinatorv1.Task{
@@ -1749,7 +1753,7 @@ func TestLoadDAG_CleanupErrorLogged(t *testing.T) {
 	dagDefinition := `name: cleanup-logged-dag
 steps:
   - name: step1
-    command: echo cleanup
+    run: echo cleanup
 `
 
 	task := &coordinatorv1.Task{
@@ -1781,7 +1785,7 @@ func TestExecuteDAGRun_CreateAgentEnvError(t *testing.T) {
 	dagContent := `name: exec-env-error-dag
 steps:
   - name: step1
-    command: echo test
+    run: echo test
 `
 
 	client := newMockRemoteCoordinatorClient()
@@ -1832,7 +1836,7 @@ func TestExecuteDAGRun_SuccessfulExecution(t *testing.T) {
 	dagContent := `name: remote-handler-success
 steps:
   - name: echo-step
-    command: echo "hello from remote handler"
+    run: echo "hello from remote handler"
 `
 	dag := th.DAG(t, dagContent)
 

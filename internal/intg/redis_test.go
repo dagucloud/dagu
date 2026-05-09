@@ -41,9 +41,7 @@ redis:
 
 steps:
   - name: ping
-    type: redis
-    with:
-      command: PING
+    action: redis.ping
     output: REDIS_OUT
 `, redisTestImage, port, port)
 			},
@@ -68,17 +66,15 @@ redis:
 
 steps:
   - name: set-value
-    type: redis
+    action: redis.set
     with:
-      command: SET
       key: test-key
       value: hello
   - name: get-value
     depends:
       - set-value
-    type: redis
+    action: redis.get
     with:
-      command: GET
       key: test-key
     output: REDIS_GET_OUT
 `, redisTestImage, port, port)
@@ -105,18 +101,16 @@ redis:
 
 steps:
   - name: set-in-db1
-    type: redis
+    action: redis.set
     with:
-      command: SET
       key: db-test-key
       value: in-db1
       db: 1
   - name: get-from-db1
     depends:
       - set-in-db1
-    type: redis
+    action: redis.get
     with:
-      command: GET
       key: db-test-key
       db: 1
     output: REDIS_DB1_OUT
@@ -142,7 +136,7 @@ redis:
 
 steps:
   - name: run-pipeline
-    type: redis
+    action: redis.pipeline
     with:
       pipeline:
         - command: SET
@@ -176,9 +170,8 @@ redis:
 
 steps:
   - name: lpush-items
-    type: redis
+    action: redis.lpush
     with:
-      command: LPUSH
       key: mylist
       values:
         - item1
@@ -187,9 +180,8 @@ steps:
   - name: llen
     depends:
       - lpush-items
-    type: redis
+    action: redis.llen
     with:
-      command: LLEN
       key: mylist
     output: LIST_LEN
 `, redisTestImage, port, port)
@@ -215,9 +207,8 @@ redis:
 
 steps:
   - name: hset-fields
-    type: redis
+    action: redis.hset
     with:
-      command: HSET
       key: myhash
       fields:
         field1: value1
@@ -225,9 +216,8 @@ steps:
   - name: hget-single
     depends:
       - hset-fields
-    type: redis
+    action: redis.hget
     with:
-      command: HGET
       key: myhash
       field: field1
     output: HASH_OUT
@@ -254,18 +244,16 @@ redis:
 
 steps:
   - name: set-with-ttl
-    type: redis
+    action: redis.set
     with:
-      command: SET
       key: ttl-key
       value: ttl-value
       ttl: 3600
   - name: exists-check
     depends:
       - set-with-ttl
-    type: redis
+    action: redis.exists
     with:
-      command: EXISTS
       key: ttl-key
     output: EXISTS_OUT
 `, redisTestImage, port, port)
