@@ -796,11 +796,11 @@
     },
     "llm": {
       "$ref": "#/definitions/llmConfig",
-      "description": "Default LLM configuration for all chat steps in the DAG. Steps with type: chat inherit this configuration if they don't specify their own llm field. If a step specifies llm, it completely overrides the DAG-level configuration."
+      "description": "Default LLM configuration for all chat actions in the DAG. Steps with action: chat.completion inherit this configuration if they don't specify their own with provider/model settings. If a step specifies LLM fields in with, it completely overrides the DAG-level configuration."
     },
     "harness": {
       "$ref": "#/definitions/harnessDefaultsConfig",
-      "description": "Default harness configuration for coding-agent steps in the DAG. Steps with type: harness inherit these defaults, and steps without an explicit type are treated as harness steps when this block is present. Step-level with overrides primary keys and replaces DAG-level fallback when fallback is set."
+      "description": "Default harness configuration for coding-agent actions in the DAG. Steps with action: harness.run inherit these defaults. Step-level with overrides primary keys and replaces DAG-level fallback when fallback is set."
     },
     "harnesses": {
       "$ref": "#/definitions/harnessDefinitions",
@@ -902,7 +902,7 @@
           "$ref": "#/definitions/redisConnectionConfig"
         }
       ],
-      "description": "Default Redis configuration for all steps in the DAG. Steps with type: redis inherit this configuration if they don't specify their own connection settings."
+      "description": "Default Redis configuration for all Redis actions in the DAG. Steps with action: redis.<operation> inherit this configuration if they don't specify their own connection settings."
     },
     "kubernetes": {
       "$ref": "#/definitions/kubernetesDefaultsConfig",
@@ -5600,10 +5600,10 @@
         {
           "type": "string",
           "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
-          "description": "Custom step type name declared in step_types or base config."
+          "description": "Deprecated custom step type name declared in step_types or base config."
         }
       ],
-      "description": "Builtin executor type or a custom step type name declared in step_types."
+      "description": "Deprecated builtin executor type or custom step type name declared in step_types. Use action for new DAGs."
     },
     "actionName": {
       "anyOf": [
@@ -6035,7 +6035,7 @@
       "additionalProperties": {
         "$ref": "#/definitions/customStepTypeDefinition"
       },
-      "description": "Custom step type definitions keyed by user-defined type name."
+      "description": "Deprecated custom step type definitions keyed by user-defined type name. Use actions for new DAGs."
     },
     "customStepTypeDefinition": {
       "type": "object",
@@ -6044,7 +6044,7 @@
       "properties": {
         "type": {
           "$ref": "#/definitions/builtinExecutorType",
-          "description": "Builtin executor type or builtin alias that this custom step expands to. Custom step types cannot target other custom step types."
+          "description": "Deprecated builtin executor type or builtin alias that this custom step type expands to. Custom step types cannot target other custom step types."
         },
         "description": {
           "type": "string",
@@ -6053,7 +6053,7 @@
         "input_schema": {
           "type": "object",
           "additionalProperties": true,
-          "description": "Inline JSON Schema object used to validate and default the custom step's with input."
+          "description": "Inline JSON Schema object used to validate and default the deprecated custom step type's with input."
         },
         "output_schema": {
           "type": "object",
@@ -6066,7 +6066,7 @@
           "description": "Step fragment template expanded at build time. Use {$input: path.to.value} for typed injection and Go template strings for string interpolation."
         }
       },
-      "description": "Definition of a reusable custom step type."
+      "description": "Definition of a deprecated reusable custom step type. Use customActionDefinition for new DAGs."
     },
     "stepExec": {
       "type": "object",
