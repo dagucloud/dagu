@@ -148,6 +148,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -315,6 +316,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.go == 'true'
     runs-on: windows-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
