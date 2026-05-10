@@ -137,7 +137,20 @@ func (p *ProcHandle) startHeartbeat(ctx context.Context) error {
 
 		defer func() {
 			_ = fd.Close()
-			if err := os.Remove(p.fileName); err != nil {
+			// On Windows, another process (e.g., the scheduler) may hold a
+			// transient read handle on the proc file, causing os.Remove to fail
+			// with "access denied". Retry a few times with a brief sleep before
+			// giving up and logging.
+			const maxAttempts = 5
+			for i := range maxAttempts {
+				err := os.Remove(p.fileName)
+				if err == nil || errors.Is(err, os.ErrNotExist) {
+					break
+				}
+				if i < maxAttempts-1 {
+					time.Sleep(50 * time.Millisecond)
+					continue
+				}
 				logger.Error(ctx, "Failed to remove heartbeat file",
 					tag.Error(err))
 			}

@@ -690,9 +690,10 @@ func (l *Loop) accumulateUsage(usage llm.Usage) {
 // recordAssistantMessage adds the assistant response to history and records it.
 func (l *Loop) recordAssistantMessage(ctx context.Context, resp *llm.ChatResponse) {
 	assistantMessage := llm.Message{
-		Role:      llm.RoleAssistant,
-		Content:   resp.Content,
-		ToolCalls: resp.ToolCalls,
+		Role:             llm.RoleAssistant,
+		Content:          resp.Content,
+		ReasoningContent: resp.ReasoningContent,
+		ToolCalls:        resp.ToolCalls,
 	}
 	seqID := l.appendToHistory(assistantMessage)
 
