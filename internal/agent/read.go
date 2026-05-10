@@ -30,8 +30,8 @@ const (
 // ReadToolInput defines the input parameters for the read tool.
 type ReadToolInput struct {
 	Path   string `json:"path"`
-	Offset int    `json:"offset,omitempty"`
-	Limit  int    `json:"limit,omitempty"`
+	Offset int    `json:"offset,omitempty" lenient:"true"`
+	Limit  int    `json:"limit,omitempty" lenient:"true"`
 }
 
 // NewReadTool creates a new read tool for file reading.
@@ -72,7 +72,7 @@ func NewReadTool() *AgentTool {
 
 func readRun(ctx ToolContext, input json.RawMessage) ToolOut {
 	var args ReadToolInput
-	if err := json.Unmarshal(input, &args); err != nil {
+	if err := decodeToolInput(input, &args); err != nil {
 		return toolError("Failed to parse input: %v", err)
 	}
 

@@ -70,7 +70,7 @@ func TestFormatAssetVersionSupportsEmptyVersion(t *testing.T) {
 	assert.Equal(t, want, formatAssetVersion("", bundle))
 }
 
-func TestCurrentAssetVersionUsesReleaseVersionWhenSet(t *testing.T) {
+func TestCurrentAssetVersionUsesReleaseVersionAndBundleHashWhenSet(t *testing.T) {
 	originalVersion := config.Version
 	t.Cleanup(func() {
 		config.Version = originalVersion
@@ -80,7 +80,13 @@ func TestCurrentAssetVersionUsesReleaseVersionWhenSet(t *testing.T) {
 	config.Version = "1.2.3"
 	resetAssetVersionCache()
 
-	assert.Equal(t, "1.2.3", currentAssetVersion())
+	data, err := assetsFS.ReadFile("assets/bundle.js")
+	if err != nil {
+		assert.Equal(t, "1.2.3", currentAssetVersion())
+		return
+	}
+
+	assert.Equal(t, formatAssetVersion("1.2.3", data), currentAssetVersion())
 }
 
 func TestDefaultFunctionsExposeInitialWorkspacesJSON(t *testing.T) {

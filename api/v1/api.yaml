@@ -6348,12 +6348,14 @@ paths:
                 $ref: "#/components/schemas/Error"
     get:
       summary: "List agent sessions"
-      description: "Lists sessions for the current user with pagination."
+      description: "Lists sessions for the current user. `listAgentSessions` uses `AgentSessionPaginationMode=cursor` or an `AgentSessionCursor` value to return cursor pages and `nextCursor`; cursor mode rejects `Page` because mixed cursor/page requests are ambiguous, while `PerPage` still controls page size. Without cursor mode it uses `Page` and `PerPage` offset pagination. `RemoteNode` selects the target node for either pagination mode. Malformed or invalid cursor values return 400."
       operationId: "listAgentSessions"
       tags:
         - "agent"
       parameters:
         - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/AgentSessionPaginationMode"
+        - $ref: "#/components/parameters/AgentSessionCursor"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
       responses:
@@ -7332,6 +7334,27 @@ components:
         minimum: 1
         maximum: 1000
         default: 50
+
+    AgentSessionCursor:
+      name: cursor
+      in: query
+      description: "Opaque cursor for loading the next page of older agent sessions"
+      required: false
+      schema:
+        type: string
+        minLength: 1
+
+    AgentSessionPaginationMode:
+      name: paginationMode
+      in: query
+      description: "Pagination mode. Use `cursor` for the agent session sidebar infinite-loading flow; omit or use `offset` for compatibility pagination."
+      required: false
+      schema:
+        type: string
+        enum:
+          - offset
+          - cursor
+        default: offset
 
     Workspace:
       name: workspace
@@ -8824,6 +8847,10 @@ components:
           type: object
           additionalProperties: true
           description: "Resolved JSON Schema object used to validate and document with input"
+        outputSchema:
+          type: object
+          additionalProperties: true
+          description: "Resolved JSON Schema object used to validate stdout JSON output"
       required:
         - name
         - targetType
@@ -10754,6 +10781,8 @@ components:
           description: "ID of the currently selected soul"
         webSearch:
           $ref: "#/components/schemas/AgentWebSearchConfig"
+        webTools:
+          $ref: "#/components/schemas/AgentWebToolsConfig"
 
     UpdateAgentConfigRequest:
       type: object
@@ -10773,6 +10802,8 @@ components:
           description: "ID of the soul to select"
         webSearch:
           $ref: "#/components/schemas/AgentWebSearchConfig"
+        webTools:
+          $ref: "#/components/schemas/AgentWebToolsConfig"
 
     AgentToolPolicy:
       type: object
@@ -10832,6 +10863,81 @@ components:
           type: integer
           minimum: 1
           description: "Maximum number of search invocations per request"
+
+    AgentWebToolsBackend:
+      type: string
+      enum: [tavily, firecrawl]
+      description: "Backend provider for agent web tools"
+
+    AgentWebToolsConfig:
+      type: object
+      description: "First-class web_search and web_extract tool configuration"
+      properties:
+        enabled:
+          type: boolean
+          description: "Whether provider-backed web tools are enabled"
+        backend:
+          $ref: "#/components/schemas/AgentWebToolsBackend"
+        tavily:
+          $ref: "#/components/schemas/AgentTavilyWebToolsConfig"
+        firecrawl:
+          $ref: "#/components/schemas/AgentFirecrawlWebToolsConfig"
+
+    AgentTavilyWebToolsConfig:
+      type: object
+      description: "Tavily web tool settings"
+      properties:
+        apiKey:
+          type: string
+          writeOnly: true
+          description: "Tavily API key. Write-only; omitted from responses."
+        clearApiKey:
+          type: boolean
+          writeOnly: true
+          description: "Clear the stored Tavily API key when true"
+        apiKeyConfigured:
+          type: boolean
+          readOnly: true
+          description: "Whether a Tavily API key is stored"
+        baseUrl:
+          type: string
+          format: uri
+          description: "Optional Tavily-compatible base URL"
+        maxResults:
+          type: integer
+          minimum: 1
+          maximum: 20
+          description: "Maximum search results allowed per web_search call"
+        searchDepth:
+          type: string
+          enum: [basic, advanced, fast, ultra-fast]
+          description: "Tavily search depth"
+
+    AgentFirecrawlWebToolsConfig:
+      type: object
+      description: "Firecrawl web tool settings"
+      properties:
+        apiKey:
+          type: string
+          writeOnly: true
+          description: "Firecrawl API key. Write-only; omitted from responses."
+        clearApiKey:
+          type: boolean
+          writeOnly: true
+          description: "Clear the stored Firecrawl API key when true"
+        apiKeyConfigured:
+          type: boolean
+          readOnly: true
+          description: "Whether a Firecrawl API key is stored"
+        baseUrl:
+          type: string
+          format: uri
+          description: "Optional Firecrawl-compatible base URL"
+        maxResults:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: "Maximum search results allowed per web_search call"
 
     ModelConfigResponse:
       type: object
@@ -11590,6 +11696,9 @@ components:
             $ref: "#/components/schemas/AgentSessionWithState"
         pagination:
           $ref: "#/components/schemas/Pagination"
+        nextCursor:
+          type: string
+          description: "Opaque cursor for loading the next page of older sessions"
       required:
         - sessions
         - pagination

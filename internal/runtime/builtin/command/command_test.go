@@ -47,6 +47,16 @@ func expectedPowerShellScriptArgs(shell, script string) []string {
 	return []string{shell, "-ExecutionPolicy", "Bypass", "-NoProfile", "-NonInteractive", "-File", script}
 }
 
+func TestPowerShellPreambleUsesLegacyCompatibleSyntax(t *testing.T) {
+	preamble := powerShellPreamble()
+
+	assert.NotContains(t, preamble, "::new(")
+	assert.NotContains(t, preamble, "PSNativeCommandUseErrorActionPreference")
+	assert.NotContains(t, preamble, "PSDefaultParameterValues")
+	assert.NotContains(t, preamble, "Out-File:Encoding")
+	assert.Contains(t, preamble, "New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false")
+}
+
 func TestDirectShell(t *testing.T) {
 	ctx := context.Background()
 

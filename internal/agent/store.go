@@ -6,15 +6,14 @@ package agent
 import (
 	"context"
 	"errors"
-
-	"github.com/dagucloud/dagu/internal/core"
 )
 
 // Sentinel errors for session store operations.
 var (
-	ErrSessionNotFound  = errors.New("session not found")
-	ErrInvalidSessionID = errors.New("invalid session ID")
-	ErrInvalidUserID    = errors.New("invalid user ID")
+	ErrSessionNotFound      = errors.New("session not found")
+	ErrInvalidSessionID     = errors.New("invalid session ID")
+	ErrInvalidUserID        = errors.New("invalid user ID")
+	ErrInvalidSessionCursor = errors.New("invalid session cursor")
 )
 
 // ConfigStore provides access to agent configuration.
@@ -64,11 +63,6 @@ type MemoryStore interface {
 
 	// DeleteDAGMemory removes a DAG-specific MEMORY.md file.
 	DeleteDAGMemory(ctx context.Context, dagName string) error
-}
-
-// DAGMetadataStore resolves DAG metadata used by the agent API.
-type DAGMetadataStore interface {
-	GetMetadata(ctx context.Context, fileName string) (*core.DAG, error)
 }
 
 // SessionStore defines the interface for session persistence.

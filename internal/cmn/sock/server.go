@@ -56,6 +56,7 @@ func (srv *Server) Serve(ctx context.Context, listen chan error) error {
 	_ = os.Remove(srv.addr)
 	listener, err := net.Listen("unix", srv.addr)
 	if err != nil {
+		err = wrapListenError(err)
 		if listen != nil {
 			listen <- err
 		}

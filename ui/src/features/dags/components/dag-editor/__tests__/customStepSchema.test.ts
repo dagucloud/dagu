@@ -229,6 +229,34 @@ step_types:
     });
   });
 
+  it('preserves local custom output schemas for hint equality', () => {
+    const result = extractLocalCustomStepTypeHints(`
+step_types:
+  classify:
+    type: command
+    input_schema:
+      type: object
+      properties: {}
+    output_schema:
+      type: object
+      required: [category]
+      properties:
+        category:
+          type: string
+    template:
+      command: echo '{}'
+`);
+
+    expect(result.ok).toBe(true);
+    expect(result.stepTypes[0]?.outputSchema).toMatchObject({
+      type: 'object',
+      required: ['category'],
+      properties: {
+        category: { type: 'string' },
+      },
+    });
+  });
+
   it('preserves the local definition when it overrides an inherited name', () => {
     const merged = mergeCustomStepTypeHints(
       [

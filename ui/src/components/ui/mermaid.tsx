@@ -8,6 +8,8 @@ type Props = {
   onClick?: (id: string) => void;
   onDoubleClick?: (id: string) => void;
   onRightClick?: (id: string) => void;
+  onRender?: (container: HTMLDivElement) => void;
+  fallback?: React.ReactNode;
 };
 
 // Helper function to get computed CSS variable value with fallback
@@ -89,17 +91,21 @@ function Mermaid({
   onClick,
   onDoubleClick,
   onRightClick,
+  onRender,
+  fallback,
 }: Props) {
   const mermaidRef = React.useRef<HTMLDivElement>(null); // Ref for the inner div holding the SVG
   const scrollContainerRef = React.useRef<HTMLDivElement>(null); // Ref for the outer scrollable div
   const scrollPosRef = React.useRef({ top: 0, left: 0 }); // Ref to store scroll position
   const handlersRef = React.useRef({ onClick, onDoubleClick, onRightClick });
+  const renderGenerationRef = React.useRef(0);
   const clickTimeoutsRef = React.useRef<
     Map<string, ReturnType<typeof setTimeout>>
   >(new Map()); // Persistent timeout storage
   const [uniqueId] = React.useState(
     () => `mermaid-${Math.random().toString(36).substr(2, 9)}`
   );
+  const [renderError, setRenderError] = React.useState<string | null>(null);
 
   // Extract background-related styles for the scroll container
   const { background, backgroundSize, backgroundColor, ...contentStyle } =
@@ -128,6 +134,7 @@ function Mermaid({
   }, [onClick, onDoubleClick, onRightClick]);
 
   const render = async () => {
+    const renderGeneration = ++renderGenerationRef.current;
     if (!mermaidRef.current) {
       return;
     }
@@ -137,6 +144,7 @@ function Mermaid({
     }
 
     try {
+      setRenderError(null);
       // Reinitialize Mermaid to pick up current theme
       initializeMermaid();
 
@@ -146,120 +154,133 @@ function Mermaid({
       // Generate SVG
       const { svg, bindFunctions } = await mermaid.render(uniqueId, def);
 
-      if (mermaidRef.current) {
-        mermaidRef.current.innerHTML = svg;
-
-        // Apply scale transform immediately after SVG is rendered
-        const svgEl = mermaidRef.current.querySelector('svg');
-        if (svgEl) {
-          svgEl.style.overflow = 'visible';
-          svgEl.style.transform = `scale(${scale})`;
-          svgEl.style.transformOrigin = 'top left';
-
-          // Adjust the SVG's wrapper div to account for the scale
-          // This ensures the horizontal scrollbar properly reflects the scaled size
-          const parent = svgEl.parentElement;
-          if (parent && scale !== 1) {
-            const bbox = svgEl.getBBox();
-            parent.style.width = `${bbox.width * scale}px`;
-            parent.style.height = `${bbox.height * scale}px`;
-          } else if (parent && scale === 1) {
-            // Reset to auto when scale is 1
-            parent.style.width = 'auto';
-            parent.style.height = 'auto';
-          }
-        }
-
-        // Restore scroll position *after* SVG is rendered
-        if (scrollContainerRef.current) {
-          scrollContainerRef.current.scrollTop = scrollPosRef.current.top;
-          scrollContainerRef.current.scrollLeft = scrollPosRef.current.left;
-        }
-
-        // Attach custom event handlers if provided
-        if ((onClick || onDoubleClick || onRightClick) && mermaidRef.current) {
-          // Clear existing timeouts before setting up new handlers
-          clickTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
-          clickTimeoutsRef.current.clear();
-
-          // Find all nodes in the SVG (typically these are <g> elements with class="node")
-          const nodeElements = mermaidRef.current.querySelectorAll('.node');
-
-          nodeElements.forEach((node) => {
-            // Extract the node ID from the element
-            // The ID is typically in the format "flowchart-nodeId-number"
-            const nodeId = node.id.split('-')[1];
-
-            if (nodeId) {
-              // Attach single-click event listener if provided
-              if (onClick) {
-                node.addEventListener('click', () => {
-                  // Clear any existing timeout for this node
-                  const existingTimeout = clickTimeoutsRef.current.get(nodeId);
-                  if (existingTimeout) {
-                    clearTimeout(existingTimeout);
-                  }
-                  // Set timeout to allow double-click to cancel
-                  const timeout = setTimeout(() => {
-                    clickTimeoutsRef.current.delete(nodeId);
-                    handlersRef.current.onClick?.(nodeId);
-                  }, 250);
-                  clickTimeoutsRef.current.set(nodeId, timeout);
-                });
-              }
-
-              // Attach double-click event listener if provided
-              if (onDoubleClick) {
-                node.addEventListener('dblclick', (event) => {
-                  event.stopPropagation();
-                  // Cancel pending single-click action
-                  const existingTimeout = clickTimeoutsRef.current.get(nodeId);
-                  if (existingTimeout) {
-                    clearTimeout(existingTimeout);
-                    clickTimeoutsRef.current.delete(nodeId);
-                  }
-                  handlersRef.current.onDoubleClick?.(nodeId);
-                });
-              }
-
-              // Attach right-click (contextmenu) event listener if provided
-              if (onRightClick) {
-                node.addEventListener('contextmenu', (event) => {
-                  event.preventDefault(); // Prevent default context menu
-                  // Also cancel pending single-click
-                  const existingTimeout = clickTimeoutsRef.current.get(nodeId);
-                  if (existingTimeout) {
-                    clearTimeout(existingTimeout);
-                    clickTimeoutsRef.current.delete(nodeId);
-                  }
-                  handlersRef.current.onRightClick?.(nodeId);
-                });
-              }
-
-              // Add pointer cursor and disable text selection
-              const nodeElement = node as HTMLElement;
-              nodeElement.style.cursor = 'pointer';
-              nodeElement.style.userSelect = 'none';
-            }
-          });
-        }
-
-        // Bind standard Mermaid event handlers
-        // This is still needed for other functionality
-        setTimeout(() => {
-          if (mermaidRef.current && bindFunctions) {
-            bindFunctions(mermaidRef.current);
-          }
-        }, 100); // Reduced timeout slightly
+      if (
+        renderGeneration !== renderGenerationRef.current ||
+        !mermaidRef.current
+      ) {
+        return;
       }
+
+      mermaidRef.current.innerHTML = svg;
+      onRender?.(mermaidRef.current);
+
+      // Apply scale transform immediately after SVG is rendered
+      const svgEl = mermaidRef.current.querySelector('svg');
+      if (svgEl) {
+        svgEl.style.overflow = 'visible';
+        svgEl.style.transform = `scale(${scale})`;
+        svgEl.style.transformOrigin = 'top left';
+
+        // Adjust the SVG's wrapper div to account for the scale
+        // This ensures the horizontal scrollbar properly reflects the scaled size
+        const parent = svgEl.parentElement;
+        if (parent && scale !== 1) {
+          const bbox = svgEl.getBBox();
+          parent.style.width = `${bbox.width * scale}px`;
+          parent.style.height = `${bbox.height * scale}px`;
+        } else if (parent && scale === 1) {
+          // Reset to auto when scale is 1
+          parent.style.width = 'auto';
+          parent.style.height = 'auto';
+        }
+      }
+
+      // Restore scroll position *after* SVG is rendered
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTop = scrollPosRef.current.top;
+        scrollContainerRef.current.scrollLeft = scrollPosRef.current.left;
+      }
+
+      // Attach custom event handlers if provided
+      if ((onClick || onDoubleClick || onRightClick) && mermaidRef.current) {
+        // Clear existing timeouts before setting up new handlers
+        clickTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
+        clickTimeoutsRef.current.clear();
+
+        // Find all nodes in the SVG (typically these are <g> elements with class="node")
+        const nodeElements = mermaidRef.current.querySelectorAll('.node');
+
+        nodeElements.forEach((node) => {
+          // Extract the node ID from the element
+          // The ID is typically in the format "flowchart-nodeId-number"
+          const nodeId = node.id.split('-')[1];
+
+          if (nodeId) {
+            // Attach single-click event listener if provided
+            if (onClick) {
+              node.addEventListener('click', () => {
+                // Clear any existing timeout for this node
+                const existingTimeout = clickTimeoutsRef.current.get(nodeId);
+                if (existingTimeout) {
+                  clearTimeout(existingTimeout);
+                }
+                // Set timeout to allow double-click to cancel
+                const timeout = setTimeout(() => {
+                  clickTimeoutsRef.current.delete(nodeId);
+                  handlersRef.current.onClick?.(nodeId);
+                }, 250);
+                clickTimeoutsRef.current.set(nodeId, timeout);
+              });
+            }
+
+            // Attach double-click event listener if provided
+            if (onDoubleClick) {
+              node.addEventListener('dblclick', (event) => {
+                event.stopPropagation();
+                // Cancel pending single-click action
+                const existingTimeout = clickTimeoutsRef.current.get(nodeId);
+                if (existingTimeout) {
+                  clearTimeout(existingTimeout);
+                  clickTimeoutsRef.current.delete(nodeId);
+                }
+                handlersRef.current.onDoubleClick?.(nodeId);
+              });
+            }
+
+            // Attach right-click (contextmenu) event listener if provided
+            if (onRightClick) {
+              node.addEventListener('contextmenu', (event) => {
+                event.preventDefault(); // Prevent default context menu
+                // Also cancel pending single-click
+                const existingTimeout = clickTimeoutsRef.current.get(nodeId);
+                if (existingTimeout) {
+                  clearTimeout(existingTimeout);
+                  clickTimeoutsRef.current.delete(nodeId);
+                }
+                handlersRef.current.onRightClick?.(nodeId);
+              });
+            }
+
+            // Add pointer cursor and disable text selection
+            const nodeElement = node as HTMLElement;
+            nodeElement.style.cursor = 'pointer';
+            nodeElement.style.userSelect = 'none';
+          }
+        });
+      }
+
+      // Bind standard Mermaid event handlers
+      // This is still needed for other functionality
+      setTimeout(() => {
+        if (
+          renderGeneration === renderGenerationRef.current &&
+          mermaidRef.current &&
+          bindFunctions
+        ) {
+          bindFunctions(mermaidRef.current);
+        }
+      }, 100); // Reduced timeout slightly
     } catch (error: unknown) {
+      if (
+        renderGeneration !== renderGenerationRef.current ||
+        !mermaidRef.current
+      ) {
+        return;
+      }
       console.error('Mermaid render error:', error);
+      setRenderError(String(error));
       if (mermaidRef.current) {
-        mermaidRef.current.innerHTML = `
-          <div style="color: red; padding: 10px; white-space: pre-wrap;">
-            Error rendering diagram: ${String(error)}
-          </div>
-        `;
+        mermaidRef.current.innerHTML = '';
       }
     }
   };
@@ -273,7 +294,7 @@ function Mermaid({
       };
     }
     render();
-  }, [def]); // Only trigger re-render on definition change
+  }, [def, onRender]); // Re-render when the definition or SVG post-processing changes
 
   React.useEffect(() => {
     // Apply scale transformation when scale prop changes
@@ -317,15 +338,21 @@ function Mermaid({
         ref={mermaidRef} // Keep ref for mermaid rendering target
         style={{
           ...mStyle,
+          display: renderError ? 'none' : mStyle.display,
           // Remove overflow from inner div, let outer div handle it
           // overflow: 'auto',
           // maxHeight: '80vh', // Max height is now on the outer div
         }}
       />
+      {renderError && fallback}
     </div>
   );
 }
 
 export default React.memo(Mermaid, (prev, next) => {
-  return prev.def === next.def && prev.scale === next.scale;
+  return (
+    prev.def === next.def &&
+    prev.scale === next.scale &&
+    prev.onRender === next.onRender
+  );
 });

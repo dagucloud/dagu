@@ -10,6 +10,7 @@ export interface EditorCustomStepTypeHint {
   targetType: string;
   description?: string;
   inputSchema: JSONSchema;
+  outputSchema?: JSONSchema;
 }
 
 export interface ExtractCustomStepTypesResult {
@@ -82,6 +83,7 @@ function customStepTypeHintKey(hint: EditorCustomStepTypeHint): string {
     description: hint.description ?? '',
     inputSchema: hint.inputSchema,
     name: hint.name,
+    outputSchema: hint.outputSchema ?? {},
     targetType: hint.targetType,
   });
 }
@@ -321,6 +323,9 @@ export function toInheritedCustomStepTypeHints(
       targetType: hint.targetType.trim(),
       description: hint.description?.trim() || undefined,
       inputSchema: cloneJson(hint.inputSchema as JSONSchema),
+      outputSchema: isRecord(hint.outputSchema)
+        ? cloneJson(hint.outputSchema as JSONSchema)
+        : undefined,
     });
   }
 
@@ -376,6 +381,9 @@ export function extractLocalCustomStepTypeHints(
       targetType,
       description,
       inputSchema: cloneJson(rawDef.input_schema as JSONSchema),
+      outputSchema: isRecord(rawDef.output_schema)
+        ? cloneJson(rawDef.output_schema as JSONSchema)
+        : undefined,
     });
   }
 

@@ -17,25 +17,32 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func engineTestTimeout(timeout time.Duration) time.Duration {
+	if runtime.GOOS == "windows" {
+		return timeout * 3
+	}
+	return timeout
+}
+
 func TestEngineRunFile(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), engineTestTimeout(20*time.Second))
 	defer cancel()
 
 	home := t.TempDir()
 	dagFile := filepath.Join(home, "embedded-file.yaml")
-	checkParamCommand := `test "$FOO" = "bar"`
-	checkParamShell := ""
-	if runtime.GOOS == "windows" {
-		checkParamCommand = `if ($env:FOO -ne "bar") { exit 1 }`
-		checkParamShell = `
-    shell: powershell`
-	}
+	testBinary, err := os.Executable()
+	require.NoError(t, err, "Executable()")
 	writeDAG(t, dagFile, fmt.Sprintf(`
 name: embedded-file
 steps:
   - name: check-param
-    command: %q%s
-`, checkParamCommand, checkParamShell))
+    exec:
+      command: %q
+      args:
+        - -test.run=TestEngineRunFileParamHelper
+    env:
+      DAGU_ENGINE_PARAM_HELPER: "1"
+`, testBinary))
 
 	engine, err := dagu.New(ctx, dagu.Options{HomeDir: home})
 	require.NoError(t, err, "New()")
@@ -52,8 +59,15 @@ steps:
 	require.NotEmpty(t, status.RunID)
 }
 
+func TestEngineRunFileParamHelper(t *testing.T) {
+	if os.Getenv("DAGU_ENGINE_PARAM_HELPER") != "1" {
+		return
+	}
+	require.Equal(t, "bar", os.Getenv("FOO"))
+}
+
 func TestEngineRunYAML(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), engineTestTimeout(20*time.Second))
 	defer cancel()
 
 	originalWorkingDir, err := os.Getwd()
@@ -82,7 +96,7 @@ steps:
 }
 
 func TestEngineDistributedRequiresCoordinator(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), engineTestTimeout(20*time.Second))
 	defer cancel()
 
 	engine, err := dagu.New(ctx, dagu.Options{HomeDir: t.TempDir()})

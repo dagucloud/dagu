@@ -1,5 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { Loader2, Terminal } from 'lucide-react';
+import {
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from 'react';
+
+import { Loader2 } from 'lucide-react';
+
 import { DelegateInfo, Message, UserPromptResponse } from '../types';
 import { CommandApprovalMessage } from './CommandApprovalMessage';
 import { UserPromptMessage } from './UserPromptMessage';
@@ -7,7 +14,6 @@ import {
   UserMessage,
   AssistantMessage,
   ErrorMessage,
-  UIActionMessage,
   ToolResultMessage,
 } from './messages';
 
@@ -15,7 +21,10 @@ interface ChatMessagesProps {
   messages: Message[];
   pendingUserMessage: string | null;
   isWorking: boolean;
-  onPromptRespond?: (response: UserPromptResponse, displayValue: string) => Promise<void>;
+  onPromptRespond?: (
+    response: UserPromptResponse,
+    displayValue: string
+  ) => Promise<void>;
   answeredPrompts?: Record<string, string>;
   delegateStatuses?: Record<string, DelegateInfo>;
   onOpenDelegate?: (id: string) => void;
@@ -30,7 +39,6 @@ export function ChatMessages({
   delegateStatuses,
   onOpenDelegate,
 }: ChatMessagesProps): React.ReactNode {
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
 
@@ -42,9 +50,12 @@ export function ChatMessages({
       el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (isNearBottomRef.current) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      const el = containerRef.current;
+      if (el) {
+        el.scrollTop = el.scrollHeight;
+      }
     }
   }, [messages, pendingUserMessage, isWorking]);
 
@@ -61,48 +72,83 @@ export function ChatMessages({
     return ids;
   }, [messages]);
 
-  if (messages.length === 0 && !pendingUserMessage) {
+  const toolCallIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const msg of messages) {
+      if (msg.tool_calls) {
+        for (const tc of msg.tool_calls) {
+          ids.add(tc.id);
+        }
+      }
+    }
+    return ids;
+  }, [messages]);
+
+  if (messages.length === 0 && !pendingUserMessage && !isWorking) {
     return (
-      <div className="flex-1 flex items-center justify-center text-muted-foreground p-4 bg-popover">
-        <div className="text-center">
-          <Terminal className="h-8 w-8 mx-auto mb-2 opacity-30" />
-          <p className="text-xs text-muted-foreground">
-            Ask the agent to create DAGs, run commands, or help with workflows
-          </p>
+      <div className="min-h-0 flex-1 overflow-y-auto bg-background">
+        <div className="flex h-full items-center justify-center p-6 text-center">
+          <div className="max-w-xs">
+            <h3 className="text-sm font-medium text-foreground">
+              Agent session ready
+            </h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Messages will appear here.
+            </p>
+          </div>
         </div>
       </div>
     );
   }
 
   const hasPendingPrompt = messages.some(
-    (m) => m.type === 'user_prompt' && m.user_prompt && !answeredPrompts?.[m.user_prompt.prompt_id]
+    (m) =>
+      m.type === 'user_prompt' &&
+      m.user_prompt &&
+      !answeredPrompts?.[m.user_prompt.prompt_id]
   );
 
   return (
-    <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-2 space-y-2 font-mono text-xs bg-popover">
-      {messages.map((message, idx) => (
-        <MessageItem
-          key={message.id}
-          message={message}
-          messages={messages}
-          messageIndex={idx}
-          onPromptRespond={onPromptRespond}
-          answeredPrompts={answeredPrompts}
-          delegateStatuses={delegateStatuses}
-          onOpenDelegate={onOpenDelegate}
-          completedToolCallIds={completedToolCallIds}
-        />
-      ))}
-      {pendingUserMessage && (
-        <UserMessage content={pendingUserMessage} isPending />
-      )}
-      {isWorking && !hasPendingPrompt && (
-        <div className="flex items-center gap-1.5 text-orange-600 dark:text-orange-400 pl-1">
-          <Loader2 className="h-3 w-3 animate-spin" />
-          <span>processing...</span>
-        </div>
-      )}
-      <div ref={messagesEndRef} />
+    <div
+      ref={containerRef}
+      onScroll={handleScroll}
+      className="min-h-0 flex-1 overflow-y-auto bg-background px-3 py-4"
+    >
+      <div className="space-y-3">
+        {messages.map((message, idx) => (
+          <MessageItem
+            key={message.id}
+            message={message}
+            messages={messages}
+            messageIndex={idx}
+            onPromptRespond={onPromptRespond}
+            answeredPrompts={answeredPrompts}
+            delegateStatuses={delegateStatuses}
+            onOpenDelegate={onOpenDelegate}
+            completedToolCallIds={completedToolCallIds}
+            toolCallIds={toolCallIds}
+          />
+        ))}
+        {pendingUserMessage && (
+          <UserMessage content={pendingUserMessage} isPending />
+        )}
+        {isWorking && !hasPendingPrompt && <WorkingIndicator />}
+      </div>
+    </div>
+  );
+}
+
+function WorkingIndicator(): React.ReactNode {
+  return (
+    <div
+      role="status"
+      aria-label="Agent response in progress"
+      className="flex h-4 items-center pl-1"
+    >
+      <Loader2
+        aria-hidden="true"
+        className="h-3 w-3 animate-spin text-muted-foreground"
+      />
     </div>
   );
 }
@@ -111,14 +157,28 @@ interface MessageItemProps {
   message: Message;
   messages: Message[];
   messageIndex: number;
-  onPromptRespond?: (response: UserPromptResponse, displayValue: string) => Promise<void>;
+  onPromptRespond?: (
+    response: UserPromptResponse,
+    displayValue: string
+  ) => Promise<void>;
   answeredPrompts?: Record<string, string>;
   delegateStatuses?: Record<string, DelegateInfo>;
   onOpenDelegate?: (id: string) => void;
   completedToolCallIds?: Set<string>;
+  toolCallIds?: Set<string>;
 }
 
-function MessageItem({ message, messages, messageIndex, onPromptRespond, answeredPrompts, delegateStatuses, onOpenDelegate, completedToolCallIds }: MessageItemProps): React.ReactNode {
+function MessageItem({
+  message,
+  messages,
+  messageIndex,
+  onPromptRespond,
+  answeredPrompts,
+  delegateStatuses,
+  onOpenDelegate,
+  completedToolCallIds,
+  toolCallIds,
+}: MessageItemProps): React.ReactNode {
   const delegateIdsForToolCalls = useMemo(() => {
     const map = new Map<string, string[]>();
     if (message.type !== 'assistant' || !message.tool_calls) return map;
@@ -139,7 +199,13 @@ function MessageItem({ message, messages, messageIndex, onPromptRespond, answere
         if (message.delegate_ids && message.delegate_ids.length > 0) {
           return null;
         }
-        return <ToolResultMessage toolResults={message.tool_results} />;
+        const unpairedResults = message.tool_results.filter(
+          (result) => !toolCallIds?.has(result.tool_call_id)
+        );
+        if (unpairedResults.length === 0) {
+          return null;
+        }
+        return <ToolResultMessage toolResults={unpairedResults} />;
       }
       return <UserMessage content={message.content ?? ''} />;
     case 'assistant':
@@ -147,8 +213,6 @@ function MessageItem({ message, messages, messageIndex, onPromptRespond, answere
         <AssistantMessage
           content={message.content ?? ''}
           toolCalls={message.tool_calls}
-          usage={message.usage}
-          cost={message.cost}
           delegateStatuses={delegateStatuses}
           onOpenDelegate={onOpenDelegate}
           completedToolCallIds={completedToolCallIds}
@@ -158,7 +222,7 @@ function MessageItem({ message, messages, messageIndex, onPromptRespond, answere
     case 'error':
       return <ErrorMessage content={message.content ?? ''} />;
     case 'ui_action':
-      return <UIActionMessage action={message.ui_action} />;
+      return null;
     case 'user_prompt':
       if (!message.user_prompt || !onPromptRespond) return null;
       if (message.user_prompt.prompt_type === 'command_approval') {
@@ -166,7 +230,9 @@ function MessageItem({ message, messages, messageIndex, onPromptRespond, answere
           <CommandApprovalMessage
             prompt={message.user_prompt}
             onRespond={onPromptRespond}
-            isAnswered={answeredPrompts?.[message.user_prompt.prompt_id] !== undefined}
+            isAnswered={
+              answeredPrompts?.[message.user_prompt.prompt_id] !== undefined
+            }
             answeredValue={answeredPrompts?.[message.user_prompt.prompt_id]}
           />
         );
@@ -175,7 +241,9 @@ function MessageItem({ message, messages, messageIndex, onPromptRespond, answere
         <UserPromptMessage
           prompt={message.user_prompt}
           onRespond={onPromptRespond}
-          isAnswered={answeredPrompts?.[message.user_prompt.prompt_id] !== undefined}
+          isAnswered={
+            answeredPrompts?.[message.user_prompt.prompt_id] !== undefined
+          }
           answeredValue={answeredPrompts?.[message.user_prompt.prompt_id]}
         />
       );

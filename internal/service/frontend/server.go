@@ -83,6 +83,7 @@ import (
 	"github.com/dagucloud/dagu/internal/service/resource"
 	"github.com/dagucloud/dagu/internal/tunnel"
 	"github.com/dagucloud/dagu/internal/upgrade"
+	workspacepkg "github.com/dagucloud/dagu/internal/workspace"
 )
 
 const (
@@ -383,7 +384,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 
 	var agentAPI *agent.API
 	if agentConfigStore != nil {
-		agentAPI, err = initAgentAPI(ctx, agentConfigStore, agentModelStore, agentSoulStore, agentOAuthManager, &cfg.Paths, referencesDir, cfg.Server.Session.MaxPerUser, dr, auditSvc, auditEnabled, eventSvc, memoryStore, newRemoteNodeAdapter(remoteNodeResolver))
+		agentAPI, err = initAgentAPI(ctx, agentConfigStore, agentModelStore, agentSoulStore, agentOAuthManager, &cfg.Paths, referencesDir, cfg.Server.Session.MaxPerUser, dr, drs, auditSvc, auditEnabled, eventSvc, memoryStore, docStore, wsStore, newRemoteNodeAdapter(remoteNodeResolver))
 		if err != nil {
 			logger.Warn(ctx, "Failed to initialize agent API", tag.Error(err))
 		}
@@ -478,6 +479,13 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		}
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
 		srv.sseMultiplexer.WakeTopic(sse.TopicTypeDAG, fileName)
+	}))
+	apiOpts = append(apiOpts, apiv1.WithDocMutationNotifier(func() {
+		if srv.sseMultiplexer == nil {
+			return
+		}
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDocTree)
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDoc)
 	}))
 
 	// Pass license manager to API
@@ -753,7 +761,7 @@ func initSyncService(ctx context.Context, cfg *config.Config) gitsync.Service {
 
 // initAgentAPI creates and returns an agent API.
 // The API uses the config store to check enabled status and resolve providers via the model store.
-func initAgentAPI(ctx context.Context, store *fileagentconfig.Store, modelStore agent.ModelStore, soulStore agent.SoulStore, oauthManager *agentoauth.Manager, paths *config.PathsConfig, referencesDir string, sessionMaxPerUser int, dagStore exec.DAGStore, auditSvc *audit.Service, auditEnabled func() bool, eventSvc *eventstore.Service, memoryStore agent.MemoryStore, remoteResolver agent.RemoteContextResolver) (*agent.API, error) {
+func initAgentAPI(ctx context.Context, store *fileagentconfig.Store, modelStore agent.ModelStore, soulStore agent.SoulStore, oauthManager *agentoauth.Manager, paths *config.PathsConfig, referencesDir string, sessionMaxPerUser int, dagStore exec.DAGStore, dagRunStore exec.DAGRunStore, auditSvc *audit.Service, auditEnabled func() bool, eventSvc *eventstore.Service, memoryStore agent.MemoryStore, docStore agent.DocStore, workspaceStore workspacepkg.Store, remoteResolver agent.RemoteContextResolver) (*agent.API, error) {
 	sessStore, err := filesession.New(paths.SessionsDir, filesession.WithMaxPerUser(sessionMaxPerUser))
 	if err != nil {
 		logger.Warn(ctx, "Failed to create session store, persistence disabled", tag.Error(err))
@@ -773,9 +781,12 @@ func initAgentAPI(ctx context.Context, store *fileagentconfig.Store, modelStore 
 		Logger:                slog.Default(),
 		SessionStore:          sessStore,
 		DAGStore:              dagStore,
+		DAGRunStore:           dagRunStore,
 		Hooks:                 hooks,
 		EventService:          eventSvc,
 		MemoryStore:           memoryStore,
+		DocStore:              docStore,
+		WorkspaceStore:        workspaceStore,
 		OAuthManager:          oauthManager,
 		RemoteContextResolver: remoteResolver,
 		Environment: agent.EnvironmentInfo{
@@ -1074,7 +1085,7 @@ func (srv *Server) setupAssetRoutes(r *chi.Mux, basePath string) {
 	}
 
 	r.Get(assetsPath, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "max-age=86400")
+		w.Header().Set("Cache-Control", cacheControlForAsset(r.URL.Path))
 
 		// Serve schemas from shared package instead of embedded assets
 		if strings.HasSuffix(r.URL.Path, "dag.schema.json") {
@@ -1093,6 +1104,18 @@ func (srv *Server) setupAssetRoutes(r *chi.Mux, basePath string) {
 		}
 		fileServer.ServeHTTP(w, r)
 	})
+}
+
+func cacheControlForAsset(assetPath string) string {
+	base := path.Base(assetPath)
+	lowerBase := strings.ToLower(base)
+	if strings.HasSuffix(lowerBase, ".bundle.js") && !strings.EqualFold(base, "bundle.js") {
+		return "max-age=31536000, immutable"
+	}
+	if strings.HasSuffix(lowerBase, ".js") {
+		return "no-cache, no-store, must-revalidate"
+	}
+	return "max-age=86400"
 }
 
 func (srv *Server) setupOIDCRoutes(r *chi.Mux, basePath string) {
@@ -1182,6 +1205,12 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 	registrar.RegisterFetcher(sse.TopicTypeDAGsList, srv.apiV1.GetDAGsListData)
 	registrar.RegisterFetcher(sse.TopicTypeDoc, srv.apiV1.GetDocContentData)
 	registrar.RegisterFetcher(sse.TopicTypeDocTree, srv.apiV1.GetDocTreeData)
+
+	// Document topics are invalidated by API doc mutations. They should not
+	// keep polling the docs store while an SSE connection is open.
+	registrar.SetRefreshMode(sse.TopicTypeDoc, sse.TopicRefreshModeOnDemand)
+	registrar.SetRefreshMode(sse.TopicTypeDocTree, sse.TopicRefreshModeOnDemand)
+	registrar.SetPublishOnWake(sse.TopicTypeDocTree, true)
 
 	// Run-driven topics have an event-store invalidation path. Keeping them on
 	// demand avoids repeated full-list and history reads while browsers are

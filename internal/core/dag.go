@@ -465,6 +465,10 @@ func (d *DAG) Validate() error {
 		}
 	}
 
+	for _, err := range d.validateOutputReferences() {
+		errs = append(errs, NewValidationError("output reference", nil, err))
+	}
+
 	if len(errs) == 0 {
 		return nil
 	}

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,18 +23,20 @@ import (
 )
 
 type customStepTypeSpec struct {
-	Type        string         `yaml:"type,omitempty"`
-	Description string         `yaml:"description,omitempty"`
-	InputSchema any            `yaml:"input_schema,omitempty"`
-	Template    map[string]any `yaml:"template,omitempty"`
+	Type         string         `yaml:"type,omitempty"`
+	Description  string         `yaml:"description,omitempty"`
+	InputSchema  any            `yaml:"input_schema,omitempty"`
+	OutputSchema any            `yaml:"output_schema,omitempty"`
+	Template     map[string]any `yaml:"template,omitempty"`
 }
 
 type customStepType struct {
-	Name        string
-	Type        string
-	Description string
-	InputSchema *jsonschema.Resolved
-	Template    map[string]any
+	Name         string
+	Type         string
+	Description  string
+	InputSchema  *jsonschema.Resolved
+	OutputSchema map[string]any
+	Template     map[string]any
 }
 
 type customStepTypeRegistry struct {
@@ -124,6 +127,21 @@ func UnregisterExecutorTypeName(name string) {
 	}
 	delete(registeredExecutorTypeNames, name)
 	delete(builtinStepTypeNames, name)
+}
+
+// StepTypeNames returns the currently accepted builtin and runtime-registered
+// executor type names in sorted order. It excludes the implicit empty command
+// executor type; callers should mention omitted type handling separately.
+func StepTypeNames() []string {
+	stepTypeNamesMu.RLock()
+	defer stepTypeNamesMu.RUnlock()
+
+	names := make([]string, 0, len(builtinStepTypeNames))
+	for name := range builtinStepTypeNames {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 var customStepForbiddenCallSiteFields = map[string]struct{}{
@@ -265,13 +283,21 @@ func validateCustomStepTypeSpec(name string, spec customStepTypeSpec) (*customSt
 	if err != nil {
 		return nil, err
 	}
+	var outputSchema map[string]any
+	if spec.OutputSchema != nil {
+		outputSchema, err = resolveOutputSchemaDeclaration(fmt.Sprintf("step_types.%s.output_schema", name), spec.OutputSchema)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	return &customStepType{
-		Name:        name,
-		Type:        targetType,
-		Description: strings.TrimSpace(spec.Description),
-		InputSchema: inputSchema,
-		Template:    cloneMap(spec.Template),
+		Name:         name,
+		Type:         targetType,
+		Description:  strings.TrimSpace(spec.Description),
+		InputSchema:  inputSchema,
+		OutputSchema: outputSchema,
+		Template:     cloneMap(spec.Template),
 	}, nil
 }
 
@@ -303,14 +329,79 @@ func resolveCustomStepTypeInputSchema(name string, schemaDecl any) (*jsonschema.
 	return resolved, nil
 }
 
+func resolveOutputSchemaDeclaration(fieldName string, schemaDecl any) (map[string]any, error) {
+	schemaMap, ok := schemaDecl.(map[string]any)
+	if !ok {
+		return nil, core.NewValidationError(
+			fieldName,
+			schemaDecl,
+			fmt.Errorf("output_schema must be an inline JSON Schema object"),
+		)
+	}
+	resolved, err := resolveSchemaDeclaration(schemaMap, "", "")
+	if err != nil {
+		return nil, core.NewValidationError(fieldName, schemaDecl, err)
+	}
+	root := resolved.Schema()
+	if root == nil || !outputSchemaDeclaresObject(root) {
+		return nil, core.NewValidationError(
+			fieldName,
+			schemaDecl,
+			fmt.Errorf("output_schema must resolve to an object schema"),
+		)
+	}
+	return cloneMap(schemaMap), nil
+}
+
 func schemaDeclaresObject(root *jsonschema.Schema) bool {
-	if root == nil {
+	return schemaDeclaresObjectResolved(root, root, map[*jsonschema.Schema]struct{}{}, false)
+}
+
+func outputSchemaDeclaresObject(root *jsonschema.Schema) bool {
+	return schemaDeclaresObjectResolved(root, root, map[*jsonschema.Schema]struct{}{}, true)
+}
+
+func schemaDeclaresObjectResolved(root, schema *jsonschema.Schema, seen map[*jsonschema.Schema]struct{}, allowUnconstrained bool) bool {
+	if schema == nil {
 		return false
 	}
-	if root.Type == "object" {
+	if _, ok := seen[schema]; ok {
+		return false
+	}
+	seen[schema] = struct{}{}
+	if schema.Type == "object" {
 		return true
 	}
-	return len(root.Types) == 1 && root.Types[0] == "object"
+	if len(schema.Types) == 1 && schema.Types[0] == "object" {
+		return true
+	}
+	if schema.Ref != "" {
+		return schemaDeclaresObjectResolved(root, customStepRuntimeSchema(root, schema), seen, allowUnconstrained)
+	}
+	if len(schema.OneOf) > 0 {
+		return schemasDeclareObjects(root, schema.OneOf, seen, allowUnconstrained)
+	}
+	if len(schema.AnyOf) > 0 {
+		return schemasDeclareObjects(root, schema.AnyOf, seen, allowUnconstrained)
+	}
+	if len(schema.AllOf) > 0 {
+		return schemasDeclareObjects(root, schema.AllOf, seen, allowUnconstrained)
+	}
+	return allowUnconstrained && schema.Type == "" && len(schema.Types) == 0
+}
+
+func schemasDeclareObjects(root *jsonschema.Schema, schemas []*jsonschema.Schema, seen map[*jsonschema.Schema]struct{}, allowUnconstrained bool) bool {
+	if len(schemas) == 0 {
+		return false
+	}
+	for _, schema := range schemas {
+		branchSeen := make(map[*jsonschema.Schema]struct{}, len(seen))
+		maps.Copy(branchSeen, seen)
+		if !schemaDeclaresObjectResolved(root, schema, branchSeen, allowUnconstrained) {
+			return false
+		}
+	}
+	return true
 }
 
 func isBuiltinStepTypeName(name string) bool {
@@ -734,6 +825,9 @@ func buildCustomStepFromSpec(
 		builtStep.ExecutorConfig.Metadata = make(map[string]any, 1)
 	}
 	builtStep.ExecutorConfig.Metadata["custom_type"] = customType.Name
+	if customType.OutputSchema != nil && builtStep.OutputSchema == nil {
+		builtStep.OutputSchema = cloneMap(customType.OutputSchema)
+	}
 	if customType.Description != "" && builtStep.Description == "" {
 		builtStep.Description = customType.Description
 	}

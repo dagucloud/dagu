@@ -134,7 +134,7 @@ func (e *Executor) Run(ctx context.Context) error {
 	}
 
 	// Build tools filtered by global policy (exclude navigate and ask_user; add output tool).
-	tools := buildTools(ctx, dagCtx, stepCfg, globalPolicy, stdout)
+	tools := buildTools(ctx, dagCtx, stepCfg, agentCfg, globalPolicy, stdout)
 
 	// Load memory content if enabled.
 	var memoryContent agent.MemoryContent
@@ -285,7 +285,7 @@ func (e *Executor) Run(ctx context.Context) error {
 
 // buildTools creates the tool list for the agent step.
 // Tools are filtered first by global policy, then by step-level agent config.
-func buildTools(ctx context.Context, dagCtx exec.Context, stepCfg *core.AgentStepConfig, globalPolicy agent.ToolPolicyConfig, stdout io.Writer) []*agent.AgentTool {
+func buildTools(ctx context.Context, dagCtx exec.Context, stepCfg *core.AgentStepConfig, agentCfg *agent.Config, globalPolicy agent.ToolPolicyConfig, stdout io.Writer) []*agent.AgentTool {
 	dagsDir := ""
 	if dagCtx.DAG != nil {
 		dagsDir = dagCtx.DAG.Location
@@ -307,6 +307,20 @@ func buildTools(ctx context.Context, dagCtx exec.Context, stepCfg *core.AgentSte
 		}
 		if t := agent.NewListContextsTool(remoteResolver); t != nil {
 			allTools["list_contexts"] = t
+		}
+	}
+	if dagStore := agent.GetDAGStore(ctx); dagStore != nil {
+		allTools["dag_def_manage"] = agent.NewDAGDefManageTool(dagStore)
+	}
+	if dagRunStore := agent.GetDAGRunStore(ctx); dagRunStore != nil {
+		allTools["dag_run_manage"] = agent.NewDAGRunManageTool(dagRunStore)
+	}
+	if agentCfg != nil && agentCfg.WebTools != nil {
+		if t := agent.NewWebSearchTool(*agentCfg.WebTools); t != nil {
+			allTools["web_search"] = t
+		}
+		if t := agent.NewWebExtractTool(*agentCfg.WebTools); t != nil {
+			allTools["web_extract"] = t
 		}
 	}
 

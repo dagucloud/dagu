@@ -2525,7 +2525,7 @@ export interface paths {
         };
         /**
          * List agent sessions
-         * @description Lists sessions for the current user with pagination.
+         * @description Lists sessions for the current user. Use `paginationMode=cursor` and pass `cursor` to load the next page returned by `nextCursor`; `page` remains available for compatibility.
          */
         get: operations["listAgentSessions"];
         put?: never;
@@ -3542,6 +3542,10 @@ export interface components {
             inputSchema: {
                 [key: string]: unknown;
             };
+            /** @description Resolved JSON Schema object used to validate stdout JSON output */
+            outputSchema?: {
+                [key: string]: unknown;
+            };
         };
         /** @description Scalar parameter value */
         ParamScalar: string | number | boolean;
@@ -4541,6 +4545,7 @@ export interface components {
             /** @description ID of the currently selected soul */
             selectedSoulId?: string | null;
             webSearch?: components["schemas"]["AgentWebSearchConfig"];
+            webTools?: components["schemas"]["AgentWebToolsConfig"];
         };
         /** @description Request to update AI agent configuration */
         UpdateAgentConfigRequest: {
@@ -4552,6 +4557,7 @@ export interface components {
             /** @description ID of the soul to select */
             selectedSoulId?: string | null;
             webSearch?: components["schemas"]["AgentWebSearchConfig"];
+            webTools?: components["schemas"]["AgentWebToolsConfig"];
         };
         /** @description Global tool permission policy for AI agent sessions */
         AgentToolPolicy: {
@@ -4590,6 +4596,56 @@ export interface components {
             enabled?: boolean;
             /** @description Maximum number of search invocations per request */
             maxUses?: number;
+        };
+        /**
+         * @description Backend provider for agent web tools
+         * @enum {string}
+         */
+        AgentWebToolsBackend: AgentWebToolsBackend;
+        /** @description First-class web_search and web_extract tool configuration */
+        AgentWebToolsConfig: {
+            /** @description Whether provider-backed web tools are enabled */
+            enabled?: boolean;
+            backend?: components["schemas"]["AgentWebToolsBackend"];
+            tavily?: components["schemas"]["AgentTavilyWebToolsConfig"];
+            firecrawl?: components["schemas"]["AgentFirecrawlWebToolsConfig"];
+        };
+        /** @description Tavily web tool settings */
+        AgentTavilyWebToolsConfig: {
+            /** @description Tavily API key. Write-only; omitted from responses. */
+            apiKey?: string;
+            /** @description Clear the stored Tavily API key when true */
+            clearApiKey?: boolean;
+            /** @description Whether a Tavily API key is stored */
+            readonly apiKeyConfigured?: boolean;
+            /**
+             * Format: uri
+             * @description Optional Tavily-compatible base URL
+             */
+            baseUrl?: string;
+            /** @description Maximum search results allowed per web_search call */
+            maxResults?: number;
+            /**
+             * @description Tavily search depth
+             * @enum {string}
+             */
+            searchDepth?: AgentTavilyWebToolsConfigSearchDepth;
+        };
+        /** @description Firecrawl web tool settings */
+        AgentFirecrawlWebToolsConfig: {
+            /** @description Firecrawl API key. Write-only; omitted from responses. */
+            apiKey?: string;
+            /** @description Clear the stored Firecrawl API key when true */
+            clearApiKey?: boolean;
+            /** @description Whether a Firecrawl API key is stored */
+            readonly apiKeyConfigured?: boolean;
+            /**
+             * Format: uri
+             * @description Optional Firecrawl-compatible base URL
+             */
+            baseUrl?: string;
+            /** @description Maximum search results allowed per web_search call */
+            maxResults?: number;
         };
         /** @description Model configuration */
         ModelConfigResponse: {
@@ -4943,6 +4999,8 @@ export interface components {
         ListAgentSessionsResponse: {
             sessions: components["schemas"]["AgentSessionWithState"][];
             pagination: components["schemas"]["Pagination"];
+            /** @description Opaque cursor for loading the next page of older sessions */
+            nextCursor?: string;
         };
         /** @description Function call details in a tool call */
         AgentToolCallFunction: {
@@ -5133,6 +5191,10 @@ export interface components {
         APIKeyId: string;
         /** @description number of items per page (default is 30, max is 100) */
         PerPage: number;
+        /** @description Opaque cursor for loading the next page of older agent sessions */
+        AgentSessionCursor: string;
+        /** @description Pagination mode. Use `cursor` for the agent session sidebar infinite-loading flow; omit or use `offset` for compatibility pagination. */
+        AgentSessionPaginationMode: ComponentsParametersAgentSessionPaginationMode;
         /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. For document target APIs, use default or a workspace name; omitted means default. */
         Workspace: string;
         /** @description Opaque cursor returned by the previous search response */
@@ -13017,6 +13079,10 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Pagination mode. Use `cursor` for the agent session sidebar infinite-loading flow; omit or use `offset` for compatibility pagination. */
+                paginationMode?: components["parameters"]["AgentSessionPaginationMode"];
+                /** @description Opaque cursor for loading the next page of older agent sessions */
+                cursor?: components["parameters"]["AgentSessionCursor"];
                 /** @description page number of items to fetch (default is 1) */
                 page?: components["parameters"]["Page"];
                 /** @description number of items per page (default is 30, max is 100) */
@@ -14531,6 +14597,16 @@ export enum AgentBashRuleAction {
     allow = "allow",
     deny = "deny"
 }
+export enum AgentWebToolsBackend {
+    tavily = "tavily",
+    firecrawl = "firecrawl"
+}
+export enum AgentTavilyWebToolsConfigSearchDepth {
+    basic = "basic",
+    advanced = "advanced",
+    fast = "fast",
+    ultra_fast = "ultra-fast"
+}
 export enum ModelConfigResponseProvider {
     anthropic = "anthropic",
     openai = "openai",
@@ -14632,6 +14708,10 @@ export enum RemoteNodeResponseAuthType {
 export enum RemoteNodeResponseSource {
     config = "config",
     store = "store"
+}
+export enum ComponentsParametersAgentSessionPaginationMode {
+    offset = "offset",
+    cursor = "cursor"
 }
 export enum ComponentsParametersEventLogPaginationMode {
     offset = "offset",

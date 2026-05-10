@@ -73,6 +73,44 @@ type Props = {
   height?: string | number;
 };
 
+const GRAPH_STATUS_STROKES = {
+  none: '#5f6368',
+  running: '#43a047',
+  retrying: '#e37400',
+  done: '#166534',
+  error: '#d93025',
+  cancel: '#d946ef',
+  skipped: '#5f6368',
+  partial: '#e37400',
+  waiting: '#e37400',
+  rejected: '#d93025',
+} as const;
+
+const GRAPH_SUCCESS_LINK_STROKE = '#5f8f64';
+const GRAPH_RENDERED_NODE_SHAPE_SELECTOR =
+  'rect, polygon, path, circle, ellipse';
+
+function applyRenderedGraphStyles(container: HTMLDivElement): void {
+  Object.entries(GRAPH_STATUS_STROKES).forEach(([className, stroke]) => {
+    container
+      .querySelectorAll<SVGGElement>(`g.node.${className}`)
+      .forEach((nodeElement) => {
+        nodeElement
+          .querySelectorAll<SVGElement>(GRAPH_RENDERED_NODE_SHAPE_SELECTOR)
+          .forEach((shapeElement) => {
+            shapeElement.setAttribute('stroke', stroke);
+            shapeElement.setAttribute('stroke-width', '2.5px');
+            shapeElement.style.setProperty('stroke', stroke, 'important');
+            shapeElement.style.setProperty(
+              'stroke-width',
+              '2.5px',
+              'important'
+            );
+          });
+      });
+  });
+}
+
 /** Extend window interface to include the click handler (kept for backward compatibility) */
 declare global {
   interface Window {
@@ -102,6 +140,7 @@ function Graph({
   const containerRef = React.useRef<HTMLDivElement>(null);
   const { preferences } = useUserPreferences();
   const isDarkMode = preferences.theme !== 'light';
+  const applyGraphStyles = React.useCallback(applyRenderedGraphStyles, []);
 
   /** Increase zoom level */
   const zoomIn = () => {
@@ -204,10 +243,13 @@ function Graph({
       const id = toMermaidNodeId(step.name);
       const c = graphStatusMap[status] || '';
 
-      // Check if this is a sub dagRun node (has a call property)
-      const subDAGName = step.call;
+      const subRuns = [
+        ...(node?.subRuns ?? []),
+        ...(node?.subRunsRepeated ?? []),
+      ];
+      const subDAGName = step.call || subRuns[0]?.dagName;
       // Check if this is a sub dagRun node (has a 'run' property)
-      const isSubDAGRun = !!step.call;
+      const isSubDAGRun = !!subDAGName;
       const hasParallelExecutions = !!step.parallel;
       // Check if this is a router step
       const isRouterStep =
@@ -217,12 +259,12 @@ function Graph({
       // Escape any special characters in the label to prevent Mermaid parsing errors
       let label = step.id || step.name;
       if (isSubDAGRun && subDAGName) {
-        if (hasParallelExecutions && node?.subRuns) {
+        if (hasParallelExecutions && subRuns.length > 0) {
           // Show parallel execution count in the label - avoid brackets in stadium nodes
-          label = `${step.name} → ${subDAGName} x${node.subRuns.length}`;
+          label = `${step.name} -> ${subDAGName} x${subRuns.length}`;
         } else {
           // Single sub DAG run
-          label = `${step.name} → ${subDAGName}`;
+          label = `${step.name} -> ${subDAGName}`;
         }
       }
 
@@ -271,7 +313,7 @@ function Graph({
             // Solid line with success color
             dat.push(`${depId} --> ${id};`);
             linkStyles.push(
-              `linkStyle ${linkIndex} stroke:#7da87d,stroke-width:1.8px`
+              `linkStyle ${linkIndex} stroke:${GRAPH_SUCCESS_LINK_STROKE},stroke-width:1.8px`
             );
           } else {
             // Default connection style
@@ -305,48 +347,35 @@ function Graph({
     const nodeColor = isDarkMode ? '#f1f5f9' : '#0f1129'; // --foreground for dark, --background for light
 
     // Unified status colors
-    const statusColors = {
-      none: '#5f6368', // neutral gray
-      running: '#81c784', // light green (distinct from success)
-      retrying: '#e37400', // warning amber for scheduled backoff
-      done: '#1e8e3e', // success green
-      error: '#d93025', // error red
-      cancel: '#d946ef', // pink/magenta for aborted
-      skipped: '#5f6368', // neutral gray
-      partial: '#e37400', // warning amber
-      waiting: '#e37400', // warning amber
-      rejected: '#d93025', // error red
-    };
-
     dat.push(
-      `classDef none color:${nodeColor},fill:${nodeFill},stroke:${statusColors.none},stroke-width:2.5px`
+      `classDef none color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.none},stroke-width:2.5px`
     );
     dat.push(
-      `classDef running color:${nodeColor},fill:${nodeFill},stroke:${statusColors.running},stroke-width:2.5px`
+      `classDef running color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.running},stroke-width:2.5px`
     );
     dat.push(
-      `classDef retrying color:${nodeColor},fill:${nodeFill},stroke:${statusColors.retrying},stroke-width:2.5px`
+      `classDef retrying color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.retrying},stroke-width:2.5px`
     );
     dat.push(
-      `classDef error color:${nodeColor},fill:${nodeFill},stroke:${statusColors.error},stroke-width:2.5px`
+      `classDef error color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.error},stroke-width:2.5px`
     );
     dat.push(
-      `classDef cancel color:${nodeColor},fill:${nodeFill},stroke:${statusColors.cancel},stroke-width:2.5px`
+      `classDef cancel color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.cancel},stroke-width:2.5px`
     );
     dat.push(
-      `classDef done color:${nodeColor},fill:${nodeFill},stroke:${statusColors.done},stroke-width:2.5px`
+      `classDef done color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.done},stroke-width:2.5px`
     );
     dat.push(
-      `classDef skipped color:${nodeColor},fill:${nodeFill},stroke:${statusColors.skipped},stroke-width:2.5px`
+      `classDef skipped color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.skipped},stroke-width:2.5px`
     );
     dat.push(
-      `classDef partial color:${nodeColor},fill:${nodeFill},stroke:${statusColors.partial},stroke-width:2.5px`
+      `classDef partial color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.partial},stroke-width:2.5px`
     );
     dat.push(
-      `classDef waiting color:${nodeColor},fill:${nodeFill},stroke:${statusColors.waiting},stroke-width:2.5px`
+      `classDef waiting color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.waiting},stroke-width:2.5px`
     );
     dat.push(
-      `classDef rejected color:${nodeColor},fill:${nodeFill},stroke:${statusColors.rejected},stroke-width:2.5px`
+      `classDef rejected color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.rejected},stroke-width:2.5px`
     );
 
     // Add custom link styles
@@ -458,6 +487,16 @@ function Graph({
           onClick={selectOnClick ? onClickNode : undefined}
           onDoubleClick={onDoubleClickNode ?? onClickNode}
           onRightClick={onRightClickNode}
+          onRender={applyGraphStyles}
+          fallback={
+            <GraphFallback
+              steps={steps}
+              selectOnClick={selectOnClick}
+              onClickNode={onClickNode}
+              onDoubleClickNode={onDoubleClickNode ?? onClickNode}
+              onRightClickNode={onRightClickNode}
+            />
+          }
         />
       </div>
 
@@ -489,6 +528,259 @@ function Graph({
       )}
     </div>
   );
+}
+
+function isRuntimeNode(
+  stepOrNode: components['schemas']['Step'] | components['schemas']['Node']
+): stepOrNode is components['schemas']['Node'] {
+  return 'step' in stepOrNode;
+}
+
+function getStepLabel(
+  step: components['schemas']['Step'],
+  node?: components['schemas']['Node']
+): string {
+  const subRuns = [...(node?.subRuns ?? []), ...(node?.subRunsRepeated ?? [])];
+  const subDAGName = step.call || subRuns[0]?.dagName;
+  const hasParallelExecutions = !!step.parallel;
+
+  if (!subDAGName) {
+    return step.id || step.name;
+  }
+  if (hasParallelExecutions && subRuns.length > 0) {
+    return `${step.name} -> ${subDAGName} x${subRuns.length}`;
+  }
+  return `${step.name} -> ${subDAGName}`;
+}
+
+type FallbackNode = {
+  id: string;
+  name: string;
+  label: string;
+  depends: string[];
+  status: NodeStatus;
+};
+
+type GraphFallbackProps = {
+  steps?: Steps;
+  selectOnClick: boolean;
+  onClickNode?: onClickNode;
+  onDoubleClickNode?: onClickNode;
+  onRightClickNode?: onRightClickNode;
+};
+
+function GraphFallback({
+  steps,
+  selectOnClick,
+  onClickNode,
+  onDoubleClickNode,
+  onRightClickNode,
+}: GraphFallbackProps): React.JSX.Element | null {
+  const clickTimeoutsRef = React.useRef<
+    Map<string, ReturnType<typeof setTimeout>>
+  >(new Map());
+
+  React.useEffect(() => {
+    return () => {
+      clickTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
+      clickTimeoutsRef.current.clear();
+    };
+  }, []);
+
+  const nodes = React.useMemo<FallbackNode[]>(() => {
+    return (steps ?? []).map((stepOrNode) => {
+      const node = isRuntimeNode(stepOrNode) ? stepOrNode : undefined;
+      const step = isRuntimeNode(stepOrNode) ? stepOrNode.step : stepOrNode;
+      return {
+        id: toMermaidNodeId(step.name),
+        name: step.name,
+        label: getStepLabel(step, node),
+        depends: step.depends ?? [],
+        status: node?.status ?? NodeStatus.NotStarted,
+      };
+    });
+  }, [steps]);
+
+  const handleClick = React.useCallback(
+    (id: string) => {
+      if (!selectOnClick || !onClickNode) {
+        return;
+      }
+      const existingTimeout = clickTimeoutsRef.current.get(id);
+      if (existingTimeout) {
+        clearTimeout(existingTimeout);
+      }
+      const timeout = setTimeout(() => {
+        clickTimeoutsRef.current.delete(id);
+        onClickNode(id);
+      }, 250);
+      clickTimeoutsRef.current.set(id, timeout);
+    },
+    [onClickNode, selectOnClick]
+  );
+
+  const handleDoubleClick = React.useCallback(
+    (id: string) => {
+      const existingTimeout = clickTimeoutsRef.current.get(id);
+      if (existingTimeout) {
+        clearTimeout(existingTimeout);
+        clickTimeoutsRef.current.delete(id);
+      }
+      onDoubleClickNode?.(id);
+    },
+    [onDoubleClickNode]
+  );
+
+  const handleRightClick = React.useCallback(
+    (event: React.MouseEvent, id: string) => {
+      if (!onRightClickNode) {
+        return;
+      }
+      event.preventDefault();
+      const existingTimeout = clickTimeoutsRef.current.get(id);
+      if (existingTimeout) {
+        clearTimeout(existingTimeout);
+        clickTimeoutsRef.current.delete(id);
+      }
+      onRightClickNode(id);
+    },
+    [onRightClickNode]
+  );
+
+  if (nodes.length === 0) {
+    return null;
+  }
+
+  const hasInteraction =
+    (selectOnClick && !!onClickNode) ||
+    !!onDoubleClickNode ||
+    !!onRightClickNode;
+
+  return (
+    <div
+      aria-label="Workflow graph"
+      className="min-w-full p-6 pr-24"
+      data-testid="graph-fallback"
+      role="list"
+    >
+      <div className="flex flex-wrap items-start gap-3">
+        {nodes.map((node) => (
+          <div key={node.id} role="listitem">
+            {hasInteraction ? (
+              <button
+                aria-label={`Inspect ${node.name}`}
+                className={fallbackNodeClassName(node.status, true)}
+                onClick={() => handleClick(node.id)}
+                onContextMenu={(event) => handleRightClick(event, node.id)}
+                onDoubleClick={() => handleDoubleClick(node.id)}
+                title={node.name}
+                type="button"
+              >
+                <FallbackNodeContent node={node} />
+              </button>
+            ) : (
+              <div
+                className={fallbackNodeClassName(node.status, false)}
+                title={node.name}
+              >
+                <FallbackNodeContent node={node} />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FallbackNodeContent({ node }: { node: FallbackNode }) {
+  const visibleDepends = node.depends.slice(0, 2);
+  const hiddenDepends = node.depends.length - visibleDepends.length;
+
+  return (
+    <>
+      <span
+        aria-hidden="true"
+        className={cn(
+          'h-2.5 w-2.5 flex-shrink-0 rounded-full',
+          fallbackStatusDotClassName(node.status)
+        )}
+      />
+      <span className="min-w-0 flex-1 whitespace-normal break-words font-medium">
+        {node.label}
+      </span>
+      {visibleDepends.length > 0 && (
+        <span className="flex min-w-0 max-w-full flex-wrap gap-1">
+          {visibleDepends.map((dep) => (
+            <span
+              className="max-w-28 whitespace-normal break-words rounded border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+              key={dep}
+              title={dep}
+            >
+              {dep}
+            </span>
+          ))}
+          {hiddenDepends > 0 && (
+            <span className="whitespace-normal break-words rounded border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              +{hiddenDepends}
+            </span>
+          )}
+        </span>
+      )}
+    </>
+  );
+}
+
+function fallbackNodeClassName(
+  status: NodeStatus,
+  interactive: boolean
+): string {
+  return cn(
+    'flex min-h-12 w-72 max-w-72 items-center gap-2 rounded-md border bg-card px-3 py-2 text-left text-sm shadow-sm',
+    fallbackStatusBorderClassName(status),
+    interactive &&
+      'cursor-pointer transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
+  );
+}
+
+function fallbackStatusBorderClassName(status: NodeStatus): string {
+  switch (status) {
+    case NodeStatus.Success:
+      return 'border-l-4 border-l-success';
+    case NodeStatus.Running:
+      return 'border-l-4 border-l-[#43a047]';
+    case NodeStatus.Retrying:
+    case NodeStatus.Waiting:
+    case NodeStatus.PartialSuccess:
+      return 'border-l-4 border-l-warning';
+    case NodeStatus.Failed:
+    case NodeStatus.Rejected:
+      return 'border-l-4 border-l-destructive';
+    case NodeStatus.Aborted:
+      return 'border-l-4 border-l-primary';
+    default:
+      return 'border-l-4 border-l-muted-foreground/60';
+  }
+}
+
+function fallbackStatusDotClassName(status: NodeStatus): string {
+  switch (status) {
+    case NodeStatus.Success:
+      return 'bg-success';
+    case NodeStatus.Running:
+      return 'bg-[#43a047] animate-pulse';
+    case NodeStatus.Retrying:
+    case NodeStatus.Waiting:
+    case NodeStatus.PartialSuccess:
+      return 'bg-warning';
+    case NodeStatus.Failed:
+    case NodeStatus.Rejected:
+      return 'bg-destructive';
+    case NodeStatus.Aborted:
+      return 'bg-primary';
+    default:
+      return 'bg-muted-foreground/60';
+  }
 }
 
 /**

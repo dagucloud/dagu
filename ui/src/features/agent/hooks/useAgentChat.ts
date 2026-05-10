@@ -7,7 +7,10 @@ import {
   useState,
 } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { components } from '@/api/v1/schema';
+import {
+  components,
+  ComponentsParametersAgentSessionPaginationMode,
+} from '@/api/v1/schema';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useUserPreferences } from '@/contexts/UserPreference';
 import { AppBarContext } from '@/contexts/AppBarContext';
@@ -35,6 +38,8 @@ const FALLBACK_POLL_INTERVAL_MS = 2000;
 type UseAgentChatOptions = {
   active?: boolean;
 };
+
+type UIActionMessageSource = 'snapshot' | 'event';
 
 function convertApiMessage(msg: ApiMessage): Message {
   return {
@@ -208,7 +213,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
     sessionState,
     sessions,
     hasMoreSessions,
-    sessionPage,
+    sessionCursor,
     setSessionId,
     setMessages,
     setSessionState,
@@ -216,6 +221,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
     appendSessions,
     setHasMoreSessions,
     setSessionPage,
+    setSessionCursor,
     setPendingUserMessage,
     clearSession,
   } = useAgentChatContext();
@@ -225,12 +231,24 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
   const hydratedUIActionsRef = useRef<Set<string>>(new Set());
   const allowInitialUIActionsRef = useRef<Set<string>>(new Set());
   const delegateCatalogHydratedRef = useRef(false);
+  const isLoadingMoreRef = useRef(false);
   const [isSending, setIsSending] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [optimisticWorking, setOptimisticWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [answeredPrompts, setAnsweredPrompts] = useState<
     Record<string, string>
   >({});
+
+  const resetUIActionTracking = useCallback(
+    (allowedSessionIds: string[] = []) => {
+      handledUIActionIdsRef.current = new Map();
+      hydratedUIActionsRef.current = new Set();
+      allowInitialUIActionsRef.current = new Set(allowedSessionIds);
+      delegateCatalogHydratedRef.current = false;
+    },
+    []
+  );
 
   const apiURL = config.apiURL;
   const remoteNode = appBarContext.selectedRemoteNode || 'local';
@@ -263,7 +281,8 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
   const consumeNavigateUIActions = useCallback(
     (
       targetSessionId: string | null | undefined,
-      sessionMessages: Message[]
+      sessionMessages: Message[],
+      source: UIActionMessageSource
     ) => {
       if (!targetSessionId) {
         return;
@@ -275,6 +294,11 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
           message.type === 'ui_action' &&
           message.ui_action?.type === 'navigate'
       );
+
+      if (source === 'event' && navigateMessages.length === 0) {
+        return;
+      }
+
       let handled = handledUIActionIdsRef.current.get(targetSessionId);
       if (!handled) {
         handled = new Set<string>();
@@ -282,16 +306,21 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
       }
 
       if (!hydratedUIActionsRef.current.has(targetSessionId)) {
-        hydratedUIActionsRef.current.add(targetSessionId);
-        const shouldReplayExistingActions =
-          allowInitialUIActionsRef.current.has(targetSessionId);
-        allowInitialUIActionsRef.current.delete(targetSessionId);
+        if (source === 'snapshot') {
+          hydratedUIActionsRef.current.add(targetSessionId);
+          const shouldReplayExistingActions =
+            allowInitialUIActionsRef.current.has(targetSessionId);
+          allowInitialUIActionsRef.current.delete(targetSessionId);
 
-        if (!shouldReplayExistingActions) {
-          for (const message of navigateMessages) {
-            handled.add(message.id);
+          if (!shouldReplayExistingActions) {
+            for (const message of navigateMessages) {
+              handled.add(message.id);
+            }
+            return;
           }
-          return;
+        } else {
+          hydratedUIActionsRef.current.add(targetSessionId);
+          allowInitialUIActionsRef.current.delete(targetSessionId);
         }
       }
 
@@ -308,24 +337,51 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
     [navigate]
   );
 
-  useEffect(() => {
-    const allowed = new Set<string>();
-    if (sessionId && allowInitialUIActionsRef.current.has(sessionId)) {
-      allowed.add(sessionId);
-    }
-    handledUIActionIdsRef.current = new Map();
-    hydratedUIActionsRef.current = new Set();
-    allowInitialUIActionsRef.current = allowed;
-    delegateCatalogHydratedRef.current = false;
-  }, [sessionId]);
+  const updateSessionListEntry = useCallback(
+    (snapshot: StreamResponse) => {
+      const targetId = snapshot.session?.id ?? snapshot.session_state?.session_id;
+      if (!targetId || (!snapshot.session && !snapshot.session_state)) {
+        return;
+      }
 
-  useEffect(() => {
-    consumeNavigateUIActions(sessionId, messages);
-  }, [consumeNavigateUIActions, messages, sessionId]);
+      setSessions((current) => {
+        let found = false;
+        const next = current.map((item) => {
+          if (item.session.id !== targetId) {
+            return item;
+          }
+
+          found = true;
+          const nextSession = snapshot.session
+            ? { ...item.session, ...snapshot.session }
+            : item.session;
+          const nextState = snapshot.session_state
+            ? {
+                working: snapshot.session_state.working,
+                has_pending_prompt: snapshot.session_state.has_pending_prompt,
+                model: snapshot.session_state.model ?? item.model,
+                total_cost: snapshot.session_state.total_cost ?? item.total_cost,
+              }
+            : {};
+
+          return {
+            ...item,
+            session: nextSession,
+            ...nextState,
+          };
+        });
+
+        return found ? next : current;
+      });
+    },
+    [setSessions]
+  );
 
   const applySessionSnapshot = useCallback(
     (snapshot: StreamResponse) => {
       const nextMessages = snapshot.messages || [];
+      const targetSessionId =
+        snapshot.session?.id ?? snapshot.session_state?.session_id ?? sessionId;
       if (
         pendingUserMessage &&
         nextMessages.some((message) => message.type === 'user')
@@ -333,11 +389,13 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
         setPendingUserMessage(null);
       }
 
+      consumeNavigateUIActions(targetSessionId, nextMessages, 'snapshot');
       setMessages(nextMessages);
       if (snapshot.session_state) {
         setOptimisticWorking(false);
         setSessionState(snapshot.session_state);
       }
+      updateSessionListEntry(snapshot);
 
       const nextDelegates = snapshot.delegates || [];
       if (delegateCatalogHydratedRef.current) {
@@ -355,7 +413,10 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
       setPendingUserMessage,
       setMessages,
       setSessionState,
+      updateSessionListEntry,
       reconcileDelegateSnapshots,
+      consumeNavigateUIActions,
+      sessionId,
     ]
   );
 
@@ -374,6 +435,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
           setPendingUserMessage(null);
         }
 
+        consumeNavigateUIActions(sessionId, event.messages, 'event');
         setMessages((current) => mergeMessages(current, event.messages || []));
       }
 
@@ -385,6 +447,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
         setOptimisticWorking(false);
         setSessionState(event.session_state);
       }
+      updateSessionListEntry(event);
 
       if (event.delegates) {
         if (delegateCatalogHydratedRef.current) {
@@ -411,7 +474,8 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
         handleDelegateMessages(event.delegate_messages);
         consumeNavigateUIActions(
           event.delegate_messages.delegate_id,
-          event.delegate_messages.messages
+          event.delegate_messages.messages,
+          'event'
         );
       }
     },
@@ -421,6 +485,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
       setPendingUserMessage,
       setMessages,
       setSessionState,
+      updateSessionListEntry,
       reconcileDelegateSnapshots,
       handleDelegateEvent,
       handleDelegateMessages,
@@ -438,7 +503,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
         snapshot.session_state?.working ? 'running' : 'completed',
         nextMessages
       );
-      consumeNavigateUIActions(delegateId, nextMessages);
+      consumeNavigateUIActions(delegateId, nextMessages, 'snapshot');
     },
     [applyDelegateSessionSnapshot, consumeNavigateUIActions]
   );
@@ -539,30 +604,41 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
   ]);
 
   const fetchSessionsPage = useCallback(
-    async (page: number): Promise<void> => {
+    async (cursor: string | null): Promise<void> => {
       try {
         const { data, error: apiError } = await client.GET('/agent/sessions', {
-          params: { query: { remoteNode, page, perPage: 30 } },
+          params: {
+            query: {
+              remoteNode,
+              paginationMode:
+                ComponentsParametersAgentSessionPaginationMode.cursor,
+              perPage: 30,
+              ...(cursor ? { cursor } : {}),
+            },
+          },
         });
         if (apiError)
           throw new Error(apiError.message || 'Failed to fetch sessions');
         if (!data) return;
 
         const converted = convertApiSessions(data.sessions);
-        if (page === 1) {
+        if (!cursor) {
           setSessions(converted);
+          setSessionPage(1);
         } else {
           appendSessions(converted);
+          setSessionPage((prev) => prev + 1);
         }
-        setHasMoreSessions(
-          data.pagination.currentPage < data.pagination.totalPages
-        );
-        setSessionPage(page);
+        setSessionCursor(data.nextCursor ?? null);
+        setHasMoreSessions(Boolean(data.nextCursor));
       } catch (err) {
         setError(
           err instanceof Error ? err.message : 'Failed to fetch sessions'
         );
-        if (page === 1) setSessions([]);
+        if (!cursor) {
+          setSessions([]);
+          setSessionCursor(null);
+        }
       }
     },
     [
@@ -572,13 +648,21 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
       appendSessions,
       setHasMoreSessions,
       setSessionPage,
+      setSessionCursor,
     ]
   );
 
   const loadMoreSessions = useCallback(async (): Promise<void> => {
-    if (!hasMoreSessions) return;
-    await fetchSessionsPage(sessionPage + 1);
-  }, [fetchSessionsPage, sessionPage, hasMoreSessions]);
+    if (!hasMoreSessions || !sessionCursor || isLoadingMoreRef.current) return;
+    isLoadingMoreRef.current = true;
+    setIsLoadingMore(true);
+    try {
+      await fetchSessionsPage(sessionCursor);
+    } finally {
+      isLoadingMoreRef.current = false;
+      setIsLoadingMore(false);
+    }
+  }, [fetchSessionsPage, sessionCursor, hasMoreSessions]);
 
   const startSession = useCallback(
     async (
@@ -599,12 +683,19 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
       });
       if (apiError)
         throw new Error(apiError.message || 'Failed to create session');
-      allowInitialUIActionsRef.current = new Set([data.sessionId]);
+      resetUIActionTracking([data.sessionId]);
       setSessionId(data.sessionId);
-      await fetchSessionsPage(1);
+      await fetchSessionsPage(null);
       return data.sessionId;
     },
-    [client, remoteNode, setSessionId, fetchSessionsPage, preferences.safeMode]
+    [
+      client,
+      remoteNode,
+      setSessionId,
+      fetchSessionsPage,
+      preferences.safeMode,
+      resetUIActionTracking,
+    ]
   );
 
   const sendMessage = useCallback(
@@ -709,7 +800,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
   );
 
   const fetchSessions = useCallback(async (): Promise<void> => {
-    await fetchSessionsPage(1);
+    await fetchSessionsPage(null);
   }, [fetchSessionsPage]);
 
   const selectSession = useCallback(
@@ -718,7 +809,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
       // Set sessionId first so the old agent EventSource closes and frees
       // a connection slot. Without this, fetchSessionDetail would deadlock
       // waiting for a connection while the old SSE holds it.
-      allowInitialUIActionsRef.current = new Set();
+      resetUIActionTracking();
       setSessionId(id);
       setAnsweredPrompts({});
       try {
@@ -729,7 +820,12 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
         // The SSE connection or polling fallback will recover state.
       }
     },
-    [fetchSessionDetail, setSessionId, applySessionSnapshot]
+    [
+      fetchSessionDetail,
+      setSessionId,
+      applySessionSnapshot,
+      resetUIActionTracking,
+    ]
   );
 
   const isWorking =
@@ -739,12 +835,12 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
 
   const handleClearSession = useCallback(() => {
     selectGenRef.current++;
-    allowInitialUIActionsRef.current = new Set();
+    resetUIActionTracking();
     clearSession();
     setOptimisticWorking(false);
     setAnsweredPrompts({});
     resetDelegates();
-  }, [clearSession, resetDelegates]);
+  }, [clearSession, resetDelegates, resetUIActionTracking]);
 
   const reopenDelegate = useCallback(
     async (delegateId: string, task: string) => {
@@ -773,6 +869,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
     sessionState,
     sessions,
     hasMoreSessions,
+    isLoadingMore,
     isWorking,
     error,
     answeredPrompts,

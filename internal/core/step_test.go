@@ -344,6 +344,18 @@ func TestCommandEntry_String(t *testing.T) {
 	}
 }
 
+func TestStepMarshalPreservesExplicitEmptyOutputSchema(t *testing.T) {
+	t.Parallel()
+
+	data, err := json.Marshal(Step{OutputSchema: map[string]any{}})
+	require.NoError(t, err)
+	assert.Contains(t, string(data), `"outputSchema":{}`)
+
+	var step Step
+	require.NoError(t, json.Unmarshal(data, &step))
+	assert.True(t, step.HasOutputSchema())
+}
+
 func TestStepUnmarshalJSONCopiesLegacyArgs(t *testing.T) {
 	t.Parallel()
 

@@ -453,6 +453,16 @@ func newDocTestSetupWithWorkspaces(t *testing.T, names ...string) *docTestSetup 
 
 func newDocTestSetupWithStore(t *testing.T, store *mockDocStore, workspaceStore workspacepkg.Store) *docTestSetup {
 	t.Helper()
+	return newDocTestSetupWithStoreOptions(t, store, workspaceStore)
+}
+
+func newDocTestSetupWithStoreOptions(
+	t *testing.T,
+	store *mockDocStore,
+	workspaceStore workspacepkg.Store,
+	extraOptions ...apiv1.APIOption,
+) *docTestSetup {
+	t.Helper()
 	cfg := &config.Config{}
 	cfg.Server.Permissions = map[config.Permission]bool{
 		config.PermissionWriteDAGs: true,
@@ -461,6 +471,7 @@ func newDocTestSetupWithStore(t *testing.T, store *mockDocStore, workspaceStore 
 	if workspaceStore != nil {
 		options = append(options, apiv1.WithWorkspaceStore(workspaceStore))
 	}
+	options = append(options, extraOptions...)
 	a := apiv1.New(
 		nil, nil, nil, nil, runtime.Manager{},
 		cfg, nil, nil,
@@ -650,6 +661,40 @@ func TestListDocsSortParamsForwarded(t *testing.T) {
 		assert.Equal(t, agent.DocSortFieldName, setup.store.lastListOpts.Sort)
 		assert.Equal(t, agent.DocSortOrderDesc, setup.store.lastListOpts.Order)
 	})
+}
+
+func TestDocMutationsNotify(t *testing.T) {
+	store := &mockDocStore{docs: make(map[string]*agent.Doc)}
+	var notifications int
+	setup := newDocTestSetupWithStoreOptions(t, store, nil, apiv1.WithDocMutationNotifier(func() {
+		notifications++
+	}))
+
+	_, err := setup.api.CreateDoc(adminCtx(), apigen.CreateDocRequestObject{
+		Body: &apigen.CreateDocJSONRequestBody{Id: "doc1", Content: "created"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, notifications)
+
+	_, err = setup.api.UpdateDoc(adminCtx(), apigen.UpdateDocRequestObject{
+		Params: apigen.UpdateDocParams{Path: "doc1"},
+		Body:   &apigen.UpdateDocJSONRequestBody{Content: "updated"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 2, notifications)
+
+	_, err = setup.api.RenameDoc(adminCtx(), apigen.RenameDocRequestObject{
+		Params: apigen.RenameDocParams{Path: "doc1"},
+		Body:   &apigen.RenameDocJSONRequestBody{NewPath: "doc2"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 3, notifications)
+
+	_, err = setup.api.DeleteDoc(adminCtx(), apigen.DeleteDocRequestObject{
+		Params: apigen.DeleteDocParams{Path: "doc2"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 4, notifications)
 }
 
 func TestCreateDoc(t *testing.T) {
