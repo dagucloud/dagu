@@ -94,6 +94,8 @@ type dirLock struct {
 
 var _ DirLock = (*dirLock)(nil)
 
+const lockOwnerFileName = "owner"
+
 // New creates a new directory lock instance
 func New(directory string, opts *LockOptions) DirLock {
 	// Set default options if not provided
@@ -126,7 +128,7 @@ func (l *dirLock) Heartbeat(_ context.Context) error {
 	}
 
 	// Verify we still own the lock by checking the fence token
-	tokenPath := filepath.Join(l.lockPath, "owner")
+	tokenPath := filepath.Join(l.lockPath, lockOwnerFileName)
 	data, err := os.ReadFile(tokenPath) //nolint:gosec // path is constructed from lock directory, not user input
 	if err != nil {
 		l.isHeld = false
@@ -161,11 +163,11 @@ func (l *dirLock) TryLock() error {
 		// Lock exists, check if it's stale
 		if l.isStaleInfo(info) {
 			// This is detection-based, not prevention-based: two contenders may
-			// both observe a stale lock and one RemoveAll can race with the
+			// both observe a stale lock and one cleanup can race with the
 			// other's new lock creation. The fence token lets us detect ownership
 			// loss on the next Heartbeat/IsHeldByMe check and self-fence safely.
 			// Remove stale lock
-			if err := os.RemoveAll(l.lockPath); err != nil && !os.IsNotExist(err) {
+			if err := removeLockDir(l.lockPath); err != nil && !os.IsNotExist(err) {
 				if isRetryableLockStateError(err) {
 					return ErrLockConflict
 				}
@@ -202,9 +204,9 @@ func (l *dirLock) TryLock() error {
 		hostname = "unknown-host"
 	}
 	token := newFenceToken(hostname)
-	tokenPath := filepath.Join(l.lockPath, "owner")
+	tokenPath := filepath.Join(l.lockPath, lockOwnerFileName)
 	if err := os.WriteFile(tokenPath, []byte(token), 0600); err != nil {
-		_ = os.RemoveAll(l.lockPath)
+		_ = removeLockDir(l.lockPath)
 		return fmt.Errorf("failed to write lock token: %w", err)
 	}
 	l.fenceToken = token
@@ -264,7 +266,7 @@ func (l *dirLock) Unlock() error {
 	}
 
 	// Verify we still own the lock before removing
-	tokenPath := filepath.Join(l.lockPath, "owner")
+	tokenPath := filepath.Join(l.lockPath, lockOwnerFileName)
 	data, err := os.ReadFile(tokenPath) //nolint:gosec // path is constructed from lock directory, not user input
 	if err != nil {
 		l.isHeld = false
@@ -277,7 +279,7 @@ func (l *dirLock) Unlock() error {
 	}
 
 	// We still own the lock — safe to remove.
-	if err := os.RemoveAll(l.lockPath); err != nil && !os.IsNotExist(err) {
+	if err := removeLockDir(l.lockPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to remove lock directory: %w", err)
 	}
 
@@ -305,7 +307,7 @@ func (l *dirLock) IsHeldByMe() bool {
 	}
 
 	// Verify the fence token still matches
-	tokenPath := filepath.Join(l.lockPath, "owner")
+	tokenPath := filepath.Join(l.lockPath, lockOwnerFileName)
 	data, err := os.ReadFile(tokenPath) //nolint:gosec // path is constructed from lock directory, not user input
 	if err != nil || string(data) != l.fenceToken {
 		l.isHeld = false
@@ -338,8 +340,23 @@ func (l *dirLock) Info() (*LockInfo, error) {
 // ForceUnlock forcibly removes a lock (administrative operation)
 func ForceUnlock(directory string) error {
 	lockPath := filepath.Join(directory, ".dagu_lock")
-	if err := os.RemoveAll(lockPath); err != nil && !os.IsNotExist(err) {
+	if err := removeLockDir(lockPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to force unlock: %w", err)
+	}
+	return nil
+}
+
+func removeLockDir(lockPath string) error {
+	// The scheduler lock directory is intentionally shallow: Dagu creates only
+	// the owner token file inside it. Avoid os.RemoveAll here because recent Go
+	// releases use recursive open-at cleanup paths that are not reliable on old
+	// Windows versions such as Windows Server 2012 R2.
+	ownerPath := filepath.Join(lockPath, lockOwnerFileName)
+	if err := os.Remove(ownerPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.Remove(lockPath); err != nil && !os.IsNotExist(err) {
+		return err
 	}
 	return nil
 }

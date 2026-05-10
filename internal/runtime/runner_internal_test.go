@@ -85,3 +85,68 @@ func TestRunNodeExecution_ExternalStepRetrySkipsRepeatBookkeeping(t *testing.T) 
 	assert.Equal(t, 0, node.State().DoneCount)
 	assert.Equal(t, 1, node.State().RetryCount)
 }
+
+func TestSetupVariables_StepEnvEvaluatesSequentiallyWithRuntimeVars(t *testing.T) {
+	t.Parallel()
+
+	envs := []string{
+		"WORK_DIR=${DAG_RUN_ARTIFACTS_DIR}",
+		"CURRENT_IDEA_PATH=${WORK_DIR}/current_idea.md",
+	}
+	tests := []struct {
+		name         string
+		step         core.Step
+		dagContainer *core.Container
+	}{
+		{
+			name: "step env",
+			step: core.Step{
+				Name: "render",
+				Env:  envs,
+			},
+		},
+		{
+			name: "step container env",
+			step: core.Step{
+				Name:      "render",
+				Container: &core.Container{Env: envs},
+			},
+		},
+		{
+			name: "dag container fallback env",
+			step: core.Step{Name: "render"},
+			dagContainer: &core.Container{
+				Env: envs,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			artifactDir := filepath.Join(t.TempDir(), "artifacts", "run-1")
+			plan, err := NewPlan(tt.step)
+			require.NoError(t, err)
+			node := plan.GetNodeByName(tt.step.Name)
+			require.NotNil(t, node)
+
+			runner := New(&Config{})
+			ctx := NewContext(
+				context.Background(),
+				&core.DAG{
+					Name:       "test-dag",
+					WorkingDir: t.TempDir(),
+					Container:  tt.dagContainer,
+				},
+				"run-1",
+				filepath.Join(t.TempDir(), "dag.log"),
+				WithArtifactDir(artifactDir),
+			)
+
+			ctx = runner.setupVariables(ctx, plan, node)
+
+			result := AllEnvsMap(ctx)
+			assert.Equal(t, artifactDir, result["WORK_DIR"])
+			assert.Equal(t, filepath.Join(artifactDir, "current_idea.md"), filepath.Clean(result["CURRENT_IDEA_PATH"]))
+		})
+	}
+}

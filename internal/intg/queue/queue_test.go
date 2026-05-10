@@ -6,10 +6,8 @@ package queue_test
 import (
 	"fmt"
 	"os"
-	osexec "os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -61,16 +59,15 @@ steps:
 }
 
 func TestGlobalConcurrency(t *testing.T) {
-	sleepDuration := time.Second
+	startedDir := t.TempDir()
+	releaseFile := filepath.Join(t.TempDir(), "release")
 	maxDiff := 2 * time.Second
 	switch {
 	case runtime.GOOS == "windows" && raceEnabled():
-		sleepDuration = 12 * time.Second
 		maxDiff = 10 * time.Second
 	case runtime.GOOS == "windows":
 		// StartedAt is second-granularity in persisted queue statuses, so give
 		// Windows enough overlap budget to avoid false negatives from rounding.
-		sleepDuration = 6 * time.Second
 		maxDiff = 5 * time.Second
 	}
 
@@ -79,42 +76,63 @@ name: sleep-dag
 queue: global-queue
 steps:
   - name: sleep
-    %s
-`, directSleepStepYAML(t, sleepDuration)), WithQueue("global-queue"), WithGlobalQueue("global-queue", 3)).
+    command: |
+%s
+`, indentQueueTestScript(markQueueRunStartedAndWaitCommand(startedDir, releaseFile), 6)), WithQueue("global-queue"), WithGlobalQueue("global-queue", 3)).
 		Enqueue(3).StartScheduler(30 * time.Second)
+	released := false
+	stopped := false
+	defer func() {
+		if !released {
+			_ = os.WriteFile(releaseFile, []byte("release"), 0600)
+		}
+		if !stopped {
+			f.Stop()
+		}
+	}()
 
 	f.WaitDrain(35 * time.Second)
-	f.WaitForAllStatuses(core.Succeeded, 20*time.Second)
-	f.Stop()
+	waitForStartedQueueRuns(t, startedDir, 3, 20*time.Second)
 	f.AssertConcurrent(maxDiff)
+
+	require.NoError(t, os.WriteFile(releaseFile, []byte("release"), 0600))
+	released = true
+	f.WaitForAllStatuses(core.Succeeded, 20*time.Second)
+	f.WaitForAllStopped(10 * time.Second)
+	f.Stop()
+	stopped = true
 }
 
-func directSleepStepYAML(t *testing.T, d time.Duration) string {
-	t.Helper()
-
-	if runtime.GOOS == "windows" {
-		commandPath, err := osexec.LookPath("ping")
-		require.NoError(t, err)
-
-		seconds := max(int((d+time.Second-1)/time.Second), 1)
-
-		return fmt.Sprintf(
-			"exec:\n      command: %s\n      args: [%s, %s, %s]",
-			strconv.Quote(commandPath),
-			strconv.Quote("-n"),
-			strconv.Quote(strconv.Itoa(seconds+1)),
-			strconv.Quote("127.0.0.1"),
-		)
-	}
-
-	commandPath, err := osexec.LookPath("sleep")
-	require.NoError(t, err)
-
-	return fmt.Sprintf(
-		"exec:\n      command: %s\n      args: [%s]",
-		strconv.Quote(commandPath),
-		strconv.Quote(strconv.FormatFloat(d.Seconds(), 'f', -1, 64)),
+func markQueueRunStartedAndWaitCommand(startedDir, releaseFile string) string {
+	return test.ForOS(
+		fmt.Sprintf(`mkdir -p %s
+: > %s/"started-$$"
+while [ ! -f %s ]; do
+  sleep 0.05
+done`, test.PosixQuote(startedDir), test.PosixQuote(startedDir), test.PosixQuote(releaseFile)),
+		fmt.Sprintf(`New-Item -ItemType Directory -Path %s -Force | Out-Null
+New-Item -ItemType File -Path (Join-Path %s ("started-" + [guid]::NewGuid().ToString())) -Force | Out-Null
+while (-not (Test-Path %s)) {
+  Start-Sleep -Milliseconds 50
+}`, test.PowerShellQuote(startedDir), test.PowerShellQuote(startedDir), test.PowerShellQuote(releaseFile)),
 	)
+}
+
+func indentQueueTestScript(script string, spaces int) string {
+	indent := strings.Repeat(" ", spaces)
+	lines := strings.Split(strings.TrimRight(script, "\n"), "\n")
+	for i, line := range lines {
+		lines[i] = indent + line
+	}
+	return strings.Join(lines, "\n")
+}
+
+func waitForStartedQueueRuns(t *testing.T, startedDir string, want int, timeout time.Duration) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		entries, err := os.ReadDir(startedDir)
+		return err == nil && len(entries) >= want
+	}, queueTestTimeout(timeout), 50*time.Millisecond)
 }
 
 func TestLocalQueueFIFOProcessing(t *testing.T) {

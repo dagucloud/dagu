@@ -73,6 +73,44 @@ type Props = {
   height?: string | number;
 };
 
+const GRAPH_STATUS_STROKES = {
+  none: '#5f6368',
+  running: '#43a047',
+  retrying: '#e37400',
+  done: '#166534',
+  error: '#d93025',
+  cancel: '#d946ef',
+  skipped: '#5f6368',
+  partial: '#e37400',
+  waiting: '#e37400',
+  rejected: '#d93025',
+} as const;
+
+const GRAPH_SUCCESS_LINK_STROKE = '#5f8f64';
+const GRAPH_RENDERED_NODE_SHAPE_SELECTOR =
+  'rect, polygon, path, circle, ellipse';
+
+function applyRenderedGraphStyles(container: HTMLDivElement): void {
+  Object.entries(GRAPH_STATUS_STROKES).forEach(([className, stroke]) => {
+    container
+      .querySelectorAll<SVGGElement>(`g.node.${className}`)
+      .forEach((nodeElement) => {
+        nodeElement
+          .querySelectorAll<SVGElement>(GRAPH_RENDERED_NODE_SHAPE_SELECTOR)
+          .forEach((shapeElement) => {
+            shapeElement.setAttribute('stroke', stroke);
+            shapeElement.setAttribute('stroke-width', '2.5px');
+            shapeElement.style.setProperty('stroke', stroke, 'important');
+            shapeElement.style.setProperty(
+              'stroke-width',
+              '2.5px',
+              'important'
+            );
+          });
+      });
+  });
+}
+
 /** Extend window interface to include the click handler (kept for backward compatibility) */
 declare global {
   interface Window {
@@ -102,6 +140,7 @@ function Graph({
   const containerRef = React.useRef<HTMLDivElement>(null);
   const { preferences } = useUserPreferences();
   const isDarkMode = preferences.theme !== 'light';
+  const applyGraphStyles = React.useCallback(applyRenderedGraphStyles, []);
 
   /** Increase zoom level */
   const zoomIn = () => {
@@ -274,7 +313,7 @@ function Graph({
             // Solid line with success color
             dat.push(`${depId} --> ${id};`);
             linkStyles.push(
-              `linkStyle ${linkIndex} stroke:#7da87d,stroke-width:1.8px`
+              `linkStyle ${linkIndex} stroke:${GRAPH_SUCCESS_LINK_STROKE},stroke-width:1.8px`
             );
           } else {
             // Default connection style
@@ -308,48 +347,35 @@ function Graph({
     const nodeColor = isDarkMode ? '#f1f5f9' : '#0f1129'; // --foreground for dark, --background for light
 
     // Unified status colors
-    const statusColors = {
-      none: '#5f6368', // neutral gray
-      running: '#81c784', // light green (distinct from success)
-      retrying: '#e37400', // warning amber for scheduled backoff
-      done: '#1e8e3e', // success green
-      error: '#d93025', // error red
-      cancel: '#d946ef', // pink/magenta for aborted
-      skipped: '#5f6368', // neutral gray
-      partial: '#e37400', // warning amber
-      waiting: '#e37400', // warning amber
-      rejected: '#d93025', // error red
-    };
-
     dat.push(
-      `classDef none color:${nodeColor},fill:${nodeFill},stroke:${statusColors.none},stroke-width:2.5px`
+      `classDef none color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.none},stroke-width:2.5px`
     );
     dat.push(
-      `classDef running color:${nodeColor},fill:${nodeFill},stroke:${statusColors.running},stroke-width:2.5px`
+      `classDef running color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.running},stroke-width:2.5px`
     );
     dat.push(
-      `classDef retrying color:${nodeColor},fill:${nodeFill},stroke:${statusColors.retrying},stroke-width:2.5px`
+      `classDef retrying color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.retrying},stroke-width:2.5px`
     );
     dat.push(
-      `classDef error color:${nodeColor},fill:${nodeFill},stroke:${statusColors.error},stroke-width:2.5px`
+      `classDef error color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.error},stroke-width:2.5px`
     );
     dat.push(
-      `classDef cancel color:${nodeColor},fill:${nodeFill},stroke:${statusColors.cancel},stroke-width:2.5px`
+      `classDef cancel color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.cancel},stroke-width:2.5px`
     );
     dat.push(
-      `classDef done color:${nodeColor},fill:${nodeFill},stroke:${statusColors.done},stroke-width:2.5px`
+      `classDef done color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.done},stroke-width:2.5px`
     );
     dat.push(
-      `classDef skipped color:${nodeColor},fill:${nodeFill},stroke:${statusColors.skipped},stroke-width:2.5px`
+      `classDef skipped color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.skipped},stroke-width:2.5px`
     );
     dat.push(
-      `classDef partial color:${nodeColor},fill:${nodeFill},stroke:${statusColors.partial},stroke-width:2.5px`
+      `classDef partial color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.partial},stroke-width:2.5px`
     );
     dat.push(
-      `classDef waiting color:${nodeColor},fill:${nodeFill},stroke:${statusColors.waiting},stroke-width:2.5px`
+      `classDef waiting color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.waiting},stroke-width:2.5px`
     );
     dat.push(
-      `classDef rejected color:${nodeColor},fill:${nodeFill},stroke:${statusColors.rejected},stroke-width:2.5px`
+      `classDef rejected color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.rejected},stroke-width:2.5px`
     );
 
     // Add custom link styles
@@ -461,6 +487,7 @@ function Graph({
           onClick={selectOnClick ? onClickNode : undefined}
           onDoubleClick={onDoubleClickNode ?? onClickNode}
           onRightClick={onRightClickNode}
+          onRender={applyGraphStyles}
           fallback={
             <GraphFallback
               steps={steps}
@@ -719,8 +746,9 @@ function fallbackNodeClassName(
 function fallbackStatusBorderClassName(status: NodeStatus): string {
   switch (status) {
     case NodeStatus.Success:
-    case NodeStatus.Running:
       return 'border-l-4 border-l-success';
+    case NodeStatus.Running:
+      return 'border-l-4 border-l-[#43a047]';
     case NodeStatus.Retrying:
     case NodeStatus.Waiting:
     case NodeStatus.PartialSuccess:
@@ -740,7 +768,7 @@ function fallbackStatusDotClassName(status: NodeStatus): string {
     case NodeStatus.Success:
       return 'bg-success';
     case NodeStatus.Running:
-      return 'bg-success animate-pulse';
+      return 'bg-[#43a047] animate-pulse';
     case NodeStatus.Retrying:
     case NodeStatus.Waiting:
     case NodeStatus.PartialSuccess:

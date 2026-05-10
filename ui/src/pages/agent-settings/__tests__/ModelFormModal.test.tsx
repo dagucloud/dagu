@@ -145,7 +145,7 @@ describe('ModelFormModal', () => {
       )
     ).toBeInTheDocument();
     expect(
-      screen.getByPlaceholderText('Defaults to http://localhost:11434/v1')
+      screen.getByPlaceholderText('http://localhost:11434/v1')
     ).toBeInTheDocument();
   });
 

@@ -8,6 +8,7 @@ type Props = {
   onClick?: (id: string) => void;
   onDoubleClick?: (id: string) => void;
   onRightClick?: (id: string) => void;
+  onRender?: (container: HTMLDivElement) => void;
   fallback?: React.ReactNode;
 };
 
@@ -90,6 +91,7 @@ function Mermaid({
   onClick,
   onDoubleClick,
   onRightClick,
+  onRender,
   fallback,
 }: Props) {
   const mermaidRef = React.useRef<HTMLDivElement>(null); // Ref for the inner div holding the SVG
@@ -160,6 +162,7 @@ function Mermaid({
       }
 
       mermaidRef.current.innerHTML = svg;
+      onRender?.(mermaidRef.current);
 
       // Apply scale transform immediately after SVG is rendered
       const svgEl = mermaidRef.current.querySelector('svg');
@@ -291,7 +294,7 @@ function Mermaid({
       };
     }
     render();
-  }, [def]); // Only trigger re-render on definition change
+  }, [def, onRender]); // Re-render when the definition or SVG post-processing changes
 
   React.useEffect(() => {
     // Apply scale transformation when scale prop changes
@@ -347,5 +350,9 @@ function Mermaid({
 }
 
 export default React.memo(Mermaid, (prev, next) => {
-  return prev.def === next.def && prev.scale === next.scale;
+  return (
+    prev.def === next.def &&
+    prev.scale === next.scale &&
+    prev.onRender === next.onRender
+  );
 });

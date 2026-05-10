@@ -377,7 +377,7 @@ steps:
     run: exit 1
     retry_policy:
       limit: 1
-      interval_sec: 5
+      interval_sec: 2
 `)
 
 	agent := dag.Agent()
@@ -388,9 +388,11 @@ steps:
 
 	startedTimeout := 3 * time.Second
 	allStartedTimeout := 3 * time.Second
+	finalTimeout := 30 * time.Second
 	if runtime.GOOS == "windows" {
 		startedTimeout = 15 * time.Second
 		allStartedTimeout = 20 * time.Second
+		finalTimeout = 60 * time.Second
 	}
 
 	require.Eventually(t, func() bool {
@@ -433,7 +435,7 @@ steps:
 	select {
 	case err := <-errCh:
 		require.Error(t, err)
-	case <-time.After(30 * time.Second):
+	case <-time.After(finalTimeout):
 		t.Fatal("parallel retry run did not exit")
 	}
 }

@@ -14631,7 +14631,8 @@ export enum ModelConfigResponseProvider {
     gemini = "gemini",
     openrouter = "openrouter",
     local = "local",
-    zai = "zai"
+    zai = "zai",
+    opencode = "opencode"
 }
 export enum ModelConfigResponseThinkingEffort {
     low = "low",
@@ -14646,7 +14647,8 @@ export enum CreateModelConfigRequestProvider {
     gemini = "gemini",
     openrouter = "openrouter",
     local = "local",
-    zai = "zai"
+    zai = "zai",
+    opencode = "opencode"
 }
 export enum CreateModelConfigRequestThinkingEffort {
     low = "low",
@@ -14661,7 +14663,8 @@ export enum UpdateModelConfigRequestProvider {
     gemini = "gemini",
     openrouter = "openrouter",
     local = "local",
-    zai = "zai"
+    zai = "zai",
+    opencode = "opencode"
 }
 export enum UpdateModelConfigRequestThinkingEffort {
     low = "low",
@@ -14680,7 +14683,8 @@ export enum ModelPresetProvider {
     gemini = "gemini",
     openrouter = "openrouter",
     local = "local",
-    zai = "zai"
+    zai = "zai",
+    opencode = "opencode"
 }
 export enum ModelPresetThinkingEffort {
     low = "low",

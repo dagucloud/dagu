@@ -6,6 +6,7 @@ export const AGENT_MODEL_PROVIDER_VALUES = [
   'openrouter',
   'local',
   'zai',
+  'opencode',
 ] as const;
 
 export type AgentModelProvider = (typeof AGENT_MODEL_PROVIDER_VALUES)[number];
@@ -29,22 +30,22 @@ export const AGENT_MODEL_PROVIDERS: readonly AgentModelProviderMeta[] = [
     authMode: 'direct',
     apiKeyMode: 'required',
     modelPlaceholder: 'claude-sonnet-4-6',
-    baseUrlPlaceholder: 'Custom API endpoint',
+    baseUrlPlaceholder: 'https://api.anthropic.com',
   },
   {
     value: 'openai',
     label: 'OpenAI',
     authMode: 'direct',
     apiKeyMode: 'required',
-    modelPlaceholder: 'gpt-5.4',
-    baseUrlPlaceholder: 'Custom API endpoint',
+    modelPlaceholder: 'gpt-5.5',
+    baseUrlPlaceholder: 'https://api.openai.com/v1',
   },
   {
     value: 'openai-codex',
     label: 'OpenAI Codex',
     authMode: 'subscription',
     apiKeyMode: 'hidden',
-    modelPlaceholder: 'gpt-5.4',
+    modelPlaceholder: 'gpt-5.5',
   },
   {
     value: 'gemini',
@@ -52,7 +53,7 @@ export const AGENT_MODEL_PROVIDERS: readonly AgentModelProviderMeta[] = [
     authMode: 'direct',
     apiKeyMode: 'required',
     modelPlaceholder: 'gemini-3-pro-preview',
-    baseUrlPlaceholder: 'Custom API endpoint',
+    baseUrlPlaceholder: 'https://generativelanguage.googleapis.com/v1beta',
   },
   {
     value: 'openrouter',
@@ -60,7 +61,7 @@ export const AGENT_MODEL_PROVIDERS: readonly AgentModelProviderMeta[] = [
     authMode: 'direct',
     apiKeyMode: 'required',
     modelPlaceholder: 'anthropic/claude-sonnet-4-6',
-    baseUrlPlaceholder: 'Defaults to https://openrouter.ai/api/v1',
+    baseUrlPlaceholder: 'https://openrouter.ai/api/v1',
   },
   {
     value: 'local',
@@ -68,7 +69,7 @@ export const AGENT_MODEL_PROVIDERS: readonly AgentModelProviderMeta[] = [
     authMode: 'direct',
     apiKeyMode: 'optional',
     modelPlaceholder: 'llama3.2',
-    baseUrlPlaceholder: 'Defaults to http://localhost:11434/v1',
+    baseUrlPlaceholder: 'http://localhost:11434/v1',
     apiKeyHelperText: 'Leave empty for local endpoints that do not require authentication.',
   },
   {
@@ -77,7 +78,16 @@ export const AGENT_MODEL_PROVIDERS: readonly AgentModelProviderMeta[] = [
     authMode: 'direct',
     apiKeyMode: 'required',
     modelPlaceholder: 'glm-5',
-    baseUrlPlaceholder: 'Custom API endpoint',
+    baseUrlPlaceholder: 'https://api.z.ai/api/paas/v4',
+  },
+  {
+    value: 'opencode',
+    label: 'OpenCode',
+    authMode: 'direct',
+    apiKeyMode: 'required',
+    modelPlaceholder: 'kimi-k2.6',
+    baseUrlPlaceholder: 'https://opencode.ai/zen/go/v1',
+    apiKeyHelperText: 'API key from opencode.ai subscription.',
   },
 ] as const;
 

@@ -29,10 +29,10 @@ type NodeStatusConfig = {
   colorClass: string;
 };
 
-// Unified status colors matching Graph.tsx and global.css
+// Unified status colors matching the execution graph
 const NODE_STATUS_CONFIG: NodeStatusConfig[] = [
-  { key: 'succeeded', label: 'success', colorClass: 'bg-[#1e8e3e]' },
-  { key: 'running', label: 'running', colorClass: 'bg-[#81c784]' },
+  { key: 'succeeded', label: 'success', colorClass: 'bg-[#166534]' },
+  { key: 'running', label: 'running', colorClass: 'bg-[#43a047]' },
   { key: 'retrying', label: 'retrying', colorClass: 'bg-[#e37400]' },
   { key: 'failed', label: 'failed', colorClass: 'bg-[#d93025]' },
   { key: 'queued', label: 'queued', colorClass: 'bg-[#5f6368]' },
@@ -54,7 +54,7 @@ const EXECUTION_STATUS_CONFIG: ExecutionStatusConfig[] = [
   {
     status: Status.Running,
     icon: PlayCircle,
-    iconClass: 'text-[#81c784]',
+    iconClass: 'text-[#43a047]',
     message: 'Execution in progress',
   },
   {

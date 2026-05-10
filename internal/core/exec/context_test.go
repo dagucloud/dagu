@@ -296,6 +296,38 @@ func TestNewContext_DAGRunArtifactsDir(t *testing.T) {
 	}
 }
 
+func TestNewContext_DAGEnvCanReferenceRuntimeManagedDirs(t *testing.T) {
+	t.Parallel()
+
+	artifactDir := filepath.Join(t.TempDir(), "artifacts", "run-1")
+	docsDir := filepath.Join(t.TempDir(), "docs")
+	cfg := &config.Config{}
+	cfg.Paths.DocsDir = docsDir
+
+	dag := &core.DAG{
+		Name: "test-dag",
+		Env: []string{
+			"OUTPUT_FILE=current-plan.md",
+			"DAG_DOCS_DIR=/tmp/wrong-docs",
+			"PLAN_PATH=${DAG_DOCS_DIR}/${OUTPUT_FILE}",
+			"DAG_RUN_ARTIFACTS_DIR=/tmp/wrong-artifacts",
+			"WORK_DIR=${DAG_RUN_ARTIFACTS_DIR}",
+			"CURRENT_IDEA_PATH=${WORK_DIR}/current_idea.md",
+		},
+	}
+
+	ctx := config.WithConfig(context.Background(), cfg)
+	ctx = exec.NewContext(ctx, dag, "run-1", "test.log",
+		exec.WithArtifactDir(artifactDir),
+	)
+
+	result := exec.GetContext(ctx).UserEnvsMap()
+	assert.Equal(t, filepath.Join(docsDir, dag.Name, "current-plan.md"), filepath.Clean(result["PLAN_PATH"]))
+	assert.Equal(t, artifactDir, result["WORK_DIR"])
+	assert.Equal(t, filepath.Join(artifactDir, "current_idea.md"), filepath.Clean(result["CURRENT_IDEA_PATH"]))
+	assert.Equal(t, artifactDir, result[exec.EnvKeyDAGRunArtifactsDir])
+}
+
 func TestNewContext_AllEnvsUsesFilteredBaseEnv(t *testing.T) {
 	t.Setenv("EXEC_CONTEXT_HOST_ONLY", "host-value")
 

@@ -139,18 +139,18 @@ func (a *API) CreateAgentModel(ctx context.Context, request api.CreateAgentModel
 
 	model := &agent.ModelConfig{
 		ID:               id,
-		Name:             body.Name,
+		Name:             strings.TrimSpace(body.Name),
 		Provider:         string(body.Provider),
-		Model:            body.Model,
-		APIKey:           valueOf(body.ApiKey),
-		BaseURL:          valueOf(body.BaseUrl),
+		Model:            strings.TrimSpace(body.Model),
+		APIKey:           strings.TrimSpace(valueOf(body.ApiKey)),
+		BaseURL:          strings.TrimSpace(valueOf(body.BaseUrl)),
 		ContextWindow:    valueOf(body.ContextWindow),
 		MaxOutputTokens:  valueOf(body.MaxOutputTokens),
 		InputCostPer1M:   valueOf(body.InputCostPer1M),
 		OutputCostPer1M:  valueOf(body.OutputCostPer1M),
 		SupportsThinking: valueOf(body.SupportsThinking),
 		ThinkingEffort:   string(valueOf(body.ThinkingEffort)),
-		Description:      valueOf(body.Description),
+		Description:      strings.TrimSpace(valueOf(body.Description)),
 	}
 
 	if err := normalizeModelThinkingConfig(model); err != nil {
@@ -334,7 +334,7 @@ func validateProvider(provider string) error {
 	if _, err := llm.ParseProviderType(provider); err != nil {
 		return &Error{
 			Code:       api.ErrorCodeBadRequest,
-			Message:    fmt.Sprintf("invalid provider '%s': valid options are anthropic, openai, openai-codex, gemini, openrouter, local, zai", provider),
+			Message:    fmt.Sprintf("invalid provider '%s': valid options are anthropic, openai, openai-codex, gemini, openrouter, local, zai, opencode", provider),
 			HTTPStatus: http.StatusBadRequest,
 		}
 	}
@@ -378,7 +378,7 @@ func toModelConfigResponse(m *agent.ModelConfig) api.ModelConfigResponse {
 
 func applyModelUpdates(model *agent.ModelConfig, update *api.UpdateModelConfigRequest) {
 	if update.Name != nil && strings.TrimSpace(*update.Name) != "" {
-		model.Name = *update.Name
+		model.Name = strings.TrimSpace(*update.Name)
 	}
 	if update.Provider != nil {
 		model.Provider = string(*update.Provider)
@@ -388,13 +388,13 @@ func applyModelUpdates(model *agent.ModelConfig, update *api.UpdateModelConfigRe
 		}
 	}
 	if update.Model != nil && strings.TrimSpace(*update.Model) != "" {
-		model.Model = *update.Model
+		model.Model = strings.TrimSpace(*update.Model)
 	}
 	if update.ApiKey != nil {
-		model.APIKey = *update.ApiKey
+		model.APIKey = strings.TrimSpace(*update.ApiKey)
 	}
 	if update.BaseUrl != nil {
-		model.BaseURL = *update.BaseUrl
+		model.BaseURL = strings.TrimSpace(*update.BaseUrl)
 	}
 	if update.ContextWindow != nil {
 		model.ContextWindow = *update.ContextWindow
@@ -415,7 +415,7 @@ func applyModelUpdates(model *agent.ModelConfig, update *api.UpdateModelConfigRe
 		model.ThinkingEffort = string(*update.ThinkingEffort)
 	}
 	if update.Description != nil {
-		model.Description = *update.Description
+		model.Description = strings.TrimSpace(*update.Description)
 	}
 }
 

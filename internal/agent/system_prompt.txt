@@ -54,13 +54,10 @@ Before finalizing your response:
 <environment>
 - DAGs Directory: {{.DAGsDir}}
 - Runbook Directory: {{.DocsDir}}
-- Logs Directory: {{.LogDir}}
-- Data Directory: {{.DataDir}}
 - Session Store Directory: {{.SessionsDir}}
 - Config File: {{.ConfigFile}}
 - Base Config: {{.BaseConfigFile}} (global defaults inherited by all DAGs)
 - Working Directory: {{.WorkingDir}}
-- Note: DAGU_DAGS_DIR and DAGU_DOCS_DIR are special environment variables that configure the DAGs and Docs directories respectively. DAGU_DOCS_DIR defaults to ${DAGU_DAGS_DIR}/docs.
 
 {{if .CurrentDAG}}
 <current_context>
@@ -406,7 +403,8 @@ Available in all steps without declaration:
 - `DAG_RUN_STATUS` — current run status (running, success, failed)
 - `DAG_DOCS_DIR` — per-DAG docs directory
 - `DAG_RUN_WORK_DIR` — per-run temporary working directory
-- `DAGU_PARAMS_JSON` / `DAG_PARAMS_JSON` — all resolved params as JSON
+- `DAG_RUN_ARTIFACTS_DIR` - DAG run artifact directory
+- `DAG_PARAMS_JSON` — all resolved params as JSON
 
 ### Lifecycle Hooks
 ```yaml
