@@ -30,7 +30,7 @@ export const AGENT_MODEL_PROVIDERS: readonly AgentModelProviderMeta[] = [
     authMode: 'direct',
     apiKeyMode: 'required',
     modelPlaceholder: 'claude-sonnet-4-6',
-    baseUrlPlaceholder: 'Custom API endpoint',
+    baseUrlPlaceholder: 'Defaults to https://api.anthropic.com',
   },
   {
     value: 'openai',
@@ -38,7 +38,7 @@ export const AGENT_MODEL_PROVIDERS: readonly AgentModelProviderMeta[] = [
     authMode: 'direct',
     apiKeyMode: 'required',
     modelPlaceholder: 'gpt-5.4',
-    baseUrlPlaceholder: 'Custom API endpoint',
+    baseUrlPlaceholder: 'Defaults to https://api.openai.com/v1',
   },
   {
     value: 'openai-codex',
@@ -53,7 +53,7 @@ export const AGENT_MODEL_PROVIDERS: readonly AgentModelProviderMeta[] = [
     authMode: 'direct',
     apiKeyMode: 'required',
     modelPlaceholder: 'gemini-3-pro-preview',
-    baseUrlPlaceholder: 'Custom API endpoint',
+    baseUrlPlaceholder: 'Defaults to https://generativelanguage.googleapis.com/v1beta',
   },
   {
     value: 'openrouter',
@@ -78,7 +78,7 @@ export const AGENT_MODEL_PROVIDERS: readonly AgentModelProviderMeta[] = [
     authMode: 'direct',
     apiKeyMode: 'required',
     modelPlaceholder: 'glm-5',
-    baseUrlPlaceholder: 'Custom API endpoint',
+    baseUrlPlaceholder: 'Defaults to https://api.z.ai/api/paas/v4',
   },
   {
     value: 'opencode',
