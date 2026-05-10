@@ -30,7 +30,7 @@ export const AGENT_MODEL_PROVIDERS: readonly AgentModelProviderMeta[] = [
     authMode: 'direct',
     apiKeyMode: 'required',
     modelPlaceholder: 'claude-sonnet-4-6',
-    baseUrlPlaceholder: 'Defaults to https://api.anthropic.com',
+    baseUrlPlaceholder: 'https://api.anthropic.com',
   },
   {
     value: 'openai',
@@ -38,7 +38,7 @@ export const AGENT_MODEL_PROVIDERS: readonly AgentModelProviderMeta[] = [
     authMode: 'direct',
     apiKeyMode: 'required',
     modelPlaceholder: 'gpt-5.5',
-    baseUrlPlaceholder: 'Defaults to https://api.openai.com/v1',
+    baseUrlPlaceholder: 'https://api.openai.com/v1',
   },
   {
     value: 'openai-codex',
@@ -53,7 +53,7 @@ export const AGENT_MODEL_PROVIDERS: readonly AgentModelProviderMeta[] = [
     authMode: 'direct',
     apiKeyMode: 'required',
     modelPlaceholder: 'gemini-3-pro-preview',
-    baseUrlPlaceholder: 'Defaults to https://generativelanguage.googleapis.com/v1beta',
+    baseUrlPlaceholder: 'https://generativelanguage.googleapis.com/v1beta',
   },
   {
     value: 'openrouter',
@@ -61,7 +61,7 @@ export const AGENT_MODEL_PROVIDERS: readonly AgentModelProviderMeta[] = [
     authMode: 'direct',
     apiKeyMode: 'required',
     modelPlaceholder: 'anthropic/claude-sonnet-4-6',
-    baseUrlPlaceholder: 'Defaults to https://openrouter.ai/api/v1',
+    baseUrlPlaceholder: 'https://openrouter.ai/api/v1',
   },
   {
     value: 'local',
@@ -69,7 +69,7 @@ export const AGENT_MODEL_PROVIDERS: readonly AgentModelProviderMeta[] = [
     authMode: 'direct',
     apiKeyMode: 'optional',
     modelPlaceholder: 'llama3.2',
-    baseUrlPlaceholder: 'Defaults to http://localhost:11434/v1',
+    baseUrlPlaceholder: 'http://localhost:11434/v1',
     apiKeyHelperText: 'Leave empty for local endpoints that do not require authentication.',
   },
   {
@@ -78,7 +78,7 @@ export const AGENT_MODEL_PROVIDERS: readonly AgentModelProviderMeta[] = [
     authMode: 'direct',
     apiKeyMode: 'required',
     modelPlaceholder: 'glm-5',
-    baseUrlPlaceholder: 'Defaults to https://api.z.ai/api/paas/v4',
+    baseUrlPlaceholder: 'https://api.z.ai/api/paas/v4',
   },
   {
     value: 'opencode',
@@ -86,7 +86,7 @@ export const AGENT_MODEL_PROVIDERS: readonly AgentModelProviderMeta[] = [
     authMode: 'direct',
     apiKeyMode: 'required',
     modelPlaceholder: 'kimi-k2.6',
-    baseUrlPlaceholder: 'Defaults to https://opencode.ai/zen/go/v1',
+    baseUrlPlaceholder: 'https://opencode.ai/zen/go/v1',
     apiKeyHelperText: 'API key from opencode.ai subscription.',
   },
 ] as const;
