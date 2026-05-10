@@ -37,7 +37,7 @@ export const AGENT_MODEL_PROVIDERS: readonly AgentModelProviderMeta[] = [
     label: 'OpenAI',
     authMode: 'direct',
     apiKeyMode: 'required',
-    modelPlaceholder: 'gpt-5.4',
+    modelPlaceholder: 'gpt-5.5',
     baseUrlPlaceholder: 'Defaults to https://api.openai.com/v1',
   },
   {
@@ -45,7 +45,7 @@ export const AGENT_MODEL_PROVIDERS: readonly AgentModelProviderMeta[] = [
     label: 'OpenAI Codex',
     authMode: 'subscription',
     apiKeyMode: 'hidden',
-    modelPlaceholder: 'gpt-5.4',
+    modelPlaceholder: 'gpt-5.5',
   },
   {
     value: 'gemini',
