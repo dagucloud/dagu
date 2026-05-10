@@ -334,7 +334,7 @@ func validateProvider(provider string) error {
 	if _, err := llm.ParseProviderType(provider); err != nil {
 		return &Error{
 			Code:       api.ErrorCodeBadRequest,
-			Message:    fmt.Sprintf("invalid provider '%s': valid options are anthropic, openai, openai-codex, gemini, openrouter, local, zai", provider),
+			Message:    fmt.Sprintf("invalid provider '%s': valid options are anthropic, openai, openai-codex, gemini, openrouter, local, zai, opencode", provider),
 			HTTPStatus: http.StatusBadRequest,
 		}
 	}

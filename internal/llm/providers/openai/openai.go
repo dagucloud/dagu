@@ -24,6 +24,7 @@ const (
 
 func init() {
 	llm.RegisterProvider(llm.ProviderOpenAI, New)
+	llm.RegisterProvider(llm.ProviderOpenCode, New)
 }
 
 // Provider implements the llm.Provider interface for OpenAI.

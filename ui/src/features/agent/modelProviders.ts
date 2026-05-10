@@ -6,6 +6,7 @@ export const AGENT_MODEL_PROVIDER_VALUES = [
   'openrouter',
   'local',
   'zai',
+  'opencode',
 ] as const;
 
 export type AgentModelProvider = (typeof AGENT_MODEL_PROVIDER_VALUES)[number];
@@ -78,6 +79,15 @@ export const AGENT_MODEL_PROVIDERS: readonly AgentModelProviderMeta[] = [
     apiKeyMode: 'required',
     modelPlaceholder: 'glm-5',
     baseUrlPlaceholder: 'Custom API endpoint',
+  },
+  {
+    value: 'opencode',
+    label: 'OpenCode',
+    authMode: 'direct',
+    apiKeyMode: 'required',
+    modelPlaceholder: 'kimi-k2.6',
+    baseUrlPlaceholder: 'Defaults to https://opencode.ai/zen/go/v1',
+    apiKeyHelperText: 'API key from opencode.ai subscription.',
   },
 ] as const;
 
