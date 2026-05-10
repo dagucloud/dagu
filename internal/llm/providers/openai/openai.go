@@ -74,9 +74,16 @@ func (p *Provider) Chat(ctx context.Context, req *llm.ChatRequest) (*llm.ChatRes
 	}
 
 	choice := resp.Choices[0]
+	// Some providers (e.g. Moonshot/KIMI) return reasoning in "reasoning" rather than
+	// "reasoning_content". Prefer "reasoning_content" if both are present.
+	reasoningContent := choice.Message.ReasoningContent
+	if reasoningContent == "" {
+		reasoningContent = choice.Message.Reasoning
+	}
 	result := &llm.ChatResponse{
-		Content:      choice.Message.Content,
-		FinishReason: choice.FinishReason,
+		Content:          choice.Message.Content,
+		ReasoningContent: reasoningContent,
+		FinishReason:     choice.FinishReason,
 		Usage: llm.Usage{
 			PromptTokens:     resp.Usage.PromptTokens,
 			CompletionTokens: resp.Usage.CompletionTokens,
@@ -124,8 +131,9 @@ func (p *Provider) buildRequestBody(req *llm.ChatRequest, stream bool) ([]byte, 
 	messages := make([]message, len(req.Messages))
 	for i, m := range req.Messages {
 		messages[i] = message{
-			Role:    string(m.Role),
-			Content: m.Content,
+			Role:             string(m.Role),
+			Content:          m.Content,
+			ReasoningContent: m.ReasoningContent,
 		}
 		if m.Name != "" {
 			messages[i].Name = m.Name
@@ -286,11 +294,12 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, event
 // API request/response types
 
 type message struct {
-	Role       string     `json:"role"`
-	Content    string     `json:"content"`
-	Name       string     `json:"name,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
-	ToolCalls  []toolCall `json:"tool_calls,omitempty"`
+	Role             string     `json:"role"`
+	Content          string     `json:"content"`
+	ReasoningContent string     `json:"reasoning_content,omitempty"`
+	Name             string     `json:"name,omitempty"`
+	ToolCallID       string     `json:"tool_call_id,omitempty"`
+	ToolCalls        []toolCall `json:"tool_calls,omitempty"`
 }
 
 // Tool calling types
@@ -358,10 +367,14 @@ type chatCompletionResponse struct {
 }
 
 type responseMessage struct {
-	Role       string     `json:"role"`
-	Content    string     `json:"content"`
-	ToolCalls  []toolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Role             string     `json:"role"`
+	Content          string     `json:"content"`
+	// Reasoning is the field name used by some providers (e.g. Moonshot/KIMI via OpenCode)
+	// in their response. We capture it and echo it back as reasoning_content on the next turn.
+	Reasoning        string     `json:"reasoning,omitempty"`
+	ReasoningContent string     `json:"reasoning_content,omitempty"`
+	ToolCalls        []toolCall `json:"tool_calls,omitempty"`
+	ToolCallID       string     `json:"tool_call_id,omitempty"`
 }
 
 type streamChunk struct {
