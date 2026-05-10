@@ -24,6 +24,7 @@ func TestGetModelPresets(t *testing.T) {
 		"openrouter":   true,
 		"local":        true,
 		"zai":          true,
+		"opencode":     true,
 	}
 
 	for _, p := range presets {

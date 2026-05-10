@@ -368,8 +368,8 @@ type chatCompletionResponse struct {
 }
 
 type responseMessage struct {
-	Role             string     `json:"role"`
-	Content          string     `json:"content"`
+	Role    string `json:"role"`
+	Content string `json:"content"`
 	// Reasoning is the field name used by some providers (e.g. Moonshot/KIMI via OpenCode)
 	// in their response. We capture it and echo it back as reasoning_content on the next turn.
 	Reasoning        string     `json:"reasoning,omitempty"`
