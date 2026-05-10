@@ -301,6 +301,38 @@ func TestStaleDetection(t *testing.T) {
 	})
 }
 
+func TestRemoveLockDir(t *testing.T) {
+	t.Run("WithOwnerFile", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		lockPath := filepath.Join(tmpDir, ".dagu_lock")
+		require.NoError(t, os.Mkdir(lockPath, 0700))
+		require.NoError(t, os.WriteFile(filepath.Join(lockPath, lockOwnerFileName), []byte("token"), 0600))
+
+		require.NoError(t, removeLockDir(lockPath))
+
+		_, err := os.Stat(lockPath)
+		require.True(t, os.IsNotExist(err))
+	})
+
+	t.Run("EmptyLockDir", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		lockPath := filepath.Join(tmpDir, ".dagu_lock")
+		require.NoError(t, os.Mkdir(lockPath, 0700))
+
+		require.NoError(t, removeLockDir(lockPath))
+
+		_, err := os.Stat(lockPath)
+		require.True(t, os.IsNotExist(err))
+	})
+
+	t.Run("MissingLockDir", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		lockPath := filepath.Join(tmpDir, ".dagu_lock")
+
+		require.NoError(t, removeLockDir(lockPath))
+	})
+}
+
 func TestForceUnlock(t *testing.T) {
 	tmpDir := t.TempDir()
 

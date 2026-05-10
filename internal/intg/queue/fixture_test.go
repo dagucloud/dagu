@@ -278,6 +278,21 @@ func (f *fixture) WaitForAllStatuses(expected core.Status, timeout time.Duration
 	return f
 }
 
+func (f *fixture) WaitForAllStopped(timeout time.Duration) *fixture {
+	f.t.Helper()
+	timeout = queueTestTimeout(timeout)
+	require.Eventually(f.t, func() bool {
+		for _, runID := range f.runIDs {
+			alive, err := f.th.ProcStore.IsRunAlive(f.th.Context, f.queue, exec.NewDAGRunRef(f.dag.Name, runID))
+			if err != nil || alive {
+				return false
+			}
+		}
+		return true
+	}, timeout, 50*time.Millisecond, "timed out waiting for queued runs to stop")
+	return f
+}
+
 // Stop stops the scheduler.
 func (f *fixture) Stop() {
 	if f.cancel != nil {
