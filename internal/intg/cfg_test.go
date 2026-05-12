@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/test"
 	"github.com/stretchr/testify/require"
@@ -648,6 +649,52 @@ steps:
 		// The test should fail with the current implementation
 		dag.AssertLatestStatus(t, core.Succeeded)
 	})
+}
+
+func TestDotEnvUsesResolvedWorkingDirFromBaseEnv(t *testing.T) {
+	t.Parallel()
+
+	baseDir := t.TempDir()
+	workDir := filepath.Join(baseDir, "signals")
+	require.NoError(t, os.MkdirAll(workDir, 0750))
+	if resolved, err := filepath.EvalSymlinks(workDir); err == nil {
+		workDir = resolved
+	}
+	workDirForYAML := filepath.ToSlash(workDir)
+
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, ".env"), []byte("PYTHON_BIN=/usr/local/bin/python\n"), 0600))
+
+	baseConfigPath := filepath.Join(baseDir, "base.yaml")
+	require.NoError(t, os.WriteFile(baseConfigPath, []byte(fmt.Sprintf(`env:
+  - QUANT_SIGNAL_DIR: %q
+`, workDirForYAML)), 0600))
+
+	th := test.Setup(t, test.WithConfigMutator(func(cfg *config.Config) {
+		cfg.Paths.BaseConfig = baseConfigPath
+	}))
+
+	require.NoError(t, os.MkdirAll(th.Config.Paths.DAGsDir, 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(th.Config.Paths.DAGsDir, ".env"), []byte("PYTHON_BIN=wrong-from-dag-dir\n"), 0600))
+
+	pwdCommand := test.ForOS("pwd", "(Get-Location).Path")
+	dag := th.DAG(t, `dotenv: .env
+working_dir: ${QUANT_SIGNAL_DIR}
+steps:
+  - name: check-env
+    command: |
+`+indentTestScript(test.EnvOutput("QUANT_SIGNAL_DIR", "PYTHON_BIN"), 6)+`
+    output: ENV_RESULT
+  - name: check-pwd
+    command: |
+`+indentTestScript(pwdCommand, 6)+`
+    output: PWD_RESULT
+`)
+
+	dag.Agent().RunSuccess(t)
+
+	outputs := dag.ReadOutputs(t)
+	require.Equal(t, workDirForYAML+"|/usr/local/bin/python", outputs["envResult"])
+	require.Equal(t, canonicalTestPath(workDir), canonicalTestPath(outputs["pwdResult"]))
 }
 
 func TestCallSubDAG(t *testing.T) {
