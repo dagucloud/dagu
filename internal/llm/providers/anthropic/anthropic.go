@@ -17,10 +17,11 @@ import (
 )
 
 const (
-	providerName        = "anthropic"
-	defaultMessagesPath = "/v1/messages"
-	anthropicAPIVersion = "2023-06-01"
-	streamPrefix        = "data: "
+	providerName               = "anthropic"
+	defaultMessagesPath        = "/v1/messages"
+	anthropicAPIVersion        = "2023-06-01"
+	streamPrefix               = "data: "
+	anthropicWebSearchToolType = "web_search_20260209"
 
 	// Thinking budget token limits for different effort levels.
 	// Note: Anthropic recommends budgets <= 32K to avoid timeout issues.
@@ -160,8 +161,8 @@ func (p *Provider) buildRequestBody(req *llm.ChatRequest, stream bool) ([]byte, 
 	// Append provider-native web search tool if enabled.
 	if req.WebSearch != nil && req.WebSearch.Enabled {
 		wsEntry := map[string]any{
-			"type": "web_search_20260209",
-			"name": "web_search",
+			"type": anthropicWebSearchToolType,
+			"name": llm.WebSearchToolName,
 		}
 		// Haiku 4.5 only supports allowed_callers=["direct"] for web_search.
 		// Other models accept any value, so "direct" is safe as a universal default.

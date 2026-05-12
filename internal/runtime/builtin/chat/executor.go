@@ -719,6 +719,7 @@ func (e *Executor) executeToolStep(
 
 func (e *Executor) runStreamForModel(ctx context.Context, provider llmpkg.Provider, req *llmpkg.ChatRequest) (string, *llmpkg.Usage, error) {
 	retryCfg := llmpkg.DefaultLogicalRetryConfig()
+	req = llmpkg.NormalizeChatRequest(req)
 
 	for attempt := 1; attempt <= retryCfg.MaxAttempts; attempt++ {
 		events, err := provider.ChatStream(ctx, req)
