@@ -114,6 +114,7 @@ func ReplaceFileWithRetry(source, target string) error {
 	})
 }
 
+// retryWindowsFileOp retries transient Windows file operation failures.
 func retryWindowsFileOp(op func() error) error {
 	err := op()
 	if err == nil || !isTransientWindowsFileError(err) {
@@ -136,6 +137,7 @@ func retryWindowsFileOp(op func() error) error {
 	return err
 }
 
+// isTransientWindowsFileError reports whether err is a retryable Windows file error.
 func isTransientWindowsFileError(err error) bool {
 	if runtime.GOOS != "windows" || err == nil {
 		return false
