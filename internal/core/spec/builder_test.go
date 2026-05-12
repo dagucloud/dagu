@@ -3424,6 +3424,7 @@ steps:
 	})
 }
 
+// TestDAGLoadEnv verifies dotenv loading preserves DAG envs and search precedence.
 func TestDAGLoadEnv(t *testing.T) {
 	t.Run("LoadEnvWithDotenvAndEnvVars", func(t *testing.T) {
 		// Create a temp directory with a .env file
@@ -3553,6 +3554,7 @@ steps:
 	})
 }
 
+// envSliceMap converts KEY=value env entries into a map for test assertions.
 func envSliceMap(envs []string) map[string]string {
 	envMap := make(map[string]string)
 	for _, env := range envs {
