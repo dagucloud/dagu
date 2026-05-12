@@ -26,6 +26,8 @@ func NormalizeChatRequest(req *ChatRequest) *ChatRequest {
 	return &normalized
 }
 
+// cloneWebSearchRequest returns an independent copy of provider-native web
+// search settings so normalization never mutates caller-owned request state.
 func cloneWebSearchRequest(req *WebSearchRequest) *WebSearchRequest {
 	if req == nil {
 		return nil
@@ -41,6 +43,8 @@ func cloneWebSearchRequest(req *WebSearchRequest) *WebSearchRequest {
 	return &out
 }
 
+// dedupeTools preserves the first definition for each tool name and drops later
+// duplicates so providers never receive invalid same-name tool lists.
 func dedupeTools(tools []Tool) []Tool {
 	if len(tools) == 0 {
 		return nil
@@ -59,6 +63,7 @@ func dedupeTools(tools []Tool) []Tool {
 	return out
 }
 
+// hasToolNamed reports whether tools contains a definition for name.
 func hasToolNamed(tools []Tool, name string) bool {
 	for _, tool := range tools {
 		if tool.Function.Name == name {
@@ -72,10 +77,13 @@ type normalizedProvider struct {
 	Provider
 }
 
+// Chat normalizes each request before delegating to the concrete provider.
 func (p normalizedProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
 	return p.Provider.Chat(ctx, NormalizeChatRequest(req))
 }
 
+// ChatStream normalizes each streaming request before delegating to the
+// concrete provider.
 func (p normalizedProvider) ChatStream(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
 	return p.Provider.ChatStream(ctx, NormalizeChatRequest(req))
 }
