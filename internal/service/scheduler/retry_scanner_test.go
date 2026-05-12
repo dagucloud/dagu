@@ -741,6 +741,7 @@ func (s *retryScannerStore) CompareAndSwapLatestAttemptStatus(
 	expectedAttemptID string,
 	expectedStatus core.Status,
 	mutate func(*exec.DAGRunStatus) error,
+	_ ...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {
 	attempt, ok := s.attempts[dagRun.String()]
 	if !ok {
@@ -755,15 +756,6 @@ func (s *retryScannerStore) CompareAndSwapLatestAttemptStatus(
 	}
 	attempt.status = cloneRetryStatus(current)
 	return cloneRetryStatus(attempt.status), true, nil
-}
-
-func (s *retryScannerStore) CompareAndSwapAttemptStatus(
-	ctx context.Context,
-	ref exec.DAGRunAttemptRef,
-	expectedStatus core.Status,
-	mutate func(*exec.DAGRunStatus) error,
-) (*exec.DAGRunStatus, bool, error) {
-	return s.CompareAndSwapLatestAttemptStatus(ctx, ref.DAGRun, ref.AttemptID, expectedStatus, mutate)
 }
 
 func (s *retryScannerStore) FindAttempt(_ context.Context, dagRun exec.DAGRunRef) (exec.DAGRunAttempt, error) {

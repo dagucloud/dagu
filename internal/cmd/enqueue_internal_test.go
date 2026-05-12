@@ -98,11 +98,7 @@ func (s *enqueueTrackingDAGRunStore) ListStatusesPage(context.Context, ...exec.L
 	return exec.DAGRunStatusPage{}, nil
 }
 
-func (s *enqueueTrackingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, exec.DAGRunRef, string, core.Status, func(*exec.DAGRunStatus) error) (*exec.DAGRunStatus, bool, error) {
-	return nil, false, nil
-}
-
-func (s *enqueueTrackingDAGRunStore) CompareAndSwapAttemptStatus(context.Context, exec.DAGRunAttemptRef, core.Status, func(*exec.DAGRunStatus) error) (*exec.DAGRunStatus, bool, error) {
+func (s *enqueueTrackingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, exec.DAGRunRef, string, core.Status, func(*exec.DAGRunStatus) error, ...exec.CompareAndSwapStatusOption) (*exec.DAGRunStatus, bool, error) {
 	return nil, false, nil
 }
 

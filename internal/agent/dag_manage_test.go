@@ -617,12 +617,8 @@ func (s *dagRunManageTestStore) ListStatusesPage(_ context.Context, opts ...exec
 	return s.page, nil
 }
 
-func (s *dagRunManageTestStore) CompareAndSwapLatestAttemptStatus(context.Context, exec.DAGRunRef, string, core.Status, func(*exec.DAGRunStatus) error) (*exec.DAGRunStatus, bool, error) {
+func (s *dagRunManageTestStore) CompareAndSwapLatestAttemptStatus(context.Context, exec.DAGRunRef, string, core.Status, func(*exec.DAGRunStatus) error, ...exec.CompareAndSwapStatusOption) (*exec.DAGRunStatus, bool, error) {
 	return nil, false, errors.New("unexpected CompareAndSwapLatestAttemptStatus")
-}
-
-func (s *dagRunManageTestStore) CompareAndSwapAttemptStatus(context.Context, exec.DAGRunAttemptRef, core.Status, func(*exec.DAGRunStatus) error) (*exec.DAGRunStatus, bool, error) {
-	return nil, false, errors.New("unexpected CompareAndSwapAttemptStatus")
 }
 
 func (s *dagRunManageTestStore) FindAttempt(context.Context, exec.DAGRunRef) (exec.DAGRunAttempt, error) {

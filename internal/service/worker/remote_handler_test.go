@@ -661,15 +661,7 @@ func (m *mockRemoteDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	_ string,
 	_ core.Status,
 	_ func(*exec.DAGRunStatus) error,
-) (*exec.DAGRunStatus, bool, error) {
-	return nil, false, nil
-}
-
-func (m *mockRemoteDAGRunStore) CompareAndSwapAttemptStatus(
-	_ context.Context,
-	_ exec.DAGRunAttemptRef,
-	_ core.Status,
-	_ func(*exec.DAGRunStatus) error,
+	_ ...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {
 	return nil, false, nil
 }

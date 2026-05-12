@@ -52,12 +52,3 @@ func TestNewDAGRunAttemptOptions(t *testing.T) {
 	assert.Equal(t, rootDAGRun, opts.RootDAGRun)
 	assert.True(t, opts.Retry)
 }
-
-func TestDAGRunAttemptRefIsSubDAGWhenRootAndRunShareID(t *testing.T) {
-	ref := exec.DAGRunAttemptRef{
-		DAGRun: exec.NewDAGRunRef("child-dag", "shared-run"),
-		Root:   exec.NewDAGRunRef("root-dag", "shared-run"),
-	}
-
-	assert.True(t, ref.IsSubDAG())
-}

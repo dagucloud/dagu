@@ -376,14 +376,14 @@ func TestJSONDB(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "sub-id", status.DAGRunID)
 	})
-	t.Run("CompareAndSwapAttemptStatusUpdatesSubAttempt", func(t *testing.T) {
+	t.Run("CompareAndSwapLatestAttemptStatusUpdatesSubAttempt", func(t *testing.T) {
 		th := setupTestStore(t)
 
 		ts := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 		th.CreateAttempt(t, ts, "parent-id", core.Running)
 
 		rootRef := exec.NewDAGRunRef("test_DAG", "parent-id")
-		subRef := exec.NewDAGRunRef("child", "sub-id")
+		subRef := exec.NewDAGRunRef("child", "parent-id")
 		subAttempt, err := th.Store.CreateSubAttempt(th.Context, rootRef, subRef.ID)
 		require.NoError(t, err)
 
@@ -400,14 +400,10 @@ func TestJSONDB(t *testing.T) {
 		require.NoError(t, subAttempt.Write(th.Context, statusToWrite))
 		require.NoError(t, subAttempt.Close(th.Context))
 
-		updated, swapped, err := th.Store.CompareAndSwapAttemptStatus(
+		updated, swapped, err := th.Store.CompareAndSwapLatestAttemptStatus(
 			th.Context,
-			exec.DAGRunAttemptRef{
-				DAGRun:     subRef,
-				Root:       rootRef,
-				AttemptID:  subAttempt.ID(),
-				AttemptKey: statusToWrite.AttemptKey,
-			},
+			subRef,
+			subAttempt.ID(),
 			core.Running,
 			func(status *exec.DAGRunStatus) error {
 				status.Status = core.Failed
@@ -415,6 +411,8 @@ func TestJSONDB(t *testing.T) {
 				status.Nodes[0].Status = core.NodeFailed
 				return nil
 			},
+			exec.WithCompareAndSwapRootDAGRun(rootRef),
+			exec.WithCompareAndSwapExpectedAttemptKey(statusToWrite.AttemptKey),
 		)
 		require.NoError(t, err)
 		require.True(t, swapped)

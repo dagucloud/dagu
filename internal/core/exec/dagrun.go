@@ -71,14 +71,7 @@ type DAGRunStore interface {
 		expectedAttemptID string,
 		expectedStatus core.Status,
 		mutate func(*DAGRunStatus) error,
-	) (*DAGRunStatus, bool, error)
-	// CompareAndSwapAttemptStatus atomically updates a root or sub-DAG attempt
-	// status when both the latest attempt identity and status still match.
-	CompareAndSwapAttemptStatus(
-		ctx context.Context,
-		attempt DAGRunAttemptRef,
-		expectedStatus core.Status,
-		mutate func(*DAGRunStatus) error,
+		opts ...CompareAndSwapStatusOption,
 	) (*DAGRunStatus, bool, error)
 	// FindAttempt finds the latest attempt for the dag-run.
 	FindAttempt(ctx context.Context, dagRun DAGRunRef) (DAGRunAttempt, error)
@@ -271,14 +264,6 @@ type DAGRunRef struct {
 	ID   string `json:"id,omitempty"`
 }
 
-// DAGRunAttemptRef identifies a concrete root or sub-DAG attempt.
-type DAGRunAttemptRef struct {
-	DAGRun     DAGRunRef
-	Root       DAGRunRef
-	AttemptID  string
-	AttemptKey string
-}
-
 // NewDAGRunRef creates a new reference to dag-run with the given DAG name and run ID.
 // It is used to identify a specific dag-run.
 func NewDAGRunRef(name, runID string) DAGRunRef {
@@ -298,20 +283,41 @@ func (e DAGRunRef) Zero() bool {
 	return e == zeroRef
 }
 
-// IsSubDAG returns true when the attempt is stored under a different root run.
-func (r DAGRunAttemptRef) IsSubDAG() bool {
-	if r.Root.Zero() || r.Root.ID == "" {
-		return false
-	}
-	return r.Root.ID != r.DAGRun.ID || r.Root.Name != r.DAGRun.Name
+// CompareAndSwapStatusOptions configures additional identity guards for
+// CompareAndSwapLatestAttemptStatus.
+type CompareAndSwapStatusOptions struct {
+	RootDAGRun         DAGRunRef
+	ExpectedAttemptKey string
 }
 
-// RootOrDAGRun returns the root reference for locking and lookup.
-func (r DAGRunAttemptRef) RootOrDAGRun() DAGRunRef {
-	if r.Root.Zero() {
-		return r.DAGRun
+// CompareAndSwapStatusOption configures CompareAndSwapLatestAttemptStatus.
+type CompareAndSwapStatusOption func(*CompareAndSwapStatusOptions)
+
+// WithCompareAndSwapRootDAGRun routes CompareAndSwapLatestAttemptStatus
+// through a root dag-run when the target dag-run is stored as a sub-DAG attempt.
+func WithCompareAndSwapRootDAGRun(root DAGRunRef) CompareAndSwapStatusOption {
+	return func(opts *CompareAndSwapStatusOptions) {
+		opts.RootDAGRun = root
 	}
-	return r.Root
+}
+
+// WithCompareAndSwapExpectedAttemptKey requires the current status attempt key
+// to match.
+func WithCompareAndSwapExpectedAttemptKey(attemptKey string) CompareAndSwapStatusOption {
+	return func(opts *CompareAndSwapStatusOptions) {
+		opts.ExpectedAttemptKey = attemptKey
+	}
+}
+
+// NewCompareAndSwapStatusOptions applies CompareAndSwapLatestAttemptStatus options.
+func NewCompareAndSwapStatusOptions(opts ...CompareAndSwapStatusOption) CompareAndSwapStatusOptions {
+	var cfg CompareAndSwapStatusOptions
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&cfg)
+		}
+	}
+	return cfg
 }
 
 // ParseDAGRunRef parses a string into a DAGRunRef.

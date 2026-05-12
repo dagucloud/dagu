@@ -168,46 +168,42 @@ func (m *mockDAGRunStore) ListStatusesPage(ctx context.Context, opts ...exec.Lis
 	return exec.DAGRunStatusPage{Items: items}, nil
 }
 func (m *mockDAGRunStore) CompareAndSwapLatestAttemptStatus(
-	ctx context.Context,
+	_ context.Context,
 	dagRun exec.DAGRunRef,
 	expectedAttemptID string,
 	expectedStatus core.Status,
 	mutate func(*exec.DAGRunStatus) error,
-) (*exec.DAGRunStatus, bool, error) {
-	return m.CompareAndSwapAttemptStatus(ctx, exec.DAGRunAttemptRef{
-		DAGRun:    dagRun,
-		AttemptID: expectedAttemptID,
-	}, expectedStatus, mutate)
-}
-
-func (m *mockDAGRunStore) CompareAndSwapAttemptStatus(
-	_ context.Context,
-	ref exec.DAGRunAttemptRef,
-	expectedStatus core.Status,
-	mutate func(*exec.DAGRunStatus) error,
+	opts ...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	cfg := exec.NewCompareAndSwapStatusOptions(opts...)
+	root := cfg.RootDAGRun
+	if root.Zero() {
+		root = dagRun
+	}
+	isSubDAG := root.ID != "" && (root.ID != dagRun.ID || root.Name != dagRun.Name)
 
 	var (
 		attempt *mockDAGRunAttempt
 		ok      bool
 	)
-	if ref.IsSubDAG() {
-		key := ref.Root.ID + ":" + ref.DAGRun.ID
+	if isSubDAG {
+		key := root.ID + ":" + dagRun.ID
 		attempt, ok = m.subAttempts[key]
 	} else {
-		attempt, ok = m.attempts[ref.DAGRun.ID]
+		attempt, ok = m.attempts[dagRun.ID]
 	}
 	if !ok || attempt.status == nil {
 		return nil, false, nil
 	}
 
 	current := *attempt.status
-	if ref.AttemptID != "" && current.AttemptID != ref.AttemptID {
+	if expectedAttemptID != "" && current.AttemptID != expectedAttemptID {
 		return &current, false, nil
 	}
-	if ref.AttemptKey != "" && current.AttemptKey != "" && current.AttemptKey != ref.AttemptKey {
+	if cfg.ExpectedAttemptKey != "" && current.AttemptKey != cfg.ExpectedAttemptKey {
 		return &current, false, nil
 	}
 	if current.Status != expectedStatus {

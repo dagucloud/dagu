@@ -236,25 +236,18 @@ func (store *Store) CompareAndSwapLatestAttemptStatus(
 	expectedAttemptID string,
 	expectedStatus core.Status,
 	mutate func(*exec.DAGRunStatus) error,
+	opts ...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {
-	return store.CompareAndSwapAttemptStatus(ctx, exec.DAGRunAttemptRef{
-		DAGRun:    dagRun,
-		AttemptID: expectedAttemptID,
-	}, expectedStatus, mutate)
-}
-
-func (store *Store) CompareAndSwapAttemptStatus(
-	ctx context.Context,
-	ref exec.DAGRunAttemptRef,
-	expectedStatus core.Status,
-	mutate func(*exec.DAGRunStatus) error,
-) (*exec.DAGRunStatus, bool, error) {
-	dagRun := ref.DAGRun
 	if dagRun.ID == "" {
 		return nil, false, ErrDAGRunIDEmpty
 	}
-	rootRef := ref.RootOrDAGRun()
-	if ref.IsSubDAG() && rootRef.Name == "" {
+	cfg := exec.NewCompareAndSwapStatusOptions(opts...)
+	rootRef := cfg.RootDAGRun
+	if rootRef.Zero() {
+		rootRef = dagRun
+	}
+	isSubDAG := rootRef.ID != "" && (rootRef.ID != dagRun.ID || rootRef.Name != dagRun.Name)
+	if isSubDAG && rootRef.Name == "" {
 		return nil, false, fmt.Errorf("missing root dag-run name for sub dag-run %s", dagRun.ID)
 	}
 	if rootRef.Name == "" {
@@ -281,7 +274,7 @@ func (store *Store) CompareAndSwapAttemptStatus(
 	if err != nil {
 		return nil, false, err
 	}
-	if ref.IsSubDAG() {
+	if isSubDAG {
 		run, err = run.FindSubDAGRun(ctx, dagRun.ID)
 		if err != nil {
 			return nil, false, err
@@ -297,10 +290,10 @@ func (store *Store) CompareAndSwapAttemptStatus(
 	if err != nil {
 		return nil, false, err
 	}
-	if ref.AttemptID != "" && status.AttemptID != ref.AttemptID {
+	if expectedAttemptID != "" && status.AttemptID != expectedAttemptID {
 		return status, false, nil
 	}
-	if ref.AttemptKey != "" && status.AttemptKey != "" && status.AttemptKey != ref.AttemptKey {
+	if cfg.ExpectedAttemptKey != "" && status.AttemptKey != cfg.ExpectedAttemptKey {
 		return status, false, nil
 	}
 	if status.DAGRunID != "" && status.DAGRunID != dagRun.ID {
