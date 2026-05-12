@@ -518,8 +518,16 @@ func (d *DAG) loadDotEnvFiles(ctx context.Context) {
 		return
 	}
 
-	relativeTos := []string{d.WorkingDir}
-	if fileDir := filepath.Dir(d.Location); d.Location != "" && fileDir != d.WorkingDir {
+	scope := d.dotenvEnvScope()
+	evalCtx := ctx
+	if evalCtx == nil {
+		evalCtx = context.Background()
+	}
+	evalCtx = eval.WithEnvScope(evalCtx, scope)
+
+	workingDir := expandDotEnvPath(d.WorkingDir, scope)
+	relativeTos := []string{workingDir}
+	if fileDir := filepath.Dir(d.Location); d.Location != "" && fileDir != workingDir {
 		relativeTos = append(relativeTos, fileDir)
 	}
 
@@ -527,8 +535,48 @@ func (d *DAG) loadDotEnvFiles(ctx context.Context) {
 	candidates := deduplicateStrings(append([]string{".env"}, d.Dotenv...))
 
 	for _, filePath := range candidates {
-		d.loadSingleDotEnvFile(ctx, resolver, filePath)
+		d.loadSingleDotEnvFile(evalCtx, resolver, filePath)
 	}
+}
+
+func (d *DAG) dotenvEnvScope() *eval.EnvScope {
+	scope := eval.NewEnvScope(nil, true)
+	if params := keyValuesToMap(d.Params); len(params) > 0 {
+		scope = scope.WithEntries(params, eval.EnvSourceParam)
+	}
+	if len(d.PresolvedBuildEnv) > 0 {
+		scope = scope.WithEntries(d.PresolvedBuildEnv, eval.EnvSourcePresolved)
+	}
+	if envs := keyValuesToMap(d.Env); len(envs) > 0 {
+		scope = scope.WithEntries(envs, eval.EnvSourceDAGEnv)
+	}
+	return scope
+}
+
+func keyValuesToMap(entries []string) map[string]string {
+	if len(entries) == 0 {
+		return nil
+	}
+
+	values := make(map[string]string, len(entries))
+	for _, entry := range entries {
+		key, value, ok := strings.Cut(entry, "=")
+		if !ok || key == "" {
+			continue
+		}
+		values[key] = value
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	return values
+}
+
+func expandDotEnvPath(path string, scope *eval.EnvScope) string {
+	if scope == nil {
+		return os.ExpandEnv(path)
+	}
+	return scope.Expand(path)
 }
 
 // loadSingleDotEnvFile loads a single dotenv file and appends its variables to d.Env.

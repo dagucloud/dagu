@@ -3489,6 +3489,79 @@ steps:
 		}
 		assert.Equal(t, "test_value", envMap["TEST_VAR_LOAD_ENV"])
 	})
+
+	t.Run("LoadEnvFromBaseEnvResolvedWorkingDir", func(t *testing.T) {
+		root := t.TempDir()
+		workDir := filepath.Join(root, "work", "quant-signal")
+		dagDir := filepath.Join(root, "dags")
+		require.NoError(t, os.MkdirAll(workDir, 0750))
+		require.NoError(t, os.MkdirAll(dagDir, 0750))
+		require.NoError(t, os.WriteFile(filepath.Join(workDir, ".env"), []byte("PYTHON_BIN=/usr/local/bin/python\n"), 0600))
+
+		baseConfig := filepath.Join(root, "base.yaml")
+		require.NoError(t, os.WriteFile(baseConfig, fmt.Appendf(nil, `
+env:
+  - QUANT_SIGNAL_DIR: %q
+`, workDir), 0600))
+
+		dagFile := filepath.Join(dagDir, "health-check.yaml")
+		require.NoError(t, os.WriteFile(dagFile, []byte(`
+working_dir: ${QUANT_SIGNAL_DIR}
+steps:
+  - command: printenv QUANT_SIGNAL_DIR PYTHON_BIN
+`), 0600))
+
+		dag, err := spec.Load(context.Background(), dagFile, spec.WithBaseConfig(baseConfig))
+		require.NoError(t, err)
+
+		dag.LoadDotEnv(context.Background())
+
+		envMap := envSliceMap(dag.Env)
+		assert.Equal(t, workDir, envMap["QUANT_SIGNAL_DIR"])
+		assert.Equal(t, "/usr/local/bin/python", envMap["PYTHON_BIN"])
+	})
+
+	t.Run("LoadEnvPrefersResolvedWorkingDirOverDAGFileDir", func(t *testing.T) {
+		root := t.TempDir()
+		workDir := filepath.Join(root, "work", "quant-signal")
+		dagDir := filepath.Join(root, "dags")
+		require.NoError(t, os.MkdirAll(workDir, 0750))
+		require.NoError(t, os.MkdirAll(dagDir, 0750))
+		require.NoError(t, os.WriteFile(filepath.Join(workDir, ".env"), []byte("PYTHON_BIN=/usr/local/bin/python\n"), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(dagDir, ".env"), []byte("PYTHON_BIN=/wrong/from-dag-dir\n"), 0600))
+
+		baseConfig := filepath.Join(root, "base.yaml")
+		require.NoError(t, os.WriteFile(baseConfig, fmt.Appendf(nil, `
+env:
+  - QUANT_SIGNAL_DIR: %q
+`, workDir), 0600))
+
+		dagFile := filepath.Join(dagDir, "health-check.yaml")
+		require.NoError(t, os.WriteFile(dagFile, []byte(`
+working_dir: ${QUANT_SIGNAL_DIR}
+steps:
+  - command: printenv QUANT_SIGNAL_DIR PYTHON_BIN
+`), 0600))
+
+		dag, err := spec.Load(context.Background(), dagFile, spec.WithBaseConfig(baseConfig))
+		require.NoError(t, err)
+
+		dag.LoadDotEnv(context.Background())
+
+		envMap := envSliceMap(dag.Env)
+		assert.Equal(t, "/usr/local/bin/python", envMap["PYTHON_BIN"])
+	})
+}
+
+func envSliceMap(envs []string) map[string]string {
+	envMap := make(map[string]string)
+	for _, env := range envs {
+		key, value, found := strings.Cut(env, "=")
+		if found {
+			envMap[key] = value
+		}
+	}
+	return envMap
 }
 
 func TestBuildShell(t *testing.T) {
