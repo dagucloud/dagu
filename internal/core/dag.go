@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/internal/cmn/eval"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
@@ -542,36 +543,16 @@ func (d *DAG) loadDotEnvFiles(ctx context.Context) {
 // dotenvEnvScope builds the variable scope used to resolve dotenv search paths.
 func (d *DAG) dotenvEnvScope() *eval.EnvScope {
 	scope := eval.NewEnvScope(nil, true)
-	if params := keyValuesToMap(d.Params); len(params) > 0 {
+	if params := buildenv.ToMap(d.Params); len(params) > 0 {
 		scope = scope.WithEntries(params, eval.EnvSourceParam)
 	}
 	if len(d.PresolvedBuildEnv) > 0 {
 		scope = scope.WithEntries(d.PresolvedBuildEnv, eval.EnvSourcePresolved)
 	}
-	if envs := keyValuesToMap(d.Env); len(envs) > 0 {
+	if envs := buildenv.ToMap(d.Env); len(envs) > 0 {
 		scope = scope.WithEntries(envs, eval.EnvSourceDAGEnv)
 	}
 	return scope
-}
-
-// keyValuesToMap converts KEY=value entries into a map for env scope construction.
-func keyValuesToMap(entries []string) map[string]string {
-	if len(entries) == 0 {
-		return nil
-	}
-
-	values := make(map[string]string, len(entries))
-	for _, entry := range entries {
-		key, value, ok := strings.Cut(entry, "=")
-		if !ok || key == "" {
-			continue
-		}
-		values[key] = value
-	}
-	if len(values) == 0 {
-		return nil
-	}
-	return values
 }
 
 // expandDotEnvPath expands a dotenv-related path without mutating the DAG definition.
