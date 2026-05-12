@@ -57,6 +57,7 @@ func RemoveAllWithRetry(path string) error {
 	return removeAllWithRetry(path, info)
 }
 
+// removeAllWithRetry recursively removes path's children before removing path.
 func removeAllWithRetry(path string, info os.FileInfo) error {
 	if !info.IsDir() {
 		if err := RemoveWithRetry(path); err != nil && !errors.Is(err, os.ErrNotExist) {
