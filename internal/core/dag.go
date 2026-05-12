@@ -539,6 +539,7 @@ func (d *DAG) loadDotEnvFiles(ctx context.Context) {
 	}
 }
 
+// dotenvEnvScope builds the variable scope used to resolve dotenv search paths.
 func (d *DAG) dotenvEnvScope() *eval.EnvScope {
 	scope := eval.NewEnvScope(nil, true)
 	if params := keyValuesToMap(d.Params); len(params) > 0 {
@@ -553,6 +554,7 @@ func (d *DAG) dotenvEnvScope() *eval.EnvScope {
 	return scope
 }
 
+// keyValuesToMap converts KEY=value entries into a map for env scope construction.
 func keyValuesToMap(entries []string) map[string]string {
 	if len(entries) == 0 {
 		return nil
@@ -572,6 +574,7 @@ func keyValuesToMap(entries []string) map[string]string {
 	return values
 }
 
+// expandDotEnvPath expands a dotenv-related path without mutating the DAG definition.
 func expandDotEnvPath(path string, scope *eval.EnvScope) string {
 	if scope == nil {
 		return os.ExpandEnv(path)
