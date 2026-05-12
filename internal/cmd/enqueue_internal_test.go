@@ -102,6 +102,10 @@ func (s *enqueueTrackingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.C
 	return nil, false, nil
 }
 
+func (s *enqueueTrackingDAGRunStore) CompareAndSwapAttemptStatus(context.Context, exec.DAGRunAttemptRef, core.Status, func(*exec.DAGRunStatus) error) (*exec.DAGRunStatus, bool, error) {
+	return nil, false, nil
+}
+
 func (s *enqueueTrackingDAGRunStore) FindAttempt(context.Context, exec.DAGRunRef) (exec.DAGRunAttempt, error) {
 	return nil, exec.ErrDAGRunIDNotFound
 }

@@ -168,22 +168,49 @@ func (m *mockDAGRunStore) ListStatusesPage(ctx context.Context, opts ...exec.Lis
 	return exec.DAGRunStatusPage{Items: items}, nil
 }
 func (m *mockDAGRunStore) CompareAndSwapLatestAttemptStatus(
-	_ context.Context,
+	ctx context.Context,
 	dagRun exec.DAGRunRef,
 	expectedAttemptID string,
+	expectedStatus core.Status,
+	mutate func(*exec.DAGRunStatus) error,
+) (*exec.DAGRunStatus, bool, error) {
+	return m.CompareAndSwapAttemptStatus(ctx, exec.DAGRunAttemptRef{
+		DAGRun:    dagRun,
+		AttemptID: expectedAttemptID,
+	}, expectedStatus, mutate)
+}
+
+func (m *mockDAGRunStore) CompareAndSwapAttemptStatus(
+	_ context.Context,
+	ref exec.DAGRunAttemptRef,
 	expectedStatus core.Status,
 	mutate func(*exec.DAGRunStatus) error,
 ) (*exec.DAGRunStatus, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	attempt, ok := m.attempts[dagRun.ID]
+	var (
+		attempt *mockDAGRunAttempt
+		ok      bool
+	)
+	if ref.IsSubDAG() {
+		key := ref.Root.ID + ":" + ref.DAGRun.ID
+		attempt, ok = m.subAttempts[key]
+	} else {
+		attempt, ok = m.attempts[ref.DAGRun.ID]
+	}
 	if !ok || attempt.status == nil {
 		return nil, false, nil
 	}
 
 	current := *attempt.status
-	if current.AttemptID != expectedAttemptID || current.Status != expectedStatus {
+	if ref.AttemptID != "" && current.AttemptID != ref.AttemptID {
+		return &current, false, nil
+	}
+	if ref.AttemptKey != "" && current.AttemptKey != "" && current.AttemptKey != ref.AttemptKey {
+		return &current, false, nil
+	}
+	if current.Status != expectedStatus {
 		return &current, false, nil
 	}
 	if err := mutate(&current); err != nil {
@@ -1885,6 +1912,68 @@ func TestHandler_ZombieDetection(t *testing.T) {
 
 		_, err = leaseStore.Get(ctx, "lease-key-1")
 		assert.ErrorIs(t, err, exec.ErrDAGRunLeaseNotFound)
+	})
+
+	t.Run("DetectStaleLeasesFailsSubDAGLeasedRunWhenFreshWorkerHeartbeatDropsAttempt", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := context.Background()
+		store := newMockDAGRunStore()
+		baseDir := filepath.Join(t.TempDir(), "distributed")
+		leaseStore := filedistributed.NewDAGRunLeaseStore(baseDir)
+		heartbeatStore := filedistributed.NewWorkerHeartbeatStore(baseDir)
+		h := NewHandler(HandlerConfig{
+			DAGRunStore:             store,
+			DAGRunLeaseStore:        leaseStore,
+			WorkerHeartbeatStore:    heartbeatStore,
+			StaleHeartbeatThreshold: time.Minute,
+			StaleLeaseThreshold:     time.Second,
+		})
+
+		root := exec.NewDAGRunRef("root-dag", "root-run")
+		subRun := exec.NewDAGRunRef("sub-dag", "sub-run")
+		attemptKey := "sub-attempt-key"
+		attemptID := "sub-attempt-id"
+		attempt := store.addSubAttempt(root, subRun.ID, &exec.DAGRunStatus{
+			Name:       subRun.Name,
+			DAGRunID:   subRun.ID,
+			Root:       root,
+			AttemptID:  attemptID,
+			AttemptKey: attemptKey,
+			Status:     core.Running,
+			WorkerID:   "worker-1",
+			Nodes: []*exec.Node{
+				{Status: core.NodeRunning},
+			},
+		})
+
+		staleAt := time.Now().Add(-10 * time.Second).UTC()
+		require.NoError(t, leaseStore.Upsert(ctx, exec.DAGRunLease{
+			AttemptKey:      attemptKey,
+			DAGRun:          subRun,
+			Root:            root,
+			AttemptID:       attemptID,
+			QueueName:       subRun.Name,
+			WorkerID:        "worker-1",
+			LastHeartbeatAt: staleAt.UnixMilli(),
+			ClaimedAt:       staleAt.UnixMilli(),
+		}))
+		require.NoError(t, heartbeatStore.Upsert(ctx, exec.WorkerHeartbeatRecord{
+			WorkerID:        "worker-1",
+			LastHeartbeatAt: time.Now().UTC().UnixMilli(),
+			Stats: &coordinatorv1.WorkerStats{
+				RunningTasks: []*coordinatorv1.RunningTask{},
+			},
+		}))
+
+		h.detectStaleLeases(ctx)
+
+		status, err := attempt.ReadStatus(ctx)
+		require.NoError(t, err)
+		require.Equal(t, core.Failed, status.Status)
+		require.Equal(t, staleDistributedLeaseReason("worker-1"), status.Error)
+		require.Equal(t, core.NodeFailed, status.Nodes[0].Status)
+		require.Equal(t, staleDistributedLeaseReason("worker-1"), status.Nodes[0].Error)
 	})
 
 	t.Run("DetectStaleLeasesKeepsLeasedRunWhenFreshWorkerHeartbeatStillReportsAttempt", func(t *testing.T) {

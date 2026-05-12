@@ -237,11 +237,34 @@ func (store *Store) CompareAndSwapLatestAttemptStatus(
 	expectedStatus core.Status,
 	mutate func(*exec.DAGRunStatus) error,
 ) (*exec.DAGRunStatus, bool, error) {
+	return store.CompareAndSwapAttemptStatus(ctx, exec.DAGRunAttemptRef{
+		DAGRun:    dagRun,
+		AttemptID: expectedAttemptID,
+	}, expectedStatus, mutate)
+}
+
+func (store *Store) CompareAndSwapAttemptStatus(
+	ctx context.Context,
+	ref exec.DAGRunAttemptRef,
+	expectedStatus core.Status,
+	mutate func(*exec.DAGRunStatus) error,
+) (*exec.DAGRunStatus, bool, error) {
+	dagRun := ref.DAGRun
 	if dagRun.ID == "" {
 		return nil, false, ErrDAGRunIDEmpty
 	}
+	rootRef := ref.RootOrDAGRun()
+	if ref.IsSubDAG() && rootRef.Name == "" {
+		return nil, false, fmt.Errorf("missing root dag-run name for sub dag-run %s", dagRun.ID)
+	}
+	if rootRef.Name == "" {
+		rootRef.Name = dagRun.Name
+	}
+	if rootRef.ID == "" {
+		return nil, false, ErrDAGRunIDEmpty
+	}
 
-	root := NewDataRoot(store.baseDir, dagRun.Name)
+	root := NewDataRoot(store.baseDir, rootRef.Name)
 	lockCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -254,9 +277,15 @@ func (store *Store) CompareAndSwapLatestAttemptStatus(
 		}
 	}()
 
-	run, err := root.FindByDAGRunID(ctx, dagRun.ID)
+	run, err := root.FindByDAGRunID(ctx, rootRef.ID)
 	if err != nil {
 		return nil, false, err
+	}
+	if ref.IsSubDAG() {
+		run, err = run.FindSubDAGRun(ctx, dagRun.ID)
+		if err != nil {
+			return nil, false, err
+		}
 	}
 
 	attempt, err := run.LatestAttempt(ctx, store.cache)
@@ -268,7 +297,13 @@ func (store *Store) CompareAndSwapLatestAttemptStatus(
 	if err != nil {
 		return nil, false, err
 	}
-	if expectedAttemptID != "" && status.AttemptID != expectedAttemptID {
+	if ref.AttemptID != "" && status.AttemptID != ref.AttemptID {
+		return status, false, nil
+	}
+	if ref.AttemptKey != "" && status.AttemptKey != "" && status.AttemptKey != ref.AttemptKey {
+		return status, false, nil
+	}
+	if status.DAGRunID != "" && status.DAGRunID != dagRun.ID {
 		return status, false, nil
 	}
 	if status.Status != expectedStatus {

@@ -94,10 +94,14 @@ func ConfirmAndRepairStaleDistributedRun(
 	}
 
 	reason := exec.DistributedLeaseExpiredReason(workerID)
-	currentStatus, swapped, err := cfg.DAGRunStore.CompareAndSwapLatestAttemptStatus(
+	currentStatus, swapped, err := cfg.DAGRunStore.CompareAndSwapAttemptStatus(
 		ctx,
-		status.DAGRun(),
-		attemptID,
+		exec.DAGRunAttemptRef{
+			DAGRun:     status.DAGRun(),
+			Root:       status.Root,
+			AttemptID:  attemptID,
+			AttemptKey: attemptKey,
+		},
 		status.Status,
 		func(current *exec.DAGRunStatus) error {
 			markActiveStatusFailed(current, reason, now)

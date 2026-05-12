@@ -987,10 +987,14 @@ func (h *Handler) repairStaleLeaseFailureFromRunHeartbeat(
 
 	reason := staleDistributedLeaseReason(workerID)
 	storeCtx := context.WithoutCancel(ctx)
-	repairedStatus, swapped, err := h.dagRunStore.CompareAndSwapLatestAttemptStatus(
+	repairedStatus, swapped, err := h.dagRunStore.CompareAndSwapAttemptStatus(
 		storeCtx,
-		lease.DAGRun,
-		lease.AttemptID,
+		exec.DAGRunAttemptRef{
+			DAGRun:     lease.DAGRun,
+			Root:       lease.Root,
+			AttemptID:  lease.AttemptID,
+			AttemptKey: lease.AttemptKey,
+		},
 		core.Failed,
 		func(status *exec.DAGRunStatus) error {
 			if !h.canRepairStaleLeaseFailureFromRunHeartbeat(workerID, task, lease, status, reason, observedAt) {
@@ -2675,9 +2679,12 @@ func (h *Handler) markStatusLeaseRunFailed(
 	}
 	h.failDistributedAttemptIfCurrent(
 		ctx,
-		status.DAGRun(),
-		attemptID,
-		attemptKey,
+		exec.DAGRunAttemptRef{
+			DAGRun:     status.DAGRun(),
+			Root:       status.Root,
+			AttemptID:  attemptID,
+			AttemptKey: attemptKey,
+		},
 		reason,
 		status.Status,
 	)
@@ -2709,17 +2716,15 @@ func (h *Handler) resolveAttemptIDForStatus(ctx context.Context, status *exec.DA
 
 func (h *Handler) failDistributedAttemptIfCurrent(
 	ctx context.Context,
-	dagRun exec.DAGRunRef,
-	attemptID string,
-	attemptKey string,
+	ref exec.DAGRunAttemptRef,
 	reason string,
 	expectedStatuses ...core.Status,
 ) {
 	storeCtx := context.WithoutCancel(ctx)
-	if attemptID == "" {
+	if ref.AttemptID == "" {
 		logger.Error(ctx, "Skipping distributed stale-run repair due to missing attempt ID",
-			tag.DAG(dagRun.Name),
-			tag.RunID(dagRun.ID),
+			tag.DAG(ref.DAGRun.Name),
+			tag.RunID(ref.DAGRun.ID),
 		)
 		return
 	}
@@ -2753,35 +2758,34 @@ func (h *Handler) failDistributedAttemptIfCurrent(
 	)
 
 	for _, expectedStatus := range expectedStatuses {
-		status, swapped, err = h.dagRunStore.CompareAndSwapLatestAttemptStatus(
+		status, swapped, err = h.dagRunStore.CompareAndSwapAttemptStatus(
 			storeCtx,
-			dagRun,
-			attemptID,
+			ref,
 			expectedStatus,
 			mutate,
 		)
 		if err != nil {
 			logger.Error(ctx, "Failed to fail stale distributed run",
-				tag.RunID(dagRun.ID),
+				tag.RunID(ref.DAGRun.ID),
 				slog.String("expected_status", expectedStatus.String()),
 				tag.Error(err),
 			)
 			return
 		}
-		if swapped || status == nil || status.AttemptID != attemptID || status.Status == expectedStatus {
+		if swapped || status == nil || status.AttemptID != ref.AttemptID || status.Status == expectedStatus {
 			break
 		}
 	}
 
 	if status == nil {
-		h.deleteDistributedTracking(ctx, storeCtx, dagRun, attemptKey,
+		h.deleteDistributedTracking(ctx, storeCtx, ref.DAGRun, ref.AttemptKey,
 			"Failed to delete orphaned distributed lease",
 			"Failed to delete orphaned active distributed run",
 		)
 		return
 	}
-	if status.AttemptID != attemptID || !status.Status.IsActive() && status.Status != core.NotStarted {
-		h.deleteDistributedTracking(ctx, storeCtx, dagRun, attemptKey,
+	if status.AttemptID != ref.AttemptID || !status.Status.IsActive() && status.Status != core.NotStarted {
+		h.deleteDistributedTracking(ctx, storeCtx, ref.DAGRun, ref.AttemptKey,
 			"Failed to delete superseded distributed lease",
 			"Failed to delete superseded active distributed run",
 		)
@@ -2791,14 +2795,14 @@ func (h *Handler) failDistributedAttemptIfCurrent(
 		return
 	}
 
-	h.deleteDistributedTracking(ctx, storeCtx, dagRun, attemptKey,
+	h.deleteDistributedTracking(ctx, storeCtx, ref.DAGRun, ref.AttemptKey,
 		"Failed to delete stale distributed lease after failure",
 		"Failed to delete active distributed run after failure",
 	)
 
 	logger.Warn(ctx, "Marked stale distributed run as FAILED",
-		tag.DAG(dagRun.Name),
-		tag.RunID(dagRun.ID),
+		tag.DAG(ref.DAGRun.Name),
+		tag.RunID(ref.DAGRun.ID),
 		slog.String("reason", reason),
 	)
 }

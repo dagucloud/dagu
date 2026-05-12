@@ -665,6 +665,15 @@ func (m *mockRemoteDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	return nil, false, nil
 }
 
+func (m *mockRemoteDAGRunStore) CompareAndSwapAttemptStatus(
+	_ context.Context,
+	_ exec.DAGRunAttemptRef,
+	_ core.Status,
+	_ func(*exec.DAGRunStatus) error,
+) (*exec.DAGRunStatus, bool, error) {
+	return nil, false, nil
+}
+
 func (m *mockRemoteDAGRunStore) RemoveOldDAGRuns(_ context.Context, _ string, _ int, _ ...exec.RemoveOldDAGRunsOption) ([]string, error) {
 	return nil, nil
 }

@@ -526,6 +526,10 @@ func (blockingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, ex
 	panic("not implemented")
 }
 
+func (blockingDAGRunStore) CompareAndSwapAttemptStatus(context.Context, exec.DAGRunAttemptRef, core.Status, func(*exec.DAGRunStatus) error) (*exec.DAGRunStatus, bool, error) {
+	panic("not implemented")
+}
+
 func (blockingDAGRunStore) FindAttempt(context.Context, exec.DAGRunRef) (exec.DAGRunAttempt, error) {
 	panic("not implemented")
 }

@@ -378,6 +378,15 @@ func (s *stubDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	return s.cloneStatus(), true, nil
 }
 
+func (s *stubDAGRunStore) CompareAndSwapAttemptStatus(
+	ctx context.Context,
+	ref exec.DAGRunAttemptRef,
+	expectedStatus core.Status,
+	mutate func(*exec.DAGRunStatus) error,
+) (*exec.DAGRunStatus, bool, error) {
+	return s.CompareAndSwapLatestAttemptStatus(ctx, ref.DAGRun, ref.AttemptID, expectedStatus, mutate)
+}
+
 func (s *stubDAGRunStore) FindAttempt(context.Context, exec.DAGRunRef) (exec.DAGRunAttempt, error) {
 	return nil, errors.New("unexpected call")
 }
