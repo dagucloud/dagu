@@ -665,9 +665,9 @@ func TestDotEnvUsesResolvedWorkingDirFromBaseEnv(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(workDir, ".env"), []byte("PYTHON_BIN=/usr/local/bin/python\n"), 0600))
 
 	baseConfigPath := filepath.Join(baseDir, "base.yaml")
-	require.NoError(t, os.WriteFile(baseConfigPath, []byte(fmt.Sprintf(`env:
+	require.NoError(t, os.WriteFile(baseConfigPath, fmt.Appendf(nil, `env:
   - QUANT_SIGNAL_DIR: %q
-`, workDirForYAML)), 0600))
+`, workDirForYAML), 0600))
 
 	th := test.Setup(t, test.WithConfigMutator(func(cfg *config.Config) {
 		cfg.Paths.BaseConfig = baseConfigPath
