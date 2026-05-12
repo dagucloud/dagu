@@ -110,6 +110,16 @@ func TestDistributedRun_DelayedAfterAck_DoesNotExecuteAfterStaleCleanup(t *testi
 	})
 }
 
+func TestDistributedSubDAG_StaleLeaseMarkedFailedAndCleansLease(t *testing.T) {
+	t.Run("SharedNothing", func(t *testing.T) {
+		testDistributedSubDAGStaleLeaseMarkedFailedAndCleansLease(t, sharedNothingMode)
+	})
+
+	t.Run("SharedStorage", func(t *testing.T) {
+		testDistributedSubDAGStaleLeaseMarkedFailedAndCleansLease(t, sharedFSMode)
+	})
+}
+
 // TestDistributedRun_HeartbeatRefreshKeepsQuietRunAlive verifies that a
 // long-running quiet step remains RUNNING past the lease threshold because
 // coordinator-owned heartbeat refreshes keep the lease fresh.
@@ -577,6 +587,125 @@ steps:
 	delayedWorker.SetAfterTaskAckHook(nil)
 }
 
+func testDistributedSubDAGStaleLeaseMarkedFailedAndCleansLease(t *testing.T, mode workerMode) {
+	t.Helper()
+
+	opts := []fixtureOption{
+		withWorkerCount(0),
+		withWorkerMaxActiveRuns(1),
+		withStaleThresholds(testStaleHeartbeatThreshold, testStaleLeaseThreshold),
+		withZombieDetectionInterval(testZombieDetectorInterval),
+	}
+	if mode == sharedFSMode {
+		opts = append(opts, withWorkerMode(sharedFSMode))
+	}
+
+	f := newTestFixture(t, `
+name: stale-subdag-parent
+steps:
+  - name: call-child
+    call: stale-subdag-child
+---
+name: stale-subdag-child
+worker_selector:
+  test: "true"
+steps:
+  - name: child-step
+    command: echo "should not execute"
+`, opts...)
+	defer f.cleanup()
+
+	abandonedTask := make(chan *coordinatorv1.Task, 1)
+	abandonOnce := sync.Once{}
+	afterAckHook := func(_ context.Context, task *coordinatorv1.Task) bool {
+		triggered := false
+		abandonOnce.Do(func() {
+			triggered = true
+			abandonedTask <- task
+		})
+		return triggered
+	}
+
+	var crashWorker *worker.Worker
+	switch mode {
+	case sharedFSMode:
+		crashWorker = f.setupSharedFSWorkerWithAfterAckHook("subdag-crash-worker", map[string]string{"test": "true"}, afterAckHook)
+	case sharedNothingMode:
+		crashWorker = f.setupSharedNothingWorkerWithAfterAckHook("subdag-crash-worker", map[string]string{"test": "true"}, "", afterAckHook)
+	default:
+		t.Fatalf("unsupported worker mode: %v", mode)
+	}
+	require.NotNil(t, crashWorker)
+	defer crashWorker.SetAfterTaskAckHook(nil)
+
+	require.NoError(t, f.enqueue())
+	f.waitForQueued()
+	f.startScheduler(45 * time.Second)
+
+	var task *coordinatorv1.Task
+	select {
+	case task = <-abandonedTask:
+	case <-time.After(distrTestTimeout(15 * time.Second)):
+		t.Fatal("timed out waiting for worker to accept and abandon sub-DAG task")
+	}
+	require.NotNil(t, task)
+	require.Equal(t, "stale-subdag-child", task.Target)
+	require.NotEmpty(t, task.AttemptKey)
+	require.NotEmpty(t, task.AttemptId)
+	require.NotEmpty(t, task.RootDagRunName)
+	require.NotEmpty(t, task.RootDagRunId)
+	require.NotEmpty(t, task.DagRunId)
+
+	rootRef := exec.NewDAGRunRef(task.RootDagRunName, task.RootDagRunId)
+	subRunRef := exec.NewDAGRunRef(task.Target, task.DagRunId)
+	lease := waitForLease(t, f, task.AttemptKey, 5*time.Second)
+	require.Equal(t, subRunRef, lease.DAGRun)
+	require.Equal(t, rootRef, lease.Root)
+	require.Equal(t, task.AttemptId, lease.AttemptID)
+
+	var initialSubStatus exec.DAGRunStatus
+	require.Eventually(t, func() bool {
+		subStatus, err := readSubDAGRunStatus(f, rootRef, subRunRef.ID)
+		if err != nil || subStatus == nil {
+			return false
+		}
+		if subStatus.AttemptKey != task.AttemptKey {
+			return false
+		}
+		initialSubStatus = *subStatus
+		return subStatus.Status == core.Queued ||
+			subStatus.Status == core.NotStarted ||
+			subStatus.Status == core.Running
+	}, distrTestTimeout(5*time.Second), 100*time.Millisecond, "sub-DAG attempt should be persisted before stale lease cleanup")
+	require.Equal(t, rootRef, initialSubStatus.Root)
+
+	finalSubStatus := waitForSubDAGRunStatus(t, f, rootRef, subRunRef.ID, core.Failed, 25*time.Second)
+	expectedReason := exec.DistributedLeaseExpiredReason("subdag-crash-worker")
+	require.Equal(t, task.AttemptKey, finalSubStatus.AttemptKey)
+	require.Equal(t, task.AttemptId, finalSubStatus.AttemptID)
+	require.Equal(t, expectedReason, finalSubStatus.Error)
+	if len(finalSubStatus.Nodes) > 0 {
+		require.Equal(t, core.NodeFailed, finalSubStatus.Nodes[0].Status)
+		require.Equal(t, expectedReason, finalSubStatus.Nodes[0].Error)
+	}
+
+	finalParentStatus := f.waitForStatus(core.Failed, 15*time.Second)
+	require.NotEmpty(t, finalParentStatus.Nodes)
+	require.Equal(t, core.NodeFailed, finalParentStatus.Nodes[0].Status)
+	require.Len(t, finalParentStatus.Nodes[0].SubRuns, 1)
+	require.Equal(t, subRunRef.ID, finalParentStatus.Nodes[0].SubRuns[0].DAGRunID)
+
+	require.Eventually(t, func() bool {
+		_, err := f.coord.DAGRunLeaseStore.Get(f.coord.Context, task.AttemptKey)
+		return errors.Is(err, exec.ErrDAGRunLeaseNotFound)
+	}, 10*time.Second, 100*time.Millisecond, "stale sub-DAG lease should be removed after failure")
+
+	require.Eventually(t, func() bool {
+		_, err := f.coord.ActiveDistributedRunStore.Get(f.coord.Context, task.AttemptKey)
+		return errors.Is(err, exec.ErrActiveRunNotFound)
+	}, 10*time.Second, 100*time.Millisecond, "stale sub-DAG active-run index should be removed after failure")
+}
+
 func startWorkerProcess(t *testing.T, f *testFixture, workerID, labels string) (*osexec.Cmd, *bytes.Buffer) {
 	t.Helper()
 
@@ -642,6 +771,46 @@ func waitForLease(t *testing.T, f *testFixture, attemptKey string, timeout time.
 	}, timeout, 100*time.Millisecond, "lease %s should exist", attemptKey)
 
 	return *lease
+}
+
+func waitForSubDAGRunStatus(
+	t *testing.T,
+	f *testFixture,
+	rootRef exec.DAGRunRef,
+	subRunID string,
+	expected core.Status,
+	timeout time.Duration,
+) exec.DAGRunStatus {
+	t.Helper()
+
+	timeout = distrTestTimeout(timeout)
+	var status *exec.DAGRunStatus
+	var schedulerErr error
+	require.Eventually(t, func() bool {
+		schedulerErr = f.pollSchedulerErr()
+		if schedulerErr != nil {
+			return true
+		}
+		var err error
+		status, err = readSubDAGRunStatus(f, rootRef, subRunID)
+		return err == nil && status != nil && status.Status == expected
+	}, timeout, 100*time.Millisecond, "timeout waiting for sub-DAG %s status %s", subRunID, expected)
+	require.NoError(t, schedulerErr)
+	require.NotNil(t, status)
+
+	return *status
+}
+
+func readSubDAGRunStatus(
+	f *testFixture,
+	rootRef exec.DAGRunRef,
+	subRunID string,
+) (*exec.DAGRunStatus, error) {
+	attempt, err := f.coord.DAGRunStore.FindSubAttempt(f.coord.Context, rootRef, subRunID)
+	if err != nil {
+		return nil, err
+	}
+	return attempt.ReadStatus(f.coord.Context)
 }
 
 func waitForAnyLease(t *testing.T, f *testFixture, timeout time.Duration) exec.DAGRunLease {
