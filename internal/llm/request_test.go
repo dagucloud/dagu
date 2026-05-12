@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestNormalizeChatRequest verifies that request normalization preserves caller
+// state while enforcing provider-independent tool invariants.
 func TestNormalizeChatRequest(t *testing.T) {
 	t.Parallel()
 
@@ -56,6 +58,8 @@ func TestNormalizeChatRequest(t *testing.T) {
 	})
 }
 
+// TestNewProviderNormalizesRequests verifies that factory-created providers
+// normalize both synchronous and streaming chat requests.
 func TestNewProviderNormalizesRequests(t *testing.T) {
 	orig := registry
 	defer func() { registry = orig }()
@@ -97,6 +101,7 @@ func TestNewProviderNormalizesRequests(t *testing.T) {
 	assert.False(t, streamReq.WebSearch.Enabled)
 }
 
+// testTool builds a minimal function tool definition for normalization tests.
 func testTool(name, description string) Tool {
 	return Tool{
 		Type: "function",
@@ -108,16 +113,20 @@ func testTool(name, description string) Tool {
 	}
 }
 
+// normalizingTestProvider captures requests after the provider wrapper has
+// normalized them.
 type normalizingTestProvider struct {
 	chat   chan<- *ChatRequest
 	stream chan<- *ChatRequest
 }
 
+// Chat captures the normalized request received by the test provider.
 func (p *normalizingTestProvider) Chat(_ context.Context, req *ChatRequest) (*ChatResponse, error) {
 	p.chat <- req
 	return &ChatResponse{Content: "ok"}, nil
 }
 
+// ChatStream captures the normalized request received by the streaming path.
 func (p *normalizingTestProvider) ChatStream(_ context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
 	p.stream <- req
 	ch := make(chan StreamEvent, 1)
@@ -126,6 +135,7 @@ func (p *normalizingTestProvider) ChatStream(_ context.Context, req *ChatRequest
 	return ch, nil
 }
 
+// Name returns the test provider's registry name.
 func (p *normalizingTestProvider) Name() string {
 	return "normalize-test"
 }

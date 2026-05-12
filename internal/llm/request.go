@@ -73,6 +73,8 @@ func hasToolNamed(tools []Tool, name string) bool {
 	return false
 }
 
+// normalizedProvider enforces shared request normalization around every
+// concrete provider implementation returned by the factory.
 type normalizedProvider struct {
 	Provider
 }
