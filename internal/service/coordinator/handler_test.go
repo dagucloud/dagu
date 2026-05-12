@@ -1974,6 +1974,9 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		require.Equal(t, staleDistributedLeaseReason("worker-1"), status.Error)
 		require.Equal(t, core.NodeFailed, status.Nodes[0].Status)
 		require.Equal(t, staleDistributedLeaseReason("worker-1"), status.Nodes[0].Error)
+
+		_, err = leaseStore.Get(ctx, attemptKey)
+		assert.ErrorIs(t, err, exec.ErrDAGRunLeaseNotFound)
 	})
 
 	t.Run("DetectStaleLeasesKeepsLeasedRunWhenFreshWorkerHeartbeatStillReportsAttempt", func(t *testing.T) {

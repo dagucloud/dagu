@@ -300,7 +300,10 @@ func (e DAGRunRef) Zero() bool {
 
 // IsSubDAG returns true when the attempt is stored under a different root run.
 func (r DAGRunAttemptRef) IsSubDAG() bool {
-	return !r.Root.Zero() && r.Root.ID != "" && r.Root.ID != r.DAGRun.ID
+	if r.Root.Zero() || r.Root.ID == "" {
+		return false
+	}
+	return r.Root.ID != r.DAGRun.ID || r.Root.Name != r.DAGRun.Name
 }
 
 // RootOrDAGRun returns the root reference for locking and lookup.

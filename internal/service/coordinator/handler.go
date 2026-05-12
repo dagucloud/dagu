@@ -2784,7 +2784,7 @@ func (h *Handler) failDistributedAttemptIfCurrent(
 		)
 		return
 	}
-	if status.AttemptID != ref.AttemptID || !status.Status.IsActive() && status.Status != core.NotStarted {
+	if status.AttemptID != ref.AttemptID || (!status.Status.IsActive() && status.Status != core.NotStarted) {
 		h.deleteDistributedTracking(ctx, storeCtx, ref.DAGRun, ref.AttemptKey,
 			"Failed to delete superseded distributed lease",
 			"Failed to delete superseded active distributed run",
