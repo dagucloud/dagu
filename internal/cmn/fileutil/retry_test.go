@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestReplaceFileWithRetry verifies replacing existing and missing target files.
 func TestReplaceFileWithRetry(t *testing.T) {
 	t.Parallel()
 
@@ -49,6 +50,7 @@ func TestReplaceFileWithRetry(t *testing.T) {
 	})
 }
 
+// TestRemoveAllWithRetry verifies recursive removal and symlink handling.
 func TestRemoveAllWithRetry(t *testing.T) {
 	t.Parallel()
 
