@@ -1,7 +1,12 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { getAuthHeaders, getAuthToken } from '@/lib/authHeaders';
+import { getAuthHeaders } from '@/lib/authHeaders';
+import {
+  getAuthToken,
+  handleAuthResponse,
+  isBuiltinAuthMode,
+} from '@/lib/authSession';
 
 const MAX_RETRY_DELAY_MS = 16000;
 const CONNECT_TIMEOUT_MS = 15000;
@@ -401,6 +406,16 @@ export class SSEManager {
       return;
     }
 
+    if (isBuiltinAuthMode() && !getAuthToken()) {
+      this.updateState(conn, {
+        isConnected: false,
+        isConnecting: false,
+        shouldUseFallback: false,
+        error: new Error('Authentication required'),
+      });
+      return;
+    }
+
     if (conn.eventSource) {
       conn.eventSource.close();
       conn.eventSource = null;
@@ -606,6 +621,7 @@ export class SSEManager {
           }),
         }
       );
+      handleAuthResponse(response);
 
       const isStaleMutation = () =>
         conn.sessionId !== mutationSessionId ||
@@ -735,6 +751,12 @@ export class SSEManager {
     }
 
     this.connections.delete(conn.key);
+  }
+
+  disposeAll(): void {
+    for (const conn of Array.from(this.connections.values())) {
+      this.disposeConnection(conn);
+    }
   }
 }
 

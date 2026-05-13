@@ -1,10 +1,27 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  ReactNode,
+} from 'react';
+import { mutate as globalMutate } from 'swr';
 import { AppBarContext } from './AppBarContext';
 import { useConfig } from './ConfigContext';
 import { components, UserRole } from '@/api/v1/schema';
+import { sseManager } from '@/hooks/SSEManager';
+import {
+  TOKEN_KEY,
+  addAuthSessionListener,
+  clearAuthSession,
+  getAuthExpiresAt,
+  getAuthToken,
+  setAuthSession,
+} from '@/lib/authSession';
 import {
   effectiveWorkspaceRole,
   roleAtLeast,
@@ -17,6 +34,7 @@ type User = components['schemas']['User'];
 
 type SetupResult = {
   token: string;
+  expiresAt?: string;
   user: User;
 };
 
@@ -35,24 +53,31 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-export const TOKEN_KEY = 'dagu_auth_token';
+export { TOKEN_KEY };
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const config = useConfig();
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
+  const [token, setToken] = useState<string | null>(() => getAuthToken());
   const [isLoading, setIsLoading] = useState(true);
   const [setupRequired, setSetupRequired] = useState(config.setupRequired);
 
-  const logout = useCallback(() => {
-    localStorage.removeItem(TOKEN_KEY);
+  const clearLocalSession = useCallback(() => {
     setToken(null);
     setUser(null);
+    sseManager.disposeAll();
+    void globalMutate(() => true, undefined, { revalidate: false });
   }, []);
 
+  const logout = useCallback(() => {
+    clearAuthSession('logout');
+    clearLocalSession();
+  }, [clearLocalSession]);
+
   const refreshUser = useCallback(async () => {
-    const storedToken = localStorage.getItem(TOKEN_KEY);
+    const storedToken = getAuthToken();
     if (!storedToken) {
+      clearLocalSession();
       setIsLoading(false);
       return;
     }
@@ -69,14 +94,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(data.user);
         setToken(storedToken);
       } else {
-        logout();
+        clearAuthSession('unauthorized');
+        clearLocalSession();
       }
     } catch {
       logout();
     } finally {
       setIsLoading(false);
     }
-  }, [config.apiURL, logout]);
+  }, [clearLocalSession, config.apiURL, logout]);
 
   const login = useCallback(async (username: string, password: string) => {
     const response = await fetch(`${config.apiURL}/auth/login`, {
@@ -93,35 +119,72 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const data = await response.json();
-    localStorage.setItem(TOKEN_KEY, data.token);
+    setAuthSession(data.token, data.expiresAt, 'login');
     setToken(data.token);
     setUser(data.user);
   }, [config.apiURL]);
 
-  const setup = useCallback(async (username: string, password: string): Promise<SetupResult> => {
-    const response = await fetch(`${config.apiURL}/auth/setup`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
-    });
+  const setup = useCallback(
+    async (username: string, password: string): Promise<SetupResult> => {
+      const response = await fetch(`${config.apiURL}/auth/setup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
 
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      const err = new Error(data.message || 'Setup failed');
-      (err as any).status = response.status;
-      throw err;
-    }
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        const err = new Error(data.message || 'Setup failed');
+        (err as any).status = response.status;
+        throw err;
+      }
 
-    const data = await response.json();
-    return { token: data.token, user: data.user };
-  }, [config.apiURL]);
+      const data = await response.json();
+      return { token: data.token, expiresAt: data.expiresAt, user: data.user };
+    },
+    [config.apiURL]
+  );
 
   const completeSetup = useCallback((result: SetupResult) => {
-    localStorage.setItem(TOKEN_KEY, result.token);
+    setAuthSession(result.token, result.expiresAt, 'setup');
     setToken(result.token);
     setUser(result.user);
     setSetupRequired(false);
   }, []);
+
+  useEffect(() => {
+    return addAuthSessionListener((change) => {
+      if (change.token) {
+        setToken(change.token);
+        if (change.reason === 'oidc') {
+          setIsLoading(true);
+          void refreshUser();
+        }
+        return;
+      }
+      clearLocalSession();
+      setIsLoading(false);
+    });
+  }, [clearLocalSession, refreshUser]);
+
+  useEffect(() => {
+    if (!token) {
+      return;
+    }
+    const expiresAt = getAuthExpiresAt();
+    if (!expiresAt) {
+      return;
+    }
+    const delay = Date.parse(expiresAt) - Date.now();
+    if (delay <= 0) {
+      clearAuthSession('expired');
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      clearAuthSession('expired');
+    }, delay);
+    return () => window.clearTimeout(timeout);
+  }, [token]);
 
   useEffect(() => {
     if (config.authMode === 'builtin') {

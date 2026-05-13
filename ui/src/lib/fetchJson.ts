@@ -1,5 +1,6 @@
 declare const getConfig: () => { apiURL: string };
 
+import { getAuthToken } from './authSession';
 import { fetchWithTimeout } from './requestTimeout';
 
 /**
@@ -14,7 +15,7 @@ export default async function fetchJson<JSON = unknown>(
     Accept: 'application/json',
   };
 
-  const token = localStorage.getItem('dagu_auth_token');
+  const token = getAuthToken();
   if (token) {
     (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
   }
@@ -23,7 +24,7 @@ export default async function fetchJson<JSON = unknown>(
     ...init,
     headers,
   });
-  const data = await response.json();
+  const data = await response.json().catch(() => undefined);
 
   if (response.ok) {
     return data;
@@ -32,7 +33,7 @@ export default async function fetchJson<JSON = unknown>(
   throw new FetchError({
     message: data?.message || response.statusText,
     response,
-    data,
+    data: data ?? { message: response.statusText },
   });
 }
 

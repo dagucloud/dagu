@@ -104,6 +104,7 @@ describe('SSEManager', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    localStorage.clear();
   });
 
   it('keeps a fresh topic pending until the server acknowledges the subscription', async () => {
@@ -385,5 +386,37 @@ describe('SSEManager', () => {
 
     unsubscribeSecondary();
     unsubscribePrimary();
+  });
+
+  it('does not open a builtin-auth stream when the local token is expired', () => {
+    vi.stubGlobal('getConfig', () => ({ authMode: 'builtin' }));
+    localStorage.setItem('dagu_auth_token', 'expired-token');
+    localStorage.setItem(
+      'dagu_auth_token_expires_at',
+      new Date(Date.now() - 1000).toISOString()
+    );
+
+    const manager = new SSEManager();
+    const states: SSEConnectionState[] = [];
+
+    const unsubscribe = manager.subscribeTopic(
+      'dag:test.yaml',
+      'local',
+      '/api/v1',
+      {
+        onData: () => undefined,
+        onStateChange: (state) => states.push(snapshotState(state)),
+      }
+    );
+
+    expect(MockEventSource.instances).toHaveLength(0);
+    expect(localStorage.getItem('dagu_auth_token')).toBeNull();
+    expect(lastState(states)).toMatchObject({
+      isConnected: false,
+      isConnecting: false,
+      shouldUseFallback: false,
+    });
+
+    unsubscribe();
   });
 });
