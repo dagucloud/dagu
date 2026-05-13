@@ -62,8 +62,9 @@ function base64URLDecode(value: string): string {
 }
 
 function decodeJWTExpiresAt(token: string): string | null {
-  const [, payload] = token.split('.');
-  if (!payload) {
+  const parts = token.split('.');
+  const payload = parts[1];
+  if (parts.length !== 3 || !payload || payload.trim() === '') {
     return null;
   }
 
@@ -104,7 +105,7 @@ export function clearAuthSession(
   const hadExpiresAt = localStorage.getItem(AUTH_TOKEN_EXPIRES_AT_KEY) !== null;
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(AUTH_TOKEN_EXPIRES_AT_KEY);
-  if (hadToken || hadExpiresAt) {
+  if (reason === 'logout' || hadToken || hadExpiresAt) {
     dispatchSessionChange({ token: null, expiresAt: null, reason });
   }
 }
@@ -113,7 +114,7 @@ export function getAuthExpiresAt(): string | null {
   return localStorage.getItem(AUTH_TOKEN_EXPIRES_AT_KEY);
 }
 
-export function isAuthSessionExpired(now: number = Date.now()): boolean {
+export function isAuthSessionExpired(now: number): boolean {
   const expiresAt = parseExpiresAt(getAuthExpiresAt());
   return expiresAt !== null && expiresAt <= now;
 }
@@ -123,7 +124,10 @@ export function getAuthToken(): string | null {
   if (!token) {
     return null;
   }
-  if (isAuthSessionExpired()) {
+  // localStorage is intentionally lock-free across tabs. If TOKEN_KEY changes
+  // between getAuthToken, isAuthSessionExpired, and clearAuthSession, the server
+  // still rejects stale credentials and handleAuthResponse clears the session.
+  if (isAuthSessionExpired(Date.now())) {
     clearAuthSession('expired');
     return null;
   }

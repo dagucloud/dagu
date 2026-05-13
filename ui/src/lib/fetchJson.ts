@@ -24,7 +24,13 @@ export default async function fetchJson<JSON = unknown>(
     ...init,
     headers,
   });
-  const data = await response.json().catch(() => undefined);
+  const contentType = response.headers.get('content-type') ?? '';
+  const data = contentType.includes('application/json')
+    ? await response.json().catch((error) => {
+        console.warn('Failed to parse response JSON', error);
+        return undefined;
+      })
+    : undefined;
 
   if (response.ok) {
     return data;

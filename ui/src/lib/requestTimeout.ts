@@ -40,6 +40,14 @@ function resolveMethod(input: RequestInfo | URL, init?: RequestInit): string {
   return 'GET';
 }
 
+function getErrorResponse(error: unknown): Response | undefined {
+  if (typeof Response === 'undefined' || !error || typeof error !== 'object') {
+    return undefined;
+  }
+  const response = (error as { response?: unknown }).response;
+  return response instanceof Response ? response : undefined;
+}
+
 export function getDefaultTimeoutMs(
   input: RequestInfo | URL,
   init?: RequestInit
@@ -116,6 +124,10 @@ export async function fetchWithTimeout(
     handleAuthResponse(response);
     return response;
   } catch (error) {
+    const response = getErrorResponse(error);
+    if (response) {
+      handleAuthResponse(response);
+    }
     if (controller.signal.aborted) {
       const reason = controller.signal.reason;
       if (reason instanceof RequestTimeoutError) {

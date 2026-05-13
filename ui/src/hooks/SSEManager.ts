@@ -3,6 +3,7 @@
 
 import { getAuthHeaders } from '@/lib/authHeaders';
 import {
+  addAuthSessionListener,
   getAuthToken,
   handleAuthResponse,
   isBuiltinAuthMode,
@@ -13,6 +14,7 @@ const CONNECT_TIMEOUT_MS = 15000;
 const MUTATION_DEBOUNCE_MS = 200;
 const DRAINING_GRACE_PERIOD_MS = 2000;
 const FALLBACK_AFTER_RETRIES = 5;
+const AUTHENTICATION_REQUIRED_MESSAGE = 'Authentication required';
 
 export interface SSEConnectionState {
   isConnected: boolean;
@@ -182,22 +184,18 @@ function buildStreamUrl(
   remoteNode: string,
   topics: string[],
   lastEventId: string
-): string {
+): URL {
   const url = new URL(`${apiURL}/events/stream`, window.location.origin);
   for (const topic of [...topics].sort()) {
     url.searchParams.append('topic', topic);
   }
   url.searchParams.set('remoteNode', remoteNode);
 
-  const token = getAuthToken();
-  if (token) {
-    url.searchParams.set('token', token);
-  }
   if (lastEventId) {
     url.searchParams.set('lastEventId', lastEventId);
   }
 
-  return url.toString();
+  return url;
 }
 
 function buildMutationUrl(apiURL: string, remoteNode: string): string {
@@ -227,6 +225,20 @@ function calculateRetryDelay(retryCount: number): number {
 
 export class SSEManager {
   private connections = new Map<string, ManagedConnection>();
+
+  constructor() {
+    addAuthSessionListener((change) => {
+      if (!change.token) {
+        return;
+      }
+
+      for (const conn of Array.from(this.connections.values())) {
+        if (conn.state.error?.message === AUTHENTICATION_REQUIRED_MESSAGE) {
+          this.ensureConnected(conn);
+        }
+      }
+    });
+  }
 
   subscribe(
     endpoint: string,
@@ -406,12 +418,13 @@ export class SSEManager {
       return;
     }
 
-    if (isBuiltinAuthMode() && !getAuthToken()) {
+    const token = getAuthToken();
+    if (isBuiltinAuthMode() && !token) {
       this.updateState(conn, {
         isConnected: false,
         isConnecting: false,
         shouldUseFallback: false,
-        error: new Error('Authentication required'),
+        error: new Error(AUTHENTICATION_REQUIRED_MESSAGE),
       });
       return;
     }
@@ -431,7 +444,10 @@ export class SSEManager {
       Array.from(conn.topics.keys()),
       conn.lastEventId
     );
-    const eventSource = new EventSource(url);
+    if (token) {
+      url.searchParams.set('token', token);
+    }
+    const eventSource = new EventSource(url.toString());
     conn.eventSource = eventSource;
     conn.sessionId = null;
     conn.serverTopics.clear();

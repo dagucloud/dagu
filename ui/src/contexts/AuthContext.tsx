@@ -93,16 +93,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const data = await response.json();
         setUser(data.user);
         setToken(storedToken);
-      } else {
+      } else if (response.status === 401 || response.status === 403) {
         clearAuthSession('unauthorized');
         clearLocalSession();
+      } else {
+        console.warn(
+          'Failed to refresh authenticated user',
+          response.status,
+          response.statusText
+        );
       }
-    } catch {
-      logout();
+    } catch (error) {
+      console.warn('Failed to refresh authenticated user', error);
     } finally {
       setIsLoading(false);
     }
-  }, [clearLocalSession, config.apiURL, logout]);
+  }, [clearLocalSession, config.apiURL]);
 
   const login = useCallback(async (username: string, password: string) => {
     const response = await fetch(`${config.apiURL}/auth/login`, {
@@ -126,11 +132,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const setup = useCallback(
     async (username: string, password: string): Promise<SetupResult> => {
-      const response = await fetch(`${config.apiURL}/auth/setup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      });
+      const response = await fetch(
+        `${config.apiURL}/auth/setup?remoteNode=local`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        }
+      );
 
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
@@ -156,10 +165,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return addAuthSessionListener((change) => {
       if (change.token) {
         setToken(change.token);
-        if (change.reason === 'oidc') {
-          setIsLoading(true);
-          void refreshUser();
-        }
+        setIsLoading(true);
+        void refreshUser();
         return;
       }
       clearLocalSession();
