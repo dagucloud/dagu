@@ -90,6 +90,33 @@ func TestChatWithRetry(t *testing.T) {
 		require.ErrorIs(t, err, context.Canceled)
 		assert.Equal(t, int32(1), calls.Load())
 	})
+
+	t.Run("normalizes request before provider call", func(t *testing.T) {
+		t.Parallel()
+
+		var captured *ChatRequest
+		provider := &retryTestProvider{
+			chatFunc: func(_ context.Context, req *ChatRequest) (*ChatResponse, error) {
+				captured = req
+				return &ChatResponse{Content: "ok", FinishReason: "stop"}, nil
+			},
+		}
+		req := &ChatRequest{
+			Model: "test",
+			Tools: []Tool{
+				testTool(WebSearchToolName, "first"),
+				testTool(WebSearchToolName, "second"),
+			},
+			WebSearch: &WebSearchRequest{Enabled: true},
+		}
+
+		_, err := ChatWithRetry(context.Background(), provider, req, DefaultLogicalRetryConfig())
+		require.NoError(t, err)
+		require.NotNil(t, captured)
+		require.Len(t, captured.Tools, 1)
+		assert.False(t, captured.WebSearch.Enabled)
+		assert.True(t, req.WebSearch.Enabled, "normalization must not mutate caller request")
+	})
 }
 
 func TestShouldRetryRequest(t *testing.T) {

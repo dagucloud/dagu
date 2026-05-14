@@ -604,7 +604,7 @@ func (a *API) runtimeConfigForSession(ctx context.Context, mgr *SessionManager, 
 	}, nil
 }
 
-func (a *API) buildSessionManagerConfig(id string, user UserIdentity, cfg sessionRuntimeConfig) SessionManagerConfig {
+func (a *API) buildSessionManagerConfig(ctx context.Context, id string, user UserIdentity, cfg sessionRuntimeConfig) SessionManagerConfig {
 	return SessionManagerConfig{
 		ID:                    id,
 		User:                  user,
@@ -631,11 +631,12 @@ func (a *API) buildSessionManagerConfig(id string, user UserIdentity, cfg sessio
 		WebTools:              cfg.webTools,
 		ThinkingEffort:        cfg.thinkingEffort,
 		RemoteContextResolver: a.remoteContextResolver,
+		DynamicSystemContext:  GetDynamicSystemContext(ctx),
 	}
 }
 
 func (a *API) newManagedSession(ctx context.Context, id string, user UserIdentity, cfg sessionRuntimeConfig, now time.Time) *SessionManager {
-	mgr := NewSessionManager(a.buildSessionManagerConfig(id, user, cfg))
+	mgr := NewSessionManager(a.buildSessionManagerConfig(ctx, id, user, cfg))
 	mgr.registry = &sessionRegistry{sessions: &a.sessions, parent: mgr}
 
 	a.persistNewSession(ctx, id, user.UserID, cfg.dagName, cfg.modelID, now)
@@ -973,7 +974,7 @@ func (a *API) reactivateSession(ctx context.Context, id string, user UserIdentit
 		}
 	}
 
-	cfg := a.buildSessionManagerConfig(id, user, sessionRuntimeConfig{
+	cfg := a.buildSessionManagerConfig(ctx, id, user, sessionRuntimeConfig{
 		modelID:         modelID,
 		title:           sess.Title,
 		dagName:         sess.DAGName,
@@ -1175,7 +1176,7 @@ func (a *API) CreateSession(ctx context.Context, user UserIdentity, req ChatRequ
 		dagName = resolved[0].DAGName
 	}
 
-	mgr := NewSessionManager(a.buildSessionManagerConfig(id, user, sessionRuntimeConfig{
+	mgr := NewSessionManager(a.buildSessionManagerConfig(ctx, id, user, sessionRuntimeConfig{
 		modelID:         model,
 		dagName:         dagName,
 		safeMode:        req.SafeMode,
@@ -1401,6 +1402,7 @@ func (a *API) prepareSessionMessage(ctx context.Context, mgr *SessionManager, us
 
 func (a *API) prepareSessionRuntime(ctx context.Context, mgr *SessionManager, user UserIdentity, req ChatRequest) (llm.Provider, string, string, error) {
 	mgr.UpdateUserContext(user)
+	mgr.SetDynamicSystemContext(GetDynamicSystemContext(ctx))
 
 	if req.Message == "" {
 		return nil, "", "", ErrMessageRequired
@@ -1423,6 +1425,7 @@ func (a *API) prepareSessionRuntime(ctx context.Context, mgr *SessionManager, us
 
 func (a *API) prepareInternalSessionRuntime(ctx context.Context, mgr *SessionManager, user UserIdentity) (llm.Provider, string, string, error) {
 	mgr.UpdateUserContext(user)
+	mgr.SetDynamicSystemContext(GetDynamicSystemContext(ctx))
 
 	model := selectModel("", mgr.GetModel(), a.getDefaultModelID(ctx))
 	provider, modelCfg, err := a.resolveProvider(ctx, model)

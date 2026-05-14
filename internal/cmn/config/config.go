@@ -15,6 +15,7 @@ type Config struct {
 	Core            Core
 	Server          Server
 	EventStore      EventStoreConfig
+	Webhooks        WebhooksConfig
 	Paths           PathsConfig
 	Secrets         SecretsConfig
 	UI              UI
@@ -51,6 +52,8 @@ var DefaultBotInterestedEventTypes = []string{
 	"dag.run.aborted",
 	"dag.run.rejected",
 }
+
+const DefaultWebhookMaxPayloadSize = 1 * 1024 * 1024
 
 // BotsConfig holds the configuration for bot integrations.
 type BotsConfig struct {
@@ -220,6 +223,11 @@ type AuditConfig struct {
 type EventStoreConfig struct {
 	Enabled       bool // Default: true
 	RetentionDays int  // Default: 1; 0 = keep forever
+}
+
+// WebhooksConfig contains configuration for webhook trigger endpoints.
+type WebhooksConfig struct {
+	MaxPayloadSize int // Default: 1MiB
 }
 
 // SessionConfig contains configuration for agent session cleanup.
@@ -548,6 +556,9 @@ func (c *Config) Validate() error {
 	if err := c.validateEventStore(); err != nil {
 		return err
 	}
+	if err := c.validateWebhooks(); err != nil {
+		return err
+	}
 	if err := c.validateBots(); err != nil {
 		return err
 	}
@@ -598,6 +609,13 @@ func (c *Config) validateScheduler() error {
 func (c *Config) validateEventStore() error {
 	if c.EventStore.RetentionDays < 0 {
 		return fmt.Errorf("event_store.retention_days must be >= 0")
+	}
+	return nil
+}
+
+func (c *Config) validateWebhooks() error {
+	if c.Webhooks.MaxPayloadSize <= 0 {
+		return fmt.Errorf("webhooks.max_payload_size must be > 0")
 	}
 	return nil
 }

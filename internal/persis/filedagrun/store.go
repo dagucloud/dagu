@@ -236,12 +236,28 @@ func (store *Store) CompareAndSwapLatestAttemptStatus(
 	expectedAttemptID string,
 	expectedStatus core.Status,
 	mutate func(*exec.DAGRunStatus) error,
+	opts ...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {
 	if dagRun.ID == "" {
 		return nil, false, ErrDAGRunIDEmpty
 	}
+	cfg := exec.NewCompareAndSwapStatusOptions(opts...)
+	rootRef := cfg.RootDAGRun
+	if rootRef.Zero() {
+		rootRef = dagRun
+	}
+	isSubDAG := rootRef.ID != "" && (rootRef.ID != dagRun.ID || rootRef.Name != dagRun.Name)
+	if isSubDAG && rootRef.Name == "" {
+		return nil, false, fmt.Errorf("missing root dag-run name for sub dag-run %s", dagRun.ID)
+	}
+	if rootRef.Name == "" {
+		rootRef.Name = dagRun.Name
+	}
+	if rootRef.ID == "" {
+		return nil, false, ErrDAGRunIDEmpty
+	}
 
-	root := NewDataRoot(store.baseDir, dagRun.Name)
+	root := NewDataRoot(store.baseDir, rootRef.Name)
 	lockCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -254,9 +270,15 @@ func (store *Store) CompareAndSwapLatestAttemptStatus(
 		}
 	}()
 
-	run, err := root.FindByDAGRunID(ctx, dagRun.ID)
+	run, err := root.FindByDAGRunID(ctx, rootRef.ID)
 	if err != nil {
 		return nil, false, err
+	}
+	if isSubDAG {
+		run, err = run.FindSubDAGRun(ctx, dagRun.ID)
+		if err != nil {
+			return nil, false, err
+		}
 	}
 
 	attempt, err := run.LatestAttempt(ctx, store.cache)
@@ -269,6 +291,12 @@ func (store *Store) CompareAndSwapLatestAttemptStatus(
 		return nil, false, err
 	}
 	if expectedAttemptID != "" && status.AttemptID != expectedAttemptID {
+		return status, false, nil
+	}
+	if cfg.ExpectedAttemptKey != "" && status.AttemptKey != cfg.ExpectedAttemptKey {
+		return status, false, nil
+	}
+	if status.DAGRunID != "" && status.DAGRunID != dagRun.ID {
 		return status, false, nil
 	}
 	if status.Status != expectedStatus {

@@ -6,6 +6,7 @@ package fileutil
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -39,6 +40,64 @@ func RemoveWithRetry(path string) error {
 	})
 }
 
+// RemoveAllWithRetry removes a tree without using os.RemoveAll's recursive
+// open-at path, which fails on older Windows versions with openfdat errors.
+func RemoveAllWithRetry(path string) error {
+	if path == "" {
+		return nil
+	}
+
+	info, err := os.Lstat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	return removeAllWithRetry(path, info)
+}
+
+// removeAllWithRetry recursively removes path's children before removing path.
+func removeAllWithRetry(path string, info os.FileInfo) error {
+	if !info.IsDir() {
+		if err := RemoveWithRetry(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+
+	var firstErr error
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		firstErr = err
+	}
+
+	for _, entry := range entries {
+		childPath := filepath.Join(path, entry.Name())
+		childInfo, err := entry.Info()
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if err := removeAllWithRetry(childPath, childInfo); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	if err := RemoveWithRetry(path); err != nil && !errors.Is(err, os.ErrNotExist) && firstErr == nil {
+		firstErr = err
+	}
+	return firstErr
+}
+
 // RenameWithRetry retries transient Windows sharing violations while renaming a file.
 func RenameWithRetry(oldPath, newPath string) error {
 	return retryWindowsFileOp(func() error {
@@ -55,6 +114,7 @@ func ReplaceFileWithRetry(source, target string) error {
 	})
 }
 
+// retryWindowsFileOp retries transient Windows file operation failures.
 func retryWindowsFileOp(op func() error) error {
 	err := op()
 	if err == nil || !isTransientWindowsFileError(err) {
@@ -77,6 +137,7 @@ func retryWindowsFileOp(op func() error) error {
 	return err
 }
 
+// isTransientWindowsFileError reports whether err is a retryable Windows file error.
 func isTransientWindowsFileError(err error) bool {
 	if runtime.GOOS != "windows" || err == nil {
 		return false

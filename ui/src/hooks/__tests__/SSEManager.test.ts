@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SSEConnectionState } from '../SSEManager';
 import { endpointToTopic, SSEManager } from '../SSEManager';
+import { setAuthSession } from '../../lib/authSession';
 
 class MockEventSource {
   static instances: MockEventSource[] = [];
@@ -104,6 +105,7 @@ describe('SSEManager', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    localStorage.clear();
   });
 
   it('keeps a fresh topic pending until the server acknowledges the subscription', async () => {
@@ -385,5 +387,64 @@ describe('SSEManager', () => {
 
     unsubscribeSecondary();
     unsubscribePrimary();
+  });
+
+  it('does not open a builtin-auth stream when the local token is expired', () => {
+    vi.stubGlobal('getConfig', () => ({ authMode: 'builtin' }));
+    localStorage.setItem('dagu_auth_token', 'expired-token');
+    localStorage.setItem(
+      'dagu_auth_token_expires_at',
+      new Date(Date.now() - 1000).toISOString()
+    );
+
+    const manager = new SSEManager();
+    const states: SSEConnectionState[] = [];
+
+    const unsubscribe = manager.subscribeTopic(
+      'dag:test.yaml',
+      'local',
+      '/api/v1',
+      {
+        onData: () => undefined,
+        onStateChange: (state) => states.push(snapshotState(state)),
+      }
+    );
+
+    expect(MockEventSource.instances).toHaveLength(0);
+    expect(localStorage.getItem('dagu_auth_token')).toBeNull();
+    expect(lastState(states)).toMatchObject({
+      isConnected: false,
+      isConnecting: false,
+      shouldUseFallback: false,
+    });
+
+    unsubscribe();
+  });
+
+  it('retries builtin-auth streams when a token becomes available', () => {
+    vi.stubGlobal('getConfig', () => ({ authMode: 'builtin' }));
+
+    const manager = new SSEManager();
+    const states: SSEConnectionState[] = [];
+
+    const unsubscribe = manager.subscribeTopic(
+      'dag:test.yaml',
+      'local',
+      '/api/v1',
+      {
+        onData: () => undefined,
+        onStateChange: (state) => states.push(snapshotState(state)),
+      }
+    );
+
+    expect(MockEventSource.instances).toHaveLength(0);
+    expect(lastState(states)?.error?.message).toBe('Authentication required');
+
+    setAuthSession('fresh-token', new Date(Date.now() + 60_000).toISOString());
+
+    expect(MockEventSource.instances).toHaveLength(1);
+    expect(MockEventSource.instances[0]?.url).toContain('token=fresh-token');
+
+    unsubscribe();
   });
 });

@@ -999,6 +999,8 @@ func (h *Handler) repairStaleLeaseFailureFromRunHeartbeat(
 			restoreStaleLeaseFailure(status, lease, workerID, reason)
 			return nil
 		},
+		exec.WithCompareAndSwapRootDAGRun(lease.Root),
+		exec.WithCompareAndSwapExpectedAttemptKey(lease.AttemptKey),
 	)
 	if err != nil {
 		if errors.Is(err, errRunHeartbeatRepairSkipped) {
@@ -2676,6 +2678,7 @@ func (h *Handler) markStatusLeaseRunFailed(
 	h.failDistributedAttemptIfCurrent(
 		ctx,
 		status.DAGRun(),
+		status.Root,
 		attemptID,
 		attemptKey,
 		reason,
@@ -2710,6 +2713,7 @@ func (h *Handler) resolveAttemptIDForStatus(ctx context.Context, status *exec.DA
 func (h *Handler) failDistributedAttemptIfCurrent(
 	ctx context.Context,
 	dagRun exec.DAGRunRef,
+	root exec.DAGRunRef,
 	attemptID string,
 	attemptKey string,
 	reason string,
@@ -2759,6 +2763,8 @@ func (h *Handler) failDistributedAttemptIfCurrent(
 			attemptID,
 			expectedStatus,
 			mutate,
+			exec.WithCompareAndSwapRootDAGRun(root),
+			exec.WithCompareAndSwapExpectedAttemptKey(attemptKey),
 		)
 		if err != nil {
 			logger.Error(ctx, "Failed to fail stale distributed run",
@@ -2780,7 +2786,7 @@ func (h *Handler) failDistributedAttemptIfCurrent(
 		)
 		return
 	}
-	if status.AttemptID != attemptID || !status.Status.IsActive() && status.Status != core.NotStarted {
+	if status.AttemptID != attemptID || (!status.Status.IsActive() && status.Status != core.NotStarted) {
 		h.deleteDistributedTracking(ctx, storeCtx, dagRun, attemptKey,
 			"Failed to delete superseded distributed lease",
 			"Failed to delete superseded active distributed run",

@@ -29,6 +29,7 @@ func (s *failedAutoRetryCancelStoreStub) CompareAndSwapLatestAttemptStatus(
 	expectedAttemptID string,
 	expectedStatus core.Status,
 	mutate func(*DAGRunStatus) error,
+	_ ...CompareAndSwapStatusOption,
 ) (*DAGRunStatus, bool, error) {
 	return s.compareAndSwap(ctx, dagRun, expectedAttemptID, expectedStatus, mutate)
 }
