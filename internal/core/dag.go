@@ -250,6 +250,8 @@ type DAG struct {
 	Kubernetes KubernetesConfig `json:"-"`
 	// Secrets contains references to external secrets to be resolved at runtime.
 	Secrets []SecretRef `json:"secrets,omitempty"`
+	// Tools declares external CLI tools that must be installed before the DAG runs.
+	Tools *ToolConfig `json:"tools,omitempty"`
 	// dotenvOnce ensures LoadDotEnv is called only once, even with concurrent calls.
 	// This provides thread-safe idempotency for dotenv loading.
 	dotenvOnce sync.Once

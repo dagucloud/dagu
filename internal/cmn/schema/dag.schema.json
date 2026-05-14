@@ -418,6 +418,10 @@
       },
       "description": "List of external secret references resolved at runtime and exposed as environment variables. Each entry declares the target environment variable name, provider, key, and optional provider-specific options."
     },
+    "tools": {
+      "$ref": "#/definitions/toolConfig",
+      "description": "DAG-level CLI tool dependencies installed on the worker before any step runs. Provider defaults to aqua, and registry defaults to Dagu's pinned standard registry commit."
+    },
     "defaults": {
       "type": "object",
       "additionalProperties": false,
@@ -1345,6 +1349,116 @@
         }
       },
       "description": "Reference to an external secret that Dagu resolves at runtime. The resolved value is injected as an environment variable and masked in logs/output."
+    },
+    "toolConfig": {
+      "type": "object",
+      "required": ["packages"],
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["aqua"],
+          "default": "aqua",
+          "description": "Tool provider. Currently only aqua is supported."
+        },
+        "registry": {
+          "$ref": "#/definitions/toolRegistry",
+          "description": "Optional aqua registry override. Omit this to use Dagu's pinned standard aqua registry."
+        },
+        "packages": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/toolPackage"
+          },
+          "description": "Aqua packages to install before the DAG runs."
+        }
+      }
+    },
+    "toolRegistry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "default": "standard",
+          "description": "Registry name referenced by packages."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["standard", "github_content"],
+          "default": "standard",
+          "description": "Aqua registry type. Local registries are not supported for worker-local installation."
+        },
+        "repo_owner": {
+          "type": "string",
+          "description": "GitHub repository owner for github_content registries."
+        },
+        "repo_name": {
+          "type": "string",
+          "description": "GitHub repository name for github_content registries."
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Registry tag or commit hash. Prefer a commit hash for immutability. Optional for the standard registry; Dagu uses its pinned default commit when omitted. Required for github_content registries."
+        },
+        "path": {
+          "type": "string",
+          "description": "Registry file path inside a github_content registry repository."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": { "const": "github_content" }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["repo_owner", "repo_name", "ref", "path"]
+          }
+        }
+      ]
+    },
+    "toolPackage": {
+      "type": "object",
+      "required": ["package", "version", "commands"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Optional display name. Defaults to the first command."
+        },
+        "package": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Aqua package name, for example jqlang/jq."
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "not": { "pattern": "^[Ll][Aa][Tt][Ee][Ss][Tt]$" },
+          "description": "Pinned aqua package version/ref. For release-asset packages this is usually a release tag such as jq-1.7.1; for source/ref-based packages aqua accepts commit hashes. The floating value latest is rejected."
+        },
+        "commands": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^/\\\\]+$",
+            "not": { "pattern": "\\s" }
+          },
+          "description": "Command names exposed to steps from this package."
+        },
+        "registry": {
+          "type": "string",
+          "description": "Optional registry name for this package. Defaults to the configured registry."
+        }
+      }
     },
     "stepItem": {
       "oneOf": [

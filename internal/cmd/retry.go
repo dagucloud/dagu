@@ -413,6 +413,10 @@ func executeRetry(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus, rootRu
 	if triggerType == core.TriggerTypeUnknown {
 		triggerType = core.TriggerTypeRetry
 	}
+	extraEnvs, err := prepareDAGTools(ctx, dag)
+	if err != nil {
+		return err
+	}
 
 	agentInstance := agent.New(
 		status.DAGRunID,
@@ -425,6 +429,7 @@ func executeRetry(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus, rootRu
 			RetryTarget:                status,
 			ParentDAGRun:               status.Parent,
 			ProgressDisplay:            shouldEnableProgress(ctx),
+			ExtraEnvs:                  extraEnvs,
 			StepRetry:                  stepName,
 			WorkerID:                   workerID,
 			AttemptID:                  attemptID,
