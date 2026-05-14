@@ -1,20 +1,29 @@
-# Dagu Workflow Schema v2
+# Dagu Workflow Schema at a Glance
 
-This document describes the current canonical Dagu workflow schema as
-implemented by the parser and JSON Schema:
+This is the repository-level overview of Dagu's workflow YAML schema. It is
+meant to help a visitor understand how a workflow is shaped, what the current
+canonical syntax is, and where to look when they need the full field-level
+reference.
+
+Dagu workflows are DAGs described in YAML. The current schema has a simple
+execution split:
 
 - `run:` for local shell commands and scripts
 - `action:` for named builtin or custom actions
 - `actions:` for reusable custom action definitions
 
-This is not the abandoned `run: {type, input, with}` proposal. Object-form
-`run:` is not supported by the current v2 parser.
+The older v1 execution fields (`command:`, `script:`, step-level `type:`,
+`call:`, and `step_types:`) are still loadable for compatibility, but new
+workflows should use the syntax below.
 
-## Minimal Example
+## Minimal Workflow
 
 ```yaml
 name: release-check
 type: graph
+
+params:
+  ENVIRONMENT: staging
 
 steps:
   - id: test
@@ -26,44 +35,80 @@ steps:
       method: GET
       url: https://example.com/health
     depends: [test]
+
+  - id: deploy
+    run: ./deploy.sh ${ENVIRONMENT}
+    depends: [health]
+    retry_policy:
+      limit: 3
+      interval_sec: 10
 ```
 
-Root-level `type:` still controls DAG execution mode. It is not the v1
-step-level executor selector.
+The root `type:` controls how the workflow executes:
 
-## Execution Fields
+- `chain` runs steps in order. This is the default.
+- `graph` runs steps according to `depends:` and can run independent steps in
+  parallel.
+- `agent` is reserved for agent-oriented execution.
 
-A v2 step uses exactly one of these execution forms:
+Do not confuse root `type:` with legacy step-level `type:`. Step-level
+`type:` is deprecated; use `action:` for named executors.
 
-| Form | Use for | Shape |
-|------|---------|-------|
-| `run:` | Local shell command or script | string or array |
-| `action:` | Builtin or custom named action | string action name plus optional `with:` |
+## Mental Model
 
-Invalid:
+A Dagu file has three layers:
+
+| Layer | Fields | Purpose |
+|-------|--------|---------|
+| Workflow metadata | `name`, `description`, `group`, `labels` | Identify and organize the DAG. |
+| Workflow runtime | `schedule`, `params`, `env`, `working_dir`, `queue`, `worker_selector`, `timeout_sec`, `max_active_runs`, `artifacts`, `log_output` | Configure when and where the DAG runs. |
+| Step graph | `steps`, `handler_on`, `defaults`, `actions` | Define executable work, shared step defaults, lifecycle handlers, and custom actions. |
+
+Most workflows only need `name`, `type`, `params`, and `steps`.
+
+## Step Shape
+
+Every step has common workflow-control fields plus one execution field.
 
 ```yaml
 steps:
-  - run:
-      type: shell
-      input: echo hello
+  - id: step_id
+    run: echo hello
+    depends: [previous_step]
+    env:
+      - LOG_LEVEL: info
+    timeout_sec: 300
+    retry_policy:
+      limit: 2
+      interval_sec: 5
+    output: RESULT
 ```
 
-The current parser rejects this because `run` must be a string or array.
+Common step fields:
 
-Also invalid:
+| Field | Meaning |
+|-------|---------|
+| `id` | Stable identifier for dependencies and output references. Prefer this on every step. |
+| `name` | Optional display name. |
+| `description` | Step description. |
+| `depends` | Step dependency or dependency list. |
+| `env` | Step environment variables. |
+| `working_dir` | Step working directory. |
+| `timeout_sec` | Step timeout in seconds. |
+| `retry_policy` | Retry behavior for this step. |
+| `repeat_policy` | Repeat or polling behavior. |
+| `continue_on` | Continue after selected failure, skip, exit-code, or output conditions. |
+| `preconditions` | Conditions that must pass before the step starts. |
+| `worker_selector` | Required worker labels. |
+| `stdout`, `stderr`, `log_output` | Step log output configuration. |
+| `output` | Captured stdout variable or structured step output. |
+| `output_schema` | JSON Schema for stdout JSON validation. |
+| `approval` | Human approval gate after step execution. |
+| `container` | Container context for a local `run:` command. |
 
-```yaml
-steps:
-  - run: echo hello
-    action: log.write
-```
+## `run:` for Local Commands
 
-`run` and `action` cannot be used together.
-
-## `run`
-
-`run:` is only for local command/script execution.
+Use `run:` for local shell commands and scripts.
 
 ```yaml
 steps:
@@ -71,18 +116,18 @@ steps:
     run: echo hello
 ```
 
-Multi-line `run:` is treated as a script.
+Multi-line `run:` becomes a script:
 
 ```yaml
 steps:
-  - id: script
+  - id: build
     run: |
       set -e
-      echo "first"
-      echo "second"
+      npm ci
+      npm test
 ```
 
-`run:` also accepts an array of local shell commands.
+`run:` can also be an array of commands:
 
 ```yaml
 steps:
@@ -92,126 +137,31 @@ steps:
       - go test ./...
 ```
 
-Only shell settings are accepted in `with:` for `run:`:
+Only shell settings are accepted in `with:` for a `run:` step:
 
 ```yaml
 steps:
-  - id: bash
+  - id: bash_step
     run: echo "$SHELL"
     with:
       shell: bash -e
-      shell_args:
-        - -c
-      shell_packages:
-        - curl
+      shell_args: [-c]
+      shell_packages: [curl]
 ```
 
-Allowed `run` `with:` keys:
-
-| Key | Meaning |
-|-----|---------|
-| `shell` | Shell command, either string or string array. |
-| `shell_args` | Additional shell arguments. |
-| `shell_packages` | Packages for `nix-shell`. |
-
-Any other `with:` key with `run:` is invalid.
-
-## `action`
-
-`action:` selects a named builtin or custom action. Action inputs go in
-`with:`.
+Important: object-form `run:` is not part of the current schema. This is
+invalid:
 
 ```yaml
 steps:
-  - id: request
-    action: http.request
-    with:
-      method: POST
-      url: https://api.example.com/jobs
-      body: '{"mode":"daily"}'
+  - run:
+      type: shell
+      input: echo hello
 ```
 
-The loader normalizes actions into the internal executor fields. For example,
-`action: postgres.query` with `with.query` becomes a PostgreSQL executor step
-with the query as its command.
+## `action:` for Named Execution
 
-Action names cannot contain `@`; versioned action references are reserved for a
-future registry.
-
-## Builtin Actions
-
-Current builtin action names:
-
-```text
-agent.run
-archive.create
-archive.extract
-archive.list
-chat.completion
-container.run
-dag.run
-docker.run
-exec
-harness.run
-http.request
-jq.filter
-k8s.run
-kubernetes.run
-log.write
-mail.send
-noop
-postgres.import
-postgres.query
-redis.<operation>
-router.route
-s3.delete
-s3.download
-s3.list
-s3.upload
-sftp.download
-sftp.upload
-sqlite.import
-sqlite.query
-ssh.run
-template.render
-```
-
-`redis.<operation>` is dynamic. Examples: `redis.get`, `redis.set`,
-`redis.del`.
-
-## Action Reference
-
-| Action | Required `with` keys | Notes |
-|--------|----------------------|-------|
-| `http.request` | `method`, `url` | Other HTTP executor config remains in `with`. |
-| `ssh.run` | `command` | SSH config such as `host`, `user`, and `key` also stays in `with`. |
-| `exec` | `command` | Optional `args`; runs without shell parsing. |
-| `docker.run` | none | Optional `command`; Docker config stays in `with`. |
-| `container.run` | none | Optional `command`; container config stays in `with`. |
-| `k8s.run`, `kubernetes.run` | none | Optional `command`; Kubernetes config stays in `with`. |
-| `postgres.query`, `sqlite.query` | `query` | Query becomes the executor command. |
-| `postgres.import`, `sqlite.import` | `import` | SQL import config stays in `with.import`. |
-| `jq.filter` | `filter` | Optional `data` or `input`, but not both. |
-| `dag.run` | `dag` | Optional `params`; required for `parallel`. |
-| `router.route` | `value`, `routes` | Routes map patterns to target step names. |
-| `chat.completion` | `prompt` or `messages` | Remaining `with` keys become LLM config. |
-| `agent.run` | `task`, `prompt`, or `messages` | Remaining `with` keys become agent config. |
-| `harness.run` | `prompt` | Optional `stdin`; remaining keys become harness config. |
-| `template.render` | `template` | Template text becomes the template executor script. |
-| `log.write` | `message` | Log executor config. |
-| `mail.send` | mail executor config | Uses mail executor settings. |
-| `archive.create`, `archive.extract`, `archive.list` | archive config | Operation is inferred from the action name. |
-| `s3.upload`, `s3.download`, `s3.list`, `s3.delete` | S3 config | Operation is inferred from the action name. |
-| `sftp.upload`, `sftp.download` | SFTP config | Direction is inferred from the action name. |
-| `redis.<operation>` | Redis config | Redis command is inferred from the action suffix. |
-| `noop` | none | `with` must be omitted or empty. |
-
-Runtime-registered executor type names can also be used directly as actions.
-Those normalize to an executor `type` with the supplied `with:` map.
-
-## Examples
-
-### HTTP
+Use `action:` when the step is not just a local shell command.
 
 ```yaml
 steps:
@@ -220,92 +170,55 @@ steps:
     with:
       method: POST
       url: https://api.example.com/jobs
-      headers:
-        Content-Type: application/json
       body: '{"queue":"default"}'
 ```
 
-### Direct Exec
+`action:` names select builtin or custom actions. Inputs and executor-specific
+options go under `with:`.
 
-```yaml
-steps:
-  - id: direct
-    action: exec
-    with:
-      command: /usr/bin/python3
-      args:
-        - -u
-        - scripts/job.py
-        - --limit
-        - 10
-```
+Current builtin actions:
+
+| Action | Use for | Key inputs |
+|--------|---------|------------|
+| `http.request` | HTTP calls | `method`, `url`, headers/body config |
+| `ssh.run` | Remote shell over SSH | `command`, SSH connection config |
+| `exec` | Direct process execution without shell parsing | `command`, optional `args` |
+| `docker.run` | Docker executor | optional `command`, Docker config |
+| `container.run` | Container executor | optional `command`, container config |
+| `k8s.run`, `kubernetes.run` | Kubernetes job execution | optional `command`, Kubernetes config |
+| `postgres.query`, `sqlite.query` | SQL queries | `query`, database config |
+| `postgres.import`, `sqlite.import` | SQL imports | `import`, database config |
+| `redis.<operation>` | Redis operations | Redis config; operation comes from the action suffix |
+| `jq.filter` | jq transforms | `filter`, plus `data` or `input` |
+| `dag.run` | Child DAG execution | `dag`, optional `params` |
+| `router.route` | Conditional routing | `value`, `routes` |
+| `chat.completion` | LLM chat completion | `prompt` or `messages`, model config |
+| `agent.run` | Agent step execution | `task`, `prompt`, or `messages`, agent config |
+| `harness.run` | CLI coding-agent harnesses | `prompt`, provider config, optional `stdin` |
+| `template.render` | Text/template rendering | `template`, optional data/config |
+| `log.write` | Log messages | `message` |
+| `mail.send` | Email sending | mail executor config |
+| `archive.create`, `archive.extract`, `archive.list` | Archive operations | archive config |
+| `s3.upload`, `s3.download`, `s3.list`, `s3.delete` | S3 operations | S3 config |
+| `sftp.upload`, `sftp.download` | SFTP transfers | SFTP config |
+| `noop` | Output-only or approval-only placeholder step | no `with`, or empty `with` |
+
+`run:` and `action:` are mutually exclusive on a step. Do not combine either
+with legacy execution fields such as `command:`, `script:`, step-level `type:`,
+`call:`, `messages:`, `agent:`, `llm:`, `value:`, or `routes:`.
+
+## Common Action Examples
 
 ### SQL Query
 
 ```yaml
 steps:
-  - id: query_users
+  - id: active_users
     action: postgres.query
     with:
       dsn: ${DATABASE_URL}
       query: SELECT id, email FROM users WHERE active = true
 ```
-
-### SQL Import
-
-```yaml
-steps:
-  - id: import_users
-    action: postgres.import
-    with:
-      dsn: ${DATABASE_URL}
-      import:
-        input_file: /data/users.csv
-        table: users
-```
-
-### Docker
-
-```yaml
-steps:
-  - id: node_tests
-    action: docker.run
-    with:
-      image: node:20-alpine
-      command: npm test
-      volumes:
-        - .:/workspace
-      working_dir: /workspace
-```
-
-If `with.command` is omitted, the image default command is used.
-
-### SSH
-
-```yaml
-steps:
-  - id: deploy
-    action: ssh.run
-    with:
-      host: prod.example.com
-      user: deploy
-      key: ~/.ssh/id_rsa
-      command: cd /srv/app && git pull && systemctl restart app
-```
-
-### jq
-
-```yaml
-steps:
-  - id: pick_name
-    action: jq.filter
-    with:
-      filter: .name
-      data:
-        name: Alice
-```
-
-`jq.filter` rejects a step that sets both `with.data` and `with.input`.
 
 ### Child DAG
 
@@ -320,9 +233,7 @@ steps:
         REGION: us-east-1
 ```
 
-### Parallel Child DAG
-
-`parallel:` currently requires `action: dag.run`.
+`parallel:` currently requires `action: dag.run`:
 
 ```yaml
 steps:
@@ -342,61 +253,7 @@ steps:
           region: eu-west-1
 ```
 
-`parallel:` can be a variable reference, an array, or an object with `items`
-and `max_concurrent`.
-
-### Router
-
-```yaml
-type: graph
-
-steps:
-  - id: route
-    action: router.route
-    with:
-      value: ${STATUS}
-      routes:
-        success: [deploy]
-        failed: [notify]
-
-  - id: deploy
-    run: ./deploy.sh
-
-  - id: notify
-    run: ./notify.sh
-```
-
-### Chat
-
-```yaml
-steps:
-  - id: summarize
-    action: chat.completion
-    with:
-      provider: openai
-      model: gpt-4.1
-      prompt: Summarize ${REPORT_PATH}
-```
-
-`with.prompt` becomes one user message. `with.messages` can be used for
-explicit messages.
-
-### Agent
-
-```yaml
-steps:
-  - id: investigate
-    action: agent.run
-    with:
-      task: Inspect the failed run and write findings.
-      model: claude-sonnet
-      safe_mode: true
-```
-
-`with.task`, `with.prompt`, or `with.messages` supplies the agent messages.
-Remaining keys configure the agent step.
-
-### Harness
+### Agent Harness
 
 ```yaml
 harnesses:
@@ -411,44 +268,11 @@ steps:
     with:
       provider: codex-cli
       prompt: Review the current branch and list actionable issues.
-      stdin: |
-        diff --git a/main.go b/main.go
-        ...
 ```
 
-`with.prompt` becomes the harness command prompt. `with.stdin` is moved to
-script/stdin handling and is not retained in executor config.
+## Reusable Custom Actions
 
-### Template
-
-```yaml
-steps:
-  - id: render
-    action: template.render
-    with:
-      data:
-        name: Alice
-      template: |
-        Hello, {{ .name }}!
-    stdout: ${DAG_RUN_ARTIFACTS_DIR}/hello.txt
-```
-
-### Noop
-
-```yaml
-steps:
-  - id: publish_literal
-    action: noop
-    output:
-      version: v1.2.3
-```
-
-Object-form `output:` with only literal or file-sourced entries can also infer
-`noop` for compatibility, but canonical v2 should use `action: noop`.
-
-## Custom Actions
-
-Top-level `actions:` defines reusable typed actions.
+Use top-level `actions:` to define a validated reusable action.
 
 ```yaml
 actions:
@@ -475,72 +299,20 @@ steps:
       version: v1.2.3
 ```
 
-Definition fields:
-
-| Field | Required | Meaning |
-|-------|----------|---------|
-| `description` | no | Copied to expanded steps unless the call site overrides it. |
-| `input_schema` | yes | Inline JSON Schema object for the action's `with:` input. |
-| `output_schema` | no | JSON Schema object for stdout JSON validation. |
-| `template` | yes | Canonical step fragment using exactly one of `run` or `action`. |
-
-Custom action names must match:
-
-```text
-^[A-Za-z][A-Za-z0-9_-]*(\.[A-Za-z][A-Za-z0-9_-]*)*$
-```
-
 Custom action rules:
 
-- Names cannot conflict with builtin action names.
+- The action name must match
+  `^[A-Za-z][A-Za-z0-9_-]*(\.[A-Za-z][A-Za-z0-9_-]*)*$`.
+- `input_schema` is required and must resolve to an object schema.
+- `template` is required and must contain exactly one of `run` or `action`.
 - `type:` is not supported inside an `actions:` definition.
-- `template` must define exactly one of `run` or `action`.
-- Legacy execution keys are rejected in templates: `command`, `script`, `type`,
-  `call`, `params`, `messages`, `agent`, `llm`, `value`, `routes`, `exec`,
-  `config`, `shell`, `shell_args`, and `shell_packages`.
+- Legacy execution fields are rejected inside action templates.
 - `with:` at the call site is validated against `input_schema`.
-- Template strings use Go `text/template` with `.input` plus hermetic helper
-  functions, including `json`.
-- `{$input: path.to.value}` injects the validated value with its original JSON
-  type instead of rendering it as a string.
-- Base-config actions and DAG-local actions are merged per document; duplicate
-  names across scopes are rejected.
-- Custom actions can call other custom actions, but recursive references are
+- Custom actions can call other custom actions; recursive references are
   rejected.
 
-Allowed custom action call-site fields are workflow-control fields such as
-`id`, `name`, `description`, `depends`, `continue_on`, `retry_policy`,
-`repeat_policy`, `mail_on_error`, `preconditions`, `signal_on_stop`, `env`,
-`timeout_sec`, `stdout`, `stderr`, `log_output`, `worker_selector`, `output`,
-and `approval`.
-
-Execution fields belong in the action template, not at the call site.
-
-## Common Step Fields
-
-These fields remain top-level step fields with either `run:` or `action:`.
-
-| Field | Meaning |
-|-------|---------|
-| `id` | Stable identifier for dependencies and output references. |
-| `name` | Display name. |
-| `description` | Step description. |
-| `depends` | Dependency name, list, or explicit empty list. |
-| `env` | Step environment variables. |
-| `working_dir` | Step working directory. |
-| `timeout_sec` | Step timeout in seconds. |
-| `retry_policy` | Step retry behavior. |
-| `repeat_policy` | Step repeat behavior. |
-| `continue_on` | Continue after selected failures, skips, exit codes, or outputs. |
-| `preconditions` | Step preconditions. |
-| `worker_selector` | Required worker labels. |
-| `mail_on_error` | Send email on step error. |
-| `signal_on_stop` | Signal sent when the step is stopped. |
-| `stdout`, `stderr`, `log_output` | Output log file behavior. |
-| `output` | Captured stdout variable or structured step output map. |
-| `output_schema` | JSON Schema object for stdout JSON validation. |
-| `approval` | Human approval gate after the step completes. |
-| `container` | Step container context for running a `run:` command in a container. Use `docker.run` or `container.run` when you want the Docker/container executor directly. |
+Legacy `step_types:` remains loadable, but it is deprecated. Use `actions:` for
+new reusable definitions.
 
 ## Outputs
 
@@ -573,46 +345,36 @@ steps:
         select: .artifact
 
   - id: publish
-    run: echo "${inspect.output.version} ${inspect.output.artifact.url}"
     depends: [inspect]
+    run: echo "${inspect.output.version} ${inspect.output.artifact.url}"
 ```
 
-Valid structured output sources are `stdout`, `stderr`, and `file`. Valid
-decoders are `text`, `json`, and `yaml`. `select` requires `json` or `yaml`.
+Structured output sources are `stdout`, `stderr`, and `file`. Decoders are
+`text`, `json`, and `yaml`. `select` requires `json` or `yaml`.
 
-## Deprecated v1 Fields
+## Lifecycle Handlers
 
-The parser still accepts these v1 fields, but `dagu validate` can warn about
-them:
-
-```text
-agent, call, command, config, exec, llm, messages, params, routes, script,
-shell, shell_args, shell_packages, type, value, step_types
-```
-
-They cannot be mixed with `run:` or `action:` on the same step. For example,
-this is invalid:
+Use `handler_on` for lifecycle steps:
 
 ```yaml
-steps:
-  - run: echo hello
-    command: echo legacy
-```
-
-This is also invalid:
-
-```yaml
-steps:
-  - action: http.request
-    type: http
+handler_on:
+  failure:
+    action: log.write
     with:
-      method: GET
-      url: https://example.com
+      message: Workflow failed
+  exit:
+    run: ./cleanup.sh
+
+steps:
+  - id: main
+    run: ./run.sh
 ```
 
-## Validation
+Handlers use the same current step execution syntax as normal steps.
 
-Useful local checks:
+## Validation and Source of Truth
+
+Use these commands when editing workflow YAML:
 
 ```sh
 dagu validate workflow.yaml
@@ -620,9 +382,13 @@ dagu schema dag
 dagu schema dag steps
 ```
 
-For implementation-level source of truth, see:
+Implementation-level references:
 
-- `internal/core/spec/step_v2.go`
-- `internal/core/spec/step_v2_test.go`
-- `internal/core/spec/step_types.go`
-- `internal/cmn/schema/dag.schema.json`
+- `internal/cmn/schema/dag.schema.json` - generated JSON Schema used by editor
+  tooling and schema navigation
+- `internal/core/spec/step_v2.go` - `run:` and `action:` normalization
+- `internal/core/spec/step_types.go` - custom `actions:` and legacy
+  `step_types:` handling
+- `internal/core/spec/deprecation.go` - deprecated v1 syntax warnings
+- [`SCHEMA_MIGRATION.md`](./SCHEMA_MIGRATION.md) - migration notes from v1
+  syntax to the current schema
