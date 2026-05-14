@@ -135,6 +135,79 @@ func TestFileExecutorConservativeDefaults(t *testing.T) {
 	require.Error(t, rootExec.Run(context.Background()))
 }
 
+func TestFileExecutorRejectsUnknownConfigKeys(t *testing.T) {
+	t.Parallel()
+
+	workDir := t.TempDir()
+
+	_, err := newFileExecutorForTest(t, workDir, opDelete, map[string]any{
+		"path":   "target.txt",
+		"dryrun": true,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "dryrun")
+
+	err = core.ValidateExecutorConfig(executorType, map[string]any{
+		"path":   "target.txt",
+		"dryrun": true,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "dryrun")
+}
+
+func TestFileExecutorRejectsUnsafeCopyMoveTargets(t *testing.T) {
+	t.Parallel()
+
+	workDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "same.txt"), []byte("old"), 0o600))
+
+	copyExec, err := newFileExecutorForTest(t, workDir, opCopy, map[string]any{
+		"source":      "same.txt",
+		"destination": "same.txt",
+		"overwrite":   true,
+	})
+	require.NoError(t, err)
+	require.Error(t, copyExec.Run(context.Background()))
+	assertFileContent(t, filepath.Join(workDir, "same.txt"), "old")
+
+	moveExec, err := newFileExecutorForTest(t, workDir, opMove, map[string]any{
+		"source":      "same.txt",
+		"destination": "same.txt",
+		"overwrite":   true,
+	})
+	require.NoError(t, err)
+	require.Error(t, moveExec.Run(context.Background()))
+	assertFileContent(t, filepath.Join(workDir, "same.txt"), "old")
+
+	require.NoError(t, os.Mkdir(filepath.Join(workDir, "src"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "src", "data.txt"), []byte("data"), 0o600))
+	dirCopyExec, err := newFileExecutorForTest(t, workDir, opCopy, map[string]any{
+		"source":      "src",
+		"destination": "src/nested",
+		"recursive":   true,
+	})
+	require.NoError(t, err)
+	require.Error(t, dirCopyExec.Run(context.Background()))
+	assert.NoDirExists(t, filepath.Join(workDir, "src", "nested"))
+}
+
+func TestFileExecutorMoveOverwriteReplacesDestination(t *testing.T) {
+	t.Parallel()
+
+	workDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "source.txt"), []byte("source"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "destination.txt"), []byte("destination"), 0o600))
+
+	moveOut := runFileAction(t, workDir, opMove, map[string]any{
+		"source":      "source.txt",
+		"destination": "destination.txt",
+		"overwrite":   true,
+	})
+	assertJSONField(t, moveOut, "operation", opMove)
+	assert.NoFileExists(t, filepath.Join(workDir, "source.txt"))
+	assertFileContent(t, filepath.Join(workDir, "destination.txt"), "source")
+}
+
 func TestFileExecutorMkdirParentsAndMissingOK(t *testing.T) {
 	t.Parallel()
 

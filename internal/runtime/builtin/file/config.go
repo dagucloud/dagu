@@ -56,7 +56,7 @@ func decodeConfig(raw map[string]any, cfg *config) error {
 	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		Result:           cfg,
 		WeaklyTypedInput: true,
-		ErrorUnused:      false,
+		ErrorUnused:      true,
 		TagName:          "mapstructure",
 	})
 	if err != nil {
@@ -123,7 +123,8 @@ func parseFileMode(raw string) (os.FileMode, error) {
 }
 
 var configSchema = &jsonschema.Schema{
-	Type: "object",
+	Type:                 "object",
+	AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
 	Properties: map[string]*jsonschema.Schema{
 		"path":            {Type: "string", Description: "File or directory path used by stat, read, write, delete, mkdir, and list."},
 		"source":          {Type: "string", Description: "Source path used by copy and move."},

@@ -2319,6 +2319,19 @@
           }
         },
         {
+          "if": { "properties": { "type": { "const": "file" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "with": { "$ref": "#/definitions/fileActionConfig" },
+              "config": {
+                "$ref": "#/definitions/fileActionConfig",
+                "deprecated": true,
+                "doNotSuggest": true
+              }
+            }
+          }
+        },
+        {
           "if": {
             "properties": { "type": { "const": "log" } },
             "required": ["type"]
@@ -6258,6 +6271,14 @@
           "then": {
             "properties": {
               "config": { "$ref": "#/definitions/archiveExecutorConfig" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "file" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "config": { "$ref": "#/definitions/fileActionConfig" }
             }
           }
         },

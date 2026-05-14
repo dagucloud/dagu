@@ -381,6 +381,39 @@ steps:
 `,
 		},
 		{
+			name: "LegacyFileTypeConfig",
+			spec: `
+steps:
+  - type: file
+    command: stat
+    config:
+      path: out/data.txt
+`,
+		},
+		{
+			name: "RejectFileActionUnknownConfigField",
+			spec: `
+steps:
+  - action: file.delete
+    with:
+      path: out/data.txt
+      dryrun: true
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectLegacyFileTypeUnknownConfigField",
+			spec: `
+steps:
+  - type: file
+    command: delete
+    config:
+      path: out/data.txt
+      dryrun: true
+`,
+			wantErr: "did not validate",
+		},
+		{
 			name: "RejectRunAndAction",
 			spec: `
 steps:
@@ -964,6 +997,29 @@ steps:
 			require.Contains(t, err.Error(), tt.wantErr)
 		})
 	}
+}
+
+func TestDAGSchemaFileExecutorObjectRejectsUnknownConfig(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveDAGSchemaDefinition(t, "executorObject")
+
+	require.NoError(t, resolved.Validate(map[string]any{
+		"type": "file",
+		"config": map[string]any{
+			"path": "data.txt",
+		},
+	}))
+
+	err := resolved.Validate(map[string]any{
+		"type": "file",
+		"config": map[string]any{
+			"path":   "data.txt",
+			"dryrun": true,
+		},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "dryrun")
 }
 
 func TestDAGSchemaLogExecutorObjectRequiresMessage(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -308,6 +309,9 @@ func (e *executorImpl) runCopy() error {
 	if err != nil {
 		return err
 	}
+	if samePath(source, destination) {
+		return fmt.Errorf("file copy %s to %s: source and destination must differ", source, destination)
+	}
 	if e.cfg.DryRun {
 		copied := false
 		return e.writeJSON(opResult{Operation: opCopy, Source: source, Destination: destination, DryRun: true, Copied: &copied})
@@ -337,6 +341,9 @@ func (e *executorImpl) runMove() error {
 	if err != nil {
 		return err
 	}
+	if samePath(source, destination) {
+		return fmt.Errorf("file move %s to %s: source and destination must differ", source, destination)
+	}
 	if e.cfg.DryRun {
 		moved := false
 		return e.writeJSON(opResult{Operation: opMove, Source: source, Destination: destination, DryRun: true, Moved: &moved})
@@ -346,7 +353,8 @@ func (e *executorImpl) runMove() error {
 			return fmt.Errorf("file move %s to %s: create parent directories: %w", source, destination, err)
 		}
 	}
-	if _, err := os.Lstat(source); err != nil {
+	sourceInfo, err := os.Lstat(source)
+	if err != nil {
 		return fmt.Errorf("file move %s to %s: stat source: %w", source, destination, err)
 	}
 	if !e.cfg.Overwrite {
@@ -356,17 +364,17 @@ func (e *executorImpl) runMove() error {
 			return fmt.Errorf("file move %s to %s: stat destination: %w", source, destination, err)
 		}
 	}
-	if e.cfg.Overwrite {
-		if err := os.RemoveAll(destination); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("file move %s to %s: remove destination: %w", source, destination, err)
-		}
-	}
 	if err := os.Rename(source, destination); err != nil {
-		if !errors.Is(err, syscall.EXDEV) {
+		if errors.Is(err, syscall.EXDEV) {
+			if err := e.moveAcrossDevices(source, destination); err != nil {
+				return err
+			}
+		} else if e.cfg.Overwrite && !sourceInfo.IsDir() {
+			if err := fileutil.ReplaceFileWithRetry(source, destination); err != nil {
+				return fmt.Errorf("file move %s to %s: replace destination: %w", source, destination, err)
+			}
+		} else {
 			return fmt.Errorf("file move %s to %s: %w", source, destination, err)
-		}
-		if err := e.moveAcrossDevices(source, destination); err != nil {
-			return err
 		}
 	}
 	moved := true
@@ -516,16 +524,26 @@ func (e *executorImpl) copyPath(source, destination string, recursive bool) (cop
 	if err != nil {
 		return copyStats{}, fmt.Errorf("file copy %s to %s: %w", source, destination, err)
 	}
+	if e.cfg.FollowSymlinks {
+		resolved, err := filepath.EvalSymlinks(source)
+		if err != nil {
+			return copyStats{}, fmt.Errorf("file copy %s to %s: resolve source symlink: %w", source, destination, err)
+		}
+		source = resolved
+	}
+	if samePath(source, destination) {
+		return copyStats{}, fmt.Errorf("file copy %s to %s: source and destination must differ", source, destination)
+	}
 	if info.IsDir() {
 		if !recursive {
 			return copyStats{}, fmt.Errorf("file copy %s to %s: recursive is required to copy a directory", source, destination)
 		}
-		if e.cfg.FollowSymlinks {
-			resolved, err := filepath.EvalSymlinks(source)
-			if err != nil {
-				return copyStats{}, fmt.Errorf("file copy %s to %s: resolve source symlink: %w", source, destination, err)
-			}
-			source = resolved
+		inside, err := pathInsideOrSame(source, destination)
+		if err != nil {
+			return copyStats{}, fmt.Errorf("file copy %s to %s: compare paths: %w", source, destination, err)
+		}
+		if inside {
+			return copyStats{}, fmt.Errorf("file copy %s to %s: destination must not be inside source", source, destination)
 		}
 		return e.copyDir(source, destination)
 	}
@@ -594,13 +612,11 @@ func (e *executorImpl) copyRegularFile(source, destination string, mode os.FileM
 	}
 	defer func() { _ = src.Close() }()
 
-	flag := os.O_WRONLY | os.O_CREATE
 	if e.cfg.Overwrite {
-		flag |= os.O_TRUNC
-	} else {
-		flag |= os.O_EXCL
+		return copyRegularFileAtomically(src, source, destination, mode)
 	}
-	dst, err := os.OpenFile(destination, flag, mode) //nolint:gosec // path is workflow-controlled local file output.
+
+	dst, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode) //nolint:gosec // path is workflow-controlled local file output.
 	if err != nil {
 		return 0, fmt.Errorf("file copy %s to %s: open destination: %w", source, destination, err)
 	}
@@ -610,6 +626,38 @@ func (e *executorImpl) copyRegularFile(source, destination string, mode os.FileM
 	if err != nil {
 		return written, fmt.Errorf("file copy %s to %s: %w", source, destination, err)
 	}
+	return written, nil
+}
+
+func copyRegularFileAtomically(src *os.File, source, destination string, mode os.FileMode) (int64, error) {
+	tmp, err := os.CreateTemp(filepath.Dir(destination), "."+filepath.Base(destination)+".tmp.*") //nolint:gosec // path is workflow-controlled local file output.
+	if err != nil {
+		return 0, fmt.Errorf("file copy %s to %s: create temporary destination: %w", source, destination, err)
+	}
+	tmpPath := tmp.Name()
+	removeTmp := true
+	defer func() {
+		if removeTmp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	written, err := io.Copy(tmp, src)
+	if err != nil {
+		_ = tmp.Close()
+		return written, fmt.Errorf("file copy %s to %s: %w", source, destination, err)
+	}
+	if err := tmp.Chmod(mode); err != nil {
+		_ = tmp.Close()
+		return written, fmt.Errorf("file copy %s to %s: chmod temporary destination: %w", source, destination, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return written, fmt.Errorf("file copy %s to %s: close temporary destination: %w", source, destination, err)
+	}
+	if err := fileutil.ReplaceFileWithRetry(tmpPath, destination); err != nil {
+		return written, fmt.Errorf("file copy %s to %s: replace destination: %w", source, destination, err)
+	}
+	removeTmp = false
 	return written, nil
 }
 
@@ -641,6 +689,13 @@ func (e *executorImpl) moveAcrossDevices(source, destination string) error {
 	}
 	if info.IsDir() && !e.cfg.Recursive {
 		return fmt.Errorf("file move %s to %s: recursive is required to move a directory across filesystems", source, destination)
+	}
+	if info.IsDir() && e.cfg.Overwrite {
+		if _, err := os.Lstat(destination); err == nil {
+			return fmt.Errorf("file move %s to %s: cross-filesystem directory overwrite is not supported", source, destination)
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("file move %s to %s: stat destination: %w", source, destination, err)
+		}
 	}
 	if _, err := e.copyPath(source, destination, info.IsDir()); err != nil {
 		return err
@@ -707,6 +762,76 @@ func statPath(path string, followSymlinks bool) (fs.FileInfo, error) {
 		return os.Stat(path)
 	}
 	return os.Lstat(path)
+}
+
+func samePath(a, b string) bool {
+	a = filepath.Clean(a)
+	b = filepath.Clean(b)
+	if goruntime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
+func pathInsideOrSame(parent, child string) (bool, error) {
+	parentAbs, err := canonicalPath(parent)
+	if err != nil {
+		return false, err
+	}
+	childAbs, err := canonicalPath(child)
+	if err != nil {
+		return false, err
+	}
+	if samePath(parentAbs, childAbs) {
+		return true, nil
+	}
+	rel, err := filepath.Rel(parentAbs, childAbs)
+	if err != nil {
+		return false, err
+	}
+	if rel == "." {
+		return true, nil
+	}
+	if rel == ".." || filepath.IsAbs(rel) || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false, nil
+	}
+	return true, nil
+}
+
+func canonicalPath(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err == nil {
+		return filepath.Clean(resolved), nil
+	}
+	if !os.IsNotExist(err) {
+		return "", err
+	}
+
+	var missing []string
+	current := filepath.Clean(abs)
+	for {
+		resolved, err := filepath.EvalSymlinks(current)
+		if err == nil {
+			for i := len(missing) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, missing[i])
+			}
+			return filepath.Clean(resolved), nil
+		}
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+
+		parent := filepath.Dir(current)
+		if parent == current {
+			return filepath.Clean(abs), nil
+		}
+		missing = append(missing, filepath.Base(current))
+		current = parent
+	}
 }
 
 func infoResult(operation, path string, info fs.FileInfo) opResult {
