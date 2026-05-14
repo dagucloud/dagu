@@ -204,6 +204,82 @@ steps:
 	assert.Contains(t, step.ExecutorConfig.Config, "import")
 }
 
+func TestStepSchemaV2_ActionFileOperations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		action string
+		op     string
+		with   string
+	}{
+		{
+			action: "file.stat",
+			op:     "stat",
+			with:   "path: ./input.txt",
+		},
+		{
+			action: "file.read",
+			op:     "read",
+			with:   "path: ./input.txt",
+		},
+		{
+			action: "file.write",
+			op:     "write",
+			with: `path: ./output.txt
+      content: hello`,
+		},
+		{
+			action: "file.copy",
+			op:     "copy",
+			with: `source: ./input.txt
+      destination: ./output.txt`,
+		},
+		{
+			action: "file.move",
+			op:     "move",
+			with: `source: ./input.txt
+      destination: ./output.txt`,
+		},
+		{
+			action: "file.delete",
+			op:     "delete",
+			with:   "path: ./output.txt",
+		},
+		{
+			action: "file.mkdir",
+			op:     "mkdir",
+			with:   "path: ./out",
+		},
+		{
+			action: "file.list",
+			op:     "list",
+			with:   "path: ./out",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.action, func(t *testing.T) {
+			t.Parallel()
+
+			dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: file_step
+    action: `+tt.action+`
+    with:
+      `+tt.with+`
+`))
+			require.NoError(t, err)
+			require.Len(t, dag.Steps, 1)
+
+			step := dag.Steps[0]
+			assert.Equal(t, "file", step.ExecutorConfig.Type)
+			require.Len(t, step.Commands, 1)
+			assert.Equal(t, tt.op, step.Commands[0].Command)
+			assert.NotEmpty(t, step.ExecutorConfig.Config)
+		})
+	}
+}
+
 func TestStepSchemaV2_ActionHarnessStdin(t *testing.T) {
 	t.Parallel()
 

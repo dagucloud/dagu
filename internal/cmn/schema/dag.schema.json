@@ -2025,6 +2025,18 @@
         },
         {
           "if": {
+            "properties": { "action": { "enum": ["file.stat", "file.read", "file.write", "file.copy", "file.move", "file.delete", "file.mkdir", "file.list"] } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/fileActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": { "action": { "enum": ["s3.upload", "s3.download", "s3.list", "s3.delete"] } },
             "required": ["action"]
           },
@@ -5568,6 +5580,7 @@
         "shell",
         "docker",
         "container",
+        "file",
         "kubernetes",
         "k8s",
         "http",
@@ -5619,6 +5632,14 @@
             "dag.run",
             "docker.run",
             "exec",
+            "file.copy",
+            "file.delete",
+            "file.list",
+            "file.mkdir",
+            "file.move",
+            "file.read",
+            "file.stat",
+            "file.write",
             "harness.run",
             "http.request",
             "jq.filter",
@@ -5954,6 +5975,83 @@
         }
       },
       "description": "Configuration for action: template.render."
+    },
+    "fileActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "File or directory path used by file.stat, file.read, file.write, file.delete, file.mkdir, and file.list."
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Source path used by file.copy and file.move."
+        },
+        "destination": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Destination path used by file.copy and file.move."
+        },
+        "content": {
+          "type": "string",
+          "description": "Content to write for file.write."
+        },
+        "mode": {
+          "type": "string",
+          "pattern": "^(0o|0O)?[0-7]{3,4}$",
+          "description": "Octal file or directory mode such as 0600 or 0750."
+        },
+        "format": {
+          "type": "string",
+          "enum": ["raw", "json"],
+          "description": "Output format for file.read. Defaults to raw."
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Glob pattern for file.list, matched against slash-separated relative paths."
+        },
+        "overwrite": {
+          "type": "boolean",
+          "description": "Overwrite an existing destination. Defaults to false."
+        },
+        "create_dirs": {
+          "type": "boolean",
+          "description": "Create missing parent directories for file.write, file.copy, and file.move."
+        },
+        "atomic": {
+          "type": "boolean",
+          "description": "Use atomic replacement for overwriting file.write destinations. Defaults to true."
+        },
+        "recursive": {
+          "type": "boolean",
+          "description": "Recurse into directories for list/copy or allow recursive delete."
+        },
+        "missing_ok": {
+          "type": "boolean",
+          "description": "Succeed when the target path is missing for file.stat or file.delete."
+        },
+        "dry_run": {
+          "type": "boolean",
+          "description": "Report what would happen without mutating files for write/copy/move/delete/mkdir."
+        },
+        "include_dirs": {
+          "type": "boolean",
+          "description": "Include directories in file.list output."
+        },
+        "follow_symlinks": {
+          "type": "boolean",
+          "description": "Follow the top-level source symlink for stat/copy."
+        },
+        "max_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Maximum bytes to read for file.read. Zero means no limit."
+        }
+      },
+      "description": "Configuration for local file actions."
     },
     "customActions": {
       "type": "object",

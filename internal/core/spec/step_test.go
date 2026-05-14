@@ -47,6 +47,8 @@ func TestMain(m *testing.M) {
 	}
 	// archive: supports command only
 	core.RegisterExecutorCapabilities("archive", core.ExecutorCapabilities{Command: true})
+	// file: supports command only
+	core.RegisterExecutorCapabilities("file", core.ExecutorCapabilities{Command: true})
 	// dag/subworkflow/parallel: support SubDAG and WorkerSelector
 	for _, t := range []string{"dag", "subworkflow", "parallel"} {
 		core.RegisterExecutorCapabilities(t, core.ExecutorCapabilities{

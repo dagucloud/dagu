@@ -361,6 +361,26 @@ steps:
 `,
 		},
 		{
+			name: "FileActions",
+			spec: `
+steps:
+  - action: file.write
+    with:
+      path: out/data.txt
+      content: hello
+      create_dirs: true
+  - action: file.copy
+    with:
+      source: out/data.txt
+      destination: out/copy.txt
+  - action: file.list
+    with:
+      path: out
+      recursive: true
+      pattern: "**/*.txt"
+`,
+		},
+		{
 			name: "RejectRunAndAction",
 			spec: `
 steps:
@@ -462,6 +482,17 @@ steps:
   - action: noop
     with:
       message: ignored
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectFileActionUnknownConfig",
+			spec: `
+steps:
+  - action: file.read
+    with:
+      path: out/data.txt
+      unexpected: true
 `,
 			wantErr: "did not validate",
 		},
