@@ -84,6 +84,7 @@ type Definition struct {
 	Terminal   *TerminalDef   `mapstructure:"terminal"`
 	Audit      *AuditDef      `mapstructure:"audit"`
 	EventStore *EventStoreDef `mapstructure:"event_store"`
+	Webhooks   *WebhooksDef   `mapstructure:"webhooks"`
 	Session    *SessionDef    `mapstructure:"session"`
 	SSE        *SSEDef        `mapstructure:"sse"`
 	GitSync    *GitSyncDef    `mapstructure:"git_sync"`
@@ -365,6 +366,11 @@ type AuditDef struct {
 type EventStoreDef struct {
 	Enabled       *bool `mapstructure:"enabled"`        // Default: true
 	RetentionDays *int  `mapstructure:"retention_days"` // Default: 1
+}
+
+// WebhooksDef configures webhook trigger endpoints.
+type WebhooksDef struct {
+	MaxPayloadSize *int `mapstructure:"max_payload_size"` // Default: 1MiB
 }
 
 // SessionDef configures agent session storage.

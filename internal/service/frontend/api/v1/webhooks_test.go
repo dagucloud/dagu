@@ -756,6 +756,38 @@ func TestWebhooks_TriggerOversizedBodyRejectedBeforeAuth(t *testing.T) {
 		ExpectStatus(http.StatusRequestEntityTooLarge).Send(t)
 }
 
+func TestWebhooks_TriggerUsesConfiguredMaxPayloadSize(t *testing.T) {
+	webhookParallel(t)
+	server := setupWebhookTestServer(t, func(cfg *config.Config) {
+		cfg.Webhooks.MaxPayloadSize = 2 * config.DefaultWebhookMaxPayloadSize
+	})
+	token := getWebhookAdminToken(t, server)
+
+	dagName := "webhook_custom_payload_limit_test"
+	createTestDAG(t, server, token, dagName)
+
+	server.Client().Post("/api/v1/dags/"+dagName+"/webhook", nil).
+		WithBearerToken(token).ExpectStatus(http.StatusCreated).Send(t)
+
+	bodyAboveDefault := api.WebhookRequest{
+		Payload: &map[string]any{
+			"blob": strings.Repeat("x", config.DefaultWebhookMaxPayloadSize),
+		},
+	}
+
+	server.Client().Post("/api/v1/webhooks/"+dagName, bodyAboveDefault).
+		ExpectStatus(http.StatusUnauthorized).Send(t)
+
+	bodyAboveConfiguredLimit := api.WebhookRequest{
+		Payload: &map[string]any{
+			"blob": strings.Repeat("x", 2*config.DefaultWebhookMaxPayloadSize),
+		},
+	}
+
+	server.Client().Post("/api/v1/webhooks/"+dagName, bodyAboveConfiguredLimit).
+		ExpectStatus(http.StatusRequestEntityTooLarge).Send(t)
+}
+
 // TestWebhooks_TriggerNonExistentDAG tests triggering webhook for non-existent DAG
 func TestWebhooks_TriggerNonExistentDAG(t *testing.T) {
 	t.Parallel()
