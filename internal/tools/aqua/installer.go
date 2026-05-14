@@ -92,10 +92,13 @@ func (i *Installer) Install(ctx context.Context, cfg *core.ToolConfig, opts tool
 	}
 	defer unlock()
 
-	if err := os.MkdirAll(paths.EnvDir, 0o755); err != nil {
+	// Tool caches live under the worker-local data dir and are owned by the
+	// worker process user; group-readable directories are enough for shared
+	// process access without making downloaded binaries world-readable.
+	if err := os.MkdirAll(paths.EnvDir, 0o750); err != nil {
 		return nil, fmt.Errorf("create aqua env dir: %w", err)
 	}
-	if err := os.MkdirAll(paths.RootDir, 0o755); err != nil {
+	if err := os.MkdirAll(paths.RootDir, 0o750); err != nil {
 		return nil, fmt.Errorf("create aqua root dir: %w", err)
 	}
 	data, err := RenderConfigForPlatform(cfg, platform)
