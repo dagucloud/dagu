@@ -431,7 +431,11 @@ func TestBot_RecentGatewayEventsSystemContextKeepsNewestFive(t *testing.T) {
 	assert.NotContains(t, text, "dag: dag-0")
 	assert.Contains(t, text, "dag: dag-1")
 	assert.Contains(t, text, "run_id: run-5")
-	assert.Less(t, strings.Index(text, "dag: dag-5"), strings.Index(text, "dag: dag-4"))
+	idx5 := strings.Index(text, "dag: dag-5")
+	idx4 := strings.Index(text, "dag: dag-4")
+	require.GreaterOrEqual(t, idx5, 0, "dag-5 should be present")
+	require.GreaterOrEqual(t, idx4, 0, "dag-4 should be present")
+	assert.Less(t, idx5, idx4, "dag-5 should appear before dag-4")
 	assert.Equal(t, 5, strings.Count(text, "observed_at:"))
 }
 
