@@ -8822,27 +8822,54 @@ components:
       type: object
       description: "Editor-only metadata used to synthesize per-document schema hints"
       properties:
-        inheritedCustomStepTypes:
+        inheritedLegacyDefinitions:
           type: array
-          description: "Custom step types inherited from base config and available to the current DAG"
+          description: "Deprecated legacy execution definitions inherited from base config and available to the current DAG"
           items:
-            $ref: "#/components/schemas/InheritedCustomStepTypeHint"
+            $ref: "#/components/schemas/InheritedLegacyDefinitionHint"
+        inheritedCustomActions:
+          type: array
+          description: "Custom actions inherited from base config and available to the current DAG"
+          items:
+            $ref: "#/components/schemas/InheritedCustomActionHint"
       required:
-        - inheritedCustomStepTypes
+        - inheritedLegacyDefinitions
 
-    InheritedCustomStepTypeHint:
+    InheritedCustomActionHint:
       type: object
-      description: "Resolved editor hint for an inherited custom step type"
+      description: "Resolved editor hint for an inherited custom action"
       properties:
         name:
           type: string
-          description: "Custom step type name"
-        targetType:
-          type: string
-          description: "Builtin executor type that the custom step expands to"
+          description: "Custom action name"
         description:
           type: string
-          description: "Optional custom step description"
+          description: "Optional custom action description"
+        inputSchema:
+          type: object
+          additionalProperties: true
+          description: "Resolved JSON Schema object used to validate and document with input"
+        outputSchema:
+          type: object
+          additionalProperties: true
+          description: "Resolved JSON Schema object used to validate stdout JSON output"
+      required:
+        - name
+        - inputSchema
+
+    InheritedLegacyDefinitionHint:
+      type: object
+      description: "Resolved editor hint for an inherited deprecated legacy execution definition"
+      properties:
+        name:
+          type: string
+          description: "Deprecated legacy execution definition name"
+        targetType:
+          type: string
+          description: "Builtin executor type that the deprecated legacy execution definition expands to"
+        description:
+          type: string
+          description: "Optional deprecated legacy execution definition description"
         inputSchema:
           type: object
           additionalProperties: true

@@ -31,7 +31,7 @@ func TestHistoryCommand_Basic(t *testing.T) {
 	dag := th.DAG(t, `name: test-history-basic
 steps:
   - name: simple-step
-    command: "echo test"
+    run: "echo test"
 `)
 
 	// Execute DAG
@@ -63,13 +63,13 @@ func TestHistoryCommand_FilterByName(t *testing.T) {
 	dag1 := th.DAG(t, `name: filter-test-1
 steps:
   - name: step1
-    command: "echo test1"
+    run: "echo test1"
 `)
 
 	dag2 := th.DAG(t, `name: filter-test-2
 steps:
   - name: step2
-    command: "echo test2"
+    run: "echo test2"
 `)
 
 	// Execute both DAGs
@@ -101,13 +101,13 @@ func TestHistoryCommand_FilterByStatus(t *testing.T) {
 	dagSuccess := th.DAG(t, `name: status-test-success
 steps:
   - name: success-step
-    command: "true"
+    run: "true"
 `)
 
 	dagFail := th.DAG(t, `name: status-test-fail
 steps:
   - name: fail-step
-    command: "false"
+    run: "false"
 `)
 
 	// Execute both
@@ -138,7 +138,7 @@ func TestHistoryCommand_JSONFormat(t *testing.T) {
 	dag := th.DAG(t, `name: test-json-format
 steps:
   - name: json-step
-    command: "echo json"
+    run: "echo json"
 `)
 
 	th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", dag.Location}})
@@ -165,7 +165,7 @@ func TestHistoryCommand_RunIDDisplay(t *testing.T) {
 	dag := th.DAG(t, `name: test-runid-full
 steps:
   - name: simple-step
-    command: "echo test"
+    run: "echo test"
 `)
 
 	// Execute with a long custom run ID
@@ -197,7 +197,7 @@ func TestHistoryCommand_DateFiltering(t *testing.T) {
 	dag := th.DAG(t, `name: test-date-filter
 steps:
   - name: simple-step
-    command: "echo test"
+    run: "echo test"
 `)
 
 	th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", dag.Location}})
@@ -320,7 +320,7 @@ labels:
   - critical
 steps:
   - name: step1
-    command: "echo test"
+    run: "echo test"
 `)
 
 	dag2 := th.DAG(t, `name: labeled-dag-2
@@ -328,7 +328,7 @@ labels:
   - dev
 steps:
   - name: step2
-    command: "echo test"
+    run: "echo test"
 `)
 
 	th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", dag1.Location}})
@@ -401,7 +401,7 @@ func TestHistoryCommand_Limit(t *testing.T) {
 	dag := th.DAG(t, `name: test-limit
 steps:
   - name: step
-    command: "echo test"
+    run: "echo test"
 `)
 
 	// Create multiple runs, waiting for each to succeed before starting the next

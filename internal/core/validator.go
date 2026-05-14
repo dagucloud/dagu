@@ -267,7 +267,7 @@ func validateParallelConfig(step Step) ErrorList {
 	var errs ErrorList
 
 	if step.SubDAG == nil {
-		errs = append(errs, NewValidationError("parallel", step.Parallel, fmt.Errorf("parallel execution is only supported for child-DAGs (must have 'run' field)")))
+		errs = append(errs, NewValidationError("parallel", step.Parallel, fmt.Errorf("parallel currently requires action: dag.run")))
 	}
 
 	if step.Parallel.MaxConcurrent <= 0 {

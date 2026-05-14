@@ -86,6 +86,11 @@ func (e *embeddedEchoExecutor) Run(context.Context) error {
 	if command == "" && len(e.step.Commands) > 0 {
 		command = e.step.Commands[0].CmdWithArgs
 	}
+	if command == "" {
+		if message, ok := e.step.ExecutorConfig.Config["message"].(string); ok {
+			command = message
+		}
+	}
 	_, err := fmt.Fprintf(out, "custom executor handled step %q with command %q\n", e.step.Name, command)
 	return err
 }

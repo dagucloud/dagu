@@ -32,7 +32,7 @@ test('marks a local run failed after its runner process is hard-killed', async (
 name: ${dagName}
 steps:
   - name: zombie-step
-    command: |
+    run: |
       mkdir -p "${stack.stateDir}/zombie-pids"
       echo $$ > "${pidFile}"
       exec sleep 300

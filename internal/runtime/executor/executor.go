@@ -49,11 +49,11 @@ func NewExecutor(ctx context.Context, step core.Step) (Executor, error) {
 		return factory(ctx, step)
 	}
 
-	logger.Error(ctx, "Step type is not registered",
+	logger.Error(ctx, "Action is not registered",
 		tag.Type(step.ExecutorConfig.Type),
 		tag.Step(step.Name),
 	)
-	return nil, fmt.Errorf("step type %q is not registered", step.ExecutorConfig.Type)
+	return nil, fmt.Errorf("action %q is not registered", step.ExecutorConfig.Type)
 }
 
 // RegisterExecutor registers a new executor type with its factory, validator, and capabilities.

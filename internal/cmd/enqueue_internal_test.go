@@ -56,7 +56,7 @@ func newEnqueueDAGRunFixture(t *testing.T, closeErr error) enqueueDAGRunFixture 
 	queueStore := &enqueueObservingQueueStore{attempt: attempt}
 	dag := th.DAG(t, `steps:
   - name: "step"
-    command: "true"
+    run: "true"
 `).DAG
 
 	ctx := &Context{
@@ -98,7 +98,7 @@ func (s *enqueueTrackingDAGRunStore) ListStatusesPage(context.Context, ...exec.L
 	return exec.DAGRunStatusPage{}, nil
 }
 
-func (s *enqueueTrackingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, exec.DAGRunRef, string, core.Status, func(*exec.DAGRunStatus) error) (*exec.DAGRunStatus, bool, error) {
+func (s *enqueueTrackingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, exec.DAGRunRef, string, core.Status, func(*exec.DAGRunStatus) error, ...exec.CompareAndSwapStatusOption) (*exec.DAGRunStatus, bool, error) {
 	return nil, false, nil
 }
 

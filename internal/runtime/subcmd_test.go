@@ -96,7 +96,7 @@ func TestRunRetryWithBuiltExecutable(t *testing.T) {
 	dagFile := th.DAG(t, `name: built-exec-retry
 steps:
   - name: step1
-    command: echo built exec retry
+    run: echo built exec retry
 `)
 
 	runID := "built-exec-retry-run"
@@ -132,7 +132,7 @@ func TestRunRetryWithBuiltExecutableFromQueuedQueueStatus(t *testing.T) {
 	dagFile := th.DAG(t, `name: built-exec-queue-retry
 steps:
   - name: step1
-    command: echo built exec queue retry
+    run: echo built exec queue retry
 `)
 
 	runID := "built-exec-queue-retry-run"
@@ -167,7 +167,7 @@ func TestRunRetryWithBuiltExecutableFromQueuedQueueStatusUsingSetupCommand(t *te
 	dagFile := th.DAG(t, `name: built-exec-command-queue-retry
 steps:
   - name: step1
-    command: echo built exec command queue retry
+    run: echo built exec command queue retry
 `)
 
 	runID := "built-exec-command-queue-retry-run"
@@ -202,7 +202,7 @@ func TestRunRetryWithBuiltExecutableFromFreshLoadedConfig(t *testing.T) {
 	dagFile := th.DAG(t, `name: built-exec-fresh-config-retry
 steps:
   - name: step1
-    command: echo built exec fresh config retry
+    run: echo built exec fresh config retry
 `)
 
 	runID := "built-exec-fresh-config-retry-run"
@@ -249,7 +249,7 @@ env:
   - EXPORTED_SECRET: ${SUBCMD_START_EXPLICIT_ENV}
 steps:
   - name: capture
-    command: %q
+    run: %q
     output: RESULT
 `, test.EnvOutput("EXPORTED_SECRET", "SUBCMD_START_EXPLICIT_ENV")))
 
@@ -281,7 +281,7 @@ secrets:
     key: SUBCMD_START_SECRET_SOURCE
 steps:
   - name: capture
-    command: %q
+    run: %q
     output: RESULT
 `, test.EnvOutput("EXPORTED_SECRET", "SUBCMD_START_SECRET_SOURCE")))
 

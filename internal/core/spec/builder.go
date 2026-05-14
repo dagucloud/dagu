@@ -329,11 +329,15 @@ func buildConcreteStep(ctx StepBuildContext, s *step) (*core.Step, error) {
 
 // buildStepFromRaw build core.Step from give raw data (map[string]any)
 func buildStepFromRaw(ctx StepBuildContext, idx int, raw map[string]any, names map[string]struct{}, defs *defaults) (*core.Step, error) {
-	st, err := decodeStep(raw)
+	normalizedRaw, err := normalizeStepExecutionRaw(raw, ctx.customStepTypes)
 	if err != nil {
 		return nil, err
 	}
-	builtStep, err := buildStepFromSpec(ctx, idx, st, raw, names, defs, "")
+	st, err := decodeStep(normalizedRaw)
+	if err != nil {
+		return nil, err
+	}
+	builtStep, err := buildStepFromSpec(ctx, idx, st, normalizedRaw, names, defs, "")
 	if err != nil {
 		return nil, err
 	}
@@ -349,6 +353,23 @@ func buildStepFromSpec(
 	defs *defaults,
 	forcedName string,
 ) (*core.Step, error) {
+	if raw != nil {
+		_, hasRun := raw["run"]
+		_, hasAction := raw["action"]
+		if hasRun || hasAction {
+			normalizedRaw, err := normalizeStepExecutionRaw(raw, ctx.customStepTypes)
+			if err != nil {
+				return nil, err
+			}
+			normalizedSpec, err := decodeStep(normalizedRaw)
+			if err != nil {
+				return nil, err
+			}
+			st = normalizedSpec
+			raw = normalizedRaw
+		}
+	}
+
 	stCopy := *st
 	if forcedName != "" {
 		stCopy.Name = forcedName

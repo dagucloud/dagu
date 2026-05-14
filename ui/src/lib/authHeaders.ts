@@ -1,8 +1,6 @@
-const TOKEN_KEY = 'dagu_auth_token';
+import { getAuthToken } from './authSession';
 
-export function getAuthToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
-}
+export { getAuthToken };
 
 export function getAuthHeaders(
   additionalHeaders?: Record<string, string>

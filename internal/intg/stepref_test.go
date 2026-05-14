@@ -28,13 +28,13 @@ func TestStepIDPropertyAccess(t *testing.T) {
 type: graph
 steps:
   - id: gen
-    command: |
+    run: |
 %s
     output: GEN_OUTPUT
 
   - depends:
       - gen
-    command: |
+    run: |
 %s
     output: FILE_PATHS
 `, indentScript(test.JoinLines(
@@ -60,17 +60,17 @@ steps:
 type: graph
 steps:
   - id: success
-    command: exit 0
+    run: exit 0
 
   - id: failure
-    command: exit 42
+    run: exit 42
     continue_on:
       failure: true
 
   - depends:
       - success
       - failure
-    command: |
+    run: |
       echo "success_code=${success.exitCode}"
       echo "failure_code=${failure.exitCode}"
     output: EXIT_CODES
@@ -86,12 +86,12 @@ steps:
 type: graph
 steps:
   - id: first_step
-    command: echo "Hello"
+    run: echo "Hello"
     output: FIRST_OUT
 
   - depends:
       - first_step
-    command: |
+    run: |
 %s
     output: RESULT
 `, indentScript(test.JoinLines(
@@ -116,12 +116,12 @@ steps:
 type: graph
 steps:
   - id: check
-    command: echo '{"status":"from-step"}'
+    run: echo '{"status":"from-step"}'
     output: check
 
   - depends:
       - check
-    command: |
+    run: |
       echo "variable=${check.status}"
       echo "stdout=${check.stdout}"
     output: PRECEDENCE_TEST
@@ -176,17 +176,17 @@ func TestStepIDComplexScenarios(t *testing.T) {
 type: graph
 steps:
   - id: gen1
-    command: echo "data from gen1"
+    run: echo "data from gen1"
     output: DATA
 
   - id: gen2
-    command: echo "data from gen2"
+    run: echo "data from gen2"
     output: DATA
 
   - depends:
       - gen1
       - gen2
-    command: |
+    run: |
       echo "gen1_output=data from gen1"
       echo "gen2_output=data from gen2"
       echo "current_DATA=${DATA}"
@@ -216,18 +216,18 @@ steps:
 		yaml := `
 steps:
   - id: s1
-    command: echo "10"
+    run: echo "10"
     output: NUM
 
   - id: s2
-    command: echo "15"
+    run: echo "15"
     output: NUM2
 
   - id: s3
-    command: echo "20"
+    run: echo "20"
     output: NUM3
 
-  - command: |
+  - run: |
       echo "s1=10"
       echo "s2=15"
       echo "s3=20"
@@ -255,12 +255,12 @@ steps:
 type: graph
 steps:
   - id: setup_step
-    command: echo '{"env":"test","timeout":30}'
+    run: echo '{"env":"test","timeout":30}'
     output: CONFIG
 
   - depends:
       - setup_step
-    script: |
+    run: |
       #!/bin/bash
       set -e
 
@@ -302,17 +302,17 @@ type: graph
 steps:
   - id: extract_title
     output: RESULT
-    script: |
+    run: |
       printf 'Quarterly Revenue'
 
   - id: extract_summary
     output: RESULT
-    script: |
+    run: |
       printf 'Revenue grew 18 percent year over year.'
 
   - id: report
     depends: [extract_title, extract_summary]
-    script: |
+    run: |
       printf 'Title: %s\nSummary: %s' "${extract_title.output}" "${extract_summary.output}"
     output: REPORT
 `,
@@ -328,12 +328,12 @@ type: graph
 steps:
   - id: empty_step
     output: RESULT
-    script: |
+    run: |
       printf ''
 
   - id: consumer
     depends: [empty_step]
-    script: |
+    run: |
       printf 'got:[%s]' "${empty_step.output}"
     output: CONSUMED
 `,
@@ -349,12 +349,12 @@ type: graph
 steps:
   - id: producer
     output: CAPTURED
-    script: |
+    run: |
       printf 'captured value'
 
   - id: consumer
     depends: [producer]
-    script: |
+    run: |
       printf 'output=%s\nstdout=%s' "${producer.output}" "${producer.stdout}"
     output: RESULT
 `,
@@ -374,12 +374,12 @@ steps:
 type: graph
 steps:
   - id: no_output
-    script: |
+    run: |
       printf 'hello'
 
   - id: consumer
     depends: [no_output]
-    command: %q
+    run: %q
     output: RESULT
 `, test.Output("ref=${no_output.output}")),
 			expectedStatus: core.Succeeded,
@@ -394,11 +394,11 @@ type: graph
 steps:
   - id: check
     output: check
-    command: %q
+    run: %q
 
   - id: consumer
     depends: [check]
-    command: %q
+    run: %q
     output: RESULT
 `, test.Output(`{"output":"from-json"}`), test.Output("value=${check.output}")),
 			expectedStatus: core.Succeeded,
@@ -414,12 +414,12 @@ type: graph
 steps:
   - id: producer
     output: DATA
-    script: |
+    run: |
       printf 'hello world'
 
   - id: consumer
     depends: [producer]
-    script: |
+    run: |
       printf 'sliced=%s' "${producer.output:0:5}"
     output: RESULT
 `,
@@ -436,12 +436,12 @@ type: graph
 steps:
   - id: build
     output: BUILD_JSON
-    script: |
+    run: |
       printf '{"version":"v1.2.3","artifact":{"url":"https://example.test/release.tgz"}}'
 
   - id: consumer
     depends: [build]
-    script: |
+    run: |
       printf 'version=%s\nartifact=%s' "${build.output.version}" "${build.output.artifact.url}"
     output: RESULT
 `,
@@ -457,7 +457,7 @@ steps:
 type: graph
 steps:
   - id: analyze
-    script: |
+    run: |
       printf '{"version":"v1.2.3","artifact":{"url":"https://example.test/release.tgz"}}'
     output:
       version:
@@ -471,7 +471,7 @@ steps:
 
   - id: consumer
     depends: [analyze]
-    script: |
+    run: |
       printf 'version=%s\nartifact=%s' "${analyze.output.version}" "${analyze.output.artifact.url}"
     output: RESULT
 `,
@@ -489,7 +489,7 @@ steps:
 type: graph
 steps:
   - id: build
-    script: |
+    run: |
       printf '{"version":"v1.2.3","artifact":{"url":"https://example.test/release.tgz"}}'
     output: BUILD_JSON
 
@@ -503,7 +503,7 @@ steps:
 
   - id: consumer
     depends: [publish]
-    script: |
+    run: |
       printf 'version=%s\nlabel=%s\nartifact=%s' "${publish.output.version}" "${publish.output.versionLabel}" "${publish.output.artifact.url}"
     output: RESULT
 `,
@@ -522,7 +522,7 @@ steps:
 type: graph
 steps:
   - id: producer
-    script: |
+    run: |
       #!/bin/sh
       printf '{"artifact":{"path":"build/report.md"}}' > meta.json
       printf '{"warning":"retry required"}' >&2
@@ -539,7 +539,7 @@ steps:
 
   - id: consumer
     depends: [producer]
-    script: |
+    run: |
       printf 'artifact=%s\nwarning=%s' "${producer.output.artifactPath}" "${producer.output.warning}"
     output: RESULT
 `,
@@ -607,12 +607,12 @@ func TestStepIDErrorCases(t *testing.T) {
 type: graph
 steps:
   - id: gen
-    command: echo "not json"
+    run: echo "not json"
     output: DATA
 
   - depends:
       - gen
-    command: |
+    run: |
       echo "data=not json"
     output: RESULT
 `

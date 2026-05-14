@@ -103,8 +103,9 @@ func TestSSHExecutorIntegration(t *testing.T) {
 		dagConfig := sshServer.sshConfig("/bin/sh") + `
 steps:
   - name: basic-ssh
-    type: ssh
-    command: echo "hello from ssh"
+    action: ssh.run
+    with:
+      command: echo "hello from ssh"
     output: SSH_OUT
 `
 		dag := th.DAG(t, dagConfig)
@@ -121,8 +122,9 @@ steps:
 		dagConfig := sshServer.sshConfig("/bin/sh") + `
 steps:
   - name: args-test
-    type: ssh
-    command: echo hello world
+    action: ssh.run
+    with:
+      command: echo hello world
     output: SSH_ARGS_OUT
 `
 		dag := th.DAG(t, dagConfig)
@@ -139,9 +141,10 @@ steps:
 		dagConfig := sshServer.sshConfig("/bin/sh") + `
 steps:
   - name: workdir-test
-    type: ssh
+    action: ssh.run
+    with:
+      command: pwd
     working_dir: /tmp
-    command: pwd
     output: SSH_PWD_OUT
 `
 		dag := th.DAG(t, dagConfig)
@@ -160,10 +163,11 @@ steps:
 		dagConfig := sshServer.sshConfig("/bin/sh") + `
 steps:
   - name: script-test
-    type: ssh
-    script: |
-      echo -n "hello "
-      echo "world"
+    action: ssh.run
+    with:
+      command: |
+        echo -n "hello "
+        echo "world"
     output: SSH_SCRIPT_OUT
 `
 		dag := th.DAG(t, dagConfig)
@@ -180,10 +184,11 @@ steps:
 		dagConfig := sshServer.sshConfig("/bin/sh") + `
 steps:
   - name: script-workdir-test
-    type: ssh
+    action: ssh.run
+    with:
+      command: |
+        echo "working in $(pwd)"
     working_dir: /tmp
-    script: |
-      echo "working in $(pwd)"
     output: SSH_SCRIPT_WORKDIR_OUT
 `
 		dag := th.DAG(t, dagConfig)
@@ -200,8 +205,9 @@ steps:
 		dagConfig := sshServer.sshConfig("/bin/sh") + `
 steps:
   - name: error-test
-    type: ssh
-    command: exit 1
+    action: ssh.run
+    with:
+      command: exit 1
 `
 		dag := th.DAG(t, dagConfig)
 		dag.Agent().RunError(t)
@@ -213,9 +219,10 @@ steps:
 		dagConfig := sshServer.sshConfig("/bin/sh") + `
 steps:
   - name: invalid-dir-test
-    type: ssh
+    action: ssh.run
     working_dir: /nonexistent/directory/path
-    command: echo "should not reach"
+    with:
+      command: echo "should not reach"
 `
 		dag := th.DAG(t, dagConfig)
 		dag.Agent().RunError(t)
@@ -228,15 +235,15 @@ steps:
 		dagConfig := fmt.Sprintf(`
 steps:
   - name: step-ssh-config
-    type: ssh
+    action: ssh.run
     with:
+      command: echo "step config works"
       host: 127.0.0.1
       port: "%s"
       user: %s
       key: "%s"
       strict_host_key: false
       shell: /bin/sh
-    command: echo "step config works"
     output: STEP_SSH_OUT
 `, sshServer.hostPort, sshTestUser, sshServer.keyPath)
 
@@ -256,9 +263,10 @@ steps:
 		dagConfig := sshServer.sshConfig("/bin/bash") + `
 steps:
   - name: bash-test
-    type: ssh
-    script: |
-      echo "bash test"
+    action: ssh.run
+    with:
+      command: |
+        echo "bash test"
     output: SSH_BASH_OUT
 `
 		dag := th.DAG(t, dagConfig)
@@ -277,8 +285,9 @@ steps:
 		dagConfig := sshServer.sshConfig("/bin/sh") + `
 steps:
   - name: home-dir-test
-    type: ssh
-    command: pwd
+    action: ssh.run
+    with:
+      command: pwd
     output: SSH_HOME_DIR_OUT
 `
 		dag := th.DAG(t, dagConfig)
@@ -296,9 +305,10 @@ steps:
 		dagConfig := "working_dir: /var\n\n" + sshServer.sshConfig("/bin/sh") + `
 steps:
   - name: step-override-test
-    type: ssh
+    action: ssh.run
+    with:
+      command: pwd
     working_dir: /tmp
-    command: pwd
     output: SSH_OVERRIDE_WORKDIR_OUT
 `
 		dag := th.DAG(t, dagConfig)
@@ -315,9 +325,10 @@ steps:
 		dagConfig := sshServer.sshConfig("/bin/sh") + `
 steps:
   - name: pipe-test
-    type: ssh
-    script: |
-      echo "hello" | tr 'h' 'H'
+    action: ssh.run
+    with:
+      command: |
+        echo "hello" | tr 'h' 'H'
     output: SSH_PIPE_OUT
 `
 		dag := th.DAG(t, dagConfig)
@@ -334,8 +345,9 @@ steps:
 		dagConfig := sshServer.sshConfig("/bin/sh") + `
 steps:
   - name: subst-test
-    type: ssh
-    command: echo "hostname is $(hostname)"
+    action: ssh.run
+    with:
+      command: echo "hostname is $(hostname)"
     output: SSH_SUBST_OUT
 `
 		dag := th.DAG(t, dagConfig)
@@ -350,10 +362,11 @@ steps:
 		dagConfig := sshServer.sshConfig("/bin/sh") + `
 steps:
   - name: set-e-test
-    type: ssh
-    script: |
-      false
-      echo "should not reach"
+    action: ssh.run
+    with:
+      command: |
+        false
+        echo "should not reach"
     output: SSH_SETE_OUT
 `
 		dag := th.DAG(t, dagConfig)
@@ -367,8 +380,9 @@ steps:
 		dagConfig := sshServer.sshPasswordConfig("/bin/sh") + `
 steps:
   - name: password-auth-test
-    type: ssh
-    command: echo "authenticated with password"
+    action: ssh.run
+    with:
+      command: echo "authenticated with password"
     output: PASSWORD_AUTH_OUT
 `
 		dag := th.DAG(t, dagConfig)
@@ -387,8 +401,9 @@ steps:
 		dagConfig := sshServer.sshConfig("/bin/sh") + `
 steps:
   - name: remote-home
-    type: ssh
-    command: echo $HOME
+    action: ssh.run
+    with:
+      command: echo $HOME
     output: REMOTE_HOME
 `
 		dag := th.DAG(t, dagConfig)
@@ -406,8 +421,9 @@ steps:
 		dagConfig := sshServer.sshConfig("/bin/sh") + `
 steps:
   - name: escape-command-shell
-    type: ssh
-    command: echo "\$HOME"
+    action: ssh.run
+    with:
+      command: echo "\$HOME"
     output: ESCAPE_CMD_SHELL_OUT
 `
 		dag := th.DAG(t, dagConfig)
@@ -424,8 +440,9 @@ steps:
 		dagConfig := sshServer.sshConfigNoShell() + `
 steps:
   - name: escape-command-noshell
-    type: ssh
-    command: echo "\$HOME"
+    action: ssh.run
+    with:
+      command: echo "\$HOME"
     output: ESCAPE_CMD_NOSHELL_OUT
 `
 		dag := th.DAG(t, dagConfig)
@@ -442,9 +459,10 @@ steps:
 		dagConfig := sshServer.sshConfig("/bin/sh") + `
 steps:
   - name: escape-script-shell
-    type: ssh
-    script: |
-      echo "\$HOME"
+    action: ssh.run
+    with:
+      command: |
+        echo "\$HOME"
     output: ESCAPE_SCRIPT_SHELL_OUT
 `
 		dag := th.DAG(t, dagConfig)
@@ -461,9 +479,10 @@ steps:
 		dagConfig := sshServer.sshConfigNoShell() + `
 steps:
   - name: escape-script-noshell
-    type: ssh
-    script: |
-      echo "\$HOME"
+    action: ssh.run
+    with:
+      command: |
+        echo "\$HOME"
     output: ESCAPE_SCRIPT_NOSHELL_OUT
 `
 		dag := th.DAG(t, dagConfig)
@@ -484,8 +503,9 @@ env:
   GREETING: hello
 steps:
   - name: mixed-vars
-    type: ssh
-    command: echo "$GREETING from $USER"
+    action: ssh.run
+    with:
+      command: echo "$GREETING from $USER"
     output: MIXED_OUT
 `
 		dag := th.DAG(t, dagConfig)
@@ -512,8 +532,9 @@ steps:
   timeout: "10s"
 steps:
   - name: timeout-config-test
-    type: ssh
-    command: echo "timeout configured"
+    action: ssh.run
+    with:
+      command: echo "timeout configured"
     output: TIMEOUT_OUT
 `, sshServer.hostPort, sshTestUser, sshServer.keyPath)
 		dag := th.DAG(t, dagConfig)

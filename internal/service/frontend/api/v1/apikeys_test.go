@@ -278,7 +278,7 @@ func TestAPIKeys_AuthenticateWithAPIKey(t *testing.T) {
 	spec := `
 steps:
   - name: test
-    command: echo hello
+    run: echo hello
 `
 	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
 		Name: "api_key_auth_test",
@@ -312,7 +312,7 @@ func TestAPIKeys_RoleEnforcement(t *testing.T) {
 	spec := `
 steps:
   - name: test
-    command: echo hello
+    run: echo hello
 `
 	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
 		Name: "viewer_test_dag",

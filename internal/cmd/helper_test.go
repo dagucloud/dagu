@@ -184,7 +184,7 @@ func TestRestoreDAGFromStatus_PreservesExplicitWorkingDirFromYAML(t *testing.T) 
 working_dir: %q
 steps:
   - name: test
-    command: pwd
+    run: pwd
 `, workDir),
 	}
 	status := &exec.DAGRunStatus{}
@@ -205,7 +205,7 @@ func TestRestoreDAGFromStatus_PreservesBaseConfigWorkingDirAsExplicit(t *testing
 		YamlData: []byte(`
 steps:
   - name: test
-    command: pwd
+    run: pwd
 `),
 		BaseConfigData: fmt.Appendf(nil, "working_dir: %q\n", workDir),
 	}
@@ -228,7 +228,7 @@ func TestRestoreDAGFromStatus_PrefersPersistedRunWorkingDir(t *testing.T) {
 working_dir: /changed-work-dir
 steps:
   - name: test
-    command: pwd
+    run: pwd
 `),
 	}
 	status := &exec.DAGRunStatus{WorkingDir: persistedWorkDir}
@@ -264,7 +264,7 @@ func TestRebuildDAGFromYAML_ReappliesBaseConfigContent(t *testing.T) {
 		YamlData: []byte(`
 steps:
   - name: test
-    command: echo hello
+    run: echo hello
 `),
 		BaseConfigData: []byte(`
 env:
@@ -299,7 +299,7 @@ env:
   - BACKTICK_VALUE: "` + "`command_that_does_not_exist_12345`" + `"
 steps:
   - name: test
-    command: echo hello
+    run: echo hello
 `),
 	}
 
@@ -319,7 +319,7 @@ registry_auths:
     password: ${REGISTRY_PASSWORD}
 steps:
   - name: test
-    command: echo hello
+    run: echo hello
 `),
 	}
 	status := &exec.DAGRunStatus{}
@@ -337,7 +337,7 @@ func TestRestoreDAGFromStatus_RestoresRegistryAuthsFromBaseConfig(t *testing.T) 
 		YamlData: []byte(`
 steps:
   - name: test
-    command: echo hello
+    run: echo hello
 `),
 		BaseConfigData: []byte(`
 registry_auths:
@@ -360,7 +360,7 @@ func TestRestoreDAGFromStatus_RestoresHarnessConfigFromBaseConfig(t *testing.T) 
 		Name: "test-dag",
 		YamlData: []byte(`
 steps:
-  - command: Review the repository
+  - run: Review the repository
 `),
 		BaseConfigData: []byte(`
 harnesses:

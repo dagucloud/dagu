@@ -1,6 +1,8 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { handleAuthResponse } from './authSession';
+
 const READ_METHODS = new Set(['GET', 'HEAD']);
 
 export const DEFAULT_READ_TIMEOUT_MS = 10_000;
@@ -36,6 +38,14 @@ function resolveMethod(input: RequestInfo | URL, init?: RequestInit): string {
     return input.method.toUpperCase();
   }
   return 'GET';
+}
+
+function getErrorResponse(error: unknown): Response | undefined {
+  if (typeof Response === 'undefined' || !error || typeof error !== 'object') {
+    return undefined;
+  }
+  const response = (error as { response?: unknown }).response;
+  return response instanceof Response ? response : undefined;
 }
 
 export function getDefaultTimeoutMs(
@@ -107,11 +117,17 @@ export async function fetchWithTimeout(
   }, timeoutMs);
 
   try {
-    return await fetch(input, {
+    const response = await fetch(input, {
       ...init,
       signal: controller.signal,
     });
+    handleAuthResponse(response);
+    return response;
   } catch (error) {
+    const response = getErrorResponse(error);
+    if (response) {
+      handleAuthResponse(response);
+    }
     if (controller.signal.aborted) {
       const reason = controller.signal.reason;
       if (reason instanceof RequestTimeoutError) {
@@ -169,5 +185,6 @@ export function isAbortLikeError(error: unknown): boolean {
 }
 
 export function shouldRetryQueryError(error: unknown): boolean {
-  return !isAbortLikeError(error);
+  const status = getErrorResponseStatus(error);
+  return !isAbortLikeError(error) && status !== 401;
 }

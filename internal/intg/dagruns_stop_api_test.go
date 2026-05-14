@@ -26,7 +26,7 @@ func TestAPITerminateLocalRun_DoesNotRequireCoordinator(t *testing.T) {
 	})
 	spec := fmt.Sprintf(`steps:
   - name: hold
-    command: |
+    run: |
 %s
 `, indentTestScript(waitForFileCommand(releaseFile), 6))
 

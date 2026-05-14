@@ -54,7 +54,7 @@ func TestStatusCommand(t *testing.T) {
 		release := newHoldFile(t)
 		dagFile := th.DAG(t, fmt.Sprintf(`steps:
   - name: "1"
-    command: %q
+    run: %q
 `, holdUntilFileExistsCommand(release)))
 		done := make(chan struct{})
 		go func() {
@@ -77,7 +77,7 @@ func TestStatusCommand(t *testing.T) {
 		th := test.SetupCommand(t)
 		dagFile := th.DAG(t, `steps:
   - name: "success"
-    command: "echo 'Success!'"
+    run: "echo 'Success!'"
 `)
 		err := executeCommand(th.Context, cmd.Start(), []string{dagFile.Location})
 		require.NoError(t, err)
@@ -94,7 +94,7 @@ func TestStatusCommand(t *testing.T) {
 		th := test.SetupCommand(t)
 		dagFile := th.DAG(t, `steps:
   - name: "error"
-    command: exit 1
+    run: exit 1
 `)
 		dag, err := th.DAGStore.GetMetadata(th.Context, dagFile.Location)
 		require.NoError(t, err)
@@ -140,7 +140,7 @@ func TestStatusCommand(t *testing.T) {
   - param2
 steps:
   - name: "print-params"
-    command: "echo Param1: ${param1}, Param2: ${param2}"
+    run: "echo Param1: ${param1}, Param2: ${param2}"
 `)
 		err := executeCommand(th.Context, cmd.Start(), []string{dagFile.Location, "--params=custom1 custom2"})
 		require.NoError(t, err)
@@ -157,7 +157,7 @@ steps:
 		th := test.SetupCommand(t)
 		dagFile := th.DAG(t, `steps:
   - name: "success"
-    command: "echo 'Success!'"
+    run: "echo 'Success!'"
 `)
 		runID := uuid.Must(uuid.NewV7()).String()
 
@@ -176,7 +176,7 @@ steps:
 		th := test.SetupCommand(t)
 		dagFile := th.DAG(t, `steps:
   - name: "success"
-    command: "echo 'Success!'"
+    run: "echo 'Success!'"
 `)
 		err := executeCommand(th.Context, cmd.Start(), []string{dagFile.Location})
 		require.NoError(t, err)
@@ -201,11 +201,11 @@ steps:
 		th := test.SetupCommand(t)
 		dagFile := th.DAG(t, `steps:
   - name: "check"
-    command: "false"
+    run: "false"
     continue_on:
       failure: true
   - name: "skipped"
-    command: "echo 'This will be skipped'"
+    run: "echo 'This will be skipped'"
     preconditions:
       - condition: "test -f /nonexistent"
 `)
@@ -260,7 +260,7 @@ steps:
 		release := newHoldFile(t)
 		dagFile := th.DAG(t, fmt.Sprintf(`steps:
   - name: "1"
-    command: %q
+    run: %q
 `, holdUntilFileExistsCommand(release)))
 		done := make(chan struct{})
 		go func() {
@@ -307,7 +307,7 @@ steps:
 		th := test.SetupCommand(t)
 		dagFile := th.DAG(t, `steps:
   - name: "success"
-    command: "echo 'Success!'"
+    run: "echo 'Success!'"
 `)
 		err := executeCommand(th.Context, cmd.Start(), []string{dagFile.Location})
 		require.NoError(t, err)
@@ -325,7 +325,7 @@ steps:
 		release := newHoldFile(t)
 		dagFile := th.DAG(t, fmt.Sprintf(`steps:
   - name: "1"
-    command: %q
+    run: %q
 `, holdUntilFileExistsCommand(release)))
 		done := make(chan struct{})
 		go func() {
@@ -348,7 +348,7 @@ steps:
 		th := test.SetupCommand(t)
 		dagFile := th.DAG(t, `steps:
   - name: "success"
-    command: "echo 'Success!'"
+    run: "echo 'Success!'"
 `)
 		err := executeCommand(th.Context, cmd.Start(), []string{dagFile.Location})
 		require.NoError(t, err)
@@ -373,7 +373,7 @@ steps:
 		th := test.SetupCommand(t)
 		dagFile := th.DAG(t, `steps:
   - name: "success"
-    command: "echo 'Success!'"
+    run: "echo 'Success!'"
 `)
 		err := executeCommand(th.Context, cmd.Start(), []string{dagFile.Location})
 		require.NoError(t, err)
@@ -390,7 +390,7 @@ steps:
 		th := test.SetupCommand(t)
 		dagFile := th.DAG(t, `steps:
   - name: "success"
-    command: "echo 'Success!'"
+    run: "echo 'Success!'"
 `)
 		dag, err := th.DAGStore.GetMetadata(th.Context, dagFile.Location)
 		require.NoError(t, err)
@@ -435,8 +435,10 @@ steps:
 		th := test.SetupCommand(t, test.WithBuiltExecutable())
 		dagFile := th.DAG(t, `steps:
   - name: run-child
-    call: child-dag
-    params: "NAME=World"
+    action: dag.run
+    with:
+      dag: child-dag
+      params: "NAME=World"
 
 ---
 
@@ -445,7 +447,7 @@ params:
   - NAME
 steps:
   - name: greet
-    command: echo "Hello, ${NAME}!"
+    run: echo "Hello, ${NAME}!"
 `)
 		parentRunID := uuid.Must(uuid.NewV7()).String()
 
@@ -488,7 +490,7 @@ steps:
 		th := test.SetupCommand(t)
 		dagFile := th.DAG(t, `steps:
   - name: "success"
-    command: "echo 'Success!'"
+    run: "echo 'Success!'"
 `)
 		err := executeCommand(th.Context, cmd.Status(), []string{dagFile.Location, "--sub-run-id=some-sub-id"})
 		require.Error(t, err)
@@ -501,7 +503,7 @@ steps:
 		th := test.SetupCommand(t)
 		dagFile := th.DAG(t, `steps:
   - name: "success"
-    command: "echo 'Success!'"
+    run: "echo 'Success!'"
 `)
 		parentRunID := uuid.Must(uuid.NewV7()).String()
 

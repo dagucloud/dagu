@@ -45,6 +45,7 @@ func DefaultLogicalRetryConfig() LogicalRetryConfig {
 // transient request failures.
 func ChatWithRetry(ctx context.Context, provider Provider, req *ChatRequest, cfg LogicalRetryConfig) (*ChatResponse, error) {
 	cfg = normalizeLogicalRetryConfig(cfg)
+	req = NormalizeChatRequest(req)
 
 	var lastErr error
 	for attempt := 1; attempt <= cfg.MaxAttempts; attempt++ {

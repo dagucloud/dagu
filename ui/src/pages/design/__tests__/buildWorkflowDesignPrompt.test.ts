@@ -30,7 +30,7 @@ describe('buildWorkflowDesignPrompt', () => {
       newDagName: 'daily-report',
       remoteNode: 'worker-a',
       userPrompt: 'Create a DAG that writes a daily summary.',
-      draftSpec: 'steps:\n  - name: summarize\n    command: echo ok\n',
+      draftSpec: 'steps:\n  - name: summarize\n    run: echo ok\n',
     });
 
     expect(prompt).toContain('Mode: Create new DAG');

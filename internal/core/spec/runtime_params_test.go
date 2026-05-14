@@ -246,7 +246,7 @@ params:
     required: true
 steps:
   - name: echo
-    command: echo "$region"
+    run: echo "$region"
 `)
 
 	dag, err := LoadYAML(context.Background(), yaml, WithoutEval())
@@ -269,7 +269,7 @@ params:
     required: true
 steps:
   - name: echo
-    command: echo "$region"
+    run: echo "$region"
 `)
 
 	dag, err := LoadYAML(context.Background(), yaml, WithoutEval())
@@ -292,7 +292,7 @@ params:
     required: true
 steps:
   - name: echo
-    command: echo "$idea"
+    run: echo "$idea"
 `)
 
 	dag, err := LoadYAML(context.Background(), yaml, WithoutEval())
@@ -324,7 +324,7 @@ params:
     required: true
 steps:
   - name: echo
-    command: echo "$idea"
+    run: echo "$idea"
 `)
 
 	dag, err := LoadYAML(context.Background(), yaml, WithoutEval())
@@ -406,7 +406,7 @@ params:
   - region: us-east-1
 steps:
   - name: echo
-    command: echo "$region"
+    run: echo "$region"
 `)
 
 	dag, err := LoadYAML(context.Background(), yaml, WithoutEval())
@@ -425,7 +425,7 @@ func TestResolveRuntimeParams_AcceptsAnythingWhenNoParamsDeclared(t *testing.T) 
 name: no-params
 steps:
   - name: echo
-    command: echo hello
+    run: echo hello
 `)
 
 	dag, err := LoadYAML(context.Background(), yaml, WithoutEval())
@@ -448,7 +448,7 @@ params:
     required: true
 steps:
   - name: echo
-    command: echo "$region"
+    run: echo "$region"
 `)
 
 	dag, err := LoadYAML(context.Background(), yaml, WithoutEval())

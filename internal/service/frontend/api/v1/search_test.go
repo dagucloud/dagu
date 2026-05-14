@@ -89,15 +89,15 @@ func TestSearchDAGFeed(t *testing.T) {
 
 	mustCreateDAG(t, setup, "a-match", `name: a-match
 steps:
-  - command: echo "Needle."
-  - command: echo "needle."
-  - command: echo "needle."`)
+  - run: echo "Needle."
+  - run: echo "needle."
+  - run: echo "needle."`)
 	mustCreateDAG(t, setup, "b-match", `name: b-match
 steps:
-  - command: echo "needle."`)
+  - run: echo "needle."`)
 	mustCreateDAG(t, setup, "c-skip", `name: c-skip
 steps:
-  - command: echo "needleX"`)
+  - run: echo "needleX"`)
 
 	limit := apigen.SearchLimit(1)
 	resp, err := setup.api.SearchDAGFeed(adminCtx(), apigen.SearchDAGFeedRequestObject{
@@ -233,10 +233,10 @@ func TestSearchDagMatches(t *testing.T) {
 	setup := newSearchTestSetup(t, false)
 	mustCreateDAG(t, setup, "match-heavy", `name: match-heavy
 steps:
-  - command: echo "needle."
-  - command: echo "needle."
-  - command: echo "needle."
-  - command: echo "needle."`)
+  - run: echo "needle."
+  - run: echo "needle."
+  - run: echo "needle."
+  - run: echo "needle."`)
 
 	limit := apigen.SearchMatchLimit(3)
 	resp, err := setup.api.SearchDagMatches(adminCtx(), apigen.SearchDagMatchesRequestObject{
@@ -276,9 +276,9 @@ func TestSearchDagMatchesUsesWorkspaceFromFeedCursor(t *testing.T) {
 labels:
   - workspace=ops
 steps:
-  - command: echo "needle."
-  - command: echo "needle."
-  - command: echo "needle."`)
+  - run: echo "needle."
+  - run: echo "needle."
+  - run: echo "needle."`)
 
 	workspace := apigen.Workspace("ops")
 	feedResp, err := setup.api.SearchDAGFeed(adminCtx(), apigen.SearchDAGFeedRequestObject{
@@ -352,7 +352,7 @@ func TestSearchInvalidCursor(t *testing.T) {
 	setup := newSearchTestSetup(t, true)
 	mustCreateDAG(t, setup, "match-heavy", `name: match-heavy
 steps:
-  - command: echo "needle."`)
+  - run: echo "needle."`)
 
 	cursor := apigen.SearchCursor("bad-cursor")
 	resp, err := setup.api.SearchDAGFeed(adminCtx(), apigen.SearchDAGFeedRequestObject{

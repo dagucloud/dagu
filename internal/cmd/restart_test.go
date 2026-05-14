@@ -25,9 +25,9 @@ func TestRestartCommand(t *testing.T) {
 	dag := th.DAG(t, fmt.Sprintf(`params: "p1"
 steps:
   - name: "1"
-    script: "echo $1"
+    run: "echo $1"
   - name: "2"
-    script: %q
+    run: %q
 `, holdUntilFileExistsCommand(release)))
 
 	// Start the DAG to restart.
@@ -77,9 +77,9 @@ env:
   - EXPORTED_SECRET: ${CMD_RESTART_EXPLICIT_ENV}
 steps:
   - name: "hold"
-    command: %q
+    run: %q
   - name: "capture"
-    command: printf '%%s|%%s' "$EXPORTED_SECRET" "${CMD_RESTART_EXPLICIT_ENV:-}"
+    run: printf '%%s|%%s' "$EXPORTED_SECRET" "${CMD_RESTART_EXPLICIT_ENV:-}"
     output: RESULT
 `, holdUntilFileExistsCommand(release)))
 

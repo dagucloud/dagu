@@ -37,6 +37,7 @@ import Layout from './layouts/Layout';
 import fetchJson from './lib/fetchJson';
 import { fetchWithTimeout, shouldRetryQueryError } from './lib/requestTimeout';
 import { useClient } from './hooks/api';
+import { addAuthSessionListener, getAuthToken } from './lib/authSession';
 import {
   getStoredWorkspaceSelection,
   persistWorkspaceSelection,
@@ -257,7 +258,12 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
   );
   const [workspaceSelection, setWorkspaceSelection] =
     React.useState<WorkspaceSelection>(() => getStoredWorkspaceSelection());
+  const [authToken, setAuthToken] = React.useState<string | null>(() =>
+    getAuthToken()
+  );
   const selectedWorkspaceName = workspaceNameForSelection(workspaceSelection);
+  const canFetchAuthenticatedResources =
+    config.authMode !== 'builtin' || authToken !== null;
   const handleSelectWorkspace = React.useCallback(
     (selection: WorkspaceSelection) => {
       const sanitized = sanitizeWorkspaceSelection(selection);
@@ -296,6 +302,13 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
   );
 
   const fetchWorkspaces = React.useCallback(async () => {
+    if (!canFetchAuthenticatedResources) {
+      setWorkspaceError(null);
+      applyWorkspaces(initialWorkspacesRef.current ?? []);
+      setWorkspacesLoaded(true);
+      return;
+    }
+
     const requestSeq = workspaceFetchSeqRef.current + 1;
     workspaceFetchSeqRef.current = requestSeq;
     setWorkspaceError(null);
@@ -325,7 +338,12 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
         setWorkspacesLoaded(true);
       }
     }
-  }, [applyWorkspaces, client, selectedRemoteNode]);
+  }, [
+    applyWorkspaces,
+    canFetchAuthenticatedResources,
+    client,
+    selectedRemoteNode,
+  ]);
 
   const handleCreateWorkspace = React.useCallback(
     async (name: string) => {
@@ -399,9 +417,13 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
   // Fetch remote node names from the API on mount so the dropdown
   // includes store-sourced nodes (not just config-sourced ones from the template).
   React.useEffect(() => {
+    if (!canFetchAuthenticatedResources) {
+      return;
+    }
+
     const fetchRemoteNodeNames = async () => {
       try {
-        const token = localStorage.getItem('dagu_auth_token');
+        const token = getAuthToken();
         const headers: Record<string, string> = { Accept: 'application/json' };
         if (token) {
           headers['Authorization'] = `Bearer ${token}`;
@@ -425,7 +447,13 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
       }
     };
     fetchRemoteNodeNames();
-  }, [config.apiURL]);
+  }, [canFetchAuthenticatedResources, config.apiURL]);
+
+  React.useEffect(() => {
+    return addAuthSessionListener((change) => {
+      setAuthToken(change.token);
+    });
+  }, []);
 
   React.useEffect(() => {
     if (!remoteNodes.includes(selectedRemoteNode)) {

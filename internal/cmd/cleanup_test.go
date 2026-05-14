@@ -27,7 +27,7 @@ func TestCleanupCommand(t *testing.T) {
 		// Create a DAG and run it to generate history
 		dag := th.DAG(t, `steps:
   - name: "1"
-    command: echo "hello"
+    run: echo "hello"
 `)
 		// Run the DAG to create history
 		th.RunCommand(t, cmd.Start(), test.CmdTest{
@@ -57,7 +57,7 @@ func TestCleanupCommand(t *testing.T) {
 		// Create a DAG and run it
 		dag := th.DAG(t, `steps:
   - name: "1"
-    command: echo "hello"
+    run: echo "hello"
 `)
 		// Run the DAG to create history
 		th.RunCommand(t, cmd.Start(), test.CmdTest{
@@ -87,7 +87,7 @@ func TestCleanupCommand(t *testing.T) {
 		// Create a DAG and run it
 		dag := th.DAG(t, `steps:
   - name: "1"
-    command: echo "hello"
+    run: echo "hello"
 `)
 		// Run the DAG to create history
 		th.RunCommand(t, cmd.Start(), test.CmdTest{
@@ -118,7 +118,7 @@ func TestCleanupCommand(t *testing.T) {
 		release := newHoldFile(t)
 		dag := th.DAG(t, fmt.Sprintf(`steps:
   - name: "1"
-    command: %q
+    run: %q
 `, holdUntilFileExistsCommand(release)))
 
 		done := make(chan struct{})
@@ -152,7 +152,7 @@ func TestCleanupCommand(t *testing.T) {
 
 		dag := th.DAG(t, `steps:
   - name: "1"
-    command: echo "hello"
+    run: echo "hello"
 `)
 
 		err := th.RunCommandWithError(t, cmd.Cleanup(), test.CmdTest{
@@ -170,7 +170,7 @@ func TestCleanupCommand(t *testing.T) {
 
 		dag := th.DAG(t, `steps:
   - name: "1"
-    command: echo "hello"
+    run: echo "hello"
 `)
 
 		err := th.RunCommandWithError(t, cmd.Cleanup(), test.CmdTest{

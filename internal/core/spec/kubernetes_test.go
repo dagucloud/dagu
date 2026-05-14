@@ -33,7 +33,7 @@ kubernetes:
 
 steps:
   - name: step1
-    type: k8s
+    action: k8s.run
     with:
       image: alpine:3.20
       resources:
@@ -43,13 +43,13 @@ steps:
         app: api
       annotations: {}
       volume_mounts: []
-    command: echo hello
+      command: echo hello
 
   - name: step2
-    type: kubernetes
+    action: kubernetes.run
     with:
       image: alpine:3.20
-    command: echo hello
+      command: echo hello
 `
 
 	dag, err := spec.LoadYAML(context.Background(), []byte(yaml))
@@ -90,7 +90,7 @@ kubernetes:
 
 steps:
   - name: step1
-    command: echo hello
+    run: echo hello
 `
 
 	dag, err := spec.LoadYAML(context.Background(), []byte(yaml))
@@ -110,10 +110,10 @@ kubernetes:
 
 steps:
   - name: step1
-    type: k8s
+    action: k8s.run
     with:
       image: alpine:3.20
-    command: echo hello
+      command: echo hello
 `
 
 	_, err := spec.LoadYAML(context.Background(), []byte(yaml))
@@ -127,10 +127,10 @@ func TestKubernetesStepRequiresEffectiveImage(t *testing.T) {
 	yaml := `
 steps:
   - name: step1
-    type: k8s
+    action: k8s.run
     with:
       namespace: jobs
-    command: echo hello
+      command: echo hello
 `
 
 	_, err := spec.LoadYAML(context.Background(), []byte(yaml))
@@ -167,10 +167,10 @@ kubernetes:
 
 steps:
   - name: step1
-    type: k8s
+    action: k8s.run
     with:
       image: alpine:3.20
-    command: echo hello
+      command: echo hello
 `)
 
 	dag, err := spec.Load(context.Background(), child, spec.WithBaseConfig(base))
@@ -222,7 +222,7 @@ kubernetes:
 
 steps:
   - name: step1
-    type: k8s
+    action: k8s.run
     with:
       image: alpine:3.20
       security_context:
@@ -232,7 +232,7 @@ steps:
         supplemental_groups: []
       affinity: {}
       pod_failure_policy: {}
-    command: echo hello
+      command: echo hello
 `
 
 	dag, err := spec.LoadYAML(context.Background(), []byte(yaml))
@@ -270,10 +270,10 @@ kubernetes: {}
 
 steps:
   - name: step1
-    type: k8s
+    action: k8s.run
     with:
       image: alpine:3.20
-    command: echo hello
+      command: echo hello
 `)
 
 	dag, err := spec.Load(context.Background(), child, spec.WithBaseConfig(base))

@@ -20,7 +20,7 @@ func TestDequeueCommand(t *testing.T) {
 
 	dag := th.DAG(t, `steps:
   - name: "1"
-    command: "true"
+    run: "true"
 `)
 
 	// Enqueue the DAG first
@@ -44,7 +44,7 @@ func TestDequeueCommand_PreservesState(t *testing.T) {
 	// Create a DAG
 	dag := th.DAG(t, `steps:
   - name: step1
-    command: echo "success"
+    run: echo "success"
 `)
 
 	// First run the DAG successfully
@@ -108,7 +108,7 @@ func TestDequeueCommand_DefaultsToFirstItem(t *testing.T) {
 
 	dag := th.DAG(t, `steps:
   - name: "1"
-    command: "true"
+    run: "true"
 `)
 
 	// Enqueue the DAG first
@@ -136,7 +136,7 @@ func TestDequeueCommand_TargetedDequeuesUseActualQueue(t *testing.T) {
 	dag := th.DAG(t, `queue: actual-queue
 steps:
   - name: "1"
-    command: "true"
+    run: "true"
 `)
 
 	th.RunCommand(t, cmd.Enqueue(), test.CmdTest{
@@ -161,7 +161,7 @@ func TestDequeueCommand_DefaultsToFirstItemSkipsStaleHead(t *testing.T) {
 	dag := th.DAG(t, `queue: shared-queue
 steps:
   - name: "1"
-    command: "true"
+    run: "true"
 `)
 
 	require.NoError(t, th.QueueStore.Enqueue(
@@ -196,7 +196,7 @@ func TestDequeueCommand_TargetedDequeueFallsBackToRequestedQueueForOrphanedItem(
 	dag := th.DAG(t, `queue: fallback-queue
 steps:
   - name: "1"
-    command: "true"
+    run: "true"
 `)
 
 	runRef := exec.NewDAGRunRef(dag.Name, "orphaned-run")

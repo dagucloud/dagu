@@ -174,9 +174,9 @@ func TestDAGSpecInheritsBaseGraphType(t *testing.T) {
 	spec := `
 steps:
   - name: build
-    command: echo build
+    run: echo build
   - name: test
-    command: echo test
+    run: echo test
     depends: [build]
 `
 	dagName := "inherits_base_graph_type"
@@ -392,7 +392,7 @@ params:
   - key2: default2
 steps:
   - name: echo_params
-    command: echo "key1=${key1} key2=${key2}"
+    run: echo "key1=${key1} key2=${key2}"
 `
 		dagName := "test_json_params"
 
@@ -434,7 +434,7 @@ steps:
 		spec := `
 steps:
   - name: show_json
-    command: echo "key1=${1.key1} key2=${1.key2}"
+    run: echo "key1=${1.key1} key2=${1.key2}"
 `
 		dagName := "test_json_positional"
 
@@ -475,7 +475,7 @@ steps:
 params: "p1 p2"
 steps:
   - name: echo
-    command: echo "${1} ${2}"
+    run: echo "${1} ${2}"
 `
 		dagName := "test_positional_fewer_allowed"
 
@@ -509,7 +509,7 @@ steps:
 params: "p1 p2"
 steps:
   - name: echo
-    command: echo "${1} ${2}"
+    run: echo "${1} ${2}"
 `
 		dagName := "test_positional_too_many_rejected"
 
@@ -535,7 +535,7 @@ steps:
 		spec := `
 steps:
   - name: echo_labels
-    command: echo "labeled"
+    run: echo "labeled"
 `
 		dagName := "test_labels_dag"
 
@@ -569,7 +569,7 @@ steps:
 		spec := `
 steps:
   - name: echo
-    command: echo "test"
+    run: echo "test"
 `
 		dagName := "test_invalid_labels_dag"
 
@@ -594,7 +594,7 @@ steps:
 		spec := `
 steps:
   - name: echo_labels
-    command: echo "enqueued"
+    run: echo "enqueued"
 `
 		dagName := "test_enqueue_labels_dag"
 
@@ -628,7 +628,7 @@ steps:
 		spec := `
 steps:
   - name: echo
-    command: echo "test"
+    run: echo "test"
 `
 		dagName := "test_enqueue_invalid_labels_dag"
 
@@ -683,11 +683,11 @@ steps:
 type: graph
 steps:
   - name: c_leaf
-    command: echo c
+    run: echo c
   - name: a_root
-    command: echo a
+    run: echo a
   - name: b_mid
-    command: echo b
+    run: echo b
     depends: [a_root]
 `
 		dagName := "test_history_execution_order"
@@ -739,7 +739,7 @@ env:
   - EXPORTED_SECRET: ${API_START_EXPLICIT_ENV}
 steps:
   - name: capture
-    command: %q
+    run: %q
     output: RESULT
 `, test.EnvOutput("EXPORTED_SECRET", "API_START_EXPLICIT_ENV"))
 		dagName := "api_start_explicit_env"
@@ -788,7 +788,7 @@ env:
   - EXPORTED_SECRET: ${API_ENQUEUE_EXPLICIT_ENV}
 steps:
   - name: capture
-    command: %q
+    run: %q
     output: RESULT
 `, test.EnvOutput("EXPORTED_SECRET", "API_ENQUEUE_EXPLICIT_ENV"))
 		dagName := "api_enqueue_explicit_env"
@@ -861,7 +861,7 @@ func TestListDAGsMatchesFileNameWhenDagNameDiffers(t *testing.T) {
 	spec := `
 name: test_name
 steps:
-  - command: echo test
+  - run: echo test
 `
 	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
 		Name: "approvaltest",

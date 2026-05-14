@@ -39,7 +39,7 @@ func CreateInlineDAGRunForReschedule(t *testing.T, server Server, dagName string
     default: 1
 steps:
   - name: print
-    command: echo "${KEY}|${COUNT}"`
+    run: echo "${KEY}|${COUNT}"`
 	params := `KEY="hello world" COUNT=3`
 
 	var dagRunID string

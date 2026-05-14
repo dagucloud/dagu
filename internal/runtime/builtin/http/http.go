@@ -33,6 +33,8 @@ type http struct {
 }
 
 type httpConfig struct {
+	Method        string            `json:"method" mapstructure:"method"`
+	URL           string            `json:"url" mapstructure:"url"`
 	Timeout       int               `json:"timeout" mapstructure:"timeout"`
 	Headers       map[string]string `json:"headers" mapstructure:"headers"`
 	Query         map[string]string `json:"query" mapstructure:"query"`
@@ -84,6 +86,18 @@ func newHTTP(ctx context.Context, step core.Step) (executor.Executor, error) {
 		if len(step.Args) > 0 {
 			url = step.Args[0]
 		}
+	}
+	if method == "" {
+		method = reqCfg.Method
+	}
+	if url == "" {
+		url = reqCfg.URL
+	}
+	if url == "" {
+		return nil, fmt.Errorf("http executor: url is required (set via command, args, or with.url)")
+	}
+	if method == "" {
+		return nil, fmt.Errorf("http executor: method is required (set via command or with.method)")
 	}
 
 	ctx, cancel := context.WithCancel(ctx)

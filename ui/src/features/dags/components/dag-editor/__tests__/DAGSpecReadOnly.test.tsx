@@ -127,13 +127,13 @@ const appBarValue = {
 const originalSpec = `name: example
 steps:
   - name: extract
-    command: echo old
+    run: echo old
 `;
 
 const editedSpec = `name: example
 steps:
   - name: extract
-    command: echo new
+    run: echo new
 `;
 
 const previewResponse = {

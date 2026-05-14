@@ -47,7 +47,7 @@ worker_selector:
   region: apac
 steps:
   - name: main
-    command: echo distributed retry
+    run: echo distributed retry
 `), 0o600))
 
 	dag, err := spec.Load(ctx, dagFile)
@@ -155,7 +155,7 @@ worker_selector:
   region: apac
 steps:
   - name: main
-    command: echo distributed retry latest
+    run: echo distributed retry latest
 `), 0o600))
 
 	dag, err := spec.Load(ctx, dagFile)

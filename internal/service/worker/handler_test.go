@@ -62,9 +62,9 @@ func TestTaskHandler(t *testing.T) {
 		// to dispatch it to a worker.
 		dagContent := `steps:
   - name: "1"
-    command: echo step1
+    run: echo step1
   - name: "2"
-    command: echo step2
+    run: echo step2
 `
 		dag := th.DAG(t, dagContent)
 
@@ -109,9 +109,9 @@ func TestTaskHandler(t *testing.T) {
 	t.Run("HandleTaskRetryWithStep", func(t *testing.T) {
 		dagContent := `steps:
   - name: "1"
-    command: echo step1
+    run: echo step1
   - name: "2"
-    command: echo step2
+    run: echo step2
 `
 		dag := th.DAG(t, dagContent)
 		ctx := th.Context
@@ -157,7 +157,7 @@ func TestTaskHandler(t *testing.T) {
 	t.Run("HandleTaskStart", func(t *testing.T) {
 		dagContent := `steps:
   - name: "process"
-    command: echo processing $1
+    run: echo processing $1
 `
 		dag := th.DAG(t, dagContent)
 		ctx := th.Context
@@ -223,7 +223,7 @@ func TestTaskHandler(t *testing.T) {
   - EXPORTED_SECRET: ${WORKER_TASK_START_ENV}
 steps:
   - name: capture
-    command: %q
+    run: %q
     output: RESULT
 `, test.EnvOutput("EXPORTED_SECRET", "WORKER_TASK_START_ENV"))
 		dag := th.DAG(t, dagContent)
@@ -253,7 +253,7 @@ steps:
   - EXPORTED_SECRET: ${WORKER_TASK_RETRY_ENV}
 steps:
   - name: capture
-    command: %q
+    run: %q
     output: RESULT
 `, test.EnvOutput("EXPORTED_SECRET", "WORKER_TASK_RETRY_ENV"))
 		dag := th.DAG(t, dagContent)
@@ -302,7 +302,7 @@ steps:
 
 		dagContent := fmt.Sprintf(`steps:
   - name: capture
-    command: %q
+    run: %q
     output: RESULT
 `, test.EnvOutput("KUBERNETES_SERVICE_HOST", "KUBERNETES_SERVICE_PORT", "WORKER_TASK_HOST_ONLY_ENV"))
 		dag := th.DAG(t, dagContent)
@@ -332,7 +332,7 @@ steps:
 
 		dagContent := fmt.Sprintf(`steps:
   - name: capture
-    command: %q
+    run: %q
     output: RESULT
 `, test.EnvOutput("KUBERNETES_SERVICE_HOST", "KUBERNETES_SERVICE_PORT", "WORKER_TASK_HOST_ONLY_ENV"))
 		dag := th.DAG(t, dagContent)
@@ -384,7 +384,7 @@ steps:
 
 		dagContent := fmt.Sprintf(`steps:
   - name: capture
-    command: %q
+    run: %q
     output: RESULT
 `, test.EnvOutput("WORKER_TASK_EXACT_ENV", "WORKER_TASK_PREFIX_TOKEN", "WORKER_TASK_HOST_ONLY_ENV"))
 		dag := th.DAG(t, dagContent)
@@ -417,7 +417,7 @@ steps:
 
 		dagContent := fmt.Sprintf(`steps:
   - name: capture
-    command: %q
+    run: %q
     output: RESULT
 `, test.EnvOutput("WORKER_TASK_EXACT_ENV", "WORKER_TASK_PREFIX_TOKEN", "WORKER_TASK_HOST_ONLY_ENV"))
 		dag := th.DAG(t, dagContent)

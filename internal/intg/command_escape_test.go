@@ -27,7 +27,7 @@ func TestCommandExecution_DollarEscape(t *testing.T) {
 shell: /bin/sh
 steps:
   - name: test
-    command: echo "\$HOME"
+    run: echo "\$HOME"
     output: OUT
 `)
 		agent := dag.Agent()
@@ -44,7 +44,7 @@ steps:
 shell: /bin/sh
 steps:
   - name: test
-    script: |
+    run: |
       echo "\$HOME"
     output: OUT
 `)
@@ -62,7 +62,7 @@ steps:
 shell: direct
 steps:
   - name: test
-    command: /bin/echo '\$HOME'
+    run: /bin/echo '\$HOME'
     output: OUT
 `)
 		agent := dag.Agent()
@@ -79,12 +79,14 @@ steps:
 		require.NoError(t, err)
 
 		dag := th.DAG(t, `
-shell: direct
 steps:
   - name: test
-    command: /bin/sh
-    script: |
-      echo "\$HOME"
+    action: exec
+    with:
+      command: /bin/sh
+      args:
+        - -c
+        - 'echo "$HOME"'
     output: OUT
 `)
 		agent := dag.Agent()

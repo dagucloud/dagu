@@ -138,7 +138,7 @@ func createTestDAG(t *testing.T, server test.Server, token, name string) {
 	spec := `
 steps:
   - name: test
-    command: echo hello
+    run: echo hello
 `
 	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
 		Name: name,
@@ -756,6 +756,77 @@ func TestWebhooks_TriggerOversizedBodyRejectedBeforeAuth(t *testing.T) {
 		ExpectStatus(http.StatusRequestEntityTooLarge).Send(t)
 }
 
+// TestWebhooks_TriggerUsesConfiguredMaxPayloadSize covers payloads above the
+// default, exactly at the configured limit, and above the configured limit.
+func TestWebhooks_TriggerUsesConfiguredMaxPayloadSize(t *testing.T) {
+	webhookParallel(t)
+	maxPayloadSize := 2 * config.DefaultWebhookMaxPayloadSize
+	server := setupWebhookTestServer(t, func(cfg *config.Config) {
+		cfg.Webhooks.MaxPayloadSize = maxPayloadSize
+	})
+	token := getWebhookAdminToken(t, server)
+
+	dagName := "webhook_custom_payload_limit_test"
+	createTestDAG(t, server, token, dagName)
+
+	createResp := server.Client().Post("/api/v1/dags/"+dagName+"/webhook", nil).
+		WithBearerToken(token).ExpectStatus(http.StatusCreated).Send(t)
+
+	var createResult api.WebhookCreateResponse
+	createResp.Unmarshal(t, &createResult)
+	webhookToken := createResult.Token
+	require.NotEmpty(t, webhookToken)
+
+	bodyAboveDefault := api.WebhookRequest{
+		Payload: &map[string]any{
+			"blob": strings.Repeat("x", config.DefaultWebhookMaxPayloadSize+1024),
+		},
+	}
+
+	server.Client().Post("/api/v1/webhooks/"+dagName, bodyAboveDefault).
+		WithBearerToken(webhookToken).
+		ExpectStatus(http.StatusOK).Send(t)
+
+	bodyAtConfiguredLimit := webhookRequestWithMarshaledSize(t, maxPayloadSize)
+	server.Client().Post("/api/v1/webhooks/"+dagName, bodyAtConfiguredLimit).
+		WithBearerToken(webhookToken).
+		ExpectStatus(http.StatusOK).Send(t)
+
+	bodyAboveConfiguredLimit := api.WebhookRequest{
+		Payload: &map[string]any{
+			"blob": strings.Repeat("x", 3*config.DefaultWebhookMaxPayloadSize),
+		},
+	}
+
+	server.Client().Post("/api/v1/webhooks/"+dagName, bodyAboveConfiguredLimit).
+		WithBearerToken(webhookToken).
+		ExpectStatus(http.StatusRequestEntityTooLarge).Send(t)
+}
+
+func webhookRequestWithMarshaledSize(t *testing.T, size int) api.WebhookRequest {
+	t.Helper()
+
+	body := api.WebhookRequest{
+		Payload: &map[string]any{
+			"blob": "",
+		},
+	}
+
+	rawBody, err := json.Marshal(body)
+	require.NoError(t, err)
+	require.LessOrEqual(t, len(rawBody), size)
+
+	body.Payload = &map[string]any{
+		"blob": strings.Repeat("x", size-len(rawBody)),
+	}
+
+	rawBody, err = json.Marshal(body)
+	require.NoError(t, err)
+	require.Len(t, rawBody, size)
+
+	return body
+}
+
 // TestWebhooks_TriggerNonExistentDAG tests triggering webhook for non-existent DAG
 func TestWebhooks_TriggerNonExistentDAG(t *testing.T) {
 	t.Parallel()
@@ -828,10 +899,11 @@ webhook:
     - X-GitHub-Delivery
 steps:
   - name: capture-headers
-    shell: /bin/sh
-    command: |
+    run: |
       test -n "${WEBHOOK_HEADERS}"
       printf '%s' "$WEBHOOK_HEADERS" > ` + headersFile + `
+    with:
+      shell: /bin/sh
 `
 	if runtime.GOOS == "windows" {
 		spec = `
@@ -841,10 +913,11 @@ webhook:
     - X-GitHub-Delivery
 steps:
   - name: capture-headers
-    shell: powershell
-    command: |
+    run: |
       if ($null -eq $env:WEBHOOK_HEADERS) { throw 'WEBHOOK_HEADERS not set' }
       [System.IO.File]::WriteAllText("` + strings.ReplaceAll(headersFile, `\`, `\\`) + `", $env:WEBHOOK_HEADERS)
+    with:
+      shell: powershell
 `
 	}
 

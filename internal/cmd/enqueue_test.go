@@ -16,13 +16,13 @@ func TestEnqueueCommand(t *testing.T) {
 
 	dagEnqueue := th.DAG(t, `steps:
   - name: "1"
-    command: "true"
+    run: "true"
 `)
 
 	dagEnqueueWithParams := th.DAG(t, `params: "p1 p2"
 steps:
   - name: "1"
-    command: "echo \"params is $1 and $2\""
+    run: "echo \"params is $1 and $2\""
 `)
 
 	tests := []test.CmdTest{

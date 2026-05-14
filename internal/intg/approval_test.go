@@ -30,12 +30,12 @@ func TestWaitStepApproval(t *testing.T) {
 type: graph
 steps:
   - name: wait-step
-    command: "true"
+    run: "true"
     approval:
       prompt: "Please approve"
   - name: after-wait
     depends: [wait-step]
-    command: echo "approved"
+    run: echo "approved"
 `)
 
 		agent := testDAG.Agent()
@@ -63,17 +63,17 @@ steps:
 type: graph
 steps:
   - name: before-wait
-    command: echo "before"
+    run: echo "before"
   - name: wait-step
     depends: [before-wait]
-    command: "true"
+    run: "true"
     approval: {}
   - name: after-wait-1
     depends: [wait-step]
-    command: echo "after1"
+    run: echo "after1"
   - name: after-wait-2
     depends: [wait-step]
-    command: echo "after2"
+    run: echo "after2"
 `)
 
 		agent := testDAG.Agent()
@@ -101,16 +101,16 @@ steps:
 type: graph
 steps:
   - name: branch-a-1
-    command: echo "a1"
+    run: echo "a1"
   - name: branch-a-2
     depends: [branch-a-1]
-    command: echo "a2"
+    run: echo "a2"
   - name: wait-branch
-    command: "true"
+    run: "true"
     approval: {}
   - name: after-wait
     depends: [wait-branch]
-    command: echo "after wait"
+    run: echo "after wait"
 `)
 
 		agent := testDAG.Agent()
@@ -140,12 +140,12 @@ func TestApprovalField(t *testing.T) {
 type: graph
 steps:
   - name: review-step
-    command: echo "ready for review"
+    run: echo "ready for review"
     approval:
       prompt: "Please review the output"
   - name: after-review
     depends: [review-step]
-    command: echo "approved"
+    run: echo "approved"
 `)
 
 		agent := testDAG.Agent()
@@ -173,7 +173,7 @@ steps:
 type: graph
 steps:
   - name: script-step
-    script: |
+    run: |
       echo "script output line 1"
       echo "script output line 2"
     approval:
@@ -203,7 +203,7 @@ steps:
 type: graph
 steps:
   - name: review-step
-    command: echo "needs feedback"
+    run: echo "needs feedback"
     approval:
       prompt: "Please provide feedback"
       input: [FEEDBACK, NOTES]
@@ -236,11 +236,11 @@ steps:
 type: graph
 steps:
   - name: step-a
-    command: echo "step a output"
+    run: echo "step a output"
     approval:
       prompt: "Approve step A"
   - name: step-b
-    command: echo "step b output"
+    run: echo "step b output"
     approval:
       prompt: "Approve step B"
 `)
@@ -268,15 +268,15 @@ steps:
 type: graph
 steps:
   - name: step-a
-    command: echo "upstream"
+    run: echo "upstream"
   - name: step-b
     depends: [step-a]
-    command: echo "needs approval"
+    run: echo "needs approval"
     approval:
       prompt: "Review step-b"
   - name: step-c
     depends: [step-b]
-    command: echo "downstream"
+    run: echo "downstream"
 `)
 
 		agent := testDAG.Agent()
@@ -304,19 +304,21 @@ steps:
 type: graph
 steps:
   - name: sub-step
-    command: echo "sub-dag output"
+    run: echo "sub-dag output"
 `)
 
 		testDAG := th.DAG(t, `
 type: graph
 steps:
   - name: call-step
-    call: "`+subDAG.Name+`"
+    action: dag.run
+    with:
+      dag: "`+subDAG.Name+`"
     approval:
       prompt: "Review sub-DAG results"
   - name: after-call
     depends: [call-step]
-    command: echo "after call"
+    run: echo "after call"
 `)
 
 		agent := testDAG.Agent()
@@ -350,15 +352,15 @@ func TestApprovalPushBackExposesHistoricalFeedbackEnvAcrossRewoundScope(t *testi
 type: graph
 steps:
   - name: prepare
-    script: |
+    run: |
 %s
   - name: draft
     depends: [prepare]
-    script: |
+    run: |
 %s
   - name: review
     depends: [draft]
-    script: |
+    run: |
 %s
     approval:
       prompt: "Review and revise"
@@ -366,7 +368,7 @@ steps:
       rewind_to: prepare
   - name: publish
     depends: [review]
-    script: |
+    run: |
 %s
 `, dagName,
 		snippet,

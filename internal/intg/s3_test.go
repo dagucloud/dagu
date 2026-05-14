@@ -48,43 +48,43 @@ container:
 steps:
   # Wait for MinIO to be ready with retry loop, then create bucket
   - name: create-bucket
-    command: sh -c "for i in 1 2 3 4 5; do mc alias set local http://127.0.0.1:9000 minioadmin minioadmin && break || sleep 1; done && mc mb local/test-bucket --ignore-existing"
+    run: sh -c "for i in 1 2 3 4 5; do mc alias set local http://127.0.0.1:9000 minioadmin minioadmin && break || sleep 1; done && mc mb local/test-bucket --ignore-existing"
 
   # Upload a file (use echo -n to avoid trailing newline)
   - name: upload-file
-    command: sh -c "echo -n '%s' > /tmp/test.txt && mc cp /tmp/test.txt local/test-bucket/uploaded.txt"
+    run: sh -c "echo -n '%s' > /tmp/test.txt && mc cp /tmp/test.txt local/test-bucket/uploaded.txt"
     depends:
       - create-bucket
 
   # List objects
   - name: list-objects
-    command: mc ls local/test-bucket/
+    run: mc ls local/test-bucket/
     output: LIST_RESULT
     depends:
       - upload-file
 
   # Download file to host-mounted volume
   - name: download-file
-    command: mc cp local/test-bucket/uploaded.txt /host-data/downloaded.txt
+    run: mc cp local/test-bucket/uploaded.txt /host-data/downloaded.txt
     depends:
       - list-objects
 
   # Verify content
   - name: verify-content
-    command: cat /host-data/downloaded.txt
+    run: cat /host-data/downloaded.txt
     output: DOWNLOADED_CONTENT
     depends:
       - download-file
 
   # Delete object
   - name: delete-object
-    command: mc rm local/test-bucket/uploaded.txt
+    run: mc rm local/test-bucket/uploaded.txt
     depends:
       - verify-content
 
   # Verify deletion
   - name: verify-deletion
-    command: sh -c "mc ls local/test-bucket/ | wc -l | tr -d ' '"
+    run: sh -c "mc ls local/test-bucket/ | wc -l | tr -d ' '"
     output: OBJECT_COUNT
     depends:
       - delete-object

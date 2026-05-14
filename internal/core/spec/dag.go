@@ -86,8 +86,10 @@ type dag struct {
 	// defaultsRaw preserves the authored defaults map so explicit zero/empty
 	// DAG-local overrides can replace inherited base defaults during merge.
 	defaultsRaw map[string]any
-	// StepTypes defines custom step types that expand to builtin-backed steps.
+	// StepTypes defines deprecated legacy step_types entries that expand to builtin-backed steps.
 	StepTypes map[string]customStepTypeSpec `yaml:"step_types,omitempty"`
+	// Actions defines reusable v2 actions that expand to builtin actions or run steps.
+	Actions map[string]customStepTypeSpec `yaml:"actions,omitempty"`
 	// Steps is the list of steps to run.
 	Steps any `yaml:"steps,omitempty"` // []step or map[string]step
 	// SMTP is the SMTP configuration.

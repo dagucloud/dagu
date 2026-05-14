@@ -851,7 +851,7 @@ func TestLoop_BuildMessages(t *testing.T) {
 			SystemPrompt: "",
 		})
 
-		messages := loop.buildMessages([]llm.Message{
+		messages := loop.buildMessages(context.Background(), []llm.Message{
 			{Role: llm.RoleUser, Content: "hello"},
 		})
 
@@ -867,13 +867,56 @@ func TestLoop_BuildMessages(t *testing.T) {
 			SystemPrompt: "Be helpful.",
 		})
 
-		messages := loop.buildMessages([]llm.Message{
+		messages := loop.buildMessages(context.Background(), []llm.Message{
 			{Role: llm.RoleUser, Content: "hello"},
 		})
 
 		assert.Len(t, messages, 2)
 		assert.Equal(t, llm.RoleSystem, messages[0].Role)
 		assert.Equal(t, "Be helpful.", messages[0].Content)
+		assert.Equal(t, llm.RoleUser, messages[1].Role)
+	})
+
+	t.Run("with dynamic system context", func(t *testing.T) {
+		t.Parallel()
+
+		loop := NewLoop(LoopConfig{
+			Provider:     &mockLLMProvider{},
+			SystemPrompt: "Be helpful.",
+			DynamicSystemContext: func(context.Context) string {
+				return "<recent_gateway_events>\n- dag: briefing\n  run_id: run-1\n</recent_gateway_events>"
+			},
+		})
+
+		messages := loop.buildMessages(context.Background(), []llm.Message{
+			{Role: llm.RoleUser, Content: "rerun it"},
+		})
+
+		require.Len(t, messages, 2)
+		assert.Equal(t, llm.RoleSystem, messages[0].Role)
+		assert.Contains(t, messages[0].Content, "Be helpful.")
+		assert.Contains(t, messages[0].Content, "<recent_gateway_events>")
+		assert.Contains(t, messages[0].Content, "dag: briefing")
+		assert.Equal(t, llm.RoleUser, messages[1].Role)
+	})
+
+	t.Run("dynamic system context without base prompt", func(t *testing.T) {
+		t.Parallel()
+
+		loop := NewLoop(LoopConfig{
+			Provider: &mockLLMProvider{},
+			DynamicSystemContext: func(context.Context) string {
+				return "<recent_gateway_events>\n- dag: briefing\n  run_id: run-1\n</recent_gateway_events>"
+			},
+		})
+
+		messages := loop.buildMessages(context.Background(), []llm.Message{
+			{Role: llm.RoleUser, Content: "rerun it"},
+		})
+
+		require.Len(t, messages, 2)
+		assert.Equal(t, llm.RoleSystem, messages[0].Role)
+		assert.Contains(t, messages[0].Content, "<recent_gateway_events>")
 		assert.Equal(t, llm.RoleUser, messages[1].Role)
 	})
 }

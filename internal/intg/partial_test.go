@@ -25,12 +25,12 @@ func TestPartialSuccess(t *testing.T) {
 			yaml: `
 steps:
   - name: fail-step
-    command: exit 1
+    run: exit 1
     continue_on:
       failure: true
 
   - name: success-step
-    command: echo "This step should run even if the previous one fails"
+    run: echo "This step should run even if the previous one fails"
 `,
 			expectedStatus: core.PartiallySucceeded,
 		},
@@ -39,13 +39,13 @@ steps:
 			yaml: `
 steps:
   - name: fail-step
-    command: exit 1
+    run: exit 1
     continue_on:
       failure: true
       mark_success: true
 
   - name: success-step
-    command: echo "This step should run even if the previous one fails"
+    run: echo "This step should run even if the previous one fails"
 `,
 			expectedStatus: core.Succeeded,
 		},
@@ -54,7 +54,7 @@ steps:
 			yaml: `
 steps:
   - name: fail-step
-    command: exit 1
+    run: exit 1
     continue_on:
       failure: true
 `,
@@ -65,7 +65,7 @@ steps:
 			yaml: `
 steps:
   - name: fail-step
-    command: exit 1
+    run: exit 1
     continue_on:
       failure: true
       mark_success: true

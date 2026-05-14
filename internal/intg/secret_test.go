@@ -34,7 +34,7 @@ secrets:
 
 steps:
   - name: echo-secret
-    command: echo "Token is ${API_TOKEN}"
+    run: echo "Token is ${API_TOKEN}"
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -78,7 +78,7 @@ secrets:
 
 steps:
   - name: use-secret
-    command: echo "Secret value is ${SECRET_FROM_ENV}"
+    run: echo "Secret value is ${SECRET_FROM_ENV}"
     output: OUTPUT
 `)
 		agent := dag.Agent()
@@ -121,7 +121,7 @@ secrets:
 
 steps:
   - name: use-dotenv-secret
-    command: echo "Dotenv secret is ${DOTENV_SECRET}"
+    run: echo "Dotenv secret is ${DOTENV_SECRET}"
     output: RESULT
 `, workDir))
 
@@ -165,7 +165,7 @@ secrets:
 
 steps:
   - name: echo-both
-    command: |
+    run: |
       `+test.LabeledExpandedOutput("First: ", "${FIRST_SECRET}")+`
       `+test.LabeledExpandedOutput("Second: ", "${SECOND_SECRET}")+`
     output: RESULT
@@ -205,7 +205,7 @@ secrets:
 
 steps:
   - name: log-step
-    command: |
+    run: |
       echo "Before secret"
       echo "The secret is ${LOG_SECRET}"
       echo "After secret"
@@ -240,7 +240,7 @@ steps:
 		dag := th.DAG(t, `
 steps:
   - name: normal-output
-    command: echo "Value is `+normalValue+`"
+    run: echo "Value is `+normalValue+`"
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -286,7 +286,7 @@ secrets:
 
 steps:
   - name: use-relative-secret
-    command: |
+    run: |
       echo "Secret from relative path ${RELATIVE_SECRET}"
     output: OUTPUT
 `)
@@ -329,7 +329,7 @@ secrets:
 
 steps:
   - name: test-empty-secret
-    command: echo "`+normalOutput+`"
+    run: echo "`+normalOutput+`"
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -383,7 +383,7 @@ secrets:
 
 steps:
   - name: use-dag-location-secret
-    command: |
+    run: |
       echo "Secret from DAG location ${DAG_SECRET}"
     output: OUTPUT
 `)
@@ -432,7 +432,7 @@ secrets:
 
 steps:
   - name: use-secrets-in-env
-    command: |
+    run: |
       `+test.LabeledExpandedOutput("Auth header: ", "${AUTH_HEADER}")+`
       `+test.LabeledExpandedOutput("DB pass: ", "${DB_PASS}")+`
       `+test.LabeledExpandedOutput("Strict mode: ", "${STRICT_MODE}")+`

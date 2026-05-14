@@ -70,6 +70,7 @@ type latestAttemptStatusSwapper interface {
 		expectedAttemptID string,
 		expectedStatus core.Status,
 		mutate func(*DAGRunStatus) error,
+		opts ...CompareAndSwapStatusOption,
 	) (*DAGRunStatus, bool, error)
 }
 

@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
-import { useAuth, TOKEN_KEY } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { useConfig } from '@/contexts/ConfigContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { setAuthSession } from '@/lib/authSession';
 import { AlertCircle, LogIn, KeyRound, CheckCircle } from 'lucide-react';
 
 export default function LoginPage() {
@@ -30,7 +31,7 @@ export default function LoginPage() {
 
     // Handle OIDC callback token - store in localStorage and navigate to home
     if (tokenParam) {
-      localStorage.setItem(TOKEN_KEY, tokenParam);
+      setAuthSession(tokenParam, null, 'oidc');
       // Navigate to home immediately - AuthProvider will validate token on next page load
       navigate(from, { replace: true });
       return;

@@ -127,6 +127,7 @@ func (m *DAGRunMonitor) flushChannelThread(ctx context.Context, channelID string
 	if threadTS == "" {
 		return false
 	}
+	m.bot.recordRecentGatewayEvents(channelID, batch)
 
 	threadKey := channelID + ":" + threadTS
 	m.bot.activeThreads.Store(threadKey, true)

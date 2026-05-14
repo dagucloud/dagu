@@ -173,7 +173,11 @@ func NewProvider(providerType ProviderType, cfg Config) (Provider, error) {
 		cfg.BaseURL = DefaultBaseURL(providerType)
 	}
 
-	return factory(cfg)
+	provider, err := factory(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return normalizedProvider{Provider: provider}, nil
 }
 
 // NewProviderWithAPIKey creates a new Provider with the given API key.

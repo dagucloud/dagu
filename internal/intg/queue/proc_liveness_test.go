@@ -27,7 +27,7 @@ func TestSchedulerProcHeartbeat_QueuedRun(t *testing.T) {
 name: queued-proc-heartbeat
 steps:
   - name: sleep
-    command: %s
+    run: %s
 `, test.ShellQuote(test.Sleep(6*time.Second))), WithProcConfig(queueTestProcHeartbeatInterval, queueTestProcHeartbeatInterval, queueTestProcStaleThreshold)).
 		Enqueue(1).
 		StartScheduler(30 * time.Second)
@@ -50,7 +50,7 @@ func TestSchedulerRepairsStaleLocalRunAndCleansProcFile(t *testing.T) {
 name: scheduler-stale-repair
 steps:
   - name: step1
-    command: echo never
+    run: echo never
 `, WithProcConfig(50*time.Millisecond, 50*time.Millisecond, 100*time.Millisecond), WithZombieConfig(50*time.Millisecond, 1))
 	defer f.Stop()
 
@@ -104,7 +104,7 @@ name: queue-stale-cleanup
 max_active_runs: 1
 steps:
   - name: echo
-    command: echo hello
+    run: echo hello
 `, WithProcConfig(queueTestProcHeartbeatInterval, queueTestProcHeartbeatInterval, queueTestProcStaleThreshold), WithZombieConfig(50*time.Millisecond, 3)).
 		Enqueue(1)
 	defer f.Stop()

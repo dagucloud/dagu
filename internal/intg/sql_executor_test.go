@@ -24,20 +24,20 @@ func TestSQLExecutor_SQLite_BasicQuery(t *testing.T) {
 type: graph
 steps:
   - name: init-db
-    type: sqlite
+    action: sqlite.query
     with:
+      query: |
+        CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+        INSERT INTO users (name) VALUES ('Alice'), ('Bob');
+
       dsn: "%s"
       transaction: true
-    script: |
-      CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
-      INSERT INTO users (name) VALUES ('Alice'), ('Bob');
-
   - name: query-users
-    type: sqlite
+    action: sqlite.query
     with:
+      query: "SELECT id, name FROM users ORDER BY id"
       dsn: "%s"
       output_format: jsonl
-    command: "SELECT id, name FROM users ORDER BY id"
     output: USERS
     depends: [init-db]
 `, dbPathForYAML, dbPathForYAML))
@@ -67,29 +67,29 @@ func TestSQLExecutor_SQLite_Transaction(t *testing.T) {
 type: graph
 steps:
   - name: setup
-    type: sqlite
+    action: sqlite.query
     with:
-      dsn: "%s"
-    script: |
-      CREATE TABLE accounts (id INTEGER PRIMARY KEY, balance INTEGER NOT NULL);
-      INSERT INTO accounts VALUES (1, 100), (2, 200);
+      query: |
+        CREATE TABLE accounts (id INTEGER PRIMARY KEY, balance INTEGER NOT NULL);
+        INSERT INTO accounts VALUES (1, 100), (2, 200);
 
+      dsn: "%s"
   - name: transfer
-    type: sqlite
+    action: sqlite.query
     with:
+      query: |
+        UPDATE accounts SET balance = balance - 50 WHERE id = 1;
+        UPDATE accounts SET balance = balance + 50 WHERE id = 2;
       dsn: "%s"
       transaction: true
-    script: |
-      UPDATE accounts SET balance = balance - 50 WHERE id = 1;
-      UPDATE accounts SET balance = balance + 50 WHERE id = 2;
     depends: [setup]
 
   - name: verify
-    type: sqlite
+    action: sqlite.query
     with:
+      query: "SELECT id, balance FROM accounts ORDER BY id"
       dsn: "%s"
       output_format: jsonl
-    command: "SELECT id, balance FROM accounts ORDER BY id"
     output: BALANCES
     depends: [transfer]
 `, dbPathForYAML, dbPathForYAML, dbPathForYAML))
@@ -120,31 +120,31 @@ func TestSQLExecutor_SQLite_TransactionRollback(t *testing.T) {
 type: graph
 steps:
   - name: setup
-    type: sqlite
+    action: sqlite.query
     with:
-      dsn: "%s"
-    script: |
-      CREATE TABLE rollback_test (id INTEGER PRIMARY KEY, value INTEGER NOT NULL);
-      INSERT INTO rollback_test VALUES (1, 100);
+      query: |
+        CREATE TABLE rollback_test (id INTEGER PRIMARY KEY, value INTEGER NOT NULL);
+        INSERT INTO rollback_test VALUES (1, 100);
 
+      dsn: "%s"
   - name: failed-transaction
-    type: sqlite
+    action: sqlite.query
     with:
+      query: |
+        UPDATE rollback_test SET value = 999 WHERE id = 1;
+        SELECT * FROM nonexistent_table_for_error;
       dsn: "%s"
       transaction: true
-    script: |
-      UPDATE rollback_test SET value = 999 WHERE id = 1;
-      SELECT * FROM nonexistent_table_for_error;
     depends: [setup]
     continue_on:
       failure: true
 
   - name: verify-rollback
-    type: sqlite
+    action: sqlite.query
     with:
+      query: "SELECT value FROM rollback_test WHERE id = 1"
       dsn: "%s"
       output_format: jsonl
-    command: "SELECT value FROM rollback_test WHERE id = 1"
     output: VALUE_AFTER_ROLLBACK
     depends: [failed-transaction]
 `, dbPathForYAML, dbPathForYAML, dbPathForYAML))
@@ -170,11 +170,11 @@ func TestSQLExecutor_SQLite_NullValues(t *testing.T) {
 	dag := th.DAG(t, `
 steps:
   - name: test-nulls
-    type: sqlite
+    action: sqlite.query
     with:
+      query: "SELECT NULL as null_text, NULL as null_int, NULL as null_bool, 'not_null' as regular_text, 42 as regular_int"
       dsn: ":memory:"
       output_format: jsonl
-    command: "SELECT NULL as null_text, NULL as null_int, NULL as null_bool, 'not_null' as regular_text, 42 as regular_int"
     output: NULL_VALUES
 `)
 
@@ -234,15 +234,15 @@ func TestSQLExecutor_SQLite_OutputFormats(t *testing.T) {
 			dag := th.DAG(t, fmt.Sprintf(`
 steps:
   - name: query
-    type: sqlite
+    action: sqlite.query
     with:
+      query: |
+        CREATE TABLE data (id INTEGER, name TEXT);
+        INSERT INTO data VALUES (1, 'test');
+        SELECT * FROM data;
       dsn: ":memory:"
       output_format: %s
       headers: true
-    script: |
-      CREATE TABLE data (id INTEGER, name TEXT);
-      INSERT INTO data VALUES (1, 'test');
-      SELECT * FROM data;
     output: RESULT
 `, tt.format))
 
@@ -265,15 +265,15 @@ func TestSQLExecutor_SQLite_MaxRows(t *testing.T) {
 	dag := th.DAG(t, `
 steps:
   - name: query-limited
-    type: sqlite
+    action: sqlite.query
     with:
+      query: |
+        CREATE TABLE many_rows (id INTEGER PRIMARY KEY, value TEXT);
+        INSERT INTO many_rows (value) VALUES ('row_1'), ('row_2'), ('row_3'), ('row_4'), ('row_5'), ('row_6'), ('row_7'), ('row_8'), ('row_9'), ('row_10');
+        SELECT * FROM many_rows ORDER BY id;
       dsn: ":memory:"
       output_format: jsonl
       max_rows: 5
-    script: |
-      CREATE TABLE many_rows (id INTEGER PRIMARY KEY, value TEXT);
-      INSERT INTO many_rows (value) VALUES ('row_1'), ('row_2'), ('row_3'), ('row_4'), ('row_5'), ('row_6'), ('row_7'), ('row_8'), ('row_9'), ('row_10');
-      SELECT * FROM many_rows ORDER BY id;
     output: LIMITED_ROWS
 `)
 
@@ -313,21 +313,21 @@ func TestSQLExecutor_SQLite_NamedParams(t *testing.T) {
 type: graph
 steps:
   - name: setup
-    type: sqlite
+    action: sqlite.query
     with:
-      dsn: "%s"
-    script: |
-      CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL);
-      INSERT INTO products (name, price) VALUES ('Apple', 1.50), ('Banana', 0.75), ('Orange', 2.00);
+      query: |
+        CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL);
+        INSERT INTO products (name, price) VALUES ('Apple', 1.50), ('Banana', 0.75), ('Orange', 2.00);
 
+      dsn: "%s"
   - name: query-with-params
-    type: sqlite
+    action: sqlite.query
     with:
+      query: "SELECT name, price FROM products WHERE price >= :min_price ORDER BY name"
       dsn: "%s"
       output_format: jsonl
       params:
         min_price: 1.00
-    command: "SELECT name, price FROM products WHERE price >= :min_price ORDER BY name"
     output: FILTERED_PRODUCTS
     depends: [setup]
 `, dbPathForYAML, dbPathForYAML))
@@ -361,21 +361,21 @@ func TestSQLExecutor_SQLite_MultiStatement(t *testing.T) {
 type: graph
 steps:
   - name: multi-statement
-    type: sqlite
+    action: sqlite.query
     with:
+      query: |
+        CREATE TABLE orders (id INTEGER PRIMARY KEY, status TEXT);
+        INSERT INTO orders (status) VALUES ('pending');
+        UPDATE orders SET status = 'completed' WHERE status = 'pending';
+
       dsn: "%s"
       transaction: true
-    script: |
-      CREATE TABLE orders (id INTEGER PRIMARY KEY, status TEXT);
-      INSERT INTO orders (status) VALUES ('pending');
-      UPDATE orders SET status = 'completed' WHERE status = 'pending';
-
   - name: verify
-    type: sqlite
+    action: sqlite.query
     with:
+      query: "SELECT status FROM orders"
       dsn: "%s"
       output_format: jsonl
-    command: "SELECT status FROM orders"
     output: ORDER_STATUS
     depends: [multi-statement]
 `, dbPathForYAML, dbPathForYAML))
@@ -397,14 +397,14 @@ func TestSQLExecutor_SQLite_InMemory(t *testing.T) {
 	dag := th.DAG(t, `
 steps:
   - name: sqlite-query
-    type: sqlite
+    action: sqlite.query
     with:
+      query: |
+        CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT);
+        INSERT INTO test (name) VALUES ('Alice'), ('Bob');
+        SELECT * FROM test ORDER BY id;
       dsn: ":memory:"
       output_format: jsonl
-    script: |
-      CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT);
-      INSERT INTO test (name) VALUES ('Alice'), ('Bob');
-      SELECT * FROM test ORDER BY id;
     output: SQLITE_RESULT
 `)
 
@@ -430,17 +430,17 @@ func TestSQLExecutor_SQLite_TransactionSingleStep(t *testing.T) {
 	dag := th.DAG(t, `
 steps:
   - name: sqlite-transaction
-    type: sqlite
+    action: sqlite.query
     with:
+      query: |
+        CREATE TABLE counter (id INTEGER PRIMARY KEY, value INTEGER);
+        INSERT INTO counter VALUES (1, 0);
+        UPDATE counter SET value = value + 1 WHERE id = 1;
+        UPDATE counter SET value = value + 1 WHERE id = 1;
+        SELECT value FROM counter WHERE id = 1;
       dsn: ":memory:"
       transaction: true
       output_format: jsonl
-    script: |
-      CREATE TABLE counter (id INTEGER PRIMARY KEY, value INTEGER);
-      INSERT INTO counter VALUES (1, 0);
-      UPDATE counter SET value = value + 1 WHERE id = 1;
-      UPDATE counter SET value = value + 1 WHERE id = 1;
-      SELECT value FROM counter WHERE id = 1;
     output: COUNTER_VALUE
 `)
 

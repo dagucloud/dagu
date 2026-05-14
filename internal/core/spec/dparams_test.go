@@ -445,7 +445,9 @@ func TestInlineParamDefs_LocalDAGYamlReload(t *testing.T) {
 name: inline-subdag-parent
 steps:
   - name: invoke-child
-    call: inline-subdag-child
+    action: dag.run
+    with:
+      dag: inline-subdag-child
 
 ---
 name: inline-subdag-child
@@ -464,7 +466,7 @@ params:
     required: true
 steps:
   - name: shell-values
-    command: echo "region=$region count=$count debug=$debug"
+    run: echo "region=$region count=$count debug=$debug"
 `)
 
 	dir := t.TempDir()

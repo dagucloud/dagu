@@ -39,9 +39,9 @@ name: embedded-intg-local
 type: graph
 steps:
   - name: first
-    command: echo first
+    run: echo first
   - name: second
-    command: echo second
+    run: echo second
     depends: [first]
 `))
 	require.NoError(t, err)
@@ -89,8 +89,9 @@ name: embedded-intg-custom-executor
 type: graph
 steps:
   - name: go-step
-    type: embedded_intg_echo
-    command: called from YAML
+    action: embedded_intg_echo
+    with:
+      message: called from YAML
 `))
 	require.NoError(t, err)
 
@@ -147,7 +148,7 @@ name: embedded-intg-distributed
 type: graph
 steps:
   - name: worker-step
-    command: echo distributed
+    run: echo distributed
 `))
 	require.NoError(t, err)
 
@@ -190,6 +191,11 @@ func (e *echoExecutor) Run(context.Context) error {
 	command := e.step.Command
 	if command == "" && len(e.step.Commands) > 0 {
 		command = e.step.Commands[0].CmdWithArgs
+	}
+	if command == "" {
+		if message, ok := e.step.ExecutorConfig.Config["message"].(string); ok {
+			command = message
+		}
 	}
 	_, err := fmt.Fprintf(out, "embedded step ran %s: %s\n", e.step.Name, command)
 	return err

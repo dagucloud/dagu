@@ -36,7 +36,7 @@ schedule:
     - at: "%s"
 steps:
   - name: step1
-    command: echo "hello"
+    run: echo "hello"
 `, scheduledAt.Format(time.RFC3339))
 	require.NoError(t, os.WriteFile(filepath.Join(dagsDir, "one-off-restart-test.yaml"), []byte(dagContent), 0644))
 
@@ -154,7 +154,7 @@ secrets:
     key: %s
 steps:
   - name: capture
-    command: printf '%%s|%%s' "$EXPORTED_SECRET" "${%s:-}"
+    run: printf '%%s|%%s' "$EXPORTED_SECRET" "${%s:-}"
     output: RESULT
 `, scheduledAt.Format(time.RFC3339), rawVar, rawVar)
 	require.NoError(t, os.WriteFile(filepath.Join(dagsDir, "one-off-env-secret-test.yaml"), []byte(dagContent), 0644))

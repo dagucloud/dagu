@@ -10,9 +10,10 @@ import {
 import { describe, expect, it } from 'vitest';
 import {
   buildAugmentedDAGSchema,
-  extractLocalCustomStepTypeHints,
-  mergeCustomStepTypeHints,
-} from '../customStepSchema';
+  extractLocalCustomDefinitionHints,
+  mergeCustomActionHints,
+  mergeLegacyDefinitionHints,
+} from '../customActionSchema';
 
 const baseSchema: JSONSchema = {
   type: 'object',
@@ -37,6 +38,18 @@ const baseSchema: JSONSchema = {
         },
       ],
     },
+    actionName: {
+      anyOf: [
+        {
+          type: 'string',
+          enum: ['log.write', 'http.request'],
+        },
+        {
+          type: 'string',
+          pattern: '^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*)*$',
+        },
+      ],
+    },
     step: {
       type: 'object',
       properties: {
@@ -45,6 +58,9 @@ const baseSchema: JSONSchema = {
         },
         type: {
           $ref: '#/definitions/executorType',
+        },
+        action: {
+          $ref: '#/definitions/actionName',
         },
         with: {
           type: 'object',
@@ -83,11 +99,26 @@ const baseSchemaWithExecutorObject: JSONSchema = {
         },
       ],
     },
+    actionName: {
+      anyOf: [
+        {
+          type: 'string',
+          enum: ['log.write', 'http.request'],
+        },
+        {
+          type: 'string',
+          pattern: '^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*)*$',
+        },
+      ],
+    },
     executorObject: {
       type: 'object',
       properties: {
         type: {
           $ref: '#/definitions/executorType',
+        },
+        action: {
+          $ref: '#/definitions/actionName',
         },
         with: {
           type: 'object',
@@ -108,6 +139,9 @@ const baseSchemaWithExecutorObject: JSONSchema = {
         },
         type: {
           $ref: '#/definitions/executorType',
+        },
+        action: {
+          $ref: '#/definitions/actionName',
         },
         with: {
           type: 'object',
@@ -151,6 +185,18 @@ const baseSchemaWithConditionalRules = dereferenceSchema({
         },
       ],
     },
+    actionName: {
+      anyOf: [
+        {
+          type: 'string',
+          enum: ['log.write', 'http.request'],
+        },
+        {
+          type: 'string',
+          pattern: '^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*)*$',
+        },
+      ],
+    },
     httpConfig: {
       type: 'object',
       properties: {
@@ -167,6 +213,9 @@ const baseSchemaWithConditionalRules = dereferenceSchema({
         },
         type: {
           $ref: '#/definitions/executorType',
+        },
+        action: {
+          $ref: '#/definitions/actionName',
         },
         config: {
           type: 'object',
@@ -199,9 +248,9 @@ const baseSchemaWithConditionalRules = dereferenceSchema({
   },
 });
 
-describe('customStepSchema', () => {
-  it('extracts local custom step types from YAML', () => {
-    const result = extractLocalCustomStepTypeHints(`
+describe('customActionSchema', () => {
+  it('extracts local legacy step_types definitions from YAML', () => {
+    const result = extractLocalCustomDefinitionHints(`
 step_types:
   greet:
     type: command
@@ -221,16 +270,44 @@ step_types:
 `);
 
     expect(result.ok).toBe(true);
-    expect(result.stepTypes).toHaveLength(1);
-    expect(result.stepTypes[0]).toMatchObject({
+    expect(result.legacyDefinitions).toHaveLength(1);
+    expect(result.legacyDefinitions[0]).toMatchObject({
       name: 'greet',
       targetType: 'command',
       description: 'Send a greeting',
     });
   });
 
-  it('preserves local custom output schemas for hint equality', () => {
-    const result = extractLocalCustomStepTypeHints(`
+  it('extracts local custom actions from YAML', () => {
+    const result = extractLocalCustomDefinitionHints(`
+actions:
+  slack.notify:
+    description: Send Slack notification
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+    template:
+      action: http.request
+      with:
+        method: POST
+        url: \${SLACK_WEBHOOK_URL}
+        body: {$input: text}
+`);
+
+    expect(result.ok).toBe(true);
+    expect(result.actions).toHaveLength(1);
+    expect(result.actions[0]).toMatchObject({
+      name: 'slack.notify',
+      description: 'Send Slack notification',
+    });
+  });
+
+  it('preserves legacy output schemas for hint equality', () => {
+    const result = extractLocalCustomDefinitionHints(`
 step_types:
   classify:
     type: command
@@ -248,7 +325,7 @@ step_types:
 `);
 
     expect(result.ok).toBe(true);
-    expect(result.stepTypes[0]?.outputSchema).toMatchObject({
+    expect(result.legacyDefinitions[0]?.outputSchema).toMatchObject({
       type: 'object',
       required: ['category'],
       properties: {
@@ -258,7 +335,7 @@ step_types:
   });
 
   it('preserves the local definition when it overrides an inherited name', () => {
-    const merged = mergeCustomStepTypeHints(
+    const merged = mergeLegacyDefinitionHints(
       [
         {
           name: 'greet',
@@ -300,7 +377,48 @@ steps:
     expect(propertySchema).toMatchObject({ type: 'integer' });
   });
 
-  it('augments dereferenced step schemas with custom with inference', () => {
+  it('preserves the local custom action definition when it overrides an inherited name', () => {
+    const merged = mergeCustomActionHints(
+      [
+        {
+          name: 'slack.notify',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              text: { type: 'string' },
+            },
+          },
+        },
+      ],
+      [
+        {
+          name: 'slack.notify',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              channel: { type: 'string' },
+            },
+          },
+        },
+      ]
+    );
+
+    const schema = buildAugmentedDAGSchema(baseSchema, [], merged);
+    const propertySchema = getSchemaAtPath(
+      schema,
+      ['steps', '0', 'with', 'channel'],
+      `
+steps:
+  - action: slack.notify
+    with:
+      channel: release
+`
+    );
+
+    expect(propertySchema).toMatchObject({ type: 'string' });
+  });
+
+  it('augments dereferenced step schemas with legacy definition with inference', () => {
     const schema = buildAugmentedDAGSchema(dereferencedBaseSchema, [
       {
         name: 'greet',
@@ -328,7 +446,7 @@ steps:
     expect(propertySchema).toMatchObject({ type: 'integer' });
   });
 
-  it('shows builtin and custom step names in type docs for dereferenced schemas', () => {
+  it('shows builtin and legacy definition names in type docs for dereferenced schemas', () => {
     const schema = buildAugmentedDAGSchema(dereferencedBaseSchema, [
       {
         name: 'greet',
@@ -359,6 +477,43 @@ steps:
 
     expect(propertyInfo?.enum).toEqual(
       expect.arrayContaining(['command', 'greet'])
+    );
+  });
+
+  it('shows builtin and custom action names in action docs for dereferenced schemas', () => {
+    const schema = buildAugmentedDAGSchema(
+      dereferencedBaseSchema,
+      [],
+      [
+        {
+          name: 'slack.notify',
+          description: 'Send Slack notification',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              text: { type: 'string' },
+            },
+          },
+        },
+      ]
+    );
+
+    const actionSchema = getSchemaAtPath(
+      schema,
+      ['steps', '0', 'action'],
+      `
+steps:
+  - action: slack.notify
+`
+    );
+    const propertyInfo = toPropertyInfo(actionSchema, 'action', [
+      'steps',
+      '0',
+      'action',
+    ]);
+
+    expect(propertyInfo?.enum).toEqual(
+      expect.arrayContaining(['log.write', 'slack.notify'])
     );
   });
 
@@ -437,7 +592,7 @@ steps:
     expect(propertySchema).toMatchObject({ type: 'string' });
   });
 
-  it('does not augment nested custom input schemas that only resemble steps', () => {
+  it('does not augment nested legacy input schemas that only resemble steps', () => {
     const schema = buildAugmentedDAGSchema(dereferencedBaseSchema, [
       {
         name: 'greet',
@@ -569,7 +724,7 @@ steps:
   });
 
   it('marks invalid YAML extraction as unsuccessful', () => {
-    const result = extractLocalCustomStepTypeHints(`
+    const result = extractLocalCustomDefinitionHints(`
 step_types:
   greet:
     input_schema:
@@ -582,6 +737,7 @@ steps:
 `);
 
     expect(result.ok).toBe(false);
-    expect(result.stepTypes).toEqual([]);
+    expect(result.legacyDefinitions).toEqual([]);
+    expect(result.actions).toEqual([]);
   });
 });

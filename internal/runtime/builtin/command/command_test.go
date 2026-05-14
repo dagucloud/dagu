@@ -1379,7 +1379,6 @@ func TestLoadYAMLMissingCommandErrorMessage(t *testing.T) {
 	_, err := spec.LoadYAML(context.Background(), []byte(`
 steps:
   - name: missing
-    type: command
 `))
 	require.Error(t, err)
 	assert.Equal(t, "failed to process document 0: failed to build DAG: field 'command': step command is required", err.Error())

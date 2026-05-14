@@ -25,7 +25,7 @@ func TestShellExecution(t *testing.T) {
 shell: "/bin/bash -e"
 steps:
   - name: test
-    script: |
+    run: |
       echo "hello"
     output: OUT
 `)
@@ -43,9 +43,10 @@ steps:
 shell: /bin/sh
 steps:
   - name: test
-    shell: "/bin/bash -e"
-    script: |
+    run: |
       echo "from bash"
+    with:
+      shell: "/bin/bash -e"
     output: OUT
 `)
 		agent := dag.Agent()
@@ -62,7 +63,7 @@ steps:
 shell: "/bin/bash -e"
 steps:
   - name: test
-    script: |
+    run: |
       false
       echo "should not reach"
     output: OUT
@@ -78,7 +79,7 @@ steps:
 shell: /bin/bash
 steps:
   - name: test
-    command: echo hello | tr 'h' 'H'
+    run: echo hello | tr 'h' 'H'
     output: OUT
 `)
 		agent := dag.Agent()
@@ -95,7 +96,7 @@ steps:
 shell: /bin/sh
 steps:
   - name: test
-    command: echo "date is $(date +%Y)"
+    run: echo "date is $(date +%Y)"
     output: OUT
 `)
 		agent := dag.Agent()
@@ -112,7 +113,7 @@ env:
   - MY_VAR: "test_value"
 steps:
   - name: test
-    command: echo "$MY_VAR"
+    run: echo "$MY_VAR"
     output: OUT
 `)
 		agent := dag.Agent()
@@ -129,7 +130,7 @@ steps:
 shell: /bin/sh
 steps:
   - name: test
-    command: 'echo "\$HOME"'
+    run: 'echo "\$HOME"'
     output: OUT
 `)
 		agent := dag.Agent()
@@ -146,7 +147,7 @@ steps:
 shell: /bin/sh
 steps:
   - name: test
-    command: VAR=hello && echo "$VAR world"
+    run: VAR=hello && echo "$VAR world"
     output: OUT
 `)
 		agent := dag.Agent()
@@ -163,7 +164,7 @@ steps:
 shell: /bin/sh
 steps:
   - name: test
-    script: |
+    run: |
       VAR="hello"
       echo "$VAR world"
     output: OUT
@@ -182,7 +183,7 @@ steps:
 shell: /bin/sh
 steps:
   - name: test
-    command: echo "test" | cat
+    run: echo "test" | cat
     output: OUT
 `)
 		agent := dag.Agent()
@@ -199,7 +200,7 @@ steps:
 		dag := th.DAG(t, `
 steps:
   - name: test
-    command: echo "default shell"
+    run: echo "default shell"
     output: OUT
 `)
 		agent := dag.Agent()
@@ -217,7 +218,7 @@ steps:
 shell: /bin/sh
 steps:
   - name: test
-    command: echo /bin/ech*
+    run: echo /bin/ech*
     output: OUT
 `)
 		agent := dag.Agent()
@@ -235,7 +236,7 @@ steps:
 shell: /bin/sh
 steps:
   - name: test
-    script: |
+    run: |
       #!/bin/bash
       echo "bash via shebang"
     output: OUT

@@ -25,7 +25,7 @@ func TestStopCommand(t *testing.T) {
 		release := newHoldFile(t)
 		dag := th.DAG(t, fmt.Sprintf(`steps:
   - name: "1"
-    script: %q
+    run: %q
 `, holdUntilFileExistsCommand(release)))
 
 		done := make(chan struct{})
@@ -55,7 +55,7 @@ func TestStopCommand(t *testing.T) {
 		release := newHoldFile(t)
 		dag := th.DAG(t, fmt.Sprintf(`steps:
   - name: "1"
-    script: %q
+    run: %q
 `, holdUntilFileExistsCommand(release)))
 
 		done := make(chan struct{})
@@ -89,7 +89,7 @@ retry_policy:
   interval_sec: 60
 steps:
   - name: "1"
-    command: "echo fail"
+    run: "echo fail"
 `)
 
 		dagRunID := "failed-auto-retry-run"
@@ -112,7 +112,7 @@ retry_policy:
   interval_sec: 60
 steps:
   - name: "1"
-    command: "echo fail"
+    run: "echo fail"
 `)
 
 		dagRunID := "failed-auto-retry-run"

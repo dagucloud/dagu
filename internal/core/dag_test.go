@@ -175,7 +175,7 @@ func TestMarshalJSON(t *testing.T) {
 	t.Run("MarshalJSON", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
-    command: "true"
+    run: "true"
 `)
 		_, err := json.Marshal(dag.DAG)
 		require.NoError(t, err)

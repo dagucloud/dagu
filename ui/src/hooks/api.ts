@@ -5,15 +5,20 @@ import {
   createInfiniteHook,
 } from 'swr-openapi';
 import type { paths } from '../api/v1/schema';
+import { getAuthToken, handleAuthResponse } from '../lib/authSession';
 import { fetchWithTimeout } from '../lib/requestTimeout';
 
 const authMiddleware: Middleware = {
   async onRequest({ request }) {
-    const token = localStorage.getItem('dagu_auth_token');
+    const token = getAuthToken();
     if (token) {
       request.headers.set('Authorization', `Bearer ${token}`);
     }
     return request;
+  },
+  async onResponse({ response }) {
+    handleAuthResponse(response);
+    return response;
   },
 };
 

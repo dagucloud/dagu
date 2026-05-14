@@ -31,7 +31,7 @@ const (
 //
 // The middleware only activates for POST requests to webhook trigger paths
 // (paths containing "/webhooks/" with a fileName segment after it).
-func WebhookRequestContextMiddleware() func(http.Handler) http.Handler {
+func WebhookRequestContextMiddleware(maxPayloadSize int) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost || !isWebhookTriggerPath(r.URL.Path) {
@@ -47,7 +47,7 @@ func WebhookRequestContextMiddleware() func(http.Handler) http.Handler {
 			}
 
 			// Read the body with the same size limit used for payload validation.
-			rawBody, err := io.ReadAll(io.LimitReader(r.Body, maxWebhookPayloadSize+1))
+			rawBody, err := io.ReadAll(io.LimitReader(r.Body, int64(maxPayloadSize)+1))
 			if err != nil {
 				http.Error(w, "failed to read request body", http.StatusBadRequest)
 				return
@@ -56,7 +56,7 @@ func WebhookRequestContextMiddleware() func(http.Handler) http.Handler {
 			// Keep oversized payloads on the normal handler path so the API layer
 			// can return a structured 413 before auth/HMAC verification instead of
 			// handing truncated JSON to the generated strict decoder.
-			if len(rawBody) > maxWebhookPayloadSize {
+			if len(rawBody) > maxPayloadSize {
 				r.Body = io.NopCloser(bytes.NewReader([]byte("{}")))
 				next.ServeHTTP(w, r.WithContext(withRawBody(ctx, rawBody)))
 				return

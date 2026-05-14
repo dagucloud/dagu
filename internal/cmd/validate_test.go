@@ -18,7 +18,7 @@ func TestValidateCommand(t *testing.T) {
 	t.Run("ValidSpec", func(t *testing.T) {
 		dag := th.DAG(t, `
 steps:
-  - echo ok
+  - run: echo ok
 `)
 
 		th.RunCommand(t, cmd.Validate(), test.CmdTest{
@@ -59,14 +59,56 @@ steps:
 		})
 	})
 
+	t.Run("LegacySyntaxWarnsButSucceeds", func(t *testing.T) {
+		th.LoggingOutput.Reset()
+		dagFile := th.CreateDAGFile(t, "legacy_syntax.yaml", `
+steps:
+  - command: echo legacy
+`)
+
+		th.RunCommand(t, cmd.Validate(), test.CmdTest{
+			Args:        []string{"validate", dagFile},
+			ExpectedOut: []string{"DAG spec is valid", "deprecated", "steps[0].command", "use run"},
+		})
+	})
+
+	t.Run("V2SyntaxDoesNotWarn", func(t *testing.T) {
+		th.LoggingOutput.Reset()
+		dagFile := th.CreateDAGFile(t, "v2_syntax.yaml", `
+steps:
+  - run: echo ok
+`)
+
+		th.RunCommand(t, cmd.Validate(), test.CmdTest{
+			Args:        []string{"validate", dagFile},
+			ExpectedOut: []string{"DAG spec is valid"},
+		})
+		require.NotContains(t, th.LoggingOutput.String(), "deprecated")
+	})
+
+	t.Run("MixedRunAndLegacyFails", func(t *testing.T) {
+		th.LoggingOutput.Reset()
+		dagFile := th.CreateDAGFile(t, "mixed_v2_legacy.yaml", `
+steps:
+  - run: echo ok
+    command: echo legacy
+`)
+
+		err := th.RunCommandWithError(t, cmd.Validate(), test.CmdTest{
+			Args: []string{"validate", dagFile},
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "run cannot be used together with command")
+	})
+
 	t.Run("InvalidDependency", func(t *testing.T) {
 		// This DAG has a step depending on a non-existent step
 		dagFile := th.CreateDAGFile(t, "invalid.yaml", `
 type: graph
 steps:
-  - echo A
+  - run: echo A
   - name: "b"
-    command: echo B
+    run: echo B
     depends: ["missing_step"]
 `)
 
@@ -82,7 +124,7 @@ steps:
 		dagFile := th.CreateDAGFile(t, "invalid_yaml.yaml", `
 steps:
   - name: "test"
-    command: echo test
+    run: echo test
   invalid yaml here: [[[
 `)
 

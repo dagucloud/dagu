@@ -71,6 +71,7 @@ type DAGRunStore interface {
 		expectedAttemptID string,
 		expectedStatus core.Status,
 		mutate func(*DAGRunStatus) error,
+		opts ...CompareAndSwapStatusOption,
 	) (*DAGRunStatus, bool, error)
 	// FindAttempt finds the latest attempt for the dag-run.
 	FindAttempt(ctx context.Context, dagRun DAGRunRef) (DAGRunAttempt, error)
@@ -280,6 +281,43 @@ func (e DAGRunRef) String() string {
 // Zero checks if the DAGRunRef is a zero value.
 func (e DAGRunRef) Zero() bool {
 	return e == zeroRef
+}
+
+// CompareAndSwapStatusOptions configures additional identity guards for
+// CompareAndSwapLatestAttemptStatus.
+type CompareAndSwapStatusOptions struct {
+	RootDAGRun         DAGRunRef
+	ExpectedAttemptKey string
+}
+
+// CompareAndSwapStatusOption configures CompareAndSwapLatestAttemptStatus.
+type CompareAndSwapStatusOption func(*CompareAndSwapStatusOptions)
+
+// WithCompareAndSwapRootDAGRun routes CompareAndSwapLatestAttemptStatus
+// through a root dag-run when the target dag-run is stored as a sub-DAG attempt.
+func WithCompareAndSwapRootDAGRun(root DAGRunRef) CompareAndSwapStatusOption {
+	return func(opts *CompareAndSwapStatusOptions) {
+		opts.RootDAGRun = root
+	}
+}
+
+// WithCompareAndSwapExpectedAttemptKey requires the current status attempt key
+// to match.
+func WithCompareAndSwapExpectedAttemptKey(attemptKey string) CompareAndSwapStatusOption {
+	return func(opts *CompareAndSwapStatusOptions) {
+		opts.ExpectedAttemptKey = attemptKey
+	}
+}
+
+// NewCompareAndSwapStatusOptions applies CompareAndSwapLatestAttemptStatus options.
+func NewCompareAndSwapStatusOptions(opts ...CompareAndSwapStatusOption) CompareAndSwapStatusOptions {
+	var cfg CompareAndSwapStatusOptions
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&cfg)
+		}
+	}
+	return cfg
 }
 
 // ParseDAGRunRef parses a string into a DAGRunRef.

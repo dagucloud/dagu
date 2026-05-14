@@ -103,6 +103,8 @@ func ConfirmAndRepairStaleDistributedRun(
 			markActiveStatusFailed(current, reason, now)
 			return nil
 		},
+		exec.WithCompareAndSwapRootDAGRun(status.Root),
+		exec.WithCompareAndSwapExpectedAttemptKey(attemptKey),
 	)
 	if err != nil {
 		return nil, false, err

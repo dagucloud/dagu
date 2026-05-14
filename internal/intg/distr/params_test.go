@@ -18,8 +18,10 @@ func TestParams_DistributedSubDAGInlineDefsSuccess(t *testing.T) {
 	f := newTestFixture(t, `
 steps:
   - name: invoke-child
-    call: worker-inline-child
-    params: "region=us-west-2 count=5 debug=true"
+    action: dag.run
+    with:
+      dag: worker-inline-child
+      params: "region=us-west-2 count=5 debug=true"
 
 ---
 name: worker-inline-child
@@ -40,10 +42,10 @@ params:
     required: true
 steps:
   - name: shell-values
-    command: echo "region=$region count=$count debug=$debug"
+    run: echo "region=$region count=$count debug=$debug"
     output: SHELL_VALUES
   - name: params-json
-    command: printenv DAGU_PARAMS_JSON
+    run: printenv DAGU_PARAMS_JSON
     output: PARAMS_JSON
 `, withLabels(map[string]string{"type": "test-worker"}))
 
@@ -71,8 +73,10 @@ func TestParams_DistributedSubDAGInlineDefsFailure(t *testing.T) {
 	f := newTestFixture(t, `
 steps:
   - name: invoke-child
-    call: worker-inline-child
-    params: "region=us-west-2 count=abc"
+    action: dag.run
+    with:
+      dag: worker-inline-child
+      params: "region=us-west-2 count=abc"
 
 ---
 name: worker-inline-child
@@ -90,7 +94,7 @@ params:
     required: true
 steps:
   - name: shell-values
-    command: echo "region=$region count=$count"
+    run: echo "region=$region count=$count"
     output: SHELL_VALUES
 `, withLabels(map[string]string{"type": "test-worker"}))
 

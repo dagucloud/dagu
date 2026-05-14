@@ -83,7 +83,8 @@ step_types:
           - {$input: count}
 steps:
   - id: produce
-    exec:
+    action: exec
+    with:
       command: /bin/echo
       args: [3]
     output: COUNT
@@ -126,7 +127,8 @@ step_types:
           - ${COUNT}
 steps:
   - id: produce
-    exec:
+    action: exec
+    with:
       command: /bin/echo
       args: [7]
     output: COUNT

@@ -43,19 +43,23 @@ shell: `+shell+`
 working_dir: `+parentDir+`
 steps:
   - name: parent_pwd
-    command: `+pwdCmd+`
+    run: `+pwdCmd+`
     output: PARENT_DIR
 
   - name: parent_relative_step
     working_dir: ../child_scripts
-    command: `+pwdCmd+`
+    run: `+pwdCmd+`
     output: PARENT_STEP_DIR
 
   - name: call_child_with_wd
-    call: child_with_wd
+    action: dag.run
+    with:
+      dag: child_with_wd
 
   - name: call_child_no_wd
-    call: child_no_wd
+    action: dag.run
+    with:
+      dag: child_no_wd
 
 ---
 
@@ -64,7 +68,7 @@ shell: `+shell+`
 working_dir: `+childDir+`
 steps:
   - name: child_pwd
-    command: `+pwdCmd+`
+    run: `+pwdCmd+`
 
 ---
 
@@ -72,7 +76,7 @@ name: child_no_wd
 shell: `+shell+`
 steps:
   - name: child_pwd
-    command: `+pwdCmd+`
+    run: `+pwdCmd+`
 `)
 
 	dag.Agent().RunSuccess(t)

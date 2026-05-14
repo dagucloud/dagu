@@ -146,12 +146,11 @@ retry_policy:
 #   # Send error_mail when this step fails.
 #   mail_on_error: true
 
-# -- Custom Step Types --
-# Define reusable step types that expand into builtin-backed steps at load time.
+# -- Custom Actions --
+# Define reusable actions that expand into builtin-backed steps at load time.
 # The call-site config becomes typed input validated by input_schema.
-# step_types:
+# actions:
 #   greet:
-#     type: command
 #     input_schema:
 #       type: object
 #       additionalProperties: false
@@ -160,14 +159,11 @@ retry_policy:
 #         message:
 #           type: string
 #     template:
-#       exec:
-#         command: /bin/echo
-#         args:
-#           - {$input: message}
+#       run: echo "{$input: message}"
 
 # -- Lifecycle Handlers --
-# Hooks that run on DAG events. Each handler is a full step definition (supports command,
-# shell, env, timeout_sec, etc. — not limited to a simple command string).
+# Hooks that run on DAG events. Each handler is a full step definition (supports run,
+# action, env, timeout_sec, etc. — not limited to a simple command string).
 #
 # init:    Runs before DAG steps begin (after preconditions pass).
 # success: Runs when DAG completes successfully.
@@ -178,15 +174,15 @@ retry_policy:
 #
 # handler_on:
 #   init:
-#     command: echo "DAG starting"
+#     run: echo "DAG starting"
 #   success:
-#     command: echo "DAG succeeded"
+#     run: echo "DAG succeeded"
 #   failure:
-#     command: echo "DAG failed"
+#     run: echo "DAG failed"
 #     env:
 #       - ALERT_LEVEL: critical
 #   exit:
-#     command: echo "DAG finished"
+#     run: echo "DAG finished"
 
 # -- Email Notifications --
 # smtp:

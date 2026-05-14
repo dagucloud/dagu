@@ -73,6 +73,7 @@ export function buildWorkflowDesignPrompt({
     'Instructions:',
     '- Inspect the referenced DAG file before editing an existing DAG.',
     '- Make the file changes directly with the available tools; do not only suggest changes.',
+    '- Use canonical Dagu syntax for new edits: shell steps use `run`, builtin executors use `action` with `with`, and reusable abstractions use `actions`.',
     '- Keep edits focused on the requested workflow behavior and selected step when provided.',
     selectedWorkspace
       ? `- Keep the DAG labeled with workspace=${selectedWorkspace}.`

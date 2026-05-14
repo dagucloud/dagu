@@ -673,6 +673,79 @@ func TestAPI_CreateSession_StoresDisplayMessageWithoutDAGContext(t *testing.T) {
 	assert.Contains(t, detail.Messages[0].LLMData.Content, "Referenced DAGs")
 }
 
+func TestAPI_CreateSession_IncludesDynamicSystemContext(t *testing.T) {
+	t.Parallel()
+
+	model := testModelConfig("dynamic-system-context-create-model")
+	api, _ := testAPIWithModels(t, model)
+
+	reqCh := make(chan *llm.ChatRequest, 1)
+	api.providers.Set(model.ToLLMConfig(), newCapturingProvider(reqCh, simpleStopResponse("done")))
+
+	ctx := WithDynamicSystemContext(context.Background(), func(context.Context) string {
+		return "<recent_gateway_events>\n- dag: eth_protocol_intel\n  run_id: run-1\n</recent_gateway_events>"
+	})
+	user := UserIdentity{UserID: defaultUserID, Username: defaultUserID, Role: defaultUserRole}
+	_, _, err := api.CreateSession(ctx, user, ChatRequest{Message: "再実行して"})
+	require.NoError(t, err)
+
+	req := waitForRequest(t, reqCh, time.Second)
+	require.NotEmpty(t, req.Messages)
+	assert.Equal(t, llm.RoleSystem, req.Messages[0].Role)
+	assert.Contains(t, req.Messages[0].Content, "<recent_gateway_events>")
+	assert.Contains(t, req.Messages[0].Content, "dag: eth_protocol_intel")
+	assert.Contains(t, req.Messages[0].Content, "run_id: run-1")
+}
+
+func TestAPI_EnqueueChatMessage_UpdatesDynamicSystemContext(t *testing.T) {
+	t.Parallel()
+
+	model := testModelConfig("dynamic-system-context-enqueue-model")
+	api, _ := testAPIWithModels(t, model)
+
+	reqCh := make(chan *llm.ChatRequest, 3)
+	api.providers.Set(model.ToLLMConfig(), newCapturingProvider(reqCh, simpleStopResponse("done")))
+
+	user := UserIdentity{UserID: defaultUserID, Username: defaultUserID, Role: defaultUserRole}
+	sessionID, _, err := api.CreateSession(context.Background(), user, ChatRequest{Message: "hello"})
+	require.NoError(t, err)
+	_ = waitForRequest(t, reqCh, time.Second)
+
+	mgrVal, ok := api.sessions.Load(sessionID)
+	require.True(t, ok)
+	mgr := mgrVal.(*SessionManager)
+	require.Eventually(t, func() bool {
+		return !mgr.IsWorking()
+	}, time.Second, 10*time.Millisecond)
+
+	ctx := WithDynamicSystemContext(context.Background(), func(context.Context) string {
+		return "<recent_gateway_events>\n- dag: eth_protocol_intel\n  run_id: run-2\n</recent_gateway_events>"
+	})
+	result, err := api.EnqueueChatMessage(ctx, sessionID, user, ChatRequest{Message: "再実行して"})
+	require.NoError(t, err)
+	assert.Equal(t, sessionID, result.SessionID)
+
+	req := waitForRequest(t, reqCh, time.Second)
+	require.NotEmpty(t, req.Messages)
+	assert.Equal(t, llm.RoleSystem, req.Messages[0].Role)
+	assert.Contains(t, req.Messages[0].Content, "<recent_gateway_events>")
+	assert.Contains(t, req.Messages[0].Content, "run_id: run-2")
+
+	require.Eventually(t, func() bool {
+		return !mgr.IsWorking()
+	}, time.Second, 10*time.Millisecond)
+
+	result, err = api.EnqueueChatMessage(context.Background(), sessionID, user, ChatRequest{Message: "もう一度"})
+	require.NoError(t, err)
+	assert.Equal(t, sessionID, result.SessionID)
+
+	req = waitForRequest(t, reqCh, time.Second)
+	require.NotEmpty(t, req.Messages)
+	assert.Equal(t, llm.RoleSystem, req.Messages[0].Role)
+	assert.NotContains(t, req.Messages[0].Content, "<recent_gateway_events>")
+	assert.NotContains(t, req.Messages[0].Content, "run-2")
+}
+
 func TestAPI_EnqueueChatMessage_QueuesLLMContentWithDAGContext(t *testing.T) {
 	t.Parallel()
 

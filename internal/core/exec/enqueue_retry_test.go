@@ -342,6 +342,7 @@ func (s *stubDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	expectedAttemptID string,
 	expectedStatus core.Status,
 	mutate func(*exec.DAGRunStatus) error,
+	_ ...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {
 	s.casCalls++
 	if s.casCalls == 1 && s.firstErr != nil {

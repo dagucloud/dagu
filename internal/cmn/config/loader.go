@@ -244,6 +244,9 @@ func (l *ConfigLoader) buildConfig(def Definition) (*Config, error) {
 				MaxSessions: 5,
 			},
 		},
+		Webhooks: WebhooksConfig{
+			MaxPayloadSize: DefaultWebhookMaxPayloadSize,
+		},
 	}
 
 	if err := l.loadCoreConfig(&cfg, def); err != nil {
@@ -281,6 +284,7 @@ func (l *ConfigLoader) buildConfig(def Definition) (*Config, error) {
 	}
 
 	l.loadCacheConfig(&cfg, def)
+	l.loadWebhooksConfig(&cfg, def)
 	l.loadExecutionModeConfig(&cfg, def)
 
 	if err := l.LoadLegacyFields(&cfg, def); err != nil {
@@ -715,6 +719,13 @@ func (l *ConfigLoader) loadServerDefaults(cfg *Config, def Definition) {
 		} else {
 			l.warnings = append(l.warnings, fmt.Sprintf("Invalid sse.slow_client_timeout value: %q", *def.SSE.SlowClientTimeout))
 		}
+	}
+}
+
+func (l *ConfigLoader) loadWebhooksConfig(cfg *Config, def Definition) {
+	cfg.Webhooks.MaxPayloadSize = l.v.GetInt("webhooks.max_payload_size")
+	if def.Webhooks != nil && def.Webhooks.MaxPayloadSize != nil {
+		cfg.Webhooks.MaxPayloadSize = *def.Webhooks.MaxPayloadSize
 	}
 }
 
@@ -1599,6 +1610,9 @@ func (l *ConfigLoader) setViperDefaultValues(paths Paths) {
 	l.v.SetDefault("event_store.enabled", true)
 	l.v.SetDefault("event_store.retention_days", 1)
 
+	// Webhooks
+	l.v.SetDefault("webhooks.max_payload_size", DefaultWebhookMaxPayloadSize)
+
 	// Terminal
 	l.v.SetDefault("terminal.max_sessions", 5)
 
@@ -1645,6 +1659,7 @@ var envBindings = []envBinding{
 	{key: "audit.retention_days", env: "AUDIT_RETENTION_DAYS"},
 	{key: "event_store.enabled", env: "EVENT_STORE_ENABLED"},
 	{key: "event_store.retention_days", env: "EVENT_STORE_RETENTION_DAYS"},
+	{key: "webhooks.max_payload_size", env: "WEBHOOKS_MAX_PAYLOAD_SIZE"},
 	{key: "session.max_per_user", env: "SESSION_MAX_PER_USER"},
 	{key: "sse.max_topics_per_connection", env: "SSE_MAX_TOPICS_PER_CONNECTION"},
 	{key: "sse.max_clients", env: "SSE_MAX_CLIENTS"},

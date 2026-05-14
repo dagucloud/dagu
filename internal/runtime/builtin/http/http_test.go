@@ -152,6 +152,36 @@ func TestHTTPExecutor_StandardFeatures(t *testing.T) {
 	})
 }
 
+func TestHTTPExecutor_MissingMethodOrURLReturnsConfigError(t *testing.T) {
+	t.Run("MissingURL", func(t *testing.T) {
+		step := core.Step{
+			Commands: []core.CommandEntry{{Command: "GET"}},
+			ExecutorConfig: core.ExecutorConfig{
+				Type: "http",
+			},
+		}
+
+		_, err := newHTTP(context.Background(), step)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "url is required")
+	})
+
+	t.Run("MissingMethod", func(t *testing.T) {
+		step := core.Step{
+			ExecutorConfig: core.ExecutorConfig{
+				Type: "http",
+				Config: map[string]any{
+					"url": "https://example.com",
+				},
+			},
+		}
+
+		_, err := newHTTP(context.Background(), step)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "method is required")
+	})
+}
+
 // TestHTTPExecutor_CrossPlatform tests behavior across different platforms
 func TestHTTPExecutor_CrossPlatform(t *testing.T) {
 	t.Run("BehaviorConsistencyAcrossPlatforms", func(t *testing.T) {

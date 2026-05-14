@@ -229,7 +229,7 @@ func TestValidateHarnessStep(t *testing.T) {
 			ExecutorConfig: core.ExecutorConfig{Config: map[string]any{"provider": "claude"}},
 		})
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "field 'command': step type \"harness\" supports only one command")
+		assert.Contains(t, err.Error(), "field 'command': action \"harness\" supports only one command")
 		assert.NotContains(t, err.Error(), "executor")
 	})
 
@@ -834,7 +834,7 @@ func TestNewHarnessRejectsMultipleCommands(t *testing.T) {
 	ctx := newHarnessTestContext(t, nil, step)
 	_, err := newHarness(ctx, step)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "field 'command': step type \"harness\" supports only one command")
+	assert.Contains(t, err.Error(), "field 'command': action \"harness\" supports only one command")
 	assert.NotContains(t, err.Error(), "executor")
 }
 

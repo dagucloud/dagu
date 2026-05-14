@@ -34,7 +34,7 @@ params:
     required: true
 steps:
   - name: show-env
-    command: echo "env=$ENVIRONMENT"
+    run: echo "env=$ENVIRONMENT"
     output: ENV_VALUE
 `)
 
@@ -86,7 +86,7 @@ params:
     required: true
 steps:
   - name: show-region
-    command: echo "$REGION"
+    run: echo "$REGION"
 `)
 
 	runID := uuid.Must(uuid.NewV7()).String()
@@ -120,7 +120,7 @@ params:
     default: false
 steps:
   - name: show-all
-    command: echo "env=$ENVIRONMENT replicas=$REPLICAS verbose=$VERBOSE"
+    run: echo "env=$ENVIRONMENT replicas=$REPLICAS verbose=$VERBOSE"
     output: ALL_VALUES
 `)
 
@@ -192,7 +192,7 @@ params:
     ENVIRONMENT: staging
 steps:
   - name: show-env
-    command: echo "env=$ENVIRONMENT replicas=$REPLICAS"
+    run: echo "env=$ENVIRONMENT replicas=$REPLICAS"
     output: VALUES
 `)
 
@@ -239,7 +239,7 @@ params:
     ENVIRONMENT: staging
 steps:
   - name: show-env
-    command: echo "env=$ENVIRONMENT replicas=$REPLICAS"
+    run: echo "env=$ENVIRONMENT replicas=$REPLICAS"
     output: VALUES
 `)
 

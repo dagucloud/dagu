@@ -376,6 +376,56 @@ func TestJSONDB(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "sub-id", status.DAGRunID)
 	})
+	t.Run("CompareAndSwapLatestAttemptStatusUpdatesSubAttempt", func(t *testing.T) {
+		th := setupTestStore(t)
+
+		ts := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
+		th.CreateAttempt(t, ts, "parent-id", core.Running)
+
+		rootRef := exec.NewDAGRunRef("test_DAG", "parent-id")
+		subRef := exec.NewDAGRunRef("child", "parent-id")
+		subAttempt, err := th.Store.CreateSubAttempt(th.Context, rootRef, subRef.ID)
+		require.NoError(t, err)
+
+		subDAG := th.DAG(subRef.Name)
+		subAttempt.SetDAG(subDAG.DAG)
+		require.NoError(t, subAttempt.Open(th.Context))
+		statusToWrite := exec.InitialStatus(subDAG.DAG)
+		statusToWrite.DAGRunID = subRef.ID
+		statusToWrite.Root = rootRef
+		statusToWrite.AttemptID = subAttempt.ID()
+		statusToWrite.AttemptKey = exec.GenerateAttemptKey(rootRef.Name, rootRef.ID, subRef.Name, subRef.ID, subAttempt.ID())
+		statusToWrite.Status = core.Running
+		statusToWrite.Nodes = []*exec.Node{{Status: core.NodeRunning}}
+		require.NoError(t, subAttempt.Write(th.Context, statusToWrite))
+		require.NoError(t, subAttempt.Close(th.Context))
+
+		updated, swapped, err := th.Store.CompareAndSwapLatestAttemptStatus(
+			th.Context,
+			subRef,
+			subAttempt.ID(),
+			core.Running,
+			func(status *exec.DAGRunStatus) error {
+				status.Status = core.Failed
+				status.Error = "lease expired"
+				status.Nodes[0].Status = core.NodeFailed
+				return nil
+			},
+			exec.WithCompareAndSwapRootDAGRun(rootRef),
+			exec.WithCompareAndSwapExpectedAttemptKey(statusToWrite.AttemptKey),
+		)
+		require.NoError(t, err)
+		require.True(t, swapped)
+		require.Equal(t, core.Failed, updated.Status)
+
+		foundAttempt, err := th.Store.FindSubAttempt(th.Context, rootRef, subRef.ID)
+		require.NoError(t, err)
+		foundStatus, err := foundAttempt.ReadStatus(th.Context)
+		require.NoError(t, err)
+		require.Equal(t, core.Failed, foundStatus.Status)
+		require.Equal(t, "lease expired", foundStatus.Error)
+		require.Equal(t, core.NodeFailed, foundStatus.Nodes[0].Status)
+	})
 	t.Run("CreateSubAttemptEmptyRootID", func(t *testing.T) {
 		th := setupTestStore(t)
 

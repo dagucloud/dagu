@@ -30,18 +30,18 @@ defaults:
     interval_sec: 5
 steps:
   - name: setup
-    command: echo "preparing data"
+    run: echo "preparing data"
   - name: task-a
-    command: echo "processing batch A"
+    run: echo "processing batch A"
     depends: [setup]
   - name: task-b
-    command: echo "processing batch B"
+    run: echo "processing batch B"
     depends: [setup]
   - name: task-c
-    command: echo "processing batch C"
+    run: echo "processing batch C"
     depends: [setup]
   - name: aggregate
-    command: echo "all tasks finished"
+    run: echo "all tasks finished"
     depends: [task-a, task-b, task-c]
 `,
 	},
@@ -64,7 +64,7 @@ steps:
       target_env: "${publish_metadata.output.env}"
     depends: [publish_version, publish_metadata]
   - id: deploy
-    command: echo "deploying ${publish_release.output.version_label} build ${publish_metadata.output.build} to ${publish_release.output.target_env}"
+    run: echo "deploying ${publish_release.output.version_label} build ${publish_metadata.output.build} to ${publish_release.output.target_env}"
     depends: [publish_release]
 `,
 	},
@@ -98,12 +98,12 @@ env:
   - TIMESTAMP: "` + "`date +%Y%m%d`" + `"
 steps:
   - name: extract
-    command: echo "extracting ${BATCH_SIZE} records in ${ENV}"
+    run: echo "extracting ${BATCH_SIZE} records in ${ENV}"
   - name: transform
-    command: echo "transforming with LOG_LEVEL=${LOG_LEVEL}"
+    run: echo "transforming with LOG_LEVEL=${LOG_LEVEL}"
     depends: [extract]
   - name: load
-    command: echo "loading batch from ${TIMESTAMP}"
+    run: echo "loading batch from ${TIMESTAMP}"
     depends: [transform]
 `,
 	},
@@ -119,12 +119,12 @@ defaults:
   continue_on: failed
 steps:
   - name: fetch-data
-    command: "curl -sf https://httpbin.org/status/200 || exit 1"
+    run: "curl -sf https://httpbin.org/status/200 || exit 1"
   - name: process
-    command: echo "processing data"
+    run: echo "processing data"
     depends: [fetch-data]
   - name: cleanup
-    command: echo "done"
+    run: echo "done"
     retry_policy:
       limit: 1
       interval_sec: 1
@@ -149,15 +149,15 @@ params:
     default: STG
 steps:
   - name: check-env
-    command: echo "verifying environment"
+    run: echo "verifying environment"
   - name: deploy
-    command: echo "deploying application"
+    run: echo "deploying application"
     preconditions:
       - condition: "${ENV}"
         expected: "PROD"
     depends: [check-env]
   - name: notify
-    command: echo "deployment complete"
+    run: echo "deployment complete"
     depends: [deploy]
 `,
 	},
@@ -172,18 +172,18 @@ defaults:
     interval_sec: 5
 handler_on:
   init:
-    command: echo "workflow starting"
+    run: echo "workflow starting"
   success:
-    command: echo "all steps succeeded"
+    run: echo "all steps succeeded"
   failure:
-    command: echo "a step failed"
+    run: echo "a step failed"
   exit:
-    command: echo "cleanup complete"
+    run: echo "cleanup complete"
 steps:
   - name: step-1
-    command: echo "running step 1"
+    run: echo "running step 1"
   - name: step-2
-    command: echo "running step 2"
+    run: echo "running step 2"
     depends: [step-1]
 `,
 	},
@@ -198,8 +198,10 @@ defaults:
     interval_sec: 5
 steps:
   - id: get_todo
-    type: http
-    command: "GET https://jsonplaceholder.typicode.com/todos/1"
+    action: http.request
+    with:
+      method: GET
+      url: https://jsonplaceholder.typicode.com/todos/1
     output:
       # decode + select act as a lightweight contract check.
       # malformed JSON or a missing selected field fails the step,
@@ -213,7 +215,7 @@ steps:
         decode: json
         select: .completed
   - id: show_result
-    command: 'echo "Todo: ${get_todo.output.title} (completed=${get_todo.output.completed})"'
+    run: 'echo "Todo: ${get_todo.output.title} (completed=${get_todo.output.completed})"'
     depends: [get_todo]
 `,
 	},
@@ -232,10 +234,10 @@ container:
     - /tmp/dagu-example:/work
 steps:
   - name: write-data
-    command: >-
+    run: >-
       python -c "with open('/work/data.txt', 'w') as f: f.write('Hello from Dagu!')"
   - name: process
-    command: >-
+    run: >-
       python -c "with open('/work/data.txt') as f: print(f.read().upper())"
     depends: [write-data]
 `,
@@ -251,13 +253,17 @@ defaults:
     interval_sec: 5
 steps:
   - name: prepare
-    command: echo "starting main workflow"
+    run: echo "starting main workflow"
   - name: run-etl
-    call: etl-job
-    params: "SOURCE=/data/input.csv TARGET=/data/output.csv"
+    action: dag.run
+    with:
+      dag: etl-job
+      params:
+        SOURCE: /data/input.csv
+        TARGET: /data/output.csv
     depends: [prepare]
   - name: done
-    command: echo "pipeline complete"
+    run: echo "pipeline complete"
     depends: [run-etl]
 ---
 name: etl-job
@@ -275,9 +281,9 @@ params:
 type: graph
 steps:
   - name: extract
-    command: echo "extracting from ${SOURCE}"
+    run: echo "extracting from ${SOURCE}"
   - name: load
-    command: echo "loading into ${TARGET}"
+    run: echo "loading into ${TARGET}"
     depends: [extract]
 `,
 	},
@@ -295,16 +301,17 @@ steps:
     output:
       status: success
   - id: route
-    type: router
-    value: ${check_status.output.status}
-    routes:
-      success: [on_success]
-      "re:.*": [on_failure]
+    action: router.route
+    with:
+      value: ${check_status.output.status}
+      routes:
+        success: [on_success]
+        "re:.*": [on_failure]
     depends: [check_status]
   - id: on_success
-    command: echo "status was success"
+    run: echo "status was success"
   - id: on_failure
-    command: echo "status was something else"
+    run: echo "status was something else"
 `,
 	},
 	{
@@ -320,21 +327,18 @@ steps:
       version: "v1.2.3"
   - id: draft_release_notes
     depends: [build]
-    type: agent
-    agent:
-      prompt: "You draft concise release notes."
-    messages:
-      - role: user
-        content: |
-          Draft release notes for version ${build.output.version}.
+    action: agent.run
+    with:
+      task: |
+        Draft concise release notes for version ${build.output.version}.
 
-          Current draft path: ${DAG_RUN_ARTIFACTS_DIR}/release-notes.md
+        Current draft path: ${DAG_RUN_ARTIFACTS_DIR}/release-notes.md
 
-          Reviewer feedback from the latest push-back: ${FEEDBACK}
-          
-          Return Markdown with a summary and deployment notes.
-          If FEEDBACK is empty, produce the first draft.
-          If FEEDBACK is set, read the existing draft from the path above and revise it to address the feedback.
+        Reviewer feedback from the latest push-back: ${FEEDBACK}
+
+        Return Markdown with a summary and deployment notes.
+        If FEEDBACK is empty, produce the first draft.
+        If FEEDBACK is set, read the existing draft from the path above and revise it to address the feedback.
     stdout: ${DAG_RUN_ARTIFACTS_DIR}/release-notes.md
     approval:
       prompt: "Review the release-notes.md artifact. Push back with FEEDBACK to regenerate it, or approve to continue to deploy."
@@ -342,7 +346,7 @@ steps:
       rewind_to: draft_release_notes
   - id: deploy
     depends: [draft_release_notes]
-    command: echo "deploying ${build.output.version} with reviewed release notes"
+    run: echo "deploying ${build.output.version} with reviewed release notes"
 `,
 	},
 	{
@@ -358,60 +362,56 @@ defaults:
     interval_sec: 5
 steps:
   - id: gather_logs
-    command: 'echo "error: connection timeout at 10:23 AM"'
+    run: 'echo "error: connection timeout at 10:23 AM"'
     # output captures stdout into a variable, but the default max_output_size
     # is 1048576 bytes (1 MiB). If logs can exceed that, write them to a
     # temporary file instead and pass the file path to later steps.
     output: ERROR_LOG
   - id: build_prompt
-    type: template
+    action: template.render
     with:
+      template: |
+        Analyze this incident log and suggest a fix:
+
+        {{ .error_log }}
       data:
         error_log: ${ERROR_LOG}
-    script: |
-      Analyze this incident log and suggest a fix:
-      
-      {{ .error_log }}
     output: ANALYSIS_PROMPT
     depends: [gather_logs]
   - id: analyze
-    type: agent
-    agent:
-      prompt: "You are a concise incident analyst."
+    action: agent.run
+    with:
+      task: ${ANALYSIS_PROMPT}
       max_iterations: 10
-    messages:
-      - role: user
-        content: ${ANALYSIS_PROMPT}
     output: ANALYSIS
     depends: [build_prompt]
   - id: report
-    type: template
+    action: template.render
     with:
+      template: |
+        # Incident Report
+
+        ## Error Log
+
+        {{ .error_log }}
+
+        ## Analysis
+
+        {{ .analysis }}
       output: ${DAG_RUN_ARTIFACTS_DIR}/report.md
       data:
         error_log: ${ERROR_LOG}
         analysis: ${ANALYSIS}
-    script: |
-      # Incident Report
-      
-      ## Error Log
-      
-      {{ .error_log }}
-      
-      ## Analysis
-      
-      {{ .analysis }}
     depends: [analyze]
 `,
 	},
 	{
 		ID:          13,
-		Name:        "custom-step-type",
-		Description: "Define a typed reusable step with step_types and with",
+		Name:        "custom-action",
+		Description: "Define a typed reusable action with actions and with",
 		Content: `type: graph
-step_types:
-  announce_release:
-    type: command
+actions:
+  release.announce:
     description: Print a reusable release announcement
     input_schema:
       type: object
@@ -427,19 +427,19 @@ step_types:
           type: string
           default: Ready for rollout
     template:
-      command: echo {{ json .input.channel }} release {{ json .input.version }} - {{ json .input.summary }}
+      run: echo {{ json .input.channel }} release {{ json .input.version }} - {{ json .input.summary }}
 steps:
   - id: build
     output:
       version: "v1.2.3"
   - id: announce_changelog
-    type: announce_release
+    action: release.announce
     with:
       channel: changelog
       version: ${build.output.version}
     depends: [build]
   - id: announce_email
-    type: announce_release
+    action: release.announce
     with:
       channel: email
       version: ${build.output.version}
@@ -466,19 +466,19 @@ steps:
     output:
       version: "v1.2.3"
   - id: render_config
-    type: template
+    action: template.render
     with:
+      template: |
+        APP_ENV={{ .env }}
+        APP_VERSION={{ .version }}
+        FEATURE_FLAG=true
       output: ${DAG_RUN_ARTIFACTS_DIR}/deploy.env
       data:
         env: ${ENV}
         version: ${build.output.version}
-    script: |
-      APP_ENV={{ .env }}
-      APP_VERSION={{ .version }}
-      FEATURE_FLAG=true
     depends: [build]
   - id: preview
-    command: cat ${DAG_RUN_ARTIFACTS_DIR}/deploy.env
+    run: cat ${DAG_RUN_ARTIFACTS_DIR}/deploy.env
     depends: [render_config]
 `,
 	},
@@ -499,40 +499,40 @@ steps:
     output:
       issue: "scheduler retries the same task after it already succeeded"
   - id: build_prompt
-    type: template
+    action: template.render
     with:
+      template: |
+        Review this workflow issue and suggest a fix:
+
+        {{ .issue }}
       data:
         issue: ${gather_issue.output.issue}
-    script: |
-      Review this workflow issue and suggest a fix:
-      
-      {{ .issue }}
     output: HARNESS_PROMPT
     depends: [gather_issue]
   - id: analyze
-    type: harness
-    command: ${HARNESS_PROMPT}
+    action: harness.run
     with:
+      prompt: ${HARNESS_PROMPT}
       effort: high
     output: ANALYSIS
     depends: [build_prompt]
   - id: report
-    type: template
+    action: template.render
     with:
+      template: |
+        # Harness Review
+
+        ## Issue
+
+        {{ .issue }}
+
+        ## Suggested Fix
+
+        {{ .analysis }}
       output: ${DAG_RUN_ARTIFACTS_DIR}/harness-report.md
       data:
         issue: ${gather_issue.output.issue}
         analysis: ${ANALYSIS}
-    script: |
-      # Harness Review
-      
-      ## Issue
-      
-      {{ .issue }}
-      
-      ## Suggested Fix
-      
-      {{ .analysis }}
     depends: [analyze]
 `,
 	},
@@ -556,32 +556,32 @@ steps:
     output:
       task: "Summarize the deployment checklist for the next engineer"
   - id: build_prompt
-    type: template
+    action: template.render
     with:
+      template: |
+        {{ .task }}
+
+        Return a short handoff note.
       data:
         task: ${gather_task.output.task}
-    script: |
-      {{ .task }}
-      
-      Return a short handoff note.
     output: PROMPT
     depends: [gather_task]
   - id: summarize
-    type: harness
-    command: ${PROMPT}
+    action: harness.run
     with:
+      prompt: ${PROMPT}
       provider: gemini
       model: gemini-2.5-pro
     output: SUMMARY
     depends: [build_prompt]
   - id: save_summary
-    type: template
+    action: template.render
     with:
+      template: |
+        {{ .summary }}
       output: ${DAG_RUN_ARTIFACTS_DIR}/handoff.md
       data:
         summary: ${SUMMARY}
-    script: |
-      {{ .summary }}
     depends: [summarize]
 `,
 	},

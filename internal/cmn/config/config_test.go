@@ -28,6 +28,9 @@ func validBaseConfig() *Config {
 				HeartbeatInterval:      10 * time.Second,
 			},
 		},
+		Webhooks: WebhooksConfig{
+			MaxPayloadSize: DefaultWebhookMaxPayloadSize,
+		},
 		UI: UI{MaxDashboardPageLimit: 100},
 	}
 }
@@ -39,6 +42,15 @@ func TestConfig_Validate(t *testing.T) {
 		cfg := validBaseConfig()
 		err := cfg.Validate()
 		require.NoError(t, err)
+	})
+
+	t.Run("InvalidWebhookMaxPayloadSize", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Webhooks.MaxPayloadSize = 0
+		err := cfg.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "webhooks.max_payload_size must be > 0")
 	})
 
 	t.Run("InvalidPort_Negative", func(t *testing.T) {

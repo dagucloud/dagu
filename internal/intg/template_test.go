@@ -27,12 +27,12 @@ func TestTemplateExecutor(t *testing.T) {
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: render
-    type: template
+    action: template.render
     with:
+      template: |
+        {{ .greeting }}, world!
       data:
         greeting: hello
-    script: |
-      {{ .greeting }}, world!
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -54,13 +54,13 @@ func TestTemplateExecutor(t *testing.T) {
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: render
-    type: template
+    action: template.render
     with:
+      template: |
+        # {{ .title }}
       output: "`+outFileForYAML+`"
       data:
         title: Test Report
-    script: |
-      # {{ .title }}
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -81,13 +81,13 @@ func TestTemplateExecutor(t *testing.T) {
 name: template-artifact-auto-enable
 steps:
   - name: render
-    type: template
+    action: template.render
     with:
       output: "${DAG_RUN_ARTIFACTS_DIR}/greeting.txt"
       data:
         greeting: hello
-    script: |
-      {{ .greeting }}, world!
+      template: |
+        {{ .greeting }}, world!
 `)
 
 		runID := uuid.Must(uuid.NewV7()).String()
@@ -118,13 +118,13 @@ steps:
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: render
-    type: template
+    action: template.render
     working_dir: "`+tmpDirForYAML+`"
     with:
       output: "subdir/output.txt"
       data:
         msg: relative
-    script: "{{ .msg }}"
+      template: "{{ .msg }}"
 `)
 		agent := dag.Agent()
 		agent.RunSuccess(t)
@@ -144,17 +144,17 @@ steps:
 type: graph
 steps:
   - id: producer
-    command: 'echo -n "Alice"'
+    run: 'echo -n "Alice"'
     output: NAME
 
   - id: render
     depends:
       - producer
-    type: template
+    action: template.render
     with:
+      template: "Hello, {{ .name }}!"
       data:
         name: ${NAME}
-    script: "Hello, {{ .name }}!"
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -172,14 +172,14 @@ steps:
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: render
-    type: template
+    action: template.render
     with:
+      template: |
+        export FOO=${BAR}
+        echo "{{ .name }}"
+        value=`+"`command`"+`
       data:
         name: test
-    script: |
-      export FOO=${BAR}
-      echo "{{ .name }}"
-      value=`+"`command`"+`
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -200,8 +200,10 @@ steps:
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: render
-    type: template
+    action: template.render
     with:
+      template: |
+        {{ .issue_text }}
       data:
         issue_text: |
           `+"```yaml"+`
@@ -209,10 +211,8 @@ steps:
             TEST_FILE: ~/dagu-test.txt
 
           steps:
-            - command: touch $TEST_FILE
+            - run: touch $TEST_FILE
           `+"```"+`
-    script: |
-      {{ .issue_text }}
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -234,11 +234,11 @@ steps:
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: render
-    type: template
+    action: template.render
     with:
+      template: "{{ .undefined_key }}"
       data:
         name: test
-    script: "{{ .undefined_key }}"
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -253,18 +253,18 @@ steps:
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: render
-    type: template
+    action: template.render
     with:
+      template: |
+        # {{ .title }}
+        {{ $items := .domains | split "," }}
+        Total: {{ $items | count }}
+        {{ range $i, $d := $items }}
+        {{ $i | add 1 }}. {{ $d | upper }}
+        {{ end }}
       data:
         title: Domain Report
         domains: "example.com,test.org,demo.net"
-    script: |
-      # {{ .title }}
-      {{ $items := .domains | split "," }}
-      Total: {{ $items | count }}
-      {{ range $i, $d := $items }}
-      {{ $i | add 1 }}. {{ $d | upper }}
-      {{ end }}
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -288,12 +288,12 @@ steps:
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: render
-    type: template
+    action: template.render
     with:
+      template: |
+        {{ if .items | empty }}No items found.{{ else }}Has items.{{ end }}
       data:
         items: ""
-    script: |
-      {{ if .items | empty }}No items found.{{ else }}Has items.{{ end }}
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -323,18 +323,18 @@ params:
     type: string
 steps:
   - id: render
-    type: template
+    action: template.render
     with:
+      template: |
+        Hello, {{ .name }}!
+        You are {{ .age }} years old.
+        {{- if .favorite_color }}
+        Your favorite color is {{ .favorite_color }}.
+        {{- end }}
       data:
         name: ${name}
         age: ${age}
         favorite_color: ${favorite_color}
-    script: |
-      Hello, {{ .name }}!
-      You are {{ .age }} years old.
-      {{- if .favorite_color }}
-      Your favorite color is {{ .favorite_color }}.
-      {{- end }}
     output: RESULT
 `)
 
@@ -364,12 +364,12 @@ steps:
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: render
-    type: template
+    action: template.render
     with:
+      template: '{{ .name | default "Anonymous" }} ({{ .title | default "User" }})'
       data:
         name: ""
         title: Admin
-    script: '{{ .name | default "Anonymous" }} ({{ .title | default "User" }})'
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -387,11 +387,11 @@ steps:
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: render
-    type: template
+    action: template.render
     with:
+      template: '{{ .name | trim | lower | replace " " "-" }}'
       data:
         name: "  My Service  "
-    script: '{{ .name | trim | lower | replace " " "-" }}'
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -409,14 +409,14 @@ steps:
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: render
-    type: template
+    action: template.render
     with:
+      template: |
+        name={{ get .app "name" | default "unknown" }}
+        owner={{ get .app "owner" | default "unknown" }}
       data:
         app:
           name: MyApp
-    script: |
-      name={{ get .app "name" | default "unknown" }}
-      owner={{ get .app "owner" | default "unknown" }}
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -437,14 +437,14 @@ steps:
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: render
-    type: template
+    action: template.render
     with:
+      template: '{{ .domains | uniq | sortAlpha | join "," }}'
       data:
         domains:
           - api.example.com
           - api.example.com
           - app.example.com
-    script: '{{ .domains | uniq | sortAlpha | join "," }}'
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -462,12 +462,12 @@ steps:
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: render-config
-    type: template
-    script: |
-      app={{ .app.name | lower | replace " " "-" }}
-      owner={{ get .app "owner" | default "unknown" }}
-      domains={{ get .app "domains" | default (list "localhost") | uniq | sortAlpha | join "," }}
+    action: template.render
     with:
+      template: |
+        app={{ .app.name | lower | replace " " "-" }}
+        owner={{ get .app "owner" | default "unknown" }}
+        domains={{ get .app "domains" | default (list "localhost") | uniq | sortAlpha | join "," }}
       data:
         app:
           name: My Service
@@ -496,10 +496,9 @@ steps:
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: render
-    type: template
+    action: template.render
     with:
-      data: {}
-    script: '{{ env "HOME" }}'
+      template: '{{ env "HOME" }}'
 `)
 		agent := dag.Agent()
 		agent.RunCheckErr(t, "error")
@@ -513,12 +512,12 @@ steps:
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: render
-    type: template
+    action: template.render
     with:
       data:
         app:
           name: test
-    script: '{{ .nonexistent }}'
+      template: '{{ .nonexistent }}'
 `)
 		agent := dag.Agent()
 		agent.RunCheckErr(t, "execution error")
@@ -532,13 +531,13 @@ steps:
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - name: render
-    type: template
+    action: template.render
     with:
+      template: |
+        items={{ .csv | split "," | join ";" }}
+        sum={{ 5 | add 3 }}
       data:
         csv: "a,b,c"
-    script: |
-      items={{ .csv | split "," | join ";" }}
-      sum={{ 5 | add 3 }}
     output: RESULT
 `)
 		agent := dag.Agent()

@@ -37,7 +37,7 @@ params:
     - start_date
 steps:
   - name: show-values
-    command: echo "batch_size=$batch_size start_date=$start_date debug=$debug"
+    run: echo "batch_size=$batch_size start_date=$start_date debug=$debug"
     output: VALUES
 `)
 
@@ -68,7 +68,7 @@ params:
     - start_date
 steps:
   - name: should-not-run
-    command: echo "start_date=$start_date"
+    run: echo "start_date=$start_date"
 `)
 
 	runID := uuid.Must(uuid.NewV7()).String()
@@ -97,7 +97,7 @@ params:
       default: 10
 steps:
   - name: should-not-run
-    command: echo "batch_size=$batch_size"
+    run: echo "batch_size=$batch_size"
 `)
 
 	runID := uuid.Must(uuid.NewV7()).String()
@@ -126,10 +126,10 @@ params:
       default: false
 steps:
   - name: show-values
-    command: echo "batch_size=$batch_size debug=$debug"
+    run: echo "batch_size=$batch_size debug=$debug"
     output: VALUES
   - name: params-json
-    command: printenv DAGU_PARAMS_JSON
+    run: printenv DAGU_PARAMS_JSON
     output: PARAMS_JSON
 `)
 
@@ -160,7 +160,7 @@ params:
       default: 10
 steps:
   - name: show
-    command: echo "batch_size=$batch_size"
+    run: echo "batch_size=$batch_size"
 `)
 
 	runID := uuid.Must(uuid.NewV7()).String()

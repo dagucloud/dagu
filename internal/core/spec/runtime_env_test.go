@@ -24,7 +24,7 @@ env:
   - SOURCE: from-snapshot
 steps:
   - name: print
-    command: echo ok
+    run: echo ok
 `)
 	require.NoError(t, os.WriteFile(dagPath, originalYAML, 0o600))
 
@@ -39,7 +39,7 @@ env:
   - SOURCE: from-disk
 steps:
   - name: print
-    command: echo ok
+    run: echo ok
 `)
 	require.NoError(t, os.WriteFile(dagPath, updatedYAML, 0o600))
 

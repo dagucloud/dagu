@@ -24,7 +24,7 @@ func TestSingleton(t *testing.T) {
 		spec := fmt.Sprintf(`
 steps:
   - name: sleep
-    command: |
+    run: |
 %s`, indentCommandBlock(holdUntilFileExistsCommand(release), 6))
 		// Create a new DAG
 		_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
@@ -70,7 +70,7 @@ steps:
 		spec := fmt.Sprintf(`
 steps:
   - name: sleep
-    command: |
+    run: |
 %s`, indentCommandBlock(holdUntilFileExistsCommand(release), 6))
 		// Create a new DAG
 		_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
@@ -113,7 +113,7 @@ steps:
 		spec := `
 steps:
   - name: sleep
-    command: sleep 10
+    run: sleep 10
 `
 		// Create a new DAG
 		_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
@@ -143,7 +143,7 @@ steps:
 name: singleton_inline_enq_dag
 steps:
   - name: sleep
-    command: sleep 10
+    run: sleep 10
 `
 		name := "singleton_inline_enq_dag"
 		resp := server.Client().Post("/api/v1/dag-runs/enqueue", api.EnqueueDAGRunFromSpecJSONRequestBody{

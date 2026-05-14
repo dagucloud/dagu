@@ -286,7 +286,7 @@ func (dr DataRoot) IsEmpty() bool {
 // Remove completely removes the dag-runs directory and all its contents.
 // This operation cannot be undone.
 func (dr DataRoot) Remove() error {
-	if err := os.RemoveAll(dr.dagRunsDir); err != nil {
+	if err := fileutil.RemoveAllWithRetry(dr.dagRunsDir); err != nil {
 		return fmt.Errorf("failed to remove directory %s: %w", dr.dagRunsDir, err)
 	}
 	return nil

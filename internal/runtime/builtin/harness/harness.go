@@ -634,7 +634,7 @@ func validateHarnessStep(step core.Step) error {
 
 func validatePromptCommand(step core.Step) error {
 	if len(step.Commands) > 1 {
-		return core.NewValidationError("command", nil, fmt.Errorf("step type %q supports only one command", "harness"))
+		return core.NewValidationError("command", nil, fmt.Errorf("action %q supports only one command", "harness"))
 	}
 	if len(step.Commands) == 0 || extractPrompt(step) == "" {
 		return core.NewValidationError("command", nil, fmt.Errorf("command field (prompt) is required"))

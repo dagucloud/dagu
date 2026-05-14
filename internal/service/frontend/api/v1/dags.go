@@ -167,7 +167,7 @@ func (a *API) CreateNewDAG(ctx context.Context, request api.CreateNewDAGRequestO
 		yamlSpec = []byte(*request.Body.Spec)
 	} else {
 		yamlSpec = []byte(`steps:
-  - command: echo hello
+  - run: echo hello
 `)
 	}
 	if err := a.requireDAGWriteForWorkspace(ctx, workspaceName); err != nil {
@@ -494,21 +494,29 @@ func (a *API) buildDAGEditorHints(ctx context.Context, dag *core.DAG, fileName s
 		}
 	}
 
-	hints, err := spec.InheritedCustomStepTypeEditorHints(baseConfigData)
+	legacyDefinitionHints, err := spec.InheritedLegacyDefinitionEditorHints(baseConfigData)
 	if err != nil {
-		logger.Warn(ctx, "Failed to build inherited custom step editor hints",
+		logger.Warn(ctx, "Failed to build inherited custom editor hints",
 			slog.String("dagFile", fileName),
 			tag.Error(err),
 		)
 		return nil
 	}
-	if len(hints) == 0 {
+	actionHints, err := spec.InheritedCustomActionEditorHints(baseConfigData)
+	if err != nil {
+		logger.Warn(ctx, "Failed to build inherited custom editor hints",
+			slog.String("dagFile", fileName),
+			tag.Error(err),
+		)
+		return nil
+	}
+	if len(legacyDefinitionHints) == 0 && len(actionHints) == 0 {
 		return nil
 	}
 
-	editorHints := make([]api.InheritedCustomStepTypeHint, 0, len(hints))
-	for _, hint := range hints {
-		apiHint := api.InheritedCustomStepTypeHint{
+	editorLegacyDefinitionHints := make([]api.InheritedLegacyDefinitionHint, 0, len(legacyDefinitionHints))
+	for _, hint := range legacyDefinitionHints {
+		apiHint := api.InheritedLegacyDefinitionHint{
 			InputSchema: hint.InputSchema,
 			Name:        hint.Name,
 			TargetType:  hint.TargetType,
@@ -521,11 +529,29 @@ func (a *API) buildDAGEditorHints(ctx context.Context, dag *core.DAG, fileName s
 			desc := hint.Description
 			apiHint.Description = &desc
 		}
-		editorHints = append(editorHints, apiHint)
+		editorLegacyDefinitionHints = append(editorLegacyDefinitionHints, apiHint)
+	}
+
+	editorActionHints := make([]api.InheritedCustomActionHint, 0, len(actionHints))
+	for _, hint := range actionHints {
+		apiHint := api.InheritedCustomActionHint{
+			InputSchema: hint.InputSchema,
+			Name:        hint.Name,
+		}
+		if len(hint.OutputSchema) > 0 {
+			outputSchema := hint.OutputSchema
+			apiHint.OutputSchema = &outputSchema
+		}
+		if hint.Description != "" {
+			desc := hint.Description
+			apiHint.Description = &desc
+		}
+		editorActionHints = append(editorActionHints, apiHint)
 	}
 
 	return &api.DAGEditorHints{
-		InheritedCustomStepTypes: editorHints,
+		InheritedCustomActions:     &editorActionHints,
+		InheritedLegacyDefinitions: editorLegacyDefinitionHints,
 	}
 }
 

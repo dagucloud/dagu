@@ -26,7 +26,7 @@ params:
     required: true
 steps:
   - name: echo
-    command: echo "region=$region"
+    run: echo "region=$region"
 `)
 
 	runID := uuid.Must(uuid.NewV7()).String()
@@ -54,7 +54,7 @@ params:
     required: true
 steps:
   - name: echo
-    command: echo "region=$region"
+    run: echo "region=$region"
 `)
 
 	runID := uuid.Must(uuid.NewV7()).String()
@@ -77,7 +77,7 @@ func TestParams_AcceptsAnythingWithNoParamsSection(t *testing.T) {
 name: no-params
 steps:
   - name: echo
-    command: echo hello
+    run: echo hello
 `)
 
 	runID := uuid.Must(uuid.NewV7()).String()
@@ -103,7 +103,7 @@ params:
   - region: us-east-1
 steps:
   - name: echo
-    command: echo "region=$region"
+    run: echo "region=$region"
 `)
 
 	runID := uuid.Must(uuid.NewV7()).String()
@@ -131,7 +131,7 @@ params:
     required: true
 steps:
   - name: echo
-    command: echo "region=$region"
+    run: echo "region=$region"
 `)
 
 	runID := uuid.Must(uuid.NewV7()).String()
@@ -171,7 +171,7 @@ params:
   schema: params.schema.json
 steps:
   - name: echo
-    command: echo "region=$region"
+    run: echo "region=$region"
 `)
 
 	runID := uuid.Must(uuid.NewV7()).String()
@@ -211,7 +211,7 @@ params:
   schema: params-allow.schema.json
 steps:
   - name: echo
-    command: echo "region=$region"
+    run: echo "region=$region"
 `)
 
 	runID := uuid.Must(uuid.NewV7()).String()

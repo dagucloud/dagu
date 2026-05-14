@@ -323,7 +323,7 @@ func TestLoadInlineDAGDoesNotFreezeProcessWorkingDir(t *testing.T) {
 name: inline_workdir_test
 steps:
   - name: run
-    command: pwd
+    run: pwd
 `, ptrOf("inline_workdir_test"), "new-run")
 	require.NoError(t, err)
 	defer cleanup()
@@ -473,10 +473,10 @@ name: edit_retry_test
 type: graph
 steps:
   - name: build
-    command: echo "RESULT=from-source"
+    run: echo "RESULT=from-source"
     output: RESULT
   - name: consume
-    command: exit 1
+    run: exit 1
     depends:
       - build
 `
@@ -490,10 +490,10 @@ params:
   - problem: ""
 steps:
   - name: build
-    command: echo "$problem"
+    run: echo "$problem"
     output: RESULT
   - name: consume
-    command: exit 1
+    run: exit 1
     depends:
       - build
 `
@@ -505,14 +505,14 @@ name: edit_retry_test
 type: graph
 steps:
   - name: build
-    command: exit 99
+    run: exit 99
     output: RESULT
   - name: consume
-    command: echo "$RESULT"
+    run: echo "$RESULT"
     depends:
       - build
   - name: notify
-    command: echo done
+    run: echo done
     depends:
       - consume
 `
@@ -526,10 +526,10 @@ params:
   - problem: ""
 steps:
   - name: build
-    command: exit 99
+    run: exit 99
     output: RESULT
   - name: consume
-    command: echo "$RESULT $problem"
+    run: echo "$RESULT $problem"
     depends:
       - build
 `
@@ -543,14 +543,14 @@ worker_selector:
   region: apac
 steps:
   - name: build
-    command: exit 99
+    run: exit 99
     output: RESULT
   - name: consume
-    command: echo "$RESULT"
+    run: echo "$RESULT"
     depends:
       - build
   - name: notify
-    command: echo done
+    run: echo done
     depends:
       - consume
 `

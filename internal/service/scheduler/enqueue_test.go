@@ -25,7 +25,7 @@ func TestEnqueueCatchupRun_PersistsQueuedCatchupMetadata(t *testing.T) {
 	dag := th.DAG(t, `name: enqueue-catchup-dag
 steps:
   - name: step1
-    command: echo enqueue
+    run: echo enqueue
 `)
 
 	runID := "catchup-run-1"
@@ -78,7 +78,7 @@ secrets:
     key: SECRET_SOURCE
 steps:
   - name: step1
-    command: echo enqueue
+    run: echo enqueue
 `)
 
 	metadataOnly, err := spec.Load(

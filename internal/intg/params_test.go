@@ -33,13 +33,13 @@ params:
     type: boolean
 steps:
   - name: shell-values
-    command: echo "region=$region count=$count debug=$debug"
+    run: echo "region=$region count=$count debug=$debug"
     output: SHELL_VALUES
   - name: params-json
-    command: printenv DAGU_PARAMS_JSON
+    run: printenv DAGU_PARAMS_JSON
     output: PARAMS_JSON
   - name: params-json-compat
-    command: printenv DAG_PARAMS_JSON
+    run: printenv DAG_PARAMS_JSON
     output: PARAMS_JSON_COMPAT
 `)
 
@@ -74,7 +74,7 @@ params:
     required: true
 steps:
   - name: should-not-run
-    command: echo "region=$region"
+    run: echo "region=$region"
 `)
 
 	runID := uuid.Must(uuid.NewV7()).String()
@@ -103,7 +103,7 @@ params:
     required: true
 steps:
   - name: should-not-run
-    command: echo "region=$region count=$count"
+    run: echo "region=$region count=$count"
 `)
 
 	runID := uuid.Must(uuid.NewV7()).String()
@@ -131,8 +131,10 @@ func TestInlineParams_LocalSubDAGRuntimeCoercion(t *testing.T) {
 name: inline-subdag-parent
 steps:
   - name: invoke-child
-    call: inline-subdag-child
-    params: "region=us-west-2 count=5 debug=true"
+    action: dag.run
+    with:
+      dag: inline-subdag-child
+      params: "region=us-west-2 count=5 debug=true"
 
 ---
 name: inline-subdag-child
@@ -151,10 +153,10 @@ params:
     required: true
 steps:
   - name: shell-values
-    command: echo "region=$region count=$count debug=$debug"
+    run: echo "region=$region count=$count debug=$debug"
     output: SHELL_VALUES
   - name: params-json
-    command: printenv DAGU_PARAMS_JSON
+    run: printenv DAGU_PARAMS_JSON
     output: PARAMS_JSON
 `)
 

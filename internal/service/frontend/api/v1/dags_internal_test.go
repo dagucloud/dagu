@@ -64,7 +64,7 @@ name: sse-next-run-dag
 schedule:
   - at: "%s"
 steps:
-  - command: echo hi
+  - run: echo hi
 `, scheduledAt.Format(time.RFC3339)))
 
 	state := &scheduler.SchedulerState{
@@ -126,12 +126,12 @@ func TestGetDAGsListDataUsesConfiguredListDefaults(t *testing.T) {
 	helper.DAG(t, `
 name: sse-sort-alpha
 steps:
-  - command: echo alpha
+  - run: echo alpha
 `)
 	helper.DAG(t, `
 name: sse-sort-zulu
 steps:
-  - command: echo zulu
+  - run: echo zulu
 `)
 
 	api := localapi.New(
@@ -209,14 +209,14 @@ func TestGetDAGDetails_InvalidYAML_Returns200WithErrors(t *testing.T) {
 	require.NotEmpty(t, *resp.FilePath)
 }
 
-func TestUpdateDAGSpec_AllowsCustomStepTypeRuntimeVariableInput(t *testing.T) {
+func TestUpdateDAGSpec_AllowsLegacyDefinitionRuntimeVariableInput(t *testing.T) {
 	t.Parallel()
 
 	helper := test.Setup(t, test.WithStatusPersistence())
-	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "custom-step-runtime-save", []byte(`
-name: custom-step-runtime-save
+	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "legacy-definition-runtime-save", []byte(`
+name: legacy-definition-runtime-save
 steps:
-  - command: echo original
+  - run: echo original
 `))
 
 	api := localapi.New(
@@ -233,7 +233,7 @@ steps:
 	)
 
 	specText := `
-name: custom-step-runtime-save
+name: legacy-definition-runtime-save
 type: graph
 step_types:
   repeat:
@@ -255,7 +255,7 @@ step_types:
           - {$input: count}
 steps:
   - id: produce
-    command: echo 3
+    run: echo 3
     output: COUNT
   - id: consume
     depends: [produce]
@@ -266,7 +266,7 @@ steps:
 `
 
 	respObj, err := api.UpdateDAGSpec(context.Background(), openapi.UpdateDAGSpecRequestObject{
-		FileName: "custom-step-runtime-save",
+		FileName: "legacy-definition-runtime-save",
 		Body: &openapi.UpdateDAGSpecJSONRequestBody{
 			Spec: specText,
 		},
@@ -285,7 +285,7 @@ func TestUpdateDAGSpec_StepConfigAliasCompatibility(t *testing.T) {
 	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "step-config-alias-api", []byte(`
 name: step-config-alias-api
 steps:
-  - command: echo original
+  - run: echo original
 `))
 
 	api := localapi.New(
@@ -329,7 +329,7 @@ func TestUpdateDAGSpec_RejectsStepWithAndLegacyConfigTogether(t *testing.T) {
 	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "step-mixed-config-api", []byte(`
 name: step-mixed-config-api
 steps:
-  - command: echo original
+  - run: echo original
 `))
 
 	api := localapi.New(
@@ -407,7 +407,7 @@ func TestUpdateDAGSpec_NotifiesDAGMutation(t *testing.T) {
 name: dag-update-notify
 schedule: "34 * * * *"
 steps:
-  - command: echo original
+  - run: echo original
 `))
 
 	var notified []string
@@ -434,7 +434,7 @@ steps:
 name: dag-update-notify
 schedule: "43 * * * *"
 steps:
-  - command: echo updated
+  - run: echo updated
 `,
 		},
 	})
@@ -454,7 +454,7 @@ func TestUpdateDAGSuspensionState_NotifiesDAGMutation(t *testing.T) {
 name: dag-suspend-notify
 schedule: "43 * * * *"
 steps:
-  - command: echo original
+  - run: echo original
 `)
 
 	var notified []string
@@ -487,7 +487,7 @@ steps:
 	require.Equal(t, []string{dag.FileName()}, notified)
 }
 
-func TestGetDAGDetails_EditorHintsIncludeInheritedCustomStepTypes(t *testing.T) {
+func TestGetDAGDetails_EditorHintsIncludeInheritedLegacyDefinitions(t *testing.T) {
 	t.Parallel()
 
 	helper := test.Setup(t, test.WithStatusPersistence())
@@ -508,12 +508,28 @@ step_types:
         command: echo
         args:
           - {$input: message}
+actions:
+  slack.notify:
+    description: Send Slack notification
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+    template:
+      action: http.request
+      with:
+        method: POST
+        url: ${SLACK_WEBHOOK_URL}
+        body: {$input: text}
 `), 0o600))
 
 	dag := helper.DAG(t, `
 name: inherited-editor-hints
 steps:
-  - command: echo hi
+  - run: echo hi
 `)
 
 	api := localapi.New(
@@ -537,9 +553,11 @@ steps:
 	resp, ok := respObj.(openapi.GetDAGDetails200JSONResponse)
 	require.True(t, ok)
 	require.NotNil(t, resp.EditorHints)
-	require.Len(t, resp.EditorHints.InheritedCustomStepTypes, 1)
+	require.Len(t, resp.EditorHints.InheritedLegacyDefinitions, 1)
+	require.NotNil(t, resp.EditorHints.InheritedCustomActions)
+	require.Len(t, *resp.EditorHints.InheritedCustomActions, 1)
 
-	hint := resp.EditorHints.InheritedCustomStepTypes[0]
+	hint := resp.EditorHints.InheritedLegacyDefinitions[0]
 	require.Equal(t, "greet", hint.Name)
 	require.Equal(t, "command", hint.TargetType)
 	require.NotNil(t, hint.Description)
@@ -550,6 +568,17 @@ steps:
 	message, ok := properties["message"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "string", message["type"])
+
+	actionHint := (*resp.EditorHints.InheritedCustomActions)[0]
+	require.Equal(t, "slack.notify", actionHint.Name)
+	require.NotNil(t, actionHint.Description)
+	require.Equal(t, "Send Slack notification", *actionHint.Description)
+
+	actionProperties, ok := actionHint.InputSchema["properties"].(map[string]any)
+	require.True(t, ok)
+	text, ok := actionProperties["text"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "string", text["type"])
 }
 
 func TestGetDAGDetails_EditorHintsKeepDistinctDescriptions(t *testing.T) {
@@ -581,7 +610,7 @@ step_types:
 	dag := helper.DAG(t, `
 name: inherited-editor-hint-descriptions
 steps:
-  - command: echo hi
+  - run: echo hi
 `)
 
 	api := localapi.New(
@@ -605,12 +634,12 @@ steps:
 	resp, ok := respObj.(openapi.GetDAGDetails200JSONResponse)
 	require.True(t, ok)
 	require.NotNil(t, resp.EditorHints)
-	require.Len(t, resp.EditorHints.InheritedCustomStepTypes, 2)
+	require.Len(t, resp.EditorHints.InheritedLegacyDefinitions, 2)
 
-	require.NotNil(t, resp.EditorHints.InheritedCustomStepTypes[0].Description)
-	require.NotNil(t, resp.EditorHints.InheritedCustomStepTypes[1].Description)
-	require.Equal(t, "First description", *resp.EditorHints.InheritedCustomStepTypes[0].Description)
-	require.Equal(t, "Second description", *resp.EditorHints.InheritedCustomStepTypes[1].Description)
+	require.NotNil(t, resp.EditorHints.InheritedLegacyDefinitions[0].Description)
+	require.NotNil(t, resp.EditorHints.InheritedLegacyDefinitions[1].Description)
+	require.Equal(t, "First description", *resp.EditorHints.InheritedLegacyDefinitions[0].Description)
+	require.Equal(t, "Second description", *resp.EditorHints.InheritedLegacyDefinitions[1].Description)
 }
 
 func TestGetDAGDetails_InvalidYAMLStillReturnsEditorHints(t *testing.T) {
@@ -662,8 +691,8 @@ step_types:
 	require.True(t, ok)
 	require.NotEmpty(t, resp.Errors)
 	require.NotNil(t, resp.EditorHints)
-	require.Len(t, resp.EditorHints.InheritedCustomStepTypes, 1)
-	require.Equal(t, "greet", resp.EditorHints.InheritedCustomStepTypes[0].Name)
+	require.Len(t, resp.EditorHints.InheritedLegacyDefinitions, 1)
+	require.Equal(t, "greet", resp.EditorHints.InheritedLegacyDefinitions[0].Name)
 }
 
 func TestGetDAGDetails_NonExistent_Returns404(t *testing.T) {
@@ -703,7 +732,7 @@ name: dag-details-next-run
 schedule:
   - at: "%s"
 steps:
-  - command: echo hi
+  - run: echo hi
 `, scheduledAt.Format(time.RFC3339)))
 
 	state := &scheduler.SchedulerState{

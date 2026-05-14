@@ -55,7 +55,7 @@ export function ensureWorkspaceLabelInDAGSpec(
 
 export function defaultDAGSpec(workspaceName: string): string {
   return ensureWorkspaceLabelInDAGSpec(
-    `steps:\n  - name: hello\n    command: echo hello\n`,
+    `steps:\n  - name: hello\n    run: echo hello\n`,
     workspaceName
   );
 }

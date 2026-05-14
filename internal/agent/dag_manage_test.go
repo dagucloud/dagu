@@ -503,7 +503,7 @@ func TestDAGDefManageListGetValidateAndSchema(t *testing.T) {
 			Steps:       []core.Step{{Name: "test", ExecutorConfig: core.ExecutorConfig{Type: "command"}}},
 		}},
 		specs: map[string]string{
-			"build": "steps:\n  - name: test\n    command: go test ./...\n",
+			"build": "steps:\n  - name: test\n    run: go test ./...\n",
 		},
 	}
 	tool := NewDAGDefManageTool(store)
@@ -527,7 +527,7 @@ func TestDAGDefManageListGetValidateAndSchema(t *testing.T) {
 
 	validateOut := runJSONTool(t, tool, map[string]any{
 		"action": "validate",
-		"spec":   "steps:\n  - name: ok\n    command: echo ok\n",
+		"spec":   "steps:\n  - name: ok\n    run: echo ok\n",
 	})
 	require.False(t, validateOut.IsError, validateOut.Content)
 	var validateGot map[string]any
@@ -617,7 +617,7 @@ func (s *dagRunManageTestStore) ListStatusesPage(_ context.Context, opts ...exec
 	return s.page, nil
 }
 
-func (s *dagRunManageTestStore) CompareAndSwapLatestAttemptStatus(context.Context, exec.DAGRunRef, string, core.Status, func(*exec.DAGRunStatus) error) (*exec.DAGRunStatus, bool, error) {
+func (s *dagRunManageTestStore) CompareAndSwapLatestAttemptStatus(context.Context, exec.DAGRunRef, string, core.Status, func(*exec.DAGRunStatus) error, ...exec.CompareAndSwapStatusOption) (*exec.DAGRunStatus, bool, error) {
 	return nil, false, errors.New("unexpected CompareAndSwapLatestAttemptStatus")
 }
 

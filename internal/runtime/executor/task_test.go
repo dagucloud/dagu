@@ -26,7 +26,7 @@ func TestDAG_CreateTask(t *testing.T) {
 name: test-dag
 steps:
   - name: step1
-	command: echo hello
+    run: echo hello
 `
 		runID := "run-123"
 		params := "param1=value1"

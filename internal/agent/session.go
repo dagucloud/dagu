@@ -80,6 +80,7 @@ type SessionManager struct {
 	webSearch             *llm.WebSearchRequest
 	webTools              *WebToolsConfig
 	remoteContextResolver RemoteContextResolver
+	dynamicSystemCtx      DynamicSystemContextFunc
 	promptWaitInterval    time.Duration
 }
 
@@ -140,6 +141,9 @@ type SessionManagerConfig struct {
 	WebTools *WebToolsConfig
 	// RemoteContextResolver provides access to remote CLI contexts for remote_agent tools.
 	RemoteContextResolver RemoteContextResolver
+	// DynamicSystemContext returns volatile per-request context appended to the
+	// system message without being persisted in session history.
+	DynamicSystemContext DynamicSystemContextFunc
 	// Delegates seeds known delegate sessions when restoring from storage.
 	Delegates []DelegateSnapshot
 	// PromptWaitInterval overrides the heartbeat interval used while waiting
@@ -231,6 +235,7 @@ func NewSessionManager(cfg SessionManagerConfig) *SessionManager {
 		webSearch:             cfg.WebSearch,
 		webTools:              cfg.WebTools,
 		remoteContextResolver: cfg.RemoteContextResolver,
+		dynamicSystemCtx:      cfg.DynamicSystemContext,
 		promptWaitInterval:    promptWaitInterval,
 	}
 }
@@ -276,6 +281,17 @@ func (sm *SessionManager) UpdateLoopProvider(provider llm.Provider, resolvedMode
 		return
 	}
 	sm.loop.SetProviderModel(provider, resolvedModel)
+}
+
+// SetDynamicSystemContext updates volatile context for future LLM requests.
+func (sm *SessionManager) SetDynamicSystemContext(fn DynamicSystemContextFunc) {
+	sm.mu.Lock()
+	sm.dynamicSystemCtx = fn
+	loop := sm.loop
+	sm.mu.Unlock()
+	if loop != nil {
+		loop.SetDynamicSystemContext(fn)
+	}
 }
 
 // copyMessages returns a shallow copy of the messages slice.
@@ -917,20 +933,21 @@ func (sm *SessionManager) createLoop(provider llm.Provider, model string, histor
 			WorkspaceAccess: sm.user.WorkspaceAccess,
 			Soul:            sm.soul,
 		}),
-		WorkingDir:       sm.workingDir,
-		SessionID:        sm.id,
-		OnWorking:        sm.SetWorking,
-		OnHeartbeat:      sm.RecordHeartbeat,
-		EmitUIAction:     sm.createEmitUIActionFunc(),
-		EmitUserPrompt:   sm.createEmitUserPromptFunc(),
-		WaitUserResponse: sm.createWaitUserResponseFunc(),
-		SafeMode:         safeMode,
-		ThinkingEffort:   thinkingEffort,
-		Hooks:            sm.hooks,
-		User:             sm.user,
-		SessionStore:     sm.sessionStore,
-		Registry:         sm.registry,
-		WebSearch:        sm.webSearch,
+		DynamicSystemContext: sm.dynamicSystemCtx,
+		WorkingDir:           sm.workingDir,
+		SessionID:            sm.id,
+		OnWorking:            sm.SetWorking,
+		OnHeartbeat:          sm.RecordHeartbeat,
+		EmitUIAction:         sm.createEmitUIActionFunc(),
+		EmitUserPrompt:       sm.createEmitUserPromptFunc(),
+		WaitUserResponse:     sm.createWaitUserResponseFunc(),
+		SafeMode:             safeMode,
+		ThinkingEffort:       thinkingEffort,
+		Hooks:                sm.hooks,
+		User:                 sm.user,
+		SessionStore:         sm.sessionStore,
+		Registry:             sm.registry,
+		WebSearch:            sm.webSearch,
 	})
 }
 

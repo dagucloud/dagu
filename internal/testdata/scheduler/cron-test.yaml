@@ -2,4 +2,4 @@ name: cron-test
 schedule: "*/1 * * * *"
 steps:
   - name: test-step
-    command: echo "hello"
+    run: echo "hello"
