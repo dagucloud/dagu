@@ -10,6 +10,7 @@
   <p>
     <a href="https://docs.dagu.sh">Docs</a> |
     <a href="https://docs.dagu.sh/writing-workflows/examples">Examples</a> |
+    <a href="./README_SCHEMA.md">Workflow Schema</a> |
     <a href="https://discord.gg/gpahPUjGRk">Support & Community</a>
   </p>
 </div>
@@ -22,7 +23,10 @@ Keep your existing automation as shell scripts, Python scripts, containers, SSH 
 
 Dagu is local-first by default. API keys, private repositories, internal documents, customer data, Slack logs, and agent artifacts can stay inside your own machine or infrastructure instead of being handed to a cloud automation SaaS.
 
-For a quick look at how workflows are defined, see the [examples](https://docs.dagu.sh/writing-workflows/examples).
+For a quick look at how workflows are defined, see the
+[examples](https://docs.dagu.sh/writing-workflows/examples). For a compact
+repository-level map of the YAML shape and current `run:`, `action:`, and
+`actions:` syntax, see the [Workflow Schema at a Glance](./README_SCHEMA.md).
 
 <div align="center">
   <img src="./assets/images/dagu-demo.gif" width="720" alt="Dagu demo showing the cockpit kanban view and YAML workflow editing">
@@ -770,6 +774,7 @@ Full configuration reference: [docs.dagu.sh/server-admin/reference](https://docs
 
 - [Getting Started](https://docs.dagu.sh/getting-started/installation) — Installation and first workflow
 - [Writing Workflows](https://docs.dagu.sh/writing-workflows/examples) — YAML syntax, scheduling, execution control
+- [Workflow Schema at a Glance](./README_SCHEMA.md) — Repository-level overview of the current YAML schema
 - [Actions](https://docs.dagu.sh/step-types/shell) — [Shell](https://docs.dagu.sh/step-types/shell), [Docker](https://docs.dagu.sh/step-types/docker), [Kubernetes](https://docs.dagu.sh/step-types/kubernetes), [HTTP](https://docs.dagu.sh/step-types/http), [SQL](https://docs.dagu.sh/step-types/sql/), [Harness](https://docs.dagu.sh/step-types/harness), [Agent Step](https://docs.dagu.sh/features/agent/step), and [Custom Actions](https://docs.dagu.sh/writing-workflows/custom-step-types)
 - [Distributed Execution](https://docs.dagu.sh/server-admin/distributed/) — Coordinator/worker setup
 - [Authentication](https://docs.dagu.sh/server-admin/authentication/) — RBAC, OIDC, API keys
