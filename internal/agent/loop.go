@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -53,6 +54,9 @@ type LoopConfig struct {
 	Logger *slog.Logger
 	// SystemPrompt is the system message to prepend.
 	SystemPrompt string
+	// DynamicSystemContext returns volatile context appended to the system
+	// message for each LLM request.
+	DynamicSystemContext DynamicSystemContextFunc
 	// WorkingDir is the working directory for tools.
 	WorkingDir string
 	// SessionID is the ID of the session.
@@ -99,6 +103,7 @@ type Loop struct {
 	mu                 sync.Mutex
 	logger             *slog.Logger
 	systemPrompt       string
+	dynamicSystemCtx   DynamicSystemContextFunc
 	workingDir         string
 	sessionID          string
 	onWorking          func(working bool)
@@ -134,6 +139,7 @@ func NewLoop(config LoopConfig) *Loop {
 		recordMessage:    config.RecordMessage,
 		logger:           logger,
 		systemPrompt:     config.SystemPrompt,
+		dynamicSystemCtx: config.DynamicSystemContext,
 		workingDir:       config.WorkingDir,
 		sessionID:        config.SessionID,
 		onWorking:        config.OnWorking,
@@ -150,6 +156,14 @@ func NewLoop(config LoopConfig) *Loop {
 		webSearch:        config.WebSearch,
 		onTurnComplete:   config.OnTurnComplete,
 	}
+}
+
+// SetDynamicSystemContext updates the volatile context provider used by future
+// LLM requests.
+func (l *Loop) SetDynamicSystemContext(fn DynamicSystemContextFunc) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.dynamicSystemCtx = fn
 }
 
 // QueueUserMessage adds a user message to the queue to be processed.
@@ -313,7 +327,7 @@ func (l *Loop) processLLMRequest(ctx context.Context) error {
 // accumulates usage and records the assistant message.
 func (l *Loop) sendRequest(ctx context.Context) (*llm.ChatResponse, error) {
 	history := l.copyHistory()
-	messages := l.buildMessages(history)
+	messages := l.buildMessages(ctx, history)
 	tools := l.buildToolDefinitions()
 	l.mu.Lock()
 	provider := l.provider
@@ -497,7 +511,7 @@ func (l *Loop) executeTool(ctx context.Context, tc llm.ToolCall) ToolOut {
 		delegate = &DelegateContext{
 			Provider:     provider,
 			Model:        model,
-			SystemPrompt: l.systemPrompt,
+			SystemPrompt: l.currentSystemPrompt(ctx),
 			Tools:        l.tools,
 			Hooks:        l.hooks,
 			Logger:       l.logger,
@@ -656,17 +670,38 @@ func (l *Loop) recordErrorMessage(ctx context.Context, errMsg string) {
 
 // buildMessages prepares the message list for an LLM request by optionally
 // prepending the system prompt to the session history.
-func (l *Loop) buildMessages(history []llm.Message) []llm.Message {
-	if l.systemPrompt == "" {
+func (l *Loop) buildMessages(ctx context.Context, history []llm.Message) []llm.Message {
+	systemPrompt := l.currentSystemPrompt(ctx)
+	if systemPrompt == "" {
 		return history
 	}
 
 	messages := make([]llm.Message, 0, len(history)+1)
 	messages = append(messages, llm.Message{
 		Role:    llm.RoleSystem,
-		Content: l.systemPrompt,
+		Content: systemPrompt,
 	})
 	return append(messages, history...)
+}
+
+func (l *Loop) currentSystemPrompt(ctx context.Context) string {
+	l.mu.Lock()
+	base := l.systemPrompt
+	dynamicProvider := l.dynamicSystemCtx
+	l.mu.Unlock()
+
+	var dynamic string
+	if dynamicProvider != nil {
+		dynamic = strings.TrimSpace(dynamicProvider(ctx))
+	}
+	switch {
+	case strings.TrimSpace(base) == "":
+		return dynamic
+	case dynamic == "":
+		return base
+	default:
+		return base + "\n\n" + dynamic
+	}
 }
 
 // buildToolDefinitions converts agent tools to LLM tool definitions.

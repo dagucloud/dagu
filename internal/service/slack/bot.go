@@ -74,6 +74,8 @@ type Bot struct {
 	chats                 sync.Map // conversationKey -> *chatState
 	activeThreads         sync.Map // "channelID:threadTS" -> true
 	allowedChannels       map[string]struct{}
+	recentGatewayEventsMu sync.Mutex
+	recentGatewayEvents   map[string][]recentGatewayEvent
 	eventService          *eventstore.Service
 	notificationStateFile string
 	logger                *slog.Logger
@@ -340,6 +342,7 @@ func (b *Bot) flushIncomingMessages(ctx context.Context, cs *chatState, convKey 
 	}
 
 	b.ensureThinkingIndicator(cs)
+	ctx = b.withRecentGatewayEventsContext(ctx, convKey)
 	user := b.userIdentity(convKey)
 
 	if cs.SessionID() == "" {
