@@ -4,6 +4,7 @@
 package tools
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -77,5 +78,5 @@ func TestEnvVarsExposeAquaToolset(t *testing.T) {
 	assert.Contains(t, envs, "AQUA_ENFORCE_CHECKSUM=true")
 	assert.Contains(t, envs, "AQUA_ENFORCE_REQUIRE_CHECKSUM=true")
 	assert.Contains(t, envs, "DAGU_TOOLS_MANIFEST=/var/lib/dagu/data/tools/aqua/envs/linux-amd64/hash/manifest.json")
-	assert.Contains(t, envs, "PATH=/var/lib/dagu/data/tools/aqua/envs/linux-amd64/hash/bin:/usr/bin")
+	assert.Contains(t, envs, "PATH=/var/lib/dagu/data/tools/aqua/envs/linux-amd64/hash/bin"+string(os.PathListSeparator)+"/usr/bin")
 }
