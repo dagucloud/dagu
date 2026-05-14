@@ -285,9 +285,6 @@ func (sm *SessionManager) UpdateLoopProvider(provider llm.Provider, resolvedMode
 
 // SetDynamicSystemContext updates volatile context for future LLM requests.
 func (sm *SessionManager) SetDynamicSystemContext(fn DynamicSystemContextFunc) {
-	if fn == nil {
-		return
-	}
 	sm.mu.Lock()
 	sm.dynamicSystemCtx = fn
 	loop := sm.loop

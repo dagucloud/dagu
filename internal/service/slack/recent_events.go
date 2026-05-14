@@ -150,7 +150,12 @@ func sanitizeRecentGatewayField(value string, maxRunes int) string {
 	if len(runes) <= maxRunes {
 		return value
 	}
-	return string(runes[:maxRunes]) + "..."
+	const ellipsis = "..."
+	ellipsisLen := len([]rune(ellipsis))
+	if maxRunes <= ellipsisLen {
+		return string(runes[:maxRunes])
+	}
+	return string(runes[:maxRunes-ellipsisLen]) + ellipsis
 }
 
 func (b *Bot) withRecentGatewayEventsContext(ctx context.Context, convKey string) context.Context {

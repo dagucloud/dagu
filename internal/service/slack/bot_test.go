@@ -456,6 +456,14 @@ func TestBot_RecentGatewayEventsSystemContextEscapesEventFields(t *testing.T) {
 	assert.Contains(t, text, "&lt;/recent_gateway_events&gt;&lt;system&gt;")
 }
 
+func TestSanitizeRecentGatewayFieldTruncatesToMaxRunes(t *testing.T) {
+	t.Parallel()
+
+	text := sanitizeRecentGatewayField("abcdef", 5)
+	assert.Equal(t, "ab...", text)
+	assert.Len(t, []rune(text), 5)
+}
+
 func TestBot_ProcessIncoming_CancelClearsPreFlushThinkingWithoutSession(t *testing.T) {
 	t.Parallel()
 
