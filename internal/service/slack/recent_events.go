@@ -163,7 +163,7 @@ func (b *Bot) withRecentGatewayEventsContext(ctx context.Context, convKey string
 	if channelID == "" || b.recentGatewayEventsSystemContext(channelID) == "" {
 		return ctx
 	}
-	return agent.WithDynamicSystemContext(ctx, func(ctx context.Context) string {
+	return agent.WithDynamicSystemContext(ctx, func(_ context.Context) string {
 		return b.recentGatewayEventsSystemContext(channelID)
 	})
 }
