@@ -23,10 +23,7 @@ Keep your existing automation as shell scripts, Python scripts, containers, SSH 
 
 Dagu is local-first by default. API keys, private repositories, internal documents, customer data, Slack logs, and agent artifacts can stay inside your own machine or infrastructure instead of being handed to a cloud automation SaaS.
 
-For a quick look at how workflows are defined, see the
-[examples](https://docs.dagu.sh/writing-workflows/examples). For a compact
-repository-level map of the YAML shape and current `run:`, `action:`, and
-`actions:` syntax, see the [Workflow Schema at a Glance](./README_SCHEMA.md).
+For a quick look at how workflows are defined, see the [examples](https://docs.dagu.sh/writing-workflows/examples). For a compact repository-level map of the YAML shape and current `run:`, `action:`, and `actions:` syntax, see the [Workflow Schema at a Glance](./README_SCHEMA.md).
 
 <div align="center">
   <img src="./assets/images/dagu-demo.gif" width="720" alt="Dagu demo showing the cockpit kanban view and YAML workflow editing">
@@ -137,24 +134,15 @@ params:
 artifacts:
   enabled: true
 
-harnesses:
-  codex-cli:
-    binary: codex
-    prefix_args:
-      - exec
-      - --sandbox
-      - workspace-write
-      - --skip-git-repo-check
-    prompt_mode: arg
-
 steps:
   - id: review_pr
-    action: harness.run
+    action: agent.run
     with:
-      prompt: |
+      task: |
         Review the README.md file in ${REPO_URL}.
-        Write Markdown findings to ${DAG_RUN_ARTIFACTS_DIR}/review.md.
-      provider: codex-cli
+        Return concise Markdown findings.
+      max_iterations: 10
+    stdout: ${DAG_RUN_ARTIFACTS_DIR}/review.md
 
   - id: approval
     action: noop
@@ -165,7 +153,7 @@ steps:
     run: gh issue create --title "Review Findings" --body-file "${DAG_RUN_ARTIFACTS_DIR}/review.md"
 ```
 
-This workflow uses the [`harness.run` action](https://docs.dagu.sh/step-types/harness#harness) and assumes you have the `codex` CLI installed and configured. It reviews a GitHub repository's README file, generates findings with Codex, and then prompts for manual [approval](https://docs.dagu.sh/writing-workflows/yaml-specification#approval) before posting an issue with the findings. GitHub CLI (`gh`) is used in the final step to create the issue.
+This workflow uses the built-in [`agent.run` action](https://docs.dagu.sh/features/agent/step) and assumes a default model is configured in Agent Settings. It reviews a GitHub repository's README file, saves the agent's final output as an artifact, and then prompts for manual [approval](https://docs.dagu.sh/writing-workflows/yaml-specification#approval) before posting an issue with the findings. GitHub CLI (`gh`) is used in the final step to create the issue.
 
 Run the workflow with:
 
@@ -463,25 +451,16 @@ handler_on:
     run: cleanup.sh
 ```
 
-### Harness step with manual approval
+### Built-in agent step with manual approval
 
 ```yaml
-harnesses:
-  codex-cli:
-    binary: codex
-    prefix_args:
-      - exec
-      - --sandbox
-      - workspace-write
-      - --skip-git-repo-check
-    prompt_mode: arg
-
 steps:
   - name: review
-    action: harness.run
+    action: agent.run
     with:
-      prompt: Review the README.md file and write findings to review.md.
-      provider: codex-cli
+      task: Review the README.md file and return concise Markdown findings.
+      max_iterations: 10
+    stdout: ${DAG_RUN_ARTIFACTS_DIR}/review.md
 
   - name: approval
     action: noop
