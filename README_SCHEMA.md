@@ -10,14 +10,6 @@ implemented by the parser and JSON Schema:
 This is not the abandoned `run: {type, input, with}` proposal. Object-form
 `run:` is not supported by the current v2 parser.
 
-## Status
-
-- v2 is the canonical syntax for new DAGs.
-- v1 execution fields remain loadable for compatibility.
-- v1 execution fields are deprecated and cannot be mixed with `run:` or
-  `action:` on the same step.
-- `dagu validate` can warn on deprecated v1 syntax while accepting valid files.
-
 ## Minimal Example
 
 ```yaml

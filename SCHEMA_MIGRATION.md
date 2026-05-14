@@ -1,51 +1,5 @@
 # Schema v2 Migration Guide
 
-This guide migrates legacy v1 Dagu YAML to the current v2 syntax:
-
-- local shell execution uses `run:`
-- named executors use `action: executor.verb`
-- reusable definitions use `actions:`
-
-It does not describe the abandoned `run: {type, input, with}` proposal.
-
-## Success Criteria
-
-After migration:
-
-- local shell steps use `run:`
-- builtin executor steps use `action:`
-- executor inputs live under `with:`
-- reusable legacy `step_types:` are replaced with `actions:`
-- no step mixes v2 `run:` or `action:` with v1 execution fields
-- `dagu validate <file>` succeeds
-
-Root-level fields such as DAG `type: graph`, `schedule`, `params`, `env`,
-`defaults`, `handler_on`, and `worker_selector` do not need to change unless
-their handler steps still use v1 execution fields.
-
-## What Not To Do
-
-Do not migrate to this stale shape:
-
-```yaml
-steps:
-  - run:
-      type: postgres
-      input: SELECT * FROM users
-      with:
-        dsn: ${DATABASE_URL}
-```
-
-The current parser rejects object-form `run:`. Use `action:` instead:
-
-```yaml
-steps:
-  - action: postgres.query
-    with:
-      dsn: ${DATABASE_URL}
-      query: SELECT * FROM users
-```
-
 ## Field Mapping
 
 | v1 | v2 |
@@ -546,29 +500,3 @@ steps:
 
 The parser rejects these because `run:` and `action:` cannot be used with
 legacy execution fields on the same step.
-
-## Suggested Rollout
-
-1. Start with one DAG and keep behavior unchanged.
-2. Convert local `command:` and `script:` steps to `run:`.
-3. Convert `type:` executor steps to the matching `action:`.
-4. Convert `call:` steps to `action: dag.run`.
-5. Convert `step_types:` to `actions:`.
-6. Run validation.
-7. Run the workflow in a staging or low-risk environment.
-8. Repeat for the next DAG.
-
-Useful commands:
-
-```sh
-dagu validate path/to/workflow.yaml
-dagu schema dag
-dagu schema dag steps
-```
-
-For source-level behavior, check:
-
-- `internal/core/spec/step_v2.go`
-- `internal/core/spec/step_v2_test.go`
-- `internal/core/spec/step_types.go`
-- `internal/cmn/schema/dag.schema.json`

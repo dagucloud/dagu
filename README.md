@@ -24,12 +24,6 @@ Dagu is local-first by default. API keys, private repositories, internal documen
 
 For a quick look at how workflows are defined, see the [examples](https://docs.dagu.sh/writing-workflows/examples).
 
-## Workflow Schema Documentation (versioned)
-
-- **Schema v1 (≤ v2.6.x):** [`README_SCHEMA_V1.md`](./README_SCHEMA_V1.md)
-- **Schema v2 (v2.7.x+, current):** this file
-- **Migration guide:** [`SCHEMA_V2_MIGRATION.md`](./SCHEMA_V2_MIGRATION.md)
-
 <div align="center">
   <img src="./assets/images/dagu-demo.gif" width="720" alt="Dagu demo showing the cockpit kanban view and YAML workflow editing">
 </div>
