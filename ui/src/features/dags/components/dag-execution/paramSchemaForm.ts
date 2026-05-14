@@ -65,11 +65,20 @@ export function buildParamSchemaUiSchema(
 
 /**
  * Serializes schema form data into the parameter payload expected by the start API.
+ * Empty strings and nulls are omitted so the backend does not treat them as explicit
+ * overrides (which would skip eval-backed parameters). See dagucloud/dagu#2032.
  */
 export function stringifyParamSchemaFormData(
   formData: ParamSchemaFormData
 ): string {
-  return JSON.stringify(formData);
+  const filtered: ParamSchemaFormData = {};
+  for (const [key, value] of Object.entries(formData)) {
+    if (value === '' || value === null) {
+      continue;
+    }
+    filtered[key] = value;
+  }
+  return JSON.stringify(filtered);
 }
 
 /**

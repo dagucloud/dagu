@@ -95,4 +95,14 @@ describe('paramSchemaForm helpers', () => {
       })
     ).toBe('{"region":"us-west-2","count":5,"debug":false}');
   });
+
+  it('omits empty string and null values so eval-backed params are not overridden', () => {
+    expect(
+      stringifyParamSchemaFormData({
+        sharedWorkDir: '',
+        region: 'us-east-1',
+        optional: null,
+      } as ParamSchemaFormData)
+    ).toBe('{"region":"us-east-1"}');
+  });
 });
