@@ -328,6 +328,13 @@ func loadDAGWithParams(ctx *Context, args []string, isSubDAGRun bool) (*core.DAG
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to load presolved build env: %w", err)
 	}
+	transportedParams := ""
+	if len(presolvedBuildEnv) > 0 {
+		if value, ok := presolvedBuildEnv[buildenv.RuntimeParamsKey]; ok {
+			transportedParams = value
+			delete(presolvedBuildEnv, buildenv.RuntimeParamsKey)
+		}
+	}
 	if len(presolvedBuildEnv) > 0 {
 		loadOpts = append(loadOpts, spec.WithBuildEnv(presolvedBuildEnv))
 	}
@@ -340,6 +347,9 @@ func loadDAGWithParams(ctx *Context, args []string, isSubDAGRun bool) (*core.DAG
 		params, err = ctx.Command.Flags().GetString("params")
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to get parameters: %w", err)
+		}
+		if params == "" {
+			params = transportedParams
 		}
 		loadOpts = append(loadOpts, spec.WithParams(stringutil.RemoveQuotes(params)))
 	}

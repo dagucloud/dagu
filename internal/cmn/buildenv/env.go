@@ -15,6 +15,10 @@ import (
 // to a subprocess.
 const PresolvedEnvFileKey = "_DAGU_PRESOLVED_BUILD_ENV_FILE"
 
+// RuntimeParamsKey carries large internal runtime params through the same
+// temp-file transport, avoiding OS command-line length limits for subprocesses.
+const RuntimeParamsKey = "_DAGU_RUNTIME_PARAMS"
+
 // Prepare writes resolved env entries to a secure temp file and returns the
 // transport env vars plus a cleanup function. Duplicate keys are collapsed so
 // the last value wins.

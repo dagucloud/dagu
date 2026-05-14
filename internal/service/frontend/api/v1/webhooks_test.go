@@ -766,25 +766,32 @@ func TestWebhooks_TriggerUsesConfiguredMaxPayloadSize(t *testing.T) {
 	dagName := "webhook_custom_payload_limit_test"
 	createTestDAG(t, server, token, dagName)
 
-	server.Client().Post("/api/v1/dags/"+dagName+"/webhook", nil).
+	createResp := server.Client().Post("/api/v1/dags/"+dagName+"/webhook", nil).
 		WithBearerToken(token).ExpectStatus(http.StatusCreated).Send(t)
+
+	var createResult api.WebhookCreateResponse
+	createResp.Unmarshal(t, &createResult)
+	webhookToken := createResult.Token
+	require.NotEmpty(t, webhookToken)
 
 	bodyAboveDefault := api.WebhookRequest{
 		Payload: &map[string]any{
-			"blob": strings.Repeat("x", config.DefaultWebhookMaxPayloadSize),
+			"blob": strings.Repeat("x", config.DefaultWebhookMaxPayloadSize+1024),
 		},
 	}
 
 	server.Client().Post("/api/v1/webhooks/"+dagName, bodyAboveDefault).
-		ExpectStatus(http.StatusUnauthorized).Send(t)
+		WithBearerToken(webhookToken).
+		ExpectStatus(http.StatusOK).Send(t)
 
 	bodyAboveConfiguredLimit := api.WebhookRequest{
 		Payload: &map[string]any{
-			"blob": strings.Repeat("x", 2*config.DefaultWebhookMaxPayloadSize),
+			"blob": strings.Repeat("x", 3*config.DefaultWebhookMaxPayloadSize),
 		},
 	}
 
 	server.Client().Post("/api/v1/webhooks/"+dagName, bodyAboveConfiguredLimit).
+		WithBearerToken(webhookToken).
 		ExpectStatus(http.StatusRequestEntityTooLarge).Send(t)
 }
 
