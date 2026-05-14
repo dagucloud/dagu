@@ -9,9 +9,9 @@ import (
 	"sort"
 )
 
-// CustomStepTypeEditorHint is editor-only metadata for a custom step type.
+// LegacyDefinitionEditorHint is editor-only metadata for a deprecated step_types entry.
 // It is derived from the same validated spec pipeline as runtime expansion.
-type CustomStepTypeEditorHint struct {
+type LegacyDefinitionEditorHint struct {
 	Name         string
 	TargetType   string
 	Description  string
@@ -19,10 +19,19 @@ type CustomStepTypeEditorHint struct {
 	OutputSchema map[string]any
 }
 
-// InheritedCustomStepTypeEditorHints returns editor hints for custom step types
+// CustomActionEditorHint is editor-only metadata for a custom action.
+// It is derived from the same validated spec pipeline as runtime expansion.
+type CustomActionEditorHint struct {
+	Name         string
+	Description  string
+	InputSchema  map[string]any
+	OutputSchema map[string]any
+}
+
+// InheritedLegacyDefinitionEditorHints returns editor hints for deprecated step_types
 // declared in base config. The returned schemas are fully resolved JSON Schema
 // objects safe to embed into editor-generated DAG schemas.
-func InheritedCustomStepTypeEditorHints(baseConfig []byte) ([]CustomStepTypeEditorHint, error) {
+func InheritedLegacyDefinitionEditorHints(baseConfig []byte) ([]LegacyDefinitionEditorHint, error) {
 	if len(baseConfig) == 0 {
 		return nil, nil
 	}
@@ -39,7 +48,7 @@ func InheritedCustomStepTypeEditorHints(baseConfig []byte) ([]CustomStepTypeEdit
 
 	registry, err := buildCustomStepTypeRegistry(stepTypesOf(baseDef), nil)
 	if err != nil {
-		return nil, fmt.Errorf("build custom step type registry: %w", err)
+		return nil, fmt.Errorf("build legacy step_types registry: %w", err)
 	}
 	if registry == nil || len(registry.entries) == 0 {
 		return nil, nil
@@ -51,10 +60,10 @@ func InheritedCustomStepTypeEditorHints(baseConfig []byte) ([]CustomStepTypeEdit
 	}
 	sort.Strings(names)
 
-	hints := make([]CustomStepTypeEditorHint, 0, len(names))
+	hints := make([]LegacyDefinitionEditorHint, 0, len(names))
 	for _, name := range names {
 		entry := registry.entries[name]
-		hint, ok, err := editorHintForCustomStepType(entry)
+		hint, ok, err := editorHintForLegacyDefinition(entry)
 		if err != nil {
 			return nil, err
 		}
@@ -67,25 +76,97 @@ func InheritedCustomStepTypeEditorHints(baseConfig []byte) ([]CustomStepTypeEdit
 	return hints, nil
 }
 
-func editorHintForCustomStepType(entry *customStepType) (CustomStepTypeEditorHint, bool, error) {
+// InheritedCustomActionEditorHints returns editor hints for custom actions
+// declared in base config. The returned schemas are fully resolved JSON Schema
+// objects safe to embed into editor-generated DAG schemas.
+func InheritedCustomActionEditorHints(baseConfig []byte) ([]CustomActionEditorHint, error) {
+	if len(baseConfig) == 0 {
+		return nil, nil
+	}
+
+	raw, err := unmarshalData(baseConfig)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal base config: %w", err)
+	}
+
+	baseDef, err := decode(raw)
+	if err != nil {
+		return nil, fmt.Errorf("decode base config: %w", err)
+	}
+
+	registry, err := buildCustomStepActionRegistry(stepTypesOf(baseDef), nil, actionsOf(baseDef), nil)
+	if err != nil {
+		return nil, fmt.Errorf("build custom action registry: %w", err)
+	}
+	if registry == nil || len(registry.entries) == 0 {
+		return nil, nil
+	}
+
+	names := make([]string, 0, len(registry.entries))
+	for name := range registry.entries {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	hints := make([]CustomActionEditorHint, 0, len(names))
+	for _, name := range names {
+		entry := registry.entries[name]
+		hint, ok, err := editorHintForCustomAction(entry)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+		hints = append(hints, hint)
+	}
+
+	return hints, nil
+}
+
+func editorHintForLegacyDefinition(entry *customStepType) (LegacyDefinitionEditorHint, bool, error) {
 	if entry == nil {
-		return CustomStepTypeEditorHint{}, false, nil
+		return LegacyDefinitionEditorHint{}, false, nil
 	}
 
 	schemaMap := map[string]any{}
 	if entry.InputSchema != nil && entry.InputSchema.Schema() != nil {
 		schemaData, err := json.Marshal(entry.InputSchema.Schema())
 		if err != nil {
-			return CustomStepTypeEditorHint{}, false, fmt.Errorf("marshal input schema for %q: %w", entry.Name, err)
+			return LegacyDefinitionEditorHint{}, false, fmt.Errorf("marshal input schema for %q: %w", entry.Name, err)
 		}
 		if err := json.Unmarshal(schemaData, &schemaMap); err != nil {
-			return CustomStepTypeEditorHint{}, false, fmt.Errorf("unmarshal input schema for %q: %w", entry.Name, err)
+			return LegacyDefinitionEditorHint{}, false, fmt.Errorf("unmarshal input schema for %q: %w", entry.Name, err)
 		}
 	}
 
-	return CustomStepTypeEditorHint{
+	return LegacyDefinitionEditorHint{
 		Name:         entry.Name,
 		TargetType:   entry.Type,
+		Description:  entry.Description,
+		InputSchema:  schemaMap,
+		OutputSchema: cloneMap(entry.OutputSchema),
+	}, true, nil
+}
+
+func editorHintForCustomAction(entry *customStepType) (CustomActionEditorHint, bool, error) {
+	if entry == nil || entry.Kind != customStepKindAction {
+		return CustomActionEditorHint{}, false, nil
+	}
+
+	schemaMap := map[string]any{}
+	if entry.InputSchema != nil && entry.InputSchema.Schema() != nil {
+		schemaData, err := json.Marshal(entry.InputSchema.Schema())
+		if err != nil {
+			return CustomActionEditorHint{}, false, fmt.Errorf("marshal input schema for %q: %w", entry.Name, err)
+		}
+		if err := json.Unmarshal(schemaData, &schemaMap); err != nil {
+			return CustomActionEditorHint{}, false, fmt.Errorf("unmarshal input schema for %q: %w", entry.Name, err)
+		}
+	}
+
+	return CustomActionEditorHint{
+		Name:         entry.Name,
 		Description:  entry.Description,
 		InputSchema:  schemaMap,
 		OutputSchema: cloneMap(entry.OutputSchema),

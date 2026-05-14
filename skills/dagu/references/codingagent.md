@@ -1,6 +1,6 @@
 # Coding Agent Integration
 
-Use `type: harness` to run AI coding agent CLIs as DAG steps. The harness executor spawns the CLI as a subprocess in non-interactive mode.
+Use `action: harness.run` to run AI coding agent CLIs as DAG steps. The harness executor spawns the CLI as a subprocess in non-interactive mode.
 
 ## Supported Providers
 
@@ -30,7 +30,7 @@ All non-reserved `with` keys are passed directly as CLI flags:
 - `key: 123` → `--key 123`
 - built-in providers also normalize `snake_case` keys to kebab-case flags, so `max_turns` becomes `--max-turns`
 
-Reserved keys are `provider` and `fallback`.
+Reserved keys are `prompt`, `stdin`, `provider`, and `fallback`.
 
 `provider` may be parameterized with `${...}` and is resolved at runtime after interpolation.
 
@@ -50,9 +50,9 @@ harnesses:
 
 steps:
   - name: review
-    type: harness
-    command: "Review the current branch"
+    action: harness.run
     with:
+      prompt: "Review the current branch"
       provider: gemini
       model: gemini-2.5-pro
 ```
@@ -85,18 +85,21 @@ harness:
 
 steps:
   - name: step1
-    command: "Write tests"
+    action: harness.run
+    with:
+      prompt: "Write tests"
 
   - name: step2
-    command: "Fix bugs"
+    action: harness.run
     with:
+      prompt: "Fix bugs"
       model: opus
       effort: high
 
   - name: step3
-    type: harness
-    command: "Generate docs"
+    action: harness.run
     with:
+      prompt: "Generate docs"
       provider: copilot
       fallback:
         - provider: claude
@@ -108,7 +111,7 @@ Merge rules:
 - DAG-level primary harness config is the base
 - Step-level `with` overlays it
 - Step-level `with.fallback` replaces DAG-level `fallback`
-- If a step omits `type:` and the DAG defines `harness:`, the step is inferred as `type: harness`
+- New DAGs should use `action: harness.run`; legacy `type: harness` inference exists only for backward compatibility.
 
 ## Pattern 1: Single Agent Step
 
@@ -123,7 +126,9 @@ harness:
 
 steps:
   - name: run_agent
-    command: "${PROMPT}"
+    action: harness.run
+    with:
+      prompt: "${PROMPT}"
     output: RESULT
 ```
 
@@ -140,9 +145,9 @@ params:
 steps:
   - id: research
     name: research
-    type: harness
-    command: "Research every approach to: ${topic}. List all approaches with pros, cons, and when to use each."
+    action: harness.run
     with:
+      prompt: "Research every approach to: ${topic}. List all approaches with pros, cons, and when to use each."
       provider: claude
       model: sonnet
       bare: true
@@ -150,14 +155,14 @@ steps:
 
   - id: review
     name: review
-    type: harness
-    # Interpolated before execution, then piped to the harness CLI on stdin.
-    script: |
-      Review this research for completeness and gaps:
-
-      ${RESEARCH}
-    command: "Review the research provided on stdin for completeness and gaps"
+    action: harness.run
     with:
+      prompt: "Review the research provided on stdin for completeness and gaps"
+      # Interpolated before execution, then piped to the harness CLI on stdin.
+      stdin: |
+        Review this research for completeness and gaps:
+
+        ${RESEARCH}
       provider: codex
       full-auto: true
       skip-git-repo-check: true
@@ -166,15 +171,15 @@ steps:
 
   - id: refine
     name: refine
-    type: harness
-    script: |
-      === Research ===
-      ${RESEARCH}
-
-      === Review Feedback ===
-      ${REVIEW}
-    command: "Refine this research incorporating the review feedback provided via stdin."
+    action: harness.run
     with:
+      prompt: "Refine this research incorporating the review feedback provided via stdin."
+      stdin: |
+        === Research ===
+        ${RESEARCH}
+
+        === Review Feedback ===
+        ${REVIEW}
       provider: claude
       model: sonnet
       bare: true
@@ -182,7 +187,7 @@ steps:
     output: REFINED
 ```
 
-`command:` is the prompt. For built-in providers and custom `arg`/`flag` harnesses, `script:` is piped to stdin as supplementary context. For custom `stdin` harnesses, stdin receives the prompt, then a blank line, then the script when both are present.
+`with.prompt` is the prompt. For built-in providers and custom `arg`/`flag` harnesses, `with.stdin` is piped to stdin as supplementary context. For custom `stdin` harnesses, stdin receives the prompt, then a blank line, then `with.stdin` when both are present.
 
 ## Pattern 3: Parameterized
 
@@ -194,9 +199,9 @@ params:
 
 steps:
   - name: agent
-    type: harness
-    command: "${PROMPT}"
+    action: harness.run
     with:
+      prompt: "${PROMPT}"
       provider: "${PROVIDER}"
       model: "${MODEL}"
     output: RESULT
@@ -209,9 +214,9 @@ steps:
 ```yaml
 steps:
   - name: task
-    type: harness
-    command: "Write tests for the auth module"
+    action: harness.run
     with:
+      prompt: "Write tests for the auth module"
       provider: claude
       model: sonnet
       effort: high
@@ -229,9 +234,9 @@ steps:
 ```yaml
 steps:
   - name: task
-    type: harness
-    command: "Fix failing tests in src/"
+    action: harness.run
     with:
+      prompt: "Fix failing tests in src/"
       provider: codex
       full-auto: true
       sandbox: workspace-write
@@ -245,9 +250,9 @@ steps:
 ```yaml
 steps:
   - name: task
-    type: harness
-    command: "Refactor the authentication middleware"
+    action: harness.run
     with:
+      prompt: "Refactor the authentication middleware"
       provider: copilot
       autopilot: true
       yolo: true
@@ -262,9 +267,9 @@ steps:
 ```yaml
 steps:
   - name: task
-    type: harness
-    command: "Refactor the database layer"
+    action: harness.run
     with:
+      prompt: "Refactor the database layer"
       provider: opencode
       format: json
     timeout_sec: 300
@@ -275,9 +280,9 @@ steps:
 ```yaml
 steps:
   - name: task
-    type: harness
-    command: "Design a rate limiting middleware"
+    action: harness.run
     with:
+      prompt: "Design a rate limiting middleware"
       provider: pi
       thinking: high
       tools: read,bash

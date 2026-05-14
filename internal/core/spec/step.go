@@ -33,6 +33,10 @@ type step struct {
 	Description string `yaml:"description,omitempty"`
 	// WorkingDir is the working directory of the step.
 	WorkingDir string `yaml:"working_dir,omitempty"`
+	// Run is the v2 canonical local command/script field.
+	Run any `yaml:"run,omitempty"`
+	// Action is the v2 canonical named action field.
+	Action string `yaml:"action,omitempty"`
 	// Command is the command to run (on shell).
 	Command any `yaml:"command,omitempty"`
 	// Exec is a structured argv form for direct execution without shell parsing.
@@ -40,6 +44,8 @@ type step struct {
 	// Shell is the shell to run the command. Default is `$SHELL` or `sh`.
 	// Can be a string (e.g., "bash -e") or an array (e.g., ["bash", "-e"]).
 	Shell types.ShellValue `yaml:"shell,omitempty"`
+	// ShellArgs is the list of additional arguments passed to the shell.
+	ShellArgs []string `yaml:"shell_args,omitempty"`
 	// ShellPackages is the list of packages to install.
 	// This is used only when the shell is `nix-shell`.
 	ShellPackages []string `yaml:"shell_packages,omitempty"`
@@ -656,7 +662,7 @@ func buildStepShellArgs(ctx StepBuildContext, s *step) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return result.Args, nil
+	return append(result.Args, s.ShellArgs...), nil
 }
 
 func buildStepTimeout(_ StepBuildContext, s *step) (time.Duration, error) {
@@ -1304,7 +1310,7 @@ func validateCommand(result *core.Step) error {
 		return core.NewValidationError(
 			"command",
 			result.Commands,
-			fmt.Errorf("step type %q does not support command field", result.ExecutorConfig.Type),
+			fmt.Errorf("action %q does not support command field", result.ExecutorConfig.Type),
 		)
 	}
 	return nil
@@ -1320,18 +1326,18 @@ func validateMultipleCommands(result *core.Step) error {
 		return core.NewValidationError(
 			"command",
 			result.Commands,
-			multipleCommandsUnsupportedError{stepType: result.ExecutorConfig.Type},
+			multipleCommandsUnsupportedError{action: result.ExecutorConfig.Type},
 		)
 	}
 	return nil
 }
 
 type multipleCommandsUnsupportedError struct {
-	stepType string
+	action string
 }
 
 func (e multipleCommandsUnsupportedError) Error() string {
-	return fmt.Sprintf("step type %q supports only one command", e.stepType)
+	return fmt.Sprintf("action %q supports only one command", e.action)
 }
 
 func (e multipleCommandsUnsupportedError) Unwrap() error {
@@ -1352,7 +1358,7 @@ func validateScript(result *core.Step) error {
 		return core.NewValidationError(
 			"script",
 			result.Script,
-			fmt.Errorf("step type %q does not support script field", result.ExecutorConfig.Type),
+			fmt.Errorf("action %q does not support script field", result.ExecutorConfig.Type),
 		)
 	}
 	return nil
@@ -1367,7 +1373,7 @@ func validateShell(result *core.Step) error {
 		return core.NewValidationError(
 			"shell",
 			result.Shell,
-			fmt.Errorf("step type %q does not support shell configuration", result.ExecutorConfig.Type),
+			fmt.Errorf("action %q does not support shell configuration", result.ExecutorConfig.Type),
 		)
 	}
 	return nil
@@ -1382,7 +1388,7 @@ func validateContainer(result *core.Step) error {
 		return core.NewValidationError(
 			"container",
 			result.Container,
-			fmt.Errorf("step type %q does not support container field", result.ExecutorConfig.Type),
+			fmt.Errorf("action %q does not support container field", result.ExecutorConfig.Type),
 		)
 	}
 	return nil
@@ -1397,7 +1403,7 @@ func validateSubDAG(result *core.Step) error {
 		return core.NewValidationError(
 			"call",
 			result.SubDAG,
-			fmt.Errorf("step type %q does not support call field", result.ExecutorConfig.Type),
+			fmt.Errorf("action %q does not support call field", result.ExecutorConfig.Type),
 		)
 	}
 	return nil
@@ -1412,7 +1418,7 @@ func validateWorkerSelector(result *core.Step) error {
 		return core.NewValidationError(
 			"worker_selector",
 			result.WorkerSelector,
-			fmt.Errorf("step type %q does not support worker_selector field", result.ExecutorConfig.Type),
+			fmt.Errorf("action %q does not support worker_selector field", result.ExecutorConfig.Type),
 		)
 	}
 	return nil
@@ -1427,7 +1433,7 @@ func validateLLM(result *core.Step) error {
 		return core.NewValidationError(
 			"llm",
 			result.LLM,
-			fmt.Errorf("step type %q does not support llm field; use type: chat with llm configuration", result.ExecutorConfig.Type),
+			fmt.Errorf("action %q does not support llm field; use action: chat with llm configuration", result.ExecutorConfig.Type),
 		)
 	}
 
@@ -1472,7 +1478,7 @@ func validateMessages(result *core.Step) error {
 		return core.NewValidationError(
 			"messages",
 			result.Messages,
-			fmt.Errorf("step type %q does not support messages field; use type: chat or type: agent", result.ExecutorConfig.Type),
+			fmt.Errorf("action %q does not support messages field; use action: chat or action: agent", result.ExecutorConfig.Type),
 		)
 	}
 	return nil
@@ -1551,7 +1557,7 @@ func buildStepExecutor(ctx StepBuildContext, s *step, result *core.Step) error {
 		return core.NewValidationError(
 			"type",
 			result.ExecutorConfig.Type,
-			fmt.Errorf("unknown step type %q", result.ExecutorConfig.Type),
+			fmt.Errorf("unknown action %q", result.ExecutorConfig.Type),
 		)
 	}
 	if result.ExecutorConfig.Type == "harness" {

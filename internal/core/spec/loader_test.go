@@ -28,7 +28,7 @@ func TestLoad(t *testing.T) {
 
 		testDAG := createTempYAMLFile(t, `steps:
   - name: "1"
-    command: "true"
+    run: "true"
 `)
 		dag, err := spec.Load(context.Background(), testDAG, spec.WithName("testDAG"))
 		require.NoError(t, err)
@@ -88,7 +88,7 @@ mail_on:
   failure: true
 steps:
   - name: "1"
-    command: "true"
+    run: "true"
 `)
 		dag, err := spec.Load(context.Background(), testDAG, spec.OnlyMetadata())
 		require.NoError(t, err)
@@ -106,7 +106,7 @@ steps:
 
 		testDAG := createTempYAMLFile(t, `steps:
   - name: "1"
-    command: "true"
+    run: "true"
 `)
 		dag, err := spec.Load(context.Background(), testDAG)
 
@@ -131,7 +131,7 @@ steps:
 		testDAG := createTempYAMLFile(t, `hist_retention_runs: 3
 steps:
   - name: "1"
-    command: "true"
+    run: "true"
 `)
 		dag, err := spec.Load(context.Background(), testDAG)
 		require.NoError(t, err)
@@ -146,7 +146,7 @@ steps:
 hist_retention_runs: 3
 steps:
   - name: "1"
-    command: "true"
+    run: "true"
 `)
 		_, err := spec.Load(context.Background(), testDAG)
 		require.Error(t, err)
@@ -184,7 +184,7 @@ hist_retention_days: 7
 
 steps:
   - name: "1"
-    command: "true"
+    run: "true"
 `)
 		dag, err := spec.Load(context.Background(), testDAG, spec.WithBaseConfig(base))
 		require.NoError(t, err)
@@ -222,7 +222,7 @@ wait_mail:
 
 steps:
   - name: "1"
-    command: "true"
+    run: "true"
 `)
 		dag, err := spec.Load(context.Background(), testDAG, spec.WithBaseConfig(base))
 		require.NoError(t, err)
@@ -265,7 +265,7 @@ steps:
 
 steps:
   - name: "1"
-    command: "true"
+    run: "true"
 `)
 		dag, err := spec.Load(context.Background(), testDAG, spec.WithBaseConfig(base))
 		require.NoError(t, err)
@@ -296,7 +296,7 @@ mail_on:
 
 steps:
   - name: "1"
-    command: "true"
+    run: "true"
 `)
 		dag, err := spec.Load(context.Background(), dagFile)
 		require.NoError(t, err)
@@ -322,7 +322,7 @@ wait_mail:
 
 steps:
   - name: "1"
-    command: "true"
+    run: "true"
 `)
 		dag, err := spec.Load(context.Background(), dagFile)
 		require.NoError(t, err)
@@ -351,7 +351,7 @@ harnesses:
     option_flags:
       model: --model
 steps:
-  - command: echo base
+  - run: echo base
 `)
 		child := createTempYAMLFile(t, `
 harnesses:
@@ -359,9 +359,9 @@ harnesses:
     binary: aider
     prompt_mode: stdin
 steps:
-  - type: harness
-    command: Review this repository
+  - action: harness.run
     with:
+      prompt: Review this repository
       provider: gemini
 `)
 
@@ -388,13 +388,13 @@ harnesses:
     prompt_mode: flag
     prompt_flag: --prompt
 steps:
-  - command: echo base
+  - run: echo base
 `)
 		child := createTempYAMLFile(t, `
 harnesses:
   gemini: null
 steps:
-  - command: echo child
+  - run: echo child
 `)
 
 		dag, err := spec.Load(context.Background(), child, spec.WithBaseConfig(base))
@@ -412,15 +412,15 @@ harnesses:
     prompt_mode: flag
     prompt_flag: --prompt
 steps:
-  - command: echo base
+  - run: echo base
 `)
 		child := createTempYAMLFile(t, `
 harnesses:
   gemini: null
 steps:
-  - type: harness
-    command: Review this repository
+  - action: harness.run
     with:
+      prompt: Review this repository
       provider: gemini
 `)
 
@@ -446,9 +446,11 @@ harness:
 `)
 		child := createTempYAMLFile(t, `
 steps:
-  - command: Review the repository
-    script: |
-      summarize the current branch
+  - action: harness.run
+    with:
+      prompt: Review the repository
+      stdin: |
+        summarize the current branch
 `)
 
 		dag, err := spec.Load(context.Background(), child, spec.WithBaseConfig(base))
@@ -472,9 +474,9 @@ harnesses:
 `)
 		child := createTempYAMLFile(t, `
 steps:
-  - type: harness
-    command: Review the repository
+  - action: harness.run
     with:
+      prompt: Review the repository
       provider: passthrough
 `)
 
@@ -543,7 +545,7 @@ env:
 
 steps:
   - name: "step1"
-    command: echo "step1"
+    run: echo "step1"
 `)
 		dag, err := spec.Load(context.Background(), childDAG, spec.WithBaseConfig(baseDAG))
 		require.NoError(t, err)
@@ -581,7 +583,7 @@ steps:
 		childDAG := createTempYAMLFile(t, `hist_retention_runs: 3
 steps:
   - name: "step1"
-    command: echo "step1"
+    run: echo "step1"
 `)
 		dag, err := spec.Load(context.Background(), childDAG, spec.WithBaseConfig(baseDAG))
 		require.NoError(t, err)
@@ -598,7 +600,7 @@ steps:
 		childDAG := createTempYAMLFile(t, `hist_retention_days: 7
 steps:
   - name: "step1"
-    command: echo "step1"
+    run: echo "step1"
 `)
 		dag, err := spec.Load(context.Background(), childDAG, spec.WithBaseConfig(baseDAG))
 		require.NoError(t, err)
@@ -615,7 +617,7 @@ steps:
 		childDAG := createTempYAMLFile(t, `hist_retention_days: 0
 steps:
   - name: "step1"
-    command: echo "step1"
+    run: echo "step1"
 `)
 		dag, err := spec.Load(context.Background(), childDAG, spec.WithBaseConfig(baseDAG))
 		require.NoError(t, err)
@@ -643,7 +645,7 @@ env:
 
 steps:
   - name: "step1"
-    command: echo "step1"
+    run: echo "step1"
 `)
 		dag, err := spec.Load(context.Background(), childDAG, spec.WithBaseConfigContent(baseContent))
 		require.NoError(t, err)
@@ -678,7 +680,7 @@ hist_retention_days: 30
 		childDAG := createTempYAMLFile(t, `
 steps:
   - name: "step1"
-    command: echo "${MY_VAR}"
+    run: echo "${MY_VAR}"
 `)
 
 		dagFromFile, err := spec.Load(context.Background(), childDAG, spec.WithBaseConfig(baseFile))
@@ -714,7 +716,7 @@ env:
 		childDAG := createTempYAMLFile(t, `
 steps:
   - name: "step1"
-    command: echo "test"
+    run: echo "test"
 `)
 		dag, err := spec.Load(context.Background(), childDAG,
 			spec.WithBaseConfig(fileBase),
@@ -754,7 +756,7 @@ env:
   DAG_ONLY: "dag"
 steps:
   - name: "step1"
-    command: echo "step1"
+    run: echo "step1"
 `)
 
 		dag, err := spec.Load(context.Background(), childDAG,
@@ -797,7 +799,7 @@ labels:
   - workspace=ops
 steps:
   - name: "step1"
-    command: echo "step1"
+    run: echo "step1"
 `)
 
 		dag, err := spec.Load(context.Background(), childDAG,
@@ -833,7 +835,7 @@ log_dir: "/default/logs"
 		childDAG := createTempYAMLFile(t, `
 steps:
   - name: "step1"
-    command: echo "step1"
+    run: echo "step1"
 `)
 
 		dag, err := spec.Load(context.Background(), childDAG,
@@ -880,7 +882,7 @@ llm:
 
 steps:
   - name: "step1"
-    command: echo "step1"
+    run: echo "step1"
 `)
 		dag, err := spec.Load(context.Background(), overrideDAG, spec.WithBaseConfig(baseDAG))
 		require.NoError(t, err)
@@ -920,7 +922,7 @@ artifacts:
 		childDAG := createTempYAMLFile(t, `
 steps:
   - name: "step1"
-    command: echo "test"
+    run: echo "test"
 `)
 
 		dag, err := spec.Load(context.Background(), childDAG, spec.WithBaseConfig(baseDAG))
@@ -946,7 +948,7 @@ artifacts:
   dir: "/override/artifacts"
 steps:
   - name: "step1"
-    command: echo "test"
+    run: echo "test"
 `)
 
 		dag, err := spec.Load(context.Background(), childDAG, spec.WithBaseConfig(baseDAG))
@@ -970,7 +972,7 @@ webhook:
 		childDAG := createTempYAMLFile(t, `
 steps:
   - name: "step1"
-    command: echo "test"
+    run: echo "test"
 `)
 
 		dag, err := spec.Load(context.Background(), childDAG, spec.WithBaseConfig(baseDAG))
@@ -996,7 +998,7 @@ webhook:
     - Stripe-Idempotency-Key
 steps:
   - name: "step1"
-    command: echo "test"
+    run: echo "test"
 `)
 
 		dag, err := spec.Load(context.Background(), childDAG, spec.WithBaseConfig(baseDAG))
@@ -1020,7 +1022,7 @@ webhook:
   forward_headers: []
 steps:
   - name: "step1"
-    command: echo "test"
+    run: echo "test"
 `)
 
 		dag, err := spec.Load(context.Background(), childDAG, spec.WithBaseConfig(baseDAG))
@@ -1043,7 +1045,7 @@ webhook:
 webhook: {}
 steps:
   - name: "step1"
-    command: echo "test"
+    run: echo "test"
 `)
 
 		dag, err := spec.Load(context.Background(), childDAG, spec.WithBaseConfig(baseDAG))
@@ -1062,7 +1064,7 @@ webhook:
     - Authorization
 steps:
   - name: "step1"
-    command: echo "test"
+    run: echo "test"
 `)
 
 		_, err := spec.Load(context.Background(), dagPath)
@@ -1080,7 +1082,7 @@ working_dir: /shared/workspace
 		childDAG := createTempYAMLFile(t, `
 steps:
   - name: "step1"
-    command: echo "test"
+    run: echo "test"
 `)
 
 		dag, err := spec.Load(context.Background(), childDAG, spec.WithBaseConfig(baseDAG))
@@ -1105,7 +1107,7 @@ working_dir: /shared/workspace
 working_dir: /my/custom/dir
 steps:
   - name: "step1"
-    command: echo "test"
+    run: echo "test"
 `)
 
 		dag, err := spec.Load(context.Background(), childDAG, spec.WithBaseConfig(baseDAG))
@@ -1130,7 +1132,7 @@ func TestWorkingDirExplicit(t *testing.T) {
 working_dir: /custom
 steps:
   - name: a
-    command: echo hi
+    run: echo hi
 `)
 		dag, err := spec.Load(context.Background(), dagFile)
 		require.NoError(t, err)
@@ -1142,7 +1144,7 @@ steps:
 
 		dagFile := createTempYAMLFile(t, `steps:
   - name: a
-    command: echo hi
+    run: echo hi
 `)
 		dag, err := spec.Load(context.Background(), dagFile)
 		require.NoError(t, err)
@@ -1155,7 +1157,7 @@ steps:
 		baseDAG := createTempYAMLFile(t, `working_dir: /shared/workspace`)
 		childDAG := createTempYAMLFile(t, `steps:
   - name: a
-    command: echo hi
+    run: echo hi
 `)
 		dag, err := spec.Load(context.Background(), childDAG, spec.WithBaseConfig(baseDAG))
 		require.NoError(t, err)
@@ -1167,7 +1169,7 @@ steps:
 
 		dagFile := createTempYAMLFile(t, `steps:
   - name: a
-    command: echo hi
+    run: echo hi
 `)
 		dag, err := spec.Load(context.Background(), dagFile, spec.WithDefaultWorkingDir("/default"))
 		require.NoError(t, err)
@@ -1189,7 +1191,7 @@ func TestLoadYAML(t *testing.T) {
 			name: "ValidYAMLData",
 			input: `steps:
   - name: "1"
-    command: "true"
+    run: "true"
 `,
 			wantName:    "1",
 			wantCommand: "true",
@@ -1224,7 +1226,7 @@ func TestLoadPreservesSourceFileForFileBasedDAG(t *testing.T) {
 
 	dagFile := createTempYAMLFile(t, `steps:
   - name: a
-    command: echo hi
+    run: echo hi
 `)
 
 	dag, err := spec.Load(context.Background(), dagFile)
@@ -1244,7 +1246,7 @@ func TestLoadYAMLWithOpts_MarksConfiguredWorkingDirExplicit(t *testing.T) {
 working_dir: %q
 steps:
   - name: step1
-    command: echo hello
+    run: echo hello
 `, workDir), spec.BuildOpts{})
 		require.NoError(t, err)
 		assert.Equal(t, workDir, dag.WorkingDir)
@@ -1258,7 +1260,7 @@ steps:
 		dag, err := spec.LoadYAMLWithOpts(context.Background(), []byte(`
 steps:
   - name: step1
-    command: echo hello
+    run: echo hello
 `), spec.BuildOpts{
 			BaseConfigContent: fmt.Appendf(nil, "working_dir: %q", workDir),
 		})
@@ -1274,7 +1276,7 @@ steps:
 		dag, err := spec.LoadYAMLWithOpts(context.Background(), []byte(`
 steps:
   - name: step1
-    command: echo hello
+    run: echo hello
 `), spec.BuildOpts{
 			DefaultWorkingDir: workDir,
 		})
@@ -1294,7 +1296,7 @@ func TestLoadYAMLWithOpts_PreservesLegacyContract(t *testing.T) {
 name: test-dag
 steps:
   - name: step1
-    command: echo hello
+    run: echo hello
 `), spec.BuildOpts{})
 		require.NoError(t, err)
 		assert.Equal(t, core.LogOutputMode(""), dag.LogOutput)
@@ -1306,7 +1308,7 @@ steps:
 		dag, err := spec.LoadYAMLWithOpts(context.Background(), []byte(`
 steps:
   - name: step1
-    command: echo hello
+    run: echo hello
 `), spec.BuildOpts{})
 		require.NoError(t, err)
 		assert.Empty(t, dag.WorkingDir)
@@ -1319,9 +1321,9 @@ steps:
 		dag, err := spec.LoadYAMLWithOpts(context.Background(), []byte(`
 steps:
   - name: step1
-    command: echo one
+    run: echo one
   - name: step2
-    command: echo two
+    run: echo two
 `), spec.BuildOpts{})
 		require.NoError(t, err)
 		assert.Equal(t, core.TypeChain, dag.Type)
@@ -1340,9 +1342,9 @@ func TestLoad_TypeInheritanceFromBaseConfig(t *testing.T) {
 		child := createTempYAMLFile(t, `
 steps:
   - name: first
-    command: echo first
+    run: echo first
   - name: second
-    command: echo second
+    run: echo second
 `)
 
 		dag, err := spec.Load(context.Background(), child, spec.WithBaseConfig(base))
@@ -1360,9 +1362,9 @@ steps:
 type: chain
 steps:
   - name: first
-    command: echo first
+    run: echo first
   - name: second
-    command: echo second
+    run: echo second
 `)
 
 		dag, err := spec.Load(context.Background(), child, spec.WithBaseConfig(base))
@@ -1379,9 +1381,9 @@ steps:
 		child := createTempYAMLFile(t, `
 steps:
   - name: first
-    command: echo first
+    run: echo first
   - name: second
-    command: echo second
+    run: echo second
 `)
 
 		dag, err := spec.Load(context.Background(), child, spec.WithBaseConfig(base))
@@ -1397,7 +1399,7 @@ func TestLoadYAMLWithNameOption(t *testing.T) {
 	const testDAG = `
 steps:
   - name: "1"
-    command: "true"
+    run: "true"
 `
 
 	ret, err := spec.LoadYAMLWithOpts(context.Background(), []byte(testDAG), spec.BuildOpts{
@@ -1418,13 +1420,15 @@ func TestLoadYAMLWithOpts_PreservesLocalDAGsFromMultiDocumentYAML(t *testing.T) 
 	dag, err := spec.LoadYAMLWithOpts(context.Background(), []byte(`
 steps:
   - name: call-child
-    call: child-task
+    action: dag.run
+    with:
+      dag: child-task
 
 ---
 name: child-task
 steps:
   - name: work
-    command: echo "child"
+    run: echo "child"
 `), spec.BuildOpts{Name: "parent-task"})
 	require.NoError(t, err)
 
@@ -1446,13 +1450,15 @@ func TestLoad_MultiDocumentFilePreservesDocumentProvenance(t *testing.T) {
 	dagFile := createTempYAMLFile(t, `
 steps:
   - name: call-child
-    call: child-task
+    action: dag.run
+    with:
+      dag: child-task
 
 ---
 name: child-task
 steps:
   - name: work
-    command: echo "child"
+    run: echo "child"
 `)
 
 	dag, err := spec.Load(context.Background(), dagFile)
@@ -1464,13 +1470,13 @@ steps:
 
 	assert.Equal(t, dagFile, dag.Location)
 	assert.Equal(t, dagFile, dag.SourceFile)
-	assert.Contains(t, string(dag.YamlData), "call: child-task")
+	assert.Contains(t, string(dag.YamlData), "action: dag.run")
 	assert.Contains(t, string(dag.YamlData), "name: child-task")
 
 	assert.Equal(t, dagFile, childDAG.Location)
 	assert.Equal(t, dagFile, childDAG.SourceFile)
 	assert.Contains(t, string(childDAG.YamlData), "name: child-task")
-	assert.NotContains(t, string(childDAG.YamlData), "call: child-task")
+	assert.NotContains(t, string(childDAG.YamlData), "action: dag.run")
 }
 
 func TestLoad_MultiDocumentFileWithLeadingSeparatorPreservesMainDocumentProvenance(t *testing.T) {
@@ -1479,13 +1485,15 @@ func TestLoad_MultiDocumentFileWithLeadingSeparatorPreservesMainDocumentProvenan
 	dagFile := createTempYAMLFile(t, `---
 steps:
   - name: call-child
-    call: child-task
+    action: dag.run
+    with:
+      dag: child-task
 
 ---
 name: child-task
 steps:
   - name: work
-    command: echo "child"
+    run: echo "child"
 `)
 
 	dag, err := spec.Load(context.Background(), dagFile)
@@ -1497,13 +1505,13 @@ steps:
 
 	assert.Equal(t, dagFile, dag.Location)
 	assert.Equal(t, dagFile, dag.SourceFile)
-	assert.Contains(t, string(dag.YamlData), "call: child-task")
+	assert.Contains(t, string(dag.YamlData), "action: dag.run")
 	assert.Contains(t, string(dag.YamlData), "name: child-task")
 
 	assert.Equal(t, dagFile, childDAG.Location)
 	assert.Equal(t, dagFile, childDAG.SourceFile)
 	assert.Contains(t, string(childDAG.YamlData), "name: child-task")
-	assert.NotContains(t, string(childDAG.YamlData), "call: child-task")
+	assert.NotContains(t, string(childDAG.YamlData), "action: dag.run")
 }
 
 func TestLoad_MultiDocumentFilePropagatesWorkspaceBaseConfig(t *testing.T) {
@@ -1531,13 +1539,15 @@ labels:
   - workspace=ops
 steps:
   - name: call-child
-    call: child-task
+    action: dag.run
+    with:
+      dag: child-task
 
 ---
 name: child-task
 steps:
   - name: work
-    command: echo "child"
+    run: echo "child"
 `), 0600))
 
 	dag, err := spec.Load(context.Background(), dagFile,
@@ -1567,17 +1577,19 @@ func TestLoadYAMLWithOpts_TypeInheritanceInMultiDocumentYAML(t *testing.T) {
 		dag, err := spec.LoadYAMLWithOpts(context.Background(), []byte(`
 steps:
   - name: call-child
-    call: child-task
+    action: dag.run
+    with:
+      dag: child-task
   - name: after-child
-    command: echo parent
+    run: echo parent
 
 ---
 name: child-task
 steps:
   - name: work
-    command: echo child
+    run: echo child
   - name: finish
-    command: echo done
+    run: echo done
 `), spec.BuildOpts{Name: "parent-task", Base: base})
 		require.NoError(t, err)
 
@@ -1599,16 +1611,18 @@ steps:
 		dag, err := spec.LoadYAMLWithOpts(context.Background(), []byte(`
 steps:
   - name: call-child
-    call: child-task
+    action: dag.run
+    with:
+      dag: child-task
 
 ---
 name: child-task
 type: chain
 steps:
   - name: work
-    command: echo child
+    run: echo child
   - name: finish
-    command: echo done
+    run: echo done
 `), spec.BuildOpts{Name: "parent-task", Base: base})
 		require.NoError(t, err)
 
@@ -1645,21 +1659,25 @@ func TestMultiDAGFile(t *testing.T) {
 		// Create a temporary multi-DAG YAML file
 		multiDAGContent := `steps:
   - name: process
-    call: transform-data
+    action: dag.run
+    with:
+      dag: transform-data
   - name: archive
-    call: archive-results
+    action: dag.run
+    with:
+      dag: archive-results
 
 ---
 name: transform-data
 steps:
   - name: transform
-    command: transform.py
+    run: transform.py
 
 ---
 name: archive-results
 steps:
   - name: archive
-    command: archive.sh
+    run: archive.sh
 `
 		// Create temporary file
 		tmpFile := createTempYAMLFile(t, multiDAGContent)
@@ -1706,13 +1724,15 @@ steps:
 		// Multi-document YAML with parent + inline sub-DAG
 		multiDAGContent := `steps:
   - name: call-child
-    call: child-task
+    action: dag.run
+    with:
+      dag: child-task
 
 ---
 name: child-task
 steps:
   - name: do-work
-    command: echo "child executed"
+    run: echo "child executed"
 `
 		tmpFile := createTempYAMLFile(t, multiDAGContent)
 
@@ -1756,7 +1776,7 @@ smtp:
   - APP: myapp
 steps:
   - name: process
-    command: echo "main"
+    run: echo "main"
 
 ---
 name: sub-dag
@@ -1764,7 +1784,7 @@ env:
   - SERVICE: worker
 steps:
   - name: work
-    command: echo "child"
+    run: echo "child"
 `
 		tmpFile := createTempYAMLFile(t, multiDAGContent)
 
@@ -1802,7 +1822,7 @@ steps:
 		// Single DAG file (no document separator)
 		singleDAGContent := `steps:
   - name: step1
-    command: echo "hello"
+    run: echo "hello"
 `
 		tmpFile := createTempYAMLFile(t, singleDAGContent)
 
@@ -1825,19 +1845,19 @@ steps:
 			name: "DuplicateSubDAGNames",
 			content: `steps:
   - name: step1
-    command: echo "main"
+    run: echo "main"
 
 ---
 name: duplicate-name
 steps:
   - name: step1
-    command: echo "first"
+    run: echo "first"
 
 ---
 name: duplicate-name
 steps:
   - name: step1
-    command: echo "second"
+    run: echo "second"
 `,
 			errContains: "duplicate DAG name",
 		},
@@ -1846,13 +1866,13 @@ steps:
 			content: `name: duplicate-name
 steps:
   - name: step1
-    command: echo "main"
+    run: echo "main"
 
 ---
 name: duplicate-name
 steps:
   - name: step1
-    command: echo "child"
+    run: echo "child"
 `,
 			errContains: "duplicate DAG name",
 		},
@@ -1860,12 +1880,12 @@ steps:
 			name: "SubDAGWithoutName",
 			content: `steps:
   - name: step1
-    command: echo "main"
+    run: echo "main"
 
 ---
 steps:
   - name: step1
-    command: echo "unnamed"
+    run: echo "unnamed"
 `,
 			errContains: "must have a name",
 		},
@@ -1890,7 +1910,7 @@ steps:
 		// the empty document may or may not be loaded.
 		multiDAGContent := `steps:
   - name: step1
-    command: echo "main"
+    run: echo "main"
 
 ---
 
@@ -1898,7 +1918,7 @@ steps:
 name: child
 steps:
   - name: step1
-    command: echo "child"
+    run: echo "child"
 `
 		tmpFile := createTempYAMLFile(t, multiDAGContent)
 
@@ -1920,10 +1940,14 @@ steps:
 schedule: "0 2 * * *"
 steps:
   - name: extract
-    call: extract-module
-    params: "SOURCE=customers TABLE=users"
+    action: dag.run
+    with:
+      dag: extract-module
+      params: "SOURCE=customers TABLE=users"
   - name: transform
-    call: transform-module
+    action: dag.run
+    with:
+      dag: transform-module
 
 ---
 name: extract-module
@@ -1933,16 +1957,16 @@ params:
   - TABLE: default_table
 steps:
   - name: validate
-    command: test -f data/${SOURCE}/${TABLE}
+    run: test -f data/${SOURCE}/${TABLE}
   - name: extract
-    command: extract.py --source=${SOURCE} --table=${TABLE}
+    run: extract.py --source=${SOURCE} --table=${TABLE}
     depends: validate
 
 ---
 name: transform-module
 steps:
   - name: transform
-    command: transform.py
+    run: transform.py
 `
 		tmpFile := createTempYAMLFile(t, multiDAGContent)
 
@@ -1979,7 +2003,7 @@ worker_selector:
   memory: "64G"
 steps:
   - name: gpu-task
-    command: echo "Running on GPU worker"
+    run: echo "Running on GPU worker"
 `)
 		dag, err := spec.Load(context.Background(), testDAG)
 		require.NoError(t, err)
@@ -2007,7 +2031,7 @@ func TestWithDefaultWorkingDir(t *testing.T) {
 		// Load from YAML data (no file context) with WithDefaultWorkingDir option
 		dag, err := spec.LoadYAML(context.Background(), []byte(`steps:
   - name: test
-    command: echo hello
+    run: echo hello
 `), spec.WithDefaultWorkingDir(tmpDir))
 		require.NoError(t, err)
 
@@ -2024,7 +2048,7 @@ func TestWithDefaultWorkingDir(t *testing.T) {
 		// Create a DAG file without explicit working_dir
 		testDAG := createTempYAMLFile(t, `steps:
   - name: test
-    command: echo hello
+    run: echo hello
 `)
 		fileDir := filepath.Dir(testDAG)
 
@@ -2054,7 +2078,7 @@ func TestWithDefaultWorkingDir(t *testing.T) {
 		testDAG := createTempYAMLFile(t, `working_dir: `+explicitDir+`
 steps:
   - name: test
-    command: echo hello
+    run: echo hello
 `)
 		// Load with WithDefaultWorkingDir option (should be ignored since DAG has explicit working_dir)
 		dag, err := spec.Load(context.Background(), testDAG, spec.WithDefaultWorkingDir(defaultDir))
@@ -2079,14 +2103,14 @@ func TestLoadWithLoaderOptions(t *testing.T) {
 		require.NoError(t, os.WriteFile(subDAGPath, []byte(`
 steps:
   - name: sub-step
-    command: echo sub
+    run: echo sub
 `), 0644))
 
 		// Create main DAG that calls the sub-DAG
 		mainDAG := createTempYAMLFile(t, `
 steps:
   - name: main-step
-    command: echo main
+    run: echo main
 `)
 		// Load with WithDAGsDir
 		dag, err := spec.Load(context.Background(), mainDAG, spec.WithDAGsDir(dagsDir))
@@ -2100,7 +2124,7 @@ steps:
 		testDAG := createTempYAMLFile(t, `
 steps:
   - name: test
-    command: echo test
+    run: echo test
     depends:
       - nonexistent-step
 `)
@@ -2161,7 +2185,7 @@ params:
     foo: bar
 steps:
   - name: test
-    command: echo test
+    run: echo test
 `)
 		// Without SkipSchemaValidation, this would fail due to missing schema
 		_, err := spec.Load(context.Background(), testDAG)
@@ -2182,13 +2206,13 @@ steps:
 		require.NoError(t, os.WriteFile(baseConfig, []byte(`
 handler_on:
   success:
-    command: echo base-success
+    run: echo base-success
 `), 0644))
 
 		testDAG := createTempYAMLFile(t, `
 steps:
   - name: test
-    command: echo test
+    run: echo test
 `)
 		// Load with base config but skip base handlers
 		dag, err := spec.Load(context.Background(), testDAG,
@@ -2207,7 +2231,7 @@ steps:
 params: KEY1 KEY2
 steps:
   - name: test
-    command: echo $KEY1 $KEY2
+    run: echo $KEY1 $KEY2
 `)
 		// Load with params as list
 		dag, err := spec.Load(context.Background(), testDAG,
@@ -2236,7 +2260,7 @@ env:
   - MY_VAR: "${TEST_VAR}"
 steps:
   - name: test
-    command: echo test
+    run: echo test
 `)
 	dag, err := spec.Load(context.Background(), testDAG, spec.WithoutEval())
 	require.NoError(t, err)
@@ -2261,9 +2285,9 @@ defaults:
 
 steps:
   - name: step1
-    command: echo "hello"
+    run: echo "hello"
   - name: step2
-    command: echo "world"
+    run: echo "world"
 `)
 		dag, err := spec.Load(context.Background(), testDAG)
 		require.NoError(t, err)
@@ -2289,9 +2313,9 @@ defaults:
 
 steps:
   - name: step1
-    command: echo "inherits"
+    run: echo "inherits"
   - name: step2
-    command: echo "overrides"
+    run: echo "overrides"
     retry_policy:
       limit: 10
       interval_sec: 30
@@ -2323,9 +2347,9 @@ defaults:
 
 steps:
   - name: step1
-    command: echo "only defaults"
+    run: echo "only defaults"
   - name: step2
-    command: echo "both"
+    run: echo "both"
     env:
       - STEP_VAR: step_value
     preconditions:
@@ -2354,14 +2378,14 @@ defaults:
 
 handler_on:
   failure:
-    command: echo "failure handler"
+    run: echo "failure handler"
   exit:
-    command: echo "exit handler"
+    run: echo "exit handler"
     timeout_sec: 60
 
 steps:
   - name: step1
-    command: echo "test"
+    run: echo "test"
 `)
 		dag, err := spec.Load(context.Background(), testDAG)
 		require.NoError(t, err)
@@ -2388,7 +2412,7 @@ defaults:
 
 steps:
   - name: step1
-    command: echo "test"
+    run: echo "test"
 `)
 		dag, err := spec.Load(context.Background(), child, spec.WithBaseConfig(base))
 		require.NoError(t, err)
@@ -2417,7 +2441,7 @@ defaults:
 
 steps:
   - name: step1
-    command: echo "test"
+    run: echo "test"
 `)
 		dag, err := spec.Load(context.Background(), child, spec.WithBaseConfig(base))
 		require.NoError(t, err)
@@ -2438,7 +2462,7 @@ retry_policy:
 		child := createTempYAMLFile(t, `
 steps:
   - name: step1
-    command: echo "test"
+    run: echo "test"
 `)
 		dag, err := spec.Load(context.Background(), child, spec.WithBaseConfig(base))
 		require.NoError(t, err)
@@ -2461,7 +2485,7 @@ retry_policy:
   limit: 0
 steps:
   - name: step1
-    command: echo "test"
+    run: echo "test"
 `)
 		dag, err := spec.Load(context.Background(), child, spec.WithBaseConfig(base))
 		require.NoError(t, err)
@@ -2490,7 +2514,7 @@ retry_policy:
   backoff: true
   max_interval_sec: "300"
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 				wantPolicy: &core.DAGRetryPolicy{
 					Limit:          3,
@@ -2507,7 +2531,7 @@ name: retryable
 retry_policy:
   limit: 0
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 				wantPolicy: &core.DAGRetryPolicy{
 					Limit:       0,
@@ -2523,7 +2547,7 @@ name: retryable
 retry_policy:
   limit: "0"
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 				wantPolicy: &core.DAGRetryPolicy{
 					Limit:       0,
@@ -2541,7 +2565,7 @@ retry_policy:
   interval_sec: "5"
   backoff: false
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 				wantPolicy: &core.DAGRetryPolicy{
 					Limit:          2,
@@ -2558,7 +2582,7 @@ name: retryable
 retry_policy:
   limit: three
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 				errContains: "retry_policy.limit",
 			},
@@ -2569,7 +2593,7 @@ name: retryable
 retry_policy:
   limit: -1
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 				errContains: "retry_policy.limit",
 			},
@@ -2580,7 +2604,7 @@ name: retryable
 retry_policy:
   limit: "-1"
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 				errContains: "retry_policy.limit",
 			},
@@ -2592,7 +2616,7 @@ retry_policy:
   limit: 3
   interval_sec: later
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 				errContains: "retry_policy.interval_sec",
 			},
@@ -2604,7 +2628,7 @@ retry_policy:
   limit: 1
   interval_sec: 0
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 				errContains: "retry_policy.interval_sec",
 			},
@@ -2616,7 +2640,7 @@ retry_policy:
   limit: 1
   interval_sec: -1
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 				errContains: "retry_policy.interval_sec",
 			},
@@ -2629,7 +2653,7 @@ retry_policy:
   interval_sec: 10
   backoff: 1.0
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 				errContains: "retry_policy.backoff",
 			},
@@ -2641,7 +2665,7 @@ retry_policy:
   limit: 1
   max_interval_sec: 0
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 				errContains: "retry_policy.max_interval_sec",
 			},
@@ -2653,7 +2677,7 @@ retry_policy:
   limit: 1
   max_interval_sec: -1
 steps:
-  - command: echo hi
+  - run: echo hi
 `,
 				errContains: "retry_policy.max_interval_sec",
 			},
@@ -2686,7 +2710,7 @@ defaults:
 
 steps:
   - name: step1
-    command: echo "test"
+    run: echo "test"
 `)
 		_, err := spec.Load(context.Background(), testDAG)
 		require.Error(t, err)
@@ -2702,7 +2726,7 @@ defaults:
 
 steps:
   - name: step1
-    command: echo "test"
+    run: echo "test"
 `)
 		dag, err := spec.Load(context.Background(), testDAG)
 		require.NoError(t, err)
@@ -2719,7 +2743,7 @@ defaults:
 
 steps:
   - name: step1
-    command: echo "test"
+    run: echo "test"
 `)
 		dag, err := spec.Load(context.Background(), testDAG)
 		require.NoError(t, err)

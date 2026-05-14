@@ -1,4 +1,4 @@
 schedule: 0 * * * *
 steps:
   - name: step1
-    command: "true"
+    run: "true"

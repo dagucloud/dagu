@@ -39,7 +39,7 @@ worker_selector:
   role: e2e
 steps:
   - name: hold
-    command: sleep 30
+    run: sleep 30
 `
     );
 
@@ -87,7 +87,7 @@ steps:
     retry_policy:
       limit: 0
       interval_sec: 0
-    command: |
+    run: |
       mkdir -p "${stack.stateDir}/retry-flags"
       if [ -f "${retryFlag}" ]; then
         echo "retry succeeded"
@@ -136,7 +136,7 @@ worker_selector:
   role: e2e
 steps:
   - name: reschedule-step
-    command: echo "reschedule complete"
+    run: echo "reschedule complete"
 `
     );
 

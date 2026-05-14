@@ -425,7 +425,7 @@ labels:
   team: platform
 steps:
   - name: step
-    command: echo ok
+    run: echo ok
 `), WithoutEval())
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{"env=prod", "team=platform"}, d.Labels.Strings())
@@ -440,7 +440,7 @@ tags:
   - team=platform
 steps:
   - name: step
-    command: echo ok
+    run: echo ok
 `), WithoutEval())
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{"env=prod", "team=platform"}, d.Labels.Strings())
@@ -456,7 +456,7 @@ tags:
   - team=platform
 steps:
   - name: step
-    command: echo ok
+    run: echo ok
 `), WithoutEval())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "labels and deprecated tags cannot both be set")
@@ -2362,7 +2362,7 @@ artifacts:
 			yaml: `
 steps:
   - name: write
-    command: printf 'artifact' > "$DAG_RUN_ARTIFACTS_DIR/out.txt"
+    run: printf 'artifact' > "$DAG_RUN_ARTIFACTS_DIR/out.txt"
 `,
 			expected: &core.ArtifactsConfig{Enabled: true},
 		},
@@ -2371,13 +2371,13 @@ steps:
 			yaml: `
 steps:
   - name: render
-    type: template
+    action: template.render
     with:
       output: ${DAG_RUN_ARTIFACTS_DIR}/greeting.txt
       data:
         name: tom
-    script: |
-      Hello, {{ .name }}!
+      template: |
+        Hello, {{ .name }}!
 `,
 			expected: &core.ArtifactsConfig{Enabled: true},
 		},
@@ -2386,7 +2386,7 @@ steps:
 			yaml: `
 steps:
   - name: write
-    command: Write-Output $env:DAG_RUN_ARTIFACTS_DIR
+    run: Write-Output $env:DAG_RUN_ARTIFACTS_DIR
 `,
 			expected: &core.ArtifactsConfig{Enabled: true},
 		},
@@ -2395,7 +2395,7 @@ steps:
 			yaml: `
 steps:
   - name: write
-    command: printf 'DAG_RUN_ARTIFACTS_DIR'
+    run: printf 'DAG_RUN_ARTIFACTS_DIR'
 `,
 			expected: nil,
 		},
@@ -2406,7 +2406,7 @@ artifacts:
   enabled: false
 steps:
   - name: write
-    command: printf 'artifact' > "$DAG_RUN_ARTIFACTS_DIR/out.txt"
+    run: printf 'artifact' > "$DAG_RUN_ARTIFACTS_DIR/out.txt"
 `,
 			expected: &core.ArtifactsConfig{Enabled: false},
 		},
@@ -2838,7 +2838,7 @@ params:
 env:
   - FULL_PATH: "${data_dir}/output"
 steps:
-  - command: echo test
+  - run: echo test
 `
 	d, err := LoadYAML(context.Background(), []byte(yamlData))
 	require.NoError(t, err)
@@ -2862,7 +2862,7 @@ params:
 env:
   - FULL_PATH: "${data_dir}/output"
 steps:
-  - command: echo test
+  - run: echo test
 `
 	d, err := LoadYAML(context.Background(), []byte(yamlData), WithoutEval())
 	require.NoError(t, err)
@@ -2886,7 +2886,7 @@ params:
 env:
   - FULL_PATH: "${data_dir}/output"
 steps:
-  - command: echo test
+  - run: echo test
 `
 	d, err := LoadYAML(context.Background(), []byte(yamlData), OnlyMetadata())
 	require.NoError(t, err)

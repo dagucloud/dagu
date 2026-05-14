@@ -60,7 +60,7 @@ worker_selector:
   role: e2e
 steps:
   - name: echo-step
-    command: echo "viewer execute denied"
+    run: echo "viewer execute denied"
 `
   );
   await waitForDAGAvailable(request, adminToken, fileName);

@@ -79,7 +79,7 @@ env:
   - DEV_ALERT: "80"
 steps:
   - name: check-threshold
-    command: echo "alert triggered"
+    run: echo "alert triggered"
     output: RESULT
     preconditions:
       - condition: %q
@@ -101,7 +101,7 @@ env:
   - DEV_ALERT: "80"
 steps:
   - name: check-threshold
-    command: echo "alert triggered"
+    run: echo "alert triggered"
     output: RESULT
     preconditions:
       - condition: %q
@@ -123,7 +123,7 @@ preconditions:
   - condition: %q
 steps:
   - name: run
-    command: echo "executed"
+    run: echo "executed"
     output: RESULT
 `, stringPreconditionCommand("${ENABLED}", "yes")))
 	agent := dag.Agent()
@@ -140,10 +140,10 @@ func TestPreconditionWithStepOutput(t *testing.T) {
 type: graph
 steps:
   - name: produce
-    command: echo "go"
+    run: echo "go"
     output: STEP_RESULT
   - name: consume
-    command: echo "ran"
+    run: echo "ran"
     output: FINAL
     preconditions:
       - condition: %q
@@ -172,9 +172,9 @@ env:
   - TEST_FILE: %q
 steps:
   - name: create
-    command: touch $TEST_FILE
+    run: touch $TEST_FILE
   - name: check
-    command: echo "ran"
+    run: echo "ran"
     output: RESULT
     depends: create
     preconditions:

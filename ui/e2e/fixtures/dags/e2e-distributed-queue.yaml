@@ -4,7 +4,7 @@ worker_selector:
   role: e2e
 steps:
   - name: hold-and-report
-    command: |
+    run: |
       set -e
       : "${DAGU_E2E_STATE_DIR:?DAGU_E2E_STATE_DIR is required}"
       release_file="${DAGU_E2E_STATE_DIR}/e2e-distributed-queue.release"

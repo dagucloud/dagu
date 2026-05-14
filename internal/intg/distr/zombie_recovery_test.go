@@ -61,7 +61,7 @@ worker_selector:
   test: "true"
 steps:
   - name: long-step
-    command: |
+    run: |
 %s
 `, indentYAMLBlock(waitForReleaseFileScript(releaseFile), 6)),
 		withWorkerCount(0),
@@ -150,7 +150,7 @@ worker_selector:
   test: "true"
 steps:
   - name: long-step
-    command: |
+    run: |
 %s
 `, indentYAMLBlock(waitForReleaseFileScript(releaseFile), 6)),
 		withStaleThresholds(heartbeatThreshold, leaseThreshold),
@@ -228,7 +228,7 @@ worker_selector:
   test: "true"
 steps:
   - name: long-step
-    command: |
+    run: |
 %s
 `, indentYAMLBlock(waitForReleaseFileScript(releaseFile), 6)),
 		withStaleThresholds(heartbeatThreshold, leaseThreshold),
@@ -342,7 +342,7 @@ worker_selector:
   test: "true"
 steps:
   - name: step1
-    command: echo "hello"
+    run: echo "hello"
 `,
 	)
 	defer f.cleanup()
@@ -393,7 +393,7 @@ worker_selector:
   test: "true"
 steps:
   - name: step1
-    command: |
+    run: |
 %s
 `, indentYAMLBlock(waitForReleaseFileScript(releaseFile), 6)),
 	)
@@ -450,7 +450,7 @@ worker_selector:
   test: "true"
 steps:
   - name: step1
-    command: echo "recovered"
+    run: echo "recovered"
 `, opts...)
 	defer f.cleanup()
 
@@ -515,7 +515,7 @@ worker_selector:
   test: "true"
 steps:
   - name: step1
-    command: sh -c 'echo executed > %s'
+    run: sh -c 'echo executed > %s'
 `, markerPath)
 
 	opts := []fixtureOption{

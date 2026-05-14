@@ -110,7 +110,7 @@ func TestAgent_Run(t *testing.T) {
 	t.Run("RunDAG", func(t *testing.T) {
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
-  - "exit 0"
+  - run: exit 0
 `)
 		dagAgent := dag.Agent()
 
@@ -138,7 +138,7 @@ func TestAgent_Run(t *testing.T) {
 	t.Run("DeleteOldHistory", func(t *testing.T) {
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
-  - "exit 0"
+  - run: exit 0
 `)
 		dagAgent := dag.Agent()
 
@@ -159,7 +159,7 @@ func TestAgent_Run(t *testing.T) {
 	t.Run("DeleteOldHistoryByRuns", func(t *testing.T) {
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
-  - "exit 0"
+  - run: exit 0
 `)
 
 		dag.HistRetentionRuns = 2
@@ -179,7 +179,7 @@ func TestAgent_Run(t *testing.T) {
 		releaseFile := filepath.Join(runDir, "release")
 		dag := th.DAG(t, fmt.Sprintf(`steps:
   - name: wait-until-released
-    command: %q
+    run: %q
 `, signalFileThenWaitScript(startedFile, releaseFile, 50*time.Millisecond)))
 		dagAgent := dag.Agent(test.WithDAGRunID("test-dag-run"))
 		runDone := false
@@ -260,7 +260,7 @@ func TestAgent_Run(t *testing.T) {
 	t.Run("FinishWithError", func(t *testing.T) {
 		th := test.Setup(t)
 		errDAG := th.DAG(t, fmt.Sprintf(`steps:
-  - %q
+  - run: %q
 `, "exit 1"))
 		dagAgent := errDAG.Agent()
 		dagAgent.RunError(t)
@@ -275,7 +275,7 @@ func TestAgent_Run(t *testing.T) {
 
 		dag := th.DAG(t, fmt.Sprintf(`working_dir: %q
 steps:
-  - "echo hi"
+  - run: echo hi
 `, blockingFile+string(os.PathSeparator)+"subdir"))
 		dagAgent := dag.Agent()
 
@@ -290,7 +290,7 @@ steps:
 	t.Run("UnsupportedSocketTransportContinuesRun", func(t *testing.T) {
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
-  - "exit 0"
+  - run: exit 0
 `)
 		dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{
 			SocketServerFactory: fakeSocketServerFactory(
@@ -311,7 +311,7 @@ steps:
 			_ = os.WriteFile(releaseFile, []byte("cleanup"), 0600)
 		})
 		dag := th.DAG(t, fmt.Sprintf(`steps:
-  - command: %q
+  - run: %q
 `, signalFileThenWaitScript(startedFile, releaseFile, 50*time.Millisecond)))
 		dagAgent := dag.Agent(
 			test.WithDAGRunID(dagRunID),
@@ -345,7 +345,7 @@ steps:
 	t.Run("SocketStartupFailureRemainsFatal", func(t *testing.T) {
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
-  - "exit 0"
+  - run: exit 0
 `)
 		dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{
 			SocketServerFactory: fakeSocketServerFactory(errors.New("synthetic bind failure")),
@@ -360,7 +360,7 @@ steps:
 		marker := filepath.Join(t.TempDir(), "failure-marker")
 		dag := th.DAG(t, fmt.Sprintf(`handler_on:
   failure:
-    command: %q
+    run: %q
 steps:
   - %q
 `, writeFileCommand(marker, "failed"), "exit 1"))
@@ -429,7 +429,7 @@ steps:
 		th := test.Setup(t)
 		dag := th.DAG(t, fmt.Sprintf(`handler_on:
   exit:
-    command: %q
+    run: %q
 steps:
   - %q
   - %q
@@ -460,7 +460,7 @@ func TestAgent_WorkingDirExpansion(t *testing.T) {
 		dag := th.DAG(t, `working_dir: $TEST_WORK_DIR
 steps:
   - name: check-pwd
-    command: `+pwdCommand()+`
+    run: `+pwdCommand()+`
 `)
 		dagAgent := dag.Agent()
 		dagAgent.RunSuccess(t)
@@ -485,7 +485,7 @@ steps:
 working_dir: $CUSTOM_DIR
 steps:
   - name: check-pwd
-    command: `+pwdCommand()+`
+    run: `+pwdCommand()+`
 `)
 		dagAgent := dag.Agent()
 		dagAgent.RunSuccess(t)
@@ -502,7 +502,7 @@ steps:
 		dag := th.DAG(t, `working_dir: ~
 steps:
   - name: check-pwd
-    command: `+pwdCommand()+`
+    run: `+pwdCommand()+`
 `)
 		dagAgent := dag.Agent()
 		dagAgent.RunSuccess(t)
@@ -541,30 +541,30 @@ func TestAgent_Retry(t *testing.T) {
 		dag := th.DAG(t, fmt.Sprintf(`type: graph
 steps:
   - name: "1"
-    command: %q
+    run: %q
   - name: "2"
-    command: %q
+    run: %q
     continue_on:
       failure: true
     depends: ["1"]
   - name: "3"
-    command: %q
+    run: %q
     depends: ["2"]
   - name: "4"
-    command: %q
+    run: %q
     preconditions:
       - condition: "`+"`"+`echo 0`+"`"+`"
         expected: "1"
     continue_on:
       skipped: true
   - name: "5"
-    command: %q
+    run: %q
     depends: ["4"]
   - name: "6"
-    command: %q
+    run: %q
     depends: ["5"]
   - name: "7"
-    command: %q
+    run: %q
     preconditions:
       - condition: "`+"`"+`echo 0`+"`"+`"
         expected: "1"
@@ -572,12 +572,12 @@ steps:
     continue_on:
       skipped: true
   - name: "8"
-    command: %q
+    run: %q
     preconditions:
       - condition: "`+"`"+`echo 0`+"`"+`"
         expected: "1"
   - name: "9"
-    command: %q
+    run: %q
 `, "exit 0", "exit 1", "exit 0", "exit 0", "exit 1", "exit 0", "exit 0", "exit 0", "exit 1"))
 		dagAgent := dag.Agent()
 
@@ -608,30 +608,30 @@ steps:
 		dag := th.DAG(t, fmt.Sprintf(`type: graph
 steps:
   - name: "1"
-    command: %q
+    run: %q
   - name: "2"
-    command: %q
+    run: %q
     continue_on:
       failure: true
     depends: ["1"]
   - name: "3"
-    command: %q
+    run: %q
     depends: ["2"]
   - name: "4"
-    command: %q
+    run: %q
     preconditions:
       - condition: "`+"`"+`echo 0`+"`"+`"
         expected: "1"
     continue_on:
       skipped: true
   - name: "5"
-    command: %q
+    run: %q
     depends: ["4"]
   - name: "6"
-    command: %q
+    run: %q
     depends: ["5"]
   - name: "7"
-    command: %q
+    run: %q
     preconditions:
       - condition: "`+"`"+`echo 0`+"`"+`"
         expected: "1"
@@ -639,12 +639,12 @@ steps:
     continue_on:
       skipped: true
   - name: "8"
-    command: %q
+    run: %q
     preconditions:
       - condition: "`+"`"+`echo 0`+"`"+`"
         expected: "1"
   - name: "9"
-    command: %q
+    run: %q
 `, "exit 0", "exit 1", "exit 0", "exit 0", "exit 1", "exit 0", "exit 0", "exit 0", "exit 1"))
 		dagAgent := dag.Agent()
 
@@ -733,7 +733,7 @@ func TestAgent_HandleHTTP(t *testing.T) {
 			_ = os.WriteFile(releaseFile, []byte("ok"), 0600)
 		})
 		dag := th.DAG(t, fmt.Sprintf(`steps:
-  - command: %q
+  - run: %q
 `, writeFileCommand(startedFile, "started")+"\n"+waitForFileScript(releaseFile, 50*time.Millisecond)))
 		dagAgent := dag.Agent()
 		ctx := th.Context
@@ -778,7 +778,7 @@ func TestAgent_HandleHTTP(t *testing.T) {
 			_ = os.WriteFile(releaseFile, []byte("ok"), 0600)
 		})
 		dag := th.DAG(t, fmt.Sprintf(`steps:
-  - command: %q
+  - run: %q
 `, writeFileCommand(startedFile, "started")+"\n"+waitForFileScript(releaseFile, 50*time.Millisecond)))
 		dagAgent := dag.Agent()
 
@@ -817,7 +817,7 @@ func TestAgent_HandleHTTP(t *testing.T) {
 			_ = os.WriteFile(releaseFile, []byte("ok"), 0600)
 		})
 		dag := th.DAG(t, fmt.Sprintf(`steps:
-  - command: %q
+  - run: %q
 `, writeFileCommand(startedFile, "started")+"\n"+waitForFileScript(releaseFile, 50*time.Millisecond)))
 		dagAgent := dag.Agent()
 
@@ -905,7 +905,7 @@ func TestAgent_OutputCollection(t *testing.T) {
 			name: "SimpleOutput",
 			dag: `steps:
   - name: step1
-    command: echo "hello"
+    run: echo "hello"
     output: RESULT`,
 			expected: map[string]string{"result": "hello"},
 		},
@@ -913,7 +913,7 @@ func TestAgent_OutputCollection(t *testing.T) {
 			name: "CamelCaseConversion",
 			dag: `steps:
   - name: step1
-    command: echo "value"
+    run: echo "value"
     output: MY_OUTPUT_VAR`,
 			expected: map[string]string{"myOutputVar": "value"},
 		},
@@ -929,10 +929,10 @@ func TestAgent_OutputCollection(t *testing.T) {
 			name: "MultipleSteps",
 			dag: `steps:
   - name: step1
-    command: echo "one"
+    run: echo "one"
     output: OUTPUT_ONE
   - name: step2
-    command: echo "two"
+    run: echo "two"
     output: OUTPUT_TWO`,
 			expected: map[string]string{"outputOne": "one", "outputTwo": "two"},
 		},
@@ -941,10 +941,10 @@ func TestAgent_OutputCollection(t *testing.T) {
 			dag: `type: graph
 steps:
   - name: step1
-    command: echo "first"
+    run: echo "first"
     output: RESULT
   - name: step2
-    command: echo "second"
+    run: echo "second"
     output: RESULT
     depends: [step1]`,
 			expected: map[string]string{"result": "second"},
@@ -953,7 +953,7 @@ steps:
 			name: "NoOutputs",
 			dag: fmt.Sprintf(`steps:
   - name: step1
-    command: %q`, "exit 0"),
+    run: %q`, "exit 0"),
 			expected: map[string]string{},
 		},
 	}
@@ -989,7 +989,7 @@ secrets:
     key: `+secretFile+`
 steps:
   - name: step1
-    command: echo "Token is ${API_TOKEN}"
+    run: echo "Token is ${API_TOKEN}"
     output: RESPONSE`)
 
 	dagAgent := dag.Agent()
@@ -1014,7 +1014,7 @@ func TestAgent_SubDAGRunVisibleWhileRunning(t *testing.T) {
 	th.CreateDAGFile(t, th.Config.Paths.DAGsDir, "child-slow", fmt.Appendf(nil, `
 steps:
   - name: slow-step
-    command: %q
+    run: %q
 `, waitForFileScript(releaseFile, 100*time.Millisecond)))
 
 	// The preceding step must run long enough for the one-shot 100ms status timer
@@ -1024,9 +1024,11 @@ steps:
 type: graph
 steps:
   - name: pre-step
-    command: %q
+    run: %q
   - name: run-child
-    call: child-slow
+    action: dag.run
+    with:
+      dag: child-slow
     depends:
       - pre-step
 `, test.Sleep(time.Second)))

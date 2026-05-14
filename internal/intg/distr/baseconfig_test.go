@@ -29,7 +29,7 @@ worker_selector:
   test: "true"
 steps:
   - name: use-base-env
-    command: echo "${GITHUB_URL}"
+    run: echo "${GITHUB_URL}"
 `, withLogPersistence(), withBaseConfigPath(baseConfigPath))
 		defer f.cleanup()
 
@@ -61,7 +61,7 @@ worker_selector:
   test: "true"
 steps:
   - name: use-embedded-env
-    command: echo "${MY_SERVICE_URL}"
+    run: echo "${MY_SERVICE_URL}"
 `, withLogPersistence(), withBaseConfigPath(baseConfigPath), withWorkerBaseConfigPath("/nonexistent/base.yaml"))
 		defer f.cleanup()
 
@@ -93,7 +93,7 @@ env:
   - DAG_VAR: "dag-value"
 steps:
   - name: use-all-vars
-    command: echo "${BASE_VAR1} ${BASE_VAR2} ${DAG_VAR}"
+    run: echo "${BASE_VAR1} ${BASE_VAR2} ${DAG_VAR}"
 `, withLogPersistence(), withBaseConfigPath(baseConfigPath))
 		defer f.cleanup()
 
@@ -120,7 +120,9 @@ func TestBaseConfig_SubDAGPropagation(t *testing.T) {
 name: parent-with-base
 steps:
   - name: call-child
-    call: child-dag
+    action: dag.run
+    with:
+      dag: child-dag
 
 ---
 name: child-dag
@@ -128,7 +130,7 @@ worker_selector:
   type: test-worker
 steps:
   - name: use-base-var
-    command: echo "${BASE_VAR}"
+    run: echo "${BASE_VAR}"
 `, withLogPersistence(), withBaseConfigPath(baseConfigPath), withLabels(map[string]string{"type": "test-worker"}))
 		defer f.cleanup()
 

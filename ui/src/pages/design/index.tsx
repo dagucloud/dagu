@@ -34,11 +34,14 @@ import DAGEditorWithDocs from '@/features/dags/components/dag-editor/DAGEditorWi
 import ExternalChangeDialog from '@/features/dags/components/dag-editor/ExternalChangeDialog';
 import {
   buildAugmentedDAGSchema,
-  customStepTypeHintsEqual,
-  extractLocalCustomStepTypeHints,
-  mergeCustomStepTypeHints,
-  toInheritedCustomStepTypeHints,
-} from '@/features/dags/components/dag-editor/customStepSchema';
+  customActionHintsEqual,
+  extractLocalCustomDefinitionHints,
+  legacyDefinitionHintsEqual,
+  mergeCustomActionHints,
+  mergeLegacyDefinitionHints,
+  toInheritedCustomActionHints,
+  toInheritedLegacyDefinitionHints,
+} from '@/features/dags/components/dag-editor/customActionSchema';
 import { StepDetails } from '@/features/dags/components/step-details';
 import { FlowchartType, Graph } from '@/features/dags/components/visualization';
 import { useClient, useQuery } from '@/hooks/api';
@@ -91,7 +94,7 @@ type DesignResizeSide = 'left' | 'right';
 const NEW_DAG_VALUE = '__new__';
 const DEFAULT_DRAFT_SPEC = `steps:
   - name: hello
-    command: echo hello
+    run: echo hello
 `;
 const DESIGN_LEFT_PANEL_STORAGE_KEY = 'workflowDesignLeftPanelWidth';
 const DESIGN_RIGHT_PANEL_STORAGE_KEY = 'workflowDesignRightPanelWidth';
@@ -236,48 +239,80 @@ function WorkflowDesignPage() {
     ? hasExistingUnsavedChanges
     : newDraftSpec.trim() !== DEFAULT_DRAFT_SPEC.trim() || newDagName !== '';
 
-  const [lastGoodLocalStepTypes, setLastGoodLocalStepTypes] = React.useState(
-    () => extractLocalCustomStepTypeHints(editorValue).stepTypes
+  const [lastGoodLegacyDefinitions, setLastGoodLegacyDefinitions] =
+    React.useState(
+      () => extractLocalCustomDefinitionHints(editorValue).legacyDefinitions
+    );
+  const [lastGoodLocalActions, setLastGoodLocalActions] = React.useState(
+    () => extractLocalCustomDefinitionHints(editorValue).actions
   );
 
-  const parsedLocalStepTypes = React.useMemo(
-    () => extractLocalCustomStepTypeHints(editorValue),
+  const parsedLocalDefinitions = React.useMemo(
+    () => extractLocalCustomDefinitionHints(editorValue),
     [editorValue]
   );
-  const inheritedCustomStepTypes = React.useMemo(
-    () => toInheritedCustomStepTypeHints(undefined),
+  const inheritedLegacyDefinitions = React.useMemo(
+    () => toInheritedLegacyDefinitionHints(undefined),
+    []
+  );
+  const inheritedCustomActions = React.useMemo(
+    () => toInheritedCustomActionHints(undefined),
     []
   );
 
   React.useEffect(() => {
-    if (!parsedLocalStepTypes.ok) return;
-    setLastGoodLocalStepTypes((previous) =>
-      customStepTypeHintsEqual(previous, parsedLocalStepTypes.stepTypes)
+    if (!parsedLocalDefinitions.ok) return;
+    setLastGoodLegacyDefinitions((previous) =>
+      legacyDefinitionHintsEqual(
+        previous,
+        parsedLocalDefinitions.legacyDefinitions
+      )
         ? previous
-        : parsedLocalStepTypes.stepTypes
+        : parsedLocalDefinitions.legacyDefinitions
     );
-  }, [parsedLocalStepTypes]);
+    setLastGoodLocalActions((previous) =>
+      customActionHintsEqual(previous, parsedLocalDefinitions.actions)
+        ? previous
+        : parsedLocalDefinitions.actions
+    );
+  }, [parsedLocalDefinitions]);
 
-  const effectiveLocalStepTypes = React.useMemo(() => {
-    if (!parsedLocalStepTypes.ok) return lastGoodLocalStepTypes;
-    return customStepTypeHintsEqual(
-      lastGoodLocalStepTypes,
-      parsedLocalStepTypes.stepTypes
+  const effectiveLegacyDefinitions = React.useMemo(() => {
+    if (!parsedLocalDefinitions.ok) return lastGoodLegacyDefinitions;
+    return legacyDefinitionHintsEqual(
+      lastGoodLegacyDefinitions,
+      parsedLocalDefinitions.legacyDefinitions
     )
-      ? lastGoodLocalStepTypes
-      : parsedLocalStepTypes.stepTypes;
-  }, [lastGoodLocalStepTypes, parsedLocalStepTypes]);
+      ? lastGoodLegacyDefinitions
+      : parsedLocalDefinitions.legacyDefinitions;
+  }, [lastGoodLegacyDefinitions, parsedLocalDefinitions]);
+  const effectiveLocalActions = React.useMemo(() => {
+    if (!parsedLocalDefinitions.ok) return lastGoodLocalActions;
+    return customActionHintsEqual(
+      lastGoodLocalActions,
+      parsedLocalDefinitions.actions
+    )
+      ? lastGoodLocalActions
+      : parsedLocalDefinitions.actions;
+  }, [lastGoodLocalActions, parsedLocalDefinitions]);
 
   const editorSchema = React.useMemo(() => {
     if (!baseSchema) return null;
     return buildAugmentedDAGSchema(
       baseSchema,
-      mergeCustomStepTypeHints(
-        inheritedCustomStepTypes,
-        effectiveLocalStepTypes
-      )
+      mergeLegacyDefinitionHints(
+        inheritedLegacyDefinitions,
+        effectiveLegacyDefinitions
+      ),
+      mergeCustomActionHints(inheritedCustomActions, effectiveLocalActions)
     );
-  }, [baseSchema, inheritedCustomStepTypes, effectiveLocalStepTypes]);
+  }, [
+    baseSchema,
+    inheritedLegacyDefinitions,
+    effectiveLegacyDefinitions,
+    inheritedCustomActions,
+    effectiveLocalActions,
+  ]);
 
   const editorModelUri = React.useMemo(() => {
     const workspaceSegment = encodeURIComponent(

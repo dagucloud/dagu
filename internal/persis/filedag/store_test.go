@@ -64,7 +64,7 @@ func TestListDAGsInSubdirectories(t *testing.T) {
 	rootDAG := `name: root-dag
 steps:
   - name: step1
-    command: echo "root"`
+    run: echo "root"`
 	err := os.WriteFile(filepath.Join(tmpDir, "root-dag.yaml"), []byte(rootDAG), 0600)
 	require.NoError(t, err)
 
@@ -76,7 +76,7 @@ steps:
 	subDAG := `name: sub-dag
 steps:
   - name: step1
-    command: echo "sub"`
+    run: echo "sub"`
 	err = os.WriteFile(filepath.Join(subDir, "sub-dag.yaml"), []byte(subDAG), 0600)
 	require.NoError(t, err)
 
@@ -88,7 +88,7 @@ steps:
 	nestedDAG := `name: nested-dag
 steps:
   - name: step1
-    command: echo "nested"`
+    run: echo "nested"`
 	err = os.WriteFile(filepath.Join(nestedDir, "nested-dag.yaml"), []byte(nestedDAG), 0600)
 	require.NoError(t, err)
 
@@ -119,7 +119,7 @@ func TestGetMetadata(t *testing.T) {
 labels: ["tag1", "tag2"]
 steps:
   - name: step1
-    command: echo "hello"`
+    run: echo "hello"`
 	err := os.WriteFile(filepath.Join(tmpDir, "test-dag.yaml"), []byte(dagContent), 0600)
 	require.NoError(t, err)
 
@@ -156,7 +156,7 @@ params:
       default: false
 steps:
   - name: step1
-    command: echo "hello"`
+    run: echo "hello"`
 	err := os.WriteFile(filepath.Join(tmpDir, "inline-schema-dag.yaml"), []byte(dagContent), 0600)
 	require.NoError(t, err)
 
@@ -180,7 +180,7 @@ func TestGetDetails(t *testing.T) {
 schedule: "0 1 * * *"
 steps:
   - name: step1
-    command: echo "detailed"`
+    run: echo "detailed"`
 	err := os.WriteFile(filepath.Join(tmpDir, "detailed-dag.yaml"), []byte(dagContent), 0600)
 	require.NoError(t, err)
 
@@ -210,7 +210,7 @@ func TestGetSpec(t *testing.T) {
 	dagContent := `name: spec-dag
 steps:
   - name: step1
-    command: echo "spec"`
+    run: echo "spec"`
 	err := os.WriteFile(filepath.Join(tmpDir, "spec-dag.yaml"), []byte(dagContent), 0600)
 	require.NoError(t, err)
 
@@ -237,7 +237,7 @@ func TestCreate(t *testing.T) {
 	dagContent := `name: new-dag
 steps:
   - name: step1
-    command: echo "new"`
+    run: echo "new"`
 	err := store.Create(ctx, "new-dag", []byte(dagContent))
 	require.NoError(t, err)
 
@@ -313,21 +313,21 @@ labels:
   - workspace=ops
 steps:
   - name: step1
-    command: echo needle
+    run: echo needle
 `)))
 	require.NoError(t, store.Create(ctx, "prod-dag", []byte(`name: prod-dag
 labels:
   - workspace=prod
 steps:
   - name: step1
-    command: echo needle
+    run: echo needle
 `)))
 	require.NoError(t, store.Create(ctx, "bad-workspace-dag", []byte(`name: bad-workspace-dag
 labels:
   - workspace=bad/name
 steps:
   - name: step1
-    command: echo needle
+    run: echo needle
 `)))
 
 	result, errs, err := store.SearchCursor(ctx, exec.SearchDAGsOptions{
@@ -354,21 +354,21 @@ func TestListDAGsFiltersByWorkspaceBeforePagination(t *testing.T) {
 	require.NoError(t, store.Create(ctx, "aaa-global", []byte(`name: aaa-global
 steps:
   - name: step1
-    command: echo global
+    run: echo global
 `)))
 	require.NoError(t, store.Create(ctx, "bbb-ops", []byte(`name: bbb-ops
 labels:
   - workspace=ops
 steps:
   - name: step1
-    command: echo ops
+    run: echo ops
 `)))
 	require.NoError(t, store.Create(ctx, "ccc-prod", []byte(`name: ccc-prod
 labels:
   - workspace=prod
 steps:
   - name: step1
-    command: echo prod
+    run: echo prod
 `)))
 
 	firstPage := exec.NewPaginator(1, 1)
@@ -430,21 +430,21 @@ func TestSearchCursorFiltersByWorkspace(t *testing.T) {
 	require.NoError(t, store.Create(ctx, "global-dag", []byte(`name: global-dag
 steps:
   - name: step1
-    command: echo needle
+    run: echo needle
 `)))
 	require.NoError(t, store.Create(ctx, "ops-dag", []byte(`name: ops-dag
 labels:
   - workspace=ops
 steps:
   - name: step1
-    command: echo needle
+    run: echo needle
 `)))
 	require.NoError(t, store.Create(ctx, "prod-dag", []byte(`name: prod-dag
 labels:
   - workspace=prod
 steps:
   - name: step1
-    command: echo needle
+    run: echo needle
 `)))
 
 	result, errs, err := store.SearchCursor(ctx, exec.SearchDAGsOptions{
@@ -499,9 +499,9 @@ labels:
   - workspace=ops
 steps:
   - name: step1
-    command: echo needle
+    run: echo needle
   - name: step2
-    command: echo needle
+    run: echo needle
 `)))
 
 	result, err := store.SearchMatches(ctx, "ops-dag", exec.SearchDAGMatchesOptions{
@@ -552,7 +552,7 @@ func TestUpdateSpec(t *testing.T) {
 	initialContent := `name: update-dag
 steps:
   - name: step1
-    command: echo "initial"`
+    run: echo "initial"`
 	err := store.Create(ctx, "update-dag", []byte(initialContent))
 	require.NoError(t, err)
 
@@ -560,7 +560,7 @@ steps:
 	updatedContent := `name: update-dag
 steps:
   - name: step1
-    command: echo "updated"`
+    run: echo "updated"`
 	err = store.UpdateSpec(ctx, "update-dag", []byte(updatedContent))
 	require.NoError(t, err)
 
@@ -593,7 +593,7 @@ func TestDelete(t *testing.T) {
 	dagContent := `name: delete-dag
 steps:
   - name: step1
-    command: echo "delete"`
+    run: echo "delete"`
 	err := store.Create(ctx, "delete-dag", []byte(dagContent))
 	require.NoError(t, err)
 
@@ -626,7 +626,7 @@ func TestRename(t *testing.T) {
 	dagContent := `name: old-name
 steps:
   - name: step1
-    command: echo "rename"`
+    run: echo "rename"`
 	err := store.Create(ctx, "old-name", []byte(dagContent))
 	require.NoError(t, err)
 
@@ -673,14 +673,14 @@ func TestGrep(t *testing.T) {
 	dag1Content := `name: search-dag-1
 steps:
   - name: step1
-    command: echo "search pattern here"`
+    run: echo "search pattern here"`
 	err := store.Create(ctx, "search-dag-1", []byte(dag1Content))
 	require.NoError(t, err)
 
 	dag2Content := `name: search-dag-2
 steps:
   - name: step1
-    command: echo "no match here"`
+    run: echo "no match here"`
 	err = store.Create(ctx, "search-dag-2", []byte(dag2Content))
 	require.NoError(t, err)
 
@@ -688,7 +688,7 @@ steps:
 description: "This contains the search pattern"
 steps:
   - name: step1
-    command: echo "hello"`
+    run: echo "hello"`
 	err = store.Create(ctx, "search-dag-3", []byte(dag3Content))
 	require.NoError(t, err)
 
@@ -735,7 +735,7 @@ func TestLabelList(t *testing.T) {
 labels: ["web", "daily"]
 steps:
   - name: step1
-    command: echo "tag1"`
+    run: echo "tag1"`
 	err := store.Create(ctx, "label-dag-1", []byte(dag1Content))
 	require.NoError(t, err)
 
@@ -743,14 +743,14 @@ steps:
 labels: ["batch", "daily", "weekly"]
 steps:
   - name: step1
-    command: echo "tag2"`
+    run: echo "tag2"`
 	err = store.Create(ctx, "label-dag-2", []byte(dag2Content))
 	require.NoError(t, err)
 
 	dag3Content := `name: label-dag-3
 steps:
   - name: step1
-    command: echo "no labels"`
+    run: echo "no labels"`
 	err = store.Create(ctx, "label-dag-3", []byte(dag3Content))
 	require.NoError(t, err)
 
@@ -784,7 +784,7 @@ func TestLoadSpec(t *testing.T) {
 	validSpec := `name: load-spec-dag
 steps:
   - name: step1
-    command: echo "load spec"`
+    run: echo "load spec"`
 	dag, err := store.LoadSpec(ctx, []byte(validSpec))
 	require.NoError(t, err)
 	require.NotNil(t, dag)
@@ -811,9 +811,9 @@ func TestLoadSpecWithBaseGraphType(t *testing.T) {
 	dag, err := store.LoadSpec(ctx, []byte(`name: base-graph-dag
 steps:
   - name: build
-    command: echo build
+    run: echo build
   - name: test
-    command: echo test
+    run: echo test
     depends: [build]
 `))
 	require.NoError(t, err)
@@ -855,7 +855,7 @@ labels:
   - workspace=ops
 steps:
   - name: step1
-    command: echo "hello"
+    run: echo "hello"
 `))
 	require.NoError(t, err)
 	assert.Contains(t, dag.Env, "GLOBAL_ONLY=1")
@@ -884,7 +884,7 @@ func TestGetMetadataRefreshesCacheWhenBaseConfigChanges(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dagDir, "cache-refresh.yaml"), []byte(`name: cache-refresh
 steps:
   - name: step1
-    command: echo "hello"
+    run: echo "hello"
 `), 0600))
 
 	dag, err := store.GetMetadata(ctx, "cache-refresh")
@@ -927,7 +927,7 @@ labels:
   - workspace=ops
 steps:
   - name: step1
-    command: echo "hello"
+    run: echo "hello"
 `), 0600))
 
 	dag, err := store.GetMetadata(ctx, "workspace-cache-refresh")
@@ -959,7 +959,7 @@ labels:
   - env=dev
 steps:
   - name: step1
-    command: echo "hello"
+    run: echo "hello"
 `), 0600))
 
 	result, errList, err := store.List(ctx, exec.ListDAGsOptions{})
@@ -1009,7 +1009,7 @@ labels:
   - workspace=ops
 steps:
   - name: step1
-    command: echo "hello"
+    run: echo "hello"
 `), 0600))
 
 	result, errList, err := store.List(ctx, exec.ListDAGsOptions{})
@@ -1048,7 +1048,7 @@ func TestListWithPagination(t *testing.T) {
 		dagContent := fmt.Sprintf(`name: paginate-dag-%d
 steps:
   - name: step1
-    command: echo "dag %d"`, i, i)
+    run: echo "dag %d"`, i, i)
 		err := store.Create(ctx, fmt.Sprintf("paginate-dag-%d", i), []byte(dagContent))
 		require.NoError(t, err)
 	}
@@ -1091,7 +1091,7 @@ func TestListAlphabeticalSorting(t *testing.T) {
 		content := fmt.Sprintf(`name: %s
 steps:
   - name: step1
-    command: echo "%s"`, dag.name, dag.name)
+    run: echo "%s"`, dag.name, dag.name)
 		err := store.Create(ctx, dag.fileName, []byte(content))
 		require.NoError(t, err)
 	}
@@ -1133,7 +1133,7 @@ func TestListWithFiltering(t *testing.T) {
 labels: ["web", "frontend"]
 steps:
   - name: step1
-    command: echo "web"`
+    run: echo "web"`
 	err := store.Create(ctx, "filter-web-dag", []byte(dag1Content))
 	require.NoError(t, err)
 
@@ -1141,7 +1141,7 @@ steps:
 labels: ["batch", "backend"]
 steps:
   - name: step1
-    command: echo "batch"`
+    run: echo "batch"`
 	err = store.Create(ctx, "filter-batch-dag", []byte(dag2Content))
 	require.NoError(t, err)
 
@@ -1157,7 +1157,7 @@ steps:
 	fileNameOnlyContent := `name: display-name-only
 steps:
   - name: step1
-    command: echo "file-name-filter"`
+    run: echo "file-name-filter"`
 	err = store.Create(ctx, "file-name-only-match", []byte(fileNameOnlyContent))
 	require.NoError(t, err)
 
@@ -1226,7 +1226,7 @@ func TestListWithSortAndOrder(t *testing.T) {
 		content := fmt.Sprintf(`name: %s
 steps:
   - name: step1
-    command: echo "%s"`, dag.name, dag.name)
+    run: echo "%s"`, dag.name, dag.name)
 		err := store.Create(ctx, dag.fileName, []byte(content))
 		require.NoError(t, err)
 	}
@@ -1342,14 +1342,14 @@ schedule:
     - at: "%s"
 steps:
   - name: step1
-    command: echo "one-off"`, oneOffTime.Format(time.RFC3339))
+    run: echo "one-off"`, oneOffTime.Format(time.RFC3339))
 	require.NoError(t, store.Create(ctx, "overdue-one-off", []byte(oneOffContent)))
 
 	cronContent := `name: future-cron
 schedule: "0 3 * * *"
 steps:
   - name: step1
-    command: echo "cron"`
+    run: echo "cron"`
 	require.NoError(t, store.Create(ctx, "future-cron", []byte(cronContent)))
 
 	defaultResult, errList, err := store.List(ctx, exec.ListDAGsOptions{
@@ -1414,7 +1414,7 @@ func TestListWithSortingAndPagination(t *testing.T) {
 		content := fmt.Sprintf(`name: %s
 steps:
   - name: step1
-    command: echo "%s"`, name, name)
+    run: echo "%s"`, name, name)
 		err := store.Create(ctx, name, []byte(content))
 		require.NoError(t, err)
 	}
@@ -1517,7 +1517,7 @@ func TestListIncludesDAGsWithErrors(t *testing.T) {
 	validDAG := `
 steps:
   - name: step1
-    command: echo hello
+    run: echo hello
 `
 	err := os.WriteFile(filepath.Join(tmpDir, "valid.yaml"), []byte(validDAG), 0644)
 	require.NoError(t, err)
@@ -1527,7 +1527,7 @@ steps:
 nonexistent: error-dag
 steps:
   - name: step1
-    command: echo hello
+    run: echo hello
 `
 	err = os.WriteFile(filepath.Join(tmpDir, "error.yaml"), []byte(errorDAG), 0644)
 	require.NoError(t, err)
@@ -1632,7 +1632,7 @@ func TestListWithNextRunSortingPutsSuspendedDAGsLast(t *testing.T) {
 schedule: "%s"
 steps:
   - name: step1
-    command: echo "test"`, name, schedule)
+    run: echo "test"`, name, schedule)
 		require.NoError(t, store.Create(ctx, name, []byte(content)))
 	}
 
@@ -1689,7 +1689,7 @@ func TestIndexInvalidationOnMutations(t *testing.T) {
 	content := `name: mutation-dag
 steps:
   - name: step1
-    command: echo hello`
+    run: echo hello`
 	require.NoError(t, store.Create(ctx, "mutation-dag", []byte(content)))
 
 	// List to build index.
@@ -1728,7 +1728,7 @@ steps:
 	updatedContent := `name: mutation-dag
 steps:
   - name: step1
-    command: echo updated`
+    run: echo updated`
 	require.NoError(t, store.UpdateSpec(ctx, "mutation-dag", []byte(updatedContent)))
 	assert.False(t, fileExists(indexPath), "index should be invalidated after UpdateSpec")
 
@@ -1789,7 +1789,7 @@ func TestLoadOrRebuildIndex_NonExistentFlagsDir(t *testing.T) {
 	dagContent := `name: flags-test
 steps:
   - name: s1
-    command: echo ok`
+    run: echo ok`
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "flags-test.yaml"), []byte(dagContent), 0600))
 
 	store := New(tmpDir, WithSkipExamples(true)).(*Storage)
@@ -1810,7 +1810,7 @@ func TestInvalidateIndex_RemovesFile(t *testing.T) {
 	dagContent := `name: inv-test
 steps:
   - name: s1
-    command: echo ok`
+    run: echo ok`
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "inv-test.yaml"), []byte(dagContent), 0600))
 
 	result := store.loadOrRebuildIndex(ctx)

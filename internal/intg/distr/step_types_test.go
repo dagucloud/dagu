@@ -91,7 +91,9 @@ step_types:
 name: parent-custom-step-base
 steps:
   - name: call-child
-    call: child-dag
+    action: dag.run
+    with:
+      dag: child-dag
 
 ---
 name: child-dag

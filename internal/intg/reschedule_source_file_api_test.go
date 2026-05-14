@@ -28,7 +28,7 @@ func TestAPIRescheduleQueuedFileRunUsesStoredSourceFile(t *testing.T) {
 	initialSpec := `queue: intg_reschedule_source_file
 steps:
   - name: main
-    command: echo stored snapshot`
+    run: echo stored snapshot`
 
 	_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
 		Name: dagName,
@@ -55,7 +55,7 @@ steps:
 	currentSpec := `queue: intg_reschedule_source_file
 steps:
   - name: main
-    command: echo current file`
+    run: echo current file`
 	require.NoError(t, os.WriteFile(dagPath, []byte(currentSpec), 0o600))
 
 	useCurrentDagFile := true

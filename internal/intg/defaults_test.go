@@ -25,7 +25,7 @@ defaults:
 
 steps:
   - name: failing-step
-    command: exit 1
+    run: exit 1
 `)
 	agent := dag.Agent()
 	_ = agent.Run(agent.Context)
@@ -47,10 +47,10 @@ defaults:
 
 steps:
   - name: fail-step
-    command: exit 1
+    run: exit 1
 
   - name: success-step
-    command: echo "runs after failure"
+    run: echo "runs after failure"
 `)
 	agent := dag.Agent()
 	_ = agent.Run(agent.Context)
@@ -76,7 +76,7 @@ defaults:
 
 steps:
   - name: failing-step
-    command: exit 1
+    run: exit 1
     retry_policy:
       limit: 1
       interval_sec: 0
@@ -103,7 +103,7 @@ defaults:
 
 steps:
   - name: step-with-both
-    command: echo "${DEFAULT_KEY}_${STEP_KEY}"
+    run: echo "${DEFAULT_KEY}_${STEP_KEY}"
     env:
       - STEP_KEY: step_value
     output: RESULT

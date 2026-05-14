@@ -24,7 +24,7 @@ func TestDAGExecutor(t *testing.T) {
 	testDAG := th.DAG(t, `
 steps:
   - name: test-step
-    command: echo "test"
+    run: echo "test"
 `)
 	coordinatorCli := coordinator.New(th.ServiceRegistry, coordinator.DefaultConfig())
 

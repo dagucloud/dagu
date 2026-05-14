@@ -825,7 +825,7 @@ func TestValidateIfDAGFile(t *testing.T) {
 		filePath := filepath.Join(dir, "workflow.yaml")
 		validDAG := `steps:
   - name: step1
-    command: echo hello
+    run: echo hello
 `
 		require.NoError(t, os.WriteFile(filePath, []byte(validDAG), 0o600))
 
@@ -840,7 +840,7 @@ func TestValidateIfDAGFile(t *testing.T) {
 		filePath := filepath.Join(dir, "workflow.yaml")
 		invalidDAG := `steps:
   - name: step1
-    command: echo hello
+    run: echo hello
     timeout_sec: -1
 `
 		require.NoError(t, os.WriteFile(filePath, []byte(invalidDAG), 0o600))
@@ -872,7 +872,7 @@ func TestPatchTool_DAGValidation(t *testing.T) {
 		filePath := filepath.Join(dir, "workflow.yaml")
 		invalidDAG := `steps:
   - name: step1
-    command: echo hello
+    run: echo hello
     timeout_sec: -1
 `
 		result := tool.Run(ToolContext{}, patchInput(filePath, "create", "content", invalidDAG))
@@ -890,7 +890,7 @@ func TestPatchTool_DAGValidation(t *testing.T) {
 		filePath := filepath.Join(dir, "workflow.yaml")
 		validDAG := `steps:
   - name: step1
-    command: echo hello
+    run: echo hello
 `
 		result := tool.Run(ToolContext{}, patchInput(filePath, "create", "content", validDAG))
 
@@ -907,7 +907,7 @@ func TestPatchTool_DAGValidation(t *testing.T) {
 		filePath := filepath.Join(dir, "workflow.yaml")
 		initialDAG := `steps:
   - name: step1
-    command: echo hello
+    run: echo hello
     timeout_sec: 10
 `
 		require.NoError(t, os.WriteFile(filePath, []byte(initialDAG), 0o600))

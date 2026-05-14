@@ -40,7 +40,7 @@ vi.mock('../DAGDetailsContent', () => ({
     dag: { name: string };
     activeTab: string;
     dagRunId?: string;
-    editorHints?: { inheritedCustomStepTypes?: unknown[] };
+    editorHints?: { inheritedLegacyDefinitions?: unknown[] };
     forceEnqueue?: boolean;
     onEnqueue?: (
       params: string,
@@ -53,7 +53,9 @@ vi.mock('../DAGDetailsContent', () => ({
         Previewing {dag.name} [{activeTab}]{' '}
         {forceEnqueue ? 'forced' : 'default'} {dagRunId || 'latest'}
       </div>
-      <div>Inherited hints: {editorHints?.inheritedCustomStepTypes?.length ?? 0}</div>
+      <div>
+        Inherited hints: {editorHints?.inheritedLegacyDefinitions?.length ?? 0}
+      </div>
       {onEnqueue ? (
         <button
           type="button"
@@ -245,7 +247,7 @@ describe('DAGDetailsSidePanel', () => {
             latestDAGRun: undefined,
             localDags: [],
             editorHints: {
-              inheritedCustomStepTypes: [{ name: 'greet' }],
+              inheritedLegacyDefinitions: [{ name: 'greet' }],
             },
           },
           error: undefined,

@@ -138,7 +138,7 @@ func createTestDAG(t *testing.T, server test.Server, token, name string) {
 	spec := `
 steps:
   - name: test
-    command: echo hello
+    run: echo hello
 `
 	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
 		Name: name,
@@ -899,10 +899,11 @@ webhook:
     - X-GitHub-Delivery
 steps:
   - name: capture-headers
-    shell: /bin/sh
-    command: |
+    run: |
       test -n "${WEBHOOK_HEADERS}"
       printf '%s' "$WEBHOOK_HEADERS" > ` + headersFile + `
+    with:
+      shell: /bin/sh
 `
 	if runtime.GOOS == "windows" {
 		spec = `
@@ -912,10 +913,11 @@ webhook:
     - X-GitHub-Delivery
 steps:
   - name: capture-headers
-    shell: powershell
-    command: |
+    run: |
       if ($null -eq $env:WEBHOOK_HEADERS) { throw 'WEBHOOK_HEADERS not set' }
       [System.IO.File]::WriteAllText("` + strings.ReplaceAll(headersFile, `\`, `\\`) + `", $env:WEBHOOK_HEADERS)
+    with:
+      shell: powershell
 `
 	}
 

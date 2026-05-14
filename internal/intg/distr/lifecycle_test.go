@@ -28,7 +28,7 @@ worker_selector:
   test: "true"
 steps:
   - name: long-task
-    command: %s
+    run: %s
 `, test.ShellQuote(test.Sleep(60*time.Second))))
 		defer f.cleanup()
 
@@ -64,7 +64,9 @@ func TestCancellation_SubDAG(t *testing.T) {
 	t.Run("parentCancelPropagatesToChildOnWorker", func(t *testing.T) {
 		f := newTestFixture(t, fmt.Sprintf(`
 steps:
-  - call: dotest
+  - action: dag.run
+    with:
+      dag: dotest
 params:
   - URL: default_value
 ---
@@ -73,7 +75,7 @@ worker_selector:
   foo: bar
 steps:
   - name: long-sleep
-    command: %s
+    run: %s
 `, test.ShellQuote(test.Sleep(30*time.Second))), withLabels(map[string]string{"foo": "bar"}))
 		defer f.cleanup()
 
@@ -112,7 +114,9 @@ steps:
 		f := newTestFixture(t, fmt.Sprintf(`
 steps:
   - name: run-local-on-worker
-    call: local-sub
+    action: dag.run
+    with:
+      dag: local-sub
     output: RESULT
 
 ---
@@ -121,7 +125,7 @@ worker_selector:
   type: test-worker
 steps:
   - name: worker-task
-    command: %s
+    run: %s
     output: MESSAGE
 `, test.ShellQuote(test.Sleep(1000*time.Second))), withLabels(map[string]string{"type": "test-worker"}))
 
@@ -204,7 +208,9 @@ func TestCancellation_ConcurrentWorkers(t *testing.T) {
 		f := newTestFixture(t, fmt.Sprintf(`
 steps:
   - name: high-concurrency
-    call: child-task
+    action: dag.run
+    with:
+      dag: child-task
     parallel:
       items:
         - "task1"
@@ -221,7 +227,7 @@ worker_selector:
   type: test-worker
 steps:
   - name: process
-    command: %s
+    run: %s
 `, test.ShellQuote(test.Sleep(30*time.Second))), withWorkerCount(3), withLabels(map[string]string{"type": "test-worker"}),
 			withDAGsDir(tmpDir), withLogPersistence())
 
@@ -268,9 +274,9 @@ worker_selector:
   test: "true"
 steps:
   - name: task1
-    command: %s
+    run: %s
   - name: task2
-    command: echo "should not run"
+    run: echo "should not run"
     depends: [task1]
 `, test.ShellQuote(test.Sleep(30*time.Second))))
 		defer f.cleanup()
@@ -301,7 +307,9 @@ func TestCancellation_ParallelItems(t *testing.T) {
 		f := newTestFixture(t, fmt.Sprintf(`
 steps:
   - name: process-items
-    call: child-sleep
+    action: dag.run
+    with:
+      dag: child-sleep
     parallel:
       items:
         - "100"
@@ -316,7 +324,7 @@ worker_selector:
   type: test-worker
 steps:
   - name: sleep
-    command: %s
+    run: %s
 `, test.ShellQuote(test.Sleep(100*time.Second))), withWorkerCount(2), withLabels(map[string]string{"type": "test-worker"}),
 			withDAGsDir(tmpDir), withLogPersistence())
 
@@ -376,9 +384,9 @@ worker_selector:
   test: "true"
 steps:
   - name: task1
-    command: echo "task1 executed"
+    run: echo "task1 executed"
   - name: task2
-    command: echo "task2 executed"
+    run: echo "task2 executed"
     depends: [task1]
 `)
 		defer f.cleanup()
@@ -416,9 +424,9 @@ worker_selector:
   test: "true"
 steps:
   - name: task1
-    command: echo "task1 executed"
+    run: echo "task1 executed"
   - name: task2
-    command: echo "task2 executed"
+    run: echo "task2 executed"
     depends: [task1]
 `)
 		defer f.cleanup()
@@ -459,9 +467,9 @@ worker_selector:
   test: "true"
 steps:
   - name: step1
-    command: echo "step1"
+    run: echo "step1"
   - name: step2
-    command: echo "step2"
+    run: echo "step2"
     depends: [step1]
 `)
 		defer f.cleanup()
@@ -501,7 +509,7 @@ worker_selector:
   test: "true"
 steps:
   - name: task1
-    command: echo "sharedfs task1"
+    run: echo "sharedfs task1"
 `, withWorkerMode(sharedFSMode))
 		defer f.cleanup()
 
@@ -537,7 +545,7 @@ worker_selector:
   test: "true"
 steps:
   - name: task1
-    command: echo "sharedfs task1"
+    run: echo "sharedfs task1"
 `, withWorkerMode(sharedFSMode))
 		defer f.cleanup()
 

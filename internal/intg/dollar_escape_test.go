@@ -28,12 +28,12 @@ env:
   - PRICE: '\$9.99'
 steps:
   - name: jq-price
-    type: jq
+    action: jq.filter
     with:
+      filter: ".price"
+      data: |
+        {"price":"${PRICE}"}
       raw: true
-    script: |
-      {"price":"${PRICE}"}
-    command: ".price"
     output: PRICE_OUT
 `)
 		agent := dag.Agent()
@@ -52,12 +52,12 @@ steps:
 		dag := th.DAG(t, `
 steps:
   - name: jq-literal
-    type: jq
+    action: jq.filter
     with:
+      filter: ".literal"
+      data: |
+        {"literal":"'${HOME}'"}
       raw: true
-    script: |
-      {"literal":"'${HOME}'"}
-    command: ".literal"
     output: LITERAL_OUT
 `)
 		agent := dag.Agent()
@@ -97,15 +97,16 @@ env:
   - TOKEN: secret
 steps:
   - name: http-price
-    type: http
+    action: http.request
     with:
+      method: POST
+      url: %s/price
       headers:
         Authorization: "Bearer \\$TOKEN"
         Content-Type: application/json
       body: |-
         {"price":"\$TOKEN"}
       silent: true
-    command: POST %s/price
 `, server.URL))
 		agent := dag.Agent()
 		agent.RunSuccess(t)

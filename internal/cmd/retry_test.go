@@ -33,7 +33,7 @@ func TestRetryCommand(t *testing.T) {
 		dagFile := th.DAG(t, `params: "p1"
 steps:
   - name: "1"
-    command: echo param is $1
+    run: echo param is $1
 `)
 
 		// Run a DAG.
@@ -68,7 +68,7 @@ steps:
 		dagFile := th.DAG(t, `params: "p1"
 steps:
   - name: "1"
-    command: echo param is $1
+    run: echo param is $1
 `)
 
 		// Run a DAG.
@@ -103,7 +103,7 @@ steps:
 		dagFile := th.DAG(t, `name: queued-catchup-dag
 steps:
   - name: "1"
-    command: echo queued catchup
+    run: echo queued catchup
 `)
 
 		runID := "queued-catchup-run"
@@ -145,7 +145,7 @@ steps:
 		dagFile := th.DAG(t, `name: queued-retry-dag
 steps:
   - name: "1"
-    command: echo queued retry
+    run: echo queued retry
 `)
 
 		runID := "queued-retry-run"
@@ -186,7 +186,7 @@ steps:
 		dagFile := th.DAG(t, `name: queue-dispatch-stale-retry
 steps:
   - name: "1"
-    command: echo stale dispatch
+    run: echo stale dispatch
 `)
 
 		err := th.RunCommandWithError(t, cmd.Retry(), test.CmdTest{
@@ -204,7 +204,7 @@ steps:
 		dagFile := th.DAG(t, `name: retry-root-same-run
 steps:
   - name: "1"
-    command: echo retry root
+    run: echo retry root
 `)
 
 		th.RunCommand(t, cmd.Start(), test.CmdTest{
@@ -253,10 +253,11 @@ steps:
 working_dir: %q
 steps:
   - name: target
-    shell: %s
-    command: |
+    run: |
 %s
-`, workDir, shell, command))
+    with:
+      shell: %s
+`, workDir, command, shell))
 
 		runID := "retry-working-dir-run"
 		err := th.RunCommandWithError(t, cmd.Start(), test.CmdTest{
@@ -308,7 +309,7 @@ secrets:
     key: QUEUED_CATCHUP_SECRET_SOURCE
 steps:
   - name: "1"
-    command: printf '%s|%s' "$EXPORTED_SECRET" "${QUEUED_CATCHUP_SECRET_SOURCE:-}"
+    run: printf '%s|%s' "$EXPORTED_SECRET" "${QUEUED_CATCHUP_SECRET_SOURCE:-}"
     output: RESULT
 `)
 
@@ -358,7 +359,7 @@ steps:
 		dagFile := th.DAG(t, `name: retry-trigger-dag
 steps:
   - name: "1"
-    command: echo retry trigger
+    run: echo retry trigger
 `)
 
 		th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", dagFile.Location}})
@@ -390,14 +391,15 @@ env:
   - EXPORTED_SECRET: ${CMD_RETRY_EXPLICIT_ENV}
 steps:
   - name: "capture"
-    shell: bash
-    command: |
+    run: |
       if [ ! -f %[1]q ]; then
         touch %[1]q
         printf '%%s|%%s' "$EXPORTED_SECRET" "${CMD_RETRY_EXPLICIT_ENV:-}"
         exit 1
       fi
       printf '%%s|%%s' "$EXPORTED_SECRET" "${CMD_RETRY_EXPLICIT_ENV:-}"
+    with:
+      shell: bash
     output: RESULT
 `, markerPath))
 

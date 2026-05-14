@@ -118,9 +118,9 @@ worker_selector:
   test: "true"
 steps:
   - name: step1
-    command: echo "step1"
+    run: echo "step1"
   - name: step2
-    command: echo "step2"
+    run: echo "step2"
     depends: [step1]
 `)
 		defer f.cleanup()
@@ -147,7 +147,7 @@ worker_selector:
   test: "true"
 steps:
   - name: echo-step
-    command: echo "`+expectedOutput+`"
+    run: echo "`+expectedOutput+`"
 `, withLogPersistence())
 		defer f.cleanup()
 
@@ -179,7 +179,7 @@ worker_selector:
   test: "true"
 steps:
   - name: big-output
-    command: |
+    run: |
 `+command+`
 `, withLogPersistence())
 		defer f.cleanup()
@@ -371,9 +371,9 @@ worker_selector:
   test: "true"
 steps:
   - name: step1
-    command: echo "step1 output"
+    run: echo "step1 output"
   - name: step2
-    command: echo "step2 output"
+    run: echo "step2 output"
     depends: [step1]
 `)
 		defer f.cleanup()
@@ -396,9 +396,9 @@ worker_selector:
   test: "true"
 steps:
   - name: step1
-    command: echo "no name field"
+    run: echo "no name field"
   - name: step2
-    command: echo "step2 output"
+    run: echo "step2 output"
     depends: [step1]
 `)
 		defer f.cleanup()
@@ -424,7 +424,7 @@ worker_selector:
   test: "true"
 steps:
   - name: step1
-    command: echo "tagged run"
+    run: echo "tagged run"
 `)
 		defer f.cleanup()
 
@@ -447,7 +447,7 @@ worker_selector:
   test: "true"
 steps:
   - name: step1
-    command: echo "tagged sharedfs run"
+    run: echo "tagged sharedfs run"
 `, withWorkerMode(sharedFSMode))
 		defer f.cleanup()
 
@@ -471,9 +471,9 @@ worker_selector:
   test: "true"
 steps:
   - name: step1
-    command: echo "step1"
+    run: echo "step1"
   - name: step2
-    command: echo "step2"
+    run: echo "step2"
     depends: [step1]
 `, withWorkerMode(sharedFSMode))
 		defer f.cleanup()
@@ -496,7 +496,7 @@ worker_selector:
   test: "true"
 steps:
   - name: echo-step
-    command: echo "test output"
+    run: echo "test output"
 `, withWorkerMode(sharedFSMode))
 		defer f.cleanup()
 
@@ -536,12 +536,12 @@ worker_selector:
   env: test
 steps:
   - name: task1
-    command: echo "subprocess task1"
+    run: echo "subprocess task1"
   - name: task2
-    command: echo "subprocess task2"
+    run: echo "subprocess task2"
     depends: [task1]
   - name: task3
-    command: echo "subprocess task3"
+    run: echo "subprocess task3"
     depends: [task2]
 `, opts...)
 		defer f.cleanup()
@@ -584,9 +584,9 @@ worker_selector:
   test: "true"
 steps:
   - name: step1
-    command: echo "direct start"
+    run: echo "direct start"
   - name: step2
-    command: echo "done"
+    run: echo "done"
     depends: [step1]
 `, withWorkerMode(sharedFSMode))
 		defer f.cleanup()
@@ -607,9 +607,9 @@ worker_selector:
   test: "true"
 steps:
   - name: step1
-    command: echo "no name field"
+    run: echo "no name field"
   - name: step2
-    command: echo "done"
+    run: echo "done"
     depends: [step1]
 `, withWorkerMode(sharedFSMode))
 		defer f.cleanup()
@@ -633,9 +633,9 @@ worker_selector:
   test: "true"
 steps:
   - name: write-to-workdir
-    command: echo "hello" > "${DAG_RUN_WORK_DIR}/test.txt"
+    run: echo "hello" > "${DAG_RUN_WORK_DIR}/test.txt"
   - name: read-from-workdir
-    command: cat "${DAG_RUN_WORK_DIR}/test.txt"
+    run: cat "${DAG_RUN_WORK_DIR}/test.txt"
     depends: [write-to-workdir]
 `, withLogPersistence())
 		defer f.cleanup()
@@ -659,9 +659,9 @@ worker_selector:
   test: "true"
 steps:
   - name: write-to-workdir
-    command: echo "world" > "${DAG_RUN_WORK_DIR}/data.txt"
+    run: echo "world" > "${DAG_RUN_WORK_DIR}/data.txt"
   - name: read-from-workdir
-    command: cat "${DAG_RUN_WORK_DIR}/data.txt"
+    run: cat "${DAG_RUN_WORK_DIR}/data.txt"
     depends: [write-to-workdir]
 `, withWorkerMode(sharedFSMode), withLogPersistence())
 		defer f.cleanup()
@@ -685,7 +685,7 @@ worker_selector:
   test: "true"
 steps:
   - name: task1
-    command: echo "done"
+    run: echo "done"
 `)
 		defer f.cleanup()
 
@@ -712,9 +712,9 @@ worker_selector:
   env: prod
 steps:
   - name: step1
-    command: echo "step1"
+    run: echo "step1"
   - name: step2
-    command: echo "step2"
+    run: echo "step2"
     depends: [step1]
 `, withLabels(map[string]string{"env": "prod"}))
 		defer f.cleanup()
@@ -747,7 +747,7 @@ worker_selector:
   test: "true"
 steps:
   - name: echo-step
-    command: echo "`+expectedOutput+`"
+    run: echo "`+expectedOutput+`"
 `, withLogPersistence())
 		defer f.cleanup()
 
@@ -778,7 +778,7 @@ worker_selector:
   test: "true"
 steps:
   - name: echo-step
-    command: echo "`+expectedOutput+`"
+    run: echo "`+expectedOutput+`"
 `, withWorkerMode(sharedFSMode))
 		defer f.cleanup()
 

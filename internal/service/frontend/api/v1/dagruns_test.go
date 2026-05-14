@@ -179,13 +179,14 @@ func syncSuccessDagSpec() string {
 	if runtime.GOOS == "windows" {
 		return `steps:
   - name: echo-step
-    shell: cmd
-    command: "echo hello sync"`
+    run: "echo hello sync"
+    with:
+      shell: cmd`
 	}
 
 	return `steps:
   - name: echo-step
-    command: "echo hello sync"`
+    run: "echo hello sync"`
 }
 
 func TestGetDAGRunSpec(t *testing.T) {
@@ -193,7 +194,7 @@ func TestGetDAGRunSpec(t *testing.T) {
 
 	dagSpec := `steps:
   - name: main
-    command: "echo spec_test"`
+    run: "echo spec_test"`
 
 	// Create a new DAG
 	_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
@@ -234,7 +235,7 @@ func TestGetDAGRunSpecInline(t *testing.T) {
 
 	inlineSpec := `steps:
   - name: inline_step
-    command: "echo inline_dag_test"`
+    run: "echo inline_dag_test"`
 
 	name := "inline_spec_dag"
 
@@ -257,7 +258,7 @@ func TestGetDAGRunSpecInlineStartWithLabelsDoesNotPatchSpec(t *testing.T) {
 
 	inlineSpec := `steps:
   - name: inline_step
-    command: "echo inline_start_labels"`
+    run: "echo inline_start_labels"`
 	name := "inline_spec_start_labels"
 	labels := []string{"env=prod", "team=backend"}
 
@@ -326,7 +327,7 @@ func TestGetDAGRunSpecInlineEnqueueWithLabelsPatchesSpec(t *testing.T) {
 
 	inlineSpec := `steps:
   - name: inline_step
-    command: "echo inline_enqueue_labels"`
+    run: "echo inline_enqueue_labels"`
 	name := "inline_enqueue_labels"
 	labels := []string{"env=prod", "team=backend"}
 
@@ -377,7 +378,7 @@ func TestGetDAGRunSpecFileEnqueueWithLabelsDoesNotPatchSpec(t *testing.T) {
 
 	dagSpec := `steps:
   - name: main
-    command: "echo file_enqueue_labels"`
+    run: "echo file_enqueue_labels"`
 	dagName := "file_enqueue_labels"
 	labels := []string{"env=staging", "priority=low"}
 
@@ -434,8 +435,10 @@ func TestGetSubDAGRunSpec(t *testing.T) {
 	// Create a parent DAG with an inline sub-DAG definition
 	dagSpec := fmt.Sprintf(`steps:
   - name: call_child
-    call: child_dag
-    params: "MSG=hello"
+    action: dag.run
+    with:
+      dag: child_dag
+      params: "MSG=hello"
 
 ---
 
@@ -444,7 +447,7 @@ params:
   - MSG
 steps:
   - name: echo_message
-    command: %q`, childCommand)
+    run: %q`, childCommand)
 
 	// Create the parent DAG
 	_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
@@ -511,12 +514,12 @@ func TestApproveDAGRunStep(t *testing.T) {
 	dagSpec := fmt.Sprintf(`type: graph
 steps:
   - name: wait-step
-    command: %q
+    run: %q
     approval:
       prompt: "Please approve"
   - name: after-wait
     depends: [wait-step]
-    command: "echo approved"`, "exit 0")
+    run: "echo approved"`, "exit 0")
 
 	_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
 		Name: "approval_test_dag",
@@ -560,7 +563,7 @@ func TestApproveDAGRunStepWithInputs(t *testing.T) {
 	dagSpec := fmt.Sprintf(`type: graph
 steps:
   - name: wait-step
-    command: %q
+    run: %q
     approval:
       prompt: "Please provide reason"
       input:
@@ -570,7 +573,7 @@ steps:
         - reason
   - name: after-wait
     depends: [wait-step]
-    command: %q`, "exit 0", test.EnvOutput("reason", "approver"))
+    run: %q`, "exit 0", test.EnvOutput("reason", "approver"))
 
 	_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
 		Name: "approval_inputs_dag",
@@ -675,7 +678,7 @@ func TestApproveDAGRunStepNotWaiting(t *testing.T) {
 
 	dagSpec := `steps:
   - name: main
-    command: "echo done"`
+    run: "echo done"`
 
 	_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
 		Name: "no_wait_dag",
@@ -706,12 +709,12 @@ func TestRejectDAGRunStep(t *testing.T) {
 type: graph
 steps:
   - name: wait-step
-    command: "exit 0"
+    run: "exit 0"
     approval:
       prompt: "Please approve"
   - name: after-wait
     depends: [wait-step]
-    command: "echo should not run"`)
+    run: "echo should not run"`)
 	ref := seedLatestDAGRunStatus(t, server, dag.DAG, "reject-waiting-run", core.Waiting, seedDAGRunStatusOptions{
 		nodeStatuses: map[string]core.NodeStatus{
 			"wait-step": core.NodeWaiting,
@@ -743,7 +746,7 @@ func TestRejectDAGRunStepNotWaiting(t *testing.T) {
 
 	dagSpec := `steps:
   - name: main
-    command: "echo done"`
+    run: "echo done"`
 
 	_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
 		Name: "reject_not_waiting_dag",
@@ -777,7 +780,7 @@ func TestRescheduleDAGRun(t *testing.T) {
 
 	dagSpec := `steps:
   - name: main
-    command: "echo reschedule"`
+    run: "echo reschedule"`
 
 	_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
 		Name: "reschedule_dag",
@@ -822,7 +825,7 @@ func TestRescheduleDAGRunResolvesLatest(t *testing.T) {
 
 	dagSpec := `steps:
   - name: main
-    command: "echo reschedule latest"`
+    run: "echo reschedule latest"`
 
 	_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
 		Name: "reschedule_latest_dag",
@@ -923,7 +926,7 @@ env:
 
 	dagSpec := `steps:
   - name: main
-    command: echo "$BASE_FROM_SNAPSHOT"`
+    run: echo "$BASE_FROM_SNAPSHOT"`
 
 	_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
 		Name: dagName,
@@ -978,7 +981,7 @@ func TestRescheduleDAGRunCanUseCurrentDAGFile(t *testing.T) {
 	initialSpec := `queue: reschedule_use_current_file
 steps:
   - name: main
-    command: echo stored snapshot`
+    run: echo stored snapshot`
 
 	_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
 		Name: dagName,
@@ -1009,7 +1012,7 @@ steps:
 	currentSpec := `queue: reschedule_use_current_file
 steps:
   - name: main
-    command: echo current file`
+    run: echo current file`
 	dagPath := filepath.Join(server.Config.Paths.DAGsDir, dagName+".yaml")
 	assertRescheduleSpecSourceFlag(t, server, dagName, startBody.DagRunId, true)
 	originalAttempt, originalDAG := test.WaitForAttemptSnapshotWithDAG(t, server, dagName, startBody.DagRunId)
@@ -1047,7 +1050,7 @@ func TestRescheduleDAGRunRequiresQueuesEnabled(t *testing.T) {
 
 	dagSpec := `steps:
   - name: main
-    command: "echo reschedule disabled"`
+    run: "echo reschedule disabled"`
 
 	_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
 		Name: "reschedule_requires_queue_dag",
@@ -1094,7 +1097,7 @@ name: single_retry_queue_dag
 queue: single-retry-queue
 steps:
   - name: main
-    command: echo queued retry
+    run: echo queued retry
 `)
 
 	seedLatestDAGRunStatus(t, server, dag.DAG, "queued-run", core.Failed, seedDAGRunStatusOptions{
@@ -1140,7 +1143,7 @@ if (Test-Path "$env:DAG_RUN_LOG_FILE.marker") {
 	dagSpec := fmt.Sprintf(`
 steps:
   - name: main
-    command: |
+    run: |
 %s
 `, indentCommandBlock(retryCommand, 6))
 
@@ -1200,7 +1203,7 @@ retry_policy:
   interval_sec: 60
 steps:
   - name: main
-    command: "echo fail"
+    run: "echo fail"
 `)
 
 	ref := seedLatestDAGRunStatus(
@@ -1247,7 +1250,7 @@ retry_policy:
   interval_sec: 60
 steps:
   - name: main
-    command: "echo fail"
+    run: "echo fail"
 `)
 
 	ref := seedLatestDAGRunStatus(
@@ -1318,7 +1321,7 @@ func TestExecuteDAGSyncTimeout(t *testing.T) {
 	// Create a DAG with a step that takes longer than the timeout
 	dagSpec := fmt.Sprintf(`steps:
   - name: slow-step
-    command: |
+    run: |
 %s`, indentCommandBlock(holdUntilFileExistsCommand(releaseFile), 6))
 
 	_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
@@ -1351,7 +1354,7 @@ func TestExecuteDAGSyncWithWaitingStatus(t *testing.T) {
 	// Create a DAG with approval step that will wait for approval
 	dagSpec := fmt.Sprintf(`steps:
   - name: wait-step
-    command: %q
+    run: %q
     approval:
       prompt: "Approve this"`, "exit 0")
 
@@ -1603,7 +1606,7 @@ func TestExecuteDAGSyncSingleton(t *testing.T) {
 	// Create a DAG with a slow step
 	dagSpec := fmt.Sprintf(`steps:
   - name: slow-step
-    command: |
+    run: |
 %s`, indentCommandBlock(holdUntilFileExistsCommand(releaseFile), 6))
 
 	_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
@@ -1642,20 +1645,20 @@ func TestListDAGRunsFilterByLabels(t *testing.T) {
   - critical
 steps:
   - name: main
-    command: "echo prod-critical"`
+    run: "echo prod-critical"`
 
 	dagSpecDev := `labels:
   - dev
   - critical
 steps:
   - name: main
-    command: "echo dev-critical"`
+    run: "echo dev-critical"`
 
 	dagSpecTest := `labels:
   - test
 steps:
   - name: main
-    command: "echo test-only"`
+    run: "echo test-only"`
 
 	// Create the DAGs
 	_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
@@ -1755,7 +1758,7 @@ func TestListDAGRunsFilterByPartialName(t *testing.T) {
 
 	spec := `steps:
   - name: main
-    command: "echo search"`
+    run: "echo search"`
 
 	for idx, dagName := range []string{
 		"test-params-flag",
@@ -1794,7 +1797,7 @@ func TestListDAGRunsByNameRemainsExact(t *testing.T) {
 
 	spec := `steps:
   - name: main
-    command: "echo search"`
+    run: "echo search"`
 
 	for idx, dagName := range []string{
 		"test-params-flag",

@@ -235,7 +235,7 @@ func TestLoadYAMLLogStep(t *testing.T) {
 	dag, err := LoadYAML(context.Background(), []byte(`
 steps:
   - name: announce
-    type: log
+    action: log.write
     with:
       message: "Deploying ${ENVIRONMENT}"
 `))
@@ -2131,8 +2131,8 @@ func TestValidateMultipleCommands(t *testing.T) {
 
 			if tt.wantErr {
 				assert.Error(t, err)
-				assert.Contains(t, err.Error(), `step type "`+tt.executorType+`" supports only one command`)
-				assert.NotContains(t, err.Error(), "step type does not support multiple commands")
+				assert.Contains(t, err.Error(), `action "`+tt.executorType+`" supports only one command`)
+				assert.NotContains(t, err.Error(), "action does not support multiple commands")
 				assert.NotContains(t, err.Error(), "executor")
 				assert.True(t, errors.Is(err, ErrExecutorDoesNotSupportMultipleCmd))
 			} else {
@@ -2686,7 +2686,7 @@ func TestStepValidationMessagesUseYAMLTerms(t *testing.T) {
 					ExecutorConfig: core.ExecutorConfig{Type: "dag"},
 				})
 			},
-			want: `step type "dag" does not support command field`,
+			want: `action "dag" does not support command field`,
 		},
 		{
 			name: "unsupported multiple commands",
@@ -2699,7 +2699,7 @@ func TestStepValidationMessagesUseYAMLTerms(t *testing.T) {
 					ExecutorConfig: core.ExecutorConfig{Type: "http"},
 				})
 			},
-			want: `step type "http" supports only one command`,
+			want: `action "http" supports only one command`,
 		},
 		{
 			name: "unsupported llm",
@@ -2709,7 +2709,7 @@ func TestStepValidationMessagesUseYAMLTerms(t *testing.T) {
 					LLM:            &core.LLMConfig{Provider: "openai", Model: "gpt-4"},
 				})
 			},
-			want: `step type "shell" does not support llm field`,
+			want: `action "shell" does not support llm field`,
 		},
 		{
 			name: "unknown type",
@@ -2717,7 +2717,7 @@ func TestStepValidationMessagesUseYAMLTerms(t *testing.T) {
 				result := &core.Step{ExecutorConfig: core.ExecutorConfig{Config: make(map[string]any)}}
 				return buildStepExecutor(testStepBuildContext(), &step{Type: "non-existent"}, result)
 			},
-			want: `unknown step type "non-existent"`,
+			want: `unknown action "non-existent"`,
 		},
 	}
 
@@ -2740,8 +2740,7 @@ func TestUnregisteredExecutorValidation(t *testing.T) {
 	yaml := `
 steps:
   - name: invalid-step
-    type: non-existent
-    command: echo hello
+    action: non-existent
 `
 	tmpDir := t.TempDir()
 	tmpFile := filepath.Join(tmpDir, "test.yaml")
@@ -2750,7 +2749,7 @@ steps:
 
 	_, err = Load(context.Background(), tmpFile)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "unknown step type \"non-existent\"")
+	assert.Contains(t, err.Error(), "unknown action \"non-existent\"")
 	assert.NotContains(t, err.Error(), "does not support command field")
 	assert.NotContains(t, err.Error(), "executor")
 }
@@ -2904,7 +2903,7 @@ func TestBuildStep_StdoutStderrSameFile_Error(t *testing.T) {
 
 	data := []byte(`
 name: test-step
-command: echo hello
+run: echo hello
 stdout: /tmp/combined.log
 stderr: /tmp/combined.log
 `)
@@ -3019,12 +3018,12 @@ func TestStepExecutorNewFormat_Integration(t *testing.T) {
 			name: "NewFormat_SSH",
 			yaml: `steps:
   - name: deploy
-    type: ssh
+    action: ssh.run
     with:
+      command: uptime
       host: prod.example.com
       user: deploy
       port: 22
-    command: uptime
 `,
 			wantType: "ssh",
 			wantConfig: map[string]any{
@@ -3037,15 +3036,18 @@ func TestStepExecutorNewFormat_Integration(t *testing.T) {
 			name: "NewFormat_HTTP",
 			yaml: `steps:
   - name: webhook
-    type: http
+    action: http.request
     with:
+      method: POST
+      url: https://api.example.com
       timeout: 30
       headers:
         Authorization: Bearer token123
-    command: POST https://api.example.com
 `,
 			wantType: "http",
 			wantConfig: map[string]any{
+				"method":  "POST",
+				"url":     "https://api.example.com",
 				"timeout": uint64(30),
 				"headers": map[string]any{
 					"Authorization": "Bearer token123",
@@ -3056,10 +3058,10 @@ func TestStepExecutorNewFormat_Integration(t *testing.T) {
 			name: "NewFormat_JQ",
 			yaml: `steps:
   - name: parse
-    type: jq
+    action: jq.filter
     with:
+      filter: .name
       raw: true
-    command: .name
 `,
 			wantType: "jq",
 			wantConfig: map[string]any{
@@ -3070,10 +3072,10 @@ func TestStepExecutorNewFormat_Integration(t *testing.T) {
 			name: "NewFormat_SSH",
 			yaml: `steps:
   - name: ssh-step
-    type: ssh
+    action: ssh.run
     with:
+      command: uptime
       host: example.com
-    command: uptime
 `,
 			wantType: "ssh",
 			wantConfig: map[string]any{

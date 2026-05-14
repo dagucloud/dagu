@@ -2525,7 +2525,7 @@ export interface paths {
         };
         /**
          * List agent sessions
-         * @description Lists sessions for the current user. Use `paginationMode=cursor` and pass `cursor` to load the next page returned by `nextCursor`; `page` remains available for compatibility.
+         * @description Lists sessions for the current user. `listAgentSessions` uses `AgentSessionPaginationMode=cursor` or an `AgentSessionCursor` value to return cursor pages and `nextCursor`; cursor mode rejects `Page` because mixed cursor/page requests are ambiguous, while `PerPage` still controls page size. Without cursor mode it uses `Page` and `PerPage` offset pagination. `RemoteNode` selects the target node for either pagination mode. Malformed or invalid cursor values return 400.
          */
         get: operations["listAgentSessions"];
         put?: never;
@@ -3527,16 +3527,33 @@ export interface components {
         };
         /** @description Editor-only metadata used to synthesize per-document schema hints */
         DAGEditorHints: {
-            /** @description Custom step types inherited from base config and available to the current DAG */
-            inheritedCustomStepTypes: components["schemas"]["InheritedCustomStepTypeHint"][];
+            /** @description Deprecated legacy execution definitions inherited from base config and available to the current DAG */
+            inheritedLegacyDefinitions: components["schemas"]["InheritedLegacyDefinitionHint"][];
+            /** @description Custom actions inherited from base config and available to the current DAG */
+            inheritedCustomActions?: components["schemas"]["InheritedCustomActionHint"][];
         };
-        /** @description Resolved editor hint for an inherited custom step type */
-        InheritedCustomStepTypeHint: {
-            /** @description Custom step type name */
+        /** @description Resolved editor hint for an inherited custom action */
+        InheritedCustomActionHint: {
+            /** @description Custom action name */
             name: string;
-            /** @description Builtin executor type that the custom step expands to */
+            /** @description Optional custom action description */
+            description?: string;
+            /** @description Resolved JSON Schema object used to validate and document with input */
+            inputSchema: {
+                [key: string]: unknown;
+            };
+            /** @description Resolved JSON Schema object used to validate stdout JSON output */
+            outputSchema?: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description Resolved editor hint for an inherited deprecated legacy execution definition */
+        InheritedLegacyDefinitionHint: {
+            /** @description Deprecated legacy execution definition name */
+            name: string;
+            /** @description Builtin executor type that the deprecated legacy execution definition expands to */
             targetType: string;
-            /** @description Optional custom step description */
+            /** @description Optional deprecated legacy execution definition description */
             description?: string;
             /** @description Resolved JSON Schema object used to validate and document with input */
             inputSchema: {

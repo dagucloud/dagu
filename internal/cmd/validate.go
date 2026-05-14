@@ -6,6 +6,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/dagucloud/dagu/internal/cmn/logger"
@@ -73,12 +74,38 @@ func runValidate(ctx *Context, args []string) error {
 		return errors.New(formatValidationErrors(args[0], vErr))
 	}
 
+	deprecatedWarnings := collectDeprecatedSyntaxWarnings(dag)
+	for _, warning := range deprecatedWarnings {
+		logger.Warn(ctx, warning, tag.File(args[0]))
+	}
+
 	// Success
 	logger.Info(ctx, "DAG spec is valid",
 		tag.File(args[0]),
 		tag.Name(dag.GetName()),
 	)
 	return nil
+}
+
+func collectDeprecatedSyntaxWarnings(dag *core.DAG) []string {
+	if dag == nil {
+		return nil
+	}
+
+	warnings := spec.DeprecatedSyntaxWarnings(dag.YamlData)
+	if len(dag.LocalDAGs) == 0 {
+		return warnings
+	}
+
+	names := make([]string, 0, len(dag.LocalDAGs))
+	for name := range dag.LocalDAGs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		warnings = append(warnings, spec.DeprecatedSyntaxWarnings(dag.LocalDAGs[name].YamlData)...)
+	}
+	return warnings
 }
 
 // formatValidationErrors builds a readable error output from a (possibly wrapped) error.

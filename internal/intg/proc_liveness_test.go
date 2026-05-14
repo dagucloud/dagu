@@ -39,7 +39,7 @@ func TestProcHeartbeat_StartCommand(t *testing.T) {
 name: proc-heartbeat-start
 steps:
   - name: sleep
-    command: sleep 2
+    run: sleep 2
 `)
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()
@@ -78,7 +78,7 @@ func TestProcHeartbeat_RetryCommand(t *testing.T) {
 name: proc-heartbeat-retry
 steps:
   - name: sleep
-    command: sleep 2
+    run: sleep 2
 `)
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()

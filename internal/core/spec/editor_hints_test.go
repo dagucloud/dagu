@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestEditorHintForCustomStepType_UsesEmptySchemaWhenInputSchemaMissing(t *testing.T) {
+func TestEditorHintForLegacyDefinition_UsesEmptySchemaWhenInputSchemaMissing(t *testing.T) {
 	t.Parallel()
 
-	hint, ok, err := editorHintForCustomStepType(&customStepType{
+	hint, ok, err := editorHintForLegacyDefinition(&customStepType{
 		Name:        "greet",
 		Type:        "command",
 		Description: "Send a greeting",
@@ -25,7 +25,7 @@ func TestEditorHintForCustomStepType_UsesEmptySchemaWhenInputSchemaMissing(t *te
 	require.Equal(t, map[string]any{}, hint.InputSchema)
 }
 
-func TestEditorHintForCustomStepType_ResolvesSchemaObject(t *testing.T) {
+func TestEditorHintForLegacyDefinition_ResolvesSchemaObject(t *testing.T) {
 	t.Parallel()
 
 	inputSchema, err := resolveCustomStepTypeInputSchema("greet", map[string]any{
@@ -38,7 +38,7 @@ func TestEditorHintForCustomStepType_ResolvesSchemaObject(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	hint, ok, err := editorHintForCustomStepType(&customStepType{
+	hint, ok, err := editorHintForLegacyDefinition(&customStepType{
 		Name:        "greet",
 		Type:        "command",
 		InputSchema: inputSchema,

@@ -39,7 +39,7 @@ worker_selector:
   role: e2e
 steps:
   - name: scheduled-step
-    command: echo "scheduled recovery ok"
+    run: echo "scheduled recovery ok"
 `
     );
 

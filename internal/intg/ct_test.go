@@ -65,11 +65,11 @@ env:
   - FOO: BAR
   - ABC=XYZ
 steps:
-  - type: docker
+  - action: docker.run
     with:
       image: alpine:3
       auto_remove: true
-    command: echo 123 abc $FOO $ABC
+      command: echo 123 abc $FOO $ABC
     output: DOCKER_EXEC_OUT1
 `,
 			expectedOutputs: map[string]any{
@@ -80,12 +80,12 @@ steps:
 			name: "AutoStartContainer",
 			dagConfig: `
 steps:
-  - type: docker
+  - action: docker.run
     with:
       image: alpine:3
       auto_remove: true
       container_name: dagu-autostart
-    command: echo "container started"
+      command: echo "container started"
     output: DOCKER_EXEC_OUT1
 `,
 			expectedOutputs: map[string]any{
@@ -127,11 +127,11 @@ container:
   volumes:
     - %s:/data:rw
 steps:
-  - sh -c "echo 'Hello from step 1' > /data/test.txt"
-  - command: cat /data/test.txt
+  - run: sh -c "echo 'Hello from step 1' > /data/test.txt"
+  - run: cat /data/test.txt
     output: BIND_MOUNT_OUT1
-  - sh -c "echo 'Hello from step 3' >> /data/test.txt"
-  - command: cat /data/test.txt
+  - run: sh -c "echo 'Hello from step 3' >> /data/test.txt"
+  - run: cat /data/test.txt
     output: BIND_MOUNT_OUT2
 `, testImage, tempDir)
 			},
@@ -149,7 +149,7 @@ env:
 container:
   image: %s
 steps:
-  - command: echo 123 abc $FOO
+  - run: echo 123 abc $FOO
     output: CONTAINER_BASIC_OUT1
 `, testImage)
 			},
@@ -164,7 +164,7 @@ steps:
 container:
   image: %s
 steps:
-  - command: printf '%%s' '\$HOME'
+  - run: printf '%%s' '\$HOME'
     output: DOLLAR_NO_SHELL_OUT1
 `, testImage)
 			},
@@ -180,7 +180,7 @@ container:
   image: %s
   shell: ["/bin/sh", "-c"]
 steps:
-  - command: 'echo "\$HOME"'
+  - run: 'echo "\$HOME"'
     output: DOLLAR_SHELL_OUT1
 `, testImage)
 			},
@@ -195,7 +195,7 @@ steps:
 container:
   image: %s
 steps:
-  - command: echo hello world
+  - run: echo hello world
     output: CMD_WITH_ARGS_OUT1
 `, testImage)
 			},
@@ -211,7 +211,7 @@ container:
   image: %s
   working_dir: /tmp
 steps:
-  - command: pwd
+  - run: pwd
     output: WORK_DIR_OUT1
 `, testImage)
 			},
@@ -227,7 +227,7 @@ container:
   image: %s
   user: "nobody"
 steps:
-  - command: whoami
+  - run: whoami
     output: WITH_USER_OUT1
 `, testImage)
 			},
@@ -244,10 +244,10 @@ container:
   volumes:
     - test-volume:/data
 steps:
-  - sh -c "echo 'Data in named volume' > /data/volume.txt"
-  - command: cat /data/volume.txt
+  - run: sh -c "echo 'Data in named volume' > /data/volume.txt"
+  - run: cat /data/volume.txt
     output: NAMED_VOL_OUT1
-  - command: ls -la /data/
+  - run: ls -la /data/
     output: NAMED_VOL_OUT2
 `, testImage)
 			},
@@ -277,12 +277,12 @@ container:
   volumes:
     - ./:/workspace:rw
 steps:
-  - command: cat /workspace/initial.txt
+  - run: cat /workspace/initial.txt
     output: WORK_DIR_VOL_OUT1
-  - sh -c "echo 'New content' > /workspace/new.txt"
-  - command: cat /workspace/new.txt
+  - run: sh -c "echo 'New content' > /workspace/new.txt"
+  - run: cat /workspace/new.txt
     output: WORK_DIR_VOL_OUT2
-  - command: ls -la /workspace/
+  - run: ls -la /workspace/
     output: WORK_DIR_VOL_OUT3
 `, subDir, testImage)
 			},
@@ -301,9 +301,9 @@ container:
   image: %s
   shell: ["/bin/sh", "-c"]
 steps:
-  - command: echo hello shell
+  - run: echo hello shell
     output: SHELL_BASIC_OUT1
-  - command: echo world
+  - run: echo world
     output: SHELL_BASIC_OUT2
 `, testImage)
 			},
@@ -321,7 +321,7 @@ container:
   image: %s
   shell: ["/bin/sh", "-c"]
 steps:
-  - command: echo line1 && echo line2
+  - run: echo line1 && echo line2
     output: SHELL_OPERATOR_OUT1
 `, testImage)
 			},
@@ -338,7 +338,7 @@ container:
   image: %s
   shell: ["/bin/sh"]
 steps:
-  - command: echo auto-flag-test
+  - run: echo auto-flag-test
     output: SHELL_AUTO_FLAG_OUT1
 `, testImage)
 			},
@@ -355,7 +355,7 @@ container:
   image: %s
   shell: ["/bin/sh", "-c"]
 steps:
-  - command: echo hello | tr a-z A-Z
+  - run: echo hello | tr a-z A-Z
     output: SHELL_PIPE_OUT1
 `, testImage)
 			},
@@ -373,7 +373,7 @@ container:
   image: %s
   shell: ["/bin/sh", "-e", "-x", "-c"]
 steps:
-  - command: echo "strict mode enabled"
+  - run: echo "strict mode enabled"
     output: STRICT_MODE_OUT1
 `, testImage)
 			},
@@ -389,7 +389,7 @@ steps:
 container:
   image: %s
 steps:
-  - command: echo no shell wrapper
+  - run: echo no shell wrapper
     output: NO_SHELL_OUT1
 `, testImage)
 			},
@@ -429,7 +429,7 @@ container:
   image: %s
   pull_policy: never
 steps:
-  - command: echo 'pull policy test'
+  - run: echo 'pull policy test'
     output: OUT1
 `, testImage)
 
@@ -437,7 +437,7 @@ steps:
 container:
   image: %s
 steps:
-  - "true"
+  - run: "true"
 `, testImage)
 
 	// First, ensure the image exists by running with default pull policy
@@ -467,7 +467,7 @@ container:
   startup: entrypoint
   wait_for: healthy
 steps:
-  - command: echo entrypoint-ok
+  - run: echo entrypoint-ok
     output: ENTRYPOINT_OK
 `, nginxTestImage)
 
@@ -492,7 +492,7 @@ container:
   startup: command
   command: ["sh", "-c", "while true; do sleep 3600; done"]
 steps:
-  - command: echo command-ok
+  - run: echo command-ok
     output: COMMAND_OK
 `, testImage)
 
@@ -516,12 +516,12 @@ func TestDockerExecutor_ExecInExistingContainer(t *testing.T) {
 
 	dagConfig := fmt.Sprintf(`
 steps:
-  - type: docker
+  - action: docker.run
     with:
       container_name: %s
       exec:
         working_dir: /
-    command: echo hello-existing
+      command: echo hello-existing
     output: EXEC_EXISTING_OUT
 `, containerName)
 
@@ -541,11 +541,11 @@ func TestDockerExecutor_ErrorIncludesRecentStderr(t *testing.T) {
 
 	dagConfig := fmt.Sprintf(`
 steps:
-  - type: docker
+  - action: docker.run
     with:
       image: %s
       auto_remove: true
-    command: sh -c 'echo first 1>&2; echo second 1>&2; exit 7'
+      command: sh -c 'echo first 1>&2; echo second 1>&2; exit 7'
 `, testImage)
 
 	dag := th.DAG(t, dagConfig)
@@ -684,7 +684,7 @@ steps:
   - name: run-in-container
     container:
       image: %s
-    command: echo "hello from step container"
+    run: echo "hello from step container"
     output: STEP_CONTAINER_OUT
 `, testImage)
 			},
@@ -701,7 +701,7 @@ steps:
     container:
       image: %s
       working_dir: /tmp
-    command: pwd
+    run: pwd
     output: STEP_WORKDIR_OUT
 `, testImage)
 			},
@@ -719,7 +719,7 @@ steps:
       image: %s
       env:
         - MY_VAR=hello_world
-    command: sh -c "echo $MY_VAR"
+    run: sh -c "echo $MY_VAR"
     output: STEP_ENV_OUT
 `, testImage)
 			},
@@ -738,13 +738,13 @@ steps:
       image: %s
       volumes:
         - %s:/data
-    command: sh -c "echo 'step volume test' > /data/step_test.txt"
+    run: sh -c "echo 'step volume test' > /data/step_test.txt"
   - name: read-file
     container:
       image: %s
       volumes:
         - %s:/data
-    command: cat /data/step_test.txt
+    run: cat /data/step_test.txt
     output: STEP_VOL_OUT
     depends:
       - write-file
@@ -762,12 +762,12 @@ steps:
   - name: alpine-step
     container:
       image: %s
-    command: cat /etc/alpine-release
+    run: cat /etc/alpine-release
     output: ALPINE_VERSION
   - name: busybox-step
     container:
       image: busybox:latest
-    command: echo "busybox step"
+    run: echo "busybox step"
     output: BUSYBOX_OUT
 `, testImage)
 			},
@@ -785,12 +785,12 @@ container:
 
 steps:
   - name: use-dag-container
-    command: echo "in DAG container"
+    run: echo "in DAG container"
     output: DAG_CONTAINER_OUT
   - name: use-step-container
     container:
       image: %s
-    command: cat /etc/alpine-release
+    run: cat /etc/alpine-release
     output: STEP_CONTAINER_OUT
 `, testImage)
 			},
@@ -807,7 +807,7 @@ steps:
     container:
       image: %s
       user: "nobody"
-    command: whoami
+    run: whoami
     output: STEP_USER_OUT
 `, testImage)
 			},
@@ -824,7 +824,7 @@ steps:
     container:
       image: %s
       pull_policy: never
-    command: echo "pull never ok"
+    run: echo "pull never ok"
     output: PULL_NEVER_OUT
 `, testImage)
 			},
@@ -851,7 +851,7 @@ steps:
       env:
         - SEMIC_CONTAINER_VAR=from_container
         - SEMIC_SHARED_VAR=container_value
-    command: printenv SEMIC_SHARED_VAR
+    run: printenv SEMIC_SHARED_VAR
     output: SEMIC_MERGED_ENV_OUT
 `, testImage)
 			},
@@ -871,7 +871,7 @@ steps:
       - MY_STEP_VAR=hello_from_step
     container:
       image: %s
-    command: printenv MY_STEP_VAR
+    run: printenv MY_STEP_VAR
     output: STEP_ENV_ONLY_OUT
 `, testImage)
 			},
@@ -913,7 +913,7 @@ steps:
     container:
       image: %s
       shell: ["/bin/sh", "-c"]
-    command: echo $((1 + 2))
+    run: echo $((1 + 2))
     output: STEP_SHELL_BASIC_OUT
 `, testImage)
 			},
@@ -934,7 +934,7 @@ steps:
     container:
       image: %s
       shell: ["/bin/sh", "-c"]
-    command: echo hello | tr a-z A-Z
+    run: echo hello | tr a-z A-Z
     output: STEP_SHELL_PIPE_OUT
 `, testImage)
 			},
@@ -954,7 +954,7 @@ steps:
     container:
       image: %s
       shell: ["/bin/sh", "-c"]
-    command: echo line1 && echo line2
+    run: echo line1 && echo line2
     output: STEP_SHELL_OPERATOR_OUT
 `, testImage)
 			},
@@ -976,7 +976,7 @@ steps:
       shell: ["/bin/sh", "-c"]
       env:
         - TEST_SHELL_VAR=expanded_value
-    command: echo $TEST_SHELL_VAR
+    run: echo $TEST_SHELL_VAR
     output: STEP_SHELL_ENVVAR_OUT
 `, testImage)
 			},
@@ -997,7 +997,7 @@ steps:
       image: %s
       env:
         - CDEIC_RESULT: ${CDEIC_DAG_VAR}
-    command: printenv CDEIC_RESULT
+    run: printenv CDEIC_RESULT
     output: CDEIC_OUT
 `, testImage)
 			},
@@ -1018,7 +1018,7 @@ steps:
       image: %s
       env:
         - CDPIC_RESULT: ${CDPIC_PARAM}
-    command: printenv CDPIC_RESULT
+    run: printenv CDPIC_RESULT
     output: CDPIC_OUT
 `, testImage)
 			},
@@ -1039,7 +1039,7 @@ steps:
       - SEWDR_STEP: ${SEWDR_BASE}
     container:
       image: %s
-    command: printenv SEWDR_STEP
+    run: printenv SEWDR_STEP
     output: SEWDR_OUT
 `, testImage)
 			},
@@ -1060,7 +1060,7 @@ steps:
       env:
         - CETR_FIRST: first_val
         - CETR_SECOND: ${CETR_FIRST}_extended
-    command: printenv CETR_SECOND
+    run: printenv CETR_SECOND
     output: CETR_OUT
 `, testImage)
 			},
@@ -1114,7 +1114,7 @@ func TestContainerExecMode(t *testing.T) {
 			dagConfig: fmt.Sprintf(`
 container: %s
 steps:
-  - command: echo "hello from string form"
+  - run: echo "hello from string form"
     output: STRING_FORM_OUT
 `, containerName),
 			expectedOutputs: map[string]any{
@@ -1127,7 +1127,7 @@ steps:
 steps:
   - name: exec-string
     container: %s
-    command: echo "step string form"
+    run: echo "step string form"
     output: STEP_STRING_OUT
 `, containerName),
 			expectedOutputs: map[string]any{
@@ -1140,7 +1140,7 @@ steps:
 container:
   exec: %s
 steps:
-  - command: echo "hello from exec form"
+  - run: echo "hello from exec form"
     output: EXEC_FORM_OUT
 `, containerName),
 			expectedOutputs: map[string]any{
@@ -1154,7 +1154,7 @@ container:
   exec: %s
   user: root
 steps:
-  - command: whoami
+  - run: whoami
     output: EXEC_USER_OUT
 `, containerName),
 			expectedOutputs: map[string]any{
@@ -1168,7 +1168,7 @@ container:
   exec: %s
   working_dir: /tmp
 steps:
-  - command: pwd
+  - run: pwd
     output: EXEC_WORKDIR_OUT
 `, containerName),
 			expectedOutputs: map[string]any{
@@ -1183,7 +1183,7 @@ container:
   env:
     - EXEC_TEST_VAR=exec_env_value
 steps:
-  - command: printenv EXEC_TEST_VAR
+  - run: printenv EXEC_TEST_VAR
     output: EXEC_ENV_OUT
 `, containerName),
 			expectedOutputs: map[string]any{
@@ -1198,7 +1198,7 @@ steps:
     container:
       exec: %s
       user: root
-    command: whoami
+    run: whoami
     output: STEP_EXEC_OUT
 `, containerName),
 			expectedOutputs: map[string]any{
@@ -1211,9 +1211,9 @@ steps:
 container:
   exec: %s
 steps:
-  - command: echo "first command"
+  - run: echo "first command"
     output: MULTI_OUT_1
-  - command: echo "second command"
+  - run: echo "second command"
     output: MULTI_OUT_2
 `, containerName),
 			expectedOutputs: map[string]any{
@@ -1231,7 +1231,7 @@ container:
   env:
     - CUSTOM_VAR=test123
 steps:
-  - command: sh -c "echo user=$(whoami) dir=$(pwd) var=$CUSTOM_VAR"
+  - run: sh -c "echo user=$(whoami) dir=$(pwd) var=$CUSTOM_VAR"
     output: ALL_OVERRIDES_OUT
 `, containerName),
 			expectedOutputs: map[string]any{
@@ -1247,9 +1247,9 @@ container:
   exec: %s
   shell: ["/bin/sh", "-c"]
 steps:
-  - command: echo "shell in exec mode"
+  - run: echo "shell in exec mode"
     output: EXEC_SHELL_OUT1
-  - command: echo "second command"
+  - run: echo "second command"
     output: EXEC_SHELL_OUT2
 `, containerName),
 			expectedOutputs: map[string]any{
@@ -1284,7 +1284,7 @@ func TestContainerExecNotFound(t *testing.T) {
 	dagConfig := fmt.Sprintf(`
 container: %s
 steps:
-  - command: echo "should not run"
+  - run: echo "should not run"
 `, nonExistentContainer)
 
 	dag := th.DAG(t, dagConfig)
@@ -1331,7 +1331,7 @@ func TestContainerExecNotRunning(t *testing.T) {
 	dagConfig := fmt.Sprintf(`
 container: %s
 steps:
-  - command: echo "should not run"
+  - run: echo "should not run"
 `, containerName)
 
 	dag := th.DAG(t, dagConfig)
@@ -1361,7 +1361,7 @@ container:
     retries: 10
   wait_for: healthy
 steps:
-  - command: echo "container is healthy"
+  - run: echo "container is healthy"
     output: HEALTHCHECK_OUT
 `, testImage)
 
@@ -1395,7 +1395,7 @@ steps:
         start_period: 3s
         retries: 10
       wait_for: healthy
-    command: echo "step container healthy"
+    run: echo "step container healthy"
     output: STEP_HEALTHCHECK_OUT
 `, testImage)
 
@@ -1429,7 +1429,7 @@ env:
   - EXEC_CONTAINER_NAME: %s
 container: ${EXEC_CONTAINER_NAME}
 steps:
-  - command: echo "variable expansion works"
+  - run: echo "variable expansion works"
     output: VAR_OUT
 `, containerName)
 
@@ -1450,7 +1450,7 @@ env:
 container:
   exec: ${EXEC_CONTAINER_NAME}
 steps:
-  - command: echo "object form variable expansion"
+  - run: echo "object form variable expansion"
     output: OBJ_VAR_OUT
 `, containerName)
 
@@ -1471,7 +1471,7 @@ env:
 steps:
   - name: step-var
     container: ${STEP_CONTAINER}
-    command: echo "step level variable"
+    run: echo "step level variable"
     output: STEP_VAR_OUT
 `, containerName)
 

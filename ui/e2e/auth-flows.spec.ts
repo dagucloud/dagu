@@ -127,7 +127,7 @@ test.describe('auth flows', () => {
 name: ${dagName}
 steps:
   - name: echo
-    command: echo "operator test"
+    run: echo "operator test"
 `
     );
     await waitForDAGAvailable(request, adminToken, fileName);

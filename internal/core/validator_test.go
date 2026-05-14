@@ -375,7 +375,7 @@ func TestValidateSteps(t *testing.T) {
 		}
 		err := ValidateSteps(dag)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "only supported for child-DAGs")
+		assert.Contains(t, err.Error(), "parallel currently requires action: dag.run")
 	})
 
 	t.Run("parallel config with max_concurrent 0 fails", func(t *testing.T) {

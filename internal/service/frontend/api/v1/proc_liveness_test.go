@@ -53,7 +53,7 @@ func TestServerProcHeartbeat_StartAPI(t *testing.T) {
 	spec := fmt.Sprintf(`
 steps:
   - name: sleep
-    command: |
+    run: |
 %s`, indentCommandBlock(holdUntilFileExistsCommand(release), 6))
 	dagName := "api-proc-heartbeat"
 	_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
@@ -150,7 +150,7 @@ func setupStaleLocalRun(t *testing.T, dagName string) staleLocalRunFixture {
 name: %s
 steps:
   - name: step1
-    command: sleep 2
+    run: sleep 2
 `, dagName))
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()
@@ -212,7 +212,7 @@ func TestServerRepairsConfirmedStaleDistributedRunOnDetailsRead(t *testing.T) {
 name: api-stale-distributed-repair
 steps:
   - name: step1
-    command: sleep 2
+    run: sleep 2
 `)
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()
@@ -283,7 +283,7 @@ func TestServerRepairsConfirmedStaleDistributedRunOnDetailsReadWithoutSavedWorke
 name: api-stale-distributed-repair-no-worker
 steps:
   - name: step1
-    command: sleep 2
+    run: sleep 2
 `)
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()

@@ -42,7 +42,7 @@ smtp:
 
 steps:
   - name: test-step
-    command: echo "SMTP config evaluated successfully"
+    run: echo "SMTP config evaluated successfully"
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -78,7 +78,7 @@ wait_mail:
 
 steps:
   - name: test-step
-    command: echo "WaitMail config evaluated successfully"
+    run: echo "WaitMail config evaluated successfully"
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -115,7 +115,7 @@ error_mail:
 
 steps:
   - name: test-step
-    command: echo "Multiple recipients evaluated successfully"
+    run: echo "Multiple recipients evaluated successfully"
     output: RESULT
 `)
 		agent := dag.Agent()
@@ -174,7 +174,7 @@ info_mail:
 
 steps:
   - name: test-step
-    command: echo "All mail configs evaluated successfully"
+    run: echo "All mail configs evaluated successfully"
     output: RESULT
 `)
 		agent := dag.Agent()

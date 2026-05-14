@@ -47,26 +47,25 @@ func TestSFTPExecutorIntegration(t *testing.T) {
 type: graph
 steps:
   - name: upload-file
-    type: sftp
+    action: sftp.upload
     with:
       host: 127.0.0.1
       port: "%s"
       user: %s
       key: "%s"
       strict_host_key: false
-      direction: upload
       source: "%s"
       destination: /tmp/uploaded_file.txt
   - name: verify-upload
-    type: ssh
+    action: ssh.run
     with:
+      command: cat /tmp/uploaded_file.txt
       host: 127.0.0.1
       port: "%s"
       user: %s
       key: "%s"
       strict_host_key: false
       shell: /bin/sh
-    command: cat /tmp/uploaded_file.txt
     output: UPLOAD_VERIFY
     depends:
       - upload-file
@@ -92,25 +91,24 @@ steps:
 type: graph
 steps:
   - name: create-remote-file
-    type: ssh
+    action: ssh.run
     with:
+      command: |
+        echo "sftp download test content" > /tmp/download_test.txt
       host: 127.0.0.1
       port: "%s"
       user: %s
       key: "%s"
       strict_host_key: false
       shell: /bin/sh
-    script: |
-      echo "sftp download test content" > /tmp/download_test.txt
   - name: download-file
-    type: sftp
+    action: sftp.download
     with:
       host: 127.0.0.1
       port: "%s"
       user: %s
       key: "%s"
       strict_host_key: false
-      direction: download
       source: /tmp/download_test.txt
       destination: "%s"
     depends:
@@ -146,28 +144,27 @@ steps:
 type: graph
 steps:
   - name: upload-dir
-    type: sftp
+    action: sftp.upload
     with:
       host: 127.0.0.1
       port: "%s"
       user: %s
       key: "%s"
       strict_host_key: false
-      direction: upload
       source: "%s"
       destination: /tmp/uploaded_dir
   - name: verify-upload
-    type: ssh
+    action: ssh.run
     with:
+      command: |
+        cat /tmp/uploaded_dir/file1.txt
+        cat /tmp/uploaded_dir/subdir/nested.txt
       host: 127.0.0.1
       port: "%s"
       user: %s
       key: "%s"
       strict_host_key: false
       shell: /bin/sh
-    script: |
-      cat /tmp/uploaded_dir/file1.txt
-      cat /tmp/uploaded_dir/subdir/nested.txt
     output: DIR_UPLOAD_VERIFY
     depends:
       - upload-dir
@@ -193,27 +190,26 @@ steps:
 type: graph
 steps:
   - name: create-remote-dir
-    type: ssh
+    action: ssh.run
     with:
+      command: |
+        mkdir -p /tmp/remote_dir/subdir
+        echo "remote file1" > /tmp/remote_dir/file1.txt
+        echo "remote nested" > /tmp/remote_dir/subdir/nested.txt
       host: 127.0.0.1
       port: "%s"
       user: %s
       key: "%s"
       strict_host_key: false
       shell: /bin/sh
-    script: |
-      mkdir -p /tmp/remote_dir/subdir
-      echo "remote file1" > /tmp/remote_dir/file1.txt
-      echo "remote nested" > /tmp/remote_dir/subdir/nested.txt
   - name: download-dir
-    type: sftp
+    action: sftp.download
     with:
       host: 127.0.0.1
       port: "%s"
       user: %s
       key: "%s"
       strict_host_key: false
-      direction: download
       source: /tmp/remote_dir
       destination: "%s"
     depends:

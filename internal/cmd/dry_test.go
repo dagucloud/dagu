@@ -16,13 +16,13 @@ func TestDryCommand(t *testing.T) {
 
 	dagBasic := th.DAG(t, `steps:
   - name: "1"
-    command: "true"
+    run: "true"
 `)
 
 	dagWithParams := th.DAG(t, `params: "p1 p2"
 steps:
   - name: "1"
-    command: 'echo "params is $1 and $2"'
+    run: 'echo "params is $1 and $2"'
 `)
 
 	tests := []test.CmdTest{
@@ -56,9 +56,9 @@ func TestDryCommand_InvalidDependency(t *testing.T) {
 	dagFile := th.CreateDAGFile(t, "invalid.yaml", `
 type: graph
 steps:
-  - echo A
+  - run: echo A
   - name: "b"
-    command: echo B
+    run: echo B
     depends: ["missing_step"]
 `)
 

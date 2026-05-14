@@ -1,47 +1,46 @@
-# Executor Types
+# Actions
 
-## command / shell (default)
+## run: Shell Commands And Scripts
 
-Shell command execution. Uses step `command:`, `script:`, or `shell:` fields.
+Use top-level `run:` for local shell commands and scripts.
 
 ```yaml
 steps:
-  - name: example
-    command: echo "hello"
+  - id: hello
+    run: echo "hello"
 
-  - name: multi-line
-    script: |
+  - id: multi_line
+    run: |
       echo "step 1"
       echo "step 2"
 
-  - name: custom-shell
-    shell: /bin/bash
-    script: |
+  - id: custom_shell
+    run: |
       set -euo pipefail
       echo "running in bash"
+    with:
+      shell: /bin/bash
 ```
 
-Aliases: (empty), `command`, `shell`
+Fields:
 
-Step-level fields:
-
-- `command` — Command string to execute
-- `args` — Arguments for the command
-- `script` — Multi-line shell script content
-- `shell` — Shell interpreter (e.g., `/bin/bash`)
+- `run` - command string or multi-line shell script
+- `with.shell` - shell interpreter, for example `/bin/bash`
+- `with.shell_args` - shell interpreter arguments
+- `with.shell_packages` - optional packages to install before execution
 
 Notes:
 
-- Dagu expands `${VAR}` before the shell runs. For large or arbitrary text, prefer `printenv VAR_NAME`, reading `${step_id.stdout}` as a file, or `type: template`.
+- Dagu expands `${VAR}` before the shell runs. For large or arbitrary text, prefer `printenv VAR_NAME`, reading `${step_id.stdout}` as a file, or `action: template.render`.
 
-## docker
+## docker.run / container.run
 
 Run commands in Docker containers.
 
 ```yaml
 steps:
-  - name: build
-    type: docker
+  - id: build
+    action: docker.run
     with:
       image: golang:1.23
       pull: always
@@ -49,60 +48,37 @@ steps:
       working_dir: /app
       volumes:
         - /local/src:/app
-    command: go build ./...
+      command: go build ./...
 ```
 
-Aliases: `docker`, `container`
+`with` fields: `image`, `container_name`, `pull`, `auto_remove`, `working_dir`, `volumes`, `shell`, `command`.
 
-`with` fields:
+## dag.run
 
-- `image` — Docker image (required unless `container_name` is set)
-- `container_name` — Name/ID of existing container for exec mode
-- `pull` — Image pull policy: `always`, `never`, `missing` (default)
-- `auto_remove` — Remove container after exit
-- `working_dir` — Working directory inside container
-- `volumes` — Volume mounts (list of `host:container` strings)
-- `shell` — Shell wrapper for step commands (e.g., `["/bin/bash", "-c"]`)
-
-## dag
-
-Execute another DAG as a sub-step.
+Execute another DAG as a child DAG.
 
 ```yaml
 steps:
-  - name: child
-    type: dag
-    call: child-workflow
-    params:
-      input: /data/file.csv
+  - id: child
+    action: dag.run
+    with:
+      dag: child-workflow
+      params:
+        input: /data/file.csv
 ```
 
-Aliases: `dag`, `subworkflow`
-
-Uses step `call:` and `params:` fields. Sub-DAGs do not inherit parent env vars.
-
-Notes:
-
-- Pass values explicitly via `params:` when the child needs parent env vars or derived values.
-- Child string-form `output:` variables are not propagated back into the parent DAG output map. Use files, explicit params, or another handoff if the parent needs results.
+Sub-DAGs do not inherit parent env vars. Pass values explicitly via `with.params`.
 
 ## parallel
 
-Execute same DAG multiple times in parallel. Requires `call:` field.
+`parallel:` currently works only with `action: dag.run`.
 
 ```yaml
 steps:
-  # Simple list of items
-  - name: fan-out
-    call: process-item
-    parallel:
-      - item1
-      - item2
-      - item3
-
-  # Object form with concurrency control
-  - name: fan-out-limited
-    call: process-item
+  - id: fan_out
+    action: dag.run
+    with:
+      dag: process-item
     parallel:
       items:
         - item1
@@ -110,72 +86,53 @@ steps:
         - item3
       max_concurrent: 5
 
-  # Items with key-value parameters
-  - name: fan-out-params
-    call: process-item
-    parallel:
-      items:
-        - SOURCE: s3://customers
-        - SOURCE: s3://products
-
-  # Variable reference (JSON array)
-  - name: fan-out-dynamic
-    call: process-item
+  - id: fan_out_dynamic
+    action: dag.run
+    with:
+      dag: process-item
     parallel: ${ITEMS}
 ```
 
-`parallel` fields:
+Each child invocation receives the current item as `ITEM`.
 
-- `items` — Array of items to process (strings or key-value param maps)
-- `max_concurrent` — Max parallel executions (default 10)
-
-Each parallel invocation receives the current item as the `ITEM` variable.
-
-Notes:
-
-- `parallel:` only works with `call:` to a sub-DAG; it does not fan out a normal shell step.
-- If an upstream step produced multiline text, read `${step_id.stdout}` from a shell step or convert the data into an array before using `parallel:`.
-
-## ssh / sftp
+## ssh.run / sftp.upload / sftp.download
 
 Remote command execution and file transfer over SSH.
 
 ```yaml
 steps:
-  - name: remote
-    type: ssh
+  - id: remote
+    action: ssh.run
     with:
       user: deploy
       host: server.example.com
       key: ~/.ssh/id_rsa
       timeout: 60s
-    command: systemctl restart app
+      command: systemctl restart app
 
-  - name: upload
-    type: sftp
+  - id: upload
+    action: sftp.upload
     with:
       user: deploy
       host: server.example.com
       key: ~/.ssh/id_rsa
-      direction: upload
       source: /local/file.tar.gz
       destination: /remote/file.tar.gz
 ```
 
-Shared SSH `with` fields: `user`, `host`, `port` (default 22), `key`, `password`, `timeout` (default 30s), `strict_host_key` (default true), `known_host_file`, `shell`, `shell_args`, `bastion` (jump host with `host`, `port`, `user`, `key`, `password`).
+Shared SSH fields: `user`, `host`, `port`, `key`, `password`, `timeout`, `strict_host_key`, `known_host_file`, `shell`, `shell_args`, `bastion`.
 
-SFTP additional fields: `direction` (`upload` or `download`), `source`, `destination`.
-
-## http
+## http.request
 
 HTTP requests.
 
 ```yaml
 steps:
-  - name: api-call
-    type: http
-    command: "POST https://api.example.com/data"
+  - id: api_call
+    action: http.request
     with:
+      method: POST
+      url: https://api.example.com/data
       headers:
         Authorization: "Bearer ${TOKEN}"
         Content-Type: application/json
@@ -184,114 +141,84 @@ steps:
       timeout: 30
 ```
 
-Command format: `"METHOD URL"`. `with` fields: `timeout` (seconds), `headers` (map), `query` (map), `body` (string), `silent`, `debug`, `json`, `skip_tls_verify`.
+`with` fields: `method`, `url`, `timeout`, `headers`, `query`, `body`, `silent`, `debug`, `json`, `skip_tls_verify`.
 
-## jq
+## jq.filter
 
 JSON processing.
 
 ```yaml
 steps:
-  - name: transform
-    type: jq
-    command: ".items[] | {name: .name, count: .quantity}"
-    script: '{"items": [{"name": "a", "quantity": 1}]}'
+  - id: transform
+    action: jq.filter
+    with:
+      filter: ".items[] | {name: .name, count: .quantity}"
+      data: '{"items": [{"name": "a", "quantity": 1}]}'
 ```
 
-Query from `command:`, input JSON from `script:`. `with` fields:
+`with.data` is inline JSON input. For files or large JSON documents, use a shell step with the `jq` CLI.
 
-- `raw` — Output raw strings without JSON encoding (like `jq -r`)
-
-Notes:
-
-- The built-in `jq` executor reads inline JSON from `script:` only. It does not consume file paths, `${step_id.stdout}` files, or shell stdin.
-- For local files or large JSON documents, use a shell step with the `jq` CLI instead.
-
-## template
+## template.render
 
 Render text using Go `text/template`.
 
 ```yaml
 steps:
   - id: render
-    type: template
+    action: template.render
     with:
       data:
         name: Alice
-    script: |
-      Hello, {{ .name }}!
+      template: |
+        Hello, {{ .name }}!
     output: RESULT
 ```
 
-Behavior:
+`with.template` is required and is rendered as a template, not executed as shell. `with.output` writes rendered content to a file; top-level `output:` captures or publishes step output.
 
-- `script` is required and is rendered as a template, not executed as a shell script
-- Template data comes from `with.data` and is accessed as `{{ .key }}`
-- Supports normal Go template control flow plus a safe subset of slim-sprig functions
-- Missing keys fail the step
-- If `with.output` is set, the rendered result is written to that file instead of stdout
-- Relative `with.output` paths are resolved from the step working directory
+## postgres.query / sqlite.query / postgres.import / sqlite.import
 
-`with` fields:
-
-- `data` — Object exposed to the template as `.`
-- `output` — File path for rendered output; if omitted, rendered text is written to stdout
-
-Important: step `output:` and `with.output` are different. String-form step `output:` captures stdout into a Dagu variable, object-form step `output:` publishes structured `${step_id.output.*}` values, and `with.output` writes the rendered result directly to a file.
-
-Use `template` when you need to generate text files such as Markdown, config files, SQL, JSON, or prompts. It is usually safer and simpler than building files with `echo`, heredocs, or shell string interpolation.
-
-## sql (postgres / sqlite)
-
-SQL database queries. Use `type: postgres` or `type: sqlite`.
+SQL database queries and imports.
 
 ```yaml
 steps:
-  - name: query
-    type: postgres
+  - id: query
+    action: postgres.query
     with:
       dsn: "postgres://user:pass@localhost:5432/db"
+      query: "SELECT * FROM users WHERE active = true"
       output_format: json
       timeout: 120
       transaction: true
-    script: "SELECT * FROM users WHERE active = true"
 ```
 
-SQL from `command:` (single statement) or `script:` (multiple statements, also supports `file:///path/to/file.sql`).
+`with` fields include `dsn`, `query`, `params`, `timeout`, `transaction`, `isolation_level`, `output_format`, `headers`, `null_string`, `max_rows`, `streaming`, `output_file`, and `import`.
 
-`with` fields: `dsn` (required), `params` (map or array), `timeout` (seconds), `transaction`, `isolation_level` (`default`, `read_committed`, `repeatable_read`, `serializable`), `output_format` (`jsonl`, `json`, `csv`), `headers`, `null_string`, `max_rows`, `streaming`, `output_file`, `import` (bulk import config with `input_file`, `table`, `format`, `batch_size`, etc.).
+## redis.<operation>
 
-SQLite-specific: `shared_memory` (shared cache for `:memory:` DBs across steps), `file_lock`. PostgreSQL-specific: `advisory_lock`.
-
-## redis
-
-Redis operations.
+Redis operations use the operation in the action name.
 
 ```yaml
 steps:
-  - name: cache-set
-    type: redis
+  - id: cache_set
+    action: redis.SET
     with:
       url: "redis://localhost:6379"
-      command: SET
       key: mykey
       value: myvalue
       ttl: 3600
 ```
 
-Connection: `url` (e.g., `redis://user:pass@host:port/db`), or `host`/`port`/`password`/`username`/`db`. TLS: `tls`, `tls_cert`, `tls_key`, `tls_ca`, `tls_skip_verify`. Modes: `mode` (`standalone`, `sentinel`, `cluster`), `timeout`, `max_retries`.
+Connection fields: `url`, `host`, `port`, `password`, `username`, `db`, TLS fields, `mode`, `timeout`, `max_retries`.
 
-Command fields: `command` (e.g., `SET`, `GET`, `HSET`, `LPUSH`), `key`/`keys`, `value`/`values`, `field`/`fields`, `ttl`, `nx`, `xx`. Output: `output_format` (`json`, `jsonl`, `raw`, `csv`).
+## s3.upload / s3.download / s3.list / s3.delete
 
-## s3
-
-S3 operations. Commands: `upload`, `download`, `list`, `delete`.
+S3 object operations.
 
 ```yaml
 steps:
-  - name: upload
-    type: s3
-    command: upload
+  - id: upload
+    action: s3.upload
     with:
       region: us-east-1
       bucket: my-bucket
@@ -299,18 +226,16 @@ steps:
       source: /local/output.csv
 ```
 
-Connection: `region`, `endpoint`, `access_key_id`, `secret_access_key`, `session_token`, `profile`, `force_path_style`.
+Connection fields: `region`, `endpoint`, `access_key_id`, `secret_access_key`, `session_token`, `profile`, `force_path_style`.
 
-Object fields: `bucket` (required), `key`, `source` (for upload), `destination` (for download), `content_type`, `storage_class`, `metadata` (map), `tags` (map). List: `prefix`, `delimiter`, `max_keys`, `recursive`, `output_format`.
-
-## mail
+## mail.send
 
 Send email.
 
 ```yaml
 steps:
-  - name: notify
-    type: mail
+  - id: notify
+    action: mail.send
     with:
       from: noreply@example.com
       to: team@example.com
@@ -318,24 +243,16 @@ steps:
       message: "The build finished successfully."
 ```
 
-`with` fields:
+SMTP server settings come from global configuration.
 
-- `from` — Sender email address
-- `to` — Recipient(s) (string or array of strings)
-- `subject` — Email subject line
-- `message` — Email body content
+## archive.create / archive.extract / archive.list
 
-Note: SMTP server is configured via Dagu's global settings, not per-step.
-
-## archive
-
-Archive operations. Commands: `create`, `extract`, `list`.
+Archive operations.
 
 ```yaml
 steps:
-  - name: compress
-    type: archive
-    command: create
+  - id: compress
+    action: archive.create
     with:
       source: /data/output
       destination: /data/output.tar.gz
@@ -344,17 +261,18 @@ steps:
         - "*.tmp"
 ```
 
-`with` fields: `source` (required), `destination` (required for create), `format` (`zip`, `tar`, `tar.gz`, etc.; inferred from filename if omitted), `compression_level`, `password` (extract/list only), `overwrite`, `strip_components`, `include`/`exclude` (glob patterns).
+`with` fields: `source`, `destination`, `format`, `compression_level`, `password`, `overwrite`, `strip_components`, `include`, `exclude`.
 
-## agent
+## agent.run
 
 AI agent loop with tools.
 
 ```yaml
 steps:
-  - name: research
-    type: agent
-    agent:
+  - id: research
+    action: agent.run
+    with:
+      task: "Begin research on ${TOPIC}"
       model: claude-sonnet-4-20250514
       tools:
         enabled:
@@ -362,19 +280,15 @@ steps:
           - bash
       skills:
         - my-skill-id
-      prompt: "Research and summarize ${TOPIC}"
       max_iterations: 50
       safe_mode: true
-    messages:
-      - role: user
-        content: "Begin research on ${TOPIC}"
 ```
 
-Agent config fields (under `agent:`): `model`, `tools` (with `enabled` list and optional `bash_policy`), `skills` (skill IDs), `soul` (soul ID), `memory` (`enabled` bool), `prompt` (appended to system prompt), `max_iterations` (default 50), `safe_mode` (enable command approval, default true), `web_search`. Also accepts `messages:` at step level.
+Use `with.task`, `with.prompt`, or `with.messages` for the user input.
 
-## harness
+## harness.run
 
-Run coding agent CLIs (Claude Code, Codex, Copilot, OpenCode, Pi) as DAG steps. The selected attempt's binary must be resolvable when it runs, either from `PATH` or from an explicit path in a custom harness definition.
+Run coding agent CLIs such as Claude Code, Codex, Copilot, OpenCode, and Pi.
 
 ```yaml
 harnesses:
@@ -392,82 +306,46 @@ harness:
       model: sonnet
 
 steps:
-  - name: generate-tests
-    command: "Write unit tests for the auth module"
+  - id: generate_tests
+    action: harness.run
     with:
+      prompt: "Write unit tests for the auth module"
       yolo: true
     output: RESULT
 ```
 
-The `command` field is the prompt. `with.provider` can reference either a built-in provider or a named custom entry under top-level `harnesses:`. All non-reserved `with` keys are passed directly as CLI flags (`--key value` for strings/numbers, `--key` for booleans). Built-in providers also normalize `snake_case` keys to kebab-case flag names. Reserved keys are `provider` and `fallback`.
+`with.prompt` is the prompt. `with.stdin` is piped to stdin as supplementary context. `with.provider` can reference a built-in provider or a top-level `harnesses:` entry.
 
-Supported providers: `claude`, `codex`, `copilot`, `opencode`, `pi`.
+## router.route
 
-Top-level `harness:` acts as a DAG-wide default. Step-level `with` overlays the DAG-level primary harness config, and step-level `with.fallback` replaces the DAG-level `fallback`. If a step omits `type:` and the DAG defines `harness:`, the step is inferred as `type: harness`.
-
-`provider` may be parameterized with `${...}` and is resolved at runtime after interpolation.
-
-Custom `harnesses:` definitions describe how to invoke arbitrary harness CLIs:
-
-- `binary`
-- `prefix_args`
-- `prompt_mode`: `arg`, `flag`, or `stdin`
-- `prompt_flag` for `flag` mode
-- `prompt_position`: `before_flags` or `after_flags`
-- `flag_style`: `gnu_long` or `single_dash`
-- `option_flags` to override specific flag tokens
-
-If the step has a `script:` field, its content is piped to stdin for built-in providers and custom `arg`/`flag` harnesses. For custom `stdin` harnesses, stdin receives the prompt followed by a blank line and the script when both are present.
-
-If the primary attempt fails and the context is still active, harness tries fallback configs in order. Failed-attempt stdout is discarded, but stderr remains visible in logs.
-
-Exit codes: 0 = success, 1 = CLI error, 124 = step timed out.
-
-## router
-
-Conditional routing based on expression value. Routes reference existing step names — they do not define inline steps.
+Conditional routing based on expression value. Routes reference existing step names.
 
 ```yaml
 steps:
-  - name: check-status
-    command: "curl -s -o /dev/null -w '%{http_code}' https://example.com"
+  - id: check_status
+    run: "curl -s -o /dev/null -w '%{http_code}' https://example.com"
     output: STATUS
 
-  - name: route
-    type: router
-    value: ${STATUS}
-    depends: check-status
-    routes:
-      "200":
-        - handle-ok
-      "re:5\\d{2}":
-        - handle-error
-        - send-alert
+  - id: route
+    action: router.route
+    with:
+      value: ${STATUS}
+      routes:
+        "200":
+          - handle_ok
+        "re:5\\d{2}":
+          - handle_error
+          - send_alert
+    depends: [check_status]
 
-  - name: handle-ok
-    command: echo "success"
+  - id: handle_ok
+    run: echo "success"
 
-  - name: handle-error
-    command: echo "server error occurred"
+  - id: handle_error
+    run: echo "server error occurred"
 
-  - name: send-alert
-    command: echo "alerting on-call"
+  - id: send_alert
+    run: echo "alerting on-call"
 ```
 
-Step-level fields:
-
-- `value` — Expression to evaluate (required)
-- `routes` — Map of pattern to list of target step names (required)
-
-Pattern matching:
-
-- Exact match: `"200"` matches the literal value `200`
-- Regex match: `"re:5\\d{2}"` matches `500`, `502`, etc.
-- Catch-all: `"re:.*"` matches anything (sorted last automatically)
-
-Routing rules:
-
-- Routes are evaluated in priority order: exact matches first, then regex, then catch-all
-- Each target step can only be targeted by one route pattern
-- Multiple targets per route execute in parallel
-- Steps not targeted by any matching route are skipped
+Routes are evaluated in priority order: exact matches first, then regex, then catch-all.

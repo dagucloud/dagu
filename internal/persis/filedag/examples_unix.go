@@ -13,9 +13,9 @@ var exampleDAGs = map[string]string{
 description: Execute steps one after another
 
 steps:
-  - echo "Step 1 - Starting workflow"
-  - echo "Step 2 - Processing data"
-  - echo "Step 3 - Workflow complete"
+  - run: echo "Step 1 - Starting workflow"
+  - run: echo "Step 2 - Processing data"
+  - run: echo "Step 3 - Workflow complete"
 `,
 
 	"example-02-parallel-execution.yaml": `# Parallel Execution
@@ -26,11 +26,11 @@ type: graph # Explicitly define dependency graph
 
 steps:
   - name: setup
-    command: echo "Setting up environment"
+    run: echo "Setting up environment"
 
   # These steps run in parallel after setup
   - name: task-a
-    command: |
+    run: |
       echo "Task A starting"
       sleep 2
       echo "Task A complete"
@@ -38,7 +38,7 @@ steps:
       - setup
 
   - name: task-b
-    command: |
+    run: |
       echo "Task B starting"
       sleep 2
       echo "Task B complete"
@@ -46,7 +46,7 @@ steps:
       - setup
 
   - name: task-c
-    command: |
+    run: |
       echo "Task C starting"
       sleep 2
       echo "Task C complete"
@@ -55,7 +55,7 @@ steps:
 
   # Wait for all parallel tasks to complete
   - name: merge-results
-    command: echo "All parallel tasks completed"
+    run: echo "All parallel tasks completed"
     depends:
       - task-a
       - task-b
@@ -78,11 +78,11 @@ description: Example of a scheduled workflow
 hist_retention_days: 7  # Keep 7 days of history (or use hist_retention_runs)
 
 steps:
-  - |
+  - run: |
       #!env sh
       echo "Running scheduled task"
       echo "Current time: $(date)"
-  - echo "Cleaning up old data"
+  - run: echo "Cleaning up old data"
 `,
 
 	"example-04-nested-workflows.yaml": `# Nested Workflows
@@ -91,10 +91,12 @@ steps:
 description: Example of nested workflows
 
 steps:
-  - echo "Preparing data for sub-workflows"
-  - call: sub-workflow
-    params: "TASK_ID=123"
-  - echo "Main workflow completed"
+  - run: echo "Preparing data for sub-workflows"
+  - action: dag.run
+    with:
+      dag: sub-workflow
+      params: "TASK_ID=123"
+  - run: echo "Main workflow completed"
 
 ---
 # Sub-workflow definition
@@ -104,8 +106,8 @@ params:
   - TASK_ID: "000"
 
 steps:
-  - echo "Sub-workflow executing with TASK_ID=${TASK_ID}"
-  - echo "Sub-workflow step 2"
+  - run: echo "Sub-workflow executing with TASK_ID=${TASK_ID}"
+  - run: echo "Sub-workflow step 2"
 `,
 
 	"example-05-container-workflow.yaml": `# Container-based Workflow
@@ -120,11 +122,11 @@ container:
 
 steps:
   # write data to a file
-  - |
+  - run: |
     python -c "with open('/data/output.txt', 'w') as f: f.write('Hello from Dagu!')"
 
   # read data from the file
-  - |
+  - run: |
     python -c "with open('/data/output.txt') as f: print(f.read())"
 `,
 }

@@ -2,6 +2,6 @@ name: embedded-custom-executor-example
 type: graph
 steps:
   - name: call-go-code
-    type: embedded_echo
-    command: domain operation from DAG YAML
-
+    action: embedded_echo
+    with:
+      message: domain operation from DAG YAML

@@ -36,13 +36,13 @@ func TestLargeOutput_128KB(t *testing.T) {
 	textFilePath := test.TestdataPath(t, "integration/large-output-128kb.txt")
 	dagSpec := `steps:
   - name: read-128kb-file
-    command: ` + fmt.Sprintf("cat %s", test.PosixQuote(textFilePath)) + `
+    run: ` + fmt.Sprintf("cat %s", test.PosixQuote(textFilePath)) + `
     output: OUTPUT_128KB
 `
 	if runtime.GOOS == "windows" {
 		dagSpec = fmt.Sprintf(`steps:
   - name: read-128kb-file
-    command: cmd /d /c type %s
+    run: cmd /d /c type %s
     output: OUTPUT_128KB
 `, `"`+textFilePath+`"`)
 	}
@@ -89,7 +89,7 @@ var outputsCollectionCases = []namedOutputsCollectionCase{
 			dagYAML: `
 steps:
   - name: produce-output
-    command: echo "RESULT=42"
+    run: echo "RESULT=42"
     output: RESULT
 `,
 			runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
@@ -133,15 +133,15 @@ steps:
 			dagYAML: `
 steps:
   - name: step1
-    command: echo "COUNT=10"
+    run: echo "COUNT=10"
     output: COUNT
 
   - name: step2
-    command: echo "TOTAL=100"
+    run: echo "TOTAL=100"
     output: TOTAL
 
   - name: step3
-    command: echo "STATUS=completed"
+    run: echo "STATUS=completed"
     output: STATUS
 `,
 			runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
@@ -167,12 +167,12 @@ steps:
 type: graph
 steps:
   - name: step1
-    command: echo "VALUE=first"
+    run: echo "VALUE=first"
     output: VALUE
 
   - name: step2
     depends: [step1]
-    command: echo "VALUE=second"
+    run: echo "VALUE=second"
     output: VALUE
 `,
 			runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
@@ -193,7 +193,7 @@ steps:
 			dagYAML: `
 steps:
   - name: step1
-    command: echo "hello"
+    run: echo "hello"
 `,
 			runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
 				agent.RunSuccess(t)
@@ -212,7 +212,7 @@ steps:
 			dagYAML: `
 steps:
   - name: step1
-    command: echo "MY_VAR=value123"
+    run: echo "MY_VAR=value123"
     output: $MY_VAR
 `,
 			runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
@@ -233,7 +233,7 @@ steps:
 			dagYAML: `
 steps:
   - name: simple
-    command: echo "SIMPLE_OUT=simple_value"
+    run: echo "SIMPLE_OUT=simple_value"
     output: SIMPLE_OUT
 
   - id: publish
@@ -289,16 +289,16 @@ func TestOutputsCollection_FailedDAG(t *testing.T) {
 type: graph
 steps:
   - name: step1
-    command: echo "BEFORE_FAIL=collected"
+    run: echo "BEFORE_FAIL=collected"
     output: BEFORE_FAIL
 
   - name: step2
     depends: [step1]
-    command: exit 1
+    run: exit 1
 
   - name: step3
     depends: [step2]
-    command: echo "AFTER_FAIL=not_collected"
+    run: echo "AFTER_FAIL=not_collected"
     output: AFTER_FAIL
 `)
 	agent := dag.Agent()
@@ -324,7 +324,7 @@ func runOutputsCollectionCamelCaseConversion(t *testing.T, envVarName, expectedK
 	dag := th.DAG(t, `
 steps:
   - name: step1
-    command: echo "`+envVarName+`=test_value"
+    run: echo "`+envVarName+`=test_value"
     output: `+envVarName+`
 `)
 	agent := dag.Agent()
@@ -368,7 +368,7 @@ secrets:
 
 steps:
   - name: output-secret
-    command: echo "TOKEN=${API_TOKEN}"
+    run: echo "TOKEN=${API_TOKEN}"
     output: TOKEN
 `)
 	agent := dag.Agent()
@@ -396,7 +396,7 @@ func TestOutputsCollection_MetadataIncluded(t *testing.T) {
 	dag := th.DAG(t, `
 steps:
   - name: step1
-    command: echo "RESULT=42"
+    run: echo "RESULT=42"
     output: RESULT
 `)
 	agent := dag.Agent()
