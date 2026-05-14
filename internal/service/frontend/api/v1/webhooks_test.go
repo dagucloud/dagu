@@ -756,10 +756,13 @@ func TestWebhooks_TriggerOversizedBodyRejectedBeforeAuth(t *testing.T) {
 		ExpectStatus(http.StatusRequestEntityTooLarge).Send(t)
 }
 
+// TestWebhooks_TriggerUsesConfiguredMaxPayloadSize covers payloads above the
+// default, exactly at the configured limit, and above the configured limit.
 func TestWebhooks_TriggerUsesConfiguredMaxPayloadSize(t *testing.T) {
 	webhookParallel(t)
+	maxPayloadSize := 2 * config.DefaultWebhookMaxPayloadSize
 	server := setupWebhookTestServer(t, func(cfg *config.Config) {
-		cfg.Webhooks.MaxPayloadSize = 2 * config.DefaultWebhookMaxPayloadSize
+		cfg.Webhooks.MaxPayloadSize = maxPayloadSize
 	})
 	token := getWebhookAdminToken(t, server)
 
@@ -784,6 +787,11 @@ func TestWebhooks_TriggerUsesConfiguredMaxPayloadSize(t *testing.T) {
 		WithBearerToken(webhookToken).
 		ExpectStatus(http.StatusOK).Send(t)
 
+	bodyAtConfiguredLimit := webhookRequestWithMarshaledSize(t, maxPayloadSize)
+	server.Client().Post("/api/v1/webhooks/"+dagName, bodyAtConfiguredLimit).
+		WithBearerToken(webhookToken).
+		ExpectStatus(http.StatusOK).Send(t)
+
 	bodyAboveConfiguredLimit := api.WebhookRequest{
 		Payload: &map[string]any{
 			"blob": strings.Repeat("x", 3*config.DefaultWebhookMaxPayloadSize),
@@ -793,6 +801,30 @@ func TestWebhooks_TriggerUsesConfiguredMaxPayloadSize(t *testing.T) {
 	server.Client().Post("/api/v1/webhooks/"+dagName, bodyAboveConfiguredLimit).
 		WithBearerToken(webhookToken).
 		ExpectStatus(http.StatusRequestEntityTooLarge).Send(t)
+}
+
+func webhookRequestWithMarshaledSize(t *testing.T, size int) api.WebhookRequest {
+	t.Helper()
+
+	body := api.WebhookRequest{
+		Payload: &map[string]any{
+			"blob": "",
+		},
+	}
+
+	rawBody, err := json.Marshal(body)
+	require.NoError(t, err)
+	require.LessOrEqual(t, len(rawBody), size)
+
+	body.Payload = &map[string]any{
+		"blob": strings.Repeat("x", size-len(rawBody)),
+	}
+
+	rawBody, err = json.Marshal(body)
+	require.NoError(t, err)
+	require.Len(t, rawBody, size)
+
+	return body
 }
 
 // TestWebhooks_TriggerNonExistentDAG tests triggering webhook for non-existent DAG
