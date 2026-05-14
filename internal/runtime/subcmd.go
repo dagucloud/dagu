@@ -53,8 +53,6 @@ type cappedBuffer struct {
 
 const defaultMaxBufferSize = 64 * 1024 // 64KB
 
-const maxInlineParamsArgSize = 32 * 1024
-
 func newCappedBuffer(maxSize int) *cappedBuffer {
 	return &cappedBuffer{
 		data:    make([]byte, 0, maxSize),
@@ -188,14 +186,9 @@ func (b *SubCmdBuilder) Start(dag *core.DAG, opts StartOptions) CmdSpec {
 // Enqueue creates an enqueue command spec.
 func (b *SubCmdBuilder) Enqueue(dag *core.DAG, opts EnqueueOptions) CmdSpec {
 	args := []string{"enqueue"}
-	buildEnv := append([]string{}, dag.Env...)
 
 	if opts.Params != "" {
-		if len(opts.Params) > maxInlineParamsArgSize {
-			buildEnv = append(buildEnv, buildenv.RuntimeParamsKey+"="+opts.Params)
-		} else {
-			args = append(args, "-p", strconv.Quote(opts.Params))
-		}
+		args = append(args, "-p", strconv.Quote(opts.Params))
 	}
 	if opts.Quiet {
 		args = append(args, "-q")
@@ -227,7 +220,7 @@ func (b *SubCmdBuilder) Enqueue(dag *core.DAG, opts EnqueueOptions) CmdSpec {
 		Executable: b.executable,
 		Args:       args,
 		Env:        b.filteredEnv(),
-		BuildEnv:   buildEnv,
+		BuildEnv:   append([]string{}, dag.Env...),
 		Stdout:     os.Stdout,
 		Stderr:     os.Stderr,
 	}

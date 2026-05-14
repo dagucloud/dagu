@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagucloud/dagu/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
@@ -441,19 +440,6 @@ func TestEnqueue(t *testing.T) {
 
 		assert.Contains(t, spec.Args, "-p")
 		assert.Contains(t, spec.Args, `"key=value"`)
-	})
-
-	t.Run("EnqueueWithLargeParamsUsesBuildEnvTransport", func(t *testing.T) {
-		t.Parallel()
-		opts := runtime.EnqueueOptions{
-			Params: "WEBHOOK_PAYLOAD=" + strings.Repeat("x", 40*1024),
-		}
-		spec := builder.Enqueue(dag, opts)
-
-		assert.NotContains(t, spec.Args, "-p")
-		require.Len(t, spec.BuildEnv, 1)
-		assert.True(t, strings.HasPrefix(spec.BuildEnv[0], buildenv.RuntimeParamsKey+"="))
-		assert.Contains(t, spec.BuildEnv[0], "WEBHOOK_PAYLOAD=")
 	})
 
 	t.Run("EnqueueWithQuiet", func(t *testing.T) {
