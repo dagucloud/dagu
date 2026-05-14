@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/dagucloud/dagu/internal/core"
 )
@@ -51,15 +52,16 @@ type CacheLayout struct {
 
 // Manifest records the resolved commands made available to a DAG run.
 type Manifest struct {
-	Provider string             `json:"provider"`
-	Platform string             `json:"platform"`
-	Hash     string             `json:"hash"`
-	RootDir  string             `json:"rootDir"`
-	EnvDir   string             `json:"envDir"`
-	BinDir   string             `json:"binDir"`
-	Config   string             `json:"config"`
-	Checksum string             `json:"checksum"`
-	Commands map[string]Command `json:"commands"`
+	Provider     string             `json:"provider"`
+	Platform     string             `json:"platform"`
+	Hash         string             `json:"hash"`
+	RootDir      string             `json:"rootDir"`
+	EnvDir       string             `json:"envDir"`
+	BinDir       string             `json:"binDir"`
+	Config       string             `json:"config"`
+	Checksum     string             `json:"checksum"`
+	ManifestFile string             `json:"manifestFile"`
+	Commands     map[string]Command `json:"commands"`
 }
 
 // Command records one resolved executable path.
@@ -76,7 +78,7 @@ func CachePaths(dataDir, platform, toolsetHash string) (CacheLayout, error) {
 	if dataDir == "" {
 		return CacheLayout{}, fmt.Errorf("data dir is required")
 	}
-	platform = strings.ReplaceAll(strings.TrimSpace(platform), "/", "-")
+	platform = sanitizePlatform(platform)
 	if platform == "" {
 		return CacheLayout{}, fmt.Errorf("platform is required")
 	}
@@ -134,9 +136,30 @@ func EnvVars(manifest *Manifest, basePath string) []string {
 		"AQUA_REQUIRE_CHECKSUM=true",
 		"AQUA_ENFORCE_CHECKSUM=true",
 		"AQUA_ENFORCE_REQUIRE_CHECKSUM=true",
-		EnvManifest + "=" + filepath.Join(manifest.EnvDir, manifestFileName),
+		EnvManifest + "=" + manifestFilePath(manifest),
 		"PATH=" + pathValue,
 	}
+}
+
+func sanitizePlatform(platform string) string {
+	platform = strings.TrimSpace(platform)
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '/' || r == '\\' || r == ':':
+			return '-'
+		case unicode.IsSpace(r) || unicode.IsControl(r):
+			return '-'
+		default:
+			return r
+		}
+	}, platform)
+}
+
+func manifestFilePath(manifest *Manifest) string {
+	if strings.TrimSpace(manifest.ManifestFile) != "" {
+		return manifest.ManifestFile
+	}
+	return filepath.Join(manifest.EnvDir, manifestFileName)
 }
 
 // ReadManifest reads a resolved tools manifest from disk.

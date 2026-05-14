@@ -92,10 +92,10 @@ func (i *Installer) Install(ctx context.Context, cfg *core.ToolConfig, opts tool
 	}
 	defer unlock()
 
-	if err := os.MkdirAll(paths.EnvDir, 0o750); err != nil {
+	if err := os.MkdirAll(paths.EnvDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create aqua env dir: %w", err)
 	}
-	if err := os.MkdirAll(paths.RootDir, 0o750); err != nil {
+	if err := os.MkdirAll(paths.RootDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create aqua root dir: %w", err)
 	}
 	data, err := RenderConfigForPlatform(cfg, platform)
@@ -125,18 +125,29 @@ func (i *Installer) Install(ctx context.Context, cfg *core.ToolConfig, opts tool
 
 	whichController := aquacontroller.InitializeWhichCommandController(ctx, i.logger, param, i.httpClient, rt)
 	manifest := &tools.Manifest{
-		Provider: providerAqua,
-		Platform: platform,
-		Hash:     hash,
-		RootDir:  paths.RootDir,
-		EnvDir:   paths.EnvDir,
-		BinDir:   paths.BinDir,
-		Config:   paths.ConfigFile,
-		Checksum: paths.ChecksumFile,
-		Commands: make(map[string]tools.Command),
+		Provider:     providerAqua,
+		Platform:     platform,
+		Hash:         hash,
+		RootDir:      paths.RootDir,
+		EnvDir:       paths.EnvDir,
+		BinDir:       paths.BinDir,
+		Config:       paths.ConfigFile,
+		Checksum:     paths.ChecksumFile,
+		ManifestFile: paths.ManifestFile,
+		Commands:     make(map[string]tools.Command),
 	}
 	for _, pkg := range cfg.Packages {
 		for _, command := range pkg.Commands {
+			if existing, ok := manifest.Commands[command]; ok {
+				return nil, fmt.Errorf(
+					"duplicate command %q declared by %s@%s and %s@%s",
+					command,
+					existing.Package,
+					existing.Version,
+					pkg.Package,
+					pkg.Version,
+				)
+			}
 			resolved, err := whichController.Which(ctx, i.logger, param, command)
 			if err != nil {
 				return nil, fmt.Errorf("resolve aqua command %q: %w", command, err)

@@ -1449,8 +1449,7 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "pattern": "^[^/\\\\]+$",
-            "not": { "pattern": "\\s" }
+            "pattern": "^[A-Za-z0-9._+-]+$"
           },
           "description": "Command names exposed to steps from this package."
         },

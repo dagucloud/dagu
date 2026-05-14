@@ -191,6 +191,24 @@ steps:
 	assert.Contains(t, err.Error(), `command "bin/jq" must be an executable name`)
 }
 
+func TestLoadDAGToolsRejectsShellFragmentCommand(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+tools:
+  packages:
+    - package: jqlang/jq
+      version: jq-1.7.1
+      commands: ["jq;echo"]
+steps:
+  - name: check
+    command: jq
+`))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `command "jq;echo" must be an executable name`)
+}
+
 // Helper to create PortValue from string
 func portValue(s string) types.PortValue {
 	var p types.PortValue

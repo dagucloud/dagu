@@ -26,6 +26,15 @@ func TestCachePathsUsesWorkerLocalDataDir(t *testing.T) {
 	assert.Equal(t, filepath.Join(paths.EnvDir, "manifest.json"), paths.ManifestFile)
 }
 
+func TestCachePathsSanitizesPlatformPathSegment(t *testing.T) {
+	t.Parallel()
+
+	paths, err := CachePaths("/var/lib/dagu/data", "linux/amd64:ci worker\\x", "abc123")
+
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join("/var/lib/dagu/data", "tools", "aqua", "envs", "linux-amd64-ci-worker-x", "abc123"), paths.EnvDir)
+}
+
 func TestToolsetHashChangesWithPlatform(t *testing.T) {
 	t.Parallel()
 
@@ -52,11 +61,12 @@ func TestEnvVarsExposeAquaToolset(t *testing.T) {
 	t.Parallel()
 
 	envs := EnvVars(&Manifest{
-		RootDir:  "/var/lib/dagu/data/tools/aqua/root",
-		EnvDir:   "/var/lib/dagu/data/tools/aqua/envs/linux-amd64/hash",
-		BinDir:   "/var/lib/dagu/data/tools/aqua/envs/linux-amd64/hash/bin",
-		Config:   "/var/lib/dagu/data/tools/aqua/envs/linux-amd64/hash/aqua.yaml",
-		Checksum: "/var/lib/dagu/data/tools/aqua/envs/linux-amd64/hash/aqua-checksums.json",
+		RootDir:      "/var/lib/dagu/data/tools/aqua/root",
+		EnvDir:       "/var/lib/dagu/data/tools/aqua/envs/linux-amd64/hash",
+		BinDir:       "/var/lib/dagu/data/tools/aqua/envs/linux-amd64/hash/bin",
+		Config:       "/var/lib/dagu/data/tools/aqua/envs/linux-amd64/hash/aqua.yaml",
+		Checksum:     "/var/lib/dagu/data/tools/aqua/envs/linux-amd64/hash/aqua-checksums.json",
+		ManifestFile: "/var/lib/dagu/data/tools/aqua/envs/linux-amd64/hash/manifest.json",
 	}, "/usr/bin")
 
 	assert.Contains(t, envs, "AQUA_ROOT_DIR=/var/lib/dagu/data/tools/aqua/root")

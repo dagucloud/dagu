@@ -17,7 +17,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/internal/cmn/eval"
@@ -2443,7 +2442,20 @@ func buildToolPackage(pkg toolPackage, seenCommands map[string]struct{}) (core.T
 }
 
 func isToolCommandName(command string) bool {
-	return !strings.ContainsAny(command, `/\`) && strings.IndexFunc(command, unicode.IsSpace) < 0
+	if command == "" {
+		return false
+	}
+	for _, r := range command {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '.' || r == '_' || r == '-' || r == '+':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func extractHarnessFallback(config map[string]any) ([]map[string]any, error) {

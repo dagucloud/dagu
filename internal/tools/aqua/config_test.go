@@ -73,6 +73,25 @@ func TestRenderConfigDefaultsStandardRegistry(t *testing.T) {
 	assert.Equal(t, "standard", parsed.Packages[0].Registry)
 }
 
+func TestEffectiveToolConfigDeepCopiesPackageCommands(t *testing.T) {
+	t.Parallel()
+
+	cfg := &core.ToolConfig{
+		Provider: "aqua",
+		Packages: []core.ToolPackage{{
+			Name:     "jq",
+			Package:  "jqlang/jq",
+			Version:  "jq-1.7.1",
+			Commands: []string{"jq"},
+		}},
+	}
+
+	effective := effectiveToolConfig(cfg)
+	effective.Packages[0].Commands[0] = "other"
+
+	assert.Equal(t, []string{"jq"}, cfg.Packages[0].Commands)
+}
+
 func TestRenderConfigAcceptsPackageCommitSHA(t *testing.T) {
 	t.Parallel()
 

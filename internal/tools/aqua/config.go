@@ -20,7 +20,11 @@ func effectiveToolConfig(cfg *core.ToolConfig) *core.ToolConfig {
 		return nil
 	}
 	effective := *cfg
-	effective.Packages = append([]core.ToolPackage{}, cfg.Packages...)
+	effective.Packages = make([]core.ToolPackage, len(cfg.Packages))
+	for i, pkg := range cfg.Packages {
+		pkg.Commands = append([]string{}, pkg.Commands...)
+		effective.Packages[i] = pkg
+	}
 	if cfg.Registry != nil {
 		registry := *cfg.Registry
 		if emptyDefault(strings.TrimSpace(registry.Type), "standard") == "standard" && strings.TrimSpace(registry.Ref) == "" {
