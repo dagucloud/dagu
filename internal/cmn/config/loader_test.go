@@ -244,6 +244,9 @@ func TestLoad_Env(t *testing.T) {
 			Enabled:       true,
 			RetentionDays: 1,
 		},
+		Webhooks: WebhooksConfig{
+			MaxPayloadSize: DefaultWebhookMaxPayloadSize,
+		},
 		Paths: PathsConfig{
 			DAGsDir:            filepath.Join(testPaths, "dags"),
 			DocsDir:            filepath.Join(testPaths, "dags", "docs"),
@@ -699,6 +702,9 @@ scheduler:
 		EventStore: EventStoreConfig{
 			Enabled:       true,
 			RetentionDays: 1,
+		},
+		Webhooks: WebhooksConfig{
+			MaxPayloadSize: DefaultWebhookMaxPayloadSize,
 		},
 		Paths: PathsConfig{
 			DAGsDir:            resolvedTestPath(t, "/var/dagu/dags"),
@@ -1728,6 +1734,47 @@ cache: invalid
 			"DAGU_CACHE": "low",
 		})
 		assert.Equal(t, CacheModeLow, cfg.Cache)
+	})
+}
+
+func TestLoad_WebhooksConfig(t *testing.T) {
+	t.Run("DefaultMaxPayloadSize", func(t *testing.T) {
+		cfg := loadFromYAML(t, ``)
+		assert.Equal(t, DefaultWebhookMaxPayloadSize, cfg.Webhooks.MaxPayloadSize)
+	})
+
+	t.Run("MaxPayloadSizeFromYAML", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+webhooks:
+  max_payload_size: 2097152
+`)
+		assert.Equal(t, 2097152, cfg.Webhooks.MaxPayloadSize)
+	})
+
+	t.Run("MaxPayloadSizeFromEnv", func(t *testing.T) {
+		cfg := loadWithEnv(t, ``, map[string]string{
+			"DAGU_WEBHOOKS_MAX_PAYLOAD_SIZE": "3145728",
+		})
+		assert.Equal(t, 3145728, cfg.Webhooks.MaxPayloadSize)
+	})
+
+	t.Run("EnvOverridesYAML", func(t *testing.T) {
+		cfg := loadWithEnv(t, `
+webhooks:
+  max_payload_size: 2097152
+`, map[string]string{
+			"DAGU_WEBHOOKS_MAX_PAYLOAD_SIZE": "3145728",
+		})
+		assert.Equal(t, 3145728, cfg.Webhooks.MaxPayloadSize)
+	})
+
+	t.Run("RejectsNonPositiveMaxPayloadSize", func(t *testing.T) {
+		err := loadWithErrorFromYAML(t, `
+webhooks:
+  max_payload_size: 0
+`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "webhooks.max_payload_size must be > 0")
 	})
 }
 

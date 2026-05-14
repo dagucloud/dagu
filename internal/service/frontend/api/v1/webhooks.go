@@ -23,11 +23,6 @@ import (
 	openapitypes "github.com/oapi-codegen/runtime/types"
 )
 
-const (
-	// maxWebhookPayloadSize is the maximum size of the webhook payload in bytes (1MB).
-	maxWebhookPayloadSize = 1 * 1024 * 1024
-)
-
 // ListWebhooks returns all webhooks across all DAGs.
 // Requires developer role or above.
 func (a *API) ListWebhooks(ctx context.Context, _ api.ListWebhooksRequestObject) (api.ListWebhooksResponseObject, error) {
@@ -464,16 +459,17 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 	token := extractWebhookToken(valueOf(request.Params.Authorization))
 	signature := valueOf(request.Params.XDaguSignature)
 	rawBody := rawBodyFromContext(ctx)
-	if len(rawBody) > maxWebhookPayloadSize {
+	maxPayloadSize := a.webhookMaxPayloadSize()
+	if len(rawBody) > maxPayloadSize {
 		logger.Warn(ctx, "Webhook: payload too large",
 			tag.Name(request.FileName),
 			tag.Key("size"), tag.Value(len(rawBody)),
-			tag.Key("maxSize"), tag.Value(maxWebhookPayloadSize),
+			tag.Key("maxSize"), tag.Value(maxPayloadSize),
 		)
 		return nil, &Error{
 			HTTPStatus: http.StatusRequestEntityTooLarge,
 			Code:       api.ErrorCodeBadRequest,
-			Message:    fmt.Sprintf("webhook payload too large (max %d bytes)", maxWebhookPayloadSize),
+			Message:    fmt.Sprintf("webhook payload too large (max %d bytes)", maxPayloadSize),
 		}
 	}
 
@@ -533,7 +529,7 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 		}
 	}
 
-	params, apiErr := buildWebhookRequestRuntimeParams(ctx, dag, request.Body)
+	params, apiErr := buildWebhookRequestRuntimeParams(ctx, dag, request.Body, maxPayloadSize)
 	if apiErr != nil {
 		return nil, apiErr
 	}
@@ -560,8 +556,9 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 		dagRunID = uuid.Must(uuid.NewV7()).String()
 	}
 
-	// Enqueue the DAG run with webhook trigger type
-	if err := a.enqueueDAGRun(ctx, dag, params, dagRunID, "", core.TriggerTypeWebhook, ""); err != nil {
+	// Enqueue directly from the API layer so accepted webhook payloads do not
+	// need to fit in a subprocess command line.
+	if err := a.enqueuePreparedDAGRun(ctx, dag, params, dagRunID, core.TriggerTypeWebhook); err != nil {
 		logger.Error(ctx, "Webhook: failed to enqueue DAG run",
 			tag.Name(dag.Name),
 			tag.Error(err),
@@ -589,6 +586,7 @@ func buildWebhookRequestRuntimeParams(
 	ctx context.Context,
 	dag *core.DAG,
 	body *api.TriggerWebhookJSONRequestBody,
+	maxPayloadSize int,
 ) (string, *Error) {
 	payload, err := marshalWebhookPayload(ctx, body)
 	if err != nil {
@@ -602,16 +600,16 @@ func buildWebhookRequestRuntimeParams(
 			Message:    "failed to process request body",
 		}
 	}
-	if len(payload) > maxWebhookPayloadSize {
+	if len(payload) > maxPayloadSize {
 		logger.Warn(ctx, "Webhook: payload too large",
 			tag.Name(dag.Name),
 			tag.Key("size"), tag.Value(len(payload)),
-			tag.Key("maxSize"), tag.Value(maxWebhookPayloadSize),
+			tag.Key("maxSize"), tag.Value(maxPayloadSize),
 		)
 		return "", &Error{
 			HTTPStatus: http.StatusRequestEntityTooLarge,
 			Code:       api.ErrorCodeBadRequest,
-			Message:    fmt.Sprintf("webhook payload too large (max %d bytes)", maxWebhookPayloadSize),
+			Message:    fmt.Sprintf("webhook payload too large (max %d bytes)", maxPayloadSize),
 		}
 	}
 

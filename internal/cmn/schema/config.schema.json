@@ -207,6 +207,9 @@
     "event_store": {
       "$ref": "#/definitions/EventStoreDef"
     },
+    "webhooks": {
+      "$ref": "#/definitions/WebhooksDef"
+    },
     "session": {
       "$ref": "#/definitions/SessionDef"
     },
@@ -930,6 +933,19 @@
           "type": "integer",
           "description": "Number of days to retain event logs. Default: 1.",
           "minimum": 0
+        }
+      }
+    },
+    "WebhooksDef": {
+      "type": "object",
+      "description": "Webhook trigger endpoint configuration.",
+      "additionalProperties": false,
+      "properties": {
+        "max_payload_size": {
+          "type": "integer",
+          "description": "Maximum accepted webhook request payload size in bytes. Default: 1048576.",
+          "minimum": 1,
+          "default": 1048576
         }
       }
     },

@@ -352,6 +352,13 @@ func (a *API) notifyDocMutation() {
 	}
 }
 
+func (a *API) webhookMaxPayloadSize() int {
+	if a.config == nil || a.config.Webhooks.MaxPayloadSize <= 0 {
+		return config.DefaultWebhookMaxPayloadSize
+	}
+	return a.config.Webhooks.MaxPayloadSize
+}
+
 func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router) error {
 	swagger, err := a.loadOpenAPISpec(ctx)
 	if err != nil {
@@ -372,7 +379,7 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router) error {
 		r.Use(frontendauth.ClientIPMiddleware())
 		r.Use(frontendauth.Middleware(authOptions))
 		r.Use(WithRemoteNode(a.remoteNodeResolver, mountedAPIPath))
-		r.Use(WebhookRequestContextMiddleware())
+		r.Use(WebhookRequestContextMiddleware(a.webhookMaxPayloadSize()))
 
 		middlewares := []api.StrictMiddlewareFunc{validateDAGFileNameMiddleware}
 		options := api.StrictHTTPServerOptions{
