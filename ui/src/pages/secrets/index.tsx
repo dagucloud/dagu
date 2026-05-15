@@ -66,7 +66,6 @@ type UpdateSecretRequest = components['schemas']['UpdateSecretRequest'];
 type SecretFormState = {
   workspace: string;
   ref: string;
-  displayName: string;
   description: string;
   providerType: SecretProviderType;
   providerConnectionId: string;
@@ -89,7 +88,6 @@ function initialFormState(workspace: string): SecretFormState {
   return {
     workspace,
     ref: '',
-    displayName: '',
     description: '',
     providerType: SecretProviderType.dagu_managed,
     providerConnectionId: '',
@@ -102,7 +100,6 @@ function formStateFromSecret(secret: SecretResponse): SecretFormState {
   return {
     workspace: secret.workspace || 'default',
     ref: secret.ref,
-    displayName: secret.displayName || '',
     description: secret.description || '',
     providerType: secret.providerType,
     providerConnectionId: secret.providerConnectionId || '',
@@ -316,11 +313,6 @@ export default function SecretsPage(): React.ReactNode {
                           {secret.workspace}/{secret.ref}
                         </code>
                       </div>
-                      {secret.displayName && (
-                        <span className="truncate pl-5 text-xs text-muted-foreground">
-                          {secret.displayName}
-                        </span>
-                      )}
                     </div>
                   </TableCell>
                   <TableCell>
@@ -513,7 +505,6 @@ function SecretFormDialog({
     try {
       if (isEditing && secret) {
         const body: UpdateSecretRequest = {
-          displayName: form.displayName,
           description: form.description,
         };
         if (!isDaguManaged) {
@@ -531,7 +522,6 @@ function SecretFormDialog({
         const body: CreateSecretRequest = {
           workspace: form.workspace || 'default',
           ref: form.ref.trim(),
-          displayName: optionalString(form.displayName),
           description: optionalString(form.description),
           providerType: form.providerType,
           providerConnectionId: optionalString(form.providerConnectionId),
@@ -624,22 +614,6 @@ function SecretFormDialog({
                 setForm((current) => ({ ...current, ref: event.target.value }))
               }
               placeholder="prod/db-password"
-              autoComplete="off"
-              className="h-9"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="secret-display-name">Display Name</Label>
-            <Input
-              id="secret-display-name"
-              value={form.displayName}
-              onChange={(event) =>
-                setForm((current) => ({
-                  ...current,
-                  displayName: event.target.value,
-                }))
-              }
               autoComplete="off"
               className="h-9"
             />

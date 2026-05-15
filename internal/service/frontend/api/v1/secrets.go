@@ -144,7 +144,6 @@ func (a *API) CreateSecret(ctx context.Context, request api.CreateSecretRequestO
 	sec, err := secretpkg.New(secretpkg.CreateInput{
 		Workspace:              workspaceName,
 		Ref:                    body.Ref,
-		DisplayName:            valueOf(body.DisplayName),
 		Description:            valueOf(body.Description),
 		ProviderType:           providerType,
 		ProviderConnectionID:   providerConnectionID,
@@ -225,7 +224,6 @@ func (a *API) UpdateSecret(ctx context.Context, request api.UpdateSecretRequestO
 	}
 
 	update := secretpkg.UpdateInput{
-		DisplayName:          body.DisplayName,
 		Description:          body.Description,
 		ProviderConnectionID: body.ProviderConnectionId,
 		ProviderRef:          body.ProviderRef,
@@ -527,7 +525,6 @@ func toSecretResponse(sec *secretpkg.Secret) api.SecretResponse {
 		UpdatedAt:      sec.UpdatedAt,
 		Workspace:      secretWorkspaceToAPI(sec.Workspace),
 	}
-	resp.DisplayName = ptrOf(sec.DisplayName)
 	resp.Description = ptrOf(sec.Description)
 	resp.ProviderConnectionId = ptrOf(sec.ProviderConnectionID)
 	resp.ProviderRef = ptrOf(sec.ProviderRef)

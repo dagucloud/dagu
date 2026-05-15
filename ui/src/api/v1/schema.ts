@@ -5283,7 +5283,6 @@ export interface components {
             workspace?: string;
             /** @description Secret ref used from DAG YAML, for example prod/db-password. */
             ref: string;
-            displayName?: string;
             description?: string;
             providerType: components["schemas"]["SecretProviderType"];
             providerConnectionId?: string;
@@ -5292,7 +5291,6 @@ export interface components {
             value?: string;
         };
         UpdateSecretRequest: {
-            displayName?: string;
             description?: string;
             providerConnectionId?: string;
             providerRef?: string;
@@ -5306,7 +5304,6 @@ export interface components {
             workspace: string;
             /** @description Secret ref used from DAG YAML, for example prod/db-password. */
             ref: string;
-            displayName?: string;
             description?: string;
             providerType: components["schemas"]["SecretProviderType"];
             providerConnectionId?: string;

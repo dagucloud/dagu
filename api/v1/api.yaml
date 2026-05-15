@@ -12379,8 +12379,6 @@ components:
           type: string
           description: "Secret ref used from DAG YAML, for example prod/db-password."
           pattern: "^[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)*$"
-        displayName:
-          type: string
         description:
           type: string
         providerType:
@@ -12397,8 +12395,6 @@ components:
     UpdateSecretRequest:
       type: object
       properties:
-        displayName:
-          type: string
         description:
           type: string
         providerConnectionId:
@@ -12436,8 +12432,6 @@ components:
         ref:
           type: string
           description: "Secret ref used from DAG YAML, for example prod/db-password."
-        displayName:
-          type: string
         description:
           type: string
         providerType:

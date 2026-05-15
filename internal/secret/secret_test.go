@@ -26,7 +26,6 @@ func TestNewSecret_ValidatesIdentity(t *testing.T) {
 			input: CreateInput{
 				Workspace:    "",
 				Ref:          "prod/db-password",
-				DisplayName:  "Database password",
 				ProviderType: ProviderDaguManaged,
 				CreatedBy:    "alice",
 			},
@@ -36,7 +35,6 @@ func TestNewSecret_ValidatesIdentity(t *testing.T) {
 			input: CreateInput{
 				Workspace:    "payments",
 				Ref:          "prod/db-password",
-				DisplayName:  "Database password",
 				ProviderType: ProviderDaguManaged,
 				CreatedBy:    "alice",
 			},

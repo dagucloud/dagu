@@ -26,7 +26,6 @@ func TestStore_CreateManagedSecretEncryptsValue(t *testing.T) {
 	sec, err := secret.New(secret.CreateInput{
 		Workspace:    "payments",
 		Ref:          "prod/db-password",
-		DisplayName:  "Database password",
 		Description:  "Primary database credential",
 		ProviderType: secret.ProviderDaguManaged,
 		CreatedBy:    "alice",
@@ -58,6 +57,7 @@ func TestStore_CreateManagedSecretEncryptsValue(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(data), `"Ref": "prod/db-password"`)
 	assert.NotContains(t, string(data), `"Path"`)
+	assert.NotContains(t, string(data), `"DisplayName"`)
 	assert.NotContains(t, string(data), `"DeploymentStage"`)
 	assert.NotContains(t, string(data), `"Tags"`)
 	assert.NotContains(t, string(data), "plain-secret-value")

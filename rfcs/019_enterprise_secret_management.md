@@ -322,7 +322,6 @@ Secret
   id
   workspace
   ref
-  display_name
   description
   provider_type
   provider_connection_id
@@ -863,7 +862,6 @@ Add a workspace-level secret management page, for example
 The list view should show:
 
 - Secret reference.
-- Display name.
 - Provider type.
 - Status.
 - Last checked time.

@@ -56,7 +56,6 @@ type Secret struct {
 	ID                     string
 	Workspace              string
 	Ref                    string
-	DisplayName            string
 	Description            string
 	ProviderType           ProviderType
 	ProviderConnectionID   string
@@ -83,7 +82,6 @@ type VersionMetadata struct {
 type CreateInput struct {
 	Workspace              string
 	Ref                    string
-	DisplayName            string
 	Description            string
 	ProviderType           ProviderType
 	ProviderConnectionID   string
@@ -93,7 +91,6 @@ type CreateInput struct {
 }
 
 type UpdateInput struct {
-	DisplayName            *string
 	Description            *string
 	ProviderConnectionID   *string
 	ProviderRef            *string
@@ -125,7 +122,6 @@ func New(input CreateInput, now time.Time) (*Secret, error) {
 		ID:                     uuid.NewString(),
 		Workspace:              input.Workspace,
 		Ref:                    input.Ref,
-		DisplayName:            input.DisplayName,
 		Description:            input.Description,
 		ProviderType:           input.ProviderType,
 		ProviderConnectionID:   input.ProviderConnectionID,
@@ -151,9 +147,6 @@ func (s *Secret) Clone() *Secret {
 }
 
 func (s *Secret) ApplyUpdate(input UpdateInput, now time.Time) {
-	if input.DisplayName != nil {
-		s.DisplayName = *input.DisplayName
-	}
 	if input.Description != nil {
 		s.Description = *input.Description
 	}
