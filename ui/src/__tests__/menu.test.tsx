@@ -16,6 +16,7 @@ const useIsAdminMock = vi.fn();
 const useCanAccessSystemStatusMock = vi.fn();
 const useCanViewEventLogsMock = vi.fn();
 const useCanManageWebhooksMock = vi.fn();
+const useCanManageSecretsMock = vi.fn();
 const useCanViewAuditLogsMock = vi.fn();
 const useHasFeatureMock = vi.fn();
 const updatePreferenceMock = vi.fn();
@@ -27,6 +28,7 @@ vi.mock('@/contexts/AuthContext', () => ({
   useCanAccessSystemStatus: () => useCanAccessSystemStatusMock(),
   useCanViewEventLogs: () => useCanViewEventLogsMock(),
   useCanManageWebhooks: () => useCanManageWebhooksMock(),
+  useCanManageSecrets: () => useCanManageSecretsMock(),
   useCanViewAuditLogs: () => useCanViewAuditLogsMock(),
 }));
 
@@ -136,6 +138,7 @@ beforeEach(() => {
   useCanAccessSystemStatusMock.mockReturnValue(true);
   useCanViewEventLogsMock.mockReturnValue(true);
   useCanManageWebhooksMock.mockReturnValue(true);
+  useCanManageSecretsMock.mockReturnValue(true);
   useCanViewAuditLogsMock.mockReturnValue(true);
   useHasFeatureMock.mockReturnValue(true);
 });
