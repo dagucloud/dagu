@@ -51,7 +51,7 @@ steps:
       command: go build ./...
 ```
 
-`with` fields: `image`, `container_name`, `pull`, `auto_remove`, `working_dir`, `volumes`, `shell`, `command`.
+`with` fields: `image`, `container_name`, `pull`, `auto_remove`, `working_dir`, `volumes`, `network`, `platform`, `command`.
 
 ## dag.run
 
@@ -153,10 +153,19 @@ steps:
     action: jq.filter
     with:
       filter: ".items[] | {name: .name, count: .quantity}"
-      data: '{"items": [{"name": "a", "quantity": 1}]}'
+      data:
+        items:
+          - name: a
+            quantity: 1
+
+  - id: transform_file
+    action: jq.filter
+    with:
+      filter: .name
+      input: ${fetch_json.stdout}
 ```
 
-`with.data` is inline JSON input. For files or large JSON documents, use a shell step with the `jq` CLI.
+Use `with.data` for inline JSON or `with.input` for a JSON file path. Do not set both.
 
 ## template.render
 
@@ -245,7 +254,7 @@ Redis operations use the operation in the action name.
 ```yaml
 steps:
   - id: cache_set
-    action: redis.SET
+    action: redis.set
     with:
       url: "redis://localhost:6379"
       key: mykey
@@ -362,7 +371,7 @@ steps:
 
 ## router.route
 
-Conditional routing based on expression value. Routes reference existing step names.
+Conditional routing based on expression value. Routes reference existing step IDs.
 
 ```yaml
 steps:

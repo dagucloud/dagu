@@ -158,6 +158,10 @@ func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *core.DAG, dagRu
 	}
 
 	as := ctx.agentStores()
+	extraEnvs, err := prepareDAGTools(ctx, dag)
+	if err != nil {
+		return err
+	}
 
 	agentInstance := agent.New(
 		dagRunID,
@@ -168,6 +172,7 @@ func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *core.DAG, dagRu
 		dr,
 		agent.Options{
 			Dry:                        false,
+			ExtraEnvs:                  extraEnvs,
 			PreparedAttempt:            preparedAttempt,
 			DAGRunStore:                ctx.DAGRunStore,
 			ServiceRegistry:            ctx.ServiceRegistry,

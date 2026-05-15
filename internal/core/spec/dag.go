@@ -170,6 +170,8 @@ type dag struct {
 	Kubernetes map[string]any `yaml:"kubernetes,omitempty"`
 	// Secrets contains references to external secrets.
 	Secrets []secretRef `yaml:"secrets,omitempty"`
+	// Tools contains DAG-level CLI tool dependencies.
+	Tools *toolsConfig `yaml:"tools,omitempty"`
 	// Defaults defines default values for step configuration fields.
 	// Steps inherit these defaults and can override them individually.
 	Defaults any `yaml:"defaults,omitempty"`
@@ -433,6 +435,29 @@ type secretRef struct {
 	Options map[string]string `yaml:"options,omitempty"`
 }
 
+type toolsConfig struct {
+	Provider string        `yaml:"provider,omitempty"`
+	Registry *toolRegistry `yaml:"registry,omitempty"`
+	Packages []toolPackage `yaml:"packages,omitempty"`
+}
+
+type toolRegistry struct {
+	Name      string `yaml:"name,omitempty"`
+	Type      string `yaml:"type,omitempty"`
+	RepoOwner string `yaml:"repo_owner,omitempty"`
+	RepoName  string `yaml:"repo_name,omitempty"`
+	Ref       string `yaml:"ref,omitempty"`
+	Path      string `yaml:"path,omitempty"`
+}
+
+type toolPackage struct {
+	Name     string   `yaml:"name,omitempty"`
+	Package  string   `yaml:"package,omitempty"`
+	Version  string   `yaml:"version,omitempty"`
+	Commands []string `yaml:"commands,omitempty"`
+	Registry string   `yaml:"registry,omitempty"`
+}
+
 // Transformer transforms a spec field into output field(s).
 // C is the context type, T is the input type.
 type Transformer[C any, T any] interface {
@@ -528,6 +553,7 @@ var fullTransformers = []transform{
 	{"harness", newTransformer("Harness", buildHarness)},
 	{"kubernetes", newTransformer("Kubernetes", buildKubernetes)},
 	{"secrets", newTransformer("Secrets", buildSecrets)},
+	{"tools", newTransformer("Tools", buildTools)},
 	{"dotenv", newTransformer("Dotenv", buildDotenv)},
 	{"smtp", newTransformer("SMTP", buildSMTPConfig)},
 	{"error_mail", newTransformer("ErrorMail", buildErrMailConfig)},
@@ -2273,6 +2299,169 @@ func buildSecrets(_ BuildContext, d *dag) ([]core.SecretRef, error) {
 		return nil, nil
 	}
 	return parseSecretRefs(d.Secrets)
+}
+
+func buildTools(_ BuildContext, d *dag) (*core.ToolConfig, error) {
+	if d.Tools == nil {
+		return nil, nil
+	}
+
+	provider := strings.TrimSpace(d.Tools.Provider)
+	if provider == "" {
+		provider = "aqua"
+	}
+	if provider != "aqua" {
+		return nil, fmt.Errorf("unsupported tools provider %q", provider)
+	}
+	if len(d.Tools.Packages) == 0 {
+		return nil, fmt.Errorf("packages is required")
+	}
+
+	cfg := &core.ToolConfig{
+		Provider: provider,
+		Packages: make([]core.ToolPackage, 0, len(d.Tools.Packages)),
+	}
+	registry, err := buildToolRegistry(d.Tools.Registry)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Registry = registry
+
+	seenCommands := make(map[string]struct{})
+	for i, pkg := range d.Tools.Packages {
+		item, err := buildToolPackage(pkg, seenCommands)
+		if err != nil {
+			return nil, fmt.Errorf("packages[%d]: %w", i, err)
+		}
+		cfg.Packages = append(cfg.Packages, item)
+	}
+	return cfg, nil
+}
+
+func buildToolRegistry(registry *toolRegistry) (*core.ToolRegistry, error) {
+	if registry == nil {
+		return &core.ToolRegistry{
+			Name: "standard",
+			Type: "standard",
+			Ref:  core.DefaultAquaStandardRegistryRef,
+		}, nil
+	}
+
+	name := strings.TrimSpace(registry.Name)
+	typ := strings.TrimSpace(registry.Type)
+	ref := strings.TrimSpace(registry.Ref)
+	if typ == "" {
+		typ = "standard"
+	}
+	if name == "" {
+		name = "standard"
+	}
+
+	switch typ {
+	case "standard":
+		if ref == "" {
+			ref = core.DefaultAquaStandardRegistryRef
+		}
+		return &core.ToolRegistry{
+			Name: name,
+			Type: typ,
+			Ref:  ref,
+		}, nil
+	case "github_content":
+		if ref == "" {
+			return nil, fmt.Errorf("registry.ref is required")
+		}
+		repoOwner := strings.TrimSpace(registry.RepoOwner)
+		repoName := strings.TrimSpace(registry.RepoName)
+		path := strings.TrimSpace(registry.Path)
+		if repoOwner == "" {
+			return nil, fmt.Errorf("registry.repo_owner is required")
+		}
+		if repoName == "" {
+			return nil, fmt.Errorf("registry.repo_name is required")
+		}
+		if path == "" {
+			return nil, fmt.Errorf("registry.path is required")
+		}
+		return &core.ToolRegistry{
+			Name:      name,
+			Type:      typ,
+			RepoOwner: repoOwner,
+			RepoName:  repoName,
+			Ref:       ref,
+			Path:      path,
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported tools registry type %q", typ)
+	}
+}
+
+func buildToolPackage(pkg toolPackage, seenCommands map[string]struct{}) (core.ToolPackage, error) {
+	name := strings.TrimSpace(pkg.Name)
+	packageName := strings.TrimSpace(pkg.Package)
+	version := strings.TrimSpace(pkg.Version)
+	registry := strings.TrimSpace(pkg.Registry)
+	if packageName == "" {
+		return core.ToolPackage{}, fmt.Errorf("package is required")
+	}
+	if version == "" {
+		return core.ToolPackage{}, fmt.Errorf("version is required")
+	}
+	if strings.EqualFold(version, "latest") {
+		return core.ToolPackage{}, fmt.Errorf("version must be pinned, got %q", version)
+	}
+	commands := make([]string, 0, len(pkg.Commands))
+	for _, command := range pkg.Commands {
+		command = strings.TrimSpace(command)
+		if command == "" {
+			return core.ToolPackage{}, fmt.Errorf("commands cannot contain an empty value")
+		}
+		if !isToolCommandName(command) {
+			return core.ToolPackage{}, fmt.Errorf("command %q must be an executable name, not a path or shell fragment", command)
+		}
+		if _, ok := seenCommands[command]; ok {
+			return core.ToolPackage{}, fmt.Errorf("duplicate command %q", command)
+		}
+		seenCommands[command] = struct{}{}
+		commands = append(commands, command)
+	}
+	if name == "" {
+		name = toolPackageDisplayName(packageName, commands)
+	}
+	return core.ToolPackage{
+		Name:     name,
+		Package:  packageName,
+		Version:  version,
+		Commands: commands,
+		Registry: registry,
+	}, nil
+}
+
+func toolPackageDisplayName(packageName string, commands []string) string {
+	if len(commands) != 0 {
+		return commands[0]
+	}
+	if i := strings.LastIndex(packageName, "/"); i != -1 {
+		return packageName[i+1:]
+	}
+	return packageName
+}
+
+func isToolCommandName(command string) bool {
+	if command == "" {
+		return false
+	}
+	for _, r := range command {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '.' || r == '_' || r == '-' || r == '+':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func extractHarnessFallback(config map[string]any) ([]map[string]any, error) {

@@ -9,17 +9,30 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core"
 	exec1 "github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/proto/convert"
+	dagutools "github.com/dagucloud/dagu/internal/tools"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
+
+func envSliceToMap(envs []string) map[string]string {
+	result := make(map[string]string, len(envs))
+	for _, env := range envs {
+		key, value, ok := strings.Cut(env, "=")
+		if ok {
+			result[key] = value
+		}
+	}
+	return result
+}
 
 func TestNewSubDAGExecutor_LocalDAG(t *testing.T) {
 	t.Parallel()
@@ -205,6 +218,55 @@ func TestBuildCommand(t *testing.T) {
 	assert.Contains(t, args, "/path/to/test.yaml")
 	assert.Contains(t, args, "--")
 	assert.Contains(t, args, "param1=value1 param2=value2")
+}
+
+func TestBuildCommandDoesNotInheritParentDAGToolsEnv(t *testing.T) {
+	t.Parallel()
+
+	baseEnv := config.NewBaseEnv([]string{"PATH=/usr/bin"})
+	parentDAG := &core.DAG{
+		Name: "parent",
+		Tools: &core.ToolConfig{
+			Provider: "aqua",
+			Packages: []core.ToolPackage{{
+				Package: "jqlang/jq",
+				Version: "jq-1.7.1",
+			}},
+		},
+	}
+	ctx := config.WithConfig(context.Background(), &config.Config{
+		Core: config.Core{BaseEnv: baseEnv},
+	})
+	ctx = exec1.NewContext(
+		ctx,
+		parentDAG,
+		"parent-456",
+		"",
+		exec1.WithRootDAGRun(exec1.NewDAGRunRef("parent", "root-123")),
+		exec1.WithEnvVars(
+			dagutools.EnvManifest+"=/tmp/parent-tools/manifest.json",
+			"PATH=/tmp/parent-tools/bin:/usr/bin",
+			"AQUA_ROOT_DIR=/tmp/parent-tools/root",
+			"PARENT_ENV=ok",
+		),
+	)
+
+	executor := &SubDAGExecutor{
+		DAG: &core.DAG{
+			Name:     "test-child",
+			Location: "/path/to/test.yaml",
+		},
+		killed: make(chan struct{}),
+	}
+
+	cmd, err := executor.buildCommand(ctx, RunParams{RunID: "child-789"}, "/work/dir")
+	require.NoError(t, err)
+
+	env := envSliceToMap(cmd.Env)
+	assert.Equal(t, "/usr/bin", env["PATH"])
+	assert.Equal(t, "ok", env["PARENT_ENV"])
+	assert.NotContains(t, env, dagutools.EnvManifest)
+	assert.NotContains(t, env, "AQUA_ROOT_DIR")
 }
 
 func TestBuildCommand_NoRunID(t *testing.T) {

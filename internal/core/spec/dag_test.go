@@ -51,6 +51,233 @@ func TestBuildContextWithOpts_InvalidatesParamsState(t *testing.T) {
 	require.Same(t, cached, ctx.paramsState)
 }
 
+func TestLoadDAGToolsAqua(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+tools:
+  packages:
+    - name: jq
+      package: jqlang/jq
+      version: jq-1.7.1
+      commands: [jq]
+steps:
+  - id: check
+    run: jq --version
+`))
+
+	require.NoError(t, err)
+	require.NotNil(t, dag.Tools)
+	assert.Equal(t, "aqua", dag.Tools.Provider)
+	require.NotNil(t, dag.Tools.Registry)
+	assert.Equal(t, "standard", dag.Tools.Registry.Name)
+	assert.Equal(t, "standard", dag.Tools.Registry.Type)
+	assert.Equal(t, core.DefaultAquaStandardRegistryRef, dag.Tools.Registry.Ref)
+	assert.Regexp(t, `^[0-9a-f]{40}$`, dag.Tools.Registry.Ref)
+	require.Len(t, dag.Tools.Packages, 1)
+	assert.Equal(t, "jq", dag.Tools.Packages[0].Name)
+	assert.Equal(t, "jqlang/jq", dag.Tools.Packages[0].Package)
+	assert.Equal(t, "jq-1.7.1", dag.Tools.Packages[0].Version)
+	assert.Equal(t, []string{"jq"}, dag.Tools.Packages[0].Commands)
+}
+
+func TestLoadDAGToolsShorthandList(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+tools:
+  - jqlang/jq@jq-1.7.1
+  - google/pprof@d04f2422c8a17569c14e84da0fae252d9529826b
+steps:
+  - id: check
+    run: jq --version
+`))
+
+	require.NoError(t, err)
+	require.NotNil(t, dag.Tools)
+	assert.Equal(t, "aqua", dag.Tools.Provider)
+	require.NotNil(t, dag.Tools.Registry)
+	assert.Equal(t, core.DefaultAquaStandardRegistryRef, dag.Tools.Registry.Ref)
+	require.Len(t, dag.Tools.Packages, 2)
+	assert.Equal(t, "jq", dag.Tools.Packages[0].Name)
+	assert.Equal(t, "jqlang/jq", dag.Tools.Packages[0].Package)
+	assert.Equal(t, "jq-1.7.1", dag.Tools.Packages[0].Version)
+	assert.Empty(t, dag.Tools.Packages[0].Commands)
+	assert.Equal(t, "pprof", dag.Tools.Packages[1].Name)
+	assert.Equal(t, "google/pprof", dag.Tools.Packages[1].Package)
+	assert.Equal(t, "d04f2422c8a17569c14e84da0fae252d9529826b", dag.Tools.Packages[1].Version)
+	assert.Empty(t, dag.Tools.Packages[1].Commands)
+}
+
+func TestLoadDAGToolsPackagesAcceptMixedShorthandAndObject(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+tools:
+  packages:
+    - jqlang/jq@jq-1.7.1
+    - package: google/pprof
+      version: d04f2422c8a17569c14e84da0fae252d9529826b
+steps:
+  - id: check
+    run: jq --version
+`))
+
+	require.NoError(t, err)
+	require.NotNil(t, dag.Tools)
+	require.Len(t, dag.Tools.Packages, 2)
+	assert.Equal(t, "jqlang/jq", dag.Tools.Packages[0].Package)
+	assert.Equal(t, "jq-1.7.1", dag.Tools.Packages[0].Version)
+	assert.Equal(t, "google/pprof", dag.Tools.Packages[1].Package)
+	assert.Equal(t, "d04f2422c8a17569c14e84da0fae252d9529826b", dag.Tools.Packages[1].Version)
+}
+
+func TestLoadDAGToolsRejectsInvalidShorthand(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+tools:
+  - jqlang/jq
+steps:
+  - id: check
+    run: jq --version
+`))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `tool package shorthand must be "package@version"`)
+}
+
+func TestLoadDAGToolsAcceptsPackageCommitSHA(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+tools:
+  packages:
+    - package: google/pprof
+      version: d04f2422c8a17569c14e84da0fae252d9529826b
+steps:
+  - id: check
+    run: pprof --help
+`))
+
+	require.NoError(t, err)
+	require.NotNil(t, dag.Tools)
+	require.Len(t, dag.Tools.Packages, 1)
+	assert.Equal(t, "aqua", dag.Tools.Provider)
+	assert.Equal(t, "d04f2422c8a17569c14e84da0fae252d9529826b", dag.Tools.Packages[0].Version)
+	assert.Empty(t, dag.Tools.Packages[0].Commands)
+}
+
+func TestLoadDAGToolsAcceptsOmittedCommands(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+tools:
+  provider: aqua
+  registry:
+    type: standard
+    ref: v4.233.0
+  packages:
+    - name: jq
+      package: jqlang/jq
+      version: jq-1.7.1
+steps:
+  - id: check
+    run: jq
+`))
+
+	require.NoError(t, err)
+	require.NotNil(t, dag.Tools)
+	require.Len(t, dag.Tools.Packages, 1)
+	assert.Equal(t, "jq", dag.Tools.Packages[0].Name)
+	assert.Empty(t, dag.Tools.Packages[0].Commands)
+}
+
+func TestLoadDAGToolsRejectsMissingGitHubContentRegistryRef(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+tools:
+  provider: aqua
+  registry:
+    type: github_content
+    repo_owner: example
+    repo_name: aqua-registry
+    path: registry.yaml
+  packages:
+    - name: jq
+      package: jqlang/jq
+      version: jq-1.7.1
+      commands: [jq]
+steps:
+  - id: check
+    run: jq
+`))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "registry.ref is required")
+}
+
+func TestLoadDAGToolsRejectsFloatingLatestVersion(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+tools:
+  provider: aqua
+  registry:
+    ref: v4.233.0
+  packages:
+    - package: jqlang/jq
+      version: LATEST
+      commands: [jq]
+steps:
+  - id: check
+    run: jq
+`))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `version must be pinned, got "LATEST"`)
+}
+
+func TestLoadDAGToolsRejectsCommandPath(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+tools:
+  provider: aqua
+  registry:
+    ref: v4.233.0
+  packages:
+    - package: jqlang/jq
+      version: jq-1.7.1
+      commands: [bin/jq]
+steps:
+  - id: check
+    run: jq
+`))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `command "bin/jq" must be an executable name`)
+}
+
+func TestLoadDAGToolsRejectsShellFragmentCommand(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+tools:
+  packages:
+    - package: jqlang/jq
+      version: jq-1.7.1
+      commands: ["jq;echo"]
+steps:
+  - id: check
+    run: jq
+`))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `command "jq;echo" must be an executable name`)
+}
+
 // Helper to create PortValue from string
 func portValue(s string) types.PortValue {
 	var p types.PortValue

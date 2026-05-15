@@ -301,6 +301,7 @@ func (cfg *commandConfig) newCmd(ctx context.Context, scriptFile string) (*exec.
 			copy(tmp, shell[1:])
 			args = append(tmp, args...)
 		}
+		command = resolveRuntimeToolCommand(ctx, command)
 		cmd = createDirectCommand(cfg.Ctx, command, args, scriptFile)
 	}
 

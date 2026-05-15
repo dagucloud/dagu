@@ -418,6 +418,22 @@
       },
       "description": "List of external secret references resolved at runtime and exposed as environment variables. Each entry declares the target environment variable name, provider, key, and optional provider-specific options."
     },
+    "tools": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/toolConfig"
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/toolPackage"
+          },
+          "description": "Shorthand list of aqua packages, for example tools: ['jqlang/jq@jq-1.7.1']."
+        }
+      ],
+      "description": "DAG-level CLI tool dependencies installed on the worker before any step runs. Can be an object for advanced options or shorthand package refs like jqlang/jq@jq-1.7.1. Provider defaults to aqua, and registry defaults to Dagu's pinned standard registry commit."
+    },
     "defaults": {
       "type": "object",
       "additionalProperties": false,
@@ -1345,6 +1361,134 @@
         }
       },
       "description": "Reference to an external secret that Dagu resolves at runtime. The resolved value is injected as an environment variable and masked in logs/output."
+    },
+    "toolConfig": {
+      "type": "object",
+      "required": ["packages"],
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["aqua"],
+          "default": "aqua",
+          "description": "Tool provider. Currently only aqua is supported."
+        },
+        "registry": {
+          "$ref": "#/definitions/toolRegistry",
+          "description": "Optional aqua registry override. Omit this to use Dagu's pinned standard aqua registry."
+        },
+        "packages": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/toolPackage"
+          },
+          "description": "Aqua packages to install before the DAG runs."
+        }
+      }
+    },
+    "toolRegistry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "default": "standard",
+          "description": "Registry name referenced by packages."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["standard", "github_content"],
+          "default": "standard",
+          "description": "Aqua registry type. Local registries are not supported for worker-local installation."
+        },
+        "repo_owner": {
+          "type": "string",
+          "description": "GitHub repository owner for github_content registries."
+        },
+        "repo_name": {
+          "type": "string",
+          "description": "GitHub repository name for github_content registries."
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Registry tag or commit hash. Prefer a commit hash for immutability. Optional for the standard registry; Dagu uses its pinned default commit when omitted. Required for github_content registries."
+        },
+        "path": {
+          "type": "string",
+          "description": "Registry file path inside a github_content registry repository."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": { "const": "github_content" }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["repo_owner", "repo_name", "ref", "path"]
+          }
+        }
+      ]
+    },
+    "toolPackage": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/toolPackageObject"
+        },
+        {
+          "$ref": "#/definitions/toolPackageRef"
+        }
+      ],
+      "description": "Aqua package declaration. Use package@version shorthand for the common case, or an object for explicit commands, display name, or registry overrides."
+    },
+    "toolPackageRef": {
+      "type": "string",
+      "pattern": "^[^\\s@]+@[^\\s@]+$",
+      "not": {
+        "pattern": "@[Ll][Aa][Tt][Ee][Ss][Tt]$"
+      },
+      "description": "Aqua package shorthand in package@version form, for example jqlang/jq@jq-1.7.1. Prefer immutable commit hashes where aqua supports them."
+    },
+    "toolPackageObject": {
+      "type": "object",
+      "required": ["package", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Optional display name. Defaults to the first command when commands are provided, otherwise the package basename."
+        },
+        "package": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Aqua package name, for example jqlang/jq."
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "not": { "pattern": "^[Ll][Aa][Tt][Ee][Ss][Tt]$" },
+          "description": "Pinned aqua package version/ref. For release-asset packages this is usually a release tag such as jq-1.7.1; for source/ref-based packages aqua accepts commit hashes. The floating value latest is rejected."
+        },
+        "commands": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._+-]+$"
+          },
+          "description": "Optional command names exposed to steps from this package. When omitted, Dagu infers commands from aqua registry metadata."
+        },
+        "registry": {
+          "type": "string",
+          "description": "Optional registry name for this package. Defaults to the configured registry."
+        }
+      }
     },
     "stepItem": {
       "oneOf": [

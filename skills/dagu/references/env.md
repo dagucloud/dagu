@@ -58,6 +58,7 @@ All configuration environment variables use the `DAGU_` prefix. They map to conf
 | `DAGU_DAGS_DIR` | `$DAGU_HOME/dags` | DAG YAML files directory |
 | `DAGU_LOG_DIR` | `$DAGU_HOME/logs` | Log files directory |
 | `DAGU_DATA_DIR` | `$DAGU_HOME/data` | Data storage directory |
+| `DAGU_TOOLS_DIR` | `$DAGU_DATA_DIR/tools` | Managed DAG tool cache directory |
 | `DAGU_DOCS_DIR` | — | Documentation directory |
 
 ### Server

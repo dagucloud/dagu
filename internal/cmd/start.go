@@ -506,6 +506,10 @@ func executeDAGRun(ctx *Context, d *core.DAG, parent exec.DAGRunRef, dagRunID st
 	queuedRun := workerID != "local"
 
 	as := ctx.agentStores()
+	extraEnvs, err := prepareDAGTools(ctx, d)
+	if err != nil {
+		return err
+	}
 
 	agentInstance := agent.New(
 		dagRunID,
@@ -517,6 +521,7 @@ func executeDAGRun(ctx *Context, d *core.DAG, parent exec.DAGRunRef, dagRunID st
 		agent.Options{
 			ParentDAGRun:               parent,
 			ProgressDisplay:            shouldEnableProgress(ctx),
+			ExtraEnvs:                  extraEnvs,
 			WorkerID:                   workerID,
 			AttemptID:                  attemptID,
 			QueuedRun:                  queuedRun,

@@ -148,6 +148,7 @@ func applyOptions(cfg *config.Config, opts Options) {
 	}
 	if opts.DataDir != "" {
 		cfg.Paths.DataDir = resolvePath(opts.DataDir)
+		cfg.Paths.ToolsDir = filepath.Join(cfg.Paths.DataDir, "tools")
 		cfg.Paths.DAGRunsDir = filepath.Join(cfg.Paths.DataDir, "dag-runs")
 		cfg.Paths.ProcDir = filepath.Join(cfg.Paths.DataDir, "proc")
 		cfg.Paths.QueueDir = filepath.Join(cfg.Paths.DataDir, "queue")

@@ -305,7 +305,7 @@ env:
   - OUTPUT_PATH: "${data_dir}/results"
 steps:
   - name: check-env
-    run: echo "${OUTPUT_PATH}"
+    command: echo "${OUTPUT_PATH}"
     output: RESULT
 `)
 

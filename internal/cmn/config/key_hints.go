@@ -73,6 +73,7 @@ var legacyToSnakeCaseKey = map[string]string{
 	"paths.logdir":             "paths.log_dir",
 	"paths.artifactdir":        "paths.artifact_dir",
 	"paths.datadir":            "paths.data_dir",
+	"paths.toolsdir":           "paths.tools_dir",
 	"paths.suspendflagsdir":    "paths.suspend_flags_dir",
 	"paths.adminlogsdir":       "paths.admin_logs_dir",
 	"paths.eventstoredir":      "paths.event_store_dir",
