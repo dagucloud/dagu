@@ -48,7 +48,7 @@ require (
 	github.com/samber/slog-multi v1.6.0
 	github.com/segmentio/golines v0.12.2
 	github.com/shirou/gopsutil/v4 v4.25.12
-	github.com/slack-go/slack v0.19.0
+	github.com/slack-go/slack v0.23.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.11.1

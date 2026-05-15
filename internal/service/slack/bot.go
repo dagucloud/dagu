@@ -171,7 +171,7 @@ func (b *Bot) handleEvent(ctx context.Context, evt socketmode.Event) {
 		if !ok {
 			return
 		}
-		b.socketClient.Ack(*evt.Request)
+		b.ackEvent(*evt.Request)
 		b.handleEventsAPI(ctx, eventsAPIEvent)
 
 	case socketmode.EventTypeInteractive:
@@ -179,7 +179,7 @@ func (b *Bot) handleEvent(ctx context.Context, evt socketmode.Event) {
 		if !ok {
 			return
 		}
-		b.socketClient.Ack(*evt.Request)
+		b.ackEvent(*evt.Request)
 		b.handleInteraction(ctx, callback)
 
 	case socketmode.EventTypeSlashCommand:
@@ -187,11 +187,20 @@ func (b *Bot) handleEvent(ctx context.Context, evt socketmode.Event) {
 		if !ok {
 			return
 		}
-		b.socketClient.Ack(*evt.Request)
+		b.ackEvent(*evt.Request)
 		b.handleSlashCommand(ctx, cmd)
 
 	default:
 		// Ignore other socket mode events (connecting, hello, errors, etc.)
+	}
+}
+
+func (b *Bot) ackEvent(req socketmode.Request) {
+	if err := b.socketClient.Ack(req); err != nil {
+		b.logger.Warn("Failed to acknowledge Slack socket mode event",
+			slog.String("envelope_id", req.EnvelopeID),
+			slog.String("error", err.Error()),
+		)
 	}
 }
 
