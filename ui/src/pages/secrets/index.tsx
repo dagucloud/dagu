@@ -88,6 +88,24 @@ const PROVIDER_LABELS: Record<SecretProviderType, string> = {
 
 const PROVIDERS = Object.values(SecretProviderType);
 
+function isPaidProvider(provider: SecretProviderType): boolean {
+  return provider !== SecretProviderType.dagu_managed;
+}
+
+function providerOptionLabel(provider: SecretProviderType): React.ReactElement {
+  const isPaid = isPaidProvider(provider);
+  return (
+    <span className="flex w-full items-center justify-between gap-3">
+      <span>{PROVIDER_LABELS[provider]}</span>
+      {isPaid && (
+        <Badge variant="outline" className="h-4 px-1.5 text-[10px]">
+          Paid
+        </Badge>
+      )}
+    </span>
+  );
+}
+
 function initialFormState(workspace: string): SecretFormState {
   return {
     workspace,
@@ -506,6 +524,10 @@ function SecretFormDialog({
       setError('Value is required');
       return;
     }
+    if (!isEditing && isPaidProvider(form.providerType)) {
+      setError('External secret providers are a paid feature');
+      return;
+    }
     if (!isDaguManaged && form.providerRef.trim() === '') {
       setError('Provider ref is required');
       return;
@@ -605,8 +627,12 @@ function SecretFormDialog({
                 </SelectTrigger>
                 <SelectContent>
                   {PROVIDERS.map((provider) => (
-                    <SelectItem key={provider} value={provider}>
-                      {PROVIDER_LABELS[provider]}
+                    <SelectItem
+                      key={provider}
+                      value={provider}
+                      disabled={isPaidProvider(provider)}
+                    >
+                      {providerOptionLabel(provider)}
                     </SelectItem>
                   ))}
                 </SelectContent>
