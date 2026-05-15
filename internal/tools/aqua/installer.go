@@ -5,12 +5,16 @@ package aqua
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -23,6 +27,7 @@ import (
 	aquadownload "github.com/aquaproj/aqua/v2/pkg/download"
 	aquagithub "github.com/aquaproj/aqua/v2/pkg/github"
 	aquaregistry "github.com/aquaproj/aqua/v2/pkg/install-registry"
+	aquainstallpackage "github.com/aquaproj/aqua/v2/pkg/installpackage"
 	aquaruntime "github.com/aquaproj/aqua/v2/pkg/runtime"
 	"github.com/dagucloud/dagu/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/internal/core"
@@ -95,11 +100,22 @@ func (i *Installer) Install(ctx context.Context, cfg *core.ToolConfig, opts tool
 	if err != nil {
 		return nil, err
 	}
-	unlock, err := i.lockToolRoot(ctx, paths.RootDir)
+	if manifest, err := readyManifest(paths, platform, hash); err != nil {
+		return nil, err
+	} else if manifest != nil {
+		return manifest, nil
+	}
+
+	unlockToolset, err := i.lockToolset(ctx, paths)
 	if err != nil {
 		return nil, err
 	}
-	defer unlock()
+	defer unlockToolset()
+	if manifest, err := readyManifest(paths, platform, hash); err != nil {
+		return nil, err
+	} else if manifest != nil {
+		return manifest, nil
+	}
 
 	// Tool caches live under the worker-local data dir and are owned by the
 	// worker process user; group-readable directories are enough for shared
@@ -119,6 +135,24 @@ func (i *Installer) Install(ctx context.Context, cfg *core.ToolConfig, opts tool
 	}
 
 	param := aquaParam(paths, opts.WorkDir)
+	aquaCfg, err := i.readRenderedConfig(param, paths.ConfigFile)
+	if err != nil {
+		return nil, err
+	}
+	if err := i.ensureRegistriesInstalled(ctx, param, paths, rt, aquaCfg); err != nil {
+		return nil, err
+	}
+	unlockProxy, err := i.lockColdProxyInstall(ctx, paths, rt)
+	if err != nil {
+		return nil, err
+	}
+	defer unlockProxy()
+	unlockPackages, err := i.lockPackages(ctx, paths, cfg, platform)
+	if err != nil {
+		return nil, err
+	}
+	defer unlockPackages()
+
 	updateChecksumController, err := aquacontroller.InitializeUpdateChecksumCommandController(ctx, i.logger, param, i.httpClient, rt)
 	if err != nil {
 		return nil, fmt.Errorf("initialize aqua update-checksum controller: %w", err)
@@ -193,6 +227,52 @@ func (i *Installer) Install(ctx context.Context, cfg *core.ToolConfig, opts tool
 		return nil, err
 	}
 	return manifest, nil
+}
+
+func readyManifest(paths tools.CacheLayout, platform, hash string) (*tools.Manifest, error) {
+	manifest, err := tools.ReadManifest(paths.ManifestFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if manifest.Provider != providerAqua || manifest.Platform != platform || manifest.Hash != hash {
+		return nil, nil
+	}
+	if filepath.Clean(manifest.RootDir) != filepath.Clean(paths.RootDir) ||
+		filepath.Clean(manifest.EnvDir) != filepath.Clean(paths.EnvDir) ||
+		filepath.Clean(manifest.BinDir) != filepath.Clean(paths.BinDir) ||
+		filepath.Clean(manifest.Config) != filepath.Clean(paths.ConfigFile) {
+		return nil, nil
+	}
+	if len(manifest.Commands) == 0 {
+		return nil, nil
+	}
+	for name, command := range manifest.Commands {
+		if name == "" || command.Name != name || !isPathWithin(paths.BinDir, command.Path) {
+			return nil, nil
+		}
+		info, err := os.Stat(command.Path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil, nil
+			}
+			return nil, err
+		}
+		if info.IsDir() {
+			return nil, nil
+		}
+	}
+	return manifest, nil
+}
+
+func isPathWithin(dir, path string) bool {
+	rel, err := filepath.Rel(filepath.Clean(dir), filepath.Clean(path))
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != "" && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 func (i *Installer) packageCommands(ctx context.Context, cfg *core.ToolConfig, param *aquaparam.Param, paths tools.CacheLayout, rt *aquaruntime.Runtime) ([][]string, error) {
@@ -339,13 +419,111 @@ func isCommandName(command string) bool {
 	return true
 }
 
-func (i *Installer) lockToolRoot(ctx context.Context, rootDir string) (func(), error) {
-	lock := dirlock.New(rootDir, &dirlock.LockOptions{
+func (i *Installer) ensureRegistriesInstalled(ctx context.Context, param *aquaparam.Param, paths tools.CacheLayout, rt *aquaruntime.Runtime, aquaCfg *aquaconfig.Config) error {
+	fs := afero.NewOsFs()
+	checksums, updateChecksum, err := aquachecksum.Open(i.logger, fs, paths.ConfigFile, param.ChecksumEnabled(aquaCfg))
+	if err != nil {
+		return fmt.Errorf("read aqua checksum file: %w", err)
+	}
+	defer updateChecksum()
+
+	httpDownloader := aquadownload.NewHTTPDownloader(i.logger, i.httpClient)
+	registryDownloader := aquadownload.NewGitHubContentFileDownloader(aquagithub.New(ctx, i.logger), httpDownloader)
+	registryInstaller := aquaregistry.New(param, registryDownloader, fs, rt, nil, nil)
+
+	for _, registry := range aquaCfg.Registries {
+		if registry == nil || registry.Type == aquaconfig.RegistryTypeLocal {
+			continue
+		}
+		registryPath, err := registry.FilePath(paths.RootDir, paths.ConfigFile)
+		if err != nil {
+			return fmt.Errorf("get aqua registry path: %w", err)
+		}
+		if registryCacheReady(registryPath) {
+			continue
+		}
+
+		unlock, err := i.lockResource(ctx, paths, "registry", registryPath)
+		if err != nil {
+			return err
+		}
+		if !registryCacheReady(registryPath) {
+			if _, err := registryInstaller.InstallRegistry(ctx, i.logger, registry, paths.ConfigFile, checksums); err != nil {
+				unlock()
+				return fmt.Errorf("install aqua registry %q: %w", registry.Name, err)
+			}
+		}
+		unlock()
+	}
+	return nil
+}
+
+func (i *Installer) lockToolset(ctx context.Context, paths tools.CacheLayout) (func(), error) {
+	return i.lockResource(ctx, paths, "toolset", paths.EnvDir)
+}
+
+func (i *Installer) lockColdProxyInstall(ctx context.Context, paths tools.CacheLayout, rt *aquaruntime.Runtime) (func(), error) {
+	if aquaProxyReady(paths.RootDir, rt) {
+		return func() {}, nil
+	}
+	unlock, err := i.lockResource(ctx, paths, "proxy", rt.Env())
+	if err != nil {
+		return nil, err
+	}
+	if aquaProxyReady(paths.RootDir, rt) {
+		unlock()
+		return func() {}, nil
+	}
+	return unlock, nil
+}
+
+func (i *Installer) lockPackages(ctx context.Context, paths tools.CacheLayout, cfg *core.ToolConfig, platform string) (func(), error) {
+	keys := make([]string, 0, len(cfg.Packages))
+	seen := map[string]struct{}{}
+	for _, pkg := range cfg.Packages {
+		key := strings.Join([]string{
+			platform,
+			strings.TrimSpace(pkg.Registry),
+			strings.TrimSpace(pkg.Package),
+			strings.TrimSpace(pkg.Version),
+		}, "\x00")
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	return i.lockResources(ctx, paths, "package", keys)
+}
+
+func (i *Installer) lockResources(ctx context.Context, paths tools.CacheLayout, kind string, keys []string) (func(), error) {
+	sort.Strings(keys)
+	unlocks := make([]func(), 0, len(keys))
+	for _, key := range keys {
+		unlock, err := i.lockResource(ctx, paths, kind, key)
+		if err != nil {
+			for idx := len(unlocks) - 1; idx >= 0; idx-- {
+				unlocks[idx]()
+			}
+			return nil, err
+		}
+		unlocks = append(unlocks, unlock)
+	}
+	return func() {
+		for idx := len(unlocks) - 1; idx >= 0; idx-- {
+			unlocks[idx]()
+		}
+	}, nil
+}
+
+func (i *Installer) lockResource(ctx context.Context, paths tools.CacheLayout, kind, key string) (func(), error) {
+	lockDir := filepath.Join(paths.LockDir, kind, lockHash(key))
+	lock := dirlock.New(lockDir, &dirlock.LockOptions{
 		StaleThreshold: lockStaleThreshold,
 		RetryInterval:  lockRetryInterval,
 	})
 	if err := lock.Lock(ctx); err != nil {
-		return nil, fmt.Errorf("lock aqua tool root: %w", err)
+		return nil, fmt.Errorf("lock aqua %s resource: %w", kind, err)
 	}
 
 	heartbeatCtx, stopHeartbeat := context.WithCancel(context.Background())
@@ -360,7 +538,7 @@ func (i *Installer) lockToolRoot(ctx context.Context, rootDir string) (func(), e
 				return
 			case <-ticker.C:
 				if err := lock.Heartbeat(context.Background()); err != nil {
-					i.logger.Debug("heartbeat aqua tool root lock", "err", err)
+					i.logger.Debug("heartbeat aqua resource lock", "kind", kind, "err", err)
 				}
 			}
 		}
@@ -370,9 +548,54 @@ func (i *Installer) lockToolRoot(ctx context.Context, rootDir string) (func(), e
 		stopHeartbeat()
 		<-done
 		if err := lock.Unlock(); err != nil {
-			i.logger.Debug("unlock aqua tool root", "err", err)
+			i.logger.Debug("unlock aqua resource", "kind", kind, "err", err)
 		}
 	}, nil
+}
+
+func lockHash(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func registryCacheReady(registryPath string) bool {
+	if strings.HasSuffix(registryPath, ".json") {
+		return jsonRegistryReady(registryPath)
+	}
+	return jsonRegistryReady(registryPath + ".json")
+}
+
+func jsonRegistryReady(path string) bool {
+	data, err := os.ReadFile(path) //nolint:gosec
+	if err != nil {
+		return false
+	}
+	var cfg aquaregistryconfig.Config
+	return json.Unmarshal(data, &cfg) == nil
+}
+
+func aquaProxyReady(rootDir string, rt *aquaruntime.Runtime) bool {
+	if !rt.IsWindows() {
+		return fileExists(filepath.Join(rootDir, "aqua-proxy"))
+	}
+	matches, err := filepath.Glob(filepath.Join(
+		rootDir,
+		"internal",
+		"pkgs",
+		"github_release",
+		"github.com",
+		"aquaproj",
+		"aqua-proxy",
+		aquainstallpackage.ProxyVersion,
+		"*",
+		"aqua-proxy.exe",
+	))
+	return err == nil && len(matches) > 0
 }
 
 func aquaParam(paths tools.CacheLayout, workDir string) *aquaparam.Param {

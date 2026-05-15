@@ -43,6 +43,7 @@ type InstallOptions struct {
 // CacheLayout contains worker-local cache paths for a toolset.
 type CacheLayout struct {
 	RootDir      string
+	LockDir      string
 	EnvDir       string
 	BinDir       string
 	ConfigFile   string
@@ -88,9 +89,11 @@ func CachePaths(dataDir, platform, toolsetHash string) (CacheLayout, error) {
 	}
 
 	rootDir := filepath.Join(dataDir, toolCacheRootPath, providerAqua, "root")
+	lockDir := filepath.Join(dataDir, toolCacheRootPath, providerAqua, "locks")
 	envDir := filepath.Join(dataDir, toolCacheRootPath, providerAqua, "envs", platform, toolsetHash)
 	return CacheLayout{
 		RootDir:      rootDir,
+		LockDir:      lockDir,
 		EnvDir:       envDir,
 		BinDir:       filepath.Join(envDir, "bin"),
 		ConfigFile:   filepath.Join(envDir, configFileName),

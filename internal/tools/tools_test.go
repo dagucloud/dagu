@@ -21,6 +21,7 @@ func TestCachePathsUsesWorkerLocalDataDir(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join("/var/lib/dagu/data", "tools", "aqua", "root"), paths.RootDir)
+	assert.Equal(t, filepath.Join("/var/lib/dagu/data", "tools", "aqua", "locks"), paths.LockDir)
 	assert.Equal(t, filepath.Join("/var/lib/dagu/data", "tools", "aqua", "envs", "linux-amd64", "abc123"), paths.EnvDir)
 	assert.Equal(t, filepath.Join(paths.EnvDir, "bin"), paths.BinDir)
 	assert.Equal(t, filepath.Join(paths.EnvDir, "aqua.yaml"), paths.ConfigFile)

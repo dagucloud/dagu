@@ -5,6 +5,8 @@ package aqua
 
 import (
 	"log/slog"
+	"os"
+	"path/filepath"
 	"testing"
 
 	aquaconfig "github.com/aquaproj/aqua/v2/pkg/config/aqua"
@@ -107,4 +109,94 @@ func TestPackageCommandsRejectsUnsafeExplicitCommandName(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "must be executable names")
+}
+
+func TestReadyManifestReturnsManifestWhenCommandsExist(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	paths := testCacheLayout(dir)
+	require.NoError(t, os.MkdirAll(paths.BinDir, 0o750))
+	commandPath := filepath.Join(paths.BinDir, "jq")
+	require.NoError(t, os.WriteFile(commandPath, []byte("#!/bin/sh\n"), 0o700))
+
+	manifest := &tools.Manifest{
+		Provider:     providerAqua,
+		Platform:     "linux/amd64",
+		Hash:         "hash",
+		RootDir:      paths.RootDir,
+		EnvDir:       paths.EnvDir,
+		BinDir:       paths.BinDir,
+		Config:       paths.ConfigFile,
+		ManifestFile: paths.ManifestFile,
+		Commands: map[string]tools.Command{
+			"jq": {
+				Name:    "jq",
+				Path:    commandPath,
+				Package: "jqlang/jq",
+				Version: "jq-1.7.1",
+			},
+		},
+	}
+	require.NoError(t, writeManifest(paths.ManifestFile, manifest))
+
+	got, err := readyManifest(paths, "linux/amd64", "hash")
+
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, commandPath, got.Commands["jq"].Path)
+}
+
+func TestReadyManifestMissesWhenCommandIsMissing(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	paths := testCacheLayout(dir)
+	require.NoError(t, os.MkdirAll(paths.BinDir, 0o750))
+	manifest := &tools.Manifest{
+		Provider:     providerAqua,
+		Platform:     "linux/amd64",
+		Hash:         "hash",
+		RootDir:      paths.RootDir,
+		EnvDir:       paths.EnvDir,
+		BinDir:       paths.BinDir,
+		Config:       paths.ConfigFile,
+		ManifestFile: paths.ManifestFile,
+		Commands: map[string]tools.Command{
+			"jq": {
+				Name: "jq",
+				Path: filepath.Join(paths.BinDir, "jq"),
+			},
+		},
+	}
+	require.NoError(t, writeManifest(paths.ManifestFile, manifest))
+
+	got, err := readyManifest(paths, "linux/amd64", "hash")
+
+	require.NoError(t, err)
+	assert.Nil(t, got)
+}
+
+func TestRegistryCacheReadyRequiresValidJSONCache(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	registryPath := filepath.Join(dir, "registry.yaml")
+	require.NoError(t, os.WriteFile(registryPath+".json", []byte("{"), 0o600))
+	assert.False(t, registryCacheReady(registryPath))
+
+	require.NoError(t, os.WriteFile(registryPath+".json", []byte("{}"), 0o600))
+	assert.True(t, registryCacheReady(registryPath))
+}
+
+func testCacheLayout(dir string) tools.CacheLayout {
+	return tools.CacheLayout{
+		RootDir:      filepath.Join(dir, "root"),
+		LockDir:      filepath.Join(dir, "locks"),
+		EnvDir:       filepath.Join(dir, "env"),
+		BinDir:       filepath.Join(dir, "env", "bin"),
+		ConfigFile:   filepath.Join(dir, "env", "aqua.yaml"),
+		ChecksumFile: filepath.Join(dir, "env", "aqua-checksums.json"),
+		ManifestFile: filepath.Join(dir, "env", "manifest.json"),
+	}
 }
