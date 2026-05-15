@@ -159,8 +159,11 @@ type Config struct {
 	// OAuthCredentialProvider resolves dynamic bearer credentials on demand.
 	OAuthCredentialProvider OAuthCredentialProvider
 	// Timeout is the maximum time to wait for a response.
-	// Default is 60 seconds if not specified.
+	// Default is 60 seconds if not specified unless DisableRequestTimeout is true.
 	Timeout time.Duration
+	// DisableRequestTimeout leaves the underlying request client without a
+	// response timeout. Callers must cancel through the request context.
+	DisableRequestTimeout bool
 
 	// Retry configuration
 	// MaxRetries is the maximum number of retry attempts for transient errors.

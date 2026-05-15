@@ -20,9 +20,6 @@ const (
 	// idlePollingInterval is the interval for polling when no messages are queued.
 	idlePollingInterval = 100 * time.Millisecond
 
-	// llmRequestTimeout is the maximum time allowed for an LLM request.
-	llmRequestTimeout = 5 * time.Minute
-
 	// maxToolCallDepth limits nested tool call chains to prevent infinite recursion.
 	// This can happen if an LLM continuously makes tool calls without producing a final response.
 	maxToolCallDepth = 50
@@ -89,6 +86,10 @@ type LoopConfig struct {
 	// processed (processLLMRequest returned nil). For single-shot callers
 	// like the agent-step executor this is the signal to cancel the loop.
 	OnTurnComplete func()
+	// ReturnTurnErrors makes Go return turn-processing errors instead of
+	// recording them and waiting for another queued message. Interactive
+	// sessions keep this false so a later user message can recover.
+	ReturnTurnErrors bool
 }
 
 // Loop manages a session turn with an LLM including tool execution.
@@ -120,6 +121,7 @@ type Loop struct {
 	registry           SubSessionRegistry
 	webSearch          *llm.WebSearchRequest
 	onTurnComplete     func()
+	returnTurnErrors   bool
 	activeTurn         bool
 	interruptRequested bool
 }
@@ -155,6 +157,7 @@ func NewLoop(config LoopConfig) *Loop {
 		registry:         config.Registry,
 		webSearch:        config.WebSearch,
 		onTurnComplete:   config.OnTurnComplete,
+		returnTurnErrors: config.ReturnTurnErrors,
 	}
 }
 
@@ -258,6 +261,9 @@ func (l *Loop) Go(ctx context.Context) error {
 				}
 				l.logger.Error("failed to process LLM request", "error", err)
 				l.finishActiveTurn()
+				if l.returnTurnErrors {
+					return err
+				}
 				continue
 			}
 			l.finishActiveTurn()
@@ -356,12 +362,10 @@ func (l *Loop) sendRequest(ctx context.Context) (*llm.ChatResponse, error) {
 
 	l.setWorking(true)
 
-	llmCtx, cancel := context.WithTimeout(ctx, llmRequestTimeout)
-	defer cancel()
-	stopHeartbeat := startHeartbeatPump(llmCtx, loopHeartbeatInterval, l.onHeartbeat)
+	stopHeartbeat := startHeartbeatPump(ctx, loopHeartbeatInterval, l.onHeartbeat)
 	defer stopHeartbeat()
 
-	resp, err := llm.ChatWithRetry(llmCtx, provider, req, llm.DefaultLogicalRetryConfig())
+	resp, err := llm.ChatWithRetry(ctx, provider, req, llm.DefaultLogicalRetryConfig())
 	if err != nil {
 		l.recordErrorMessage(ctx, fmt.Sprintf("LLM request failed: %v", err))
 		l.setWorking(false)

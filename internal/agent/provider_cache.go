@@ -135,8 +135,7 @@ func CreateLLMProvider(agentCfg LLMConfig, deps ProviderDeps) (llm.Provider, err
 		return nil, fmt.Errorf("invalid LLM provider: %w", err)
 	}
 
-	cfg := llm.DefaultConfig()
-	cfg.Timeout = llmRequestTimeout
+	cfg := llm.Config{DisableRequestTimeout: true}
 	cfg.APIKey = cmp.Or(agentCfg.APIKey, cfg.APIKey)
 	cfg.BaseURL = cmp.Or(agentCfg.BaseURL, cfg.BaseURL)
 	if providerType == llm.ProviderOpenAICodex && deps.OAuthManager != nil {
