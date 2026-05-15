@@ -478,12 +478,15 @@ func (i *Installer) lockColdProxyInstall(ctx context.Context, paths tools.CacheL
 }
 
 func (i *Installer) lockPackages(ctx context.Context, paths tools.CacheLayout, cfg *core.ToolConfig, platform string) (func(), error) {
+	return i.lockResources(ctx, paths, "package", packageLockKeys(cfg, platform))
+}
+
+func packageLockKeys(cfg *core.ToolConfig, platform string) []string {
 	keys := make([]string, 0, len(cfg.Packages))
 	seen := map[string]struct{}{}
 	for _, pkg := range cfg.Packages {
 		key := strings.Join([]string{
 			platform,
-			strings.TrimSpace(pkg.Registry),
 			strings.TrimSpace(pkg.Package),
 			strings.TrimSpace(pkg.Version),
 		}, "\x00")
@@ -493,7 +496,7 @@ func (i *Installer) lockPackages(ctx context.Context, paths tools.CacheLayout, c
 		seen[key] = struct{}{}
 		keys = append(keys, key)
 	}
-	return i.lockResources(ctx, paths, "package", keys)
+	return keys
 }
 
 func (i *Installer) lockResources(ctx context.Context, paths tools.CacheLayout, kind string, keys []string) (func(), error) {

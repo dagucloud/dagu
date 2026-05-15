@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	aquaconfig "github.com/aquaproj/aqua/v2/pkg/config/aqua"
@@ -187,6 +188,22 @@ func TestRegistryCacheReadyRequiresValidJSONCache(t *testing.T) {
 
 	require.NoError(t, os.WriteFile(registryPath+".json", []byte("{}"), 0o600))
 	assert.True(t, registryCacheReady(registryPath))
+}
+
+func TestPackageLockKeysUsePackageVersionAndPlatform(t *testing.T) {
+	t.Parallel()
+
+	keys := packageLockKeys(&core.ToolConfig{
+		Packages: []core.ToolPackage{
+			{Package: "jqlang/jq", Version: "jq-1.7.1"},
+			{Registry: "standard", Package: "jqlang/jq", Version: "jq-1.7.1"},
+			{Registry: "custom", Package: "mikefarah/yq", Version: "v4.44.3"},
+		},
+	}, "linux/amd64")
+
+	require.Len(t, keys, 2)
+	assert.Contains(t, keys, strings.Join([]string{"linux/amd64", "jqlang/jq", "jq-1.7.1"}, "\x00"))
+	assert.Contains(t, keys, strings.Join([]string{"linux/amd64", "mikefarah/yq", "v4.44.3"}, "\x00"))
 }
 
 func testCacheLayout(dir string) tools.CacheLayout {
