@@ -46,6 +46,7 @@ import {
   workspaceSelectionQuery,
 } from '@/lib/workspace';
 import {
+  ExternalLink,
   KeyRound,
   Loader2,
   MoreHorizontal,
@@ -87,19 +88,20 @@ const PROVIDER_LABELS: Record<SecretProviderType, string> = {
 };
 
 const PROVIDERS = Object.values(SecretProviderType);
+const EXTERNAL_SECRET_REQUEST_URL = 'https://dagu.sh/contact';
 
-function isPaidProvider(provider: SecretProviderType): boolean {
+function isRequestBasedProvider(provider: SecretProviderType): boolean {
   return provider !== SecretProviderType.dagu_managed;
 }
 
 function providerOptionLabel(provider: SecretProviderType): React.ReactElement {
-  const isPaid = isPaidProvider(provider);
+  const isRequestBased = isRequestBasedProvider(provider);
   return (
     <span className="flex w-full items-center justify-between gap-3">
       <span>{PROVIDER_LABELS[provider]}</span>
-      {isPaid && (
+      {isRequestBased && (
         <Badge variant="outline" className="h-4 px-1.5 text-[10px]">
-          Paid
+          By request
         </Badge>
       )}
     </span>
@@ -524,8 +526,8 @@ function SecretFormDialog({
       setError('Value is required');
       return;
     }
-    if (!isEditing && isPaidProvider(form.providerType)) {
-      setError('External secret providers are a paid feature');
+    if (!isEditing && isRequestBasedProvider(form.providerType)) {
+      setError('External secret providers are available by request');
       return;
     }
     if (!isDaguManaged && form.providerRef.trim() === '') {
@@ -630,13 +632,27 @@ function SecretFormDialog({
                     <SelectItem
                       key={provider}
                       value={provider}
-                      disabled={isPaidProvider(provider)}
+                      disabled={isRequestBasedProvider(provider)}
                     >
                       {providerOptionLabel(provider)}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {!isEditing && (
+                <p className="text-xs text-muted-foreground">
+                  External providers are available by request.{' '}
+                  <a
+                    href={EXTERNAL_SECRET_REQUEST_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center font-medium text-primary underline-offset-4 hover:underline"
+                  >
+                    Request access
+                    <ExternalLink className="ml-1 h-3 w-3" aria-hidden />
+                  </a>
+                </p>
+              )}
             </div>
           </div>
 
