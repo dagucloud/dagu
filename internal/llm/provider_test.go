@@ -152,3 +152,25 @@ func TestNewProvider(t *testing.T) {
 		assert.ErrorIs(t, err, ErrInvalidProvider)
 	})
 }
+
+func TestNewProvider_DisableRequestTimeout(t *testing.T) {
+	orig := registry
+	defer func() { registry = orig }()
+	registry = make(map[ProviderType]ProviderFactory)
+
+	testType := ProviderType("test-no-timeout")
+	var captured Config
+	RegisterProvider(testType, func(cfg Config) (Provider, error) {
+		captured = cfg
+		return &mockProvider{name: "test-no-timeout"}, nil
+	})
+
+	_, err := NewProvider(testType, Config{DisableRequestTimeout: true})
+	require.NoError(t, err)
+
+	assert.Zero(t, captured.Timeout)
+	assert.Equal(t, DefaultConfig().MaxRetries, captured.MaxRetries)
+	assert.Equal(t, DefaultConfig().InitialInterval, captured.InitialInterval)
+	assert.Equal(t, DefaultConfig().MaxInterval, captured.MaxInterval)
+	assert.Equal(t, DefaultConfig().Multiplier, captured.Multiplier)
+}

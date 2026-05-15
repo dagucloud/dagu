@@ -1570,6 +1570,71 @@ func TestLoop_OnTurnComplete(t *testing.T) {
 			"provider should have been called at least once")
 	})
 
+	t.Run("can return LLM errors for one-shot callers", func(t *testing.T) {
+		t.Parallel()
+
+		provider := &mockLLMProvider{
+			chatFunc: func(_ context.Context, _ *llm.ChatRequest) (*llm.ChatResponse, error) {
+				return nil, fmt.Errorf("API error")
+			},
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+
+		loop := NewLoop(LoopConfig{
+			Provider:         provider,
+			Model:            "test",
+			ReturnTurnErrors: true,
+		})
+		loop.QueueUserMessage(llm.Message{Role: llm.RoleUser, Content: "fail"})
+
+		err := loop.Go(ctx)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "LLM request failed")
+		assert.Contains(t, err.Error(), "API error")
+	})
+
+	t.Run("does not add request deadline", func(t *testing.T) {
+		t.Parallel()
+
+		provider := &mockLLMProvider{
+			chatFunc: func(ctx context.Context, _ *llm.ChatRequest) (*llm.ChatResponse, error) {
+				_, hasDeadline := ctx.Deadline()
+				assert.False(t, hasDeadline)
+				return &llm.ChatResponse{Content: "done", FinishReason: "stop"}, nil
+			},
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		loop := NewLoop(LoopConfig{
+			Provider: provider,
+			Model:    "test",
+			OnTurnComplete: func() {
+				cancel()
+			},
+		})
+		loop.QueueUserMessage(llm.Message{Role: llm.RoleUser, Content: "test"})
+
+		done := make(chan error, 1)
+		go func() {
+			done <- loop.Go(ctx)
+		}()
+
+		timer := time.NewTimer(5 * time.Second)
+		defer timer.Stop()
+
+		select {
+		case err := <-done:
+			assert.ErrorIs(t, err, context.Canceled)
+		case <-timer.C:
+			cancel()
+			t.Fatal("loop.Go did not return in time")
+		}
+	})
+
 	t.Run("loop exits promptly without idle polling", func(t *testing.T) {
 		t.Parallel()
 

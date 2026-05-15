@@ -4,7 +4,6 @@
 package agent
 
 import (
-	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -135,10 +134,9 @@ func CreateLLMProvider(agentCfg LLMConfig, deps ProviderDeps) (llm.Provider, err
 		return nil, fmt.Errorf("invalid LLM provider: %w", err)
 	}
 
-	cfg := llm.DefaultConfig()
-	cfg.Timeout = llmRequestTimeout
-	cfg.APIKey = cmp.Or(agentCfg.APIKey, cfg.APIKey)
-	cfg.BaseURL = cmp.Or(agentCfg.BaseURL, cfg.BaseURL)
+	cfg := llm.Config{DisableRequestTimeout: true}
+	cfg.APIKey = agentCfg.APIKey
+	cfg.BaseURL = agentCfg.BaseURL
 	if providerType == llm.ProviderOpenAICodex && deps.OAuthManager != nil {
 		cfg.OAuthCredentialProvider = deps.OAuthManager.CredentialProvider(agentoauth.ProviderOpenAICodex)
 	}
