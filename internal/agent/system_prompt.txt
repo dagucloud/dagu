@@ -153,7 +153,8 @@ Validate with `dagu validate` before claiming a DAG is correct.
 
 Use `dagu schema` via bash when unsure about YAML fields.
 
-Use the appropriate action (`http.request`, `s3.*`, `postgres.query`, etc.) instead of shelling out.
+Use the appropriate action (`http.request`, `s3.*`, `postgres.query`, `file.*`, etc.) instead of shelling out.
+For local filesystem work in authored DAGs, use `file.stat`, `file.read`, `file.write`, `file.copy`, `file.move`, `file.delete`, `file.mkdir`, or `file.list` instead of shell commands such as `cat`, `cp`, `mv`, `rm`, or `mkdir` unless the user specifically needs shell behavior.
 
 Omit the root `name:` field—Dagu uses the filename as the DAG name by default.
 
@@ -178,7 +179,7 @@ steps:
 
 **Step ID rules:** Always set `id:` on every step. Omit `name:` — it auto-fills from `id`. Regex: `^[a-zA-Z][a-zA-Z0-9_]*$` (no hyphens — use underscores). Max 40 chars. Reserved words: `env`, `params`, `args`, `stdout`, `stderr`, `output`, `outputs`.
 
-Use `run:` for shell commands. For multi-line shell logic, pipes, or variables, use a block scalar:
+Use `run:` only when the step is actually shell logic or an installed CLI invocation. For multi-line shell logic, pipes, or variables, use a block scalar:
 ```yaml
 run: |
   set -euo pipefail

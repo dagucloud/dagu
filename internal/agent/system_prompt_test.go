@@ -75,7 +75,9 @@ func TestGenerateSystemPrompt(t *testing.T) {
 		assert.Contains(t, result, "`agent.run`")
 		assert.Contains(t, result, "`harness.run`")
 		assert.Contains(t, result, "`redis.<operation>`")
+		assert.Contains(t, result, "`file.write`")
 		assert.Contains(t, result, "Use top-level `run:` for plain shell commands and scripts")
+		assert.Contains(t, result, "prefer built-in `file.*` actions over `run:` commands")
 		assert.Contains(t, result, "Base config custom actions")
 		assert.Contains(t, result, "Current DAG-local custom actions: inspect `actions:`")
 		assert.Contains(t, result, "Legacy DAG-local `step_types:` definitions")
@@ -285,6 +287,18 @@ func TestGenerateSystemPrompt(t *testing.T) {
 		assert.Contains(t, result, "Do not use `patch` to move, rename, delete, or maintain documents under /dags/docs")
 		assert.Contains(t, result, "`runbook_manage` action `move` with `id` and `new_id`")
 		assert.Contains(t, result, "`runbook_manage` action `delete`")
+	})
+
+	t.Run("authoring guidance prefers file actions for file operations", func(t *testing.T) {
+		t.Parallel()
+		env := EnvironmentInfo{DAGsDir: "/dags"}
+
+		result := GenerateSystemPrompt(SystemPromptParams{Env: env, Role: auth.RoleDeveloper})
+
+		assert.Contains(t, result, "Use the appropriate action (`http.request`, `s3.*`, `postgres.query`, `file.*`, etc.) instead of shelling out.")
+		assert.Contains(t, result, "use `file.stat`, `file.read`, `file.write`, `file.copy`, `file.move`, `file.delete`, `file.mkdir`, or `file.list`")
+		assert.Contains(t, result, "instead of shell commands such as `cat`, `cp`, `mv`, `rm`, or `mkdir`")
+		assert.Contains(t, result, "Use `run:` only when the step is actually shell logic or an installed CLI invocation.")
 	})
 }
 
