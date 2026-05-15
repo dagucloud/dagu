@@ -217,6 +217,104 @@ steps:
 	}
 }
 
+func TestDAGSchemaSecrets(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveDAGSchema(t)
+
+	tests := []struct {
+		name    string
+		spec    string
+		wantErr string
+	}{
+		{
+			name: "ProviderAndKey",
+			spec: `
+secrets:
+  - name: DB_PASSWORD
+    provider: env
+    key: DB_PASSWORD
+steps:
+  - run: echo done
+`,
+		},
+		{
+			name: "RegistryRef",
+			spec: `
+secrets:
+  - name: DB_PASSWORD
+    ref: prod/db-password
+steps:
+  - run: echo done
+`,
+		},
+		{
+			name: "RejectRefAndProviderKey",
+			spec: `
+secrets:
+  - name: DB_PASSWORD
+    ref: prod/db-password
+    provider: env
+    key: DB_PASSWORD
+steps:
+  - run: echo done
+`,
+			wantErr: "secrets",
+		},
+		{
+			name: "RejectOptionsWithRegistryRef",
+			spec: `
+secrets:
+  - name: DB_PASSWORD
+    ref: prod/db-password
+    options:
+      region: us-east-1
+steps:
+  - run: echo done
+`,
+			wantErr: "secrets",
+		},
+		{
+			name: "RejectDaguPrefixedName",
+			spec: `
+secrets:
+  - name: DAGU_TOKEN
+    provider: env
+    key: TOKEN
+steps:
+  - run: echo done
+`,
+			wantErr: "secrets",
+		},
+		{
+			name: "RejectInvalidRegistryRef",
+			spec: `
+secrets:
+  - name: DB_PASSWORD
+    ref: Prod/db_password
+steps:
+  - run: echo done
+`,
+			wantErr: "secrets",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc := mustParseYAMLDocument(t, tt.spec)
+			err := resolved.Validate(doc)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
 func TestDAGSchemaStepOutputObject(t *testing.T) {
 	t.Parallel()
 

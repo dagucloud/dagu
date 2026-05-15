@@ -1321,12 +1321,37 @@
     },
     "secretRef": {
       "type": "object",
-      "required": ["name", "provider", "key"],
+      "required": ["name"],
       "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": ["ref"],
+          "not": {
+            "anyOf": [
+              { "required": ["provider"] },
+              { "required": ["key"] },
+              { "required": ["options"] }
+            ]
+          }
+        },
+        {
+          "required": ["provider", "key"],
+          "not": { "required": ["ref"] }
+        }
+      ],
       "properties": {
         "name": {
           "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "not": {
+            "pattern": "^DAGU_"
+          },
           "description": "Environment variable name that will receive the secret value."
+        },
+        "ref": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)*$",
+          "description": "Workspace-local registry reference for a team-managed secret."
         },
         "provider": {
           "type": "string",

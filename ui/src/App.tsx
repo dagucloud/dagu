@@ -75,6 +75,7 @@ import OverviewPage from './pages/overview';
 import Queues from './pages/queues';
 import QueueDetailsPage from './pages/queues/queue';
 import Search from './pages/search';
+import SecretsPage from './pages/secrets';
 import SetupPage from './pages/setup';
 import SystemStatus from './pages/system-status';
 import TerminalPage from './pages/terminal';
@@ -657,6 +658,14 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                             <DeveloperElement>
                                               <WebhooksPage />
                                             </DeveloperElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/secrets"
+                                          element={
+                                            <ManagerElement>
+                                              <SecretsPage />
+                                            </ManagerElement>
                                           }
                                         />
                                         <Route

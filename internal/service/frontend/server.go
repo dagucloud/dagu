@@ -61,6 +61,7 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/fileeventstore"
 	"github.com/dagucloud/dagu/internal/persis/filememory"
 	"github.com/dagucloud/dagu/internal/persis/fileremotenode"
+	"github.com/dagucloud/dagu/internal/persis/filesecret"
 	"github.com/dagucloud/dagu/internal/persis/filesession"
 	"github.com/dagucloud/dagu/internal/persis/filetokensecret"
 	"github.com/dagucloud/dagu/internal/persis/fileupgradecheck"
@@ -354,6 +355,13 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 	}
 
 	if encryptor != nil {
+		secretStore, secretErr := filesecret.New(filepath.Join(cfg.Paths.DataDir, "secrets"), encryptor)
+		if secretErr != nil {
+			logger.Warn(ctx, "Failed to create secret store", tag.Error(secretErr))
+		} else {
+			apiOpts = append(apiOpts, apiv1.WithSecretStore(secretStore))
+		}
+
 		store, err := fileagentoauth.New(filepath.Join(cfg.Paths.DataDir, "agent", "oauth"), encryptor)
 		if err != nil {
 			logger.Warn(ctx, "Failed to create agent OAuth store", tag.Error(err))

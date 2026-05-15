@@ -30,10 +30,12 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/fileagentoauth"
 	"github.com/dagucloud/dagu/internal/persis/fileagentsoul"
 	"github.com/dagucloud/dagu/internal/persis/filememory"
+	"github.com/dagucloud/dagu/internal/persis/filesecret"
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	"github.com/dagucloud/dagu/internal/runtime"
 	rtagent "github.com/dagucloud/dagu/internal/runtime/agent"
 	"github.com/dagucloud/dagu/internal/runtime/remote"
+	secretpkg "github.com/dagucloud/dagu/internal/secret"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
@@ -278,6 +280,7 @@ type agentStoreBundle struct {
 	soulStore    agent.SoulStore
 	memoryStore  agent.MemoryStore
 	oauthManager *agentoauth.Manager
+	secretStore  secretpkg.Store
 }
 
 type taskInitError struct {
@@ -336,59 +339,53 @@ func (h *remoteTaskHandler) createRemoteHandlers(dagRunID, dagName string, root 
 
 // agentStores creates the agent config, model, soul, memory, and OAuth stores from the config paths.
 func (h *remoteTaskHandler) agentStores(ctx context.Context) agentStoreBundle {
+	var bundle agentStoreBundle
+	if store, err := filesecret.NewFromDataDir(h.config.Paths.DataDir); err != nil {
+		logger.Warn(ctx, "Failed to create secret store", tag.Error(err))
+	} else {
+		bundle.secretStore = store
+	}
+
 	acs, err := fileagentconfig.New(h.config.Paths.DataDir)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create agent config store", tag.Error(err))
-		return agentStoreBundle{}
+		return bundle
 	}
 	if acs == nil {
-		return agentStoreBundle{}
+		return bundle
 	}
+	bundle.configStore = acs
 
 	ams, err := fileagentmodel.New(filepath.Join(h.config.Paths.DataDir, "agent", "models"))
 	if err != nil {
 		logger.Warn(ctx, "Failed to create agent model store", tag.Error(err))
-		return agentStoreBundle{configStore: acs}
+		return bundle
 	}
+	bundle.modelStore = ams
 
 	soulsDir := filepath.Join(h.config.Paths.DAGsDir, "souls")
 	soulStore, err := fileagentsoul.New(ctx, soulsDir)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create agent soul store", tag.Error(err))
-		return agentStoreBundle{
-			configStore: acs,
-			modelStore:  ams,
-		}
+		return bundle
 	}
+	bundle.soulStore = soulStore
 
 	ms, err := filememory.New(h.config.Paths.DAGsDir)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create agent memory store", tag.Error(err))
-		return agentStoreBundle{
-			configStore: acs,
-			modelStore:  ams,
-			soulStore:   soulStore,
-		}
+		return bundle
 	}
+	bundle.memoryStore = ms
 
 	oauthManager, err := fileagentoauth.NewManager(h.config.Paths.DataDir)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create agent OAuth store", tag.Error(err))
-		return agentStoreBundle{
-			configStore: acs,
-			modelStore:  ams,
-			soulStore:   soulStore,
-			memoryStore: ms,
-		}
+		return bundle
 	}
+	bundle.oauthManager = oauthManager
 
-	return agentStoreBundle{
-		configStore:  acs,
-		modelStore:   ams,
-		soulStore:    soulStore,
-		memoryStore:  ms,
-		oauthManager: oauthManager,
-	}
+	return bundle
 }
 
 func (h *remoteTaskHandler) agentStoresFromSnapshot(snapshotPayload []byte) (agentStoreBundle, error) {
@@ -588,6 +585,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		QueuedRun:         queuedRun,
 		AttemptID:         attemptID,
 		DAGRunStore:       h.dagRunStore,
+		SecretStore:       agentStores.secretStore,
 		ServiceRegistry:   h.serviceRegistry,
 		RootDAGRun:        root,
 		PeerConfig:        h.peerConfig,

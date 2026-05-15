@@ -110,25 +110,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [clearLocalSession, config.apiURL]);
 
-  const login = useCallback(async (username: string, password: string) => {
-    const response = await fetch(`${config.apiURL}/auth/login`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ username, password }),
-    });
+  const login = useCallback(
+    async (username: string, password: string) => {
+      const response = await fetch(`${config.apiURL}/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username, password }),
+      });
 
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      throw new Error(data.message || 'Login failed');
-    }
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.message || 'Login failed');
+      }
 
-    const data = await response.json();
-    setAuthSession(data.token, data.expiresAt, 'login');
-    setToken(data.token);
-    setUser(data.user);
-  }, [config.apiURL]);
+      const data = await response.json();
+      setAuthSession(data.token, data.expiresAt, 'login');
+      setToken(data.token);
+      setUser(data.user);
+    },
+    [config.apiURL]
+  );
 
   const setup = useCallback(
     async (username: string, password: string): Promise<SetupResult> => {
@@ -243,12 +246,13 @@ export function useCanWrite(): boolean {
   const workspace = workspaceRoleTarget(appBarContext.workspaceSelection);
   if (config.authMode !== 'builtin') return config.permissions.writeDags;
   if (!user) return false;
-  return roleAtLeast(effectiveWorkspaceRole(user, workspace), UserRole.developer);
+  return roleAtLeast(
+    effectiveWorkspaceRole(user, workspace),
+    UserRole.developer
+  );
 }
 
-export function useCanWriteForWorkspace(
-  workspace?: string | null
-): boolean {
+export function useCanWriteForWorkspace(workspace?: string | null): boolean {
   const { user } = useAuth();
   const config = useConfig();
   if (config.authMode !== 'builtin') return config.permissions.writeDags;
@@ -266,12 +270,13 @@ export function useCanExecute(): boolean {
   const workspace = workspaceRoleTarget(appBarContext.workspaceSelection);
   if (config.authMode !== 'builtin') return config.permissions.runDags;
   if (!user) return false;
-  return roleAtLeast(effectiveWorkspaceRole(user, workspace), UserRole.operator);
+  return roleAtLeast(
+    effectiveWorkspaceRole(user, workspace),
+    UserRole.operator
+  );
 }
 
-export function useCanExecuteForWorkspace(
-  workspace?: string | null
-): boolean {
+export function useCanExecuteForWorkspace(workspace?: string | null): boolean {
   const { user } = useAuth();
   const config = useConfig();
   if (config.authMode !== 'builtin') return config.permissions.runDags;
@@ -300,6 +305,14 @@ export function useCanManageWebhooks(): boolean {
 }
 
 export function useCanViewAuditLogs(): boolean {
+  const { user } = useAuth();
+  const config = useConfig();
+  if (config.authMode !== 'builtin') return true;
+  if (!user) return false;
+  return roleAtLeast(user.role, UserRole.manager);
+}
+
+export function useCanManageSecrets(): boolean {
   const { user } = useAuth();
   const config = useConfig();
   if (config.authMode !== 'builtin') return true;

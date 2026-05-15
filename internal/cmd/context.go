@@ -48,10 +48,12 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/filememory"
 	"github.com/dagucloud/dagu/internal/persis/fileproc"
 	"github.com/dagucloud/dagu/internal/persis/filequeue"
+	"github.com/dagucloud/dagu/internal/persis/filesecret"
 	"github.com/dagucloud/dagu/internal/persis/fileserviceregistry"
 	"github.com/dagucloud/dagu/internal/persis/filewatermark"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
+	secretpkg "github.com/dagucloud/dagu/internal/secret"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
 	"github.com/dagucloud/dagu/internal/service/frontend"
@@ -782,12 +784,19 @@ type agentStoresResult struct {
 	SoulStore       agent.SoulStore
 	OAuthManager    *agentoauth.Manager
 	ContextResolver agent.RemoteContextResolver
+	SecretStore     secretpkg.Store
 }
 
 // agentStores creates the agent config, model, memory, and soul stores from the config paths.
 // Errors are logged as warnings; nil stores are returned if creation fails.
 func (c *Context) agentStores() agentStoresResult {
 	var result agentStoresResult
+
+	if store, err := filesecret.NewFromDataDir(c.Config.Paths.DataDir); err != nil {
+		logger.Warn(c, "Failed to create secret store", tag.Error(err))
+	} else {
+		result.SecretStore = store
+	}
 
 	acs, err := fileagentconfig.New(c.Config.Paths.DataDir)
 	if err != nil {

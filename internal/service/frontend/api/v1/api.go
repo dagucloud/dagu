@@ -28,6 +28,7 @@ import (
 	"github.com/dagucloud/dagu/internal/license"
 	"github.com/dagucloud/dagu/internal/remotenode"
 	"github.com/dagucloud/dagu/internal/runtime"
+	secretpkg "github.com/dagucloud/dagu/internal/secret"
 	"github.com/dagucloud/dagu/internal/service/audit"
 	authservice "github.com/dagucloud/dagu/internal/service/auth"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
@@ -79,6 +80,7 @@ type API struct {
 	agentAPI             *agent.API
 	docStore             agent.DocStore
 	baseConfigStore      baseconfig.Store
+	secretStore          secretpkg.Store
 	licenseManager       *license.Manager
 	workspaceStore       workspace.Store
 	leaseStaleThreshold  time.Duration
@@ -169,6 +171,13 @@ func WithTunnelService(ts *tunnel.Service) APIOption {
 func WithBaseConfigStore(store baseconfig.Store) APIOption {
 	return func(a *API) {
 		a.baseConfigStore = store
+	}
+}
+
+// WithSecretStore returns an APIOption that sets the secret registry store.
+func WithSecretStore(store secretpkg.Store) APIOption {
+	return func(a *API) {
+		a.secretStore = store
 	}
 }
 

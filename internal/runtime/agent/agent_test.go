@@ -16,10 +16,13 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
+	"github.com/dagucloud/dagu/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/internal/cmn/sock"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/persis/filesecret"
 	"github.com/dagucloud/dagu/internal/runtime/agent"
+	secretpkg "github.com/dagucloud/dagu/internal/secret"
 	"github.com/dagucloud/dagu/internal/test"
 
 	"github.com/stretchr/testify/require"
@@ -998,6 +1001,43 @@ steps:
 	outputs := dag.ReadOutputs(t)
 	require.NotContains(t, outputs["response"], secretValue, "secret should be masked")
 	require.Contains(t, outputs["response"], "*******", "masked placeholder expected")
+}
+
+func TestAgent_RegistryRefSecretResolution(t *testing.T) {
+	t.Parallel()
+	th := test.Setup(t)
+
+	enc, err := crypto.NewEncryptor("test-key")
+	require.NoError(t, err)
+	secretStore, err := filesecret.New(t.TempDir(), enc)
+	require.NoError(t, err)
+
+	sec, err := secretpkg.New(secretpkg.CreateInput{
+		Ref:          "prod/db-password",
+		ProviderType: secretpkg.ProviderDaguManaged,
+		CreatedBy:    "alice",
+	}, time.Now().UTC())
+	require.NoError(t, err)
+	require.NoError(t, secretStore.Create(context.Background(), sec, &secretpkg.WriteValueInput{
+		Value:     "managed-secret",
+		CreatedBy: "alice",
+		CreatedAt: time.Now().UTC(),
+	}))
+
+	dag := th.DAG(t, `
+secrets:
+  - name: DB_PASSWORD
+    ref: prod/db-password
+steps:
+  - name: step1
+    run: test "${DB_PASSWORD}" = "managed-secret" && echo ok
+    output: RESPONSE`)
+
+	dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{SecretStore: secretStore}))
+	dagAgent.RunSuccess(t)
+
+	outputs := dag.ReadOutputs(t)
+	require.Equal(t, "ok", outputs["response"])
 }
 
 func TestAgent_SubDAGRunVisibleWhileRunning(t *testing.T) {

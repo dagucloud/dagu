@@ -1989,6 +1989,15 @@ func TestBuildSecrets(t *testing.T) {
 					},
 				},
 			},
+			{
+				name: "RegistryRef",
+				input: []secretRef{
+					{Name: "DB_PASSWORD", Ref: "prod/db-password"},
+				},
+				expected: []core.SecretRef{
+					{Name: "DB_PASSWORD", Ref: "prod/db-password"},
+				},
+			},
 		}
 
 		for _, tt := range tests {
@@ -2021,14 +2030,28 @@ func TestBuildSecrets(t *testing.T) {
 				input: []secretRef{
 					{Name: "MY_SECRET", Key: "secret/data/test"},
 				},
-				errContains: "'provider' field is required",
+				errContains: "exactly one of 'ref' or 'provider' plus 'key' is required",
 			},
 			{
 				name: "MissingKey",
 				input: []secretRef{
 					{Name: "MY_SECRET", Provider: "vault"},
 				},
-				errContains: "'key' field is required",
+				errContains: "exactly one of 'ref' or 'provider' plus 'key' is required",
+			},
+			{
+				name: "RefWithProviderAndKey",
+				input: []secretRef{
+					{Name: "MY_SECRET", Ref: "db-password", Provider: "vault", Key: "secret/data/test"},
+				},
+				errContains: "exactly one of 'ref' or 'provider' plus 'key' is required",
+			},
+			{
+				name: "InvalidRegistryRef",
+				input: []secretRef{
+					{Name: "MY_SECRET", Ref: "../db-password"},
+				},
+				errContains: "registry ref must be a slash-separated lowercase slug path",
 			},
 			{
 				name: "DuplicateNames",
@@ -2038,12 +2061,68 @@ func TestBuildSecrets(t *testing.T) {
 				},
 				errContains: "duplicate secret name",
 			},
+			{
+				name: "InvalidEnvName",
+				input: []secretRef{
+					{Name: "1API_KEY", Provider: "env", Key: "API_KEY"},
+				},
+				errContains: "must be a valid environment variable name",
+			},
+			{
+				name: "ReservedDaguPrefix",
+				input: []secretRef{
+					{Name: "DAGU_API_KEY", Provider: "env", Key: "API_KEY"},
+				},
+				errContains: "must not start with DAGU_",
+			},
 		}
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				d := &dag{Secrets: tt.input}
 				_, err := buildSecrets(testBuildContext(), d)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			})
+		}
+	})
+
+	t.Run("secret name collisions", func(t *testing.T) {
+		t.Parallel()
+
+		tests := []struct {
+			name        string
+			dag         *dag
+			errContains string
+		}{
+			{
+				name: "DAGEnv",
+				dag: &dag{
+					Env:     envValueFromYAML(t, "API_KEY: from-env"),
+					Secrets: []secretRef{{Name: "API_KEY", Provider: "env", Key: "API_KEY"}},
+				},
+				errContains: "collides with DAG env",
+			},
+			{
+				name: "DAGParam",
+				dag: &dag{
+					Params:  map[string]any{"API_KEY": "from-param"},
+					Secrets: []secretRef{{Name: "API_KEY", Provider: "env", Key: "API_KEY"}},
+				},
+				errContains: "collides with DAG parameter",
+			},
+			{
+				name: "ManagedRuntimeEnv",
+				dag: &dag{
+					Secrets: []secretRef{{Name: "DAG_RUN_ID", Provider: "env", Key: "API_KEY"}},
+				},
+				errContains: "collides with Dagu-managed runtime environment variable",
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				_, err := buildSecrets(testBuildContext(), tt.dag)
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errContains)
 			})

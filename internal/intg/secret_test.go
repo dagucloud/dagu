@@ -323,7 +323,7 @@ env:
   - EMPTY_SECRET=
 
 secrets:
-  - name: EMPTY_SECRET
+  - name: EMPTY_SECRET_ALIAS
     provider: env
     key: EMPTY_SECRET
 

@@ -53,6 +53,8 @@ tags:
     description: "Document management operations"
   - name: "remote-nodes"
     description: "Remote node management operations (admin only)"
+  - name: "secrets"
+    description: "Workspace secret registry operations"
 
 paths:
   /health:
@@ -7145,6 +7147,280 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /secrets:
+    get:
+      summary: "List secrets"
+      description: "Lists secret registry metadata. Plaintext values are never returned."
+      operationId: "listSecrets"
+      tags:
+        - "secrets"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - name: workspace
+          in: query
+          description: "Workspace selector. Use default for the unlabelled default scope. Omit for all visible workspaces."
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: "List of secrets"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretListResponse"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      summary: "Create a secret"
+      description: "Creates secret registry metadata and optionally writes an initial Dagu-managed value. Plaintext values are write-only."
+      operationId: "createSecret"
+      tags:
+        - "secrets"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSecretRequest"
+      responses:
+        "201":
+          description: "Secret created"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretResponse"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Secret already exists"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /secrets/{secretId}:
+    get:
+      summary: "Get secret"
+      operationId: "getSecret"
+      tags:
+        - "secrets"
+      parameters:
+        - name: secretId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "Secret metadata"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretResponse"
+        "404":
+          description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    patch:
+      summary: "Update secret metadata"
+      operationId: "updateSecret"
+      tags:
+        - "secrets"
+      parameters:
+        - name: secretId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSecretRequest"
+      responses:
+        "200":
+          description: "Secret updated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretResponse"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      summary: "Delete secret"
+      operationId: "deleteSecret"
+      tags:
+        - "secrets"
+      parameters:
+        - name: secretId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "204":
+          description: "Secret deleted"
+        "404":
+          description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /secrets/{secretId}/versions:
+    post:
+      summary: "Write a new secret value version"
+      description: "Writes a new Dagu-managed value version. The value is write-only and is not returned."
+      operationId: "writeSecretVersion"
+      tags:
+        - "secrets"
+      parameters:
+        - name: secretId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WriteSecretVersionRequest"
+      responses:
+        "200":
+          description: "Secret value written"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretResponse"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /secrets/{secretId}/disable:
+    post:
+      summary: "Disable secret"
+      operationId: "disableSecret"
+      tags:
+        - "secrets"
+      parameters:
+        - name: secretId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "Secret disabled"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretResponse"
+        "404":
+          description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /secrets/{secretId}/enable:
+    post:
+      summary: "Enable secret"
+      operationId: "enableSecret"
+      tags:
+        - "secrets"
+      parameters:
+        - name: secretId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "Secret enabled"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretResponse"
+        "404":
+          description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /workspaces:
     get:
       summary: "List all workspaces"
@@ -12073,6 +12349,139 @@ components:
           type: string
         error:
           type: string
+
+    SecretProviderType:
+      type: string
+      enum:
+        - dagu-managed
+        - vault
+        - kubernetes
+        - gcp-secret-manager
+        - aws-secrets-manager
+        - azure-key-vault
+
+    SecretStatus:
+      type: string
+      enum:
+        - active
+        - disabled
+
+    CreateSecretRequest:
+      type: object
+      required:
+        - ref
+        - providerType
+      properties:
+        workspace:
+          type: string
+          description: "Workspace selector. Omit or use default for the unlabelled default scope."
+        ref:
+          type: string
+          description: "Secret ref used from DAG YAML, for example prod/db-password."
+          pattern: "^[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)*$"
+        displayName:
+          type: string
+        description:
+          type: string
+        providerType:
+          $ref: "#/components/schemas/SecretProviderType"
+        providerConnectionId:
+          type: string
+        providerRef:
+          type: string
+        value:
+          type: string
+          writeOnly: true
+          description: "Initial Dagu-managed value. Write-only; never returned by the API."
+
+    UpdateSecretRequest:
+      type: object
+      properties:
+        displayName:
+          type: string
+        description:
+          type: string
+        providerConnectionId:
+          type: string
+        providerRef:
+          type: string
+
+    WriteSecretVersionRequest:
+      type: object
+      required:
+        - value
+      properties:
+        value:
+          type: string
+          writeOnly: true
+
+    SecretResponse:
+      type: object
+      required:
+        - id
+        - workspace
+        - ref
+        - providerType
+        - currentVersion
+        - status
+        - hasValue
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        workspace:
+          type: string
+          description: "default for the unlabelled default scope, otherwise the workspace name."
+        ref:
+          type: string
+          description: "Secret ref used from DAG YAML, for example prod/db-password."
+        displayName:
+          type: string
+        description:
+          type: string
+        providerType:
+          $ref: "#/components/schemas/SecretProviderType"
+        providerConnectionId:
+          type: string
+        providerRef:
+          type: string
+        providerRefFingerprint:
+          type: string
+        currentVersion:
+          type: integer
+        status:
+          $ref: "#/components/schemas/SecretStatus"
+        hasValue:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        lastCheckedAt:
+          type: string
+          format: date-time
+        lastResolvedAt:
+          type: string
+          format: date-time
+        lastRotatedAt:
+          type: string
+          format: date-time
+
+    SecretListResponse:
+      type: object
+      required:
+        - secrets
+        - total
+      properties:
+        secrets:
+          type: array
+          items:
+            $ref: "#/components/schemas/SecretResponse"
+        total:
+          type: integer
 
     CreateWorkspaceRequest:
       type: object
