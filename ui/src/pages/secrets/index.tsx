@@ -1,7 +1,12 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { components, SecretProviderType, SecretStatus } from '@/api/v1/schema';
+import {
+  components,
+  CreateSecretRequestProviderType,
+  SecretProviderType,
+  SecretStatus,
+} from '@/api/v1/schema';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import ConfirmModal from '@/components/ui/confirm-dialog';
@@ -549,9 +554,7 @@ function SecretFormDialog({
           workspace: selectedWorkspace,
           ref: form.ref.trim(),
           description: optionalString(form.description),
-          providerType: form.providerType,
-          providerConnectionId: optionalString(form.providerConnectionId),
-          providerRef: optionalString(form.providerRef),
+          providerType: CreateSecretRequestProviderType.dagu_managed,
           value: isDaguManaged ? form.value : undefined,
         };
         const { error: apiError } = await client.POST('/secrets', {

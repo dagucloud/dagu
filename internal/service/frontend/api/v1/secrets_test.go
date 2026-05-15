@@ -26,7 +26,7 @@ func TestSecretsAPI_CreateWriteListDoesNotReturnPlaintext(t *testing.T) {
 	resp, err := api.CreateSecret(ctx, apigen.CreateSecretRequestObject{
 		Body: &apigen.CreateSecretRequest{
 			Ref:          "prod/db-password",
-			ProviderType: apigen.SecretProviderTypeDaguManaged,
+			ProviderType: apigen.CreateSecretRequestProviderTypeDaguManaged,
 			Value:        &value,
 		},
 	})
@@ -75,7 +75,7 @@ func TestSecretsAPI_CreateRejectsDuplicateWorkspaceRef(t *testing.T) {
 	value := "secret-value"
 	body := &apigen.CreateSecretRequest{
 		Ref:          "prod/api-key",
-		ProviderType: apigen.SecretProviderTypeDaguManaged,
+		ProviderType: apigen.CreateSecretRequestProviderTypeDaguManaged,
 		Value:        &value,
 	}
 
@@ -96,14 +96,14 @@ func TestSecretsAPI_ListsSingleWorkspaceOnly(t *testing.T) {
 	value := "secret-value"
 	defaultBody := &apigen.CreateSecretRequest{
 		Ref:          "prod/default-key",
-		ProviderType: apigen.SecretProviderTypeDaguManaged,
+		ProviderType: apigen.CreateSecretRequestProviderTypeDaguManaged,
 		Value:        &value,
 	}
 	paymentsWorkspace := "payments"
 	paymentsBody := &apigen.CreateSecretRequest{
 		Workspace:    &paymentsWorkspace,
 		Ref:          "prod/payments-key",
-		ProviderType: apigen.SecretProviderTypeDaguManaged,
+		ProviderType: apigen.CreateSecretRequestProviderTypeDaguManaged,
 		Value:        &value,
 	}
 
@@ -146,24 +146,6 @@ func TestSecretsAPI_ListRejectsAllWorkspaces(t *testing.T) {
 	assert.Nil(t, resp)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "workspace cannot be all")
-}
-
-func TestSecretsAPI_CreateRejectsExternalProviders(t *testing.T) {
-	ctx := context.Background()
-	api, _ := newSecretsTestAPI(t)
-	providerRef := "secret/data/prod/db-password"
-
-	resp, err := api.CreateSecret(ctx, apigen.CreateSecretRequestObject{
-		Body: &apigen.CreateSecretRequest{
-			Ref:          "prod/db-password",
-			ProviderType: apigen.SecretProviderTypeVault,
-			ProviderRef:  &providerRef,
-		},
-	})
-	require.NoError(t, err)
-	badRequest, ok := resp.(apigen.CreateSecret400JSONResponse)
-	require.True(t, ok)
-	assert.Contains(t, badRequest.Message, "request-based")
 }
 
 func newSecretsTestAPI(t *testing.T) (*apiv1.API, *filesecret.Store) {

@@ -124,8 +124,8 @@ func (a *API) CreateSecret(ctx context.Context, request api.CreateSecretRequestO
 	}
 
 	providerType := secretpkg.ProviderType(body.ProviderType)
-	providerConnectionID := valueOf(body.ProviderConnectionId)
-	providerRef := valueOf(body.ProviderRef)
+	providerConnectionID := ""
+	providerRef := ""
 	if err := validateSecretProviderRequest(providerType, providerConnectionID, providerRef); err != nil {
 		return api.CreateSecret400JSONResponse(secretBadRequestError(err.Error())), nil
 	}

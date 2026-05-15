@@ -7292,6 +7292,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
     patch:
       summary: "Update secret metadata"
       operationId: "updateSecret"
@@ -7341,6 +7347,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
     delete:
       summary: "Delete secret"
       operationId: "deleteSecret"
@@ -7370,6 +7382,12 @@ paths:
                 $ref: "#/components/schemas/Error"
         "404":
           description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
           content:
             application/json:
               schema:
@@ -7426,6 +7444,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /secrets/{secretId}/disable:
     post:
@@ -7465,6 +7489,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /secrets/{secretId}/enable:
     post:
@@ -7500,6 +7530,12 @@ paths:
                 $ref: "#/components/schemas/Error"
         "404":
           description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
           content:
             application/json:
               schema:
@@ -12455,8 +12491,6 @@ components:
       required:
         - ref
         - providerType
-      oneOf:
-        - $ref: "#/components/schemas/DaguManagedSecretCreateConstraint"
       properties:
         workspace:
           type: string
@@ -12468,31 +12502,13 @@ components:
         description:
           type: string
         providerType:
-          $ref: "#/components/schemas/SecretProviderType"
-        providerConnectionId:
           type: string
-        providerRef:
-          type: string
-          minLength: 1
+          enum:
+            - dagu-managed
         value:
           type: string
           writeOnly: true
           description: "Initial Dagu-managed value. Write-only; never returned by the API."
-
-    DaguManagedSecretCreateConstraint:
-      type: object
-      required:
-        - providerType
-      properties:
-        providerType:
-          type: string
-          pattern: "^dagu-managed$"
-      not:
-        anyOf:
-          - required:
-              - providerConnectionId
-          - required:
-              - providerRef
 
     UpdateSecretRequest:
       type: object

@@ -5284,14 +5284,10 @@ export interface components {
             /** @description Secret ref used from DAG YAML, for example prod/db-password. */
             ref: string;
             description?: string;
-            providerType: components["schemas"]["SecretProviderType"];
-            providerConnectionId?: string;
-            providerRef?: string;
+            /** @enum {string} */
+            providerType: CreateSecretRequestProviderType;
             /** @description Initial Dagu-managed value. Write-only; never returned by the API. */
             value?: string;
-        } & components["schemas"]["DaguManagedSecretCreateConstraint"];
-        DaguManagedSecretCreateConstraint: {
-            providerType: string;
         };
         UpdateSecretRequest: {
             description?: string;
@@ -14535,6 +14531,15 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     deleteSecret: {
@@ -14578,6 +14583,15 @@ export interface operations {
             };
             /** @description Not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -14650,6 +14664,15 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     writeSecretVersion: {
@@ -14715,6 +14738,15 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     disableSecret: {
@@ -14767,6 +14799,15 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     enableSecret: {
@@ -14812,6 +14853,15 @@ export interface operations {
             };
             /** @description Not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -15352,6 +15402,9 @@ export enum SecretProviderType {
 export enum SecretStatus {
     active = "active",
     disabled = "disabled"
+}
+export enum CreateSecretRequestProviderType {
+    dagu_managed = "dagu-managed"
 }
 export enum ComponentsParametersAgentSessionPaginationMode {
     offset = "offset",
