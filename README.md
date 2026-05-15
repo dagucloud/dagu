@@ -19,7 +19,7 @@
 
 Dagu gives your automation a home. Run your existing scripts, containers, SQL jobs, and HTTP calls as visible, governed workflows with schedules, retries, logs, artifacts, human-in-the-loop, and observability without Airflow-level complexity.
 
-Keep your existing automation as shell scripts, Python scripts, containers, SSH commands, SQL jobs, HTTP calls, and AI harnesses. Define the workflow in plain YAML, run it with one binary, and get the operational layer that cron and ad hoc scripts are missing: dependencies, retries, queues, logs, artifacts, approvals, API/webhooks, and optional distributed workers.
+Keep your existing automation as shell scripts, Python scripts, containers, SSH commands, SQL jobs, HTTP calls, and AI harnesses. Define the workflow in plain YAML, run it with one binary, and get the operational layer that cron and ad hoc scripts are missing: dependencies, retries, queues, logs, artifacts, approvals, API/webhooks, optional distributed workers, and pinned external CLI tools for reproducible runs.
 
 Dagu is local-first by default. API keys, private repositories, internal documents, customer data, Slack logs, and agent artifacts can stay inside your own machine or infrastructure instead of being handed to a cloud automation SaaS.
 
@@ -68,7 +68,7 @@ Dagu is useful when teams need to consolidate scripts, cron jobs, server tasks, 
 
 **Cron and legacy script management.** Run existing shell scripts, Python scripts, HTTP calls, and scheduled jobs without rewriting them. Dagu turns hidden cron jobs into visible workflows with dependencies, run status, logs, retries, approvals, and history.
 
-**ETL and data operations.** Run PostgreSQL or SQLite queries, S3 transfers, `jq` transforms, validation steps, and reusable sub-workflows. Daily data workflows stay declarative, observable, and easy to retry when one step fails.
+**ETL and data operations.** Run PostgreSQL or SQLite queries, S3 transfers, `jq` transforms, validation steps, and reusable sub-workflows. Pin portable tools such as `jq` or `yq` in the DAG so workers do not depend on whatever version happens to be installed. Daily data workflows stay declarative, observable, and easy to retry when one step fails.
 
 **Media conversion.** Run `ffmpeg`, thumbnail extraction, audio normalization, image processing, and other compute-heavy jobs. Conversion work can run across distributed workers while status, history, logs, and artifacts stay in one persistence layer for monitoring, debugging, and retries.
 
@@ -368,6 +368,22 @@ graph LR
     style C fill:#18181B,stroke:#22C55E,stroke-width:1.6px,color:#fff
     style D fill:#18181B,stroke:#3B82F6,stroke-width:1.6px,color:#fff
 ```
+
+### Reproducible external tools
+
+```yaml
+tools:
+  - jqlang/jq@jq-1.7.1
+
+steps:
+  - name: inspect
+    run: jq --version
+
+  - name: transform
+    run: jq '.items[] | .name' data.json
+```
+
+Dagu installs declared portable CLIs before the DAG run, exposes them on `PATH` for host command steps, and caches them on each worker. You do not need to install a separate tool manager; Dagu remains a single binary. See the [Tools documentation](https://docs.dagu.sh/writing-workflows/tools) for package syntax, immutable refs, distributed worker behavior, sub-DAG scoping, and current limitations.
 
 ### Docker step
 
@@ -775,6 +791,7 @@ Full configuration reference: [docs.dagu.sh/server-admin/reference](https://docs
 - [Getting Started](https://docs.dagu.sh/getting-started/installation) — Installation and first workflow
 - [Writing Workflows](https://docs.dagu.sh/writing-workflows/examples) — YAML syntax, scheduling, execution control
 - [Workflow Schema at a Glance](./README_SCHEMA.md) — Repository-level overview of the current YAML schema
+- [Tools](https://docs.dagu.sh/writing-workflows/tools) — Pin external CLI packages in DAGs for reproducible host command steps
 - [Actions](https://docs.dagu.sh/step-types/shell) — [Shell](https://docs.dagu.sh/step-types/shell), [Docker](https://docs.dagu.sh/step-types/docker), [Kubernetes](https://docs.dagu.sh/step-types/kubernetes), [HTTP](https://docs.dagu.sh/step-types/http), [SQL](https://docs.dagu.sh/step-types/sql/), [Harness](https://docs.dagu.sh/step-types/harness), [Agent Step](https://docs.dagu.sh/features/agent/step), and [Custom Actions](https://docs.dagu.sh/writing-workflows/custom-step-types)
 - [Distributed Execution](https://docs.dagu.sh/server-admin/distributed/) — Coordinator/worker setup
 - [Authentication](https://docs.dagu.sh/server-admin/authentication/) — RBAC, OIDC, API keys
