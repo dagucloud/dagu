@@ -40,7 +40,11 @@ import { AppBarContext } from '@/contexts/AppBarContext';
 import { useCanManageSecrets } from '@/contexts/AuthContext';
 import { useClient, useQuery } from '@/hooks/api';
 import dayjs from '@/lib/dayjs';
-import { WorkspaceKind, workspaceNameForSelection } from '@/lib/workspace';
+import {
+  WorkspaceKind,
+  workspaceNameForSelection,
+  workspaceSelectionQuery,
+} from '@/lib/workspace';
 import {
   KeyRound,
   Loader2,
@@ -138,6 +142,10 @@ export default function SecretsPage(): React.ReactNode {
     }
     return 'default';
   }, [appBarContext.workspaceSelection]);
+  const workspaceQuery = useMemo(
+    () => workspaceSelectionQuery(appBarContext.workspaceSelection),
+    [appBarContext.workspaceSelection]
+  );
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -161,6 +169,7 @@ export default function SecretsPage(): React.ReactNode {
     params: {
       query: {
         remoteNode,
+        ...workspaceQuery,
         limit: 500,
       },
     },
@@ -349,6 +358,7 @@ export default function SecretsPage(): React.ReactNode {
                         <Button
                           variant="ghost"
                           size="icon"
+                          aria-label={`Actions for ${secret.workspace}/${secret.ref}`}
                           disabled={actionSecretId === secret.id}
                         >
                           {actionSecretId === secret.id ? (

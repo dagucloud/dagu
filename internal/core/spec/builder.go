@@ -265,8 +265,10 @@ func parseSecretRefs(ctx BuildContext, d *dag) ([]core.SecretRef, error) {
 		hasRef := strings.TrimSpace(def.Ref) != ""
 		hasProvider := strings.TrimSpace(def.Provider) != ""
 		hasKey := strings.TrimSpace(def.Key) != ""
-		hasDirectRef := hasProvider && hasKey
-		if hasRef == hasDirectRef || (!hasRef && hasProvider != hasKey) {
+		if hasRef && (hasProvider || hasKey) {
+			return nil, core.NewValidationError("secrets", def, fmt.Errorf("secret %q: exactly one of 'ref' or 'provider' plus 'key' is required", def.Name))
+		}
+		if !hasRef && (!hasProvider || !hasKey) {
 			return nil, core.NewValidationError("secrets", def, fmt.Errorf("secret %q: exactly one of 'ref' or 'provider' plus 'key' is required", def.Name))
 		}
 		if hasRef && len(def.Options) > 0 {

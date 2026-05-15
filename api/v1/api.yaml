@@ -7229,6 +7229,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "409":
           description: "Secret already exists"
           content:
@@ -7262,6 +7274,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SecretResponse"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "404":
           description: "Not found"
           content:
@@ -7299,6 +7323,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "404":
           description: "Not found"
           content:
@@ -7320,6 +7356,18 @@ paths:
       responses:
         "204":
           description: "Secret deleted"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "404":
           description: "Not found"
           content:
@@ -7360,6 +7408,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "404":
           description: "Not found"
           content:
@@ -7387,6 +7447,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SecretResponse"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "404":
           description: "Not found"
           content:
@@ -7414,6 +7486,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SecretResponse"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "404":
           description: "Not found"
           content:
@@ -12371,6 +12455,9 @@ components:
       required:
         - ref
         - providerType
+      oneOf:
+        - $ref: "#/components/schemas/DaguManagedSecretCreateConstraint"
+        - $ref: "#/components/schemas/ExternalSecretCreateConstraint"
       properties:
         workspace:
           type: string
@@ -12387,10 +12474,39 @@ components:
           type: string
         providerRef:
           type: string
+          minLength: 1
         value:
           type: string
           writeOnly: true
           description: "Initial Dagu-managed value. Write-only; never returned by the API."
+
+    DaguManagedSecretCreateConstraint:
+      type: object
+      required:
+        - providerType
+      properties:
+        providerType:
+          type: string
+          pattern: "^dagu-managed$"
+      not:
+        anyOf:
+          - required:
+              - providerConnectionId
+          - required:
+              - providerRef
+
+    ExternalSecretCreateConstraint:
+      type: object
+      required:
+        - providerType
+        - providerRef
+      properties:
+        providerType:
+          type: string
+          pattern: "^(vault|kubernetes|gcp-secret-manager|aws-secrets-manager|azure-key-vault)$"
+      not:
+        required:
+          - value
 
     UpdateSecretRequest:
       type: object

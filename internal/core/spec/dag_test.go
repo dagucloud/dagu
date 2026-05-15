@@ -2047,6 +2047,20 @@ func TestBuildSecrets(t *testing.T) {
 				errContains: "exactly one of 'ref' or 'provider' plus 'key' is required",
 			},
 			{
+				name: "RefWithProvider",
+				input: []secretRef{
+					{Name: "MY_SECRET", Ref: "db-password", Provider: "vault"},
+				},
+				errContains: "exactly one of 'ref' or 'provider' plus 'key' is required",
+			},
+			{
+				name: "RefWithKey",
+				input: []secretRef{
+					{Name: "MY_SECRET", Ref: "db-password", Key: "secret/data/test"},
+				},
+				errContains: "exactly one of 'ref' or 'provider' plus 'key' is required",
+			},
+			{
 				name: "InvalidRegistryRef",
 				input: []secretRef{
 					{Name: "MY_SECRET", Ref: "../db-password"},

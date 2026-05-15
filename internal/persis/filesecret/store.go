@@ -187,7 +187,11 @@ func (s *Store) GetByRef(_ context.Context, workspaceName, ref string) (*secret.
 	if !ok {
 		return nil, secret.ErrNotFound
 	}
-	return s.GetByID(context.Background(), id)
+	record, err := s.recordByID(id)
+	if err != nil {
+		return nil, err
+	}
+	return record.Secret.Clone(), nil
 }
 
 func (s *Store) List(ctx context.Context, opts secret.ListOptions) ([]*secret.Secret, error) {
