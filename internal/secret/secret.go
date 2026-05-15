@@ -23,7 +23,7 @@ const (
 	ProviderDaguManaged      ProviderType = "dagu-managed"
 	ProviderVault            ProviderType = "vault"
 	ProviderKubernetes       ProviderType = "kubernetes"
-	ProviderGCPSecretManager ProviderType = "gcp-secret-manager"
+	ProviderGCPSecretManager ProviderType = "gcp-secret-manager" //nolint:gosec // Provider identifier, not a credential.
 	ProviderAWSSecrets       ProviderType = "aws-secrets-manager"
 	ProviderAzureKeyVault    ProviderType = "azure-key-vault"
 )

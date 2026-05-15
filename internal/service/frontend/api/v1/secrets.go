@@ -463,7 +463,7 @@ func validateSecretProviderRequest(providerType secretpkg.ProviderType, provider
 	}
 	if providerType == secretpkg.ProviderDaguManaged {
 		if providerConnectionID != "" || providerRef != "" {
-			return errors.New("Dagu-managed secrets must not set provider connection or provider ref")
+			return errors.New("dagu-managed secrets must not set provider connection or provider ref")
 		}
 		return nil
 	}

@@ -31,6 +31,8 @@ type CheckCapabilityError struct {
 
 func (e *CheckCapabilityError) Error() string {
 	switch e.Capability {
+	case CheckCapabilityNoFetch, CheckCapabilityMetadataOnly:
+		return fmt.Sprintf("secret provider %q unexpectedly reported non-blocking access check capability %q", e.Provider, e.Capability)
 	case CheckCapabilityRequiresValueRead:
 		return fmt.Sprintf("secret provider %q requires reading secret values for access checks", e.Provider)
 	case CheckCapabilityUnsupported:
