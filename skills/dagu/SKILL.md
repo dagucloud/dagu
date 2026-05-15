@@ -14,6 +14,7 @@ Load only the reference file that matches the task.
 - Prefer `dagu enqueue` over `dagu start` for agent-run workflows.
 - Prefer `dagu schema ...` and `dagu validate ...` over guessing field names or shapes.
 - Prefer `action: template.render` when generating text files, prompts, or artifacts instead of assembling them with shell `echo` or heredocs.
+- Prefer `file.*` actions for local file operations such as stat, read, write, copy, move, delete, mkdir, and list instead of shelling out to `cp`, `mv`, `rm`, or `mkdir`.
 - Prefer `DAG_RUN_ARTIFACTS_DIR` for file outputs when possible, as it provides a preview in the UI and automatically cleans up when the DAG run gets deleted.
 - Prefer string-form `output: VAR_NAME` for capturing small stdout values into flat variables.
 - Prefer object-form `output:` when downstream steps need structured values via `${step_id.output.*}`.
@@ -99,7 +100,7 @@ steps:
 
 Load only the file you need:
 
-- `references/steptypes.md` when choosing an action or checking executor-specific caveats such as `dag.run`, `parallel`, `jq.filter`, or `template.render`
+- `references/steptypes.md` when choosing an action or checking executor-specific caveats such as `dag.run`, `parallel`, `jq.filter`, `file.*`, or `template.render`
 - `references/cli.md` when you need command flags or lookup commands such as `dagu schema`, `dagu config`, or `dagu history`
 - `references/env.md` when execution environment variables, `DAGU_*` config vars, or `params:`/`env:` resolution order matters
 - `references/codingagent.md` only when the DAG itself runs AI coding agents as steps

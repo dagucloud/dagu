@@ -125,6 +125,7 @@ func buildActionsPrompt(env EnvironmentInfo, access *auth.WorkspaceAccess) strin
 	b.WriteString("- Builtin actions: ")
 	b.WriteString(formatNames(spec.BuiltinActionNames()))
 	b.WriteString(". Use top-level `run:` for plain shell commands and scripts.\n")
+	b.WriteString("- For local file operations in authored DAGs, prefer built-in `file.*` actions over `run:` commands such as `cat`, `cp`, `mv`, `rm`, or `mkdir`; this keeps DAGs portable across hosts and shells.\n")
 
 	sources := baseConfigCustomActionSources(env, access)
 	if len(sources) == 0 {
