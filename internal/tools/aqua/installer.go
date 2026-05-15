@@ -203,7 +203,15 @@ func (i *Installer) packageCommands(ctx context.Context, cfg *core.ToolConfig, p
 			needsInference = true
 			continue
 		}
-		commandSets[idx] = append([]string{}, pkg.Commands...)
+		commands := make([]string, 0, len(pkg.Commands))
+		for _, command := range pkg.Commands {
+			command = strings.TrimSpace(command)
+			if !isCommandName(command) {
+				return nil, fmt.Errorf("commands for %s@%s must be executable names, got %q", pkg.Package, pkg.Version, command)
+			}
+			commands = append(commands, command)
+		}
+		commandSets[idx] = commands
 	}
 	if !needsInference {
 		return commandSets, nil

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 func createCommandShim(binDir, command, targetPath, platform string) (string, error) {
@@ -17,22 +18,80 @@ func createCommandShim(binDir, command, targetPath, platform string) (string, er
 	}
 
 	shimPath := filepath.Join(binDir, commandShimName(command, targetPath, platform))
-	if err := os.Remove(shimPath); err != nil && !os.IsNotExist(err) {
-		return "", fmt.Errorf("replace command shim %q: %w", command, err)
+	matches, err := shimMatchesTarget(shimPath, targetPath)
+	if err != nil {
+		return "", fmt.Errorf("inspect command shim %q: %w", command, err)
 	}
-
-	if err := os.Link(targetPath, shimPath); err == nil {
+	if matches {
 		return shimPath, nil
-	} else if !isWindowsPlatform(platform) {
-		if linkErr := os.Symlink(targetPath, shimPath); linkErr == nil {
-			return shimPath, nil
-		}
 	}
 
-	if err := copyExecutable(targetPath, shimPath); err != nil {
+	tmpPath := filepath.Join(binDir, fmt.Sprintf(".%s.%d.%d.tmp", filepath.Base(shimPath), os.Getpid(), time.Now().UnixNano()))
+	if err := createShimFile(tmpPath, targetPath, platform); err != nil {
 		return "", fmt.Errorf("create command shim %q: %w", command, err)
 	}
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
+
+	if err := replaceShimFile(tmpPath, shimPath, platform); err != nil {
+		return "", fmt.Errorf("replace command shim %q: %w", command, err)
+	}
 	return shimPath, nil
+}
+
+func shimMatchesTarget(shimPath, targetPath string) (bool, error) {
+	info, err := os.Lstat(shimPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		linkTarget, err := os.Readlink(shimPath)
+		if err != nil {
+			return false, err
+		}
+		if !filepath.IsAbs(linkTarget) {
+			linkTarget = filepath.Join(filepath.Dir(shimPath), linkTarget)
+		}
+		return filepath.Clean(linkTarget) == filepath.Clean(targetPath), nil
+	}
+
+	targetInfo, err := os.Stat(targetPath)
+	if err != nil {
+		return false, err
+	}
+	shimInfo, err := os.Stat(shimPath)
+	if err != nil {
+		return false, err
+	}
+	return os.SameFile(shimInfo, targetInfo), nil
+}
+
+func createShimFile(shimPath, targetPath, platform string) error {
+	if err := os.Link(targetPath, shimPath); err == nil {
+		return nil
+	}
+	if !isWindowsPlatform(platform) {
+		if err := os.Symlink(targetPath, shimPath); err == nil {
+			return nil
+		}
+	}
+	return copyExecutable(targetPath, shimPath)
+}
+
+func replaceShimFile(src, dst, platform string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	} else if !isWindowsPlatform(platform) {
+		return err
+	}
+	if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return os.Rename(src, dst)
 }
 
 func commandShimName(command, targetPath, platform string) string {

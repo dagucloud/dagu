@@ -10,6 +10,8 @@ import (
 	aquaconfig "github.com/aquaproj/aqua/v2/pkg/config/aqua"
 	aquaregistryconfig "github.com/aquaproj/aqua/v2/pkg/config/registry"
 	aquaruntime "github.com/aquaproj/aqua/v2/pkg/runtime"
+	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/internal/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -83,4 +85,26 @@ func TestInferPackageCommandsRejectsUnsafeRegistryFileName(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "specify commands explicitly")
+}
+
+func TestPackageCommandsRejectsUnsafeExplicitCommandName(t *testing.T) {
+	t.Parallel()
+
+	installer := New()
+	_, err := installer.packageCommands(
+		t.Context(),
+		&core.ToolConfig{
+			Packages: []core.ToolPackage{{
+				Package:  "jqlang/jq",
+				Version:  "jq-1.7.1",
+				Commands: []string{"../jq"},
+			}},
+		},
+		nil,
+		tools.CacheLayout{},
+		nil,
+	)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must be executable names")
 }
