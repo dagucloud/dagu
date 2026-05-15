@@ -2,4 +2,4 @@ apiVersion: v2
 name: dagu
 description: A DAG-based workflow engine
 type: application
-version: 1.0.6
+version: 1.0.7
