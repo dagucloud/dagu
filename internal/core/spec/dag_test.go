@@ -81,6 +81,72 @@ steps:
 	assert.Equal(t, []string{"jq"}, dag.Tools.Packages[0].Commands)
 }
 
+func TestLoadDAGToolsShorthandList(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+tools:
+  - jqlang/jq@jq-1.7.1
+  - google/pprof@d04f2422c8a17569c14e84da0fae252d9529826b
+steps:
+  - name: check
+    command: jq --version
+`))
+
+	require.NoError(t, err)
+	require.NotNil(t, dag.Tools)
+	assert.Equal(t, "aqua", dag.Tools.Provider)
+	require.NotNil(t, dag.Tools.Registry)
+	assert.Equal(t, core.DefaultAquaStandardRegistryRef, dag.Tools.Registry.Ref)
+	require.Len(t, dag.Tools.Packages, 2)
+	assert.Equal(t, "jq", dag.Tools.Packages[0].Name)
+	assert.Equal(t, "jqlang/jq", dag.Tools.Packages[0].Package)
+	assert.Equal(t, "jq-1.7.1", dag.Tools.Packages[0].Version)
+	assert.Empty(t, dag.Tools.Packages[0].Commands)
+	assert.Equal(t, "pprof", dag.Tools.Packages[1].Name)
+	assert.Equal(t, "google/pprof", dag.Tools.Packages[1].Package)
+	assert.Equal(t, "d04f2422c8a17569c14e84da0fae252d9529826b", dag.Tools.Packages[1].Version)
+	assert.Empty(t, dag.Tools.Packages[1].Commands)
+}
+
+func TestLoadDAGToolsPackagesAcceptMixedShorthandAndObject(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+tools:
+  packages:
+    - jqlang/jq@jq-1.7.1
+    - package: google/pprof
+      version: d04f2422c8a17569c14e84da0fae252d9529826b
+steps:
+  - name: check
+    command: jq --version
+`))
+
+	require.NoError(t, err)
+	require.NotNil(t, dag.Tools)
+	require.Len(t, dag.Tools.Packages, 2)
+	assert.Equal(t, "jqlang/jq", dag.Tools.Packages[0].Package)
+	assert.Equal(t, "jq-1.7.1", dag.Tools.Packages[0].Version)
+	assert.Equal(t, "google/pprof", dag.Tools.Packages[1].Package)
+	assert.Equal(t, "d04f2422c8a17569c14e84da0fae252d9529826b", dag.Tools.Packages[1].Version)
+}
+
+func TestLoadDAGToolsRejectsInvalidShorthand(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+tools:
+  - jqlang/jq
+steps:
+  - name: check
+    command: jq --version
+`))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `tool package shorthand must be "package@version"`)
+}
+
 func TestLoadDAGToolsAcceptsPackageCommitSHA(t *testing.T) {
 	t.Parallel()
 

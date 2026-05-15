@@ -419,8 +419,20 @@
       "description": "List of external secret references resolved at runtime and exposed as environment variables. Each entry declares the target environment variable name, provider, key, and optional provider-specific options."
     },
     "tools": {
-      "$ref": "#/definitions/toolConfig",
-      "description": "DAG-level CLI tool dependencies installed on the worker before any step runs. Provider defaults to aqua, and registry defaults to Dagu's pinned standard registry commit."
+      "anyOf": [
+        {
+          "$ref": "#/definitions/toolConfig"
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/toolPackage"
+          },
+          "description": "Shorthand list of aqua packages, for example tools: ['jqlang/jq@jq-1.7.1']."
+        }
+      ],
+      "description": "DAG-level CLI tool dependencies installed on the worker before any step runs. Can be an object for advanced options or shorthand package refs like jqlang/jq@jq-1.7.1. Provider defaults to aqua, and registry defaults to Dagu's pinned standard registry commit."
     },
     "defaults": {
       "type": "object",
@@ -1423,6 +1435,25 @@
       ]
     },
     "toolPackage": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/toolPackageObject"
+        },
+        {
+          "$ref": "#/definitions/toolPackageRef"
+        }
+      ],
+      "description": "Aqua package declaration. Use package@version shorthand for the common case, or an object for explicit commands, display name, or registry overrides."
+    },
+    "toolPackageRef": {
+      "type": "string",
+      "pattern": "^[^\\s@]+@[^\\s@]+$",
+      "not": {
+        "pattern": "@[Ll][Aa][Tt][Ee][Ss][Tt]$"
+      },
+      "description": "Aqua package shorthand in package@version form, for example jqlang/jq@jq-1.7.1. Prefer immutable commit hashes where aqua supports them."
+    },
+    "toolPackageObject": {
       "type": "object",
       "required": ["package", "version"],
       "additionalProperties": false,
