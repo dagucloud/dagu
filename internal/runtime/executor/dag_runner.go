@@ -26,6 +26,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/proto/convert"
+	dagutools "github.com/dagucloud/dagu/internal/tools"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
 
@@ -249,8 +250,7 @@ func (e *SubDAGExecutor) newLocalCLICommand(
 	cmd.Dir = workDir
 
 	rCtx := exec.GetContext(ctx)
-	cmd.Env = baseEnvForLocalCLI(rCtx)
-	cmd.Env = append(cmd.Env, rCtx.AllEnvs()...)
+	cmd.Env = localCLIEnv(rCtx)
 	if e.externalStepRetry {
 		cmd.Env = append(cmd.Env, exec.EnvKeyExternalStepRetry+"=1")
 	}
@@ -273,6 +273,11 @@ func (e *SubDAGExecutor) injectTraceContext(ctx context.Context, cmd *osexec.Cmd
 	return cmd
 }
 
+func localCLIEnv(rCtx exec.Context) []string {
+	env := baseEnvForLocalCLI(rCtx)
+	return append(env, inheritedEnvForLocalCLI(rCtx.AllEnvs())...)
+}
+
 func baseEnvForLocalCLI(rCtx exec.Context) []string {
 	if rCtx.BaseEnv != nil {
 		env := rCtx.BaseEnv.AsSlice()
@@ -281,6 +286,50 @@ func baseEnvForLocalCLI(rCtx exec.Context) []string {
 		}
 	}
 	return os.Environ()
+}
+
+func inheritedEnvForLocalCLI(envs []string) []string {
+	if !hasDAGToolsEnv(envs) {
+		return envs
+	}
+	filtered := make([]string, 0, len(envs))
+	for _, env := range envs {
+		key, _, ok := strings.Cut(env, "=")
+		if ok && isDAGToolsEnvKey(key) {
+			continue
+		}
+		filtered = append(filtered, env)
+	}
+	return filtered
+}
+
+func hasDAGToolsEnv(envs []string) bool {
+	for _, env := range envs {
+		key, _, ok := strings.Cut(env, "=")
+		if ok && strings.EqualFold(key, dagutools.EnvManifest) {
+			return true
+		}
+	}
+	return false
+}
+
+func isDAGToolsEnvKey(key string) bool {
+	for _, candidate := range []string{
+		"PATH",
+		"AQUA_ROOT_DIR",
+		"AQUA_CONFIG",
+		"AQUA_DISABLE_LAZY_INSTALL",
+		"AQUA_CHECKSUM",
+		"AQUA_REQUIRE_CHECKSUM",
+		"AQUA_ENFORCE_CHECKSUM",
+		"AQUA_ENFORCE_REQUIRE_CHECKSUM",
+		dagutools.EnvManifest,
+	} {
+		if strings.EqualFold(key, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 // BuildCoordinatorTask creates a coordinator task for distributed execution

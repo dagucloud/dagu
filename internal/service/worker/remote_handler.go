@@ -35,6 +35,8 @@ import (
 	rtagent "github.com/dagucloud/dagu/internal/runtime/agent"
 	"github.com/dagucloud/dagu/internal/runtime/remote"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
+	dagutools "github.com/dagucloud/dagu/internal/tools"
+	daguaqua "github.com/dagucloud/dagu/internal/tools/aqua"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
 
@@ -578,6 +580,12 @@ func (h *remoteTaskHandler) executeDAGRun(
 		agentStores = h.agentStores(ctx)
 	}
 
+	toolEnvs, err := h.prepareDAGTools(ctx, dag)
+	if err != nil {
+		return newTaskInitError(err)
+	}
+	extraEnvs = append(extraEnvs, toolEnvs...)
+
 	// Build agent options
 	opts := rtagent.Options{
 		ParentDAGRun:      parent,
@@ -631,4 +639,31 @@ func (h *remoteTaskHandler) executeDAGRun(
 		tag.RunID(dagRunID))
 
 	return nil
+}
+
+func (h *remoteTaskHandler) prepareDAGTools(ctx context.Context, dag *core.DAG) ([]string, error) {
+	workDir := ""
+	if dag != nil {
+		workDir = dag.WorkingDir
+	}
+	dataDir := ""
+	if h.config != nil {
+		dataDir = h.config.Paths.DataDir
+	}
+	return dagutools.PrepareDAG(ctx, dag, daguaqua.New(), dagutools.InstallOptions{
+		DataDir: dataDir,
+		WorkDir: workDir,
+	}, h.dagToolsBasePath())
+}
+
+func (h *remoteTaskHandler) dagToolsBasePath() string {
+	if h.config != nil {
+		for _, env := range h.config.Core.BaseEnv.AsSlice() {
+			key, value, ok := strings.Cut(env, "=")
+			if ok && strings.EqualFold(key, "PATH") {
+				return value
+			}
+		}
+	}
+	return os.Getenv("PATH")
 }

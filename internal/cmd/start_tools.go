@@ -4,7 +4,6 @@
 package cmd
 
 import (
-	"fmt"
 	"os"
 	"strings"
 
@@ -14,20 +13,14 @@ import (
 )
 
 func prepareDAGTools(ctx *Context, dag *core.DAG) ([]string, error) {
-	if dag == nil || dag.Tools == nil {
-		return nil, nil
+	workDir := ""
+	if dag != nil {
+		workDir = dag.WorkingDir
 	}
-	if err := validateDAGToolsSupported(dag); err != nil {
-		return nil, err
-	}
-	manifest, err := daguaqua.New().Install(ctx.Context, dag.Tools, dagutools.InstallOptions{
+	return dagutools.PrepareDAG(ctx.Context, dag, daguaqua.New(), dagutools.InstallOptions{
 		DataDir: ctx.Config.Paths.DataDir,
-		WorkDir: dag.WorkingDir,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("prepare DAG tools: %w", err)
-	}
-	return dagutools.EnvVars(manifest, dagToolsBasePath(ctx)), nil
+		WorkDir: workDir,
+	}, dagToolsBasePath(ctx))
 }
 
 func dagToolsBasePath(ctx *Context) string {
@@ -40,23 +33,4 @@ func dagToolsBasePath(ctx *Context) string {
 		}
 	}
 	return os.Getenv("PATH")
-}
-
-func validateDAGToolsSupported(dag *core.DAG) error {
-	if dag == nil || dag.Tools == nil {
-		return nil
-	}
-	if dag.Container != nil {
-		return fmt.Errorf("tools are not supported with DAG-level container yet")
-	}
-	for _, step := range dag.Steps {
-		if step.Container != nil {
-			return fmt.Errorf("tools are not supported with step container %q yet", step.Name)
-		}
-		switch step.ExecutorConfig.Type {
-		case "docker", "ssh", "k8s", "kubernetes":
-			return fmt.Errorf("tools are not supported with executor %q on step %q yet", step.ExecutorConfig.Type, step.Name)
-		}
-	}
-	return nil
 }
