@@ -1618,8 +1618,21 @@ func TestLoop_OnTurnComplete(t *testing.T) {
 		})
 		loop.QueueUserMessage(llm.Message{Role: llm.RoleUser, Content: "test"})
 
-		err := loop.Go(ctx)
-		assert.ErrorIs(t, err, context.Canceled)
+		done := make(chan error, 1)
+		go func() {
+			done <- loop.Go(ctx)
+		}()
+
+		timer := time.NewTimer(5 * time.Second)
+		defer timer.Stop()
+
+		select {
+		case err := <-done:
+			assert.ErrorIs(t, err, context.Canceled)
+		case <-timer.C:
+			cancel()
+			t.Fatal("loop.Go did not return in time")
+		}
 	})
 
 	t.Run("loop exits promptly without idle polling", func(t *testing.T) {
