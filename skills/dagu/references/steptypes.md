@@ -176,6 +176,50 @@ steps:
 
 `with.template` is required and is rendered as a template, not executed as shell. `with.output` writes rendered content to a file; top-level `output:` captures or publishes step output.
 
+## file.stat / file.read / file.write / file.copy / file.move / file.delete / file.mkdir / file.list
+
+Local filesystem operations.
+
+```yaml
+steps:
+  - id: ensure_output_dir
+    action: file.mkdir
+    with:
+      path: ${DAG_RUN_ARTIFACTS_DIR}/reports
+
+  - id: write_report
+    action: file.write
+    with:
+      path: ${DAG_RUN_ARTIFACTS_DIR}/reports/summary.txt
+      content: "status=ok\n"
+      overwrite: true
+
+  - id: copy_report
+    action: file.copy
+    with:
+      source: ${DAG_RUN_ARTIFACTS_DIR}/reports/summary.txt
+      destination: ${DAG_RUN_ARTIFACTS_DIR}/reports/latest.txt
+      overwrite: true
+
+  - id: list_reports
+    action: file.list
+    with:
+      path: ${DAG_RUN_ARTIFACTS_DIR}/reports
+      pattern: "*.txt"
+```
+
+Use `path` for `file.stat`, `file.read`, `file.write`, `file.delete`, `file.mkdir`, and `file.list`. Use `source` and `destination` for `file.copy` and `file.move`. `file.write` also requires `content`.
+
+`with` fields: `path`, `source`, `destination`, `content`, `mode`, `format`, `pattern`, `overwrite`, `create_dirs`, `atomic`, `recursive`, `missing_ok`, `dry_run`, `include_dirs`, `follow_symlinks`, `max_bytes`.
+
+Safety defaults:
+
+- `overwrite` defaults to false for write, copy, and move.
+- `atomic` defaults to true for file writes.
+- `recursive` is required for directory copy and directory delete.
+- `file.delete` refuses to delete the filesystem root.
+- Copy and move reject the same source and destination, and directory copy rejects destinations inside the source tree.
+
 ## postgres.query / sqlite.query / postgres.import / sqlite.import
 
 SQL database queries and imports.
