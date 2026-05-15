@@ -18,6 +18,8 @@ Load only the reference file that matches the task.
 - Prefer string-form `output: VAR_NAME` for capturing small stdout values into flat variables.
 - Prefer object-form `output:` when downstream steps need structured values via `${step_id.output.*}`.
 - Prefer temporary file in artifacts dir for larger outputs or when downstream steps need file paths.
+- Declare portable external CLI dependencies in top-level `tools` using aqua shorthand when the binary version affects reproducibility, for example `tools: ["jqlang/jq@jq-1.7.1"]`.
+- Do not add `tools` for CLIs that intentionally depend on user or worker preconfiguration, login state, local profiles, plugins, or credentials, such as `gcloud` and AI agent CLIs.
 
 ## High-Signal Rules
 
@@ -68,6 +70,17 @@ steps:
         Your favorite color is {{ .favorite_color }}.
         {{- end }}
     stdout: ${DAG_RUN_ARTIFACTS_DIR}/greeting.txt
+```
+
+## Example of Reproducible External CLI
+
+```yaml
+tools:
+  - jqlang/jq@jq-1.7.1
+
+steps:
+  - id: inspect
+    run: jq --version
 ```
 
 ## Example of Object-Form Output

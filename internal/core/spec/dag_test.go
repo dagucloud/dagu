@@ -62,8 +62,8 @@ tools:
       version: jq-1.7.1
       commands: [jq]
 steps:
-  - name: check
-    command: jq --version
+  - id: check
+    run: jq --version
 `))
 
 	require.NoError(t, err)
@@ -89,8 +89,8 @@ tools:
   - jqlang/jq@jq-1.7.1
   - google/pprof@d04f2422c8a17569c14e84da0fae252d9529826b
 steps:
-  - name: check
-    command: jq --version
+  - id: check
+    run: jq --version
 `))
 
 	require.NoError(t, err)
@@ -119,8 +119,8 @@ tools:
     - package: google/pprof
       version: d04f2422c8a17569c14e84da0fae252d9529826b
 steps:
-  - name: check
-    command: jq --version
+  - id: check
+    run: jq --version
 `))
 
 	require.NoError(t, err)
@@ -139,8 +139,8 @@ func TestLoadDAGToolsRejectsInvalidShorthand(t *testing.T) {
 tools:
   - jqlang/jq
 steps:
-  - name: check
-    command: jq --version
+  - id: check
+    run: jq --version
 `))
 
 	require.Error(t, err)
@@ -156,8 +156,8 @@ tools:
     - package: google/pprof
       version: d04f2422c8a17569c14e84da0fae252d9529826b
 steps:
-  - name: check
-    command: pprof --help
+  - id: check
+    run: pprof --help
 `))
 
 	require.NoError(t, err)
@@ -182,8 +182,8 @@ tools:
       package: jqlang/jq
       version: jq-1.7.1
 steps:
-  - name: check
-    command: jq
+  - id: check
+    run: jq
 `))
 
 	require.NoError(t, err)
@@ -210,8 +210,8 @@ tools:
       version: jq-1.7.1
       commands: [jq]
 steps:
-  - name: check
-    command: jq
+  - id: check
+    run: jq
 `))
 
 	require.Error(t, err)
@@ -231,8 +231,8 @@ tools:
       version: LATEST
       commands: [jq]
 steps:
-  - name: check
-    command: jq
+  - id: check
+    run: jq
 `))
 
 	require.Error(t, err)
@@ -252,8 +252,8 @@ tools:
       version: jq-1.7.1
       commands: [bin/jq]
 steps:
-  - name: check
-    command: jq
+  - id: check
+    run: jq
 `))
 
 	require.Error(t, err)
@@ -270,8 +270,8 @@ tools:
       version: jq-1.7.1
       commands: ["jq;echo"]
 steps:
-  - name: check
-    command: jq
+  - id: check
+    run: jq
 `))
 
 	require.Error(t, err)
