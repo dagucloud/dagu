@@ -98,10 +98,7 @@ func (a *API) ListSecrets(ctx context.Context, request api.ListSecretsRequestObj
 	if offset > total {
 		visible = nil
 	} else {
-		end := offset + limit
-		if end > total {
-			end = total
-		}
+		end := min(offset+limit, total)
 		visible = visible[offset:end]
 	}
 
