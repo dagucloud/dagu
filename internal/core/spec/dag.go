@@ -2410,10 +2410,6 @@ func buildToolPackage(pkg toolPackage, seenCommands map[string]struct{}) (core.T
 	if strings.EqualFold(version, "latest") {
 		return core.ToolPackage{}, fmt.Errorf("version must be pinned, got %q", version)
 	}
-	if len(pkg.Commands) == 0 {
-		return core.ToolPackage{}, fmt.Errorf("commands is required")
-	}
-
 	commands := make([]string, 0, len(pkg.Commands))
 	for _, command := range pkg.Commands {
 		command = strings.TrimSpace(command)
@@ -2430,7 +2426,7 @@ func buildToolPackage(pkg toolPackage, seenCommands map[string]struct{}) (core.T
 		commands = append(commands, command)
 	}
 	if name == "" {
-		name = commands[0]
+		name = toolPackageDisplayName(packageName, commands)
 	}
 	return core.ToolPackage{
 		Name:     name,
@@ -2439,6 +2435,16 @@ func buildToolPackage(pkg toolPackage, seenCommands map[string]struct{}) (core.T
 		Commands: commands,
 		Registry: registry,
 	}, nil
+}
+
+func toolPackageDisplayName(packageName string, commands []string) string {
+	if len(commands) != 0 {
+		return commands[0]
+	}
+	if i := strings.LastIndex(packageName, "/"); i != -1 {
+		return packageName[i+1:]
+	}
+	return packageName
 }
 
 func isToolCommandName(command string) bool {

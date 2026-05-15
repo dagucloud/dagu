@@ -1424,12 +1424,12 @@
     },
     "toolPackage": {
       "type": "object",
-      "required": ["package", "version", "commands"],
+      "required": ["package", "version"],
       "additionalProperties": false,
       "properties": {
         "name": {
           "type": "string",
-          "description": "Optional display name. Defaults to the first command."
+          "description": "Optional display name. Defaults to the first command when commands are provided, otherwise the package basename."
         },
         "package": {
           "type": "string",
@@ -1451,7 +1451,7 @@
             "minLength": 1,
             "pattern": "^[A-Za-z0-9._+-]+$"
           },
-          "description": "Command names exposed to steps from this package."
+          "description": "Optional command names exposed to steps from this package. When omitted, Dagu infers commands from aqua registry metadata."
         },
         "registry": {
           "type": "string",

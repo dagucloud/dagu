@@ -24,10 +24,9 @@ func TestInstallerInstallIntegration(t *testing.T) {
 	manifest, err := New().Install(context.Background(), &core.ToolConfig{
 		Provider: "aqua",
 		Packages: []core.ToolPackage{{
-			Name:     "jq",
-			Package:  "jqlang/jq",
-			Version:  "jq-1.7.1",
-			Commands: []string{"jq"},
+			Name:    "jq",
+			Package: "jqlang/jq",
+			Version: "jq-1.7.1",
 		}},
 	}, tools.InstallOptions{
 		DataDir: dataDir,

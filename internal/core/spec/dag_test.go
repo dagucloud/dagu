@@ -89,7 +89,6 @@ tools:
   packages:
     - package: google/pprof
       version: d04f2422c8a17569c14e84da0fae252d9529826b
-      commands: [pprof]
 steps:
   - name: check
     command: pprof --help
@@ -100,12 +99,13 @@ steps:
 	require.Len(t, dag.Tools.Packages, 1)
 	assert.Equal(t, "aqua", dag.Tools.Provider)
 	assert.Equal(t, "d04f2422c8a17569c14e84da0fae252d9529826b", dag.Tools.Packages[0].Version)
+	assert.Empty(t, dag.Tools.Packages[0].Commands)
 }
 
-func TestLoadDAGToolsRejectsMissingCommand(t *testing.T) {
+func TestLoadDAGToolsAcceptsOmittedCommands(t *testing.T) {
 	t.Parallel()
 
-	_, err := LoadYAML(context.Background(), []byte(`
+	dag, err := LoadYAML(context.Background(), []byte(`
 tools:
   provider: aqua
   registry:
@@ -120,8 +120,11 @@ steps:
     command: jq
 `))
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "commands is required")
+	require.NoError(t, err)
+	require.NotNil(t, dag.Tools)
+	require.Len(t, dag.Tools.Packages, 1)
+	assert.Equal(t, "jq", dag.Tools.Packages[0].Name)
+	assert.Empty(t, dag.Tools.Packages[0].Commands)
 }
 
 func TestLoadDAGToolsRejectsMissingGitHubContentRegistryRef(t *testing.T) {

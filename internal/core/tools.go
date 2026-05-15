@@ -26,11 +26,11 @@ type ToolRegistry struct {
 	Path      string `json:"path,omitempty"`
 }
 
-// ToolPackage declares one aqua package and the command names Dagu should expose.
+// ToolPackage declares one aqua package and optional command names Dagu should expose.
 type ToolPackage struct {
 	Name     string   `json:"name,omitempty"`
 	Package  string   `json:"package"`
 	Version  string   `json:"version"`
-	Commands []string `json:"commands"`
+	Commands []string `json:"commands,omitempty"`
 	Registry string   `json:"registry,omitempty"`
 }
