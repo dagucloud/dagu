@@ -254,6 +254,7 @@ func TestLoad_Env(t *testing.T) {
 			Executable:         filepath.Join(testPaths, "bin", "dagu"),
 			LogDir:             filepath.Join(testPaths, "logs"),
 			DataDir:            filepath.Join(testPaths, "data"),
+			ToolsDir:           filepath.Join(testPaths, "data", "tools"),
 			ArtifactDir:        filepath.Join(testPaths, "artifacts"),
 			SuspendFlagsDir:    filepath.Join(testPaths, "suspend"),
 			AdminLogsDir:       filepath.Join(testPaths, "admin"),
@@ -539,6 +540,7 @@ paths:
   dags_dir: "/var/dagu/dags"
   log_dir: "/var/dagu/logs"
   data_dir: "/var/dagu/data"
+  tools_dir: "/var/dagu/tools"
   suspend_flags_dir: "/var/dagu/suspend"
   admin_logs_dir: "/var/dagu/adminlogs"
   base_config: "/var/dagu/base.yaml"
@@ -711,6 +713,7 @@ scheduler:
 			DocsDir:            resolvedTestPath(t, "/var/dagu/dags/docs"),
 			LogDir:             resolvedTestPath(t, "/var/dagu/logs"),
 			DataDir:            resolvedTestPath(t, "/var/dagu/data"),
+			ToolsDir:           resolvedTestPath(t, "/var/dagu/tools"),
 			ArtifactDir:        cfg.Paths.ArtifactDir,
 			SuspendFlagsDir:    resolvedTestPath(t, "/var/dagu/suspend"),
 			AdminLogsDir:       resolvedTestPath(t, "/var/dagu/adminlogs"),
@@ -852,6 +855,7 @@ paths:
 `)
 	dataDir := resolvedTestPath(t, "/custom/data")
 	assert.Equal(t, dataDir, cfg.Paths.DataDir)
+	assert.Equal(t, filepath.Join(dataDir, "tools"), cfg.Paths.ToolsDir)
 	assert.Equal(t, filepath.Join(dataDir, "dag-runs"), cfg.Paths.DAGRunsDir)
 	assert.Equal(t, filepath.Join(dataDir, "proc"), cfg.Paths.ProcDir)
 	assert.Equal(t, filepath.Join(dataDir, "queue"), cfg.Paths.QueueDir)
@@ -859,6 +863,24 @@ paths:
 	assert.Equal(t, filepath.Join(dataDir, "users"), cfg.Paths.UsersDir)
 	assert.Equal(t, filepath.Join(dataDir, "agent", "sessions"), cfg.Paths.SessionsDir)
 	assert.Equal(t, filepath.Join(dataDir, "contexts"), cfg.Paths.ContextsDir)
+}
+
+func TestLoad_EdgeCases_ToolsDirFromConfig(t *testing.T) {
+	cfg := loadFromYAML(t, `
+paths:
+  data_dir: "/custom/data"
+  tools_dir: "/custom/tools"
+`)
+
+	assert.Equal(t, resolvedTestPath(t, "/custom/tools"), cfg.Paths.ToolsDir)
+}
+
+func TestLoad_EdgeCases_ToolsDirFromEnv(t *testing.T) {
+	cfg := loadWithEnv(t, "# empty", map[string]string{
+		"DAGU_TOOLS_DIR": "/tmp/custom-tools",
+	})
+
+	assert.Equal(t, resolvedTestPath(t, "/tmp/custom-tools"), cfg.Paths.ToolsDir)
 }
 
 func TestLoad_EdgeCases_ContextsDirFromEnv(t *testing.T) {

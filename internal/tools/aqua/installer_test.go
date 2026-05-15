@@ -206,6 +206,23 @@ func TestPackageLockKeysUsePackageVersionAndPlatform(t *testing.T) {
 	assert.Contains(t, keys, strings.Join([]string{"linux/amd64", "mikefarah/yq", "v4.44.3"}, "\x00"))
 }
 
+func TestToolsDirPrefersExplicitToolsDir(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "/var/cache/dagu/tools", toolsDir(tools.InstallOptions{
+		ToolsDir: " /var/cache/dagu/tools ",
+		DataDir:  "/var/lib/dagu/data",
+	}))
+}
+
+func TestToolsDirFallsBackToDataDir(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, filepath.Join("/var/lib/dagu/data", "tools"), toolsDir(tools.InstallOptions{
+		DataDir: "/var/lib/dagu/data",
+	}))
+}
+
 func testCacheLayout(dir string) tools.CacheLayout {
 	return tools.CacheLayout{
 		RootDir:      filepath.Join(dir, "root"),

@@ -445,6 +445,10 @@
           "type": "string",
           "description": "Directory for application data."
         },
+        "tools_dir": {
+          "type": "string",
+          "description": "Directory for managed DAG tool cache, locks, manifests, and shims."
+        },
         "suspend_flags_dir": {
           "type": "string",
           "description": "Directory for DAG suspend flag files."

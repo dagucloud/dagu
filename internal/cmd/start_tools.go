@@ -18,8 +18,9 @@ func prepareDAGTools(ctx *Context, dag *core.DAG) ([]string, error) {
 		workDir = dag.WorkingDir
 	}
 	return dagutools.PrepareDAG(ctx.Context, dag, daguaqua.New(), dagutools.InstallOptions{
-		DataDir: ctx.Config.Paths.DataDir,
-		WorkDir: workDir,
+		ToolsDir: ctx.Config.Paths.ToolsDir,
+		DataDir:  ctx.Config.Paths.DataDir,
+		WorkDir:  workDir,
 	}, dagToolsBasePath(ctx))
 }
 

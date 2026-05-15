@@ -96,7 +96,7 @@ func (i *Installer) Install(ctx context.Context, cfg *core.ToolConfig, opts tool
 	if err != nil {
 		return nil, err
 	}
-	paths, err := tools.CachePaths(opts.DataDir, platform, hash)
+	paths, err := tools.CachePaths(toolsDir(opts), platform, hash)
 	if err != nil {
 		return nil, err
 	}
@@ -559,6 +559,16 @@ func (i *Installer) lockResource(ctx context.Context, paths tools.CacheLayout, k
 func lockHash(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])
+}
+
+func toolsDir(opts tools.InstallOptions) string {
+	if toolsDir := strings.TrimSpace(opts.ToolsDir); toolsDir != "" {
+		return toolsDir
+	}
+	if dataDir := strings.TrimSpace(opts.DataDir); dataDir != "" {
+		return filepath.Join(dataDir, "tools")
+	}
+	return ""
 }
 
 func fileExists(path string) bool {

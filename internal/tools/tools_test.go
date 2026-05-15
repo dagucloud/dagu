@@ -14,15 +14,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCachePathsUsesWorkerLocalDataDir(t *testing.T) {
+func TestCachePathsUsesWorkerLocalToolsDir(t *testing.T) {
 	t.Parallel()
 
-	paths, err := CachePaths("/var/lib/dagu/data", "linux/amd64", "abc123")
+	paths, err := CachePaths("/var/cache/dagu/tools", "linux/amd64", "abc123")
 
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join("/var/lib/dagu/data", "tools", "aqua", "root"), paths.RootDir)
-	assert.Equal(t, filepath.Join("/var/lib/dagu/data", "tools", "aqua", "locks"), paths.LockDir)
-	assert.Equal(t, filepath.Join("/var/lib/dagu/data", "tools", "aqua", "envs", "linux-amd64", "abc123"), paths.EnvDir)
+	assert.Equal(t, filepath.Join("/var/cache/dagu/tools", "aqua", "root"), paths.RootDir)
+	assert.Equal(t, filepath.Join("/var/cache/dagu/tools", "aqua", "locks"), paths.LockDir)
+	assert.Equal(t, filepath.Join("/var/cache/dagu/tools", "aqua", "envs", "linux-amd64", "abc123"), paths.EnvDir)
 	assert.Equal(t, filepath.Join(paths.EnvDir, "bin"), paths.BinDir)
 	assert.Equal(t, filepath.Join(paths.EnvDir, "aqua.yaml"), paths.ConfigFile)
 	assert.Equal(t, filepath.Join(paths.EnvDir, "aqua-checksums.json"), paths.ChecksumFile)
@@ -32,10 +32,10 @@ func TestCachePathsUsesWorkerLocalDataDir(t *testing.T) {
 func TestCachePathsSanitizesPlatformPathSegment(t *testing.T) {
 	t.Parallel()
 
-	paths, err := CachePaths("/var/lib/dagu/data", "linux/amd64:ci worker\\x", "abc123")
+	paths, err := CachePaths("/var/cache/dagu/tools", "linux/amd64:ci worker\\x", "abc123")
 
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join("/var/lib/dagu/data", "tools", "aqua", "envs", "linux-amd64-ci-worker-x", "abc123"), paths.EnvDir)
+	assert.Equal(t, filepath.Join("/var/cache/dagu/tools", "aqua", "envs", "linux-amd64-ci-worker-x", "abc123"), paths.EnvDir)
 }
 
 func TestToolsetHashChangesWithPlatform(t *testing.T) {
@@ -108,14 +108,14 @@ func TestPrepareDAGInstallsDeclaredTools(t *testing.T) {
 	}
 
 	envs, err := PrepareDAG(context.Background(), dag, installer, InstallOptions{
-		DataDir: "/data",
-		WorkDir: "/work",
+		ToolsDir: "/data/tools",
+		WorkDir:  "/work",
 	}, "/usr/bin")
 
 	require.NoError(t, err)
 	require.Equal(t, 1, installer.calls)
 	assert.Same(t, dag.Tools, installer.cfg)
-	assert.Equal(t, InstallOptions{DataDir: "/data", WorkDir: "/work"}, installer.opts)
+	assert.Equal(t, InstallOptions{ToolsDir: "/data/tools", WorkDir: "/work"}, installer.opts)
 	assert.Contains(t, envs, "PATH=/data/tools/aqua/envs/linux-amd64/hash/bin"+string(os.PathListSeparator)+"/usr/bin")
 }
 

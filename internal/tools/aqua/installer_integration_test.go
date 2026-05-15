@@ -19,7 +19,7 @@ func TestInstallerInstallIntegration(t *testing.T) {
 		t.Skip("set DAGU_AQUA_INTEGRATION=1 to run aqua network integration test")
 	}
 
-	dataDir := t.TempDir()
+	toolsDir := filepath.Join(t.TempDir(), "tools")
 	workDir := t.TempDir()
 	manifest, err := New().Install(context.Background(), &core.ToolConfig{
 		Provider: "aqua",
@@ -29,8 +29,8 @@ func TestInstallerInstallIntegration(t *testing.T) {
 			Version: "jq-1.7.1",
 		}},
 	}, tools.InstallOptions{
-		DataDir: dataDir,
-		WorkDir: workDir,
+		ToolsDir: toolsDir,
+		WorkDir:  workDir,
 	})
 
 	require.NoError(t, err)
@@ -39,6 +39,7 @@ func TestInstallerInstallIntegration(t *testing.T) {
 	require.FileExists(t, manifest.Checksum)
 	require.FileExists(t, filepath.Join(manifest.EnvDir, "manifest.json"))
 	require.NotEmpty(t, manifest.Commands["jq"].Path)
+	require.Equal(t, filepath.Join(toolsDir, "aqua", "root"), manifest.RootDir)
 	require.Equal(t, filepath.Join(manifest.EnvDir, "bin"), manifest.BinDir)
 	require.Equal(t, filepath.Join(manifest.BinDir, filepath.Base(manifest.Commands["jq"].Path)), manifest.Commands["jq"].Path)
 	require.FileExists(t, manifest.Commands["jq"].Path)

@@ -730,6 +730,7 @@ See the [distributed execution documentation](https://docs.dagu.sh/server-admin/
 | `DAGU_DAGS_DIR` | `~/.config/dagu/dags` | DAG definitions directory |
 | `DAGU_LOG_DIR` | `~/.local/share/dagu/logs` | Log files |
 | `DAGU_DATA_DIR` | `~/.local/share/dagu/data` | Application state |
+| `DAGU_TOOLS_DIR` | `{DAGU_DATA_DIR}/tools` | Managed DAG tool cache |
 
 ### Authentication
 

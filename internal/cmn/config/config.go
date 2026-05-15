@@ -356,6 +356,7 @@ type PathsConfig struct {
 	LogDir             string
 	ArtifactDir        string
 	DataDir            string
+	ToolsDir           string
 	SuspendFlagsDir    string
 	AdminLogsDir       string
 	EventStoreDir      string

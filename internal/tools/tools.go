@@ -18,11 +18,10 @@ import (
 )
 
 const (
-	providerAqua      = "aqua"
-	configFileName    = "aqua.yaml"
-	checksumFileName  = "aqua-checksums.json"
-	manifestFileName  = "manifest.json"
-	toolCacheRootPath = "tools"
+	providerAqua     = "aqua"
+	configFileName   = "aqua.yaml"
+	checksumFileName = "aqua-checksums.json"
+	manifestFileName = "manifest.json"
 
 	// EnvManifest points command executors to the resolved Dagu tools manifest.
 	EnvManifest = "DAGU_TOOLS_MANIFEST"
@@ -35,6 +34,9 @@ type Installer interface {
 
 // InstallOptions identifies the worker-local filesystem context for tools.
 type InstallOptions struct {
+	ToolsDir string
+	// DataDir is kept as an internal fallback for callers that have not been
+	// updated to pass ToolsDir directly.
 	DataDir  string
 	WorkDir  string
 	Platform string
@@ -74,10 +76,10 @@ type Command struct {
 }
 
 // CachePaths returns the worker-local cache paths for an aqua-backed toolset.
-func CachePaths(dataDir, platform, toolsetHash string) (CacheLayout, error) {
-	dataDir = strings.TrimSpace(dataDir)
-	if dataDir == "" {
-		return CacheLayout{}, fmt.Errorf("data dir is required")
+func CachePaths(toolsDir, platform, toolsetHash string) (CacheLayout, error) {
+	toolsDir = strings.TrimSpace(toolsDir)
+	if toolsDir == "" {
+		return CacheLayout{}, fmt.Errorf("tools dir is required")
 	}
 	platform = sanitizePlatform(platform)
 	if platform == "" {
@@ -88,9 +90,9 @@ func CachePaths(dataDir, platform, toolsetHash string) (CacheLayout, error) {
 		return CacheLayout{}, fmt.Errorf("toolset hash is required")
 	}
 
-	rootDir := filepath.Join(dataDir, toolCacheRootPath, providerAqua, "root")
-	lockDir := filepath.Join(dataDir, toolCacheRootPath, providerAqua, "locks")
-	envDir := filepath.Join(dataDir, toolCacheRootPath, providerAqua, "envs", platform, toolsetHash)
+	rootDir := filepath.Join(toolsDir, providerAqua, "root")
+	lockDir := filepath.Join(toolsDir, providerAqua, "locks")
+	envDir := filepath.Join(toolsDir, providerAqua, "envs", platform, toolsetHash)
 	return CacheLayout{
 		RootDir:      rootDir,
 		LockDir:      lockDir,

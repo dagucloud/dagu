@@ -647,12 +647,15 @@ func (h *remoteTaskHandler) prepareDAGTools(ctx context.Context, dag *core.DAG) 
 		workDir = dag.WorkingDir
 	}
 	dataDir := ""
+	toolsDir := ""
 	if h.config != nil {
 		dataDir = h.config.Paths.DataDir
+		toolsDir = h.config.Paths.ToolsDir
 	}
 	return dagutools.PrepareDAG(ctx, dag, daguaqua.New(), dagutools.InstallOptions{
-		DataDir: dataDir,
-		WorkDir: workDir,
+		ToolsDir: toolsDir,
+		DataDir:  dataDir,
+		WorkDir:  workDir,
 	}, h.dagToolsBasePath())
 }
 

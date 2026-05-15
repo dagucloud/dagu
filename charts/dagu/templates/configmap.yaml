@@ -42,6 +42,7 @@ data:
     # Paths (MUST be under `paths`)
     paths:
       data_dir: /data
+      tools_dir: /data/tools
       dags_dir: /data/dags
       log_dir: /data/logs
       base_config: /data/base.yaml
