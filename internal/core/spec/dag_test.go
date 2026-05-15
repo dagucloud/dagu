@@ -2101,13 +2101,12 @@ func TestBuildSecrets(t *testing.T) {
 		}
 	})
 
-	t.Run("secret name collisions", func(t *testing.T) {
+	t.Run("secret names can overlap DAG env and params", func(t *testing.T) {
 		t.Parallel()
 
 		tests := []struct {
-			name        string
-			dag         *dag
-			errContains string
+			name string
+			dag  *dag
 		}{
 			{
 				name: "DAGEnv",
@@ -2115,7 +2114,6 @@ func TestBuildSecrets(t *testing.T) {
 					Env:     envValueFromYAML(t, "API_KEY: from-env"),
 					Secrets: []secretRef{{Name: "API_KEY", Provider: "env", Key: "API_KEY"}},
 				},
-				errContains: "collides with DAG env",
 			},
 			{
 				name: "DAGParam",
@@ -2123,8 +2121,27 @@ func TestBuildSecrets(t *testing.T) {
 					Params:  map[string]any{"API_KEY": "from-param"},
 					Secrets: []secretRef{{Name: "API_KEY", Provider: "env", Key: "API_KEY"}},
 				},
-				errContains: "collides with DAG parameter",
 			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				secrets, err := buildSecrets(testBuildContext(), tt.dag)
+				require.NoError(t, err)
+				require.Len(t, secrets, 1)
+				assert.Equal(t, "API_KEY", secrets[0].Name)
+			})
+		}
+	})
+
+	t.Run("secret names cannot overlap managed runtime env", func(t *testing.T) {
+		t.Parallel()
+
+		tests := []struct {
+			name        string
+			dag         *dag
+			errContains string
+		}{
 			{
 				name: "ManagedRuntimeEnv",
 				dag: &dag{

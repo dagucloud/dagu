@@ -2859,7 +2859,7 @@ export interface paths {
         put?: never;
         /**
          * Create a secret
-         * @description Creates secret registry metadata and optionally writes an initial Dagu-managed value. Plaintext values are write-only.
+         * @description Creates workspace-local Dagu-managed secret metadata and optionally writes an initial value. Plaintext values are write-only.
          */
         post: operations["createSecret"];
         delete?: never;
@@ -5279,7 +5279,7 @@ export interface components {
         /** @enum {string} */
         SecretStatus: SecretStatus;
         CreateSecretRequest: {
-            /** @description Workspace selector. Omit or use default for the unlabelled default scope. */
+            /** @description Workspace scope for management. DAG refs remain workspace-local and must not include this value. */
             workspace?: string;
             /** @description Secret ref used from DAG YAML, for example prod/db-password. */
             ref: string;
@@ -5289,11 +5289,8 @@ export interface components {
             providerRef?: string;
             /** @description Initial Dagu-managed value. Write-only; never returned by the API. */
             value?: string;
-        } & (components["schemas"]["DaguManagedSecretCreateConstraint"] | components["schemas"]["ExternalSecretCreateConstraint"]);
+        } & components["schemas"]["DaguManagedSecretCreateConstraint"];
         DaguManagedSecretCreateConstraint: {
-            providerType: string;
-        };
-        ExternalSecretCreateConstraint: {
             providerType: string;
         };
         UpdateSecretRequest: {
@@ -14367,7 +14364,7 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
-                /** @description Workspace selector. Use default for the unlabelled default scope. Omit for all visible workspaces. */
+                /** @description Single workspace selector. Use default for the unlabelled default scope. Omit for the default workspace. all is not supported for secrets. */
                 workspace?: string;
                 limit?: number;
                 offset?: number;

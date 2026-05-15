@@ -41,6 +41,33 @@ func TestReferenceResolver_ResolvesDaguManagedValue(t *testing.T) {
 	assert.Equal(t, "managed-secret", value)
 }
 
+func TestReferenceResolver_DoesNotResolveAcrossWorkspaces(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newMemoryStoreForTest()
+	now := time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC)
+	sec, err := New(CreateInput{
+		Workspace:    "ops",
+		Ref:          "prod/db-password",
+		ProviderType: ProviderDaguManaged,
+		CreatedBy:    "alice",
+	}, now)
+	require.NoError(t, err)
+	require.NoError(t, store.Create(ctx, sec, &WriteValueInput{
+		Value:     "managed-secret",
+		CreatedBy: "alice",
+		CreatedAt: now,
+	}))
+
+	resolver := NewReferenceResolver(store, "payments")
+	_, err = resolver.ResolveReference(ctx, core.SecretRef{
+		Name: "DB_PASSWORD",
+		Ref:  "prod/db-password",
+	})
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
 func TestReferenceResolver_FailsClosedForDisabledSecret(t *testing.T) {
 	t.Parallel()
 

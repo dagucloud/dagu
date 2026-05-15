@@ -340,11 +340,7 @@ func (h *remoteTaskHandler) createRemoteHandlers(dagRunID, dagName string, root 
 // agentStores creates the agent config, model, soul, memory, and OAuth stores from the config paths.
 func (h *remoteTaskHandler) agentStores(ctx context.Context) agentStoreBundle {
 	var bundle agentStoreBundle
-	if store, err := filesecret.NewFromDataDir(h.config.Paths.DataDir); err != nil {
-		logger.Warn(ctx, "Failed to create secret store", tag.Error(err))
-	} else {
-		bundle.secretStore = store
-	}
+	bundle.secretStore = h.secretStore(ctx)
 
 	acs, err := fileagentconfig.New(h.config.Paths.DataDir)
 	if err != nil {
@@ -410,7 +406,20 @@ func (h *remoteTaskHandler) agentStoresFromSnapshot(snapshotPayload []byte) (age
 		modelStore:  stores.ModelStore,
 		soulStore:   stores.SoulStore,
 		memoryStore: stores.MemoryStore,
+		secretStore: h.secretStore(context.Background()),
 	}, nil
+}
+
+func (h *remoteTaskHandler) secretStore(ctx context.Context) secretpkg.Store {
+	if h.config == nil || h.config.Paths.DataDir == "" {
+		return nil
+	}
+	store, err := filesecret.NewFromDataDir(h.config.Paths.DataDir)
+	if err != nil {
+		logger.Warn(ctx, "Failed to create secret store", tag.Error(err))
+		return nil
+	}
+	return store
 }
 
 // loadDAG loads the DAG from task definition.

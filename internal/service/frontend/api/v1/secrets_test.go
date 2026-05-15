@@ -90,6 +90,82 @@ func TestSecretsAPI_CreateRejectsDuplicateWorkspaceRef(t *testing.T) {
 	require.True(t, ok)
 }
 
+func TestSecretsAPI_ListsSingleWorkspaceOnly(t *testing.T) {
+	ctx := context.Background()
+	api, _ := newSecretsTestAPI(t)
+	value := "secret-value"
+	defaultBody := &apigen.CreateSecretRequest{
+		Ref:          "prod/default-key",
+		ProviderType: apigen.SecretProviderTypeDaguManaged,
+		Value:        &value,
+	}
+	paymentsWorkspace := "payments"
+	paymentsBody := &apigen.CreateSecretRequest{
+		Workspace:    &paymentsWorkspace,
+		Ref:          "prod/payments-key",
+		ProviderType: apigen.SecretProviderTypeDaguManaged,
+		Value:        &value,
+	}
+
+	resp, err := api.CreateSecret(ctx, apigen.CreateSecretRequestObject{Body: defaultBody})
+	require.NoError(t, err)
+	_, ok := resp.(apigen.CreateSecret201JSONResponse)
+	require.True(t, ok)
+	resp, err = api.CreateSecret(ctx, apigen.CreateSecretRequestObject{Body: paymentsBody})
+	require.NoError(t, err)
+	_, ok = resp.(apigen.CreateSecret201JSONResponse)
+	require.True(t, ok)
+
+	listResp, err := api.ListSecrets(ctx, apigen.ListSecretsRequestObject{})
+	require.NoError(t, err)
+	listed, ok := listResp.(apigen.ListSecrets200JSONResponse)
+	require.True(t, ok)
+	require.Len(t, listed.Secrets, 1)
+	assert.Equal(t, "default", listed.Secrets[0].Workspace)
+	assert.Equal(t, "prod/default-key", listed.Secrets[0].Ref)
+
+	listResp, err = api.ListSecrets(ctx, apigen.ListSecretsRequestObject{
+		Params: apigen.ListSecretsParams{Workspace: &paymentsWorkspace},
+	})
+	require.NoError(t, err)
+	listed, ok = listResp.(apigen.ListSecrets200JSONResponse)
+	require.True(t, ok)
+	require.Len(t, listed.Secrets, 1)
+	assert.Equal(t, "payments", listed.Secrets[0].Workspace)
+	assert.Equal(t, "prod/payments-key", listed.Secrets[0].Ref)
+}
+
+func TestSecretsAPI_ListRejectsAllWorkspaces(t *testing.T) {
+	ctx := context.Background()
+	api, _ := newSecretsTestAPI(t)
+	all := "all"
+
+	resp, err := api.ListSecrets(ctx, apigen.ListSecretsRequestObject{
+		Params: apigen.ListSecretsParams{Workspace: &all},
+	})
+	assert.Nil(t, resp)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "workspace cannot be all")
+}
+
+func TestSecretsAPI_CreateRejectsExternalProviders(t *testing.T) {
+	ctx := context.Background()
+	api, _ := newSecretsTestAPI(t)
+	providerRef := "secret/data/prod/db-password"
+
+	resp, err := api.CreateSecret(ctx, apigen.CreateSecretRequestObject{
+		Body: &apigen.CreateSecretRequest{
+			Ref:          "prod/db-password",
+			ProviderType: apigen.SecretProviderTypeVault,
+			ProviderRef:  &providerRef,
+		},
+	})
+	require.NoError(t, err)
+	badRequest, ok := resp.(apigen.CreateSecret400JSONResponse)
+	require.True(t, ok)
+	assert.Contains(t, badRequest.Message, "request-based")
+}
+
 func newSecretsTestAPI(t *testing.T) (*apiv1.API, *filesecret.Store) {
 	t.Helper()
 

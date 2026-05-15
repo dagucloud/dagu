@@ -43,7 +43,6 @@ import dayjs from '@/lib/dayjs';
 import {
   WorkspaceKind,
   workspaceNameForSelection,
-  workspaceSelectionQuery,
 } from '@/lib/workspace';
 import {
   ExternalLink,
@@ -69,7 +68,6 @@ type CreateSecretRequest = components['schemas']['CreateSecretRequest'];
 type UpdateSecretRequest = components['schemas']['UpdateSecretRequest'];
 
 type SecretFormState = {
-  workspace: string;
   ref: string;
   description: string;
   providerType: SecretProviderType;
@@ -108,9 +106,8 @@ function providerOptionLabel(provider: SecretProviderType): React.ReactElement {
   );
 }
 
-function initialFormState(workspace: string): SecretFormState {
+function initialFormState(): SecretFormState {
   return {
-    workspace,
     ref: '',
     description: '',
     providerType: SecretProviderType.dagu_managed,
@@ -122,7 +119,6 @@ function initialFormState(workspace: string): SecretFormState {
 
 function formStateFromSecret(secret: SecretResponse): SecretFormState {
   return {
-    workspace: secret.workspace || 'default',
     ref: secret.ref,
     description: secret.description || '',
     providerType: secret.providerType,
@@ -155,7 +151,7 @@ export default function SecretsPage(): React.ReactNode {
   const appBarContext = useContext(AppBarContext);
   const canManageSecrets = useCanManageSecrets();
   const remoteNode = appBarContext.selectedRemoteNode || 'local';
-  const defaultWorkspace = useMemo(() => {
+  const selectedWorkspace = useMemo(() => {
     const selection = appBarContext.workspaceSelection;
     if (selection?.kind === WorkspaceKind.workspace) {
       return workspaceNameForSelection(selection);
@@ -163,8 +159,8 @@ export default function SecretsPage(): React.ReactNode {
     return 'default';
   }, [appBarContext.workspaceSelection]);
   const workspaceQuery = useMemo(
-    () => workspaceSelectionQuery(appBarContext.workspaceSelection),
-    [appBarContext.workspaceSelection]
+    () => ({ workspace: selectedWorkspace }),
+    [selectedWorkspace]
   );
 
   const [error, setError] = useState<string | null>(null);
@@ -339,7 +335,7 @@ export default function SecretsPage(): React.ReactNode {
                       <div className="flex min-w-0 items-center gap-2">
                         <KeyRound className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
                         <code className="truncate text-xs">
-                          {secret.workspace}/{secret.ref}
+                          {secret.ref}
                         </code>
                       </div>
                     </div>
@@ -378,7 +374,7 @@ export default function SecretsPage(): React.ReactNode {
                         <Button
                           variant="ghost"
                           size="icon"
-                          aria-label={`Actions for ${secret.workspace}/${secret.ref}`}
+                          aria-label={`Actions for ${secret.ref}`}
                           disabled={actionSecretId === secret.id}
                         >
                           {actionSecretId === secret.id ? (
@@ -433,7 +429,7 @@ export default function SecretsPage(): React.ReactNode {
       <SecretFormDialog
         open={isFormOpen}
         secret={editingSecret}
-        defaultWorkspace={defaultWorkspace}
+        selectedWorkspace={selectedWorkspace}
         remoteNode={remoteNode}
         onClose={() => {
           setIsFormOpen(false);
@@ -469,7 +465,7 @@ export default function SecretsPage(): React.ReactNode {
       >
         <span className="text-sm text-muted-foreground">
           {deletingSecret
-            ? `Delete ${deletingSecret.workspace}/${deletingSecret.ref}?`
+            ? `Delete ${deletingSecret.ref}?`
             : ''}
         </span>
       </ConfirmModal>
@@ -480,37 +476,33 @@ export default function SecretsPage(): React.ReactNode {
 function SecretFormDialog({
   open,
   secret,
-  defaultWorkspace,
+  selectedWorkspace,
   remoteNode,
   onClose,
   onSaved,
 }: {
   open: boolean;
   secret: SecretResponse | null;
-  defaultWorkspace: string;
+  selectedWorkspace: string;
   remoteNode: string;
   onClose: () => void;
   onSaved: (message: string) => void;
 }): React.ReactElement {
   const client = useClient();
   const isEditing = !!secret;
-  const [form, setForm] = useState<SecretFormState>(() =>
-    initialFormState(defaultWorkspace)
-  );
+  const [form, setForm] = useState<SecretFormState>(() => initialFormState());
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (!open) {
-      setForm(initialFormState(defaultWorkspace));
+      setForm(initialFormState());
       setError(null);
       return;
     }
-    setForm(
-      secret ? formStateFromSecret(secret) : initialFormState(defaultWorkspace)
-    );
+    setForm(secret ? formStateFromSecret(secret) : initialFormState());
     setError(null);
-  }, [defaultWorkspace, open, secret]);
+  }, [open, secret]);
 
   const isDaguManaged = form.providerType === SecretProviderType.dagu_managed;
 
@@ -554,7 +546,7 @@ function SecretFormDialog({
         onSaved(`${secret.ref} updated`);
       } else {
         const body: CreateSecretRequest = {
-          workspace: form.workspace || 'default',
+          workspace: selectedWorkspace,
           ref: form.ref.trim(),
           description: optionalString(form.description),
           providerType: form.providerType,
@@ -570,7 +562,7 @@ function SecretFormDialog({
           throw new Error(apiError.message || 'Failed to create secret');
         onSaved(`${body.ref} created`);
       }
-      setForm(initialFormState(defaultWorkspace));
+      setForm(initialFormState());
     } catch (err) {
       setError(errorMessage(err, 'Failed to save secret'));
     } finally {
@@ -592,68 +584,50 @@ function SecretFormDialog({
             </div>
           )}
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="secret-workspace">Workspace</Label>
-              <Input
-                id="secret-workspace"
-                value={form.workspace}
-                disabled={isEditing}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    workspace: event.target.value,
-                  }))
-                }
-                autoComplete="off"
-                className="h-9"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="secret-provider">Provider</Label>
-              <Select
-                value={form.providerType}
-                disabled={isEditing}
-                onValueChange={(value) =>
-                  setForm((current) => ({
-                    ...current,
-                    providerType: value as SecretProviderType,
-                    value: '',
-                    providerRef: '',
-                    providerConnectionId: '',
-                  }))
-                }
-              >
-                <SelectTrigger id="secret-provider" className="h-9 w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PROVIDERS.map((provider) => (
-                    <SelectItem
-                      key={provider}
-                      value={provider}
-                      disabled={isRequestBasedProvider(provider)}
-                    >
-                      {providerOptionLabel(provider)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {!isEditing && (
-                <p className="text-xs text-muted-foreground">
-                  External providers are available by request.{' '}
-                  <a
-                    href={EXTERNAL_SECRET_REQUEST_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center font-medium text-primary underline-offset-4 hover:underline"
+          <div className="space-y-1.5">
+            <Label htmlFor="secret-provider">Provider</Label>
+            <Select
+              value={form.providerType}
+              disabled={isEditing}
+              onValueChange={(value) =>
+                setForm((current) => ({
+                  ...current,
+                  providerType: value as SecretProviderType,
+                  value: '',
+                  providerRef: '',
+                  providerConnectionId: '',
+                }))
+              }
+            >
+              <SelectTrigger id="secret-provider" className="h-9 w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PROVIDERS.map((provider) => (
+                  <SelectItem
+                    key={provider}
+                    value={provider}
+                    disabled={isRequestBasedProvider(provider)}
                   >
-                    Request access
-                    <ExternalLink className="ml-1 h-3 w-3" aria-hidden />
-                  </a>
-                </p>
-              )}
-            </div>
+                    {providerOptionLabel(provider)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {!isEditing && (
+              <p className="text-xs text-muted-foreground">
+                External providers are available by request.{' '}
+                <a
+                  href={EXTERNAL_SECRET_REQUEST_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center font-medium text-primary underline-offset-4 hover:underline"
+                >
+                  Request access
+                  <ExternalLink className="ml-1 h-3 w-3" aria-hidden />
+                </a>
+              </p>
+            )}
           </div>
 
           <div className="space-y-1.5">

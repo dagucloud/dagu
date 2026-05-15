@@ -236,10 +236,7 @@ func parseSecretRefs(ctx BuildContext, d *dag) ([]core.SecretRef, error) {
 	// Convert secretRef to core.SecretRef and validate
 	secrets := make([]core.SecretRef, 0, len(secretRefs))
 	names := make(map[string]bool)
-	conflicts, err := secretNameConflicts(ctx, d)
-	if err != nil {
-		return nil, err
-	}
+	conflicts := reservedSecretNameConflicts()
 
 	for i, def := range secretRefs {
 		// Validate required fields
@@ -290,33 +287,12 @@ func parseSecretRefs(ctx BuildContext, d *dag) ([]core.SecretRef, error) {
 	return secrets, nil
 }
 
-func secretNameConflicts(ctx BuildContext, d *dag) (map[string]string, error) {
+func reservedSecretNameConflicts() map[string]string {
 	conflicts := make(map[string]string)
-
-	envVars, err := loadVariablesFromEnvValue(ctx, d.Env)
-	if err != nil {
-		return nil, err
-	}
-	for name := range envVars {
-		conflicts[name] = "DAG env"
-	}
-
-	params, err := parseParamsInternal(ctx, d)
-	if err != nil {
-		return nil, err
-	}
-	for _, param := range params.Params {
-		name, _, ok := strings.Cut(param, "=")
-		if ok && name != "" {
-			conflicts[name] = "DAG parameter"
-		}
-	}
-
 	for _, name := range reservedSecretEnvNames {
 		conflicts[name] = "Dagu-managed runtime environment variable"
 	}
-
-	return conflicts, nil
+	return conflicts
 }
 
 // generateTypedStepName generates a type-based name for a step after it's been built

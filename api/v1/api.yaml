@@ -7158,7 +7158,7 @@ paths:
         - $ref: "#/components/parameters/RemoteNode"
         - name: workspace
           in: query
-          description: "Workspace selector. Use default for the unlabelled default scope. Omit for all visible workspaces."
+          description: "Single workspace selector. Use default for the unlabelled default scope. Omit for the default workspace. all is not supported for secrets."
           required: false
           schema:
             type: string
@@ -7204,7 +7204,7 @@ paths:
                 $ref: "#/components/schemas/Error"
     post:
       summary: "Create a secret"
-      description: "Creates secret registry metadata and optionally writes an initial Dagu-managed value. Plaintext values are write-only."
+      description: "Creates workspace-local Dagu-managed secret metadata and optionally writes an initial value. Plaintext values are write-only."
       operationId: "createSecret"
       tags:
         - "secrets"
@@ -12457,11 +12457,10 @@ components:
         - providerType
       oneOf:
         - $ref: "#/components/schemas/DaguManagedSecretCreateConstraint"
-        - $ref: "#/components/schemas/ExternalSecretCreateConstraint"
       properties:
         workspace:
           type: string
-          description: "Workspace selector. Omit or use default for the unlabelled default scope."
+          description: "Workspace scope for management. DAG refs remain workspace-local and must not include this value."
         ref:
           type: string
           description: "Secret ref used from DAG YAML, for example prod/db-password."
@@ -12494,19 +12493,6 @@ components:
               - providerConnectionId
           - required:
               - providerRef
-
-    ExternalSecretCreateConstraint:
-      type: object
-      required:
-        - providerType
-        - providerRef
-      properties:
-        providerType:
-          type: string
-          pattern: "^(vault|kubernetes|gcp-secret-manager|aws-secrets-manager|azure-key-vault)$"
-      not:
-        required:
-          - value
 
     UpdateSecretRequest:
       type: object

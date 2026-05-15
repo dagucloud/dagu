@@ -66,14 +66,12 @@ func (a *API) ListSecrets(ctx context.Context, request api.ListSecretsRequestObj
 		return nil, secretStoreUnavailable()
 	}
 
-	workspaceFilter, err := parseSecretWorkspaceSelector(request.Params.Workspace, true)
+	workspaceFilter, err := parseSecretWorkspaceSelector(request.Params.Workspace, false)
 	if err != nil {
 		return nil, err
 	}
-	if workspaceFilter != nil {
-		if err := a.requireSecretManageForWorkspace(ctx, *workspaceFilter); err != nil {
-			return nil, err
-		}
+	if err := a.requireSecretManageForWorkspace(ctx, *workspaceFilter); err != nil {
+		return nil, err
 	}
 
 	limit, offset, err := secretPagination(request.Params.Limit, request.Params.Offset)
@@ -128,7 +126,7 @@ func (a *API) CreateSecret(ctx context.Context, request api.CreateSecretRequestO
 	providerType := secretpkg.ProviderType(body.ProviderType)
 	providerConnectionID := valueOf(body.ProviderConnectionId)
 	providerRef := valueOf(body.ProviderRef)
-	if err := validateSecretProviderRequest(providerType, providerConnectionID, providerRef, body.Value != nil); err != nil {
+	if err := validateSecretProviderRequest(providerType, providerConnectionID, providerRef); err != nil {
 		return api.CreateSecret400JSONResponse(secretBadRequestError(err.Error())), nil
 	}
 	fingerprint, err := a.secretProviderRefFingerprint(providerType, providerConnectionID, providerRef)
@@ -216,7 +214,7 @@ func (a *API) UpdateSecret(ctx context.Context, request api.UpdateSecretRequestO
 	if body.ProviderRef != nil {
 		providerRef = *body.ProviderRef
 	}
-	if err := validateSecretProviderRequest(sec.ProviderType, providerConnectionID, providerRef, false); err != nil {
+	if err := validateSecretProviderRequest(sec.ProviderType, providerConnectionID, providerRef); err != nil {
 		return api.UpdateSecret400JSONResponse(secretBadRequestError(err.Error())), nil
 	}
 
@@ -457,21 +455,15 @@ func secretPagination(limitParam, offsetParam *int) (int, int, error) {
 	return limit, offset, nil
 }
 
-func validateSecretProviderRequest(providerType secretpkg.ProviderType, providerConnectionID, providerRef string, hasValue bool) error {
+func validateSecretProviderRequest(providerType secretpkg.ProviderType, providerConnectionID, providerRef string) error {
 	if err := secretpkg.ValidateProviderType(providerType); err != nil {
 		return err
 	}
-	if providerType == secretpkg.ProviderDaguManaged {
-		if providerConnectionID != "" || providerRef != "" {
-			return errors.New("dagu-managed secrets must not set provider connection or provider ref")
-		}
-		return nil
+	if providerType != secretpkg.ProviderDaguManaged {
+		return errors.New("external secret providers are request-based; contact https://dagu.sh/contact")
 	}
-	if hasValue {
-		return errors.New("only Dagu-managed secrets can store values")
-	}
-	if providerRef == "" {
-		return errors.New("provider ref is required for external secret providers")
+	if providerConnectionID != "" || providerRef != "" {
+		return errors.New("dagu-managed secrets must not set provider connection or provider ref")
 	}
 	return nil
 }
