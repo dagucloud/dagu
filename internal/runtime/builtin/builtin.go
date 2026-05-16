@@ -13,6 +13,7 @@ import (
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/data"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/docker"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/file"
+	_ "github.com/dagucloud/dagu/internal/runtime/builtin/git"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/harness"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/http"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/jq"

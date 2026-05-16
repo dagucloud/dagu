@@ -142,6 +142,32 @@ steps:
 	assert.Equal(t, "alpine:3.20", step.ExecutorConfig.Config["image"])
 }
 
+func TestStepSchemaV2_ActionGitCheckout(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: checkout
+    action: git.checkout
+    with:
+      repository: https://example.com/acme/app.git
+      ref: main
+      path: ./workspace/app
+      depth: 1
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, "git", step.ExecutorConfig.Type)
+	require.Len(t, step.Commands, 1)
+	assert.Equal(t, "checkout", step.Commands[0].Command)
+	assert.Equal(t, "https://example.com/acme/app.git", step.ExecutorConfig.Config["repository"])
+	assert.Equal(t, "main", step.ExecutorConfig.Config["ref"])
+	assert.Equal(t, "./workspace/app", step.ExecutorConfig.Config["path"])
+	assert.Equal(t, uint64(1), step.ExecutorConfig.Config["depth"])
+}
+
 func TestStepSchemaV2_ActionJQFilterData(t *testing.T) {
 	t.Parallel()
 

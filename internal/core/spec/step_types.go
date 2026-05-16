@@ -81,6 +81,7 @@ var builtinStepTypeNames = map[string]struct{}{
 	"duckdb":        {},
 	"file":          {},
 	"gha":           {},
+	"git":           {},
 	"github-action": {},
 	"github_action": {},
 	"harness":       {},
