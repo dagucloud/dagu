@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
@@ -20,17 +21,19 @@ import (
 
 const (
 	actionPrefixSource = "source:"
-	actionPrefixPkg    = "pkg:"
 
-	bundleModeSource  = "source"
-	bundleModePackage = "package"
+	bundleModeSource = "source"
+)
+
+var (
+	githubOwnerRegexp = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$`)
+	githubRepoRegexp  = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 )
 
 type resolveOptions struct {
-	ToolsDir    string
-	CacheDir    string
-	RegistryDir string
-	WorkDir     string
+	ToolsDir string
+	CacheDir string
+	WorkDir  string
 }
 
 type actionBundle struct {
@@ -46,11 +49,33 @@ func resolveBundle(ctx context.Context, ref string, opts resolveOptions) (*actio
 	switch {
 	case strings.HasPrefix(ref, actionPrefixSource):
 		return resolveSourceBundle(ctx, ref, opts)
-	case strings.HasPrefix(ref, actionPrefixPkg):
-		return resolvePackageBundle(ref, opts)
+	case strings.HasPrefix(ref, "pkg:"):
+		return nil, fmt.Errorf("package action references must use GitHub owner/repo@version")
 	default:
-		return nil, fmt.Errorf("action ref must start with %q or %q", actionPrefixSource, actionPrefixPkg)
+		return resolveGitHubBundle(ctx, ref, opts)
 	}
+}
+
+func resolveGitHubBundle(ctx context.Context, ref string, opts resolveOptions) (*actionBundle, error) {
+	target, version, err := splitVersionedRef(ref)
+	if err != nil {
+		return nil, err
+	}
+	repoURL, err := githubRepoURL(target)
+	if err != nil {
+		return nil, err
+	}
+	root, resolved, err := cloneGitSource(ctx, repoURL, version, opts)
+	if err != nil {
+		return nil, err
+	}
+	return &actionBundle{
+		Mode:        bundleModeSource,
+		RootDir:     root,
+		OriginalRef: ref,
+		ResolvedRef: resolved,
+		Version:     version,
+	}, nil
 }
 
 func resolveSourceBundle(ctx context.Context, ref string, opts resolveOptions) (*actionBundle, error) {
@@ -76,48 +101,6 @@ func resolveSourceBundle(ctx context.Context, ref string, opts resolveOptions) (
 		RootDir:     root,
 		OriginalRef: ref,
 		ResolvedRef: resolved,
-		Version:     version,
-	}, nil
-}
-
-func resolvePackageBundle(ref string, opts resolveOptions) (*actionBundle, error) {
-	target, version, err := splitVersionedRef(strings.TrimPrefix(ref, actionPrefixPkg))
-	if err != nil {
-		return nil, err
-	}
-	if dir, ok := localPackageDir(target); ok {
-		return &actionBundle{
-			Mode:        bundleModePackage,
-			RootDir:     dir,
-			OriginalRef: ref,
-			ResolvedRef: dir,
-			Version:     version,
-		}, nil
-	}
-	if err := validatePackageName(target); err != nil {
-		return nil, err
-	}
-	if err := validatePackageVersion(version); err != nil {
-		return nil, err
-	}
-	registryDir := packageRegistryDir(opts)
-	if registryDir == "" {
-		return nil, fmt.Errorf("package action registry dir is required")
-	}
-	root := filepath.Join(registryDir, filepath.FromSlash(target), version)
-	if !isPathWithin(registryDir, root) {
-		return nil, fmt.Errorf("invalid package action path")
-	}
-	if info, err := os.Stat(root); err != nil {
-		return nil, fmt.Errorf("stat package action: %w", err)
-	} else if !info.IsDir() {
-		return nil, fmt.Errorf("package action path must be a directory")
-	}
-	return &actionBundle{
-		Mode:        bundleModePackage,
-		RootDir:     root,
-		OriginalRef: ref,
-		ResolvedRef: target,
 		Version:     version,
 	}, nil
 }
@@ -149,10 +132,6 @@ func localSourceDir(target string, workDir string) (string, bool) {
 	return "", false
 }
 
-func localPackageDir(target string) (string, bool) {
-	return fileURLDir(target)
-}
-
 func fileURLDir(target string) (string, bool) {
 	if !strings.HasPrefix(target, "file://") {
 		return "", false
@@ -165,6 +144,9 @@ func fileURLDir(target string) (string, bool) {
 }
 
 func cloneGitSource(ctx context.Context, target, version string, opts resolveOptions) (string, string, error) {
+	if err := validateGitRef(version); err != nil {
+		return "", "", err
+	}
 	cacheDir := actionCacheDir(opts)
 	if cacheDir == "" {
 		return "", "", fmt.Errorf("action cache dir is required for remote source actions")
@@ -238,6 +220,22 @@ func gitURL(target string) string {
 	return target
 }
 
+func githubRepoURL(target string) (string, error) {
+	target = strings.TrimSpace(target)
+	parts := strings.Split(target, "/")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("GitHub action ref target must be owner/repo")
+	}
+	owner, repo := parts[0], parts[1]
+	if !githubOwnerRegexp.MatchString(owner) || strings.HasSuffix(owner, "-") {
+		return "", fmt.Errorf("invalid GitHub action owner %q", owner)
+	}
+	if !githubRepoRegexp.MatchString(repo) || repo == "." || repo == ".." || strings.HasSuffix(repo, ".git") {
+		return "", fmt.Errorf("invalid GitHub action repository %q", repo)
+	}
+	return "https://github.com/" + owner + "/" + repo + ".git", nil
+}
+
 func actionCacheDir(opts resolveOptions) string {
 	if strings.TrimSpace(opts.CacheDir) != "" {
 		return strings.TrimSpace(opts.CacheDir)
@@ -248,40 +246,9 @@ func actionCacheDir(opts resolveOptions) string {
 	return filepath.Join(strings.TrimSpace(opts.ToolsDir), "actions")
 }
 
-func packageRegistryDir(opts resolveOptions) string {
-	if strings.TrimSpace(opts.RegistryDir) != "" {
-		return strings.TrimSpace(opts.RegistryDir)
-	}
-	if strings.TrimSpace(opts.ToolsDir) == "" {
-		return ""
-	}
-	return filepath.Join(strings.TrimSpace(opts.ToolsDir), "actions", "registry")
-}
-
 func hashRef(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])
-}
-
-func validatePackageName(name string) error {
-	name = strings.TrimSpace(name)
-	if name == "" || filepath.IsAbs(name) || strings.Contains(name, "\\") {
-		return fmt.Errorf("invalid package name %q", name)
-	}
-	for part := range strings.SplitSeq(name, "/") {
-		if part == "" || part == "." || part == ".." {
-			return fmt.Errorf("invalid package name %q", name)
-		}
-	}
-	return nil
-}
-
-func validatePackageVersion(version string) error {
-	version = strings.TrimSpace(version)
-	if version == "" || strings.ContainsAny(version, `/\`) || version == "." || version == ".." {
-		return fmt.Errorf("invalid package version %q", version)
-	}
-	return nil
 }
 
 func safeRelativePath(rootDir, relPath string) (string, error) {
@@ -298,6 +265,29 @@ func safeRelativePath(rootDir, relPath string) (string, error) {
 		return "", fmt.Errorf("path escapes action directory")
 	}
 	return filepath.Clean(resolvedPath), nil
+}
+
+func validateGitRef(ref string) error {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return fmt.Errorf("action git ref is required")
+	}
+	if strings.HasPrefix(ref, "-") ||
+		strings.ContainsAny(ref, " \t\r\n\\~^:?*[]") ||
+		strings.Contains(ref, "..") ||
+		strings.Contains(ref, "@{") ||
+		strings.Contains(ref, "//") ||
+		strings.HasSuffix(ref, "/") ||
+		strings.HasSuffix(ref, ".") ||
+		strings.HasSuffix(ref, ".lock") {
+		return fmt.Errorf("invalid action git ref %q", ref)
+	}
+	for part := range strings.SplitSeq(ref, "/") {
+		if part == "" || strings.HasPrefix(part, ".") || strings.HasSuffix(part, ".lock") {
+			return fmt.Errorf("invalid action git ref %q", ref)
+		}
+	}
+	return nil
 }
 
 func isPathWithin(dir, path string) bool {

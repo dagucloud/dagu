@@ -31,7 +31,6 @@ const (
 	envActionOutputDir = "DAGU_ACTION_OUTPUT_DIR"
 	envActionDir       = "DAGU_ACTION_DIR"
 	envActionRef       = "DAGU_ACTION_REF"
-	envActionRegistry  = "DAGU_ACTION_REGISTRY_DIR"
 )
 
 var _ runtimeexec.Executor = (*Executor)(nil)
@@ -102,9 +101,8 @@ func (e *Executor) Run(ctx context.Context) error {
 	env := runtime.GetEnv(ctx)
 	envMap := env.UserEnvsMap()
 	bundle, err := resolveBundle(ctx, e.cfg.Ref, resolveOptions{
-		ToolsDir:    envMap[dagutools.EnvToolsDir],
-		WorkDir:     env.WorkingDir,
-		RegistryDir: envMap[envActionRegistry],
+		ToolsDir: envMap[dagutools.EnvToolsDir],
+		WorkDir:  env.WorkingDir,
 	})
 	if err != nil {
 		return err
@@ -338,7 +336,7 @@ var configSchema = &jsonschema.Schema{
 	Properties: map[string]*jsonschema.Schema{
 		"ref": {
 			Type:        "string",
-			Description: "External action reference. Supported prefixes are source: and pkg:.",
+			Description: "External action reference. Use owner/repo@version for GitHub actions or source:target@version for explicit source actions.",
 		},
 		"input": {
 			Type:        "object",

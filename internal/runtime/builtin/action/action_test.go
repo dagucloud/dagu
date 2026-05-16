@@ -101,47 +101,65 @@ func TestResolveLocalSourceActionUsesWorkDir(t *testing.T) {
 	assert.Equal(t, "local", bundle.Version)
 }
 
-func TestResolvePackageActionFromRegistryDir(t *testing.T) {
+func TestGitHubRepoURLForBareActionRef(t *testing.T) {
 	t.Parallel()
 
-	registryDir := t.TempDir()
-	actionDir := filepath.Join(registryDir, "dagu-actions", "slack.notify", "1.2.3")
-	writeManifestOnly(t, actionDir, "pkg-action", "v2.5.2")
+	repoURL, err := githubRepoURL("acme/dagu-actions-slack")
 
-	bundle, err := resolveBundle(context.Background(), "pkg:dagu-actions/slack.notify@1.2.3", resolveOptions{
-		RegistryDir: registryDir,
-	})
 	require.NoError(t, err)
-
-	assert.Equal(t, bundleModePackage, bundle.Mode)
-	assert.Equal(t, actionDir, bundle.RootDir)
-	assert.Equal(t, "dagu-actions/slack.notify", bundle.ResolvedRef)
-	assert.Equal(t, "1.2.3", bundle.Version)
+	assert.Equal(t, "https://github.com/acme/dagu-actions-slack.git", repoURL)
 }
 
-func TestResolvePackageActionDefaultsRegistryUnderToolsDir(t *testing.T) {
+func TestGitHubRepoURLRejectsInvalidTargets(t *testing.T) {
 	t.Parallel()
 
-	toolsDir := t.TempDir()
-	actionDir := filepath.Join(toolsDir, "actions", "registry", "dagu-actions", "slack.notify", "1.2.3")
-	writeManifestOnly(t, actionDir, "pkg-action", "v2.5.2")
-
-	bundle, err := resolveBundle(context.Background(), "pkg:dagu-actions/slack.notify@1.2.3", resolveOptions{
-		ToolsDir: toolsDir,
-	})
-	require.NoError(t, err)
-
-	assert.Equal(t, actionDir, bundle.RootDir)
+	for _, target := range []string{
+		"dagu-actions-slack",
+		"acme/dagu-actions/slack",
+		"acme/../slack",
+		"-acme/slack",
+		"acme-/slack",
+		"acme/slack repo",
+		"github.com/acme/slack",
+	} {
+		t.Run(target, func(t *testing.T) {
+			_, err := githubRepoURL(target)
+			require.Error(t, err)
+		})
+	}
 }
 
-func TestResolvePackageActionRejectsTraversal(t *testing.T) {
+func TestResolvePackagePrefixRejectsTraversal(t *testing.T) {
 	t.Parallel()
 
 	_, err := resolveBundle(context.Background(), "pkg:../bad@1.0.0", resolveOptions{
-		RegistryDir: t.TempDir(),
+		ToolsDir: t.TempDir(),
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid package name")
+	assert.Contains(t, err.Error(), "owner/repo@version")
+}
+
+func TestValidateGitRefRejectsUnsafeRefs(t *testing.T) {
+	t.Parallel()
+
+	for _, ref := range []string{
+		"",
+		"-main",
+		"feature/../main",
+		"feature//main",
+		"feature.lock/main",
+		"main.lock",
+		"main with space",
+		"main~1",
+		"main@{1}",
+	} {
+		t.Run(ref, func(t *testing.T) {
+			require.Error(t, validateGitRef(ref))
+		})
+	}
+
+	require.NoError(t, validateGitRef("v1.2.3"))
+	require.NoError(t, validateGitRef("release/v1"))
 }
 
 func TestWritePermissionsResolveExtrasFromActionRoot(t *testing.T) {

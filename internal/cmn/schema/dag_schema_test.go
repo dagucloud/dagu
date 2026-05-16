@@ -469,10 +469,10 @@ steps:
 `,
 		},
 		{
-			name: "PackageAction",
+			name: "GitHubAction",
 			spec: `
 steps:
-  - action: pkg:dagu-actions/slack.notify@1.2.3
+  - action: acme/dagu-actions-slack@v1
     with:
       channel: "#ops"
       text: hello
@@ -484,11 +484,29 @@ steps:
 steps:
   - type: action
     with:
-      ref: source:github.com/acme/dagu-actions-slack@v1
+      ref: acme/dagu-actions-slack@v1
       input:
         channel: "#ops"
         text: hello
 `,
+		},
+		{
+			name: "RejectPackageActionPrefix",
+			spec: `
+steps:
+  - action: pkg:dagu-actions/slack.notify@1.2.3
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectExplicitPackageActionPrefix",
+			spec: `
+steps:
+  - type: action
+    with:
+      ref: pkg:dagu-actions/slack.notify@1.2.3
+`,
+			wantErr: "did not validate",
 		},
 		{
 			name: "FileActions",

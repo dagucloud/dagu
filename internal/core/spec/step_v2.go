@@ -184,7 +184,7 @@ func normalizeActionStep(normalized, raw map[string]any, registry *customStepTyp
 		return normalizeRemoteAction(normalized, action, with)
 	}
 	if strings.Contains(action, "@") {
-		return core.NewValidationError("action", raw["action"], fmt.Errorf("versioned action references are reserved for the future action registry"))
+		return core.NewValidationError("action", raw["action"], fmt.Errorf("versioned action references must use GitHub owner/repo@version"))
 	}
 
 	if registry != nil {
@@ -214,7 +214,77 @@ func normalizeActionStep(normalized, raw map[string]any, registry *customStepTyp
 }
 
 func isRemoteActionReference(action string) bool {
-	return strings.HasPrefix(action, "source:") || strings.HasPrefix(action, "pkg:")
+	return strings.HasPrefix(action, "source:") || isGitHubActionReference(action)
+}
+
+func isGitHubActionReference(action string) bool {
+	target, version, err := splitActionRef(action)
+	return err == nil && isGitHubActionTarget(target) && isSafeActionVersion(version)
+}
+
+func splitActionRef(action string) (string, string, error) {
+	idx := strings.LastIndex(action, "@")
+	if idx <= 0 || idx == len(action)-1 {
+		return "", "", fmt.Errorf("action ref must be target@version")
+	}
+	return strings.TrimSpace(action[:idx]), strings.TrimSpace(action[idx+1:]), nil
+}
+
+func isGitHubActionTarget(target string) bool {
+	parts := strings.Split(target, "/")
+	if len(parts) != 2 {
+		return false
+	}
+	owner, repo := parts[0], parts[1]
+	if owner == "" || repo == "" || strings.HasPrefix(owner, "-") || strings.HasSuffix(owner, "-") {
+		return false
+	}
+	if len(owner) > 39 || repo == "." || repo == ".." || strings.HasSuffix(repo, ".git") {
+		return false
+	}
+	for _, r := range owner {
+		if !isGitHubOwnerRune(r) {
+			return false
+		}
+	}
+	for _, r := range repo {
+		if !isGitHubRepoRune(r) {
+			return false
+		}
+	}
+	return true
+}
+
+func isGitHubOwnerRune(r rune) bool {
+	return r >= 'A' && r <= 'Z' ||
+		r >= 'a' && r <= 'z' ||
+		r >= '0' && r <= '9' ||
+		r == '-'
+}
+
+func isGitHubRepoRune(r rune) bool {
+	return isGitHubOwnerRune(r) || r == '_' || r == '.'
+}
+
+func isSafeActionVersion(version string) bool {
+	version = strings.TrimSpace(version)
+	if version == "" ||
+		strings.HasPrefix(version, "-") ||
+		strings.ContainsAny(version, " \t\r\n\\~^:?*[]") ||
+		strings.Contains(version, "..") ||
+		strings.Contains(version, "@{") ||
+		strings.Contains(version, "//") ||
+		strings.HasSuffix(version, "/") ||
+		strings.HasSuffix(version, ".") ||
+		strings.HasSuffix(version, ".lock") {
+		return false
+	}
+	for part := range strings.SplitSeq(version, "/") {
+		if part == "" || strings.HasPrefix(part, ".") || strings.HasSuffix(part, ".lock") {
+			return false
+		}
+	}
+	return true
 }
 
 func normalizeRemoteAction(normalized map[string]any, action string, with map[string]any) error {
