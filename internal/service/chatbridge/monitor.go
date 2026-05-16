@@ -1174,7 +1174,6 @@ func enqueueNotifications(state *notificationMonitorState, destinations []string
 			if pending, ok := destState.Pending[event.Key]; ok {
 				if shouldSuppressNotificationEvent(pending) {
 					delete(destState.Pending, event.Key)
-					changed = true
 				} else {
 					queued = append(queued, queuedNotification{
 						destination: destination,
@@ -1194,7 +1193,6 @@ func enqueueNotifications(state *notificationMonitorState, destinations []string
 					continue
 				}
 				delete(destState.Pending, pendingKey)
-				changed = true
 			}
 
 			destState.Pending[event.Key] = NotificationEvent{
