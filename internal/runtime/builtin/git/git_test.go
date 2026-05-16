@@ -89,6 +89,61 @@ func TestGitCheckoutUpdatesExistingRepository(t *testing.T) {
 	assert.Equal(t, secondCommit, result.Commit)
 }
 
+func TestGitCheckoutUpdatesExistingRepositoryWithoutRef(t *testing.T) {
+	t.Parallel()
+
+	source := t.TempDir()
+	firstCommit := createTestRepository(t, source, "version.txt", "one\n")
+	workDir := t.TempDir()
+
+	first, err := newExecutor(testContext(workDir), checkoutStep(map[string]any{
+		"repository": source,
+		"path":       "repo",
+	}))
+	require.NoError(t, err)
+
+	var firstStdout bytes.Buffer
+	first.SetStdout(&firstStdout)
+	require.NoError(t, first.Run(context.Background()))
+	assert.Equal(t, "one\n", readFile(t, filepath.Join(workDir, "repo/version.txt")))
+
+	var firstResult checkoutResult
+	require.NoError(t, json.Unmarshal(firstStdout.Bytes(), &firstResult))
+	assert.Equal(t, firstCommit, firstResult.Commit)
+
+	secondCommit := commitFile(t, source, "version.txt", "two\n")
+	second, err := newExecutor(testContext(workDir), checkoutStep(map[string]any{
+		"repository": source,
+		"path":       "repo",
+	}))
+	require.NoError(t, err)
+
+	var stdout bytes.Buffer
+	second.SetStdout(&stdout)
+	require.NoError(t, second.Run(context.Background()))
+
+	assert.Equal(t, "two\n", readFile(t, filepath.Join(workDir, "repo/version.txt")))
+
+	var result checkoutResult
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &result))
+	assert.False(t, result.Cloned)
+	assert.True(t, result.Changed)
+	assert.Equal(t, secondCommit, result.Commit)
+}
+
+func TestGitCheckoutRejectsMixedHTTPSAuth(t *testing.T) {
+	t.Parallel()
+
+	_, err := newExecutor(testContext(t.TempDir()), checkoutStep(map[string]any{
+		"repository": "https://example.com/repo.git",
+		"path":       "repo",
+		"token":      "token",
+		"username":   "user",
+	}))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "token cannot be combined with username/password")
+}
+
 func checkoutStep(config map[string]any) core.Step {
 	return core.Step{
 		Name: "checkout",

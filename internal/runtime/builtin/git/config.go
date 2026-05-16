@@ -57,6 +57,9 @@ func validateConfig(operation string, cfg config) error {
 	if cfg.SSHKeyPath != "" && (cfg.Token != "" || cfg.Password != "") {
 		return fmt.Errorf("git: ssh_key_path cannot be combined with token or password")
 	}
+	if cfg.Token != "" && (cfg.Username != "" || cfg.Password != "") {
+		return fmt.Errorf("git: token cannot be combined with username/password")
+	}
 	return nil
 }
 

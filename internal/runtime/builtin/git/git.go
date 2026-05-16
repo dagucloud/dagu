@@ -27,6 +27,7 @@ import (
 
 const (
 	executorType = "git"
+	remoteName   = "origin"
 
 	opCheckout = "checkout"
 )
@@ -193,7 +194,7 @@ func (e *executorImpl) runCheckout(ctx context.Context) error {
 			return err
 		}
 	}
-	commit, err := e.checkoutRef(repo)
+	commit, err := e.checkoutRef(ctx, repo, auth)
 	if err != nil {
 		return err
 	}
@@ -227,11 +228,12 @@ func (e *executorImpl) clone(ctx context.Context, target string, auth transport.
 func (e *executorImpl) fetch(ctx context.Context, repo *gogit.Repository, auth transport.AuthMethod) error {
 	err := repo.FetchContext(ctx, &gogit.FetchOptions{
 		Auth:       auth,
-		RemoteName: "origin",
+		RemoteName: remoteName,
 		Depth:      e.cfg.Depth,
 		Force:      true,
 		RefSpecs: []gogitconfig.RefSpec{
-			"+refs/heads/*:refs/remotes/origin/*",
+			"+HEAD:refs/remotes/" + remoteName + "/HEAD",
+			"+refs/heads/*:refs/remotes/" + remoteName + "/*",
 			"+refs/tags/*:refs/tags/*",
 		},
 	})
@@ -241,9 +243,13 @@ func (e *executorImpl) fetch(ctx context.Context, repo *gogit.Repository, auth t
 	return nil
 }
 
-func (e *executorImpl) checkoutRef(repo *gogit.Repository) (string, error) {
+func (e *executorImpl) checkoutRef(ctx context.Context, repo *gogit.Repository, auth transport.AuthMethod) (string, error) {
 	ref := strings.TrimSpace(e.cfg.Ref)
 	if ref == "" {
+		hash, name, ok := remoteDefaultHead(ctx, repo, auth)
+		if ok {
+			return e.checkoutHash(repo, hash, name)
+		}
 		return currentHead(repo)
 	}
 
@@ -251,6 +257,10 @@ func (e *executorImpl) checkoutRef(repo *gogit.Repository) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return e.checkoutHash(repo, hash, ref)
+}
+
+func (e *executorImpl) checkoutHash(repo *gogit.Repository, hash plumbing.Hash, ref string) (string, error) {
 	wt, err := repo.Worktree()
 	if err != nil {
 		return "", fmt.Errorf("git checkout: worktree: %w", err)
@@ -259,6 +269,32 @@ func (e *executorImpl) checkoutRef(repo *gogit.Repository) (string, error) {
 		return "", fmt.Errorf("git checkout: checkout %q: %w", ref, err)
 	}
 	return hash.String(), nil
+}
+
+func remoteDefaultHead(ctx context.Context, repo *gogit.Repository, auth transport.AuthMethod) (plumbing.Hash, string, bool) {
+	revisions := []plumbing.Revision{
+		plumbing.Revision(plumbing.NewRemoteHEADReferenceName(remoteName)),
+		plumbing.Revision(remoteName + "/HEAD"),
+	}
+	for _, revision := range revisions {
+		hash, err := repo.ResolveRevision(revision)
+		if err == nil && hash != nil {
+			return *hash, string(revision), true
+		}
+	}
+
+	remote, err := repo.Remote(remoteName)
+	if err == nil {
+		refs, err := remote.ListContext(ctx, &gogit.ListOptions{Auth: auth})
+		if err == nil {
+			for _, ref := range refs {
+				if ref.Name() == plumbing.HEAD && !ref.Hash().IsZero() {
+					return ref.Hash(), string(plumbing.HEAD), true
+				}
+			}
+		}
+	}
+	return plumbing.ZeroHash, "", false
 }
 
 func resolveRef(repo *gogit.Repository, ref string) (plumbing.Hash, error) {
