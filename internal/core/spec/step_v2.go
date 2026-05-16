@@ -46,6 +46,8 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"chat.completion": normalizeChatAction,
 	"container.run":   optionalCommandAction("container", "command"),
 	"dag.run":         normalizeDagRunAction,
+	"data.convert":    operationAction("data", "convert"),
+	"data.pick":       operationAction("data", "pick"),
 	"docker.run":      optionalCommandAction("docker", "command"),
 	"duckdb.query":    commandAction("duckdb", "query"),
 	"duckdb.import":   importAction("duckdb"),

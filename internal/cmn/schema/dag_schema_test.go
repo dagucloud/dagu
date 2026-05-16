@@ -495,6 +495,34 @@ steps:
 `,
 		},
 		{
+			name: "DataConvertAction",
+			spec: `
+steps:
+  - action: data.convert
+    with:
+      from: csv
+      to: json
+      data: |
+        name,age
+        Alice,30
+`,
+		},
+		{
+			name: "DataPickAction",
+			spec: `
+steps:
+  - action: data.pick
+    with:
+      from: yaml
+      select: .spec.containers[0].image
+      raw: true
+      data:
+        spec:
+          containers:
+            - image: nginx:1.27
+`,
+		},
+		{
 			name: "LegacyFileTypeConfig",
 			spec: `
 steps:
@@ -684,6 +712,31 @@ steps:
     with:
       path: out/data.txt
       unexpected: true
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectDataConvertUnknownConfig",
+			spec: `
+steps:
+  - action: data.convert
+    with:
+      from: csv
+      to: json
+      data: "name\nAlice\n"
+      unexpected: true
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectDataPickMissingSelect",
+			spec: `
+steps:
+  - action: data.pick
+    with:
+      from: yaml
+      data:
+        name: Alice
 `,
 			wantErr: "did not validate",
 		},

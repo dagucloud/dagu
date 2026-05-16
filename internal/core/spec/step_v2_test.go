@@ -181,6 +181,62 @@ steps:
 	assert.Contains(t, err.Error(), `jq.filter does not allow both with.data and with.input`)
 }
 
+func TestStepSchemaV2_ActionDataConvert(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: convert_users
+    action: data.convert
+    with:
+      from: csv
+      to: json
+      data: |
+        name,age
+        Alice,30
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, "data", step.ExecutorConfig.Type)
+	require.Len(t, step.Commands, 1)
+	assert.Equal(t, "convert", step.Commands[0].Command)
+	require.NotNil(t, step.ExecutorConfig.Config)
+	assert.Equal(t, "csv", step.ExecutorConfig.Config["from"])
+	assert.Equal(t, "json", step.ExecutorConfig.Config["to"])
+	assert.Contains(t, step.ExecutorConfig.Config, "data")
+}
+
+func TestStepSchemaV2_ActionDataPick(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: pick_image
+    action: data.pick
+    with:
+      from: yaml
+      select: .spec.containers[0].image
+      raw: true
+      data:
+        spec:
+          containers:
+            - image: nginx:1.27
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, "data", step.ExecutorConfig.Type)
+	require.Len(t, step.Commands, 1)
+	assert.Equal(t, "pick", step.Commands[0].Command)
+	require.NotNil(t, step.ExecutorConfig.Config)
+	assert.Equal(t, "yaml", step.ExecutorConfig.Config["from"])
+	assert.Equal(t, ".spec.containers[0].image", step.ExecutorConfig.Config["select"])
+	assert.Equal(t, true, step.ExecutorConfig.Config["raw"])
+}
+
 func TestStepSchemaV2_ActionSQLQuery(t *testing.T) {
 	t.Parallel()
 

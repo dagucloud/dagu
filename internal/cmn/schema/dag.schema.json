@@ -2206,6 +2206,30 @@
         },
         {
           "if": {
+            "properties": { "action": { "const": "data.convert" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/dataConvertActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "data.pick" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/dataPickActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": { "action": { "enum": ["wait.duration", "wait.until", "wait.file", "wait.http"] } },
             "required": ["action"]
           },
@@ -5907,6 +5931,8 @@
             "chat.completion",
             "container.run",
             "dag.run",
+            "data.convert",
+            "data.pick",
             "docker.run",
             "duckdb.import",
             "duckdb.query",
@@ -6165,6 +6191,114 @@
         }
       },
       "description": "Configuration for action: jq.filter."
+    },
+    "dataConvertActionConfig": {
+      "type": "object",
+      "required": ["from", "to"],
+      "oneOf": [
+        { "required": ["data"] },
+        { "required": ["input"] }
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "type": "string",
+          "enum": ["json", "yaml", "csv", "tsv", "text"],
+          "description": "Input format."
+        },
+        "to": {
+          "type": "string",
+          "enum": ["json", "yaml", "csv", "tsv", "text"],
+          "description": "Output format."
+        },
+        "data": {
+          "description": "Inline data to convert."
+        },
+        "input": {
+          "type": "string",
+          "description": "File path to read input from."
+        },
+        "has_header": {
+          "type": "boolean",
+          "description": "Whether CSV or TSV input has a header row. Defaults to true."
+        },
+        "headers": {
+          "type": "boolean",
+          "description": "Include a header row for CSV or TSV output. Defaults to true."
+        },
+        "delimiter": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1,
+          "description": "Single-character delimiter override for CSV or TSV input and output."
+        },
+        "columns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Column names for headerless CSV/TSV input or CSV/TSV output ordering."
+        }
+      },
+      "description": "Configuration for action: data.convert."
+    },
+    "dataPickActionConfig": {
+      "type": "object",
+      "required": ["from", "select"],
+      "oneOf": [
+        { "required": ["data"] },
+        { "required": ["input"] }
+      ],
+      "not": {
+        "required": ["raw", "to"]
+      },
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "type": "string",
+          "enum": ["json", "yaml", "csv", "tsv", "text"],
+          "description": "Input format."
+        },
+        "to": {
+          "type": "string",
+          "enum": ["json", "yaml", "csv", "tsv", "text"],
+          "description": "Output format. Defaults to json when raw is false."
+        },
+        "select": {
+          "type": "string",
+          "minLength": 1,
+          "description": "jq-style path to select."
+        },
+        "raw": {
+          "type": "boolean",
+          "description": "Write selected scalar values without JSON/YAML encoding."
+        },
+        "data": {
+          "description": "Inline data to read."
+        },
+        "input": {
+          "type": "string",
+          "description": "File path to read input from."
+        },
+        "has_header": {
+          "type": "boolean",
+          "description": "Whether CSV or TSV input has a header row. Defaults to true."
+        },
+        "headers": {
+          "type": "boolean",
+          "description": "Include a header row for CSV or TSV output. Defaults to true."
+        },
+        "delimiter": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1,
+          "description": "Single-character delimiter override for CSV or TSV input and output."
+        },
+        "columns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Column names for headerless CSV/TSV input or CSV/TSV output ordering."
+        }
+      },
+      "description": "Configuration for action: data.pick."
     },
     "routerRouteActionConfig": {
       "type": "object",
