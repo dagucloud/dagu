@@ -176,6 +176,13 @@ func normalizeActionStep(normalized, raw map[string]any, registry *customStepTyp
 	if action == "" {
 		return core.NewValidationError("action", raw["action"], fmt.Errorf("action is required"))
 	}
+	if isRemoteActionReference(action) {
+		with, err := actionWith(raw)
+		if err != nil {
+			return err
+		}
+		return normalizeRemoteAction(normalized, action, with)
+	}
 	if strings.Contains(action, "@") {
 		return core.NewValidationError("action", raw["action"], fmt.Errorf("versioned action references are reserved for the future action registry"))
 	}
@@ -204,6 +211,24 @@ func normalizeActionStep(normalized, raw map[string]any, registry *customStepTyp
 		return normalizeRedisAction(normalized, with, after)
 	}
 	return core.NewValidationError("action", raw["action"], fmt.Errorf("unknown action %q", action))
+}
+
+func isRemoteActionReference(action string) bool {
+	return strings.HasPrefix(action, "source:") || strings.HasPrefix(action, "pkg:")
+}
+
+func normalizeRemoteAction(normalized map[string]any, action string, with map[string]any) error {
+	cfg := map[string]any{
+		"ref":   action,
+		"input": map[string]any{},
+	}
+	if len(with) > 0 {
+		cfg["input"] = with
+	}
+	normalized["type"] = core.ExecutorTypeAction
+	normalized["with"] = cfg
+	delete(normalized, "action")
+	return nil
 }
 
 func actionWith(raw map[string]any) (map[string]any, error) {

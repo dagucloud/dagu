@@ -459,6 +459,38 @@ steps:
 `,
 		},
 		{
+			name: "SourceAction",
+			spec: `
+steps:
+  - action: source:github.com/acme/dagu-actions-slack@v1
+    with:
+      channel: "#ops"
+      text: hello
+`,
+		},
+		{
+			name: "PackageAction",
+			spec: `
+steps:
+  - action: pkg:dagu-actions/slack.notify@1.2.3
+    with:
+      channel: "#ops"
+      text: hello
+`,
+		},
+		{
+			name: "ExplicitActionExecutor",
+			spec: `
+steps:
+  - type: action
+    with:
+      ref: source:github.com/acme/dagu-actions-slack@v1
+      input:
+        channel: "#ops"
+        text: hello
+`,
+		},
+		{
 			name: "FileActions",
 			spec: `
 steps:

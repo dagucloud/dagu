@@ -178,6 +178,17 @@ func TestReadyManifestMissesWhenCommandIsMissing(t *testing.T) {
 	assert.Nil(t, got)
 }
 
+func TestReadyManifestMissesWhenManifestFileDoesNotExist(t *testing.T) {
+	t.Parallel()
+
+	paths := testCacheLayout(t.TempDir())
+
+	got, err := readyManifest(paths, "linux/amd64", "hash")
+
+	require.NoError(t, err)
+	assert.Nil(t, got)
+}
+
 func TestRegistryCacheReadyRequiresValidJSONCache(t *testing.T) {
 	t.Parallel()
 

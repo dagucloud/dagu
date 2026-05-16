@@ -40,6 +40,7 @@ import (
 	runtimeexec "github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	secretpkg "github.com/dagucloud/dagu/internal/secret"
+	dagutools "github.com/dagucloud/dagu/internal/tools"
 	"github.com/dagucloud/dagu/internal/workspace"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
@@ -380,6 +381,10 @@ func (e *Engine) runLocal(ctx context.Context, dag *core.DAG, runID string, opts
 			AgentOAuthManager:          stores.OAuthManager,
 			AgentRemoteContextResolver: stores.ContextResolver,
 			ArtifactDir:                artifactDir,
+			ExtraEnvs: dagutools.ToolDirEnvVars(dagutools.InstallOptions{
+				ToolsDir: e.cfg.Paths.ToolsDir,
+				DataDir:  e.cfg.Paths.DataDir,
+			}),
 		},
 	)
 

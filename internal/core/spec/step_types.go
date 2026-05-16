@@ -71,6 +71,7 @@ var customStepWholeRuntimeExpressionRegexp = regexp.MustCompile("^\\s*(?:`[^`]+`
 var builtinStepTypeNames = map[string]struct{}{
 	"agent":         {},
 	"archive":       {},
+	"action":        {},
 	"chat":          {},
 	"command":       {},
 	"container":     {},

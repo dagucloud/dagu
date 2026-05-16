@@ -13,7 +13,7 @@ import (
 // PrepareDAG validates, installs, and exposes the tools declared by a DAG.
 func PrepareDAG(ctx context.Context, dag *core.DAG, installer Installer, opts InstallOptions, basePath string) ([]string, error) {
 	if dag == nil || dag.Tools == nil {
-		return nil, nil
+		return ToolDirEnvVars(opts), nil
 	}
 	if installer == nil {
 		return nil, fmt.Errorf("tools installer is required")

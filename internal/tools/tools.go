@@ -25,6 +25,8 @@ const (
 
 	// EnvManifest points command executors to the resolved Dagu tools manifest.
 	EnvManifest = "DAGU_TOOLS_MANIFEST"
+	// EnvToolsDir points action executors to the worker-local tool cache root.
+	EnvToolsDir = "DAGU_TOOLS_DIR"
 )
 
 // Installer installs and resolves a DAG tool declaration.
@@ -133,7 +135,7 @@ func EnvVars(manifest *Manifest, basePath string) []string {
 	if basePath != "" {
 		pathValue += string(os.PathListSeparator) + basePath
 	}
-	return []string{
+	envs := []string{
 		"AQUA_ROOT_DIR=" + manifest.RootDir,
 		"AQUA_CONFIG=" + manifest.Config,
 		"AQUA_DISABLE_LAZY_INSTALL=true",
@@ -144,6 +146,35 @@ func EnvVars(manifest *Manifest, basePath string) []string {
 		EnvManifest + "=" + manifestFilePath(manifest),
 		"PATH=" + pathValue,
 	}
+	if toolsDir := toolsDirFromManifest(manifest); toolsDir != "" {
+		envs = append(envs, EnvToolsDir+"="+toolsDir)
+	}
+	return envs
+}
+
+// ToolDirEnvVars returns the minimal tool cache environment for executors that
+// install action-scoped runtimes after DAG loading.
+func ToolDirEnvVars(opts InstallOptions) []string {
+	toolsDir := strings.TrimSpace(opts.ToolsDir)
+	if toolsDir == "" && strings.TrimSpace(opts.DataDir) != "" {
+		toolsDir = filepath.Join(strings.TrimSpace(opts.DataDir), "tools")
+	}
+	if toolsDir == "" {
+		return nil
+	}
+	return []string{EnvToolsDir + "=" + toolsDir}
+}
+
+func toolsDirFromManifest(manifest *Manifest) string {
+	root := filepath.Clean(manifest.RootDir)
+	if filepath.Base(root) != "root" {
+		return ""
+	}
+	aquaDir := filepath.Dir(root)
+	if filepath.Base(aquaDir) != "aqua" {
+		return ""
+	}
+	return filepath.Dir(aquaDir)
 }
 
 func sanitizePlatform(platform string) string {

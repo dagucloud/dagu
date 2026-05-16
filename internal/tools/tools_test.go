@@ -119,6 +119,17 @@ func TestPrepareDAGInstallsDeclaredTools(t *testing.T) {
 	assert.Contains(t, envs, "PATH=/data/tools/aqua/envs/linux-amd64/hash/bin"+string(os.PathListSeparator)+"/usr/bin")
 }
 
+func TestPrepareDAGExposesToolsDirWithoutDeclaredTools(t *testing.T) {
+	t.Parallel()
+
+	envs, err := PrepareDAG(context.Background(), &core.DAG{Name: "action-dag"}, &fakeInstaller{}, InstallOptions{
+		ToolsDir: "/data/tools",
+	}, "")
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"DAGU_TOOLS_DIR=/data/tools"}, envs)
+}
+
 func TestPrepareDAGRejectsUnsupportedExecutor(t *testing.T) {
 	t.Parallel()
 

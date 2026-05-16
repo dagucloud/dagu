@@ -2430,6 +2430,20 @@
           }
         },
         {
+          "if": { "properties": { "type": { "const": "action" } }, "required": ["type"] },
+          "then": {
+            "anyOf": [{ "required": ["with"] }, { "required": ["config"] }],
+            "properties": {
+              "with": { "$ref": "#/definitions/actionExecutorConfig" },
+              "config": {
+                "$ref": "#/definitions/actionExecutorConfig",
+                "deprecated": true,
+                "doNotSuggest": true
+              }
+            }
+          }
+        },
+        {
           "if": { "properties": { "type": { "const": "http" } }, "required": ["type"] },
           "then": {
             "properties": {
@@ -5876,6 +5890,7 @@
     "builtinExecutorType": {
       "type": "string",
       "enum": [
+        "action",
         "command",
         "shell",
         "docker",
@@ -5977,6 +5992,16 @@
           "type": "string",
           "pattern": "^redis\\.[A-Za-z][A-Za-z0-9_-]*$",
           "description": "Redis operation action such as redis.get or redis.set."
+        },
+        {
+          "type": "string",
+          "pattern": "^source:[^\\s]+@[^\\s]+$",
+          "description": "Source action reference resolved from a Git or local source target."
+        },
+        {
+          "type": "string",
+          "pattern": "^pkg:[^\\s]+@[^\\s]+$",
+          "description": "Packaged action reference resolved from an action registry."
         },
         {
           "type": "string",
@@ -6665,6 +6690,24 @@
       "description": "Executor-specific configuration. Schema depends on executor type.",
       "additionalProperties": true
     },
+    "actionExecutorConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref"],
+      "properties": {
+        "ref": {
+          "type": "string",
+          "pattern": "^(source:|pkg:)[^\\s]+@[^\\s]+$",
+          "description": "External action reference. Supported prefixes are source: and pkg:."
+        },
+        "input": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Action input object."
+        }
+      },
+      "description": "Configuration for external Dagu actions executed by the action executor."
+    },
     "executorObject": {
       "type": "object",
       "required": ["type"],
@@ -6677,6 +6720,15 @@
         }
       },
       "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "action" } }, "required": ["type"] },
+          "then": {
+            "required": ["config"],
+            "properties": {
+              "config": { "$ref": "#/definitions/actionExecutorConfig" }
+            }
+          }
+        },
         {
           "if": { "properties": { "type": { "const": "http" } }, "required": ["type"] },
           "then": {
