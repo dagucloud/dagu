@@ -98,6 +98,7 @@ func TestGitCheckoutUpdatesExistingRepositoryWithoutRef(t *testing.T) {
 
 	first, err := newExecutor(testContext(workDir), checkoutStep(map[string]any{
 		"repository": source,
+		"ref":        "",
 		"path":       "repo",
 	}))
 	require.NoError(t, err)
@@ -114,6 +115,7 @@ func TestGitCheckoutUpdatesExistingRepositoryWithoutRef(t *testing.T) {
 	secondCommit := commitFile(t, source, "version.txt", "two\n")
 	second, err := newExecutor(testContext(workDir), checkoutStep(map[string]any{
 		"repository": source,
+		"ref":        "",
 		"path":       "repo",
 	}))
 	require.NoError(t, err)
