@@ -36,6 +36,18 @@ func (f *fakeNotificationTransport) FlushNotificationBatch(ctx context.Context, 
 	return f.flushFn(ctx, destination, batch, allowLLM)
 }
 
+type fakeRoutingNotificationTransport struct {
+	*fakeNotificationTransport
+	routeFn func(NotificationEvent) []string
+}
+
+func (f *fakeRoutingNotificationTransport) NotificationDestinationsForEvent(event NotificationEvent) []string {
+	if f.routeFn == nil {
+		return nil
+	}
+	return f.routeFn(event)
+}
+
 type stubNotificationStore struct {
 	mu        sync.Mutex
 	events    []*eventstore.Event
@@ -235,6 +247,83 @@ func TestNotificationMonitor_NotifyCompletionSkipsFailedRunWithAutoRetryRemainin
 		defer mu.Unlock()
 		return calls > 0 || monitor.IsDelivered("dest-1", status)
 	}, 50*time.Millisecond, 5*time.Millisecond)
+}
+
+func TestNotificationMonitor_PollSourceRoutesEventsPerDestination(t *testing.T) {
+	t.Parallel()
+
+	type call struct {
+		destination string
+		allowLLM    bool
+	}
+
+	store := &stubNotificationStore{}
+	service := eventstore.New(store)
+	var (
+		mu    sync.Mutex
+		calls []call
+	)
+	transport := &fakeRoutingNotificationTransport{
+		fakeNotificationTransport: &fakeNotificationTransport{
+			destinations: []string{"dest-a", "dest-b"},
+			flushFn: func(_ context.Context, destination string, _ NotificationBatch, allowLLM bool) bool {
+				mu.Lock()
+				defer mu.Unlock()
+				calls = append(calls, call{destination: destination, allowLLM: allowLLM})
+				return true
+			},
+		},
+		routeFn: func(event NotificationEvent) []string {
+			if event.Status == nil {
+				return nil
+			}
+			switch event.Status.Name {
+			case "dag-a":
+				return []string{"dest-a"}
+			case "dag-b":
+				return []string{"dest-b"}
+			default:
+				return nil
+			}
+		},
+	}
+	cfg := DefaultNotificationMonitorConfig()
+	cfg.PollInterval = 10 * time.Millisecond
+	cfg.SeenEvictInterval = time.Hour
+	cfg.UrgentWindow = 10 * time.Millisecond
+	cfg.SuccessWindow = 10 * time.Millisecond
+
+	monitor := NewNotificationMonitor(service, "", transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
+	stopMonitor := testutil.StartContextRunner(t, monitor)
+	defer stopMonitor()
+
+	require.Eventually(t, func() bool {
+		headCalls, _ := store.stats()
+		return headCalls > 0
+	}, time.Second, 10*time.Millisecond)
+
+	for _, status := range []*exec.DAGRunStatus{
+		{Name: "dag-a", Status: core.Failed, DAGRunID: "run-a", AttemptID: "attempt-a"},
+		{Name: "dag-b", Status: core.Failed, DAGRunID: "run-b", AttemptID: "attempt-b"},
+	} {
+		require.NoError(t, store.Emit(context.Background(), eventstore.NewDAGRunEvent(
+			eventstore.Source{Service: eventstore.SourceServiceServer},
+			eventstore.TypeDAGRunFailed,
+			status,
+			nil,
+		)))
+	}
+
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(calls) == 2
+	}, time.Second, 10*time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	destinations := []string{calls[0].destination, calls[1].destination}
+	assert.ElementsMatch(t, []string{"dest-a", "dest-b"}, destinations)
 }
 
 func TestNotificationMonitor_RequeuePendingDropsFailedRunWithAutoRetryRemaining(t *testing.T) {

@@ -1840,6 +1840,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dags/{fileName}/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get DAG notification settings
+         * @description Returns server-side notification settings for a specific DAG. Developer, manager, or admin only.
+         */
+        get: operations["getDAGNotifications"];
+        /**
+         * Update DAG notification settings
+         * @description Creates or replaces server-side notification settings for a DAG.
+         *     Secret values are accepted in the request but are never returned.
+         *     Existing secret values are preserved when omitted for an existing target.
+         *     Developer, manager, or admin only.
+         *
+         */
+        put: operations["updateDAGNotifications"];
+        post?: never;
+        /**
+         * Delete DAG notification settings
+         * @description Removes all server-side notification settings for the specified DAG. Developer, manager, or admin only.
+         */
+        delete: operations["deleteDAGNotifications"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dags/{fileName}/notifications/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a test DAG notification
+         * @description Sends a test notification to one target or every enabled target for a DAG. Developer, manager, or admin only.
+         */
+        post: operations["testDAGNotifications"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/audit": {
         parameters: {
             query?: never;
@@ -3318,6 +3370,161 @@ export interface components {
             webhook: components["schemas"]["WebhookDetails"];
             /** @description Full HMAC secret (only shown once, store securely!) */
             hmacSecret: string;
+        };
+        /**
+         * @description Notification delivery provider
+         * @enum {string}
+         */
+        NotificationProviderType: NotificationProviderType;
+        /**
+         * @description DAG run event that can trigger server-side notifications
+         * @enum {string}
+         */
+        NotificationEventType: NotificationEventType;
+        /** @description Email notification target. SMTP settings are read from the DAG mail configuration. */
+        NotificationEmailTarget: {
+            /** @description Sender address. Defaults to the DAG mail sender for the event type. */
+            from?: string;
+            /** @description Primary recipients */
+            to: string[];
+            /** @description CC recipients */
+            cc?: string[];
+            /** @description BCC recipients */
+            bcc?: string[];
+            /** @description Subject prefix. Defaults to the DAG mail prefix for the event type. */
+            subjectPrefix?: string;
+            /** @description Attach DAG and step logs when available */
+            attachLogs?: boolean;
+        };
+        /** @description Outbound webhook target input. Values are encrypted at rest. */
+        NotificationWebhookTargetInput: {
+            /**
+             * Format: uri
+             * @description HTTP or HTTPS endpoint to POST notification payloads to. Omit on updates to preserve the existing URL.
+             */
+            url?: string;
+            /** @description Additional request headers. Values are encrypted at rest. */
+            headers?: {
+                [key: string]: string;
+            };
+            /** @description Optional HMAC secret for X-Dagu-Signature. Omit on updates to preserve the existing secret. */
+            hmacSecret?: string;
+        };
+        /** @description Public outbound webhook target details */
+        NotificationWebhookTarget: {
+            /** @description Whether a webhook URL is configured */
+            urlConfigured: boolean;
+            /** @description Redacted URL preview */
+            urlPreview?: string;
+            /** @description Header names with redacted values */
+            headers?: {
+                [key: string]: string;
+            };
+            /** @description Whether an HMAC secret is configured */
+            hmacSecretConfigured: boolean;
+        };
+        /** @description Slack incoming webhook target input. Values are encrypted at rest. */
+        NotificationSlackTargetInput: {
+            /**
+             * Format: uri
+             * @description Slack incoming webhook URL. Omit on updates to preserve the existing URL.
+             */
+            webhookUrl?: string;
+        };
+        /** @description Public Slack target details */
+        NotificationSlackTarget: {
+            /** @description Whether a Slack incoming webhook URL is configured */
+            webhookUrlConfigured: boolean;
+            /** @description Redacted Slack webhook URL preview */
+            webhookUrlPreview?: string;
+        };
+        /** @description Telegram Bot API target input. Bot token is encrypted at rest. */
+        NotificationTelegramTargetInput: {
+            /** @description Telegram bot token. Omit on updates to preserve the existing token. */
+            botToken?: string;
+            /** @description Telegram chat ID */
+            chatId?: string;
+        };
+        /** @description Public Telegram target details */
+        NotificationTelegramTarget: {
+            /** @description Whether a Telegram bot token is configured */
+            botTokenConfigured: boolean;
+            /** @description Redacted Telegram bot token preview */
+            botTokenPreview?: string;
+            /** @description Telegram chat ID */
+            chatId?: string;
+        };
+        /** @description Notification target input */
+        NotificationTargetInput: {
+            /** @description Stable target ID. Omit when creating a new target. */
+            id?: string;
+            /** @description Human-readable target name */
+            name?: string;
+            type: components["schemas"]["NotificationProviderType"];
+            /** @description Whether this target receives notifications */
+            enabled: boolean;
+            email?: components["schemas"]["NotificationEmailTarget"];
+            webhook?: components["schemas"]["NotificationWebhookTargetInput"];
+            slack?: components["schemas"]["NotificationSlackTargetInput"];
+            telegram?: components["schemas"]["NotificationTelegramTargetInput"];
+        };
+        /** @description Public notification target details. Secrets are never returned. */
+        NotificationTarget: {
+            /** @description Stable target ID */
+            id: string;
+            /** @description Human-readable target name */
+            name?: string;
+            type: components["schemas"]["NotificationProviderType"];
+            /** @description Whether this target receives notifications */
+            enabled: boolean;
+            email?: components["schemas"]["NotificationEmailTarget"];
+            webhook?: components["schemas"]["NotificationWebhookTarget"];
+            slack?: components["schemas"]["NotificationSlackTarget"];
+            telegram?: components["schemas"]["NotificationTelegramTarget"];
+        };
+        /** @description Server-side DAG notification settings */
+        DAGNotificationSettings: {
+            /** @description Stable settings ID */
+            id: string;
+            /** @description Name of the DAG these settings apply to */
+            dagName: string;
+            /** @description Whether notification delivery is enabled for this DAG */
+            enabled: boolean;
+            /** @description DAG run events that trigger notifications */
+            events: components["schemas"]["NotificationEventType"][];
+            /** @description Configured notification targets */
+            targets: components["schemas"]["NotificationTarget"][];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** @description User ID that last updated the settings */
+            updatedBy?: string;
+        };
+        /** @description Request to replace DAG notification settings */
+        UpdateDAGNotificationsRequest: {
+            /** @description Whether notification delivery is enabled for this DAG */
+            enabled: boolean;
+            events: components["schemas"]["NotificationEventType"][];
+            targets: components["schemas"]["NotificationTargetInput"][];
+        };
+        /** @description Request to send a test notification */
+        TestDAGNotificationRequest: {
+            /** @description Optional target ID. When omitted, every enabled target is tested. */
+            targetId?: string;
+            eventType?: components["schemas"]["NotificationEventType"];
+        };
+        /** @description Delivery result for one notification target */
+        TestDAGNotificationResult: {
+            targetId: string;
+            targetName: string;
+            provider: components["schemas"]["NotificationProviderType"];
+            delivered: boolean;
+            error?: string;
+        };
+        /** @description Result of test notification delivery */
+        TestDAGNotificationResponse: {
+            results: components["schemas"]["TestDAGNotificationResult"][];
         };
         /**
          * Format: string
@@ -10698,6 +10905,206 @@ export interface operations {
             };
         };
     };
+    getDAGNotifications: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description DAG notification settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DAGNotificationSettings"];
+                };
+            };
+            /** @description No notification settings configured for this DAG */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateDAGNotifications: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDAGNotificationsRequest"];
+            };
+        };
+        responses: {
+            /** @description DAG notification settings updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DAGNotificationSettings"];
+                };
+            };
+            /** @description Invalid notification settings */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description DAG not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteDAGNotifications: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description DAG notification settings deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No notification settings configured for this DAG */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    testDAGNotifications: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestDAGNotificationRequest"];
+            };
+        };
+        responses: {
+            /** @description Test notification delivery attempted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestDAGNotificationResponse"];
+                };
+            };
+            /** @description Invalid test notification request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description DAG or target not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     listAuditLogs: {
         parameters: {
             query?: {
@@ -15113,6 +15520,19 @@ export enum WebhookHMACEnforcementMode {
 export enum WebhookHMACConfigureRequestAuthMode {
     token_and_hmac = "token_and_hmac",
     hmac_only = "hmac_only"
+}
+export enum NotificationProviderType {
+    email = "email",
+    webhook = "webhook",
+    slack = "slack",
+    telegram = "telegram"
+}
+export enum NotificationEventType {
+    dag_run_waiting = "dag.run.waiting",
+    dag_run_succeeded = "dag.run.succeeded",
+    dag_run_failed = "dag.run.failed",
+    dag_run_aborted = "dag.run.aborted",
+    dag_run_rejected = "dag.run.rejected"
 }
 export enum Stream {
     stdout = "stdout",

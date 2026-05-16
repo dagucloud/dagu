@@ -1,0 +1,80 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package notification
+
+import (
+	"testing"
+	"time"
+
+	"github.com/dagucloud/dagu/internal/service/eventstore"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestNormalizeValidatesTargetsAndEvents(t *testing.T) {
+	t.Parallel()
+
+	settings := &Settings{
+		DAGName: "daily-report",
+		Enabled: true,
+		Events: []eventstore.EventType{
+			eventstore.TypeDAGRunFailed,
+			eventstore.TypeDAGRunFailed,
+		},
+		Targets: []Target{{
+			Type:    ProviderWebhook,
+			Enabled: true,
+			Webhook: &WebhookTarget{
+				URL: "https://example.com/webhook",
+			},
+		}},
+		CreatedAt: time.Now().UTC(),
+	}
+
+	normalized, err := Normalize(settings, "tester")
+	require.NoError(t, err)
+	require.Len(t, normalized.Events, 1)
+	require.Len(t, normalized.Targets, 1)
+	assert.NotEmpty(t, normalized.ID)
+	assert.NotEmpty(t, normalized.Targets[0].ID)
+}
+
+func TestNormalizeRejectsEmptyEvents(t *testing.T) {
+	t.Parallel()
+
+	_, err := Normalize(&Settings{
+		DAGName: "daily-report",
+		Targets: []Target{{
+			Type:    ProviderWebhook,
+			Enabled: true,
+			Webhook: &WebhookTarget{URL: "https://example.com/webhook"},
+		}},
+	}, "tester")
+	assert.ErrorIs(t, err, ErrInvalidSettings)
+}
+
+func TestPreserveSecrets(t *testing.T) {
+	t.Parallel()
+
+	next := &Settings{Targets: []Target{{
+		ID:      "webhook-1",
+		Type:    ProviderWebhook,
+		Webhook: &WebhookTarget{Headers: map[string]string{"X-New": "value"}},
+	}}}
+	existing := &Settings{Targets: []Target{{
+		ID:   "webhook-1",
+		Type: ProviderWebhook,
+		Webhook: &WebhookTarget{
+			URL:        "https://example.com/webhook",
+			Headers:    map[string]string{"Authorization": "Bearer old"},
+			HMACSecret: "old-secret",
+		},
+	}}}
+
+	PreserveSecrets(next, existing)
+	assert.Equal(t, "https://example.com/webhook", next.Targets[0].Webhook.URL)
+	assert.Equal(t, "old-secret", next.Targets[0].Webhook.HMACSecret)
+	assert.Equal(t, "Bearer old", next.Targets[0].Webhook.Headers["Authorization"])
+	assert.Equal(t, "value", next.Targets[0].Webhook.Headers["X-New"])
+}

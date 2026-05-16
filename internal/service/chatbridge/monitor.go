@@ -76,6 +76,13 @@ type NotificationTransport interface {
 	FlushNotificationBatch(ctx context.Context, destination string, batch NotificationBatch, allowLLM bool) bool
 }
 
+// NotificationRoutingTransport can narrow destinations per event. Transports
+// that manage DAG-specific routes should implement this to avoid queuing every
+// run event for every configured destination.
+type NotificationRoutingTransport interface {
+	NotificationDestinationsForEvent(event NotificationEvent) []string
+}
+
 // NotificationMonitor owns source polling, batching, durable delivery state, and shutdown drain.
 type NotificationMonitor struct {
 	eventService *eventstore.Service
@@ -376,7 +383,6 @@ func (m *NotificationMonitor) pollSource(ctx context.Context) {
 		return
 	}
 
-	destinations := m.transport.NotificationDestinations()
 	pending := make([]NotificationEvent, 0, len(events))
 	for _, event := range events {
 		if event == nil || !m.isInterestedEventType(event.Type) {
@@ -402,7 +408,7 @@ func (m *NotificationMonitor) pollSource(ctx context.Context) {
 		})
 	}
 
-	queued, committed := m.commitSourceProgress(ctx, destinations, nextCursor, pending)
+	queued, committed := m.commitSourceProgress(ctx, nil, nextCursor, pending)
 	if !committed || len(queued) == 0 {
 		return
 	}
@@ -443,8 +449,17 @@ func (m *NotificationMonitor) enqueueEvents(ctx context.Context, destinations []
 	if !m.canMutateNotificationState("Notification lock is not held; cannot enqueue notification events") {
 		return false
 	}
+	var router NotificationRoutingTransport
 	if destinations == nil {
-		destinations = m.transport.NotificationDestinations()
+		if r, ok := m.transport.(NotificationRoutingTransport); ok {
+			router = r
+			for _, event := range events {
+				destinations = append(destinations, r.NotificationDestinationsForEvent(event)...)
+			}
+			destinations = uniqueDestinations(destinations)
+		} else {
+			destinations = m.transport.NotificationDestinations()
+		}
 	}
 	if len(destinations) == 0 {
 		m.logger.Warn("No notification destinations configured, cannot send notification")
@@ -458,7 +473,11 @@ func (m *NotificationMonitor) enqueueEvents(ctx context.Context, destinations []
 	persisted := m.applyStateTransitionLocked(ctx, func(candidate *notificationMonitorState) bool {
 		changed := ensureDestinations(candidate, destinations)
 		var enqueueChanged bool
-		queued, enqueueChanged, accepted = enqueueNotifications(candidate, destinations, events)
+		if router != nil {
+			queued, enqueueChanged, accepted = enqueueNotificationsByEvent(candidate, router, events)
+		} else {
+			queued, enqueueChanged, accepted = enqueueNotifications(candidate, destinations, events)
+		}
 		return changed || enqueueChanged
 	})
 	m.stateMu.Unlock()
@@ -767,6 +786,18 @@ func (m *NotificationMonitor) commitSourceProgress(ctx context.Context, destinat
 	if !m.canMutateNotificationState("Notification lock lost before advancing notification cursor") {
 		return nil, false
 	}
+	var router NotificationRoutingTransport
+	if destinations == nil {
+		if r, ok := m.transport.(NotificationRoutingTransport); ok {
+			router = r
+			for _, event := range events {
+				destinations = append(destinations, r.NotificationDestinationsForEvent(event)...)
+			}
+			destinations = uniqueDestinations(destinations)
+		} else {
+			destinations = m.transport.NotificationDestinations()
+		}
+	}
 
 	m.stateMu.Lock()
 	defer m.stateMu.Unlock()
@@ -784,7 +815,11 @@ func (m *NotificationMonitor) commitSourceProgress(ctx context.Context, destinat
 		cursorChanged := !candidate.SourceCursor.Equal(nextCursor)
 		candidate.SourceCursor = nextCursor.Normalize()
 		var enqueueChanged bool
-		queued, enqueueChanged, accepted = enqueueNotifications(candidate, destinations, events)
+		if router != nil {
+			queued, enqueueChanged, accepted = enqueueNotificationsByEvent(candidate, router, events)
+		} else {
+			queued, enqueueChanged, accepted = enqueueNotifications(candidate, destinations, events)
+		}
 		return changed || cursorChanged || enqueueChanged
 	})
 	if !persisted {
@@ -1211,6 +1246,44 @@ func enqueueNotifications(state *notificationMonitorState, destinations []string
 	}
 
 	return queued, changed, accepted
+}
+
+func enqueueNotificationsByEvent(state *notificationMonitorState, router NotificationRoutingTransport, events []NotificationEvent) ([]queuedNotification, bool, bool) {
+	var (
+		queued   []queuedNotification
+		changed  bool
+		accepted bool
+	)
+	for _, event := range events {
+		destinations := router.NotificationDestinationsForEvent(event)
+		if len(destinations) == 0 {
+			continue
+		}
+		eventQueued, eventChanged, eventAccepted := enqueueNotifications(state, destinations, []NotificationEvent{event})
+		queued = append(queued, eventQueued...)
+		changed = changed || eventChanged
+		accepted = accepted || eventAccepted
+	}
+	return queued, changed, accepted
+}
+
+func uniqueDestinations(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 func removePendingNotificationsForRun(destState *notificationDestinationState, runKey string) bool {

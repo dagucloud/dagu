@@ -26,6 +26,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/baseconfig"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/license"
+	notificationmodel "github.com/dagucloud/dagu/internal/notification"
 	"github.com/dagucloud/dagu/internal/remotenode"
 	"github.com/dagucloud/dagu/internal/runtime"
 	secretpkg "github.com/dagucloud/dagu/internal/secret"
@@ -35,6 +36,7 @@ import (
 	"github.com/dagucloud/dagu/internal/service/eventstore"
 	"github.com/dagucloud/dagu/internal/service/frontend/api/pathutil"
 	frontendauth "github.com/dagucloud/dagu/internal/service/frontend/auth"
+	notificationservice "github.com/dagucloud/dagu/internal/service/notification"
 	"github.com/dagucloud/dagu/internal/service/resource"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
 	"github.com/dagucloud/dagu/internal/tunnel"
@@ -68,6 +70,7 @@ type API struct {
 	authService          AuthService
 	auditService         *audit.Service
 	eventService         *eventstore.Service
+	notificationService  NotificationService
 	syncService          SyncService
 	tunnelService        *tunnel.Service
 	defaultExecMode      config.ExecutionMode
@@ -87,6 +90,13 @@ type API struct {
 	schedulerStateStore  scheduler.WatermarkStore
 	dagMutationNotifier  func(fileName string)
 	docMutationNotifier  func()
+}
+
+type NotificationService interface {
+	GetByDAGName(ctx context.Context, dagName string) (*notificationmodel.Settings, error)
+	Save(ctx context.Context, settings *notificationmodel.Settings, updatedBy string) (*notificationmodel.Settings, error)
+	DeleteByDAGName(ctx context.Context, dagName string) error
+	SendTest(ctx context.Context, dagName, targetID string, eventType eventstore.EventType) ([]notificationservice.TestResult, error)
 }
 
 // AuthService defines the interface for authentication operations.
@@ -150,6 +160,12 @@ func WithAuditService(as *audit.Service) APIOption {
 func WithEventService(es *eventstore.Service) APIOption {
 	return func(a *API) {
 		a.eventService = es
+	}
+}
+
+func WithNotificationService(ns NotificationService) APIOption {
+	return func(a *API) {
+		a.notificationService = ns
 	}
 }
 

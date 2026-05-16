@@ -41,6 +41,8 @@ tags:
     description: "API key management operations (admin only)"
   - name: "webhooks"
     description: "Webhook endpoints for triggering DAG execution"
+  - name: "notifications"
+    description: "DAG run notification settings and delivery tests"
   - name: "audit"
     description: "Audit log operations (admin only)"
   - name: "events"
@@ -4311,6 +4313,148 @@ paths:
                 $ref: "#/components/schemas/Error"
         "404":
           description: "No webhook configured for this DAG"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dags/{fileName}/notifications:
+    get:
+      summary: "Get DAG notification settings"
+      description: "Returns server-side notification settings for a specific DAG. Developer, manager, or admin only."
+      operationId: "getDAGNotifications"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      responses:
+        "200":
+          description: "DAG notification settings"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DAGNotificationSettings"
+        "404":
+          description: "No notification settings configured for this DAG"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    put:
+      summary: "Update DAG notification settings"
+      description: |
+        Creates or replaces server-side notification settings for a DAG.
+        Secret values are accepted in the request but are never returned.
+        Existing secret values are preserved when omitted for an existing target.
+        Developer, manager, or admin only.
+      operationId: "updateDAGNotifications"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDAGNotificationsRequest"
+      responses:
+        "200":
+          description: "DAG notification settings updated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DAGNotificationSettings"
+        "400":
+          description: "Invalid notification settings"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "DAG not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    delete:
+      summary: "Delete DAG notification settings"
+      description: "Removes all server-side notification settings for the specified DAG. Developer, manager, or admin only."
+      operationId: "deleteDAGNotifications"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      responses:
+        "204":
+          description: "DAG notification settings deleted"
+        "404":
+          description: "No notification settings configured for this DAG"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dags/{fileName}/notifications/test:
+    post:
+      summary: "Send a test DAG notification"
+      description: "Sends a test notification to one target or every enabled target for a DAG. Developer, manager, or admin only."
+      operationId: "testDAGNotifications"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TestDAGNotificationRequest"
+      responses:
+        "200":
+          description: "Test notification delivery attempted"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestDAGNotificationResponse"
+        "400":
+          description: "Invalid test notification request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "DAG or target not found"
           content:
             application/json:
               schema:
@@ -8706,6 +8850,301 @@ components:
         hmacSecret:
           type: string
           description: "Full HMAC secret (only shown once, store securely!)"
+
+    NotificationProviderType:
+      type: string
+      description: "Notification delivery provider"
+      enum:
+        - email
+        - webhook
+        - slack
+        - telegram
+
+    NotificationEventType:
+      type: string
+      description: "DAG run event that can trigger server-side notifications"
+      enum:
+        - dag.run.waiting
+        - dag.run.succeeded
+        - dag.run.failed
+        - dag.run.aborted
+        - dag.run.rejected
+
+    NotificationEmailTarget:
+      type: object
+      description: "Email notification target. SMTP settings are read from the DAG mail configuration."
+      required:
+        - to
+      properties:
+        from:
+          type: string
+          description: "Sender address. Defaults to the DAG mail sender for the event type."
+        to:
+          type: array
+          items:
+            type: string
+          description: "Primary recipients"
+        cc:
+          type: array
+          items:
+            type: string
+          description: "CC recipients"
+        bcc:
+          type: array
+          items:
+            type: string
+          description: "BCC recipients"
+        subjectPrefix:
+          type: string
+          description: "Subject prefix. Defaults to the DAG mail prefix for the event type."
+        attachLogs:
+          type: boolean
+          description: "Attach DAG and step logs when available"
+
+    NotificationWebhookTargetInput:
+      type: object
+      description: "Outbound webhook target input. Values are encrypted at rest."
+      properties:
+        url:
+          type: string
+          format: uri
+          description: "HTTP or HTTPS endpoint to POST notification payloads to. Omit on updates to preserve the existing URL."
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: "Additional request headers. Values are encrypted at rest."
+        hmacSecret:
+          type: string
+          description: "Optional HMAC secret for X-Dagu-Signature. Omit on updates to preserve the existing secret."
+
+    NotificationWebhookTarget:
+      type: object
+      description: "Public outbound webhook target details"
+      required:
+        - urlConfigured
+        - hmacSecretConfigured
+      properties:
+        urlConfigured:
+          type: boolean
+          description: "Whether a webhook URL is configured"
+        urlPreview:
+          type: string
+          description: "Redacted URL preview"
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: "Header names with redacted values"
+        hmacSecretConfigured:
+          type: boolean
+          description: "Whether an HMAC secret is configured"
+
+    NotificationSlackTargetInput:
+      type: object
+      description: "Slack incoming webhook target input. Values are encrypted at rest."
+      properties:
+        webhookUrl:
+          type: string
+          format: uri
+          description: "Slack incoming webhook URL. Omit on updates to preserve the existing URL."
+
+    NotificationSlackTarget:
+      type: object
+      description: "Public Slack target details"
+      required:
+        - webhookUrlConfigured
+      properties:
+        webhookUrlConfigured:
+          type: boolean
+          description: "Whether a Slack incoming webhook URL is configured"
+        webhookUrlPreview:
+          type: string
+          description: "Redacted Slack webhook URL preview"
+
+    NotificationTelegramTargetInput:
+      type: object
+      description: "Telegram Bot API target input. Bot token is encrypted at rest."
+      properties:
+        botToken:
+          type: string
+          description: "Telegram bot token. Omit on updates to preserve the existing token."
+        chatId:
+          type: string
+          description: "Telegram chat ID"
+
+    NotificationTelegramTarget:
+      type: object
+      description: "Public Telegram target details"
+      required:
+        - botTokenConfigured
+      properties:
+        botTokenConfigured:
+          type: boolean
+          description: "Whether a Telegram bot token is configured"
+        botTokenPreview:
+          type: string
+          description: "Redacted Telegram bot token preview"
+        chatId:
+          type: string
+          description: "Telegram chat ID"
+
+    NotificationTargetInput:
+      type: object
+      description: "Notification target input"
+      required:
+        - type
+        - enabled
+      properties:
+        id:
+          type: string
+          description: "Stable target ID. Omit when creating a new target."
+        name:
+          type: string
+          description: "Human-readable target name"
+        type:
+          $ref: "#/components/schemas/NotificationProviderType"
+        enabled:
+          type: boolean
+          description: "Whether this target receives notifications"
+        email:
+          $ref: "#/components/schemas/NotificationEmailTarget"
+        webhook:
+          $ref: "#/components/schemas/NotificationWebhookTargetInput"
+        slack:
+          $ref: "#/components/schemas/NotificationSlackTargetInput"
+        telegram:
+          $ref: "#/components/schemas/NotificationTelegramTargetInput"
+
+    NotificationTarget:
+      type: object
+      description: "Public notification target details. Secrets are never returned."
+      required:
+        - id
+        - type
+        - enabled
+      properties:
+        id:
+          type: string
+          description: "Stable target ID"
+        name:
+          type: string
+          description: "Human-readable target name"
+        type:
+          $ref: "#/components/schemas/NotificationProviderType"
+        enabled:
+          type: boolean
+          description: "Whether this target receives notifications"
+        email:
+          $ref: "#/components/schemas/NotificationEmailTarget"
+        webhook:
+          $ref: "#/components/schemas/NotificationWebhookTarget"
+        slack:
+          $ref: "#/components/schemas/NotificationSlackTarget"
+        telegram:
+          $ref: "#/components/schemas/NotificationTelegramTarget"
+
+    DAGNotificationSettings:
+      type: object
+      description: "Server-side DAG notification settings"
+      required:
+        - id
+        - dagName
+        - enabled
+        - events
+        - targets
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          description: "Stable settings ID"
+        dagName:
+          type: string
+          description: "Name of the DAG these settings apply to"
+        enabled:
+          type: boolean
+          description: "Whether notification delivery is enabled for this DAG"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationEventType"
+          description: "DAG run events that trigger notifications"
+        targets:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationTarget"
+          description: "Configured notification targets"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        updatedBy:
+          type: string
+          description: "User ID that last updated the settings"
+
+    UpdateDAGNotificationsRequest:
+      type: object
+      description: "Request to replace DAG notification settings"
+      required:
+        - enabled
+        - events
+        - targets
+      properties:
+        enabled:
+          type: boolean
+          description: "Whether notification delivery is enabled for this DAG"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationEventType"
+        targets:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationTargetInput"
+
+    TestDAGNotificationRequest:
+      type: object
+      description: "Request to send a test notification"
+      properties:
+        targetId:
+          type: string
+          description: "Optional target ID. When omitted, every enabled target is tested."
+        eventType:
+          $ref: "#/components/schemas/NotificationEventType"
+
+    TestDAGNotificationResult:
+      type: object
+      description: "Delivery result for one notification target"
+      required:
+        - targetId
+        - targetName
+        - provider
+        - delivered
+      properties:
+        targetId:
+          type: string
+        targetName:
+          type: string
+        provider:
+          $ref: "#/components/schemas/NotificationProviderType"
+        delivered:
+          type: boolean
+        error:
+          type: string
+
+    TestDAGNotificationResponse:
+      type: object
+      description: "Result of test notification delivery"
+      required:
+        - results
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/TestDAGNotificationResult"
 
     Stream:
       type: string

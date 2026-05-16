@@ -1,5 +1,6 @@
 import { Tabs } from '@/components/ui/tabs';
 import {
+  Bell,
   FileCode,
   History,
   PlayCircle,
@@ -21,6 +22,7 @@ import {
   StepLog,
 } from '../dag-execution';
 import { DAGHeader } from './';
+import NotificationsTab from './NotificationsTab';
 import WebhookTab from './WebhookTab';
 
 type DAGDetailsContentProps = {
@@ -86,11 +88,7 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
     stepName: undefined,
   });
   const dagWorkspaceName = React.useMemo(
-    () =>
-      workspaceNameFromLabels([
-        ...(dag.labels ?? []),
-        ...(dag.tags ?? []),
-      ]),
+    () => workspaceNameFromLabels([...(dag.labels ?? []), ...(dag.tags ?? [])]),
     [dag.labels, dag.tags]
   );
 
@@ -200,6 +198,23 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
 
               {isModal ? (
                 <ModalLinkTab
+                  label="Notifications"
+                  value="notifications"
+                  isActive={activeTab === 'notifications'}
+                  icon={Bell}
+                  onClick={() => handleTabClick('notifications')}
+                />
+              ) : (
+                <LinkTab
+                  label="Notifications"
+                  value={`${baseUrl}/notifications`}
+                  isActive={activeTab === 'notifications'}
+                  icon={Bell}
+                />
+              )}
+
+              {isModal ? (
+                <ModalLinkTab
                   label="History"
                   value="history"
                   isActive={activeTab === 'history'}
@@ -304,6 +319,27 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
               {isModal ? (
                 <ModalLinkTab
                   label=""
+                  value="notifications"
+                  isActive={activeTab === 'notifications'}
+                  icon={Bell}
+                  onClick={() => handleTabClick('notifications')}
+                  className="flex-1 justify-center"
+                  aria-label="Notifications"
+                />
+              ) : (
+                <LinkTab
+                  label=""
+                  value={`${baseUrl}/notifications`}
+                  isActive={activeTab === 'notifications'}
+                  icon={Bell}
+                  className="flex-1 justify-center"
+                  aria-label="Notifications"
+                />
+              )}
+
+              {isModal ? (
+                <ModalLinkTab
+                  label=""
                   value="history"
                   isActive={activeTab === 'history'}
                   icon={History}
@@ -381,6 +417,12 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
           {activeTab === 'webhook' ? (
             <>
               <WebhookTab fileName={fileName || ''} />
+              <div className="h-6 flex-shrink-0" />
+            </>
+          ) : null}
+          {activeTab === 'notifications' ? (
+            <>
+              <NotificationsTab fileName={fileName || ''} />
               <div className="h-6 flex-shrink-0" />
             </>
           ) : null}

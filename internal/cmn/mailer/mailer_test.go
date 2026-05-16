@@ -210,6 +210,7 @@ func TestComposeMailSanitizesHeaders(t *testing.T) {
 	client := New(Config{})
 	payload := string(client.composeMail(
 		[]string{"to@example.com\r\nX-Dagu-To: injected"},
+		nil,
 		"from@example.com\r\nX-Dagu-From: injected",
 		"subject\r\nX-Dagu-Subject: injected",
 		"body",
@@ -248,6 +249,7 @@ func TestComposeMailAttachmentTransferEncodingHeaderAppearsOncePerPart(t *testin
 	client := New(Config{})
 	payload := string(client.composeMail(
 		[]string{"to@example.com"},
+		nil,
 		"from@example.com",
 		"subject",
 		"body",
@@ -263,6 +265,7 @@ func TestComposeMailEndsWithClosingBoundary(t *testing.T) {
 	client := New(Config{})
 	payload := string(client.composeMail(
 		[]string{"to@example.com"},
+		nil,
 		"from@example.com",
 		"subject",
 		"body",
@@ -390,6 +393,41 @@ func TestSendSanitizesHeaders(t *testing.T) {
 	require.Contains(t, payload, "Subject: SubjectX-Dagu-Subject: injected")
 }
 
+func TestSendWithRecipientsAddsCcHeaderAndOmitsBccHeader(t *testing.T) {
+	t.Parallel()
+
+	server, err := newSMTPRecordingServer()
+	require.NoError(t, err)
+	defer func() {
+		_ = server.Close()
+	}()
+
+	go server.Serve()
+
+	host, port, err := net.SplitHostPort(server.Address())
+	require.NoError(t, err)
+
+	mailer := New(Config{Host: host, Port: port})
+	err = mailer.SendWithRecipients(
+		context.Background(),
+		"from@example.com",
+		[]string{"to@example.com"},
+		[]string{"cc@example.com"},
+		[]string{"bcc@example.com"},
+		"Subject",
+		"Body",
+		nil,
+	)
+	require.NoError(t, err)
+
+	payloads := server.RecordedDataBodies()
+	require.Len(t, payloads, 1)
+	payload := payloads[0]
+	require.Contains(t, payload, "To: to@example.com")
+	require.Contains(t, payload, "Cc: cc@example.com")
+	require.NotContains(t, payload, "bcc@example.com")
+}
+
 type smtpRecordingServer struct {
 	listener           net.Listener
 	advertiseSTARTTLS  bool
@@ -515,7 +553,7 @@ func (m *Client) sendWithNoAuth(
 ) error {
 	ctx, cancel := context.WithTimeout(context.Background(), mailTimeout)
 	defer cancel()
-	return m.send(ctx, from, to, subject, body, attachments, false)
+	return m.send(ctx, from, to, nil, nil, subject, body, attachments, false)
 }
 
 func (m *Client) sendWithAuth(
@@ -526,7 +564,7 @@ func (m *Client) sendWithAuth(
 ) error {
 	ctx, cancel := context.WithTimeout(context.Background(), mailTimeout)
 	defer cancel()
-	return m.send(ctx, from, to, subject, body, attachments, true)
+	return m.send(ctx, from, to, nil, nil, subject, body, attachments, true)
 }
 
 // mockSMTPServer creates a mock SMTP server for testing
