@@ -2719,6 +2719,17 @@ steps:
 			expected: &core.ArtifactsConfig{Enabled: true},
 		},
 		{
+			name: "AutoEnableWhenStdoutArtifactIsUsed",
+			yaml: `
+steps:
+  - name: report
+    run: ./generate-report
+    stdout:
+      artifact: reports/report.md
+`,
+			expected: &core.ArtifactsConfig{Enabled: true},
+		},
+		{
 			name: "AutoEnableWhenPowerShellEnvReferenceArtifactsDir",
 			yaml: `
 steps:

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"path"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
@@ -52,9 +54,9 @@ type step struct {
 	// Script is the script to run.
 	Script string `yaml:"script,omitempty"`
 	// Stdout is the file to write the stdout.
-	Stdout string `yaml:"stdout,omitempty"`
+	Stdout any `yaml:"stdout,omitempty"`
 	// Stderr is the file to write the stderr.
-	Stderr string `yaml:"stderr,omitempty"`
+	Stderr any `yaml:"stderr,omitempty"`
 	// LogOutput specifies how stdout and stderr are handled in log files for this step.
 	// Overrides the DAG-level logOutput setting.
 	// Can be "separate" (default) for separate .out and .err files,
@@ -416,7 +418,9 @@ var stepTransformers = []stepTransform{
 	{"shell_packages", newStepTransformer("ShellPackages", buildStepShellPackages)},
 	{"script", newStepTransformer("Script", buildStepScript)},
 	{"stdout", newStepTransformer("Stdout", buildStepStdout)},
+	{"stdout.artifact", newStepTransformer("StdoutArtifact", buildStepStdoutArtifact)},
 	{"stderr", newStepTransformer("Stderr", buildStepStderr)},
+	{"stderr.artifact", newStepTransformer("StderrArtifact", buildStepStderrArtifact)},
 	{"log_output", newStepTransformer("LogOutput", buildStepLogOutput)},
 	{"mail_on_error", newStepTransformer("MailOnError", buildStepMailOnError)},
 	{"worker_selector", newStepTransformer("WorkerSelector", buildStepWorkerSelector)},
@@ -588,11 +592,101 @@ func buildStepScript(_ StepBuildContext, s *step) (string, error) {
 }
 
 func buildStepStdout(_ StepBuildContext, s *step) (string, error) {
-	return strings.TrimSpace(s.Stdout), nil
+	path, _, err := buildStepOutputRedirect("stdout", s.Stdout)
+	return path, err
+}
+
+func buildStepStdoutArtifact(_ StepBuildContext, s *step) (string, error) {
+	_, artifact, err := buildStepOutputRedirect("stdout", s.Stdout)
+	return artifact, err
 }
 
 func buildStepStderr(_ StepBuildContext, s *step) (string, error) {
-	return strings.TrimSpace(s.Stderr), nil
+	path, _, err := buildStepOutputRedirect("stderr", s.Stderr)
+	return path, err
+}
+
+func buildStepStderrArtifact(_ StepBuildContext, s *step) (string, error) {
+	_, artifact, err := buildStepOutputRedirect("stderr", s.Stderr)
+	return artifact, err
+}
+
+func buildStepOutputRedirect(field string, raw any) (filePath string, artifactPath string, err error) {
+	switch v := raw.(type) {
+	case nil:
+		return "", "", nil
+	case string:
+		return strings.TrimSpace(v), "", nil
+	case map[string]any:
+		return parseStepArtifactOutputRedirect(field, v)
+	case map[any]any:
+		converted := make(map[string]any, len(v))
+		for key, value := range v {
+			keyString, ok := key.(string)
+			if !ok {
+				return "", "", fmt.Errorf("%s object keys must be strings", field)
+			}
+			converted[keyString] = value
+		}
+		return parseStepArtifactOutputRedirect(field, converted)
+	default:
+		return "", "", fmt.Errorf("%s must be a string path or an object with artifact", field)
+	}
+}
+
+func parseStepArtifactOutputRedirect(field string, raw map[string]any) (string, string, error) {
+	if len(raw) != 1 {
+		return "", "", fmt.Errorf("%s object must contain only artifact", field)
+	}
+	value, ok := raw["artifact"]
+	if !ok {
+		return "", "", fmt.Errorf("%s object must contain artifact", field)
+	}
+	artifact, ok := value.(string)
+	if !ok {
+		return "", "", fmt.Errorf("%s.artifact must be a string", field)
+	}
+	clean, err := cleanStepArtifactPath(artifact)
+	if err != nil {
+		return "", "", fmt.Errorf("%s.artifact: %w", field, err)
+	}
+	return "", clean, nil
+}
+
+func cleanStepArtifactPath(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", fmt.Errorf("path must not be empty")
+	}
+	normalized := strings.ReplaceAll(raw, "\\", "/")
+	if strings.HasPrefix(normalized, "/") ||
+		strings.HasPrefix(normalized, "~/") ||
+		normalized == "~" ||
+		filepath.IsAbs(raw) ||
+		hasWindowsDrive(raw) ||
+		hasWindowsDrive(normalized) {
+		return "", fmt.Errorf("artifact path must be relative")
+	}
+	if slices.Contains(strings.Split(normalized, "/"), "..") {
+		return "", fmt.Errorf("artifact path must not contain parent directory segments")
+	}
+
+	clean := path.Clean(normalized)
+	if clean == "." {
+		return "", fmt.Errorf("artifact path must name a file")
+	}
+	if strings.HasPrefix(clean, "/") {
+		return "", fmt.Errorf("artifact path must be relative")
+	}
+	return clean, nil
+}
+
+func hasWindowsDrive(value string) bool {
+	if len(value) < 2 || value[1] != ':' {
+		return false
+	}
+	ch := value[0]
+	return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')
 }
 
 func buildStepLogOutput(_ StepBuildContext, s *step) (core.LogOutputMode, error) {

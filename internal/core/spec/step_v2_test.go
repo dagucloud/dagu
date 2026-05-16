@@ -541,6 +541,44 @@ steps:
 	assert.Empty(t, step.ExecutorConfig.Config)
 }
 
+func TestStepSchemaV2_StdoutArtifact(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: report
+    run: ./generate-report
+    stdout:
+      artifact: reports/report.md
+    stderr:
+      artifact: reports/report.err
+`))
+	require.NoError(t, err)
+	require.NotNil(t, dag.Artifacts)
+	assert.True(t, dag.Artifacts.Enabled)
+	require.Len(t, dag.Steps, 1)
+	assert.Empty(t, dag.Steps[0].Stdout)
+	assert.Equal(t, "reports/report.md", dag.Steps[0].StdoutArtifact)
+	assert.Empty(t, dag.Steps[0].Stderr)
+	assert.Equal(t, "reports/report.err", dag.Steps[0].StderrArtifact)
+}
+
+func TestStepSchemaV2_StdoutArtifactRejectsDisabledArtifacts(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+artifacts:
+  enabled: false
+steps:
+  - id: report
+    run: ./generate-report
+    stdout:
+      artifact: reports/report.md
+`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "artifact outputs require artifacts.enabled to be true")
+}
+
 func TestStepSchemaV2_ActionHarnessStdin(t *testing.T) {
 	t.Parallel()
 

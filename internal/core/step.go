@@ -53,8 +53,12 @@ type Step struct {
 	Commands []CommandEntry `json:"commands,omitempty"`
 	// Stdout is the file to store the standard output.
 	Stdout string `json:"stdout,omitempty"`
+	// StdoutArtifact is the artifact-relative file path to store standard output.
+	StdoutArtifact string `json:"stdoutArtifact,omitempty"`
 	// Stderr is the file to store the standard error.
 	Stderr string `json:"stderr,omitempty"`
+	// StderrArtifact is the artifact-relative file path to store standard error.
+	StderrArtifact string `json:"stderrArtifact,omitempty"`
 	// LogOutput specifies how stdout and stderr are handled in log files for this step.
 	// Overrides the DAG-level LogOutput setting. Empty string means inherit from DAG.
 	LogOutput LogOutputMode `json:"logOutput,omitempty"`

@@ -263,11 +263,13 @@ func TestBuildStepStdout(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		input    string
+		input    any
 		expected string
 	}{
 		{name: "SimplePath", input: "/tmp/output.log", expected: "/tmp/output.log"},
 		{name: "Trimmed", input: "  /tmp/out.log  ", expected: "/tmp/out.log"},
+		{name: "Artifact", input: map[string]any{"artifact": "reports/report.md"}, expected: ""},
+		{name: "TrimmedArtifact", input: map[string]any{"artifact": "  reports/report.md  "}, expected: ""},
 		{name: "Empty", input: "", expected: ""},
 	}
 
@@ -281,16 +283,47 @@ func TestBuildStepStdout(t *testing.T) {
 	}
 }
 
+func TestBuildStepStdoutRejectsInvalidArtifactPath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "Empty", path: ""},
+		{name: "Absolute", path: "/tmp/report.md"},
+		{name: "ParentTraversal", path: "../report.md"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &step{Stdout: map[string]any{"artifact": tt.path}}
+			_, err := buildStepStdout(testStepBuildContext(), s)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestBuildStepStdoutArtifact(t *testing.T) {
+	t.Parallel()
+
+	s := &step{Stdout: map[string]any{"artifact": " reports/report.md "}}
+	result, err := buildStepStdoutArtifact(testStepBuildContext(), s)
+	require.NoError(t, err)
+	assert.Equal(t, "reports/report.md", result)
+}
+
 func TestBuildStepStderr(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name     string
-		input    string
+		input    any
 		expected string
 	}{
 		{name: "SimplePath", input: "/tmp/error.log", expected: "/tmp/error.log"},
 		{name: "Trimmed", input: "  /tmp/err.log  ", expected: "/tmp/err.log"},
+		{name: "Artifact", input: map[string]any{"artifact": "reports/errors.txt"}, expected: ""},
 		{name: "Empty", input: "", expected: ""},
 	}
 
@@ -302,6 +335,15 @@ func TestBuildStepStderr(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestBuildStepStderrArtifact(t *testing.T) {
+	t.Parallel()
+
+	s := &step{Stderr: map[string]any{"artifact": " reports/report.err "}}
+	result, err := buildStepStderrArtifact(testStepBuildContext(), s)
+	require.NoError(t, err)
+	assert.Equal(t, "reports/report.err", result)
 }
 
 func TestBuildStepMailOnError(t *testing.T) {

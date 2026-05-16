@@ -1642,12 +1642,46 @@
           "description": "Deprecated multi-line script content. Use run with a multi-line string."
         },
         "stdout": {
-          "type": "string",
-          "description": "File path where the step's standard output (stdout) will be written."
+          "oneOf": [
+            {
+              "type": "string",
+              "description": "File path where the step's standard output (stdout) will be written."
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["artifact"],
+              "properties": {
+                "artifact": {
+                  "type": "string",
+                  "description": "Artifact-relative path where stdout will be written."
+                }
+              },
+              "description": "Write stdout to a DAG-run artifact path."
+            }
+          ],
+          "description": "File path or artifact-relative destination where the step's standard output (stdout) will be written."
         },
         "stderr": {
-          "type": "string",
-          "description": "File path where the step's standard error (stderr) will be written."
+          "oneOf": [
+            {
+              "type": "string",
+              "description": "File path where the step's standard error (stderr) will be written."
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["artifact"],
+              "properties": {
+                "artifact": {
+                  "type": "string",
+                  "description": "Artifact-relative path where stderr will be written."
+                }
+              },
+              "description": "Write stderr to a DAG-run artifact path."
+            }
+          ],
+          "description": "File path or artifact-relative destination where the step's standard error (stderr) will be written."
         },
         "log_output": {
           "type": "string",

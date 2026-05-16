@@ -526,6 +526,11 @@ steps:
 			name: "ArtifactActions",
 			spec: `
 steps:
+  - run: ./generate-report
+    stdout:
+      artifact: reports/report.md
+    stderr:
+      artifact: reports/report.err
   - action: artifact.write
     with:
       path: reports/summary.md
