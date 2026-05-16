@@ -788,7 +788,13 @@ func TestCreateRemoteHandlers(t *testing.T) {
 func TestAgentStoresFromSnapshot_HydratesSnapshotStores(t *testing.T) {
 	t.Parallel()
 
-	handler := &remoteTaskHandler{}
+	handler := &remoteTaskHandler{
+		config: &config.Config{
+			Paths: config.PathsConfig{
+				DataDir: t.TempDir(),
+			},
+		},
+	}
 	payload, err := agent.MarshalSnapshot(&agent.Snapshot{
 		Config: &agent.Config{
 			Enabled:        true,
@@ -819,6 +825,7 @@ func TestAgentStoresFromSnapshot_HydratesSnapshotStores(t *testing.T) {
 	require.NotNil(t, stores.modelStore)
 	require.NotNil(t, stores.soulStore)
 	require.NotNil(t, stores.memoryStore)
+	require.NotNil(t, stores.secretStore)
 	assert.Nil(t, stores.oauthManager)
 
 	cfg, err := stores.configStore.Load(context.Background())

@@ -44,6 +44,12 @@ func (r *envResolver) Validate(ref core.SecretRef) error {
 	return nil
 }
 
+// CheckCapability reports that environment lookup can check existence without
+// returning the value to callers.
+func (r *envResolver) CheckCapability(core.SecretRef) CheckCapability {
+	return CheckCapabilityNoFetch
+}
+
 // Resolve fetches the secret value from the environment.
 // It first checks the context-provided EnvScope (for DAG-level env vars),
 // then falls back to the global OS environment.

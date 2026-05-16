@@ -47,6 +47,7 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime/builtin/ssh"
 	"github.com/dagucloud/dagu/internal/runtime/remote"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
+	secretpkg "github.com/dagucloud/dagu/internal/secret"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin"
@@ -73,6 +74,9 @@ type Agent struct {
 
 	// dagRunStore is the database to store the run history.
 	dagRunStore exec.DAGRunStore
+
+	// secretStore resolves workspace-local team-managed secret references.
+	secretStore secretpkg.Store
 
 	// registry is the service registry to find the coordinator service.
 	registry exec.ServiceRegistry
@@ -277,6 +281,8 @@ type Options struct {
 	PreparedAttempt exec.DAGRunAttempt
 	// DAGRunStore is the store for dag-run data. Nil in shared-nothing mode.
 	DAGRunStore exec.DAGRunStore
+	// SecretStore resolves workspace-local team-managed secret references.
+	SecretStore secretpkg.Store
 	// ServiceRegistry is the registry for service discovery.
 	ServiceRegistry exec.ServiceRegistry
 	// RootDAGRun is the root dag-run reference for sub-DAG runs.
@@ -335,6 +341,7 @@ func New(
 		dagRunMgr:                  drm,
 		dagStore:                   ds,
 		dagRunStore:                opts.DAGRunStore,
+		secretStore:                opts.SecretStore,
 		registry:                   opts.ServiceRegistry,
 		extraEnvs:                  append([]string{}, opts.ExtraEnvs...),
 		stepRetry:                  opts.StepRetry,
@@ -1479,6 +1486,16 @@ func (a *Agent) resolveSecrets(ctx context.Context) ([]string, error) {
 
 	baseDirs := a.buildSecretBaseDirs(envScope)
 	secretRegistry := secrets.NewRegistry(baseDirs...)
+	if a.secretStore != nil {
+		workspaceName := ""
+		if name, ok := exec.WorkspaceNameFromLabels(a.dag.Labels); ok {
+			workspaceName = name
+		}
+		secretRegistry = secrets.NewRegistryWithReferenceResolver(
+			secretpkg.NewReferenceResolver(a.secretStore, workspaceName),
+			baseDirs...,
+		)
+	}
 
 	resolvedSecrets, err := secretRegistry.ResolveAll(secretCtx, a.dag.Secrets)
 	if err != nil {

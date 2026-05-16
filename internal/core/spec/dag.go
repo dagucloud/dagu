@@ -427,9 +427,11 @@ type redisConfig struct {
 type secretRef struct {
 	// Name is the environment variable name (required).
 	Name string `yaml:"name"`
-	// Provider specifies the secret backend (required).
+	// Ref is the workspace-local registry reference for a team-managed secret.
+	Ref string `yaml:"ref,omitempty"`
+	// Provider specifies the secret backend for a direct provider reference.
 	Provider string `yaml:"provider"`
-	// Key is the provider-specific identifier (required).
+	// Key is the provider-specific identifier for a direct provider reference.
 	Key string `yaml:"key"`
 	// Options contains provider-specific configuration (optional).
 	Options map[string]string `yaml:"options,omitempty"`
@@ -2294,11 +2296,11 @@ func buildHarness(ctx BuildContext, d *dag) (*core.HarnessConfig, error) {
 	}, nil
 }
 
-func buildSecrets(_ BuildContext, d *dag) ([]core.SecretRef, error) {
+func buildSecrets(ctx BuildContext, d *dag) ([]core.SecretRef, error) {
 	if len(d.Secrets) == 0 {
 		return nil, nil
 	}
-	return parseSecretRefs(d.Secrets)
+	return parseSecretRefs(ctx, d)
 }
 
 func buildTools(_ BuildContext, d *dag) (*core.ToolConfig, error) {

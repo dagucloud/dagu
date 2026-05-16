@@ -54,6 +54,12 @@ func (r *vaultResolver) Validate(ref core.SecretRef) error {
 	return nil
 }
 
+// CheckCapability reports that the current Vault check implementation must
+// read the secret to verify field-level access.
+func (r *vaultResolver) CheckCapability(core.SecretRef) CheckCapability {
+	return CheckCapabilityRequiresValueRead
+}
+
 // Resolve fetches the secret value from HashiCorp Vault.
 func (r *vaultResolver) Resolve(ctx context.Context, ref core.SecretRef) (string, error) {
 	client, err := r.getClient(ctx, ref)
