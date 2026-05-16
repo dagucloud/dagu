@@ -69,11 +69,9 @@ func newEnqueueExecutor(_ context.Context, step core.Step) (executor.Executor, e
 	}
 
 	if rawQueue, ok := step.ExecutorConfig.Config[dagEnqueueQueueConfigKey]; ok {
-		queue, ok := rawQueue.(string)
-		if !ok {
+		if _, ok := rawQueue.(string); !ok {
 			return nil, fmt.Errorf("dag.enqueue with.queue must be a string")
 		}
-		step.ExecutorConfig.Config[dagEnqueueQueueConfigKey] = strings.TrimSpace(queue)
 	}
 
 	return &enqueueExecutor{step: step}, nil
