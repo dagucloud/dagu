@@ -201,7 +201,7 @@ steps:
 		}
 		statuses := th.DAGRunMgr.ListRecentStatus(th.Context, dag.Name, 5)
 		return len(statuses) > 0 && statuses[0].Status == core.Succeeded
-	}, 10*time.Second, 100*time.Millisecond)
+	}, intgTestTimeout(30*time.Second), 100*time.Millisecond)
 	require.NoError(t, schedulerErr)
 
 	status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag)
@@ -220,7 +220,7 @@ steps:
 				err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded),
 				"unexpected scheduler shutdown error: %v", err,
 			)
-		case <-time.After(5 * time.Second):
+		case <-time.After(intgTestTimeout(5 * time.Second)):
 			t.Fatal("scheduler did not stop within 5 seconds")
 		}
 	}

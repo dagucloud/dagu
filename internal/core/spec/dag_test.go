@@ -2728,6 +2728,18 @@ steps:
 			expected: &core.ArtifactsConfig{Enabled: true},
 		},
 		{
+			name: "AutoEnableWhenArtifactActionIsUsed",
+			yaml: `
+steps:
+  - name: write
+    action: artifact.write
+    with:
+      path: out.txt
+      content: artifact
+`,
+			expected: &core.ArtifactsConfig{Enabled: true},
+		},
+		{
 			name: "LiteralMentionWithoutEnvReferenceDoesNotAutoEnable",
 			yaml: `
 steps:
@@ -2764,6 +2776,28 @@ steps:
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestBuildArtifactsRejectsDisabledArtifactsForArtifactAction(t *testing.T) {
+	t.Parallel()
+
+	var d dag
+	err := yaml.Unmarshal([]byte(`
+artifacts:
+  enabled: false
+steps:
+  - name: write
+    action: artifact.write
+    with:
+      path: out.txt
+      content: artifact
+`), &d)
+	require.NoError(t, err)
+
+	result, err := buildArtifacts(testBuildContext(), &d)
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "artifact actions require artifacts.enabled to be true")
 }
 
 func TestBuildApprovalStepsValidation(t *testing.T) {

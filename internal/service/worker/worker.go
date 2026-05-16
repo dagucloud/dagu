@@ -61,6 +61,11 @@ type runningTaskState struct {
 
 var errTaskClaimRejectedBeforeExecution = errors.New("task claim rejected before execution")
 
+const (
+	ownerRunHeartbeatCallTimeout = 10 * time.Second
+	ownerHeartbeatTimeout        = exec.DefaultStaleLeaseThreshold
+)
+
 // SetHandler sets a custom task executor for testing or custom execution logic
 func (w *Worker) SetHandler(executor TaskHandler) {
 	w.handler = executor
@@ -373,7 +378,7 @@ func (w *Worker) validateClaimedTask(ctx context.Context, owner exec.HostInfo, t
 		return false, nil
 	}
 
-	callCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	callCtx, cancel := context.WithTimeout(ctx, ownerRunHeartbeatCallTimeout)
 	resp, err := w.coordinatorCli.RunHeartbeatTo(callCtx, owner, &coordinatorv1.RunHeartbeatRequest{
 		WorkerId:           w.id,
 		OwnerCoordinatorId: owner.ID,
@@ -491,7 +496,7 @@ func (w *Worker) sendOwnerRunHeartbeats(ctx context.Context) {
 	w.pollersMu.Unlock()
 
 	for _, group := range groups {
-		callCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		callCtx, cancel := context.WithTimeout(ctx, ownerRunHeartbeatCallTimeout)
 		resp, err := w.coordinatorCli.RunHeartbeatTo(callCtx, group.owner, &coordinatorv1.RunHeartbeatRequest{
 			WorkerId:           w.id,
 			OwnerCoordinatorId: group.owner.ID,
@@ -526,8 +531,6 @@ func (w *Worker) markOwnerHeartbeatSuccess(tasks []*coordinatorv1.RunningTask, o
 }
 
 func (w *Worker) cancelTasksForOwnerTimeout(ctx context.Context, owner exec.HostInfo, tasks []*coordinatorv1.RunningTask, lastSeen map[string]time.Time) {
-	const ownerHeartbeatTimeout = 15 * time.Second
-
 	now := time.Now().UTC()
 	var timedOut []*coordinatorv1.CancelledRun
 	for _, task := range tasks {

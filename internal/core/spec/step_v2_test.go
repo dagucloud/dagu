@@ -474,6 +474,73 @@ steps:
 	}
 }
 
+func TestStepSchemaV2_ActionArtifactOperations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		action string
+		op     string
+		with   string
+	}{
+		{
+			action: "artifact.write",
+			op:     "write",
+			with: `path: reports/summary.md
+      content: hello`,
+		},
+		{
+			action: "artifact.read",
+			op:     "read",
+			with:   "path: reports/summary.md",
+		},
+		{
+			action: "artifact.list",
+			op:     "list",
+			with:   "path: reports",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.action, func(t *testing.T) {
+			t.Parallel()
+
+			dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: artifact_step
+    action: `+tt.action+`
+    with:
+      `+tt.with+`
+`))
+			require.NoError(t, err)
+			require.Len(t, dag.Steps, 1)
+
+			step := dag.Steps[0]
+			assert.Equal(t, "artifact", step.ExecutorConfig.Type)
+			require.Len(t, step.Commands, 1)
+			assert.Equal(t, tt.op, step.Commands[0].Command)
+			assert.NotEmpty(t, step.ExecutorConfig.Config)
+		})
+	}
+}
+
+func TestStepSchemaV2_ActionArtifactListAllowsOmittedWith(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: list_artifacts
+    action: artifact.list
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, "artifact", step.ExecutorConfig.Type)
+	require.Len(t, step.Commands, 1)
+	assert.Equal(t, "list", step.Commands[0].Command)
+	assert.Empty(t, step.ExecutorConfig.Config)
+}
+
 func TestStepSchemaV2_ActionHarnessStdin(t *testing.T) {
 	t.Parallel()
 
