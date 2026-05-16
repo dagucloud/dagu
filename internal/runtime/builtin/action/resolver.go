@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -285,14 +286,18 @@ func validatePackageVersion(version string) error {
 
 func safeRelativePath(rootDir, relPath string) (string, error) {
 	relPath = strings.TrimSpace(relPath)
-	if relPath == "" || filepath.IsAbs(relPath) {
+	if relPath == "" || isAbsoluteActionPath(relPath) {
 		return "", fmt.Errorf("path must be relative")
 	}
-	path := filepath.Join(rootDir, relPath)
-	if !isPathWithin(rootDir, path) {
+	slashPath := path.Clean(strings.ReplaceAll(relPath, `\`, "/"))
+	if slashPath == "." || slashPath == ".." || strings.HasPrefix(slashPath, "../") {
 		return "", fmt.Errorf("path escapes action directory")
 	}
-	return filepath.Clean(path), nil
+	resolvedPath := filepath.Join(rootDir, filepath.FromSlash(slashPath))
+	if !isPathWithin(rootDir, resolvedPath) {
+		return "", fmt.Errorf("path escapes action directory")
+	}
+	return filepath.Clean(resolvedPath), nil
 }
 
 func isPathWithin(dir, path string) bool {

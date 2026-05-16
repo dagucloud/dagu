@@ -264,7 +264,7 @@ func readPermissions(rootDir, inputPath string, extra []string) []string {
 	paths := []string{filepath.Clean(rootDir), filepath.Clean(inputPath)}
 	for _, item := range extra {
 		item = strings.TrimSpace(item)
-		if item == "" || filepath.IsAbs(item) {
+		if item == "" {
 			continue
 		}
 		if path, err := safeRelativePath(rootDir, item); err == nil {
@@ -278,7 +278,7 @@ func writePermissions(rootDir, outputDir string, extra []string) []string {
 	paths := []string{filepath.Clean(outputDir)}
 	for _, item := range extra {
 		item = strings.TrimSpace(item)
-		if item == "" || filepath.IsAbs(item) {
+		if item == "" {
 			continue
 		}
 		if path, err := safeRelativePath(rootDir, item); err == nil {

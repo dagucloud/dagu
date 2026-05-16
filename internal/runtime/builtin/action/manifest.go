@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -140,11 +141,30 @@ func validateNetPermission(host string) error {
 
 func validateRelativePermissionPath(rootDir, path string, kind string) error {
 	path = strings.TrimSpace(path)
-	if path == "" || filepath.IsAbs(path) {
+	if path == "" || isAbsoluteActionPath(path) {
 		return fmt.Errorf("invalid action %s permission path %q", kind, path)
 	}
 	if _, err := safeRelativePath(rootDir, path); err != nil {
 		return fmt.Errorf("invalid action %s permission path %q: %w", kind, path, err)
 	}
 	return nil
+}
+
+func isAbsoluteActionPath(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	if filepath.IsAbs(value) {
+		return true
+	}
+	slashPath := strings.ReplaceAll(value, `\`, "/")
+	if path.IsAbs(slashPath) {
+		return true
+	}
+	if len(slashPath) >= 2 && slashPath[1] == ':' {
+		drive := slashPath[0]
+		return ('A' <= drive && drive <= 'Z') || ('a' <= drive && drive <= 'z')
+	}
+	return false
 }

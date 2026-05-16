@@ -150,12 +150,31 @@ func TestWritePermissionsResolveExtrasFromActionRoot(t *testing.T) {
 	rootDir := filepath.Join(t.TempDir(), "action")
 	outputDir := filepath.Join(t.TempDir(), "output")
 
-	got := writePermissions(rootDir, outputDir, []string{"cache/state.json", "../secret", "/tmp/abs"})
+	got := writePermissions(rootDir, outputDir, []string{"cache/state.json", "../secret", "/tmp/abs", `C:\tmp\abs`})
 
 	assert.Equal(t, []string{
 		filepath.Clean(outputDir),
 		filepath.Join(rootDir, "cache", "state.json"),
 	}, got)
+}
+
+func TestValidateRelativePermissionPathRejectsAbsoluteLikePaths(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	for _, path := range []string{
+		"/tmp/abs",
+		`\tmp\abs`,
+		`C:\tmp\abs`,
+		"C:/tmp/abs",
+		"C:tmp",
+		"../secret",
+		"cache/../../secret",
+	} {
+		t.Run(path, func(t *testing.T) {
+			require.Error(t, validateRelativePermissionPath(rootDir, path, "read"))
+		})
+	}
 }
 
 func TestLoadManifestRejectsEscapingPermissionPath(t *testing.T) {
