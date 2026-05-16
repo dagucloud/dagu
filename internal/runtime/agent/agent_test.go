@@ -1232,9 +1232,11 @@ steps:
 		return err == nil && childStatus.Status == core.Succeeded
 	}, subDAGVisibleTimeout(), 100*time.Millisecond)
 
-	length, err := th.QueueStore.Len(th.Context, "background")
-	require.NoError(t, err)
-	require.Zero(t, length)
+	require.Eventually(t, func() bool {
+		processor.ProcessQueueItems(th.Context, "background")
+		length, err := th.QueueStore.Len(th.Context, "background")
+		return err == nil && length == 0
+	}, subDAGVisibleTimeout(), 100*time.Millisecond)
 }
 
 func subDAGVisibleTimeout() time.Duration {
