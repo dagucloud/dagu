@@ -1162,6 +1162,116 @@ steps:
 	require.Equal(t, "TARGET=async", *body.SubRuns[0].Params)
 }
 
+func TestUpdateSubDAGRunStepStatusHandlesTopLevelDagEnqueueRun(t *testing.T) {
+	server := test.SetupServer(t)
+
+	parent := &core.DAG{
+		Name: "dag_enqueue_status_parent",
+		Steps: []core.Step{
+			{Name: "enqueue-child"},
+		},
+	}
+	child := &core.DAG{
+		Name: "dag_enqueue_status_child",
+		Steps: []core.Step{
+			{Name: "child"},
+		},
+	}
+	parentRunID := "status-parent-run"
+	childRunID := "status-child-run"
+	seedLatestDAGRunStatus(t, server, parent, parentRunID, core.Succeeded, seedDAGRunStatusOptions{
+		subRuns: map[string][]exec.SubDAGRun{
+			"enqueue-child": {{
+				DAGRunID: childRunID,
+				DAGName:  child.Name,
+			}},
+		},
+	})
+	seedLatestDAGRunStatus(t, server, child, childRunID, core.Succeeded, seedDAGRunStatusOptions{})
+
+	server.Client().Patch(
+		fmt.Sprintf("/api/v1/dag-runs/%s/%s/sub-dag-runs/%s/steps/%s/status", parent.Name, parentRunID, childRunID, "child"),
+		api.UpdateSubDAGRunStepStatusJSONRequestBody{Status: api.NodeStatusFailed},
+	).ExpectStatus(http.StatusOK).Send(t)
+
+	status := waitForStoredDAGRunStatus(
+		t,
+		server,
+		child.Name,
+		childRunID,
+		5*time.Second,
+		func(status *exec.DAGRunStatus) bool {
+			return status.Status == core.Failed &&
+				hasNodeWithStatus(status, "child", core.NodeFailed)
+		},
+	)
+	require.Equal(t, core.Failed, status.Status)
+
+	_, err := server.DAGRunStore.FindSubAttempt(server.Context, exec.NewDAGRunRef(parent.Name, parentRunID), childRunID)
+	require.Error(t, err)
+}
+
+func TestRejectSubDAGRunStepHandlesTopLevelDagEnqueueRun(t *testing.T) {
+	server := test.SetupServer(t)
+
+	parent := &core.DAG{
+		Name: "dag_enqueue_reject_parent",
+		Steps: []core.Step{
+			{Name: "enqueue-child"},
+		},
+	}
+	child := &core.DAG{
+		Name: "dag_enqueue_reject_child",
+		Steps: []core.Step{
+			{
+				Name: "wait-step",
+				Approval: &core.ApprovalConfig{
+					Prompt: "Please approve",
+				},
+			},
+		},
+	}
+	parentRunID := "reject-parent-run"
+	childRunID := "reject-child-run"
+	seedLatestDAGRunStatus(t, server, parent, parentRunID, core.Succeeded, seedDAGRunStatusOptions{
+		subRuns: map[string][]exec.SubDAGRun{
+			"enqueue-child": {{
+				DAGRunID: childRunID,
+				DAGName:  child.Name,
+			}},
+		},
+	})
+	seedLatestDAGRunStatus(t, server, child, childRunID, core.Waiting, seedDAGRunStatusOptions{
+		nodeStatuses: map[string]core.NodeStatus{
+			"wait-step": core.NodeWaiting,
+		},
+	})
+
+	reason := "queued child rejected"
+	resp := server.Client().Post(
+		fmt.Sprintf("/api/v1/dag-runs/%s/%s/sub-dag-runs/%s/steps/%s/reject", parent.Name, parentRunID, childRunID, "wait-step"),
+		api.RejectStepRequest{Reason: &reason},
+	).ExpectStatus(http.StatusOK).Send(t)
+
+	var body api.RejectSubDAGRunStep200JSONResponse
+	resp.Unmarshal(t, &body)
+	require.Equal(t, api.DAGRunId(childRunID), body.DagRunId)
+	require.Equal(t, "wait-step", body.StepName)
+
+	status := waitForStoredDAGRunStatus(
+		t,
+		server,
+		child.Name,
+		childRunID,
+		5*time.Second,
+		func(status *exec.DAGRunStatus) bool {
+			return status.Status == core.Rejected &&
+				hasNodeWithStatus(status, "wait-step", core.NodeRejected)
+		},
+	)
+	require.Equal(t, reason, status.Nodes[0].RejectionReason)
+}
+
 func TestRetryDAGRunStartsLocalRetrySubprocess(t *testing.T) {
 	server := test.SetupServer(t)
 
