@@ -53,12 +53,17 @@ func TestExecutorRunWaitsUntilFileExists(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	errCh := make(chan error, 1)
 	go func() {
 		time.Sleep(5 * time.Millisecond)
-		_ = os.WriteFile(target, []byte("ready"), 0o600)
+		errCh <- os.WriteFile(target, []byte("ready"), 0o600)
 	}()
 
-	require.NoError(t, exec.Run(context.Background()))
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	require.NoError(t, exec.Run(ctx))
+	require.NoError(t, <-errCh)
 }
 
 func TestExecutorRunWaitsForHTTPStatus(t *testing.T) {
