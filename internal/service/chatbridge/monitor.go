@@ -83,6 +83,14 @@ type NotificationRoutingTransport interface {
 	NotificationDestinationsForEvent(event NotificationEvent) []string
 }
 
+// NotificationBatchDeliveryPolicyTransport can decide whether a ready batch
+// should be delivered to the transport or only acknowledged in monitor state.
+// Transports that feed built-in chat agents rely on the default success-digest
+// suppression, while direct notification transports can opt in.
+type NotificationBatchDeliveryPolicyTransport interface {
+	ShouldDeliverNotificationBatch(batch NotificationBatch) bool
+}
+
 // NotificationMonitor owns source polling, batching, durable delivery state, and shutdown drain.
 type NotificationMonitor struct {
 	eventService *eventstore.Service
@@ -593,8 +601,9 @@ func (m *NotificationMonitor) flushPendingBatch(ctx context.Context, pending Not
 	}
 
 	// Successful completions still flow through the notification state machine so
-	// they can replace pending wait alerts, but they should not post chat digests.
-	if pending.Batch.Class == NotificationClassSuccessDigest {
+	// they can replace pending wait alerts. Built-in chat/agent transports keep
+	// the historical success-digest suppression unless they explicitly opt in.
+	if !m.shouldDeliverBatch(pending.Batch) {
 		m.markBatchDelivered(ctx, pending.Destination, pending.Batch)
 		return true
 	}
@@ -611,6 +620,13 @@ func (m *NotificationMonitor) flushPendingBatch(ctx context.Context, pending Not
 		m.markBatchDelivered(ctx, pending.Destination, pending.Batch)
 	}
 	return acked
+}
+
+func (m *NotificationMonitor) shouldDeliverBatch(batch NotificationBatch) bool {
+	if policy, ok := m.transport.(NotificationBatchDeliveryPolicyTransport); ok {
+		return policy.ShouldDeliverNotificationBatch(batch)
+	}
+	return batch.Class != NotificationClassSuccessDigest
 }
 
 func (m *NotificationMonitor) drainPendingBatches(ctx context.Context, inFlight *NotificationPendingBatch) {

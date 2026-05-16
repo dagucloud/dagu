@@ -93,16 +93,18 @@ func TestService_SendTestWebhookIncludesPayloadHeadersAndSignature(t *testing.T)
 	settings, err := notificationmodel.Normalize(&notificationmodel.Settings{
 		DAGName: "daily-report",
 		Enabled: true,
-		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed, eventstore.TypeDAGRunWaiting},
 		Targets: []notificationmodel.Target{{
 			ID:      "webhook-1",
 			Name:    "Ops Webhook",
 			Type:    notificationmodel.ProviderWebhook,
 			Enabled: true,
 			Webhook: &notificationmodel.WebhookTarget{
-				URL:        server.URL,
-				Headers:    map[string]string{"X-Test": "yes"},
-				HMACSecret: "secret",
+				URL:                 server.URL,
+				Headers:             map[string]string{"X-Test": "yes"},
+				HMACSecret:          "secret",
+				AllowInsecureHTTP:   true,
+				AllowPrivateNetwork: true,
 			},
 		}},
 		CreatedAt: time.Now().UTC(),
@@ -124,18 +126,53 @@ func TestService_SendTestWebhookIncludesPayloadHeadersAndSignature(t *testing.T)
 	assert.Contains(t, string(receivedBody), `"dagRunId":"notification-test"`)
 }
 
+func TestService_SendTestReturnsProviderError(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "bad target", http.StatusBadRequest)
+	}))
+	defer server.Close()
+
+	settings, err := notificationmodel.Normalize(&notificationmodel.Settings{
+		DAGName: "daily-report",
+		Enabled: true,
+		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed, eventstore.TypeDAGRunWaiting},
+		Targets: []notificationmodel.Target{{
+			ID:      "webhook-1",
+			Type:    notificationmodel.ProviderWebhook,
+			Enabled: true,
+			Webhook: &notificationmodel.WebhookTarget{
+				URL:                 server.URL,
+				AllowInsecureHTTP:   true,
+				AllowPrivateNetwork: true,
+			},
+		}},
+	}, "tester")
+	require.NoError(t, err)
+
+	svc := New(newMemoryStore(settings), nil, WithDeliveryRetry(DeliveryRetryConfig{MaxAttempts: 1}))
+	results, err := svc.SendTest(context.Background(), "daily-report", "webhook-1", eventstore.TypeDAGRunFailed)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.False(t, results[0].Delivered)
+	assert.Contains(t, results[0].Error, "HTTP 400")
+	assert.Contains(t, results[0].Error, "bad target")
+}
+
 func TestService_NotificationDestinationsForEventFiltersByDAGAndEvent(t *testing.T) {
 	t.Parallel()
 
 	settings, err := notificationmodel.Normalize(&notificationmodel.Settings{
 		DAGName: "daily-report",
 		Enabled: true,
-		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed, eventstore.TypeDAGRunWaiting},
 		Targets: []notificationmodel.Target{
 			{
 				ID:      "webhook-1",
 				Type:    notificationmodel.ProviderWebhook,
 				Enabled: true,
+				Events:  []eventstore.EventType{eventstore.TypeDAGRunWaiting},
 				Webhook: &notificationmodel.WebhookTarget{
 					URL: "https://example.com/webhook",
 				},
@@ -156,10 +193,10 @@ func TestService_NotificationDestinationsForEventFiltersByDAGAndEvent(t *testing
 	svc := New(newMemoryStore(settings), nil)
 
 	destinations := svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
-		Type: eventstore.TypeDAGRunFailed,
+		Type: eventstore.TypeDAGRunWaiting,
 		Status: &exec.DAGRunStatus{
 			Name:      "daily-report",
-			Status:    core.Failed,
+			Status:    core.Waiting,
 			DAGRunID:  "run-1",
 			AttemptID: "attempt-1",
 		},
@@ -168,8 +205,8 @@ func TestService_NotificationDestinationsForEventFiltersByDAGAndEvent(t *testing
 	assert.Contains(t, destinations[0], "webhook-1")
 
 	assert.Empty(t, svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
-		Type:   eventstore.TypeDAGRunSucceeded,
-		Status: &exec.DAGRunStatus{Name: "daily-report", Status: core.Succeeded},
+		Type:   eventstore.TypeDAGRunFailed,
+		Status: &exec.DAGRunStatus{Name: "daily-report", Status: core.Failed},
 	}))
 	assert.Empty(t, svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
 		Type:   eventstore.TypeDAGRunFailed,

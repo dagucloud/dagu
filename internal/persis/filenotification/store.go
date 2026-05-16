@@ -169,6 +169,7 @@ type targetForStorage struct {
 	Name     string                    `json:"name,omitempty"`
 	Type     notification.ProviderType `json:"type"`
 	Enabled  bool                      `json:"enabled"`
+	Events   []string                  `json:"events,omitempty"`
 	Email    *notification.EmailTarget `json:"email,omitempty"`
 	Webhook  *webhookTargetForStorage  `json:"webhook,omitempty"`
 	Slack    *slackTargetForStorage    `json:"slack,omitempty"`
@@ -176,9 +177,11 @@ type targetForStorage struct {
 }
 
 type webhookTargetForStorage struct {
-	URLEnc        string            `json:"urlEnc,omitempty"`
-	HeadersEnc    map[string]string `json:"headersEnc,omitempty"`
-	HMACSecretEnc string            `json:"hmacSecretEnc,omitempty"`
+	URLEnc              string            `json:"urlEnc,omitempty"`
+	HeadersEnc          map[string]string `json:"headersEnc,omitempty"`
+	HMACSecretEnc       string            `json:"hmacSecretEnc,omitempty"`
+	AllowInsecureHTTP   bool              `json:"allowInsecureHttp,omitempty"`
+	AllowPrivateNetwork bool              `json:"allowPrivateNetwork,omitempty"`
 }
 
 type slackTargetForStorage struct {
@@ -223,11 +226,15 @@ func (s *Store) targetToStorage(target notification.Target) (targetForStorage, e
 		Name:    target.Name,
 		Type:    target.Type,
 		Enabled: target.Enabled,
+		Events:  eventStrings(target.Events),
 		Email:   target.Email,
 	}
 	var err error
 	if target.Webhook != nil {
-		stored.Webhook = &webhookTargetForStorage{}
+		stored.Webhook = &webhookTargetForStorage{
+			AllowInsecureHTTP:   target.Webhook.AllowInsecureHTTP,
+			AllowPrivateNetwork: target.Webhook.AllowPrivateNetwork,
+		}
 		if stored.Webhook.URLEnc, err = s.encryptRequired(target.Webhook.URL); err != nil {
 			return stored, err
 		}
@@ -293,11 +300,15 @@ func (s *Store) targetFromStorage(stored targetForStorage) (notification.Target,
 		Name:    stored.Name,
 		Type:    stored.Type,
 		Enabled: stored.Enabled,
+		Events:  eventTypes(stored.Events),
 		Email:   stored.Email,
 	}
 	var err error
 	if stored.Webhook != nil {
-		target.Webhook = &notification.WebhookTarget{}
+		target.Webhook = &notification.WebhookTarget{
+			AllowInsecureHTTP:   stored.Webhook.AllowInsecureHTTP,
+			AllowPrivateNetwork: stored.Webhook.AllowPrivateNetwork,
+		}
 		if target.Webhook.URL, err = s.decryptOptional(stored.Webhook.URLEnc); err != nil {
 			return target, err
 		}
@@ -328,6 +339,28 @@ func (s *Store) targetFromStorage(stored targetForStorage) (notification.Target,
 		}
 	}
 	return target, nil
+}
+
+func eventStrings(events []eventstore.EventType) []string {
+	if len(events) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(events))
+	for _, event := range events {
+		result = append(result, string(event))
+	}
+	return result
+}
+
+func eventTypes(events []string) []eventstore.EventType {
+	if len(events) == 0 {
+		return nil
+	}
+	result := make([]eventstore.EventType, 0, len(events))
+	for _, event := range events {
+		result = append(result, eventstore.EventType(event))
+	}
+	return result
 }
 
 func (s *Store) encryptRequired(value string) (string, error) {

@@ -46,6 +46,7 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/filegithubdispatch"
 	"github.com/dagucloud/dagu/internal/persis/filelicense"
 	"github.com/dagucloud/dagu/internal/persis/filememory"
+	"github.com/dagucloud/dagu/internal/persis/filenotification"
 	"github.com/dagucloud/dagu/internal/persis/fileproc"
 	"github.com/dagucloud/dagu/internal/persis/filequeue"
 	"github.com/dagucloud/dagu/internal/persis/filesecret"
@@ -54,10 +55,12 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	secretpkg "github.com/dagucloud/dagu/internal/secret"
+	"github.com/dagucloud/dagu/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
 	"github.com/dagucloud/dagu/internal/service/frontend"
 	apiv1 "github.com/dagucloud/dagu/internal/service/frontend/api/v1"
+	notificationservice "github.com/dagucloud/dagu/internal/service/notification"
 	"github.com/dagucloud/dagu/internal/service/resource"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
 	"github.com/dagucloud/dagu/internal/workspace"
@@ -694,6 +697,9 @@ func (c *Context) NewScheduler() (*scheduler.Scheduler, error) {
 		} else {
 			sched.SetEventCollector(collector)
 		}
+		if notificationMonitor := c.newNotificationMonitor(dr); notificationMonitor != nil {
+			sched.SetNotificationMonitor(notificationMonitor)
+		}
 	}
 	sched.SetDAGRunLeaseStore(c.DAGRunLeaseStore)
 	sched.SetDispatchTaskStore(c.DispatchTaskStore)
@@ -712,6 +718,36 @@ func (c *Context) NewScheduler() (*scheduler.Scheduler, error) {
 		))
 	}
 	return sched, nil
+}
+
+func (c *Context) newNotificationMonitor(dr exec.DAGStore) *chatbridge.NotificationMonitor {
+	encKey, encErr := crypto.ResolveKey(c.Config.Paths.DataDir)
+	if encErr != nil {
+		logger.Warn(c, "Notification settings store is disabled because encrypted storage is not available", tag.Error(encErr))
+		return nil
+	}
+	encryptor, encErr := crypto.NewEncryptor(encKey)
+	if encErr != nil {
+		logger.Warn(c, "Failed to create encryptor for notification settings store", tag.Error(encErr))
+		return nil
+	}
+	store, err := filenotification.New(
+		filepath.Join(c.Config.Paths.DataDir, "notifications", "dags"),
+		filenotification.WithEncryptor(encryptor),
+	)
+	if err != nil {
+		logger.Warn(c, "Failed to create notification settings store", tag.Error(err))
+		return nil
+	}
+	notificationSvc := notificationservice.New(store, dr)
+	stateFile := filepath.Join(c.Config.Paths.DataDir, "notifications", "monitor-state.json")
+	return chatbridge.NewNotificationMonitor(
+		c.EventService,
+		stateFile,
+		notificationSvc,
+		slog.Default(),
+		chatbridge.DefaultNotificationMonitorConfig(),
+	)
 }
 
 // StringParam retrieves a string parameter from the command line flags.

@@ -12,8 +12,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/netip"
 	"slices"
 	"strings"
 	"time"
@@ -32,6 +35,7 @@ type Service struct {
 	dagStore exec.DAGStore
 	http     *http.Client
 	logger   *slog.Logger
+	retry    DeliveryRetryConfig
 }
 
 type TestResult struct {
@@ -40,6 +44,12 @@ type TestResult struct {
 	Provider   notificationmodel.ProviderType
 	Delivered  bool
 	Error      string
+}
+
+type DeliveryRetryConfig struct {
+	MaxAttempts    int
+	InitialBackoff time.Duration
+	MaxBackoff     time.Duration
 }
 
 type Option func(*Service)
@@ -60,12 +70,31 @@ func WithLogger(logger *slog.Logger) Option {
 	}
 }
 
+func WithDeliveryRetry(cfg DeliveryRetryConfig) Option {
+	return func(s *Service) {
+		if cfg.MaxAttempts > 0 {
+			s.retry.MaxAttempts = cfg.MaxAttempts
+		}
+		if cfg.InitialBackoff >= 0 {
+			s.retry.InitialBackoff = cfg.InitialBackoff
+		}
+		if cfg.MaxBackoff >= 0 {
+			s.retry.MaxBackoff = cfg.MaxBackoff
+		}
+	}
+}
+
 func New(store notificationmodel.Store, dagStore exec.DAGStore, opts ...Option) *Service {
 	svc := &Service{
 		store:    store,
 		dagStore: dagStore,
 		http:     &http.Client{Timeout: 30 * time.Second},
 		logger:   slog.Default(),
+		retry: DeliveryRetryConfig{
+			MaxAttempts:    3,
+			InitialBackoff: 250 * time.Millisecond,
+			MaxBackoff:     2 * time.Second,
+		},
 	}
 	for _, opt := range opts {
 		opt(svc)
@@ -147,7 +176,10 @@ func (s *Service) NotificationDestinationsForEvent(event chatbridge.Notification
 	}
 	destinations := make([]string, 0, len(setting.Targets))
 	for _, target := range setting.Targets {
-		if destination := destinationID(setting.DAGName, target.ID); target.Enabled && destination != "" {
+		if !notificationmodel.IsTargetEventEnabled(setting, target, event.Type) {
+			continue
+		}
+		if destination := destinationID(setting.DAGName, target.ID); destination != "" {
 			destinations = append(destinations, destination)
 		}
 	}
@@ -171,7 +203,7 @@ func (s *Service) FlushNotificationBatch(ctx context.Context, destination string
 	if !ok || !target.Enabled {
 		return true
 	}
-	events := matchingEvents(setting, batch.Events)
+	events := matchingEvents(setting, target, batch.Events)
 	if len(events) == 0 {
 		return true
 	}
@@ -186,7 +218,19 @@ func (s *Service) FlushNotificationBatch(ctx context.Context, destination string
 		)
 		return false
 	}
-	return s.sendTarget(ctx, target, events)
+	if err := s.deliverTarget(ctx, target, events); err != nil {
+		s.logger.Warn("Failed to deliver DAG notification",
+			slog.String("destination", destination),
+			slog.String("provider", string(target.Type)),
+			slog.String("error", err.Error()),
+		)
+		return false
+	}
+	return true
+}
+
+func (s *Service) ShouldDeliverNotificationBatch(chatbridge.NotificationBatch) bool {
+	return true
 }
 
 func (s *Service) SendTest(ctx context.Context, dagName, targetID string, eventType eventstore.EventType) ([]TestResult, error) {
@@ -209,7 +253,7 @@ func (s *Service) SendTest(ctx context.Context, dagName, targetID string, eventT
 			}
 			continue
 		}
-		if target.Enabled {
+		if notificationmodel.IsTargetEventEnabled(setting, target, eventType) {
 			targets = append(targets, target)
 		}
 	}
@@ -228,15 +272,15 @@ func (s *Service) SendTest(ctx context.Context, dagName, targetID string, eventT
 	}
 	results := make([]TestResult, 0, len(targets))
 	for _, target := range targets {
-		delivered := s.sendTarget(ctx, target, []chatbridge.NotificationEvent{event})
+		err := s.deliverTarget(ctx, target, []chatbridge.NotificationEvent{event})
 		result := TestResult{
 			TargetID:   target.ID,
 			TargetName: target.Name,
 			Provider:   target.Type,
-			Delivered:  delivered,
+			Delivered:  err == nil,
 		}
-		if !delivered {
-			result.Error = "delivery failed"
+		if err != nil {
+			result.Error = err.Error()
 		}
 		results = append(results, result)
 	}
@@ -285,18 +329,18 @@ func testStatus(dagName string, eventType eventstore.EventType) *exec.DAGRunStat
 	}
 }
 
-func (s *Service) sendTarget(ctx context.Context, target notificationmodel.Target, events []chatbridge.NotificationEvent) bool {
+func (s *Service) deliverTarget(ctx context.Context, target notificationmodel.Target, events []chatbridge.NotificationEvent) error {
 	switch target.Type {
 	case notificationmodel.ProviderEmail:
 		return s.sendEmail(ctx, target, events)
 	case notificationmodel.ProviderWebhook:
-		return s.sendWebhook(ctx, target, events)
+		return s.withRetry(ctx, func() error { return s.sendWebhook(ctx, target, events) })
 	case notificationmodel.ProviderSlack:
-		return s.sendSlack(ctx, target, events)
+		return s.withRetry(ctx, func() error { return s.sendSlack(ctx, target, events) })
 	case notificationmodel.ProviderTelegram:
-		return s.sendTelegram(ctx, target, events)
+		return s.withRetry(ctx, func() error { return s.sendTelegram(ctx, target, events) })
 	default:
-		return false
+		return notificationmodel.ErrUnsupportedTarget
 	}
 }
 
@@ -331,13 +375,13 @@ func findTarget(setting *notificationmodel.Settings, targetID string) (notificat
 	return notificationmodel.Target{}, false
 }
 
-func matchingEvents(setting *notificationmodel.Settings, events []chatbridge.NotificationEvent) []chatbridge.NotificationEvent {
+func matchingEvents(setting *notificationmodel.Settings, target notificationmodel.Target, events []chatbridge.NotificationEvent) []chatbridge.NotificationEvent {
 	result := make([]chatbridge.NotificationEvent, 0, len(events))
 	for _, event := range events {
 		if event.Status == nil || event.Status.Name != setting.DAGName {
 			continue
 		}
-		if !notificationmodel.IsEventEnabled(setting, event.Type) {
+		if !notificationmodel.IsTargetEventEnabled(setting, target, event.Type) {
 			continue
 		}
 		result = append(result, event)
@@ -345,9 +389,9 @@ func matchingEvents(setting *notificationmodel.Settings, events []chatbridge.Not
 	return result
 }
 
-func (s *Service) sendEmail(ctx context.Context, target notificationmodel.Target, events []chatbridge.NotificationEvent) bool {
+func (s *Service) sendEmail(ctx context.Context, target notificationmodel.Target, events []chatbridge.NotificationEvent) error {
 	if target.Email == nil || len(events) == 0 {
-		return true
+		return nil
 	}
 	dag, err := s.loadDAG(ctx, events[0].Status.Name)
 	if err != nil {
@@ -355,23 +399,17 @@ func (s *Service) sendEmail(ctx context.Context, target notificationmodel.Target
 			slog.String("dag", events[0].Status.Name),
 			slog.String("error", err.Error()),
 		)
-		return false
+		return err
 	}
 	if dag.SMTP == nil {
-		s.logger.Warn("SMTP is not configured for DAG notification email",
-			slog.String("dag", events[0].Status.Name),
-		)
-		return false
+		return errors.New("SMTP is not configured for DAG notification email")
 	}
 	from := target.Email.From
 	if from == "" {
 		from = fallbackMailFrom(dag, events[0].Type)
 	}
 	if from == "" {
-		s.logger.Warn("Email sender is not configured",
-			slog.String("dag", events[0].Status.Name),
-		)
-		return false
+		return errors.New("email sender is not configured")
 	}
 	subject := target.Email.SubjectPrefix
 	if subject == "" {
@@ -397,13 +435,7 @@ func (s *Service) sendEmail(ctx context.Context, target notificationmodel.Target
 		bodyForEvents(events),
 		attachments,
 	)
-	if err != nil {
-		s.logger.Warn("Failed to send notification email",
-			slog.String("dag", events[0].Status.Name),
-			slog.String("error", err.Error()),
-		)
-	}
-	return err == nil
+	return err
 }
 
 func (s *Service) loadDAG(ctx context.Context, dagName string) (*core.DAG, error) {
@@ -475,18 +507,21 @@ func logAttachments(events []chatbridge.NotificationEvent) []string {
 	return files
 }
 
-func (s *Service) sendWebhook(ctx context.Context, target notificationmodel.Target, events []chatbridge.NotificationEvent) bool {
+func (s *Service) sendWebhook(ctx context.Context, target notificationmodel.Target, events []chatbridge.NotificationEvent) error {
 	if target.Webhook == nil || target.Webhook.URL == "" {
-		return false
+		return errors.New("webhook url is not configured")
+	}
+	if err := validateOutboundURL(ctx, target.Webhook.URL, target.Webhook.AllowInsecureHTTP, target.Webhook.AllowPrivateNetwork); err != nil {
+		return err
 	}
 	payload := webhookPayloadForEvents(events)
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return false
+		return err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.Webhook.URL, bytes.NewReader(body))
 	if err != nil {
-		return false
+		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	for key, value := range target.Webhook.Headers {
@@ -498,60 +533,184 @@ func (s *Service) sendWebhook(ctx context.Context, target notificationmodel.Targ
 	return s.doWebhookRequest(req)
 }
 
-func (s *Service) sendSlack(ctx context.Context, target notificationmodel.Target, events []chatbridge.NotificationEvent) bool {
+func (s *Service) sendSlack(ctx context.Context, target notificationmodel.Target, events []chatbridge.NotificationEvent) error {
 	if target.Slack == nil || target.Slack.WebhookURL == "" {
-		return false
+		return errors.New("slack webhook url is not configured")
+	}
+	if err := validateOutboundURL(ctx, target.Slack.WebhookURL, false, false); err != nil {
+		return err
 	}
 	body, err := json.Marshal(map[string]string{"text": bodyForEvents(events)})
 	if err != nil {
-		return false
+		return err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.Slack.WebhookURL, bytes.NewReader(body))
 	if err != nil {
-		return false
+		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	return s.doWebhookRequest(req)
 }
 
-func (s *Service) sendTelegram(ctx context.Context, target notificationmodel.Target, events []chatbridge.NotificationEvent) bool {
+func (s *Service) sendTelegram(ctx context.Context, target notificationmodel.Target, events []chatbridge.NotificationEvent) error {
 	if target.Telegram == nil || target.Telegram.BotToken == "" || target.Telegram.ChatID == "" {
-		return false
+		return errors.New("telegram bot token or chat id is not configured")
 	}
 	body, err := json.Marshal(map[string]string{
 		"chat_id": target.Telegram.ChatID,
 		"text":    bodyForEvents(events),
 	})
 	if err != nil {
-		return false
+		return err
 	}
 	endpoint := "https://api.telegram.org/bot" + target.Telegram.BotToken + "/sendMessage"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return false
+		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	return s.doWebhookRequest(req)
 }
 
-func (s *Service) doWebhookRequest(req *http.Request) bool {
+func (s *Service) doWebhookRequest(req *http.Request) error {
 	resp, err := s.http.Do(req)
 	if err != nil {
-		s.logger.Warn("Failed to send notification request",
-			slog.String("error", err.Error()),
-		)
-		return false
+		return temporaryDeliveryError{err: err}
 	}
 	defer func() {
 		_ = resp.Body.Close()
 	}()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		s.logger.Warn("Notification request returned non-success status",
-			slog.Int("status", resp.StatusCode),
-		)
-		return false
+		body := limitedResponseBody(resp.Body)
+		err := fmt.Errorf("notification endpoint returned HTTP %d%s", resp.StatusCode, body)
+		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+			return temporaryDeliveryError{err: err}
+		}
+		return err
 	}
-	return true
+	return nil
+}
+
+type temporaryDeliveryError struct {
+	err error
+}
+
+func (e temporaryDeliveryError) Error() string {
+	if e.err == nil {
+		return "temporary notification delivery error"
+	}
+	return e.err.Error()
+}
+
+func (e temporaryDeliveryError) Unwrap() error {
+	return e.err
+}
+
+func isTemporaryDeliveryError(err error) bool {
+	var temporary temporaryDeliveryError
+	return errors.As(err, &temporary)
+}
+
+func (s *Service) withRetry(ctx context.Context, send func() error) error {
+	attempts := s.retry.MaxAttempts
+	if attempts <= 0 {
+		attempts = 1
+	}
+	backoff := s.retry.InitialBackoff
+	maxBackoff := s.retry.MaxBackoff
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		if err := send(); err != nil {
+			lastErr = err
+			if attempt == attempts || !isTemporaryDeliveryError(err) {
+				return err
+			}
+			if backoff > 0 {
+				timer := time.NewTimer(backoff)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return ctx.Err()
+				case <-timer.C:
+				}
+				backoff *= 2
+				if maxBackoff > 0 && backoff > maxBackoff {
+					backoff = maxBackoff
+				}
+			}
+			continue
+		}
+		return nil
+	}
+	return lastErr
+}
+
+func limitedResponseBody(body io.Reader) string {
+	if body == nil {
+		return ""
+	}
+	data, _ := io.ReadAll(io.LimitReader(body, 512))
+	text := strings.TrimSpace(string(data))
+	if text == "" {
+		return ""
+	}
+	return ": " + text
+}
+
+func validateOutboundURL(ctx context.Context, rawURL string, allowInsecureHTTP, allowPrivateNetwork bool) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return err
+	}
+	if req.URL.Scheme == "http" && !allowInsecureHTTP {
+		return errors.New("webhook url must use https unless allowInsecureHttp is enabled")
+	}
+	if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+		return errors.New("webhook url must use http or https")
+	}
+	host := req.URL.Hostname()
+	if host == "" {
+		return errors.New("webhook url host is required")
+	}
+	if allowPrivateNetwork {
+		return nil
+	}
+	if isPrivateHostLiteral(host) {
+		return errors.New("webhook url targets loopback or private network")
+	}
+	if addr, err := netip.ParseAddr(host); err == nil {
+		return rejectPrivateAddress(addr)
+	}
+	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return fmt.Errorf("resolve webhook host: %w", err)
+	}
+	for _, addr := range addrs {
+		if parsed, ok := netip.AddrFromSlice(addr.IP); ok {
+			if err := rejectPrivateAddress(parsed); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func isPrivateHostLiteral(host string) bool {
+	host = strings.TrimSpace(strings.TrimSuffix(strings.ToLower(host), "."))
+	return host == "" || host == "localhost" || strings.HasSuffix(host, ".localhost")
+}
+
+func rejectPrivateAddress(addr netip.Addr) error {
+	addr = addr.Unmap()
+	if addr.IsLoopback() ||
+		addr.IsPrivate() ||
+		addr.IsLinkLocalUnicast() ||
+		addr.IsLinkLocalMulticast() ||
+		addr.IsMulticast() ||
+		addr.IsUnspecified() {
+		return errors.New("webhook url resolves to loopback or private network")
+	}
+	return nil
 }
 
 func signWebhookBody(body []byte, secret string) string {
@@ -618,4 +777,5 @@ func webhookPayloadForEvents(events []chatbridge.NotificationEvent) map[string]a
 }
 
 var _ chatbridge.NotificationTransport = (*Service)(nil)
+var _ chatbridge.NotificationBatchDeliveryPolicyTransport = (*Service)(nil)
 var _ chatbridge.NotificationRoutingTransport = (*Service)(nil)

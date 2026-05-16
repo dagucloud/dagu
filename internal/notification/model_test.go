@@ -25,6 +25,10 @@ func TestNormalizeValidatesTargetsAndEvents(t *testing.T) {
 		Targets: []Target{{
 			Type:    ProviderWebhook,
 			Enabled: true,
+			Events: []eventstore.EventType{
+				eventstore.TypeDAGRunFailed,
+				eventstore.TypeDAGRunFailed,
+			},
 			Webhook: &WebhookTarget{
 				URL: "https://example.com/webhook",
 			},
@@ -38,6 +42,9 @@ func TestNormalizeValidatesTargetsAndEvents(t *testing.T) {
 	require.Len(t, normalized.Targets, 1)
 	assert.NotEmpty(t, normalized.ID)
 	assert.NotEmpty(t, normalized.Targets[0].ID)
+	assert.Equal(t, []eventstore.EventType{eventstore.TypeDAGRunFailed}, normalized.Targets[0].Events)
+	assert.True(t, IsTargetEventEnabled(normalized, normalized.Targets[0], eventstore.TypeDAGRunFailed))
+	assert.False(t, IsTargetEventEnabled(normalized, normalized.Targets[0], eventstore.TypeDAGRunWaiting))
 }
 
 func TestNormalizeRejectsEmptyEvents(t *testing.T) {
@@ -60,7 +67,7 @@ func TestPreserveSecrets(t *testing.T) {
 	next := &Settings{Targets: []Target{{
 		ID:      "webhook-1",
 		Type:    ProviderWebhook,
-		Webhook: &WebhookTarget{Headers: map[string]string{"X-New": "value"}},
+		Webhook: &WebhookTarget{},
 	}}}
 	existing := &Settings{Targets: []Target{{
 		ID:   "webhook-1",
@@ -76,5 +83,100 @@ func TestPreserveSecrets(t *testing.T) {
 	assert.Equal(t, "https://example.com/webhook", next.Targets[0].Webhook.URL)
 	assert.Equal(t, "old-secret", next.Targets[0].Webhook.HMACSecret)
 	assert.Equal(t, "Bearer old", next.Targets[0].Webhook.Headers["Authorization"])
+}
+
+func TestPreserveSecretsAllowsHeaderReplacementAndHMACClear(t *testing.T) {
+	t.Parallel()
+
+	next := &Settings{Targets: []Target{{
+		ID:   "webhook-1",
+		Type: ProviderWebhook,
+		Webhook: &WebhookTarget{
+			Headers:         map[string]string{"X-New": "value"},
+			ClearHMACSecret: true,
+		},
+	}}}
+	existing := &Settings{Targets: []Target{{
+		ID:   "webhook-1",
+		Type: ProviderWebhook,
+		Webhook: &WebhookTarget{
+			URL:        "https://example.com/webhook",
+			Headers:    map[string]string{"Authorization": "Bearer old"},
+			HMACSecret: "old-secret",
+		},
+	}}}
+
+	PreserveSecrets(next, existing)
+	assert.Equal(t, "https://example.com/webhook", next.Targets[0].Webhook.URL)
+	assert.Empty(t, next.Targets[0].Webhook.HMACSecret)
+	assert.NotContains(t, next.Targets[0].Webhook.Headers, "Authorization")
 	assert.Equal(t, "value", next.Targets[0].Webhook.Headers["X-New"])
+}
+
+func TestNormalizeRequiresWebhookHTTPSUnlessExplicitlyAllowed(t *testing.T) {
+	t.Parallel()
+
+	_, err := Normalize(&Settings{
+		DAGName: "daily-report",
+		Enabled: true,
+		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		Targets: []Target{{
+			Type:    ProviderWebhook,
+			Enabled: true,
+			Webhook: &WebhookTarget{
+				URL: "http://example.com/webhook",
+			},
+		}},
+	}, "tester")
+	assert.ErrorIs(t, err, ErrInvalidSettings)
+
+	_, err = Normalize(&Settings{
+		DAGName: "daily-report",
+		Enabled: true,
+		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		Targets: []Target{{
+			Type:    ProviderWebhook,
+			Enabled: true,
+			Webhook: &WebhookTarget{
+				URL:               "http://example.com/webhook",
+				AllowInsecureHTTP: true,
+			},
+		}},
+	}, "tester")
+	require.NoError(t, err)
+}
+
+func TestNormalizeRejectsPrivateWebhookTargetUnlessExplicitlyAllowed(t *testing.T) {
+	t.Parallel()
+
+	_, err := Normalize(&Settings{
+		DAGName: "daily-report",
+		Enabled: true,
+		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		Targets: []Target{{
+			Type:    ProviderWebhook,
+			Enabled: true,
+			Webhook: &WebhookTarget{
+				URL:               "http://127.0.0.1:8080/webhook",
+				AllowInsecureHTTP: true,
+			},
+		}},
+	}, "tester")
+	assert.ErrorIs(t, err, ErrInvalidSettings)
+
+	_, err = Normalize(&Settings{
+		DAGName: "daily-report",
+		Enabled: true,
+		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		Targets: []Target{{
+			Type:    ProviderWebhook,
+			Enabled: true,
+			Webhook: &WebhookTarget{
+				URL:                 "http://127.0.0.1:8080/webhook",
+				AllowInsecureHTTP:   true,
+				AllowPrivateNetwork: true,
+			},
+		}},
+	}, "tester")
+	require.NoError(t, err)
 }

@@ -35,10 +35,12 @@ func TestStore_EncryptsNotificationSecretsAtRest(t *testing.T) {
 				ID:      "webhook-1",
 				Type:    notification.ProviderWebhook,
 				Enabled: true,
+				Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
 				Webhook: &notification.WebhookTarget{
-					URL:        "https://example.com/webhook",
-					Headers:    map[string]string{"Authorization": "Bearer secret-token"},
-					HMACSecret: "hmac-secret",
+					URL:                 "https://example.com/webhook",
+					Headers:             map[string]string{"Authorization": "Bearer secret-token"},
+					HMACSecret:          "hmac-secret",
+					AllowPrivateNetwork: true,
 				},
 			},
 			{
@@ -80,8 +82,10 @@ func TestStore_EncryptsNotificationSecretsAtRest(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got.Targets, 3)
 	assert.Equal(t, "https://example.com/webhook", got.Targets[0].Webhook.URL)
+	assert.Equal(t, []eventstore.EventType{eventstore.TypeDAGRunFailed}, got.Targets[0].Events)
 	assert.Equal(t, "Bearer secret-token", got.Targets[0].Webhook.Headers["Authorization"])
 	assert.Equal(t, "hmac-secret", got.Targets[0].Webhook.HMACSecret)
+	assert.True(t, got.Targets[0].Webhook.AllowPrivateNetwork)
 	assert.Equal(t, "https://hooks.slack.com/services/test", got.Targets[1].Slack.WebhookURL)
 	assert.Equal(t, "telegram-token", got.Targets[2].Telegram.BotToken)
 }

@@ -8913,10 +8913,22 @@ components:
           type: object
           additionalProperties:
             type: string
-          description: "Additional request headers. Values are encrypted at rest."
+          description: "Additional request headers. Values are encrypted at rest. When provided, this replaces the stored header set."
+        clearHeaders:
+          type: boolean
+          description: "Clear all stored webhook headers."
         hmacSecret:
           type: string
           description: "Optional HMAC secret for X-Dagu-Signature. Omit on updates to preserve the existing secret."
+        clearHmacSecret:
+          type: boolean
+          description: "Clear the stored HMAC secret."
+        allowInsecureHttp:
+          type: boolean
+          description: "Allow plain HTTP webhook URLs. Disabled by default."
+        allowPrivateNetwork:
+          type: boolean
+          description: "Allow loopback or private network webhook targets. Disabled by default."
 
     NotificationWebhookTarget:
       type: object
@@ -8939,6 +8951,12 @@ components:
         hmacSecretConfigured:
           type: boolean
           description: "Whether an HMAC secret is configured"
+        allowInsecureHttp:
+          type: boolean
+          description: "Whether this target allows plain HTTP webhook URLs"
+        allowPrivateNetwork:
+          type: boolean
+          description: "Whether this target allows loopback or private network webhook targets"
 
     NotificationSlackTargetInput:
       type: object
@@ -9007,6 +9025,11 @@ components:
         enabled:
           type: boolean
           description: "Whether this target receives notifications"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationEventType"
+          description: "Optional target-level event filter. When omitted or empty, the target inherits DAG-level events."
         email:
           $ref: "#/components/schemas/NotificationEmailTarget"
         webhook:
@@ -9035,6 +9058,11 @@ components:
         enabled:
           type: boolean
           description: "Whether this target receives notifications"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationEventType"
+          description: "Target-level event filter. Empty means the target inherits DAG-level events."
         email:
           $ref: "#/components/schemas/NotificationEmailTarget"
         webhook:

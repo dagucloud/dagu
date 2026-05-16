@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/mail"
+	"net/netip"
 	"net/url"
 	"slices"
 	"strings"
@@ -63,10 +64,11 @@ type Settings struct {
 }
 
 type Target struct {
-	ID      string       `json:"id"`
-	Name    string       `json:"name,omitempty"`
-	Type    ProviderType `json:"type"`
-	Enabled bool         `json:"enabled"`
+	ID      string                 `json:"id"`
+	Name    string                 `json:"name,omitempty"`
+	Type    ProviderType           `json:"type"`
+	Enabled bool                   `json:"enabled"`
+	Events  []eventstore.EventType `json:"events,omitempty"`
 
 	Email    *EmailTarget    `json:"email,omitempty"`
 	Webhook  *WebhookTarget  `json:"webhook,omitempty"`
@@ -84,9 +86,13 @@ type EmailTarget struct {
 }
 
 type WebhookTarget struct {
-	URL        string            `json:"url,omitempty"`
-	Headers    map[string]string `json:"headers,omitempty"`
-	HMACSecret string            `json:"hmacSecret,omitempty"`
+	URL                 string            `json:"url,omitempty"`
+	Headers             map[string]string `json:"headers,omitempty"`
+	HMACSecret          string            `json:"hmacSecret,omitempty"`
+	AllowInsecureHTTP   bool              `json:"allowInsecureHttp,omitempty"`
+	AllowPrivateNetwork bool              `json:"allowPrivateNetwork,omitempty"`
+	ClearHeaders        bool              `json:"-"`
+	ClearHMACSecret     bool              `json:"-"`
 }
 
 type SlackTarget struct {
@@ -114,6 +120,7 @@ type PublicTarget struct {
 	Name    string       `json:"name,omitempty"`
 	Type    ProviderType `json:"type"`
 	Enabled bool         `json:"enabled"`
+	Events  []string     `json:"events,omitempty"`
 
 	Email    *EmailTarget          `json:"email,omitempty"`
 	Webhook  *PublicWebhookTarget  `json:"webhook,omitempty"`
@@ -126,6 +133,8 @@ type PublicWebhookTarget struct {
 	URLPreview           string            `json:"urlPreview,omitempty"`
 	Headers              map[string]string `json:"headers,omitempty"`
 	HMACSecretConfigured bool              `json:"hmacSecretConfigured"`
+	AllowInsecureHTTP    bool              `json:"allowInsecureHttp"`
+	AllowPrivateNetwork  bool              `json:"allowPrivateNetwork"`
 }
 
 type PublicSlackTarget struct {
@@ -211,6 +220,11 @@ func normalizeTarget(target *Target) error {
 		target.ID = uuid.New().String()
 	}
 	target.Name = strings.TrimSpace(target.Name)
+	events, err := normalizeEventList(target.Events, false)
+	if err != nil {
+		return err
+	}
+	target.Events = events
 	switch target.Type {
 	case ProviderEmail:
 		if target.Email == nil {
@@ -240,7 +254,7 @@ func normalizeTarget(target *Target) error {
 		if target.Webhook.URL == "" {
 			return fmt.Errorf("%w: webhook target requires url", ErrInvalidSettings)
 		}
-		if err := validateAbsoluteURL(target.Webhook.URL); err != nil {
+		if err := validateWebhookURL(target.Webhook.URL, target.Webhook.AllowInsecureHTTP, target.Webhook.AllowPrivateNetwork); err != nil {
 			return err
 		}
 	case ProviderSlack:
@@ -250,7 +264,7 @@ func normalizeTarget(target *Target) error {
 		if target.Slack.WebhookURL == "" {
 			return fmt.Errorf("%w: slack target requires webhookUrl", ErrInvalidSettings)
 		}
-		if err := validateAbsoluteURL(target.Slack.WebhookURL); err != nil {
+		if err := validateHTTPSURL(target.Slack.WebhookURL); err != nil {
 			return err
 		}
 	case ProviderTelegram:
@@ -283,15 +297,80 @@ func validateEmails(values []string) error {
 	return nil
 }
 
-func validateAbsoluteURL(value string) error {
+func normalizeEventList(values []eventstore.EventType, requireNonEmpty bool) ([]eventstore.EventType, error) {
+	events := make([]eventstore.EventType, 0, len(values))
+	for _, event := range values {
+		if event == "" {
+			continue
+		}
+		if !slices.Contains(supportedEvents, event) {
+			return nil, fmt.Errorf("%w: %s", ErrUnsupportedEvent, event)
+		}
+		if !slices.Contains(events, event) {
+			events = append(events, event)
+		}
+	}
+	if requireNonEmpty && len(events) == 0 {
+		return nil, fmt.Errorf("%w: at least one notification event is required", ErrInvalidSettings)
+	}
+	return events, nil
+}
+
+func validateAbsoluteURL(value string) (*url.URL, error) {
 	parsed, err := url.Parse(value)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return fmt.Errorf("%w: invalid target url", ErrInvalidSettings)
+		return nil, fmt.Errorf("%w: invalid target url", ErrInvalidSettings)
 	}
 	if parsed.Scheme != "https" && parsed.Scheme != "http" {
-		return fmt.Errorf("%w: target url must use http or https", ErrInvalidSettings)
+		return nil, fmt.Errorf("%w: target url must use http or https", ErrInvalidSettings)
+	}
+	return parsed, nil
+}
+
+func validateHTTPSURL(value string) error {
+	parsed, err := validateAbsoluteURL(value)
+	if err != nil {
+		return err
+	}
+	if parsed.Scheme != "https" {
+		return fmt.Errorf("%w: target url must use https", ErrInvalidSettings)
 	}
 	return nil
+}
+
+func validateWebhookURL(value string, allowInsecureHTTP, allowPrivateNetwork bool) error {
+	parsed, err := validateAbsoluteURL(value)
+	if err != nil {
+		return err
+	}
+	if parsed.Scheme == "http" && !allowInsecureHTTP {
+		return fmt.Errorf("%w: webhook url must use https unless allowInsecureHttp is enabled", ErrInvalidSettings)
+	}
+	if !allowPrivateNetwork && isBlockedPrivateHostLiteral(parsed.Hostname()) {
+		return fmt.Errorf("%w: webhook url must not target loopback or private network unless allowPrivateNetwork is enabled", ErrInvalidSettings)
+	}
+	return nil
+}
+
+func isBlockedPrivateHostLiteral(host string) bool {
+	host = strings.TrimSpace(strings.TrimSuffix(strings.ToLower(host), "."))
+	if host == "" {
+		return true
+	}
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	addr = addr.Unmap()
+	return addr.IsLoopback() ||
+		addr.IsPrivate() ||
+		addr.IsLinkLocalUnicast() ||
+		addr.IsLinkLocalMulticast() ||
+		addr.IsMulticast() ||
+		addr.IsUnspecified()
 }
 
 func IsEventEnabled(settings *Settings, event eventstore.EventType) bool {
@@ -299,6 +378,16 @@ func IsEventEnabled(settings *Settings, event eventstore.EventType) bool {
 		return false
 	}
 	return slices.Contains(settings.Events, event)
+}
+
+func IsTargetEventEnabled(settings *Settings, target Target, event eventstore.EventType) bool {
+	if !IsEventEnabled(settings, event) || !target.Enabled {
+		return false
+	}
+	if len(target.Events) == 0 {
+		return true
+	}
+	return slices.Contains(target.Events, event)
 }
 
 func ToPublic(settings *Settings) *PublicSettings {
@@ -331,6 +420,7 @@ func (t Target) ToPublic() PublicTarget {
 		Name:    t.Name,
 		Type:    t.Type,
 		Enabled: t.Enabled,
+		Events:  eventStrings(t.Events),
 	}
 	switch t.Type {
 	case ProviderEmail:
@@ -345,6 +435,8 @@ func (t Target) ToPublic() PublicTarget {
 				URLPreview:           PreviewSecret(t.Webhook.URL),
 				Headers:              previewHeaderValues(t.Webhook.Headers),
 				HMACSecretConfigured: t.Webhook.HMACSecret != "",
+				AllowInsecureHTTP:    t.Webhook.AllowInsecureHTTP,
+				AllowPrivateNetwork:  t.Webhook.AllowPrivateNetwork,
 			}
 		}
 	case ProviderSlack:
@@ -364,6 +456,17 @@ func (t Target) ToPublic() PublicTarget {
 		}
 	}
 	return pub
+}
+
+func eventStrings(events []eventstore.EventType) []string {
+	if len(events) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(events))
+	for _, event := range events {
+		result = append(result, string(event))
+	}
+	return result
 }
 
 func PreviewSecret(value string) string {
@@ -409,16 +512,11 @@ func preserveTargetSecrets(next *Target, prev Target) {
 		if next.Webhook.URL == "" {
 			next.Webhook.URL = prev.Webhook.URL
 		}
-		if next.Webhook.HMACSecret == "" {
+		if next.Webhook.HMACSecret == "" && !next.Webhook.ClearHMACSecret {
 			next.Webhook.HMACSecret = prev.Webhook.HMACSecret
 		}
-		for key, oldValue := range prev.Webhook.Headers {
-			if next.Webhook.Headers == nil {
-				next.Webhook.Headers = make(map[string]string)
-			}
-			if next.Webhook.Headers[key] == "" {
-				next.Webhook.Headers[key] = oldValue
-			}
+		if next.Webhook.Headers == nil && !next.Webhook.ClearHeaders {
+			next.Webhook.Headers = prev.Webhook.Headers
 		}
 	}
 	if next.Slack != nil && prev.Slack != nil && next.Slack.WebhookURL == "" {

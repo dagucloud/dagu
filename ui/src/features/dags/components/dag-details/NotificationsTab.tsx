@@ -50,6 +50,7 @@ type DraftTarget = {
   name: string;
   type: NotificationProviderType;
   enabled: boolean;
+  events: NotificationEventType[];
   email: {
     from: string;
     to: string;
@@ -66,6 +67,10 @@ type DraftTarget = {
     urlConfigured?: boolean;
     headerPreviews?: Record<string, string>;
     hmacSecretConfigured?: boolean;
+    clearHeaders: boolean;
+    clearHmacSecret: boolean;
+    allowInsecureHttp: boolean;
+    allowPrivateNetwork: boolean;
   };
   slack: {
     webhookUrl: string;
@@ -130,6 +135,7 @@ function blankTarget(type: NotificationProviderType): DraftTarget {
     name: label,
     type,
     enabled: true,
+    events: [],
     email: {
       from: '',
       to: '',
@@ -142,6 +148,10 @@ function blankTarget(type: NotificationProviderType): DraftTarget {
       url: '',
       headers: '',
       hmacSecret: '',
+      clearHeaders: false,
+      clearHmacSecret: false,
+      allowInsecureHttp: false,
+      allowPrivateNetwork: false,
     },
     slack: {
       webhookUrl: '',
@@ -187,6 +197,7 @@ function draftTargetFromAPI(target: NotificationTarget): DraftTarget {
   draft.id = target.id;
   draft.name = target.name || '';
   draft.enabled = target.enabled;
+  draft.events = target.events || [];
   if (target.email) {
     draft.email = {
       from: target.email.from || '',
@@ -202,6 +213,8 @@ function draftTargetFromAPI(target: NotificationTarget): DraftTarget {
     draft.webhook.urlConfigured = target.webhook.urlConfigured;
     draft.webhook.headerPreviews = target.webhook.headers;
     draft.webhook.hmacSecretConfigured = target.webhook.hmacSecretConfigured;
+    draft.webhook.allowInsecureHttp = !!target.webhook.allowInsecureHttp;
+    draft.webhook.allowPrivateNetwork = !!target.webhook.allowPrivateNetwork;
   }
   if (target.slack) {
     draft.slack.webhookUrlPreview = target.slack.webhookUrlPreview;
@@ -229,6 +242,7 @@ function targetInput(target: DraftTarget): NotificationTargetInput {
     name: target.name.trim() || undefined,
     type: target.type,
     enabled: target.enabled,
+    events: target.events.length > 0 ? target.events : undefined,
   };
   if (target.type === NotificationProviderType.email) {
     input.email = {
@@ -243,8 +257,14 @@ function targetInput(target: DraftTarget): NotificationTargetInput {
   if (target.type === NotificationProviderType.webhook) {
     input.webhook = {
       url: target.webhook.url.trim() || undefined,
-      headers: parseHeaders(target.webhook.headers),
+      headers: target.webhook.clearHeaders
+        ? {}
+        : parseHeaders(target.webhook.headers),
       hmacSecret: target.webhook.hmacSecret.trim() || undefined,
+      clearHeaders: target.webhook.clearHeaders || undefined,
+      clearHmacSecret: target.webhook.clearHmacSecret || undefined,
+      allowInsecureHttp: target.webhook.allowInsecureHttp || undefined,
+      allowPrivateNetwork: target.webhook.allowPrivateNetwork || undefined,
     };
   }
   if (target.type === NotificationProviderType.slack) {
@@ -284,6 +304,17 @@ async function readError(
 function providerIcon(type: NotificationProviderType) {
   return (
     PROVIDER_OPTIONS.find((provider) => provider.value === type)?.icon || Bell
+  );
+}
+
+function testEventForTarget(
+  draft: DraftSettings,
+  target?: DraftTarget
+): NotificationEventType {
+  return (
+    target?.events[0] ||
+    draft.events[0] ||
+    NotificationEventType.dag_run_failed
   );
 }
 
@@ -403,7 +434,8 @@ function NotificationsTab({ fileName }: NotificationsTabProps) {
     }
   };
 
-  const testNotifications = async (targetId?: string) => {
+  const testNotifications = async (target?: DraftTarget) => {
+    const targetId = target?.id;
     setTestingTargetId(targetId || '__all__');
     setError(null);
     setNotice(null);
@@ -415,7 +447,7 @@ function NotificationsTab({ fileName }: NotificationsTabProps) {
           headers: authHeaders(),
           body: JSON.stringify({
             targetId,
-            eventType: draft.events[0] || NotificationEventType.dag_run_failed,
+            eventType: testEventForTarget(draft, target),
           }),
         }
       );
@@ -613,7 +645,7 @@ function NotificationsTab({ fileName }: NotificationsTabProps) {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => target.id && testNotifications(target.id)}
+                      onClick={() => target.id && testNotifications(target)}
                       disabled={!target.id || testingTargetId !== null}
                     >
                       {testingTargetId === target.id ? (
@@ -653,6 +685,7 @@ function NotificationsTab({ fileName }: NotificationsTabProps) {
                           id: current.id,
                           name: current.name,
                           enabled: current.enabled,
+                          events: current.events,
                         }))
                       }
                     >
@@ -670,6 +703,47 @@ function NotificationsTab({ fileName }: NotificationsTabProps) {
                         ))}
                       </SelectContent>
                     </Select>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {EVENT_OPTIONS.map((event) => {
+                      const checked = target.events.includes(event.value);
+                      return (
+                        <label
+                          key={event.value}
+                          className="flex h-8 items-center gap-2 rounded-md border border-border px-3 text-xs"
+                        >
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={(value) =>
+                              updateTarget(index, (current) => ({
+                                ...current,
+                                events: value
+                                  ? [...current.events, event.value]
+                                  : current.events.filter(
+                                      (item) => item !== event.value
+                                    ),
+                              }))
+                            }
+                          />
+                          {event.label}
+                        </label>
+                      );
+                    })}
+                    {target.events.length > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          updateTarget(index, (current) => ({
+                            ...current,
+                            events: [],
+                          }))
+                        }
+                      >
+                        Inherit
+                      </Button>
+                    )}
                   </div>
 
                   {target.type === NotificationProviderType.email && (
@@ -814,6 +888,68 @@ function NotificationsTab({ fileName }: NotificationsTabProps) {
                           }))
                         }
                       />
+                      <div className="grid gap-2 md:grid-cols-2">
+                        <label className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm">
+                          <Checkbox
+                            checked={target.webhook.clearHeaders}
+                            onCheckedChange={(value) =>
+                              updateTarget(index, (current) => ({
+                                ...current,
+                                webhook: {
+                                  ...current.webhook,
+                                  clearHeaders: !!value,
+                                },
+                              }))
+                            }
+                          />
+                          Clear headers
+                        </label>
+                        <label className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm">
+                          <Checkbox
+                            checked={target.webhook.clearHmacSecret}
+                            onCheckedChange={(value) =>
+                              updateTarget(index, (current) => ({
+                                ...current,
+                                webhook: {
+                                  ...current.webhook,
+                                  clearHmacSecret: !!value,
+                                },
+                              }))
+                            }
+                          />
+                          Clear HMAC
+                        </label>
+                        <label className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm">
+                          <Checkbox
+                            checked={target.webhook.allowInsecureHttp}
+                            onCheckedChange={(value) =>
+                              updateTarget(index, (current) => ({
+                                ...current,
+                                webhook: {
+                                  ...current.webhook,
+                                  allowInsecureHttp: !!value,
+                                },
+                              }))
+                            }
+                          />
+                          Allow HTTP
+                        </label>
+                        <label className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm">
+                          <Checkbox
+                            checked={target.webhook.allowPrivateNetwork}
+                            onCheckedChange={(value) =>
+                              updateTarget(index, (current) => ({
+                                ...current,
+                                webhook: {
+                                  ...current.webhook,
+                                  allowPrivateNetwork: !!value,
+                                },
+                              }))
+                            }
+                          />
+                          Allow private network
+                        </label>
+                      </div>
                     </div>
                   )}
 

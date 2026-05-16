@@ -190,6 +190,12 @@ func notificationTargetFromRequest(input api.NotificationTargetInput) notificati
 		Type:    notificationmodel.ProviderType(input.Type),
 		Enabled: input.Enabled,
 	}
+	if input.Events != nil {
+		target.Events = make([]eventstore.EventType, 0, len(*input.Events))
+		for _, event := range *input.Events {
+			target.Events = append(target.Events, eventstore.EventType(event))
+		}
+	}
 	if input.Email != nil {
 		target.Email = &notificationmodel.EmailTarget{
 			From:          valueOf(input.Email.From),
@@ -206,11 +212,15 @@ func notificationTargetFromRequest(input api.NotificationTargetInput) notificati
 	}
 	if input.Webhook != nil {
 		target.Webhook = &notificationmodel.WebhookTarget{
-			URL:        valueOf(input.Webhook.Url),
-			HMACSecret: valueOf(input.Webhook.HmacSecret),
+			URL:                 valueOf(input.Webhook.Url),
+			HMACSecret:          valueOf(input.Webhook.HmacSecret),
+			AllowInsecureHTTP:   valueOf(input.Webhook.AllowInsecureHttp),
+			AllowPrivateNetwork: valueOf(input.Webhook.AllowPrivateNetwork),
+			ClearHeaders:        valueOf(input.Webhook.ClearHeaders),
+			ClearHMACSecret:     valueOf(input.Webhook.ClearHmacSecret),
 		}
 		if input.Webhook.Headers != nil {
-			target.Webhook.Headers = mapsClone(*input.Webhook.Headers)
+			target.Webhook.Headers = mapsClonePreserveEmpty(*input.Webhook.Headers)
 		}
 	}
 	if input.Slack != nil {
@@ -256,6 +266,13 @@ func toAPINotificationTarget(target notificationmodel.PublicTarget) api.Notifica
 		Type:    api.NotificationProviderType(target.Type),
 		Enabled: target.Enabled,
 	}
+	if len(target.Events) > 0 {
+		events := make([]api.NotificationEventType, 0, len(target.Events))
+		for _, event := range target.Events {
+			events = append(events, api.NotificationEventType(event))
+		}
+		result.Events = &events
+	}
 	if target.Email != nil {
 		result.Email = toAPIEmailTarget(target.Email)
 	}
@@ -265,6 +282,8 @@ func toAPINotificationTarget(target notificationmodel.PublicTarget) api.Notifica
 			UrlPreview:           ptrOf(target.Webhook.URLPreview),
 			Headers:              ptrOf(target.Webhook.Headers),
 			HmacSecretConfigured: target.Webhook.HMACSecretConfigured,
+			AllowInsecureHttp:    ptrOf(target.Webhook.AllowInsecureHTTP),
+			AllowPrivateNetwork:  ptrOf(target.Webhook.AllowPrivateNetwork),
 		}
 	}
 	if target.Slack != nil {
@@ -315,6 +334,10 @@ func mapsClone(in map[string]string) map[string]string {
 	if len(in) == 0 {
 		return nil
 	}
+	return mapsClonePreserveEmpty(in)
+}
+
+func mapsClonePreserveEmpty(in map[string]string) map[string]string {
 	out := make(map[string]string, len(in))
 	for key, value := range in {
 		out[key] = value

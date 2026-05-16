@@ -48,6 +48,18 @@ func (f *fakeRoutingNotificationTransport) NotificationDestinationsForEvent(even
 	return f.routeFn(event)
 }
 
+type fakePolicyNotificationTransport struct {
+	*fakeNotificationTransport
+	shouldDeliverFn func(NotificationBatch) bool
+}
+
+func (f *fakePolicyNotificationTransport) ShouldDeliverNotificationBatch(batch NotificationBatch) bool {
+	if f.shouldDeliverFn == nil {
+		return true
+	}
+	return f.shouldDeliverFn(batch)
+}
+
 type stubNotificationStore struct {
 	mu        sync.Mutex
 	events    []*eventstore.Event
@@ -581,6 +593,61 @@ func TestNotificationMonitor_SuccessEventsAreAcknowledgedWithoutDelivery(t *test
 	mu.Lock()
 	defer mu.Unlock()
 	assert.Empty(t, calls, "successful completions should be acknowledged without transport delivery")
+}
+
+func TestNotificationMonitor_SuccessEventsCanBeDeliveredByOptInTransport(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mu    sync.Mutex
+		calls []NotificationBatch
+	)
+	transport := &fakePolicyNotificationTransport{
+		fakeNotificationTransport: &fakeNotificationTransport{
+			destinations: []string{"dest-1"},
+			flushFn: func(_ context.Context, _ string, batch NotificationBatch, _ bool) bool {
+				mu.Lock()
+				defer mu.Unlock()
+				calls = append(calls, batch)
+				return true
+			},
+		},
+		shouldDeliverFn: func(batch NotificationBatch) bool {
+			return batch.Class == NotificationClassSuccessDigest
+		},
+	}
+
+	cfg := DefaultNotificationMonitorConfig()
+	cfg.UrgentWindow = 10 * time.Millisecond
+	cfg.SuccessWindow = 10 * time.Millisecond
+	cfg.PollInterval = time.Hour
+	cfg.SeenEvictInterval = time.Hour
+
+	monitor := NewNotificationMonitor(nil, "", transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
+	stopMonitor := testutil.StartContextRunner(t, monitor)
+	defer stopMonitor()
+
+	status := &exec.DAGRunStatus{
+		Name:      "briefing",
+		Status:    core.Succeeded,
+		DAGRunID:  "run-1",
+		AttemptID: "attempt-1",
+	}
+	require.True(t, monitor.NotifyCompletion(status))
+
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(calls) == 1
+	}, time.Second, 10*time.Millisecond)
+	assert.True(t, monitor.IsDelivered("dest-1", status))
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, calls, 1)
+	assert.Equal(t, NotificationClassSuccessDigest, calls[0].Class)
+	require.Len(t, calls[0].Events, 1)
+	assert.Equal(t, eventstore.TypeDAGRunSucceeded, calls[0].Events[0].Type)
 }
 
 func TestNotificationMonitor_PollSourceFiltersInterestedEventTypes(t *testing.T) {

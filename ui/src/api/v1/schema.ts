@@ -3403,12 +3403,20 @@ export interface components {
              * @description HTTP or HTTPS endpoint to POST notification payloads to. Omit on updates to preserve the existing URL.
              */
             url?: string;
-            /** @description Additional request headers. Values are encrypted at rest. */
+            /** @description Additional request headers. Values are encrypted at rest. When provided, this replaces the stored header set. */
             headers?: {
                 [key: string]: string;
             };
+            /** @description Clear all stored webhook headers. */
+            clearHeaders?: boolean;
             /** @description Optional HMAC secret for X-Dagu-Signature. Omit on updates to preserve the existing secret. */
             hmacSecret?: string;
+            /** @description Clear the stored HMAC secret. */
+            clearHmacSecret?: boolean;
+            /** @description Allow plain HTTP webhook URLs. Disabled by default. */
+            allowInsecureHttp?: boolean;
+            /** @description Allow loopback or private network webhook targets. Disabled by default. */
+            allowPrivateNetwork?: boolean;
         };
         /** @description Public outbound webhook target details */
         NotificationWebhookTarget: {
@@ -3422,6 +3430,10 @@ export interface components {
             };
             /** @description Whether an HMAC secret is configured */
             hmacSecretConfigured: boolean;
+            /** @description Whether this target allows plain HTTP webhook URLs */
+            allowInsecureHttp?: boolean;
+            /** @description Whether this target allows loopback or private network webhook targets */
+            allowPrivateNetwork?: boolean;
         };
         /** @description Slack incoming webhook target input. Values are encrypted at rest. */
         NotificationSlackTargetInput: {
@@ -3463,6 +3475,8 @@ export interface components {
             type: components["schemas"]["NotificationProviderType"];
             /** @description Whether this target receives notifications */
             enabled: boolean;
+            /** @description Optional target-level event filter. When omitted or empty, the target inherits DAG-level events. */
+            events?: components["schemas"]["NotificationEventType"][];
             email?: components["schemas"]["NotificationEmailTarget"];
             webhook?: components["schemas"]["NotificationWebhookTargetInput"];
             slack?: components["schemas"]["NotificationSlackTargetInput"];
@@ -3477,6 +3491,8 @@ export interface components {
             type: components["schemas"]["NotificationProviderType"];
             /** @description Whether this target receives notifications */
             enabled: boolean;
+            /** @description Target-level event filter. Empty means the target inherits DAG-level events. */
+            events?: components["schemas"]["NotificationEventType"][];
             email?: components["schemas"]["NotificationEmailTarget"];
             webhook?: components["schemas"]["NotificationWebhookTarget"];
             slack?: components["schemas"]["NotificationSlackTarget"];
