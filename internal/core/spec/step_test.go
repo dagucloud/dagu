@@ -57,6 +57,8 @@ func TestMain(m *testing.M) {
 	core.RegisterExecutorCapabilities("data", core.ExecutorCapabilities{Command: true})
 	// wait: supports command only
 	core.RegisterExecutorCapabilities("wait", core.ExecutorCapabilities{Command: true})
+	// git: supports command only
+	core.RegisterExecutorCapabilities("git", core.ExecutorCapabilities{Command: true})
 	// dag/subworkflow/parallel: support SubDAG and WorkerSelector
 	for _, t := range []string{"dag", "subworkflow", "parallel"} {
 		core.RegisterExecutorCapabilities(t, core.ExecutorCapabilities{

@@ -200,6 +200,7 @@ Current builtin actions:
 | `mail.send` | Email sending | mail executor config |
 | `archive.create`, `archive.extract`, `archive.list` | Archive operations | archive config |
 | `file.stat`, `file.read`, `file.write`, `file.copy`, `file.move`, `file.delete`, `file.mkdir`, `file.list` | File operations | path/source/destination/content config |
+| `git.checkout` | Git repository checkout | `repository`, `path`, optional `ref`, `depth`, auth config |
 | `wait.duration`, `wait.until`, `wait.file`, `wait.http` | Wait or poll for time, files, or HTTP readiness | `duration`, `until`, `path`, `url`, optional polling config |
 | `s3.upload`, `s3.download`, `s3.list`, `s3.delete` | S3 operations | S3 config |
 | `sftp.upload`, `sftp.download` | SFTP transfers | SFTP config |

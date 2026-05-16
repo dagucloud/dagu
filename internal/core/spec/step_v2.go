@@ -60,6 +60,7 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"file.read":       operationAction("file", "read"),
 	"file.stat":       operationAction("file", "stat"),
 	"file.write":      operationAction("file", "write"),
+	"git.checkout":    operationAction("git", "checkout"),
 	"harness.run":     normalizeHarnessRunAction,
 	"http.request":    normalizeHTTPRequestAction,
 	"jq.filter":       normalizeJQFilterAction,

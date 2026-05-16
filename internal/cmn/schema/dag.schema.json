@@ -2230,6 +2230,18 @@
         },
         {
           "if": {
+            "properties": { "action": { "const": "git.checkout" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/gitCheckoutActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": { "action": { "enum": ["wait.duration", "wait.until", "wait.file", "wait.http"] } },
             "required": ["action"]
           },
@@ -2530,6 +2542,19 @@
               "with": { "$ref": "#/definitions/fileActionConfig" },
               "config": {
                 "$ref": "#/definitions/fileActionConfig",
+                "deprecated": true,
+                "doNotSuggest": true
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "git" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "with": { "$ref": "#/definitions/gitCheckoutActionConfig" },
+              "config": {
+                "$ref": "#/definitions/gitCheckoutActionConfig",
                 "deprecated": true,
                 "doNotSuggest": true
               }
@@ -5881,6 +5906,7 @@
         "docker",
         "container",
         "file",
+        "git",
         "kubernetes",
         "k8s",
         "http",
@@ -5945,6 +5971,7 @@
             "file.read",
             "file.stat",
             "file.write",
+            "git.checkout",
             "harness.run",
             "http.request",
             "jq.filter",
@@ -6470,6 +6497,64 @@
       },
       "description": "Configuration for local file actions."
     },
+    "gitCheckoutActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "path"],
+      "not": {
+        "anyOf": [
+          { "required": ["ssh_key_path", "token"] },
+          { "required": ["ssh_key_path", "password"] }
+        ]
+      },
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Git repository URL or local repository path."
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Branch, tag, or commit to checkout. Defaults to the repository default HEAD."
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Destination checkout path. Relative paths resolve from the step working directory."
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Shallow clone/fetch depth. Zero means full history."
+        },
+        "force": {
+          "type": "boolean",
+          "description": "Force checkout when the existing worktree has local changes. Defaults to false."
+        },
+        "token": {
+          "type": "string",
+          "description": "HTTPS token for repository authentication."
+        },
+        "username": {
+          "type": "string",
+          "description": "HTTPS username when using password authentication."
+        },
+        "password": {
+          "type": "string",
+          "description": "HTTPS password for repository authentication."
+        },
+        "ssh_key_path": {
+          "type": "string",
+          "description": "Path to an SSH private key for repository authentication."
+        },
+        "ssh_passphrase": {
+          "type": "string",
+          "description": "Passphrase for ssh_key_path."
+        }
+      },
+      "description": "Configuration for action: git.checkout."
+    },
     "waitActionConfig": {
       "type": "object",
       "additionalProperties": false,
@@ -6741,6 +6826,14 @@
           "then": {
             "properties": {
               "config": { "$ref": "#/definitions/fileActionConfig" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "git" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "config": { "$ref": "#/definitions/gitCheckoutActionConfig" }
             }
           }
         },
