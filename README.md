@@ -512,6 +512,7 @@ Dagu includes built-in actions that run within the Dagu process (or worker). Loc
 | [`template.render`](https://docs.dagu.sh/step-types/template) | Text generation with template rendering |
 | [`router.route`](https://docs.dagu.sh/step-types/router) | Conditional step routing based on values and patterns |
 | [`dag.run`](https://docs.dagu.sh/writing-workflows/control-flow) | Invoke another DAG as a sub-workflow with params and dependencies |
+| [`dag.enqueue`](https://docs.dagu.sh/writing-workflows/control-flow) | Queue another DAG asynchronously and continue after enqueue |
 | [`harness.run`](https://docs.dagu.sh/step-types/harness) | Run coding agent CLIs such as Claude Code, Codex, Copilot, OpenCode, and Pi |
 | [`agent.run`](https://docs.dagu.sh/features/agent/step) | Built-in agent action with tool use |
 

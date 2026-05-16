@@ -435,6 +435,7 @@ func executeRetry(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus, rootRu
 			AttemptID:                  attemptID,
 			PreparedAttempt:            preparedAttempt,
 			DAGRunStore:                ctx.DAGRunStore,
+			QueueStore:                 ctx.QueueStore,
 			SecretStore:                as.SecretStore,
 			ServiceRegistry:            ctx.ServiceRegistry,
 			RootDAGRun:                 rootRun,
@@ -448,6 +449,8 @@ func executeRetry(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus, rootRu
 			AgentOAuthManager:          as.OAuthManager,
 			AgentRemoteContextResolver: as.ContextResolver,
 			ArtifactDir:                artifactDir,
+			DAGRunLogDir:               ctx.Config.Paths.LogDir,
+			DAGRunArtifactDir:          ctx.Config.Paths.ArtifactDir,
 		},
 	)
 

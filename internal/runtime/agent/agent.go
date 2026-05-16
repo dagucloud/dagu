@@ -75,6 +75,9 @@ type Agent struct {
 	// dagRunStore is the database to store the run history.
 	dagRunStore exec.DAGRunStore
 
+	// queueStore is the database to store queued dag-run items.
+	queueStore exec.QueueStore
+
 	// secretStore resolves workspace-local team-managed secret references.
 	secretStore secretpkg.Store
 
@@ -110,6 +113,12 @@ type Agent struct {
 
 	// artifactDir is the per-run artifact directory when artifact storage is enabled.
 	artifactDir string
+
+	// dagRunLogDir is the base log directory for newly persisted child DAG runs.
+	dagRunLogDir string
+
+	// dagRunArtifactDir is the base artifact directory for newly persisted child DAG runs.
+	dagRunArtifactDir string
 
 	// artifactFinalizer persists artifacts before the final terminal status is written.
 	artifactFinalizer ArtifactFinalizer
@@ -281,6 +290,8 @@ type Options struct {
 	PreparedAttempt exec.DAGRunAttempt
 	// DAGRunStore is the store for dag-run data. Nil in shared-nothing mode.
 	DAGRunStore exec.DAGRunStore
+	// QueueStore is the store for queued dag-run items. Nil when queues are unavailable.
+	QueueStore exec.QueueStore
 	// SecretStore resolves workspace-local team-managed secret references.
 	SecretStore secretpkg.Store
 	// ServiceRegistry is the registry for service discovery.
@@ -310,6 +321,10 @@ type Options struct {
 	ScheduleTime string
 	// ArtifactDir is the per-run artifact directory when artifact storage is enabled.
 	ArtifactDir string
+	// DAGRunLogDir is the base log directory used for child DAG runs created by executors.
+	DAGRunLogDir string
+	// DAGRunArtifactDir is the base artifact directory used for child DAG runs created by executors.
+	DAGRunArtifactDir string
 	// ArtifactFinalizer persists artifacts before the final terminal status is written.
 	ArtifactFinalizer ArtifactFinalizer
 	// SocketServerFactory creates the local status/control transport.
@@ -341,6 +356,7 @@ func New(
 		dagRunMgr:                  drm,
 		dagStore:                   ds,
 		dagRunStore:                opts.DAGRunStore,
+		queueStore:                 opts.QueueStore,
 		secretStore:                opts.SecretStore,
 		registry:                   opts.ServiceRegistry,
 		extraEnvs:                  append([]string{}, opts.ExtraEnvs...),
@@ -361,6 +377,8 @@ func New(
 		agentOAuthManager:          opts.AgentOAuthManager,
 		agentRemoteContextResolver: opts.AgentRemoteContextResolver,
 		scheduleTime:               opts.ScheduleTime,
+		dagRunLogDir:               opts.DAGRunLogDir,
+		dagRunArtifactDir:          opts.DAGRunArtifactDir,
 		socketServerFactory:        opts.SocketServerFactory,
 	}
 	if a.socketServerFactory == nil {
@@ -536,6 +554,18 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 	if a.artifactDir != "" {
 		contextOpts = append(contextOpts, runtime.WithArtifactDir(a.artifactDir))
+	}
+	if a.dagRunStore != nil {
+		contextOpts = append(contextOpts, runtime.WithDAGRunStore(a.dagRunStore))
+	}
+	if a.queueStore != nil {
+		contextOpts = append(contextOpts, runtime.WithQueueStore(a.queueStore))
+	}
+	if a.dagRunLogDir != "" {
+		contextOpts = append(contextOpts, runtime.WithDAGRunLogDir(a.dagRunLogDir))
+	}
+	if a.dagRunArtifactDir != "" {
+		contextOpts = append(contextOpts, runtime.WithDAGRunArtifactDir(a.dagRunArtifactDir))
 	}
 	if a.logWriterFactory != nil {
 		contextOpts = append(contextOpts, runtime.WithLogWriterFactory(a.logWriterFactory))
@@ -1679,6 +1709,18 @@ func (a *Agent) dryRun(ctx context.Context) error {
 	}
 	if a.artifactDir != "" {
 		contextOpts = append(contextOpts, runtime.WithArtifactDir(a.artifactDir))
+	}
+	if a.dagRunStore != nil {
+		contextOpts = append(contextOpts, runtime.WithDAGRunStore(a.dagRunStore))
+	}
+	if a.queueStore != nil {
+		contextOpts = append(contextOpts, runtime.WithQueueStore(a.queueStore))
+	}
+	if a.dagRunLogDir != "" {
+		contextOpts = append(contextOpts, runtime.WithDAGRunLogDir(a.dagRunLogDir))
+	}
+	if a.dagRunArtifactDir != "" {
+		contextOpts = append(contextOpts, runtime.WithDAGRunArtifactDir(a.dagRunArtifactDir))
 	}
 	dagCtx := runtime.NewContext(ctx, a.dag, a.dagRunID, a.logFile, contextOpts...)
 	lastErr := a.runner.Run(dagCtx, a.plan, progressCh)

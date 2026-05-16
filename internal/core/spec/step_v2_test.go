@@ -82,6 +82,68 @@ steps:
 	assert.Equal(t, "a", step.Parallel.Items[0].Params["id"])
 }
 
+func TestStepSchemaV2_ActionDagEnqueue(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: enqueue_child
+    action: dag.enqueue
+    with:
+      dag: account_workflow
+      params:
+        account_id: "42"
+      queue: background
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, core.ExecutorTypeDAGEnqueue, step.ExecutorConfig.Type)
+	require.NotNil(t, step.SubDAG)
+	assert.Equal(t, "account_workflow", step.SubDAG.Name)
+	assert.Contains(t, step.SubDAG.Params, `account_id="42"`)
+	assert.Equal(t, "background", step.ExecutorConfig.Config["queue"])
+}
+
+func TestStepSchemaV2_ActionDagEnqueueParallel(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: enqueue_fanout
+    parallel:
+      items:
+        - id: a
+          region: us
+        - id: b
+          region: eu
+      max_concurrent: 2
+    action: dag.enqueue
+    with:
+      dag: account_workflow
+      params:
+        account_id: ${ITEM.id}
+        region: ${ITEM.region}
+      queue: background
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, core.ExecutorTypeDAGEnqueue, step.ExecutorConfig.Type)
+	require.NotNil(t, step.SubDAG)
+	assert.Equal(t, "account_workflow", step.SubDAG.Name)
+	assert.Contains(t, step.SubDAG.Params, `${ITEM.id}`)
+	assert.Contains(t, step.SubDAG.Params, `${ITEM.region}`)
+	assert.Equal(t, "background", step.ExecutorConfig.Config["queue"])
+	require.NotNil(t, step.Parallel)
+	assert.Equal(t, 2, step.Parallel.MaxConcurrent)
+	require.Len(t, step.Parallel.Items, 2)
+	assert.Equal(t, "a", step.Parallel.Items[0].Params["id"])
+	assert.Equal(t, "eu", step.Parallel.Items[1].Params["region"])
+}
+
 func TestStepSchemaV2_ActionParallelRejectsNonDAG(t *testing.T) {
 	t.Parallel()
 
@@ -95,7 +157,7 @@ steps:
       url: https://example.com
 `))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), `parallel currently requires action: dag.run`)
+	assert.Contains(t, err.Error(), `parallel currently requires action: dag.run or dag.enqueue`)
 }
 
 func TestStepSchemaV2_ActionHTTPRequest(t *testing.T) {

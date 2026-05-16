@@ -191,6 +191,7 @@ Current builtin actions:
 | `redis.<operation>` | Redis operations | Redis config; operation comes from the action suffix |
 | `jq.filter` | jq transforms | `filter`, plus `data` or `input` |
 | `dag.run` | Child DAG execution | `dag`, optional `params` |
+| `dag.enqueue` | Asynchronous child DAG enqueue | `dag`, optional `params`, optional `queue` |
 | `router.route` | Conditional routing | `value`, `routes` |
 | `chat.completion` | LLM chat completion | `prompt` or `messages`, model config |
 | `agent.run` | Agent step execution | `task`, `prompt`, or `messages`, agent config |
@@ -229,6 +230,8 @@ for an in-memory DuckDB database.
 
 ### Child DAG
 
+Use `dag.run` when the parent workflow must wait for the child DAG result:
+
 ```yaml
 steps:
   - id: process_account
@@ -240,7 +243,24 @@ steps:
         REGION: us-east-1
 ```
 
-`parallel:` currently requires `action: dag.run`:
+Use `dag.enqueue` when the parent only needs to create a queued child DAG run
+and continue:
+
+```yaml
+steps:
+  - id: queue_account_report
+    action: dag.enqueue
+    with:
+      dag: workflows/account-report
+      params:
+        ACCOUNT_ID: acct_123
+      queue: background
+```
+
+`dag.enqueue` accepts the same `with.dag` and `with.params` inputs as
+`dag.run`, plus `with.queue` to override the queued child run's queue.
+
+`parallel:` currently requires `action: dag.run` or `action: dag.enqueue`:
 
 ```yaml
 steps:

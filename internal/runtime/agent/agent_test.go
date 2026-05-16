@@ -16,13 +16,16 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
+	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/internal/cmn/sock"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis/filesecret"
+	runtimepkg "github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/agent"
 	secretpkg "github.com/dagucloud/dagu/internal/secret"
+	"github.com/dagucloud/dagu/internal/service/scheduler"
 	"github.com/dagucloud/dagu/internal/test"
 
 	"github.com/stretchr/testify/require"
@@ -1125,6 +1128,139 @@ steps:
 
 	require.NoError(t, os.WriteFile(releaseFile, []byte("done"), 0600))
 	require.NoError(t, <-runErr)
+}
+
+func TestAgent_DAGEnqueueQueuesChildWithoutWaiting(t *testing.T) {
+	t.Parallel()
+
+	th := test.Setup(t)
+	releaseFile := filepath.Join(t.TempDir(), "release-child")
+	t.Cleanup(func() {
+		_ = os.WriteFile(releaseFile, []byte("done"), 0600)
+	})
+
+	th.CreateDAGFile(t, th.Config.Paths.DAGsDir, "child-enqueued", fmt.Appendf(nil, `
+params:
+  - TARGET: default
+  - OTHER: keep
+steps:
+  - name: wait
+    run: %q
+`, waitForFileScript(releaseFile, 100*time.Millisecond)))
+
+	parent := th.DAG(t, `
+type: graph
+steps:
+  - name: enqueue-child
+    action: dag.enqueue
+    with:
+      dag: child-enqueued
+      params:
+        TARGET: async
+      queue: background
+`)
+
+	a := parent.Agent()
+	a.RunSuccess(t)
+
+	status := a.Status(parent.Context)
+	require.Len(t, status.Nodes, 1)
+	require.Len(t, status.Nodes[0].SubRuns, 1)
+	subRun := status.Nodes[0].SubRuns[0]
+	require.Equal(t, "child-enqueued", subRun.DAGName)
+	require.Contains(t, subRun.Params, `TARGET="async"`)
+
+	items, err := th.QueueStore.List(th.Context, "background")
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+
+	ref, err := items[0].Data()
+	require.NoError(t, err)
+	require.Equal(t, exec.NewDAGRunRef("child-enqueued", subRun.DAGRunID), *ref)
+
+	attempt, err := th.DAGRunStore.FindAttempt(th.Context, *ref)
+	require.NoError(t, err)
+	childStatus, err := attempt.ReadStatus(th.Context)
+	require.NoError(t, err)
+	require.Equal(t, core.Queued, childStatus.Status)
+	require.Equal(t, core.TriggerTypeSubDAG, childStatus.TriggerType)
+	require.Equal(t, []string{"TARGET=async", "OTHER=keep"}, childStatus.ParamsList)
+	require.Equal(t, *ref, childStatus.Root)
+	require.True(t, childStatus.Parent.Zero())
+}
+
+func TestAgent_DAGEnqueueQueuedChildRunsFromQueue(t *testing.T) {
+	t.Parallel()
+
+	outputFile := filepath.Join(t.TempDir(), "child-output")
+	th := test.Setup(t,
+		test.WithBuiltExecutable(),
+		test.WithConfigMutator(func(cfg *config.Config) {
+			cfg.Queues.Enabled = true
+			cfg.Queues.Config = append(cfg.Queues.Config, config.QueueConfig{
+				Name:          "background",
+				MaxActiveRuns: 1,
+			})
+		}),
+	)
+
+	th.CreateDAGFile(t, th.Config.Paths.DAGsDir, "child-queue-exec", fmt.Appendf(nil, `
+steps:
+  - name: write-output
+    run: %q
+`, writeFileCommand(outputFile, "done")))
+
+	parent := th.DAG(t, `
+type: graph
+steps:
+  - name: enqueue-child
+    action: dag.enqueue
+    with:
+      dag: child-queue-exec
+      queue: background
+`)
+
+	a := parent.Agent()
+	a.RunSuccess(t)
+
+	status := a.Status(parent.Context)
+	require.Len(t, status.Nodes, 1)
+	require.Len(t, status.Nodes[0].SubRuns, 1)
+	subRun := status.Nodes[0].SubRuns[0]
+	ref := exec.NewDAGRunRef("child-queue-exec", subRun.DAGRunID)
+
+	dagExecutor := scheduler.NewDAGExecutor(
+		nil,
+		runtimepkg.NewSubCmdBuilder(th.Config),
+		th.Config.DefaultExecMode,
+		th.Config.Paths.BaseConfig,
+		nil,
+	)
+	processor := scheduler.NewQueueProcessor(
+		th.QueueStore,
+		th.DAGRunStore,
+		th.ProcStore,
+		dagExecutor,
+		th.Config.Queues,
+		scheduler.WithBackoffConfig(scheduler.BackoffConfig{
+			InitialInterval: 100 * time.Millisecond,
+			MaxInterval:     250 * time.Millisecond,
+			MaxRetries:      20,
+		}),
+	)
+	processor.ProcessQueueItems(th.Context, "background")
+
+	waitForTestFile(t, outputFile, subDAGVisibleTimeout())
+	require.Eventually(t, func() bool {
+		childStatus, err := th.DAGRunMgr.GetSavedStatus(th.Context, ref)
+		return err == nil && childStatus.Status == core.Succeeded
+	}, subDAGVisibleTimeout(), 100*time.Millisecond)
+
+	require.Eventually(t, func() bool {
+		processor.ProcessQueueItems(th.Context, "background")
+		length, err := th.QueueStore.Len(th.Context, "background")
+		return err == nil && length == 0
+	}, subDAGVisibleTimeout(), 100*time.Millisecond)
 }
 
 func subDAGVisibleTimeout() time.Duration {

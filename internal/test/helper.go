@@ -781,10 +781,13 @@ func (d *DAG) Agent(opts ...AgentOption) *Agent {
 	root := exec1.NewDAGRunRef(d.Name, dagRunID)
 
 	helper.opts.DAGRunStore = d.DAGRunStore
+	helper.opts.QueueStore = d.QueueStore
 	helper.opts.ServiceRegistry = d.ServiceRegistry
 	helper.opts.RootDAGRun = root
 	helper.opts.PeerConfig = d.Config.Core.Peer
 	helper.opts.DefaultExecMode = d.Config.DefaultExecMode
+	helper.opts.DAGRunLogDir = d.Config.Paths.LogDir
+	helper.opts.DAGRunArtifactDir = d.Config.Paths.ArtifactDir
 
 	helper.Agent = agent.New(
 		dagRunID,

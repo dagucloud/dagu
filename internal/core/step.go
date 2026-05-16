@@ -393,6 +393,9 @@ const (
 	// ExecutorTypeDAG is the executor type for a sub DAG.
 	ExecutorTypeDAG = "dag"
 
+	// ExecutorTypeDAGEnqueue is the executor type for asynchronously queueing a sub DAG.
+	ExecutorTypeDAGEnqueue = "dag_enqueue"
+
 	// ExecutorTypeParallel is the executor type for parallel steps.
 	ExecutorTypeParallel = "parallel"
 

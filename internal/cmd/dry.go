@@ -84,6 +84,7 @@ func runDry(ctx *Context, args []string) error {
 		agent.Options{
 			Dry:                        true,
 			DAGRunStore:                ctx.DAGRunStore,
+			QueueStore:                 ctx.QueueStore,
 			SecretStore:                as.SecretStore,
 			ServiceRegistry:            ctx.ServiceRegistry,
 			RootDAGRun:                 exec.NewDAGRunRef(dag.Name, dagRunID),
@@ -95,6 +96,8 @@ func runDry(ctx *Context, args []string) error {
 			AgentSoulStore:             as.SoulStore,
 			AgentOAuthManager:          as.OAuthManager,
 			AgentRemoteContextResolver: as.ContextResolver,
+			DAGRunLogDir:               ctx.Config.Paths.LogDir,
+			DAGRunArtifactDir:          ctx.Config.Paths.ArtifactDir,
 		},
 	)
 

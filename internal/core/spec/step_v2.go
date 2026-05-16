@@ -48,6 +48,7 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"archive.list":    operationAction("archive", "list"),
 	"chat.completion": normalizeChatAction,
 	"container.run":   optionalCommandAction("container", "command"),
+	"dag.enqueue":     normalizeDagEnqueueAction,
 	"dag.run":         normalizeDagRunAction,
 	"data.convert":    operationAction("data", "convert"),
 	"data.pick":       operationAction("data", "pick"),
@@ -291,6 +292,34 @@ func normalizeDagRunAction(normalized map[string]any, with map[string]any) error
 		normalized["params"] = cloneAny(params)
 	}
 	delete(normalized, "with")
+	delete(normalized, "action")
+	return nil
+}
+
+func normalizeDagEnqueueAction(normalized map[string]any, with map[string]any) error {
+	dagName, err := requireActionStringField(with, "dag")
+	if err != nil {
+		return err
+	}
+	for key := range with {
+		if key != "dag" && key != "params" && key != "queue" {
+			return core.NewValidationError("with", with, fmt.Errorf("dag.enqueue does not support with.%s", key))
+		}
+	}
+	normalized["type"] = core.ExecutorTypeDAGEnqueue
+	normalized["call"] = dagName
+	if params, ok := with["params"]; ok {
+		normalized["params"] = cloneAny(params)
+	}
+	config := make(map[string]any)
+	if queue, ok := with["queue"]; ok {
+		config["queue"] = cloneAny(queue)
+	}
+	if len(config) > 0 {
+		normalized["with"] = config
+	} else {
+		delete(normalized, "with")
+	}
 	delete(normalized, "action")
 	return nil
 }
