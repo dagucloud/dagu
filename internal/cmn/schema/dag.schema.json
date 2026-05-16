@@ -2230,7 +2230,7 @@
         },
         {
           "if": {
-            "properties": { "action": { "enum": ["postgres.query", "sqlite.query"] } },
+            "properties": { "action": { "enum": ["duckdb.query", "postgres.query", "sqlite.query"] } },
             "required": ["action"]
           },
           "then": {
@@ -2242,7 +2242,7 @@
         },
         {
           "if": {
-            "properties": { "action": { "enum": ["postgres.import", "sqlite.import"] } },
+            "properties": { "action": { "enum": ["duckdb.import", "postgres.import", "sqlite.import"] } },
             "required": ["action"]
           },
           "then": {
@@ -2537,6 +2537,19 @@
               "with": { "$ref": "#/definitions/sqliteExecutorConfig" },
               "config": {
                 "$ref": "#/definitions/sqliteExecutorConfig",
+                "deprecated": true,
+                "doNotSuggest": true
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "duckdb" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "with": { "$ref": "#/definitions/duckdbExecutorConfig" },
+              "config": {
+                "$ref": "#/definitions/duckdbExecutorConfig",
                 "deprecated": true,
                 "doNotSuggest": true
               }
@@ -3803,6 +3816,75 @@
         }
       },
       "description": "SQLite executor configuration for database operations. Uses pure Go SQLite with automatic pragmas: foreign_keys=ON, busy_timeout=5000."
+    },
+    "duckdbExecutorConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dsn"],
+      "properties": {
+        "dsn": {
+          "type": "string",
+          "description": "DuckDB database path, or :memory: for an in-memory database."
+        },
+        "params": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": true,
+              "description": "Named parameters as map (e.g., {name: 'value'}). Use :name in query."
+            },
+            {
+              "type": "array",
+              "items": {},
+              "description": "Positional parameters as array. Use ? placeholders in query."
+            }
+          ],
+          "description": "Query parameters for SQL injection prevention."
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 60,
+          "description": "Query timeout in seconds. Default: 60."
+        },
+        "transaction": {
+          "type": "boolean",
+          "description": "Wrap execution in a transaction."
+        },
+        "output_format": {
+          "type": "string",
+          "enum": ["jsonl", "json", "csv"],
+          "default": "jsonl",
+          "description": "Output format for query results. Default: jsonl."
+        },
+        "headers": {
+          "type": "boolean",
+          "description": "Include headers in CSV output."
+        },
+        "null_string": {
+          "type": "string",
+          "default": "null",
+          "description": "String representation for NULL values. Default: 'null'."
+        },
+        "max_rows": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Maximum rows to return. 0 = unlimited."
+        },
+        "streaming": {
+          "type": "boolean",
+          "description": "Stream results to file instead of stdout."
+        },
+        "output_file": {
+          "type": "string",
+          "description": "File path for streaming output."
+        },
+        "import": {
+          "$ref": "#/definitions/sqlImportConfig",
+          "description": "Import data from CSV/TSV/JSONL file into a table."
+        }
+      },
+      "description": "DuckDB executor configuration for embedded analytical database operations."
     },
     "redisConnectionConfig": {
       "type": "object",
@@ -5776,6 +5858,7 @@
         "archive",
         "chat",
         "log",
+        "duckdb",
         "postgres",
         "sqlite",
         "redis",
@@ -5813,6 +5896,8 @@
             "container.run",
             "dag.run",
             "docker.run",
+            "duckdb.import",
+            "duckdb.query",
             "exec",
             "file.copy",
             "file.delete",
@@ -6476,6 +6561,14 @@
           "then": {
             "properties": {
               "config": { "$ref": "#/definitions/sqliteExecutorConfig" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "duckdb" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "config": { "$ref": "#/definitions/duckdbExecutorConfig" }
             }
           }
         },

@@ -186,8 +186,8 @@ Current builtin actions:
 | `docker.run` | Docker executor | optional `command`, Docker config |
 | `container.run` | Container executor | optional `command`, container config |
 | `k8s.run`, `kubernetes.run` | Kubernetes job execution | optional `command`, Kubernetes config |
-| `postgres.query`, `sqlite.query` | SQL queries | `query`, database config |
-| `postgres.import`, `sqlite.import` | SQL imports | `import`, database config |
+| `postgres.query`, `sqlite.query`, `duckdb.query` | SQL queries | `query`, database config |
+| `postgres.import`, `sqlite.import`, `duckdb.import` | SQL imports | `import`, database config |
 | `redis.<operation>` | Redis operations | Redis config; operation comes from the action suffix |
 | `jq.filter` | jq transforms | `filter`, plus `data` or `input` |
 | `dag.run` | Child DAG execution | `dag`, optional `params` |
@@ -219,6 +219,10 @@ steps:
       dsn: ${DATABASE_URL}
       query: SELECT id, email FROM users WHERE active = true
 ```
+
+The SQL action family supports PostgreSQL, SQLite, and DuckDB. Use
+`duckdb.query` or `duckdb.import` with a DuckDB database path, or `:memory:`
+for an in-memory DuckDB database.
 
 ### Child DAG
 
