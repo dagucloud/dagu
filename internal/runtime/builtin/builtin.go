@@ -27,4 +27,5 @@ import (
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/sql/drivers/sqlite"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/ssh"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/template"
+	_ "github.com/dagucloud/dagu/internal/runtime/builtin/wait"
 )

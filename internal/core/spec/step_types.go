@@ -100,6 +100,7 @@ var builtinStepTypeNames = map[string]struct{}{
 	"ssh":           {},
 	"subworkflow":   {},
 	"template":      {},
+	"wait":          {},
 }
 
 var registeredExecutorTypeNames = map[string]struct{}{}

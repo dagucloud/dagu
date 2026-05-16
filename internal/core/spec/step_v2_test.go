@@ -363,6 +363,61 @@ steps:
 	}
 }
 
+func TestStepSchemaV2_ActionWaitOperations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		action string
+		op     string
+		with   string
+	}{
+		{
+			action: "wait.duration",
+			op:     "duration",
+			with:   "duration: 10s",
+		},
+		{
+			action: "wait.until",
+			op:     "until",
+			with:   "until: 2026-01-02T03:04:05Z",
+		},
+		{
+			action: "wait.file",
+			op:     "file",
+			with: `path: ./ready.flag
+      state: exists`,
+		},
+		{
+			action: "wait.http",
+			op:     "http",
+			with: `url: https://example.com/health
+      status: 204`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.action, func(t *testing.T) {
+			t.Parallel()
+
+			dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: wait_step
+    action: `+tt.action+`
+    with:
+      `+tt.with+`
+`))
+			require.NoError(t, err)
+			require.Len(t, dag.Steps, 1)
+
+			step := dag.Steps[0]
+			assert.Equal(t, "wait", step.ExecutorConfig.Type)
+			require.Len(t, step.Commands, 1)
+			assert.Equal(t, tt.op, step.Commands[0].Command)
+			assert.NotEmpty(t, step.ExecutorConfig.Config)
+		})
+	}
+}
+
 func TestStepSchemaV2_ActionHarnessStdin(t *testing.T) {
 	t.Parallel()
 

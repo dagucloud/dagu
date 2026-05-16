@@ -79,6 +79,10 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"sqlite.import":   importAction("sqlite"),
 	"ssh.run":         commandAction("ssh", "command"),
 	"template.render": normalizeTemplateAction,
+	"wait.duration":   operationAction("wait", "duration"),
+	"wait.file":       operationAction("wait", "file"),
+	"wait.http":       operationAction("wait", "http"),
+	"wait.until":      operationAction("wait", "until"),
 }
 
 // BuiltinActionNames returns the currently accepted built-in action names in
