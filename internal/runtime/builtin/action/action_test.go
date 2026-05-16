@@ -144,6 +144,20 @@ func TestResolvePackageActionRejectsTraversal(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid package name")
 }
 
+func TestWritePermissionsResolveExtrasFromActionRoot(t *testing.T) {
+	t.Parallel()
+
+	rootDir := filepath.Join(t.TempDir(), "action")
+	outputDir := filepath.Join(t.TempDir(), "output")
+
+	got := writePermissions(rootDir, outputDir, []string{"cache/state.json", "../secret", "/tmp/abs"})
+
+	assert.Equal(t, []string{
+		filepath.Clean(outputDir),
+		filepath.Join(rootDir, "cache", "state.json"),
+	}, got)
+}
+
 func TestLoadManifestRejectsEscapingPermissionPath(t *testing.T) {
 	t.Parallel()
 

@@ -178,8 +178,10 @@ func cloneGitSource(ctx context.Context, target, version string, opts resolveOpt
 	if err := os.MkdirAll(filepath.Dir(root), 0o750); err != nil {
 		return "", "", fmt.Errorf("create action source cache: %w", err)
 	}
-	tmp := fmt.Sprintf("%s.%d.tmp", root, os.Getpid())
-	_ = os.RemoveAll(tmp)
+	tmp, err := os.MkdirTemp(filepath.Dir(root), filepath.Base(root)+".*.tmp")
+	if err != nil {
+		return "", "", fmt.Errorf("create action source temp dir: %w", err)
+	}
 	if err := runGit(ctx, "", "clone", "--depth", "1", "--branch", version, repoURL, tmp); err != nil {
 		_ = os.RemoveAll(tmp)
 		if err := runGit(ctx, "", "clone", repoURL, tmp); err != nil {

@@ -228,7 +228,7 @@ func denoRunArgs(rootDir, entrypoint, inputPath, outputDir string, perms permiss
 		"--cached-only",
 		"--no-prompt",
 		"--allow-read=" + strings.Join(readPermissions(rootDir, inputPath, perms.Read), ","),
-		"--allow-write=" + strings.Join(writePermissions(outputDir, perms.Write), ","),
+		"--allow-write=" + strings.Join(writePermissions(rootDir, outputDir, perms.Write), ","),
 	}
 	args = append(args, denoLockArgs(rootDir)...)
 	if len(perms.Net) > 0 {
@@ -274,16 +274,15 @@ func readPermissions(rootDir, inputPath string, extra []string) []string {
 	return dedupeStrings(paths)
 }
 
-func writePermissions(outputDir string, extra []string) []string {
+func writePermissions(rootDir, outputDir string, extra []string) []string {
 	paths := []string{filepath.Clean(outputDir)}
 	for _, item := range extra {
 		item = strings.TrimSpace(item)
 		if item == "" || filepath.IsAbs(item) {
 			continue
 		}
-		path := filepath.Join(outputDir, item)
-		if isPathWithin(outputDir, path) {
-			paths = append(paths, filepath.Clean(path))
+		if path, err := safeRelativePath(rootDir, item); err == nil {
+			paths = append(paths, path)
 		}
 	}
 	return dedupeStrings(paths)
