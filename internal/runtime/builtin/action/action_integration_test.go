@@ -33,7 +33,7 @@ func TestExecutorRunsLocalSourceActionWithRealDenoIntegration(t *testing.T) {
 	actionDir := filepath.Join(workDir, "actions", "echo")
 	writeRealDenoAction(t, actionDir, realDenoVersion())
 
-	dag, err := spec.LoadYAML(context.Background(), []byte(fmt.Sprintf(`
+	dag, err := spec.LoadYAML(context.Background(), fmt.Appendf(nil, `
 name: real-deno-action
 working_dir: %s
 steps:
@@ -41,7 +41,7 @@ steps:
     action: source:actions/echo@local
     with:
       text: hello from dagu action
-`, strconv.Quote(workDir))))
+`, strconv.Quote(workDir)))
 	require.NoError(t, err)
 	require.Len(t, dag.Steps, 1)
 	step := dag.Steps[0]

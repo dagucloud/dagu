@@ -265,7 +265,7 @@ func validatePackageName(name string) error {
 	if name == "" || filepath.IsAbs(name) || strings.Contains(name, "\\") {
 		return fmt.Errorf("invalid package name %q", name)
 	}
-	for _, part := range strings.Split(name, "/") {
+	for part := range strings.SplitSeq(name, "/") {
 		if part == "" || part == "." || part == ".." {
 			return fmt.Errorf("invalid package name %q", name)
 		}
