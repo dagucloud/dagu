@@ -6,8 +6,8 @@ package secret
 import "context"
 
 type ListOptions struct {
-	// Workspace filters by internal workspace name. Nil means all workspaces.
-	// A pointer to "" means the default unlabelled workspace.
+	// Workspace filters by internal workspace name. Nil means all scopes.
+	// A pointer to GlobalWorkspace means the global scope.
 	Workspace *string
 }
 

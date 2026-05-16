@@ -76,6 +76,7 @@ var builtinStepTypeNames = map[string]struct{}{
 	"container":     {},
 	"dag":           {},
 	"docker":        {},
+	"duckdb":        {},
 	"file":          {},
 	"gha":           {},
 	"github-action": {},

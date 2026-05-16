@@ -47,6 +47,8 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"container.run":   optionalCommandAction("container", "command"),
 	"dag.run":         normalizeDagRunAction,
 	"docker.run":      optionalCommandAction("docker", "command"),
+	"duckdb.query":    commandAction("duckdb", "query"),
+	"duckdb.import":   importAction("duckdb"),
 	"exec":            normalizeExecAction,
 	"file.copy":       operationAction("file", "copy"),
 	"file.delete":     operationAction("file", "delete"),

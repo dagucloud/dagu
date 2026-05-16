@@ -121,6 +121,11 @@ func newSQLiteExecutor(ctx context.Context, step core.Step) (executor.Executor, 
 	return newSQLExecutor(ctx, step, "sqlite")
 }
 
+// newDuckDBExecutor creates a new DuckDB executor.
+func newDuckDBExecutor(ctx context.Context, step core.Step) (executor.Executor, error) {
+	return newSQLExecutor(ctx, step, "duckdb")
+}
+
 // SetStdout sets the stdout writer.
 func (e *sqlExecutor) SetStdout(out io.Writer) {
 	e.stdout = out
@@ -712,6 +717,14 @@ func init() {
 	executor.RegisterExecutor(
 		"sqlite",
 		newSQLiteExecutor,
+		nil,
+		core.ExecutorCapabilities{Command: true, Script: true},
+	)
+
+	// Register DuckDB executor
+	executor.RegisterExecutor(
+		"duckdb",
+		newDuckDBExecutor,
 		nil,
 		core.ExecutorCapabilities{Command: true, Script: true},
 	)

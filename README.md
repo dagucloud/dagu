@@ -65,7 +65,7 @@ Dagu is useful when teams need to consolidate scripts, cron jobs, server tasks, 
 
 **Cron and legacy script management.** Run existing shell scripts, Python scripts, HTTP calls, and scheduled jobs without rewriting them. Dagu turns hidden cron jobs into visible workflows with dependencies, run status, logs, retries, approvals, and history.
 
-**ETL and data operations.** Run PostgreSQL or SQLite queries, S3 transfers, `jq` transforms, validation steps, and reusable sub-workflows. Pin portable tools such as `jq` or `yq` in the DAG so workers do not depend on whatever version happens to be installed. Daily data workflows stay declarative, observable, and easy to retry when one step fails.
+**ETL and data operations.** Run PostgreSQL, SQLite, or DuckDB queries, S3 transfers, `jq` transforms, validation steps, and reusable sub-workflows. Pin portable tools such as `jq` or `yq` in the DAG so workers do not depend on whatever version happens to be installed. Daily data workflows stay declarative, observable, and easy to retry when one step fails.
 
 **Media conversion.** Run `ffmpeg`, thumbnail extraction, audio normalization, image processing, and other compute-heavy jobs. Conversion work can run across distributed workers while status, history, logs, and artifacts stay in one persistence layer for monitoring, debugging, and retries.
 
@@ -501,7 +501,7 @@ Dagu includes built-in actions that run within the Dagu process (or worker). Loc
 | [`ssh.run`](https://docs.dagu.sh/step-types/ssh) | Remote command execution over SSH |
 | [`sftp.upload` / `sftp.download`](https://docs.dagu.sh/step-types/sftp) | File transfer over SFTP |
 | [`http.request`](https://docs.dagu.sh/step-types/http) | HTTP requests with headers, auth, and request bodies |
-| [`postgres.query`](https://docs.dagu.sh/step-types/sql/postgresql) / [`sqlite.query`](https://docs.dagu.sh/step-types/sql/sqlite) | SQL queries, imports, and exports for PostgreSQL and SQLite |
+| [`postgres.query`](https://docs.dagu.sh/step-types/sql/postgresql) / [`sqlite.query`](https://docs.dagu.sh/step-types/sql/sqlite) / `duckdb.query` | SQL queries, imports, and exports for PostgreSQL, SQLite, and DuckDB |
 | [`redis.<operation>`](https://docs.dagu.sh/step-types/redis) | Redis commands, pipelines, and Lua scripts |
 | [`s3.upload` / `s3.download` / `s3.list` / `s3.delete`](https://docs.dagu.sh/step-types/s3) | Upload, download, list, and delete S3 objects |
 | `file.stat` / `file.read` / `file.write` / `file.copy` / `file.move` / `file.delete` / `file.mkdir` / `file.list` | Local file operations without shell commands |

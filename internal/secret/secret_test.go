@@ -17,18 +17,20 @@ func TestNewSecret_ValidatesIdentity(t *testing.T) {
 	now := time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC)
 
 	tests := []struct {
-		name    string
-		input   CreateInput
-		wantErr error
+		name          string
+		input         CreateInput
+		wantWorkspace string
+		wantErr       error
 	}{
 		{
-			name: "ValidDefaultWorkspace",
+			name: "EmptyWorkspaceNormalizesToGlobal",
 			input: CreateInput{
 				Workspace:    "",
 				Ref:          "prod/db-password",
 				ProviderType: ProviderDaguManaged,
 				CreatedBy:    "alice",
 			},
+			wantWorkspace: GlobalWorkspace,
 		},
 		{
 			name: "ValidNamedWorkspace",
@@ -38,11 +40,32 @@ func TestNewSecret_ValidatesIdentity(t *testing.T) {
 				ProviderType: ProviderDaguManaged,
 				CreatedBy:    "alice",
 			},
+			wantWorkspace: "payments",
+		},
+		{
+			name: "ValidGlobalWorkspace",
+			input: CreateInput{
+				Workspace:    GlobalWorkspace,
+				Ref:          "prod/db-password",
+				ProviderType: ProviderDaguManaged,
+				CreatedBy:    "alice",
+			},
+			wantWorkspace: GlobalWorkspace,
 		},
 		{
 			name: "RejectDefaultWorkspaceLiteral",
 			input: CreateInput{
 				Workspace:    "default",
+				Ref:          "prod/db-password",
+				ProviderType: ProviderDaguManaged,
+				CreatedBy:    "alice",
+			},
+			wantErr: ErrInvalidWorkspace,
+		},
+		{
+			name: "RejectGlobalWorkspaceLiteral",
+			input: CreateInput{
+				Workspace:    "global",
 				Ref:          "prod/db-password",
 				ProviderType: ProviderDaguManaged,
 				CreatedBy:    "alice",
@@ -81,7 +104,7 @@ func TestNewSecret_ValidatesIdentity(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.NotEmpty(t, got.ID)
-			assert.Equal(t, tt.input.Workspace, got.Workspace)
+			assert.Equal(t, tt.wantWorkspace, got.Workspace)
 			assert.Equal(t, tt.input.Ref, got.Ref)
 			assert.Equal(t, StatusActive, got.Status)
 			assert.Equal(t, now, got.CreatedAt)

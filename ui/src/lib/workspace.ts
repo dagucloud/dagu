@@ -37,7 +37,8 @@ export function isValidWorkspaceName(name: string): boolean {
   return (
     WORKSPACE_NAME_PATTERN.test(name) &&
     name.toLowerCase() !== WorkspaceKind.all &&
-    name.toLowerCase() !== WorkspaceKind.default
+    name.toLowerCase() !== WorkspaceKind.default &&
+    name.toLowerCase() !== 'global'
   );
 }
 

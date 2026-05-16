@@ -35,6 +35,12 @@ const (
 	StatusDisabled Status = "disabled"
 )
 
+const (
+	// GlobalWorkspace is the internal scope for secrets that are intentionally
+	// shared across DAG workspaces. It is not a valid workspace name.
+	GlobalWorkspace = ".global"
+)
+
 var (
 	ErrAlreadyExists       = errors.New("secret already exists")
 	ErrDisabled            = errors.New("secret is disabled")
@@ -50,7 +56,7 @@ var (
 
 var secretRefPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)*$`)
 
-// Secret is the registry metadata for a workspace-local secret reference.
+// Secret is the registry metadata for a scoped secret reference.
 // It never contains plaintext secret values.
 type Secret struct {
 	ID                     string
@@ -108,7 +114,8 @@ func New(input CreateInput, now time.Time) (*Secret, error) {
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	if err := ValidateWorkspace(input.Workspace); err != nil {
+	workspaceName := NormalizeWorkspace(input.Workspace)
+	if err := ValidateWorkspace(workspaceName); err != nil {
 		return nil, err
 	}
 	if err := ValidateRef(input.Ref); err != nil {
@@ -120,7 +127,7 @@ func New(input CreateInput, now time.Time) (*Secret, error) {
 
 	return &Secret{
 		ID:                     uuid.NewString(),
-		Workspace:              input.Workspace,
+		Workspace:              workspaceName,
 		Ref:                    input.Ref,
 		Description:            input.Description,
 		ProviderType:           input.ProviderType,
@@ -133,6 +140,13 @@ func New(input CreateInput, now time.Time) (*Secret, error) {
 		UpdatedBy:              input.CreatedBy,
 		UpdatedAt:              now,
 	}, nil
+}
+
+func NormalizeWorkspace(name string) string {
+	if name == "" {
+		return GlobalWorkspace
+	}
+	return name
 }
 
 func (s *Secret) Clone() *Secret {
@@ -183,10 +197,17 @@ func ValidateWorkspace(name string) error {
 	if name == "" {
 		return nil
 	}
+	if name == GlobalWorkspace {
+		return nil
+	}
 	if err := workspace.ValidateName(name); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidWorkspace, err)
 	}
 	return nil
+}
+
+func IsGlobalWorkspace(name string) bool {
+	return NormalizeWorkspace(name) == GlobalWorkspace
 }
 
 func ValidateRef(ref string) error {

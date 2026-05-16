@@ -181,27 +181,110 @@ steps:
 	assert.Contains(t, err.Error(), `jq.filter does not allow both with.data and with.input`)
 }
 
+func TestStepSchemaV2_ActionSQLQuery(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		action       string
+		executorType string
+		dsn          string
+	}{
+		{
+			action:       "postgres.query",
+			executorType: "postgres",
+			dsn:          "${DATABASE_URL}",
+		},
+		{
+			action:       "sqlite.query",
+			executorType: "sqlite",
+			dsn:          ":memory:",
+		},
+		{
+			action:       "duckdb.query",
+			executorType: "duckdb",
+			dsn:          ":memory:",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.action, func(t *testing.T) {
+			t.Parallel()
+
+			dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: query_users
+    action: `+tt.action+`
+    with:
+      dsn: "`+tt.dsn+`"
+      query: SELECT 1 AS ok
+      output_format: jsonl
+`))
+			require.NoError(t, err)
+			require.Len(t, dag.Steps, 1)
+
+			step := dag.Steps[0]
+			assert.Equal(t, tt.executorType, step.ExecutorConfig.Type)
+			require.Len(t, step.Commands, 1)
+			assert.Equal(t, "SELECT", step.Commands[0].Command)
+			assert.Equal(t, "SELECT 1 AS ok", step.Commands[0].CmdWithArgs)
+			require.NotNil(t, step.ExecutorConfig.Config)
+			assert.Equal(t, tt.dsn, step.ExecutorConfig.Config["dsn"])
+			assert.Equal(t, "jsonl", step.ExecutorConfig.Config["output_format"])
+			assert.NotContains(t, step.ExecutorConfig.Config, "query")
+		})
+	}
+}
+
 func TestStepSchemaV2_ActionSQLImport(t *testing.T) {
 	t.Parallel()
 
-	dag, err := LoadYAML(context.Background(), []byte(`
+	tests := []struct {
+		action       string
+		executorType string
+		dsn          string
+	}{
+		{
+			action:       "postgres.import",
+			executorType: "postgres",
+			dsn:          "${DATABASE_URL}",
+		},
+		{
+			action:       "sqlite.import",
+			executorType: "sqlite",
+			dsn:          "/data/users.sqlite",
+		},
+		{
+			action:       "duckdb.import",
+			executorType: "duckdb",
+			dsn:          "/data/users.duckdb",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.action, func(t *testing.T) {
+			t.Parallel()
+
+			dag, err := LoadYAML(context.Background(), []byte(`
 steps:
   - id: import_users
-    action: postgres.import
+    action: `+tt.action+`
     with:
-      dsn: ${DATABASE_URL}
+      dsn: "`+tt.dsn+`"
       import:
         input_file: /data/users.csv
         table: users
 `))
-	require.NoError(t, err)
-	require.Len(t, dag.Steps, 1)
+			require.NoError(t, err)
+			require.Len(t, dag.Steps, 1)
 
-	step := dag.Steps[0]
-	assert.Equal(t, "postgres", step.ExecutorConfig.Type)
-	assert.Empty(t, step.Commands)
-	require.NotNil(t, step.ExecutorConfig.Config)
-	assert.Contains(t, step.ExecutorConfig.Config, "import")
+			step := dag.Steps[0]
+			assert.Equal(t, tt.executorType, step.ExecutorConfig.Type)
+			assert.Empty(t, step.Commands)
+			require.NotNil(t, step.ExecutorConfig.Config)
+			assert.Equal(t, tt.dsn, step.ExecutorConfig.Config["dsn"])
+			assert.Contains(t, step.ExecutorConfig.Config, "import")
+		})
+	}
 }
 
 func TestStepSchemaV2_ActionFileOperations(t *testing.T) {

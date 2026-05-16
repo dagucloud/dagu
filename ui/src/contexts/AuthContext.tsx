@@ -312,12 +312,22 @@ export function useCanViewAuditLogs(): boolean {
   return roleAtLeast(user.role, UserRole.manager);
 }
 
-export function useCanManageSecrets(): boolean {
+function secretScopeRoleTarget(scope?: string | null): string {
+  if (!scope || scope === 'global') return '';
+  return scope;
+}
+
+export function useCanManageSecrets(scope?: string | null): boolean {
   const { user } = useAuth();
   const config = useConfig();
+  const appBarContext = useContext(AppBarContext);
+  const workspace =
+    scope === undefined
+      ? workspaceRoleTarget(appBarContext.workspaceSelection)
+      : secretScopeRoleTarget(scope);
   if (config.authMode !== 'builtin') return true;
   if (!user) return false;
-  return roleAtLeast(user.role, UserRole.manager);
+  return roleAtLeast(effectiveWorkspaceRole(user, workspace), UserRole.manager);
 }
 
 export function useCanViewEventLogs(): boolean {
