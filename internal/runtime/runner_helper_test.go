@@ -173,6 +173,14 @@ func withForcedStatus(status core.Status) runnerOption {
 	}
 }
 
+func withDAGAutoRetry(count, limit int, isRoot bool) runnerOption {
+	return func(cfg *runtime.Config) {
+		cfg.DAGRunAutoRetryCount = count
+		cfg.DAGRunAutoRetryLimit = limit
+		cfg.DAGRunIsRoot = isRoot
+	}
+}
+
 func newHandlerStep(_ *testing.T, name, id, command string) core.Step {
 	return core.Step{
 		Name:     name,

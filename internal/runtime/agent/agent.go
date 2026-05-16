@@ -1432,20 +1432,28 @@ func (a *Agent) newRunner(attempt exec.DAGRunAttempt) *runtime.Runner {
 	ts := time.Now().UTC().Format(dateTimeFormatUTC)
 	runnerLogDir := filepath.Join(a.logDir, "run_"+ts+"_"+a.dagRunAttemptID)
 
+	autoRetryLimit := 0
+	if a.dag.RetryPolicy != nil {
+		autoRetryLimit = a.dag.RetryPolicy.Limit
+	}
+
 	cfg := &runtime.Config{
-		LogDir:          runnerLogDir,
-		MaxActiveSteps:  a.dag.MaxActiveSteps,
-		Timeout:         a.dag.Timeout,
-		Delay:           a.dag.Delay,
-		Dry:             a.dry,
-		DAGRunID:        a.dagRunID,
-		MessagesHandler: attempt, // Attempt implements ChatMessagesHandler
-		OnInit:          a.dag.HandlerOn.Init,
-		OnExit:          a.dag.HandlerOn.Exit,
-		OnSuccess:       a.dag.HandlerOn.Success,
-		OnFailure:       a.dag.HandlerOn.Failure,
-		OnAbort:         a.dag.HandlerOn.Abort,
-		OnWait:          a.dag.HandlerOn.Wait,
+		LogDir:               runnerLogDir,
+		MaxActiveSteps:       a.dag.MaxActiveSteps,
+		Timeout:              a.dag.Timeout,
+		Delay:                a.dag.Delay,
+		Dry:                  a.dry,
+		DAGRunID:             a.dagRunID,
+		MessagesHandler:      attempt, // Attempt implements ChatMessagesHandler
+		OnInit:               a.dag.HandlerOn.Init,
+		OnExit:               a.dag.HandlerOn.Exit,
+		OnSuccess:            a.dag.HandlerOn.Success,
+		OnFailure:            a.dag.HandlerOn.Failure,
+		OnAbort:              a.dag.HandlerOn.Abort,
+		OnWait:               a.dag.HandlerOn.Wait,
+		DAGRunAutoRetryCount: a.currentAutoRetryCount(),
+		DAGRunAutoRetryLimit: autoRetryLimit,
+		DAGRunIsRoot:         a.parentDAGRun.Zero(),
 	}
 
 	return runtime.New(cfg)
