@@ -11,8 +11,6 @@ import (
 	"strings"
 
 	sqlexec "github.com/dagucloud/dagu/internal/runtime/builtin/sql"
-
-	_ "github.com/duckdb/duckdb-go/v2" // DuckDB database/sql driver
 )
 
 // DuckDBDriver implements the Driver interface for DuckDB.
@@ -21,21 +19,6 @@ type DuckDBDriver struct{}
 // Name returns the driver name.
 func (d *DuckDBDriver) Name() string {
 	return "duckdb"
-}
-
-// Connect establishes a connection to DuckDB.
-func (d *DuckDBDriver) Connect(_ context.Context, cfg *sqlexec.Config) (*sql.DB, func() error, error) {
-	dsn := cfg.DSN
-	if dsn == ":memory:" {
-		dsn = ""
-	}
-
-	db, err := sql.Open("duckdb", dsn)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to open duckdb connection: %w", err)
-	}
-
-	return db, nil, nil
 }
 
 // SupportsAdvisoryLock returns false as DuckDB doesn't support PostgreSQL advisory locks.
