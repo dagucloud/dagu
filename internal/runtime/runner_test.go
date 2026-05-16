@@ -934,6 +934,65 @@ func TestRunner(t *testing.T) {
 		result.assertNodeStatus(t, "1", core.NodeFailed)
 		result.assertNodeStatus(t, "onFailure", core.NodeSucceeded)
 	})
+	t.Run("OnFailureHandlerSkippedWhileRootDAGAutoRetryPending", func(t *testing.T) {
+		r := setupRunner(t,
+			withDAGAutoRetry(0, 2, true),
+			withOnFailure(successStep("onFailure")),
+			withOnExit(successStep("onExit")),
+		)
+
+		plan := r.newPlan(t, failStep("1"))
+
+		result := plan.assertRun(t, core.Failed)
+
+		result.assertNodeStatus(t, "1", core.NodeFailed)
+		result.assertNodeStatus(t, "onFailure", core.NodeNotStarted)
+		result.assertNodeStatus(t, "onExit", core.NodeSucceeded)
+	})
+	t.Run("OnFailureHandlerRunsWhenRootDAGAutoRetryExhausted", func(t *testing.T) {
+		r := setupRunner(t,
+			withDAGAutoRetry(2, 2, true),
+			withOnFailure(successStep("onFailure")),
+			withOnExit(successStep("onExit")),
+		)
+
+		plan := r.newPlan(t, failStep("1"))
+
+		result := plan.assertRun(t, core.Failed)
+
+		result.assertNodeStatus(t, "1", core.NodeFailed)
+		result.assertNodeStatus(t, "onFailure", core.NodeSucceeded)
+		result.assertNodeStatus(t, "onExit", core.NodeSucceeded)
+	})
+	t.Run("OnFailureHandlerRunsForChildDAGFailure", func(t *testing.T) {
+		r := setupRunner(t,
+			withDAGAutoRetry(0, 2, false),
+			withOnFailure(successStep("onFailure")),
+		)
+
+		plan := r.newPlan(t, failStep("1"))
+
+		result := plan.assertRun(t, core.Failed)
+
+		result.assertNodeStatus(t, "1", core.NodeFailed)
+		result.assertNodeStatus(t, "onFailure", core.NodeSucceeded)
+	})
+	t.Run("OnFailureHandlerRunsForRejectedRootDAGWithAutoRetryPending", func(t *testing.T) {
+		r := setupRunner(t,
+			withForcedStatus(core.Rejected),
+			withDAGAutoRetry(0, 2, true),
+			withOnFailure(successStep("onFailure")),
+			withOnExit(successStep("onExit")),
+		)
+
+		plan := r.newPlan(t, successStep("1"))
+
+		result := plan.assertRun(t, core.Rejected)
+
+		result.assertNodeStatus(t, "1", core.NodeSucceeded)
+		result.assertNodeStatus(t, "onFailure", core.NodeSucceeded)
+		result.assertNodeStatus(t, "onExit", core.NodeSucceeded)
+	})
 	t.Run("CancelOnSignal", func(t *testing.T) {
 		r := setupRunner(t)
 

@@ -358,10 +358,12 @@ steps:
 		require.ErrorContains(t, err, "failed to start the unix socket server")
 		require.ErrorContains(t, err, "synthetic bind failure")
 	})
-	t.Run("FailureHandlerRunsInline", func(t *testing.T) {
+	t.Run("FailureHandlerRunsInlineWithoutDAGAutoRetry", func(t *testing.T) {
 		th := test.Setup(t)
 		marker := filepath.Join(t.TempDir(), "failure-marker")
-		dag := th.DAG(t, fmt.Sprintf(`handler_on:
+		dag := th.DAG(t, fmt.Sprintf(`retry_policy:
+  limit: 0
+handler_on:
   failure:
     run: %q
 steps:
@@ -380,6 +382,28 @@ steps:
 		data, err := os.ReadFile(marker)
 		require.NoError(t, err)
 		require.Equal(t, "failed", string(data))
+	})
+	t.Run("FailureHandlerSkipsRootDAGPendingAutoRetry", func(t *testing.T) {
+		th := test.Setup(t)
+		marker := filepath.Join(t.TempDir(), "failure-marker")
+		dag := th.DAG(t, fmt.Sprintf(`retry_policy:
+  limit: 1
+handler_on:
+  failure:
+    run: %q
+steps:
+  - %q
+`, writeFileCommand(marker, "failed"), "exit 1"))
+		dagAgent := dag.Agent()
+		dagAgent.RunError(t)
+
+		status := dagAgent.Status(th.Context)
+		require.Equal(t, core.Failed, status.Status)
+		require.NotNil(t, status.OnFailure)
+		require.Equal(t, core.NodeNotStarted, status.OnFailure.Status)
+
+		_, err := os.Stat(marker)
+		require.ErrorIs(t, err, os.ErrNotExist)
 	})
 	t.Run("FinishWithTimeout", func(t *testing.T) {
 		th := test.Setup(t)
@@ -1043,7 +1067,7 @@ steps:
 func TestAgent_SubDAGRunVisibleWhileRunning(t *testing.T) {
 	t.Parallel()
 
-	th := test.Setup(t)
+	th := test.Setup(t, test.WithBuiltExecutable())
 	releaseFile := filepath.Join(t.TempDir(), "release-child")
 	t.Cleanup(func() {
 		_ = os.WriteFile(releaseFile, []byte("done"), 0600)

@@ -59,6 +59,10 @@ type Runner struct {
 	onWait          *core.Step
 	forcedStatus    *core.Status
 
+	dagRunAutoRetryCount int
+	dagRunAutoRetryLimit int
+	dagRunIsRoot         bool
+
 	canceled  int32
 	mu        sync.RWMutex
 	pause     time.Duration
@@ -80,21 +84,24 @@ type Runner struct {
 
 func New(cfg *Config) *Runner {
 	return &Runner{
-		logDir:          cfg.LogDir,
-		maxActiveRuns:   cfg.MaxActiveSteps,
-		timeout:         cfg.Timeout,
-		delay:           cfg.Delay,
-		dry:             cfg.Dry,
-		onInit:          cfg.OnInit,
-		onExit:          cfg.OnExit,
-		onSuccess:       cfg.OnSuccess,
-		onFailure:       cfg.OnFailure,
-		onAbort:         cfg.OnAbort,
-		dagRunID:        cfg.DAGRunID,
-		messagesHandler: cfg.MessagesHandler,
-		pause:           time.Millisecond * 100,
-		onWait:          cfg.OnWait,
-		forcedStatus:    cfg.ForcedStatus,
+		logDir:               cfg.LogDir,
+		maxActiveRuns:        cfg.MaxActiveSteps,
+		timeout:              cfg.Timeout,
+		delay:                cfg.Delay,
+		dry:                  cfg.Dry,
+		onInit:               cfg.OnInit,
+		onExit:               cfg.OnExit,
+		onSuccess:            cfg.OnSuccess,
+		onFailure:            cfg.OnFailure,
+		onAbort:              cfg.OnAbort,
+		dagRunID:             cfg.DAGRunID,
+		messagesHandler:      cfg.MessagesHandler,
+		pause:                time.Millisecond * 100,
+		onWait:               cfg.OnWait,
+		forcedStatus:         cfg.ForcedStatus,
+		dagRunAutoRetryCount: cfg.DAGRunAutoRetryCount,
+		dagRunAutoRetryLimit: cfg.DAGRunAutoRetryLimit,
+		dagRunIsRoot:         cfg.DAGRunIsRoot,
 	}
 }
 
@@ -113,6 +120,10 @@ type Config struct {
 	MessagesHandler ChatMessagesHandler
 	OnWait          *core.Step
 	ForcedStatus    *core.Status
+
+	DAGRunAutoRetryCount int
+	DAGRunAutoRetryLimit int
+	DAGRunIsRoot         bool
 }
 
 // Run runs the plan of steps.
@@ -284,7 +295,8 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 	r.metrics.totalExecutionTime = time.Since(r.metrics.startTime)
 
 	var eventHandlers []core.HandlerType
-	switch r.Status(ctx, plan) {
+	finalStatus := r.Status(ctx, plan)
+	switch finalStatus {
 	case core.Succeeded:
 		eventHandlers = append(eventHandlers, core.HandlerOnSuccess)
 
@@ -294,7 +306,14 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 		eventHandlers = append(eventHandlers, core.HandlerOnSuccess)
 
 	case core.Failed:
-		eventHandlers = append(eventHandlers, core.HandlerOnFailure)
+		if r.shouldRunFailureHandler(finalStatus) {
+			eventHandlers = append(eventHandlers, core.HandlerOnFailure)
+		} else {
+			logger.Info(ctx, "Skipping failure handler while DAG auto-retry is pending",
+				slog.Int("autoRetryCount", r.dagRunAutoRetryCount),
+				slog.Int("autoRetryLimit", r.dagRunAutoRetryLimit),
+			)
+		}
 
 	case core.Aborted:
 		eventHandlers = append(eventHandlers, core.HandlerOnAbort)
@@ -338,7 +357,7 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 	case core.NotStarted, core.Running:
 		// These states should not occur at this point
 		logger.Warn(ctx, "Unexpected final status",
-			tag.Status(r.Status(ctx, plan).String()),
+			tag.Status(finalStatus.String()),
 		)
 	}
 
@@ -368,6 +387,19 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 	)
 
 	return r.lastError
+}
+
+func (r *Runner) shouldRunFailureHandler(status core.Status) bool {
+	if status != core.Failed {
+		return true
+	}
+	if !r.dagRunIsRoot {
+		return true
+	}
+	if r.dagRunAutoRetryLimit <= 0 {
+		return true
+	}
+	return r.dagRunAutoRetryCount >= r.dagRunAutoRetryLimit
 }
 
 func (r *Runner) processCompletedNode(ctx context.Context, plan *Plan, node *Node, readyCh chan *Node) {
