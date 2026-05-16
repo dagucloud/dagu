@@ -5,6 +5,7 @@ package secret
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/dagucloud/dagu/internal/core"
@@ -18,7 +19,7 @@ type ReferenceResolver struct {
 func NewReferenceResolver(store Store, workspace string) *ReferenceResolver {
 	return &ReferenceResolver{
 		store:     store,
-		workspace: workspace,
+		workspace: NormalizeWorkspace(workspace),
 	}
 }
 
@@ -26,7 +27,7 @@ func (r *ReferenceResolver) ResolveReference(ctx context.Context, ref core.Secre
 	if r == nil || r.store == nil {
 		return "", fmt.Errorf("secret store is not configured")
 	}
-	sec, err := r.store.GetByRef(ctx, r.workspace, ref.Ref)
+	sec, err := r.getByRef(ctx, ref.Ref)
 	if err != nil {
 		return "", err
 	}
@@ -41,7 +42,7 @@ func (r *ReferenceResolver) CheckReferenceAccessibility(ctx context.Context, ref
 	if r == nil || r.store == nil {
 		return fmt.Errorf("secret store is not configured")
 	}
-	sec, err := r.store.GetByRef(ctx, r.workspace, ref.Ref)
+	sec, err := r.getByRef(ctx, ref.Ref)
 	if err != nil {
 		return err
 	}
@@ -50,6 +51,17 @@ func (r *ReferenceResolver) CheckReferenceAccessibility(ctx context.Context, ref
 	}
 	_, err = r.store.GetCurrentVersion(ctx, sec.ID)
 	return err
+}
+
+func (r *ReferenceResolver) getByRef(ctx context.Context, ref string) (*Secret, error) {
+	sec, err := r.store.GetByRef(ctx, r.workspace, ref)
+	if err == nil {
+		return sec, nil
+	}
+	if !errors.Is(err, ErrNotFound) || r.workspace == GlobalWorkspace {
+		return nil, err
+	}
+	return r.store.GetByRef(ctx, GlobalWorkspace, ref)
 }
 
 func ensureResolvable(sec *Secret) error {

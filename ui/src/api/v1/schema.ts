@@ -2859,7 +2859,7 @@ export interface paths {
         put?: never;
         /**
          * Create a secret
-         * @description Creates workspace-local Dagu-managed secret metadata and optionally writes an initial value. Plaintext values are write-only.
+         * @description Creates Dagu-managed secret metadata in global scope or a named workspace and optionally writes an initial value. Plaintext values are write-only.
          */
         post: operations["createSecret"];
         delete?: never;
@@ -5279,7 +5279,7 @@ export interface components {
         /** @enum {string} */
         SecretStatus: SecretStatus;
         CreateSecretRequest: {
-            /** @description Workspace scope for management. DAG refs remain workspace-local and must not include this value. */
+            /** @description Secret scope for management. Use global for workspace-less secrets or a workspace name. Omit for global. */
             workspace?: string;
             /** @description Secret ref used from DAG YAML, for example prod/db-password. */
             ref: string;
@@ -5299,7 +5299,7 @@ export interface components {
         };
         SecretResponse: {
             id: string;
-            /** @description default for the unlabelled default scope, otherwise the workspace name. */
+            /** @description global for workspace-less secrets, otherwise the workspace name. */
             workspace: string;
             /** @description Secret ref used from DAG YAML, for example prod/db-password. */
             ref: string;
@@ -14360,7 +14360,7 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
-                /** @description Single workspace selector. Use default for the unlabelled default scope. Omit for the default workspace. all is not supported for secrets. */
+                /** @description Single secret scope. Use global for workspace-less secrets or a workspace name. Omit for global. all and default are not supported for secrets. */
                 workspace?: string;
                 limit?: number;
                 offset?: number;

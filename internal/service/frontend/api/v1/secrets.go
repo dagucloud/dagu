@@ -404,14 +404,16 @@ func parseSecretWorkspaceSelector(raw *string, allowAll bool) (*string, error) {
 		if allowAll {
 			return nil, nil
 		}
-		defaultWorkspace := ""
-		return &defaultWorkspace, nil
+		globalWorkspace := secretpkg.GlobalWorkspace
+		return &globalWorkspace, nil
 	}
 	value := strings.TrimSpace(*raw)
 	switch value {
-	case "", "default":
-		defaultWorkspace := ""
-		return &defaultWorkspace, nil
+	case "", "global":
+		globalWorkspace := secretpkg.GlobalWorkspace
+		return &globalWorkspace, nil
+	case "default":
+		return nil, badSecretRequest("workspace cannot be default for secrets; use global")
 	case "all":
 		if allowAll {
 			return nil, nil
@@ -525,8 +527,8 @@ func toSecretResponse(sec *secretpkg.Secret) api.SecretResponse {
 }
 
 func secretWorkspaceToAPI(workspaceName string) string {
-	if workspaceName == "" {
-		return "default"
+	if secretpkg.IsGlobalWorkspace(workspaceName) {
+		return "global"
 	}
 	return workspaceName
 }

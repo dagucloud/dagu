@@ -34,13 +34,15 @@ func (s *memoryStoreForTest) Create(_ context.Context, sec *Secret, initialValue
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, ok := s.byRef[refKey(sec.Workspace, sec.Ref)]; ok {
+	storedSecret := sec.Clone()
+	storedSecret.Workspace = NormalizeWorkspace(storedSecret.Workspace)
+	if _, ok := s.byRef[refKey(storedSecret.Workspace, storedSecret.Ref)]; ok {
 		return ErrAlreadyExists
 	}
-	s.secrets[sec.ID] = sec.Clone()
-	s.byRef[refKey(sec.Workspace, sec.Ref)] = sec.ID
+	s.secrets[storedSecret.ID] = storedSecret
+	s.byRef[refKey(storedSecret.Workspace, storedSecret.Ref)] = storedSecret.ID
 	if initialValue != nil {
-		s.writeValueLocked(sec.ID, *initialValue)
+		s.writeValueLocked(storedSecret.ID, *initialValue)
 	}
 	return nil
 }
@@ -60,6 +62,7 @@ func (s *memoryStoreForTest) GetByRef(_ context.Context, workspace, ref string) 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	workspace = NormalizeWorkspace(workspace)
 	id, ok := s.byRef[refKey(workspace, ref)]
 	if !ok {
 		return nil, ErrNotFound
@@ -73,7 +76,7 @@ func (s *memoryStoreForTest) List(_ context.Context, opts ListOptions) ([]*Secre
 
 	ret := make([]*Secret, 0, len(s.secrets))
 	for _, sec := range s.secrets {
-		if opts.Workspace != nil && sec.Workspace != *opts.Workspace {
+		if opts.Workspace != nil && sec.Workspace != NormalizeWorkspace(*opts.Workspace) {
 			continue
 		}
 		ret = append(ret, sec.Clone())
@@ -89,8 +92,10 @@ func (s *memoryStoreForTest) Update(_ context.Context, sec *Secret) error {
 	if !ok {
 		return ErrNotFound
 	}
+	storedSecret := sec.Clone()
+	storedSecret.Workspace = NormalizeWorkspace(storedSecret.Workspace)
 	oldRef := refKey(old.Workspace, old.Ref)
-	newRef := refKey(sec.Workspace, sec.Ref)
+	newRef := refKey(storedSecret.Workspace, storedSecret.Ref)
 	if oldRef != newRef {
 		if existingID, taken := s.byRef[newRef]; taken && existingID != sec.ID {
 			return ErrAlreadyExists
@@ -98,7 +103,7 @@ func (s *memoryStoreForTest) Update(_ context.Context, sec *Secret) error {
 		delete(s.byRef, oldRef)
 		s.byRef[newRef] = sec.ID
 	}
-	s.secrets[sec.ID] = sec.Clone()
+	s.secrets[storedSecret.ID] = storedSecret
 	return nil
 }
 
@@ -177,9 +182,9 @@ func TestMemoryStoreForTestListFiltersWorkspace(t *testing.T) {
 	store := newMemoryStoreForTest()
 	now := time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC)
 
-	defaultSecret := newMemoryStoreSecret(t, "", "prod/db-password", now)
+	globalSecret := newMemoryStoreSecret(t, "", "prod/db-password", now)
 	paymentsSecret := newMemoryStoreSecret(t, "payments", "prod/db-password", now)
-	require.NoError(t, store.Create(ctx, defaultSecret, nil))
+	require.NoError(t, store.Create(ctx, globalSecret, nil))
 	require.NoError(t, store.Create(ctx, paymentsSecret, nil))
 
 	workspace := "payments"

@@ -68,6 +68,146 @@ func TestReferenceResolver_DoesNotResolveAcrossWorkspaces(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
+func TestReferenceResolver_ResolvesGlobalFallbackForNamedWorkspace(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newMemoryStoreForTest()
+	now := time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC)
+	sec, err := New(CreateInput{
+		Workspace:    GlobalWorkspace,
+		Ref:          "prod/db-password",
+		ProviderType: ProviderDaguManaged,
+		CreatedBy:    "alice",
+	}, now)
+	require.NoError(t, err)
+	require.NoError(t, store.Create(ctx, sec, &WriteValueInput{
+		Value:     "global-secret",
+		CreatedBy: "alice",
+		CreatedAt: now,
+	}))
+
+	resolver := NewReferenceResolver(store, "payments")
+	value, err := resolver.ResolveReference(ctx, core.SecretRef{
+		Name: "DB_PASSWORD",
+		Ref:  "prod/db-password",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "global-secret", value)
+}
+
+func TestReferenceResolver_WorkspaceSecretOverridesGlobalSecret(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newMemoryStoreForTest()
+	now := time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC)
+
+	globalSec, err := New(CreateInput{
+		Workspace:    GlobalWorkspace,
+		Ref:          "prod/db-password",
+		ProviderType: ProviderDaguManaged,
+		CreatedBy:    "alice",
+	}, now)
+	require.NoError(t, err)
+	require.NoError(t, store.Create(ctx, globalSec, &WriteValueInput{
+		Value:     "global-secret",
+		CreatedBy: "alice",
+		CreatedAt: now,
+	}))
+
+	workspaceSec, err := New(CreateInput{
+		Workspace:    "payments",
+		Ref:          "prod/db-password",
+		ProviderType: ProviderDaguManaged,
+		CreatedBy:    "alice",
+	}, now)
+	require.NoError(t, err)
+	require.NoError(t, store.Create(ctx, workspaceSec, &WriteValueInput{
+		Value:     "workspace-secret",
+		CreatedBy: "alice",
+		CreatedAt: now,
+	}))
+
+	resolver := NewReferenceResolver(store, "payments")
+	value, err := resolver.ResolveReference(ctx, core.SecretRef{
+		Name: "DB_PASSWORD",
+		Ref:  "prod/db-password",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "workspace-secret", value)
+}
+
+func TestReferenceResolver_UnlabelledDAGUsesGlobalScope(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newMemoryStoreForTest()
+	now := time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC)
+	sec, err := New(CreateInput{
+		Workspace:    GlobalWorkspace,
+		Ref:          "prod/db-password",
+		ProviderType: ProviderDaguManaged,
+		CreatedBy:    "alice",
+	}, now)
+	require.NoError(t, err)
+	require.NoError(t, store.Create(ctx, sec, &WriteValueInput{
+		Value:     "global-secret",
+		CreatedBy: "alice",
+		CreatedAt: now,
+	}))
+
+	resolver := NewReferenceResolver(store, "")
+	value, err := resolver.ResolveReference(ctx, core.SecretRef{
+		Name: "DB_PASSWORD",
+		Ref:  "prod/db-password",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "global-secret", value)
+}
+
+func TestReferenceResolver_DisabledWorkspaceSecretBlocksGlobalFallback(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newMemoryStoreForTest()
+	now := time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC)
+
+	globalSec, err := New(CreateInput{
+		Workspace:    GlobalWorkspace,
+		Ref:          "prod/db-password",
+		ProviderType: ProviderDaguManaged,
+		CreatedBy:    "alice",
+	}, now)
+	require.NoError(t, err)
+	require.NoError(t, store.Create(ctx, globalSec, &WriteValueInput{
+		Value:     "global-secret",
+		CreatedBy: "alice",
+		CreatedAt: now,
+	}))
+
+	workspaceSec, err := New(CreateInput{
+		Workspace:    "payments",
+		Ref:          "prod/db-password",
+		ProviderType: ProviderDaguManaged,
+		CreatedBy:    "alice",
+	}, now)
+	require.NoError(t, err)
+	workspaceSec.Status = StatusDisabled
+	require.NoError(t, store.Create(ctx, workspaceSec, &WriteValueInput{
+		Value:     "workspace-secret",
+		CreatedBy: "alice",
+		CreatedAt: now,
+	}))
+
+	resolver := NewReferenceResolver(store, "payments")
+	_, err = resolver.ResolveReference(ctx, core.SecretRef{
+		Name: "DB_PASSWORD",
+		Ref:  "prod/db-password",
+	})
+	require.ErrorIs(t, err, ErrDisabled)
+}
+
 func TestReferenceResolver_FailsClosedForDisabledSecret(t *testing.T) {
 	t.Parallel()
 
