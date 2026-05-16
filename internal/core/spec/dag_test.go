@@ -2730,6 +2730,26 @@ steps:
 			expected: &core.ArtifactsConfig{Enabled: true},
 		},
 		{
+			name: "ParamsArtifactShapeDoesNotAutoEnable",
+			yaml: `
+params:
+  stdout:
+    artifact: reports/report.md
+`,
+			expected: nil,
+		},
+		{
+			name: "ExplicitDisableWithParamsArtifactShapeDoesNotError",
+			yaml: `
+artifacts:
+  enabled: false
+params:
+  stdout:
+    artifact: reports/report.md
+`,
+			expected: &core.ArtifactsConfig{Enabled: false},
+		},
+		{
 			name: "AutoEnableWhenPowerShellEnvReferenceArtifactsDir",
 			yaml: `
 steps:
@@ -2809,6 +2829,55 @@ steps:
 	require.Error(t, err)
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "artifact actions require artifacts.enabled to be true")
+}
+
+func TestBuildArtifactsRejectsDisabledArtifactsForArtifactOutput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		yaml string
+	}{
+		{
+			name: "StdoutArtifact",
+			yaml: `
+artifacts:
+  enabled: false
+steps:
+  - name: report
+    run: echo ok
+    stdout:
+      artifact: reports/report.md
+`,
+		},
+		{
+			name: "StderrArtifact",
+			yaml: `
+artifacts:
+  enabled: false
+steps:
+  - name: report
+    run: echo ok
+    stderr:
+      artifact: reports/report.err
+`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var d dag
+			err := yaml.Unmarshal([]byte(tt.yaml), &d)
+			require.NoError(t, err)
+
+			result, err := buildArtifacts(testBuildContext(), &d)
+			require.Error(t, err)
+			assert.Nil(t, result)
+			assert.Contains(t, err.Error(), "artifact outputs require artifacts.enabled to be true")
+		})
+	}
 }
 
 func TestBuildApprovalStepsValidation(t *testing.T) {

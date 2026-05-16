@@ -2878,11 +2878,13 @@ func TestValidateStdoutStderr(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		stdout      string
-		stderr      string
-		wantErr     bool
-		errContains string
+		name           string
+		stdout         string
+		stderr         string
+		stdoutArtifact string
+		stderrArtifact string
+		wantErr        bool
+		errContains    string
 	}{
 		{
 			name:    "BothEmpty_Valid",
@@ -2929,6 +2931,19 @@ func TestValidateStdoutStderr(t *testing.T) {
 			wantErr:     true,
 			errContains: "log_output: merged",
 		},
+		{
+			name:           "SameArtifact_Error",
+			stdoutArtifact: "reports/combined.log",
+			stderrArtifact: "reports/combined.log",
+			wantErr:        true,
+			errContains:    "stdout.artifact and stderr.artifact cannot point to the same file",
+		},
+		{
+			name:           "DifferentArtifacts_Valid",
+			stdoutArtifact: "reports/stdout.log",
+			stderrArtifact: "reports/stderr.log",
+			wantErr:        false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -2936,8 +2951,10 @@ func TestValidateStdoutStderr(t *testing.T) {
 			t.Parallel()
 
 			step := &core.Step{
-				Stdout: tt.stdout,
-				Stderr: tt.stderr,
+				Stdout:         tt.stdout,
+				Stderr:         tt.stderr,
+				StdoutArtifact: tt.stdoutArtifact,
+				StderrArtifact: tt.stderrArtifact,
 			}
 
 			err := validateStdoutStderr(step)
@@ -2969,6 +2986,28 @@ stderr: /tmp/combined.log
 	_, err = s.build(testStepBuildContext())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "stdout and stderr cannot point to the same file")
+	assert.Contains(t, err.Error(), "log_output: merged")
+}
+
+func TestBuildStep_StdoutStderrSameArtifact_Error(t *testing.T) {
+	t.Parallel()
+
+	data := []byte(`
+name: test-step
+run: echo hello
+stdout:
+  artifact: reports/combined.log
+stderr:
+  artifact: reports/combined.log
+`)
+
+	var s step
+	err := yaml.Unmarshal(data, &s)
+	require.NoError(t, err)
+
+	_, err = s.build(testStepBuildContext())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "stdout.artifact and stderr.artifact cannot point to the same file")
 	assert.Contains(t, err.Error(), "log_output: merged")
 }
 

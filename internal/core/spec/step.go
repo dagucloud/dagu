@@ -566,6 +566,9 @@ func validateStdoutStderr(s *core.Step) error {
 	if s.Stdout != "" && s.Stderr != "" && s.Stdout == s.Stderr {
 		return fmt.Errorf("stdout and stderr cannot point to the same file %q; use 'log_output: merged' instead", s.Stdout)
 	}
+	if s.StdoutArtifact != "" && s.StderrArtifact != "" && s.StdoutArtifact == s.StderrArtifact {
+		return fmt.Errorf("stdout.artifact and stderr.artifact cannot point to the same file %q; use 'log_output: merged' instead", s.StdoutArtifact)
+	}
 	return nil
 }
 

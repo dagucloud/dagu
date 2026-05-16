@@ -939,7 +939,22 @@ func dagUsesBuiltinArtifactAction(d *dag) bool {
 }
 
 func dagUsesArtifactOutput(d *dag) bool {
-	return valueUsesArtifactOutput(reflect.ValueOf(d))
+	if d == nil {
+		return false
+	}
+	return valueUsesArtifactOutput(reflect.ValueOf(d.Steps)) ||
+		valueUsesArtifactOutput(reflect.ValueOf(d.HandlerOn)) ||
+		customStepSpecsUseArtifactOutput(d.StepTypes) ||
+		customStepSpecsUseArtifactOutput(d.Actions)
+}
+
+func customStepSpecsUseArtifactOutput(specs map[string]customStepTypeSpec) bool {
+	for _, spec := range specs {
+		if valueUsesArtifactOutput(reflect.ValueOf(spec.Template)) {
+			return true
+		}
+	}
+	return false
 }
 
 func referencesArtifactsEnvVar(s string) bool {
