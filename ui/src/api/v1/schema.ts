@@ -2859,7 +2859,7 @@ export interface paths {
         put?: never;
         /**
          * Create a secret
-         * @description Creates Dagu-managed secret metadata in a global, default, or workspace scope and optionally writes an initial value. Plaintext values are write-only.
+         * @description Creates Dagu-managed secret metadata in global scope or a named workspace and optionally writes an initial value. Plaintext values are write-only.
          */
         post: operations["createSecret"];
         delete?: never;

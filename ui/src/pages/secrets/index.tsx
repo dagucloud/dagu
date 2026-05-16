@@ -44,6 +44,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { useCanManageSecrets } from '@/contexts/AuthContext';
 import { useClient, useQuery } from '@/hooks/api';
+import { whenEnabled } from '@/hooks/queryUtils';
 import dayjs from '@/lib/dayjs';
 import {
   WorkspaceKind,
@@ -166,13 +167,13 @@ function errorMessage(error: unknown, fallback: string): string {
 export default function SecretsPage(): React.ReactNode {
   const client = useClient();
   const appBarContext = useContext(AppBarContext);
-  const canManageSecrets = useCanManageSecrets();
   const remoteNode = appBarContext.selectedRemoteNode || 'local';
   const workspaceSelectionScope = useMemo(
     () => secretScopeForSelection(appBarContext.workspaceSelection),
     [appBarContext.workspaceSelection]
   );
   const [selectedScope, setSelectedScope] = useState(workspaceSelectionScope);
+  const canManageSecrets = useCanManageSecrets(selectedScope);
   const workspaceQuery = useMemo(
     () => ({ workspace: selectedScope }),
     [selectedScope]
@@ -200,15 +201,18 @@ export default function SecretsPage(): React.ReactNode {
     setSelectedScope(workspaceSelectionScope);
   }, [workspaceSelectionScope]);
 
-  const { data, mutate, isLoading } = useQuery('/secrets', {
-    params: {
-      query: {
-        remoteNode,
-        ...workspaceQuery,
-        limit: 500,
+  const { data, mutate, isLoading } = useQuery(
+    '/secrets',
+    whenEnabled(canManageSecrets, {
+      params: {
+        query: {
+          remoteNode,
+          ...workspaceQuery,
+          limit: 500,
+        },
       },
-    },
-  });
+    })
+  );
 
   const secrets = data?.secrets || [];
 
@@ -274,14 +278,6 @@ export default function SecretsPage(): React.ReactNode {
     }
   }
 
-  if (!canManageSecrets) {
-    return (
-      <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
-        You do not have permission to access this page.
-      </div>
-    );
-  }
-
   return (
     <div className="flex h-full min-h-0 max-w-7xl flex-col gap-4 overflow-auto">
       <div className="flex items-center justify-between gap-3">
@@ -293,7 +289,7 @@ export default function SecretsPage(): React.ReactNode {
         </div>
         <div className="flex items-center gap-2">
           <Select value={selectedScope} onValueChange={setSelectedScope}>
-            <SelectTrigger className="h-8 w-[180px]" aria-label="Secret scope">
+            <SelectTrigger className="h-7 w-[180px]" aria-label="Secret scope">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -308,6 +304,7 @@ export default function SecretsPage(): React.ReactNode {
           <Button
             size="sm"
             className="h-8"
+            disabled={!canManageSecrets}
             onClick={() => {
               setEditingSecret(null);
               setIsFormOpen(true);
@@ -343,7 +340,16 @@ export default function SecretsPage(): React.ReactNode {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading ? (
+            {!canManageSecrets ? (
+              <TableRow>
+                <TableCell
+                  colSpan={6}
+                  className="py-8 text-center text-muted-foreground"
+                >
+                  You do not have permission to access this secret scope.
+                </TableCell>
+              </TableRow>
+            ) : isLoading ? (
               <TableRow>
                 <TableCell
                   colSpan={6}
@@ -368,7 +374,9 @@ export default function SecretsPage(): React.ReactNode {
                     <div className="flex min-w-0 flex-col gap-1">
                       <div className="flex min-w-0 items-center gap-2">
                         <KeyRound className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-                        <code className="truncate text-xs">{secret.ref}</code>
+                        <code className="whitespace-normal break-words text-xs">
+                          {secret.ref}
+                        </code>
                       </div>
                     </div>
                   </TableCell>
