@@ -9,10 +9,13 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 )
+
+const testConnectTimeout = 5 * time.Second
 
 func TestServerExposesCompactToolSurface(t *testing.T) {
 	ctx := context.Background()
@@ -31,7 +34,8 @@ func TestServerExposesCompactToolSurface(t *testing.T) {
 }
 
 func TestHTTPHandlerServesStreamableMCP(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), testConnectTimeout)
+	defer cancel()
 	httpServer := httptest.NewServer(NewHTTPHandler(nil))
 	t.Cleanup(httpServer.Close)
 
@@ -106,8 +110,49 @@ func TestPromptMentionsPreviewBeforeApply(t *testing.T) {
 	require.True(t, strings.Contains(text, "dagu_change"))
 }
 
+func TestRunLogsURIWithQueryPreservesQuery(t *testing.T) {
+	require.Equal(t,
+		"dagu://runs/demo%20dag/run%2F1/logs?node=step%201&tail=true",
+		runLogsURIWithQuery("demo dag", "run/1", "node=step%201&tail=true"),
+	)
+}
+
+func TestRunWatcherStopsAfterPersistentErrors(t *testing.T) {
+	const uri = "dagu://runs/missing/run-1"
+	svc := &Service{
+		watchers:          map[string]*resourceWatcher{uri: {id: 1}},
+		watchPollInterval: 10 * time.Millisecond,
+		watchMaxErrors:    2,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testConnectTimeout)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		svc.watchRunResource(ctx, uri, 1)
+	}()
+
+	require.Eventually(t, func() bool {
+		svc.mu.Lock()
+		defer svc.mu.Unlock()
+		_, ok := svc.watchers[uri]
+		return !ok
+	}, time.Second, 10*time.Millisecond)
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("run watcher did not exit after persistent polling errors")
+	}
+}
+
 func connectTestClient(t *testing.T, ctx context.Context, server *mcpsdk.Server) *mcpsdk.ClientSession {
 	t.Helper()
+
+	ctx, cancel := context.WithTimeout(ctx, testConnectTimeout)
+	t.Cleanup(cancel)
 
 	serverTransport, clientTransport := mcpsdk.NewInMemoryTransports()
 	serverSession, err := server.Connect(ctx, serverTransport, nil)

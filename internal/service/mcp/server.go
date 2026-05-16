@@ -29,6 +29,9 @@ const (
 	resourceMIMEJSON = "application/json"
 	resourceMIMEText = "text/markdown"
 	resourceMIMEYAML = "application/yaml"
+
+	defaultRunWatchPollInterval = 2 * time.Second
+	defaultRunWatchMaxErrors    = 30
 )
 
 // Service owns the Dagu MCP server and the small amount of state needed for
@@ -40,6 +43,9 @@ type Service struct {
 	server   *mcpsdk.Server
 	watchers map[string]*resourceWatcher
 	nextID   uint64
+
+	watchPollInterval time.Duration
+	watchMaxErrors    int
 }
 
 type resourceWatcher struct {
@@ -60,8 +66,10 @@ func NewHTTPHandler(api *frontendapi.API) http.Handler {
 // NewServer builds the MCP server used by the Streamable HTTP transport.
 func NewServer(api *frontendapi.API) *mcpsdk.Server {
 	svc := &Service{
-		api:      api,
-		watchers: make(map[string]*resourceWatcher),
+		api:               api,
+		watchers:          make(map[string]*resourceWatcher),
+		watchPollInterval: defaultRunWatchPollInterval,
+		watchMaxErrors:    defaultRunWatchMaxErrors,
 	}
 	server := mcpsdk.NewServer(&mcpsdk.Implementation{
 		Name:    "dagu",
@@ -109,8 +117,8 @@ type executeInput struct {
 }
 
 func registerTools(server *mcpsdk.Server, svc *Service) {
-	falsePtr := boolPtr(false)
-	truePtr := boolPtr(true)
+	falsePtr := new(false)
+	truePtr := new(true)
 
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name:        toolRead,
@@ -148,7 +156,6 @@ func registerTools(server *mcpsdk.Server, svc *Service) {
 
 func registerResources(server *mcpsdk.Server, svc *Service) {
 	for _, ref := range referenceResources() {
-		ref := ref
 		server.AddResource(&mcpsdk.Resource{
 			URI:         ref.uri,
 			Name:        ref.name,
@@ -278,7 +285,7 @@ func (svc *Service) readTool(ctx context.Context, _ *mcpsdk.CallToolRequest, inp
 					identifier += "?" + input.Query
 				}
 				data, err = svc.api.GetDAGRunLogsData(ctx, identifier)
-				uri = runLogsURI(input.Name, input.DAGRunID)
+				uri = runLogsURIWithQuery(input.Name, input.DAGRunID, input.Query)
 			}
 		}
 	default:
@@ -756,7 +763,7 @@ func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string
 		rawSpec, _ := spec["spec"].(string)
 		return rawSpec, resourceMIMEYAML, nil
 	case "runs":
-		if len(segments) != 2 && !(len(segments) == 3 && segments[2] == "logs") {
+		if !isRunResourceSegments(segments) {
 			return "", "", mcpsdk.ResourceNotFoundError(rawURI)
 		}
 		if err := svc.requireAPI(); err != nil {
@@ -826,8 +833,18 @@ func (svc *Service) unsubscribe(_ context.Context, req *mcpsdk.UnsubscribeReques
 func (svc *Service) watchRunResource(ctx context.Context, uri string, id uint64) {
 	defer svc.removeWatcher(uri, id)
 
-	ticker := time.NewTicker(2 * time.Second)
+	pollInterval := svc.watchPollInterval
+	if pollInterval <= 0 {
+		pollInterval = defaultRunWatchPollInterval
+	}
+	maxErrors := svc.watchMaxErrors
+	if maxErrors <= 0 {
+		maxErrors = defaultRunWatchMaxErrors
+	}
+
+	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
+	consecutiveErrors := 0
 
 	for {
 		select {
@@ -836,8 +853,13 @@ func (svc *Service) watchRunResource(ctx context.Context, uri string, id uint64)
 		case <-ticker.C:
 			status, err := svc.runStatus(ctx, uri)
 			if err != nil {
+				consecutiveErrors++
+				if consecutiveErrors >= maxErrors {
+					return
+				}
 				continue
 			}
+			consecutiveErrors = 0
 			if !isTerminalStatus(status) {
 				continue
 			}
@@ -1033,6 +1055,14 @@ func runLogsURI(name, dagRunID string) string {
 	return runURI(name, dagRunID) + "/logs"
 }
 
+func runLogsURIWithQuery(name, dagRunID, query string) string {
+	uri := runLogsURI(name, dagRunID)
+	if query == "" {
+		return uri
+	}
+	return uri + "?" + query
+}
+
 func pathEscape(s string) string {
 	return url.PathEscape(s)
 }
@@ -1067,8 +1097,4 @@ func stringPtr(s string) *string {
 		return nil
 	}
 	return &s
-}
-
-func boolPtr(v bool) *bool {
-	return &v
 }

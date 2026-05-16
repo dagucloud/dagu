@@ -1226,7 +1226,13 @@ func (srv *Server) setupMCPRoute(ctx context.Context, r *chi.Mux) {
 
 func clearWriteDeadlineMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+		if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+			logger.Warn(r.Context(), "Failed to clear write deadline for MCP response",
+				tag.Error(err),
+				slog.String("method", r.Method),
+				slog.String("path", r.URL.Path),
+			)
+		}
 		next.ServeHTTP(w, r)
 	})
 }
