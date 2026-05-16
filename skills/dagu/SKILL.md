@@ -15,10 +15,11 @@ Load only the reference file that matches the task.
 - Prefer `dagu schema ...` and `dagu validate ...` over guessing field names or shapes.
 - Prefer `action: template.render` when generating text files, prompts, or artifacts instead of assembling them with shell `echo` or heredocs.
 - Prefer `file.*` actions for local file operations such as stat, read, write, copy, move, delete, mkdir, and list instead of shelling out to `cp`, `mv`, `rm`, or `mkdir`.
-- Prefer `DAG_RUN_ARTIFACTS_DIR` for file outputs when possible, as it provides a preview in the UI and automatically cleans up when the DAG run gets deleted.
+- Prefer `stdout.artifact` / `stderr.artifact` when a command stream should become a DAG-run artifact, especially for large reports, JSON, Markdown, logs, or generated files.
+- Prefer `artifact.*` actions for explicit artifact reads/writes/lists. Use `DAG_RUN_ARTIFACTS_DIR` only when a tool truly needs a filesystem path inside the step.
 - Prefer string-form `output: VAR_NAME` for capturing small stdout values into flat variables.
 - Prefer object-form `output:` when downstream steps need structured values via `${step_id.output.*}`.
-- Prefer temporary file in artifacts dir for larger outputs or when downstream steps need file paths.
+- Prefer temporary files in the artifacts dir only when downstream steps need file paths; otherwise let commands write large artifact content to stdout and attach it with `stdout.artifact`.
 - Declare portable external CLI dependencies in top-level `tools` using aqua shorthand when the binary version affects reproducibility, for example `tools: ["jqlang/jq@jq-1.7.1"]`.
 - Do not add `tools` for CLIs that intentionally depend on user or worker preconfiguration, login state, local profiles, plugins, or credentials, such as `gcloud` and AI agent CLIs.
 
@@ -27,6 +28,7 @@ Load only the reference file that matches the task.
 - `output:` has two modes:
   - string form captures trimmed stdout into a flat variable such as `${VERSION}`
   - object form publishes structured step-scoped output for `${step_id.output.*}` access
+- `stdout.artifact` / `stderr.artifact` store command stdout/stderr directly as relative artifact paths, for example `stdout: {artifact: reports/report.md}`. Artifact outputs auto-enable artifacts unless `artifacts.enabled: false` is explicitly set, which is invalid.
 - `${step_id.stdout}` is a log file path, not stdout content.
 - `env:` should use list-of-maps when values depend on earlier env vars.
 - `params:` values arrive as strings. The `params:` field supports JSON schema-like types and validation, check for schema to see how to specify types and validation rules.
@@ -70,7 +72,18 @@ steps:
         {{- if .favorite_color }}
         Your favorite color is {{ .favorite_color }}.
         {{- end }}
-    stdout: ${DAG_RUN_ARTIFACTS_DIR}/greeting.txt
+    stdout:
+      artifact: greeting.txt
+```
+
+## Example of Large Command Output as Artifact
+
+```yaml
+steps:
+  - id: report
+    run: ./generate-report --format markdown
+    stdout:
+      artifact: reports/report.md
 ```
 
 ## Example of Reproducible External CLI

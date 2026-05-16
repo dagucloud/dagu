@@ -32,6 +32,17 @@ Fields:
 Notes:
 
 - Dagu expands `${VAR}` before the shell runs. For large or arbitrary text, prefer `printenv VAR_NAME`, reading `${step_id.stdout}` as a file, or `action: template.render`.
+- When large command output should become an artifact, write it to stdout/stderr and attach the stream directly instead of redirecting inside shell:
+
+```yaml
+steps:
+  - id: report
+    run: ./generate-report --format markdown
+    stdout:
+      artifact: reports/report.md
+```
+
+- Use string-form `output: VAR_NAME` only for small stdout values. Large reports, JSON dumps, Markdown summaries, and logs belong in `stdout.artifact` / `stderr.artifact`.
 
 ## docker.run / container.run
 
