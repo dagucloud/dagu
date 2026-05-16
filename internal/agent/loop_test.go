@@ -471,11 +471,21 @@ func TestLoop_Go(t *testing.T) {
 				recorded = append(recorded, msg)
 				recordMu.Unlock()
 			},
+			LogicalRetryConfig: llm.LogicalRetryConfig{
+				MaxAttempts:     3,
+				InitialInterval: time.Millisecond,
+				MaxInterval:     time.Millisecond,
+				Multiplier:      2,
+			},
+			ReturnTurnErrors: true,
 		})
 		loop.QueueUserMessage(llm.Message{Role: llm.RoleUser, Content: "hello"})
 
-		runLoopForDuration(t, loop, 3500*time.Millisecond)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		err := loop.Go(ctx)
 
+		require.Error(t, err)
 		assert.Equal(t, int32(3), callCount.Load())
 		recordMu.Lock()
 		msgs := append([]Message(nil), recorded...)
