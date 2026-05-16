@@ -479,6 +479,22 @@ steps:
 `,
 		},
 		{
+			name: "DuckDBActions",
+			spec: `
+steps:
+  - action: duckdb.query
+    with:
+      dsn: ":memory:"
+      query: SELECT 1
+  - action: duckdb.import
+    with:
+      dsn: ./analytics.duckdb
+      import:
+        input_file: ./users.csv
+        table: users
+`,
+		},
+		{
 			name: "LegacyFileTypeConfig",
 			spec: `
 steps:
@@ -486,6 +502,17 @@ steps:
     command: stat
     config:
       path: out/data.txt
+`,
+		},
+		{
+			name: "LegacyDuckDBTypeConfig",
+			spec: `
+steps:
+  - type: duckdb
+    command: SELECT 1
+    config:
+      dsn: ":memory:"
+      output_format: jsonl
 `,
 		},
 		{

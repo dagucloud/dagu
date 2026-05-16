@@ -22,6 +22,7 @@ import (
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/router"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/s3"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/sql"
+	_ "github.com/dagucloud/dagu/internal/runtime/builtin/sql/drivers/duckdb"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/sql/drivers/postgres"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/sql/drivers/sqlite"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/ssh"
