@@ -888,7 +888,16 @@ func buildLogDir(_ BuildContext, d *dag) (string, error) {
 }
 
 func buildArtifacts(_ BuildContext, d *dag) (*core.ArtifactsConfig, error) {
-	autoEnable := dagReferencesRunArtifactsDir(d)
+	usesArtifactAction := dagUsesBuiltinArtifactAction(d)
+	autoEnable := dagReferencesRunArtifactsDir(d) || usesArtifactAction
+
+	if usesArtifactAction && d.Artifacts != nil && d.Artifacts.Enabled != nil && !*d.Artifacts.Enabled {
+		return nil, core.NewValidationError(
+			"artifacts.enabled",
+			*d.Artifacts.Enabled,
+			fmt.Errorf("artifact actions require artifacts.enabled to be true"),
+		)
+	}
 
 	if d.Artifacts == nil {
 		if autoEnable {
@@ -915,6 +924,10 @@ func buildArtifacts(_ BuildContext, d *dag) (*core.ArtifactsConfig, error) {
 
 func dagReferencesRunArtifactsDir(d *dag) bool {
 	return valueReferencesRunArtifactsDir(reflect.ValueOf(d))
+}
+
+func dagUsesBuiltinArtifactAction(d *dag) bool {
+	return valueUsesBuiltinArtifactAction(reflect.ValueOf(d))
 }
 
 func referencesArtifactsEnvVar(s string) bool {
@@ -983,6 +996,103 @@ func valueReferencesRunArtifactsDir(v reflect.Value) bool {
 	}
 
 	return false
+}
+
+func valueUsesBuiltinArtifactAction(v reflect.Value) bool {
+	if !v.IsValid() {
+		return false
+	}
+
+	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return false
+		}
+		v = v.Elem()
+	}
+
+	switch v.Kind() {
+	case reflect.String:
+		return false
+	case reflect.Map:
+		iter := v.MapRange()
+		for iter.Next() {
+			key := iter.Key()
+			value := iter.Value()
+			if key.Kind() == reflect.String && key.String() == "action" {
+				if action, ok := reflectString(value); ok && strings.HasPrefix(action, "artifact.") {
+					return true
+				}
+			}
+			if valueUsesBuiltinArtifactAction(key) || valueUsesBuiltinArtifactAction(value) {
+				return true
+			}
+		}
+	case reflect.Slice, reflect.Array:
+		for i := range v.Len() {
+			if valueUsesBuiltinArtifactAction(v.Index(i)) {
+				return true
+			}
+		}
+	case reflect.Struct:
+		t := v.Type()
+		for i := range v.NumField() {
+			fieldInfo := t.Field(i)
+			if fieldInfo.PkgPath != "" {
+				continue
+			}
+			field := v.Field(i)
+			if fieldInfo.Name == "Action" {
+				if action, ok := reflectString(field); ok && strings.HasPrefix(action, "artifact.") {
+					return true
+				}
+			}
+			if valueUsesBuiltinArtifactAction(field) {
+				return true
+			}
+		}
+	case reflect.Invalid,
+		reflect.Bool,
+		reflect.Int,
+		reflect.Int8,
+		reflect.Int16,
+		reflect.Int32,
+		reflect.Int64,
+		reflect.Uint,
+		reflect.Uint8,
+		reflect.Uint16,
+		reflect.Uint32,
+		reflect.Uint64,
+		reflect.Uintptr,
+		reflect.Float32,
+		reflect.Float64,
+		reflect.Complex64,
+		reflect.Complex128,
+		reflect.Chan,
+		reflect.Func,
+		reflect.Interface,
+		reflect.Pointer,
+		reflect.UnsafePointer:
+		return false
+	default:
+		return false
+	}
+	return false
+}
+
+func reflectString(v reflect.Value) (string, bool) {
+	if !v.IsValid() {
+		return "", false
+	}
+	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return "", false
+		}
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.String {
+		return "", false
+	}
+	return strings.TrimSpace(v.String()), true
 }
 
 func buildLogOutput(_ BuildContext, d *dag) (core.LogOutputMode, error) {

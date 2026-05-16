@@ -523,6 +523,25 @@ steps:
 `,
 		},
 		{
+			name: "ArtifactActions",
+			spec: `
+steps:
+  - action: artifact.write
+    with:
+      path: reports/summary.md
+      content: hello
+  - action: artifact.read
+    with:
+      path: reports/summary.md
+  - action: artifact.list
+    with:
+      path: reports
+      recursive: true
+      pattern: "**/*.md"
+  - action: artifact.list
+`,
+		},
+		{
 			name: "LegacyFileTypeConfig",
 			spec: `
 steps:

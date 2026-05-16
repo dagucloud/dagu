@@ -40,6 +40,9 @@ type actionNormalizer func(normalized map[string]any, with map[string]any) error
 
 var builtinActionNormalizers = map[string]actionNormalizer{
 	"agent.run":       normalizeAgentAction,
+	"artifact.list":   operationAction("artifact", "list"),
+	"artifact.read":   operationAction("artifact", "read"),
+	"artifact.write":  operationAction("artifact", "write"),
 	"archive.create":  operationAction("archive", "create"),
 	"archive.extract": operationAction("archive", "extract"),
 	"archive.list":    operationAction("archive", "list"),

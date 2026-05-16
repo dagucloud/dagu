@@ -51,6 +51,8 @@ func TestMain(m *testing.M) {
 	}
 	// archive: supports command only
 	core.RegisterExecutorCapabilities("archive", core.ExecutorCapabilities{Command: true})
+	// artifact: supports command only
+	core.RegisterExecutorCapabilities("artifact", core.ExecutorCapabilities{Command: true})
 	// file: supports command only
 	core.RegisterExecutorCapabilities("file", core.ExecutorCapabilities{Command: true})
 	// data: supports operation commands only

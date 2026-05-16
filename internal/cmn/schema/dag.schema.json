@@ -2194,6 +2194,29 @@
         },
         {
           "if": {
+            "properties": { "action": { "enum": ["artifact.write", "artifact.read"] } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/artifactActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "artifact.list" } },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "with": { "$ref": "#/definitions/artifactActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": { "action": { "enum": ["file.stat", "file.read", "file.write", "file.copy", "file.move", "file.delete", "file.mkdir", "file.list"] } },
             "required": ["action"]
           },
@@ -5928,6 +5951,9 @@
             "archive.create",
             "archive.extract",
             "archive.list",
+            "artifact.list",
+            "artifact.read",
+            "artifact.write",
             "chat.completion",
             "container.run",
             "dag.run",
@@ -6527,6 +6553,56 @@
         }
       },
       "description": "Configuration for wait actions."
+    },
+    "artifactActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Relative artifact path. Must stay within the DAG-run artifact directory."
+        },
+        "content": {
+          "type": "string",
+          "description": "Content to write for artifact.write."
+        },
+        "mode": {
+          "type": "string",
+          "pattern": "^(0o|0O)?[0-7]{3,4}$",
+          "description": "Octal file mode such as 0600 or 0644."
+        },
+        "format": {
+          "type": "string",
+          "enum": ["raw", "json"],
+          "description": "Output format for artifact.read. Defaults to raw."
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Glob pattern for artifact.list, matched against slash-separated artifact paths."
+        },
+        "overwrite": {
+          "type": "boolean",
+          "description": "Overwrite an existing artifact. Defaults to false."
+        },
+        "atomic": {
+          "type": "boolean",
+          "description": "Use atomic replacement for overwriting artifact.write destinations. Defaults to true."
+        },
+        "recursive": {
+          "type": "boolean",
+          "description": "Recurse into nested directories for artifact.list."
+        },
+        "include_dirs": {
+          "type": "boolean",
+          "description": "Include directories in artifact.list output."
+        },
+        "max_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Maximum bytes to read for artifact.read. Zero means no limit."
+        }
+      },
+      "description": "Configuration for DAG-run artifact actions."
     },
     "customActions": {
       "type": "object",

@@ -76,8 +76,12 @@ func TestGenerateSystemPrompt(t *testing.T) {
 		assert.Contains(t, result, "`harness.run`")
 		assert.Contains(t, result, "`redis.<operation>`")
 		assert.Contains(t, result, "`file.write`")
+		assert.Contains(t, result, "`artifact.write`")
+		assert.Contains(t, result, "`artifact.read`")
+		assert.Contains(t, result, "`artifact.list`")
 		assert.Contains(t, result, "Use top-level `run:` for plain shell commands and scripts")
 		assert.Contains(t, result, "prefer built-in `file.*` actions over `run:` commands")
+		assert.Contains(t, result, "prefer built-in `artifact.write`, `artifact.read`, and `artifact.list`")
 		assert.Contains(t, result, "Base config custom actions")
 		assert.Contains(t, result, "Current DAG-local custom actions: inspect `actions:`")
 		assert.Contains(t, result, "Legacy DAG-local `step_types:` definitions")
@@ -289,15 +293,17 @@ func TestGenerateSystemPrompt(t *testing.T) {
 		assert.Contains(t, result, "`runbook_manage` action `delete`")
 	})
 
-	t.Run("authoring guidance prefers file actions for file operations", func(t *testing.T) {
+	t.Run("authoring guidance prefers explicit actions for file and artifact operations", func(t *testing.T) {
 		t.Parallel()
 		env := EnvironmentInfo{DAGsDir: "/dags"}
 
 		result := GenerateSystemPrompt(SystemPromptParams{Env: env, Role: auth.RoleDeveloper})
 
-		assert.Contains(t, result, "Use the appropriate action (`http.request`, `s3.*`, `postgres.query`, `file.*`, etc.) instead of shelling out.")
+		assert.Contains(t, result, "Use the appropriate action (`http.request`, `s3.*`, `postgres.query`, `artifact.*`, `file.*`, etc.) instead of shelling out.")
 		assert.Contains(t, result, "use `file.stat`, `file.read`, `file.write`, `file.copy`, `file.move`, `file.delete`, `file.mkdir`, or `file.list`")
 		assert.Contains(t, result, "instead of shell commands such as `cat`, `cp`, `mv`, `rm`, or `mkdir`")
+		assert.Contains(t, result, "For DAG-run outputs such as reports, JSON snapshots, Markdown summaries, and handoff files, use `artifact.write`, `artifact.read`, or `artifact.list`")
+		assert.Contains(t, result, "Use `artifact.write`, `artifact.read`, and `artifact.list` for DAG-run artifacts")
 		assert.Contains(t, result, "Use `run:` only when the step is actually shell logic or an installed CLI invocation.")
 	})
 }
