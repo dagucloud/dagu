@@ -199,6 +199,7 @@ Current builtin actions:
 | `log.write` | Log messages | `message` |
 | `mail.send` | Email sending | mail executor config |
 | `archive.create`, `archive.extract`, `archive.list` | Archive operations | archive config |
+| `file.stat`, `file.read`, `file.write`, `file.copy`, `file.move`, `file.delete`, `file.mkdir`, `file.list` | File operations | path/source/destination/content config |
 | `s3.upload`, `s3.download`, `s3.list`, `s3.delete` | S3 operations | S3 config |
 | `sftp.upload`, `sftp.download` | SFTP transfers | SFTP config |
 | `noop` | Output-only or approval-only placeholder step | no `with`, or empty `with` |
