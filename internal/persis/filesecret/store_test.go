@@ -100,6 +100,37 @@ func TestStore_EnforcesWorkspaceRefUniqueness(t *testing.T) {
 	require.NoError(t, store.Create(ctx, otherWorkspace, nil))
 }
 
+func TestStore_NormalizesEmptyWorkspaceToGlobal(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newTestStore(t)
+	now := time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC)
+
+	sec, err := secret.New(secret.CreateInput{
+		Workspace:    "",
+		Ref:          "prod/db-password",
+		ProviderType: secret.ProviderDaguManaged,
+		CreatedBy:    "alice",
+	}, now)
+	require.NoError(t, err)
+	require.NoError(t, store.Create(ctx, sec, nil))
+
+	got, err := store.GetByRef(ctx, "", "prod/db-password")
+	require.NoError(t, err)
+	assert.Equal(t, secret.GlobalWorkspace, got.Workspace)
+
+	duplicate, err := secret.New(secret.CreateInput{
+		Workspace:    secret.GlobalWorkspace,
+		Ref:          "prod/db-password",
+		ProviderType: secret.ProviderDaguManaged,
+		CreatedBy:    "bob",
+	}, now)
+	require.NoError(t, err)
+	err = store.Create(ctx, duplicate, nil)
+	require.ErrorIs(t, err, secret.ErrAlreadyExists)
+}
+
 func TestStore_WriteValueIncrementsVersion(t *testing.T) {
 	t.Parallel()
 

@@ -125,13 +125,15 @@ func (s *Store) Create(_ context.Context, sec *secret.Secret, initialValue *secr
 	if sec.ID == "" {
 		return secret.ErrInvalidSecretID
 	}
-	if err := secret.ValidateWorkspace(sec.Workspace); err != nil {
+	storedSecret := sec.Clone()
+	storedSecret.Workspace = secret.NormalizeWorkspace(storedSecret.Workspace)
+	if err := secret.ValidateWorkspace(storedSecret.Workspace); err != nil {
 		return err
 	}
-	if err := secret.ValidateRef(sec.Ref); err != nil {
+	if err := secret.ValidateRef(storedSecret.Ref); err != nil {
 		return err
 	}
-	if err := secret.ValidateProviderType(sec.ProviderType); err != nil {
+	if err := secret.ValidateProviderType(storedSecret.ProviderType); err != nil {
 		return err
 	}
 
@@ -141,12 +143,12 @@ func (s *Store) Create(_ context.Context, sec *secret.Secret, initialValue *secr
 	if _, exists := s.byID[sec.ID]; exists {
 		return secret.ErrAlreadyExists
 	}
-	ref := refKey(sec.Workspace, sec.Ref)
+	ref := refKey(storedSecret.Workspace, storedSecret.Ref)
 	if _, exists := s.byRef[ref]; exists {
 		return secret.ErrAlreadyExists
 	}
 
-	record := &storedRecord{Secret: sec.Clone()}
+	record := &storedRecord{Secret: storedSecret}
 	if initialValue != nil {
 		if err := s.appendVersion(record, *initialValue); err != nil {
 			return err
@@ -174,6 +176,7 @@ func (s *Store) GetByID(_ context.Context, id string) (*secret.Secret, error) {
 }
 
 func (s *Store) GetByRef(_ context.Context, workspaceName, ref string) (*secret.Secret, error) {
+	workspaceName = secret.NormalizeWorkspace(workspaceName)
 	if err := secret.ValidateWorkspace(workspaceName); err != nil {
 		return nil, err
 	}
@@ -211,7 +214,7 @@ func (s *Store) List(ctx context.Context, opts secret.ListOptions) ([]*secret.Se
 			}
 			return nil, err
 		}
-		if opts.Workspace != nil && sec.Workspace != *opts.Workspace {
+		if opts.Workspace != nil && sec.Workspace != secret.NormalizeWorkspace(*opts.Workspace) {
 			continue
 		}
 		ret = append(ret, sec)
@@ -232,13 +235,15 @@ func (s *Store) Update(_ context.Context, sec *secret.Secret) error {
 	if sec.ID == "" {
 		return secret.ErrInvalidSecretID
 	}
-	if err := secret.ValidateWorkspace(sec.Workspace); err != nil {
+	storedSecret := sec.Clone()
+	storedSecret.Workspace = secret.NormalizeWorkspace(storedSecret.Workspace)
+	if err := secret.ValidateWorkspace(storedSecret.Workspace); err != nil {
 		return err
 	}
-	if err := secret.ValidateRef(sec.Ref); err != nil {
+	if err := secret.ValidateRef(storedSecret.Ref); err != nil {
 		return err
 	}
-	if err := secret.ValidateProviderType(sec.ProviderType); err != nil {
+	if err := secret.ValidateProviderType(storedSecret.ProviderType); err != nil {
 		return err
 	}
 
@@ -255,20 +260,20 @@ func (s *Store) Update(_ context.Context, sec *secret.Secret) error {
 	}
 
 	oldRef := refKey(record.Secret.Workspace, record.Secret.Ref)
-	newRef := refKey(sec.Workspace, sec.Ref)
+	newRef := refKey(storedSecret.Workspace, storedSecret.Ref)
 	if oldRef != newRef {
 		if existingID, taken := s.byRef[newRef]; taken && existingID != sec.ID {
 			return secret.ErrAlreadyExists
 		}
 	}
 
-	record.Secret = sec.Clone()
+	record.Secret = storedSecret
 	if err := writeRecordToFile(filePath, record); err != nil {
 		return err
 	}
 	if oldRef != newRef {
 		delete(s.byRef, oldRef)
-		s.byRef[newRef] = sec.ID
+		s.byRef[newRef] = storedSecret.ID
 	}
 	return nil
 }
@@ -423,6 +428,7 @@ func loadRecordFromFile(filePath string) (*storedRecord, error) {
 	if record.Secret == nil {
 		return nil, fmt.Errorf("secret file %s is missing metadata", filePath)
 	}
+	record.Secret.Workspace = secret.NormalizeWorkspace(record.Secret.Workspace)
 	return &record, nil
 }
 

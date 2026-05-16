@@ -315,9 +315,11 @@ export function useCanViewAuditLogs(): boolean {
 export function useCanManageSecrets(): boolean {
   const { user } = useAuth();
   const config = useConfig();
+  const appBarContext = useContext(AppBarContext);
+  const workspace = workspaceRoleTarget(appBarContext.workspaceSelection);
   if (config.authMode !== 'builtin') return true;
   if (!user) return false;
-  return roleAtLeast(user.role, UserRole.manager);
+  return roleAtLeast(effectiveWorkspaceRole(user, workspace), UserRole.manager);
 }
 
 export function useCanViewEventLogs(): boolean {

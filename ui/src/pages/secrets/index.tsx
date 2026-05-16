@@ -48,6 +48,7 @@ import dayjs from '@/lib/dayjs';
 import {
   WorkspaceKind,
   workspaceNameForSelection,
+  sanitizeWorkspaceSelection,
 } from '@/lib/workspace';
 import {
   ExternalLink,
@@ -92,6 +93,7 @@ const PROVIDER_LABELS: Record<SecretProviderType, string> = {
 
 const PROVIDERS = Object.values(SecretProviderType);
 const EXTERNAL_SECRET_REQUEST_URL = 'https://dagu.sh/contact';
+const SECRET_GLOBAL_SCOPE = 'global';
 
 function isRequestBasedProvider(provider: SecretProviderType): boolean {
   return provider !== SecretProviderType.dagu_managed;
@@ -120,6 +122,16 @@ function initialFormState(): SecretFormState {
     providerRef: '',
     value: '',
   };
+}
+
+function secretScopeForSelection(
+  selection: React.ContextType<typeof AppBarContext>['workspaceSelection']
+): string {
+  const sanitized = sanitizeWorkspaceSelection(selection);
+  if (sanitized.kind === WorkspaceKind.workspace) {
+    return workspaceNameForSelection(sanitized);
+  }
+  return SECRET_GLOBAL_SCOPE;
 }
 
 function formStateFromSecret(secret: SecretResponse): SecretFormState {
@@ -156,16 +168,14 @@ export default function SecretsPage(): React.ReactNode {
   const appBarContext = useContext(AppBarContext);
   const canManageSecrets = useCanManageSecrets();
   const remoteNode = appBarContext.selectedRemoteNode || 'local';
-  const selectedWorkspace = useMemo(() => {
-    const selection = appBarContext.workspaceSelection;
-    if (selection?.kind === WorkspaceKind.workspace) {
-      return workspaceNameForSelection(selection);
-    }
-    return 'default';
-  }, [appBarContext.workspaceSelection]);
+  const workspaceSelectionScope = useMemo(
+    () => secretScopeForSelection(appBarContext.workspaceSelection),
+    [appBarContext.workspaceSelection]
+  );
+  const [selectedScope, setSelectedScope] = useState(workspaceSelectionScope);
   const workspaceQuery = useMemo(
-    () => ({ workspace: selectedWorkspace }),
-    [selectedWorkspace]
+    () => ({ workspace: selectedScope }),
+    [selectedScope]
   );
 
   const [error, setError] = useState<string | null>(null);
@@ -185,6 +195,10 @@ export default function SecretsPage(): React.ReactNode {
   useEffect(() => {
     appBarContext.setTitle('Secrets');
   }, [appBarContext]);
+
+  useEffect(() => {
+    setSelectedScope(workspaceSelectionScope);
+  }, [workspaceSelectionScope]);
 
   const { data, mutate, isLoading } = useQuery('/secrets', {
     params: {
@@ -277,17 +291,32 @@ export default function SecretsPage(): React.ReactNode {
             Manage secret refs and values.
           </p>
         </div>
-        <Button
-          size="sm"
-          className="h-8"
-          onClick={() => {
-            setEditingSecret(null);
-            setIsFormOpen(true);
-          }}
-        >
-          <Plus className="mr-1.5 h-4 w-4" />
-          Add Secret
-        </Button>
+        <div className="flex items-center gap-2">
+          <Select value={selectedScope} onValueChange={setSelectedScope}>
+            <SelectTrigger className="h-8 w-[180px]" aria-label="Secret scope">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={SECRET_GLOBAL_SCOPE}>Global</SelectItem>
+              {(appBarContext.workspaces ?? []).map((workspace) => (
+                <SelectItem key={workspace.id} value={workspace.name}>
+                  {workspace.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            size="sm"
+            className="h-8"
+            onClick={() => {
+              setEditingSecret(null);
+              setIsFormOpen(true);
+            }}
+          >
+            <Plus className="mr-1.5 h-4 w-4" />
+            Add Secret
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -339,9 +368,7 @@ export default function SecretsPage(): React.ReactNode {
                     <div className="flex min-w-0 flex-col gap-1">
                       <div className="flex min-w-0 items-center gap-2">
                         <KeyRound className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-                        <code className="truncate text-xs">
-                          {secret.ref}
-                        </code>
+                        <code className="truncate text-xs">{secret.ref}</code>
                       </div>
                     </div>
                   </TableCell>
@@ -434,7 +461,7 @@ export default function SecretsPage(): React.ReactNode {
       <SecretFormDialog
         open={isFormOpen}
         secret={editingSecret}
-        selectedWorkspace={selectedWorkspace}
+        selectedScope={selectedScope}
         remoteNode={remoteNode}
         onClose={() => {
           setIsFormOpen(false);
@@ -469,9 +496,7 @@ export default function SecretsPage(): React.ReactNode {
         onSubmit={deleteSecret}
       >
         <span className="text-sm text-muted-foreground">
-          {deletingSecret
-            ? `Delete ${deletingSecret.ref}?`
-            : ''}
+          {deletingSecret ? `Delete ${deletingSecret.ref}?` : ''}
         </span>
       </ConfirmModal>
     </div>
@@ -481,14 +506,14 @@ export default function SecretsPage(): React.ReactNode {
 function SecretFormDialog({
   open,
   secret,
-  selectedWorkspace,
+  selectedScope,
   remoteNode,
   onClose,
   onSaved,
 }: {
   open: boolean;
   secret: SecretResponse | null;
-  selectedWorkspace: string;
+  selectedScope: string;
   remoteNode: string;
   onClose: () => void;
   onSaved: (message: string) => void;
@@ -551,7 +576,7 @@ function SecretFormDialog({
         onSaved(`${secret.ref} updated`);
       } else {
         const body: CreateSecretRequest = {
-          workspace: selectedWorkspace,
+          workspace: selectedScope,
           ref: form.ref.trim(),
           description: optionalString(form.description),
           providerType: CreateSecretRequestProviderType.dagu_managed,
