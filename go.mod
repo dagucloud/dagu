@@ -39,6 +39,7 @@ require (
 	github.com/minio/minio-go/v7 v7.0.100
 	github.com/moby/moby/api v1.54.2
 	github.com/moby/moby/client v0.3.0
+	github.com/modelcontextprotocol/go-sdk v1.6.0
 	github.com/oapi-codegen/nethttp-middleware v1.1.2
 	github.com/oapi-codegen/oapi-codegen/v2 v2.5.1
 	github.com/oapi-codegen/runtime v1.1.2
@@ -231,6 +232,8 @@ require (
 	github.com/safchain/ethtool v0.3.0 // indirect
 	github.com/samber/slog-common v0.19.0 // indirect
 	github.com/schollz/progressbar/v3 v3.19.0 // indirect
+	github.com/segmentio/asm v1.1.3 // indirect
+	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
@@ -259,6 +262,7 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	github.com/yoheimuta/go-protoparser/v4 v4.14.2 // indirect
+	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	github.com/zalando/go-keyring v0.2.6 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect

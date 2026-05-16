@@ -80,6 +80,7 @@ import (
 	"github.com/dagucloud/dagu/internal/service/frontend/metrics"
 	"github.com/dagucloud/dagu/internal/service/frontend/sse"
 	"github.com/dagucloud/dagu/internal/service/frontend/terminal"
+	dagumcp "github.com/dagucloud/dagu/internal/service/mcp"
 	"github.com/dagucloud/dagu/internal/service/oidcprovision"
 	"github.com/dagucloud/dagu/internal/service/resource"
 	"github.com/dagucloud/dagu/internal/tunnel"
@@ -952,8 +953,11 @@ func (srv *Server) Serve(ctx context.Context) error {
 			RequestHeaders:   srv.config.Core.Debug,
 			MessageFieldName: "msg",
 			ResponseHeaders:  false,
-			QuietDownRoutes:  []string{path.Join(apiV1BasePath, "events")},
-			QuietDownPeriod:  10 * time.Second,
+			QuietDownRoutes: []string{
+				path.Join(apiV1BasePath, "events"),
+				pathutil.BuildPublicEndpointPath(srv.funcsConfig.BasePath, "mcp"),
+			},
+			QuietDownPeriod: 10 * time.Second,
 		})
 		logMiddleware := sanitizedRequestLogger(requestLogger)
 		if srv.config.Server.AccessLog == config.AccessLogNonPublic {
@@ -966,7 +970,8 @@ func (srv *Server) Serve(ctx context.Context) error {
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"*"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Content-Type", "Authorization", "Content-Encoding", "Accept"},
+		AllowedHeaders:   []string{"Content-Type", "Authorization", "Content-Encoding", "Accept", "MCP-Protocol-Version", "Mcp-Session-Id", "Last-Event-ID"},
+		ExposedHeaders:   []string{"Mcp-Session-Id"},
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
@@ -989,6 +994,7 @@ func (srv *Server) Serve(ctx context.Context) error {
 	}
 
 	srv.setupSSERoute(ctx, r, apiV1BasePath)
+	srv.setupMCPRoute(ctx, r)
 
 	addr := net.JoinHostPort(srv.config.Server.Host, strconv.Itoa(srv.config.Server.Port))
 	srv.httpServer = &http.Server{
@@ -1199,6 +1205,30 @@ func (srv *Server) setupSSERoute(ctx context.Context, r *chi.Mux, apiV1BasePath 
 	})
 
 	logger.Info(ctx, "SSE routes configured", slog.String("basePath", apiV1BasePath))
+}
+
+func (srv *Server) setupMCPRoute(ctx context.Context, r *chi.Mux) {
+	mcpPath := pathutil.BuildPublicEndpointPath(srv.funcsConfig.BasePath, "mcp")
+	mcpHandler := dagumcp.NewHTTPHandler(srv.apiV1)
+	authOpts := srv.buildStreamAuthOptions("Dagu MCP")
+
+	r.Group(func(r chi.Router) {
+		r.Use(auth.QueryTokenMiddleware())
+		r.Use(auth.ClientIPMiddleware())
+		r.Use(auth.Middleware(authOpts))
+		r.Use(srv.injectDefaultStreamUserMiddleware())
+		r.Use(clearWriteDeadlineMiddleware)
+		r.Handle(mcpPath, mcpHandler)
+	})
+
+	logger.Info(ctx, "MCP route configured", slog.String("path", mcpPath))
+}
+
+func clearWriteDeadlineMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
