@@ -110,31 +110,27 @@ func TestStore_IsRunAlive(t *testing.T) {
 	})
 
 	t.Run("StaleProcess", func(t *testing.T) {
-		// Create a store with very short stale time for testing
-		shortStore := &Store{
-			baseDir:   baseDir,
-			staleTime: time.Millisecond * 100,
-		}
+		shortStore := New(baseDir, WithStaleThreshold(100*time.Millisecond))
 
 		dagRun := exec.DAGRunRef{
 			Name: "test-dag-stale",
 			ID:   "run-stale",
 		}
+		meta := testProcMetaFromRun(dagRun)
+		staleAt := time.Now().Add(-10 * time.Second)
+		path := procFilePath(filepath.Join(baseDir, "stale-queue"), exec.NewUTC(staleAt), meta)
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0750))
 
-		// Create a process
-		// Use different group name vs dag name
-		proc, err := shortStore.Acquire(ctx, "stale-queue", testProcMetaFromRun(dagRun))
+		fd, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0600)
 		require.NoError(t, err)
+		require.NoError(t, writeProcFile(fd, staleAt.Unix(), meta))
+		require.NoError(t, fd.Sync())
+		require.NoError(t, fd.Close())
+		require.NoError(t, os.Chtimes(path, staleAt, staleAt))
 
-		// Stop the heartbeat immediately
-		err = proc.Stop(ctx)
+		alive, err := shortStore.IsRunAlive(ctx, "stale-queue", dagRun)
 		require.NoError(t, err)
-
-		// Check if the run is alive (should become false when stale)
-		require.Eventually(t, func() bool {
-			alive, err := shortStore.IsRunAlive(ctx, "stale-queue", dagRun)
-			return err == nil && !alive
-		}, 200*time.Millisecond, 10*time.Millisecond, "expected process to become stale")
+		require.False(t, alive)
 	})
 }
 
