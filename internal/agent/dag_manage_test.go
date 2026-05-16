@@ -361,6 +361,55 @@ func TestDAGRunWatchRegistryNotifiesTerminalRun(t *testing.T) {
 	assert.Contains(t, message, "Do not quote it verbatim.")
 }
 
+func TestDAGRunWatchRegistryDefersFailedRunWithAutoRetryRemaining(t *testing.T) {
+	status := &exec.DAGRunStatus{
+		Name:           "build",
+		DAGRunID:       "run-1",
+		AttemptID:      "attempt-1",
+		Status:         core.Failed,
+		Error:          "workflow failed",
+		AutoRetryCount: 0,
+		AutoRetryLimit: 2,
+	}
+	store := &dagRunManageTestStore{status: status}
+	notifyCount := 0
+	registry := newDAGRunWatchRegistry(
+		store,
+		func(_ context.Context, _ DAGRunWatchRequest, _ DAGRunWatchInfo, _ *exec.DAGRunStatus) error {
+			notifyCount++
+			return nil
+		},
+		slog.Default(),
+		withDAGRunWatchPollInterval(time.Hour),
+	)
+	defer registry.ClearSession("session-1")
+
+	info, err := registry.Watch(context.Background(), DAGRunWatchRequest{
+		SessionID: "session-1",
+		User:      UserIdentity{UserID: "user-1"},
+		DAGName:   "build",
+		DAGRunID:  "run-1",
+		NotifyOn:  []string{"failure"},
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, DAGRunWatchStateRunning, info.State)
+	assert.Equal(t, core.Failed.String(), info.Status)
+	assert.False(t, info.Notified)
+	assert.Equal(t, 0, notifyCount)
+
+	status.AutoRetryCount = status.AutoRetryLimit
+	current, err := registry.Status(context.Background(), DAGRunWatchStatusRequest{
+		SessionID: "session-1",
+		WatchID:   info.WatchID,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, DAGRunWatchStateCompleted, current.State)
+	assert.True(t, current.Notified)
+	assert.Equal(t, 1, notifyCount)
+}
+
 func TestDAGRunWatchRegistryDeduplicatesActiveRun(t *testing.T) {
 	store := &dagRunManageTestStore{
 		status: &exec.DAGRunStatus{

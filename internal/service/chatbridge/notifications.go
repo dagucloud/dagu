@@ -175,6 +175,9 @@ func (b *NotificationBatcher) Enqueue(destination string, event NotificationEven
 	if destination == "" || event.Status == nil || event.Key == "" {
 		return false
 	}
+	if shouldSuppressNotificationEvent(event) {
+		return false
+	}
 
 	eventType := event.Type
 	if eventType == "" {
@@ -416,6 +419,10 @@ func NotificationClassForEvent(eventType eventstore.EventType, status core.Statu
 			return NotificationClassUnknown, false
 		}
 	}
+}
+
+func shouldSuppressNotificationEvent(event NotificationEvent) bool {
+	return exec.CanCancelFailedAutoRetryPendingRun(event.Status)
 }
 
 // NotificationSeenKey is used by monitors to suppress repeated polling of the same status.

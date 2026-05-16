@@ -602,6 +602,9 @@ func isDAGRunWatchTerminal(status *exec.DAGRunStatus) bool {
 	if status == nil {
 		return false
 	}
+	if exec.CanCancelFailedAutoRetryPendingRun(status) {
+		return false
+	}
 	return status.Status != core.NotStarted && !status.Status.IsActive()
 }
 
