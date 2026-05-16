@@ -266,19 +266,41 @@ func (d *Data) Setup(ctx context.Context, logFile string, startedAt time.Time) e
 	}
 	d.inner.State.StartedAt = startedAt
 
-	// Evaluate the stdout field
-	stdout, err := EvalStepString(ctx, d.inner.Step.Stdout, eval.WithoutDollarEscape())
-	if err != nil {
-		return fmt.Errorf("failed to evaluate stdout field: %w", err)
+	if d.inner.Step.StdoutArtifact != "" {
+		stdout, err := EvalStepString(ctx, d.inner.Step.StdoutArtifact, eval.WithoutDollarEscape())
+		if err != nil {
+			return fmt.Errorf("failed to evaluate stdout artifact field: %w", err)
+		}
+		stdout, err = artifactOutputFilePath(ctx, stdout)
+		if err != nil {
+			return fmt.Errorf("failed to resolve stdout artifact field: %w", err)
+		}
+		d.inner.Step.Stdout = stdout
+	} else {
+		stdout, err := EvalStepString(ctx, d.inner.Step.Stdout, eval.WithoutDollarEscape())
+		if err != nil {
+			return fmt.Errorf("failed to evaluate stdout field: %w", err)
+		}
+		d.inner.Step.Stdout = stdout
 	}
-	d.inner.Step.Stdout = stdout
 
-	// Evaluate the stderr field
-	stderr, err := EvalStepString(ctx, d.inner.Step.Stderr, eval.WithoutDollarEscape())
-	if err != nil {
-		return fmt.Errorf("failed to evaluate stderr field: %w", err)
+	if d.inner.Step.StderrArtifact != "" {
+		stderr, err := EvalStepString(ctx, d.inner.Step.StderrArtifact, eval.WithoutDollarEscape())
+		if err != nil {
+			return fmt.Errorf("failed to evaluate stderr artifact field: %w", err)
+		}
+		stderr, err = artifactOutputFilePath(ctx, stderr)
+		if err != nil {
+			return fmt.Errorf("failed to resolve stderr artifact field: %w", err)
+		}
+		d.inner.Step.Stderr = stderr
+	} else {
+		stderr, err := EvalStepString(ctx, d.inner.Step.Stderr, eval.WithoutDollarEscape())
+		if err != nil {
+			return fmt.Errorf("failed to evaluate stderr field: %w", err)
+		}
+		d.inner.Step.Stderr = stderr
 	}
-	d.inner.Step.Stderr = stderr
 
 	return nil
 }

@@ -90,6 +90,8 @@ type LoopConfig struct {
 	// recording them and waiting for another queued message. Interactive
 	// sessions keep this false so a later user message can recover.
 	ReturnTurnErrors bool
+	// LogicalRetryConfig overrides the default logical retry budget for LLM requests.
+	LogicalRetryConfig llm.LogicalRetryConfig
 }
 
 // Loop manages a session turn with an LLM including tool execution.
@@ -122,6 +124,7 @@ type Loop struct {
 	webSearch          *llm.WebSearchRequest
 	onTurnComplete     func()
 	returnTurnErrors   bool
+	logicalRetryConfig llm.LogicalRetryConfig
 	activeTurn         bool
 	interruptRequested bool
 }
@@ -134,30 +137,31 @@ func NewLoop(config LoopConfig) *Loop {
 	}
 
 	return &Loop{
-		provider:         config.Provider,
-		model:            config.Model,
-		history:          config.History,
-		tools:            config.Tools,
-		recordMessage:    config.RecordMessage,
-		logger:           logger,
-		systemPrompt:     config.SystemPrompt,
-		dynamicSystemCtx: config.DynamicSystemContext,
-		workingDir:       config.WorkingDir,
-		sessionID:        config.SessionID,
-		onWorking:        config.OnWorking,
-		onHeartbeat:      config.OnHeartbeat,
-		emitUIAction:     config.EmitUIAction,
-		emitUserPrompt:   config.EmitUserPrompt,
-		waitUserResponse: config.WaitUserResponse,
-		safeMode:         config.SafeMode,
-		thinkingEffort:   config.ThinkingEffort,
-		hooks:            config.Hooks,
-		user:             config.User,
-		sessionStore:     config.SessionStore,
-		registry:         config.Registry,
-		webSearch:        config.WebSearch,
-		onTurnComplete:   config.OnTurnComplete,
-		returnTurnErrors: config.ReturnTurnErrors,
+		provider:           config.Provider,
+		model:              config.Model,
+		history:            config.History,
+		tools:              config.Tools,
+		recordMessage:      config.RecordMessage,
+		logger:             logger,
+		systemPrompt:       config.SystemPrompt,
+		dynamicSystemCtx:   config.DynamicSystemContext,
+		workingDir:         config.WorkingDir,
+		sessionID:          config.SessionID,
+		onWorking:          config.OnWorking,
+		onHeartbeat:        config.OnHeartbeat,
+		emitUIAction:       config.EmitUIAction,
+		emitUserPrompt:     config.EmitUserPrompt,
+		waitUserResponse:   config.WaitUserResponse,
+		safeMode:           config.SafeMode,
+		thinkingEffort:     config.ThinkingEffort,
+		hooks:              config.Hooks,
+		user:               config.User,
+		sessionStore:       config.SessionStore,
+		registry:           config.Registry,
+		webSearch:          config.WebSearch,
+		onTurnComplete:     config.OnTurnComplete,
+		returnTurnErrors:   config.ReturnTurnErrors,
+		logicalRetryConfig: config.LogicalRetryConfig,
 	}
 }
 
@@ -365,7 +369,7 @@ func (l *Loop) sendRequest(ctx context.Context) (*llm.ChatResponse, error) {
 	stopHeartbeat := startHeartbeatPump(ctx, loopHeartbeatInterval, l.onHeartbeat)
 	defer stopHeartbeat()
 
-	resp, err := llm.ChatWithRetry(ctx, provider, req, llm.DefaultLogicalRetryConfig())
+	resp, err := llm.ChatWithRetry(ctx, provider, req, l.logicalRetryConfig)
 	if err != nil {
 		l.recordErrorMessage(ctx, fmt.Sprintf("LLM request failed: %v", err))
 		l.setWorking(false)

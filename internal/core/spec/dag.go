@@ -889,13 +889,21 @@ func buildLogDir(_ BuildContext, d *dag) (string, error) {
 
 func buildArtifacts(_ BuildContext, d *dag) (*core.ArtifactsConfig, error) {
 	usesArtifactAction := dagUsesBuiltinArtifactAction(d)
-	autoEnable := dagReferencesRunArtifactsDir(d) || usesArtifactAction
+	usesArtifactOutput := dagUsesArtifactOutput(d)
+	autoEnable := dagReferencesRunArtifactsDir(d) || usesArtifactAction || usesArtifactOutput
 
 	if usesArtifactAction && d.Artifacts != nil && d.Artifacts.Enabled != nil && !*d.Artifacts.Enabled {
 		return nil, core.NewValidationError(
 			"artifacts.enabled",
 			*d.Artifacts.Enabled,
 			fmt.Errorf("artifact actions require artifacts.enabled to be true"),
+		)
+	}
+	if usesArtifactOutput && d.Artifacts != nil && d.Artifacts.Enabled != nil && !*d.Artifacts.Enabled {
+		return nil, core.NewValidationError(
+			"artifacts.enabled",
+			*d.Artifacts.Enabled,
+			fmt.Errorf("artifact outputs require artifacts.enabled to be true"),
 		)
 	}
 
@@ -928,6 +936,25 @@ func dagReferencesRunArtifactsDir(d *dag) bool {
 
 func dagUsesBuiltinArtifactAction(d *dag) bool {
 	return valueUsesBuiltinArtifactAction(reflect.ValueOf(d))
+}
+
+func dagUsesArtifactOutput(d *dag) bool {
+	if d == nil {
+		return false
+	}
+	return valueUsesArtifactOutput(reflect.ValueOf(d.Steps)) ||
+		valueUsesArtifactOutput(reflect.ValueOf(d.HandlerOn)) ||
+		customStepSpecsUseArtifactOutput(d.StepTypes) ||
+		customStepSpecsUseArtifactOutput(d.Actions)
+}
+
+func customStepSpecsUseArtifactOutput(specs map[string]customStepTypeSpec) bool {
+	for _, spec := range specs {
+		if valueUsesArtifactOutput(reflect.ValueOf(spec.Template)) {
+			return true
+		}
+	}
+	return false
 }
 
 func referencesArtifactsEnvVar(s string) bool {
@@ -1075,6 +1102,109 @@ func valueUsesBuiltinArtifactAction(v reflect.Value) bool {
 		return false
 	default:
 		return false
+	}
+	return false
+}
+
+func valueUsesArtifactOutput(v reflect.Value) bool {
+	if !v.IsValid() {
+		return false
+	}
+
+	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return false
+		}
+		v = v.Elem()
+	}
+
+	switch v.Kind() {
+	case reflect.Map:
+		iter := v.MapRange()
+		for iter.Next() {
+			key := iter.Key()
+			value := iter.Value()
+			if key.Kind() == reflect.String && isArtifactOutputField(key.String()) && valueIsArtifactOutputConfig(value) {
+				return true
+			}
+			if valueUsesArtifactOutput(key) || valueUsesArtifactOutput(value) {
+				return true
+			}
+		}
+	case reflect.Slice, reflect.Array:
+		for i := range v.Len() {
+			if valueUsesArtifactOutput(v.Index(i)) {
+				return true
+			}
+		}
+	case reflect.Struct:
+		t := v.Type()
+		for i := range v.NumField() {
+			fieldInfo := t.Field(i)
+			if fieldInfo.PkgPath != "" {
+				continue
+			}
+			field := v.Field(i)
+			if isArtifactOutputField(fieldInfo.Name) && valueIsArtifactOutputConfig(field) {
+				return true
+			}
+			if valueUsesArtifactOutput(field) {
+				return true
+			}
+		}
+	case reflect.String,
+		reflect.Invalid,
+		reflect.Bool,
+		reflect.Int,
+		reflect.Int8,
+		reflect.Int16,
+		reflect.Int32,
+		reflect.Int64,
+		reflect.Uint,
+		reflect.Uint8,
+		reflect.Uint16,
+		reflect.Uint32,
+		reflect.Uint64,
+		reflect.Uintptr,
+		reflect.Float32,
+		reflect.Float64,
+		reflect.Complex64,
+		reflect.Complex128,
+		reflect.Chan,
+		reflect.Func,
+		reflect.Interface,
+		reflect.Pointer,
+		reflect.UnsafePointer:
+		return false
+	default:
+		return false
+	}
+	return false
+}
+
+func isArtifactOutputField(name string) bool {
+	return name == "stdout" || name == "stderr" || name == "Stdout" || name == "Stderr"
+}
+
+func valueIsArtifactOutputConfig(v reflect.Value) bool {
+	if !v.IsValid() {
+		return false
+	}
+	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return false
+		}
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Map {
+		return false
+	}
+	iter := v.MapRange()
+	for iter.Next() {
+		key := iter.Key()
+		if key.Kind() == reflect.String && key.String() == "artifact" {
+			return true
+		}
 	}
 	return false
 }

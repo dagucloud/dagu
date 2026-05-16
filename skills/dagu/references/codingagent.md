@@ -293,6 +293,6 @@ steps:
 3. **Timeouts** — Set `timeout_sec:` (300-600s+) on agent steps. Agent CLIs can run for minutes.
 4. **Retry on transient failures** — Add `retry_policy: { limit: 3, interval_sec: 30 }` to handle rate limits and network errors.
 5. **Working directory** — Use `working_dir:` on the step. The CLI operates relative to this directory.
-6. **Output capture** — Use string-form `output: VAR_NAME` for flat variable interpolation, object-form `output:` for structured `${step_id.output.*}` access, and `${step_id.stdout}` when a downstream step needs the stdout log file path.
+6. **Output capture** — Use string-form `output: VAR_NAME` for small flat values, object-form `output:` for structured `${step_id.output.*}` access, and `stdout.artifact` / `stderr.artifact` when large agent output, reports, JSON, Markdown, or logs should be stored as DAG-run artifacts. Use `${step_id.stdout}` only when a downstream step needs the stdout log file path.
 7. **Exit codes** — 0 = success, 1 = CLI error, 124 = step timed out. Last 1KB of stderr is included in the error message on failure.
 8. **Fallback behavior** — If the primary harness config fails and the context is still active, fallback entries are tried in order. Failed-attempt stdout is discarded; stderr remains visible in logs.

@@ -155,7 +155,13 @@ Use `dagu schema` via bash when unsure about YAML fields.
 
 Use the appropriate action (`http.request`, `s3.*`, `postgres.query`, `artifact.*`, `file.*`, etc.) instead of shelling out.
 For local filesystem work in authored DAGs, use `file.stat`, `file.read`, `file.write`, `file.copy`, `file.move`, `file.delete`, `file.mkdir`, or `file.list` instead of shell commands such as `cat`, `cp`, `mv`, `rm`, or `mkdir` unless the user specifically needs shell behavior.
-For DAG-run outputs such as reports, JSON snapshots, Markdown summaries, and handoff files, use `artifact.write`, `artifact.read`, or `artifact.list` instead of shell commands that write to `DAG_RUN_ARTIFACTS_DIR` unless the user specifically needs shell behavior.
+For DAG-run outputs such as reports, JSON snapshots, Markdown summaries, logs, and handoff files, use `stdout.artifact`/`stderr.artifact` for command streams and `artifact.write`, `artifact.read`, or `artifact.list` for explicit artifact operations instead of shell commands that write to `DAG_RUN_ARTIFACTS_DIR` unless the user specifically needs shell behavior.
+When a command produces large data for an artifact, let it write to stdout/stderr and attach the stream directly:
+```yaml
+stdout:
+  artifact: reports/report.md
+```
+Do not route large payloads through `output:` variables; use `output:` for small values and structured selectors.
 
 Omit the root `name:` field—Dagu uses the filename as the DAG name by default.
 
@@ -191,7 +197,7 @@ run: |
 **Passing data between steps:**
 - `output: VAR` captures stdout **content** into `${VAR}`. For JSON output, extract fields with `${VAR.key}`.
 - `${step_id.stdout}` is a **file path** to the step's stdout log, not the content. Prefer the `read` tool to inspect it; only use shell commands when necessary.
-- Use `output:` + `${VAR}` for small safe values (IDs, counts). Use `${step_id.stdout}` (file path) for large or untrusted content.
+- Use `output:` + `${VAR}` for small safe values (IDs, counts). Use `stdout.artifact` when large or untrusted command content should be stored as an artifact. Use `${step_id.stdout}` only when a downstream step needs the stdout log file path.
 - Resolution priority: `${foo.bar}` checks step references first, then JSON path on variables.
 
 **env ordering:** Use list-of-maps to preserve evaluation order. `env: {A: foo, B: ${A}/bar}` may fail because Go maps iterate randomly. Use:
@@ -317,7 +323,7 @@ Formats: table (default), json
 5. Navigate the user to the document: navigate("/docs/<doc-id>")
 
 ### Best Practices
-- Use `artifact.write`, `artifact.read`, and `artifact.list` for DAG-run artifacts (reports, JSON snapshots, Markdown summaries, intermediate files) so outputs are explicit and visible in the Artifacts tab.
+- Use `stdout.artifact`/`stderr.artifact` for command streams and `artifact.write`, `artifact.read`, and `artifact.list` for DAG-run artifacts (reports, JSON snapshots, Markdown summaries, logs, intermediate files) so outputs are explicit and visible in the Artifacts tab. This is the preferred pattern when a command naturally emits a large artifact to stdout/stderr.
 - Utilize the `log.write` action to improve clarity for users.
 - For agent and chat LLM steps, select cost-effective models. Ensure that the selected models are currently available.
 - Verify each step by checking the available options for commands that depend on external commands to ensure the steps work as expected. Do not guess.

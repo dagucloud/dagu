@@ -126,7 +126,7 @@ func buildActionsPrompt(env EnvironmentInfo, access *auth.WorkspaceAccess) strin
 	b.WriteString(formatNames(spec.BuiltinActionNames()))
 	b.WriteString(". Use top-level `run:` for plain shell commands and scripts.\n")
 	b.WriteString("- For local file operations in authored DAGs, prefer built-in `file.*` actions over `run:` commands such as `cat`, `cp`, `mv`, `rm`, or `mkdir`; this keeps DAGs portable across hosts and shells.\n")
-	b.WriteString("- For DAG-run artifacts in authored DAGs, prefer built-in `artifact.write`, `artifact.read`, and `artifact.list` over `run:` commands that write to `DAG_RUN_ARTIFACTS_DIR`; this makes reports, JSON snapshots, Markdown summaries, and other run outputs explicit in YAML.\n")
+	b.WriteString("- For DAG-run artifacts in authored DAGs, prefer `stdout.artifact`/`stderr.artifact` for command streams, especially large reports, JSON, Markdown, logs, or other data best written by the command to stdout/stderr. Use built-in `artifact.write`, `artifact.read`, and `artifact.list` for explicit artifact operations; avoid `run:` commands that write to `DAG_RUN_ARTIFACTS_DIR` unless a tool truly needs a filesystem path.\n")
 
 	sources := baseConfigCustomActionSources(env, access)
 	if len(sources) == 0 {
