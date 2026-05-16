@@ -1941,7 +1941,7 @@
               "description": "Parallel execution configuration with concurrency control"
             }
           ],
-          "description": "Configuration for parallel execution of child DAGs. Currently only valid with action: dag.run. Allows processing multiple items concurrently using the same workflow definition."
+          "description": "Configuration for parallel execution of child DAGs. Currently only valid with action: dag.run or dag.enqueue. Allows processing multiple items concurrently using the same workflow definition."
         },
         "worker_selector": {
           "oneOf": [
@@ -2119,6 +2119,18 @@
             "required": ["with"],
             "properties": {
               "with": { "$ref": "#/definitions/dagRunActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "dag.enqueue" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/dagEnqueueActionConfig" }
             }
           }
         },
@@ -5928,6 +5940,7 @@
         "shell",
         "docker",
         "container",
+        "dag_enqueue",
         "file",
         "git",
         "kubernetes",
@@ -5982,6 +5995,7 @@
             "artifact.write",
             "chat.completion",
             "container.run",
+            "dag.enqueue",
             "dag.run",
             "data.convert",
             "data.pick",
@@ -6113,6 +6127,38 @@
         }
       },
       "description": "Configuration for action: dag.run."
+    },
+    "dagEnqueueActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dag"],
+      "properties": {
+        "dag": {
+          "type": "string",
+          "description": "Child DAG name or path."
+        },
+        "params": {
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  { "type": "string" },
+                  { "type": "object", "additionalProperties": true }
+                ]
+              }
+            },
+            { "type": "object", "additionalProperties": true }
+          ],
+          "description": "Parameters passed to the queued child DAG."
+        },
+        "queue": {
+          "type": "string",
+          "description": "Optional queue name override for the queued child DAG run."
+        }
+      },
+      "description": "Configuration for action: dag.enqueue."
     },
     "httpRequestActionConfig": {
       "allOf": [

@@ -527,6 +527,7 @@ func executeDAGRun(ctx *Context, d *core.DAG, parent exec.DAGRunRef, dagRunID st
 			QueuedRun:                  queuedRun,
 			PreparedAttempt:            preparedAttempt,
 			DAGRunStore:                ctx.DAGRunStore,
+			QueueStore:                 ctx.QueueStore,
 			SecretStore:                as.SecretStore,
 			ServiceRegistry:            ctx.ServiceRegistry,
 			RootDAGRun:                 root,
@@ -541,6 +542,8 @@ func executeDAGRun(ctx *Context, d *core.DAG, parent exec.DAGRunRef, dagRunID st
 			AgentRemoteContextResolver: as.ContextResolver,
 			ScheduleTime:               scheduleTime,
 			ArtifactDir:                artifactDir,
+			DAGRunLogDir:               ctx.Config.Paths.LogDir,
+			DAGRunArtifactDir:          ctx.Config.Paths.ArtifactDir,
 		},
 	)
 

@@ -1118,6 +1118,50 @@ steps:
 	require.Equal(t, core.TriggerTypeRetry, status.TriggerType)
 }
 
+func TestGetSubDAGRunsIncludesTopLevelDagEnqueueRun(t *testing.T) {
+	server := test.SetupServer(t)
+
+	parent := server.DAG(t, `
+name: dag_enqueue_parent
+steps:
+  - name: enqueue-child
+    run: echo queued
+`)
+	child := server.DAG(t, `
+name: dag_enqueue_child
+steps:
+  - name: child
+    run: echo child
+`)
+
+	parentRunID := "parent-run"
+	childRunID := "child-run"
+	seedLatestDAGRunStatus(t, server, parent.DAG, parentRunID, core.Succeeded, seedDAGRunStatusOptions{
+		subRuns: map[string][]exec.SubDAGRun{
+			"enqueue-child": {{
+				DAGRunID: childRunID,
+				DAGName:  child.Name,
+				Params:   "TARGET=async",
+			}},
+		},
+	})
+	seedLatestDAGRunStatus(t, server, child.DAG, childRunID, core.Queued, seedDAGRunStatusOptions{})
+
+	resp := server.Client().Get(
+		fmt.Sprintf("/api/v1/dag-runs/%s/%s/sub-dag-runs", parent.Name, parentRunID),
+	).ExpectStatus(http.StatusOK).Send(t)
+
+	var body api.GetSubDAGRuns200JSONResponse
+	resp.Unmarshal(t, &body)
+	require.Len(t, body.SubRuns, 1)
+	require.Equal(t, childRunID, body.SubRuns[0].DagRunId)
+	require.Equal(t, api.Status(core.Queued), body.SubRuns[0].Status)
+	require.NotNil(t, body.SubRuns[0].DagName)
+	require.Equal(t, child.Name, *body.SubRuns[0].DagName)
+	require.NotNil(t, body.SubRuns[0].Params)
+	require.Equal(t, "TARGET=async", *body.SubRuns[0].Params)
+}
+
 func TestRetryDAGRunStartsLocalRetrySubprocess(t *testing.T) {
 	server := test.SetupServer(t)
 
@@ -1384,6 +1428,7 @@ type seedDAGRunStatusOptions struct {
 	parentRef      exec.DAGRunRef
 	paramsList     []string
 	nodeStatuses   map[string]core.NodeStatus
+	subRuns        map[string][]exec.SubDAGRun
 }
 
 func seedLatestDAGRunStatus(
@@ -1438,6 +1483,18 @@ func seedLatestDAGRunStatus(
 				continue
 			}
 			node.Status = nodeStatus
+			found = true
+			break
+		}
+		require.Truef(t, found, "seeded DAG-run status step %q not found", stepName)
+	}
+	for stepName, subRuns := range opts.subRuns {
+		found := false
+		for _, node := range dagRunStatus.Nodes {
+			if node.Step.Name != stepName {
+				continue
+			}
+			node.SubRuns = append([]exec.SubDAGRun(nil), subRuns...)
 			found = true
 			break
 		}
