@@ -200,6 +200,7 @@ Current builtin actions:
 | `mail.send` | Email sending | mail executor config |
 | `archive.create`, `archive.extract`, `archive.list` | Archive operations | archive config |
 | `file.stat`, `file.read`, `file.write`, `file.copy`, `file.move`, `file.delete`, `file.mkdir`, `file.list` | File operations | path/source/destination/content config |
+| `wait.duration`, `wait.until`, `wait.file`, `wait.http` | Wait or poll for time, files, or HTTP readiness | `duration`, `until`, `path`, `url`, optional polling config |
 | `s3.upload`, `s3.download`, `s3.list`, `s3.delete` | S3 operations | S3 config |
 | `sftp.upload`, `sftp.download` | SFTP transfers | SFTP config |
 | `noop` | Output-only or approval-only placeholder step | no `with`, or empty `with` |
@@ -253,6 +254,23 @@ steps:
         - account_id: acct_2
           region: eu-west-1
 ```
+
+### Wait for HTTP Readiness
+
+```yaml
+steps:
+  - id: wait_for_api
+    action: wait.http
+    with:
+      url: https://api.example.com/health
+      status: 200
+      poll_interval: 5s
+      request_timeout: 10s
+    timeout_sec: 300
+```
+
+Use `timeout_sec` to cap total wait time for polling actions such as
+`wait.file` and `wait.http`.
 
 ### Agent Harness
 

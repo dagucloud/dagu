@@ -504,8 +504,10 @@ Dagu includes built-in actions that run within the Dagu process (or worker). Loc
 | [`postgres.query`](https://docs.dagu.sh/step-types/sql/postgresql) / [`sqlite.query`](https://docs.dagu.sh/step-types/sql/sqlite) | SQL queries, imports, and exports for PostgreSQL and SQLite |
 | [`redis.<operation>`](https://docs.dagu.sh/step-types/redis) | Redis commands, pipelines, and Lua scripts |
 | [`s3.upload` / `s3.download` / `s3.list` / `s3.delete`](https://docs.dagu.sh/step-types/s3) | Upload, download, list, and delete S3 objects |
+| `file.stat` / `file.read` / `file.write` / `file.copy` / `file.move` / `file.delete` / `file.mkdir` / `file.list` | Local file operations without shell commands |
 | [`jq.filter`](https://docs.dagu.sh/step-types/jq) | JSON transformation using jq expressions |
 | [`archive.create` / `archive.extract` / `archive.list`](https://docs.dagu.sh/step-types/archive) | Create and extract zip/tar archives |
+| [`wait.duration` / `wait.until` / `wait.file` / `wait.http`](https://docs.dagu.sh/step-types/wait) | Wait for time, file state, or HTTP readiness |
 | [`mail.send`](https://docs.dagu.sh/step-types/mail) | Send email via SMTP |
 | [`template.render`](https://docs.dagu.sh/step-types/template) | Text generation with template rendering |
 | [`router.route`](https://docs.dagu.sh/step-types/router) | Conditional step routing based on values and patterns |

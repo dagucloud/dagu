@@ -2206,6 +2206,18 @@
         },
         {
           "if": {
+            "properties": { "action": { "enum": ["wait.duration", "wait.until", "wait.file", "wait.http"] } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/waitActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": { "action": { "enum": ["s3.upload", "s3.download", "s3.list", "s3.delete"] } },
             "required": ["action"]
           },
@@ -5842,7 +5854,11 @@
             "sqlite.import",
             "sqlite.query",
             "ssh.run",
-            "template.render"
+            "template.render",
+            "wait.duration",
+            "wait.file",
+            "wait.http",
+            "wait.until"
           ],
           "description": "Builtin action name."
         },
@@ -6234,6 +6250,64 @@
         }
       },
       "description": "Configuration for local file actions."
+    },
+    "waitActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "duration": {
+          "type": "string",
+          "description": "Duration to wait for wait.duration, such as 30s or 5m."
+        },
+        "until": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC3339 timestamp for wait.until."
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "File or directory path for wait.file."
+        },
+        "state": {
+          "type": "string",
+          "enum": ["exists", "missing"],
+          "description": "File state to wait for. Defaults to exists."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Absolute URL for wait.http."
+        },
+        "method": {
+          "type": "string",
+          "description": "HTTP method for wait.http. Defaults to GET."
+        },
+        "status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599,
+          "description": "Expected HTTP status for wait.http. Defaults to 200."
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "HTTP headers for wait.http."
+        },
+        "body": {
+          "type": "string",
+          "description": "HTTP request body for wait.http."
+        },
+        "poll_interval": {
+          "type": "string",
+          "description": "Polling interval for wait.file and wait.http. Defaults to 1s."
+        },
+        "request_timeout": {
+          "type": "string",
+          "description": "Per-request timeout for wait.http. Defaults to 10s."
+        }
+      },
+      "description": "Configuration for wait actions."
     },
     "customActions": {
       "type": "object",

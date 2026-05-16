@@ -489,6 +489,39 @@ steps:
 `,
 		},
 		{
+			name: "WaitActions",
+			spec: `
+steps:
+  - action: wait.duration
+    with:
+      duration: 10s
+  - action: wait.until
+    with:
+      until: "2026-01-02T03:04:05Z"
+  - action: wait.file
+    with:
+      path: out/ready.flag
+      state: exists
+      poll_interval: 2s
+  - action: wait.http
+    with:
+      url: https://example.com/health
+      status: 204
+      request_timeout: 10s
+`,
+		},
+		{
+			name: "RejectWaitActionUnknownConfigField",
+			spec: `
+steps:
+  - action: wait.duration
+    with:
+      duration: 10s
+      seconds: 10
+`,
+			wantErr: "did not validate",
+		},
+		{
 			name: "RejectFileActionUnknownConfigField",
 			spec: `
 steps:
