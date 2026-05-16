@@ -193,6 +193,96 @@ func TestNotificationMonitor_ShutdownDrainRetriesInFlightBatchWithoutLLM(t *test
 	assert.True(t, monitor.IsDelivered("dest-1", status))
 }
 
+func TestNotificationMonitor_NotifyCompletionSkipsFailedRunWithAutoRetryRemaining(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mu    sync.Mutex
+		calls int
+	)
+	transport := &fakeNotificationTransport{
+		destinations: []string{"dest-1"},
+		flushFn: func(_ context.Context, _ string, _ NotificationBatch, _ bool) bool {
+			mu.Lock()
+			defer mu.Unlock()
+			calls++
+			return true
+		},
+	}
+
+	cfg := DefaultNotificationMonitorConfig()
+	cfg.UrgentWindow = 10 * time.Millisecond
+	cfg.PollInterval = time.Hour
+	cfg.SeenEvictInterval = time.Hour
+
+	monitor := NewNotificationMonitor(nil, "", transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
+	stopMonitor := testutil.StartContextRunner(t, monitor)
+	defer stopMonitor()
+
+	status := &exec.DAGRunStatus{
+		Name:           "briefing",
+		Status:         core.Failed,
+		DAGRunID:       "run-1",
+		AttemptID:      "attempt-1",
+		Error:          "boom",
+		AutoRetryCount: 0,
+		AutoRetryLimit: 2,
+	}
+	require.False(t, monitor.NotifyCompletion(status))
+
+	require.Never(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return calls > 0 || monitor.IsDelivered("dest-1", status)
+	}, 50*time.Millisecond, 5*time.Millisecond)
+}
+
+func TestNotificationMonitor_RequeuePendingDropsFailedRunWithAutoRetryRemaining(t *testing.T) {
+	t.Parallel()
+
+	transport := &fakeNotificationTransport{destinations: []string{"dest-1"}}
+	cfg := DefaultNotificationMonitorConfig()
+	cfg.UrgentWindow = 10 * time.Millisecond
+	cfg.PollInterval = time.Hour
+	cfg.SeenEvictInterval = time.Hour
+
+	monitor := NewNotificationMonitor(nil, "", transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
+	status := &exec.DAGRunStatus{
+		Name:           "briefing",
+		Status:         core.Failed,
+		DAGRunID:       "run-1",
+		AttemptID:      "attempt-1",
+		Error:          "boom",
+		AutoRetryCount: 0,
+		AutoRetryLimit: 2,
+	}
+	event := testNotificationEvent(status)
+	monitor.state = newNotificationMonitorState()
+	monitor.state.Bootstrapped = true
+	monitor.state.Destinations["dest-1"] = &notificationDestinationState{
+		Pending: map[string]NotificationEvent{
+			event.Key: event,
+		},
+		Delivered: make(map[string]time.Time),
+	}
+
+	monitor.requeuePending(context.Background(), []string{"dest-1"})
+
+	monitor.stateMu.Lock()
+	assert.Empty(t, monitor.state.Destinations["dest-1"].Pending)
+	monitor.stateMu.Unlock()
+	require.Never(t, func() bool {
+		return len(monitor.currentBatcher().TakeReady()) > 0
+	}, 50*time.Millisecond, 5*time.Millisecond)
+
+	status.AutoRetryCount = status.AutoRetryLimit
+	require.True(t, monitor.NotifyCompletion(status))
+
+	ready := waitForReadyBatch(t, monitor.currentBatcher())
+	require.Len(t, ready.Batch.Events, 1)
+	assert.Equal(t, status.AutoRetryLimit, ready.Batch.Events[0].Status.AutoRetryCount)
+}
+
 func TestNotificationMonitor_BootstrapFailureDoesNotReplayFromZeroCursor(t *testing.T) {
 	t.Parallel()
 

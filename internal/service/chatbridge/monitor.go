@@ -251,7 +251,7 @@ func (m *NotificationMonitor) initializeSession(ctx context.Context) {
 	}
 
 	m.ensureBootstrapped(ctx)
-	m.requeuePending(destinations)
+	m.requeuePending(ctx, destinations)
 }
 
 func (m *NotificationMonitor) loadPersistedState(ctx context.Context) {
@@ -433,7 +433,7 @@ func (m *NotificationMonitor) syncPendingDestinations(ctx context.Context) {
 		m.discardPendingDestinations(removed)
 	}
 
-	m.requeuePending(destinations)
+	m.requeuePending(ctx, destinations)
 }
 
 func (m *NotificationMonitor) enqueueEvents(ctx context.Context, destinations []string, events []NotificationEvent) bool {
@@ -472,7 +472,7 @@ func (m *NotificationMonitor) enqueueEvents(ctx context.Context, destinations []
 	return accepted
 }
 
-func (m *NotificationMonitor) requeuePending(destinations []string) {
+func (m *NotificationMonitor) requeuePending(ctx context.Context, destinations []string) {
 	if len(destinations) == 0 {
 		return
 	}
@@ -488,12 +488,34 @@ func (m *NotificationMonitor) requeuePending(destinations []string) {
 	var queued []queuedNotification
 
 	m.stateMu.Lock()
+	persisted := m.applyStateTransitionLocked(ctx, func(candidate *notificationMonitorState) bool {
+		changed := false
+		for destination, destState := range candidate.Destinations {
+			if _, ok := allowed[destination]; !ok || destState == nil {
+				continue
+			}
+			for key, event := range destState.Pending {
+				if shouldSuppressNotificationEvent(event) {
+					delete(destState.Pending, key)
+					changed = true
+				}
+			}
+		}
+		return changed
+	})
+	if !persisted {
+		m.stateMu.Unlock()
+		return
+	}
 	for destination, destState := range m.state.Destinations {
 		if _, ok := allowed[destination]; !ok || destState == nil {
 			continue
 		}
 		for _, event := range destState.Pending {
 			if event.Status == nil || event.Key == "" {
+				continue
+			}
+			if shouldSuppressNotificationEvent(event) {
 				continue
 			}
 			queued = append(queued, queuedNotification{
@@ -1140,16 +1162,26 @@ func enqueueNotifications(state *notificationMonitorState, destinations []string
 			if event.Status == nil || event.Key == "" {
 				continue
 			}
+			if shouldSuppressNotificationEvent(event) {
+				if removePendingNotificationsForRun(destState, NotificationRunKey(event.Status)) {
+					changed = true
+				}
+				continue
+			}
 			if _, ok := destState.Delivered[event.Key]; ok {
 				continue
 			}
 			if pending, ok := destState.Pending[event.Key]; ok {
-				queued = append(queued, queuedNotification{
-					destination: destination,
-					event:       pending,
-				})
-				accepted = true
-				continue
+				if shouldSuppressNotificationEvent(pending) {
+					delete(destState.Pending, event.Key)
+				} else {
+					queued = append(queued, queuedNotification{
+						destination: destination,
+						event:       pending,
+					})
+					accepted = true
+					continue
+				}
 			}
 
 			runKey := NotificationRunKey(event.Status)
@@ -1165,6 +1197,7 @@ func enqueueNotifications(state *notificationMonitorState, destinations []string
 
 			destState.Pending[event.Key] = NotificationEvent{
 				Key:        event.Key,
+				Type:       event.Type,
 				Status:     cloneNotificationStatus(event.Status),
 				ObservedAt: event.ObservedAt,
 			}
@@ -1178,4 +1211,19 @@ func enqueueNotifications(state *notificationMonitorState, destinations []string
 	}
 
 	return queued, changed, accepted
+}
+
+func removePendingNotificationsForRun(destState *notificationDestinationState, runKey string) bool {
+	if destState == nil || runKey == "" {
+		return false
+	}
+	changed := false
+	for pendingKey, pending := range destState.Pending {
+		if pending.Status == nil || NotificationRunKey(pending.Status) != runKey {
+			continue
+		}
+		delete(destState.Pending, pendingKey)
+		changed = true
+	}
+	return changed
 }
