@@ -422,7 +422,10 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
           ) : null}
           {activeTab === 'notifications' ? (
             <>
-              <NotificationsTab fileName={fileName || ''} />
+              <NotificationsTab
+                fileName={fileName || ''}
+                workspaceName={dagWorkspaceName}
+              />
               <div className="h-6 flex-shrink-0" />
             </>
           ) : null}

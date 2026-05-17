@@ -40,6 +40,7 @@ func TestStore_EncryptsNotificationSecretsAtRest(t *testing.T) {
 					URL:                 "https://example.com/webhook",
 					Headers:             map[string]string{"Authorization": "Bearer secret-token"},
 					HMACSecret:          "hmac-secret",
+					MessageTemplate:     "DAG {{dag.name}} {{run.status}}",
 					AllowPrivateNetwork: true,
 				},
 			},
@@ -47,13 +48,20 @@ func TestStore_EncryptsNotificationSecretsAtRest(t *testing.T) {
 				ID:      "slack-1",
 				Type:    notification.ProviderSlack,
 				Enabled: true,
-				Slack:   &notification.SlackTarget{WebhookURL: "https://hooks.slack.com/services/test"},
+				Slack: &notification.SlackTarget{
+					WebhookURL:      "https://hooks.slack.com/services/test",
+					MessageTemplate: "Slack {{dag.name}}",
+				},
 			},
 			{
-				ID:       "telegram-1",
-				Type:     notification.ProviderTelegram,
-				Enabled:  true,
-				Telegram: &notification.TelegramTarget{BotToken: "telegram-token", ChatID: "12345"},
+				ID:      "telegram-1",
+				Type:    notification.ProviderTelegram,
+				Enabled: true,
+				Telegram: &notification.TelegramTarget{
+					BotToken:        "telegram-token",
+					ChatID:          "12345",
+					MessageTemplate: "Telegram {{dag.name}}",
+				},
 			},
 		},
 		CreatedAt: time.Now().UTC(),
@@ -92,9 +100,12 @@ func TestStore_EncryptsNotificationSecretsAtRest(t *testing.T) {
 	assert.Equal(t, []eventstore.EventType{eventstore.TypeDAGRunFailed}, got.Targets[0].Events)
 	assert.Equal(t, "Bearer secret-token", got.Targets[0].Webhook.Headers["Authorization"])
 	assert.Equal(t, "hmac-secret", got.Targets[0].Webhook.HMACSecret)
+	assert.Equal(t, "DAG {{dag.name}} {{run.status}}", got.Targets[0].Webhook.MessageTemplate)
 	assert.True(t, got.Targets[0].Webhook.AllowPrivateNetwork)
 	assert.Equal(t, "https://hooks.slack.com/services/test", got.Targets[1].Slack.WebhookURL)
+	assert.Equal(t, "Slack {{dag.name}}", got.Targets[1].Slack.MessageTemplate)
 	assert.Equal(t, "telegram-token", got.Targets[2].Telegram.BotToken)
+	assert.Equal(t, "Telegram {{dag.name}}", got.Targets[2].Telegram.MessageTemplate)
 }
 
 func TestStore_SaveSecretTargetRequiresEncryptor(t *testing.T) {
@@ -137,8 +148,9 @@ func TestStore_PersistsReusableChannelsAndSubscriptions(t *testing.T) {
 		Type:    notification.ProviderWebhook,
 		Enabled: true,
 		Webhook: &notification.WebhookTarget{
-			URL:        "https://example.com/webhook",
-			HMACSecret: "channel-secret",
+			URL:             "https://example.com/webhook",
+			HMACSecret:      "channel-secret",
+			MessageTemplate: "Route {{dag.name}}",
 		},
 	}, "tester")
 	require.NoError(t, err)
@@ -169,6 +181,7 @@ func TestStore_PersistsReusableChannelsAndSubscriptions(t *testing.T) {
 	assert.Equal(t, "Ops Webhook", gotChannel.Name)
 	assert.Equal(t, "https://example.com/webhook", gotChannel.Webhook.URL)
 	assert.Equal(t, "channel-secret", gotChannel.Webhook.HMACSecret)
+	assert.Equal(t, "Route {{dag.name}}", gotChannel.Webhook.MessageTemplate)
 
 	gotSettings, err := store.GetByDAGName(context.Background(), "daily-report")
 	require.NoError(t, err)

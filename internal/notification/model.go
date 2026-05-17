@@ -149,18 +149,21 @@ type Target struct {
 }
 
 type EmailTarget struct {
-	From          string   `json:"from,omitempty"`
-	To            []string `json:"to,omitempty"`
-	Cc            []string `json:"cc,omitempty"`
-	Bcc           []string `json:"bcc,omitempty"`
-	SubjectPrefix string   `json:"subjectPrefix,omitempty"`
-	AttachLogs    bool     `json:"attachLogs,omitempty"`
+	From            string   `json:"from,omitempty"`
+	To              []string `json:"to,omitempty"`
+	Cc              []string `json:"cc,omitempty"`
+	Bcc             []string `json:"bcc,omitempty"`
+	SubjectPrefix   string   `json:"subjectPrefix,omitempty"`
+	SubjectTemplate string   `json:"subjectTemplate,omitempty"`
+	BodyTemplate    string   `json:"bodyTemplate,omitempty"`
+	AttachLogs      bool     `json:"attachLogs,omitempty"`
 }
 
 type WebhookTarget struct {
 	URL                 string            `json:"url,omitempty"`
 	Headers             map[string]string `json:"headers,omitempty"`
 	HMACSecret          string            `json:"hmacSecret,omitempty"`
+	MessageTemplate     string            `json:"messageTemplate,omitempty"`
 	AllowInsecureHTTP   bool              `json:"allowInsecureHttp,omitempty"`
 	AllowPrivateNetwork bool              `json:"allowPrivateNetwork,omitempty"`
 	ClearHeaders        bool              `json:"-"`
@@ -168,12 +171,14 @@ type WebhookTarget struct {
 }
 
 type SlackTarget struct {
-	WebhookURL string `json:"webhookUrl,omitempty"`
+	WebhookURL      string `json:"webhookUrl,omitempty"`
+	MessageTemplate string `json:"messageTemplate,omitempty"`
 }
 
 type TelegramTarget struct {
-	BotToken string `json:"botToken,omitempty"`
-	ChatID   string `json:"chatId,omitempty"`
+	BotToken        string `json:"botToken,omitempty"`
+	ChatID          string `json:"chatId,omitempty"`
+	MessageTemplate string `json:"messageTemplate,omitempty"`
 }
 
 type PublicSettings struct {
@@ -264,6 +269,7 @@ type PublicWebhookTarget struct {
 	URLPreview           string            `json:"urlPreview,omitempty"`
 	Headers              map[string]string `json:"headers,omitempty"`
 	HMACSecretConfigured bool              `json:"hmacSecretConfigured"`
+	MessageTemplate      string            `json:"messageTemplate,omitempty"`
 	AllowInsecureHTTP    bool              `json:"allowInsecureHttp"`
 	AllowPrivateNetwork  bool              `json:"allowPrivateNetwork"`
 }
@@ -271,12 +277,14 @@ type PublicWebhookTarget struct {
 type PublicSlackTarget struct {
 	WebhookURLConfigured bool   `json:"webhookUrlConfigured"`
 	WebhookURLPreview    string `json:"webhookUrlPreview,omitempty"`
+	MessageTemplate      string `json:"messageTemplate,omitempty"`
 }
 
 type PublicTelegramTarget struct {
 	BotTokenConfigured bool   `json:"botTokenConfigured"`
 	BotTokenPreview    string `json:"botTokenPreview,omitempty"`
 	ChatID             string `json:"chatId,omitempty"`
+	MessageTemplate    string `json:"messageTemplate,omitempty"`
 }
 
 type Store interface {
@@ -537,6 +545,8 @@ func normalizeTarget(target *Target) error {
 		if target.Email == nil {
 			return fmt.Errorf("%w: email target config is required", ErrInvalidSettings)
 		}
+		target.Email.SubjectTemplate = normalizeTemplate(target.Email.SubjectTemplate)
+		target.Email.BodyTemplate = normalizeTemplate(target.Email.BodyTemplate)
 		if err := validateEmails(target.Email.To); err != nil {
 			return err
 		}
@@ -558,6 +568,7 @@ func normalizeTarget(target *Target) error {
 		if target.Webhook == nil {
 			return fmt.Errorf("%w: webhook target config is required", ErrInvalidSettings)
 		}
+		target.Webhook.MessageTemplate = normalizeTemplate(target.Webhook.MessageTemplate)
 		if target.Webhook.URL == "" {
 			return fmt.Errorf("%w: webhook target requires url", ErrInvalidSettings)
 		}
@@ -568,6 +579,7 @@ func normalizeTarget(target *Target) error {
 		if target.Slack == nil {
 			return fmt.Errorf("%w: slack target config is required", ErrInvalidSettings)
 		}
+		target.Slack.MessageTemplate = normalizeTemplate(target.Slack.MessageTemplate)
 		if target.Slack.WebhookURL == "" {
 			return fmt.Errorf("%w: slack target requires webhookUrl", ErrInvalidSettings)
 		}
@@ -578,6 +590,7 @@ func normalizeTarget(target *Target) error {
 		if target.Telegram == nil {
 			return fmt.Errorf("%w: telegram target config is required", ErrInvalidSettings)
 		}
+		target.Telegram.MessageTemplate = normalizeTemplate(target.Telegram.MessageTemplate)
 		target.Telegram.BotToken = strings.TrimSpace(target.Telegram.BotToken)
 		if target.Telegram.BotToken == "" {
 			return fmt.Errorf("%w: telegram target requires botToken", ErrInvalidSettings)
@@ -590,6 +603,13 @@ func normalizeTarget(target *Target) error {
 		return fmt.Errorf("%w: %s", ErrUnsupportedTarget, target.Type)
 	}
 	return nil
+}
+
+func normalizeTemplate(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	return value
 }
 
 func validateEmails(values []string) error {
@@ -901,6 +921,7 @@ func (t Target) ToPublic() PublicTarget {
 				URLPreview:           PreviewSecret(t.Webhook.URL),
 				Headers:              previewHeaderValues(t.Webhook.Headers),
 				HMACSecretConfigured: t.Webhook.HMACSecret != "",
+				MessageTemplate:      t.Webhook.MessageTemplate,
 				AllowInsecureHTTP:    t.Webhook.AllowInsecureHTTP,
 				AllowPrivateNetwork:  t.Webhook.AllowPrivateNetwork,
 			}
@@ -910,6 +931,7 @@ func (t Target) ToPublic() PublicTarget {
 			pub.Slack = &PublicSlackTarget{
 				WebhookURLConfigured: t.Slack.WebhookURL != "",
 				WebhookURLPreview:    PreviewSecret(t.Slack.WebhookURL),
+				MessageTemplate:      t.Slack.MessageTemplate,
 			}
 		}
 	case ProviderTelegram:
@@ -918,6 +940,7 @@ func (t Target) ToPublic() PublicTarget {
 				BotTokenConfigured: t.Telegram.BotToken != "",
 				BotTokenPreview:    PreviewSecret(t.Telegram.BotToken),
 				ChatID:             t.Telegram.ChatID,
+				MessageTemplate:    t.Telegram.MessageTemplate,
 			}
 		}
 	}

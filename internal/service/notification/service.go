@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -657,6 +658,29 @@ func (s *Service) SendTest(ctx context.Context, dagName, targetID string, eventT
 	if !s.isSupportedEvent(eventType) {
 		return nil, notificationmodel.ErrUnsupportedEvent
 	}
+	event := s.testEvent(ctx, dagName, eventType)
+
+	targets, err := s.testTargetsForDAGSettings(ctx, dagName, targetID, eventType)
+	if err != nil {
+		if !errors.Is(err, notificationmodel.ErrSettingsNotFound) || targetID != "" {
+			return nil, err
+		}
+		targets, err = s.testTargetsForRoutes(ctx, event, targetID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(targets) == 0 {
+		if targetID != "" {
+			return nil, notificationmodel.ErrTargetNotFound
+		}
+		return []TestResult{}, nil
+	}
+
+	return s.deliverTestTargets(ctx, targets, event), nil
+}
+
+func (s *Service) testTargetsForDAGSettings(ctx context.Context, dagName, targetID string, eventType eventstore.EventType) ([]resolvedTarget, error) {
 	setting, err := s.GetByDAGName(ctx, dagName)
 	if err != nil {
 		return nil, err
@@ -714,19 +738,46 @@ func (s *Service) SendTest(ctx context.Context, dagName, targetID string, eventT
 			}
 		}
 	}
-	if len(targets) == 0 {
-		if targetID != "" {
-			return nil, notificationmodel.ErrTargetNotFound
-		}
-		return nil, notificationmodel.ErrInvalidSettings
-	}
+	return targets, nil
+}
 
-	event := chatbridge.NotificationEvent{
-		Key:        "notification-test:" + dagName,
-		Type:       eventType,
-		Status:     testStatus(dagName, eventType),
-		ObservedAt: time.Now().UTC(),
+func (s *Service) testTargetsForRoutes(ctx context.Context, event chatbridge.NotificationEvent, targetID string) ([]resolvedTarget, error) {
+	if !s.reusableChannelsAllowed() {
+		return nil, nil
 	}
+	routeSet := s.effectiveRouteSetForEvent(ctx, event)
+	if routeSet == nil || !routeSet.Enabled {
+		return nil, nil
+	}
+	targets := make([]resolvedTarget, 0, len(routeSet.Routes))
+	for _, route := range routeSet.Routes {
+		if targetID != "" && route.ID != targetID && route.ChannelID != targetID {
+			continue
+		}
+		if targetID == "" && !notificationmodel.IsRouteEventEnabled(routeSet, route, event.Type) {
+			continue
+		}
+		channel, err := s.GetChannel(ctx, route.ChannelID)
+		if err != nil {
+			if targetID != "" && errors.Is(err, notificationmodel.ErrChannelNotFound) {
+				return nil, err
+			}
+			continue
+		}
+		if !channel.Enabled {
+			continue
+		}
+		targets = append(targets, resolvedTarget{
+			ResultID:   route.ID,
+			ResultName: channel.Name,
+			Provider:   channel.Type,
+			Target:     channel.ToTarget(),
+		})
+	}
+	return targets, nil
+}
+
+func (s *Service) deliverTestTargets(ctx context.Context, targets []resolvedTarget, event chatbridge.NotificationEvent) []TestResult {
 	results := make([]TestResult, 0, len(targets))
 	for _, target := range targets {
 		err := s.deliverTarget(ctx, target.Target, []chatbridge.NotificationEvent{event})
@@ -745,7 +796,22 @@ func (s *Service) SendTest(ctx context.Context, dagName, targetID string, eventT
 		}
 		results = append(results, result)
 	}
-	return results, nil
+	return results
+}
+
+func (s *Service) testEvent(ctx context.Context, dagName string, eventType eventstore.EventType) chatbridge.NotificationEvent {
+	status := testStatus(dagName, eventType)
+	if s.dagStore != nil {
+		if dag, err := s.dagStore.GetDetails(ctx, dagName); err == nil && dag != nil {
+			status.Labels = dag.Labels.Strings()
+		}
+	}
+	return chatbridge.NotificationEvent{
+		Key:        "notification-test:" + dagName,
+		Type:       eventType,
+		Status:     status,
+		ObservedAt: time.Now().UTC(),
+	}
 }
 
 type resolvedTarget struct {
@@ -1096,11 +1162,7 @@ func (s *Service) sendEmail(ctx context.Context, target notificationmodel.Target
 	if from == "" {
 		return errors.New("email sender is not configured")
 	}
-	subject := target.Email.SubjectPrefix
-	if subject == "" {
-		subject = "[DAGU]"
-	}
-	subject = strings.TrimSpace(fmt.Sprintf("%s %s", subject, titleForEvents(events)))
+	subject := emailSubjectForEvents(target.Email, events)
 	attachments := []string{}
 	if target.Email.AttachLogs {
 		attachments = logAttachments(events)
@@ -1117,7 +1179,7 @@ func (s *Service) sendEmail(ctx context.Context, target notificationmodel.Target
 		target.Email.Cc,
 		target.Email.Bcc,
 		subject,
-		bodyForEvents(events),
+		messageForEvents(target.Email.BodyTemplate, events),
 		attachments,
 	)
 	return err
@@ -1166,6 +1228,9 @@ func (s *Service) sendWebhook(ctx context.Context, target notificationmodel.Targ
 		return err
 	}
 	payload := webhookPayloadForEvents(events)
+	if target.Webhook.MessageTemplate != "" {
+		payload["message"] = messageForEvents(target.Webhook.MessageTemplate, events)
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -1191,7 +1256,9 @@ func (s *Service) sendSlack(ctx context.Context, target notificationmodel.Target
 	if err := validateOutboundURL(ctx, target.Slack.WebhookURL, false, false); err != nil {
 		return err
 	}
-	body, err := json.Marshal(map[string]string{"text": bodyForEvents(events)})
+	body, err := json.Marshal(map[string]string{
+		"text": messageForEvents(target.Slack.MessageTemplate, events),
+	})
 	if err != nil {
 		return err
 	}
@@ -1209,7 +1276,7 @@ func (s *Service) sendTelegram(ctx context.Context, target notificationmodel.Tar
 	}
 	body, err := json.Marshal(map[string]string{
 		"chat_id": target.Telegram.ChatID,
-		"text":    bodyForEvents(events),
+		"text":    messageForEvents(target.Telegram.MessageTemplate, events),
 	})
 	if err != nil {
 		return err
@@ -1380,6 +1447,29 @@ func titleForEvents(events []chatbridge.NotificationEvent) string {
 	return fmt.Sprintf("%s: %d notifications", events[0].Status.Name, len(events))
 }
 
+func emailSubjectForEvents(email *notificationmodel.EmailTarget, events []chatbridge.NotificationEvent) string {
+	if email != nil && strings.TrimSpace(email.SubjectTemplate) != "" {
+		for _, event := range events {
+			if event.Status == nil {
+				continue
+			}
+			subject := strings.TrimSpace(renderNotificationTemplate(email.SubjectTemplate, event))
+			if subject != "" {
+				return subject
+			}
+		}
+		return titleForEvents(events)
+	}
+	subject := ""
+	if email != nil {
+		subject = email.SubjectPrefix
+	}
+	if subject == "" {
+		subject = "[DAGU]"
+	}
+	return strings.TrimSpace(fmt.Sprintf("%s %s", subject, titleForEvents(events)))
+}
+
 func bodyForEvents(events []chatbridge.NotificationEvent) string {
 	var b strings.Builder
 	for i, event := range events {
@@ -1404,6 +1494,78 @@ func bodyForEvents(events []chatbridge.NotificationEvent) string {
 		}
 	}
 	return b.String()
+}
+
+func messageForEvents(template string, events []chatbridge.NotificationEvent) string {
+	if strings.TrimSpace(template) == "" {
+		return bodyForEvents(events)
+	}
+	parts := make([]string, 0, len(events))
+	for _, event := range events {
+		if event.Status == nil {
+			continue
+		}
+		rendered := strings.TrimSpace(renderNotificationTemplate(template, event))
+		if rendered != "" {
+			parts = append(parts, rendered)
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+var notificationTemplateTokenRE = regexp.MustCompile(`\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}`)
+
+func renderNotificationTemplate(template string, event chatbridge.NotificationEvent) string {
+	values := notificationTemplateValues(event)
+	return notificationTemplateTokenRE.ReplaceAllStringFunc(template, func(token string) string {
+		matches := notificationTemplateTokenRE.FindStringSubmatch(token)
+		if len(matches) != 2 {
+			return ""
+		}
+		return values[matches[1]]
+	})
+}
+
+func notificationTemplateValues(event chatbridge.NotificationEvent) map[string]string {
+	values := map[string]string{
+		"event.type": string(event.Type),
+	}
+	if !event.ObservedAt.IsZero() {
+		values["event.observedAt"] = event.ObservedAt.Format(time.RFC3339)
+	}
+	if event.Status == nil {
+		return values
+	}
+	status := event.Status
+	workspaceName := eventWorkspaceName(event)
+	values["dag.name"] = status.Name
+	values["dagName"] = status.Name
+	values["run.id"] = status.DAGRunID
+	values["dagRunId"] = status.DAGRunID
+	values["run.status"] = status.Status.String()
+	values["status"] = status.Status.String()
+	values["run.error"] = status.Error
+	values["error"] = status.Error
+	values["run.startedAt"] = notificationTemplateTime(status.StartedAt)
+	values["run.finishedAt"] = notificationTemplateTime(status.FinishedAt)
+	values["run.attemptId"] = status.AttemptID
+	values["attempt.id"] = status.AttemptID
+	values["attemptId"] = status.AttemptID
+	values["workspace"] = workspaceName
+	values["worker.id"] = status.WorkerID
+	values["eventType"] = string(event.Type)
+	return values
+}
+
+func notificationTemplateTime(value string) string {
+	if value == "" {
+		return ""
+	}
+	parsed, err := stringutil.ParseTime(value)
+	if err != nil || parsed.IsZero() {
+		return value
+	}
+	return parsed.Format(time.RFC3339)
 }
 
 func webhookPayloadForEvents(events []chatbridge.NotificationEvent) map[string]any {

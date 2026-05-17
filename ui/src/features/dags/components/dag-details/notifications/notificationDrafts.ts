@@ -31,12 +31,15 @@ export type DeliveryDraft = {
     cc: string;
     bcc: string;
     subjectPrefix: string;
+    subjectTemplate: string;
+    bodyTemplate: string;
     attachLogs: boolean;
   };
   webhook: {
     url: string;
     headers: string;
     hmacSecret: string;
+    messageTemplate: string;
     urlPreview?: string;
     urlConfigured?: boolean;
     headerPreviews?: Record<string, string>;
@@ -48,6 +51,7 @@ export type DeliveryDraft = {
   };
   slack: {
     webhookUrl: string;
+    messageTemplate: string;
     webhookUrlPreview?: string;
     webhookUrlConfigured?: boolean;
   };
@@ -56,6 +60,7 @@ export type DeliveryDraft = {
     botTokenPreview?: string;
     botTokenConfigured?: boolean;
     chatId: string;
+    messageTemplate: string;
   };
 };
 
@@ -105,15 +110,17 @@ export const PROVIDER_OPTIONS = [
   { value: NotificationProviderType.telegram, label: 'Telegram', icon: Send },
 ];
 
+export const DEFAULT_NOTIFICATION_EVENTS = [
+  NotificationEventType.dag_run_failed,
+  NotificationEventType.dag_run_aborted,
+  NotificationEventType.dag_run_rejected,
+  NotificationEventType.dag_run_waiting,
+];
+
 export function defaultDraft(): DraftSettings {
   return {
     enabled: true,
-    events: [
-      NotificationEventType.dag_run_failed,
-      NotificationEventType.dag_run_aborted,
-      NotificationEventType.dag_run_rejected,
-      NotificationEventType.dag_run_waiting,
-    ],
+    events: [...DEFAULT_NOTIFICATION_EVENTS],
     targets: [],
     subscriptions: [],
   };
@@ -133,12 +140,15 @@ export function blankDelivery(type: NotificationProviderType): DeliveryDraft {
       cc: '',
       bcc: '',
       subjectPrefix: '',
+      subjectTemplate: '',
+      bodyTemplate: '',
       attachLogs: false,
     },
     webhook: {
       url: '',
       headers: '',
       hmacSecret: '',
+      messageTemplate: '',
       clearHeaders: false,
       clearHmacSecret: false,
       allowInsecureHttp: false,
@@ -146,10 +156,12 @@ export function blankDelivery(type: NotificationProviderType): DeliveryDraft {
     },
     slack: {
       webhookUrl: '',
+      messageTemplate: '',
     },
     telegram: {
       botToken: '',
       chatId: '',
+      messageTemplate: '',
     },
   };
 }
@@ -189,6 +201,10 @@ function splitList(value: string): string[] {
     .filter(Boolean);
 }
 
+function optionalTemplate(value: string): string | undefined {
+  return value.trim() ? value : undefined;
+}
+
 function parseHeaders(value: string): Record<string, string> | undefined {
   const headers: Record<string, string> = {};
   value
@@ -218,6 +234,8 @@ function applyEmailDraft(
     cc: joinAddresses(email.cc),
     bcc: joinAddresses(email.bcc),
     subjectPrefix: email.subjectPrefix || '',
+    subjectTemplate: email.subjectTemplate || '',
+    bodyTemplate: email.bodyTemplate || '',
     attachLogs: !!email.attachLogs,
   };
 }
@@ -231,6 +249,7 @@ function applyWebhookDraft(
   draft.webhook.urlConfigured = webhook.urlConfigured;
   draft.webhook.headerPreviews = webhook.headers;
   draft.webhook.hmacSecretConfigured = webhook.hmacSecretConfigured;
+  draft.webhook.messageTemplate = webhook.messageTemplate || '';
   draft.webhook.allowInsecureHttp = !!webhook.allowInsecureHttp;
   draft.webhook.allowPrivateNetwork = !!webhook.allowPrivateNetwork;
 }
@@ -242,6 +261,7 @@ function applySlackDraft(
   if (!slack) return;
   draft.slack.webhookUrlPreview = slack.webhookUrlPreview;
   draft.slack.webhookUrlConfigured = slack.webhookUrlConfigured;
+  draft.slack.messageTemplate = slack.messageTemplate || '';
 }
 
 function applyTelegramDraft(
@@ -252,6 +272,7 @@ function applyTelegramDraft(
   draft.telegram.botTokenPreview = telegram.botTokenPreview;
   draft.telegram.botTokenConfigured = telegram.botTokenConfigured;
   draft.telegram.chatId = telegram.chatId || '';
+  draft.telegram.messageTemplate = telegram.messageTemplate || '';
 }
 
 function draftTargetFromAPI(target: NotificationTarget): DraftTarget {
@@ -316,6 +337,8 @@ function deliveryInput(target: DeliveryDraft) {
         cc: splitList(target.email.cc),
         bcc: splitList(target.email.bcc),
         subjectPrefix: target.email.subjectPrefix.trim() || undefined,
+        subjectTemplate: optionalTemplate(target.email.subjectTemplate),
+        bodyTemplate: optionalTemplate(target.email.bodyTemplate),
         attachLogs: target.email.attachLogs,
       },
     };
@@ -329,6 +352,7 @@ function deliveryInput(target: DeliveryDraft) {
           ? {}
           : parseHeaders(target.webhook.headers),
         hmacSecret: target.webhook.hmacSecret.trim() || undefined,
+        messageTemplate: optionalTemplate(target.webhook.messageTemplate),
         clearHeaders: target.webhook.clearHeaders || undefined,
         clearHmacSecret: target.webhook.clearHmacSecret || undefined,
         allowInsecureHttp: target.webhook.allowInsecureHttp || undefined,
@@ -341,6 +365,7 @@ function deliveryInput(target: DeliveryDraft) {
       ...input,
       slack: {
         webhookUrl: target.slack.webhookUrl.trim() || undefined,
+        messageTemplate: optionalTemplate(target.slack.messageTemplate),
       },
     };
   }
@@ -349,6 +374,7 @@ function deliveryInput(target: DeliveryDraft) {
     telegram: {
       botToken: target.telegram.botToken.trim() || undefined,
       chatId: target.telegram.chatId.trim() || undefined,
+      messageTemplate: optionalTemplate(target.telegram.messageTemplate),
     },
   };
 }

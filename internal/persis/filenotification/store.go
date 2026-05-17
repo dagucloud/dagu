@@ -534,17 +534,20 @@ type webhookTargetForStorage struct {
 	URLEnc              string            `json:"urlEnc,omitempty"`
 	HeadersEnc          map[string]string `json:"headersEnc,omitempty"`
 	HMACSecretEnc       string            `json:"hmacSecretEnc,omitempty"`
+	MessageTemplate     string            `json:"messageTemplate,omitempty"`
 	AllowInsecureHTTP   bool              `json:"allowInsecureHttp,omitempty"`
 	AllowPrivateNetwork bool              `json:"allowPrivateNetwork,omitempty"`
 }
 
 type slackTargetForStorage struct {
-	WebhookURLEnc string `json:"webhookUrlEnc,omitempty"`
+	WebhookURLEnc   string `json:"webhookUrlEnc,omitempty"`
+	MessageTemplate string `json:"messageTemplate,omitempty"`
 }
 
 type telegramTargetForStorage struct {
-	BotTokenEnc string `json:"botTokenEnc,omitempty"`
-	ChatID      string `json:"chatId,omitempty"`
+	BotTokenEnc     string `json:"botTokenEnc,omitempty"`
+	ChatID          string `json:"chatId,omitempty"`
+	MessageTemplate string `json:"messageTemplate,omitempty"`
 }
 
 func (s *Store) toStorage(settings *notification.Settings) (*settingsForStorage, error) {
@@ -662,6 +665,7 @@ func (s *Store) targetToStorage(target notification.Target) (targetForStorage, e
 		stored.Webhook = &webhookTargetForStorage{
 			AllowInsecureHTTP:   target.Webhook.AllowInsecureHTTP,
 			AllowPrivateNetwork: target.Webhook.AllowPrivateNetwork,
+			MessageTemplate:     target.Webhook.MessageTemplate,
 		}
 		if stored.Webhook.URLEnc, err = s.encryptRequired(target.Webhook.URL); err != nil {
 			return stored, err
@@ -681,13 +685,16 @@ func (s *Store) targetToStorage(target notification.Target) (targetForStorage, e
 		}
 	}
 	if target.Slack != nil {
-		stored.Slack = &slackTargetForStorage{}
+		stored.Slack = &slackTargetForStorage{MessageTemplate: target.Slack.MessageTemplate}
 		if stored.Slack.WebhookURLEnc, err = s.encryptRequired(target.Slack.WebhookURL); err != nil {
 			return stored, err
 		}
 	}
 	if target.Telegram != nil {
-		stored.Telegram = &telegramTargetForStorage{ChatID: target.Telegram.ChatID}
+		stored.Telegram = &telegramTargetForStorage{
+			ChatID:          target.Telegram.ChatID,
+			MessageTemplate: target.Telegram.MessageTemplate,
+		}
 		if stored.Telegram.BotTokenEnc, err = s.encryptRequired(target.Telegram.BotToken); err != nil {
 			return stored, err
 		}
@@ -827,6 +834,7 @@ func (s *Store) targetFromStorage(stored targetForStorage) (notification.Target,
 		target.Webhook = &notification.WebhookTarget{
 			AllowInsecureHTTP:   stored.Webhook.AllowInsecureHTTP,
 			AllowPrivateNetwork: stored.Webhook.AllowPrivateNetwork,
+			MessageTemplate:     stored.Webhook.MessageTemplate,
 		}
 		if target.Webhook.URL, err = s.decryptOptional(stored.Webhook.URLEnc); err != nil {
 			return target, err
@@ -846,13 +854,16 @@ func (s *Store) targetFromStorage(stored targetForStorage) (notification.Target,
 		}
 	}
 	if stored.Slack != nil {
-		target.Slack = &notification.SlackTarget{}
+		target.Slack = &notification.SlackTarget{MessageTemplate: stored.Slack.MessageTemplate}
 		if target.Slack.WebhookURL, err = s.decryptOptional(stored.Slack.WebhookURLEnc); err != nil {
 			return target, err
 		}
 	}
 	if stored.Telegram != nil {
-		target.Telegram = &notification.TelegramTarget{ChatID: stored.Telegram.ChatID}
+		target.Telegram = &notification.TelegramTarget{
+			ChatID:          stored.Telegram.ChatID,
+			MessageTemplate: stored.Telegram.MessageTemplate,
+		}
 		if target.Telegram.BotToken, err = s.decryptOptional(stored.Telegram.BotTokenEnc); err != nil {
 			return target, err
 		}

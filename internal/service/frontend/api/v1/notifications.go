@@ -576,10 +576,12 @@ func notificationChannelFromRequest(id string, input api.NotificationChannelInpu
 	}
 	if input.Email != nil {
 		channel.Email = &notificationmodel.EmailTarget{
-			From:          valueOf(input.Email.From),
-			To:            append([]string(nil), input.Email.To...),
-			SubjectPrefix: valueOf(input.Email.SubjectPrefix),
-			AttachLogs:    valueOf(input.Email.AttachLogs),
+			From:            valueOf(input.Email.From),
+			To:              append([]string(nil), input.Email.To...),
+			SubjectPrefix:   valueOf(input.Email.SubjectPrefix),
+			SubjectTemplate: valueOf(input.Email.SubjectTemplate),
+			BodyTemplate:    valueOf(input.Email.BodyTemplate),
+			AttachLogs:      valueOf(input.Email.AttachLogs),
 		}
 		if input.Email.Cc != nil {
 			channel.Email.Cc = append([]string(nil), (*input.Email.Cc)...)
@@ -592,6 +594,7 @@ func notificationChannelFromRequest(id string, input api.NotificationChannelInpu
 		channel.Webhook = &notificationmodel.WebhookTarget{
 			URL:                 valueOf(input.Webhook.Url),
 			HMACSecret:          valueOf(input.Webhook.HmacSecret),
+			MessageTemplate:     valueOf(input.Webhook.MessageTemplate),
 			AllowInsecureHTTP:   valueOf(input.Webhook.AllowInsecureHttp),
 			AllowPrivateNetwork: valueOf(input.Webhook.AllowPrivateNetwork),
 			ClearHeaders:        valueOf(input.Webhook.ClearHeaders),
@@ -603,13 +606,15 @@ func notificationChannelFromRequest(id string, input api.NotificationChannelInpu
 	}
 	if input.Slack != nil {
 		channel.Slack = &notificationmodel.SlackTarget{
-			WebhookURL: valueOf(input.Slack.WebhookUrl),
+			WebhookURL:      valueOf(input.Slack.WebhookUrl),
+			MessageTemplate: valueOf(input.Slack.MessageTemplate),
 		}
 	}
 	if input.Telegram != nil {
 		channel.Telegram = &notificationmodel.TelegramTarget{
-			BotToken: valueOf(input.Telegram.BotToken),
-			ChatID:   valueOf(input.Telegram.ChatId),
+			BotToken:        valueOf(input.Telegram.BotToken),
+			ChatID:          valueOf(input.Telegram.ChatId),
+			MessageTemplate: valueOf(input.Telegram.MessageTemplate),
 		}
 	}
 	return channel
@@ -630,10 +635,12 @@ func notificationTargetFromRequest(input api.NotificationTargetInput) notificati
 	}
 	if input.Email != nil {
 		target.Email = &notificationmodel.EmailTarget{
-			From:          valueOf(input.Email.From),
-			To:            append([]string(nil), input.Email.To...),
-			SubjectPrefix: valueOf(input.Email.SubjectPrefix),
-			AttachLogs:    valueOf(input.Email.AttachLogs),
+			From:            valueOf(input.Email.From),
+			To:              append([]string(nil), input.Email.To...),
+			SubjectPrefix:   valueOf(input.Email.SubjectPrefix),
+			SubjectTemplate: valueOf(input.Email.SubjectTemplate),
+			BodyTemplate:    valueOf(input.Email.BodyTemplate),
+			AttachLogs:      valueOf(input.Email.AttachLogs),
 		}
 		if input.Email.Cc != nil {
 			target.Email.Cc = append([]string(nil), (*input.Email.Cc)...)
@@ -646,6 +653,7 @@ func notificationTargetFromRequest(input api.NotificationTargetInput) notificati
 		target.Webhook = &notificationmodel.WebhookTarget{
 			URL:                 valueOf(input.Webhook.Url),
 			HMACSecret:          valueOf(input.Webhook.HmacSecret),
+			MessageTemplate:     valueOf(input.Webhook.MessageTemplate),
 			AllowInsecureHTTP:   valueOf(input.Webhook.AllowInsecureHttp),
 			AllowPrivateNetwork: valueOf(input.Webhook.AllowPrivateNetwork),
 			ClearHeaders:        valueOf(input.Webhook.ClearHeaders),
@@ -657,13 +665,15 @@ func notificationTargetFromRequest(input api.NotificationTargetInput) notificati
 	}
 	if input.Slack != nil {
 		target.Slack = &notificationmodel.SlackTarget{
-			WebhookURL: valueOf(input.Slack.WebhookUrl),
+			WebhookURL:      valueOf(input.Slack.WebhookUrl),
+			MessageTemplate: valueOf(input.Slack.MessageTemplate),
 		}
 	}
 	if input.Telegram != nil {
 		target.Telegram = &notificationmodel.TelegramTarget{
-			BotToken: valueOf(input.Telegram.BotToken),
-			ChatID:   valueOf(input.Telegram.ChatId),
+			BotToken:        valueOf(input.Telegram.BotToken),
+			ChatID:          valueOf(input.Telegram.ChatId),
+			MessageTemplate: valueOf(input.Telegram.MessageTemplate),
 		}
 	}
 	return target
@@ -810,6 +820,7 @@ func toAPINotificationChannel(channel *notificationmodel.Channel) api.Notificati
 			UrlPreview:           ptrOf(pub.Webhook.URLPreview),
 			Headers:              ptrOf(pub.Webhook.Headers),
 			HmacSecretConfigured: pub.Webhook.HMACSecretConfigured,
+			MessageTemplate:      ptrOf(pub.Webhook.MessageTemplate),
 			AllowInsecureHttp:    ptrOf(pub.Webhook.AllowInsecureHTTP),
 			AllowPrivateNetwork:  ptrOf(pub.Webhook.AllowPrivateNetwork),
 		}
@@ -818,6 +829,7 @@ func toAPINotificationChannel(channel *notificationmodel.Channel) api.Notificati
 		result.Slack = &api.NotificationSlackTarget{
 			WebhookUrlConfigured: pub.Slack.WebhookURLConfigured,
 			WebhookUrlPreview:    ptrOf(pub.Slack.WebhookURLPreview),
+			MessageTemplate:      ptrOf(pub.Slack.MessageTemplate),
 		}
 	}
 	if pub.Telegram != nil {
@@ -825,6 +837,7 @@ func toAPINotificationChannel(channel *notificationmodel.Channel) api.Notificati
 			BotTokenConfigured: pub.Telegram.BotTokenConfigured,
 			BotTokenPreview:    ptrOf(pub.Telegram.BotTokenPreview),
 			ChatId:             ptrOf(pub.Telegram.ChatID),
+			MessageTemplate:    ptrOf(pub.Telegram.MessageTemplate),
 		}
 	}
 	return result
@@ -869,6 +882,7 @@ func toAPINotificationTarget(target notificationmodel.PublicTarget) api.Notifica
 			UrlPreview:           ptrOf(target.Webhook.URLPreview),
 			Headers:              ptrOf(target.Webhook.Headers),
 			HmacSecretConfigured: target.Webhook.HMACSecretConfigured,
+			MessageTemplate:      ptrOf(target.Webhook.MessageTemplate),
 			AllowInsecureHttp:    ptrOf(target.Webhook.AllowInsecureHTTP),
 			AllowPrivateNetwork:  ptrOf(target.Webhook.AllowPrivateNetwork),
 		}
@@ -877,6 +891,7 @@ func toAPINotificationTarget(target notificationmodel.PublicTarget) api.Notifica
 		result.Slack = &api.NotificationSlackTarget{
 			WebhookUrlConfigured: target.Slack.WebhookURLConfigured,
 			WebhookUrlPreview:    ptrOf(target.Slack.WebhookURLPreview),
+			MessageTemplate:      ptrOf(target.Slack.MessageTemplate),
 		}
 	}
 	if target.Telegram != nil {
@@ -884,6 +899,7 @@ func toAPINotificationTarget(target notificationmodel.PublicTarget) api.Notifica
 			BotTokenConfigured: target.Telegram.BotTokenConfigured,
 			BotTokenPreview:    ptrOf(target.Telegram.BotTokenPreview),
 			ChatId:             ptrOf(target.Telegram.ChatID),
+			MessageTemplate:    ptrOf(target.Telegram.MessageTemplate),
 		}
 	}
 	return result
@@ -894,12 +910,14 @@ func toAPIEmailTarget(email *notificationmodel.EmailTarget) *api.NotificationEma
 		return nil
 	}
 	return &api.NotificationEmailTarget{
-		From:          ptrOf(email.From),
-		To:            append([]string(nil), email.To...),
-		Cc:            ptrOf(append([]string(nil), email.Cc...)),
-		Bcc:           ptrOf(append([]string(nil), email.Bcc...)),
-		SubjectPrefix: ptrOf(email.SubjectPrefix),
-		AttachLogs:    &email.AttachLogs,
+		From:            ptrOf(email.From),
+		To:              append([]string(nil), email.To...),
+		Cc:              ptrOf(append([]string(nil), email.Cc...)),
+		Bcc:             ptrOf(append([]string(nil), email.Bcc...)),
+		SubjectPrefix:   ptrOf(email.SubjectPrefix),
+		SubjectTemplate: ptrOf(email.SubjectTemplate),
+		BodyTemplate:    ptrOf(email.BodyTemplate),
+		AttachLogs:      &email.AttachLogs,
 	}
 }
 

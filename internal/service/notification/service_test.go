@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"io"
 	"net"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/core/spec"
 	notificationmodel "github.com/dagucloud/dagu/internal/notification"
 	"github.com/dagucloud/dagu/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
@@ -189,6 +191,92 @@ func (s *memoryStore) DeleteChannel(_ context.Context, channelID string) error {
 	return nil
 }
 
+type testDAGStore struct {
+	dag *core.DAG
+}
+
+func (s testDAGStore) Create(context.Context, string, []byte) error {
+	return nil
+}
+
+func (s testDAGStore) Delete(context.Context, string) error {
+	return nil
+}
+
+func (s testDAGStore) List(context.Context, exec.ListDAGsOptions) (exec.PaginatedResult[*core.DAG], []string, error) {
+	return exec.PaginatedResult[*core.DAG]{}, nil, nil
+}
+
+func (s testDAGStore) GetMetadata(context.Context, string) (*core.DAG, error) {
+	return s.dag, nil
+}
+
+func (s testDAGStore) GetDetails(context.Context, string, ...spec.LoadOption) (*core.DAG, error) {
+	return s.dag, nil
+}
+
+func (s testDAGStore) Grep(context.Context, string) ([]*exec.GrepDAGsResult, []string, error) {
+	return nil, nil, nil
+}
+
+func (s testDAGStore) SearchCursor(context.Context, exec.SearchDAGsOptions) (*exec.CursorResult[exec.SearchDAGResult], []string, error) {
+	return &exec.CursorResult[exec.SearchDAGResult]{}, nil, nil
+}
+
+func (s testDAGStore) SearchMatches(context.Context, string, exec.SearchDAGMatchesOptions) (*exec.CursorResult[*exec.Match], error) {
+	return &exec.CursorResult[*exec.Match]{}, nil
+}
+
+func (s testDAGStore) Rename(context.Context, string, string) error {
+	return nil
+}
+
+func (s testDAGStore) GetSpec(context.Context, string) (string, error) {
+	return "", nil
+}
+
+func (s testDAGStore) UpdateSpec(context.Context, string, []byte) error {
+	return nil
+}
+
+func (s testDAGStore) LoadSpec(context.Context, []byte, ...spec.LoadOption) (*core.DAG, error) {
+	return s.dag, nil
+}
+
+func (s testDAGStore) LabelList(context.Context) ([]string, []string, error) {
+	return nil, nil, nil
+}
+
+func (s testDAGStore) ToggleSuspend(context.Context, string, bool) error {
+	return nil
+}
+
+func (s testDAGStore) IsSuspended(context.Context, string) bool {
+	return false
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
+}
+
+func acceptedResponse(req *http.Request) *http.Response {
+	return &http.Response{
+		StatusCode: http.StatusAccepted,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader("")),
+		Request:    req,
+	}
+}
+
+func mustNormalizeSettings(t *testing.T, settings *notificationmodel.Settings) *notificationmodel.Settings {
+	t.Helper()
+	normalized, err := notificationmodel.Normalize(settings, "tester")
+	require.NoError(t, err)
+	return normalized
+}
+
 func TestService_SendTestWebhookIncludesPayloadHeadersAndSignature(t *testing.T) {
 	t.Parallel()
 
@@ -343,6 +431,167 @@ func TestService_SendTestEmailUsesWorkspaceSMTP(t *testing.T) {
 	assert.Contains(t, data, "Subject: [Ops]")
 }
 
+func TestService_SendTestEmailUsesCustomSubjectAndBodyTemplates(t *testing.T) {
+	t.Parallel()
+
+	smtpServer := newRecordingSMTPServer(t)
+	settings, err := notificationmodel.Normalize(&notificationmodel.Settings{
+		DAGName: "daily-report",
+		Enabled: true,
+		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		Targets: []notificationmodel.Target{{
+			ID:      "email-1",
+			Name:    "Ops Email",
+			Type:    notificationmodel.ProviderEmail,
+			Enabled: true,
+			Email: &notificationmodel.EmailTarget{
+				To:              []string{"ops@example.com"},
+				SubjectTemplate: "{{dag.name}} {{run.status}}",
+				BodyTemplate:    "Run {{run.id}} failed: {{run.error}}",
+			},
+		}},
+	}, "tester")
+	require.NoError(t, err)
+	store := newMemoryStore(settings)
+	workspace, err := notificationmodel.NormalizeWorkspaceSettings(&notificationmodel.WorkspaceSettings{
+		SMTP: &notificationmodel.SMTPConfig{
+			Host: smtpServer.host,
+			Port: smtpServer.port,
+			From: "dagu@example.com",
+		},
+	}, "tester")
+	require.NoError(t, err)
+	require.NoError(t, store.SaveWorkspaceSettings(context.Background(), workspace))
+	svc := New(store, nil)
+
+	results, err := svc.SendTest(context.Background(), "daily-report", "email-1", eventstore.TypeDAGRunFailed)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Delivered)
+	data, _ := smtpServer.data.Load().(string)
+	assert.Contains(t, data, "Subject: daily-report failed")
+	assert.Contains(t, data, base64.StdEncoding.EncodeToString(
+		[]byte("Run notification-test failed: This is a test notification from Dagu."),
+	))
+}
+
+func TestService_SendTestWebhookIncludesCustomMessage(t *testing.T) {
+	t.Parallel()
+
+	var receivedBody atomic.Value
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		receivedBody.Store(string(body))
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	settings, err := notificationmodel.Normalize(&notificationmodel.Settings{
+		DAGName: "daily-report",
+		Enabled: true,
+		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		Targets: []notificationmodel.Target{{
+			ID:      "webhook-1",
+			Name:    "Ops Webhook",
+			Type:    notificationmodel.ProviderWebhook,
+			Enabled: true,
+			Webhook: &notificationmodel.WebhookTarget{
+				URL:                 server.URL,
+				AllowInsecureHTTP:   true,
+				AllowPrivateNetwork: true,
+				MessageTemplate:     "DAG {{dag.name}} {{run.status}} in {{run.id}}",
+			},
+		}},
+	}, "tester")
+	require.NoError(t, err)
+	svc := New(newMemoryStore(settings), nil)
+
+	results, err := svc.SendTest(context.Background(), "daily-report", "webhook-1", eventstore.TypeDAGRunFailed)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Delivered)
+	body, _ := receivedBody.Load().(string)
+	assert.Contains(t, body, `"message":"DAG daily-report failed in notification-test"`)
+	assert.Contains(t, body, `"events":[`)
+}
+
+func TestService_SendTestSlackUsesCustomMessageTemplate(t *testing.T) {
+	t.Parallel()
+
+	var receivedBody atomic.Value
+	svc := New(
+		newMemoryStore(mustNormalizeSettings(t, &notificationmodel.Settings{
+			DAGName: "daily-report",
+			Enabled: true,
+			Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+			Targets: []notificationmodel.Target{{
+				ID:      "slack-1",
+				Name:    "Ops Slack",
+				Type:    notificationmodel.ProviderSlack,
+				Enabled: true,
+				Slack: &notificationmodel.SlackTarget{
+					WebhookURL:      "https://93.184.216.34/slack",
+					MessageTemplate: "DAG {{dag.name}} {{run.status}}: {{run.error}}",
+				},
+			}},
+		})),
+		nil,
+		WithHTTPClient(&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			body, err := io.ReadAll(req.Body)
+			require.NoError(t, err)
+			receivedBody.Store(string(body))
+			return acceptedResponse(req), nil
+		})}),
+	)
+
+	results, err := svc.SendTest(context.Background(), "daily-report", "slack-1", eventstore.TypeDAGRunFailed)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Delivered)
+	body, _ := receivedBody.Load().(string)
+	assert.Contains(t, body, `"text":"DAG daily-report failed: This is a test notification from Dagu."`)
+}
+
+func TestService_SendTestTelegramUsesCustomMessageTemplate(t *testing.T) {
+	t.Parallel()
+
+	var receivedBody atomic.Value
+	svc := New(
+		newMemoryStore(mustNormalizeSettings(t, &notificationmodel.Settings{
+			DAGName: "daily-report",
+			Enabled: true,
+			Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+			Targets: []notificationmodel.Target{{
+				ID:      "telegram-1",
+				Name:    "Ops Telegram",
+				Type:    notificationmodel.ProviderTelegram,
+				Enabled: true,
+				Telegram: &notificationmodel.TelegramTarget{
+					BotToken:        "telegram-token",
+					ChatID:          "12345",
+					MessageTemplate: "DAG {{dag.name}} {{run.status}}",
+				},
+			}},
+		})),
+		nil,
+		WithHTTPClient(&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			body, err := io.ReadAll(req.Body)
+			require.NoError(t, err)
+			receivedBody.Store(string(body))
+			return acceptedResponse(req), nil
+		})}),
+	)
+
+	results, err := svc.SendTest(context.Background(), "daily-report", "telegram-1", eventstore.TypeDAGRunFailed)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Delivered)
+	body, _ := receivedBody.Load().(string)
+	assert.Contains(t, body, `"chat_id":"12345"`)
+	assert.Contains(t, body, `"text":"DAG daily-report failed"`)
+}
+
 func TestService_SendTestEmailRequiresWorkspaceSMTP(t *testing.T) {
 	t.Parallel()
 
@@ -365,6 +614,139 @@ func TestService_SendTestEmailRequiresWorkspaceSMTP(t *testing.T) {
 	require.Len(t, results, 1)
 	assert.False(t, results[0].Delivered)
 	assert.Contains(t, results[0].Error, "SMTP is not configured for notification email")
+}
+
+func TestService_SendTestUsesEffectiveGlobalRouteWithoutDAGSettings(t *testing.T) {
+	t.Parallel()
+
+	var receivedBody atomic.Value
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		receivedBody.Store(string(body))
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	channel, err := notificationmodel.NormalizeChannel(&notificationmodel.Channel{
+		ID:      "channel-1",
+		Name:    "Global Ops",
+		Type:    notificationmodel.ProviderWebhook,
+		Enabled: true,
+		Webhook: &notificationmodel.WebhookTarget{
+			URL:                 server.URL,
+			AllowInsecureHTTP:   true,
+			AllowPrivateNetwork: true,
+		},
+	}, "tester")
+	require.NoError(t, err)
+	store := newMemoryStore()
+	require.NoError(t, store.SaveChannel(context.Background(), channel))
+	svc := New(store, nil)
+	_, err = svc.SaveRouteSet(context.Background(), &notificationmodel.RouteSet{
+		Scope:         notificationmodel.RouteScopeGlobal,
+		Enabled:       true,
+		InheritGlobal: true,
+		Routes: []notificationmodel.Route{{
+			ID:        "global-route",
+			ChannelID: "channel-1",
+			Enabled:   true,
+			Events:    []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		}},
+	}, "tester")
+	require.NoError(t, err)
+
+	results, err := svc.SendTest(context.Background(), "daily-report", "", eventstore.TypeDAGRunFailed)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "global-route", results[0].TargetID)
+	assert.Equal(t, "Global Ops", results[0].TargetName)
+	assert.True(t, results[0].Delivered)
+	body, _ := receivedBody.Load().(string)
+	assert.Contains(t, body, `"dagName":"daily-report"`)
+}
+
+func TestService_SendTestUsesEffectiveWorkspaceRouteFromDAGLabels(t *testing.T) {
+	t.Parallel()
+
+	var globalRequests atomic.Int32
+	var workspaceRequests atomic.Int32
+	globalServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		globalRequests.Add(1)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer globalServer.Close()
+	workspaceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		workspaceRequests.Add(1)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer workspaceServer.Close()
+
+	store := newMemoryStore()
+	for _, channel := range []*notificationmodel.Channel{
+		{
+			ID:      "global-channel",
+			Name:    "Global Ops",
+			Type:    notificationmodel.ProviderWebhook,
+			Enabled: true,
+			Webhook: &notificationmodel.WebhookTarget{
+				URL:                 globalServer.URL,
+				AllowInsecureHTTP:   true,
+				AllowPrivateNetwork: true,
+			},
+		},
+		{
+			ID:      "workspace-channel",
+			Name:    "Workspace Ops",
+			Type:    notificationmodel.ProviderWebhook,
+			Enabled: true,
+			Webhook: &notificationmodel.WebhookTarget{
+				URL:                 workspaceServer.URL,
+				AllowInsecureHTTP:   true,
+				AllowPrivateNetwork: true,
+			},
+		},
+	} {
+		normalized, err := notificationmodel.NormalizeChannel(channel, "tester")
+		require.NoError(t, err)
+		require.NoError(t, store.SaveChannel(context.Background(), normalized))
+	}
+	svc := New(store, testDAGStore{dag: &core.DAG{
+		Name:   "daily-report",
+		Labels: core.NewLabels([]string{"workspace=ops"}),
+	}})
+	_, err := svc.SaveRouteSet(context.Background(), &notificationmodel.RouteSet{
+		Scope:         notificationmodel.RouteScopeGlobal,
+		Enabled:       true,
+		InheritGlobal: true,
+		Routes: []notificationmodel.Route{{
+			ID:        "global-route",
+			ChannelID: "global-channel",
+			Enabled:   true,
+		}},
+	}, "tester")
+	require.NoError(t, err)
+	_, err = svc.SaveRouteSet(context.Background(), &notificationmodel.RouteSet{
+		Scope:         notificationmodel.RouteScopeWorkspace,
+		Workspace:     "ops",
+		Enabled:       true,
+		InheritGlobal: false,
+		Routes: []notificationmodel.Route{{
+			ID:        "workspace-route",
+			ChannelID: "workspace-channel",
+			Enabled:   true,
+		}},
+	}, "tester")
+	require.NoError(t, err)
+
+	results, err := svc.SendTest(context.Background(), "daily-report", "", eventstore.TypeDAGRunFailed)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "workspace-route", results[0].TargetID)
+	assert.Equal(t, "Workspace Ops", results[0].TargetName)
+	assert.True(t, results[0].Delivered)
+	assert.Equal(t, int32(0), globalRequests.Load())
+	assert.Equal(t, int32(1), workspaceRequests.Load())
 }
 
 func TestService_SaveWorkspaceSettingsPreservesCreatedAtAndPassword(t *testing.T) {

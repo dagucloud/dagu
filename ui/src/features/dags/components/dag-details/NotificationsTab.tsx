@@ -14,12 +14,15 @@ import { useLicense } from '../../../../hooks/useLicense';
 import {
   DAGLocalTargetsSection,
   DAGSubscriptionsSection,
+  InheritedNotificationRoutesCard,
   NotificationChannelsUnavailableCard,
   NotificationOverviewCard,
 } from './notifications/NotificationSections';
 import {
   authHeaders,
   blankTarget,
+  DEFAULT_NOTIFICATION_EVENTS,
+  defaultDraft,
   deliveryLabel,
   DraftSubscription,
   DraftTarget,
@@ -34,9 +37,10 @@ import { useNotificationSettings } from './notifications/useNotificationSettings
 
 type NotificationsTabProps = {
   fileName: string;
+  workspaceName?: string;
 };
 
-function NotificationsTab({ fileName }: NotificationsTabProps) {
+function NotificationsTab({ fileName, workspaceName }: NotificationsTabProps) {
   const config = useConfig();
   const license = useLicense();
   const appBarContext = useContext(AppBarContext);
@@ -50,7 +54,11 @@ function NotificationsTab({ fileName }: NotificationsTabProps) {
   const {
     draft,
     setDraft,
+    hasDAGSettings,
+    setHasDAGSettings,
     channels,
+    effectiveRoutes,
+    effectiveRouteSourceLabel,
     isLoading,
     error,
     setError,
@@ -61,25 +69,42 @@ function NotificationsTab({ fileName }: NotificationsTabProps) {
     apiURL: config.apiURL,
     fileName,
     query,
+    workspaceName,
     reusableChannelsLicensed,
   });
   const [isSaving, setIsSaving] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [testingTargetId, setTestingTargetId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [resetVisible, setResetVisible] = useState(false);
   const [deleteTargetIndex, setDeleteTargetIndex] = useState<number | null>(
     null
   );
   const [deleteSubscriptionIndex, setDeleteSubscriptionIndex] = useState<
     number | null
   >(null);
-  const testableDestinationCount =
-    draft.targets.length +
-    (reusableChannelsLicensed ? draft.subscriptions.length : 0);
+  const inheritedDestinationCount = effectiveRoutes.filter(
+    (route) => route.enabled && route.channelEnabled
+  ).length;
+  const testableDestinationCount = hasDAGSettings
+    ? draft.targets.length +
+      (reusableChannelsLicensed ? draft.subscriptions.length : 0)
+    : inheritedDestinationCount;
+  const hasDAGDestinations =
+    draft.targets.length > 0 ||
+    (reusableChannelsLicensed && draft.subscriptions.length > 0);
+
+  const refreshSettings = async () => {
+    await fetchData();
+    setHasUnsavedChanges(false);
+  };
 
   const updateTarget = (
     index: number,
     updater: (target: DraftTarget) => DraftTarget
   ) => {
+    setHasUnsavedChanges(true);
     setDraft((current) => ({
       ...current,
       targets: current.targets.map((target, targetIndex) =>
@@ -92,6 +117,7 @@ function NotificationsTab({ fileName }: NotificationsTabProps) {
     index: number,
     updater: (subscription: DraftSubscription) => DraftSubscription
   ) => {
+    setHasUnsavedChanges(true);
     setDraft((current) => ({
       ...current,
       subscriptions: current.subscriptions.map((subscription, subIndex) =>
@@ -109,6 +135,7 @@ function NotificationsTab({ fileName }: NotificationsTabProps) {
       return;
     }
     const channelId = channel.id;
+    setHasUnsavedChanges(true);
     setDraft((current) => ({
       ...current,
       subscriptions: [
@@ -123,6 +150,7 @@ function NotificationsTab({ fileName }: NotificationsTabProps) {
   };
 
   const addLocalTarget = () => {
+    setHasUnsavedChanges(true);
     setDraft((current) => ({
       ...current,
       targets: [
@@ -160,6 +188,8 @@ function NotificationsTab({ fileName }: NotificationsTabProps) {
       }
       const data = (await response.json()) as NotificationSettings;
       setDraft(draftFromAPI(data));
+      setHasDAGSettings(true);
+      setHasUnsavedChanges(false);
       setNotice('Saved');
     } catch (err) {
       setError(
@@ -185,7 +215,12 @@ function NotificationsTab({ fileName }: NotificationsTabProps) {
           headers: authHeaders(),
           body: JSON.stringify({
             targetId,
-            eventType: testEventForTarget(draft, events),
+            eventType:
+              targetId || hasDAGSettings
+                ? testEventForTarget(draft, events)
+                : effectiveRoutes.find(
+                    (route) => route.enabled && route.channelEnabled
+                  )?.events[0] || DEFAULT_NOTIFICATION_EVENTS[0],
           }),
         }
       );
@@ -221,8 +256,54 @@ function NotificationsTab({ fileName }: NotificationsTabProps) {
     }
   };
 
+  const configureDAGOverride = () => {
+    setHasDAGSettings(true);
+    setHasUnsavedChanges(true);
+    setDraft((current) => ({
+      ...defaultDraft(),
+      targets: current.targets,
+      subscriptions: current.subscriptions,
+    }));
+    setTestResults([]);
+    setNotice(null);
+  };
+
+  const resetDAGSettings = async () => {
+    setResetVisible(false);
+    setIsResetting(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch(
+        `${config.apiURL}/dags/${encodeURIComponent(fileName)}/notifications${query}`,
+        {
+          method: 'DELETE',
+          headers: authHeaders(),
+        }
+      );
+      if (!response.ok && response.status !== 404) {
+        throw new Error(
+          await readError(response, 'Failed to reset notifications')
+        );
+      }
+      setDraft(defaultDraft());
+      setHasDAGSettings(false);
+      setTestResults([]);
+      setHasUnsavedChanges(false);
+      setNotice('DAG now inherits notification rules');
+      await fetchData();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Failed to reset notifications'
+      );
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
   const removeTarget = () => {
     if (deleteTargetIndex === null) return;
+    setHasUnsavedChanges(true);
     setDraft((current) => ({
       ...current,
       targets: current.targets.filter(
@@ -235,6 +316,7 @@ function NotificationsTab({ fileName }: NotificationsTabProps) {
   const removeSubscription = () => {
     if (!reusableChannelsLicensed) return;
     if (deleteSubscriptionIndex === null) return;
+    setHasUnsavedChanges(true);
     setDraft((current) => ({
       ...current,
       subscriptions: current.subscriptions.filter(
@@ -259,46 +341,80 @@ function NotificationsTab({ fileName }: NotificationsTabProps) {
     <div className="space-y-4">
       <NotificationOverviewCard
         draft={draft}
+        isDAGConfigured={hasDAGSettings}
+        hasDAGDestinations={hasDAGDestinations}
+        hasUnsavedChanges={hasUnsavedChanges}
+        inheritedSourceLabel={effectiveRouteSourceLabel}
         error={error}
         notice={notice}
         testResults={testResults}
         isSaving={isSaving}
+        isResetting={isResetting}
         testingTargetId={testingTargetId}
         testableDestinationCount={testableDestinationCount}
-        onEnabledChange={(enabled) =>
-          setDraft((current) => ({ ...current, enabled }))
-        }
-        onEventsChange={(events) =>
-          setDraft((current) => ({ ...current, events }))
-        }
-        onRefresh={fetchData}
+        onEnabledChange={(enabled) => {
+          setHasUnsavedChanges(true);
+          setDraft((current) => ({ ...current, enabled }));
+        }}
+        onEventsChange={(events) => {
+          setHasUnsavedChanges(true);
+          setDraft((current) => ({ ...current, events }));
+        }}
+        onRefresh={refreshSettings}
         onTestAll={() => testNotifications()}
+        onConfigureDAG={configureDAGOverride}
+        onResetDAG={() => setResetVisible(true)}
         onSave={saveSettings}
       />
 
-      {reusableChannelsLicensed ? (
+      {reusableChannelsLicensed && hasDAGSettings ? (
         <DAGSubscriptionsSection
           draft={draft}
           channels={channels}
+          isSaving={isSaving}
+          hasUnsavedChanges={hasUnsavedChanges}
           testingTargetId={testingTargetId}
           manageChannelsHref="/notification-channels"
           onAdd={addSubscription}
+          onSave={saveSettings}
           onUpdate={updateSubscription}
           onDelete={setDeleteSubscriptionIndex}
           onTest={testNotifications}
+        />
+      ) : reusableChannelsLicensed ? (
+        <InheritedNotificationRoutesCard
+          sourceLabel={effectiveRouteSourceLabel}
+          routes={effectiveRoutes}
+          manageRulesHref="/notification-rules"
         />
       ) : (
         <NotificationChannelsUnavailableCard />
       )}
 
-      <DAGLocalTargetsSection
-        draft={draft}
-        testingTargetId={testingTargetId}
-        onAdd={addLocalTarget}
-        onUpdate={updateTarget}
-        onDelete={setDeleteTargetIndex}
-        onTest={testNotifications}
-      />
+      {hasDAGSettings && (
+        <DAGLocalTargetsSection
+          draft={draft}
+          isSaving={isSaving}
+          hasUnsavedChanges={hasUnsavedChanges}
+          testingTargetId={testingTargetId}
+          onAdd={addLocalTarget}
+          onSave={saveSettings}
+          onUpdate={updateTarget}
+          onDelete={setDeleteTargetIndex}
+          onTest={testNotifications}
+        />
+      )}
+
+      <ConfirmDialog
+        title="Reset DAG Override"
+        buttonText="Reset"
+        visible={resetVisible}
+        dismissModal={() => setResetVisible(false)}
+        onSubmit={resetDAGSettings}
+      >
+        Remove this DAG override and inherit workspace or Global notification
+        rules?
+      </ConfirmDialog>
 
       <ConfirmDialog
         title="Delete Destination"

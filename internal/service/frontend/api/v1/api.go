@@ -701,7 +701,7 @@ var (
 	errReusableNotificationChannelsNotLicensed = &Error{
 		HTTPStatus: http.StatusForbidden,
 		Code:       api.ErrorCodeForbidden,
-		Message:    "Reusable notification channels require an active Dagu license or trial",
+		Message:    "Notification channels and rules require an active Dagu license or trial",
 	}
 )
 

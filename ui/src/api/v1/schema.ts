@@ -1713,7 +1713,7 @@ export interface paths {
         };
         /**
          * List notification routes
-         * @description Returns global and workspace notification channel routes. Reusable channels and routes require an active Dagu license or trial. Developer, manager, or admin only.
+         * @description Returns global and workspace notification channel routes. Notification channels and rules require an active Dagu license or trial. Developer, manager, or admin only.
          */
         get: operations["listNotificationRoutes"];
         put?: never;
@@ -1738,7 +1738,7 @@ export interface paths {
         get: operations["getGlobalNotificationRoutes"];
         /**
          * Update global notification routes
-         * @description Replaces global default notification channel routes. Route channel IDs must reference reusable notification channels. Developer, manager, or admin only.
+         * @description Replaces global default notification channel routes. Route channel IDs must reference notification channels. Developer, manager, or admin only.
          */
         put: operations["updateGlobalNotificationRoutes"];
         post?: never;
@@ -1762,7 +1762,7 @@ export interface paths {
         get: operations["getWorkspaceNotificationRoutes"];
         /**
          * Update workspace notification routes
-         * @description Replaces notification channel routes for one named workspace. Route channel IDs must reference reusable notification channels. Developer, manager, or admin only.
+         * @description Replaces notification channel routes for one named workspace. Route channel IDs must reference notification channels. Developer, manager, or admin only.
          */
         put: operations["updateWorkspaceNotificationRoutes"];
         post?: never;
@@ -1781,13 +1781,13 @@ export interface paths {
         };
         /**
          * List notification channels
-         * @description Returns reusable notification channels. Channels are delivery endpoints; routing is configured separately. Developer, manager, or admin only.
+         * @description Returns notification channels. Channels are delivery endpoints; routing is configured separately. Developer, manager, or admin only.
          */
         get: operations["listNotificationChannels"];
         put?: never;
         /**
          * Create notification channel
-         * @description Creates a reusable notification channel. Secret values are accepted
+         * @description Creates a notification channel. Secret values are accepted
          *     in the request but are never returned. Developer, manager, or admin only.
          *
          */
@@ -1807,12 +1807,12 @@ export interface paths {
         };
         /**
          * Get notification channel
-         * @description Returns one reusable notification channel. Developer, manager, or admin only.
+         * @description Returns one notification channel. Developer, manager, or admin only.
          */
         get: operations["getNotificationChannel"];
         /**
          * Update notification channel
-         * @description Replaces a reusable notification channel. Existing secret values
+         * @description Replaces a notification channel. Existing secret values
          *     are preserved when omitted. Developer, manager, or admin only.
          *
          */
@@ -1820,7 +1820,7 @@ export interface paths {
         post?: never;
         /**
          * Delete notification channel
-         * @description Deletes a reusable notification channel. Channels referenced by DAG notification settings or notification routes cannot be deleted.
+         * @description Deletes a notification channel. Channels referenced by DAG notification settings or notification routes cannot be deleted.
          */
         delete: operations["deleteNotificationChannel"];
         options?: never;
@@ -3545,6 +3545,10 @@ export interface components {
             bcc?: string[];
             /** @description Subject prefix. Defaults to [DAGU]. */
             subjectPrefix?: string;
+            /** @description Optional email subject template. When set, it replaces the generated subject. */
+            subjectTemplate?: string;
+            /** @description Optional email body template. When omitted, Dagu sends the default notification body. */
+            bodyTemplate?: string;
             /** @description Attach DAG and step logs when available */
             attachLogs?: boolean;
         };
@@ -3595,22 +3599,22 @@ export interface components {
          * @enum {string}
          */
         NotificationRouteScope: NotificationRouteScope;
-        /** @description Route from notification events to a reusable notification channel */
+        /** @description Route from notification events to a notification channel */
         NotificationRouteInput: {
             /** @description Stable route ID. Omit when adding a route. */
             id?: string;
-            /** @description Reusable notification channel ID */
+            /** @description Notification channel ID */
             channelId: string;
             /** @description Whether this route receives notifications */
             enabled: boolean;
             /** @description Events delivered by this route. Omit only for backward compatibility; new clients should send an explicit event list. */
             events?: components["schemas"]["NotificationEventType"][];
         };
-        /** @description Route from notification events to a reusable notification channel */
+        /** @description Route from notification events to a notification channel */
         NotificationRoute: {
             /** @description Stable route ID */
             id: string;
-            /** @description Reusable notification channel ID */
+            /** @description Notification channel ID */
             channelId: string;
             /** @description Whether this route receives notifications */
             enabled: boolean;
@@ -3665,6 +3669,8 @@ export interface components {
             hmacSecret?: string;
             /** @description Clear the stored HMAC secret. */
             clearHmacSecret?: boolean;
+            /** @description Optional rendered message added to the webhook JSON payload as message. */
+            messageTemplate?: string;
             /** @description Allow plain HTTP webhook URLs. Disabled by default. */
             allowInsecureHttp?: boolean;
             /** @description Allow loopback or private network webhook targets. Disabled by default. */
@@ -3682,6 +3688,8 @@ export interface components {
             };
             /** @description Whether an HMAC secret is configured */
             hmacSecretConfigured: boolean;
+            /** @description Optional rendered message added to the webhook JSON payload as message. */
+            messageTemplate?: string;
             /** @description Whether this target allows plain HTTP webhook URLs */
             allowInsecureHttp?: boolean;
             /** @description Whether this target allows loopback or private network webhook targets */
@@ -3694,6 +3702,8 @@ export interface components {
              * @description Slack incoming webhook URL. Omit on updates to preserve the existing URL.
              */
             webhookUrl?: string;
+            /** @description Optional Slack message template. When omitted, Dagu sends the default notification text. */
+            messageTemplate?: string;
         };
         /** @description Public Slack target details */
         NotificationSlackTarget: {
@@ -3701,6 +3711,8 @@ export interface components {
             webhookUrlConfigured: boolean;
             /** @description Redacted Slack webhook URL preview */
             webhookUrlPreview?: string;
+            /** @description Optional Slack message template. When omitted, Dagu sends the default notification text. */
+            messageTemplate?: string;
         };
         /** @description Telegram Bot API target input. Bot token is encrypted at rest. */
         NotificationTelegramTargetInput: {
@@ -3708,6 +3720,8 @@ export interface components {
             botToken?: string;
             /** @description Telegram chat ID */
             chatId?: string;
+            /** @description Optional Telegram message template. When omitted, Dagu sends the default notification text. */
+            messageTemplate?: string;
         };
         /** @description Public Telegram target details */
         NotificationTelegramTarget: {
@@ -3717,6 +3731,8 @@ export interface components {
             botTokenPreview?: string;
             /** @description Telegram chat ID */
             chatId?: string;
+            /** @description Optional Telegram message template. When omitted, Dagu sends the default notification text. */
+            messageTemplate?: string;
         };
         /** @description Notification target input */
         NotificationTargetInput: {
@@ -3750,7 +3766,7 @@ export interface components {
             slack?: components["schemas"]["NotificationSlackTarget"];
             telegram?: components["schemas"]["NotificationTelegramTarget"];
         };
-        /** @description Reusable notification channel input */
+        /** @description Notification channel input */
         NotificationChannelInput: {
             /** @description Human-readable channel name */
             name: string;
@@ -3762,7 +3778,7 @@ export interface components {
             slack?: components["schemas"]["NotificationSlackTargetInput"];
             telegram?: components["schemas"]["NotificationTelegramTargetInput"];
         };
-        /** @description Reusable notification channel. Secrets are never returned. */
+        /** @description Notification channel. Secrets are never returned. */
         NotificationChannel: {
             /** @description Stable channel ID */
             id: string;
@@ -3782,26 +3798,26 @@ export interface components {
             /** @description User ID that last updated the channel */
             updatedBy?: string;
         };
-        /** @description Reusable notification channels */
+        /** @description Notification channels */
         NotificationChannelListResponse: {
             channels: components["schemas"]["NotificationChannel"][];
         };
-        /** @description DAG subscription to a reusable notification channel */
+        /** @description DAG subscription to a notification channel */
         NotificationSubscriptionInput: {
             /** @description Stable subscription ID. Omit when creating a new subscription. */
             id?: string;
-            /** @description Reusable notification channel ID */
+            /** @description Notification channel ID */
             channelId: string;
             /** @description Whether this DAG subscription receives notifications */
             enabled: boolean;
             /** @description Optional subscription-level event filter. When omitted or empty, the subscription inherits DAG-level events. */
             events?: components["schemas"]["NotificationEventType"][];
         };
-        /** @description DAG subscription to a reusable notification channel */
+        /** @description DAG subscription to a notification channel */
         NotificationSubscription: {
             /** @description Stable subscription ID */
             id: string;
-            /** @description Reusable notification channel ID */
+            /** @description Notification channel ID */
             channelId: string;
             /** @description Whether this DAG subscription receives notifications */
             enabled: boolean;
@@ -3820,7 +3836,7 @@ export interface components {
             events: components["schemas"]["NotificationEventType"][];
             /** @description DAG-local notification targets kept for backward compatibility */
             targets: components["schemas"]["NotificationTarget"][];
-            /** @description Reusable notification channels subscribed by this DAG */
+            /** @description Notification channels subscribed by this DAG */
             subscriptions: components["schemas"]["NotificationSubscription"][];
             /** Format: date-time */
             createdAt: string;
@@ -11116,7 +11132,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description List of reusable notification channels */
+            /** @description List of notification channels */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11213,7 +11229,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Reusable notification channel */
+            /** @description Notification channel */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11925,7 +11941,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Forbidden - reusable notification channels require an active Dagu license or trial */
+            /** @description Forbidden - notification channels require an active Dagu license or trial */
             403: {
                 headers: {
                     [name: string]: unknown;

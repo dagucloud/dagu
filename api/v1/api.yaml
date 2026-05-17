@@ -4024,7 +4024,7 @@ paths:
   /notification-routes:
     get:
       summary: "List notification routes"
-      description: "Returns global and workspace notification channel routes. Reusable channels and routes require an active Dagu license or trial. Developer, manager, or admin only."
+      description: "Returns global and workspace notification channel routes. Notification channels and rules require an active Dagu license or trial. Developer, manager, or admin only."
       operationId: "listNotificationRoutes"
       tags:
         - "notifications"
@@ -4081,7 +4081,7 @@ paths:
 
     put:
       summary: "Update global notification routes"
-      description: "Replaces global default notification channel routes. Route channel IDs must reference reusable notification channels. Developer, manager, or admin only."
+      description: "Replaces global default notification channel routes. Route channel IDs must reference notification channels. Developer, manager, or admin only."
       operationId: "updateGlobalNotificationRoutes"
       tags:
         - "notifications"
@@ -4167,7 +4167,7 @@ paths:
 
     put:
       summary: "Update workspace notification routes"
-      description: "Replaces notification channel routes for one named workspace. Route channel IDs must reference reusable notification channels. Developer, manager, or admin only."
+      description: "Replaces notification channel routes for one named workspace. Route channel IDs must reference notification channels. Developer, manager, or admin only."
       operationId: "updateWorkspaceNotificationRoutes"
       tags:
         - "notifications"
@@ -4219,7 +4219,7 @@ paths:
   /notification-channels:
     get:
       summary: "List notification channels"
-      description: "Returns reusable notification channels. Channels are delivery endpoints; routing is configured separately. Developer, manager, or admin only."
+      description: "Returns notification channels. Channels are delivery endpoints; routing is configured separately. Developer, manager, or admin only."
       operationId: "listNotificationChannels"
       tags:
         - "notifications"
@@ -4227,7 +4227,7 @@ paths:
         - $ref: "#/components/parameters/RemoteNode"
       responses:
         "200":
-          description: "List of reusable notification channels"
+          description: "List of notification channels"
           content:
             application/json:
               schema:
@@ -4248,7 +4248,7 @@ paths:
     post:
       summary: "Create notification channel"
       description: |
-        Creates a reusable notification channel. Secret values are accepted
+        Creates a notification channel. Secret values are accepted
         in the request but are never returned. Developer, manager, or admin only.
       operationId: "createNotificationChannel"
       tags:
@@ -4290,7 +4290,7 @@ paths:
   /notification-channels/{channelId}:
     get:
       summary: "Get notification channel"
-      description: "Returns one reusable notification channel. Developer, manager, or admin only."
+      description: "Returns one notification channel. Developer, manager, or admin only."
       operationId: "getNotificationChannel"
       tags:
         - "notifications"
@@ -4303,7 +4303,7 @@ paths:
             type: string
       responses:
         "200":
-          description: "Reusable notification channel"
+          description: "Notification channel"
           content:
             application/json:
               schema:
@@ -4330,7 +4330,7 @@ paths:
     put:
       summary: "Update notification channel"
       description: |
-        Replaces a reusable notification channel. Existing secret values
+        Replaces a notification channel. Existing secret values
         are preserved when omitted. Developer, manager, or admin only.
       operationId: "updateNotificationChannel"
       tags:
@@ -4382,7 +4382,7 @@ paths:
 
     delete:
       summary: "Delete notification channel"
-      description: "Deletes a reusable notification channel. Channels referenced by DAG notification settings or notification routes cannot be deleted."
+      description: "Deletes a notification channel. Channels referenced by DAG notification settings or notification routes cannot be deleted."
       operationId: "deleteNotificationChannel"
       tags:
         - "notifications"
@@ -4848,7 +4848,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: "Forbidden - reusable notification channels require an active Dagu license or trial"
+          description: "Forbidden - notification channels require an active Dagu license or trial"
           content:
             application/json:
               schema:
@@ -9364,6 +9364,12 @@ components:
         subjectPrefix:
           type: string
           description: "Subject prefix. Defaults to [DAGU]."
+        subjectTemplate:
+          type: string
+          description: "Optional email subject template. When set, it replaces the generated subject."
+        bodyTemplate:
+          type: string
+          description: "Optional email body template. When omitted, Dagu sends the default notification body."
         attachLogs:
           type: boolean
           description: "Attach DAG and step logs when available"
@@ -9447,7 +9453,7 @@ components:
 
     NotificationRouteInput:
       type: object
-      description: "Route from notification events to a reusable notification channel"
+      description: "Route from notification events to a notification channel"
       required:
         - channelId
         - enabled
@@ -9457,7 +9463,7 @@ components:
           description: "Stable route ID. Omit when adding a route."
         channelId:
           type: string
-          description: "Reusable notification channel ID"
+          description: "Notification channel ID"
         enabled:
           type: boolean
           description: "Whether this route receives notifications"
@@ -9469,7 +9475,7 @@ components:
 
     NotificationRoute:
       type: object
-      description: "Route from notification events to a reusable notification channel"
+      description: "Route from notification events to a notification channel"
       required:
         - id
         - channelId
@@ -9480,7 +9486,7 @@ components:
           description: "Stable route ID"
         channelId:
           type: string
-          description: "Reusable notification channel ID"
+          description: "Notification channel ID"
         enabled:
           type: boolean
           description: "Whether this route receives notifications"
@@ -9579,6 +9585,9 @@ components:
         clearHmacSecret:
           type: boolean
           description: "Clear the stored HMAC secret."
+        messageTemplate:
+          type: string
+          description: "Optional rendered message added to the webhook JSON payload as message."
         allowInsecureHttp:
           type: boolean
           description: "Allow plain HTTP webhook URLs. Disabled by default."
@@ -9607,6 +9616,9 @@ components:
         hmacSecretConfigured:
           type: boolean
           description: "Whether an HMAC secret is configured"
+        messageTemplate:
+          type: string
+          description: "Optional rendered message added to the webhook JSON payload as message."
         allowInsecureHttp:
           type: boolean
           description: "Whether this target allows plain HTTP webhook URLs"
@@ -9622,6 +9634,9 @@ components:
           type: string
           format: uri
           description: "Slack incoming webhook URL. Omit on updates to preserve the existing URL."
+        messageTemplate:
+          type: string
+          description: "Optional Slack message template. When omitted, Dagu sends the default notification text."
 
     NotificationSlackTarget:
       type: object
@@ -9635,6 +9650,9 @@ components:
         webhookUrlPreview:
           type: string
           description: "Redacted Slack webhook URL preview"
+        messageTemplate:
+          type: string
+          description: "Optional Slack message template. When omitted, Dagu sends the default notification text."
 
     NotificationTelegramTargetInput:
       type: object
@@ -9646,6 +9664,9 @@ components:
         chatId:
           type: string
           description: "Telegram chat ID"
+        messageTemplate:
+          type: string
+          description: "Optional Telegram message template. When omitted, Dagu sends the default notification text."
 
     NotificationTelegramTarget:
       type: object
@@ -9662,6 +9683,9 @@ components:
         chatId:
           type: string
           description: "Telegram chat ID"
+        messageTemplate:
+          type: string
+          description: "Optional Telegram message template. When omitted, Dagu sends the default notification text."
 
     NotificationTargetInput:
       type: object
@@ -9730,7 +9754,7 @@ components:
 
     NotificationChannelInput:
       type: object
-      description: "Reusable notification channel input"
+      description: "Notification channel input"
       required:
         - name
         - type
@@ -9755,7 +9779,7 @@ components:
 
     NotificationChannel:
       type: object
-      description: "Reusable notification channel. Secrets are never returned."
+      description: "Notification channel. Secrets are never returned."
       required:
         - id
         - name
@@ -9795,7 +9819,7 @@ components:
 
     NotificationChannelListResponse:
       type: object
-      description: "Reusable notification channels"
+      description: "Notification channels"
       required:
         - channels
       properties:
@@ -9806,7 +9830,7 @@ components:
 
     NotificationSubscriptionInput:
       type: object
-      description: "DAG subscription to a reusable notification channel"
+      description: "DAG subscription to a notification channel"
       required:
         - channelId
         - enabled
@@ -9816,7 +9840,7 @@ components:
           description: "Stable subscription ID. Omit when creating a new subscription."
         channelId:
           type: string
-          description: "Reusable notification channel ID"
+          description: "Notification channel ID"
         enabled:
           type: boolean
           description: "Whether this DAG subscription receives notifications"
@@ -9828,7 +9852,7 @@ components:
 
     NotificationSubscription:
       type: object
-      description: "DAG subscription to a reusable notification channel"
+      description: "DAG subscription to a notification channel"
       required:
         - id
         - channelId
@@ -9839,7 +9863,7 @@ components:
           description: "Stable subscription ID"
         channelId:
           type: string
-          description: "Reusable notification channel ID"
+          description: "Notification channel ID"
         enabled:
           type: boolean
           description: "Whether this DAG subscription receives notifications"
@@ -9885,7 +9909,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/NotificationSubscription"
-          description: "Reusable notification channels subscribed by this DAG"
+          description: "Notification channels subscribed by this DAG"
         createdAt:
           type: string
           format: date-time
