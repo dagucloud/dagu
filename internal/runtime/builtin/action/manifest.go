@@ -17,7 +17,7 @@ import (
 
 const (
 	manifestFileName = "dagu-action.yaml"
-	manifestVersion  = "dagu.dev/v1alpha1"
+	manifestVersion  = "v1alpha1"
 )
 
 type manifest struct {

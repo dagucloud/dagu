@@ -19,7 +19,7 @@ func TestDaguActionRunsSourceBundleDAG(t *testing.T) {
 
 	actionDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(actionDir, "dagu-action.yaml"), []byte(`
-apiVersion: dagu.dev/v1alpha1
+apiVersion: v1alpha1
 name: echo-action
 dag: action.yaml
 inputs:

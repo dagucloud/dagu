@@ -138,7 +138,7 @@ func TestLoadManifestRejectsMissingDAG(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, manifestFileName), []byte(`apiVersion: dagu.dev/v1alpha1
+	require.NoError(t, os.WriteFile(filepath.Join(dir, manifestFileName), []byte(`apiVersion: v1alpha1
 name: bad-action
 `), 0o600))
 
@@ -152,7 +152,7 @@ func TestLoadManifestRejectsUnsupportedFields(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, manifestFileName), []byte(`apiVersion: dagu.dev/v1alpha1
+	require.NoError(t, os.WriteFile(filepath.Join(dir, manifestFileName), []byte(`apiVersion: v1alpha1
 name: bad-action
 dag: action.yaml
 entrypoint: main.ts
@@ -184,7 +184,7 @@ steps:
 	_, err := loadManifest(dir)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), `apiVersion must be "dagu.dev/v1alpha1"`)
+	assert.Contains(t, err.Error(), `apiVersion must be "v1alpha1"`)
 }
 
 func TestValidateActionDAGRejectsExplicitWorkingDir(t *testing.T) {
@@ -239,7 +239,7 @@ func writeGitActionRepo(t *testing.T) string {
 func writeManifestOnly(t *testing.T, dir, name string) {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(dir, 0o750))
-	manifest := `apiVersion: dagu.dev/v1alpha1
+	manifest := `apiVersion: v1alpha1
 name: ` + name + `
 dag: action.yaml
 inputs:
