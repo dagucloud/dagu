@@ -333,10 +333,11 @@ steps:
 		}()
 
 		waitForTestFile(t, startedFile, 2*time.Minute)
+		runRef := exec.NewDAGRunRef(dag.Name, dagRunID)
 		require.Eventually(t, func() bool {
-			status, err := th.DAGRunMgr.GetCurrentStatus(th.Context, dag.DAG, dagRunID)
-			return err == nil && status != nil && status.Status == core.Running
-		}, 10*time.Second, 100*time.Millisecond)
+			_, err := th.DAGRunStore.FindAttempt(th.Context, runRef)
+			return err == nil
+		}, agentRunStartTimeout(), 100*time.Millisecond, "DAG run should be registered before stop")
 
 		require.NoError(t, th.DAGRunMgr.Stop(th.Context, dag.DAG, dagRunID))
 
