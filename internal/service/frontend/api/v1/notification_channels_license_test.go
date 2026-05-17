@@ -43,6 +43,77 @@ func TestNotificationChannels_AcceptExistingLicenseWithoutFeatureClaim(t *testin
 	assert.Empty(t, result.Channels)
 }
 
+func TestNotificationRoutes_RequireActiveLicense(t *testing.T) {
+	t.Parallel()
+
+	server := test.SetupServer(t)
+	server.Client().Get("/api/v1/notification-routes/global").
+		ExpectStatus(http.StatusForbidden).Send(t)
+}
+
+func TestNotificationRoutes_GlobalAndWorkspaceRouteSets(t *testing.T) {
+	t.Parallel()
+
+	server := test.SetupServer(t,
+		test.WithServerOptions(frontend.WithLicenseManager(license.NewTestManager())),
+	)
+
+	channelResp := server.Client().Post("/api/v1/notification-channels", api.NotificationChannelInput{
+		Name:    "Ops Webhook",
+		Type:    api.NotificationProviderTypeWebhook,
+		Enabled: true,
+		Webhook: &api.NotificationWebhookTargetInput{
+			Url: testPtr("https://example.com/webhook"),
+		},
+	}).ExpectStatus(http.StatusCreated).Send(t)
+	var channel api.NotificationChannel
+	channelResp.Unmarshal(t, &channel)
+
+	globalResp := server.Client().Put("/api/v1/notification-routes/global", api.NotificationRouteSetInput{
+		Enabled:       true,
+		InheritGlobal: true,
+		Routes: []api.NotificationRouteInput{{
+			Id:        testPtr("global-route"),
+			ChannelId: channel.Id,
+			Enabled:   true,
+			Events:    &[]api.NotificationEventType{api.NotificationEventTypeDagRunFailed},
+		}},
+	}).ExpectStatus(http.StatusOK).Send(t)
+	var globalRoutes api.NotificationRouteSet
+	globalResp.Unmarshal(t, &globalRoutes)
+	assert.Equal(t, api.NotificationRouteScopeGlobal, globalRoutes.Scope)
+	assert.True(t, globalRoutes.InheritGlobal)
+	require.Len(t, globalRoutes.Routes, 1)
+	assert.Equal(t, "global-route", globalRoutes.Routes[0].Id)
+
+	server.Client().Post("/api/v1/workspaces", api.CreateWorkspaceRequest{
+		Name: "ops",
+	}).ExpectStatus(http.StatusCreated).Send(t)
+	workspaceResp := server.Client().Put("/api/v1/notification-routes/workspaces/ops", api.NotificationRouteSetInput{
+		Enabled:       true,
+		InheritGlobal: false,
+		Routes: []api.NotificationRouteInput{{
+			Id:        testPtr("ops-route"),
+			ChannelId: channel.Id,
+			Enabled:   true,
+			Events:    &[]api.NotificationEventType{api.NotificationEventTypeDagRunWaiting},
+		}},
+	}).ExpectStatus(http.StatusOK).Send(t)
+	var workspaceRoutes api.NotificationRouteSet
+	workspaceResp.Unmarshal(t, &workspaceRoutes)
+	assert.Equal(t, api.NotificationRouteScopeWorkspace, workspaceRoutes.Scope)
+	assert.Equal(t, "ops", testValue(workspaceRoutes.Workspace))
+	assert.False(t, workspaceRoutes.InheritGlobal)
+	require.Len(t, workspaceRoutes.Routes, 1)
+	assert.Equal(t, "ops-route", workspaceRoutes.Routes[0].Id)
+
+	listResp := server.Client().Get("/api/v1/notification-routes").
+		ExpectStatus(http.StatusOK).Send(t)
+	var list api.NotificationRouteSetListResponse
+	listResp.Unmarshal(t, &list)
+	require.Len(t, list.RouteSets, 2)
+}
+
 func TestNotificationSettings_SMTPTransportIsNotReusableChannelLicensed(t *testing.T) {
 	t.Parallel()
 

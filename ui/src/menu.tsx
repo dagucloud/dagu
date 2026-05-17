@@ -16,7 +16,7 @@ import {
   useIsAdmin,
 } from '@/contexts/AuthContext';
 import { useConfig } from '@/contexts/ConfigContext';
-import { useHasFeature, useLicense } from '@/hooks/useLicense';
+import { useHasFeature } from '@/hooks/useLicense';
 import { cn } from '@/lib/utils';
 import { getResponsiveTitleClass } from '@/lib/text-utils';
 import { roleAtLeast } from '@/lib/workspaceAccess';
@@ -463,9 +463,6 @@ export const mainListItems = React.forwardRef<
   const { user } = useAuth();
   const hasRbac = useHasFeature('rbac');
   const hasAudit = useHasFeature('audit');
-  const license = useLicense();
-  const hasReusableNotifications =
-    !license.community && (license.valid || license.gracePeriod);
   const canWrite =
     config.authMode !== 'builtin'
       ? config.permissions.writeDags
@@ -744,11 +741,7 @@ export const mainListItems = React.forwardRef<
           {canManageNotifications && (
             <NavItem
               to="/notifications"
-              text={
-                hasReusableNotifications
-                  ? 'Notifications'
-                  : 'Notifications (Pro)'
-              }
+              text="Notifications"
               icon={<Bell size={18} />}
               isOpen={isOpen}
               onClick={onNavItemClick}

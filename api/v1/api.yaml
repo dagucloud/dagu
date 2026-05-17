@@ -4021,10 +4021,205 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /notification-routes:
+    get:
+      summary: "List notification routes"
+      description: "Returns global and workspace notification channel routes. Reusable channels and routes require an active Dagu license or trial. Developer, manager, or admin only."
+      operationId: "listNotificationRoutes"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "List of notification route sets"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationRouteSetListResponse"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /notification-routes/global:
+    get:
+      summary: "Get global notification routes"
+      description: "Returns global default notification channel routes. Default DAGs use global routes; named workspaces can inherit or opt out. Developer, manager, or admin only."
+      operationId: "getGlobalNotificationRoutes"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "Global notification route set"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationRouteSet"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    put:
+      summary: "Update global notification routes"
+      description: "Replaces global default notification channel routes. Route channel IDs must reference reusable notification channels. Developer, manager, or admin only."
+      operationId: "updateGlobalNotificationRoutes"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationRouteSetInput"
+      responses:
+        "200":
+          description: "Global notification route set updated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationRouteSet"
+        "400":
+          description: "Invalid notification route set"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Referenced notification channel was not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /notification-routes/workspaces/{workspaceName}:
+    get:
+      summary: "Get workspace notification routes"
+      description: "Returns notification channel routes for one named workspace. Workspace routes can inherit global defaults. Developer, manager, or admin only."
+      operationId: "getWorkspaceNotificationRoutes"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - name: workspaceName
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/WorkspaceName"
+      responses:
+        "200":
+          description: "Workspace notification route set"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationRouteSet"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Workspace was not found or is not visible"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    put:
+      summary: "Update workspace notification routes"
+      description: "Replaces notification channel routes for one named workspace. Route channel IDs must reference reusable notification channels. Developer, manager, or admin only."
+      operationId: "updateWorkspaceNotificationRoutes"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - name: workspaceName
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/WorkspaceName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationRouteSetInput"
+      responses:
+        "200":
+          description: "Workspace notification route set updated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationRouteSet"
+        "400":
+          description: "Invalid notification route set"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Workspace or referenced notification channel was not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /notification-channels:
     get:
       summary: "List notification channels"
-      description: "Returns reusable workspace notification channels. Developer, manager, or admin only."
+      description: "Returns reusable notification channels. Channels are delivery endpoints; routing is configured separately. Developer, manager, or admin only."
       operationId: "listNotificationChannels"
       tags:
         - "notifications"
@@ -4053,7 +4248,7 @@ paths:
     post:
       summary: "Create notification channel"
       description: |
-        Creates a reusable workspace notification channel. Secret values are accepted
+        Creates a reusable notification channel. Secret values are accepted
         in the request but are never returned. Developer, manager, or admin only.
       operationId: "createNotificationChannel"
       tags:
@@ -4095,7 +4290,7 @@ paths:
   /notification-channels/{channelId}:
     get:
       summary: "Get notification channel"
-      description: "Returns one reusable workspace notification channel. Developer, manager, or admin only."
+      description: "Returns one reusable notification channel. Developer, manager, or admin only."
       operationId: "getNotificationChannel"
       tags:
         - "notifications"
@@ -4135,7 +4330,7 @@ paths:
     put:
       summary: "Update notification channel"
       description: |
-        Replaces a reusable workspace notification channel. Existing secret values
+        Replaces a reusable notification channel. Existing secret values
         are preserved when omitted. Developer, manager, or admin only.
       operationId: "updateNotificationChannel"
       tags:
@@ -4187,7 +4382,7 @@ paths:
 
     delete:
       summary: "Delete notification channel"
-      description: "Deletes a reusable workspace notification channel. Channels referenced by DAG notification settings cannot be deleted."
+      description: "Deletes a reusable notification channel. Channels referenced by DAG notification settings or notification routes cannot be deleted."
       operationId: "deleteNotificationChannel"
       tags:
         - "notifications"
@@ -9243,6 +9438,125 @@ components:
           type: string
           description: "User ID that last updated the workspace notification settings"
 
+    NotificationRouteScope:
+      type: string
+      description: "Notification route scope"
+      enum:
+        - global
+        - workspace
+
+    NotificationRouteInput:
+      type: object
+      description: "Route from notification events to a reusable notification channel"
+      required:
+        - channelId
+        - enabled
+      properties:
+        id:
+          type: string
+          description: "Stable route ID. Omit when adding a route."
+        channelId:
+          type: string
+          description: "Reusable notification channel ID"
+        enabled:
+          type: boolean
+          description: "Whether this route receives notifications"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationEventType"
+          description: "Events delivered by this route. When omitted, operational defaults are failed, aborted, rejected, and waiting."
+
+    NotificationRoute:
+      type: object
+      description: "Route from notification events to a reusable notification channel"
+      required:
+        - id
+        - channelId
+        - enabled
+      properties:
+        id:
+          type: string
+          description: "Stable route ID"
+        channelId:
+          type: string
+          description: "Reusable notification channel ID"
+        enabled:
+          type: boolean
+          description: "Whether this route receives notifications"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationEventType"
+          description: "Events delivered by this route. Empty means operational defaults."
+
+    NotificationRouteSetInput:
+      type: object
+      description: "Replacement route set for a global or workspace notification scope"
+      required:
+        - enabled
+        - inheritGlobal
+        - routes
+      properties:
+        enabled:
+          type: boolean
+          description: "Whether this route set can deliver notifications"
+        inheritGlobal:
+          type: boolean
+          description: "For workspace route sets, whether global routes also apply. Ignored for global route sets."
+        routes:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationRouteInput"
+
+    NotificationRouteSet:
+      type: object
+      description: "Notification routes for a global or workspace scope"
+      required:
+        - scope
+        - enabled
+        - inheritGlobal
+        - routes
+      properties:
+        id:
+          type: string
+          description: "Stable route set ID, present after the route set is saved"
+        scope:
+          $ref: "#/components/schemas/NotificationRouteScope"
+        workspace:
+          type: string
+          description: "Workspace name for workspace-scoped route sets"
+        enabled:
+          type: boolean
+          description: "Whether this route set can deliver notifications"
+        inheritGlobal:
+          type: boolean
+          description: "For workspace route sets, whether global routes also apply"
+        routes:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationRoute"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        updatedBy:
+          type: string
+          description: "User ID that last updated the route set"
+
+    NotificationRouteSetListResponse:
+      type: object
+      description: "Notification route sets"
+      required:
+        - routeSets
+      properties:
+        routeSets:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationRouteSet"
+
     NotificationWebhookTargetInput:
       type: object
       description: "Outbound webhook target input. Values are encrypted at rest."
@@ -9416,7 +9730,7 @@ components:
 
     NotificationChannelInput:
       type: object
-      description: "Reusable workspace notification channel input"
+      description: "Reusable notification channel input"
       required:
         - name
         - type
@@ -9441,7 +9755,7 @@ components:
 
     NotificationChannel:
       type: object
-      description: "Reusable workspace notification channel. Secrets are never returned."
+      description: "Reusable notification channel. Secrets are never returned."
       required:
         - id
         - name
@@ -9481,7 +9795,7 @@ components:
 
     NotificationChannelListResponse:
       type: object
-      description: "Reusable workspace notification channels"
+      description: "Reusable notification channels"
       required:
         - channels
       properties:
@@ -9492,7 +9806,7 @@ components:
 
     NotificationSubscriptionInput:
       type: object
-      description: "DAG subscription to a reusable workspace notification channel"
+      description: "DAG subscription to a reusable notification channel"
       required:
         - channelId
         - enabled
@@ -9514,7 +9828,7 @@ components:
 
     NotificationSubscription:
       type: object
-      description: "DAG subscription to a reusable workspace notification channel"
+      description: "DAG subscription to a reusable notification channel"
       required:
         - id
         - channelId
@@ -9571,7 +9885,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/NotificationSubscription"
-          description: "Reusable workspace notification channels subscribed by this DAG"
+          description: "Reusable notification channels subscribed by this DAG"
         createdAt:
           type: string
           format: date-time

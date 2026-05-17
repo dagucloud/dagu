@@ -25,6 +25,9 @@ import (
 const (
 	settingsFileExtension     = ".json"
 	workspaceSettingsFileName = "workspace.json"
+	globalRouteSetFileName    = "global.json"
+	routeDirName              = "routes"
+	workspaceRouteDirName     = "workspaces"
 	dirPermissions            = 0750
 	filePermissions           = 0600
 )
@@ -43,6 +46,12 @@ func WithChannelDir(channelDir string) Option {
 	}
 }
 
+func WithRouteDir(routeDir string) Option {
+	return func(s *Store) {
+		s.routeDir = routeDir
+	}
+}
+
 func WithWorkspaceSettingsFile(path string) Option {
 	return func(s *Store) {
 		s.workspaceSettingsFile = path
@@ -52,6 +61,7 @@ func WithWorkspaceSettingsFile(path string) Option {
 type Store struct {
 	baseDir               string
 	channelDir            string
+	routeDir              string
 	workspaceSettingsFile string
 	encryptor             *crypto.Encryptor
 	mu                    sync.RWMutex
@@ -66,6 +76,7 @@ func New(baseDir string, opts ...Option) (*Store, error) {
 	store := &Store{
 		baseDir:               baseDir,
 		channelDir:            defaultChannelDir(baseDir),
+		routeDir:              defaultRouteDir(baseDir),
 		workspaceSettingsFile: defaultWorkspaceSettingsFile(baseDir),
 	}
 	for _, opt := range opts {
@@ -76,6 +87,9 @@ func New(baseDir string, opts ...Option) (*Store, error) {
 	}
 	if err := os.MkdirAll(store.channelDir, dirPermissions); err != nil {
 		return nil, fmt.Errorf("filenotification: failed to create directory %s: %w", store.channelDir, err)
+	}
+	if err := os.MkdirAll(store.routeWorkspaceDir(), dirPermissions); err != nil {
+		return nil, fmt.Errorf("filenotification: failed to create directory %s: %w", store.routeWorkspaceDir(), err)
 	}
 	if err := os.MkdirAll(filepath.Dir(store.workspaceSettingsFile), dirPermissions); err != nil {
 		return nil, fmt.Errorf("filenotification: failed to create directory %s: %w", filepath.Dir(store.workspaceSettingsFile), err)
@@ -271,6 +285,81 @@ func (s *Store) GetWorkspaceSettings(_ context.Context) (*notification.Workspace
 	return settings, nil
 }
 
+func (s *Store) SaveRouteSet(_ context.Context, routeSet *notification.RouteSet) error {
+	if routeSet == nil {
+		return errors.New("filenotification: route set cannot be nil")
+	}
+	stored := routeSetToStorage(routeSet)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := fileutil.WriteJSONAtomic(s.routeSetFilePath(routeSet.Scope, routeSet.Workspace), stored, filePermissions); err != nil {
+		return fmt.Errorf("filenotification: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) GetRouteSet(_ context.Context, scope notification.RouteScope, workspace string) (*notification.RouteSet, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	routeSet, err := s.loadRouteSetFromFile(s.routeSetFilePath(scope, workspace))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, notification.ErrRouteSetNotFound
+		}
+		return nil, err
+	}
+	return routeSet, nil
+}
+
+func (s *Store) ListRouteSets(_ context.Context) ([]*notification.RouteSet, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make([]*notification.RouteSet, 0)
+	if routeSet, err := s.loadRouteSetFromFile(s.routeSetFilePath(notification.RouteScopeGlobal, "")); err == nil {
+		result = append(result, routeSet)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		slog.Warn("filenotification: failed to load global route set",
+			slog.String("error", err.Error()),
+		)
+	}
+
+	entries, err := os.ReadDir(s.routeWorkspaceDir())
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return result, nil
+		}
+		return nil, fmt.Errorf("filenotification: list notification route sets: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != settingsFileExtension {
+			continue
+		}
+		routeSet, err := s.loadRouteSetFromFile(filepath.Join(s.routeWorkspaceDir(), entry.Name()))
+		if err != nil {
+			slog.Warn("filenotification: failed to load route set file",
+				slog.String("file", entry.Name()),
+				slog.String("error", err.Error()),
+			)
+			continue
+		}
+		result = append(result, routeSet)
+	}
+	return result, nil
+}
+
+func (s *Store) DeleteRouteSet(_ context.Context, scope notification.RouteScope, workspace string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := os.Remove(s.routeSetFilePath(scope, workspace)); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return notification.ErrRouteSetNotFound
+		}
+		return fmt.Errorf("filenotification: delete route set: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) filePath(dagName string) string {
 	sum := sha256.Sum256([]byte(dagName))
 	return filepath.Join(s.baseDir, hex.EncodeToString(sum[:])+settingsFileExtension)
@@ -281,11 +370,30 @@ func (s *Store) channelFilePath(channelID string) string {
 	return filepath.Join(s.channelDir, hex.EncodeToString(sum[:])+settingsFileExtension)
 }
 
+func (s *Store) routeSetFilePath(scope notification.RouteScope, workspace string) string {
+	if scope == notification.RouteScopeWorkspace {
+		sum := sha256.Sum256([]byte(workspace))
+		return filepath.Join(s.routeWorkspaceDir(), hex.EncodeToString(sum[:])+settingsFileExtension)
+	}
+	return filepath.Join(s.routeDir, globalRouteSetFileName)
+}
+
+func (s *Store) routeWorkspaceDir() string {
+	return filepath.Join(s.routeDir, workspaceRouteDirName)
+}
+
 func defaultChannelDir(baseDir string) string {
 	if filepath.Base(baseDir) == "dags" {
 		return filepath.Join(filepath.Dir(baseDir), "channels")
 	}
 	return filepath.Join(baseDir, "channels")
+}
+
+func defaultRouteDir(baseDir string) string {
+	if filepath.Base(baseDir) == "dags" {
+		return filepath.Join(filepath.Dir(baseDir), routeDirName)
+	}
+	return filepath.Join(baseDir, routeDirName)
 }
 
 func defaultWorkspaceSettingsFile(baseDir string) string {
@@ -331,6 +439,18 @@ func (s *Store) loadWorkspaceSettingsFromFile(path string) (*notification.Worksp
 	return s.workspaceSettingsFromStorage(&stored)
 }
 
+func (s *Store) loadRouteSetFromFile(path string) (*notification.RouteSet, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // path is derived from configured route directory and hashed workspace name.
+	if err != nil {
+		return nil, err
+	}
+	var stored routeSetForStorage
+	if err := json.Unmarshal(data, &stored); err != nil {
+		return nil, fmt.Errorf("filenotification: parse route set: %w", err)
+	}
+	return routeSetFromStorage(&stored), nil
+}
+
 type settingsForStorage struct {
 	ID            string                   `json:"id"`
 	DAGName       string                   `json:"dagName"`
@@ -362,6 +482,25 @@ type workspaceSettingsForStorage struct {
 	CreatedAt string                `json:"createdAt"`
 	UpdatedAt string                `json:"updatedAt"`
 	UpdatedBy string                `json:"updatedBy,omitempty"`
+}
+
+type routeSetForStorage struct {
+	ID            string                  `json:"id"`
+	Scope         notification.RouteScope `json:"scope"`
+	Workspace     string                  `json:"workspace,omitempty"`
+	Enabled       bool                    `json:"enabled"`
+	InheritGlobal bool                    `json:"inheritGlobal"`
+	Routes        []routeForStorage       `json:"routes"`
+	CreatedAt     string                  `json:"createdAt"`
+	UpdatedAt     string                  `json:"updatedAt"`
+	UpdatedBy     string                  `json:"updatedBy,omitempty"`
+}
+
+type routeForStorage struct {
+	ID        string   `json:"id"`
+	ChannelID string   `json:"channelId"`
+	Enabled   bool     `json:"enabled"`
+	Events    []string `json:"events,omitempty"`
 }
 
 type smtpConfigForStorage struct {
@@ -482,6 +621,29 @@ func (s *Store) workspaceSettingsToStorage(settings *notification.WorkspaceSetti
 		}
 	}
 	return stored, nil
+}
+
+func routeSetToStorage(routeSet *notification.RouteSet) *routeSetForStorage {
+	routes := make([]routeForStorage, 0, len(routeSet.Routes))
+	for _, route := range routeSet.Routes {
+		routes = append(routes, routeForStorage{
+			ID:        route.ID,
+			ChannelID: route.ChannelID,
+			Enabled:   route.Enabled,
+			Events:    eventStrings(route.Events),
+		})
+	}
+	return &routeSetForStorage{
+		ID:            routeSet.ID,
+		Scope:         routeSet.Scope,
+		Workspace:     routeSet.Workspace,
+		Enabled:       routeSet.Enabled,
+		InheritGlobal: routeSet.InheritGlobal,
+		Routes:        routes,
+		CreatedAt:     routeSet.CreatedAt.Format(timeFormat),
+		UpdatedAt:     routeSet.UpdatedAt.Format(timeFormat),
+		UpdatedBy:     routeSet.UpdatedBy,
+	}
 }
 
 const timeFormat = "2006-01-02T15:04:05.999999999Z07:00"
@@ -624,6 +786,31 @@ func (s *Store) workspaceSettingsFromStorage(stored *workspaceSettingsForStorage
 		}
 	}
 	return settings, nil
+}
+
+func routeSetFromStorage(stored *routeSetForStorage) *notification.RouteSet {
+	routes := make([]notification.Route, 0, len(stored.Routes))
+	for _, route := range stored.Routes {
+		routes = append(routes, notification.Route{
+			ID:        route.ID,
+			ChannelID: route.ChannelID,
+			Enabled:   route.Enabled,
+			Events:    eventTypes(route.Events),
+		})
+	}
+	createdAt, _ := time.Parse(timeFormat, stored.CreatedAt)
+	updatedAt, _ := time.Parse(timeFormat, stored.UpdatedAt)
+	return &notification.RouteSet{
+		ID:            stored.ID,
+		Scope:         stored.Scope,
+		Workspace:     stored.Workspace,
+		Enabled:       stored.Enabled,
+		InheritGlobal: stored.InheritGlobal,
+		Routes:        routes,
+		CreatedAt:     createdAt,
+		UpdatedAt:     updatedAt,
+		UpdatedBy:     stored.UpdatedBy,
+	}
 }
 
 func (s *Store) targetFromStorage(stored targetForStorage) (notification.Target, error) {

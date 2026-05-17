@@ -98,6 +98,9 @@ type NotificationService interface {
 	DeleteByDAGName(ctx context.Context, dagName string) error
 	GetWorkspaceSettings(ctx context.Context) (*notificationmodel.WorkspaceSettings, error)
 	SaveWorkspaceSettings(ctx context.Context, settings *notificationmodel.WorkspaceSettings, updatedBy string) (*notificationmodel.WorkspaceSettings, error)
+	GetRouteSet(ctx context.Context, scope notificationmodel.RouteScope, workspace string) (*notificationmodel.RouteSet, error)
+	ListRouteSets(ctx context.Context) ([]*notificationmodel.RouteSet, error)
+	SaveRouteSet(ctx context.Context, routeSet *notificationmodel.RouteSet, updatedBy string) (*notificationmodel.RouteSet, error)
 	ListChannels(ctx context.Context) ([]*notificationmodel.Channel, error)
 	GetChannel(ctx context.Context, channelID string) (*notificationmodel.Channel, error)
 	SaveChannel(ctx context.Context, channel *notificationmodel.Channel, updatedBy string) (*notificationmodel.Channel, error)

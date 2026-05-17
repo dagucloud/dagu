@@ -218,6 +218,68 @@ func TestStore_PersistsWorkspaceSMTPSettingsEncrypted(t *testing.T) {
 	assert.Equal(t, "tester", got.UpdatedBy)
 }
 
+func TestStore_PersistsGlobalAndWorkspaceRouteSets(t *testing.T) {
+	t.Parallel()
+
+	store, err := New(t.TempDir())
+	require.NoError(t, err)
+
+	globalRouteSet, err := notification.NormalizeRouteSet(&notification.RouteSet{
+		ID:            "global-routes",
+		Scope:         notification.RouteScopeGlobal,
+		Enabled:       true,
+		InheritGlobal: true,
+		Routes: []notification.Route{{
+			ID:        "route-1",
+			ChannelID: "channel-1",
+			Enabled:   true,
+			Events:    []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		}},
+	}, "tester")
+	require.NoError(t, err)
+	require.NoError(t, store.SaveRouteSet(context.Background(), globalRouteSet))
+
+	workspaceRouteSet, err := notification.NormalizeRouteSet(&notification.RouteSet{
+		ID:            "workspace-routes",
+		Scope:         notification.RouteScopeWorkspace,
+		Workspace:     "ops",
+		Enabled:       true,
+		InheritGlobal: false,
+		Routes: []notification.Route{{
+			ID:        "route-2",
+			ChannelID: "channel-2",
+			Enabled:   true,
+			Events:    []eventstore.EventType{eventstore.TypeDAGRunWaiting},
+		}},
+	}, "tester")
+	require.NoError(t, err)
+	require.NoError(t, store.SaveRouteSet(context.Background(), workspaceRouteSet))
+
+	gotGlobal, err := store.GetRouteSet(context.Background(), notification.RouteScopeGlobal, "")
+	require.NoError(t, err)
+	assert.Equal(t, "global-routes", gotGlobal.ID)
+	assert.Equal(t, notification.RouteScopeGlobal, gotGlobal.Scope)
+	assert.Empty(t, gotGlobal.Workspace)
+	require.Len(t, gotGlobal.Routes, 1)
+	assert.Equal(t, "channel-1", gotGlobal.Routes[0].ChannelID)
+
+	gotWorkspace, err := store.GetRouteSet(context.Background(), notification.RouteScopeWorkspace, "ops")
+	require.NoError(t, err)
+	assert.Equal(t, "workspace-routes", gotWorkspace.ID)
+	assert.Equal(t, "ops", gotWorkspace.Workspace)
+	assert.False(t, gotWorkspace.InheritGlobal)
+	require.Len(t, gotWorkspace.Routes, 1)
+	assert.Equal(t, "channel-2", gotWorkspace.Routes[0].ChannelID)
+
+	routeSets, err := store.ListRouteSets(context.Background())
+	require.NoError(t, err)
+	require.Len(t, routeSets, 2)
+
+	require.NoError(t, store.DeleteRouteSet(context.Background(), notification.RouteScopeWorkspace, "ops"))
+	_, err = store.GetRouteSet(context.Background(), notification.RouteScopeWorkspace, "ops")
+	assert.ErrorIs(t, err, notification.ErrRouteSetNotFound)
+}
+
 func TestStore_SaveWorkspaceSMTPPasswordRequiresEncryptor(t *testing.T) {
 	t.Parallel()
 

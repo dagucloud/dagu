@@ -250,6 +250,60 @@ func TestNormalizeWorkspaceSettingsValidatesSMTP(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInvalidSettings)
 }
 
+func TestNormalizeRouteSetValidatesScopeAndRoutes(t *testing.T) {
+	t.Parallel()
+
+	routeSet, err := NormalizeRouteSet(&RouteSet{
+		Scope:     RouteScopeWorkspace,
+		Workspace: "ops",
+		Enabled:   true,
+		Routes: []Route{{
+			ChannelID: "channel-1",
+			Enabled:   true,
+			Events:    []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		}},
+	}, "tester")
+	require.NoError(t, err)
+	assert.NotEmpty(t, routeSet.ID)
+	assert.Equal(t, RouteScopeWorkspace, routeSet.Scope)
+	assert.Equal(t, "ops", routeSet.Workspace)
+	require.Len(t, routeSet.Routes, 1)
+	assert.NotEmpty(t, routeSet.Routes[0].ID)
+	assert.Equal(t, []eventstore.EventType{eventstore.TypeDAGRunFailed}, routeSet.Routes[0].Events)
+
+	_, err = NormalizeRouteSet(&RouteSet{
+		Scope:   RouteScopeGlobal,
+		Enabled: true,
+		Routes: []Route{
+			{ChannelID: "channel-1", Enabled: true},
+			{ChannelID: "channel-1", Enabled: true},
+		},
+	}, "tester")
+	assert.ErrorIs(t, err, ErrInvalidSettings)
+
+	_, err = NormalizeRouteSet(&RouteSet{
+		Scope:     RouteScopeWorkspace,
+		Workspace: "global",
+		Enabled:   true,
+		Routes:    []Route{{ChannelID: "channel-1", Enabled: true}},
+	}, "tester")
+	assert.ErrorIs(t, err, ErrInvalidSettings)
+}
+
+func TestIsRouteEventEnabledDefaultsToOperationalEvents(t *testing.T) {
+	t.Parallel()
+
+	routeSet := &RouteSet{Enabled: true}
+	route := Route{Enabled: true}
+	assert.True(t, IsRouteEventEnabled(routeSet, route, eventstore.TypeDAGRunFailed))
+	assert.True(t, IsRouteEventEnabled(routeSet, route, eventstore.TypeDAGRunWaiting))
+	assert.False(t, IsRouteEventEnabled(routeSet, route, eventstore.TypeDAGRunSucceeded))
+
+	route.Events = []eventstore.EventType{eventstore.TypeDAGRunSucceeded}
+	assert.False(t, IsRouteEventEnabled(routeSet, route, eventstore.TypeDAGRunFailed))
+	assert.True(t, IsRouteEventEnabled(routeSet, route, eventstore.TypeDAGRunSucceeded))
+}
+
 func TestPreserveWorkspaceSecrets(t *testing.T) {
 	t.Parallel()
 

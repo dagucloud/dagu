@@ -439,7 +439,7 @@ export function NotificationOverviewCard({
   );
 }
 
-type WorkspaceChannelsSectionProps = {
+type ReusableChannelsSectionProps = {
   channels: DraftChannel[];
   savingChannelIndex: number | null;
   onAdd: () => void;
@@ -451,19 +451,19 @@ type WorkspaceChannelsSectionProps = {
   onDelete: (index: number) => void;
 };
 
-export function WorkspaceChannelsSection({
+export function ReusableChannelsSection({
   channels,
   savingChannelIndex,
   onAdd,
   onUpdate,
   onSave,
   onDelete,
-}: WorkspaceChannelsSectionProps) {
+}: ReusableChannelsSectionProps) {
   return (
     <>
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-medium text-foreground">
-          Workspace Channels
+          Reusable Channels
         </h3>
         <Button variant="outline" size="sm" onClick={onAdd}>
           <Plus className="h-4 w-4" />
@@ -779,11 +779,11 @@ export function ReusableChannelsUnavailableCard({
       <CardHeader>
         <div className="flex items-center gap-2">
           <Bell className="h-4 w-4 text-muted-foreground" />
-          <CardTitle className="text-sm">Workspace Channels</CardTitle>
+          <CardTitle className="text-sm">Reusable Channels</CardTitle>
         </div>
       </CardHeader>
       <CardContent className="text-sm text-muted-foreground">
-        Reusable workspace channels require an active Dagu license or trial.
+        Reusable channels and routes require an active Dagu license or trial.
         {showDAGLocalNote && ' DAG-local targets remain available.'}
       </CardContent>
     </Card>

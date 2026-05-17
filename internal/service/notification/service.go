@@ -157,6 +157,72 @@ func (s *Service) GetChannel(ctx context.Context, channelID string) (*notificati
 	return s.store.GetChannel(ctx, channelID)
 }
 
+func (s *Service) GetRouteSet(ctx context.Context, scope notificationmodel.RouteScope, workspace string) (*notificationmodel.RouteSet, error) {
+	routeSet, err := s.loadRouteSet(ctx, scope, workspace)
+	if err != nil {
+		if errors.Is(err, notificationmodel.ErrRouteSetNotFound) {
+			return defaultRouteSet(scope, workspace), nil
+		}
+		return nil, err
+	}
+	return routeSet, nil
+}
+
+func (s *Service) ListRouteSets(ctx context.Context) ([]*notificationmodel.RouteSet, error) {
+	if s.store == nil {
+		return nil, nil
+	}
+	routeSets, err := s.store.ListRouteSets(ctx)
+	if err != nil {
+		return nil, err
+	}
+	slices.SortFunc(routeSets, func(a, b *notificationmodel.RouteSet) int {
+		if a == nil || b == nil {
+			switch {
+			case a == nil && b == nil:
+				return 0
+			case a == nil:
+				return -1
+			default:
+				return 1
+			}
+		}
+		if cmp := strings.Compare(string(a.Scope), string(b.Scope)); cmp != 0 {
+			return cmp
+		}
+		return strings.Compare(a.Workspace, b.Workspace)
+	})
+	return routeSets, nil
+}
+
+func (s *Service) SaveRouteSet(ctx context.Context, routeSet *notificationmodel.RouteSet, updatedBy string) (*notificationmodel.RouteSet, error) {
+	if s.store == nil {
+		return nil, notificationmodel.ErrRouteSetNotFound
+	}
+	if routeSet == nil {
+		return nil, notificationmodel.ErrInvalidSettings
+	}
+	existing, err := s.loadRouteSet(ctx, routeSet.Scope, routeSet.Workspace)
+	if err != nil && !errors.Is(err, notificationmodel.ErrRouteSetNotFound) {
+		return nil, err
+	}
+	if existing != nil {
+		routeSet.ID = existing.ID
+		routeSet.CreatedAt = existing.CreatedAt
+	}
+	normalized, err := notificationmodel.NormalizeRouteSet(routeSet, updatedBy)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.validateRoutes(ctx, normalized); err != nil {
+		return nil, err
+	}
+	if err := s.store.SaveRouteSet(ctx, normalized); err != nil {
+		return nil, err
+	}
+	return normalized, nil
+}
+
 func (s *Service) GetWorkspaceSettings(ctx context.Context) (*notificationmodel.WorkspaceSettings, error) {
 	if s.store == nil {
 		return &notificationmodel.WorkspaceSettings{}, nil
@@ -230,6 +296,17 @@ func (s *Service) DeleteChannel(ctx context.Context, channelID string) error {
 			}
 		}
 	}
+	routeSets, err := s.store.ListRouteSets(ctx)
+	if err != nil {
+		return err
+	}
+	for _, routeSet := range routeSets {
+		for _, route := range routeSet.Routes {
+			if route.ChannelID == channelID {
+				return fmt.Errorf("%w: %s is used by notification route set %s", notificationmodel.ErrChannelInUse, channelID, routeSetID(routeSet))
+			}
+		}
+	}
 	return s.store.DeleteChannel(ctx, channelID)
 }
 
@@ -271,6 +348,18 @@ func (s *Service) validateSubscriptions(ctx context.Context, settings *notificat
 	return nil
 }
 
+func (s *Service) validateRoutes(ctx context.Context, routeSet *notificationmodel.RouteSet) error {
+	for _, route := range routeSet.Routes {
+		if _, err := s.store.GetChannel(ctx, route.ChannelID); err != nil {
+			if errors.Is(err, notificationmodel.ErrChannelNotFound) {
+				return fmt.Errorf("%w: %s", notificationmodel.ErrChannelNotFound, route.ChannelID)
+			}
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Service) DeleteByDAGName(ctx context.Context, dagName string) error {
 	if s.store == nil {
 		return notificationmodel.ErrSettingsNotFound
@@ -302,6 +391,29 @@ func (s *Service) NotificationDestinations() []string {
 	}
 
 	var destinations []string
+	if s.reusableChannelsAllowed() {
+		routeSets, err := s.ListRouteSets(context.Background())
+		if err != nil {
+			s.logger.Warn("Failed to list notification route sets", slog.String("error", err.Error()))
+		}
+		for _, routeSet := range routeSets {
+			if routeSet == nil || !routeSet.Enabled {
+				continue
+			}
+			for _, route := range routeSet.Routes {
+				if !route.Enabled {
+					continue
+				}
+				channel, ok := loadChannel(route.ChannelID)
+				if !ok || !channel.Enabled {
+					continue
+				}
+				if destination := routeDestinationID(routeSet.Scope, routeSet.Workspace, route.ID); destination != "" {
+					destinations = append(destinations, destination)
+				}
+			}
+		}
+	}
 	for _, setting := range settings {
 		for _, target := range setting.Targets {
 			if destination := inlineDestinationID(setting.DAGName, target.ID); setting.Enabled && target.Enabled && destination != "" {
@@ -331,6 +443,8 @@ func (s *Service) NotificationDestinationsForEvent(event chatbridge.Notification
 	if event.Status == nil || event.Status.Name == "" {
 		return nil
 	}
+	seenChannelIDs := map[string]struct{}{}
+	destinations := s.routeDestinationsForEvent(event, seenChannelIDs)
 	setting, err := s.GetByDAGName(context.Background(), event.Status.Name)
 	if err != nil {
 		if !errors.Is(err, notificationmodel.ErrSettingsNotFound) {
@@ -339,12 +453,13 @@ func (s *Service) NotificationDestinationsForEvent(event chatbridge.Notification
 				slog.String("error", err.Error()),
 			)
 		}
-		return nil
+		slices.Sort(destinations)
+		return destinations
 	}
 	if !notificationmodel.IsEventEnabled(setting, event.Type) {
-		return nil
+		slices.Sort(destinations)
+		return destinations
 	}
-	destinations := make([]string, 0, len(setting.Targets))
 	for _, target := range setting.Targets {
 		if !notificationmodel.IsTargetEventEnabled(setting, target, event.Type) {
 			continue
@@ -356,6 +471,9 @@ func (s *Service) NotificationDestinationsForEvent(event chatbridge.Notification
 	if s.reusableChannelsAllowed() {
 		for _, subscription := range setting.Subscriptions {
 			if !notificationmodel.IsSubscriptionEventEnabled(setting, subscription, event.Type) {
+				continue
+			}
+			if _, ok := seenChannelIDs[subscription.ChannelID]; ok {
 				continue
 			}
 			channel, err := s.GetChannel(context.Background(), subscription.ChannelID)
@@ -374,13 +492,18 @@ func (s *Service) NotificationDestinationsForEvent(event chatbridge.Notification
 			}
 			if destination := channelDestinationID(setting.DAGName, subscription.ID); destination != "" {
 				destinations = append(destinations, destination)
+				seenChannelIDs[subscription.ChannelID] = struct{}{}
 			}
 		}
 	}
+	slices.Sort(destinations)
 	return destinations
 }
 
 func (s *Service) FlushNotificationBatch(ctx context.Context, destination string, batch chatbridge.NotificationBatch, _ bool) bool {
+	if scope, workspace, routeID, ok := parseRouteDestinationID(destination); ok {
+		return s.flushRouteNotificationBatch(ctx, destination, scope, workspace, routeID, batch)
+	}
 	kind, dagName, targetID, ok := parseDestinationID(destination)
 	if !ok {
 		return false
@@ -451,6 +574,62 @@ func (s *Service) FlushNotificationBatch(ctx context.Context, destination string
 	}
 	if err := s.deliverTarget(ctx, target, events); err != nil {
 		s.logger.Warn("Failed to deliver DAG notification",
+			slog.String("destination", destination),
+			slog.String("provider", string(target.Type)),
+			slog.String("error", err.Error()),
+		)
+		return false
+	}
+	return true
+}
+
+func (s *Service) flushRouteNotificationBatch(
+	ctx context.Context,
+	destination string,
+	scope notificationmodel.RouteScope,
+	workspace string,
+	routeID string,
+	batch chatbridge.NotificationBatch,
+) bool {
+	if !s.reusableChannelsAllowed() {
+		return true
+	}
+	routeSet, err := s.loadRouteSet(ctx, scope, workspace)
+	if err != nil {
+		if errors.Is(err, notificationmodel.ErrRouteSetNotFound) {
+			return true
+		}
+		s.logger.Warn("Failed to load notification route set for delivery",
+			slog.String("destination", destination),
+			slog.String("error", err.Error()),
+		)
+		return false
+	}
+	route, ok := findRoute(routeSet, routeID)
+	if !ok || !route.Enabled || !routeSet.Enabled {
+		return true
+	}
+	channel, err := s.GetChannel(ctx, route.ChannelID)
+	if err != nil {
+		if errors.Is(err, notificationmodel.ErrChannelNotFound) {
+			return true
+		}
+		s.logger.Warn("Failed to load notification channel for route delivery",
+			slog.String("destination", destination),
+			slog.String("error", err.Error()),
+		)
+		return false
+	}
+	if !channel.Enabled {
+		return true
+	}
+	events := s.matchingRouteEvents(ctx, routeSet, route, batch.Events)
+	if len(events) == 0 {
+		return true
+	}
+	target := channel.ToTarget()
+	if err := s.deliverTarget(ctx, target, events); err != nil {
+		s.logger.Warn("Failed to deliver notification route",
 			slog.String("destination", destination),
 			slog.String("provider", string(target.Type)),
 			slog.String("error", err.Error()),
@@ -633,9 +812,41 @@ func (s *Service) listSettings(ctx context.Context) ([]*notificationmodel.Settin
 	return s.store.List(ctx)
 }
 
+func (s *Service) loadRouteSet(ctx context.Context, scope notificationmodel.RouteScope, workspace string) (*notificationmodel.RouteSet, error) {
+	if s.store == nil {
+		return nil, notificationmodel.ErrRouteSetNotFound
+	}
+	return s.store.GetRouteSet(ctx, scope, workspace)
+}
+
+func defaultRouteSet(scope notificationmodel.RouteScope, workspace string) *notificationmodel.RouteSet {
+	routeSet := &notificationmodel.RouteSet{
+		Scope:         scope,
+		Workspace:     workspace,
+		Enabled:       true,
+		InheritGlobal: true,
+		Routes:        []notificationmodel.Route{},
+	}
+	if scope == notificationmodel.RouteScopeGlobal {
+		routeSet.Workspace = ""
+	}
+	return routeSet
+}
+
+func routeSetID(routeSet *notificationmodel.RouteSet) string {
+	if routeSet == nil {
+		return ""
+	}
+	if routeSet.Scope == notificationmodel.RouteScopeWorkspace {
+		return string(routeSet.Scope) + ":" + routeSet.Workspace
+	}
+	return string(routeSet.Scope)
+}
+
 const (
 	destinationKindInline  = "target"
 	destinationKindChannel = "channel"
+	destinationKindRoute   = "route"
 )
 
 func inlineDestinationID(dagName, targetID string) string {
@@ -652,6 +863,13 @@ func channelDestinationID(dagName, subscriptionID string) string {
 	return destinationKindChannel + "\x00" + dagName + "\x00" + subscriptionID
 }
 
+func routeDestinationID(scope notificationmodel.RouteScope, workspace, routeID string) string {
+	if scope == "" || routeID == "" {
+		return ""
+	}
+	return destinationKindRoute + "\x00" + string(scope) + "\x00" + workspace + "\x00" + routeID
+}
+
 func parseDestinationID(destination string) (string, string, string, bool) {
 	if strings.HasPrefix(destination, destinationKindChannel+"\x00") {
 		rest := strings.TrimPrefix(destination, destinationKindChannel+"\x00")
@@ -660,6 +878,17 @@ func parseDestinationID(destination string) (string, string, string, bool) {
 	}
 	dagName, targetID, ok := strings.Cut(destination, "\x00")
 	return destinationKindInline, dagName, targetID, ok && dagName != "" && targetID != ""
+}
+
+func parseRouteDestinationID(destination string) (notificationmodel.RouteScope, string, string, bool) {
+	if !strings.HasPrefix(destination, destinationKindRoute+"\x00") {
+		return "", "", "", false
+	}
+	parts := strings.SplitN(strings.TrimPrefix(destination, destinationKindRoute+"\x00"), "\x00", 3)
+	if len(parts) != 3 || parts[0] == "" || parts[2] == "" {
+		return "", "", "", false
+	}
+	return notificationmodel.RouteScope(parts[0]), parts[1], parts[2], true
 }
 
 func findTarget(setting *notificationmodel.Settings, targetID string) (notificationmodel.Target, bool) {
@@ -674,6 +903,18 @@ func findTarget(setting *notificationmodel.Settings, targetID string) (notificat
 	return notificationmodel.Target{}, false
 }
 
+func findRoute(routeSet *notificationmodel.RouteSet, routeID string) (notificationmodel.Route, bool) {
+	if routeSet == nil || routeID == "" {
+		return notificationmodel.Route{}, false
+	}
+	for _, route := range routeSet.Routes {
+		if route.ID == routeID {
+			return route, true
+		}
+	}
+	return notificationmodel.Route{}, false
+}
+
 func findSubscription(setting *notificationmodel.Settings, subscriptionID string) (notificationmodel.Subscription, bool) {
 	if setting == nil || subscriptionID == "" {
 		return notificationmodel.Subscription{}, false
@@ -684,6 +925,79 @@ func findSubscription(setting *notificationmodel.Settings, subscriptionID string
 		}
 	}
 	return notificationmodel.Subscription{}, false
+}
+
+func (s *Service) routeDestinationsForEvent(event chatbridge.NotificationEvent, seenChannelIDs map[string]struct{}) []string {
+	if !s.reusableChannelsAllowed() {
+		return nil
+	}
+	workspaceName := eventWorkspaceName(event)
+	ctx := context.Background()
+
+	var workspaceRouteSet *notificationmodel.RouteSet
+	if workspaceName != "" {
+		if routeSet, err := s.loadRouteSet(ctx, notificationmodel.RouteScopeWorkspace, workspaceName); err == nil {
+			workspaceRouteSet = routeSet
+		} else if !errors.Is(err, notificationmodel.ErrRouteSetNotFound) {
+			s.logger.Warn("Failed to load workspace notification route set",
+				slog.String("workspace", workspaceName),
+				slog.String("error", err.Error()),
+			)
+		}
+	}
+
+	destinations := make([]string, 0)
+	if workspaceRouteSet == nil || workspaceRouteSet.InheritGlobal {
+		if globalRouteSet, err := s.loadRouteSet(ctx, notificationmodel.RouteScopeGlobal, ""); err == nil {
+			destinations = append(destinations, s.routeSetDestinationsForEvent(globalRouteSet, event, seenChannelIDs)...)
+		} else if !errors.Is(err, notificationmodel.ErrRouteSetNotFound) {
+			s.logger.Warn("Failed to load global notification route set",
+				slog.String("error", err.Error()),
+			)
+		}
+	}
+	if workspaceRouteSet != nil {
+		destinations = append(destinations, s.routeSetDestinationsForEvent(workspaceRouteSet, event, seenChannelIDs)...)
+	}
+	return destinations
+}
+
+func (s *Service) routeSetDestinationsForEvent(
+	routeSet *notificationmodel.RouteSet,
+	event chatbridge.NotificationEvent,
+	seenChannelIDs map[string]struct{},
+) []string {
+	if routeSet == nil || !routeSet.Enabled {
+		return nil
+	}
+	destinations := make([]string, 0, len(routeSet.Routes))
+	for _, route := range routeSet.Routes {
+		if !notificationmodel.IsRouteEventEnabled(routeSet, route, event.Type) {
+			continue
+		}
+		if _, ok := seenChannelIDs[route.ChannelID]; ok {
+			continue
+		}
+		channel, err := s.GetChannel(context.Background(), route.ChannelID)
+		if err != nil {
+			if !errors.Is(err, notificationmodel.ErrChannelNotFound) {
+				s.logger.Warn("Failed to load notification route channel",
+					slog.String("routeSet", routeSetID(routeSet)),
+					slog.String("channel", route.ChannelID),
+					slog.String("error", err.Error()),
+				)
+			}
+			continue
+		}
+		if !channel.Enabled {
+			continue
+		}
+		if destination := routeDestinationID(routeSet.Scope, routeSet.Workspace, route.ID); destination != "" {
+			destinations = append(destinations, destination)
+			seenChannelIDs[route.ChannelID] = struct{}{}
+		}
+	}
+	return destinations
 }
 
 func matchingEvents(setting *notificationmodel.Settings, target notificationmodel.Target, events []chatbridge.NotificationEvent) []chatbridge.NotificationEvent {
@@ -712,6 +1026,54 @@ func matchingSubscriptionEvents(setting *notificationmodel.Settings, subscriptio
 		result = append(result, event)
 	}
 	return result
+}
+
+func (s *Service) matchingRouteEvents(ctx context.Context, routeSet *notificationmodel.RouteSet, route notificationmodel.Route, events []chatbridge.NotificationEvent) []chatbridge.NotificationEvent {
+	result := make([]chatbridge.NotificationEvent, 0, len(events))
+	for _, event := range events {
+		if event.Status == nil {
+			continue
+		}
+		if !notificationmodel.IsRouteEventEnabled(routeSet, route, event.Type) {
+			continue
+		}
+		workspaceName := eventWorkspaceName(event)
+		switch routeSet.Scope {
+		case notificationmodel.RouteScopeWorkspace:
+			if workspaceName != routeSet.Workspace {
+				continue
+			}
+		case notificationmodel.RouteScopeGlobal:
+			if workspaceName != "" {
+				workspaceRouteSet, err := s.loadRouteSet(ctx, notificationmodel.RouteScopeWorkspace, workspaceName)
+				if err != nil && !errors.Is(err, notificationmodel.ErrRouteSetNotFound) {
+					s.logger.Warn("Failed to load workspace notification route set",
+						slog.String("workspace", workspaceName),
+						slog.String("error", err.Error()),
+					)
+					continue
+				}
+				if workspaceRouteSet != nil && !workspaceRouteSet.InheritGlobal {
+					continue
+				}
+			}
+		default:
+			continue
+		}
+		result = append(result, event)
+	}
+	return result
+}
+
+func eventWorkspaceName(event chatbridge.NotificationEvent) string {
+	if event.Status == nil {
+		return ""
+	}
+	workspaceName, state := exec.WorkspaceLabelFromLabels(core.NewLabels(event.Status.Labels))
+	if state == exec.WorkspaceLabelValid {
+		return workspaceName
+	}
+	return ""
 }
 
 func (s *Service) sendEmail(ctx context.Context, target notificationmodel.Target, events []chatbridge.NotificationEvent) error {

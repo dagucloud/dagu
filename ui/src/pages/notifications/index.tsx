@@ -4,7 +4,10 @@ import {
   CheckCircle2,
   Loader2,
   Mail,
+  Plus,
+  Route as RouteIcon,
   Save,
+  Trash2,
 } from 'lucide-react';
 import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
@@ -14,12 +17,24 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import ConfirmDialog from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useLicense } from '@/hooks/useLicense';
 import {
+  WorkspaceKind,
+  workspaceNameForSelection,
+} from '@/lib/workspace';
+import {
+  ReusableChannelsSection,
   ReusableChannelsUnavailableCard,
-  WorkspaceChannelsSection,
 } from '@/features/dags/components/dag-details/notifications/NotificationSections';
 import {
   authHeaders,
@@ -28,13 +43,23 @@ import {
   deliveryLabel,
   DraftChannel,
   draftChannelFromAPI,
+  EVENT_OPTIONS,
   NotificationChannel,
+  providerIcon,
+  providerLabel,
   readError,
 } from '@/features/dags/components/dag-details/notifications/notificationDrafts';
-import { components, NotificationProviderType } from '@/api/v1/schema';
+import {
+  components,
+  NotificationEventType,
+  NotificationProviderType,
+} from '@/api/v1/schema';
 
 type NotificationWorkspaceSettings =
   components['schemas']['NotificationWorkspaceSettings'];
+type NotificationRouteSet = components['schemas']['NotificationRouteSet'];
+type NotificationRouteSetInput =
+  components['schemas']['NotificationRouteSetInput'];
 
 type SMTPDraft = {
   host: string;
@@ -56,6 +81,25 @@ const blankSMTPDraft: SMTPDraft = {
   clearPassword: false,
 };
 
+type DraftRoute = {
+  id?: string;
+  channelId: string;
+  enabled: boolean;
+  events: NotificationEventType[];
+};
+
+type DraftRouteSet = {
+  enabled: boolean;
+  inheritGlobal: boolean;
+  routes: DraftRoute[];
+};
+
+const blankRouteSet: DraftRouteSet = {
+  enabled: true,
+  inheritGlobal: true,
+  routes: [],
+};
+
 function smtpDraftFromAPI(settings: NotificationWorkspaceSettings): SMTPDraft {
   const smtp = settings.smtp;
   if (!smtp) {
@@ -69,6 +113,43 @@ function smtpDraftFromAPI(settings: NotificationWorkspaceSettings): SMTPDraft {
     from: smtp.from || '',
     passwordConfigured: !!smtp.passwordConfigured,
     clearPassword: false,
+  };
+}
+
+function routeSetDraftFromAPI(routeSet?: NotificationRouteSet): DraftRouteSet {
+  if (!routeSet) {
+    return { ...blankRouteSet, routes: [] };
+  }
+  return {
+    enabled: routeSet.enabled,
+    inheritGlobal: routeSet.inheritGlobal,
+    routes: (routeSet.routes || []).map((route) => ({
+      id: route.id,
+      channelId: route.channelId,
+      enabled: route.enabled,
+      events: route.events || [],
+    })),
+  };
+}
+
+function routeSetInput(draft: DraftRouteSet): NotificationRouteSetInput {
+  return {
+    enabled: draft.enabled,
+    inheritGlobal: draft.inheritGlobal,
+    routes: draft.routes.map((route) => ({
+      id: route.id,
+      channelId: route.channelId,
+      enabled: route.enabled,
+      events: route.events.length > 0 ? route.events : undefined,
+    })),
+  };
+}
+
+function blankRoute(channels: DraftChannel[]): DraftRoute {
+  return {
+    channelId: channels.find((channel) => channel.id)?.id || '',
+    enabled: true,
+    events: [],
   };
 }
 
@@ -95,19 +176,282 @@ function smtpInput(draft: SMTPDraft) {
   };
 }
 
+type RouteSetSectionProps = {
+  title: string;
+  badge: string;
+  draft: DraftRouteSet;
+  channels: DraftChannel[];
+  saving: boolean;
+  showInheritGlobal?: boolean;
+  disabled?: boolean;
+  emptyText: string;
+  onSave: () => void;
+  onChange: (updater: (current: DraftRouteSet) => DraftRouteSet) => void;
+};
+
+function RouteSetSection({
+  title,
+  badge,
+  draft,
+  channels,
+  saving,
+  showInheritGlobal = false,
+  disabled = false,
+  emptyText,
+  onSave,
+  onChange,
+}: RouteSetSectionProps) {
+  const availableChannels = channels.filter((channel) => channel.id);
+  const addRoute = () =>
+    onChange((current) => ({
+      ...current,
+      routes: [...current.routes, blankRoute(channels)],
+    }));
+  const updateRoute = (
+    index: number,
+    updater: (route: DraftRoute) => DraftRoute
+  ) =>
+    onChange((current) => ({
+      ...current,
+      routes: current.routes.map((route, routeIndex) =>
+        routeIndex === index ? updater(route) : route
+      ),
+    }));
+  const deleteRoute = (index: number) =>
+    onChange((current) => ({
+      ...current,
+      routes: current.routes.filter((_, routeIndex) => routeIndex !== index),
+    }));
+
+  return (
+    <Card>
+      <CardHeader className="grid-cols-[1fr_auto]">
+        <div className="flex min-w-0 items-center gap-2">
+          <RouteIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <CardTitle className="truncate text-sm">{title}</CardTitle>
+          <Badge variant={draft.enabled ? 'success' : 'default'}>{badge}</Badge>
+        </div>
+        <div className="flex items-center gap-2">
+          <Switch
+            checked={draft.enabled}
+            disabled={disabled}
+            onCheckedChange={(enabled) =>
+              onChange((current) => ({ ...current, enabled }))
+            }
+            aria-label={`Toggle ${title}`}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={addRoute}
+            disabled={disabled || availableChannels.length === 0}
+          >
+            <Plus className="h-4 w-4" />
+            Add
+          </Button>
+          <Button size="sm" onClick={onSave} disabled={disabled || saving}>
+            {saving ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            Save
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {showInheritGlobal && (
+          <label className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm">
+            <Checkbox
+              checked={draft.inheritGlobal}
+              disabled={disabled}
+              onCheckedChange={(value) =>
+                onChange((current) => ({
+                  ...current,
+                  inheritGlobal: !!value,
+                }))
+              }
+            />
+            Inherit global routes
+          </label>
+        )}
+
+        {availableChannels.length === 0 ? (
+          <div className="rounded-md border border-border px-3 py-4 text-sm text-muted-foreground">
+            Create a reusable channel before adding routes.
+          </div>
+        ) : draft.routes.length === 0 ? (
+          <div className="rounded-md border border-border px-3 py-4 text-sm text-muted-foreground">
+            {emptyText}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {draft.routes.map((route, index) => {
+              const channel = channels.find(
+                (item) => item.id === route.channelId
+              );
+              const Icon = providerIcon(channel?.type);
+              const usedChannelIds = new Set(
+                draft.routes
+                  .filter((_, routeIndex) => routeIndex !== index)
+                  .map((item) => item.channelId)
+              );
+              return (
+                <div
+                  key={route.id || `${route.channelId}-${index}`}
+                  className="space-y-3 rounded-md border border-border p-3"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="truncate text-sm font-medium">
+                        {channel?.name || route.channelId || 'Route'}
+                      </span>
+                      <Badge
+                        variant={
+                          route.enabled && channel?.enabled
+                            ? 'success'
+                            : 'default'
+                        }
+                      >
+                        {route.enabled && channel?.enabled
+                          ? 'Enabled'
+                          : 'Disabled'}
+                      </Badge>
+                      {!channel && route.channelId && (
+                        <Badge variant="error">Missing</Badge>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={route.enabled}
+                        disabled={disabled}
+                        onCheckedChange={(enabled) =>
+                          updateRoute(index, (current) => ({
+                            ...current,
+                            enabled,
+                          }))
+                        }
+                        aria-label={`Toggle ${channel?.name || route.channelId}`}
+                      />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={disabled}
+                        onClick={() => deleteRoute(index)}
+                        aria-label={`Delete ${channel?.name || route.channelId}`}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  <Select
+                    value={route.channelId}
+                    disabled={disabled}
+                    onValueChange={(channelId) =>
+                      updateRoute(index, (current) => ({
+                        ...current,
+                        channelId,
+                      }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select channel" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableChannels.map((item) => (
+                        <SelectItem
+                          key={item.id}
+                          value={item.id || ''}
+                          disabled={!!item.id && usedChannelIds.has(item.id)}
+                        >
+                          {item.name || providerLabel(item.type)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <div className="flex flex-wrap gap-2">
+                    {EVENT_OPTIONS.map((event) => {
+                      const checked = route.events.includes(event.value);
+                      return (
+                        <label
+                          key={event.value}
+                          className="flex h-8 items-center gap-2 rounded-md border border-border px-3 text-xs"
+                        >
+                          <Checkbox
+                            checked={checked}
+                            disabled={disabled}
+                            onCheckedChange={(value) =>
+                              updateRoute(index, (current) => ({
+                                ...current,
+                                events: value
+                                  ? [...current.events, event.value]
+                                  : current.events.filter(
+                                      (item) => item !== event.value
+                                    ),
+                              }))
+                            }
+                          />
+                          {event.label}
+                        </label>
+                      );
+                    })}
+                    {route.events.length > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={disabled}
+                        onClick={() =>
+                          updateRoute(index, (current) => ({
+                            ...current,
+                            events: [],
+                          }))
+                        }
+                      >
+                        Default
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function NotificationsPage() {
   const config = useConfig();
   const license = useLicense();
   const appBarContext = useContext(AppBarContext);
   const reusableChannelsLicensed =
     !license.community && (license.valid || license.gracePeriod);
+  const workspaceSelection = appBarContext.workspaceSelection;
+  const selectedWorkspaceName = workspaceNameForSelection(workspaceSelection);
+  const canConfigureWorkspaceRoutes =
+    workspaceSelection?.kind === WorkspaceKind.workspace &&
+    !!selectedWorkspaceName;
   const query = useMemo(
     () =>
       `?remoteNode=${encodeURIComponent(appBarContext.selectedRemoteNode || 'local')}`,
     [appBarContext.selectedRemoteNode]
   );
   const [smtpDraft, setSMTPDraft] = useState<SMTPDraft>(blankSMTPDraft);
+  const [globalRoutes, setGlobalRoutes] = useState<DraftRouteSet>({
+    ...blankRouteSet,
+    routes: [],
+  });
+  const [workspaceRoutes, setWorkspaceRoutes] = useState<DraftRouteSet>({
+    ...blankRouteSet,
+    routes: [],
+  });
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [isSavingGlobalRoutes, setIsSavingGlobalRoutes] = useState(false);
+  const [isSavingWorkspaceRoutes, setIsSavingWorkspaceRoutes] = useState(false);
   const [channels, setChannels] = useState<DraftChannel[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [savingChannelIndex, setSavingChannelIndex] = useState<number | null>(
@@ -142,25 +486,67 @@ export default function NotificationsPage() {
 
       if (!reusableChannelsLicensed) {
         setChannels([]);
+        setGlobalRoutes({ ...blankRouteSet, routes: [] });
+        setWorkspaceRoutes({ ...blankRouteSet, routes: [] });
         return;
       }
-      const response = await fetch(
-        `${config.apiURL}/notification-channels${query}`,
-        { headers: authHeaders() }
-      );
+      const [response, globalRoutesResponse, workspaceRoutesResponse] =
+        await Promise.all([
+          fetch(`${config.apiURL}/notification-channels${query}`, {
+            headers: authHeaders(),
+          }),
+          fetch(`${config.apiURL}/notification-routes/global${query}`, {
+            headers: authHeaders(),
+          }),
+          canConfigureWorkspaceRoutes
+            ? fetch(
+                `${config.apiURL}/notification-routes/workspaces/${encodeURIComponent(selectedWorkspaceName)}${query}`,
+                { headers: authHeaders() }
+              )
+            : Promise.resolve(null),
+        ]);
       if (!response.ok) {
         throw new Error(await readError(response, 'Failed to load channels'));
+      }
+      if (!globalRoutesResponse.ok) {
+        throw new Error(
+          await readError(globalRoutesResponse, 'Failed to load global routes')
+        );
       }
       const data = (await response.json()) as {
         channels: NotificationChannel[];
       };
       setChannels((data.channels || []).map(draftChannelFromAPI));
+      const globalRouteSet =
+        (await globalRoutesResponse.json()) as NotificationRouteSet;
+      setGlobalRoutes(routeSetDraftFromAPI(globalRouteSet));
+      if (workspaceRoutesResponse) {
+        if (!workspaceRoutesResponse.ok) {
+          throw new Error(
+            await readError(
+              workspaceRoutesResponse,
+              'Failed to load workspace routes'
+            )
+          );
+        }
+        const workspaceRouteSet =
+          (await workspaceRoutesResponse.json()) as NotificationRouteSet;
+        setWorkspaceRoutes(routeSetDraftFromAPI(workspaceRouteSet));
+      } else {
+        setWorkspaceRoutes({ ...blankRouteSet, routes: [] });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load settings');
     } finally {
       setIsLoading(false);
     }
-  }, [config.apiURL, query, reusableChannelsLicensed]);
+  }, [
+    canConfigureWorkspaceRoutes,
+    config.apiURL,
+    query,
+    reusableChannelsLicensed,
+    selectedWorkspaceName,
+  ]);
 
   useEffect(() => {
     fetchSettings();
@@ -189,6 +575,68 @@ export default function NotificationsPage() {
       setError(err instanceof Error ? err.message : 'Failed to save settings');
     } finally {
       setIsSavingSettings(false);
+    }
+  };
+
+  const saveGlobalRoutes = async () => {
+    if (!reusableChannelsLicensed) return;
+    setIsSavingGlobalRoutes(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch(
+        `${config.apiURL}/notification-routes/global${query}`,
+        {
+          method: 'PUT',
+          headers: authHeaders(),
+          body: JSON.stringify(routeSetInput(globalRoutes)),
+        }
+      );
+      if (!response.ok) {
+        throw new Error(
+          await readError(response, 'Failed to save global routes')
+        );
+      }
+      const routeSet = (await response.json()) as NotificationRouteSet;
+      setGlobalRoutes(routeSetDraftFromAPI(routeSet));
+      setNotice('Global routes saved');
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Failed to save global routes'
+      );
+    } finally {
+      setIsSavingGlobalRoutes(false);
+    }
+  };
+
+  const saveWorkspaceRoutes = async () => {
+    if (!reusableChannelsLicensed || !canConfigureWorkspaceRoutes) return;
+    setIsSavingWorkspaceRoutes(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch(
+        `${config.apiURL}/notification-routes/workspaces/${encodeURIComponent(selectedWorkspaceName)}${query}`,
+        {
+          method: 'PUT',
+          headers: authHeaders(),
+          body: JSON.stringify(routeSetInput(workspaceRoutes)),
+        }
+      );
+      if (!response.ok) {
+        throw new Error(
+          await readError(response, 'Failed to save workspace routes')
+        );
+      }
+      const routeSet = (await response.json()) as NotificationRouteSet;
+      setWorkspaceRoutes(routeSetDraftFromAPI(routeSet));
+      setNotice('Workspace routes saved');
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Failed to save workspace routes'
+      );
+    } finally {
+      setIsSavingWorkspaceRoutes(false);
     }
   };
 
@@ -298,7 +746,9 @@ export default function NotificationsPage() {
           <div className="flex items-center gap-2">
             <Bell className="h-4 w-4 text-muted-foreground" />
             <CardTitle className="text-sm">Notifications</CardTitle>
-            <Badge variant="default">Workspace</Badge>
+            <Badge variant="default">
+              {canConfigureWorkspaceRoutes ? selectedWorkspaceName : 'Global'}
+            </Badge>
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -417,14 +867,47 @@ export default function NotificationsPage() {
       </Card>
 
       {reusableChannelsLicensed ? (
-        <WorkspaceChannelsSection
-          channels={channels}
-          savingChannelIndex={savingChannelIndex}
-          onAdd={addChannel}
-          onUpdate={updateChannel}
-          onSave={saveChannel}
-          onDelete={setDeleteChannelIndex}
-        />
+        <>
+          <RouteSetSection
+            title="Global Routes"
+            badge={globalRoutes.enabled ? 'Enabled' : 'Disabled'}
+            draft={globalRoutes}
+            channels={channels}
+            saving={isSavingGlobalRoutes}
+            emptyText="No global routes configured."
+            onSave={saveGlobalRoutes}
+            onChange={(updater) =>
+              setGlobalRoutes((current) => updater(current))
+            }
+          />
+
+          {canConfigureWorkspaceRoutes && (
+            <RouteSetSection
+              title={`${selectedWorkspaceName} Routes`}
+              badge={
+                workspaceRoutes.inheritGlobal ? 'Inherits Global' : 'Isolated'
+              }
+              draft={workspaceRoutes}
+              channels={channels}
+              saving={isSavingWorkspaceRoutes}
+              showInheritGlobal
+              emptyText="No workspace routes configured."
+              onSave={saveWorkspaceRoutes}
+              onChange={(updater) =>
+                setWorkspaceRoutes((current) => updater(current))
+              }
+            />
+          )}
+
+          <ReusableChannelsSection
+            channels={channels}
+            savingChannelIndex={savingChannelIndex}
+            onAdd={addChannel}
+            onUpdate={updateChannel}
+            onSave={saveChannel}
+            onDelete={setDeleteChannelIndex}
+          />
+        </>
       ) : (
         <ReusableChannelsUnavailableCard showDAGLocalNote={false} />
       )}

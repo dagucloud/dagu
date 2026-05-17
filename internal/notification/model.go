@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/dagucloud/dagu/internal/service/eventstore"
+	"github.com/dagucloud/dagu/internal/workspace"
 )
 
 type ProviderType string
@@ -48,11 +49,19 @@ var (
 	ErrSettingsNotFound   = errors.New("notification settings not found")
 	ErrInvalidSettings    = errors.New("invalid notification settings")
 	ErrChannelNotFound    = errors.New("notification channel not found")
-	ErrChannelInUse       = errors.New("notification channel is used by DAG notification settings")
+	ErrChannelInUse       = errors.New("notification channel is in use")
+	ErrRouteSetNotFound   = errors.New("notification route set not found")
 	ErrTargetNotFound     = errors.New("notification target not found")
 	ErrUnsupportedEvent   = errors.New("unsupported notification event")
 	ErrUnsupportedTarget  = errors.New("unsupported notification target provider")
 	ErrSecretStoreMissing = errors.New("notification secret store is not configured")
+)
+
+type RouteScope string
+
+const (
+	RouteScopeGlobal    RouteScope = "global"
+	RouteScopeWorkspace RouteScope = "workspace"
 )
 
 type Settings struct {
@@ -98,6 +107,25 @@ type SMTPConfig struct {
 	Password      string `json:"password,omitempty"`
 	From          string `json:"from,omitempty"`
 	ClearPassword bool   `json:"-"`
+}
+
+type RouteSet struct {
+	ID            string     `json:"id"`
+	Scope         RouteScope `json:"scope"`
+	Workspace     string     `json:"workspace,omitempty"`
+	Enabled       bool       `json:"enabled"`
+	InheritGlobal bool       `json:"inheritGlobal"`
+	Routes        []Route    `json:"routes"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	UpdatedAt     time.Time  `json:"updatedAt"`
+	UpdatedBy     string     `json:"updatedBy,omitempty"`
+}
+
+type Route struct {
+	ID        string                 `json:"id"`
+	ChannelID string                 `json:"channelId"`
+	Enabled   bool                   `json:"enabled"`
+	Events    []eventstore.EventType `json:"events,omitempty"`
 }
 
 type Subscription struct {
@@ -192,6 +220,25 @@ type PublicSMTPConfig struct {
 	PasswordConfigured bool   `json:"passwordConfigured"`
 }
 
+type PublicRouteSet struct {
+	ID            string        `json:"id"`
+	Scope         RouteScope    `json:"scope"`
+	Workspace     string        `json:"workspace,omitempty"`
+	Enabled       bool          `json:"enabled"`
+	InheritGlobal bool          `json:"inheritGlobal"`
+	Routes        []PublicRoute `json:"routes"`
+	CreatedAt     time.Time     `json:"createdAt"`
+	UpdatedAt     time.Time     `json:"updatedAt"`
+	UpdatedBy     string        `json:"updatedBy,omitempty"`
+}
+
+type PublicRoute struct {
+	ID        string   `json:"id"`
+	ChannelID string   `json:"channelId"`
+	Enabled   bool     `json:"enabled"`
+	Events    []string `json:"events,omitempty"`
+}
+
 type PublicSubscription struct {
 	ID        string   `json:"id"`
 	ChannelID string   `json:"channelId"`
@@ -239,6 +286,10 @@ type Store interface {
 	DeleteByDAGName(ctx context.Context, dagName string) error
 	SaveWorkspaceSettings(ctx context.Context, settings *WorkspaceSettings) error
 	GetWorkspaceSettings(ctx context.Context) (*WorkspaceSettings, error)
+	SaveRouteSet(ctx context.Context, routeSet *RouteSet) error
+	GetRouteSet(ctx context.Context, scope RouteScope, workspace string) (*RouteSet, error)
+	ListRouteSets(ctx context.Context) ([]*RouteSet, error)
+	DeleteRouteSet(ctx context.Context, scope RouteScope, workspace string) error
 	SaveChannel(ctx context.Context, channel *Channel) error
 	GetChannel(ctx context.Context, channelID string) (*Channel, error)
 	ListChannels(ctx context.Context) ([]*Channel, error)
@@ -360,6 +411,64 @@ func NormalizeWorkspaceSettings(settings *WorkspaceSettings, updatedBy string) (
 	settings.UpdatedAt = now
 	settings.UpdatedBy = updatedBy
 	return settings, nil
+}
+
+func NormalizeRouteSet(routeSet *RouteSet, updatedBy string) (*RouteSet, error) {
+	if routeSet == nil {
+		return nil, fmt.Errorf("%w: route set is nil", ErrInvalidSettings)
+	}
+	routeSet.Scope = RouteScope(strings.TrimSpace(string(routeSet.Scope)))
+	routeSet.Workspace = strings.TrimSpace(routeSet.Workspace)
+	switch routeSet.Scope {
+	case RouteScopeGlobal:
+		routeSet.Workspace = ""
+		routeSet.InheritGlobal = true
+	case RouteScopeWorkspace:
+		if err := workspace.ValidateName(routeSet.Workspace); err != nil {
+			return nil, fmt.Errorf("%w: invalid workspace route scope: %w", ErrInvalidSettings, err)
+		}
+	default:
+		return nil, fmt.Errorf("%w: invalid notification route scope", ErrInvalidSettings)
+	}
+	if routeSet.ID == "" {
+		routeSet.ID = uuid.New().String()
+	}
+
+	channelIDs := make(map[string]struct{}, len(routeSet.Routes))
+	for i := range routeSet.Routes {
+		if err := normalizeRoute(&routeSet.Routes[i]); err != nil {
+			return nil, err
+		}
+		if _, ok := channelIDs[routeSet.Routes[i].ChannelID]; ok {
+			return nil, fmt.Errorf("%w: duplicate notification route channel %s", ErrInvalidSettings, routeSet.Routes[i].ChannelID)
+		}
+		channelIDs[routeSet.Routes[i].ChannelID] = struct{}{}
+	}
+
+	now := time.Now().UTC()
+	if routeSet.CreatedAt.IsZero() {
+		routeSet.CreatedAt = now
+	}
+	routeSet.UpdatedAt = now
+	routeSet.UpdatedBy = updatedBy
+	return routeSet, nil
+}
+
+func normalizeRoute(route *Route) error {
+	route.ID = strings.TrimSpace(route.ID)
+	if route.ID == "" {
+		route.ID = uuid.New().String()
+	}
+	route.ChannelID = strings.TrimSpace(route.ChannelID)
+	if route.ChannelID == "" {
+		return fmt.Errorf("%w: notification route channel id is required", ErrInvalidSettings)
+	}
+	events, err := normalizeEventList(route.Events, false)
+	if err != nil {
+		return err
+	}
+	route.Events = events
+	return nil
 }
 
 func normalizeSMTPConfig(cfg *SMTPConfig) (*SMTPConfig, error) {
@@ -598,6 +707,16 @@ func IsSubscriptionEventEnabled(settings *Settings, subscription Subscription, e
 	return slices.Contains(subscription.Events, event)
 }
 
+func IsRouteEventEnabled(routeSet *RouteSet, route Route, event eventstore.EventType) bool {
+	if routeSet == nil || !routeSet.Enabled || !route.Enabled {
+		return false
+	}
+	if len(route.Events) == 0 {
+		return slices.Contains(defaultEvents, event)
+	}
+	return slices.Contains(route.Events, event)
+}
+
 func ToPublic(settings *Settings) *PublicSettings {
 	if settings == nil {
 		return nil
@@ -669,6 +788,33 @@ func (s WorkspaceSettings) ToPublic() PublicWorkspaceSettings {
 		}
 	}
 	return pub
+}
+
+func (s RouteSet) ToPublic() PublicRouteSet {
+	routes := make([]PublicRoute, 0, len(s.Routes))
+	for _, route := range s.Routes {
+		routes = append(routes, route.ToPublic())
+	}
+	return PublicRouteSet{
+		ID:            s.ID,
+		Scope:         s.Scope,
+		Workspace:     s.Workspace,
+		Enabled:       s.Enabled,
+		InheritGlobal: s.InheritGlobal,
+		Routes:        routes,
+		CreatedAt:     s.CreatedAt,
+		UpdatedAt:     s.UpdatedAt,
+		UpdatedBy:     s.UpdatedBy,
+	}
+}
+
+func (r Route) ToPublic() PublicRoute {
+	return PublicRoute{
+		ID:        r.ID,
+		ChannelID: r.ChannelID,
+		Enabled:   r.Enabled,
+		Events:    eventStrings(r.Events),
+	}
 }
 
 func (c Channel) ToTarget() Target {

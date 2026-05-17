@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/internal/service/audit"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
 	notificationservice "github.com/dagucloud/dagu/internal/service/notification"
+	"github.com/dagucloud/dagu/internal/workspace"
 )
 
 var errNotificationManagementNotAvailable = &Error{
@@ -54,6 +55,123 @@ func (a *API) UpdateNotificationSettings(ctx context.Context, request api.Update
 		"smtp_configured": saved.SMTP != nil,
 	})
 	return api.UpdateNotificationSettings200JSONResponse(toAPINotificationWorkspaceSettings(saved)), nil
+}
+
+func (a *API) ListNotificationRoutes(ctx context.Context, _ api.ListNotificationRoutesRequestObject) (api.ListNotificationRoutesResponseObject, error) {
+	if err := a.requireNotificationManagement(ctx); err != nil {
+		return nil, err
+	}
+	if err := a.requireLicensedReusableNotificationChannels(); err != nil {
+		return nil, err
+	}
+	routeSets, err := a.notificationService.ListRouteSets(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return api.ListNotificationRoutes200JSONResponse{
+		RouteSets: toAPINotificationRouteSets(routeSets),
+	}, nil
+}
+
+func (a *API) GetGlobalNotificationRoutes(ctx context.Context, _ api.GetGlobalNotificationRoutesRequestObject) (api.GetGlobalNotificationRoutesResponseObject, error) {
+	if err := a.requireNotificationManagement(ctx); err != nil {
+		return nil, err
+	}
+	if err := a.requireLicensedReusableNotificationChannels(); err != nil {
+		return nil, err
+	}
+	routeSet, err := a.notificationService.GetRouteSet(ctx, notificationmodel.RouteScopeGlobal, "")
+	if err != nil {
+		return nil, err
+	}
+	return api.GetGlobalNotificationRoutes200JSONResponse(toAPINotificationRouteSet(routeSet)), nil
+}
+
+func (a *API) UpdateGlobalNotificationRoutes(ctx context.Context, request api.UpdateGlobalNotificationRoutesRequestObject) (api.UpdateGlobalNotificationRoutesResponseObject, error) {
+	if err := a.requireNotificationManagement(ctx); err != nil {
+		return nil, err
+	}
+	if err := a.requireLicensedReusableNotificationChannels(); err != nil {
+		return nil, err
+	}
+	if request.Body == nil {
+		return nil, badNotificationRequest("request body is required")
+	}
+	routeSet := notificationRouteSetFromRequest(notificationmodel.RouteScopeGlobal, "", *request.Body)
+	saved, err := a.notificationService.SaveRouteSet(ctx, routeSet, getCreatorID(ctx))
+	if err != nil {
+		switch {
+		case errors.Is(err, notificationmodel.ErrChannelNotFound):
+			return nil, notificationNotFound(err.Error())
+		case notificationRequestError(err):
+			return nil, badNotificationRequest(err.Error())
+		default:
+			return nil, err
+		}
+	}
+	a.logAudit(ctx, audit.CategoryNotification, "notification_route_set_update", map[string]any{
+		"scope":  saved.Scope,
+		"routes": len(saved.Routes),
+	})
+	return api.UpdateGlobalNotificationRoutes200JSONResponse(toAPINotificationRouteSet(saved)), nil
+}
+
+func (a *API) GetWorkspaceNotificationRoutes(ctx context.Context, request api.GetWorkspaceNotificationRoutesRequestObject) (api.GetWorkspaceNotificationRoutesResponseObject, error) {
+	if err := a.requireNotificationManagement(ctx); err != nil {
+		return nil, err
+	}
+	if err := a.requireLicensedReusableNotificationChannels(); err != nil {
+		return nil, err
+	}
+	workspaceName, err := a.resolveNotificationRouteWorkspace(ctx, string(request.WorkspaceName))
+	if err != nil {
+		return nil, err
+	}
+	if err := a.requireWorkspaceVisible(ctx, workspaceName); err != nil {
+		return nil, err
+	}
+	routeSet, err := a.notificationService.GetRouteSet(ctx, notificationmodel.RouteScopeWorkspace, workspaceName)
+	if err != nil {
+		return nil, err
+	}
+	return api.GetWorkspaceNotificationRoutes200JSONResponse(toAPINotificationRouteSet(routeSet)), nil
+}
+
+func (a *API) UpdateWorkspaceNotificationRoutes(ctx context.Context, request api.UpdateWorkspaceNotificationRoutesRequestObject) (api.UpdateWorkspaceNotificationRoutesResponseObject, error) {
+	if err := a.requireNotificationManagement(ctx); err != nil {
+		return nil, err
+	}
+	if err := a.requireLicensedReusableNotificationChannels(); err != nil {
+		return nil, err
+	}
+	if request.Body == nil {
+		return nil, badNotificationRequest("request body is required")
+	}
+	workspaceName, err := a.resolveNotificationRouteWorkspace(ctx, string(request.WorkspaceName))
+	if err != nil {
+		return nil, err
+	}
+	if err := a.requireWorkspaceConfigWrite(ctx, workspaceName); err != nil {
+		return nil, err
+	}
+	routeSet := notificationRouteSetFromRequest(notificationmodel.RouteScopeWorkspace, workspaceName, *request.Body)
+	saved, err := a.notificationService.SaveRouteSet(ctx, routeSet, getCreatorID(ctx))
+	if err != nil {
+		switch {
+		case errors.Is(err, notificationmodel.ErrChannelNotFound):
+			return nil, notificationNotFound(err.Error())
+		case notificationRequestError(err):
+			return nil, badNotificationRequest(err.Error())
+		default:
+			return nil, err
+		}
+	}
+	a.logAudit(ctx, audit.CategoryNotification, "notification_route_set_update", map[string]any{
+		"scope":     saved.Scope,
+		"workspace": saved.Workspace,
+		"routes":    len(saved.Routes),
+	})
+	return api.UpdateWorkspaceNotificationRoutes200JSONResponse(toAPINotificationRouteSet(saved)), nil
 }
 
 func (a *API) ListNotificationChannels(ctx context.Context, _ api.ListNotificationChannelsRequestObject) (api.ListNotificationChannelsResponseObject, error) {
@@ -310,6 +428,27 @@ func (a *API) requireNotificationManagement(ctx context.Context) error {
 	return a.requireDeveloperOrAbove(ctx)
 }
 
+func (a *API) resolveNotificationRouteWorkspace(ctx context.Context, name string) (string, error) {
+	if a.workspaceStore == nil {
+		return "", workspaceStoreUnavailable()
+	}
+	workspaceName, err := validateWorkspaceParam(name)
+	if err != nil {
+		return "", err
+	}
+	if workspaceName == "" {
+		return "", badWorkspaceError("workspace name is required")
+	}
+	ws, err := a.workspaceStore.GetByName(ctx, workspaceName)
+	if err != nil {
+		if errors.Is(err, workspace.ErrWorkspaceNotFound) {
+			return "", workspaceResourceNotFound()
+		}
+		return "", err
+	}
+	return ws.Name, nil
+}
+
 func (a *API) ensureDAGExists(ctx context.Context, dagName string) error {
 	if _, err := a.dagStore.GetDetails(ctx, dagName); err != nil {
 		if errors.Is(err, exec.ErrDAGNotFound) {
@@ -397,6 +536,35 @@ func notificationWorkspaceSettingsFromRequest(input api.NotificationWorkspaceSet
 		}
 	}
 	return settings
+}
+
+func notificationRouteSetFromRequest(scope notificationmodel.RouteScope, workspace string, input api.NotificationRouteSetInput) *notificationmodel.RouteSet {
+	routeSet := &notificationmodel.RouteSet{
+		Scope:         scope,
+		Workspace:     workspace,
+		Enabled:       input.Enabled,
+		InheritGlobal: input.InheritGlobal,
+		Routes:        make([]notificationmodel.Route, 0, len(input.Routes)),
+	}
+	for _, route := range input.Routes {
+		routeSet.Routes = append(routeSet.Routes, notificationRouteFromRequest(route))
+	}
+	return routeSet
+}
+
+func notificationRouteFromRequest(input api.NotificationRouteInput) notificationmodel.Route {
+	route := notificationmodel.Route{
+		ID:        valueOf(input.Id),
+		ChannelID: input.ChannelId,
+		Enabled:   input.Enabled,
+	}
+	if input.Events != nil {
+		route.Events = make([]eventstore.EventType, 0, len(*input.Events))
+		for _, event := range *input.Events {
+			route.Events = append(route.Events, eventstore.EventType(event))
+		}
+	}
+	return route
 }
 
 func notificationChannelFromRequest(id string, input api.NotificationChannelInput) *notificationmodel.Channel {
@@ -551,6 +719,65 @@ func toAPINotificationWorkspaceSettings(settings *notificationmodel.WorkspaceSet
 			From:               ptrOf(pub.SMTP.From),
 			PasswordConfigured: pub.SMTP.PasswordConfigured,
 		}
+	}
+	return result
+}
+
+func toAPINotificationRouteSets(routeSets []*notificationmodel.RouteSet) []api.NotificationRouteSet {
+	out := make([]api.NotificationRouteSet, 0, len(routeSets))
+	for _, routeSet := range routeSets {
+		out = append(out, toAPINotificationRouteSet(routeSet))
+	}
+	return out
+}
+
+func toAPINotificationRouteSet(routeSet *notificationmodel.RouteSet) api.NotificationRouteSet {
+	if routeSet == nil {
+		return api.NotificationRouteSet{
+			Scope:         api.NotificationRouteScopeGlobal,
+			Enabled:       true,
+			InheritGlobal: true,
+			Routes:        []api.NotificationRoute{},
+		}
+	}
+	pub := routeSet.ToPublic()
+	result := api.NotificationRouteSet{
+		Id:            ptrOf(pub.ID),
+		Scope:         api.NotificationRouteScope(pub.Scope),
+		Enabled:       pub.Enabled,
+		InheritGlobal: pub.InheritGlobal,
+		Routes:        make([]api.NotificationRoute, 0, len(pub.Routes)),
+	}
+	if pub.Workspace != "" {
+		result.Workspace = ptrOf(pub.Workspace)
+	}
+	if !pub.CreatedAt.IsZero() {
+		result.CreatedAt = ptrOf(pub.CreatedAt)
+	}
+	if !pub.UpdatedAt.IsZero() {
+		result.UpdatedAt = ptrOf(pub.UpdatedAt)
+	}
+	if pub.UpdatedBy != "" {
+		result.UpdatedBy = ptrOf(pub.UpdatedBy)
+	}
+	for _, route := range pub.Routes {
+		result.Routes = append(result.Routes, toAPINotificationRoute(route))
+	}
+	return result
+}
+
+func toAPINotificationRoute(route notificationmodel.PublicRoute) api.NotificationRoute {
+	result := api.NotificationRoute{
+		Id:        route.ID,
+		ChannelId: route.ChannelID,
+		Enabled:   route.Enabled,
+	}
+	if len(route.Events) > 0 {
+		events := make([]api.NotificationEventType, 0, len(route.Events))
+		for _, event := range route.Events {
+			events = append(events, api.NotificationEventType(event))
+		}
+		result.Events = &events
 	}
 	return result
 }
