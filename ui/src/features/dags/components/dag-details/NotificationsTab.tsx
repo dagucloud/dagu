@@ -1,9 +1,21 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Loader2 } from 'lucide-react';
+import {
+  Bell,
+  FlaskConical,
+  Loader2,
+  Mail,
+  RefreshCw,
+  RotateCcw,
+  Route as RouteIcon,
+  Save,
+  Settings,
+} from 'lucide-react';
 import { useContext, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 
+import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import ConfirmDialog from '@/components/ui/confirm-dialog';
 import {
@@ -42,6 +54,128 @@ type NotificationsTabProps = {
   fileName: string;
   workspaceName?: string;
 };
+
+type DAGNotificationHeaderProps = {
+  isDAGConfigured: boolean;
+  hasUnsavedChanges: boolean;
+  isSaving: boolean;
+  isResetting: boolean;
+  testingTargetId: string | null;
+  testableDestinationCount: number;
+  onRefresh: () => void;
+  onTestAll: () => void;
+  onConfigureDAG: () => void;
+  onResetDAG: () => void;
+  onSave: () => void;
+};
+
+function DAGNotificationHeader({
+  isDAGConfigured,
+  hasUnsavedChanges,
+  isSaving,
+  isResetting,
+  testingTargetId,
+  testableDestinationCount,
+  onRefresh,
+  onTestAll,
+  onConfigureDAG,
+  onResetDAG,
+  onSave,
+}: DAGNotificationHeaderProps) {
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-normal text-foreground">
+            DAG Notifications
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            This DAG inherits rules by default. Configure a DAG override only
+            when this DAG needs different events or destinations.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" onClick={onRefresh}>
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onTestAll}
+            disabled={
+              hasUnsavedChanges ||
+              testableDestinationCount === 0 ||
+              testingTargetId !== null
+            }
+          >
+            {testingTargetId === '__all__' ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FlaskConical className="h-4 w-4" />
+            )}
+            Send test
+          </Button>
+          {isDAGConfigured ? (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onResetDAG}
+                disabled={isResetting || isSaving}
+              >
+                {isResetting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RotateCcw className="h-4 w-4" />
+                )}
+                Reset to inherit
+              </Button>
+              <Button
+                size="sm"
+                onClick={onSave}
+                disabled={!hasUnsavedChanges || isSaving}
+              >
+                {isSaving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                Save changes
+              </Button>
+            </>
+          ) : (
+            <Button size="sm" onClick={onConfigureDAG}>
+              <Settings className="h-4 w-4" />
+              Configure DAG override
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-1 border-b border-border">
+        <span className="inline-flex h-10 items-center gap-2 border-b-2 border-primary px-3 text-sm font-medium text-foreground">
+          <Bell className="h-4 w-4 text-primary" />
+          This DAG
+        </span>
+        <Link
+          to="/notification-rules"
+          className="inline-flex h-10 items-center gap-2 border-b-2 border-transparent px-3 text-sm font-medium text-muted-foreground hover:text-foreground"
+        >
+          <RouteIcon className="h-4 w-4" />
+          Rules
+        </Link>
+        <Link
+          to="/notification-channels"
+          className="inline-flex h-10 items-center gap-2 border-b-2 border-transparent px-3 text-sm font-medium text-muted-foreground hover:text-foreground"
+        >
+          <Mail className="h-4 w-4" />
+          Channels
+        </Link>
+      </div>
+    </div>
+  );
+}
 
 function NotificationsTab({ fileName, workspaceName }: NotificationsTabProps) {
   const config = useConfig();
@@ -331,6 +465,20 @@ function NotificationsTab({ fileName, workspaceName }: NotificationsTabProps) {
 
   return (
     <div className="space-y-4">
+      <DAGNotificationHeader
+        isDAGConfigured={hasDAGSettings}
+        hasUnsavedChanges={hasUnsavedChanges}
+        isSaving={isSaving}
+        isResetting={isResetting}
+        testingTargetId={testingTargetId}
+        testableDestinationCount={testableDestinationCount}
+        onRefresh={refreshSettings}
+        onTestAll={() => testNotifications()}
+        onConfigureDAG={configureDAGOverride}
+        onResetDAG={() => setResetVisible(true)}
+        onSave={saveSettings}
+      />
+
       {isLoading && (
         <Card>
           <CardContent className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
@@ -349,10 +497,6 @@ function NotificationsTab({ fileName, workspaceName }: NotificationsTabProps) {
         error={error}
         notice={notice}
         testResults={testResults}
-        isSaving={isSaving}
-        isResetting={isResetting}
-        testingTargetId={testingTargetId}
-        testableDestinationCount={testableDestinationCount}
         onEnabledChange={(enabled) => {
           setHasUnsavedChanges(true);
           setDraft((current) => ({ ...current, enabled }));
@@ -361,23 +505,15 @@ function NotificationsTab({ fileName, workspaceName }: NotificationsTabProps) {
           setHasUnsavedChanges(true);
           setDraft((current) => ({ ...current, events }));
         }}
-        onRefresh={refreshSettings}
-        onTestAll={() => testNotifications()}
-        onConfigureDAG={configureDAGOverride}
-        onResetDAG={() => setResetVisible(true)}
-        onSave={saveSettings}
       />
 
       {reusableChannelsLicensed && hasDAGSettings ? (
         <DAGSubscriptionsSection
           draft={draft}
           channels={channels}
-          isSaving={isSaving}
-          hasUnsavedChanges={hasUnsavedChanges}
           testingTargetId={testingTargetId}
           manageChannelsHref="/notification-channels"
           onAdd={addSubscription}
-          onSave={saveSettings}
           onUpdate={updateSubscription}
           onDelete={setDeleteSubscriptionIndex}
           onTest={testNotifications}
@@ -395,11 +531,8 @@ function NotificationsTab({ fileName, workspaceName }: NotificationsTabProps) {
       {hasDAGSettings && (
         <DAGLocalTargetsSection
           draft={draft}
-          isSaving={isSaving}
-          hasUnsavedChanges={hasUnsavedChanges}
           testingTargetId={testingTargetId}
           onAdd={addLocalTarget}
-          onSave={saveSettings}
           onUpdate={updateTarget}
           onDelete={setDeleteTargetIndex}
           onTest={testNotifications}

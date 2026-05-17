@@ -189,7 +189,7 @@ describe('NotificationsTab', () => {
     });
   });
 
-  it('makes empty DAG overrides explicit and puts save next to destination edits', async () => {
+  it('makes empty DAG overrides explicit and keeps one save action', async () => {
     dagSettingsResponse = () =>
       jsonResponse({
         id: 'settings-1',
@@ -203,7 +203,9 @@ describe('NotificationsTab', () => {
       });
     renderTab();
 
-    expect(await screen.findByText('DAG override')).toBeVisible();
+    expect((await screen.findAllByText('DAG override')).length).toBeGreaterThan(
+      0
+    );
     expect(
       screen.getByText(
         'This DAG override has no destinations. Inherited rules are not used while the override exists.'
@@ -218,7 +220,7 @@ describe('NotificationsTab', () => {
       screen.getByRole('button', { name: /reset to inherit/i })
     ).toBeVisible();
     expect(
-      screen.getAllByRole('button', { name: /save changes/i }).length
-    ).toBeGreaterThan(0);
+      screen.getAllByRole('button', { name: /save changes/i })
+    ).toHaveLength(1);
   });
 });

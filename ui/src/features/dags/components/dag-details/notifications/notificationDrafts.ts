@@ -117,6 +117,12 @@ export const DEFAULT_NOTIFICATION_EVENTS = [
   NotificationEventType.dag_run_waiting,
 ];
 
+export const DEFAULT_SUBJECT_TEMPLATE = '{{dag.name}} {{run.status}}';
+export const DEFAULT_MESSAGE_TEMPLATE =
+  'DAG {{dag.name}} {{run.status}}: {{run.error}}';
+export const DEFAULT_EMAIL_BODY_TEMPLATE =
+  'DAG: {{dag.name}}\nRun ID: {{run.id}}\nStatus: {{run.status}}\nError: {{run.error}}';
+
 export function defaultDraft(): DraftSettings {
   return {
     enabled: true,
@@ -126,12 +132,28 @@ export function defaultDraft(): DraftSettings {
   };
 }
 
+export function defaultDeliveryName(type: NotificationProviderType): string {
+  if (type === NotificationProviderType.webhook) {
+    return 'Webhook';
+  }
+  return providerLabel(type);
+}
+
+export function isDefaultDeliveryName(
+  name: string,
+  type: NotificationProviderType
+): boolean {
+  const trimmed = name.trim();
+  return (
+    trimmed === '' ||
+    trimmed === defaultDeliveryName(type) ||
+    trimmed === providerLabel(type)
+  );
+}
+
 export function blankDelivery(type: NotificationProviderType): DeliveryDraft {
-  const label =
-    PROVIDER_OPTIONS.find((provider) => provider.value === type)?.label ||
-    'Channel';
   return {
-    name: label,
+    name: defaultDeliveryName(type),
     type,
     enabled: true,
     email: {
@@ -140,15 +162,15 @@ export function blankDelivery(type: NotificationProviderType): DeliveryDraft {
       cc: '',
       bcc: '',
       subjectPrefix: '',
-      subjectTemplate: '',
-      bodyTemplate: '',
+      subjectTemplate: DEFAULT_SUBJECT_TEMPLATE,
+      bodyTemplate: DEFAULT_EMAIL_BODY_TEMPLATE,
       attachLogs: false,
     },
     webhook: {
       url: '',
       headers: '',
       hmacSecret: '',
-      messageTemplate: '',
+      messageTemplate: DEFAULT_MESSAGE_TEMPLATE,
       clearHeaders: false,
       clearHmacSecret: false,
       allowInsecureHttp: false,
@@ -156,13 +178,27 @@ export function blankDelivery(type: NotificationProviderType): DeliveryDraft {
     },
     slack: {
       webhookUrl: '',
-      messageTemplate: '',
+      messageTemplate: DEFAULT_MESSAGE_TEMPLATE,
     },
     telegram: {
       botToken: '',
       chatId: '',
-      messageTemplate: '',
+      messageTemplate: DEFAULT_MESSAGE_TEMPLATE,
     },
+  };
+}
+
+export function replaceDeliveryProvider(
+  current: DeliveryDraft,
+  type: NotificationProviderType
+): DeliveryDraft {
+  const next = blankDelivery(type);
+  return {
+    ...next,
+    name: isDefaultDeliveryName(current.name, current.type)
+      ? next.name
+      : current.name,
+    enabled: current.enabled,
   };
 }
 
@@ -234,8 +270,8 @@ function applyEmailDraft(
     cc: joinAddresses(email.cc),
     bcc: joinAddresses(email.bcc),
     subjectPrefix: email.subjectPrefix || '',
-    subjectTemplate: email.subjectTemplate || '',
-    bodyTemplate: email.bodyTemplate || '',
+    subjectTemplate: email.subjectTemplate || DEFAULT_SUBJECT_TEMPLATE,
+    bodyTemplate: email.bodyTemplate || DEFAULT_EMAIL_BODY_TEMPLATE,
     attachLogs: !!email.attachLogs,
   };
 }
@@ -249,7 +285,8 @@ function applyWebhookDraft(
   draft.webhook.urlConfigured = webhook.urlConfigured;
   draft.webhook.headerPreviews = webhook.headers;
   draft.webhook.hmacSecretConfigured = webhook.hmacSecretConfigured;
-  draft.webhook.messageTemplate = webhook.messageTemplate || '';
+  draft.webhook.messageTemplate =
+    webhook.messageTemplate || DEFAULT_MESSAGE_TEMPLATE;
   draft.webhook.allowInsecureHttp = !!webhook.allowInsecureHttp;
   draft.webhook.allowPrivateNetwork = !!webhook.allowPrivateNetwork;
 }
@@ -261,7 +298,8 @@ function applySlackDraft(
   if (!slack) return;
   draft.slack.webhookUrlPreview = slack.webhookUrlPreview;
   draft.slack.webhookUrlConfigured = slack.webhookUrlConfigured;
-  draft.slack.messageTemplate = slack.messageTemplate || '';
+  draft.slack.messageTemplate =
+    slack.messageTemplate || DEFAULT_MESSAGE_TEMPLATE;
 }
 
 function applyTelegramDraft(
@@ -272,7 +310,8 @@ function applyTelegramDraft(
   draft.telegram.botTokenPreview = telegram.botTokenPreview;
   draft.telegram.botTokenConfigured = telegram.botTokenConfigured;
   draft.telegram.chatId = telegram.chatId || '';
-  draft.telegram.messageTemplate = telegram.messageTemplate || '';
+  draft.telegram.messageTemplate =
+    telegram.messageTemplate || DEFAULT_MESSAGE_TEMPLATE;
 }
 
 function draftTargetFromAPI(target: NotificationTarget): DraftTarget {

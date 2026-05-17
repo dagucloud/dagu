@@ -6,8 +6,6 @@ import {
   Link2,
   Loader2,
   Plus,
-  RefreshCw,
-  RotateCcw,
   Save,
   Settings,
   Trash2,
@@ -35,8 +33,8 @@ import {
   NotificationProviderType,
 } from '../../../../../api/v1/schema';
 import {
-  blankChannel,
-  blankTarget,
+  DEFAULT_MESSAGE_TEMPLATE,
+  DEFAULT_SUBJECT_TEMPLATE,
   DeliveryDraft,
   deliveryLabel,
   DraftChannel,
@@ -48,6 +46,7 @@ import {
   providerIcon,
   providerLabel,
   PROVIDER_OPTIONS,
+  replaceDeliveryProvider,
   TestResult,
 } from './notificationDrafts';
 import type { EffectiveNotificationRoute } from './useNotificationSettings';
@@ -56,10 +55,6 @@ type ProviderFieldsProps = {
   draft: DeliveryDraft;
   onChange: (next: DeliveryDraft) => void;
 };
-
-const MESSAGE_TEMPLATE_PLACEHOLDER =
-  'DAG {{dag.name}} {{run.status}}: {{run.error}}';
-const SUBJECT_TEMPLATE_PLACEHOLDER = '{{dag.name}} {{run.status}}';
 
 function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
   const update = (patch: Partial<DeliveryDraft>) =>
@@ -109,7 +104,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
           className="md:col-span-2"
           aria-label="Email subject template"
           value={draft.email.subjectTemplate}
-          placeholder={SUBJECT_TEMPLATE_PLACEHOLDER}
+          placeholder={DEFAULT_SUBJECT_TEMPLATE}
           onChange={(event) =>
             update({
               email: { ...draft.email, subjectTemplate: event.target.value },
@@ -120,7 +115,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
           className="min-h-24 md:col-span-2"
           aria-label="Email body template"
           value={draft.email.bodyTemplate}
-          placeholder={MESSAGE_TEMPLATE_PLACEHOLDER}
+          placeholder={DEFAULT_MESSAGE_TEMPLATE}
           onChange={(event) =>
             update({
               email: { ...draft.email, bodyTemplate: event.target.value },
@@ -205,7 +200,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
           className="min-h-24"
           aria-label="Webhook message template"
           value={draft.webhook.messageTemplate}
-          placeholder={MESSAGE_TEMPLATE_PLACEHOLDER}
+          placeholder={DEFAULT_MESSAGE_TEMPLATE}
           onChange={(event) =>
             update({
               webhook: {
@@ -286,7 +281,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
           className="min-h-24"
           aria-label="Slack message template"
           value={draft.slack.messageTemplate}
-          placeholder={MESSAGE_TEMPLATE_PLACEHOLDER}
+          placeholder={DEFAULT_MESSAGE_TEMPLATE}
           onChange={(event) =>
             update({
               slack: {
@@ -331,7 +326,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
         className="min-h-24"
         aria-label="Telegram message template"
         value={draft.telegram.messageTemplate}
-        placeholder={MESSAGE_TEMPLATE_PLACEHOLDER}
+        placeholder={DEFAULT_MESSAGE_TEMPLATE}
         onChange={(event) =>
           update({
             telegram: {
@@ -402,17 +397,8 @@ type NotificationOverviewCardProps = {
   error: string | null;
   notice: string | null;
   testResults: TestResult[];
-  isSaving: boolean;
-  isResetting: boolean;
-  testingTargetId: string | null;
-  testableDestinationCount: number;
   onEnabledChange: (enabled: boolean) => void;
   onEventsChange: (events: NotificationEventType[]) => void;
-  onConfigureDAG: () => void;
-  onResetDAG: () => void;
-  onRefresh: () => void;
-  onTestAll: () => void;
-  onSave: () => void;
 };
 
 export function NotificationOverviewCard({
@@ -424,17 +410,8 @@ export function NotificationOverviewCard({
   error,
   notice,
   testResults,
-  isSaving,
-  isResetting,
-  testingTargetId,
-  testableDestinationCount,
   onEnabledChange,
   onEventsChange,
-  onConfigureDAG,
-  onResetDAG,
-  onRefresh,
-  onTestAll,
-  onSave,
 }: NotificationOverviewCardProps) {
   return (
     <Card>
@@ -454,68 +431,13 @@ export function NotificationOverviewCard({
             <Badge variant="warning">Unsaved changes</Badge>
           )}
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex items-center justify-end">
           {isDAGConfigured && (
             <Switch
               checked={draft.enabled}
               onCheckedChange={onEnabledChange}
               aria-label="Toggle notifications"
             />
-          )}
-          <Button variant="outline" size="sm" onClick={onRefresh}>
-            <RefreshCw className="h-4 w-4" />
-            Refresh
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onTestAll}
-            disabled={
-              hasUnsavedChanges ||
-              testableDestinationCount === 0 ||
-              testingTargetId !== null
-            }
-          >
-            {testingTargetId === '__all__' ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <FlaskConical className="h-4 w-4" />
-            )}
-            Send test
-          </Button>
-          {isDAGConfigured ? (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onResetDAG}
-                disabled={isResetting || isSaving}
-              >
-                {isResetting ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <RotateCcw className="h-4 w-4" />
-                )}
-                Reset to inherit
-              </Button>
-              <Button
-                size="sm"
-                onClick={onSave}
-                disabled={!hasUnsavedChanges || isSaving}
-              >
-                {isSaving ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Save className="h-4 w-4" />
-                )}
-                Save changes
-              </Button>
-            </>
-          ) : (
-            <Button size="sm" onClick={onConfigureDAG}>
-              <Settings className="h-4 w-4" />
-              Configure DAG override
-            </Button>
           )}
         </div>
       </CardHeader>
@@ -808,12 +730,17 @@ export function NotificationChannelsSection({
                     <Select
                       value={channel.type}
                       onValueChange={(value) =>
-                        onUpdate(index, (current) => ({
-                          ...blankChannel(value as NotificationProviderType),
-                          id: current.id,
-                          name: current.name,
-                          enabled: current.enabled,
-                        }))
+                        onUpdate(index, (current) => {
+                          const nextType = value as NotificationProviderType;
+                          const next = replaceDeliveryProvider(
+                            current,
+                            nextType
+                          );
+                          return {
+                            ...next,
+                            id: current.id,
+                          };
+                        })
                       }
                     >
                       <SelectTrigger>
@@ -853,12 +780,9 @@ export function NotificationChannelsSection({
 type DAGSubscriptionsSectionProps = {
   draft: DraftSettings;
   channels: DraftChannel[];
-  isSaving: boolean;
-  hasUnsavedChanges: boolean;
   testingTargetId: string | null;
   manageChannelsHref?: string;
   onAdd: () => void;
-  onSave: () => void;
   onUpdate: (
     index: number,
     updater: (subscription: DraftSubscription) => DraftSubscription
@@ -870,12 +794,9 @@ type DAGSubscriptionsSectionProps = {
 export function DAGSubscriptionsSection({
   draft,
   channels,
-  isSaving,
-  hasUnsavedChanges,
   testingTargetId,
   manageChannelsHref,
   onAdd,
-  onSave,
   onUpdate,
   onDelete,
   onTest,
@@ -917,18 +838,6 @@ export function DAGSubscriptionsSection({
               </Link>
             </Button>
           )}
-          <Button
-            size="sm"
-            onClick={onSave}
-            disabled={!hasUnsavedChanges || isSaving}
-          >
-            {isSaving ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Save className="h-4 w-4" />
-            )}
-            Save changes
-          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -1136,11 +1045,8 @@ export function NotificationChannelsUnavailableCard({
 
 type DAGLocalTargetsSectionProps = {
   draft: DraftSettings;
-  isSaving: boolean;
-  hasUnsavedChanges: boolean;
   testingTargetId: string | null;
   onAdd: () => void;
-  onSave: () => void;
   onUpdate: (
     index: number,
     updater: (target: DraftTarget) => DraftTarget
@@ -1151,11 +1057,8 @@ type DAGLocalTargetsSectionProps = {
 
 export function DAGLocalTargetsSection({
   draft,
-  isSaving,
-  hasUnsavedChanges,
   testingTargetId,
   onAdd,
-  onSave,
   onUpdate,
   onDelete,
   onTest,
@@ -1163,18 +1066,6 @@ export function DAGLocalTargetsSection({
   if (draft.targets.length === 0) {
     return (
       <div className="flex flex-wrap justify-end gap-2">
-        <Button
-          size="sm"
-          onClick={onSave}
-          disabled={!hasUnsavedChanges || isSaving}
-        >
-          {isSaving ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Save className="h-4 w-4" />
-          )}
-          Save changes
-        </Button>
         <Button variant="ghost" size="sm" onClick={onAdd}>
           <Link2 className="h-4 w-4" />
           Add custom destination
@@ -1190,18 +1081,6 @@ export function DAGLocalTargetsSection({
           Custom Destinations
         </h3>
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            onClick={onSave}
-            disabled={!hasUnsavedChanges || isSaving}
-          >
-            {isSaving ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Save className="h-4 w-4" />
-            )}
-            Save changes
-          </Button>
           <Button variant="outline" size="sm" onClick={onAdd}>
             <Plus className="h-4 w-4" />
             Add custom
@@ -1275,13 +1154,18 @@ export function DAGLocalTargetsSection({
                   <Select
                     value={target.type}
                     onValueChange={(value) =>
-                      onUpdate(index, (current) => ({
-                        ...blankTarget(value as NotificationProviderType),
-                        id: current.id,
-                        name: current.name,
-                        enabled: current.enabled,
-                        events: current.events,
-                      }))
+                      onUpdate(index, (current) => {
+                        const nextType = value as NotificationProviderType;
+                        const next = replaceDeliveryProvider(
+                          current,
+                          nextType
+                        );
+                        return {
+                          ...next,
+                          id: current.id,
+                          events: current.events,
+                        };
+                      })
                     }
                   >
                     <SelectTrigger>
