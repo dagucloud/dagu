@@ -104,10 +104,7 @@ func (h *Handler) GetWorkspaceBundle(req *coordinatorv1.GetWorkspaceBundleReques
 		Size:   int64(len(data)),
 	}
 	for offset, sequence := 0, uint64(0); offset < len(data) || sequence == 0; sequence++ {
-		end := offset + workspaceBundleChunkSize
-		if end > len(data) {
-			end = len(data)
-		}
+		end := min(offset+workspaceBundleChunkSize, len(data))
 		chunk := &coordinatorv1.WorkspaceBundleChunk{
 			Sequence: sequence,
 			IsFinal:  end == len(data),

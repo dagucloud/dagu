@@ -251,7 +251,7 @@ func workspaceDefaultWorkingDir(task *coordinatorv1.Task) string {
 	if relDir == "." {
 		return dir
 	}
-	for _, part := range strings.Split(relDir, string(os.PathSeparator)) {
+	for part := range strings.SplitSeq(relDir, string(os.PathSeparator)) {
 		if part == "" || part == "." {
 			continue
 		}

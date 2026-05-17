@@ -226,7 +226,12 @@ func Extract(data []byte, dest string, desc Descriptor, limits Limits) error {
 	if err != nil {
 		return fmt.Errorf("open workspace bundle: %w", err)
 	}
-	defer gz.Close()
+	gzClosed := false
+	defer func() {
+		if !gzClosed {
+			_ = gz.Close()
+		}
+	}()
 
 	tr := tar.NewReader(gz)
 	var files int
@@ -256,7 +261,7 @@ func Extract(data []byte, dest string, desc Descriptor, limits Limits) error {
 			if err := os.MkdirAll(target, modePerm(header.FileInfo().Mode(), 0o755)); err != nil {
 				return fmt.Errorf("create workspace directory %q: %w", rel, err)
 			}
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg:
 			unpacked += header.Size
 			if unpacked > limits.MaxUncompressedSize {
 				return fmt.Errorf("workspace bundle exceeds uncompressed size limit %d", limits.MaxUncompressedSize)
@@ -264,7 +269,7 @@ func Extract(data []byte, dest string, desc Descriptor, limits Limits) error {
 			if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
 				return fmt.Errorf("create workspace file parent %q: %w", rel, err)
 			}
-			file, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, modePerm(header.FileInfo().Mode(), 0o644))
+			file, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, modePerm(header.FileInfo().Mode(), 0o644)) //nolint:gosec // target is normalized and verified within tmp before opening.
 			if err != nil {
 				return fmt.Errorf("create workspace file %q: %w", rel, err)
 			}
@@ -280,6 +285,11 @@ func Extract(data []byte, dest string, desc Descriptor, limits Limits) error {
 			return fmt.Errorf("workspace bundle contains unsupported entry %q", rel)
 		}
 	}
+
+	if err := gz.Close(); err != nil {
+		return fmt.Errorf("close workspace bundle: %w", err)
+	}
+	gzClosed = true
 
 	if _, err := os.Stat(filepath.Join(tmp, filepath.FromSlash(desc.DAGPath))); err != nil {
 		return fmt.Errorf("workspace bundle DAG %q is missing: %w", desc.DAGPath, err)

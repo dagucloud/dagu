@@ -244,7 +244,7 @@ func resolveGitSourceRef(ctx context.Context, repoURL, version string) (string, 
 
 func parseLsRemoteResolvedSHA(output, version string) string {
 	var headSHA, tagSHA, peeledTagSHA string
-	for _, line := range strings.Split(output, "\n") {
+	for line := range strings.SplitSeq(output, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) != 2 {
 			continue

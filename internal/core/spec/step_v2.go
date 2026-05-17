@@ -38,11 +38,6 @@ var v2RunWithFields = map[string]struct{}{
 
 type actionNormalizer func(normalized map[string]any, with map[string]any) error
 
-const (
-	officialActionOwner      = "dagucloud"
-	officialActionRepoPrefix = "action-"
-)
-
 var builtinActionNormalizers = map[string]actionNormalizer{
 	"agent.run":       normalizeAgentAction,
 	"artifact.list":   operationAction("artifact", "list"),
