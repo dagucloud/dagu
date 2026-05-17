@@ -546,6 +546,79 @@ func TestNodeCaptureOutputSchema(t *testing.T) {
 	})
 }
 
+func TestNodeCaptureStdoutOutputs(t *testing.T) {
+	t.Parallel()
+
+	t.Run("StringFieldCapturesTrimmedStdout", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		ctx := structuredOutputTestContext(t, nil, workDir)
+		node := NodeWithData(NodeData{
+			Step: core.Step{
+				StdoutOutputs: &core.StepOutputsConfig{Field: "messageId"},
+			},
+		})
+		node.outputs.outputCaptured = true
+		node.outputs.outputData = " msg-123 \n"
+
+		require.NoError(t, node.captureOutput(ctx))
+		state := node.State()
+		require.NotNil(t, state.OutputsValue)
+		assert.JSONEq(t, `{"messageId":"msg-123"}`, *state.OutputsValue)
+	})
+
+	t.Run("DecodeJSONPublishesObject", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		ctx := structuredOutputTestContext(t, nil, workDir)
+		node := NodeWithData(NodeData{
+			Step: core.Step{
+				StdoutOutputs: &core.StepOutputsConfig{Decode: core.StepOutputDecodeJSON},
+			},
+		})
+		node.outputs.outputCaptured = true
+		node.outputs.outputData = `{"messageId":"msg-123","accepted":true}`
+
+		require.NoError(t, node.captureOutput(ctx))
+		state := node.State()
+		require.NotNil(t, state.OutputsValue)
+		assert.JSONEq(t, `{"messageId":"msg-123","accepted":true}`, *state.OutputsValue)
+	})
+
+	t.Run("FieldsMapFromStdout", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		ctx := structuredOutputTestContext(t, nil, workDir)
+		node := NodeWithData(NodeData{
+			Step: core.Step{
+				StdoutOutputs: &core.StepOutputsConfig{
+					Fields: map[string]core.StepOutputEntry{
+						"messageId": {
+							From:   core.StepOutputSourceStdout,
+							Decode: core.StepOutputDecodeJSON,
+							Select: ".id",
+						},
+						"status": {
+							HasValue: true,
+							Value:    "accepted",
+						},
+					},
+				},
+			},
+		})
+		node.outputs.outputCaptured = true
+		node.outputs.outputData = `{"id":"msg-123"}`
+
+		require.NoError(t, node.captureOutput(ctx))
+		state := node.State()
+		require.NotNil(t, state.OutputsValue)
+		assert.JSONEq(t, `{"messageId":"msg-123","status":"accepted"}`, *state.OutputsValue)
+	})
+}
+
 func TestNodeEvaluateStructuredOutput(t *testing.T) {
 	t.Parallel()
 

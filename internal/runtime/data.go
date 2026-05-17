@@ -5,6 +5,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
@@ -77,6 +78,8 @@ type NodeState struct {
 	// OutputValue stores the step-scoped output payload for ${step.output} references.
 	// String-form output stores captured stdout; object-form output stores compact JSON.
 	OutputValue *string
+	// OutputsValue stores the DAG/action outputs payload for ${step.outputs} references.
+	OutputsValue *string
 	// ChatMessages stores the chat session messages for message passing between steps.
 	ChatMessages []exec.LLMMessage
 	// ToolDefinitions stores the tool definitions that were available to the LLM during execution.
@@ -340,15 +343,58 @@ func (d *Data) StepInfo() eval.StepInfo {
 	if d.inner.State.OutputValue != nil {
 		value := *d.inner.State.OutputValue
 		info.Output = &value
-		return info
 	}
 
 	// Backward-compatible fallback for previously persisted string-form outputs.
-	if value, ok := d.inner.StringFormOutputValue(); ok {
-		info.Output = &value
+	if info.Output == nil {
+		if value, ok := d.inner.StringFormOutputValue(); ok {
+			info.Output = &value
+		}
+	}
+	if d.inner.State.OutputsValue != nil {
+		value := *d.inner.State.OutputsValue
+		info.Outputs = &value
 	}
 
 	return info
+}
+
+func (d NodeData) OutputsValueMap() map[string]any {
+	if d.State.OutputsValue == nil {
+		return nil
+	}
+	var values map[string]any
+	if err := json.Unmarshal([]byte(*d.State.OutputsValue), &values); err != nil {
+		return nil
+	}
+	return values
+}
+
+func (d NodeData) OutputsValueStringMap() map[string]string {
+	values := d.OutputsValueMap()
+	if len(values) == 0 {
+		return nil
+	}
+	result := make(map[string]string, len(values))
+	for key, value := range values {
+		result[key] = outputValueToString(value)
+	}
+	return result
+}
+
+func outputValueToString(value any) string {
+	switch v := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return v
+	default:
+		data, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Sprint(v)
+		}
+		return string(data)
+	}
 }
 
 // StringFormOutputValue returns the canonical captured output for string-form output: NAME steps.
@@ -503,6 +549,14 @@ func (d *Data) setOutputValue(value string) {
 
 	v := value
 	d.inner.State.OutputValue = &v
+}
+
+func (d *Data) setOutputsValue(value string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	v := value
+	d.inner.State.OutputsValue = &v
 }
 
 func (d *Data) Finish() {

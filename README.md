@@ -381,18 +381,13 @@ steps:
     action: acme/dagu-action-notify@v1.2.0
     with:
       text: "Build ${BUILD_ID} finished"
-    output:
-      result:
-        from: stdout
-        decode: json
-        select: .RESULT
 
   - id: audit
     depends: [notify]
-    run: echo "Notification result: ${notify.output.result}"
+    run: echo "Notification result: ${notify.outputs.messageId}"
 ```
 
-Remote actions package a DAG, manifest, schemas, and helper files behind a versioned `action:` reference. Use GitHub or explicit Git refs for portable distributed workers; local `source:` refs are useful for development or workers that share the same path. See the [Remote Actions documentation](https://docs.dagu.sh/writing-workflows/remote-actions) for package layout and worker-mode behavior.
+Remote actions package a DAG, manifest, schemas, and helper files behind a versioned `action:` reference. Action DAGs publish caller-visible values with `stdout.outputs` or `action: outputs.write`, and callers read them with `${step.outputs.*}`. Use GitHub or explicit Git refs for portable distributed workers; local `source:` refs are useful for development or workers that share the same path. See the [Remote Actions documentation](https://docs.dagu.sh/writing-workflows/remote-actions) for package layout and worker-mode behavior.
 
 ### Docker step
 
@@ -536,6 +531,7 @@ Dagu includes built-in actions that run within the Dagu process (or worker). Loc
 | [`dag.enqueue`](https://docs.dagu.sh/writing-workflows/control-flow) | Queue another DAG asynchronously and continue after enqueue |
 | [`harness.run`](https://docs.dagu.sh/step-types/harness) | Run coding agent CLIs such as Claude Code, Codex, Copilot, OpenCode, and Pi |
 | [`agent.run`](https://docs.dagu.sh/features/agent/step) | Built-in agent action with tool use |
+| [`outputs.write`](https://docs.dagu.sh/step-types/outputs) | Publish DAG or remote action outputs for callers |
 | [`owner/repo@version`](https://docs.dagu.sh/writing-workflows/remote-actions) | Remote action package backed by a DAG, manifest, and versioned source |
 
 You can also define reusable actions with the top-level `actions` field. Custom actions expand to built-in actions during DAG load, so you can wrap a common shell, HTTP, SQL, or other pattern behind a typed interface with validated input.

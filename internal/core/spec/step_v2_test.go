@@ -786,6 +786,27 @@ steps:
 	assert.Empty(t, step.ExecutorConfig.Config)
 }
 
+func TestStepSchemaV2_ActionOutputsWrite(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: publish_result
+    action: outputs.write
+    with:
+      values:
+        messageId: msg-123
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, "outputs", step.ExecutorConfig.Type)
+	require.Len(t, step.Commands, 1)
+	assert.Equal(t, "write", step.Commands[0].Command)
+	assert.Equal(t, map[string]any{"messageId": "msg-123"}, step.ExecutorConfig.Config["values"])
+}
+
 func TestStepSchemaV2_StdoutArtifact(t *testing.T) {
 	t.Parallel()
 
@@ -806,6 +827,73 @@ steps:
 	assert.Equal(t, "reports/report.md", dag.Steps[0].StdoutArtifact)
 	assert.Empty(t, dag.Steps[0].Stderr)
 	assert.Equal(t, "reports/report.err", dag.Steps[0].StderrArtifact)
+}
+
+func TestStepSchemaV2_StdoutOutputs(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: emit_result
+    run: ./emit-result
+    stdout:
+      artifact: reports/result.json
+      outputs:
+        fields:
+          messageId:
+            decode: json
+            select: .id
+          status:
+            value: accepted
+`))
+	require.NoError(t, err)
+	require.NotNil(t, dag.Artifacts)
+	assert.True(t, dag.Artifacts.Enabled)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, "reports/result.json", step.StdoutArtifact)
+	require.NotNil(t, step.StdoutOutputs)
+	require.Contains(t, step.StdoutOutputs.Fields, "messageId")
+	messageID := step.StdoutOutputs.Fields["messageId"]
+	assert.Equal(t, core.StepOutputSourceStdout, messageID.From)
+	assert.Equal(t, core.StepOutputDecodeJSON, messageID.Decode)
+	assert.Equal(t, ".id", messageID.Select)
+	require.Contains(t, step.StdoutOutputs.Fields, "status")
+	status := step.StdoutOutputs.Fields["status"]
+	assert.True(t, status.HasValue)
+	assert.Equal(t, "accepted", status.Value)
+}
+
+func TestStepSchemaV2_StdoutOutputsStringField(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: emit_result
+    run: ./emit-result
+    stdout:
+      outputs: messageId
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	require.NotNil(t, dag.Steps[0].StdoutOutputs)
+	assert.Equal(t, "messageId", dag.Steps[0].StdoutOutputs.Field)
+}
+
+func TestStepSchemaV2_StderrRejectsOutputs(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: emit_result
+    run: ./emit-result
+    stderr:
+      outputs: messageId
+`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "stderr.outputs is not supported")
 }
 
 func TestStepSchemaV2_StdoutArtifactRejectsDisabledArtifacts(t *testing.T) {

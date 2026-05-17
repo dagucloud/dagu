@@ -22,6 +22,7 @@ import (
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/log"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/mail"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/noop"
+	_ "github.com/dagucloud/dagu/internal/runtime/builtin/outputs"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/redis"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/router"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/s3"

@@ -40,7 +40,9 @@ func EvalBool(ctx context.Context, value any) (bool, error) {
 // EvalObject recursively evaluates the string fields of the given object
 // with the variables within the execution context.
 func EvalObject[T any](ctx context.Context, obj T) (T, error) {
-	return eval.Object(ctx, obj, GetEnv(ctx).UserEnvsMap())
+	env := GetEnv(ctx)
+	ctx = eval.WithEnvScope(ctx, env.Scope)
+	return eval.Object(ctx, obj, env.UserEnvsMap(), eval.WithStepMap(env.StepMap))
 }
 
 // templateConfigEvalVariables clones the user env map and seeds omitted named DAG

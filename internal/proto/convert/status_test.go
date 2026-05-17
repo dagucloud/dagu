@@ -63,6 +63,7 @@ func TestRoundTrip(t *testing.T) {
 		outputVars := &collections.SyncMap{}
 		outputVars.Store("key1", "value1")
 		outputVars.Store("key2", "value2")
+		outputsValue := `{"messageId":"msg-123","accepted":true}`
 
 		original := &exec.DAGRunStatus{
 			Name:       "test-dag",
@@ -98,6 +99,7 @@ func TestRoundTrip(t *testing.T) {
 					DoneCount:       3,
 					RetriedAt:       "2024-01-01T00:00:30Z",
 					OutputVariables: outputVars,
+					OutputsValue:    &outputsValue,
 					SubRuns: []exec.SubDAGRun{
 						{DAGRunID: "sub-run-1", Params: "p1=v1"},
 						{DAGRunID: "sub-run-2", Params: "p2=v2"},
@@ -150,6 +152,8 @@ func TestRoundTrip(t *testing.T) {
 		assert.Equal(t, "/path/stderr.log", node.Stderr)
 		assert.Equal(t, 2, node.RetryCount)
 		assert.Equal(t, 3, node.DoneCount)
+		require.NotNil(t, node.OutputsValue)
+		assert.JSONEq(t, outputsValue, *node.OutputsValue)
 		require.Len(t, node.SubRuns, 2)
 		assert.Equal(t, "sub-run-1", node.SubRuns[0].DAGRunID)
 		assert.Equal(t, "sub-run-2", node.SubRuns[1].DAGRunID)

@@ -55,6 +55,8 @@ type Step struct {
 	Stdout string `json:"stdout,omitempty"`
 	// StdoutArtifact is the artifact-relative file path to store standard output.
 	StdoutArtifact string `json:"stdoutArtifact,omitempty"`
+	// StdoutOutputs maps standard output into the DAG/action outputs object.
+	StdoutOutputs *StepOutputsConfig `json:"stdoutOutputs,omitempty"`
 	// Stderr is the file to store the standard error.
 	Stderr string `json:"stderr,omitempty"`
 	// StderrArtifact is the artifact-relative file path to store standard error.
@@ -144,6 +146,18 @@ type StepOutputEntry struct {
 	Select string `json:"select,omitempty"`
 }
 
+// StepOutputsConfig defines how stdout is mapped into the DAG/action outputs object.
+type StepOutputsConfig struct {
+	// Field writes the decoded stdout value to a single outputs field.
+	Field string `json:"field,omitempty"`
+	// Decode controls how stdout is decoded before writing outputs.
+	Decode string `json:"decode,omitempty"`
+	// Select is an optional jq/gojq path applied after decode.
+	Select string `json:"select,omitempty"`
+	// Fields maps individual outputs fields from stdout or literal values.
+	Fields map[string]StepOutputEntry `json:"fields,omitempty"`
+}
+
 // String returns a formatted string representation of the step
 func (s *Step) String() string {
 	return strings.Join([]string{
@@ -194,6 +208,11 @@ func (s *Step) HasMultipleCommands() bool {
 // HasStructuredOutput reports whether the step publishes object-form output.
 func (s Step) HasStructuredOutput() bool {
 	return len(s.StructuredOutput) > 0
+}
+
+// HasStdoutOutputs reports whether stdout should publish DAG/action outputs.
+func (s Step) HasStdoutOutputs() bool {
+	return s.StdoutOutputs != nil
 }
 
 // HasOutputSchema reports whether the step validates stdout JSON with an output schema.

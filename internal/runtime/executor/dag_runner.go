@@ -5,6 +5,7 @@ package executor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -888,12 +889,14 @@ func (e *SubDAGExecutor) getStatusFromCoordinator(ctx context.Context, dagRunID 
 		return nil, err
 	}
 	outputs := extractOutputsFromNodes(dagRunStatus.Nodes)
+	outputValues := extractOutputValuesFromNodes(dagRunStatus.Nodes)
 
 	return &exec.RunStatus{
 		Name:               dagRunStatus.Name,
 		DAGRunID:           dagRunID,
 		Params:             dagRunStatus.Params,
 		Outputs:            outputs,
+		OutputValues:       outputValues,
 		Status:             dagRunStatus.Status,
 		PendingStepRetries: exec.PendingStepRetriesFromStatus(dagRunStatus),
 	}, nil
@@ -956,6 +959,26 @@ func extractOutputsFromNodes(nodes []*exec.Node) map[string]string {
 			}
 			return true
 		})
+	}
+	return outputs
+}
+
+func extractOutputValuesFromNodes(nodes []*exec.Node) map[string]any {
+	outputs := make(map[string]any)
+	for _, node := range nodes {
+		if node == nil || node.OutputsValue == nil {
+			continue
+		}
+		var values map[string]any
+		if err := json.Unmarshal([]byte(*node.OutputsValue), &values); err != nil {
+			continue
+		}
+		for key, value := range values {
+			outputs[key] = value
+		}
+	}
+	if len(outputs) == 0 {
+		return nil
 	}
 	return outputs
 }

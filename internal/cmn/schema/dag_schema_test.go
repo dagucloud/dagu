@@ -547,6 +547,26 @@ steps:
 `,
 		},
 		{
+			name: "OutputsActions",
+			spec: `
+steps:
+  - run: printf '{"id":"msg-123"}'
+    stdout:
+      outputs:
+        fields:
+          messageId:
+            decode: json
+            select: .id
+          status:
+            value: sent
+  - action: outputs.write
+    with:
+      values:
+        messageId: msg-123
+        accepted: true
+`,
+		},
+		{
 			name: "LegacyFileTypeConfig",
 			spec: `
 steps:

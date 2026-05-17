@@ -1650,13 +1650,17 @@
             {
               "type": "object",
               "additionalProperties": false,
-              "required": ["artifact"],
               "properties": {
                 "artifact": {
                   "type": "string",
                   "description": "Artifact-relative path where stdout will be written."
+                },
+                "outputs": {
+                  "$ref": "#/definitions/stdoutOutputsConfig",
+                  "description": "Publish stdout as DAG run outputs for action callers."
                 }
               },
+              "anyOf": [{ "required": ["artifact"] }, { "required": ["outputs"] }],
               "description": "Write stdout to a DAG-run artifact path."
             }
           ],
@@ -2270,6 +2274,18 @@
           "then": {
             "properties": {
               "with": { "$ref": "#/definitions/artifactActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "outputs.write" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/outputsActionConfig" }
             }
           }
         },
@@ -6010,6 +6026,7 @@
         "router",
         "agent",
         "action",
+        "outputs",
         "sftp",
         "template"
       ],
@@ -6067,6 +6084,7 @@
             "log.write",
             "mail.send",
             "noop",
+            "outputs.write",
             "postgres.import",
             "postgres.query",
             "router.route",
@@ -6811,6 +6829,114 @@
         }
       },
       "description": "Configuration for DAG-run artifact actions."
+    },
+    "stdoutOutputsConfig": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Output field name that receives trimmed stdout text."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "type": "string",
+              "description": "Output field name. Required for text output, optional when decode is json or yaml."
+            },
+            "decode": {
+              "type": "string",
+              "enum": ["text", "json", "yaml"]
+            },
+            "select": {
+              "type": "string",
+              "description": "Selector applied after decoding stdout as json or yaml."
+            },
+            "fields": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/definitions/stdoutOutputsFieldEntry"
+              },
+              "description": "Output fields mapped from stdout using structured-output entries."
+            }
+          },
+          "not": {
+            "anyOf": [
+              { "required": ["fields", "field"] },
+              { "required": ["fields", "decode"] },
+              { "required": ["fields", "select"] }
+            ]
+          }
+        }
+      ],
+      "description": "Routes stdout into DAG run outputs for action callers."
+    },
+    "stdoutOutputsFieldEntry": {
+      "oneOf": [
+        {
+          "type": ["string", "number", "boolean", "null"]
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/stepOutputJSONValue"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value"],
+          "properties": {
+            "value": {
+              "$ref": "#/definitions/stepOutputJSONValue"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["from"],
+          "properties": {
+            "from": {
+              "const": "stdout"
+            },
+            "decode": {
+              "type": "string",
+              "enum": ["text", "json", "yaml"]
+            },
+            "select": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "decode": {
+              "type": "string",
+              "enum": ["text", "json", "yaml"]
+            },
+            "select": {
+              "type": "string"
+            }
+          }
+        }
+      ],
+      "description": "One stdout.outputs fields entry."
+    },
+    "outputsActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["values"],
+      "properties": {
+        "values": {
+          "type": "object",
+          "minProperties": 1,
+          "description": "Output values to publish to the DAG/action outputs object."
+        }
+      },
+      "description": "Configuration for outputs.write."
     },
     "customActions": {
       "type": "object",

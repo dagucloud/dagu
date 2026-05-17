@@ -94,6 +94,7 @@ var builtinStepTypeNames = map[string]struct{}{
 	"log":           {},
 	"mail":          {},
 	"noop":          {},
+	"outputs":       {},
 	"parallel":      {},
 	"postgres":      {},
 	"redis":         {},

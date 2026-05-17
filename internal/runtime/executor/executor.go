@@ -142,3 +142,8 @@ type SubRunProvider interface {
 type ToolDefinitionProvider interface {
 	GetToolDefinitions() []exec.ToolDefinition
 }
+
+// OutputsProvider is implemented by executors that publish DAG/action outputs.
+type OutputsProvider interface {
+	GetOutputs() map[string]any
+}

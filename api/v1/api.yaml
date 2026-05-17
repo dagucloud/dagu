@@ -9601,7 +9601,7 @@ components:
 
     DAGRunOutputs:
       type: object
-      description: "Collected outputs from step executions in a DAG-run, including execution metadata. If the DAG-run completed but no outputs were captured, the outputs object will be empty and metadata fields may be empty strings."
+      description: "Collected outputs from step executions in a DAG-run, including execution metadata. Outputs are populated from string-form output, stdout.outputs, and outputs.write. If the DAG-run completed but no outputs were captured, the outputs object will be empty and metadata fields may be empty strings."
       required:
         - metadata
         - outputs
@@ -9610,7 +9610,7 @@ components:
           $ref: "#/components/schemas/OutputsMetadata"
         outputs:
           type: object
-          description: "Collected step outputs as key-value pairs. Keys are output names (UPPER_CASE converted to camelCase by default, or custom key if specified) and values are the captured output strings. Empty object if no outputs were captured."
+          description: "Collected step outputs as key-value pairs. String-form output names are converted from UPPER_CASE to camelCase; stdout.outputs and outputs.write keys are preserved. Values are strings in this API response. Empty object if no outputs were captured."
           additionalProperties:
             type: string
           example:

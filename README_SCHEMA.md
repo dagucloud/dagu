@@ -100,8 +100,8 @@ Common step fields:
 | `continue_on` | Continue after selected failure, skip, exit-code, or output conditions. |
 | `preconditions` | Conditions that must pass before the step starts. |
 | `worker_selector` | Required worker labels. |
-| `stdout`, `stderr`, `log_output` | Step log output configuration. |
-| `output` | Captured stdout variable or structured step output. |
+| `stdout`, `stderr`, `log_output` | Step log output configuration. `stdout` can also publish DAG/action outputs. |
+| `output` | Captured stdout variable or structured step-scoped output. |
 | `output_schema` | JSON Schema for stdout JSON validation. |
 | `approval` | Human approval gate after step execution. |
 | `container` | Container context for a local `run:` command. |
@@ -403,6 +403,31 @@ steps:
 
 Structured output sources are `stdout`, `stderr`, and `file`. Decoders are
 `text`, `json`, and `yaml`. `select` requires `json` or `yaml`.
+
+Use `stdout.outputs` or `action: outputs.write` when a DAG or remote action
+needs to return values to its caller:
+
+```yaml
+steps:
+  - id: notify
+    run: ./notify.sh
+    stdout:
+      outputs:
+        fields:
+          messageId:
+            decode: json
+            select: .id
+
+  - id: publish
+    action: outputs.write
+    with:
+      values:
+        status: sent
+```
+
+Caller-visible outputs are available as `${step.outputs}` or
+`${step.outputs.messageId}`. This is separate from object-form `output:`, which
+is step-scoped and remains available through `${step.output.*}`.
 
 ## Lifecycle Handlers
 

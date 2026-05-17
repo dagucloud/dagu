@@ -58,4 +58,25 @@ func TestCollectOutputsUsesCanonicalStringOutputValue(t *testing.T) {
 		a := &Agent{plan: plan}
 		assert.Equal(t, map[string]string{"result": "legacy"}, a.collectOutputs(context.Background()))
 	})
+
+	t.Run("IncludesPublishedOutputs", func(t *testing.T) {
+		t.Parallel()
+
+		outputsValue := `{"messageId":"msg-123","accepted":true}`
+		plan, err := runtime.NewPlanFromNodes(
+			runtime.NodeWithData(runtime.NodeData{
+				Step: core.Step{Name: "publish"},
+				State: runtime.NodeState{
+					OutputsValue: &outputsValue,
+				},
+			}),
+		)
+		require.NoError(t, err)
+
+		a := &Agent{plan: plan}
+		assert.Equal(t, map[string]string{
+			"messageId": "msg-123",
+			"accepted":  "true",
+		}, a.collectOutputs(context.Background()))
+	})
 }

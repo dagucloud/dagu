@@ -122,6 +122,32 @@ func TestEvalExecutorConfig_DefaultPreservesLiteralCodeFencesInData(t *testing.T
 	require.Equal(t, "```yaml\nenv:\n  TEST_FILE: ~/dagu-test.txt\n\nsteps:\n  - command: touch $TEST_FILE\n```", result["note"])
 }
 
+func TestEvalExecutorConfig_ExpandsStepOutputsReferences(t *testing.T) {
+	t.Parallel()
+
+	ctx := exec.NewContext(
+		context.Background(),
+		&core.DAG{Name: "test-dag"},
+		"",
+		"",
+	)
+	env := NewEnv(ctx, core.Step{Name: "audit"})
+	outputs := `{"messageId":"msg-123","status":"sent"}`
+	env.StepMap["call_action"] = eval.StepInfo{Outputs: &outputs}
+	ctx = WithEnv(ctx, env)
+
+	result, err := evalExecutorConfig(ctx, core.Step{
+		ExecutorConfig: core.ExecutorConfig{
+			Type: "log",
+			Config: map[string]any{
+				"message": "message=${call_action.outputs.messageId} status=${call_action.outputs.status}",
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "message=msg-123 status=sent", result["message"])
+}
+
 func TestSetupExecutor_LogMessageExpandsVariables(t *testing.T) {
 	t.Parallel()
 

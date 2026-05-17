@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/internal/core"
+	coreexec "github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -240,6 +241,38 @@ func TestWriteJSONOutputValidatesDeclaredOutputs(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "action output does not match outputs schema")
+}
+
+func TestActionOutputsFromRunStatusPrefersTypedOutputs(t *testing.T) {
+	t.Parallel()
+
+	outputs := actionOutputsFromRunStatus(&coreexec.RunStatus{
+		Outputs: map[string]string{
+			"messageId": "legacy-msg",
+			"status":    "legacy",
+		},
+		OutputValues: map[string]any{
+			"messageId": "msg-123",
+			"accepted":  true,
+		},
+	})
+
+	assert.Equal(t, map[string]any{
+		"messageId": "msg-123",
+		"accepted":  true,
+	}, outputs)
+}
+
+func TestActionGetOutputsReturnsCopy(t *testing.T) {
+	t.Parallel()
+
+	exec := &Executor{}
+	exec.setOutputs(map[string]any{"messageId": "msg-123"})
+
+	got := exec.GetOutputs()
+	got["messageId"] = "changed"
+
+	assert.Equal(t, map[string]any{"messageId": "msg-123"}, exec.GetOutputs())
 }
 
 func writeGitActionRepo(t *testing.T) string {

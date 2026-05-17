@@ -34,6 +34,26 @@ func envSliceToMap(envs []string) map[string]string {
 	return result
 }
 
+func TestExtractOutputValuesFromNodes(t *testing.T) {
+	t.Parallel()
+
+	first := `{"messageId":"msg-123","accepted":true}`
+	second := `{"status":"sent"}`
+
+	got := extractOutputValuesFromNodes([]*exec1.Node{
+		nil,
+		{OutputsValue: &first},
+		{OutputsValue: nil},
+		{OutputsValue: &second},
+	})
+
+	assert.Equal(t, map[string]any{
+		"messageId": "msg-123",
+		"accepted":  true,
+		"status":    "sent",
+	}, got)
+}
+
 func TestNewSubDAGExecutor_LocalDAG(t *testing.T) {
 	t.Parallel()
 

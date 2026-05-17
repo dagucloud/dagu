@@ -149,6 +149,8 @@ type RunStatus struct {
 	Params string
 	// Outputs is the outputs of the dag-run.
 	Outputs map[string]string
+	// OutputValues contains typed outputs published through stdout.outputs or outputs.write.
+	OutputValues map[string]any
 	// Status is the execution status of the dag-run.
 	Status core.Status
 	// PendingStepRetries contains any step retries that are waiting to be scheduled
@@ -163,6 +165,7 @@ func (r *RunStatus) MarshalJSON() ([]byte, error) {
 		DAGRunID           string             `json:"dagRunId,omitempty"`
 		Params             string             `json:"params,omitempty"`
 		Outputs            map[string]string  `json:"outputs,omitzero"`
+		OutputValues       map[string]any     `json:"outputValues,omitzero"`
 		Status             string             `json:"status"`
 		PendingStepRetries []PendingStepRetry `json:"pendingStepRetries,omitempty"`
 	}{
@@ -170,6 +173,7 @@ func (r *RunStatus) MarshalJSON() ([]byte, error) {
 		DAGRunID:           r.DAGRunID,
 		Params:             r.Params,
 		Outputs:            r.Outputs,
+		OutputValues:       r.OutputValues,
 		Status:             r.Status.String(),
 		PendingStepRetries: r.PendingStepRetries,
 	}, "", "  ")

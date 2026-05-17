@@ -73,6 +73,7 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"log.write":       normalizeLogAction,
 	"mail.send":       typedAction("mail"),
 	"noop":            normalizeNoopAction,
+	"outputs.write":   operationAction("outputs", "write"),
 	"postgres.query":  commandAction("postgres", "query"),
 	"postgres.import": importAction("postgres"),
 	"router.route":    normalizeRouterAction,

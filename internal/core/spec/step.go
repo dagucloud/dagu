@@ -419,6 +419,7 @@ var stepTransformers = []stepTransform{
 	{"script", newStepTransformer("Script", buildStepScript)},
 	{"stdout", newStepTransformer("Stdout", buildStepStdout)},
 	{"stdout.artifact", newStepTransformer("StdoutArtifact", buildStepStdoutArtifact)},
+	{"stdout.outputs", newStepTransformer("StdoutOutputs", buildStepStdoutOutputs)},
 	{"stderr", newStepTransformer("Stderr", buildStepStderr)},
 	{"stderr.artifact", newStepTransformer("StderrArtifact", buildStepStderrArtifact)},
 	{"log_output", newStepTransformer("LogOutput", buildStepLogOutput)},
@@ -595,65 +596,99 @@ func buildStepScript(_ StepBuildContext, s *step) (string, error) {
 }
 
 func buildStepStdout(_ StepBuildContext, s *step) (string, error) {
-	path, _, err := buildStepOutputRedirect("stdout", s.Stdout)
+	path, _, _, err := buildStepOutputRedirect("stdout", s.Stdout, true)
 	return path, err
 }
 
 func buildStepStdoutArtifact(_ StepBuildContext, s *step) (string, error) {
-	_, artifact, err := buildStepOutputRedirect("stdout", s.Stdout)
+	_, artifact, _, err := buildStepOutputRedirect("stdout", s.Stdout, true)
 	return artifact, err
 }
 
+func buildStepStdoutOutputs(_ StepBuildContext, s *step) (*core.StepOutputsConfig, error) {
+	_, _, outputs, err := buildStepOutputRedirect("stdout", s.Stdout, true)
+	return outputs, err
+}
+
 func buildStepStderr(_ StepBuildContext, s *step) (string, error) {
-	path, _, err := buildStepOutputRedirect("stderr", s.Stderr)
+	path, _, _, err := buildStepOutputRedirect("stderr", s.Stderr, false)
 	return path, err
 }
 
 func buildStepStderrArtifact(_ StepBuildContext, s *step) (string, error) {
-	_, artifact, err := buildStepOutputRedirect("stderr", s.Stderr)
+	_, artifact, _, err := buildStepOutputRedirect("stderr", s.Stderr, false)
 	return artifact, err
 }
 
-func buildStepOutputRedirect(field string, raw any) (filePath string, artifactPath string, err error) {
+func buildStepOutputRedirect(
+	field string,
+	raw any,
+	allowOutputs bool,
+) (filePath string, artifactPath string, outputs *core.StepOutputsConfig, err error) {
 	switch v := raw.(type) {
 	case nil:
-		return "", "", nil
+		return "", "", nil, nil
 	case string:
-		return strings.TrimSpace(v), "", nil
+		return strings.TrimSpace(v), "", nil, nil
 	case map[string]any:
-		return parseStepArtifactOutputRedirect(field, v)
+		return parseStepObjectOutputRedirect(field, v, allowOutputs)
 	case map[any]any:
 		converted := make(map[string]any, len(v))
 		for key, value := range v {
 			keyString, ok := key.(string)
 			if !ok {
-				return "", "", fmt.Errorf("%s object keys must be strings", field)
+				return "", "", nil, fmt.Errorf("%s object keys must be strings", field)
 			}
 			converted[keyString] = value
 		}
-		return parseStepArtifactOutputRedirect(field, converted)
+		return parseStepObjectOutputRedirect(field, converted, allowOutputs)
 	default:
-		return "", "", fmt.Errorf("%s must be a string path or an object with artifact", field)
+		return "", "", nil, fmt.Errorf("%s must be a string path or an object", field)
 	}
 }
 
-func parseStepArtifactOutputRedirect(field string, raw map[string]any) (string, string, error) {
-	if len(raw) != 1 {
-		return "", "", fmt.Errorf("%s object must contain only artifact", field)
+func parseStepObjectOutputRedirect(
+	field string,
+	raw map[string]any,
+	allowOutputs bool,
+) (string, string, *core.StepOutputsConfig, error) {
+	if len(raw) == 0 {
+		return "", "", nil, fmt.Errorf("%s object must not be empty", field)
 	}
-	value, ok := raw["artifact"]
-	if !ok {
-		return "", "", fmt.Errorf("%s object must contain artifact", field)
+	var artifactPath string
+	var outputs *core.StepOutputsConfig
+	for key, value := range raw {
+		switch key {
+		case "artifact":
+			artifact, ok := value.(string)
+			if !ok {
+				return "", "", nil, fmt.Errorf("%s.artifact must be a string", field)
+			}
+			clean, err := cleanStepArtifactPath(artifact)
+			if err != nil {
+				return "", "", nil, fmt.Errorf("%s.artifact: %w", field, err)
+			}
+			artifactPath = clean
+		case "outputs":
+			if !allowOutputs {
+				return "", "", nil, fmt.Errorf("%s.outputs is not supported", field)
+			}
+			cfg, err := parseStdoutOutputsConfig(value)
+			if err != nil {
+				return "", "", nil, fmt.Errorf("%s.outputs: %w", field, err)
+			}
+			outputs = cfg
+		default:
+			if allowOutputs {
+				return "", "", nil, fmt.Errorf("%s object supports only artifact and outputs", field)
+			}
+			return "", "", nil, fmt.Errorf("%s object supports only artifact", field)
+		}
 	}
-	artifact, ok := value.(string)
-	if !ok {
-		return "", "", fmt.Errorf("%s.artifact must be a string", field)
+	if artifactPath == "" && outputs == nil {
+		return "", "", nil, fmt.Errorf("%s object must contain artifact or outputs", field)
 	}
-	clean, err := cleanStepArtifactPath(artifact)
-	if err != nil {
-		return "", "", fmt.Errorf("%s.artifact: %w", field, err)
-	}
-	return "", clean, nil
+	return "", artifactPath, outputs, nil
 }
 
 func cleanStepArtifactPath(raw string) (string, error) {
@@ -1027,6 +1062,198 @@ var stepOutputReservedFields = map[string]struct{}{
 	"path":   {},
 	"decode": {},
 	"select": {},
+}
+
+var stdoutOutputsConfigFields = map[string]struct{}{
+	"field":  {},
+	"decode": {},
+	"select": {},
+	"fields": {},
+}
+
+func parseStdoutOutputsConfig(raw any) (*core.StepOutputsConfig, error) {
+	switch v := raw.(type) {
+	case nil:
+		return nil, fmt.Errorf("must not be null")
+	case string:
+		field := strings.TrimSpace(v)
+		if field == "" {
+			return nil, fmt.Errorf("field must not be empty")
+		}
+		return &core.StepOutputsConfig{Field: field}, nil
+	case map[string]any:
+		return parseStdoutOutputsConfigMap(v)
+	case map[any]any:
+		converted := make(map[string]any, len(v))
+		for key, value := range v {
+			keyString, ok := key.(string)
+			if !ok {
+				return nil, fmt.Errorf("object keys must be strings")
+			}
+			converted[keyString] = value
+		}
+		return parseStdoutOutputsConfigMap(converted)
+	default:
+		return nil, fmt.Errorf("must be a string field name or object, got %T", raw)
+	}
+}
+
+func parseStdoutOutputsConfigMap(raw map[string]any) (*core.StepOutputsConfig, error) {
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("object must not be empty")
+	}
+	for key := range raw {
+		if _, ok := stdoutOutputsConfigFields[key]; !ok {
+			return nil, fmt.Errorf("unknown field %q", key)
+		}
+	}
+
+	var cfg core.StepOutputsConfig
+	if field, ok := raw["field"]; ok {
+		str, ok := field.(string)
+		if !ok || strings.TrimSpace(str) == "" {
+			return nil, fmt.Errorf("field must be a non-empty string")
+		}
+		cfg.Field = strings.TrimSpace(str)
+	}
+	if decode, ok := raw["decode"]; ok {
+		str, ok := decode.(string)
+		if !ok {
+			return nil, fmt.Errorf("decode must be a string")
+		}
+		cfg.Decode = strings.TrimSpace(str)
+	}
+	if selectPath, ok := raw["select"]; ok {
+		str, ok := selectPath.(string)
+		if !ok {
+			return nil, fmt.Errorf("select must be a string")
+		}
+		cfg.Select = strings.TrimSpace(str)
+	}
+	if fieldsRaw, ok := raw["fields"]; ok {
+		fields, err := parseStdoutOutputsFields(fieldsRaw)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Fields = fields
+	}
+
+	if len(cfg.Fields) > 0 && (cfg.Field != "" || cfg.Decode != "" || cfg.Select != "") {
+		return nil, fmt.Errorf("fields cannot be used with field, decode, or select")
+	}
+	if cfg.Decode == "" && cfg.Select != "" {
+		cfg.Decode = core.StepOutputDecodeJSON
+	}
+	switch cfg.Decode {
+	case "", core.StepOutputDecodeText, core.StepOutputDecodeJSON, core.StepOutputDecodeYAML:
+	default:
+		return nil, fmt.Errorf("decode must be one of %q, %q, or %q",
+			core.StepOutputDecodeText, core.StepOutputDecodeJSON, core.StepOutputDecodeYAML)
+	}
+	if cfg.Select != "" && cfg.Decode != core.StepOutputDecodeJSON && cfg.Decode != core.StepOutputDecodeYAML {
+		return nil, fmt.Errorf("select requires decode to be %q or %q",
+			core.StepOutputDecodeJSON, core.StepOutputDecodeYAML)
+	}
+	return &cfg, nil
+}
+
+func parseStdoutOutputsFields(raw any) (map[string]core.StepOutputEntry, error) {
+	obj, ok := raw.(map[string]any)
+	if !ok {
+		if anyMap, ok := raw.(map[any]any); ok {
+			obj = make(map[string]any, len(anyMap))
+			for key, value := range anyMap {
+				keyString, ok := key.(string)
+				if !ok {
+					return nil, fmt.Errorf("fields object keys must be strings")
+				}
+				obj[keyString] = value
+			}
+		} else {
+			return nil, fmt.Errorf("fields must be an object")
+		}
+	}
+	if len(obj) == 0 {
+		return nil, fmt.Errorf("fields must not be empty")
+	}
+	fields := make(map[string]core.StepOutputEntry, len(obj))
+	for key, value := range obj {
+		name := strings.TrimSpace(key)
+		if name == "" {
+			return nil, fmt.Errorf("fields contains an empty name")
+		}
+		entry, err := parseStdoutOutputsFieldEntry(value)
+		if err != nil {
+			return nil, fmt.Errorf("fields.%s: %w", name, err)
+		}
+		fields[name] = entry
+	}
+	return fields, nil
+}
+
+func parseStdoutOutputsFieldEntry(raw any) (core.StepOutputEntry, error) {
+	obj, ok := raw.(map[string]any)
+	if !ok {
+		if anyMap, ok := raw.(map[any]any); ok {
+			obj = make(map[string]any, len(anyMap))
+			for key, value := range anyMap {
+				keyString, ok := key.(string)
+				if !ok {
+					return core.StepOutputEntry{}, fmt.Errorf("object keys must be strings")
+				}
+				obj[keyString] = value
+			}
+		} else {
+			return core.StepOutputEntry{HasValue: true, Value: raw}, nil
+		}
+	}
+	if _, hasFrom := obj["from"]; hasFrom {
+		entry, err := parseStructuredOutputEntry(obj)
+		if err != nil {
+			return core.StepOutputEntry{}, err
+		}
+		if entry.From != core.StepOutputSourceStdout {
+			return core.StepOutputEntry{}, fmt.Errorf("from must be %q", core.StepOutputSourceStdout)
+		}
+		return entry, nil
+	}
+	if _, hasValue := obj["value"]; hasValue {
+		return parseStructuredOutputEntry(obj)
+	}
+
+	entry := core.StepOutputEntry{From: core.StepOutputSourceStdout}
+	for key, value := range obj {
+		switch key {
+		case "decode":
+			str, ok := value.(string)
+			if !ok {
+				return core.StepOutputEntry{}, fmt.Errorf("decode must be a string")
+			}
+			entry.Decode = strings.TrimSpace(str)
+		case "select":
+			str, ok := value.(string)
+			if !ok {
+				return core.StepOutputEntry{}, fmt.Errorf("select must be a string")
+			}
+			entry.Select = strings.TrimSpace(str)
+		default:
+			return core.StepOutputEntry{}, fmt.Errorf("unknown field %q", key)
+		}
+	}
+	if entry.Decode == "" && entry.Select != "" {
+		entry.Decode = core.StepOutputDecodeJSON
+	}
+	switch entry.Decode {
+	case "", core.StepOutputDecodeText, core.StepOutputDecodeJSON, core.StepOutputDecodeYAML:
+	default:
+		return core.StepOutputEntry{}, fmt.Errorf("decode must be one of %q, %q, or %q",
+			core.StepOutputDecodeText, core.StepOutputDecodeJSON, core.StepOutputDecodeYAML)
+	}
+	if entry.Select != "" && entry.Decode != core.StepOutputDecodeJSON && entry.Decode != core.StepOutputDecodeYAML {
+		return core.StepOutputEntry{}, fmt.Errorf("select requires decode to be %q or %q",
+			core.StepOutputDecodeJSON, core.StepOutputDecodeYAML)
+	}
+	return entry, nil
 }
 
 func parseStructuredOutput(raw map[string]any) (map[string]core.StepOutputEntry, error) {

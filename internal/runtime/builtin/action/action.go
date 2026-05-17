@@ -28,6 +28,7 @@ const (
 var _ runtimeexec.Executor = (*Executor)(nil)
 var _ runtimeexec.DAGExecutor = (*Executor)(nil)
 var _ runtimeexec.SubRunProvider = (*Executor)(nil)
+var _ runtimeexec.OutputsProvider = (*Executor)(nil)
 
 type config struct {
 	Ref   string
@@ -39,9 +40,10 @@ type Executor struct {
 	stdout io.Writer
 	stderr io.Writer
 
-	mu  sync.Mutex
-	run runtimeexec.RunParams
-	dag *runtimeexec.SubDAGExecutor
+	mu      sync.Mutex
+	run     runtimeexec.RunParams
+	dag     *runtimeexec.SubDAGExecutor
+	outputs map[string]any
 
 	subRuns []coreexec.SubDAGRun
 }
@@ -208,10 +210,33 @@ func (e *Executor) runActionDAG(ctx context.Context, bundle *actionBundle, m *ma
 	if result == nil {
 		return execErr
 	}
-	if err := e.writeJSONOutput(result.Outputs, m); err != nil {
+	outputs := actionOutputsFromRunStatus(result)
+	if err := e.writeJSONOutput(outputs, m); err != nil {
 		return err
 	}
+	e.setOutputs(outputs)
 	return execErr
+}
+
+func actionOutputsFromRunStatus(result *coreexec.RunStatus) map[string]any {
+	if result == nil {
+		return nil
+	}
+	if len(result.OutputValues) > 0 {
+		outputs := make(map[string]any, len(result.OutputValues))
+		for key, value := range result.OutputValues {
+			outputs[key] = value
+		}
+		return outputs
+	}
+	if len(result.Outputs) == 0 {
+		return nil
+	}
+	outputs := make(map[string]any, len(result.Outputs))
+	for key, value := range result.Outputs {
+		outputs[key] = value
+	}
+	return outputs
 }
 
 func actionInputParams(input map[string]any) (string, error) {
@@ -268,6 +293,32 @@ func (e *Executor) setSubRuns(subRuns []coreexec.SubDAGRun) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.subRuns = append([]coreexec.SubDAGRun(nil), subRuns...)
+}
+
+func (e *Executor) setOutputs(outputs map[string]any) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if len(outputs) == 0 {
+		e.outputs = nil
+		return
+	}
+	e.outputs = make(map[string]any, len(outputs))
+	for key, value := range outputs {
+		e.outputs[key] = value
+	}
+}
+
+func (e *Executor) GetOutputs() map[string]any {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if len(e.outputs) == 0 {
+		return nil
+	}
+	outputs := make(map[string]any, len(e.outputs))
+	for key, value := range e.outputs {
+		outputs[key] = value
+	}
+	return outputs
 }
 
 func (e *Executor) writeJSONOutput(output any, m *manifest) error {
