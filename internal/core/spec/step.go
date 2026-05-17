@@ -596,40 +596,46 @@ func buildStepScript(_ StepBuildContext, s *step) (string, error) {
 }
 
 func buildStepStdout(_ StepBuildContext, s *step) (string, error) {
-	path, _, _, err := buildStepOutputRedirect("stdout", s.Stdout, true)
-	return path, err
+	redirect, err := buildStepOutputRedirect("stdout", s.Stdout, true)
+	return redirect.filePath, err
 }
 
 func buildStepStdoutArtifact(_ StepBuildContext, s *step) (string, error) {
-	_, artifact, _, err := buildStepOutputRedirect("stdout", s.Stdout, true)
-	return artifact, err
+	redirect, err := buildStepOutputRedirect("stdout", s.Stdout, true)
+	return redirect.artifactPath, err
 }
 
 func buildStepStdoutOutputs(_ StepBuildContext, s *step) (*core.StepOutputsConfig, error) {
-	_, _, outputs, err := buildStepOutputRedirect("stdout", s.Stdout, true)
-	return outputs, err
+	redirect, err := buildStepOutputRedirect("stdout", s.Stdout, true)
+	return redirect.outputs, err
 }
 
 func buildStepStderr(_ StepBuildContext, s *step) (string, error) {
-	path, _, _, err := buildStepOutputRedirect("stderr", s.Stderr, false)
-	return path, err
+	redirect, err := buildStepOutputRedirect("stderr", s.Stderr, false)
+	return redirect.filePath, err
 }
 
 func buildStepStderrArtifact(_ StepBuildContext, s *step) (string, error) {
-	_, artifact, _, err := buildStepOutputRedirect("stderr", s.Stderr, false)
-	return artifact, err
+	redirect, err := buildStepOutputRedirect("stderr", s.Stderr, false)
+	return redirect.artifactPath, err
+}
+
+type stepOutputRedirect struct {
+	filePath     string
+	artifactPath string
+	outputs      *core.StepOutputsConfig
 }
 
 func buildStepOutputRedirect(
 	field string,
 	raw any,
 	allowOutputs bool,
-) (filePath string, artifactPath string, outputs *core.StepOutputsConfig, err error) {
+) (stepOutputRedirect, error) {
 	switch v := raw.(type) {
 	case nil:
-		return "", "", nil, nil
+		return stepOutputRedirect{}, nil
 	case string:
-		return strings.TrimSpace(v), "", nil, nil
+		return stepOutputRedirect{filePath: strings.TrimSpace(v)}, nil
 	case map[string]any:
 		return parseStepObjectOutputRedirect(field, v, allowOutputs)
 	case map[any]any:
@@ -637,13 +643,13 @@ func buildStepOutputRedirect(
 		for key, value := range v {
 			keyString, ok := key.(string)
 			if !ok {
-				return "", "", nil, fmt.Errorf("%s object keys must be strings", field)
+				return stepOutputRedirect{}, fmt.Errorf("%s object keys must be strings", field)
 			}
 			converted[keyString] = value
 		}
 		return parseStepObjectOutputRedirect(field, converted, allowOutputs)
 	default:
-		return "", "", nil, fmt.Errorf("%s must be a string path or an object", field)
+		return stepOutputRedirect{}, fmt.Errorf("%s must be a string path or an object", field)
 	}
 }
 
@@ -651,9 +657,9 @@ func parseStepObjectOutputRedirect(
 	field string,
 	raw map[string]any,
 	allowOutputs bool,
-) (string, string, *core.StepOutputsConfig, error) {
+) (stepOutputRedirect, error) {
 	if len(raw) == 0 {
-		return "", "", nil, fmt.Errorf("%s object must not be empty", field)
+		return stepOutputRedirect{}, fmt.Errorf("%s object must not be empty", field)
 	}
 	var artifactPath string
 	var outputs *core.StepOutputsConfig
@@ -662,33 +668,33 @@ func parseStepObjectOutputRedirect(
 		case "artifact":
 			artifact, ok := value.(string)
 			if !ok {
-				return "", "", nil, fmt.Errorf("%s.artifact must be a string", field)
+				return stepOutputRedirect{}, fmt.Errorf("%s.artifact must be a string", field)
 			}
 			clean, err := cleanStepArtifactPath(artifact)
 			if err != nil {
-				return "", "", nil, fmt.Errorf("%s.artifact: %w", field, err)
+				return stepOutputRedirect{}, fmt.Errorf("%s.artifact: %w", field, err)
 			}
 			artifactPath = clean
 		case "outputs":
 			if !allowOutputs {
-				return "", "", nil, fmt.Errorf("%s.outputs is not supported", field)
+				return stepOutputRedirect{}, fmt.Errorf("%s.outputs is not supported", field)
 			}
 			cfg, err := parseStdoutOutputsConfig(value)
 			if err != nil {
-				return "", "", nil, fmt.Errorf("%s.outputs: %w", field, err)
+				return stepOutputRedirect{}, fmt.Errorf("%s.outputs: %w", field, err)
 			}
 			outputs = cfg
 		default:
 			if allowOutputs {
-				return "", "", nil, fmt.Errorf("%s object supports only artifact and outputs", field)
+				return stepOutputRedirect{}, fmt.Errorf("%s object supports only artifact and outputs", field)
 			}
-			return "", "", nil, fmt.Errorf("%s object supports only artifact", field)
+			return stepOutputRedirect{}, fmt.Errorf("%s object supports only artifact", field)
 		}
 	}
 	if artifactPath == "" && outputs == nil {
-		return "", "", nil, fmt.Errorf("%s object must contain artifact or outputs", field)
+		return stepOutputRedirect{}, fmt.Errorf("%s object must contain artifact or outputs", field)
 	}
-	return "", artifactPath, outputs, nil
+	return stepOutputRedirect{artifactPath: artifactPath, outputs: outputs}, nil
 }
 
 func cleanStepArtifactPath(raw string) (string, error) {
