@@ -60,6 +60,7 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/filedoc"
 	"github.com/dagucloud/dagu/internal/persis/fileeventstore"
 	"github.com/dagucloud/dagu/internal/persis/filememory"
+	"github.com/dagucloud/dagu/internal/persis/filenotification"
 	"github.com/dagucloud/dagu/internal/persis/fileremotenode"
 	"github.com/dagucloud/dagu/internal/persis/filesecret"
 	"github.com/dagucloud/dagu/internal/persis/filesession"
@@ -72,6 +73,7 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/service/audit"
 	authservice "github.com/dagucloud/dagu/internal/service/auth"
+	"github.com/dagucloud/dagu/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
 	"github.com/dagucloud/dagu/internal/service/frontend/api/pathutil"
@@ -81,6 +83,7 @@ import (
 	"github.com/dagucloud/dagu/internal/service/frontend/sse"
 	"github.com/dagucloud/dagu/internal/service/frontend/terminal"
 	dagumcp "github.com/dagucloud/dagu/internal/service/mcp"
+	notificationservice "github.com/dagucloud/dagu/internal/service/notification"
 	"github.com/dagucloud/dagu/internal/service/oidcprovision"
 	"github.com/dagucloud/dagu/internal/service/resource"
 	"github.com/dagucloud/dagu/internal/tunnel"
@@ -105,29 +108,30 @@ type shutdownActions struct {
 
 // Server represents the HTTP server for the frontend application.
 type Server struct {
-	apiV1              *apiv1.API
-	agentAPI           *agent.API
-	agentConfigStore   *fileagentconfig.Store
-	config             *config.Config
-	httpServer         *http.Server
-	funcsConfig        funcsConfig
-	builtinOIDCCfg     *auth.BuiltinOIDCConfig
-	authService        *authservice.Service
-	auditService       *audit.Service
-	auditStore         *fileaudit.Store
-	eventService       *eventstore.Service
-	syncService        gitsync.Service
-	listener           net.Listener
-	appStream          *sse.AppStreamService
-	sseMultiplexer     *sse.Multiplexer
-	terminalManager    *terminal.Manager
-	metricsRegistry    *prometheus.Registry
-	tunnelAPIOpts      []apiv1.APIOption
-	dagStore           exec.DAGStore
-	licenseManager     *license.Manager
-	remoteNodeResolver *remotenode.Resolver
-	upgradeStore       upgrade.CacheStore
-	agentAPICallback   func(*agent.API)
+	apiV1               *apiv1.API
+	agentAPI            *agent.API
+	agentConfigStore    *fileagentconfig.Store
+	config              *config.Config
+	httpServer          *http.Server
+	funcsConfig         funcsConfig
+	builtinOIDCCfg      *auth.BuiltinOIDCConfig
+	authService         *authservice.Service
+	auditService        *audit.Service
+	auditStore          *fileaudit.Store
+	eventService        *eventstore.Service
+	notificationService *notificationservice.Service
+	syncService         gitsync.Service
+	listener            net.Listener
+	appStream           *sse.AppStreamService
+	sseMultiplexer      *sse.Multiplexer
+	terminalManager     *terminal.Manager
+	metricsRegistry     *prometheus.Registry
+	tunnelAPIOpts       []apiv1.APIOption
+	dagStore            exec.DAGStore
+	licenseManager      *license.Manager
+	remoteNodeResolver  *remotenode.Resolver
+	upgradeStore        upgrade.CacheStore
+	agentAPICallback    func(*agent.API)
 }
 
 // ServerOption is a functional option for configuring the Server.
@@ -322,6 +326,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		remoteNodeResolver *remotenode.Resolver
 		encryptor          *crypto.Encryptor
 		agentOAuthManager  *agentoauth.Manager
+		licenseChecker     license.Checker
 	)
 	encKey, encErr := crypto.ResolveKey(cfg.Paths.DataDir)
 	if encErr != nil {
@@ -372,6 +377,28 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		}
 	}
 
+	var notificationSvc *notificationservice.Service
+	if encryptor != nil {
+		store, err := filenotification.New(
+			filepath.Join(cfg.Paths.DataDir, "notifications", "dags"),
+			filenotification.WithEncryptor(encryptor),
+		)
+		if err != nil {
+			logger.Warn(ctx, "Failed to create notification settings store", tag.Error(err))
+		} else {
+			notificationSvc = notificationservice.New(
+				store,
+				dr,
+				notificationservice.WithReusableChannelsEnabled(func() bool {
+					return license.HasActiveLicense(licenseChecker)
+				}),
+			)
+			apiOpts = append(apiOpts, apiv1.WithNotificationService(notificationSvc))
+		}
+	} else {
+		logger.Warn(ctx, "Notification settings store is disabled because encrypted storage is not available")
+	}
+
 	// Initialize workspace store
 	wsStore, wsErr := fileworkspace.New(cfg.Paths.WorkspacesDir)
 	if wsErr != nil {
@@ -380,7 +407,6 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		apiOpts = append(apiOpts, apiv1.WithWorkspaceStore(wsStore))
 	}
 
-	var licenseChecker license.Checker
 	auditEnabled := func() bool {
 		if auditSvc == nil {
 			return false
@@ -415,19 +441,20 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 	// Note: SSO/OIDC gating is applied after opts are processed (see below)
 
 	srv := &Server{
-		config:             cfg,
-		agentAPI:           agentAPI,
-		agentConfigStore:   agentConfigStore,
-		builtinOIDCCfg:     builtinOIDCCfg,
-		authService:        authSvc,
-		auditService:       auditSvc,
-		auditStore:         auditStore,
-		eventService:       eventSvc,
-		syncService:        syncSvc,
-		metricsRegistry:    mr,
-		dagStore:           dr,
-		remoteNodeResolver: remoteNodeResolver,
-		upgradeStore:       upgradeStore,
+		config:              cfg,
+		agentAPI:            agentAPI,
+		agentConfigStore:    agentConfigStore,
+		builtinOIDCCfg:      builtinOIDCCfg,
+		authService:         authSvc,
+		auditService:        auditSvc,
+		auditStore:          auditStore,
+		eventService:        eventSvc,
+		notificationService: notificationSvc,
+		syncService:         syncSvc,
+		metricsRegistry:     mr,
+		dagStore:            dr,
+		remoteNodeResolver:  remoteNodeResolver,
+		upgradeStore:        upgradeStore,
 		funcsConfig: funcsConfig{
 			NavbarColor:           cfg.UI.NavbarColor,
 			NavbarTitle:           cfg.UI.NavbarTitle,
@@ -1011,12 +1038,28 @@ func (srv *Server) Serve(ctx context.Context) error {
 	metrics.StartUptime(ctx)
 	logger.Info(ctx, "Server is starting", tag.Addr(addr))
 
+	srv.startNotificationMonitor(ctx)
 	srv.startPeriodicUpdateCheck(ctx)
 
 	go srv.startServer(ctx)
 	srv.setupGracefulShutdown(ctx)
 
 	return nil
+}
+
+func (srv *Server) startNotificationMonitor(ctx context.Context) {
+	if srv.notificationService == nil || srv.eventService == nil {
+		return
+	}
+	stateFile := filepath.Join(srv.config.Paths.DataDir, "notifications", "monitor-state.json")
+	monitor := chatbridge.NewNotificationMonitor(
+		srv.eventService,
+		stateFile,
+		srv.notificationService,
+		slog.Default(),
+		chatbridge.DefaultNotificationMonitorConfig(),
+	)
+	go monitor.Run(ctx)
 }
 
 // startPeriodicUpdateCheck runs an initial update check and then repeats

@@ -1676,6 +1676,158 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/notification-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get notification settings
+         * @description Returns workspace-level notification settings such as email delivery transport. Developer, manager, or admin only.
+         */
+        get: operations["getNotificationSettings"];
+        /**
+         * Update notification settings
+         * @description Updates workspace-level notification settings. SMTP passwords are accepted
+         *     in the request but are never returned. Omit password on updates to preserve
+         *     the existing password, or set clearPassword to remove it. Developer,
+         *     manager, or admin only.
+         *
+         */
+        put: operations["updateNotificationSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notification-routes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List notification routes
+         * @description Returns global and workspace notification channel routes. Notification channels and rules require an active Dagu license or trial. Developer, manager, or admin only.
+         */
+        get: operations["listNotificationRoutes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notification-routes/global": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get global notification routes
+         * @description Returns global default notification channel routes. Default DAGs use global routes; named workspaces can inherit or opt out. Developer, manager, or admin only.
+         */
+        get: operations["getGlobalNotificationRoutes"];
+        /**
+         * Update global notification routes
+         * @description Replaces global default notification channel routes. Route channel IDs must reference notification channels. Developer, manager, or admin only.
+         */
+        put: operations["updateGlobalNotificationRoutes"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notification-routes/workspaces/{workspaceName}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get workspace notification routes
+         * @description Returns notification channel routes for one named workspace. Workspace routes can inherit global defaults. Developer, manager, or admin only.
+         */
+        get: operations["getWorkspaceNotificationRoutes"];
+        /**
+         * Update workspace notification routes
+         * @description Replaces notification channel routes for one named workspace. Route channel IDs must reference notification channels. Developer, manager, or admin only.
+         */
+        put: operations["updateWorkspaceNotificationRoutes"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notification-channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List notification channels
+         * @description Returns notification channels. Channels are delivery endpoints; routing is configured separately. Developer, manager, or admin only.
+         */
+        get: operations["listNotificationChannels"];
+        put?: never;
+        /**
+         * Create notification channel
+         * @description Creates a notification channel. Secret values are accepted
+         *     in the request but are never returned. Developer, manager, or admin only.
+         *
+         */
+        post: operations["createNotificationChannel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notification-channels/{channelId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get notification channel
+         * @description Returns one notification channel. Developer, manager, or admin only.
+         */
+        get: operations["getNotificationChannel"];
+        /**
+         * Update notification channel
+         * @description Replaces a notification channel. Existing secret values
+         *     are preserved when omitted. Developer, manager, or admin only.
+         *
+         */
+        put: operations["updateNotificationChannel"];
+        post?: never;
+        /**
+         * Delete notification channel
+         * @description Deletes a notification channel. Channels referenced by DAG notification settings or notification routes cannot be deleted.
+         */
+        delete: operations["deleteNotificationChannel"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dags/{fileName}/webhook": {
         parameters: {
             query?: never;
@@ -1834,6 +1986,58 @@ export interface paths {
          * @description Disables HMAC authentication and returns the webhook to token-only mode. Developer, manager, or admin only.
          */
         post: operations["disableDAGWebhookHMAC"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dags/{fileName}/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get DAG notification settings
+         * @description Returns server-side notification settings for a specific DAG. Developer, manager, or admin only.
+         */
+        get: operations["getDAGNotifications"];
+        /**
+         * Update DAG notification settings
+         * @description Creates or replaces server-side notification settings for a DAG.
+         *     Secret values are accepted in the request but are never returned.
+         *     Existing secret values are preserved when omitted for an existing target.
+         *     Developer, manager, or admin only.
+         *
+         */
+        put: operations["updateDAGNotifications"];
+        post?: never;
+        /**
+         * Delete DAG notification settings
+         * @description Removes all server-side notification settings for the specified DAG. Developer, manager, or admin only.
+         */
+        delete: operations["deleteDAGNotifications"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dags/{fileName}/notifications/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a test DAG notification
+         * @description Sends a test notification to one target or every enabled target for a DAG. Developer, manager, or admin only.
+         */
+        post: operations["testDAGNotifications"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3318,6 +3522,354 @@ export interface components {
             webhook: components["schemas"]["WebhookDetails"];
             /** @description Full HMAC secret (only shown once, store securely!) */
             hmacSecret: string;
+        };
+        /**
+         * @description Notification delivery provider
+         * @enum {string}
+         */
+        NotificationProviderType: NotificationProviderType;
+        /**
+         * @description DAG run event that can trigger server-side notifications
+         * @enum {string}
+         */
+        NotificationEventType: NotificationEventType;
+        /** @description Email notification target. SMTP transport is configured in workspace notification settings. */
+        NotificationEmailTarget: {
+            /** @description Sender address. Defaults to the workspace SMTP sender. */
+            from?: string;
+            /** @description Primary recipients */
+            to: string[];
+            /** @description CC recipients */
+            cc?: string[];
+            /** @description BCC recipients */
+            bcc?: string[];
+            /** @description Subject prefix. Defaults to [DAGU]. */
+            subjectPrefix?: string;
+            /** @description Optional email subject template. When set, it replaces the generated subject. */
+            subjectTemplate?: string;
+            /** @description Optional email body template. When omitted, Dagu sends the default notification body. */
+            bodyTemplate?: string;
+            /** @description Attach DAG and step logs when available */
+            attachLogs?: boolean;
+        };
+        /** @description Workspace SMTP transport input for notification email delivery. Values are encrypted at rest where applicable. */
+        NotificationSMTPSettingsInput: {
+            /** @description SMTP server host */
+            host?: string;
+            /** @description SMTP server port */
+            port?: string;
+            /** @description SMTP username */
+            username?: string;
+            /** @description SMTP password. Omit on updates to preserve the existing password. */
+            password?: string;
+            /** @description Clear the stored SMTP password. */
+            clearPassword?: boolean;
+            /** @description Default sender address for notification email channels */
+            from?: string;
+        };
+        /** @description Public workspace SMTP transport settings. The SMTP password is never returned. */
+        NotificationSMTPSettings: {
+            /** @description SMTP server host */
+            host?: string;
+            /** @description SMTP server port */
+            port?: string;
+            /** @description SMTP username */
+            username?: string;
+            /** @description Default sender address for notification email channels */
+            from?: string;
+            /** @description Whether an SMTP password is configured */
+            passwordConfigured: boolean;
+        };
+        /** @description Workspace-level notification settings input */
+        NotificationWorkspaceSettingsInput: {
+            smtp?: components["schemas"]["NotificationSMTPSettingsInput"] | null;
+        };
+        /** @description Workspace-level notification settings */
+        NotificationWorkspaceSettings: {
+            smtp?: components["schemas"]["NotificationSMTPSettings"];
+            /** Format: date-time */
+            createdAt?: string;
+            /** Format: date-time */
+            updatedAt?: string;
+            /** @description User ID that last updated the workspace notification settings */
+            updatedBy?: string;
+        };
+        /**
+         * @description Notification route scope
+         * @enum {string}
+         */
+        NotificationRouteScope: NotificationRouteScope;
+        /** @description Route from notification events to a notification channel */
+        NotificationRouteInput: {
+            /** @description Stable route ID. Omit when adding a route. */
+            id?: string;
+            /** @description Notification channel ID */
+            channelId: string;
+            /** @description Whether this route receives notifications */
+            enabled: boolean;
+            /** @description Events delivered by this route. Omit only for backward compatibility; new clients should send an explicit event list. */
+            events?: components["schemas"]["NotificationEventType"][];
+        };
+        /** @description Route from notification events to a notification channel */
+        NotificationRoute: {
+            /** @description Stable route ID */
+            id: string;
+            /** @description Notification channel ID */
+            channelId: string;
+            /** @description Whether this route receives notifications */
+            enabled: boolean;
+            /** @description Events delivered by this route. Empty is treated as operational defaults for backward compatibility. */
+            events?: components["schemas"]["NotificationEventType"][];
+        };
+        /** @description Replacement route set for a global or workspace notification scope */
+        NotificationRouteSetInput: {
+            /** @description Whether this route set can deliver notifications */
+            enabled: boolean;
+            /** @description For workspace route sets, true means inherit Global instead of using workspace routes. Ignored for global route sets. */
+            inheritGlobal: boolean;
+            routes: components["schemas"]["NotificationRouteInput"][];
+        };
+        /** @description Notification routes for a global or workspace scope */
+        NotificationRouteSet: {
+            /** @description Stable route set ID, present after the route set is saved */
+            id?: string;
+            scope: components["schemas"]["NotificationRouteScope"];
+            /** @description Workspace name for workspace-scoped route sets */
+            workspace?: string;
+            /** @description Whether this route set can deliver notifications */
+            enabled: boolean;
+            /** @description For workspace route sets, true means inherit Global instead of using workspace routes */
+            inheritGlobal: boolean;
+            routes: components["schemas"]["NotificationRoute"][];
+            /** Format: date-time */
+            createdAt?: string;
+            /** Format: date-time */
+            updatedAt?: string;
+            /** @description User ID that last updated the route set */
+            updatedBy?: string;
+        };
+        /** @description Notification route sets */
+        NotificationRouteSetListResponse: {
+            routeSets: components["schemas"]["NotificationRouteSet"][];
+        };
+        /** @description Outbound webhook target input. Values are encrypted at rest. */
+        NotificationWebhookTargetInput: {
+            /**
+             * Format: uri
+             * @description HTTP or HTTPS endpoint to POST notification payloads to. Omit on updates to preserve the existing URL.
+             */
+            url?: string;
+            /** @description Additional request headers. Values are encrypted at rest. When provided, this replaces the stored header set. */
+            headers?: {
+                [key: string]: string;
+            };
+            /** @description Clear all stored webhook headers. */
+            clearHeaders?: boolean;
+            /** @description Optional HMAC secret for X-Dagu-Signature. Omit on updates to preserve the existing secret. */
+            hmacSecret?: string;
+            /** @description Clear the stored HMAC secret. */
+            clearHmacSecret?: boolean;
+            /** @description Optional rendered message added to the webhook JSON payload as message. */
+            messageTemplate?: string;
+            /** @description Allow plain HTTP webhook URLs. Disabled by default. */
+            allowInsecureHttp?: boolean;
+            /** @description Allow loopback or private network webhook targets. Disabled by default. */
+            allowPrivateNetwork?: boolean;
+        };
+        /** @description Public outbound webhook target details */
+        NotificationWebhookTarget: {
+            /** @description Whether a webhook URL is configured */
+            urlConfigured: boolean;
+            /** @description Redacted URL preview */
+            urlPreview?: string;
+            /** @description Header names with redacted values */
+            headers?: {
+                [key: string]: string;
+            };
+            /** @description Whether an HMAC secret is configured */
+            hmacSecretConfigured: boolean;
+            /** @description Optional rendered message added to the webhook JSON payload as message. */
+            messageTemplate?: string;
+            /** @description Whether this target allows plain HTTP webhook URLs */
+            allowInsecureHttp?: boolean;
+            /** @description Whether this target allows loopback or private network webhook targets */
+            allowPrivateNetwork?: boolean;
+        };
+        /** @description Slack incoming webhook target input. Values are encrypted at rest. */
+        NotificationSlackTargetInput: {
+            /**
+             * Format: uri
+             * @description Slack incoming webhook URL. Omit on updates to preserve the existing URL.
+             */
+            webhookUrl?: string;
+            /** @description Optional Slack message template. When omitted, Dagu sends the default notification text. */
+            messageTemplate?: string;
+        };
+        /** @description Public Slack target details */
+        NotificationSlackTarget: {
+            /** @description Whether a Slack incoming webhook URL is configured */
+            webhookUrlConfigured: boolean;
+            /** @description Redacted Slack webhook URL preview */
+            webhookUrlPreview?: string;
+            /** @description Optional Slack message template. When omitted, Dagu sends the default notification text. */
+            messageTemplate?: string;
+        };
+        /** @description Telegram Bot API target input. Bot token is encrypted at rest. */
+        NotificationTelegramTargetInput: {
+            /** @description Telegram bot token. Omit on updates to preserve the existing token. */
+            botToken?: string;
+            /** @description Telegram chat ID */
+            chatId?: string;
+            /** @description Optional Telegram message template. When omitted, Dagu sends the default notification text. */
+            messageTemplate?: string;
+        };
+        /** @description Public Telegram target details */
+        NotificationTelegramTarget: {
+            /** @description Whether a Telegram bot token is configured */
+            botTokenConfigured: boolean;
+            /** @description Redacted Telegram bot token preview */
+            botTokenPreview?: string;
+            /** @description Telegram chat ID */
+            chatId?: string;
+            /** @description Optional Telegram message template. When omitted, Dagu sends the default notification text. */
+            messageTemplate?: string;
+        };
+        /** @description Notification target input */
+        NotificationTargetInput: {
+            /** @description Stable target ID. Omit when creating a new target. */
+            id?: string;
+            /** @description Human-readable target name */
+            name?: string;
+            type: components["schemas"]["NotificationProviderType"];
+            /** @description Whether this target receives notifications */
+            enabled: boolean;
+            /** @description Optional target-level event filter. When omitted or empty, the target inherits DAG-level events. */
+            events?: components["schemas"]["NotificationEventType"][];
+            email?: components["schemas"]["NotificationEmailTarget"];
+            webhook?: components["schemas"]["NotificationWebhookTargetInput"];
+            slack?: components["schemas"]["NotificationSlackTargetInput"];
+            telegram?: components["schemas"]["NotificationTelegramTargetInput"];
+        };
+        /** @description Public notification target details. Secrets are never returned. */
+        NotificationTarget: {
+            /** @description Stable target ID */
+            id: string;
+            /** @description Human-readable target name */
+            name?: string;
+            type: components["schemas"]["NotificationProviderType"];
+            /** @description Whether this target receives notifications */
+            enabled: boolean;
+            /** @description Target-level event filter. Empty means the target inherits DAG-level events. */
+            events?: components["schemas"]["NotificationEventType"][];
+            email?: components["schemas"]["NotificationEmailTarget"];
+            webhook?: components["schemas"]["NotificationWebhookTarget"];
+            slack?: components["schemas"]["NotificationSlackTarget"];
+            telegram?: components["schemas"]["NotificationTelegramTarget"];
+        };
+        /** @description Notification channel input */
+        NotificationChannelInput: {
+            /** @description Human-readable channel name */
+            name: string;
+            type: components["schemas"]["NotificationProviderType"];
+            /** @description Whether this channel can receive notifications */
+            enabled: boolean;
+            email?: components["schemas"]["NotificationEmailTarget"];
+            webhook?: components["schemas"]["NotificationWebhookTargetInput"];
+            slack?: components["schemas"]["NotificationSlackTargetInput"];
+            telegram?: components["schemas"]["NotificationTelegramTargetInput"];
+        };
+        /** @description Notification channel. Secrets are never returned. */
+        NotificationChannel: {
+            /** @description Stable channel ID */
+            id: string;
+            /** @description Human-readable channel name */
+            name: string;
+            type: components["schemas"]["NotificationProviderType"];
+            /** @description Whether this channel can receive notifications */
+            enabled: boolean;
+            email?: components["schemas"]["NotificationEmailTarget"];
+            webhook?: components["schemas"]["NotificationWebhookTarget"];
+            slack?: components["schemas"]["NotificationSlackTarget"];
+            telegram?: components["schemas"]["NotificationTelegramTarget"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** @description User ID that last updated the channel */
+            updatedBy?: string;
+        };
+        /** @description Notification channels */
+        NotificationChannelListResponse: {
+            channels: components["schemas"]["NotificationChannel"][];
+        };
+        /** @description DAG subscription to a notification channel */
+        NotificationSubscriptionInput: {
+            /** @description Stable subscription ID. Omit when creating a new subscription. */
+            id?: string;
+            /** @description Notification channel ID */
+            channelId: string;
+            /** @description Whether this DAG subscription receives notifications */
+            enabled: boolean;
+            /** @description Optional subscription-level event filter. When omitted or empty, the subscription inherits DAG-level events. */
+            events?: components["schemas"]["NotificationEventType"][];
+        };
+        /** @description DAG subscription to a notification channel */
+        NotificationSubscription: {
+            /** @description Stable subscription ID */
+            id: string;
+            /** @description Notification channel ID */
+            channelId: string;
+            /** @description Whether this DAG subscription receives notifications */
+            enabled: boolean;
+            /** @description Subscription-level event filter. Empty means the subscription inherits DAG-level events. */
+            events?: components["schemas"]["NotificationEventType"][];
+        };
+        /** @description Server-side DAG notification settings */
+        DAGNotificationSettings: {
+            /** @description Stable settings ID */
+            id: string;
+            /** @description Name of the DAG these settings apply to */
+            dagName: string;
+            /** @description Whether notification delivery is enabled for this DAG */
+            enabled: boolean;
+            /** @description DAG run events that trigger notifications */
+            events: components["schemas"]["NotificationEventType"][];
+            /** @description DAG-local notification targets kept for backward compatibility */
+            targets: components["schemas"]["NotificationTarget"][];
+            /** @description Notification channels subscribed by this DAG */
+            subscriptions: components["schemas"]["NotificationSubscription"][];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** @description User ID that last updated the settings */
+            updatedBy?: string;
+        };
+        /** @description Request to replace DAG notification settings */
+        UpdateDAGNotificationsRequest: {
+            /** @description Whether notification delivery is enabled for this DAG */
+            enabled: boolean;
+            events: components["schemas"]["NotificationEventType"][];
+            targets: components["schemas"]["NotificationTargetInput"][];
+            subscriptions?: components["schemas"]["NotificationSubscriptionInput"][];
+        };
+        /** @description Request to send a test notification */
+        TestDAGNotificationRequest: {
+            /** @description Optional DAG-local target ID, subscription ID, or channel ID. When omitted, every enabled target and subscription is tested. */
+            targetId?: string;
+            eventType?: components["schemas"]["NotificationEventType"];
+        };
+        /** @description Delivery result for one notification target */
+        TestDAGNotificationResult: {
+            targetId: string;
+            targetName: string;
+            provider: components["schemas"]["NotificationProviderType"];
+            delivered: boolean;
+            error?: string;
+        };
+        /** @description Result of test notification delivery */
+        TestDAGNotificationResponse: {
+            results: components["schemas"]["TestDAGNotificationResult"][];
         };
         /**
          * Format: string
@@ -10229,6 +10781,616 @@ export interface operations {
             };
         };
     };
+    getNotificationSettings: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workspace notification settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationWorkspaceSettings"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateNotificationSettings: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationWorkspaceSettingsInput"];
+            };
+        };
+        responses: {
+            /** @description Workspace notification settings updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationWorkspaceSettings"];
+                };
+            };
+            /** @description Invalid notification settings */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listNotificationRoutes: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of notification route sets */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationRouteSetListResponse"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getGlobalNotificationRoutes: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Global notification route set */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationRouteSet"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateGlobalNotificationRoutes: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationRouteSetInput"];
+            };
+        };
+        responses: {
+            /** @description Global notification route set updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationRouteSet"];
+                };
+            };
+            /** @description Invalid notification route set */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Referenced notification channel was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getWorkspaceNotificationRoutes: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                workspaceName: components["schemas"]["WorkspaceName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workspace notification route set */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationRouteSet"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Workspace was not found or is not visible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateWorkspaceNotificationRoutes: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                workspaceName: components["schemas"]["WorkspaceName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationRouteSetInput"];
+            };
+        };
+        responses: {
+            /** @description Workspace notification route set updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationRouteSet"];
+                };
+            };
+            /** @description Invalid notification route set */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Workspace or referenced notification channel was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listNotificationChannels: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of notification channels */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationChannelListResponse"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createNotificationChannel: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationChannelInput"];
+            };
+        };
+        responses: {
+            /** @description Notification channel created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationChannel"];
+                };
+            };
+            /** @description Invalid notification channel */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getNotificationChannel: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                channelId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Notification channel */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationChannel"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Notification channel not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateNotificationChannel: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                channelId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationChannelInput"];
+            };
+        };
+        responses: {
+            /** @description Notification channel updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationChannel"];
+                };
+            };
+            /** @description Invalid notification channel */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Notification channel not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteNotificationChannel: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                channelId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Notification channel deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Notification channel not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Notification channel is used by a DAG */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     getDAGWebhook: {
         parameters: {
             query?: {
@@ -10680,6 +11842,215 @@ export interface operations {
             };
             /** @description Webhook HMAC is not supported on this node */
             501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getDAGNotifications: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description DAG notification settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DAGNotificationSettings"];
+                };
+            };
+            /** @description No notification settings configured for this DAG */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateDAGNotifications: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDAGNotificationsRequest"];
+            };
+        };
+        responses: {
+            /** @description DAG notification settings updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DAGNotificationSettings"];
+                };
+            };
+            /** @description Invalid notification settings */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - notification channels require an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description DAG not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteDAGNotifications: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description DAG notification settings deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No notification settings configured for this DAG */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    testDAGNotifications: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestDAGNotificationRequest"];
+            };
+        };
+        responses: {
+            /** @description Test notification delivery attempted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestDAGNotificationResponse"];
+                };
+            };
+            /** @description Invalid test notification request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description DAG or target not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -15113,6 +16484,23 @@ export enum WebhookHMACEnforcementMode {
 export enum WebhookHMACConfigureRequestAuthMode {
     token_and_hmac = "token_and_hmac",
     hmac_only = "hmac_only"
+}
+export enum NotificationProviderType {
+    email = "email",
+    webhook = "webhook",
+    slack = "slack",
+    telegram = "telegram"
+}
+export enum NotificationEventType {
+    dag_run_waiting = "dag.run.waiting",
+    dag_run_succeeded = "dag.run.succeeded",
+    dag_run_failed = "dag.run.failed",
+    dag_run_aborted = "dag.run.aborted",
+    dag_run_rejected = "dag.run.rejected"
+}
+export enum NotificationRouteScope {
+    global = "global",
+    workspace = "workspace"
 }
 export enum Stream {
     stdout = "stdout",

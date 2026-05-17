@@ -24,7 +24,7 @@ import {
   ConfigContext,
   ConfigUpdateContext,
 } from './contexts/ConfigContext';
-import { useHasFeature } from './hooks/useLicense';
+import { useHasFeature, useLicense } from './hooks/useLicense';
 import { PageContextProvider } from './contexts/PageContext';
 import { SchemaProvider } from './contexts/SchemaContext';
 import { SearchStateProvider } from './contexts/SearchStateContext';
@@ -71,6 +71,9 @@ import HomePage from './pages/home';
 import IntegrationsPage from './pages/integrations';
 import LicensePage from './pages/license';
 import LoginPage from './pages/login';
+import NotificationChannelsPage from './pages/notification-channels';
+import NotificationRulesPage from './pages/notification-rules';
+import NotificationsPage from './pages/notifications';
 import OverviewPage from './pages/overview';
 import Queues from './pages/queues';
 import QueueDetailsPage from './pages/queues/queue';
@@ -213,6 +216,24 @@ function LicensedRoute({
 }): React.ReactElement {
   const hasFeature = useHasFeature(feature);
   if (hasFeature) return children;
+  return <LicenseRequiredMessage />;
+}
+
+function NotificationLicensedElement({
+  children,
+}: {
+  children: React.ReactElement;
+}): React.ReactElement {
+  const license = useLicense();
+  const licensed = !license.community && (license.valid || license.gracePeriod);
+  return (
+    <DeveloperElement>
+      {licensed ? children : <LicenseRequiredMessage />}
+    </DeveloperElement>
+  );
+}
+
+function LicenseRequiredMessage(): React.ReactElement {
   return (
     <div className="flex flex-col items-center justify-center h-full gap-4 text-center p-8">
       <Shield size={48} className="text-muted-foreground" />
@@ -559,6 +580,30 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                         <Route
                                           path="/integrations"
                                           element={<IntegrationsPage />}
+                                        />
+                                        <Route
+                                          path="/notifications"
+                                          element={
+                                            <NotificationLicensedElement>
+                                              <NotificationsPage />
+                                            </NotificationLicensedElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/notification-rules"
+                                          element={
+                                            <NotificationLicensedElement>
+                                              <NotificationRulesPage />
+                                            </NotificationLicensedElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/notification-channels"
+                                          element={
+                                            <NotificationLicensedElement>
+                                              <NotificationChannelsPage />
+                                            </NotificationLicensedElement>
+                                          }
                                         />
                                         <Route
                                           path="/dags/"

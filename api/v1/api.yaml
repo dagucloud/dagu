@@ -41,6 +41,8 @@ tags:
     description: "API key management operations (admin only)"
   - name: "webhooks"
     description: "Webhook endpoints for triggering DAG execution"
+  - name: "notifications"
+    description: "DAG run notification settings and delivery tests"
   - name: "audit"
     description: "Audit log operations (admin only)"
   - name: "events"
@@ -3958,6 +3960,467 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /notification-settings:
+    get:
+      summary: "Get notification settings"
+      description: "Returns workspace-level notification settings such as email delivery transport. Developer, manager, or admin only."
+      operationId: "getNotificationSettings"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "Workspace notification settings"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationWorkspaceSettings"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    put:
+      summary: "Update notification settings"
+      description: |
+        Updates workspace-level notification settings. SMTP passwords are accepted
+        in the request but are never returned. Omit password on updates to preserve
+        the existing password, or set clearPassword to remove it. Developer,
+        manager, or admin only.
+      operationId: "updateNotificationSettings"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationWorkspaceSettingsInput"
+      responses:
+        "200":
+          description: "Workspace notification settings updated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationWorkspaceSettings"
+        "400":
+          description: "Invalid notification settings"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /notification-routes:
+    get:
+      summary: "List notification routes"
+      description: "Returns global and workspace notification channel routes. Notification channels and rules require an active Dagu license or trial. Developer, manager, or admin only."
+      operationId: "listNotificationRoutes"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "List of notification route sets"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationRouteSetListResponse"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /notification-routes/global:
+    get:
+      summary: "Get global notification routes"
+      description: "Returns global default notification channel routes. Default DAGs use global routes; named workspaces can inherit or opt out. Developer, manager, or admin only."
+      operationId: "getGlobalNotificationRoutes"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "Global notification route set"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationRouteSet"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    put:
+      summary: "Update global notification routes"
+      description: "Replaces global default notification channel routes. Route channel IDs must reference notification channels. Developer, manager, or admin only."
+      operationId: "updateGlobalNotificationRoutes"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationRouteSetInput"
+      responses:
+        "200":
+          description: "Global notification route set updated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationRouteSet"
+        "400":
+          description: "Invalid notification route set"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Referenced notification channel was not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /notification-routes/workspaces/{workspaceName}:
+    get:
+      summary: "Get workspace notification routes"
+      description: "Returns notification channel routes for one named workspace. Workspace routes can inherit global defaults. Developer, manager, or admin only."
+      operationId: "getWorkspaceNotificationRoutes"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - name: workspaceName
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/WorkspaceName"
+      responses:
+        "200":
+          description: "Workspace notification route set"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationRouteSet"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Workspace was not found or is not visible"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    put:
+      summary: "Update workspace notification routes"
+      description: "Replaces notification channel routes for one named workspace. Route channel IDs must reference notification channels. Developer, manager, or admin only."
+      operationId: "updateWorkspaceNotificationRoutes"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - name: workspaceName
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/WorkspaceName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationRouteSetInput"
+      responses:
+        "200":
+          description: "Workspace notification route set updated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationRouteSet"
+        "400":
+          description: "Invalid notification route set"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Workspace or referenced notification channel was not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /notification-channels:
+    get:
+      summary: "List notification channels"
+      description: "Returns notification channels. Channels are delivery endpoints; routing is configured separately. Developer, manager, or admin only."
+      operationId: "listNotificationChannels"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "List of notification channels"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationChannelListResponse"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    post:
+      summary: "Create notification channel"
+      description: |
+        Creates a notification channel. Secret values are accepted
+        in the request but are never returned. Developer, manager, or admin only.
+      operationId: "createNotificationChannel"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationChannelInput"
+      responses:
+        "201":
+          description: "Notification channel created"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationChannel"
+        "400":
+          description: "Invalid notification channel"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /notification-channels/{channelId}:
+    get:
+      summary: "Get notification channel"
+      description: "Returns one notification channel. Developer, manager, or admin only."
+      operationId: "getNotificationChannel"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Notification channel"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationChannel"
+        "404":
+          description: "Notification channel not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    put:
+      summary: "Update notification channel"
+      description: |
+        Replaces a notification channel. Existing secret values
+        are preserved when omitted. Developer, manager, or admin only.
+      operationId: "updateNotificationChannel"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationChannelInput"
+      responses:
+        "200":
+          description: "Notification channel updated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationChannel"
+        "400":
+          description: "Invalid notification channel"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Notification channel not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    delete:
+      summary: "Delete notification channel"
+      description: "Deletes a notification channel. Channels referenced by DAG notification settings or notification routes cannot be deleted."
+      operationId: "deleteNotificationChannel"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: "Notification channel deleted"
+        "404":
+          description: "Notification channel not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Notification channel is used by a DAG"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /dags/{fileName}/webhook:
     get:
       summary: "Get webhook for DAG"
@@ -4311,6 +4774,154 @@ paths:
                 $ref: "#/components/schemas/Error"
         "404":
           description: "No webhook configured for this DAG"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dags/{fileName}/notifications:
+    get:
+      summary: "Get DAG notification settings"
+      description: "Returns server-side notification settings for a specific DAG. Developer, manager, or admin only."
+      operationId: "getDAGNotifications"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      responses:
+        "200":
+          description: "DAG notification settings"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DAGNotificationSettings"
+        "404":
+          description: "No notification settings configured for this DAG"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    put:
+      summary: "Update DAG notification settings"
+      description: |
+        Creates or replaces server-side notification settings for a DAG.
+        Secret values are accepted in the request but are never returned.
+        Existing secret values are preserved when omitted for an existing target.
+        Developer, manager, or admin only.
+      operationId: "updateDAGNotifications"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDAGNotificationsRequest"
+      responses:
+        "200":
+          description: "DAG notification settings updated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DAGNotificationSettings"
+        "400":
+          description: "Invalid notification settings"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Forbidden - notification channels require an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "DAG not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    delete:
+      summary: "Delete DAG notification settings"
+      description: "Removes all server-side notification settings for the specified DAG. Developer, manager, or admin only."
+      operationId: "deleteDAGNotifications"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      responses:
+        "204":
+          description: "DAG notification settings deleted"
+        "404":
+          description: "No notification settings configured for this DAG"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dags/{fileName}/notifications/test:
+    post:
+      summary: "Send a test DAG notification"
+      description: "Sends a test notification to one target or every enabled target for a DAG. Developer, manager, or admin only."
+      operationId: "testDAGNotifications"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TestDAGNotificationRequest"
+      responses:
+        "200":
+          description: "Test notification delivery attempted"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestDAGNotificationResponse"
+        "400":
+          description: "Invalid test notification request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "DAG or target not found"
           content:
             application/json:
               schema:
@@ -8706,6 +9317,673 @@ components:
         hmacSecret:
           type: string
           description: "Full HMAC secret (only shown once, store securely!)"
+
+    NotificationProviderType:
+      type: string
+      description: "Notification delivery provider"
+      enum:
+        - email
+        - webhook
+        - slack
+        - telegram
+
+    NotificationEventType:
+      type: string
+      description: "DAG run event that can trigger server-side notifications"
+      enum:
+        - dag.run.waiting
+        - dag.run.succeeded
+        - dag.run.failed
+        - dag.run.aborted
+        - dag.run.rejected
+
+    NotificationEmailTarget:
+      type: object
+      description: "Email notification target. SMTP transport is configured in workspace notification settings."
+      required:
+        - to
+      properties:
+        from:
+          type: string
+          description: "Sender address. Defaults to the workspace SMTP sender."
+        to:
+          type: array
+          items:
+            type: string
+          description: "Primary recipients"
+        cc:
+          type: array
+          items:
+            type: string
+          description: "CC recipients"
+        bcc:
+          type: array
+          items:
+            type: string
+          description: "BCC recipients"
+        subjectPrefix:
+          type: string
+          description: "Subject prefix. Defaults to [DAGU]."
+        subjectTemplate:
+          type: string
+          description: "Optional email subject template. When set, it replaces the generated subject."
+        bodyTemplate:
+          type: string
+          description: "Optional email body template. When omitted, Dagu sends the default notification body."
+        attachLogs:
+          type: boolean
+          description: "Attach DAG and step logs when available"
+
+    NotificationSMTPSettingsInput:
+      type: object
+      description: "Workspace SMTP transport input for notification email delivery. Values are encrypted at rest where applicable."
+      properties:
+        host:
+          type: string
+          description: "SMTP server host"
+        port:
+          type: string
+          description: "SMTP server port"
+        username:
+          type: string
+          description: "SMTP username"
+        password:
+          type: string
+          description: "SMTP password. Omit on updates to preserve the existing password."
+        clearPassword:
+          type: boolean
+          description: "Clear the stored SMTP password."
+        from:
+          type: string
+          description: "Default sender address for notification email channels"
+
+    NotificationSMTPSettings:
+      type: object
+      description: "Public workspace SMTP transport settings. The SMTP password is never returned."
+      required:
+        - passwordConfigured
+      properties:
+        host:
+          type: string
+          description: "SMTP server host"
+        port:
+          type: string
+          description: "SMTP server port"
+        username:
+          type: string
+          description: "SMTP username"
+        from:
+          type: string
+          description: "Default sender address for notification email channels"
+        passwordConfigured:
+          type: boolean
+          description: "Whether an SMTP password is configured"
+
+    NotificationWorkspaceSettingsInput:
+      type: object
+      description: "Workspace-level notification settings input"
+      properties:
+        smtp:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/NotificationSMTPSettingsInput"
+
+    NotificationWorkspaceSettings:
+      type: object
+      description: "Workspace-level notification settings"
+      properties:
+        smtp:
+          $ref: "#/components/schemas/NotificationSMTPSettings"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        updatedBy:
+          type: string
+          description: "User ID that last updated the workspace notification settings"
+
+    NotificationRouteScope:
+      type: string
+      description: "Notification route scope"
+      enum:
+        - global
+        - workspace
+
+    NotificationRouteInput:
+      type: object
+      description: "Route from notification events to a notification channel"
+      required:
+        - channelId
+        - enabled
+      properties:
+        id:
+          type: string
+          description: "Stable route ID. Omit when adding a route."
+        channelId:
+          type: string
+          description: "Notification channel ID"
+        enabled:
+          type: boolean
+          description: "Whether this route receives notifications"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationEventType"
+          description: "Events delivered by this route. Omit only for backward compatibility; new clients should send an explicit event list."
+
+    NotificationRoute:
+      type: object
+      description: "Route from notification events to a notification channel"
+      required:
+        - id
+        - channelId
+        - enabled
+      properties:
+        id:
+          type: string
+          description: "Stable route ID"
+        channelId:
+          type: string
+          description: "Notification channel ID"
+        enabled:
+          type: boolean
+          description: "Whether this route receives notifications"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationEventType"
+          description: "Events delivered by this route. Empty is treated as operational defaults for backward compatibility."
+
+    NotificationRouteSetInput:
+      type: object
+      description: "Replacement route set for a global or workspace notification scope"
+      required:
+        - enabled
+        - inheritGlobal
+        - routes
+      properties:
+        enabled:
+          type: boolean
+          description: "Whether this route set can deliver notifications"
+        inheritGlobal:
+          type: boolean
+          description: "For workspace route sets, true means inherit Global instead of using workspace routes. Ignored for global route sets."
+        routes:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationRouteInput"
+
+    NotificationRouteSet:
+      type: object
+      description: "Notification routes for a global or workspace scope"
+      required:
+        - scope
+        - enabled
+        - inheritGlobal
+        - routes
+      properties:
+        id:
+          type: string
+          description: "Stable route set ID, present after the route set is saved"
+        scope:
+          $ref: "#/components/schemas/NotificationRouteScope"
+        workspace:
+          type: string
+          description: "Workspace name for workspace-scoped route sets"
+        enabled:
+          type: boolean
+          description: "Whether this route set can deliver notifications"
+        inheritGlobal:
+          type: boolean
+          description: "For workspace route sets, true means inherit Global instead of using workspace routes"
+        routes:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationRoute"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        updatedBy:
+          type: string
+          description: "User ID that last updated the route set"
+
+    NotificationRouteSetListResponse:
+      type: object
+      description: "Notification route sets"
+      required:
+        - routeSets
+      properties:
+        routeSets:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationRouteSet"
+
+    NotificationWebhookTargetInput:
+      type: object
+      description: "Outbound webhook target input. Values are encrypted at rest."
+      properties:
+        url:
+          type: string
+          format: uri
+          description: "HTTP or HTTPS endpoint to POST notification payloads to. Omit on updates to preserve the existing URL."
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: "Additional request headers. Values are encrypted at rest. When provided, this replaces the stored header set."
+        clearHeaders:
+          type: boolean
+          description: "Clear all stored webhook headers."
+        hmacSecret:
+          type: string
+          description: "Optional HMAC secret for X-Dagu-Signature. Omit on updates to preserve the existing secret."
+        clearHmacSecret:
+          type: boolean
+          description: "Clear the stored HMAC secret."
+        messageTemplate:
+          type: string
+          description: "Optional rendered message added to the webhook JSON payload as message."
+        allowInsecureHttp:
+          type: boolean
+          description: "Allow plain HTTP webhook URLs. Disabled by default."
+        allowPrivateNetwork:
+          type: boolean
+          description: "Allow loopback or private network webhook targets. Disabled by default."
+
+    NotificationWebhookTarget:
+      type: object
+      description: "Public outbound webhook target details"
+      required:
+        - urlConfigured
+        - hmacSecretConfigured
+      properties:
+        urlConfigured:
+          type: boolean
+          description: "Whether a webhook URL is configured"
+        urlPreview:
+          type: string
+          description: "Redacted URL preview"
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: "Header names with redacted values"
+        hmacSecretConfigured:
+          type: boolean
+          description: "Whether an HMAC secret is configured"
+        messageTemplate:
+          type: string
+          description: "Optional rendered message added to the webhook JSON payload as message."
+        allowInsecureHttp:
+          type: boolean
+          description: "Whether this target allows plain HTTP webhook URLs"
+        allowPrivateNetwork:
+          type: boolean
+          description: "Whether this target allows loopback or private network webhook targets"
+
+    NotificationSlackTargetInput:
+      type: object
+      description: "Slack incoming webhook target input. Values are encrypted at rest."
+      properties:
+        webhookUrl:
+          type: string
+          format: uri
+          description: "Slack incoming webhook URL. Omit on updates to preserve the existing URL."
+        messageTemplate:
+          type: string
+          description: "Optional Slack message template. When omitted, Dagu sends the default notification text."
+
+    NotificationSlackTarget:
+      type: object
+      description: "Public Slack target details"
+      required:
+        - webhookUrlConfigured
+      properties:
+        webhookUrlConfigured:
+          type: boolean
+          description: "Whether a Slack incoming webhook URL is configured"
+        webhookUrlPreview:
+          type: string
+          description: "Redacted Slack webhook URL preview"
+        messageTemplate:
+          type: string
+          description: "Optional Slack message template. When omitted, Dagu sends the default notification text."
+
+    NotificationTelegramTargetInput:
+      type: object
+      description: "Telegram Bot API target input. Bot token is encrypted at rest."
+      properties:
+        botToken:
+          type: string
+          description: "Telegram bot token. Omit on updates to preserve the existing token."
+        chatId:
+          type: string
+          description: "Telegram chat ID"
+        messageTemplate:
+          type: string
+          description: "Optional Telegram message template. When omitted, Dagu sends the default notification text."
+
+    NotificationTelegramTarget:
+      type: object
+      description: "Public Telegram target details"
+      required:
+        - botTokenConfigured
+      properties:
+        botTokenConfigured:
+          type: boolean
+          description: "Whether a Telegram bot token is configured"
+        botTokenPreview:
+          type: string
+          description: "Redacted Telegram bot token preview"
+        chatId:
+          type: string
+          description: "Telegram chat ID"
+        messageTemplate:
+          type: string
+          description: "Optional Telegram message template. When omitted, Dagu sends the default notification text."
+
+    NotificationTargetInput:
+      type: object
+      description: "Notification target input"
+      required:
+        - type
+        - enabled
+      properties:
+        id:
+          type: string
+          description: "Stable target ID. Omit when creating a new target."
+        name:
+          type: string
+          description: "Human-readable target name"
+        type:
+          $ref: "#/components/schemas/NotificationProviderType"
+        enabled:
+          type: boolean
+          description: "Whether this target receives notifications"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationEventType"
+          description: "Optional target-level event filter. When omitted or empty, the target inherits DAG-level events."
+        email:
+          $ref: "#/components/schemas/NotificationEmailTarget"
+        webhook:
+          $ref: "#/components/schemas/NotificationWebhookTargetInput"
+        slack:
+          $ref: "#/components/schemas/NotificationSlackTargetInput"
+        telegram:
+          $ref: "#/components/schemas/NotificationTelegramTargetInput"
+
+    NotificationTarget:
+      type: object
+      description: "Public notification target details. Secrets are never returned."
+      required:
+        - id
+        - type
+        - enabled
+      properties:
+        id:
+          type: string
+          description: "Stable target ID"
+        name:
+          type: string
+          description: "Human-readable target name"
+        type:
+          $ref: "#/components/schemas/NotificationProviderType"
+        enabled:
+          type: boolean
+          description: "Whether this target receives notifications"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationEventType"
+          description: "Target-level event filter. Empty means the target inherits DAG-level events."
+        email:
+          $ref: "#/components/schemas/NotificationEmailTarget"
+        webhook:
+          $ref: "#/components/schemas/NotificationWebhookTarget"
+        slack:
+          $ref: "#/components/schemas/NotificationSlackTarget"
+        telegram:
+          $ref: "#/components/schemas/NotificationTelegramTarget"
+
+    NotificationChannelInput:
+      type: object
+      description: "Notification channel input"
+      required:
+        - name
+        - type
+        - enabled
+      properties:
+        name:
+          type: string
+          description: "Human-readable channel name"
+        type:
+          $ref: "#/components/schemas/NotificationProviderType"
+        enabled:
+          type: boolean
+          description: "Whether this channel can receive notifications"
+        email:
+          $ref: "#/components/schemas/NotificationEmailTarget"
+        webhook:
+          $ref: "#/components/schemas/NotificationWebhookTargetInput"
+        slack:
+          $ref: "#/components/schemas/NotificationSlackTargetInput"
+        telegram:
+          $ref: "#/components/schemas/NotificationTelegramTargetInput"
+
+    NotificationChannel:
+      type: object
+      description: "Notification channel. Secrets are never returned."
+      required:
+        - id
+        - name
+        - type
+        - enabled
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          description: "Stable channel ID"
+        name:
+          type: string
+          description: "Human-readable channel name"
+        type:
+          $ref: "#/components/schemas/NotificationProviderType"
+        enabled:
+          type: boolean
+          description: "Whether this channel can receive notifications"
+        email:
+          $ref: "#/components/schemas/NotificationEmailTarget"
+        webhook:
+          $ref: "#/components/schemas/NotificationWebhookTarget"
+        slack:
+          $ref: "#/components/schemas/NotificationSlackTarget"
+        telegram:
+          $ref: "#/components/schemas/NotificationTelegramTarget"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        updatedBy:
+          type: string
+          description: "User ID that last updated the channel"
+
+    NotificationChannelListResponse:
+      type: object
+      description: "Notification channels"
+      required:
+        - channels
+      properties:
+        channels:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationChannel"
+
+    NotificationSubscriptionInput:
+      type: object
+      description: "DAG subscription to a notification channel"
+      required:
+        - channelId
+        - enabled
+      properties:
+        id:
+          type: string
+          description: "Stable subscription ID. Omit when creating a new subscription."
+        channelId:
+          type: string
+          description: "Notification channel ID"
+        enabled:
+          type: boolean
+          description: "Whether this DAG subscription receives notifications"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationEventType"
+          description: "Optional subscription-level event filter. When omitted or empty, the subscription inherits DAG-level events."
+
+    NotificationSubscription:
+      type: object
+      description: "DAG subscription to a notification channel"
+      required:
+        - id
+        - channelId
+        - enabled
+      properties:
+        id:
+          type: string
+          description: "Stable subscription ID"
+        channelId:
+          type: string
+          description: "Notification channel ID"
+        enabled:
+          type: boolean
+          description: "Whether this DAG subscription receives notifications"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationEventType"
+          description: "Subscription-level event filter. Empty means the subscription inherits DAG-level events."
+
+    DAGNotificationSettings:
+      type: object
+      description: "Server-side DAG notification settings"
+      required:
+        - id
+        - dagName
+        - enabled
+        - events
+        - targets
+        - subscriptions
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          description: "Stable settings ID"
+        dagName:
+          type: string
+          description: "Name of the DAG these settings apply to"
+        enabled:
+          type: boolean
+          description: "Whether notification delivery is enabled for this DAG"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationEventType"
+          description: "DAG run events that trigger notifications"
+        targets:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationTarget"
+          description: "DAG-local notification targets kept for backward compatibility"
+        subscriptions:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationSubscription"
+          description: "Notification channels subscribed by this DAG"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        updatedBy:
+          type: string
+          description: "User ID that last updated the settings"
+
+    UpdateDAGNotificationsRequest:
+      type: object
+      description: "Request to replace DAG notification settings"
+      required:
+        - enabled
+        - events
+        - targets
+      properties:
+        enabled:
+          type: boolean
+          description: "Whether notification delivery is enabled for this DAG"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationEventType"
+        targets:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationTargetInput"
+        subscriptions:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationSubscriptionInput"
+
+    TestDAGNotificationRequest:
+      type: object
+      description: "Request to send a test notification"
+      properties:
+        targetId:
+          type: string
+          description: "Optional DAG-local target ID, subscription ID, or channel ID. When omitted, every enabled target and subscription is tested."
+        eventType:
+          $ref: "#/components/schemas/NotificationEventType"
+
+    TestDAGNotificationResult:
+      type: object
+      description: "Delivery result for one notification target"
+      required:
+        - targetId
+        - targetName
+        - provider
+        - delivered
+      properties:
+        targetId:
+          type: string
+        targetName:
+          type: string
+        provider:
+          $ref: "#/components/schemas/NotificationProviderType"
+        delivered:
+          type: boolean
+        error:
+          type: string
+
+    TestDAGNotificationResponse:
+      type: object
+      description: "Result of test notification delivery"
+      required:
+        - results
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/TestDAGNotificationResult"
 
     Stream:
       type: string

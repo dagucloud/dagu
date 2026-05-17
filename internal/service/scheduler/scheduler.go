@@ -58,10 +58,15 @@ type Scheduler struct {
 	clock               Clock // Clock function for getting current time
 	eventCollector      *fileeventstore.Collector
 	githubDispatch      githubDispatchRunner
+	notificationMonitor backgroundRunner
 }
 
 type schedulerHooks struct {
 	onLockWait func()
+}
+
+type backgroundRunner interface {
+	Run(ctx context.Context)
 }
 
 type startupState struct {
@@ -252,6 +257,15 @@ func (s *Scheduler) SetEventCollector(collector *fileeventstore.Collector) {
 		return
 	}
 	s.eventCollector = collector
+}
+
+// SetNotificationMonitor configures the scheduler-owned notification monitor.
+// This must be called before Start().
+func (s *Scheduler) SetNotificationMonitor(monitor backgroundRunner) {
+	if s == nil {
+		return
+	}
+	s.notificationMonitor = monitor
 }
 
 // SetDAGRunLeaseStore configures the shared distributed lease store used for
@@ -554,6 +568,10 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	})
 
 	wg.Go(func() {
+		s.startNotificationMonitor(ctx)
+	})
+
+	wg.Go(func() {
 		s.startGitHubDispatch(ctx)
 	})
 
@@ -615,6 +633,13 @@ func (s *Scheduler) startEventCollector(ctx context.Context) {
 		return
 	}
 	s.eventCollector.Start(ctx)
+}
+
+func (s *Scheduler) startNotificationMonitor(ctx context.Context) {
+	if s.notificationMonitor == nil {
+		return
+	}
+	s.notificationMonitor.Run(ctx)
 }
 
 func (s *Scheduler) startHeartbeat(ctx context.Context) {

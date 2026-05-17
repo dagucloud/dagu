@@ -76,6 +76,21 @@ type NotificationTransport interface {
 	FlushNotificationBatch(ctx context.Context, destination string, batch NotificationBatch, allowLLM bool) bool
 }
 
+// NotificationRoutingTransport can narrow destinations per event. Transports
+// that manage DAG-specific routes should implement this to avoid queuing every
+// run event for every configured destination.
+type NotificationRoutingTransport interface {
+	NotificationDestinationsForEvent(event NotificationEvent) []string
+}
+
+// NotificationBatchDeliveryPolicyTransport can decide whether a ready batch
+// should be delivered to the transport or only acknowledged in monitor state.
+// Transports that feed built-in chat agents rely on the default success-digest
+// suppression, while direct notification transports can opt in.
+type NotificationBatchDeliveryPolicyTransport interface {
+	ShouldDeliverNotificationBatch(batch NotificationBatch) bool
+}
+
 // NotificationMonitor owns source polling, batching, durable delivery state, and shutdown drain.
 type NotificationMonitor struct {
 	eventService *eventstore.Service
@@ -376,7 +391,6 @@ func (m *NotificationMonitor) pollSource(ctx context.Context) {
 		return
 	}
 
-	destinations := m.transport.NotificationDestinations()
 	pending := make([]NotificationEvent, 0, len(events))
 	for _, event := range events {
 		if event == nil || !m.isInterestedEventType(event.Type) {
@@ -402,7 +416,7 @@ func (m *NotificationMonitor) pollSource(ctx context.Context) {
 		})
 	}
 
-	queued, committed := m.commitSourceProgress(ctx, destinations, nextCursor, pending)
+	queued, committed := m.commitSourceProgress(ctx, nil, nextCursor, pending)
 	if !committed || len(queued) == 0 {
 		return
 	}
@@ -443,8 +457,16 @@ func (m *NotificationMonitor) enqueueEvents(ctx context.Context, destinations []
 	if !m.canMutateNotificationState("Notification lock is not held; cannot enqueue notification events") {
 		return false
 	}
+	var router NotificationRoutingTransport
+	canonicalDestinations := m.transport.NotificationDestinations()
+	allowedDestinations := destinationSet(canonicalDestinations)
 	if destinations == nil {
-		destinations = m.transport.NotificationDestinations()
+		if r, ok := m.transport.(NotificationRoutingTransport); ok {
+			router = r
+			destinations = routedDestinationsForEvents(r, allowedDestinations, events)
+		} else {
+			destinations = canonicalDestinations
+		}
 	}
 	if len(destinations) == 0 {
 		m.logger.Warn("No notification destinations configured, cannot send notification")
@@ -458,7 +480,11 @@ func (m *NotificationMonitor) enqueueEvents(ctx context.Context, destinations []
 	persisted := m.applyStateTransitionLocked(ctx, func(candidate *notificationMonitorState) bool {
 		changed := ensureDestinations(candidate, destinations)
 		var enqueueChanged bool
-		queued, enqueueChanged, accepted = enqueueNotifications(candidate, destinations, events)
+		if router != nil {
+			queued, enqueueChanged, accepted = enqueueNotificationsByEvent(candidate, router, allowedDestinations, events)
+		} else {
+			queued, enqueueChanged, accepted = enqueueNotifications(candidate, destinations, events)
+		}
 		return changed || enqueueChanged
 	})
 	m.stateMu.Unlock()
@@ -574,8 +600,9 @@ func (m *NotificationMonitor) flushPendingBatch(ctx context.Context, pending Not
 	}
 
 	// Successful completions still flow through the notification state machine so
-	// they can replace pending wait alerts, but they should not post chat digests.
-	if pending.Batch.Class == NotificationClassSuccessDigest {
+	// they can replace pending wait alerts. Built-in chat/agent transports keep
+	// the historical success-digest suppression unless they explicitly opt in.
+	if !m.shouldDeliverBatch(pending.Batch) {
 		m.markBatchDelivered(ctx, pending.Destination, pending.Batch)
 		return true
 	}
@@ -592,6 +619,13 @@ func (m *NotificationMonitor) flushPendingBatch(ctx context.Context, pending Not
 		m.markBatchDelivered(ctx, pending.Destination, pending.Batch)
 	}
 	return acked
+}
+
+func (m *NotificationMonitor) shouldDeliverBatch(batch NotificationBatch) bool {
+	if policy, ok := m.transport.(NotificationBatchDeliveryPolicyTransport); ok {
+		return policy.ShouldDeliverNotificationBatch(batch)
+	}
+	return batch.Class != NotificationClassSuccessDigest
 }
 
 func (m *NotificationMonitor) drainPendingBatches(ctx context.Context, inFlight *NotificationPendingBatch) {
@@ -767,6 +801,17 @@ func (m *NotificationMonitor) commitSourceProgress(ctx context.Context, destinat
 	if !m.canMutateNotificationState("Notification lock lost before advancing notification cursor") {
 		return nil, false
 	}
+	var router NotificationRoutingTransport
+	canonicalDestinations := m.transport.NotificationDestinations()
+	allowedDestinations := destinationSet(canonicalDestinations)
+	if destinations == nil {
+		if r, ok := m.transport.(NotificationRoutingTransport); ok {
+			router = r
+			destinations = routedDestinationsForEvents(r, allowedDestinations, events)
+		} else {
+			destinations = canonicalDestinations
+		}
+	}
 
 	m.stateMu.Lock()
 	defer m.stateMu.Unlock()
@@ -784,7 +829,11 @@ func (m *NotificationMonitor) commitSourceProgress(ctx context.Context, destinat
 		cursorChanged := !candidate.SourceCursor.Equal(nextCursor)
 		candidate.SourceCursor = nextCursor.Normalize()
 		var enqueueChanged bool
-		queued, enqueueChanged, accepted = enqueueNotifications(candidate, destinations, events)
+		if router != nil {
+			queued, enqueueChanged, accepted = enqueueNotificationsByEvent(candidate, router, allowedDestinations, events)
+		} else {
+			queued, enqueueChanged, accepted = enqueueNotifications(candidate, destinations, events)
+		}
 		return changed || cursorChanged || enqueueChanged
 	})
 	if !persisted {
@@ -1211,6 +1260,95 @@ func enqueueNotifications(state *notificationMonitorState, destinations []string
 	}
 
 	return queued, changed, accepted
+}
+
+func enqueueNotificationsByEvent(
+	state *notificationMonitorState,
+	router NotificationRoutingTransport,
+	allowedDestinations map[string]struct{},
+	events []NotificationEvent,
+) ([]queuedNotification, bool, bool) {
+	var (
+		queued   []queuedNotification
+		changed  bool
+		accepted bool
+	)
+	for _, event := range events {
+		destinations := sanitizeRoutedDestinations(router.NotificationDestinationsForEvent(event), allowedDestinations)
+		if len(destinations) == 0 {
+			continue
+		}
+		eventQueued, eventChanged, eventAccepted := enqueueNotifications(state, destinations, []NotificationEvent{event})
+		queued = append(queued, eventQueued...)
+		changed = changed || eventChanged
+		accepted = accepted || eventAccepted
+	}
+	return queued, changed, accepted
+}
+
+func destinationSet(destinations []string) map[string]struct{} {
+	allowed := make(map[string]struct{}, len(destinations))
+	for _, destination := range destinations {
+		if destination == "" {
+			continue
+		}
+		allowed[destination] = struct{}{}
+	}
+	return allowed
+}
+
+func routedDestinationsForEvents(
+	router NotificationRoutingTransport,
+	allowedDestinations map[string]struct{},
+	events []NotificationEvent,
+) []string {
+	var destinations []string
+	for _, event := range events {
+		routed := router.NotificationDestinationsForEvent(event)
+		destinations = append(destinations, sanitizeRoutedDestinations(routed, allowedDestinations)...)
+	}
+	return uniqueDestinations(destinations)
+}
+
+func sanitizeRoutedDestinations(destinations []string, allowedDestinations map[string]struct{}) []string {
+	if len(destinations) == 0 || len(allowedDestinations) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(destinations))
+	seen := make(map[string]struct{}, len(destinations))
+	for _, destination := range destinations {
+		if destination == "" {
+			continue
+		}
+		if _, ok := allowedDestinations[destination]; !ok {
+			continue
+		}
+		if _, ok := seen[destination]; ok {
+			continue
+		}
+		seen[destination] = struct{}{}
+		result = append(result, destination)
+	}
+	return result
+}
+
+func uniqueDestinations(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 func removePendingNotificationsForRun(destState *notificationDestinationState, runKey string) bool {

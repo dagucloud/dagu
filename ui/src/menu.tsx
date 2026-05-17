@@ -24,6 +24,7 @@ import { defaultWorkspaceSelection } from '@/lib/workspace';
 import { UserRole } from '@/api/v1/schema';
 import {
   Activity,
+  Bell,
   ChevronDown,
   Gauge,
   Shield,
@@ -466,6 +467,10 @@ export const mainListItems = React.forwardRef<
     config.authMode !== 'builtin'
       ? config.permissions.writeDags
       : roleAtLeast(user?.role ?? null, UserRole.developer);
+  const canManageNotifications =
+    config.authMode !== 'builtin'
+      ? config.permissions.writeDags
+      : roleAtLeast(user?.role ?? null, UserRole.developer);
   const canAccessSystemStatus = useCanAccessSystemStatus();
   const canManageWebhooks = useCanManageWebhooks();
   const canManageSecrets = useCanManageSecrets();
@@ -731,6 +736,38 @@ export const mainListItems = React.forwardRef<
                   customColor={customColor}
                 />
               )}
+            </NavGroup>
+          )}
+
+          {canManageNotifications && (
+            <NavGroup
+              groupKey="notifications"
+              icon={<Bell size={18} />}
+              label="Notifications"
+              isOpen={isOpen}
+              basePath={[
+                '/notifications',
+                '/notification-rules',
+                '/notification-channels',
+              ]}
+              to="/notifications"
+              onClick={onNavItemClick}
+              customColor={customColor}
+            >
+              <NavItem
+                to="/notification-rules"
+                text="Rules"
+                isOpen={isOpen}
+                onClick={onNavItemClick}
+                customColor={customColor}
+              />
+              <NavItem
+                to="/notification-channels"
+                text="Channels"
+                isOpen={isOpen}
+                onClick={onNavItemClick}
+                customColor={customColor}
+              />
             </NavGroup>
           )}
 
