@@ -43,7 +43,7 @@ func TestMaterializeTaskWorkspaceCleansWorkDirOnExtractFailure(t *testing.T) {
 	task := &coordinatorv1.Task{
 		WorkspaceBundleDigest:  workspacebundle.Digest(data),
 		WorkspaceBundleSize:    int64(len(data)),
-		WorkspaceBundleDagPath: "action.yaml",
+		WorkspaceBundleDagPath: "workflow.yaml",
 	}
 
 	workspace, err := materializeTaskWorkspace(context.Background(), task, stubWorkspaceBundleClient{data: data}, workDir)

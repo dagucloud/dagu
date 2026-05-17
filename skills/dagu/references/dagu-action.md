@@ -13,10 +13,12 @@ Remote actions are different from DAG-local `actions:` templates:
 ```text
 dagu-action-notify/
 ├── dagu-action.yaml
-├── action.yaml
+├── workflow.yaml
 └── scripts/
     └── notify.sh
 ```
+
+This reference uses `workflow.yaml` as the recommended entrypoint DAG filename to keep it visually distinct from the `dagu-action.yaml` manifest. The `dag` field can point to any safe relative file path inside the package.
 
 `dagu-action.yaml` supports exactly these fields:
 
@@ -33,7 +35,7 @@ Unknown manifest keys are rejected. The `dag` path must resolve to a file inside
 ```yaml
 apiVersion: v1alpha1
 name: notify
-dag: action.yaml
+dag: workflow.yaml
 inputs:
   type: object
   additionalProperties: false

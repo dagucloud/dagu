@@ -21,7 +21,7 @@ func TestDaguActionRunsSourceBundleDAG(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(actionDir, "dagu-action.yaml"), []byte(`
 apiVersion: v1alpha1
 name: echo-action
-dag: action.yaml
+dag: workflow.yaml
 inputs:
   type: object
   additionalProperties: false
@@ -37,7 +37,7 @@ outputs:
     RESULT:
       type: string
 `), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(actionDir, "action.yaml"), []byte(`
+	require.NoError(t, os.WriteFile(filepath.Join(actionDir, "workflow.yaml"), []byte(`
 name: source-action-child
 params:
   - TEXT
@@ -77,7 +77,7 @@ func TestDaguActionPublishesCallerOutputs(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(actionDir, "dagu-action.yaml"), []byte(`
 apiVersion: v1alpha1
 name: notify-action
-dag: action.yaml
+dag: workflow.yaml
 outputs:
   type: object
   additionalProperties: false
@@ -88,7 +88,7 @@ outputs:
     status:
       type: string
 `), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(actionDir, "action.yaml"), []byte(`
+	require.NoError(t, os.WriteFile(filepath.Join(actionDir, "workflow.yaml"), []byte(`
 name: notify-action-child
 steps:
   - id: publish

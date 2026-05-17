@@ -154,7 +154,7 @@ func TestLoadManifestAcceptsDAG(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "source-action", m.Name)
-	assert.Equal(t, "action.yaml", m.DAG)
+	assert.Equal(t, "workflow.yaml", m.DAG)
 }
 
 func TestLoadManifestRejectsMissingDAG(t *testing.T) {
@@ -177,10 +177,10 @@ func TestLoadManifestRejectsUnsupportedFields(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, manifestFileName), []byte(`apiVersion: v1alpha1
 name: bad-action
-dag: action.yaml
+dag: workflow.yaml
 entrypoint: main.ts
 `), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "action.yaml"), []byte(`name: child
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "workflow.yaml"), []byte(`name: child
 steps:
   - run: echo ok
 `), 0o600))
@@ -197,9 +197,9 @@ func TestLoadManifestRejectsUnsupportedAPIVersion(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, manifestFileName), []byte(`apiVersion: dagu.dev/v2
 name: bad-action
-dag: action.yaml
+dag: workflow.yaml
 `), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "action.yaml"), []byte(`name: child
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "workflow.yaml"), []byte(`name: child
 steps:
   - run: echo ok
 `), 0o600))
@@ -296,13 +296,13 @@ func writeManifestOnly(t *testing.T, dir, name string) {
 	require.NoError(t, os.MkdirAll(dir, 0o750))
 	manifest := `apiVersion: v1alpha1
 name: ` + name + `
-dag: action.yaml
+dag: workflow.yaml
 inputs:
   type: object
   additionalProperties: true
 `
 	require.NoError(t, os.WriteFile(filepath.Join(dir, manifestFileName), []byte(manifest), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "action.yaml"), []byte(`name: source-action-child
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "workflow.yaml"), []byte(`name: source-action-child
 steps:
   - run: echo ok
 `), 0o600))

@@ -109,7 +109,7 @@ func writeActionOutputBundle(t *testing.T, actionYAML string) string {
 	require.NoError(t, os.WriteFile(filepath.Join(actionDir, "dagu-action.yaml"), []byte(`
 apiVersion: v1alpha1
 name: notify-action
-dag: action.yaml
+dag: workflow.yaml
 outputs:
   type: object
   additionalProperties: false
@@ -120,7 +120,7 @@ outputs:
     worker:
       type: string
 `), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(actionDir, "action.yaml"), []byte(actionYAML), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(actionDir, "workflow.yaml"), []byte(actionYAML), 0o600))
 	return actionDir
 }
 

@@ -42,6 +42,7 @@ Load only the reference file that matches the task.
 - DAG/action outputs are collected from string-form `output: VAR_NAME`, `stdout.outputs`, and `action: outputs.write`. Object-form `output:` stays step-scoped for `${step_id.output.*}` unless the workflow explicitly republishes values through `stdout.outputs` or `outputs.write`.
 - Remote action packages define `dagu-action.yaml` with `apiVersion: v1alpha1`, `name`, `dag`, and optional `inputs`/`outputs` JSON Schemas. `inputs` validates caller `with:` before the action DAG starts; `outputs` validates the final action output object after the action DAG returns.
 - Remote action manifests do not support `tools`. Declare external CLI tools in the action DAG itself so local and distributed workers prepare the right binaries for that action run.
+- In remote action examples, prefer `dag: workflow.yaml` for the action DAG filename. The `dag` field accepts any safe relative file path, but `workflow.yaml` avoids confusing the executable DAG with the `dagu-action.yaml` manifest.
 - Object-form `output:` with `decode: json` or `decode: yaml` can act as lightweight runtime validation. Malformed data or an unresolved `select:` path fails the step, so normal `retry_policy` applies.
 - Use `dagu schema dag` to check the full list of available fields and their shapes.
 - Use `dagu example` to see different DAG patterns and how to express them in YAML.
