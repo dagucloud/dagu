@@ -516,6 +516,51 @@ func TestService_SendTestWebhookIncludesCustomMessage(t *testing.T) {
 	assert.Contains(t, body, `"events":[`)
 }
 
+func TestService_SendTestWebhookIncludesRunLinks(t *testing.T) {
+	t.Parallel()
+
+	var receivedBody atomic.Value
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		receivedBody.Store(string(body))
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	settings, err := notificationmodel.Normalize(&notificationmodel.Settings{
+		DAGName: "daily-report",
+		Enabled: true,
+		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		Targets: []notificationmodel.Target{{
+			ID:      "webhook-1",
+			Name:    "Ops Webhook",
+			Type:    notificationmodel.ProviderWebhook,
+			Enabled: true,
+			Webhook: &notificationmodel.WebhookTarget{
+				URL:                 server.URL,
+				AllowInsecureHTTP:   true,
+				AllowPrivateNetwork: true,
+			},
+		}},
+	}, "tester")
+	require.NoError(t, err)
+	svc := New(
+		newMemoryStore(settings),
+		nil,
+		WithPublicURL("https://dagu.example.com/workflows/"),
+	)
+
+	results, err := svc.SendTest(context.Background(), "daily-report", "webhook-1", eventstore.TypeDAGRunFailed)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Delivered)
+	body, _ := receivedBody.Load().(string)
+	assert.Contains(t, body, `"runPath":"/dag-runs/daily-report/notification-test"`)
+	assert.Contains(t, body, `"runUrl":"https://dagu.example.com/workflows/dag-runs/daily-report/notification-test"`)
+	assert.Contains(t, body, `Run: https://dagu.example.com/workflows/dag-runs/daily-report/notification-test`)
+}
+
 func TestService_SendTestSlackUsesCustomMessageTemplate(t *testing.T) {
 	t.Parallel()
 
@@ -551,6 +596,111 @@ func TestService_SendTestSlackUsesCustomMessageTemplate(t *testing.T) {
 	assert.True(t, results[0].Delivered)
 	body, _ := receivedBody.Load().(string)
 	assert.Contains(t, body, `"text":"DAG daily-report failed: This is a test notification from Dagu."`)
+}
+
+func TestService_SendTestSlackDefaultMessageIncludesRunLink(t *testing.T) {
+	t.Parallel()
+
+	var receivedBody atomic.Value
+	svc := New(
+		newMemoryStore(mustNormalizeSettings(t, &notificationmodel.Settings{
+			DAGName: "daily-report",
+			Enabled: true,
+			Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+			Targets: []notificationmodel.Target{{
+				ID:      "slack-1",
+				Name:    "Ops Slack",
+				Type:    notificationmodel.ProviderSlack,
+				Enabled: true,
+				Slack: &notificationmodel.SlackTarget{
+					WebhookURL: "https://93.184.216.34/slack",
+				},
+			}},
+		})),
+		nil,
+		WithPublicURL("https://dagu.example.com/workflows"),
+		WithHTTPClient(&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			body, err := io.ReadAll(req.Body)
+			require.NoError(t, err)
+			receivedBody.Store(string(body))
+			return acceptedResponse(req), nil
+		})}),
+	)
+
+	results, err := svc.SendTest(context.Background(), "daily-report", "slack-1", eventstore.TypeDAGRunFailed)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Delivered)
+	body, _ := receivedBody.Load().(string)
+	assert.Contains(t, body, `Run: https://dagu.example.com/workflows/dag-runs/daily-report/notification-test`)
+}
+
+func TestService_SendTestSlackTemplateRunLinkIsEmptyWithoutPublicURL(t *testing.T) {
+	t.Parallel()
+
+	var receivedBody atomic.Value
+	svc := New(
+		newMemoryStore(mustNormalizeSettings(t, &notificationmodel.Settings{
+			DAGName: "daily-report",
+			Enabled: true,
+			Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+			Targets: []notificationmodel.Target{{
+				ID:      "slack-1",
+				Name:    "Ops Slack",
+				Type:    notificationmodel.ProviderSlack,
+				Enabled: true,
+				Slack: &notificationmodel.SlackTarget{
+					WebhookURL:      "https://93.184.216.34/slack",
+					MessageTemplate: "DAG {{dag.name}} {{run.status}}\n{{run.link}}",
+				},
+			}},
+		})),
+		nil,
+		WithHTTPClient(&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			body, err := io.ReadAll(req.Body)
+			require.NoError(t, err)
+			receivedBody.Store(string(body))
+			return acceptedResponse(req), nil
+		})}),
+	)
+
+	results, err := svc.SendTest(context.Background(), "daily-report", "slack-1", eventstore.TypeDAGRunFailed)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Delivered)
+	body, _ := receivedBody.Load().(string)
+	assert.Contains(t, body, `"text":"DAG daily-report failed"`)
+	assert.NotContains(t, body, "Run:")
+	assert.NotContains(t, body, "localhost")
+}
+
+func TestNotificationTemplateRunPathSupportsSubDAGRun(t *testing.T) {
+	t.Parallel()
+
+	event := chatbridge.NotificationEvent{
+		Type: eventstore.TypeDAGRunFailed,
+		Status: &exec.DAGRunStatus{
+			Root:     exec.NewDAGRunRef("root dag", "root run"),
+			Parent:   exec.NewDAGRunRef("root dag", "root run"),
+			Name:     "child dag",
+			DAGRunID: "child run",
+			Status:   core.Failed,
+		},
+		ObservedAt: time.Now().UTC(),
+	}
+
+	rendered := renderNotificationTemplate(
+		"{{run.path}}\n{{run.url}}\n{{run.link}}",
+		event,
+		"https://dagu.example.com/workflows/",
+	)
+
+	assert.Contains(t, rendered, "/dag-runs/root%20dag/root%20run?")
+	assert.Contains(t, rendered, "dagRunId=root+run")
+	assert.Contains(t, rendered, "dagRunName=root+dag")
+	assert.Contains(t, rendered, "subDAGRunId=child+run")
+	assert.Contains(t, rendered, "https://dagu.example.com/workflows/dag-runs/root%20dag/root%20run?")
+	assert.Contains(t, rendered, "Run: https://dagu.example.com/workflows/dag-runs/root%20dag/root%20run?")
 }
 
 func TestService_SendTestTelegramUsesCustomMessageTemplate(t *testing.T) {

@@ -9,6 +9,8 @@ image:
 
 # Top-level Dagu config additions rendered into dagu.yaml
 config:
+  # Absolute external URL of the Dagu UI. Used in notification links.
+  publicUrl: ""
   envPassthrough: []
   envPassthroughPrefixes: []
 

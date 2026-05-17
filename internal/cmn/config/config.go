@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -189,6 +190,7 @@ type Core struct {
 type Server struct {
 	Host              string
 	Port              int
+	PublicURL         string // Absolute external URL used in generated links
 	BasePath          string // URL path for reverse proxy subpath hosting
 	APIBasePath       string
 	Headless          bool
@@ -677,6 +679,13 @@ func (c *Config) validateServer() error {
 	if c.Server.Port < 0 || c.Server.Port > 65535 {
 		return fmt.Errorf("invalid port number: %d", c.Server.Port)
 	}
+	if c.Server.PublicURL != "" {
+		normalized, err := NormalizePublicURL(c.Server.PublicURL)
+		if err != nil {
+			return err
+		}
+		c.Server.PublicURL = normalized
+	}
 
 	if c.Server.TLS != nil {
 		if c.Server.TLS.CertFile == "" || c.Server.TLS.KeyFile == "" {
@@ -716,6 +725,29 @@ func (c *Config) validateServer() error {
 	}
 
 	return nil
+}
+
+// NormalizePublicURL validates and normalizes the externally reachable UI URL.
+func NormalizePublicURL(rawURL string) (string, error) {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return "", nil
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid public_url: %w", err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("public_url must use http or https")
+	}
+	if parsed.Host == "" {
+		return "", fmt.Errorf("public_url must include a host")
+	}
+	if parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", fmt.Errorf("public_url must not include query or fragment")
+	}
+	parsed.Path = strings.TrimRight(parsed.Path, "/")
+	return parsed.String(), nil
 }
 
 // validateUI validates UI-related configuration.

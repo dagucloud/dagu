@@ -119,9 +119,9 @@ export const DEFAULT_NOTIFICATION_EVENTS = [
 
 export const DEFAULT_SUBJECT_TEMPLATE = '{{dag.name}} {{run.status}}';
 export const DEFAULT_MESSAGE_TEMPLATE =
-  'DAG {{dag.name}} {{run.status}}: {{run.error}}';
+  'DAG {{dag.name}} {{run.status}}: {{run.error}}\n{{run.link}}';
 export const DEFAULT_EMAIL_BODY_TEMPLATE =
-  'DAG: {{dag.name}}\nRun ID: {{run.id}}\nStatus: {{run.status}}\nError: {{run.error}}';
+  'DAG: {{dag.name}}\nRun ID: {{run.id}}\nStatus: {{run.status}}\nError: {{run.error}}\n{{run.link}}';
 
 export function defaultDraft(): DraftSettings {
   return {

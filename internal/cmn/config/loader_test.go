@@ -527,6 +527,7 @@ permissions:
   write_dags: false
   run_dags: false
 debug: true
+public_url: "https://dagu.example.com/workflows/"
 base_path: "/dagu"
 api_base_path: "/api/v1"
 tz: "UTC"
@@ -639,6 +640,7 @@ scheduler:
 		Server: Server{
 			Host:              "0.0.0.0",
 			Port:              9090,
+			PublicURL:         "https://dagu.example.com/workflows",
 			BasePath:          "/dagu",
 			APIBasePath:       "/api/v1",
 			Headless:          true,
@@ -1071,6 +1073,7 @@ func TestLoad_LegacyEnv(t *testing.T) {
 		"DAGU__ADMIN_HOST":         "0.0.0.0",
 		"DAGU__ADMIN_NAVBAR_TITLE": "LegacyTitle",
 		"DAGU__ADMIN_NAVBAR_COLOR": "#abc123",
+		"DAGU_PUBLIC_URL":          "https://dagu.example.com/ui/",
 		"DAGU__DATA":               filepath.Join(tempDir, "legacy", "data"),
 		"DAGU__SUSPEND_FLAGS_DIR":  filepath.Join(tempDir, "legacy", "suspend"),
 		"DAGU__ADMIN_LOGS_DIR":     filepath.Join(tempDir, "legacy", "adminlogs"),
@@ -1078,6 +1081,7 @@ func TestLoad_LegacyEnv(t *testing.T) {
 
 	assert.Equal(t, 1234, cfg.Server.Port)
 	assert.Equal(t, "0.0.0.0", cfg.Server.Host)
+	assert.Equal(t, "https://dagu.example.com/ui", cfg.Server.PublicURL)
 	assert.Equal(t, "LegacyTitle", cfg.UI.NavbarTitle)
 	assert.Equal(t, "#abc123", cfg.UI.NavbarColor)
 	assert.Equal(t, filepath.Join(tempDir, "legacy", "data"), cfg.Paths.DataDir)

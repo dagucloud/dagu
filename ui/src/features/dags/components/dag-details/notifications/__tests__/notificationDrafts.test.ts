@@ -19,6 +19,7 @@ describe('notificationDrafts', () => {
     channel.name = 'Ops Slack';
     channel.slack.webhookUrl = 'https://hooks.slack.com/services/test';
 
+    expect(DEFAULT_MESSAGE_TEMPLATE).toContain('{{run.link}}');
     expect(channelInput(channel)).toMatchObject({
       slack: {
         webhookUrl: 'https://hooks.slack.com/services/test',
@@ -32,6 +33,7 @@ describe('notificationDrafts', () => {
     target.name = 'Ops Email';
     target.email.to = 'ops@example.com';
 
+    expect(DEFAULT_EMAIL_BODY_TEMPLATE).toContain('{{run.link}}');
     expect(targetInput(target)).toMatchObject({
       email: {
         to: ['ops@example.com'],

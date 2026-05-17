@@ -127,6 +127,7 @@ type Server struct {
 	terminalManager     *terminal.Manager
 	metricsRegistry     *prometheus.Registry
 	tunnelAPIOpts       []apiv1.APIOption
+	tunnelService       *tunnel.Service
 	dagStore            exec.DAGStore
 	licenseManager      *license.Manager
 	remoteNodeResolver  *remotenode.Resolver
@@ -166,6 +167,7 @@ func WithAgentAPICallback(fn func(*agent.API)) ServerOption {
 func WithTunnelService(ts *tunnel.Service) ServerOption {
 	return func(s *Server) {
 		if ts != nil {
+			s.tunnelService = ts
 			s.tunnelAPIOpts = append(s.tunnelAPIOpts, apiv1.WithTunnelService(ts))
 		}
 	}
@@ -392,6 +394,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 				notificationservice.WithReusableChannelsEnabled(func() bool {
 					return license.HasActiveLicense(licenseChecker)
 				}),
+				notificationservice.WithPublicURL(cfg.Server.PublicURL),
 			)
 			apiOpts = append(apiOpts, apiv1.WithNotificationService(notificationSvc))
 		}
@@ -480,6 +483,17 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 
 	for _, opt := range opts {
 		opt(srv)
+	}
+	if srv.notificationService != nil {
+		srv.notificationService.SetPublicURLResolver(func() string {
+			if srv.config.Server.PublicURL != "" {
+				return srv.config.Server.PublicURL
+			}
+			if srv.tunnelService != nil {
+				return publicURLWithBasePath(srv.tunnelService.PublicURL(), evaluatedBasePath)
+			}
+			return ""
+		})
 	}
 
 	srv.funcsConfig.APIBasePath = srv.config.Server.APIBasePath
@@ -1131,6 +1145,18 @@ func evaluateConfiguredBasePath(ctx context.Context, basePath string) string {
 		return basePath
 	}
 	return evaluated
+}
+
+func publicURLWithBasePath(publicURL, basePath string) string {
+	publicURL = strings.TrimRight(strings.TrimSpace(publicURL), "/")
+	if publicURL == "" {
+		return ""
+	}
+	basePath = strings.Trim(strings.TrimSpace(basePath), "/")
+	if basePath == "" {
+		return publicURL
+	}
+	return publicURL + "/" + basePath
 }
 
 func (srv *Server) setupAssetRoutes(r *chi.Mux, basePath string) {

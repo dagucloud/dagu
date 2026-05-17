@@ -455,6 +455,7 @@ func (l *ConfigLoader) loadServerConfig(cfg *Config, def Definition) {
 	cfg.Server = Server{
 		Host:        def.Host,
 		Port:        def.Port,
+		PublicURL:   def.PublicURL,
 		BasePath:    def.BasePath,
 		APIBasePath: def.APIBasePath,
 		Permissions: map[Permission]bool{
@@ -1645,6 +1646,7 @@ var envBindings = []envBinding{
 	// Server
 	{key: "log_format", env: "LOG_FORMAT"},
 	{key: "access_log_mode", env: "ACCESS_LOG_MODE"},
+	{key: "public_url", env: "PUBLIC_URL"},
 	{key: "base_path", env: "BASE_PATH"},
 	{key: "api_base_url", env: "API_BASE_URL"},
 	{key: "tz", env: "TZ"},
