@@ -146,14 +146,14 @@ func (e *Executor) Run(ctx context.Context) error {
 		return err
 	}
 
-	runDir, cleanup, err := e.actionRunDir(envMap, env.Step.Name)
+	runDirs, err := e.actionRunDirs(envMap, env.Step.Name)
 	if err != nil {
 		return err
 	}
-	defer cleanup()
+	defer runDirs.cleanup()
 
-	inputPath := filepath.Join(runDir, "input.json")
-	outputPath := filepath.Join(runDir, "output.json")
+	inputPath := filepath.Join(runDirs.controlDir, "input.json")
+	outputPath := filepath.Join(runDirs.controlDir, "output.json")
 	if err := writeJSONFile(inputPath, e.cfg.Input); err != nil {
 		return err
 	}
@@ -168,11 +168,11 @@ func (e *Executor) Run(ctx context.Context) error {
 	actionEnv := []string{
 		envActionInput + "=" + inputPath,
 		envActionOutput + "=" + outputPath,
-		envActionOutputDir + "=" + runDir,
+		envActionOutputDir + "=" + runDirs.outputDir,
 		envActionDir + "=" + bundle.RootDir,
 		envActionRef + "=" + e.originalRef(bundle),
 	}
-	if err := e.runDeno(ctx, denoPath, bundle.RootDir, denoRunArgs(bundle.RootDir, entrypoint, inputPath, runDir, m.Permissions), e.stderr, e.stderr, actionEnv); err != nil {
+	if err := e.runDeno(ctx, denoPath, bundle.RootDir, denoRunArgs(bundle.RootDir, entrypoint, inputPath, outputPath, runDirs.outputDir, m.Permissions), e.stderr, e.stderr, actionEnv); err != nil {
 		return err
 	}
 	return e.writeActionOutput(outputPath, m)
@@ -276,8 +276,41 @@ func (e *Executor) setSubRuns(subRuns []coreexec.SubDAGRun) {
 	e.subRuns = append([]coreexec.SubDAGRun(nil), subRuns...)
 }
 
-func (e *Executor) actionRunDir(envMap map[string]string, stepName string) (string, func(), error) {
-	base := strings.TrimSpace(envMap["DAG_RUN_ARTIFACTS_DIR"])
+type actionRunDirs struct {
+	controlDir string
+	outputDir  string
+	cleanup    func()
+}
+
+func (e *Executor) actionRunDirs(envMap map[string]string, stepName string) (actionRunDirs, error) {
+	controlDir, cleanup, err := e.actionControlDir(envMap, stepName)
+	if err != nil {
+		return actionRunDirs{}, err
+	}
+
+	outputDir := controlDir
+	artifactBase := strings.TrimSpace(envMap[coreexec.EnvKeyDAGRunArtifactsDir])
+	if artifactBase != "" {
+		if err := os.MkdirAll(artifactBase, 0o750); err != nil {
+			cleanup()
+			return actionRunDirs{}, fmt.Errorf("create action artifacts dir: %w", err)
+		}
+		outputDir, err = os.MkdirTemp(artifactBase, "action-"+safeName(stepName)+"-")
+		if err != nil {
+			cleanup()
+			return actionRunDirs{}, fmt.Errorf("create action output dir: %w", err)
+		}
+	}
+
+	return actionRunDirs{
+		controlDir: controlDir,
+		outputDir:  outputDir,
+		cleanup:    cleanup,
+	}, nil
+}
+
+func (e *Executor) actionControlDir(envMap map[string]string, stepName string) (string, func(), error) {
+	base := actionControlBaseDir(envMap)
 	if base == "" {
 		dir, err := os.MkdirTemp("", "dagu-action-")
 		if err != nil {
@@ -285,14 +318,36 @@ func (e *Executor) actionRunDir(envMap map[string]string, stepName string) (stri
 		}
 		return dir, func() { _ = os.RemoveAll(dir) }, nil
 	}
-	if err := os.MkdirAll(base, 0o750); err != nil {
-		return "", func() {}, fmt.Errorf("create action artifacts dir: %w", err)
+
+	actionBase := filepath.Join(base, ".dagu-actions")
+	if err := os.MkdirAll(actionBase, 0o750); err != nil {
+		return "", func() {}, fmt.Errorf("create action control dir: %w", err)
 	}
-	dir, err := os.MkdirTemp(base, "action-"+safeName(stepName)+"-")
+	dir, err := os.MkdirTemp(actionBase, "action-"+safeName(stepName)+"-")
 	if err != nil {
-		return "", func() {}, fmt.Errorf("create action run dir: %w", err)
+		return "", func() {}, fmt.Errorf("create action control dir: %w", err)
 	}
 	return dir, func() {}, nil
+}
+
+func actionControlBaseDir(envMap map[string]string) string {
+	for _, key := range []string{
+		coreexec.EnvKeyDAGRunWorkDir,
+		coreexec.EnvKeyDAGRunStepStdoutFile,
+		coreexec.EnvKeyDAGRunLogFile,
+	} {
+		value := strings.TrimSpace(envMap[key])
+		if value == "" {
+			continue
+		}
+		switch key {
+		case coreexec.EnvKeyDAGRunWorkDir:
+			return filepath.Clean(value)
+		default:
+			return filepath.Dir(filepath.Clean(value))
+		}
+	}
+	return ""
 }
 
 func (e *Executor) runDeno(ctx context.Context, denoPath, dir string, args []string, stdout, stderr io.Writer, extraEnv []string) error {
@@ -377,13 +432,13 @@ func denoInstallArgs(rootDir, entrypoint string) []string {
 	return args
 }
 
-func denoRunArgs(rootDir, entrypoint, inputPath, outputDir string, perms permissionManifest) []string {
+func denoRunArgs(rootDir, entrypoint, inputPath, outputPath, outputDir string, perms permissionManifest) []string {
 	args := []string{
 		"run",
 		"--cached-only",
 		"--no-prompt",
 		"--allow-read=" + strings.Join(readPermissions(rootDir, inputPath, perms.Read), ","),
-		"--allow-write=" + strings.Join(writePermissions(rootDir, outputDir, perms.Write), ","),
+		"--allow-write=" + strings.Join(writePermissions(rootDir, outputPath, outputDir, perms.Write), ","),
 	}
 	args = append(args, denoLockArgs(rootDir)...)
 	if len(perms.Net) > 0 {
@@ -429,8 +484,8 @@ func readPermissions(rootDir, inputPath string, extra []string) []string {
 	return dedupeStrings(paths)
 }
 
-func writePermissions(rootDir, outputDir string, extra []string) []string {
-	paths := []string{filepath.Clean(outputDir)}
+func writePermissions(rootDir, outputPath, outputDir string, extra []string) []string {
+	paths := []string{filepath.Clean(outputPath), filepath.Clean(outputDir)}
 	for _, item := range extra {
 		item = strings.TrimSpace(item)
 		if item == "" {

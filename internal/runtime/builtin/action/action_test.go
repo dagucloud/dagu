@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,6 +82,67 @@ func TestExecutorRunsLocalSourceActionWithDeclaredDeno(t *testing.T) {
 	assert.Contains(t, argsLog, "--allow-net=slack.com")
 	assert.NotContains(t, argsLog, "--allow-run")
 	assert.NotContains(t, argsLog, "--allow-all")
+}
+
+func TestExecutorKeepsControlFilesOutOfArtifactDir(t *testing.T) {
+	if os.Getenv("DAGU_FAKE_DENO") == "1" {
+		fakeDenoProcess()
+		return
+	}
+	t.Parallel()
+
+	actionDir := writeTestAction(t, "source-action", "v2.5.2")
+	manifestPath := writeToolsManifest(t, os.Args[0], "v2.5.2")
+	argsPath := filepath.Join(t.TempDir(), "deno-args.txt")
+	runDir := filepath.Join(t.TempDir(), "run")
+	artifactDir := filepath.Join(t.TempDir(), "artifacts")
+	require.NoError(t, os.MkdirAll(runDir, 0o750))
+	require.NoError(t, os.MkdirAll(artifactDir, 0o750))
+
+	step := core.Step{
+		Name: "notify",
+		ExecutorConfig: core.ExecutorConfig{
+			Type: executorType,
+			Config: map[string]any{
+				"ref": "source:" + actionDir + "@local",
+				"input": map[string]any{
+					"channel": "#ops",
+					"text":    "done",
+				},
+			},
+		},
+	}
+	ctx := runtime.NewContext(
+		context.Background(),
+		&core.DAG{Name: "action-test"},
+		"run-1",
+		filepath.Join(runDir, "dag-run.log"),
+		runtime.WithWorkDir(runDir),
+		runtime.WithEnvVars(
+			dagutools.EnvManifest+"="+manifestPath,
+			"DAGU_FAKE_DENO=1",
+			"DAGU_FAKE_DENO_ARGS_FILE="+argsPath,
+		),
+		runtime.WithArtifactDir(artifactDir),
+	)
+	ctx = runtime.WithEnv(ctx, runtime.NewEnv(ctx, step))
+
+	exec, err := newAction(ctx, step)
+	require.NoError(t, err)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exec.SetStdout(&stdout)
+	exec.SetStderr(&stderr)
+
+	require.NoError(t, exec.Run(ctx))
+	assert.JSONEq(t, `{"ok":true,"mode":"run"}`, strings.TrimSpace(stdout.String()))
+	assert.Empty(t, findFilesNamed(t, artifactDir, "input.json", "output.json"))
+
+	controlFiles := findFilesNamed(t, runDir, "input.json", "output.json")
+	require.Len(t, controlFiles, 2)
+	for _, path := range controlFiles {
+		assert.Contains(t, path, filepath.Join(runDir, ".dagu-actions"))
+	}
 }
 
 func TestResolveLocalSourceActionUsesWorkDir(t *testing.T) {
@@ -196,11 +258,13 @@ func TestWritePermissionsResolveExtrasFromActionRoot(t *testing.T) {
 	t.Parallel()
 
 	rootDir := filepath.Join(t.TempDir(), "action")
+	outputPath := filepath.Join(t.TempDir(), "control", "output.json")
 	outputDir := filepath.Join(t.TempDir(), "output")
 
-	got := writePermissions(rootDir, outputDir, []string{"cache/state.json", "../secret", "/tmp/abs", `C:\tmp\abs`})
+	got := writePermissions(rootDir, outputPath, outputDir, []string{"cache/state.json", "../secret", "/tmp/abs", `C:\tmp\abs`})
 
 	assert.Equal(t, []string{
+		filepath.Clean(outputPath),
 		filepath.Clean(outputDir),
 		filepath.Join(rootDir, "cache", "state.json"),
 	}, got)
@@ -329,6 +393,26 @@ func writeToolsManifest(t *testing.T, denoPath, version string) string {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(manifestPath, data, 0o600))
 	return manifestPath
+}
+
+func findFilesNamed(t *testing.T, root string, names ...string) []string {
+	t.Helper()
+	want := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		want[name] = struct{}{}
+	}
+
+	var found []string
+	require.NoError(t, filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if _, ok := want[entry.Name()]; ok && !entry.IsDir() {
+			found = append(found, path)
+		}
+		return nil
+	}))
+	return found
 }
 
 func fakeDenoProcess() {
