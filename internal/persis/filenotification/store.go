@@ -36,10 +36,17 @@ func WithEncryptor(enc *crypto.Encryptor) Option {
 	}
 }
 
+func WithChannelDir(channelDir string) Option {
+	return func(s *Store) {
+		s.channelDir = channelDir
+	}
+}
+
 type Store struct {
-	baseDir   string
-	encryptor *crypto.Encryptor
-	mu        sync.RWMutex
+	baseDir    string
+	channelDir string
+	encryptor  *crypto.Encryptor
+	mu         sync.RWMutex
 }
 
 var _ notification.Store = (*Store)(nil)
@@ -48,12 +55,15 @@ func New(baseDir string, opts ...Option) (*Store, error) {
 	if baseDir == "" {
 		return nil, errors.New("filenotification: baseDir cannot be empty")
 	}
-	store := &Store{baseDir: baseDir}
+	store := &Store{baseDir: baseDir, channelDir: defaultChannelDir(baseDir)}
 	for _, opt := range opts {
 		opt(store)
 	}
 	if err := os.MkdirAll(baseDir, dirPermissions); err != nil {
 		return nil, fmt.Errorf("filenotification: failed to create directory %s: %w", baseDir, err)
+	}
+	if err := os.MkdirAll(store.channelDir, dirPermissions); err != nil {
+		return nil, fmt.Errorf("filenotification: failed to create directory %s: %w", store.channelDir, err)
 	}
 	return store, nil
 }
@@ -136,9 +146,99 @@ func (s *Store) DeleteByDAGName(_ context.Context, dagName string) error {
 	return nil
 }
 
+func (s *Store) SaveChannel(_ context.Context, channel *notification.Channel) error {
+	if channel == nil {
+		return errors.New("filenotification: channel cannot be nil")
+	}
+	if channel.ID == "" {
+		return errors.New("filenotification: channel id is required")
+	}
+	stored, err := s.channelToStorage(channel)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := fileutil.WriteJSONAtomic(s.channelFilePath(channel.ID), stored, filePermissions); err != nil {
+		return fmt.Errorf("filenotification: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) GetChannel(_ context.Context, channelID string) (*notification.Channel, error) {
+	if channelID == "" {
+		return nil, notification.ErrChannelNotFound
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	channel, err := s.loadChannelFromFile(s.channelFilePath(channelID))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, notification.ErrChannelNotFound
+		}
+		return nil, err
+	}
+	return channel, nil
+}
+
+func (s *Store) ListChannels(_ context.Context) ([]*notification.Channel, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	entries, err := os.ReadDir(s.channelDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("filenotification: list notification channels: %w", err)
+	}
+	result := make([]*notification.Channel, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != settingsFileExtension {
+			continue
+		}
+		channel, err := s.loadChannelFromFile(filepath.Join(s.channelDir, entry.Name()))
+		if err != nil {
+			slog.Warn("filenotification: failed to load channel file",
+				slog.String("file", entry.Name()),
+				slog.String("error", err.Error()),
+			)
+			continue
+		}
+		result = append(result, channel)
+	}
+	return result, nil
+}
+
+func (s *Store) DeleteChannel(_ context.Context, channelID string) error {
+	if channelID == "" {
+		return notification.ErrChannelNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := os.Remove(s.channelFilePath(channelID)); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return notification.ErrChannelNotFound
+		}
+		return fmt.Errorf("filenotification: delete channel: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) filePath(dagName string) string {
 	sum := sha256.Sum256([]byte(dagName))
 	return filepath.Join(s.baseDir, hex.EncodeToString(sum[:])+settingsFileExtension)
+}
+
+func (s *Store) channelFilePath(channelID string) string {
+	sum := sha256.Sum256([]byte(channelID))
+	return filepath.Join(s.channelDir, hex.EncodeToString(sum[:])+settingsFileExtension)
+}
+
+func defaultChannelDir(baseDir string) string {
+	if filepath.Base(baseDir) == "dags" {
+		return filepath.Join(filepath.Dir(baseDir), "channels")
+	}
+	return filepath.Join(baseDir, "channels")
 }
 
 func (s *Store) loadFromFile(path string) (*notification.Settings, error) {
@@ -153,15 +253,49 @@ func (s *Store) loadFromFile(path string) (*notification.Settings, error) {
 	return s.fromStorage(&stored)
 }
 
+func (s *Store) loadChannelFromFile(path string) (*notification.Channel, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // path is derived from configured store directory and hashed channel ID.
+	if err != nil {
+		return nil, err
+	}
+	var stored channelForStorage
+	if err := json.Unmarshal(data, &stored); err != nil {
+		return nil, fmt.Errorf("filenotification: parse channel: %w", err)
+	}
+	return s.channelFromStorage(&stored)
+}
+
 type settingsForStorage struct {
-	ID        string             `json:"id"`
-	DAGName   string             `json:"dagName"`
-	Enabled   bool               `json:"enabled"`
-	Events    []string           `json:"events"`
-	Targets   []targetForStorage `json:"targets"`
-	CreatedAt string             `json:"createdAt"`
-	UpdatedAt string             `json:"updatedAt"`
-	UpdatedBy string             `json:"updatedBy,omitempty"`
+	ID            string                   `json:"id"`
+	DAGName       string                   `json:"dagName"`
+	Enabled       bool                     `json:"enabled"`
+	Events        []string                 `json:"events"`
+	Targets       []targetForStorage       `json:"targets"`
+	Subscriptions []subscriptionForStorage `json:"subscriptions,omitempty"`
+	CreatedAt     string                   `json:"createdAt"`
+	UpdatedAt     string                   `json:"updatedAt"`
+	UpdatedBy     string                   `json:"updatedBy,omitempty"`
+}
+
+type channelForStorage struct {
+	ID        string                    `json:"id"`
+	Name      string                    `json:"name"`
+	Type      notification.ProviderType `json:"type"`
+	Enabled   bool                      `json:"enabled"`
+	Email     *notification.EmailTarget `json:"email,omitempty"`
+	Webhook   *webhookTargetForStorage  `json:"webhook,omitempty"`
+	Slack     *slackTargetForStorage    `json:"slack,omitempty"`
+	Telegram  *telegramTargetForStorage `json:"telegram,omitempty"`
+	CreatedAt string                    `json:"createdAt"`
+	UpdatedAt string                    `json:"updatedAt"`
+	UpdatedBy string                    `json:"updatedBy,omitempty"`
+}
+
+type subscriptionForStorage struct {
+	ID        string   `json:"id"`
+	ChannelID string   `json:"channelId"`
+	Enabled   bool     `json:"enabled"`
+	Events    []string `json:"events,omitempty"`
 }
 
 type targetForStorage struct {
@@ -206,15 +340,45 @@ func (s *Store) toStorage(settings *notification.Settings) (*settingsForStorage,
 		}
 		targets = append(targets, stored)
 	}
+	subscriptions := make([]subscriptionForStorage, 0, len(settings.Subscriptions))
+	for _, subscription := range settings.Subscriptions {
+		subscriptions = append(subscriptions, subscriptionForStorage{
+			ID:        subscription.ID,
+			ChannelID: subscription.ChannelID,
+			Enabled:   subscription.Enabled,
+			Events:    eventStrings(subscription.Events),
+		})
+	}
 	return &settingsForStorage{
-		ID:        settings.ID,
-		DAGName:   settings.DAGName,
-		Enabled:   settings.Enabled,
-		Events:    events,
-		Targets:   targets,
-		CreatedAt: settings.CreatedAt.Format(timeFormat),
-		UpdatedAt: settings.UpdatedAt.Format(timeFormat),
-		UpdatedBy: settings.UpdatedBy,
+		ID:            settings.ID,
+		DAGName:       settings.DAGName,
+		Enabled:       settings.Enabled,
+		Events:        events,
+		Targets:       targets,
+		Subscriptions: subscriptions,
+		CreatedAt:     settings.CreatedAt.Format(timeFormat),
+		UpdatedAt:     settings.UpdatedAt.Format(timeFormat),
+		UpdatedBy:     settings.UpdatedBy,
+	}, nil
+}
+
+func (s *Store) channelToStorage(channel *notification.Channel) (*channelForStorage, error) {
+	target, err := s.targetToStorage(channel.ToTarget())
+	if err != nil {
+		return nil, err
+	}
+	return &channelForStorage{
+		ID:        channel.ID,
+		Name:      channel.Name,
+		Type:      channel.Type,
+		Enabled:   channel.Enabled,
+		Email:     target.Email,
+		Webhook:   target.Webhook,
+		Slack:     target.Slack,
+		Telegram:  target.Telegram,
+		CreatedAt: channel.CreatedAt.Format(timeFormat),
+		UpdatedAt: channel.UpdatedAt.Format(timeFormat),
+		UpdatedBy: channel.UpdatedBy,
 	}, nil
 }
 
@@ -280,18 +444,60 @@ func (s *Store) fromStorage(stored *settingsForStorage) (*notification.Settings,
 		}
 		targets = append(targets, decoded)
 	}
+	subscriptions := make([]notification.Subscription, 0, len(stored.Subscriptions))
+	for _, subscription := range stored.Subscriptions {
+		subscriptions = append(subscriptions, notification.Subscription{
+			ID:        subscription.ID,
+			ChannelID: subscription.ChannelID,
+			Enabled:   subscription.Enabled,
+			Events:    eventTypes(subscription.Events),
+		})
+	}
 	createdAt, _ := time.Parse(timeFormat, stored.CreatedAt)
 	updatedAt, _ := time.Parse(timeFormat, stored.UpdatedAt)
 	return &notification.Settings{
+		ID:            stored.ID,
+		DAGName:       stored.DAGName,
+		Enabled:       stored.Enabled,
+		Events:        events,
+		Targets:       targets,
+		Subscriptions: subscriptions,
+		CreatedAt:     createdAt,
+		UpdatedAt:     updatedAt,
+		UpdatedBy:     stored.UpdatedBy,
+	}, nil
+}
+
+func (s *Store) channelFromStorage(stored *channelForStorage) (*notification.Channel, error) {
+	target, err := s.targetFromStorage(targetForStorage{
+		ID:       stored.ID,
+		Name:     stored.Name,
+		Type:     stored.Type,
+		Enabled:  stored.Enabled,
+		Email:    stored.Email,
+		Webhook:  stored.Webhook,
+		Slack:    stored.Slack,
+		Telegram: stored.Telegram,
+	})
+	if err != nil {
+		return nil, err
+	}
+	createdAt, _ := time.Parse(timeFormat, stored.CreatedAt)
+	updatedAt, _ := time.Parse(timeFormat, stored.UpdatedAt)
+	channel := &notification.Channel{
 		ID:        stored.ID,
-		DAGName:   stored.DAGName,
+		Name:      stored.Name,
+		Type:      stored.Type,
 		Enabled:   stored.Enabled,
-		Events:    events,
-		Targets:   targets,
 		CreatedAt: createdAt,
 		UpdatedAt: updatedAt,
 		UpdatedBy: stored.UpdatedBy,
-	}, nil
+	}
+	channel.Email = target.Email
+	channel.Webhook = target.Webhook
+	channel.Slack = target.Slack
+	channel.Telegram = target.Telegram
+	return channel, nil
 }
 
 func (s *Store) targetFromStorage(stored targetForStorage) (notification.Target, error) {

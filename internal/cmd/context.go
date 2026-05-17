@@ -739,7 +739,17 @@ func (c *Context) newNotificationMonitor(dr exec.DAGStore) *chatbridge.Notificat
 		logger.Warn(c, "Failed to create notification settings store", tag.Error(err))
 		return nil
 	}
-	notificationSvc := notificationservice.New(store, dr)
+	var checker license.Checker
+	if c.LicenseManager != nil {
+		checker = c.LicenseManager.Checker()
+	}
+	notificationSvc := notificationservice.New(
+		store,
+		dr,
+		notificationservice.WithReusableChannelsEnabled(func() bool {
+			return license.HasActiveLicense(checker)
+		}),
+	)
 	stateFile := filepath.Join(c.Config.Paths.DataDir, "notifications", "monitor-state.json")
 	return chatbridge.NewNotificationMonitor(
 		c.EventService,

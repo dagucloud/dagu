@@ -23,6 +23,128 @@ var errNotificationManagementNotAvailable = &Error{
 	Message:    "Notification management is not available",
 }
 
+func (a *API) ListNotificationChannels(ctx context.Context, _ api.ListNotificationChannelsRequestObject) (api.ListNotificationChannelsResponseObject, error) {
+	if err := a.requireNotificationManagement(ctx); err != nil {
+		return nil, err
+	}
+	if err := a.requireLicensedReusableNotificationChannels(); err != nil {
+		return nil, err
+	}
+	channels, err := a.notificationService.ListChannels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return api.ListNotificationChannels200JSONResponse{
+		Channels: toAPINotificationChannels(channels),
+	}, nil
+}
+
+func (a *API) CreateNotificationChannel(ctx context.Context, request api.CreateNotificationChannelRequestObject) (api.CreateNotificationChannelResponseObject, error) {
+	if err := a.requireNotificationManagement(ctx); err != nil {
+		return nil, err
+	}
+	if err := a.requireLicensedReusableNotificationChannels(); err != nil {
+		return nil, err
+	}
+	if request.Body == nil {
+		return nil, badNotificationRequest("request body is required")
+	}
+
+	channel := notificationChannelFromRequest("", *request.Body)
+	saved, err := a.notificationService.SaveChannel(ctx, channel, getCreatorID(ctx))
+	if err != nil {
+		if notificationRequestError(err) {
+			return nil, badNotificationRequest(err.Error())
+		}
+		return nil, err
+	}
+
+	a.logAudit(ctx, audit.CategoryNotification, "notification_channel_create", map[string]any{
+		"channel_id": saved.ID,
+		"provider":   saved.Type,
+		"enabled":    saved.Enabled,
+	})
+	return api.CreateNotificationChannel201JSONResponse(toAPINotificationChannel(saved)), nil
+}
+
+func (a *API) GetNotificationChannel(ctx context.Context, request api.GetNotificationChannelRequestObject) (api.GetNotificationChannelResponseObject, error) {
+	if err := a.requireNotificationManagement(ctx); err != nil {
+		return nil, err
+	}
+	if err := a.requireLicensedReusableNotificationChannels(); err != nil {
+		return nil, err
+	}
+	channel, err := a.notificationService.GetChannel(ctx, request.ChannelId)
+	if err != nil {
+		if errors.Is(err, notificationmodel.ErrChannelNotFound) {
+			return nil, notificationNotFound(err.Error())
+		}
+		return nil, err
+	}
+	return api.GetNotificationChannel200JSONResponse(toAPINotificationChannel(channel)), nil
+}
+
+func (a *API) UpdateNotificationChannel(ctx context.Context, request api.UpdateNotificationChannelRequestObject) (api.UpdateNotificationChannelResponseObject, error) {
+	if err := a.requireNotificationManagement(ctx); err != nil {
+		return nil, err
+	}
+	if err := a.requireLicensedReusableNotificationChannels(); err != nil {
+		return nil, err
+	}
+	if request.Body == nil {
+		return nil, badNotificationRequest("request body is required")
+	}
+	if _, err := a.notificationService.GetChannel(ctx, request.ChannelId); err != nil {
+		if errors.Is(err, notificationmodel.ErrChannelNotFound) {
+			return nil, notificationNotFound(err.Error())
+		}
+		return nil, err
+	}
+
+	channel := notificationChannelFromRequest(request.ChannelId, *request.Body)
+	saved, err := a.notificationService.SaveChannel(ctx, channel, getCreatorID(ctx))
+	if err != nil {
+		if notificationRequestError(err) {
+			return nil, badNotificationRequest(err.Error())
+		}
+		return nil, err
+	}
+
+	a.logAudit(ctx, audit.CategoryNotification, "notification_channel_update", map[string]any{
+		"channel_id": saved.ID,
+		"provider":   saved.Type,
+		"enabled":    saved.Enabled,
+	})
+	return api.UpdateNotificationChannel200JSONResponse(toAPINotificationChannel(saved)), nil
+}
+
+func (a *API) DeleteNotificationChannel(ctx context.Context, request api.DeleteNotificationChannelRequestObject) (api.DeleteNotificationChannelResponseObject, error) {
+	if err := a.requireNotificationManagement(ctx); err != nil {
+		return nil, err
+	}
+	if err := a.requireLicensedReusableNotificationChannels(); err != nil {
+		return nil, err
+	}
+	if err := a.notificationService.DeleteChannel(ctx, request.ChannelId); err != nil {
+		switch {
+		case errors.Is(err, notificationmodel.ErrChannelNotFound):
+			return nil, notificationNotFound(err.Error())
+		case errors.Is(err, notificationmodel.ErrChannelInUse):
+			return nil, &Error{
+				HTTPStatus: http.StatusConflict,
+				Code:       api.ErrorCodeBadRequest,
+				Message:    err.Error(),
+			}
+		default:
+			return nil, err
+		}
+	}
+	a.logAudit(ctx, audit.CategoryNotification, "notification_channel_delete", map[string]any{
+		"channel_id": request.ChannelId,
+	})
+	return api.DeleteNotificationChannel204Response{}, nil
+}
+
 func (a *API) GetDAGNotifications(ctx context.Context, request api.GetDAGNotificationsRequestObject) (api.GetDAGNotificationsResponseObject, error) {
 	if err := a.requireNotificationManagement(ctx); err != nil {
 		return nil, err
@@ -52,14 +174,30 @@ func (a *API) UpdateDAGNotifications(ctx context.Context, request api.UpdateDAGN
 	if err := a.ensureDAGExists(ctx, request.FileName); err != nil {
 		return nil, err
 	}
+	if request.Body.Subscriptions != nil && len(*request.Body.Subscriptions) > 0 {
+		if err := a.requireLicensedReusableNotificationChannels(); err != nil {
+			return nil, err
+		}
+	}
 
 	settings := notificationSettingsFromRequest(request.FileName, request.Body)
+	if request.Body.Subscriptions == nil {
+		if existing, err := a.notificationService.GetByDAGName(ctx, request.FileName); err == nil {
+			settings.Subscriptions = existing.Subscriptions
+		} else if !errors.Is(err, notificationmodel.ErrSettingsNotFound) {
+			return nil, err
+		}
+	}
 	saved, err := a.notificationService.Save(ctx, settings, getCreatorID(ctx))
 	if err != nil {
-		if notificationRequestError(err) {
+		switch {
+		case errors.Is(err, notificationmodel.ErrChannelNotFound):
+			return nil, notificationNotFound(err.Error())
+		case notificationRequestError(err):
 			return nil, badNotificationRequest(err.Error())
+		default:
+			return nil, err
 		}
-		return nil, err
 	}
 
 	a.logAudit(ctx, audit.CategoryNotification, "notification_settings_update", map[string]any{
@@ -167,6 +305,14 @@ func badNotificationRequest(message string) *Error {
 	}
 }
 
+func notificationNotFound(message string) *Error {
+	return &Error{
+		HTTPStatus: http.StatusNotFound,
+		Code:       api.ErrorCodeNotFound,
+		Message:    message,
+	}
+}
+
 func notificationSettingsFromRequest(dagName string, body *api.UpdateDAGNotificationsJSONRequestBody) *notificationmodel.Settings {
 	settings := &notificationmodel.Settings{
 		DAGName: dagName,
@@ -180,7 +326,76 @@ func notificationSettingsFromRequest(dagName string, body *api.UpdateDAGNotifica
 	for _, target := range body.Targets {
 		settings.Targets = append(settings.Targets, notificationTargetFromRequest(target))
 	}
+	if body.Subscriptions != nil {
+		settings.Subscriptions = make([]notificationmodel.Subscription, 0, len(*body.Subscriptions))
+		for _, subscription := range *body.Subscriptions {
+			settings.Subscriptions = append(settings.Subscriptions, notificationSubscriptionFromRequest(subscription))
+		}
+	}
 	return settings
+}
+
+func notificationSubscriptionFromRequest(input api.NotificationSubscriptionInput) notificationmodel.Subscription {
+	subscription := notificationmodel.Subscription{
+		ID:        valueOf(input.Id),
+		ChannelID: input.ChannelId,
+		Enabled:   input.Enabled,
+	}
+	if input.Events != nil {
+		subscription.Events = make([]eventstore.EventType, 0, len(*input.Events))
+		for _, event := range *input.Events {
+			subscription.Events = append(subscription.Events, eventstore.EventType(event))
+		}
+	}
+	return subscription
+}
+
+func notificationChannelFromRequest(id string, input api.NotificationChannelInput) *notificationmodel.Channel {
+	channel := &notificationmodel.Channel{
+		ID:      id,
+		Name:    input.Name,
+		Type:    notificationmodel.ProviderType(input.Type),
+		Enabled: input.Enabled,
+	}
+	if input.Email != nil {
+		channel.Email = &notificationmodel.EmailTarget{
+			From:          valueOf(input.Email.From),
+			To:            append([]string(nil), input.Email.To...),
+			SubjectPrefix: valueOf(input.Email.SubjectPrefix),
+			AttachLogs:    valueOf(input.Email.AttachLogs),
+		}
+		if input.Email.Cc != nil {
+			channel.Email.Cc = append([]string(nil), (*input.Email.Cc)...)
+		}
+		if input.Email.Bcc != nil {
+			channel.Email.Bcc = append([]string(nil), (*input.Email.Bcc)...)
+		}
+	}
+	if input.Webhook != nil {
+		channel.Webhook = &notificationmodel.WebhookTarget{
+			URL:                 valueOf(input.Webhook.Url),
+			HMACSecret:          valueOf(input.Webhook.HmacSecret),
+			AllowInsecureHTTP:   valueOf(input.Webhook.AllowInsecureHttp),
+			AllowPrivateNetwork: valueOf(input.Webhook.AllowPrivateNetwork),
+			ClearHeaders:        valueOf(input.Webhook.ClearHeaders),
+			ClearHMACSecret:     valueOf(input.Webhook.ClearHmacSecret),
+		}
+		if input.Webhook.Headers != nil {
+			channel.Webhook.Headers = mapsClonePreserveEmpty(*input.Webhook.Headers)
+		}
+	}
+	if input.Slack != nil {
+		channel.Slack = &notificationmodel.SlackTarget{
+			WebhookURL: valueOf(input.Slack.WebhookUrl),
+		}
+	}
+	if input.Telegram != nil {
+		channel.Telegram = &notificationmodel.TelegramTarget{
+			BotToken: valueOf(input.Telegram.BotToken),
+			ChatID:   valueOf(input.Telegram.ChatId),
+		}
+	}
+	return channel
 }
 
 func notificationTargetFromRequest(input api.NotificationTargetInput) notificationmodel.Target {
@@ -247,16 +462,85 @@ func toAPINotificationSettings(settings *notificationmodel.Settings) api.DAGNoti
 	for _, target := range pub.Targets {
 		targets = append(targets, toAPINotificationTarget(target))
 	}
+	subscriptions := make([]api.NotificationSubscription, 0, len(pub.Subscriptions))
+	for _, subscription := range pub.Subscriptions {
+		subscriptions = append(subscriptions, toAPINotificationSubscription(subscription))
+	}
 	return api.DAGNotificationSettings{
+		Id:            pub.ID,
+		DagName:       pub.DAGName,
+		Enabled:       pub.Enabled,
+		Events:        events,
+		Targets:       targets,
+		Subscriptions: subscriptions,
+		CreatedAt:     pub.CreatedAt,
+		UpdatedAt:     pub.UpdatedAt,
+		UpdatedBy:     ptrOf(pub.UpdatedBy),
+	}
+}
+
+func toAPINotificationChannels(channels []*notificationmodel.Channel) []api.NotificationChannel {
+	out := make([]api.NotificationChannel, 0, len(channels))
+	for _, channel := range channels {
+		out = append(out, toAPINotificationChannel(channel))
+	}
+	return out
+}
+
+func toAPINotificationChannel(channel *notificationmodel.Channel) api.NotificationChannel {
+	pub := channel.ToPublic()
+	result := api.NotificationChannel{
 		Id:        pub.ID,
-		DagName:   pub.DAGName,
+		Name:      pub.Name,
+		Type:      api.NotificationProviderType(pub.Type),
 		Enabled:   pub.Enabled,
-		Events:    events,
-		Targets:   targets,
 		CreatedAt: pub.CreatedAt,
 		UpdatedAt: pub.UpdatedAt,
 		UpdatedBy: ptrOf(pub.UpdatedBy),
 	}
+	if pub.Email != nil {
+		result.Email = toAPIEmailTarget(pub.Email)
+	}
+	if pub.Webhook != nil {
+		result.Webhook = &api.NotificationWebhookTarget{
+			UrlConfigured:        pub.Webhook.URLConfigured,
+			UrlPreview:           ptrOf(pub.Webhook.URLPreview),
+			Headers:              ptrOf(pub.Webhook.Headers),
+			HmacSecretConfigured: pub.Webhook.HMACSecretConfigured,
+			AllowInsecureHttp:    ptrOf(pub.Webhook.AllowInsecureHTTP),
+			AllowPrivateNetwork:  ptrOf(pub.Webhook.AllowPrivateNetwork),
+		}
+	}
+	if pub.Slack != nil {
+		result.Slack = &api.NotificationSlackTarget{
+			WebhookUrlConfigured: pub.Slack.WebhookURLConfigured,
+			WebhookUrlPreview:    ptrOf(pub.Slack.WebhookURLPreview),
+		}
+	}
+	if pub.Telegram != nil {
+		result.Telegram = &api.NotificationTelegramTarget{
+			BotTokenConfigured: pub.Telegram.BotTokenConfigured,
+			BotTokenPreview:    ptrOf(pub.Telegram.BotTokenPreview),
+			ChatId:             ptrOf(pub.Telegram.ChatID),
+		}
+	}
+	return result
+}
+
+func toAPINotificationSubscription(subscription notificationmodel.PublicSubscription) api.NotificationSubscription {
+	result := api.NotificationSubscription{
+		Id:        subscription.ID,
+		ChannelId: subscription.ChannelID,
+		Enabled:   subscription.Enabled,
+	}
+	if len(subscription.Events) > 0 {
+		events := make([]api.NotificationEventType, 0, len(subscription.Events))
+		for _, event := range subscription.Events {
+			events = append(events, api.NotificationEventType(event))
+		}
+		result.Events = &events
+	}
+	return result
 }
 
 func toAPINotificationTarget(target notificationmodel.PublicTarget) api.NotificationTarget {

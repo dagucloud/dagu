@@ -146,6 +146,105 @@ func TestNormalizeRequiresWebhookHTTPSUnlessExplicitlyAllowed(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestNormalizeSettingsSupportsReusableChannelSubscriptions(t *testing.T) {
+	t.Parallel()
+
+	settings := &Settings{
+		DAGName: "daily-report",
+		Enabled: true,
+		Events: []eventstore.EventType{
+			eventstore.TypeDAGRunFailed,
+			eventstore.TypeDAGRunSucceeded,
+		},
+		Subscriptions: []Subscription{{
+			ChannelID: "channel-1",
+			Enabled:   true,
+			Events: []eventstore.EventType{
+				eventstore.TypeDAGRunFailed,
+				eventstore.TypeDAGRunFailed,
+			},
+		}},
+	}
+
+	normalized, err := Normalize(settings, "tester")
+	require.NoError(t, err)
+	require.Len(t, normalized.Subscriptions, 1)
+	assert.NotEmpty(t, normalized.Subscriptions[0].ID)
+	assert.Equal(t, "channel-1", normalized.Subscriptions[0].ChannelID)
+	assert.Equal(t, []eventstore.EventType{eventstore.TypeDAGRunFailed}, normalized.Subscriptions[0].Events)
+	assert.True(t, IsSubscriptionEventEnabled(normalized, normalized.Subscriptions[0], eventstore.TypeDAGRunFailed))
+	assert.False(t, IsSubscriptionEventEnabled(normalized, normalized.Subscriptions[0], eventstore.TypeDAGRunSucceeded))
+}
+
+func TestNormalizeSettingsRejectsDuplicateChannelSubscriptions(t *testing.T) {
+	t.Parallel()
+
+	_, err := Normalize(&Settings{
+		DAGName: "daily-report",
+		Enabled: true,
+		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		Subscriptions: []Subscription{
+			{ChannelID: "channel-1", Enabled: true},
+			{ChannelID: "channel-1", Enabled: true},
+		},
+	}, "tester")
+	assert.ErrorIs(t, err, ErrInvalidSettings)
+}
+
+func TestNormalizeChannelPreservesProviderValidation(t *testing.T) {
+	t.Parallel()
+
+	channel, err := NormalizeChannel(&Channel{
+		Name:    "Ops Webhook",
+		Type:    ProviderWebhook,
+		Enabled: true,
+		Webhook: &WebhookTarget{
+			URL: "https://example.com/webhook",
+		},
+	}, "tester")
+	require.NoError(t, err)
+	assert.NotEmpty(t, channel.ID)
+	assert.Equal(t, "Ops Webhook", channel.Name)
+
+	_, err = NormalizeChannel(&Channel{
+		Name:    "Internal",
+		Type:    ProviderWebhook,
+		Enabled: true,
+		Webhook: &WebhookTarget{
+			URL: "http://127.0.0.1:8080/webhook",
+		},
+	}, "tester")
+	assert.ErrorIs(t, err, ErrInvalidSettings)
+}
+
+func TestPreserveChannelSecrets(t *testing.T) {
+	t.Parallel()
+
+	next := &Channel{
+		ID:      "channel-1",
+		Name:    "Ops Webhook",
+		Type:    ProviderWebhook,
+		Enabled: true,
+		Webhook: &WebhookTarget{},
+	}
+	existing := &Channel{
+		ID:      "channel-1",
+		Name:    "Ops Webhook",
+		Type:    ProviderWebhook,
+		Enabled: true,
+		Webhook: &WebhookTarget{
+			URL:        "https://example.com/webhook",
+			Headers:    map[string]string{"Authorization": "Bearer old"},
+			HMACSecret: "old-secret",
+		},
+	}
+
+	PreserveChannelSecrets(next, existing)
+	assert.Equal(t, "https://example.com/webhook", next.Webhook.URL)
+	assert.Equal(t, "old-secret", next.Webhook.HMACSecret)
+	assert.Equal(t, "Bearer old", next.Webhook.Headers["Authorization"])
+}
+
 func TestNormalizeRejectsPrivateWebhookTargetUnlessExplicitlyAllowed(t *testing.T) {
 	t.Parallel()
 

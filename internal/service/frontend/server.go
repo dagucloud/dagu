@@ -326,6 +326,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		remoteNodeResolver *remotenode.Resolver
 		encryptor          *crypto.Encryptor
 		agentOAuthManager  *agentoauth.Manager
+		licenseChecker     license.Checker
 	)
 	encKey, encErr := crypto.ResolveKey(cfg.Paths.DataDir)
 	if encErr != nil {
@@ -385,7 +386,13 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		if err != nil {
 			logger.Warn(ctx, "Failed to create notification settings store", tag.Error(err))
 		} else {
-			notificationSvc = notificationservice.New(store, dr)
+			notificationSvc = notificationservice.New(
+				store,
+				dr,
+				notificationservice.WithReusableChannelsEnabled(func() bool {
+					return license.HasActiveLicense(licenseChecker)
+				}),
+			)
 			apiOpts = append(apiOpts, apiv1.WithNotificationService(notificationSvc))
 		}
 	} else {
@@ -400,7 +407,6 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		apiOpts = append(apiOpts, apiv1.WithWorkspaceStore(wsStore))
 	}
 
-	var licenseChecker license.Checker
 	auditEnabled := func() bool {
 		if auditSvc == nil {
 			return false

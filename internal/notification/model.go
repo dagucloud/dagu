@@ -46,6 +46,8 @@ var supportedEvents = []eventstore.EventType{
 var (
 	ErrSettingsNotFound   = errors.New("notification settings not found")
 	ErrInvalidSettings    = errors.New("invalid notification settings")
+	ErrChannelNotFound    = errors.New("notification channel not found")
+	ErrChannelInUse       = errors.New("notification channel is used by DAG notification settings")
 	ErrTargetNotFound     = errors.New("notification target not found")
 	ErrUnsupportedEvent   = errors.New("unsupported notification event")
 	ErrUnsupportedTarget  = errors.New("unsupported notification target provider")
@@ -53,14 +55,38 @@ var (
 )
 
 type Settings struct {
+	ID            string                 `json:"id"`
+	DAGName       string                 `json:"dagName"`
+	Enabled       bool                   `json:"enabled"`
+	Events        []eventstore.EventType `json:"events"`
+	Targets       []Target               `json:"targets"`
+	Subscriptions []Subscription         `json:"subscriptions,omitempty"`
+	CreatedAt     time.Time              `json:"createdAt"`
+	UpdatedAt     time.Time              `json:"updatedAt"`
+	UpdatedBy     string                 `json:"updatedBy,omitempty"`
+}
+
+type Channel struct {
+	ID      string       `json:"id"`
+	Name    string       `json:"name"`
+	Type    ProviderType `json:"type"`
+	Enabled bool         `json:"enabled"`
+
+	Email    *EmailTarget    `json:"email,omitempty"`
+	Webhook  *WebhookTarget  `json:"webhook,omitempty"`
+	Slack    *SlackTarget    `json:"slack,omitempty"`
+	Telegram *TelegramTarget `json:"telegram,omitempty"`
+
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	UpdatedBy string    `json:"updatedBy,omitempty"`
+}
+
+type Subscription struct {
 	ID        string                 `json:"id"`
-	DAGName   string                 `json:"dagName"`
+	ChannelID string                 `json:"channelId"`
 	Enabled   bool                   `json:"enabled"`
-	Events    []eventstore.EventType `json:"events"`
-	Targets   []Target               `json:"targets"`
-	CreatedAt time.Time              `json:"createdAt"`
-	UpdatedAt time.Time              `json:"updatedAt"`
-	UpdatedBy string                 `json:"updatedBy,omitempty"`
+	Events    []eventstore.EventType `json:"events,omitempty"`
 }
 
 type Target struct {
@@ -105,14 +131,38 @@ type TelegramTarget struct {
 }
 
 type PublicSettings struct {
-	ID        string         `json:"id"`
-	DAGName   string         `json:"dagName"`
-	Enabled   bool           `json:"enabled"`
-	Events    []string       `json:"events"`
-	Targets   []PublicTarget `json:"targets"`
-	CreatedAt time.Time      `json:"createdAt"`
-	UpdatedAt time.Time      `json:"updatedAt"`
-	UpdatedBy string         `json:"updatedBy,omitempty"`
+	ID            string               `json:"id"`
+	DAGName       string               `json:"dagName"`
+	Enabled       bool                 `json:"enabled"`
+	Events        []string             `json:"events"`
+	Targets       []PublicTarget       `json:"targets"`
+	Subscriptions []PublicSubscription `json:"subscriptions,omitempty"`
+	CreatedAt     time.Time            `json:"createdAt"`
+	UpdatedAt     time.Time            `json:"updatedAt"`
+	UpdatedBy     string               `json:"updatedBy,omitempty"`
+}
+
+type PublicChannel struct {
+	ID      string       `json:"id"`
+	Name    string       `json:"name"`
+	Type    ProviderType `json:"type"`
+	Enabled bool         `json:"enabled"`
+
+	Email    *EmailTarget          `json:"email,omitempty"`
+	Webhook  *PublicWebhookTarget  `json:"webhook,omitempty"`
+	Slack    *PublicSlackTarget    `json:"slack,omitempty"`
+	Telegram *PublicTelegramTarget `json:"telegram,omitempty"`
+
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	UpdatedBy string    `json:"updatedBy,omitempty"`
+}
+
+type PublicSubscription struct {
+	ID        string   `json:"id"`
+	ChannelID string   `json:"channelId"`
+	Enabled   bool     `json:"enabled"`
+	Events    []string `json:"events,omitempty"`
 }
 
 type PublicTarget struct {
@@ -153,6 +203,10 @@ type Store interface {
 	GetByDAGName(ctx context.Context, dagName string) (*Settings, error)
 	List(ctx context.Context) ([]*Settings, error)
 	DeleteByDAGName(ctx context.Context, dagName string) error
+	SaveChannel(ctx context.Context, channel *Channel) error
+	GetChannel(ctx context.Context, channelID string) (*Channel, error)
+	ListChannels(ctx context.Context) ([]*Channel, error)
+	DeleteChannel(ctx context.Context, channelID string) error
 }
 
 func NewSettings(dagName, updatedBy string) (*Settings, error) {
@@ -204,6 +258,16 @@ func Normalize(settings *Settings, updatedBy string) (*Settings, error) {
 			return nil, err
 		}
 	}
+	channelIDs := make(map[string]struct{}, len(settings.Subscriptions))
+	for i := range settings.Subscriptions {
+		if err := normalizeSubscription(&settings.Subscriptions[i]); err != nil {
+			return nil, err
+		}
+		if _, ok := channelIDs[settings.Subscriptions[i].ChannelID]; ok {
+			return nil, fmt.Errorf("%w: duplicate notification channel subscription %s", ErrInvalidSettings, settings.Subscriptions[i].ChannelID)
+		}
+		channelIDs[settings.Subscriptions[i].ChannelID] = struct{}{}
+	}
 
 	now := time.Now().UTC()
 	if settings.CreatedAt.IsZero() {
@@ -212,6 +276,50 @@ func Normalize(settings *Settings, updatedBy string) (*Settings, error) {
 	settings.UpdatedAt = now
 	settings.UpdatedBy = updatedBy
 	return settings, nil
+}
+
+func NormalizeChannel(channel *Channel, updatedBy string) (*Channel, error) {
+	if channel == nil {
+		return nil, fmt.Errorf("%w: channel is nil", ErrInvalidSettings)
+	}
+	channel.ID = strings.TrimSpace(channel.ID)
+	if channel.ID == "" {
+		channel.ID = uuid.New().String()
+	}
+	channel.Name = strings.TrimSpace(channel.Name)
+	if channel.Name == "" {
+		return nil, fmt.Errorf("%w: channel name is required", ErrInvalidSettings)
+	}
+	target := channel.ToTarget()
+	if err := normalizeTarget(&target); err != nil {
+		return nil, err
+	}
+	channel.applyTarget(target)
+
+	now := time.Now().UTC()
+	if channel.CreatedAt.IsZero() {
+		channel.CreatedAt = now
+	}
+	channel.UpdatedAt = now
+	channel.UpdatedBy = updatedBy
+	return channel, nil
+}
+
+func normalizeSubscription(subscription *Subscription) error {
+	subscription.ID = strings.TrimSpace(subscription.ID)
+	if subscription.ID == "" {
+		subscription.ID = uuid.New().String()
+	}
+	subscription.ChannelID = strings.TrimSpace(subscription.ChannelID)
+	if subscription.ChannelID == "" {
+		return fmt.Errorf("%w: notification channel id is required", ErrInvalidSettings)
+	}
+	events, err := normalizeEventList(subscription.Events, false)
+	if err != nil {
+		return err
+	}
+	subscription.Events = events
+	return nil
 }
 
 func normalizeTarget(target *Target) error {
@@ -390,6 +498,16 @@ func IsTargetEventEnabled(settings *Settings, target Target, event eventstore.Ev
 	return slices.Contains(target.Events, event)
 }
 
+func IsSubscriptionEventEnabled(settings *Settings, subscription Subscription, event eventstore.EventType) bool {
+	if !IsEventEnabled(settings, event) || !subscription.Enabled {
+		return false
+	}
+	if len(subscription.Events) == 0 {
+		return true
+	}
+	return slices.Contains(subscription.Events, event)
+}
+
 func ToPublic(settings *Settings) *PublicSettings {
 	if settings == nil {
 		return nil
@@ -402,16 +520,88 @@ func ToPublic(settings *Settings) *PublicSettings {
 	for _, target := range settings.Targets {
 		targets = append(targets, target.ToPublic())
 	}
-	return &PublicSettings{
-		ID:        settings.ID,
-		DAGName:   settings.DAGName,
-		Enabled:   settings.Enabled,
-		Events:    events,
-		Targets:   targets,
-		CreatedAt: settings.CreatedAt,
-		UpdatedAt: settings.UpdatedAt,
-		UpdatedBy: settings.UpdatedBy,
+	subscriptions := make([]PublicSubscription, 0, len(settings.Subscriptions))
+	for _, subscription := range settings.Subscriptions {
+		subscriptions = append(subscriptions, subscription.ToPublic())
 	}
+	return &PublicSettings{
+		ID:            settings.ID,
+		DAGName:       settings.DAGName,
+		Enabled:       settings.Enabled,
+		Events:        events,
+		Targets:       targets,
+		Subscriptions: subscriptions,
+		CreatedAt:     settings.CreatedAt,
+		UpdatedAt:     settings.UpdatedAt,
+		UpdatedBy:     settings.UpdatedBy,
+	}
+}
+
+func (s Subscription) ToPublic() PublicSubscription {
+	return PublicSubscription{
+		ID:        s.ID,
+		ChannelID: s.ChannelID,
+		Enabled:   s.Enabled,
+		Events:    eventStrings(s.Events),
+	}
+}
+
+func (c Channel) ToPublic() PublicChannel {
+	target := c.ToTarget().ToPublic()
+	return PublicChannel{
+		ID:        c.ID,
+		Name:      c.Name,
+		Type:      c.Type,
+		Enabled:   c.Enabled,
+		Email:     target.Email,
+		Webhook:   target.Webhook,
+		Slack:     target.Slack,
+		Telegram:  target.Telegram,
+		CreatedAt: c.CreatedAt,
+		UpdatedAt: c.UpdatedAt,
+		UpdatedBy: c.UpdatedBy,
+	}
+}
+
+func (c Channel) ToTarget() Target {
+	target := Target{
+		ID:      c.ID,
+		Name:    c.Name,
+		Type:    c.Type,
+		Enabled: c.Enabled,
+	}
+	if c.Email != nil {
+		copy := *c.Email
+		copy.To = append([]string(nil), c.Email.To...)
+		copy.Cc = append([]string(nil), c.Email.Cc...)
+		copy.Bcc = append([]string(nil), c.Email.Bcc...)
+		target.Email = &copy
+	}
+	if c.Webhook != nil {
+		copy := *c.Webhook
+		copy.Headers = cloneStringMap(c.Webhook.Headers)
+		target.Webhook = &copy
+	}
+	if c.Slack != nil {
+		copy := *c.Slack
+		target.Slack = &copy
+	}
+	if c.Telegram != nil {
+		copy := *c.Telegram
+		target.Telegram = &copy
+	}
+	return target
+}
+
+func (c *Channel) applyTarget(target Target) {
+	c.ID = target.ID
+	c.Name = target.Name
+	c.Type = target.Type
+	c.Enabled = target.Enabled
+	c.Email = target.Email
+	c.Webhook = target.Webhook
+	c.Slack = target.Slack
+	c.Telegram = target.Telegram
 }
 
 func (t Target) ToPublic() PublicTarget {
@@ -490,6 +680,17 @@ func previewHeaderValues(headers map[string]string) map[string]string {
 	return result
 }
 
+func cloneStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	result := make(map[string]string, len(values))
+	for key, value := range values {
+		result[key] = value
+	}
+	return result
+}
+
 func PreserveSecrets(next, existing *Settings) {
 	if next == nil || existing == nil {
 		return
@@ -505,6 +706,15 @@ func PreserveSecrets(next, existing *Settings) {
 		}
 		preserveTargetSecrets(&next.Targets[i], prev)
 	}
+}
+
+func PreserveChannelSecrets(next, existing *Channel) {
+	if next == nil || existing == nil {
+		return
+	}
+	nextTarget := next.ToTarget()
+	preserveTargetSecrets(&nextTarget, existing.ToTarget())
+	next.applyTarget(nextTarget)
 }
 
 func preserveTargetSecrets(next *Target, prev Target) {

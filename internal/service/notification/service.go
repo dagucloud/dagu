@@ -31,11 +31,12 @@ import (
 )
 
 type Service struct {
-	store    notificationmodel.Store
-	dagStore exec.DAGStore
-	http     *http.Client
-	logger   *slog.Logger
-	retry    DeliveryRetryConfig
+	store                   notificationmodel.Store
+	dagStore                exec.DAGStore
+	http                    *http.Client
+	logger                  *slog.Logger
+	retry                   DeliveryRetryConfig
+	reusableChannelsEnabled func() bool
 }
 
 type TestResult struct {
@@ -84,12 +85,21 @@ func WithDeliveryRetry(cfg DeliveryRetryConfig) Option {
 	}
 }
 
+func WithReusableChannelsEnabled(enabled func() bool) Option {
+	return func(s *Service) {
+		if enabled != nil {
+			s.reusableChannelsEnabled = enabled
+		}
+	}
+}
+
 func New(store notificationmodel.Store, dagStore exec.DAGStore, opts ...Option) *Service {
 	svc := &Service{
-		store:    store,
-		dagStore: dagStore,
-		http:     &http.Client{Timeout: 30 * time.Second},
-		logger:   slog.Default(),
+		store:                   store,
+		dagStore:                dagStore,
+		http:                    &http.Client{Timeout: 30 * time.Second},
+		logger:                  slog.Default(),
+		reusableChannelsEnabled: func() bool { return true },
 		retry: DeliveryRetryConfig{
 			MaxAttempts:    3,
 			InitialBackoff: 250 * time.Millisecond,
@@ -102,11 +112,93 @@ func New(store notificationmodel.Store, dagStore exec.DAGStore, opts ...Option) 
 	return svc
 }
 
+func (s *Service) reusableChannelsAllowed() bool {
+	return s.reusableChannelsEnabled == nil || s.reusableChannelsEnabled()
+}
+
 func (s *Service) GetByDAGName(ctx context.Context, dagName string) (*notificationmodel.Settings, error) {
 	if s.store == nil {
 		return nil, notificationmodel.ErrSettingsNotFound
 	}
 	return s.store.GetByDAGName(ctx, dagName)
+}
+
+func (s *Service) ListChannels(ctx context.Context) ([]*notificationmodel.Channel, error) {
+	if s.store == nil {
+		return nil, notificationmodel.ErrChannelNotFound
+	}
+	channels, err := s.store.ListChannels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	slices.SortFunc(channels, func(a, b *notificationmodel.Channel) int {
+		if a == nil || b == nil {
+			switch {
+			case a == nil && b == nil:
+				return 0
+			case a == nil:
+				return -1
+			default:
+				return 1
+			}
+		}
+		if cmp := strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)); cmp != 0 {
+			return cmp
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	return channels, nil
+}
+
+func (s *Service) GetChannel(ctx context.Context, channelID string) (*notificationmodel.Channel, error) {
+	if s.store == nil {
+		return nil, notificationmodel.ErrChannelNotFound
+	}
+	return s.store.GetChannel(ctx, channelID)
+}
+
+func (s *Service) SaveChannel(ctx context.Context, channel *notificationmodel.Channel, updatedBy string) (*notificationmodel.Channel, error) {
+	if s.store == nil {
+		return nil, notificationmodel.ErrChannelNotFound
+	}
+	if channel == nil {
+		return nil, notificationmodel.ErrInvalidSettings
+	}
+	existing, err := s.store.GetChannel(ctx, channel.ID)
+	if err != nil && !errors.Is(err, notificationmodel.ErrChannelNotFound) {
+		return nil, err
+	}
+	if existing != nil {
+		channel.ID = existing.ID
+		channel.CreatedAt = existing.CreatedAt
+		notificationmodel.PreserveChannelSecrets(channel, existing)
+	}
+	normalized, err := notificationmodel.NormalizeChannel(channel, updatedBy)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.store.SaveChannel(ctx, normalized); err != nil {
+		return nil, err
+	}
+	return normalized, nil
+}
+
+func (s *Service) DeleteChannel(ctx context.Context, channelID string) error {
+	if s.store == nil {
+		return notificationmodel.ErrChannelNotFound
+	}
+	settings, err := s.listSettings(ctx)
+	if err != nil {
+		return err
+	}
+	for _, setting := range settings {
+		for _, subscription := range setting.Subscriptions {
+			if subscription.ChannelID == channelID {
+				return fmt.Errorf("%w: %s is used by DAG %s", notificationmodel.ErrChannelInUse, channelID, setting.DAGName)
+			}
+		}
+	}
+	return s.store.DeleteChannel(ctx, channelID)
 }
 
 func (s *Service) Save(ctx context.Context, settings *notificationmodel.Settings, updatedBy string) (*notificationmodel.Settings, error) {
@@ -126,10 +218,25 @@ func (s *Service) Save(ctx context.Context, settings *notificationmodel.Settings
 	if err != nil {
 		return nil, err
 	}
+	if err := s.validateSubscriptions(ctx, normalized); err != nil {
+		return nil, err
+	}
 	if err := s.store.Save(ctx, normalized); err != nil {
 		return nil, err
 	}
 	return normalized, nil
+}
+
+func (s *Service) validateSubscriptions(ctx context.Context, settings *notificationmodel.Settings) error {
+	for _, subscription := range settings.Subscriptions {
+		if _, err := s.store.GetChannel(ctx, subscription.ChannelID); err != nil {
+			if errors.Is(err, notificationmodel.ErrChannelNotFound) {
+				return fmt.Errorf("%w: %s", notificationmodel.ErrChannelNotFound, subscription.ChannelID)
+			}
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Service) DeleteByDAGName(ctx context.Context, dagName string) error {
@@ -148,8 +255,22 @@ func (s *Service) NotificationDestinations() []string {
 	var destinations []string
 	for _, setting := range settings {
 		for _, target := range setting.Targets {
-			if destination := destinationID(setting.DAGName, target.ID); setting.Enabled && target.Enabled && destination != "" {
+			if destination := inlineDestinationID(setting.DAGName, target.ID); setting.Enabled && target.Enabled && destination != "" {
 				destinations = append(destinations, destination)
+			}
+		}
+		if s.reusableChannelsAllowed() {
+			for _, subscription := range setting.Subscriptions {
+				if !setting.Enabled || !subscription.Enabled {
+					continue
+				}
+				channel, err := s.GetChannel(context.Background(), subscription.ChannelID)
+				if err != nil {
+					continue
+				}
+				if destination := channelDestinationID(setting.DAGName, subscription.ID); channel.Enabled && destination != "" {
+					destinations = append(destinations, destination)
+				}
 			}
 		}
 	}
@@ -179,15 +300,39 @@ func (s *Service) NotificationDestinationsForEvent(event chatbridge.Notification
 		if !notificationmodel.IsTargetEventEnabled(setting, target, event.Type) {
 			continue
 		}
-		if destination := destinationID(setting.DAGName, target.ID); destination != "" {
+		if destination := inlineDestinationID(setting.DAGName, target.ID); destination != "" {
 			destinations = append(destinations, destination)
+		}
+	}
+	if s.reusableChannelsAllowed() {
+		for _, subscription := range setting.Subscriptions {
+			if !notificationmodel.IsSubscriptionEventEnabled(setting, subscription, event.Type) {
+				continue
+			}
+			channel, err := s.GetChannel(context.Background(), subscription.ChannelID)
+			if err != nil {
+				if !errors.Is(err, notificationmodel.ErrChannelNotFound) {
+					s.logger.Warn("Failed to load notification channel",
+						slog.String("dag", event.Status.Name),
+						slog.String("channel", subscription.ChannelID),
+						slog.String("error", err.Error()),
+					)
+				}
+				continue
+			}
+			if !channel.Enabled {
+				continue
+			}
+			if destination := channelDestinationID(setting.DAGName, subscription.ID); destination != "" {
+				destinations = append(destinations, destination)
+			}
 		}
 	}
 	return destinations
 }
 
 func (s *Service) FlushNotificationBatch(ctx context.Context, destination string, batch chatbridge.NotificationBatch, _ bool) bool {
-	dagName, targetID, ok := parseDestinationID(destination)
+	kind, dagName, targetID, ok := parseDestinationID(destination)
 	if !ok {
 		return false
 	}
@@ -198,6 +343,43 @@ func (s *Service) FlushNotificationBatch(ctx context.Context, destination string
 			slog.String("error", err.Error()),
 		)
 		return false
+	}
+	if kind == destinationKindChannel {
+		if !s.reusableChannelsAllowed() {
+			return true
+		}
+		subscription, ok := findSubscription(setting, targetID)
+		if !ok || !subscription.Enabled {
+			return true
+		}
+		channel, err := s.GetChannel(ctx, subscription.ChannelID)
+		if err != nil {
+			if errors.Is(err, notificationmodel.ErrChannelNotFound) {
+				return true
+			}
+			s.logger.Warn("Failed to load notification channel for delivery",
+				slog.String("destination", destination),
+				slog.String("error", err.Error()),
+			)
+			return false
+		}
+		if !channel.Enabled {
+			return true
+		}
+		events := matchingSubscriptionEvents(setting, subscription, batch.Events)
+		if len(events) == 0 {
+			return true
+		}
+		target := channel.ToTarget()
+		if err := s.deliverTarget(ctx, target, events); err != nil {
+			s.logger.Warn("Failed to deliver DAG notification",
+				slog.String("destination", destination),
+				slog.String("provider", string(target.Type)),
+				slog.String("error", err.Error()),
+			)
+			return false
+		}
+		return true
 	}
 	target, ok := findTarget(setting, targetID)
 	if !ok || !target.Enabled {
@@ -244,17 +426,57 @@ func (s *Service) SendTest(ctx context.Context, dagName, targetID string, eventT
 	if err != nil {
 		return nil, err
 	}
-	targets := make([]notificationmodel.Target, 0, len(setting.Targets))
+	targets := make([]resolvedTarget, 0, len(setting.Targets)+len(setting.Subscriptions))
 	for _, target := range setting.Targets {
 		if targetID != "" {
 			if target.ID == targetID {
-				targets = append(targets, target)
+				targets = append(targets, resolvedTarget{
+					ResultID:   target.ID,
+					ResultName: target.Name,
+					Target:     target,
+				})
 				break
 			}
 			continue
 		}
 		if notificationmodel.IsTargetEventEnabled(setting, target, eventType) {
-			targets = append(targets, target)
+			targets = append(targets, resolvedTarget{
+				ResultID:   target.ID,
+				ResultName: target.Name,
+				Target:     target,
+			})
+		}
+	}
+	if s.reusableChannelsAllowed() {
+		for _, subscription := range setting.Subscriptions {
+			if targetID != "" && subscription.ID != targetID && subscription.ChannelID != targetID {
+				continue
+			}
+			if targetID == "" && !notificationmodel.IsSubscriptionEventEnabled(setting, subscription, eventType) {
+				continue
+			}
+			channel, err := s.GetChannel(ctx, subscription.ChannelID)
+			if err != nil {
+				if targetID != "" && errors.Is(err, notificationmodel.ErrChannelNotFound) {
+					return nil, err
+				}
+				continue
+			}
+			if !channel.Enabled {
+				continue
+			}
+			targets = append(targets, resolvedTarget{
+				ResultID:   subscription.ID,
+				ResultName: channel.Name,
+				Provider:   channel.Type,
+				Target:     channel.ToTarget(),
+			})
+		}
+	} else if targetID != "" {
+		for _, subscription := range setting.Subscriptions {
+			if subscription.ID == targetID || subscription.ChannelID == targetID {
+				return nil, notificationmodel.ErrTargetNotFound
+			}
 		}
 	}
 	if len(targets) == 0 {
@@ -272,11 +494,15 @@ func (s *Service) SendTest(ctx context.Context, dagName, targetID string, eventT
 	}
 	results := make([]TestResult, 0, len(targets))
 	for _, target := range targets {
-		err := s.deliverTarget(ctx, target, []chatbridge.NotificationEvent{event})
+		err := s.deliverTarget(ctx, target.Target, []chatbridge.NotificationEvent{event})
+		provider := target.Provider
+		if provider == "" {
+			provider = target.Target.Type
+		}
 		result := TestResult{
-			TargetID:   target.ID,
-			TargetName: target.Name,
-			Provider:   target.Type,
+			TargetID:   target.ResultID,
+			TargetName: target.ResultName,
+			Provider:   provider,
 			Delivered:  err == nil,
 		}
 		if err != nil {
@@ -285,6 +511,13 @@ func (s *Service) SendTest(ctx context.Context, dagName, targetID string, eventT
 		results = append(results, result)
 	}
 	return results, nil
+}
+
+type resolvedTarget struct {
+	ResultID   string
+	ResultName string
+	Provider   notificationmodel.ProviderType
+	Target     notificationmodel.Target
 }
 
 func (s *Service) isSupportedEvent(eventType eventstore.EventType) bool {
@@ -351,16 +584,33 @@ func (s *Service) listSettings(ctx context.Context) ([]*notificationmodel.Settin
 	return s.store.List(ctx)
 }
 
-func destinationID(dagName, targetID string) string {
+const (
+	destinationKindInline  = "target"
+	destinationKindChannel = "channel"
+)
+
+func inlineDestinationID(dagName, targetID string) string {
 	if dagName == "" || targetID == "" {
 		return ""
 	}
 	return dagName + "\x00" + targetID
 }
 
-func parseDestinationID(destination string) (string, string, bool) {
+func channelDestinationID(dagName, subscriptionID string) string {
+	if dagName == "" || subscriptionID == "" {
+		return ""
+	}
+	return destinationKindChannel + "\x00" + dagName + "\x00" + subscriptionID
+}
+
+func parseDestinationID(destination string) (string, string, string, bool) {
+	if strings.HasPrefix(destination, destinationKindChannel+"\x00") {
+		rest := strings.TrimPrefix(destination, destinationKindChannel+"\x00")
+		dagName, subscriptionID, ok := strings.Cut(rest, "\x00")
+		return destinationKindChannel, dagName, subscriptionID, ok && dagName != "" && subscriptionID != ""
+	}
 	dagName, targetID, ok := strings.Cut(destination, "\x00")
-	return dagName, targetID, ok && dagName != "" && targetID != ""
+	return destinationKindInline, dagName, targetID, ok && dagName != "" && targetID != ""
 }
 
 func findTarget(setting *notificationmodel.Settings, targetID string) (notificationmodel.Target, bool) {
@@ -375,6 +625,18 @@ func findTarget(setting *notificationmodel.Settings, targetID string) (notificat
 	return notificationmodel.Target{}, false
 }
 
+func findSubscription(setting *notificationmodel.Settings, subscriptionID string) (notificationmodel.Subscription, bool) {
+	if setting == nil || subscriptionID == "" {
+		return notificationmodel.Subscription{}, false
+	}
+	for _, subscription := range setting.Subscriptions {
+		if subscription.ID == subscriptionID {
+			return subscription, true
+		}
+	}
+	return notificationmodel.Subscription{}, false
+}
+
 func matchingEvents(setting *notificationmodel.Settings, target notificationmodel.Target, events []chatbridge.NotificationEvent) []chatbridge.NotificationEvent {
 	result := make([]chatbridge.NotificationEvent, 0, len(events))
 	for _, event := range events {
@@ -382,6 +644,20 @@ func matchingEvents(setting *notificationmodel.Settings, target notificationmode
 			continue
 		}
 		if !notificationmodel.IsTargetEventEnabled(setting, target, event.Type) {
+			continue
+		}
+		result = append(result, event)
+	}
+	return result
+}
+
+func matchingSubscriptionEvents(setting *notificationmodel.Settings, subscription notificationmodel.Subscription, events []chatbridge.NotificationEvent) []chatbridge.NotificationEvent {
+	result := make([]chatbridge.NotificationEvent, 0, len(events))
+	for _, event := range events {
+		if event.Status == nil || event.Status.Name != setting.DAGName {
+			continue
+		}
+		if !notificationmodel.IsSubscriptionEventEnabled(setting, subscription, event.Type) {
 			continue
 		}
 		result = append(result, event)

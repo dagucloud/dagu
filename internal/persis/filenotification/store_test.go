@@ -65,8 +65,15 @@ func TestStore_EncryptsNotificationSecretsAtRest(t *testing.T) {
 
 	entries, err := os.ReadDir(store.baseDir)
 	require.NoError(t, err)
-	require.Len(t, entries, 1)
-	raw, err := os.ReadFile(filepath.Join(store.baseDir, entries[0].Name())) //nolint:gosec // test reads its temp directory.
+	var settingsFile string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			settingsFile = entry.Name()
+			break
+		}
+	}
+	require.NotEmpty(t, settingsFile)
+	raw, err := os.ReadFile(filepath.Join(store.baseDir, settingsFile)) //nolint:gosec // test reads its temp directory.
 	require.NoError(t, err)
 	for _, secret := range []string{
 		"https://example.com/webhook",
@@ -113,5 +120,82 @@ func TestStore_SaveSecretTargetRequiresEncryptor(t *testing.T) {
 	require.NoError(t, err)
 
 	err = store.Save(context.Background(), settings)
+	assert.ErrorIs(t, err, notification.ErrSecretStoreMissing)
+}
+
+func TestStore_PersistsReusableChannelsAndSubscriptions(t *testing.T) {
+	t.Parallel()
+
+	enc, err := crypto.NewEncryptor("test-key")
+	require.NoError(t, err)
+	store, err := New(t.TempDir(), WithEncryptor(enc))
+	require.NoError(t, err)
+
+	channel, err := notification.NormalizeChannel(&notification.Channel{
+		ID:      "channel-1",
+		Name:    "Ops Webhook",
+		Type:    notification.ProviderWebhook,
+		Enabled: true,
+		Webhook: &notification.WebhookTarget{
+			URL:        "https://example.com/webhook",
+			HMACSecret: "channel-secret",
+		},
+	}, "tester")
+	require.NoError(t, err)
+	require.NoError(t, store.SaveChannel(context.Background(), channel))
+
+	settings, err := notification.Normalize(&notification.Settings{
+		ID:      "settings-1",
+		DAGName: "daily-report",
+		Enabled: true,
+		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		Subscriptions: []notification.Subscription{{
+			ID:        "subscription-1",
+			ChannelID: "channel-1",
+			Enabled:   true,
+			Events:    []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		}},
+	}, "tester")
+	require.NoError(t, err)
+	require.NoError(t, store.Save(context.Background(), settings))
+
+	rawChannel, err := os.ReadFile(store.channelFilePath("channel-1")) //nolint:gosec // test reads its temp directory.
+	require.NoError(t, err)
+	assert.NotContains(t, string(rawChannel), "https://example.com/webhook")
+	assert.NotContains(t, string(rawChannel), "channel-secret")
+
+	gotChannel, err := store.GetChannel(context.Background(), "channel-1")
+	require.NoError(t, err)
+	assert.Equal(t, "Ops Webhook", gotChannel.Name)
+	assert.Equal(t, "https://example.com/webhook", gotChannel.Webhook.URL)
+	assert.Equal(t, "channel-secret", gotChannel.Webhook.HMACSecret)
+
+	gotSettings, err := store.GetByDAGName(context.Background(), "daily-report")
+	require.NoError(t, err)
+	require.Len(t, gotSettings.Subscriptions, 1)
+	assert.Equal(t, "subscription-1", gotSettings.Subscriptions[0].ID)
+	assert.Equal(t, "channel-1", gotSettings.Subscriptions[0].ChannelID)
+
+	channels, err := store.ListChannels(context.Background())
+	require.NoError(t, err)
+	require.Len(t, channels, 1)
+	assert.Equal(t, "channel-1", channels[0].ID)
+}
+
+func TestStore_SaveSecretChannelRequiresEncryptor(t *testing.T) {
+	t.Parallel()
+
+	store, err := New(t.TempDir())
+	require.NoError(t, err)
+	channel, err := notification.NormalizeChannel(&notification.Channel{
+		ID:      "channel-1",
+		Name:    "Ops Slack",
+		Type:    notification.ProviderSlack,
+		Enabled: true,
+		Slack:   &notification.SlackTarget{WebhookURL: "https://hooks.slack.com/services/test"},
+	}, "tester")
+	require.NoError(t, err)
+
+	err = store.SaveChannel(context.Background(), channel)
 	assert.ErrorIs(t, err, notification.ErrSecretStoreMissing)
 }

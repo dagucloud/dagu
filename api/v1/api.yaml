@@ -3960,6 +3960,211 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /notification-channels:
+    get:
+      summary: "List notification channels"
+      description: "Returns reusable workspace notification channels. Developer, manager, or admin only."
+      operationId: "listNotificationChannels"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "List of reusable notification channels"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationChannelListResponse"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    post:
+      summary: "Create notification channel"
+      description: |
+        Creates a reusable workspace notification channel. Secret values are accepted
+        in the request but are never returned. Developer, manager, or admin only.
+      operationId: "createNotificationChannel"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationChannelInput"
+      responses:
+        "201":
+          description: "Notification channel created"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationChannel"
+        "400":
+          description: "Invalid notification channel"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /notification-channels/{channelId}:
+    get:
+      summary: "Get notification channel"
+      description: "Returns one reusable workspace notification channel. Developer, manager, or admin only."
+      operationId: "getNotificationChannel"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Reusable notification channel"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationChannel"
+        "404":
+          description: "Notification channel not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    put:
+      summary: "Update notification channel"
+      description: |
+        Replaces a reusable workspace notification channel. Existing secret values
+        are preserved when omitted. Developer, manager, or admin only.
+      operationId: "updateNotificationChannel"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationChannelInput"
+      responses:
+        "200":
+          description: "Notification channel updated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationChannel"
+        "400":
+          description: "Invalid notification channel"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Notification channel not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    delete:
+      summary: "Delete notification channel"
+      description: "Deletes a reusable workspace notification channel. Channels referenced by DAG notification settings cannot be deleted."
+      operationId: "deleteNotificationChannel"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: "Notification channel deleted"
+        "404":
+          description: "Notification channel not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Notification channel is used by a DAG"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /dags/{fileName}/webhook:
     get:
       summary: "Get webhook for DAG"
@@ -4382,6 +4587,12 @@ paths:
                 $ref: "#/components/schemas/DAGNotificationSettings"
         "400":
           description: "Invalid notification settings"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Forbidden - reusable notification channels require an active Dagu license or trial"
           content:
             application/json:
               schema:
@@ -9072,6 +9283,127 @@ components:
         telegram:
           $ref: "#/components/schemas/NotificationTelegramTarget"
 
+    NotificationChannelInput:
+      type: object
+      description: "Reusable workspace notification channel input"
+      required:
+        - name
+        - type
+        - enabled
+      properties:
+        name:
+          type: string
+          description: "Human-readable channel name"
+        type:
+          $ref: "#/components/schemas/NotificationProviderType"
+        enabled:
+          type: boolean
+          description: "Whether this channel can receive notifications"
+        email:
+          $ref: "#/components/schemas/NotificationEmailTarget"
+        webhook:
+          $ref: "#/components/schemas/NotificationWebhookTargetInput"
+        slack:
+          $ref: "#/components/schemas/NotificationSlackTargetInput"
+        telegram:
+          $ref: "#/components/schemas/NotificationTelegramTargetInput"
+
+    NotificationChannel:
+      type: object
+      description: "Reusable workspace notification channel. Secrets are never returned."
+      required:
+        - id
+        - name
+        - type
+        - enabled
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          description: "Stable channel ID"
+        name:
+          type: string
+          description: "Human-readable channel name"
+        type:
+          $ref: "#/components/schemas/NotificationProviderType"
+        enabled:
+          type: boolean
+          description: "Whether this channel can receive notifications"
+        email:
+          $ref: "#/components/schemas/NotificationEmailTarget"
+        webhook:
+          $ref: "#/components/schemas/NotificationWebhookTarget"
+        slack:
+          $ref: "#/components/schemas/NotificationSlackTarget"
+        telegram:
+          $ref: "#/components/schemas/NotificationTelegramTarget"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        updatedBy:
+          type: string
+          description: "User ID that last updated the channel"
+
+    NotificationChannelListResponse:
+      type: object
+      description: "Reusable workspace notification channels"
+      required:
+        - channels
+      properties:
+        channels:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationChannel"
+
+    NotificationSubscriptionInput:
+      type: object
+      description: "DAG subscription to a reusable workspace notification channel"
+      required:
+        - channelId
+        - enabled
+      properties:
+        id:
+          type: string
+          description: "Stable subscription ID. Omit when creating a new subscription."
+        channelId:
+          type: string
+          description: "Reusable notification channel ID"
+        enabled:
+          type: boolean
+          description: "Whether this DAG subscription receives notifications"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationEventType"
+          description: "Optional subscription-level event filter. When omitted or empty, the subscription inherits DAG-level events."
+
+    NotificationSubscription:
+      type: object
+      description: "DAG subscription to a reusable workspace notification channel"
+      required:
+        - id
+        - channelId
+        - enabled
+      properties:
+        id:
+          type: string
+          description: "Stable subscription ID"
+        channelId:
+          type: string
+          description: "Reusable notification channel ID"
+        enabled:
+          type: boolean
+          description: "Whether this DAG subscription receives notifications"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationEventType"
+          description: "Subscription-level event filter. Empty means the subscription inherits DAG-level events."
+
     DAGNotificationSettings:
       type: object
       description: "Server-side DAG notification settings"
@@ -9081,6 +9413,7 @@ components:
         - enabled
         - events
         - targets
+        - subscriptions
         - createdAt
         - updatedAt
       properties:
@@ -9102,7 +9435,12 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/NotificationTarget"
-          description: "Configured notification targets"
+          description: "DAG-local notification targets kept for backward compatibility"
+        subscriptions:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationSubscription"
+          description: "Reusable workspace notification channels subscribed by this DAG"
         createdAt:
           type: string
           format: date-time
@@ -9132,6 +9470,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/NotificationTargetInput"
+        subscriptions:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationSubscriptionInput"
 
     TestDAGNotificationRequest:
       type: object
@@ -9139,7 +9481,7 @@ components:
       properties:
         targetId:
           type: string
-          description: "Optional target ID. When omitted, every enabled target is tested."
+          description: "Optional DAG-local target ID, subscription ID, or channel ID. When omitted, every enabled target and subscription is tested."
         eventType:
           $ref: "#/components/schemas/NotificationEventType"
 

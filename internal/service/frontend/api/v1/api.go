@@ -96,6 +96,10 @@ type NotificationService interface {
 	GetByDAGName(ctx context.Context, dagName string) (*notificationmodel.Settings, error)
 	Save(ctx context.Context, settings *notificationmodel.Settings, updatedBy string) (*notificationmodel.Settings, error)
 	DeleteByDAGName(ctx context.Context, dagName string) error
+	ListChannels(ctx context.Context) ([]*notificationmodel.Channel, error)
+	GetChannel(ctx context.Context, channelID string) (*notificationmodel.Channel, error)
+	SaveChannel(ctx context.Context, channel *notificationmodel.Channel, updatedBy string) (*notificationmodel.Channel, error)
+	DeleteChannel(ctx context.Context, channelID string) error
 	SendTest(ctx context.Context, dagName, targetID string, eventType eventstore.EventType) ([]notificationservice.TestResult, error)
 }
 
@@ -689,6 +693,11 @@ var (
 		Code:       api.ErrorCodeForbidden,
 		Message:    "Audit logs require a Dagu Pro license",
 	}
+	errReusableNotificationChannelsNotLicensed = &Error{
+		HTTPStatus: http.StatusForbidden,
+		Code:       api.ErrorCodeForbidden,
+		Message:    "Reusable notification channels require an active Dagu license or trial",
+	}
 )
 
 // requireDAGWrite checks all permissions for DAG write operations:
@@ -740,6 +749,16 @@ func (a *API) requireLicensedAudit() error {
 	}
 	if !a.licenseManager.Checker().IsFeatureEnabled(license.FeatureAudit) {
 		return errAuditNotLicensed
+	}
+	return nil
+}
+
+func (a *API) requireLicensedReusableNotificationChannels() error {
+	if a.licenseManager == nil {
+		return errReusableNotificationChannelsNotLicensed
+	}
+	if !license.HasActiveLicense(a.licenseManager.Checker()) {
+		return errReusableNotificationChannelsNotLicensed
 	}
 	return nil
 }
