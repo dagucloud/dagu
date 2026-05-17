@@ -77,6 +77,7 @@ steps:
     output: SUB_RESULT
 
   - run: echo "Child said ${SUB_RESULT.outputs.GREETING}"
+    depends: run-local-child
 
 ---
 
@@ -88,6 +89,7 @@ steps:
     output: GREETING
 
   - run: echo "Greeting was ${GREETING}"
+    depends: cmd_1
 `)
 
 		agent := testDAG.Agent()
@@ -281,6 +283,7 @@ steps:
     action: dag.run
     with:
       dag: production-dag
+    depends: check-env
     preconditions:
       - condition: "${ENV_TYPE}"
         expected: "production"
@@ -289,6 +292,7 @@ steps:
     action: dag.run
     with:
       dag: development-dag
+    depends: check-env
     preconditions:
       - condition: "${ENV_TYPE}"
         expected: "development"
@@ -299,6 +303,7 @@ name: production-dag
 steps:
   - run: echo "Deploying to production"
   - run: echo "Verifying production deployment"
+    depends: cmd_1
 
 ---
 
@@ -306,6 +311,7 @@ name: development-dag
 steps:
   - run: echo "Building for development"
   - run: echo "Running development tests"
+    depends: cmd_1
 `)
 
 		agent := testDAG.Agent()
@@ -341,6 +347,7 @@ steps:
     with:
       dag: processor-dag
       params: "INPUT_DATA=${GEN_OUTPUT.outputs.DATA}"
+    depends: generate-data
 
 ---
 
@@ -360,6 +367,7 @@ steps:
 
   - run: |
       echo "Validated: ${RESULT}"
+    depends: cmd_1
 `)
 
 		agent := testDAG.Agent()

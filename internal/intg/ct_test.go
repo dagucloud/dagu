@@ -129,9 +129,12 @@ container:
 steps:
   - run: sh -c "echo 'Hello from step 1' > /data/test.txt"
   - run: cat /data/test.txt
+    depends: container_1
     output: BIND_MOUNT_OUT1
   - run: sh -c "echo 'Hello from step 3' >> /data/test.txt"
+    depends: container_2
   - run: cat /data/test.txt
+    depends: container_3
     output: BIND_MOUNT_OUT2
 `, testImage, tempDir)
 			},
@@ -281,6 +284,7 @@ steps:
     output: WORK_DIR_VOL_OUT1
   - run: sh -c "echo 'New content' > /workspace/new.txt"
   - run: cat /workspace/new.txt
+    depends: container_2
     output: WORK_DIR_VOL_OUT2
   - run: ls -la /workspace/
     output: WORK_DIR_VOL_OUT3
