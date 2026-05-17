@@ -24,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	"github.com/dagucloud/dagu/internal/runtime"
+	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"github.com/google/uuid"
@@ -92,6 +93,7 @@ type Handler struct {
 	dagRunStore               exec.DAGRunStore               // For status persistence
 	logDir                    string                         // For log storage
 	artifactDir               string                         // For artifact storage
+	workspaceBundleStore      *workspacebundle.Store         // For immutable action workspace bundles
 	dispatchTaskStore         exec.DispatchTaskStore         // Shared distributed dispatch queue
 	workerHeartbeatStore      exec.WorkerHeartbeatStore      // Shared worker presence
 	dagRunLeaseStore          exec.DAGRunLeaseStore          // Shared distributed run leases
@@ -134,6 +136,9 @@ type HandlerConfig struct {
 	// ArtifactDir is the directory for artifact storage in shared-nothing mode.
 	// Required for shared-nothing worker architecture.
 	ArtifactDir string
+
+	// WorkspaceBundleDir stores immutable action workspace bundles by digest.
+	WorkspaceBundleDir string
 
 	// Owner identifies this coordinator instance for shared task ownership.
 	Owner exec.CoordinatorEndpoint
@@ -179,6 +184,10 @@ func (c *HandlerConfig) applyDefaults() {
 // NewHandler creates a new Handler with the given configuration.
 func NewHandler(cfg HandlerConfig) *Handler {
 	cfg.applyDefaults()
+	var bundleStore *workspacebundle.Store
+	if cfg.WorkspaceBundleDir != "" {
+		bundleStore = workspacebundle.NewStore(cfg.WorkspaceBundleDir, workspacebundle.DefaultLimits())
+	}
 	return &Handler{
 		waitingPollers:            make(map[string]*workerInfo),
 		heartbeats:                make(map[string]*heartbeatInfo),
@@ -188,6 +197,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		dagRunStore:               cfg.DAGRunStore,
 		logDir:                    cfg.LogDir,
 		artifactDir:               cfg.ArtifactDir,
+		workspaceBundleStore:      bundleStore,
 		dispatchTaskStore:         cfg.DispatchTaskStore,
 		workerHeartbeatStore:      cfg.WorkerHeartbeatStore,
 		dagRunLeaseStore:          cfg.DAGRunLeaseStore,

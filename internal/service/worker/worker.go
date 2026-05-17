@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime/builtin/sql"
+	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/healthcheck"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
@@ -96,11 +97,16 @@ func NewWorker(workerID string, maxActiveRuns int, coordinatorClient coordinator
 		healthPort = cfg.Worker.HealthPort
 	}
 
+	var bundleClient workspacebundle.Client
+	if client, ok := coordinatorClient.(workspacebundle.Client); ok {
+		bundleClient = client
+	}
+
 	return &Worker{
 		id:             workerID,
 		maxActiveRuns:  maxActiveRuns,
 		coordinatorCli: coordinatorClient,
-		handler:        NewTaskHandler(cfg),
+		handler:        NewTaskHandler(cfg, bundleClient),
 		labels:         labels,
 		cfg:            cfg,
 		runningTasks:   make(map[string]*runningTaskState),

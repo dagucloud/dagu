@@ -42,7 +42,8 @@ type resolveOptions struct {
 }
 
 type actionBundle struct {
-	RootDir string
+	RootDir     string
+	ResolvedRef string
 }
 
 func resolveBundle(ctx context.Context, ref string, opts resolveOptions) (*actionBundle, error) {
@@ -66,11 +67,11 @@ func resolveGitHubBundle(ctx context.Context, ref string, opts resolveOptions) (
 	if err != nil {
 		return nil, err
 	}
-	root, _, err := cloneGitSource(ctx, repoURL, version, opts)
+	root, resolved, err := cloneGitSource(ctx, repoURL, version, opts)
 	if err != nil {
 		return nil, err
 	}
-	return &actionBundle{RootDir: root}, nil
+	return &actionBundle{RootDir: root, ResolvedRef: resolved}, nil
 }
 
 func resolveSourceBundle(ctx context.Context, ref string, opts resolveOptions) (*actionBundle, error) {
@@ -79,13 +80,13 @@ func resolveSourceBundle(ctx context.Context, ref string, opts resolveOptions) (
 		return nil, err
 	}
 	if dir, ok := localSourceDir(target, opts.WorkDir); ok {
-		return &actionBundle{RootDir: dir}, nil
+		return &actionBundle{RootDir: dir, ResolvedRef: "local"}, nil
 	}
-	root, _, err := cloneGitSource(ctx, target, version, opts)
+	root, resolved, err := cloneGitSource(ctx, target, version, opts)
 	if err != nil {
 		return nil, err
 	}
-	return &actionBundle{RootDir: root}, nil
+	return &actionBundle{RootDir: root, ResolvedRef: resolved}, nil
 }
 
 func splitVersionedRef(ref string) (string, string, error) {

@@ -35,6 +35,7 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime"
 	rtagent "github.com/dagucloud/dagu/internal/runtime/agent"
 	"github.com/dagucloud/dagu/internal/runtime/remote"
+	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
 	secretpkg "github.com/dagucloud/dagu/internal/secret"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	dagutools "github.com/dagucloud/dagu/internal/tools"
@@ -427,6 +428,12 @@ func (h *remoteTaskHandler) secretStore(ctx context.Context) secretpkg.Store {
 // loadDAG loads the DAG from task definition.
 // Returns the loaded DAG and a cleanup function that should be called after task execution.
 func (h *remoteTaskHandler) loadDAG(ctx context.Context, task *coordinatorv1.Task) (*core.DAG, func(), error) {
+	if _, ok, err := taskWorkspaceDescriptor(task); err != nil {
+		return nil, nil, err
+	} else if ok {
+		return h.loadActionWorkspaceDAG(ctx, task)
+	}
+
 	logger.Info(ctx, "Creating temporary DAG file from definition",
 		tag.DAG(task.Target),
 		tag.Size(len(task.Definition)))
@@ -468,6 +475,49 @@ func (h *remoteTaskHandler) loadDAG(ctx context.Context, task *coordinatorv1.Tas
 		return nil, nil, fmt.Errorf("failed to load DAG from %s: %w", tempFile, err)
 	}
 	dag.SourceFile = task.SourceFile
+
+	return dag, cleanupFunc, nil
+}
+
+func (h *remoteTaskHandler) loadActionWorkspaceDAG(ctx context.Context, task *coordinatorv1.Task) (*core.DAG, func(), error) {
+	client, ok := h.coordinatorClient.(workspacebundle.Client)
+	if !ok {
+		return nil, nil, fmt.Errorf("coordinator client does not support workspace bundles")
+	}
+
+	workDir := sharedNothingActionWorkDir(task)
+	workspace, err := materializeTaskWorkspace(ctx, task, client, actionWorkspaceDir(workDir))
+	if err != nil {
+		return nil, nil, err
+	}
+	cleanupFunc := func() {
+		if err := os.RemoveAll(workDir); err != nil {
+			logger.Warn(ctx, "Failed to remove action workspace",
+				slog.String("path", workDir),
+				tag.Error(err))
+		}
+	}
+
+	loadOpts := []spec.LoadOption{
+		spec.WithName(task.Target),
+		spec.WithDefaultWorkingDir(workspace.dir),
+	}
+	if task.Params != "" {
+		loadOpts = append(loadOpts, spec.WithParams(task.Params))
+	}
+
+	dag, err := spec.Load(ctx, workspace.dagFile, loadOpts...)
+	if err != nil {
+		cleanupFunc()
+		return nil, nil, fmt.Errorf("failed to load action DAG from workspace: %w", err)
+	}
+	dag.SourceFile = task.SourceFile
+
+	logger.Info(ctx, "Materialized action workspace",
+		tag.Target(task.Target),
+		tag.File(workspace.dagFile),
+		slog.String("workspace", workspace.dir),
+		slog.String("digest", workspace.desc.Digest))
 
 	return dag, cleanupFunc, nil
 }

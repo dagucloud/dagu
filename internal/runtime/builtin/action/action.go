@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/internal/runtime/executor"
+	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
@@ -136,6 +137,18 @@ func (e *Executor) runActionDAG(ctx context.Context, bundle *actionBundle, m *ma
 	if err != nil {
 		return err
 	}
+	desc, archive, err := workspacebundle.PackDirectory(bundle.RootDir, workspacebundle.PackOptions{
+		DAGPath:     m.DAG,
+		OriginalRef: e.cfg.Ref,
+		ResolvedRef: bundle.ResolvedRef,
+	})
+	if err != nil {
+		return fmt.Errorf("pack action workspace: %w", err)
+	}
+	child.SetWorkspaceSeed(runtimeexec.WorkspaceSeed{
+		Descriptor: *desc,
+		Archive:    archive,
+	})
 	e.setSubDAGExecutor(child)
 	defer e.setSubDAGExecutor(nil)
 	defer func() {
