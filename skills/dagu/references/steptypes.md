@@ -80,6 +80,36 @@ steps:
 
 Sub-DAGs do not inherit parent env vars. Pass values explicitly via `with.params`.
 
+## outputs.write
+
+Publish DAG or remote action outputs assembled from literals, parameters, or prior step values.
+
+```yaml
+steps:
+  - id: send
+    run: ./scripts/notify.sh "${text}"
+    output:
+      response:
+        from: stdout
+        decode: json
+
+  - id: publish
+    depends: [send]
+    action: outputs.write
+    with:
+      values:
+        messageId: ${send.output.response.id}
+        status: sent
+```
+
+Published values are available as `${publish.outputs.messageId}` in the same DAG. When the step runs inside a remote action DAG, the parent action caller reads the final action outputs as `${action_step.outputs.messageId}`.
+
+Notes:
+
+- `values` must be a non-empty object.
+- Keep values small and JSON-compatible; use artifacts for files, reports, logs, screenshots, or large JSON payloads.
+- If the remote action manifest declares an `outputs` schema, Dagu validates the final collected action output object after the action DAG returns. `outputs.write` itself does not validate the manifest.
+
 ## parallel
 
 `parallel:` currently works only with `action: dag.run`.

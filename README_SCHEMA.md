@@ -219,6 +219,11 @@ executing the action can resolve the Git ref. Explicit `source:` refs support
 local paths, `file://` paths, and Git URLs; local paths must exist on the worker
 executing the action step.
 
+The action manifest `inputs` schema validates the caller's `with:` object before
+the action DAG starts. The `outputs` schema validates the final action output
+object published by `stdout.outputs` or `action: outputs.write` before it is
+exposed to the parent step as `${step.outputs.*}`.
+
 ## Common Action Examples
 
 ### SQL Query

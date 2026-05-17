@@ -19,9 +19,11 @@ Load only the reference file that matches the task.
 - Prefer `artifact.*` actions for explicit artifact reads/writes/lists. Use `DAG_RUN_ARTIFACTS_DIR` only when a tool truly needs a filesystem path inside the step.
 - Prefer string-form `output: VAR_NAME` for capturing small stdout values into flat variables.
 - Prefer object-form `output:` when downstream steps need structured values via `${step_id.output.*}`.
+- Prefer `stdout.outputs` or `action: outputs.write` when a DAG or remote action needs to return caller-visible values via `${step_id.outputs.*}`.
 - Prefer temporary files in the artifacts dir only when downstream steps need file paths; otherwise let commands write large artifact content to stdout and attach it with `stdout.artifact`.
 - Declare portable external CLI dependencies in top-level `tools` using aqua shorthand when the binary version affects reproducibility, for example `tools: ["jqlang/jq@jq-1.7.1"]`.
 - Do not add `tools` for CLIs that intentionally depend on user or worker preconfiguration, login state, local profiles, plugins, or credentials, such as `gcloud` and AI agent CLIs.
+- Use remote action packages (`dagu-action.yaml`) when reusable logic needs helper files, its own DAG, versioning, or an input/output schema contract.
 
 ## High-Signal Rules
 
@@ -36,7 +38,8 @@ Load only the reference file that matches the task.
 - `parallel:` currently requires `action: dag.run` to a child DAG.
 - Sub-DAGs do not inherit parent env vars; pass what you need via `params:`.
 - For arbitrary text inside shell steps, prefer `printenv VAR_NAME` or `action: template.render` over `${VAR}` interpolation.
-- Object-form `output:` is step-scoped only today. Only string-form `output: VAR_NAME` is collected into final DAG `outputs.json`.
+- DAG/action outputs are collected from string-form `output: VAR_NAME`, `stdout.outputs`, and `action: outputs.write`. Object-form `output:` stays step-scoped for `${step_id.output.*}` unless the workflow explicitly republishes values through `stdout.outputs` or `outputs.write`.
+- Remote action packages define `dagu-action.yaml` with `apiVersion: v1alpha1`, `name`, `dag`, and optional `inputs`/`outputs` JSON Schemas. `inputs` validates caller `with:` before the action DAG starts; `outputs` validates the final action output object after the action DAG returns.
 - Object-form `output:` with `decode: json` or `decode: yaml` can act as lightweight runtime validation. Malformed data or an unresolved `select:` path fails the step, so normal `retry_policy` applies.
 - Use `dagu schema dag` to check the full list of available fields and their shapes.
 - Use `dagu example` to see different DAG patterns and how to express them in YAML.
@@ -122,11 +125,37 @@ steps:
       artifactUrl: "${inspect_build.output.artifact.url}"
 ```
 
+## Example of Action Outputs
+
+```yaml
+steps:
+  - id: classify
+    run: ./classify.sh "${INPUT}"
+    stdout:
+      outputs:
+        fields:
+          label:
+            decode: json
+            select: .label
+          confidence:
+            decode: json
+            select: .confidence
+
+  - id: publish
+    depends: [classify]
+    action: outputs.write
+    with:
+      values:
+        label: ${classify.outputs.label}
+        reviewed: false
+```
+
 ## Reference Guide
 
 Load only the file you need:
 
 - `references/steptypes.md` when choosing an action or checking executor-specific caveats such as `dag.run`, `parallel`, `jq.filter`, `file.*`, or `template.render`
+- `references/dagu-action.md` when creating a reusable `dagu-action.yaml` package or checking action input/output schema behavior
 - `references/cli.md` when you need command flags or lookup commands such as `dagu schema`, `dagu config`, or `dagu history`
 - `references/env.md` when execution environment variables, `DAGU_*` config vars, or `params:`/`env:` resolution order matters
 - `references/codingagent.md` only when the DAG itself runs AI coding agents as steps

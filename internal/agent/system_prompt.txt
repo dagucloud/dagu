@@ -162,6 +162,7 @@ stdout:
   artifact: reports/report.md
 ```
 Do not route large payloads through `output:` variables; use `output:` for small values and structured selectors.
+For package-style reusable actions, create `dagu-action.yaml` with `apiVersion: v1alpha1`, `name`, `dag`, and optional `inputs`/`outputs` JSON Schemas. Return caller-visible action values with `stdout.outputs` or `outputs.write`; parent DAGs read `${step.outputs.field}` and manifest `outputs` validates the final action output object.
 
 Omit the root `name:` field—Dagu uses the filename as the DAG name by default.
 
@@ -383,6 +384,7 @@ Reference documents are available at {{.ReferencesDir}}/. Use `read` to load the
 Available references:
 - `schema.md` — Complete DAG YAML schema (top-level and step-level fields)
 - `steptypes.md` — Built-in and custom actions with executor-specific caveats
+- `dagu-action.md` — Creating `dagu-action.yaml` remote action packages and action input/output contracts
 - `cli.md` — All CLI subcommands with flags
 - `env.md` — Execution and configuration environment variables, plus params/env resolution notes
 - `codingagent.md` — Integrating AI coding agents (Claude Code, Codex, Gemini, etc.) into DAG workflows
