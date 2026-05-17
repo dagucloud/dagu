@@ -22,6 +22,7 @@ Load only the reference file that matches the task.
 - Prefer `stdout.outputs` or `action: outputs.write` when a DAG or remote action needs to return caller-visible values via `${step_id.outputs.*}`.
 - Prefer temporary files in the artifacts dir only when downstream steps need file paths; otherwise let commands write large artifact content to stdout and attach it with `stdout.artifact`.
 - Declare portable external CLI dependencies in top-level `tools` using aqua shorthand when the binary version affects reproducibility, for example `tools: ["jqlang/jq@jq-1.7.1"]`.
+- For remote actions, put `tools` in the referenced action DAG file, not in `dagu-action.yaml`; caller DAG tools are not inherited across the action boundary.
 - Do not add `tools` for CLIs that intentionally depend on user or worker preconfiguration, login state, local profiles, plugins, or credentials, such as `gcloud` and AI agent CLIs.
 - Use remote action packages (`dagu-action.yaml`) when reusable logic needs helper files, its own DAG, versioning, or an input/output schema contract.
 
@@ -40,6 +41,7 @@ Load only the reference file that matches the task.
 - For arbitrary text inside shell steps, prefer `printenv VAR_NAME` or `action: template.render` over `${VAR}` interpolation.
 - DAG/action outputs are collected from string-form `output: VAR_NAME`, `stdout.outputs`, and `action: outputs.write`. Object-form `output:` stays step-scoped for `${step_id.output.*}` unless the workflow explicitly republishes values through `stdout.outputs` or `outputs.write`.
 - Remote action packages define `dagu-action.yaml` with `apiVersion: v1alpha1`, `name`, `dag`, and optional `inputs`/`outputs` JSON Schemas. `inputs` validates caller `with:` before the action DAG starts; `outputs` validates the final action output object after the action DAG returns.
+- Remote action manifests do not support `tools`. Declare external CLI tools in the action DAG itself so local and distributed workers prepare the right binaries for that action run.
 - Object-form `output:` with `decode: json` or `decode: yaml` can act as lightweight runtime validation. Malformed data or an unresolved `select:` path fails the step, so normal `retry_policy` applies.
 - Use `dagu schema dag` to check the full list of available fields and their shapes.
 - Use `dagu example` to see different DAG patterns and how to express them in YAML.

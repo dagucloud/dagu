@@ -387,7 +387,7 @@ steps:
     run: echo "Notification result: ${notify.outputs.messageId}"
 ```
 
-Remote actions package a DAG, manifest, schemas, and helper files behind a versioned `action:` reference. Action DAGs publish caller-visible values with `stdout.outputs` or `action: outputs.write`, and callers read them with `${step.outputs.*}`. If `dagu-action.yaml` declares an `outputs` schema, Dagu validates the final action output object before exposing it to the caller; a mismatch fails the action step. Use GitHub or explicit Git refs for portable distributed workers; local `source:` refs are useful for development or workers that share the same path. See the [Remote Actions documentation](https://docs.dagu.sh/writing-workflows/remote-actions) for package layout and worker-mode behavior.
+Remote actions package a DAG, manifest, schemas, and helper files behind a versioned `action:` reference. Action DAGs publish caller-visible values with `stdout.outputs` or `action: outputs.write`, and callers read them with `${step.outputs.*}`. If `dagu-action.yaml` declares an `outputs` schema, Dagu validates the final action output object before exposing it to the caller; a mismatch fails the action step. When an action DAG invokes portable external CLIs, declare them in the action DAG's top-level `tools`; caller tools are not inherited, and `dagu-action.yaml` does not accept `tools`. Use GitHub or explicit Git refs for portable distributed workers; local `source:` refs are useful for development or workers that share the same path. See the [Remote Actions documentation](https://docs.dagu.sh/writing-workflows/remote-actions) for package layout and worker-mode behavior.
 
 ### Docker step
 

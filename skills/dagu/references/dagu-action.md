@@ -59,6 +59,9 @@ outputs:
 The action DAG is a normal Dagu workflow. Do not set `working_dir` in the action DAG or local sub-DAGs inside the package; Dagu runs them in the materialized action workspace so relative package files are available.
 
 ```yaml
+tools:
+  - jqlang/jq@jq-1.7.1
+
 params:
   - text
 steps:
@@ -76,6 +79,12 @@ steps:
 ```
 
 Scalar `with:` fields are passed as runtime parameters and can be read as `${text}`. For structured input, pass an explicit JSON string and decode it in the action DAG; do not assume nested YAML/JSON input objects arrive as structured params.
+
+## Tools
+
+If the action DAG invokes portable external CLIs, declare them with top-level `tools` in the action DAG file. Do not put `tools` in `dagu-action.yaml`; unknown manifest keys are rejected.
+
+Caller DAG tools are not inherited by remote actions. The action DAG is a separate DAG run, and the worker running it prepares that DAG's tools in the worker-local tools cache. Built-in-only actions do not need `tools`, but reusable action packages that call binaries such as `jq`, `yq`, or release helpers should pin those dependencies inside the action DAG.
 
 ## Returning Outputs
 
