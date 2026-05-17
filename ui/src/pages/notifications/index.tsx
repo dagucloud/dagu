@@ -1,9 +1,19 @@
-import { AlertTriangle, Bell, CheckCircle2, Loader2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  Bell,
+  CheckCircle2,
+  Loader2,
+  Mail,
+  Save,
+} from 'lucide-react';
 import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import ConfirmDialog from '@/components/ui/confirm-dialog';
+import { Input } from '@/components/ui/input';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useLicense } from '@/hooks/useLicense';
@@ -21,7 +31,69 @@ import {
   NotificationChannel,
   readError,
 } from '@/features/dags/components/dag-details/notifications/notificationDrafts';
-import { NotificationProviderType } from '@/api/v1/schema';
+import { components, NotificationProviderType } from '@/api/v1/schema';
+
+type NotificationWorkspaceSettings =
+  components['schemas']['NotificationWorkspaceSettings'];
+
+type SMTPDraft = {
+  host: string;
+  port: string;
+  username: string;
+  password: string;
+  from: string;
+  passwordConfigured: boolean;
+  clearPassword: boolean;
+};
+
+const blankSMTPDraft: SMTPDraft = {
+  host: '',
+  port: '',
+  username: '',
+  password: '',
+  from: '',
+  passwordConfigured: false,
+  clearPassword: false,
+};
+
+function smtpDraftFromAPI(settings: NotificationWorkspaceSettings): SMTPDraft {
+  const smtp = settings.smtp;
+  if (!smtp) {
+    return { ...blankSMTPDraft };
+  }
+  return {
+    host: smtp.host || '',
+    port: smtp.port || '',
+    username: smtp.username || '',
+    password: '',
+    from: smtp.from || '',
+    passwordConfigured: !!smtp.passwordConfigured,
+    clearPassword: false,
+  };
+}
+
+function smtpInput(draft: SMTPDraft) {
+  const hasSMTP =
+    draft.host.trim() ||
+    draft.port.trim() ||
+    draft.username.trim() ||
+    draft.password.trim() ||
+    draft.from.trim() ||
+    draft.clearPassword;
+  if (!hasSMTP) {
+    return { smtp: null };
+  }
+  return {
+    smtp: {
+      host: draft.host.trim() || undefined,
+      port: draft.port.trim() || undefined,
+      username: draft.username.trim() || undefined,
+      password: draft.password.trim() || undefined,
+      from: draft.from.trim() || undefined,
+      clearPassword: draft.clearPassword || undefined,
+    },
+  };
+}
 
 export default function NotificationsPage() {
   const config = useConfig();
@@ -34,6 +106,8 @@ export default function NotificationsPage() {
       `?remoteNode=${encodeURIComponent(appBarContext.selectedRemoteNode || 'local')}`,
     [appBarContext.selectedRemoteNode]
   );
+  const [smtpDraft, setSMTPDraft] = useState<SMTPDraft>(blankSMTPDraft);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [channels, setChannels] = useState<DraftChannel[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [savingChannelIndex, setSavingChannelIndex] = useState<number | null>(
@@ -49,15 +123,27 @@ export default function NotificationsPage() {
     appBarContext.setTitle('Notifications');
   }, [appBarContext]);
 
-  const fetchChannels = useCallback(async () => {
+  const fetchSettings = useCallback(async () => {
     setIsLoading(true);
     setError(null);
-    if (!reusableChannelsLicensed) {
-      setChannels([]);
-      setIsLoading(false);
-      return;
-    }
     try {
+      const settingsResponse = await fetch(
+        `${config.apiURL}/notification-settings${query}`,
+        { headers: authHeaders() }
+      );
+      if (!settingsResponse.ok) {
+        throw new Error(
+          await readError(settingsResponse, 'Failed to load settings')
+        );
+      }
+      const settings =
+        (await settingsResponse.json()) as NotificationWorkspaceSettings;
+      setSMTPDraft(smtpDraftFromAPI(settings));
+
+      if (!reusableChannelsLicensed) {
+        setChannels([]);
+        return;
+      }
       const response = await fetch(
         `${config.apiURL}/notification-channels${query}`,
         { headers: authHeaders() }
@@ -70,15 +156,41 @@ export default function NotificationsPage() {
       };
       setChannels((data.channels || []).map(draftChannelFromAPI));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load channels');
+      setError(err instanceof Error ? err.message : 'Failed to load settings');
     } finally {
       setIsLoading(false);
     }
   }, [config.apiURL, query, reusableChannelsLicensed]);
 
   useEffect(() => {
-    fetchChannels();
-  }, [fetchChannels]);
+    fetchSettings();
+  }, [fetchSettings]);
+
+  const saveSettings = async () => {
+    setIsSavingSettings(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch(
+        `${config.apiURL}/notification-settings${query}`,
+        {
+          method: 'PUT',
+          headers: authHeaders(),
+          body: JSON.stringify(smtpInput(smtpDraft)),
+        }
+      );
+      if (!response.ok) {
+        throw new Error(await readError(response, 'Failed to save settings'));
+      }
+      const settings = (await response.json()) as NotificationWorkspaceSettings;
+      setSMTPDraft(smtpDraftFromAPI(settings));
+      setNotice('Notification settings saved');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save settings');
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
 
   const addChannel = () => {
     if (!reusableChannelsLicensed) return;
@@ -186,9 +298,7 @@ export default function NotificationsPage() {
           <div className="flex items-center gap-2">
             <Bell className="h-4 w-4 text-muted-foreground" />
             <CardTitle className="text-sm">Notifications</CardTitle>
-            <Badge variant={reusableChannelsLicensed ? 'success' : 'default'}>
-              {reusableChannelsLicensed ? 'Enabled' : 'Unavailable'}
-            </Badge>
+            <Badge variant="default">Workspace</Badge>
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -204,6 +314,105 @@ export default function NotificationsPage() {
               <span>{notice}</span>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="grid-cols-[1fr_auto]">
+          <div className="flex items-center gap-2">
+            <Mail className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm">Email Delivery</CardTitle>
+            <Badge variant={smtpDraft.host ? 'success' : 'default'}>
+              {smtpDraft.host ? 'Configured' : 'Not Configured'}
+            </Badge>
+          </div>
+          <Button size="sm" onClick={saveSettings} disabled={isSavingSettings}>
+            {isSavingSettings ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            Save
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_120px]">
+            <Input
+              value={smtpDraft.host}
+              placeholder="SMTP host"
+              onChange={(event) =>
+                setSMTPDraft((current) => ({
+                  ...current,
+                  host: event.target.value,
+                }))
+              }
+            />
+            <Input
+              value={smtpDraft.port}
+              placeholder="Port"
+              inputMode="numeric"
+              onChange={(event) =>
+                setSMTPDraft((current) => ({
+                  ...current,
+                  port: event.target.value,
+                }))
+              }
+            />
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <Input
+              value={smtpDraft.username}
+              placeholder="Username"
+              onChange={(event) =>
+                setSMTPDraft((current) => ({
+                  ...current,
+                  username: event.target.value,
+                }))
+              }
+            />
+            <Input
+              type="password"
+              value={smtpDraft.password}
+              placeholder={
+                smtpDraft.passwordConfigured
+                  ? 'Password configured'
+                  : 'Password'
+              }
+              onChange={(event) =>
+                setSMTPDraft((current) => ({
+                  ...current,
+                  password: event.target.value,
+                  clearPassword: false,
+                }))
+              }
+            />
+          </div>
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
+            <Input
+              value={smtpDraft.from}
+              placeholder="Default sender"
+              onChange={(event) =>
+                setSMTPDraft((current) => ({
+                  ...current,
+                  from: event.target.value,
+                }))
+              }
+            />
+            <label className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm">
+              <Checkbox
+                checked={smtpDraft.clearPassword}
+                disabled={!smtpDraft.passwordConfigured}
+                onCheckedChange={(value) =>
+                  setSMTPDraft((current) => ({
+                    ...current,
+                    password: '',
+                    clearPassword: !!value,
+                  }))
+                }
+              />
+              Clear password
+            </label>
+          </div>
         </CardContent>
       </Card>
 

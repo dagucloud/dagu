@@ -1676,6 +1676,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/notification-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get notification settings
+         * @description Returns workspace-level notification settings such as email delivery transport. Developer, manager, or admin only.
+         */
+        get: operations["getNotificationSettings"];
+        /**
+         * Update notification settings
+         * @description Updates workspace-level notification settings. SMTP passwords are accepted
+         *     in the request but are never returned. Omit password on updates to preserve
+         *     the existing password, or set clearPassword to remove it. Developer,
+         *     manager, or admin only.
+         *
+         */
+        put: operations["updateNotificationSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/notification-channels": {
         parameters: {
             query?: never;
@@ -3437,9 +3465,9 @@ export interface components {
          * @enum {string}
          */
         NotificationEventType: NotificationEventType;
-        /** @description Email notification target. SMTP settings are read from the DAG mail configuration. */
+        /** @description Email notification target. SMTP transport is configured in workspace notification settings. */
         NotificationEmailTarget: {
-            /** @description Sender address. Defaults to the DAG mail sender for the event type. */
+            /** @description Sender address. Defaults to the workspace SMTP sender. */
             from?: string;
             /** @description Primary recipients */
             to: string[];
@@ -3447,10 +3475,52 @@ export interface components {
             cc?: string[];
             /** @description BCC recipients */
             bcc?: string[];
-            /** @description Subject prefix. Defaults to the DAG mail prefix for the event type. */
+            /** @description Subject prefix. Defaults to [DAGU]. */
             subjectPrefix?: string;
             /** @description Attach DAG and step logs when available */
             attachLogs?: boolean;
+        };
+        /** @description Workspace SMTP transport input for notification email delivery. Values are encrypted at rest where applicable. */
+        NotificationSMTPSettingsInput: {
+            /** @description SMTP server host */
+            host?: string;
+            /** @description SMTP server port */
+            port?: string;
+            /** @description SMTP username */
+            username?: string;
+            /** @description SMTP password. Omit on updates to preserve the existing password. */
+            password?: string;
+            /** @description Clear the stored SMTP password. */
+            clearPassword?: boolean;
+            /** @description Default sender address for notification email channels */
+            from?: string;
+        };
+        /** @description Public workspace SMTP transport settings. The SMTP password is never returned. */
+        NotificationSMTPSettings: {
+            /** @description SMTP server host */
+            host?: string;
+            /** @description SMTP server port */
+            port?: string;
+            /** @description SMTP username */
+            username?: string;
+            /** @description Default sender address for notification email channels */
+            from?: string;
+            /** @description Whether an SMTP password is configured */
+            passwordConfigured: boolean;
+        };
+        /** @description Workspace-level notification settings input */
+        NotificationWorkspaceSettingsInput: {
+            smtp?: components["schemas"]["NotificationSMTPSettingsInput"] | null;
+        };
+        /** @description Workspace-level notification settings */
+        NotificationWorkspaceSettings: {
+            smtp?: components["schemas"]["NotificationSMTPSettings"];
+            /** Format: date-time */
+            createdAt?: string;
+            /** Format: date-time */
+            updatedAt?: string;
+            /** @description User ID that last updated the workspace notification settings */
+            updatedBy?: string;
         };
         /** @description Outbound webhook target input. Values are encrypted at rest. */
         NotificationWebhookTargetInput: {
@@ -10556,6 +10626,83 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WebhookListResponse"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getNotificationSettings: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workspace notification settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationWorkspaceSettings"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateNotificationSettings: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationWorkspaceSettingsInput"];
+            };
+        };
+        responses: {
+            /** @description Workspace notification settings updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationWorkspaceSettings"];
+                };
+            };
+            /** @description Invalid notification settings */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Unexpected error */

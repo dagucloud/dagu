@@ -157,6 +157,38 @@ func (s *Service) GetChannel(ctx context.Context, channelID string) (*notificati
 	return s.store.GetChannel(ctx, channelID)
 }
 
+func (s *Service) GetWorkspaceSettings(ctx context.Context) (*notificationmodel.WorkspaceSettings, error) {
+	if s.store == nil {
+		return &notificationmodel.WorkspaceSettings{}, nil
+	}
+	return s.store.GetWorkspaceSettings(ctx)
+}
+
+func (s *Service) SaveWorkspaceSettings(ctx context.Context, settings *notificationmodel.WorkspaceSettings, updatedBy string) (*notificationmodel.WorkspaceSettings, error) {
+	if s.store == nil {
+		return nil, notificationmodel.ErrSettingsNotFound
+	}
+	if settings == nil {
+		settings = &notificationmodel.WorkspaceSettings{}
+	}
+	existing, err := s.store.GetWorkspaceSettings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil && !existing.CreatedAt.IsZero() {
+		settings.CreatedAt = existing.CreatedAt
+	}
+	notificationmodel.PreserveWorkspaceSecrets(settings, existing)
+	normalized, err := notificationmodel.NormalizeWorkspaceSettings(settings, updatedBy)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.store.SaveWorkspaceSettings(ctx, normalized); err != nil {
+		return nil, err
+	}
+	return normalized, nil
+}
+
 func (s *Service) SaveChannel(ctx context.Context, channel *notificationmodel.Channel, updatedBy string) (*notificationmodel.Channel, error) {
 	if s.store == nil {
 		return nil, notificationmodel.ErrChannelNotFound
@@ -686,27 +718,26 @@ func (s *Service) sendEmail(ctx context.Context, target notificationmodel.Target
 	if target.Email == nil || len(events) == 0 {
 		return nil
 	}
-	dag, err := s.loadDAG(ctx, events[0].Status.Name)
+	workspaceSettings, err := s.GetWorkspaceSettings(ctx)
 	if err != nil {
-		s.logger.Warn("Failed to load DAG for email notification",
-			slog.String("dag", events[0].Status.Name),
+		s.logger.Warn("Failed to load notification workspace settings",
 			slog.String("error", err.Error()),
 		)
 		return err
 	}
-	if dag.SMTP == nil {
-		return errors.New("SMTP is not configured for DAG notification email")
+	if workspaceSettings == nil || workspaceSettings.SMTP == nil {
+		return errors.New("SMTP is not configured for notification email")
 	}
 	from := target.Email.From
 	if from == "" {
-		from = fallbackMailFrom(dag, events[0].Type)
+		from = workspaceSettings.SMTP.From
 	}
 	if from == "" {
 		return errors.New("email sender is not configured")
 	}
 	subject := target.Email.SubjectPrefix
 	if subject == "" {
-		subject = fallbackMailPrefix(dag, events[0].Type)
+		subject = "[DAGU]"
 	}
 	subject = strings.TrimSpace(fmt.Sprintf("%s %s", subject, titleForEvents(events)))
 	attachments := []string{}
@@ -714,10 +745,10 @@ func (s *Service) sendEmail(ctx context.Context, target notificationmodel.Target
 		attachments = logAttachments(events)
 	}
 	err = mailer.New(mailer.Config{
-		Host:     dag.SMTP.Host,
-		Port:     dag.SMTP.Port,
-		Username: dag.SMTP.Username,
-		Password: dag.SMTP.Password,
+		Host:     workspaceSettings.SMTP.Host,
+		Port:     workspaceSettings.SMTP.Port,
+		Username: workspaceSettings.SMTP.Username,
+		Password: workspaceSettings.SMTP.Password,
 	}).SendWithRecipients(
 		ctx,
 		from,
@@ -729,43 +760,6 @@ func (s *Service) sendEmail(ctx context.Context, target notificationmodel.Target
 		attachments,
 	)
 	return err
-}
-
-func (s *Service) loadDAG(ctx context.Context, dagName string) (*core.DAG, error) {
-	if s.dagStore == nil {
-		return nil, errors.New("DAG store is not configured")
-	}
-	return s.dagStore.GetDetails(ctx, dagName)
-}
-
-func fallbackMailFrom(dag *core.DAG, eventType eventstore.EventType) string {
-	cfg := fallbackMailConfig(dag, eventType)
-	if cfg == nil {
-		return ""
-	}
-	return cfg.From
-}
-
-func fallbackMailPrefix(dag *core.DAG, eventType eventstore.EventType) string {
-	cfg := fallbackMailConfig(dag, eventType)
-	if cfg == nil {
-		return "[DAGU]"
-	}
-	return cfg.Prefix
-}
-
-func fallbackMailConfig(dag *core.DAG, eventType eventstore.EventType) *core.MailConfig {
-	if dag == nil {
-		return nil
-	}
-	switch eventType {
-	case eventstore.TypeDAGRunSucceeded:
-		return dag.InfoMail
-	case eventstore.TypeDAGRunWaiting:
-		return dag.WaitMail
-	default:
-		return dag.ErrorMail
-	}
 }
 
 func logAttachments(events []chatbridge.NotificationEvent) []string {

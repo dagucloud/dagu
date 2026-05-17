@@ -23,9 +23,10 @@ import (
 )
 
 const (
-	settingsFileExtension = ".json"
-	dirPermissions        = 0750
-	filePermissions       = 0600
+	settingsFileExtension     = ".json"
+	workspaceSettingsFileName = "workspace.json"
+	dirPermissions            = 0750
+	filePermissions           = 0600
 )
 
 type Option func(*Store)
@@ -42,11 +43,18 @@ func WithChannelDir(channelDir string) Option {
 	}
 }
 
+func WithWorkspaceSettingsFile(path string) Option {
+	return func(s *Store) {
+		s.workspaceSettingsFile = path
+	}
+}
+
 type Store struct {
-	baseDir    string
-	channelDir string
-	encryptor  *crypto.Encryptor
-	mu         sync.RWMutex
+	baseDir               string
+	channelDir            string
+	workspaceSettingsFile string
+	encryptor             *crypto.Encryptor
+	mu                    sync.RWMutex
 }
 
 var _ notification.Store = (*Store)(nil)
@@ -55,7 +63,11 @@ func New(baseDir string, opts ...Option) (*Store, error) {
 	if baseDir == "" {
 		return nil, errors.New("filenotification: baseDir cannot be empty")
 	}
-	store := &Store{baseDir: baseDir, channelDir: defaultChannelDir(baseDir)}
+	store := &Store{
+		baseDir:               baseDir,
+		channelDir:            defaultChannelDir(baseDir),
+		workspaceSettingsFile: defaultWorkspaceSettingsFile(baseDir),
+	}
 	for _, opt := range opts {
 		opt(store)
 	}
@@ -64,6 +76,9 @@ func New(baseDir string, opts ...Option) (*Store, error) {
 	}
 	if err := os.MkdirAll(store.channelDir, dirPermissions); err != nil {
 		return nil, fmt.Errorf("filenotification: failed to create directory %s: %w", store.channelDir, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(store.workspaceSettingsFile), dirPermissions); err != nil {
+		return nil, fmt.Errorf("filenotification: failed to create directory %s: %w", filepath.Dir(store.workspaceSettingsFile), err)
 	}
 	return store, nil
 }
@@ -116,6 +131,9 @@ func (s *Store) List(_ context.Context) ([]*notification.Settings, error) {
 	result := make([]*notification.Settings, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != settingsFileExtension {
+			continue
+		}
+		if filepath.Join(s.baseDir, entry.Name()) == s.workspaceSettingsFile {
 			continue
 		}
 		settings, err := s.loadFromFile(filepath.Join(s.baseDir, entry.Name()))
@@ -224,6 +242,35 @@ func (s *Store) DeleteChannel(_ context.Context, channelID string) error {
 	return nil
 }
 
+func (s *Store) SaveWorkspaceSettings(_ context.Context, settings *notification.WorkspaceSettings) error {
+	if settings == nil {
+		return errors.New("filenotification: workspace settings cannot be nil")
+	}
+	stored, err := s.workspaceSettingsToStorage(settings)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := fileutil.WriteJSONAtomic(s.workspaceSettingsFile, stored, filePermissions); err != nil {
+		return fmt.Errorf("filenotification: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) GetWorkspaceSettings(_ context.Context) (*notification.WorkspaceSettings, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	settings, err := s.loadWorkspaceSettingsFromFile(s.workspaceSettingsFile)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return &notification.WorkspaceSettings{}, nil
+		}
+		return nil, err
+	}
+	return settings, nil
+}
+
 func (s *Store) filePath(dagName string) string {
 	sum := sha256.Sum256([]byte(dagName))
 	return filepath.Join(s.baseDir, hex.EncodeToString(sum[:])+settingsFileExtension)
@@ -239,6 +286,13 @@ func defaultChannelDir(baseDir string) string {
 		return filepath.Join(filepath.Dir(baseDir), "channels")
 	}
 	return filepath.Join(baseDir, "channels")
+}
+
+func defaultWorkspaceSettingsFile(baseDir string) string {
+	if filepath.Base(baseDir) == "dags" {
+		return filepath.Join(filepath.Dir(baseDir), workspaceSettingsFileName)
+	}
+	return filepath.Join(baseDir, workspaceSettingsFileName)
 }
 
 func (s *Store) loadFromFile(path string) (*notification.Settings, error) {
@@ -265,6 +319,18 @@ func (s *Store) loadChannelFromFile(path string) (*notification.Channel, error) 
 	return s.channelFromStorage(&stored)
 }
 
+func (s *Store) loadWorkspaceSettingsFromFile(path string) (*notification.WorkspaceSettings, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // path is derived from configured store directory and constant filename.
+	if err != nil {
+		return nil, err
+	}
+	var stored workspaceSettingsForStorage
+	if err := json.Unmarshal(data, &stored); err != nil {
+		return nil, fmt.Errorf("filenotification: parse workspace settings: %w", err)
+	}
+	return s.workspaceSettingsFromStorage(&stored)
+}
+
 type settingsForStorage struct {
 	ID            string                   `json:"id"`
 	DAGName       string                   `json:"dagName"`
@@ -289,6 +355,21 @@ type channelForStorage struct {
 	CreatedAt string                    `json:"createdAt"`
 	UpdatedAt string                    `json:"updatedAt"`
 	UpdatedBy string                    `json:"updatedBy,omitempty"`
+}
+
+type workspaceSettingsForStorage struct {
+	SMTP      *smtpConfigForStorage `json:"smtp,omitempty"`
+	CreatedAt string                `json:"createdAt"`
+	UpdatedAt string                `json:"updatedAt"`
+	UpdatedBy string                `json:"updatedBy,omitempty"`
+}
+
+type smtpConfigForStorage struct {
+	Host        string `json:"host,omitempty"`
+	Port        string `json:"port,omitempty"`
+	Username    string `json:"username,omitempty"`
+	PasswordEnc string `json:"passwordEnc,omitempty"`
+	From        string `json:"from,omitempty"`
 }
 
 type subscriptionForStorage struct {
@@ -380,6 +461,27 @@ func (s *Store) channelToStorage(channel *notification.Channel) (*channelForStor
 		UpdatedAt: channel.UpdatedAt.Format(timeFormat),
 		UpdatedBy: channel.UpdatedBy,
 	}, nil
+}
+
+func (s *Store) workspaceSettingsToStorage(settings *notification.WorkspaceSettings) (*workspaceSettingsForStorage, error) {
+	stored := &workspaceSettingsForStorage{
+		CreatedAt: settings.CreatedAt.Format(timeFormat),
+		UpdatedAt: settings.UpdatedAt.Format(timeFormat),
+		UpdatedBy: settings.UpdatedBy,
+	}
+	if settings.SMTP != nil {
+		stored.SMTP = &smtpConfigForStorage{
+			Host:     settings.SMTP.Host,
+			Port:     settings.SMTP.Port,
+			Username: settings.SMTP.Username,
+			From:     settings.SMTP.From,
+		}
+		var err error
+		if stored.SMTP.PasswordEnc, err = s.encryptOptional(settings.SMTP.Password); err != nil {
+			return nil, err
+		}
+	}
+	return stored, nil
 }
 
 const timeFormat = "2006-01-02T15:04:05.999999999Z07:00"
@@ -498,6 +600,30 @@ func (s *Store) channelFromStorage(stored *channelForStorage) (*notification.Cha
 	channel.Slack = target.Slack
 	channel.Telegram = target.Telegram
 	return channel, nil
+}
+
+func (s *Store) workspaceSettingsFromStorage(stored *workspaceSettingsForStorage) (*notification.WorkspaceSettings, error) {
+	createdAt, _ := time.Parse(timeFormat, stored.CreatedAt)
+	updatedAt, _ := time.Parse(timeFormat, stored.UpdatedAt)
+	settings := &notification.WorkspaceSettings{
+		CreatedAt: createdAt,
+		UpdatedAt: updatedAt,
+		UpdatedBy: stored.UpdatedBy,
+	}
+	if stored.SMTP != nil {
+		password, err := s.decryptOptional(stored.SMTP.PasswordEnc)
+		if err != nil {
+			return nil, err
+		}
+		settings.SMTP = &notification.SMTPConfig{
+			Host:     stored.SMTP.Host,
+			Port:     stored.SMTP.Port,
+			Username: stored.SMTP.Username,
+			Password: password,
+			From:     stored.SMTP.From,
+		}
+	}
+	return settings, nil
 }
 
 func (s *Store) targetFromStorage(stored targetForStorage) (notification.Target, error) {

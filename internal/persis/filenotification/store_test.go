@@ -182,6 +182,62 @@ func TestStore_PersistsReusableChannelsAndSubscriptions(t *testing.T) {
 	assert.Equal(t, "channel-1", channels[0].ID)
 }
 
+func TestStore_PersistsWorkspaceSMTPSettingsEncrypted(t *testing.T) {
+	t.Parallel()
+
+	enc, err := crypto.NewEncryptor("test-key")
+	require.NoError(t, err)
+	store, err := New(t.TempDir(), WithEncryptor(enc))
+	require.NoError(t, err)
+
+	settings, err := notification.NormalizeWorkspaceSettings(&notification.WorkspaceSettings{
+		SMTP: &notification.SMTPConfig{
+			Host:     "smtp.example.com",
+			Port:     "587",
+			Username: "smtp-user",
+			Password: "smtp-secret",
+			From:     "dagu@example.com",
+		},
+	}, "tester")
+	require.NoError(t, err)
+	require.NoError(t, store.SaveWorkspaceSettings(context.Background(), settings))
+
+	raw, err := os.ReadFile(store.workspaceSettingsFile) //nolint:gosec // test reads its temp directory.
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "smtp.example.com")
+	assert.NotContains(t, string(raw), "smtp-secret")
+
+	got, err := store.GetWorkspaceSettings(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, got.SMTP)
+	assert.Equal(t, "smtp.example.com", got.SMTP.Host)
+	assert.Equal(t, "587", got.SMTP.Port)
+	assert.Equal(t, "smtp-user", got.SMTP.Username)
+	assert.Equal(t, "smtp-secret", got.SMTP.Password)
+	assert.Equal(t, "dagu@example.com", got.SMTP.From)
+	assert.Equal(t, "tester", got.UpdatedBy)
+}
+
+func TestStore_SaveWorkspaceSMTPPasswordRequiresEncryptor(t *testing.T) {
+	t.Parallel()
+
+	store, err := New(t.TempDir())
+	require.NoError(t, err)
+	settings, err := notification.NormalizeWorkspaceSettings(&notification.WorkspaceSettings{
+		SMTP: &notification.SMTPConfig{
+			Host:     "smtp.example.com",
+			Port:     "587",
+			Username: "smtp-user",
+			Password: "smtp-secret",
+			From:     "dagu@example.com",
+		},
+	}, "tester")
+	require.NoError(t, err)
+
+	err = store.SaveWorkspaceSettings(context.Background(), settings)
+	assert.ErrorIs(t, err, notification.ErrSecretStoreMissing)
+}
+
 func TestStore_SaveSecretChannelRequiresEncryptor(t *testing.T) {
 	t.Parallel()
 

@@ -4,13 +4,16 @@
 package notification
 
 import (
+	"bufio"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -28,6 +31,7 @@ import (
 type memoryStore struct {
 	mu               sync.Mutex
 	settings         map[string]*notificationmodel.Settings
+	workspace        *notificationmodel.WorkspaceSettings
 	channels         map[string]*notificationmodel.Channel
 	getChannelCounts map[string]int
 }
@@ -79,6 +83,22 @@ func (s *memoryStore) DeleteByDAGName(_ context.Context, dagName string) error {
 	}
 	delete(s.settings, dagName)
 	return nil
+}
+
+func (s *memoryStore) SaveWorkspaceSettings(_ context.Context, settings *notificationmodel.WorkspaceSettings) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.workspace = settings
+	return nil
+}
+
+func (s *memoryStore) GetWorkspaceSettings(context.Context) (*notificationmodel.WorkspaceSettings, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.workspace == nil {
+		return &notificationmodel.WorkspaceSettings{}, nil
+	}
+	return s.workspace, nil
 }
 
 func (s *memoryStore) SaveChannel(_ context.Context, channel *notificationmodel.Channel) error {
@@ -211,6 +231,106 @@ func TestService_SendTestReturnsProviderError(t *testing.T) {
 	assert.Contains(t, results[0].Error, "bad target")
 }
 
+func TestService_SendTestEmailUsesWorkspaceSMTP(t *testing.T) {
+	t.Parallel()
+
+	smtpServer := newRecordingSMTPServer(t)
+	settings, err := notificationmodel.Normalize(&notificationmodel.Settings{
+		DAGName: "daily-report",
+		Enabled: true,
+		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		Targets: []notificationmodel.Target{{
+			ID:      "email-1",
+			Name:    "Ops Email",
+			Type:    notificationmodel.ProviderEmail,
+			Enabled: true,
+			Email: &notificationmodel.EmailTarget{
+				To:            []string{"ops@example.com"},
+				SubjectPrefix: "[Ops]",
+			},
+		}},
+	}, "tester")
+	require.NoError(t, err)
+	store := newMemoryStore(settings)
+	workspace, err := notificationmodel.NormalizeWorkspaceSettings(&notificationmodel.WorkspaceSettings{
+		SMTP: &notificationmodel.SMTPConfig{
+			Host: smtpServer.host,
+			Port: smtpServer.port,
+			From: "dagu@example.com",
+		},
+	}, "tester")
+	require.NoError(t, err)
+	require.NoError(t, store.SaveWorkspaceSettings(context.Background(), workspace))
+	svc := New(store, nil)
+
+	results, err := svc.SendTest(context.Background(), "daily-report", "email-1", eventstore.TypeDAGRunFailed)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Delivered)
+	assert.Equal(t, "dagu@example.com", smtpServer.mailFrom.Load())
+	assert.Equal(t, "ops@example.com", smtpServer.rcptTo.Load())
+	data, _ := smtpServer.data.Load().(string)
+	assert.Contains(t, data, "Subject: [Ops]")
+}
+
+func TestService_SendTestEmailRequiresWorkspaceSMTP(t *testing.T) {
+	t.Parallel()
+
+	settings, err := notificationmodel.Normalize(&notificationmodel.Settings{
+		DAGName: "daily-report",
+		Enabled: true,
+		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		Targets: []notificationmodel.Target{{
+			ID:      "email-1",
+			Type:    notificationmodel.ProviderEmail,
+			Enabled: true,
+			Email:   &notificationmodel.EmailTarget{To: []string{"ops@example.com"}},
+		}},
+	}, "tester")
+	require.NoError(t, err)
+	svc := New(newMemoryStore(settings), nil)
+
+	results, err := svc.SendTest(context.Background(), "daily-report", "email-1", eventstore.TypeDAGRunFailed)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.False(t, results[0].Delivered)
+	assert.Contains(t, results[0].Error, "SMTP is not configured for notification email")
+}
+
+func TestService_SaveWorkspaceSettingsPreservesCreatedAtAndPassword(t *testing.T) {
+	t.Parallel()
+
+	svc := New(newMemoryStore(), nil)
+	first, err := svc.SaveWorkspaceSettings(context.Background(), &notificationmodel.WorkspaceSettings{
+		SMTP: &notificationmodel.SMTPConfig{
+			Host:     "smtp.example.com",
+			Port:     "587",
+			Username: "smtp-user",
+			Password: "smtp-secret",
+			From:     "dagu@example.com",
+		},
+	}, "creator")
+	require.NoError(t, err)
+
+	time.Sleep(2 * time.Millisecond)
+
+	updated, err := svc.SaveWorkspaceSettings(context.Background(), &notificationmodel.WorkspaceSettings{
+		SMTP: &notificationmodel.SMTPConfig{
+			Host:     "smtp2.example.com",
+			Port:     "2525",
+			Username: "smtp-user",
+			From:     "dagu@example.com",
+		},
+	}, "updater")
+	require.NoError(t, err)
+
+	assert.Equal(t, first.CreatedAt, updated.CreatedAt)
+	assert.True(t, updated.UpdatedAt.After(first.UpdatedAt))
+	require.NotNil(t, updated.SMTP)
+	assert.Equal(t, "smtp-secret", updated.SMTP.Password)
+	assert.Equal(t, "updater", updated.UpdatedBy)
+}
+
 func TestService_NotificationDestinationsForEventFiltersByDAGAndEvent(t *testing.T) {
 	t.Parallel()
 
@@ -263,6 +383,102 @@ func TestService_NotificationDestinationsForEventFiltersByDAGAndEvent(t *testing
 		Type:   eventstore.TypeDAGRunFailed,
 		Status: &exec.DAGRunStatus{Name: "other-dag", Status: core.Failed},
 	}))
+}
+
+type recordingSMTPServer struct {
+	host     string
+	port     string
+	listener net.Listener
+	mailFrom atomic.Value
+	rcptTo   atomic.Value
+	data     atomic.Value
+}
+
+func newRecordingSMTPServer(t *testing.T) *recordingSMTPServer {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	host, port, err := net.SplitHostPort(listener.Addr().String())
+	require.NoError(t, err)
+	server := &recordingSMTPServer{
+		host:     host,
+		port:     port,
+		listener: listener,
+	}
+	t.Cleanup(func() {
+		_ = listener.Close()
+	})
+	go server.serve()
+	return server
+}
+
+func (s *recordingSMTPServer) serve() {
+	conn, err := s.listener.Accept()
+	if err != nil {
+		return
+	}
+	defer func() {
+		_ = conn.Close()
+	}()
+	reader := bufio.NewReader(conn)
+	writer := bufio.NewWriter(conn)
+	writeSMTPLine(writer, "220 mock.local ESMTP")
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return
+		}
+		line = strings.TrimRight(line, "\r\n")
+		switch {
+		case strings.HasPrefix(line, "EHLO"), strings.HasPrefix(line, "HELO"):
+			writeSMTPLine(writer, "250 mock.local")
+		case strings.HasPrefix(line, "MAIL FROM:"):
+			s.mailFrom.Store(extractSMTPAddress(line))
+			writeSMTPLine(writer, "250 OK")
+		case strings.HasPrefix(line, "RCPT TO:"):
+			s.rcptTo.Store(extractSMTPAddress(line))
+			writeSMTPLine(writer, "250 OK")
+		case line == "DATA":
+			writeSMTPLine(writer, "354 End data with <CR><LF>.<CR><LF>")
+			var data strings.Builder
+			for {
+				dataLine, err := reader.ReadString('\n')
+				if err != nil {
+					return
+				}
+				if strings.TrimRight(dataLine, "\r\n") == "." {
+					break
+				}
+				data.WriteString(dataLine)
+			}
+			s.data.Store(data.String())
+			writeSMTPLine(writer, "250 OK")
+		case line == "QUIT":
+			writeSMTPLine(writer, "221 Bye")
+			return
+		default:
+			writeSMTPLine(writer, "250 OK")
+		}
+	}
+}
+
+func writeSMTPLine(writer *bufio.Writer, line string) {
+	_, _ = writer.WriteString(line + "\r\n")
+	_ = writer.Flush()
+}
+
+func extractSMTPAddress(line string) string {
+	start := strings.Index(line, "<")
+	end := strings.LastIndex(line, ">")
+	if start >= 0 && end > start {
+		return line[start+1 : end]
+	}
+	_, value, ok := strings.Cut(line, ":")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(value)
 }
 
 func TestService_NotificationDestinationsCachesReusableChannelLookups(t *testing.T) {

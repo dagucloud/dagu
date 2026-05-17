@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -80,6 +81,23 @@ type Channel struct {
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 	UpdatedBy string    `json:"updatedBy,omitempty"`
+}
+
+type WorkspaceSettings struct {
+	SMTP *SMTPConfig `json:"smtp,omitempty"`
+
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	UpdatedBy string    `json:"updatedBy,omitempty"`
+}
+
+type SMTPConfig struct {
+	Host          string `json:"host,omitempty"`
+	Port          string `json:"port,omitempty"`
+	Username      string `json:"username,omitempty"`
+	Password      string `json:"password,omitempty"`
+	From          string `json:"from,omitempty"`
+	ClearPassword bool   `json:"-"`
 }
 
 type Subscription struct {
@@ -158,6 +176,22 @@ type PublicChannel struct {
 	UpdatedBy string    `json:"updatedBy,omitempty"`
 }
 
+type PublicWorkspaceSettings struct {
+	SMTP *PublicSMTPConfig `json:"smtp,omitempty"`
+
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	UpdatedBy string    `json:"updatedBy,omitempty"`
+}
+
+type PublicSMTPConfig struct {
+	Host               string `json:"host,omitempty"`
+	Port               string `json:"port,omitempty"`
+	Username           string `json:"username,omitempty"`
+	From               string `json:"from,omitempty"`
+	PasswordConfigured bool   `json:"passwordConfigured"`
+}
+
 type PublicSubscription struct {
 	ID        string   `json:"id"`
 	ChannelID string   `json:"channelId"`
@@ -203,6 +237,8 @@ type Store interface {
 	GetByDAGName(ctx context.Context, dagName string) (*Settings, error)
 	List(ctx context.Context) ([]*Settings, error)
 	DeleteByDAGName(ctx context.Context, dagName string) error
+	SaveWorkspaceSettings(ctx context.Context, settings *WorkspaceSettings) error
+	GetWorkspaceSettings(ctx context.Context) (*WorkspaceSettings, error)
 	SaveChannel(ctx context.Context, channel *Channel) error
 	GetChannel(ctx context.Context, channelID string) (*Channel, error)
 	ListChannels(ctx context.Context) ([]*Channel, error)
@@ -303,6 +339,60 @@ func NormalizeChannel(channel *Channel, updatedBy string) (*Channel, error) {
 	channel.UpdatedAt = now
 	channel.UpdatedBy = updatedBy
 	return channel, nil
+}
+
+func NormalizeWorkspaceSettings(settings *WorkspaceSettings, updatedBy string) (*WorkspaceSettings, error) {
+	if settings == nil {
+		settings = &WorkspaceSettings{}
+	}
+	if settings.SMTP != nil {
+		normalized, err := normalizeSMTPConfig(settings.SMTP)
+		if err != nil {
+			return nil, err
+		}
+		settings.SMTP = normalized
+	}
+
+	now := time.Now().UTC()
+	if settings.CreatedAt.IsZero() {
+		settings.CreatedAt = now
+	}
+	settings.UpdatedAt = now
+	settings.UpdatedBy = updatedBy
+	return settings, nil
+}
+
+func normalizeSMTPConfig(cfg *SMTPConfig) (*SMTPConfig, error) {
+	if cfg == nil {
+		return nil, nil
+	}
+	cfg.Host = strings.TrimSpace(cfg.Host)
+	cfg.Port = strings.TrimSpace(cfg.Port)
+	cfg.Username = strings.TrimSpace(cfg.Username)
+	cfg.From = strings.TrimSpace(cfg.From)
+	if cfg.Host == "" && cfg.Port == "" && cfg.Username == "" && cfg.Password == "" && cfg.From == "" {
+		return nil, nil
+	}
+	if cfg.Host == "" {
+		return nil, fmt.Errorf("%w: smtp host is required", ErrInvalidSettings)
+	}
+	if cfg.Port == "" {
+		return nil, fmt.Errorf("%w: smtp port is required", ErrInvalidSettings)
+	}
+	port, err := strconv.Atoi(cfg.Port)
+	if err != nil || port < 1 || port > 65535 {
+		return nil, fmt.Errorf("%w: invalid smtp port", ErrInvalidSettings)
+	}
+	if cfg.From == "" {
+		return nil, fmt.Errorf("%w: smtp sender address is required", ErrInvalidSettings)
+	}
+	if _, err := mail.ParseAddress(cfg.From); err != nil {
+		return nil, fmt.Errorf("%w: invalid smtp sender address: %w", ErrInvalidSettings, err)
+	}
+	if cfg.Password != "" && cfg.Username == "" {
+		return nil, fmt.Errorf("%w: smtp username is required when password is configured", ErrInvalidSettings)
+	}
+	return cfg, nil
 }
 
 func normalizeSubscription(subscription *Subscription) error {
@@ -563,6 +653,24 @@ func (c Channel) ToPublic() PublicChannel {
 	}
 }
 
+func (s WorkspaceSettings) ToPublic() PublicWorkspaceSettings {
+	pub := PublicWorkspaceSettings{
+		CreatedAt: s.CreatedAt,
+		UpdatedAt: s.UpdatedAt,
+		UpdatedBy: s.UpdatedBy,
+	}
+	if s.SMTP != nil {
+		pub.SMTP = &PublicSMTPConfig{
+			Host:               s.SMTP.Host,
+			Port:               s.SMTP.Port,
+			Username:           s.SMTP.Username,
+			From:               s.SMTP.From,
+			PasswordConfigured: s.SMTP.Password != "",
+		}
+	}
+	return pub
+}
+
 func (c Channel) ToTarget() Target {
 	target := Target{
 		ID:      c.ID,
@@ -715,6 +823,15 @@ func PreserveChannelSecrets(next, existing *Channel) {
 	nextTarget := next.ToTarget()
 	preserveTargetSecrets(&nextTarget, existing.ToTarget())
 	next.applyTarget(nextTarget)
+}
+
+func PreserveWorkspaceSecrets(next, existing *WorkspaceSettings) {
+	if next == nil || existing == nil || next.SMTP == nil || existing.SMTP == nil {
+		return
+	}
+	if next.SMTP.Password == "" && !next.SMTP.ClearPassword {
+		next.SMTP.Password = existing.SMTP.Password
+	}
 }
 
 func preserveTargetSecrets(next *Target, prev Target) {

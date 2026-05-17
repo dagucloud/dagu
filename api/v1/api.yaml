@@ -3960,6 +3960,67 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /notification-settings:
+    get:
+      summary: "Get notification settings"
+      description: "Returns workspace-level notification settings such as email delivery transport. Developer, manager, or admin only."
+      operationId: "getNotificationSettings"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "Workspace notification settings"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationWorkspaceSettings"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    put:
+      summary: "Update notification settings"
+      description: |
+        Updates workspace-level notification settings. SMTP passwords are accepted
+        in the request but are never returned. Omit password on updates to preserve
+        the existing password, or set clearPassword to remove it. Developer,
+        manager, or admin only.
+      operationId: "updateNotificationSettings"
+      tags:
+        - "notifications"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationWorkspaceSettingsInput"
+      responses:
+        "200":
+          description: "Workspace notification settings updated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationWorkspaceSettings"
+        "400":
+          description: "Invalid notification settings"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /notification-channels:
     get:
       summary: "List notification channels"
@@ -9083,13 +9144,13 @@ components:
 
     NotificationEmailTarget:
       type: object
-      description: "Email notification target. SMTP settings are read from the DAG mail configuration."
+      description: "Email notification target. SMTP transport is configured in workspace notification settings."
       required:
         - to
       properties:
         from:
           type: string
-          description: "Sender address. Defaults to the DAG mail sender for the event type."
+          description: "Sender address. Defaults to the workspace SMTP sender."
         to:
           type: array
           items:
@@ -9107,10 +9168,80 @@ components:
           description: "BCC recipients"
         subjectPrefix:
           type: string
-          description: "Subject prefix. Defaults to the DAG mail prefix for the event type."
+          description: "Subject prefix. Defaults to [DAGU]."
         attachLogs:
           type: boolean
           description: "Attach DAG and step logs when available"
+
+    NotificationSMTPSettingsInput:
+      type: object
+      description: "Workspace SMTP transport input for notification email delivery. Values are encrypted at rest where applicable."
+      properties:
+        host:
+          type: string
+          description: "SMTP server host"
+        port:
+          type: string
+          description: "SMTP server port"
+        username:
+          type: string
+          description: "SMTP username"
+        password:
+          type: string
+          description: "SMTP password. Omit on updates to preserve the existing password."
+        clearPassword:
+          type: boolean
+          description: "Clear the stored SMTP password."
+        from:
+          type: string
+          description: "Default sender address for notification email channels"
+
+    NotificationSMTPSettings:
+      type: object
+      description: "Public workspace SMTP transport settings. The SMTP password is never returned."
+      required:
+        - passwordConfigured
+      properties:
+        host:
+          type: string
+          description: "SMTP server host"
+        port:
+          type: string
+          description: "SMTP server port"
+        username:
+          type: string
+          description: "SMTP username"
+        from:
+          type: string
+          description: "Default sender address for notification email channels"
+        passwordConfigured:
+          type: boolean
+          description: "Whether an SMTP password is configured"
+
+    NotificationWorkspaceSettingsInput:
+      type: object
+      description: "Workspace-level notification settings input"
+      properties:
+        smtp:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/NotificationSMTPSettingsInput"
+
+    NotificationWorkspaceSettings:
+      type: object
+      description: "Workspace-level notification settings"
+      properties:
+        smtp:
+          $ref: "#/components/schemas/NotificationSMTPSettings"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        updatedBy:
+          type: string
+          description: "User ID that last updated the workspace notification settings"
 
     NotificationWebhookTargetInput:
       type: object

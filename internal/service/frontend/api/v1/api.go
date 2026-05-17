@@ -96,6 +96,8 @@ type NotificationService interface {
 	GetByDAGName(ctx context.Context, dagName string) (*notificationmodel.Settings, error)
 	Save(ctx context.Context, settings *notificationmodel.Settings, updatedBy string) (*notificationmodel.Settings, error)
 	DeleteByDAGName(ctx context.Context, dagName string) error
+	GetWorkspaceSettings(ctx context.Context) (*notificationmodel.WorkspaceSettings, error)
+	SaveWorkspaceSettings(ctx context.Context, settings *notificationmodel.WorkspaceSettings, updatedBy string) (*notificationmodel.WorkspaceSettings, error)
 	ListChannels(ctx context.Context) ([]*notificationmodel.Channel, error)
 	GetChannel(ctx context.Context, channelID string) (*notificationmodel.Channel, error)
 	SaveChannel(ctx context.Context, channel *notificationmodel.Channel, updatedBy string) (*notificationmodel.Channel, error)

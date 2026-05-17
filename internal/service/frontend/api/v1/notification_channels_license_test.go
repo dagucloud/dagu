@@ -43,6 +43,68 @@ func TestNotificationChannels_AcceptExistingLicenseWithoutFeatureClaim(t *testin
 	assert.Empty(t, result.Channels)
 }
 
+func TestNotificationSettings_SMTPTransportIsNotReusableChannelLicensed(t *testing.T) {
+	t.Parallel()
+
+	server := test.SetupServer(t)
+	response := server.Client().Put("/api/v1/notification-settings", api.NotificationWorkspaceSettingsInput{
+		Smtp: &api.NotificationSMTPSettingsInput{
+			Host:     testPtr("smtp.example.com"),
+			Port:     testPtr("587"),
+			Username: testPtr("smtp-user"),
+			Password: testPtr("smtp-secret"),
+			From:     testPtr("dagu@example.com"),
+		},
+	}).ExpectStatus(http.StatusOK).Send(t)
+
+	var settings api.NotificationWorkspaceSettings
+	response.Unmarshal(t, &settings)
+	require.NotNil(t, settings.Smtp)
+	assert.Equal(t, "smtp.example.com", testValue(settings.Smtp.Host))
+	assert.Equal(t, "587", testValue(settings.Smtp.Port))
+	assert.Equal(t, "smtp-user", testValue(settings.Smtp.Username))
+	assert.Equal(t, "dagu@example.com", testValue(settings.Smtp.From))
+	assert.True(t, settings.Smtp.PasswordConfigured)
+
+	response = server.Client().Put("/api/v1/notification-settings", api.NotificationWorkspaceSettingsInput{
+		Smtp: &api.NotificationSMTPSettingsInput{
+			Host:     testPtr("smtp2.example.com"),
+			Port:     testPtr("2525"),
+			Username: testPtr("smtp-user"),
+			From:     testPtr("dagu@example.com"),
+		},
+	}).ExpectStatus(http.StatusOK).Send(t)
+	response.Unmarshal(t, &settings)
+	require.NotNil(t, settings.Smtp)
+	assert.Equal(t, "smtp2.example.com", testValue(settings.Smtp.Host))
+	assert.True(t, settings.Smtp.PasswordConfigured)
+
+	response = server.Client().Put("/api/v1/notification-settings", api.NotificationWorkspaceSettingsInput{
+		Smtp: &api.NotificationSMTPSettingsInput{
+			Host:          testPtr("smtp2.example.com"),
+			Port:          testPtr("2525"),
+			Username:      testPtr("smtp-user"),
+			From:          testPtr("dagu@example.com"),
+			ClearPassword: testPtr(true),
+		},
+	}).ExpectStatus(http.StatusOK).Send(t)
+	response.Unmarshal(t, &settings)
+	require.NotNil(t, settings.Smtp)
+	assert.False(t, settings.Smtp.PasswordConfigured)
+}
+
+func testPtr[T any](value T) *T {
+	return &value
+}
+
+func testValue[T any](value *T) T {
+	if value == nil {
+		var zero T
+		return zero
+	}
+	return *value
+}
+
 func TestDAGNotifications_UnlicensedSubscriptionUpdates(t *testing.T) {
 	t.Parallel()
 

@@ -217,6 +217,59 @@ func TestNormalizeChannelPreservesProviderValidation(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInvalidSettings)
 }
 
+func TestNormalizeWorkspaceSettingsValidatesSMTP(t *testing.T) {
+	t.Parallel()
+
+	settings, err := NormalizeWorkspaceSettings(&WorkspaceSettings{
+		SMTP: &SMTPConfig{
+			Host:     " smtp.example.com ",
+			Port:     " 587 ",
+			Username: " user ",
+			Password: "secret",
+			From:     " Dagu <dagu@example.com> ",
+		},
+	}, "tester")
+	require.NoError(t, err)
+	require.NotNil(t, settings.SMTP)
+	assert.Equal(t, "smtp.example.com", settings.SMTP.Host)
+	assert.Equal(t, "587", settings.SMTP.Port)
+	assert.Equal(t, "user", settings.SMTP.Username)
+	assert.Equal(t, "Dagu <dagu@example.com>", settings.SMTP.From)
+	assert.NotZero(t, settings.CreatedAt)
+	assert.NotZero(t, settings.UpdatedAt)
+	assert.Equal(t, "tester", settings.UpdatedBy)
+
+	_, err = NormalizeWorkspaceSettings(&WorkspaceSettings{
+		SMTP: &SMTPConfig{Host: "smtp.example.com", Port: "not-a-port", From: "dagu@example.com"},
+	}, "tester")
+	assert.ErrorIs(t, err, ErrInvalidSettings)
+
+	_, err = NormalizeWorkspaceSettings(&WorkspaceSettings{
+		SMTP: &SMTPConfig{Host: "smtp.example.com", Port: "587", From: "invalid"},
+	}, "tester")
+	assert.ErrorIs(t, err, ErrInvalidSettings)
+}
+
+func TestPreserveWorkspaceSecrets(t *testing.T) {
+	t.Parallel()
+
+	next := &WorkspaceSettings{SMTP: &SMTPConfig{
+		Host:     "smtp.example.com",
+		Port:     "587",
+		Username: "user",
+		From:     "dagu@example.com",
+	}}
+	existing := &WorkspaceSettings{SMTP: &SMTPConfig{Password: "old-secret"}}
+
+	PreserveWorkspaceSecrets(next, existing)
+	assert.Equal(t, "old-secret", next.SMTP.Password)
+
+	next.SMTP.ClearPassword = true
+	next.SMTP.Password = ""
+	PreserveWorkspaceSecrets(next, existing)
+	assert.Empty(t, next.SMTP.Password)
+}
+
 func TestPreserveChannelSecrets(t *testing.T) {
 	t.Parallel()
 

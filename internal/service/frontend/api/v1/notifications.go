@@ -23,6 +23,39 @@ var errNotificationManagementNotAvailable = &Error{
 	Message:    "Notification management is not available",
 }
 
+func (a *API) GetNotificationSettings(ctx context.Context, _ api.GetNotificationSettingsRequestObject) (api.GetNotificationSettingsResponseObject, error) {
+	if err := a.requireNotificationManagement(ctx); err != nil {
+		return nil, err
+	}
+	settings, err := a.notificationService.GetWorkspaceSettings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return api.GetNotificationSettings200JSONResponse(toAPINotificationWorkspaceSettings(settings)), nil
+}
+
+func (a *API) UpdateNotificationSettings(ctx context.Context, request api.UpdateNotificationSettingsRequestObject) (api.UpdateNotificationSettingsResponseObject, error) {
+	if err := a.requireNotificationManagement(ctx); err != nil {
+		return nil, err
+	}
+	if request.Body == nil {
+		return nil, badNotificationRequest("request body is required")
+	}
+	settings := notificationWorkspaceSettingsFromRequest(*request.Body)
+	saved, err := a.notificationService.SaveWorkspaceSettings(ctx, settings, getCreatorID(ctx))
+	if err != nil {
+		if notificationRequestError(err) {
+			return nil, badNotificationRequest(err.Error())
+		}
+		return nil, err
+	}
+
+	a.logAudit(ctx, audit.CategoryNotification, "notification_workspace_settings_update", map[string]any{
+		"smtp_configured": saved.SMTP != nil,
+	})
+	return api.UpdateNotificationSettings200JSONResponse(toAPINotificationWorkspaceSettings(saved)), nil
+}
+
 func (a *API) ListNotificationChannels(ctx context.Context, _ api.ListNotificationChannelsRequestObject) (api.ListNotificationChannelsResponseObject, error) {
 	if err := a.requireNotificationManagement(ctx); err != nil {
 		return nil, err
@@ -351,6 +384,21 @@ func notificationSubscriptionFromRequest(input api.NotificationSubscriptionInput
 	return subscription
 }
 
+func notificationWorkspaceSettingsFromRequest(input api.NotificationWorkspaceSettingsInput) *notificationmodel.WorkspaceSettings {
+	settings := &notificationmodel.WorkspaceSettings{}
+	if input.Smtp != nil {
+		settings.SMTP = &notificationmodel.SMTPConfig{
+			Host:          valueOf(input.Smtp.Host),
+			Port:          valueOf(input.Smtp.Port),
+			Username:      valueOf(input.Smtp.Username),
+			Password:      valueOf(input.Smtp.Password),
+			From:          valueOf(input.Smtp.From),
+			ClearPassword: valueOf(input.Smtp.ClearPassword),
+		}
+	}
+	return settings
+}
+
 func notificationChannelFromRequest(id string, input api.NotificationChannelInput) *notificationmodel.Channel {
 	channel := &notificationmodel.Channel{
 		ID:      id,
@@ -478,6 +526,33 @@ func toAPINotificationSettings(settings *notificationmodel.Settings) api.DAGNoti
 		UpdatedAt:     pub.UpdatedAt,
 		UpdatedBy:     ptrOf(pub.UpdatedBy),
 	}
+}
+
+func toAPINotificationWorkspaceSettings(settings *notificationmodel.WorkspaceSettings) api.NotificationWorkspaceSettings {
+	if settings == nil {
+		return api.NotificationWorkspaceSettings{}
+	}
+	pub := settings.ToPublic()
+	result := api.NotificationWorkspaceSettings{}
+	if !pub.CreatedAt.IsZero() {
+		result.CreatedAt = ptrOf(pub.CreatedAt)
+	}
+	if !pub.UpdatedAt.IsZero() {
+		result.UpdatedAt = ptrOf(pub.UpdatedAt)
+	}
+	if pub.UpdatedBy != "" {
+		result.UpdatedBy = ptrOf(pub.UpdatedBy)
+	}
+	if pub.SMTP != nil {
+		result.Smtp = &api.NotificationSMTPSettings{
+			Host:               ptrOf(pub.SMTP.Host),
+			Port:               ptrOf(pub.SMTP.Port),
+			Username:           ptrOf(pub.SMTP.Username),
+			From:               ptrOf(pub.SMTP.From),
+			PasswordConfigured: pub.SMTP.PasswordConfigured,
+		}
+	}
+	return result
 }
 
 func toAPINotificationChannels(channels []*notificationmodel.Channel) []api.NotificationChannel {
