@@ -336,9 +336,6 @@ steps:
     depends: [transform_a, transform_b]
 ```
 
-`graph` is the default execution type. Use explicit `depends` to define ordering; steps without dependencies can run in parallel.
-Scalar step shorthand such as `- echo "hello"` is deprecated; use explicit step objects with `run:` instead.
-
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'background': '#18181B', 'primaryTextColor': '#fff', 'lineColor': '#888'}}}%%
 graph LR
