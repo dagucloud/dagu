@@ -14,8 +14,8 @@ import { useLicense } from '../../../../hooks/useLicense';
 import {
   DAGLocalTargetsSection,
   DAGSubscriptionsSection,
+  NotificationChannelsUnavailableCard,
   NotificationOverviewCard,
-  ReusableChannelsUnavailableCard,
 } from './notifications/NotificationSections';
 import {
   authHeaders,
@@ -196,8 +196,22 @@ function NotificationsTab({ fileName }: NotificationsTabProps) {
       }
       const data =
         (await response.json()) as components['schemas']['TestDAGNotificationResponse'];
-      setTestResults(data.results);
-      setNotice('Test sent');
+      const results = data.results || [];
+      setTestResults(results);
+      const failedResults = results.filter((result) => !result.delivered);
+      if (failedResults.length > 0) {
+        const failedLabels = failedResults
+          .map(
+            (result) =>
+              `${result.targetName || result.provider}: ${result.error || 'Delivery failed'}`
+          )
+          .join('; ');
+        setError(`Test failed: ${failedLabels}`);
+        return;
+      }
+      setNotice(
+        results.length > 0 ? 'Test delivered' : 'No destinations to test'
+      );
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Failed to send test notification'
@@ -267,14 +281,14 @@ function NotificationsTab({ fileName }: NotificationsTabProps) {
           draft={draft}
           channels={channels}
           testingTargetId={testingTargetId}
-          manageChannelsHref="/notifications"
+          manageChannelsHref="/notification-channels"
           onAdd={addSubscription}
           onUpdate={updateSubscription}
           onDelete={setDeleteSubscriptionIndex}
           onTest={testNotifications}
         />
       ) : (
-        <ReusableChannelsUnavailableCard />
+        <NotificationChannelsUnavailableCard />
       )}
 
       <DAGLocalTargetsSection
@@ -287,7 +301,7 @@ function NotificationsTab({ fileName }: NotificationsTabProps) {
       />
 
       <ConfirmDialog
-        title="Delete Target"
+        title="Delete Destination"
         buttonText="Delete"
         visible={deleteTargetIndex !== null}
         dismissModal={() => setDeleteTargetIndex(null)}

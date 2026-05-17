@@ -650,6 +650,9 @@ func validateWebhookURL(value string, allowInsecureHTTP, allowPrivateNetwork boo
 	if err != nil {
 		return err
 	}
+	if isSlackIncomingWebhookURL(parsed) {
+		return fmt.Errorf("%w: Slack incoming webhook URLs must use the slack provider, not generic webhook", ErrInvalidSettings)
+	}
 	if parsed.Scheme == "http" && !allowInsecureHTTP {
 		return fmt.Errorf("%w: webhook url must use https unless allowInsecureHttp is enabled", ErrInvalidSettings)
 	}
@@ -657,6 +660,25 @@ func validateWebhookURL(value string, allowInsecureHTTP, allowPrivateNetwork boo
 		return fmt.Errorf("%w: webhook url must not target loopback or private network unless allowPrivateNetwork is enabled", ErrInvalidSettings)
 	}
 	return nil
+}
+
+func IsSlackIncomingWebhookURL(value string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil {
+		return false
+	}
+	return isSlackIncomingWebhookURL(parsed)
+}
+
+func isSlackIncomingWebhookURL(parsed *url.URL) bool {
+	if parsed == nil {
+		return false
+	}
+	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
+	if host != "hooks.slack.com" && host != "hooks.slack-gov.com" {
+		return false
+	}
+	return strings.HasPrefix(parsed.Path, "/services/")
 }
 
 func isBlockedPrivateHostLiteral(host string) bool {

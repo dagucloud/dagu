@@ -275,6 +275,32 @@ func TestService_SendTestReturnsProviderError(t *testing.T) {
 	assert.Contains(t, results[0].Error, "bad target")
 }
 
+func TestService_SendTestRejectsSlackURLConfiguredAsGenericWebhook(t *testing.T) {
+	t.Parallel()
+
+	settings := &notificationmodel.Settings{
+		DAGName: "daily-report",
+		Enabled: true,
+		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		Targets: []notificationmodel.Target{{
+			ID:      "webhook-1",
+			Type:    notificationmodel.ProviderWebhook,
+			Enabled: true,
+			Webhook: &notificationmodel.WebhookTarget{
+				URL: "https://hooks.slack.com/services/T000/B000/secret",
+			},
+		}},
+	}
+
+	svc := New(newMemoryStore(settings), nil, WithDeliveryRetry(DeliveryRetryConfig{MaxAttempts: 1}))
+	results, err := svc.SendTest(context.Background(), "daily-report", "webhook-1", eventstore.TypeDAGRunFailed)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.False(t, results[0].Delivered)
+	assert.Contains(t, results[0].Error, "generic webhook")
+	assert.Contains(t, results[0].Error, "slack provider")
+}
+
 func TestService_SendTestEmailUsesWorkspaceSMTP(t *testing.T) {
 	t.Parallel()
 

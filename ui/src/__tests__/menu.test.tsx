@@ -228,6 +228,11 @@ describe('sidebar menu', () => {
       'href',
       '/notifications'
     );
+    expect(
+      screen.getByRole('button', { name: 'Toggle Notifications section' })
+    ).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('link', { name: 'Rules' })).not.toBeVisible();
+    expect(screen.getByRole('link', { name: 'Channels' })).not.toBeVisible();
     expect(screen.getByRole('link', { name: 'Integrations' })).toHaveAttribute(
       'href',
       '/integrations'
@@ -253,7 +258,7 @@ describe('sidebar menu', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('expands workflow, execution, and monitor sections', () => {
+  it('expands workflow, execution, monitor, and notifications sections', () => {
     renderMenu();
 
     fireEvent.click(screen.getByRole('link', { name: 'Workflows' }));
@@ -299,6 +304,18 @@ describe('sidebar menu', () => {
       screen.getByRole('link', { name: 'Git Sync' }),
     ];
     for (const item of workflowSubmenuItems) {
+      expect(item).toBeVisible();
+      expect(item.querySelector('svg')).toBeNull();
+    }
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Toggle Notifications section' })
+    );
+    const notificationSubmenuItems = [
+      screen.getByRole('link', { name: 'Rules' }),
+      screen.getByRole('link', { name: 'Channels' }),
+    ];
+    for (const item of notificationSubmenuItems) {
       expect(item).toBeVisible();
       expect(item.querySelector('svg')).toBeNull();
     }
@@ -400,6 +417,7 @@ describe('sidebar menu', () => {
     ['/git-sync', 'workflows'],
     ['/queues', 'executions'],
     ['/event-logs', 'monitor'],
+    ['/notification-channels', 'notifications'],
     ['/webhooks', 'integrations'],
     ['/users', 'administration'],
   ])('does not auto-expand %s inside %s', (path, label) => {

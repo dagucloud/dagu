@@ -146,6 +146,40 @@ func TestNormalizeRequiresWebhookHTTPSUnlessExplicitlyAllowed(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestNormalizeRejectsSlackIncomingWebhookAsGenericWebhook(t *testing.T) {
+	t.Parallel()
+
+	_, err := Normalize(&Settings{
+		DAGName: "daily-report",
+		Enabled: true,
+		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		Targets: []Target{{
+			Type:    ProviderWebhook,
+			Enabled: true,
+			Webhook: &WebhookTarget{
+				URL: "https://hooks.slack.com/services/T000/B000/secret",
+			},
+		}},
+	}, "tester")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrInvalidSettings)
+	assert.Contains(t, err.Error(), "slack provider")
+
+	_, err = Normalize(&Settings{
+		DAGName: "daily-report",
+		Enabled: true,
+		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		Targets: []Target{{
+			Type:    ProviderSlack,
+			Enabled: true,
+			Slack: &SlackTarget{
+				WebhookURL: "https://hooks.slack.com/services/T000/B000/secret",
+			},
+		}},
+	}, "tester")
+	require.NoError(t, err)
+}
+
 func TestNormalizeSettingsSupportsReusableChannelSubscriptions(t *testing.T) {
 	t.Parallel()
 

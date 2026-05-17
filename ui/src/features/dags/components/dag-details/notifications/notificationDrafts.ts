@@ -92,7 +92,11 @@ export const EVENT_OPTIONS = [
 
 export const PROVIDER_OPTIONS = [
   { value: NotificationProviderType.email, label: 'Email', icon: Mail },
-  { value: NotificationProviderType.webhook, label: 'Webhook', icon: Webhook },
+  {
+    value: NotificationProviderType.webhook,
+    label: 'Generic Webhook',
+    icon: Webhook,
+  },
   {
     value: NotificationProviderType.slack,
     label: 'Slack',
@@ -159,6 +163,19 @@ export function blankTarget(type: NotificationProviderType): DraftTarget {
 
 export function blankChannel(type: NotificationProviderType): DraftChannel {
   return blankDelivery(type);
+}
+
+export function isSlackIncomingWebhookURL(value: string): boolean {
+  try {
+    const parsed = new URL(value.trim());
+    const hostname = parsed.hostname.toLowerCase().replace(/\.$/, '');
+    return (
+      (hostname === 'hooks.slack.com' || hostname === 'hooks.slack-gov.com') &&
+      parsed.pathname.startsWith('/services/')
+    );
+  } catch {
+    return false;
+  }
 }
 
 function joinAddresses(values?: string[]): string {

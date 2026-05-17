@@ -739,14 +739,31 @@ export const mainListItems = React.forwardRef<
           )}
 
           {canManageNotifications && (
-            <NavItem
-              to="/notifications"
-              text="Notifications"
+            <NavGroup
+              groupKey="notifications"
               icon={<Bell size={18} />}
+              label="Notifications"
               isOpen={isOpen}
+              basePath={['/notifications', '/notification-channels']}
+              to="/notifications"
               onClick={onNavItemClick}
               customColor={customColor}
-            />
+            >
+              <NavItem
+                to="/notifications"
+                text="Rules"
+                isOpen={isOpen}
+                onClick={onNavItemClick}
+                customColor={customColor}
+              />
+              <NavItem
+                to="/notification-channels"
+                text="Channels"
+                isOpen={isOpen}
+                onClick={onNavItemClick}
+                customColor={customColor}
+              />
+            </NavGroup>
           )}
 
           <NavGroup

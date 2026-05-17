@@ -28,13 +28,10 @@ import { Switch } from '@/components/ui/switch';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useLicense } from '@/hooks/useLicense';
+import { WorkspaceKind, workspaceNameForSelection } from '@/lib/workspace';
 import {
-  WorkspaceKind,
-  workspaceNameForSelection,
-} from '@/lib/workspace';
-import {
-  ReusableChannelsSection,
-  ReusableChannelsUnavailableCard,
+  NotificationChannelsSection,
+  NotificationChannelsUnavailableCard,
 } from '@/features/dags/components/dag-details/notifications/NotificationSections';
 import {
   authHeaders,
@@ -54,6 +51,7 @@ import {
   NotificationEventType,
   NotificationProviderType,
 } from '@/api/v1/schema';
+import { Link } from 'react-router-dom';
 
 type NotificationWorkspaceSettings =
   components['schemas']['NotificationWorkspaceSettings'];
@@ -182,6 +180,7 @@ type RouteSetSectionProps = {
   draft: DraftRouteSet;
   channels: DraftChannel[];
   saving: boolean;
+  channelsHref: string;
   showInheritGlobal?: boolean;
   disabled?: boolean;
   emptyText: string;
@@ -195,6 +194,7 @@ function RouteSetSection({
   draft,
   channels,
   saving,
+  channelsHref,
   showInheritGlobal = false,
   disabled = false,
   emptyText,
@@ -247,7 +247,7 @@ function RouteSetSection({
             disabled={disabled || availableChannels.length === 0}
           >
             <Plus className="h-4 w-4" />
-            Add
+            Add rule
           </Button>
           <Button size="sm" onClick={onSave} disabled={disabled || saving}>
             {saving ? (
@@ -272,13 +272,16 @@ function RouteSetSection({
                 }))
               }
             />
-            Inherit global routes
+            Inherit global rules
           </label>
         )}
 
         {availableChannels.length === 0 ? (
-          <div className="rounded-md border border-border px-3 py-4 text-sm text-muted-foreground">
-            Create a reusable channel before adding routes.
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border px-3 py-4 text-sm text-muted-foreground">
+            <span>Create a notification channel before adding rules.</span>
+            <Button asChild variant="ghost" size="sm">
+              <Link to={channelsHref}>Open channels</Link>
+            </Button>
           </div>
         ) : draft.routes.length === 0 ? (
           <div className="rounded-md border border-border px-3 py-4 text-sm text-muted-foreground">
@@ -305,7 +308,7 @@ function RouteSetSection({
                     <div className="flex min-w-0 items-center gap-2">
                       <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
                       <span className="truncate text-sm font-medium">
-                        {channel?.name || route.channelId || 'Route'}
+                        {channel?.name || route.channelId || 'Rule'}
                       </span>
                       <Badge
                         variant={
@@ -424,7 +427,53 @@ function RouteSetSection({
   );
 }
 
-export default function NotificationsPage() {
+type StatusCardProps = {
+  title: string;
+  badge?: string;
+  error: string | null;
+  notice: string | null;
+};
+
+function StatusCard({ title, badge, error, notice }: StatusCardProps) {
+  return (
+    <Card>
+      <CardHeader className="grid-cols-[1fr_auto]">
+        <div className="flex items-center gap-2">
+          <Bell className="h-4 w-4 text-muted-foreground" />
+          <CardTitle className="text-sm">{title}</CardTitle>
+          {badge && <Badge variant="default">{badge}</Badge>}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {error && (
+          <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+        {notice && (
+          <div className="flex items-start gap-2 rounded-md border border-success/30 bg-success/10 p-3 text-sm text-success">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{notice}</span>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function LoadingCard({ label }: { label: string }) {
+  return (
+    <Card>
+      <CardContent className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        {label}
+      </CardContent>
+    </Card>
+  );
+}
+
+export default function NotificationRulesPage() {
   const config = useConfig();
   const license = useLicense();
   const appBarContext = useContext(AppBarContext);
@@ -440,7 +489,6 @@ export default function NotificationsPage() {
       `?remoteNode=${encodeURIComponent(appBarContext.selectedRemoteNode || 'local')}`,
     [appBarContext.selectedRemoteNode]
   );
-  const [smtpDraft, setSMTPDraft] = useState<SMTPDraft>(blankSMTPDraft);
   const [globalRoutes, setGlobalRoutes] = useState<DraftRouteSet>({
     ...blankRouteSet,
     routes: [],
@@ -449,41 +497,21 @@ export default function NotificationsPage() {
     ...blankRouteSet,
     routes: [],
   });
-  const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isSavingGlobalRoutes, setIsSavingGlobalRoutes] = useState(false);
   const [isSavingWorkspaceRoutes, setIsSavingWorkspaceRoutes] = useState(false);
   const [channels, setChannels] = useState<DraftChannel[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [savingChannelIndex, setSavingChannelIndex] = useState<number | null>(
-    null
-  );
-  const [deleteChannelIndex, setDeleteChannelIndex] = useState<number | null>(
-    null
-  );
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    appBarContext.setTitle('Notifications');
+    appBarContext.setTitle('Notification Rules');
   }, [appBarContext]);
 
-  const fetchSettings = useCallback(async () => {
+  const fetchRules = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const settingsResponse = await fetch(
-        `${config.apiURL}/notification-settings${query}`,
-        { headers: authHeaders() }
-      );
-      if (!settingsResponse.ok) {
-        throw new Error(
-          await readError(settingsResponse, 'Failed to load settings')
-        );
-      }
-      const settings =
-        (await settingsResponse.json()) as NotificationWorkspaceSettings;
-      setSMTPDraft(smtpDraftFromAPI(settings));
-
       if (!reusableChannelsLicensed) {
         setChannels([]);
         setGlobalRoutes({ ...blankRouteSet, routes: [] });
@@ -510,7 +538,7 @@ export default function NotificationsPage() {
       }
       if (!globalRoutesResponse.ok) {
         throw new Error(
-          await readError(globalRoutesResponse, 'Failed to load global routes')
+          await readError(globalRoutesResponse, 'Failed to load global rules')
         );
       }
       const data = (await response.json()) as {
@@ -525,7 +553,7 @@ export default function NotificationsPage() {
           throw new Error(
             await readError(
               workspaceRoutesResponse,
-              'Failed to load workspace routes'
+              'Failed to load workspace rules'
             )
           );
         }
@@ -536,7 +564,7 @@ export default function NotificationsPage() {
         setWorkspaceRoutes({ ...blankRouteSet, routes: [] });
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load settings');
+      setError(err instanceof Error ? err.message : 'Failed to load rules');
     } finally {
       setIsLoading(false);
     }
@@ -549,34 +577,8 @@ export default function NotificationsPage() {
   ]);
 
   useEffect(() => {
-    fetchSettings();
-  }, [fetchSettings]);
-
-  const saveSettings = async () => {
-    setIsSavingSettings(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const response = await fetch(
-        `${config.apiURL}/notification-settings${query}`,
-        {
-          method: 'PUT',
-          headers: authHeaders(),
-          body: JSON.stringify(smtpInput(smtpDraft)),
-        }
-      );
-      if (!response.ok) {
-        throw new Error(await readError(response, 'Failed to save settings'));
-      }
-      const settings = (await response.json()) as NotificationWorkspaceSettings;
-      setSMTPDraft(smtpDraftFromAPI(settings));
-      setNotice('Notification settings saved');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save settings');
-    } finally {
-      setIsSavingSettings(false);
-    }
-  };
+    fetchRules();
+  }, [fetchRules]);
 
   const saveGlobalRoutes = async () => {
     if (!reusableChannelsLicensed) return;
@@ -594,15 +596,15 @@ export default function NotificationsPage() {
       );
       if (!response.ok) {
         throw new Error(
-          await readError(response, 'Failed to save global routes')
+          await readError(response, 'Failed to save global rules')
         );
       }
       const routeSet = (await response.json()) as NotificationRouteSet;
       setGlobalRoutes(routeSetDraftFromAPI(routeSet));
-      setNotice('Global routes saved');
+      setNotice('Global rules saved');
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : 'Failed to save global routes'
+        err instanceof Error ? err.message : 'Failed to save global rules'
       );
     } finally {
       setIsSavingGlobalRoutes(false);
@@ -625,18 +627,177 @@ export default function NotificationsPage() {
       );
       if (!response.ok) {
         throw new Error(
-          await readError(response, 'Failed to save workspace routes')
+          await readError(response, 'Failed to save workspace rules')
         );
       }
       const routeSet = (await response.json()) as NotificationRouteSet;
       setWorkspaceRoutes(routeSetDraftFromAPI(routeSet));
-      setNotice('Workspace routes saved');
+      setNotice('Workspace rules saved');
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : 'Failed to save workspace routes'
+        err instanceof Error ? err.message : 'Failed to save workspace rules'
       );
     } finally {
       setIsSavingWorkspaceRoutes(false);
+    }
+  };
+
+  if (isLoading) {
+    return <LoadingCard label="Loading notification rules..." />;
+  }
+
+  return (
+    <div className="space-y-4">
+      <StatusCard
+        title="Notification Rules"
+        badge={canConfigureWorkspaceRoutes ? selectedWorkspaceName : 'Global'}
+        error={error}
+        notice={notice}
+      />
+
+      {reusableChannelsLicensed ? (
+        <>
+          <RouteSetSection
+            title="Global Rules"
+            badge={globalRoutes.enabled ? 'Enabled' : 'Disabled'}
+            draft={globalRoutes}
+            channels={channels}
+            saving={isSavingGlobalRoutes}
+            channelsHref="/notification-channels"
+            emptyText="No global notification rules configured."
+            onSave={saveGlobalRoutes}
+            onChange={(updater) =>
+              setGlobalRoutes((current) => updater(current))
+            }
+          />
+
+          {canConfigureWorkspaceRoutes && (
+            <RouteSetSection
+              title={`${selectedWorkspaceName} Rules`}
+              badge={
+                workspaceRoutes.inheritGlobal ? 'Inherits Global' : 'Isolated'
+              }
+              draft={workspaceRoutes}
+              channels={channels}
+              saving={isSavingWorkspaceRoutes}
+              channelsHref="/notification-channels"
+              showInheritGlobal
+              emptyText="No workspace notification rules configured."
+              onSave={saveWorkspaceRoutes}
+              onChange={(updater) =>
+                setWorkspaceRoutes((current) => updater(current))
+              }
+            />
+          )}
+        </>
+      ) : (
+        <NotificationChannelsUnavailableCard showDAGLocalNote={false} />
+      )}
+    </div>
+  );
+}
+
+export function NotificationChannelsPage() {
+  const config = useConfig();
+  const license = useLicense();
+  const appBarContext = useContext(AppBarContext);
+  const reusableChannelsLicensed =
+    !license.community && (license.valid || license.gracePeriod);
+  const query = useMemo(
+    () =>
+      `?remoteNode=${encodeURIComponent(appBarContext.selectedRemoteNode || 'local')}`,
+    [appBarContext.selectedRemoteNode]
+  );
+  const [smtpDraft, setSMTPDraft] = useState<SMTPDraft>(blankSMTPDraft);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [channels, setChannels] = useState<DraftChannel[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [savingChannelIndex, setSavingChannelIndex] = useState<number | null>(
+    null
+  );
+  const [deleteChannelIndex, setDeleteChannelIndex] = useState<number | null>(
+    null
+  );
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    appBarContext.setTitle('Notification Channels');
+  }, [appBarContext]);
+
+  const fetchSettings = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const settingsResponse = await fetch(
+        `${config.apiURL}/notification-settings${query}`,
+        { headers: authHeaders() }
+      );
+      if (!settingsResponse.ok) {
+        throw new Error(
+          await readError(settingsResponse, 'Failed to load email delivery')
+        );
+      }
+      const settings =
+        (await settingsResponse.json()) as NotificationWorkspaceSettings;
+      setSMTPDraft(smtpDraftFromAPI(settings));
+
+      if (!reusableChannelsLicensed) {
+        setChannels([]);
+        return;
+      }
+
+      const response = await fetch(
+        `${config.apiURL}/notification-channels${query}`,
+        {
+          headers: authHeaders(),
+        }
+      );
+      if (!response.ok) {
+        throw new Error(await readError(response, 'Failed to load channels'));
+      }
+      const data = (await response.json()) as {
+        channels: NotificationChannel[];
+      };
+      setChannels((data.channels || []).map(draftChannelFromAPI));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load channels');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [config.apiURL, query, reusableChannelsLicensed]);
+
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
+
+  const saveSettings = async () => {
+    setIsSavingSettings(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch(
+        `${config.apiURL}/notification-settings${query}`,
+        {
+          method: 'PUT',
+          headers: authHeaders(),
+          body: JSON.stringify(smtpInput(smtpDraft)),
+        }
+      );
+      if (!response.ok) {
+        throw new Error(
+          await readError(response, 'Failed to save email delivery')
+        );
+      }
+      const settings = (await response.json()) as NotificationWorkspaceSettings;
+      setSMTPDraft(smtpDraftFromAPI(settings));
+      setNotice('Email delivery saved');
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Failed to save email delivery'
+      );
+    } finally {
+      setIsSavingSettings(false);
     }
   };
 
@@ -729,43 +890,12 @@ export default function NotificationsPage() {
   };
 
   if (isLoading) {
-    return (
-      <Card>
-        <CardContent className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading notifications...
-        </CardContent>
-      </Card>
-    );
+    return <LoadingCard label="Loading notification channels..." />;
   }
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardHeader className="grid-cols-[1fr_auto]">
-          <div className="flex items-center gap-2">
-            <Bell className="h-4 w-4 text-muted-foreground" />
-            <CardTitle className="text-sm">Notifications</CardTitle>
-            <Badge variant="default">
-              {canConfigureWorkspaceRoutes ? selectedWorkspaceName : 'Global'}
-            </Badge>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {error && (
-            <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-          {notice && (
-            <div className="flex items-start gap-2 rounded-md border border-success/30 bg-success/10 p-3 text-sm text-success">
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{notice}</span>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <StatusCard title="Notification Channels" error={error} notice={notice} />
 
       <Card>
         <CardHeader className="grid-cols-[1fr_auto]">
@@ -867,49 +997,16 @@ export default function NotificationsPage() {
       </Card>
 
       {reusableChannelsLicensed ? (
-        <>
-          <RouteSetSection
-            title="Global Routes"
-            badge={globalRoutes.enabled ? 'Enabled' : 'Disabled'}
-            draft={globalRoutes}
-            channels={channels}
-            saving={isSavingGlobalRoutes}
-            emptyText="No global routes configured."
-            onSave={saveGlobalRoutes}
-            onChange={(updater) =>
-              setGlobalRoutes((current) => updater(current))
-            }
-          />
-
-          {canConfigureWorkspaceRoutes && (
-            <RouteSetSection
-              title={`${selectedWorkspaceName} Routes`}
-              badge={
-                workspaceRoutes.inheritGlobal ? 'Inherits Global' : 'Isolated'
-              }
-              draft={workspaceRoutes}
-              channels={channels}
-              saving={isSavingWorkspaceRoutes}
-              showInheritGlobal
-              emptyText="No workspace routes configured."
-              onSave={saveWorkspaceRoutes}
-              onChange={(updater) =>
-                setWorkspaceRoutes((current) => updater(current))
-              }
-            />
-          )}
-
-          <ReusableChannelsSection
-            channels={channels}
-            savingChannelIndex={savingChannelIndex}
-            onAdd={addChannel}
-            onUpdate={updateChannel}
-            onSave={saveChannel}
-            onDelete={setDeleteChannelIndex}
-          />
-        </>
+        <NotificationChannelsSection
+          channels={channels}
+          savingChannelIndex={savingChannelIndex}
+          onAdd={addChannel}
+          onUpdate={updateChannel}
+          onSave={saveChannel}
+          onDelete={setDeleteChannelIndex}
+        />
       ) : (
-        <ReusableChannelsUnavailableCard showDAGLocalNote={false} />
+        <NotificationChannelsUnavailableCard showDAGLocalNote={false} />
       )}
 
       <ConfirmDialog

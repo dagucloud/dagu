@@ -1160,6 +1160,9 @@ func (s *Service) sendWebhook(ctx context.Context, target notificationmodel.Targ
 	if target.Webhook == nil || target.Webhook.URL == "" {
 		return errors.New("webhook url is not configured")
 	}
+	if notificationmodel.IsSlackIncomingWebhookURL(target.Webhook.URL) {
+		return errors.New("Slack incoming webhook URL is configured as generic webhook; use the slack provider")
+	}
 	if err := validateOutboundURL(ctx, target.Webhook.URL, target.Webhook.AllowInsecureHTTP, target.Webhook.AllowPrivateNetwork); err != nil {
 		return err
 	}

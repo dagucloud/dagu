@@ -12,7 +12,7 @@ import {
   Trash2,
   XCircle,
 } from 'lucide-react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Badge } from '@/components/ui/badge';
@@ -43,6 +43,7 @@ import {
   DraftSubscription,
   DraftTarget,
   EVENT_OPTIONS,
+  isSlackIncomingWebhookURL,
   providerIcon,
   providerLabel,
   PROVIDER_OPTIONS,
@@ -114,6 +115,9 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
   }
 
   if (draft.type === NotificationProviderType.webhook) {
+    const hasSlackURL =
+      isSlackIncomingWebhookURL(draft.webhook.url) ||
+      isSlackIncomingWebhookURL(draft.webhook.urlPreview || '');
     return (
       <div className="space-y-3">
         <Input
@@ -121,7 +125,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
           placeholder={
             draft.webhook.urlConfigured
               ? `URL configured (${draft.webhook.urlPreview || 'saved'})`
-              : 'URL'
+              : 'Webhook endpoint URL'
           }
           onChange={(event) =>
             update({
@@ -129,6 +133,11 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
             })
           }
         />
+        {hasSlackURL && (
+          <div className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
+            This is a Slack Incoming Webhook URL. Select Slack as the provider.
+          </div>
+        )}
         {draft.webhook.headerPreviews &&
           Object.keys(draft.webhook.headerPreviews).length > 0 && (
             <div className="flex flex-wrap gap-2">
@@ -293,11 +302,21 @@ function EventFilterEditor({ events, onChange }: EventFilterEditorProps) {
       })}
       {events.length > 0 && (
         <Button variant="ghost" size="sm" onClick={() => onChange([])}>
-          Inherit
+          Use DAG events
         </Button>
       )}
     </div>
   );
+}
+
+function eventSummary(events: NotificationEventType[]): string {
+  if (events.length === 0) {
+    return 'Same as DAG events';
+  }
+  const labels = EVENT_OPTIONS.filter((event) =>
+    events.includes(event.value)
+  ).map((event) => event.label);
+  return labels.length > 0 ? labels.join(', ') : 'Custom events';
 }
 
 type NotificationOverviewCardProps = {
@@ -334,7 +353,7 @@ export function NotificationOverviewCard({
       <CardHeader className="grid-cols-[1fr_auto]">
         <div className="flex items-center gap-2">
           <Bell className="h-4 w-4 text-muted-foreground" />
-          <CardTitle className="text-sm">Notifications</CardTitle>
+          <CardTitle className="text-sm">DAG Notifications</CardTitle>
           <Badge variant={draft.enabled ? 'success' : 'default'}>
             {draft.enabled ? 'Enabled' : 'Disabled'}
           </Badge>
@@ -362,7 +381,7 @@ export function NotificationOverviewCard({
             ) : (
               <FlaskConical className="h-4 w-4" />
             )}
-            Test
+            Send test
           </Button>
           <Button size="sm" onClick={onSave} disabled={isSaving}>
             {isSaving ? (
@@ -388,28 +407,36 @@ export function NotificationOverviewCard({
           </div>
         )}
 
-        <div className="flex flex-wrap gap-2">
-          {EVENT_OPTIONS.map((event) => {
-            const checked = draft.events.includes(event.value);
-            return (
-              <label
-                key={event.value}
-                className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm"
-              >
-                <Checkbox
-                  checked={checked}
-                  onCheckedChange={(value) =>
-                    onEventsChange(
-                      value
-                        ? [...draft.events, event.value]
-                        : draft.events.filter((item) => item !== event.value)
-                    )
-                  }
-                />
-                {event.label}
-              </label>
-            );
-          })}
+        <div className="space-y-2">
+          <div className="text-sm font-medium text-foreground">
+            Send notifications when this DAG is
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {EVENT_OPTIONS.map((event) => {
+              const checked = draft.events.includes(event.value);
+              return (
+                <label
+                  key={event.value}
+                  className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm"
+                >
+                  <Checkbox
+                    checked={checked}
+                    onCheckedChange={(value) =>
+                      onEventsChange(
+                        value
+                          ? [...draft.events, event.value]
+                          : draft.events.filter((item) => item !== event.value)
+                      )
+                    }
+                  />
+                  {event.label}
+                </label>
+              );
+            })}
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Saved changes apply to future runs. Send test verifies delivery now.
+          </div>
         </div>
 
         {testResults.length > 0 && (
@@ -424,9 +451,16 @@ export function NotificationOverviewCard({
                 ) : (
                   <XCircle className="h-4 w-4 text-destructive" />
                 )}
-                <span className="min-w-0 flex-1 truncate">
-                  {result.targetName || result.provider}
-                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate">
+                    {result.targetName || result.provider}
+                  </div>
+                  {result.error && (
+                    <div className="truncate text-xs text-destructive">
+                      {result.error}
+                    </div>
+                  )}
+                </div>
                 <Badge variant={result.delivered ? 'success' : 'error'}>
                   {result.delivered ? 'Delivered' : 'Failed'}
                 </Badge>
@@ -439,7 +473,7 @@ export function NotificationOverviewCard({
   );
 }
 
-type ReusableChannelsSectionProps = {
+type NotificationChannelsSectionProps = {
   channels: DraftChannel[];
   savingChannelIndex: number | null;
   onAdd: () => void;
@@ -451,19 +485,19 @@ type ReusableChannelsSectionProps = {
   onDelete: (index: number) => void;
 };
 
-export function ReusableChannelsSection({
+export function NotificationChannelsSection({
   channels,
   savingChannelIndex,
   onAdd,
   onUpdate,
   onSave,
   onDelete,
-}: ReusableChannelsSectionProps) {
+}: NotificationChannelsSectionProps) {
   return (
     <>
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-medium text-foreground">
-          Reusable Channels
+          Notification Channels
         </h3>
         <Button variant="outline" size="sm" onClick={onAdd}>
           <Plus className="h-4 w-4" />
@@ -609,6 +643,9 @@ export function DAGSubscriptionsSection({
   onDelete,
   onTest,
 }: DAGSubscriptionsSectionProps) {
+  const [expandedEventRows, setExpandedEventRows] = useState<Set<string>>(
+    () => new Set()
+  );
   const channelsById = useMemo(() => {
     const map = new Map<string, DraftChannel>();
     channels.forEach((channel) => {
@@ -618,13 +655,22 @@ export function DAGSubscriptionsSection({
     });
     return map;
   }, [channels]);
+  const toggleEventRow = (key: string) => {
+    setExpandedEventRows((current) => {
+      const next = new Set(current);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
 
   return (
     <>
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-foreground">
-          DAG Subscriptions
-        </h3>
+        <h3 className="text-sm font-medium text-foreground">Send to</h3>
         <div className="flex items-center gap-2">
           {manageChannelsHref && (
             <Button asChild variant="ghost" size="sm">
@@ -641,7 +687,7 @@ export function DAGSubscriptionsSection({
             disabled={channels.filter((channel) => channel.id).length === 0}
           >
             <Plus className="h-4 w-4" />
-            Add
+            Add channel
           </Button>
         </div>
       </div>
@@ -649,7 +695,7 @@ export function DAGSubscriptionsSection({
       {draft.subscriptions.length === 0 ? (
         <Card>
           <CardContent className="py-8 text-sm text-muted-foreground">
-            No channel subscriptions configured.
+            No notification channels selected.
           </CardContent>
         </Card>
       ) : (
@@ -662,103 +708,145 @@ export function DAGSubscriptionsSection({
                 .filter((_, subIndex) => subIndex !== index)
                 .map((item) => item.channelId)
             );
+            const rowKey =
+              subscription.id ||
+              subscription.channelId ||
+              `subscription-${index}`;
+            const eventsExpanded = expandedEventRows.has(rowKey);
+            const hasCustomEvents = subscription.events.length > 0;
             return (
               <Card
                 key={subscription.id || `${subscription.channelId}-${index}`}
               >
-                <CardHeader className="grid-cols-[1fr_auto]">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <CardTitle className="truncate text-sm">
-                      {channel?.name || subscription.channelId}
-                    </CardTitle>
-                    <Badge
-                      variant={
-                        subscription.enabled && channel?.enabled
-                          ? 'success'
-                          : 'default'
-                      }
-                    >
-                      {subscription.enabled && channel?.enabled
-                        ? 'Enabled'
-                        : 'Disabled'}
-                    </Badge>
-                    {!channel && <Badge variant="error">Missing</Badge>}
+                <CardContent className="space-y-3 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="truncate text-sm font-medium">
+                        {channel?.name || subscription.channelId}
+                      </span>
+                      <Badge
+                        variant={
+                          subscription.enabled && channel?.enabled
+                            ? 'success'
+                            : 'default'
+                        }
+                      >
+                        {subscription.enabled && channel?.enabled
+                          ? 'Enabled'
+                          : 'Disabled'}
+                      </Badge>
+                      {!channel && <Badge variant="error">Missing</Badge>}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={subscription.enabled}
+                        onCheckedChange={(enabled) =>
+                          onUpdate(index, (current) => ({
+                            ...current,
+                            enabled,
+                          }))
+                        }
+                        aria-label={`Toggle ${channel?.name || subscription.channelId}`}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          subscription.id &&
+                          onTest(subscription.id, subscription.events)
+                        }
+                        disabled={!subscription.id || testingTargetId !== null}
+                      >
+                        {testingTargetId === subscription.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <FlaskConical className="h-4 w-4" />
+                        )}
+                        Send test
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => onDelete(index)}
+                        aria-label={`Delete ${channel?.name || subscription.channelId}`}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      checked={subscription.enabled}
-                      onCheckedChange={(enabled) =>
+
+                  <div className="grid gap-3 md:grid-cols-[minmax(220px,320px)_minmax(0,1fr)]">
+                    <Select
+                      value={subscription.channelId}
+                      onValueChange={(channelId) =>
                         onUpdate(index, (current) => ({
                           ...current,
-                          enabled,
+                          channelId,
                         }))
                       }
-                      aria-label={`Toggle ${channel?.name || subscription.channelId}`}
-                    />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        subscription.id &&
-                        onTest(subscription.id, subscription.events)
-                      }
-                      disabled={!subscription.id || testingTargetId !== null}
                     >
-                      {testingTargetId === subscription.id ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <FlaskConical className="h-4 w-4" />
-                      )}
-                      Test
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onDelete(index)}
-                      aria-label={`Delete ${channel?.name || subscription.channelId}`}
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <Select
-                    value={subscription.channelId}
-                    onValueChange={(channelId) =>
-                      onUpdate(index, (current) => ({
-                        ...current,
-                        channelId,
-                      }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {channels
-                        .filter((item) => item.id)
-                        .map((item) => (
-                          <SelectItem
-                            key={item.id}
-                            value={item.id || ''}
-                            disabled={!!item.id && usedChannelIds.has(item.id)}
-                          >
-                            {item.name || providerLabel(item.type)}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {channels
+                          .filter((item) => item.id)
+                          .map((item) => (
+                            <SelectItem
+                              key={item.id}
+                              value={item.id || ''}
+                              disabled={
+                                !!item.id && usedChannelIds.has(item.id)
+                              }
+                            >
+                              {item.name || providerLabel(item.type)}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
 
-                  <EventFilterEditor
-                    events={subscription.events}
-                    onChange={(events) =>
-                      onUpdate(index, (current) => ({
-                        ...current,
-                        events,
-                      }))
-                    }
-                  />
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm">
+                      <span className="text-muted-foreground">
+                        Events: {eventSummary(subscription.events)}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        {hasCustomEvents && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              onUpdate(index, (current) => ({
+                                ...current,
+                                events: [],
+                              }))
+                            }
+                          >
+                            Use DAG events
+                          </Button>
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => toggleEventRow(rowKey)}
+                        >
+                          {eventsExpanded ? 'Hide events' : 'Customize events'}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {eventsExpanded && (
+                    <EventFilterEditor
+                      events={subscription.events}
+                      onChange={(events) =>
+                        onUpdate(index, (current) => ({
+                          ...current,
+                          events,
+                        }))
+                      }
+                    />
+                  )}
                 </CardContent>
               </Card>
             );
@@ -769,7 +857,7 @@ export function DAGSubscriptionsSection({
   );
 }
 
-export function ReusableChannelsUnavailableCard({
+export function NotificationChannelsUnavailableCard({
   showDAGLocalNote = true,
 }: {
   showDAGLocalNote?: boolean;
@@ -779,12 +867,12 @@ export function ReusableChannelsUnavailableCard({
       <CardHeader>
         <div className="flex items-center gap-2">
           <Bell className="h-4 w-4 text-muted-foreground" />
-          <CardTitle className="text-sm">Reusable Channels</CardTitle>
+          <CardTitle className="text-sm">Notification Channels</CardTitle>
         </div>
       </CardHeader>
       <CardContent className="text-sm text-muted-foreground">
-        Reusable channels and routes require an active Dagu license or trial.
-        {showDAGLocalNote && ' DAG-local targets remain available.'}
+        Notification channels and rules require an active Dagu license or trial.
+        {showDAGLocalNote && ' Custom destinations remain available.'}
       </CardContent>
     </Card>
   );
@@ -815,7 +903,7 @@ export function DAGLocalTargetsSection({
       <div className="flex justify-end">
         <Button variant="ghost" size="sm" onClick={onAdd}>
           <Link2 className="h-4 w-4" />
-          Add DAG-local target
+          Add custom destination
         </Button>
       </div>
     );
@@ -825,11 +913,11 @@ export function DAGLocalTargetsSection({
     <>
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-medium text-foreground">
-          DAG-local Targets
+          Custom Destinations
         </h3>
         <Button variant="outline" size="sm" onClick={onAdd}>
           <Plus className="h-4 w-4" />
-          Add local
+          Add custom
         </Button>
       </div>
       <div className="space-y-3">
@@ -871,7 +959,7 @@ export function DAGLocalTargetsSection({
                     ) : (
                       <FlaskConical className="h-4 w-4" />
                     )}
-                    Test
+                    Send test
                   </Button>
                   <Button
                     variant="ghost"
