@@ -468,8 +468,9 @@ export const mainListItems = React.forwardRef<
       ? config.permissions.writeDags
       : roleAtLeast(user?.role ?? null, UserRole.developer);
   const canManageNotifications =
-    config.authMode !== 'builtin' ||
-    roleAtLeast(user?.role ?? null, UserRole.developer);
+    config.authMode !== 'builtin'
+      ? config.permissions.writeDags
+      : roleAtLeast(user?.role ?? null, UserRole.developer);
   const canAccessSystemStatus = useCanAccessSystemStatus();
   const canManageWebhooks = useCanManageWebhooks();
   const canManageSecrets = useCanManageSecrets();

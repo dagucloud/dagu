@@ -426,6 +426,11 @@ func TestSendWithRecipientsAddsCcHeaderAndOmitsBccHeader(t *testing.T) {
 	require.Contains(t, payload, "To: to@example.com")
 	require.Contains(t, payload, "Cc: cc@example.com")
 	require.NotContains(t, payload, "bcc@example.com")
+	assert.ElementsMatch(t, []string{
+		"to@example.com",
+		"cc@example.com",
+		"bcc@example.com",
+	}, server.RecordedRecipients())
 }
 
 type smtpRecordingServer struct {
@@ -437,6 +442,7 @@ type smtpRecordingServer struct {
 	mu                 sync.Mutex
 	startTLSCount      int
 	recordedDataBodies []string
+	recordedRecipients []string
 }
 
 func newSMTPRecordingServer() (*smtpRecordingServer, error) {
@@ -470,6 +476,18 @@ func (s *smtpRecordingServer) RecordedDataBodies() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), s.recordedDataBodies...)
+}
+
+func (s *smtpRecordingServer) RecordedRecipients() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.recordedRecipients...)
+}
+
+func smtpPathAddress(line string) string {
+	address := strings.TrimSpace(strings.TrimPrefix(line, "RCPT TO:"))
+	address = strings.Trim(address, "<>")
+	return strings.TrimSpace(address)
 }
 
 func (s *smtpRecordingServer) Serve() {
@@ -514,6 +532,9 @@ func (s *smtpRecordingServer) handleConnection(conn net.Conn) {
 		case strings.HasPrefix(line, "MAIL FROM:"):
 			_, _ = writer.WriteString(s.mailFromResponse)
 		case strings.HasPrefix(line, "RCPT TO:"):
+			s.mu.Lock()
+			s.recordedRecipients = append(s.recordedRecipients, smtpPathAddress(line))
+			s.mu.Unlock()
 			_, _ = writer.WriteString(s.rcptToResponse)
 		case strings.HasPrefix(line, "DATA"):
 			_, _ = writer.WriteString("354 Start mail input\r\n")

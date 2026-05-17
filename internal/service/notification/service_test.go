@@ -1539,6 +1539,14 @@ func TestService_SaveRejectsMissingReusableChannel(t *testing.T) {
 	assert.ErrorIs(t, err, notificationmodel.ErrChannelNotFound)
 }
 
+func TestService_SaveRejectsNilSettings(t *testing.T) {
+	t.Parallel()
+
+	svc := New(newMemoryStore(), nil)
+	_, err := svc.Save(context.Background(), nil, "tester")
+	assert.ErrorIs(t, err, notificationmodel.ErrInvalidSettings)
+}
+
 func TestService_DeleteChannelRejectsInUseChannel(t *testing.T) {
 	t.Parallel()
 

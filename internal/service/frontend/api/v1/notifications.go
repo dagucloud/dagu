@@ -256,6 +256,9 @@ func (a *API) UpdateNotificationChannel(ctx context.Context, request api.UpdateN
 	channel := notificationChannelFromRequest(request.ChannelId, *request.Body)
 	saved, err := a.notificationService.SaveChannel(ctx, channel, getCreatorID(ctx))
 	if err != nil {
+		if errors.Is(err, notificationmodel.ErrChannelNotFound) {
+			return nil, notificationNotFound(err.Error())
+		}
 		if notificationRequestError(err) {
 			return nil, badNotificationRequest(err.Error())
 		}

@@ -24,7 +24,7 @@ import {
   ConfigContext,
   ConfigUpdateContext,
 } from './contexts/ConfigContext';
-import { useHasFeature } from './hooks/useLicense';
+import { useHasFeature, useLicense } from './hooks/useLicense';
 import { PageContextProvider } from './contexts/PageContext';
 import { SchemaProvider } from './contexts/SchemaContext';
 import { SearchStateProvider } from './contexts/SearchStateContext';
@@ -216,6 +216,24 @@ function LicensedRoute({
 }): React.ReactElement {
   const hasFeature = useHasFeature(feature);
   if (hasFeature) return children;
+  return <LicenseRequiredMessage />;
+}
+
+function NotificationLicensedElement({
+  children,
+}: {
+  children: React.ReactElement;
+}): React.ReactElement {
+  const license = useLicense();
+  const licensed = !license.community && (license.valid || license.gracePeriod);
+  return (
+    <DeveloperElement>
+      {licensed ? children : <LicenseRequiredMessage />}
+    </DeveloperElement>
+  );
+}
+
+function LicenseRequiredMessage(): React.ReactElement {
   return (
     <div className="flex flex-col items-center justify-center h-full gap-4 text-center p-8">
       <Shield size={48} className="text-muted-foreground" />
@@ -566,25 +584,25 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                         <Route
                                           path="/notifications"
                                           element={
-                                            <DeveloperElement>
+                                            <NotificationLicensedElement>
                                               <NotificationsPage />
-                                            </DeveloperElement>
+                                            </NotificationLicensedElement>
                                           }
                                         />
                                         <Route
                                           path="/notification-rules"
                                           element={
-                                            <DeveloperElement>
+                                            <NotificationLicensedElement>
                                               <NotificationRulesPage />
-                                            </DeveloperElement>
+                                            </NotificationLicensedElement>
                                           }
                                         />
                                         <Route
                                           path="/notification-channels"
                                           element={
-                                            <DeveloperElement>
+                                            <NotificationLicensedElement>
                                               <NotificationChannelsPage />
-                                            </DeveloperElement>
+                                            </NotificationLicensedElement>
                                           }
                                         />
                                         <Route

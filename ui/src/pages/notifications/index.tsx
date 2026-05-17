@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import {
   AlertTriangle,
   Building2,
@@ -1237,13 +1240,10 @@ export function NotificationRulesPage() {
       ? saveWorkspaceRoutes
       : saveGlobalRoutes;
 
-  if (isLoading) {
-    return <LoadingCard label="Loading notification rules..." />;
-  }
-
   return (
     <div className="space-y-4">
       <StatusCard error={error} notice={notice} />
+      {isLoading && <LoadingCard label="Refreshing notification rules..." />}
 
       {reusableChannelsLicensed ? (
         <>
@@ -1486,13 +1486,12 @@ export function NotificationChannelsPage() {
     }
   };
 
-  if (isLoading) {
-    return <LoadingCard label="Loading notification channels..." />;
-  }
-
   return (
     <div className="space-y-4">
       <StatusCard error={error} notice={notice} />
+      {isLoading && (
+        <LoadingCard label="Refreshing notification channels..." />
+      )}
 
       <Card>
         <CardHeader className="grid-cols-[1fr_auto]">

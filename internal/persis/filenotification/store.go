@@ -724,8 +724,24 @@ func (s *Store) fromStorage(stored *settingsForStorage) (*notification.Settings,
 			Events:    eventTypes(subscription.Events),
 		})
 	}
-	createdAt, _ := time.Parse(timeFormat, stored.CreatedAt)
-	updatedAt, _ := time.Parse(timeFormat, stored.UpdatedAt)
+	createdAt, err := time.Parse(timeFormat, stored.CreatedAt)
+	if err != nil {
+		slog.Default().Debug(
+			"Failed to parse notification settings timestamp",
+			"field", "CreatedAt",
+			"value", stored.CreatedAt,
+			"error", err,
+		)
+	}
+	updatedAt, err := time.Parse(timeFormat, stored.UpdatedAt)
+	if err != nil {
+		slog.Default().Debug(
+			"Failed to parse notification settings timestamp",
+			"field", "UpdatedAt",
+			"value", stored.UpdatedAt,
+			"error", err,
+		)
+	}
 	return &notification.Settings{
 		ID:            stored.ID,
 		DAGName:       stored.DAGName,

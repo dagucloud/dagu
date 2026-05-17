@@ -315,6 +315,9 @@ func (s *Service) Save(ctx context.Context, settings *notificationmodel.Settings
 	if s.store == nil {
 		return nil, notificationmodel.ErrSettingsNotFound
 	}
+	if settings == nil {
+		return nil, notificationmodel.ErrInvalidSettings
+	}
 	existing, err := s.store.GetByDAGName(ctx, settings.DAGName)
 	if err != nil && !errors.Is(err, notificationmodel.ErrSettingsNotFound) {
 		return nil, err

@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import { Loader2 } from 'lucide-react';
 import { useContext, useMemo, useState } from 'react';
 
@@ -326,19 +329,17 @@ function NotificationsTab({ fileName, workspaceName }: NotificationsTabProps) {
     setDeleteSubscriptionIndex(null);
   };
 
-  if (isLoading) {
-    return (
-      <Card>
-        <CardContent className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading notifications...
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
     <div className="space-y-4">
+      {isLoading && (
+        <Card>
+          <CardContent className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Refreshing notifications...
+          </CardContent>
+        </Card>
+      )}
+
       <NotificationOverviewCard
         draft={draft}
         isDAGConfigured={hasDAGSettings}

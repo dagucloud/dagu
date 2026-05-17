@@ -406,6 +406,17 @@ describe('sidebar menu', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('hides notifications for non-builtin auth without write permission', () => {
+    renderMenu('/cockpit', {
+      authMode: 'basic',
+      permissions: { ...config.permissions, writeDags: false },
+    });
+
+    expect(
+      screen.queryByRole('link', { name: 'Notifications' })
+    ).not.toBeInTheDocument();
+  });
+
   it.each([
     ['/dag-runs', 'executions'],
     ['/system-status', 'monitor'],

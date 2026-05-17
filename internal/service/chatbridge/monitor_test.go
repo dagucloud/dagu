@@ -338,6 +338,43 @@ func TestNotificationMonitor_PollSourceRoutesEventsPerDestination(t *testing.T) 
 	assert.ElementsMatch(t, []string{"dest-a", "dest-b"}, destinations)
 }
 
+func TestEnqueueNotificationsByEventFiltersUnknownAndDuplicateRoutes(t *testing.T) {
+	t.Parallel()
+
+	state := newNotificationMonitorState()
+	state.Bootstrapped = true
+	require.True(t, ensureDestinations(&state, []string{"dest-a"}))
+	router := &fakeRoutingNotificationTransport{
+		fakeNotificationTransport: &fakeNotificationTransport{
+			destinations: []string{"dest-a"},
+		},
+		routeFn: func(NotificationEvent) []string {
+			return []string{"dest-a", "unknown", "dest-a", ""}
+		},
+	}
+	status := &exec.DAGRunStatus{
+		Name:      "dag-a",
+		Status:    core.Failed,
+		DAGRunID:  "run-a",
+		AttemptID: "attempt-a",
+	}
+	event := testNotificationEvent(status)
+
+	queued, changed, accepted := enqueueNotificationsByEvent(
+		&state,
+		router,
+		destinationSet(router.NotificationDestinations()),
+		[]NotificationEvent{event},
+	)
+
+	require.True(t, accepted)
+	require.True(t, changed)
+	require.Len(t, queued, 1)
+	assert.Equal(t, "dest-a", queued[0].destination)
+	assert.Contains(t, state.Destinations, "dest-a")
+	assert.NotContains(t, state.Destinations, "unknown")
+}
+
 func TestNotificationMonitor_RequeuePendingDropsFailedRunWithAutoRetryRemaining(t *testing.T) {
 	t.Parallel()
 

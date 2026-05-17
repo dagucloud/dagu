@@ -458,15 +458,14 @@ func (m *NotificationMonitor) enqueueEvents(ctx context.Context, destinations []
 		return false
 	}
 	var router NotificationRoutingTransport
+	canonicalDestinations := m.transport.NotificationDestinations()
+	allowedDestinations := destinationSet(canonicalDestinations)
 	if destinations == nil {
 		if r, ok := m.transport.(NotificationRoutingTransport); ok {
 			router = r
-			for _, event := range events {
-				destinations = append(destinations, r.NotificationDestinationsForEvent(event)...)
-			}
-			destinations = uniqueDestinations(destinations)
+			destinations = routedDestinationsForEvents(r, allowedDestinations, events)
 		} else {
-			destinations = m.transport.NotificationDestinations()
+			destinations = canonicalDestinations
 		}
 	}
 	if len(destinations) == 0 {
@@ -482,7 +481,7 @@ func (m *NotificationMonitor) enqueueEvents(ctx context.Context, destinations []
 		changed := ensureDestinations(candidate, destinations)
 		var enqueueChanged bool
 		if router != nil {
-			queued, enqueueChanged, accepted = enqueueNotificationsByEvent(candidate, router, events)
+			queued, enqueueChanged, accepted = enqueueNotificationsByEvent(candidate, router, allowedDestinations, events)
 		} else {
 			queued, enqueueChanged, accepted = enqueueNotifications(candidate, destinations, events)
 		}
@@ -803,15 +802,14 @@ func (m *NotificationMonitor) commitSourceProgress(ctx context.Context, destinat
 		return nil, false
 	}
 	var router NotificationRoutingTransport
+	canonicalDestinations := m.transport.NotificationDestinations()
+	allowedDestinations := destinationSet(canonicalDestinations)
 	if destinations == nil {
 		if r, ok := m.transport.(NotificationRoutingTransport); ok {
 			router = r
-			for _, event := range events {
-				destinations = append(destinations, r.NotificationDestinationsForEvent(event)...)
-			}
-			destinations = uniqueDestinations(destinations)
+			destinations = routedDestinationsForEvents(r, allowedDestinations, events)
 		} else {
-			destinations = m.transport.NotificationDestinations()
+			destinations = canonicalDestinations
 		}
 	}
 
@@ -832,7 +830,7 @@ func (m *NotificationMonitor) commitSourceProgress(ctx context.Context, destinat
 		candidate.SourceCursor = nextCursor.Normalize()
 		var enqueueChanged bool
 		if router != nil {
-			queued, enqueueChanged, accepted = enqueueNotificationsByEvent(candidate, router, events)
+			queued, enqueueChanged, accepted = enqueueNotificationsByEvent(candidate, router, allowedDestinations, events)
 		} else {
 			queued, enqueueChanged, accepted = enqueueNotifications(candidate, destinations, events)
 		}
@@ -1264,14 +1262,19 @@ func enqueueNotifications(state *notificationMonitorState, destinations []string
 	return queued, changed, accepted
 }
 
-func enqueueNotificationsByEvent(state *notificationMonitorState, router NotificationRoutingTransport, events []NotificationEvent) ([]queuedNotification, bool, bool) {
+func enqueueNotificationsByEvent(
+	state *notificationMonitorState,
+	router NotificationRoutingTransport,
+	allowedDestinations map[string]struct{},
+	events []NotificationEvent,
+) ([]queuedNotification, bool, bool) {
 	var (
 		queued   []queuedNotification
 		changed  bool
 		accepted bool
 	)
 	for _, event := range events {
-		destinations := router.NotificationDestinationsForEvent(event)
+		destinations := sanitizeRoutedDestinations(router.NotificationDestinationsForEvent(event), allowedDestinations)
 		if len(destinations) == 0 {
 			continue
 		}
@@ -1281,6 +1284,52 @@ func enqueueNotificationsByEvent(state *notificationMonitorState, router Notific
 		accepted = accepted || eventAccepted
 	}
 	return queued, changed, accepted
+}
+
+func destinationSet(destinations []string) map[string]struct{} {
+	allowed := make(map[string]struct{}, len(destinations))
+	for _, destination := range destinations {
+		if destination == "" {
+			continue
+		}
+		allowed[destination] = struct{}{}
+	}
+	return allowed
+}
+
+func routedDestinationsForEvents(
+	router NotificationRoutingTransport,
+	allowedDestinations map[string]struct{},
+	events []NotificationEvent,
+) []string {
+	var destinations []string
+	for _, event := range events {
+		routed := router.NotificationDestinationsForEvent(event)
+		destinations = append(destinations, sanitizeRoutedDestinations(routed, allowedDestinations)...)
+	}
+	return uniqueDestinations(destinations)
+}
+
+func sanitizeRoutedDestinations(destinations []string, allowedDestinations map[string]struct{}) []string {
+	if len(destinations) == 0 || len(allowedDestinations) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(destinations))
+	seen := make(map[string]struct{}, len(destinations))
+	for _, destination := range destinations {
+		if destination == "" {
+			continue
+		}
+		if _, ok := allowedDestinations[destination]; !ok {
+			continue
+		}
+		if _, ok := seen[destination]; ok {
+			continue
+		}
+		seen[destination] = struct{}{}
+		result = append(result, destination)
+	}
+	return result
 }
 
 func uniqueDestinations(values []string) []string {
