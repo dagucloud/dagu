@@ -12,6 +12,7 @@ import (
 	"maps"
 	"os"
 	osexec "os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +27,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/proto/convert"
+	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
 	dagutools "github.com/dagucloud/dagu/internal/tools"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
@@ -53,6 +55,9 @@ type SubDAGExecutor struct {
 	// workerSelector overrides the child DAG's selector for this invocation.
 	workerSelector map[string]string
 
+	// workspaceSeed carries immutable action source content for action sub-DAGs.
+	workspaceSeed *WorkspaceSeed
+
 	// Process tracking for ALL executions
 	mu              sync.Mutex
 	cmds            map[string]*osexec.Cmd // runID -> cmd for local processes
@@ -66,6 +71,11 @@ type SubDAGExecutor struct {
 	// externalStepRetry shifts step retry waiting out of the child process and
 	// back to the parent executor.
 	externalStepRetry bool
+}
+
+type WorkspaceSeed struct {
+	Descriptor workspacebundle.Descriptor
+	Archive    []byte
 }
 
 // NewSubDAGExecutor creates a new SubDAGExecutor.
@@ -123,6 +133,24 @@ func NewSubDAGExecutor(ctx context.Context, childName string) (*SubDAGExecutor, 
 	}, nil
 }
 
+// NewSubDAGExecutorForDAG creates a SubDAGExecutor for an already-loaded DAG.
+// This is used when the child DAG comes from an external source bundle rather
+// than the parent DAG's local definitions or configured DAG store.
+func NewSubDAGExecutorForDAG(ctx context.Context, dag *core.DAG) (*SubDAGExecutor, error) {
+	if dag == nil {
+		return nil, fmt.Errorf("sub DAG is required")
+	}
+	rCtx := exec.GetContext(ctx)
+	return &SubDAGExecutor{
+		DAG:             dag,
+		coordinatorCli:  rCtx.CoordinatorCli,
+		cmds:            make(map[string]*osexec.Cmd),
+		distributedRuns: make(map[string]bool),
+		dagCtx:          rCtx,
+		killed:          make(chan struct{}),
+	}, nil
+}
+
 // buildCommand builds the command to execute the sub DAG.
 func (e *SubDAGExecutor) buildCommand(ctx context.Context, runParams RunParams, workDir string) (*osexec.Cmd, error) {
 	if runParams.RunID == "" {
@@ -145,15 +173,20 @@ func (e *SubDAGExecutor) buildCommand(ctx context.Context, runParams RunParams, 
 		args = append(args, fmt.Sprintf("--default-working-dir=%s", workDir))
 	}
 
+	target := e.DAG.Location
+	if e.workspaceSeed != nil && workDir != "" {
+		target = filepath.Join(workDir, filepath.FromSlash(e.workspaceSeed.Descriptor.DAGPath))
+	}
+
 	if runParams.Params != "" {
-		cmd, err := e.newLocalCLICommand(ctx, workDir, args, e.DAG.Location, "--", runParams.Params)
+		cmd, err := e.newLocalCLICommand(ctx, workDir, args, target, "--", runParams.Params)
 		if err != nil {
 			return nil, err
 		}
 		return e.injectTraceContext(ctx, cmd), nil
 	}
 
-	cmd, err := e.newLocalCLICommand(ctx, workDir, args, e.DAG.Location)
+	cmd, err := e.newLocalCLICommand(ctx, workDir, args, target)
 	if err != nil {
 		return nil, err
 	}
@@ -196,6 +229,13 @@ func (e *SubDAGExecutor) SetExternalStepRetry(enabled bool) {
 // SetWorkerSelector sets a per-invocation worker selector for the sub DAG.
 func (e *SubDAGExecutor) SetWorkerSelector(selector map[string]string) {
 	e.workerSelector = cloneWorkerSelector(selector)
+}
+
+func (e *SubDAGExecutor) SetWorkspaceSeed(seed WorkspaceSeed) {
+	e.workspaceSeed = &WorkspaceSeed{
+		Descriptor: seed.Descriptor,
+		Archive:    append([]byte(nil), seed.Archive...),
+	}
 }
 
 func (e *SubDAGExecutor) effectiveWorkerSelector() map[string]string {
@@ -418,7 +458,9 @@ func (e *SubDAGExecutor) coordinatorTaskOptions(ctx context.Context, extra ...Ta
 			ID:   rCtx.DAGRunID,
 		}),
 		WithWorkerSelector(e.effectiveWorkerSelector()),
-		WithBaseConfig(baseConfig),
+	}
+	if e.workspaceSeed == nil {
+		options = append(options, WithBaseConfig(baseConfig))
 	}
 	if e.DAG.SourceFile != "" {
 		options = append(options, WithSourceFile(e.DAG.SourceFile))
@@ -432,6 +474,9 @@ func (e *SubDAGExecutor) coordinatorTaskOptions(ctx context.Context, extra ...Ta
 	}
 	if len(snapshot) > 0 {
 		options = append(options, WithAgentSnapshot(snapshot))
+	}
+	if e.workspaceSeed != nil {
+		options = append(options, WithWorkspaceBundle(e.workspaceSeed.Descriptor))
 	}
 	options = append(options, extra...)
 	return options, nil
@@ -470,6 +515,16 @@ func (e *SubDAGExecutor) Execute(ctx context.Context, runParams RunParams, workD
 		e.mu.Unlock()
 
 		return e.dispatch(ctx, runParams)
+	}
+
+	if e.workspaceSeed != nil {
+		var cleanup func()
+		var err error
+		workDir, cleanup, err = e.materializeLocalWorkspace(runParams)
+		if err != nil {
+			return nil, err
+		}
+		defer cleanup()
 	}
 
 	cmd, err := e.buildCommand(ctx, runParams, workDir)
@@ -564,6 +619,25 @@ func (e *SubDAGExecutor) runLocalCommand(ctx context.Context, runID string, cmd 
 	return result, waitErr
 }
 
+func (e *SubDAGExecutor) materializeLocalWorkspace(runParams RunParams) (string, func(), error) {
+	if e.workspaceSeed == nil {
+		return "", func() {}, nil
+	}
+	tmp, err := os.MkdirTemp("", "dagu-action-workspace-*")
+	if err != nil {
+		return "", nil, fmt.Errorf("create local action workspace: %w", err)
+	}
+	cleanup := func() {
+		_ = os.RemoveAll(tmp)
+	}
+	dest := filepath.Join(tmp, "workspace")
+	if err := workspacebundle.Extract(e.workspaceSeed.Archive, dest, e.workspaceSeed.Descriptor, workspacebundle.DefaultLimits()); err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("materialize action workspace for run %q: %w", runParams.RunID, err)
+	}
+	return dest, cleanup, nil
+}
+
 // dispatch runs the sub DAG via coordinator and returns the result.
 func (e *SubDAGExecutor) dispatch(ctx context.Context, runParams RunParams) (*exec.RunStatus, error) {
 	dispatchCtx := logger.WithValues(ctx,
@@ -584,6 +658,15 @@ func (e *SubDAGExecutor) dispatch(ctx context.Context, runParams RunParams) (*ex
 func (e *SubDAGExecutor) dispatchToCoordinator(ctx context.Context, runParams RunParams) error {
 	if e.coordinatorCli == nil {
 		return fmt.Errorf("no coordinator client configured for distributed execution")
+	}
+	if e.workspaceSeed != nil {
+		client, ok := e.coordinatorCli.(workspacebundle.Client)
+		if !ok {
+			return fmt.Errorf("coordinator client does not support workspace bundles")
+		}
+		if err := client.PutWorkspaceBundle(ctx, e.workspaceSeed.Descriptor, e.workspaceSeed.Archive); err != nil {
+			return fmt.Errorf("upload workspace bundle: %w", err)
+		}
 	}
 
 	task, err := e.BuildCoordinatorTask(ctx, runParams)

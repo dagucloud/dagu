@@ -37,6 +37,15 @@ service CoordinatorService {
   // Uses client streaming for efficient file transmission.
   rpc StreamArtifacts (stream ArtifactChunk) returns (StreamArtifactsResponse);
 
+  // PutWorkspaceBundle uploads an immutable content-addressed workspace bundle.
+  rpc PutWorkspaceBundle (stream WorkspaceBundleChunk) returns (PutWorkspaceBundleResponse);
+
+  // HasWorkspaceBundle checks whether a coordinator already stores a bundle.
+  rpc HasWorkspaceBundle (HasWorkspaceBundleRequest) returns (HasWorkspaceBundleResponse);
+
+  // GetWorkspaceBundle downloads an immutable content-addressed workspace bundle.
+  rpc GetWorkspaceBundle (GetWorkspaceBundleRequest) returns (stream WorkspaceBundleChunk);
+
   // GetDAGRunStatus retrieves the status of a DAG run from the coordinator.
   // Used by parent DAGs to poll status of remote sub-DAGs in shared-nothing mode.
   rpc GetDAGRunStatus (GetDAGRunStatusRequest) returns (GetDAGRunStatusResponse);
@@ -110,6 +119,12 @@ message Task {
   string source_file = 25;
   // Opaque execution-scoped agent settings snapshot for distributed workers.
   bytes agent_snapshot = 26;
+  // Content-addressed workspace bundle for action sub-DAGs.
+  string workspace_bundle_digest = 27;
+  int64 workspace_bundle_size = 28;
+  string workspace_bundle_dag_path = 29;
+  string workspace_bundle_original_ref = 30;
+  string workspace_bundle_resolved_ref = 31;
 }
 
 enum Operation {
@@ -287,6 +302,44 @@ message StreamArtifactsResponse {
   uint64 chunks_received = 1;
   uint64 bytes_written = 2;
   string error = 3;
+}
+
+// Workspace bundle descriptor.
+message WorkspaceBundle {
+  string digest = 1;
+  int64 size = 2;
+  string dag_path = 3;
+  string original_ref = 4;
+  string resolved_ref = 5;
+}
+
+// Workspace bundle chunk for upload and download streams.
+message WorkspaceBundleChunk {
+  WorkspaceBundle bundle = 1;
+  bytes data = 2;
+  uint64 sequence = 3;
+  bool is_final = 4;
+}
+
+// Response message for workspace bundle upload.
+message PutWorkspaceBundleResponse {
+  bool accepted = 1;
+  string error = 2;
+}
+
+// Request message for checking workspace bundle presence.
+message HasWorkspaceBundleRequest {
+  string digest = 1;
+}
+
+// Response message for checking workspace bundle presence.
+message HasWorkspaceBundleResponse {
+  bool exists = 1;
+}
+
+// Request message for workspace bundle download.
+message GetWorkspaceBundleRequest {
+  string digest = 1;
 }
 
 // Request message for getting DAG run status.

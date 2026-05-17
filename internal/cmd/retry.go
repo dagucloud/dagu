@@ -131,6 +131,9 @@ func runRetry(ctx *Context, args []string) error {
 		return fmt.Errorf("failed to restore DAG from status: %w", err)
 	}
 	restoreRetryExecutionContext(dag, status, attempt)
+	if err := applyRetryDefaultWorkingDir(ctx, dag, status); err != nil {
+		return err
+	}
 
 	if err := prepareQueuedCatchupRetry(ctx, attempt, dag, status); err != nil {
 		return err
@@ -224,6 +227,23 @@ func restoreRetryExecutionContext(dag *core.DAG, status *exec.DAGRunStatus, atte
 	// params and JSON-excluded config, and retry nodes carry persisted state.
 	// This backfills only metadata that older run histories did not record.
 	backfillMissingRunWorkingDirSnapshot(dag, status, attempt)
+}
+
+func applyRetryDefaultWorkingDir(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus) error {
+	defaultWorkingDir, err := ctx.StringParam("default-working-dir")
+	if err != nil {
+		return fmt.Errorf("failed to get default-working-dir: %w", err)
+	}
+	if defaultWorkingDir == "" {
+		return nil
+	}
+	cleanDir := filepath.Clean(defaultWorkingDir)
+	dag.WorkingDir = cleanDir
+	dag.WorkingDirExplicit = true
+	if status != nil {
+		status.WorkingDir = cleanDir
+	}
+	return nil
 }
 
 func backfillMissingRunWorkingDirSnapshot(dag *core.DAG, status *exec.DAGRunStatus, attempt exec.DAGRunAttempt) {

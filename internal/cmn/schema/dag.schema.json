@@ -2146,6 +2146,18 @@
         },
         {
           "if": {
+            "properties": { "type": { "const": "action" } },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/actionExecutorConfig" }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": { "action": { "const": "dag.run" } },
             "required": ["action"]
           },
@@ -5997,6 +6009,7 @@
         "harness",
         "router",
         "agent",
+        "action",
         "sftp",
         "template"
       ],
@@ -6081,11 +6094,41 @@
         },
         {
           "type": "string",
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]*@[^\\s\\\\~^:?*\\[\\]{}@]+$",
+          "allOf": [{ "$ref": "#/definitions/actionRefVersionSafety" }],
+          "description": "Official Dagu action shorthand, resolved as dagucloud/action-<name>@<version>."
+        },
+        {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]+@[^\\s\\\\~^:?*\\[\\]{}@]+$",
+          "allOf": [{ "$ref": "#/definitions/actionRefVersionSafety" }],
+          "description": "GitHub action reference in owner/repo@version format."
+        },
+        {
+          "type": "string",
+          "pattern": "^source:.+@[^\\s\\\\~^:?*\\[\\]{}@]+$",
+          "allOf": [{ "$ref": "#/definitions/actionRefVersionSafety" }],
+          "description": "Explicit source action reference such as source:github.com/owner/repo@version or source:./actions/name@local."
+        },
+        {
+          "type": "string",
           "pattern": "^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*)*$",
           "description": "Custom action name declared in actions or base config."
         }
       ],
-      "description": "Builtin or custom action name."
+      "description": "Builtin, remote, or custom action name."
+    },
+    "actionRefVersionSafety": {
+      "allOf": [
+        { "not": { "pattern": "@-" } },
+        { "not": { "pattern": "@\\." } },
+        { "not": { "pattern": "/\\." } },
+        { "not": { "pattern": "@[^@]*\\.\\." } },
+        { "not": { "pattern": "@[^@]*//" } },
+        { "not": { "pattern": "@[^@]*[/.]$" } },
+        { "not": { "pattern": "@[^@]*\\.lock($|/)" } }
+      ],
+      "description": "Safety constraints for the version portion of an action reference."
     },
     "legacyStepExecutionFieldPresence": {
       "anyOf": [
@@ -6905,6 +6948,42 @@
       "type": "object",
       "description": "Executor-specific configuration. Schema depends on executor type.",
       "additionalProperties": true
+    },
+    "actionExecutorConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref"],
+      "properties": {
+        "ref": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]*@[^\\s\\\\~^:?*\\[\\]{}@]+$",
+              "allOf": [{ "$ref": "#/definitions/actionRefVersionSafety" }],
+              "description": "Official Dagu action shorthand, resolved as dagucloud/action-<name>@<version>."
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]+@[^\\s\\\\~^:?*\\[\\]{}@]+$",
+              "allOf": [{ "$ref": "#/definitions/actionRefVersionSafety" }],
+              "description": "GitHub action reference in owner/repo@version format."
+            },
+            {
+              "type": "string",
+              "pattern": "^source:.+@[^\\s\\\\~^:?*\\[\\]{}@]+$",
+              "allOf": [{ "$ref": "#/definitions/actionRefVersionSafety" }],
+              "description": "Explicit source action reference such as source:github.com/owner/repo@version or source:./actions/name@local."
+            }
+          ],
+          "description": "External action reference."
+        },
+        "input": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Input object passed to the action."
+        }
+      },
+      "description": "Configuration for type: action."
     },
     "executorObject": {
       "type": "object",

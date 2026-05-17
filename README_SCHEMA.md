@@ -9,7 +9,7 @@ Dagu workflows are DAGs described in YAML. The current schema has a simple
 execution split:
 
 - `run:` for local shell commands and scripts
-- `action:` for named builtin or custom actions
+- `action:` for named builtin actions, custom actions, or versioned remote action packages
 - `actions:` for reusable custom action definitions
 
 The older v1 execution fields (`command:`, `script:`, step-level `type:`,
@@ -173,8 +173,8 @@ steps:
       body: '{"queue":"default"}'
 ```
 
-`action:` names select builtin or custom actions. Inputs and executor-specific
-options go under `with:`.
+`action:` names select builtin actions, custom actions, or versioned remote
+action packages. Inputs and executor-specific options go under `with:`.
 
 Current builtin actions:
 
@@ -206,10 +206,18 @@ Current builtin actions:
 | `s3.upload`, `s3.download`, `s3.list`, `s3.delete` | S3 operations | S3 config |
 | `sftp.upload`, `sftp.download` | SFTP transfers | SFTP config |
 | `noop` | Output-only or approval-only placeholder step | no `with`, or empty `with` |
+| `owner/repo@version`, `name@version`, `source:target@version` | Remote action package | caller input object under `with:` |
 
 `run:` and `action:` are mutually exclusive on a step. Do not combine either
 with legacy execution fields such as `command:`, `script:`, step-level `type:`,
 `call:`, `messages:`, `agent:`, `llm:`, `value:`, or `routes:`.
+
+Remote action packages contain a `dagu-action.yaml` manifest and a DAG
+entrypoint. GitHub refs such as `acme/dagu-action-notify@v1.2.0` and official
+refs such as `slack@v1.2.0` are portable across worker pools when the process
+executing the action can resolve the Git ref. Explicit `source:` refs support
+local paths, `file://` paths, and Git URLs; local paths must exist on the worker
+executing the action step.
 
 ## Common Action Examples
 

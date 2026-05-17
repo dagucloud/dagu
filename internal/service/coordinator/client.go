@@ -4,11 +4,13 @@
 package coordinator
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math/rand/v2"
 	"net"
@@ -22,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -825,6 +828,156 @@ func (cli *clientImpl) StreamArtifactsTo(ctx context.Context, owner exec.HostInf
 		return nil, err
 	}
 	return stream, nil
+}
+
+func (cli *clientImpl) PutWorkspaceBundle(ctx context.Context, desc workspacebundle.Descriptor, data []byte) error {
+	if err := workspacebundle.Verify(data, desc.Digest); err != nil {
+		return err
+	}
+	members, err := cli.getCoordinatorMembers(ctx)
+	if err != nil {
+		return err
+	}
+	var satisfied int
+	errs := make([]error, 0)
+	for _, member := range members {
+		memberClient, err := cli.getOrCreateClient(member)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("coordinator %q: %w", member.ID, err))
+			continue
+		}
+		if err := cli.isHealthy(ctx, member); err != nil {
+			errs = append(errs, fmt.Errorf("coordinator %q is unhealthy: %w", member.ID, err))
+			continue
+		}
+		callCtx, cancel := context.WithTimeout(ctx, cli.config.RequestTimeout)
+		exists, err := hasWorkspaceBundleInMember(callCtx, memberClient, desc.Digest)
+		cancel()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("check workspace bundle on coordinator %q: %w", member.ID, err))
+			continue
+		}
+		if exists {
+			satisfied++
+			continue
+		}
+
+		callCtx, cancel = context.WithTimeout(ctx, cli.config.RequestTimeout)
+		err = putWorkspaceBundleToMember(callCtx, memberClient, desc, data)
+		cancel()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("upload workspace bundle to coordinator %q: %w", member.ID, err))
+			continue
+		}
+		satisfied++
+	}
+	if satisfied == 0 {
+		if len(errs) == 0 {
+			errs = append(errs, fmt.Errorf("no healthy coordinators available"))
+		}
+		return fmt.Errorf("failed to upload workspace bundle: %w", errors.Join(errs...))
+	}
+	return nil
+}
+
+func hasWorkspaceBundleInMember(ctx context.Context, client *client, digest string) (bool, error) {
+	resp, err := client.client.HasWorkspaceBundle(ctx, &coordinatorv1.HasWorkspaceBundleRequest{Digest: digest})
+	if err != nil {
+		return false, err
+	}
+	return resp != nil && resp.Exists, nil
+}
+
+func putWorkspaceBundleToMember(ctx context.Context, client *client, desc workspacebundle.Descriptor, data []byte) error {
+	stream, err := client.client.PutWorkspaceBundle(ctx)
+	if err != nil {
+		return fmt.Errorf("open workspace bundle upload stream: %w", err)
+	}
+	protoDesc := descriptorToProto(desc)
+	for offset, sequence := 0, uint64(0); offset < len(data) || sequence == 0; sequence++ {
+		end := min(offset+workspaceBundleChunkSize, len(data))
+		chunk := &coordinatorv1.WorkspaceBundleChunk{
+			Sequence: sequence,
+			IsFinal:  end == len(data),
+		}
+		if sequence == 0 {
+			chunk.Bundle = protoDesc
+		}
+		if offset < len(data) {
+			chunk.Data = data[offset:end]
+		}
+		if err := stream.Send(chunk); err != nil {
+			return fmt.Errorf("send workspace bundle chunk: %w", err)
+		}
+		offset = end
+		if len(data) == 0 {
+			break
+		}
+	}
+	resp, err := stream.CloseAndRecv()
+	if err != nil {
+		return fmt.Errorf("close workspace bundle upload stream: %w", err)
+	}
+	if resp == nil || !resp.Accepted {
+		msg := "workspace bundle upload rejected"
+		if resp != nil && resp.Error != "" {
+			msg += ": " + resp.Error
+		}
+		return fmt.Errorf("%s", msg)
+	}
+	return nil
+}
+
+func (cli *clientImpl) GetWorkspaceBundle(ctx context.Context, digest string) ([]byte, error) {
+	if !workspacebundle.ValidDigest(digest) {
+		return nil, fmt.Errorf("invalid workspace bundle digest %q", digest)
+	}
+	members, err := cli.getCoordinatorMembers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var data []byte
+	err = cli.attemptCall(ctx, members, func(ctx context.Context, _ exec.HostInfo, client *client) error {
+		var callErr error
+		data, callErr = getWorkspaceBundleFromMember(ctx, client, digest)
+		return callErr
+	})
+	return data, err
+}
+
+func getWorkspaceBundleFromMember(ctx context.Context, client *client, digest string) ([]byte, error) {
+	stream, err := client.client.GetWorkspaceBundle(ctx, &coordinatorv1.GetWorkspaceBundleRequest{Digest: digest})
+	if err != nil {
+		return nil, fmt.Errorf("open workspace bundle download stream: %w", err)
+	}
+	var buf bytes.Buffer
+	var sequence uint64
+	for {
+		chunk, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("receive workspace bundle chunk: %w", err)
+		}
+		if chunk.Sequence != sequence {
+			return nil, fmt.Errorf("workspace bundle sequence mismatch: got %d, want %d", chunk.Sequence, sequence)
+		}
+		sequence++
+		if len(chunk.Data) > 0 {
+			if int64(buf.Len()+len(chunk.Data)) > workspacebundle.DefaultMaxCompressedSize {
+				return nil, fmt.Errorf("workspace bundle exceeds compressed size limit %d", workspacebundle.DefaultMaxCompressedSize)
+			}
+			if _, err := buf.Write(chunk.Data); err != nil {
+				return nil, fmt.Errorf("buffer workspace bundle chunk: %w", err)
+			}
+		}
+	}
+	data := buf.Bytes()
+	if err := workspacebundle.Verify(data, digest); err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 // getDialOptions returns the appropriate gRPC dial options based on TLS configuration

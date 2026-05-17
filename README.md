@@ -19,7 +19,7 @@
 
 Dagu gives your automation a home. Run your existing scripts, containers, SQL jobs, and HTTP calls as visible, governed workflows with schedules, retries, logs, artifacts, human-in-the-loop, and observability without Airflow-level complexity.
 
-Keep your existing automation as shell scripts, Python scripts, containers, SSH commands, SQL jobs, HTTP calls, and AI harnesses. Define the workflow in plain YAML, run it with one binary, and get the operational layer that cron and ad hoc scripts are missing: dependencies, retries, queues, logs, artifacts, approvals, API/webhooks, optional distributed workers, and pinned external CLI tools for reproducible runs.
+Keep your existing automation as shell scripts, Python scripts, containers, SSH commands, SQL jobs, HTTP calls, AI harnesses, and reusable action packages. Define the workflow in plain YAML, run it with one binary, and get the operational layer that cron and ad hoc scripts are missing: dependencies, retries, queues, logs, artifacts, approvals, API/webhooks, optional distributed workers, pinned external CLI tools, and versioned remote actions for reproducible runs.
 
 Dagu is local-first by default. API keys, private repositories, internal documents, customer data, Slack logs, and agent artifacts can stay inside your own machine or infrastructure instead of being handed to a cloud automation SaaS.
 
@@ -373,6 +373,27 @@ steps:
 
 Dagu installs declared portable CLIs before the DAG run, exposes them on `PATH` for host command steps, and caches them on each worker. You do not need to install a separate tool manager; Dagu remains a single binary. See the [Tools documentation](https://docs.dagu.sh/writing-workflows/tools) for package syntax, immutable refs, distributed worker behavior, sub-DAG scoping, and current limitations.
 
+### Remote action package
+
+```yaml
+steps:
+  - id: notify
+    action: acme/dagu-action-notify@v1.2.0
+    with:
+      text: "Build ${BUILD_ID} finished"
+    output:
+      result:
+        from: stdout
+        decode: json
+        select: .RESULT
+
+  - id: audit
+    depends: [notify]
+    run: echo "Notification result: ${notify.output.result}"
+```
+
+Remote actions package a DAG, manifest, schemas, and helper files behind a versioned `action:` reference. Use GitHub or explicit Git refs for portable distributed workers; local `source:` refs are useful for development or workers that share the same path. See the [Remote Actions documentation](https://docs.dagu.sh/writing-workflows/remote-actions) for package layout and worker-mode behavior.
+
 ### Docker step
 
 ```yaml
@@ -489,7 +510,7 @@ steps:
 
 For more examples, see the [Examples documentation](https://docs.dagu.sh/writing-workflows/examples).
 
-## Built-in and Custom Actions
+## Built-in, Custom, and Remote Actions
 
 Dagu includes built-in actions that run within the Dagu process (or worker). Local shell commands use `run`.
 
@@ -515,8 +536,11 @@ Dagu includes built-in actions that run within the Dagu process (or worker). Loc
 | [`dag.enqueue`](https://docs.dagu.sh/writing-workflows/control-flow) | Queue another DAG asynchronously and continue after enqueue |
 | [`harness.run`](https://docs.dagu.sh/step-types/harness) | Run coding agent CLIs such as Claude Code, Codex, Copilot, OpenCode, and Pi |
 | [`agent.run`](https://docs.dagu.sh/features/agent/step) | Built-in agent action with tool use |
+| [`owner/repo@version`](https://docs.dagu.sh/writing-workflows/remote-actions) | Remote action package backed by a DAG, manifest, and versioned source |
 
 You can also define reusable actions with the top-level `actions` field. Custom actions expand to built-in actions during DAG load, so you can wrap a common shell, HTTP, SQL, or other pattern behind a typed interface with validated input.
+
+Remote actions are package-style reusable DAGs called directly by `action: owner/repo@version`, `action: name@version`, or `action: source:target@version`. They run as sub-DAGs and are transferred to distributed workers as workspace bundles after the reference is resolved.
 
 ```yaml
 actions:
