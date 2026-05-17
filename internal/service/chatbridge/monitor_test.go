@@ -338,6 +338,66 @@ func TestNotificationMonitor_PollSourceRoutesEventsPerDestination(t *testing.T) 
 	assert.ElementsMatch(t, []string{"dest-a", "dest-b"}, destinations)
 }
 
+func TestNotificationMonitor_PollSourceSkipsFailedRunWithAutoRetryRemaining(t *testing.T) {
+	t.Parallel()
+
+	store := &stubNotificationStore{}
+	service := eventstore.New(store)
+	var (
+		mu    sync.Mutex
+		calls int
+	)
+	transport := &fakeNotificationTransport{
+		destinations: []string{"dest-1"},
+		flushFn: func(_ context.Context, _ string, _ NotificationBatch, _ bool) bool {
+			mu.Lock()
+			defer mu.Unlock()
+			calls++
+			return true
+		},
+	}
+	cfg := DefaultNotificationMonitorConfig()
+	cfg.PollInterval = 10 * time.Millisecond
+	cfg.SeenEvictInterval = time.Hour
+	cfg.UrgentWindow = 10 * time.Millisecond
+	cfg.SuccessWindow = 10 * time.Millisecond
+
+	monitor := NewNotificationMonitor(service, "", transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
+	stopMonitor := testutil.StartContextRunner(t, monitor)
+	defer stopMonitor()
+
+	require.Eventually(t, func() bool {
+		headCalls, _ := store.stats()
+		return headCalls > 0
+	}, time.Second, 10*time.Millisecond)
+
+	status := &exec.DAGRunStatus{
+		Name:           "briefing",
+		Status:         core.Failed,
+		DAGRunID:       "run-1",
+		AttemptID:      "attempt-1",
+		Error:          "boom",
+		AutoRetryCount: 0,
+		AutoRetryLimit: 2,
+	}
+	require.NoError(t, store.Emit(context.Background(), eventstore.NewDAGRunEvent(
+		eventstore.Source{Service: eventstore.SourceServiceServer},
+		eventstore.TypeDAGRunFailed,
+		status,
+		nil,
+	)))
+
+	require.Eventually(t, func() bool {
+		_, readCalls := store.stats()
+		return readCalls > 1
+	}, time.Second, 10*time.Millisecond)
+	require.Never(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return calls > 0 || monitor.IsDelivered("dest-1", status)
+	}, 100*time.Millisecond, 10*time.Millisecond)
+}
+
 func TestEnqueueNotificationsByEventFiltersUnknownAndDuplicateRoutes(t *testing.T) {
 	t.Parallel()
 

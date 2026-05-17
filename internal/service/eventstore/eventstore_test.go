@@ -83,18 +83,20 @@ func TestNewDAGRunEventEmbedsDAGRunSnapshot(t *testing.T) {
 	t.Parallel()
 
 	status := &exec.DAGRunStatus{
-		Root:       exec.NewDAGRunRef("root-briefing", "root-run"),
-		Parent:     exec.NewDAGRunRef("root-briefing", "parent-run"),
-		Name:       "briefing",
-		DAGRunID:   "run-1",
-		AttemptID:  "attempt-1",
-		ProcGroup:  "priority-high",
-		Status:     core.Failed,
-		Error:      "boom",
-		Log:        "/tmp/run.log",
-		QueuedAt:   "2026-04-01T09:00:00Z",
-		StartedAt:  "2026-04-01T09:01:00Z",
-		FinishedAt: "2026-04-01T09:02:00Z",
+		Root:           exec.NewDAGRunRef("root-briefing", "root-run"),
+		Parent:         exec.NewDAGRunRef("root-briefing", "parent-run"),
+		Name:           "briefing",
+		DAGRunID:       "run-1",
+		AttemptID:      "attempt-1",
+		ProcGroup:      "priority-high",
+		Status:         core.Failed,
+		Error:          "boom",
+		Log:            "/tmp/run.log",
+		QueuedAt:       "2026-04-01T09:00:00Z",
+		StartedAt:      "2026-04-01T09:01:00Z",
+		FinishedAt:     "2026-04-01T09:02:00Z",
+		AutoRetryCount: 1,
+		AutoRetryLimit: 3,
 		Nodes: []*exec.Node{
 			{
 				Step:   core.Step{Name: "fetch"},
@@ -138,6 +140,8 @@ func TestNewDAGRunEventEmbedsDAGRunSnapshot(t *testing.T) {
 	assert.Equal(t, status.Log, restored.Log)
 	assert.Equal(t, status.StartedAt, restored.StartedAt)
 	assert.Equal(t, status.FinishedAt, restored.FinishedAt)
+	assert.Equal(t, status.AutoRetryCount, restored.AutoRetryCount)
+	assert.Equal(t, status.AutoRetryLimit, restored.AutoRetryLimit)
 	require.Len(t, restored.Nodes, 1)
 	assert.Equal(t, "fetch", restored.Nodes[0].Step.Name)
 	assert.Equal(t, core.NodeFailed, restored.Nodes[0].Status)
