@@ -249,8 +249,10 @@ container:
 steps:
   - run: sh -c "echo 'Data in named volume' > /data/volume.txt"
   - run: cat /data/volume.txt
+    depends: container_1
     output: NAMED_VOL_OUT1
   - run: ls -la /data/
+    depends: container_1
     output: NAMED_VOL_OUT2
 `, testImage)
 			},
