@@ -165,14 +165,13 @@ Do not route large payloads through `output:` variables; use `output:` for small
 
 Omit the root `name:` field—Dagu uses the filename as the DAG name by default.
 
-Use the default graph execution model with explicit `depends` on every step. This makes execution order clear and deterministic. Steps with no dependencies use `depends: []`. Do not use `type: chain` unless sequential chain semantics are specifically required.
+Use the default graph execution model with explicit `depends` whenever one step must wait for another. Omit `depends` on root steps with no dependencies. Do not use `type: chain` unless sequential chain semantics are specifically required.
 
 Example:
 ```yaml
 steps:
   - id: fetch_data
     run: curl -o data.json https://api.example.com/data
-    depends: []
   - id: process
     run: python process.py
     depends:

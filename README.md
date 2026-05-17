@@ -137,7 +137,6 @@ artifacts:
 steps:
   - id: review_pr
     action: agent.run
-    depends: []
     with:
       task: |
         Review the README.md file in ${REPO_URL}.
@@ -359,7 +358,6 @@ graph LR
 steps:
   - id: step_1
     run: echo "Step 1"
-    depends: []
   - id: step_2
     run: echo "Step 2"
     depends: [step_1]
@@ -374,7 +372,6 @@ tools:
 steps:
   - id: inspect
     run: jq --version
-    depends: []
 
   - id: transform
     run: jq '.items[] | .name' data.json
@@ -483,7 +480,6 @@ handler_on:
 steps:
   - id: review
     action: agent.run
-    depends: []
     with:
       task: Review the README.md file and return concise Markdown findings.
       max_iterations: 10

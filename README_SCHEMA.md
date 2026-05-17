@@ -371,7 +371,6 @@ steps:
   - id: version
     run: git rev-parse --short HEAD
     output: VERSION
-    depends: []
 
   - id: publish
     run: echo "Publishing ${VERSION}"
