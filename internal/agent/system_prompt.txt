@@ -169,7 +169,6 @@ Use the default graph execution model with explicit `depends` on every step. Thi
 
 Example:
 ```yaml
-type: graph
 steps:
   - id: fetch_data
     run: curl -o data.json https://api.example.com/data
