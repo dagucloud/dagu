@@ -165,7 +165,7 @@ Do not route large payloads through `output:` variables; use `output:` for small
 
 Omit the root `name:` field—Dagu uses the filename as the DAG name by default.
 
-Always use `type: graph` with explicit `depends` on every step. This makes execution order clear and deterministic. Steps with no dependencies use `depends: []`. Never use `type: chain` or omit `type`—implicit sequential ordering hides the real dependency structure.
+Use the default graph execution model with explicit `depends` on every step. This makes execution order clear and deterministic. Steps with no dependencies use `depends: []`. Do not use `type: chain` unless sequential chain semantics are specifically required.
 
 Example:
 ```yaml

@@ -46,13 +46,17 @@ steps:
 
 The root `type:` controls how the workflow executes:
 
-- `chain` runs steps in order. This is the default.
 - `graph` runs steps according to `depends:` and can run independent steps in
   parallel.
+- `graph` is the default when `type:` is omitted.
+- `chain` runs steps in order.
 - `agent` is reserved for agent-oriented execution.
 
 Do not confuse root `type:` with legacy step-level `type:`. Step-level
 `type:` is deprecated; use `action:` for named executors.
+
+Do not use scalar step shorthand such as `- echo hello`. It is deprecated;
+write explicit step objects with `run:` instead.
 
 ## Mental Model
 
@@ -367,9 +371,11 @@ steps:
   - id: version
     run: git rev-parse --short HEAD
     output: VERSION
+    depends: []
 
   - id: publish
     run: echo "Publishing ${VERSION}"
+    depends: [version]
 ```
 
 Object-form `output:` publishes structured step output:

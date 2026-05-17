@@ -17,9 +17,9 @@ const defaultBaseConfig = `# Base DAG Configuration
 # -- Active Defaults --
 
 # Execution model. Keep the default explicit so new base.yaml files are self-describing.
-# "chain" runs steps sequentially in definition order.
 # "graph" runs steps in parallel based on dependency resolution.
-type: chain
+# "chain" runs steps sequentially in definition order.
+type: graph
 
 # Behavior when a new run is triggered while one is already active.
 # "skip" = discard the new run. "all" = queue all runs. "latest" = keep only the most recent.

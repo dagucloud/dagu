@@ -385,14 +385,14 @@ func TestBuildType(t *testing.T) {
 		wantErr  bool
 	}{
 		{
-			name:     "EmptyDefaultsToChain",
+			name:     "EmptyDefaultsToGraph",
 			input:    "",
-			expected: core.TypeChain,
+			expected: core.TypeGraph,
 		},
 		{
-			name:     "WhitespaceDefaultsToChain",
+			name:     "WhitespaceDefaultsToGraph",
 			input:    "  ",
-			expected: core.TypeChain,
+			expected: core.TypeGraph,
 		},
 		{
 			name:     "GraphType",
@@ -3213,16 +3213,14 @@ func TestChainTypeDependsValidation(t *testing.T) {
 			expectErr: false,
 		},
 		{
-			name: "DefaultTypeWithDependsShouldError",
+			name: "DefaultTypeWithDependsShouldWork",
 			dag: &dag{
-				// Default type is chain, so depends should not be allowed
 				Steps: []any{
 					map[string]any{"name": "step1", "command": "echo 1"},
 					map[string]any{"name": "step2", "command": "echo 2", "depends": []string{"step1"}},
 				},
 			},
-			expectErr:   true,
-			errContains: "depends field is not allowed for DAGs with type 'chain'",
+			expectErr: false,
 		},
 		{
 			name: "ChainTypeNestedParallelWithDependsShouldError",
@@ -3381,9 +3379,8 @@ func TestRouterNotAllowedInChainType(t *testing.T) {
 			errContains: "router steps require type 'graph'",
 		},
 		{
-			name: "DefaultTypeWithRouterShouldError",
+			name: "DefaultTypeWithRouterShouldWork",
 			dag: &dag{
-				// Default type is chain, so router should not be allowed
 				Steps: []any{
 					map[string]any{
 						"name":  "router",
@@ -3396,8 +3393,7 @@ func TestRouterNotAllowedInChainType(t *testing.T) {
 					map[string]any{"name": "step_a", "command": "echo A"},
 				},
 			},
-			expectErr:   true,
-			errContains: "router steps require type 'graph'",
+			expectErr: false,
 		},
 		{
 			name: "GraphTypeWithRouterShouldWork",

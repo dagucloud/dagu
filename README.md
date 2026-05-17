@@ -137,6 +137,7 @@ artifacts:
 steps:
   - id: review_pr
     action: agent.run
+    depends: []
     with:
       task: |
         Review the README.md file in ${REPO_URL}.
@@ -146,11 +147,13 @@ steps:
 
   - id: approval
     action: noop
+    depends: [review_pr]
     approval:
       prompt: Review the review.md artifact. Approve to post an issue with the findings, or reject to skip.
 
   - id: post_issue
     run: gh issue create --title "Review Findings" --body-file "${DAG_RUN_ARTIFACTS_DIR}/review.md"
+    depends: [approval]
 ```
 
 This workflow uses the built-in [`agent.run` action](https://docs.dagu.sh/features/agent/step) and assumes a default model is configured in Agent Settings. It reviews a GitHub repository's README file, saves the agent's final output as an artifact, and then prompts for manual [approval](https://docs.dagu.sh/writing-workflows/yaml-specification#approval) before posting an issue with the findings. GitHub CLI (`gh`) is used in the final step to create the issue.
@@ -317,19 +320,9 @@ See the [embedded API documentation](https://docs.dagu.sh/embedding/go-api) and 
 
 ## Workflow Examples
 
-### Sequential execution
-
-```yaml
-type: chain
-steps:
-  - run: echo "Step 1"
-  - run: echo "Step 2"
-```
-
 ### Parallel execution with dependencies
 
 ```yaml
-type: graph
 steps:
   - id: extract
     run: ./extract.sh
@@ -344,6 +337,9 @@ steps:
     depends: [transform_a, transform_b]
 ```
 
+`graph` is the default execution type. Use explicit `depends` to define ordering; steps without dependencies can run in parallel.
+Scalar step shorthand such as `- echo "hello"` is deprecated; use explicit step objects with `run:` instead.
+
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'background': '#18181B', 'primaryTextColor': '#fff', 'lineColor': '#888'}}}%%
 graph LR
@@ -357,6 +353,18 @@ graph LR
     style D fill:#18181B,stroke:#3B82F6,stroke-width:1.6px,color:#fff
 ```
 
+### Sequential execution
+
+```yaml
+steps:
+  - id: step_1
+    run: echo "Step 1"
+    depends: []
+  - id: step_2
+    run: echo "Step 2"
+    depends: [step_1]
+```
+
 ### Reproducible external tools
 
 ```yaml
@@ -364,11 +372,13 @@ tools:
   - jqlang/jq@jq-1.7.1
 
 steps:
-  - name: inspect
+  - id: inspect
     run: jq --version
+    depends: []
 
-  - name: transform
+  - id: transform
     run: jq '.items[] | .name' data.json
+    depends: [inspect]
 ```
 
 Dagu installs declared portable CLIs before the DAG run, exposes them on `PATH` for host command steps, and caches them on each worker. You do not need to install a separate tool manager; Dagu remains a single binary. See the [Tools documentation](https://docs.dagu.sh/writing-workflows/tools) for package syntax, immutable refs, distributed worker behavior, sub-DAG scoping, and current limitations.
@@ -471,20 +481,23 @@ handler_on:
 
 ```yaml
 steps:
-  - name: review
+  - id: review
     action: agent.run
+    depends: []
     with:
       task: Review the README.md file and return concise Markdown findings.
       max_iterations: 10
     stdout: ${DAG_RUN_ARTIFACTS_DIR}/review.md
 
-  - name: approval
+  - id: approval
     action: noop
+    depends: [review]
     approval:
       prompt: Review the review.md artifact. Approve to post an issue with the findings, or reject to skip.
 
-  - name: post_issue
+  - id: post_issue
     run: gh issue create --title "Review Findings" --body-file "${DAG_RUN_ARTIFACTS_DIR}/review.md"
+    depends: [approval]
 ```
 
 For more examples, see the [Examples documentation](https://docs.dagu.sh/writing-workflows/examples).

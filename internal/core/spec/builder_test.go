@@ -1367,6 +1367,7 @@ func TestNestedArrayParallelSyntax(t *testing.T) {
 		t.Parallel()
 
 		data := []byte(`
+type: chain
 steps:
   - run: echo "step 1"
   - 
@@ -1408,6 +1409,7 @@ steps:
 		t.Parallel()
 
 		data := []byte(`
+type: chain
 steps:
   - name: setup
     run: echo "setup"
@@ -1442,8 +1444,8 @@ steps:
 	t.Run("ParallelStepsWithExplicitDependenciesShouldError", func(t *testing.T) {
 		t.Parallel()
 
-		// Default type is chain, so explicit depends is not allowed
 		data := []byte(`
+type: chain
 steps:
   - name: step1
     run: echo "1"
@@ -1509,6 +1511,7 @@ steps:
 		t.Parallel()
 
 		data := []byte(`
+type: chain
 steps:
   - 
     - run: echo "parallel 1"
@@ -1531,6 +1534,7 @@ steps:
 		t.Parallel()
 
 		data := []byte(`
+type: chain
 steps:
   - 
     - run: echo "parallel 1"
@@ -1773,6 +1777,7 @@ steps:
 		t.Parallel()
 
 		data := []byte(`
+type: chain
 steps:
   - run: echo "setup"
   - run: echo "test"
@@ -1867,6 +1872,7 @@ steps:
 		t.Parallel()
 
 		data := []byte(`
+type: chain
 steps:
   - id: step_a
     run: echo a
