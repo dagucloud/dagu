@@ -28,6 +28,7 @@ func TestDAGExecution(t *testing.T) {
   - run: echo 1
     output: NO_NAME_STEP_OUT
   - run: echo ${NO_NAME_STEP_OUT}=1
+    depends: cmd_1
     output: NO_NAME_STEP_OUT2
 `)
 		agent := dag.Agent()
@@ -281,6 +282,7 @@ steps:
   - run: |
 `+indentTestScript(out2Command, 6)+`
     output: OUT2
+    depends: cmd_1
     preconditions:
       - condition: "$OUT1"
         expected: "re:^abc.*def$"
@@ -302,6 +304,7 @@ steps:
     output: CONFIG
 
   - run: echo "Starting server at ${CONFIG.host}:${CONFIG.port}"
+    depends: cmd_1
     output: OUT1
 `)
 		agent := dag.Agent()
@@ -323,11 +326,13 @@ steps:
   - run: echo foo
     stdout: "${DATA_DIR}_${PROCESS_DATE}"
   - run: cat ${DATA_DIR}_${PROCESS_DATE}
+    depends: cmd_1
     output: OUT1
     preconditions:
       - condition: "${DATA_DIR}_${PROCESS_DATE}"
         expected: "re:[0-9]{8}_[0-9]{6}"
   - run: rm ${DATA_DIR}_${PROCESS_DATE}
+    depends: cmd_2
 `, dataPrefix))
 		agent := dag.Agent()
 		agent.RunSuccess(t)
@@ -473,6 +478,7 @@ steps:
     output: CONFIG
 
   - name: start_server
+    depends: cmd_1
     run: echo "Starting server at ${CONFIG.host}:${CONFIG.port}"
     output: OUT1
 `)
@@ -716,6 +722,7 @@ func TestCallSubDAG(t *testing.T) {
       params: "SUB_P1=foo"
     output: OUT1
   - run: echo "${OUT1.outputs.OUT}"
+    depends: dag_1
     output: OUT2
 ---
 name: sub
@@ -756,6 +763,7 @@ steps:
       params: "PARAM=123"
     output: SUB_OUTPUT
   - run: echo "${SUB_OUTPUT.outputs.OUTPUT}"
+    depends: dag_1
     output: OUT1
 ---
 name: nested_child
@@ -768,6 +776,7 @@ steps:
       params: "PARAM=${PARAM}"
     output: GRAND_SUB_OUTPUT
   - run: echo "${GRAND_SUB_OUTPUT.outputs.OUTPUT}"
+    depends: dag_1
     output: OUTPUT
 `
 	dag := th.DAG(t, dagContent)

@@ -380,8 +380,8 @@
     "type": {
       "type": "string",
       "enum": ["graph", "chain", "agent"],
-      "default": "chain",
-      "description": "Execution type for steps. 'chain' (default) executes steps sequentially in the order they are defined, with each step automatically depending on the previous one. 'graph' uses dependency-based execution where steps run based on their 'depends' field. 'agent' is reserved for future agent-based execution."
+      "default": "graph",
+      "description": "Execution type for steps. 'graph' (default) uses dependency-based execution where steps run based on their 'depends' field. 'chain' executes steps sequentially in the order they are defined, with each step automatically depending on the previous one. 'agent' is reserved for future agent-based execution."
     },
     "env": {
       "oneOf": [
