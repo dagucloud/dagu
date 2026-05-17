@@ -6,6 +6,14 @@ import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AppBarContext } from '@/contexts/AppBarContext';
+
+vi.hoisted(() => {
+  vi.stubGlobal('getConfig', () => ({
+    apiURL: '/api/v1',
+    authMode: 'builtin',
+  }));
+});
+
 import NotificationsPage from '..';
 
 function renderPage() {

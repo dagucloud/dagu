@@ -115,6 +115,8 @@ func TestUpdateNotificationChannelMapsSaveTimeNotFound(t *testing.T) {
 		localapi.WithLicenseManager(license.NewTestManager()),
 	)
 
+	webhookURL := "https://example.com/webhook"
+
 	_, err := handler.UpdateNotificationChannel(context.Background(), openapi.UpdateNotificationChannelRequestObject{
 		ChannelId: "channel-1",
 		Body: &openapi.UpdateNotificationChannelJSONRequestBody{
@@ -122,7 +124,7 @@ func TestUpdateNotificationChannelMapsSaveTimeNotFound(t *testing.T) {
 			Type:    openapi.NotificationProviderTypeWebhook,
 			Enabled: true,
 			Webhook: &openapi.NotificationWebhookTargetInput{
-				Url: new("https://example.com/webhook"),
+				Url: &webhookURL,
 			},
 		},
 	})

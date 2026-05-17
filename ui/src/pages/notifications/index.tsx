@@ -16,10 +16,8 @@ import {
 } from 'lucide-react';
 import {
   type ReactElement,
-  useCallback,
   useContext,
   useEffect,
-  useMemo,
   useState,
 } from 'react';
 
@@ -39,7 +37,8 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { AppBarContext } from '@/contexts/AppBarContext';
-import { useConfig } from '@/contexts/ConfigContext';
+import { useClient, useQuery } from '@/hooks/api';
+import { whenEnabled } from '@/hooks/queryUtils';
 import { useLicense } from '@/hooks/useLicense';
 import { cn } from '@/lib/utils';
 import { WorkspaceKind, workspaceNameForSelection } from '@/lib/workspace';
@@ -48,17 +47,14 @@ import {
   NotificationChannelsUnavailableCard,
 } from '@/features/dags/components/dag-details/notifications/NotificationSections';
 import {
-  authHeaders,
   blankChannel,
   channelInput,
   deliveryLabel,
   DraftChannel,
   draftChannelFromAPI,
   EVENT_OPTIONS,
-  NotificationChannel,
   providerIcon,
   providerLabel,
-  readError,
 } from '@/features/dags/components/dag-details/notifications/notificationDrafts';
 import {
   components,
@@ -990,8 +986,24 @@ function LoadingCard({ label }: { label: string }) {
   );
 }
 
+function apiErrorMessage(error: unknown, fallback: string): string | null {
+  if (!error) {
+    return null;
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string' && message.trim() !== '') {
+      return message;
+    }
+  }
+  return fallback;
+}
+
 export function NotificationRulesPage() {
-  const config = useConfig();
+  const client = useClient();
   const license = useLicense();
   const appBarContext = useContext(AppBarContext);
   const reusableChannelsLicensed =
@@ -1001,11 +1013,7 @@ export function NotificationRulesPage() {
   const canConfigureWorkspaceRoutes =
     workspaceSelection?.kind === WorkspaceKind.workspace &&
     !!selectedWorkspaceName;
-  const query = useMemo(
-    () =>
-      `?remoteNode=${encodeURIComponent(appBarContext.selectedRemoteNode || 'local')}`,
-    [appBarContext.selectedRemoteNode]
-  );
+  const remoteNode = appBarContext.selectedRemoteNode || 'local';
   const [globalRoutes, setGlobalRoutes] = useState<DraftRouteSet>({
     ...blankRouteSet,
     routes: [],
@@ -1017,10 +1025,73 @@ export function NotificationRulesPage() {
   const [isSavingGlobalRoutes, setIsSavingGlobalRoutes] = useState(false);
   const [isSavingWorkspaceRoutes, setIsSavingWorkspaceRoutes] = useState(false);
   const [channels, setChannels] = useState<DraftChannel[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [activeScope, setActiveScope] = useState<RouteScopeKey>('global');
+
+  const {
+    data: channelsData,
+    error: channelsLoadError,
+    isLoading: channelsLoading,
+  } = useQuery(
+    '/notification-channels',
+    whenEnabled(reusableChannelsLicensed, {
+      params: {
+        query: { remoteNode },
+      },
+    }),
+    {
+      revalidateOnFocus: false,
+      revalidateOnMount: true,
+    }
+  );
+
+  const {
+    data: globalRoutesData,
+    error: globalRoutesLoadError,
+    isLoading: globalRoutesLoading,
+    mutate: mutateGlobalRoutes,
+  } = useQuery(
+    '/notification-routes/global',
+    whenEnabled(reusableChannelsLicensed, {
+      params: {
+        query: { remoteNode },
+      },
+    }),
+    {
+      revalidateOnFocus: false,
+      revalidateOnMount: true,
+    }
+  );
+
+  const {
+    data: workspaceRoutesData,
+    error: workspaceRoutesLoadError,
+    isLoading: workspaceRoutesLoading,
+    mutate: mutateWorkspaceRoutes,
+  } = useQuery(
+    '/notification-routes/workspaces/{workspaceName}',
+    whenEnabled(reusableChannelsLicensed && canConfigureWorkspaceRoutes, {
+      params: {
+        path: { workspaceName: selectedWorkspaceName },
+        query: { remoteNode },
+      },
+    }),
+    {
+      revalidateOnFocus: false,
+      revalidateOnMount: true,
+    }
+  );
+
+  const isLoading =
+    reusableChannelsLicensed &&
+    (channelsLoading ||
+      globalRoutesLoading ||
+      (canConfigureWorkspaceRoutes && workspaceRoutesLoading));
+  const loadError =
+    apiErrorMessage(channelsLoadError, 'Failed to load channels') ??
+    apiErrorMessage(globalRoutesLoadError, 'Failed to load Global rules') ??
+    apiErrorMessage(workspaceRoutesLoadError, 'Failed to load workspace rules');
 
   useEffect(() => {
     appBarContext.setTitle('Notification Rules');
@@ -1032,80 +1103,39 @@ export function NotificationRulesPage() {
     }
   }, [activeScope, canConfigureWorkspaceRoutes]);
 
-  const fetchRules = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      if (!reusableChannelsLicensed) {
-        setChannels([]);
-        setGlobalRoutes({ ...blankRouteSet, routes: [] });
-        setWorkspaceRoutes({ ...blankRouteSet, routes: [] });
-        return;
-      }
-      const [response, globalRoutesResponse, workspaceRoutesResponse] =
-        await Promise.all([
-          fetch(`${config.apiURL}/notification-channels${query}`, {
-            headers: authHeaders(),
-          }),
-          fetch(`${config.apiURL}/notification-routes/global${query}`, {
-            headers: authHeaders(),
-          }),
-          canConfigureWorkspaceRoutes
-            ? fetch(
-                `${config.apiURL}/notification-routes/workspaces/${encodeURIComponent(selectedWorkspaceName)}${query}`,
-                { headers: authHeaders() }
-              )
-            : Promise.resolve(null),
-        ]);
-      if (!response.ok) {
-        throw new Error(await readError(response, 'Failed to load channels'));
-      }
-      if (!globalRoutesResponse.ok) {
-        throw new Error(
-          await readError(
-            globalRoutesResponse,
-            'Failed to load Global rules'
-          )
-        );
-      }
-      const data = (await response.json()) as {
-        channels: NotificationChannel[];
-      };
-      setChannels((data.channels || []).map(draftChannelFromAPI));
-      const globalRouteSet =
-        (await globalRoutesResponse.json()) as NotificationRouteSet;
-      setGlobalRoutes(routeSetDraftFromAPI(globalRouteSet));
-      if (workspaceRoutesResponse) {
-        if (!workspaceRoutesResponse.ok) {
-          throw new Error(
-            await readError(
-              workspaceRoutesResponse,
-              'Failed to load workspace rules'
-            )
-          );
-        }
-        const workspaceRouteSet =
-          (await workspaceRoutesResponse.json()) as NotificationRouteSet;
-        setWorkspaceRoutes(routeSetDraftFromAPI(workspaceRouteSet));
-      } else {
-        setWorkspaceRoutes({ ...blankRouteSet, routes: [] });
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load rules');
-    } finally {
-      setIsLoading(false);
+  useEffect(() => {
+    if (!reusableChannelsLicensed) {
+      setChannels([]);
+      return;
+    }
+    if (channelsData) {
+      setChannels((channelsData.channels || []).map(draftChannelFromAPI));
+    }
+  }, [channelsData, reusableChannelsLicensed]);
+
+  useEffect(() => {
+    if (!reusableChannelsLicensed) {
+      setGlobalRoutes({ ...blankRouteSet, routes: [] });
+      return;
+    }
+    if (globalRoutesData) {
+      setGlobalRoutes(routeSetDraftFromAPI(globalRoutesData));
+    }
+  }, [globalRoutesData, reusableChannelsLicensed]);
+
+  useEffect(() => {
+    if (!reusableChannelsLicensed || !canConfigureWorkspaceRoutes) {
+      setWorkspaceRoutes({ ...blankRouteSet, routes: [] });
+      return;
+    }
+    if (workspaceRoutesData) {
+      setWorkspaceRoutes(routeSetDraftFromAPI(workspaceRoutesData));
     }
   }, [
     canConfigureWorkspaceRoutes,
-    config.apiURL,
-    query,
     reusableChannelsLicensed,
-    selectedWorkspaceName,
+    workspaceRoutesData,
   ]);
-
-  useEffect(() => {
-    fetchRules();
-  }, [fetchRules]);
 
   const saveGlobalRoutes = async () => {
     if (!reusableChannelsLicensed) return;
@@ -1113,21 +1143,24 @@ export function NotificationRulesPage() {
     setError(null);
     setNotice(null);
     try {
-      const response = await fetch(
-        `${config.apiURL}/notification-routes/global${query}`,
+      const { data: routeSet, error: apiError } = await client.PUT(
+        '/notification-routes/global',
         {
-          method: 'PUT',
-          headers: authHeaders(),
-          body: JSON.stringify(routeSetInput(globalRoutes)),
+          params: {
+            query: { remoteNode },
+          },
+          body: routeSetInput(globalRoutes),
         }
       );
-      if (!response.ok) {
+      if (apiError) {
         throw new Error(
-          await readError(response, 'Failed to save Global rules')
+          apiError.message || 'Failed to save Global rules'
         );
       }
-      const routeSet = (await response.json()) as NotificationRouteSet;
-      setGlobalRoutes(routeSetDraftFromAPI(routeSet));
+      if (routeSet) {
+        setGlobalRoutes(routeSetDraftFromAPI(routeSet));
+        mutateGlobalRoutes(routeSet, { revalidate: false });
+      }
       setNotice('Global rules saved');
     } catch (err) {
       setError(
@@ -1146,23 +1179,27 @@ export function NotificationRulesPage() {
     setError(null);
     setNotice(null);
     try {
-      const response = await fetch(
-        `${config.apiURL}/notification-routes/workspaces/${encodeURIComponent(selectedWorkspaceName)}${query}`,
+      const { data: routeSet, error: apiError } = await client.PUT(
+        '/notification-routes/workspaces/{workspaceName}',
         {
-          method: 'PUT',
-          headers: authHeaders(),
-          body: JSON.stringify(routeSetInput(workspaceRoutes)),
+          params: {
+            path: { workspaceName: selectedWorkspaceName },
+            query: { remoteNode },
+          },
+          body: routeSetInput(workspaceRoutes),
         }
       );
-      if (!response.ok) {
+      if (apiError) {
         throw new Error(
-          await readError(response, 'Failed to save workspace rules')
+          apiError.message || 'Failed to save workspace rules'
         );
       }
-      const routeSet = (await response.json()) as NotificationRouteSet;
-      setWorkspaceRoutes(routeSetDraftFromAPI(routeSet));
+      if (routeSet) {
+        setWorkspaceRoutes(routeSetDraftFromAPI(routeSet));
+        mutateWorkspaceRoutes(routeSet, { revalidate: false });
+      }
       setNotice(
-        routeSet.inheritGlobal
+        routeSet?.inheritGlobal
           ? 'Workspace now inherits Global rules'
           : 'Workspace rules saved'
       );
@@ -1242,7 +1279,7 @@ export function NotificationRulesPage() {
 
   return (
     <div className="space-y-4">
-      <StatusCard error={error} notice={notice} />
+      <StatusCard error={error ?? loadError} notice={notice} />
       {isLoading && <LoadingCard label="Refreshing notification rules..." />}
 
       {reusableChannelsLicensed ? (
@@ -1295,20 +1332,15 @@ export function NotificationRulesPage() {
 }
 
 export function NotificationChannelsPage() {
-  const config = useConfig();
+  const client = useClient();
   const license = useLicense();
   const appBarContext = useContext(AppBarContext);
   const reusableChannelsLicensed =
     !license.community && (license.valid || license.gracePeriod);
-  const query = useMemo(
-    () =>
-      `?remoteNode=${encodeURIComponent(appBarContext.selectedRemoteNode || 'local')}`,
-    [appBarContext.selectedRemoteNode]
-  );
+  const remoteNode = appBarContext.selectedRemoteNode || 'local';
   const [smtpDraft, setSMTPDraft] = useState<SMTPDraft>(blankSMTPDraft);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [channels, setChannels] = useState<DraftChannel[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [savingChannelIndex, setSavingChannelIndex] = useState<number | null>(
     null
   );
@@ -1318,76 +1350,91 @@ export function NotificationChannelsPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const {
+    data: settingsData,
+    error: settingsLoadError,
+    isLoading: settingsLoading,
+    mutate: mutateSettings,
+  } = useQuery(
+    '/notification-settings',
+    {
+      params: {
+        query: { remoteNode },
+      },
+    },
+    {
+      revalidateOnFocus: false,
+      revalidateOnMount: true,
+    }
+  );
+
+  const {
+    data: channelsData,
+    error: channelsLoadError,
+    isLoading: channelsLoading,
+    mutate: mutateChannels,
+  } = useQuery(
+    '/notification-channels',
+    whenEnabled(reusableChannelsLicensed, {
+      params: {
+        query: { remoteNode },
+      },
+    }),
+    {
+      revalidateOnFocus: false,
+      revalidateOnMount: true,
+    }
+  );
+
+  const isLoading =
+    settingsLoading || (reusableChannelsLicensed && channelsLoading);
+  const loadError =
+    apiErrorMessage(settingsLoadError, 'Failed to load email delivery') ??
+    apiErrorMessage(channelsLoadError, 'Failed to load channels');
+
   useEffect(() => {
     appBarContext.setTitle('Notification Channels');
   }, [appBarContext]);
 
-  const fetchSettings = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const settingsResponse = await fetch(
-        `${config.apiURL}/notification-settings${query}`,
-        { headers: authHeaders() }
-      );
-      if (!settingsResponse.ok) {
-        throw new Error(
-          await readError(settingsResponse, 'Failed to load email delivery')
-        );
-      }
-      const settings =
-        (await settingsResponse.json()) as NotificationWorkspaceSettings;
-      setSMTPDraft(smtpDraftFromAPI(settings));
-
-      if (!reusableChannelsLicensed) {
-        setChannels([]);
-        return;
-      }
-
-      const response = await fetch(
-        `${config.apiURL}/notification-channels${query}`,
-        {
-          headers: authHeaders(),
-        }
-      );
-      if (!response.ok) {
-        throw new Error(await readError(response, 'Failed to load channels'));
-      }
-      const data = (await response.json()) as {
-        channels: NotificationChannel[];
-      };
-      setChannels((data.channels || []).map(draftChannelFromAPI));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load channels');
-    } finally {
-      setIsLoading(false);
+  useEffect(() => {
+    if (settingsData) {
+      setSMTPDraft(smtpDraftFromAPI(settingsData));
     }
-  }, [config.apiURL, query, reusableChannelsLicensed]);
+  }, [settingsData]);
 
   useEffect(() => {
-    fetchSettings();
-  }, [fetchSettings]);
+    if (!reusableChannelsLicensed) {
+      setChannels([]);
+      return;
+    }
+    if (channelsData) {
+      setChannels((channelsData.channels || []).map(draftChannelFromAPI));
+    }
+  }, [channelsData, reusableChannelsLicensed]);
 
   const saveSettings = async () => {
     setIsSavingSettings(true);
     setError(null);
     setNotice(null);
     try {
-      const response = await fetch(
-        `${config.apiURL}/notification-settings${query}`,
+      const { data: settings, error: apiError } = await client.PUT(
+        '/notification-settings',
         {
-          method: 'PUT',
-          headers: authHeaders(),
-          body: JSON.stringify(smtpInput(smtpDraft)),
+          params: {
+            query: { remoteNode },
+          },
+          body: smtpInput(smtpDraft),
         }
       );
-      if (!response.ok) {
+      if (apiError) {
         throw new Error(
-          await readError(response, 'Failed to save email delivery')
+          apiError.message || 'Failed to save email delivery'
         );
       }
-      const settings = (await response.json()) as NotificationWorkspaceSettings;
-      setSMTPDraft(smtpDraftFromAPI(settings));
+      if (settings) {
+        setSMTPDraft(smtpDraftFromAPI(settings));
+        mutateSettings(settings, { revalidate: false });
+      }
       setNotice('Email delivery saved');
     } catch (err) {
       setError(
@@ -1425,25 +1472,30 @@ export function NotificationChannelsPage() {
     setError(null);
     setNotice(null);
     try {
-      const response = await fetch(
-        channel.id
-          ? `${config.apiURL}/notification-channels/${encodeURIComponent(channel.id)}${query}`
-          : `${config.apiURL}/notification-channels${query}`,
-        {
-          method: channel.id ? 'PUT' : 'POST',
-          headers: authHeaders(),
-          body: JSON.stringify(channelInput(channel)),
-        }
-      );
-      if (!response.ok) {
-        throw new Error(await readError(response, 'Failed to save channel'));
+      const response = channel.id
+        ? await client.PUT('/notification-channels/{channelId}', {
+            params: {
+              path: { channelId: channel.id },
+              query: { remoteNode },
+            },
+            body: channelInput(channel),
+          })
+        : await client.POST('/notification-channels', {
+            params: {
+              query: { remoteNode },
+            },
+            body: channelInput(channel),
+          });
+      if (response.error) {
+        throw new Error(response.error.message || 'Failed to save channel');
       }
-      const data = (await response.json()) as NotificationChannel;
+      const data = response.data;
       setChannels((current) =>
         current.map((item, itemIndex) =>
           itemIndex === index ? draftChannelFromAPI(data) : item
         )
       );
+      mutateChannels();
       setNotice('Channel saved');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save channel');
@@ -1467,19 +1519,22 @@ export function NotificationChannelsPage() {
     setError(null);
     setNotice(null);
     try {
-      const response = await fetch(
-        `${config.apiURL}/notification-channels/${encodeURIComponent(channel.id)}${query}`,
+      const { error: apiError } = await client.DELETE(
+        '/notification-channels/{channelId}',
         {
-          method: 'DELETE',
-          headers: authHeaders(),
+          params: {
+            path: { channelId: channel.id },
+            query: { remoteNode },
+          },
         }
       );
-      if (!response.ok) {
-        throw new Error(await readError(response, 'Failed to delete channel'));
+      if (apiError) {
+        throw new Error(apiError.message || 'Failed to delete channel');
       }
       setChannels((current) =>
         current.filter((_, index) => index !== deleteChannelIndex)
       );
+      mutateChannels();
       setNotice('Channel deleted');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete channel');
@@ -1488,7 +1543,7 @@ export function NotificationChannelsPage() {
 
   return (
     <div className="space-y-4">
-      <StatusCard error={error} notice={notice} />
+      <StatusCard error={error ?? loadError} notice={notice} />
       {isLoading && (
         <LoadingCard label="Refreshing notification channels..." />
       )}
