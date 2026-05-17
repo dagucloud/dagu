@@ -839,22 +839,23 @@ func (cli *clientImpl) PutWorkspaceBundle(ctx context.Context, desc workspacebun
 		return err
 	}
 	var satisfied int
-	var lastErr error
+	errs := make([]error, 0)
 	for _, member := range members {
 		memberClient, err := cli.getOrCreateClient(member)
 		if err != nil {
-			lastErr = err
+			errs = append(errs, fmt.Errorf("coordinator %q: %w", member.ID, err))
 			continue
 		}
 		if err := cli.isHealthy(ctx, member); err != nil {
-			lastErr = err
+			errs = append(errs, fmt.Errorf("coordinator %q is unhealthy: %w", member.ID, err))
 			continue
 		}
 		callCtx, cancel := context.WithTimeout(ctx, cli.config.RequestTimeout)
 		exists, err := hasWorkspaceBundleInMember(callCtx, memberClient, desc.Digest)
 		cancel()
 		if err != nil {
-			return fmt.Errorf("check workspace bundle on coordinator %q: %w", member.ID, err)
+			errs = append(errs, fmt.Errorf("check workspace bundle on coordinator %q: %w", member.ID, err))
+			continue
 		}
 		if exists {
 			satisfied++
@@ -865,15 +866,16 @@ func (cli *clientImpl) PutWorkspaceBundle(ctx context.Context, desc workspacebun
 		err = putWorkspaceBundleToMember(callCtx, memberClient, desc, data)
 		cancel()
 		if err != nil {
-			return fmt.Errorf("upload workspace bundle to coordinator %q: %w", member.ID, err)
+			errs = append(errs, fmt.Errorf("upload workspace bundle to coordinator %q: %w", member.ID, err))
+			continue
 		}
 		satisfied++
 	}
 	if satisfied == 0 {
-		if lastErr == nil {
-			lastErr = fmt.Errorf("no healthy coordinators available")
+		if len(errs) == 0 {
+			errs = append(errs, fmt.Errorf("no healthy coordinators available"))
 		}
-		return fmt.Errorf("failed to upload workspace bundle: %w", lastErr)
+		return fmt.Errorf("failed to upload workspace bundle: %w", errors.Join(errs...))
 	}
 	return nil
 }

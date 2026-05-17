@@ -5,6 +5,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -69,7 +70,11 @@ func materializeTaskWorkspace(
 		return nil, fmt.Errorf("workspace bundle size mismatch: got %d, want %d", len(data), desc.Size)
 	}
 	if err := workspacebundle.Extract(data, workDir, desc, workspacebundle.DefaultLimits()); err != nil {
-		return nil, fmt.Errorf("extract workspace bundle %s: %w", desc.Digest, err)
+		extractErr := fmt.Errorf("extract workspace bundle %s: %w", desc.Digest, err)
+		if cleanupErr := os.RemoveAll(workDir); cleanupErr != nil {
+			return nil, errors.Join(extractErr, fmt.Errorf("cleanup workspace %q: %w", workDir, cleanupErr))
+		}
+		return nil, extractErr
 	}
 	return &actionWorkspace{
 		dir:     workDir,

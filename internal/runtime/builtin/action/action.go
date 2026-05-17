@@ -71,6 +71,10 @@ func parseConfig(raw map[string]any) (config, error) {
 	if !ok || strings.TrimSpace(ref) == "" {
 		return config{}, fmt.Errorf("action: ref must be a non-empty string")
 	}
+	ref = strings.TrimSpace(ref)
+	if err := validateConfigRef(ref); err != nil {
+		return config{}, err
+	}
 	input := map[string]any{}
 	if rawInput, ok := raw["input"]; ok && rawInput != nil {
 		mapped, ok := rawInput.(map[string]any)
@@ -79,7 +83,34 @@ func parseConfig(raw map[string]any) (config, error) {
 		}
 		input = mapped
 	}
-	return config{Ref: strings.TrimSpace(ref), Input: input}, nil
+	return config{Ref: ref, Input: input}, nil
+}
+
+func validateConfigRef(ref string) error {
+	if after, ok := strings.CutPrefix(ref, actionPrefixSource); ok {
+		target, version, err := splitVersionedRef(after)
+		if err != nil || target == "" {
+			return fmt.Errorf("action: source ref must be source:target@version")
+		}
+		if err := validateGitRef(version); err != nil {
+			return fmt.Errorf("action: %w", err)
+		}
+		return nil
+	}
+	if strings.HasPrefix(ref, "pkg:") {
+		return fmt.Errorf("action: package references must use GitHub owner/repo@version")
+	}
+	target, version, err := splitVersionedRef(ref)
+	if err != nil {
+		return fmt.Errorf("action: %w", err)
+	}
+	if _, err := githubRepoURL(target); err != nil {
+		return fmt.Errorf("action: %w", err)
+	}
+	if err := validateGitRef(version); err != nil {
+		return fmt.Errorf("action: %w", err)
+	}
+	return nil
 }
 
 func (e *Executor) SetStdout(out io.Writer) {

@@ -452,14 +452,18 @@ type Client interface {
 }
 
 func NewStore(dir string, limits Limits) *Store {
+	dir = strings.TrimSpace(dir)
+	if dir != "" {
+		dir = filepath.Clean(dir)
+	}
 	return &Store{
-		dir:    filepath.Clean(dir),
+		dir:    dir,
 		limits: normalizeLimits(limits),
 	}
 }
 
 func (s *Store) Put(_ context.Context, desc Descriptor, data []byte) error {
-	if s == nil || strings.TrimSpace(s.dir) == "" {
+	if strings.TrimSpace(s.dir) == "" {
 		return fmt.Errorf("workspace bundle store is not configured")
 	}
 	if err := Verify(data, desc.Digest); err != nil {
@@ -509,7 +513,7 @@ func (s *Store) Put(_ context.Context, desc Descriptor, data []byte) error {
 }
 
 func (s *Store) Get(_ context.Context, digest string) ([]byte, error) {
-	if s == nil || strings.TrimSpace(s.dir) == "" {
+	if strings.TrimSpace(s.dir) == "" {
 		return nil, fmt.Errorf("workspace bundle store is not configured")
 	}
 	path, err := s.path(digest)

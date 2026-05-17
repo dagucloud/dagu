@@ -254,6 +254,44 @@ steps:
 	assert.Contains(t, err.Error(), "owner/repo@version")
 }
 
+func TestStepSchemaV2_SourceActionRejectsUnsafeRefs(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name    string
+		action  string
+		message string
+	}{
+		{
+			name:    "missing version",
+			action:  "source:github.com/acme/dagu-actions-slack",
+			message: "source:target@version",
+		},
+		{
+			name:    "unsafe version",
+			action:  "source:github.com/acme/dagu-actions-slack@-main",
+			message: "invalid action version",
+		},
+		{
+			name:    "path traversal version",
+			action:  "source:github.com/acme/dagu-actions-slack@feature/../main",
+			message: "invalid action version",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: notify
+    action: `+tt.action+`
+`))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.message)
+		})
+	}
+}
+
 func TestStepSchemaV2_ExplicitActionExecutor(t *testing.T) {
 	t.Parallel()
 

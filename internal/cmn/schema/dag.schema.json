@@ -6094,17 +6094,20 @@
         },
         {
           "type": "string",
-          "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]*@[^\\s\\\\~^:?*\\[\\]]+$",
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]*@[^\\s\\\\~^:?*\\[\\]{}@]+$",
+          "allOf": [{ "$ref": "#/definitions/actionRefVersionSafety" }],
           "description": "Official Dagu action shorthand, resolved as dagucloud/action-<name>@<version>."
         },
         {
           "type": "string",
-          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]+@[^\\s\\\\~^:?*\\[\\]]+$",
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]+@[^\\s\\\\~^:?*\\[\\]{}@]+$",
+          "allOf": [{ "$ref": "#/definitions/actionRefVersionSafety" }],
           "description": "GitHub action reference in owner/repo@version format."
         },
         {
           "type": "string",
-          "pattern": "^source:.+@[^\\s\\\\~^:?*\\[\\]]+$",
+          "pattern": "^source:.+@[^\\s\\\\~^:?*\\[\\]{}@]+$",
+          "allOf": [{ "$ref": "#/definitions/actionRefVersionSafety" }],
           "description": "Explicit source action reference such as source:github.com/owner/repo@version or source:./actions/name@local."
         },
         {
@@ -6114,6 +6117,18 @@
         }
       ],
       "description": "Builtin, remote, or custom action name."
+    },
+    "actionRefVersionSafety": {
+      "allOf": [
+        { "not": { "pattern": "@-" } },
+        { "not": { "pattern": "@\\." } },
+        { "not": { "pattern": "/\\." } },
+        { "not": { "pattern": "@[^@]*\\.\\." } },
+        { "not": { "pattern": "@[^@]*//" } },
+        { "not": { "pattern": "@[^@]*[/.]$" } },
+        { "not": { "pattern": "@[^@]*\\.lock($|/)" } }
+      ],
+      "description": "Safety constraints for the version portion of an action reference."
     },
     "legacyStepExecutionFieldPresence": {
       "anyOf": [
@@ -6943,17 +6958,20 @@
           "oneOf": [
             {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]*@[^\\s\\\\~^:?*\\[\\]]+$",
+              "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]*@[^\\s\\\\~^:?*\\[\\]{}@]+$",
+              "allOf": [{ "$ref": "#/definitions/actionRefVersionSafety" }],
               "description": "Official Dagu action shorthand, resolved as dagucloud/action-<name>@<version>."
             },
             {
               "type": "string",
-              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]+@[^\\s\\\\~^:?*\\[\\]]+$",
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]+@[^\\s\\\\~^:?*\\[\\]{}@]+$",
+              "allOf": [{ "$ref": "#/definitions/actionRefVersionSafety" }],
               "description": "GitHub action reference in owner/repo@version format."
             },
             {
               "type": "string",
-              "pattern": "^source:.+@[^\\s\\\\~^:?*\\[\\]]+$",
+              "pattern": "^source:.+@[^\\s\\\\~^:?*\\[\\]{}@]+$",
+              "allOf": [{ "$ref": "#/definitions/actionRefVersionSafety" }],
               "description": "Explicit source action reference such as source:github.com/owner/repo@version or source:./actions/name@local."
             }
           ],

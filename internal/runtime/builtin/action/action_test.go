@@ -121,6 +121,28 @@ func TestValidateGitRefRejectsUnsafeRefs(t *testing.T) {
 	require.NoError(t, validateGitRef("release/v1"))
 }
 
+func TestParseConfigRejectsUnsafeRefs(t *testing.T) {
+	t.Parallel()
+
+	for _, ref := range []string{
+		"source:github.com/acme/action",
+		"source:github.com/acme/action@-main",
+		"acme/action@feature/../main",
+		"pkg:acme/action@v1",
+	} {
+		t.Run(ref, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := parseConfig(map[string]any{"ref": ref})
+			require.Error(t, err)
+		})
+	}
+
+	cfg, err := parseConfig(map[string]any{"ref": "source:./actions/notify@local"})
+	require.NoError(t, err)
+	assert.Equal(t, "source:./actions/notify@local", cfg.Ref)
+}
+
 func TestLoadManifestAcceptsDAG(t *testing.T) {
 	t.Parallel()
 

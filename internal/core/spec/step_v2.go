@@ -186,6 +186,9 @@ func normalizeActionStep(normalized, raw map[string]any, registry *customStepTyp
 		if err != nil {
 			return err
 		}
+		if err := validateRemoteActionReference(action); err != nil {
+			return core.NewValidationError("action", raw["action"], err)
+		}
 		return normalizeRemoteAction(normalized, action, with)
 	}
 	if strings.Contains(action, "@") {
@@ -220,6 +223,23 @@ func normalizeActionStep(normalized, raw map[string]any, registry *customStepTyp
 
 func isRemoteActionReference(action string) bool {
 	return strings.HasPrefix(action, "source:") || isOfficialActionReference(action) || isGitHubActionReference(action)
+}
+
+func validateRemoteActionReference(action string) error {
+	if after, ok := strings.CutPrefix(action, "source:"); ok {
+		target, version, err := splitActionRef(after)
+		if err != nil || target == "" {
+			return fmt.Errorf("source action references must use source:target@version")
+		}
+		if !isSafeActionVersion(version) {
+			return fmt.Errorf("invalid action version %q", version)
+		}
+		return nil
+	}
+	if isOfficialActionReference(action) || isGitHubActionReference(action) {
+		return nil
+	}
+	return fmt.Errorf("versioned action references must use official action@version or GitHub owner/repo@version")
 }
 
 func isOfficialActionReference(action string) bool {
