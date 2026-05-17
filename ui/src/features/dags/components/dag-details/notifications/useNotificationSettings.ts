@@ -91,7 +91,6 @@ export function useNotificationSettings({
     draft,
     setDraft,
     channels,
-    setChannels,
     isLoading,
     error,
     setError,

@@ -26,6 +26,7 @@ const STATIC_ROUTE_LABELS: Record<string, string> = {
   '/cockpit': 'Cockpit',
   '/api-docs': 'API Reference',
   '/integrations': 'Integrations',
+  '/notifications': 'Notifications',
   '/dags': 'DAGs',
   '/search': 'Search',
   '/base-config': 'Base Config',
@@ -163,13 +164,23 @@ export function getBreadcrumbItems(pathname: string): BreadcrumbItemData[] {
     if (normalized !== '/administration') {
       items.push({ label: 'Administration', to: '/administration' });
     }
-    items.push({ label: STATIC_ROUTE_LABELS[normalized] ?? humanizePathSegment(segments[0] ?? '') });
+    items.push({
+      label:
+        STATIC_ROUTE_LABELS[normalized] ??
+        humanizePathSegment(segments[0] ?? ''),
+    });
     return items;
   }
 
-  if (['system-status', 'event-logs', 'audit-logs'].includes(segments[0] ?? '')) {
+  if (
+    ['system-status', 'event-logs', 'audit-logs'].includes(segments[0] ?? '')
+  ) {
     items.push({ label: 'Monitor' });
-    items.push({ label: STATIC_ROUTE_LABELS[normalized] ?? humanizePathSegment(segments[0] ?? '') });
+    items.push({
+      label:
+        STATIC_ROUTE_LABELS[normalized] ??
+        humanizePathSegment(segments[0] ?? ''),
+    });
     return items;
   }
 
@@ -177,7 +188,11 @@ export function getBreadcrumbItems(pathname: string): BreadcrumbItemData[] {
     if (normalized !== '/integrations') {
       items.push({ label: 'Integrations', to: '/integrations' });
     }
-    items.push({ label: STATIC_ROUTE_LABELS[normalized] ?? humanizePathSegment(segments[0] ?? '') });
+    items.push({
+      label:
+        STATIC_ROUTE_LABELS[normalized] ??
+        humanizePathSegment(segments[0] ?? ''),
+    });
     return items;
   }
 
@@ -190,7 +205,8 @@ export function getBreadcrumbItems(pathname: string): BreadcrumbItemData[] {
   for (let index = 0; index < segments.length; index += 1) {
     const path = `/${segments.slice(0, index + 1).join('/')}`;
     items.push({
-      label: STATIC_ROUTE_LABELS[path] ?? humanizePathSegment(segments[index] ?? ''),
+      label:
+        STATIC_ROUTE_LABELS[path] ?? humanizePathSegment(segments[index] ?? ''),
       to: index === segments.length - 1 ? undefined : path,
     });
   }

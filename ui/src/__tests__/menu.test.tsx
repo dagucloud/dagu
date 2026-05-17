@@ -34,6 +34,16 @@ vi.mock('@/contexts/AuthContext', () => ({
 
 vi.mock('@/hooks/useLicense', () => ({
   useHasFeature: (feature: string) => useHasFeatureMock(feature),
+  useLicense: () => ({
+    valid: true,
+    plan: 'pro',
+    expiry: '',
+    features: [],
+    gracePeriod: false,
+    community: false,
+    source: 'test',
+    warningCode: '',
+  }),
 }));
 
 vi.mock('../contexts/UserPreference', () => ({
@@ -214,6 +224,10 @@ describe('sidebar menu', () => {
     expect(
       screen.getByRole('button', { name: 'Toggle Monitor section' })
     ).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('link', { name: 'Notifications' })).toHaveAttribute(
+      'href',
+      '/notifications'
+    );
     expect(screen.getByRole('link', { name: 'Integrations' })).toHaveAttribute(
       'href',
       '/integrations'
@@ -304,7 +318,6 @@ describe('sidebar menu', () => {
       expect(item).toBeVisible();
       expect(item.querySelector('svg')).toBeNull();
     }
-
     fireEvent.click(
       screen.getByRole('button', { name: 'Toggle Administration section' })
     );
@@ -372,6 +385,7 @@ describe('sidebar menu', () => {
   it.each([
     ['/dag-runs', 'executions'],
     ['/system-status', 'monitor'],
+    ['/notifications', 'notifications'],
     ['/integrations', 'integrations'],
     ['/administration', 'administration'],
   ])('marks %s as the active section entry', (path, label) => {

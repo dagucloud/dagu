@@ -8,10 +8,12 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Settings,
   Trash2,
   XCircle,
 } from 'lucide-react';
 import { useMemo } from 'react';
+import { Link } from 'react-router-dom';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -587,6 +589,7 @@ type DAGSubscriptionsSectionProps = {
   draft: DraftSettings;
   channels: DraftChannel[];
   testingTargetId: string | null;
+  manageChannelsHref?: string;
   onAdd: () => void;
   onUpdate: (
     index: number,
@@ -600,6 +603,7 @@ export function DAGSubscriptionsSection({
   draft,
   channels,
   testingTargetId,
+  manageChannelsHref,
   onAdd,
   onUpdate,
   onDelete,
@@ -621,15 +625,25 @@ export function DAGSubscriptionsSection({
         <h3 className="text-sm font-medium text-foreground">
           DAG Subscriptions
         </h3>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onAdd}
-          disabled={channels.filter((channel) => channel.id).length === 0}
-        >
-          <Plus className="h-4 w-4" />
-          Add
-        </Button>
+        <div className="flex items-center gap-2">
+          {manageChannelsHref && (
+            <Button asChild variant="ghost" size="sm">
+              <Link to={manageChannelsHref}>
+                <Settings className="h-4 w-4" />
+                Manage channels
+              </Link>
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onAdd}
+            disabled={channels.filter((channel) => channel.id).length === 0}
+          >
+            <Plus className="h-4 w-4" />
+            Add
+          </Button>
+        </div>
       </div>
 
       {draft.subscriptions.length === 0 ? (
@@ -755,7 +769,11 @@ export function DAGSubscriptionsSection({
   );
 }
 
-export function ReusableChannelsUnavailableCard() {
+export function ReusableChannelsUnavailableCard({
+  showDAGLocalNote = true,
+}: {
+  showDAGLocalNote?: boolean;
+}) {
   return (
     <Card>
       <CardHeader>
@@ -766,7 +784,7 @@ export function ReusableChannelsUnavailableCard() {
       </CardHeader>
       <CardContent className="text-sm text-muted-foreground">
         Reusable workspace channels require an active Dagu license or trial.
-        DAG-local targets remain available.
+        {showDAGLocalNote && ' DAG-local targets remain available.'}
       </CardContent>
     </Card>
   );

@@ -71,6 +71,7 @@ import HomePage from './pages/home';
 import IntegrationsPage from './pages/integrations';
 import LicensePage from './pages/license';
 import LoginPage from './pages/login';
+import NotificationsPage from './pages/notifications';
 import OverviewPage from './pages/overview';
 import Queues from './pages/queues';
 import QueueDetailsPage from './pages/queues/queue';
@@ -559,6 +560,14 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                         <Route
                                           path="/integrations"
                                           element={<IntegrationsPage />}
+                                        />
+                                        <Route
+                                          path="/notifications"
+                                          element={
+                                            <DeveloperElement>
+                                              <NotificationsPage />
+                                            </DeveloperElement>
+                                          }
                                         />
                                         <Route
                                           path="/dags/"

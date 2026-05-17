@@ -16,7 +16,7 @@ import {
   useIsAdmin,
 } from '@/contexts/AuthContext';
 import { useConfig } from '@/contexts/ConfigContext';
-import { useHasFeature } from '@/hooks/useLicense';
+import { useHasFeature, useLicense } from '@/hooks/useLicense';
 import { cn } from '@/lib/utils';
 import { getResponsiveTitleClass } from '@/lib/text-utils';
 import { roleAtLeast } from '@/lib/workspaceAccess';
@@ -24,6 +24,7 @@ import { defaultWorkspaceSelection } from '@/lib/workspace';
 import { UserRole } from '@/api/v1/schema';
 import {
   Activity,
+  Bell,
   ChevronDown,
   Gauge,
   Shield,
@@ -462,10 +463,16 @@ export const mainListItems = React.forwardRef<
   const { user } = useAuth();
   const hasRbac = useHasFeature('rbac');
   const hasAudit = useHasFeature('audit');
+  const license = useLicense();
+  const hasReusableNotifications =
+    !license.community && (license.valid || license.gracePeriod);
   const canWrite =
     config.authMode !== 'builtin'
       ? config.permissions.writeDags
       : roleAtLeast(user?.role ?? null, UserRole.developer);
+  const canManageNotifications =
+    config.authMode !== 'builtin' ||
+    roleAtLeast(user?.role ?? null, UserRole.developer);
   const canAccessSystemStatus = useCanAccessSystemStatus();
   const canManageWebhooks = useCanManageWebhooks();
   const canManageSecrets = useCanManageSecrets();
@@ -732,6 +739,21 @@ export const mainListItems = React.forwardRef<
                 />
               )}
             </NavGroup>
+          )}
+
+          {canManageNotifications && (
+            <NavItem
+              to="/notifications"
+              text={
+                hasReusableNotifications
+                  ? 'Notifications'
+                  : 'Notifications (Pro)'
+              }
+              icon={<Bell size={18} />}
+              isOpen={isOpen}
+              onClick={onNavItemClick}
+              customColor={customColor}
+            />
           )}
 
           <NavGroup

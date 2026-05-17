@@ -16,20 +16,14 @@ import {
   DAGSubscriptionsSection,
   NotificationOverviewCard,
   ReusableChannelsUnavailableCard,
-  WorkspaceChannelsSection,
 } from './notifications/NotificationSections';
 import {
   authHeaders,
-  blankChannel,
   blankTarget,
-  channelInput,
   deliveryLabel,
-  DraftChannel,
   DraftSubscription,
   DraftTarget,
-  draftChannelFromAPI,
   draftFromAPI,
-  NotificationChannel,
   NotificationSettings,
   readError,
   subscriptionInput,
@@ -57,7 +51,6 @@ function NotificationsTab({ fileName }: NotificationsTabProps) {
     draft,
     setDraft,
     channels,
-    setChannels,
     isLoading,
     error,
     setError,
@@ -71,15 +64,9 @@ function NotificationsTab({ fileName }: NotificationsTabProps) {
     reusableChannelsLicensed,
   });
   const [isSaving, setIsSaving] = useState(false);
-  const [savingChannelIndex, setSavingChannelIndex] = useState<number | null>(
-    null
-  );
   const [testingTargetId, setTestingTargetId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [deleteTargetIndex, setDeleteTargetIndex] = useState<number | null>(
-    null
-  );
-  const [deleteChannelIndex, setDeleteChannelIndex] = useState<number | null>(
     null
   );
   const [deleteSubscriptionIndex, setDeleteSubscriptionIndex] = useState<
@@ -88,17 +75,6 @@ function NotificationsTab({ fileName }: NotificationsTabProps) {
   const testableDestinationCount =
     draft.targets.length +
     (reusableChannelsLicensed ? draft.subscriptions.length : 0);
-
-  const updateChannel = (
-    index: number,
-    updater: (channel: DraftChannel) => DraftChannel
-  ) => {
-    setChannels((current) =>
-      current.map((channel, channelIndex) =>
-        channelIndex === index ? updater(channel) : channel
-      )
-    );
-  };
 
   const updateTarget = (
     index: number,
@@ -122,14 +98,6 @@ function NotificationsTab({ fileName }: NotificationsTabProps) {
         subIndex === index ? updater(subscription) : subscription
       ),
     }));
-  };
-
-  const addChannel = () => {
-    if (!reusableChannelsLicensed) return;
-    setChannels((current) => [
-      ...current,
-      blankChannel(NotificationProviderType.email),
-    ]);
   };
 
   const addSubscription = () => {
@@ -162,75 +130,6 @@ function NotificationsTab({ fileName }: NotificationsTabProps) {
         blankTarget(NotificationProviderType.email),
       ],
     }));
-  };
-
-  const saveChannel = async (index: number) => {
-    if (!reusableChannelsLicensed) return;
-    const channel = channels[index];
-    if (!channel) return;
-    setSavingChannelIndex(index);
-    setError(null);
-    setNotice(null);
-    try {
-      const response = await fetch(
-        channel.id
-          ? `${config.apiURL}/notification-channels/${encodeURIComponent(channel.id)}${query}`
-          : `${config.apiURL}/notification-channels${query}`,
-        {
-          method: channel.id ? 'PUT' : 'POST',
-          headers: authHeaders(),
-          body: JSON.stringify(channelInput(channel)),
-        }
-      );
-      if (!response.ok) {
-        throw new Error(await readError(response, 'Failed to save channel'));
-      }
-      const data = (await response.json()) as NotificationChannel;
-      setChannels((current) =>
-        current.map((item, itemIndex) =>
-          itemIndex === index ? draftChannelFromAPI(data) : item
-        )
-      );
-      setNotice('Channel saved');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save channel');
-    } finally {
-      setSavingChannelIndex(null);
-    }
-  };
-
-  const deleteChannel = async () => {
-    if (!reusableChannelsLicensed) return;
-    if (deleteChannelIndex === null) return;
-    const channel = channels[deleteChannelIndex];
-    if (!channel) return;
-    setDeleteChannelIndex(null);
-    if (!channel.id) {
-      setChannels((current) =>
-        current.filter((_, index) => index !== deleteChannelIndex)
-      );
-      return;
-    }
-    setError(null);
-    setNotice(null);
-    try {
-      const response = await fetch(
-        `${config.apiURL}/notification-channels/${encodeURIComponent(channel.id)}${query}`,
-        {
-          method: 'DELETE',
-          headers: authHeaders(),
-        }
-      );
-      if (!response.ok) {
-        throw new Error(await readError(response, 'Failed to delete channel'));
-      }
-      setChannels((current) =>
-        current.filter((_, index) => index !== deleteChannelIndex)
-      );
-      setNotice('Channel deleted');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete channel');
-    }
   };
 
   const saveSettings = async () => {
@@ -364,25 +263,16 @@ function NotificationsTab({ fileName }: NotificationsTabProps) {
       />
 
       {reusableChannelsLicensed ? (
-        <>
-          <WorkspaceChannelsSection
-            channels={channels}
-            savingChannelIndex={savingChannelIndex}
-            onAdd={addChannel}
-            onUpdate={updateChannel}
-            onSave={saveChannel}
-            onDelete={setDeleteChannelIndex}
-          />
-          <DAGSubscriptionsSection
-            draft={draft}
-            channels={channels}
-            testingTargetId={testingTargetId}
-            onAdd={addSubscription}
-            onUpdate={updateSubscription}
-            onDelete={setDeleteSubscriptionIndex}
-            onTest={testNotifications}
-          />
-        </>
+        <DAGSubscriptionsSection
+          draft={draft}
+          channels={channels}
+          testingTargetId={testingTargetId}
+          manageChannelsHref="/notifications"
+          onAdd={addSubscription}
+          onUpdate={updateSubscription}
+          onDelete={setDeleteSubscriptionIndex}
+          onTest={testNotifications}
+        />
       ) : (
         <ReusableChannelsUnavailableCard />
       )}
@@ -407,20 +297,6 @@ function NotificationsTab({ fileName }: NotificationsTabProps) {
         {deleteTargetIndex !== null && draft.targets[deleteTargetIndex]
           ? deliveryLabel(draft.targets[deleteTargetIndex])
           : 'target'}
-        ?
-      </ConfirmDialog>
-
-      <ConfirmDialog
-        title="Delete Channel"
-        buttonText="Delete"
-        visible={deleteChannelIndex !== null}
-        dismissModal={() => setDeleteChannelIndex(null)}
-        onSubmit={deleteChannel}
-      >
-        Delete{' '}
-        {deleteChannelIndex !== null && channels[deleteChannelIndex]
-          ? deliveryLabel(channels[deleteChannelIndex])
-          : 'channel'}
         ?
       </ConfirmDialog>
 
