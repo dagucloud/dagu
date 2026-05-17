@@ -72,6 +72,7 @@ import IntegrationsPage from './pages/integrations';
 import LicensePage from './pages/license';
 import LoginPage from './pages/login';
 import NotificationChannelsPage from './pages/notification-channels';
+import NotificationRulesPage from './pages/notification-rules';
 import NotificationsPage from './pages/notifications';
 import OverviewPage from './pages/overview';
 import Queues from './pages/queues';
@@ -567,6 +568,14 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                           element={
                                             <DeveloperElement>
                                               <NotificationsPage />
+                                            </DeveloperElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/notification-rules"
+                                          element={
+                                            <DeveloperElement>
+                                              <NotificationRulesPage />
                                             </DeveloperElement>
                                           }
                                         />

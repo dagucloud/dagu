@@ -9465,7 +9465,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/NotificationEventType"
-          description: "Events delivered by this route. When omitted, operational defaults are failed, aborted, rejected, and waiting."
+          description: "Events delivered by this route. Omit only for backward compatibility; new clients should send an explicit event list."
 
     NotificationRoute:
       type: object
@@ -9488,7 +9488,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/NotificationEventType"
-          description: "Events delivered by this route. Empty means operational defaults."
+          description: "Events delivered by this route. Empty is treated as operational defaults for backward compatibility."
 
     NotificationRouteSetInput:
       type: object
@@ -9503,7 +9503,7 @@ components:
           description: "Whether this route set can deliver notifications"
         inheritGlobal:
           type: boolean
-          description: "For workspace route sets, whether global routes also apply. Ignored for global route sets."
+          description: "For workspace route sets, true means inherit Global instead of using workspace routes. Ignored for global route sets."
         routes:
           type: array
           items:
@@ -9531,7 +9531,7 @@ components:
           description: "Whether this route set can deliver notifications"
         inheritGlobal:
           type: boolean
-          description: "For workspace route sets, whether global routes also apply"
+          description: "For workspace route sets, true means inherit Global instead of using workspace routes"
         routes:
           type: array
           items:

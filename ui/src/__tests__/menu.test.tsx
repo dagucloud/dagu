@@ -319,6 +319,13 @@ describe('sidebar menu', () => {
       expect(item).toBeVisible();
       expect(item.querySelector('svg')).toBeNull();
     }
+    const [rulesLink, channelsLink] = notificationSubmenuItems;
+    expect(rulesLink).toBeDefined();
+    expect(channelsLink).toBeDefined();
+    expect(
+      rulesLink!.compareDocumentPosition(channelsLink!) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 
   it('expands integration and administration nested sections', () => {
@@ -411,6 +418,18 @@ describe('sidebar menu', () => {
     expect(
       screen.getByRole('link', { name: new RegExp(label, 'i') })
     ).toHaveAttribute('aria-current', 'page');
+  });
+
+  it.each([
+    ['/notification-rules', 'Rules'],
+    ['/notification-channels', 'Channels'],
+  ])('marks %s as the active notification item', (path, label) => {
+    renderMenu(path);
+
+    expect(screen.getByRole('link', { name: label })).toHaveAttribute(
+      'aria-current',
+      'page'
+    );
   });
 
   it.each([

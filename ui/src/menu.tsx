@@ -744,13 +744,17 @@ export const mainListItems = React.forwardRef<
               icon={<Bell size={18} />}
               label="Notifications"
               isOpen={isOpen}
-              basePath={['/notifications', '/notification-channels']}
+              basePath={[
+                '/notifications',
+                '/notification-rules',
+                '/notification-channels',
+              ]}
               to="/notifications"
               onClick={onNavItemClick}
               customColor={customColor}
             >
               <NavItem
-                to="/notifications"
+                to="/notification-rules"
                 text="Rules"
                 isOpen={isOpen}
                 onClick={onNavItemClick}

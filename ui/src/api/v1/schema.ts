@@ -3603,7 +3603,7 @@ export interface components {
             channelId: string;
             /** @description Whether this route receives notifications */
             enabled: boolean;
-            /** @description Events delivered by this route. When omitted, operational defaults are failed, aborted, rejected, and waiting. */
+            /** @description Events delivered by this route. Omit only for backward compatibility; new clients should send an explicit event list. */
             events?: components["schemas"]["NotificationEventType"][];
         };
         /** @description Route from notification events to a reusable notification channel */
@@ -3614,14 +3614,14 @@ export interface components {
             channelId: string;
             /** @description Whether this route receives notifications */
             enabled: boolean;
-            /** @description Events delivered by this route. Empty means operational defaults. */
+            /** @description Events delivered by this route. Empty is treated as operational defaults for backward compatibility. */
             events?: components["schemas"]["NotificationEventType"][];
         };
         /** @description Replacement route set for a global or workspace notification scope */
         NotificationRouteSetInput: {
             /** @description Whether this route set can deliver notifications */
             enabled: boolean;
-            /** @description For workspace route sets, whether global routes also apply. Ignored for global route sets. */
+            /** @description For workspace route sets, true means inherit Global instead of using workspace routes. Ignored for global route sets. */
             inheritGlobal: boolean;
             routes: components["schemas"]["NotificationRouteInput"][];
         };
@@ -3634,7 +3634,7 @@ export interface components {
             workspace?: string;
             /** @description Whether this route set can deliver notifications */
             enabled: boolean;
-            /** @description For workspace route sets, whether global routes also apply */
+            /** @description For workspace route sets, true means inherit Global instead of using workspace routes */
             inheritGlobal: boolean;
             routes: components["schemas"]["NotificationRoute"][];
             /** Format: date-time */

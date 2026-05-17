@@ -26,7 +26,8 @@ const STATIC_ROUTE_LABELS: Record<string, string> = {
   '/cockpit': 'Cockpit',
   '/api-docs': 'API Reference',
   '/integrations': 'Integrations',
-  '/notifications': 'Notification Rules',
+  '/notifications': 'Notifications',
+  '/notification-rules': 'Notification Rules',
   '/notification-channels': 'Notification Channels',
   '/dags': 'DAGs',
   '/search': 'Search',
@@ -188,6 +189,22 @@ export function getBreadcrumbItems(pathname: string): BreadcrumbItemData[] {
   if (['integrations', 'webhooks', 'api-docs'].includes(segments[0] ?? '')) {
     if (normalized !== '/integrations') {
       items.push({ label: 'Integrations', to: '/integrations' });
+    }
+    items.push({
+      label:
+        STATIC_ROUTE_LABELS[normalized] ??
+        humanizePathSegment(segments[0] ?? ''),
+    });
+    return items;
+  }
+
+  if (
+    ['notifications', 'notification-rules', 'notification-channels'].includes(
+      segments[0] ?? ''
+    )
+  ) {
+    if (normalized !== '/notifications') {
+      items.push({ label: 'Notifications', to: '/notifications' });
     }
     items.push({
       label:

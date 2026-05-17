@@ -401,7 +401,7 @@ func TestService_SaveWorkspaceSettingsPreservesCreatedAtAndPassword(t *testing.T
 	assert.Equal(t, "updater", updated.UpdatedBy)
 }
 
-func TestService_GlobalAndWorkspaceRoutesResolveForWorkspaceEvents(t *testing.T) {
+func TestService_WorkspaceInheritUsesGlobalRoutesOnly(t *testing.T) {
 	t.Parallel()
 
 	store := newMemoryStore()
@@ -461,7 +461,6 @@ func TestService_GlobalAndWorkspaceRoutesResolveForWorkspaceEvents(t *testing.T)
 	})
 	assert.ElementsMatch(t, []string{
 		routeDestinationID(notificationmodel.RouteScopeGlobal, "", "global-route"),
-		routeDestinationID(notificationmodel.RouteScopeWorkspace, "ops", "workspace-route"),
 	}, destinations)
 
 	defaultDestinations := svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
@@ -478,7 +477,7 @@ func TestService_GlobalAndWorkspaceRoutesResolveForWorkspaceEvents(t *testing.T)
 	}))
 }
 
-func TestService_WorkspaceRouteCanDisableGlobalInheritance(t *testing.T) {
+func TestService_WorkspaceConfiguredRoutesOverrideGlobalRoutes(t *testing.T) {
 	t.Parallel()
 
 	store := newMemoryStore()
@@ -532,26 +531,131 @@ func TestService_WorkspaceRouteCanDisableGlobalInheritance(t *testing.T) {
 	}, destinations)
 }
 
-func TestService_RouteDestinationsDeduplicateChannelsAcrossScopesAndDAG(t *testing.T) {
+func TestService_ConfiguredWorkspaceWithoutRoutesSuppressesGlobalRoutes(t *testing.T) {
 	t.Parallel()
 
 	channel, err := notificationmodel.NormalizeChannel(&notificationmodel.Channel{
-		ID:      "channel-1",
-		Name:    "Ops",
+		ID:      "global-channel",
+		Name:    "Global Ops",
 		Type:    notificationmodel.ProviderWebhook,
 		Enabled: true,
-		Webhook: &notificationmodel.WebhookTarget{URL: "https://example.com/webhook"},
+		Webhook: &notificationmodel.WebhookTarget{URL: "https://example.com/global"},
 	}, "tester")
 	require.NoError(t, err)
+	store := newMemoryStore()
+	require.NoError(t, store.SaveChannel(context.Background(), channel))
+	svc := New(store, nil)
+	_, err = svc.SaveRouteSet(context.Background(), &notificationmodel.RouteSet{
+		Scope:         notificationmodel.RouteScopeGlobal,
+		Enabled:       true,
+		InheritGlobal: true,
+		Routes: []notificationmodel.Route{{
+			ID:        "global-route",
+			ChannelID: "global-channel",
+			Enabled:   true,
+		}},
+	}, "tester")
+	require.NoError(t, err)
+	_, err = svc.SaveRouteSet(context.Background(), &notificationmodel.RouteSet{
+		Scope:         notificationmodel.RouteScopeWorkspace,
+		Workspace:     "ops",
+		Enabled:       true,
+		InheritGlobal: false,
+		Routes:        []notificationmodel.Route{},
+	}, "tester")
+	require.NoError(t, err)
+
+	destinations := svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
+		Type: eventstore.TypeDAGRunFailed,
+		Status: &exec.DAGRunStatus{
+			Name:   "daily-report",
+			Status: core.Failed,
+			Labels: []string{"workspace=ops"},
+		},
+	})
+	assert.Empty(t, destinations)
+}
+
+func TestService_DAGSettingsOverrideGlobalAndWorkspaceRoutes(t *testing.T) {
+	t.Parallel()
+
+	store := newMemoryStore()
+	for _, channelID := range []string{"global-channel", "workspace-channel", "dag-channel"} {
+		channel, err := notificationmodel.NormalizeChannel(&notificationmodel.Channel{
+			ID:      channelID,
+			Name:    channelID,
+			Type:    notificationmodel.ProviderWebhook,
+			Enabled: true,
+			Webhook: &notificationmodel.WebhookTarget{URL: "https://example.com/" + channelID},
+		}, "tester")
+		require.NoError(t, err)
+		require.NoError(t, store.SaveChannel(context.Background(), channel))
+	}
 	settings, err := notificationmodel.Normalize(&notificationmodel.Settings{
 		DAGName: "daily-report",
 		Enabled: true,
 		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
 		Subscriptions: []notificationmodel.Subscription{{
 			ID:        "dag-route",
-			ChannelID: "channel-1",
+			ChannelID: "dag-channel",
 			Enabled:   true,
 		}},
+	}, "tester")
+	require.NoError(t, err)
+	require.NoError(t, store.Save(context.Background(), settings))
+	svc := New(store, nil)
+	_, err = svc.SaveRouteSet(context.Background(), &notificationmodel.RouteSet{
+		Scope:         notificationmodel.RouteScopeGlobal,
+		Enabled:       true,
+		InheritGlobal: true,
+		Routes: []notificationmodel.Route{{
+			ID:        "global-route",
+			ChannelID: "global-channel",
+			Enabled:   true,
+		}},
+	}, "tester")
+	require.NoError(t, err)
+	_, err = svc.SaveRouteSet(context.Background(), &notificationmodel.RouteSet{
+		Scope:         notificationmodel.RouteScopeWorkspace,
+		Workspace:     "ops",
+		Enabled:       true,
+		InheritGlobal: false,
+		Routes: []notificationmodel.Route{{
+			ID:        "workspace-route",
+			ChannelID: "workspace-channel",
+			Enabled:   true,
+		}},
+	}, "tester")
+	require.NoError(t, err)
+
+	destinations := svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
+		Type: eventstore.TypeDAGRunFailed,
+		Status: &exec.DAGRunStatus{
+			Name:   "daily-report",
+			Status: core.Failed,
+			Labels: []string{"workspace=ops"},
+		},
+	})
+	assert.ElementsMatch(t, []string{
+		channelDestinationID("daily-report", "dag-route"),
+	}, destinations)
+}
+
+func TestService_DisabledDAGSettingsSuppressInheritedRoutes(t *testing.T) {
+	t.Parallel()
+
+	channel, err := notificationmodel.NormalizeChannel(&notificationmodel.Channel{
+		ID:      "global-channel",
+		Name:    "Global Ops",
+		Type:    notificationmodel.ProviderWebhook,
+		Enabled: true,
+		Webhook: &notificationmodel.WebhookTarget{URL: "https://example.com/global"},
+	}, "tester")
+	require.NoError(t, err)
+	settings, err := notificationmodel.Normalize(&notificationmodel.Settings{
+		DAGName: "daily-report",
+		Enabled: false,
+		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
 	}, "tester")
 	require.NoError(t, err)
 	store := newMemoryStore(settings)
@@ -563,7 +667,7 @@ func TestService_RouteDestinationsDeduplicateChannelsAcrossScopesAndDAG(t *testi
 		InheritGlobal: true,
 		Routes: []notificationmodel.Route{{
 			ID:        "global-route",
-			ChannelID: "channel-1",
+			ChannelID: "global-channel",
 			Enabled:   true,
 		}},
 	}, "tester")
@@ -573,9 +677,7 @@ func TestService_RouteDestinationsDeduplicateChannelsAcrossScopesAndDAG(t *testi
 		Type:   eventstore.TypeDAGRunFailed,
 		Status: &exec.DAGRunStatus{Name: "daily-report", Status: core.Failed},
 	})
-	assert.ElementsMatch(t, []string{
-		routeDestinationID(notificationmodel.RouteScopeGlobal, "", "global-route"),
-	}, destinations)
+	assert.Empty(t, destinations)
 }
 
 func TestService_GlobalRouteFlushSkipsWorkspaceWithDisabledInheritance(t *testing.T) {
@@ -631,6 +733,66 @@ func TestService_GlobalRouteFlushSkipsWorkspaceWithDisabledInheritance(t *testin
 				Name:   "daily-report",
 				Status: core.Failed,
 				Labels: []string{"workspace=ops"},
+			},
+			ObservedAt: time.Now().UTC(),
+		}}},
+		false,
+	)
+	assert.True(t, delivered)
+	assert.Equal(t, int32(0), requestCount.Load())
+}
+
+func TestService_RouteFlushSkipsDAGWithConfiguredNotifications(t *testing.T) {
+	t.Parallel()
+
+	var requestCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requestCount.Add(1)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	channel, err := notificationmodel.NormalizeChannel(&notificationmodel.Channel{
+		ID:      "channel-1",
+		Name:    "Ops",
+		Type:    notificationmodel.ProviderWebhook,
+		Enabled: true,
+		Webhook: &notificationmodel.WebhookTarget{
+			URL:                 server.URL,
+			AllowInsecureHTTP:   true,
+			AllowPrivateNetwork: true,
+		},
+	}, "tester")
+	require.NoError(t, err)
+	settings, err := notificationmodel.Normalize(&notificationmodel.Settings{
+		DAGName: "daily-report",
+		Enabled: true,
+		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+	}, "tester")
+	require.NoError(t, err)
+	store := newMemoryStore(settings)
+	require.NoError(t, store.SaveChannel(context.Background(), channel))
+	svc := New(store, nil)
+	_, err = svc.SaveRouteSet(context.Background(), &notificationmodel.RouteSet{
+		Scope:         notificationmodel.RouteScopeGlobal,
+		Enabled:       true,
+		InheritGlobal: true,
+		Routes: []notificationmodel.Route{{
+			ID:        "global-route",
+			ChannelID: "channel-1",
+			Enabled:   true,
+		}},
+	}, "tester")
+	require.NoError(t, err)
+
+	delivered := svc.FlushNotificationBatch(
+		context.Background(),
+		routeDestinationID(notificationmodel.RouteScopeGlobal, "", "global-route"),
+		chatbridge.NotificationBatch{Events: []chatbridge.NotificationEvent{{
+			Type: eventstore.TypeDAGRunFailed,
+			Status: &exec.DAGRunStatus{
+				Name:   "daily-report",
+				Status: core.Failed,
 			},
 			ObservedAt: time.Now().UTC(),
 		}}},
