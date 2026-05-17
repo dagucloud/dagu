@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -1082,9 +1083,7 @@ func (a *Agent) collectOutputs(ctx context.Context) map[string]string {
 
 	for _, node := range nodes {
 		nodeData := node.NodeData()
-		for key, value := range nodeData.OutputsValueStringMap() {
-			outputs[key] = value
-		}
+		maps.Copy(outputs, nodeData.OutputsValueStringMap())
 		step := nodeData.Step
 
 		// Only string-form output participates in outputs.json.

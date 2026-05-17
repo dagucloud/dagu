@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"strings"
 	"sync"
@@ -136,9 +137,7 @@ func (e *executorImpl) Run(context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.outputs = make(map[string]any, len(e.values))
-	for key, value := range e.values {
-		e.outputs[key] = value
-	}
+	maps.Copy(e.outputs, e.values)
 	return nil
 }
 
@@ -149,9 +148,7 @@ func (e *executorImpl) GetOutputs() map[string]any {
 		return nil
 	}
 	clone := make(map[string]any, len(e.outputs))
-	for key, value := range e.outputs {
-		clone[key] = value
-	}
+	maps.Copy(clone, e.outputs)
 	return clone
 }
 

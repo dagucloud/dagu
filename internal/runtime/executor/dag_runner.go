@@ -973,9 +973,7 @@ func extractOutputValuesFromNodes(nodes []*exec.Node) map[string]any {
 		if err := json.Unmarshal([]byte(*node.OutputsValue), &values); err != nil {
 			continue
 		}
-		for key, value := range values {
-			outputs[key] = value
-		}
+		maps.Copy(outputs, values)
 	}
 	if len(outputs) == 0 {
 		return nil

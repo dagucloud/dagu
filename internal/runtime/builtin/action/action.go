@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"strings"
 	"sync"
@@ -224,9 +225,7 @@ func actionOutputsFromRunStatus(result *coreexec.RunStatus) map[string]any {
 	}
 	if len(result.OutputValues) > 0 {
 		outputs := make(map[string]any, len(result.OutputValues))
-		for key, value := range result.OutputValues {
-			outputs[key] = value
-		}
+		maps.Copy(outputs, result.OutputValues)
 		return outputs
 	}
 	if len(result.Outputs) == 0 {
@@ -303,9 +302,7 @@ func (e *Executor) setOutputs(outputs map[string]any) {
 		return
 	}
 	e.outputs = make(map[string]any, len(outputs))
-	for key, value := range outputs {
-		e.outputs[key] = value
-	}
+	maps.Copy(e.outputs, outputs)
 }
 
 func (e *Executor) GetOutputs() map[string]any {
@@ -315,9 +312,7 @@ func (e *Executor) GetOutputs() map[string]any {
 		return nil
 	}
 	outputs := make(map[string]any, len(e.outputs))
-	for key, value := range e.outputs {
-		outputs[key] = value
-	}
+	maps.Copy(outputs, e.outputs)
 	return outputs
 }
 

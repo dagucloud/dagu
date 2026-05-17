@@ -5,6 +5,7 @@ package runtime
 
 import (
 	"encoding/json"
+	"maps"
 
 	"github.com/dagucloud/dagu/internal/core/exec"
 )
@@ -13,9 +14,7 @@ import (
 func OutputValuesFromNodes(nodes []NodeData) map[string]any {
 	outputs := make(map[string]any)
 	for _, node := range nodes {
-		for key, value := range node.OutputsValueMap() {
-			outputs[key] = value
-		}
+		maps.Copy(outputs, node.OutputsValueMap())
 	}
 	if len(outputs) == 0 {
 		return nil
@@ -34,9 +33,7 @@ func OutputValuesFromExecNodes(nodes []*exec.Node) map[string]any {
 		if err := json.Unmarshal([]byte(*node.OutputsValue), &values); err != nil {
 			continue
 		}
-		for key, value := range values {
-			outputs[key] = value
-		}
+		maps.Copy(outputs, values)
 	}
 	if len(outputs) == 0 {
 		return nil
