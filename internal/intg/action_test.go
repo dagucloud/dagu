@@ -21,9 +21,7 @@ func TestDaguActionRunsSourceBundleDAG(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(actionDir, "dagu-action.yaml"), []byte(`
 apiVersion: dagu.dev/v1alpha1
 name: echo-action
-runtime:
-  type: dagu
-  dag: action.yaml
+dag: action.yaml
 inputs:
   type: object
   additionalProperties: false

@@ -6963,11 +6963,6 @@
           "type": "object",
           "additionalProperties": true,
           "description": "Input object passed to the action."
-        },
-        "original_ref": {
-          "type": "string",
-          "doNotSuggest": true,
-          "description": "Original action reference before shorthand normalization."
         }
       },
       "description": "Configuration for type: action."

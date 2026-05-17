@@ -9,40 +9,23 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/goccy/go-yaml"
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
-const manifestFileName = "dagu-action.yaml"
-
-const runtimeTypeDagu = "dagu"
-
-var envNameRegexp = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+const (
+	manifestFileName = "dagu-action.yaml"
+	manifestVersion  = "dagu.dev/v1alpha1"
+)
 
 type manifest struct {
-	APIVersion  string             `yaml:"apiVersion"`
-	Name        string             `yaml:"name"`
-	Runtime     runtimeManifest    `yaml:"runtime"`
-	Inputs      map[string]any     `yaml:"inputs"`
-	Outputs     map[string]any     `yaml:"outputs"`
-	Permissions permissionManifest `yaml:"permissions"`
-}
-
-type runtimeManifest struct {
-	Type       string `yaml:"type"`
-	Deno       string `yaml:"deno"`
-	Entrypoint string `yaml:"entrypoint"`
-	DAG        string `yaml:"dag"`
-}
-
-type permissionManifest struct {
-	Net   []string `yaml:"net"`
-	Env   []string `yaml:"env"`
-	Read  []string `yaml:"read"`
-	Write []string `yaml:"write"`
+	APIVersion string         `yaml:"apiVersion"`
+	Name       string         `yaml:"name"`
+	DAG        string         `yaml:"dag"`
+	Inputs     map[string]any `yaml:"inputs"`
+	Outputs    map[string]any `yaml:"outputs"`
 }
 
 func loadManifest(rootDir string) (*manifest, error) {
@@ -50,6 +33,9 @@ func loadManifest(rootDir string) (*manifest, error) {
 	data, err := os.ReadFile(filepath.Clean(path)) //nolint:gosec
 	if err != nil {
 		return nil, fmt.Errorf("read action manifest: %w", err)
+	}
+	if err := validateManifestKeys(data); err != nil {
+		return nil, err
 	}
 	var m manifest
 	if err := yaml.Unmarshal(data, &m); err != nil {
@@ -61,94 +47,56 @@ func loadManifest(rootDir string) (*manifest, error) {
 	return &m, nil
 }
 
+func validateManifestKeys(data []byte) error {
+	var raw map[string]any
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("parse action manifest: %w", err)
+	}
+	if err := validateMapKeys("action manifest", raw, map[string]struct{}{
+		"apiVersion": {},
+		"name":       {},
+		"dag":        {},
+		"inputs":     {},
+		"outputs":    {},
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateMapKeys(section string, raw map[string]any, allowed map[string]struct{}) error {
+	for key := range raw {
+		if _, ok := allowed[key]; !ok {
+			return fmt.Errorf("%s field %q is not supported", section, key)
+		}
+	}
+	return nil
+}
+
 func (m *manifest) validate(rootDir string) error {
+	if strings.TrimSpace(m.APIVersion) == "" {
+		return fmt.Errorf("action manifest apiVersion is required")
+	}
+	if strings.TrimSpace(m.APIVersion) != manifestVersion {
+		return fmt.Errorf("action manifest apiVersion must be %q", manifestVersion)
+	}
 	if strings.TrimSpace(m.Name) == "" {
 		return fmt.Errorf("action manifest name is required")
 	}
-	switch strings.TrimSpace(m.Runtime.Type) {
-	case runtimeTypeDeno:
-		if err := m.validateDenoRuntime(rootDir); err != nil {
-			return err
-		}
-	case runtimeTypeDagu:
-		if err := m.validateDaguRuntime(rootDir); err != nil {
-			return err
-		}
-	default:
-		return fmt.Errorf("action runtime type must be %q or %q", runtimeTypeDeno, runtimeTypeDagu)
-	}
-	return nil
-}
-
-func (m *manifest) validateDenoRuntime(rootDir string) error {
-	if strings.TrimSpace(m.Runtime.DAG) != "" {
-		return fmt.Errorf("action runtime.dag is only valid for %q runtime", runtimeTypeDagu)
-	}
-	if strings.TrimSpace(m.Runtime.Deno) == "" {
-		return fmt.Errorf("action runtime.deno is required")
-	}
-	entrypoint := strings.TrimSpace(m.Runtime.Entrypoint)
-	if entrypoint == "" {
-		return fmt.Errorf("action runtime.entrypoint is required")
-	}
-	entrypointPath, err := safeRelativePath(rootDir, entrypoint)
-	if err != nil {
-		return fmt.Errorf("invalid action runtime.entrypoint: %w", err)
-	}
-	info, err := os.Stat(entrypointPath)
-	if err != nil {
-		return fmt.Errorf("stat action runtime.entrypoint: %w", err)
-	}
-	if info.IsDir() {
-		return fmt.Errorf("action runtime.entrypoint must be a file")
-	}
-	for _, host := range m.Permissions.Net {
-		if err := validateNetPermission(host); err != nil {
-			return err
-		}
-	}
-	for _, env := range m.Permissions.Env {
-		if !envNameRegexp.MatchString(strings.TrimSpace(env)) {
-			return fmt.Errorf("invalid action env permission %q", env)
-		}
-	}
-	for _, path := range m.Permissions.Read {
-		if err := validateRelativePermissionPath(rootDir, path, "read"); err != nil {
-			return err
-		}
-	}
-	for _, path := range m.Permissions.Write {
-		if err := validateRelativePermissionPath(rootDir, path, "write"); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (m *manifest) validateDaguRuntime(rootDir string) error {
-	if strings.TrimSpace(m.Runtime.Deno) != "" {
-		return fmt.Errorf("action runtime.deno is only valid for %q runtime", runtimeTypeDeno)
-	}
-	if strings.TrimSpace(m.Runtime.Entrypoint) != "" {
-		return fmt.Errorf("action runtime.entrypoint is only valid for %q runtime", runtimeTypeDeno)
-	}
-	if len(m.Permissions.Net) > 0 || len(m.Permissions.Env) > 0 || len(m.Permissions.Read) > 0 || len(m.Permissions.Write) > 0 {
-		return fmt.Errorf("action permissions are only supported for %q runtime", runtimeTypeDeno)
-	}
-	dagPath := strings.TrimSpace(m.Runtime.DAG)
+	dagPath := strings.TrimSpace(m.DAG)
 	if dagPath == "" {
-		return fmt.Errorf("action runtime.dag is required")
+		return fmt.Errorf("action dag is required")
 	}
 	resolved, err := safeRelativePath(rootDir, dagPath)
 	if err != nil {
-		return fmt.Errorf("invalid action runtime.dag: %w", err)
+		return fmt.Errorf("invalid action dag: %w", err)
 	}
 	info, err := os.Stat(resolved)
 	if err != nil {
-		return fmt.Errorf("stat action runtime.dag: %w", err)
+		return fmt.Errorf("stat action dag: %w", err)
 	}
 	if info.IsDir() {
-		return fmt.Errorf("action runtime.dag must be a file")
+		return fmt.Errorf("action dag must be a file")
 	}
 	return nil
 }
@@ -193,28 +141,6 @@ func (m *manifest) validateOutput(output any) error {
 	}
 	if err := resolved.Validate(output); err != nil {
 		return fmt.Errorf("action output does not match outputs schema: %w", err)
-	}
-	return nil
-}
-
-func validateNetPermission(host string) error {
-	host = strings.TrimSpace(host)
-	if host == "" {
-		return fmt.Errorf("empty action net permission")
-	}
-	if strings.Contains(host, "://") || strings.ContainsAny(host, `/\`) || strings.Contains(host, "*") {
-		return fmt.Errorf("invalid action net permission %q", host)
-	}
-	return nil
-}
-
-func validateRelativePermissionPath(rootDir, path string, kind string) error {
-	path = strings.TrimSpace(path)
-	if path == "" || isAbsoluteActionPath(path) {
-		return fmt.Errorf("invalid action %s permission path %q", kind, path)
-	}
-	if _, err := safeRelativePath(rootDir, path); err != nil {
-		return fmt.Errorf("invalid action %s permission path %q: %w", kind, path, err)
 	}
 	return nil
 }

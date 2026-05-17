@@ -223,8 +223,7 @@ steps:
 
 	step := dag.Steps[0]
 	assert.Equal(t, core.ExecutorTypeAction, step.ExecutorConfig.Type)
-	assert.Equal(t, "dagucloud/action-slack@v1", step.ExecutorConfig.Config["ref"])
-	assert.Equal(t, "slack@v1", step.ExecutorConfig.Config["original_ref"])
+	assert.Equal(t, "slack@v1", step.ExecutorConfig.Config["ref"])
 	assert.Equal(t, map[string]any{
 		"channel": "#ops",
 		"text":    "done",

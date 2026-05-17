@@ -17,12 +17,13 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
+	cmnconfig "github.com/dagucloud/dagu/internal/cmn/config"
+	dagutools "github.com/dagucloud/dagu/internal/tools"
 )
 
 const (
 	actionPrefixSource = "source:"
-
-	bundleModeSource = "source"
+	envToolsDir        = "DAGU_TOOLS_DIR"
 
 	officialActionOwner      = "dagucloud"
 	officialActionRepoPrefix = "action-"
@@ -41,11 +42,7 @@ type resolveOptions struct {
 }
 
 type actionBundle struct {
-	Mode        string
-	RootDir     string
-	OriginalRef string
-	ResolvedRef string
-	Version     string
+	RootDir string
 }
 
 func resolveBundle(ctx context.Context, ref string, opts resolveOptions) (*actionBundle, error) {
@@ -69,17 +66,11 @@ func resolveGitHubBundle(ctx context.Context, ref string, opts resolveOptions) (
 	if err != nil {
 		return nil, err
 	}
-	root, resolved, err := cloneGitSource(ctx, repoURL, version, opts)
+	root, _, err := cloneGitSource(ctx, repoURL, version, opts)
 	if err != nil {
 		return nil, err
 	}
-	return &actionBundle{
-		Mode:        bundleModeSource,
-		RootDir:     root,
-		OriginalRef: ref,
-		ResolvedRef: resolved,
-		Version:     version,
-	}, nil
+	return &actionBundle{RootDir: root}, nil
 }
 
 func resolveSourceBundle(ctx context.Context, ref string, opts resolveOptions) (*actionBundle, error) {
@@ -88,25 +79,13 @@ func resolveSourceBundle(ctx context.Context, ref string, opts resolveOptions) (
 		return nil, err
 	}
 	if dir, ok := localSourceDir(target, opts.WorkDir); ok {
-		return &actionBundle{
-			Mode:        bundleModeSource,
-			RootDir:     dir,
-			OriginalRef: ref,
-			ResolvedRef: dir,
-			Version:     version,
-		}, nil
+		return &actionBundle{RootDir: dir}, nil
 	}
-	root, resolved, err := cloneGitSource(ctx, target, version, opts)
+	root, _, err := cloneGitSource(ctx, target, version, opts)
 	if err != nil {
 		return nil, err
 	}
-	return &actionBundle{
-		Mode:        bundleModeSource,
-		RootDir:     root,
-		OriginalRef: ref,
-		ResolvedRef: resolved,
-		Version:     version,
-	}, nil
+	return &actionBundle{RootDir: root}, nil
 }
 
 func splitVersionedRef(ref string) (string, string, error) {
@@ -397,4 +376,39 @@ func isPathWithin(dir, path string) bool {
 		return false
 	}
 	return rel == "." || (rel != "" && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+func actionToolsDir(ctx context.Context, env map[string]string) string {
+	if cfg := cmnconfig.GetConfig(ctx); cfg != nil {
+		if toolsDir := strings.TrimSpace(cfg.Paths.ToolsDir); toolsDir != "" {
+			return toolsDir
+		}
+	}
+	if env == nil {
+		return ""
+	}
+	if toolsDir := strings.TrimSpace(env[envToolsDir]); toolsDir != "" {
+		return toolsDir
+	}
+	return inferToolsDirFromManifest(env[dagutools.EnvManifest])
+}
+
+func inferToolsDirFromManifest(manifestPath string) string {
+	manifestPath = strings.TrimSpace(manifestPath)
+	if manifestPath == "" {
+		return ""
+	}
+	manifest, err := dagutools.ReadManifest(manifestPath)
+	if err != nil || strings.TrimSpace(manifest.RootDir) == "" {
+		return ""
+	}
+	root := filepath.Clean(manifest.RootDir)
+	if filepath.Base(root) != "root" {
+		return ""
+	}
+	aquaDir := filepath.Dir(root)
+	if filepath.Base(aquaDir) != "aqua" {
+		return ""
+	}
+	return filepath.Dir(aquaDir)
 }

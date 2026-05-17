@@ -319,14 +319,9 @@ func isSafeActionVersion(version string) bool {
 }
 
 func normalizeRemoteAction(normalized map[string]any, action string, with map[string]any) error {
-	ref := action
 	cfg := map[string]any{
-		"ref":   ref,
+		"ref":   action,
 		"input": map[string]any{},
-	}
-	if canonical, ok := officialActionCanonicalRef(action); ok {
-		cfg["ref"] = canonical
-		cfg["original_ref"] = action
 	}
 	if len(with) > 0 {
 		cfg["input"] = with
@@ -335,14 +330,6 @@ func normalizeRemoteAction(normalized map[string]any, action string, with map[st
 	normalized["with"] = cfg
 	delete(normalized, "action")
 	return nil
-}
-
-func officialActionCanonicalRef(action string) (string, bool) {
-	target, version, err := splitActionRef(action)
-	if err != nil || !isOfficialActionTarget(target) || !isSafeActionVersion(version) {
-		return "", false
-	}
-	return officialActionOwner + "/" + officialActionRepoPrefix + target + "@" + version, true
 }
 
 func actionWith(raw map[string]any) (map[string]any, error) {
