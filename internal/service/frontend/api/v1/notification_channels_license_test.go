@@ -63,7 +63,7 @@ func TestNotificationRoutes_GlobalAndWorkspaceRouteSets(t *testing.T) {
 		Type:    api.NotificationProviderTypeWebhook,
 		Enabled: true,
 		Webhook: &api.NotificationWebhookTargetInput{
-			Url: testPtr("https://example.com/webhook"),
+			Url: new("https://example.com/webhook"),
 		},
 	}).ExpectStatus(http.StatusCreated).Send(t)
 	var channel api.NotificationChannel
@@ -73,7 +73,7 @@ func TestNotificationRoutes_GlobalAndWorkspaceRouteSets(t *testing.T) {
 		Enabled:       true,
 		InheritGlobal: true,
 		Routes: []api.NotificationRouteInput{{
-			Id:        testPtr("global-route"),
+			Id:        new("global-route"),
 			ChannelId: channel.Id,
 			Enabled:   true,
 			Events:    &[]api.NotificationEventType{api.NotificationEventTypeDagRunFailed},
@@ -93,7 +93,7 @@ func TestNotificationRoutes_GlobalAndWorkspaceRouteSets(t *testing.T) {
 		Enabled:       true,
 		InheritGlobal: false,
 		Routes: []api.NotificationRouteInput{{
-			Id:        testPtr("ops-route"),
+			Id:        new("ops-route"),
 			ChannelId: channel.Id,
 			Enabled:   true,
 			Events:    &[]api.NotificationEventType{api.NotificationEventTypeDagRunWaiting},
@@ -120,11 +120,11 @@ func TestNotificationSettings_SMTPTransportIsNotReusableChannelLicensed(t *testi
 	server := test.SetupServer(t)
 	response := server.Client().Put("/api/v1/notification-settings", api.NotificationWorkspaceSettingsInput{
 		Smtp: &api.NotificationSMTPSettingsInput{
-			Host:     testPtr("smtp.example.com"),
-			Port:     testPtr("587"),
-			Username: testPtr("smtp-user"),
-			Password: testPtr("smtp-secret"),
-			From:     testPtr("dagu@example.com"),
+			Host:     new("smtp.example.com"),
+			Port:     new("587"),
+			Username: new("smtp-user"),
+			Password: new("smtp-secret"),
+			From:     new("dagu@example.com"),
 		},
 	}).ExpectStatus(http.StatusOK).Send(t)
 
@@ -139,10 +139,10 @@ func TestNotificationSettings_SMTPTransportIsNotReusableChannelLicensed(t *testi
 
 	response = server.Client().Put("/api/v1/notification-settings", api.NotificationWorkspaceSettingsInput{
 		Smtp: &api.NotificationSMTPSettingsInput{
-			Host:     testPtr("smtp2.example.com"),
-			Port:     testPtr("2525"),
-			Username: testPtr("smtp-user"),
-			From:     testPtr("dagu@example.com"),
+			Host:     new("smtp2.example.com"),
+			Port:     new("2525"),
+			Username: new("smtp-user"),
+			From:     new("dagu@example.com"),
 		},
 	}).ExpectStatus(http.StatusOK).Send(t)
 	response.Unmarshal(t, &settings)
@@ -152,20 +152,16 @@ func TestNotificationSettings_SMTPTransportIsNotReusableChannelLicensed(t *testi
 
 	response = server.Client().Put("/api/v1/notification-settings", api.NotificationWorkspaceSettingsInput{
 		Smtp: &api.NotificationSMTPSettingsInput{
-			Host:          testPtr("smtp2.example.com"),
-			Port:          testPtr("2525"),
-			Username:      testPtr("smtp-user"),
-			From:          testPtr("dagu@example.com"),
-			ClearPassword: testPtr(true),
+			Host:          new("smtp2.example.com"),
+			Port:          new("2525"),
+			Username:      new("smtp-user"),
+			From:          new("dagu@example.com"),
+			ClearPassword: new(true),
 		},
 	}).ExpectStatus(http.StatusOK).Send(t)
 	response.Unmarshal(t, &settings)
 	require.NotNil(t, settings.Smtp)
 	assert.False(t, settings.Smtp.PasswordConfigured)
-}
-
-func testPtr[T any](value T) *T {
-	return &value
 }
 
 func testValue[T any](value *T) T {

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 
 	"github.com/dagucloud/dagu/api/v1"
@@ -935,17 +936,8 @@ func toAPITestNotificationResults(results []notificationservice.TestResult) []ap
 	return out
 }
 
-func mapsClone(in map[string]string) map[string]string {
-	if len(in) == 0 {
-		return nil
-	}
-	return mapsClonePreserveEmpty(in)
-}
-
 func mapsClonePreserveEmpty(in map[string]string) map[string]string {
 	out := make(map[string]string, len(in))
-	for key, value := range in {
-		out[key] = value
-	}
+	maps.Copy(out, in)
 	return out
 }

@@ -509,14 +509,14 @@ func (s *Service) dagDestinationsForEvent(ctx context.Context, setting *notifica
 }
 
 func (s *Service) FlushNotificationBatch(ctx context.Context, destination string, batch chatbridge.NotificationBatch, _ bool) bool {
-	if scope, workspace, routeID, ok := parseRouteDestinationID(destination); ok {
-		return s.flushRouteNotificationBatch(ctx, destination, scope, workspace, routeID, batch)
+	if route := parseRouteDestinationID(destination); route.OK {
+		return s.flushRouteNotificationBatch(ctx, destination, route.Scope, route.Workspace, route.RouteID, batch)
 	}
-	kind, dagName, targetID, ok := parseDestinationID(destination)
-	if !ok {
+	parsed := parseDestinationID(destination)
+	if !parsed.OK {
 		return false
 	}
-	setting, err := s.GetByDAGName(ctx, dagName)
+	setting, err := s.GetByDAGName(ctx, parsed.DAGName)
 	if err != nil {
 		s.logger.Warn("Failed to load notification settings for delivery",
 			slog.String("destination", destination),
@@ -524,11 +524,11 @@ func (s *Service) FlushNotificationBatch(ctx context.Context, destination string
 		)
 		return false
 	}
-	if kind == destinationKindChannel {
+	if parsed.Kind == destinationKindChannel {
 		if !s.reusableChannelsAllowed() {
 			return true
 		}
-		subscription, ok := findSubscription(setting, targetID)
+		subscription, ok := findSubscription(setting, parsed.TargetID)
 		if !ok || !subscription.Enabled {
 			return true
 		}
@@ -561,7 +561,7 @@ func (s *Service) FlushNotificationBatch(ctx context.Context, destination string
 		}
 		return true
 	}
-	target, ok := findTarget(setting, targetID)
+	target, ok := findTarget(setting, parsed.TargetID)
 	if !ok || !target.Enabled {
 		return true
 	}
@@ -829,9 +829,13 @@ func (s *Service) isSupportedEvent(eventType eventstore.EventType) bool {
 		eventstore.TypeDAGRunAborted,
 		eventstore.TypeDAGRunRejected:
 		return true
-	default:
+	case eventstore.TypeDAGRunQueued,
+		eventstore.TypeDAGRunRunning,
+		eventstore.TypeDAGRunUpdated,
+		eventstore.TypeLLMUsageRecorded:
 		return false
 	}
+	return false
 }
 
 func testStatus(dagName string, eventType eventstore.EventType) *exec.DAGRunStatus {
@@ -845,12 +849,17 @@ func testStatus(dagName string, eventType eventstore.EventType) *exec.DAGRunStat
 	case eventstore.TypeDAGRunSucceeded:
 		status = core.Succeeded
 		message = ""
+	case eventstore.TypeDAGRunFailed:
 	case eventstore.TypeDAGRunAborted:
 		status = core.Aborted
 		message = "This is a test aborted notification from Dagu."
 	case eventstore.TypeDAGRunRejected:
 		status = core.Rejected
 		message = "This is a test rejected notification from Dagu."
+	case eventstore.TypeDAGRunQueued,
+		eventstore.TypeDAGRunRunning,
+		eventstore.TypeDAGRunUpdated,
+		eventstore.TypeLLMUsageRecorded:
 	}
 	return &exec.DAGRunStatus{
 		Name:       dagName,
@@ -943,25 +952,54 @@ func routeDestinationID(scope notificationmodel.RouteScope, workspace, routeID s
 	return destinationKindRoute + "\x00" + string(scope) + "\x00" + workspace + "\x00" + routeID
 }
 
-func parseDestinationID(destination string) (string, string, string, bool) {
-	if strings.HasPrefix(destination, destinationKindChannel+"\x00") {
-		rest := strings.TrimPrefix(destination, destinationKindChannel+"\x00")
-		dagName, subscriptionID, ok := strings.Cut(rest, "\x00")
-		return destinationKindChannel, dagName, subscriptionID, ok && dagName != "" && subscriptionID != ""
-	}
-	dagName, targetID, ok := strings.Cut(destination, "\x00")
-	return destinationKindInline, dagName, targetID, ok && dagName != "" && targetID != ""
+type parsedDestination struct {
+	Kind     string
+	DAGName  string
+	TargetID string
+	OK       bool
 }
 
-func parseRouteDestinationID(destination string) (notificationmodel.RouteScope, string, string, bool) {
-	if !strings.HasPrefix(destination, destinationKindRoute+"\x00") {
-		return "", "", "", false
+func parseDestinationID(destination string) parsedDestination {
+	if rest, ok := strings.CutPrefix(destination, destinationKindChannel+"\x00"); ok {
+		dagName, subscriptionID, ok := strings.Cut(rest, "\x00")
+		return parsedDestination{
+			Kind:     destinationKindChannel,
+			DAGName:  dagName,
+			TargetID: subscriptionID,
+			OK:       ok && dagName != "" && subscriptionID != "",
+		}
 	}
-	parts := strings.SplitN(strings.TrimPrefix(destination, destinationKindRoute+"\x00"), "\x00", 3)
+	dagName, targetID, ok := strings.Cut(destination, "\x00")
+	return parsedDestination{
+		Kind:     destinationKindInline,
+		DAGName:  dagName,
+		TargetID: targetID,
+		OK:       ok && dagName != "" && targetID != "",
+	}
+}
+
+type parsedRouteDestination struct {
+	Scope     notificationmodel.RouteScope
+	Workspace string
+	RouteID   string
+	OK        bool
+}
+
+func parseRouteDestinationID(destination string) parsedRouteDestination {
+	rest, ok := strings.CutPrefix(destination, destinationKindRoute+"\x00")
+	if !ok {
+		return parsedRouteDestination{}
+	}
+	parts := strings.SplitN(rest, "\x00", 3)
 	if len(parts) != 3 || parts[0] == "" || parts[2] == "" {
-		return "", "", "", false
+		return parsedRouteDestination{}
 	}
-	return notificationmodel.RouteScope(parts[0]), parts[1], parts[2], true
+	return parsedRouteDestination{
+		Scope:     notificationmodel.RouteScope(parts[0]),
+		Workspace: parts[1],
+		RouteID:   parts[2],
+		OK:        true,
+	}
 }
 
 func findTarget(setting *notificationmodel.Settings, targetID string) (notificationmodel.Target, bool) {
@@ -1222,7 +1260,7 @@ func (s *Service) sendWebhook(ctx context.Context, target notificationmodel.Targ
 		return errors.New("webhook url is not configured")
 	}
 	if notificationmodel.IsSlackIncomingWebhookURL(target.Webhook.URL) {
-		return errors.New("Slack incoming webhook URL is configured as generic webhook; use the slack provider")
+		return errors.New("slack incoming webhook URL is configured as generic webhook; use the slack provider")
 	}
 	if err := validateOutboundURL(ctx, target.Webhook.URL, target.Webhook.AllowInsecureHTTP, target.Webhook.AllowPrivateNetwork); err != nil {
 		return err
@@ -1480,17 +1518,17 @@ func bodyForEvents(events []chatbridge.NotificationEvent) string {
 			b.WriteString("\n\n")
 		}
 		status := event.Status
-		b.WriteString(fmt.Sprintf("DAG: %s\n", status.Name))
-		b.WriteString(fmt.Sprintf("Run ID: %s\n", status.DAGRunID))
-		b.WriteString(fmt.Sprintf("Status: %s\n", status.Status.String()))
+		fmt.Fprintf(&b, "DAG: %s\n", status.Name)
+		fmt.Fprintf(&b, "Run ID: %s\n", status.DAGRunID)
+		fmt.Fprintf(&b, "Status: %s\n", status.Status.String())
 		if startedAt, err := stringutil.ParseTime(status.StartedAt); err == nil && !startedAt.IsZero() {
-			b.WriteString(fmt.Sprintf("Started: %s\n", startedAt.Format(time.RFC3339)))
+			fmt.Fprintf(&b, "Started: %s\n", startedAt.Format(time.RFC3339))
 		}
 		if finishedAt, err := stringutil.ParseTime(status.FinishedAt); err == nil && !finishedAt.IsZero() {
-			b.WriteString(fmt.Sprintf("Finished: %s\n", finishedAt.Format(time.RFC3339)))
+			fmt.Fprintf(&b, "Finished: %s\n", finishedAt.Format(time.RFC3339))
 		}
 		if status.Error != "" {
-			b.WriteString(fmt.Sprintf("Error: %s\n", status.Error))
+			fmt.Fprintf(&b, "Error: %s\n", status.Error)
 		}
 	}
 	return b.String()
