@@ -26,15 +26,17 @@ import (
 )
 
 type memoryStore struct {
-	mu       sync.Mutex
-	settings map[string]*notificationmodel.Settings
-	channels map[string]*notificationmodel.Channel
+	mu               sync.Mutex
+	settings         map[string]*notificationmodel.Settings
+	channels         map[string]*notificationmodel.Channel
+	getChannelCounts map[string]int
 }
 
 func newMemoryStore(settings ...*notificationmodel.Settings) *memoryStore {
 	store := &memoryStore{
-		settings: make(map[string]*notificationmodel.Settings),
-		channels: make(map[string]*notificationmodel.Channel),
+		settings:         make(map[string]*notificationmodel.Settings),
+		channels:         make(map[string]*notificationmodel.Channel),
+		getChannelCounts: make(map[string]int),
 	}
 	for _, setting := range settings {
 		store.settings[setting.DAGName] = setting
@@ -89,11 +91,18 @@ func (s *memoryStore) SaveChannel(_ context.Context, channel *notificationmodel.
 func (s *memoryStore) GetChannel(_ context.Context, channelID string) (*notificationmodel.Channel, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.getChannelCounts[channelID]++
 	channel := s.channels[channelID]
 	if channel == nil {
 		return nil, notificationmodel.ErrChannelNotFound
 	}
 	return channel, nil
+}
+
+func (s *memoryStore) GetChannelCount(channelID string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.getChannelCounts[channelID]
 }
 
 func (s *memoryStore) ListChannels(context.Context) ([]*notificationmodel.Channel, error) {
@@ -254,6 +263,53 @@ func TestService_NotificationDestinationsForEventFiltersByDAGAndEvent(t *testing
 		Type:   eventstore.TypeDAGRunFailed,
 		Status: &exec.DAGRunStatus{Name: "other-dag", Status: core.Failed},
 	}))
+}
+
+func TestService_NotificationDestinationsCachesReusableChannelLookups(t *testing.T) {
+	t.Parallel()
+
+	channel, err := notificationmodel.NormalizeChannel(&notificationmodel.Channel{
+		ID:      "channel-1",
+		Name:    "Ops Webhook",
+		Type:    notificationmodel.ProviderWebhook,
+		Enabled: true,
+		Webhook: &notificationmodel.WebhookTarget{
+			URL: "https://example.com/webhook",
+		},
+	}, "tester")
+	require.NoError(t, err)
+	dailyReport, err := notificationmodel.Normalize(&notificationmodel.Settings{
+		DAGName: "daily-report",
+		Enabled: true,
+		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		Subscriptions: []notificationmodel.Subscription{{
+			ID:        "subscription-1",
+			ChannelID: "channel-1",
+			Enabled:   true,
+		}},
+	}, "tester")
+	require.NoError(t, err)
+	nightlyReport, err := notificationmodel.Normalize(&notificationmodel.Settings{
+		DAGName: "nightly-report",
+		Enabled: true,
+		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		Subscriptions: []notificationmodel.Subscription{{
+			ID:        "subscription-2",
+			ChannelID: "channel-1",
+			Enabled:   true,
+		}},
+	}, "tester")
+	require.NoError(t, err)
+	store := newMemoryStore(dailyReport, nightlyReport)
+	require.NoError(t, store.SaveChannel(context.Background(), channel))
+	svc := New(store, nil)
+
+	destinations := svc.NotificationDestinations()
+	assert.ElementsMatch(t, []string{
+		channelDestinationID("daily-report", "subscription-1"),
+		channelDestinationID("nightly-report", "subscription-2"),
+	}, destinations)
+	assert.Equal(t, 1, store.GetChannelCount("channel-1"))
 }
 
 func TestService_ReusableChannelSubscriptionsDeliverForMatchingDAGEvent(t *testing.T) {

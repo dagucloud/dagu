@@ -174,7 +174,7 @@ func (a *API) UpdateDAGNotifications(ctx context.Context, request api.UpdateDAGN
 	if err := a.ensureDAGExists(ctx, request.FileName); err != nil {
 		return nil, err
 	}
-	if request.Body.Subscriptions != nil && len(*request.Body.Subscriptions) > 0 {
+	if request.Body.Subscriptions != nil {
 		if err := a.requireLicensedReusableNotificationChannels(); err != nil {
 			return nil, err
 		}
@@ -201,9 +201,10 @@ func (a *API) UpdateDAGNotifications(ctx context.Context, request api.UpdateDAGN
 	}
 
 	a.logAudit(ctx, audit.CategoryNotification, "notification_settings_update", map[string]any{
-		"dag_name":     request.FileName,
-		"target_count": len(saved.Targets),
-		"enabled":      saved.Enabled,
+		"dag_name":           request.FileName,
+		"target_count":       len(saved.Targets),
+		"subscription_count": len(saved.Subscriptions),
+		"enabled":            saved.Enabled,
 	})
 	return api.UpdateDAGNotifications200JSONResponse(toAPINotificationSettings(saved)), nil
 }

@@ -252,6 +252,23 @@ func (s *Service) NotificationDestinations() []string {
 		s.logger.Warn("Failed to list notification destinations", slog.String("error", err.Error()))
 		return nil
 	}
+	channels := make(map[string]*notificationmodel.Channel)
+	loadChannel := func(channelID string) (*notificationmodel.Channel, bool) {
+		if channelID == "" {
+			return nil, false
+		}
+		if channel, ok := channels[channelID]; ok {
+			return channel, channel != nil
+		}
+		channel, err := s.GetChannel(context.Background(), channelID)
+		if err != nil {
+			channels[channelID] = nil
+			return nil, false
+		}
+		channels[channelID] = channel
+		return channel, true
+	}
+
 	var destinations []string
 	for _, setting := range settings {
 		for _, target := range setting.Targets {
@@ -264,8 +281,8 @@ func (s *Service) NotificationDestinations() []string {
 				if !setting.Enabled || !subscription.Enabled {
 					continue
 				}
-				channel, err := s.GetChannel(context.Background(), subscription.ChannelID)
-				if err != nil {
+				channel, ok := loadChannel(subscription.ChannelID)
+				if !ok {
 					continue
 				}
 				if destination := channelDestinationID(setting.DAGName, subscription.ID); channel.Enabled && destination != "" {
