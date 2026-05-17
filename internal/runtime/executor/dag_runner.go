@@ -123,6 +123,24 @@ func NewSubDAGExecutor(ctx context.Context, childName string) (*SubDAGExecutor, 
 	}, nil
 }
 
+// NewSubDAGExecutorForDAG creates a SubDAGExecutor for an already-loaded DAG.
+// This is used when the child DAG comes from an external source bundle rather
+// than the parent DAG's local definitions or configured DAG store.
+func NewSubDAGExecutorForDAG(ctx context.Context, dag *core.DAG) (*SubDAGExecutor, error) {
+	if dag == nil {
+		return nil, fmt.Errorf("sub DAG is required")
+	}
+	rCtx := exec.GetContext(ctx)
+	return &SubDAGExecutor{
+		DAG:             dag,
+		coordinatorCli:  rCtx.CoordinatorCli,
+		cmds:            make(map[string]*osexec.Cmd),
+		distributedRuns: make(map[string]bool),
+		dagCtx:          rCtx,
+		killed:          make(chan struct{}),
+	}, nil
+}
+
 // buildCommand builds the command to execute the sub DAG.
 func (e *SubDAGExecutor) buildCommand(ctx context.Context, runParams RunParams, workDir string) (*osexec.Cmd, error) {
 	if runParams.RunID == "" {

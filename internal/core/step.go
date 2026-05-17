@@ -408,6 +408,9 @@ const (
 
 	// ExecutorTypeAgent is the executor type for agent steps.
 	ExecutorTypeAgent = "agent"
+
+	// ExecutorTypeAction is the executor type for external Dagu actions.
+	ExecutorTypeAction = "action"
 )
 
 // AgentStepConfig contains the configuration for an agent step.

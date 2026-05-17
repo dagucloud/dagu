@@ -160,6 +160,126 @@ steps:
 	assert.Contains(t, err.Error(), `parallel currently requires action: dag.run or dag.enqueue`)
 }
 
+func TestStepSchemaV2_SourceAction(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: notify
+    action: source:github.com/acme/dagu-actions-slack@v1
+    with:
+      channel: "#ops"
+      text: done
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, "notify", step.ID)
+	assert.Equal(t, core.ExecutorTypeAction, step.ExecutorConfig.Type)
+	assert.Equal(t, "source:github.com/acme/dagu-actions-slack@v1", step.ExecutorConfig.Config["ref"])
+	assert.Equal(t, map[string]any{
+		"channel": "#ops",
+		"text":    "done",
+	}, step.ExecutorConfig.Config["input"])
+}
+
+func TestStepSchemaV2_GitHubAction(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: notify
+    action: acme/dagu-actions-slack@v1
+    with:
+      channel: "#ops"
+      text: done
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, core.ExecutorTypeAction, step.ExecutorConfig.Type)
+	assert.Equal(t, "acme/dagu-actions-slack@v1", step.ExecutorConfig.Config["ref"])
+	assert.Equal(t, map[string]any{
+		"channel": "#ops",
+		"text":    "done",
+	}, step.ExecutorConfig.Config["input"])
+}
+
+func TestStepSchemaV2_OfficialActionShorthand(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: notify
+    action: slack@v1
+    with:
+      channel: "#ops"
+      text: done
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, core.ExecutorTypeAction, step.ExecutorConfig.Type)
+	assert.Equal(t, "dagucloud/action-slack@v1", step.ExecutorConfig.Config["ref"])
+	assert.Equal(t, "slack@v1", step.ExecutorConfig.Config["original_ref"])
+	assert.Equal(t, map[string]any{
+		"channel": "#ops",
+		"text":    "done",
+	}, step.ExecutorConfig.Config["input"])
+}
+
+func TestStepSchemaV2_ActionRejectsPackagePrefix(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: notify
+    action: pkg:dagu-actions/slack.notify@1.2.3
+`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "owner/repo@version")
+}
+
+func TestStepSchemaV2_ActionRejectsUnsafeGitHubVersion(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: notify
+    action: acme/dagu-actions-slack@-main
+`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "owner/repo@version")
+}
+
+func TestStepSchemaV2_ExplicitActionExecutor(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: notify
+    type: action
+    with:
+      ref: acme/dagu-actions-slack@v1
+      input:
+        channel: "#ops"
+        text: done
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, core.ExecutorTypeAction, step.ExecutorConfig.Type)
+	assert.Equal(t, "acme/dagu-actions-slack@v1", step.ExecutorConfig.Config["ref"])
+	assert.Equal(t, map[string]any{
+		"channel": "#ops",
+		"text":    "done",
+	}, step.ExecutorConfig.Config["input"])
+}
+
 func TestStepSchemaV2_ActionHTTPRequest(t *testing.T) {
 	t.Parallel()
 

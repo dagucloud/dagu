@@ -38,6 +38,11 @@ var v2RunWithFields = map[string]struct{}{
 
 type actionNormalizer func(normalized map[string]any, with map[string]any) error
 
+const (
+	officialActionOwner      = "dagucloud"
+	officialActionRepoPrefix = "action-"
+)
+
 var builtinActionNormalizers = map[string]actionNormalizer{
 	"agent.run":       normalizeAgentAction,
 	"artifact.list":   operationAction("artifact", "list"),
@@ -181,8 +186,15 @@ func normalizeActionStep(normalized, raw map[string]any, registry *customStepTyp
 	if action == "" {
 		return core.NewValidationError("action", raw["action"], fmt.Errorf("action is required"))
 	}
+	if isRemoteActionReference(action) {
+		with, err := actionWith(raw)
+		if err != nil {
+			return err
+		}
+		return normalizeRemoteAction(normalized, action, with)
+	}
 	if strings.Contains(action, "@") {
-		return core.NewValidationError("action", raw["action"], fmt.Errorf("versioned action references are reserved for the future action registry"))
+		return core.NewValidationError("action", raw["action"], fmt.Errorf("versioned action references must use official action@version or GitHub owner/repo@version"))
 	}
 
 	if registry != nil {
@@ -209,6 +221,128 @@ func normalizeActionStep(normalized, raw map[string]any, registry *customStepTyp
 		return normalizeRedisAction(normalized, with, after)
 	}
 	return core.NewValidationError("action", raw["action"], fmt.Errorf("unknown action %q", action))
+}
+
+func isRemoteActionReference(action string) bool {
+	return strings.HasPrefix(action, "source:") || isOfficialActionReference(action) || isGitHubActionReference(action)
+}
+
+func isOfficialActionReference(action string) bool {
+	target, version, err := splitActionRef(action)
+	return err == nil && isOfficialActionTarget(target) && isSafeActionVersion(version)
+}
+
+func isGitHubActionReference(action string) bool {
+	target, version, err := splitActionRef(action)
+	return err == nil && isGitHubActionTarget(target) && isSafeActionVersion(version)
+}
+
+func isOfficialActionTarget(target string) bool {
+	target = strings.TrimSpace(target)
+	if target == "" || strings.Contains(target, "/") {
+		return false
+	}
+	if target == "." || target == ".." || strings.HasPrefix(target, ".") || strings.HasPrefix(target, "-") || strings.HasSuffix(target, ".git") {
+		return false
+	}
+	for _, r := range target {
+		if !isGitHubRepoRune(r) {
+			return false
+		}
+	}
+	return true
+}
+
+func splitActionRef(action string) (string, string, error) {
+	idx := strings.LastIndex(action, "@")
+	if idx <= 0 || idx == len(action)-1 {
+		return "", "", fmt.Errorf("action ref must be target@version")
+	}
+	return strings.TrimSpace(action[:idx]), strings.TrimSpace(action[idx+1:]), nil
+}
+
+func isGitHubActionTarget(target string) bool {
+	parts := strings.Split(target, "/")
+	if len(parts) != 2 {
+		return false
+	}
+	owner, repo := parts[0], parts[1]
+	if owner == "" || repo == "" || strings.HasPrefix(owner, "-") || strings.HasSuffix(owner, "-") {
+		return false
+	}
+	if len(owner) > 39 || repo == "." || repo == ".." || strings.HasSuffix(repo, ".git") {
+		return false
+	}
+	for _, r := range owner {
+		if !isGitHubOwnerRune(r) {
+			return false
+		}
+	}
+	for _, r := range repo {
+		if !isGitHubRepoRune(r) {
+			return false
+		}
+	}
+	return true
+}
+
+func isGitHubOwnerRune(r rune) bool {
+	return r >= 'A' && r <= 'Z' ||
+		r >= 'a' && r <= 'z' ||
+		r >= '0' && r <= '9' ||
+		r == '-'
+}
+
+func isGitHubRepoRune(r rune) bool {
+	return isGitHubOwnerRune(r) || r == '_' || r == '.'
+}
+
+func isSafeActionVersion(version string) bool {
+	version = strings.TrimSpace(version)
+	if version == "" ||
+		strings.HasPrefix(version, "-") ||
+		strings.ContainsAny(version, " \t\r\n\\~^:?*[]") ||
+		strings.Contains(version, "..") ||
+		strings.Contains(version, "@{") ||
+		strings.Contains(version, "//") ||
+		strings.HasSuffix(version, "/") ||
+		strings.HasSuffix(version, ".") ||
+		strings.HasSuffix(version, ".lock") {
+		return false
+	}
+	for part := range strings.SplitSeq(version, "/") {
+		if part == "" || strings.HasPrefix(part, ".") || strings.HasSuffix(part, ".lock") {
+			return false
+		}
+	}
+	return true
+}
+
+func normalizeRemoteAction(normalized map[string]any, action string, with map[string]any) error {
+	ref := action
+	cfg := map[string]any{
+		"ref":   ref,
+		"input": map[string]any{},
+	}
+	if canonical, ok := officialActionCanonicalRef(action); ok {
+		cfg["ref"] = canonical
+		cfg["original_ref"] = action
+	}
+	if len(with) > 0 {
+		cfg["input"] = with
+	}
+	normalized["type"] = core.ExecutorTypeAction
+	normalized["with"] = cfg
+	delete(normalized, "action")
+	return nil
+}
+
+func officialActionCanonicalRef(action string) (string, bool) {
+	target, version, err := splitActionRef(action)
+	if err != nil || !isOfficialActionTarget(target) || !isSafeActionVersion(version) {
+		return "", false
+	}
+	return officialActionOwner + "/" + officialActionRepoPrefix + target + "@" + version, true
 }
 
 func actionWith(raw map[string]any) (map[string]any, error) {

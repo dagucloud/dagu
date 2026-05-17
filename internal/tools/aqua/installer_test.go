@@ -148,6 +148,15 @@ func TestReadyManifestReturnsManifestWhenCommandsExist(t *testing.T) {
 	assert.Equal(t, commandPath, got.Commands["jq"].Path)
 }
 
+func TestReadyManifestReturnsNilWhenManifestMissing(t *testing.T) {
+	t.Parallel()
+
+	got, err := readyManifest(testCacheLayout(t.TempDir()), "linux/amd64", "hash")
+
+	require.NoError(t, err)
+	assert.Nil(t, got)
+}
+
 func TestReadyManifestMissesWhenCommandIsMissing(t *testing.T) {
 	t.Parallel()
 
