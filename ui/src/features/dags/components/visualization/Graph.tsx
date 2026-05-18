@@ -212,6 +212,13 @@ function Graph({
     };
   }, [width, isExpandedView, height, isDarkMode]);
 
+  const mermaidNodeIds = React.useMemo(() => {
+    return (steps ?? []).map((stepOrNode) => {
+      const step = isRuntimeNode(stepOrNode) ? stepOrNode.step : stepOrNode;
+      return toMermaidNodeId(step.name);
+    });
+  }, [steps]);
+
   const graph = React.useMemo(() => {
     if (!steps || steps.length === 0) return '';
 
@@ -484,6 +491,7 @@ function Graph({
           style={mermaidStyle}
           def={graph}
           scale={scale}
+          nodeIds={mermaidNodeIds}
           onClick={selectOnClick ? onClickNode : undefined}
           onDoubleClick={onDoubleClickNode ?? onClickNode}
           onRightClick={onRightClickNode}

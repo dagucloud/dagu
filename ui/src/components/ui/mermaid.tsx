@@ -5,6 +5,7 @@ type Props = {
   def: string;
   style?: CSSProperties;
   scale: number;
+  nodeIds?: readonly string[];
   onClick?: (id: string) => void;
   onDoubleClick?: (id: string) => void;
   onRightClick?: (id: string) => void;
@@ -81,6 +82,63 @@ function initializeMermaid(): void {
   });
 }
 
+function normalizeNodeIds(nodeIds?: readonly string[]): string[] {
+  if (!nodeIds?.length) {
+    return [];
+  }
+  return [...new Set(nodeIds)]
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+}
+
+function resolveRenderedNodeId(
+  renderedId: string,
+  knownNodeIds: readonly string[]
+): string | null {
+  for (const nodeId of knownNodeIds) {
+    if (renderedId === nodeId || renderedId.includes(nodeId)) {
+      return nodeId;
+    }
+  }
+
+  // Backward compatibility for older callers that do not pass known ids.
+  // Older Mermaid versions rendered ids as "flowchart-${nodeId}-${index}".
+  if (knownNodeIds.length === 0) {
+    return renderedId.split('-')[1] || null;
+  }
+
+  return null;
+}
+
+function findRenderedNodeElement(
+  target: EventTarget | null,
+  container: HTMLDivElement | null
+): Element | null {
+  if (!(target instanceof Element) || !container) {
+    return null;
+  }
+  const nodeElement = target.closest('.node');
+  return nodeElement && container.contains(nodeElement) ? nodeElement : null;
+}
+
+function applyNodeInteractionStyles(
+  container: HTMLDivElement,
+  knownNodeIds: readonly string[],
+  hasNodeInteractions: boolean
+): void {
+  container.querySelectorAll('.node').forEach((node) => {
+    const nodeElement = node as HTMLElement;
+    const nodeId = resolveRenderedNodeId(node.id, knownNodeIds);
+    if (hasNodeInteractions && nodeId) {
+      nodeElement.style.cursor = 'pointer';
+      nodeElement.style.userSelect = 'none';
+    } else {
+      nodeElement.style.removeProperty('cursor');
+      nodeElement.style.removeProperty('user-select');
+    }
+  });
+}
+
 // Initialize on load
 initializeMermaid();
 
@@ -88,6 +146,7 @@ function Mermaid({
   def,
   style = {},
   scale,
+  nodeIds,
   onClick,
   onDoubleClick,
   onRightClick,
@@ -98,6 +157,10 @@ function Mermaid({
   const scrollContainerRef = React.useRef<HTMLDivElement>(null); // Ref for the outer scrollable div
   const scrollPosRef = React.useRef({ top: 0, left: 0 }); // Ref to store scroll position
   const handlersRef = React.useRef({ onClick, onDoubleClick, onRightClick });
+  const knownNodeIds = React.useMemo(() => normalizeNodeIds(nodeIds), [nodeIds]);
+  const knownNodeIdsRef = React.useRef(knownNodeIds);
+  const hasNodeInteractions = Boolean(onClick || onDoubleClick || onRightClick);
+  const hasNodeInteractionsRef = React.useRef(hasNodeInteractions);
   const renderGenerationRef = React.useRef(0);
   const clickTimeoutsRef = React.useRef<
     Map<string, ReturnType<typeof setTimeout>>
@@ -133,6 +196,84 @@ function Mermaid({
     handlersRef.current = { onClick, onDoubleClick, onRightClick };
   }, [onClick, onDoubleClick, onRightClick]);
 
+  React.useEffect(() => {
+    knownNodeIdsRef.current = knownNodeIds;
+  }, [knownNodeIds]);
+
+  React.useEffect(() => {
+    hasNodeInteractionsRef.current = hasNodeInteractions;
+  }, [hasNodeInteractions]);
+
+  const resolveEventNodeId = React.useCallback(
+    (target: EventTarget | null): string | null => {
+      const nodeElement = findRenderedNodeElement(target, mermaidRef.current);
+      if (!nodeElement) {
+        return null;
+      }
+      return resolveRenderedNodeId(nodeElement.id, knownNodeIdsRef.current);
+    },
+    []
+  );
+
+  const clearPendingClick = React.useCallback((nodeId: string) => {
+    const existingTimeout = clickTimeoutsRef.current.get(nodeId);
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+      clickTimeoutsRef.current.delete(nodeId);
+    }
+  }, []);
+
+  const handleNodeClick = React.useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!handlersRef.current.onClick) {
+        return;
+      }
+      const nodeId = resolveEventNodeId(event.target);
+      if (!nodeId) {
+        return;
+      }
+      clearPendingClick(nodeId);
+      const timeout = setTimeout(() => {
+        clickTimeoutsRef.current.delete(nodeId);
+        handlersRef.current.onClick?.(nodeId);
+      }, 250);
+      clickTimeoutsRef.current.set(nodeId, timeout);
+    },
+    [clearPendingClick, resolveEventNodeId]
+  );
+
+  const handleNodeDoubleClick = React.useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!handlersRef.current.onDoubleClick) {
+        return;
+      }
+      const nodeId = resolveEventNodeId(event.target);
+      if (!nodeId) {
+        return;
+      }
+      event.stopPropagation();
+      clearPendingClick(nodeId);
+      handlersRef.current.onDoubleClick(nodeId);
+    },
+    [clearPendingClick, resolveEventNodeId]
+  );
+
+  const handleNodeRightClick = React.useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!handlersRef.current.onRightClick) {
+        return;
+      }
+      const nodeId = resolveEventNodeId(event.target);
+      if (!nodeId) {
+        return;
+      }
+      event.preventDefault();
+      clearPendingClick(nodeId);
+      handlersRef.current.onRightClick(nodeId);
+    },
+    [clearPendingClick, resolveEventNodeId]
+  );
+
   const render = async () => {
     const renderGeneration = ++renderGenerationRef.current;
     if (!mermaidRef.current) {
@@ -163,6 +304,11 @@ function Mermaid({
 
       mermaidRef.current.innerHTML = svg;
       onRender?.(mermaidRef.current);
+      applyNodeInteractionStyles(
+        mermaidRef.current,
+        knownNodeIdsRef.current,
+        hasNodeInteractionsRef.current
+      );
 
       // Apply scale transform immediately after SVG is rendered
       const svgEl = mermaidRef.current.querySelector('svg');
@@ -189,74 +335,6 @@ function Mermaid({
       if (scrollContainerRef.current) {
         scrollContainerRef.current.scrollTop = scrollPosRef.current.top;
         scrollContainerRef.current.scrollLeft = scrollPosRef.current.left;
-      }
-
-      // Attach custom event handlers if provided
-      if ((onClick || onDoubleClick || onRightClick) && mermaidRef.current) {
-        // Clear existing timeouts before setting up new handlers
-        clickTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
-        clickTimeoutsRef.current.clear();
-
-        // Find all nodes in the SVG (typically these are <g> elements with class="node")
-        const nodeElements = mermaidRef.current.querySelectorAll('.node');
-
-        nodeElements.forEach((node) => {
-          // Extract the node ID from the element
-          // The ID is typically in the format "flowchart-nodeId-number"
-          const nodeId = node.id.split('-')[1];
-
-          if (nodeId) {
-            // Attach single-click event listener if provided
-            if (onClick) {
-              node.addEventListener('click', () => {
-                // Clear any existing timeout for this node
-                const existingTimeout = clickTimeoutsRef.current.get(nodeId);
-                if (existingTimeout) {
-                  clearTimeout(existingTimeout);
-                }
-                // Set timeout to allow double-click to cancel
-                const timeout = setTimeout(() => {
-                  clickTimeoutsRef.current.delete(nodeId);
-                  handlersRef.current.onClick?.(nodeId);
-                }, 250);
-                clickTimeoutsRef.current.set(nodeId, timeout);
-              });
-            }
-
-            // Attach double-click event listener if provided
-            if (onDoubleClick) {
-              node.addEventListener('dblclick', (event) => {
-                event.stopPropagation();
-                // Cancel pending single-click action
-                const existingTimeout = clickTimeoutsRef.current.get(nodeId);
-                if (existingTimeout) {
-                  clearTimeout(existingTimeout);
-                  clickTimeoutsRef.current.delete(nodeId);
-                }
-                handlersRef.current.onDoubleClick?.(nodeId);
-              });
-            }
-
-            // Attach right-click (contextmenu) event listener if provided
-            if (onRightClick) {
-              node.addEventListener('contextmenu', (event) => {
-                event.preventDefault(); // Prevent default context menu
-                // Also cancel pending single-click
-                const existingTimeout = clickTimeoutsRef.current.get(nodeId);
-                if (existingTimeout) {
-                  clearTimeout(existingTimeout);
-                  clickTimeoutsRef.current.delete(nodeId);
-                }
-                handlersRef.current.onRightClick?.(nodeId);
-              });
-            }
-
-            // Add pointer cursor and disable text selection
-            const nodeElement = node as HTMLElement;
-            nodeElement.style.cursor = 'pointer';
-            nodeElement.style.userSelect = 'none';
-          }
-        });
       }
 
       // Bind standard Mermaid event handlers
@@ -297,6 +375,17 @@ function Mermaid({
   }, [def, onRender]); // Re-render when the definition or SVG post-processing changes
 
   React.useEffect(() => {
+    if (!mermaidRef.current) {
+      return;
+    }
+    applyNodeInteractionStyles(
+      mermaidRef.current,
+      knownNodeIds,
+      hasNodeInteractions
+    );
+  }, [knownNodeIds, hasNodeInteractions]);
+
+  React.useEffect(() => {
     // Apply scale transformation when scale prop changes
     if (mermaidRef.current) {
       const svg = mermaidRef.current.querySelector('svg');
@@ -335,6 +424,9 @@ function Mermaid({
     <div ref={scrollContainerRef} style={dStyle}>
       <div
         className="mermaid no-text-select"
+        onClick={handleNodeClick}
+        onContextMenu={handleNodeRightClick}
+        onDoubleClick={handleNodeDoubleClick}
         ref={mermaidRef} // Keep ref for mermaid rendering target
         style={{
           ...mStyle,
@@ -349,10 +441,4 @@ function Mermaid({
   );
 }
 
-export default React.memo(Mermaid, (prev, next) => {
-  return (
-    prev.def === next.def &&
-    prev.scale === next.scale &&
-    prev.onRender === next.onRender
-  );
-});
+export default Mermaid;

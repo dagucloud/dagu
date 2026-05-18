@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { JSONSchema } from '@/lib/schema-utils';
+import type { ParamSchemaFormData } from '../paramSchemaForm';
 import {
   buildParamSchemaFormData,
   buildParamSchemaUiSchema,
