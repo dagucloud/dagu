@@ -126,7 +126,7 @@ type IncidentState struct {
 	LastRequestID string         `json:"lastRequestId,omitempty"`
 	LastEventID   string         `json:"lastEventId,omitempty"`
 	OpenedAt      time.Time      `json:"openedAt"`
-	ResolvedAt    time.Time      `json:"resolvedAt,omitempty"`
+	ResolvedAt    time.Time      `json:"resolvedAt"`
 	UpdatedAt     time.Time      `json:"updatedAt"`
 }
 
