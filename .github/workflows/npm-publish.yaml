@@ -81,10 +81,6 @@ jobs:
             arch: ia32
             package: dagu-win32-ia32
             asset_suffix: windows_386.tar.gz
-          - platform: freebsd
-            arch: x64
-            package: dagu-freebsd-x64
-            asset_suffix: freebsd_amd64.tar.gz
 
           # Tier 3 - Less common platforms
           - platform: linux
@@ -103,18 +99,6 @@ jobs:
             arch: arm64
             package: dagu-win32-arm64
             asset_suffix: windows_arm64.tar.gz
-          - platform: freebsd
-            arch: arm64
-            package: dagu-freebsd-arm64
-            asset_suffix: freebsd_arm64.tar.gz
-          - platform: openbsd
-            arch: x64
-            package: dagu-openbsd-x64
-            asset_suffix: openbsd_amd64.tar.gz
-          - platform: openbsd
-            arch: arm64
-            package: dagu-openbsd-arm64
-            asset_suffix: openbsd_arm64.tar.gz
 
     steps:
       - name: Checkout code
