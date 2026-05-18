@@ -250,6 +250,8 @@ type DAG struct {
 	Kubernetes KubernetesConfig `json:"-"`
 	// Secrets contains references to external secrets to be resolved at runtime.
 	Secrets []SecretRef `json:"secrets,omitempty"`
+	// Tools declares external CLI tools that must be installed before the DAG runs.
+	Tools *ToolConfig `json:"tools,omitempty"`
 	// dotenvOnce ensures LoadDotEnv is called only once, even with concurrent calls.
 	// This provides thread-safe idempotency for dotenv loading.
 	dotenvOnce sync.Once
@@ -310,10 +312,12 @@ type DAGRetryPolicy struct {
 type SecretRef struct {
 	// Name is the environment variable name to set (required).
 	Name string `json:"name"`
-	// Provider specifies the secret backend (e.g., "env", "file", "vault", "kubernetes") (required).
-	Provider string `json:"provider"`
-	// Key is the provider-specific identifier for the secret (required).
-	Key string `json:"key"`
+	// Ref is the workspace-local registry reference for a team-managed secret.
+	Ref string `json:"ref,omitempty"`
+	// Provider specifies the secret backend (e.g., "env", "file", "vault", "kubernetes").
+	Provider string `json:"provider,omitempty"`
+	// Key is the provider-specific identifier for a direct provider reference.
+	Key string `json:"key,omitempty"`
 	// Options contains provider-specific configuration (optional).
 	Options map[string]string `json:"options,omitempty"`
 }
@@ -602,7 +606,7 @@ func (d *DAG) initializeDefaults() {
 	)
 
 	if d.Type == "" {
-		d.Type = TypeChain
+		d.Type = TypeGraph
 	}
 	if d.LogOutput == "" {
 		d.LogOutput = LogOutputSeparate

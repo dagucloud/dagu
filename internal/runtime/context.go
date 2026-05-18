@@ -47,6 +47,14 @@ var (
 	WithLogWriterFactory = exec.WithLogWriterFactory
 	// WithDefaultExecMode sets the server-level default execution mode.
 	WithDefaultExecMode = exec.WithDefaultExecMode
+	// WithDAGRunStore sets the dag-run store.
+	WithDAGRunStore = exec.WithDAGRunStore
+	// WithQueueStore sets the queue store.
+	WithQueueStore = exec.WithQueueStore
+	// WithDAGRunLogDir sets the base log directory for newly persisted DAG runs.
+	WithDAGRunLogDir = exec.WithDAGRunLogDir
+	// WithDAGRunArtifactDir sets the base artifact directory for newly persisted DAG runs.
+	WithDAGRunArtifactDir = exec.WithDAGRunArtifactDir
 	// WithWorkDir sets the per-DAG-run working directory path.
 	WithWorkDir = exec.WithWorkDir
 	// WithArtifactDir sets the per-DAG-run artifact directory path.

@@ -182,6 +182,9 @@ steps:
 		{
 			name: "FailureHandler",
 			dagYAML: `
+retry_policy:
+  limit: 0
+
 handler_on:
   failure:
     run: "true"
@@ -509,6 +512,9 @@ steps:
 		th := test.Setup(t)
 
 		dag := th.DAG(t, `
+retry_policy:
+  limit: 0
+
 handler_on:
   failure:
     run: |

@@ -264,6 +264,17 @@ func (n *Node) Execute(ctx context.Context, onSetup ...func()) error {
 		}
 	}
 
+	if outputsProvider, ok := cmd.(executor.OutputsProvider); ok {
+		outputs := outputsProvider.GetOutputs()
+		if len(outputs) > 0 {
+			value, err := serializeOutputsValue(ctx, outputs)
+			if err != nil {
+				return err
+			}
+			n.setOutputsValue(value)
+		}
+	}
+
 	if err := n.captureOutput(ctx); err != nil {
 		return err
 	}
@@ -428,7 +439,7 @@ func (n *Node) captureOutput(ctx context.Context) error {
 			return fmt.Errorf("failed to capture output: %w", err)
 		}
 		n.setVariable(step.Output, value)
-		if !step.HasStructuredOutput() && !step.HasOutputSchema() {
+		if !step.HasStructuredOutput() && !step.HasOutputSchema() && !step.HasStdoutOutputs() {
 			n.setOutputValue(value)
 			return nil
 		}
@@ -440,11 +451,17 @@ func (n *Node) captureOutput(ctx context.Context) error {
 			return fmt.Errorf("failed to evaluate structured output: %w", err)
 		}
 		n.setOutputValue(value)
-		return nil
 	}
 
-	if step.HasOutputSchema() {
+	if step.HasOutputSchema() && !step.HasStructuredOutput() {
 		n.setOutputValue(schemaOutput)
+	}
+	if step.HasStdoutOutputs() {
+		value, err := n.evaluateStdoutOutputs(ctx, stdout, stdoutCaptured)
+		if err != nil {
+			return fmt.Errorf("failed to evaluate stdout outputs: %w", err)
+		}
+		n.setOutputsValue(value)
 	}
 	return nil
 }
@@ -532,6 +549,63 @@ func (n *Node) evaluateStructuredOutput(ctx context.Context, stdout string, stdo
 	return string(data), nil
 }
 
+func (n *Node) evaluateStdoutOutputs(ctx context.Context, stdout string, stdoutCaptured bool) (string, error) {
+	cfg := n.Step().StdoutOutputs
+	if cfg == nil {
+		return "", nil
+	}
+	raw := stdout
+	if !stdoutCaptured {
+		value, err := n.outputs.capturedOutput(ctx)
+		if err != nil {
+			return "", err
+		}
+		raw = value
+	}
+
+	values := make(map[string]any)
+	if len(cfg.Fields) > 0 {
+		for key, entry := range cfg.Fields {
+			value, err := n.resolveStructuredOutputEntry(ctx, key, entry, raw, true)
+			if err != nil {
+				return "", err
+			}
+			values[key] = value
+		}
+		return serializeOutputsValue(ctx, values)
+	}
+
+	decode := cfg.Decode
+	if decode == "" && cfg.Field == "" {
+		decode = core.StepOutputDecodeJSON
+	}
+	if decode == "" || decode == core.StepOutputDecodeText {
+		if cfg.Select != "" {
+			return "", fmt.Errorf("select requires decode to be %q or %q",
+				core.StepOutputDecodeJSON, core.StepOutputDecodeYAML)
+		}
+		if cfg.Field == "" {
+			return "", fmt.Errorf("field is required when stdout outputs use text")
+		}
+		values[cfg.Field] = strings.TrimSpace(raw)
+		return serializeOutputsValue(ctx, values)
+	}
+
+	decoded, err := decodeStructuredOutputValue(ctx, "stdout.outputs", raw, cfg.Select, decode)
+	if err != nil {
+		return "", err
+	}
+	if cfg.Field != "" {
+		values[cfg.Field] = decoded
+		return serializeOutputsValue(ctx, values)
+	}
+	object, ok := normalizedOutputObject(decoded)
+	if !ok {
+		return "", fmt.Errorf("decoded stdout outputs must be an object when field is omitted")
+	}
+	return serializeOutputsValue(ctx, object)
+}
+
 func (n *Node) resolveStructuredOutputEntry(ctx context.Context, key string, entry core.StepOutputEntry, stdout string, stdoutCaptured bool) (any, error) {
 	if entry.HasValue {
 		value, err := n.evaluateStructuredLiteral(ctx, entry.Value)
@@ -555,6 +629,36 @@ func (n *Node) resolveStructuredOutputEntry(ctx context.Context, key string, ent
 		return decodeStructuredOutputValue(ctx, key, raw, entry.Select, core.StepOutputDecodeYAML)
 	default:
 		return nil, fmt.Errorf("%s: unsupported decode %q", key, entry.Decode)
+	}
+}
+
+func serializeOutputsValue(ctx context.Context, values map[string]any) (string, error) {
+	data, err := json.Marshal(values)
+	if err != nil {
+		return "", fmt.Errorf("failed to serialize outputs: %w", err)
+	}
+	if int64(len(data)) > maxOutputSize(ctx) {
+		return "", fmt.Errorf("outputs exceeded maximum size limit of %d bytes", maxOutputSize(ctx))
+	}
+	return string(data), nil
+}
+
+func normalizedOutputObject(value any) (map[string]any, bool) {
+	switch v := value.(type) {
+	case map[string]any:
+		return v, true
+	case map[any]any:
+		result := make(map[string]any, len(v))
+		for key, item := range v {
+			keyString, ok := key.(string)
+			if !ok {
+				return nil, false
+			}
+			result[keyString] = item
+		}
+		return result, true
+	default:
+		return nil, false
 	}
 }
 
@@ -814,10 +918,13 @@ func (n *Node) setupExecutor(ctx context.Context) (executor.Executor, error) {
 }
 
 func evalExecutorConfig(ctx context.Context, step core.Step) (map[string]any, error) {
+	env := GetEnv(ctx)
+	ctx = eval.WithEnvScope(ctx, env.Scope)
+	opts := append([]eval.Option{eval.WithStepMap(env.StepMap)}, step.ConfigEvalOptions(ctx)...)
 	if step.ExecutorConfig.Type == "template" {
-		return eval.Object(ctx, step.ExecutorConfig.Config, templateConfigEvalVariables(GetEnv(ctx)), step.ConfigEvalOptions(ctx)...)
+		return eval.Object(ctx, step.ExecutorConfig.Config, templateConfigEvalVariables(env), opts...)
 	}
-	return eval.Object(ctx, step.ExecutorConfig.Config, GetEnv(ctx).UserEnvsMap(), step.ConfigEvalOptions(ctx)...)
+	return eval.Object(ctx, step.ExecutorConfig.Config, env.UserEnvsMap(), opts...)
 }
 
 func (n *Node) configureSubDAGExecutor(cmd executor.Executor, subRuns []SubDAGRun) error {

@@ -380,8 +380,8 @@
     "type": {
       "type": "string",
       "enum": ["graph", "chain", "agent"],
-      "default": "chain",
-      "description": "Execution type for steps. 'chain' (default) executes steps sequentially in the order they are defined, with each step automatically depending on the previous one. 'graph' uses dependency-based execution where steps run based on their 'depends' field. 'agent' is reserved for future agent-based execution."
+      "default": "graph",
+      "description": "Execution type for steps. 'graph' (default) uses dependency-based execution where steps run based on their 'depends' field. 'chain' executes steps sequentially in the order they are defined, with each step automatically depending on the previous one. 'agent' is reserved for future agent-based execution."
     },
     "env": {
       "oneOf": [
@@ -417,6 +417,22 @@
         "$ref": "#/definitions/secretRef"
       },
       "description": "List of external secret references resolved at runtime and exposed as environment variables. Each entry declares the target environment variable name, provider, key, and optional provider-specific options."
+    },
+    "tools": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/toolConfig"
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/toolPackage"
+          },
+          "description": "Shorthand list of aqua packages, for example tools: ['jqlang/jq@jq-1.7.1']."
+        }
+      ],
+      "description": "DAG-level CLI tool dependencies installed on the worker before any step runs. Can be an object for advanced options or shorthand package refs like jqlang/jq@jq-1.7.1. Provider defaults to aqua, and registry defaults to Dagu's pinned standard registry commit."
     },
     "defaults": {
       "type": "object",
@@ -1321,12 +1337,37 @@
     },
     "secretRef": {
       "type": "object",
-      "required": ["name", "provider", "key"],
+      "required": ["name"],
       "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": ["ref"],
+          "not": {
+            "anyOf": [
+              { "required": ["provider"] },
+              { "required": ["key"] },
+              { "required": ["options"] }
+            ]
+          }
+        },
+        {
+          "required": ["provider", "key"],
+          "not": { "required": ["ref"] }
+        }
+      ],
       "properties": {
         "name": {
           "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "not": {
+            "pattern": "^DAGU_"
+          },
           "description": "Environment variable name that will receive the secret value."
+        },
+        "ref": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)*$",
+          "description": "Workspace-local registry reference for a team-managed secret."
         },
         "provider": {
           "type": "string",
@@ -1345,6 +1386,134 @@
         }
       },
       "description": "Reference to an external secret that Dagu resolves at runtime. The resolved value is injected as an environment variable and masked in logs/output."
+    },
+    "toolConfig": {
+      "type": "object",
+      "required": ["packages"],
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["aqua"],
+          "default": "aqua",
+          "description": "Tool provider. Currently only aqua is supported."
+        },
+        "registry": {
+          "$ref": "#/definitions/toolRegistry",
+          "description": "Optional aqua registry override. Omit this to use Dagu's pinned standard aqua registry."
+        },
+        "packages": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/toolPackage"
+          },
+          "description": "Aqua packages to install before the DAG runs."
+        }
+      }
+    },
+    "toolRegistry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "default": "standard",
+          "description": "Registry name referenced by packages."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["standard", "github_content"],
+          "default": "standard",
+          "description": "Aqua registry type. Local registries are not supported for worker-local installation."
+        },
+        "repo_owner": {
+          "type": "string",
+          "description": "GitHub repository owner for github_content registries."
+        },
+        "repo_name": {
+          "type": "string",
+          "description": "GitHub repository name for github_content registries."
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Registry tag or commit hash. Prefer a commit hash for immutability. Optional for the standard registry; Dagu uses its pinned default commit when omitted. Required for github_content registries."
+        },
+        "path": {
+          "type": "string",
+          "description": "Registry file path inside a github_content registry repository."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": { "const": "github_content" }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["repo_owner", "repo_name", "ref", "path"]
+          }
+        }
+      ]
+    },
+    "toolPackage": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/toolPackageObject"
+        },
+        {
+          "$ref": "#/definitions/toolPackageRef"
+        }
+      ],
+      "description": "Aqua package declaration. Use package@version shorthand for the common case, or an object for explicit commands, display name, or registry overrides."
+    },
+    "toolPackageRef": {
+      "type": "string",
+      "pattern": "^[^\\s@]+@[^\\s@]+$",
+      "not": {
+        "pattern": "@[Ll][Aa][Tt][Ee][Ss][Tt]$"
+      },
+      "description": "Aqua package shorthand in package@version form, for example jqlang/jq@jq-1.7.1. Prefer immutable commit hashes where aqua supports them."
+    },
+    "toolPackageObject": {
+      "type": "object",
+      "required": ["package", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Optional display name. Defaults to the first command when commands are provided, otherwise the package basename."
+        },
+        "package": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Aqua package name, for example jqlang/jq."
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "not": { "pattern": "^[Ll][Aa][Tt][Ee][Ss][Tt]$" },
+          "description": "Pinned aqua package version/ref. For release-asset packages this is usually a release tag such as jq-1.7.1; for source/ref-based packages aqua accepts commit hashes. The floating value latest is rejected."
+        },
+        "commands": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._+-]+$"
+          },
+          "description": "Optional command names exposed to steps from this package. When omitted, Dagu infers commands from aqua registry metadata."
+        },
+        "registry": {
+          "type": "string",
+          "description": "Optional registry name for this package. Defaults to the configured registry."
+        }
+      }
     },
     "stepItem": {
       "oneOf": [
@@ -1473,12 +1642,50 @@
           "description": "Deprecated multi-line script content. Use run with a multi-line string."
         },
         "stdout": {
-          "type": "string",
-          "description": "File path where the step's standard output (stdout) will be written."
+          "oneOf": [
+            {
+              "type": "string",
+              "description": "File path where the step's standard output (stdout) will be written."
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "artifact": {
+                  "type": "string",
+                  "description": "Artifact-relative path where stdout will be written."
+                },
+                "outputs": {
+                  "$ref": "#/definitions/stdoutOutputsConfig",
+                  "description": "Publish stdout as DAG run outputs for action callers."
+                }
+              },
+              "anyOf": [{ "required": ["artifact"] }, { "required": ["outputs"] }],
+              "description": "Write stdout to a DAG-run artifact path."
+            }
+          ],
+          "description": "File path or artifact-relative destination where the step's standard output (stdout) will be written."
         },
         "stderr": {
-          "type": "string",
-          "description": "File path where the step's standard error (stderr) will be written."
+          "oneOf": [
+            {
+              "type": "string",
+              "description": "File path where the step's standard error (stderr) will be written."
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["artifact"],
+              "properties": {
+                "artifact": {
+                  "type": "string",
+                  "description": "Artifact-relative path where stderr will be written."
+                }
+              },
+              "description": "Write stderr to a DAG-run artifact path."
+            }
+          ],
+          "description": "File path or artifact-relative destination where the step's standard error (stderr) will be written."
         },
         "log_output": {
           "type": "string",
@@ -1772,7 +1979,7 @@
               "description": "Parallel execution configuration with concurrency control"
             }
           ],
-          "description": "Configuration for parallel execution of child DAGs. Currently only valid with action: dag.run. Allows processing multiple items concurrently using the same workflow definition."
+          "description": "Configuration for parallel execution of child DAGs. Currently only valid with action: dag.run or dag.enqueue. Allows processing multiple items concurrently using the same workflow definition."
         },
         "worker_selector": {
           "oneOf": [
@@ -1943,6 +2150,18 @@
         },
         {
           "if": {
+            "properties": { "type": { "const": "action" } },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/actionExecutorConfig" }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": { "action": { "const": "dag.run" } },
             "required": ["action"]
           },
@@ -1950,6 +2169,18 @@
             "required": ["with"],
             "properties": {
               "with": { "$ref": "#/definitions/dagRunActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "dag.enqueue" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/dagEnqueueActionConfig" }
             }
           }
         },
@@ -2025,6 +2256,101 @@
         },
         {
           "if": {
+            "properties": { "action": { "enum": ["artifact.write", "artifact.read"] } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/artifactActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "artifact.list" } },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "with": { "$ref": "#/definitions/artifactActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "outputs.write" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/outputsActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "enum": ["file.stat", "file.read", "file.write", "file.copy", "file.move", "file.delete", "file.mkdir", "file.list"] } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/fileActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "data.convert" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/dataConvertActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "data.pick" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/dataPickActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "git.checkout" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/gitCheckoutActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "enum": ["wait.duration", "wait.until", "wait.file", "wait.http"] } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/waitActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": { "action": { "enum": ["s3.upload", "s3.download", "s3.list", "s3.delete"] } },
             "required": ["action"]
           },
@@ -2049,7 +2375,7 @@
         },
         {
           "if": {
-            "properties": { "action": { "enum": ["postgres.query", "sqlite.query"] } },
+            "properties": { "action": { "enum": ["duckdb.query", "postgres.query", "sqlite.query"] } },
             "required": ["action"]
           },
           "then": {
@@ -2061,7 +2387,7 @@
         },
         {
           "if": {
-            "properties": { "action": { "enum": ["postgres.import", "sqlite.import"] } },
+            "properties": { "action": { "enum": ["duckdb.import", "postgres.import", "sqlite.import"] } },
             "required": ["action"]
           },
           "then": {
@@ -2307,6 +2633,32 @@
           }
         },
         {
+          "if": { "properties": { "type": { "const": "file" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "with": { "$ref": "#/definitions/fileActionConfig" },
+              "config": {
+                "$ref": "#/definitions/fileActionConfig",
+                "deprecated": true,
+                "doNotSuggest": true
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "git" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "with": { "$ref": "#/definitions/gitCheckoutActionConfig" },
+              "config": {
+                "$ref": "#/definitions/gitCheckoutActionConfig",
+                "deprecated": true,
+                "doNotSuggest": true
+              }
+            }
+          }
+        },
+        {
           "if": {
             "properties": { "type": { "const": "log" } },
             "required": ["type"]
@@ -2343,6 +2695,19 @@
               "with": { "$ref": "#/definitions/sqliteExecutorConfig" },
               "config": {
                 "$ref": "#/definitions/sqliteExecutorConfig",
+                "deprecated": true,
+                "doNotSuggest": true
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "duckdb" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "with": { "$ref": "#/definitions/duckdbExecutorConfig" },
+              "config": {
+                "$ref": "#/definitions/duckdbExecutorConfig",
                 "deprecated": true,
                 "doNotSuggest": true
               }
@@ -3609,6 +3974,75 @@
         }
       },
       "description": "SQLite executor configuration for database operations. Uses pure Go SQLite with automatic pragmas: foreign_keys=ON, busy_timeout=5000."
+    },
+    "duckdbExecutorConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dsn"],
+      "properties": {
+        "dsn": {
+          "type": "string",
+          "description": "DuckDB database path, or :memory: for an in-memory database."
+        },
+        "params": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": true,
+              "description": "Named parameters as map (e.g., {name: 'value'}). Use :name in query."
+            },
+            {
+              "type": "array",
+              "items": {},
+              "description": "Positional parameters as array. Use ? placeholders in query."
+            }
+          ],
+          "description": "Query parameters for SQL injection prevention."
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 60,
+          "description": "Query timeout in seconds. Default: 60."
+        },
+        "transaction": {
+          "type": "boolean",
+          "description": "Wrap execution in a transaction."
+        },
+        "output_format": {
+          "type": "string",
+          "enum": ["jsonl", "json", "csv"],
+          "default": "jsonl",
+          "description": "Output format for query results. Default: jsonl."
+        },
+        "headers": {
+          "type": "boolean",
+          "description": "Include headers in CSV output."
+        },
+        "null_string": {
+          "type": "string",
+          "default": "null",
+          "description": "String representation for NULL values. Default: 'null'."
+        },
+        "max_rows": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Maximum rows to return. 0 = unlimited."
+        },
+        "streaming": {
+          "type": "boolean",
+          "description": "Stream results to file instead of stdout."
+        },
+        "output_file": {
+          "type": "string",
+          "description": "File path for streaming output."
+        },
+        "import": {
+          "$ref": "#/definitions/sqlImportConfig",
+          "description": "Import data from CSV/TSV/JSONL file into a table."
+        }
+      },
+      "description": "DuckDB executor configuration for embedded analytical database operations."
     },
     "redisConnectionConfig": {
       "type": "object",
@@ -5568,6 +6002,9 @@
         "shell",
         "docker",
         "container",
+        "dag_enqueue",
+        "file",
+        "git",
         "kubernetes",
         "k8s",
         "http",
@@ -5581,12 +6018,15 @@
         "archive",
         "chat",
         "log",
+        "duckdb",
         "postgres",
         "sqlite",
         "redis",
         "harness",
         "router",
         "agent",
+        "action",
+        "outputs",
         "sftp",
         "template"
       ],
@@ -5614,11 +6054,28 @@
             "archive.create",
             "archive.extract",
             "archive.list",
+            "artifact.list",
+            "artifact.read",
+            "artifact.write",
             "chat.completion",
             "container.run",
+            "dag.enqueue",
             "dag.run",
+            "data.convert",
+            "data.pick",
             "docker.run",
+            "duckdb.import",
+            "duckdb.query",
             "exec",
+            "file.copy",
+            "file.delete",
+            "file.list",
+            "file.mkdir",
+            "file.move",
+            "file.read",
+            "file.stat",
+            "file.write",
+            "git.checkout",
             "harness.run",
             "http.request",
             "jq.filter",
@@ -5627,6 +6084,7 @@
             "log.write",
             "mail.send",
             "noop",
+            "outputs.write",
             "postgres.import",
             "postgres.query",
             "router.route",
@@ -5639,7 +6097,11 @@
             "sqlite.import",
             "sqlite.query",
             "ssh.run",
-            "template.render"
+            "template.render",
+            "wait.duration",
+            "wait.file",
+            "wait.http",
+            "wait.until"
           ],
           "description": "Builtin action name."
         },
@@ -5650,11 +6112,41 @@
         },
         {
           "type": "string",
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]*@[^\\s\\\\~^:?*\\[\\]{}@]+$",
+          "allOf": [{ "$ref": "#/definitions/actionRefVersionSafety" }],
+          "description": "Official Dagu action shorthand, resolved as dagucloud/<name>@<version>."
+        },
+        {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]+@[^\\s\\\\~^:?*\\[\\]{}@]+$",
+          "allOf": [{ "$ref": "#/definitions/actionRefVersionSafety" }],
+          "description": "GitHub action reference in owner/repo@version format."
+        },
+        {
+          "type": "string",
+          "pattern": "^source:.+@[^\\s\\\\~^:?*\\[\\]{}@]+$",
+          "allOf": [{ "$ref": "#/definitions/actionRefVersionSafety" }],
+          "description": "Explicit source action reference such as source:github.com/owner/repo@version or source:./actions/name@local."
+        },
+        {
+          "type": "string",
           "pattern": "^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*)*$",
           "description": "Custom action name declared in actions or base config."
         }
       ],
-      "description": "Builtin or custom action name."
+      "description": "Builtin, remote, or custom action name."
+    },
+    "actionRefVersionSafety": {
+      "allOf": [
+        { "not": { "pattern": "@-" } },
+        { "not": { "pattern": "@\\." } },
+        { "not": { "pattern": "/\\." } },
+        { "not": { "pattern": "@[^@]*\\.\\." } },
+        { "not": { "pattern": "@[^@]*//" } },
+        { "not": { "pattern": "@[^@]*[/.]$" } },
+        { "not": { "pattern": "@[^@]*\\.lock($|/)" } }
+      ],
+      "description": "Safety constraints for the version portion of an action reference."
     },
     "legacyStepExecutionFieldPresence": {
       "anyOf": [
@@ -5730,6 +6222,38 @@
         }
       },
       "description": "Configuration for action: dag.run."
+    },
+    "dagEnqueueActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dag"],
+      "properties": {
+        "dag": {
+          "type": "string",
+          "description": "Child DAG name or path."
+        },
+        "params": {
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  { "type": "string" },
+                  { "type": "object", "additionalProperties": true }
+                ]
+              }
+            },
+            { "type": "object", "additionalProperties": true }
+          ],
+          "description": "Parameters passed to the queued child DAG."
+        },
+        "queue": {
+          "type": "string",
+          "description": "Optional queue name override for the queued child DAG run."
+        }
+      },
+      "description": "Configuration for action: dag.enqueue."
     },
     "httpRequestActionConfig": {
       "allOf": [
@@ -5862,6 +6386,114 @@
       },
       "description": "Configuration for action: jq.filter."
     },
+    "dataConvertActionConfig": {
+      "type": "object",
+      "required": ["from", "to"],
+      "oneOf": [
+        { "required": ["data"] },
+        { "required": ["input"] }
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "type": "string",
+          "enum": ["json", "yaml", "csv", "tsv", "text"],
+          "description": "Input format."
+        },
+        "to": {
+          "type": "string",
+          "enum": ["json", "yaml", "csv", "tsv", "text"],
+          "description": "Output format."
+        },
+        "data": {
+          "description": "Inline data to convert."
+        },
+        "input": {
+          "type": "string",
+          "description": "File path to read input from."
+        },
+        "has_header": {
+          "type": "boolean",
+          "description": "Whether CSV or TSV input has a header row. Defaults to true."
+        },
+        "headers": {
+          "type": "boolean",
+          "description": "Include a header row for CSV or TSV output. Defaults to true."
+        },
+        "delimiter": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1,
+          "description": "Single-character delimiter override for CSV or TSV input and output."
+        },
+        "columns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Column names for headerless CSV/TSV input or CSV/TSV output ordering."
+        }
+      },
+      "description": "Configuration for action: data.convert."
+    },
+    "dataPickActionConfig": {
+      "type": "object",
+      "required": ["from", "select"],
+      "oneOf": [
+        { "required": ["data"] },
+        { "required": ["input"] }
+      ],
+      "not": {
+        "required": ["raw", "to"]
+      },
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "type": "string",
+          "enum": ["json", "yaml", "csv", "tsv", "text"],
+          "description": "Input format."
+        },
+        "to": {
+          "type": "string",
+          "enum": ["json", "yaml", "csv", "tsv", "text"],
+          "description": "Output format. Defaults to json when raw is false."
+        },
+        "select": {
+          "type": "string",
+          "minLength": 1,
+          "description": "jq-style path to select."
+        },
+        "raw": {
+          "type": "boolean",
+          "description": "Write selected scalar values without JSON/YAML encoding."
+        },
+        "data": {
+          "description": "Inline data to read."
+        },
+        "input": {
+          "type": "string",
+          "description": "File path to read input from."
+        },
+        "has_header": {
+          "type": "boolean",
+          "description": "Whether CSV or TSV input has a header row. Defaults to true."
+        },
+        "headers": {
+          "type": "boolean",
+          "description": "Include a header row for CSV or TSV output. Defaults to true."
+        },
+        "delimiter": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1,
+          "description": "Single-character delimiter override for CSV or TSV input and output."
+        },
+        "columns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Column names for headerless CSV/TSV input or CSV/TSV output ordering."
+        }
+      },
+      "description": "Configuration for action: data.pick."
+    },
     "routerRouteActionConfig": {
       "type": "object",
       "additionalProperties": false,
@@ -5954,6 +6586,357 @@
         }
       },
       "description": "Configuration for action: template.render."
+    },
+    "fileActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "File or directory path used by file.stat, file.read, file.write, file.delete, file.mkdir, and file.list."
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Source path used by file.copy and file.move."
+        },
+        "destination": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Destination path used by file.copy and file.move."
+        },
+        "content": {
+          "type": "string",
+          "description": "Content to write for file.write."
+        },
+        "mode": {
+          "type": "string",
+          "pattern": "^(0o|0O)?[0-7]{3,4}$",
+          "description": "Octal file or directory mode such as 0600 or 0750."
+        },
+        "format": {
+          "type": "string",
+          "enum": ["raw", "json"],
+          "description": "Output format for file.read. Defaults to raw."
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Glob pattern for file.list, matched against slash-separated relative paths."
+        },
+        "overwrite": {
+          "type": "boolean",
+          "description": "Overwrite an existing destination. Defaults to false."
+        },
+        "create_dirs": {
+          "type": "boolean",
+          "description": "Create missing parent directories for file.write, file.copy, and file.move."
+        },
+        "atomic": {
+          "type": "boolean",
+          "description": "Use atomic replacement for overwriting file.write destinations. Defaults to true."
+        },
+        "recursive": {
+          "type": "boolean",
+          "description": "Recurse into directories for list/copy or allow recursive delete."
+        },
+        "missing_ok": {
+          "type": "boolean",
+          "description": "Succeed when the target path is missing for file.stat or file.delete."
+        },
+        "dry_run": {
+          "type": "boolean",
+          "description": "Report what would happen without mutating files for write/copy/move/delete/mkdir."
+        },
+        "include_dirs": {
+          "type": "boolean",
+          "description": "Include directories in file.list output."
+        },
+        "follow_symlinks": {
+          "type": "boolean",
+          "description": "Follow the top-level source symlink for stat/copy."
+        },
+        "max_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Maximum bytes to read for file.read. Zero means no limit."
+        }
+      },
+      "description": "Configuration for local file actions."
+    },
+    "gitCheckoutActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "path"],
+      "not": {
+        "anyOf": [
+          { "required": ["ssh_key_path", "token"] },
+          { "required": ["ssh_key_path", "password"] }
+        ]
+      },
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Git repository URL or local repository path."
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Branch, tag, or commit to checkout. Defaults to the repository default HEAD."
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Destination checkout path. Relative paths resolve from the step working directory."
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Shallow clone/fetch depth. Zero means full history."
+        },
+        "force": {
+          "type": "boolean",
+          "description": "Force checkout when the existing worktree has local changes. Defaults to false."
+        },
+        "token": {
+          "type": "string",
+          "description": "HTTPS token for repository authentication."
+        },
+        "username": {
+          "type": "string",
+          "description": "HTTPS username when using password authentication."
+        },
+        "password": {
+          "type": "string",
+          "description": "HTTPS password for repository authentication."
+        },
+        "ssh_key_path": {
+          "type": "string",
+          "description": "Path to an SSH private key for repository authentication."
+        },
+        "ssh_passphrase": {
+          "type": "string",
+          "description": "Passphrase for ssh_key_path."
+        }
+      },
+      "description": "Configuration for action: git.checkout."
+    },
+    "waitActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "duration": {
+          "type": "string",
+          "description": "Duration to wait for wait.duration, such as 30s or 5m."
+        },
+        "until": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC3339 timestamp for wait.until."
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "File or directory path for wait.file."
+        },
+        "state": {
+          "type": "string",
+          "enum": ["exists", "missing"],
+          "description": "File state to wait for. Defaults to exists."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Absolute URL for wait.http."
+        },
+        "method": {
+          "type": "string",
+          "description": "HTTP method for wait.http. Defaults to GET."
+        },
+        "status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599,
+          "description": "Expected HTTP status for wait.http. Defaults to 200."
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "HTTP headers for wait.http."
+        },
+        "body": {
+          "type": "string",
+          "description": "HTTP request body for wait.http."
+        },
+        "poll_interval": {
+          "type": "string",
+          "description": "Polling interval for wait.file and wait.http. Defaults to 1s."
+        },
+        "request_timeout": {
+          "type": "string",
+          "description": "Per-request timeout for wait.http. Defaults to 10s."
+        }
+      },
+      "description": "Configuration for wait actions."
+    },
+    "artifactActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Relative artifact path. Must stay within the DAG-run artifact directory."
+        },
+        "content": {
+          "type": "string",
+          "description": "Content to write for artifact.write."
+        },
+        "mode": {
+          "type": "string",
+          "pattern": "^(0o|0O)?[0-7]{3,4}$",
+          "description": "Octal file mode such as 0600 or 0644."
+        },
+        "format": {
+          "type": "string",
+          "enum": ["raw", "json"],
+          "description": "Output format for artifact.read. Defaults to raw."
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Glob pattern for artifact.list, matched against slash-separated artifact paths."
+        },
+        "overwrite": {
+          "type": "boolean",
+          "description": "Overwrite an existing artifact. Defaults to false."
+        },
+        "atomic": {
+          "type": "boolean",
+          "description": "Use atomic replacement for overwriting artifact.write destinations. Defaults to true."
+        },
+        "recursive": {
+          "type": "boolean",
+          "description": "Recurse into nested directories for artifact.list."
+        },
+        "include_dirs": {
+          "type": "boolean",
+          "description": "Include directories in artifact.list output."
+        },
+        "max_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Maximum bytes to read for artifact.read. Zero means no limit."
+        }
+      },
+      "description": "Configuration for DAG-run artifact actions."
+    },
+    "stdoutOutputsConfig": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Output field name that receives trimmed stdout text."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "type": "string",
+              "description": "Output field name. Required for text output, optional when decode is json or yaml."
+            },
+            "decode": {
+              "type": "string",
+              "enum": ["text", "json", "yaml"]
+            },
+            "select": {
+              "type": "string",
+              "description": "Selector applied after decoding stdout as json or yaml."
+            },
+            "fields": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/definitions/stdoutOutputsFieldEntry"
+              },
+              "description": "Output fields mapped from stdout using structured-output entries."
+            }
+          },
+          "not": {
+            "anyOf": [
+              { "required": ["fields", "field"] },
+              { "required": ["fields", "decode"] },
+              { "required": ["fields", "select"] }
+            ]
+          }
+        }
+      ],
+      "description": "Routes stdout into DAG run outputs for action callers."
+    },
+    "stdoutOutputsFieldEntry": {
+      "oneOf": [
+        {
+          "type": ["string", "number", "boolean", "null"]
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/stepOutputJSONValue"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value"],
+          "properties": {
+            "value": {
+              "$ref": "#/definitions/stepOutputJSONValue"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["from"],
+          "properties": {
+            "from": {
+              "const": "stdout"
+            },
+            "decode": {
+              "type": "string",
+              "enum": ["text", "json", "yaml"]
+            },
+            "select": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "decode": {
+              "type": "string",
+              "enum": ["text", "json", "yaml"]
+            },
+            "select": {
+              "type": "string"
+            }
+          }
+        }
+      ],
+      "description": "One stdout.outputs fields entry."
+    },
+    "outputsActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["values"],
+      "properties": {
+        "values": {
+          "type": "object",
+          "minProperties": 1,
+          "description": "Output values to publish to the DAG/action outputs object."
+        }
+      },
+      "description": "Configuration for outputs.write."
     },
     "customActions": {
       "type": "object",
@@ -6092,6 +7075,42 @@
       "description": "Executor-specific configuration. Schema depends on executor type.",
       "additionalProperties": true
     },
+    "actionExecutorConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref"],
+      "properties": {
+        "ref": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]*@[^\\s\\\\~^:?*\\[\\]{}@]+$",
+              "allOf": [{ "$ref": "#/definitions/actionRefVersionSafety" }],
+              "description": "Official Dagu action shorthand, resolved as dagucloud/<name>@<version>."
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]+@[^\\s\\\\~^:?*\\[\\]{}@]+$",
+              "allOf": [{ "$ref": "#/definitions/actionRefVersionSafety" }],
+              "description": "GitHub action reference in owner/repo@version format."
+            },
+            {
+              "type": "string",
+              "pattern": "^source:.+@[^\\s\\\\~^:?*\\[\\]{}@]+$",
+              "allOf": [{ "$ref": "#/definitions/actionRefVersionSafety" }],
+              "description": "Explicit source action reference such as source:github.com/owner/repo@version or source:./actions/name@local."
+            }
+          ],
+          "description": "External action reference."
+        },
+        "input": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Input object passed to the action."
+        }
+      },
+      "description": "Configuration for type: action."
+    },
     "executorObject": {
       "type": "object",
       "required": ["type"],
@@ -6164,6 +7183,22 @@
           }
         },
         {
+          "if": { "properties": { "type": { "const": "file" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "config": { "$ref": "#/definitions/fileActionConfig" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "git" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "config": { "$ref": "#/definitions/gitCheckoutActionConfig" }
+            }
+          }
+        },
+        {
           "if": {
             "properties": { "type": { "const": "log" } },
             "required": ["type"]
@@ -6188,6 +7223,14 @@
           "then": {
             "properties": {
               "config": { "$ref": "#/definitions/sqliteExecutorConfig" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "duckdb" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "config": { "$ref": "#/definitions/duckdbExecutorConfig" }
             }
           }
         },

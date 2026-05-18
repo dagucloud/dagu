@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/healthcheck"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
@@ -76,6 +77,7 @@ func SetupCoordinator(t *testing.T, opts ...HelperOption) *Coordinator {
 	if options.WithArtifactPersistence {
 		cfg.ArtifactDir = helper.Config.Paths.ArtifactDir
 	}
+	cfg.WorkspaceBundleDir = workspacebundle.StoreDir(helper.Config.Paths.DataDir)
 	if helper.StaleHeartbeatThreshold > 0 {
 		cfg.StaleHeartbeatThreshold = helper.StaleHeartbeatThreshold
 	}

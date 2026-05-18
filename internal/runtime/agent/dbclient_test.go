@@ -34,6 +34,7 @@ func TestDBClient_GetSubDAGRunStatus(t *testing.T) {
 		outputs := &collections.SyncMap{}
 		outputs.Store("key1", "result=success")
 		outputs.Store("key2", "count=42")
+		outputsValue := `{"messageId":"msg-123","accepted":true}`
 
 		// Setup expectations
 		mockDAGRunStore.On("FindSubAttempt", ctx, rootRef, subRunID).Return(mockAttempt, nil)
@@ -43,10 +44,9 @@ func TestDBClient_GetSubDAGRunStatus(t *testing.T) {
 			Status:   core.Succeeded,
 			Params:   "param1=value1",
 			Nodes: []*exec.Node{
-				{OutputVariables: outputs},
+				{OutputVariables: outputs, OutputsValue: &outputsValue},
 			},
 		}, nil)
-
 		// Create dbClient
 		dbClient := newDBClient(mockDAGRunStore, mockDAGStore)
 
@@ -60,6 +60,7 @@ func TestDBClient_GetSubDAGRunStatus(t *testing.T) {
 		assert.Equal(t, subRunID, st.DAGRunID)
 		assert.Equal(t, "param1=value1", st.Params)
 		assert.Equal(t, map[string]string{"result": "success", "count": "42"}, st.Outputs)
+		assert.Equal(t, map[string]any{"messageId": "msg-123", "accepted": true}, st.OutputValues)
 
 		mockDAGRunStore.AssertExpectations(t)
 		mockAttempt.AssertExpectations(t)

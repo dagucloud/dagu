@@ -21,6 +21,7 @@ import (
 
 	sqlexec "github.com/dagucloud/dagu/internal/runtime/builtin/sql"
 	// Import drivers for testing
+	_ "github.com/dagucloud/dagu/internal/runtime/builtin/sql/drivers/duckdb"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/sql/drivers/postgres"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/sql/drivers/sqlite"
 )
@@ -97,6 +98,20 @@ func TestParseConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDuckDBConfigSchemaRegistered(t *testing.T) {
+	t.Parallel()
+
+	err := core.ValidateExecutorConfig("duckdb", map[string]any{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid duckdb config")
+
+	err = core.ValidateExecutorConfig("duckdb", map[string]any{
+		"dsn":           ":memory:",
+		"output_format": "jsonl",
+	})
+	require.NoError(t, err)
 }
 
 func TestConvertNamedToPositional(t *testing.T) {
@@ -311,6 +326,11 @@ func TestDriverRegistry(t *testing.T) {
 	assert.NotNil(t, sqlite)
 	assert.Equal(t, "sqlite", sqlite.Name())
 
+	duckdb, ok := sqlexec.GetDriver("duckdb")
+	assert.True(t, ok)
+	assert.NotNil(t, duckdb)
+	assert.Equal(t, "duckdb", duckdb.Name())
+
 	// Test unknown driver
 	_, ok = sqlexec.GetDriver("unknown")
 	assert.False(t, ok)
@@ -413,6 +433,118 @@ func attachExecutorCleanup(t *testing.T, exec executor.Executor) {
 	t.Cleanup(func() {
 		require.NoError(t, executor.CloseExecutor(exec))
 	})
+}
+
+func TestDuckDBExecutor_InMemory(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	step := core.Step{
+		Name: "test-duckdb",
+		ExecutorConfig: core.ExecutorConfig{
+			Type: "duckdb",
+			Config: map[string]any{
+				"dsn": ":memory:",
+			},
+		},
+		Script: `
+			CREATE TABLE people (id INTEGER, name VARCHAR);
+			INSERT INTO people VALUES (1, 'Alice'), (2, 'Bob');
+			SELECT id, name FROM people ORDER BY id;
+		`,
+	}
+
+	exec, err := executor.NewExecutor(ctx, step)
+	require.NoError(t, err)
+	attachExecutorCleanup(t, exec)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exec.SetStdout(&stdout)
+	exec.SetStderr(&stderr)
+
+	err = exec.Run(ctx)
+	require.NoError(t, err)
+
+	output := stdout.String()
+	assert.Contains(t, output, `"id":1`)
+	assert.Contains(t, output, `"name":"Alice"`)
+	assert.Contains(t, output, `"id":2`)
+	assert.Contains(t, output, `"name":"Bob"`)
+}
+
+func TestDuckDBExecutor_ImportCSV(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "import.duckdb")
+	csvPath := filepath.Join(tmpDir, "users.csv")
+	require.NoError(t, os.WriteFile(csvPath, []byte("id,name\n1,Alice\n2,Bob\n"), 0600))
+
+	setupStep := core.Step{
+		Name: "setup-duckdb",
+		ExecutorConfig: core.ExecutorConfig{
+			Type: "duckdb",
+			Config: map[string]any{
+				"dsn": dbPath,
+			},
+		},
+		Script: `CREATE TABLE users (id INTEGER, name VARCHAR);`,
+	}
+
+	setupExec, err := executor.NewExecutor(ctx, setupStep)
+	require.NoError(t, err)
+	attachExecutorCleanup(t, setupExec)
+	require.NoError(t, setupExec.Run(ctx))
+
+	importStep := core.Step{
+		Name: "import-users",
+		ExecutorConfig: core.ExecutorConfig{
+			Type: "duckdb",
+			Config: map[string]any{
+				"dsn": dbPath,
+				"import": map[string]any{
+					"input_file": csvPath,
+					"table":      "users",
+					"format":     "csv",
+				},
+			},
+		},
+	}
+
+	importExec, err := executor.NewExecutor(ctx, importStep)
+	require.NoError(t, err)
+	attachExecutorCleanup(t, importExec)
+
+	var stderr bytes.Buffer
+	importExec.SetStderr(&stderr)
+	require.NoError(t, importExec.Run(ctx))
+	assert.Contains(t, stderr.String(), `"rows_imported":2`)
+
+	queryStep := core.Step{
+		Name: "query-users",
+		ExecutorConfig: core.ExecutorConfig{
+			Type: "duckdb",
+			Config: map[string]any{
+				"dsn": dbPath,
+			},
+		},
+		Script: `SELECT id, name FROM users ORDER BY id;`,
+	}
+
+	queryExec, err := executor.NewExecutor(ctx, queryStep)
+	require.NoError(t, err)
+	attachExecutorCleanup(t, queryExec)
+
+	var stdout bytes.Buffer
+	queryExec.SetStdout(&stdout)
+	require.NoError(t, queryExec.Run(ctx))
+	assert.Contains(t, stdout.String(), `"id":1`)
+	assert.Contains(t, stdout.String(), `"name":"Alice"`)
+	assert.Contains(t, stdout.String(), `"id":2`)
+	assert.Contains(t, stdout.String(), `"name":"Bob"`)
 }
 
 func TestSQLiteExecutor_InMemory(t *testing.T) {

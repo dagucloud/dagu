@@ -43,6 +43,7 @@ func runConfig(ctx *Context, _ []string) error {
 		{"Docs directory", paths.DocsDir},
 		{"DAG runs", paths.DAGRunsDir},
 		{"Data directory", paths.DataDir},
+		{"Tools directory", paths.ToolsDir},
 		{"Log directory", paths.LogDir},
 		{"Admin logs", paths.AdminLogsDir},
 		{"Suspend flags", paths.SuspendFlagsDir},

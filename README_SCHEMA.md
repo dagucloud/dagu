@@ -9,7 +9,7 @@ Dagu workflows are DAGs described in YAML. The current schema has a simple
 execution split:
 
 - `run:` for local shell commands and scripts
-- `action:` for named builtin or custom actions
+- `action:` for named builtin actions, custom actions, or versioned remote action packages
 - `actions:` for reusable custom action definitions
 
 The older v1 execution fields (`command:`, `script:`, step-level `type:`,
@@ -46,13 +46,17 @@ steps:
 
 The root `type:` controls how the workflow executes:
 
-- `chain` runs steps in order. This is the default.
 - `graph` runs steps according to `depends:` and can run independent steps in
   parallel.
+- `graph` is the default when `type:` is omitted.
+- `chain` runs steps in order.
 - `agent` is reserved for agent-oriented execution.
 
 Do not confuse root `type:` with legacy step-level `type:`. Step-level
 `type:` is deprecated; use `action:` for named executors.
+
+Do not use scalar step shorthand such as `- echo hello`. It is deprecated;
+write explicit step objects with `run:` instead.
 
 ## Mental Model
 
@@ -100,8 +104,8 @@ Common step fields:
 | `continue_on` | Continue after selected failure, skip, exit-code, or output conditions. |
 | `preconditions` | Conditions that must pass before the step starts. |
 | `worker_selector` | Required worker labels. |
-| `stdout`, `stderr`, `log_output` | Step log output configuration. |
-| `output` | Captured stdout variable or structured step output. |
+| `stdout`, `stderr`, `log_output` | Step log output configuration. `stdout` can also publish DAG/action outputs. |
+| `output` | Captured stdout variable or structured step-scoped output. |
 | `output_schema` | JSON Schema for stdout JSON validation. |
 | `approval` | Human approval gate after step execution. |
 | `container` | Container context for a local `run:` command. |
@@ -173,8 +177,8 @@ steps:
       body: '{"queue":"default"}'
 ```
 
-`action:` names select builtin or custom actions. Inputs and executor-specific
-options go under `with:`.
+`action:` names select builtin actions, custom actions, or versioned remote
+action packages. Inputs and executor-specific options go under `with:`.
 
 Current builtin actions:
 
@@ -186,11 +190,12 @@ Current builtin actions:
 | `docker.run` | Docker executor | optional `command`, Docker config |
 | `container.run` | Container executor | optional `command`, container config |
 | `k8s.run`, `kubernetes.run` | Kubernetes job execution | optional `command`, Kubernetes config |
-| `postgres.query`, `sqlite.query` | SQL queries | `query`, database config |
-| `postgres.import`, `sqlite.import` | SQL imports | `import`, database config |
+| `postgres.query`, `sqlite.query`, `duckdb.query` | SQL queries | `query`, database config |
+| `postgres.import`, `sqlite.import`, `duckdb.import` | SQL imports | `import`, database config |
 | `redis.<operation>` | Redis operations | Redis config; operation comes from the action suffix |
 | `jq.filter` | jq transforms | `filter`, plus `data` or `input` |
 | `dag.run` | Child DAG execution | `dag`, optional `params` |
+| `dag.enqueue` | Asynchronous child DAG enqueue | `dag`, optional `params`, optional `queue` |
 | `router.route` | Conditional routing | `value`, `routes` |
 | `chat.completion` | LLM chat completion | `prompt` or `messages`, model config |
 | `agent.run` | Agent step execution | `task`, `prompt`, or `messages`, agent config |
@@ -199,13 +204,29 @@ Current builtin actions:
 | `log.write` | Log messages | `message` |
 | `mail.send` | Email sending | mail executor config |
 | `archive.create`, `archive.extract`, `archive.list` | Archive operations | archive config |
+| `file.stat`, `file.read`, `file.write`, `file.copy`, `file.move`, `file.delete`, `file.mkdir`, `file.list` | File operations | path/source/destination/content config |
+| `git.checkout` | Git repository checkout | `repository`, `path`, optional `ref`, `depth`, auth config |
+| `wait.duration`, `wait.until`, `wait.file`, `wait.http` | Wait or poll for time, files, or HTTP readiness | `duration`, `until`, `path`, `url`, optional polling config |
 | `s3.upload`, `s3.download`, `s3.list`, `s3.delete` | S3 operations | S3 config |
 | `sftp.upload`, `sftp.download` | SFTP transfers | SFTP config |
 | `noop` | Output-only or approval-only placeholder step | no `with`, or empty `with` |
+| `owner/repo@version`, `name@version`, `source:target@version` | Remote action package | caller input object under `with:` |
 
 `run:` and `action:` are mutually exclusive on a step. Do not combine either
 with legacy execution fields such as `command:`, `script:`, step-level `type:`,
 `call:`, `messages:`, `agent:`, `llm:`, `value:`, or `routes:`.
+
+Remote action packages contain a `dagu-action.yaml` manifest and a DAG
+entrypoint. GitHub refs such as `acme/dagu-action-notify@v1.2.0` and official
+refs such as `slack@v1.2.0` are portable across worker pools when the process
+executing the action can resolve the Git ref. Explicit `source:` refs support
+local paths, `file://` paths, and Git URLs; local paths must exist on the worker
+executing the action step.
+
+The action manifest `inputs` schema validates the caller's `with:` object before
+the action DAG starts. The `outputs` schema validates the final action output
+object published by `stdout.outputs` or `action: outputs.write` before it is
+exposed to the parent step as `${step.outputs.*}`.
 
 ## Common Action Examples
 
@@ -220,7 +241,13 @@ steps:
       query: SELECT id, email FROM users WHERE active = true
 ```
 
+The SQL action family supports PostgreSQL, SQLite, and DuckDB. Use
+`duckdb.query` or `duckdb.import` with a DuckDB database path, or `:memory:`
+for an in-memory DuckDB database.
+
 ### Child DAG
+
+Use `dag.run` when the parent workflow must wait for the child DAG result:
 
 ```yaml
 steps:
@@ -233,7 +260,24 @@ steps:
         REGION: us-east-1
 ```
 
-`parallel:` currently requires `action: dag.run`:
+Use `dag.enqueue` when the parent only needs to create a queued child DAG run
+and continue:
+
+```yaml
+steps:
+  - id: queue_account_report
+    action: dag.enqueue
+    with:
+      dag: workflows/account-report
+      params:
+        ACCOUNT_ID: acct_123
+      queue: background
+```
+
+`dag.enqueue` accepts the same `with.dag` and `with.params` inputs as
+`dag.run`, plus `with.queue` to override the queued child run's queue.
+
+`parallel:` currently requires `action: dag.run` or `action: dag.enqueue`:
 
 ```yaml
 steps:
@@ -252,6 +296,23 @@ steps:
         - account_id: acct_2
           region: eu-west-1
 ```
+
+### Wait for HTTP Readiness
+
+```yaml
+steps:
+  - id: wait_for_api
+    action: wait.http
+    with:
+      url: https://api.example.com/health
+      status: 200
+      poll_interval: 5s
+      request_timeout: 10s
+    timeout_sec: 300
+```
+
+Use `timeout_sec` to cap total wait time for polling actions such as
+`wait.file` and `wait.http`.
 
 ### Agent Harness
 
@@ -326,6 +387,7 @@ steps:
 
   - id: publish
     run: echo "Publishing ${VERSION}"
+    depends: [version]
 ```
 
 Object-form `output:` publishes structured step output:
@@ -351,6 +413,31 @@ steps:
 
 Structured output sources are `stdout`, `stderr`, and `file`. Decoders are
 `text`, `json`, and `yaml`. `select` requires `json` or `yaml`.
+
+Use `stdout.outputs` or `action: outputs.write` when a DAG or remote action
+needs to return values to its caller:
+
+```yaml
+steps:
+  - id: notify
+    run: ./notify.sh
+    stdout:
+      outputs:
+        fields:
+          messageId:
+            decode: json
+            select: .id
+
+  - id: publish
+    action: outputs.write
+    with:
+      values:
+        status: sent
+```
+
+Caller-visible outputs are available as `${step.outputs}` or
+`${step.outputs.messageId}`. This is separate from object-form `output:`, which
+is step-scoped and remains available through `${step.output.*}`.
 
 ## Lifecycle Handlers
 

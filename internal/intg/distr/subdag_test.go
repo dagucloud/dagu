@@ -5,6 +5,9 @@ package distr_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -12,6 +15,128 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/stretchr/testify/require"
 )
+
+func TestActionOutputsFromDistributedWorker(t *testing.T) {
+	t.Run("sharedNothingChildWorker", func(t *testing.T) {
+		actionDir := writeActionOutputBundle(t, `
+name: notify-action-child
+worker_selector:
+  type: test-worker
+steps:
+  - id: publish
+    action: outputs.write
+    with:
+      values:
+        messageId: msg-123
+        worker: shared-nothing
+`)
+
+		f := newTestFixture(t, `
+type: graph
+steps:
+  - id: call_action
+    action: `+strconv.Quote("source:"+actionDir+"@local")+`
+
+  - id: audit
+    depends: [call_action]
+    action: log.write
+    with:
+      message: "message=${call_action.outputs.messageId} worker=${call_action.outputs.worker}"
+`, withLabels(map[string]string{"type": "test-worker"}), withLogPersistence())
+
+		f.dagWrapper.Agent().RunSuccess(t)
+		status, err := f.latestStatus()
+		require.NoError(t, err)
+		require.Equal(t, core.Succeeded, status.Status)
+
+		callAction := requireNodeByID(t, status, "call_action")
+		require.NotNil(t, callAction.OutputsValue)
+		require.JSONEq(t, `{"messageId":"msg-123","worker":"shared-nothing"}`, *callAction.OutputsValue)
+
+		audit := requireNodeByID(t, status, "audit")
+		auditLog, err := os.ReadFile(audit.Stdout)
+		require.NoError(t, err)
+		require.Contains(t, string(auditLog), "message=msg-123 worker=shared-nothing")
+	})
+
+	t.Run("sharedVolumeParentWorker", func(t *testing.T) {
+		actionDir := writeActionOutputBundle(t, `
+name: notify-action-child
+steps:
+  - id: publish
+    action: outputs.write
+    with:
+      values:
+        messageId: msg-123
+        worker: shared-volume
+`)
+
+		f := newTestFixture(t, `
+type: graph
+worker_selector:
+  type: test-worker
+steps:
+  - id: call_action
+    action: `+strconv.Quote("source:"+actionDir+"@local")+`
+
+  - id: audit
+    depends: [call_action]
+    action: log.write
+    with:
+      message: "message=${call_action.outputs.messageId} worker=${call_action.outputs.worker}"
+`, withWorkerMode(sharedFSMode), withLabels(map[string]string{"type": "test-worker"}), withLogPersistence())
+		defer f.cleanup()
+
+		require.NoError(t, f.enqueue())
+		f.waitForQueued()
+		f.startScheduler(30 * time.Second)
+
+		status := f.waitForStatus(core.Succeeded, 30*time.Second)
+		callAction := requireNodeByID(t, status, "call_action")
+		require.NotNil(t, callAction.OutputsValue)
+		require.JSONEq(t, `{"messageId":"msg-123","worker":"shared-volume"}`, *callAction.OutputsValue)
+
+		audit := requireNodeByID(t, status, "audit")
+		auditLog, err := os.ReadFile(audit.Stdout)
+		require.NoError(t, err)
+		require.Contains(t, string(auditLog), "message=msg-123 worker=shared-volume")
+	})
+}
+
+func writeActionOutputBundle(t *testing.T, actionYAML string) string {
+	t.Helper()
+	actionDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(actionDir, "dagu-action.yaml"), []byte(`
+apiVersion: v1alpha1
+name: notify-action
+dag: workflow.yaml
+outputs:
+  type: object
+  additionalProperties: false
+  required: [messageId, worker]
+  properties:
+    messageId:
+      type: string
+    worker:
+      type: string
+`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(actionDir, "workflow.yaml"), []byte(actionYAML), 0o600))
+	return actionDir
+}
+
+func requireNodeByID(t *testing.T, status exec.DAGRunStatus, id string) *exec.Node {
+	t.Helper()
+	for _, node := range status.Nodes {
+		if node == nil {
+			continue
+		}
+		if node.Step.ID == id || node.Step.Name == id {
+			return node
+		}
+	}
+	require.Failf(t, "missing node", "node %q not found", id)
+	return nil
+}
 
 func TestSubDAG_LocalCallsDistributed(t *testing.T) {
 	t.Run("localParentCallsDistributedChild", func(t *testing.T) {

@@ -30,11 +30,16 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/fileagentoauth"
 	"github.com/dagucloud/dagu/internal/persis/fileagentsoul"
 	"github.com/dagucloud/dagu/internal/persis/filememory"
+	"github.com/dagucloud/dagu/internal/persis/filesecret"
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	"github.com/dagucloud/dagu/internal/runtime"
 	rtagent "github.com/dagucloud/dagu/internal/runtime/agent"
 	"github.com/dagucloud/dagu/internal/runtime/remote"
+	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
+	secretpkg "github.com/dagucloud/dagu/internal/secret"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
+	dagutools "github.com/dagucloud/dagu/internal/tools"
+	daguaqua "github.com/dagucloud/dagu/internal/tools/aqua"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
 
@@ -278,6 +283,7 @@ type agentStoreBundle struct {
 	soulStore    agent.SoulStore
 	memoryStore  agent.MemoryStore
 	oauthManager *agentoauth.Manager
+	secretStore  secretpkg.Store
 }
 
 type taskInitError struct {
@@ -336,59 +342,49 @@ func (h *remoteTaskHandler) createRemoteHandlers(dagRunID, dagName string, root 
 
 // agentStores creates the agent config, model, soul, memory, and OAuth stores from the config paths.
 func (h *remoteTaskHandler) agentStores(ctx context.Context) agentStoreBundle {
+	var bundle agentStoreBundle
+	bundle.secretStore = h.secretStore(ctx)
+
 	acs, err := fileagentconfig.New(h.config.Paths.DataDir)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create agent config store", tag.Error(err))
-		return agentStoreBundle{}
+		return bundle
 	}
 	if acs == nil {
-		return agentStoreBundle{}
+		return bundle
 	}
+	bundle.configStore = acs
 
 	ams, err := fileagentmodel.New(filepath.Join(h.config.Paths.DataDir, "agent", "models"))
 	if err != nil {
 		logger.Warn(ctx, "Failed to create agent model store", tag.Error(err))
-		return agentStoreBundle{configStore: acs}
+		return bundle
 	}
+	bundle.modelStore = ams
 
 	soulsDir := filepath.Join(h.config.Paths.DAGsDir, "souls")
 	soulStore, err := fileagentsoul.New(ctx, soulsDir)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create agent soul store", tag.Error(err))
-		return agentStoreBundle{
-			configStore: acs,
-			modelStore:  ams,
-		}
+		return bundle
 	}
+	bundle.soulStore = soulStore
 
 	ms, err := filememory.New(h.config.Paths.DAGsDir)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create agent memory store", tag.Error(err))
-		return agentStoreBundle{
-			configStore: acs,
-			modelStore:  ams,
-			soulStore:   soulStore,
-		}
+		return bundle
 	}
+	bundle.memoryStore = ms
 
 	oauthManager, err := fileagentoauth.NewManager(h.config.Paths.DataDir)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create agent OAuth store", tag.Error(err))
-		return agentStoreBundle{
-			configStore: acs,
-			modelStore:  ams,
-			soulStore:   soulStore,
-			memoryStore: ms,
-		}
+		return bundle
 	}
+	bundle.oauthManager = oauthManager
 
-	return agentStoreBundle{
-		configStore:  acs,
-		modelStore:   ams,
-		soulStore:    soulStore,
-		memoryStore:  ms,
-		oauthManager: oauthManager,
-	}
+	return bundle
 }
 
 func (h *remoteTaskHandler) agentStoresFromSnapshot(snapshotPayload []byte) (agentStoreBundle, error) {
@@ -413,12 +409,31 @@ func (h *remoteTaskHandler) agentStoresFromSnapshot(snapshotPayload []byte) (age
 		modelStore:  stores.ModelStore,
 		soulStore:   stores.SoulStore,
 		memoryStore: stores.MemoryStore,
+		secretStore: h.secretStore(context.Background()),
 	}, nil
+}
+
+func (h *remoteTaskHandler) secretStore(ctx context.Context) secretpkg.Store {
+	if h.config == nil || h.config.Paths.DataDir == "" {
+		return nil
+	}
+	store, err := filesecret.NewFromDataDir(h.config.Paths.DataDir)
+	if err != nil {
+		logger.Warn(ctx, "Failed to create secret store", tag.Error(err))
+		return nil
+	}
+	return store
 }
 
 // loadDAG loads the DAG from task definition.
 // Returns the loaded DAG and a cleanup function that should be called after task execution.
 func (h *remoteTaskHandler) loadDAG(ctx context.Context, task *coordinatorv1.Task) (*core.DAG, func(), error) {
+	if _, ok, err := taskWorkspaceDescriptor(task); err != nil {
+		return nil, nil, err
+	} else if ok {
+		return h.loadActionWorkspaceDAG(ctx, task)
+	}
+
 	logger.Info(ctx, "Creating temporary DAG file from definition",
 		tag.DAG(task.Target),
 		tag.Size(len(task.Definition)))
@@ -460,6 +475,49 @@ func (h *remoteTaskHandler) loadDAG(ctx context.Context, task *coordinatorv1.Tas
 		return nil, nil, fmt.Errorf("failed to load DAG from %s: %w", tempFile, err)
 	}
 	dag.SourceFile = task.SourceFile
+
+	return dag, cleanupFunc, nil
+}
+
+func (h *remoteTaskHandler) loadActionWorkspaceDAG(ctx context.Context, task *coordinatorv1.Task) (*core.DAG, func(), error) {
+	client, ok := h.coordinatorClient.(workspacebundle.Client)
+	if !ok {
+		return nil, nil, fmt.Errorf("coordinator client does not support workspace bundles")
+	}
+
+	workDir := sharedNothingActionWorkDir(task)
+	workspace, err := materializeTaskWorkspace(ctx, task, client, actionWorkspaceDir(workDir))
+	if err != nil {
+		return nil, nil, err
+	}
+	cleanupFunc := func() {
+		if err := os.RemoveAll(workDir); err != nil {
+			logger.Warn(ctx, "Failed to remove action workspace",
+				slog.String("path", workDir),
+				tag.Error(err))
+		}
+	}
+
+	loadOpts := []spec.LoadOption{
+		spec.WithName(task.Target),
+		spec.WithDefaultWorkingDir(workspace.dir),
+	}
+	if task.Params != "" {
+		loadOpts = append(loadOpts, spec.WithParams(task.Params))
+	}
+
+	dag, err := spec.Load(ctx, workspace.dagFile, loadOpts...)
+	if err != nil {
+		cleanupFunc()
+		return nil, nil, fmt.Errorf("failed to load action DAG from workspace: %w", err)
+	}
+	dag.SourceFile = task.SourceFile
+
+	logger.Info(ctx, "Materialized action workspace",
+		tag.Target(task.Target),
+		tag.File(workspace.dagFile),
+		slog.String("workspace", workspace.dir),
+		slog.String("digest", workspace.desc.Digest))
 
 	return dag, cleanupFunc, nil
 }
@@ -578,6 +636,12 @@ func (h *remoteTaskHandler) executeDAGRun(
 		agentStores = h.agentStores(ctx)
 	}
 
+	toolEnvs, err := h.prepareDAGTools(ctx, dag)
+	if err != nil {
+		return newTaskInitError(err)
+	}
+	extraEnvs = append(extraEnvs, toolEnvs...)
+
 	// Build agent options
 	opts := rtagent.Options{
 		ParentDAGRun:      parent,
@@ -588,6 +652,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		QueuedRun:         queuedRun,
 		AttemptID:         attemptID,
 		DAGRunStore:       h.dagRunStore,
+		SecretStore:       agentStores.secretStore,
 		ServiceRegistry:   h.serviceRegistry,
 		RootDAGRun:        root,
 		PeerConfig:        h.peerConfig,
@@ -631,4 +696,34 @@ func (h *remoteTaskHandler) executeDAGRun(
 		tag.RunID(dagRunID))
 
 	return nil
+}
+
+func (h *remoteTaskHandler) prepareDAGTools(ctx context.Context, dag *core.DAG) ([]string, error) {
+	workDir := ""
+	if dag != nil {
+		workDir = dag.WorkingDir
+	}
+	dataDir := ""
+	toolsDir := ""
+	if h.config != nil {
+		dataDir = h.config.Paths.DataDir
+		toolsDir = h.config.Paths.ToolsDir
+	}
+	return dagutools.PrepareDAG(ctx, dag, daguaqua.New(), dagutools.InstallOptions{
+		ToolsDir: toolsDir,
+		DataDir:  dataDir,
+		WorkDir:  workDir,
+	}, h.dagToolsBasePath())
+}
+
+func (h *remoteTaskHandler) dagToolsBasePath() string {
+	if h.config != nil {
+		for _, env := range h.config.Core.BaseEnv.AsSlice() {
+			key, value, ok := strings.Cut(env, "=")
+			if ok && strings.EqualFold(key, "PATH") {
+				return value
+			}
+		}
+	}
+	return os.Getenv("PATH")
 }

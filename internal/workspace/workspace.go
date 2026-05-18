@@ -74,8 +74,8 @@ func ValidateName(name string) error {
 		return ErrInvalidWorkspaceName
 	}
 	switch strings.ToLower(name) {
-	case "all", "default":
-		return fmt.Errorf("%w: all and default are reserved names", ErrInvalidWorkspaceName)
+	case "all", "default", "global":
+		return fmt.Errorf("%w: all, default, and global are reserved names", ErrInvalidWorkspaceName)
 	}
 	if !workspaceNamePattern.MatchString(name) {
 		return fmt.Errorf("%w: must contain only letters, numbers, underscores, and hyphens", ErrInvalidWorkspaceName)

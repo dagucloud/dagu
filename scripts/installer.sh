@@ -768,7 +768,6 @@ resolve_service_path() {
     append_service_path_segment "${HOME}/.npm-global/bin"
     append_service_path_segment "${HOME}/.local/share/pnpm"
     append_service_path_segment "${HOME}/.bun/bin"
-    append_service_path_segment "${HOME}/.deno/bin"
     append_service_path_segment "/opt/homebrew/bin"
     append_service_path_segment "/usr/local/bin"
     append_service_path_segment "/usr/bin"

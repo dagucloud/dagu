@@ -13,16 +13,22 @@ RUN rm -rf node_modules; \
   pnpm build
 
 # Stage 2: Go Builder
-FROM --platform=$TARGETPLATFORM golang:1.26-alpine AS go-builder
+FROM --platform=$TARGETPLATFORM golang:1.26 AS go-builder
 ARG LDFLAGS
 ARG TARGETOS
 ARG TARGETARCH
+RUN if ! command -v g++ >/dev/null; then \
+      apt-get update && \
+      apt-get install -y --no-install-recommends g++ && \
+      rm -rf /var/lib/apt/lists/*; \
+    fi
 WORKDIR /app
 COPY . .
 RUN go mod download && rm -rf frontend/assets
 COPY --from=ui-builder /app/dist/ ./internal/service/frontend/assets/
 COPY schemas/dag.schema.json ./internal/service/frontend/assets/
-RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="${LDFLAGS}" -o ./bin/dagu ./cmd
+RUN CGO_ENABLED=1 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -tags netgo,osusergo -ldflags="${LDFLAGS} -linkmode=external -extldflags=-static" -o ./bin/dagu ./cmd
 
 # Stage 3: Final Image
 FROM --platform=$TARGETPLATFORM alpine:3.23

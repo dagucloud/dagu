@@ -454,9 +454,7 @@ func (sm *SessionManager) tryRouteToGeneralPrompt(text string) (string, bool) {
 // RecordHeartbeat updates the heartbeat and activity timestamps.
 func (sm *SessionManager) RecordHeartbeat() {
 	sm.mu.Lock()
-	now := time.Now()
-	sm.lastHeartbeat = now
-	sm.bumpLastActivityLocked(now)
+	sm.recordHeartbeatLocked(time.Now())
 	sm.mu.Unlock()
 }
 
@@ -465,6 +463,11 @@ func (sm *SessionManager) LastHeartbeat() time.Time {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	return sm.lastHeartbeat
+}
+
+func (sm *SessionManager) recordHeartbeatLocked(now time.Time) {
+	sm.lastHeartbeat = now
+	sm.bumpLastActivityLocked(now)
 }
 
 func (sm *SessionManager) isCanceling() bool {
@@ -1197,9 +1200,12 @@ func (sm *SessionManager) createWaitUserResponseFunc() WaitUserResponseFunc {
 	return func(ctx context.Context, promptID string) (UserPromptResponse, error) {
 		ch := make(chan UserPromptResponse, 1)
 
+		sm.mu.Lock()
+		sm.recordHeartbeatLocked(time.Now())
 		sm.promptsMu.Lock()
 		sm.pendingPrompts[promptID] = ch
 		sm.promptsMu.Unlock()
+		sm.mu.Unlock()
 		stopHeartbeat := sm.startPromptWaitHeartbeat(ctx)
 
 		defer func() {

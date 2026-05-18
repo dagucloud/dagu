@@ -267,7 +267,7 @@ func validateParallelConfig(step Step) ErrorList {
 	var errs ErrorList
 
 	if step.SubDAG == nil {
-		errs = append(errs, NewValidationError("parallel", step.Parallel, fmt.Errorf("parallel currently requires action: dag.run")))
+		errs = append(errs, NewValidationError("parallel", step.Parallel, fmt.Errorf("parallel currently requires action: dag.run or dag.enqueue")))
 	}
 
 	if step.Parallel.MaxConcurrent <= 0 {

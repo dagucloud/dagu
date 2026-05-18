@@ -127,7 +127,7 @@ func TestInitialize(t *testing.T) {
 		data, err := os.ReadFile(filePath)
 		require.NoError(t, err)
 		assert.Contains(t, string(data), "Base DAG Configuration")
-		assert.Contains(t, string(data), "type: chain")
+		assert.Contains(t, string(data), "type: graph")
 		assert.Contains(t, string(data), "catchup_window")
 		assert.Contains(t, string(data), "hist_retention_days")
 		assert.Contains(t, string(data), "\nretry_policy:\n  limit: 3\n  interval_sec: 5\n")

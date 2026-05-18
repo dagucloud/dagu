@@ -120,6 +120,46 @@ func TestRegistry_Resolve(t *testing.T) {
 		assert.Contains(t, err.Error(), "failed to resolve secret")
 		assert.Contains(t, err.Error(), "NONEXISTENT")
 	})
+
+	t.Run("RegistryRefRequiresReferenceResolver", func(t *testing.T) {
+		ref := core.SecretRef{
+			Name: "DB_PASSWORD",
+			Ref:  "prod/db-password",
+		}
+
+		_, err := registry.Resolve(ctx, ref)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "secret registry resolver is not configured")
+	})
+
+	t.Run("RegistryRefRejectsProviderFields", func(t *testing.T) {
+		ref := core.SecretRef{
+			Name:     "DB_PASSWORD",
+			Ref:      "prod/db-password",
+			Provider: "env",
+			Key:      "DB_PASSWORD",
+			Options:  map[string]string{"region": "us-east-1"},
+		}
+
+		_, err := registry.Resolve(ctx, ref)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "registry ref cannot include provider, key, or options")
+	})
+
+	t.Run("RegistryRefUsesReferenceResolver", func(t *testing.T) {
+		registry := NewRegistryWithReferenceResolver(&mockReferenceResolver{
+			resolveFunc: func(context.Context, core.SecretRef) (string, error) {
+				return "managed-value", nil
+			},
+		}, "/tmp")
+
+		value, err := registry.Resolve(ctx, core.SecretRef{
+			Name: "DB_PASSWORD",
+			Ref:  "prod/db-password",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "managed-value", value)
+	})
 }
 
 func TestRegistry_ResolveAll(t *testing.T) {
@@ -207,6 +247,70 @@ func TestRegistry_CheckAccessibility(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unknown secret provider")
 	})
+
+	t.Run("RegistryRefRequiresReferenceResolver", func(t *testing.T) {
+		refs := []core.SecretRef{
+			{Name: "DB_PASSWORD", Ref: "prod/db-password"},
+		}
+
+		err := registry.CheckAccessibility(ctx, refs)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "secret registry resolver is not configured")
+	})
+
+	t.Run("RegistryRefRejectsProviderFields", func(t *testing.T) {
+		err := registry.CheckAccessibility(ctx, []core.SecretRef{
+			{
+				Name:     "DB_PASSWORD",
+				Ref:      "prod/db-password",
+				Provider: "env",
+				Key:      "DB_PASSWORD",
+				Options:  map[string]string{"region": "us-east-1"},
+			},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "registry ref cannot include provider, key, or options")
+	})
+
+	t.Run("RegistryRefUsesReferenceResolver", func(t *testing.T) {
+		checkCalled := false
+		registry := NewRegistryWithReferenceResolver(&mockReferenceResolver{
+			checkFunc: func(context.Context, core.SecretRef) error {
+				checkCalled = true
+				return nil
+			},
+		}, "/tmp")
+
+		err := registry.CheckAccessibility(ctx, []core.SecretRef{
+			{Name: "DB_PASSWORD", Ref: "prod/db-password"},
+		})
+		require.NoError(t, err)
+		assert.True(t, checkCalled)
+	})
+}
+
+func TestRegistry_CheckAccessibility_RequiresNoFetchCapability(t *testing.T) {
+	ctx := context.Background()
+	registry := NewRegistry("/tmp")
+
+	checkCalled := false
+	registry.Register("value-reader", &mockResolver{
+		mockName: "value-reader",
+		checkCapabilityFunc: func(core.SecretRef) CheckCapability {
+			return CheckCapabilityRequiresValueRead
+		},
+		checkAccessFunc: func(context.Context, core.SecretRef) error {
+			checkCalled = true
+			return nil
+		},
+	})
+
+	err := registry.CheckAccessibility(ctx, []core.SecretRef{
+		{Name: "SECRET", Provider: "value-reader", Key: "path/to/secret"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "requires reading secret values")
+	assert.False(t, checkCalled, "registry check must not call provider access checks that require value reads")
 }
 
 func TestRegistry_Providers(t *testing.T) {
@@ -232,10 +336,11 @@ var _ Resolver = (*mockResolver)(nil)
 
 // mockResolver is a test double for the Resolver interface
 type mockResolver struct {
-	mockName        string
-	resolveFunc     func(context.Context, core.SecretRef) (string, error)
-	validateFunc    func(core.SecretRef) error
-	checkAccessFunc func(context.Context, core.SecretRef) error
+	mockName            string
+	resolveFunc         func(context.Context, core.SecretRef) (string, error)
+	validateFunc        func(core.SecretRef) error
+	checkCapabilityFunc func(core.SecretRef) CheckCapability
+	checkAccessFunc     func(context.Context, core.SecretRef) error
 }
 
 func (m *mockResolver) Name() string {
@@ -256,9 +361,37 @@ func (m *mockResolver) Validate(ref core.SecretRef) error {
 	return nil
 }
 
+func (m *mockResolver) CheckCapability(ref core.SecretRef) CheckCapability {
+	if m.checkCapabilityFunc != nil {
+		return m.checkCapabilityFunc(ref)
+	}
+	return CheckCapabilityNoFetch
+}
+
 func (m *mockResolver) CheckAccessibility(ctx context.Context, ref core.SecretRef) error {
 	if m.checkAccessFunc != nil {
 		return m.checkAccessFunc(ctx, ref)
+	}
+	return nil
+}
+
+var _ ReferenceResolver = (*mockReferenceResolver)(nil)
+
+type mockReferenceResolver struct {
+	resolveFunc func(context.Context, core.SecretRef) (string, error)
+	checkFunc   func(context.Context, core.SecretRef) error
+}
+
+func (m *mockReferenceResolver) ResolveReference(ctx context.Context, ref core.SecretRef) (string, error) {
+	if m.resolveFunc != nil {
+		return m.resolveFunc(ctx, ref)
+	}
+	return "mock-reference-value", nil
+}
+
+func (m *mockReferenceResolver) CheckReferenceAccessibility(ctx context.Context, ref core.SecretRef) error {
+	if m.checkFunc != nil {
+		return m.checkFunc(ctx, ref)
 	}
 	return nil
 }

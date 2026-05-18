@@ -44,18 +44,25 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/filedistributed"
 	"github.com/dagucloud/dagu/internal/persis/fileeventstore"
 	"github.com/dagucloud/dagu/internal/persis/filegithubdispatch"
+	"github.com/dagucloud/dagu/internal/persis/fileincident"
 	"github.com/dagucloud/dagu/internal/persis/filelicense"
 	"github.com/dagucloud/dagu/internal/persis/filememory"
+	"github.com/dagucloud/dagu/internal/persis/filenotification"
 	"github.com/dagucloud/dagu/internal/persis/fileproc"
 	"github.com/dagucloud/dagu/internal/persis/filequeue"
+	"github.com/dagucloud/dagu/internal/persis/filesecret"
 	"github.com/dagucloud/dagu/internal/persis/fileserviceregistry"
 	"github.com/dagucloud/dagu/internal/persis/filewatermark"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
+	secretpkg "github.com/dagucloud/dagu/internal/secret"
+	"github.com/dagucloud/dagu/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
 	"github.com/dagucloud/dagu/internal/service/frontend"
 	apiv1 "github.com/dagucloud/dagu/internal/service/frontend/api/v1"
+	incidentservice "github.com/dagucloud/dagu/internal/service/incident"
+	notificationservice "github.com/dagucloud/dagu/internal/service/notification"
 	"github.com/dagucloud/dagu/internal/service/resource"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
 	"github.com/dagucloud/dagu/internal/workspace"
@@ -692,6 +699,12 @@ func (c *Context) NewScheduler() (*scheduler.Scheduler, error) {
 		} else {
 			sched.SetEventCollector(collector)
 		}
+		if notificationMonitor := c.newNotificationMonitor(dr); notificationMonitor != nil {
+			sched.SetNotificationMonitor(notificationMonitor)
+		}
+		if incidentMonitor := c.newIncidentMonitor(); incidentMonitor != nil {
+			sched.SetIncidentMonitor(incidentMonitor)
+		}
 	}
 	sched.SetDAGRunLeaseStore(c.DAGRunLeaseStore)
 	sched.SetDispatchTaskStore(c.DispatchTaskStore)
@@ -710,6 +723,93 @@ func (c *Context) NewScheduler() (*scheduler.Scheduler, error) {
 		))
 	}
 	return sched, nil
+}
+
+func (c *Context) newNotificationMonitor(dr exec.DAGStore) *chatbridge.NotificationMonitor {
+	encKey, encErr := crypto.ResolveKey(c.Config.Paths.DataDir)
+	if encErr != nil {
+		logger.Warn(c, "Notification settings store is disabled because encrypted storage is not available", tag.Error(encErr))
+		return nil
+	}
+	encryptor, encErr := crypto.NewEncryptor(encKey)
+	if encErr != nil {
+		logger.Warn(c, "Failed to create encryptor for notification settings store", tag.Error(encErr))
+		return nil
+	}
+	store, err := filenotification.New(
+		filepath.Join(c.Config.Paths.DataDir, "notifications", "dags"),
+		filenotification.WithEncryptor(encryptor),
+	)
+	if err != nil {
+		logger.Warn(c, "Failed to create notification settings store", tag.Error(err))
+		return nil
+	}
+	var checker license.Checker
+	if c.LicenseManager != nil {
+		checker = c.LicenseManager.Checker()
+	}
+	notificationSvc := notificationservice.New(
+		store,
+		dr,
+		notificationservice.WithReusableChannelsEnabled(func() bool {
+			return license.HasActiveLicense(checker)
+		}),
+	)
+	stateFile := filepath.Join(c.Config.Paths.DataDir, "notifications", "monitor-state.json")
+	return chatbridge.NewNotificationMonitor(
+		c.EventService,
+		stateFile,
+		notificationSvc,
+		slog.Default(),
+		chatbridge.DefaultNotificationMonitorConfig(),
+	)
+}
+
+func (c *Context) newIncidentMonitor() *chatbridge.NotificationMonitor {
+	encKey, encErr := crypto.ResolveKey(c.Config.Paths.DataDir)
+	if encErr != nil {
+		logger.Warn(c, "Incident settings store is disabled because encrypted storage is not available", tag.Error(encErr))
+		return nil
+	}
+	encryptor, encErr := crypto.NewEncryptor(encKey)
+	if encErr != nil {
+		logger.Warn(c, "Failed to create encryptor for incident settings store", tag.Error(encErr))
+		return nil
+	}
+	store, err := fileincident.New(
+		filepath.Join(c.Config.Paths.DataDir, "incidents"),
+		fileincident.WithEncryptor(encryptor),
+	)
+	if err != nil {
+		logger.Warn(c, "Failed to create incident settings store", tag.Error(err))
+		return nil
+	}
+	var checker license.Checker
+	if c.LicenseManager != nil {
+		checker = c.LicenseManager.Checker()
+	}
+	incidentSvc := incidentservice.New(
+		store,
+		incidentservice.WithIncidentsEnabled(func() bool {
+			return license.HasActiveLicense(checker)
+		}),
+		incidentservice.WithPublicURL(c.Config.Server.PublicURL),
+	)
+	stateFile := filepath.Join(c.Config.Paths.DataDir, "incidents", "monitor-state.json")
+	cfg := chatbridge.DefaultNotificationMonitorConfig()
+	cfg.UrgentWindow = time.Second
+	cfg.SuccessWindow = time.Second
+	cfg.InterestedEventTypes = []eventstore.EventType{
+		eventstore.TypeDAGRunFailed,
+		eventstore.TypeDAGRunSucceeded,
+	}
+	return chatbridge.NewNotificationMonitor(
+		c.EventService,
+		stateFile,
+		incidentSvc,
+		slog.Default(),
+		cfg,
+	)
 }
 
 // StringParam retrieves a string parameter from the command line flags.
@@ -782,12 +882,19 @@ type agentStoresResult struct {
 	SoulStore       agent.SoulStore
 	OAuthManager    *agentoauth.Manager
 	ContextResolver agent.RemoteContextResolver
+	SecretStore     secretpkg.Store
 }
 
 // agentStores creates the agent config, model, memory, and soul stores from the config paths.
 // Errors are logged as warnings; nil stores are returned if creation fails.
 func (c *Context) agentStores() agentStoresResult {
 	var result agentStoresResult
+
+	if store, err := filesecret.NewFromDataDir(c.Config.Paths.DataDir); err != nil {
+		logger.Warn(c, "Failed to create secret store", tag.Error(err))
+	} else {
+		result.SecretStore = store
+	}
 
 	acs, err := fileagentconfig.New(c.Config.Paths.DataDir)
 	if err != nil {

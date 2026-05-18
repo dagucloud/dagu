@@ -147,7 +147,9 @@ func NewProvider(providerType ProviderType, cfg Config) (Provider, error) {
 	}
 
 	// Apply defaults
-	if cfg.Timeout == 0 {
+	if cfg.DisableRequestTimeout {
+		cfg.Timeout = 0
+	} else if cfg.Timeout == 0 {
 		cfg.Timeout = DefaultConfig().Timeout
 	}
 	if cfg.MaxRetries == 0 {

@@ -373,5 +373,4 @@ jobs:
         run: |
           go test \
             -timeout=20m \
-            -ldflags=-extldflags=-Wl \
             ${{ steps.test-packages.outputs.packages }}

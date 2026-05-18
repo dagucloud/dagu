@@ -10,6 +10,7 @@ import {
   useCanAccessSystemStatus,
   useCanViewEventLogs,
   useCanManageWebhooks,
+  useCanManageSecrets,
   useCanViewAuditLogs,
   useAuth,
   useIsAdmin,
@@ -23,11 +24,14 @@ import { defaultWorkspaceSelection } from '@/lib/workspace';
 import { UserRole } from '@/api/v1/schema';
 import {
   Activity,
+  AlertTriangle,
+  Bell,
   ChevronDown,
   Gauge,
   Shield,
   Globe,
   History,
+  KeyRound,
   Moon,
   Network,
   PanelLeft,
@@ -464,8 +468,14 @@ export const mainListItems = React.forwardRef<
     config.authMode !== 'builtin'
       ? config.permissions.writeDags
       : roleAtLeast(user?.role ?? null, UserRole.developer);
+  const canManageNotifications =
+    config.authMode !== 'builtin'
+      ? config.permissions.writeDags
+      : roleAtLeast(user?.role ?? null, UserRole.developer);
+  const canManageIncidents = canManageNotifications;
   const canAccessSystemStatus = useCanAccessSystemStatus();
   const canManageWebhooks = useCanManageWebhooks();
+  const canManageSecrets = useCanManageSecrets();
   const canViewEventLogs = useCanViewEventLogs();
   const canViewAuditLogs = useCanViewAuditLogs();
   const { preferences, updatePreference } = useUserPreferences();
@@ -731,6 +741,70 @@ export const mainListItems = React.forwardRef<
             </NavGroup>
           )}
 
+          {canManageNotifications && (
+            <NavGroup
+              groupKey="notifications"
+              icon={<Bell size={18} />}
+              label="Notifications"
+              isOpen={isOpen}
+              basePath={[
+                '/notifications',
+                '/notification-rules',
+                '/notification-channels',
+              ]}
+              to="/notifications"
+              onClick={onNavItemClick}
+              customColor={customColor}
+            >
+              <NavItem
+                to="/notification-rules"
+                text="Rules"
+                isOpen={isOpen}
+                onClick={onNavItemClick}
+                customColor={customColor}
+              />
+              <NavItem
+                to="/notification-channels"
+                text="Channels"
+                isOpen={isOpen}
+                onClick={onNavItemClick}
+                customColor={customColor}
+              />
+            </NavGroup>
+          )}
+
+          {canManageIncidents && (
+            <NavGroup
+              groupKey="incidents"
+              icon={<AlertTriangle size={18} />}
+              label="Incidents"
+              isOpen={isOpen}
+              basePath={[
+                '/incidents',
+                '/incident-providers',
+                '/incident-policies',
+              ]}
+              to="/incidents"
+              onClick={onNavItemClick}
+              customColor={customColor}
+            >
+              <NavItem
+                to="/incident-providers"
+                text="Connections"
+                isOpen={isOpen}
+                onClick={onNavItemClick}
+                customColor={customColor}
+              />
+              <NavItem
+                to="/incident-policies"
+                text="Routing"
+                isOpen={isOpen}
+                onClick={onNavItemClick}
+                customColor={customColor}
+              />
+            </NavGroup>
+          )}
+
           <NavGroup
             groupKey="integrations"
             icon={<Webhook size={18} />}
@@ -758,6 +832,17 @@ export const mainListItems = React.forwardRef<
               customColor={customColor}
             />
           </NavGroup>
+
+          {canManageSecrets && (
+            <NavItem
+              to="/secrets"
+              text="Secrets"
+              icon={<KeyRound size={18} />}
+              isOpen={isOpen}
+              onClick={onNavItemClick}
+              customColor={customColor}
+            />
+          )}
 
           {isAdmin && (
             <NavGroup

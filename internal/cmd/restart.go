@@ -158,6 +158,10 @@ func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *core.DAG, dagRu
 	}
 
 	as := ctx.agentStores()
+	extraEnvs, err := prepareDAGTools(ctx, dag)
+	if err != nil {
+		return err
+	}
 
 	agentInstance := agent.New(
 		dagRunID,
@@ -168,8 +172,11 @@ func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *core.DAG, dagRu
 		dr,
 		agent.Options{
 			Dry:                        false,
+			ExtraEnvs:                  extraEnvs,
 			PreparedAttempt:            preparedAttempt,
 			DAGRunStore:                ctx.DAGRunStore,
+			QueueStore:                 ctx.QueueStore,
+			SecretStore:                as.SecretStore,
 			ServiceRegistry:            ctx.ServiceRegistry,
 			RootDAGRun:                 exec.NewDAGRunRef(dag.Name, dagRunID),
 			PeerConfig:                 ctx.Config.Core.Peer,
@@ -182,6 +189,8 @@ func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *core.DAG, dagRu
 			AgentRemoteContextResolver: as.ContextResolver,
 			ScheduleTime:               scheduleTime,
 			ArtifactDir:                artifactDir,
+			DAGRunLogDir:               ctx.Config.Paths.LogDir,
+			DAGRunArtifactDir:          ctx.Config.Paths.ArtifactDir,
 		})
 
 	listenSignals(ctx, agentInstance)

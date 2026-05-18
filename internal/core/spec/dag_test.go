@@ -51,6 +51,233 @@ func TestBuildContextWithOpts_InvalidatesParamsState(t *testing.T) {
 	require.Same(t, cached, ctx.paramsState)
 }
 
+func TestLoadDAGToolsAqua(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+tools:
+  packages:
+    - name: jq
+      package: jqlang/jq
+      version: jq-1.7.1
+      commands: [jq]
+steps:
+  - id: check
+    run: jq --version
+`))
+
+	require.NoError(t, err)
+	require.NotNil(t, dag.Tools)
+	assert.Equal(t, "aqua", dag.Tools.Provider)
+	require.NotNil(t, dag.Tools.Registry)
+	assert.Equal(t, "standard", dag.Tools.Registry.Name)
+	assert.Equal(t, "standard", dag.Tools.Registry.Type)
+	assert.Equal(t, core.DefaultAquaStandardRegistryRef, dag.Tools.Registry.Ref)
+	assert.Regexp(t, `^[0-9a-f]{40}$`, dag.Tools.Registry.Ref)
+	require.Len(t, dag.Tools.Packages, 1)
+	assert.Equal(t, "jq", dag.Tools.Packages[0].Name)
+	assert.Equal(t, "jqlang/jq", dag.Tools.Packages[0].Package)
+	assert.Equal(t, "jq-1.7.1", dag.Tools.Packages[0].Version)
+	assert.Equal(t, []string{"jq"}, dag.Tools.Packages[0].Commands)
+}
+
+func TestLoadDAGToolsShorthandList(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+tools:
+  - jqlang/jq@jq-1.7.1
+  - google/pprof@d04f2422c8a17569c14e84da0fae252d9529826b
+steps:
+  - id: check
+    run: jq --version
+`))
+
+	require.NoError(t, err)
+	require.NotNil(t, dag.Tools)
+	assert.Equal(t, "aqua", dag.Tools.Provider)
+	require.NotNil(t, dag.Tools.Registry)
+	assert.Equal(t, core.DefaultAquaStandardRegistryRef, dag.Tools.Registry.Ref)
+	require.Len(t, dag.Tools.Packages, 2)
+	assert.Equal(t, "jq", dag.Tools.Packages[0].Name)
+	assert.Equal(t, "jqlang/jq", dag.Tools.Packages[0].Package)
+	assert.Equal(t, "jq-1.7.1", dag.Tools.Packages[0].Version)
+	assert.Empty(t, dag.Tools.Packages[0].Commands)
+	assert.Equal(t, "pprof", dag.Tools.Packages[1].Name)
+	assert.Equal(t, "google/pprof", dag.Tools.Packages[1].Package)
+	assert.Equal(t, "d04f2422c8a17569c14e84da0fae252d9529826b", dag.Tools.Packages[1].Version)
+	assert.Empty(t, dag.Tools.Packages[1].Commands)
+}
+
+func TestLoadDAGToolsPackagesAcceptMixedShorthandAndObject(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+tools:
+  packages:
+    - jqlang/jq@jq-1.7.1
+    - package: google/pprof
+      version: d04f2422c8a17569c14e84da0fae252d9529826b
+steps:
+  - id: check
+    run: jq --version
+`))
+
+	require.NoError(t, err)
+	require.NotNil(t, dag.Tools)
+	require.Len(t, dag.Tools.Packages, 2)
+	assert.Equal(t, "jqlang/jq", dag.Tools.Packages[0].Package)
+	assert.Equal(t, "jq-1.7.1", dag.Tools.Packages[0].Version)
+	assert.Equal(t, "google/pprof", dag.Tools.Packages[1].Package)
+	assert.Equal(t, "d04f2422c8a17569c14e84da0fae252d9529826b", dag.Tools.Packages[1].Version)
+}
+
+func TestLoadDAGToolsRejectsInvalidShorthand(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+tools:
+  - jqlang/jq
+steps:
+  - id: check
+    run: jq --version
+`))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `tool package shorthand must be "package@version"`)
+}
+
+func TestLoadDAGToolsAcceptsPackageCommitSHA(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+tools:
+  packages:
+    - package: google/pprof
+      version: d04f2422c8a17569c14e84da0fae252d9529826b
+steps:
+  - id: check
+    run: pprof --help
+`))
+
+	require.NoError(t, err)
+	require.NotNil(t, dag.Tools)
+	require.Len(t, dag.Tools.Packages, 1)
+	assert.Equal(t, "aqua", dag.Tools.Provider)
+	assert.Equal(t, "d04f2422c8a17569c14e84da0fae252d9529826b", dag.Tools.Packages[0].Version)
+	assert.Empty(t, dag.Tools.Packages[0].Commands)
+}
+
+func TestLoadDAGToolsAcceptsOmittedCommands(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+tools:
+  provider: aqua
+  registry:
+    type: standard
+    ref: v4.233.0
+  packages:
+    - name: jq
+      package: jqlang/jq
+      version: jq-1.7.1
+steps:
+  - id: check
+    run: jq
+`))
+
+	require.NoError(t, err)
+	require.NotNil(t, dag.Tools)
+	require.Len(t, dag.Tools.Packages, 1)
+	assert.Equal(t, "jq", dag.Tools.Packages[0].Name)
+	assert.Empty(t, dag.Tools.Packages[0].Commands)
+}
+
+func TestLoadDAGToolsRejectsMissingGitHubContentRegistryRef(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+tools:
+  provider: aqua
+  registry:
+    type: github_content
+    repo_owner: example
+    repo_name: aqua-registry
+    path: registry.yaml
+  packages:
+    - name: jq
+      package: jqlang/jq
+      version: jq-1.7.1
+      commands: [jq]
+steps:
+  - id: check
+    run: jq
+`))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "registry.ref is required")
+}
+
+func TestLoadDAGToolsRejectsFloatingLatestVersion(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+tools:
+  provider: aqua
+  registry:
+    ref: v4.233.0
+  packages:
+    - package: jqlang/jq
+      version: LATEST
+      commands: [jq]
+steps:
+  - id: check
+    run: jq
+`))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `version must be pinned, got "LATEST"`)
+}
+
+func TestLoadDAGToolsRejectsCommandPath(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+tools:
+  provider: aqua
+  registry:
+    ref: v4.233.0
+  packages:
+    - package: jqlang/jq
+      version: jq-1.7.1
+      commands: [bin/jq]
+steps:
+  - id: check
+    run: jq
+`))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `command "bin/jq" must be an executable name`)
+}
+
+func TestLoadDAGToolsRejectsShellFragmentCommand(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+tools:
+  packages:
+    - package: jqlang/jq
+      version: jq-1.7.1
+      commands: ["jq;echo"]
+steps:
+  - id: check
+    run: jq
+`))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `command "jq;echo" must be an executable name`)
+}
+
 // Helper to create PortValue from string
 func portValue(s string) types.PortValue {
 	var p types.PortValue
@@ -158,14 +385,14 @@ func TestBuildType(t *testing.T) {
 		wantErr  bool
 	}{
 		{
-			name:     "EmptyDefaultsToChain",
+			name:     "EmptyDefaultsToGraph",
 			input:    "",
-			expected: core.TypeChain,
+			expected: core.TypeGraph,
 		},
 		{
-			name:     "WhitespaceDefaultsToChain",
+			name:     "WhitespaceDefaultsToGraph",
 			input:    "  ",
-			expected: core.TypeChain,
+			expected: core.TypeGraph,
 		},
 		{
 			name:     "GraphType",
@@ -1989,6 +2216,15 @@ func TestBuildSecrets(t *testing.T) {
 					},
 				},
 			},
+			{
+				name: "RegistryRef",
+				input: []secretRef{
+					{Name: "DB_PASSWORD", Ref: "prod/db-password"},
+				},
+				expected: []core.SecretRef{
+					{Name: "DB_PASSWORD", Ref: "prod/db-password"},
+				},
+			},
 		}
 
 		for _, tt := range tests {
@@ -2021,14 +2257,42 @@ func TestBuildSecrets(t *testing.T) {
 				input: []secretRef{
 					{Name: "MY_SECRET", Key: "secret/data/test"},
 				},
-				errContains: "'provider' field is required",
+				errContains: "exactly one of 'ref' or 'provider' plus 'key' is required",
 			},
 			{
 				name: "MissingKey",
 				input: []secretRef{
 					{Name: "MY_SECRET", Provider: "vault"},
 				},
-				errContains: "'key' field is required",
+				errContains: "exactly one of 'ref' or 'provider' plus 'key' is required",
+			},
+			{
+				name: "RefWithProviderAndKey",
+				input: []secretRef{
+					{Name: "MY_SECRET", Ref: "db-password", Provider: "vault", Key: "secret/data/test"},
+				},
+				errContains: "exactly one of 'ref' or 'provider' plus 'key' is required",
+			},
+			{
+				name: "RefWithProvider",
+				input: []secretRef{
+					{Name: "MY_SECRET", Ref: "db-password", Provider: "vault"},
+				},
+				errContains: "exactly one of 'ref' or 'provider' plus 'key' is required",
+			},
+			{
+				name: "RefWithKey",
+				input: []secretRef{
+					{Name: "MY_SECRET", Ref: "db-password", Key: "secret/data/test"},
+				},
+				errContains: "exactly one of 'ref' or 'provider' plus 'key' is required",
+			},
+			{
+				name: "InvalidRegistryRef",
+				input: []secretRef{
+					{Name: "MY_SECRET", Ref: "../db-password"},
+				},
+				errContains: "registry ref must be a slash-separated lowercase slug path",
 			},
 			{
 				name: "DuplicateNames",
@@ -2038,12 +2302,85 @@ func TestBuildSecrets(t *testing.T) {
 				},
 				errContains: "duplicate secret name",
 			},
+			{
+				name: "InvalidEnvName",
+				input: []secretRef{
+					{Name: "1API_KEY", Provider: "env", Key: "API_KEY"},
+				},
+				errContains: "must be a valid environment variable name",
+			},
+			{
+				name: "ReservedDaguPrefix",
+				input: []secretRef{
+					{Name: "DAGU_API_KEY", Provider: "env", Key: "API_KEY"},
+				},
+				errContains: "must not start with DAGU_",
+			},
 		}
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				d := &dag{Secrets: tt.input}
 				_, err := buildSecrets(testBuildContext(), d)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			})
+		}
+	})
+
+	t.Run("secret names can overlap DAG env and params", func(t *testing.T) {
+		t.Parallel()
+
+		tests := []struct {
+			name string
+			dag  *dag
+		}{
+			{
+				name: "DAGEnv",
+				dag: &dag{
+					Env:     envValueFromYAML(t, "API_KEY: from-env"),
+					Secrets: []secretRef{{Name: "API_KEY", Provider: "env", Key: "API_KEY"}},
+				},
+			},
+			{
+				name: "DAGParam",
+				dag: &dag{
+					Params:  map[string]any{"API_KEY": "from-param"},
+					Secrets: []secretRef{{Name: "API_KEY", Provider: "env", Key: "API_KEY"}},
+				},
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				secrets, err := buildSecrets(testBuildContext(), tt.dag)
+				require.NoError(t, err)
+				require.Len(t, secrets, 1)
+				assert.Equal(t, "API_KEY", secrets[0].Name)
+			})
+		}
+	})
+
+	t.Run("secret names cannot overlap managed runtime env", func(t *testing.T) {
+		t.Parallel()
+
+		tests := []struct {
+			name        string
+			dag         *dag
+			errContains string
+		}{
+			{
+				name: "ManagedRuntimeEnv",
+				dag: &dag{
+					Secrets: []secretRef{{Name: "DAG_RUN_ID", Provider: "env", Key: "API_KEY"}},
+				},
+				errContains: "collides with Dagu-managed runtime environment variable",
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				_, err := buildSecrets(testBuildContext(), tt.dag)
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errContains)
 			})
@@ -2382,11 +2719,54 @@ steps:
 			expected: &core.ArtifactsConfig{Enabled: true},
 		},
 		{
+			name: "AutoEnableWhenStdoutArtifactIsUsed",
+			yaml: `
+steps:
+  - name: report
+    run: ./generate-report
+    stdout:
+      artifact: reports/report.md
+`,
+			expected: &core.ArtifactsConfig{Enabled: true},
+		},
+		{
+			name: "ParamsArtifactShapeDoesNotAutoEnable",
+			yaml: `
+params:
+  stdout:
+    artifact: reports/report.md
+`,
+			expected: nil,
+		},
+		{
+			name: "ExplicitDisableWithParamsArtifactShapeDoesNotError",
+			yaml: `
+artifacts:
+  enabled: false
+params:
+  stdout:
+    artifact: reports/report.md
+`,
+			expected: &core.ArtifactsConfig{Enabled: false},
+		},
+		{
 			name: "AutoEnableWhenPowerShellEnvReferenceArtifactsDir",
 			yaml: `
 steps:
   - name: write
     run: Write-Output $env:DAG_RUN_ARTIFACTS_DIR
+`,
+			expected: &core.ArtifactsConfig{Enabled: true},
+		},
+		{
+			name: "AutoEnableWhenArtifactActionIsUsed",
+			yaml: `
+steps:
+  - name: write
+    action: artifact.write
+    with:
+      path: out.txt
+      content: artifact
 `,
 			expected: &core.ArtifactsConfig{Enabled: true},
 		},
@@ -2425,6 +2805,77 @@ steps:
 			result, err := buildArtifacts(testBuildContext(), &d)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestBuildArtifactsRejectsDisabledArtifactsForArtifactAction(t *testing.T) {
+	t.Parallel()
+
+	var d dag
+	err := yaml.Unmarshal([]byte(`
+artifacts:
+  enabled: false
+steps:
+  - name: write
+    action: artifact.write
+    with:
+      path: out.txt
+      content: artifact
+`), &d)
+	require.NoError(t, err)
+
+	result, err := buildArtifacts(testBuildContext(), &d)
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "artifact actions require artifacts.enabled to be true")
+}
+
+func TestBuildArtifactsRejectsDisabledArtifactsForArtifactOutput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		yaml string
+	}{
+		{
+			name: "StdoutArtifact",
+			yaml: `
+artifacts:
+  enabled: false
+steps:
+  - name: report
+    run: echo ok
+    stdout:
+      artifact: reports/report.md
+`,
+		},
+		{
+			name: "StderrArtifact",
+			yaml: `
+artifacts:
+  enabled: false
+steps:
+  - name: report
+    run: echo ok
+    stderr:
+      artifact: reports/report.err
+`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var d dag
+			err := yaml.Unmarshal([]byte(tt.yaml), &d)
+			require.NoError(t, err)
+
+			result, err := buildArtifacts(testBuildContext(), &d)
+			require.Error(t, err)
+			assert.Nil(t, result)
+			assert.Contains(t, err.Error(), "artifact outputs require artifacts.enabled to be true")
 		})
 	}
 }
@@ -2762,16 +3213,14 @@ func TestChainTypeDependsValidation(t *testing.T) {
 			expectErr: false,
 		},
 		{
-			name: "DefaultTypeWithDependsShouldError",
+			name: "DefaultTypeWithDependsShouldWork",
 			dag: &dag{
-				// Default type is chain, so depends should not be allowed
 				Steps: []any{
 					map[string]any{"name": "step1", "command": "echo 1"},
 					map[string]any{"name": "step2", "command": "echo 2", "depends": []string{"step1"}},
 				},
 			},
-			expectErr:   true,
-			errContains: "depends field is not allowed for DAGs with type 'chain'",
+			expectErr: false,
 		},
 		{
 			name: "ChainTypeNestedParallelWithDependsShouldError",
@@ -2930,9 +3379,8 @@ func TestRouterNotAllowedInChainType(t *testing.T) {
 			errContains: "router steps require type 'graph'",
 		},
 		{
-			name: "DefaultTypeWithRouterShouldError",
+			name: "DefaultTypeWithRouterShouldWork",
 			dag: &dag{
-				// Default type is chain, so router should not be allowed
 				Steps: []any{
 					map[string]any{
 						"name":  "router",
@@ -2945,8 +3393,7 @@ func TestRouterNotAllowedInChainType(t *testing.T) {
 					map[string]any{"name": "step_a", "command": "echo A"},
 				},
 			},
-			expectErr:   true,
-			errContains: "router steps require type 'graph'",
+			expectErr: false,
 		},
 		{
 			name: "GraphTypeWithRouterShouldWork",

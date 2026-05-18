@@ -15,16 +15,19 @@ type Category string
 
 // Audit categories for different system components.
 const (
-	CategoryTerminal   Category = "terminal"
-	CategoryUser       Category = "user"
-	CategoryDAG        Category = "dag"
-	CategoryAPIKey     Category = "api_key"
-	CategoryWebhook    Category = "webhook"
-	CategoryGitSync    Category = "git_sync"
-	CategoryAgent      Category = "agent"
-	CategorySystem     Category = "system"
-	CategoryRemoteNode Category = "remote_node"
-	CategoryWorkspace  Category = "workspace"
+	CategoryTerminal     Category = "terminal"
+	CategoryUser         Category = "user"
+	CategoryDAG          Category = "dag"
+	CategoryAPIKey       Category = "api_key"
+	CategoryWebhook      Category = "webhook"
+	CategoryNotification Category = "notification"
+	CategoryIncident     Category = "incident"
+	CategoryGitSync      Category = "git_sync"
+	CategoryAgent        Category = "agent"
+	CategorySystem       Category = "system"
+	CategoryRemoteNode   Category = "remote_node"
+	CategoryWorkspace    Category = "workspace"
+	CategorySecret       Category = "secret"
 )
 
 // Entry represents a single audit log entry.

@@ -32,6 +32,17 @@ Fields:
 Notes:
 
 - Dagu expands `${VAR}` before the shell runs. For large or arbitrary text, prefer `printenv VAR_NAME`, reading `${step_id.stdout}` as a file, or `action: template.render`.
+- When large command output should become an artifact, write it to stdout/stderr and attach the stream directly instead of redirecting inside shell:
+
+```yaml
+steps:
+  - id: report
+    run: ./generate-report --format markdown
+    stdout:
+      artifact: reports/report.md
+```
+
+- Use string-form `output: VAR_NAME` only for small stdout values. Large reports, JSON dumps, Markdown summaries, and logs belong in `stdout.artifact` / `stderr.artifact`.
 
 ## docker.run / container.run
 
@@ -51,7 +62,7 @@ steps:
       command: go build ./...
 ```
 
-`with` fields: `image`, `container_name`, `pull`, `auto_remove`, `working_dir`, `volumes`, `shell`, `command`.
+`with` fields: `image`, `container_name`, `pull`, `auto_remove`, `working_dir`, `volumes`, `network`, `platform`, `command`.
 
 ## dag.run
 
@@ -68,6 +79,36 @@ steps:
 ```
 
 Sub-DAGs do not inherit parent env vars. Pass values explicitly via `with.params`.
+
+## outputs.write
+
+Publish DAG or remote action outputs assembled from literals, parameters, or prior step values.
+
+```yaml
+steps:
+  - id: send
+    run: ./scripts/notify.sh "${text}"
+    output:
+      response:
+        from: stdout
+        decode: json
+
+  - id: publish
+    depends: [send]
+    action: outputs.write
+    with:
+      values:
+        messageId: ${send.output.response.id}
+        status: sent
+```
+
+Published values are available as `${publish.outputs.messageId}` in the same DAG. When the step runs inside a remote action DAG, the parent action caller reads the final action outputs as `${action_step.outputs.messageId}`.
+
+Notes:
+
+- `values` must be a non-empty object.
+- Keep values small and JSON-compatible; use artifacts for files, reports, logs, screenshots, or large JSON payloads.
+- If the remote action manifest declares an `outputs` schema, Dagu validates the final collected action output object after the action DAG returns. `outputs.write` itself does not validate the manifest.
 
 ## parallel
 
@@ -153,10 +194,19 @@ steps:
     action: jq.filter
     with:
       filter: ".items[] | {name: .name, count: .quantity}"
-      data: '{"items": [{"name": "a", "quantity": 1}]}'
+      data:
+        items:
+          - name: a
+            quantity: 1
+
+  - id: transform_file
+    action: jq.filter
+    with:
+      filter: .name
+      input: ${fetch_json.stdout}
 ```
 
-`with.data` is inline JSON input. For files or large JSON documents, use a shell step with the `jq` CLI.
+Use `with.data` for inline JSON or `with.input` for a JSON file path. Do not set both.
 
 ## template.render
 
@@ -175,6 +225,50 @@ steps:
 ```
 
 `with.template` is required and is rendered as a template, not executed as shell. `with.output` writes rendered content to a file; top-level `output:` captures or publishes step output.
+
+## file.stat / file.read / file.write / file.copy / file.move / file.delete / file.mkdir / file.list
+
+Local filesystem operations.
+
+```yaml
+steps:
+  - id: ensure_output_dir
+    action: file.mkdir
+    with:
+      path: ${DAG_RUN_ARTIFACTS_DIR}/reports
+
+  - id: write_report
+    action: file.write
+    with:
+      path: ${DAG_RUN_ARTIFACTS_DIR}/reports/summary.txt
+      content: "status=ok\n"
+      overwrite: true
+
+  - id: copy_report
+    action: file.copy
+    with:
+      source: ${DAG_RUN_ARTIFACTS_DIR}/reports/summary.txt
+      destination: ${DAG_RUN_ARTIFACTS_DIR}/reports/latest.txt
+      overwrite: true
+
+  - id: list_reports
+    action: file.list
+    with:
+      path: ${DAG_RUN_ARTIFACTS_DIR}/reports
+      pattern: "*.txt"
+```
+
+Use `path` for `file.stat`, `file.read`, `file.write`, `file.delete`, `file.mkdir`, and `file.list`. Use `source` and `destination` for `file.copy` and `file.move`. `file.write` also requires `content`.
+
+`with` fields: `path`, `source`, `destination`, `content`, `mode`, `format`, `pattern`, `overwrite`, `create_dirs`, `atomic`, `recursive`, `missing_ok`, `dry_run`, `include_dirs`, `follow_symlinks`, `max_bytes`.
+
+Safety defaults:
+
+- `overwrite` defaults to false for write, copy, and move.
+- `atomic` defaults to true for file writes.
+- `recursive` is required for directory copy and directory delete.
+- `file.delete` refuses to delete the filesystem root.
+- Copy and move reject the same source and destination, and directory copy rejects destinations inside the source tree.
 
 ## postgres.query / sqlite.query / postgres.import / sqlite.import
 
@@ -201,7 +295,7 @@ Redis operations use the operation in the action name.
 ```yaml
 steps:
   - id: cache_set
-    action: redis.SET
+    action: redis.set
     with:
       url: "redis://localhost:6379"
       key: mykey
@@ -318,7 +412,7 @@ steps:
 
 ## router.route
 
-Conditional routing based on expression value. Routes reference existing step names.
+Conditional routing based on expression value. Routes reference existing step IDs.
 
 ```yaml
 steps:

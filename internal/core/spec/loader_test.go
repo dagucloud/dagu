@@ -1315,7 +1315,7 @@ steps:
 		assert.False(t, dag.WorkingDirExplicit)
 	})
 
-	t.Run("WithoutBaseConfigStillDefaultsTypeToChain", func(t *testing.T) {
+	t.Run("WithoutBaseConfigDefaultsTypeToGraph", func(t *testing.T) {
 		t.Parallel()
 
 		dag, err := spec.LoadYAMLWithOpts(context.Background(), []byte(`
@@ -1326,9 +1326,9 @@ steps:
     run: echo two
 `), spec.BuildOpts{})
 		require.NoError(t, err)
-		assert.Equal(t, core.TypeChain, dag.Type)
+		assert.Equal(t, core.TypeGraph, dag.Type)
 		require.Len(t, dag.Steps, 2)
-		assert.Equal(t, []string{"step1"}, dag.Steps[1].Depends)
+		assert.Empty(t, dag.Steps[1].Depends)
 	})
 }
 
@@ -1441,7 +1441,7 @@ steps:
 	assert.Equal(t, "child-task", childDAG.Name)
 	require.Len(t, childDAG.Steps, 1)
 	assert.Equal(t, "work", childDAG.Steps[0].Name)
-	assert.Equal(t, core.TypeChain, childDAG.Type)
+	assert.Equal(t, core.TypeGraph, childDAG.Type)
 }
 
 func TestLoad_MultiDocumentFilePreservesDocumentProvenance(t *testing.T) {

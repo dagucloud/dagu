@@ -1146,6 +1146,22 @@ func extractRawDefaults(cm map[string]any) map[string]any {
 // It converts raw map[string]any values to the appropriate typed values.
 func TypedUnionDecodeHook() mapstructure.DecodeHookFunc {
 	return func(_ reflect.Type, to reflect.Type, data any) (any, error) {
+		if to == reflect.TypeFor[toolsConfig]() {
+			return decodeViaYAML[toolsConfig](data)
+		}
+		if to == reflect.TypeFor[*toolsConfig]() {
+			if data == nil {
+				return nil, nil
+			}
+			result, err := decodeViaYAML[toolsConfig](data)
+			if err != nil {
+				return nil, err
+			}
+			return &result, nil
+		}
+		if to == reflect.TypeFor[toolPackage]() {
+			return decodeViaYAML[toolPackage](data)
+		}
 		// Handle types.ShellValue
 		if to == reflect.TypeFor[types.ShellValue]() {
 			return decodeViaYAML[types.ShellValue](data)

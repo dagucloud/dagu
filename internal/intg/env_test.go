@@ -115,6 +115,7 @@ steps:
     run: |
 `+indentTestScript(writeCommand, 6)+`
   - name: read-from-workdir
+    depends: write-to-workdir
     run: |
 `+indentTestScript(readCommand, 6)+`
     output: WORKDIR_OUTPUT
@@ -153,6 +154,7 @@ steps:
     run: |
 `+indentTestScript(writeCommand, 6)+`
   - name: read-from-workdir
+    depends: write-to-workdir
     run: |
 `+indentTestScript(readCommand, 6)+`
     output: WORKDIR_OUTPUT
@@ -305,7 +307,7 @@ env:
   - OUTPUT_PATH: "${data_dir}/results"
 steps:
   - name: check-env
-    run: echo "${OUTPUT_PATH}"
+    command: echo "${OUTPUT_PATH}"
     output: RESULT
 `)
 

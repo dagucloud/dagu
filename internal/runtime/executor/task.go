@@ -9,6 +9,7 @@ import (
 
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/proto/convert"
+	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
 
@@ -127,6 +128,16 @@ func WithAgentSnapshot(snapshot []byte) TaskOption {
 			return
 		}
 		task.AgentSnapshot = append([]byte(nil), snapshot...)
+	}
+}
+
+func WithWorkspaceBundle(desc workspacebundle.Descriptor) TaskOption {
+	return func(task *coordinatorv1.Task) {
+		task.WorkspaceBundleDigest = desc.Digest
+		task.WorkspaceBundleSize = desc.Size
+		task.WorkspaceBundleDagPath = desc.DAGPath
+		task.WorkspaceBundleOriginalRef = desc.OriginalRef
+		task.WorkspaceBundleResolvedRef = desc.ResolvedRef
 	}
 }
 

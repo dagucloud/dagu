@@ -56,6 +56,47 @@ steps:
 	})
 }
 
+// TestSQLExecutor_DuckDB_BasicQuery tests basic DuckDB query execution.
+func TestSQLExecutor_DuckDB_BasicQuery(t *testing.T) {
+	t.Parallel()
+	th := test.Setup(t)
+	dbPath := filepath.Join(t.TempDir(), "test.duckdb")
+	dbPathForYAML := filepath.ToSlash(dbPath)
+
+	dag := th.DAG(t, fmt.Sprintf(`
+type: graph
+steps:
+  - name: init-db
+    action: duckdb.query
+    with:
+      query: |
+        CREATE TABLE users (id INTEGER, name VARCHAR NOT NULL);
+        INSERT INTO users VALUES (1, 'Alice'), (2, 'Bob');
+      dsn: "%s"
+      transaction: true
+  - name: query-users
+    action: duckdb.query
+    with:
+      query: "SELECT id, name FROM users ORDER BY id"
+      dsn: "%s"
+      output_format: jsonl
+    output: USERS
+    depends: [init-db]
+`, dbPathForYAML, dbPathForYAML))
+
+	dag.Agent().RunSuccess(t)
+	dag.AssertLatestStatus(t, core.Succeeded)
+
+	dag.AssertOutputs(t, map[string]any{
+		"USERS": []test.Contains{
+			`"id":1`,
+			`"name":"Alice"`,
+			`"id":2`,
+			`"name":"Bob"`,
+		},
+	})
+}
+
 // TestSQLExecutor_SQLite_Transaction tests transaction commit behavior.
 func TestSQLExecutor_SQLite_Transaction(t *testing.T) {
 	t.Parallel()

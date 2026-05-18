@@ -98,23 +98,25 @@ func (s DAGRunRefSnapshot) DAGRunRef() exec.DAGRunRef {
 }
 
 type DAGRunStatusSnapshot struct {
-	Root       DAGRunRefSnapshot    `json:"root"`
-	Parent     DAGRunRefSnapshot    `json:"parent"`
-	Name       string               `json:"name"`
-	DAGFile    string               `json:"dag_file,omitempty"`
-	DAGRunID   string               `json:"dag_run_id"`
-	AttemptID  string               `json:"attempt_id"`
-	ProcGroup  string               `json:"proc_group,omitempty"`
-	Status     core.Status          `json:"status"`
-	Error      string               `json:"error,omitempty"`
-	Log        string               `json:"log,omitempty"`
-	QueuedAt   string               `json:"queued_at,omitempty"`
-	StartedAt  string               `json:"started_at,omitempty"`
-	FinishedAt string               `json:"finished_at,omitempty"`
-	Nodes      []DAGRunNodeSnapshot `json:"nodes,omitempty"`
-	OnFailure  *DAGRunNodeSnapshot  `json:"on_failure,omitempty"`
-	OnExit     *DAGRunNodeSnapshot  `json:"on_exit,omitempty"`
-	OnWait     *DAGRunNodeSnapshot  `json:"on_wait,omitempty"`
+	Root           DAGRunRefSnapshot    `json:"root"`
+	Parent         DAGRunRefSnapshot    `json:"parent"`
+	Name           string               `json:"name"`
+	DAGFile        string               `json:"dag_file,omitempty"`
+	DAGRunID       string               `json:"dag_run_id"`
+	AttemptID      string               `json:"attempt_id"`
+	ProcGroup      string               `json:"proc_group,omitempty"`
+	Status         core.Status          `json:"status"`
+	Error          string               `json:"error,omitempty"`
+	Log            string               `json:"log,omitempty"`
+	QueuedAt       string               `json:"queued_at,omitempty"`
+	StartedAt      string               `json:"started_at,omitempty"`
+	FinishedAt     string               `json:"finished_at,omitempty"`
+	AutoRetryCount int                  `json:"auto_retry_count,omitempty"`
+	AutoRetryLimit int                  `json:"auto_retry_limit,omitempty"`
+	Nodes          []DAGRunNodeSnapshot `json:"nodes,omitempty"`
+	OnFailure      *DAGRunNodeSnapshot  `json:"on_failure,omitempty"`
+	OnExit         *DAGRunNodeSnapshot  `json:"on_exit,omitempty"`
+	OnWait         *DAGRunNodeSnapshot  `json:"on_wait,omitempty"`
 }
 
 type NotificationStatusSnapshot = DAGRunStatusSnapshot
@@ -155,23 +157,25 @@ func newDAGRunStatusSnapshot(status *exec.DAGRunStatus, dagFile string) *DAGRunS
 	}
 
 	return &DAGRunStatusSnapshot{
-		Root:       newDAGRunRefSnapshot(status.Root),
-		Parent:     newDAGRunRefSnapshot(status.Parent),
-		Name:       status.Name,
-		DAGFile:    dagFile,
-		DAGRunID:   status.DAGRunID,
-		AttemptID:  status.AttemptID,
-		ProcGroup:  status.ProcGroup,
-		Status:     status.Status,
-		Error:      status.Error,
-		Log:        status.Log,
-		QueuedAt:   status.QueuedAt,
-		StartedAt:  status.StartedAt,
-		FinishedAt: status.FinishedAt,
-		Nodes:      nodes,
-		OnFailure:  newDAGRunNodeSnapshot(status.OnFailure),
-		OnExit:     newDAGRunNodeSnapshot(status.OnExit),
-		OnWait:     newDAGRunNodeSnapshot(status.OnWait),
+		Root:           newDAGRunRefSnapshot(status.Root),
+		Parent:         newDAGRunRefSnapshot(status.Parent),
+		Name:           status.Name,
+		DAGFile:        dagFile,
+		DAGRunID:       status.DAGRunID,
+		AttemptID:      status.AttemptID,
+		ProcGroup:      status.ProcGroup,
+		Status:         status.Status,
+		Error:          status.Error,
+		Log:            status.Log,
+		QueuedAt:       status.QueuedAt,
+		StartedAt:      status.StartedAt,
+		FinishedAt:     status.FinishedAt,
+		AutoRetryCount: status.AutoRetryCount,
+		AutoRetryLimit: status.AutoRetryLimit,
+		Nodes:          nodes,
+		OnFailure:      newDAGRunNodeSnapshot(status.OnFailure),
+		OnExit:         newDAGRunNodeSnapshot(status.OnExit),
+		OnWait:         newDAGRunNodeSnapshot(status.OnWait),
 	}
 }
 
@@ -186,22 +190,24 @@ func (s *DAGRunStatusSnapshot) DAGRunStatus() *exec.DAGRunStatus {
 	}
 
 	return &exec.DAGRunStatus{
-		Root:       s.Root.DAGRunRef(),
-		Parent:     s.Parent.DAGRunRef(),
-		Name:       s.Name,
-		DAGRunID:   s.DAGRunID,
-		AttemptID:  s.AttemptID,
-		Status:     s.Status,
-		ProcGroup:  s.ProcGroup,
-		Error:      s.Error,
-		Log:        s.Log,
-		QueuedAt:   s.QueuedAt,
-		StartedAt:  s.StartedAt,
-		FinishedAt: s.FinishedAt,
-		Nodes:      nodes,
-		OnFailure:  s.OnFailure.Node(),
-		OnExit:     s.OnExit.Node(),
-		OnWait:     s.OnWait.Node(),
+		Root:           s.Root.DAGRunRef(),
+		Parent:         s.Parent.DAGRunRef(),
+		Name:           s.Name,
+		DAGRunID:       s.DAGRunID,
+		AttemptID:      s.AttemptID,
+		Status:         s.Status,
+		ProcGroup:      s.ProcGroup,
+		Error:          s.Error,
+		Log:            s.Log,
+		QueuedAt:       s.QueuedAt,
+		StartedAt:      s.StartedAt,
+		FinishedAt:     s.FinishedAt,
+		AutoRetryCount: s.AutoRetryCount,
+		AutoRetryLimit: s.AutoRetryLimit,
+		Nodes:          nodes,
+		OnFailure:      s.OnFailure.Node(),
+		OnExit:         s.OnExit.Node(),
+		OnWait:         s.OnWait.Node(),
 	}
 }
 

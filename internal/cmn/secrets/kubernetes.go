@@ -60,6 +60,12 @@ func (r *kubernetesResolver) Validate(ref core.SecretRef) error {
 	return err
 }
 
+// CheckCapability reports that the current Kubernetes check implementation
+// must read Secret data to verify the requested data key.
+func (r *kubernetesResolver) CheckCapability(core.SecretRef) CheckCapability {
+	return CheckCapabilityRequiresValueRead
+}
+
 // Resolve fetches the value from a Kubernetes Secret data key.
 func (r *kubernetesResolver) Resolve(ctx context.Context, ref core.SecretRef) (string, error) {
 	parsed, err := r.parseReference(ctx, ref)

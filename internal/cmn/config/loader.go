@@ -380,6 +380,7 @@ func (l *ConfigLoader) loadPathsConfig(cfg *Config, def Definition) error {
 		{"AltDAGsDir", &cfg.Paths.AltDAGsDir, def.Paths.AltDagsDir},
 		{"SuspendFlagsDir", &cfg.Paths.SuspendFlagsDir, def.Paths.SuspendFlagsDir},
 		{"DataDir", &cfg.Paths.DataDir, def.Paths.DataDir},
+		{"ToolsDir", &cfg.Paths.ToolsDir, def.Paths.ToolsDir},
 		{"LogDir", &cfg.Paths.LogDir, def.Paths.LogDir},
 		{"ArtifactDir", &cfg.Paths.ArtifactDir, def.Paths.ArtifactDir},
 		{"AdminLogsDir", &cfg.Paths.AdminLogsDir, def.Paths.AdminLogsDir},
@@ -454,6 +455,7 @@ func (l *ConfigLoader) loadServerConfig(cfg *Config, def Definition) {
 	cfg.Server = Server{
 		Host:        def.Host,
 		Port:        def.Port,
+		PublicURL:   def.PublicURL,
 		BasePath:    def.BasePath,
 		APIBasePath: def.APIBasePath,
 		Permissions: map[Permission]bool{
@@ -1385,6 +1387,9 @@ func (l *ConfigLoader) finalizePaths(cfg *Config) {
 	if cfg.Paths.SessionsDir == "" {
 		cfg.Paths.SessionsDir = filepath.Join(cfg.Paths.DataDir, "agent", "sessions")
 	}
+	if cfg.Paths.ToolsDir == "" {
+		cfg.Paths.ToolsDir = filepath.Join(cfg.Paths.DataDir, "tools")
+	}
 
 	if cfg.Paths.EventStoreDir == "" {
 		cfg.Paths.EventStoreDir = filepath.Join(cfg.Paths.AdminLogsDir, "events")
@@ -1641,6 +1646,7 @@ var envBindings = []envBinding{
 	// Server
 	{key: "log_format", env: "LOG_FORMAT"},
 	{key: "access_log_mode", env: "ACCESS_LOG_MODE"},
+	{key: "public_url", env: "PUBLIC_URL"},
 	{key: "base_path", env: "BASE_PATH"},
 	{key: "api_base_url", env: "API_BASE_URL"},
 	{key: "tz", env: "TZ"},
@@ -1750,6 +1756,7 @@ var envBindings = []envBinding{
 	{key: "paths.log_dir", env: "LOG_DIR", isPath: true},
 	{key: "paths.artifact_dir", env: "ARTIFACT_DIR", isPath: true},
 	{key: "paths.data_dir", env: "DATA_DIR", isPath: true},
+	{key: "paths.tools_dir", env: "TOOLS_DIR", isPath: true},
 	{key: "paths.suspend_flags_dir", env: "SUSPEND_FLAGS_DIR", isPath: true},
 	{key: "paths.admin_logs_dir", env: "ADMIN_LOG_DIR", isPath: true},
 	{key: "paths.event_store_dir", env: "EVENT_STORE_DIR", isPath: true},

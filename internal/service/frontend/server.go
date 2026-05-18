@@ -59,8 +59,11 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/filebaseconfig"
 	"github.com/dagucloud/dagu/internal/persis/filedoc"
 	"github.com/dagucloud/dagu/internal/persis/fileeventstore"
+	"github.com/dagucloud/dagu/internal/persis/fileincident"
 	"github.com/dagucloud/dagu/internal/persis/filememory"
+	"github.com/dagucloud/dagu/internal/persis/filenotification"
 	"github.com/dagucloud/dagu/internal/persis/fileremotenode"
+	"github.com/dagucloud/dagu/internal/persis/filesecret"
 	"github.com/dagucloud/dagu/internal/persis/filesession"
 	"github.com/dagucloud/dagu/internal/persis/filetokensecret"
 	"github.com/dagucloud/dagu/internal/persis/fileupgradecheck"
@@ -71,6 +74,7 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/service/audit"
 	authservice "github.com/dagucloud/dagu/internal/service/auth"
+	"github.com/dagucloud/dagu/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
 	"github.com/dagucloud/dagu/internal/service/frontend/api/pathutil"
@@ -79,6 +83,9 @@ import (
 	"github.com/dagucloud/dagu/internal/service/frontend/metrics"
 	"github.com/dagucloud/dagu/internal/service/frontend/sse"
 	"github.com/dagucloud/dagu/internal/service/frontend/terminal"
+	incidentservice "github.com/dagucloud/dagu/internal/service/incident"
+	dagumcp "github.com/dagucloud/dagu/internal/service/mcp"
+	notificationservice "github.com/dagucloud/dagu/internal/service/notification"
 	"github.com/dagucloud/dagu/internal/service/oidcprovision"
 	"github.com/dagucloud/dagu/internal/service/resource"
 	"github.com/dagucloud/dagu/internal/tunnel"
@@ -103,29 +110,32 @@ type shutdownActions struct {
 
 // Server represents the HTTP server for the frontend application.
 type Server struct {
-	apiV1              *apiv1.API
-	agentAPI           *agent.API
-	agentConfigStore   *fileagentconfig.Store
-	config             *config.Config
-	httpServer         *http.Server
-	funcsConfig        funcsConfig
-	builtinOIDCCfg     *auth.BuiltinOIDCConfig
-	authService        *authservice.Service
-	auditService       *audit.Service
-	auditStore         *fileaudit.Store
-	eventService       *eventstore.Service
-	syncService        gitsync.Service
-	listener           net.Listener
-	appStream          *sse.AppStreamService
-	sseMultiplexer     *sse.Multiplexer
-	terminalManager    *terminal.Manager
-	metricsRegistry    *prometheus.Registry
-	tunnelAPIOpts      []apiv1.APIOption
-	dagStore           exec.DAGStore
-	licenseManager     *license.Manager
-	remoteNodeResolver *remotenode.Resolver
-	upgradeStore       upgrade.CacheStore
-	agentAPICallback   func(*agent.API)
+	apiV1               *apiv1.API
+	agentAPI            *agent.API
+	agentConfigStore    *fileagentconfig.Store
+	config              *config.Config
+	httpServer          *http.Server
+	funcsConfig         funcsConfig
+	builtinOIDCCfg      *auth.BuiltinOIDCConfig
+	authService         *authservice.Service
+	auditService        *audit.Service
+	auditStore          *fileaudit.Store
+	eventService        *eventstore.Service
+	incidentService     *incidentservice.Service
+	notificationService *notificationservice.Service
+	syncService         gitsync.Service
+	listener            net.Listener
+	appStream           *sse.AppStreamService
+	sseMultiplexer      *sse.Multiplexer
+	terminalManager     *terminal.Manager
+	metricsRegistry     *prometheus.Registry
+	tunnelAPIOpts       []apiv1.APIOption
+	tunnelService       *tunnel.Service
+	dagStore            exec.DAGStore
+	licenseManager      *license.Manager
+	remoteNodeResolver  *remotenode.Resolver
+	upgradeStore        upgrade.CacheStore
+	agentAPICallback    func(*agent.API)
 }
 
 // ServerOption is a functional option for configuring the Server.
@@ -160,6 +170,7 @@ func WithAgentAPICallback(fn func(*agent.API)) ServerOption {
 func WithTunnelService(ts *tunnel.Service) ServerOption {
 	return func(s *Server) {
 		if ts != nil {
+			s.tunnelService = ts
 			s.tunnelAPIOpts = append(s.tunnelAPIOpts, apiv1.WithTunnelService(ts))
 		}
 	}
@@ -320,6 +331,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		remoteNodeResolver *remotenode.Resolver
 		encryptor          *crypto.Encryptor
 		agentOAuthManager  *agentoauth.Manager
+		licenseChecker     license.Checker
 	)
 	encKey, encErr := crypto.ResolveKey(cfg.Paths.DataDir)
 	if encErr != nil {
@@ -354,6 +366,13 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 	}
 
 	if encryptor != nil {
+		secretStore, secretErr := filesecret.New(filepath.Join(cfg.Paths.DataDir, "secrets"), encryptor)
+		if secretErr != nil {
+			logger.Warn(ctx, "Failed to create secret store", tag.Error(secretErr))
+		} else {
+			apiOpts = append(apiOpts, apiv1.WithSecretStore(secretStore))
+		}
+
 		store, err := fileagentoauth.New(filepath.Join(cfg.Paths.DataDir, "agent", "oauth"), encryptor)
 		if err != nil {
 			logger.Warn(ctx, "Failed to create agent OAuth store", tag.Error(err))
@@ -361,6 +380,51 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 			agentOAuthManager = agentoauth.NewManager(store)
 			apiOpts = append(apiOpts, apiv1.WithAgentOAuthManager(agentOAuthManager))
 		}
+	}
+
+	var notificationSvc *notificationservice.Service
+	if encryptor != nil {
+		store, err := filenotification.New(
+			filepath.Join(cfg.Paths.DataDir, "notifications", "dags"),
+			filenotification.WithEncryptor(encryptor),
+		)
+		if err != nil {
+			logger.Warn(ctx, "Failed to create notification settings store", tag.Error(err))
+		} else {
+			notificationSvc = notificationservice.New(
+				store,
+				dr,
+				notificationservice.WithReusableChannelsEnabled(func() bool {
+					return license.HasActiveLicense(licenseChecker)
+				}),
+				notificationservice.WithPublicURL(cfg.Server.PublicURL),
+			)
+			apiOpts = append(apiOpts, apiv1.WithNotificationService(notificationSvc))
+		}
+	} else {
+		logger.Warn(ctx, "Notification settings store is disabled because encrypted storage is not available")
+	}
+
+	var incidentSvc *incidentservice.Service
+	if encryptor != nil {
+		store, err := fileincident.New(
+			filepath.Join(cfg.Paths.DataDir, "incidents"),
+			fileincident.WithEncryptor(encryptor),
+		)
+		if err != nil {
+			logger.Warn(ctx, "Failed to create incident settings store", tag.Error(err))
+		} else {
+			incidentSvc = incidentservice.New(
+				store,
+				incidentservice.WithIncidentsEnabled(func() bool {
+					return license.HasActiveLicense(licenseChecker)
+				}),
+				incidentservice.WithPublicURL(cfg.Server.PublicURL),
+			)
+			apiOpts = append(apiOpts, apiv1.WithIncidentService(incidentSvc))
+		}
+	} else {
+		logger.Warn(ctx, "Incident settings store is disabled because encrypted storage is not available")
 	}
 
 	// Initialize workspace store
@@ -371,7 +435,6 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		apiOpts = append(apiOpts, apiv1.WithWorkspaceStore(wsStore))
 	}
 
-	var licenseChecker license.Checker
 	auditEnabled := func() bool {
 		if auditSvc == nil {
 			return false
@@ -406,19 +469,21 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 	// Note: SSO/OIDC gating is applied after opts are processed (see below)
 
 	srv := &Server{
-		config:             cfg,
-		agentAPI:           agentAPI,
-		agentConfigStore:   agentConfigStore,
-		builtinOIDCCfg:     builtinOIDCCfg,
-		authService:        authSvc,
-		auditService:       auditSvc,
-		auditStore:         auditStore,
-		eventService:       eventSvc,
-		syncService:        syncSvc,
-		metricsRegistry:    mr,
-		dagStore:           dr,
-		remoteNodeResolver: remoteNodeResolver,
-		upgradeStore:       upgradeStore,
+		config:              cfg,
+		agentAPI:            agentAPI,
+		agentConfigStore:    agentConfigStore,
+		builtinOIDCCfg:      builtinOIDCCfg,
+		authService:         authSvc,
+		auditService:        auditSvc,
+		auditStore:          auditStore,
+		eventService:        eventSvc,
+		incidentService:     incidentSvc,
+		notificationService: notificationSvc,
+		syncService:         syncSvc,
+		metricsRegistry:     mr,
+		dagStore:            dr,
+		remoteNodeResolver:  remoteNodeResolver,
+		upgradeStore:        upgradeStore,
 		funcsConfig: funcsConfig{
 			NavbarColor:           cfg.UI.NavbarColor,
 			NavbarTitle:           cfg.UI.NavbarTitle,
@@ -444,6 +509,28 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 
 	for _, opt := range opts {
 		opt(srv)
+	}
+	if srv.notificationService != nil {
+		srv.notificationService.SetPublicURLResolver(func() string {
+			if srv.config.Server.PublicURL != "" {
+				return srv.config.Server.PublicURL
+			}
+			if srv.tunnelService != nil {
+				return publicURLWithBasePath(srv.tunnelService.PublicURL(), evaluatedBasePath)
+			}
+			return ""
+		})
+	}
+	if srv.incidentService != nil {
+		srv.incidentService.SetPublicURLResolver(func() string {
+			if srv.config.Server.PublicURL != "" {
+				return srv.config.Server.PublicURL
+			}
+			if srv.tunnelService != nil {
+				return publicURLWithBasePath(srv.tunnelService.PublicURL(), evaluatedBasePath)
+			}
+			return ""
+		})
 	}
 
 	srv.funcsConfig.APIBasePath = srv.config.Server.APIBasePath
@@ -944,8 +1031,11 @@ func (srv *Server) Serve(ctx context.Context) error {
 			RequestHeaders:   srv.config.Core.Debug,
 			MessageFieldName: "msg",
 			ResponseHeaders:  false,
-			QuietDownRoutes:  []string{path.Join(apiV1BasePath, "events")},
-			QuietDownPeriod:  10 * time.Second,
+			QuietDownRoutes: []string{
+				path.Join(apiV1BasePath, "events"),
+				pathutil.BuildPublicEndpointPath(srv.funcsConfig.BasePath, "mcp"),
+			},
+			QuietDownPeriod: 10 * time.Second,
 		})
 		logMiddleware := sanitizedRequestLogger(requestLogger)
 		if srv.config.Server.AccessLog == config.AccessLogNonPublic {
@@ -958,7 +1048,8 @@ func (srv *Server) Serve(ctx context.Context) error {
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"*"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Content-Type", "Authorization", "Content-Encoding", "Accept"},
+		AllowedHeaders:   []string{"Content-Type", "Authorization", "Content-Encoding", "Accept", "MCP-Protocol-Version", "Mcp-Session-Id", "Last-Event-ID"},
+		ExposedHeaders:   []string{"Mcp-Session-Id"},
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
@@ -981,6 +1072,7 @@ func (srv *Server) Serve(ctx context.Context) error {
 	}
 
 	srv.setupSSERoute(ctx, r, apiV1BasePath)
+	srv.setupMCPRoute(ctx, r)
 
 	addr := net.JoinHostPort(srv.config.Server.Host, strconv.Itoa(srv.config.Server.Port))
 	srv.httpServer = &http.Server{
@@ -997,12 +1089,55 @@ func (srv *Server) Serve(ctx context.Context) error {
 	metrics.StartUptime(ctx)
 	logger.Info(ctx, "Server is starting", tag.Addr(addr))
 
+	srv.startNotificationMonitor(ctx)
+	srv.startIncidentMonitor(ctx)
 	srv.startPeriodicUpdateCheck(ctx)
 
 	go srv.startServer(ctx)
 	srv.setupGracefulShutdown(ctx)
 
 	return nil
+}
+
+func (srv *Server) startNotificationMonitor(ctx context.Context) {
+	if srv.notificationService == nil || srv.eventService == nil {
+		return
+	}
+	stateFile := filepath.Join(srv.config.Paths.DataDir, "notifications", "monitor-state.json")
+	monitor := chatbridge.NewNotificationMonitor(
+		srv.eventService,
+		stateFile,
+		srv.notificationService,
+		slog.Default(),
+		chatbridge.DefaultNotificationMonitorConfig(),
+	)
+	go monitor.Run(ctx)
+}
+
+func (srv *Server) startIncidentMonitor(ctx context.Context) {
+	if srv.incidentService == nil || srv.eventService == nil {
+		return
+	}
+	stateFile := filepath.Join(srv.config.Paths.DataDir, "incidents", "monitor-state.json")
+	monitor := chatbridge.NewNotificationMonitor(
+		srv.eventService,
+		stateFile,
+		srv.incidentService,
+		slog.Default(),
+		incidentMonitorConfig(),
+	)
+	go monitor.Run(ctx)
+}
+
+func incidentMonitorConfig() chatbridge.NotificationMonitorConfig {
+	cfg := chatbridge.DefaultNotificationMonitorConfig()
+	cfg.UrgentWindow = time.Second
+	cfg.SuccessWindow = time.Second
+	cfg.InterestedEventTypes = []eventstore.EventType{
+		eventstore.TypeDAGRunFailed,
+		eventstore.TypeDAGRunSucceeded,
+	}
+	return cfg
 }
 
 // startPeriodicUpdateCheck runs an initial update check and then repeats
@@ -1074,6 +1209,18 @@ func evaluateConfiguredBasePath(ctx context.Context, basePath string) string {
 		return basePath
 	}
 	return evaluated
+}
+
+func publicURLWithBasePath(publicURL, basePath string) string {
+	publicURL = strings.TrimRight(strings.TrimSpace(publicURL), "/")
+	if publicURL == "" {
+		return ""
+	}
+	basePath = strings.Trim(strings.TrimSpace(basePath), "/")
+	if basePath == "" {
+		return publicURL
+	}
+	return publicURL + "/" + basePath
 }
 
 func (srv *Server) setupAssetRoutes(r *chi.Mux, basePath string) {
@@ -1191,6 +1338,36 @@ func (srv *Server) setupSSERoute(ctx context.Context, r *chi.Mux, apiV1BasePath 
 	})
 
 	logger.Info(ctx, "SSE routes configured", slog.String("basePath", apiV1BasePath))
+}
+
+func (srv *Server) setupMCPRoute(ctx context.Context, r *chi.Mux) {
+	mcpPath := pathutil.BuildPublicEndpointPath(srv.funcsConfig.BasePath, "mcp")
+	mcpHandler := dagumcp.NewHTTPHandler(srv.apiV1)
+	authOpts := srv.buildStreamAuthOptions("Dagu MCP")
+
+	r.Group(func(r chi.Router) {
+		r.Use(auth.QueryTokenMiddleware())
+		r.Use(auth.ClientIPMiddleware())
+		r.Use(auth.Middleware(authOpts))
+		r.Use(srv.injectDefaultStreamUserMiddleware())
+		r.Use(clearWriteDeadlineMiddleware)
+		r.Handle(mcpPath, mcpHandler)
+	})
+
+	logger.Info(ctx, "MCP route configured", slog.String("path", mcpPath))
+}
+
+func clearWriteDeadlineMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+			logger.Warn(r.Context(), "Failed to clear write deadline for MCP response",
+				tag.Error(err),
+				slog.String("method", r.Method),
+				slog.String("path", r.URL.Path),
+			)
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {

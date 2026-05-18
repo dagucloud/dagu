@@ -82,6 +82,68 @@ steps:
 	assert.Equal(t, "a", step.Parallel.Items[0].Params["id"])
 }
 
+func TestStepSchemaV2_ActionDagEnqueue(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: enqueue_child
+    action: dag.enqueue
+    with:
+      dag: account_workflow
+      params:
+        account_id: "42"
+      queue: background
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, core.ExecutorTypeDAGEnqueue, step.ExecutorConfig.Type)
+	require.NotNil(t, step.SubDAG)
+	assert.Equal(t, "account_workflow", step.SubDAG.Name)
+	assert.Contains(t, step.SubDAG.Params, `account_id="42"`)
+	assert.Equal(t, "background", step.ExecutorConfig.Config["queue"])
+}
+
+func TestStepSchemaV2_ActionDagEnqueueParallel(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: enqueue_fanout
+    parallel:
+      items:
+        - id: a
+          region: us
+        - id: b
+          region: eu
+      max_concurrent: 2
+    action: dag.enqueue
+    with:
+      dag: account_workflow
+      params:
+        account_id: ${ITEM.id}
+        region: ${ITEM.region}
+      queue: background
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, core.ExecutorTypeDAGEnqueue, step.ExecutorConfig.Type)
+	require.NotNil(t, step.SubDAG)
+	assert.Equal(t, "account_workflow", step.SubDAG.Name)
+	assert.Contains(t, step.SubDAG.Params, `${ITEM.id}`)
+	assert.Contains(t, step.SubDAG.Params, `${ITEM.region}`)
+	assert.Equal(t, "background", step.ExecutorConfig.Config["queue"])
+	require.NotNil(t, step.Parallel)
+	assert.Equal(t, 2, step.Parallel.MaxConcurrent)
+	require.Len(t, step.Parallel.Items, 2)
+	assert.Equal(t, "a", step.Parallel.Items[0].Params["id"])
+	assert.Equal(t, "eu", step.Parallel.Items[1].Params["region"])
+}
+
 func TestStepSchemaV2_ActionParallelRejectsNonDAG(t *testing.T) {
 	t.Parallel()
 
@@ -95,7 +157,164 @@ steps:
       url: https://example.com
 `))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), `parallel currently requires action: dag.run`)
+	assert.Contains(t, err.Error(), `parallel currently requires action: dag.run or dag.enqueue`)
+}
+
+func TestStepSchemaV2_SourceAction(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: notify
+    action: source:github.com/acme/dagu-actions-slack@v1
+    with:
+      channel: "#ops"
+      text: done
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, "notify", step.ID)
+	assert.Equal(t, core.ExecutorTypeAction, step.ExecutorConfig.Type)
+	assert.Equal(t, "source:github.com/acme/dagu-actions-slack@v1", step.ExecutorConfig.Config["ref"])
+	assert.Equal(t, map[string]any{
+		"channel": "#ops",
+		"text":    "done",
+	}, step.ExecutorConfig.Config["input"])
+}
+
+func TestStepSchemaV2_GitHubAction(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: notify
+    action: acme/dagu-actions-slack@v1
+    with:
+      channel: "#ops"
+      text: done
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, core.ExecutorTypeAction, step.ExecutorConfig.Type)
+	assert.Equal(t, "acme/dagu-actions-slack@v1", step.ExecutorConfig.Config["ref"])
+	assert.Equal(t, map[string]any{
+		"channel": "#ops",
+		"text":    "done",
+	}, step.ExecutorConfig.Config["input"])
+}
+
+func TestStepSchemaV2_OfficialActionShorthand(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: notify
+    action: slack@v1
+    with:
+      channel: "#ops"
+      text: done
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, core.ExecutorTypeAction, step.ExecutorConfig.Type)
+	assert.Equal(t, "slack@v1", step.ExecutorConfig.Config["ref"])
+	assert.Equal(t, map[string]any{
+		"channel": "#ops",
+		"text":    "done",
+	}, step.ExecutorConfig.Config["input"])
+}
+
+func TestStepSchemaV2_ActionRejectsPackagePrefix(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: notify
+    action: pkg:dagu-actions/slack.notify@1.2.3
+`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "owner/repo@version")
+}
+
+func TestStepSchemaV2_ActionRejectsUnsafeGitHubVersion(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: notify
+    action: acme/dagu-actions-slack@-main
+`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "owner/repo@version")
+}
+
+func TestStepSchemaV2_SourceActionRejectsUnsafeRefs(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name    string
+		action  string
+		message string
+	}{
+		{
+			name:    "missing version",
+			action:  "source:github.com/acme/dagu-actions-slack",
+			message: "source:target@version",
+		},
+		{
+			name:    "unsafe version",
+			action:  "source:github.com/acme/dagu-actions-slack@-main",
+			message: "invalid action version",
+		},
+		{
+			name:    "path traversal version",
+			action:  "source:github.com/acme/dagu-actions-slack@feature/../main",
+			message: "invalid action version",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: notify
+    action: `+tt.action+`
+`))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.message)
+		})
+	}
+}
+
+func TestStepSchemaV2_ExplicitActionExecutor(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: notify
+    type: action
+    with:
+      ref: acme/dagu-actions-slack@v1
+      input:
+        channel: "#ops"
+        text: done
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, core.ExecutorTypeAction, step.ExecutorConfig.Type)
+	assert.Equal(t, "acme/dagu-actions-slack@v1", step.ExecutorConfig.Config["ref"])
+	assert.Equal(t, map[string]any{
+		"channel": "#ops",
+		"text":    "done",
+	}, step.ExecutorConfig.Config["input"])
 }
 
 func TestStepSchemaV2_ActionHTTPRequest(t *testing.T) {
@@ -142,6 +361,32 @@ steps:
 	assert.Equal(t, "alpine:3.20", step.ExecutorConfig.Config["image"])
 }
 
+func TestStepSchemaV2_ActionGitCheckout(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: checkout
+    action: git.checkout
+    with:
+      repository: https://example.com/acme/app.git
+      ref: main
+      path: ./workspace/app
+      depth: 1
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, "git", step.ExecutorConfig.Type)
+	require.Len(t, step.Commands, 1)
+	assert.Equal(t, "checkout", step.Commands[0].Command)
+	assert.Equal(t, "https://example.com/acme/app.git", step.ExecutorConfig.Config["repository"])
+	assert.Equal(t, "main", step.ExecutorConfig.Config["ref"])
+	assert.Equal(t, "./workspace/app", step.ExecutorConfig.Config["path"])
+	assert.Equal(t, uint64(1), step.ExecutorConfig.Config["depth"])
+}
+
 func TestStepSchemaV2_ActionJQFilterData(t *testing.T) {
 	t.Parallel()
 
@@ -181,27 +426,490 @@ steps:
 	assert.Contains(t, err.Error(), `jq.filter does not allow both with.data and with.input`)
 }
 
-func TestStepSchemaV2_ActionSQLImport(t *testing.T) {
+func TestStepSchemaV2_ActionDataConvert(t *testing.T) {
 	t.Parallel()
 
 	dag, err := LoadYAML(context.Background(), []byte(`
 steps:
-  - id: import_users
-    action: postgres.import
+  - id: convert_users
+    action: data.convert
     with:
-      dsn: ${DATABASE_URL}
-      import:
-        input_file: /data/users.csv
-        table: users
+      from: csv
+      to: json
+      data: |
+        name,age
+        Alice,30
 `))
 	require.NoError(t, err)
 	require.Len(t, dag.Steps, 1)
 
 	step := dag.Steps[0]
-	assert.Equal(t, "postgres", step.ExecutorConfig.Type)
-	assert.Empty(t, step.Commands)
+	assert.Equal(t, "data", step.ExecutorConfig.Type)
+	require.Len(t, step.Commands, 1)
+	assert.Equal(t, "convert", step.Commands[0].Command)
 	require.NotNil(t, step.ExecutorConfig.Config)
-	assert.Contains(t, step.ExecutorConfig.Config, "import")
+	assert.Equal(t, "csv", step.ExecutorConfig.Config["from"])
+	assert.Equal(t, "json", step.ExecutorConfig.Config["to"])
+	assert.Contains(t, step.ExecutorConfig.Config, "data")
+}
+
+func TestStepSchemaV2_ActionDataPick(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: pick_image
+    action: data.pick
+    with:
+      from: yaml
+      select: .spec.containers[0].image
+      raw: true
+      data:
+        spec:
+          containers:
+            - image: nginx:1.27
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, "data", step.ExecutorConfig.Type)
+	require.Len(t, step.Commands, 1)
+	assert.Equal(t, "pick", step.Commands[0].Command)
+	require.NotNil(t, step.ExecutorConfig.Config)
+	assert.Equal(t, "yaml", step.ExecutorConfig.Config["from"])
+	assert.Equal(t, ".spec.containers[0].image", step.ExecutorConfig.Config["select"])
+	assert.Equal(t, true, step.ExecutorConfig.Config["raw"])
+}
+
+func TestStepSchemaV2_ActionSQLQuery(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		action       string
+		executorType string
+		dsn          string
+	}{
+		{
+			action:       "postgres.query",
+			executorType: "postgres",
+			dsn:          "${DATABASE_URL}",
+		},
+		{
+			action:       "sqlite.query",
+			executorType: "sqlite",
+			dsn:          ":memory:",
+		},
+		{
+			action:       "duckdb.query",
+			executorType: "duckdb",
+			dsn:          ":memory:",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.action, func(t *testing.T) {
+			t.Parallel()
+
+			dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: query_users
+    action: `+tt.action+`
+    with:
+      dsn: "`+tt.dsn+`"
+      query: SELECT 1 AS ok
+      output_format: jsonl
+`))
+			require.NoError(t, err)
+			require.Len(t, dag.Steps, 1)
+
+			step := dag.Steps[0]
+			assert.Equal(t, tt.executorType, step.ExecutorConfig.Type)
+			require.Len(t, step.Commands, 1)
+			assert.Equal(t, "SELECT", step.Commands[0].Command)
+			assert.Equal(t, "SELECT 1 AS ok", step.Commands[0].CmdWithArgs)
+			require.NotNil(t, step.ExecutorConfig.Config)
+			assert.Equal(t, tt.dsn, step.ExecutorConfig.Config["dsn"])
+			assert.Equal(t, "jsonl", step.ExecutorConfig.Config["output_format"])
+			assert.NotContains(t, step.ExecutorConfig.Config, "query")
+		})
+	}
+}
+
+func TestStepSchemaV2_ActionSQLImport(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		action       string
+		executorType string
+		dsn          string
+	}{
+		{
+			action:       "postgres.import",
+			executorType: "postgres",
+			dsn:          "${DATABASE_URL}",
+		},
+		{
+			action:       "sqlite.import",
+			executorType: "sqlite",
+			dsn:          "/data/users.sqlite",
+		},
+		{
+			action:       "duckdb.import",
+			executorType: "duckdb",
+			dsn:          "/data/users.duckdb",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.action, func(t *testing.T) {
+			t.Parallel()
+
+			dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: import_users
+    action: `+tt.action+`
+    with:
+      dsn: "`+tt.dsn+`"
+      import:
+        input_file: /data/users.csv
+        table: users
+`))
+			require.NoError(t, err)
+			require.Len(t, dag.Steps, 1)
+
+			step := dag.Steps[0]
+			assert.Equal(t, tt.executorType, step.ExecutorConfig.Type)
+			assert.Empty(t, step.Commands)
+			require.NotNil(t, step.ExecutorConfig.Config)
+			assert.Equal(t, tt.dsn, step.ExecutorConfig.Config["dsn"])
+			assert.Contains(t, step.ExecutorConfig.Config, "import")
+		})
+	}
+}
+
+func TestStepSchemaV2_ActionFileOperations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		action string
+		op     string
+		with   string
+	}{
+		{
+			action: "file.stat",
+			op:     "stat",
+			with:   "path: ./input.txt",
+		},
+		{
+			action: "file.read",
+			op:     "read",
+			with:   "path: ./input.txt",
+		},
+		{
+			action: "file.write",
+			op:     "write",
+			with: `path: ./output.txt
+      content: hello`,
+		},
+		{
+			action: "file.copy",
+			op:     "copy",
+			with: `source: ./input.txt
+      destination: ./output.txt`,
+		},
+		{
+			action: "file.move",
+			op:     "move",
+			with: `source: ./input.txt
+      destination: ./output.txt`,
+		},
+		{
+			action: "file.delete",
+			op:     "delete",
+			with:   "path: ./output.txt",
+		},
+		{
+			action: "file.mkdir",
+			op:     "mkdir",
+			with:   "path: ./out",
+		},
+		{
+			action: "file.list",
+			op:     "list",
+			with:   "path: ./out",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.action, func(t *testing.T) {
+			t.Parallel()
+
+			dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: file_step
+    action: `+tt.action+`
+    with:
+      `+tt.with+`
+`))
+			require.NoError(t, err)
+			require.Len(t, dag.Steps, 1)
+
+			step := dag.Steps[0]
+			assert.Equal(t, "file", step.ExecutorConfig.Type)
+			require.Len(t, step.Commands, 1)
+			assert.Equal(t, tt.op, step.Commands[0].Command)
+			assert.NotEmpty(t, step.ExecutorConfig.Config)
+		})
+	}
+}
+
+func TestStepSchemaV2_ActionWaitOperations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		action string
+		op     string
+		with   string
+	}{
+		{
+			action: "wait.duration",
+			op:     "duration",
+			with:   "duration: 10s",
+		},
+		{
+			action: "wait.until",
+			op:     "until",
+			with:   "until: 2026-01-02T03:04:05Z",
+		},
+		{
+			action: "wait.file",
+			op:     "file",
+			with: `path: ./ready.flag
+      state: exists`,
+		},
+		{
+			action: "wait.http",
+			op:     "http",
+			with: `url: https://example.com/health
+      status: 204`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.action, func(t *testing.T) {
+			t.Parallel()
+
+			dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: wait_step
+    action: `+tt.action+`
+    with:
+      `+tt.with+`
+`))
+			require.NoError(t, err)
+			require.Len(t, dag.Steps, 1)
+
+			step := dag.Steps[0]
+			assert.Equal(t, "wait", step.ExecutorConfig.Type)
+			require.Len(t, step.Commands, 1)
+			assert.Equal(t, tt.op, step.Commands[0].Command)
+			assert.NotEmpty(t, step.ExecutorConfig.Config)
+		})
+	}
+}
+
+func TestStepSchemaV2_ActionArtifactOperations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		action string
+		op     string
+		with   string
+	}{
+		{
+			action: "artifact.write",
+			op:     "write",
+			with: `path: reports/summary.md
+      content: hello`,
+		},
+		{
+			action: "artifact.read",
+			op:     "read",
+			with:   "path: reports/summary.md",
+		},
+		{
+			action: "artifact.list",
+			op:     "list",
+			with:   "path: reports",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.action, func(t *testing.T) {
+			t.Parallel()
+
+			dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: artifact_step
+    action: `+tt.action+`
+    with:
+      `+tt.with+`
+`))
+			require.NoError(t, err)
+			require.Len(t, dag.Steps, 1)
+
+			step := dag.Steps[0]
+			assert.Equal(t, "artifact", step.ExecutorConfig.Type)
+			require.Len(t, step.Commands, 1)
+			assert.Equal(t, tt.op, step.Commands[0].Command)
+			assert.NotEmpty(t, step.ExecutorConfig.Config)
+		})
+	}
+}
+
+func TestStepSchemaV2_ActionArtifactListAllowsOmittedWith(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: list_artifacts
+    action: artifact.list
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, "artifact", step.ExecutorConfig.Type)
+	require.Len(t, step.Commands, 1)
+	assert.Equal(t, "list", step.Commands[0].Command)
+	assert.Empty(t, step.ExecutorConfig.Config)
+}
+
+func TestStepSchemaV2_ActionOutputsWrite(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: publish_result
+    action: outputs.write
+    with:
+      values:
+        messageId: msg-123
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, "outputs", step.ExecutorConfig.Type)
+	require.Len(t, step.Commands, 1)
+	assert.Equal(t, "write", step.Commands[0].Command)
+	assert.Equal(t, map[string]any{"messageId": "msg-123"}, step.ExecutorConfig.Config["values"])
+}
+
+func TestStepSchemaV2_StdoutArtifact(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: report
+    run: ./generate-report
+    stdout:
+      artifact: reports/report.md
+    stderr:
+      artifact: reports/report.err
+`))
+	require.NoError(t, err)
+	require.NotNil(t, dag.Artifacts)
+	assert.True(t, dag.Artifacts.Enabled)
+	require.Len(t, dag.Steps, 1)
+	assert.Empty(t, dag.Steps[0].Stdout)
+	assert.Equal(t, "reports/report.md", dag.Steps[0].StdoutArtifact)
+	assert.Empty(t, dag.Steps[0].Stderr)
+	assert.Equal(t, "reports/report.err", dag.Steps[0].StderrArtifact)
+}
+
+func TestStepSchemaV2_StdoutOutputs(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: emit_result
+    run: ./emit-result
+    stdout:
+      artifact: reports/result.json
+      outputs:
+        fields:
+          messageId:
+            decode: json
+            select: .id
+          status:
+            value: accepted
+`))
+	require.NoError(t, err)
+	require.NotNil(t, dag.Artifacts)
+	assert.True(t, dag.Artifacts.Enabled)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, "reports/result.json", step.StdoutArtifact)
+	require.NotNil(t, step.StdoutOutputs)
+	require.Contains(t, step.StdoutOutputs.Fields, "messageId")
+	messageID := step.StdoutOutputs.Fields["messageId"]
+	assert.Equal(t, core.StepOutputSourceStdout, messageID.From)
+	assert.Equal(t, core.StepOutputDecodeJSON, messageID.Decode)
+	assert.Equal(t, ".id", messageID.Select)
+	require.Contains(t, step.StdoutOutputs.Fields, "status")
+	status := step.StdoutOutputs.Fields["status"]
+	assert.True(t, status.HasValue)
+	assert.Equal(t, "accepted", status.Value)
+}
+
+func TestStepSchemaV2_StdoutOutputsStringField(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: emit_result
+    run: ./emit-result
+    stdout:
+      outputs: messageId
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	require.NotNil(t, dag.Steps[0].StdoutOutputs)
+	assert.Equal(t, "messageId", dag.Steps[0].StdoutOutputs.Field)
+}
+
+func TestStepSchemaV2_StderrRejectsOutputs(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: emit_result
+    run: ./emit-result
+    stderr:
+      outputs: messageId
+`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "stderr.outputs is not supported")
+}
+
+func TestStepSchemaV2_StdoutArtifactRejectsDisabledArtifacts(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+artifacts:
+  enabled: false
+steps:
+  - id: report
+    run: ./generate-report
+    stdout:
+      artifact: reports/report.md
+`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "artifact outputs require artifacts.enabled to be true")
 }
 
 func TestStepSchemaV2_ActionHarnessStdin(t *testing.T) {

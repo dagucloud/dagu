@@ -18,6 +18,10 @@
       "type": "string",
       "description": "Base path for the web UI (e.g., '/dagu')."
     },
+    "public_url": {
+      "type": "string",
+      "description": "Public base URL used when generating links back to the Dagu web UI (e.g., 'https://dagu.example.com')."
+    },
     "api_base_path": {
       "type": "string",
       "description": "Base path for the API endpoints."
@@ -444,6 +448,10 @@
         "data_dir": {
           "type": "string",
           "description": "Directory for application data."
+        },
+        "tools_dir": {
+          "type": "string",
+          "description": "Directory for managed DAG tool cache, locks, manifests, and shims."
         },
         "suspend_flags_dir": {
           "type": "string",

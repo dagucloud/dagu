@@ -79,6 +79,28 @@ func TestNotificationBatcher_DuplicateStatusDoesNotDuplicateBatch(t *testing.T) 
 	assert.Equal(t, core.Failed, ready.Batch.Events[0].Status.Status)
 }
 
+func TestNotificationBatcher_SkipsFailedRunWithAutoRetryRemaining(t *testing.T) {
+	t.Parallel()
+
+	batcher := NewNotificationBatcher(10*time.Millisecond, 20*time.Millisecond)
+	defer batcher.Stop()
+
+	status := &exec.DAGRunStatus{
+		Name:           "briefing",
+		DAGRunID:       "run-1",
+		AttemptID:      "a1",
+		Status:         core.Failed,
+		Error:          "boom",
+		AutoRetryCount: 0,
+		AutoRetryLimit: 2,
+	}
+
+	assert.False(t, batcher.Enqueue("dest-1", testNotificationEvent(status)))
+	require.Never(t, func() bool {
+		return len(batcher.TakeReady()) > 0
+	}, 50*time.Millisecond, 5*time.Millisecond)
+}
+
 func TestNotificationBatcher_RunningEventsUseInformationalClass(t *testing.T) {
 	t.Parallel()
 

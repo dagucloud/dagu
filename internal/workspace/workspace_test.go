@@ -25,3 +25,10 @@ func TestBaseConfigPathValidatesWorkspaceName(t *testing.T) {
 	assert.Empty(t, BaseConfigPath(root, "all"))
 	assert.Empty(t, BaseConfigPath(root, ""))
 }
+
+func TestValidateNameRejectsReservedGlobalName(t *testing.T) {
+	t.Parallel()
+
+	assert.Error(t, ValidateName("global"))
+	assert.Error(t, ValidateName("GLOBAL"))
+}

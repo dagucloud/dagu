@@ -43,6 +43,19 @@ handler_on:
 	}, warnings)
 }
 
+func TestDeprecatedSyntaxWarningsStringStepShorthand(t *testing.T) {
+	t.Parallel()
+
+	warnings := DeprecatedSyntaxWarnings([]byte(`
+steps:
+  - echo shorthand
+`))
+
+	require.Equal(t, []string{
+		"Deprecated DAG syntax: steps[0] string shorthand is deprecated; use run",
+	}, warnings)
+}
+
 func TestBuiltinActionNamesMatchDAGSchema(t *testing.T) {
 	t.Parallel()
 

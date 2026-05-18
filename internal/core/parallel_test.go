@@ -133,7 +133,7 @@ steps:
     parallel: ${ITEMS}
 `,
 			wantErr:    true,
-			wantErrMsg: "parallel currently requires action: dag.run",
+			wantErrMsg: "parallel currently requires action: dag.run or dag.enqueue",
 		},
 		{
 			name: "ErrorParallelWithoutCommandOrRun",

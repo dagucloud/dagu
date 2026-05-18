@@ -39,6 +39,7 @@ func TestConfigCommand(t *testing.T) {
 		assert.Contains(t, out, "DAG runs:")
 		assert.Contains(t, out, "Log directory:")
 		assert.Contains(t, out, "Data directory:")
+		assert.Contains(t, out, "Tools directory:")
 		assert.Contains(t, out, "Suspend flags:")
 		assert.Contains(t, out, "Queue:")
 		assert.Contains(t, out, "Processes:")
@@ -50,5 +51,6 @@ func TestConfigCommand(t *testing.T) {
 		assert.Contains(t, out, th.Config.Paths.DAGRunsDir)
 		assert.Contains(t, out, th.Config.Paths.LogDir)
 		assert.Contains(t, out, th.Config.Paths.DataDir)
+		assert.Contains(t, out, th.Config.Paths.ToolsDir)
 	})
 }

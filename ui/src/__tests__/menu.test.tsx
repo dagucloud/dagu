@@ -16,6 +16,7 @@ const useIsAdminMock = vi.fn();
 const useCanAccessSystemStatusMock = vi.fn();
 const useCanViewEventLogsMock = vi.fn();
 const useCanManageWebhooksMock = vi.fn();
+const useCanManageSecretsMock = vi.fn();
 const useCanViewAuditLogsMock = vi.fn();
 const useHasFeatureMock = vi.fn();
 const updatePreferenceMock = vi.fn();
@@ -27,11 +28,22 @@ vi.mock('@/contexts/AuthContext', () => ({
   useCanAccessSystemStatus: () => useCanAccessSystemStatusMock(),
   useCanViewEventLogs: () => useCanViewEventLogsMock(),
   useCanManageWebhooks: () => useCanManageWebhooksMock(),
+  useCanManageSecrets: () => useCanManageSecretsMock(),
   useCanViewAuditLogs: () => useCanViewAuditLogsMock(),
 }));
 
 vi.mock('@/hooks/useLicense', () => ({
   useHasFeature: (feature: string) => useHasFeatureMock(feature),
+  useLicense: () => ({
+    valid: true,
+    plan: 'pro',
+    expiry: '',
+    features: [],
+    gracePeriod: false,
+    community: false,
+    source: 'test',
+    warningCode: '',
+  }),
 }));
 
 vi.mock('../contexts/UserPreference', () => ({
@@ -136,6 +148,7 @@ beforeEach(() => {
   useCanAccessSystemStatusMock.mockReturnValue(true);
   useCanViewEventLogsMock.mockReturnValue(true);
   useCanManageWebhooksMock.mockReturnValue(true);
+  useCanManageSecretsMock.mockReturnValue(true);
   useCanViewAuditLogsMock.mockReturnValue(true);
   useHasFeatureMock.mockReturnValue(true);
 });
@@ -211,6 +224,15 @@ describe('sidebar menu', () => {
     expect(
       screen.getByRole('button', { name: 'Toggle Monitor section' })
     ).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('link', { name: 'Notifications' })).toHaveAttribute(
+      'href',
+      '/notifications'
+    );
+    expect(
+      screen.getByRole('button', { name: 'Toggle Notifications section' })
+    ).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('link', { name: 'Rules' })).not.toBeVisible();
+    expect(screen.getByRole('link', { name: 'Channels' })).not.toBeVisible();
     expect(screen.getByRole('link', { name: 'Integrations' })).toHaveAttribute(
       'href',
       '/integrations'
@@ -236,7 +258,7 @@ describe('sidebar menu', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('expands workflow, execution, and monitor sections', () => {
+  it('expands workflow, execution, monitor, and notifications sections', () => {
     renderMenu();
 
     fireEvent.click(screen.getByRole('link', { name: 'Workflows' }));
@@ -285,6 +307,25 @@ describe('sidebar menu', () => {
       expect(item).toBeVisible();
       expect(item.querySelector('svg')).toBeNull();
     }
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Toggle Notifications section' })
+    );
+    const notificationSubmenuItems = [
+      screen.getByRole('link', { name: 'Rules' }),
+      screen.getByRole('link', { name: 'Channels' }),
+    ];
+    for (const item of notificationSubmenuItems) {
+      expect(item).toBeVisible();
+      expect(item.querySelector('svg')).toBeNull();
+    }
+    const [rulesLink, channelsLink] = notificationSubmenuItems;
+    expect(rulesLink).toBeDefined();
+    expect(channelsLink).toBeDefined();
+    expect(
+      rulesLink!.compareDocumentPosition(channelsLink!) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 
   it('expands integration and administration nested sections', () => {
@@ -301,7 +342,6 @@ describe('sidebar menu', () => {
       expect(item).toBeVisible();
       expect(item.querySelector('svg')).toBeNull();
     }
-
     fireEvent.click(
       screen.getByRole('button', { name: 'Toggle Administration section' })
     );
@@ -366,9 +406,21 @@ describe('sidebar menu', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('hides notifications for non-builtin auth without write permission', () => {
+    renderMenu('/cockpit', {
+      authMode: 'basic',
+      permissions: { ...config.permissions, writeDags: false },
+    });
+
+    expect(
+      screen.queryByRole('link', { name: 'Notifications' })
+    ).not.toBeInTheDocument();
+  });
+
   it.each([
     ['/dag-runs', 'executions'],
     ['/system-status', 'monitor'],
+    ['/notifications', 'notifications'],
     ['/integrations', 'integrations'],
     ['/administration', 'administration'],
   ])('marks %s as the active section entry', (path, label) => {
@@ -380,9 +432,22 @@ describe('sidebar menu', () => {
   });
 
   it.each([
+    ['/notification-rules', 'Rules'],
+    ['/notification-channels', 'Channels'],
+  ])('marks %s as the active notification item', (path, label) => {
+    renderMenu(path);
+
+    expect(screen.getByRole('link', { name: label })).toHaveAttribute(
+      'aria-current',
+      'page'
+    );
+  });
+
+  it.each([
     ['/git-sync', 'workflows'],
     ['/queues', 'executions'],
     ['/event-logs', 'monitor'],
+    ['/notification-channels', 'notifications'],
     ['/webhooks', 'integrations'],
     ['/users', 'administration'],
   ])('does not auto-expand %s inside %s', (path, label) => {

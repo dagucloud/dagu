@@ -70,13 +70,20 @@ var customStepWholeRuntimeExpressionRegexp = regexp.MustCompile("^\\s*(?:`[^`]+`
 
 var builtinStepTypeNames = map[string]struct{}{
 	"agent":         {},
+	"action":        {},
+	"artifact":      {},
 	"archive":       {},
 	"chat":          {},
 	"command":       {},
 	"container":     {},
 	"dag":           {},
+	"data":          {},
+	"dag_enqueue":   {},
 	"docker":        {},
+	"duckdb":        {},
+	"file":          {},
 	"gha":           {},
+	"git":           {},
 	"github-action": {},
 	"github_action": {},
 	"harness":       {},
@@ -87,6 +94,7 @@ var builtinStepTypeNames = map[string]struct{}{
 	"log":           {},
 	"mail":          {},
 	"noop":          {},
+	"outputs":       {},
 	"parallel":      {},
 	"postgres":      {},
 	"redis":         {},
@@ -98,6 +106,7 @@ var builtinStepTypeNames = map[string]struct{}{
 	"ssh":           {},
 	"subworkflow":   {},
 	"template":      {},
+	"wait":          {},
 }
 
 var registeredExecutorTypeNames = map[string]struct{}{}

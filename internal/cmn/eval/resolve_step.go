@@ -19,6 +19,7 @@ type StepInfo struct {
 	Stderr   string
 	ExitCode string
 	Output   *string // nil = no output: configured; non-nil = captured value (may be "")
+	Outputs  *string // nil = no outputs published; non-nil = compact JSON object
 }
 
 // resolveStepProperty extracts a step's property value with optional slicing.
@@ -35,6 +36,13 @@ func resolveStepProperty(ctx context.Context, stepName, path string, stepMap map
 			return "", false
 		}
 		return resolveJSONPath(ctx, stepName, *stepInfo.Output, strings.TrimPrefix(path, ".output"))
+	}
+	if strings.HasPrefix(path, ".outputs.") || strings.HasPrefix(path, ".outputs[") {
+		if stepInfo.Outputs == nil {
+			logger.Debug(ctx, "Step has no outputs published", tag.Step(stepName))
+			return "", false
+		}
+		return resolveJSONPath(ctx, stepName, *stepInfo.Outputs, strings.TrimPrefix(path, ".outputs"))
 	}
 
 	property, sliceSpec, err := parseStepReference(path)
@@ -68,6 +76,12 @@ func resolveStepProperty(ctx context.Context, stepName, path string, stepMap map
 			return "", false
 		}
 		value = *stepInfo.Output
+	case ".outputs":
+		if stepInfo.Outputs == nil {
+			logger.Debug(ctx, "Step has no outputs published", tag.Step(stepName))
+			return "", false
+		}
+		value = *stepInfo.Outputs
 	default:
 		return "", false
 	}

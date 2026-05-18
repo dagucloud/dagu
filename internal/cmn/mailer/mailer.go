@@ -66,6 +66,18 @@ func (m *Client) Send(
 	subject, body string,
 	attachments []string,
 ) error {
+	return m.SendWithRecipients(ctx, from, to, nil, nil, subject, body, attachments)
+}
+
+func (m *Client) SendWithRecipients(
+	ctx context.Context,
+	from string,
+	to []string,
+	cc []string,
+	bcc []string,
+	subject, body string,
+	attachments []string,
+) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -74,15 +86,17 @@ func (m *Client) Send(
 
 	logger.Info(ctx, "Sending email", slog.Any("to", to), tag.Subject(subject))
 	if m.username == "" && m.password == "" {
-		return m.send(ctx, from, to, subject, body, attachments, false)
+		return m.send(ctx, from, to, cc, bcc, subject, body, attachments, false)
 	}
-	return m.send(ctx, from, to, subject, body, attachments, true)
+	return m.send(ctx, from, to, cc, bcc, subject, body, attachments, true)
 }
 
 func (m *Client) send(
 	ctx context.Context,
 	from string,
 	to []string,
+	cc []string,
+	bcc []string,
 	subject, body string,
 	attachments []string,
 	useAuth bool,
@@ -118,7 +132,9 @@ func (m *Client) send(
 		}
 	}
 
-	recipients := sanitizeAddresses(to)
+	recipients := sanitizeAddresses(append(append(append([]string{}, to...), cc...), bcc...))
+	to = sanitizeAddresses(to)
+	cc = sanitizeAddresses(cc)
 	safeFrom := sanitizeHeaderField(from)
 	safeSubject := sanitizeHeaderField(subject)
 	if err := c.Mail(safeFrom); err != nil {
@@ -135,7 +151,7 @@ func (m *Client) send(
 		return fmt.Errorf("DATA command failed: %w", err)
 	}
 
-	payload := m.composeMail(recipients, safeFrom, safeSubject, processEmailBody(body), attachments)
+	payload := m.composeMail(to, cc, safeFrom, safeSubject, processEmailBody(body), attachments)
 	_, err = wc.Write(payload)
 	if err != nil {
 		return fmt.Errorf("failed to write email body: %w", err)
@@ -269,12 +285,17 @@ func (a *loginAuth) Next(fromServer []byte, more bool) ([]byte, error) {
 }
 
 func (*Client) composeHeader(
-	to []string, from string, subject string,
+	to []string, cc []string, from string, subject string,
 ) string {
 	to = sanitizeAddresses(to)
+	cc = sanitizeAddresses(cc)
 	from = sanitizeHeaderField(from)
 	subject = sanitizeHeaderField(subject)
-	return "To: " + strings.Join(to, ",") + "\r\n" +
+	header := "To: " + strings.Join(to, ",") + "\r\n"
+	if len(cc) > 0 {
+		header += "Cc: " + strings.Join(cc, ",") + "\r\n"
+	}
+	return header +
 		"From: " + from + "\r\n" +
 		"Subject: " + subject + "\r\n" +
 		"Content-Type: multipart/mixed;\r\n" +
@@ -287,11 +308,12 @@ func (*Client) composeHeader(
 
 func (m *Client) composeMail(
 	to []string,
+	cc []string,
 	from, subject, body string,
 	attachments []string,
 ) []byte {
 	var buf bytes.Buffer
-	buf.WriteString(m.composeHeader(to, from, subject))
+	buf.WriteString(m.composeHeader(to, cc, from, subject))
 	buf.WriteString("\r\n")
 	buf.WriteString(base64.StdEncoding.EncodeToString([]byte(body)))
 	buf.Write(addAttachments(attachments))

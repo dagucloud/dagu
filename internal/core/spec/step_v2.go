@@ -40,14 +40,31 @@ type actionNormalizer func(normalized map[string]any, with map[string]any) error
 
 var builtinActionNormalizers = map[string]actionNormalizer{
 	"agent.run":       normalizeAgentAction,
+	"artifact.list":   operationAction("artifact", "list"),
+	"artifact.read":   operationAction("artifact", "read"),
+	"artifact.write":  operationAction("artifact", "write"),
 	"archive.create":  operationAction("archive", "create"),
 	"archive.extract": operationAction("archive", "extract"),
 	"archive.list":    operationAction("archive", "list"),
 	"chat.completion": normalizeChatAction,
 	"container.run":   optionalCommandAction("container", "command"),
+	"dag.enqueue":     normalizeDagEnqueueAction,
 	"dag.run":         normalizeDagRunAction,
+	"data.convert":    operationAction("data", "convert"),
+	"data.pick":       operationAction("data", "pick"),
 	"docker.run":      optionalCommandAction("docker", "command"),
+	"duckdb.query":    commandAction("duckdb", "query"),
+	"duckdb.import":   importAction("duckdb"),
 	"exec":            normalizeExecAction,
+	"file.copy":       operationAction("file", "copy"),
+	"file.delete":     operationAction("file", "delete"),
+	"file.list":       operationAction("file", "list"),
+	"file.mkdir":      operationAction("file", "mkdir"),
+	"file.move":       operationAction("file", "move"),
+	"file.read":       operationAction("file", "read"),
+	"file.stat":       operationAction("file", "stat"),
+	"file.write":      operationAction("file", "write"),
+	"git.checkout":    operationAction("git", "checkout"),
 	"harness.run":     normalizeHarnessRunAction,
 	"http.request":    normalizeHTTPRequestAction,
 	"jq.filter":       normalizeJQFilterAction,
@@ -56,6 +73,7 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"log.write":       normalizeLogAction,
 	"mail.send":       typedAction("mail"),
 	"noop":            normalizeNoopAction,
+	"outputs.write":   operationAction("outputs", "write"),
 	"postgres.query":  commandAction("postgres", "query"),
 	"postgres.import": importAction("postgres"),
 	"router.route":    normalizeRouterAction,
@@ -69,6 +87,10 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"sqlite.import":   importAction("sqlite"),
 	"ssh.run":         commandAction("ssh", "command"),
 	"template.render": normalizeTemplateAction,
+	"wait.duration":   operationAction("wait", "duration"),
+	"wait.file":       operationAction("wait", "file"),
+	"wait.http":       operationAction("wait", "http"),
+	"wait.until":      operationAction("wait", "until"),
 }
 
 // BuiltinActionNames returns the currently accepted built-in action names in
@@ -160,8 +182,18 @@ func normalizeActionStep(normalized, raw map[string]any, registry *customStepTyp
 	if action == "" {
 		return core.NewValidationError("action", raw["action"], fmt.Errorf("action is required"))
 	}
+	if isRemoteActionReference(action) {
+		with, err := actionWith(raw)
+		if err != nil {
+			return err
+		}
+		if err := validateRemoteActionReference(action); err != nil {
+			return core.NewValidationError("action", raw["action"], err)
+		}
+		return normalizeRemoteAction(normalized, action, with)
+	}
 	if strings.Contains(action, "@") {
-		return core.NewValidationError("action", raw["action"], fmt.Errorf("versioned action references are reserved for the future action registry"))
+		return core.NewValidationError("action", raw["action"], fmt.Errorf("versioned action references must use official action@version or GitHub owner/repo@version"))
 	}
 
 	if registry != nil {
@@ -188,6 +220,132 @@ func normalizeActionStep(normalized, raw map[string]any, registry *customStepTyp
 		return normalizeRedisAction(normalized, with, after)
 	}
 	return core.NewValidationError("action", raw["action"], fmt.Errorf("unknown action %q", action))
+}
+
+func isRemoteActionReference(action string) bool {
+	return strings.HasPrefix(action, "source:") || isOfficialActionReference(action) || isGitHubActionReference(action)
+}
+
+func validateRemoteActionReference(action string) error {
+	if after, ok := strings.CutPrefix(action, "source:"); ok {
+		target, version, err := splitActionRef(after)
+		if err != nil || target == "" {
+			return fmt.Errorf("source action references must use source:target@version")
+		}
+		if !isSafeActionVersion(version) {
+			return fmt.Errorf("invalid action version %q", version)
+		}
+		return nil
+	}
+	if isOfficialActionReference(action) || isGitHubActionReference(action) {
+		return nil
+	}
+	return fmt.Errorf("versioned action references must use official action@version or GitHub owner/repo@version")
+}
+
+func isOfficialActionReference(action string) bool {
+	target, version, err := splitActionRef(action)
+	return err == nil && isOfficialActionTarget(target) && isSafeActionVersion(version)
+}
+
+func isGitHubActionReference(action string) bool {
+	target, version, err := splitActionRef(action)
+	return err == nil && isGitHubActionTarget(target) && isSafeActionVersion(version)
+}
+
+func isOfficialActionTarget(target string) bool {
+	target = strings.TrimSpace(target)
+	if target == "" || strings.Contains(target, "/") {
+		return false
+	}
+	if target == "." || target == ".." || strings.HasPrefix(target, ".") || strings.HasPrefix(target, "-") || strings.HasSuffix(target, ".git") {
+		return false
+	}
+	for _, r := range target {
+		if !isGitHubRepoRune(r) {
+			return false
+		}
+	}
+	return true
+}
+
+func splitActionRef(action string) (string, string, error) {
+	idx := strings.LastIndex(action, "@")
+	if idx <= 0 || idx == len(action)-1 {
+		return "", "", fmt.Errorf("action ref must be target@version")
+	}
+	return strings.TrimSpace(action[:idx]), strings.TrimSpace(action[idx+1:]), nil
+}
+
+func isGitHubActionTarget(target string) bool {
+	parts := strings.Split(target, "/")
+	if len(parts) != 2 {
+		return false
+	}
+	owner, repo := parts[0], parts[1]
+	if owner == "" || repo == "" || strings.HasPrefix(owner, "-") || strings.HasSuffix(owner, "-") {
+		return false
+	}
+	if len(owner) > 39 || repo == "." || repo == ".." || strings.HasSuffix(repo, ".git") {
+		return false
+	}
+	for _, r := range owner {
+		if !isGitHubOwnerRune(r) {
+			return false
+		}
+	}
+	for _, r := range repo {
+		if !isGitHubRepoRune(r) {
+			return false
+		}
+	}
+	return true
+}
+
+func isGitHubOwnerRune(r rune) bool {
+	return r >= 'A' && r <= 'Z' ||
+		r >= 'a' && r <= 'z' ||
+		r >= '0' && r <= '9' ||
+		r == '-'
+}
+
+func isGitHubRepoRune(r rune) bool {
+	return isGitHubOwnerRune(r) || r == '_' || r == '.'
+}
+
+func isSafeActionVersion(version string) bool {
+	version = strings.TrimSpace(version)
+	if version == "" ||
+		strings.HasPrefix(version, "-") ||
+		strings.ContainsAny(version, " \t\r\n\\~^:?*[]") ||
+		strings.Contains(version, "..") ||
+		strings.Contains(version, "@{") ||
+		strings.Contains(version, "//") ||
+		strings.HasSuffix(version, "/") ||
+		strings.HasSuffix(version, ".") ||
+		strings.HasSuffix(version, ".lock") {
+		return false
+	}
+	for part := range strings.SplitSeq(version, "/") {
+		if part == "" || strings.HasPrefix(part, ".") || strings.HasSuffix(part, ".lock") {
+			return false
+		}
+	}
+	return true
+}
+
+func normalizeRemoteAction(normalized map[string]any, action string, with map[string]any) error {
+	cfg := map[string]any{
+		"ref":   action,
+		"input": map[string]any{},
+	}
+	if len(with) > 0 {
+		cfg["input"] = with
+	}
+	normalized["type"] = core.ExecutorTypeAction
+	normalized["with"] = cfg
+	delete(normalized, "action")
+	return nil
 }
 
 func actionWith(raw map[string]any) (map[string]any, error) {
@@ -271,6 +429,34 @@ func normalizeDagRunAction(normalized map[string]any, with map[string]any) error
 		normalized["params"] = cloneAny(params)
 	}
 	delete(normalized, "with")
+	delete(normalized, "action")
+	return nil
+}
+
+func normalizeDagEnqueueAction(normalized map[string]any, with map[string]any) error {
+	dagName, err := requireActionStringField(with, "dag")
+	if err != nil {
+		return err
+	}
+	for key := range with {
+		if key != "dag" && key != "params" && key != "queue" {
+			return core.NewValidationError("with", with, fmt.Errorf("dag.enqueue does not support with.%s", key))
+		}
+	}
+	normalized["type"] = core.ExecutorTypeDAGEnqueue
+	normalized["call"] = dagName
+	if params, ok := with["params"]; ok {
+		normalized["params"] = cloneAny(params)
+	}
+	config := make(map[string]any)
+	if queue, ok := with["queue"]; ok {
+		config["queue"] = cloneAny(queue)
+	}
+	if len(config) > 0 {
+		normalized["with"] = config
+	} else {
+		delete(normalized, "with")
+	}
 	delete(normalized, "action")
 	return nil
 }

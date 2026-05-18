@@ -45,6 +45,12 @@ func (r *fileResolver) Validate(ref core.SecretRef) error {
 	return nil
 }
 
+// CheckCapability reports that file access checks use filesystem metadata and
+// open permissions without reading file contents.
+func (r *fileResolver) CheckCapability(core.SecretRef) CheckCapability {
+	return CheckCapabilityNoFetch
+}
+
 // Resolve reads the secret value from a file.
 func (r *fileResolver) Resolve(_ context.Context, ref core.SecretRef) (string, error) {
 	filePath := r.resolvePath(ref.Key)

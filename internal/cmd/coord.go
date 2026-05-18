@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
 	"github.com/dagucloud/dagu/internal/service/healthcheck"
@@ -223,6 +224,7 @@ func newCoordinator(
 		DAGRunStore:               dagRunStore,
 		LogDir:                    cfg.Paths.LogDir,
 		ArtifactDir:               cfg.Paths.ArtifactDir,
+		WorkspaceBundleDir:        workspacebundle.StoreDir(cfg.Paths.DataDir),
 		Owner:                     exec.CoordinatorEndpoint{ID: instanceID, Host: advertiseAddr, Port: cfg.Coordinator.Port},
 		DispatchTaskStore:         dispatchTaskStore,
 		WorkerHeartbeatStore:      workerHeartbeatStore,

@@ -441,6 +441,15 @@ func TestServerUsesEvaluatedBasePathForOIDCAndAPI(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rootCallbackRecorder.Code)
 }
 
+func TestPublicURLWithBasePath(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "https://dagu.example.com", publicURLWithBasePath("https://dagu.example.com/", ""))
+	assert.Equal(t, "https://dagu.example.com/dagu", publicURLWithBasePath("https://dagu.example.com/", "/dagu"))
+	assert.Equal(t, "https://dagu.example.com/root/dagu", publicURLWithBasePath("https://dagu.example.com/root/", "dagu/"))
+	assert.Empty(t, publicURLWithBasePath("", "/dagu"))
+}
+
 func TestNewServerShutdownContext(t *testing.T) {
 	t.Parallel()
 

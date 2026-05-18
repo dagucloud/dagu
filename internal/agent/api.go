@@ -671,10 +671,7 @@ func (a *API) runOneShotPrompt(ctx context.Context, provider llm.Provider, model
 		{Role: llm.RoleUser, Content: prompt},
 	}
 
-	llmCtx, cancel := context.WithTimeout(ctx, llmRequestTimeout)
-	defer cancel()
-
-	return llm.ChatWithRetry(llmCtx, provider, &llm.ChatRequest{
+	return llm.ChatWithRetry(ctx, provider, &llm.ChatRequest{
 		Model:    model,
 		Messages: messages,
 	}, llm.DefaultLogicalRetryConfig())

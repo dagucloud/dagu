@@ -103,7 +103,7 @@ params:
     required: true
 steps:
   - name: should-not-run
-    run: echo "region=$region count=$count"
+    command: echo "region=$region count=$count"
 `)
 
 	runID := uuid.Must(uuid.NewV7()).String()
@@ -153,10 +153,10 @@ params:
     required: true
 steps:
   - name: shell-values
-    run: echo "region=$region count=$count debug=$debug"
+    command: echo "region=$region count=$count debug=$debug"
     output: SHELL_VALUES
   - name: params-json
-    run: printenv DAGU_PARAMS_JSON
+    command: printenv DAGU_PARAMS_JSON
     output: PARAMS_JSON
 `)
 

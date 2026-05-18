@@ -922,11 +922,13 @@ func TestParallelExecution_OutputsArray(t *testing.T) {
     output: RESULTS
   - run: |
       echo "First output: ${RESULTS.outputs[0].TASK_OUTPUT}"
+    depends: parallel_1
     output: FIRST_OUTPUT
   - run: |
       echo "Output 0: ${RESULTS.outputs[0].TASK_OUTPUT}"
       echo "Output 1: ${RESULTS.outputs[1].TASK_OUTPUT}"
       echo "Output 2: ${RESULTS.outputs[2].TASK_OUTPUT}"
+    depends: parallel_1
     output: ALL_OUTPUTS
 ` + parallelChildWithOutputDAG()
 
@@ -1069,6 +1071,7 @@ func TestParallelExecution_ObjectItemProperties(t *testing.T) {
       params:
         - REGION: ${ITEM.region}
         - BUCKET: ${ITEM.bucket}
+    depends: cmd_1
     parallel:
       items: ${CONFIGS}
       max_concurrent: 2
@@ -1177,6 +1180,7 @@ steps:
       dag: process-file
       params:
         - ITEM: ${ITEM}
+    depends: cmd_1
     parallel: ${FILES}
     output: RESULTS
 `, discoverCommand))
@@ -1367,6 +1371,7 @@ func TestIssue1274_ParallelJSONSingleItem(t *testing.T) {
       dag: issue-1274-worker
       params:
         aJson: ${ITEM}
+    depends: cmd_1
     parallel:
       items: ${jsonList}
       max_concurrent: 1
@@ -1421,6 +1426,7 @@ func TestIssue1274_ParallelJSONMultipleItems(t *testing.T) {
       dag: issue-1274-worker-multi
       params:
         aJson: ${ITEM}
+    depends: script_1
     parallel:
       items: ${jsonList}
       max_concurrent: 1
@@ -1543,6 +1549,7 @@ func TestIssue1658_ParallelCallExpandedParamsSplitting(t *testing.T) {
     with:
       dag: child-params-split
       params: "NAME=${ITEM.name} ${ITEM.extra}"
+    depends: cmd_1
     parallel:
       items: ${ITEMS}
     output: RESULTS
@@ -1576,6 +1583,7 @@ steps:
     with:
       dag: child-multi-expand
       params: "NAME=${ITEM.name} ${ITEM.extra}"
+    depends: cmd_1
     parallel:
       items: ${ITEMS}
     output: RESULTS
@@ -1620,6 +1628,7 @@ steps:
     with:
       dag: child-named-spaces
       params: "LABEL=${ITEM.label} ID=${ITEM.id}"
+    depends: cmd_1
     parallel:
       items: ${ITEMS}
     output: RESULTS
@@ -1652,6 +1661,7 @@ steps:
     with:
       dag: child-positional-single
       params: "${ITEM.tag}"
+    depends: cmd_1
     parallel:
       items: ${ITEMS}
     output: RESULTS

@@ -254,6 +254,7 @@ func TestLoad_Env(t *testing.T) {
 			Executable:         filepath.Join(testPaths, "bin", "dagu"),
 			LogDir:             filepath.Join(testPaths, "logs"),
 			DataDir:            filepath.Join(testPaths, "data"),
+			ToolsDir:           filepath.Join(testPaths, "data", "tools"),
 			ArtifactDir:        filepath.Join(testPaths, "artifacts"),
 			SuspendFlagsDir:    filepath.Join(testPaths, "suspend"),
 			AdminLogsDir:       filepath.Join(testPaths, "admin"),
@@ -526,6 +527,7 @@ permissions:
   write_dags: false
   run_dags: false
 debug: true
+public_url: "https://dagu.example.com/workflows/"
 base_path: "/dagu"
 api_base_path: "/api/v1"
 tz: "UTC"
@@ -539,6 +541,7 @@ paths:
   dags_dir: "/var/dagu/dags"
   log_dir: "/var/dagu/logs"
   data_dir: "/var/dagu/data"
+  tools_dir: "/var/dagu/tools"
   suspend_flags_dir: "/var/dagu/suspend"
   admin_logs_dir: "/var/dagu/adminlogs"
   base_config: "/var/dagu/base.yaml"
@@ -637,6 +640,7 @@ scheduler:
 		Server: Server{
 			Host:              "0.0.0.0",
 			Port:              9090,
+			PublicURL:         "https://dagu.example.com/workflows",
 			BasePath:          "/dagu",
 			APIBasePath:       "/api/v1",
 			Headless:          true,
@@ -711,6 +715,7 @@ scheduler:
 			DocsDir:            resolvedTestPath(t, "/var/dagu/dags/docs"),
 			LogDir:             resolvedTestPath(t, "/var/dagu/logs"),
 			DataDir:            resolvedTestPath(t, "/var/dagu/data"),
+			ToolsDir:           resolvedTestPath(t, "/var/dagu/tools"),
 			ArtifactDir:        cfg.Paths.ArtifactDir,
 			SuspendFlagsDir:    resolvedTestPath(t, "/var/dagu/suspend"),
 			AdminLogsDir:       resolvedTestPath(t, "/var/dagu/adminlogs"),
@@ -852,6 +857,7 @@ paths:
 `)
 	dataDir := resolvedTestPath(t, "/custom/data")
 	assert.Equal(t, dataDir, cfg.Paths.DataDir)
+	assert.Equal(t, filepath.Join(dataDir, "tools"), cfg.Paths.ToolsDir)
 	assert.Equal(t, filepath.Join(dataDir, "dag-runs"), cfg.Paths.DAGRunsDir)
 	assert.Equal(t, filepath.Join(dataDir, "proc"), cfg.Paths.ProcDir)
 	assert.Equal(t, filepath.Join(dataDir, "queue"), cfg.Paths.QueueDir)
@@ -859,6 +865,24 @@ paths:
 	assert.Equal(t, filepath.Join(dataDir, "users"), cfg.Paths.UsersDir)
 	assert.Equal(t, filepath.Join(dataDir, "agent", "sessions"), cfg.Paths.SessionsDir)
 	assert.Equal(t, filepath.Join(dataDir, "contexts"), cfg.Paths.ContextsDir)
+}
+
+func TestLoad_EdgeCases_ToolsDirFromConfig(t *testing.T) {
+	cfg := loadFromYAML(t, `
+paths:
+  data_dir: "/custom/data"
+  tools_dir: "/custom/tools"
+`)
+
+	assert.Equal(t, resolvedTestPath(t, "/custom/tools"), cfg.Paths.ToolsDir)
+}
+
+func TestLoad_EdgeCases_ToolsDirFromEnv(t *testing.T) {
+	cfg := loadWithEnv(t, "# empty", map[string]string{
+		"DAGU_TOOLS_DIR": "/tmp/custom-tools",
+	})
+
+	assert.Equal(t, resolvedTestPath(t, "/tmp/custom-tools"), cfg.Paths.ToolsDir)
 }
 
 func TestLoad_EdgeCases_ContextsDirFromEnv(t *testing.T) {
@@ -1049,6 +1073,7 @@ func TestLoad_LegacyEnv(t *testing.T) {
 		"DAGU__ADMIN_HOST":         "0.0.0.0",
 		"DAGU__ADMIN_NAVBAR_TITLE": "LegacyTitle",
 		"DAGU__ADMIN_NAVBAR_COLOR": "#abc123",
+		"DAGU_PUBLIC_URL":          "https://dagu.example.com/ui/",
 		"DAGU__DATA":               filepath.Join(tempDir, "legacy", "data"),
 		"DAGU__SUSPEND_FLAGS_DIR":  filepath.Join(tempDir, "legacy", "suspend"),
 		"DAGU__ADMIN_LOGS_DIR":     filepath.Join(tempDir, "legacy", "adminlogs"),
@@ -1056,6 +1081,7 @@ func TestLoad_LegacyEnv(t *testing.T) {
 
 	assert.Equal(t, 1234, cfg.Server.Port)
 	assert.Equal(t, "0.0.0.0", cfg.Server.Host)
+	assert.Equal(t, "https://dagu.example.com/ui", cfg.Server.PublicURL)
 	assert.Equal(t, "LegacyTitle", cfg.UI.NavbarTitle)
 	assert.Equal(t, "#abc123", cfg.UI.NavbarColor)
 	assert.Equal(t, filepath.Join(tempDir, "legacy", "data"), cfg.Paths.DataDir)

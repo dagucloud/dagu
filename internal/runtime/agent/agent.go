@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -47,6 +48,7 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime/builtin/ssh"
 	"github.com/dagucloud/dagu/internal/runtime/remote"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
+	secretpkg "github.com/dagucloud/dagu/internal/secret"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin"
@@ -73,6 +75,12 @@ type Agent struct {
 
 	// dagRunStore is the database to store the run history.
 	dagRunStore exec.DAGRunStore
+
+	// queueStore is the database to store queued dag-run items.
+	queueStore exec.QueueStore
+
+	// secretStore resolves workspace-local team-managed secret references.
+	secretStore secretpkg.Store
 
 	// registry is the service registry to find the coordinator service.
 	registry exec.ServiceRegistry
@@ -106,6 +114,12 @@ type Agent struct {
 
 	// artifactDir is the per-run artifact directory when artifact storage is enabled.
 	artifactDir string
+
+	// dagRunLogDir is the base log directory for newly persisted child DAG runs.
+	dagRunLogDir string
+
+	// dagRunArtifactDir is the base artifact directory for newly persisted child DAG runs.
+	dagRunArtifactDir string
 
 	// artifactFinalizer persists artifacts before the final terminal status is written.
 	artifactFinalizer ArtifactFinalizer
@@ -277,6 +291,10 @@ type Options struct {
 	PreparedAttempt exec.DAGRunAttempt
 	// DAGRunStore is the store for dag-run data. Nil in shared-nothing mode.
 	DAGRunStore exec.DAGRunStore
+	// QueueStore is the store for queued dag-run items. Nil when queues are unavailable.
+	QueueStore exec.QueueStore
+	// SecretStore resolves workspace-local team-managed secret references.
+	SecretStore secretpkg.Store
 	// ServiceRegistry is the registry for service discovery.
 	ServiceRegistry exec.ServiceRegistry
 	// RootDAGRun is the root dag-run reference for sub-DAG runs.
@@ -304,6 +322,10 @@ type Options struct {
 	ScheduleTime string
 	// ArtifactDir is the per-run artifact directory when artifact storage is enabled.
 	ArtifactDir string
+	// DAGRunLogDir is the base log directory used for child DAG runs created by executors.
+	DAGRunLogDir string
+	// DAGRunArtifactDir is the base artifact directory used for child DAG runs created by executors.
+	DAGRunArtifactDir string
 	// ArtifactFinalizer persists artifacts before the final terminal status is written.
 	ArtifactFinalizer ArtifactFinalizer
 	// SocketServerFactory creates the local status/control transport.
@@ -335,6 +357,8 @@ func New(
 		dagRunMgr:                  drm,
 		dagStore:                   ds,
 		dagRunStore:                opts.DAGRunStore,
+		queueStore:                 opts.QueueStore,
+		secretStore:                opts.SecretStore,
 		registry:                   opts.ServiceRegistry,
 		extraEnvs:                  append([]string{}, opts.ExtraEnvs...),
 		stepRetry:                  opts.StepRetry,
@@ -354,6 +378,8 @@ func New(
 		agentOAuthManager:          opts.AgentOAuthManager,
 		agentRemoteContextResolver: opts.AgentRemoteContextResolver,
 		scheduleTime:               opts.ScheduleTime,
+		dagRunLogDir:               opts.DAGRunLogDir,
+		dagRunArtifactDir:          opts.DAGRunArtifactDir,
 		socketServerFactory:        opts.SocketServerFactory,
 	}
 	if a.socketServerFactory == nil {
@@ -529,6 +555,18 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 	if a.artifactDir != "" {
 		contextOpts = append(contextOpts, runtime.WithArtifactDir(a.artifactDir))
+	}
+	if a.dagRunStore != nil {
+		contextOpts = append(contextOpts, runtime.WithDAGRunStore(a.dagRunStore))
+	}
+	if a.queueStore != nil {
+		contextOpts = append(contextOpts, runtime.WithQueueStore(a.queueStore))
+	}
+	if a.dagRunLogDir != "" {
+		contextOpts = append(contextOpts, runtime.WithDAGRunLogDir(a.dagRunLogDir))
+	}
+	if a.dagRunArtifactDir != "" {
+		contextOpts = append(contextOpts, runtime.WithDAGRunArtifactDir(a.dagRunArtifactDir))
 	}
 	if a.logWriterFactory != nil {
 		contextOpts = append(contextOpts, runtime.WithLogWriterFactory(a.logWriterFactory))
@@ -1009,6 +1047,7 @@ func (a *Agent) nodeToModelNode(nodeData runtime.NodeData) *exec.Node {
 		Error:           errorString(nodeData.State.Error),
 		SubRuns:         subRuns,
 		OutputVariables: nodeData.State.OutputVariables,
+		OutputsValue:    nodeData.State.OutputsValue,
 	}
 }
 
@@ -1044,6 +1083,7 @@ func (a *Agent) collectOutputs(ctx context.Context) map[string]string {
 
 	for _, node := range nodes {
 		nodeData := node.NodeData()
+		maps.Copy(outputs, nodeData.OutputsValueStringMap())
 		step := nodeData.Step
 
 		// Only string-form output participates in outputs.json.
@@ -1425,20 +1465,28 @@ func (a *Agent) newRunner(attempt exec.DAGRunAttempt) *runtime.Runner {
 	ts := time.Now().UTC().Format(dateTimeFormatUTC)
 	runnerLogDir := filepath.Join(a.logDir, "run_"+ts+"_"+a.dagRunAttemptID)
 
+	autoRetryLimit := 0
+	if a.dag.RetryPolicy != nil {
+		autoRetryLimit = a.dag.RetryPolicy.Limit
+	}
+
 	cfg := &runtime.Config{
-		LogDir:          runnerLogDir,
-		MaxActiveSteps:  a.dag.MaxActiveSteps,
-		Timeout:         a.dag.Timeout,
-		Delay:           a.dag.Delay,
-		Dry:             a.dry,
-		DAGRunID:        a.dagRunID,
-		MessagesHandler: attempt, // Attempt implements ChatMessagesHandler
-		OnInit:          a.dag.HandlerOn.Init,
-		OnExit:          a.dag.HandlerOn.Exit,
-		OnSuccess:       a.dag.HandlerOn.Success,
-		OnFailure:       a.dag.HandlerOn.Failure,
-		OnAbort:         a.dag.HandlerOn.Abort,
-		OnWait:          a.dag.HandlerOn.Wait,
+		LogDir:               runnerLogDir,
+		MaxActiveSteps:       a.dag.MaxActiveSteps,
+		Timeout:              a.dag.Timeout,
+		Delay:                a.dag.Delay,
+		Dry:                  a.dry,
+		DAGRunID:             a.dagRunID,
+		MessagesHandler:      attempt, // Attempt implements ChatMessagesHandler
+		OnInit:               a.dag.HandlerOn.Init,
+		OnExit:               a.dag.HandlerOn.Exit,
+		OnSuccess:            a.dag.HandlerOn.Success,
+		OnFailure:            a.dag.HandlerOn.Failure,
+		OnAbort:              a.dag.HandlerOn.Abort,
+		OnWait:               a.dag.HandlerOn.Wait,
+		DAGRunAutoRetryCount: a.currentAutoRetryCount(),
+		DAGRunAutoRetryLimit: autoRetryLimit,
+		DAGRunIsRoot:         a.parentDAGRun.Zero(),
 	}
 
 	return runtime.New(cfg)
@@ -1479,6 +1527,16 @@ func (a *Agent) resolveSecrets(ctx context.Context) ([]string, error) {
 
 	baseDirs := a.buildSecretBaseDirs(envScope)
 	secretRegistry := secrets.NewRegistry(baseDirs...)
+	if a.secretStore != nil {
+		workspaceName := ""
+		if name, ok := exec.WorkspaceNameFromLabels(a.dag.Labels); ok {
+			workspaceName = name
+		}
+		secretRegistry = secrets.NewRegistryWithReferenceResolver(
+			secretpkg.NewReferenceResolver(a.secretStore, workspaceName),
+			baseDirs...,
+		)
+	}
 
 	resolvedSecrets, err := secretRegistry.ResolveAll(secretCtx, a.dag.Secrets)
 	if err != nil {
@@ -1654,6 +1712,18 @@ func (a *Agent) dryRun(ctx context.Context) error {
 	}
 	if a.artifactDir != "" {
 		contextOpts = append(contextOpts, runtime.WithArtifactDir(a.artifactDir))
+	}
+	if a.dagRunStore != nil {
+		contextOpts = append(contextOpts, runtime.WithDAGRunStore(a.dagRunStore))
+	}
+	if a.queueStore != nil {
+		contextOpts = append(contextOpts, runtime.WithQueueStore(a.queueStore))
+	}
+	if a.dagRunLogDir != "" {
+		contextOpts = append(contextOpts, runtime.WithDAGRunLogDir(a.dagRunLogDir))
+	}
+	if a.dagRunArtifactDir != "" {
+		contextOpts = append(contextOpts, runtime.WithDAGRunArtifactDir(a.dagRunArtifactDir))
 	}
 	dagCtx := runtime.NewContext(ctx, a.dag, a.dagRunID, a.logFile, contextOpts...)
 	lastErr := a.runner.Run(dagCtx, a.plan, progressCh)

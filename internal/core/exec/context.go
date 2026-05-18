@@ -29,6 +29,10 @@ type Context struct {
 	BaseEnv            *config.BaseEnv
 	EnvScope           *eval.EnvScope // Unified environment scope - THE single source for all env vars
 	CoordinatorCli     Dispatcher
+	DAGRunStore        DAGRunStore
+	QueueStore         QueueStore
+	DAGRunLogDir       string
+	DAGRunArtifactDir  string
 	Shell              string               // Default shell for this DAG (from DAG.Shell)
 	LogEncodingCharset string               // Character encoding for log files (e.g., "utf-8", "shift_jis", "euc-jp")
 	LogWriterFactory   LogWriterFactory     // For remote log streaming (nil = use local files)
@@ -145,6 +149,8 @@ type RunStatus struct {
 	Params string
 	// Outputs is the outputs of the dag-run.
 	Outputs map[string]string
+	// OutputValues contains typed outputs published through stdout.outputs or outputs.write.
+	OutputValues map[string]any
 	// Status is the execution status of the dag-run.
 	Status core.Status
 	// PendingStepRetries contains any step retries that are waiting to be scheduled
@@ -159,6 +165,7 @@ func (r *RunStatus) MarshalJSON() ([]byte, error) {
 		DAGRunID           string             `json:"dagRunId,omitempty"`
 		Params             string             `json:"params,omitempty"`
 		Outputs            map[string]string  `json:"outputs,omitzero"`
+		OutputValues       map[string]any     `json:"outputValues,omitzero"`
 		Status             string             `json:"status"`
 		PendingStepRetries []PendingStepRetry `json:"pendingStepRetries,omitempty"`
 	}{
@@ -166,6 +173,7 @@ func (r *RunStatus) MarshalJSON() ([]byte, error) {
 		DAGRunID:           r.DAGRunID,
 		Params:             r.Params,
 		Outputs:            r.Outputs,
+		OutputValues:       r.OutputValues,
 		Status:             r.Status.String(),
 		PendingStepRetries: r.PendingStepRetries,
 	}, "", "  ")
@@ -202,6 +210,10 @@ type contextOptions struct {
 	logEncodingCharset string
 	logWriterFactory   LogWriterFactory
 	defaultExecMode    config.ExecutionMode
+	dagRunStore        DAGRunStore
+	queueStore         QueueStore
+	dagRunLogDir       string
+	dagRunArtifactDir  string
 	workDir            string
 	artifactDir        string
 }
@@ -273,6 +285,34 @@ func WithDefaultExecMode(mode config.ExecutionMode) ContextOption {
 	}
 }
 
+// WithDAGRunStore sets the dag-run store for executors that persist DAG runs.
+func WithDAGRunStore(store DAGRunStore) ContextOption {
+	return func(o *contextOptions) {
+		o.dagRunStore = store
+	}
+}
+
+// WithQueueStore sets the queue store for executors that enqueue DAG runs.
+func WithQueueStore(store QueueStore) ContextOption {
+	return func(o *contextOptions) {
+		o.queueStore = store
+	}
+}
+
+// WithDAGRunLogDir sets the base log directory for newly persisted DAG runs.
+func WithDAGRunLogDir(dir string) ContextOption {
+	return func(o *contextOptions) {
+		o.dagRunLogDir = dir
+	}
+}
+
+// WithDAGRunArtifactDir sets the base artifact directory for newly persisted DAG runs.
+func WithDAGRunArtifactDir(dir string) ContextOption {
+	return func(o *contextOptions) {
+		o.dagRunArtifactDir = dir
+	}
+}
+
 // WithWorkDir sets the per-DAG-run working directory path.
 func WithWorkDir(dir string) ContextOption {
 	return func(o *contextOptions) {
@@ -340,6 +380,10 @@ func NewContext(
 		DAGRunID:           dagRunID,
 		BaseEnv:            config.GetBaseEnv(ctx),
 		CoordinatorCli:     options.coordinator,
+		DAGRunStore:        options.dagRunStore,
+		QueueStore:         options.queueStore,
+		DAGRunLogDir:       options.dagRunLogDir,
+		DAGRunArtifactDir:  options.dagRunArtifactDir,
 		Shell:              dag.Shell,
 		LogEncodingCharset: options.logEncodingCharset,
 		LogWriterFactory:   options.logWriterFactory,

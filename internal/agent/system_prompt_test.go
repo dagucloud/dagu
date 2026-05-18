@@ -75,11 +75,21 @@ func TestGenerateSystemPrompt(t *testing.T) {
 		assert.Contains(t, result, "`agent.run`")
 		assert.Contains(t, result, "`harness.run`")
 		assert.Contains(t, result, "`redis.<operation>`")
+		assert.Contains(t, result, "`file.write`")
+		assert.Contains(t, result, "`artifact.write`")
+		assert.Contains(t, result, "`artifact.read`")
+		assert.Contains(t, result, "`artifact.list`")
 		assert.Contains(t, result, "Use top-level `run:` for plain shell commands and scripts")
+		assert.Contains(t, result, "prefer built-in `file.*` actions over `run:` commands")
+		assert.Contains(t, result, "prefer `stdout.artifact`/`stderr.artifact` for command streams")
+		assert.Contains(t, result, "especially large reports, JSON, Markdown, logs")
+		assert.Contains(t, result, "`dagu-action.yaml`")
+		assert.Contains(t, result, "Return caller-visible action values with `stdout.outputs` or `outputs.write`")
 		assert.Contains(t, result, "Base config custom actions")
 		assert.Contains(t, result, "Current DAG-local custom actions: inspect `actions:`")
 		assert.Contains(t, result, "Legacy DAG-local `step_types:` definitions")
 		assert.Contains(t, result, "`steptypes.md` — Built-in and custom actions")
+		assert.Contains(t, result, "`dagu-action.md` — Creating `dagu-action.yaml` remote action packages")
 		assert.Contains(t, result, "dagu schema dag steps.action")
 		assert.NotContains(t, result, legacyReference)
 		assert.NotContains(t, result, legacySchemaPath)
@@ -285,6 +295,25 @@ func TestGenerateSystemPrompt(t *testing.T) {
 		assert.Contains(t, result, "Do not use `patch` to move, rename, delete, or maintain documents under /dags/docs")
 		assert.Contains(t, result, "`runbook_manage` action `move` with `id` and `new_id`")
 		assert.Contains(t, result, "`runbook_manage` action `delete`")
+	})
+
+	t.Run("authoring guidance prefers explicit actions for file and artifact operations", func(t *testing.T) {
+		t.Parallel()
+		env := EnvironmentInfo{DAGsDir: "/dags"}
+
+		result := GenerateSystemPrompt(SystemPromptParams{Env: env, Role: auth.RoleDeveloper})
+
+		assert.Contains(t, result, "Use the appropriate action (`http.request`, `s3.*`, `postgres.query`, `artifact.*`, `file.*`, etc.) instead of shelling out.")
+		assert.Contains(t, result, "use `file.stat`, `file.read`, `file.write`, `file.copy`, `file.move`, `file.delete`, `file.mkdir`, or `file.list`")
+		assert.Contains(t, result, "instead of shell commands such as `cat`, `cp`, `mv`, `rm`, or `mkdir`")
+		assert.Contains(t, result, "For DAG-run outputs such as reports, JSON snapshots, Markdown summaries, logs, and handoff files, use `stdout.artifact`/`stderr.artifact`")
+		assert.Contains(t, result, "When a command produces large data for an artifact, let it write to stdout/stderr and attach the stream directly")
+		assert.Contains(t, result, "artifact: reports/report.md")
+		assert.Contains(t, result, "Do not route large payloads through `output:` variables")
+		assert.Contains(t, result, "Use `stdout.artifact` when large or untrusted command content should be stored as an artifact")
+		assert.Contains(t, result, "Use `stdout.artifact`/`stderr.artifact` for command streams")
+		assert.Contains(t, result, "manifest `outputs` validates the final action output object")
+		assert.Contains(t, result, "Use `run:` only when the step is actually shell logic or an installed CLI invocation.")
 	})
 }
 

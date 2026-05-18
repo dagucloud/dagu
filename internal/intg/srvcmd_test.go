@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"testing"
 	"time"
@@ -93,7 +92,7 @@ steps:
 func TestServer_BasePath(t *testing.T) {
 	port := findPort(t)
 	configFile := writeServerConfig(t, port, "/dagu", false)
-	stopServer := startServer(t, configFile, port)
+	stopServer := startServer(t, configFile, port, "/dagu")
 
 	requireHealthy(t, fmt.Sprintf("http://127.0.0.1:%s/dagu/api/v1/health", port))
 
@@ -113,7 +112,7 @@ func TestServer_RemoteNode(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			port := findPort(t)
 			configFile := writeServerConfig(t, port, tc.basePath, true)
-			stopServer := startServer(t, configFile, port)
+			stopServer := startServer(t, configFile, port, tc.basePath)
 
 			url := fmt.Sprintf("http://127.0.0.1:%s%s/api/v1/health?remoteNode=dev", port, tc.basePath)
 			requireHealthy(t, url)
@@ -146,7 +145,7 @@ auth:
 	return configFile
 }
 
-func startServer(t *testing.T, configFile, port string) func() {
+func startServer(t *testing.T, configFile, port, basePath string) func() {
 	t.Helper()
 	th := test.SetupCommand(t)
 
@@ -159,7 +158,7 @@ func startServer(t *testing.T, configFile, port string) func() {
 		close(done)
 	}()
 
-	waitForServer(t, port)
+	waitForServer(t, fmt.Sprintf("http://127.0.0.1:%s%s/api/v1/health", port, basePath))
 
 	return func() {
 		th.Cancel()
@@ -167,23 +166,24 @@ func startServer(t *testing.T, configFile, port string) func() {
 	}
 }
 
-func waitForServer(t *testing.T, port string) {
+func waitForServer(t *testing.T, url string) {
 	t.Helper()
+	client := http.Client{Timeout: 200 * time.Millisecond}
 	require.Eventually(t, func() bool {
-		conn, err := net.DialTimeout("tcp", "127.0.0.1:"+port, 50*time.Millisecond)
-		if err == nil {
-			_ = conn.Close()
-			return true
+		resp, err := client.Get(url)
+		if err != nil {
+			return false
 		}
-		return false
-	}, serverStartupTimeout(), 20*time.Millisecond, "server did not start on port %s", port)
+		defer func() {
+			_ = resp.Body.Close()
+		}()
+		return resp.StatusCode == http.StatusOK
+	}, serverStartupTimeout(), 50*time.Millisecond, "server did not become healthy at %s", url)
 }
 
 func serverStartupTimeout() time.Duration {
-	if runtime.GOOS == "windows" {
-		return 10 * time.Second
-	}
-	return 2 * time.Second
+	// CI coverage builds can spend several seconds initializing the server before it binds.
+	return 10 * time.Second
 }
 
 func requireHealthy(t *testing.T, url string) {

@@ -34,10 +34,12 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/fileagentoauth"
 	"github.com/dagucloud/dagu/internal/persis/fileagentsoul"
 	"github.com/dagucloud/dagu/internal/persis/filememory"
+	"github.com/dagucloud/dagu/internal/persis/filesecret"
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	rtagent "github.com/dagucloud/dagu/internal/runtime/agent"
 	runtimeexec "github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
+	secretpkg "github.com/dagucloud/dagu/internal/secret"
 	"github.com/dagucloud/dagu/internal/workspace"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
@@ -365,6 +367,7 @@ func (e *Engine) runLocal(ctx context.Context, dag *core.DAG, runID string, opts
 			WorkerID:                   "local",
 			PreparedAttempt:            preparedAttempt(prepared),
 			DAGRunStore:                e.dagRunStore,
+			SecretStore:                stores.SecretStore,
 			ServiceRegistry:            e.serviceRegistry,
 			RootDAGRun:                 root,
 			PeerConfig:                 e.cfg.Core.Peer,
@@ -595,10 +598,16 @@ type agentStoresResult struct {
 	SoulStore       agentstores.SoulStore
 	OAuthManager    *agentoauth.Manager
 	ContextResolver agentstores.RemoteContextResolver
+	SecretStore     secretpkg.Store
 }
 
 func (e *Engine) agentStores(ctx context.Context) agentStoresResult {
 	var result agentStoresResult
+	if store, err := filesecret.NewFromDataDir(e.cfg.Paths.DataDir); err == nil {
+		result.SecretStore = store
+	} else {
+		logger.Warn(ctx, "Failed to create secret store", tag.Error(err))
+	}
 	if store, err := fileagentconfig.New(e.cfg.Paths.DataDir); err == nil {
 		result.ConfigStore = store
 	} else {

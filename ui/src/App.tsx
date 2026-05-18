@@ -24,7 +24,7 @@ import {
   ConfigContext,
   ConfigUpdateContext,
 } from './contexts/ConfigContext';
-import { useHasFeature } from './hooks/useLicense';
+import { useHasFeature, useLicense } from './hooks/useLicense';
 import { PageContextProvider } from './contexts/PageContext';
 import { SchemaProvider } from './contexts/SchemaContext';
 import { SearchStateProvider } from './contexts/SearchStateContext';
@@ -68,13 +68,20 @@ import DocsPage from './pages/docs';
 import EventLogsPage from './pages/event-logs';
 import GitSyncPage from './pages/git-sync';
 import HomePage from './pages/home';
+import IncidentPoliciesPage from './pages/incident-policies';
+import IncidentProvidersPage from './pages/incident-providers';
+import IncidentsPage from './pages/incidents';
 import IntegrationsPage from './pages/integrations';
 import LicensePage from './pages/license';
 import LoginPage from './pages/login';
+import NotificationChannelsPage from './pages/notification-channels';
+import NotificationRulesPage from './pages/notification-rules';
+import NotificationsPage from './pages/notifications';
 import OverviewPage from './pages/overview';
 import Queues from './pages/queues';
 import QueueDetailsPage from './pages/queues/queue';
 import Search from './pages/search';
+import SecretsPage from './pages/secrets';
 import SetupPage from './pages/setup';
 import SystemStatus from './pages/system-status';
 import TerminalPage from './pages/terminal';
@@ -212,6 +219,24 @@ function LicensedRoute({
 }): React.ReactElement {
   const hasFeature = useHasFeature(feature);
   if (hasFeature) return children;
+  return <LicenseRequiredMessage />;
+}
+
+function ActiveLicenseDeveloperElement({
+  children,
+}: {
+  children: React.ReactElement;
+}): React.ReactElement {
+  const license = useLicense();
+  const licensed = !license.community && (license.valid || license.gracePeriod);
+  return (
+    <DeveloperElement>
+      {licensed ? children : <LicenseRequiredMessage />}
+    </DeveloperElement>
+  );
+}
+
+function LicenseRequiredMessage(): React.ReactElement {
   return (
     <div className="flex flex-col items-center justify-center h-full gap-4 text-center p-8">
       <Shield size={48} className="text-muted-foreground" />
@@ -560,6 +585,54 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                           element={<IntegrationsPage />}
                                         />
                                         <Route
+                                          path="/notifications"
+                                          element={
+                                            <ActiveLicenseDeveloperElement>
+                                              <NotificationsPage />
+                                            </ActiveLicenseDeveloperElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/notification-rules"
+                                          element={
+                                            <ActiveLicenseDeveloperElement>
+                                              <NotificationRulesPage />
+                                            </ActiveLicenseDeveloperElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/notification-channels"
+                                          element={
+                                            <ActiveLicenseDeveloperElement>
+                                              <NotificationChannelsPage />
+                                            </ActiveLicenseDeveloperElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/incidents"
+                                          element={
+                                            <ActiveLicenseDeveloperElement>
+                                              <IncidentsPage />
+                                            </ActiveLicenseDeveloperElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/incident-providers"
+                                          element={
+                                            <ActiveLicenseDeveloperElement>
+                                              <IncidentProvidersPage />
+                                            </ActiveLicenseDeveloperElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/incident-policies"
+                                          element={
+                                            <ActiveLicenseDeveloperElement>
+                                              <IncidentPoliciesPage />
+                                            </ActiveLicenseDeveloperElement>
+                                          }
+                                        />
+                                        <Route
                                           path="/dags/"
                                           element={<DAGs />}
                                         />
@@ -657,6 +730,14 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                             <DeveloperElement>
                                               <WebhooksPage />
                                             </DeveloperElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/secrets"
+                                          element={
+                                            <ManagerElement>
+                                              <SecretsPage />
+                                            </ManagerElement>
                                           }
                                         />
                                         <Route

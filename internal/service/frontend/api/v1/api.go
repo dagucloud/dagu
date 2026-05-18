@@ -25,15 +25,20 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/baseconfig"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	incidentmodel "github.com/dagucloud/dagu/internal/incident"
 	"github.com/dagucloud/dagu/internal/license"
+	notificationmodel "github.com/dagucloud/dagu/internal/notification"
 	"github.com/dagucloud/dagu/internal/remotenode"
 	"github.com/dagucloud/dagu/internal/runtime"
+	secretpkg "github.com/dagucloud/dagu/internal/secret"
 	"github.com/dagucloud/dagu/internal/service/audit"
 	authservice "github.com/dagucloud/dagu/internal/service/auth"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
 	"github.com/dagucloud/dagu/internal/service/frontend/api/pathutil"
 	frontendauth "github.com/dagucloud/dagu/internal/service/frontend/auth"
+	incidentservice "github.com/dagucloud/dagu/internal/service/incident"
+	notificationservice "github.com/dagucloud/dagu/internal/service/notification"
 	"github.com/dagucloud/dagu/internal/service/resource"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
 	"github.com/dagucloud/dagu/internal/tunnel"
@@ -67,6 +72,8 @@ type API struct {
 	authService          AuthService
 	auditService         *audit.Service
 	eventService         *eventstore.Service
+	incidentService      IncidentService
+	notificationService  NotificationService
 	syncService          SyncService
 	tunnelService        *tunnel.Service
 	defaultExecMode      config.ExecutionMode
@@ -79,12 +86,41 @@ type API struct {
 	agentAPI             *agent.API
 	docStore             agent.DocStore
 	baseConfigStore      baseconfig.Store
+	secretStore          secretpkg.Store
 	licenseManager       *license.Manager
 	workspaceStore       workspace.Store
 	leaseStaleThreshold  time.Duration
 	schedulerStateStore  scheduler.WatermarkStore
 	dagMutationNotifier  func(fileName string)
 	docMutationNotifier  func()
+}
+
+type NotificationService interface {
+	GetByDAGName(ctx context.Context, dagName string) (*notificationmodel.Settings, error)
+	Save(ctx context.Context, settings *notificationmodel.Settings, updatedBy string) (*notificationmodel.Settings, error)
+	DeleteByDAGName(ctx context.Context, dagName string) error
+	GetWorkspaceSettings(ctx context.Context) (*notificationmodel.WorkspaceSettings, error)
+	SaveWorkspaceSettings(ctx context.Context, settings *notificationmodel.WorkspaceSettings, updatedBy string) (*notificationmodel.WorkspaceSettings, error)
+	GetRouteSet(ctx context.Context, scope notificationmodel.RouteScope, workspace string) (*notificationmodel.RouteSet, error)
+	ListRouteSets(ctx context.Context) ([]*notificationmodel.RouteSet, error)
+	SaveRouteSet(ctx context.Context, routeSet *notificationmodel.RouteSet, updatedBy string) (*notificationmodel.RouteSet, error)
+	ListChannels(ctx context.Context) ([]*notificationmodel.Channel, error)
+	GetChannel(ctx context.Context, channelID string) (*notificationmodel.Channel, error)
+	SaveChannel(ctx context.Context, channel *notificationmodel.Channel, updatedBy string) (*notificationmodel.Channel, error)
+	DeleteChannel(ctx context.Context, channelID string) error
+	SendTest(ctx context.Context, dagName, targetID string, eventType eventstore.EventType) ([]notificationservice.TestResult, error)
+}
+
+type IncidentService interface {
+	ListProviders(ctx context.Context) ([]*incidentmodel.Provider, error)
+	GetProvider(ctx context.Context, providerID string) (*incidentmodel.Provider, error)
+	SaveProvider(ctx context.Context, provider *incidentmodel.Provider, updatedBy string) (*incidentmodel.Provider, error)
+	DeleteProvider(ctx context.Context, providerID string) error
+	GetPolicySet(ctx context.Context, scope incidentmodel.PolicyScope, workspaceName, dagName string) (*incidentmodel.PolicySet, error)
+	ListPolicySets(ctx context.Context) ([]*incidentmodel.PolicySet, error)
+	SavePolicySet(ctx context.Context, policySet *incidentmodel.PolicySet, updatedBy string) (*incidentmodel.PolicySet, error)
+	DeletePolicySet(ctx context.Context, scope incidentmodel.PolicyScope, workspaceName, dagName string) error
+	SendProviderTest(ctx context.Context, providerID string) (*incidentservice.TestResult, error)
 }
 
 // AuthService defines the interface for authentication operations.
@@ -151,6 +187,18 @@ func WithEventService(es *eventstore.Service) APIOption {
 	}
 }
 
+func WithNotificationService(ns NotificationService) APIOption {
+	return func(a *API) {
+		a.notificationService = ns
+	}
+}
+
+func WithIncidentService(is IncidentService) APIOption {
+	return func(a *API) {
+		a.incidentService = is
+	}
+}
+
 // WithSyncService returns an APIOption that sets the API's SyncService.
 func WithSyncService(ss SyncService) APIOption {
 	return func(a *API) {
@@ -169,6 +217,13 @@ func WithTunnelService(ts *tunnel.Service) APIOption {
 func WithBaseConfigStore(store baseconfig.Store) APIOption {
 	return func(a *API) {
 		a.baseConfigStore = store
+	}
+}
+
+// WithSecretStore returns an APIOption that sets the secret registry store.
+func WithSecretStore(store secretpkg.Store) APIOption {
+	return func(a *API) {
+		a.secretStore = store
 	}
 }
 
@@ -664,6 +719,16 @@ var (
 		Code:       api.ErrorCodeForbidden,
 		Message:    "Audit logs require a Dagu Pro license",
 	}
+	errReusableNotificationChannelsNotLicensed = &Error{
+		HTTPStatus: http.StatusForbidden,
+		Code:       api.ErrorCodeForbidden,
+		Message:    "Notification channels and rules require an active Dagu license or trial",
+	}
+	errIncidentManagementNotLicensed = &Error{
+		HTTPStatus: http.StatusForbidden,
+		Code:       api.ErrorCodeForbidden,
+		Message:    "Incident providers and policies require an active Dagu license or trial",
+	}
 )
 
 // requireDAGWrite checks all permissions for DAG write operations:
@@ -715,6 +780,26 @@ func (a *API) requireLicensedAudit() error {
 	}
 	if !a.licenseManager.Checker().IsFeatureEnabled(license.FeatureAudit) {
 		return errAuditNotLicensed
+	}
+	return nil
+}
+
+func (a *API) requireLicensedReusableNotificationChannels() error {
+	if a.licenseManager == nil {
+		return errReusableNotificationChannelsNotLicensed
+	}
+	if !license.HasActiveLicense(a.licenseManager.Checker()) {
+		return errReusableNotificationChannelsNotLicensed
+	}
+	return nil
+}
+
+func (a *API) requireLicensedIncidentManagement() error {
+	if a.licenseManager == nil {
+		return errIncidentManagementNotLicensed
+	}
+	if !license.HasActiveLicense(a.licenseManager.Checker()) {
+		return errIncidentManagementNotLicensed
 	}
 	return nil
 }

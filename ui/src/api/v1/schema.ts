@@ -1676,6 +1676,298 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/notification-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get notification settings
+         * @description Returns workspace-level notification settings such as email delivery transport. Developer, manager, or admin only.
+         */
+        get: operations["getNotificationSettings"];
+        /**
+         * Update notification settings
+         * @description Updates workspace-level notification settings. SMTP passwords are accepted
+         *     in the request but are never returned. Omit password on updates to preserve
+         *     the existing password, or set clearPassword to remove it. Developer,
+         *     manager, or admin only.
+         *
+         */
+        put: operations["updateNotificationSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notification-routes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List notification routes
+         * @description Returns global and workspace notification channel routes. Notification channels and rules require an active Dagu license or trial. Developer, manager, or admin only.
+         */
+        get: operations["listNotificationRoutes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notification-routes/global": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get global notification routes
+         * @description Returns global default notification channel routes. Default DAGs use global routes; named workspaces can inherit or opt out. Developer, manager, or admin only.
+         */
+        get: operations["getGlobalNotificationRoutes"];
+        /**
+         * Update global notification routes
+         * @description Replaces global default notification channel routes. Route channel IDs must reference notification channels. Developer, manager, or admin only.
+         */
+        put: operations["updateGlobalNotificationRoutes"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notification-routes/workspaces/{workspaceName}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get workspace notification routes
+         * @description Returns notification channel routes for one named workspace. Workspace routes can inherit global defaults. Developer, manager, or admin only.
+         */
+        get: operations["getWorkspaceNotificationRoutes"];
+        /**
+         * Update workspace notification routes
+         * @description Replaces notification channel routes for one named workspace. Route channel IDs must reference notification channels. Developer, manager, or admin only.
+         */
+        put: operations["updateWorkspaceNotificationRoutes"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notification-channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List notification channels
+         * @description Returns notification channels. Channels are delivery endpoints; routing is configured separately. Developer, manager, or admin only.
+         */
+        get: operations["listNotificationChannels"];
+        put?: never;
+        /**
+         * Create notification channel
+         * @description Creates a notification channel. Secret values are accepted
+         *     in the request but are never returned. Developer, manager, or admin only.
+         *
+         */
+        post: operations["createNotificationChannel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notification-channels/{channelId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get notification channel
+         * @description Returns one notification channel. Developer, manager, or admin only.
+         */
+        get: operations["getNotificationChannel"];
+        /**
+         * Update notification channel
+         * @description Replaces a notification channel. Existing secret values
+         *     are preserved when omitted. Developer, manager, or admin only.
+         *
+         */
+        put: operations["updateNotificationChannel"];
+        post?: never;
+        /**
+         * Delete notification channel
+         * @description Deletes a notification channel. Channels referenced by DAG notification settings or notification routes cannot be deleted.
+         */
+        delete: operations["deleteNotificationChannel"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/incident-providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List incident providers
+         * @description Returns configured incident providers such as PagerDuty and SolarWinds Incident Response. Incident management requires an active Dagu license or trial. Developer, manager, or admin only.
+         */
+        get: operations["listIncidentProviders"];
+        put?: never;
+        /**
+         * Create incident provider
+         * @description Creates an incident provider. Secret values are accepted in the request but are never returned. Developer, manager, or admin only.
+         */
+        post: operations["createIncidentProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/incident-providers/{providerId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get incident provider
+         * @description Returns one incident provider. Developer, manager, or admin only.
+         */
+        get: operations["getIncidentProvider"];
+        /**
+         * Update incident provider
+         * @description Replaces an incident provider. Existing secret values are preserved when omitted. Developer, manager, or admin only.
+         */
+        put: operations["updateIncidentProvider"];
+        post?: never;
+        /**
+         * Delete incident provider
+         * @description Deletes an incident provider. Providers referenced by incident routing cannot be deleted.
+         */
+        delete: operations["deleteIncidentProvider"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/incident-providers/{providerId}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a test incident
+         * @description Sends a test trigger and resolve event to one incident provider. Developer, manager, or admin only.
+         */
+        post: operations["testIncidentProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/incident-policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List incident routing
+         * @description Returns global, workspace, and DAG incident routing. Developer, manager, or admin only.
+         */
+        get: operations["listIncidentPolicies"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/incident-policies/global": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get global incident routing
+         * @description Returns global incident routing. Global routing is used unless a workspace or DAG override is configured. Developer, manager, or admin only.
+         */
+        get: operations["getGlobalIncidentPolicies"];
+        /**
+         * Update global incident routing
+         * @description Replaces global incident routing. Route provider IDs must reference incident providers. Developer, manager, or admin only.
+         */
+        put: operations["updateGlobalIncidentPolicies"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/incident-policies/workspaces/{workspaceName}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get workspace incident routing
+         * @description Returns incident routing for one named workspace. Workspace routing can inherit global routing. Developer, manager, or admin only.
+         */
+        get: operations["getWorkspaceIncidentPolicies"];
+        /**
+         * Update workspace incident routing
+         * @description Replaces incident routing for one named workspace. Route provider IDs must reference incident providers. Developer, manager, or admin only.
+         */
+        put: operations["updateWorkspaceIncidentPolicies"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dags/{fileName}/webhook": {
         parameters: {
             query?: never;
@@ -1835,6 +2127,86 @@ export interface paths {
          */
         post: operations["disableDAGWebhookHMAC"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dags/{fileName}/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get DAG notification settings
+         * @description Returns server-side notification settings for a specific DAG. Developer, manager, or admin only.
+         */
+        get: operations["getDAGNotifications"];
+        /**
+         * Update DAG notification settings
+         * @description Creates or replaces server-side notification settings for a DAG.
+         *     Secret values are accepted in the request but are never returned.
+         *     Existing secret values are preserved when omitted for an existing target.
+         *     Developer, manager, or admin only.
+         *
+         */
+        put: operations["updateDAGNotifications"];
+        post?: never;
+        /**
+         * Delete DAG notification settings
+         * @description Removes all server-side notification settings for the specified DAG. Developer, manager, or admin only.
+         */
+        delete: operations["deleteDAGNotifications"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dags/{fileName}/notifications/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a test DAG notification
+         * @description Sends a test notification to one target or every enabled target for a DAG. Developer, manager, or admin only.
+         */
+        post: operations["testDAGNotifications"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dags/{fileName}/incidents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get DAG incident routing
+         * @description Returns DAG-level incident routing override settings. Missing settings mean this DAG inherits workspace or global routing. Developer, manager, or admin only.
+         */
+        get: operations["getDAGIncidents"];
+        /**
+         * Update DAG incident routing
+         * @description Creates or replaces DAG-level incident routing override settings. Route provider IDs must reference incident providers. Developer, manager, or admin only.
+         */
+        put: operations["updateDAGIncidents"];
+        post?: never;
+        /**
+         * Delete DAG incident routing
+         * @description Removes DAG-level incident routing override settings so the DAG inherits workspace or global routing. Developer, manager, or admin only.
+         */
+        delete: operations["deleteDAGIncidents"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2844,6 +3216,103 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/secrets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List secrets
+         * @description Lists secret registry metadata. Plaintext values are never returned.
+         */
+        get: operations["listSecrets"];
+        put?: never;
+        /**
+         * Create a secret
+         * @description Creates Dagu-managed secret metadata in global scope or a named workspace and optionally writes an initial value. Plaintext values are write-only.
+         */
+        post: operations["createSecret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/secrets/{secretId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get secret */
+        get: operations["getSecret"];
+        put?: never;
+        post?: never;
+        /** Delete secret */
+        delete: operations["deleteSecret"];
+        options?: never;
+        head?: never;
+        /** Update secret metadata */
+        patch: operations["updateSecret"];
+        trace?: never;
+    };
+    "/secrets/{secretId}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Write a new secret value version
+         * @description Writes a new Dagu-managed value version. The value is write-only and is not returned.
+         */
+        post: operations["writeSecretVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/secrets/{secretId}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable secret */
+        post: operations["disableSecret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/secrets/{secretId}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enable secret */
+        post: operations["enableSecret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workspaces": {
         parameters: {
             query?: never;
@@ -3221,6 +3690,539 @@ export interface components {
             webhook: components["schemas"]["WebhookDetails"];
             /** @description Full HMAC secret (only shown once, store securely!) */
             hmacSecret: string;
+        };
+        /**
+         * @description Notification delivery provider
+         * @enum {string}
+         */
+        NotificationProviderType: NotificationProviderType;
+        /**
+         * @description DAG run event that can trigger server-side notifications
+         * @enum {string}
+         */
+        NotificationEventType: NotificationEventType;
+        /** @description Email notification target. SMTP transport is configured in workspace notification settings. */
+        NotificationEmailTarget: {
+            /** @description Sender address. Defaults to the workspace SMTP sender. */
+            from?: string;
+            /** @description Primary recipients */
+            to: string[];
+            /** @description CC recipients */
+            cc?: string[];
+            /** @description BCC recipients */
+            bcc?: string[];
+            /** @description Subject prefix. Defaults to [DAGU]. */
+            subjectPrefix?: string;
+            /** @description Optional email subject template. When set, it replaces the generated subject. */
+            subjectTemplate?: string;
+            /** @description Optional email body template. When omitted, Dagu sends the default notification body. */
+            bodyTemplate?: string;
+            /** @description Attach DAG and step logs when available */
+            attachLogs?: boolean;
+        };
+        /** @description Workspace SMTP transport input for notification email delivery. Values are encrypted at rest where applicable. */
+        NotificationSMTPSettingsInput: {
+            /** @description SMTP server host */
+            host?: string;
+            /** @description SMTP server port */
+            port?: string;
+            /** @description SMTP username */
+            username?: string;
+            /** @description SMTP password. Omit on updates to preserve the existing password. */
+            password?: string;
+            /** @description Clear the stored SMTP password. */
+            clearPassword?: boolean;
+            /** @description Default sender address for notification email channels */
+            from?: string;
+        };
+        /** @description Public workspace SMTP transport settings. The SMTP password is never returned. */
+        NotificationSMTPSettings: {
+            /** @description SMTP server host */
+            host?: string;
+            /** @description SMTP server port */
+            port?: string;
+            /** @description SMTP username */
+            username?: string;
+            /** @description Default sender address for notification email channels */
+            from?: string;
+            /** @description Whether an SMTP password is configured */
+            passwordConfigured: boolean;
+        };
+        /** @description Workspace-level notification settings input */
+        NotificationWorkspaceSettingsInput: {
+            smtp?: components["schemas"]["NotificationSMTPSettingsInput"] | null;
+        };
+        /** @description Workspace-level notification settings */
+        NotificationWorkspaceSettings: {
+            smtp?: components["schemas"]["NotificationSMTPSettings"];
+            /** Format: date-time */
+            createdAt?: string;
+            /** Format: date-time */
+            updatedAt?: string;
+            /** @description User ID that last updated the workspace notification settings */
+            updatedBy?: string;
+        };
+        /**
+         * @description Notification route scope
+         * @enum {string}
+         */
+        NotificationRouteScope: NotificationRouteScope;
+        /** @description Route from notification events to a notification channel */
+        NotificationRouteInput: {
+            /** @description Stable route ID. Omit when adding a route. */
+            id?: string;
+            /** @description Notification channel ID */
+            channelId: string;
+            /** @description Whether this route receives notifications */
+            enabled: boolean;
+            /** @description Events delivered by this route. Omit only for backward compatibility; new clients should send an explicit event list. */
+            events?: components["schemas"]["NotificationEventType"][];
+        };
+        /** @description Route from notification events to a notification channel */
+        NotificationRoute: {
+            /** @description Stable route ID */
+            id: string;
+            /** @description Notification channel ID */
+            channelId: string;
+            /** @description Whether this route receives notifications */
+            enabled: boolean;
+            /** @description Events delivered by this route. Empty is treated as operational defaults for backward compatibility. */
+            events?: components["schemas"]["NotificationEventType"][];
+        };
+        /** @description Replacement route set for a global or workspace notification scope */
+        NotificationRouteSetInput: {
+            /** @description Whether this route set can deliver notifications */
+            enabled: boolean;
+            /** @description For workspace route sets, true means inherit Global instead of using workspace routes. Ignored for global route sets. */
+            inheritGlobal: boolean;
+            routes: components["schemas"]["NotificationRouteInput"][];
+        };
+        /** @description Notification routes for a global or workspace scope */
+        NotificationRouteSet: {
+            /** @description Stable route set ID, present after the route set is saved */
+            id?: string;
+            scope: components["schemas"]["NotificationRouteScope"];
+            /** @description Workspace name for workspace-scoped route sets */
+            workspace?: string;
+            /** @description Whether this route set can deliver notifications */
+            enabled: boolean;
+            /** @description For workspace route sets, true means inherit Global instead of using workspace routes */
+            inheritGlobal: boolean;
+            routes: components["schemas"]["NotificationRoute"][];
+            /** Format: date-time */
+            createdAt?: string;
+            /** Format: date-time */
+            updatedAt?: string;
+            /** @description User ID that last updated the route set */
+            updatedBy?: string;
+        };
+        /** @description Notification route sets */
+        NotificationRouteSetListResponse: {
+            routeSets: components["schemas"]["NotificationRouteSet"][];
+        };
+        /** @description Outbound webhook target input. Values are encrypted at rest. */
+        NotificationWebhookTargetInput: {
+            /**
+             * Format: uri
+             * @description HTTP or HTTPS endpoint to POST notification payloads to. Omit on updates to preserve the existing URL.
+             */
+            url?: string;
+            /** @description Additional request headers. Values are encrypted at rest. When provided, this replaces the stored header set. */
+            headers?: {
+                [key: string]: string;
+            };
+            /** @description Clear all stored webhook headers. */
+            clearHeaders?: boolean;
+            /** @description Optional HMAC secret for X-Dagu-Signature. Omit on updates to preserve the existing secret. */
+            hmacSecret?: string;
+            /** @description Clear the stored HMAC secret. */
+            clearHmacSecret?: boolean;
+            /** @description Optional rendered message added to the webhook JSON payload as message. */
+            messageTemplate?: string;
+            /** @description Allow plain HTTP webhook URLs. Disabled by default. */
+            allowInsecureHttp?: boolean;
+            /** @description Allow loopback or private network webhook targets. Disabled by default. */
+            allowPrivateNetwork?: boolean;
+        };
+        /** @description Public outbound webhook target details */
+        NotificationWebhookTarget: {
+            /** @description Whether a webhook URL is configured */
+            urlConfigured: boolean;
+            /** @description Redacted URL preview */
+            urlPreview?: string;
+            /** @description Header names with redacted values */
+            headers?: {
+                [key: string]: string;
+            };
+            /** @description Whether an HMAC secret is configured */
+            hmacSecretConfigured: boolean;
+            /** @description Optional rendered message added to the webhook JSON payload as message. */
+            messageTemplate?: string;
+            /** @description Whether this target allows plain HTTP webhook URLs */
+            allowInsecureHttp?: boolean;
+            /** @description Whether this target allows loopback or private network webhook targets */
+            allowPrivateNetwork?: boolean;
+        };
+        /** @description Slack incoming webhook target input. Values are encrypted at rest. */
+        NotificationSlackTargetInput: {
+            /**
+             * Format: uri
+             * @description Slack incoming webhook URL. Omit on updates to preserve the existing URL.
+             */
+            webhookUrl?: string;
+            /** @description Optional Slack message template. When omitted, Dagu sends the default notification text. */
+            messageTemplate?: string;
+        };
+        /** @description Public Slack target details */
+        NotificationSlackTarget: {
+            /** @description Whether a Slack incoming webhook URL is configured */
+            webhookUrlConfigured: boolean;
+            /** @description Redacted Slack webhook URL preview */
+            webhookUrlPreview?: string;
+            /** @description Optional Slack message template. When omitted, Dagu sends the default notification text. */
+            messageTemplate?: string;
+        };
+        /** @description Telegram Bot API target input. Bot token is encrypted at rest. */
+        NotificationTelegramTargetInput: {
+            /** @description Telegram bot token. Omit on updates to preserve the existing token. */
+            botToken?: string;
+            /** @description Telegram chat ID */
+            chatId?: string;
+            /** @description Optional Telegram message template. When omitted, Dagu sends the default notification text. */
+            messageTemplate?: string;
+        };
+        /** @description Public Telegram target details */
+        NotificationTelegramTarget: {
+            /** @description Whether a Telegram bot token is configured */
+            botTokenConfigured: boolean;
+            /** @description Redacted Telegram bot token preview */
+            botTokenPreview?: string;
+            /** @description Telegram chat ID */
+            chatId?: string;
+            /** @description Optional Telegram message template. When omitted, Dagu sends the default notification text. */
+            messageTemplate?: string;
+        };
+        /** @description Notification target input */
+        NotificationTargetInput: {
+            /** @description Stable target ID. Omit when creating a new target. */
+            id?: string;
+            /** @description Human-readable target name */
+            name?: string;
+            type: components["schemas"]["NotificationProviderType"];
+            /** @description Whether this target receives notifications */
+            enabled: boolean;
+            /** @description Optional target-level event filter. When omitted or empty, the target inherits DAG-level events. */
+            events?: components["schemas"]["NotificationEventType"][];
+            email?: components["schemas"]["NotificationEmailTarget"];
+            webhook?: components["schemas"]["NotificationWebhookTargetInput"];
+            slack?: components["schemas"]["NotificationSlackTargetInput"];
+            telegram?: components["schemas"]["NotificationTelegramTargetInput"];
+        };
+        /** @description Public notification target details. Secrets are never returned. */
+        NotificationTarget: {
+            /** @description Stable target ID */
+            id: string;
+            /** @description Human-readable target name */
+            name?: string;
+            type: components["schemas"]["NotificationProviderType"];
+            /** @description Whether this target receives notifications */
+            enabled: boolean;
+            /** @description Target-level event filter. Empty means the target inherits DAG-level events. */
+            events?: components["schemas"]["NotificationEventType"][];
+            email?: components["schemas"]["NotificationEmailTarget"];
+            webhook?: components["schemas"]["NotificationWebhookTarget"];
+            slack?: components["schemas"]["NotificationSlackTarget"];
+            telegram?: components["schemas"]["NotificationTelegramTarget"];
+        };
+        /** @description Notification channel input */
+        NotificationChannelInput: {
+            /** @description Human-readable channel name */
+            name: string;
+            type: components["schemas"]["NotificationProviderType"];
+            /** @description Whether this channel can receive notifications */
+            enabled: boolean;
+            email?: components["schemas"]["NotificationEmailTarget"];
+            webhook?: components["schemas"]["NotificationWebhookTargetInput"];
+            slack?: components["schemas"]["NotificationSlackTargetInput"];
+            telegram?: components["schemas"]["NotificationTelegramTargetInput"];
+        };
+        /** @description Notification channel. Secrets are never returned. */
+        NotificationChannel: {
+            /** @description Stable channel ID */
+            id: string;
+            /** @description Human-readable channel name */
+            name: string;
+            type: components["schemas"]["NotificationProviderType"];
+            /** @description Whether this channel can receive notifications */
+            enabled: boolean;
+            email?: components["schemas"]["NotificationEmailTarget"];
+            webhook?: components["schemas"]["NotificationWebhookTarget"];
+            slack?: components["schemas"]["NotificationSlackTarget"];
+            telegram?: components["schemas"]["NotificationTelegramTarget"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** @description User ID that last updated the channel */
+            updatedBy?: string;
+        };
+        /** @description Notification channels */
+        NotificationChannelListResponse: {
+            channels: components["schemas"]["NotificationChannel"][];
+        };
+        /** @description DAG subscription to a notification channel */
+        NotificationSubscriptionInput: {
+            /** @description Stable subscription ID. Omit when creating a new subscription. */
+            id?: string;
+            /** @description Notification channel ID */
+            channelId: string;
+            /** @description Whether this DAG subscription receives notifications */
+            enabled: boolean;
+            /** @description Optional subscription-level event filter. When omitted or empty, the subscription inherits DAG-level events. */
+            events?: components["schemas"]["NotificationEventType"][];
+        };
+        /** @description DAG subscription to a notification channel */
+        NotificationSubscription: {
+            /** @description Stable subscription ID */
+            id: string;
+            /** @description Notification channel ID */
+            channelId: string;
+            /** @description Whether this DAG subscription receives notifications */
+            enabled: boolean;
+            /** @description Subscription-level event filter. Empty means the subscription inherits DAG-level events. */
+            events?: components["schemas"]["NotificationEventType"][];
+        };
+        /** @description Server-side DAG notification settings */
+        DAGNotificationSettings: {
+            /** @description Stable settings ID */
+            id: string;
+            /** @description Name of the DAG these settings apply to */
+            dagName: string;
+            /** @description Whether notification delivery is enabled for this DAG */
+            enabled: boolean;
+            /** @description DAG run events that trigger notifications */
+            events: components["schemas"]["NotificationEventType"][];
+            /** @description DAG-local notification targets kept for backward compatibility */
+            targets: components["schemas"]["NotificationTarget"][];
+            /** @description Notification channels subscribed by this DAG */
+            subscriptions: components["schemas"]["NotificationSubscription"][];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** @description User ID that last updated the settings */
+            updatedBy?: string;
+        };
+        /** @description Request to replace DAG notification settings */
+        UpdateDAGNotificationsRequest: {
+            /** @description Whether notification delivery is enabled for this DAG */
+            enabled: boolean;
+            events: components["schemas"]["NotificationEventType"][];
+            targets: components["schemas"]["NotificationTargetInput"][];
+            subscriptions?: components["schemas"]["NotificationSubscriptionInput"][];
+        };
+        /** @description Request to send a test notification */
+        TestDAGNotificationRequest: {
+            /** @description Optional DAG-local target ID, subscription ID, or channel ID. When omitted, every enabled target and subscription is tested. */
+            targetId?: string;
+            eventType?: components["schemas"]["NotificationEventType"];
+        };
+        /** @description Delivery result for one notification target */
+        TestDAGNotificationResult: {
+            targetId: string;
+            targetName: string;
+            provider: components["schemas"]["NotificationProviderType"];
+            delivered: boolean;
+            error?: string;
+        };
+        /** @description Result of test notification delivery */
+        TestDAGNotificationResponse: {
+            results: components["schemas"]["TestDAGNotificationResult"][];
+        };
+        /**
+         * @description Incident provider type
+         * @enum {string}
+         */
+        IncidentProviderType: IncidentProviderType;
+        /**
+         * @description Incident severity
+         * @enum {string}
+         */
+        IncidentSeverity: IncidentSeverity;
+        /**
+         * @description Incident routing scope
+         * @enum {string}
+         */
+        IncidentPolicyScope: IncidentPolicyScope;
+        /** @description PagerDuty Events API v2 provider input. The routing key is encrypted at rest. */
+        IncidentPagerDutyProviderInput: {
+            /** @description PagerDuty Events API v2 routing key. Omit on updates to preserve the existing key. */
+            routingKey?: string;
+            /** @description Clear the stored routing key. */
+            clearRoutingKey?: boolean;
+        };
+        /** @description Public PagerDuty provider details */
+        IncidentPagerDutyProvider: {
+            /** @description Whether a PagerDuty routing key is configured */
+            routingKeyConfigured: boolean;
+            /** @description Redacted routing key preview */
+            routingKeyPreview?: string;
+        };
+        /** @description SolarWinds Incident Response incoming webhook provider input. The webhook URL is encrypted at rest. */
+        IncidentSolarWindsProviderInput: {
+            /**
+             * Format: uri
+             * @description Incoming webhook URL. Omit on updates to preserve the existing URL.
+             */
+            webhookUrl?: string;
+            /** @description Clear the stored webhook URL. */
+            clearWebhookUrl?: boolean;
+            /** @description Allow plain HTTP webhook URLs. Disabled by default. */
+            allowInsecureHttp?: boolean;
+            /** @description Allow loopback or private network webhook targets. Disabled by default. */
+            allowPrivateNetwork?: boolean;
+        };
+        /** @description Public SolarWinds Incident Response provider details */
+        IncidentSolarWindsProvider: {
+            /** @description Whether an incoming webhook URL is configured */
+            webhookUrlConfigured: boolean;
+            /** @description Redacted webhook URL preview */
+            webhookUrlPreview?: string;
+            /** @description Whether this provider allows plain HTTP webhook URLs */
+            allowInsecureHttp?: boolean;
+            /** @description Whether this provider allows loopback or private network webhook targets */
+            allowPrivateNetwork?: boolean;
+        };
+        /** @description PagerDuty incident provider input */
+        IncidentPagerDutyProviderInputEnvelope: {
+            /** @description Human-readable provider name */
+            name: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: IncidentPagerDutyProviderInputEnvelopeType;
+            /** @description Whether this provider can receive incident events */
+            enabled: boolean;
+            pagerDuty: components["schemas"]["IncidentPagerDutyProviderInput"];
+        };
+        /** @description SolarWinds Incident Response provider input */
+        IncidentSolarWindsProviderInputEnvelope: {
+            /** @description Human-readable provider name */
+            name: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: IncidentSolarWindsProviderInputEnvelopeType;
+            /** @description Whether this provider can receive incident events */
+            enabled: boolean;
+            solarWinds: components["schemas"]["IncidentSolarWindsProviderInput"];
+        };
+        /** @description Incident provider input */
+        IncidentProviderInput: components["schemas"]["IncidentPagerDutyProviderInputEnvelope"] | components["schemas"]["IncidentSolarWindsProviderInputEnvelope"];
+        /** @description Incident provider. Secrets are never returned. */
+        IncidentProvider: {
+            /** @description Stable provider ID */
+            id: string;
+            /** @description Human-readable provider name */
+            name: string;
+            type: components["schemas"]["IncidentProviderType"];
+            /** @description Whether this provider can receive incident events */
+            enabled: boolean;
+            pagerDuty?: components["schemas"]["IncidentPagerDutyProvider"];
+            solarWinds?: components["schemas"]["IncidentSolarWindsProvider"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** @description User ID that last updated the provider */
+            updatedBy?: string;
+        };
+        /** @description Incident providers */
+        IncidentProviderListResponse: {
+            providers: components["schemas"]["IncidentProvider"][];
+        };
+        /** @description Incident route input. A route opens an incident on final DAG failure and Dagu resolves the saved open incident on later success. */
+        IncidentPolicyInput: {
+            /** @description Stable route ID. Omit when adding a route. */
+            id?: string;
+            /** @description Incident provider ID */
+            providerId: string;
+            /** @description Whether this route is enabled. Normal incident routing sends true when the route exists. */
+            enabled: boolean;
+            severity: components["schemas"]["IncidentSeverity"];
+            /** @description Deprecated. Dagu resolves saved open incidents on recovery. */
+            resolveOnRecovery?: boolean;
+            /** @description Deprecated and ignored. Dagu generates stable provider incident keys. */
+            dedupKeyTemplate?: string;
+            /** @description Template for the provider incident summary/message. */
+            messageTemplate?: string;
+            /** @description Template for the provider incident description/details. */
+            descriptionTemplate?: string;
+        };
+        /** @description Incident route */
+        IncidentPolicy: {
+            /** @description Stable route ID */
+            id: string;
+            /** @description Incident provider ID */
+            providerId: string;
+            /** @description Whether this route is enabled */
+            enabled: boolean;
+            severity: components["schemas"]["IncidentSeverity"];
+            /** @description Deprecated. Dagu resolves saved open incidents on recovery. */
+            resolveOnRecovery: boolean;
+            /** @description Deprecated and ignored. Dagu generates stable provider incident keys. */
+            dedupKeyTemplate: string;
+            /** @description Template for the provider incident summary/message */
+            messageTemplate: string;
+            /** @description Template for the provider incident description/details */
+            descriptionTemplate: string;
+        };
+        /** @description Replacement incident routing for a global, workspace, or DAG scope */
+        IncidentPolicySetInput: {
+            /** @description Whether this scope can open new incidents */
+            enabled: boolean;
+            /** @description For workspace and DAG routing, true means inherit the parent scope instead of using local routes. Ignored for global routing. */
+            inheritParent: boolean;
+            policies: components["schemas"]["IncidentPolicyInput"][];
+        };
+        /** @description Incident routing for a global, workspace, or DAG scope */
+        IncidentPolicySet: {
+            /** @description Stable routing ID, present after routing is saved */
+            id?: string;
+            scope: components["schemas"]["IncidentPolicyScope"];
+            /** @description Workspace name for workspace-scoped routing */
+            workspace?: string;
+            /** @description DAG name for DAG-scoped routing */
+            dagName?: string;
+            /** @description Whether this scope can open new incidents */
+            enabled: boolean;
+            /** @description For workspace and DAG routing, true means inherit the parent scope instead of using local routes */
+            inheritParent: boolean;
+            policies: components["schemas"]["IncidentPolicy"][];
+            /** Format: date-time */
+            createdAt?: string;
+            /** Format: date-time */
+            updatedAt?: string;
+            /** @description User ID that last updated routing */
+            updatedBy?: string;
+        };
+        /** @description Incident routing scopes */
+        IncidentPolicySetListResponse: {
+            policySets: components["schemas"]["IncidentPolicySet"][];
+        };
+        /** @description Delivery result for one incident provider */
+        TestIncidentProviderResult: {
+            providerId: string;
+            providerName: string;
+            providerType: components["schemas"]["IncidentProviderType"];
+            delivered: boolean;
+            error?: string;
+        };
+        /** @description Result of test incident delivery */
+        TestIncidentProviderResponse: {
+            result: components["schemas"]["TestIncidentProviderResult"];
         };
         /**
          * Format: string
@@ -5176,6 +6178,58 @@ export interface components {
             success: boolean;
             message?: string;
             error?: string;
+        };
+        /** @enum {string} */
+        SecretProviderType: SecretProviderType;
+        /** @enum {string} */
+        SecretStatus: SecretStatus;
+        CreateSecretRequest: {
+            /** @description Secret scope for management. Use global for workspace-less secrets or a workspace name. Omit for global. */
+            workspace?: string;
+            /** @description Secret ref used from DAG YAML, for example prod/db-password. */
+            ref: string;
+            description?: string;
+            /** @enum {string} */
+            providerType: CreateSecretRequestProviderType;
+            /** @description Initial Dagu-managed value. Write-only; never returned by the API. */
+            value?: string;
+        };
+        UpdateSecretRequest: {
+            description?: string;
+            providerConnectionId?: string;
+            providerRef?: string;
+        };
+        WriteSecretVersionRequest: {
+            value: string;
+        };
+        SecretResponse: {
+            id: string;
+            /** @description global for workspace-less secrets, otherwise the workspace name. */
+            workspace: string;
+            /** @description Secret ref used from DAG YAML, for example prod/db-password. */
+            ref: string;
+            description?: string;
+            providerType: components["schemas"]["SecretProviderType"];
+            providerConnectionId?: string;
+            providerRef?: string;
+            providerRefFingerprint?: string;
+            currentVersion: number;
+            status: components["schemas"]["SecretStatus"];
+            hasValue: boolean;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: date-time */
+            lastCheckedAt?: string;
+            /** Format: date-time */
+            lastResolvedAt?: string;
+            /** Format: date-time */
+            lastRotatedAt?: string;
+        };
+        SecretListResponse: {
+            secrets: components["schemas"]["SecretResponse"][];
+            total: number;
         };
         CreateWorkspaceRequest: {
             name: components["schemas"]["WorkspaceName"];
@@ -10080,6 +11134,1201 @@ export interface operations {
             };
         };
     };
+    getNotificationSettings: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workspace notification settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationWorkspaceSettings"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateNotificationSettings: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationWorkspaceSettingsInput"];
+            };
+        };
+        responses: {
+            /** @description Workspace notification settings updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationWorkspaceSettings"];
+                };
+            };
+            /** @description Invalid notification settings */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listNotificationRoutes: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of notification route sets */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationRouteSetListResponse"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getGlobalNotificationRoutes: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Global notification route set */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationRouteSet"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateGlobalNotificationRoutes: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationRouteSetInput"];
+            };
+        };
+        responses: {
+            /** @description Global notification route set updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationRouteSet"];
+                };
+            };
+            /** @description Invalid notification route set */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Referenced notification channel was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getWorkspaceNotificationRoutes: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                workspaceName: components["schemas"]["WorkspaceName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workspace notification route set */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationRouteSet"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Workspace was not found or is not visible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateWorkspaceNotificationRoutes: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                workspaceName: components["schemas"]["WorkspaceName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationRouteSetInput"];
+            };
+        };
+        responses: {
+            /** @description Workspace notification route set updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationRouteSet"];
+                };
+            };
+            /** @description Invalid notification route set */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Workspace or referenced notification channel was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listNotificationChannels: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of notification channels */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationChannelListResponse"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createNotificationChannel: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationChannelInput"];
+            };
+        };
+        responses: {
+            /** @description Notification channel created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationChannel"];
+                };
+            };
+            /** @description Invalid notification channel */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getNotificationChannel: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                channelId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Notification channel */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationChannel"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Notification channel not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateNotificationChannel: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                channelId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationChannelInput"];
+            };
+        };
+        responses: {
+            /** @description Notification channel updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationChannel"];
+                };
+            };
+            /** @description Invalid notification channel */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Notification channel not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteNotificationChannel: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                channelId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Notification channel deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Notification channel not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Notification channel is used by a DAG */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listIncidentProviders: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of incident providers */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentProviderListResponse"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createIncidentProvider: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IncidentProviderInput"];
+            };
+        };
+        responses: {
+            /** @description Incident provider created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentProvider"];
+                };
+            };
+            /** @description Invalid incident provider */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getIncidentProvider: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                providerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Incident provider */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentProvider"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Incident provider not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateIncidentProvider: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                providerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IncidentProviderInput"];
+            };
+        };
+        responses: {
+            /** @description Incident provider updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentProvider"];
+                };
+            };
+            /** @description Invalid incident provider */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Incident provider not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteIncidentProvider: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                providerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Incident provider deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Incident provider not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Incident provider is used by routing */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    testIncidentProvider: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                providerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Test incident delivery attempted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestIncidentProviderResponse"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Incident provider not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listIncidentPolicies: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of incident routing scopes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentPolicySetListResponse"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getGlobalIncidentPolicies: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Global incident routing */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentPolicySet"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateGlobalIncidentPolicies: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IncidentPolicySetInput"];
+            };
+        };
+        responses: {
+            /** @description Global incident routing updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentPolicySet"];
+                };
+            };
+            /** @description Invalid incident routing */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Referenced incident provider was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getWorkspaceIncidentPolicies: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                workspaceName: components["schemas"]["WorkspaceName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workspace incident routing */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentPolicySet"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Workspace was not found or is not visible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateWorkspaceIncidentPolicies: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                workspaceName: components["schemas"]["WorkspaceName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IncidentPolicySetInput"];
+            };
+        };
+        responses: {
+            /** @description Workspace incident routing updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentPolicySet"];
+                };
+            };
+            /** @description Invalid incident routing */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Workspace or referenced incident provider was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     getDAGWebhook: {
         parameters: {
             query?: {
@@ -10531,6 +12780,385 @@ export interface operations {
             };
             /** @description Webhook HMAC is not supported on this node */
             501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getDAGNotifications: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description DAG notification settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DAGNotificationSettings"];
+                };
+            };
+            /** @description No notification settings configured for this DAG */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateDAGNotifications: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDAGNotificationsRequest"];
+            };
+        };
+        responses: {
+            /** @description DAG notification settings updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DAGNotificationSettings"];
+                };
+            };
+            /** @description Invalid notification settings */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - notification channels require an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description DAG not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteDAGNotifications: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description DAG notification settings deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No notification settings configured for this DAG */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    testDAGNotifications: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestDAGNotificationRequest"];
+            };
+        };
+        responses: {
+            /** @description Test notification delivery attempted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestDAGNotificationResponse"];
+                };
+            };
+            /** @description Invalid test notification request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description DAG or target not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getDAGIncidents: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description DAG incident routing */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentPolicySet"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description DAG not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateDAGIncidents: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IncidentPolicySetInput"];
+            };
+        };
+        responses: {
+            /** @description DAG incident routing updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentPolicySet"];
+                };
+            };
+            /** @description Invalid incident routing */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description DAG or referenced incident provider was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteDAGIncidents: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description DAG incident routing deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden - requires an active Dagu license or trial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description DAG incident policies not configured */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -14206,6 +16834,522 @@ export interface operations {
             };
         };
     };
+    listSecrets: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Single secret scope. Use global for workspace-less secrets or a workspace name. Omit for global. all and default are not supported for secrets. */
+                workspace?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of secrets */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretListResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createSecret: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSecretRequest"];
+            };
+        };
+        responses: {
+            /** @description Secret created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Secret already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getSecret: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                secretId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Secret metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteSecret: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                secretId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Secret deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateSecret: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                secretId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSecretRequest"];
+            };
+        };
+        responses: {
+            /** @description Secret updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    writeSecretVersion: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                secretId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WriteSecretVersionRequest"];
+            };
+        };
+        responses: {
+            /** @description Secret value written */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    disableSecret: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                secretId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Secret disabled */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    enableSecret: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                secretId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Secret enabled */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     listWorkspaces: {
         parameters: {
             query?: {
@@ -14448,6 +17592,44 @@ export enum WebhookHMACEnforcementMode {
 export enum WebhookHMACConfigureRequestAuthMode {
     token_and_hmac = "token_and_hmac",
     hmac_only = "hmac_only"
+}
+export enum NotificationProviderType {
+    email = "email",
+    webhook = "webhook",
+    slack = "slack",
+    telegram = "telegram"
+}
+export enum NotificationEventType {
+    dag_run_waiting = "dag.run.waiting",
+    dag_run_succeeded = "dag.run.succeeded",
+    dag_run_failed = "dag.run.failed",
+    dag_run_aborted = "dag.run.aborted",
+    dag_run_rejected = "dag.run.rejected"
+}
+export enum NotificationRouteScope {
+    global = "global",
+    workspace = "workspace"
+}
+export enum IncidentProviderType {
+    pagerduty = "pagerduty",
+    solarwinds_incident_response = "solarwinds_incident_response"
+}
+export enum IncidentSeverity {
+    critical = "critical",
+    error = "error",
+    warning = "warning",
+    info = "info"
+}
+export enum IncidentPolicyScope {
+    global = "global",
+    workspace = "workspace",
+    dag = "dag"
+}
+export enum IncidentPagerDutyProviderInputEnvelopeType {
+    pagerduty = "pagerduty"
+}
+export enum IncidentSolarWindsProviderInputEnvelopeType {
+    solarwinds_incident_response = "solarwinds_incident_response"
 }
 export enum Stream {
     stdout = "stdout",
@@ -14725,6 +17907,21 @@ export enum RemoteNodeResponseAuthType {
 export enum RemoteNodeResponseSource {
     config = "config",
     store = "store"
+}
+export enum SecretProviderType {
+    dagu_managed = "dagu-managed",
+    vault = "vault",
+    kubernetes = "kubernetes",
+    gcp_secret_manager = "gcp-secret-manager",
+    aws_secrets_manager = "aws-secrets-manager",
+    azure_key_vault = "azure-key-vault"
+}
+export enum SecretStatus {
+    active = "active",
+    disabled = "disabled"
+}
+export enum CreateSecretRequestProviderType {
+    dagu_managed = "dagu-managed"
 }
 export enum ComponentsParametersAgentSessionPaginationMode {
     offset = "offset",

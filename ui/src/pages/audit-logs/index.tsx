@@ -26,6 +26,7 @@ const CATEGORIES = [
   { value: 'dag', label: 'DAG' },
   { value: 'api_key', label: 'API Key' },
   { value: 'webhook', label: 'Webhook' },
+  { value: 'notification', label: 'Notification' },
   { value: 'git_sync', label: 'Git Sync' },
   { value: 'agent', label: 'Agent' },
 ];

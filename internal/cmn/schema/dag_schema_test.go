@@ -217,6 +217,104 @@ steps:
 	}
 }
 
+func TestDAGSchemaSecrets(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveDAGSchema(t)
+
+	tests := []struct {
+		name    string
+		spec    string
+		wantErr string
+	}{
+		{
+			name: "ProviderAndKey",
+			spec: `
+secrets:
+  - name: DB_PASSWORD
+    provider: env
+    key: DB_PASSWORD
+steps:
+  - run: echo done
+`,
+		},
+		{
+			name: "RegistryRef",
+			spec: `
+secrets:
+  - name: DB_PASSWORD
+    ref: prod/db-password
+steps:
+  - run: echo done
+`,
+		},
+		{
+			name: "RejectRefAndProviderKey",
+			spec: `
+secrets:
+  - name: DB_PASSWORD
+    ref: prod/db-password
+    provider: env
+    key: DB_PASSWORD
+steps:
+  - run: echo done
+`,
+			wantErr: "secrets",
+		},
+		{
+			name: "RejectOptionsWithRegistryRef",
+			spec: `
+secrets:
+  - name: DB_PASSWORD
+    ref: prod/db-password
+    options:
+      region: us-east-1
+steps:
+  - run: echo done
+`,
+			wantErr: "secrets",
+		},
+		{
+			name: "RejectDaguPrefixedName",
+			spec: `
+secrets:
+  - name: DAGU_TOKEN
+    provider: env
+    key: TOKEN
+steps:
+  - run: echo done
+`,
+			wantErr: "secrets",
+		},
+		{
+			name: "RejectInvalidRegistryRef",
+			spec: `
+secrets:
+  - name: DB_PASSWORD
+    ref: Prod/db_password
+steps:
+  - run: echo done
+`,
+			wantErr: "secrets",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc := mustParseYAMLDocument(t, tt.spec)
+			err := resolved.Validate(doc)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
 func TestDAGSchemaStepOutputObject(t *testing.T) {
 	t.Parallel()
 
@@ -361,6 +459,191 @@ steps:
 `,
 		},
 		{
+			name: "FileActions",
+			spec: `
+steps:
+  - action: file.write
+    with:
+      path: out/data.txt
+      content: hello
+      create_dirs: true
+  - action: file.copy
+    with:
+      source: out/data.txt
+      destination: out/copy.txt
+  - action: file.list
+    with:
+      path: out
+      recursive: true
+      pattern: "**/*.txt"
+`,
+		},
+		{
+			name: "DuckDBActions",
+			spec: `
+steps:
+  - action: duckdb.query
+    with:
+      dsn: ":memory:"
+      query: SELECT 1
+  - action: duckdb.import
+    with:
+      dsn: ./analytics.duckdb
+      import:
+        input_file: ./users.csv
+        table: users
+`,
+		},
+		{
+			name: "DataConvertAction",
+			spec: `
+steps:
+  - action: data.convert
+    with:
+      from: csv
+      to: json
+      data: |
+        name,age
+        Alice,30
+`,
+		},
+		{
+			name: "DataPickAction",
+			spec: `
+steps:
+  - action: data.pick
+    with:
+      from: yaml
+      select: .spec.containers[0].image
+      raw: true
+      data:
+        spec:
+          containers:
+            - image: nginx:1.27
+`,
+		},
+		{
+			name: "ArtifactActions",
+			spec: `
+steps:
+  - run: ./generate-report
+    stdout:
+      artifact: reports/report.md
+    stderr:
+      artifact: reports/report.err
+  - action: artifact.write
+    with:
+      path: reports/summary.md
+      content: hello
+  - action: artifact.read
+    with:
+      path: reports/summary.md
+  - action: artifact.list
+    with:
+      path: reports
+      recursive: true
+      pattern: "**/*.md"
+  - action: artifact.list
+`,
+		},
+		{
+			name: "OutputsActions",
+			spec: `
+steps:
+  - run: printf '{"id":"msg-123"}'
+    stdout:
+      outputs:
+        fields:
+          messageId:
+            decode: json
+            select: .id
+          status:
+            value: sent
+  - action: outputs.write
+    with:
+      values:
+        messageId: msg-123
+        accepted: true
+`,
+		},
+		{
+			name: "LegacyFileTypeConfig",
+			spec: `
+steps:
+  - type: file
+    command: stat
+    config:
+      path: out/data.txt
+`,
+		},
+		{
+			name: "WaitActions",
+			spec: `
+steps:
+  - action: wait.duration
+    with:
+      duration: 10s
+  - action: wait.until
+    with:
+      until: "2026-01-02T03:04:05Z"
+  - action: wait.file
+    with:
+      path: out/ready.flag
+      state: exists
+      poll_interval: 2s
+  - action: wait.http
+    with:
+      url: https://example.com/health
+      status: 204
+      request_timeout: 10s
+`,
+		},
+		{
+			name: "RejectWaitActionUnknownConfigField",
+			spec: `
+steps:
+  - action: wait.duration
+    with:
+      duration: 10s
+      seconds: 10
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "LegacyDuckDBTypeConfig",
+			spec: `
+steps:
+  - type: duckdb
+    command: SELECT 1
+    config:
+      dsn: ":memory:"
+      output_format: jsonl
+`,
+		},
+		{
+			name: "RejectFileActionUnknownConfigField",
+			spec: `
+steps:
+  - action: file.delete
+    with:
+      path: out/data.txt
+      dryrun: true
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectLegacyFileTypeUnknownConfigField",
+			spec: `
+steps:
+  - type: file
+    command: delete
+    config:
+      path: out/data.txt
+      dryrun: true
+`,
+			wantErr: "did not validate",
+		},
+		{
 			name: "RejectRunAndAction",
 			spec: `
 steps:
@@ -462,6 +745,42 @@ steps:
   - action: noop
     with:
       message: ignored
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectFileActionUnknownConfig",
+			spec: `
+steps:
+  - action: file.read
+    with:
+      path: out/data.txt
+      unexpected: true
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectDataConvertUnknownConfig",
+			spec: `
+steps:
+  - action: data.convert
+    with:
+      from: csv
+      to: json
+      data: "name\nAlice\n"
+      unexpected: true
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectDataPickMissingSelect",
+			spec: `
+steps:
+  - action: data.pick
+    with:
+      from: yaml
+      data:
+        name: Alice
 `,
 			wantErr: "did not validate",
 		},
@@ -933,6 +1252,29 @@ steps:
 			require.Contains(t, err.Error(), tt.wantErr)
 		})
 	}
+}
+
+func TestDAGSchemaFileExecutorObjectRejectsUnknownConfig(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveDAGSchemaDefinition(t, "executorObject")
+
+	require.NoError(t, resolved.Validate(map[string]any{
+		"type": "file",
+		"config": map[string]any{
+			"path": "data.txt",
+		},
+	}))
+
+	err := resolved.Validate(map[string]any{
+		"type": "file",
+		"config": map[string]any{
+			"path":   "data.txt",
+			"dryrun": true,
+		},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "dryrun")
 }
 
 func TestDAGSchemaLogExecutorObjectRequiresMessage(t *testing.T) {
