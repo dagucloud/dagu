@@ -1096,6 +1096,9 @@ func TestFormatResult(t *testing.T) {
 		if !strings.Contains(output, "v1.30.3") {
 			t.Error("FormatResult() should contain target version")
 		}
+		if strings.Contains(output, "Target version:  ") {
+			t.Error("FormatResult() should not add extra spacing before target version")
+		}
 	})
 
 	t.Run("already latest", func(t *testing.T) {
@@ -1161,6 +1164,9 @@ func TestFormatCheckResult(t *testing.T) {
 		if !strings.Contains(output, "v1.30.3") {
 			t.Error("FormatCheckResult() should contain latest version")
 		}
+		if strings.Contains(output, "Latest version:  ") {
+			t.Error("FormatCheckResult() should not add extra spacing before latest version")
+		}
 		if !strings.Contains(output, "update is available") {
 			t.Error("FormatCheckResult() should indicate update available")
 		}
@@ -1190,6 +1196,9 @@ func TestFormatCheckResult(t *testing.T) {
 		output := FormatCheckResult(result)
 		if !strings.Contains(output, "Target version") {
 			t.Error("FormatCheckResult() should show 'Target version' when specific version requested")
+		}
+		if strings.Contains(output, "Target version:  ") {
+			t.Error("FormatCheckResult() should not add extra spacing before target version")
 		}
 		if strings.Contains(output, "Latest version") {
 			t.Error("FormatCheckResult() should not show 'Latest version' when specific version requested")
