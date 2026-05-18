@@ -283,7 +283,7 @@ export function IncidentPolicyEditor({
                           }))
                         }
                       >
-                        <SelectTrigger>
+                        <SelectTrigger className="h-7">
                           <SelectValue placeholder="Select connection" />
                         </SelectTrigger>
                         <SelectContent>
@@ -320,7 +320,7 @@ export function IncidentPolicyEditor({
                           }))
                         }
                       >
-                        <SelectTrigger>
+                        <SelectTrigger className="h-7">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>

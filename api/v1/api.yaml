@@ -10622,26 +10622,60 @@ components:
           type: boolean
           description: "Whether this provider allows loopback or private network webhook targets"
 
-    IncidentProviderInput:
+    IncidentPagerDutyProviderInputEnvelope:
       type: object
-      description: "Incident provider input"
+      description: "PagerDuty incident provider input"
       required:
         - name
         - type
         - enabled
+        - pagerDuty
       properties:
         name:
           type: string
           description: "Human-readable provider name"
         type:
-          $ref: "#/components/schemas/IncidentProviderType"
+          type: string
+          enum:
+            - pagerduty
         enabled:
           type: boolean
           description: "Whether this provider can receive incident events"
         pagerDuty:
           $ref: "#/components/schemas/IncidentPagerDutyProviderInput"
+
+    IncidentSolarWindsProviderInputEnvelope:
+      type: object
+      description: "SolarWinds Incident Response provider input"
+      required:
+        - name
+        - type
+        - enabled
+        - solarWinds
+      properties:
+        name:
+          type: string
+          description: "Human-readable provider name"
+        type:
+          type: string
+          enum:
+            - solarwinds_incident_response
+        enabled:
+          type: boolean
+          description: "Whether this provider can receive incident events"
         solarWinds:
           $ref: "#/components/schemas/IncidentSolarWindsProviderInput"
+
+    IncidentProviderInput:
+      description: "Incident provider input"
+      oneOf:
+        - $ref: "#/components/schemas/IncidentPagerDutyProviderInputEnvelope"
+        - $ref: "#/components/schemas/IncidentSolarWindsProviderInputEnvelope"
+      discriminator:
+        propertyName: type
+        mapping:
+          pagerduty: "#/components/schemas/IncidentPagerDutyProviderInputEnvelope"
+          solarwinds_incident_response: "#/components/schemas/IncidentSolarWindsProviderInputEnvelope"
 
     IncidentProvider:
       type: object
@@ -10697,7 +10731,6 @@ components:
         - providerId
         - enabled
         - severity
-        - resolveOnRecovery
       properties:
         id:
           type: string

@@ -4093,16 +4093,34 @@ export interface components {
             /** @description Whether this provider allows loopback or private network webhook targets */
             allowPrivateNetwork?: boolean;
         };
-        /** @description Incident provider input */
-        IncidentProviderInput: {
+        /** @description PagerDuty incident provider input */
+        IncidentPagerDutyProviderInputEnvelope: {
             /** @description Human-readable provider name */
             name: string;
-            type: components["schemas"]["IncidentProviderType"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: IncidentPagerDutyProviderInputEnvelopeType;
             /** @description Whether this provider can receive incident events */
             enabled: boolean;
-            pagerDuty?: components["schemas"]["IncidentPagerDutyProviderInput"];
-            solarWinds?: components["schemas"]["IncidentSolarWindsProviderInput"];
+            pagerDuty: components["schemas"]["IncidentPagerDutyProviderInput"];
         };
+        /** @description SolarWinds Incident Response provider input */
+        IncidentSolarWindsProviderInputEnvelope: {
+            /** @description Human-readable provider name */
+            name: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: IncidentSolarWindsProviderInputEnvelopeType;
+            /** @description Whether this provider can receive incident events */
+            enabled: boolean;
+            solarWinds: components["schemas"]["IncidentSolarWindsProviderInput"];
+        };
+        /** @description Incident provider input */
+        IncidentProviderInput: components["schemas"]["IncidentPagerDutyProviderInputEnvelope"] | components["schemas"]["IncidentSolarWindsProviderInputEnvelope"];
         /** @description Incident provider. Secrets are never returned. */
         IncidentProvider: {
             /** @description Stable provider ID */
@@ -4135,7 +4153,7 @@ export interface components {
             enabled: boolean;
             severity: components["schemas"]["IncidentSeverity"];
             /** @description Deprecated. Dagu resolves saved open incidents on recovery. */
-            resolveOnRecovery: boolean;
+            resolveOnRecovery?: boolean;
             /** @description Deprecated and ignored. Dagu generates stable provider incident keys. */
             dedupKeyTemplate?: string;
             /** @description Template for the provider incident summary/message. */
@@ -17606,6 +17624,12 @@ export enum IncidentPolicyScope {
     global = "global",
     workspace = "workspace",
     dag = "dag"
+}
+export enum IncidentPagerDutyProviderInputEnvelopeType {
+    pagerduty = "pagerduty"
+}
+export enum IncidentSolarWindsProviderInputEnvelopeType {
+    solarwinds_incident_response = "solarwinds_incident_response"
 }
 export enum Stream {
     stdout = "stdout",

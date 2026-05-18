@@ -591,9 +591,13 @@ func (s *Service) resolveIncident(ctx context.Context, provider *incidentmodel.P
 		return s.sendProviderEvent(ctx, provider, providerActionResolve, dedupKey, policy, event)
 	})
 	if err != nil {
+		dagName := ""
+		if event.Status != nil {
+			dagName = event.Status.Name
+		}
 		s.logger.Warn("Failed to resolve incident",
 			slog.String("provider", provider.ID),
-			slog.String("dag", event.Status.Name),
+			slog.String("dag", dagName),
 			slog.String("dedup_key", dedupKey),
 			slog.String("error", err.Error()),
 		)

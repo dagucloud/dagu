@@ -41,7 +41,10 @@ func (a *API) CreateIncidentProvider(ctx context.Context, request api.CreateInci
 	if request.Body == nil {
 		return nil, badIncidentRequest("request body is required")
 	}
-	provider := incidentProviderFromRequest("", *request.Body)
+	provider, err := incidentProviderFromRequest("", *request.Body)
+	if err != nil {
+		return nil, badIncidentRequest(err.Error())
+	}
 	saved, err := a.incidentService.SaveProvider(ctx, provider, getCreatorID(ctx))
 	if err != nil {
 		if incidentRequestError(err) {
@@ -84,7 +87,10 @@ func (a *API) UpdateIncidentProvider(ctx context.Context, request api.UpdateInci
 		}
 		return nil, err
 	}
-	provider := incidentProviderFromRequest(request.ProviderId, *request.Body)
+	provider, err := incidentProviderFromRequest(request.ProviderId, *request.Body)
+	if err != nil {
+		return nil, badIncidentRequest(err.Error())
+	}
 	saved, err := a.incidentService.SaveProvider(ctx, provider, getCreatorID(ctx))
 	if err != nil {
 		switch {
@@ -354,32 +360,39 @@ func incidentNotFound(message string) *Error {
 	}
 }
 
-func incidentProviderFromRequest(id string, input api.IncidentProviderInput) *incidentmodel.Provider {
-	provider := &incidentmodel.Provider{
-		ID:      id,
-		Name:    input.Name,
-		Type:    incidentmodel.ProviderType(input.Type),
-		Enabled: input.Enabled,
+func incidentProviderFromRequest(id string, input api.IncidentProviderInput) (*incidentmodel.Provider, error) {
+	value, err := input.ValueByDiscriminator()
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", incidentmodel.ErrInvalidProvider, err)
 	}
-	switch provider.Type {
-	case incidentmodel.ProviderPagerDuty:
-		cfg := &incidentmodel.PagerDutyProvider{}
-		if input.PagerDuty != nil {
-			cfg.RoutingKey = valueOf(input.PagerDuty.RoutingKey)
-			cfg.ClearRoutingKey = valueOf(input.PagerDuty.ClearRoutingKey)
-		}
-		provider.PagerDuty = cfg
-	case incidentmodel.ProviderSolarWindsIncidentResponse:
-		cfg := &incidentmodel.SolarWindsProvider{}
-		if input.SolarWinds != nil {
-			cfg.WebhookURL = valueOf(input.SolarWinds.WebhookUrl)
-			cfg.AllowInsecureHTTP = valueOf(input.SolarWinds.AllowInsecureHttp)
-			cfg.AllowPrivateNetwork = valueOf(input.SolarWinds.AllowPrivateNetwork)
-			cfg.ClearWebhookURL = valueOf(input.SolarWinds.ClearWebhookUrl)
-		}
-		provider.SolarWinds = cfg
+	switch body := value.(type) {
+	case api.IncidentPagerDutyProviderInputEnvelope:
+		return &incidentmodel.Provider{
+			ID:      id,
+			Name:    body.Name,
+			Type:    incidentmodel.ProviderPagerDuty,
+			Enabled: body.Enabled,
+			PagerDuty: &incidentmodel.PagerDutyProvider{
+				RoutingKey:      valueOf(body.PagerDuty.RoutingKey),
+				ClearRoutingKey: valueOf(body.PagerDuty.ClearRoutingKey),
+			},
+		}, nil
+	case api.IncidentSolarWindsProviderInputEnvelope:
+		return &incidentmodel.Provider{
+			ID:      id,
+			Name:    body.Name,
+			Type:    incidentmodel.ProviderSolarWindsIncidentResponse,
+			Enabled: body.Enabled,
+			SolarWinds: &incidentmodel.SolarWindsProvider{
+				WebhookURL:          valueOf(body.SolarWinds.WebhookUrl),
+				AllowInsecureHTTP:   valueOf(body.SolarWinds.AllowInsecureHttp),
+				AllowPrivateNetwork: valueOf(body.SolarWinds.AllowPrivateNetwork),
+				ClearWebhookURL:     valueOf(body.SolarWinds.ClearWebhookUrl),
+			},
+		}, nil
+	default:
+		return nil, fmt.Errorf("%w: unsupported incident provider input", incidentmodel.ErrInvalidProvider)
 	}
-	return provider
 }
 
 func incidentPolicySetFromRequest(scope incidentmodel.PolicyScope, workspaceName, dagName string, input api.IncidentPolicySetInput) *incidentmodel.PolicySet {

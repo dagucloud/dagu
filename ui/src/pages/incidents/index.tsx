@@ -304,7 +304,7 @@ function ProviderCard({
             Type
           </label>
           <Select value={draft.type} onValueChange={handleTypeChange}>
-            <SelectTrigger>
+            <SelectTrigger className="h-7">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -394,7 +394,8 @@ function ProviderCard({
 }
 
 export function IncidentProvidersPage(): ReactElement {
-  const { setTitle } = useContext(AppBarContext);
+  const appBarContext = useContext(AppBarContext);
+  const remoteNode = appBarContext.selectedRemoteNode || 'local';
   const client = useClient();
   const { showToast } = useSimpleToast();
   const [drafts, setDrafts] = useState<DraftProvider[]>([]);
@@ -410,7 +411,7 @@ export function IncidentProvidersPage(): ReactElement {
     mutate,
   } = useQuery(
     '/incident-providers',
-    {},
+    { params: { query: { remoteNode } } },
     {
       revalidateOnFocus: false,
       revalidateOnMount: true,
@@ -418,8 +419,8 @@ export function IncidentProvidersPage(): ReactElement {
   );
 
   useEffect(() => {
-    setTitle('Incident Connections');
-  }, [setTitle]);
+    appBarContext.setTitle('Incident Connections');
+  }, [appBarContext]);
 
   useEffect(() => {
     if (data) {
@@ -440,10 +441,13 @@ export function IncidentProvidersPage(): ReactElement {
       const body = providerInput(draft);
       const response = draft.id
         ? await client.PUT('/incident-providers/{providerId}', {
-            params: { path: { providerId: draft.id } },
+            params: { path: { providerId: draft.id }, query: { remoteNode } },
             body,
           })
-        : await client.POST('/incident-providers', { body });
+        : await client.POST('/incident-providers', {
+            params: { query: { remoteNode } },
+            body,
+          });
       if (response.error) {
         throw new Error(response.error.message || 'Failed to save connection');
       }
@@ -465,7 +469,7 @@ export function IncidentProvidersPage(): ReactElement {
     setError(null);
     try {
       const response = await client.DELETE('/incident-providers/{providerId}', {
-        params: { path: { providerId: deleteDraft.id } },
+        params: { path: { providerId: deleteDraft.id }, query: { remoteNode } },
       });
       if (response.error) {
         throw new Error(
@@ -492,7 +496,7 @@ export function IncidentProvidersPage(): ReactElement {
       const response = await client.POST(
         '/incident-providers/{providerId}/test',
         {
-          params: { path: { providerId: draft.id } },
+          params: { path: { providerId: draft.id }, query: { remoteNode } },
         }
       );
       if (response.error || !response.data?.result.delivered) {
@@ -690,6 +694,7 @@ function ScopeSelector({
 
 export function IncidentPoliciesPage(): ReactElement {
   const appBarContext = useContext(AppBarContext);
+  const remoteNode = appBarContext.selectedRemoteNode || 'local';
   const client = useClient();
   const { showToast } = useSimpleToast();
   const selectedWorkspaceName = workspaceNameForSelection(
@@ -719,7 +724,7 @@ export function IncidentPoliciesPage(): ReactElement {
     isLoading: providersLoading,
   } = useQuery(
     '/incident-providers',
-    {},
+    { params: { query: { remoteNode } } },
     {
       revalidateOnFocus: false,
       revalidateOnMount: true,
@@ -732,7 +737,7 @@ export function IncidentPoliciesPage(): ReactElement {
     mutate: mutateGlobal,
   } = useQuery(
     '/incident-policies/global',
-    {},
+    { params: { query: { remoteNode } } },
     {
       revalidateOnFocus: false,
       revalidateOnMount: true,
@@ -746,7 +751,12 @@ export function IncidentPoliciesPage(): ReactElement {
   } = useQuery(
     '/incident-policies/workspaces/{workspaceName}',
     canConfigureWorkspace
-      ? { params: { path: { workspaceName: selectedWorkspaceName } } }
+      ? {
+          params: {
+            path: { workspaceName: selectedWorkspaceName },
+            query: { remoteNode },
+          },
+        }
       : null,
     {
       revalidateOnFocus: false,
@@ -805,11 +815,21 @@ export function IncidentPoliciesPage(): ReactElement {
     try {
       const draft = activeScope === 'global' ? globalDraft : workspaceDraft;
       const body = policySetInput(draft);
+      if (activeScope === 'workspace' && !selectedWorkspaceName) {
+        setError('Select a workspace before saving workspace routing.');
+        return;
+      }
       const response =
         activeScope === 'global'
-          ? await client.PUT('/incident-policies/global', { body })
+          ? await client.PUT('/incident-policies/global', {
+              params: { query: { remoteNode } },
+              body,
+            })
           : await client.PUT('/incident-policies/workspaces/{workspaceName}', {
-              params: { path: { workspaceName: selectedWorkspaceName } },
+              params: {
+                path: { workspaceName: selectedWorkspaceName },
+                query: { remoteNode },
+              },
               body,
             });
       if (response.error) {

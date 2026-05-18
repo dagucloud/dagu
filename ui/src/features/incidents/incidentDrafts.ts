@@ -3,9 +3,11 @@
 
 import {
   components,
+  IncidentPagerDutyProviderInputEnvelopeType,
   IncidentPolicyScope,
   IncidentProviderType,
   IncidentSeverity,
+  IncidentSolarWindsProviderInputEnvelopeType,
 } from '@/api/v1/schema';
 
 export type IncidentProvider = components['schemas']['IncidentProvider'];
@@ -154,24 +156,26 @@ export function providerDraftFromAPI(
 }
 
 export function providerInput(draft: DraftProvider): IncidentProviderInput {
-  const input: IncidentProviderInput = {
-    name: draft.name.trim(),
-    type: draft.type,
-    enabled: draft.enabled,
-  };
   if (draft.type === IncidentProviderType.pagerduty) {
-    input.pagerDuty = {
-      routingKey: draft.routingKey.trim() || undefined,
+    return {
+      name: draft.name.trim(),
+      type: IncidentPagerDutyProviderInputEnvelopeType.pagerduty,
+      enabled: draft.enabled,
+      pagerDuty: {
+        routingKey: draft.routingKey.trim() || undefined,
+      },
     };
   }
-  if (draft.type === IncidentProviderType.solarwinds_incident_response) {
-    input.solarWinds = {
+  return {
+    name: draft.name.trim(),
+    type: IncidentSolarWindsProviderInputEnvelopeType.solarwinds_incident_response,
+    enabled: draft.enabled,
+    solarWinds: {
       webhookUrl: draft.webhookUrl.trim() || undefined,
       allowInsecureHttp: draft.allowInsecureHttp || undefined,
       allowPrivateNetwork: draft.allowPrivateNetwork || undefined,
-    };
-  }
-  return input;
+    },
+  };
 }
 
 export function blankPolicy(providerId = ''): DraftIncidentPolicy {

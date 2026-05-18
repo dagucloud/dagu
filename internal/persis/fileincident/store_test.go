@@ -4,6 +4,7 @@
 package fileincident
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -44,8 +45,7 @@ func TestStoreEncryptsIncidentProviderSecretsAtRest(t *testing.T) {
 		if readErr != nil {
 			return readErr
 		}
-		foundPlaintext = foundPlaintext || string(data) == "pagerduty-routing-key"
-		foundPlaintext = foundPlaintext || containsString(data, "pagerduty-routing-key")
+		foundPlaintext = foundPlaintext || bytes.Contains(data, []byte("pagerduty-routing-key"))
 		return nil
 	})
 	require.NoError(t, err)
@@ -101,17 +101,4 @@ func TestStorePersistsPolicySetAndState(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, openStates, 1)
 	assert.Equal(t, state.DedupKey, openStates[0].DedupKey)
-}
-
-func containsString(data []byte, value string) bool {
-	return len(value) > 0 && string(data) != "" && indexString(string(data), value) >= 0
-}
-
-func indexString(data, value string) int {
-	for i := 0; i+len(value) <= len(data); i++ {
-		if data[i:i+len(value)] == value {
-			return i
-		}
-	}
-	return -1
 }

@@ -10,7 +10,7 @@ import {
   Settings,
   Shield,
 } from 'lucide-react';
-import { ReactElement, useEffect, useMemo, useState } from 'react';
+import { ReactElement, useContext, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -19,6 +19,7 @@ import { useSimpleToast } from '@/components/ui/simple-toast';
 import { useClient, useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
 import { useLicense } from '@/hooks/useLicense';
+import { AppBarContext } from '@/contexts/AppBarContext';
 import { IncidentPolicyScope } from '@/api/v1/schema';
 import { IncidentPolicyEditor } from '@/features/incidents/IncidentPolicyEditor';
 import {
@@ -71,6 +72,8 @@ export default function IncidentsTab({
 }: IncidentsTabProps): ReactElement {
   const license = useLicense();
   const licensed = !license.community && (license.valid || license.gracePeriod);
+  const appBarContext = useContext(AppBarContext);
+  const remoteNode = appBarContext.selectedRemoteNode || 'local';
   const client = useClient();
   const { showToast } = useSimpleToast();
   const [draft, setDraft] = useState<DraftIncidentPolicySet>(() =>
@@ -90,10 +93,14 @@ export default function IncidentsTab({
     data: providersData,
     error: providersError,
     isLoading: providersLoading,
-  } = useQuery('/incident-providers', whenEnabled(licensed, {}), {
-    revalidateOnFocus: false,
-    revalidateOnMount: true,
-  });
+  } = useQuery(
+    '/incident-providers',
+    whenEnabled(licensed, { params: { query: { remoteNode } } }),
+    {
+      revalidateOnFocus: false,
+      revalidateOnMount: true,
+    }
+  );
   const {
     data,
     error: loadError,
@@ -101,7 +108,9 @@ export default function IncidentsTab({
     mutate,
   } = useQuery(
     '/dags/{fileName}/incidents',
-    whenEnabled(licensed, { params: { path: { fileName } } }),
+    whenEnabled(licensed, {
+      params: { path: { fileName }, query: { remoteNode } },
+    }),
     {
       revalidateOnFocus: false,
       revalidateOnMount: true,
@@ -156,7 +165,7 @@ export default function IncidentsTab({
     setError(null);
     try {
       const response = await client.PUT('/dags/{fileName}/incidents', {
-        params: { path: { fileName } },
+        params: { path: { fileName }, query: { remoteNode } },
         body: policySetInput(draft),
       });
       if (response.error) {
@@ -189,7 +198,7 @@ export default function IncidentsTab({
     setError(null);
     try {
       const response = await client.DELETE('/dags/{fileName}/incidents', {
-        params: { path: { fileName } },
+        params: { path: { fileName }, query: { remoteNode } },
       });
       if (response.error) {
         throw new Error(response.error.message || 'Failed to reset incidents');

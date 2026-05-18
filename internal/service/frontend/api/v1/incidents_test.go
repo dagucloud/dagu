@@ -46,14 +46,16 @@ func TestIncidentManagement_GlobalWorkspaceAndDAGPolicySets(t *testing.T) {
 	)
 
 	routingKey := "pagerduty-routing-key"
-	providerResp := server.Client().Post("/api/v1/incident-providers", api.IncidentProviderInput{
+	providerInput := api.IncidentProviderInput{}
+	require.NoError(t, providerInput.FromIncidentPagerDutyProviderInputEnvelope(api.IncidentPagerDutyProviderInputEnvelope{
 		Name:    "PagerDuty",
-		Type:    api.IncidentProviderTypePagerduty,
 		Enabled: true,
-		PagerDuty: &api.IncidentPagerDutyProviderInput{
+		PagerDuty: api.IncidentPagerDutyProviderInput{
 			RoutingKey: &routingKey,
 		},
-	}).ExpectStatus(http.StatusCreated).Send(t)
+	}))
+	providerResp := server.Client().Post("/api/v1/incident-providers", providerInput).
+		ExpectStatus(http.StatusCreated).Send(t)
 	var provider api.IncidentProvider
 	providerResp.Unmarshal(t, &provider)
 	require.NotEmpty(t, provider.Id)
@@ -71,7 +73,7 @@ func TestIncidentManagement_GlobalWorkspaceAndDAGPolicySets(t *testing.T) {
 			ProviderId:          provider.Id,
 			Enabled:             true,
 			Severity:            api.IncidentSeverityCritical,
-			ResolveOnRecovery:   false,
+			ResolveOnRecovery:   new(false),
 			DedupKeyTemplate:    &dedupKeyTemplate,
 			MessageTemplate:     &messageTemplate,
 			DescriptionTemplate: &descriptionTemplate,
@@ -118,7 +120,7 @@ func TestIncidentManagement_GlobalWorkspaceAndDAGPolicySets(t *testing.T) {
 			ProviderId:        provider.Id,
 			Enabled:           true,
 			Severity:          api.IncidentSeverityError,
-			ResolveOnRecovery: true,
+			ResolveOnRecovery: new(true),
 		}},
 	}).ExpectStatus(http.StatusOK).Send(t)
 	var dagSet api.IncidentPolicySet
