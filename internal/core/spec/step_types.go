@@ -80,7 +80,6 @@ var builtinStepTypeNames = map[string]struct{}{
 	"data":          {},
 	"dag_enqueue":   {},
 	"docker":        {},
-	"duckdb":        {},
 	"file":          {},
 	"gha":           {},
 	"git":           {},
