@@ -497,6 +497,14 @@ func (s *Service) deliverIncidentEvent(
 		return s.openIncident(ctx, provider, policy, event, dedupKey)
 	case eventstore.TypeDAGRunSucceeded:
 		return s.resolveIncident(ctx, provider, policy, event, dedupKey)
+	case eventstore.TypeDAGRunQueued,
+		eventstore.TypeDAGRunRunning,
+		eventstore.TypeDAGRunUpdated,
+		eventstore.TypeDAGRunWaiting,
+		eventstore.TypeDAGRunAborted,
+		eventstore.TypeDAGRunRejected,
+		eventstore.TypeLLMUsageRecorded:
+		return true
 	default:
 		return true
 	}
@@ -694,6 +702,14 @@ func policyMatchesEvent(policy incidentmodel.Policy, eventType eventstore.EventT
 		return true
 	case eventstore.TypeDAGRunSucceeded:
 		return true
+	case eventstore.TypeDAGRunQueued,
+		eventstore.TypeDAGRunRunning,
+		eventstore.TypeDAGRunUpdated,
+		eventstore.TypeDAGRunWaiting,
+		eventstore.TypeDAGRunAborted,
+		eventstore.TypeDAGRunRejected,
+		eventstore.TypeLLMUsageRecorded:
+		return false
 	default:
 		return false
 	}
@@ -708,6 +724,14 @@ func incidentEventSupported(event chatbridge.NotificationEvent) bool {
 		return isFinalFailure(event.Status)
 	case eventstore.TypeDAGRunSucceeded:
 		return true
+	case eventstore.TypeDAGRunQueued,
+		eventstore.TypeDAGRunRunning,
+		eventstore.TypeDAGRunUpdated,
+		eventstore.TypeDAGRunWaiting,
+		eventstore.TypeDAGRunAborted,
+		eventstore.TypeDAGRunRejected,
+		eventstore.TypeLLMUsageRecorded:
+		return false
 	default:
 		return false
 	}
@@ -748,6 +772,8 @@ func policySetID(policySet *incidentmodel.PolicySet) string {
 		return ""
 	}
 	switch policySet.Scope {
+	case incidentmodel.PolicyScopeGlobal:
+		return string(incidentmodel.PolicyScopeGlobal)
 	case incidentmodel.PolicyScopeWorkspace:
 		return string(policySet.Scope) + ":" + policySet.Workspace
 	case incidentmodel.PolicyScopeDAG:
@@ -940,7 +966,7 @@ func (s *Service) sendSolarWinds(
 }
 
 func (s *Service) doJSONRequest(req *http.Request) (*providerDeliveryResult, error) {
-	resp, err := s.http.Do(req)
+	resp, err := s.http.Do(req) //nolint:gosec // Provider URLs are validated before request creation; private network targets require explicit configuration.
 	if err != nil {
 		return nil, temporaryDeliveryError{err: err}
 	}

@@ -314,6 +314,8 @@ func (s *Store) providerFilePath(providerID string) string {
 
 func (s *Store) policySetFilePath(scope incident.PolicyScope, workspaceName, dagName string) string {
 	switch scope {
+	case incident.PolicyScopeGlobal:
+		return filepath.Join(s.policyDir(), globalPolicyFileName)
 	case incident.PolicyScopeWorkspace:
 		return filepath.Join(s.policyWorkspaceDir(), hashFileName(workspaceName))
 	case incident.PolicyScopeDAG:

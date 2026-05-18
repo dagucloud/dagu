@@ -103,7 +103,7 @@ func TestServicePagerDutyTriggerAndResolvePayloads(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		require.Equal(t, incidentmodel.PagerDutyEventsAPIEndpoint, req.URL.String())
 		require.Equal(t, "application/json", req.Header.Get("Content-Type"))
-		defer req.Body.Close()
+		defer func() { _ = req.Body.Close() }()
 		var payload map[string]any
 		require.NoError(t, json.NewDecoder(req.Body).Decode(&payload))
 		requests = append(requests, payload)
@@ -172,7 +172,7 @@ func TestServicePagerDutyTriggerAndResolvePayloads(t *testing.T) {
 func TestServiceResolvesOpenIncidentAfterRoutingIsDisabled(t *testing.T) {
 	var requests []map[string]any
 	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		defer req.Body.Close()
+		defer func() { _ = req.Body.Close() }()
 		var payload map[string]any
 		require.NoError(t, json.NewDecoder(req.Body).Decode(&payload))
 		requests = append(requests, payload)
@@ -229,7 +229,7 @@ func TestServiceResolvesOpenIncidentAfterRoutingIsDisabled(t *testing.T) {
 }
 
 func TestServiceReopenedIncidentUsesFreshOpenedAt(t *testing.T) {
-	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: http.StatusAccepted,
 			Header:     make(http.Header),
@@ -288,7 +288,7 @@ func TestServiceReopenedIncidentUsesFreshOpenedAt(t *testing.T) {
 func TestServiceSolarWindsTriggerAndResolvePayloads(t *testing.T) {
 	var requests []map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
+		defer func() { _ = r.Body.Close() }()
 		var payload map[string]any
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
 		requests = append(requests, payload)
