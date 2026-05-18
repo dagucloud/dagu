@@ -30,6 +30,11 @@ type GitClient struct {
 	mu       sync.Mutex
 }
 
+// shallowRepairDepth asks go-git to deepen a broken shallow checkout far
+// enough to recover missing parent commits. Depth 0 does not repair a stale
+// shallow boundary once the remote-tracking ref already points at the new tip.
+const shallowRepairDepth = 2147483647
+
 // NewGitClient creates a new Git client.
 func NewGitClient(cfg *Config, repoPath string) *GitClient {
 	return &GitClient{
@@ -181,16 +186,6 @@ func (c *GitClient) Pull(ctx context.Context) (*PullResult, error) {
 		return nil, err
 	}
 
-	if err := c.Fetch(ctx); err != nil {
-		return nil, err
-	}
-
-	// Get remote HEAD
-	remoteRef, err := c.repo.Reference(plumbing.NewRemoteReferenceName("origin", c.cfg.Branch), true)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get remote reference: %w", err)
-	}
-
 	// Get current HEAD
 	headRef, err := c.repo.Head()
 	if err != nil {
@@ -199,27 +194,65 @@ func (c *GitClient) Pull(ctx context.Context) (*PullResult, error) {
 
 	result := &PullResult{
 		PreviousCommit: headRef.Hash().String(),
-		CurrentCommit:  remoteRef.Hash().String(),
+		CurrentCommit:  headRef.Hash().String(),
 	}
 
-	// Check if already up to date
-	if headRef.Hash() == remoteRef.Hash() {
-		result.AlreadyUpToDate = true
-		return result, nil
+	err = c.pullWorktree(ctx, wt, auth)
+	if err != nil {
+		if err == git.NoErrAlreadyUpToDate {
+			result.AlreadyUpToDate = true
+			return result, nil
+		}
+		if errors.Is(err, plumbing.ErrObjectNotFound) && c.isShallow() {
+			if repairErr := c.repairShallowHistory(ctx, auth); repairErr != nil {
+				return nil, c.wrapAuthError(repairErr, "pull")
+			}
+			err = c.pullWorktree(ctx, wt, auth)
+			if err == git.NoErrAlreadyUpToDate {
+				result.AlreadyUpToDate = true
+				return result, nil
+			}
+		}
+		if err != nil {
+			return nil, c.wrapAuthError(err, "pull")
+		}
 	}
 
-	err = wt.Pull(&git.PullOptions{
+	headRef, err = c.repo.Head()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get HEAD: %w", err)
+	}
+	result.CurrentCommit = headRef.Hash().String()
+
+	return result, nil
+}
+
+func (c *GitClient) pullWorktree(ctx context.Context, wt *git.Worktree, auth transport.AuthMethod) error {
+	return wt.PullContext(ctx, &git.PullOptions{
 		Auth:          auth,
 		RemoteName:    "origin",
 		ReferenceName: plumbing.NewBranchReferenceName(c.cfg.Branch),
 		SingleBranch:  true,
 		Force:         true,
 	})
-	if err != nil && err != git.NoErrAlreadyUpToDate {
-		return nil, c.wrapAuthError(err, "pull")
-	}
+}
 
-	return result, nil
+func (c *GitClient) isShallow() bool {
+	shallow, err := c.repo.Storer.Shallow()
+	return err == nil && len(shallow) > 0
+}
+
+func (c *GitClient) repairShallowHistory(ctx context.Context, auth transport.AuthMethod) error {
+	err := c.repo.FetchContext(ctx, &git.FetchOptions{
+		Auth:       auth,
+		RemoteName: "origin",
+		Depth:      shallowRepairDepth,
+		Force:      true,
+	})
+	if err != nil && err != git.NoErrAlreadyUpToDate {
+		return err
+	}
+	return nil
 }
 
 // PullResult represents the result of a pull operation.

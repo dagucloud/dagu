@@ -4,11 +4,16 @@
 package gitsync
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/go-git/go-git/v5"
+	gitconfig "github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/stretchr/testify/require"
 )
 
@@ -174,4 +179,110 @@ func TestGitClient_CommitStaged_NoChanges(t *testing.T) {
 	hash, err := c2.CommitStaged("empty commit")
 	require.NoError(t, err)
 	require.Equal(t, firstHash, hash)
+}
+
+func TestGitClient_PullShallowRepoMultipleCommitsAhead(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	remotePath := filepath.Join(root, "remote")
+	clonePath := filepath.Join(root, "clone")
+
+	remoteRepo := initGitTestRepo(t, remotePath)
+	commitGitTestFile(t, remoteRepo, remotePath, "dag.yaml", "value: 0\n", "initial")
+
+	_, err := git.PlainCloneContext(ctx, clonePath, false, &git.CloneOptions{
+		URL:           remotePath,
+		ReferenceName: plumbing.NewBranchReferenceName("main"),
+		SingleBranch:  true,
+		Depth:         1,
+	})
+	require.NoError(t, err)
+
+	commitGitTestFile(t, remoteRepo, remotePath, "dag.yaml", "value: 1\n", "first remote update")
+	commitGitTestFile(t, remoteRepo, remotePath, "dag.yaml", "value: 2\n", "second remote update")
+
+	cfg := &Config{Enabled: true, Repository: remotePath, Branch: "main"}
+	client := NewGitClient(cfg, clonePath)
+	require.NoError(t, client.Open())
+
+	result, err := client.Pull(ctx)
+	require.NoError(t, err)
+	require.False(t, result.AlreadyUpToDate)
+	require.NotEqual(t, result.PreviousCommit, result.CurrentCommit)
+
+	content, err := os.ReadFile(filepath.Join(clonePath, "dag.yaml"))
+	require.NoError(t, err)
+	require.Equal(t, "value: 2\n", string(content))
+}
+
+func TestGitClient_PullRecoversAfterShallowFetch(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	remotePath := filepath.Join(root, "remote")
+	clonePath := filepath.Join(root, "clone")
+
+	remoteRepo := initGitTestRepo(t, remotePath)
+	commitGitTestFile(t, remoteRepo, remotePath, "dag.yaml", "value: 0\n", "initial")
+
+	_, err := git.PlainCloneContext(ctx, clonePath, false, &git.CloneOptions{
+		URL:           remotePath,
+		ReferenceName: plumbing.NewBranchReferenceName("main"),
+		SingleBranch:  true,
+		Depth:         1,
+	})
+	require.NoError(t, err)
+
+	commitGitTestFile(t, remoteRepo, remotePath, "dag.yaml", "value: 1\n", "first remote update")
+	commitGitTestFile(t, remoteRepo, remotePath, "dag.yaml", "value: 2\n", "second remote update")
+
+	cfg := &Config{Enabled: true, Repository: remotePath, Branch: "main"}
+	client := NewGitClient(cfg, clonePath)
+	require.NoError(t, client.Open())
+	require.NoError(t, client.Fetch(ctx))
+
+	result, err := client.Pull(ctx)
+	require.NoError(t, err)
+	require.NotEqual(t, result.PreviousCommit, result.CurrentCommit)
+
+	content, err := os.ReadFile(filepath.Join(clonePath, "dag.yaml"))
+	require.NoError(t, err)
+	require.Equal(t, "value: 2\n", string(content))
+}
+
+func initGitTestRepo(t *testing.T, path string) *git.Repository {
+	t.Helper()
+
+	repo, err := git.PlainInit(path, false)
+	require.NoError(t, err)
+	require.NoError(t, repo.Storer.SetReference(plumbing.NewSymbolicReference(
+		plumbing.HEAD,
+		plumbing.NewBranchReferenceName("main"),
+	)))
+
+	_, err = repo.CreateRemote(&gitconfig.RemoteConfig{Name: "origin", URLs: []string{path}})
+	require.NoError(t, err)
+
+	return repo
+}
+
+func commitGitTestFile(t *testing.T, repo *git.Repository, repoPath, filePath, content, message string) plumbing.Hash {
+	t.Helper()
+
+	fullPath := filepath.Join(repoPath, filePath)
+	require.NoError(t, os.WriteFile(fullPath, []byte(content), 0644))
+
+	wt, err := repo.Worktree()
+	require.NoError(t, err)
+	_, err = wt.Add(filePath)
+	require.NoError(t, err)
+
+	hash, err := wt.Commit(message, &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  "Test User",
+			Email: "test@example.com",
+			When:  time.Now(),
+		},
+	})
+	require.NoError(t, err)
+	return hash
 }
