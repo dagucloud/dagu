@@ -151,7 +151,7 @@ steps:
 
 Reference formats:
 
-- `name@version` - official Dagu action, resolved as `dagucloud/action-name`
+- `name@version` - official Dagu action, resolved as `dagucloud/name`
 - `owner/repo@version` - GitHub repository
 - `source:target@version` - explicit local path, `file://` path, or Git source
 

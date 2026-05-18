@@ -43,10 +43,10 @@ func TestGitHubRepoURLForBareActionRef(t *testing.T) {
 func TestGitHubRepoURLForOfficialActionShorthand(t *testing.T) {
 	t.Parallel()
 
-	repoURL, err := githubRepoURL("slack")
+	repoURL, err := githubRepoURL("node-script")
 
 	require.NoError(t, err)
-	assert.Equal(t, "https://github.com/dagucloud/action-slack.git", repoURL)
+	assert.Equal(t, "https://github.com/dagucloud/node-script.git", repoURL)
 }
 
 func TestGitHubRepoURLRejectsInvalidTargets(t *testing.T) {

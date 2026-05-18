@@ -25,8 +25,7 @@ const (
 	actionPrefixSource = "source:"
 	envToolsDir        = "DAGU_TOOLS_DIR"
 
-	officialActionOwner      = "dagucloud"
-	officialActionRepoPrefix = "action-"
+	officialActionOwner = "dagucloud"
 )
 
 var (
@@ -292,7 +291,7 @@ func githubRepoURL(target string) (string, error) {
 		if !isValidOfficialActionName(name) {
 			return "", fmt.Errorf("invalid official action name %q", name)
 		}
-		return "https://github.com/" + officialActionOwner + "/" + officialActionRepoPrefix + name + ".git", nil
+		return "https://github.com/" + officialActionOwner + "/" + name + ".git", nil
 	case 2:
 		owner, repo := parts[0], parts[1]
 		if !githubOwnerRegexp.MatchString(owner) || strings.HasSuffix(owner, "-") {
