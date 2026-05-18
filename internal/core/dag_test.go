@@ -768,7 +768,7 @@ func TestDAG_InitializeDefaults(t *testing.T) {
 		dag := &core.DAG{}
 		core.InitializeDefaults(dag)
 
-		assert.Equal(t, core.TypeChain, dag.Type)
+		assert.Equal(t, core.TypeGraph, dag.Type)
 		assert.Equal(t, 30, dag.HistRetentionDays)
 		assert.Equal(t, 0, dag.HistRetentionRuns)
 		assert.Equal(t, 5*time.Second, dag.MaxCleanUpTime)

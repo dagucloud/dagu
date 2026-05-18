@@ -606,7 +606,7 @@ func (d *DAG) initializeDefaults() {
 	)
 
 	if d.Type == "" {
-		d.Type = TypeChain
+		d.Type = TypeGraph
 	}
 	if d.LogOutput == "" {
 		d.LogOutput = LogOutputSeparate
