@@ -210,4 +210,31 @@ describe('Mermaid', () => {
 
     expect(onRightClick).toHaveBeenCalledWith(longNodeId);
   });
+
+  it('does not match a known node id inside a longer rendered node id', async () => {
+    const onRightClick = vi.fn();
+    const knownNodeId = 'node_61';
+
+    const { container } = render(
+      <Mermaid
+        def="graph TD; A-->B;"
+        nodeIds={[knownNodeId]}
+        onRightClick={onRightClick}
+        scale={1}
+      />
+    );
+
+    await act(async () => {
+      pendingRenderAt(0).resolve({
+        svg: '<svg><g class="node" id="mermaid-random-flowchart-node_61_62-0"></g></svg>',
+      });
+    });
+
+    const node = container.querySelector<HTMLElement>('.node');
+    expect(node).not.toBeNull();
+    expect(node!.style.cursor).toBe('');
+    fireEvent.contextMenu(node!);
+
+    expect(onRightClick).not.toHaveBeenCalled();
+  });
 });

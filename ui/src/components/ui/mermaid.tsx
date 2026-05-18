@@ -91,12 +91,29 @@ function normalizeNodeIds(nodeIds?: readonly string[]): string[] {
     .sort((a, b) => b.length - a.length);
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function matchesRenderedNodeId(renderedId: string, nodeId: string): boolean {
+  if (renderedId === nodeId) {
+    return true;
+  }
+
+  // Dagu node ids use underscores internally, so only non-id characters can
+  // delimit the node id inside Mermaid's generated SVG element id.
+  const escapedNodeId = escapeRegExp(nodeId);
+  return new RegExp(
+    `(^|[^A-Za-z0-9_])${escapedNodeId}($|[^A-Za-z0-9_])`
+  ).test(renderedId);
+}
+
 function resolveRenderedNodeId(
   renderedId: string,
   knownNodeIds: readonly string[]
 ): string | null {
   for (const nodeId of knownNodeIds) {
-    if (renderedId === nodeId || renderedId.includes(nodeId)) {
+    if (matchesRenderedNodeId(renderedId, nodeId)) {
       return nodeId;
     }
   }
