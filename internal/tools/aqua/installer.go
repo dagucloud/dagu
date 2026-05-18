@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -232,7 +233,7 @@ func (i *Installer) Install(ctx context.Context, cfg *core.ToolConfig, opts tool
 func readyManifest(paths tools.CacheLayout, platform, hash string) (*tools.Manifest, error) {
 	manifest, err := tools.ReadManifest(paths.ManifestFile)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
 		}
 		return nil, err
