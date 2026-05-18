@@ -59,6 +59,7 @@ type Scheduler struct {
 	eventCollector      *fileeventstore.Collector
 	githubDispatch      githubDispatchRunner
 	notificationMonitor backgroundRunner
+	incidentMonitor     backgroundRunner
 }
 
 type schedulerHooks struct {
@@ -266,6 +267,15 @@ func (s *Scheduler) SetNotificationMonitor(monitor backgroundRunner) {
 		return
 	}
 	s.notificationMonitor = monitor
+}
+
+// SetIncidentMonitor configures the scheduler-owned incident monitor.
+// This must be called before Start().
+func (s *Scheduler) SetIncidentMonitor(monitor backgroundRunner) {
+	if s == nil {
+		return
+	}
+	s.incidentMonitor = monitor
 }
 
 // SetDAGRunLeaseStore configures the shared distributed lease store used for
@@ -572,6 +582,10 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	})
 
 	wg.Go(func() {
+		s.startIncidentMonitor(ctx)
+	})
+
+	wg.Go(func() {
 		s.startGitHubDispatch(ctx)
 	})
 
@@ -640,6 +654,13 @@ func (s *Scheduler) startNotificationMonitor(ctx context.Context) {
 		return
 	}
 	s.notificationMonitor.Run(ctx)
+}
+
+func (s *Scheduler) startIncidentMonitor(ctx context.Context) {
+	if s.incidentMonitor == nil {
+		return
+	}
+	s.incidentMonitor.Run(ctx)
 }
 
 func (s *Scheduler) startHeartbeat(ctx context.Context) {

@@ -44,6 +44,7 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/filedistributed"
 	"github.com/dagucloud/dagu/internal/persis/fileeventstore"
 	"github.com/dagucloud/dagu/internal/persis/filegithubdispatch"
+	"github.com/dagucloud/dagu/internal/persis/fileincident"
 	"github.com/dagucloud/dagu/internal/persis/filelicense"
 	"github.com/dagucloud/dagu/internal/persis/filememory"
 	"github.com/dagucloud/dagu/internal/persis/filenotification"
@@ -60,6 +61,7 @@ import (
 	"github.com/dagucloud/dagu/internal/service/eventstore"
 	"github.com/dagucloud/dagu/internal/service/frontend"
 	apiv1 "github.com/dagucloud/dagu/internal/service/frontend/api/v1"
+	incidentservice "github.com/dagucloud/dagu/internal/service/incident"
 	notificationservice "github.com/dagucloud/dagu/internal/service/notification"
 	"github.com/dagucloud/dagu/internal/service/resource"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
@@ -700,6 +702,9 @@ func (c *Context) NewScheduler() (*scheduler.Scheduler, error) {
 		if notificationMonitor := c.newNotificationMonitor(dr); notificationMonitor != nil {
 			sched.SetNotificationMonitor(notificationMonitor)
 		}
+		if incidentMonitor := c.newIncidentMonitor(); incidentMonitor != nil {
+			sched.SetIncidentMonitor(incidentMonitor)
+		}
 	}
 	sched.SetDAGRunLeaseStore(c.DAGRunLeaseStore)
 	sched.SetDispatchTaskStore(c.DispatchTaskStore)
@@ -757,6 +762,53 @@ func (c *Context) newNotificationMonitor(dr exec.DAGStore) *chatbridge.Notificat
 		notificationSvc,
 		slog.Default(),
 		chatbridge.DefaultNotificationMonitorConfig(),
+	)
+}
+
+func (c *Context) newIncidentMonitor() *chatbridge.NotificationMonitor {
+	encKey, encErr := crypto.ResolveKey(c.Config.Paths.DataDir)
+	if encErr != nil {
+		logger.Warn(c, "Incident settings store is disabled because encrypted storage is not available", tag.Error(encErr))
+		return nil
+	}
+	encryptor, encErr := crypto.NewEncryptor(encKey)
+	if encErr != nil {
+		logger.Warn(c, "Failed to create encryptor for incident settings store", tag.Error(encErr))
+		return nil
+	}
+	store, err := fileincident.New(
+		filepath.Join(c.Config.Paths.DataDir, "incidents"),
+		fileincident.WithEncryptor(encryptor),
+	)
+	if err != nil {
+		logger.Warn(c, "Failed to create incident settings store", tag.Error(err))
+		return nil
+	}
+	var checker license.Checker
+	if c.LicenseManager != nil {
+		checker = c.LicenseManager.Checker()
+	}
+	incidentSvc := incidentservice.New(
+		store,
+		incidentservice.WithIncidentsEnabled(func() bool {
+			return license.HasActiveLicense(checker)
+		}),
+		incidentservice.WithPublicURL(c.Config.Server.PublicURL),
+	)
+	stateFile := filepath.Join(c.Config.Paths.DataDir, "incidents", "monitor-state.json")
+	cfg := chatbridge.DefaultNotificationMonitorConfig()
+	cfg.UrgentWindow = time.Second
+	cfg.SuccessWindow = time.Second
+	cfg.InterestedEventTypes = []eventstore.EventType{
+		eventstore.TypeDAGRunFailed,
+		eventstore.TypeDAGRunSucceeded,
+	}
+	return chatbridge.NewNotificationMonitor(
+		c.EventService,
+		stateFile,
+		incidentSvc,
+		slog.Default(),
+		cfg,
 	)
 }
 

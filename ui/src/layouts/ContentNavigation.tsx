@@ -29,6 +29,9 @@ const STATIC_ROUTE_LABELS: Record<string, string> = {
   '/notifications': 'Notifications',
   '/notification-rules': 'Notification Rules',
   '/notification-channels': 'Notification Channels',
+  '/incidents': 'Incidents',
+  '/incident-providers': 'Incident Providers',
+  '/incident-policies': 'Incident Policies',
   '/dags': 'DAGs',
   '/search': 'Search',
   '/base-config': 'Base Config',
@@ -205,6 +208,22 @@ export function getBreadcrumbItems(pathname: string): BreadcrumbItemData[] {
   ) {
     if (normalized !== '/notifications') {
       items.push({ label: 'Notifications', to: '/notifications' });
+    }
+    items.push({
+      label:
+        STATIC_ROUTE_LABELS[normalized] ??
+        humanizePathSegment(segments[0] ?? ''),
+    });
+    return items;
+  }
+
+  if (
+    ['incidents', 'incident-providers', 'incident-policies'].includes(
+      segments[0] ?? ''
+    )
+  ) {
+    if (normalized !== '/incidents') {
+      items.push({ label: 'Incidents', to: '/incidents' });
     }
     items.push({
       label:

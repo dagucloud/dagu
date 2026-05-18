@@ -59,6 +59,7 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/filebaseconfig"
 	"github.com/dagucloud/dagu/internal/persis/filedoc"
 	"github.com/dagucloud/dagu/internal/persis/fileeventstore"
+	"github.com/dagucloud/dagu/internal/persis/fileincident"
 	"github.com/dagucloud/dagu/internal/persis/filememory"
 	"github.com/dagucloud/dagu/internal/persis/filenotification"
 	"github.com/dagucloud/dagu/internal/persis/fileremotenode"
@@ -82,6 +83,7 @@ import (
 	"github.com/dagucloud/dagu/internal/service/frontend/metrics"
 	"github.com/dagucloud/dagu/internal/service/frontend/sse"
 	"github.com/dagucloud/dagu/internal/service/frontend/terminal"
+	incidentservice "github.com/dagucloud/dagu/internal/service/incident"
 	dagumcp "github.com/dagucloud/dagu/internal/service/mcp"
 	notificationservice "github.com/dagucloud/dagu/internal/service/notification"
 	"github.com/dagucloud/dagu/internal/service/oidcprovision"
@@ -119,6 +121,7 @@ type Server struct {
 	auditService        *audit.Service
 	auditStore          *fileaudit.Store
 	eventService        *eventstore.Service
+	incidentService     *incidentservice.Service
 	notificationService *notificationservice.Service
 	syncService         gitsync.Service
 	listener            net.Listener
@@ -402,6 +405,28 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		logger.Warn(ctx, "Notification settings store is disabled because encrypted storage is not available")
 	}
 
+	var incidentSvc *incidentservice.Service
+	if encryptor != nil {
+		store, err := fileincident.New(
+			filepath.Join(cfg.Paths.DataDir, "incidents"),
+			fileincident.WithEncryptor(encryptor),
+		)
+		if err != nil {
+			logger.Warn(ctx, "Failed to create incident settings store", tag.Error(err))
+		} else {
+			incidentSvc = incidentservice.New(
+				store,
+				incidentservice.WithIncidentsEnabled(func() bool {
+					return license.HasActiveLicense(licenseChecker)
+				}),
+				incidentservice.WithPublicURL(cfg.Server.PublicURL),
+			)
+			apiOpts = append(apiOpts, apiv1.WithIncidentService(incidentSvc))
+		}
+	} else {
+		logger.Warn(ctx, "Incident settings store is disabled because encrypted storage is not available")
+	}
+
 	// Initialize workspace store
 	wsStore, wsErr := fileworkspace.New(cfg.Paths.WorkspacesDir)
 	if wsErr != nil {
@@ -452,6 +477,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		auditService:        auditSvc,
 		auditStore:          auditStore,
 		eventService:        eventSvc,
+		incidentService:     incidentSvc,
 		notificationService: notificationSvc,
 		syncService:         syncSvc,
 		metricsRegistry:     mr,
@@ -486,6 +512,17 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 	}
 	if srv.notificationService != nil {
 		srv.notificationService.SetPublicURLResolver(func() string {
+			if srv.config.Server.PublicURL != "" {
+				return srv.config.Server.PublicURL
+			}
+			if srv.tunnelService != nil {
+				return publicURLWithBasePath(srv.tunnelService.PublicURL(), evaluatedBasePath)
+			}
+			return ""
+		})
+	}
+	if srv.incidentService != nil {
+		srv.incidentService.SetPublicURLResolver(func() string {
 			if srv.config.Server.PublicURL != "" {
 				return srv.config.Server.PublicURL
 			}
@@ -1053,6 +1090,7 @@ func (srv *Server) Serve(ctx context.Context) error {
 	logger.Info(ctx, "Server is starting", tag.Addr(addr))
 
 	srv.startNotificationMonitor(ctx)
+	srv.startIncidentMonitor(ctx)
 	srv.startPeriodicUpdateCheck(ctx)
 
 	go srv.startServer(ctx)
@@ -1074,6 +1112,32 @@ func (srv *Server) startNotificationMonitor(ctx context.Context) {
 		chatbridge.DefaultNotificationMonitorConfig(),
 	)
 	go monitor.Run(ctx)
+}
+
+func (srv *Server) startIncidentMonitor(ctx context.Context) {
+	if srv.incidentService == nil || srv.eventService == nil {
+		return
+	}
+	stateFile := filepath.Join(srv.config.Paths.DataDir, "incidents", "monitor-state.json")
+	monitor := chatbridge.NewNotificationMonitor(
+		srv.eventService,
+		stateFile,
+		srv.incidentService,
+		slog.Default(),
+		incidentMonitorConfig(),
+	)
+	go monitor.Run(ctx)
+}
+
+func incidentMonitorConfig() chatbridge.NotificationMonitorConfig {
+	cfg := chatbridge.DefaultNotificationMonitorConfig()
+	cfg.UrgentWindow = time.Second
+	cfg.SuccessWindow = time.Second
+	cfg.InterestedEventTypes = []eventstore.EventType{
+		eventstore.TypeDAGRunFailed,
+		eventstore.TypeDAGRunSucceeded,
+	}
+	return cfg
 }
 
 // startPeriodicUpdateCheck runs an initial update check and then repeats

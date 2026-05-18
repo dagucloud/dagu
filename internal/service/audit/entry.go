@@ -21,6 +21,7 @@ const (
 	CategoryAPIKey       Category = "api_key"
 	CategoryWebhook      Category = "webhook"
 	CategoryNotification Category = "notification"
+	CategoryIncident     Category = "incident"
 	CategoryGitSync      Category = "git_sync"
 	CategoryAgent        Category = "agent"
 	CategorySystem       Category = "system"

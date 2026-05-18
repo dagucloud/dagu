@@ -25,6 +25,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/baseconfig"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	incidentmodel "github.com/dagucloud/dagu/internal/incident"
 	"github.com/dagucloud/dagu/internal/license"
 	notificationmodel "github.com/dagucloud/dagu/internal/notification"
 	"github.com/dagucloud/dagu/internal/remotenode"
@@ -36,6 +37,7 @@ import (
 	"github.com/dagucloud/dagu/internal/service/eventstore"
 	"github.com/dagucloud/dagu/internal/service/frontend/api/pathutil"
 	frontendauth "github.com/dagucloud/dagu/internal/service/frontend/auth"
+	incidentservice "github.com/dagucloud/dagu/internal/service/incident"
 	notificationservice "github.com/dagucloud/dagu/internal/service/notification"
 	"github.com/dagucloud/dagu/internal/service/resource"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
@@ -70,6 +72,7 @@ type API struct {
 	authService          AuthService
 	auditService         *audit.Service
 	eventService         *eventstore.Service
+	incidentService      IncidentService
 	notificationService  NotificationService
 	syncService          SyncService
 	tunnelService        *tunnel.Service
@@ -106,6 +109,18 @@ type NotificationService interface {
 	SaveChannel(ctx context.Context, channel *notificationmodel.Channel, updatedBy string) (*notificationmodel.Channel, error)
 	DeleteChannel(ctx context.Context, channelID string) error
 	SendTest(ctx context.Context, dagName, targetID string, eventType eventstore.EventType) ([]notificationservice.TestResult, error)
+}
+
+type IncidentService interface {
+	ListProviders(ctx context.Context) ([]*incidentmodel.Provider, error)
+	GetProvider(ctx context.Context, providerID string) (*incidentmodel.Provider, error)
+	SaveProvider(ctx context.Context, provider *incidentmodel.Provider, updatedBy string) (*incidentmodel.Provider, error)
+	DeleteProvider(ctx context.Context, providerID string) error
+	GetPolicySet(ctx context.Context, scope incidentmodel.PolicyScope, workspaceName, dagName string) (*incidentmodel.PolicySet, error)
+	ListPolicySets(ctx context.Context) ([]*incidentmodel.PolicySet, error)
+	SavePolicySet(ctx context.Context, policySet *incidentmodel.PolicySet, updatedBy string) (*incidentmodel.PolicySet, error)
+	DeletePolicySet(ctx context.Context, scope incidentmodel.PolicyScope, workspaceName, dagName string) error
+	SendProviderTest(ctx context.Context, providerID string) (*incidentservice.TestResult, error)
 }
 
 // AuthService defines the interface for authentication operations.
@@ -175,6 +190,12 @@ func WithEventService(es *eventstore.Service) APIOption {
 func WithNotificationService(ns NotificationService) APIOption {
 	return func(a *API) {
 		a.notificationService = ns
+	}
+}
+
+func WithIncidentService(is IncidentService) APIOption {
+	return func(a *API) {
+		a.incidentService = is
 	}
 }
 
@@ -703,6 +724,11 @@ var (
 		Code:       api.ErrorCodeForbidden,
 		Message:    "Notification channels and rules require an active Dagu license or trial",
 	}
+	errIncidentManagementNotLicensed = &Error{
+		HTTPStatus: http.StatusForbidden,
+		Code:       api.ErrorCodeForbidden,
+		Message:    "Incident providers and policies require an active Dagu license or trial",
+	}
 )
 
 // requireDAGWrite checks all permissions for DAG write operations:
@@ -764,6 +790,16 @@ func (a *API) requireLicensedReusableNotificationChannels() error {
 	}
 	if !license.HasActiveLicense(a.licenseManager.Checker()) {
 		return errReusableNotificationChannelsNotLicensed
+	}
+	return nil
+}
+
+func (a *API) requireLicensedIncidentManagement() error {
+	if a.licenseManager == nil {
+		return errIncidentManagementNotLicensed
+	}
+	if !license.HasActiveLicense(a.licenseManager.Checker()) {
+		return errIncidentManagementNotLicensed
 	}
 	return nil
 }

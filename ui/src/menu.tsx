@@ -24,6 +24,7 @@ import { defaultWorkspaceSelection } from '@/lib/workspace';
 import { UserRole } from '@/api/v1/schema';
 import {
   Activity,
+  AlertTriangle,
   Bell,
   ChevronDown,
   Gauge,
@@ -471,6 +472,7 @@ export const mainListItems = React.forwardRef<
     config.authMode !== 'builtin'
       ? config.permissions.writeDags
       : roleAtLeast(user?.role ?? null, UserRole.developer);
+  const canManageIncidents = canManageNotifications;
   const canAccessSystemStatus = useCanAccessSystemStatus();
   const canManageWebhooks = useCanManageWebhooks();
   const canManageSecrets = useCanManageSecrets();
@@ -764,6 +766,38 @@ export const mainListItems = React.forwardRef<
               <NavItem
                 to="/notification-channels"
                 text="Channels"
+                isOpen={isOpen}
+                onClick={onNavItemClick}
+                customColor={customColor}
+              />
+            </NavGroup>
+          )}
+
+          {canManageIncidents && (
+            <NavGroup
+              groupKey="incidents"
+              icon={<AlertTriangle size={18} />}
+              label="Incidents"
+              isOpen={isOpen}
+              basePath={[
+                '/incidents',
+                '/incident-providers',
+                '/incident-policies',
+              ]}
+              to="/incidents"
+              onClick={onNavItemClick}
+              customColor={customColor}
+            >
+              <NavItem
+                to="/incident-providers"
+                text="Providers"
+                isOpen={isOpen}
+                onClick={onNavItemClick}
+                customColor={customColor}
+              />
+              <NavItem
+                to="/incident-policies"
+                text="Policies"
                 isOpen={isOpen}
                 onClick={onNavItemClick}
                 customColor={customColor}

@@ -1,5 +1,6 @@
 import { Tabs } from '@/components/ui/tabs';
 import {
+  AlertTriangle,
   Bell,
   FileCode,
   History,
@@ -22,6 +23,7 @@ import {
   StepLog,
 } from '../dag-execution';
 import { DAGHeader } from './';
+import IncidentsTab from './IncidentsTab';
 import NotificationsTab from './NotificationsTab';
 import WebhookTab from './WebhookTab';
 
@@ -215,6 +217,23 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
 
               {isModal ? (
                 <ModalLinkTab
+                  label="Incidents"
+                  value="incidents"
+                  isActive={activeTab === 'incidents'}
+                  icon={AlertTriangle}
+                  onClick={() => handleTabClick('incidents')}
+                />
+              ) : (
+                <LinkTab
+                  label="Incidents"
+                  value={`${baseUrl}/incidents`}
+                  isActive={activeTab === 'incidents'}
+                  icon={AlertTriangle}
+                />
+              )}
+
+              {isModal ? (
+                <ModalLinkTab
                   label="History"
                   value="history"
                   isActive={activeTab === 'history'}
@@ -271,6 +290,27 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
                   icon={PlayCircle}
                   className="flex-1 justify-center"
                   aria-label="Latest Run"
+                />
+              )}
+
+              {isModal ? (
+                <ModalLinkTab
+                  label=""
+                  value="incidents"
+                  isActive={activeTab === 'incidents'}
+                  icon={AlertTriangle}
+                  onClick={() => handleTabClick('incidents')}
+                  className="flex-1 justify-center"
+                  aria-label="Incidents"
+                />
+              ) : (
+                <LinkTab
+                  label=""
+                  value={`${baseUrl}/incidents`}
+                  isActive={activeTab === 'incidents'}
+                  icon={AlertTriangle}
+                  className="flex-1 justify-center"
+                  aria-label="Incidents"
                 />
               )}
 
@@ -423,6 +463,15 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
           {activeTab === 'notifications' ? (
             <>
               <NotificationsTab
+                fileName={fileName || ''}
+                workspaceName={dagWorkspaceName}
+              />
+              <div className="h-6 flex-shrink-0" />
+            </>
+          ) : null}
+          {activeTab === 'incidents' ? (
+            <>
+              <IncidentsTab
                 fileName={fileName || ''}
                 workspaceName={dagWorkspaceName}
               />

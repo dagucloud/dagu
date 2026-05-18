@@ -43,6 +43,8 @@ tags:
     description: "Webhook endpoints for triggering DAG execution"
   - name: "notifications"
     description: "DAG run notification settings and delivery tests"
+  - name: "incidents"
+    description: "Incident provider and policy management"
   - name: "audit"
     description: "Audit log operations (admin only)"
   - name: "events"
@@ -4421,6 +4423,442 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /incident-providers:
+    get:
+      summary: "List incident providers"
+      description: "Returns configured incident providers such as PagerDuty and SolarWinds Incident Response. Incident management requires an active Dagu license or trial. Developer, manager, or admin only."
+      operationId: "listIncidentProviders"
+      tags:
+        - "incidents"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "List of incident providers"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentProviderListResponse"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    post:
+      summary: "Create incident provider"
+      description: "Creates an incident provider. Secret values are accepted in the request but are never returned. Developer, manager, or admin only."
+      operationId: "createIncidentProvider"
+      tags:
+        - "incidents"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IncidentProviderInput"
+      responses:
+        "201":
+          description: "Incident provider created"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentProvider"
+        "400":
+          description: "Invalid incident provider"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /incident-providers/{providerId}:
+    get:
+      summary: "Get incident provider"
+      description: "Returns one incident provider. Developer, manager, or admin only."
+      operationId: "getIncidentProvider"
+      tags:
+        - "incidents"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - name: providerId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Incident provider"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentProvider"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Incident provider not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    put:
+      summary: "Update incident provider"
+      description: "Replaces an incident provider. Existing secret values are preserved when omitted. Developer, manager, or admin only."
+      operationId: "updateIncidentProvider"
+      tags:
+        - "incidents"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - name: providerId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IncidentProviderInput"
+      responses:
+        "200":
+          description: "Incident provider updated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentProvider"
+        "400":
+          description: "Invalid incident provider"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Incident provider not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    delete:
+      summary: "Delete incident provider"
+      description: "Deletes an incident provider. Providers referenced by incident policies cannot be deleted."
+      operationId: "deleteIncidentProvider"
+      tags:
+        - "incidents"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - name: providerId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: "Incident provider deleted"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Incident provider not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Incident provider is used by a policy"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /incident-providers/{providerId}/test:
+    post:
+      summary: "Send a test incident"
+      description: "Sends a test trigger and resolve event to one incident provider. Developer, manager, or admin only."
+      operationId: "testIncidentProvider"
+      tags:
+        - "incidents"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - name: providerId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Test incident delivery attempted"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestIncidentProviderResponse"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Incident provider not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /incident-policies:
+    get:
+      summary: "List incident policies"
+      description: "Returns global, workspace, and DAG incident policy sets. Developer, manager, or admin only."
+      operationId: "listIncidentPolicies"
+      tags:
+        - "incidents"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "List of incident policy sets"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentPolicySetListResponse"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /incident-policies/global:
+    get:
+      summary: "Get global incident policies"
+      description: "Returns global incident policies. Global policies are used unless a workspace or DAG policy is configured. Developer, manager, or admin only."
+      operationId: "getGlobalIncidentPolicies"
+      tags:
+        - "incidents"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "Global incident policy set"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentPolicySet"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    put:
+      summary: "Update global incident policies"
+      description: "Replaces global incident policies. Policy provider IDs must reference incident providers. Developer, manager, or admin only."
+      operationId: "updateGlobalIncidentPolicies"
+      tags:
+        - "incidents"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IncidentPolicySetInput"
+      responses:
+        "200":
+          description: "Global incident policy set updated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentPolicySet"
+        "400":
+          description: "Invalid incident policy set"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Referenced incident provider was not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /incident-policies/workspaces/{workspaceName}:
+    get:
+      summary: "Get workspace incident policies"
+      description: "Returns incident policies for one named workspace. Workspace policies can inherit global policies. Developer, manager, or admin only."
+      operationId: "getWorkspaceIncidentPolicies"
+      tags:
+        - "incidents"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - name: workspaceName
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/WorkspaceName"
+      responses:
+        "200":
+          description: "Workspace incident policy set"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentPolicySet"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Workspace was not found or is not visible"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    put:
+      summary: "Update workspace incident policies"
+      description: "Replaces incident policies for one named workspace. Policy provider IDs must reference incident providers. Developer, manager, or admin only."
+      operationId: "updateWorkspaceIncidentPolicies"
+      tags:
+        - "incidents"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - name: workspaceName
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/WorkspaceName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IncidentPolicySetInput"
+      responses:
+        "200":
+          description: "Workspace incident policy set updated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentPolicySet"
+        "400":
+          description: "Invalid incident policy set"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Workspace or referenced incident provider was not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /dags/{fileName}/webhook:
     get:
       summary: "Get webhook for DAG"
@@ -4922,6 +5360,120 @@ paths:
                 $ref: "#/components/schemas/Error"
         "404":
           description: "DAG or target not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dags/{fileName}/incidents:
+    get:
+      summary: "Get DAG incident policies"
+      description: "Returns DAG-level incident policy override settings. Missing settings mean this DAG inherits workspace or global policies. Developer, manager, or admin only."
+      operationId: "getDAGIncidents"
+      tags:
+        - "incidents"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      responses:
+        "200":
+          description: "DAG incident policy set"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentPolicySet"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "DAG not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    put:
+      summary: "Update DAG incident policies"
+      description: "Creates or replaces DAG-level incident policy override settings. Policy provider IDs must reference incident providers. Developer, manager, or admin only."
+      operationId: "updateDAGIncidents"
+      tags:
+        - "incidents"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IncidentPolicySetInput"
+      responses:
+        "200":
+          description: "DAG incident policy set updated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentPolicySet"
+        "400":
+          description: "Invalid incident policy set"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "DAG or referenced incident provider was not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    delete:
+      summary: "Delete DAG incident policies"
+      description: "Removes DAG-level incident policy override settings so the DAG inherits workspace or global policies. Developer, manager, or admin only."
+      operationId: "deleteDAGIncidents"
+      tags:
+        - "incidents"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      responses:
+        "204":
+          description: "DAG incident policies deleted"
+        "403":
+          description: "Forbidden - requires an active Dagu license or trial"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "DAG incident policies not configured"
           content:
             application/json:
               schema:
@@ -9984,6 +10536,328 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/TestDAGNotificationResult"
+
+    IncidentProviderType:
+      type: string
+      description: "Incident provider type"
+      enum:
+        - pagerduty
+        - solarwinds_incident_response
+
+    IncidentSeverity:
+      type: string
+      description: "Incident severity"
+      enum:
+        - critical
+        - error
+        - warning
+        - info
+
+    IncidentPolicyScope:
+      type: string
+      description: "Incident policy scope"
+      enum:
+        - global
+        - workspace
+        - dag
+
+    IncidentPagerDutyProviderInput:
+      type: object
+      description: "PagerDuty Events API v2 provider input. The routing key is encrypted at rest."
+      properties:
+        routingKey:
+          type: string
+          description: "PagerDuty Events API v2 routing key. Omit on updates to preserve the existing key."
+        clearRoutingKey:
+          type: boolean
+          description: "Clear the stored routing key."
+
+    IncidentPagerDutyProvider:
+      type: object
+      description: "Public PagerDuty provider details"
+      required:
+        - routingKeyConfigured
+      properties:
+        routingKeyConfigured:
+          type: boolean
+          description: "Whether a PagerDuty routing key is configured"
+        routingKeyPreview:
+          type: string
+          description: "Redacted routing key preview"
+
+    IncidentSolarWindsProviderInput:
+      type: object
+      description: "SolarWinds Incident Response incoming webhook provider input. The webhook URL is encrypted at rest."
+      properties:
+        webhookUrl:
+          type: string
+          format: uri
+          description: "Incoming webhook URL. Omit on updates to preserve the existing URL."
+        clearWebhookUrl:
+          type: boolean
+          description: "Clear the stored webhook URL."
+        allowInsecureHttp:
+          type: boolean
+          description: "Allow plain HTTP webhook URLs. Disabled by default."
+        allowPrivateNetwork:
+          type: boolean
+          description: "Allow loopback or private network webhook targets. Disabled by default."
+
+    IncidentSolarWindsProvider:
+      type: object
+      description: "Public SolarWinds Incident Response provider details"
+      required:
+        - webhookUrlConfigured
+      properties:
+        webhookUrlConfigured:
+          type: boolean
+          description: "Whether an incoming webhook URL is configured"
+        webhookUrlPreview:
+          type: string
+          description: "Redacted webhook URL preview"
+        allowInsecureHttp:
+          type: boolean
+          description: "Whether this provider allows plain HTTP webhook URLs"
+        allowPrivateNetwork:
+          type: boolean
+          description: "Whether this provider allows loopback or private network webhook targets"
+
+    IncidentProviderInput:
+      type: object
+      description: "Incident provider input"
+      required:
+        - name
+        - type
+        - enabled
+      properties:
+        name:
+          type: string
+          description: "Human-readable provider name"
+        type:
+          $ref: "#/components/schemas/IncidentProviderType"
+        enabled:
+          type: boolean
+          description: "Whether this provider can receive incident events"
+        pagerDuty:
+          $ref: "#/components/schemas/IncidentPagerDutyProviderInput"
+        solarWinds:
+          $ref: "#/components/schemas/IncidentSolarWindsProviderInput"
+
+    IncidentProvider:
+      type: object
+      description: "Incident provider. Secrets are never returned."
+      required:
+        - id
+        - name
+        - type
+        - enabled
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          description: "Stable provider ID"
+        name:
+          type: string
+          description: "Human-readable provider name"
+        type:
+          $ref: "#/components/schemas/IncidentProviderType"
+        enabled:
+          type: boolean
+          description: "Whether this provider can receive incident events"
+        pagerDuty:
+          $ref: "#/components/schemas/IncidentPagerDutyProvider"
+        solarWinds:
+          $ref: "#/components/schemas/IncidentSolarWindsProvider"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        updatedBy:
+          type: string
+          description: "User ID that last updated the provider"
+
+    IncidentProviderListResponse:
+      type: object
+      description: "Incident providers"
+      required:
+        - providers
+      properties:
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/IncidentProvider"
+
+    IncidentPolicyInput:
+      type: object
+      description: "Incident policy input. A policy opens an incident on final DAG failure and can resolve it on later success."
+      required:
+        - providerId
+        - enabled
+        - severity
+        - resolveOnRecovery
+      properties:
+        id:
+          type: string
+          description: "Stable policy ID. Omit when adding a policy."
+        providerId:
+          type: string
+          description: "Incident provider ID"
+        enabled:
+          type: boolean
+          description: "Whether this policy can open or resolve incidents"
+        severity:
+          $ref: "#/components/schemas/IncidentSeverity"
+        resolveOnRecovery:
+          type: boolean
+          description: "Resolve the open incident when the DAG later succeeds"
+        dedupKeyTemplate:
+          type: string
+          description: "Template for the provider incident key. Defaults to a stable key per workspace and DAG."
+        messageTemplate:
+          type: string
+          description: "Template for the provider incident summary/message."
+        descriptionTemplate:
+          type: string
+          description: "Template for the provider incident description/details."
+
+    IncidentPolicy:
+      type: object
+      description: "Incident policy"
+      required:
+        - id
+        - providerId
+        - enabled
+        - severity
+        - resolveOnRecovery
+        - dedupKeyTemplate
+        - messageTemplate
+        - descriptionTemplate
+      properties:
+        id:
+          type: string
+          description: "Stable policy ID"
+        providerId:
+          type: string
+          description: "Incident provider ID"
+        enabled:
+          type: boolean
+          description: "Whether this policy can open or resolve incidents"
+        severity:
+          $ref: "#/components/schemas/IncidentSeverity"
+        resolveOnRecovery:
+          type: boolean
+          description: "Resolve the open incident when the DAG later succeeds"
+        dedupKeyTemplate:
+          type: string
+          description: "Template for the provider incident key"
+        messageTemplate:
+          type: string
+          description: "Template for the provider incident summary/message"
+        descriptionTemplate:
+          type: string
+          description: "Template for the provider incident description/details"
+
+    IncidentPolicySetInput:
+      type: object
+      description: "Replacement incident policy set for a global, workspace, or DAG scope"
+      required:
+        - enabled
+        - inheritParent
+        - policies
+      properties:
+        enabled:
+          type: boolean
+          description: "Whether this policy set can open or resolve incidents"
+        inheritParent:
+          type: boolean
+          description: "For workspace and DAG policy sets, true means inherit the parent scope instead of using local policies. Ignored for global policy sets."
+        policies:
+          type: array
+          items:
+            $ref: "#/components/schemas/IncidentPolicyInput"
+
+    IncidentPolicySet:
+      type: object
+      description: "Incident policies for a global, workspace, or DAG scope"
+      required:
+        - scope
+        - enabled
+        - inheritParent
+        - policies
+      properties:
+        id:
+          type: string
+          description: "Stable policy set ID, present after the policy set is saved"
+        scope:
+          $ref: "#/components/schemas/IncidentPolicyScope"
+        workspace:
+          type: string
+          description: "Workspace name for workspace-scoped policy sets"
+        dagName:
+          type: string
+          description: "DAG name for DAG-scoped policy sets"
+        enabled:
+          type: boolean
+          description: "Whether this policy set can open or resolve incidents"
+        inheritParent:
+          type: boolean
+          description: "For workspace and DAG policy sets, true means inherit the parent scope instead of using local policies"
+        policies:
+          type: array
+          items:
+            $ref: "#/components/schemas/IncidentPolicy"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        updatedBy:
+          type: string
+          description: "User ID that last updated the policy set"
+
+    IncidentPolicySetListResponse:
+      type: object
+      description: "Incident policy sets"
+      required:
+        - policySets
+      properties:
+        policySets:
+          type: array
+          items:
+            $ref: "#/components/schemas/IncidentPolicySet"
+
+    TestIncidentProviderResult:
+      type: object
+      description: "Delivery result for one incident provider"
+      required:
+        - providerId
+        - providerName
+        - providerType
+        - delivered
+      properties:
+        providerId:
+          type: string
+        providerName:
+          type: string
+        providerType:
+          $ref: "#/components/schemas/IncidentProviderType"
+        delivered:
+          type: boolean
+        error:
+          type: string
+
+    TestIncidentProviderResponse:
+      type: object
+      description: "Result of test incident delivery"
+      required:
+        - result
+      properties:
+        result:
+          $ref: "#/components/schemas/TestIncidentProviderResult"
 
     Stream:
       type: string

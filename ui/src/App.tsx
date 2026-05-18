@@ -68,6 +68,9 @@ import DocsPage from './pages/docs';
 import EventLogsPage from './pages/event-logs';
 import GitSyncPage from './pages/git-sync';
 import HomePage from './pages/home';
+import IncidentPoliciesPage from './pages/incident-policies';
+import IncidentProvidersPage from './pages/incident-providers';
+import IncidentsPage from './pages/incidents';
 import IntegrationsPage from './pages/integrations';
 import LicensePage from './pages/license';
 import LoginPage from './pages/login';
@@ -219,7 +222,7 @@ function LicensedRoute({
   return <LicenseRequiredMessage />;
 }
 
-function NotificationLicensedElement({
+function ActiveLicenseDeveloperElement({
   children,
 }: {
   children: React.ReactElement;
@@ -584,25 +587,49 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                         <Route
                                           path="/notifications"
                                           element={
-                                            <NotificationLicensedElement>
+                                            <ActiveLicenseDeveloperElement>
                                               <NotificationsPage />
-                                            </NotificationLicensedElement>
+                                            </ActiveLicenseDeveloperElement>
                                           }
                                         />
                                         <Route
                                           path="/notification-rules"
                                           element={
-                                            <NotificationLicensedElement>
+                                            <ActiveLicenseDeveloperElement>
                                               <NotificationRulesPage />
-                                            </NotificationLicensedElement>
+                                            </ActiveLicenseDeveloperElement>
                                           }
                                         />
                                         <Route
                                           path="/notification-channels"
                                           element={
-                                            <NotificationLicensedElement>
+                                            <ActiveLicenseDeveloperElement>
                                               <NotificationChannelsPage />
-                                            </NotificationLicensedElement>
+                                            </ActiveLicenseDeveloperElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/incidents"
+                                          element={
+                                            <ActiveLicenseDeveloperElement>
+                                              <IncidentsPage />
+                                            </ActiveLicenseDeveloperElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/incident-providers"
+                                          element={
+                                            <ActiveLicenseDeveloperElement>
+                                              <IncidentProvidersPage />
+                                            </ActiveLicenseDeveloperElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/incident-policies"
+                                          element={
+                                            <ActiveLicenseDeveloperElement>
+                                              <IncidentPoliciesPage />
+                                            </ActiveLicenseDeveloperElement>
                                           }
                                         />
                                         <Route
