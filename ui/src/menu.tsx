@@ -790,14 +790,14 @@ export const mainListItems = React.forwardRef<
             >
               <NavItem
                 to="/incident-providers"
-                text="Providers"
+                text="Connections"
                 isOpen={isOpen}
                 onClick={onNavItemClick}
                 customColor={customColor}
               />
               <NavItem
                 to="/incident-policies"
-                text="Policies"
+                text="Routing"
                 isOpen={isOpen}
                 onClick={onNavItemClick}
                 customColor={customColor}

@@ -41,7 +41,7 @@ function LicenseRequired(): ReactElement {
           License Required
         </h2>
         <p className="mt-1 max-w-md text-sm text-muted-foreground">
-          Incident providers and policies require an active Dagu license or
+          Incident connections and routing require an active Dagu license or
           trial. Visit the{' '}
           <Link
             to="/license"
@@ -120,8 +120,8 @@ export default function IncidentsTab({
     ? `workspace ${workspaceName}`
     : 'Global';
   const combinedLoadError =
-    apiErrorMessage(loadError, 'Failed to load DAG incident policies') ??
-    apiErrorMessage(providersError, 'Failed to load incident providers');
+    apiErrorMessage(loadError, 'Failed to load DAG incident routing') ??
+    apiErrorMessage(providersError, 'Failed to load incident connections');
 
   useEffect(() => {
     if (data) {
@@ -160,12 +160,16 @@ export default function IncidentsTab({
         body: policySetInput(draft),
       });
       if (response.error) {
-        throw new Error(response.error.message || 'Failed to save incidents');
+        throw new Error(
+          response.error.message || 'Failed to save incident routing'
+        );
       }
       await mutate();
-      showToast('DAG incident policy saved');
+      showToast('DAG incident routing saved');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save incidents');
+      setError(
+        err instanceof Error ? err.message : 'Failed to save incident routing'
+      );
     } finally {
       setSaving(false);
     }
@@ -191,7 +195,7 @@ export default function IncidentsTab({
         throw new Error(response.error.message || 'Failed to reset incidents');
       }
       await mutate();
-      showToast('DAG now inherits incident policy');
+      showToast('DAG now inherits incident routing');
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Failed to reset incidents'
@@ -210,8 +214,8 @@ export default function IncidentsTab({
               DAG Incidents
             </h1>
             <p className="text-sm text-muted-foreground">
-              This DAG inherits {effectiveSource} by default. Configure an
-              override only when this DAG needs different incident handling.
+              This DAG uses {effectiveSource} routing unless you set a DAG
+              override.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -268,7 +272,7 @@ export default function IncidentsTab({
       {(isLoading || providersLoading) && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading incident policy
+          Loading incident routing
         </div>
       )}
 
@@ -276,8 +280,8 @@ export default function IncidentsTab({
         draft={visibleDraft}
         providers={providers}
         allowInherit
-        inheritTitle="DAG override"
-        inheritDescription="DAG settings can inherit workspace or Global policies, or replace them for this DAG."
+        inheritTitle="DAG routing"
+        inheritDescription="Use inherited routing, turn incidents off for this DAG, or send this DAG to specific connections."
         onChange={(next) => {
           setLocalOverrideStarted(true);
           setDraft(next);

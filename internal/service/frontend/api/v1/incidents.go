@@ -403,8 +403,8 @@ func incidentPolicyFromRequest(input api.IncidentPolicyInput) incidentmodel.Poli
 		ProviderID:          input.ProviderId,
 		Enabled:             input.Enabled,
 		Severity:            incidentmodel.Severity(input.Severity),
-		ResolveOnRecovery:   input.ResolveOnRecovery,
-		DedupKeyTemplate:    valueOf(input.DedupKeyTemplate),
+		ResolveOnRecovery:   true,
+		DedupKeyTemplate:    incidentmodel.DefaultDedupKeyTemplate,
 		MessageTemplate:     valueOf(input.MessageTemplate),
 		DescriptionTemplate: valueOf(input.DescriptionTemplate),
 	}

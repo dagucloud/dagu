@@ -10,7 +10,7 @@ import { IncidentPolicyEditor } from '../IncidentPolicyEditor';
 import { policySetDraftFromAPI } from '../incidentDrafts';
 
 describe('IncidentPolicyEditor', () => {
-  it('does not show no-op enabled controls when inheriting parent policy', () => {
+  it('shows inheritance as a routing mode without send-to controls', () => {
     const draft = policySetDraftFromAPI(
       {
         scope: IncidentPolicyScope.workspace,
@@ -36,8 +36,8 @@ describe('IncidentPolicyEditor', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText('Inherits')).toBeVisible();
-    expect(screen.queryByText(/^Enabled$/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/^Disabled$/)).not.toBeInTheDocument();
+    expect(screen.getAllByText('Inherit')[0]).toBeVisible();
+    expect(screen.getByText('Parent routing is active.')).toBeVisible();
+    expect(screen.queryByText(/^Send Incidents To$/)).not.toBeInTheDocument();
   });
 });

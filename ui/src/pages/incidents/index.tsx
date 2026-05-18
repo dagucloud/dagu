@@ -43,6 +43,7 @@ import {
   DraftProvider,
   INCIDENT_PROVIDER_TYPES,
   IncidentProvider,
+  incidentRoutingMode,
   policySetDraftFromAPI,
   policySetInput,
   providerDraftFromAPI,
@@ -109,15 +110,13 @@ export default function IncidentsPage(): ReactElement {
         links={[
           {
             to: '/incident-providers',
-            label: 'Providers',
-            description:
-              'Connect PagerDuty or SolarWinds Incident Response credentials.',
+            label: 'Connections',
+            description: 'Connect PagerDuty or SolarWinds Incident Response.',
           },
           {
             to: '/incident-policies',
-            label: 'Policies',
-            description:
-              'Set Global defaults and workspace incident overrides.',
+            label: 'Routing',
+            description: 'Choose where Global and workspace incidents go.',
           },
         ]}
       />
@@ -135,7 +134,7 @@ function IncidentSectionTabs({
       {active === 'providers' ? (
         <span className="inline-flex h-10 items-center gap-2 border-b-2 border-primary px-3 text-sm font-medium text-foreground">
           <ServerCog className="h-4 w-4 text-primary" />
-          Providers
+          Connections
         </span>
       ) : (
         <Link
@@ -143,14 +142,14 @@ function IncidentSectionTabs({
           className="inline-flex h-10 items-center gap-2 border-b-2 border-transparent px-3 text-sm font-medium text-muted-foreground hover:text-foreground"
         >
           <ServerCog className="h-4 w-4" />
-          Providers
+          Connections
         </Link>
       )}
 
       {active === 'policies' ? (
         <span className="inline-flex h-10 items-center gap-2 border-b-2 border-primary px-3 text-sm font-medium text-foreground">
           <RouteIcon className="h-4 w-4 text-primary" />
-          Policies
+          Routing
         </span>
       ) : (
         <Link
@@ -158,7 +157,7 @@ function IncidentSectionTabs({
           className="inline-flex h-10 items-center gap-2 border-b-2 border-transparent px-3 text-sm font-medium text-muted-foreground hover:text-foreground"
         >
           <RouteIcon className="h-4 w-4" />
-          Policies
+          Routing
         </Link>
       )}
     </div>
@@ -171,16 +170,16 @@ function ProvidersHeader({ onAdd }: { onAdd: () => void }): ReactElement {
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-normal text-foreground">
-            Incident Providers
+            Incident Connections
           </h1>
           <p className="text-sm text-muted-foreground">
-            Provider credentials are configured once, then selected by Global,
-            workspace, or DAG incident policies.
+            Connections are configured once, then selected by Global, workspace,
+            or DAG incident routing.
           </p>
         </div>
         <Button size="sm" onClick={onAdd}>
           <Plus className="h-4 w-4" />
-          Add provider
+          Add connection
         </Button>
       </div>
       <IncidentSectionTabs active="providers" />
@@ -237,7 +236,7 @@ function ProviderCard({
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-sm font-semibold text-foreground">
-              {draft.name || 'New provider'}
+              {draft.name || 'New connection'}
             </h2>
             <Badge variant={draft.enabled ? 'success' : 'default'}>
               {draft.enabled ? 'Enabled' : 'Disabled'}
@@ -280,7 +279,7 @@ function ProviderCard({
               size="icon-sm"
               className="text-destructive hover:text-destructive"
               onClick={onDelete}
-              aria-label="Delete incident provider"
+              aria-label="Delete incident connection"
             >
               <Trash2 className="h-4 w-4" />
             </Button>
@@ -302,7 +301,7 @@ function ProviderCard({
         </div>
         <div className="space-y-2">
           <label className="text-xs font-medium text-muted-foreground">
-            Provider
+            Type
           </label>
           <Select value={draft.type} onValueChange={handleTypeChange}>
             <SelectTrigger>
@@ -419,7 +418,7 @@ export function IncidentProvidersPage(): ReactElement {
   );
 
   useEffect(() => {
-    setTitle('Incident Providers');
+    setTitle('Incident Connections');
   }, [setTitle]);
 
   useEffect(() => {
@@ -446,13 +445,15 @@ export function IncidentProvidersPage(): ReactElement {
           })
         : await client.POST('/incident-providers', { body });
       if (response.error) {
-        throw new Error(response.error.message || 'Failed to save provider');
+        throw new Error(response.error.message || 'Failed to save connection');
       }
       await mutate();
       setNewDraft(null);
-      showToast('Incident provider saved');
+      showToast('Incident connection saved');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save provider');
+      setError(
+        err instanceof Error ? err.message : 'Failed to save connection'
+      );
     } finally {
       setSavingId(null);
     }
@@ -467,13 +468,15 @@ export function IncidentProvidersPage(): ReactElement {
         params: { path: { providerId: deleteDraft.id } },
       });
       if (response.error) {
-        throw new Error(response.error.message || 'Failed to delete provider');
+        throw new Error(
+          response.error.message || 'Failed to delete connection'
+        );
       }
       await mutate();
-      showToast('Incident provider deleted');
+      showToast('Incident connection deleted');
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : 'Failed to delete provider'
+        err instanceof Error ? err.message : 'Failed to delete connection'
       );
     } finally {
       setDeleteDraft(null);
@@ -512,11 +515,11 @@ export function IncidentProvidersPage(): ReactElement {
   return (
     <div className="flex h-full min-h-0 flex-col gap-5 overflow-auto">
       <ProvidersHeader onAdd={() => setNewDraft(blankProvider())} />
-      {apiErrorMessage(loadError, 'Failed to load incident providers') && (
+      {apiErrorMessage(loadError, 'Failed to load incident connections') && (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
-            {apiErrorMessage(loadError, 'Failed to load incident providers')}
+            {apiErrorMessage(loadError, 'Failed to load incident connections')}
           </AlertDescription>
         </Alert>
       )}
@@ -529,7 +532,7 @@ export function IncidentProvidersPage(): ReactElement {
       {isLoading && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading incident providers
+          Loading incident connections
         </div>
       )}
       {newDraft && (
@@ -544,7 +547,7 @@ export function IncidentProvidersPage(): ReactElement {
       )}
       {!isLoading && drafts.length === 0 && !newDraft ? (
         <div className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-          No incident providers configured.
+          No incident connections configured.
         </div>
       ) : null}
       <div className="space-y-3">
@@ -562,14 +565,14 @@ export function IncidentProvidersPage(): ReactElement {
         ))}
       </div>
       <ConfirmDialog
-        title="Delete incident provider?"
+        title="Delete incident connection?"
         buttonText="Delete"
         visible={!!deleteDraft}
         dismissModal={() => setDeleteDraft(null)}
         onSubmit={deleteProvider}
       >
         {deleteDraft
-          ? `${deleteDraft.name} cannot be deleted while it is used by a policy.`
+          ? `${deleteDraft.name} cannot be deleted while it is used by routing.`
           : ''}
       </ConfirmDialog>
     </div>
@@ -590,11 +593,10 @@ function PoliciesHeader({
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-normal text-foreground">
-            Incident Policies
+            Incident Routing
           </h1>
           <p className="text-sm text-muted-foreground">
-            Effective order is DAG override, then workspace override, then
-            Global default. Inherit means use the parent.
+            Effective order is DAG, workspace, then Global.
           </p>
         </div>
         <Button size="sm" onClick={onSave} disabled={saving}>
@@ -603,7 +605,7 @@ function PoliciesHeader({
           ) : (
             <Save className="h-4 w-4" />
           )}
-          Save changes
+          Save routing
         </Button>
       </div>
       <IncidentSectionTabs active="policies" />
@@ -625,6 +627,8 @@ function ScopeSelector({
   onChange: (scope: ScopeKey) => void;
 }): ReactElement {
   const canUseWorkspace = !!workspaceName;
+  const globalMode = incidentRoutingMode(globalDraft);
+  const workspaceMode = incidentRoutingMode(workspaceDraft);
   return (
     <div className="rounded-md border border-border bg-card p-4">
       <h2 className="text-sm font-semibold text-foreground">Scope</h2>
@@ -640,12 +644,14 @@ function ScopeSelector({
         >
           <div className="flex items-center justify-between gap-3">
             <span className="text-sm font-medium text-foreground">Global</span>
-            <Badge variant={globalDraft.enabled ? 'success' : 'default'}>
-              {globalDraft.policies.length}
+            <Badge variant={globalMode === 'custom' ? 'success' : 'default'}>
+              {globalMode === 'custom'
+                ? `${globalDraft.policies.length} route${globalDraft.policies.length === 1 ? '' : 's'}`
+                : 'Off'}
             </Badge>
           </div>
           <p className="mt-2 text-xs leading-5 text-muted-foreground">
-            Default incident policy for every DAG.
+            Default route for DAGs without workspace or DAG overrides.
           </p>
         </button>
 
@@ -663,12 +669,12 @@ function ScopeSelector({
             <span className="text-sm font-medium text-foreground">
               Workspace
             </span>
-            <Badge
-              variant={workspaceDraft.inheritParent ? 'default' : 'success'}
-            >
-              {workspaceDraft.inheritParent
-                ? 'Inherits'
-                : workspaceDraft.policies.length}
+            <Badge variant={workspaceMode === 'custom' ? 'success' : 'default'}>
+              {workspaceMode === 'inherit'
+                ? 'Inherit'
+                : workspaceMode === 'custom'
+                  ? `${workspaceDraft.policies.length} route${workspaceDraft.policies.length === 1 ? '' : 's'}`
+                  : 'Off'}
             </Badge>
           </div>
           <p className="mt-2 text-xs leading-5 text-muted-foreground">
@@ -757,16 +763,16 @@ export function IncidentPoliciesPage(): ReactElement {
     globalLoading ||
     (canConfigureWorkspace && workspaceLoading);
   const loadError =
-    apiErrorMessage(providersError, 'Failed to load incident providers') ??
-    apiErrorMessage(globalError, 'Failed to load Global incident policies') ??
+    apiErrorMessage(providersError, 'Failed to load incident connections') ??
+    apiErrorMessage(globalError, 'Failed to load Global incident routing') ??
     apiErrorMessage(
       workspaceError,
-      'Failed to load workspace incident policies'
+      'Failed to load workspace incident routing'
     );
   const activeDraft = activeScope === 'global' ? globalDraft : workspaceDraft;
 
   useEffect(() => {
-    appBarContext.setTitle('Incident Policies');
+    appBarContext.setTitle('Incident Routing');
   }, [appBarContext]);
 
   useEffect(() => {
@@ -807,16 +813,16 @@ export function IncidentPoliciesPage(): ReactElement {
               body,
             });
       if (response.error) {
-        throw new Error(response.error.message || 'Failed to save policies');
+        throw new Error(response.error.message || 'Failed to save routing');
       }
       if (activeScope === 'global') {
         await mutateGlobal();
       } else {
         await mutateWorkspace();
       }
-      showToast('Incident policies saved');
+      showToast('Incident routing saved');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save policies');
+      setError(err instanceof Error ? err.message : 'Failed to save routing');
     } finally {
       setSaving(false);
     }
@@ -829,9 +835,8 @@ export function IncidentPoliciesPage(): ReactElement {
       <Alert variant="info">
         <CheckCircle2 className="h-4 w-4" />
         <AlertDescription>
-          Incidents open only on final failure after automatic retries are
-          exhausted. Recovery can resolve the same provider incident when
-          enabled.
+          Incidents open only after automatic retries are exhausted. Recovery
+          resolves the same incident.
         </AlertDescription>
       </Alert>
 
@@ -850,7 +855,7 @@ export function IncidentPoliciesPage(): ReactElement {
       {isLoading && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading incident policies
+          Loading incident routing
         </div>
       )}
 
@@ -866,13 +871,11 @@ export function IncidentPoliciesPage(): ReactElement {
         draft={activeDraft}
         providers={providers}
         allowInherit={activeScope === 'workspace'}
-        inheritTitle={
-          activeScope === 'global' ? 'Global default' : 'Workspace override'
-        }
+        inheritTitle={activeScope === 'global' ? 'Global' : 'Workspace'}
         inheritDescription={
           activeScope === 'global'
-            ? 'Used by every DAG unless a workspace or DAG override is configured.'
-            : 'Workspace settings can inherit Global or replace it for this workspace.'
+            ? 'Default routing for DAGs without a workspace or DAG override.'
+            : 'Use Global routing, turn incidents off, or choose workspace connections.'
         }
         onChange={(next) =>
           activeScope === 'global'

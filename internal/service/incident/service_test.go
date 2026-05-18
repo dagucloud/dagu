@@ -110,7 +110,7 @@ func TestServicePagerDutyTriggerAndResolvePayloads(t *testing.T) {
 		return &http.Response{
 			StatusCode: http.StatusAccepted,
 			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader(`{"dedup_key":"dagu:daily"}`)),
+			Body:       io.NopCloser(strings.NewReader(`{}`)),
 		}, nil
 	})}
 
@@ -124,7 +124,7 @@ func TestServicePagerDutyTriggerAndResolvePayloads(t *testing.T) {
 			Enabled:             true,
 			Severity:            incidentmodel.SeverityCritical,
 			ResolveOnRecovery:   true,
-			DedupKeyTemplate:    "dagu:{{dag.name}}",
+			DedupKeyTemplate:    "broken:{{run.id}}",
 			MessageTemplate:     "Dagu {{dag.name}} {{run.status}}",
 			DescriptionTemplate: "Run {{run.id}} failed",
 		}},
@@ -150,9 +150,10 @@ func TestServicePagerDutyTriggerAndResolvePayloads(t *testing.T) {
 	require.True(t, ok)
 
 	require.Len(t, requests, 2)
+	expectedDedupKey := systemDedupKey(provider.ID, failure)
 	assert.Equal(t, provider.PagerDuty.RoutingKey, requests[0]["routing_key"])
 	assert.Equal(t, "trigger", requests[0]["event_action"])
-	assert.Equal(t, "dagu:daily", requests[0]["dedup_key"])
+	assert.Equal(t, expectedDedupKey, requests[0]["dedup_key"])
 	triggerPayload, ok := requests[0]["payload"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "Dagu daily failed", triggerPayload["summary"])
@@ -164,11 +165,11 @@ func TestServicePagerDutyTriggerAndResolvePayloads(t *testing.T) {
 
 	assert.Equal(t, provider.PagerDuty.RoutingKey, requests[1]["routing_key"])
 	assert.Equal(t, "resolve", requests[1]["event_action"])
-	assert.Equal(t, "dagu:daily", requests[1]["dedup_key"])
+	assert.Equal(t, expectedDedupKey, requests[1]["dedup_key"])
 	assert.NotContains(t, requests[1], "payload")
 }
 
-func TestServiceResolvesIncidentAfterPolicyIDChanges(t *testing.T) {
+func TestServiceResolvesOpenIncidentAfterRoutingIsDisabled(t *testing.T) {
 	var requests []map[string]any
 	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		defer req.Body.Close()
@@ -178,7 +179,7 @@ func TestServiceResolvesIncidentAfterPolicyIDChanges(t *testing.T) {
 		return &http.Response{
 			StatusCode: http.StatusAccepted,
 			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader(`{"dedup_key":"dagu:daily"}`)),
+			Body:       io.NopCloser(strings.NewReader(`{}`)),
 		}, nil
 	})}
 
@@ -206,16 +207,9 @@ func TestServiceResolvesIncidentAfterPolicyIDChanges(t *testing.T) {
 		Events: []chatbridge.NotificationEvent{failure},
 	}, false))
 
-	policySet.Policies = []incidentmodel.Policy{{
-		ID:                  "new-policy",
-		ProviderID:          provider.ID,
-		Enabled:             true,
-		ResolveOnRecovery:   true,
-		DedupKeyTemplate:    "dagu:{{dag.name}}",
-		MessageTemplate:     "Dagu {{dag.name}} recovered",
-		DescriptionTemplate: "Run {{run.id}} recovered",
-	}}
-	policySet = store.savePolicySet(t, policySet)
+	policySet.Enabled = false
+	policySet.Policies = nil
+	store.savePolicySet(t, policySet)
 	success := failure
 	success.Type = eventstore.TypeDAGRunSucceeded
 	success.Status = cloneStatus(failure.Status)
@@ -224,7 +218,6 @@ func TestServiceResolvesIncidentAfterPolicyIDChanges(t *testing.T) {
 
 	destinations = svc.NotificationDestinationsForEvent(success)
 	require.Len(t, destinations, 1)
-	assert.Equal(t, policySet.Policies[0].ID, parsePolicyDestinationID(destinations[0]).PolicyID)
 	require.True(t, svc.FlushNotificationBatch(context.Background(), destinations[0], chatbridge.NotificationBatch{
 		Events: []chatbridge.NotificationEvent{success},
 	}, false))
@@ -232,7 +225,7 @@ func TestServiceResolvesIncidentAfterPolicyIDChanges(t *testing.T) {
 	require.Len(t, requests, 2)
 	assert.Equal(t, "trigger", requests[0]["event_action"])
 	assert.Equal(t, "resolve", requests[1]["event_action"])
-	assert.Equal(t, "dagu:daily", requests[1]["dedup_key"])
+	assert.Equal(t, requests[0]["dedup_key"], requests[1]["dedup_key"])
 }
 
 func TestServiceReopenedIncidentUsesFreshOpenedAt(t *testing.T) {
@@ -240,7 +233,7 @@ func TestServiceReopenedIncidentUsesFreshOpenedAt(t *testing.T) {
 		return &http.Response{
 			StatusCode: http.StatusAccepted,
 			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader(`{"dedup_key":"dagu:daily"}`)),
+			Body:       io.NopCloser(strings.NewReader(`{}`)),
 		}, nil
 	})}
 
@@ -264,7 +257,8 @@ func TestServiceReopenedIncidentUsesFreshOpenedAt(t *testing.T) {
 	require.True(t, svc.FlushNotificationBatch(context.Background(), destinations[0], chatbridge.NotificationBatch{
 		Events: []chatbridge.NotificationEvent{failure},
 	}, false))
-	state, err := store.GetState(context.Background(), provider.ID, "dagu:daily")
+	dedupKey := systemDedupKey(provider.ID, failure)
+	state, err := store.GetState(context.Background(), provider.ID, dedupKey)
 	require.NoError(t, err)
 	firstOpenedAt := state.OpenedAt
 
@@ -284,7 +278,7 @@ func TestServiceReopenedIncidentUsesFreshOpenedAt(t *testing.T) {
 		Events: []chatbridge.NotificationEvent{secondFailure},
 	}, false))
 
-	state, err = store.GetState(context.Background(), provider.ID, "dagu:daily")
+	state, err = store.GetState(context.Background(), provider.ID, dedupKey)
 	require.NoError(t, err)
 	assert.Equal(t, incidentmodel.IncidentStatusOpen, state.Status)
 	assert.True(t, state.OpenedAt.After(firstOpenedAt), "reopened incident should not keep the original open timestamp")
@@ -350,13 +344,14 @@ func TestServiceSolarWindsTriggerAndResolvePayloads(t *testing.T) {
 	require.True(t, ok)
 
 	require.Len(t, requests, 2)
+	expectedDedupKey := systemDedupKey(provider.ID, failure)
 	assert.Equal(t, "trigger", requests[0]["status"])
-	assert.Equal(t, "dagu:daily", requests[0]["event_id"])
+	assert.Equal(t, expectedDedupKey, requests[0]["event_id"])
 	assert.Equal(t, "Dagu daily failed", requests[0]["message"])
 	assert.Contains(t, requests[0]["description"], "Run run-1: boom")
 	assert.Contains(t, requests[0]["description"], "https://dagu.example.com/workflows/dag-runs/daily/run-1")
 	assert.Equal(t, "resolve", requests[1]["status"])
-	assert.Equal(t, "dagu:daily", requests[1]["event_id"])
+	assert.Equal(t, expectedDedupKey, requests[1]["event_id"])
 	assert.NotContains(t, requests[1], "message")
 	assert.NotContains(t, requests[1], "description")
 }

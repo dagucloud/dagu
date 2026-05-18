@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -240,6 +241,39 @@ func (s *Store) GetState(_ context.Context, providerID, dedupKey string) (*incid
 		return nil, err
 	}
 	return state, nil
+}
+
+func (s *Store) ListOpenStatesByDAG(_ context.Context, dagName string) ([]*incident.IncidentState, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	entries, err := os.ReadDir(s.stateDir())
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	states := make([]*incident.IncidentState, 0)
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != fileExtension {
+			continue
+		}
+		state, err := s.loadStateFromFile(filepath.Join(s.stateDir(), entry.Name()))
+		if err != nil {
+			return nil, err
+		}
+		if state.DAGName != dagName || state.Status != incident.IncidentStatusOpen {
+			continue
+		}
+		states = append(states, state)
+	}
+	sort.Slice(states, func(i, j int) bool {
+		if states[i].ProviderID != states[j].ProviderID {
+			return states[i].ProviderID < states[j].ProviderID
+		}
+		return states[i].DedupKey < states[j].DedupKey
+	})
+	return states, nil
 }
 
 func (s *Store) DeleteState(_ context.Context, providerID, dedupKey string) error {

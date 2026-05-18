@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/api/v1"
+	incidentmodel "github.com/dagucloud/dagu/internal/incident"
 	"github.com/dagucloud/dagu/internal/license"
 	"github.com/dagucloud/dagu/internal/service/frontend"
 	"github.com/dagucloud/dagu/internal/test"
@@ -70,7 +71,7 @@ func TestIncidentManagement_GlobalWorkspaceAndDAGPolicySets(t *testing.T) {
 			ProviderId:          provider.Id,
 			Enabled:             true,
 			Severity:            api.IncidentSeverityCritical,
-			ResolveOnRecovery:   true,
+			ResolveOnRecovery:   false,
 			DedupKeyTemplate:    &dedupKeyTemplate,
 			MessageTemplate:     &messageTemplate,
 			DescriptionTemplate: &descriptionTemplate,
@@ -82,6 +83,8 @@ func TestIncidentManagement_GlobalWorkspaceAndDAGPolicySets(t *testing.T) {
 	assert.False(t, globalSet.InheritParent)
 	require.Len(t, globalSet.Policies, 1)
 	assert.Equal(t, "global-policy", globalSet.Policies[0].Id)
+	assert.True(t, globalSet.Policies[0].ResolveOnRecovery)
+	assert.Equal(t, incidentmodel.DefaultDedupKeyTemplate, globalSet.Policies[0].DedupKeyTemplate)
 
 	server.Client().Post("/api/v1/workspaces", api.CreateWorkspaceRequest{
 		Name: "ops",
@@ -99,7 +102,7 @@ func TestIncidentManagement_GlobalWorkspaceAndDAGPolicySets(t *testing.T) {
 
 	dagName := "daily-report"
 	createTestDAG(t, server, "", dagName)
-	dagDefaultResp := server.Client().Get("/api/v1/dags/"+dagName+"/incidents").
+	dagDefaultResp := server.Client().Get("/api/v1/dags/" + dagName + "/incidents").
 		ExpectStatus(http.StatusOK).Send(t)
 	var dagDefault api.IncidentPolicySet
 	dagDefaultResp.Unmarshal(t, &dagDefault)

@@ -55,6 +55,8 @@ export type DraftIncidentPolicySet = {
   updatedAt?: string;
 };
 
+export type IncidentRoutingMode = 'inherit' | 'custom' | 'off';
+
 export const DEFAULT_INCIDENT_DEDUP_KEY_TEMPLATE =
   'dagu:workspace:{{workspace}}:dag:{{dag.name}}:failure';
 export const DEFAULT_INCIDENT_MESSAGE_TEMPLATE = 'Dagu DAG {{dag.name}} failed';
@@ -190,12 +192,15 @@ export function policySetDraftFromAPI(
   fallbackWorkspace?: string,
   fallbackDAGName?: string
 ): DraftIncidentPolicySet {
+  const hasSavedPolicySet = !!policySet?.id;
   return {
     id: policySet?.id,
     scope: policySet?.scope || fallbackScope,
     workspace: policySet?.workspace || fallbackWorkspace,
     dagName: policySet?.dagName || fallbackDAGName,
-    enabled: policySet?.enabled ?? true,
+    enabled: hasSavedPolicySet
+      ? (policySet?.enabled ?? true)
+      : fallbackScope !== IncidentPolicyScope.global,
     inheritParent:
       policySet?.inheritParent ?? fallbackScope !== IncidentPolicyScope.global,
     policies: (policySet?.policies || []).map(policyDraftFromAPI),
@@ -207,20 +212,60 @@ export function policySetDraftFromAPI(
 export function policySetInput(
   draft: DraftIncidentPolicySet
 ): IncidentPolicySetInput {
+  const mode = incidentRoutingMode(draft);
+  if (mode === 'inherit') {
+    return {
+      enabled: true,
+      inheritParent: true,
+      policies: [],
+    };
+  }
+  if (mode === 'off') {
+    return {
+      enabled: false,
+      inheritParent: false,
+      policies: [],
+    };
+  }
   return {
-    enabled: draft.enabled,
-    inheritParent: draft.inheritParent,
-    policies: draft.policies.map(policyInput),
+    enabled: true,
+    inheritParent: false,
+    policies: draft.policies
+      .filter((policy) => policy.providerId)
+      .map(policyInput),
   };
+}
+
+export function incidentRoutingMode(
+  draft: DraftIncidentPolicySet
+): IncidentRoutingMode {
+  if (draft.inheritParent) return 'inherit';
+  if (!draft.enabled) return 'off';
+  return 'custom';
+}
+
+export function withIncidentRoutingMode(
+  draft: DraftIncidentPolicySet,
+  mode: IncidentRoutingMode
+): DraftIncidentPolicySet {
+  switch (mode) {
+    case 'inherit':
+      return { ...draft, enabled: true, inheritParent: true, policies: [] };
+    case 'off':
+      return { ...draft, enabled: false, inheritParent: false, policies: [] };
+    case 'custom':
+    default:
+      return { ...draft, enabled: true, inheritParent: false };
+  }
 }
 
 function policyDraftFromAPI(policy: IncidentPolicy): DraftIncidentPolicy {
   return {
     id: policy.id,
     providerId: policy.providerId,
-    enabled: policy.enabled,
+    enabled: true,
     severity: policy.severity,
-    resolveOnRecovery: policy.resolveOnRecovery,
+    resolveOnRecovery: true,
     dedupKeyTemplate:
       policy.dedupKeyTemplate || DEFAULT_INCIDENT_DEDUP_KEY_TEMPLATE,
     messageTemplate:
@@ -234,9 +279,9 @@ function policyInput(policy: DraftIncidentPolicy): IncidentPolicyInput {
   return {
     id: policy.id,
     providerId: policy.providerId,
-    enabled: policy.enabled,
+    enabled: true,
     severity: policy.severity,
-    resolveOnRecovery: policy.resolveOnRecovery,
+    resolveOnRecovery: true,
     dedupKeyTemplate:
       policy.dedupKeyTemplate.trim() || DEFAULT_INCIDENT_DEDUP_KEY_TEMPLATE,
     messageTemplate:

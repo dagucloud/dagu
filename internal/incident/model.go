@@ -169,6 +169,7 @@ type Store interface {
 
 	SaveState(ctx context.Context, state *IncidentState) error
 	GetState(ctx context.Context, providerID, dedupKey string) (*IncidentState, error)
+	ListOpenStatesByDAG(ctx context.Context, dagName string) ([]*IncidentState, error)
 	DeleteState(ctx context.Context, providerID, dedupKey string) error
 }
 

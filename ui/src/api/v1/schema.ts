@@ -1872,7 +1872,7 @@ export interface paths {
         post?: never;
         /**
          * Delete incident provider
-         * @description Deletes an incident provider. Providers referenced by incident policies cannot be deleted.
+         * @description Deletes an incident provider. Providers referenced by incident routing cannot be deleted.
          */
         delete: operations["deleteIncidentProvider"];
         options?: never;
@@ -1908,8 +1908,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List incident policies
-         * @description Returns global, workspace, and DAG incident policy sets. Developer, manager, or admin only.
+         * List incident routing
+         * @description Returns global, workspace, and DAG incident routing. Developer, manager, or admin only.
          */
         get: operations["listIncidentPolicies"];
         put?: never;
@@ -1928,13 +1928,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get global incident policies
-         * @description Returns global incident policies. Global policies are used unless a workspace or DAG policy is configured. Developer, manager, or admin only.
+         * Get global incident routing
+         * @description Returns global incident routing. Global routing is used unless a workspace or DAG override is configured. Developer, manager, or admin only.
          */
         get: operations["getGlobalIncidentPolicies"];
         /**
-         * Update global incident policies
-         * @description Replaces global incident policies. Policy provider IDs must reference incident providers. Developer, manager, or admin only.
+         * Update global incident routing
+         * @description Replaces global incident routing. Route provider IDs must reference incident providers. Developer, manager, or admin only.
          */
         put: operations["updateGlobalIncidentPolicies"];
         post?: never;
@@ -1952,13 +1952,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get workspace incident policies
-         * @description Returns incident policies for one named workspace. Workspace policies can inherit global policies. Developer, manager, or admin only.
+         * Get workspace incident routing
+         * @description Returns incident routing for one named workspace. Workspace routing can inherit global routing. Developer, manager, or admin only.
          */
         get: operations["getWorkspaceIncidentPolicies"];
         /**
-         * Update workspace incident policies
-         * @description Replaces incident policies for one named workspace. Policy provider IDs must reference incident providers. Developer, manager, or admin only.
+         * Update workspace incident routing
+         * @description Replaces incident routing for one named workspace. Route provider IDs must reference incident providers. Developer, manager, or admin only.
          */
         put: operations["updateWorkspaceIncidentPolicies"];
         post?: never;
@@ -2192,19 +2192,19 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get DAG incident policies
-         * @description Returns DAG-level incident policy override settings. Missing settings mean this DAG inherits workspace or global policies. Developer, manager, or admin only.
+         * Get DAG incident routing
+         * @description Returns DAG-level incident routing override settings. Missing settings mean this DAG inherits workspace or global routing. Developer, manager, or admin only.
          */
         get: operations["getDAGIncidents"];
         /**
-         * Update DAG incident policies
-         * @description Creates or replaces DAG-level incident policy override settings. Policy provider IDs must reference incident providers. Developer, manager, or admin only.
+         * Update DAG incident routing
+         * @description Creates or replaces DAG-level incident routing override settings. Route provider IDs must reference incident providers. Developer, manager, or admin only.
          */
         put: operations["updateDAGIncidents"];
         post?: never;
         /**
-         * Delete DAG incident policies
-         * @description Removes DAG-level incident policy override settings so the DAG inherits workspace or global policies. Developer, manager, or admin only.
+         * Delete DAG incident routing
+         * @description Removes DAG-level incident routing override settings so the DAG inherits workspace or global routing. Developer, manager, or admin only.
          */
         delete: operations["deleteDAGIncidents"];
         options?: never;
@@ -4050,7 +4050,7 @@ export interface components {
          */
         IncidentSeverity: IncidentSeverity;
         /**
-         * @description Incident policy scope
+         * @description Incident routing scope
          * @enum {string}
          */
         IncidentPolicyScope: IncidentPolicyScope;
@@ -4125,72 +4125,72 @@ export interface components {
         IncidentProviderListResponse: {
             providers: components["schemas"]["IncidentProvider"][];
         };
-        /** @description Incident policy input. A policy opens an incident on final DAG failure and can resolve it on later success. */
+        /** @description Incident route input. A route opens an incident on final DAG failure and Dagu resolves the saved open incident on later success. */
         IncidentPolicyInput: {
-            /** @description Stable policy ID. Omit when adding a policy. */
+            /** @description Stable route ID. Omit when adding a route. */
             id?: string;
             /** @description Incident provider ID */
             providerId: string;
-            /** @description Whether this policy can open or resolve incidents */
+            /** @description Whether this route is enabled. Normal incident routing sends true when the route exists. */
             enabled: boolean;
             severity: components["schemas"]["IncidentSeverity"];
-            /** @description Resolve the open incident when the DAG later succeeds */
+            /** @description Deprecated. Dagu resolves saved open incidents on recovery. */
             resolveOnRecovery: boolean;
-            /** @description Template for the provider incident key. Defaults to a stable key per workspace and DAG. */
+            /** @description Deprecated and ignored. Dagu generates stable provider incident keys. */
             dedupKeyTemplate?: string;
             /** @description Template for the provider incident summary/message. */
             messageTemplate?: string;
             /** @description Template for the provider incident description/details. */
             descriptionTemplate?: string;
         };
-        /** @description Incident policy */
+        /** @description Incident route */
         IncidentPolicy: {
-            /** @description Stable policy ID */
+            /** @description Stable route ID */
             id: string;
             /** @description Incident provider ID */
             providerId: string;
-            /** @description Whether this policy can open or resolve incidents */
+            /** @description Whether this route is enabled */
             enabled: boolean;
             severity: components["schemas"]["IncidentSeverity"];
-            /** @description Resolve the open incident when the DAG later succeeds */
+            /** @description Deprecated. Dagu resolves saved open incidents on recovery. */
             resolveOnRecovery: boolean;
-            /** @description Template for the provider incident key */
+            /** @description Deprecated and ignored. Dagu generates stable provider incident keys. */
             dedupKeyTemplate: string;
             /** @description Template for the provider incident summary/message */
             messageTemplate: string;
             /** @description Template for the provider incident description/details */
             descriptionTemplate: string;
         };
-        /** @description Replacement incident policy set for a global, workspace, or DAG scope */
+        /** @description Replacement incident routing for a global, workspace, or DAG scope */
         IncidentPolicySetInput: {
-            /** @description Whether this policy set can open or resolve incidents */
+            /** @description Whether this scope can open new incidents */
             enabled: boolean;
-            /** @description For workspace and DAG policy sets, true means inherit the parent scope instead of using local policies. Ignored for global policy sets. */
+            /** @description For workspace and DAG routing, true means inherit the parent scope instead of using local routes. Ignored for global routing. */
             inheritParent: boolean;
             policies: components["schemas"]["IncidentPolicyInput"][];
         };
-        /** @description Incident policies for a global, workspace, or DAG scope */
+        /** @description Incident routing for a global, workspace, or DAG scope */
         IncidentPolicySet: {
-            /** @description Stable policy set ID, present after the policy set is saved */
+            /** @description Stable routing ID, present after routing is saved */
             id?: string;
             scope: components["schemas"]["IncidentPolicyScope"];
-            /** @description Workspace name for workspace-scoped policy sets */
+            /** @description Workspace name for workspace-scoped routing */
             workspace?: string;
-            /** @description DAG name for DAG-scoped policy sets */
+            /** @description DAG name for DAG-scoped routing */
             dagName?: string;
-            /** @description Whether this policy set can open or resolve incidents */
+            /** @description Whether this scope can open new incidents */
             enabled: boolean;
-            /** @description For workspace and DAG policy sets, true means inherit the parent scope instead of using local policies */
+            /** @description For workspace and DAG routing, true means inherit the parent scope instead of using local routes */
             inheritParent: boolean;
             policies: components["schemas"]["IncidentPolicy"][];
             /** Format: date-time */
             createdAt?: string;
             /** Format: date-time */
             updatedAt?: string;
-            /** @description User ID that last updated the policy set */
+            /** @description User ID that last updated routing */
             updatedBy?: string;
         };
-        /** @description Incident policy sets */
+        /** @description Incident routing scopes */
         IncidentPolicySetListResponse: {
             policySets: components["schemas"]["IncidentPolicySet"][];
         };
@@ -11977,7 +11977,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Incident provider is used by a policy */
+            /** @description Incident provider is used by routing */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12061,7 +12061,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description List of incident policy sets */
+            /** @description List of incident routing scopes */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -12102,7 +12102,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Global incident policy set */
+            /** @description Global incident routing */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -12147,7 +12147,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Global incident policy set updated */
+            /** @description Global incident routing updated */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -12156,7 +12156,7 @@ export interface operations {
                     "application/json": components["schemas"]["IncidentPolicySet"];
                 };
             };
-            /** @description Invalid incident policy set */
+            /** @description Invalid incident routing */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -12208,7 +12208,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Workspace incident policy set */
+            /** @description Workspace incident routing */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -12264,7 +12264,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Workspace incident policy set updated */
+            /** @description Workspace incident routing updated */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -12273,7 +12273,7 @@ export interface operations {
                     "application/json": components["schemas"]["IncidentPolicySet"];
                 };
             };
-            /** @description Invalid incident policy set */
+            /** @description Invalid incident routing */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -13004,7 +13004,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description DAG incident policy set */
+            /** @description DAG incident routing */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -13061,7 +13061,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description DAG incident policy set updated */
+            /** @description DAG incident routing updated */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -13070,7 +13070,7 @@ export interface operations {
                     "application/json": components["schemas"]["IncidentPolicySet"];
                 };
             };
-            /** @description Invalid incident policy set */
+            /** @description Invalid incident routing */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -13123,7 +13123,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description DAG incident policies deleted */
+            /** @description DAG incident routing deleted */
             204: {
                 headers: {
                     [name: string]: unknown;

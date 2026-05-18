@@ -6,6 +6,8 @@ package incident
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -371,6 +373,9 @@ func (s *Service) NotificationDestinationsForEvent(event chatbridge.Notification
 	if !s.incidentsAllowed() || !incidentEventSupported(event) {
 		return nil
 	}
+	if event.Type == eventstore.TypeDAGRunSucceeded {
+		return s.resolveDestinationsForEvent(context.Background(), event)
+	}
 	policySet := s.effectivePolicySetForEvent(context.Background(), event)
 	if !policySetDeliversOwnPolicies(policySet) {
 		return nil
@@ -386,8 +391,39 @@ func (s *Service) NotificationDestinationsForEvent(event chatbridge.Notification
 	return destinations
 }
 
+func (s *Service) resolveDestinationsForEvent(ctx context.Context, event chatbridge.NotificationEvent) []string {
+	if s.store == nil || event.Status == nil || event.Status.Name == "" {
+		return nil
+	}
+	states, err := s.store.ListOpenStatesByDAG(ctx, event.Status.Name)
+	if err != nil {
+		s.logger.Warn("Failed to list open incident states",
+			slog.String("dag", event.Status.Name),
+			slog.String("error", err.Error()),
+		)
+		return nil
+	}
+	destinations := make([]string, 0, len(states))
+	for _, state := range states {
+		if state == nil || state.ProviderID == "" || state.DedupKey == "" {
+			continue
+		}
+		destinations = append(destinations, stateDestinationID(state.ProviderID, state.DedupKey))
+	}
+	slices.Sort(destinations)
+	return destinations
+}
+
 func (s *Service) FlushNotificationBatch(ctx context.Context, destination string, batch chatbridge.NotificationBatch, _ bool) bool {
 	if !s.incidentsAllowed() {
+		return true
+	}
+	if parsedState := parseStateDestinationID(destination); parsedState.OK {
+		for _, event := range batch.Events {
+			if !s.resolveIncidentState(ctx, parsedState.ProviderID, parsedState.DedupKey, event) {
+				return false
+			}
+		}
 		return true
 	}
 	parsed := parsePolicyDestinationID(destination)
@@ -448,9 +484,9 @@ func (s *Service) deliverIncidentEvent(
 	if effective := s.effectivePolicySetForEvent(ctx, event); policySetID(effective) != policySetID(policySet) {
 		return true
 	}
-	dedupKey := strings.TrimSpace(renderIncidentTemplate(policy.DedupKeyTemplate, event, s.publicURL()))
+	dedupKey := systemDedupKey(provider.ID, event)
 	if dedupKey == "" {
-		s.logger.Warn("Rendered incident dedup key is empty",
+		s.logger.Warn("Incident dedup key is empty",
 			slog.String("policy_id", policy.ID),
 			slog.String("dag", event.Status.Name),
 		)
@@ -464,6 +500,31 @@ func (s *Service) deliverIncidentEvent(
 	default:
 		return true
 	}
+}
+
+func (s *Service) resolveIncidentState(ctx context.Context, providerID, dedupKey string, event chatbridge.NotificationEvent) bool {
+	if event.Type != eventstore.TypeDAGRunSucceeded || event.Status == nil {
+		return true
+	}
+	provider, err := s.GetProvider(ctx, providerID)
+	if err != nil {
+		if errors.Is(err, incidentmodel.ErrProviderNotFound) {
+			return true
+		}
+		s.logger.Warn("Failed to load incident provider",
+			slog.String("provider", providerID),
+			slog.String("error", err.Error()),
+		)
+		return false
+	}
+	if !provider.Enabled {
+		return true
+	}
+	return s.resolveIncident(ctx, provider, incidentmodel.Policy{
+		ProviderID: provider.ID,
+		Enabled:    true,
+		Severity:   incidentmodel.SeverityError,
+	}, event, dedupKey)
 }
 
 func (s *Service) openIncident(ctx context.Context, provider *incidentmodel.Provider, policy incidentmodel.Policy, event chatbridge.NotificationEvent, dedupKey string) bool {
@@ -512,9 +573,6 @@ func (s *Service) openIncident(ctx context.Context, provider *incidentmodel.Prov
 }
 
 func (s *Service) resolveIncident(ctx context.Context, provider *incidentmodel.Provider, policy incidentmodel.Policy, event chatbridge.NotificationEvent, dedupKey string) bool {
-	if !policy.ResolveOnRecovery {
-		return true
-	}
 	state, err := s.store.GetState(ctx, provider.ID, dedupKey)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -524,6 +582,9 @@ func (s *Service) resolveIncident(ctx context.Context, provider *incidentmodel.P
 		return false
 	}
 	if state.Status != incidentmodel.IncidentStatusOpen {
+		return true
+	}
+	if event.Status != nil && state.DAGName != "" && state.DAGName != event.Status.Name {
 		return true
 	}
 	delivery, err := s.withRetry(ctx, func() (*providerDeliveryResult, error) {
@@ -628,7 +689,7 @@ func policyMatchesEvent(policy incidentmodel.Policy, eventType eventstore.EventT
 	case eventstore.TypeDAGRunFailed:
 		return true
 	case eventstore.TypeDAGRunSucceeded:
-		return policy.ResolveOnRecovery
+		return true
 	default:
 		return false
 	}
@@ -699,6 +760,13 @@ func policyDestinationID(policySet *incidentmodel.PolicySet, policyID string) st
 	return "incident-policy" + "\x00" + string(policySet.Scope) + "\x00" + policySet.Workspace + "\x00" + policySet.DAGName + "\x00" + policyID
 }
 
+func stateDestinationID(providerID, dedupKey string) string {
+	if providerID == "" || dedupKey == "" {
+		return ""
+	}
+	return "incident-state" + "\x00" + providerID + "\x00" + dedupKey
+}
+
 type parsedPolicyDestination struct {
 	OK        bool
 	Scope     incidentmodel.PolicyScope
@@ -719,6 +787,37 @@ func parsePolicyDestinationID(value string) parsedPolicyDestination {
 		DAGName:   parts[3],
 		PolicyID:  parts[4],
 	}
+}
+
+type parsedStateDestination struct {
+	OK         bool
+	ProviderID string
+	DedupKey   string
+}
+
+func parseStateDestinationID(value string) parsedStateDestination {
+	parts := strings.Split(value, "\x00")
+	if len(parts) != 3 || parts[0] != "incident-state" {
+		return parsedStateDestination{}
+	}
+	return parsedStateDestination{
+		OK:         true,
+		ProviderID: parts[1],
+		DedupKey:   parts[2],
+	}
+}
+
+func systemDedupKey(providerID string, event chatbridge.NotificationEvent) string {
+	if providerID == "" || event.Status == nil || event.Status.Name == "" {
+		return ""
+	}
+	canonical := strings.Join([]string{
+		"provider", providerID,
+		"workspace", eventWorkspaceName(event),
+		"dag", event.Status.Name,
+	}, "\x00")
+	sum := sha256.Sum256([]byte(canonical))
+	return "dagu:v1:" + hex.EncodeToString(sum[:16])
 }
 
 type providerAction string

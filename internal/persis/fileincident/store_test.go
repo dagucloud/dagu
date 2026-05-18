@@ -96,6 +96,11 @@ func TestStorePersistsPolicySetAndState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, incident.IncidentStatusOpen, loadedState.Status)
 	assert.Equal(t, "daily", loadedState.DAGName)
+
+	openStates, err := store.ListOpenStatesByDAG(context.Background(), "daily")
+	require.NoError(t, err)
+	require.Len(t, openStates, 1)
+	assert.Equal(t, state.DedupKey, openStates[0].DedupKey)
 }
 
 func containsString(data []byte, value string) bool {

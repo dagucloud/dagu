@@ -31,25 +31,25 @@ function renderPage() {
 }
 
 describe('IncidentsPage', () => {
-  it('renders provider and policy setup links in order', () => {
+  it('renders connection and routing setup links in order', () => {
     const { setTitle } = renderPage();
 
     expect(screen.getByRole('heading', { name: /^incidents$/i })).toBeVisible();
-    const providersLink = screen.getByRole('link', { name: /^providers/i });
-    const policiesLink = screen.getByRole('link', { name: /^policies/i });
-    expect(providersLink).toHaveAttribute('href', '/incident-providers');
-    expect(policiesLink).toHaveAttribute('href', '/incident-policies');
+    const connectionsLink = screen.getByRole('link', {
+      name: /^connections/i,
+    });
+    const routingLink = screen.getByRole('link', { name: /^routing/i });
+    expect(connectionsLink).toHaveAttribute('href', '/incident-providers');
+    expect(routingLink).toHaveAttribute('href', '/incident-policies');
     expect(
-      providersLink.compareDocumentPosition(policiesLink) &
+      connectionsLink.compareDocumentPosition(routingLink) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
     expect(
-      screen.getByText(
-        'Connect PagerDuty or SolarWinds Incident Response credentials.'
-      )
+      screen.getByText('Connect PagerDuty or SolarWinds Incident Response.')
     ).toBeVisible();
     expect(
-      screen.getByText('Set Global defaults and workspace incident overrides.')
+      screen.getByText('Choose where Global and workspace incidents go.')
     ).toBeVisible();
     expect(setTitle).toHaveBeenCalledWith('Incidents');
   });

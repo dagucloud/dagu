@@ -169,6 +169,20 @@ func (s *memoryStore) GetState(_ context.Context, providerID, dedupKey string) (
 	return &copy, nil
 }
 
+func (s *memoryStore) ListOpenStatesByDAG(_ context.Context, dagName string) ([]*incidentmodel.IncidentState, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	states := make([]*incidentmodel.IncidentState, 0)
+	for _, state := range s.states {
+		if state.DAGName != dagName || state.Status != incidentmodel.IncidentStatusOpen {
+			continue
+		}
+		copy := *state
+		states = append(states, &copy)
+	}
+	return states, nil
+}
+
 func (s *memoryStore) DeleteState(_ context.Context, providerID, dedupKey string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

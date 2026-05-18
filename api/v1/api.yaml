@@ -44,7 +44,7 @@ tags:
   - name: "notifications"
     description: "DAG run notification settings and delivery tests"
   - name: "incidents"
-    description: "Incident provider and policy management"
+    description: "Incident connection and routing management"
   - name: "audit"
     description: "Audit log operations (admin only)"
   - name: "events"
@@ -4585,7 +4585,7 @@ paths:
 
     delete:
       summary: "Delete incident provider"
-      description: "Deletes an incident provider. Providers referenced by incident policies cannot be deleted."
+      description: "Deletes an incident provider. Providers referenced by incident routing cannot be deleted."
       operationId: "deleteIncidentProvider"
       tags:
         - "incidents"
@@ -4612,7 +4612,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: "Incident provider is used by a policy"
+          description: "Incident provider is used by routing"
           content:
             application/json:
               schema:
@@ -4666,8 +4666,8 @@ paths:
 
   /incident-policies:
     get:
-      summary: "List incident policies"
-      description: "Returns global, workspace, and DAG incident policy sets. Developer, manager, or admin only."
+      summary: "List incident routing"
+      description: "Returns global, workspace, and DAG incident routing. Developer, manager, or admin only."
       operationId: "listIncidentPolicies"
       tags:
         - "incidents"
@@ -4675,7 +4675,7 @@ paths:
         - $ref: "#/components/parameters/RemoteNode"
       responses:
         "200":
-          description: "List of incident policy sets"
+          description: "List of incident routing scopes"
           content:
             application/json:
               schema:
@@ -4695,8 +4695,8 @@ paths:
 
   /incident-policies/global:
     get:
-      summary: "Get global incident policies"
-      description: "Returns global incident policies. Global policies are used unless a workspace or DAG policy is configured. Developer, manager, or admin only."
+      summary: "Get global incident routing"
+      description: "Returns global incident routing. Global routing is used unless a workspace or DAG override is configured. Developer, manager, or admin only."
       operationId: "getGlobalIncidentPolicies"
       tags:
         - "incidents"
@@ -4704,7 +4704,7 @@ paths:
         - $ref: "#/components/parameters/RemoteNode"
       responses:
         "200":
-          description: "Global incident policy set"
+          description: "Global incident routing"
           content:
             application/json:
               schema:
@@ -4723,8 +4723,8 @@ paths:
                 $ref: "#/components/schemas/Error"
 
     put:
-      summary: "Update global incident policies"
-      description: "Replaces global incident policies. Policy provider IDs must reference incident providers. Developer, manager, or admin only."
+      summary: "Update global incident routing"
+      description: "Replaces global incident routing. Route provider IDs must reference incident providers. Developer, manager, or admin only."
       operationId: "updateGlobalIncidentPolicies"
       tags:
         - "incidents"
@@ -4738,13 +4738,13 @@ paths:
               $ref: "#/components/schemas/IncidentPolicySetInput"
       responses:
         "200":
-          description: "Global incident policy set updated"
+          description: "Global incident routing updated"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/IncidentPolicySet"
         "400":
-          description: "Invalid incident policy set"
+          description: "Invalid incident routing"
           content:
             application/json:
               schema:
@@ -4770,8 +4770,8 @@ paths:
 
   /incident-policies/workspaces/{workspaceName}:
     get:
-      summary: "Get workspace incident policies"
-      description: "Returns incident policies for one named workspace. Workspace policies can inherit global policies. Developer, manager, or admin only."
+      summary: "Get workspace incident routing"
+      description: "Returns incident routing for one named workspace. Workspace routing can inherit global routing. Developer, manager, or admin only."
       operationId: "getWorkspaceIncidentPolicies"
       tags:
         - "incidents"
@@ -4784,7 +4784,7 @@ paths:
             $ref: "#/components/schemas/WorkspaceName"
       responses:
         "200":
-          description: "Workspace incident policy set"
+          description: "Workspace incident routing"
           content:
             application/json:
               schema:
@@ -4809,8 +4809,8 @@ paths:
                 $ref: "#/components/schemas/Error"
 
     put:
-      summary: "Update workspace incident policies"
-      description: "Replaces incident policies for one named workspace. Policy provider IDs must reference incident providers. Developer, manager, or admin only."
+      summary: "Update workspace incident routing"
+      description: "Replaces incident routing for one named workspace. Route provider IDs must reference incident providers. Developer, manager, or admin only."
       operationId: "updateWorkspaceIncidentPolicies"
       tags:
         - "incidents"
@@ -4829,13 +4829,13 @@ paths:
               $ref: "#/components/schemas/IncidentPolicySetInput"
       responses:
         "200":
-          description: "Workspace incident policy set updated"
+          description: "Workspace incident routing updated"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/IncidentPolicySet"
         "400":
-          description: "Invalid incident policy set"
+          description: "Invalid incident routing"
           content:
             application/json:
               schema:
@@ -5373,8 +5373,8 @@ paths:
 
   /dags/{fileName}/incidents:
     get:
-      summary: "Get DAG incident policies"
-      description: "Returns DAG-level incident policy override settings. Missing settings mean this DAG inherits workspace or global policies. Developer, manager, or admin only."
+      summary: "Get DAG incident routing"
+      description: "Returns DAG-level incident routing override settings. Missing settings mean this DAG inherits workspace or global routing. Developer, manager, or admin only."
       operationId: "getDAGIncidents"
       tags:
         - "incidents"
@@ -5383,7 +5383,7 @@ paths:
         - $ref: "#/components/parameters/DAGFileName"
       responses:
         "200":
-          description: "DAG incident policy set"
+          description: "DAG incident routing"
           content:
             application/json:
               schema:
@@ -5408,8 +5408,8 @@ paths:
                 $ref: "#/components/schemas/Error"
 
     put:
-      summary: "Update DAG incident policies"
-      description: "Creates or replaces DAG-level incident policy override settings. Policy provider IDs must reference incident providers. Developer, manager, or admin only."
+      summary: "Update DAG incident routing"
+      description: "Creates or replaces DAG-level incident routing override settings. Route provider IDs must reference incident providers. Developer, manager, or admin only."
       operationId: "updateDAGIncidents"
       tags:
         - "incidents"
@@ -5424,13 +5424,13 @@ paths:
               $ref: "#/components/schemas/IncidentPolicySetInput"
       responses:
         "200":
-          description: "DAG incident policy set updated"
+          description: "DAG incident routing updated"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/IncidentPolicySet"
         "400":
-          description: "Invalid incident policy set"
+          description: "Invalid incident routing"
           content:
             application/json:
               schema:
@@ -5455,8 +5455,8 @@ paths:
                 $ref: "#/components/schemas/Error"
 
     delete:
-      summary: "Delete DAG incident policies"
-      description: "Removes DAG-level incident policy override settings so the DAG inherits workspace or global policies. Developer, manager, or admin only."
+      summary: "Delete DAG incident routing"
+      description: "Removes DAG-level incident routing override settings so the DAG inherits workspace or global routing. Developer, manager, or admin only."
       operationId: "deleteDAGIncidents"
       tags:
         - "incidents"
@@ -5465,7 +5465,7 @@ paths:
         - $ref: "#/components/parameters/DAGFileName"
       responses:
         "204":
-          description: "DAG incident policies deleted"
+          description: "DAG incident routing deleted"
         "403":
           description: "Forbidden - requires an active Dagu license or trial"
           content:
@@ -10555,7 +10555,7 @@ components:
 
     IncidentPolicyScope:
       type: string
-      description: "Incident policy scope"
+      description: "Incident routing scope"
       enum:
         - global
         - workspace
@@ -10692,7 +10692,7 @@ components:
 
     IncidentPolicyInput:
       type: object
-      description: "Incident policy input. A policy opens an incident on final DAG failure and can resolve it on later success."
+      description: "Incident route input. A route opens an incident on final DAG failure and Dagu resolves the saved open incident on later success."
       required:
         - providerId
         - enabled
@@ -10701,21 +10701,21 @@ components:
       properties:
         id:
           type: string
-          description: "Stable policy ID. Omit when adding a policy."
+          description: "Stable route ID. Omit when adding a route."
         providerId:
           type: string
           description: "Incident provider ID"
         enabled:
           type: boolean
-          description: "Whether this policy can open or resolve incidents"
+          description: "Whether this route is enabled. Normal incident routing sends true when the route exists."
         severity:
           $ref: "#/components/schemas/IncidentSeverity"
         resolveOnRecovery:
           type: boolean
-          description: "Resolve the open incident when the DAG later succeeds"
+          description: "Deprecated. Dagu resolves saved open incidents on recovery."
         dedupKeyTemplate:
           type: string
-          description: "Template for the provider incident key. Defaults to a stable key per workspace and DAG."
+          description: "Deprecated and ignored. Dagu generates stable provider incident keys."
         messageTemplate:
           type: string
           description: "Template for the provider incident summary/message."
@@ -10725,7 +10725,7 @@ components:
 
     IncidentPolicy:
       type: object
-      description: "Incident policy"
+      description: "Incident route"
       required:
         - id
         - providerId
@@ -10738,21 +10738,21 @@ components:
       properties:
         id:
           type: string
-          description: "Stable policy ID"
+          description: "Stable route ID"
         providerId:
           type: string
           description: "Incident provider ID"
         enabled:
           type: boolean
-          description: "Whether this policy can open or resolve incidents"
+          description: "Whether this route is enabled"
         severity:
           $ref: "#/components/schemas/IncidentSeverity"
         resolveOnRecovery:
           type: boolean
-          description: "Resolve the open incident when the DAG later succeeds"
+          description: "Deprecated. Dagu resolves saved open incidents on recovery."
         dedupKeyTemplate:
           type: string
-          description: "Template for the provider incident key"
+          description: "Deprecated and ignored. Dagu generates stable provider incident keys."
         messageTemplate:
           type: string
           description: "Template for the provider incident summary/message"
@@ -10762,7 +10762,7 @@ components:
 
     IncidentPolicySetInput:
       type: object
-      description: "Replacement incident policy set for a global, workspace, or DAG scope"
+      description: "Replacement incident routing for a global, workspace, or DAG scope"
       required:
         - enabled
         - inheritParent
@@ -10770,10 +10770,10 @@ components:
       properties:
         enabled:
           type: boolean
-          description: "Whether this policy set can open or resolve incidents"
+          description: "Whether this scope can open new incidents"
         inheritParent:
           type: boolean
-          description: "For workspace and DAG policy sets, true means inherit the parent scope instead of using local policies. Ignored for global policy sets."
+          description: "For workspace and DAG routing, true means inherit the parent scope instead of using local routes. Ignored for global routing."
         policies:
           type: array
           items:
@@ -10781,7 +10781,7 @@ components:
 
     IncidentPolicySet:
       type: object
-      description: "Incident policies for a global, workspace, or DAG scope"
+      description: "Incident routing for a global, workspace, or DAG scope"
       required:
         - scope
         - enabled
@@ -10790,21 +10790,21 @@ components:
       properties:
         id:
           type: string
-          description: "Stable policy set ID, present after the policy set is saved"
+          description: "Stable routing ID, present after routing is saved"
         scope:
           $ref: "#/components/schemas/IncidentPolicyScope"
         workspace:
           type: string
-          description: "Workspace name for workspace-scoped policy sets"
+          description: "Workspace name for workspace-scoped routing"
         dagName:
           type: string
-          description: "DAG name for DAG-scoped policy sets"
+          description: "DAG name for DAG-scoped routing"
         enabled:
           type: boolean
-          description: "Whether this policy set can open or resolve incidents"
+          description: "Whether this scope can open new incidents"
         inheritParent:
           type: boolean
-          description: "For workspace and DAG policy sets, true means inherit the parent scope instead of using local policies"
+          description: "For workspace and DAG routing, true means inherit the parent scope instead of using local routes"
         policies:
           type: array
           items:
@@ -10817,11 +10817,11 @@ components:
           format: date-time
         updatedBy:
           type: string
-          description: "User ID that last updated the policy set"
+          description: "User ID that last updated routing"
 
     IncidentPolicySetListResponse:
       type: object
-      description: "Incident policy sets"
+      description: "Incident routing scopes"
       required:
         - policySets
       properties:
