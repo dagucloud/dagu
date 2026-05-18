@@ -18,7 +18,6 @@ type Config struct {
 	// Format depends on the driver:
 	// - PostgreSQL: "postgres://user:pass@host:port/dbname?sslmode=disable"
 	// - SQLite: "file:./data.db?mode=rw" or ":memory:"
-	// - DuckDB: "./data.duckdb" or ":memory:"
 	DSN string `mapstructure:"dsn"`
 
 	// Parameterized queries (SQL injection prevention)
@@ -307,32 +306,7 @@ var sqliteConfigSchema = &jsonschema.Schema{
 	Required: []string{"dsn"},
 }
 
-var duckdbConfigSchema = &jsonschema.Schema{
-	Type: "object",
-	Properties: map[string]*jsonschema.Schema{
-		"dsn": {Type: "string", Description: "DuckDB database path or :memory:"},
-		"params": {
-			Description: "Query parameters (map for named, array for positional)",
-			OneOf: []*jsonschema.Schema{
-				{Type: "object", AdditionalProperties: &jsonschema.Schema{}},
-				{Type: "array"},
-			},
-		},
-		"timeout":       {Type: "integer", Description: "Query timeout in seconds"},
-		"transaction":   {Type: "boolean", Description: "Wrap execution in transaction"},
-		"output_format": {Type: "string", Enum: []any{"jsonl", "json", "csv"}, Description: "Output format"},
-		"headers":       {Type: "boolean", Description: "Include headers in CSV output"},
-		"null_string":   {Type: "string", Description: "String representation for NULL values"},
-		"max_rows":      {Type: "integer", Description: "Maximum rows to return"},
-		"streaming":     {Type: "boolean", Description: "Stream results to file"},
-		"output_file":   {Type: "string", Description: "File path for streaming output"},
-		"import":        importConfigSchema,
-	},
-	Required: []string{"dsn"},
-}
-
 func init() {
-	core.RegisterExecutorConfigSchema("duckdb", duckdbConfigSchema)
 	core.RegisterExecutorConfigSchema("postgres", postgresConfigSchema)
 	core.RegisterExecutorConfigSchema("sqlite", sqliteConfigSchema)
 }

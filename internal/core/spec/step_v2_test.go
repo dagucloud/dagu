@@ -500,11 +500,6 @@ func TestStepSchemaV2_ActionSQLQuery(t *testing.T) {
 			executorType: "sqlite",
 			dsn:          ":memory:",
 		},
-		{
-			action:       "duckdb.query",
-			executorType: "duckdb",
-			dsn:          ":memory:",
-		},
 	}
 
 	for _, tt := range tests {
@@ -553,11 +548,6 @@ func TestStepSchemaV2_ActionSQLImport(t *testing.T) {
 			action:       "sqlite.import",
 			executorType: "sqlite",
 			dsn:          "/data/users.sqlite",
-		},
-		{
-			action:       "duckdb.import",
-			executorType: "duckdb",
-			dsn:          "/data/users.duckdb",
 		},
 	}
 

@@ -14,8 +14,6 @@ builds:
     goos:
       - linux
       - darwin
-      - freebsd
-      - openbsd
       - windows
     goarch:
       - "amd64"
@@ -28,24 +26,6 @@ builds:
       - "6"
       - "7"
     ignore:
-      # modernc.org/libc does not compile on 32-bit FreeBSD/OpenBSD.
-      # FreeBSD 15.0 removed 32-bit platform support.
-      - goos: freebsd
-        goarch: "386"
-      - goos: freebsd
-        goarch: arm
-        goarm: "6"
-      - goos: freebsd
-        goarch: arm
-        goarm: "7"
-      - goos: openbsd
-        goarch: "386"
-      - goos: openbsd
-        goarch: arm
-        goarm: "6"
-      - goos: openbsd
-        goarch: arm
-        goarm: "7"
       # Go does not support windows/arm.
       - goos: windows
         goarch: arm
@@ -106,4 +86,3 @@ brews:
         log_path var/"log/dagu.log"
         working_dir var
       end
-

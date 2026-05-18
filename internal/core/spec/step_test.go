@@ -42,7 +42,7 @@ func TestMain(m *testing.M) {
 	core.RegisterExecutorCapabilities("jq", core.ExecutorCapabilities{Command: true, Script: true})
 	core.RegisterExecutorCapabilities("http", core.ExecutorCapabilities{Command: true, Script: true})
 	// SQL executors: support query command and script execution
-	for _, t := range []string{"postgres", "sqlite", "duckdb"} {
+	for _, t := range []string{"postgres", "sqlite"} {
 		core.RegisterExecutorCapabilities(t, core.ExecutorCapabilities{Command: true, Script: true})
 	}
 	// kubernetes: supports a single command only

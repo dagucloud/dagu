@@ -53,8 +53,6 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"data.convert":    operationAction("data", "convert"),
 	"data.pick":       operationAction("data", "pick"),
 	"docker.run":      optionalCommandAction("docker", "command"),
-	"duckdb.query":    commandAction("duckdb", "query"),
-	"duckdb.import":   importAction("duckdb"),
 	"exec":            normalizeExecAction,
 	"file.copy":       operationAction("file", "copy"),
 	"file.delete":     operationAction("file", "delete"),
