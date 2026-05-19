@@ -148,7 +148,7 @@ func FormatResult(r *Result) string {
 	}
 
 	fmt.Fprintf(&sb, "Current version: %s\n", formatVersion(r.CurrentVersion))
-	fmt.Fprintf(&sb, "Target version:  %s\n", r.TargetVersion)
+	fmt.Fprintf(&sb, "Target version: %s\n", r.TargetVersion)
 
 	if !r.UpgradeNeeded && !r.WasUpgraded {
 		sb.WriteString("\nAlready running the latest version.\n")
@@ -182,7 +182,7 @@ func FormatCheckResult(r *Result) string {
 	if r.SpecificVersionRequest {
 		label = "Target version"
 	}
-	fmt.Fprintf(&sb, "%s:  %s\n", label, r.TargetVersion)
+	fmt.Fprintf(&sb, "%s: %s\n", label, r.TargetVersion)
 
 	if r.UpgradeNeeded {
 		sb.WriteString("\nAn update is available. Run 'dagu upgrade' to update.\n")
