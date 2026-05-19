@@ -358,6 +358,10 @@ func TestLoad_Env(t *testing.T) {
 				InterestedEventTypes: DefaultBotInterestedEventTypes,
 				RespondToAll:         true,
 			},
+			Line: LineBotConfig{
+				InterestedEventTypes: DefaultBotInterestedEventTypes,
+				RespondToAll:         true,
+			},
 		},
 		DefaultExecMode: ExecutionModeLocal,
 		Warnings:        nil,
@@ -799,6 +803,10 @@ scheduler:
 				RespondToAll:         true,
 			},
 			Discord: DiscordBotConfig{
+				InterestedEventTypes: DefaultBotInterestedEventTypes,
+				RespondToAll:         true,
+			},
+			Line: LineBotConfig{
 				InterestedEventTypes: DefaultBotInterestedEventTypes,
 				RespondToAll:         true,
 			},
@@ -1313,6 +1321,36 @@ bots:
 
 		assert.Equal(t, []string{"dag.run.running", "dag.run.queued"}, cfg.Bots.Discord.InterestedEventTypes)
 	})
+
+	t.Run("line env overrides config", func(t *testing.T) {
+		cfg := loadWithEnv(t, `
+bots:
+  line:
+    interested_event_types:
+      - dag.run.failed
+      - dag.run.succeeded
+`, map[string]string{
+			"DAGU_BOTS_LINE_INTERESTED_EVENT_TYPES": "dag.run.running,dag.run.queued",
+		})
+
+		assert.Equal(t, []string{"dag.run.running", "dag.run.queued"}, cfg.Bots.Line.InterestedEventTypes)
+	})
+
+	t.Run("line env overrides config for source ids and respond mode", func(t *testing.T) {
+		cfg := loadWithEnv(t, `
+bots:
+  line:
+    allowed_source_ids:
+      - Ufrom-yaml
+    respond_to_all: true
+`, map[string]string{
+			"DAGU_BOTS_LINE_ALLOWED_SOURCE_IDS": "Ufrom-env,Cfrom-env",
+			"DAGU_BOTS_LINE_RESPOND_TO_ALL":     "false",
+		})
+
+		assert.Equal(t, []string{"Ufrom-env", "Cfrom-env"}, cfg.Bots.Line.AllowedSourceIDs)
+		assert.False(t, cfg.Bots.Line.RespondToAll)
+	})
 }
 
 func TestLoad_DiscordBotEnvOnlyConfig(t *testing.T) {
@@ -1328,6 +1366,23 @@ func TestLoad_DiscordBotEnvOnlyConfig(t *testing.T) {
 	assert.Equal(t, []string{"chan-1", "chan-2"}, cfg.Bots.Discord.AllowedChannelIDs)
 	assert.False(t, cfg.Bots.Discord.RespondToAll)
 	assert.Equal(t, DefaultBotInterestedEventTypes, cfg.Bots.Discord.InterestedEventTypes)
+}
+
+func TestLoad_LineBotEnvOnlyConfig(t *testing.T) {
+	cfg := loadWithEnv(t, "# empty", map[string]string{
+		"DAGU_BOTS_PROVIDER":                  "line",
+		"DAGU_BOTS_LINE_CHANNEL_ACCESS_TOKEN": "line-channel-token",
+		"DAGU_BOTS_LINE_CHANNEL_SECRET":       "line-channel-secret",
+		"DAGU_BOTS_LINE_ALLOWED_SOURCE_IDS":   "U123,C456",
+		"DAGU_BOTS_LINE_RESPOND_TO_ALL":       "false",
+	})
+
+	assert.Equal(t, BotProviderLine, cfg.Bots.Provider)
+	assert.Equal(t, "line-channel-token", cfg.Bots.Line.ChannelAccessToken)
+	assert.Equal(t, "line-channel-secret", cfg.Bots.Line.ChannelSecret)
+	assert.Equal(t, []string{"U123", "C456"}, cfg.Bots.Line.AllowedSourceIDs)
+	assert.False(t, cfg.Bots.Line.RespondToAll)
+	assert.Equal(t, DefaultBotInterestedEventTypes, cfg.Bots.Line.InterestedEventTypes)
 }
 
 func TestLoad_Monitoring(t *testing.T) {

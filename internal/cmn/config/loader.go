@@ -1199,8 +1199,10 @@ func (l *ConfigLoader) loadBotsConfig(cfg *Config, def Definition) {
 	cfg.Bots.Telegram.InterestedEventTypes = append([]string(nil), DefaultBotInterestedEventTypes...)
 	cfg.Bots.Slack.InterestedEventTypes = append([]string(nil), DefaultBotInterestedEventTypes...)
 	cfg.Bots.Discord.InterestedEventTypes = append([]string(nil), DefaultBotInterestedEventTypes...)
+	cfg.Bots.Line.InterestedEventTypes = append([]string(nil), DefaultBotInterestedEventTypes...)
 	cfg.Bots.Slack.RespondToAll = true
 	cfg.Bots.Discord.RespondToAll = true
+	cfg.Bots.Line.RespondToAll = true
 
 	botsDef := def.Bots
 	if botsDef == nil {
@@ -1300,6 +1302,49 @@ func (l *ConfigLoader) loadBotsConfig(cfg *Config, def Definition) {
 			cfg.Bots.Discord.RespondToAll = *botsDef.Discord.RespondToAll
 		}
 	}
+
+	// Check env var override for LINE credentials
+	if token := l.v.GetString("bots.line.channel_access_token"); token != "" {
+		cfg.Bots.Line.ChannelAccessToken = token
+	}
+	if secret := l.v.GetString("bots.line.channel_secret"); secret != "" {
+		cfg.Bots.Line.ChannelSecret = secret
+	}
+	if _, ok := os.LookupEnv(strings.ToUpper(AppSlug) + "_BOTS_LINE_ALLOWED_SOURCE_IDS"); ok {
+		cfg.Bots.Line.AllowedSourceIDs = parseStringList(l.v.Get("bots.line.allowed_source_ids"))
+	}
+	if raw, ok := lookupInterestedEventTypesEnv("BOTS_LINE_INTERESTED_EVENT_TYPES"); ok {
+		cfg.Bots.Line.InterestedEventTypes = parseInterestedEventTypes(raw)
+	}
+	if _, ok := os.LookupEnv(strings.ToUpper(AppSlug) + "_BOTS_LINE_RESPOND_TO_ALL"); ok {
+		cfg.Bots.Line.RespondToAll = l.v.GetBool("bots.line.respond_to_all")
+	}
+
+	if botsDef.Line != nil {
+		if cfg.Bots.Line.ChannelAccessToken == "" {
+			cfg.Bots.Line.ChannelAccessToken = botsDef.Line.ChannelAccessToken
+		}
+		if cfg.Bots.Line.ChannelSecret == "" {
+			cfg.Bots.Line.ChannelSecret = botsDef.Line.ChannelSecret
+		}
+		if len(botsDef.Line.AllowedSourceIDs) > 0 &&
+			!hasEnv("BOTS_LINE_ALLOWED_SOURCE_IDS") {
+			cfg.Bots.Line.AllowedSourceIDs = botsDef.Line.AllowedSourceIDs
+		}
+		if botsDef.Line.InterestedEventTypes != nil &&
+			!hasInterestedEventTypesEnv("BOTS_LINE_INTERESTED_EVENT_TYPES") {
+			cfg.Bots.Line.InterestedEventTypes = parseInterestedEventTypesSlice(botsDef.Line.InterestedEventTypes)
+		}
+		if botsDef.Line.RespondToAll != nil &&
+			!hasEnv("BOTS_LINE_RESPOND_TO_ALL") {
+			cfg.Bots.Line.RespondToAll = *botsDef.Line.RespondToAll
+		}
+	}
+}
+
+func hasEnv(name string) bool {
+	_, ok := os.LookupEnv(strings.ToUpper(AppSlug) + "_" + name)
+	return ok
 }
 
 func parseInterestedEventTypes(raw string) []string {
@@ -1836,6 +1881,11 @@ var envBindings = []envBinding{
 	{key: "bots.discord.allowed_channel_ids", env: "BOTS_DISCORD_ALLOWED_CHANNEL_IDS"},
 	{key: "bots.discord.interested_event_types", env: "BOTS_DISCORD_INTERESTED_EVENT_TYPES"},
 	{key: "bots.discord.respond_to_all", env: "BOTS_DISCORD_RESPOND_TO_ALL"},
+	{key: "bots.line.channel_access_token", env: "BOTS_LINE_CHANNEL_ACCESS_TOKEN"},
+	{key: "bots.line.channel_secret", env: "BOTS_LINE_CHANNEL_SECRET"},
+	{key: "bots.line.allowed_source_ids", env: "BOTS_LINE_ALLOWED_SOURCE_IDS"},
+	{key: "bots.line.interested_event_types", env: "BOTS_LINE_INTERESTED_EVENT_TYPES"},
+	{key: "bots.line.respond_to_all", env: "BOTS_LINE_RESPOND_TO_ALL"},
 
 	// License
 	{key: "license.key", env: "LICENSE_KEY"},

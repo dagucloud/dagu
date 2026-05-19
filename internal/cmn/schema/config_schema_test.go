@@ -77,10 +77,33 @@ bots:
 `,
 		},
 		{
-			name: "RejectInvalidProvider",
+			name: "ValidLineBotConfig",
+			spec: `
+bots:
+  provider: line
+  line:
+    channel_access_token: line-channel-token
+    channel_secret: line-channel-secret
+    allowed_source_ids: [U12345, C67890]
+    respond_to_all: false
+`,
+		},
+		{
+			name: "ValidDiscordBotConfig",
 			spec: `
 bots:
   provider: discord
+  discord:
+    token: discord-token
+    allowed_channel_ids: [C12345]
+    respond_to_all: true
+`,
+		},
+		{
+			name: "RejectInvalidProvider",
+			spec: `
+bots:
+  provider: unknown
 `,
 			wantErr: "bots",
 		},
@@ -101,6 +124,17 @@ bots:
   provider: slack
   slack:
     allowed_channel_ids: [C12345]
+`,
+			wantErr: "bots",
+		},
+		{
+			name: "RejectLineWithoutChannelSecret",
+			spec: `
+bots:
+  provider: line
+  line:
+    channel_access_token: line-channel-token
+    allowed_source_ids: [U12345]
 `,
 			wantErr: "bots",
 		},

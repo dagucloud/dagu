@@ -467,6 +467,7 @@ type BotsDef struct {
 	Telegram *TelegramBotDef `mapstructure:"telegram"`
 	Slack    *SlackBotDef    `mapstructure:"slack"`
 	Discord  *DiscordBotDef  `mapstructure:"discord"`
+	Line     *LineBotDef     `mapstructure:"line"`
 }
 
 // TelegramBotDef configures the Telegram bot.
@@ -489,6 +490,15 @@ type SlackBotDef struct {
 type DiscordBotDef struct {
 	Token                string   `mapstructure:"token"`
 	AllowedChannelIDs    []string `mapstructure:"allowed_channel_ids"`
+	InterestedEventTypes []string `mapstructure:"interested_event_types"`
+	RespondToAll         *bool    `mapstructure:"respond_to_all"` // Default: true
+}
+
+// LineBotDef configures the LINE bot.
+type LineBotDef struct {
+	ChannelAccessToken   string   `mapstructure:"channel_access_token"`
+	ChannelSecret        string   `mapstructure:"channel_secret"`
+	AllowedSourceIDs     []string `mapstructure:"allowed_source_ids"`
 	InterestedEventTypes []string `mapstructure:"interested_event_types"`
 	RespondToAll         *bool    `mapstructure:"respond_to_all"` // Default: true
 }

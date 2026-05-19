@@ -108,6 +108,9 @@ type shutdownActions struct {
 	closeAudit             func() error
 }
 
+// RouteRegistrar registers additional HTTP routes on the frontend server.
+type RouteRegistrar func(context.Context, chi.Router, string)
+
 // Server represents the HTTP server for the frontend application.
 type Server struct {
 	apiV1               *apiv1.API
@@ -136,6 +139,7 @@ type Server struct {
 	remoteNodeResolver  *remotenode.Resolver
 	upgradeStore        upgrade.CacheStore
 	agentAPICallback    func(*agent.API)
+	routeRegistrars     []RouteRegistrar
 }
 
 // ServerOption is a functional option for configuring the Server.
@@ -183,6 +187,14 @@ func WithAPIOption(opt apiv1.APIOption) ServerOption {
 		if opt != nil {
 			s.tunnelAPIOpts = append(s.tunnelAPIOpts, opt)
 		}
+	}
+}
+
+// RegisterRoutes appends a route registrar that is applied before API routes
+// are mounted.
+func (srv *Server) RegisterRoutes(fn RouteRegistrar) {
+	if fn != nil {
+		srv.routeRegistrars = append(srv.routeRegistrars, fn)
 	}
 }
 
@@ -1059,6 +1071,8 @@ func (srv *Server) Serve(ctx context.Context) error {
 		return err
 	}
 
+	srv.setupRegisteredRoutes(ctx, r, apiV1BasePath)
+
 	if err := srv.setupAPIRoutes(ctx, r, apiV1BasePath); err != nil {
 		return err
 	}
@@ -1282,6 +1296,12 @@ func (srv *Server) setupAPIRoutes(ctx context.Context, r *chi.Mux, apiV1BasePath
 		}
 	})
 	return setupErr
+}
+
+func (srv *Server) setupRegisteredRoutes(ctx context.Context, r chi.Router, apiV1BasePath string) {
+	for _, register := range srv.routeRegistrars {
+		register(ctx, r, apiV1BasePath)
+	}
 }
 
 func (srv *Server) setupTerminalRoute(ctx context.Context, r *chi.Mux, apiV1BasePath string) {

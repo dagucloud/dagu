@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/service/discord"
 	"github.com/dagucloud/dagu/internal/service/frontend"
+	"github.com/dagucloud/dagu/internal/service/line"
 	"github.com/dagucloud/dagu/internal/service/resource"
 	daguslack "github.com/dagucloud/dagu/internal/service/slack"
 	"github.com/dagucloud/dagu/internal/service/telegram"
@@ -196,6 +197,33 @@ func runServer(ctx *Context, _ []string) error {
 					}
 				}()
 				logger.Info(serviceCtx, "Discord bot started")
+			}
+
+		case config.BotProviderLine:
+			lineBot, lineErr := line.New(
+				line.Config{
+					ChannelAccessToken:    ctx.Config.Bots.Line.ChannelAccessToken,
+					ChannelSecret:         ctx.Config.Bots.Line.ChannelSecret,
+					AllowedSourceIDs:      ctx.Config.Bots.Line.AllowedSourceIDs,
+					InterestedEventTypes:  ctx.Config.Bots.Line.InterestedEventTypes,
+					RespondToAll:          ctx.Config.Bots.Line.RespondToAll,
+					SafeMode:              ctx.Config.Bots.SafeMode,
+					EventService:          ctx.EventService,
+					NotificationStateFile: filepath.Join(ctx.Config.Paths.DataDir, "bots", "line", "notifications.json"),
+				},
+				agentAPI,
+				slog.Default(),
+			)
+			if lineErr != nil {
+				logger.Warn(serviceCtx, "Failed to initialize LINE bot", tag.Error(lineErr))
+			} else {
+				server.RegisterRoutes(lineBot.ConfigureRoutes)
+				go func() {
+					if runErr := lineBot.Run(signalCtx); runErr != nil {
+						logger.Error(serviceCtx, "LINE bot failed", tag.Error(runErr))
+					}
+				}()
+				logger.Info(serviceCtx, "LINE bot started")
 			}
 
 		case config.BotProviderNone:

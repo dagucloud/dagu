@@ -44,6 +44,7 @@ const (
 	BotProviderTelegram BotProvider = "telegram"
 	BotProviderSlack    BotProvider = "slack"
 	BotProviderDiscord  BotProvider = "discord"
+	BotProviderLine     BotProvider = "line"
 )
 
 var DefaultBotInterestedEventTypes = []string{
@@ -63,6 +64,7 @@ type BotsConfig struct {
 	Telegram TelegramBotConfig
 	Slack    SlackBotConfig
 	Discord  DiscordBotConfig
+	Line     LineBotConfig
 }
 
 // TelegramBotConfig holds the Telegram-specific bot configuration.
@@ -87,6 +89,15 @@ type DiscordBotConfig struct {
 	AllowedChannelIDs    []string
 	InterestedEventTypes []string
 	RespondToAll         bool // respond to all channel messages, not just @mentions
+}
+
+// LineBotConfig holds the LINE-specific bot configuration.
+type LineBotConfig struct {
+	ChannelAccessToken   string
+	ChannelSecret        string
+	AllowedSourceIDs     []string
+	InterestedEventTypes []string
+	RespondToAll         bool // respond to all group/room messages, not just mentions
 }
 
 // GitSyncConfig holds the configuration for Git sync functionality.
@@ -631,6 +642,9 @@ func (c *Config) validateBots() error {
 		return err
 	}
 	if err := validateInterestedEventTypes("bots.discord.interested_event_types", c.Bots.Discord.InterestedEventTypes); err != nil {
+		return err
+	}
+	if err := validateInterestedEventTypes("bots.line.interested_event_types", c.Bots.Line.InterestedEventTypes); err != nil {
 		return err
 	}
 	return nil

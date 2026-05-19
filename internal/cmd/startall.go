@@ -22,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/internal/service/discord"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
 	"github.com/dagucloud/dagu/internal/service/frontend"
+	"github.com/dagucloud/dagu/internal/service/line"
 	"github.com/dagucloud/dagu/internal/service/resource"
 	daguslack "github.com/dagucloud/dagu/internal/service/slack"
 	"github.com/dagucloud/dagu/internal/service/telegram"
@@ -166,6 +167,7 @@ func runStartAll(ctx *Context, _ []string) error {
 	var tgBot *telegram.Bot
 	var slackBot *daguslack.Bot
 	var discordBot *discord.Bot
+	var lineBot *line.Bot
 	if agentAPI != nil {
 		switch ctx.Config.Bots.Provider {
 		case config.BotProviderTelegram:
@@ -228,6 +230,28 @@ func runStartAll(ctx *Context, _ []string) error {
 				logger.Info(serviceCtx, "Discord bot initialized")
 			}
 
+		case config.BotProviderLine:
+			lineBot, err = line.New(
+				line.Config{
+					ChannelAccessToken:    ctx.Config.Bots.Line.ChannelAccessToken,
+					ChannelSecret:         ctx.Config.Bots.Line.ChannelSecret,
+					AllowedSourceIDs:      ctx.Config.Bots.Line.AllowedSourceIDs,
+					InterestedEventTypes:  ctx.Config.Bots.Line.InterestedEventTypes,
+					RespondToAll:          ctx.Config.Bots.Line.RespondToAll,
+					SafeMode:              ctx.Config.Bots.SafeMode,
+					EventService:          ctx.EventService,
+					NotificationStateFile: filepath.Join(ctx.Config.Paths.DataDir, "bots", "line", "notifications.json"),
+				},
+				agentAPI,
+				slog.Default(),
+			)
+			if err != nil {
+				logger.Warn(serviceCtx, "Failed to initialize LINE bot", tag.Error(err))
+			} else {
+				server.RegisterRoutes(lineBot.ConfigureRoutes)
+				logger.Info(serviceCtx, "LINE bot initialized")
+			}
+
 		case config.BotProviderNone:
 			// No bot configured
 		}
@@ -251,6 +275,9 @@ func runStartAll(ctx *Context, _ []string) error {
 		serviceCount++
 	}
 	if discordBot != nil {
+		serviceCount++
+	}
+	if lineBot != nil {
 		serviceCount++
 	}
 	errCh := make(chan error, serviceCount)
@@ -309,6 +336,18 @@ func runStartAll(ctx *Context, _ []string) error {
 			if err := discordBot.Run(signalCtx); err != nil {
 				select {
 				case errCh <- fmt.Errorf("discord bot failed: %w", err):
+				default:
+				}
+			}
+		})
+	}
+
+	// Start LINE bot background work
+	if lineBot != nil {
+		wg.Go(func() {
+			if err := lineBot.Run(signalCtx); err != nil {
+				select {
+				case errCh <- fmt.Errorf("line bot failed: %w", err):
 				default:
 				}
 			}

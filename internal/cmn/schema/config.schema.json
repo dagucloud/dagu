@@ -1176,13 +1176,13 @@
     },
     "BotsDef": {
       "type": "object",
-      "description": "Bot integration configuration for Telegram or Slack.",
+      "description": "Bot integration configuration for Telegram, Slack, Discord, or LINE.",
       "additionalProperties": false,
       "properties": {
         "provider": {
           "type": "string",
           "description": "Bot provider to run. Empty or omitted disables bot integrations.",
-          "enum": ["", "telegram", "slack"],
+          "enum": ["", "telegram", "slack", "discord", "line"],
           "default": ""
         },
         "safe_mode": {
@@ -1195,6 +1195,12 @@
         },
         "slack": {
           "$ref": "#/definitions/SlackBotDef"
+        },
+        "discord": {
+          "$ref": "#/definitions/DiscordBotDef"
+        },
+        "line": {
+          "$ref": "#/definitions/LineBotDef"
         }
       },
       "allOf": [
@@ -1253,6 +1259,74 @@
                     "minLength": 1
                   },
                   "allowed_channel_ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["provider"],
+            "properties": {
+              "provider": {
+                "const": "discord"
+              }
+            }
+          },
+          "then": {
+            "required": ["discord"],
+            "properties": {
+              "discord": {
+                "required": ["token", "allowed_channel_ids"],
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "allowed_channel_ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["provider"],
+            "properties": {
+              "provider": {
+                "const": "line"
+              }
+            }
+          },
+          "then": {
+            "required": ["line"],
+            "properties": {
+              "line": {
+                "required": ["channel_access_token", "channel_secret", "allowed_source_ids"],
+                "properties": {
+                  "channel_access_token": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "channel_secret": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "allowed_source_ids": {
                     "type": "array",
                     "minItems": 1,
                     "items": {
@@ -1340,6 +1414,88 @@
         "respond_to_all": {
           "type": "boolean",
           "description": "Respond to all messages in allowed channels, not just direct mentions. Default: true.",
+          "default": true
+        }
+      }
+    },
+    "DiscordBotDef": {
+      "type": "object",
+      "description": "Discord bot settings.",
+      "additionalProperties": false,
+      "properties": {
+        "token": {
+          "type": "string",
+          "description": "Discord bot token."
+        },
+        "allowed_channel_ids": {
+          "type": "array",
+          "description": "Discord channel IDs the bot is allowed to operate in. Required and must be non-empty when provider is 'discord'.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "interested_event_types": {
+          "type": "array",
+          "description": "DAG-run lifecycle event types that the bot tracks for notification delivery. Defaults to waiting, succeeded, failed, aborted, and rejected. Succeeded events are used to suppress stale pending alerts and do not send a chat message.",
+          "items": {
+            "type": "string",
+            "enum": [
+              "dag.run.queued",
+              "dag.run.running",
+              "dag.run.waiting",
+              "dag.run.succeeded",
+              "dag.run.failed",
+              "dag.run.aborted",
+              "dag.run.rejected"
+            ]
+          }
+        },
+        "respond_to_all": {
+          "type": "boolean",
+          "description": "Respond to all messages in allowed channels, not just direct mentions. Default: true.",
+          "default": true
+        }
+      }
+    },
+    "LineBotDef": {
+      "type": "object",
+      "description": "LINE bot settings.",
+      "additionalProperties": false,
+      "properties": {
+        "channel_access_token": {
+          "type": "string",
+          "description": "LINE Messaging API channel access token."
+        },
+        "channel_secret": {
+          "type": "string",
+          "description": "LINE Messaging API channel secret used to verify webhook signatures."
+        },
+        "allowed_source_ids": {
+          "type": "array",
+          "description": "LINE user, group, or room IDs the bot is allowed to operate in. Required and must be non-empty when provider is 'line'.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "interested_event_types": {
+          "type": "array",
+          "description": "DAG-run lifecycle event types that the bot tracks for notification delivery. Defaults to waiting, succeeded, failed, aborted, and rejected. Succeeded events are used to suppress stale pending alerts and do not send a chat message.",
+          "items": {
+            "type": "string",
+            "enum": [
+              "dag.run.queued",
+              "dag.run.running",
+              "dag.run.waiting",
+              "dag.run.succeeded",
+              "dag.run.failed",
+              "dag.run.aborted",
+              "dag.run.rejected"
+            ]
+          }
+        },
+        "respond_to_all": {
+          "type": "boolean",
+          "description": "Respond to all messages in allowed LINE groups and rooms, not just messages that mention the bot. One-on-one chats always respond. Default: true.",
           "default": true
         }
       }
