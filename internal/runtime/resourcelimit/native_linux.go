@@ -37,7 +37,7 @@ func startNativeGuard(_ context.Context, opts Options) (nativeGuard, error) {
 
 	path := filepath.Join(parent, cgroupName(opts))
 	created := false
-	if err := os.Mkdir(path, 0o755); err != nil {
+	if err := os.Mkdir(path, 0o750); err != nil {
 		if !os.IsExist(err) {
 			return nil, fmt.Errorf("create cgroup: %w", err)
 		}
@@ -63,7 +63,7 @@ func (g *cgroupGuard) AssignProcess(pid int) error {
 	if g == nil || g.path == "" || pid <= 0 {
 		return nil
 	}
-	return os.WriteFile(filepath.Join(g.path, "cgroup.procs"), []byte(strconv.Itoa(pid)), 0o644)
+	return os.WriteFile(filepath.Join(g.path, "cgroup.procs"), []byte(strconv.Itoa(pid)), 0o600)
 }
 
 func (g *cgroupGuard) Close(context.Context) error {
@@ -84,12 +84,12 @@ func writeCgroupLimits(path string, limits *core.ResourceLimits) error {
 		if quota <= 0 {
 			quota = 1
 		}
-		if err := os.WriteFile(filepath.Join(path, "cpu.max"), fmt.Appendf(nil, "%d %d", quota, period), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(path, "cpu.max"), fmt.Appendf(nil, "%d %d", quota, period), 0o600); err != nil {
 			return fmt.Errorf("write cpu.max: %w", err)
 		}
 	}
 	if limits.MemoryBytes > 0 {
-		if err := os.WriteFile(filepath.Join(path, "memory.max"), []byte(strconv.FormatInt(limits.MemoryBytes, 10)), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(path, "memory.max"), []byte(strconv.FormatInt(limits.MemoryBytes, 10)), 0o600); err != nil {
 			return fmt.Errorf("write memory.max: %w", err)
 		}
 	}
