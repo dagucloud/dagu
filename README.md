@@ -173,13 +173,21 @@ dagu start-all
 
 Visit http://localhost:8080
 
-### Install the Dagu skill for AI coding tools
+### Connect AI coding tools
 
-Install the Dagu authoring skill for Claude Code, Codex, Gemini CLI, and other AI coding tools:
+Install the Dagu authoring skill for Claude Code, Codex, Gemini CLI, and other AI coding tools so they can write correct Dagu workflow YAML:
 
 ```sh
 gh skill install dagucloud/dagu dagu
 ```
+
+Dagu also exposes a built-in MCP server from the running HTTP server. Start Dagu, then configure MCP-capable clients to use the Streamable HTTP endpoint:
+
+```text
+http://localhost:8080/mcp
+```
+
+Use the skill when you want an AI coding tool to author Dagu files. Use MCP when you want an MCP client to read Dagu state, preview or apply DAG changes, and start, enqueue, retry, or stop DAG runs through `dagu_read`, `dagu_change`, and `dagu_execute`. See the [MCP setup guide](https://docs.dagu.sh/getting-started/mcp).
 
 ## Deployment Models
 
