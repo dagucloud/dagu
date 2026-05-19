@@ -4,6 +4,7 @@
 package core
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"strconv"
@@ -51,24 +52,47 @@ func NewResourceLimits(cpu, memory string) (*ResourceLimits, error) {
 		CPU:    strings.TrimSpace(cpu),
 		Memory: strings.TrimSpace(memory),
 	}
-	if limits.CPU != "" {
-		millis, err := ParseCPULimit(limits.CPU)
-		if err != nil {
-			return nil, fmt.Errorf("invalid cpu limit %q: %w", limits.CPU, err)
-		}
-		limits.CPUMillis = millis
-	}
-	if limits.Memory != "" {
-		bytes, err := ParseMemoryLimit(limits.Memory)
-		if err != nil {
-			return nil, fmt.Errorf("invalid memory limit %q: %w", limits.Memory, err)
-		}
-		limits.MemoryBytes = bytes
-	}
 	if limits.CPU == "" && limits.Memory == "" {
 		return nil, nil
 	}
+	if err := limits.recompute(); err != nil {
+		return nil, err
+	}
 	return limits, nil
+}
+
+// UnmarshalJSON decodes authored limits and restores their normalized values.
+func (r *ResourceLimits) UnmarshalJSON(data []byte) error {
+	type resourceLimits ResourceLimits
+	var decoded resourceLimits
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*r = ResourceLimits(decoded)
+	return r.recompute()
+}
+
+func (r *ResourceLimits) recompute() error {
+	r.CPU = strings.TrimSpace(r.CPU)
+	r.Memory = strings.TrimSpace(r.Memory)
+	r.CPUMillis = 0
+	r.MemoryBytes = 0
+
+	if r.CPU != "" {
+		millis, err := ParseCPULimit(r.CPU)
+		if err != nil {
+			return fmt.Errorf("invalid cpu limit %q: %w", r.CPU, err)
+		}
+		r.CPUMillis = millis
+	}
+	if r.Memory != "" {
+		bytes, err := ParseMemoryLimit(r.Memory)
+		if err != nil {
+			return fmt.Errorf("invalid memory limit %q: %w", r.Memory, err)
+		}
+		r.MemoryBytes = bytes
+	}
+	return nil
 }
 
 // ParseCPULimit parses Kubernetes-style CPU quantities into millicores.

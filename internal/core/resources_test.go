@@ -4,6 +4,7 @@
 package core
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -31,6 +32,39 @@ func TestParseCPULimit(t *testing.T) {
 			got, err := ParseCPULimit(tt.in)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestResourceLimitsUnmarshalJSONRecomputesLimits(t *testing.T) {
+	t.Parallel()
+
+	var resources Resources
+	err := json.Unmarshal([]byte(`{"limits":{"cpu":" 500m ","memory":" 1Gi "}}`), &resources)
+	require.NoError(t, err)
+	require.NotNil(t, resources.Limits)
+	assert.Equal(t, "500m", resources.Limits.CPU)
+	assert.Equal(t, int64(500), resources.Limits.CPUMillis)
+	assert.Equal(t, "1Gi", resources.Limits.Memory)
+	assert.Equal(t, int64(1024*1024*1024), resources.Limits.MemoryBytes)
+	assert.True(t, resources.HasLimits())
+}
+
+func TestResourceLimitsUnmarshalJSONRejectsInvalidLimits(t *testing.T) {
+	t.Parallel()
+
+	tests := []string{
+		`{"cpu":"0.5m"}`,
+		`{"memory":"0"}`,
+	}
+
+	for _, tt := range tests {
+		t.Run(tt, func(t *testing.T) {
+			t.Parallel()
+
+			var limits ResourceLimits
+			err := json.Unmarshal([]byte(tt), &limits)
+			require.Error(t, err)
 		})
 	}
 }
