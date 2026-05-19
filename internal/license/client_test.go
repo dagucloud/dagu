@@ -24,6 +24,10 @@ func newTestCloudClient(t *testing.T, handler http.HandlerFunc) (*httptest.Serve
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 	client := NewCloudClient(server.URL)
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	require.True(t, ok, "default transport should be *http.Transport")
+	client.client.Transport = transport.Clone()
+	t.Cleanup(client.client.CloseIdleConnections)
 	return server, client
 }
 
