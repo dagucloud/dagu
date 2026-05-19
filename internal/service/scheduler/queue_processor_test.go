@@ -363,7 +363,7 @@ func TestQueueProcessor_SelectRunnableQueueItemsSkipsOutstandingReservations(t *
 	items, err := f.queueStore.List(f.ctx, "distributed-select-dag")
 	require.NoError(t, err)
 
-	runnable, err := f.processor.selectRunnableQueueItems(f.ctx, items, 1)
+	runnable, err := f.processor.newQueueDispatcher().selectRunnableQueueItems(f.ctx, items, 1)
 	require.NoError(t, err)
 	require.Len(t, runnable, 1)
 
@@ -394,14 +394,14 @@ func TestQueueProcessor_StaleOutstandingDispatchReservationsExpire(t *testing.T)
 	}))
 	agePendingDispatchReservationFiles(t, f.distributedDir, 2*time.Second)
 
-	count, err := f.processor.countOutstandingDispatchReservations(f.ctx, f.dag.Name)
+	count, err := f.processor.newQueueDispatcher().countOutstandingDispatchReservations(f.ctx, f.dag.Name)
 	require.NoError(t, err)
 	assert.Zero(t, count)
 
 	items, err := f.queueStore.List(f.ctx, f.dag.Name)
 	require.NoError(t, err)
 
-	runnable, err := f.processor.selectRunnableQueueItems(f.ctx, items, 1)
+	runnable, err := f.processor.newQueueDispatcher().selectRunnableQueueItems(f.ctx, items, 1)
 	require.NoError(t, err)
 	require.Len(t, runnable, 1)
 
@@ -466,23 +466,21 @@ func TestQueueProcessor_SuspendedManualQueuedRunStillDispatches(t *testing.T) {
 	procStore.On("IsRunAlive", mock.Anything, dagName, runRef).Return(true, nil).Once()
 	dispatcher := &mockDispatcher{}
 
-	processor := &QueueProcessor{
+	queueDispatcher := newQueueDispatcher(queueDispatchDeps{
 		queueStore:  f.queueStore,
 		dagRunStore: f.dagRunStore,
 		procStore:   procStore,
 		dagExecutor: NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, "", nil),
 		isSuspended: func(_ context.Context, name string) bool { return name == dagName },
-		quit:        make(chan struct{}),
-		wakeUpCh:    make(chan struct{}, 1),
 		backoffConfig: BackoffConfig{
 			InitialInterval:    10 * time.Millisecond,
 			MaxInterval:        50 * time.Millisecond,
 			MaxRetries:         2,
 			StartupGracePeriod: time.Second,
 		},
-	}
+	})
 
-	dispatched := processor.processDAG(f.ctx, items[0], dagName, func() {}, func() {})
+	dispatched := queueDispatcher.dispatchQueuedItem(f.ctx, items[0], dagName, func() {}, func() {})
 	require.True(t, dispatched)
 	assert.Equal(t, int32(1), dispatcher.callCount.Load())
 
@@ -568,7 +566,7 @@ func TestQueueProcessor_CheckStartupStatusTreatsRunningStatusAsStarted(t *testin
 	require.NoError(t, run.Write(f.ctx, status))
 	require.NoError(t, run.Close(f.ctx))
 
-	started, err := f.processor.checkStartupStatus(
+	started, err := f.processor.newQueueDispatcher().checkStartupStatus(
 		f.ctx,
 		f.dag.Name,
 		exec.NewDAGRunRef(f.dag.Name, "running-startup-run"),
@@ -603,7 +601,7 @@ func TestQueueProcessor_CheckStartupStatusTreatsFreshDistributedLeaseAsStarted(t
 		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
 	}))
 
-	started, err := f.processor.checkStartupStatus(
+	started, err := f.processor.newQueueDispatcher().checkStartupStatus(
 		f.ctx,
 		f.dag.Name,
 		exec.NewDAGRunRef(f.dag.Name, "lease-startup-run"),
