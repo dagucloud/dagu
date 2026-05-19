@@ -76,6 +76,34 @@ func TestPrepareLocalExecutionRecordsFailedStatusWhenProcAcquireFails(t *testing
 	assert.True(t, procStore.unlocked)
 }
 
+func TestPrepareLocalExecutionReturnsFailureRecordingErrorWhenRecordFails(t *testing.T) {
+	t.Parallel()
+
+	recordErr := errors.New("status write failed")
+	attempt := &queueAttempt{id: "attempt-1", writeErr: recordErr}
+	procStore := &localProcStore{
+		handle:     &localProcHandle{},
+		acquireErr: errors.New("already running"),
+	}
+	dag := newLocalDAG()
+
+	_, err := PrepareLocalExecution(context.Background(), LocalRequest{
+		ProcStore:   procStore,
+		DAG:         dag,
+		DAGRunID:    "run-1",
+		TriggerType: core.TriggerTypeManual,
+		BuildAttempt: func(context.Context) (exec.DAGRunAttempt, error) {
+			return attempt, nil
+		},
+	})
+
+	require.ErrorIs(t, err, ErrProcAcquisitionFailed)
+	assert.ErrorIs(t, err, recordErr)
+	assert.Contains(t, err.Error(), "already running")
+	assert.Contains(t, err.Error(), "failed to record prepared local execution failure")
+	assert.True(t, procStore.unlocked)
+}
+
 func newLocalDAG() *core.DAG {
 	dag := &core.DAG{
 		Name:   "test-dag",

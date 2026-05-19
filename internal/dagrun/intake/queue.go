@@ -100,14 +100,14 @@ func EnqueueRun(ctx context.Context, req QueueRequest) (*QueuedRun, error) {
 	}()
 
 	status := queuedStatus(req, dagRun, attempt.ID(), logFile, artifactDir, now)
-	statusCloseErr, err := writeQueuedStatus(ctx, attempt, status, req.ProceedOnStatusCloseErr)
+	writeResult, err := writeQueuedStatus(ctx, attempt, status, req.ProceedOnStatusCloseErr)
 	if err != nil {
 		return nil, err
 	}
 
 	if err := req.QueueStore.Enqueue(ctx, queueName, exec.QueuePriorityLow, dagRun); err != nil {
 		return nil, joinCloseAndEnqueue(
-			wrapCloseErr(statusCloseErr),
+			wrapCloseErr(writeResult.closeErr),
 			fmt.Errorf("failed to enqueue DAG run: %w", err),
 		)
 	}
@@ -120,7 +120,7 @@ func EnqueueRun(ctx context.Context, req QueueRequest) (*QueuedRun, error) {
 		QueueName:      queueName,
 		LogFile:        logFile,
 		ArtifactDir:    artifactDir,
-		StatusCloseErr: statusCloseErr,
+		StatusCloseErr: writeResult.closeErr,
 	}, nil
 }
 
@@ -188,21 +188,28 @@ func queuedStatus(req QueueRequest, dagRun exec.DAGRunRef, attemptID, logFile, a
 	return transform.NewStatusBuilder(req.DAG).Create(req.DAGRunID, core.Queued, 0, time.Time{}, opts...)
 }
 
-func writeQueuedStatus(ctx context.Context, attempt exec.DAGRunAttempt, status exec.DAGRunStatus, proceedOnCloseErr bool) (error, error) {
+// queuedStatusWriteResult captures non-fatal status write side effects.
+type queuedStatusWriteResult struct {
+	// closeErr is set when closing the status attempt failed but the request
+	// allowed queue publication to continue.
+	closeErr error
+}
+
+func writeQueuedStatus(ctx context.Context, attempt exec.DAGRunAttempt, status exec.DAGRunStatus, proceedOnCloseErr bool) (queuedStatusWriteResult, error) {
 	if err := attempt.Open(ctx); err != nil {
-		return nil, fmt.Errorf("failed to open queued DAG run: %w", err)
+		return queuedStatusWriteResult{}, fmt.Errorf("failed to open queued DAG run: %w", err)
 	}
 	if err := attempt.Write(ctx, status); err != nil {
 		_ = attempt.Close(ctx)
-		return nil, fmt.Errorf("failed to save queued DAG run status: %w", err)
+		return queuedStatusWriteResult{}, fmt.Errorf("failed to save queued DAG run status: %w", err)
 	}
 	if err := attempt.Close(ctx); err != nil {
 		if proceedOnCloseErr {
-			return err, nil
+			return queuedStatusWriteResult{closeErr: err}, nil
 		}
-		return nil, fmt.Errorf("failed to close queued DAG run: %w", err)
+		return queuedStatusWriteResult{}, fmt.Errorf("failed to close queued DAG run: %w", err)
 	}
-	return nil, nil
+	return queuedStatusWriteResult{}, nil
 }
 
 func wrapCloseErr(err error) error {

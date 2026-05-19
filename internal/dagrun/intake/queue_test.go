@@ -88,6 +88,7 @@ func TestEnqueueRunCanProceedWhenAttemptCloseFails(t *testing.T) {
 	assert.True(t, f.queueStore.enqueued)
 	assert.True(t, f.attempt.closed)
 	assert.False(t, f.runStore.removed)
+	assert.ErrorIs(t, queued.StatusCloseErr, f.attempt.closeErr)
 }
 
 func fixedQueueNow() time.Time {
@@ -191,6 +192,8 @@ type queueAttempt struct {
 	dag      *core.DAG
 	open     bool
 	closed   bool
+	openErr  error
+	writeErr error
 	closeErr error
 	status   *exec.DAGRunStatus
 }
@@ -198,6 +201,9 @@ type queueAttempt struct {
 func (a *queueAttempt) ID() string { return a.id }
 
 func (a *queueAttempt) Open(context.Context) error {
+	if a.openErr != nil {
+		return a.openErr
+	}
 	a.open = true
 	a.closed = false
 	return nil
@@ -206,6 +212,9 @@ func (a *queueAttempt) Open(context.Context) error {
 func (a *queueAttempt) Write(_ context.Context, status exec.DAGRunStatus) error {
 	if !a.open {
 		return errors.New("attempt is not open")
+	}
+	if a.writeErr != nil {
+		return a.writeErr
 	}
 	a.status = &status
 	return nil

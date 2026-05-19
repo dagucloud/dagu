@@ -87,7 +87,12 @@ func PrepareLocalExecution(ctx context.Context, req LocalRequest) (*LocalPrepara
 		RootDAGRunID: req.Root.ID,
 	})
 	if err != nil {
-		_ = recordPreparedAttemptFailure(ctx, req, attempt, err)
+		if recErr := recordPreparedAttemptFailure(ctx, req, attempt, err); recErr != nil {
+			return nil, errors.Join(
+				fmt.Errorf("%w: %w", ErrProcAcquisitionFailed, err),
+				fmt.Errorf("failed to record prepared local execution failure: %w", recErr),
+			)
+		}
 		return nil, fmt.Errorf("%w: %w", ErrProcAcquisitionFailed, err)
 	}
 
