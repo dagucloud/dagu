@@ -14,19 +14,16 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/internal/cmn/logpath"
-	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
 	exec1 "github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
+	"github.com/dagucloud/dagu/internal/dagrun/intake"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
-	"github.com/dagucloud/dagu/internal/runtime/transform"
 )
 
 const dagEnqueueQueueConfigKey = "queue"
@@ -168,68 +165,19 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 		return enqueueRunOutput{}, fmt.Errorf("failed to check existing DAG run: %w", err)
 	}
 
-	logFile, err := logpath.Generate(ctx, rCtx.DAGRunLogDir, dagCopy.LogDir, dagCopy.Name, runParams.RunID)
+	_, err = intake.EnqueueRun(ctx, intake.QueueRequest{
+		DAGRunStore:     rCtx.DAGRunStore,
+		QueueStore:      rCtx.QueueStore,
+		DAG:             dagCopy,
+		DAGRunID:        runParams.RunID,
+		QueueName:       queueName,
+		LogBaseDir:      rCtx.DAGRunLogDir,
+		ArtifactBaseDir: rCtx.DAGRunArtifactDir,
+		TriggerType:     core.TriggerTypeSubDAG,
+	})
 	if err != nil {
-		return enqueueRunOutput{}, fmt.Errorf("failed to generate log file name: %w", err)
-	}
-
-	artifactDir := ""
-	if dagCopy.ArtifactsEnabled() {
-		artifactDir, err = logpath.GenerateDir(ctx, rCtx.DAGRunArtifactDir, dagCopy.Artifacts.Dir, dagCopy.Name, runParams.RunID)
-		if err != nil {
-			return enqueueRunOutput{}, fmt.Errorf("failed to generate artifact directory: %w", err)
-		}
-	}
-
-	attempt, err := rCtx.DAGRunStore.CreateAttempt(ctx, dagCopy, time.Now(), runParams.RunID, exec1.NewDAGRunAttemptOptions{})
-	if err != nil {
-		return enqueueRunOutput{}, fmt.Errorf("failed to create queued DAG run: %w", err)
-	}
-
-	committed := false
-	defer func() {
-		if committed {
-			return
-		}
-		if rmErr := rCtx.DAGRunStore.RemoveDAGRun(ctx, dagRun); rmErr != nil {
-			logger.Error(ctx, "Failed to rollback queued DAG run",
-				tag.DAG(dagCopy.Name),
-				tag.RunID(runParams.RunID),
-				tag.Error(rmErr),
-			)
-		}
-	}()
-
-	queuedAt := stringutil.FormatTime(time.Now())
-	status := transform.NewStatusBuilder(dagCopy).Create(
-		runParams.RunID,
-		core.Queued,
-		0,
-		time.Time{},
-		transform.WithLogFilePath(logFile),
-		transform.WithArchiveDir(artifactDir),
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithPreconditions(dagCopy.Preconditions),
-		transform.WithQueuedAt(queuedAt),
-		transform.WithHierarchyRefs(dagRun, exec1.DAGRunRef{}),
-		transform.WithTriggerType(core.TriggerTypeSubDAG),
-	)
-
-	if err := attempt.Open(ctx); err != nil {
-		return enqueueRunOutput{}, fmt.Errorf("failed to open queued DAG run: %w", err)
-	}
-	if err := attempt.Write(ctx, status); err != nil {
-		_ = attempt.Close(ctx)
-		return enqueueRunOutput{}, fmt.Errorf("failed to save queued DAG run status: %w", err)
-	}
-	if err := attempt.Close(ctx); err != nil {
-		return enqueueRunOutput{}, fmt.Errorf("failed to close queued DAG run: %w", err)
-	}
-
-	if err := rCtx.QueueStore.Enqueue(ctx, queueName, exec1.QueuePriorityLow, dagRun); err != nil {
 		return enqueueRunOutput{}, fmt.Errorf("failed to enqueue DAG run: %w", err)
 	}
-	committed = true
 
 	logger.Info(ctx, "Enqueued sub DAG run",
 		tag.DAG(dagCopy.Name),

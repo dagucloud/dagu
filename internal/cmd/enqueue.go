@@ -4,17 +4,14 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/runtime/transform"
+	"github.com/dagucloud/dagu/internal/dagrun/intake"
 	"github.com/spf13/cobra"
 )
 
@@ -96,68 +93,29 @@ func enqueueDAGRun(ctx *Context, dag *core.DAG, dagRunID string, triggerType cor
 		return fmt.Errorf("queues are disabled in configuration")
 	}
 
-	logFile, err := ctx.GenLogFileName(dag, dagRunID)
-	if err != nil {
-		return fmt.Errorf("failed to generate log file name: %w", err)
-	}
-
 	dagRun := exec.NewDAGRunRef(dag.Name, dagRunID)
 
-	if _, err = ctx.DAGRunStore.FindAttempt(ctx, dagRun); err == nil {
+	if _, err := ctx.DAGRunStore.FindAttempt(ctx, dagRun); err == nil {
 		return fmt.Errorf("DAG %q with ID %q already exists", dag.Name, dagRunID)
 	}
-	artifactDir, err := ctx.GenArtifactDir(dag, dagRunID)
+
+	queued, err := intake.EnqueueRun(ctx.Context, intake.QueueRequest{
+		DAGRunStore:             ctx.DAGRunStore,
+		QueueStore:              ctx.QueueStore,
+		DAG:                     dag,
+		DAGRunID:                dagRunID,
+		LogBaseDir:              ctx.Config.Paths.LogDir,
+		ArtifactBaseDir:         ctx.Config.Paths.ArtifactDir,
+		TriggerType:             triggerType,
+		ScheduleTime:            scheduleTime,
+		ProceedOnStatusCloseErr: true,
+	})
 	if err != nil {
-		return fmt.Errorf("failed to generate artifact directory: %w", err)
+		return err
 	}
-
-	att, err := ctx.DAGRunStore.CreateAttempt(ctx.Context, dag, time.Now(), dagRunID, exec.NewDAGRunAttemptOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to create run: %w", err)
-	}
-
-	opts := []transform.StatusOption{
-		transform.WithLogFilePath(logFile),
-		transform.WithArchiveDir(artifactDir),
-		transform.WithAttemptID(att.ID()),
-		transform.WithPreconditions(dag.Preconditions),
-		transform.WithQueuedAt(stringutil.FormatTime(time.Now())),
-		transform.WithHierarchyRefs(
-			exec.NewDAGRunRef(dag.Name, dagRunID),
-			exec.DAGRunRef{},
-		),
-		transform.WithTriggerType(triggerType),
-	}
-
-	if scheduleTime != "" {
-		opts = append(opts, transform.WithScheduleTime(scheduleTime))
-	}
-
-	dagStatus := transform.NewStatusBuilder(dag).Create(dagRunID, core.Queued, 0, time.Time{}, opts...)
-
-	if err := att.Open(ctx.Context); err != nil {
-		return fmt.Errorf("failed to open run: %w", err)
-	}
-
-	if err := att.Write(ctx.Context, dagStatus); err != nil {
-		_ = att.Close(ctx.Context)
-		return fmt.Errorf("failed to save status: %w", err)
-	}
-
-	closeErr := att.Close(ctx.Context)
-	if closeErr != nil {
+	if queued.StatusCloseErr != nil {
 		logger.Warn(ctx.Context, "Failed to close queued status before enqueue",
-			tag.Error(closeErr))
-	}
-
-	if err := ctx.QueueStore.Enqueue(ctx.Context, dag.ProcGroup(), exec.QueuePriorityLow, dagRun); err != nil {
-		if closeErr != nil {
-			return errors.Join(
-				fmt.Errorf("failed to close run: %w", closeErr),
-				fmt.Errorf("failed to enqueue dag-run: %w", err),
-			)
-		}
-		return fmt.Errorf("failed to enqueue dag-run: %w", err)
+			tag.Error(queued.StatusCloseErr))
 	}
 
 	logger.Info(ctx.Context, "Enqueued dag-run",

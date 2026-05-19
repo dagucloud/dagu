@@ -32,16 +32,15 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
 	spectypes "github.com/dagucloud/dagu/internal/core/spec/types"
+	"github.com/dagucloud/dagu/internal/dagrun/intake"
 	"github.com/dagucloud/dagu/internal/persis/filedagrun"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
-	"github.com/dagucloud/dagu/internal/runtime/transform"
 	"github.com/dagucloud/dagu/internal/service/audit"
 	"github.com/dagucloud/dagu/internal/workspace"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
@@ -3132,76 +3131,25 @@ func (a *API) enqueuePreparedDAGRun(
 	queuedDAG := dag.Clone()
 	queuedDAG.Location = ""
 
-	now := time.Now()
-	attempt, err := a.dagRunStore.CreateAttempt(ctx, queuedDAG, now, dagRunID, exec.NewDAGRunAttemptOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to create queued dag-run attempt: %w", err)
-	}
-
-	logFile, err := logpath.Generate(ctx, a.config.Paths.LogDir, queuedDAG.LogDir, queuedDAG.Name, dagRunID)
-	if err != nil {
-		return fmt.Errorf("failed to generate queued dag-run log file: %w", err)
-	}
-	artifactDir, err := artifactDirForQueuedDAGRun(ctx, a.config.Paths.ArtifactDir, queuedDAG, dagRunID)
+	queued, err := intake.EnqueueRun(ctx, intake.QueueRequest{
+		DAGRunStore:             a.dagRunStore,
+		QueueStore:              a.queueStore,
+		DAG:                     queuedDAG,
+		DAGRunID:                dagRunID,
+		LogBaseDir:              a.config.Paths.LogDir,
+		ArtifactBaseDir:         a.config.Paths.ArtifactDir,
+		TriggerType:             triggerType,
+		ProceedOnStatusCloseErr: true,
+	})
 	if err != nil {
 		return err
 	}
-
-	statusOpts := []transform.StatusOption{
-		transform.WithLogFilePath(logFile),
-		transform.WithArchiveDir(artifactDir),
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithQueuedAt(stringutil.FormatTime(now)),
-		transform.WithPreconditions(queuedDAG.Preconditions),
-		transform.WithHierarchyRefs(
-			exec.NewDAGRunRef(queuedDAG.Name, dagRunID),
-			exec.DAGRunRef{},
-		),
-		transform.WithTriggerType(triggerType),
-	}
-	status := transform.NewStatusBuilder(queuedDAG).Create(dagRunID, core.Queued, 0, time.Time{}, statusOpts...)
-
-	if err := attempt.Open(ctx); err != nil {
-		return fmt.Errorf("failed to open queued dag-run attempt: %w", err)
-	}
-	if err := attempt.Write(ctx, status); err != nil {
-		_ = attempt.Close(ctx)
-		return fmt.Errorf("failed to save queued dag-run status: %w", err)
-	}
-	closeErr := attempt.Close(ctx)
-	if closeErr != nil {
+	if queued.StatusCloseErr != nil {
 		logger.Warn(ctx, "Failed to close queued dag-run status before enqueue",
-			tag.Error(closeErr))
-	}
-
-	dagRun := exec.NewDAGRunRef(queuedDAG.Name, dagRunID)
-	if err := a.queueStore.Enqueue(ctx, queuedDAG.ProcGroup(), exec.QueuePriorityLow, dagRun); err != nil {
-		if closeErr != nil {
-			return errors.Join(
-				fmt.Errorf("failed to close queued dag-run attempt: %w", closeErr),
-				fmt.Errorf("failed to enqueue dag-run: %w", err),
-			)
-		}
-		return fmt.Errorf("failed to enqueue dag-run: %w", err)
+			tag.Error(queued.StatusCloseErr))
 	}
 
 	return nil
-}
-
-func artifactDirForQueuedDAGRun(ctx context.Context, baseDir string, dag *core.DAG, dagRunID string) (string, error) {
-	if dag == nil || !dag.ArtifactsEnabled() {
-		return "", nil
-	}
-
-	dagArtifactDir := ""
-	if dag.Artifacts != nil {
-		dagArtifactDir = dag.Artifacts.Dir
-	}
-	artifactDir, err := logpath.GenerateDir(ctx, baseDir, dagArtifactDir, dag.Name, dagRunID)
-	if err != nil {
-		return "", fmt.Errorf("failed to generate queued dag-run artifact directory: %w", err)
-	}
-	return artifactDir, nil
 }
 
 // GetSubDAGRuns returns timing and status information for all sub DAG runs.

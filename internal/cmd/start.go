@@ -224,8 +224,6 @@ func runStart(ctx *Context, args []string) error {
 	return tryExecuteDAG(ctx, dag, dagRunID, root, workerID, attemptID, triggerType, scheduleTime)
 }
 
-var errProcAcquisitionFailed = errors.New("failed to acquire process handle")
-
 // tryExecuteDAG acquires a process handle and executes the DAG.
 func tryExecuteDAG(ctx *Context, dag *core.DAG, dagRunID string, root exec.DAGRunRef, workerID, attemptID string, triggerType core.TriggerType, scheduleTime string) error {
 	// Check for dispatch to coordinator for distributed execution.

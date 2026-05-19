@@ -5,150 +5,13 @@ package cmd
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/runtime/transform"
+	"github.com/dagucloud/dagu/internal/dagrun/intake"
 )
-
-var errLocalExecutionAlreadyExists = errors.New("local execution already exists")
-
-type localExecutionPreparation struct {
-	Attempt exec.DAGRunAttempt
-	Proc    exec.ProcHandle
-}
-
-func prepareLocalExecution(
-	ctx *Context,
-	dag *core.DAG,
-	dagRunID string,
-	root exec.DAGRunRef,
-	parent exec.DAGRunRef,
-	triggerType core.TriggerType,
-	scheduleTime string,
-	buildAttempt func(context.Context) (exec.DAGRunAttempt, error),
-) (*localExecutionPreparation, error) {
-	if dag == nil {
-		return nil, fmt.Errorf("dag is required")
-	}
-	if dagRunID == "" {
-		return nil, fmt.Errorf("dag-run ID is required")
-	}
-	if buildAttempt == nil {
-		return nil, fmt.Errorf("attempt builder is required")
-	}
-	if root.Zero() {
-		root = exec.NewDAGRunRef(dag.Name, dagRunID)
-	}
-
-	if err := ctx.ProcStore.Lock(ctx, dag.ProcGroup()); err != nil {
-		return nil, fmt.Errorf("failed to lock process group: %w", err)
-	}
-	defer ctx.ProcStore.Unlock(ctx, dag.ProcGroup())
-
-	attempt, err := buildAttempt(ctx.Context)
-	if err != nil {
-		if errors.Is(err, exec.ErrDAGRunAlreadyExists) {
-			return nil, fmt.Errorf("%w: dag-run ID %s already exists for DAG %s", errLocalExecutionAlreadyExists, dagRunID, dag.Name)
-		}
-		return nil, fmt.Errorf("failed to prepare execution attempt: %w", err)
-	}
-	if attempt == nil {
-		return nil, fmt.Errorf("attempt builder returned nil attempt")
-	}
-	attempt.SetDAG(dag)
-
-	proc, err := ctx.ProcStore.Acquire(ctx, dag.ProcGroup(), exec.ProcMeta{
-		StartedAt:    time.Now().Unix(),
-		Name:         dag.Name,
-		DAGRunID:     dagRunID,
-		AttemptID:    attempt.ID(),
-		RootName:     root.Name,
-		RootDAGRunID: root.ID,
-	})
-	if err != nil {
-		_ = recordPreparedAttemptFailure(ctx, attempt, dag, dagRunID, root, parent, triggerType, scheduleTime, err)
-		return nil, fmt.Errorf("%w: %w", errProcAcquisitionFailed, err)
-	}
-
-	return &localExecutionPreparation{
-		Attempt: attempt,
-		Proc:    proc,
-	}, nil
-}
-
-func recordPreparedAttemptFailure(
-	ctx *Context,
-	attempt exec.DAGRunAttempt,
-	dag *core.DAG,
-	dagRunID string,
-	root exec.DAGRunRef,
-	parent exec.DAGRunRef,
-	triggerType core.TriggerType,
-	scheduleTime string,
-	runErr error,
-) error {
-	if attempt == nil {
-		return fmt.Errorf("attempt is required")
-	}
-	if dag == nil {
-		return fmt.Errorf("dag is required")
-	}
-	if dagRunID == "" {
-		return fmt.Errorf("dag-run ID is required")
-	}
-	if root.Zero() {
-		root = exec.NewDAGRunRef(dag.Name, dagRunID)
-	}
-
-	logPath, logPathErr := ctx.GenLogFileName(dag, dagRunID)
-	if logPathErr != nil {
-		logger.Warn(ctx, "Failed to generate log file path for prepared local execution failure",
-			tag.Error(logPathErr),
-			tag.DAG(dag.Name),
-			tag.RunID(dagRunID),
-		)
-	}
-	artifactDir, artifactDirErr := ctx.GenArtifactDir(dag, dagRunID)
-	if artifactDirErr != nil {
-		logger.Warn(ctx, "Failed to generate artifact directory for prepared local execution failure",
-			tag.Error(artifactDirErr),
-			tag.DAG(dag.Name),
-			tag.RunID(dagRunID),
-		)
-	}
-	opts := []transform.StatusOption{
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithHierarchyRefs(root, parent),
-		transform.WithLogFilePath(logPath),
-		transform.WithArchiveDir(artifactDir),
-		transform.WithFinishedAt(time.Now()),
-		transform.WithError(runErr.Error()),
-		transform.WithWorkerID("local"),
-		transform.WithTriggerType(triggerType),
-	}
-	if scheduleTime != "" {
-		opts = append(opts, transform.WithScheduleTime(scheduleTime))
-	}
-	status := transform.NewStatusBuilder(dag).Create(dagRunID, core.Failed, 0, time.Now(), opts...)
-
-	if err := attempt.Open(ctx.Context); err != nil {
-		return fmt.Errorf("failed to open attempt for failure recording: %w", err)
-	}
-	defer func() {
-		_ = attempt.Close(ctx.Context)
-	}()
-
-	if err := attempt.Write(ctx.Context, status); err != nil {
-		return fmt.Errorf("failed to write failed status: %w", err)
-	}
-	return nil
-}
 
 func withPreparedLocalExecution(
 	ctx *Context,
@@ -161,16 +24,18 @@ func withPreparedLocalExecution(
 	buildAttempt func(context.Context) (exec.DAGRunAttempt, error),
 	run func(exec.DAGRunAttempt) error,
 ) error {
-	prepared, err := prepareLocalExecution(
-		ctx,
-		dag,
-		dagRunID,
-		root,
-		parent,
-		triggerType,
-		scheduleTime,
-		buildAttempt,
-	)
+	prepared, err := intake.PrepareLocalExecution(ctx.Context, intake.LocalRequest{
+		ProcStore:       ctx.ProcStore,
+		DAG:             dag,
+		DAGRunID:        dagRunID,
+		Root:            root,
+		Parent:          parent,
+		TriggerType:     triggerType,
+		ScheduleTime:    scheduleTime,
+		LogBaseDir:      ctx.Config.Paths.LogDir,
+		ArtifactBaseDir: ctx.Config.Paths.ArtifactDir,
+		BuildAttempt:    buildAttempt,
+	})
 	if err != nil {
 		logger.Debug(ctx, "Failed to prepare local execution", tag.Error(err))
 		return err
