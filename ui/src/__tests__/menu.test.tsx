@@ -511,4 +511,27 @@ describe('sidebar menu', () => {
     expect(screen.getByRole('link', { name: /memory/i })).toBeVisible();
     expect(screen.getByRole('link', { name: /souls/i })).toBeVisible();
   });
+
+  it('does not append Pro labels to unavailable sidebar features', () => {
+    useHasFeatureMock.mockReturnValue(false);
+
+    renderMenu();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Toggle Monitor section' })
+    );
+    expect(screen.getByRole('link', { name: 'Audit Logs' })).toBeVisible();
+    expect(
+      screen.queryByRole('link', { name: 'Audit Logs (Pro)' })
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Toggle Administration section' })
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Access section' }));
+    expect(screen.getByRole('link', { name: 'Users' })).toBeVisible();
+    expect(
+      screen.queryByRole('link', { name: 'Users (Pro)' })
+    ).not.toBeInTheDocument();
+  });
 });

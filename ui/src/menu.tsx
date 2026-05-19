@@ -16,7 +16,6 @@ import {
   useIsAdmin,
 } from '@/contexts/AuthContext';
 import { useConfig } from '@/contexts/ConfigContext';
-import { useHasFeature } from '@/hooks/useLicense';
 import { cn } from '@/lib/utils';
 import { getResponsiveTitleClass } from '@/lib/text-utils';
 import { roleAtLeast } from '@/lib/workspaceAccess';
@@ -462,8 +461,6 @@ export const mainListItems = React.forwardRef<
   const config = useConfig();
   const isAdmin = useIsAdmin();
   const { user } = useAuth();
-  const hasRbac = useHasFeature('rbac');
-  const hasAudit = useHasFeature('audit');
   const canWrite =
     config.authMode !== 'builtin'
       ? config.permissions.writeDags
@@ -732,7 +729,7 @@ export const mainListItems = React.forwardRef<
               {canViewAuditLogs && (
                 <NavItem
                   to="/audit-logs"
-                  text={hasAudit ? 'Audit Logs' : 'Audit Logs (Pro)'}
+                  text="Audit Logs"
                   isOpen={isOpen}
                   onClick={onNavItemClick}
                   customColor={customColor}
@@ -879,7 +876,7 @@ export const mainListItems = React.forwardRef<
                 >
                   <NavItem
                     to="/users"
-                    text={hasRbac ? 'Users' : 'Users (Pro)'}
+                    text="Users"
                     isOpen={isOpen}
                     onClick={onNavItemClick}
                     customColor={customColor}
