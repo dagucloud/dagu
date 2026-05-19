@@ -84,7 +84,7 @@ func writeCgroupLimits(path string, limits *core.ResourceLimits) error {
 		if quota <= 0 {
 			quota = 1
 		}
-		if err := os.WriteFile(filepath.Join(path, "cpu.max"), []byte(fmt.Sprintf("%d %d", quota, period)), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(path, "cpu.max"), fmt.Appendf(nil, "%d %d", quota, period), 0o644); err != nil {
 			return fmt.Errorf("write cpu.max: %w", err)
 		}
 	}
@@ -101,7 +101,7 @@ func currentCgroupDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read current cgroup: %w", err)
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		parts := strings.SplitN(line, ":", 3)
 		if len(parts) == 3 && parts[0] == "0" && parts[1] == "" {
 			rel := strings.TrimPrefix(filepath.Clean("/"+parts[2]), "/")

@@ -78,8 +78,8 @@ func ParseCPULimit(value string) (int64, error) {
 		return 0, fmt.Errorf("value is empty")
 	}
 
-	if strings.HasSuffix(raw, "m") {
-		millis, err := parsePositiveInt64(strings.TrimSuffix(raw, "m"))
+	if before, ok := strings.CutSuffix(raw, "m"); ok {
+		millis, err := parsePositiveInt64(before)
 		if err != nil {
 			return 0, err
 		}
