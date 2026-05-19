@@ -3185,6 +3185,53 @@ func TestHandler_ReportStatus(t *testing.T) {
 		_, err = dispatchStore.GetClaim(ctx, claimed.ClaimToken)
 		assert.ErrorIs(t, err, exec.ErrDispatchTaskNotFound)
 	})
+
+	t.Run("AckTaskClaimUsesClaimedWorkerWhenRequestWorkerMissing", func(t *testing.T) {
+		t.Parallel()
+
+		baseDir := filepath.Join(t.TempDir(), "distributed")
+		dispatchStore := filedistributed.NewDispatchTaskStore(baseDir)
+		leaseStore := filedistributed.NewDAGRunLeaseStore(baseDir)
+		activeStore := filedistributed.NewActiveDistributedRunStore(baseDir)
+		h := NewHandler(HandlerConfig{
+			DispatchTaskStore:         dispatchStore,
+			DAGRunLeaseStore:          leaseStore,
+			ActiveDistributedRunStore: activeStore,
+			Owner:                     exec.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
+		})
+		ctx := context.Background()
+
+		task := &coordinatorv1.Task{
+			DagRunId:   "run-123",
+			Target:     "test-dag",
+			AttemptId:  "attempt-1",
+			AttemptKey: "attempt-key-1",
+			QueueName:  "queue-a",
+		}
+		require.NoError(t, dispatchStore.Enqueue(ctx, task))
+
+		claimed, err := dispatchStore.ClaimNext(ctx, exec.DispatchTaskClaim{
+			WorkerID: "worker-1",
+			PollerID: "poller-1",
+			Owner:    exec.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, claimed)
+
+		resp, err := h.AckTaskClaim(ctx, &coordinatorv1.AckTaskClaimRequest{
+			ClaimToken: claimed.ClaimToken,
+		})
+		require.NoError(t, err)
+		require.True(t, resp.Accepted)
+
+		lease, err := leaseStore.Get(ctx, "attempt-key-1")
+		require.NoError(t, err)
+		assert.Equal(t, "worker-1", lease.WorkerID)
+
+		record, err := activeStore.Get(ctx, "attempt-key-1")
+		require.NoError(t, err)
+		assert.Equal(t, "worker-1", record.WorkerID)
+	})
 }
 
 func TestHandler_GetDAGRunStatus(t *testing.T) {

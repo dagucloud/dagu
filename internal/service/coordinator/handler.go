@@ -924,7 +924,15 @@ func (h *Handler) AckTaskClaim(ctx context.Context, req *coordinatorv1.AckTaskCl
 		return &coordinatorv1.AckTaskClaimResponse{Accepted: false, Error: "claim has no task payload"}, nil
 	}
 
-	if err := h.distributedAttempts().recordTaskClaim(ctx, claimed.Task, req.WorkerId); err != nil {
+	workerID := req.WorkerId
+	if workerID == "" {
+		workerID = claimed.WorkerID
+	}
+	if workerID == "" {
+		return &coordinatorv1.AckTaskClaimResponse{Accepted: false, Error: "worker_id is required"}, nil
+	}
+
+	if err := h.distributedAttempts().recordTaskClaim(ctx, claimed.Task, workerID); err != nil {
 		return nil, status.Error(codes.Internal, "failed to create run lease: "+err.Error())
 	}
 	if err := h.dispatchTaskStore.DeleteClaim(ctx, req.ClaimToken); err != nil {

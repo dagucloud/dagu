@@ -118,9 +118,9 @@ func (o *distributedAttemptOwnership) syncLeaseFromStatus(
 	}
 
 	switch status.Status {
-	case core.Running, core.NotStarted:
+	case core.Running, core.NotStarted, core.Queued:
 		o.upsertLeaseFromStatus(ctx, workerID, status, fallbackAttemptID)
-	case core.Failed, core.Aborted, core.Succeeded, core.Queued,
+	case core.Failed, core.Aborted, core.Succeeded,
 		core.PartiallySucceeded, core.Waiting, core.Rejected:
 		attemptKey := exec.AttemptKeyForStatus(status, fallbackAttemptID)
 		if attemptKey == "" {
@@ -230,9 +230,9 @@ func (o *distributedAttemptOwnership) syncActiveRunFromStatus(
 	}
 
 	switch status.Status {
-	case core.Running, core.NotStarted:
+	case core.Running, core.NotStarted, core.Queued:
 		o.upsertActiveFromStatus(ctx, status, workerID, fallbackAttemptID)
-	case core.Failed, core.Aborted, core.Succeeded, core.Queued,
+	case core.Failed, core.Aborted, core.Succeeded,
 		core.PartiallySucceeded, core.Waiting, core.Rejected:
 		if err := o.activeRunStore.Delete(ctx, attemptKey); err != nil {
 			logger.Warn(ctx, "Failed to delete active distributed run",

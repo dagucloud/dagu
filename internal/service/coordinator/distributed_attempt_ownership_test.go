@@ -138,6 +138,18 @@ func TestDistributedAttemptOwnershipSyncFromStatus(t *testing.T) {
 	assert.Equal(t, "attempt-1", record.AttemptID)
 	assert.Equal(t, "worker-1", record.WorkerID)
 	assert.Equal(t, core.Running, record.Status)
+	assert.Equal(t, now.UnixMilli(), record.UpdatedAt)
+
+	status.Status = core.Queued
+	ownership.syncFromStatus(ctx, "worker-1", status, "")
+
+	lease, err = leaseStore.Get(ctx, "attempt-key-1")
+	require.NoError(t, err)
+	assert.Equal(t, now.UnixMilli(), lease.LastHeartbeatAt)
+	record, err = activeStore.Get(ctx, "attempt-key-1")
+	require.NoError(t, err)
+	assert.Equal(t, core.Queued, record.Status)
+	assert.Equal(t, now.UnixMilli(), record.UpdatedAt)
 
 	status.Status = core.Succeeded
 	ownership.syncFromStatus(ctx, "worker-1", status, "")
