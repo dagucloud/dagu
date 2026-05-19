@@ -144,6 +144,8 @@ type dag struct {
 	Container any `yaml:"container,omitempty"`
 	// RunConfig contains configuration for controlling user interactions during DAG runs.
 	RunConfig *runConfig `yaml:"run_config,omitempty"`
+	// Resources contains CPU and memory limits requested for the DAG run.
+	Resources *resourcesConfig `yaml:"resources,omitempty"`
 	// Webhook contains DAG-level webhook trigger behavior configuration.
 	Webhook *webhookConfig `yaml:"webhook,omitempty"`
 	// RegistryAuths maps registry hostnames to authentication configs.
@@ -321,6 +323,15 @@ type healthcheck struct {
 type runConfig struct {
 	DisableParamEdit bool `yaml:"disable_param_edit,omitempty"`  // Disable parameter editing when starting DAG
 	DisableRunIdEdit bool `yaml:"disable_run_id_edit,omitempty"` // Disable custom run ID specification
+}
+
+type resourcesConfig struct {
+	Limits *resourceLimits `yaml:"limits,omitempty"`
+}
+
+type resourceLimits struct {
+	CPU    string `yaml:"cpu,omitempty"`
+	Memory string `yaml:"memory,omitempty"`
 }
 
 type webhookConfig struct {
@@ -538,6 +549,7 @@ var fullTransformers = []transform{
 	{"log_output", newTransformer("LogOutput", buildLogOutput)},
 	{"mail_on", newTransformer("MailOn", buildMailOn)},
 	{"run_config", newTransformer("RunConfig", buildRunConfig)},
+	{"resources", newTransformer("Resources", buildResources)},
 	{"webhook", newTransformer("Webhook", buildWebhookConfig)},
 	{"hist_retention_days", newTransformer("HistRetentionDays", buildHistRetentionDays)},
 	{"hist_retention_runs", newTransformer("HistRetentionRuns", buildHistRetentionRuns)},
@@ -1253,6 +1265,20 @@ func buildRunConfig(_ BuildContext, d *dag) (*core.RunConfig, error) {
 		DisableParamEdit: d.RunConfig.DisableParamEdit,
 		DisableRunIdEdit: d.RunConfig.DisableRunIdEdit,
 	}, nil
+}
+
+func buildResources(_ BuildContext, d *dag) (*core.Resources, error) {
+	if d.Resources == nil || d.Resources.Limits == nil {
+		return nil, nil
+	}
+	limits, err := core.NewResourceLimits(d.Resources.Limits.CPU, d.Resources.Limits.Memory)
+	if err != nil {
+		return nil, err
+	}
+	if limits == nil {
+		return nil, nil
+	}
+	return &core.Resources{Limits: limits}, nil
 }
 
 func buildWebhookConfig(_ BuildContext, d *dag) (*core.WebhookConfig, error) {

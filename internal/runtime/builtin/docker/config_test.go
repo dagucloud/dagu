@@ -139,3 +139,17 @@ func TestDockerConfig_Healthcheck_DurationsPreserved(t *testing.T) {
 	require.Equal(t, 10*time.Second, cfg.Container.Healthcheck.StartPeriod)
 	require.Equal(t, 5, cfg.Container.Healthcheck.Retries)
 }
+
+func TestApplyResourceLimits(t *testing.T) {
+	limits, err := core.NewResourceLimits("1500m", "512Mi")
+	require.NoError(t, err)
+
+	cfg, err := LoadConfig("", core.Container{Image: "alpine"}, nil)
+	require.NoError(t, err)
+
+	ApplyResourceLimits(cfg.Host, limits)
+
+	require.NotNil(t, cfg.Host)
+	require.Equal(t, int64(1_500_000_000), cfg.Host.Resources.NanoCPUs)
+	require.Equal(t, int64(512*1024*1024), cfg.Host.Resources.Memory)
+}

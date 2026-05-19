@@ -393,6 +393,14 @@ func newDocker(ctx context.Context, step core.Step) (executor.Executor, error) {
 		cfg = c
 	}
 
+	if cfg != nil {
+		env := runtime.GetEnv(ctx)
+		if env.DAG != nil && env.DAG.Resources.HasLimits() &&
+			!ApplyResourceLimitsToConfig(cfg, env.DAG.Resources.Limits) {
+			logger.Warn(ctx, "Resource limits requested but cannot be applied to an existing container")
+		}
+	}
+
 	return &docker{
 		cfg:    cfg,
 		step:   step,

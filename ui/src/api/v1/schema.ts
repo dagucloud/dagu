@@ -4330,6 +4330,7 @@ export interface components {
              */
             maxActiveRuns?: number;
             runConfig?: components["schemas"]["RunConfig"];
+            resources?: components["schemas"]["DAGResources"];
         };
         /** @description Schedule configuration for DAG-run creation */
         Schedule: {
@@ -4526,6 +4527,7 @@ export interface components {
              */
             tags?: string[];
             runConfig?: components["schemas"]["RunConfig"];
+            resources?: components["schemas"]["DAGResources"];
         };
         /** @description Editor-only metadata used to synthesize per-document schema hints */
         DAGEditorHints: {
@@ -4602,6 +4604,17 @@ export interface components {
              * @default false
              */
             disableRunIdEdit: boolean;
+        };
+        /** @description Resource limits requested for a DAG run */
+        DAGResources: {
+            limits?: components["schemas"]["DAGResourceLimits"];
+        };
+        /** @description CPU and memory limits requested for a DAG run */
+        DAGResourceLimits: {
+            /** @description CPU limit as cores (for example, "2" or "0.5") or millicores (for example, "500m") */
+            cpu?: string;
+            /** @description Memory limit in bytes or with a unit suffix (for example, "512Mi", "1Gi", or "2G") */
+            memory?: string;
         };
         /** @description Configuration for DAG run artifact storage */
         DAGArtifactsConfig: {
@@ -4732,11 +4745,11 @@ export interface components {
             /** @description Inline preview content for markdown or text artifacts */
             content?: string;
         };
-        /** @description Collected outputs from step executions in a DAG-run, including execution metadata. If the DAG-run completed but no outputs were captured, the outputs object will be empty and metadata fields may be empty strings. */
+        /** @description Collected outputs from step executions in a DAG-run, including execution metadata. Outputs are populated from string-form output, stdout.outputs, and outputs.write. If the DAG-run completed but no outputs were captured, the outputs object will be empty and metadata fields may be empty strings. */
         DAGRunOutputs: {
             metadata: components["schemas"]["OutputsMetadata"];
             /**
-             * @description Collected step outputs as key-value pairs. Keys are output names (UPPER_CASE converted to camelCase by default, or custom key if specified) and values are the captured output strings. Empty object if no outputs were captured.
+             * @description Collected step outputs as key-value pairs. String-form output names are converted from UPPER_CASE to camelCase; stdout.outputs and outputs.write keys are preserved. Values are strings in this API response. Empty object if no outputs were captured.
              * @example {
              *       "totalCount": "42",
              *       "resultFile": "/path/to/result.txt",

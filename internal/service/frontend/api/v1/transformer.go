@@ -56,9 +56,22 @@ func toDAG(dag *core.DAG) api.DAG {
 		Description:   ptrOf(dag.Description),
 		Params:        ptrOf(dag.Params),
 		DefaultParams: ptrOf(dag.DefaultParams),
+		Resources:     toDAGResources(dag.Resources),
 		Labels:        ptrOf(dag.Labels.Strings()),
 		Tags:          ptrOf(dag.Labels.Strings()),
 		Schedule:      ptrOf(schedules),
+	}
+}
+
+func toDAGResources(resources *core.Resources) *api.DAGResources {
+	if resources == nil || resources.Limits == nil {
+		return nil
+	}
+	return &api.DAGResources{
+		Limits: &api.DAGResourceLimits{
+			Cpu:    ptrOf(resources.Limits.CPU),
+			Memory: ptrOf(resources.Limits.Memory),
+		},
 	}
 }
 
@@ -472,6 +485,7 @@ func toDAGDetails(dag *core.DAG) *api.DAGDetails {
 		ParamDefs:         paramDefs,
 		ParamSchema:       paramSchema,
 		Preconditions:     ptrOf(preconditions),
+		Resources:         toDAGResources(dag.Resources),
 		Schedule:          ptrOf(schedules),
 		Steps:             ptrOf(steps),
 		Labels:            ptrOf(dag.Labels.Strings()),

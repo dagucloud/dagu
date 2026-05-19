@@ -858,6 +858,89 @@ func TestBuildRunConfig(t *testing.T) {
 	}
 }
 
+func TestLoadYAMLResourcesRejectsInvalidLimits(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		yaml string
+	}{
+		{
+			name: "InvalidCPU",
+			yaml: `
+name: resource-limits
+resources:
+  limits:
+    cpu: nope
+steps:
+  - run: echo ok
+`,
+		},
+		{
+			name: "InvalidMemory",
+			yaml: `
+name: resource-limits
+resources:
+  limits:
+    memory: nope
+steps:
+  - run: echo ok
+`,
+		},
+		{
+			name: "RejectsFractionalMillicores",
+			yaml: `
+name: resource-limits
+resources:
+  limits:
+    cpu: "0.5m"
+steps:
+  - run: echo ok
+`,
+		},
+		{
+			name: "RejectsSubMilliCPU",
+			yaml: `
+name: resource-limits
+resources:
+  limits:
+    cpu: "0.0005"
+steps:
+  - run: echo ok
+`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := LoadYAML(context.Background(), []byte(tt.yaml))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "resources")
+		})
+	}
+}
+
+func TestLoadYAMLResourcesLimits(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+name: resource-limits
+resources:
+  limits:
+    cpu: "500m"
+    memory: "1Gi"
+steps:
+  - run: echo ok
+`))
+	require.NoError(t, err)
+	require.NotNil(t, dag.Resources)
+	require.NotNil(t, dag.Resources.Limits)
+	assert.Equal(t, "500m", dag.Resources.Limits.CPU)
+	assert.Equal(t, int64(500), dag.Resources.Limits.CPUMillis)
+	assert.Equal(t, "1Gi", dag.Resources.Limits.Memory)
+	assert.Equal(t, int64(1024*1024*1024), dag.Resources.Limits.MemoryBytes)
+}
+
 func TestBuildHistRetentionDays(t *testing.T) {
 	t.Parallel()
 

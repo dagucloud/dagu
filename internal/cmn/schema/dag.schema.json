@@ -758,6 +758,10 @@
       "$ref": "#/definitions/container",
       "description": "Default container configuration for all steps in the DAG. Steps can override this configuration with their own container settings."
     },
+    "resources": {
+      "$ref": "#/definitions/resources",
+      "description": "CPU and memory limits requested for this DAG run. Dagu attempts to enforce these limits where supported and warns while continuing when enforcement is unavailable."
+    },
     "registry_auths": {
       "oneOf": [
         {
@@ -926,6 +930,44 @@
     }
   },
   "definitions": {
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "limits": {
+          "$ref": "#/definitions/resourceLimits"
+        }
+      },
+      "description": "Resource limits requested for a DAG run."
+    },
+    "resourceLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cpu": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^0*[1-9][0-9]*m$"
+            },
+            {
+              "type": "string",
+              "pattern": "^[0-9]+(\\.[0-9]{1,3})?$",
+              "not": {
+                "pattern": "^0+(\\.0{1,3})?$"
+              }
+            }
+          ],
+          "description": "CPU limit as cores (e.g., \"2\", \"0.5\") or millicores (e.g., \"500m\")."
+        },
+        "memory": {
+          "type": "string",
+          "pattern": "^([1-9][0-9]*(\\.[0-9]+)?|0\\.[0-9]*[1-9][0-9]*)([KkMmGgTtPpEe]i?[Bb]?|[Bb])?$",
+          "description": "Memory limit in bytes or with a unit suffix (e.g., \"512Mi\", \"1Gi\", \"2G\")."
+        }
+      },
+      "description": "CPU and memory limits requested for a DAG run."
+    },
     "stepRetryPolicy": {
       "type": "object",
       "additionalProperties": false,

@@ -1084,6 +1084,106 @@ steps:
 	require.Contains(t, err.Error(), "retry_policy")
 }
 
+func TestDAGSchemaResources(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveDAGSchema(t)
+
+	tests := []struct {
+		name    string
+		spec    string
+		wantErr string
+	}{
+		{
+			name: "ValidLimits",
+			spec: `
+name: limited-dag
+resources:
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+steps:
+  - run: echo hi
+`,
+		},
+		{
+			name: "RejectsInvalidCPU",
+			spec: `
+name: limited-dag
+resources:
+  limits:
+    cpu: nope
+steps:
+  - run: echo hi
+`,
+			wantErr: "resources",
+		},
+		{
+			name: "RejectsSubMilliCPU",
+			spec: `
+name: limited-dag
+resources:
+  limits:
+    cpu: "0.0005"
+steps:
+  - run: echo hi
+`,
+			wantErr: "resources",
+		},
+		{
+			name: "RejectsFractionalMillicores",
+			spec: `
+name: limited-dag
+resources:
+  limits:
+    cpu: "0.5m"
+steps:
+  - run: echo hi
+`,
+			wantErr: "resources",
+		},
+		{
+			name: "RejectsInvalidMemory",
+			spec: `
+name: limited-dag
+resources:
+  limits:
+    memory: nope
+steps:
+  - run: echo hi
+`,
+			wantErr: "resources",
+		},
+		{
+			name: "RejectsUnknownLimitField",
+			spec: `
+name: limited-dag
+resources:
+  limits:
+    gpu: "1"
+steps:
+  - run: echo hi
+`,
+			wantErr: "resources",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc := mustParseYAMLDocument(t, tt.spec)
+			err := resolved.Validate(doc)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
 func TestDAGSchemaStepRetryPolicyRejectsUnknownField(t *testing.T) {
 	t.Parallel()
 

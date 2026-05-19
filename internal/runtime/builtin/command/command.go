@@ -19,9 +19,12 @@ import (
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/internal/cmn/eval"
+	"github.com/dagucloud/dagu/internal/cmn/logger"
+	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
+	"github.com/dagucloud/dagu/internal/runtime/resourcelimit"
 )
 
 var errNoCommandSpecified = fmt.Errorf("no command specified")
@@ -90,6 +93,11 @@ func (e *commandExecutor) Run(ctx context.Context) error {
 			return fmt.Errorf("%w\nrecent stderr (tail):\n%s", err, tail)
 		}
 		return err
+	}
+	if guard := resourcelimit.FromContext(ctx); guard != nil {
+		if err := guard.AssignProcess(e.cmd.Process.Pid); err != nil {
+			logger.Warn(ctx, "Resource limits requested but process assignment failed", tag.Error(err))
+		}
 	}
 	stopParentExitWatcher, err := cmdutil.StartParentExitWatcher(e.cmd)
 	if err != nil {

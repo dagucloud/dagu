@@ -218,6 +218,8 @@ type DAG struct {
 	Container *Container `json:"container,omitempty"`
 	// RunConfig contains configuration for controlling user interactions during DAG runs.
 	RunConfig *RunConfig `json:"runConfig,omitempty"`
+	// Resources contains CPU and memory limits requested for this DAG run.
+	Resources *Resources `json:"resources,omitempty"`
 	// Webhook contains DAG-level webhook trigger behavior configuration.
 	Webhook *WebhookConfig `json:"webhook,omitempty"`
 	// RegistryAuths maps registry hostnames to authentication configs.
@@ -374,6 +376,9 @@ func (d *DAG) Clone() *DAG {
 	if d.Artifacts != nil {
 		artifactsCopy := *d.Artifacts
 		clone.Artifacts = &artifactsCopy
+	}
+	if d.Resources != nil {
+		clone.Resources = d.Resources.Clone()
 	}
 	if d.Webhook != nil {
 		webhookCopy := *d.Webhook

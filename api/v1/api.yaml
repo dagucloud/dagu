@@ -11065,6 +11065,8 @@ components:
           x-deprecated-reason: "For concurrency control, configure global queues in config.yaml instead"
         runConfig:
           $ref: "#/components/schemas/RunConfig"
+        resources:
+          $ref: "#/components/schemas/DAGResources"
       required:
         - name
 
@@ -11396,6 +11398,8 @@ components:
             type: string
         runConfig:
           $ref: "#/components/schemas/RunConfig"
+        resources:
+          $ref: "#/components/schemas/DAGResources"
       required:
         - name
 
@@ -11529,6 +11533,26 @@ components:
       required:
         - disableParamEdit
         - disableRunIdEdit
+
+    DAGResources:
+      type: object
+      additionalProperties: false
+      description: "Resource limits requested for a DAG run"
+      properties:
+        limits:
+          $ref: "#/components/schemas/DAGResourceLimits"
+
+    DAGResourceLimits:
+      type: object
+      additionalProperties: false
+      description: "CPU and memory limits requested for a DAG run"
+      properties:
+        cpu:
+          type: string
+          description: "CPU limit as cores (for example, \"2\" or \"0.5\") or millicores (for example, \"500m\")"
+        memory:
+          type: string
+          description: "Memory limit in bytes or with a unit suffix (for example, \"512Mi\", \"1Gi\", or \"2G\")"
 
     DAGArtifactsConfig:
       type: object

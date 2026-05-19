@@ -19,9 +19,12 @@ import (
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/internal/cmn/logger"
+	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
+	"github.com/dagucloud/dagu/internal/runtime/resourcelimit"
 	"github.com/goccy/go-yaml"
 )
 
@@ -213,6 +216,11 @@ func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.
 		_ = cleanupStdoutSpool(stdout)
 		e.mu.Unlock()
 		return nil, formatProcessFailure(err, tw.Tail(), "")
+	}
+	if guard := resourcelimit.FromContext(ctx); guard != nil {
+		if err := guard.AssignProcess(cmd.Process.Pid); err != nil {
+			logger.Warn(ctx, "Resource limits requested but process assignment failed", tag.Error(err))
+		}
 	}
 	e.mu.Unlock()
 

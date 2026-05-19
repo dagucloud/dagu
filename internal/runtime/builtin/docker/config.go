@@ -300,6 +300,32 @@ func loadDefaults(cfg *Config) *Config {
 	return cfg
 }
 
+// ApplyResourceLimits maps DAG resource limits to Docker host resources.
+func ApplyResourceLimits(host *container.HostConfig, limits *core.ResourceLimits) bool {
+	if host == nil || limits == nil {
+		return false
+	}
+	if limits.CPUMillis > 0 {
+		host.Resources.NanoCPUs = limits.CPUMillis * 1_000_000
+	}
+	if limits.MemoryBytes > 0 {
+		host.Resources.Memory = limits.MemoryBytes
+	}
+	return limits.CPUMillis > 0 || limits.MemoryBytes > 0
+}
+
+// ApplyResourceLimitsToConfig applies limits only to configurations that create
+// a new container. Existing-container exec mode cannot change host resources.
+func ApplyResourceLimitsToConfig(cfg *Config, limits *core.ResourceLimits) bool {
+	if cfg == nil || limits == nil || cfg.Image == "" {
+		return false
+	}
+	if cfg.Host == nil {
+		cfg.Host = &container.HostConfig{}
+	}
+	return ApplyResourceLimits(cfg.Host, limits)
+}
+
 func init() {
 	core.RegisterExecutorConfigSchema("docker", configSchema)
 	core.RegisterExecutorConfigSchema("container", configSchema)

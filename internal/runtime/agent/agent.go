@@ -47,6 +47,7 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime/builtin/s3"
 	"github.com/dagucloud/dagu/internal/runtime/builtin/ssh"
 	"github.com/dagucloud/dagu/internal/runtime/remote"
+	"github.com/dagucloud/dagu/internal/runtime/resourcelimit"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	secretpkg "github.com/dagucloud/dagu/internal/secret"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
@@ -713,6 +714,9 @@ func (a *Agent) Run(ctx context.Context) error {
 			initErr = fmt.Errorf("failed to load container config: %w", err)
 			return initErr
 		}
+		if a.dag.Resources.HasLimits() && !docker.ApplyResourceLimitsToConfig(ctCfg, a.dag.Resources.Limits) {
+			logger.Warn(ctx, "Resource limits requested but cannot be applied to an existing container")
+		}
 		ctCli, err := docker.InitializeClient(ctx, ctCfg)
 		if err != nil {
 			initErr = fmt.Errorf("failed to initialize container client: %w", err)
@@ -906,6 +910,31 @@ func (a *Agent) Run(ctx context.Context) error {
 	// Add S3 configuration to context for S3 executors
 	if a.evaluatedS3 != nil {
 		ctx = s3.WithS3Config(ctx, a.evaluatedS3)
+	}
+
+	if a.dag.Container == nil && a.dag.Resources.HasLimits() {
+		guard := resourcelimit.Start(ctx, resourcelimit.Options{
+			DAGName:  a.dag.Name,
+			DAGRunID: a.dagRunID,
+			Limits:   a.dag.Resources.Limits,
+		})
+		result := guard.Result()
+		if result.Warning != "" {
+			logger.Warn(ctx, result.Warning)
+		}
+		if result.Enforced {
+			logger.Info(ctx, "DAG run resource limits enabled",
+				slog.String("enforcer", result.Enforcer),
+				slog.String("cpu", a.dag.Resources.Limits.CPU),
+				slog.String("memory", a.dag.Resources.Limits.Memory),
+			)
+			ctx = resourcelimit.WithGuard(ctx, guard)
+			defer func() {
+				if err := guard.Close(ctx); err != nil {
+					logger.Warn(ctx, "Failed to clean up resource limits", tag.Error(err))
+				}
+			}()
+		}
 	}
 
 	lastErr := a.runner.Run(ctx, a.plan, progressCh)

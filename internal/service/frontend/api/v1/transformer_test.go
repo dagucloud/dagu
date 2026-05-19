@@ -127,6 +127,41 @@ func TestToDAGDetailsIncludesHistoryRetentionRuns(t *testing.T) {
 	assert.Equal(t, 3, *details.HistRetentionRuns)
 }
 
+func TestToDAGIncludesResources(t *testing.T) {
+	limits, err := core.NewResourceLimits("500m", "1Gi")
+	require.NoError(t, err)
+
+	dag := toDAG(&core.DAG{
+		Name:      "limited-dag",
+		Resources: &core.Resources{Limits: limits},
+	})
+
+	require.NotNil(t, dag.Resources)
+	require.NotNil(t, dag.Resources.Limits)
+	require.NotNil(t, dag.Resources.Limits.Cpu)
+	assert.Equal(t, "500m", *dag.Resources.Limits.Cpu)
+	require.NotNil(t, dag.Resources.Limits.Memory)
+	assert.Equal(t, "1Gi", *dag.Resources.Limits.Memory)
+}
+
+func TestToDAGDetailsIncludesResources(t *testing.T) {
+	limits, err := core.NewResourceLimits("750m", "512Mi")
+	require.NoError(t, err)
+
+	details := toDAGDetails(&core.DAG{
+		Name:      "limited-dag",
+		Resources: &core.Resources{Limits: limits},
+	})
+
+	require.NotNil(t, details)
+	require.NotNil(t, details.Resources)
+	require.NotNil(t, details.Resources.Limits)
+	require.NotNil(t, details.Resources.Limits.Cpu)
+	assert.Equal(t, "750m", *details.Resources.Limits.Cpu)
+	require.NotNil(t, details.Resources.Limits.Memory)
+	assert.Equal(t, "512Mi", *details.Resources.Limits.Memory)
+}
+
 func TestToDAGDetailsIncludesParamSchema(t *testing.T) {
 	details := toDAGDetails(&core.DAG{
 		Name:        "schema-params",
