@@ -31,7 +31,7 @@ func TestAbortQueuedDAGRun_PreservesPreviousVisibleAttempt(t *testing.T) {
 
 	require.NoError(t, exec.AbortQueuedDAGRun(ctx, store, runRef))
 
-	attempt, err := store.LatestAttempt(ctx, dag.Name)
+	attempt, err := store.FindAttempt(ctx, runRef)
 	require.NoError(t, err)
 	status, err := attempt.ReadStatus(ctx)
 	require.NoError(t, err)
