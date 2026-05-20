@@ -552,7 +552,7 @@ func processDAGDocument(
 		return nil, err
 	}
 
-	docCtx, dest, err := prepareDocumentContext(ctx, baseDef, spec)
+	docCtx, _, err := prepareDocumentContext(ctx, baseDef, spec)
 	if err != nil {
 		return nil, err
 	}
@@ -565,21 +565,18 @@ func processDAGDocument(
 	if err != nil {
 		return nil, err
 	}
-	if err := merge(dest, dag); err != nil {
-		return nil, err
-	}
 	if len(baseRaw) > 0 {
-		dest.BaseConfigData = baseRaw
+		dag.BaseConfigData = baseRaw
 	}
-	applyHistoryRetentionOverride(dest, spec.HistRetentionDays != nil, spec.HistRetentionRuns != nil)
+	applyHistoryRetentionOverride(dag, spec.HistRetentionDays != nil, spec.HistRetentionRuns != nil)
 
-	dest.Location = filePath
-	dest.SourceFile = filePath
-	dest.YamlData, err = documentYAML(ctx.index, doc, fullData)
+	dag.Location = filePath
+	dag.SourceFile = filePath
+	dag.YamlData, err = documentYAML(ctx.index, doc, fullData)
 	if err != nil {
 		return nil, err
 	}
-	return dest, nil
+	return dag, nil
 }
 
 // loadEffectiveBaseDefinition returns the base definition that applies to a document.

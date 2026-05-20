@@ -652,11 +652,10 @@ func wrapTransformError(name string, err error) error {
 }
 
 type dagBuildState struct {
-	ctx       BuildContext
-	spec      *dag
-	result    *core.DAG
-	effective *core.DAG
-	errs      core.ErrorList
+	ctx    BuildContext
+	spec   *dag
+	result *core.DAG
+	errs   core.ErrorList
 }
 
 func newDAGBuildState(ctx BuildContext, spec *dag) *dagBuildState {
@@ -664,10 +663,9 @@ func newDAGBuildState(ctx BuildContext, spec *dag) *dagBuildState {
 		Location: ctx.file,
 	}
 	return &dagBuildState{
-		ctx:       ctx,
-		spec:      spec,
-		result:    result,
-		effective: result,
+		ctx:    ctx,
+		spec:   spec,
+		result: result,
 	}
 }
 
@@ -707,7 +705,7 @@ func (s *dagBuildState) composeInheritedContext() {
 		s.errs = append(s.errs, fmt.Errorf("failed to compose inherited DAG context: %w", err))
 		return
 	}
-	s.effective = merged
+	s.result = merged
 }
 
 func (s *dagBuildState) collectWarnings() {
@@ -736,13 +734,13 @@ func (s *dagBuildState) buildActionGraph() {
 		return
 	}
 
-	if handlerOn, err := buildHandlers(s.ctx, s.spec, s.effective); err != nil {
+	if handlerOn, err := buildHandlers(s.ctx, s.spec, s.result); err != nil {
 		s.errs = append(s.errs, core.NewValidationError("handlers", nil, err))
 	} else {
 		s.result.HandlerOn = handlerOn
 	}
 
-	if steps, err := buildSteps(s.ctx, s.spec, s.effective); err != nil {
+	if steps, err := buildSteps(s.ctx, s.spec, s.result); err != nil {
 		s.errs = append(s.errs, core.NewValidationError("steps", nil, err))
 	} else {
 		s.result.Steps = steps
