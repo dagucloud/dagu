@@ -56,6 +56,7 @@ type Runner struct {
 	onAbort         *core.Step
 	dagRunID        string
 	messagesHandler ChatMessagesHandler
+	stepExecutor    *StepExecutor
 	onWait          *core.Step
 	forcedStatus    *core.Status
 
@@ -96,6 +97,7 @@ func New(cfg *Config) *Runner {
 		onAbort:              cfg.OnAbort,
 		dagRunID:             cfg.DAGRunID,
 		messagesHandler:      cfg.MessagesHandler,
+		stepExecutor:         NewStepExecutor(),
 		pause:                time.Millisecond * 100,
 		onWait:               cfg.OnWait,
 		forcedStatus:         cfg.ForcedStatus,
@@ -837,9 +839,9 @@ func (r *Runner) execNode(ctx context.Context, node *Node, progressCh chan *Node
 	if progressCh != nil && node.Step().SubDAG != nil {
 		// Send an additional progress notification after the executor is set up
 		// so that SubRuns are persisted to storage before the subDAG starts running.
-		return node.Execute(ctx, func() { progressCh <- node })
+		return r.stepExecutor.Execute(ctx, node, func() { progressCh <- node })
 	}
-	return node.Execute(ctx)
+	return r.stepExecutor.Execute(ctx, node)
 }
 
 // Signal sends a signal to the runner.
@@ -1055,7 +1057,7 @@ func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, ex
 
 	node.SetStatus(core.NodeRunning)
 
-	if err := node.Execute(ctx); err != nil {
+	if err := r.stepExecutor.Execute(ctx, node); err != nil {
 		node.SetStatus(core.NodeFailed)
 		return err
 	}

@@ -760,6 +760,8 @@ func startWorkerProcess(t *testing.T, f *testFixture, workerID, labels string) (
 func waitForLease(t *testing.T, f *testFixture, attemptKey string, timeout time.Duration) exec.DAGRunLease {
 	t.Helper()
 
+	timeout = distrTestTimeout(timeout)
+
 	var lease *exec.DAGRunLease
 	require.Eventually(t, func() bool {
 		current, err := f.coord.DAGRunLeaseStore.Get(f.coord.Context, attemptKey)
@@ -815,6 +817,8 @@ func readSubDAGRunStatus(
 
 func waitForAnyLease(t *testing.T, f *testFixture, timeout time.Duration) exec.DAGRunLease {
 	t.Helper()
+
+	timeout = distrTestTimeout(timeout)
 
 	var lease exec.DAGRunLease
 	require.Eventually(t, func() bool {
