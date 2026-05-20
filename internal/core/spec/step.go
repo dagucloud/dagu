@@ -410,19 +410,29 @@ type stepTransform struct {
 	transformer Transformer[StepBuildContext, *step]
 }
 
-// stepTransformers defines the ordered sequence of step transformers
-var stepTransformers = []stepTransform{
+type stepTransformStage []stepTransform
+
+var stepIdentityStage = stepTransformStage{
 	{"name", newStepTransformer("Name", buildStepName)},
 	{"id", newStepTransformer("ID", buildStepID)},
 	{"description", newStepTransformer("Description", buildStepDescription)},
+}
+
+var stepScriptStage = stepTransformStage{
 	{"shell_packages", newStepTransformer("ShellPackages", buildStepShellPackages)},
 	{"script", newStepTransformer("Script", buildStepScript)},
+}
+
+var stepLogOutputStage = stepTransformStage{
 	{"stdout", newStepTransformer("Stdout", buildStepStdout)},
 	{"stdout.artifact", newStepTransformer("StdoutArtifact", buildStepStdoutArtifact)},
 	{"stdout.outputs", newStepTransformer("StdoutOutputs", buildStepStdoutOutputs)},
 	{"stderr", newStepTransformer("Stderr", buildStepStderr)},
 	{"stderr.artifact", newStepTransformer("StderrArtifact", buildStepStderrArtifact)},
 	{"log_output", newStepTransformer("LogOutput", buildStepLogOutput)},
+}
+
+var stepExecutionPlacementStage = stepTransformStage{
 	{"mail_on_error", newStepTransformer("MailOnError", buildStepMailOnError)},
 	{"worker_selector", newStepTransformer("WorkerSelector", buildStepWorkerSelector)},
 	{"working_dir", newStepTransformer("Dir", buildStepWorkingDir)},
@@ -435,11 +445,26 @@ var stepTransformers = []stepTransform{
 	{"retry_policy", newStepTransformer("RetryPolicy", buildStepRetryPolicy)},
 	{"repeat_policy", newStepTransformer("RepeatPolicy", buildStepRepeatPolicy)},
 	{"signal_on_stop", newStepTransformer("SignalOnStop", buildStepSignalOnStop)},
+}
+
+var stepStructuredOutputStage = stepTransformStage{
 	{"output", newStepTransformer("Output", buildStepOutput)},
 	{"structured_output", newStepTransformer("StructuredOutput", buildStepStructuredOutput)},
 	{"output_schema", newStepTransformer("OutputSchema", buildStepOutputSchema)},
+}
+
+var stepEnvConditionStage = stepTransformStage{
 	{"env", newStepTransformer("Env", buildStepEnvs)},
 	{"preconditions", newStepTransformer("Preconditions", buildStepPreconditions)},
+}
+
+var stepTransformStages = []stepTransformStage{
+	stepIdentityStage,
+	stepScriptStage,
+	stepLogOutputStage,
+	stepExecutionPlacementStage,
+	stepStructuredOutputStage,
+	stepEnvConditionStage,
 }
 
 // runStepTransformers executes all step transformers
@@ -447,12 +472,110 @@ func runStepTransformers(ctx StepBuildContext, spec *step, result *core.Step) co
 	var errs core.ErrorList
 	out := reflect.ValueOf(result).Elem()
 
-	for _, t := range stepTransformers {
-		if err := t.transformer.Transform(ctx, spec, out); err != nil {
-			errs = append(errs, wrapTransformError(t.name, err))
+	for _, stage := range stepTransformStages {
+		for _, t := range stage {
+			if err := t.transformer.Transform(ctx, spec, out); err != nil {
+				errs = append(errs, wrapTransformError(t.name, err))
+			}
 		}
 	}
 
+	return errs
+}
+
+type stepActionBuilder struct {
+	name                     string
+	build                    func(StepBuildContext, *step, *core.Step) error
+	stopOnStepTypeValidation bool
+}
+
+type stepActionStage []stepActionBuilder
+
+var stepExecutionTargetStage = stepActionStage{
+	{"container", buildStepContainer, false},
+	{"parallel", buildStepParallel, false},
+	{"subDAG", buildStepSubDAG, false},
+	{"executor", buildStepExecutor, true},
+}
+
+var stepInteractionActionStage = stepActionStage{
+	// LLM must be after executor so we know if type supports LLM.
+	{"llm", buildStepLLM, false},
+	{"messages", func(_ StepBuildContext, s *step, result *core.Step) error {
+		return buildStepMessages(s, result)
+	}, false},
+	{"agent", buildStepAgent, false},
+	{"router", buildStepRouter, false},
+	{"approval", buildStepApproval, false},
+}
+
+var stepCommandActionStage = stepActionStage{
+	{"command", buildStepCommand, false},
+	{"params", buildStepParamsField, false},
+}
+
+var stepActionStages = []stepActionStage{
+	stepExecutionTargetStage,
+	stepInteractionActionStage,
+	stepCommandActionStage,
+}
+
+func runStepActionStages(ctx StepBuildContext, spec *step, result *core.Step) (core.ErrorList, bool) {
+	var errs core.ErrorList
+	for _, stage := range stepActionStages {
+		for _, builder := range stage {
+			if err := builder.build(ctx, spec, result); err != nil {
+				errs = append(errs, wrapTransformError(builder.name, err))
+				if builder.stopOnStepTypeValidation && isStepTypeValidationError(err) {
+					return errs, true
+				}
+			}
+		}
+	}
+	return errs, false
+}
+
+type stepValidation struct {
+	name     string
+	validate func(*core.Step) error
+}
+
+type stepValidationStage []stepValidation
+
+var stepCommandValidationStage = stepValidationStage{
+	{"command", validateCommand},
+	{"command", validateMultipleCommands},
+	{"script", validateScript},
+	{"shell", validateShell},
+}
+
+var stepExecutionValidationStage = stepValidationStage{
+	{"container", validateContainer},
+	{"dag", validateSubDAG},
+	{"worker_selector", validateWorkerSelector},
+}
+
+var stepInteractionValidationStage = stepValidationStage{
+	{"llm", validateLLM},
+	{"messages", validateMessages},
+	{"agent", validateAgent},
+}
+
+var stepValidationStages = []stepValidationStage{
+	stepCommandValidationStage,
+	stepExecutionValidationStage,
+	stepInteractionValidationStage,
+}
+
+func runStepValidationStages(result *core.Step) core.ErrorList {
+	var errs core.ErrorList
+	for _, stage := range stepValidationStages {
+		for _, validation := range stage {
+			if err := validation.validate(result); err != nil {
+				errs = append(errs, wrapTransformError(validation.name, err))
+			}
+		}
+	}
 	return errs
 }
 
@@ -469,77 +592,15 @@ func (s *step) build(ctx StepBuildContext) (*core.Step, error) {
 	// Run the transformer pipeline
 	errs := runStepTransformers(ctx, s, result)
 
-	// Action-defining transformations
-	if err := buildStepContainer(ctx, s, result); err != nil {
-		errs = append(errs, wrapTransformError("container", err))
-	}
-	if err := buildStepParallel(ctx, s, result); err != nil {
-		errs = append(errs, wrapTransformError("parallel", err))
-	}
-	if err := buildStepSubDAG(ctx, s, result); err != nil {
-		errs = append(errs, wrapTransformError("subDAG", err))
-	}
-	if err := buildStepExecutor(ctx, s, result); err != nil {
-		errs = append(errs, wrapTransformError("executor", err))
-		if isStepTypeValidationError(err) {
-			return nil, errs
-		}
-	}
-	// LLM must be after executor so we know if type supports LLM
-	if err := buildStepLLM(ctx, s, result); err != nil {
-		errs = append(errs, wrapTransformError("llm", err))
-	}
-	if err := buildStepMessages(s, result); err != nil {
-		errs = append(errs, wrapTransformError("messages", err))
-	}
-	if err := buildStepAgent(ctx, s, result); err != nil {
-		errs = append(errs, wrapTransformError("agent", err))
-	}
-	if err := buildStepRouter(ctx, s, result); err != nil {
-		errs = append(errs, wrapTransformError("router", err))
-	}
-	if err := buildStepApproval(ctx, s, result); err != nil {
-		errs = append(errs, wrapTransformError("approval", err))
-	}
-	if err := buildStepCommand(ctx, s, result); err != nil {
-		errs = append(errs, wrapTransformError("command", err))
-	}
-	if err := buildStepParamsField(ctx, s, result); err != nil {
-		errs = append(errs, wrapTransformError("params", err))
+	actionErrs, stop := runStepActionStages(ctx, s, result)
+	errs = append(errs, actionErrs...)
+	if stop {
+		return nil, errs
 	}
 
 	// Final validators run after the executor type is determined
 	// Capabilities-based validators handle all execution type conflicts
-	if err := validateCommand(result); err != nil {
-		errs = append(errs, wrapTransformError("command", err))
-	}
-	if err := validateMultipleCommands(result); err != nil {
-		errs = append(errs, wrapTransformError("command", err))
-	}
-	if err := validateScript(result); err != nil {
-		errs = append(errs, wrapTransformError("script", err))
-	}
-	if err := validateShell(result); err != nil {
-		errs = append(errs, wrapTransformError("shell", err))
-	}
-	if err := validateContainer(result); err != nil {
-		errs = append(errs, wrapTransformError("container", err))
-	}
-	if err := validateSubDAG(result); err != nil {
-		errs = append(errs, wrapTransformError("dag", err))
-	}
-	if err := validateWorkerSelector(result); err != nil {
-		errs = append(errs, wrapTransformError("worker_selector", err))
-	}
-	if err := validateLLM(result); err != nil {
-		errs = append(errs, wrapTransformError("llm", err))
-	}
-	if err := validateMessages(result); err != nil {
-		errs = append(errs, wrapTransformError("messages", err))
-	}
-	if err := validateAgent(result); err != nil {
-		errs = append(errs, wrapTransformError("agent", err))
-	}
+	errs = append(errs, runStepValidationStages(result)...)
 
 	// Validate executor config against registered schema
 	// Only validate when config has actual values (not just initialized as empty map)
