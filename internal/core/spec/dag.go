@@ -709,6 +709,8 @@ func (s *dagBuildState) composeInheritedContext() {
 }
 
 func (s *dagBuildState) collectWarnings() {
+	s.result.BuildWarnings = nil
+
 	// Both max_active_runs > 1 (concurrency) and max_active_runs < 0 (queue bypass) are deprecated.
 	if s.result.Queue == "" && (s.result.MaxActiveRuns > 1 || s.result.MaxActiveRuns < 0) {
 		s.result.BuildWarnings = append(s.result.BuildWarnings, fmt.Sprintf(

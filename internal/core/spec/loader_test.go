@@ -2468,6 +2468,23 @@ steps:
 		require.Contains(t, dag.HandlerOn.Failure.Env, "BASE_ONLY=base")
 	})
 
+	t.Run("BaseConfigScheduleWarningsCollectedOnce", func(t *testing.T) {
+		t.Parallel()
+
+		base := createTempYAMLFile(t, `
+schedule: "*/33 * * * *"
+`)
+		child := createTempYAMLFile(t, `
+steps:
+  - name: step1
+    run: echo "test"
+`)
+		dag, err := spec.Load(context.Background(), child, spec.WithBaseConfig(base))
+		require.NoError(t, err)
+		require.Len(t, dag.BuildWarnings, 1)
+		require.Contains(t, dag.BuildWarnings[0], "not every 33 minutes")
+	})
+
 	t.Run("BaseConfigDefaultsAllowExplicitClears", func(t *testing.T) {
 		t.Parallel()
 
