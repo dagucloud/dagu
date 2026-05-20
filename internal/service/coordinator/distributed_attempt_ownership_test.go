@@ -25,7 +25,7 @@ func TestDistributedAttemptOwnershipStatusDecision(t *testing.T) {
 	t.Run("accepts active status from same attempt", func(t *testing.T) {
 		t.Parallel()
 
-		ownership := newDistributedAttemptOwnership(distributedAttemptOwnershipConfig{})
+		ownership := newAttemptOwnership(attemptOwnershipConfig{})
 		accepted, reason := ownership.statusDecision(ctx,
 			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Running},
 			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Running},
@@ -38,7 +38,7 @@ func TestDistributedAttemptOwnershipStatusDecision(t *testing.T) {
 	t.Run("rejects superseded attempt", func(t *testing.T) {
 		t.Parallel()
 
-		ownership := newDistributedAttemptOwnership(distributedAttemptOwnershipConfig{})
+		ownership := newAttemptOwnership(attemptOwnershipConfig{})
 		accepted, reason := ownership.statusDecision(ctx,
 			&exec.DAGRunStatus{AttemptID: "attempt-2", AttemptKey: "attempt-key-2", Status: core.Running},
 			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Running},
@@ -52,7 +52,7 @@ func TestDistributedAttemptOwnershipStatusDecision(t *testing.T) {
 		t.Parallel()
 
 		leaseStore := filedistributed.NewDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
-		ownership := newDistributedAttemptOwnership(distributedAttemptOwnershipConfig{
+		ownership := newAttemptOwnership(attemptOwnershipConfig{
 			LeaseStore:          leaseStore,
 			StaleLeaseThreshold: time.Minute,
 			Now:                 func() time.Time { return time.Unix(100, 0).UTC() },
@@ -70,7 +70,7 @@ func TestDistributedAttemptOwnershipStatusDecision(t *testing.T) {
 	t.Run("accepts duplicate terminal status", func(t *testing.T) {
 		t.Parallel()
 
-		ownership := newDistributedAttemptOwnership(distributedAttemptOwnershipConfig{})
+		ownership := newAttemptOwnership(attemptOwnershipConfig{})
 		accepted, reason := ownership.statusDecision(ctx,
 			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Succeeded},
 			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Succeeded},
@@ -91,7 +91,7 @@ func TestDistributedAttemptOwnershipSyncFromStatus(t *testing.T) {
 
 	oldTime := time.Unix(90, 0).UTC()
 	now := time.Unix(100, 0).UTC()
-	ownership := newDistributedAttemptOwnership(distributedAttemptOwnershipConfig{
+	ownership := newAttemptOwnership(attemptOwnershipConfig{
 		Owner:               exec.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
 		LeaseStore:          leaseStore,
 		ActiveRunStore:      activeStore,
@@ -170,7 +170,7 @@ func TestDistributedAttemptOwnershipTaskClaimTracking(t *testing.T) {
 	clockCalls := 0
 	now := time.Unix(100, 0).UTC()
 
-	ownership := newDistributedAttemptOwnership(distributedAttemptOwnershipConfig{
+	ownership := newAttemptOwnership(attemptOwnershipConfig{
 		Owner:          exec.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
 		LeaseStore:     leaseStore,
 		ActiveRunStore: activeStore,

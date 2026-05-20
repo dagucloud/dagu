@@ -16,7 +16,7 @@ import (
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
 
-type distributedAttemptOwnershipConfig struct {
+type attemptOwnershipConfig struct {
 	Owner               exec.CoordinatorEndpoint
 	LeaseStore          exec.DAGRunLeaseStore
 	ActiveRunStore      exec.ActiveDistributedRunStore
@@ -24,7 +24,7 @@ type distributedAttemptOwnershipConfig struct {
 	Now                 func() time.Time
 }
 
-type distributedAttemptOwnership struct {
+type attemptOwnership struct {
 	owner               exec.CoordinatorEndpoint
 	leaseStore          exec.DAGRunLeaseStore
 	activeRunStore      exec.ActiveDistributedRunStore
@@ -32,12 +32,12 @@ type distributedAttemptOwnership struct {
 	now                 func() time.Time
 }
 
-func newDistributedAttemptOwnership(cfg distributedAttemptOwnershipConfig) *distributedAttemptOwnership {
+func newAttemptOwnership(cfg attemptOwnershipConfig) *attemptOwnership {
 	now := cfg.Now
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
 	}
-	return &distributedAttemptOwnership{
+	return &attemptOwnership{
 		owner:               cfg.Owner,
 		leaseStore:          cfg.LeaseStore,
 		activeRunStore:      cfg.ActiveRunStore,
@@ -46,8 +46,8 @@ func newDistributedAttemptOwnership(cfg distributedAttemptOwnershipConfig) *dist
 	}
 }
 
-func (h *Handler) distributedAttempts() *distributedAttemptOwnership {
-	return newDistributedAttemptOwnership(distributedAttemptOwnershipConfig{
+func (h *Handler) distributedAttempts() *attemptOwnership {
+	return newAttemptOwnership(attemptOwnershipConfig{
 		Owner:               h.owner,
 		LeaseStore:          h.dagRunLeaseStore,
 		ActiveRunStore:      h.activeDistributedRunStore,
@@ -55,7 +55,7 @@ func (h *Handler) distributedAttempts() *distributedAttemptOwnership {
 	})
 }
 
-func (o *distributedAttemptOwnership) statusDecision(
+func (o *attemptOwnership) statusDecision(
 	ctx context.Context,
 	latest *exec.DAGRunStatus,
 	incoming *exec.DAGRunStatus,
@@ -78,7 +78,7 @@ func (o *distributedAttemptOwnership) statusDecision(
 	return false, remoteAttemptRejectedTerminal
 }
 
-func (o *distributedAttemptOwnership) leaseInactive(ctx context.Context, attemptKey string) bool {
+func (o *attemptOwnership) leaseInactive(ctx context.Context, attemptKey string) bool {
 	if o.leaseStore == nil || attemptKey == "" {
 		return false
 	}
@@ -97,7 +97,7 @@ func (o *distributedAttemptOwnership) leaseInactive(ctx context.Context, attempt
 	}
 }
 
-func (o *distributedAttemptOwnership) syncFromStatus(
+func (o *attemptOwnership) syncFromStatus(
 	ctx context.Context,
 	workerID string,
 	status *exec.DAGRunStatus,
@@ -107,7 +107,7 @@ func (o *distributedAttemptOwnership) syncFromStatus(
 	o.syncActiveRunFromStatus(ctx, workerID, status, fallbackAttemptID)
 }
 
-func (o *distributedAttemptOwnership) syncLeaseFromStatus(
+func (o *attemptOwnership) syncLeaseFromStatus(
 	ctx context.Context,
 	workerID string,
 	status *exec.DAGRunStatus,
@@ -135,7 +135,7 @@ func (o *distributedAttemptOwnership) syncLeaseFromStatus(
 	}
 }
 
-func (o *distributedAttemptOwnership) upsertLeaseFromStatus(
+func (o *attemptOwnership) upsertLeaseFromStatus(
 	ctx context.Context,
 	workerID string,
 	status *exec.DAGRunStatus,
@@ -195,7 +195,7 @@ func (o *distributedAttemptOwnership) upsertLeaseFromStatus(
 	}
 }
 
-func (o *distributedAttemptOwnership) restoreConfirmedFromStatus(
+func (o *attemptOwnership) restoreConfirmedFromStatus(
 	ctx context.Context,
 	workerID string,
 	status *exec.DAGRunStatus,
@@ -214,7 +214,7 @@ func (o *distributedAttemptOwnership) restoreConfirmedFromStatus(
 	}
 }
 
-func (o *distributedAttemptOwnership) syncActiveRunFromStatus(
+func (o *attemptOwnership) syncActiveRunFromStatus(
 	ctx context.Context,
 	workerID string,
 	status *exec.DAGRunStatus,
@@ -244,7 +244,7 @@ func (o *distributedAttemptOwnership) syncActiveRunFromStatus(
 	}
 }
 
-func (o *distributedAttemptOwnership) upsertActiveFromStatus(
+func (o *attemptOwnership) upsertActiveFromStatus(
 	ctx context.Context,
 	runStatus *exec.DAGRunStatus,
 	workerID string,
@@ -288,7 +288,7 @@ func (o *distributedAttemptOwnership) upsertActiveFromStatus(
 	}
 }
 
-func (o *distributedAttemptOwnership) recordTaskClaim(
+func (o *attemptOwnership) recordTaskClaim(
 	ctx context.Context,
 	task *coordinatorv1.Task,
 	workerID string,
@@ -301,7 +301,7 @@ func (o *distributedAttemptOwnership) recordTaskClaim(
 	return nil
 }
 
-func (o *distributedAttemptOwnership) upsertActiveFromTask(
+func (o *attemptOwnership) upsertActiveFromTask(
 	ctx context.Context,
 	task *coordinatorv1.Task,
 	workerID string,
@@ -340,7 +340,7 @@ func (o *distributedAttemptOwnership) upsertActiveFromTask(
 	}
 }
 
-func (o *distributedAttemptOwnership) leaseFromTask(
+func (o *attemptOwnership) leaseFromTask(
 	task *coordinatorv1.Task,
 	workerID string,
 	now time.Time,
@@ -369,7 +369,7 @@ func (o *distributedAttemptOwnership) leaseFromTask(
 	}
 }
 
-func (o *distributedAttemptOwnership) deleteTracking(
+func (o *attemptOwnership) deleteTracking(
 	ctx context.Context,
 	storeCtx context.Context,
 	dagRun exec.DAGRunRef,
@@ -381,7 +381,7 @@ func (o *distributedAttemptOwnership) deleteTracking(
 	o.deleteActiveRun(ctx, storeCtx, dagRun, attemptKey, activeRunMessage)
 }
 
-func (o *distributedAttemptOwnership) deleteLease(
+func (o *attemptOwnership) deleteLease(
 	ctx context.Context,
 	storeCtx context.Context,
 	dagRun exec.DAGRunRef,
@@ -400,7 +400,7 @@ func (o *distributedAttemptOwnership) deleteLease(
 	}
 }
 
-func (o *distributedAttemptOwnership) deleteActiveRun(
+func (o *attemptOwnership) deleteActiveRun(
 	ctx context.Context,
 	storeCtx context.Context,
 	dagRun exec.DAGRunRef,
@@ -420,7 +420,7 @@ func (o *distributedAttemptOwnership) deleteActiveRun(
 	}
 }
 
-func (o *distributedAttemptOwnership) indexedRunMatchesStatus(
+func (o *attemptOwnership) indexedRunMatchesStatus(
 	record exec.ActiveDistributedRun,
 	runStatus *exec.DAGRunStatus,
 ) bool {
