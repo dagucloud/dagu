@@ -32,7 +32,8 @@ func (e *StepExecutor) Execute(ctx context.Context, node *Node, onSetup ...func(
 
 	cmd, err := node.setupExecutor(ctx)
 	if err != nil {
-		node.SetError(wrapStepSetupError(err))
+		err = wrapStepSetupError(err)
+		node.SetError(err)
 		return err
 	}
 
@@ -134,20 +135,20 @@ func (e *StepExecutor) captureExecutorSideChannels(ctx context.Context, cmd exec
 
 	if toolDefProvider, ok := cmd.(executor.ToolDefinitionProvider); ok {
 		toolDefs := toolDefProvider.GetToolDefinitions()
-		if len(toolDefs) > 0 {
-			node.SetToolDefinitions(toolDefs)
-		}
+		node.SetToolDefinitions(toolDefs)
 	}
 
 	if outputsProvider, ok := cmd.(executor.OutputsProvider); ok {
 		outputs := outputsProvider.GetOutputs()
-		if len(outputs) > 0 {
-			value, err := serializeOutputsValue(ctx, outputs)
-			if err != nil {
-				return err
-			}
-			node.setOutputsValue(value)
+		if len(outputs) == 0 {
+			node.clearOutputsValue()
+			return nil
 		}
+		value, err := serializeOutputsValue(ctx, outputs)
+		if err != nil {
+			return err
+		}
+		node.setOutputsValue(value)
 	}
 
 	return nil
