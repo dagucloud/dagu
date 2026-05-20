@@ -1,5 +1,7 @@
 <div align="center">
   <img src="./assets/images/hero-logo.webp" width="480" alt="Dagu Logo">
+  <br>
+  <p><strong>Make data scripts to durable workflows in minutes.</strong></p>
   <p>
     <a href="https://docs.dagu.sh/overview/changelog"><img src="https://img.shields.io/github/release/dagucloud/dagu.svg?style=flat-square" alt="Latest Release"></a>
     <a href="https://github.com/dagucloud/dagu/actions/workflows/ci.yaml"><img src="https://img.shields.io/github/actions/workflow/status/dagucloud/dagu/ci.yaml?style=flat-square" alt="Build Status"></a>
@@ -10,18 +12,17 @@
   <p>
     <a href="https://docs.dagu.sh">Docs</a> |
     <a href="https://docs.dagu.sh/writing-workflows/examples">Examples</a> |
-    <a href="./README_SCHEMA.md">Workflow Schema</a> |
     <a href="https://discord.gg/gpahPUjGRk">Support & Community</a>
   </p>
 </div>
 
-## Local-first Data Pipeline Orchestration for Scripts and Private Infrastructure
+## Local-first Control Plane for Data Pipeline Scripts and Private Infrastructure
 
-Dagu turns existing scripts, SQL jobs, containers, and runbooks into scheduled, observable pipelines that run where your data already lives.
+Dagu turns existing scripts, SQL jobs, containers, SSH commands, and runbooks into scheduled, observable pipelines that run where your data already lives.
 
 Bring your existing data jobs as they are. Dagu adds the operational layer they are missing: scheduling, durable execution, logs, artifacts, queues, a Web UI, API/webhooks, distributed workers, and notifications.
 
-**Why Dagu?**
+**Highlights:**
 
 - **Local-first:** Workflows are file-based: One binary, no external database or broker required. Air-gapped ready.
 - **No rewrite:** Turn shell scripts, Python jobs, SQL, dbt, DuckDB, containers, and data-processing runbooks into pipelines without rewriting them into a framework.
@@ -69,7 +70,7 @@ The `tools` block pins external CLIs for reproducible runs. Dagu resolves packag
 
 **Try it live:** [Live Demo](https://dagu-demo-f5e33d0e.dagu.sh) (credentials: `demouser` / `demouser`)
 
-## Simplicity and Developer Experience
+## Why Dagu?
 
 ```sh
   Traditional Orchestrator          Dagu
