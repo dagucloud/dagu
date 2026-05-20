@@ -4,11 +4,13 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -117,6 +119,45 @@ func TestPrepareDAGInstallsDeclaredTools(t *testing.T) {
 	assert.Same(t, dag.Tools, installer.cfg)
 	assert.Equal(t, InstallOptions{ToolsDir: "/data/tools", WorkDir: "/work"}, installer.opts)
 	assert.Contains(t, envs, "PATH=/data/tools/aqua/envs/linux-amd64/hash/bin"+string(os.PathListSeparator)+"/usr/bin")
+}
+
+func TestPrepareDAGLogsToolPreparationStatus(t *testing.T) {
+	t.Parallel()
+
+	var output bytes.Buffer
+	ctx := logger.WithFixedLogger(context.Background(), logger.NewLogger(
+		logger.WithQuiet(),
+		logger.WithFormat("text"),
+		logger.WithWriter(&output),
+	))
+	installer := &fakeInstaller{
+		manifest: &Manifest{
+			RootDir:      "/data/tools/aqua/root",
+			EnvDir:       "/data/tools/aqua/envs/linux-amd64/hash",
+			BinDir:       "/data/tools/aqua/envs/linux-amd64/hash/bin",
+			Config:       "/data/tools/aqua/envs/linux-amd64/hash/aqua.yaml",
+			ManifestFile: "/data/tools/aqua/envs/linux-amd64/hash/manifest.json",
+			Commands: map[string]Command{
+				"jq": {Name: "jq", Package: "jqlang/jq", Version: "jq-1.7.1"},
+			},
+		},
+	}
+	dag := &core.DAG{
+		Name: "tool-dag",
+		Tools: &core.ToolConfig{
+			Provider: "aqua",
+			Packages: []core.ToolPackage{{
+				Package: "jqlang/jq",
+				Version: "jq-1.7.1",
+			}},
+		},
+	}
+
+	_, err := PrepareDAG(ctx, dag, installer, InstallOptions{}, "/usr/bin")
+
+	require.NoError(t, err)
+	assert.Contains(t, output.String(), "Preparing DAG tools")
+	assert.Contains(t, output.String(), "DAG tools ready")
 }
 
 func TestPrepareDAGRejectsUnsupportedExecutor(t *testing.T) {

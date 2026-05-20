@@ -6,7 +6,9 @@ package tools
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
+	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/core"
 )
 
@@ -21,10 +23,16 @@ func PrepareDAG(ctx context.Context, dag *core.DAG, installer Installer, opts In
 	if err := ValidateDAGSupported(dag); err != nil {
 		return nil, err
 	}
+	logger.Info(ctx, "Preparing DAG tools", slog.Int("packages", len(dag.Tools.Packages)))
 	manifest, err := installer.Install(ctx, dag.Tools, opts)
 	if err != nil {
 		return nil, fmt.Errorf("prepare DAG tools: %w", err)
 	}
+	commands := 0
+	if manifest != nil {
+		commands = len(manifest.Commands)
+	}
+	logger.Info(ctx, "DAG tools ready", slog.Int("commands", commands))
 	return EnvVars(manifest, basePath), nil
 }
 
