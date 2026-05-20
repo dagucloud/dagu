@@ -2422,6 +2422,52 @@ steps:
 		require.Equal(t, 600*time.Second, dag.Steps[0].Timeout)
 	})
 
+	t.Run("BaseConfigStepsInheritedWhenChildOmitsSteps", func(t *testing.T) {
+		t.Parallel()
+
+		base := createTempYAMLFile(t, `
+steps:
+  - name: base-step
+    run: echo "base"
+`)
+		child := createTempYAMLFile(t, `
+description: child DAG
+`)
+		dag, err := spec.Load(context.Background(), child, spec.WithBaseConfig(base))
+		require.NoError(t, err)
+		require.Len(t, dag.Steps, 1)
+		require.Equal(t, "base-step", dag.Steps[0].Name)
+		require.Equal(t, "echo \"base\"", dag.Steps[0].Commands[0].CmdWithArgs)
+	})
+
+	t.Run("BaseConfigHandlerPartialOverrideKeepsInheritedFields", func(t *testing.T) {
+		t.Parallel()
+
+		base := createTempYAMLFile(t, `
+handler_on:
+  failure:
+    run: echo "base failure"
+    timeout_sec: 300
+    env:
+      - BASE_ONLY: base
+`)
+		child := createTempYAMLFile(t, `
+handler_on:
+  failure:
+    run: echo "child failure"
+
+steps:
+  - name: step1
+    run: echo "test"
+`)
+		dag, err := spec.Load(context.Background(), child, spec.WithBaseConfig(base))
+		require.NoError(t, err)
+		require.NotNil(t, dag.HandlerOn.Failure)
+		require.Equal(t, "echo \"child failure\"", dag.HandlerOn.Failure.Commands[0].CmdWithArgs)
+		require.Equal(t, 300*time.Second, dag.HandlerOn.Failure.Timeout)
+		require.Contains(t, dag.HandlerOn.Failure.Env, "BASE_ONLY=base")
+	})
+
 	t.Run("BaseConfigDefaultsAllowExplicitClears", func(t *testing.T) {
 		t.Parallel()
 

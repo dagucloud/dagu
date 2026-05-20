@@ -737,13 +737,18 @@ func (s *dagBuildState) buildActionGraph() {
 	if handlerOn, err := buildHandlers(s.ctx, s.spec, s.result); err != nil {
 		s.errs = append(s.errs, core.NewValidationError("handlers", nil, err))
 	} else {
-		s.result.HandlerOn = composeHandlerOn(s.result.HandlerOn, handlerOn)
+		composed, err := composeHandlerOn(s.result.HandlerOn, handlerOn)
+		if err != nil {
+			s.errs = append(s.errs, core.NewValidationError("handlers", nil, err))
+		} else {
+			s.result.HandlerOn = composed
+		}
 	}
 
 	if steps, err := buildSteps(s.ctx, s.spec, s.result); err != nil {
 		s.errs = append(s.errs, core.NewValidationError("steps", nil, err))
 	} else {
-		s.result.Steps = steps
+		s.result.Steps = composeSteps(s.result.Steps, steps)
 	}
 }
 
@@ -2911,26 +2916,43 @@ func buildDotenv(_ BuildContext, d *dag) ([]string, error) {
 	return d.Dotenv.Values(), nil
 }
 
-func composeHandlerOn(inherited, current core.HandlerOn) core.HandlerOn {
-	if current.Init != nil {
-		inherited.Init = current.Init
+func composeSteps(inherited, current []core.Step) []core.Step {
+	if current == nil {
+		return inherited
 	}
-	if current.Exit != nil {
-		inherited.Exit = current.Exit
+	return current
+}
+
+func composeHandlerOn(inherited, current core.HandlerOn) (core.HandlerOn, error) {
+	dest := &core.DAG{
+		HandlerOn: cloneHandlerOn(inherited),
 	}
-	if current.Success != nil {
-		inherited.Success = current.Success
+	src := &core.DAG{
+		HandlerOn: current,
 	}
-	if current.Failure != nil {
-		inherited.Failure = current.Failure
+	if err := merge(dest, src); err != nil {
+		return inherited, err
 	}
-	if current.Abort != nil {
-		inherited.Abort = current.Abort
+	return dest.HandlerOn, nil
+}
+
+func cloneHandlerOn(handlerOn core.HandlerOn) core.HandlerOn {
+	return core.HandlerOn{
+		Init:    cloneStepPointer(handlerOn.Init),
+		Failure: cloneStepPointer(handlerOn.Failure),
+		Success: cloneStepPointer(handlerOn.Success),
+		Abort:   cloneStepPointer(handlerOn.Abort),
+		Exit:    cloneStepPointer(handlerOn.Exit),
+		Wait:    cloneStepPointer(handlerOn.Wait),
 	}
-	if current.Wait != nil {
-		inherited.Wait = current.Wait
+}
+
+func cloneStepPointer(step *core.Step) *core.Step {
+	if step == nil {
+		return nil
 	}
-	return inherited
+	cloned := *step
+	return &cloned
 }
 
 func buildHandlers(ctx BuildContext, d *dag, result *core.DAG) (core.HandlerOn, error) {
