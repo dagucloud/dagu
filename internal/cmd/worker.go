@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/dagucloud/dagu/internal/cmn/config"
+	cmdprocess "github.com/dagucloud/dagu/internal/cmd/process"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
@@ -137,46 +137,8 @@ func runWorker(ctx *Context, _ []string) error {
 	return nil
 }
 
-// BuildCoordinatorClientConfig creates coordinator client config from application config.
-// Returns nil config if no static coordinators configured (use service registry instead).
-// This is a pure function that can be unit tested without network I/O.
-func BuildCoordinatorClientConfig(cfg *config.Config) (*coordinator.Config, bool, error) {
-	if len(cfg.Worker.Coordinators) == 0 {
-		return nil, false, nil // Use service registry discovery
-	}
-
-	coordCliCfg := coordinator.DefaultConfig()
-	coordCliCfg.CAFile = cfg.Core.Peer.ClientCaFile
-	coordCliCfg.CertFile = cfg.Core.Peer.CertFile
-	coordCliCfg.KeyFile = cfg.Core.Peer.KeyFile
-	coordCliCfg.SkipTLSVerify = cfg.Core.Peer.SkipTLSVerify
-	coordCliCfg.Insecure = cfg.Core.Peer.Insecure
-
-	if err := coordCliCfg.Validate(); err != nil {
-		return nil, false, fmt.Errorf("invalid coordinator client configuration: %w", err)
-	}
-
-	return coordCliCfg, true, nil
-}
-
 // createCoordinatorClient creates the appropriate coordinator client based on configuration.
 // Returns the client, whether to use remote handler, and any error.
 func createCoordinatorClient(ctx *Context) (coordinator.Client, bool, error) {
-	coordCliCfg, useRemoteHandler, err := BuildCoordinatorClientConfig(ctx.Config)
-	if err != nil {
-		return nil, false, err
-	}
-
-	if coordCliCfg == nil {
-		return ctx.NewCoordinatorClient(), false, nil
-	}
-
-	staticRegistry, err := coordinator.NewStaticRegistry(ctx.Config.Worker.Coordinators)
-	if err != nil {
-		return nil, false, fmt.Errorf("failed to create static registry: %w", err)
-	}
-	logger.Info(ctx, "Using static coordinator discovery",
-		slog.Any("coordinators", ctx.Config.Worker.Coordinators))
-
-	return coordinator.New(staticRegistry, coordCliCfg), useRemoteHandler, nil
+	return cmdprocess.NewWorkerCoordinatorClient(ctx.Context, ctx.Config, ctx.ServiceRegistry)
 }

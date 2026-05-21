@@ -18,9 +18,8 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/dagucloud/dagu/internal/agent"
-	"github.com/dagucloud/dagu/internal/agentoauth"
 	"github.com/dagucloud/dagu/internal/clicontext"
+	cmdprocess "github.com/dagucloud/dagu/internal/cmd/process"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
@@ -29,43 +28,24 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/internal/cmn/signalctx"
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/internal/cmn/telemetry"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/license"
-	"github.com/dagucloud/dagu/internal/persis/fileagentconfig"
-	"github.com/dagucloud/dagu/internal/persis/fileagentmodel"
-	"github.com/dagucloud/dagu/internal/persis/fileagentoauth"
-
-	"github.com/dagucloud/dagu/internal/persis/fileagentsoul"
 	"github.com/dagucloud/dagu/internal/persis/filebaseconfig"
-	"github.com/dagucloud/dagu/internal/persis/filedag"
 	"github.com/dagucloud/dagu/internal/persis/filedagrun"
 	"github.com/dagucloud/dagu/internal/persis/filedistributed"
 	"github.com/dagucloud/dagu/internal/persis/fileeventstore"
-	"github.com/dagucloud/dagu/internal/persis/filegithubdispatch"
-	"github.com/dagucloud/dagu/internal/persis/fileincident"
 	"github.com/dagucloud/dagu/internal/persis/filelicense"
-	"github.com/dagucloud/dagu/internal/persis/filememory"
-	"github.com/dagucloud/dagu/internal/persis/filenotification"
 	"github.com/dagucloud/dagu/internal/persis/fileproc"
 	"github.com/dagucloud/dagu/internal/persis/filequeue"
-	"github.com/dagucloud/dagu/internal/persis/filesecret"
 	"github.com/dagucloud/dagu/internal/persis/fileserviceregistry"
-	"github.com/dagucloud/dagu/internal/persis/filewatermark"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
-	secretpkg "github.com/dagucloud/dagu/internal/secret"
-	"github.com/dagucloud/dagu/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
 	"github.com/dagucloud/dagu/internal/service/frontend"
-	apiv1 "github.com/dagucloud/dagu/internal/service/frontend/api/v1"
-	incidentservice "github.com/dagucloud/dagu/internal/service/incident"
-	notificationservice "github.com/dagucloud/dagu/internal/service/notification"
 	"github.com/dagucloud/dagu/internal/service/resource"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
-	"github.com/dagucloud/dagu/internal/workspace"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -586,230 +566,42 @@ func isSharedNothingWorker(cmd *cobra.Command, cfg *config.Config) bool {
 	return len(cfg.Worker.Coordinators) > 0
 }
 
-// NewServer creates and returns a new web UI NewServer.
-// It initializes in-memory caches for DAGs and runstore, and uses them in the client.
+// NewServer creates and returns a new web UI server for this command context.
 func (c *Context) NewServer(rs *resource.Service, opts ...frontend.ServerOption) (*frontend.Server, error) {
-	limits := c.Config.Cache.Limits()
-	dc := fileutil.NewCache[*core.DAG]("dag_definition", limits.DAG.Limit, limits.DAG.TTL)
-	dc.StartEviction(c)
-
-	dr, err := c.dagStore(dagStoreConfig{Cache: dc})
-	if err != nil {
-		return nil, err
-	}
-
-	// Create coordinator client (may be nil if not configured)
-	cc := c.NewCoordinatorClient()
-
-	collector := telemetry.NewCollector(
-		config.Version,
-		dr,
-		c.DAGRunStore,
-		c.QueueStore,
-		c.ServiceRegistry,
-	)
-	collector.SetWorkerHeartbeatStore(c.WorkerHeartbeatStore)
-
-	// Register DAG definition cache for metrics
-	collector.RegisterCache(dc)
-
-	mr := telemetry.NewRegistry(collector)
-
-	if c.LicenseManager != nil {
-		opts = append(opts, frontend.WithLicenseManager(c.LicenseManager))
-	}
-	if c.DAGRunLeaseStore != nil {
-		opts = append(opts, frontend.WithAPIOption(apiv1.WithDAGRunLeaseStore(c.DAGRunLeaseStore)))
-	}
-	if c.WorkerHeartbeatStore != nil {
-		opts = append(opts, frontend.WithAPIOption(apiv1.WithWorkerHeartbeatStore(c.WorkerHeartbeatStore)))
-	}
-	opts = append(opts, frontend.WithAPIOption(apiv1.WithSchedulerStateStore(
-		filewatermark.New(filepath.Join(c.Config.Paths.DataDir, "scheduler")),
-	)))
-
-	return frontend.NewServer(c.Context, c.Config, dr, c.DAGRunStore, c.QueueStore, c.ProcStore, c.DAGRunMgr, cc, c.ServiceRegistry, mr, collector, rs, opts...)
+	return cmdprocess.NewServer(cmdprocess.ServerConfig{
+		Context:              c.Context,
+		Config:               c.Config,
+		DAGRunStore:          c.DAGRunStore,
+		QueueStore:           c.QueueStore,
+		ProcStore:            c.ProcStore,
+		DAGRunManager:        c.DAGRunMgr,
+		ServiceRegistry:      c.ServiceRegistry,
+		DAGRunLeaseStore:     c.DAGRunLeaseStore,
+		WorkerHeartbeatStore: c.WorkerHeartbeatStore,
+		LicenseManager:       c.LicenseManager,
+		ResourceService:      rs,
+	}, opts...)
 }
 
 // NewCoordinatorClient creates a new coordinator client using the global peer configuration.
 // Returns nil when the coordinator is disabled via configuration.
 func (c *Context) NewCoordinatorClient() coordinator.Client {
-	if !c.Config.Coordinator.Enabled {
-		return nil
-	}
-
-	coordinatorCliCfg := coordinator.DefaultConfig()
-	coordinatorCliCfg.CAFile = c.Config.Core.Peer.ClientCaFile
-	coordinatorCliCfg.CertFile = c.Config.Core.Peer.CertFile
-	coordinatorCliCfg.KeyFile = c.Config.Core.Peer.KeyFile
-	coordinatorCliCfg.SkipTLSVerify = c.Config.Core.Peer.SkipTLSVerify
-	coordinatorCliCfg.Insecure = c.Config.Core.Peer.Insecure
-
-	// Use config values for retry if provided
-	if c.Config.Core.Peer.MaxRetries > 0 {
-		coordinatorCliCfg.MaxRetries = c.Config.Core.Peer.MaxRetries
-	}
-	if c.Config.Core.Peer.RetryInterval > 0 {
-		coordinatorCliCfg.RetryInterval = c.Config.Core.Peer.RetryInterval
-	}
-
-	if err := coordinatorCliCfg.Validate(); err != nil {
-		logger.Error(c.Context, "Invalid coordinator client configuration", tag.Error(err))
-		return nil
-	}
-	return coordinator.New(c.ServiceRegistry, coordinatorCliCfg)
+	return cmdprocess.NewCoordinatorClient(c.Context, c.Config, c.ServiceRegistry)
 }
 
-// NewScheduler creates a new NewScheduler instance using the default client.
-// It builds a DAG job manager to handle scheduled executions.
+// NewScheduler creates a scheduler for this command context.
 func (c *Context) NewScheduler() (*scheduler.Scheduler, error) {
-	limits := c.Config.Cache.Limits()
-	cache := fileutil.NewCache[*core.DAG]("dag_definition", limits.DAG.Limit, limits.DAG.TTL)
-	cache.StartEviction(c)
-
-	dr, err := c.dagStore(dagStoreConfig{Cache: cache})
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize DAG client: %w", err)
-	}
-
-	coordinatorCli := c.NewCoordinatorClient()
-	m := scheduler.NewEntryReader(c.Config.Paths.DAGsDir, dr)
-	watermarkDir := filepath.Join(c.Config.Paths.DataDir, "scheduler")
-	wmStore := filewatermark.New(watermarkDir)
-
-	statusCache := fileutil.NewCache[*exec.DAGRunStatus]("scheduler_dag_run_status", limits.DAGRun.Limit, limits.DAGRun.TTL)
-	statusCache.StartEviction(c)
-	schedulerRunStore := filedagrun.New(
-		c.Config.Paths.DAGRunsDir,
-		filedagrun.WithArtifactDir(c.Config.Paths.ArtifactDir),
-		filedagrun.WithLatestStatusToday(false),
-		filedagrun.WithLocation(c.Config.Core.Location),
-		filedagrun.WithHistoryFileCache(statusCache),
-	)
-	schedulerRunMgr := runtime.NewManager(schedulerRunStore, c.ProcStore, c.Config)
-
-	sched, err := scheduler.New(c.Config, m, schedulerRunMgr, schedulerRunStore, c.QueueStore, c.ProcStore, c.ServiceRegistry, coordinatorCli, wmStore)
-	if err != nil {
-		return nil, err
-	}
-	if c.EventService != nil {
-		collector, eventErr := fileeventstore.NewCollector(c.Config.Paths.EventStoreDir, c.Config.EventStore.RetentionDays)
-		if eventErr != nil {
-			logger.Warn(c, "Failed to initialize event collector; continuing without collection", tag.Error(eventErr))
-		} else {
-			sched.SetEventCollector(collector)
-		}
-		if notificationMonitor := c.newNotificationMonitor(dr); notificationMonitor != nil {
-			sched.SetNotificationMonitor(notificationMonitor)
-		}
-		if incidentMonitor := c.newIncidentMonitor(); incidentMonitor != nil {
-			sched.SetIncidentMonitor(incidentMonitor)
-		}
-	}
-	sched.SetDAGRunLeaseStore(c.DAGRunLeaseStore)
-	sched.SetDispatchTaskStore(c.DispatchTaskStore)
-	if c.LicenseManager != nil {
-		githubTracker := filegithubdispatch.New(filepath.Join(c.Config.Paths.DataDir, "github-dispatch"))
-		sched.SetGitHubDispatchWorker(scheduler.NewGitHubDispatchWorker(
-			c.Config,
-			dr,
-			schedulerRunStore,
-			c.QueueStore,
-			&schedulerRunMgr,
-			c.LicenseManager,
-			license.NewCloudClient(c.Config.License.CloudURL),
-			githubTracker,
-			logger.FromContext(c.Context),
-		))
-	}
-	return sched, nil
-}
-
-func (c *Context) newNotificationMonitor(dr exec.DAGStore) *chatbridge.NotificationMonitor {
-	encKey, encErr := crypto.ResolveKey(c.Config.Paths.DataDir)
-	if encErr != nil {
-		logger.Warn(c, "Notification settings store is disabled because encrypted storage is not available", tag.Error(encErr))
-		return nil
-	}
-	encryptor, encErr := crypto.NewEncryptor(encKey)
-	if encErr != nil {
-		logger.Warn(c, "Failed to create encryptor for notification settings store", tag.Error(encErr))
-		return nil
-	}
-	store, err := filenotification.New(
-		filepath.Join(c.Config.Paths.DataDir, "notifications", "dags"),
-		filenotification.WithEncryptor(encryptor),
-	)
-	if err != nil {
-		logger.Warn(c, "Failed to create notification settings store", tag.Error(err))
-		return nil
-	}
-	var checker license.Checker
-	if c.LicenseManager != nil {
-		checker = c.LicenseManager.Checker()
-	}
-	notificationSvc := notificationservice.New(
-		store,
-		dr,
-		notificationservice.WithReusableChannelsEnabled(func() bool {
-			return license.HasActiveLicense(checker)
-		}),
-	)
-	stateFile := filepath.Join(c.Config.Paths.DataDir, "notifications", "monitor-state.json")
-	return chatbridge.NewNotificationMonitor(
-		c.EventService,
-		stateFile,
-		notificationSvc,
-		slog.Default(),
-		chatbridge.DefaultNotificationMonitorConfig(),
-	)
-}
-
-func (c *Context) newIncidentMonitor() *chatbridge.NotificationMonitor {
-	encKey, encErr := crypto.ResolveKey(c.Config.Paths.DataDir)
-	if encErr != nil {
-		logger.Warn(c, "Incident settings store is disabled because encrypted storage is not available", tag.Error(encErr))
-		return nil
-	}
-	encryptor, encErr := crypto.NewEncryptor(encKey)
-	if encErr != nil {
-		logger.Warn(c, "Failed to create encryptor for incident settings store", tag.Error(encErr))
-		return nil
-	}
-	store, err := fileincident.New(
-		filepath.Join(c.Config.Paths.DataDir, "incidents"),
-		fileincident.WithEncryptor(encryptor),
-	)
-	if err != nil {
-		logger.Warn(c, "Failed to create incident settings store", tag.Error(err))
-		return nil
-	}
-	var checker license.Checker
-	if c.LicenseManager != nil {
-		checker = c.LicenseManager.Checker()
-	}
-	incidentSvc := incidentservice.New(
-		store,
-		incidentservice.WithIncidentsEnabled(func() bool {
-			return license.HasActiveLicense(checker)
-		}),
-		incidentservice.WithPublicURL(c.Config.Server.PublicURL),
-	)
-	stateFile := filepath.Join(c.Config.Paths.DataDir, "incidents", "monitor-state.json")
-	cfg := chatbridge.DefaultNotificationMonitorConfig()
-	cfg.UrgentWindow = time.Second
-	cfg.SuccessWindow = time.Second
-	cfg.InterestedEventTypes = []eventstore.EventType{
-		eventstore.TypeDAGRunFailed,
-		eventstore.TypeDAGRunSucceeded,
-	}
-	return chatbridge.NewNotificationMonitor(
-		c.EventService,
-		stateFile,
-		incidentSvc,
-		slog.Default(),
-		cfg,
-	)
+	return cmdprocess.NewScheduler(cmdprocess.SchedulerConfig{
+		Context:           c.Context,
+		Config:            c.Config,
+		QueueStore:        c.QueueStore,
+		ProcStore:         c.ProcStore,
+		ServiceRegistry:   c.ServiceRegistry,
+		DispatchTaskStore: c.DispatchTaskStore,
+		DAGRunLeaseStore:  c.DAGRunLeaseStore,
+		EventService:      c.EventService,
+		LicenseManager:    c.LicenseManager,
+	})
 }
 
 // StringParam retrieves a string parameter from the command line flags.
@@ -847,106 +639,19 @@ type dagStoreConfig struct {
 
 // dagStore returns a new DAGRepository instance.
 func (c *Context) dagStore(cfg dagStoreConfig) (exec.DAGStore, error) {
-	// Merge configured alternate DAGs directory into search paths if provided
-	searchPaths := append([]string{}, cfg.SearchPaths...)
-	if c.Config != nil && c.Config.Paths.AltDAGsDir != "" {
-		searchPaths = append(searchPaths, c.Config.Paths.AltDAGsDir)
-	}
-
-	store := filedag.New(
-		c.Config.Paths.DAGsDir,
-		filedag.WithFlagsBaseDir(c.Config.Paths.SuspendFlagsDir),
-		filedag.WithSearchPaths(searchPaths),
-		filedag.WithBaseConfig(c.Config.Paths.BaseConfig),
-		filedag.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(c.Config.Paths.DAGsDir)),
-		filedag.WithFileCache(cfg.Cache),
-		filedag.WithSkipExamples(c.Config.Core.SkipExamples),
-		filedag.WithSkipDirectoryCreation(cfg.SkipDirectoryCreation),
-	)
-
-	// Initialize the store (creates directory and example DAGs if needed, unless SkipDirectoryCreation is true)
-	if s, ok := store.(*filedag.Storage); ok {
-		if err := s.Initialize(); err != nil {
-			return nil, fmt.Errorf("failed to initialize DAG store: %w", err)
-		}
-	}
-
-	return store, nil
+	return cmdprocess.NewDAGStore(c.Config, cmdprocess.DAGStoreConfig{
+		Cache:                 cfg.Cache,
+		SearchPaths:           cfg.SearchPaths,
+		SkipDirectoryCreation: cfg.SkipDirectoryCreation,
+	})
 }
 
 // agentStoresResult holds the agent stores created by agentStores().
-type agentStoresResult struct {
-	ConfigStore     agent.ConfigStore
-	ModelStore      agent.ModelStore
-	MemoryStore     agent.MemoryStore
-	SoulStore       agent.SoulStore
-	OAuthManager    *agentoauth.Manager
-	ContextResolver agent.RemoteContextResolver
-	SecretStore     secretpkg.Store
-}
+type agentStoresResult = cmdprocess.AgentStores
 
-// agentStores creates the agent config, model, memory, and soul stores from the config paths.
-// Errors are logged as warnings; nil stores are returned if creation fails.
+// agentStores creates the agent store bundle for this command context.
 func (c *Context) agentStores() agentStoresResult {
-	var result agentStoresResult
-
-	if store, err := filesecret.NewFromDataDir(c.Config.Paths.DataDir); err != nil {
-		logger.Warn(c, "Failed to create secret store", tag.Error(err))
-	} else {
-		result.SecretStore = store
-	}
-
-	acs, err := fileagentconfig.New(c.Config.Paths.DataDir)
-	if err != nil {
-		logger.Warn(c, "Failed to create agent config store", tag.Error(err))
-		return result
-	}
-	if acs == nil {
-		return result
-	}
-	result.ConfigStore = acs
-
-	ams, err := fileagentmodel.New(filepath.Join(c.Config.Paths.DataDir, "agent", "models"))
-	if err != nil {
-		logger.Warn(c, "Failed to create agent model store", tag.Error(err))
-		return result
-	}
-	result.ModelStore = ams
-
-	ms, err := filememory.New(c.Config.Paths.DAGsDir)
-	if err != nil {
-		logger.Warn(c, "Failed to create agent memory store", tag.Error(err))
-		return result
-	}
-	result.MemoryStore = ms
-
-	soulsDir := filepath.Join(c.Config.Paths.DAGsDir, "souls")
-	soulStore, err := fileagentsoul.New(c, soulsDir)
-	if err != nil {
-		logger.Warn(c, "Failed to create agent soul store", tag.Error(err))
-		return result
-	}
-	result.SoulStore = soulStore
-
-	oauthManager, err := fileagentoauth.NewManager(c.Config.Paths.DataDir)
-	if err != nil {
-		logger.Warn(c, "Failed to create agent OAuth store", tag.Error(err))
-	} else {
-		result.OAuthManager = oauthManager
-	}
-
-	// Build context resolver for agent step remote tools.
-	result.ContextResolver = c.buildRemoteContextResolver()
-
-	return result
-}
-
-// buildRemoteContextResolver creates a RemoteContextResolver from the CLI context store.
-func (c *Context) buildRemoteContextResolver() agent.RemoteContextResolver {
-	if c.ContextStore == nil {
-		return nil
-	}
-	return &agent.RemoteContextResolverAdapter{Store: c.ContextStore}
+	return cmdprocess.NewAgentStores(c.Context, c.Config, c.ContextStore)
 }
 
 // OpenLogFile creates and opens a log file for a given dag-run.

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/internal/cmd"
+	cmdprocess "github.com/dagucloud/dagu/internal/cmd/process"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -67,7 +68,7 @@ func TestBuildCoordinatorClientConfig(t *testing.T) {
 				Coordinators: []string{},
 			},
 		}
-		result, useRemote, err := cmd.BuildCoordinatorClientConfig(cfg)
+		result, useRemote, err := cmdprocess.BuildWorkerCoordinatorClientConfig(cfg)
 		assert.NoError(t, err)
 		assert.Nil(t, result)
 		assert.False(t, useRemote)
@@ -81,7 +82,7 @@ func TestBuildCoordinatorClientConfig(t *testing.T) {
 				Coordinators: nil,
 			},
 		}
-		result, useRemote, err := cmd.BuildCoordinatorClientConfig(cfg)
+		result, useRemote, err := cmdprocess.BuildWorkerCoordinatorClientConfig(cfg)
 		assert.NoError(t, err)
 		assert.Nil(t, result)
 		assert.False(t, useRemote)
@@ -100,7 +101,7 @@ func TestBuildCoordinatorClientConfig(t *testing.T) {
 				},
 			},
 		}
-		result, useRemote, err := cmd.BuildCoordinatorClientConfig(cfg)
+		result, useRemote, err := cmdprocess.BuildWorkerCoordinatorClientConfig(cfg)
 		assert.NoError(t, err)
 		require.NotNil(t, result)
 		assert.True(t, useRemote)
@@ -121,7 +122,7 @@ func TestBuildCoordinatorClientConfig(t *testing.T) {
 				},
 			},
 		}
-		_, _, err := cmd.BuildCoordinatorClientConfig(cfg)
+		_, _, err := cmdprocess.BuildWorkerCoordinatorClientConfig(cfg)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid coordinator client configuration")
 	})
@@ -142,7 +143,7 @@ func TestBuildCoordinatorClientConfig(t *testing.T) {
 				},
 			},
 		}
-		result, useRemote, err := cmd.BuildCoordinatorClientConfig(cfg)
+		result, useRemote, err := cmdprocess.BuildWorkerCoordinatorClientConfig(cfg)
 		assert.NoError(t, err)
 		require.NotNil(t, result)
 		assert.True(t, useRemote)
@@ -167,7 +168,7 @@ func TestBuildCoordinatorClientConfig(t *testing.T) {
 				},
 			},
 		}
-		result, useRemote, err := cmd.BuildCoordinatorClientConfig(cfg)
+		result, useRemote, err := cmdprocess.BuildWorkerCoordinatorClientConfig(cfg)
 		assert.NoError(t, err)
 		require.NotNil(t, result)
 		assert.True(t, useRemote)
@@ -187,7 +188,7 @@ func TestBuildCoordinatorClientConfig(t *testing.T) {
 				},
 			},
 		}
-		result, useRemote, err := cmd.BuildCoordinatorClientConfig(cfg)
+		result, useRemote, err := cmdprocess.BuildWorkerCoordinatorClientConfig(cfg)
 		assert.NoError(t, err)
 		require.NotNil(t, result)
 		assert.True(t, useRemote)
