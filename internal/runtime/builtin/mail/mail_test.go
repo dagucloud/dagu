@@ -4,14 +4,21 @@
 package mail
 
 import (
+	"bufio"
 	"context"
+	"encoding/base64"
+	"io"
+	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMail(t *testing.T) {
@@ -175,4 +182,135 @@ func TestMail(t *testing.T) {
 			})
 		}
 	})
+}
+
+// TestMailRunSendsAttachments is an end-to-end regression test for a bug where
+// the mail step decoded `attachments:` from YAML into cfg.Attachments but then
+// passed []string{} to the mailer, silently dropping every attachment. It
+// stands up an in-process fake SMTP server, drives the mail executor against
+// it, and asserts the captured DATA payload references the attachment.
+func TestMailRunSendsAttachments(t *testing.T) {
+	t.Parallel()
+
+	attachPath := filepath.Join(t.TempDir(), "report.txt")
+	attachBody := []byte("hello-from-dagu-attachment-test")
+	require.NoError(t, os.WriteFile(attachPath, attachBody, 0600))
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer func() { _ = listener.Close() }()
+
+	host, port, err := net.SplitHostPort(listener.Addr().String())
+	require.NoError(t, err)
+
+	dataCh := make(chan string, 1)
+	serverDone := make(chan error, 1)
+
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+		serverDone <- runFakeSMTP(conn, dataCh)
+	}()
+
+	step := core.Step{
+		ExecutorConfig: core.ExecutorConfig{
+			Config: map[string]any{
+				"from":        "sender@example.com",
+				"to":          "rcpt@example.com",
+				"subject":     "Attachment regression",
+				"message":     "Body content",
+				"attachments": []string{attachPath},
+			},
+		},
+	}
+
+	ctx := runtime.NewContext(context.Background(), &core.DAG{
+		SMTP: &core.SMTPConfig{Host: host, Port: port},
+	}, "", "")
+
+	exec, err := newMail(ctx, step)
+	require.NoError(t, err)
+	exec.SetStdout(io.Discard)
+	exec.SetStderr(io.Discard)
+
+	require.NoError(t, exec.Run(ctx))
+
+	select {
+	case data := <-dataCh:
+		assert.Contains(t, data, "Content-Disposition: attachment; filename=report.txt",
+			"mail step must forward cfg.Attachments to the mailer")
+		assert.Contains(t, data, base64.StdEncoding.EncodeToString(attachBody),
+			"attached file contents must appear (base64) in the message")
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for SMTP DATA payload")
+	}
+
+	require.NoError(t, <-serverDone)
+}
+
+// runFakeSMTP implements just enough of RFC 5321 to capture the body of a
+// single message: greeting → EHLO → MAIL FROM → RCPT TO → DATA → body → QUIT.
+// The DATA payload (excluding the trailing "\r\n.\r\n" terminator) is sent on
+// dataCh.
+func runFakeSMTP(conn net.Conn, dataCh chan<- string) error {
+	r := bufio.NewReader(conn)
+	write := func(s string) error {
+		_, err := conn.Write([]byte(s))
+		return err
+	}
+
+	if err := write("220 fake.dagu.test ready\r\n"); err != nil {
+		return err
+	}
+
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			return err
+		}
+		cmd := strings.ToUpper(strings.TrimSpace(line))
+		switch {
+		case strings.HasPrefix(cmd, "EHLO"), strings.HasPrefix(cmd, "HELO"):
+			if err := write("250-fake.dagu.test\r\n250 OK\r\n"); err != nil {
+				return err
+			}
+		case strings.HasPrefix(cmd, "MAIL FROM"), strings.HasPrefix(cmd, "RCPT TO"):
+			if err := write("250 OK\r\n"); err != nil {
+				return err
+			}
+		case cmd == "DATA":
+			if err := write("354 End data with <CR><LF>.<CR><LF>\r\n"); err != nil {
+				return err
+			}
+			var body strings.Builder
+			for {
+				dataLine, err := r.ReadString('\n')
+				if err != nil {
+					return err
+				}
+				if dataLine == ".\r\n" {
+					break
+				}
+				body.WriteString(dataLine)
+			}
+			dataCh <- body.String()
+			if err := write("250 OK\r\n"); err != nil {
+				return err
+			}
+		case cmd == "QUIT":
+			_ = write("221 Bye\r\n")
+			return nil
+		case cmd == "":
+			// blank line — ignore
+		default:
+			if err := write("502 unrecognized\r\n"); err != nil {
+				return err
+			}
+		}
+	}
 }
