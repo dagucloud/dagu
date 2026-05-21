@@ -27,6 +27,12 @@ func BuildWorkerCoordinatorClientConfig(cfg *config.Config) (*coordinator.Config
 	coordCliCfg.KeyFile = cfg.Core.Peer.KeyFile
 	coordCliCfg.SkipTLSVerify = cfg.Core.Peer.SkipTLSVerify
 	coordCliCfg.Insecure = cfg.Core.Peer.Insecure
+	if cfg.Core.Peer.MaxRetries > 0 {
+		coordCliCfg.MaxRetries = cfg.Core.Peer.MaxRetries
+	}
+	if cfg.Core.Peer.RetryInterval > 0 {
+		coordCliCfg.RetryInterval = cfg.Core.Peer.RetryInterval
+	}
 
 	if err := coordCliCfg.Validate(); err != nil {
 		return nil, false, fmt.Errorf("invalid coordinator client configuration: %w", err)
