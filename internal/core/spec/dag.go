@@ -511,23 +511,34 @@ type transform struct {
 	transformer Transformer[BuildContext, *dag]
 }
 
-// metadataTransformers are always run (for listing, scheduling, etc.)
-var metadataTransformers = []transform{
+type transformStage []transform
+
+// Metadata stages are always run (for listing, scheduling, etc.).
+var metadataIdentityStage = transformStage{
 	{"name", newTransformer("Name", buildName)},
 	{"group", newTransformer("Group", buildGroup)},
 	{"description", newTransformer("Description", buildDescription)},
 	{"type", newTransformer("Type", buildType)},
 	{"labels", newTransformer("Labels", buildLabels)},
-	// params must run BEFORE env so that env: values can reference ${param_name}
+}
+
+// Params must run before env so that env: values can reference ${param_name}.
+var metadataParamsEnvStage = transformStage{
 	{"params", newTransformer("Params", buildParams)},
 	{"default_params", newTransformer("DefaultParams", buildDefaultParams)},
 	{"param_defs", newTransformer("ParamDefs", buildParamDefs)},
 	{"param_schema", newTransformer("ParamSchema", buildParamSchema)},
 	{"params_json", newTransformer("ParamsJSON", buildParamsJSON)},
 	{"env", newTransformer("Env", buildEnvs)},
+}
+
+var metadataScheduleStage = transformStage{
 	{"schedule", newTransformer("Schedule", buildSchedule)},
 	{"stop_schedule", newTransformer("StopSchedule", buildStopSchedule)},
 	{"restart_schedule", newTransformer("RestartSchedule", buildRestartSchedule)},
+}
+
+var metadataExecutionPlacementStage = transformStage{
 	{"worker_selector", &workerSelectorTransformer{}},
 	{"timeout", newTransformer("Timeout", buildTimeout)},
 	{"delay", newTransformer("Delay", buildDelay)},
@@ -542,18 +553,34 @@ var metadataTransformers = []transform{
 	{"overlap_policy", newTransformer("OverlapPolicy", buildOverlapPolicy)},
 }
 
-// fullTransformers are only run when building the full DAG (not metadata-only)
-var fullTransformers = []transform{
+var metadataTransformStages = []transformStage{
+	metadataIdentityStage,
+	metadataParamsEnvStage,
+	metadataScheduleStage,
+	metadataExecutionPlacementStage,
+}
+
+// Full stages are only run when building the full DAG (not metadata-only).
+var fullRunOutputStage = transformStage{
 	{"log_dir", newTransformer("LogDir", buildLogDir)},
 	{"artifacts", newTransformer("Artifacts", buildArtifacts)},
 	{"log_output", newTransformer("LogOutput", buildLogOutput)},
+}
+
+var fullInteractionStage = transformStage{
 	{"mail_on", newTransformer("MailOn", buildMailOn)},
 	{"run_config", newTransformer("RunConfig", buildRunConfig)},
 	{"resources", newTransformer("Resources", buildResources)},
 	{"webhook", newTransformer("Webhook", buildWebhookConfig)},
+}
+
+var fullRetentionStage = transformStage{
 	{"hist_retention_days", newTransformer("HistRetentionDays", buildHistRetentionDays)},
 	{"hist_retention_runs", newTransformer("HistRetentionRuns", buildHistRetentionRuns)},
 	{"max_clean_up_time_sec", newTransformer("MaxCleanUpTime", buildMaxCleanUpTime)},
+}
+
+var fullExecutionDefaultsStage = transformStage{
 	{"shell", newTransformer("Shell", buildShell)},
 	{"shell_args", newTransformer("ShellArgs", buildShellArgs)},
 	{"working_dir", newTransformer("WorkingDir", buildWorkingDir)},
@@ -569,6 +596,9 @@ var fullTransformers = []transform{
 	{"secrets", newTransformer("Secrets", buildSecrets)},
 	{"tools", newTransformer("Tools", buildTools)},
 	{"dotenv", newTransformer("Dotenv", buildDotenv)},
+}
+
+var fullNotificationStage = transformStage{
 	{"smtp", newTransformer("SMTP", buildSMTPConfig)},
 	{"error_mail", newTransformer("ErrorMail", buildErrMailConfig)},
 	{"info_mail", newTransformer("InfoMail", buildInfoMailConfig)},
@@ -577,27 +607,38 @@ var fullTransformers = []transform{
 	{"otel", newTransformer("OTel", buildOTel)},
 }
 
+var fullTransformStages = []transformStage{
+	fullRunOutputStage,
+	fullInteractionStage,
+	fullRetentionStage,
+	fullExecutionDefaultsStage,
+	fullNotificationStage,
+}
+
 // runTransformers executes all transformers in the pipeline
 func runTransformers(ctx BuildContext, spec *dag, result *core.DAG) core.ErrorList {
 	var errs core.ErrorList
 	out := reflect.ValueOf(result).Elem()
 
-	// Always run metadata transformers
-	for _, t := range metadataTransformers {
-		if err := t.transformer.Transform(ctx, spec, out); err != nil {
-			errs = append(errs, wrapTransformError(t.name, err))
-		}
-	}
+	errs = append(errs, runTransformerStages(ctx, spec, out, metadataTransformStages)...)
 
 	// Run full transformers only when not in metadata-only mode
 	if !ctx.opts.Has(BuildFlagOnlyMetadata) {
-		for _, t := range fullTransformers {
+		errs = append(errs, runTransformerStages(ctx, spec, out, fullTransformStages)...)
+	}
+
+	return errs
+}
+
+func runTransformerStages(ctx BuildContext, spec *dag, out reflect.Value, stages []transformStage) core.ErrorList {
+	var errs core.ErrorList
+	for _, stage := range stages {
+		for _, t := range stage {
 			if err := t.transformer.Transform(ctx, spec, out); err != nil {
 				errs = append(errs, wrapTransformError(t.name, err))
 			}
 		}
 	}
-
 	return errs
 }
 
@@ -610,119 +651,158 @@ func wrapTransformError(name string, err error) error {
 	return core.NewValidationError(name, nil, err)
 }
 
-// build transforms the dag specification into a core.DAG.
-func (d *dag) build(ctx BuildContext) (*core.DAG, error) {
-	// Initialize with only Location (set from context, not spec)
+type dagBuildState struct {
+	ctx    BuildContext
+	spec   *dag
+	result *core.DAG
+	errs   core.ErrorList
+}
+
+func newDAGBuildState(ctx BuildContext, spec *dag) *dagBuildState {
 	result := &core.DAG{
 		Location: ctx.file,
 	}
-	var errs core.ErrorList
-	if err := validateHistoryRetentionConfig(d); err != nil {
-		errs = append(errs, err)
+	return &dagBuildState{
+		ctx:    ctx,
+		spec:   spec,
+		result: result,
 	}
+}
 
-	// Initialize shared envScope state for thread-safe env var handling.
-	// Start with OS environment as base layer.
+func (s *dagBuildState) validateSpecShape() {
+	if err := validateHistoryRetentionConfig(s.spec); err != nil {
+		s.errs = append(s.errs, err)
+	}
+}
+
+func (s *dagBuildState) prepareParamEnvStage() {
 	baseScope := eval.NewEnvScope(nil, true)
 
-	// Pre-populate with build env from options (for retry with dotenv).
-	// This allows YAML to reference env vars that were loaded from .env files
-	// before the rebuild.
-	buildEnv := make(map[string]string, len(ctx.opts.BuildEnv))
-	maps.Copy(buildEnv, ctx.opts.BuildEnv)
+	buildEnv := make(map[string]string, len(s.ctx.opts.BuildEnv))
+	maps.Copy(buildEnv, s.ctx.opts.BuildEnv)
 	if len(buildEnv) > 0 {
 		baseScope = baseScope.WithEntries(buildEnv, eval.EnvSourceDotEnv)
 	}
 
-	ctx.envScope = &envScopeState{
+	s.ctx.envScope = &envScopeState{
 		scope:    baseScope,
 		buildEnv: buildEnv,
 	}
-	ctx.paramsState = &paramsState{}
+	s.ctx.paramsState = &paramsState{}
+}
 
-	// Run the transformer pipeline
-	errs = append(errs, runTransformers(ctx, d, result)...)
+func (s *dagBuildState) runFieldStages() {
+	s.errs = append(s.errs, runTransformers(s.ctx, s.spec, s.result)...)
+}
 
-	buildResult := result
-	if ctx.baseDAG != nil {
-		merged, err := composeBuildDAGContext(ctx.baseDAG, result, d)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("failed to compose inherited DAG context: %w", err))
-		} else {
-			buildResult = merged
-		}
+func (s *dagBuildState) composeInheritedContext() {
+	if s.ctx.baseDAG == nil {
+		return
 	}
 
-	// Add deprecation warning for max_active_runs on local queues.
+	merged, err := composeBuildDAGContext(s.ctx.baseDAG, s.result, s.spec)
+	if err != nil {
+		s.errs = append(s.errs, fmt.Errorf("failed to compose inherited DAG context: %w", err))
+		return
+	}
+	s.result = merged
+}
+
+func (s *dagBuildState) collectWarnings() {
+	s.result.BuildWarnings = nil
+
 	// Both max_active_runs > 1 (concurrency) and max_active_runs < 0 (queue bypass) are deprecated.
-	if result.Queue == "" && (result.MaxActiveRuns > 1 || result.MaxActiveRuns < 0) {
-		result.BuildWarnings = append(result.BuildWarnings, fmt.Sprintf(
+	if s.result.Queue == "" && (s.result.MaxActiveRuns > 1 || s.result.MaxActiveRuns < 0) {
+		s.result.BuildWarnings = append(s.result.BuildWarnings, fmt.Sprintf(
 			"max_active_runs=%d is deprecated for local queues and will be ignored. "+
 				"Use a global queue with 'queue:' field for concurrency control.",
-			result.MaxActiveRuns,
+			s.result.MaxActiveRuns,
 		))
 	}
 
-	// Collect schedule warnings (misleading step values like */33).
-	for _, sched := range result.Schedule {
-		result.BuildWarnings = append(result.BuildWarnings, sched.Warnings...)
+	for _, sched := range s.result.Schedule {
+		s.result.BuildWarnings = append(s.result.BuildWarnings, sched.Warnings...)
 	}
-	for _, sched := range result.StopSchedule {
-		result.BuildWarnings = append(result.BuildWarnings, sched.Warnings...)
+	for _, sched := range s.result.StopSchedule {
+		s.result.BuildWarnings = append(s.result.BuildWarnings, sched.Warnings...)
 	}
-	for _, sched := range result.RestartSchedule {
-		result.BuildWarnings = append(result.BuildWarnings, sched.Warnings...)
+	for _, sched := range s.result.RestartSchedule {
+		s.result.BuildWarnings = append(s.result.BuildWarnings, sched.Warnings...)
+	}
+}
+
+func (s *dagBuildState) buildActionGraph() {
+	if s.ctx.opts.Has(BuildFlagOnlyMetadata) {
+		return
 	}
 
-	// Build handlers and steps directly (they need access to partially built result)
-	if !ctx.opts.Has(BuildFlagOnlyMetadata) {
-		if handlerOn, err := buildHandlers(ctx, d, buildResult); err != nil {
-			errs = append(errs, core.NewValidationError("handlers", nil, err))
+	if handlerOn, err := buildHandlers(s.ctx, s.spec, s.result); err != nil {
+		s.errs = append(s.errs, core.NewValidationError("handlers", nil, err))
+	} else {
+		composed, err := composeHandlerOn(s.result.HandlerOn, handlerOn)
+		if err != nil {
+			s.errs = append(s.errs, core.NewValidationError("handlers", nil, err))
 		} else {
-			result.HandlerOn = handlerOn
-		}
-
-		if steps, err := buildSteps(ctx, d, buildResult); err != nil {
-			errs = append(errs, core.NewValidationError("steps", nil, err))
-		} else {
-			result.Steps = steps
+			s.result.HandlerOn = composed
 		}
 	}
 
-	// Validate steps
-	if err := core.ValidateSteps(result); err != nil {
-		errs = append(errs, err)
+	if steps, err := buildSteps(s.ctx, s.spec, s.result); err != nil {
+		s.errs = append(s.errs, core.NewValidationError("steps", nil, err))
+	} else {
+		s.result.Steps = composeSteps(s.result.Steps, steps)
+	}
+}
+
+func (s *dagBuildState) validateResult() {
+	if err := core.ValidateSteps(s.result); err != nil {
+		s.errs = append(s.errs, err)
 	}
 
-	// Validate workerSelector compatibility with approval steps
-	if len(result.WorkerSelector) > 0 && result.HasApprovalSteps() {
-		errs = append(errs, core.NewValidationError(
+	if len(s.result.WorkerSelector) > 0 && s.result.HasApprovalSteps() {
+		s.errs = append(s.errs, core.NewValidationError(
 			"worker_selector",
-			result.WorkerSelector,
+			s.result.WorkerSelector,
 			fmt.Errorf("DAG with approval steps cannot be dispatched to workers"),
 		))
 	}
 
-	// Validate name
-	if result.Name != "" {
-		if err := core.ValidateDAGName(result.Name); err != nil {
-			errs = append(errs, core.NewValidationError("name", result.Name, err))
+	if s.result.Name != "" {
+		if err := core.ValidateDAGName(s.result.Name); err != nil {
+			s.errs = append(s.errs, core.NewValidationError("name", s.result.Name, err))
 		}
 	}
+}
 
-	if len(ctx.envScope.buildEnv) > 0 {
-		result.PresolvedBuildEnv = maps.Clone(ctx.envScope.buildEnv)
+func (s *dagBuildState) capturePresolvedBuildEnv() {
+	if len(s.ctx.envScope.buildEnv) > 0 {
+		s.result.PresolvedBuildEnv = maps.Clone(s.ctx.envScope.buildEnv)
 	}
+}
 
-	if len(errs) > 0 {
-		if ctx.opts.Has(BuildFlagAllowBuildErrors) {
-			result.BuildErrors = errs
+func (s *dagBuildState) finish() (*core.DAG, error) {
+	if len(s.errs) > 0 {
+		if s.ctx.opts.Has(BuildFlagAllowBuildErrors) {
+			s.result.BuildErrors = s.errs
 		} else {
-			return nil, fmt.Errorf("failed to build DAG: %w", errs)
+			return nil, fmt.Errorf("failed to build DAG: %w", s.errs)
 		}
 	}
+	return s.result, nil
+}
 
-	return result, nil
+// build transforms the dag specification into a core.DAG.
+func (d *dag) build(ctx BuildContext) (*core.DAG, error) {
+	state := newDAGBuildState(ctx, d)
+	state.validateSpecShape()
+	state.prepareParamEnvStage()
+	state.runFieldStages()
+	state.composeInheritedContext()
+	state.collectWarnings()
+	state.buildActionGraph()
+	state.validateResult()
+	state.capturePresolvedBuildEnv()
+	return state.finish()
 }
 
 func composeBuildDAGContext(base, current *core.DAG, currentSpec *dag) (*core.DAG, error) {
@@ -2836,6 +2916,45 @@ func buildDotenv(_ BuildContext, d *dag) ([]string, error) {
 		return []string{".env"}, nil
 	}
 	return d.Dotenv.Values(), nil
+}
+
+func composeSteps(inherited, current []core.Step) []core.Step {
+	if current == nil {
+		return inherited
+	}
+	return current
+}
+
+func composeHandlerOn(inherited, current core.HandlerOn) (core.HandlerOn, error) {
+	dest := &core.DAG{
+		HandlerOn: cloneHandlerOn(inherited),
+	}
+	src := &core.DAG{
+		HandlerOn: current,
+	}
+	if err := merge(dest, src); err != nil {
+		return inherited, err
+	}
+	return dest.HandlerOn, nil
+}
+
+func cloneHandlerOn(handlerOn core.HandlerOn) core.HandlerOn {
+	return core.HandlerOn{
+		Init:    cloneStepPointer(handlerOn.Init),
+		Failure: cloneStepPointer(handlerOn.Failure),
+		Success: cloneStepPointer(handlerOn.Success),
+		Abort:   cloneStepPointer(handlerOn.Abort),
+		Exit:    cloneStepPointer(handlerOn.Exit),
+		Wait:    cloneStepPointer(handlerOn.Wait),
+	}
+}
+
+func cloneStepPointer(step *core.Step) *core.Step {
+	if step == nil {
+		return nil
+	}
+	cloned := *step
+	return &cloned
 }
 
 func buildHandlers(ctx BuildContext, d *dag, result *core.DAG) (core.HandlerOn, error) {
