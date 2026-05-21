@@ -277,7 +277,8 @@ func (e *DAGExecutor) prepareDAGForSubprocess(ctx context.Context, dag *core.DAG
 	}
 
 	env, err := spec.ResolveEnv(ctx, dag, params, spec.ResolveEnvOptions{
-		BaseConfig: e.baseConfigPath,
+		BaseConfig:   e.baseConfigPath,
+		RecomputeEnv: true,
 	})
 	if err != nil {
 		return nil, err

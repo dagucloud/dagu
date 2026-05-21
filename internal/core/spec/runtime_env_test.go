@@ -50,3 +50,29 @@ steps:
 	assert.Contains(t, env, "SOURCE=from-snapshot")
 	assert.NotContains(t, env, "SOURCE=from-disk")
 }
+
+func TestResolveEnv_RecomputeEnvEvaluatesMetadataEnv(t *testing.T) {
+	t.Parallel()
+
+	data := []byte(`
+name: runtime-env-metadata
+env:
+  - FIRST: "` + "`printf first`" + `"
+  - SECOND: "${FIRST}/second"
+steps:
+  - name: print
+    run: echo ok
+`)
+
+	dag, err := LoadYAML(context.Background(), data, WithoutEval())
+	require.NoError(t, err)
+	assert.Contains(t, dag.Env, "FIRST=`printf first`")
+	assert.Contains(t, dag.Env, "SECOND=${FIRST}/second")
+
+	env, err := ResolveEnv(context.Background(), dag, nil, ResolveEnvOptions{
+		RecomputeEnv: true,
+	})
+	require.NoError(t, err)
+	assert.Contains(t, env, "FIRST=first")
+	assert.Contains(t, env, "SECOND=first/second")
+}

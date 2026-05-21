@@ -14,7 +14,8 @@ import (
 // ResolveEnvOptions controls how a DAG is reloaded to recover resolved env
 // values for subprocess launchers.
 type ResolveEnvOptions struct {
-	BaseConfig string
+	BaseConfig   string
+	RecomputeEnv bool
 }
 
 // QuoteRuntimeParams quotes persisted params so values containing spaces survive
@@ -42,17 +43,19 @@ func ResolveEnv(ctx context.Context, dag *core.DAG, params any, opts ResolveEnvO
 	if dag == nil {
 		return nil, nil
 	}
-	if !hasRuntimeParams(params) && len(dag.Env) > 0 {
+	if !opts.RecomputeEnv && !hasRuntimeParams(params) && len(dag.Env) > 0 {
 		return append([]string{}, dag.Env...), nil
 	}
 
-	loadOpts, err := runtimeParamLoadOptions(dag, params, ResolveRuntimeParamsOptions(opts))
+	loadOpts, err := runtimeParamLoadOptions(dag, params, ResolveRuntimeParamsOptions{
+		BaseConfig: opts.BaseConfig,
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	cloned := dag.Clone()
-	if hasRuntimeParams(params) {
+	if hasRuntimeParams(params) || opts.RecomputeEnv {
 		// Recompute DAG/base-config env entries for the new runtime params instead
 		// of short-circuiting to whatever happened to be on the current snapshot.
 		cloned.Env = nil
