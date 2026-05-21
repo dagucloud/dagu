@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	osexec "os/exec"
 	"runtime"
+	"strconv"
 	"testing"
 	"time"
 
@@ -22,6 +24,15 @@ func embeddedTimeout(timeout time.Duration) time.Duration {
 		return timeout * 3
 	}
 	return timeout
+}
+
+func embeddedDirectCommandYAML(t *testing.T, commandName string) string {
+	t.Helper()
+
+	commandPath, err := osexec.LookPath(commandName)
+	require.NoError(t, err)
+
+	return fmt.Sprintf("exec:\n      command: %s", strconv.Quote(commandPath))
 }
 
 func TestEmbeddedLocalRunYAML(t *testing.T) {
@@ -39,9 +50,9 @@ name: embedded-intg-local
 type: graph
 steps:
   - name: first
-    run: echo first
+    `+embeddedDirectCommandYAML(t, "whoami")+`
   - name: second
-    run: echo second
+    `+embeddedDirectCommandYAML(t, "whoami")+`
     depends: [first]
 `))
 	require.NoError(t, err)
