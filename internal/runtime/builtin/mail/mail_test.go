@@ -21,6 +21,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestMail exercises mail executor construction: NewMail verifies that valid
+// configs (including the attachments field) decode onto mailConfig, and
+// MultipleRecipients covers the supported shapes of the `to` field (string,
+// []string, []any, and the empty-recipient error path).
 func TestMail(t *testing.T) {
 	t.Parallel()
 
