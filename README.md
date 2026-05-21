@@ -1,7 +1,7 @@
 <div align="center">
   <img src="./assets/images/hero-logo.webp" width="480" alt="Dagu Logo">
   <br>
-  <p><strong>Make data scripts to durable workflows in minutes.</strong></p>
+  <p><strong>Turn any operation into a durable workflow in minutes.</strong></p>
   <p>
     <a href="https://docs.dagu.sh/overview/changelog"><img src="https://img.shields.io/github/release/dagucloud/dagu.svg?style=flat-square" alt="Latest Release"></a>
     <a href="https://github.com/dagucloud/dagu/actions/workflows/ci.yaml"><img src="https://img.shields.io/github/actions/workflow/status/dagucloud/dagu/ci.yaml?style=flat-square" alt="Build Status"></a>
@@ -16,47 +16,65 @@
   </p>
 </div>
 
-## Local-first Control Plane for Data Pipeline Scripts and Private Infrastructure
+## Local-first Control Plane for Self-Service Ops Automation and AI Agents
 
-Dagu turns existing scripts, SQL jobs, containers, SSH commands, and runbooks into scheduled, observable pipelines that run where your data already lives.
+Customer-facing teams often need production operations that are too sensitive to run directly, but too frequent to route through engineering every time.
 
-Bring your existing data jobs as they are. Dagu adds the operational layer they are missing: scheduling, durable execution, logs, artifacts, queues, a Web UI, API/webhooks, distributed workers, and notifications.
+An engineer gets a Slack message or ticket, finds the right script, checks parameters and credentials, runs it against production, pastes back the result, and leaves context scattered across terminals, chat, and tickets.
 
-**Highlights:**
+Dagu wraps scripts, SQL, SSH commands, containers, API calls, and runbooks with typed inputs, validation, retries, visual execution, logs, artifacts, run history, and optional human review. Workflows run close to your data, credentials, private networks, and existing tools.
 
-- **Local-first:** Workflows are file-based: One binary, no external database or broker required. Air-gapped ready.
-- **No rewrite:** Turn shell scripts, Python jobs, SQL, dbt, DuckDB, containers, and data-processing runbooks into pipelines without rewriting them into a framework.
-- **AI-agent ready:** Use your favorite AI agent through [MCP](https://docs.dagu.sh/getting-started/mcp#mcp-server) to create, improve, debug, and run workflows.
+**Why teams use Dagu:**
+
+- **Runbook layer:** Turn scripts, SQL, SSH commands, containers, and internal CLIs into executable workflows with inputs, validation, logs, artifacts, and history.
+- **Agent-ready:** Use [MCP](https://docs.dagu.sh/getting-started/mcp#mcp-server) or built-in AI agent steps to inspect, generate, improve, and run operational workflows.
+- **Environment-native:** Run close to private networks, credentials, customer data, local files, Docker, Kubernetes, SSH targets, and internal tools.
 
 For a quick look at how workflows are defined, see the [examples](https://docs.dagu.sh/writing-workflows/examples).
 
 ```yaml
-schedule:
-  - "0 2 * * *"
-overlap_policy: skip
-catchup_window: "6h"
-
-tools:
-  - jqlang/jq@jq-1.7.1
-  - duckdb/duckdb@v1.5.2
+params:
+  - name: customer_id
+    type: string
+    description: Customer or account identifier
+  - name: change_scope
+    type: string
+    description: What the repair is allowed to change
+    enum:
+      - metadata_only
+      - permissions
+      - full_account
+    default: metadata_only
+  - name: dry_run
+    type: boolean
+    default: true
 
 steps:
-  - id: extract
-    run: ./scripts/extract.sh > data/raw.json
-    retry_policy:
-      limit: 3
-      interval_sec: 30
+  - id: inspect_account
+    run: ./scripts/inspect-account.sh --customer "${customer_id}"
+    stdout:
+      artifact: reports/inspection.md
 
-  - id: validate
-    run: jq -e '.rows | length > 0' data/raw.json
-    depends: extract
+  - id: review
+    action: noop
+    depends: inspect_account
+    approval:
+      prompt: Review the inspection report before running the repair.
 
-  - id: load
-    run: duckdb warehouse.duckdb < sql/load.sql
-    depends: validate
+  - id: repair_account
+    run: ./scripts/repair-account.sh --customer "${customer_id}" --scope "${change_scope}" --dry-run="${dry_run}"
+    depends: review
+    stdout:
+      artifact: reports/repair.log
 ```
 
-The `tools` block pins external CLIs for reproducible runs. Dagu resolves packages such as `jqlang/jq` and `duckdb/duckdb` through the [Aqua standard registry](https://github.com/aquaproj/aqua-registry), installs the pinned versions before the run, and exposes them on `PATH` so workers do not depend on whichever `jq` or `duckdb` version happens to be installed locally.
+The `params` block gives each run typed inputs, defaults, booleans, and enum choices. In the Web UI, those inputs render as a guided start form:
+
+<div align="center">
+  <img src="./assets/images/ui-params.webp" width="720" alt="Generated parameter input form in the Dagu Web UI">
+</div>
+
+The workflow keeps the operation, logs, artifacts, approval metadata, and history together instead of scattering them across chat, terminals, and local files.
 
 ## Quick Look
 
@@ -72,6 +90,16 @@ The `tools` block pins external CLIs for reproducible runs. Dagu resolves packag
 
 ## Why Dagu?
 
+Existing scripts are powerful, but hard to delegate safely.
+
+- Slack plus manual execution creates interruptions and scattered context.
+- Cron and CI are poor fits for business-facing operations with per-run inputs.
+- Retool and custom admin panels are expensive for script-heavy or fast-changing workflows.
+- Airflow is heavier and more data-pipeline-oriented than most production runbooks need.
+- Code-first job platforms assume the work belongs in application code.
+
+Dagu keeps the existing script or command, then adds the missing operational layer around it.
+
 ```sh
   Traditional Orchestrator          Dagu
   ┌────────────────────────┐        ┌──────────────────┐
@@ -81,7 +109,7 @@ The `tools` block pins external CLIs for reproducible runs. Dagu resolves packag
   │  PostgreSQL            │        └──────────────────┘
   │  Redis / RabbitMQ      │         Single binary.
   │  Python Runtime        │         Self-hosted.
-  └────────────────────────┘         Adds scheduling, retries, and approvals around existing automation.
+  └────────────────────────┘         Adds scheduling, retries, and human review around existing automation.
     6+ services to manage
 ```
 
@@ -96,13 +124,13 @@ Dagu stores state in local files. How much it can run depends on the machine and
 
 | Use Case | How Dagu Helps |
 | --- | --- |
-| ETL and data operations | Turn data extraction scripts, SQL queries, dbt commands, and data-processing runbooks into observable pipelines with durable execution. |
-| Cron and legacy script management | Turn complex jobs with interdependencies into maintainable DAGs with a UI, automatic logging, retries, and notifications instead of opaque cron jobs and bash scripts. |
-| Media conversion | Run `ffmpeg` for video transcoding and format conversion. Thanks to Dagu's file-backed nature, workers can run heavy conversions in parallel without single machine bottlenecks or external databases. |
+| Customer support automation | Run self-service support workflows for diagnostics, account fixes, data repairs, imports, re-syncs, and cleanup tasks without handing over broad production access. |
 | Infrastructure and server automation | Run any command or script over SSH on remote servers, keeping logs, results, and notifications in one place. |
-| GitHub-driven workflows | Trigger workflows from GitHub events. This is useful for running your automation or AI agent workflows on private infrastructure without exposing your servers to the public internet. |
 | Container and Kubernetes workflows | Run Docker containers and Kubernetes Jobs as steps in your workflows without building a custom control plane around containers. |
-| Customer support automation | Run self-service support tools that non-engineering teams can use to run approved workflows for running diagnostics, querying databases, and performing common support tasks without escalating to engineering. |
+| GitHub-driven workflows | Trigger workflows from GitHub events. This is useful for running your automation or AI agent workflows on private infrastructure without exposing your servers to the public internet. |
+| Cron and legacy script management | Turn complex jobs with interdependencies into maintainable DAGs with a UI, automatic logging, retries, and notifications instead of opaque cron jobs and bash scripts. |
+| ETL and data operations | Turn data extraction scripts, SQL queries, dbt commands, and data-processing runbooks into observable pipelines with durable execution. |
+| Media conversion | Run `ffmpeg` for video transcoding and format conversion. Thanks to Dagu's file-backed nature, workers can run heavy conversions in parallel without single machine bottlenecks or external databases. |
 | IoT and edge workflows | Run sensor polling, local ML inference, data preprocessing, backups, offline sync, health checks, etc. Dagu keeps these jobs close to the data source while still providing Web UI visibility. |
 
 ## Quick Start
