@@ -126,6 +126,8 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 	return sched, nil
 }
 
+// newNotificationMonitor wires optional DAG notification delivery. It returns nil
+// when encrypted settings storage is unavailable so scheduler startup can continue.
 func newNotificationMonitor(
 	ctx context.Context,
 	cfg *config.Config,
@@ -172,6 +174,8 @@ func newNotificationMonitor(
 	)
 }
 
+// newIncidentMonitor wires optional incident notifications. It returns nil when
+// encrypted settings storage is unavailable so scheduler startup can continue.
 func newIncidentMonitor(
 	ctx context.Context,
 	cfg *config.Config,
