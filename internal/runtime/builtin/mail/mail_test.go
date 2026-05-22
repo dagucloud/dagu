@@ -208,17 +208,22 @@ func TestMailRunSendsAttachments(t *testing.T) {
 	require.NoError(t, err)
 
 	dataCh := make(chan string, 1)
-	serverDone := make(chan error, 1)
+	// serverErr signals fake-SMTP failures only; a clean run leaves it empty
+	// so the select below can use it as an unambiguous fail-fast case without
+	// racing the happy-path completion.
+	serverErr := make(chan error, 1)
 
 	go func() {
 		conn, err := listener.Accept()
 		if err != nil {
-			serverDone <- err
+			serverErr <- err
 			return
 		}
 		defer func() { _ = conn.Close() }()
 		_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
-		serverDone <- runFakeSMTP(conn, dataCh)
+		if err := runFakeSMTP(conn, dataCh); err != nil {
+			serverErr <- err
+		}
 	}()
 
 	step := core.Step{
@@ -250,11 +255,13 @@ func TestMailRunSendsAttachments(t *testing.T) {
 			"mail step must forward cfg.Attachments to the mailer")
 		assert.Contains(t, data, base64.StdEncoding.EncodeToString(attachBody),
 			"attached file contents must appear (base64) in the message")
+	case err := <-serverErr:
+		// Fail fast with the real server error instead of waiting for the
+		// timeout to elapse and reporting it as "timeout".
+		t.Fatalf("fake SMTP server error before DATA capture: %v", err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("timeout waiting for SMTP DATA payload")
 	}
-
-	require.NoError(t, <-serverDone)
 }
 
 // runFakeSMTP implements just enough of RFC 5321 to capture the body of a
