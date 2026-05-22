@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/internal/cmn/config"
+	"github.com/dagucloud/dagu/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/internal/core"
 	exec1 "github.com/dagucloud/dagu/internal/core/exec"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
@@ -499,23 +500,45 @@ func effectiveLabels(labels, tags string) string {
 	return tags
 }
 
+// StartResult describes an asynchronously started subprocess.
+type StartResult struct {
+	PID          int
+	PIDStartedAt int64
+	Done         <-chan error
+}
+
 // Start executes the command without waiting for it to complete.
 func Start(ctx context.Context, spec CmdSpec) error {
+	_, err := StartProcess(ctx, spec)
+	return err
+}
+
+// StartProcess executes the command without waiting for it to complete and
+// returns the started process identity plus an eventual completion signal.
+func StartProcess(ctx context.Context, spec CmdSpec) (*StartResult, error) {
 	cmd, cleanup, err := newCommand(ctx, spec, false)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := cmd.Start(); err != nil {
 		cleanupTransport(cleanup)
-		return fmt.Errorf("failed to start command: %w", err)
+		return nil, fmt.Errorf("failed to start command: %w", err)
 	}
 
+	pid := cmd.Process.Pid
+	startedAt, _ := procutil.StartTime(pid)
+	done := make(chan error, 1)
 	go execWithRecovery(ctx, func() {
-		_ = cmd.Wait()
-		cleanupTransport(cleanup)
+		defer close(done)
+		defer cleanupTransport(cleanup)
+		done <- cmd.Wait()
 	})
 
-	return nil
+	return &StartResult{
+		PID:          pid,
+		PIDStartedAt: startedAt,
+		Done:         done,
+	}, nil
 }
 
 // newCommand creates an exec.Cmd from the spec with proper configuration.

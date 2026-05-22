@@ -4,6 +4,7 @@
 package runtime_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1038,4 +1039,34 @@ func TestCmdSpec(t *testing.T) {
 		assert.Equal(t, os.Stdout, spec.Stdout)
 		assert.Equal(t, os.Stderr, spec.Stderr)
 	})
+}
+
+func TestStartProcessReportsPIDAndCompletion(t *testing.T) {
+	t.Parallel()
+
+	env := append(os.Environ(), "DAGU_RUNTIME_STARTPROCESS_HELPER=1")
+	result, err := runtime.StartProcess(context.Background(), runtime.CmdSpec{
+		Executable: os.Args[0],
+		Args:       []string{"-test.run=TestStartProcessHelperProcess"},
+		Env:        env,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Positive(t, result.PID)
+	require.NotNil(t, result.Done)
+
+	select {
+	case err, ok := <-result.Done:
+		require.True(t, ok)
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("start process helper did not exit")
+	}
+}
+
+func TestStartProcessHelperProcess(_ *testing.T) {
+	if os.Getenv("DAGU_RUNTIME_STARTPROCESS_HELPER") != "1" {
+		return
+	}
+	os.Exit(0)
 }

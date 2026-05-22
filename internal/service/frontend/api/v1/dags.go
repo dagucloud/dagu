@@ -24,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
@@ -1306,6 +1307,63 @@ func (a *API) waitForDAGStatusChange(ctx context.Context, dag *core.DAG, dagRunI
 	return false
 }
 
+func (a *API) waitForLocalDAGStart(
+	ctx context.Context,
+	dag *core.DAG,
+	dagRunID string,
+	started *runtime.StartResult,
+	timeout time.Duration,
+) error {
+	if a.waitForDAGStatusChange(ctx, dag, dagRunID, timeout) {
+		return nil
+	}
+
+	if started != nil {
+		select {
+		case err, ok := <-started.Done:
+			msg := "DAG start process exited before publishing status"
+			if ok && err != nil {
+				msg = fmt.Sprintf("%s: %v", msg, err)
+			}
+			return &Error{
+				HTTPStatus: http.StatusInternalServerError,
+				Code:       api.ErrorCodeInternalError,
+				Message:    msg,
+			}
+		default:
+		}
+
+		if localStartProcessStillRunning(started) {
+			logger.Warn(ctx, "Returning successful async start response because local starter process is still alive after status wait timeout",
+				tag.RunID(dagRunID),
+				tag.PID(started.PID),
+				slog.Int64("pid-started-at", started.PIDStartedAt),
+				tag.Timeout(timeout),
+			)
+			return nil
+		}
+	}
+
+	return &Error{
+		HTTPStatus: http.StatusInternalServerError,
+		Code:       api.ErrorCodeInternalError,
+		Message:    "DAG did not start",
+	}
+}
+
+func localStartProcessStillRunning(started *runtime.StartResult) bool {
+	if started == nil || started.PID <= 0 {
+		return false
+	}
+	if started.PIDStartedAt > 0 {
+		matched, _, ok := procutil.MatchesStartTime(started.PID, started.PIDStartedAt)
+		if ok {
+			return matched
+		}
+	}
+	return procutil.IsAlive(started.PID)
+}
+
 // dispatchStartToCoordinator dispatches a DAG start operation to the coordinator
 // and waits for the DAG status to change from NotStarted within the given timeout.
 func (a *API) dispatchStartToCoordinator(ctx context.Context, dag *core.DAG, dagRunID string, timeout time.Duration, params, labels string) error {
@@ -1426,7 +1484,8 @@ func (a *API) startPreparedDAGRunWithOptions(
 		Labels:       opts.labels,
 	})
 
-	if err := runtime.Start(ctx, spec); err != nil {
+	started, err := runtime.StartProcess(ctx, spec)
+	if err != nil {
 		return fmt.Errorf("error starting DAG: %w", err)
 	}
 
@@ -1435,15 +1494,7 @@ func (a *API) startPreparedDAGRunWithOptions(
 		timeout = 20 * time.Second
 	}
 
-	if !a.waitForDAGStatusChange(ctx, dag, opts.dagRunID, timeout) {
-		return &Error{
-			HTTPStatus: http.StatusInternalServerError,
-			Code:       api.ErrorCodeInternalError,
-			Message:    "DAG did not start",
-		}
-	}
-
-	return nil
+	return a.waitForLocalDAGStart(ctx, dag, opts.dagRunID, started, timeout)
 }
 
 func writeInlineRescheduleSpec(name, dagRunID string, data []byte) (string, error) {
