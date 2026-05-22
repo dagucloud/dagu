@@ -59,7 +59,8 @@ type APIKey struct {
 	ServiceAccountID string `json:"service_account_id,omitempty"`
 	// ServiceAccountName is populated when AttributionClass is service_account.
 	ServiceAccountName string `json:"service_account_name,omitempty"`
-	// MigratedAsServiceAccount is true when missing legacy attribution defaults were applied.
+	// MigratedAsServiceAccount is true when a legacy key had no attribution class
+	// and was defaulted to service_account.
 	MigratedAsServiceAccount bool `json:"migrated_as_service_account,omitempty"`
 	// KeyHash is the bcrypt hash of the API key secret.
 	// Excluded from JSON serialization for security.
@@ -189,10 +190,7 @@ func DefaultAPIKeySurfaces() []APIKeySurface {
 
 // CloneAPIKeySurfaces returns a normalized copy of API key surfaces.
 func CloneAPIKeySurfaces(surfaces []APIKeySurface) []APIKeySurface {
-	normalized := NormalizeAPIKeySurfaces(surfaces)
-	out := make([]APIKeySurface, len(normalized))
-	copy(out, normalized)
-	return out
+	return NormalizeAPIKeySurfaces(surfaces)
 }
 
 // NormalizeAPIKeySurfaces returns a stable allowlist, defaulting only missing

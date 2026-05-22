@@ -158,8 +158,19 @@ func isAuthorizationFailure(err error) bool {
 }
 
 func mergeToolOutputAuditDetails(details map[string]any, output any) {
-	out, ok := any(output).(map[string]any)
-	if !ok {
+	var out map[string]any
+	if mapped, ok := any(output).(map[string]any); ok {
+		out = mapped
+	} else {
+		data, err := json.Marshal(output)
+		if err != nil {
+			return
+		}
+		if err := json.Unmarshal(data, &out); err != nil {
+			return
+		}
+	}
+	if out == nil {
 		return
 	}
 	if dagRunID, ok := out["dagRunId"].(string); ok && dagRunID != "" {
@@ -318,10 +329,14 @@ func sortedStrings(values []string) []string {
 
 func sanitizeAuditString(value string, limit int) string {
 	value = strings.TrimSpace(value)
-	if limit <= 0 || len(value) <= limit {
+	if limit <= 0 {
 		return value
 	}
-	return value[:limit]
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return string(runes[:limit])
 }
 
 func (svc *Service) readResource(ctx context.Context, req *mcpsdk.ReadResourceRequest) (*mcpsdk.ReadResourceResult, error) {

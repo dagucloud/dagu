@@ -13014,7 +13014,7 @@ components:
           description: "Service-account display name when attributionClass is service_account"
         migratedAsServiceAccount:
           type: boolean
-          description: "True when legacy key attribution was defaulted to service_account"
+          description: "True when a legacy key missing attributionClass was defaulted to service_account"
         keyPrefix:
           type: string
           description: "First 8 characters for identification"
@@ -13104,6 +13104,8 @@ components:
       required:
         - name
         - role
+        - allowedSurfaces
+        - attributionClass
 
     CreateAPIKeyResponse:
       type: object

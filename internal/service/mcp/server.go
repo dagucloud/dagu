@@ -826,19 +826,16 @@ func (svc *Service) unsubscribe(ctx context.Context, req *mcpsdk.UnsubscribeRequ
 	ctx = withMCPUnsubscribeSourceContext(ctx, req)
 	details := resourceAuditDetails(req.Params.URI)
 	svc.mu.Lock()
-	defer svc.mu.Unlock()
 	watcher, ok := svc.watchers[req.Params.URI]
-	if !ok {
-		logMCPAudit(ctx, svc.api, "mcp.resource.unsubscribe.succeeded", withAuditResult(details, "succeeded"))
-		return nil
+	if ok {
+		watcher.refs--
+		if watcher.refs <= 0 {
+			watcher.cancel()
+			delete(svc.watchers, req.Params.URI)
+		}
 	}
-	watcher.refs--
-	if watcher.refs > 0 {
-		logMCPAudit(ctx, svc.api, "mcp.resource.unsubscribe.succeeded", withAuditResult(details, "succeeded"))
-		return nil
-	}
-	watcher.cancel()
-	delete(svc.watchers, req.Params.URI)
+	svc.mu.Unlock()
+
 	logMCPAudit(ctx, svc.api, "mcp.resource.unsubscribe.succeeded", withAuditResult(details, "succeeded"))
 	return nil
 }

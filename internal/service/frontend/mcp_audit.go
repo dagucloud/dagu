@@ -23,10 +23,9 @@ func (srv *Server) mcpAuditSeedMiddleware() func(http.Handler) http.Handler {
 				CorrelationID: uuid.NewString(),
 				Transport:     "streamable_http",
 			}
-			if requestedWorkspace := strings.TrimSpace(r.URL.Query().Get("workspace")); requestedWorkspace != "" {
-				source.RequestedWorkspace = requestedWorkspace
-				source.ResolvedWorkspace = canonicalMCPWorkspace(requestedWorkspace)
-			}
+			requestedWorkspace := strings.TrimSpace(r.URL.Query().Get("workspace"))
+			source.RequestedWorkspace = canonicalMCPWorkspace(requestedWorkspace)
+			source.ResolvedWorkspace = canonicalMCPWorkspace(requestedWorkspace)
 			next.ServeHTTP(w, r.WithContext(audit.WithSourceContext(r.Context(), source)))
 		})
 	}
@@ -35,7 +34,7 @@ func (srv *Server) mcpAuditSeedMiddleware() func(http.Handler) http.Handler {
 func (srv *Server) mcpAuditSubjectMiddleware() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx := withMCPAuditCredentialContext(r.Context(), nil)
+			ctx := withMCPAuditCredentialContext(r.Context(), nil, credentialTypeFromRequest(r))
 			if apiKey, ok := authmodel.APIKeyFromContext(ctx); ok {
 				if user, ok := authmodel.UserForAPIKeyAttribution(apiKey); ok {
 					ctx = authmodel.WithUser(ctx, user)
@@ -50,7 +49,7 @@ func (srv *Server) logMCPAuthDenied(r *http.Request, reason string, apiKey *auth
 	if srv == nil || srv.apiV1 == nil || r == nil {
 		return
 	}
-	ctx := withMCPAuditCredentialContext(r.Context(), apiKey)
+	ctx := withMCPAuditCredentialContext(r.Context(), apiKey, credentialTypeFromRequest(r))
 	if user, ok := authmodel.UserForAPIKeyAttribution(apiKey); ok {
 		ctx = authmodel.WithUser(ctx, user)
 	}
@@ -64,7 +63,7 @@ func (srv *Server) logMCPAuthDenied(r *http.Request, reason string, apiKey *auth
 	srv.apiV1.LogAudit(ctx, audit.CategoryMCP, "mcp.request.denied", details)
 }
 
-func withMCPAuditCredentialContext(ctx context.Context, deniedAPIKey *authmodel.APIKey) context.Context {
+func withMCPAuditCredentialContext(ctx context.Context, deniedAPIKey *authmodel.APIKey, credentialType string) context.Context {
 	source, ok := audit.SourceContextFromContext(ctx)
 	if !ok || source == nil {
 		source = &audit.SourceContext{
@@ -98,15 +97,33 @@ func withMCPAuditCredentialContext(ctx context.Context, deniedAPIKey *authmodel.
 	if apiKey != nil {
 		audit.ApplyAPIKeyCredential(source, apiKey)
 	} else if source.CredentialType == "" {
-		source.CredentialType = credentialTypeFromContext(ctx)
+		if credentialType == "" {
+			credentialType = "none"
+		}
+		source.CredentialType = credentialType
 	}
 
 	return audit.WithSourceContext(ctx, source)
 }
 
-func credentialTypeFromContext(ctx context.Context) string {
-	if _, ok := authmodel.UserFromContext(ctx); ok {
-		return "session"
+func credentialTypeFromRequest(r *http.Request) string {
+	if r == nil {
+		return "none"
+	}
+	if _, _, ok := r.BasicAuth(); ok {
+		return "basic"
+	}
+	authHeader := r.Header.Get("Authorization")
+	const prefix = "Bearer "
+	if !strings.HasPrefix(authHeader, prefix) {
+		return "none"
+	}
+	token := strings.TrimPrefix(authHeader, prefix)
+	if strings.HasPrefix(token, "dagu_") {
+		return "api_key"
+	}
+	if token != "" {
+		return "jwt"
 	}
 	return "none"
 }

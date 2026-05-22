@@ -470,18 +470,18 @@ func (a *API) restAuditSeedMiddleware() func(http.Handler) http.Handler {
 func (a *API) restAuditSubjectMiddleware() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx := withRESTAuditCredentialContext(r.Context(), nil)
-			if apiKey, ok := auth.APIKeyFromContext(ctx); ok {
+			auditCtx := withRESTAuditCredentialContext(r.Context(), nil, restCredentialTypeFromRequest(r))
+			if apiKey, ok := auth.APIKeyFromContext(auditCtx); ok {
 				if user, ok := auth.UserForAPIKeyAttribution(apiKey); ok {
-					ctx = auth.WithUser(ctx, user)
+					auditCtx = auth.WithUser(auditCtx, user)
 				}
 			}
-			next.ServeHTTP(w, r.WithContext(ctx))
+			next.ServeHTTP(w, r.WithContext(auditCtx))
 		})
 	}
 }
 
-func withRESTAuditCredentialContext(ctx context.Context, deniedAPIKey *auth.APIKey) context.Context {
+func withRESTAuditCredentialContext(ctx context.Context, deniedAPIKey *auth.APIKey, credentialType string) context.Context {
 	source, ok := audit.SourceContextFromContext(ctx)
 	if !ok || source == nil {
 		source = &audit.SourceContext{
@@ -504,7 +504,10 @@ func withRESTAuditCredentialContext(ctx context.Context, deniedAPIKey *auth.APIK
 	if apiKey != nil {
 		audit.ApplyAPIKeyCredential(source, apiKey)
 	} else if source.CredentialType == "" {
-		source.CredentialType = "session"
+		if credentialType == "" {
+			credentialType = "none"
+		}
+		source.CredentialType = credentialType
 	}
 	return audit.WithSourceContext(ctx, source)
 }
@@ -513,21 +516,18 @@ func (a *API) logRESTAuthDenied(r *http.Request, reason string, apiKey *auth.API
 	if a == nil || r == nil {
 		return
 	}
-	invalidAPIKeyAttempt := reason == frontendauth.DenialReasonAuthFailed && hasRESTAPIKeyBearer(r)
-	if reason != frontendauth.DenialReasonAPIKeySurfaceDenied && apiKey == nil && !invalidAPIKeyAttempt {
-		return
-	}
-	ctx := withRESTAuditCredentialContext(r.Context(), apiKey)
-	if invalidAPIKeyAttempt {
-		if source, ok := audit.SourceContextFromContext(ctx); ok && source != nil {
-			source.CredentialType = "api_key"
-			ctx = audit.WithSourceContext(ctx, source)
-		}
-	}
+	credentialType := restCredentialTypeFromRequest(r)
+	ctx := withRESTAuditCredentialContext(r.Context(), apiKey, credentialType)
 	if user, ok := auth.UserForAPIKeyAttribution(apiKey); ok {
 		ctx = auth.WithUser(ctx, user)
 	}
-	a.LogAudit(ctx, audit.CategoryAPIKey, "api_key_request_denied", map[string]any{
+	category := audit.CategorySystem
+	action := "auth_request_denied"
+	if apiKey != nil || credentialType == "api_key" || reason == frontendauth.DenialReasonAPIKeySurfaceDenied {
+		category = audit.CategoryAPIKey
+		action = "api_key_request_denied"
+	}
+	a.LogAudit(ctx, category, action, map[string]any{
 		"result":        "denied",
 		"denial_reason": reason,
 		"resource_type": "rest_request",
@@ -536,16 +536,26 @@ func (a *API) logRESTAuthDenied(r *http.Request, reason string, apiKey *auth.API
 	})
 }
 
-func hasRESTAPIKeyBearer(r *http.Request) bool {
+func restCredentialTypeFromRequest(r *http.Request) string {
 	if r == nil {
-		return false
+		return "none"
+	}
+	if _, _, ok := r.BasicAuth(); ok {
+		return "basic"
 	}
 	authHeader := r.Header.Get("Authorization")
 	const prefix = "Bearer "
 	if !strings.HasPrefix(authHeader, prefix) {
-		return false
+		return "none"
 	}
-	return strings.HasPrefix(strings.TrimPrefix(authHeader, prefix), "dagu_")
+	token := strings.TrimPrefix(authHeader, prefix)
+	if strings.HasPrefix(token, "dagu_") {
+		return "api_key"
+	}
+	if token != "" {
+		return "jwt"
+	}
+	return "none"
 }
 
 func validateDAGFileNameMiddleware(

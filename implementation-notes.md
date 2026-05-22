@@ -34,7 +34,10 @@
 - The OpenAPI attribution `oneOf` nitpick was not applied because update requests are intentionally partial and backend validation already enforces valid attribution combinations; forcing a discriminator union there would make client types less accurate for partial updates.
 - Cleanup pass tightened API-key surface normalization so only missing legacy metadata gets the REST+MCP default. Non-empty unknown surface values are preserved for visibility and will not match either accepted surface.
 - Cleanup pass moved MCP audit wrapping into dedicated files and centralized API-key attribution/source-context helpers to reduce drift between REST and MCP audit paths.
-- Codex review feedback was valid that denied REST requests with malformed or guessed `dagu_...` API keys were skipped when no API-key record resolved. The fix audits those failed REST API-key attempts while still ignoring unrelated failed JWT/Basic credentials for the `api_key_request_denied` event.
+- Codex review feedback was valid that denied REST requests with malformed or guessed `dagu_...` API keys were skipped when no API-key record resolved. The first fix audited those failed REST API-key attempts.
+- Follow-up review feedback was valid that REST/MCP audit credential types should use documented values only. Non-API-key REST denials are now audited as system auth denials with `jwt`, `basic`, or `none` credential types instead of being dropped or mislabeled as API-key events.
+- Follow-up review feedback was valid that MCP default-workspace audit/filtering needed to keep both labeled `workspace=default` resources and unlabelled legacy resources visible for default grants.
+- The migration flag for API keys was clarified rather than broadened: new service-account keys legitimately derive stable service-account IDs/names, so `MigratedAsServiceAccount` continues to mean the legacy key had no attribution class.
 
 ### Verification
 
@@ -65,3 +68,10 @@
 - `go test ./internal/auth ./internal/service/audit ./internal/service/frontend/api/v1 ./internal/service/frontend ./internal/service/mcp -run 'TestAPIKeySurfaceNormalization|TestUserForAPIKeyAttribution|TestHTTPHandlerServesStreamableMCP|TestAPIKeySurfaceRestriction|TestRESTAPIKey' -count=1` passed after the cleanup refactor.
 - `go test ./internal/auth ./internal/service/audit ./internal/service/frontend/api/v1 ./internal/service/frontend ./internal/service/mcp ./internal/service/auth ./internal/service/frontend/auth -count=1` passed after the cleanup refactor.
 - `go fix -diff ./internal/auth ./internal/service/audit ./internal/service/frontend/api/v1 ./internal/service/frontend ./internal/service/mcp ./internal/service/auth ./internal/service/frontend/auth` passed after the cleanup refactor.
+- `make api` passed after requiring `allowedSurfaces` and `attributionClass` on API-key creation.
+- `pnpm gen:api` passed after the OpenAPI create-request contract update.
+- `go test ./internal/service/frontend/api/v1 -run 'TestAPIKeys_' -count=1` initially failed because the test fixtures still used the old optional create-request shape; after updating them to send surfaces and attribution, it passed.
+- `go test ./internal/auth ./internal/service/auth ./internal/service/frontend/api/v1 ./internal/service/frontend ./internal/service/mcp -run 'TestLogRESTAuthDenied|TestWorkspaceFilterForContextMCPDefaultGrant|TestMCPAuditSeedMiddleware|TestCredentialTypeFromRequest|TestMergeToolOutputAuditDetails|TestSanitizeAuditString|TestAPIKeySurfaceNormalization|TestAPIKeyForStorage_ToAPIKey_MigratesLegacyAuditMetadata' -count=1` passed after the review fixes.
+- `pnpm test src/pages/audit-logs/__tests__/index.test.ts` passed after extracting quick-filter derivation.
+- `pnpm typecheck` passed after regenerating TypeScript API types.
+- `git diff --check` passed after the review fixes.

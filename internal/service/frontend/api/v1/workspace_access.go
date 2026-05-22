@@ -257,9 +257,6 @@ func (a *API) workspaceFilterForContext(ctx context.Context) *exec.WorkspaceFilt
 	names := make([]string, 0, len(access.Grants))
 	includeUnlabelled := true
 	for _, grant := range access.Grants {
-		if isMCPSourceContext(ctx) && grant.Workspace == "default" {
-			continue
-		}
 		names = append(names, grant.Workspace)
 	}
 	if isMCPSourceContext(ctx) {

@@ -63,6 +63,55 @@ const RESULTS = [
 const PAGE_SIZE = 50;
 const TEXT_FILTER_DEBOUNCE_MS = 300;
 
+type QuickFilterValue = 'all' | 'mcp' | 'rest' | 'failed' | 'denied';
+
+type StructuredFilterValues = {
+  source: string;
+  surface: string;
+  result: string;
+  action: string;
+  workspace: string;
+  credentialId: string;
+  correlationId: string;
+  resourceId: string;
+  mcpTool: string;
+};
+
+function getStructuredFilterSignature(filters: StructuredFilterValues) {
+  return [
+    filters.source,
+    filters.surface,
+    filters.result,
+    filters.action,
+    filters.workspace,
+    filters.credentialId,
+    filters.correlationId,
+    filters.resourceId,
+    filters.mcpTool,
+  ].join('\u0000');
+}
+
+export function getQuickFilterValue(
+  category: string,
+  source: string,
+  surface: string,
+  result: string
+): QuickFilterValue {
+  if (category === 'mcp' && source === 'mcp' && surface === 'mcp') {
+    return 'mcp';
+  }
+  if (source === 'rest' && surface === 'rest_api') {
+    return 'rest';
+  }
+  if (result === 'failed') {
+    return 'failed';
+  }
+  if (result === 'denied') {
+    return 'denied';
+  }
+  return 'all';
+}
+
 function useDebouncedText(value: string, delayMs: number) {
   const [debouncedValue, setDebouncedValue] = useState(value);
 
@@ -143,17 +192,17 @@ export default function AuditLogsPage() {
   const prevRemoteNodeRef = useRef(remoteNode);
   const prevApiStartTimeRef = useRef(apiStartTime);
   const prevApiEndTimeRef = useRef(apiEndTime);
-  const structuredFilterSignature = [
+  const structuredFilterSignature = getStructuredFilterSignature({
     source,
     surface,
     result,
-    debouncedAction,
-    debouncedWorkspace,
-    debouncedCredentialId,
-    debouncedCorrelationId,
-    debouncedResourceId,
-    debouncedMcpTool,
-  ].join('\u0000');
+    action: debouncedAction,
+    workspace: debouncedWorkspace,
+    credentialId: debouncedCredentialId,
+    correlationId: debouncedCorrelationId,
+    resourceId: debouncedResourceId,
+    mcpTool: debouncedMcpTool,
+  });
   const prevStructuredFilterRef = useRef(structuredFilterSignature);
 
   // Helper functions for date calculations
@@ -286,6 +335,18 @@ export default function AuditLogsPage() {
 
   const fetchAuditLogs = useCallback(
     async (resetOffset = false) => {
+      const currentStructuredFilterSignature = getStructuredFilterSignature({
+        source,
+        surface,
+        result,
+        action: debouncedAction,
+        workspace: debouncedWorkspace,
+        credentialId: debouncedCredentialId,
+        correlationId: debouncedCorrelationId,
+        resourceId: debouncedResourceId,
+        mcpTool: debouncedMcpTool,
+      });
+
       // Reset offset if filters changed
       let effectiveOffset = offset;
       const filtersChanged =
@@ -293,7 +354,7 @@ export default function AuditLogsPage() {
         prevRemoteNodeRef.current !== remoteNode ||
         prevApiStartTimeRef.current !== apiStartTime ||
         prevApiEndTimeRef.current !== apiEndTime ||
-        prevStructuredFilterRef.current !== structuredFilterSignature;
+        prevStructuredFilterRef.current !== currentStructuredFilterSignature;
 
       if (resetOffset || filtersChanged) {
         effectiveOffset = 0;
@@ -303,7 +364,7 @@ export default function AuditLogsPage() {
           prevRemoteNodeRef.current = remoteNode;
           prevApiStartTimeRef.current = apiStartTime;
           prevApiEndTimeRef.current = apiEndTime;
-          prevStructuredFilterRef.current = structuredFilterSignature;
+          prevStructuredFilterRef.current = currentStructuredFilterSignature;
         }
       }
 
@@ -374,7 +435,6 @@ export default function AuditLogsPage() {
       debouncedCorrelationId,
       debouncedResourceId,
       debouncedMcpTool,
-      structuredFilterSignature,
       offset,
       remoteNode,
       apiStartTime,
@@ -529,16 +589,12 @@ export default function AuditLogsPage() {
     return 'outline';
   };
 
-  const quickFilterValue =
-    category === 'mcp' && source === 'mcp' && surface === 'mcp'
-      ? 'mcp'
-      : source === 'rest' && surface === 'rest_api'
-        ? 'rest'
-        : result === 'failed'
-          ? 'failed'
-          : result === 'denied'
-            ? 'denied'
-            : 'all';
+  const quickFilterValue = getQuickFilterValue(
+    category,
+    source,
+    surface,
+    result
+  );
 
   return (
     <div className="flex flex-col gap-4 max-w-7xl h-full">

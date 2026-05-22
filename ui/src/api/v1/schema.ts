@@ -5333,7 +5333,7 @@ export interface components {
             serviceAccountId?: string;
             /** @description Service-account display name when attributionClass is service_account */
             serviceAccountName?: string;
-            /** @description True when legacy key attribution was defaulted to service_account */
+            /** @description True when a legacy key missing attributionClass was defaulted to service_account */
             migratedAsServiceAccount?: boolean;
             /** @description First 8 characters for identification */
             keyPrefix: string;
@@ -5372,12 +5372,12 @@ export interface components {
             role: components["schemas"]["UserRole"];
             workspaceAccess?: components["schemas"]["WorkspaceAccess"];
             /** @description Interfaces where this API key may be accepted */
-            allowedSurfaces?: CreateAPIKeyRequestAllowedSurfaces[];
+            allowedSurfaces: CreateAPIKeyRequestAllowedSurfaces[];
             /**
              * @description Whether this key is owned by a user or represents a service account
              * @enum {string}
              */
-            attributionClass?: CreateAPIKeyRequestAttributionClass;
+            attributionClass: CreateAPIKeyRequestAttributionClass;
             /** @description Owner user ID when attributionClass is user_owned */
             ownerUserId?: string;
             /** @description Service-account display name when attributionClass is service_account */

@@ -65,17 +65,14 @@ func (a *API) CreateAPIKey(ctx context.Context, request api.CreateAPIKeyRequestO
 	if err != nil {
 		return nil, err
 	}
-	allowedSurfaces := []auth.APIKeySurface(nil)
-	if request.Body.AllowedSurfaces != nil {
-		if len(*request.Body.AllowedSurfaces) == 0 {
-			return nil, invalidAPIKeySurfaceError()
-		}
-		allowedSurfaces = toAuthAPIKeySurfaces(*request.Body.AllowedSurfaces)
+	if len(request.Body.AllowedSurfaces) == 0 {
+		return nil, invalidAPIKeySurfaceError()
 	}
-	attributionClass := auth.APIKeyAttributionClass("")
-	if request.Body.AttributionClass != nil {
-		attributionClass = auth.APIKeyAttributionClass(*request.Body.AttributionClass)
+	if request.Body.AttributionClass == "" {
+		return nil, invalidAPIKeyAttributionError()
 	}
+	allowedSurfaces := toAuthAPIKeySurfaces(request.Body.AllowedSurfaces)
+	attributionClass := auth.APIKeyAttributionClass(request.Body.AttributionClass)
 
 	// Get current user for createdBy
 	currentUser, ok := auth.UserFromContext(ctx)
@@ -126,11 +123,7 @@ func (a *API) CreateAPIKey(ctx context.Context, request api.CreateAPIKeyRequestO
 			return nil, invalidAPIKeySurfaceError()
 		}
 		if errors.Is(err, auth.ErrInvalidAPIKeyAttribution) {
-			return nil, &Error{
-				Code:       api.ErrorCodeBadRequest,
-				Message:    "Invalid API key attribution",
-				HTTPStatus: http.StatusBadRequest,
-			}
+			return nil, invalidAPIKeyAttributionError()
 		}
 		return nil, err
 	}
@@ -282,11 +275,7 @@ func (a *API) UpdateAPIKey(ctx context.Context, request api.UpdateAPIKeyRequestO
 			return nil, invalidAPIKeySurfaceError()
 		}
 		if errors.Is(err, auth.ErrInvalidAPIKeyAttribution) {
-			return nil, &Error{
-				Code:       api.ErrorCodeBadRequest,
-				Message:    "Invalid API key attribution",
-				HTTPStatus: http.StatusBadRequest,
-			}
+			return nil, invalidAPIKeyAttributionError()
 		}
 		return nil, err
 	}
@@ -400,6 +389,14 @@ func invalidAPIKeySurfaceError() *Error {
 	return &Error{
 		Code:       api.ErrorCodeBadRequest,
 		Message:    "Invalid API key surface",
+		HTTPStatus: http.StatusBadRequest,
+	}
+}
+
+func invalidAPIKeyAttributionError() *Error {
+	return &Error{
+		Code:       api.ErrorCodeBadRequest,
+		Message:    "Invalid API key attribution",
 		HTTPStatus: http.StatusBadRequest,
 	}
 }

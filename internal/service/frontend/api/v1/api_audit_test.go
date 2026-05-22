@@ -49,14 +49,21 @@ func TestLogRESTAuthDeniedLogsUnresolvedAPIKeyAttempts(t *testing.T) {
 	assert.Contains(t, entry.Details, `"denial_reason":"auth_failed"`)
 }
 
-func TestLogRESTAuthDeniedIgnoresNonAPIKeyAuthFailures(t *testing.T) {
+func TestLogRESTAuthDeniedLogsNonAPIKeyAuthFailures(t *testing.T) {
 	store := &restAuditStore{}
 	api := &API{auditService: audit.New(store)}
 	req := newRequestWithRESTAuditSource("Bearer jwt-invalid")
 
 	api.logRESTAuthDenied(req, frontendauth.DenialReasonAuthFailed, nil)
 
-	assert.Empty(t, store.entries)
+	require.Len(t, store.entries, 1)
+	entry := store.entries[0]
+	assert.Equal(t, audit.CategorySystem, entry.Category)
+	assert.Equal(t, "auth_request_denied", entry.Action)
+	assert.Equal(t, "jwt", entry.CredentialType)
+	assert.Equal(t, "denied", entry.Result)
+	assert.Equal(t, "rest_request", entry.ResourceType)
+	assert.Equal(t, "/api/v1/dags", entry.ResourceID)
 }
 
 func newRequestWithRESTAuditSource(authHeader string) *http.Request {
