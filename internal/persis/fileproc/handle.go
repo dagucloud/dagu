@@ -212,16 +212,14 @@ func (p *ProcHandle) requestSync(ctx context.Context, fd *os.File) {
 	if !p.syncing.CompareAndSwap(false, true) {
 		return
 	}
-	p.syncWG.Add(1)
-	go func() {
-		defer p.syncWG.Done()
+	p.syncWG.Go(func() {
 		defer p.syncing.Store(false)
 		if err := p.syncFile(fd); err != nil {
 			logger.Debug(ctx, "Failed to sync heartbeat file",
 				tag.File(p.fileName),
 				tag.Error(err))
 		}
-	}()
+	})
 }
 
 // recreateFile creates a new heartbeat file after the original was deleted externally.
