@@ -1287,24 +1287,57 @@ type startDAGRunOptions struct {
 }
 
 // waitForDAGStatusChange waits until the DAG status transitions from NotStarted.
-// Returns true if the status changed, false if timeout or context cancelled.
-func (a *API) waitForDAGStatusChange(ctx context.Context, dag *core.DAG, dagRunID string, timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
-	pollInterval := 100 * time.Millisecond
+// It returns false with nil error when the wait times out normally.
+func (a *API) waitForDAGStatusChange(ctx context.Context, dag *core.DAG, dagRunID string, timeout time.Duration) (bool, error) {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
 
-	for time.Now().Before(deadline) {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
 		select {
 		case <-ctx.Done():
-			return false
+			return false, ctx.Err()
 		default:
-			status, _ := a.dagRunMgr.GetCurrentStatus(ctx, dag, dagRunID)
-			if status != nil && status.Status != core.NotStarted {
-				return true
-			}
-			time.Sleep(pollInterval)
+		}
+
+		status, _ := a.dagRunMgr.GetCurrentStatus(ctx, dag, dagRunID)
+		if status != nil && status.Status != core.NotStarted {
+			return true, nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-timer.C:
+			return false, nil
+		case <-ticker.C:
 		}
 	}
-	return false
+}
+
+func dagStartWaitContextError(err error) *Error {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return &Error{
+			HTTPStatus: statusClientClosedRequest,
+			Code:       api.ErrorCodeInternalError,
+			Message:    "DAG start request canceled",
+		}
+	case errors.Is(err, context.DeadlineExceeded):
+		return &Error{
+			HTTPStatus: http.StatusGatewayTimeout,
+			Code:       api.ErrorCodeTimeout,
+			Message:    "DAG start request timed out",
+		}
+	default:
+		return &Error{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       api.ErrorCodeInternalError,
+			Message:    err.Error(),
+		}
+	}
 }
 
 func (a *API) waitForLocalDAGStart(
@@ -1314,7 +1347,11 @@ func (a *API) waitForLocalDAGStart(
 	started *runtime.StartResult,
 	timeout time.Duration,
 ) error {
-	if a.waitForDAGStatusChange(ctx, dag, dagRunID, timeout) {
+	statusChanged, err := a.waitForDAGStatusChange(ctx, dag, dagRunID, timeout)
+	if err != nil {
+		return dagStartWaitContextError(err)
+	}
+	if statusChanged {
 		return nil
 	}
 
@@ -1399,7 +1436,11 @@ func (a *API) dispatchStartToCoordinator(ctx context.Context, dag *core.DAG, dag
 		return fmt.Errorf("error dispatching to coordinator: %w", err)
 	}
 
-	if !a.waitForDAGStatusChange(ctx, dag, dagRunID, timeout) {
+	statusChanged, err := a.waitForDAGStatusChange(ctx, dag, dagRunID, timeout)
+	if err != nil {
+		return dagStartWaitContextError(err)
+	}
+	if !statusChanged {
 		return &Error{
 			HTTPStatus: http.StatusInternalServerError,
 			Code:       api.ErrorCodeInternalError,
@@ -1657,7 +1698,11 @@ func (a *API) enqueueDAGRun(ctx context.Context, dag *core.DAG, params, dagRunID
 		return fmt.Errorf("error enqueuing DAG: %w", err)
 	}
 
-	if !a.waitForDAGStatusChange(ctx, dag, dagRunID, 3*time.Second) {
+	statusChanged, err := a.waitForDAGStatusChange(ctx, dag, dagRunID, 3*time.Second)
+	if err != nil {
+		return dagStartWaitContextError(err)
+	}
+	if !statusChanged {
 		return &Error{
 			HTTPStatus: http.StatusInternalServerError,
 			Code:       api.ErrorCodeInternalError,

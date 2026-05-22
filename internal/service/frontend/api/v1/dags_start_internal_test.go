@@ -33,6 +33,26 @@ func TestWaitForLocalDAGStartReturnsNilWhenStarterProcessStillAlive(t *testing.T
 	require.NoError(t, err)
 }
 
+func TestWaitForLocalDAGStartReturnsCanceledWhenContextCanceled(t *testing.T) {
+	t.Parallel()
+
+	api := newLocalStartTestAPI(t)
+	done := make(chan error)
+	started := currentProcessStartResult(t, done)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := api.waitForLocalDAGStart(ctx, &core.DAG{Name: "pending"}, "run-1", started, time.Second)
+	require.Error(t, err)
+
+	var apiErr *Error
+	require.ErrorAs(t, err, &apiErr)
+	require.Equal(t, statusClientClosedRequest, apiErr.HTTPStatus)
+	require.Equal(t, openapiv1.ErrorCodeInternalError, apiErr.Code)
+	require.Equal(t, "DAG start request canceled", apiErr.Message)
+}
+
 func TestWaitForLocalDAGStartReturnsErrorWhenStarterExitedWithoutStatus(t *testing.T) {
 	t.Parallel()
 

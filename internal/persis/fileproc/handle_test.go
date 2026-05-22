@@ -197,6 +197,7 @@ func TestProcHandle_StopWaitsForInFlightSync(t *testing.T) {
 
 	syncStarted := make(chan struct{})
 	releaseSync := make(chan struct{})
+	var closeStarted sync.Once
 	var closeRelease sync.Once
 	release := func() {
 		closeRelease.Do(func() {
@@ -204,7 +205,9 @@ func TestProcHandle_StopWaitsForInFlightSync(t *testing.T) {
 		})
 	}
 	proc.syncFile = func(*os.File) error {
-		close(syncStarted)
+		closeStarted.Do(func() {
+			close(syncStarted)
+		})
 		<-releaseSync
 		return nil
 	}
