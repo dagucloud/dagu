@@ -524,15 +524,22 @@ func withMCPToolSourceContext(
 	tool string,
 	meta toolAuditMetadata,
 ) context.Context {
+	source := ensureMCPSourceContext(ctx)
+	source.MCPTool = tool
+	source.MCPAction = meta.Action
+	if meta.Workspace != "" {
+		source.ResolvedWorkspace = meta.Workspace
+	}
+	if req != nil {
+		applyMCPRequestMetadata(source, req.Session, req.Extra)
+	}
+	return audit.WithSourceContext(ctx, source)
+}
+
+func ensureMCPSourceContext(ctx context.Context) *audit.SourceContext {
 	source, ok := audit.SourceContextFromContext(ctx)
 	if !ok || source == nil {
-		source = &audit.SourceContext{
-			Source:        "mcp",
-			Surface:       "mcp",
-			RequestID:     uuid.NewString(),
-			CorrelationID: uuid.NewString(),
-			Transport:     "streamable_http",
-		}
+		source = &audit.SourceContext{}
 	}
 	if source.Source == "" {
 		source.Source = "mcp"
@@ -549,15 +556,7 @@ func withMCPToolSourceContext(
 	if source.Transport == "" {
 		source.Transport = "streamable_http"
 	}
-	source.MCPTool = tool
-	source.MCPAction = meta.Action
-	if meta.Workspace != "" {
-		source.ResolvedWorkspace = meta.Workspace
-	}
-	if req != nil {
-		applyMCPRequestMetadata(source, req.Session, req.Extra)
-	}
-	return audit.WithSourceContext(ctx, source)
+	return source
 }
 
 func applyMCPRequestMetadata(source *audit.SourceContext, session *mcpsdk.ServerSession, extra *mcpsdk.RequestExtra) {
@@ -1071,31 +1070,7 @@ func (svc *Service) readResource(ctx context.Context, req *mcpsdk.ReadResourceRe
 }
 
 func withMCPResourceSourceContext(ctx context.Context, req *mcpsdk.ReadResourceRequest) context.Context {
-	source, ok := audit.SourceContextFromContext(ctx)
-	if !ok || source == nil {
-		source = &audit.SourceContext{
-			Source:        "mcp",
-			Surface:       "mcp",
-			RequestID:     uuid.NewString(),
-			CorrelationID: uuid.NewString(),
-			Transport:     "streamable_http",
-		}
-	}
-	if source.Source == "" {
-		source.Source = "mcp"
-	}
-	if source.Surface == "" {
-		source.Surface = "mcp"
-	}
-	if source.RequestID == "" {
-		source.RequestID = uuid.NewString()
-	}
-	if source.CorrelationID == "" {
-		source.CorrelationID = uuid.NewString()
-	}
-	if source.Transport == "" {
-		source.Transport = "streamable_http"
-	}
+	source := ensureMCPSourceContext(ctx)
 	source.MCPAction = "read_resource"
 	if req != nil {
 		applyMCPRequestMetadata(source, req.Session, req.Extra)
@@ -1104,31 +1079,7 @@ func withMCPResourceSourceContext(ctx context.Context, req *mcpsdk.ReadResourceR
 }
 
 func withMCPSubscriptionSourceContext(ctx context.Context, req *mcpsdk.SubscribeRequest, action string) context.Context {
-	source, ok := audit.SourceContextFromContext(ctx)
-	if !ok || source == nil {
-		source = &audit.SourceContext{
-			Source:        "mcp",
-			Surface:       "mcp",
-			RequestID:     uuid.NewString(),
-			CorrelationID: uuid.NewString(),
-			Transport:     "streamable_http",
-		}
-	}
-	if source.Source == "" {
-		source.Source = "mcp"
-	}
-	if source.Surface == "" {
-		source.Surface = "mcp"
-	}
-	if source.RequestID == "" {
-		source.RequestID = uuid.NewString()
-	}
-	if source.CorrelationID == "" {
-		source.CorrelationID = uuid.NewString()
-	}
-	if source.Transport == "" {
-		source.Transport = "streamable_http"
-	}
+	source := ensureMCPSourceContext(ctx)
 	source.MCPAction = action
 	if req != nil {
 		applyMCPRequestMetadata(source, req.Session, req.Extra)
@@ -1137,31 +1088,7 @@ func withMCPSubscriptionSourceContext(ctx context.Context, req *mcpsdk.Subscribe
 }
 
 func withMCPUnsubscribeSourceContext(ctx context.Context, req *mcpsdk.UnsubscribeRequest) context.Context {
-	source, ok := audit.SourceContextFromContext(ctx)
-	if !ok || source == nil {
-		source = &audit.SourceContext{
-			Source:        "mcp",
-			Surface:       "mcp",
-			RequestID:     uuid.NewString(),
-			CorrelationID: uuid.NewString(),
-			Transport:     "streamable_http",
-		}
-	}
-	if source.Source == "" {
-		source.Source = "mcp"
-	}
-	if source.Surface == "" {
-		source.Surface = "mcp"
-	}
-	if source.RequestID == "" {
-		source.RequestID = uuid.NewString()
-	}
-	if source.CorrelationID == "" {
-		source.CorrelationID = uuid.NewString()
-	}
-	if source.Transport == "" {
-		source.Transport = "streamable_http"
-	}
+	source := ensureMCPSourceContext(ctx)
 	source.MCPAction = "unsubscribe_resource"
 	if req != nil {
 		applyMCPRequestMetadata(source, req.Session, req.Extra)

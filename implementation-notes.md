@@ -30,6 +30,8 @@
 - CodeRabbit feedback was valid on the OpenAPI schema contract, so `allowedSurfaces` now declares `minItems: 1` and `uniqueItems: true` in addition to the existing handler-side validation and normalization.
 - CodeRabbit feedback was also valid that legacy/partial API-key payloads can miss `allowedSurfaces`, so the API-key table now renders that field defensively.
 - The source design file was intentionally not moved into the repository because it was supplied as a private local artifact for this implementation pass; the notes now state that explicitly instead of preserving a machine-specific absolute path.
+- Additional CodeRabbit summary items were addressed where they were valid: API-key form license header, debounced audit-log text filters, redundant workspace-filter assignment removal, and shared MCP source-context initialization.
+- The OpenAPI attribution `oneOf` nitpick was not applied because update requests are intentionally partial and backend validation already enforces valid attribution combinations; forcing a discriminator union there would make client types less accurate for partial updates.
 
 ### Verification
 
@@ -50,4 +52,8 @@
 - `go test ./internal/auth ./internal/service/frontend/auth ./internal/service/frontend/api/v1 ./internal/service/auth ./internal/service/mcp -count=1` passed after CodeRabbit fixes.
 - `pnpm typecheck` passed after CodeRabbit fixes.
 - `pnpm test src/pages/api-keys/__tests__/index.test.tsx` passed after CodeRabbit fixes.
+- `go test ./internal/service/frontend/api/v1 ./internal/service/mcp -count=1` passed after the additional CodeRabbit summary fixes.
+- `go fix -diff ./internal/service/frontend/api/v1 ./internal/service/mcp` passed after the additional CodeRabbit summary fixes.
+- `pnpm typecheck` passed after adding audit-log debouncing and the API-key form license header.
+- `pnpm test src/pages/api-keys/__tests__/index.test.tsx` passed after adding the API-key form license header.
 - `git diff --check` passed.

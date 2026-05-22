@@ -61,6 +61,21 @@ const RESULTS = [
 ];
 
 const PAGE_SIZE = 50;
+const TEXT_FILTER_DEBOUNCE_MS = 300;
+
+function useDebouncedText(value: string, delayMs: number) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setDebouncedValue(value);
+    }, delayMs);
+
+    return () => window.clearTimeout(timeout);
+  }, [delayMs, value]);
+
+  return debouncedValue;
+}
 
 export default function AuditLogsPage() {
   const config = useConfig();
@@ -83,6 +98,24 @@ export default function AuditLogsPage() {
   const [resourceId, setResourceId] = useState('');
   const [mcpTool, setMcpTool] = useState('');
   const [offset, setOffset] = useState(0);
+  const debouncedAction = useDebouncedText(action, TEXT_FILTER_DEBOUNCE_MS);
+  const debouncedWorkspace = useDebouncedText(
+    workspace,
+    TEXT_FILTER_DEBOUNCE_MS
+  );
+  const debouncedCredentialId = useDebouncedText(
+    credentialId,
+    TEXT_FILTER_DEBOUNCE_MS
+  );
+  const debouncedCorrelationId = useDebouncedText(
+    correlationId,
+    TEXT_FILTER_DEBOUNCE_MS
+  );
+  const debouncedResourceId = useDebouncedText(
+    resourceId,
+    TEXT_FILTER_DEBOUNCE_MS
+  );
+  const debouncedMcpTool = useDebouncedText(mcpTool, TEXT_FILTER_DEBOUNCE_MS);
 
   // Date filter states
   const [dateRangeMode, setDateRangeMode] = useState<
@@ -114,12 +147,12 @@ export default function AuditLogsPage() {
     source,
     surface,
     result,
-    action,
-    workspace,
-    credentialId,
-    correlationId,
-    resourceId,
-    mcpTool,
+    debouncedAction,
+    debouncedWorkspace,
+    debouncedCredentialId,
+    debouncedCorrelationId,
+    debouncedResourceId,
+    debouncedMcpTool,
   ].join('\u0000');
   const prevStructuredFilterRef = useRef(structuredFilterSignature);
 
@@ -284,14 +317,18 @@ export default function AuditLogsPage() {
         if (source && source !== 'all') params.set('source', source);
         if (surface && surface !== 'all') params.set('surface', surface);
         if (result && result !== 'all') params.set('result', result);
-        if (action.trim()) params.set('action', action.trim());
-        if (workspace.trim()) params.set('workspace', workspace.trim());
-        if (credentialId.trim())
-          params.set('credentialId', credentialId.trim());
-        if (correlationId.trim())
-          params.set('correlationId', correlationId.trim());
-        if (resourceId.trim()) params.set('resourceId', resourceId.trim());
-        if (mcpTool.trim()) params.set('mcpTool', mcpTool.trim());
+        if (debouncedAction.trim())
+          params.set('action', debouncedAction.trim());
+        if (debouncedWorkspace.trim())
+          params.set('workspace', debouncedWorkspace.trim());
+        if (debouncedCredentialId.trim())
+          params.set('credentialId', debouncedCredentialId.trim());
+        if (debouncedCorrelationId.trim())
+          params.set('correlationId', debouncedCorrelationId.trim());
+        if (debouncedResourceId.trim())
+          params.set('resourceId', debouncedResourceId.trim());
+        if (debouncedMcpTool.trim())
+          params.set('mcpTool', debouncedMcpTool.trim());
         params.set('limit', String(PAGE_SIZE));
         params.set('offset', String(effectiveOffset));
         if (apiStartTime) params.set('startTime', apiStartTime);
@@ -331,12 +368,12 @@ export default function AuditLogsPage() {
       source,
       surface,
       result,
-      action,
-      workspace,
-      credentialId,
-      correlationId,
-      resourceId,
-      mcpTool,
+      debouncedAction,
+      debouncedWorkspace,
+      debouncedCredentialId,
+      debouncedCorrelationId,
+      debouncedResourceId,
+      debouncedMcpTool,
       structuredFilterSignature,
       offset,
       remoteNode,

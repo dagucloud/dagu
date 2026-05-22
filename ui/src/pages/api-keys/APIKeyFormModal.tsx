@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import { useState, useEffect, useContext } from 'react';
 import { useConfig } from '@/contexts/ConfigContext';
 import { TOKEN_KEY } from '@/contexts/AuthContext';
