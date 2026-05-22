@@ -34,9 +34,11 @@ type ProcHandle struct {
 	cancel            context.CancelFunc
 	mu                sync.Mutex
 	wg                sync.WaitGroup
+	syncing           atomic.Bool
 	meta              exec.ProcMeta
 	heartbeatInterval time.Duration
 	syncInterval      time.Duration
+	syncFile          func(*os.File) error
 }
 
 // GetMeta implements models.ProcHandle.
@@ -59,6 +61,7 @@ func NewProcHandler(file string, meta exec.ProcMeta, heartbeatInterval, syncInte
 		meta:              meta,
 		heartbeatInterval: heartbeatInterval,
 		syncInterval:      syncInterval,
+		syncFile:          (*os.File).Sync,
 	}
 }
 
@@ -169,7 +172,6 @@ func (p *ProcHandle) startHeartbeat(ctx context.Context) error {
 		for {
 			select {
 			case <-hbCtx.Done():
-				_ = fd.Sync()
 				return
 			case <-ticker.C:
 				heartbeatUnix := time.Now().Unix()
@@ -195,12 +197,26 @@ func (p *ProcHandle) startHeartbeat(ctx context.Context) error {
 				}
 
 			case <-flush.C:
-				_ = fd.Sync()
+				p.requestSync(ctx, fd)
 			}
 		}
 	}()
 
 	return nil
+}
+
+func (p *ProcHandle) requestSync(ctx context.Context, fd *os.File) {
+	if !p.syncing.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer p.syncing.Store(false)
+		if err := p.syncFile(fd); err != nil {
+			logger.Debug(ctx, "Failed to sync heartbeat file",
+				tag.File(p.fileName),
+				tag.Error(err))
+		}
+	}()
 }
 
 // recreateFile creates a new heartbeat file after the original was deleted externally.

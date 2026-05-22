@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/internal/cmn/sock"
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
@@ -421,10 +422,9 @@ func (m *Manager) GetLatestStatus(ctx context.Context, dag *core.DAG) (exec.DAGR
 }
 
 // repairStaleLocalRunIfDead repairs a persisted local Running status only when
-// the run has no matching fresh proc heartbeat. "Dead" here means the proc
-// store cannot find any non-stale heartbeat file for the local run; it is not
-// an OS-level PID liveness check. Distributed runs are excluded because local
-// proc heartbeats are not authoritative for remote workers.
+// the run has no matching fresh proc heartbeat and its recorded local process
+// is no longer alive. Distributed runs are excluded because local proc
+// heartbeats are not authoritative for remote workers.
 func (m *Manager) repairStaleLocalRunIfDead(
 	ctx context.Context,
 	attempt exec.DAGRunAttempt,
@@ -459,6 +459,15 @@ func (m *Manager) repairStaleLocalRunIfDead(
 		logger.Debug(ctx, "Skipping stale local run repair because DAG run still has a fresh proc heartbeat",
 			tag.RunID(st.DAGRunID),
 			tag.AttemptID(st.AttemptID),
+		)
+		return st, nil
+	}
+
+	if st.PID > 0 && procutil.IsAlive(int(st.PID)) {
+		logger.Debug(ctx, "Skipping stale local run repair because local process is still alive despite stale proc heartbeat",
+			tag.RunID(st.DAGRunID),
+			tag.AttemptID(st.AttemptID),
+			tag.PID(int(st.PID)),
 		)
 		return st, nil
 	}

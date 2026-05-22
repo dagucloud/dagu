@@ -14,6 +14,7 @@ import (
 
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime"
@@ -241,6 +242,14 @@ func (z *ZombieDetector) checkAndCleanZombie(ctx context.Context, entry exec.Pro
 		if err := z.procStore.RemoveIfStale(ctx, entry); err != nil {
 			return fmt.Errorf("remove remote stale proc: %w", err)
 		}
+		return nil
+	}
+
+	if status.PID > 0 && procutil.IsAlive(int(status.PID)) {
+		logger.Warn(ctx, "Skipping zombie repair because local process is still alive despite stale proc heartbeat",
+			tag.PID(int(status.PID)),
+			slog.Int("stale_count", count),
+		)
 		return nil
 	}
 
