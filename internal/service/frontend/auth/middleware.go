@@ -29,11 +29,21 @@ type Options struct {
 	// APIKeyValidator validates API keys with roles.
 	// When set, API keys with the "dagu_" prefix are accepted as an authentication method.
 	APIKeyValidator APIKeyValidator
+	// RequiredAPIKeySurface, when set, requires API keys to include this surface.
+	RequiredAPIKeySurface auth.APIKeySurface
+	// OnDenied is called when the middleware rejects a request after auth evaluation.
+	OnDenied func(r *http.Request, reason string, apiKey *auth.APIKey)
 	// AuthRequired indicates whether authentication is required.
 	// When false (e.g., auth mode "none"), credentials are validated if provided
 	// but unauthenticated requests are allowed through.
 	AuthRequired bool
 }
+
+const (
+	DenialReasonAPIKeySurfaceDenied = "api_key_surface_denied"
+	DenialReasonAuthFailed          = "auth_failed"
+	DenialReasonMissingCredentials  = "missing_credentials"
+)
 
 // QueryTokenMiddleware converts a "token" query parameter into an Authorization
 // Bearer header. This bridges browser APIs that cannot set custom headers
@@ -130,6 +140,10 @@ func Middleware(opts Options) func(next http.Handler) http.Handler {
 			if jwtEnabled || apiKeyEnabled {
 				bearerToken = extractBearerToken(r)
 			}
+			denialReason := DenialReasonMissingCredentials
+			if bearerToken != "" {
+				denialReason = DenialReasonAuthFailed
+			}
 
 			// Try JWT token authentication if enabled (for builtin auth mode)
 			if jwtEnabled && bearerToken != "" {
@@ -147,13 +161,19 @@ func Middleware(opts Options) func(next http.Handler) http.Handler {
 			if apiKeyEnabled && bearerToken != "" && strings.HasPrefix(bearerToken, "dagu_") {
 				apiKey, err := opts.APIKeyValidator.ValidateAPIKey(r.Context(), bearerToken)
 				if err == nil {
+					apiKey = auth.NormalizeAPIKeyMetadata(apiKey)
+					if opts.RequiredAPIKeySurface != "" && !auth.HasAPIKeySurface(apiKey.AllowedSurfaces, opts.RequiredAPIKeySurface) {
+						callDenied(opts, r, DenialReasonAPIKeySurfaceDenied, apiKey)
+						http.Error(w, "API key is not allowed for this surface", http.StatusForbidden)
+						return
+					}
 					syntheticUser := &auth.User{
 						ID:              "apikey:" + apiKey.ID,
 						Username:        "apikey:" + apiKey.Name,
 						Role:            apiKey.Role,
 						WorkspaceAccess: auth.CloneWorkspaceAccess(apiKey.WorkspaceAccess),
 					}
-					ctx := auth.WithUser(r.Context(), syntheticUser)
+					ctx := auth.WithAPIKey(auth.WithUser(r.Context(), syntheticUser), apiKey)
 					next.ServeHTTP(w, r.WithContext(ctx))
 					return
 				}
@@ -176,6 +196,7 @@ func Middleware(opts Options) func(next http.Handler) http.Handler {
 						return
 					}
 					// Invalid credentials - always reject
+					callDenied(opts, r, DenialReasonAuthFailed, nil)
 					requireBasicAuth(w, opts.Realm)
 					return
 				}
@@ -190,12 +211,20 @@ func Middleware(opts Options) func(next http.Handler) http.Handler {
 
 			// Auth is required - send appropriate challenge
 			if opts.BasicAuthEnabled {
+				callDenied(opts, r, denialReason, nil)
 				requireBasicAuth(w, opts.Realm)
 				return
 			}
 
+			callDenied(opts, r, denialReason, nil)
 			requireBearerAuth(w, opts.Realm)
 		})
+	}
+}
+
+func callDenied(opts Options, r *http.Request, reason string, apiKey *auth.APIKey) {
+	if opts.OnDenied != nil {
+		opts.OnDenied(r, reason, apiKey)
 	}
 }
 

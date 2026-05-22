@@ -4,7 +4,12 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { UserRole, type components } from '@/api/v1/schema';
+import {
+  APIKeyAllowedSurfaces,
+  APIKeyAttributionClass,
+  UserRole,
+  type components,
+} from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
 import APIKeysPage from '..';
@@ -76,6 +81,13 @@ function makeAPIKey(id: string): APIKey {
     name: `api-key-${id}`,
     role: UserRole.viewer,
     workspaceAccess: { all: true, grants: [] },
+    allowedSurfaces: [
+      APIKeyAllowedSurfaces.rest_api,
+      APIKeyAllowedSurfaces.mcp,
+    ],
+    attributionClass: APIKeyAttributionClass.service_account,
+    serviceAccountId: `api_key:${id}`,
+    serviceAccountName: `api-key-${id}`,
     keyPrefix: `dagu_${id}`,
     createdAt: '2026-05-22T00:00:00Z',
     updatedAt: '2026-05-22T00:00:00Z',
@@ -155,7 +167,7 @@ describe('APIKeysPage', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('api-key-3')).toBeVisible();
+      expect(screen.getAllByText('api-key-3')[0]).toBeVisible();
     });
 
     expect(

@@ -39,6 +39,10 @@ var (
 	ErrInvalidAPIKeyID = errors.New("invalid API key ID")
 	// ErrInvalidAPIKeyHash is returned when the API key hash is empty.
 	ErrInvalidAPIKeyHash = errors.New("invalid API key hash")
+	// ErrInvalidAPIKeySurface is returned when the API key surface allowlist is invalid.
+	ErrInvalidAPIKeySurface = errors.New("invalid API key surface")
+	// ErrInvalidAPIKeyAttribution is returned when API key attribution metadata is invalid.
+	ErrInvalidAPIKeyAttribution = errors.New("invalid API key attribution")
 	// ErrInvalidRole is returned when the role is not a valid role.
 	ErrInvalidRole = errors.New("invalid role")
 )

@@ -1361,12 +1361,16 @@ func (srv *Server) setupMCPRoute(ctx context.Context, r *chi.Mux) {
 	mcpPath := pathutil.BuildPublicEndpointPath(srv.funcsConfig.BasePath, "mcp")
 	mcpHandler := dagumcp.NewHTTPHandler(srv.apiV1)
 	authOpts := srv.buildStreamAuthOptions("Dagu MCP")
+	authOpts.RequiredAPIKeySurface = authmodel.APIKeySurfaceMCP
+	authOpts.OnDenied = srv.logMCPAuthDenied
 
 	r.Group(func(r chi.Router) {
+		r.Use(srv.mcpAuditSeedMiddleware())
 		r.Use(auth.QueryTokenMiddleware())
 		r.Use(auth.ClientIPMiddleware())
 		r.Use(auth.Middleware(authOpts))
 		r.Use(srv.injectDefaultStreamUserMiddleware())
+		r.Use(srv.mcpAuditSubjectMiddleware())
 		r.Use(clearWriteDeadlineMiddleware)
 		r.Handle(mcpPath, mcpHandler)
 	})
@@ -1605,16 +1609,18 @@ func (srv *Server) buildStreamAuthOptions(realm string) auth.Options {
 	// include Basic auth automatically after the user authenticates once.
 	if authCfg.Mode == config.AuthModeBasic {
 		return auth.Options{
-			Realm:            realm,
-			BasicAuthEnabled: true,
-			AuthRequired:     true,
-			Creds:            map[string]string{authCfg.Basic.Username: authCfg.Basic.Password},
+			Realm:                 realm,
+			BasicAuthEnabled:      true,
+			AuthRequired:          true,
+			RequiredAPIKeySurface: authmodel.APIKeySurfaceREST,
+			Creds:                 map[string]string{authCfg.Basic.Username: authCfg.Basic.Password},
 		}
 	}
 
 	opts := auth.Options{
-		Realm:        realm,
-		AuthRequired: true,
+		Realm:                 realm,
+		AuthRequired:          true,
+		RequiredAPIKeySurface: authmodel.APIKeySurfaceREST,
 	}
 
 	if authCfg.Mode == config.AuthModeBuiltin && srv.authService != nil {

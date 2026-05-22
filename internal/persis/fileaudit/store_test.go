@@ -79,6 +79,49 @@ func TestStore_QueryWithCategory(t *testing.T) {
 	assert.Equal(t, 2, result.Total)
 }
 
+func TestStore_QueryWithStructuredMCPFields(t *testing.T) {
+	store, err := New(t.TempDir(), 0)
+	require.NoError(t, err)
+
+	mcpEntry := audit.NewEntry(audit.CategoryMCP, "mcp.tool_call.denied", "apikey:key-1", "apikey:deploy").
+		WithIPAddress("203.0.113.10")
+	mcpEntry.Source = "mcp"
+	mcpEntry.Surface = "mcp"
+	mcpEntry.Result = "denied"
+	mcpEntry.CorrelationID = "corr-1"
+	mcpEntry.Workspace = "default"
+	mcpEntry.CredentialID = "key-1"
+	mcpEntry.CredentialType = "api_key"
+	mcpEntry.ResourceType = "dag"
+	mcpEntry.ResourceID = "deploy-prod"
+	mcpEntry.MCPTool = "dagu_execute"
+
+	restEntry := audit.NewEntry(audit.CategoryDAG, "dag_execute", "user-1", "alice")
+	restEntry.Source = "rest"
+	restEntry.Surface = "rest_api"
+	restEntry.Result = "succeeded"
+
+	require.NoError(t, store.Append(context.Background(), mcpEntry))
+	require.NoError(t, store.Append(context.Background(), restEntry))
+
+	result, err := store.Query(context.Background(), audit.QueryFilter{
+		Source:        "mcp",
+		Surface:       "mcp",
+		Result:        "denied",
+		Action:        "mcp.tool_call.denied",
+		Workspace:     "default",
+		CredentialID:  "key-1",
+		CorrelationID: "corr-1",
+		ResourceType:  "dag",
+		ResourceID:    "deploy-prod",
+		MCPTool:       "dagu_execute",
+		IPAddress:     "203.0.113.10",
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Total)
+	assert.Equal(t, "mcp.tool_call.denied", result.Entries[0].Action)
+}
+
 func TestStore_QueryWithPagination(t *testing.T) {
 	store, err := New(t.TempDir(), 0)
 	require.NoError(t, err)

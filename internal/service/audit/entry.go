@@ -28,6 +28,7 @@ const (
 	CategoryRemoteNode   Category = "remote_node"
 	CategoryWorkspace    Category = "workspace"
 	CategorySecret       Category = "secret"
+	CategoryMCP          Category = "mcp"
 )
 
 // Entry represents a single audit log entry.
@@ -40,6 +41,26 @@ type Entry struct {
 	Category Category `json:"category"`
 	// Action describes the specific action performed.
 	Action string `json:"action"`
+	// Source identifies the producer surface, such as mcp, ui, rest, cli, or internal.
+	Source string `json:"source,omitempty"`
+	// Surface identifies the externally accepted API-key surface.
+	Surface string `json:"surface,omitempty"`
+	// Result identifies whether the event succeeded, failed, or was denied.
+	Result string `json:"result,omitempty"`
+	// CorrelationID connects MCP attempt events with downstream domain events.
+	CorrelationID string `json:"correlation_id,omitempty"`
+	// ResourceType identifies the affected resource class.
+	ResourceType string `json:"resource_type,omitempty"`
+	// ResourceID identifies the affected resource.
+	ResourceID string `json:"resource_id,omitempty"`
+	// Workspace is the canonical workspace used for audit filtering.
+	Workspace string `json:"workspace,omitempty"`
+	// CredentialID identifies the credential independently of the subject.
+	CredentialID string `json:"credential_id,omitempty"`
+	// CredentialType is api_key, jwt, basic, oidc, or none.
+	CredentialType string `json:"credential_type,omitempty"`
+	// MCPTool stores the MCP tool name for MCP-originated activity.
+	MCPTool string `json:"mcp_tool,omitempty"`
 	// UserID is the unique identifier of the user who performed the action.
 	UserID string `json:"user_id"`
 	// Username is the human-readable name of the user.
@@ -78,8 +99,32 @@ func (e *Entry) WithIPAddress(ip string) *Entry {
 type QueryFilter struct {
 	// Category filters entries by audit category.
 	Category Category
+	// Action filters entries by action name.
+	Action string
+	// Source filters entries by producer surface.
+	Source string
+	// Surface filters entries by API-key surface.
+	Surface string
+	// Result filters entries by outcome.
+	Result string
+	// CorrelationID filters entries by correlation ID.
+	CorrelationID string
+	// ResourceType filters entries by resource type.
+	ResourceType string
+	// ResourceID filters entries by resource ID.
+	ResourceID string
+	// Workspace filters entries by canonical workspace.
+	Workspace string
+	// CredentialID filters entries by credential ID.
+	CredentialID string
+	// CredentialType filters entries by credential type.
+	CredentialType string
+	// MCPTool filters entries by MCP tool name.
+	MCPTool string
 	// UserID filters entries by the user who performed the action.
 	UserID string
+	// IPAddress filters entries by client IP address.
+	IPAddress string
 	// StartTime is the inclusive start of the time range.
 	StartTime time.Time
 	// EndTime is the exclusive end of the time range.

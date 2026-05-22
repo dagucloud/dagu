@@ -38,6 +38,42 @@ func (a *API) ListAuditLogs(ctx context.Context, request api.ListAuditLogsReques
 	if request.Params.Category != nil {
 		filter.Category = audit.Category(*request.Params.Category)
 	}
+	if request.Params.Action != nil {
+		filter.Action = *request.Params.Action
+	}
+	if request.Params.Source != nil {
+		filter.Source = *request.Params.Source
+	}
+	if request.Params.Surface != nil {
+		filter.Surface = *request.Params.Surface
+	}
+	if request.Params.Result != nil {
+		filter.Result = *request.Params.Result
+	}
+	if request.Params.CorrelationId != nil {
+		filter.CorrelationID = *request.Params.CorrelationId
+	}
+	if request.Params.ResourceType != nil {
+		filter.ResourceType = *request.Params.ResourceType
+	}
+	if request.Params.ResourceId != nil {
+		filter.ResourceID = *request.Params.ResourceId
+	}
+	if request.Params.Workspace != nil {
+		filter.Workspace = *request.Params.Workspace
+	}
+	if request.Params.CredentialId != nil {
+		filter.CredentialID = *request.Params.CredentialId
+	}
+	if request.Params.CredentialType != nil {
+		filter.CredentialType = *request.Params.CredentialType
+	}
+	if request.Params.McpTool != nil {
+		filter.MCPTool = *request.Params.McpTool
+	}
+	if request.Params.IpAddress != nil {
+		filter.IPAddress = *request.Params.IpAddress
+	}
 	if request.Params.UserId != nil {
 		filter.UserID = *request.Params.UserId
 	}
@@ -94,6 +130,36 @@ func (a *API) ListAuditLogs(ctx context.Context, request api.ListAuditLogsReques
 		}
 		if e.IPAddress != "" {
 			entry.IpAddress = &e.IPAddress
+		}
+		if e.Source != "" {
+			entry.Source = &e.Source
+		}
+		if e.Surface != "" {
+			entry.Surface = &e.Surface
+		}
+		if e.Result != "" {
+			entry.Result = &e.Result
+		}
+		if e.CorrelationID != "" {
+			entry.CorrelationId = &e.CorrelationID
+		}
+		if e.ResourceType != "" {
+			entry.ResourceType = &e.ResourceType
+		}
+		if e.ResourceID != "" {
+			entry.ResourceId = &e.ResourceID
+		}
+		if e.Workspace != "" {
+			entry.Workspace = &e.Workspace
+		}
+		if e.CredentialID != "" {
+			entry.CredentialId = &e.CredentialID
+		}
+		if e.CredentialType != "" {
+			entry.CredentialType = &e.CredentialType
+		}
+		if e.MCPTool != "" {
+			entry.McpTool = &e.MCPTool
 		}
 		entries = append(entries, entry)
 	}

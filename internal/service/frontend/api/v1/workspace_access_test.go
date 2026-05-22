@@ -4,10 +4,14 @@
 package api
 
 import (
+	"context"
 	"net/url"
 	"testing"
 
 	api "github.com/dagucloud/dagu/api/v1"
+	"github.com/dagucloud/dagu/internal/auth"
+	"github.com/dagucloud/dagu/internal/service/audit"
+	authservice "github.com/dagucloud/dagu/internal/service/auth"
 	"github.com/stretchr/testify/require"
 )
 
@@ -65,4 +69,27 @@ func TestWorkspaceParamFromValuesPreservesExplicitEmptyWorkspace(t *testing.T) {
 	workspace := workspaceParamFromValues(params)
 	require.NotNil(t, workspace)
 	require.Empty(t, *workspace)
+}
+
+func TestWorkspaceFilterForContextMCPDefaultGrantKeepsDefaultWorkspace(t *testing.T) {
+	var authSvc *authservice.Service
+	api := &API{authService: authSvc}
+	ctx := auth.WithUser(context.Background(), &auth.User{
+		ID:       "user-1",
+		Username: "viewer",
+		Role:     auth.RoleViewer,
+		WorkspaceAccess: &auth.WorkspaceAccess{
+			Grants: []auth.WorkspaceGrant{
+				{Workspace: "default", Role: auth.RoleViewer},
+			},
+		},
+	})
+	ctx = audit.WithSourceContext(ctx, &audit.SourceContext{Source: "mcp"})
+
+	filter := api.workspaceFilterForContext(ctx)
+
+	require.NotNil(t, filter)
+	require.True(t, filter.Enabled)
+	require.Equal(t, []string{"default"}, filter.Workspaces)
+	require.True(t, filter.IncludeUnlabelled)
 }

@@ -162,6 +162,82 @@ func TestAPIKeyForStorage_ToAPIKey(t *testing.T) {
 	assert.Equal(t, *storage.LastUsedAt, *key.LastUsedAt)
 }
 
+func TestAPIKeyForStorage_ToAPIKey_MigratesLegacyAuditMetadata(t *testing.T) {
+	storage := &APIKeyForStorage{
+		ID:        "key-id",
+		Name:      "legacy-ci",
+		Role:      RoleViewer,
+		KeyHash:   "hash",
+		KeyPrefix: "dagu_leg",
+		CreatedBy: "admin-user",
+	}
+
+	key := storage.ToAPIKey()
+
+	assert.Equal(t, APIKeyAttributionServiceAccount, key.AttributionClass)
+	assert.Equal(t, "api_key:key-id", key.ServiceAccountID)
+	assert.Equal(t, "legacy-ci", key.ServiceAccountName)
+	assert.True(t, key.MigratedAsServiceAccount)
+	assert.ElementsMatch(t, []APIKeySurface{APIKeySurfaceREST, APIKeySurfaceMCP}, key.AllowedSurfaces)
+	assert.True(t, HasAPIKeySurface(key.AllowedSurfaces, APIKeySurfaceREST))
+	assert.True(t, HasAPIKeySurface(key.AllowedSurfaces, APIKeySurfaceMCP))
+}
+
+func TestAPIKeySurfaceNormalization_DoesNotDefaultInvalidStoredValues(t *testing.T) {
+	key := NormalizeAPIKeyMetadata(&APIKey{
+		ID:              "key-id",
+		Name:            "corrupt-key",
+		AllowedSurfaces: []APIKeySurface{APIKeySurface("unknown_surface")},
+	})
+
+	assert.Equal(t, []APIKeySurface{APIKeySurface("unknown_surface")}, key.AllowedSurfaces)
+	assert.False(t, HasAPIKeySurface(key.AllowedSurfaces, APIKeySurfaceREST))
+	assert.False(t, HasAPIKeySurface(key.AllowedSurfaces, APIKeySurfaceMCP))
+}
+
+func TestAPIKeySurfaceNormalization_KeepsValidSurfacesWhenMixedWithInvalid(t *testing.T) {
+	key := NormalizeAPIKeyMetadata(&APIKey{
+		ID: "key-id",
+		AllowedSurfaces: []APIKeySurface{
+			APIKeySurfaceMCP,
+			APIKeySurface("unknown_surface"),
+			APIKeySurfaceMCP,
+		},
+	})
+
+	assert.Equal(t, []APIKeySurface{APIKeySurfaceMCP, APIKeySurface("unknown_surface")}, key.AllowedSurfaces)
+	assert.False(t, HasAPIKeySurface(key.AllowedSurfaces, APIKeySurfaceREST))
+	assert.True(t, HasAPIKeySurface(key.AllowedSurfaces, APIKeySurfaceMCP))
+}
+
+func TestUserForAPIKeyAttribution(t *testing.T) {
+	workspaceAccess := &WorkspaceAccess{
+		All: false,
+		Grants: []WorkspaceGrant{{
+			Workspace: "prod",
+			Role:      RoleOperator,
+		}},
+	}
+	apiKey := &APIKey{
+		ID:                 "key-id",
+		Name:               "deploy-key",
+		Role:               RoleDeveloper,
+		WorkspaceAccess:    workspaceAccess,
+		AttributionClass:   APIKeyAttributionServiceAccount,
+		ServiceAccountID:   "svc-id",
+		ServiceAccountName: "deploy",
+	}
+
+	user, ok := UserForAPIKeyAttribution(apiKey)
+
+	require.True(t, ok)
+	assert.Equal(t, "svc-id", user.ID)
+	assert.Equal(t, "deploy", user.Username)
+	assert.Equal(t, RoleDeveloper, user.Role)
+	assert.Equal(t, workspaceAccess, user.WorkspaceAccess)
+	require.NotSame(t, workspaceAccess, user.WorkspaceAccess)
+}
+
 func TestAPIKey_ToStorage_ToAPIKey_Roundtrip(t *testing.T) {
 	now := time.Now().UTC()
 	original := &APIKey{
@@ -174,6 +250,12 @@ func TestAPIKey_ToStorage_ToAPIKey_Roundtrip(t *testing.T) {
 		CreatedAt:   now,
 		UpdatedAt:   now,
 		CreatedBy:   "creator",
+		AllowedSurfaces: []APIKeySurface{
+			APIKeySurfaceMCP,
+		},
+		AttributionClass: APIKeyAttributionUserOwned,
+		OwnerUserID:      "owner-id",
+		OwnerUsername:    "alice",
 	}
 
 	// Convert to storage and back
@@ -190,6 +272,10 @@ func TestAPIKey_ToStorage_ToAPIKey_Roundtrip(t *testing.T) {
 	assert.Equal(t, original.UpdatedAt, recovered.UpdatedAt)
 	assert.Equal(t, original.CreatedBy, recovered.CreatedBy)
 	assert.Equal(t, original.LastUsedAt, recovered.LastUsedAt)
+	assert.Equal(t, original.AttributionClass, recovered.AttributionClass)
+	assert.Equal(t, original.OwnerUserID, recovered.OwnerUserID)
+	assert.Equal(t, original.OwnerUsername, recovered.OwnerUsername)
+	assert.ElementsMatch(t, original.AllowedSurfaces, recovered.AllowedSurfaces)
 }
 
 func TestAPIKey_JSONSerialization(t *testing.T) {

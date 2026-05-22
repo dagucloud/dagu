@@ -217,7 +217,43 @@ func (s *Store) readEntriesFromFile(filePath string, filter audit.QueryFilter) (
 		if filter.Category != "" && entry.Category != filter.Category {
 			continue
 		}
+		if filter.Action != "" && entry.Action != filter.Action {
+			continue
+		}
+		if filter.Source != "" && entry.Source != filter.Source {
+			continue
+		}
+		if filter.Surface != "" && entry.Surface != filter.Surface {
+			continue
+		}
+		if filter.Result != "" && entry.Result != filter.Result {
+			continue
+		}
+		if filter.CorrelationID != "" && entry.CorrelationID != filter.CorrelationID {
+			continue
+		}
+		if filter.ResourceType != "" && entry.ResourceType != filter.ResourceType {
+			continue
+		}
+		if filter.ResourceID != "" && entry.ResourceID != filter.ResourceID {
+			continue
+		}
+		if filter.Workspace != "" && entry.Workspace != filter.Workspace {
+			continue
+		}
+		if filter.CredentialID != "" && entry.CredentialID != filter.CredentialID {
+			continue
+		}
+		if filter.CredentialType != "" && entry.CredentialType != filter.CredentialType {
+			continue
+		}
+		if filter.MCPTool != "" && entry.MCPTool != filter.MCPTool {
+			continue
+		}
 		if filter.UserID != "" && entry.UserID != filter.UserID {
+			continue
+		}
+		if filter.IPAddress != "" && entry.IPAddress != filter.IPAddress {
 			continue
 		}
 		if !filter.StartTime.IsZero() && entry.Timestamp.Before(filter.StartTime) {

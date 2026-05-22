@@ -221,7 +221,13 @@ func registerPrompts(server *mcpsdk.Server) {
 	}, promptDebugRun)
 }
 
-func (svc *Service) readTool(ctx context.Context, _ *mcpsdk.CallToolRequest, input readInput) (*mcpsdk.CallToolResult, map[string]any, error) {
+func (svc *Service) readTool(ctx context.Context, req *mcpsdk.CallToolRequest, input readInput) (*mcpsdk.CallToolResult, map[string]any, error) {
+	return auditToolCall(ctx, svc.api, req, toolRead, readAuditMetadata(input), func(ctx context.Context) (*mcpsdk.CallToolResult, map[string]any, error) {
+		return svc.readToolImpl(ctx, input)
+	})
+}
+
+func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.CallToolResult, map[string]any, error) {
 	target := strings.TrimSpace(input.Target)
 	if target == "" && input.URI != "" {
 		target = "reference"
@@ -307,7 +313,13 @@ func (svc *Service) readTool(ctx context.Context, _ *mcpsdk.CallToolRequest, inp
 	return resultWithLinks("Dagu read completed.", linksForURI(uri)...), output, nil
 }
 
-func (svc *Service) changeTool(ctx context.Context, _ *mcpsdk.CallToolRequest, input changeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
+func (svc *Service) changeTool(ctx context.Context, req *mcpsdk.CallToolRequest, input changeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
+	return auditToolCall(ctx, svc.api, req, toolChange, changeAuditMetadata(input), func(ctx context.Context) (*mcpsdk.CallToolResult, map[string]any, error) {
+		return svc.changeToolImpl(ctx, input)
+	})
+}
+
+func (svc *Service) changeToolImpl(ctx context.Context, input changeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
 	if err := svc.requireAPI(); err != nil {
 		return nil, nil, err
 	}
@@ -369,7 +381,13 @@ func (svc *Service) changeTool(ctx context.Context, _ *mcpsdk.CallToolRequest, i
 	return resultWithLinks("DAG change applied.", linkForDAGSpec(input.Name)), output, nil
 }
 
-func (svc *Service) executeTool(ctx context.Context, _ *mcpsdk.CallToolRequest, input executeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
+func (svc *Service) executeTool(ctx context.Context, req *mcpsdk.CallToolRequest, input executeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
+	return auditToolCall(ctx, svc.api, req, toolExecute, executeAuditMetadata(input), func(ctx context.Context) (*mcpsdk.CallToolResult, map[string]any, error) {
+		return svc.executeToolImpl(ctx, input)
+	})
+}
+
+func (svc *Service) executeToolImpl(ctx context.Context, input executeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
 	if err := svc.requireAPI(); err != nil {
 		return nil, nil, err
 	}
@@ -711,20 +729,6 @@ func enqueueBody(input executeInput) *daguapi.EnqueueDAGDAGRunJSONRequestBody {
 	return body
 }
 
-func (svc *Service) readResource(ctx context.Context, req *mcpsdk.ReadResourceRequest) (*mcpsdk.ReadResourceResult, error) {
-	text, mime, err := svc.readResourceText(ctx, req.Params.URI)
-	if err != nil {
-		return nil, err
-	}
-	return &mcpsdk.ReadResourceResult{
-		Contents: []*mcpsdk.ResourceContents{{
-			URI:      req.Params.URI,
-			MIMEType: mime,
-			Text:     text,
-		}},
-	}, nil
-}
-
 func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string, string, error) {
 	parsed, err := url.Parse(rawURI)
 	if err != nil {
@@ -796,11 +800,14 @@ func (svc *Service) subscribe(ctx context.Context, req *mcpsdk.SubscribeRequest)
 	if !isRunResourceURI(req.Params.URI) {
 		return nil
 	}
+	ctx = withMCPSubscriptionSourceContext(ctx, req, "subscribe_resource")
+	details := resourceAuditDetails(req.Params.URI)
 
 	svc.mu.Lock()
 	if watcher, ok := svc.watchers[req.Params.URI]; ok {
 		watcher.refs++
 		svc.mu.Unlock()
+		logMCPAudit(ctx, svc.api, "mcp.resource.subscribe.succeeded", withAuditResult(details, "succeeded"))
 		return nil
 	}
 
@@ -811,22 +818,25 @@ func (svc *Service) subscribe(ctx context.Context, req *mcpsdk.SubscribeRequest)
 	svc.mu.Unlock()
 
 	go svc.watchRunResource(watchCtx, req.Params.URI, id)
+	logMCPAudit(ctx, svc.api, "mcp.resource.subscribe.succeeded", withAuditResult(details, "succeeded"))
 	return nil
 }
 
-func (svc *Service) unsubscribe(_ context.Context, req *mcpsdk.UnsubscribeRequest) error {
+func (svc *Service) unsubscribe(ctx context.Context, req *mcpsdk.UnsubscribeRequest) error {
+	ctx = withMCPUnsubscribeSourceContext(ctx, req)
+	details := resourceAuditDetails(req.Params.URI)
 	svc.mu.Lock()
-	defer svc.mu.Unlock()
 	watcher, ok := svc.watchers[req.Params.URI]
-	if !ok {
-		return nil
+	if ok {
+		watcher.refs--
+		if watcher.refs <= 0 {
+			watcher.cancel()
+			delete(svc.watchers, req.Params.URI)
+		}
 	}
-	watcher.refs--
-	if watcher.refs > 0 {
-		return nil
-	}
-	watcher.cancel()
-	delete(svc.watchers, req.Params.URI)
+	svc.mu.Unlock()
+
+	logMCPAudit(ctx, svc.api, "mcp.resource.unsubscribe.succeeded", withAuditResult(details, "succeeded"))
 	return nil
 }
 
