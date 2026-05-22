@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"sort"
@@ -585,17 +586,13 @@ func (m toolAuditMetadata) auditDetails(tool string) map[string]any {
 	if m.Workspace != "" {
 		details["workspace"] = m.Workspace
 	}
-	for key, value := range m.Attributes {
-		details[key] = value
-	}
+	maps.Copy(details, m.Attributes)
 	return details
 }
 
 func withAuditResult(details map[string]any, result string) map[string]any {
 	out := make(map[string]any, len(details)+1)
-	for key, value := range details {
-		out[key] = value
-	}
+	maps.Copy(out, details)
 	out["result"] = result
 	return out
 }

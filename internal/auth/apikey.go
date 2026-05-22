@@ -4,6 +4,7 @@
 package auth
 
 import (
+	"slices"
 	"strings"
 	"time"
 
@@ -229,12 +230,7 @@ func ValidAPIKeySurface(surface APIKeySurface) bool {
 
 // HasAPIKeySurface reports whether a normalized surface allowlist contains a surface.
 func HasAPIKeySurface(surfaces []APIKeySurface, surface APIKeySurface) bool {
-	for _, allowed := range NormalizeAPIKeySurfaces(surfaces) {
-		if allowed == surface {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(NormalizeAPIKeySurfaces(surfaces), surface)
 }
 
 // NormalizeAPIKeyMetadata returns a copy with legacy attribution and surface defaults applied.
