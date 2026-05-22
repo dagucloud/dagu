@@ -34,6 +34,7 @@
 - The OpenAPI attribution `oneOf` nitpick was not applied because update requests are intentionally partial and backend validation already enforces valid attribution combinations; forcing a discriminator union there would make client types less accurate for partial updates.
 - Cleanup pass tightened API-key surface normalization so only missing legacy metadata gets the REST+MCP default. Non-empty unknown surface values are preserved for visibility and will not match either accepted surface.
 - Cleanup pass moved MCP audit wrapping into dedicated files and centralized API-key attribution/source-context helpers to reduce drift between REST and MCP audit paths.
+- Codex review feedback was valid that denied REST requests with malformed or guessed `dagu_...` API keys were skipped when no API-key record resolved. The fix audits those failed REST API-key attempts while still ignoring unrelated failed JWT/Basic credentials for the `api_key_request_denied` event.
 
 ### Verification
 

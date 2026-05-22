@@ -513,10 +513,17 @@ func (a *API) logRESTAuthDenied(r *http.Request, reason string, apiKey *auth.API
 	if a == nil || r == nil {
 		return
 	}
-	if reason != frontendauth.DenialReasonAPIKeySurfaceDenied && apiKey == nil {
+	invalidAPIKeyAttempt := reason == frontendauth.DenialReasonAuthFailed && hasRESTAPIKeyBearer(r)
+	if reason != frontendauth.DenialReasonAPIKeySurfaceDenied && apiKey == nil && !invalidAPIKeyAttempt {
 		return
 	}
 	ctx := withRESTAuditCredentialContext(r.Context(), apiKey)
+	if invalidAPIKeyAttempt {
+		if source, ok := audit.SourceContextFromContext(ctx); ok && source != nil {
+			source.CredentialType = "api_key"
+			ctx = audit.WithSourceContext(ctx, source)
+		}
+	}
 	if user, ok := auth.UserForAPIKeyAttribution(apiKey); ok {
 		ctx = auth.WithUser(ctx, user)
 	}
@@ -527,6 +534,18 @@ func (a *API) logRESTAuthDenied(r *http.Request, reason string, apiKey *auth.API
 		"resource_id":   r.URL.Path,
 		"http_method":   r.Method,
 	})
+}
+
+func hasRESTAPIKeyBearer(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	authHeader := r.Header.Get("Authorization")
+	const prefix = "Bearer "
+	if !strings.HasPrefix(authHeader, prefix) {
+		return false
+	}
+	return strings.HasPrefix(strings.TrimPrefix(authHeader, prefix), "dagu_")
 }
 
 func validateDAGFileNameMiddleware(
