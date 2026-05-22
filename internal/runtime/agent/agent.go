@@ -34,6 +34,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/cmn/mailer"
 	"github.com/dagucloud/dagu/internal/cmn/masking"
+	"github.com/dagucloud/dagu/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/internal/cmn/secrets"
 	"github.com/dagucloud/dagu/internal/cmn/signal"
 	"github.com/dagucloud/dagu/internal/cmn/sock"
@@ -53,6 +54,11 @@ import (
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin"
+)
+
+var (
+	currentPIDStartedAtOnce  sync.Once
+	currentPIDStartedAtValue int64
 )
 
 // Agent is responsible for running the DAG and handling communication
@@ -1237,6 +1243,7 @@ func (a *Agent) Status(ctx context.Context) exec.DAGRunStatus {
 			transform.WithArchiveDir(a.artifactDir),
 			transform.WithTriggerType(a.triggerType),
 			transform.WithAutoRetryCount(a.currentAutoRetryCount()),
+			transform.WithPIDStartedAt(currentPIDStartedAt()),
 		}
 		if source != nil {
 			statusOpts = append(statusOpts,
@@ -1279,6 +1286,7 @@ func (a *Agent) Status(ctx context.Context) exec.DAGRunStatus {
 		transform.WithWorkerID(a.workerID),
 		transform.WithTriggerType(a.triggerType),
 		transform.WithAutoRetryCount(a.currentAutoRetryCount()),
+		transform.WithPIDStartedAt(currentPIDStartedAt()),
 	}
 
 	// If the current execution is based on a persisted target, copy timing data
@@ -1306,6 +1314,16 @@ func (a *Agent) Status(ctx context.Context) exec.DAGRunStatus {
 			opts...,
 		)
 	return status
+}
+
+func currentPIDStartedAt() int64 {
+	currentPIDStartedAtOnce.Do(func() {
+		startedAt, ok := procutil.StartTime(os.Getpid())
+		if ok {
+			currentPIDStartedAtValue = startedAt
+		}
+	})
+	return currentPIDStartedAtValue
 }
 
 func (a *Agent) currentAutoRetryCount() int {

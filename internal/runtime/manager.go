@@ -463,13 +463,25 @@ func (m *Manager) repairStaleLocalRunIfDead(
 		return st, nil
 	}
 
-	if st.PID > 0 && procutil.IsAlive(int(st.PID)) {
-		logger.Debug(ctx, "Skipping stale local run repair because local process is still alive despite stale proc heartbeat",
-			tag.RunID(st.DAGRunID),
-			tag.AttemptID(st.AttemptID),
-			tag.PID(int(st.PID)),
-		)
-		return st, nil
+	if st.PID > 0 && st.PIDStartedAt > 0 {
+		matched, actualStartedAt, ok := procutil.MatchesStartTime(int(st.PID), st.PIDStartedAt)
+		if matched {
+			logger.Debug(ctx, "Skipping stale local run repair because local process identity is still alive despite stale proc heartbeat",
+				tag.RunID(st.DAGRunID),
+				tag.AttemptID(st.AttemptID),
+				tag.PID(int(st.PID)),
+			)
+			return st, nil
+		}
+		if ok {
+			logger.Debug(ctx, "Not skipping stale local run repair because PID start time does not match persisted run status",
+				tag.RunID(st.DAGRunID),
+				tag.AttemptID(st.AttemptID),
+				tag.PID(int(st.PID)),
+				slog.Int64("expected-pid-started-at", st.PIDStartedAt),
+				slog.Int64("actual-pid-started-at", actualStartedAt),
+			)
+		}
 	}
 
 	repaired, _, err := RepairStaleLocalRun(ctx, attempt, dag)

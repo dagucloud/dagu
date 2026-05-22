@@ -17,3 +17,20 @@ func TestIsAlive(t *testing.T) {
 	require.False(t, IsAlive(-1))
 	require.True(t, IsAlive(os.Getpid()))
 }
+
+func TestStartTime(t *testing.T) {
+	t.Parallel()
+
+	startedAt, ok := StartTime(os.Getpid())
+	require.True(t, ok)
+	require.Positive(t, startedAt)
+
+	matched, actualStartedAt, ok := MatchesStartTime(os.Getpid(), startedAt)
+	require.True(t, ok)
+	require.True(t, matched)
+	require.Equal(t, startedAt, actualStartedAt)
+
+	matched, _, ok = MatchesStartTime(os.Getpid(), startedAt+1)
+	require.True(t, ok)
+	require.False(t, matched)
+}

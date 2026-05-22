@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/stretchr/testify/assert"
@@ -127,14 +128,17 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryWithAliveLocalPIDSkipsRep
 		},
 	}
 	entry := testRootProcEntry(dag.ProcGroup(), dag.Name, "run-1", "attempt-1", false)
+	pidStartedAt, ok := procutil.StartTime(os.Getpid())
+	require.True(t, ok)
 	status := &exec.DAGRunStatus{
-		Name:      dag.Name,
-		DAGRunID:  "run-1",
-		AttemptID: "attempt-1",
-		Status:    core.Running,
-		WorkerID:  "local",
-		PID:       exec.PID(os.Getpid()),
-		Nodes:     exec.NewNodesFromSteps(dag.Steps),
+		Name:         dag.Name,
+		DAGRunID:     "run-1",
+		AttemptID:    "attempt-1",
+		Status:       core.Running,
+		WorkerID:     "local",
+		PID:          exec.PID(os.Getpid()),
+		PIDStartedAt: pidStartedAt,
+		Nodes:        exec.NewNodesFromSteps(dag.Steps),
 	}
 	status.Nodes[0].Status = core.NodeRunning
 	attempt := &exec.MockDAGRunAttempt{}

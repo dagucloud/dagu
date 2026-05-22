@@ -262,6 +262,7 @@ func (d *queueDispatcher) dropSuspendedQueuedRun(
 			latest.Error = suspendedQueueDropReason
 			latest.WorkerID = ""
 			latest.PID = 0
+			latest.PIDStartedAt = 0
 			latest.LeaseAt = 0
 			return nil
 		},

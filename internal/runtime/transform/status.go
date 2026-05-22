@@ -181,6 +181,13 @@ func WithWorkerID(workerID string) StatusOption {
 	}
 }
 
+// WithPIDStartedAt returns a StatusOption that sets the OS process start time.
+func WithPIDStartedAt(startedAt int64) StatusOption {
+	return func(s *exec.DAGRunStatus) {
+		s.PIDStartedAt = startedAt
+	}
+}
+
 // WithTriggerType returns a StatusOption that sets the trigger type
 func WithTriggerType(triggerType core.TriggerType) StatusOption {
 	return func(s *exec.DAGRunStatus) {

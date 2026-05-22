@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/internal/cmn/sock"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -270,6 +271,9 @@ steps:
 		runningStatus.AttemptKey = exec.GenerateAttemptKey(dag.Name, dagRunID, dag.Name, dagRunID, runningStatus.AttemptID)
 		runningStatus.WorkerID = "local"
 		runningStatus.PID = exec.PID(os.Getpid())
+		pidStartedAt, ok := procutil.StartTime(os.Getpid())
+		require.True(t, ok)
+		runningStatus.PIDStartedAt = pidStartedAt
 		staleAt := time.Now().Add(-3 * time.Second)
 		runningStatus.StartedAt = staleAt.UTC().Format(time.RFC3339)
 		runningStatus.CreatedAt = staleAt.UnixMilli()

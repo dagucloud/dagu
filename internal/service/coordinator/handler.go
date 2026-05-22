@@ -2604,6 +2604,7 @@ func finalizeNotStartedCancellation(ctx context.Context, attempt exec.DAGRunAtte
 	status.Error = context.Canceled.Error()
 	status.WorkerID = ""
 	status.PID = 0
+	status.PIDStartedAt = 0
 	status.LeaseAt = 0
 
 	if err := attempt.Open(ctx); err != nil {

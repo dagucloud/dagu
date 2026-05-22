@@ -148,6 +148,7 @@ func TestStatusBuilderWithOptions(t *testing.T) {
 		transform.WithQueuedAt("2024-01-01 12:00:00"),
 		transform.WithCreatedAt(1234567890),
 		transform.WithWorkerID("worker-abc"),
+		transform.WithPIDStartedAt(9876543210),
 	)
 
 	assert.Equal(t, stringutil.FormatTime(finishedAt), result.FinishedAt)
@@ -165,6 +166,7 @@ func TestStatusBuilderWithOptions(t *testing.T) {
 	assert.Equal(t, "2024-01-01 12:00:00", result.QueuedAt)
 	assert.Equal(t, int64(1234567890), result.CreatedAt)
 	assert.Equal(t, "worker-abc", result.WorkerID)
+	assert.Equal(t, int64(9876543210), result.PIDStartedAt)
 }
 
 func TestStatusBuilderPopulatesPendingStepRetriesFromNodes(t *testing.T) {
