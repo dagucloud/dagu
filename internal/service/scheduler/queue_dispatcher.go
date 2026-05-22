@@ -377,9 +377,16 @@ func (d *queueDispatcher) waitForStartup(ctx context.Context, queueName string, 
 	}
 
 	var started bool
+	var startupObservationErrors int
 	operation := func(ctx context.Context) error {
 		var err error
 		started, err = d.checkStartupStatus(ctx, queueName, runRef, waitState)
+		if shouldBoundLocalStartupError(waitState, err) {
+			startupObservationErrors++
+			if d.backoffConfig.MaxRetries > 0 && startupObservationErrors > d.backoffConfig.MaxRetries {
+				return backoff.PermanentError(err)
+			}
+		}
 		return err
 	}
 
@@ -388,6 +395,13 @@ func (d *queueDispatcher) waitForStartup(ctx context.Context, queueName string, 
 	}
 
 	return started
+}
+
+func shouldBoundLocalStartupError(waitState startupWaitState, err error) bool {
+	return waitState.execDone != nil &&
+		err != nil &&
+		!errors.Is(err, errNotStarted) &&
+		!errors.Is(err, backoff.ErrPermanent)
 }
 
 func (d *queueDispatcher) checkStartupStatus(ctx context.Context, queueName string, runRef exec.DAGRunRef, waitState startupWaitState) (bool, error) {

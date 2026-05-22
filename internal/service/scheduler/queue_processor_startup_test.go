@@ -156,6 +156,36 @@ func TestQueueDispatcher_WaitForStartupKeepsLocalLaunchInFlightUntilDone(t *test
 	procStore.AssertExpectations(t)
 }
 
+func TestQueueDispatcher_WaitForStartupBoundsLocalObservationErrors(t *testing.T) {
+	dagRunStore := &mockDAGRunStore{}
+	procStore := &mockProcStore{}
+	runRef := exec.NewDAGRunRef("test-dag", "run-1")
+	storeErr := errors.New("status store unavailable")
+
+	procStore.On("IsRunAlive", mock.Anything, "test-queue", runRef).Return(false, nil).Twice()
+	dagRunStore.On("FindAttempt", mock.Anything, runRef).Return(nil, storeErr).Twice()
+
+	dispatcher := newStartupTestDispatcher(dagRunStore, procStore, BackoffConfig{
+		InitialInterval:    time.Millisecond,
+		MaxInterval:        time.Millisecond,
+		MaxRetries:         1,
+		StartupGracePeriod: 0,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	started := dispatcher.waitForStartup(ctx, "test-queue", runRef, startupWaitState{
+		launchedAt: time.Now().Add(-time.Second),
+		execDone: func() (bool, error) {
+			return false, nil
+		},
+	})
+
+	require.False(t, started)
+	dagRunStore.AssertExpectations(t)
+	procStore.AssertExpectations(t)
+}
+
 func TestQueueDispatcher_CheckStartupStatus_AfterGraceFallsBackToStatus(t *testing.T) {
 	testCases := []struct {
 		name      string
