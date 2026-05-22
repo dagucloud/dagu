@@ -5500,6 +5500,78 @@ paths:
           required: false
           schema:
             type: string
+        - name: action
+          in: query
+          description: "Filter by audit action"
+          required: false
+          schema:
+            type: string
+        - name: source
+          in: query
+          description: "Filter by audit source (e.g., mcp, ui, rest, cli)"
+          required: false
+          schema:
+            type: string
+        - name: surface
+          in: query
+          description: "Filter by accepted credential surface (e.g., mcp, rest_api)"
+          required: false
+          schema:
+            type: string
+        - name: result
+          in: query
+          description: "Filter by result (succeeded, failed, denied)"
+          required: false
+          schema:
+            type: string
+        - name: correlationId
+          in: query
+          description: "Filter by correlation ID"
+          required: false
+          schema:
+            type: string
+        - name: resourceType
+          in: query
+          description: "Filter by resource type"
+          required: false
+          schema:
+            type: string
+        - name: resourceId
+          in: query
+          description: "Filter by resource ID"
+          required: false
+          schema:
+            type: string
+        - name: workspace
+          in: query
+          description: "Filter by canonical workspace"
+          required: false
+          schema:
+            type: string
+        - name: credentialId
+          in: query
+          description: "Filter by credential ID"
+          required: false
+          schema:
+            type: string
+        - name: credentialType
+          in: query
+          description: "Filter by credential type"
+          required: false
+          schema:
+            type: string
+        - name: mcpTool
+          in: query
+          description: "Filter by MCP tool name"
+          required: false
+          schema:
+            type: string
+        - name: ipAddress
+          in: query
+          description: "Filter by client IP address"
+          required: false
+          schema:
+            type: string
         - name: userId
           in: query
           description: "Filter by user ID"
@@ -9291,6 +9363,36 @@ components:
         action:
           type: string
           description: "The action that was performed (e.g., session_start, command, login)"
+        source:
+          type: string
+          description: "Source surface that produced the event"
+        surface:
+          type: string
+          description: "Externally accepted credential surface"
+        result:
+          type: string
+          description: "Event result such as succeeded, failed, or denied"
+        correlationId:
+          type: string
+          description: "Correlation ID linking related audit events"
+        resourceType:
+          type: string
+          description: "Affected resource type"
+        resourceId:
+          type: string
+          description: "Affected resource ID"
+        workspace:
+          type: string
+          description: "Canonical workspace for filtering"
+        credentialId:
+          type: string
+          description: "Credential ID used for the request"
+        credentialType:
+          type: string
+          description: "Credential type used for the request"
+        mcpTool:
+          type: string
+          description: "MCP tool name when source is MCP"
         userId:
           type: string
           description: "ID of the user who performed the action"
@@ -12886,6 +12988,31 @@ components:
           $ref: "#/components/schemas/UserRole"
         workspaceAccess:
           $ref: "#/components/schemas/WorkspaceAccess"
+        allowedSurfaces:
+          type: array
+          description: "Interfaces where this API key may be accepted"
+          items:
+            type: string
+            enum: [rest_api, mcp]
+        attributionClass:
+          type: string
+          enum: [user_owned, service_account]
+          description: "Whether this key is owned by a user or represents a service account"
+        ownerUserId:
+          type: string
+          description: "Owner user ID when attributionClass is user_owned"
+        ownerUsername:
+          type: string
+          description: "Owner username when attributionClass is user_owned"
+        serviceAccountId:
+          type: string
+          description: "Service-account identifier when attributionClass is service_account"
+        serviceAccountName:
+          type: string
+          description: "Service-account display name when attributionClass is service_account"
+        migratedAsServiceAccount:
+          type: boolean
+          description: "True when legacy key attribution was defaulted to service_account"
         keyPrefix:
           type: string
           description: "First 8 characters for identification"
@@ -12910,6 +13037,8 @@ components:
         - name
         - role
         - workspaceAccess
+        - allowedSurfaces
+        - attributionClass
         - keyPrefix
         - createdAt
         - updatedAt
@@ -12952,6 +13081,22 @@ components:
           $ref: "#/components/schemas/UserRole"
         workspaceAccess:
           $ref: "#/components/schemas/WorkspaceAccess"
+        allowedSurfaces:
+          type: array
+          description: "Interfaces where this API key may be accepted"
+          items:
+            type: string
+            enum: [rest_api, mcp]
+        attributionClass:
+          type: string
+          enum: [user_owned, service_account]
+          description: "Whether this key is owned by a user or represents a service account"
+        ownerUserId:
+          type: string
+          description: "Owner user ID when attributionClass is user_owned"
+        serviceAccountName:
+          type: string
+          description: "Service-account display name when attributionClass is service_account"
       required:
         - name
         - role
@@ -12986,6 +13131,22 @@ components:
           $ref: "#/components/schemas/UserRole"
         workspaceAccess:
           $ref: "#/components/schemas/WorkspaceAccess"
+        allowedSurfaces:
+          type: array
+          description: "Interfaces where this API key may be accepted"
+          items:
+            type: string
+            enum: [rest_api, mcp]
+        attributionClass:
+          type: string
+          enum: [user_owned, service_account]
+          description: "Whether this key is owned by a user or represents a service account"
+        ownerUserId:
+          type: string
+          description: "Owner user ID when attributionClass is user_owned"
+        serviceAccountName:
+          type: string
+          description: "Service-account display name when attributionClass is service_account"
 
     SuccessResponse:
       type: object

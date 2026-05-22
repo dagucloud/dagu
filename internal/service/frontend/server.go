@@ -28,6 +28,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/go-chi/httplog/v2"
+	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/dagucloud/dagu/internal/agent"
@@ -1361,17 +1362,180 @@ func (srv *Server) setupMCPRoute(ctx context.Context, r *chi.Mux) {
 	mcpPath := pathutil.BuildPublicEndpointPath(srv.funcsConfig.BasePath, "mcp")
 	mcpHandler := dagumcp.NewHTTPHandler(srv.apiV1)
 	authOpts := srv.buildStreamAuthOptions("Dagu MCP")
+	authOpts.RequiredAPIKeySurface = authmodel.APIKeySurfaceMCP
+	authOpts.OnDenied = srv.logMCPAuthDenied
 
 	r.Group(func(r chi.Router) {
+		r.Use(srv.mcpAuditSeedMiddleware())
 		r.Use(auth.QueryTokenMiddleware())
 		r.Use(auth.ClientIPMiddleware())
 		r.Use(auth.Middleware(authOpts))
 		r.Use(srv.injectDefaultStreamUserMiddleware())
+		r.Use(srv.mcpAuditSubjectMiddleware())
 		r.Use(clearWriteDeadlineMiddleware)
 		r.Handle(mcpPath, mcpHandler)
 	})
 
 	logger.Info(ctx, "MCP route configured", slog.String("path", mcpPath))
+}
+
+func (srv *Server) mcpAuditSeedMiddleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			source := &audit.SourceContext{
+				Source:        "mcp",
+				Surface:       string(authmodel.APIKeySurfaceMCP),
+				RequestID:     uuid.NewString(),
+				CorrelationID: uuid.NewString(),
+				Transport:     "streamable_http",
+			}
+			if requestedWorkspace := strings.TrimSpace(r.URL.Query().Get("workspace")); requestedWorkspace != "" {
+				source.RequestedWorkspace = requestedWorkspace
+				source.ResolvedWorkspace = canonicalMCPWorkspace(requestedWorkspace)
+			}
+			next.ServeHTTP(w, r.WithContext(audit.WithSourceContext(r.Context(), source)))
+		})
+	}
+}
+
+func (srv *Server) mcpAuditSubjectMiddleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := withMCPAuditCredentialContext(r.Context(), nil)
+			if apiKey, ok := authmodel.APIKeyFromContext(ctx); ok {
+				if user, ok := mcpAuditUserForAPIKey(apiKey); ok {
+					ctx = authmodel.WithUser(ctx, user)
+				}
+			}
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+func (srv *Server) logMCPAuthDenied(r *http.Request, reason string, apiKey *authmodel.APIKey) {
+	if srv == nil || srv.apiV1 == nil || r == nil {
+		return
+	}
+	ctx := withMCPAuditCredentialContext(r.Context(), apiKey)
+	if user, ok := mcpAuditUserForAPIKey(apiKey); ok {
+		ctx = authmodel.WithUser(ctx, user)
+	}
+	details := map[string]any{
+		"result":        "denied",
+		"denial_reason": reason,
+		"resource_type": "mcp_request",
+		"resource_id":   r.URL.Path,
+		"http_method":   r.Method,
+	}
+	srv.apiV1.LogAudit(ctx, audit.CategoryMCP, "mcp.request.denied", details)
+}
+
+func withMCPAuditCredentialContext(ctx context.Context, deniedAPIKey *authmodel.APIKey) context.Context {
+	source, ok := audit.SourceContextFromContext(ctx)
+	if !ok || source == nil {
+		source = &audit.SourceContext{
+			Source:        "mcp",
+			Surface:       string(authmodel.APIKeySurfaceMCP),
+			RequestID:     uuid.NewString(),
+			CorrelationID: uuid.NewString(),
+			Transport:     "streamable_http",
+		}
+	}
+	if source.Source == "" {
+		source.Source = "mcp"
+	}
+	if source.Surface == "" {
+		source.Surface = string(authmodel.APIKeySurfaceMCP)
+	}
+	if source.Transport == "" {
+		source.Transport = "streamable_http"
+	}
+
+	if user, ok := authmodel.UserFromContext(ctx); ok && user != nil {
+		source.SubjectID = user.ID
+		source.SubjectName = user.Username
+		source.SubjectType = "user"
+	}
+
+	apiKey := deniedAPIKey
+	if apiKey == nil {
+		apiKey, _ = authmodel.APIKeyFromContext(ctx)
+	}
+	if apiKey != nil {
+		apiKey = authmodel.NormalizeAPIKeyMetadata(apiKey)
+		source.CredentialID = apiKey.ID
+		source.CredentialName = apiKey.Name
+		source.CredentialType = "api_key"
+		source.CredentialAllowedSurfaces = apiKeySurfaceStrings(apiKey.AllowedSurfaces)
+		source.AttributionClass = string(apiKey.AttributionClass)
+		switch apiKey.AttributionClass {
+		case authmodel.APIKeyAttributionUserOwned:
+			source.SubjectType = "user"
+			source.SubjectID = apiKey.OwnerUserID
+			source.SubjectName = apiKey.OwnerUsername
+			source.CredentialOwnerID = apiKey.OwnerUserID
+		case authmodel.APIKeyAttributionServiceAccount:
+			source.SubjectType = "service_account"
+			source.SubjectID = apiKey.ServiceAccountID
+			source.SubjectName = apiKey.ServiceAccountName
+			source.ServiceAccountID = apiKey.ServiceAccountID
+		}
+	} else if source.CredentialType == "" {
+		source.CredentialType = credentialTypeFromContext(ctx)
+	}
+
+	return audit.WithSourceContext(ctx, source)
+}
+
+func mcpAuditUserForAPIKey(apiKey *authmodel.APIKey) (*authmodel.User, bool) {
+	if apiKey == nil {
+		return nil, false
+	}
+	apiKey = authmodel.NormalizeAPIKeyMetadata(apiKey)
+	switch apiKey.AttributionClass {
+	case authmodel.APIKeyAttributionUserOwned:
+		if apiKey.OwnerUserID == "" {
+			return nil, false
+		}
+		return &authmodel.User{
+			ID:              apiKey.OwnerUserID,
+			Username:        apiKey.OwnerUsername,
+			Role:            apiKey.Role,
+			WorkspaceAccess: authmodel.CloneWorkspaceAccess(apiKey.WorkspaceAccess),
+		}, true
+	case authmodel.APIKeyAttributionServiceAccount:
+		return &authmodel.User{
+			ID:              apiKey.ServiceAccountID,
+			Username:        apiKey.ServiceAccountName,
+			Role:            apiKey.Role,
+			WorkspaceAccess: authmodel.CloneWorkspaceAccess(apiKey.WorkspaceAccess),
+		}, true
+	default:
+		return nil, false
+	}
+}
+
+func credentialTypeFromContext(ctx context.Context) string {
+	if _, ok := authmodel.UserFromContext(ctx); ok {
+		return "session"
+	}
+	return "none"
+}
+
+func apiKeySurfaceStrings(surfaces []authmodel.APIKeySurface) []string {
+	normalized := authmodel.NormalizeAPIKeySurfaces(surfaces)
+	out := make([]string, 0, len(normalized))
+	for _, surface := range normalized {
+		out = append(out, string(surface))
+	}
+	return out
+}
+
+func canonicalMCPWorkspace(workspace string) string {
+	if workspace == "" {
+		return "default"
+	}
+	return workspace
 }
 
 func clearWriteDeadlineMiddleware(next http.Handler) http.Handler {
@@ -1605,16 +1769,18 @@ func (srv *Server) buildStreamAuthOptions(realm string) auth.Options {
 	// include Basic auth automatically after the user authenticates once.
 	if authCfg.Mode == config.AuthModeBasic {
 		return auth.Options{
-			Realm:            realm,
-			BasicAuthEnabled: true,
-			AuthRequired:     true,
-			Creds:            map[string]string{authCfg.Basic.Username: authCfg.Basic.Password},
+			Realm:                 realm,
+			BasicAuthEnabled:      true,
+			AuthRequired:          true,
+			RequiredAPIKeySurface: authmodel.APIKeySurfaceREST,
+			Creds:                 map[string]string{authCfg.Basic.Username: authCfg.Basic.Password},
 		}
 	}
 
 	opts := auth.Options{
-		Realm:        realm,
-		AuthRequired: true,
+		Realm:                 realm,
+		AuthRequired:          true,
+		RequiredAPIKeySurface: authmodel.APIKeySurfaceREST,
 	}
 
 	if authCfg.Mode == config.AuthModeBuiltin && srv.authService != nil {

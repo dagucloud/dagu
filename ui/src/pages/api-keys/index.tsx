@@ -1,4 +1,5 @@
 import { components } from '@/api/v1/schema';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -32,6 +33,19 @@ import { APIKeyFormModal } from './APIKeyFormModal';
 
 type APIKey = components['schemas']['APIKey'];
 const COMMUNITY_API_KEY_LIMIT = 2;
+
+function surfaceLabel(surface: string): string {
+  if (surface === 'rest_api') return 'REST';
+  if (surface === 'mcp') return 'MCP';
+  return surface;
+}
+
+function attributionLabel(key: APIKey): string {
+  if (key.attributionClass === 'user_owned') {
+    return key.ownerUsername || key.ownerUserId || 'User owned';
+  }
+  return key.serviceAccountName || 'Service account';
+}
 
 export default function APIKeysPage() {
   const config = useConfig();
@@ -173,6 +187,8 @@ export default function APIKeysPage() {
             <TableRow>
               <TableHead className="w-[200px]">Name</TableHead>
               <TableHead className="w-[120px]">Role</TableHead>
+              <TableHead className="w-[140px]">Surfaces</TableHead>
+              <TableHead className="w-[160px]">Identity</TableHead>
               <TableHead className="w-[100px]">Key Prefix</TableHead>
               <TableHead className="w-[180px]">Created</TableHead>
               <TableHead className="w-[180px]">Last Used</TableHead>
@@ -183,7 +199,7 @@ export default function APIKeysPage() {
             {isLoading ? (
               <TableRow>
                 <TableCell
-                  colSpan={6}
+                  colSpan={8}
                   className="text-center text-muted-foreground py-8"
                 >
                   Loading API keys...
@@ -192,7 +208,7 @@ export default function APIKeysPage() {
             ) : apiKeys.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={6}
+                  colSpan={8}
                   className="text-center text-muted-foreground py-8"
                 >
                   No API keys found. Create one to get started.
@@ -218,6 +234,33 @@ export default function APIKeysPage() {
                     <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground capitalize">
                       {key.role}
                     </span>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {key.allowedSurfaces.map((surface) => (
+                        <Badge key={surface} variant="outline">
+                          {surfaceLabel(surface)}
+                        </Badge>
+                      ))}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-col gap-1">
+                      <Badge
+                        variant={
+                          key.attributionClass === 'user_owned'
+                            ? 'primary'
+                            : 'secondary'
+                        }
+                      >
+                        {key.attributionClass === 'user_owned'
+                          ? 'User'
+                          : 'Service'}
+                      </Badge>
+                      <span className="max-w-[140px] truncate text-xs text-muted-foreground">
+                        {attributionLabel(key)}
+                      </span>
+                    </div>
                   </TableCell>
                   <TableCell>
                     <code className="text-xs bg-muted px-1.5 py-0.5 rounded">

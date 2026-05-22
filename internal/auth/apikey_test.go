@@ -162,6 +162,27 @@ func TestAPIKeyForStorage_ToAPIKey(t *testing.T) {
 	assert.Equal(t, *storage.LastUsedAt, *key.LastUsedAt)
 }
 
+func TestAPIKeyForStorage_ToAPIKey_MigratesLegacyAuditMetadata(t *testing.T) {
+	storage := &APIKeyForStorage{
+		ID:        "key-id",
+		Name:      "legacy-ci",
+		Role:      RoleViewer,
+		KeyHash:   "hash",
+		KeyPrefix: "dagu_leg",
+		CreatedBy: "admin-user",
+	}
+
+	key := storage.ToAPIKey()
+
+	assert.Equal(t, APIKeyAttributionServiceAccount, key.AttributionClass)
+	assert.Equal(t, "api_key:key-id", key.ServiceAccountID)
+	assert.Equal(t, "legacy-ci", key.ServiceAccountName)
+	assert.True(t, key.MigratedAsServiceAccount)
+	assert.ElementsMatch(t, []APIKeySurface{APIKeySurfaceREST, APIKeySurfaceMCP}, key.AllowedSurfaces)
+	assert.True(t, HasAPIKeySurface(key.AllowedSurfaces, APIKeySurfaceREST))
+	assert.True(t, HasAPIKeySurface(key.AllowedSurfaces, APIKeySurfaceMCP))
+}
+
 func TestAPIKey_ToStorage_ToAPIKey_Roundtrip(t *testing.T) {
 	now := time.Now().UTC()
 	original := &APIKey{
@@ -174,6 +195,12 @@ func TestAPIKey_ToStorage_ToAPIKey_Roundtrip(t *testing.T) {
 		CreatedAt:   now,
 		UpdatedAt:   now,
 		CreatedBy:   "creator",
+		AllowedSurfaces: []APIKeySurface{
+			APIKeySurfaceMCP,
+		},
+		AttributionClass: APIKeyAttributionUserOwned,
+		OwnerUserID:      "owner-id",
+		OwnerUsername:    "alice",
 	}
 
 	// Convert to storage and back
@@ -190,6 +217,10 @@ func TestAPIKey_ToStorage_ToAPIKey_Roundtrip(t *testing.T) {
 	assert.Equal(t, original.UpdatedAt, recovered.UpdatedAt)
 	assert.Equal(t, original.CreatedBy, recovered.CreatedBy)
 	assert.Equal(t, original.LastUsedAt, recovered.LastUsedAt)
+	assert.Equal(t, original.AttributionClass, recovered.AttributionClass)
+	assert.Equal(t, original.OwnerUserID, recovered.OwnerUserID)
+	assert.Equal(t, original.OwnerUsername, recovered.OwnerUsername)
+	assert.ElementsMatch(t, original.AllowedSurfaces, recovered.AllowedSurfaces)
 }
 
 func TestAPIKey_JSONSerialization(t *testing.T) {

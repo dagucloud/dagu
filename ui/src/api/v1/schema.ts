@@ -211,7 +211,7 @@ export interface paths {
         put?: never;
         /**
          * Create API key
-         * @description Full key returned only in this response
+         * @description Full key returned only in this response. Community edition installs can create up to 2 API keys.
          */
         post: operations["createAPIKey"];
         delete?: never;
@@ -3374,6 +3374,26 @@ export interface components {
             category: string;
             /** @description The action that was performed (e.g., session_start, command, login) */
             action: string;
+            /** @description Source surface that produced the event */
+            source?: string;
+            /** @description Externally accepted credential surface */
+            surface?: string;
+            /** @description Event result such as succeeded, failed, or denied */
+            result?: string;
+            /** @description Correlation ID linking related audit events */
+            correlationId?: string;
+            /** @description Affected resource type */
+            resourceType?: string;
+            /** @description Affected resource ID */
+            resourceId?: string;
+            /** @description Canonical workspace for filtering */
+            workspace?: string;
+            /** @description Credential ID used for the request */
+            credentialId?: string;
+            /** @description Credential type used for the request */
+            credentialType?: string;
+            /** @description MCP tool name when source is MCP */
+            mcpTool?: string;
             /** @description ID of the user who performed the action */
             userId: string;
             /** @description Username of the user who performed the action */
@@ -5298,6 +5318,23 @@ export interface components {
             description?: string;
             role: components["schemas"]["UserRole"];
             workspaceAccess: components["schemas"]["WorkspaceAccess"];
+            /** @description Interfaces where this API key may be accepted */
+            allowedSurfaces: APIKeyAllowedSurfaces[];
+            /**
+             * @description Whether this key is owned by a user or represents a service account
+             * @enum {string}
+             */
+            attributionClass: APIKeyAttributionClass;
+            /** @description Owner user ID when attributionClass is user_owned */
+            ownerUserId?: string;
+            /** @description Owner username when attributionClass is user_owned */
+            ownerUsername?: string;
+            /** @description Service-account identifier when attributionClass is service_account */
+            serviceAccountId?: string;
+            /** @description Service-account display name when attributionClass is service_account */
+            serviceAccountName?: string;
+            /** @description True when legacy key attribution was defaulted to service_account */
+            migratedAsServiceAccount?: boolean;
             /** @description First 8 characters for identification */
             keyPrefix: string;
             /**
@@ -5334,6 +5371,17 @@ export interface components {
             description?: string;
             role: components["schemas"]["UserRole"];
             workspaceAccess?: components["schemas"]["WorkspaceAccess"];
+            /** @description Interfaces where this API key may be accepted */
+            allowedSurfaces?: CreateAPIKeyRequestAllowedSurfaces[];
+            /**
+             * @description Whether this key is owned by a user or represents a service account
+             * @enum {string}
+             */
+            attributionClass?: CreateAPIKeyRequestAttributionClass;
+            /** @description Owner user ID when attributionClass is user_owned */
+            ownerUserId?: string;
+            /** @description Service-account display name when attributionClass is service_account */
+            serviceAccountName?: string;
         };
         /** @description Create API key response */
         CreateAPIKeyResponse: {
@@ -5349,6 +5397,17 @@ export interface components {
             description?: string;
             role?: components["schemas"]["UserRole"];
             workspaceAccess?: components["schemas"]["WorkspaceAccess"];
+            /** @description Interfaces where this API key may be accepted */
+            allowedSurfaces?: UpdateAPIKeyRequestAllowedSurfaces[];
+            /**
+             * @description Whether this key is owned by a user or represents a service account
+             * @enum {string}
+             */
+            attributionClass?: UpdateAPIKeyRequestAttributionClass;
+            /** @description Owner user ID when attributionClass is user_owned */
+            ownerUserId?: string;
+            /** @description Service-account display name when attributionClass is service_account */
+            serviceAccountName?: string;
         };
         /** @description Generic success response */
         SuccessResponse: {
@@ -7082,7 +7141,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Requires admin role */
+            /** @description Requires admin role or community API key limit reached */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -13197,6 +13256,30 @@ export interface operations {
                 remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description Filter by audit category (e.g., terminal, user, dag) */
                 category?: string;
+                /** @description Filter by audit action */
+                action?: string;
+                /** @description Filter by audit source (e.g., mcp, ui, rest, cli) */
+                source?: string;
+                /** @description Filter by accepted credential surface (e.g., mcp, rest_api) */
+                surface?: string;
+                /** @description Filter by result (succeeded, failed, denied) */
+                result?: string;
+                /** @description Filter by correlation ID */
+                correlationId?: string;
+                /** @description Filter by resource type */
+                resourceType?: string;
+                /** @description Filter by resource ID */
+                resourceId?: string;
+                /** @description Filter by canonical workspace */
+                workspace?: string;
+                /** @description Filter by credential ID */
+                credentialId?: string;
+                /** @description Filter by credential type */
+                credentialType?: string;
+                /** @description Filter by MCP tool name */
+                mcpTool?: string;
+                /** @description Filter by client IP address */
+                ipAddress?: string;
                 /** @description Filter by user ID */
                 userId?: string;
                 /** @description Filter entries after this time (ISO 8601 format) */
@@ -17770,6 +17853,30 @@ export enum UserRole {
 export enum UserAuthProvider {
     builtin = "builtin",
     oidc = "oidc"
+}
+export enum APIKeyAllowedSurfaces {
+    rest_api = "rest_api",
+    mcp = "mcp"
+}
+export enum APIKeyAttributionClass {
+    user_owned = "user_owned",
+    service_account = "service_account"
+}
+export enum CreateAPIKeyRequestAllowedSurfaces {
+    rest_api = "rest_api",
+    mcp = "mcp"
+}
+export enum CreateAPIKeyRequestAttributionClass {
+    user_owned = "user_owned",
+    service_account = "service_account"
+}
+export enum UpdateAPIKeyRequestAllowedSurfaces {
+    rest_api = "rest_api",
+    mcp = "mcp"
+}
+export enum UpdateAPIKeyRequestAttributionClass {
+    user_owned = "user_owned",
+    service_account = "service_account"
 }
 export enum SyncStatus {
     synced = "synced",

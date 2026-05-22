@@ -64,11 +64,13 @@ func (m *mockTokenValidator) GetUserFromToken(_ context.Context, token string) (
 
 // testHandler is a simple handler that extracts and stores the authenticated user.
 type testHandler struct {
-	user *auth.User
+	user   *auth.User
+	apiKey *auth.APIKey
 }
 
 func (h *testHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.user, _ = auth.UserFromContext(r.Context())
+	h.apiKey, _ = auth.APIKeyFromContext(r.Context())
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -104,6 +106,82 @@ func TestMiddleware_APIKeyValidation(t *testing.T) {
 	assert.Equal(t, "apikey:key-id-1", handler.user.ID)
 	assert.Equal(t, "apikey:test-key", handler.user.Username)
 	assert.Equal(t, auth.RoleManager, handler.user.Role)
+}
+
+func TestMiddleware_APIKeyRequiredSurface(t *testing.T) {
+	apiKeyValidator := newMockAPIKeyValidator()
+	apiKeyValidator.AddKey("dagu_mcpkey", &auth.APIKey{
+		ID:              "key-id-1",
+		Name:            "mcp-key",
+		Role:            auth.RoleViewer,
+		AllowedSurfaces: []auth.APIKeySurface{auth.APIKeySurfaceMCP},
+	})
+
+	opts := Options{
+		APIKeyValidator:       apiKeyValidator,
+		RequiredAPIKeySurface: auth.APIKeySurfaceMCP,
+	}
+	middleware := Middleware(opts)
+
+	handler := &testHandler{}
+	server := httptest.NewServer(middleware(handler))
+	defer server.Close()
+
+	req, err := http.NewRequest(http.MethodGet, server.URL+"/test", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer dagu_mcpkey")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	require.NotNil(t, handler.apiKey)
+	assert.Equal(t, "key-id-1", handler.apiKey.ID)
+}
+
+func TestMiddleware_APIKeyRequiredSurfaceDenied(t *testing.T) {
+	apiKeyValidator := newMockAPIKeyValidator()
+	apiKeyValidator.AddKey("dagu_restkey", &auth.APIKey{
+		ID:              "key-id-1",
+		Name:            "rest-key",
+		Role:            auth.RoleViewer,
+		AllowedSurfaces: []auth.APIKeySurface{auth.APIKeySurfaceREST},
+	})
+
+	var deniedReason string
+	var deniedKeyID string
+	opts := Options{
+		APIKeyValidator:       apiKeyValidator,
+		AuthRequired:          true,
+		RequiredAPIKeySurface: auth.APIKeySurfaceMCP,
+		OnDenied: func(_ *http.Request, reason string, key *auth.APIKey) {
+			deniedReason = reason
+			if key != nil {
+				deniedKeyID = key.ID
+			}
+		},
+	}
+	middleware := Middleware(opts)
+
+	handler := &testHandler{}
+	server := httptest.NewServer(middleware(handler))
+	defer server.Close()
+
+	req, err := http.NewRequest(http.MethodGet, server.URL+"/test", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer dagu_restkey")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	assert.Nil(t, handler.user)
+	assert.Equal(t, DenialReasonAPIKeySurfaceDenied, deniedReason)
+	assert.Equal(t, "key-id-1", deniedKeyID)
 }
 
 func TestMiddleware_APIKeyValidation_InvalidKey(t *testing.T) {

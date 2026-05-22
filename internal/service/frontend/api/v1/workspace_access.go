@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/service/audit"
 	"github.com/dagucloud/dagu/internal/workspace"
 )
 
@@ -254,13 +255,21 @@ func (a *API) workspaceFilterForContext(ctx context.Context) *exec.WorkspaceFilt
 		return nil
 	}
 	names := make([]string, 0, len(access.Grants))
+	includeUnlabelled := true
 	for _, grant := range access.Grants {
+		if isMCPSourceContext(ctx) && grant.Workspace == "default" {
+			includeUnlabelled = true
+			continue
+		}
 		names = append(names, grant.Workspace)
+	}
+	if isMCPSourceContext(ctx) {
+		includeUnlabelled = workspaceAccessHasGrant(access, "default")
 	}
 	return &exec.WorkspaceFilter{
 		Enabled:           true,
 		Workspaces:        names,
-		IncludeUnlabelled: true,
+		IncludeUnlabelled: includeUnlabelled,
 	}
 }
 
@@ -305,8 +314,30 @@ func (a *API) effectiveRoleForWorkspace(ctx context.Context, workspaceName strin
 	if !ok {
 		return auth.RoleNone, false, errAuthRequired
 	}
+	workspaceName = canonicalWorkspaceForAuth(ctx, workspaceName)
 	role, ok := auth.EffectiveRole(user.Role, user.WorkspaceAccess, workspaceName)
 	return role, ok, nil
+}
+
+func canonicalWorkspaceForAuth(ctx context.Context, workspaceName string) string {
+	if isMCPSourceContext(ctx) && workspaceName == "" {
+		return "default"
+	}
+	return workspaceName
+}
+
+func isMCPSourceContext(ctx context.Context) bool {
+	source, ok := audit.SourceContextFromContext(ctx)
+	return ok && source.Source == "mcp"
+}
+
+func workspaceAccessHasGrant(access auth.WorkspaceAccess, workspaceName string) bool {
+	for _, grant := range access.Grants {
+		if grant.Workspace == workspaceName {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *API) canAccessWorkspace(ctx context.Context, workspaceName string) bool {

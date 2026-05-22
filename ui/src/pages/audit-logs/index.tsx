@@ -1,4 +1,5 @@
 import { components } from '@/api/v1/schema';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DateRangePicker } from '@/components/ui/date-range-picker';
 import { Input } from '@/components/ui/input';
@@ -29,6 +30,31 @@ const CATEGORIES = [
   { value: 'notification', label: 'Notification' },
   { value: 'git_sync', label: 'Git Sync' },
   { value: 'agent', label: 'Agent' },
+  { value: 'mcp', label: 'MCP' },
+  { value: 'secret', label: 'Secret' },
+  { value: 'workspace', label: 'Workspace' },
+  { value: 'system', label: 'System' },
+];
+
+const SOURCES = [
+  { value: 'all', label: 'All Sources' },
+  { value: 'rest', label: 'REST' },
+  { value: 'mcp', label: 'MCP' },
+];
+
+const SURFACES = [
+  { value: 'all', label: 'All Surfaces' },
+  { value: 'rest_api', label: 'REST API' },
+  { value: 'mcp', label: 'MCP' },
+];
+
+const RESULTS = [
+  { value: 'all', label: 'All Results' },
+  { value: 'succeeded', label: 'Succeeded' },
+  { value: 'failed', label: 'Failed' },
+  { value: 'denied', label: 'Denied' },
+  { value: 'started', label: 'Started' },
+  { value: 'received', label: 'Received' },
 ];
 
 const PAGE_SIZE = 50;
@@ -44,6 +70,15 @@ export default function AuditLogsPage() {
 
   // Filter states
   const [category, setCategory] = useState('all');
+  const [source, setSource] = useState('all');
+  const [surface, setSurface] = useState('all');
+  const [result, setResult] = useState('all');
+  const [action, setAction] = useState('');
+  const [workspace, setWorkspace] = useState('');
+  const [credentialId, setCredentialId] = useState('');
+  const [correlationId, setCorrelationId] = useState('');
+  const [resourceId, setResourceId] = useState('');
+  const [mcpTool, setMcpTool] = useState('');
   const [offset, setOffset] = useState(0);
 
   // Date filter states
@@ -72,6 +107,18 @@ export default function AuditLogsPage() {
   const prevRemoteNodeRef = useRef(remoteNode);
   const prevApiStartTimeRef = useRef(apiStartTime);
   const prevApiEndTimeRef = useRef(apiEndTime);
+  const structuredFilterSignature = [
+    source,
+    surface,
+    result,
+    action,
+    workspace,
+    credentialId,
+    correlationId,
+    resourceId,
+    mcpTool,
+  ].join('\u0000');
+  const prevStructuredFilterRef = useRef(structuredFilterSignature);
 
   // Helper functions for date calculations
   const getPresetDates = useCallback(
@@ -209,7 +256,8 @@ export default function AuditLogsPage() {
         prevCategoryRef.current !== category ||
         prevRemoteNodeRef.current !== remoteNode ||
         prevApiStartTimeRef.current !== apiStartTime ||
-        prevApiEndTimeRef.current !== apiEndTime;
+        prevApiEndTimeRef.current !== apiEndTime ||
+        prevStructuredFilterRef.current !== structuredFilterSignature;
 
       if (resetOffset || filtersChanged) {
         effectiveOffset = 0;
@@ -219,6 +267,7 @@ export default function AuditLogsPage() {
           prevRemoteNodeRef.current = remoteNode;
           prevApiStartTimeRef.current = apiStartTime;
           prevApiEndTimeRef.current = apiEndTime;
+          prevStructuredFilterRef.current = structuredFilterSignature;
         }
       }
 
@@ -229,6 +278,17 @@ export default function AuditLogsPage() {
         const params = new URLSearchParams();
         params.set('remoteNode', remoteNode);
         if (category && category !== 'all') params.set('category', category);
+        if (source && source !== 'all') params.set('source', source);
+        if (surface && surface !== 'all') params.set('surface', surface);
+        if (result && result !== 'all') params.set('result', result);
+        if (action.trim()) params.set('action', action.trim());
+        if (workspace.trim()) params.set('workspace', workspace.trim());
+        if (credentialId.trim())
+          params.set('credentialId', credentialId.trim());
+        if (correlationId.trim())
+          params.set('correlationId', correlationId.trim());
+        if (resourceId.trim()) params.set('resourceId', resourceId.trim());
+        if (mcpTool.trim()) params.set('mcpTool', mcpTool.trim());
         params.set('limit', String(PAGE_SIZE));
         params.set('offset', String(effectiveOffset));
         if (apiStartTime) params.set('startTime', apiStartTime);
@@ -262,7 +322,24 @@ export default function AuditLogsPage() {
         setIsLoading(false);
       }
     },
-    [config.apiURL, category, offset, remoteNode, apiStartTime, apiEndTime]
+    [
+      config.apiURL,
+      category,
+      source,
+      surface,
+      result,
+      action,
+      workspace,
+      credentialId,
+      correlationId,
+      resourceId,
+      mcpTool,
+      structuredFilterSignature,
+      offset,
+      remoteNode,
+      apiStartTime,
+      apiEndTime,
+    ]
   );
 
   useEffect(() => {
@@ -328,6 +405,25 @@ export default function AuditLogsPage() {
     setApiEndTime(formatDateForApi(toDate));
   };
 
+  const applyQuickFilter = (
+    filter: 'all' | 'mcp' | 'rest' | 'failed' | 'denied'
+  ) => {
+    setCategory(filter === 'mcp' ? 'mcp' : 'all');
+    setSource(filter === 'mcp' ? 'mcp' : filter === 'rest' ? 'rest' : 'all');
+    setSurface(
+      filter === 'mcp' ? 'mcp' : filter === 'rest' ? 'rest_api' : 'all'
+    );
+    setResult(
+      filter === 'failed' ? 'failed' : filter === 'denied' ? 'denied' : 'all'
+    );
+    setAction('');
+    setWorkspace('');
+    setCredentialId('');
+    setCorrelationId('');
+    setResourceId('');
+    setMcpTool('');
+  };
+
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
@@ -355,7 +451,10 @@ export default function AuditLogsPage() {
   const formatDetails = (entry: AuditEntry): string => {
     const details = parseDetails(entry.details);
     if (entry.category === 'terminal') {
-      if (entry.action === 'connection_start' || entry.action === 'connection_end') {
+      if (
+        entry.action === 'connection_start' ||
+        entry.action === 'connection_end'
+      ) {
         return `Connection: ${details.connection_id || 'N/A'}${details.reason ? ` (${details.reason})` : ''}`;
       }
       if (entry.action === 'command') {
@@ -363,12 +462,43 @@ export default function AuditLogsPage() {
       }
     }
     if (entry.category === 'agent') {
-      if (entry.action === 'bash_exec') return `Command: ${details.command || 'N/A'}`;
+      if (entry.action === 'bash_exec')
+        return `Command: ${details.command || 'N/A'}`;
       if (entry.action === 'file_read') return `Path: ${details.path || 'N/A'}`;
-      if (entry.action === 'file_patch') return `${details.operation || 'patch'}: ${details.path || 'N/A'}`;
+      if (entry.action === 'file_patch')
+        return `${details.operation || 'patch'}: ${details.path || 'N/A'}`;
+    }
+    if (entry.category === 'mcp') {
+      const summary = [
+        entry.mcpTool || details.mcp_tool,
+        entry.result || details.result,
+        entry.resourceType || details.resource_type,
+        entry.resourceId || details.resource_id,
+      ]
+        .filter(Boolean)
+        .join(' / ');
+      return summary || entry.details || '-';
     }
     return entry.details || '-';
   };
+
+  const resultVariant = (value?: string) => {
+    if (value === 'succeeded') return 'success';
+    if (value === 'failed') return 'error';
+    if (value === 'denied') return 'warning';
+    return 'outline';
+  };
+
+  const quickFilterValue =
+    category === 'mcp' && source === 'mcp' && surface === 'mcp'
+      ? 'mcp'
+      : source === 'rest' && surface === 'rest_api'
+        ? 'rest'
+        : result === 'failed'
+          ? 'failed'
+          : result === 'denied'
+            ? 'denied'
+            : 'all';
 
   return (
     <div className="flex flex-col gap-4 max-w-7xl h-full">
@@ -515,6 +645,132 @@ export default function AuditLogsPage() {
         )}
       </div>
 
+      <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
+        <ToggleGroup aria-label="Audit quick filters">
+          <ToggleButton
+            value="all"
+            groupValue={quickFilterValue}
+            onClick={() => applyQuickFilter('all')}
+            position="first"
+            aria-label="All audit entries"
+          >
+            All
+          </ToggleButton>
+          <ToggleButton
+            value="mcp"
+            groupValue={quickFilterValue}
+            onClick={() => applyQuickFilter('mcp')}
+            position="middle"
+            aria-label="MCP audit entries"
+          >
+            MCP
+          </ToggleButton>
+          <ToggleButton
+            value="rest"
+            groupValue={quickFilterValue}
+            onClick={() => applyQuickFilter('rest')}
+            position="middle"
+            aria-label="REST audit entries"
+          >
+            REST
+          </ToggleButton>
+          <ToggleButton
+            value="failed"
+            groupValue={quickFilterValue}
+            onClick={() => applyQuickFilter('failed')}
+            position="middle"
+            aria-label="Failed audit entries"
+          >
+            Failed
+          </ToggleButton>
+          <ToggleButton
+            value="denied"
+            groupValue={quickFilterValue}
+            onClick={() => applyQuickFilter('denied')}
+            position="last"
+            aria-label="Denied audit entries"
+          >
+            Denied
+          </ToggleButton>
+        </ToggleGroup>
+
+        <Select value={source} onValueChange={setSource}>
+          <SelectTrigger className="w-[140px] h-8">
+            <SelectValue placeholder="Source" />
+          </SelectTrigger>
+          <SelectContent>
+            {SOURCES.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={surface} onValueChange={setSurface}>
+          <SelectTrigger className="w-[150px] h-8">
+            <SelectValue placeholder="Surface" />
+          </SelectTrigger>
+          <SelectContent>
+            {SURFACES.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={result} onValueChange={setResult}>
+          <SelectTrigger className="w-[140px] h-8">
+            <SelectValue placeholder="Result" />
+          </SelectTrigger>
+          <SelectContent>
+            {RESULTS.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Input
+          value={action}
+          onChange={(e) => setAction(e.target.value)}
+          placeholder="Action"
+          className="w-[170px] h-8"
+        />
+        <Input
+          value={workspace}
+          onChange={(e) => setWorkspace(e.target.value)}
+          placeholder="Workspace"
+          className="w-[140px] h-8"
+        />
+        <Input
+          value={credentialId}
+          onChange={(e) => setCredentialId(e.target.value)}
+          placeholder="Credential ID"
+          className="w-[170px] h-8"
+        />
+        <Input
+          value={correlationId}
+          onChange={(e) => setCorrelationId(e.target.value)}
+          placeholder="Correlation ID"
+          className="w-[180px] h-8"
+        />
+        <Input
+          value={resourceId}
+          onChange={(e) => setResourceId(e.target.value)}
+          placeholder="Resource ID"
+          className="w-[160px] h-8"
+        />
+        <Input
+          value={mcpTool}
+          onChange={(e) => setMcpTool(e.target.value)}
+          placeholder="MCP tool"
+          className="w-[140px] h-8"
+        />
+      </div>
+
       {error && (
         <div className="p-3 text-sm text-destructive bg-destructive/10 rounded-md flex-shrink-0">
           {error}
@@ -526,12 +782,30 @@ export default function AuditLogsPage() {
           <table className="w-full table-fixed bg-background">
             <thead>
               <tr>
-                <th className="w-[180px] px-4 py-3 text-left text-sm font-medium text-muted-foreground">Timestamp</th>
-                <th className="w-[100px] px-4 py-3 text-left text-sm font-medium text-muted-foreground">Category</th>
-                <th className="w-[120px] px-4 py-3 text-left text-sm font-medium text-muted-foreground">Action</th>
-                <th className="w-[120px] px-4 py-3 text-left text-sm font-medium text-muted-foreground">User</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Details</th>
-                <th className="w-[120px] px-4 py-3 text-left text-sm font-medium text-muted-foreground">IP Address</th>
+                <th className="w-[180px] px-4 py-3 text-left text-sm font-medium text-muted-foreground">
+                  Timestamp
+                </th>
+                <th className="w-[100px] px-4 py-3 text-left text-sm font-medium text-muted-foreground">
+                  Category
+                </th>
+                <th className="w-[120px] px-4 py-3 text-left text-sm font-medium text-muted-foreground">
+                  Action
+                </th>
+                <th className="w-[90px] px-4 py-3 text-left text-sm font-medium text-muted-foreground">
+                  Source
+                </th>
+                <th className="w-[100px] px-4 py-3 text-left text-sm font-medium text-muted-foreground">
+                  Result
+                </th>
+                <th className="w-[120px] px-4 py-3 text-left text-sm font-medium text-muted-foreground">
+                  User
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">
+                  Details
+                </th>
+                <th className="w-[120px] px-4 py-3 text-left text-sm font-medium text-muted-foreground">
+                  IP Address
+                </th>
               </tr>
             </thead>
           </table>
@@ -541,20 +815,29 @@ export default function AuditLogsPage() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="text-center text-muted-foreground py-8">
+                  <td
+                    colSpan={8}
+                    className="text-center text-muted-foreground py-8"
+                  >
                     Loading audit logs...
                   </td>
                 </tr>
               ) : entries.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center text-muted-foreground py-8">
+                  <td
+                    colSpan={8}
+                    className="text-center text-muted-foreground py-8"
+                  >
                     <ScrollText className="h-8 w-8 mx-auto mb-2 opacity-50" />
                     No audit log entries found
                   </td>
                 </tr>
               ) : (
                 entries.map((entry) => (
-                  <tr key={entry.id} className="border-b border-border bg-background hover:bg-muted/50">
+                  <tr
+                    key={entry.id}
+                    className="border-b border-border bg-background hover:bg-muted/50"
+                  >
                     <td className="w-[180px] px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
                       {config.tzOffsetInSec !== undefined
                         ? dayjs(entry.timestamp)
@@ -570,8 +853,29 @@ export default function AuditLogsPage() {
                     <td className="w-[120px] px-4 py-3">
                       <span className="text-xs font-mono">{entry.action}</span>
                     </td>
-                    <td className="w-[120px] px-4 py-3 text-sm">{entry.username}</td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground truncate" title={entry.details}>
+                    <td className="w-[90px] px-4 py-3">
+                      {entry.source ? (
+                        <Badge variant="outline">{entry.source}</Badge>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">-</span>
+                      )}
+                    </td>
+                    <td className="w-[100px] px-4 py-3">
+                      {entry.result ? (
+                        <Badge variant={resultVariant(entry.result)}>
+                          {entry.result}
+                        </Badge>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">-</span>
+                      )}
+                    </td>
+                    <td className="w-[120px] px-4 py-3 text-sm">
+                      {entry.username}
+                    </td>
+                    <td
+                      className="px-4 py-3 text-sm text-muted-foreground truncate"
+                      title={entry.details}
+                    >
                       {formatDetails(entry)}
                     </td>
                     <td className="w-[120px] px-4 py-3 text-sm text-muted-foreground font-mono">

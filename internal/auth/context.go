@@ -11,6 +11,8 @@ type contextKey string
 const (
 	// userContextKey is the key for storing the authenticated user in context.
 	userContextKey contextKey = "auth_user"
+	// apiKeyContextKey is the key for storing the API key used for authentication.
+	apiKeyContextKey contextKey = "auth_api_key"
 	// clientIPContextKey is the key for storing the client IP address in context.
 	clientIPContextKey contextKey = "client_ip"
 )
@@ -25,6 +27,17 @@ func WithUser(ctx context.Context, user *User) context.Context {
 func UserFromContext(ctx context.Context) (*User, bool) {
 	user, ok := ctx.Value(userContextKey).(*User)
 	return user, ok
+}
+
+// WithAPIKey returns a new context that carries the provided API key value.
+func WithAPIKey(ctx context.Context, key *APIKey) context.Context {
+	return context.WithValue(ctx, apiKeyContextKey, key)
+}
+
+// APIKeyFromContext retrieves the API key used for authentication from context.
+func APIKeyFromContext(ctx context.Context) (*APIKey, bool) {
+	key, ok := ctx.Value(apiKeyContextKey).(*APIKey)
+	return key, ok
 }
 
 // WithClientIP returns a new context that carries the client IP address.

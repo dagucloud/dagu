@@ -437,10 +437,14 @@ func (s *Service) validatePassword(password string) error {
 
 // CreateAPIKeyInput contains the input for creating an API key.
 type CreateAPIKeyInput struct {
-	Name            string
-	Description     string
-	Role            auth.Role
-	WorkspaceAccess *auth.WorkspaceAccess
+	Name               string
+	Description        string
+	Role               auth.Role
+	WorkspaceAccess    *auth.WorkspaceAccess
+	AllowedSurfaces    []auth.APIKeySurface
+	AttributionClass   auth.APIKeyAttributionClass
+	OwnerUserID        string
+	ServiceAccountName string
 }
 
 // CreateAPIKeyResult contains the result of creating an API key.
@@ -481,6 +485,9 @@ func (s *Service) CreateAPIKey(ctx context.Context, input CreateAPIKeyInput, cre
 		return nil, err
 	}
 	apiKey.WorkspaceAccess = auth.CloneWorkspaceAccess(input.WorkspaceAccess)
+	if err := s.applyAPIKeyCreateMetadata(ctx, apiKey, input); err != nil {
+		return nil, err
+	}
 	if err := s.apiKeyStore.Create(ctx, apiKey); err != nil {
 		return nil, err
 	}
@@ -547,10 +554,14 @@ func (s *Service) ListAPIKeys(ctx context.Context) ([]*auth.APIKey, error) {
 
 // UpdateAPIKeyInput contains the input for updating an API key.
 type UpdateAPIKeyInput struct {
-	Name            *string
-	Description     *string
-	Role            *auth.Role
-	WorkspaceAccess *auth.WorkspaceAccess
+	Name               *string
+	Description        *string
+	Role               *auth.Role
+	WorkspaceAccess    *auth.WorkspaceAccess
+	AllowedSurfaces    *[]auth.APIKeySurface
+	AttributionClass   *auth.APIKeyAttributionClass
+	OwnerUserID        *string
+	ServiceAccountName *string
 }
 
 // UpdateAPIKey updates an existing API key.
@@ -581,6 +592,24 @@ func (s *Service) UpdateAPIKey(ctx context.Context, id string, input UpdateAPIKe
 
 	if input.WorkspaceAccess != nil {
 		apiKey.WorkspaceAccess = auth.CloneWorkspaceAccess(input.WorkspaceAccess)
+	}
+	if input.AllowedSurfaces != nil {
+		if err := validateAPIKeySurfaces(*input.AllowedSurfaces); err != nil {
+			return nil, err
+		}
+		apiKey.AllowedSurfaces = auth.CloneAPIKeySurfaces(*input.AllowedSurfaces)
+	}
+	if input.AttributionClass != nil {
+		apiKey.AttributionClass = *input.AttributionClass
+	}
+	if input.OwnerUserID != nil {
+		apiKey.OwnerUserID = *input.OwnerUserID
+	}
+	if input.ServiceAccountName != nil {
+		apiKey.ServiceAccountName = *input.ServiceAccountName
+	}
+	if err := s.applyAPIKeyUpdateMetadata(ctx, apiKey); err != nil {
+		return nil, err
 	}
 
 	if err := auth.ValidateWorkspaceAccess(apiKey.Role, apiKey.WorkspaceAccess, nil); err != nil {
@@ -632,6 +661,10 @@ func (s *Service) ValidateAPIKey(ctx context.Context, keySecret string) (*auth.A
 			continue
 		}
 		if err := bcrypt.CompareHashAndPassword([]byte(key.KeyHash), []byte(keySecret)); err == nil {
+			key = auth.NormalizeAPIKeyMetadata(key)
+			if err := s.validateAPIKeyOwner(ctx, key); err != nil {
+				return nil, err
+			}
 			// Update last used timestamp synchronously.
 			// This avoids goroutine leaks and race conditions with Delete.
 			if err := s.apiKeyStore.UpdateLastUsed(ctx, key.ID); err != nil {
@@ -642,6 +675,83 @@ func (s *Service) ValidateAPIKey(ctx context.Context, keySecret string) (*auth.A
 	}
 
 	return nil, ErrInvalidAPIKey
+}
+
+func (s *Service) applyAPIKeyCreateMetadata(ctx context.Context, key *auth.APIKey, input CreateAPIKeyInput) error {
+	if err := validateAPIKeySurfaces(input.AllowedSurfaces); err != nil {
+		return err
+	}
+	key.AllowedSurfaces = auth.CloneAPIKeySurfaces(input.AllowedSurfaces)
+	if input.AttributionClass == "" {
+		input.AttributionClass = auth.APIKeyAttributionServiceAccount
+	}
+	key.AttributionClass = input.AttributionClass
+	key.OwnerUserID = input.OwnerUserID
+	key.ServiceAccountName = input.ServiceAccountName
+	return s.applyAPIKeyUpdateMetadata(ctx, key)
+}
+
+func (s *Service) applyAPIKeyUpdateMetadata(ctx context.Context, key *auth.APIKey) error {
+	if key == nil {
+		return auth.ErrInvalidAPIKeyAttribution
+	}
+	key.AllowedSurfaces = auth.CloneAPIKeySurfaces(key.AllowedSurfaces)
+	switch key.AttributionClass {
+	case "", auth.APIKeyAttributionServiceAccount:
+		key.AttributionClass = auth.APIKeyAttributionServiceAccount
+		key.OwnerUserID = ""
+		key.OwnerUsername = ""
+		if strings.TrimSpace(key.ServiceAccountName) == "" {
+			key.ServiceAccountName = key.Name
+		}
+		key.ServiceAccountID = ""
+		normalized := auth.NormalizeAPIKeyMetadata(key)
+		key.ServiceAccountID = normalized.ServiceAccountID
+		key.ServiceAccountName = normalized.ServiceAccountName
+	case auth.APIKeyAttributionUserOwned:
+		if strings.TrimSpace(key.OwnerUserID) == "" {
+			return auth.ErrInvalidAPIKeyAttribution
+		}
+		if s.store == nil {
+			return auth.ErrInvalidAPIKeyAttribution
+		}
+		owner, err := s.store.GetByID(ctx, key.OwnerUserID)
+		if err != nil || owner == nil || owner.IsDisabled {
+			return auth.ErrInvalidAPIKeyAttribution
+		}
+		key.OwnerUsername = owner.Username
+		key.ServiceAccountID = ""
+		key.ServiceAccountName = ""
+	default:
+		return auth.ErrInvalidAPIKeyAttribution
+	}
+	return nil
+}
+
+func (s *Service) validateAPIKeyOwner(ctx context.Context, key *auth.APIKey) error {
+	if key == nil || key.AttributionClass != auth.APIKeyAttributionUserOwned {
+		return nil
+	}
+	if strings.TrimSpace(key.OwnerUserID) == "" {
+		return ErrInvalidAPIKey
+	}
+	if s.store == nil {
+		return ErrInvalidAPIKey
+	}
+	owner, err := s.store.GetByID(ctx, key.OwnerUserID)
+	if err != nil || owner == nil || owner.IsDisabled {
+		return ErrInvalidAPIKey
+	}
+	return nil
+}
+
+func validateAPIKeySurfaces(surfaces []auth.APIKeySurface) error {
+	for _, surface := range surfaces {
+		if !auth.ValidAPIKeySurface(surface) {
+			return auth.ErrInvalidAPIKeySurface
+		}
+	}
+	return nil
 }
 
 // HasAPIKeyStore returns true if API key management is configured.
