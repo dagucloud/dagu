@@ -13,11 +13,11 @@ func IsQueuedCatchup(status *DAGRunStatus) bool {
 }
 
 // PreservedQueueTriggerType returns the trigger type that must be preserved
-// when consuming a queued item. Only catchup is preserved for now; all other
-// queued execution paths keep their existing behavior.
+// when consuming a queued item. Queued retry records still execute as retries;
+// initial queued runs keep the trigger that originally enqueued them.
 func PreservedQueueTriggerType(status *DAGRunStatus) core.TriggerType {
-	if IsQueuedCatchup(status) {
-		return core.TriggerTypeCatchUp
+	if status == nil || status.Status != core.Queued || status.TriggerType == core.TriggerTypeRetry {
+		return core.TriggerTypeUnknown
 	}
-	return core.TriggerTypeUnknown
+	return status.TriggerType
 }

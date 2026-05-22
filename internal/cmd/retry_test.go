@@ -234,6 +234,7 @@ steps:
 		latestStatus, err := latestAttempt.ReadStatus(th.Context)
 		require.NoError(t, err)
 		require.Equal(t, core.Succeeded, latestStatus.Status)
+		require.Equal(t, core.TriggerTypeWebhook, latestStatus.TriggerType)
 	})
 
 	t.Run("QueueDispatchRetryTriggerCreatesNewAttempt", func(t *testing.T) {

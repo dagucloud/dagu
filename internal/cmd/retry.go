@@ -175,7 +175,7 @@ func runRetry(ctx *Context, args []string) error {
 			status.ScheduleTime,
 			func(execCtx context.Context) (exec.DAGRunAttempt, error) {
 				if queueDispatchRetry {
-					queuedAttempt, queuedStatus, err := queueDispatchRetryTarget(execCtx, ctx.DAGRunStore, ref, rootRun)
+					queuedAttempt, queuedStatus, err := queueDispatchRetryTarget(execCtx, ctx.DAGRunStore, ref, rootRun, attempt.ID())
 					if err != nil {
 						return nil, err
 					}
@@ -290,7 +290,7 @@ func ensureQueueDispatchRetryTarget(
 	ref exec.DAGRunRef,
 	rootRun exec.DAGRunRef,
 ) error {
-	_, err := queueDispatchRetryAttempt(ctx, dagRunStore, ref, rootRun)
+	_, err := queueDispatchRetryAttempt(ctx, dagRunStore, ref, rootRun, "")
 	return err
 }
 
@@ -299,8 +299,9 @@ func queueDispatchRetryAttempt(
 	dagRunStore exec.DAGRunStore,
 	ref exec.DAGRunRef,
 	rootRun exec.DAGRunRef,
+	expectedAttemptID string,
 ) (exec.DAGRunAttempt, error) {
-	attempt, _, err := queueDispatchRetryTarget(ctx, dagRunStore, ref, rootRun)
+	attempt, _, err := queueDispatchRetryTarget(ctx, dagRunStore, ref, rootRun, expectedAttemptID)
 	return attempt, err
 }
 
@@ -309,6 +310,7 @@ func queueDispatchRetryTarget(
 	dagRunStore exec.DAGRunStore,
 	ref exec.DAGRunRef,
 	rootRun exec.DAGRunRef,
+	expectedAttemptID string,
 ) (exec.DAGRunAttempt, *exec.DAGRunStatus, error) {
 	if dagRunStore == nil {
 		return nil, nil, nil
@@ -318,6 +320,9 @@ func queueDispatchRetryTarget(
 	err = normalizeQueueDispatchRetryLookupError(err)
 	if err != nil {
 		return nil, nil, err
+	}
+	if expectedAttemptID != "" && attempt.ID() != expectedAttemptID {
+		return nil, nil, newQueueDispatchNotQueuedError(nil)
 	}
 
 	status, err := attempt.ReadStatus(ctx)
