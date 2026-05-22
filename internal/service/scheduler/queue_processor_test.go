@@ -30,6 +30,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const freshDistributedTestThreshold = time.Hour
+
 type syncBuffer struct {
 	buf  *bytes.Buffer
 	lock sync.Mutex
@@ -237,7 +239,7 @@ func TestQueueProcessor_ConcurrencyLimit(t *testing.T) {
 
 func TestQueueProcessor_CountsFreshDistributedRunsAgainstQueueConcurrency(t *testing.T) {
 	f := newQueueFixture(t).withDAG("distributed-conc-dag", 1).
-		withProcessor(config.Queues{}, WithLeaseStaleThreshold(5*time.Second)).
+		withProcessor(config.Queues{}, WithLeaseStaleThreshold(freshDistributedTestThreshold)).
 		simulateQueue(1, false)
 
 	runningAttempt, err := f.dagRunStore.CreateAttempt(f.ctx, f.dag, time.Now(), "running-run", exec.NewDAGRunAttemptOptions{})
@@ -312,7 +314,7 @@ func TestQueueProcessor_ProcessQueueItems_FailsClosedOnOutstandingDispatchCountE
 
 func TestQueueProcessor_CountsOutstandingDispatchReservationsAgainstQueueConcurrency(t *testing.T) {
 	f := newQueueFixture(t).withDAG("distributed-dispatch-reservation-dag", 1).
-		withProcessor(config.Queues{}, WithLeaseStaleThreshold(5*time.Second)).
+		withProcessor(config.Queues{}, WithLeaseStaleThreshold(freshDistributedTestThreshold)).
 		simulateQueue(1, false)
 
 	f.enqueueRuns(1)
@@ -341,7 +343,7 @@ func TestQueueProcessor_CountsOutstandingDispatchReservationsAgainstQueueConcurr
 
 func TestQueueProcessor_SelectRunnableQueueItemsSkipsOutstandingReservations(t *testing.T) {
 	f := newQueueFixture(t).withDAG("distributed-select-dag", 2).
-		withProcessor(config.Queues{}, WithLeaseStaleThreshold(5*time.Second)).
+		withProcessor(config.Queues{}, WithLeaseStaleThreshold(freshDistributedTestThreshold)).
 		simulateQueue(2, false)
 
 	f.enqueueRuns(2)
@@ -554,7 +556,7 @@ func agePendingDispatchReservationFiles(t *testing.T, distributedDir string, age
 
 func TestQueueProcessor_CheckStartupStatusTreatsRunningStatusAsStarted(t *testing.T) {
 	f := newQueueFixture(t).withDAG("startup-running-dag", 1).
-		withProcessor(config.Queues{}, WithLeaseStaleThreshold(5*time.Second))
+		withProcessor(config.Queues{}, WithLeaseStaleThreshold(freshDistributedTestThreshold))
 
 	run, err := f.dagRunStore.CreateAttempt(f.ctx, f.dag, time.Now(), "running-startup-run", exec.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
@@ -578,7 +580,7 @@ func TestQueueProcessor_CheckStartupStatusTreatsRunningStatusAsStarted(t *testin
 
 func TestQueueProcessor_CheckStartupStatusTreatsFreshDistributedLeaseAsStarted(t *testing.T) {
 	f := newQueueFixture(t).withDAG("startup-lease-dag", 1).
-		withProcessor(config.Queues{}, WithLeaseStaleThreshold(5*time.Second))
+		withProcessor(config.Queues{}, WithLeaseStaleThreshold(freshDistributedTestThreshold))
 
 	run, err := f.dagRunStore.CreateAttempt(f.ctx, f.dag, time.Now(), "lease-startup-run", exec.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
