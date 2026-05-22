@@ -105,7 +105,7 @@ func (e *mail) Run(ctx context.Context) error {
 		toAddresses,
 		e.cfg.Subject,
 		e.cfg.Message,
-		[]string{},
+		e.cfg.Attachments,
 	)
 	if err != nil {
 		_, _ = e.stderr.Write([]byte("error occurred."))
