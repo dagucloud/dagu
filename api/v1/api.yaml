@@ -12990,6 +12990,8 @@ components:
           $ref: "#/components/schemas/WorkspaceAccess"
         allowedSurfaces:
           type: array
+          minItems: 1
+          uniqueItems: true
           description: "Interfaces where this API key may be accepted"
           items:
             type: string
@@ -13083,6 +13085,8 @@ components:
           $ref: "#/components/schemas/WorkspaceAccess"
         allowedSurfaces:
           type: array
+          minItems: 1
+          uniqueItems: true
           description: "Interfaces where this API key may be accepted"
           items:
             type: string
@@ -13133,6 +13137,8 @@ components:
           $ref: "#/components/schemas/WorkspaceAccess"
         allowedSurfaces:
           type: array
+          minItems: 1
+          uniqueItems: true
           description: "Interfaces where this API key may be accepted"
           items:
             type: string

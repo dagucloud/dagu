@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import { components } from '@/api/v1/schema';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -237,7 +240,7 @@ export default function APIKeysPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
-                      {key.allowedSurfaces.map((surface) => (
+                      {(key.allowedSurfaces ?? []).map((surface) => (
                         <Badge key={surface} variant="outline">
                           {surfaceLabel(surface)}
                         </Badge>

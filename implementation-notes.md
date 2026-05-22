@@ -5,7 +5,7 @@
 ### Scope
 
 - User success invariant: implement the MCP auditability design in `mcp-auditability-design.html` so every MCP access to operational state or mutation-capable tools can be attributed to a subject and credential, authorized by API-key surface and workspace scope, audited with MCP source/correlation metadata, and found through structured audit-log filters and UI affordances.
-- Source design file: `/Users/hamadayouta/dev/dagu/mcp-auditability-design.html`.
+- Source design file: private local artifact supplied for this PR implementation pass.
 - Target branch literal: `feat/mcp-auditability`.
 - Package name changes: none.
 - Package tag changes: none.
@@ -27,6 +27,9 @@
 - Explicit empty API-key surface arrays are rejected at the REST handler boundary. Omitted surfaces still get the legacy-compatible default of both `rest_api` and `mcp`.
 - CI's Go modernization step requires standard library helpers for newly touched loops, so API-key surface checks use `slices.Contains` and MCP audit detail copying uses `maps.Copy`.
 - Gosec treats some internal labels containing key/credential wording as potential secrets. Context storage now uses private zero-sized key types, and the denial audit reason was renamed from `invalid_credentials` to `auth_failed`; this keeps the event useful without adding suppressions.
+- CodeRabbit feedback was valid on the OpenAPI schema contract, so `allowedSurfaces` now declares `minItems: 1` and `uniqueItems: true` in addition to the existing handler-side validation and normalization.
+- CodeRabbit feedback was also valid that legacy/partial API-key payloads can miss `allowedSurfaces`, so the API-key table now renders that field defensively.
+- The source design file was intentionally not moved into the repository because it was supplied as a private local artifact for this implementation pass; the notes now state that explicitly instead of preserving a machine-specific absolute path.
 
 ### Verification
 
@@ -42,4 +45,9 @@
 - `go test ./internal/auth ./internal/service/mcp -count=1` passed after the Go modernization cleanup.
 - `go test ./internal/auth ./internal/service/frontend/auth -count=1` passed after replacing the context-key labels and denial reason.
 - `go fix -diff ./internal/auth ./internal/service/frontend/auth` passed after the linter cleanup.
+- `make api` passed after adding OpenAPI `allowedSurfaces` item constraints.
+- `pnpm gen:api` passed after the OpenAPI schema update.
+- `go test ./internal/auth ./internal/service/frontend/auth ./internal/service/frontend/api/v1 ./internal/service/auth ./internal/service/mcp -count=1` passed after CodeRabbit fixes.
+- `pnpm typecheck` passed after CodeRabbit fixes.
+- `pnpm test src/pages/api-keys/__tests__/index.test.tsx` passed after CodeRabbit fixes.
 - `git diff --check` passed.
