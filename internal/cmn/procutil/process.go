@@ -3,8 +3,6 @@
 
 package procutil
 
-const maxPIDInt32 = 1<<31 - 1
-
 // IsAlive reports whether pid currently refers to a live OS process.
 func IsAlive(pid int) bool {
 	if pid <= 0 {
@@ -15,7 +13,7 @@ func IsAlive(pid int) bool {
 
 // StartTime returns the process creation time as Unix milliseconds.
 func StartTime(pid int) (int64, bool) {
-	if pid <= 0 || pid > maxPIDInt32 {
+	if pid <= 0 || !canLookupStartTime(pid) {
 		return 0, false
 	}
 	return startTime(pid)

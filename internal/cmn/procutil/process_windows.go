@@ -12,8 +12,12 @@ import (
 )
 
 const windowsStillActiveExitCode = 259
+const maxPIDUint32 = 1<<32 - 1
 
 func isAlive(pid int) bool {
+	if !canUseWindowsPID(pid) {
+		return false
+	}
 	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
 	if err != nil {
 		return err == windows.ERROR_ACCESS_DENIED
@@ -25,6 +29,14 @@ func isAlive(pid int) bool {
 		return true
 	}
 	return exitCode == windowsStillActiveExitCode
+}
+
+func canLookupStartTime(pid int) bool {
+	return canUseWindowsPID(pid)
+}
+
+func canUseWindowsPID(pid int) bool {
+	return pid > 0 && uint64(pid) <= maxPIDUint32
 }
 
 func startTime(pid int) (int64, bool) {

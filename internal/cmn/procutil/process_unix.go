@@ -12,9 +12,15 @@ import (
 	"github.com/shirou/gopsutil/v4/process"
 )
 
+const maxPIDInt32 = 1<<31 - 1
+
 func isAlive(pid int) bool {
 	err := syscall.Kill(pid, 0)
 	return err == nil || errors.Is(err, syscall.EPERM)
+}
+
+func canLookupStartTime(pid int) bool {
+	return pid > 0 && pid <= maxPIDInt32
 }
 
 func startTime(pid int) (int64, bool) {
