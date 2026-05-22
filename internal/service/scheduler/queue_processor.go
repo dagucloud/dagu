@@ -21,8 +21,9 @@ const queueAgeWarningThreshold = 2 * time.Minute
 const queueProcessMinInterval = 3 * time.Second
 
 var (
-	errProcessorClosed = errors.New("processor closed")
-	errNotStarted      = errors.New("execution not started")
+	errProcessorClosed              = errors.New("processor closed")
+	errNotStarted                   = errors.New("execution not started")
+	errExecutionExitedBeforeStartup = errors.New("execution exited before startup")
 )
 
 const suspendedQueueDropReason = "dag schedule suspended before dispatch"
@@ -53,6 +54,14 @@ func DefaultBackoffConfig() BackoffConfig {
 type startupWaitState struct {
 	launchedAt time.Time
 	execErrCh  <-chan error
+	execDone   func() (bool, error)
+}
+
+func (s startupWaitState) executionDone() (bool, error) {
+	if s.execDone == nil {
+		return false, nil
+	}
+	return s.execDone()
 }
 
 // QueueProcessor is responsible for processing queued DAG runs.
@@ -415,6 +424,9 @@ func (p *QueueProcessor) removeInactiveQueues(activeQueues map[string]struct{}) 
 }
 
 func readStartupExecutionError(execErrCh <-chan error) error {
+	if execErrCh == nil {
+		return nil
+	}
 	select {
 	case err := <-execErrCh:
 		return err

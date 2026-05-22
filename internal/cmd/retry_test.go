@@ -196,6 +196,87 @@ steps:
 		require.Contains(t, err.Error(), "dag-run is not queued")
 	})
 
+	t.Run("QueueDispatchRetryUsesQueuedAttempt", func(t *testing.T) {
+		th := test.SetupCommand(t)
+		t.Setenv(exec.EnvKeyQueueDispatchRetry, "1")
+
+		dagFile := th.DAG(t, `name: queue-dispatch-existing-attempt
+steps:
+  - name: "1"
+    run: echo queued dispatch
+`)
+
+		runID := "queue-dispatch-run"
+		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, exec.NewDAGRunAttemptOptions{})
+		require.NoError(t, err)
+		logPath := filepath.Join(th.Config.Paths.LogDir, "queue-dispatch-test.log")
+		require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
+
+		status := transform.NewStatusBuilder(dagFile.DAG).Create(
+			runID,
+			core.Queued,
+			0,
+			time.Time{},
+			transform.WithAttemptID(attempt.ID()),
+			transform.WithTriggerType(core.TriggerTypeWebhook),
+			transform.WithQueuedAt(stringutil.FormatTime(time.Now())),
+			transform.WithLogFilePath(logPath),
+		)
+		writeStatus(t, th.Context, attempt, status)
+
+		args := []string{"retry", fmt.Sprintf("--run-id=%s", runID), dagFile.Location}
+		th.RunCommand(t, cmd.Retry(), test.CmdTest{Args: args})
+
+		latestAttempt, err := th.DAGRunStore.FindAttempt(th.Context, exec.NewDAGRunRef(dagFile.Name, runID))
+		require.NoError(t, err)
+		require.Equal(t, attempt.ID(), latestAttempt.ID())
+
+		latestStatus, err := latestAttempt.ReadStatus(th.Context)
+		require.NoError(t, err)
+		require.Equal(t, core.Succeeded, latestStatus.Status)
+	})
+
+	t.Run("QueueDispatchRetryTriggerCreatesNewAttempt", func(t *testing.T) {
+		th := test.SetupCommand(t)
+		t.Setenv(exec.EnvKeyQueueDispatchRetry, "1")
+
+		dagFile := th.DAG(t, `name: queue-dispatch-retry-attempt
+steps:
+  - name: "1"
+    run: echo queued retry dispatch
+`)
+
+		runID := "queue-dispatch-retry-run"
+		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, exec.NewDAGRunAttemptOptions{})
+		require.NoError(t, err)
+		logPath := filepath.Join(th.Config.Paths.LogDir, "queue-dispatch-retry-test.log")
+		require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
+
+		status := transform.NewStatusBuilder(dagFile.DAG).Create(
+			runID,
+			core.Queued,
+			0,
+			time.Time{},
+			transform.WithAttemptID(attempt.ID()),
+			transform.WithTriggerType(core.TriggerTypeRetry),
+			transform.WithQueuedAt(stringutil.FormatTime(time.Now())),
+			transform.WithLogFilePath(logPath),
+		)
+		writeStatus(t, th.Context, attempt, status)
+
+		args := []string{"retry", fmt.Sprintf("--run-id=%s", runID), dagFile.Location}
+		th.RunCommand(t, cmd.Retry(), test.CmdTest{Args: args})
+
+		latestAttempt, err := th.DAGRunStore.FindAttempt(th.Context, exec.NewDAGRunRef(dagFile.Name, runID))
+		require.NoError(t, err)
+		require.NotEqual(t, attempt.ID(), latestAttempt.ID())
+
+		latestStatus, err := latestAttempt.ReadStatus(th.Context)
+		require.NoError(t, err)
+		require.Equal(t, core.Succeeded, latestStatus.Status)
+		require.Equal(t, core.TriggerTypeRetry, latestStatus.TriggerType)
+	})
+
 	t.Run("RetryAllowsRootFlagPointingAtSameRun", func(t *testing.T) {
 		t.Parallel()
 

@@ -119,6 +119,43 @@ func TestQueueDispatcher_CheckStartupStatus_PreStartExecutionErrorIsPermanent(t 
 	procStore.AssertNotCalled(t, "IsRunAlive", mock.Anything, mock.Anything, mock.Anything)
 }
 
+func TestQueueDispatcher_WaitForStartupKeepsLocalLaunchInFlightUntilDone(t *testing.T) {
+	dagRunStore := &mockDAGRunStore{}
+	procStore := &mockProcStore{}
+	runRef := exec.NewDAGRunRef("test-dag", "run-1")
+	attempt := &exec.MockDAGRunAttempt{
+		Status: &exec.DAGRunStatus{Status: core.Queued},
+	}
+	var checks atomic.Int32
+
+	procStore.On("IsRunAlive", mock.Anything, "test-queue", runRef).Return(false, nil)
+	dagRunStore.On("FindAttempt", mock.Anything, runRef).Return(attempt, nil)
+
+	dispatcher := newStartupTestDispatcher(dagRunStore, procStore, BackoffConfig{
+		InitialInterval:    time.Millisecond,
+		MaxInterval:        time.Millisecond,
+		MaxRetries:         1,
+		StartupGracePeriod: 0,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	started := dispatcher.waitForStartup(ctx, "test-queue", runRef, startupWaitState{
+		launchedAt: time.Now().Add(-time.Second),
+		execDone: func() (bool, error) {
+			if checks.Add(1) >= 3 {
+				cancel()
+			}
+			return false, nil
+		},
+	})
+
+	require.False(t, started)
+	require.GreaterOrEqual(t, checks.Load(), int32(3))
+	dagRunStore.AssertExpectations(t)
+	procStore.AssertExpectations(t)
+}
+
 func TestQueueDispatcher_CheckStartupStatus_AfterGraceFallsBackToStatus(t *testing.T) {
 	testCases := []struct {
 		name      string

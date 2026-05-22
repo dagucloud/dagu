@@ -735,9 +735,8 @@ func TestNotificationMonitor_SuccessEventsCanBeDeliveredByOptInTransport(t *test
 	require.Eventually(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return len(calls) == 1
+		return len(calls) == 1 && monitor.IsDelivered("dest-1", status)
 	}, time.Second, 10*time.Millisecond)
-	assert.True(t, monitor.IsDelivered("dest-1", status))
 
 	mu.Lock()
 	defer mu.Unlock()

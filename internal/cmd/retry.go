@@ -175,8 +175,12 @@ func runRetry(ctx *Context, args []string) error {
 			status.ScheduleTime,
 			func(execCtx context.Context) (exec.DAGRunAttempt, error) {
 				if queueDispatchRetry {
-					if err := ensureQueueDispatchRetryTarget(execCtx, ctx.DAGRunStore, ref, rootRun); err != nil {
+					queuedAttempt, queuedStatus, err := queueDispatchRetryTarget(execCtx, ctx.DAGRunStore, ref, rootRun)
+					if err != nil {
 						return nil, err
+					}
+					if shouldUseQueuedDispatchAttempt(queuedStatus) {
+						return queuedAttempt, nil
 					}
 				}
 				opts := exec.NewDAGRunAttemptOptions{Retry: true}
@@ -286,26 +290,50 @@ func ensureQueueDispatchRetryTarget(
 	ref exec.DAGRunRef,
 	rootRun exec.DAGRunRef,
 ) error {
+	_, err := queueDispatchRetryAttempt(ctx, dagRunStore, ref, rootRun)
+	return err
+}
+
+func queueDispatchRetryAttempt(
+	ctx context.Context,
+	dagRunStore exec.DAGRunStore,
+	ref exec.DAGRunRef,
+	rootRun exec.DAGRunRef,
+) (exec.DAGRunAttempt, error) {
+	attempt, _, err := queueDispatchRetryTarget(ctx, dagRunStore, ref, rootRun)
+	return attempt, err
+}
+
+func queueDispatchRetryTarget(
+	ctx context.Context,
+	dagRunStore exec.DAGRunStore,
+	ref exec.DAGRunRef,
+	rootRun exec.DAGRunRef,
+) (exec.DAGRunAttempt, *exec.DAGRunStatus, error) {
 	if dagRunStore == nil {
-		return nil
+		return nil, nil, nil
 	}
 
 	attempt, err := findRetryAttempt(ctx, dagRunStore, ref, rootRun)
 	err = normalizeQueueDispatchRetryLookupError(err)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	status, err := attempt.ReadStatus(ctx)
 	err = normalizeQueueDispatchRetryLookupError(err)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	if status == nil || status.Status != core.Queued {
-		return newQueueDispatchNotQueuedError(status)
+		return nil, nil, newQueueDispatchNotQueuedError(status)
 	}
 
-	return nil
+	return attempt, status, nil
+}
+
+func shouldUseQueuedDispatchAttempt(status *exec.DAGRunStatus) bool {
+	return status != nil && status.TriggerType != core.TriggerTypeRetry
 }
 
 func normalizeQueueDispatchRetryLookupError(err error) error {
