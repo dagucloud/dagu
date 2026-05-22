@@ -34,6 +34,7 @@ type ProcHandle struct {
 	cancel            context.CancelFunc
 	mu                sync.Mutex
 	wg                sync.WaitGroup
+	syncWG            sync.WaitGroup
 	syncing           atomic.Bool
 	meta              exec.ProcMeta
 	heartbeatInterval time.Duration
@@ -139,6 +140,7 @@ func (p *ProcHandle) startHeartbeat(ctx context.Context) error {
 		}()
 
 		defer func() {
+			p.syncWG.Wait()
 			_ = fd.Close()
 			// On Windows, another process (e.g., the scheduler) may hold a
 			// transient read handle on the proc file, causing os.Remove to fail
@@ -185,6 +187,7 @@ func (p *ProcHandle) startHeartbeat(ctx context.Context) error {
 					}
 					logger.Warn(ctx, "Heartbeat file deleted externally, recreating",
 						tag.File(p.fileName))
+					p.syncWG.Wait()
 					_ = fd.Close()
 					newFd, err := p.recreateFile(heartbeatUnix)
 					if err != nil {
@@ -209,7 +212,9 @@ func (p *ProcHandle) requestSync(ctx context.Context, fd *os.File) {
 	if !p.syncing.CompareAndSwap(false, true) {
 		return
 	}
+	p.syncWG.Add(1)
 	go func() {
+		defer p.syncWG.Done()
 		defer p.syncing.Store(false)
 		if err := p.syncFile(fd); err != nil {
 			logger.Debug(ctx, "Failed to sync heartbeat file",
