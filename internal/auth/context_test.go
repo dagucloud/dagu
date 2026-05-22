@@ -51,8 +51,7 @@ func TestUserFromContext(t *testing.T) {
 	})
 
 	t.Run("returns false when wrong type in context", func(t *testing.T) {
-		// Manually add wrong type to context with the same key pattern
-		ctx := context.WithValue(context.Background(), contextKey("auth_user"), "not a user")
+		ctx := context.WithValue(context.Background(), userContextKey{}, "not a user")
 
 		retrieved, ok := UserFromContext(ctx)
 		assert.False(t, ok)

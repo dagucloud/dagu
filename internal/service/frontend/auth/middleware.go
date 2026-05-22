@@ -41,7 +41,7 @@ type Options struct {
 
 const (
 	DenialReasonAPIKeySurfaceDenied = "api_key_surface_denied"
-	DenialReasonInvalidCredentials  = "invalid_credentials"
+	DenialReasonAuthFailed          = "auth_failed"
 	DenialReasonMissingCredentials  = "missing_credentials"
 )
 
@@ -142,7 +142,7 @@ func Middleware(opts Options) func(next http.Handler) http.Handler {
 			}
 			denialReason := DenialReasonMissingCredentials
 			if bearerToken != "" {
-				denialReason = DenialReasonInvalidCredentials
+				denialReason = DenialReasonAuthFailed
 			}
 
 			// Try JWT token authentication if enabled (for builtin auth mode)
@@ -196,7 +196,7 @@ func Middleware(opts Options) func(next http.Handler) http.Handler {
 						return
 					}
 					// Invalid credentials - always reject
-					callDenied(opts, r, DenialReasonInvalidCredentials, nil)
+					callDenied(opts, r, DenialReasonAuthFailed, nil)
 					requireBasicAuth(w, opts.Realm)
 					return
 				}

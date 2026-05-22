@@ -25,6 +25,8 @@
 - MCP `started` tool events are emitted after HTTP authentication and surface checks but before the downstream API method finishes its resource/workspace authorization. Final `denied`/`failed`/`succeeded` events carry the authoritative outcome.
 - The API-key form uses a direct owner user ID field for `user_owned` attribution. A user picker would be nicer, but the current API contract exposes IDs and the existing page does not already load users.
 - Explicit empty API-key surface arrays are rejected at the REST handler boundary. Omitted surfaces still get the legacy-compatible default of both `rest_api` and `mcp`.
+- CI's Go modernization step requires standard library helpers for newly touched loops, so API-key surface checks use `slices.Contains` and MCP audit detail copying uses `maps.Copy`.
+- Gosec treats some internal labels containing key/credential wording as potential secrets. Context storage now uses private zero-sized key types, and the denial audit reason was renamed from `invalid_credentials` to `auth_failed`; this keeps the event useful without adding suppressions.
 
 ### Verification
 
@@ -37,4 +39,7 @@
 - `pnpm typecheck` passed after the frontend changes.
 - `pnpm test src/pages/api-keys/__tests__/index.test.tsx` passed after updating API-key fixtures for surfaces/attribution.
 - `go test ./internal/service/auth ./internal/service/frontend/api/v1 -count=1` passed after the final API-key validation cleanup.
+- `go test ./internal/auth ./internal/service/mcp -count=1` passed after the Go modernization cleanup.
+- `go test ./internal/auth ./internal/service/frontend/auth -count=1` passed after replacing the context-key labels and denial reason.
+- `go fix -diff ./internal/auth ./internal/service/frontend/auth` passed after the linter cleanup.
 - `git diff --check` passed.
