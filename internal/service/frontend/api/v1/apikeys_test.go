@@ -10,6 +10,7 @@ import (
 
 	"github.com/dagucloud/dagu/api/v1"
 	"github.com/dagucloud/dagu/internal/cmn/config"
+	"github.com/dagucloud/dagu/internal/license"
 	"github.com/dagucloud/dagu/internal/service/frontend"
 	"github.com/dagucloud/dagu/internal/test"
 	"github.com/stretchr/testify/assert"
@@ -39,6 +40,36 @@ func setupBuiltinAuthServer(t *testing.T) test.Server {
 			cfg.Server.Auth.Builtin.Token.TTL = 24 * time.Hour
 		}),
 		test.WithServerOptions(frontend.WithLicenseManager(defaultTestLicenseManager())),
+	)
+
+	// Create admin via setup endpoint
+	server.Client().Post("/api/v1/auth/setup", api.SetupRequest{
+		Username: "admin",
+		Password: "adminpass",
+	}).ExpectStatus(http.StatusOK).Send(t)
+
+	return server
+}
+
+func setupBuiltinAuthCommunityServer(t *testing.T) test.Server {
+	t.Helper()
+	return setupBuiltinAuthTestServer(t)
+}
+
+func setupBuiltinAuthExpiredLicenseServer(t *testing.T) test.Server {
+	t.Helper()
+	return setupBuiltinAuthTestServer(t, frontend.WithLicenseManager(license.NewExpiredTestManager()))
+}
+
+func setupBuiltinAuthTestServer(t *testing.T, opts ...frontend.ServerOption) test.Server {
+	t.Helper()
+	server := test.SetupServer(t,
+		test.WithConfigMutator(func(cfg *config.Config) {
+			cfg.Server.Auth.Mode = config.AuthModeBuiltin
+			cfg.Server.Auth.Builtin.Token.Secret = "jwt-secret-key"
+			cfg.Server.Auth.Builtin.Token.TTL = 24 * time.Hour
+		}),
+		test.WithServerOptions(opts...),
 	)
 
 	// Create admin via setup endpoint
@@ -216,6 +247,68 @@ func TestAPIKeys_CreateDuplicate(t *testing.T) {
 		Name: "duplicate-key",
 		Role: api.UserRoleViewer,
 	}).WithBearerToken(token).ExpectStatus(http.StatusConflict).Send(t)
+}
+
+func TestAPIKeys_CreateCommunityLimit(t *testing.T) {
+	t.Parallel()
+	server := setupBuiltinAuthCommunityServer(t)
+	token := getAdminToken(t, server)
+
+	for _, name := range []string{"community-key-1", "community-key-2"} {
+		server.Client().Post("/api/v1/api-keys", api.CreateAPIKeyRequest{
+			Name: name,
+			Role: api.UserRoleViewer,
+		}).WithBearerToken(token).ExpectStatus(http.StatusCreated).Send(t)
+	}
+
+	resp := server.Client().Post("/api/v1/api-keys", api.CreateAPIKeyRequest{
+		Name: "community-key-3",
+		Role: api.UserRoleViewer,
+	}).WithBearerToken(token).ExpectStatus(http.StatusForbidden).Send(t)
+
+	var errResp api.Error
+	resp.Unmarshal(t, &errResp)
+	assert.Equal(t, api.ErrorCodeForbidden, errResp.Code)
+	assert.Contains(t, errResp.Message, "Community edition supports up to 2 API keys")
+
+	listResp := server.Client().Get("/api/v1/api-keys").
+		WithBearerToken(token).
+		ExpectStatus(http.StatusOK).Send(t)
+
+	var listResult api.APIKeysListResponse
+	listResp.Unmarshal(t, &listResult)
+	assert.Len(t, listResult.ApiKeys, 2)
+}
+
+func TestAPIKeys_CreateExpiredLicenseUsesCommunityLimit(t *testing.T) {
+	t.Parallel()
+	server := setupBuiltinAuthExpiredLicenseServer(t)
+	token := getAdminToken(t, server)
+
+	for _, name := range []string{"expired-key-1", "expired-key-2"} {
+		server.Client().Post("/api/v1/api-keys", api.CreateAPIKeyRequest{
+			Name: name,
+			Role: api.UserRoleViewer,
+		}).WithBearerToken(token).ExpectStatus(http.StatusCreated).Send(t)
+	}
+
+	server.Client().Post("/api/v1/api-keys", api.CreateAPIKeyRequest{
+		Name: "expired-key-3",
+		Role: api.UserRoleViewer,
+	}).WithBearerToken(token).ExpectStatus(http.StatusForbidden).Send(t)
+}
+
+func TestAPIKeys_CreateLicensedAllowsMoreThanCommunityLimit(t *testing.T) {
+	t.Parallel()
+	server := setupBuiltinAuthServer(t)
+	token := getAdminToken(t, server)
+
+	for _, name := range []string{"licensed-key-1", "licensed-key-2", "licensed-key-3"} {
+		server.Client().Post("/api/v1/api-keys", api.CreateAPIKeyRequest{
+			Name: name,
+			Role: api.UserRoleViewer,
+		}).WithBearerToken(token).ExpectStatus(http.StatusCreated).Send(t)
+	}
 }
 
 // TestAPIKeys_GetNotFound tests getting a non-existent API key

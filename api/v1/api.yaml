@@ -555,7 +555,7 @@ paths:
 
     post:
       summary: "Create API key"
-      description: "Full key returned only in this response"
+      description: "Full key returned only in this response. Community edition installs can create up to 2 API keys."
       operationId: "createAPIKey"
       tags:
         - "api-keys"
@@ -585,7 +585,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: "Requires admin role"
+          description: "Requires admin role or community API key limit reached"
           content:
             application/json:
               schema:

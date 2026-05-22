@@ -15,6 +15,17 @@ import (
 // It generates an ephemeral ed25519 key pair, signs a JWT with the requested features,
 // and updates the manager's internal state so Checker() returns a licensed state.
 func NewTestManager(features ...string) *Manager {
+	return newTestManager(time.Now().Add(24*time.Hour), nil, features...)
+}
+
+// NewExpiredTestManager creates a Manager with a loaded license that is expired
+// and outside its grace period.
+func NewExpiredTestManager(features ...string) *Manager {
+	zeroGraceDays := 0
+	return newTestManager(time.Now().Add(-time.Hour), &zeroGraceDays, features...)
+}
+
+func newTestManager(expiresAt time.Time, graceDays *int, features ...string) *Manager {
 	pub, priv, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		panic("ed25519.GenerateKey: " + err.Error())
@@ -22,7 +33,7 @@ func NewTestManager(features ...string) *Manager {
 
 	claims := &LicenseClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			Issuer:    "dagu-test",
 			Subject:   "test-license",
@@ -31,6 +42,7 @@ func NewTestManager(features ...string) *Manager {
 		Plan:          "pro",
 		Features:      features,
 		ActivationID:  "act-test",
+		GraceDays:     graceDays,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)

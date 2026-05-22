@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/api/v1"
@@ -88,6 +89,7 @@ type API struct {
 	baseConfigStore      baseconfig.Store
 	secretStore          secretpkg.Store
 	licenseManager       *license.Manager
+	apiKeyCreateMu       sync.Mutex
 	workspaceStore       workspace.Store
 	leaseStaleThreshold  time.Duration
 	schedulerStateStore  scheduler.WatermarkStore

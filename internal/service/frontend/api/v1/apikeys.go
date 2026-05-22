@@ -10,9 +10,12 @@ import (
 
 	"github.com/dagucloud/dagu/api/v1"
 	"github.com/dagucloud/dagu/internal/auth"
+	"github.com/dagucloud/dagu/internal/license"
 	"github.com/dagucloud/dagu/internal/service/audit"
 	authservice "github.com/dagucloud/dagu/internal/service/auth"
 )
+
+const communityAPIKeyLimit = 2
 
 // ListAPIKeys returns a list of all API keys. Requires admin role.
 func (a *API) ListAPIKeys(ctx context.Context, _ api.ListAPIKeysRequestObject) (api.ListAPIKeysResponseObject, error) {
@@ -71,6 +74,13 @@ func (a *API) CreateAPIKey(ctx context.Context, request api.CreateAPIKeyRequestO
 			Message:    "Not authenticated",
 			HTTPStatus: http.StatusUnauthorized,
 		}
+	}
+
+	a.apiKeyCreateMu.Lock()
+	defer a.apiKeyCreateMu.Unlock()
+
+	if err := a.requireCommunityAPIKeyLimit(ctx); err != nil {
+		return nil, err
 	}
 
 	result, err := a.authService.CreateAPIKey(ctx, authservice.CreateAPIKeyInput{
@@ -290,6 +300,34 @@ func (a *API) requireAPIKeyManagement() error {
 		}
 	}
 	return nil
+}
+
+func (a *API) requireCommunityAPIKeyLimit(ctx context.Context) error {
+	if !a.isCommunityLicense() {
+		return nil
+	}
+
+	keys, err := a.authService.ListAPIKeys(ctx)
+	if err != nil {
+		return err
+	}
+	if len(keys) < communityAPIKeyLimit {
+		return nil
+	}
+
+	return &Error{
+		Code: api.ErrorCodeForbidden,
+		Message: "Community edition supports up to 2 API keys. " +
+			"Delete an existing key or configure a license to create more.",
+		HTTPStatus: http.StatusForbidden,
+	}
+}
+
+func (a *API) isCommunityLicense() bool {
+	if a.licenseManager == nil {
+		return true
+	}
+	return !license.HasActiveLicense(a.licenseManager.Checker())
 }
 
 // toAPIKey converts a core auth.APIKey into its API representation.

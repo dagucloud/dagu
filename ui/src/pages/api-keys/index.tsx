@@ -19,11 +19,19 @@ import { TOKEN_KEY, useIsAdmin } from '@/contexts/AuthContext';
 import { useConfig } from '@/contexts/ConfigContext';
 import dayjs from '@/lib/dayjs';
 import ConfirmModal from '@/components/ui/confirm-dialog';
-import { KeyRound, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  KeyRound,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Trash2,
+} from 'lucide-react';
 import { useCallback, useContext, useEffect, useState } from 'react';
 import { APIKeyFormModal } from './APIKeyFormModal';
 
 type APIKey = components['schemas']['APIKey'];
+const COMMUNITY_API_KEY_LIMIT = 2;
 
 export default function APIKeysPage() {
   const config = useConfig();
@@ -37,6 +45,9 @@ export default function APIKeysPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingKey, setEditingKey] = useState<APIKey | null>(null);
   const [deletingKey, setDeletingKey] = useState<APIKey | null>(null);
+  const hasActiveLicense = config.license.valid || config.license.gracePeriod;
+  const communityLimitReached =
+    !hasActiveLicense && apiKeys.length >= COMMUNITY_API_KEY_LIMIT;
 
   // Set page title
   useEffect(() => {
@@ -125,6 +136,7 @@ export default function APIKeysPage() {
           onClick={() => setShowCreateModal(true)}
           size="sm"
           className="h-8"
+          disabled={communityLimitReached}
         >
           <Plus className="h-4 w-4 mr-1.5" />
           Create API Key
@@ -134,6 +146,24 @@ export default function APIKeysPage() {
       {error && (
         <div className="p-3 text-sm text-destructive bg-destructive/10 rounded-md">
           {error}
+        </div>
+      )}
+
+      {communityLimitReached && (
+        <div
+          role="alert"
+          className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-warning-foreground"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div>
+            <p className="font-medium">
+              Community installs can manage up to 2 API keys.
+            </p>
+            <p className="mt-1">
+              Existing keys remain active, but new key creation is blocked until
+              extra keys are revoked or a license is configured.
+            </p>
+          </div>
         </div>
       )}
 
