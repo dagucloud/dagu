@@ -3,8 +3,6 @@
 
 package procutil
 
-import "github.com/shirou/gopsutil/v4/process"
-
 const maxPIDInt32 = 1<<31 - 1
 
 // IsAlive reports whether pid currently refers to a live OS process.
@@ -20,15 +18,7 @@ func StartTime(pid int) (int64, bool) {
 	if pid <= 0 || pid > maxPIDInt32 {
 		return 0, false
 	}
-	proc, err := process.NewProcess(int32(pid)) //nolint:gosec // pid is bounded by maxPIDInt32
-	if err != nil {
-		return 0, false
-	}
-	startedAt, err := proc.CreateTime()
-	if err != nil || startedAt <= 0 {
-		return 0, false
-	}
-	return startedAt, true
+	return startTime(pid)
 }
 
 // MatchesStartTime reports whether pid still refers to the process that
