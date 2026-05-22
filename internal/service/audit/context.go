@@ -3,7 +3,11 @@
 
 package audit
 
-import "context"
+import (
+	"context"
+
+	"github.com/dagucloud/dagu/internal/auth"
+)
 
 type sourceContextKey struct{}
 
@@ -80,5 +84,30 @@ func ApplySourceContext(entry *Entry, source *SourceContext) {
 	}
 	if entry.MCPTool == "" {
 		entry.MCPTool = source.MCPTool
+	}
+}
+
+// ApplyAPIKeyCredential copies API-key attribution metadata onto a source context.
+func ApplyAPIKeyCredential(source *SourceContext, apiKey *auth.APIKey) {
+	if source == nil || apiKey == nil {
+		return
+	}
+	apiKey = auth.NormalizeAPIKeyMetadata(apiKey)
+	source.CredentialID = apiKey.ID
+	source.CredentialName = apiKey.Name
+	source.CredentialType = "api_key"
+	source.CredentialAllowedSurfaces = auth.APIKeySurfaceStrings(apiKey.AllowedSurfaces)
+	source.AttributionClass = string(apiKey.AttributionClass)
+	switch apiKey.AttributionClass {
+	case auth.APIKeyAttributionUserOwned:
+		source.SubjectType = "user"
+		source.SubjectID = apiKey.OwnerUserID
+		source.SubjectName = apiKey.OwnerUsername
+		source.CredentialOwnerID = apiKey.OwnerUserID
+	case auth.APIKeyAttributionServiceAccount:
+		source.SubjectType = "service_account"
+		source.SubjectID = apiKey.ServiceAccountID
+		source.SubjectName = apiKey.ServiceAccountName
+		source.ServiceAccountID = apiKey.ServiceAccountID
 	}
 }

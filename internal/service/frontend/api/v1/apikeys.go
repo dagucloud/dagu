@@ -139,7 +139,7 @@ func (a *API) CreateAPIKey(ctx context.Context, request api.CreateAPIKeyRequestO
 		"key_id":            result.APIKey.ID,
 		"key_name":          result.APIKey.Name,
 		"role":              string(result.APIKey.Role),
-		"allowed_surfaces":  apiKeySurfaceStrings(result.APIKey.AllowedSurfaces),
+		"allowed_surfaces":  auth.APIKeySurfaceStrings(result.APIKey.AllowedSurfaces),
 		"attribution_class": string(result.APIKey.AttributionClass),
 	})
 
@@ -305,7 +305,7 @@ func (a *API) UpdateAPIKey(ctx context.Context, request api.UpdateAPIKeyRequestO
 		updateDetails["workspace_access"] = toAPIWorkspaceAccess(input.WorkspaceAccess)
 	}
 	if input.AllowedSurfaces != nil {
-		updateDetails["allowed_surfaces"] = apiKeySurfaceStrings(*input.AllowedSurfaces)
+		updateDetails["allowed_surfaces"] = auth.APIKeySurfaceStrings(*input.AllowedSurfaces)
 	}
 	if input.AttributionClass != nil {
 		updateDetails["attribution_class"] = string(*input.AttributionClass)
@@ -441,15 +441,6 @@ func toAPIAPIKeySurfaces(surfaces []auth.APIKeySurface) []api.APIKeyAllowedSurfa
 	out := make([]api.APIKeyAllowedSurfaces, 0, len(normalized))
 	for _, surface := range normalized {
 		out = append(out, api.APIKeyAllowedSurfaces(surface))
-	}
-	return out
-}
-
-func apiKeySurfaceStrings(surfaces []auth.APIKeySurface) []string {
-	normalized := auth.NormalizeAPIKeySurfaces(surfaces)
-	out := make([]string, 0, len(normalized))
-	for _, surface := range normalized {
-		out = append(out, string(surface))
 	}
 	return out
 }

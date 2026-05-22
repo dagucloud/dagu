@@ -195,7 +195,9 @@ func CloneAPIKeySurfaces(surfaces []APIKeySurface) []APIKeySurface {
 	return out
 }
 
-// NormalizeAPIKeySurfaces returns a stable allowlist, defaulting legacy keys to both surfaces.
+// NormalizeAPIKeySurfaces returns a stable allowlist, defaulting only missing
+// legacy metadata to both surfaces. Unknown non-empty values are preserved so
+// corrupted metadata cannot be silently broadened into the legacy default.
 func NormalizeAPIKeySurfaces(surfaces []APIKeySurface) []APIKeySurface {
 	if len(surfaces) == 0 {
 		return DefaultAPIKeySurfaces()
@@ -203,17 +205,11 @@ func NormalizeAPIKeySurfaces(surfaces []APIKeySurface) []APIKeySurface {
 	seen := make(map[APIKeySurface]struct{}, len(surfaces))
 	out := make([]APIKeySurface, 0, len(surfaces))
 	for _, surface := range surfaces {
-		switch surface {
-		case APIKeySurfaceREST, APIKeySurfaceMCP:
-			if _, ok := seen[surface]; ok {
-				continue
-			}
-			seen[surface] = struct{}{}
-			out = append(out, surface)
+		if _, ok := seen[surface]; ok {
+			continue
 		}
-	}
-	if len(out) == 0 {
-		return DefaultAPIKeySurfaces()
+		seen[surface] = struct{}{}
+		out = append(out, surface)
 	}
 	return out
 }
@@ -231,6 +227,45 @@ func ValidAPIKeySurface(surface APIKeySurface) bool {
 // HasAPIKeySurface reports whether a normalized surface allowlist contains a surface.
 func HasAPIKeySurface(surfaces []APIKeySurface, surface APIKeySurface) bool {
 	return slices.Contains(NormalizeAPIKeySurfaces(surfaces), surface)
+}
+
+// APIKeySurfaceStrings returns normalized surface values as strings.
+func APIKeySurfaceStrings(surfaces []APIKeySurface) []string {
+	normalized := NormalizeAPIKeySurfaces(surfaces)
+	out := make([]string, 0, len(normalized))
+	for _, surface := range normalized {
+		out = append(out, string(surface))
+	}
+	return out
+}
+
+// UserForAPIKeyAttribution returns the subject user represented by an API key.
+func UserForAPIKeyAttribution(apiKey *APIKey) (*User, bool) {
+	if apiKey == nil {
+		return nil, false
+	}
+	apiKey = NormalizeAPIKeyMetadata(apiKey)
+	switch apiKey.AttributionClass {
+	case APIKeyAttributionUserOwned:
+		if apiKey.OwnerUserID == "" {
+			return nil, false
+		}
+		return &User{
+			ID:              apiKey.OwnerUserID,
+			Username:        apiKey.OwnerUsername,
+			Role:            apiKey.Role,
+			WorkspaceAccess: CloneWorkspaceAccess(apiKey.WorkspaceAccess),
+		}, true
+	case APIKeyAttributionServiceAccount:
+		return &User{
+			ID:              apiKey.ServiceAccountID,
+			Username:        apiKey.ServiceAccountName,
+			Role:            apiKey.Role,
+			WorkspaceAccess: CloneWorkspaceAccess(apiKey.WorkspaceAccess),
+		}, true
+	default:
+		return nil, false
+	}
 }
 
 // NormalizeAPIKeyMetadata returns a copy with legacy attribution and surface defaults applied.

@@ -472,7 +472,7 @@ func (a *API) restAuditSubjectMiddleware() func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := withRESTAuditCredentialContext(r.Context(), nil)
 			if apiKey, ok := auth.APIKeyFromContext(ctx); ok {
-				if user, ok := auditUserForAPIKey(apiKey); ok {
+				if user, ok := auth.UserForAPIKeyAttribution(apiKey); ok {
 					ctx = auth.WithUser(ctx, user)
 				}
 			}
@@ -502,56 +502,11 @@ func withRESTAuditCredentialContext(ctx context.Context, deniedAPIKey *auth.APIK
 		apiKey, _ = auth.APIKeyFromContext(ctx)
 	}
 	if apiKey != nil {
-		apiKey = auth.NormalizeAPIKeyMetadata(apiKey)
-		source.CredentialID = apiKey.ID
-		source.CredentialName = apiKey.Name
-		source.CredentialType = "api_key"
-		source.CredentialAllowedSurfaces = apiKeySurfaceStrings(apiKey.AllowedSurfaces)
-		source.AttributionClass = string(apiKey.AttributionClass)
-		switch apiKey.AttributionClass {
-		case auth.APIKeyAttributionUserOwned:
-			source.SubjectType = "user"
-			source.SubjectID = apiKey.OwnerUserID
-			source.SubjectName = apiKey.OwnerUsername
-			source.CredentialOwnerID = apiKey.OwnerUserID
-		case auth.APIKeyAttributionServiceAccount:
-			source.SubjectType = "service_account"
-			source.SubjectID = apiKey.ServiceAccountID
-			source.SubjectName = apiKey.ServiceAccountName
-			source.ServiceAccountID = apiKey.ServiceAccountID
-		}
+		audit.ApplyAPIKeyCredential(source, apiKey)
 	} else if source.CredentialType == "" {
 		source.CredentialType = "session"
 	}
 	return audit.WithSourceContext(ctx, source)
-}
-
-func auditUserForAPIKey(apiKey *auth.APIKey) (*auth.User, bool) {
-	if apiKey == nil {
-		return nil, false
-	}
-	apiKey = auth.NormalizeAPIKeyMetadata(apiKey)
-	switch apiKey.AttributionClass {
-	case auth.APIKeyAttributionUserOwned:
-		if apiKey.OwnerUserID == "" {
-			return nil, false
-		}
-		return &auth.User{
-			ID:              apiKey.OwnerUserID,
-			Username:        apiKey.OwnerUsername,
-			Role:            apiKey.Role,
-			WorkspaceAccess: auth.CloneWorkspaceAccess(apiKey.WorkspaceAccess),
-		}, true
-	case auth.APIKeyAttributionServiceAccount:
-		return &auth.User{
-			ID:              apiKey.ServiceAccountID,
-			Username:        apiKey.ServiceAccountName,
-			Role:            apiKey.Role,
-			WorkspaceAccess: auth.CloneWorkspaceAccess(apiKey.WorkspaceAccess),
-		}, true
-	default:
-		return nil, false
-	}
 }
 
 func (a *API) logRESTAuthDenied(r *http.Request, reason string, apiKey *auth.APIKey) {
@@ -562,7 +517,7 @@ func (a *API) logRESTAuthDenied(r *http.Request, reason string, apiKey *auth.API
 		return
 	}
 	ctx := withRESTAuditCredentialContext(r.Context(), apiKey)
-	if user, ok := auditUserForAPIKey(apiKey); ok {
+	if user, ok := auth.UserForAPIKeyAttribution(apiKey); ok {
 		ctx = auth.WithUser(ctx, user)
 	}
 	a.LogAudit(ctx, audit.CategoryAPIKey, "api_key_request_denied", map[string]any{

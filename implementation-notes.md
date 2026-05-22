@@ -32,6 +32,8 @@
 - The source design file was intentionally not moved into the repository because it was supplied as a private local artifact for this implementation pass; the notes now state that explicitly instead of preserving a machine-specific absolute path.
 - Additional CodeRabbit summary items were addressed where they were valid: API-key form license header, debounced audit-log text filters, redundant workspace-filter assignment removal, and shared MCP source-context initialization.
 - The OpenAPI attribution `oneOf` nitpick was not applied because update requests are intentionally partial and backend validation already enforces valid attribution combinations; forcing a discriminator union there would make client types less accurate for partial updates.
+- Cleanup pass tightened API-key surface normalization so only missing legacy metadata gets the REST+MCP default. Non-empty unknown surface values are preserved for visibility and will not match either accepted surface.
+- Cleanup pass moved MCP audit wrapping into dedicated files and centralized API-key attribution/source-context helpers to reduce drift between REST and MCP audit paths.
 
 ### Verification
 
@@ -57,3 +59,8 @@
 - `pnpm typecheck` passed after adding audit-log debouncing and the API-key form license header.
 - `pnpm test src/pages/api-keys/__tests__/index.test.tsx` passed after adding the API-key form license header.
 - `git diff --check` passed.
+- Red test: `go test ./internal/auth -run 'TestAPIKeySurfaceNormalization' -count=1` failed before the cleanup because non-empty invalid surface metadata normalized to the legacy REST+MCP default.
+- `go test ./internal/auth -run 'TestAPIKeySurfaceNormalization|TestAPIKeyForStorage_ToAPIKey_MigratesLegacyAuditMetadata' -count=1` passed after the API-key surface normalization hardening.
+- `go test ./internal/auth ./internal/service/audit ./internal/service/frontend/api/v1 ./internal/service/frontend ./internal/service/mcp -run 'TestAPIKeySurfaceNormalization|TestUserForAPIKeyAttribution|TestHTTPHandlerServesStreamableMCP|TestAPIKeySurfaceRestriction|TestRESTAPIKey' -count=1` passed after the cleanup refactor.
+- `go test ./internal/auth ./internal/service/audit ./internal/service/frontend/api/v1 ./internal/service/frontend ./internal/service/mcp ./internal/service/auth ./internal/service/frontend/auth -count=1` passed after the cleanup refactor.
+- `go fix -diff ./internal/auth ./internal/service/audit ./internal/service/frontend/api/v1 ./internal/service/frontend ./internal/service/mcp ./internal/service/auth ./internal/service/frontend/auth` passed after the cleanup refactor.

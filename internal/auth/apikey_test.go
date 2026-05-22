@@ -183,6 +183,61 @@ func TestAPIKeyForStorage_ToAPIKey_MigratesLegacyAuditMetadata(t *testing.T) {
 	assert.True(t, HasAPIKeySurface(key.AllowedSurfaces, APIKeySurfaceMCP))
 }
 
+func TestAPIKeySurfaceNormalization_DoesNotDefaultInvalidStoredValues(t *testing.T) {
+	key := NormalizeAPIKeyMetadata(&APIKey{
+		ID:              "key-id",
+		Name:            "corrupt-key",
+		AllowedSurfaces: []APIKeySurface{APIKeySurface("unknown_surface")},
+	})
+
+	assert.Equal(t, []APIKeySurface{APIKeySurface("unknown_surface")}, key.AllowedSurfaces)
+	assert.False(t, HasAPIKeySurface(key.AllowedSurfaces, APIKeySurfaceREST))
+	assert.False(t, HasAPIKeySurface(key.AllowedSurfaces, APIKeySurfaceMCP))
+}
+
+func TestAPIKeySurfaceNormalization_KeepsValidSurfacesWhenMixedWithInvalid(t *testing.T) {
+	key := NormalizeAPIKeyMetadata(&APIKey{
+		ID: "key-id",
+		AllowedSurfaces: []APIKeySurface{
+			APIKeySurfaceMCP,
+			APIKeySurface("unknown_surface"),
+			APIKeySurfaceMCP,
+		},
+	})
+
+	assert.Equal(t, []APIKeySurface{APIKeySurfaceMCP, APIKeySurface("unknown_surface")}, key.AllowedSurfaces)
+	assert.False(t, HasAPIKeySurface(key.AllowedSurfaces, APIKeySurfaceREST))
+	assert.True(t, HasAPIKeySurface(key.AllowedSurfaces, APIKeySurfaceMCP))
+}
+
+func TestUserForAPIKeyAttribution(t *testing.T) {
+	workspaceAccess := &WorkspaceAccess{
+		All: false,
+		Grants: []WorkspaceGrant{{
+			Workspace: "prod",
+			Role:      RoleOperator,
+		}},
+	}
+	apiKey := &APIKey{
+		ID:                 "key-id",
+		Name:               "deploy-key",
+		Role:               RoleDeveloper,
+		WorkspaceAccess:    workspaceAccess,
+		AttributionClass:   APIKeyAttributionServiceAccount,
+		ServiceAccountID:   "svc-id",
+		ServiceAccountName: "deploy",
+	}
+
+	user, ok := UserForAPIKeyAttribution(apiKey)
+
+	require.True(t, ok)
+	assert.Equal(t, "svc-id", user.ID)
+	assert.Equal(t, "deploy", user.Username)
+	assert.Equal(t, RoleDeveloper, user.Role)
+	assert.Equal(t, workspaceAccess, user.WorkspaceAccess)
+	require.NotSame(t, workspaceAccess, user.WorkspaceAccess)
+}
+
 func TestAPIKey_ToStorage_ToAPIKey_Roundtrip(t *testing.T) {
 	now := time.Now().UTC()
 	original := &APIKey{
