@@ -84,6 +84,7 @@ type DAGRunStatus struct {
 	TriggerType    core.TriggerType `json:"triggerType,omitempty"`
 	WorkerID       string           `json:"workerId,omitempty"`
 	PID            PID              `json:"pid,omitempty"`
+	PIDStartedAt   int64            `json:"pidStartedAt,omitempty"`
 	Nodes          []*Node          `json:"nodes,omitempty"`
 	OnInit         *Node            `json:"onInit,omitempty"`
 	OnExit         *Node            `json:"onExit,omitempty"`

@@ -5,7 +5,6 @@ package scheduler
 
 import (
 	"testing"
-	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -16,7 +15,7 @@ import (
 
 func TestQueueDispatcher_SelectRunnableQueueItemsSkipsOutstandingReservations(t *testing.T) {
 	f := newQueueFixture(t).withDAG("dispatcher-select-dag", 2).
-		withProcessor(config.Queues{}, WithLeaseStaleThreshold(5*time.Second)).
+		withProcessor(config.Queues{}, WithLeaseStaleThreshold(freshDistributedTestThreshold)).
 		simulateQueue(2, false)
 
 	f.enqueueRuns(2)
@@ -41,7 +40,7 @@ func TestQueueDispatcher_SelectRunnableQueueItemsSkipsOutstandingReservations(t 
 	dispatcher := newQueueDispatcher(queueDispatchDeps{
 		dagRunStore:         f.dagRunStore,
 		dispatchTaskStore:   f.dispatchStore,
-		leaseStaleThreshold: 5 * time.Second,
+		leaseStaleThreshold: freshDistributedTestThreshold,
 	})
 	runnable, err := dispatcher.selectRunnableQueueItems(f.ctx, items, 1)
 	require.NoError(t, err)

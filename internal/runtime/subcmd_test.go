@@ -4,9 +4,11 @@
 package runtime_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -1038,4 +1040,35 @@ func TestCmdSpec(t *testing.T) {
 		assert.Equal(t, os.Stdout, spec.Stdout)
 		assert.Equal(t, os.Stderr, spec.Stderr)
 	})
+}
+
+func TestStartProcessReportsPIDAndCompletion(t *testing.T) {
+	t.Parallel()
+
+	result, err := runtime.StartProcess(context.Background(), exitingCommandSpec())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Positive(t, result.PID)
+	require.NotNil(t, result.Done)
+
+	select {
+	case err, ok := <-result.Done:
+		require.True(t, ok)
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("start process helper did not exit")
+	}
+}
+
+func exitingCommandSpec() runtime.CmdSpec {
+	if goruntime.GOOS == "windows" {
+		return runtime.CmdSpec{
+			Executable: "cmd.exe",
+			Args:       []string{"/c", "exit", "0"},
+		}
+	}
+	return runtime.CmdSpec{
+		Executable: "/bin/sh",
+		Args:       []string{"-c", "exit 0"},
+	}
 }

@@ -5,9 +5,11 @@ package scheduler
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/stretchr/testify/assert"
@@ -109,6 +111,50 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryRepairsMatchingAttempt(t 
 	procStore.AssertExpectations(t)
 	dagRunStore.AssertExpectations(t)
 	attempt.AssertExpectations(t)
+}
+
+func TestZombieDetectorDetectAndCleanZombies_StaleEntryWithAliveLocalPIDSkipsRepair(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dagRunStore := &mockDAGRunStore{}
+	procStore := &mockProcStore{}
+	detector := NewZombieDetector(dagRunStore, procStore, time.Second, 1)
+
+	dag := &core.DAG{
+		Name: "test-dag",
+		Steps: []core.Step{
+			{Name: "step1"},
+		},
+	}
+	entry := testRootProcEntry(dag.ProcGroup(), dag.Name, "run-1", "attempt-1", false)
+	pidStartedAt, ok := procutil.StartTime(os.Getpid())
+	require.True(t, ok)
+	status := &exec.DAGRunStatus{
+		Name:         dag.Name,
+		DAGRunID:     "run-1",
+		AttemptID:    "attempt-1",
+		Status:       core.Running,
+		WorkerID:     "local",
+		PID:          exec.PID(os.Getpid()),
+		PIDStartedAt: pidStartedAt,
+		Nodes:        exec.NewNodesFromSteps(dag.Steps),
+	}
+	status.Nodes[0].Status = core.NodeRunning
+	attempt := &exec.MockDAGRunAttempt{}
+
+	procStore.On("ListAllEntries", ctx).Return([]exec.ProcEntry{entry}, nil).Once()
+	dagRunStore.On("FindAttempt", mock.Anything, exec.NewDAGRunRef(dag.Name, "run-1")).Return(attempt, nil).Once()
+	attempt.On("ReadStatus", mock.Anything).Return(status, nil).Once()
+
+	detector.detectAndCleanZombies(ctx)
+
+	procStore.AssertExpectations(t)
+	dagRunStore.AssertExpectations(t)
+	attempt.AssertExpectations(t)
+	attempt.AssertNotCalled(t, "ReadDAG", mock.Anything)
+	attempt.AssertNotCalled(t, "Write", mock.Anything, mock.Anything)
+	procStore.AssertNotCalled(t, "RemoveIfStale", mock.Anything, mock.Anything)
 }
 
 func TestZombieDetectorDetectAndCleanZombies_StaleEntryWithFreshSiblingRemovesOnlyStale(t *testing.T) {

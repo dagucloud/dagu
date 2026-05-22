@@ -54,6 +54,7 @@ func AbortQueuedDAGRun(ctx context.Context, dagRunStore DAGRunStore, dagRun DAGR
 			latest.FinishedAt = finishedAt
 			latest.WorkerID = ""
 			latest.PID = 0
+			latest.PIDStartedAt = 0
 			latest.LeaseAt = 0
 			return nil
 		},

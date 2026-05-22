@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/internal/cmn/sock"
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
@@ -421,10 +422,9 @@ func (m *Manager) GetLatestStatus(ctx context.Context, dag *core.DAG) (exec.DAGR
 }
 
 // repairStaleLocalRunIfDead repairs a persisted local Running status only when
-// the run has no matching fresh proc heartbeat. "Dead" here means the proc
-// store cannot find any non-stale heartbeat file for the local run; it is not
-// an OS-level PID liveness check. Distributed runs are excluded because local
-// proc heartbeats are not authoritative for remote workers.
+// the run has no matching fresh proc heartbeat and its recorded local process
+// is no longer alive. Distributed runs are excluded because local proc
+// heartbeats are not authoritative for remote workers.
 func (m *Manager) repairStaleLocalRunIfDead(
 	ctx context.Context,
 	attempt exec.DAGRunAttempt,
@@ -461,6 +461,27 @@ func (m *Manager) repairStaleLocalRunIfDead(
 			tag.AttemptID(st.AttemptID),
 		)
 		return st, nil
+	}
+
+	if st.PID > 0 && st.PIDStartedAt > 0 {
+		matched, actualStartedAt, ok := procutil.MatchesStartTime(int(st.PID), st.PIDStartedAt)
+		if matched {
+			logger.Debug(ctx, "Skipping stale local run repair because local process identity is still alive despite stale proc heartbeat",
+				tag.RunID(st.DAGRunID),
+				tag.AttemptID(st.AttemptID),
+				tag.PID(int(st.PID)),
+			)
+			return st, nil
+		}
+		if ok {
+			logger.Debug(ctx, "Not skipping stale local run repair because PID start time does not match persisted run status",
+				tag.RunID(st.DAGRunID),
+				tag.AttemptID(st.AttemptID),
+				tag.PID(int(st.PID)),
+				slog.Int64("expected-pid-started-at", st.PIDStartedAt),
+				slog.Int64("actual-pid-started-at", actualStartedAt),
+			)
+		}
 	}
 
 	repaired, _, err := RepairStaleLocalRun(ctx, attempt, dag)
