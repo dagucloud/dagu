@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -1044,12 +1045,7 @@ func TestCmdSpec(t *testing.T) {
 func TestStartProcessReportsPIDAndCompletion(t *testing.T) {
 	t.Parallel()
 
-	env := append(os.Environ(), "DAGU_RUNTIME_STARTPROCESS_HELPER=1")
-	result, err := runtime.StartProcess(context.Background(), runtime.CmdSpec{
-		Executable: os.Args[0],
-		Args:       []string{"-test.run=TestStartProcessHelperProcess"},
-		Env:        env,
-	})
+	result, err := runtime.StartProcess(context.Background(), exitingCommandSpec())
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Positive(t, result.PID)
@@ -1064,9 +1060,15 @@ func TestStartProcessReportsPIDAndCompletion(t *testing.T) {
 	}
 }
 
-func TestStartProcessHelperProcess(_ *testing.T) {
-	if os.Getenv("DAGU_RUNTIME_STARTPROCESS_HELPER") != "1" {
-		return
+func exitingCommandSpec() runtime.CmdSpec {
+	if goruntime.GOOS == "windows" {
+		return runtime.CmdSpec{
+			Executable: "cmd.exe",
+			Args:       []string{"/c", "exit", "0"},
+		}
 	}
-	os.Exit(0)
+	return runtime.CmdSpec{
+		Executable: "/bin/sh",
+		Args:       []string{"-c", "exit 0"},
+	}
 }
