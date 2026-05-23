@@ -14,44 +14,36 @@ import (
 
 	"github.com/dagucloud/dagu/internal/auth"
 	cryptoutil "github.com/dagucloud/dagu/internal/cmn/crypto"
-	"github.com/dagucloud/dagu/internal/persis/filewebhook"
+	"github.com/dagucloud/dagu/internal/persis/testutil"
+	webhookstore "github.com/dagucloud/dagu/internal/persis/webhook"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func setupWebhookTestService(t *testing.T) (*Service, string) {
 	t.Helper()
-
-	tmpDir := t.TempDir()
-	webhookStore, err := filewebhook.New(tmpDir)
+	webhookStore, err := webhookstore.New(testutil.NewMemoryBackend().Collection("webhooks"), nil)
 	require.NoError(t, err)
-
 	service := New(nil, Config{
 		TokenSecret: mustTokenSecret("test"),
 		TokenTTL:    time.Hour,
 		BcryptCost:  4, // Low cost for fast tests
 	}, WithWebhookStore(webhookStore))
-
-	return service, tmpDir
+	return service, ""
 }
 
 func setupWebhookTestServiceWithEncryptedStore(t *testing.T) (*Service, string) {
 	t.Helper()
-
-	tmpDir := t.TempDir()
 	encryptor, err := cryptoutil.NewEncryptor("test-encryption-key")
 	require.NoError(t, err)
-
-	webhookStore, err := filewebhook.New(tmpDir, filewebhook.WithEncryptor(encryptor))
+	webhookStore, err := webhookstore.New(testutil.NewMemoryBackend().Collection("webhooks"), encryptor)
 	require.NoError(t, err)
-
 	service := New(nil, Config{
 		TokenSecret: mustTokenSecret("test"),
 		TokenTTL:    time.Hour,
 		BcryptCost:  4,
 	}, WithWebhookStore(webhookStore))
-
-	return service, tmpDir
+	return service, ""
 }
 
 func signWebhookBody(secret string, body []byte) string {

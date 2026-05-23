@@ -30,12 +30,14 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	exec1 "github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
+	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/filebaseconfig"
 	"github.com/dagucloud/dagu/internal/persis/filedag"
 	"github.com/dagucloud/dagu/internal/persis/filedagrun"
 	"github.com/dagucloud/dagu/internal/persis/filedistributed"
 	"github.com/dagucloud/dagu/internal/persis/filequeue"
 	"github.com/dagucloud/dagu/internal/persis/fileserviceregistry"
+	"github.com/dagucloud/dagu/internal/persis/workerheartbeat"
 	runtimepkg "github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/agent"
 	"github.com/dagucloud/dagu/internal/service/frontend"
@@ -298,7 +300,7 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 		dispatchStoreOpts = append(dispatchStoreOpts, filedistributed.WithDispatchReservationTTL(options.StaleLeaseThreshold))
 	}
 	dispatchTaskStore := filedistributed.NewDispatchTaskStore(distributedDir, dispatchStoreOpts...)
-	workerHeartbeatStore := filedistributed.NewWorkerHeartbeatStore(distributedDir)
+	workerHeartbeatStore := workerheartbeat.New(file.NewCollection(filepath.Join(distributedDir, "workers")))
 	dagRunLeaseStore := filedistributed.NewDAGRunLeaseStore(distributedDir)
 	activeDistributedRunStore := filedistributed.NewActiveDistributedRunStore(distributedDir)
 

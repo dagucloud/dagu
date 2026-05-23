@@ -5,7 +5,7 @@ package process
 
 import (
 	"context"
-	"path/filepath"
+	"fmt"
 
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
@@ -13,7 +13,8 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/license"
-	"github.com/dagucloud/dagu/internal/persis/filewatermark"
+	"github.com/dagucloud/dagu/internal/persis/file"
+	"github.com/dagucloud/dagu/internal/persis/watermark"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/service/frontend"
 	apiv1 "github.com/dagucloud/dagu/internal/service/frontend/api/v1"
@@ -73,8 +74,12 @@ func NewServer(cfg ServerConfig, opts ...frontend.ServerOption) (*frontend.Serve
 	if cfg.WorkerHeartbeatStore != nil {
 		opts = append(opts, frontend.WithAPIOption(apiv1.WithWorkerHeartbeatStore(cfg.WorkerHeartbeatStore)))
 	}
+	wmBackend, wmErr := file.New(cfg.Config.Paths.DataDir)
+	if wmErr != nil {
+		return nil, fmt.Errorf("failed to open file backend for watermark: %w", wmErr)
+	}
 	opts = append(opts, frontend.WithAPIOption(apiv1.WithSchedulerStateStore(
-		filewatermark.New(filepath.Join(cfg.Config.Paths.DataDir, "scheduler")),
+		watermark.New(wmBackend.Collection("scheduler")),
 	)))
 
 	return frontend.NewServer(

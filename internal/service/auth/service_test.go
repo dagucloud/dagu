@@ -6,15 +6,14 @@ package auth
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/auth"
-	"github.com/dagucloud/dagu/internal/persis/fileapikey"
-	"github.com/dagucloud/dagu/internal/persis/fileuser"
+	apikeystore "github.com/dagucloud/dagu/internal/persis/apikey"
+	"github.com/dagucloud/dagu/internal/persis/testutil"
+	userstore "github.com/dagucloud/dagu/internal/persis/user"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,30 +28,14 @@ func mustTokenSecret(s string) auth.TokenSecret {
 
 func setupTestService(t *testing.T) (*Service, func()) {
 	t.Helper()
-
-	tmpDir, err := os.MkdirTemp("", "auth-service-test-*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-
-	store, err := fileuser.New(tmpDir)
-	if err != nil {
-		_ = os.RemoveAll(tmpDir)
-		t.Fatalf("failed to create store: %v", err)
-	}
-
+	store, err := userstore.New(testutil.NewMemoryBackend().Collection("users"))
+	require.NoError(t, err)
 	config := Config{
 		TokenSecret: mustTokenSecret("test-secret-key-for-jwt-signing"),
 		TokenTTL:    time.Hour,
 		BcryptCost:  4, // Low cost for faster tests
 	}
-
-	svc := New(store, config)
-	cleanup := func() {
-		_ = os.RemoveAll(tmpDir)
-	}
-
-	return svc, cleanup
+	return New(store, config), func() {}
 }
 
 func TestService_CreateUser(t *testing.T) {
@@ -589,11 +572,7 @@ func TestService_ValidateToken_MalformedToken(t *testing.T) {
 
 func TestService_ValidateToken_WrongSecret(t *testing.T) {
 	// Create service with one secret
-	tmpDir, err := os.MkdirTemp("", "auth-service-test-*")
-	require.NoError(t, err)
-	defer func() { _ = os.RemoveAll(tmpDir) }()
-
-	store, err := fileuser.New(tmpDir)
+	store, err := userstore.New(testutil.NewMemoryBackend().Collection("users"))
 	require.NoError(t, err)
 
 	config1 := Config{
@@ -629,11 +608,7 @@ func TestService_ValidateToken_WrongSecret(t *testing.T) {
 }
 
 func TestService_ValidateToken_MissingSecret(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "auth-service-test-*")
-	require.NoError(t, err)
-	defer func() { _ = os.RemoveAll(tmpDir) }()
-
-	store, err := fileuser.New(tmpDir)
+	store, err := userstore.New(testutil.NewMemoryBackend().Collection("users"))
 	require.NoError(t, err)
 
 	// Create service without secret
@@ -665,29 +640,17 @@ func TestService_CreateUser_InvalidRole(t *testing.T) {
 
 func setupTestServiceWithAPIKeys(t *testing.T) (*Service, func()) {
 	t.Helper()
-
-	tmpDir, err := os.MkdirTemp("", "auth-service-test-*")
-	require.NoError(t, err, "failed to create temp dir")
-
-	userStore, err := fileuser.New(tmpDir)
+	backend := testutil.NewMemoryBackend()
+	userStore, err := userstore.New(backend.Collection("users"))
 	require.NoError(t, err, "failed to create user store")
-
-	apiKeyDir := filepath.Join(tmpDir, "apikeys")
-	apiKeyStore, err := fileapikey.New(apiKeyDir)
+	apiKeyStore, err := apikeystore.New(backend.Collection("apikeys"))
 	require.NoError(t, err, "failed to create API key store")
-
 	config := Config{
 		TokenSecret: mustTokenSecret("test-secret-key-for-jwt-signing"),
 		TokenTTL:    time.Hour,
 		BcryptCost:  4, // Low cost for faster tests
 	}
-
-	svc := New(userStore, config, WithAPIKeyStore(apiKeyStore))
-	cleanup := func() {
-		_ = os.RemoveAll(tmpDir)
-	}
-
-	return svc, cleanup
+	return New(userStore, config, WithAPIKeyStore(apiKeyStore)), func() {}
 }
 
 func TestService_CreateAPIKey(t *testing.T) {

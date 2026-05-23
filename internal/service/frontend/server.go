@@ -54,7 +54,8 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/fileagentoauth"
 	"github.com/dagucloud/dagu/internal/persis/fileagentskill"
 	"github.com/dagucloud/dagu/internal/persis/fileagentsoul"
-	"github.com/dagucloud/dagu/internal/persis/fileapikey"
+	"github.com/dagucloud/dagu/internal/persis/apikey"
+	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/fileaudit"
 	"github.com/dagucloud/dagu/internal/persis/filebaseconfig"
 	"github.com/dagucloud/dagu/internal/persis/filedoc"
@@ -63,12 +64,12 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/filememory"
 	"github.com/dagucloud/dagu/internal/persis/filenotification"
 	"github.com/dagucloud/dagu/internal/persis/fileremotenode"
-	"github.com/dagucloud/dagu/internal/persis/filesecret"
 	"github.com/dagucloud/dagu/internal/persis/filesession"
+	secretstore "github.com/dagucloud/dagu/internal/persis/secret"
 	"github.com/dagucloud/dagu/internal/persis/filetokensecret"
 	"github.com/dagucloud/dagu/internal/persis/fileupgradecheck"
-	"github.com/dagucloud/dagu/internal/persis/fileuser"
-	"github.com/dagucloud/dagu/internal/persis/filewebhook"
+	userstore "github.com/dagucloud/dagu/internal/persis/user"
+	webhookstore "github.com/dagucloud/dagu/internal/persis/webhook"
 	"github.com/dagucloud/dagu/internal/persis/fileworkspace"
 	"github.com/dagucloud/dagu/internal/remotenode"
 	"github.com/dagucloud/dagu/internal/runtime"
@@ -378,8 +379,10 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 	}
 
 	if encryptor != nil {
-		secretStore, secretErr := filesecret.New(filepath.Join(cfg.Paths.DataDir, "secrets"), encryptor)
-		if secretErr != nil {
+		secretBackend, secretBackendErr := file.New(cfg.Paths.DataDir)
+		if secretBackendErr != nil {
+			logger.Warn(ctx, "Failed to open file backend for secret store", tag.Error(secretBackendErr))
+		} else if secretStore, secretErr := secretstore.New(secretBackend.Collection("secrets"), encryptor); secretErr != nil {
 			logger.Warn(ctx, "Failed to create secret store", tag.Error(secretErr))
 		} else {
 			apiOpts = append(apiOpts, apiv1.WithSecretStore(secretStore))
@@ -672,34 +675,16 @@ func initBuiltinAuthService(ctx context.Context, cfg *config.Config, collector *
 		return nil, false, fmt.Errorf("failed to resolve token secret: %w", err)
 	}
 
-	// Create individual stores with caching
-	limits := cfg.Cache.Limits()
-
-	userCache := fileutil.NewCache[*authmodel.User]("user", limits.User.Limit, limits.User.TTL)
-	userCache.StartEviction(ctx)
-	if collector != nil {
-		collector.RegisterCache(userCache)
-	}
-	userStore, err := fileuser.New(cfg.Paths.UsersDir, fileuser.WithFileCache(userCache))
+	userStore, err := userstore.New(file.NewCollection(cfg.Paths.UsersDir))
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to create user store: %w", err)
 	}
 
-	apiKeyCache := fileutil.NewCache[*authmodel.APIKey]("api_key", limits.APIKey.Limit, limits.APIKey.TTL)
-	apiKeyCache.StartEviction(ctx)
-	if collector != nil {
-		collector.RegisterCache(apiKeyCache)
-	}
-	apiKeyStore, err := fileapikey.New(cfg.Paths.APIKeysDir, fileapikey.WithFileCache(apiKeyCache))
+	apiKeyStore, err := apikey.New(file.NewCollection(cfg.Paths.APIKeysDir))
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to create API key store: %w", err)
 	}
 
-	webhookCache := fileutil.NewCache[*authmodel.Webhook]("webhook", limits.Webhook.Limit, limits.Webhook.TTL)
-	webhookCache.StartEviction(ctx)
-	if collector != nil {
-		collector.RegisterCache(webhookCache)
-	}
 	var webhookEncryptor *crypto.Encryptor
 	encKey, encErr := crypto.ResolveKey(cfg.Paths.DataDir)
 	if encErr != nil {
@@ -710,11 +695,7 @@ func initBuiltinAuthService(ctx context.Context, cfg *config.Config, collector *
 			logger.Warn(ctx, "Failed to create encryptor for webhook store", tag.Error(encErr))
 		}
 	}
-	webhookOpts := []filewebhook.Option{filewebhook.WithFileCache(webhookCache)}
-	if webhookEncryptor != nil {
-		webhookOpts = append(webhookOpts, filewebhook.WithEncryptor(webhookEncryptor))
-	}
-	webhookStore, err := filewebhook.New(cfg.Paths.WebhooksDir, webhookOpts...)
+	webhookStore, err := webhookstore.New(file.NewCollection(cfg.Paths.WebhooksDir), webhookEncryptor)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to create webhook store: %w", err)
 	}

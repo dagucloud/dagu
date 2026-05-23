@@ -204,6 +204,24 @@ func (c *Collection) readFile(path string) (*fileRecord, error) {
 	if err := json.Unmarshal(raw, &fr); err != nil {
 		return nil, fmt.Errorf("file backend: corrupt record at %q: %w", path, err)
 	}
+	// Legacy format: flat JSON without the "encoding" envelope field.
+	// Wrap the raw bytes as the Data payload so old files are readable
+	// by the new adapters. The file is rewritten in new format on next Put.
+	if fr.Encoding == "" {
+		rel, _ := filepath.Rel(c.dir, path)
+		info, _ := os.Stat(path)
+		mtime := time.Now().UTC()
+		if info != nil {
+			mtime = info.ModTime().UTC()
+		}
+		fr = fileRecord{
+			ID:        relPathToID(rel),
+			Encoding:  persis.EncodingJSON,
+			Data:      json.RawMessage(raw),
+			CreatedAt: mtime,
+			UpdatedAt: mtime,
+		}
+	}
 	return &fr, nil
 }
 

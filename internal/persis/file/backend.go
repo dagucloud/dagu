@@ -39,5 +39,12 @@ func (b *Backend) Collection(name string) persis.Collection {
 	return v.(*Collection)
 }
 
+// NewCollection creates a [persis.Collection] backed by the given directory.
+// Unlike [New]+[Collection], this skips the root MkdirAll — the directory
+// is created lazily on the first write.
+func NewCollection(dir string) persis.Collection {
+	return &Collection{dir: dir}
+}
+
 // Close is a no-op; the file backend holds no persistent resources.
 func (b *Backend) Close() error { return nil }

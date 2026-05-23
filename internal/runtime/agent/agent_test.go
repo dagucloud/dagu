@@ -21,7 +21,8 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/sock"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/persis/filesecret"
+	secretstore "github.com/dagucloud/dagu/internal/persis/secret"
+	"github.com/dagucloud/dagu/internal/persis/testutil"
 	runtimepkg "github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/agent"
 	secretpkg "github.com/dagucloud/dagu/internal/secret"
@@ -1037,7 +1038,7 @@ func TestAgent_RegistryRefSecretResolution(t *testing.T) {
 
 	enc, err := crypto.NewEncryptor("test-key")
 	require.NoError(t, err)
-	secretStore, err := filesecret.New(t.TempDir(), enc)
+	secretStore, err := secretstore.New(testutil.NewMemoryBackend().Collection("secrets"), enc)
 	require.NoError(t, err)
 
 	sec, err := secretpkg.New(secretpkg.CreateInput{

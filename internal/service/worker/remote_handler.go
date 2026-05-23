@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/internal/agent"
 	"github.com/dagucloud/dagu/internal/agentoauth"
 	"github.com/dagucloud/dagu/internal/cmn/config"
+	"github.com/dagucloud/dagu/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
@@ -25,12 +26,13 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
+	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/fileagentconfig"
 	"github.com/dagucloud/dagu/internal/persis/fileagentmodel"
 	"github.com/dagucloud/dagu/internal/persis/fileagentoauth"
 	"github.com/dagucloud/dagu/internal/persis/fileagentsoul"
 	"github.com/dagucloud/dagu/internal/persis/filememory"
-	"github.com/dagucloud/dagu/internal/persis/filesecret"
+	secretstore "github.com/dagucloud/dagu/internal/persis/secret"
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	"github.com/dagucloud/dagu/internal/runtime"
 	rtagent "github.com/dagucloud/dagu/internal/runtime/agent"
@@ -417,9 +419,24 @@ func (h *remoteTaskHandler) secretStore(ctx context.Context) secretpkg.Store {
 	if h.config == nil || h.config.Paths.DataDir == "" {
 		return nil
 	}
-	store, err := filesecret.NewFromDataDir(h.config.Paths.DataDir)
-	if err != nil {
-		logger.Warn(ctx, "Failed to create secret store", tag.Error(err))
+	encKey, encErr := crypto.ResolveKey(h.config.Paths.DataDir)
+	if encErr != nil {
+		logger.Warn(ctx, "Failed to resolve encryption key for secret store", tag.Error(encErr))
+		return nil
+	}
+	enc, encErr := crypto.NewEncryptor(encKey)
+	if encErr != nil {
+		logger.Warn(ctx, "Failed to create encryptor for secret store", tag.Error(encErr))
+		return nil
+	}
+	backend, backendErr := file.New(h.config.Paths.DataDir)
+	if backendErr != nil {
+		logger.Warn(ctx, "Failed to open file backend for secret store", tag.Error(backendErr))
+		return nil
+	}
+	store, storeErr := secretstore.New(backend.Collection("secrets"), enc)
+	if storeErr != nil {
+		logger.Warn(ctx, "Failed to create secret store", tag.Error(storeErr))
 		return nil
 	}
 	return store

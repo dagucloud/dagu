@@ -15,7 +15,8 @@ import (
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/persis/filewatermark"
+	"github.com/dagucloud/dagu/internal/persis/file"
+	"github.com/dagucloud/dagu/internal/persis/watermark"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
 	"github.com/dagucloud/dagu/internal/test"
 	"github.com/stretchr/testify/assert"
@@ -47,7 +48,9 @@ steps:
 	require.NoError(t, err)
 	require.Len(t, dag.Schedule, 1)
 
-	watermarkStore := filewatermark.New(filepath.Join(th.Config.Paths.DataDir, "scheduler"))
+	wmBackend, err := file.New(th.Config.Paths.DataDir)
+	require.NoError(t, err)
+	watermarkStore := watermark.New(wmBackend.Collection("scheduler"))
 	fingerprint := dag.Schedule[0].Fingerprint()
 	runID := scheduler.GenerateOneOffRunID(dag.Name, fingerprint, scheduledAt)
 

@@ -23,7 +23,8 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/filegithubdispatch"
 	"github.com/dagucloud/dagu/internal/persis/fileincident"
 	"github.com/dagucloud/dagu/internal/persis/filenotification"
-	"github.com/dagucloud/dagu/internal/persis/filewatermark"
+	"github.com/dagucloud/dagu/internal/persis/file"
+	"github.com/dagucloud/dagu/internal/persis/watermark"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
@@ -63,7 +64,11 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 
 	coordinatorClient := NewCoordinatorClient(ctx, cfg.Config, cfg.ServiceRegistry)
 	entryReader := scheduler.NewEntryReader(cfg.Config.Paths.DAGsDir, dagStore)
-	watermarkStore := filewatermark.New(filepath.Join(cfg.Config.Paths.DataDir, "scheduler"))
+	wmBackend, wmErr := file.New(cfg.Config.Paths.DataDir)
+	if wmErr != nil {
+		return nil, fmt.Errorf("failed to open file backend for watermark: %w", wmErr)
+	}
+	watermarkStore := watermark.New(wmBackend.Collection("scheduler"))
 
 	statusCache := fileutil.NewCache[*exec.DAGRunStatus]("scheduler_dag_run_status", limits.DAGRun.Limit, limits.DAGRun.TTL)
 	statusCache.StartEviction(ctx)

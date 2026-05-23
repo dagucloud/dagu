@@ -10,8 +10,11 @@ import (
 
 	apigen "github.com/dagucloud/dagu/api/v1"
 	"github.com/dagucloud/dagu/internal/cmn/config"
-	"github.com/dagucloud/dagu/internal/persis/filesecret"
+	"github.com/dagucloud/dagu/internal/cmn/crypto"
+	secretstore "github.com/dagucloud/dagu/internal/persis/secret"
+	"github.com/dagucloud/dagu/internal/persis/testutil"
 	"github.com/dagucloud/dagu/internal/runtime"
+	secretpkg "github.com/dagucloud/dagu/internal/secret"
 	apiv1 "github.com/dagucloud/dagu/internal/service/frontend/api/v1"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
@@ -223,18 +226,15 @@ func TestSecretsAPI_CreateRejectsDefaultWorkspaceSelector(t *testing.T) {
 	assert.Contains(t, rejected.Message, "workspace cannot be default")
 }
 
-func newSecretsTestAPI(t *testing.T) (*apiv1.API, *filesecret.Store) {
+func newSecretsTestAPI(t *testing.T) (*apiv1.API, secretpkg.Store) {
 	t.Helper()
 
-	dataDir := t.TempDir()
-	store, err := filesecret.NewFromDataDir(dataDir)
+	enc, err := crypto.NewEncryptor("test-key-for-secrets")
+	require.NoError(t, err)
+	store, err := secretstore.New(testutil.NewMemoryBackend().Collection("secrets"), enc)
 	require.NoError(t, err)
 
-	cfg := &config.Config{
-		Paths: config.PathsConfig{
-			DataDir: dataDir,
-		},
-	}
+	cfg := &config.Config{}
 	return apiv1.New(
 		nil,
 		nil,

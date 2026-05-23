@@ -18,7 +18,9 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/fileagentoauth"
 	"github.com/dagucloud/dagu/internal/persis/fileagentsoul"
 	"github.com/dagucloud/dagu/internal/persis/filememory"
-	"github.com/dagucloud/dagu/internal/persis/filesecret"
+	"github.com/dagucloud/dagu/internal/cmn/crypto"
+	"github.com/dagucloud/dagu/internal/persis/file"
+	secretstore "github.com/dagucloud/dagu/internal/persis/secret"
 	secretpkg "github.com/dagucloud/dagu/internal/secret"
 )
 
@@ -37,8 +39,14 @@ type AgentStores struct {
 func NewAgentStores(ctx context.Context, cfg *config.Config, contextStore *clicontext.Store) AgentStores {
 	var result AgentStores
 
-	if store, err := filesecret.NewFromDataDir(cfg.Paths.DataDir); err != nil {
-		logger.Warn(ctx, "Failed to create secret store", tag.Error(err))
+	if encKey, encErr := crypto.ResolveKey(cfg.Paths.DataDir); encErr != nil {
+		logger.Warn(ctx, "Failed to resolve encryption key for secret store", tag.Error(encErr))
+	} else if enc, encErr := crypto.NewEncryptor(encKey); encErr != nil {
+		logger.Warn(ctx, "Failed to create encryptor for secret store", tag.Error(encErr))
+	} else if backend, backendErr := file.New(cfg.Paths.DataDir); backendErr != nil {
+		logger.Warn(ctx, "Failed to open file backend for secret store", tag.Error(backendErr))
+	} else if store, storeErr := secretstore.New(backend.Collection("secrets"), enc); storeErr != nil {
+		logger.Warn(ctx, "Failed to create secret store", tag.Error(storeErr))
 	} else {
 		result.SecretStore = store
 	}
