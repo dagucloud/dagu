@@ -1,0 +1,1027 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dagu — Persistence Layer Refactoring Plan</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    code, pre, .mono { font-family: 'JetBrains Mono', monospace; }
+    .mermaid { display: flex; justify-content: center; }
+    .mermaid svg { max-width: 100%; }
+    .card { break-inside: avoid; }
+
+    /* syntax highlight */
+    .kw   { color: #7c3aed; font-weight: 600; }
+    .ty   { color: #0369a1; }
+    .cm   { color: #6b7280; font-style: italic; }
+    .st   { color: #166534; }
+    .fn   { color: #b45309; }
+
+    /* scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 leading-relaxed">
+<script>mermaid.initialize({ startOnLoad: true, theme: 'default', themeVariables: { fontSize: '14px' } });</script>
+
+<!-- ══════════════════════════ HEADER ══════════════════════════ -->
+<header class="bg-slate-900 text-white">
+  <div class="max-w-6xl mx-auto px-8 py-14">
+    <p class="text-blue-400 text-xs font-mono tracking-widest uppercase mb-3">Architecture Review · Persistence Layer</p>
+    <h1 class="text-4xl font-bold mb-4 tracking-tight">Dagu Persistence Layer Refactoring</h1>
+    <p class="text-slate-300 text-lg max-w-3xl">
+      Deep Module redesign: consolidate 30 file-store implementations behind a single pluggable
+      <strong class="text-white">Backend</strong> interface — enabling PostgreSQL, etcd, or Cassandra support
+      without touching any domain code.
+    </p>
+    <div class="mt-8 flex flex-wrap gap-3 text-sm">
+      <span class="bg-slate-800 text-slate-300 px-3 py-1 rounded-full">30 file stores → 1 Backend interface</span>
+      <span class="bg-slate-800 text-slate-300 px-3 py-1 rounded-full">id + data blob (Temporal pattern)</span>
+      <span class="bg-slate-800 text-slate-300 px-3 py-1 rounded-full">Deep Module philosophy</span>
+      <span class="bg-slate-800 text-slate-300 px-3 py-1 rounded-full">Zero domain-code changes</span>
+    </div>
+  </div>
+</header>
+
+<!-- ══════════════════════════ NAV PILLS ══════════════════════ -->
+<nav class="sticky top-0 z-10 bg-white border-b border-slate-200 shadow-sm">
+  <div class="max-w-6xl mx-auto px-8">
+    <div class="flex overflow-x-auto gap-1 py-3 text-sm font-medium">
+      <a href="#temporal" class="whitespace-nowrap px-3 py-1 rounded-full text-slate-600 hover:bg-slate-100">Temporal Lessons</a>
+      <a href="#current"  class="whitespace-nowrap px-3 py-1 rounded-full text-slate-600 hover:bg-slate-100">Current State</a>
+      <a href="#candidate1" class="whitespace-nowrap px-3 py-1 rounded-full bg-green-600 text-white hover:bg-green-700">★ Backend Abstraction</a>
+      <a href="#candidate2" class="whitespace-nowrap px-3 py-1 rounded-full text-slate-600 hover:bg-slate-100">Codec Layer</a>
+      <a href="#structure" class="whitespace-nowrap px-3 py-1 rounded-full text-slate-600 hover:bg-slate-100">Package Structure</a>
+      <a href="#collections" class="whitespace-nowrap px-3 py-1 rounded-full text-slate-600 hover:bg-slate-100">Collections</a>
+      <a href="#migration" class="whitespace-nowrap px-3 py-1 rounded-full text-slate-600 hover:bg-slate-100">Migration</a>
+      <a href="#top" class="whitespace-nowrap px-3 py-1 rounded-full text-slate-600 hover:bg-slate-100">Top Recommendation</a>
+    </div>
+  </div>
+</nav>
+
+<main class="max-w-6xl mx-auto px-8 py-12 space-y-20">
+
+<!-- ══════════════════════════ TEMPORAL LESSONS ════════════════ -->
+<section id="temporal">
+  <h2 class="text-2xl font-bold mb-2">What Temporal Got Right</h2>
+  <p class="text-slate-500 mb-8">Distilled from studying <code class="text-xs bg-slate-100 px-1 rounded">temporal/common/persistence/</code></p>
+
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div class="bg-white rounded-xl border border-slate-200 p-6">
+      <div class="text-2xl mb-3">🏭</div>
+      <h3 class="font-semibold text-slate-900 mb-2">Single Factory, Many Backends</h3>
+      <p class="text-sm text-slate-600">
+        <code class="text-xs bg-slate-100 px-1 rounded">DataStoreFactory</code> is the sole interface any database driver must implement.
+        Cassandra, PostgreSQL, SQLite — all satisfy one interface.
+        Swapping backends is a config change.
+      </p>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 p-6">
+      <div class="text-2xl mb-3">📦</div>
+      <h3 class="font-semibold text-slate-900 mb-2">id + opaque DataBlob</h3>
+      <p class="text-sm text-slate-600">
+        Complex domain objects (ActivityInfo, TimerInfo, MutableState) are
+        <strong>serialized to protobuf/JSON blobs</strong>. Backends store
+        <code class="text-xs bg-slate-100 px-1 rounded">id + bytes</code>, not per-field columns.
+        Domain model changes never touch the schema.
+      </p>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 p-6">
+      <div class="text-2xl mb-3">🧅</div>
+      <h3 class="font-semibold text-slate-900 mb-2">Layered Concerns</h3>
+      <p class="text-sm text-slate-600">
+        Store layer (raw CRUD + blobs) → Manager layer (serialization + business logic) →
+        Client layer (metrics, retry, rate-limit). Each layer adds one responsibility.
+        Callers only see the outermost layer.
+      </p>
+    </div>
+  </div>
+
+  <div class="mt-8 bg-amber-50 border border-amber-200 rounded-xl p-6">
+    <p class="text-sm font-semibold text-amber-800 mb-2">Key insight we borrow for Dagu</p>
+    <p class="text-sm text-amber-900">
+      Temporal stores execution state as opaque blobs alongside <em>a few indexed key columns</em>
+      (namespace_id, workflow_id, run_id). Dagu's equivalent: a <code class="text-xs bg-amber-100 px-1 rounded">records</code> table with
+      <code class="text-xs bg-amber-100 px-1 rounded">collection + id + data + encoding + created_at + updated_at + expires_at</code>.
+      No per-domain columns. Domain model evolves freely inside the blob.
+    </p>
+  </div>
+</section>
+
+<!-- ══════════════════════════ CURRENT STATE ══════════════════ -->
+<section id="current">
+  <h2 class="text-2xl font-bold mb-2">Current State</h2>
+  <p class="text-slate-500 mb-8">The friction that motivates this refactoring</p>
+
+  <!-- Stat cards -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+    <div class="bg-red-50 border border-red-200 rounded-xl p-5 text-center">
+      <p class="text-4xl font-bold text-red-600">30</p>
+      <p class="text-sm text-red-700 mt-1">separate file-store packages</p>
+    </div>
+    <div class="bg-orange-50 border border-orange-200 rounded-xl p-5 text-center">
+      <p class="text-4xl font-bold text-orange-600">~9k</p>
+      <p class="text-sm text-orange-700 mt-1">lines to rewrite per new backend</p>
+    </div>
+    <div class="bg-yellow-50 border border-yellow-200 rounded-xl p-5 text-center">
+      <p class="text-4xl font-bold text-yellow-600">0</p>
+      <p class="text-sm text-yellow-700 mt-1">shared storage seams</p>
+    </div>
+    <div class="bg-slate-50 border border-slate-200 rounded-xl p-5 text-center">
+      <p class="text-4xl font-bold text-slate-600">∞</p>
+      <p class="text-sm text-slate-700 mt-1">file-I/O duplication</p>
+    </div>
+  </div>
+
+  <!-- Current architecture diagram -->
+  <div class="bg-white rounded-xl border border-slate-200 p-8">
+    <h3 class="font-semibold text-slate-700 mb-6 text-center">Current Architecture — Each Store Owns Its Own File I/O</h3>
+    <div class="mermaid">
+graph TB
+  subgraph App["Application Layer"]
+    direction LR
+    RT["runtime"]
+    SC["scheduler"]
+    CO["coordinator"]
+    AU["auth"]
+    WH["webhook"]
+    AG["agent / session"]
+  end
+
+  subgraph Stores["30 File Stores  ·  internal/persis/"]
+    FDR["filedagrun\n~1,400 lines"]
+    FQ["filequeue\n~350 lines"]
+    FP["fileproc\n~300 lines"]
+    FD["filedistributed\n~600 lines"]
+    FU["fileuser\n~250 lines"]
+    FS["filesecret\n~200 lines"]
+    FW["filewebhook\n~150 lines"]
+    FA["fileaudit\n~200 lines"]
+    FK["fileapikey\n~200 lines"]
+    FSS["filesession\n~650 lines"]
+    FEV["fileeventstore\n~300 lines"]
+    FM["... 19 more stores"]
+  end
+
+  subgraph FS2["Filesystem"]
+    F[("📂 File System")]
+  end
+
+  RT --> FDR
+  SC --> FQ & FP
+  CO --> FD
+  AU --> FU & FS & FK
+  WH --> FW
+  AG --> FSS & FA & FEV
+
+  FDR & FQ & FP & FD & FU & FS & FW & FA & FK & FSS & FEV & FM --> F
+
+  style App fill:#f0f9ff,stroke:#bae6fd
+  style Stores fill:#fef2f2,stroke:#fecaca
+  style FS2 fill:#f9fafb,stroke:#e5e7eb
+    </div>
+
+    <div class="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+      <div class="bg-red-50 rounded-lg p-4">
+        <p class="font-semibold text-red-700 mb-1">Shallow modules</p>
+        <p class="text-red-600">Each store's interface is almost as complex as its implementation — mostly file I/O boilerplate wrapping JSON marshal/unmarshal.</p>
+      </div>
+      <div class="bg-orange-50 rounded-lg p-4">
+        <p class="font-semibold text-orange-700 mb-1">No backend seam</p>
+        <p class="text-orange-600">To add PostgreSQL you must rewrite all 30 stores independently. There is no single interface to implement.</p>
+      </div>
+      <div class="bg-yellow-50 rounded-lg p-4">
+        <p class="font-semibold text-yellow-700 mb-1">Duplicated I/O logic</p>
+        <p class="text-yellow-600">Atomic writes, directory scanning, prefix filtering, cursor pagination, and file locking are reimplemented in every package.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Deletion test -->
+  <div class="mt-6 bg-slate-900 text-slate-100 rounded-xl p-6">
+    <p class="text-xs font-mono text-slate-400 mb-2">DELETION TEST</p>
+    <p class="text-sm">
+      Delete the file I/O logic inside any single store (e.g. <code class="text-blue-300">filedagrun</code>) —
+      the complexity (directory creation, atomic rename, JSON parse, prefix scan) does not vanish; it
+      moves to a shared FileBackend where it belongs once.
+      <strong class="text-green-400">This is the seam we are making real.</strong>
+    </p>
+  </div>
+</section>
+
+<!-- ══════════════════════════ CANDIDATE 1 ════════════════════ -->
+<section id="candidate1">
+  <div class="flex items-center gap-3 mb-2">
+    <h2 class="text-2xl font-bold">Backend Abstraction Layer</h2>
+    <span class="bg-green-600 text-white text-xs font-bold px-3 py-1 rounded-full">STRONG</span>
+  </div>
+  <p class="text-slate-500 mb-8">The primary refactoring — the seam that makes every other backend possible</p>
+
+  <!-- Files -->
+  <div class="bg-white rounded-xl border border-slate-200 p-6 mb-8">
+    <p class="text-xs font-mono text-slate-400 mb-3">FILES INVOLVED</p>
+    <div class="flex flex-wrap gap-2 text-xs font-mono">
+      <span class="bg-blue-50 text-blue-700 px-2 py-1 rounded">internal/persis/backend.go <em>(new)</em></span>
+      <span class="bg-blue-50 text-blue-700 px-2 py-1 rounded">internal/persis/file/backend.go <em>(new)</em></span>
+      <span class="bg-orange-50 text-orange-700 px-2 py-1 rounded">internal/persis/file*/store.go → internal/persis/*/store.go</span>
+      <span class="bg-slate-50 text-slate-600 px-2 py-1 rounded">internal/cmd/context.go <em>(wiring)</em></span>
+    </div>
+  </div>
+
+  <!-- Problem -->
+  <div class="bg-white rounded-xl border border-slate-200 p-6 mb-6">
+    <h3 class="font-semibold text-slate-900 mb-3">Problem</h3>
+    <p class="text-sm text-slate-600">
+      Every store package independently manages file I/O. There is no common interface that separates
+      <em>what</em> to store (domain logic) from <em>how</em> to store it (file system). A caller wanting to
+      use PostgreSQL instead has no single abstraction to implement — they must rewrite 30 packages.
+      The interface of each file store is nearly as complex as its implementation, violating Deep Module.
+    </p>
+  </div>
+
+  <!-- The Interface — full code -->
+  <div class="bg-slate-900 rounded-xl p-8 mb-8 overflow-x-auto">
+    <p class="text-xs font-mono text-slate-400 mb-4">internal/persis/backend.go — THE SEAM (8 public methods total)</p>
+    <pre class="text-sm text-slate-100 leading-relaxed"><span class="cm">// Package persis defines the storage backend interface for Dagu's control plane.</span>
+<span class="kw">package</span> <span class="ty">persis</span>
+
+<span class="kw">import</span> (
+    <span class="st">"context"</span>
+    <span class="st">"errors"</span>
+    <span class="st">"time"</span>
+)
+
+<span class="cm">// Encoding identifies the serialization format of Record.Data.</span>
+<span class="kw">type</span> <span class="ty">Encoding</span> <span class="kw">string</span>
+
+<span class="kw">const</span> (
+    <span class="ty">EncodingJSON</span>  <span class="ty">Encoding</span> = <span class="st">"json"</span>
+    <span class="ty">EncodingProto</span> <span class="ty">Encoding</span> = <span class="st">"proto3"</span>
+)
+
+<span class="cm">// Record is the universal storage primitive for all control-plane data.
+// Every store (runs, users, secrets, queues, etc.) persists as Records.
+// Domain model changes never require schema changes — they live inside Data.</span>
+<span class="kw">type</span> <span class="ty">Record</span> <span class="kw">struct</span> {
+    <span class="cm">// ID uniquely identifies this record within its collection.
+    // Use "/" as a separator for hierarchical IDs.
+    // Example: "mydag/run-abc/attempt-0"</span>
+    ID        <span class="kw">string</span>
+
+    Data      []<span class="kw">byte</span>    <span class="cm">// opaque serialized payload (JSON or proto3)</span>
+    Encoding  <span class="ty">Encoding</span> <span class="cm">// describes Data's format</span>
+
+    CreatedAt <span class="ty">time.Time</span>
+    UpdatedAt <span class="ty">time.Time</span>
+
+    <span class="cm">// ExpiresAt, when non-nil, hints that this record may be deleted after
+    // this time. Used for heartbeat / lease / TTL records.</span>
+    ExpiresAt *<span class="ty">time.Time</span>
+}
+
+<span class="cm">// ListQuery controls what List returns.</span>
+<span class="kw">type</span> <span class="ty">ListQuery</span> <span class="kw">struct</span> {
+    Prefix <span class="kw">string</span>     <span class="cm">// only records whose ID starts with this value</span>
+    Since  *<span class="ty">time.Time</span> <span class="cm">// CreatedAt >= Since</span>
+    Until  *<span class="ty">time.Time</span> <span class="cm">// CreatedAt < Until</span>
+    Cursor <span class="kw">string</span>     <span class="cm">// opaque token from a prior Page.NextCursor</span>
+    Limit  <span class="kw">int</span>        <span class="cm">// 0 = backend default</span>
+}
+
+<span class="cm">// Page is the result of a List call.</span>
+<span class="kw">type</span> <span class="ty">Page</span> <span class="kw">struct</span> {
+    Records    []*<span class="ty">Record</span>
+    NextCursor <span class="kw">string</span> <span class="cm">// empty = no more records exist</span>
+}
+
+<span class="cm">// Collection is a named, isolated namespace of Records.
+// Implementations must be safe for concurrent use.</span>
+<span class="kw">type</span> <span class="ty">Collection</span> <span class="kw">interface</span> {
+    <span class="cm">// Get returns the record identified by id, or ErrNotFound.</span>
+    <span class="fn">Get</span>(ctx <span class="ty">context.Context</span>, id <span class="kw">string</span>) (*<span class="ty">Record</span>, <span class="kw">error</span>)
+
+    <span class="cm">// Put creates or replaces a record.</span>
+    <span class="fn">Put</span>(ctx <span class="ty">context.Context</span>, rec *<span class="ty">Record</span>) <span class="kw">error</span>
+
+    <span class="cm">// Delete removes the record with the given id.
+    // Returns nil if the record does not exist.</span>
+    <span class="fn">Delete</span>(ctx <span class="ty">context.Context</span>, id <span class="kw">string</span>) <span class="kw">error</span>
+
+    <span class="cm">// List returns a page of records ordered by CreatedAt ascending.</span>
+    <span class="fn">List</span>(ctx <span class="ty">context.Context</span>, q <span class="ty">ListQuery</span>) (*<span class="ty">Page</span>, <span class="kw">error</span>)
+
+    <span class="cm">// CompareAndSwap atomically updates record id only when its current Data
+    // equals expected. Returns ErrConflict when it does not match.
+    // Used for optimistic concurrency on DAGRunStatus.</span>
+    <span class="fn">CompareAndSwap</span>(ctx <span class="ty">context.Context</span>, id <span class="kw">string</span>, expected, next []<span class="kw">byte</span>) <span class="kw">error</span>
+
+    <span class="cm">// Claim atomically removes one record matching q and returns it.
+    // Used by queue adapters for atomic dequeue.
+    // Returns ErrNotFound when no matching record exists.</span>
+    <span class="fn">Claim</span>(ctx <span class="ty">context.Context</span>, q <span class="ty">ListQuery</span>) (*<span class="ty">Record</span>, <span class="kw">error</span>)
+}
+
+<span class="cm">// Backend is the sole interface a new database driver must implement.
+// It creates named Collections and manages lifecycle.</span>
+<span class="kw">type</span> <span class="ty">Backend</span> <span class="kw">interface</span> {
+    <span class="cm">// Collection returns the collection with the given name.
+    // Collections are created lazily; the name becomes the logical table.</span>
+    <span class="fn">Collection</span>(name <span class="kw">string</span>) <span class="ty">Collection</span>
+
+    <span class="cm">// Close releases all backend resources (connections, file handles, etc.).</span>
+    <span class="fn">Close</span>() <span class="kw">error</span>
+}
+
+<span class="cm">// Sentinel errors returned by Collection methods.</span>
+<span class="kw">var</span> (
+    <span class="ty">ErrNotFound</span> = errors.<span class="fn">New</span>(<span class="st">"persis: record not found"</span>)
+    <span class="ty">ErrConflict</span> = errors.<span class="fn">New</span>(<span class="st">"persis: compare-and-swap conflict"</span>)
+)</pre>
+  </div>
+
+  <!-- Before / After diagram -->
+  <div class="bg-white rounded-xl border border-slate-200 p-8 mb-8">
+    <h3 class="font-semibold text-slate-700 mb-8 text-center">Before → After</h3>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <!-- BEFORE -->
+      <div>
+        <p class="text-center text-sm font-semibold text-red-600 mb-4 uppercase tracking-wide">Before</p>
+        <div class="bg-red-50 rounded-xl p-6 border border-red-200">
+          <!-- Application -->
+          <div class="bg-blue-100 border border-blue-300 rounded-lg p-3 text-center text-sm font-medium text-blue-800 mb-4">Application (runtime, scheduler, auth…)</div>
+          <!-- Arrow -->
+          <div class="flex justify-center mb-2"><svg width="2" height="30"><line x1="1" y1="0" x2="1" y2="30" stroke="#ef4444" stroke-width="2" marker-end="url(#arr)"/></svg></div>
+          <!-- Stores grid -->
+          <div class="grid grid-cols-3 gap-2 mb-4">
+            <div class="bg-red-200 border border-red-300 rounded p-2 text-center text-xs font-mono">filedagrun<br/><span class="text-red-600">1,400 ln</span></div>
+            <div class="bg-red-200 border border-red-300 rounded p-2 text-center text-xs font-mono">filequeue<br/><span class="text-red-600">350 ln</span></div>
+            <div class="bg-red-200 border border-red-300 rounded p-2 text-center text-xs font-mono">fileproc<br/><span class="text-red-600">300 ln</span></div>
+            <div class="bg-red-200 border border-red-300 rounded p-2 text-center text-xs font-mono">fileuser<br/><span class="text-red-600">250 ln</span></div>
+            <div class="bg-red-200 border border-red-300 rounded p-2 text-center text-xs font-mono">filesecret<br/><span class="text-red-600">200 ln</span></div>
+            <div class="bg-red-200 border border-red-300 rounded p-2 text-center text-xs font-mono">filewebhook<br/><span class="text-red-600">150 ln</span></div>
+            <div class="bg-red-200 border border-red-300 rounded p-2 text-center text-xs font-mono">fileaudit<br/><span class="text-red-600">200 ln</span></div>
+            <div class="bg-red-200 border border-red-300 rounded p-2 text-center text-xs font-mono">filesession<br/><span class="text-red-600">650 ln</span></div>
+            <div class="bg-red-100 border border-red-200 rounded p-2 text-center text-xs font-mono text-red-500">+22 more…</div>
+          </div>
+          <!-- All arrow down to fs -->
+          <div class="grid grid-cols-9 gap-2 mb-2">
+            <div class="text-center text-red-400 text-lg">↓</div>
+            <div class="text-center text-red-400 text-lg">↓</div>
+            <div class="text-center text-red-400 text-lg">↓</div>
+            <div class="text-center text-red-400 text-lg">↓</div>
+            <div class="text-center text-red-400 text-lg">↓</div>
+            <div class="text-center text-red-400 text-lg">↓</div>
+            <div class="text-center text-red-400 text-lg">↓</div>
+            <div class="text-center text-red-400 text-lg">↓</div>
+            <div class="text-center text-red-400 text-lg">↓</div>
+          </div>
+          <div class="bg-slate-200 border border-slate-300 rounded-lg p-3 text-center text-sm font-medium text-slate-600">📂 File System</div>
+          <p class="text-xs text-red-500 text-center mt-4">Add PostgreSQL → rewrite all 30 stores</p>
+        </div>
+      </div>
+
+      <!-- AFTER -->
+      <div>
+        <p class="text-center text-sm font-semibold text-green-600 mb-4 uppercase tracking-wide">After</p>
+        <div class="bg-green-50 rounded-xl p-6 border border-green-200">
+          <!-- Application -->
+          <div class="bg-blue-100 border border-blue-300 rounded-lg p-3 text-center text-sm font-medium text-blue-800 mb-3">Application (runtime, scheduler, auth…)</div>
+          <div class="text-center text-slate-400 text-sm mb-3">↓ same domain interfaces</div>
+          <!-- Thin adapters grid -->
+          <div class="grid grid-cols-3 gap-2 mb-3">
+            <div class="bg-green-200 border border-green-300 rounded p-2 text-center text-xs font-mono">dagrun/<br/><span class="text-green-700">~60 ln</span></div>
+            <div class="bg-green-200 border border-green-300 rounded p-2 text-center text-xs font-mono">queue/<br/><span class="text-green-700">~70 ln</span></div>
+            <div class="bg-green-200 border border-green-300 rounded p-2 text-center text-xs font-mono">proc/<br/><span class="text-green-700">~50 ln</span></div>
+            <div class="bg-green-200 border border-green-300 rounded p-2 text-center text-xs font-mono">user/<br/><span class="text-green-700">~60 ln</span></div>
+            <div class="bg-green-200 border border-green-300 rounded p-2 text-center text-xs font-mono">secret/<br/><span class="text-green-700">~70 ln</span></div>
+            <div class="bg-green-200 border border-green-300 rounded p-2 text-center text-xs font-mono">webhook/<br/><span class="text-green-700">~50 ln</span></div>
+          </div>
+          <div class="text-center text-slate-400 text-sm mb-3">↓ all call</div>
+          <!-- THE SEAM -->
+          <div class="bg-violet-100 border-2 border-violet-400 rounded-lg p-3 text-center mb-3">
+            <p class="text-xs text-violet-500 font-mono uppercase tracking-widest mb-1">THE SEAM</p>
+            <p class="text-sm font-bold text-violet-800">persis.Backend interface</p>
+            <p class="text-xs text-violet-600 font-mono">Collection(name) · Close()</p>
+          </div>
+          <div class="text-center text-slate-400 text-sm mb-3">↓ implemented by</div>
+          <!-- Backends -->
+          <div class="grid grid-cols-3 gap-2">
+            <div class="bg-emerald-200 border border-emerald-300 rounded p-2 text-center text-xs font-mono">file/<br/><span class="text-emerald-700">~400 ln</span></div>
+            <div class="bg-slate-200 border border-slate-300 rounded p-2 text-center text-xs font-mono text-slate-500">sql/<br/><span>future</span></div>
+            <div class="bg-slate-200 border border-slate-300 rounded p-2 text-center text-xs font-mono text-slate-500">etcd/<br/><span>future</span></div>
+          </div>
+          <p class="text-xs text-green-600 text-center mt-4">Add PostgreSQL → implement Backend + Collection only</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Store adapter example -->
+  <div class="bg-white rounded-xl border border-slate-200 p-8 mb-8">
+    <h3 class="font-semibold text-slate-900 mb-2">What a Store Adapter Looks Like</h3>
+    <p class="text-sm text-slate-500 mb-6">
+      The domain store interface (<code class="text-xs bg-slate-100 px-1 rounded">exec.DAGRunStore</code>) is unchanged.
+      Only the implementation becomes a thin JSON adapter over <code class="text-xs bg-slate-100 px-1 rounded">persis.Collection</code>.
+    </p>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <!-- Before adapter code -->
+      <div>
+        <p class="text-xs font-mono text-red-500 mb-2">BEFORE — internal/persis/filedagrun/store.go (excerpt)</p>
+        <div class="bg-slate-900 rounded-lg p-4 overflow-x-auto">
+          <pre class="text-xs text-slate-300 leading-relaxed"><span class="kw">func</span> (s *<span class="ty">Store</span>) <span class="fn">LatestAttempt</span>(
+  ctx <span class="ty">context.Context</span>, name <span class="kw">string</span>,
+) (<span class="ty">exec.DAGRunAttempt</span>, <span class="kw">error</span>) {
+  <span class="cm">// navigate directory tree...</span>
+  root := s.<span class="fn">dagRunRootDir</span>(name)
+  dirs, err := os.<span class="fn">ReadDir</span>(root)
+  <span class="kw">if</span> err != <span class="kw">nil</span> { ... }
+  <span class="cm">// sort, find latest, open file...</span>
+  <span class="kw">for</span> _, d := <span class="kw">range</span> dirs {
+    aDir := filepath.<span class="fn">Join</span>(root, d.<span class="fn">Name</span>(), <span class="st">"attempt"</span>)
+    files, _ := os.<span class="fn">ReadDir</span>(aDir)
+    <span class="cm">// parse filenames, check timestamps...</span>
+    <span class="kw">for</span> _, f := <span class="kw">range</span> files {
+      data, _ := os.<span class="fn">ReadFile</span>(
+        filepath.<span class="fn">Join</span>(aDir, f.<span class="fn">Name</span>()),
+      )
+      <span class="cm">// unmarshal JSONL, pick last line...</span>
+    }
+  }
+  <span class="cm">// ... 40 more lines of file wrangling</span>
+}</pre>
+        </div>
+      </div>
+
+      <!-- After adapter code -->
+      <div>
+        <p class="text-xs font-mono text-green-500 mb-2">AFTER — internal/persis/dagrun/store.go (same method)</p>
+        <div class="bg-slate-900 rounded-lg p-4 overflow-x-auto">
+          <pre class="text-xs text-slate-300 leading-relaxed"><span class="kw">type</span> <span class="ty">Store</span> <span class="kw">struct</span> {
+  col <span class="ty">persis.Collection</span> <span class="cm">// "dag_runs"</span>
+}
+
+<span class="kw">func</span> (s *<span class="ty">Store</span>) <span class="fn">LatestAttempt</span>(
+  ctx <span class="ty">context.Context</span>, name <span class="kw">string</span>,
+) (<span class="ty">exec.DAGRunAttempt</span>, <span class="kw">error</span>) {
+  page, err := s.col.<span class="fn">List</span>(ctx, <span class="ty">persis.ListQuery</span>{
+    Prefix: name + <span class="st">"/"</span>,
+    Limit:  1,
+  })
+  <span class="kw">if</span> err != <span class="kw">nil</span> { <span class="kw">return</span> <span class="kw">nil</span>, err }
+  <span class="kw">if</span> len(page.Records) == 0 {
+    <span class="kw">return</span> <span class="kw">nil</span>, <span class="ty">exec</span>.<span class="ty">ErrDAGRunIDNotFound</span>
+  }
+  <span class="kw">var</span> status <span class="ty">exec.DAGRunStatus</span>
+  json.<span class="fn">Unmarshal</span>(page.Records[0].Data, &amp;status)
+  <span class="kw">return</span> &amp;<span class="ty">attempt</span>{status: status}, <span class="kw">nil</span>
+}
+
+<span class="cm">// Testable with any mock Collection.
+// Zero file-system dependencies.</span></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- How FileBackend works -->
+  <div class="bg-white rounded-xl border border-slate-200 p-8 mb-8">
+    <h3 class="font-semibold text-slate-900 mb-4">How FileBackend Implements Backend</h3>
+    <p class="text-sm text-slate-600 mb-6">
+      The <code class="text-xs bg-slate-100 px-1 rounded">file.Backend</code> consolidates all existing file I/O patterns
+      from the 30 store packages into a single implementation. The data layout is preserved —
+      this is a non-destructive refactoring.
+    </p>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+      <div>
+        <p class="text-xs font-mono text-slate-500 mb-3">Directory layout (unchanged on disk)</p>
+        <div class="bg-slate-900 rounded-lg p-4 font-mono text-xs text-slate-300 leading-relaxed">
+<span class="text-slate-500">{dataDir}/</span>
+├── <span class="text-blue-300">dag_runs/</span>
+│   └── <span class="text-slate-400">{dagName}/</span>
+│       └── <span class="text-slate-400">{runID}/</span>
+│           └── <span class="text-slate-400">{attemptID}.json</span>
+├── <span class="text-blue-300">queue_items/</span>
+│   └── <span class="text-slate-400">{queueName}/</span>
+│       └── <span class="text-slate-400">high_{uuid}.json</span>
+├── <span class="text-blue-300">proc_entries/</span>
+│   └── <span class="text-slate-400">{group}/{name}.json</span>
+├── <span class="text-blue-300">users/</span>
+│   └── <span class="text-slate-400">{userId}.json</span>
+├── <span class="text-blue-300">secrets/</span>
+│   └── <span class="text-slate-400">{workspace}/{name}.json</span>
+├── <span class="text-blue-300">webhooks/</span>
+│   └── <span class="text-slate-400">{webhookId}.json</span>
+└── <span class="text-slate-400">... other collections</span>
+        </div>
+      </div>
+
+      <div>
+        <p class="text-xs font-mono text-slate-500 mb-3">Future SQL backend schema (entire schema)</p>
+        <div class="bg-slate-900 rounded-lg p-4 font-mono text-xs text-slate-300 leading-relaxed">
+<span class="text-purple-300">CREATE TABLE</span> records (
+  collection  <span class="text-green-300">TEXT</span> <span class="text-yellow-300">NOT NULL</span>,
+  id          <span class="text-green-300">TEXT</span> <span class="text-yellow-300">NOT NULL</span>,
+  data        <span class="text-green-300">BYTEA</span> <span class="text-yellow-300">NOT NULL</span>,
+  encoding    <span class="text-green-300">TEXT</span> <span class="text-yellow-300">NOT NULL DEFAULT</span> <span class="text-orange-300">'json'</span>,
+  created_at  <span class="text-green-300">TIMESTAMPTZ</span> <span class="text-yellow-300">NOT NULL</span>,
+  updated_at  <span class="text-green-300">TIMESTAMPTZ</span> <span class="text-yellow-300">NOT NULL</span>,
+  expires_at  <span class="text-green-300">TIMESTAMPTZ</span>,
+  <span class="text-purple-300">PRIMARY KEY</span> (collection, id)
+);
+
+<span class="text-purple-300">CREATE INDEX</span> idx_records_time
+  <span class="text-purple-300">ON</span> records (collection, created_at);
+
+<span class="text-purple-300">CREATE INDEX</span> idx_records_expires
+  <span class="text-purple-300">ON</span> records (expires_at)
+  <span class="text-purple-300">WHERE</span> expires_at <span class="text-purple-300">IS NOT NULL</span>;
+
+<span class="text-slate-500">-- That's it. No per-domain columns ever.</span>
+<span class="text-slate-500">-- Domain changes live inside data BYTEA.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+      <div class="bg-slate-50 rounded-lg p-4">
+        <p class="font-semibold text-slate-700 mb-1">Collection(name) → directory</p>
+        <p class="text-slate-500">Each collection is a subdirectory. <code class="text-xs bg-slate-100 px-1 rounded">Collection("dag_runs")</code> opens/creates <code class="text-xs bg-slate-100 px-1 rounded">{dataDir}/dag_runs/</code>.</p>
+      </div>
+      <div class="bg-slate-50 rounded-lg p-4">
+        <p class="font-semibold text-slate-700 mb-1">ID "/" → path separator</p>
+        <p class="text-slate-500"><code class="text-xs bg-slate-100 px-1 rounded">id = "mydag/run-1/att-0"</code> maps to <code class="text-xs bg-slate-100 px-1 rounded">dag_runs/mydag/run-1/att-0.json</code>. Prefix queries become directory scans.</p>
+      </div>
+      <div class="bg-slate-50 rounded-lg p-4">
+        <p class="font-semibold text-slate-700 mb-1">Claim → file lock + rename</p>
+        <p class="text-slate-500">Atomic dequeue: lock directory, pick first matching file, read + delete atomically. SQL equivalent: <code class="text-xs bg-slate-100 px-1 rounded">SELECT FOR UPDATE SKIP LOCKED</code>.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Benefits -->
+  <div class="bg-white rounded-xl border border-slate-200 p-8">
+    <h3 class="font-semibold text-slate-900 mb-6">Benefits: Leverage and Locality</h3>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div class="space-y-4">
+        <div class="flex gap-3">
+          <span class="text-green-500 text-xl mt-0.5">⬆</span>
+          <div>
+            <p class="font-medium text-slate-800">Leverage</p>
+            <p class="text-sm text-slate-600">8 methods unlock all store capabilities. Adding a new database requires implementing <em>only</em> Backend + Collection — all 30+ domain stores work immediately.</p>
+          </div>
+        </div>
+        <div class="flex gap-3">
+          <span class="text-green-500 text-xl mt-0.5">🎯</span>
+          <div>
+            <p class="font-medium text-slate-800">Locality</p>
+            <p class="text-sm text-slate-600">All file I/O complexity lives in one place (<code class="text-xs bg-slate-100 px-1 rounded">file/backend.go</code>). Bugs in directory scanning, atomic writes, or cursor pagination are fixed once.</p>
+          </div>
+        </div>
+        <div class="flex gap-3">
+          <span class="text-green-500 text-xl mt-0.5">🧪</span>
+          <div>
+            <p class="font-medium text-slate-800">Testability</p>
+            <p class="text-sm text-slate-600">Domain store adapters become pure Go — no filesystem fixtures needed. Test with an in-memory Collection mock. Backend gets its own integration tests.</p>
+          </div>
+        </div>
+      </div>
+      <div class="space-y-4">
+        <div class="flex gap-3">
+          <span class="text-green-500 text-xl mt-0.5">🔒</span>
+          <div>
+            <p class="font-medium text-slate-800">Schema stability</p>
+            <p class="text-sm text-slate-600">SQL schema never changes as domain evolves. New fields in DAGRunStatus? Update the struct, marshal to JSON, done. No migrations for domain changes.</p>
+          </div>
+        </div>
+        <div class="flex gap-3">
+          <span class="text-green-500 text-xl mt-0.5">🔀</span>
+          <div>
+            <p class="font-medium text-slate-800">Incremental migration</p>
+            <p class="text-sm text-slate-600">Port one store at a time. File layout on disk is unchanged. Run old and new implementations side-by-side during migration.</p>
+          </div>
+        </div>
+        <div class="flex gap-3">
+          <span class="text-green-500 text-xl mt-0.5">🏗️</span>
+          <div>
+            <p class="font-medium text-slate-800">Simpler wiring</p>
+            <p class="text-sm text-slate-600">One <code class="text-xs bg-slate-100 px-1 rounded">backend := file.New(dir)</code> call replaces 30+ individual store constructor calls in <code class="text-xs bg-slate-100 px-1 rounded">cmd/context.go</code>.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════ CANDIDATE 2 ════════════════════ -->
+<section id="candidate2">
+  <div class="flex items-center gap-3 mb-2">
+    <h2 class="text-2xl font-bold">Codec / Serialization Layer</h2>
+    <span class="bg-amber-500 text-white text-xs font-bold px-3 py-1 rounded-full">WORTH EXPLORING</span>
+  </div>
+  <p class="text-slate-500 mb-8">Secondary refactoring — complements Candidate 1 but not required for it</p>
+
+  <div class="bg-white rounded-xl border border-slate-200 p-8">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+      <div>
+        <h3 class="font-semibold text-slate-900 mb-3">Problem</h3>
+        <p class="text-sm text-slate-600 mb-4">
+          Every store adapter will call <code class="text-xs bg-slate-100 px-1 rounded">json.Marshal/Unmarshal</code> directly.
+          This duplicates encoding error handling, makes it hard to add proto3 support later,
+          and provides no hook for schema versioning.
+        </p>
+        <h3 class="font-semibold text-slate-900 mb-3">Solution</h3>
+        <p class="text-sm text-slate-600">
+          A thin <code class="text-xs bg-slate-100 px-1 rounded">persis/codec.go</code> with two generic helpers:
+        </p>
+        <div class="bg-slate-900 rounded-lg p-4 mt-3 overflow-x-auto">
+          <pre class="text-xs text-slate-300"><span class="cm">// Encode marshals v into a Record Data+Encoding pair.</span>
+<span class="kw">func</span> <span class="fn">Encode</span>[T <span class="kw">any</span>](v T) (<span class="ty">Record</span>, <span class="kw">error</span>)
+
+<span class="cm">// Decode unmarshals rec.Data into *v using rec.Encoding.</span>
+<span class="kw">func</span> <span class="fn">Decode</span>[T <span class="kw">any</span>](rec *<span class="ty">Record</span>, v *T) <span class="kw">error</span></pre>
+        </div>
+      </div>
+
+      <div>
+        <h3 class="font-semibold text-slate-900 mb-3">Benefits</h3>
+        <ul class="text-sm text-slate-600 space-y-2">
+          <li class="flex gap-2"><span class="text-amber-500">→</span> One place to switch JSON → proto3 globally</li>
+          <li class="flex gap-2"><span class="text-amber-500">→</span> One place to add a version field for future migrations</li>
+          <li class="flex gap-2"><span class="text-amber-500">→</span> Store adapters become 2-line encode/decode calls</li>
+          <li class="flex gap-2"><span class="text-amber-500">→</span> Codec is tested in isolation, independently of backend</li>
+        </ul>
+
+        <div class="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
+          <p class="text-xs text-amber-700">
+            <strong>Recommendation:</strong> implement this alongside Candidate 1 — the marginal cost is ~50 lines
+            and it prevents scattered <code class="text-xs bg-amber-100 px-1 rounded">json.Marshal</code> calls from proliferating
+            across 30 adapters.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════ PACKAGE STRUCTURE ══════════════ -->
+<section id="structure">
+  <h2 class="text-2xl font-bold mb-2">Proposed Package Structure</h2>
+  <p class="text-slate-500 mb-8">What moves where</p>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- Before -->
+    <div class="bg-white rounded-xl border border-slate-200 p-6">
+      <p class="text-xs font-mono text-red-500 mb-4">BEFORE — internal/persis/</p>
+      <div class="font-mono text-xs text-slate-600 leading-relaxed">
+        <div class="text-slate-400">internal/persis/</div>
+        <div class="ml-4 text-red-500">filedag/ <span class="text-slate-400 ml-1">(dag YAML — not changing)</span></div>
+        <div class="ml-4 text-red-400">filedagrun/ <span class="text-slate-400 ml-1">1,400 ln impl</span></div>
+        <div class="ml-4 text-red-400">filequeue/ <span class="text-slate-400 ml-1">350 ln impl</span></div>
+        <div class="ml-4 text-red-400">fileproc/ <span class="text-slate-400 ml-1">300 ln impl</span></div>
+        <div class="ml-4 text-red-400">filedistributed/ <span class="text-slate-400 ml-1">600 ln impl</span></div>
+        <div class="ml-4 text-red-400">fileuser/ <span class="text-slate-400 ml-1">250 ln impl</span></div>
+        <div class="ml-4 text-red-400">filesecret/ <span class="text-slate-400 ml-1">200 ln impl</span></div>
+        <div class="ml-4 text-red-400">filewebhook/ <span class="text-slate-400 ml-1">150 ln impl</span></div>
+        <div class="ml-4 text-red-400">fileaudit/ <span class="text-slate-400 ml-1">200 ln impl</span></div>
+        <div class="ml-4 text-red-400">fileapikey/ <span class="text-slate-400 ml-1">200 ln impl</span></div>
+        <div class="ml-4 text-red-400">filesession/ <span class="text-slate-400 ml-1">650 ln impl</span></div>
+        <div class="ml-4 text-red-400">fileeventstore/ <span class="text-slate-400 ml-1">300 ln impl</span></div>
+        <div class="ml-4 text-red-400">filememory/ <span class="text-slate-400 ml-1">impl</span></div>
+        <div class="ml-4 text-red-400">fileserviceregistry/ <span class="text-slate-400 ml-1">impl</span></div>
+        <div class="ml-4 text-red-400">filenotification/ <span class="text-slate-400 ml-1">937 ln impl</span></div>
+        <div class="ml-4 text-red-400">filewatermark/ <span class="text-slate-400 ml-1">impl</span></div>
+        <div class="ml-4 text-red-400">filebaseconfig/ <span class="text-slate-400 ml-1">impl</span></div>
+        <div class="ml-4 text-red-400">fileagent*/ <span class="text-slate-400 ml-1">4× impl</span></div>
+        <div class="ml-4 text-red-400">file*/ <span class="text-slate-400 ml-1">... 12 more</span></div>
+        <div class="ml-4 mt-2 text-slate-500">legacy/</div>
+        <div class="ml-4 text-slate-500">testutil/</div>
+      </div>
+    </div>
+
+    <!-- After -->
+    <div class="bg-white rounded-xl border border-slate-200 p-6">
+      <p class="text-xs font-mono text-green-500 mb-4">AFTER — internal/persis/</p>
+      <div class="font-mono text-xs text-slate-600 leading-relaxed">
+        <div class="text-slate-400">internal/persis/</div>
+        <div class="ml-4 text-purple-600 font-semibold">backend.go <span class="text-slate-400 font-normal">← Backend, Collection, Record</span></div>
+        <div class="ml-4 text-purple-600 font-semibold">codec.go <span class="text-slate-400 font-normal">← Encode[T], Decode[T]</span></div>
+        <div class="ml-4 text-purple-600 font-semibold">errors.go <span class="text-slate-400 font-normal">← ErrNotFound, ErrConflict</span></div>
+        <div class="ml-4 mt-2 text-slate-400">── adapters (thin, pure Go) ──</div>
+        <div class="ml-4 text-green-600">dagrun/ <span class="text-slate-400 ml-1">~60 ln adapter</span></div>
+        <div class="ml-4 text-green-600">queue/ <span class="text-slate-400 ml-1">~70 ln adapter</span></div>
+        <div class="ml-4 text-green-600">proc/ <span class="text-slate-400 ml-1">~50 ln adapter</span></div>
+        <div class="ml-4 text-green-600">distributed/ <span class="text-slate-400 ml-1">~80 ln adapter</span></div>
+        <div class="ml-4 text-green-600">user/ <span class="text-slate-400 ml-1">~60 ln adapter</span></div>
+        <div class="ml-4 text-green-600">secret/ <span class="text-slate-400 ml-1">~70 ln adapter</span></div>
+        <div class="ml-4 text-green-600">webhook/ <span class="text-slate-400 ml-1">~50 ln adapter</span></div>
+        <div class="ml-4 text-green-600">audit/ <span class="text-slate-400 ml-1">~60 ln adapter</span></div>
+        <div class="ml-4 text-green-600">session/ <span class="text-slate-400 ml-1">~80 ln adapter</span></div>
+        <div class="ml-4 text-green-600">... <span class="text-slate-400 ml-1">other adapters</span></div>
+        <div class="ml-4 mt-2 text-slate-400">── backend implementations ──</div>
+        <div class="ml-4 text-emerald-600 font-semibold">file/ <span class="text-slate-400 font-normal">FileBackend ~400 ln total</span></div>
+        <div class="ml-4 text-slate-400">  backend.go</div>
+        <div class="ml-4 text-slate-400">  collection.go</div>
+        <div class="ml-4 text-slate-400">sql/ <span class="text-slate-400 ml-1">future</span></div>
+        <div class="ml-4 text-slate-400">etcd/ <span class="text-slate-400 ml-1">future</span></div>
+        <div class="ml-4 mt-2 text-slate-500">legacy/ <span class="text-slate-400">unchanged</span></div>
+        <div class="ml-4 text-slate-500">testutil/ <span class="text-slate-400">+ MemoryBackend</span></div>
+        <div class="ml-4 text-red-500">filedag/ <span class="text-slate-400 font-normal">← untouched (DAG YAML files)</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Wiring change -->
+  <div class="mt-6 bg-white rounded-xl border border-slate-200 p-8">
+    <h3 class="font-semibold text-slate-900 mb-4">Wiring Change in cmd/context.go</h3>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div>
+        <p class="text-xs font-mono text-red-500 mb-2">BEFORE — 30+ separate constructors</p>
+        <div class="bg-slate-900 rounded-lg p-4 overflow-x-auto">
+          <pre class="text-xs text-slate-300"><span class="cm">// context.go — NewContext()</span>
+drs := filedagrun.<span class="fn">New</span>(cfg.Paths.DAGRunsDir, ...)
+qs  := filequeue.<span class="fn">New</span>(cfg.Paths.QueueDir)
+ps  := fileproc.<span class="fn">New</span>(cfg.Paths.ProcDir, ...)
+sm  := fileserviceregistry.<span class="fn">New</span>(cfg.Paths.ServiceRegistryDir)
+dls := filedistributed.<span class="fn">NewDAGRunLeaseStore</span>(...)
+ads := filedistributed.<span class="fn">NewActiveDistributedRunStore</span>(...)
+dts := filedistributed.<span class="fn">NewDispatchTaskStore</span>(...)
+whs := filedistributed.<span class="fn">NewWorkerHeartbeatStore</span>(...)
+us  := fileuser.<span class="fn">New</span>(cfg.Paths.UsersDir, ...)
+ss  := filesecret.<span class="fn">New</span>(cfg.Paths.SecretsDir, ...)
+<span class="cm">// ... 20+ more lines like this</span></pre>
+        </div>
+      </div>
+      <div>
+        <p class="text-xs font-mono text-green-500 mb-2">AFTER — one backend, named collections</p>
+        <div class="bg-slate-900 rounded-lg p-4 overflow-x-auto">
+          <pre class="text-xs text-slate-300"><span class="cm">// context.go — NewContext()</span>
+backend := file.<span class="fn">NewBackend</span>(cfg.Paths.DataDir)
+
+drs := dagrun.<span class="fn">NewStore</span>(
+  backend.<span class="fn">Collection</span>(<span class="st">"dag_runs"</span>))
+qs  := queue.<span class="fn">NewStore</span>(
+  backend.<span class="fn">Collection</span>(<span class="st">"queue_items"</span>))
+ps  := proc.<span class="fn">NewStore</span>(
+  backend.<span class="fn">Collection</span>(<span class="st">"proc_entries"</span>))
+us  := user.<span class="fn">NewStore</span>(
+  backend.<span class="fn">Collection</span>(<span class="st">"users"</span>))
+ss  := secret.<span class="fn">NewStore</span>(
+  backend.<span class="fn">Collection</span>(<span class="st">"secrets"</span>), encryptor)
+<span class="cm">// future: backend = pg.NewBackend(cfg.DB.DSN)</span></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════ COLLECTIONS ════════════════════ -->
+<section id="collections">
+  <h2 class="text-2xl font-bold mb-2">Collection Naming &amp; ID Conventions</h2>
+  <p class="text-slate-500 mb-8">
+    Collections map to directories (FileBackend) or rows in a single <code class="text-xs bg-slate-100 px-1 rounded">records</code> table (SQL).
+    IDs use <code class="text-xs bg-slate-100 px-1 rounded">/</code> as a hierarchy separator — prefix queries support tree traversal.
+  </p>
+
+  <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="bg-slate-50 border-b border-slate-200">
+          <th class="text-left px-5 py-3 font-semibold text-slate-700">Collection</th>
+          <th class="text-left px-5 py-3 font-semibold text-slate-700">Domain</th>
+          <th class="text-left px-5 py-3 font-semibold text-slate-700">ID Format</th>
+          <th class="text-left px-5 py-3 font-semibold text-slate-700">Notes</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        <tr class="hover:bg-slate-50">
+          <td class="px-5 py-3 font-mono text-xs text-blue-700 bg-blue-50">dag_runs</td>
+          <td class="px-5 py-3 text-slate-700">DAGRunStore</td>
+          <td class="px-5 py-3 font-mono text-xs text-slate-600">{dagName}/{runID}/{attemptID}</td>
+          <td class="px-5 py-3 text-slate-500 text-xs">Prefix by dagName or dagName/runID for scoped queries. CAS used for status updates.</td>
+        </tr>
+        <tr class="hover:bg-slate-50">
+          <td class="px-5 py-3 font-mono text-xs text-blue-700 bg-blue-50">queue_items</td>
+          <td class="px-5 py-3 text-slate-700">QueueStore</td>
+          <td class="px-5 py-3 font-mono text-xs text-slate-600">{queueName}/{high|low}_{uuid}</td>
+          <td class="px-5 py-3 text-slate-500 text-xs">Priority encoded in ID sort order. Claim = atomic dequeue.</td>
+        </tr>
+        <tr class="hover:bg-slate-50">
+          <td class="px-5 py-3 font-mono text-xs text-blue-700 bg-blue-50">proc_entries</td>
+          <td class="px-5 py-3 text-slate-700">ProcStore</td>
+          <td class="px-5 py-3 font-mono text-xs text-slate-600">{group}/{procName}</td>
+          <td class="px-5 py-3 text-slate-500 text-xs">ExpiresAt used for heartbeat TTL detection.</td>
+        </tr>
+        <tr class="hover:bg-slate-50">
+          <td class="px-5 py-3 font-mono text-xs text-blue-700 bg-blue-50">dispatch_tasks</td>
+          <td class="px-5 py-3 text-slate-700">DispatchTaskStore</td>
+          <td class="px-5 py-3 font-mono text-xs text-slate-600">{taskID}</td>
+          <td class="px-5 py-3 text-slate-500 text-xs">Claim for atomic worker assignment.</td>
+        </tr>
+        <tr class="hover:bg-slate-50">
+          <td class="px-5 py-3 font-mono text-xs text-blue-700 bg-blue-50">worker_heartbeats</td>
+          <td class="px-5 py-3 text-slate-700">WorkerHeartbeatStore</td>
+          <td class="px-5 py-3 font-mono text-xs text-slate-600">{workerID}</td>
+          <td class="px-5 py-3 text-slate-500 text-xs">ExpiresAt for stale-worker detection.</td>
+        </tr>
+        <tr class="hover:bg-slate-50">
+          <td class="px-5 py-3 font-mono text-xs text-blue-700 bg-blue-50">dag_run_leases</td>
+          <td class="px-5 py-3 text-slate-700">DAGRunLeaseStore</td>
+          <td class="px-5 py-3 font-mono text-xs text-slate-600">{queueName}/{attemptKey}</td>
+          <td class="px-5 py-3 text-slate-500 text-xs">ExpiresAt for lease expiry.</td>
+        </tr>
+        <tr class="hover:bg-slate-50">
+          <td class="px-5 py-3 font-mono text-xs text-blue-700 bg-blue-50">active_runs</td>
+          <td class="px-5 py-3 text-slate-700">ActiveDistributedRunStore</td>
+          <td class="px-5 py-3 font-mono text-xs text-slate-600">{dagName}/{runID}</td>
+          <td class="px-5 py-3 text-slate-500 text-xs">Coordinator's index of live runs.</td>
+        </tr>
+        <tr class="hover:bg-slate-50">
+          <td class="px-5 py-3 font-mono text-xs text-violet-700 bg-violet-50">users</td>
+          <td class="px-5 py-3 text-slate-700">UserStore</td>
+          <td class="px-5 py-3 font-mono text-xs text-slate-600">{userID}</td>
+          <td class="px-5 py-3 text-slate-500 text-xs">Username lookup via in-memory index rebuilt on List.</td>
+        </tr>
+        <tr class="hover:bg-slate-50">
+          <td class="px-5 py-3 font-mono text-xs text-violet-700 bg-violet-50">secrets</td>
+          <td class="px-5 py-3 text-slate-700">SecretStore</td>
+          <td class="px-5 py-3 font-mono text-xs text-slate-600">{workspace}/{secretName}</td>
+          <td class="px-5 py-3 text-slate-500 text-xs">Adapter encrypts Data before Put, decrypts after Get.</td>
+        </tr>
+        <tr class="hover:bg-slate-50">
+          <td class="px-5 py-3 font-mono text-xs text-violet-700 bg-violet-50">api_keys</td>
+          <td class="px-5 py-3 text-slate-700">APIKeyStore</td>
+          <td class="px-5 py-3 font-mono text-xs text-slate-600">{keyID}</td>
+          <td class="px-5 py-3 text-slate-500 text-xs">Simple CRUD.</td>
+        </tr>
+        <tr class="hover:bg-slate-50">
+          <td class="px-5 py-3 font-mono text-xs text-violet-700 bg-violet-50">webhooks</td>
+          <td class="px-5 py-3 text-slate-700">WebhookStore</td>
+          <td class="px-5 py-3 font-mono text-xs text-slate-600">{webhookID}</td>
+          <td class="px-5 py-3 text-slate-500 text-xs">DAG-name lookup via prefix or in-memory index.</td>
+        </tr>
+        <tr class="hover:bg-slate-50">
+          <td class="px-5 py-3 font-mono text-xs text-amber-700 bg-amber-50">audit_log</td>
+          <td class="px-5 py-3 text-slate-700">AuditStore</td>
+          <td class="px-5 py-3 font-mono text-xs text-slate-600">{YYYY-MM-DD}/{uuid}</td>
+          <td class="px-5 py-3 text-slate-500 text-xs">Append-only. Since/Until on ListQuery for time-range queries.</td>
+        </tr>
+        <tr class="hover:bg-slate-50">
+          <td class="px-5 py-3 font-mono text-xs text-amber-700 bg-amber-50">events</td>
+          <td class="px-5 py-3 text-slate-700">EventStore</td>
+          <td class="px-5 py-3 font-mono text-xs text-slate-600">{YYYY-MM-DDHH}/{eventID}</td>
+          <td class="px-5 py-3 text-slate-500 text-xs">Committed vs inbox via ID prefix convention.</td>
+        </tr>
+        <tr class="hover:bg-slate-50">
+          <td class="px-5 py-3 font-mono text-xs text-amber-700 bg-amber-50">sessions</td>
+          <td class="px-5 py-3 text-slate-700">SessionStore</td>
+          <td class="px-5 py-3 font-mono text-xs text-slate-600">{userID}/{sessionID}</td>
+          <td class="px-5 py-3 text-slate-500 text-xs">Prefix by userID for user-scoped listing.</td>
+        </tr>
+        <tr class="hover:bg-slate-50">
+          <td class="px-5 py-3 font-mono text-xs text-amber-700 bg-amber-50">agent_memory</td>
+          <td class="px-5 py-3 text-slate-700">MemoryStore</td>
+          <td class="px-5 py-3 font-mono text-xs text-slate-600">global or dag/{dagName}</td>
+          <td class="px-5 py-3 text-slate-500 text-xs">Plain text blob in Data (EncodingJSON = "raw").</td>
+        </tr>
+        <tr class="hover:bg-slate-50">
+          <td class="px-5 py-3 font-mono text-xs text-slate-600">service_registry</td>
+          <td class="px-5 py-3 text-slate-700">ServiceRegistry</td>
+          <td class="px-5 py-3 font-mono text-xs text-slate-600">{serviceName}/{instanceID}</td>
+          <td class="px-5 py-3 text-slate-500 text-xs">ExpiresAt for stale instance detection.</td>
+        </tr>
+        <tr class="hover:bg-slate-50">
+          <td class="px-5 py-3 font-mono text-xs text-slate-600">notifications</td>
+          <td class="px-5 py-3 text-slate-700">NotificationStore</td>
+          <td class="px-5 py-3 font-mono text-xs text-slate-600">{notificationID}</td>
+          <td class="px-5 py-3 text-slate-500 text-xs">Adapter handles per-field encryption.</td>
+        </tr>
+        <tr class="hover:bg-slate-50">
+          <td class="px-5 py-3 font-mono text-xs text-slate-600">base_config</td>
+          <td class="px-5 py-3 text-slate-700">BaseConfigStore</td>
+          <td class="px-5 py-3 font-mono text-xs text-slate-600">config</td>
+          <td class="px-5 py-3 text-slate-500 text-xs">Single-record collections. Get("config") / Put.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="mt-4 bg-slate-50 border border-slate-200 rounded-lg p-4 text-sm text-slate-600">
+    <strong>What does NOT move to Backend:</strong>
+    DAG YAML definition files (<code class="text-xs bg-slate-100 px-1 rounded">filedag/</code>),
+    step execution logs, artifact outputs, and any user-managed files remain on disk as-is.
+    The Backend only owns <em>control-plane metadata</em> — the records that describe <em>what</em> runs, not the artifacts of <em>running</em>.
+  </div>
+</section>
+
+<!-- ══════════════════════════ MIGRATION ══════════════════════ -->
+<section id="migration">
+  <h2 class="text-2xl font-bold mb-2">Migration Strategy</h2>
+  <p class="text-slate-500 mb-8">Incremental, non-destructive — one store at a time</p>
+
+  <div class="bg-white rounded-xl border border-slate-200 p-8">
+    <div class="mermaid">
+graph LR
+  A["Step 1\nDefine interfaces\npersis/backend.go\npersis/codec.go"] -->
+  B["Step 2\nFileBackend\npersis/file/backend.go\n(no behavior change)"] -->
+  C["Step 3\nPort simple stores\nwebhook, apikey,\nuser, secret"] -->
+  D["Step 4\nPort complex stores\nqueue, proc,\ndistributed"] -->
+  E["Step 5\nPort dagrun store\n(most complex)"] -->
+  F["Step 6\nRemove file*/ packages\nSimplify context.go"] -->
+  G["Step 7\nAdd MemoryBackend\nin testutil/\nfor unit tests"]
+
+  style A fill:#f0f9ff,stroke:#7dd3fc
+  style B fill:#ecfdf5,stroke:#6ee7b7
+  style C fill:#ecfdf5,stroke:#6ee7b7
+  style D fill:#ecfdf5,stroke:#6ee7b7
+  style E fill:#ecfdf5,stroke:#6ee7b7
+  style F fill:#ecfdf5,stroke:#6ee7b7
+  style G fill:#faf5ff,stroke:#c4b5fd
+    </div>
+
+    <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div class="bg-green-50 border border-green-200 rounded-lg p-5">
+        <p class="font-semibold text-green-800 mb-2">Why this is safe</p>
+        <ul class="text-sm text-green-700 space-y-1">
+          <li>• FileBackend maps IDs to the <em>same</em> directory layout. No data migration.</li>
+          <li>• Old and new code can run together during porting (different stores).</li>
+          <li>• Each store port is independently testable and reviewable.</li>
+          <li>• File format (JSON) unchanged — existing data readable immediately.</li>
+        </ul>
+      </div>
+      <div class="bg-blue-50 border border-blue-200 rounded-lg p-5">
+        <p class="font-semibold text-blue-800 mb-2">How to add PostgreSQL later</p>
+        <ul class="text-sm text-blue-700 space-y-1">
+          <li>• Create <code class="text-xs bg-blue-100 px-1 rounded">persis/sql/backend.go</code> implementing Backend + Collection.</li>
+          <li>• Single <code class="text-xs bg-blue-100 px-1 rounded">records</code> table schema (shown above).</li>
+          <li>• Wire via config: <code class="text-xs bg-blue-100 px-1 rounded">backend := sql.NewBackend(dsn)</code>.</li>
+          <li>• All 30+ store adapters work unchanged.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════ TOP RECOMMENDATION ═════════════ -->
+<section id="top">
+  <div class="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-10 text-white">
+    <p class="text-xs font-mono text-slate-400 tracking-widest uppercase mb-4">Top Recommendation</p>
+    <h2 class="text-3xl font-bold mb-4">Implement Backend Abstraction (Candidate 1)</h2>
+
+    <p class="text-slate-300 text-lg mb-8 max-w-3xl">
+      This is the single highest-leverage refactoring available in the persistence layer.
+      It turns a shallow collection of 30 file-I/O modules into a deep module: 8 methods that hide
+      all physical storage complexity, enabling any database backend without touching domain code.
+    </p>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      <div class="bg-white/10 rounded-xl p-5">
+        <p class="text-sm font-semibold text-slate-200 mb-2">Code reduction</p>
+        <p class="text-3xl font-bold text-green-400">~70%</p>
+        <p class="text-sm text-slate-400 mt-1">per-store implementation lines</p>
+      </div>
+      <div class="bg-white/10 rounded-xl p-5">
+        <p class="text-sm font-semibold text-slate-200 mb-2">Backend effort</p>
+        <p class="text-3xl font-bold text-blue-400">1×</p>
+        <p class="text-sm text-slate-400 mt-1">Backend impl = all stores supported</p>
+      </div>
+      <div class="bg-white/10 rounded-xl p-5">
+        <p class="text-sm font-semibold text-slate-200 mb-2">Interface surface</p>
+        <p class="text-3xl font-bold text-violet-400">8</p>
+        <p class="text-sm text-slate-400 mt-1">methods across Backend + Collection</p>
+      </div>
+    </div>
+
+    <div class="bg-white/5 border border-white/20 rounded-xl p-6">
+      <p class="text-sm font-semibold text-slate-300 mb-3">Do this first — in this order:</p>
+      <ol class="text-sm text-slate-300 space-y-2">
+        <li><span class="text-green-400 font-bold">1.</span> Define <code class="text-xs bg-white/10 px-1 rounded">persis/backend.go</code> (Backend, Collection, Record, ListQuery, Page, errors)</li>
+        <li><span class="text-green-400 font-bold">2.</span> Add <code class="text-xs bg-white/10 px-1 rounded">persis/codec.go</code> (Encode[T], Decode[T])</li>
+        <li><span class="text-green-400 font-bold">3.</span> Implement <code class="text-xs bg-white/10 px-1 rounded">persis/file/backend.go</code> wrapping existing file logic</li>
+        <li><span class="text-green-400 font-bold">4.</span> Add <code class="text-xs bg-white/10 px-1 rounded">persis/testutil/memory.go</code> — in-memory Backend for unit tests</li>
+        <li><span class="text-green-400 font-bold">5.</span> Port stores one by one, starting with simple ones (webhook, apikey, user)</li>
+        <li><span class="text-green-400 font-bold">6.</span> Port complex stores (queue with Claim, proc with CAS, dagrun)</li>
+        <li><span class="text-green-400 font-bold">7.</span> Delete old <code class="text-xs bg-white/10 px-1 rounded">file*/</code> packages as each is replaced</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="border-t border-slate-200 mt-20 py-8 px-8">
+  <div class="max-w-6xl mx-auto flex justify-between text-xs text-slate-400">
+    <p>Dagu Persistence Layer Architecture Review</p>
+    <p>Deep Module Philosophy · Temporal-inspired id+blob design</p>
+  </div>
+</footer>
+
+</body>
+</html>
