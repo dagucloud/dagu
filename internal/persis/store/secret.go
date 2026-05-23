@@ -295,6 +295,9 @@ func (s *SecretStore) WriteValue(ctx context.Context, id string, input secret.Wr
 	if err := persis.Decode(rec, &sr); err != nil {
 		return nil, fmt.Errorf("secret store: decode for WriteValue: %w", err)
 	}
+	if sr.Secret == nil {
+		return nil, fmt.Errorf("secret store: decode for WriteValue %q: missing secret payload", id)
+	}
 	if err := s.appendVersion(&sr, input); err != nil {
 		return nil, err
 	}
