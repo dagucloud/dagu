@@ -1062,6 +1062,7 @@ func (srv *Server) Serve(ctx context.Context) error {
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
+	r.Use(securityHeadersMiddleware(srv.config.Server.TLS != nil))
 	r.Use(middleware.RedirectSlashes)
 
 	if err := srv.setupRoutes(ctx, r); err != nil {
