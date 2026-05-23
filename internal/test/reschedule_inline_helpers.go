@@ -22,11 +22,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func rescheduleEventuallyTimeout(base time.Duration) time.Duration {
+// SubprocessRunTimeout returns a timeout appropriate for waiting on the result
+// of a subprocess-executed DAG run. On Windows, process creation is
+// significantly slower so a larger multiplier is used.
+func SubprocessRunTimeout(base time.Duration) time.Duration {
 	if runtime.GOOS == "windows" {
 		return base * 20
 	}
 	return base
+}
+
+func rescheduleEventuallyTimeout(base time.Duration) time.Duration {
+	return SubprocessRunTimeout(base)
 }
 
 func CreateInlineDAGRunForReschedule(t *testing.T, server Server, dagName string, enqueue bool) (string, string) {
