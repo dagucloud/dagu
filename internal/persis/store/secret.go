@@ -102,6 +102,9 @@ func (s *SecretStore) Create(ctx context.Context, sec *secret.Secret, initialVal
 	if _, exists := s.byRef[rk]; exists {
 		return secret.ErrAlreadyExists
 	}
+	if _, err := s.col.Get(ctx, sec.ID); err == nil {
+		return secret.ErrAlreadyExists
+	}
 
 	sr := &secretStoredRecord{Secret: stored}
 	if initialValue != nil {
@@ -218,6 +221,9 @@ func (s *SecretStore) Update(ctx context.Context, sec *secret.Secret) error {
 	var existing secretStoredRecord
 	if err := persis.Decode(existingRec, &existing); err != nil {
 		return fmt.Errorf("secret store: decode existing: %w", err)
+	}
+	if existing.Secret == nil {
+		return fmt.Errorf("secret store: record %q has nil secret payload", sec.ID)
 	}
 
 	oldRef := secretRefKey(existing.Secret.Workspace, existing.Secret.Ref)

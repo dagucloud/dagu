@@ -132,6 +132,13 @@ func (s *SessionStore) CreateSession(ctx context.Context, sess *agent.Session) e
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if _, exists := s.collectionID[sess.ID]; exists {
+		return fmt.Errorf("session store: session %q already exists", sess.ID)
+	}
+	if _, err := s.col.Get(ctx, sess.ID); err == nil {
+		return fmt.Errorf("session store: session %q already exists", sess.ID)
+	}
+
 	if err := s.col.Put(ctx, &persis.Record{
 		ID:        sess.ID,
 		Data:      data,
@@ -141,6 +148,7 @@ func (s *SessionStore) CreateSession(ctx context.Context, sess *agent.Session) e
 	}); err != nil {
 		return err
 	}
+	s.collectionID[sess.ID] = sess.ID
 
 	s.byUser[sess.UserID] = append(s.byUser[sess.UserID], sess.ID)
 	s.updatedAt[sess.ID] = sess.UpdatedAt

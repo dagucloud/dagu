@@ -44,10 +44,19 @@ type fileRecord struct {
 }
 
 func toFileRecord(r *persis.Record) *fileRecord {
+	var data json.RawMessage
+	if r.Encoding == persis.EncodingJSON {
+		data = json.RawMessage(r.Data)
+	} else {
+		// Non-JSON (e.g. proto/binary) payloads are not valid JSON, so base64-encode
+		// them as a JSON string so the file envelope always marshals cleanly.
+		quoted, _ := json.Marshal(base64.StdEncoding.EncodeToString(r.Data))
+		data = json.RawMessage(quoted)
+	}
 	return &fileRecord{
 		ID:        r.ID,
 		Encoding:  r.Encoding,
-		Data:      json.RawMessage(r.Data),
+		Data:      data,
 		CreatedAt: r.CreatedAt,
 		UpdatedAt: r.UpdatedAt,
 		ExpiresAt: r.ExpiresAt,
@@ -55,10 +64,20 @@ func toFileRecord(r *persis.Record) *fileRecord {
 }
 
 func (fr *fileRecord) toRecord() *persis.Record {
+	data := []byte(fr.Data)
+	if fr.Encoding != persis.EncodingJSON {
+		// Non-JSON data was stored as a base64 JSON string; decode it.
+		var encoded string
+		if json.Unmarshal(fr.Data, &encoded) == nil {
+			if decoded, err := base64.StdEncoding.DecodeString(encoded); err == nil {
+				data = decoded
+			}
+		}
+	}
 	return &persis.Record{
 		ID:        fr.ID,
 		Encoding:  fr.Encoding,
-		Data:      []byte(fr.Data),
+		Data:      data,
 		CreatedAt: fr.CreatedAt,
 		UpdatedAt: fr.UpdatedAt,
 		ExpiresAt: fr.ExpiresAt,
@@ -155,12 +174,16 @@ func (c *Collection) CompareAndSwap(_ context.Context, id string, expected, next
 	if err != nil {
 		return err
 	}
-	if !bytes.Equal([]byte(fr.Data), expected) {
+	// Compare decoded Record.Data bytes, not the raw envelope bytes, so CAS
+	// works correctly regardless of whether data was base64-wrapped on disk.
+	rec := fr.toRecord()
+	if !bytes.Equal(rec.Data, expected) {
 		return persis.ErrConflict
 	}
-	fr.Data = json.RawMessage(next)
-	fr.UpdatedAt = time.Now().UTC()
-	return c.writeFile(path, fr)
+	rec.Data = next
+	updated := toFileRecord(rec)
+	updated.UpdatedAt = time.Now().UTC()
+	return c.writeFile(path, updated)
 }
 
 // Claim atomically dequeues one record matching q.

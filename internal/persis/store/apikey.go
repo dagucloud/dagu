@@ -80,6 +80,9 @@ func (s *APIKeyStore) Create(ctx context.Context, key *auth.APIKey) error {
 	if _, exists := s.byName[key.Name]; exists {
 		return auth.ErrAPIKeyAlreadyExists
 	}
+	if _, err := s.col.Get(ctx, key.ID); err == nil {
+		return auth.ErrAPIKeyAlreadyExists
+	}
 	if err := s.col.Put(ctx, &persis.Record{
 		ID:        key.ID,
 		Data:      data,
