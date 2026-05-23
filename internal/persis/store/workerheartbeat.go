@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -30,6 +31,9 @@ func NewWorkerHeartbeatStore(col persis.Collection) *WorkerHeartbeatStore {
 func (s *WorkerHeartbeatStore) Upsert(ctx context.Context, record exec.WorkerHeartbeatRecord) error {
 	if record.WorkerID == "" {
 		return fmt.Errorf("worker heartbeat store: workerID is required")
+	}
+	if strings.ContainsAny(record.WorkerID, `/\`) || strings.Contains(record.WorkerID, "..") {
+		return fmt.Errorf("worker heartbeat store: workerID %q contains unsafe characters", record.WorkerID)
 	}
 	if record.LastHeartbeatAt == 0 {
 		record.LastHeartbeatAt = time.Now().UTC().UnixMilli()
@@ -97,6 +101,18 @@ func (s *WorkerHeartbeatStore) DeleteStale(ctx context.Context, before time.Time
 	removed := 0
 	for _, r := range records {
 		if r.LastHeartbeatTime().After(before) {
+			continue
+		}
+		// Re-read to close the TOCTOU window: the worker may have refreshed
+		// its heartbeat between the List snapshot and now.
+		current, err := s.Get(ctx, r.WorkerID)
+		if err != nil {
+			if errors.Is(err, exec.ErrWorkerHeartbeatNotFound) {
+				continue
+			}
+			return removed, err
+		}
+		if current.LastHeartbeatTime().After(before) {
 			continue
 		}
 		if err := s.col.Delete(ctx, r.WorkerID); err != nil && !errors.Is(err, persis.ErrNotFound) {

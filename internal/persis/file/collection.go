@@ -71,7 +71,11 @@ func (c *Collection) Get(_ context.Context, id string) (*persis.Record, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	fr, err := c.readFile(c.filePath(id))
+	path, err := c.filePath(id)
+	if err != nil {
+		return nil, err
+	}
+	fr, err := c.readFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -82,14 +86,21 @@ func (c *Collection) Put(_ context.Context, rec *persis.Record) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return c.writeFile(c.filePath(rec.ID), toFileRecord(rec))
+	path, err := c.filePath(rec.ID)
+	if err != nil {
+		return err
+	}
+	return c.writeFile(path, toFileRecord(rec))
 }
 
 func (c *Collection) Delete(_ context.Context, id string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	path := c.filePath(id)
+	path, err := c.filePath(id)
+	if err != nil {
+		return err
+	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -136,7 +147,10 @@ func (c *Collection) CompareAndSwap(_ context.Context, id string, expected, next
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	path := c.filePath(id)
+	path, err := c.filePath(id)
+	if err != nil {
+		return err
+	}
 	fr, err := c.readFile(path)
 	if err != nil {
 		return err
@@ -175,9 +189,15 @@ func (c *Collection) Claim(_ context.Context, q persis.ListQuery) (*persis.Recor
 	for _, path := range candidates {
 		fr, err := c.readFile(path)
 		if err != nil {
+			if !errors.Is(err, persis.ErrNotFound) {
+				return nil, err
+			}
 			continue
 		}
 		if err := os.Remove(path); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return nil, err
+			}
 			continue
 		}
 		removeEmptyDirs(filepath.Dir(path), c.dir)
@@ -188,8 +208,14 @@ func (c *Collection) Claim(_ context.Context, q persis.ListQuery) (*persis.Recor
 
 // ─── internal helpers ─────────────────────────────────────────────────────────
 
-func (c *Collection) filePath(id string) string {
-	return filepath.Join(c.dir, idToRelPath(id))
+func (c *Collection) filePath(id string) (string, error) {
+	base := filepath.Clean(c.dir)
+	full := filepath.Clean(filepath.Join(base, idToRelPath(id)))
+	rel, err := filepath.Rel(base, full)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("file backend: record ID %q escapes collection root", id)
+	}
+	return full, nil
 }
 
 func (c *Collection) readFile(path string) (*fileRecord, error) {

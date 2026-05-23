@@ -5,6 +5,8 @@ package store_test
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -195,6 +197,35 @@ func TestSessionMaxPerUser(t *testing.T) {
 	list, err := s.ListSessions(ctx, "alice")
 	require.NoError(t, err)
 	assert.Len(t, list, 2)
+}
+
+func TestAddMessage_Concurrent(t *testing.T) {
+	ctx := context.Background()
+	s := newSessionStore(t)
+	sess := newSession("u1", "concurrent-sess")
+	require.NoError(t, s.CreateSession(ctx, sess))
+
+	const N = 20
+	var wg sync.WaitGroup
+	wg.Add(N)
+	for i := range N {
+		go func() {
+			defer wg.Done()
+			msg := &agent.Message{
+				SequenceID: int64(i + 1),
+				Type:       agent.MessageTypeUser,
+				Content:    fmt.Sprintf("message-%d", i),
+			}
+			if err := s.AddMessage(ctx, "concurrent-sess", msg); err != nil {
+				t.Errorf("AddMessage failed: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	messages, err := s.GetMessages(ctx, "concurrent-sess")
+	require.NoError(t, err)
+	assert.Len(t, messages, N)
 }
 
 func TestSessionIndexRebuiltOnStartup(t *testing.T) {

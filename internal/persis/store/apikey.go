@@ -139,6 +139,9 @@ func (s *APIKeyStore) Update(ctx context.Context, key *auth.APIKey) error {
 		return auth.ErrInvalidAPIKeyName
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	existingRec, err := s.col.Get(ctx, key.ID)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
@@ -155,9 +158,6 @@ func (s *APIKeyStore) Update(ctx context.Context, key *auth.APIKey) error {
 	if err != nil {
 		return err
 	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if existingStored.Name != key.Name {
 		if id, taken := s.byName[key.Name]; taken && id != key.ID {
@@ -186,6 +186,10 @@ func (s *APIKeyStore) Delete(ctx context.Context, id string) error {
 	if id == "" {
 		return auth.ErrInvalidAPIKeyID
 	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	rec, err := s.col.Get(ctx, id)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
@@ -197,9 +201,6 @@ func (s *APIKeyStore) Delete(ctx context.Context, id string) error {
 	if err := persis.Decode(rec, &stored); err != nil {
 		return fmt.Errorf("apikey store: decode for delete: %w", err)
 	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if err := s.col.Delete(ctx, id); err != nil {
 		return err
@@ -213,6 +214,8 @@ func (s *APIKeyStore) UpdateLastUsed(ctx context.Context, id string) error {
 	if id == "" {
 		return auth.ErrInvalidAPIKeyID
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	rec, err := s.col.Get(ctx, id)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {

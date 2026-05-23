@@ -205,6 +205,9 @@ func (s *SecretStore) Update(ctx context.Context, sec *secret.Secret) error {
 		return err
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	existingRec, err := s.col.Get(ctx, sec.ID)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
@@ -219,9 +222,6 @@ func (s *SecretStore) Update(ctx context.Context, sec *secret.Secret) error {
 
 	oldRef := secretRefKey(existing.Secret.Workspace, existing.Secret.Ref)
 	newRef := secretRefKey(updated.Workspace, updated.Ref)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if oldRef != newRef {
 		if existingID, taken := s.byRef[newRef]; taken && existingID != sec.ID {
@@ -255,6 +255,10 @@ func (s *SecretStore) Delete(ctx context.Context, id string) error {
 	if id == "" {
 		return secret.ErrInvalidSecretID
 	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	rec, err := s.col.Get(ctx, id)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
@@ -267,9 +271,6 @@ func (s *SecretStore) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("secret store: decode for delete: %w", err)
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if err := s.col.Delete(ctx, id); err != nil {
 		return err
 	}
@@ -281,6 +282,8 @@ func (s *SecretStore) Delete(ctx context.Context, id string) error {
 
 // WriteValue appends a new encrypted version to the secret.
 func (s *SecretStore) WriteValue(ctx context.Context, id string, input secret.WriteValueInput) (*secret.Secret, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	rec, err := s.col.Get(ctx, id)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
@@ -378,6 +381,9 @@ func (s *SecretStore) loadByID(ctx context.Context, id string) (*secretStoredRec
 	var sr secretStoredRecord
 	if err := persis.Decode(rec, &sr); err != nil {
 		return nil, fmt.Errorf("secret store: decode record %q: %w", id, err)
+	}
+	if sr.Secret == nil {
+		return nil, fmt.Errorf("secret store: decode record %q: missing secret payload", id)
 	}
 	return &sr, nil
 }

@@ -189,6 +189,9 @@ func (s *SessionStore) UpdateSession(ctx context.Context, sess *agent.Session) e
 		return err
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	rec, err := s.col.Get(ctx, sess.ID)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
@@ -218,10 +221,8 @@ func (s *SessionStore) UpdateSession(ctx context.Context, sess *agent.Session) e
 		return err
 	}
 
-	s.mu.Lock()
 	s.updatedAt[sess.ID] = sess.UpdatedAt
 	s.sortUserSessions(existing.UserID)
-	s.mu.Unlock()
 	return nil
 }
 
@@ -243,6 +244,9 @@ func (s *SessionStore) AddMessage(ctx context.Context, sessionID string, msg *ag
 	if msg == nil {
 		return errors.New("session store: message cannot be nil")
 	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	rec, err := s.col.Get(ctx, sessionID)
 	if err != nil {
@@ -274,10 +278,8 @@ func (s *SessionStore) AddMessage(ctx context.Context, sessionID string, msg *ag
 		return err
 	}
 
-	s.mu.Lock()
 	s.updatedAt[sessionID] = ss.UpdatedAt
 	s.sortUserSessions(ss.UserID)
-	s.mu.Unlock()
 	return nil
 }
 

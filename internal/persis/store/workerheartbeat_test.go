@@ -102,3 +102,31 @@ func TestWorkerHeartbeatDeleteStale(t *testing.T) {
 	_, err = s.Get(ctx, "fresh-worker")
 	assert.NoError(t, err)
 }
+
+func TestDeleteStale_RefreshDuringCleanup(t *testing.T) {
+	ctx := context.Background()
+	s := newWorkerHeartbeatStore(t)
+
+	// Upsert with an old heartbeat time so it would qualify for deletion.
+	old := exec.WorkerHeartbeatRecord{
+		WorkerID:        "refresh-worker",
+		LastHeartbeatAt: time.Now().Add(-10 * time.Minute).UTC().UnixMilli(),
+	}
+	require.NoError(t, s.Upsert(ctx, old))
+
+	// Simulate the worker refreshing its heartbeat before DeleteStale runs.
+	refreshed := exec.WorkerHeartbeatRecord{
+		WorkerID:        "refresh-worker",
+		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
+	}
+	require.NoError(t, s.Upsert(ctx, refreshed))
+
+	cutoff := time.Now().Add(-5 * time.Minute)
+	n, err := s.DeleteStale(ctx, cutoff)
+	require.NoError(t, err)
+	assert.Equal(t, 0, n, "refreshed worker should not be deleted")
+
+	got, err := s.Get(ctx, "refresh-worker")
+	require.NoError(t, err)
+	assert.Equal(t, "refresh-worker", got.WorkerID)
+}

@@ -185,6 +185,9 @@ func (s *UserStore) Update(ctx context.Context, user *auth.User) error {
 		return auth.ErrInvalidUsername
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	existingRec, err := s.col.Get(ctx, user.ID)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
@@ -204,9 +207,6 @@ func (s *UserStore) Update(ctx context.Context, user *auth.User) error {
 
 	oldOIDCKey := oidcKey(existingStored.OIDCIssuer, existingStored.OIDCSubject)
 	newOIDCKey := oidcKey(user.OIDCIssuer, user.OIDCSubject)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	// Conflict checks before writing.
 	if existingStored.Username != user.Username {
@@ -252,6 +252,10 @@ func (s *UserStore) Delete(ctx context.Context, id string) error {
 	if id == "" {
 		return auth.ErrInvalidUserID
 	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	rec, err := s.col.Get(ctx, id)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
@@ -263,9 +267,6 @@ func (s *UserStore) Delete(ctx context.Context, id string) error {
 	if err := persis.Decode(rec, &stored); err != nil {
 		return fmt.Errorf("user store: decode for delete: %w", err)
 	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if err := s.col.Delete(ctx, id); err != nil {
 		return err

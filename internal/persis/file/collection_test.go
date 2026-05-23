@@ -18,7 +18,7 @@ import (
 
 // RunCollectionContract runs the full Collection contract against any backend.
 // Used by both the file and memory backend tests.
-func RunCollectionContract(t *testing.T, col persis.Collection) {
+func RunCollectionContract(t *testing.T, col persis.Collection, freshCollection func(t *testing.T) persis.Collection) {
 	t.Helper()
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Millisecond)
@@ -258,11 +258,6 @@ func RunCollectionContract(t *testing.T, col persis.Collection) {
 	})
 }
 
-// freshCollection returns a backend-specific empty collection for sub-tests
-// that need isolation. Overridden per-backend in TestFileCollection and
-// TestMemoryCollection below.
-var freshCollection func(t *testing.T) persis.Collection
-
 func TestFileCollection(t *testing.T) {
 	t.Parallel()
 
@@ -270,13 +265,13 @@ func TestFileCollection(t *testing.T) {
 	b, err := file.New(root)
 	require.NoError(t, err)
 
-	freshCollection = func(t *testing.T) persis.Collection {
+	freshCollection := func(t *testing.T) persis.Collection {
 		b2, err := file.New(t.TempDir())
 		require.NoError(t, err)
 		return b2.Collection("test")
 	}
 
-	RunCollectionContract(t, b.Collection("test"))
+	RunCollectionContract(t, b.Collection("test"), freshCollection)
 }
 
 func TestMemoryCollection(t *testing.T) {
@@ -284,9 +279,9 @@ func TestMemoryCollection(t *testing.T) {
 
 	b := testutil.NewMemoryBackend()
 
-	freshCollection = func(t *testing.T) persis.Collection {
+	freshCollection := func(t *testing.T) persis.Collection {
 		return testutil.NewMemoryBackend().Collection("test")
 	}
 
-	RunCollectionContract(t, b.Collection("test"))
+	RunCollectionContract(t, b.Collection("test"), freshCollection)
 }

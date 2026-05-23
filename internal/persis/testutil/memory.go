@@ -171,6 +171,10 @@ func copyRecord(r *persis.Record) *persis.Record {
 		cp.Data = make([]byte, len(r.Data))
 		copy(cp.Data, r.Data)
 	}
+	if r.ExpiresAt != nil {
+		t := *r.ExpiresAt
+		cp.ExpiresAt = &t
+	}
 	return &cp
 }
 

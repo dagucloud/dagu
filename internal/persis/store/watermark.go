@@ -69,6 +69,9 @@ func (s *WatermarkStore) Load(ctx context.Context) (*scheduler.SchedulerState, e
 
 // Save writes the scheduler state.
 func (s *WatermarkStore) Save(ctx context.Context, state *scheduler.SchedulerState) error {
+	if state == nil {
+		return fmt.Errorf("watermark store: state is nil")
+	}
 	data, enc, err := persis.Encode(state)
 	if err != nil {
 		return fmt.Errorf("watermark store: encode: %w", err)

@@ -160,7 +160,9 @@ func (s *WebhookStore) Update(ctx context.Context, webhook *auth.Webhook) error 
 		return auth.ErrInvalidWebhookDAGName
 	}
 
-	// Read existing record to get its DAGName and CreatedAt (no lock needed).
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	existingRec, err := s.col.Get(ctx, webhook.ID)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
@@ -181,9 +183,6 @@ func (s *WebhookStore) Update(ctx context.Context, webhook *auth.Webhook) error 
 	if err != nil {
 		return err
 	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if existingStored.DAGName != webhook.DAGName {
 		if id, taken := s.byDAGName[webhook.DAGName]; taken && id != webhook.ID {
@@ -212,7 +211,10 @@ func (s *WebhookStore) Delete(ctx context.Context, id string) error {
 	if id == "" {
 		return auth.ErrInvalidWebhookID
 	}
-	// Read to get DAGName for index cleanup (no lock needed).
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	rec, err := s.col.Get(ctx, id)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
@@ -224,9 +226,6 @@ func (s *WebhookStore) Delete(ctx context.Context, id string) error {
 	if err := persis.Decode(rec, &stored); err != nil {
 		return fmt.Errorf("webhook store: decode for delete: %w", err)
 	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if err := s.col.Delete(ctx, id); err != nil {
 		return err
@@ -255,6 +254,8 @@ func (s *WebhookStore) UpdateLastUsed(ctx context.Context, id string) error {
 	if id == "" {
 		return auth.ErrInvalidWebhookID
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	rec, err := s.col.Get(ctx, id)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
