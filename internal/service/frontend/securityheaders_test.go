@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// TestSecurityHeadersMiddleware verifies that all security headers are present
+// on every response and that HSTS is emitted only when TLS is enabled.
 func TestSecurityHeadersMiddleware(t *testing.T) {
 	t.Parallel()
 
@@ -54,6 +56,8 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 	}
 }
 
+// TestSecurityHeadersMiddlewarePassesThrough confirms that the middleware calls
+// the next handler and preserves its status code.
 func TestSecurityHeadersMiddlewarePassesThrough(t *testing.T) {
 	t.Parallel()
 
