@@ -219,7 +219,7 @@ func (c *Collection) filePath(id string) (string, error) {
 }
 
 func (c *Collection) readFile(path string) (*fileRecord, error) {
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) //nolint:gosec // path is derived from a validated root + record ID
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, persis.ErrNotFound
@@ -380,12 +380,12 @@ func writeAtomic(path string, data []byte) error {
 	}
 	tmpPath := tmp.Name()
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
 		return err
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return err
 	}
 	return os.Rename(tmpPath, path)

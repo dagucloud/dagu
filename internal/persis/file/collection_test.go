@@ -279,7 +279,7 @@ func TestMemoryCollection(t *testing.T) {
 
 	b := testutil.NewMemoryBackend()
 
-	freshCollection := func(t *testing.T) persis.Collection {
+	freshCollection := func(_ *testing.T) persis.Collection {
 		return testutil.NewMemoryBackend().Collection("test")
 	}
 

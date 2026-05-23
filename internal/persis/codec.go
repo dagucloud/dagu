@@ -21,6 +21,8 @@ func Decode[T any](rec *Record, v *T) error {
 	switch rec.Encoding {
 	case EncodingJSON:
 		return json.Unmarshal(rec.Data, v)
+	case EncodingProto:
+		return fmt.Errorf("persis: proto encoding is not supported by this decoder")
 	default:
 		return fmt.Errorf("persis: unsupported encoding %q", rec.Encoding)
 	}
