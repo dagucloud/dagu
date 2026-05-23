@@ -282,7 +282,13 @@ export async function waitForSchedulerDAGRegistered(
       async () => {
         try {
           const raw = await fs.readFile(schedulerStatePath, 'utf8');
-          const state = JSON.parse(raw) as { dags?: Record<string, unknown> };
+          const parsed = JSON.parse(raw) as {
+            dags?: Record<string, unknown>;
+            data?: { dags?: Record<string, unknown> };
+          };
+          // Support both legacy flat format and the persis-envelope format
+          // ({"id","encoding","data":{...state...},...}) used by the new store.
+          const state = parsed.data ?? parsed;
           return Boolean(state.dags?.[dagName]);
         } catch {
           return false;
