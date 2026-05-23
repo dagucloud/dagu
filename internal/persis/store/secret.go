@@ -30,7 +30,7 @@ type SecretStore struct {
 }
 
 type secretStoredRecord struct {
-	Secret   *secret.Secret       `json:"secret"`
+	Secret   *secret.Secret        `json:"secret"`
 	Versions []secretStoredVersion `json:"versions,omitempty"`
 }
 
@@ -366,13 +366,15 @@ func (s *SecretStore) ResolveValue(ctx context.Context, id string) (string, *sec
 	if err != nil {
 		return "", nil, err
 	}
-	_ = s.col.Put(ctx, &persis.Record{
+	if err := s.col.Put(ctx, &persis.Record{
 		ID:        rec.ID,
 		Data:      data,
 		Encoding:  enc,
 		CreatedAt: rec.CreatedAt,
 		UpdatedAt: now,
-	})
+	}); err != nil {
+		return "", nil, fmt.Errorf("secret store: persist resolve metadata %q: %w", id, err)
+	}
 	return plaintext, secretVersionMetadata(v), nil
 }
 

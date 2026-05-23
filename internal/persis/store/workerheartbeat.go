@@ -45,13 +45,18 @@ func (s *WorkerHeartbeatStore) Upsert(ctx context.Context, record exec.WorkerHea
 		return err
 	}
 	now := time.Now().UTC()
-	return s.col.Put(ctx, &persis.Record{
+	if err := s.col.Put(ctx, &persis.Record{
 		ID:        record.WorkerID,
 		Data:      data,
 		Encoding:  enc,
 		CreatedAt: now,
 		UpdatedAt: now,
-	})
+	}); err != nil {
+		return err
+	}
+	// Remove any legacy SHA-256-keyed record so the worker only appears once in List.
+	_ = s.col.Delete(ctx, workerHeartbeatLegacyKey(record.WorkerID))
+	return nil
 }
 
 // workerHeartbeatLegacyKey returns the SHA-256-encoded key used by the
@@ -62,20 +67,30 @@ func workerHeartbeatLegacyKey(workerID string) string {
 }
 
 // Get retrieves the heartbeat record for a specific worker.
+// When both a new-format (plain workerID) and a legacy (SHA-256-keyed) record
+// coexist during migration, the fresher record wins.
 func (s *WorkerHeartbeatStore) Get(ctx context.Context, workerID string) (*exec.WorkerHeartbeatRecord, error) {
 	if workerID == "" {
 		return nil, exec.ErrWorkerHeartbeatNotFound
 	}
-	// Try new-format key (plain workerID) first.
-	r, err := s.getByCollectionID(ctx, workerID)
-	if err == nil {
-		return r, nil
+	newR, newErr := s.getByCollectionID(ctx, workerID)
+	legacyR, _ := s.getByCollectionID(ctx, workerHeartbeatLegacyKey(workerID))
+	switch {
+	case newR != nil && legacyR != nil:
+		if legacyR.LastHeartbeatTime().After(newR.LastHeartbeatTime()) {
+			return legacyR, nil
+		}
+		return newR, nil
+	case newR != nil:
+		return newR, nil
+	case legacyR != nil:
+		return legacyR, nil
+	default:
+		if newErr != nil {
+			return nil, newErr
+		}
+		return nil, exec.ErrWorkerHeartbeatNotFound
 	}
-	if !errors.Is(err, exec.ErrWorkerHeartbeatNotFound) {
-		return nil, err
-	}
-	// Fall back to legacy SHA-256-keyed files written by filedistributed.WorkerHeartbeatStore.
-	return s.getByCollectionID(ctx, workerHeartbeatLegacyKey(workerID))
 }
 
 func (s *WorkerHeartbeatStore) getByCollectionID(ctx context.Context, collectionID string) (*exec.WorkerHeartbeatRecord, error) {
