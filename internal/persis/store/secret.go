@@ -1,8 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package secret implements [secret.Store] using a [persis.Collection].
-package secret
+package store
 
 import (
 	"context"
@@ -17,12 +16,12 @@ import (
 	"github.com/dagucloud/dagu/internal/secret"
 )
 
-var _ secret.Store = (*Store)(nil)
+var _ secret.Store = (*SecretStore)(nil)
 
-// Store implements [secret.Store].
+// SecretStore implements [secret.Store].
 // byRef is an in-memory index rebuilt on startup;
 // all writes keep it in sync under mu.
-type Store struct {
+type SecretStore struct {
 	col       persis.Collection
 	encryptor *crypto.Encryptor
 
@@ -30,12 +29,12 @@ type Store struct {
 	byRef map[string]string // refKey(workspace,ref) → secretID
 }
 
-type storedRecord struct {
-	Secret   *secret.Secret  `json:"secret"`
-	Versions []storedVersion `json:"versions,omitempty"`
+type secretStoredRecord struct {
+	Secret   *secret.Secret       `json:"secret"`
+	Versions []secretStoredVersion `json:"versions,omitempty"`
 }
 
-type storedVersion struct {
+type secretStoredVersion struct {
 	SecretID       string    `json:"secret_id"`
 	Version        int       `json:"version"`
 	EncryptedValue string    `json:"encrypted_value"`
@@ -43,12 +42,12 @@ type storedVersion struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
-// New creates a Store backed by col.
-func New(col persis.Collection, enc *crypto.Encryptor) (*Store, error) {
+// NewSecretStore creates a SecretStore backed by col.
+func NewSecretStore(col persis.Collection, enc *crypto.Encryptor) (*SecretStore, error) {
 	if enc == nil {
 		return nil, errors.New("secret store: encryptor cannot be nil")
 	}
-	s := &Store{
+	s := &SecretStore{
 		col:       col,
 		encryptor: enc,
 		byRef:     make(map[string]string),
@@ -59,7 +58,7 @@ func New(col persis.Collection, enc *crypto.Encryptor) (*Store, error) {
 	return s, nil
 }
 
-func (s *Store) rebuildIndex(ctx context.Context) error {
+func (s *SecretStore) rebuildIndex(ctx context.Context) error {
 	page, err := s.col.List(ctx, persis.ListQuery{})
 	if err != nil {
 		return err
@@ -67,17 +66,17 @@ func (s *Store) rebuildIndex(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, rec := range page.Records {
-		var sr storedRecord
+		var sr secretStoredRecord
 		if err := persis.Decode(rec, &sr); err != nil || sr.Secret == nil {
 			continue
 		}
-		s.byRef[refKey(sr.Secret.Workspace, sr.Secret.Ref)] = sr.Secret.ID
+		s.byRef[secretRefKey(sr.Secret.Workspace, sr.Secret.Ref)] = sr.Secret.ID
 	}
 	return nil
 }
 
 // Create stores a new secret, optionally writing an initial encrypted value.
-func (s *Store) Create(ctx context.Context, sec *secret.Secret, initialValue *secret.WriteValueInput) error {
+func (s *SecretStore) Create(ctx context.Context, sec *secret.Secret, initialValue *secret.WriteValueInput) error {
 	if sec == nil {
 		return errors.New("secret store: secret cannot be nil")
 	}
@@ -99,12 +98,12 @@ func (s *Store) Create(ctx context.Context, sec *secret.Secret, initialValue *se
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	rk := refKey(stored.Workspace, stored.Ref)
+	rk := secretRefKey(stored.Workspace, stored.Ref)
 	if _, exists := s.byRef[rk]; exists {
 		return secret.ErrAlreadyExists
 	}
 
-	sr := &storedRecord{Secret: stored}
+	sr := &secretStoredRecord{Secret: stored}
 	if initialValue != nil {
 		if err := s.appendVersion(sr, *initialValue); err != nil {
 			return err
@@ -129,7 +128,7 @@ func (s *Store) Create(ctx context.Context, sec *secret.Secret, initialValue *se
 }
 
 // GetByID retrieves a secret by its unique ID.
-func (s *Store) GetByID(ctx context.Context, id string) (*secret.Secret, error) {
+func (s *SecretStore) GetByID(ctx context.Context, id string) (*secret.Secret, error) {
 	if id == "" {
 		return nil, secret.ErrInvalidSecretID
 	}
@@ -141,7 +140,7 @@ func (s *Store) GetByID(ctx context.Context, id string) (*secret.Secret, error) 
 }
 
 // GetByRef retrieves a secret by workspace and ref.
-func (s *Store) GetByRef(ctx context.Context, workspace, ref string) (*secret.Secret, error) {
+func (s *SecretStore) GetByRef(ctx context.Context, workspace, ref string) (*secret.Secret, error) {
 	workspace = secret.NormalizeWorkspace(workspace)
 	if err := secret.ValidateWorkspace(workspace); err != nil {
 		return nil, err
@@ -151,7 +150,7 @@ func (s *Store) GetByRef(ctx context.Context, workspace, ref string) (*secret.Se
 	}
 
 	s.mu.RLock()
-	id, ok := s.byRef[refKey(workspace, ref)]
+	id, ok := s.byRef[secretRefKey(workspace, ref)]
 	s.mu.RUnlock()
 	if !ok {
 		return nil, secret.ErrNotFound
@@ -160,7 +159,7 @@ func (s *Store) GetByRef(ctx context.Context, workspace, ref string) (*secret.Se
 }
 
 // List returns all secrets, optionally filtered by workspace.
-func (s *Store) List(ctx context.Context, opts secret.ListOptions) ([]*secret.Secret, error) {
+func (s *SecretStore) List(ctx context.Context, opts secret.ListOptions) ([]*secret.Secret, error) {
 	page, err := s.col.List(ctx, persis.ListQuery{})
 	if err != nil {
 		return nil, err
@@ -168,7 +167,7 @@ func (s *Store) List(ctx context.Context, opts secret.ListOptions) ([]*secret.Se
 
 	out := make([]*secret.Secret, 0, len(page.Records))
 	for _, rec := range page.Records {
-		var sr storedRecord
+		var sr secretStoredRecord
 		if err := persis.Decode(rec, &sr); err != nil || sr.Secret == nil {
 			continue
 		}
@@ -187,7 +186,7 @@ func (s *Store) List(ctx context.Context, opts secret.ListOptions) ([]*secret.Se
 }
 
 // Update modifies an existing secret's metadata.
-func (s *Store) Update(ctx context.Context, sec *secret.Secret) error {
+func (s *SecretStore) Update(ctx context.Context, sec *secret.Secret) error {
 	if sec == nil {
 		return errors.New("secret store: secret cannot be nil")
 	}
@@ -213,13 +212,13 @@ func (s *Store) Update(ctx context.Context, sec *secret.Secret) error {
 		}
 		return err
 	}
-	var existing storedRecord
+	var existing secretStoredRecord
 	if err := persis.Decode(existingRec, &existing); err != nil {
 		return fmt.Errorf("secret store: decode existing: %w", err)
 	}
 
-	oldRef := refKey(existing.Secret.Workspace, existing.Secret.Ref)
-	newRef := refKey(updated.Workspace, updated.Ref)
+	oldRef := secretRefKey(existing.Secret.Workspace, existing.Secret.Ref)
+	newRef := secretRefKey(updated.Workspace, updated.Ref)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -252,7 +251,7 @@ func (s *Store) Update(ctx context.Context, sec *secret.Secret) error {
 }
 
 // Delete removes a secret by its ID.
-func (s *Store) Delete(ctx context.Context, id string) error {
+func (s *SecretStore) Delete(ctx context.Context, id string) error {
 	if id == "" {
 		return secret.ErrInvalidSecretID
 	}
@@ -263,7 +262,7 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 		}
 		return err
 	}
-	var sr storedRecord
+	var sr secretStoredRecord
 	if err := persis.Decode(rec, &sr); err != nil {
 		return fmt.Errorf("secret store: decode for delete: %w", err)
 	}
@@ -275,13 +274,13 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 		return err
 	}
 	if sr.Secret != nil {
-		delete(s.byRef, refKey(sr.Secret.Workspace, sr.Secret.Ref))
+		delete(s.byRef, secretRefKey(sr.Secret.Workspace, sr.Secret.Ref))
 	}
 	return nil
 }
 
 // WriteValue appends a new encrypted version to the secret.
-func (s *Store) WriteValue(ctx context.Context, id string, input secret.WriteValueInput) (*secret.Secret, error) {
+func (s *SecretStore) WriteValue(ctx context.Context, id string, input secret.WriteValueInput) (*secret.Secret, error) {
 	rec, err := s.col.Get(ctx, id)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
@@ -289,7 +288,7 @@ func (s *Store) WriteValue(ctx context.Context, id string, input secret.WriteVal
 		}
 		return nil, err
 	}
-	var sr storedRecord
+	var sr secretStoredRecord
 	if err := persis.Decode(rec, &sr); err != nil {
 		return nil, fmt.Errorf("secret store: decode for WriteValue: %w", err)
 	}
@@ -313,20 +312,20 @@ func (s *Store) WriteValue(ctx context.Context, id string, input secret.WriteVal
 }
 
 // GetCurrentVersion returns metadata about the current version without decrypting.
-func (s *Store) GetCurrentVersion(ctx context.Context, id string) (*secret.VersionMetadata, error) {
+func (s *SecretStore) GetCurrentVersion(ctx context.Context, id string) (*secret.VersionMetadata, error) {
 	sr, err := s.loadByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	v, ok := currentVersion(sr)
+	v, ok := secretCurrentVersion(sr)
 	if !ok {
 		return nil, secret.ErrNoValue
 	}
-	return versionMetadata(v), nil
+	return secretVersionMetadata(v), nil
 }
 
 // ResolveValue decrypts and returns the current plaintext value.
-func (s *Store) ResolveValue(ctx context.Context, id string) (string, *secret.VersionMetadata, error) {
+func (s *SecretStore) ResolveValue(ctx context.Context, id string) (string, *secret.VersionMetadata, error) {
 	rec, err := s.col.Get(ctx, id)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
@@ -334,14 +333,14 @@ func (s *Store) ResolveValue(ctx context.Context, id string) (string, *secret.Ve
 		}
 		return "", nil, err
 	}
-	var sr storedRecord
+	var sr secretStoredRecord
 	if err := persis.Decode(rec, &sr); err != nil {
 		return "", nil, fmt.Errorf("secret store: decode for ResolveValue: %w", err)
 	}
 	if sr.Secret.Status == secret.StatusDisabled {
 		return "", nil, secret.ErrDisabled
 	}
-	v, ok := currentVersion(&sr)
+	v, ok := secretCurrentVersion(&sr)
 	if !ok {
 		return "", nil, secret.ErrNoValue
 	}
@@ -363,12 +362,12 @@ func (s *Store) ResolveValue(ctx context.Context, id string) (string, *secret.Ve
 		CreatedAt: rec.CreatedAt,
 		UpdatedAt: now,
 	})
-	return plaintext, versionMetadata(v), nil
+	return plaintext, secretVersionMetadata(v), nil
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-func (s *Store) loadByID(ctx context.Context, id string) (*storedRecord, error) {
+func (s *SecretStore) loadByID(ctx context.Context, id string) (*secretStoredRecord, error) {
 	rec, err := s.col.Get(ctx, id)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
@@ -376,14 +375,14 @@ func (s *Store) loadByID(ctx context.Context, id string) (*storedRecord, error) 
 		}
 		return nil, err
 	}
-	var sr storedRecord
+	var sr secretStoredRecord
 	if err := persis.Decode(rec, &sr); err != nil {
 		return nil, fmt.Errorf("secret store: decode record %q: %w", id, err)
 	}
 	return &sr, nil
 }
 
-func (s *Store) appendVersion(sr *storedRecord, input secret.WriteValueInput) error {
+func (s *SecretStore) appendVersion(sr *secretStoredRecord, input secret.WriteValueInput) error {
 	if sr.Secret.ProviderType != secret.ProviderDaguManaged {
 		return secret.ErrUnsupportedProvider
 	}
@@ -395,7 +394,7 @@ func (s *Store) appendVersion(sr *storedRecord, input secret.WriteValueInput) er
 		return fmt.Errorf("secret store: encrypt: %w", err)
 	}
 	version := sr.Secret.CurrentVersion + 1
-	sr.Versions = append(sr.Versions, storedVersion{
+	sr.Versions = append(sr.Versions, secretStoredVersion{
 		SecretID:       sr.Secret.ID,
 		Version:        version,
 		EncryptedValue: encrypted,
@@ -409,16 +408,16 @@ func (s *Store) appendVersion(sr *storedRecord, input secret.WriteValueInput) er
 	return nil
 }
 
-func currentVersion(sr *storedRecord) (storedVersion, bool) {
+func secretCurrentVersion(sr *secretStoredRecord) (secretStoredVersion, bool) {
 	for _, v := range sr.Versions {
 		if v.Version == sr.Secret.CurrentVersion {
 			return v, true
 		}
 	}
-	return storedVersion{}, false
+	return secretStoredVersion{}, false
 }
 
-func versionMetadata(v storedVersion) *secret.VersionMetadata {
+func secretVersionMetadata(v secretStoredVersion) *secret.VersionMetadata {
 	return &secret.VersionMetadata{
 		SecretID:  v.SecretID,
 		Version:   v.Version,
@@ -427,6 +426,6 @@ func versionMetadata(v storedVersion) *secret.VersionMetadata {
 	}
 }
 
-func refKey(workspace, ref string) string {
+func secretRefKey(workspace, ref string) string {
 	return workspace + "\x00" + ref
 }

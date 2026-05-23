@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package watermark_test
+package store_test
 
 import (
 	"context"
@@ -11,20 +11,20 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
-	"github.com/dagucloud/dagu/internal/persis/watermark"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
 )
 
-func newStore(t *testing.T) *watermark.Store {
+func newWatermarkStore(t *testing.T) *store.WatermarkStore {
 	t.Helper()
 	col := testutil.NewMemoryBackend().Collection("watermark")
-	return watermark.New(col)
+	return store.NewWatermarkStore(col)
 }
 
-func TestLoad_Empty(t *testing.T) {
+func TestWatermarkLoad_Empty(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newWatermarkStore(t)
 
 	state, err := s.Load(ctx)
 	require.NoError(t, err)
@@ -33,9 +33,9 @@ func TestLoad_Empty(t *testing.T) {
 	assert.Empty(t, state.DAGs)
 }
 
-func TestSaveAndLoad(t *testing.T) {
+func TestWatermarkSaveAndLoad(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newWatermarkStore(t)
 
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	state := &scheduler.SchedulerState{
@@ -58,9 +58,9 @@ func TestSaveAndLoad(t *testing.T) {
 	assert.Equal(t, now, got.DAGs["my-dag"].LastScheduledTime)
 }
 
-func TestSave_Overwrite(t *testing.T) {
+func TestWatermarkSave_Overwrite(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newWatermarkStore(t)
 
 	now := time.Now().UTC()
 	state1 := &scheduler.SchedulerState{

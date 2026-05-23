@@ -35,7 +35,7 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/filedagrun"
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/filedistributed"
-	"github.com/dagucloud/dagu/internal/persis/workerheartbeat"
+	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/fileeventstore"
 	"github.com/dagucloud/dagu/internal/persis/filelicense"
 	"github.com/dagucloud/dagu/internal/persis/fileproc"
@@ -348,7 +348,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	qs := filequeue.New(cfg.Paths.QueueDir)
 	sm := fileserviceregistry.New(cfg.Paths.ServiceRegistryDir)
 	dispatchTaskStore := filedistributed.NewDispatchTaskStore(distributedDir)
-	workerHeartbeatStore := workerheartbeat.New(file.NewCollection(filepath.Join(distributedDir, "workers")))
+	workerHeartbeatStore := store.NewWorkerHeartbeatStore(file.NewCollection(filepath.Join(distributedDir, "workers")))
 
 	// Initialize license manager for server commands
 	var licMgr *license.Manager

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package apikey_test
+package store_test
 
 import (
 	"context"
@@ -12,14 +12,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/internal/auth"
-	"github.com/dagucloud/dagu/internal/persis/apikey"
+	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
 )
 
-func newStore(t *testing.T) *apikey.Store {
+func newAPIKeyStore(t *testing.T) *store.APIKeyStore {
 	t.Helper()
 	col := testutil.NewMemoryBackend().Collection("api_keys")
-	s, err := apikey.New(col)
+	s, err := store.NewAPIKeyStore(col)
 	require.NoError(t, err)
 	return s
 }
@@ -38,9 +38,9 @@ func newKey(name string) *auth.APIKey {
 	}
 }
 
-func TestCreate(t *testing.T) {
+func TestAPIKeyCreate(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newAPIKeyStore(t)
 	key := newKey("my-key")
 
 	require.NoError(t, s.Create(ctx, key))
@@ -53,9 +53,9 @@ func TestCreate(t *testing.T) {
 	assert.Equal(t, key.Role, got.Role)
 }
 
-func TestCreate_DuplicateName(t *testing.T) {
+func TestAPIKeyCreate_DuplicateName(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newAPIKeyStore(t)
 
 	require.NoError(t, s.Create(ctx, newKey("dup")))
 
@@ -64,15 +64,15 @@ func TestCreate_DuplicateName(t *testing.T) {
 	assert.ErrorIs(t, s.Create(ctx, dupe), auth.ErrAPIKeyAlreadyExists)
 }
 
-func TestGetByID_NotFound(t *testing.T) {
+func TestAPIKeyGetByID_NotFound(t *testing.T) {
 	ctx := context.Background()
-	_, err := newStore(t).GetByID(ctx, "missing")
+	_, err := newAPIKeyStore(t).GetByID(ctx, "missing")
 	assert.ErrorIs(t, err, auth.ErrAPIKeyNotFound)
 }
 
-func TestList(t *testing.T) {
+func TestAPIKeyList(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newAPIKeyStore(t)
 
 	for _, name := range []string{"k1", "k2", "k3"} {
 		require.NoError(t, s.Create(ctx, newKey(name)))
@@ -83,9 +83,9 @@ func TestList(t *testing.T) {
 	assert.Len(t, list, 3)
 }
 
-func TestUpdate(t *testing.T) {
+func TestAPIKeyUpdate(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newAPIKeyStore(t)
 	key := newKey("upd")
 	require.NoError(t, s.Create(ctx, key))
 
@@ -99,15 +99,15 @@ func TestUpdate(t *testing.T) {
 	assert.Equal(t, auth.RoleViewer, got.Role)
 }
 
-func TestUpdate_NotFound(t *testing.T) {
+func TestAPIKeyUpdate_NotFound(t *testing.T) {
 	ctx := context.Background()
-	err := newStore(t).Update(ctx, newKey("ghost"))
+	err := newAPIKeyStore(t).Update(ctx, newKey("ghost"))
 	assert.ErrorIs(t, err, auth.ErrAPIKeyNotFound)
 }
 
-func TestUpdate_NameChange(t *testing.T) {
+func TestAPIKeyUpdate_NameChange(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newAPIKeyStore(t)
 	key := newKey("old-name")
 	require.NoError(t, s.Create(ctx, key))
 
@@ -120,9 +120,9 @@ func TestUpdate_NameChange(t *testing.T) {
 	assert.NoError(t, s.Create(ctx, another))
 }
 
-func TestUpdate_NameConflict(t *testing.T) {
+func TestAPIKeyUpdate_NameConflict(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newAPIKeyStore(t)
 	require.NoError(t, s.Create(ctx, newKey("a")))
 	b := newKey("b")
 	require.NoError(t, s.Create(ctx, b))
@@ -131,9 +131,9 @@ func TestUpdate_NameConflict(t *testing.T) {
 	assert.ErrorIs(t, s.Update(ctx, b), auth.ErrAPIKeyAlreadyExists)
 }
 
-func TestDelete(t *testing.T) {
+func TestAPIKeyDelete(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newAPIKeyStore(t)
 	key := newKey("del")
 	require.NoError(t, s.Create(ctx, key))
 
@@ -148,14 +148,14 @@ func TestDelete(t *testing.T) {
 	assert.NoError(t, s.Create(ctx, another))
 }
 
-func TestDelete_NotFound(t *testing.T) {
+func TestAPIKeyDelete_NotFound(t *testing.T) {
 	ctx := context.Background()
-	assert.ErrorIs(t, newStore(t).Delete(ctx, "nope"), auth.ErrAPIKeyNotFound)
+	assert.ErrorIs(t, newAPIKeyStore(t).Delete(ctx, "nope"), auth.ErrAPIKeyNotFound)
 }
 
-func TestUpdateLastUsed(t *testing.T) {
+func TestAPIKeyUpdateLastUsed(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newAPIKeyStore(t)
 	key := newKey("lu")
 	require.NoError(t, s.Create(ctx, key))
 
@@ -168,22 +168,22 @@ func TestUpdateLastUsed(t *testing.T) {
 	assert.False(t, got.LastUsedAt.Before(before))
 }
 
-func TestUpdateLastUsed_NotFound(t *testing.T) {
+func TestAPIKeyUpdateLastUsed_NotFound(t *testing.T) {
 	ctx := context.Background()
-	assert.ErrorIs(t, newStore(t).UpdateLastUsed(ctx, "nope"), auth.ErrAPIKeyNotFound)
+	assert.ErrorIs(t, newAPIKeyStore(t).UpdateLastUsed(ctx, "nope"), auth.ErrAPIKeyNotFound)
 }
 
-func TestIndexRebuiltOnStartup(t *testing.T) {
+func TestAPIKeyIndexRebuiltOnStartup(t *testing.T) {
 	ctx := context.Background()
 	col := testutil.NewMemoryBackend().Collection("api_keys")
 
-	s1, err := apikey.New(col)
+	s1, err := store.NewAPIKeyStore(col)
 	require.NoError(t, err)
 	require.NoError(t, s1.Create(ctx, newKey("k1")))
 	require.NoError(t, s1.Create(ctx, newKey("k2")))
 
-	// New Store over same collection simulates restart.
-	s2, err := apikey.New(col)
+	// New store over same collection simulates restart.
+	s2, err := store.NewAPIKeyStore(col)
 	require.NoError(t, err)
 
 	list, err := s2.List(ctx)

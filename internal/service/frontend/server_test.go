@@ -22,7 +22,7 @@ import (
 	authmodel "github.com/dagucloud/dagu/internal/auth"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/persis/file"
-	userstore "github.com/dagucloud/dagu/internal/persis/user"
+	persiststore "github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
 	apiv1 "github.com/dagucloud/dagu/internal/service/frontend/api/v1"
 	frontendauth "github.com/dagucloud/dagu/internal/service/frontend/auth"
@@ -312,7 +312,7 @@ func TestInitBuiltinAuthService_AutoProvision(t *testing.T) {
 		})
 
 		// Pre-create a user directly in the store (same collection as initBuiltinAuthService uses).
-		store, err := userstore.New(file.NewCollection(cfg.Paths.UsersDir))
+		store, err := persiststore.NewUserStore(file.NewCollection(cfg.Paths.UsersDir))
 		require.NoError(t, err)
 		existing := authmodel.NewUser("existinguser", "$2a$12$K8gHXqrFdFvMwJBG0VlJGuAGz3FwBmTm8xnNQblN2tCxrQgPLmwHa", authmodel.RoleAdmin)
 		require.NoError(t, store.Create(testContext(t), existing))

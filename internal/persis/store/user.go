@@ -1,8 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package user implements [auth.UserStore] using a [persis.Collection].
-package user
+package store
 
 import (
 	"context"
@@ -16,12 +15,12 @@ import (
 	"github.com/dagucloud/dagu/internal/persis"
 )
 
-var _ auth.UserStore = (*Store)(nil)
+var _ auth.UserStore = (*UserStore)(nil)
 
-// Store implements [auth.UserStore].
+// UserStore implements [auth.UserStore].
 // Three secondary indices (byUsername, byOIDCIdentity, byCount) are
 // rebuilt from the collection on startup and kept in sync under mu.
-type Store struct {
+type UserStore struct {
 	col persis.Collection
 
 	mu             sync.RWMutex
@@ -30,9 +29,9 @@ type Store struct {
 	count          int64
 }
 
-// New creates a Store backed by col.
-func New(col persis.Collection) (*Store, error) {
-	s := &Store{
+// NewUserStore creates a UserStore backed by col.
+func NewUserStore(col persis.Collection) (*UserStore, error) {
+	s := &UserStore{
 		col:            col,
 		byUsername:     make(map[string]string),
 		byOIDCIdentity: make(map[string]string),
@@ -43,7 +42,7 @@ func New(col persis.Collection) (*Store, error) {
 	return s, nil
 }
 
-func (s *Store) rebuildIndex(ctx context.Context) error {
+func (s *UserStore) rebuildIndex(ctx context.Context) error {
 	page, err := s.col.List(ctx, persis.ListQuery{})
 	if err != nil {
 		return err
@@ -66,7 +65,7 @@ func (s *Store) rebuildIndex(ctx context.Context) error {
 
 // Create stores a new user.
 // Returns [auth.ErrUserAlreadyExists] if a user with the same username exists.
-func (s *Store) Create(ctx context.Context, user *auth.User) error {
+func (s *UserStore) Create(ctx context.Context, user *auth.User) error {
 	if user == nil {
 		return errors.New("user store: user cannot be nil")
 	}
@@ -112,7 +111,7 @@ func (s *Store) Create(ctx context.Context, user *auth.User) error {
 
 // GetByID retrieves a user by their unique ID.
 // Returns [auth.ErrUserNotFound] if the user does not exist.
-func (s *Store) GetByID(ctx context.Context, id string) (*auth.User, error) {
+func (s *UserStore) GetByID(ctx context.Context, id string) (*auth.User, error) {
 	if id == "" {
 		return nil, auth.ErrInvalidUserID
 	}
@@ -123,12 +122,12 @@ func (s *Store) GetByID(ctx context.Context, id string) (*auth.User, error) {
 		}
 		return nil, err
 	}
-	return fromRecord(rec)
+	return userFromRecord(rec)
 }
 
 // GetByUsername retrieves a user by their username.
 // Returns [auth.ErrUserNotFound] if the user does not exist.
-func (s *Store) GetByUsername(ctx context.Context, username string) (*auth.User, error) {
+func (s *UserStore) GetByUsername(ctx context.Context, username string) (*auth.User, error) {
 	if username == "" {
 		return nil, auth.ErrInvalidUsername
 	}
@@ -143,7 +142,7 @@ func (s *Store) GetByUsername(ctx context.Context, username string) (*auth.User,
 
 // GetByOIDCIdentity retrieves a user by their OIDC identity.
 // Returns [auth.ErrOIDCIdentityNotFound] if no user exists with the given identity.
-func (s *Store) GetByOIDCIdentity(ctx context.Context, issuer, subject string) (*auth.User, error) {
+func (s *UserStore) GetByOIDCIdentity(ctx context.Context, issuer, subject string) (*auth.User, error) {
 	if issuer == "" || subject == "" {
 		return nil, auth.ErrOIDCIdentityNotFound
 	}
@@ -157,14 +156,14 @@ func (s *Store) GetByOIDCIdentity(ctx context.Context, issuer, subject string) (
 }
 
 // List returns all users in the store.
-func (s *Store) List(ctx context.Context) ([]*auth.User, error) {
+func (s *UserStore) List(ctx context.Context) ([]*auth.User, error) {
 	page, err := s.col.List(ctx, persis.ListQuery{})
 	if err != nil {
 		return nil, err
 	}
 	out := make([]*auth.User, 0, len(page.Records))
 	for _, rec := range page.Records {
-		u, err := fromRecord(rec)
+		u, err := userFromRecord(rec)
 		if err != nil {
 			continue
 		}
@@ -175,7 +174,7 @@ func (s *Store) List(ctx context.Context) ([]*auth.User, error) {
 
 // Update modifies an existing user.
 // Returns [auth.ErrUserNotFound] if the user does not exist.
-func (s *Store) Update(ctx context.Context, user *auth.User) error {
+func (s *UserStore) Update(ctx context.Context, user *auth.User) error {
 	if user == nil {
 		return errors.New("user store: user cannot be nil")
 	}
@@ -249,7 +248,7 @@ func (s *Store) Update(ctx context.Context, user *auth.User) error {
 
 // Delete removes a user by their ID.
 // Returns [auth.ErrUserNotFound] if the user does not exist.
-func (s *Store) Delete(ctx context.Context, id string) error {
+func (s *UserStore) Delete(ctx context.Context, id string) error {
 	if id == "" {
 		return auth.ErrInvalidUserID
 	}
@@ -280,7 +279,7 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 }
 
 // Count returns the total number of users.
-func (s *Store) Count(_ context.Context) (int64, error) {
+func (s *UserStore) Count(_ context.Context) (int64, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.count, nil
@@ -294,7 +293,7 @@ func oidcKey(issuer, subject string) string {
 	return url.QueryEscape(issuer) + ":" + url.QueryEscape(subject)
 }
 
-func fromRecord(rec *persis.Record) (*auth.User, error) {
+func userFromRecord(rec *persis.Record) (*auth.User, error) {
 	var stored auth.UserForStorage
 	if err := persis.Decode(rec, &stored); err != nil {
 		return nil, fmt.Errorf("user store: decode record %q: %w", rec.ID, err)

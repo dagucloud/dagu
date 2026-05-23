@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package user_test
+package store_test
 
 import (
 	"context"
@@ -12,14 +12,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/internal/auth"
+	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
-	"github.com/dagucloud/dagu/internal/persis/user"
 )
 
-func newStore(t *testing.T) *user.Store {
+func newUserStore(t *testing.T) *store.UserStore {
 	t.Helper()
 	col := testutil.NewMemoryBackend().Collection("users")
-	s, err := user.New(col)
+	s, err := store.NewUserStore(col)
 	require.NoError(t, err)
 	return s
 }
@@ -36,9 +36,9 @@ func newUser(username string) *auth.User {
 	}
 }
 
-func TestCreate(t *testing.T) {
+func TestUserCreate(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newUserStore(t)
 	u := newUser("alice")
 
 	require.NoError(t, s.Create(ctx, u))
@@ -50,9 +50,9 @@ func TestCreate(t *testing.T) {
 	assert.Equal(t, u.PasswordHash, got.PasswordHash)
 }
 
-func TestCreate_DuplicateUsername(t *testing.T) {
+func TestUserCreate_DuplicateUsername(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newUserStore(t)
 
 	require.NoError(t, s.Create(ctx, newUser("alice")))
 
@@ -61,9 +61,9 @@ func TestCreate_DuplicateUsername(t *testing.T) {
 	assert.ErrorIs(t, s.Create(ctx, dup), auth.ErrUserAlreadyExists)
 }
 
-func TestCreate_DuplicateOIDCIdentity(t *testing.T) {
+func TestUserCreate_DuplicateOIDCIdentity(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newUserStore(t)
 
 	u1 := newUser("alice")
 	u1.OIDCIssuer = "https://issuer.example"
@@ -76,15 +76,15 @@ func TestCreate_DuplicateOIDCIdentity(t *testing.T) {
 	assert.ErrorIs(t, s.Create(ctx, u2), auth.ErrOIDCIdentityAlreadyExists)
 }
 
-func TestGetByID_NotFound(t *testing.T) {
+func TestUserGetByID_NotFound(t *testing.T) {
 	ctx := context.Background()
-	_, err := newStore(t).GetByID(ctx, "missing")
+	_, err := newUserStore(t).GetByID(ctx, "missing")
 	assert.ErrorIs(t, err, auth.ErrUserNotFound)
 }
 
-func TestGetByUsername(t *testing.T) {
+func TestUserGetByUsername(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newUserStore(t)
 	u := newUser("bob")
 	require.NoError(t, s.Create(ctx, u))
 
@@ -93,15 +93,15 @@ func TestGetByUsername(t *testing.T) {
 	assert.Equal(t, u.ID, got.ID)
 }
 
-func TestGetByUsername_NotFound(t *testing.T) {
+func TestUserGetByUsername_NotFound(t *testing.T) {
 	ctx := context.Background()
-	_, err := newStore(t).GetByUsername(ctx, "nobody")
+	_, err := newUserStore(t).GetByUsername(ctx, "nobody")
 	assert.ErrorIs(t, err, auth.ErrUserNotFound)
 }
 
-func TestGetByOIDCIdentity(t *testing.T) {
+func TestUserGetByOIDCIdentity(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newUserStore(t)
 	u := newUser("carol")
 	u.OIDCIssuer = "https://accounts.example.com"
 	u.OIDCSubject = "sub-carol"
@@ -112,15 +112,15 @@ func TestGetByOIDCIdentity(t *testing.T) {
 	assert.Equal(t, u.ID, got.ID)
 }
 
-func TestGetByOIDCIdentity_NotFound(t *testing.T) {
+func TestUserGetByOIDCIdentity_NotFound(t *testing.T) {
 	ctx := context.Background()
-	_, err := newStore(t).GetByOIDCIdentity(ctx, "https://x.example", "unknown")
+	_, err := newUserStore(t).GetByOIDCIdentity(ctx, "https://x.example", "unknown")
 	assert.ErrorIs(t, err, auth.ErrOIDCIdentityNotFound)
 }
 
-func TestList(t *testing.T) {
+func TestUserList(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newUserStore(t)
 	for _, name := range []string{"u1", "u2", "u3"} {
 		require.NoError(t, s.Create(ctx, newUser(name)))
 	}
@@ -129,9 +129,9 @@ func TestList(t *testing.T) {
 	assert.Len(t, list, 3)
 }
 
-func TestUpdate(t *testing.T) {
+func TestUserUpdate(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newUserStore(t)
 	u := newUser("dave")
 	require.NoError(t, s.Create(ctx, u))
 
@@ -143,14 +143,14 @@ func TestUpdate(t *testing.T) {
 	assert.Equal(t, "new-hash", got.PasswordHash)
 }
 
-func TestUpdate_NotFound(t *testing.T) {
+func TestUserUpdate_NotFound(t *testing.T) {
 	ctx := context.Background()
-	assert.ErrorIs(t, newStore(t).Update(ctx, newUser("ghost")), auth.ErrUserNotFound)
+	assert.ErrorIs(t, newUserStore(t).Update(ctx, newUser("ghost")), auth.ErrUserNotFound)
 }
 
-func TestUpdate_UsernameChange(t *testing.T) {
+func TestUserUpdate_UsernameChange(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newUserStore(t)
 	u := newUser("eve")
 	require.NoError(t, s.Create(ctx, u))
 
@@ -165,9 +165,9 @@ func TestUpdate_UsernameChange(t *testing.T) {
 	assert.Equal(t, u.ID, got.ID)
 }
 
-func TestUpdate_UsernameConflict(t *testing.T) {
+func TestUserUpdate_UsernameConflict(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newUserStore(t)
 	require.NoError(t, s.Create(ctx, newUser("frank")))
 	g := newUser("grace")
 	require.NoError(t, s.Create(ctx, g))
@@ -176,9 +176,9 @@ func TestUpdate_UsernameConflict(t *testing.T) {
 	assert.ErrorIs(t, s.Update(ctx, g), auth.ErrUserAlreadyExists)
 }
 
-func TestUpdate_OIDCIdentityChange(t *testing.T) {
+func TestUserUpdate_OIDCIdentityChange(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newUserStore(t)
 	u := newUser("heidi")
 	u.OIDCIssuer = "https://a.example"
 	u.OIDCSubject = "old-sub"
@@ -196,9 +196,9 @@ func TestUpdate_OIDCIdentityChange(t *testing.T) {
 	assert.Equal(t, u.ID, got.ID)
 }
 
-func TestDelete(t *testing.T) {
+func TestUserDelete(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newUserStore(t)
 	u := newUser("ivan")
 	u.OIDCIssuer = "https://b.example"
 	u.OIDCSubject = "ivan-sub"
@@ -216,14 +216,14 @@ func TestDelete(t *testing.T) {
 	assert.ErrorIs(t, err, auth.ErrOIDCIdentityNotFound)
 }
 
-func TestDelete_NotFound(t *testing.T) {
+func TestUserDelete_NotFound(t *testing.T) {
 	ctx := context.Background()
-	assert.ErrorIs(t, newStore(t).Delete(ctx, "nope"), auth.ErrUserNotFound)
+	assert.ErrorIs(t, newUserStore(t).Delete(ctx, "nope"), auth.ErrUserNotFound)
 }
 
-func TestCount(t *testing.T) {
+func TestUserCount(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newUserStore(t)
 
 	n, err := s.Count(ctx)
 	require.NoError(t, err)
@@ -242,16 +242,16 @@ func TestCount(t *testing.T) {
 	assert.Equal(t, int64(1), n)
 }
 
-func TestIndexRebuiltOnStartup(t *testing.T) {
+func TestUserIndexRebuiltOnStartup(t *testing.T) {
 	ctx := context.Background()
 	col := testutil.NewMemoryBackend().Collection("users")
 
-	s1, err := user.New(col)
+	s1, err := store.NewUserStore(col)
 	require.NoError(t, err)
 	require.NoError(t, s1.Create(ctx, newUser("kate")))
 	require.NoError(t, s1.Create(ctx, newUser("leo")))
 
-	s2, err := user.New(col)
+	s2, err := store.NewUserStore(col)
 	require.NoError(t, err)
 
 	got, err := s2.GetByUsername(ctx, "kate")

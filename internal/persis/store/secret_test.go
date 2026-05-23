@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package secret_test
+package store_test
 
 import (
 	"context"
@@ -12,17 +12,17 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/internal/cmn/crypto"
+	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
-	secretstore "github.com/dagucloud/dagu/internal/persis/secret"
 	"github.com/dagucloud/dagu/internal/secret"
 )
 
-func newStore(t *testing.T) *secretstore.Store {
+func newSecretStore(t *testing.T) *store.SecretStore {
 	t.Helper()
 	enc, err := crypto.NewEncryptor("test-key")
 	require.NoError(t, err)
 	col := testutil.NewMemoryBackend().Collection("secrets")
-	s, err := secretstore.New(col, enc)
+	s, err := store.NewSecretStore(col, enc)
 	require.NoError(t, err)
 	return s
 }
@@ -38,9 +38,9 @@ func newSecret(workspace, ref string) *secret.Secret {
 	return sec
 }
 
-func TestCreate(t *testing.T) {
+func TestSecretCreate(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newSecretStore(t)
 	sec := newSecret("payments", "prod/db-pass")
 
 	require.NoError(t, s.Create(ctx, sec, nil))
@@ -52,9 +52,9 @@ func TestCreate(t *testing.T) {
 	assert.Equal(t, "prod/db-pass", got.Ref)
 }
 
-func TestCreate_WithInitialValue(t *testing.T) {
+func TestSecretCreate_WithInitialValue(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newSecretStore(t)
 	sec := newSecret("payments", "prod/db-pass")
 
 	require.NoError(t, s.Create(ctx, sec, &secret.WriteValueInput{
@@ -68,9 +68,9 @@ func TestCreate_WithInitialValue(t *testing.T) {
 	assert.NotNil(t, got.LastRotatedAt)
 }
 
-func TestCreate_DuplicateRef(t *testing.T) {
+func TestSecretCreate_DuplicateRef(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newSecretStore(t)
 
 	require.NoError(t, s.Create(ctx, newSecret("payments", "prod/db-pass"), nil))
 
@@ -78,17 +78,17 @@ func TestCreate_DuplicateRef(t *testing.T) {
 	assert.ErrorIs(t, s.Create(ctx, dup, nil), secret.ErrAlreadyExists)
 }
 
-func TestCreate_SameRefDifferentWorkspace(t *testing.T) {
+func TestSecretCreate_SameRefDifferentWorkspace(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newSecretStore(t)
 
 	require.NoError(t, s.Create(ctx, newSecret("ws-a", "shared/key"), nil))
 	require.NoError(t, s.Create(ctx, newSecret("ws-b", "shared/key"), nil))
 }
 
-func TestCreate_EmptyWorkspaceNormalizesToGlobal(t *testing.T) {
+func TestSecretCreate_EmptyWorkspaceNormalizesToGlobal(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newSecretStore(t)
 	sec := newSecret("", "prod/key")
 
 	require.NoError(t, s.Create(ctx, sec, nil))
@@ -101,15 +101,15 @@ func TestCreate_EmptyWorkspaceNormalizesToGlobal(t *testing.T) {
 	assert.ErrorIs(t, s.Create(ctx, dup, nil), secret.ErrAlreadyExists)
 }
 
-func TestGetByID_NotFound(t *testing.T) {
+func TestSecretGetByID_NotFound(t *testing.T) {
 	ctx := context.Background()
-	_, err := newStore(t).GetByID(ctx, "missing")
+	_, err := newSecretStore(t).GetByID(ctx, "missing")
 	assert.ErrorIs(t, err, secret.ErrNotFound)
 }
 
-func TestGetByRef(t *testing.T) {
+func TestSecretGetByRef(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newSecretStore(t)
 	sec := newSecret("ops", "infra/token")
 	require.NoError(t, s.Create(ctx, sec, nil))
 
@@ -118,15 +118,15 @@ func TestGetByRef(t *testing.T) {
 	assert.Equal(t, sec.ID, got.ID)
 }
 
-func TestGetByRef_NotFound(t *testing.T) {
+func TestSecretGetByRef_NotFound(t *testing.T) {
 	ctx := context.Background()
-	_, err := newStore(t).GetByRef(ctx, "any", "no/such")
+	_, err := newSecretStore(t).GetByRef(ctx, "any", "no/such")
 	assert.ErrorIs(t, err, secret.ErrNotFound)
 }
 
-func TestList(t *testing.T) {
+func TestSecretList(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newSecretStore(t)
 	require.NoError(t, s.Create(ctx, newSecret("ws-a", "key-1"), nil))
 	require.NoError(t, s.Create(ctx, newSecret("ws-a", "key-2"), nil))
 	require.NoError(t, s.Create(ctx, newSecret("ws-b", "key-1"), nil))
@@ -141,9 +141,9 @@ func TestList(t *testing.T) {
 	assert.Len(t, filtered, 2)
 }
 
-func TestUpdate(t *testing.T) {
+func TestSecretUpdate(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newSecretStore(t)
 	sec := newSecret("ws-a", "key-1")
 	require.NoError(t, s.Create(ctx, sec, nil))
 
@@ -155,14 +155,14 @@ func TestUpdate(t *testing.T) {
 	assert.Equal(t, "updated", got.Description)
 }
 
-func TestUpdate_NotFound(t *testing.T) {
+func TestSecretUpdate_NotFound(t *testing.T) {
 	ctx := context.Background()
-	assert.ErrorIs(t, newStore(t).Update(ctx, newSecret("ws", "k")), secret.ErrNotFound)
+	assert.ErrorIs(t, newSecretStore(t).Update(ctx, newSecret("ws", "k")), secret.ErrNotFound)
 }
 
-func TestUpdate_RefChange(t *testing.T) {
+func TestSecretUpdate_RefChange(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newSecretStore(t)
 	sec := newSecret("ws", "old-ref")
 	require.NoError(t, s.Create(ctx, sec, nil))
 
@@ -177,9 +177,9 @@ func TestUpdate_RefChange(t *testing.T) {
 	assert.Equal(t, sec.ID, got.ID)
 }
 
-func TestUpdate_RefConflict(t *testing.T) {
+func TestSecretUpdate_RefConflict(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newSecretStore(t)
 	require.NoError(t, s.Create(ctx, newSecret("ws", "ref-a"), nil))
 	b := newSecret("ws", "ref-b")
 	require.NoError(t, s.Create(ctx, b, nil))
@@ -188,9 +188,9 @@ func TestUpdate_RefConflict(t *testing.T) {
 	assert.ErrorIs(t, s.Update(ctx, b), secret.ErrAlreadyExists)
 }
 
-func TestDelete(t *testing.T) {
+func TestSecretDelete(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newSecretStore(t)
 	sec := newSecret("ws", "my-ref")
 	require.NoError(t, s.Create(ctx, sec, nil))
 
@@ -203,14 +203,14 @@ func TestDelete(t *testing.T) {
 	assert.ErrorIs(t, err, secret.ErrNotFound)
 }
 
-func TestDelete_NotFound(t *testing.T) {
+func TestSecretDelete_NotFound(t *testing.T) {
 	ctx := context.Background()
-	assert.ErrorIs(t, newStore(t).Delete(ctx, "nope"), secret.ErrNotFound)
+	assert.ErrorIs(t, newSecretStore(t).Delete(ctx, "nope"), secret.ErrNotFound)
 }
 
-func TestWriteValue(t *testing.T) {
+func TestSecretWriteValue(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newSecretStore(t)
 	sec := newSecret("ws", "db-pass")
 	require.NoError(t, s.Create(ctx, sec, nil))
 
@@ -229,9 +229,9 @@ func TestWriteValue(t *testing.T) {
 	assert.Equal(t, 2, updated2.CurrentVersion)
 }
 
-func TestGetCurrentVersion(t *testing.T) {
+func TestSecretGetCurrentVersion(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newSecretStore(t)
 	sec := newSecret("ws", "db-pass")
 	require.NoError(t, s.Create(ctx, sec, &secret.WriteValueInput{Value: "val", CreatedBy: "alice"}))
 
@@ -241,9 +241,9 @@ func TestGetCurrentVersion(t *testing.T) {
 	assert.Equal(t, sec.ID, meta.SecretID)
 }
 
-func TestGetCurrentVersion_NoValue(t *testing.T) {
+func TestSecretGetCurrentVersion_NoValue(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newSecretStore(t)
 	sec := newSecret("ws", "empty")
 	require.NoError(t, s.Create(ctx, sec, nil))
 
@@ -251,9 +251,9 @@ func TestGetCurrentVersion_NoValue(t *testing.T) {
 	assert.ErrorIs(t, err, secret.ErrNoValue)
 }
 
-func TestResolveValue(t *testing.T) {
+func TestSecretResolveValue(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newSecretStore(t)
 	sec := newSecret("ws", "db-pass")
 	require.NoError(t, s.Create(ctx, sec, &secret.WriteValueInput{Value: "plaintext", CreatedBy: "alice"}))
 
@@ -263,9 +263,9 @@ func TestResolveValue(t *testing.T) {
 	assert.Equal(t, 1, meta.Version)
 }
 
-func TestResolveValue_Disabled(t *testing.T) {
+func TestSecretResolveValue_Disabled(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newSecretStore(t)
 	sec := newSecret("ws", "db-pass")
 	require.NoError(t, s.Create(ctx, sec, &secret.WriteValueInput{Value: "val", CreatedBy: "alice"}))
 
@@ -276,18 +276,18 @@ func TestResolveValue_Disabled(t *testing.T) {
 	assert.ErrorIs(t, err, secret.ErrDisabled)
 }
 
-func TestIndexRebuiltOnStartup(t *testing.T) {
+func TestSecretIndexRebuiltOnStartup(t *testing.T) {
 	ctx := context.Background()
 	col := testutil.NewMemoryBackend().Collection("secrets")
 	enc, err := crypto.NewEncryptor("test-key")
 	require.NoError(t, err)
 
-	s1, err := secretstore.New(col, enc)
+	s1, err := store.NewSecretStore(col, enc)
 	require.NoError(t, err)
 	require.NoError(t, s1.Create(ctx, newSecret("ws", "ref-a"), nil))
 	require.NoError(t, s1.Create(ctx, newSecret("ws", "ref-b"), nil))
 
-	s2, err := secretstore.New(col, enc)
+	s2, err := store.NewSecretStore(col, enc)
 	require.NoError(t, err)
 
 	got, err := s2.GetByRef(ctx, "ws", "ref-a")

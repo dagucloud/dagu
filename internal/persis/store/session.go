@@ -1,8 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package session implements [agent.SessionStore] using a [persis.Collection].
-package session
+package store
 
 import (
 	"context"
@@ -18,14 +17,14 @@ import (
 	"github.com/dagucloud/dagu/internal/persis"
 )
 
-var _ agent.SessionStore = (*Store)(nil)
+var _ agent.SessionStore = (*SessionStore)(nil)
 
-const maxTitleLength = 50
+const sessionMaxTitleLength = 50
 
-// Store implements [agent.SessionStore].
+// SessionStore implements [agent.SessionStore].
 // Three in-memory indices (byUser, byParent, updatedAt) are rebuilt from
 // the collection on startup and kept in sync under mu.
-type Store struct {
+type SessionStore struct {
 	col        persis.Collection
 	maxPerUser int
 
@@ -63,18 +62,18 @@ func (s *storedSession) toSession() *agent.Session {
 	}
 }
 
-// Option configures a Store.
-type Option func(*Store)
+// SessionOption configures a SessionStore.
+type SessionOption func(*SessionStore)
 
 // WithMaxPerUser sets the per-user session cap.
 // When a user exceeds the cap the oldest top-level sessions are purged.
-func WithMaxPerUser(n int) Option {
-	return func(s *Store) { s.maxPerUser = n }
+func WithMaxPerUser(n int) SessionOption {
+	return func(s *SessionStore) { s.maxPerUser = n }
 }
 
-// New creates a Store backed by col.
-func New(col persis.Collection, opts ...Option) (*Store, error) {
-	s := &Store{
+// NewSessionStore creates a SessionStore backed by col.
+func NewSessionStore(col persis.Collection, opts ...SessionOption) (*SessionStore, error) {
+	s := &SessionStore{
 		col:       col,
 		byUser:    make(map[string][]string),
 		byParent:  make(map[string][]string),
@@ -89,7 +88,7 @@ func New(col persis.Collection, opts ...Option) (*Store, error) {
 	return s, nil
 }
 
-func (s *Store) rebuildIndex(ctx context.Context) error {
+func (s *SessionStore) rebuildIndex(ctx context.Context) error {
 	page, err := s.col.List(ctx, persis.ListQuery{})
 	if err != nil {
 		return err
@@ -114,12 +113,12 @@ func (s *Store) rebuildIndex(ctx context.Context) error {
 }
 
 // CreateSession creates a new session.
-func (s *Store) CreateSession(ctx context.Context, sess *agent.Session) error {
-	if err := validateSession(sess, true); err != nil {
+func (s *SessionStore) CreateSession(ctx context.Context, sess *agent.Session) error {
+	if err := validateSessionInput(sess, true); err != nil {
 		return err
 	}
 
-	ss := fromSession(sess, nil)
+	ss := sessionFromSession(sess, nil)
 	data, enc, err := persis.Encode(ss)
 	if err != nil {
 		return err
@@ -149,11 +148,11 @@ func (s *Store) CreateSession(ctx context.Context, sess *agent.Session) error {
 }
 
 // GetSession retrieves a session by ID.
-func (s *Store) GetSession(ctx context.Context, id string) (*agent.Session, error) {
+func (s *SessionStore) GetSession(ctx context.Context, id string) (*agent.Session, error) {
 	if id == "" {
 		return nil, agent.ErrInvalidSessionID
 	}
-	ss, err := s.load(ctx, id)
+	ss, err := s.loadSession(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +160,7 @@ func (s *Store) GetSession(ctx context.Context, id string) (*agent.Session, erro
 }
 
 // ListSessions returns all sessions for a user, sorted by UpdatedAt descending.
-func (s *Store) ListSessions(ctx context.Context, userID string) ([]*agent.Session, error) {
+func (s *SessionStore) ListSessions(ctx context.Context, userID string) ([]*agent.Session, error) {
 	if userID == "" {
 		return nil, agent.ErrInvalidUserID
 	}
@@ -185,8 +184,8 @@ func (s *Store) ListSessions(ctx context.Context, userID string) ([]*agent.Sessi
 }
 
 // UpdateSession updates session metadata (Title, UpdatedAt).
-func (s *Store) UpdateSession(ctx context.Context, sess *agent.Session) error {
-	if err := validateSession(sess, false); err != nil {
+func (s *SessionStore) UpdateSession(ctx context.Context, sess *agent.Session) error {
+	if err := validateSessionInput(sess, false); err != nil {
 		return err
 	}
 
@@ -227,7 +226,7 @@ func (s *Store) UpdateSession(ctx context.Context, sess *agent.Session) error {
 }
 
 // DeleteSession removes a session and all its messages.
-func (s *Store) DeleteSession(ctx context.Context, id string) error {
+func (s *SessionStore) DeleteSession(ctx context.Context, id string) error {
 	if id == "" {
 		return agent.ErrInvalidSessionID
 	}
@@ -237,7 +236,7 @@ func (s *Store) DeleteSession(ctx context.Context, id string) error {
 }
 
 // AddMessage appends a message to a session.
-func (s *Store) AddMessage(ctx context.Context, sessionID string, msg *agent.Message) error {
+func (s *SessionStore) AddMessage(ctx context.Context, sessionID string, msg *agent.Message) error {
 	if sessionID == "" {
 		return agent.ErrInvalidSessionID
 	}
@@ -259,7 +258,7 @@ func (s *Store) AddMessage(ctx context.Context, sessionID string, msg *agent.Mes
 
 	ss.Messages = append(ss.Messages, *msg)
 	ss.UpdatedAt = time.Now().UTC()
-	setTitleFromMessage(&ss, msg)
+	sessionSetTitleFromMessage(&ss, msg)
 
 	data, enc, err := persis.Encode(&ss)
 	if err != nil {
@@ -283,11 +282,11 @@ func (s *Store) AddMessage(ctx context.Context, sessionID string, msg *agent.Mes
 }
 
 // GetMessages retrieves all messages for a session, ordered by SequenceID ascending.
-func (s *Store) GetMessages(ctx context.Context, sessionID string) ([]agent.Message, error) {
+func (s *SessionStore) GetMessages(ctx context.Context, sessionID string) ([]agent.Message, error) {
 	if sessionID == "" {
 		return nil, agent.ErrInvalidSessionID
 	}
-	ss, err := s.load(ctx, sessionID)
+	ss, err := s.loadSession(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -297,11 +296,11 @@ func (s *Store) GetMessages(ctx context.Context, sessionID string) ([]agent.Mess
 }
 
 // GetLatestSequenceID returns the highest sequence ID for a session.
-func (s *Store) GetLatestSequenceID(ctx context.Context, sessionID string) (int64, error) {
+func (s *SessionStore) GetLatestSequenceID(ctx context.Context, sessionID string) (int64, error) {
 	if sessionID == "" {
 		return 0, agent.ErrInvalidSessionID
 	}
-	ss, err := s.load(ctx, sessionID)
+	ss, err := s.loadSession(ctx, sessionID)
 	if err != nil {
 		return 0, err
 	}
@@ -315,7 +314,7 @@ func (s *Store) GetLatestSequenceID(ctx context.Context, sessionID string) (int6
 }
 
 // ListSubSessions returns all sub-sessions for a parent session.
-func (s *Store) ListSubSessions(ctx context.Context, parentSessionID string) ([]*agent.Session, error) {
+func (s *SessionStore) ListSubSessions(ctx context.Context, parentSessionID string) ([]*agent.Session, error) {
 	if parentSessionID == "" {
 		return nil, agent.ErrInvalidSessionID
 	}
@@ -340,7 +339,7 @@ func (s *Store) ListSubSessions(ctx context.Context, parentSessionID string) ([]
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-func (s *Store) load(ctx context.Context, id string) (*storedSession, error) {
+func (s *SessionStore) loadSession(ctx context.Context, id string) (*storedSession, error) {
 	rec, err := s.col.Get(ctx, id)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
@@ -355,7 +354,7 @@ func (s *Store) load(ctx context.Context, id string) (*storedSession, error) {
 	return &ss, nil
 }
 
-func (s *Store) deleteLockedCtx(ctx context.Context, id string) error {
+func (s *SessionStore) deleteLockedCtx(ctx context.Context, id string) error {
 	rec, err := s.col.Get(ctx, id)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
@@ -373,9 +372,9 @@ func (s *Store) deleteLockedCtx(ctx context.Context, id string) error {
 	}
 
 	delete(s.updatedAt, id)
-	s.byUser[ss.UserID] = removeFromSlice(s.byUser[ss.UserID], id)
+	s.byUser[ss.UserID] = sessionRemoveFromSlice(s.byUser[ss.UserID], id)
 	if ss.ParentSessionID != "" {
-		s.byParent[ss.ParentSessionID] = removeFromSlice(s.byParent[ss.ParentSessionID], id)
+		s.byParent[ss.ParentSessionID] = sessionRemoveFromSlice(s.byParent[ss.ParentSessionID], id)
 		if len(s.byParent[ss.ParentSessionID]) == 0 {
 			delete(s.byParent, ss.ParentSessionID)
 		}
@@ -383,14 +382,14 @@ func (s *Store) deleteLockedCtx(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *Store) sortUserSessions(userID string) {
+func (s *SessionStore) sortUserSessions(userID string) {
 	ids := s.byUser[userID]
 	sort.Slice(ids, func(i, j int) bool {
 		return s.updatedAt[ids[i]].After(s.updatedAt[ids[j]])
 	})
 }
 
-func (s *Store) enforceMaxLocked(ctx context.Context, userID string) {
+func (s *SessionStore) enforceMaxLocked(ctx context.Context, userID string) {
 	if s.maxPerUser <= 0 {
 		return
 	}
@@ -432,7 +431,7 @@ func (s *Store) enforceMaxLocked(ctx context.Context, userID string) {
 	}
 }
 
-func fromSession(sess *agent.Session, messages []agent.Message) *storedSession {
+func sessionFromSession(sess *agent.Session, messages []agent.Message) *storedSession {
 	return &storedSession{
 		ID:              sess.ID,
 		UserID:          sess.UserID,
@@ -447,47 +446,47 @@ func fromSession(sess *agent.Session, messages []agent.Message) *storedSession {
 	}
 }
 
-func validateSession(sess *agent.Session, requireUserID bool) error {
+func validateSessionInput(sess *agent.Session, requireUserID bool) error {
 	if sess == nil {
 		return errors.New("session store: session cannot be nil")
 	}
 	if sess.ID == "" {
 		return agent.ErrInvalidSessionID
 	}
-	if containsPathTraversal(sess.ID) {
+	if sessionContainsPathTraversal(sess.ID) {
 		return fmt.Errorf("session store: %w: invalid characters", agent.ErrInvalidSessionID)
 	}
 	if requireUserID && sess.UserID == "" {
 		return agent.ErrInvalidUserID
 	}
-	if requireUserID && containsPathTraversal(sess.UserID) {
+	if requireUserID && sessionContainsPathTraversal(sess.UserID) {
 		return fmt.Errorf("session store: %w: invalid characters", agent.ErrInvalidUserID)
 	}
 	return nil
 }
 
-func containsPathTraversal(id string) bool {
+func sessionContainsPathTraversal(id string) bool {
 	return strings.ContainsAny(id, `/\`) || strings.Contains(id, "..")
 }
 
-func setTitleFromMessage(ss *storedSession, msg *agent.Message) {
+func sessionSetTitleFromMessage(ss *storedSession, msg *agent.Message) {
 	if ss.Title == "" && msg.Type == agent.MessageTypeUser && msg.Content != "" {
-		ss.Title = truncateTitle(msg.Content)
+		ss.Title = sessionTruncateTitle(msg.Content)
 	}
 }
 
-func truncateTitle(title string) string {
+func sessionTruncateTitle(title string) string {
 	runes := []rune(title)
-	if len(runes) <= maxTitleLength {
+	if len(runes) <= sessionMaxTitleLength {
 		return title
 	}
-	if maxTitleLength < 3 {
-		return string(runes[:maxTitleLength])
+	if sessionMaxTitleLength < 3 {
+		return string(runes[:sessionMaxTitleLength])
 	}
-	return string(runes[:maxTitleLength-3]) + "..."
+	return string(runes[:sessionMaxTitleLength-3]) + "..."
 }
 
-func removeFromSlice(slice []string, target string) []string {
+func sessionRemoveFromSlice(slice []string, target string) []string {
 	for i, v := range slice {
 		if v == target {
 			return append(slice[:i], slice[i+1:]...)

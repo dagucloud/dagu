@@ -32,7 +32,7 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/fileagentoauth"
 	"github.com/dagucloud/dagu/internal/persis/fileagentsoul"
 	"github.com/dagucloud/dagu/internal/persis/filememory"
-	secretstore "github.com/dagucloud/dagu/internal/persis/secret"
+	persiststore "github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	"github.com/dagucloud/dagu/internal/runtime"
 	rtagent "github.com/dagucloud/dagu/internal/runtime/agent"
@@ -434,7 +434,7 @@ func (h *remoteTaskHandler) secretStore(ctx context.Context) secretpkg.Store {
 		logger.Warn(ctx, "Failed to open file backend for secret store", tag.Error(backendErr))
 		return nil
 	}
-	store, storeErr := secretstore.New(backend.Collection("secrets"), enc)
+	store, storeErr := persiststore.NewSecretStore(backend.Collection("secrets"), enc)
 	if storeErr != nil {
 		logger.Warn(ctx, "Failed to create secret store", tag.Error(storeErr))
 		return nil

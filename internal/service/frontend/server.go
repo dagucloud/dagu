@@ -54,7 +54,7 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/fileagentoauth"
 	"github.com/dagucloud/dagu/internal/persis/fileagentskill"
 	"github.com/dagucloud/dagu/internal/persis/fileagentsoul"
-	"github.com/dagucloud/dagu/internal/persis/apikey"
+	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/fileaudit"
 	"github.com/dagucloud/dagu/internal/persis/filebaseconfig"
@@ -65,11 +65,8 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/filenotification"
 	"github.com/dagucloud/dagu/internal/persis/fileremotenode"
 	"github.com/dagucloud/dagu/internal/persis/filesession"
-	secretstore "github.com/dagucloud/dagu/internal/persis/secret"
 	"github.com/dagucloud/dagu/internal/persis/filetokensecret"
 	"github.com/dagucloud/dagu/internal/persis/fileupgradecheck"
-	userstore "github.com/dagucloud/dagu/internal/persis/user"
-	webhookstore "github.com/dagucloud/dagu/internal/persis/webhook"
 	"github.com/dagucloud/dagu/internal/persis/fileworkspace"
 	"github.com/dagucloud/dagu/internal/remotenode"
 	"github.com/dagucloud/dagu/internal/runtime"
@@ -382,7 +379,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		secretBackend, secretBackendErr := file.New(cfg.Paths.DataDir)
 		if secretBackendErr != nil {
 			logger.Warn(ctx, "Failed to open file backend for secret store", tag.Error(secretBackendErr))
-		} else if secretStore, secretErr := secretstore.New(secretBackend.Collection("secrets"), encryptor); secretErr != nil {
+		} else if secretStore, secretErr := store.NewSecretStore(secretBackend.Collection("secrets"), encryptor); secretErr != nil {
 			logger.Warn(ctx, "Failed to create secret store", tag.Error(secretErr))
 		} else {
 			apiOpts = append(apiOpts, apiv1.WithSecretStore(secretStore))
@@ -675,12 +672,12 @@ func initBuiltinAuthService(ctx context.Context, cfg *config.Config, collector *
 		return nil, false, fmt.Errorf("failed to resolve token secret: %w", err)
 	}
 
-	userStore, err := userstore.New(file.NewCollection(cfg.Paths.UsersDir))
+	userStore, err := store.NewUserStore(file.NewCollection(cfg.Paths.UsersDir))
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to create user store: %w", err)
 	}
 
-	apiKeyStore, err := apikey.New(file.NewCollection(cfg.Paths.APIKeysDir))
+	apiKeyStore, err := store.NewAPIKeyStore(file.NewCollection(cfg.Paths.APIKeysDir))
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to create API key store: %w", err)
 	}
@@ -695,7 +692,7 @@ func initBuiltinAuthService(ctx context.Context, cfg *config.Config, collector *
 			logger.Warn(ctx, "Failed to create encryptor for webhook store", tag.Error(encErr))
 		}
 	}
-	webhookStore, err := webhookstore.New(file.NewCollection(cfg.Paths.WebhooksDir), webhookEncryptor)
+	webhookStore, err := store.NewWebhookStore(file.NewCollection(cfg.Paths.WebhooksDir), webhookEncryptor)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to create webhook store: %w", err)
 	}

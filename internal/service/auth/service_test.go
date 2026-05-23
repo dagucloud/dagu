@@ -11,9 +11,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/auth"
-	apikeystore "github.com/dagucloud/dagu/internal/persis/apikey"
+	persiststore "github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
-	userstore "github.com/dagucloud/dagu/internal/persis/user"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +27,7 @@ func mustTokenSecret(s string) auth.TokenSecret {
 
 func setupTestService(t *testing.T) (*Service, func()) {
 	t.Helper()
-	store, err := userstore.New(testutil.NewMemoryBackend().Collection("users"))
+	store, err := persiststore.NewUserStore(testutil.NewMemoryBackend().Collection("users"))
 	require.NoError(t, err)
 	config := Config{
 		TokenSecret: mustTokenSecret("test-secret-key-for-jwt-signing"),
@@ -572,7 +571,7 @@ func TestService_ValidateToken_MalformedToken(t *testing.T) {
 
 func TestService_ValidateToken_WrongSecret(t *testing.T) {
 	// Create service with one secret
-	store, err := userstore.New(testutil.NewMemoryBackend().Collection("users"))
+	store, err := persiststore.NewUserStore(testutil.NewMemoryBackend().Collection("users"))
 	require.NoError(t, err)
 
 	config1 := Config{
@@ -608,7 +607,7 @@ func TestService_ValidateToken_WrongSecret(t *testing.T) {
 }
 
 func TestService_ValidateToken_MissingSecret(t *testing.T) {
-	store, err := userstore.New(testutil.NewMemoryBackend().Collection("users"))
+	store, err := persiststore.NewUserStore(testutil.NewMemoryBackend().Collection("users"))
 	require.NoError(t, err)
 
 	// Create service without secret
@@ -641,9 +640,9 @@ func TestService_CreateUser_InvalidRole(t *testing.T) {
 func setupTestServiceWithAPIKeys(t *testing.T) (*Service, func()) {
 	t.Helper()
 	backend := testutil.NewMemoryBackend()
-	userStore, err := userstore.New(backend.Collection("users"))
+	userStore, err := persiststore.NewUserStore(backend.Collection("users"))
 	require.NoError(t, err, "failed to create user store")
-	apiKeyStore, err := apikeystore.New(backend.Collection("apikeys"))
+	apiKeyStore, err := persiststore.NewAPIKeyStore(backend.Collection("apikeys"))
 	require.NoError(t, err, "failed to create API key store")
 	config := Config{
 		TokenSecret: mustTokenSecret("test-secret-key-for-jwt-signing"),

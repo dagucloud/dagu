@@ -14,7 +14,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/license"
 	"github.com/dagucloud/dagu/internal/persis/file"
-	"github.com/dagucloud/dagu/internal/persis/watermark"
+	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/service/frontend"
 	apiv1 "github.com/dagucloud/dagu/internal/service/frontend/api/v1"
@@ -79,7 +79,7 @@ func NewServer(cfg ServerConfig, opts ...frontend.ServerOption) (*frontend.Serve
 		return nil, fmt.Errorf("failed to open file backend for watermark: %w", wmErr)
 	}
 	opts = append(opts, frontend.WithAPIOption(apiv1.WithSchedulerStateStore(
-		watermark.New(wmBackend.Collection("scheduler")),
+		store.NewWatermarkStore(wmBackend.Collection("scheduler")),
 	)))
 
 	return frontend.NewServer(

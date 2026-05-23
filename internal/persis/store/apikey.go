@@ -1,8 +1,8 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package apikey implements [auth.APIKeyStore] using a [persis.Collection].
-package apikey
+// Package store consolidates small persistence stores that each wrap a [persis.Collection].
+package store
 
 import (
 	"context"
@@ -15,21 +15,21 @@ import (
 	"github.com/dagucloud/dagu/internal/persis"
 )
 
-var _ auth.APIKeyStore = (*Store)(nil)
+var _ auth.APIKeyStore = (*APIKeyStore)(nil)
 
-// Store implements [auth.APIKeyStore].
+// APIKeyStore implements [auth.APIKeyStore].
 // Name lookups use an in-memory index (byName) rebuilt from the
 // collection on startup; all writes keep it in sync under mu.
-type Store struct {
+type APIKeyStore struct {
 	col persis.Collection
 
 	mu     sync.RWMutex
 	byName map[string]string // name → keyID
 }
 
-// New creates a Store backed by col.
-func New(col persis.Collection) (*Store, error) {
-	s := &Store{
+// NewAPIKeyStore creates a APIKeyStore backed by col.
+func NewAPIKeyStore(col persis.Collection) (*APIKeyStore, error) {
+	s := &APIKeyStore{
 		col:    col,
 		byName: make(map[string]string),
 	}
@@ -39,7 +39,7 @@ func New(col persis.Collection) (*Store, error) {
 	return s, nil
 }
 
-func (s *Store) rebuildIndex(ctx context.Context) error {
+func (s *APIKeyStore) rebuildIndex(ctx context.Context) error {
 	page, err := s.col.List(ctx, persis.ListQuery{})
 	if err != nil {
 		return err
@@ -58,7 +58,7 @@ func (s *Store) rebuildIndex(ctx context.Context) error {
 
 // Create stores a new API key.
 // Returns [auth.ErrAPIKeyAlreadyExists] if a key with the same name exists.
-func (s *Store) Create(ctx context.Context, key *auth.APIKey) error {
+func (s *APIKeyStore) Create(ctx context.Context, key *auth.APIKey) error {
 	if key == nil {
 		return errors.New("apikey store: key cannot be nil")
 	}
@@ -95,7 +95,7 @@ func (s *Store) Create(ctx context.Context, key *auth.APIKey) error {
 
 // GetByID retrieves an API key by its unique ID.
 // Returns [auth.ErrAPIKeyNotFound] if the key does not exist.
-func (s *Store) GetByID(ctx context.Context, id string) (*auth.APIKey, error) {
+func (s *APIKeyStore) GetByID(ctx context.Context, id string) (*auth.APIKey, error) {
 	if id == "" {
 		return nil, auth.ErrInvalidAPIKeyID
 	}
@@ -106,18 +106,18 @@ func (s *Store) GetByID(ctx context.Context, id string) (*auth.APIKey, error) {
 		}
 		return nil, err
 	}
-	return fromRecord(rec)
+	return apikeyFromRecord(rec)
 }
 
 // List returns all API keys in the store.
-func (s *Store) List(ctx context.Context) ([]*auth.APIKey, error) {
+func (s *APIKeyStore) List(ctx context.Context) ([]*auth.APIKey, error) {
 	page, err := s.col.List(ctx, persis.ListQuery{})
 	if err != nil {
 		return nil, err
 	}
 	out := make([]*auth.APIKey, 0, len(page.Records))
 	for _, rec := range page.Records {
-		key, err := fromRecord(rec)
+		key, err := apikeyFromRecord(rec)
 		if err != nil {
 			continue
 		}
@@ -128,7 +128,7 @@ func (s *Store) List(ctx context.Context) ([]*auth.APIKey, error) {
 
 // Update modifies an existing API key.
 // Returns [auth.ErrAPIKeyNotFound] if the key does not exist.
-func (s *Store) Update(ctx context.Context, key *auth.APIKey) error {
+func (s *APIKeyStore) Update(ctx context.Context, key *auth.APIKey) error {
 	if key == nil {
 		return errors.New("apikey store: key cannot be nil")
 	}
@@ -182,7 +182,7 @@ func (s *Store) Update(ctx context.Context, key *auth.APIKey) error {
 
 // Delete removes an API key by its ID.
 // Returns [auth.ErrAPIKeyNotFound] if the key does not exist.
-func (s *Store) Delete(ctx context.Context, id string) error {
+func (s *APIKeyStore) Delete(ctx context.Context, id string) error {
 	if id == "" {
 		return auth.ErrInvalidAPIKeyID
 	}
@@ -209,7 +209,7 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 }
 
 // UpdateLastUsed updates the LastUsedAt timestamp for an API key.
-func (s *Store) UpdateLastUsed(ctx context.Context, id string) error {
+func (s *APIKeyStore) UpdateLastUsed(ctx context.Context, id string) error {
 	if id == "" {
 		return auth.ErrInvalidAPIKeyID
 	}
@@ -239,7 +239,7 @@ func (s *Store) UpdateLastUsed(ctx context.Context, id string) error {
 	})
 }
 
-func fromRecord(rec *persis.Record) (*auth.APIKey, error) {
+func apikeyFromRecord(rec *persis.Record) (*auth.APIKey, error) {
 	var stored auth.APIKeyForStorage
 	if err := persis.Decode(rec, &stored); err != nil {
 		return nil, fmt.Errorf("apikey store: decode record %q: %w", rec.ID, err)

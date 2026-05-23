@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package session_test
+package store_test
 
 import (
 	"context"
@@ -12,14 +12,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/internal/agent"
-	"github.com/dagucloud/dagu/internal/persis/session"
+	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
 )
 
-func newStore(t *testing.T, opts ...session.Option) *session.Store {
+func newSessionStore(t *testing.T, opts ...store.SessionOption) *store.SessionStore {
 	t.Helper()
 	col := testutil.NewMemoryBackend().Collection("sessions")
-	s, err := session.New(col, opts...)
+	s, err := store.NewSessionStore(col, opts...)
 	require.NoError(t, err)
 	return s
 }
@@ -35,9 +35,9 @@ func newSession(userID, id string) *agent.Session {
 	}
 }
 
-func TestCreateAndGet(t *testing.T) {
+func TestSessionCreateAndGet(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newSessionStore(t)
 	sess := newSession("user-1", "sess-1")
 
 	require.NoError(t, s.CreateSession(ctx, sess))
@@ -48,15 +48,15 @@ func TestCreateAndGet(t *testing.T) {
 	assert.Equal(t, "user-1", got.UserID)
 }
 
-func TestGetSession_NotFound(t *testing.T) {
+func TestSessionGetSession_NotFound(t *testing.T) {
 	ctx := context.Background()
-	_, err := newStore(t).GetSession(ctx, "missing")
+	_, err := newSessionStore(t).GetSession(ctx, "missing")
 	assert.ErrorIs(t, err, agent.ErrSessionNotFound)
 }
 
-func TestListSessions(t *testing.T) {
+func TestSessionListSessions(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newSessionStore(t)
 
 	for _, id := range []string{"s1", "s2", "s3"} {
 		require.NoError(t, s.CreateSession(ctx, newSession("alice", id)))
@@ -71,9 +71,9 @@ func TestListSessions(t *testing.T) {
 	assert.Empty(t, list2)
 }
 
-func TestUpdateSession(t *testing.T) {
+func TestSessionUpdateSession(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newSessionStore(t)
 	sess := newSession("u1", "s1")
 	require.NoError(t, s.CreateSession(ctx, sess))
 
@@ -86,14 +86,14 @@ func TestUpdateSession(t *testing.T) {
 	assert.Equal(t, "Updated Title", got.Title)
 }
 
-func TestUpdateSession_NotFound(t *testing.T) {
+func TestSessionUpdateSession_NotFound(t *testing.T) {
 	ctx := context.Background()
-	assert.ErrorIs(t, newStore(t).UpdateSession(ctx, newSession("u", "ghost")), agent.ErrSessionNotFound)
+	assert.ErrorIs(t, newSessionStore(t).UpdateSession(ctx, newSession("u", "ghost")), agent.ErrSessionNotFound)
 }
 
-func TestDeleteSession(t *testing.T) {
+func TestSessionDeleteSession(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newSessionStore(t)
 	sess := newSession("u1", "s1")
 	require.NoError(t, s.CreateSession(ctx, sess))
 
@@ -107,14 +107,14 @@ func TestDeleteSession(t *testing.T) {
 	assert.Empty(t, list)
 }
 
-func TestDeleteSession_NotFound(t *testing.T) {
+func TestSessionDeleteSession_NotFound(t *testing.T) {
 	ctx := context.Background()
-	assert.ErrorIs(t, newStore(t).DeleteSession(ctx, "nope"), agent.ErrSessionNotFound)
+	assert.ErrorIs(t, newSessionStore(t).DeleteSession(ctx, "nope"), agent.ErrSessionNotFound)
 }
 
-func TestAddMessage(t *testing.T) {
+func TestSessionAddMessage(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newSessionStore(t)
 	sess := newSession("u1", "s1")
 	require.NoError(t, s.CreateSession(ctx, sess))
 
@@ -131,9 +131,9 @@ func TestAddMessage(t *testing.T) {
 	assert.Equal(t, "hello", messages[0].Content)
 }
 
-func TestAddMessage_SetsTitle(t *testing.T) {
+func TestSessionAddMessage_SetsTitle(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newSessionStore(t)
 	sess := newSession("u1", "s1")
 	require.NoError(t, s.CreateSession(ctx, sess))
 
@@ -147,9 +147,9 @@ func TestAddMessage_SetsTitle(t *testing.T) {
 	assert.Equal(t, "my question", got.Title)
 }
 
-func TestGetLatestSequenceID(t *testing.T) {
+func TestSessionGetLatestSequenceID(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newSessionStore(t)
 	sess := newSession("u1", "s1")
 	require.NoError(t, s.CreateSession(ctx, sess))
 
@@ -166,9 +166,9 @@ func TestGetLatestSequenceID(t *testing.T) {
 	assert.Equal(t, int64(3), n)
 }
 
-func TestListSubSessions(t *testing.T) {
+func TestSessionListSubSessions(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newSessionStore(t)
 	parent := newSession("u1", "parent")
 	require.NoError(t, s.CreateSession(ctx, parent))
 
@@ -184,9 +184,9 @@ func TestListSubSessions(t *testing.T) {
 	assert.Len(t, subs, 2)
 }
 
-func TestMaxPerUser(t *testing.T) {
+func TestSessionMaxPerUser(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t, session.WithMaxPerUser(2))
+	s := newSessionStore(t, store.WithMaxPerUser(2))
 
 	for _, id := range []string{"s1", "s2", "s3"} {
 		require.NoError(t, s.CreateSession(ctx, newSession("alice", id)))
@@ -197,11 +197,11 @@ func TestMaxPerUser(t *testing.T) {
 	assert.Len(t, list, 2)
 }
 
-func TestIndexRebuiltOnStartup(t *testing.T) {
+func TestSessionIndexRebuiltOnStartup(t *testing.T) {
 	ctx := context.Background()
 	col := testutil.NewMemoryBackend().Collection("sessions")
 
-	s1, err := session.New(col)
+	s1, err := store.NewSessionStore(col)
 	require.NoError(t, err)
 	require.NoError(t, s1.CreateSession(ctx, newSession("alice", "s1")))
 	require.NoError(t, s1.CreateSession(ctx, newSession("alice", "s2")))
@@ -209,7 +209,7 @@ func TestIndexRebuiltOnStartup(t *testing.T) {
 	child.ParentSessionID = "s1"
 	require.NoError(t, s1.CreateSession(ctx, child))
 
-	s2, err := session.New(col)
+	s2, err := store.NewSessionStore(col)
 	require.NoError(t, err)
 
 	list, err := s2.ListSessions(ctx, "alice")

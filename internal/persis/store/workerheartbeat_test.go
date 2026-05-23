@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package workerheartbeat_test
+package store_test
 
 import (
 	"context"
@@ -12,14 +12,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
-	"github.com/dagucloud/dagu/internal/persis/workerheartbeat"
 )
 
-func newStore(t *testing.T) *workerheartbeat.Store {
+func newWorkerHeartbeatStore(t *testing.T) *store.WorkerHeartbeatStore {
 	t.Helper()
 	col := testutil.NewMemoryBackend().Collection("worker_heartbeats")
-	return workerheartbeat.New(col)
+	return store.NewWorkerHeartbeatStore(col)
 }
 
 func newRecord(workerID string) exec.WorkerHeartbeatRecord {
@@ -30,9 +30,9 @@ func newRecord(workerID string) exec.WorkerHeartbeatRecord {
 	}
 }
 
-func TestUpsertAndGet(t *testing.T) {
+func TestWorkerHeartbeatUpsertAndGet(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newWorkerHeartbeatStore(t)
 	rec := newRecord("worker-1")
 
 	require.NoError(t, s.Upsert(ctx, rec))
@@ -43,9 +43,9 @@ func TestUpsertAndGet(t *testing.T) {
 	assert.Equal(t, "test", got.Labels["env"])
 }
 
-func TestUpsert_Overwrite(t *testing.T) {
+func TestWorkerHeartbeatUpsert_Overwrite(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newWorkerHeartbeatStore(t)
 	rec := newRecord("worker-1")
 	require.NoError(t, s.Upsert(ctx, rec))
 
@@ -57,15 +57,15 @@ func TestUpsert_Overwrite(t *testing.T) {
 	assert.Equal(t, "prod", got.Labels["env"])
 }
 
-func TestGet_NotFound(t *testing.T) {
+func TestWorkerHeartbeatGet_NotFound(t *testing.T) {
 	ctx := context.Background()
-	_, err := newStore(t).Get(ctx, "missing")
+	_, err := newWorkerHeartbeatStore(t).Get(ctx, "missing")
 	assert.ErrorIs(t, err, exec.ErrWorkerHeartbeatNotFound)
 }
 
-func TestList(t *testing.T) {
+func TestWorkerHeartbeatList(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newWorkerHeartbeatStore(t)
 
 	for _, id := range []string{"w1", "w2", "w3"} {
 		require.NoError(t, s.Upsert(ctx, newRecord(id)))
@@ -76,9 +76,9 @@ func TestList(t *testing.T) {
 	assert.Len(t, list, 3)
 }
 
-func TestDeleteStale(t *testing.T) {
+func TestWorkerHeartbeatDeleteStale(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newWorkerHeartbeatStore(t)
 
 	old := exec.WorkerHeartbeatRecord{
 		WorkerID:        "old-worker",

@@ -1,8 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package watermark implements [scheduler.WatermarkStore] using a [persis.Collection].
-package watermark
+package store
 
 import (
 	"context"
@@ -15,28 +14,28 @@ import (
 	"github.com/dagucloud/dagu/internal/service/scheduler"
 )
 
-var _ scheduler.WatermarkStore = (*Store)(nil)
+var _ scheduler.WatermarkStore = (*WatermarkStore)(nil)
 
-const stateID = "state"
+const watermarkStateID = "state"
 
-// Store implements [scheduler.WatermarkStore].
+// WatermarkStore implements [scheduler.WatermarkStore].
 // A single record with ID "state" holds the entire SchedulerState.
-type Store struct {
+type WatermarkStore struct {
 	col persis.Collection
 }
 
-// New creates a Store backed by col.
-func New(col persis.Collection) *Store {
-	return &Store{col: col}
+// NewWatermarkStore creates a WatermarkStore backed by col.
+func NewWatermarkStore(col persis.Collection) *WatermarkStore {
+	return &WatermarkStore{col: col}
 }
 
 // Load reads the scheduler state.
 // Returns a fresh empty state if the record is missing or corrupt.
-func (s *Store) Load(ctx context.Context) (*scheduler.SchedulerState, error) {
-	rec, err := s.col.Get(ctx, stateID)
+func (s *WatermarkStore) Load(ctx context.Context) (*scheduler.SchedulerState, error) {
+	rec, err := s.col.Get(ctx, watermarkStateID)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
-			return newEmptyState(), nil
+			return watermarkNewEmptyState(), nil
 		}
 		return nil, fmt.Errorf("watermark store: get: %w", err)
 	}
@@ -44,22 +43,22 @@ func (s *Store) Load(ctx context.Context) (*scheduler.SchedulerState, error) {
 	var state scheduler.SchedulerState
 	if err := persis.Decode(rec, &state); err != nil {
 		slog.Warn("watermark: corrupt state, starting fresh", slog.String("error", err.Error()))
-		return newEmptyState(), nil
+		return watermarkNewEmptyState(), nil
 	}
 
 	const expected = scheduler.SchedulerStateVersion
 	switch state.Version {
 	case expected:
 	case 0, 1, 2:
-		migrated, migrateErr := migrateState(state.Version, &state)
+		migrated, migrateErr := watermarkMigrateState(state.Version, &state)
 		if migrateErr != nil {
 			slog.Warn("watermark: failed to migrate state, starting fresh", slog.String("error", migrateErr.Error()))
-			return newEmptyState(), nil
+			return watermarkNewEmptyState(), nil
 		}
 		state = *migrated
 	default:
 		slog.Warn("watermark: unknown version, starting fresh", slog.Int("version", state.Version))
-		return newEmptyState(), nil
+		return watermarkNewEmptyState(), nil
 	}
 
 	if state.DAGs == nil {
@@ -69,14 +68,14 @@ func (s *Store) Load(ctx context.Context) (*scheduler.SchedulerState, error) {
 }
 
 // Save writes the scheduler state.
-func (s *Store) Save(ctx context.Context, state *scheduler.SchedulerState) error {
+func (s *WatermarkStore) Save(ctx context.Context, state *scheduler.SchedulerState) error {
 	data, enc, err := persis.Encode(state)
 	if err != nil {
 		return fmt.Errorf("watermark store: encode: %w", err)
 	}
 	now := time.Now().UTC()
 	if err := s.col.Put(ctx, &persis.Record{
-		ID:        stateID,
+		ID:        watermarkStateID,
 		Data:      data,
 		Encoding:  enc,
 		CreatedAt: now,
@@ -89,14 +88,14 @@ func (s *Store) Save(ctx context.Context, state *scheduler.SchedulerState) error
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-func newEmptyState() *scheduler.SchedulerState {
+func watermarkNewEmptyState() *scheduler.SchedulerState {
 	return &scheduler.SchedulerState{
 		Version: scheduler.SchedulerStateVersion,
 		DAGs:    make(map[string]scheduler.DAGWatermark),
 	}
 }
 
-func migrateState(version int, state *scheduler.SchedulerState) (*scheduler.SchedulerState, error) {
+func watermarkMigrateState(version int, state *scheduler.SchedulerState) (*scheduler.SchedulerState, error) {
 	if state == nil {
 		return nil, fmt.Errorf("watermark state is nil")
 	}
@@ -104,10 +103,10 @@ func migrateState(version int, state *scheduler.SchedulerState) (*scheduler.Sche
 	switch version {
 	case 0:
 		migrated.Version = 1
-		return migrateState(1, &migrated)
+		return watermarkMigrateState(1, &migrated)
 	case 1:
 		migrated.Version = 2
-		return migrateState(2, &migrated)
+		return watermarkMigrateState(2, &migrated)
 	case 2:
 		migrated.Version = scheduler.SchedulerStateVersion
 		if migrated.DAGs == nil {

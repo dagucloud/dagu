@@ -35,7 +35,7 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/fileagentsoul"
 	"github.com/dagucloud/dagu/internal/persis/filememory"
 	"github.com/dagucloud/dagu/internal/persis/file"
-	secretstore "github.com/dagucloud/dagu/internal/persis/secret"
+	persiststore "github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	rtagent "github.com/dagucloud/dagu/internal/runtime/agent"
 	runtimeexec "github.com/dagucloud/dagu/internal/runtime/executor"
@@ -610,7 +610,7 @@ func (e *Engine) agentStores(ctx context.Context) agentStoresResult {
 		logger.Warn(ctx, "Failed to create encryptor for secret store", tag.Error(encErr))
 	} else if backend, backendErr := file.New(e.cfg.Paths.DataDir); backendErr != nil {
 		logger.Warn(ctx, "Failed to open file backend for secret store", tag.Error(backendErr))
-	} else if store, storeErr := secretstore.New(backend.Collection("secrets"), enc); storeErr != nil {
+	} else if store, storeErr := persiststore.NewSecretStore(backend.Collection("secrets"), enc); storeErr != nil {
 		logger.Warn(ctx, "Failed to create secret store", tag.Error(storeErr))
 	} else {
 		result.SecretStore = store

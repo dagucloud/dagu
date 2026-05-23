@@ -1,8 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package webhook implements [auth.WebhookStore] using a [persis.Collection].
-package webhook
+package store
 
 import (
 	"context"
@@ -16,12 +15,12 @@ import (
 	"github.com/dagucloud/dagu/internal/persis"
 )
 
-var _ auth.WebhookStore = (*Store)(nil)
+var _ auth.WebhookStore = (*WebhookStore)(nil)
 
-// Store implements [auth.WebhookStore].
+// WebhookStore implements [auth.WebhookStore].
 // DAG-name lookups use an in-memory index (byDAGName) rebuilt from the
 // collection on startup; all writes keep it in sync under mu.
-type Store struct {
+type WebhookStore struct {
 	col       persis.Collection
 	encryptor *crypto.Encryptor // nil = HMAC encryption disabled
 
@@ -29,9 +28,9 @@ type Store struct {
 	byDAGName map[string]string // dagName → webhookID
 }
 
-// New creates a Store backed by col. enc may be nil when HMAC secrets are unused.
-func New(col persis.Collection, enc *crypto.Encryptor) (*Store, error) {
-	s := &Store{
+// NewWebhookStore creates a WebhookStore backed by col. enc may be nil when HMAC secrets are unused.
+func NewWebhookStore(col persis.Collection, enc *crypto.Encryptor) (*WebhookStore, error) {
+	s := &WebhookStore{
 		col:       col,
 		encryptor: enc,
 		byDAGName: make(map[string]string),
@@ -42,7 +41,7 @@ func New(col persis.Collection, enc *crypto.Encryptor) (*Store, error) {
 	return s, nil
 }
 
-func (s *Store) rebuildIndex(ctx context.Context) error {
+func (s *WebhookStore) rebuildIndex(ctx context.Context) error {
 	page, err := s.col.List(ctx, persis.ListQuery{})
 	if err != nil {
 		return err
@@ -61,7 +60,7 @@ func (s *Store) rebuildIndex(ctx context.Context) error {
 
 // Create stores a new webhook.
 // Returns [auth.ErrWebhookAlreadyExists] if a webhook for the DAG already exists.
-func (s *Store) Create(ctx context.Context, webhook *auth.Webhook) error {
+func (s *WebhookStore) Create(ctx context.Context, webhook *auth.Webhook) error {
 	if webhook == nil {
 		return errors.New("webhook store: webhook cannot be nil")
 	}
@@ -102,7 +101,7 @@ func (s *Store) Create(ctx context.Context, webhook *auth.Webhook) error {
 
 // GetByID retrieves a webhook by its unique ID.
 // Returns [auth.ErrWebhookNotFound] if the webhook does not exist.
-func (s *Store) GetByID(ctx context.Context, id string) (*auth.Webhook, error) {
+func (s *WebhookStore) GetByID(ctx context.Context, id string) (*auth.Webhook, error) {
 	if id == "" {
 		return nil, auth.ErrInvalidWebhookID
 	}
@@ -118,7 +117,7 @@ func (s *Store) GetByID(ctx context.Context, id string) (*auth.Webhook, error) {
 
 // GetByDAGName retrieves the webhook for a specific DAG.
 // Returns [auth.ErrWebhookNotFound] if no webhook exists for the DAG.
-func (s *Store) GetByDAGName(ctx context.Context, dagName string) (*auth.Webhook, error) {
+func (s *WebhookStore) GetByDAGName(ctx context.Context, dagName string) (*auth.Webhook, error) {
 	if dagName == "" {
 		return nil, auth.ErrInvalidWebhookDAGName
 	}
@@ -132,7 +131,7 @@ func (s *Store) GetByDAGName(ctx context.Context, dagName string) (*auth.Webhook
 }
 
 // List returns all webhooks in the store.
-func (s *Store) List(ctx context.Context) ([]*auth.Webhook, error) {
+func (s *WebhookStore) List(ctx context.Context) ([]*auth.Webhook, error) {
 	page, err := s.col.List(ctx, persis.ListQuery{})
 	if err != nil {
 		return nil, err
@@ -150,7 +149,7 @@ func (s *Store) List(ctx context.Context) ([]*auth.Webhook, error) {
 
 // Update modifies an existing webhook.
 // Returns [auth.ErrWebhookNotFound] if the webhook does not exist.
-func (s *Store) Update(ctx context.Context, webhook *auth.Webhook) error {
+func (s *WebhookStore) Update(ctx context.Context, webhook *auth.Webhook) error {
 	if webhook == nil {
 		return errors.New("webhook store: webhook cannot be nil")
 	}
@@ -209,7 +208,7 @@ func (s *Store) Update(ctx context.Context, webhook *auth.Webhook) error {
 
 // Delete removes a webhook by its ID.
 // Returns [auth.ErrWebhookNotFound] if the webhook does not exist.
-func (s *Store) Delete(ctx context.Context, id string) error {
+func (s *WebhookStore) Delete(ctx context.Context, id string) error {
 	if id == "" {
 		return auth.ErrInvalidWebhookID
 	}
@@ -238,7 +237,7 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 
 // DeleteByDAGName removes a webhook by its DAG name.
 // Returns [auth.ErrWebhookNotFound] if no webhook exists for the DAG.
-func (s *Store) DeleteByDAGName(ctx context.Context, dagName string) error {
+func (s *WebhookStore) DeleteByDAGName(ctx context.Context, dagName string) error {
 	if dagName == "" {
 		return auth.ErrInvalidWebhookDAGName
 	}
@@ -252,7 +251,7 @@ func (s *Store) DeleteByDAGName(ctx context.Context, dagName string) error {
 }
 
 // UpdateLastUsed updates the LastUsedAt timestamp for a webhook.
-func (s *Store) UpdateLastUsed(ctx context.Context, id string) error {
+func (s *WebhookStore) UpdateLastUsed(ctx context.Context, id string) error {
 	if id == "" {
 		return auth.ErrInvalidWebhookID
 	}
@@ -284,7 +283,7 @@ func (s *Store) UpdateLastUsed(ctx context.Context, id string) error {
 
 // ─── encoding helpers ─────────────────────────────────────────────────────────
 
-func (s *Store) toStorage(wh *auth.Webhook) (*auth.WebhookForStorage, error) {
+func (s *WebhookStore) toStorage(wh *auth.Webhook) (*auth.WebhookForStorage, error) {
 	stored := wh.ToStorage()
 	if wh.HMACSecret != "" {
 		if s.encryptor == nil {
@@ -299,7 +298,7 @@ func (s *Store) toStorage(wh *auth.Webhook) (*auth.WebhookForStorage, error) {
 	return stored, nil
 }
 
-func (s *Store) fromRecord(rec *persis.Record) (*auth.Webhook, error) {
+func (s *WebhookStore) fromRecord(rec *persis.Record) (*auth.Webhook, error) {
 	var stored auth.WebhookForStorage
 	if err := persis.Decode(rec, &stored); err != nil {
 		return nil, fmt.Errorf("webhook store: decode record %q: %w", rec.ID, err)

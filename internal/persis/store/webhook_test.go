@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package webhook_test
+package store_test
 
 import (
 	"context"
@@ -12,14 +12,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/internal/auth"
+	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
-	"github.com/dagucloud/dagu/internal/persis/webhook"
 )
 
-func newStore(t *testing.T) *webhook.Store {
+func newWebhookStore(t *testing.T) *store.WebhookStore {
 	t.Helper()
 	col := testutil.NewMemoryBackend().Collection("webhooks")
-	s, err := webhook.New(col, nil)
+	s, err := store.NewWebhookStore(col, nil)
 	require.NoError(t, err)
 	return s
 }
@@ -38,9 +38,9 @@ func newWebhook(dagName string) *auth.Webhook {
 	}
 }
 
-func TestCreate(t *testing.T) {
+func TestWebhookCreate(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newWebhookStore(t)
 	wh := newWebhook("my-dag")
 
 	require.NoError(t, s.Create(ctx, wh))
@@ -53,9 +53,9 @@ func TestCreate(t *testing.T) {
 	assert.Equal(t, wh.Enabled, got.Enabled)
 }
 
-func TestCreate_DuplicateDAGName(t *testing.T) {
+func TestWebhookCreate_DuplicateDAGName(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newWebhookStore(t)
 
 	require.NoError(t, s.Create(ctx, newWebhook("dag-a")))
 
@@ -65,17 +65,17 @@ func TestCreate_DuplicateDAGName(t *testing.T) {
 	assert.ErrorIs(t, err, auth.ErrWebhookAlreadyExists)
 }
 
-func TestGetByID_NotFound(t *testing.T) {
+func TestWebhookGetByID_NotFound(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newWebhookStore(t)
 
 	_, err := s.GetByID(ctx, "no-such-id")
 	assert.ErrorIs(t, err, auth.ErrWebhookNotFound)
 }
 
-func TestGetByDAGName(t *testing.T) {
+func TestWebhookGetByDAGName(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newWebhookStore(t)
 	wh := newWebhook("dag-x")
 	require.NoError(t, s.Create(ctx, wh))
 
@@ -84,17 +84,17 @@ func TestGetByDAGName(t *testing.T) {
 	assert.Equal(t, wh.ID, got.ID)
 }
 
-func TestGetByDAGName_NotFound(t *testing.T) {
+func TestWebhookGetByDAGName_NotFound(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newWebhookStore(t)
 
 	_, err := s.GetByDAGName(ctx, "unknown-dag")
 	assert.ErrorIs(t, err, auth.ErrWebhookNotFound)
 }
 
-func TestList(t *testing.T) {
+func TestWebhookList(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newWebhookStore(t)
 
 	for _, name := range []string{"d1", "d2", "d3"} {
 		require.NoError(t, s.Create(ctx, newWebhook(name)))
@@ -105,9 +105,9 @@ func TestList(t *testing.T) {
 	assert.Len(t, list, 3)
 }
 
-func TestUpdate(t *testing.T) {
+func TestWebhookUpdate(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newWebhookStore(t)
 	wh := newWebhook("dag-u")
 	require.NoError(t, s.Create(ctx, wh))
 
@@ -121,17 +121,17 @@ func TestUpdate(t *testing.T) {
 	assert.Equal(t, "tok2", got.TokenPrefix)
 }
 
-func TestUpdate_NotFound(t *testing.T) {
+func TestWebhookUpdate_NotFound(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newWebhookStore(t)
 
 	err := s.Update(ctx, newWebhook("ghost"))
 	assert.ErrorIs(t, err, auth.ErrWebhookNotFound)
 }
 
-func TestUpdate_DAGNameChange(t *testing.T) {
+func TestWebhookUpdate_DAGNameChange(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newWebhookStore(t)
 	wh := newWebhook("old-dag")
 	require.NoError(t, s.Create(ctx, wh))
 
@@ -148,9 +148,9 @@ func TestUpdate_DAGNameChange(t *testing.T) {
 	assert.Equal(t, wh.ID, got.ID)
 }
 
-func TestDelete(t *testing.T) {
+func TestWebhookDelete(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newWebhookStore(t)
 	wh := newWebhook("dag-del")
 	require.NoError(t, s.Create(ctx, wh))
 
@@ -164,17 +164,17 @@ func TestDelete(t *testing.T) {
 	assert.ErrorIs(t, err, auth.ErrWebhookNotFound)
 }
 
-func TestDelete_NotFound(t *testing.T) {
+func TestWebhookDelete_NotFound(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newWebhookStore(t)
 
 	err := s.Delete(ctx, "nonexistent")
 	assert.ErrorIs(t, err, auth.ErrWebhookNotFound)
 }
 
-func TestDeleteByDAGName(t *testing.T) {
+func TestWebhookDeleteByDAGName(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newWebhookStore(t)
 	wh := newWebhook("dag-dbn")
 	require.NoError(t, s.Create(ctx, wh))
 
@@ -184,17 +184,17 @@ func TestDeleteByDAGName(t *testing.T) {
 	assert.ErrorIs(t, err, auth.ErrWebhookNotFound)
 }
 
-func TestDeleteByDAGName_NotFound(t *testing.T) {
+func TestWebhookDeleteByDAGName_NotFound(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newWebhookStore(t)
 
 	err := s.DeleteByDAGName(ctx, "no-dag")
 	assert.ErrorIs(t, err, auth.ErrWebhookNotFound)
 }
 
-func TestUpdateLastUsed(t *testing.T) {
+func TestWebhookUpdateLastUsed(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newWebhookStore(t)
 	wh := newWebhook("dag-lu")
 	require.NoError(t, s.Create(ctx, wh))
 
@@ -207,28 +207,28 @@ func TestUpdateLastUsed(t *testing.T) {
 	assert.True(t, got.LastUsedAt.After(before) || got.LastUsedAt.Equal(before))
 }
 
-func TestUpdateLastUsed_NotFound(t *testing.T) {
+func TestWebhookUpdateLastUsed_NotFound(t *testing.T) {
 	ctx := context.Background()
-	s := newStore(t)
+	s := newWebhookStore(t)
 
 	err := s.UpdateLastUsed(ctx, "nonexistent")
 	assert.ErrorIs(t, err, auth.ErrWebhookNotFound)
 }
 
-func TestIndexRebuiltOnStartup(t *testing.T) {
+func TestWebhookIndexRebuiltOnStartup(t *testing.T) {
 	ctx := context.Background()
 
-	// Put records directly into the collection, then create a new Store
+	// Put records directly into the collection, then create a new store
 	// to verify the index is rebuilt correctly from persisted data.
 	col := testutil.NewMemoryBackend().Collection("webhooks")
 
-	s1, err := webhook.New(col, nil)
+	s1, err := store.NewWebhookStore(col, nil)
 	require.NoError(t, err)
 	require.NoError(t, s1.Create(ctx, newWebhook("d1")))
 	require.NoError(t, s1.Create(ctx, newWebhook("d2")))
 
-	// Create a second Store over the same collection (simulates restart).
-	s2, err := webhook.New(col, nil)
+	// Create a second store over the same collection (simulates restart).
+	s2, err := store.NewWebhookStore(col, nil)
 	require.NoError(t, err)
 
 	got, err := s2.GetByDAGName(ctx, "d1")

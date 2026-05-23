@@ -1,8 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package workerheartbeat implements [exec.WorkerHeartbeatStore] using a [persis.Collection].
-package workerheartbeat
+package store
 
 import (
 	"context"
@@ -14,21 +13,21 @@ import (
 	"github.com/dagucloud/dagu/internal/persis"
 )
 
-var _ exec.WorkerHeartbeatStore = (*Store)(nil)
+var _ exec.WorkerHeartbeatStore = (*WorkerHeartbeatStore)(nil)
 
-// Store implements [exec.WorkerHeartbeatStore].
+// WorkerHeartbeatStore implements [exec.WorkerHeartbeatStore].
 // No secondary indices are needed; workerID is the primary key.
-type Store struct {
+type WorkerHeartbeatStore struct {
 	col persis.Collection
 }
 
-// New creates a Store backed by col.
-func New(col persis.Collection) *Store {
-	return &Store{col: col}
+// NewWorkerHeartbeatStore creates a WorkerHeartbeatStore backed by col.
+func NewWorkerHeartbeatStore(col persis.Collection) *WorkerHeartbeatStore {
+	return &WorkerHeartbeatStore{col: col}
 }
 
 // Upsert inserts or overwrites the heartbeat record for a worker.
-func (s *Store) Upsert(ctx context.Context, record exec.WorkerHeartbeatRecord) error {
+func (s *WorkerHeartbeatStore) Upsert(ctx context.Context, record exec.WorkerHeartbeatRecord) error {
 	if record.WorkerID == "" {
 		return fmt.Errorf("worker heartbeat store: workerID is required")
 	}
@@ -50,7 +49,7 @@ func (s *Store) Upsert(ctx context.Context, record exec.WorkerHeartbeatRecord) e
 }
 
 // Get retrieves the heartbeat record for a specific worker.
-func (s *Store) Get(ctx context.Context, workerID string) (*exec.WorkerHeartbeatRecord, error) {
+func (s *WorkerHeartbeatStore) Get(ctx context.Context, workerID string) (*exec.WorkerHeartbeatRecord, error) {
 	if workerID == "" {
 		return nil, exec.ErrWorkerHeartbeatNotFound
 	}
@@ -72,7 +71,7 @@ func (s *Store) Get(ctx context.Context, workerID string) (*exec.WorkerHeartbeat
 }
 
 // List returns all heartbeat records.
-func (s *Store) List(ctx context.Context) ([]exec.WorkerHeartbeatRecord, error) {
+func (s *WorkerHeartbeatStore) List(ctx context.Context) ([]exec.WorkerHeartbeatRecord, error) {
 	page, err := s.col.List(ctx, persis.ListQuery{})
 	if err != nil {
 		return nil, err
@@ -90,7 +89,7 @@ func (s *Store) List(ctx context.Context) ([]exec.WorkerHeartbeatRecord, error) 
 
 // DeleteStale removes all records whose last heartbeat is before the given time.
 // Returns the number of records deleted.
-func (s *Store) DeleteStale(ctx context.Context, before time.Time) (int, error) {
+func (s *WorkerHeartbeatStore) DeleteStale(ctx context.Context, before time.Time) (int, error) {
 	records, err := s.List(ctx)
 	if err != nil {
 		return 0, err

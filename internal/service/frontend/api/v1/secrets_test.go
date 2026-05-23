@@ -11,7 +11,7 @@ import (
 	apigen "github.com/dagucloud/dagu/api/v1"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/crypto"
-	secretstore "github.com/dagucloud/dagu/internal/persis/secret"
+	persiststore "github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
 	"github.com/dagucloud/dagu/internal/runtime"
 	secretpkg "github.com/dagucloud/dagu/internal/secret"
@@ -231,7 +231,7 @@ func newSecretsTestAPI(t *testing.T) (*apiv1.API, secretpkg.Store) {
 
 	enc, err := crypto.NewEncryptor("test-key-for-secrets")
 	require.NoError(t, err)
-	store, err := secretstore.New(testutil.NewMemoryBackend().Collection("secrets"), enc)
+	store, err := persiststore.NewSecretStore(testutil.NewMemoryBackend().Collection("secrets"), enc)
 	require.NoError(t, err)
 
 	cfg := &config.Config{}

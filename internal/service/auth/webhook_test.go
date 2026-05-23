@@ -15,14 +15,14 @@ import (
 	"github.com/dagucloud/dagu/internal/auth"
 	cryptoutil "github.com/dagucloud/dagu/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
-	webhookstore "github.com/dagucloud/dagu/internal/persis/webhook"
+	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func setupWebhookTestService(t *testing.T) (*Service, string) {
 	t.Helper()
-	webhookStore, err := webhookstore.New(testutil.NewMemoryBackend().Collection("webhooks"), nil)
+	webhookStore, err := store.NewWebhookStore(testutil.NewMemoryBackend().Collection("webhooks"), nil)
 	require.NoError(t, err)
 	service := New(nil, Config{
 		TokenSecret: mustTokenSecret("test"),
@@ -36,7 +36,7 @@ func setupWebhookTestServiceWithEncryptedStore(t *testing.T) (*Service, string) 
 	t.Helper()
 	encryptor, err := cryptoutil.NewEncryptor("test-encryption-key")
 	require.NoError(t, err)
-	webhookStore, err := webhookstore.New(testutil.NewMemoryBackend().Collection("webhooks"), encryptor)
+	webhookStore, err := store.NewWebhookStore(testutil.NewMemoryBackend().Collection("webhooks"), encryptor)
 	require.NoError(t, err)
 	service := New(nil, Config{
 		TokenSecret: mustTokenSecret("test"),
