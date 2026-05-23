@@ -285,7 +285,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 
 	var authSvc *authservice.Service
 	if cfg.Server.Auth.Mode == config.AuthModeBuiltin {
-		result, isSetupRequired, err := initBuiltinAuthService(ctx, cfg, collector)
+		result, isSetupRequired, err := initBuiltinAuthService(ctx, cfg)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize builtin auth service: %w", err)
 		}
@@ -665,7 +665,7 @@ func (s *setupChecker) IsSetupRequired(ctx context.Context) bool {
 // initBuiltinAuthService creates the auth store and authentication service.
 // Uses the token secret provider chain to resolve the JWT signing secret
 // (auto-generating and persisting one if not configured).
-func initBuiltinAuthService(ctx context.Context, cfg *config.Config, collector *telemetry.Collector) (*builtinAuthResult, bool, error) {
+func initBuiltinAuthService(ctx context.Context, cfg *config.Config) (*builtinAuthResult, bool, error) {
 	// Resolve token secret via provider chain
 	tokenSecret, err := buildTokenSecretProvider(ctx, cfg).Resolve(ctx)
 	if err != nil {

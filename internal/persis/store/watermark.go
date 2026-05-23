@@ -97,7 +97,7 @@ func watermarkNewEmptyState() *scheduler.SchedulerState {
 
 func watermarkMigrateState(version int, state *scheduler.SchedulerState) (*scheduler.SchedulerState, error) {
 	if state == nil {
-		return nil, fmt.Errorf("watermark state is nil")
+		return nil, fmt.Errorf("watermark store: state is nil")
 	}
 	migrated := *state
 	switch version {
@@ -114,6 +114,6 @@ func watermarkMigrateState(version int, state *scheduler.SchedulerState) (*sched
 		}
 		return &migrated, nil
 	default:
-		return nil, fmt.Errorf("unsupported watermark state version %d", version)
+		return nil, fmt.Errorf("watermark store: unsupported state version %d", version)
 	}
 }
