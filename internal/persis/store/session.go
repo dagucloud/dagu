@@ -28,10 +28,11 @@ type SessionStore struct {
 	col        persis.Collection
 	maxPerUser int
 
-	mu        sync.RWMutex
-	byUser    map[string][]string  // userID → []sessionID (sorted newest-first)
-	byParent  map[string][]string  // parentSessionID → []childSessionID
-	updatedAt map[string]time.Time // sessionID → UpdatedAt
+	mu           sync.RWMutex
+	byUser       map[string][]string  // userID → []sessionID (sorted newest-first)
+	byParent     map[string][]string  // parentSessionID → []childSessionID
+	updatedAt    map[string]time.Time // sessionID → UpdatedAt
+	collectionID map[string]string    // logical session ID → actual collection key
 }
 
 // storedSession is the on-wire format stored in the collection.
@@ -74,10 +75,11 @@ func WithMaxPerUser(n int) SessionOption {
 // NewSessionStore creates a SessionStore backed by col.
 func NewSessionStore(col persis.Collection, opts ...SessionOption) (*SessionStore, error) {
 	s := &SessionStore{
-		col:       col,
-		byUser:    make(map[string][]string),
-		byParent:  make(map[string][]string),
-		updatedAt: make(map[string]time.Time),
+		col:          col,
+		byUser:       make(map[string][]string),
+		byParent:     make(map[string][]string),
+		updatedAt:    make(map[string]time.Time),
+		collectionID: make(map[string]string),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -89,13 +91,13 @@ func NewSessionStore(col persis.Collection, opts ...SessionOption) (*SessionStor
 }
 
 func (s *SessionStore) rebuildIndex(ctx context.Context) error {
-	page, err := s.col.List(ctx, persis.ListQuery{})
+	recs, err := listAll(ctx, s.col, persis.ListQuery{})
 	if err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, rec := range page.Records {
+	for _, rec := range recs {
 		var ss storedSession
 		if err := persis.Decode(rec, &ss); err != nil {
 			continue
@@ -104,6 +106,9 @@ func (s *SessionStore) rebuildIndex(ctx context.Context) error {
 		s.updatedAt[ss.ID] = ss.UpdatedAt
 		if ss.ParentSessionID != "" {
 			s.byParent[ss.ParentSessionID] = append(s.byParent[ss.ParentSessionID], ss.ID)
+		}
+		if rec.ID != ss.ID {
+			s.collectionID[ss.ID] = rec.ID
 		}
 	}
 	for userID := range s.byUser {
@@ -192,7 +197,8 @@ func (s *SessionStore) UpdateSession(ctx context.Context, sess *agent.Session) e
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	rec, err := s.col.Get(ctx, sess.ID)
+	collID := s.resolveCollectionID(sess.ID)
+	rec, err := s.col.Get(ctx, collID)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
 			return agent.ErrSessionNotFound
@@ -212,7 +218,7 @@ func (s *SessionStore) UpdateSession(ctx context.Context, sess *agent.Session) e
 		return err
 	}
 	if err := s.col.Put(ctx, &persis.Record{
-		ID:        rec.ID,
+		ID:        collID,
 		Data:      data,
 		Encoding:  enc,
 		CreatedAt: rec.CreatedAt,
@@ -248,7 +254,8 @@ func (s *SessionStore) AddMessage(ctx context.Context, sessionID string, msg *ag
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	rec, err := s.col.Get(ctx, sessionID)
+	collID := s.resolveCollectionID(sessionID)
+	rec, err := s.col.Get(ctx, collID)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
 			return agent.ErrSessionNotFound
@@ -269,7 +276,7 @@ func (s *SessionStore) AddMessage(ctx context.Context, sessionID string, msg *ag
 		return err
 	}
 	if err := s.col.Put(ctx, &persis.Record{
-		ID:        rec.ID,
+		ID:        collID,
 		Data:      data,
 		Encoding:  enc,
 		CreatedAt: rec.CreatedAt,
@@ -341,8 +348,21 @@ func (s *SessionStore) ListSubSessions(ctx context.Context, parentSessionID stri
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
+// resolveCollectionID returns the actual collection key for a session ID.
+// Caller must hold at least a read lock on s.mu.
+func (s *SessionStore) resolveCollectionID(id string) string {
+	if cid, ok := s.collectionID[id]; ok {
+		return cid
+	}
+	return id
+}
+
 func (s *SessionStore) loadSession(ctx context.Context, id string) (*storedSession, error) {
-	rec, err := s.col.Get(ctx, id)
+	s.mu.RLock()
+	collID := s.resolveCollectionID(id)
+	s.mu.RUnlock()
+
+	rec, err := s.col.Get(ctx, collID)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
 			return nil, agent.ErrSessionNotFound
@@ -357,7 +377,8 @@ func (s *SessionStore) loadSession(ctx context.Context, id string) (*storedSessi
 }
 
 func (s *SessionStore) deleteLockedCtx(ctx context.Context, id string) error {
-	rec, err := s.col.Get(ctx, id)
+	collID := s.resolveCollectionID(id)
+	rec, err := s.col.Get(ctx, collID)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
 			return agent.ErrSessionNotFound
@@ -369,10 +390,11 @@ func (s *SessionStore) deleteLockedCtx(ctx context.Context, id string) error {
 		return fmt.Errorf("session store: decode for delete: %w", err)
 	}
 
-	if err := s.col.Delete(ctx, id); err != nil {
+	if err := s.col.Delete(ctx, collID); err != nil {
 		return err
 	}
 
+	delete(s.collectionID, id)
 	delete(s.updatedAt, id)
 	s.byUser[ss.UserID] = sessionRemoveFromSlice(s.byUser[ss.UserID], id)
 	if ss.ParentSessionID != "" {

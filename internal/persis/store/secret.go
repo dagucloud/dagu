@@ -59,13 +59,13 @@ func NewSecretStore(col persis.Collection, enc *crypto.Encryptor) (*SecretStore,
 }
 
 func (s *SecretStore) rebuildIndex(ctx context.Context) error {
-	page, err := s.col.List(ctx, persis.ListQuery{})
+	recs, err := listAll(ctx, s.col, persis.ListQuery{})
 	if err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, rec := range page.Records {
+	for _, rec := range recs {
 		var sr secretStoredRecord
 		if err := persis.Decode(rec, &sr); err != nil || sr.Secret == nil {
 			continue
@@ -160,13 +160,13 @@ func (s *SecretStore) GetByRef(ctx context.Context, workspace, ref string) (*sec
 
 // List returns all secrets, optionally filtered by workspace.
 func (s *SecretStore) List(ctx context.Context, opts secret.ListOptions) ([]*secret.Secret, error) {
-	page, err := s.col.List(ctx, persis.ListQuery{})
+	recs, err := listAll(ctx, s.col, persis.ListQuery{})
 	if err != nil {
 		return nil, err
 	}
 
-	out := make([]*secret.Secret, 0, len(page.Records))
-	for _, rec := range page.Records {
+	out := make([]*secret.Secret, 0, len(recs))
+	for _, rec := range recs {
 		var sr secretStoredRecord
 		if err := persis.Decode(rec, &sr); err != nil || sr.Secret == nil {
 			continue
@@ -329,6 +329,8 @@ func (s *SecretStore) GetCurrentVersion(ctx context.Context, id string) (*secret
 
 // ResolveValue decrypts and returns the current plaintext value.
 func (s *SecretStore) ResolveValue(ctx context.Context, id string) (string, *secret.VersionMetadata, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	rec, err := s.col.Get(ctx, id)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
@@ -339,6 +341,9 @@ func (s *SecretStore) ResolveValue(ctx context.Context, id string) (string, *sec
 	var sr secretStoredRecord
 	if err := persis.Decode(rec, &sr); err != nil {
 		return "", nil, fmt.Errorf("secret store: decode for ResolveValue: %w", err)
+	}
+	if sr.Secret == nil {
+		return "", nil, fmt.Errorf("secret store: decode for ResolveValue %q: missing secret payload", id)
 	}
 	if sr.Secret.Status == secret.StatusDisabled {
 		return "", nil, secret.ErrDisabled

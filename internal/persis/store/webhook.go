@@ -42,13 +42,13 @@ func NewWebhookStore(col persis.Collection, enc *crypto.Encryptor) (*WebhookStor
 }
 
 func (s *WebhookStore) rebuildIndex(ctx context.Context) error {
-	page, err := s.col.List(ctx, persis.ListQuery{})
+	recs, err := listAll(ctx, s.col, persis.ListQuery{})
 	if err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, rec := range page.Records {
+	for _, rec := range recs {
 		var stored auth.WebhookForStorage
 		if err := persis.Decode(rec, &stored); err != nil {
 			continue // skip corrupt records
@@ -132,12 +132,12 @@ func (s *WebhookStore) GetByDAGName(ctx context.Context, dagName string) (*auth.
 
 // List returns all webhooks in the store.
 func (s *WebhookStore) List(ctx context.Context) ([]*auth.Webhook, error) {
-	page, err := s.col.List(ctx, persis.ListQuery{})
+	recs, err := listAll(ctx, s.col, persis.ListQuery{})
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*auth.Webhook, 0, len(page.Records))
-	for _, rec := range page.Records {
+	out := make([]*auth.Webhook, 0, len(recs))
+	for _, rec := range recs {
 		wh, err := s.fromRecord(rec)
 		if err != nil {
 			continue // skip corrupt records

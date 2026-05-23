@@ -40,13 +40,13 @@ func NewAPIKeyStore(col persis.Collection) (*APIKeyStore, error) {
 }
 
 func (s *APIKeyStore) rebuildIndex(ctx context.Context) error {
-	page, err := s.col.List(ctx, persis.ListQuery{})
+	recs, err := listAll(ctx, s.col, persis.ListQuery{})
 	if err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, rec := range page.Records {
+	for _, rec := range recs {
 		var stored auth.APIKeyForStorage
 		if err := persis.Decode(rec, &stored); err != nil {
 			continue
@@ -111,12 +111,12 @@ func (s *APIKeyStore) GetByID(ctx context.Context, id string) (*auth.APIKey, err
 
 // List returns all API keys in the store.
 func (s *APIKeyStore) List(ctx context.Context) ([]*auth.APIKey, error) {
-	page, err := s.col.List(ctx, persis.ListQuery{})
+	recs, err := listAll(ctx, s.col, persis.ListQuery{})
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*auth.APIKey, 0, len(page.Records))
-	for _, rec := range page.Records {
+	out := make([]*auth.APIKey, 0, len(recs))
+	for _, rec := range recs {
 		key, err := apikeyFromRecord(rec)
 		if err != nil {
 			continue

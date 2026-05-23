@@ -5,6 +5,8 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -52,12 +54,32 @@ func (s *WorkerHeartbeatStore) Upsert(ctx context.Context, record exec.WorkerHea
 	})
 }
 
+// workerHeartbeatLegacyKey returns the SHA-256-encoded key used by the
+// pre-refactor filedistributed.WorkerHeartbeatStore for backward compatibility.
+func workerHeartbeatLegacyKey(workerID string) string {
+	sum := sha256.Sum256([]byte(workerID))
+	return hex.EncodeToString(sum[:])
+}
+
 // Get retrieves the heartbeat record for a specific worker.
 func (s *WorkerHeartbeatStore) Get(ctx context.Context, workerID string) (*exec.WorkerHeartbeatRecord, error) {
 	if workerID == "" {
 		return nil, exec.ErrWorkerHeartbeatNotFound
 	}
-	rec, err := s.col.Get(ctx, workerID)
+	// Try new-format key (plain workerID) first.
+	r, err := s.getByCollectionID(ctx, workerID)
+	if err == nil {
+		return r, nil
+	}
+	if !errors.Is(err, exec.ErrWorkerHeartbeatNotFound) {
+		return nil, err
+	}
+	// Fall back to legacy SHA-256-keyed files written by filedistributed.WorkerHeartbeatStore.
+	return s.getByCollectionID(ctx, workerHeartbeatLegacyKey(workerID))
+}
+
+func (s *WorkerHeartbeatStore) getByCollectionID(ctx context.Context, collectionID string) (*exec.WorkerHeartbeatRecord, error) {
+	rec, err := s.col.Get(ctx, collectionID)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
 			return nil, exec.ErrWorkerHeartbeatNotFound
@@ -66,7 +88,7 @@ func (s *WorkerHeartbeatStore) Get(ctx context.Context, workerID string) (*exec.
 	}
 	var r exec.WorkerHeartbeatRecord
 	if err := persis.Decode(rec, &r); err != nil {
-		return nil, fmt.Errorf("worker heartbeat store: decode %q: %w", workerID, err)
+		return nil, fmt.Errorf("worker heartbeat store: decode %q: %w", collectionID, err)
 	}
 	if r.WorkerID == "" {
 		return nil, exec.ErrWorkerHeartbeatNotFound
@@ -76,12 +98,12 @@ func (s *WorkerHeartbeatStore) Get(ctx context.Context, workerID string) (*exec.
 
 // List returns all heartbeat records.
 func (s *WorkerHeartbeatStore) List(ctx context.Context) ([]exec.WorkerHeartbeatRecord, error) {
-	page, err := s.col.List(ctx, persis.ListQuery{})
+	recs, err := listAll(ctx, s.col, persis.ListQuery{})
 	if err != nil {
 		return nil, err
 	}
-	out := make([]exec.WorkerHeartbeatRecord, 0, len(page.Records))
-	for _, rec := range page.Records {
+	out := make([]exec.WorkerHeartbeatRecord, 0, len(recs))
+	for _, rec := range recs {
 		var r exec.WorkerHeartbeatRecord
 		if err := persis.Decode(rec, &r); err != nil || r.WorkerID == "" {
 			continue
@@ -94,29 +116,36 @@ func (s *WorkerHeartbeatStore) List(ctx context.Context) ([]exec.WorkerHeartbeat
 // DeleteStale removes all records whose last heartbeat is before the given time.
 // Returns the number of records deleted.
 func (s *WorkerHeartbeatStore) DeleteStale(ctx context.Context, before time.Time) (int, error) {
-	records, err := s.List(ctx)
+	recs, err := listAll(ctx, s.col, persis.ListQuery{})
 	if err != nil {
 		return 0, err
 	}
 	removed := 0
-	for _, r := range records {
+	for _, rec := range recs {
+		var r exec.WorkerHeartbeatRecord
+		if err := persis.Decode(rec, &r); err != nil || r.WorkerID == "" {
+			continue
+		}
 		if r.LastHeartbeatTime().After(before) {
 			continue
 		}
-		// Re-read to close the TOCTOU window: the worker may have refreshed
-		// its heartbeat between the List snapshot and now.
-		current, err := s.Get(ctx, r.WorkerID)
+		// Re-read by actual collection ID to close TOCTOU window.
+		current, err := s.col.Get(ctx, rec.ID)
 		if err != nil {
-			if errors.Is(err, exec.ErrWorkerHeartbeatNotFound) {
+			if errors.Is(err, persis.ErrNotFound) {
 				continue
 			}
 			return removed, err
 		}
-		if current.LastHeartbeatTime().After(before) {
+		var currentR exec.WorkerHeartbeatRecord
+		if err := persis.Decode(current, &currentR); err != nil {
 			continue
 		}
-		if err := s.col.Delete(ctx, r.WorkerID); err != nil && !errors.Is(err, persis.ErrNotFound) {
-			return removed, fmt.Errorf("worker heartbeat store: delete %q: %w", r.WorkerID, err)
+		if currentR.LastHeartbeatTime().After(before) {
+			continue
+		}
+		if err := s.col.Delete(ctx, rec.ID); err != nil && !errors.Is(err, persis.ErrNotFound) {
+			return removed, fmt.Errorf("worker heartbeat store: delete %q: %w", rec.ID, err)
 		}
 		removed++
 	}

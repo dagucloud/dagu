@@ -43,13 +43,13 @@ func NewUserStore(col persis.Collection) (*UserStore, error) {
 }
 
 func (s *UserStore) rebuildIndex(ctx context.Context) error {
-	page, err := s.col.List(ctx, persis.ListQuery{})
+	recs, err := listAll(ctx, s.col, persis.ListQuery{})
 	if err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, rec := range page.Records {
+	for _, rec := range recs {
 		var stored auth.UserForStorage
 		if err := persis.Decode(rec, &stored); err != nil {
 			continue
@@ -157,12 +157,12 @@ func (s *UserStore) GetByOIDCIdentity(ctx context.Context, issuer, subject strin
 
 // List returns all users in the store.
 func (s *UserStore) List(ctx context.Context) ([]*auth.User, error) {
-	page, err := s.col.List(ctx, persis.ListQuery{})
+	recs, err := listAll(ctx, s.col, persis.ListQuery{})
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*auth.User, 0, len(page.Records))
-	for _, rec := range page.Records {
+	out := make([]*auth.User, 0, len(recs))
+	for _, rec := range recs {
 		u, err := userFromRecord(rec)
 		if err != nil {
 			continue
