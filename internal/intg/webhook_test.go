@@ -254,5 +254,5 @@ func waitForWebhookRunStatus(
 		}
 
 		return status.Status == expected
-	}, intgTestTimeout(30*time.Second), 200*time.Millisecond)
+	}, test.SubprocessRunTimeout(30*time.Second), 200*time.Millisecond)
 }
