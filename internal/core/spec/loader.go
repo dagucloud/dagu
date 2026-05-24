@@ -417,7 +417,7 @@ func markConfiguredWorkingDirsExplicit(dag *core.DAG) {
 
 // loadDAGsFromFile loads all DAGs from a multi-document YAML file.
 func loadDAGsFromFile(ctx BuildContext, filePath string, baseDef *dag, baseRaw []byte) ([]*core.DAG, error) {
-	data, err := os.ReadFile(filePath) //nolint:gosec
+	data, err := fileutil.ReadFileWithRetry(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file %q: %w", filePath, err)
 	}
@@ -515,7 +515,7 @@ func readBaseDefinitionData(opts BuildOpts) ([]byte, string, error) {
 		return nil, "", nil
 	}
 
-	baseRaw, err := os.ReadFile(opts.Base) //nolint:gosec
+	baseRaw, err := fileutil.ReadFileWithRetry(opts.Base)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, "", nil
@@ -604,7 +604,7 @@ func readWorkspaceBaseDefinitionData(opts BuildOpts, doc map[string]any) ([]byte
 		return nil, nil
 	}
 
-	data, err := os.ReadFile(filepath.Join(opts.WorkspaceBaseConfigDir, workspaceName, workspace.BaseConfigFileName)) //nolint:gosec
+	data, err := fileutil.ReadFileWithRetry(filepath.Join(opts.WorkspaceBaseConfigDir, workspaceName, workspace.BaseConfigFileName))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -1091,7 +1091,7 @@ func (*mergeTransformer) Transformer(
 
 // readYAMLFile reads the contents of the file into a map.
 func readYAMLFile(file string) (cfg map[string]any, err error) {
-	data, err := os.ReadFile(file) //nolint:gosec
+	data, err := fileutil.ReadFileWithRetry(file)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file %q: %v", file, err)
 	}

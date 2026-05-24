@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -152,7 +153,7 @@ func writeLegacyProcFileAtomic(path string, data []byte) error {
 		_ = os.Remove(tmpPath)
 		return err
 	}
-	if err := os.Rename(tmpPath, path); err != nil {
+	if err := fileutil.ReplaceFileWithRetry(tmpPath, path); err != nil {
 		_ = os.Remove(tmpPath)
 		return err
 	}
@@ -309,7 +310,7 @@ func readLegacyProcEntry(path, groupName string, staleTime time.Duration, now ti
 		return exec.ProcEntry{}, err
 	}
 
-	data, err := os.ReadFile(path) //nolint:gosec // path comes from the configured proc directory.
+	data, err := fileutil.ReadFileWithRetry(path)
 	if err != nil {
 		return exec.ProcEntry{}, err
 	}

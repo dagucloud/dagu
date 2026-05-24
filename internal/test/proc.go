@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/config"
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/store"
@@ -145,7 +146,7 @@ func readHeartbeat(procFile string) (uint64, time.Time, error) {
 		return 0, time.Time{}, err
 	}
 
-	data, err := os.ReadFile(procFile) //nolint:gosec // procFile is created in an isolated test temp directory
+	data, err := fileutil.ReadFileWithRetry(procFile)
 	if err != nil {
 		return 0, time.Time{}, err
 	}
