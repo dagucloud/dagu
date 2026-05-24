@@ -433,9 +433,12 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router) error {
 		return err
 	}
 
+	loginPath := pathutil.BuildPublicEndpointPath(mountedAPIPath, "auth/login")
+
 	r.Group(func(r chi.Router) {
 		r.Use(a.restAuditSeedMiddleware())
 		r.Use(frontendauth.ClientIPMiddleware())
+		r.Use(frontendauth.LoginRateLimitMiddleware(loginPath))
 		r.Use(frontendauth.Middleware(authOptions))
 		r.Use(a.restAuditSubjectMiddleware())
 		r.Use(WithRemoteNode(a.remoteNodeResolver, mountedAPIPath))
