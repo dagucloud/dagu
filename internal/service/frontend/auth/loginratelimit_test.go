@@ -168,4 +168,18 @@ func TestLoginRateLimitMiddleware(t *testing.T) {
 		assert.NotEmpty(t, w.Header().Get("Retry-After"))
 		assert.Contains(t, w.Body.String(), "rate_limited")
 	})
+
+	t.Run("loopback never rate-limited", func(t *testing.T) {
+		t.Parallel()
+		mw := LoginRateLimitMiddleware(loginPath)
+		handler := mw(noop)
+
+		for range loginMaxAttempts * 3 {
+			r := httptest.NewRequest(http.MethodPost, loginPath, nil)
+			r.RemoteAddr = "127.0.0.1:1234"
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, r)
+			assert.Equal(t, http.StatusOK, w.Code, "loopback should never be rate-limited")
+		}
+	})
 }

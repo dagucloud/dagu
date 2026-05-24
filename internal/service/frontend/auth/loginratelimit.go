@@ -4,6 +4,7 @@
 package auth
 
 import (
+	"net"
 	"net/http"
 	"strconv"
 	"sync"
@@ -97,19 +98,30 @@ func (l *loginRateLimiter) cleanup() {
 // LoginRateLimitMiddleware returns chi-compatible middleware that rate-limits POST
 // requests to loginPath. Requests to all other paths pass through unaffected.
 // The limiter is created once per middleware instance and shared across requests.
+// Loopback addresses (127.0.0.1, ::1, etc.) are always allowed so that local
+// development and E2E test suites are not affected.
 func LoginRateLimitMiddleware(loginPath string) func(http.Handler) http.Handler {
 	limiter := newLoginRateLimiter()
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method == http.MethodPost && r.URL.Path == loginPath {
-				if allowed, retryAfter := limiter.allow(GetClientIP(r)); !allowed {
-					secs := max(int(retryAfter.Seconds()), 1)
-					w.Header().Set("Retry-After", strconv.Itoa(secs))
-					writeAuthError(w, http.StatusTooManyRequests, "rate_limited", "Too many login attempts. Please try again later.")
-					return
+				ip := GetClientIP(r)
+				if !isLoopback(ip) {
+					if allowed, retryAfter := limiter.allow(ip); !allowed {
+						secs := max(int(retryAfter.Seconds()), 1)
+						w.Header().Set("Retry-After", strconv.Itoa(secs))
+						writeAuthError(w, http.StatusTooManyRequests, "rate_limited", "Too many login attempts. Please try again later.")
+						return
+					}
 				}
 			}
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// isLoopback reports whether addr is a loopback address.
+func isLoopback(addr string) bool {
+	ip := net.ParseIP(addr)
+	return ip != nil && ip.IsLoopback()
 }
