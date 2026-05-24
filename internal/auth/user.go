@@ -61,18 +61,18 @@ func NewUser(username string, passwordHash string, role Role) *User {
 // UserForStorage is used for JSON serialization to persistent storage.
 // It includes the password hash which is excluded from the regular User JSON.
 type UserForStorage struct {
-	ID              string           `json:"id"`
-	Username        string           `json:"username"`
-	PasswordHash    string           `json:"password_hash"`
-	Role            Role             `json:"role"`
-	WorkspaceAccess *WorkspaceAccess `json:"workspace_access,omitempty"`
-	CreatedAt       time.Time        `json:"created_at"`
-	UpdatedAt       time.Time        `json:"updated_at"`
-	AuthProvider      string     `json:"auth_provider,omitempty"`
-	OIDCIssuer        string     `json:"oidc_issuer,omitempty"`
-	OIDCSubject       string     `json:"oidc_subject,omitempty"`
-	IsDisabled        bool       `json:"is_disabled,omitempty"`
-	PasswordChangedAt *time.Time `json:"password_changed_at,omitempty"`
+	ID                string           `json:"id"`
+	Username          string           `json:"username"`
+	PasswordHash      string           `json:"password_hash"`
+	Role              Role             `json:"role"`
+	WorkspaceAccess   *WorkspaceAccess `json:"workspace_access,omitempty"`
+	CreatedAt         time.Time        `json:"created_at"`
+	UpdatedAt         time.Time        `json:"updated_at"`
+	AuthProvider      string           `json:"auth_provider,omitempty"`
+	OIDCIssuer        string           `json:"oidc_issuer,omitempty"`
+	OIDCSubject       string           `json:"oidc_subject,omitempty"`
+	IsDisabled        bool             `json:"is_disabled,omitempty"`
+	PasswordChangedAt *time.Time       `json:"password_changed_at,omitempty"`
 }
 
 // ToStorage converts a User to UserForStorage for persistence.
