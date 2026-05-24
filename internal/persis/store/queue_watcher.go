@@ -31,9 +31,7 @@ func (w *pollingQueueWatcher) Start(ctx context.Context) (<-chan struct{}, error
 		ctx = context.Background()
 	}
 	notifyCh := make(chan struct{}, 1)
-	w.wg.Add(1)
-	go func() {
-		defer w.wg.Done()
+	w.wg.Go(func() {
 		ticker := time.NewTicker(w.interval)
 		defer ticker.Stop()
 		for {
@@ -49,7 +47,7 @@ func (w *pollingQueueWatcher) Start(ctx context.Context) (<-chan struct{}, error
 				}
 			}
 		}
-	}()
+	})
 	return notifyCh, nil
 }
 

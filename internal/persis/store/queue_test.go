@@ -219,9 +219,7 @@ func TestQueueStore_ConcurrentDequeueIsExclusive(t *testing.T) {
 	errs := make(chan error, 16)
 	var wg sync.WaitGroup
 	for range 16 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_, err := s.DequeueByName(ctx, "main")
 			switch {
 			case err == nil:
@@ -230,7 +228,7 @@ func TestQueueStore_ConcurrentDequeueIsExclusive(t *testing.T) {
 			default:
 				errs <- err
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)
