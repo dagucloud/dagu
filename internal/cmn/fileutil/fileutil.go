@@ -64,7 +64,16 @@ func IsFile(path string) bool {
 // It returns the opened *os.File or a non-nil error if the operation fails.
 func OpenOrCreateFile(filepath string) (*os.File, error) {
 	flags := os.O_CREATE | os.O_WRONLY | os.O_APPEND | os.O_SYNC
-	file, err := os.OpenFile(filepath, flags, 0600) // nolint:gosec
+
+	var file *os.File
+	err := retryWindowsFileOp(func() error {
+		opened, err := os.OpenFile(filepath, flags, 0600) // nolint:gosec
+		if err != nil {
+			return err
+		}
+		file = opened
+		return nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create/open log file %s: %w", filepath, err)
 	}

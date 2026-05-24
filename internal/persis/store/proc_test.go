@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis"
 	"github.com/dagucloud/dagu/internal/persis/file"
@@ -386,6 +387,7 @@ func TestProcStoreFileBackendWritesLegacySidecar(t *testing.T) {
 
 	proc, err := s.Acquire(ctx, "queue-a", procMeta(ref))
 	require.NoError(t, err)
+	defer func() { _ = proc.Stop(ctx) }()
 
 	procFile := waitForLegacyProcFile(t, root, "queue-a", "sidecar-dag")
 	requireLegacyHeartbeatAdvance(t, procFile)
@@ -456,7 +458,7 @@ func requireLegacyHeartbeatAdvance(t *testing.T, procFile string) {
 func readLegacyHeartbeat(t *testing.T, procFile string) (int64, time.Time) {
 	t.Helper()
 
-	data, err := os.ReadFile(procFile) //nolint:gosec // test reads its temp directory.
+	data, err := fileutil.ReadFileWithRetry(procFile)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(data), 8)
 	info, err := os.Stat(procFile)
