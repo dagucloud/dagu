@@ -127,14 +127,25 @@ func TestCommunityMode_ListUsersAndResetPassword(t *testing.T) {
 
 	// ResetUserPassword should succeed (no RBAC license required).
 	adminUserID := listResult.Users[0].Id
+	const newAdminPass = "newadminpass1"
 	server.Client().Post("/api/v1/users/"+adminUserID+"/reset-password", api.ResetPasswordRequest{
-		NewPassword: "newadminpass1",
+		NewPassword: newAdminPass,
 	}).WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t)
 
-	// CreateUser should fail — RBAC-gated.
+	// Re-authenticate with the new password — the old token is invalidated.
+	resp = server.Client().Post("/api/v1/auth/login", api.LoginRequest{
+		Username: "admin",
+		Password: newAdminPass,
+	}).ExpectStatus(http.StatusOK).Send(t)
+	var newLoginResult api.LoginResponse
+	resp.Unmarshal(t, &newLoginResult)
+	require.NotEmpty(t, newLoginResult.Token)
+	freshToken := newLoginResult.Token
+
+	// CreateUser should fail — RBAC-gated (community mode has no license for user management).
 	server.Client().Post("/api/v1/users", api.CreateUserRequest{
 		Username: "should-fail",
 		Password: "password123",
 		Role:     api.UserRoleViewer,
-	}).WithBearerToken(adminToken).ExpectStatus(http.StatusForbidden).Send(t)
+	}).WithBearerToken(freshToken).ExpectStatus(http.StatusForbidden).Send(t)
 }

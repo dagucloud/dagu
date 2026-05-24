@@ -85,6 +85,10 @@ type Claims struct {
 	UserID   string    `json:"uid"`
 	Username string    `json:"username"`
 	Role     auth.Role `json:"role"`
+	// PasswordChangedAt is the Unix nanosecond timestamp of the user's last password
+	// change at token issuance. Zero means the user had never changed their password.
+	// Tokens issued before a subsequent password change are rejected.
+	PasswordChangedAt int64 `json:"pwd_changed_at_ns,omitempty"`
 }
 
 // Service provides authentication and user management functionality.
@@ -178,15 +182,20 @@ func (s *Service) GenerateToken(user *auth.User) (*TokenResult, error) {
 
 	now := time.Now()
 	expiresAt := now.Add(s.config.TokenTTL)
+	var pwdChangedAt int64
+	if user.PasswordChangedAt != nil {
+		pwdChangedAt = user.PasswordChangedAt.UnixNano()
+	}
 	claims := &Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   user.ID,
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 		},
-		UserID:   user.ID,
-		Username: user.Username,
-		Role:     user.Role,
+		UserID:            user.ID,
+		Username:          user.Username,
+		Role:              user.Role,
+		PasswordChangedAt: pwdChangedAt,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -248,6 +257,15 @@ func (s *Service) GetUserFromToken(ctx context.Context, tokenString string) (*au
 	// Check if user is disabled
 	if user.IsDisabled {
 		return nil, ErrUserDisabled
+	}
+
+	// Reject tokens issued before the user's last password change.
+	// Zero claim (old tokens without the field) maps to epoch and is treated
+	// as "before any real password change", so changing password invalidates them.
+	if user.PasswordChangedAt != nil {
+		if claims.PasswordChangedAt < user.PasswordChangedAt.UnixNano() {
+			return nil, ErrInvalidToken
+		}
 	}
 
 	return user, nil
@@ -336,6 +354,8 @@ func (s *Service) UpdateUser(ctx context.Context, id string, input UpdateUserInp
 		return nil, err
 	}
 
+	now := time.Now().UTC()
+
 	if input.Password != nil && *input.Password != "" {
 		if err := s.validatePassword(*input.Password); err != nil {
 			return nil, err
@@ -345,13 +365,14 @@ func (s *Service) UpdateUser(ctx context.Context, id string, input UpdateUserInp
 			return nil, fmt.Errorf("failed to hash password: %w", err)
 		}
 		user.PasswordHash = string(passwordHash)
+		user.PasswordChangedAt = &now
 	}
 
 	if input.IsDisabled != nil {
 		user.IsDisabled = *input.IsDisabled
 	}
 
-	user.UpdatedAt = time.Now().UTC()
+	user.UpdatedAt = now
 
 	if err := s.store.Update(ctx, user); err != nil {
 		return nil, err
@@ -392,8 +413,10 @@ func (s *Service) ChangePassword(ctx context.Context, userID, oldPassword, newPa
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
 
+	now := time.Now().UTC()
 	user.PasswordHash = string(passwordHash)
-	user.UpdatedAt = time.Now().UTC()
+	user.PasswordChangedAt = &now
+	user.UpdatedAt = now
 
 	return s.store.Update(ctx, user)
 }
@@ -416,8 +439,10 @@ func (s *Service) ResetPassword(ctx context.Context, userID, newPassword string)
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
 
+	now := time.Now().UTC()
 	user.PasswordHash = string(passwordHash)
-	user.UpdatedAt = time.Now().UTC()
+	user.PasswordChangedAt = &now
+	user.UpdatedAt = now
 
 	return s.store.Update(ctx, user)
 }
