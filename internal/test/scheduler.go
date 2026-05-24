@@ -10,9 +10,10 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/filedag"
 	"github.com/dagucloud/dagu/internal/persis/filedagrun"
-	"github.com/dagucloud/dagu/internal/persis/filequeue"
+	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
@@ -72,7 +73,7 @@ func SetupScheduler(t *testing.T, opts ...HelperOption) *Scheduler {
 		filedagrun.WithArtifactDir(helper.Config.Paths.ArtifactDir),
 	)
 	ps := newProcStore(helper.Config)
-	qs := filequeue.New(helper.Config.Paths.QueueDir)
+	qs := store.NewQueueStore(file.NewCollection(helper.Config.Paths.QueueDir))
 
 	// Create DAG run manager
 	drm := runtime.NewManager(drs, ps, helper.Config)

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package store_test
+package schedulerstore_test
 
 import (
 	"context"
@@ -13,15 +13,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/internal/persis"
-	"github.com/dagucloud/dagu/internal/persis/store"
+	"github.com/dagucloud/dagu/internal/persis/schedulerstore"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
 )
 
-func newWatermarkStore(t *testing.T) *store.WatermarkStore {
+func newWatermarkStore(t *testing.T) *schedulerstore.WatermarkStore {
 	t.Helper()
 	col := testutil.NewMemoryBackend().Collection("watermark")
-	return store.NewWatermarkStore(col)
+	return schedulerstore.NewWatermarkStore(col)
 }
 
 func TestWatermarkLoad_Empty(t *testing.T) {
@@ -92,9 +92,8 @@ func TestLoad_MigratesLegacyVersions(t *testing.T) {
 	for _, legacyVersion := range []int{0, 1, 2} {
 		t.Run(fmt.Sprintf("version_%d", legacyVersion), func(t *testing.T) {
 			col := testutil.NewMemoryBackend().Collection("watermark")
-			s := store.NewWatermarkStore(col)
+			s := schedulerstore.NewWatermarkStore(col)
 
-			// Inject a record with a legacy version directly via the collection.
 			rawJSON := fmt.Appendf(nil, `{"version":%d,"dags":{}}`, legacyVersion)
 			now := time.Now().UTC()
 			require.NoError(t, col.Put(ctx, &persis.Record{
@@ -116,7 +115,7 @@ func TestLoad_MigratesLegacyVersions(t *testing.T) {
 func TestLoad_UnknownVersionFallsBackToEmpty(t *testing.T) {
 	ctx := context.Background()
 	col := testutil.NewMemoryBackend().Collection("watermark")
-	s := store.NewWatermarkStore(col)
+	s := schedulerstore.NewWatermarkStore(col)
 
 	rawJSON := []byte(`{"version":999,"dags":{}}`)
 	now := time.Now().UTC()
@@ -137,7 +136,7 @@ func TestLoad_UnknownVersionFallsBackToEmpty(t *testing.T) {
 func TestLoad_CorruptDataFallsBackToEmpty(t *testing.T) {
 	ctx := context.Background()
 	col := testutil.NewMemoryBackend().Collection("watermark")
-	s := store.NewWatermarkStore(col)
+	s := schedulerstore.NewWatermarkStore(col)
 
 	now := time.Now().UTC()
 	require.NoError(t, col.Put(ctx, &persis.Record{

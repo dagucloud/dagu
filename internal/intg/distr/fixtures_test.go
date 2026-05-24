@@ -19,7 +19,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/filedagrun"
-	"github.com/dagucloud/dagu/internal/persis/store"
+	"github.com/dagucloud/dagu/internal/persis/schedulerstore"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
@@ -345,7 +345,7 @@ func (f *testFixture) startSchedulerWithClock(timeout time.Duration, clock sched
 		func() scheduler.WatermarkStore {
 			wmBackend, err := file.New(f.coord.Config.Paths.DataDir)
 			require.NoError(f.t, err)
-			return store.NewWatermarkStore(wmBackend.Collection("scheduler"))
+			return schedulerstore.NewWatermarkStore(wmBackend.Collection("scheduler"))
 		}(),
 	)
 }

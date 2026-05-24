@@ -486,12 +486,12 @@ func (d *queueDispatcher) selectRunnableQueueItems(
 		if len(runnable) >= freeSlots {
 			break
 		}
+		runRef, err := item.Data()
+		if err != nil {
+			logger.Error(ctx, "Failed to get item data while selecting runnable queue items", tag.Error(err))
+			continue
+		}
 		if d.dispatchTaskStore != nil {
-			runRef, err := item.Data()
-			if err != nil {
-				logger.Error(ctx, "Failed to get item data while selecting runnable queue items", tag.Error(err))
-				continue
-			}
 			reserved, err := d.hasOutstandingDispatchReservation(ctx, *runRef)
 			if err != nil {
 				return nil, err

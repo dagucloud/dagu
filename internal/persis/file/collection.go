@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/internal/persis"
 )
 
@@ -112,19 +113,79 @@ func (c *Collection) Put(_ context.Context, rec *persis.Record) error {
 	return c.writeFile(path, toFileRecord(rec))
 }
 
-func (c *Collection) Delete(_ context.Context, id string) error {
+func (c *Collection) Delete(ctx context.Context, id string) error {
+	_, err := c.DeleteIfExists(ctx, id)
+	return err
+}
+
+// RecordIDs returns record IDs matching prefix without decoding record payloads.
+func (c *Collection) RecordIDs(_ context.Context, prefix string) ([]string, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	ids, err := c.collectIDs(prefix)
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(ids)
+	return ids, nil
+}
+
+// RecordVersion returns a cheap version token for cache validation.
+func (c *Collection) RecordVersion(_ context.Context, id string) (string, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	path, err := c.filePath(id)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", persis.ErrNotFound
+		}
+		return "", err
+	}
+	return fmt.Sprintf("%d/%d", info.ModTime().UTC().UnixNano(), info.Size()), nil
+}
+
+// WithLock runs fn while holding a cross-process lock scoped to key.
+func (c *Collection) WithLock(ctx context.Context, key string, fn func() error) error {
+	lockDir, err := c.lockDir(key)
+	if err != nil {
+		return err
+	}
+	lock := dirlock.New(lockDir, &dirlock.LockOptions{
+		StaleThreshold: 30 * time.Second,
+		RetryInterval:  50 * time.Millisecond,
+	})
+	if err := lock.Lock(ctx); err != nil {
+		return err
+	}
+	defer func() {
+		_ = lock.Unlock()
+	}()
+	return fn()
+}
+
+// DeleteIfExists removes the record with the given id and reports whether it existed.
+func (c *Collection) DeleteIfExists(_ context.Context, id string) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	path, err := c.filePath(id)
 	if err != nil {
-		return err
+		return false, err
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+	if err := os.Remove(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
 	}
 	removeEmptyDirs(filepath.Dir(path), c.dir)
-	return nil
+	return true, nil
 }
 
 func (c *Collection) List(_ context.Context, q persis.ListQuery) (*persis.Page, error) {
@@ -241,6 +302,17 @@ func (c *Collection) filePath(id string) (string, error) {
 	return full, nil
 }
 
+func (c *Collection) lockDir(key string) (string, error) {
+	if key == "" {
+		return c.dir, nil
+	}
+	path, err := c.filePath(strings.TrimSuffix(key, "/") + "/_lock")
+	if err != nil {
+		return "", err
+	}
+	return filepath.Dir(path), nil
+}
+
 func (c *Collection) readFile(path string) (*fileRecord, error) {
 	raw, err := os.ReadFile(path) //nolint:gosec // path is derived from a validated root + record ID
 	if err != nil {
@@ -280,6 +352,28 @@ func (c *Collection) writeFile(path string, fr *fileRecord) error {
 		return err
 	}
 	return writeAtomic(path, data)
+}
+
+func (c *Collection) collectIDs(prefix string) ([]string, error) {
+	walkRoot := c.prefixWalkRoot(prefix)
+
+	var ids []string
+	err := filepath.WalkDir(walkRoot, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".json") {
+			return err
+		}
+		rel, _ := filepath.Rel(c.dir, path)
+		id := relPathToID(rel)
+		if prefix != "" && !strings.HasPrefix(id, prefix) {
+			return nil
+		}
+		ids = append(ids, id)
+		return nil
+	})
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	return ids, nil
 }
 
 // collect walks the collection directory and returns records matching the
