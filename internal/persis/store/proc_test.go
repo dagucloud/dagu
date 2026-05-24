@@ -194,6 +194,76 @@ func TestProcStoreLatestFreshEntryByDAGName(t *testing.T) {
 	assert.Equal(t, "run-newer", entry.Meta.DAGRunID)
 }
 
+func TestProcStoreLockWaitsForSameProcessContention(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := newProcStore(t)
+
+	require.NoError(t, s.Lock(ctx, "queue-a"))
+
+	started := make(chan struct{})
+	acquired := make(chan error, 1)
+	go func() {
+		close(started)
+		acquired <- s.Lock(ctx, "queue-a")
+	}()
+	<-started
+
+	select {
+	case err := <-acquired:
+		require.Failf(t, "second lock returned before unlock", "err: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	s.Unlock(ctx, "queue-a")
+	require.NoError(t, <-acquired)
+	s.Unlock(ctx, "queue-a")
+}
+
+func TestProcStoreBackendLockReturnsCanceledContextBeforeAcquired(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	col := contextIgnoringLockCollection{Collection: testutil.NewMemoryBackend().Collection("proc_entries")}
+	s := store.NewProcStore(col)
+
+	require.ErrorIs(t, s.Lock(ctx, "queue-a"), context.Canceled)
+	require.NoError(t, s.Lock(context.Background(), "queue-a"))
+	s.Unlock(context.Background(), "queue-a")
+}
+
+func TestProcStoreRejectsFutureCollectionHeartbeat(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	col := testutil.NewMemoryBackend().Collection("proc_entries")
+	s := store.NewProcStore(col)
+	meta := procMeta(exec.NewDAGRunRef("future-dag", "run-1"))
+	data, err := json.Marshal(map[string]any{
+		"version":         1,
+		"groupName":       "queue-a",
+		"meta":            meta,
+		"lastHeartbeatAt": time.Now().Add(10 * time.Minute).Unix(),
+	})
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	require.NoError(t, col.Put(ctx, &persis.Record{
+		ID:        "queue-a/future-dag/proc_future",
+		Encoding:  persis.EncodingJSON,
+		Data:      data,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}))
+
+	_, err = s.ListEntries(ctx, "queue-a")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "future")
+}
+
 func TestProcStoreFileBackendWritesLegacySidecar(t *testing.T) {
 	t.Parallel()
 
@@ -312,4 +382,12 @@ func writeLegacyProcFile(t *testing.T, root, groupName string, meta exec.ProcMet
 	require.NoError(t, os.WriteFile(procFile, data, 0o600))
 	require.NoError(t, os.Chtimes(procFile, heartbeatAt, heartbeatAt))
 	return procFile
+}
+
+type contextIgnoringLockCollection struct {
+	persis.Collection
+}
+
+func (c contextIgnoringLockCollection) WithLock(_ context.Context, _ string, fn func() error) error {
+	return fn()
 }

@@ -5,7 +5,6 @@ package store
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"sync"
 
@@ -19,20 +18,33 @@ func (s *ProcStore) Lock(ctx context.Context, groupName string) error {
 		groupName: groupName,
 		release:   make(chan struct{}),
 		done:      make(chan struct{}),
+		released:  make(chan struct{}),
 	}
 
-	s.mu.Lock()
-	if _, exists := s.locks[groupName]; exists {
+	for {
+		s.mu.Lock()
+		existing := s.locks[groupName]
+		if existing == nil {
+			s.locks[groupName] = held
+			s.mu.Unlock()
+			break
+		}
 		s.mu.Unlock()
-		return fmt.Errorf("proc store: process group %q is already locked", groupName)
+
+		select {
+		case <-existing.released:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
-	s.locks[groupName] = held
-	s.mu.Unlock()
 
 	if err := s.acquireLock(ctx, held); err != nil {
 		s.mu.Lock()
-		delete(s.locks, groupName)
+		if s.locks[groupName] == held {
+			delete(s.locks, groupName)
+		}
 		s.mu.Unlock()
+		close(held.released)
 		return err
 	}
 	return nil
@@ -47,6 +59,7 @@ func (s *ProcStore) Unlock(ctx context.Context, groupName string) {
 	if held == nil {
 		return
 	}
+	defer close(held.released)
 	if held.local != nil {
 		held.local.Unlock()
 		return
@@ -63,6 +76,7 @@ type procHeldLock struct {
 	groupName string
 	release   chan struct{}
 	done      chan struct{}
+	released  chan struct{}
 	local     *sync.Mutex
 }
 
@@ -85,13 +99,14 @@ func (s *ProcStore) acquireBackendLock(ctx context.Context, col procLockCollecti
 	acquired := make(chan error, 1)
 	go func() {
 		err := col.WithLock(ctx, procLockKey(held.groupName), func() error {
-			acquired <- nil
 			select {
-			case <-held.release:
-				return nil
 			case <-ctx.Done():
 				return ctx.Err()
+			default:
 			}
+			acquired <- nil
+			<-held.release
+			return nil
 		})
 		select {
 		case acquired <- err:

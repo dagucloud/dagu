@@ -57,6 +57,9 @@ func (s *ProcStore) entryFromRecord(rec *persis.Record, now time.Time) (exec.Pro
 		groupName = procGroupNameFromRecordID(rec.ID)
 	}
 	heartbeatAt := time.Unix(payload.LastHeartbeatAt, 0).UTC()
+	if heartbeatAt.After(now.Add(5 * time.Minute)) {
+		return exec.ProcEntry{}, fmt.Errorf("proc store: heartbeat timestamp is in the future for %q", rec.ID)
+	}
 	fresh := now.Sub(heartbeatAt) < s.staleTime
 	if !fresh && now.Sub(rec.UpdatedAt) < s.staleTime {
 		fresh = true
