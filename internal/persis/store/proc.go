@@ -43,7 +43,8 @@ func WithProcHeartbeatInterval(d time.Duration) ProcStoreOption {
 	}
 }
 
-// WithProcHeartbeatSyncInterval keeps configuration parity with fileproc.
+// WithProcHeartbeatSyncInterval keeps configuration parity with the legacy
+// proc store option.
 // Collection-backed proc heartbeats are complete writes, so there is no
 // separate sync loop to configure.
 func WithProcHeartbeatSyncInterval(_ time.Duration) ProcStoreOption {
