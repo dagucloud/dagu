@@ -217,11 +217,11 @@ type Server struct {
 	// origins are allowed but AllowCredentials is disabled (spec-compliant).
 	// When set, only listed origins are allowed and AllowCredentials is enabled.
 	CORSAllowedOrigins []string
-	Metrics           MetricsAccess // "private" or "public"
-	Terminal          TerminalConfig
-	Audit             AuditConfig
-	Session           SessionConfig
-	SSE               SSEConfig
+	Metrics            MetricsAccess // "private" or "public"
+	Terminal           TerminalConfig
+	Audit              AuditConfig
+	Session            SessionConfig
+	SSE                SSEConfig
 }
 
 // TerminalConfig contains configuration for the web-based terminal feature.
