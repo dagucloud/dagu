@@ -324,6 +324,35 @@ func TestProcStoreRejectsFutureCollectionHeartbeat(t *testing.T) {
 	assert.Contains(t, err.Error(), "future")
 }
 
+func TestProcStoreRejectsCollectionRecordGroupMismatch(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	col := testutil.NewMemoryBackend().Collection("proc_entries")
+	s := store.NewProcStore(col)
+	meta := procMeta(exec.NewDAGRunRef("mismatch-dag", "run-1"))
+	data, err := json.Marshal(map[string]any{
+		"version":         1,
+		"groupName":       "queue-b",
+		"meta":            meta,
+		"lastHeartbeatAt": time.Now().Unix(),
+	})
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	require.NoError(t, col.Put(ctx, &persis.Record{
+		ID:        "queue-a/mismatch-dag/proc_mismatch",
+		Encoding:  persis.EncodingJSON,
+		Data:      data,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}))
+
+	_, err = s.CountAlive(ctx, "queue-a")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "record group mismatch")
+}
+
 func TestProcStoreFileBackendSurfacesCorruptCollectionRecord(t *testing.T) {
 	t.Parallel()
 

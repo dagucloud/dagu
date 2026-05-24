@@ -74,9 +74,15 @@ func (s *ProcStore) entryFromRecord(rec *persis.Record, now time.Time) (exec.Pro
 	if err := validateProcMeta(payload.Meta); err != nil {
 		return exec.ProcEntry{}, fmt.Errorf("proc store: invalid metadata in %q: %w", rec.ID, err)
 	}
+	recordGroupName := procGroupNameFromRecordID(rec.ID)
+	if recordGroupName == "" {
+		return exec.ProcEntry{}, fmt.Errorf("proc store: invalid record ID %q", rec.ID)
+	}
 	groupName := payload.GroupName
 	if groupName == "" {
-		groupName = procGroupNameFromRecordID(rec.ID)
+		groupName = recordGroupName
+	} else if groupName != recordGroupName {
+		return exec.ProcEntry{}, fmt.Errorf("proc store: record group mismatch for %q: payload %q, path %q", rec.ID, groupName, recordGroupName)
 	}
 	heartbeatAt := time.Unix(payload.LastHeartbeatAt, 0).UTC()
 	if heartbeatAt.After(now.Add(5 * time.Minute)) {
