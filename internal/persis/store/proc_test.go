@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -119,6 +120,26 @@ func TestProcHandleRemovesEntryWhenContextCanceled(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
+func TestProcHandleStopCleansUpWithCanceledContext(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	col := cancelAwareDeleteCollection{Collection: testutil.NewMemoryBackend().Collection("proc_entries")}
+	s := store.NewProcStore(col)
+	ref := exec.NewDAGRunRef("stop-cancel-dag", "run-1")
+
+	proc, err := s.Acquire(ctx, "queue-a", procMeta(ref))
+	require.NoError(t, err)
+
+	stopCtx, cancel := context.WithCancel(ctx)
+	cancel()
+	require.NoError(t, proc.Stop(stopCtx))
+
+	count, err := s.CountAlive(ctx, "queue-a")
+	require.NoError(t, err)
+	assert.Equal(t, 0, count)
+}
+
 func TestProcStoreAcquireCleansRecordWhenLegacyWriteFails(t *testing.T) {
 	t.Parallel()
 
@@ -168,6 +189,45 @@ func TestProcStoreRemoveIfStale(t *testing.T) {
 	entries, err := s.ListEntries(ctx, "queue-a")
 	require.NoError(t, err)
 	assert.Empty(t, entries)
+}
+
+func TestProcStoreRemoveIfStaleKeepsRefreshedCollectionRecord(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	base := testutil.NewMemoryBackend().Collection("proc_entries")
+	col := &refreshBeforeCompareDeleteCollection{Collection: base}
+	s := store.NewProcStore(col,
+		store.WithProcStaleThreshold(20*time.Millisecond),
+		store.WithProcHeartbeatInterval(time.Hour),
+	)
+	ref := exec.NewDAGRunRef("stale-refresh-dag", "run-1")
+
+	proc, err := s.Acquire(ctx, "queue-a", procMeta(ref))
+	require.NoError(t, err)
+	defer func() { _ = proc.Stop(ctx) }()
+
+	var stale exec.ProcEntry
+	require.Eventually(t, func() bool {
+		entries, err := s.ListEntries(ctx, "queue-a")
+		require.NoError(t, err)
+		if len(entries) != 1 || entries[0].Fresh {
+			return false
+		}
+		stale = entries[0]
+		return true
+	}, time.Second, 10*time.Millisecond)
+
+	col.refresh = func() {
+		rec, err := base.Get(ctx, stale.FilePath)
+		require.NoError(t, err)
+		rec.UpdatedAt = time.Now().UTC()
+		require.NoError(t, base.Put(ctx, rec))
+	}
+
+	require.NoError(t, s.RemoveIfStale(ctx, stale))
+	_, err = base.Get(ctx, stale.FilePath)
+	require.NoError(t, err)
 }
 
 func TestProcStoreLatestFreshEntryByDAGName(t *testing.T) {
@@ -390,4 +450,30 @@ type contextIgnoringLockCollection struct {
 
 func (c contextIgnoringLockCollection) WithLock(_ context.Context, _ string, fn func() error) error {
 	return fn()
+}
+
+type cancelAwareDeleteCollection struct {
+	persis.Collection
+}
+
+func (c cancelAwareDeleteCollection) Delete(ctx context.Context, id string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return c.Collection.Delete(ctx, id)
+}
+
+type refreshBeforeCompareDeleteCollection struct {
+	persis.Collection
+	once    sync.Once
+	refresh func()
+}
+
+func (c *refreshBeforeCompareDeleteCollection) CompareAndDelete(ctx context.Context, expected *persis.Record) error {
+	c.once.Do(func() {
+		if c.refresh != nil {
+			c.refresh()
+		}
+	})
+	return c.Collection.CompareAndDelete(ctx, expected)
 }

@@ -53,17 +53,30 @@ func (p *ProcHandle) Stop(ctx context.Context) error {
 		}
 		p.wg.Wait()
 	}
-	return p.cleanup(ctx)
+	return p.cleanup(procCleanupContext(ctx))
 }
 
 func (p *ProcHandle) cleanup(ctx context.Context) error {
+	var errs []error
 	if err := p.store.col.Delete(ctx, p.recordID); err != nil && !errors.Is(err, persis.ErrNotFound) {
-		return err
+		errs = append(errs, err)
 	}
 	if p.legacyPath != "" {
-		_ = removeLegacyProcFile(p.legacyPath)
+		if err := removeLegacyProcFile(p.legacyPath); err != nil {
+			errs = append(errs, err)
+		}
 	}
-	return nil
+	return errors.Join(errs...)
+}
+
+func procCleanupContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	if ctx.Err() != nil {
+		return context.WithoutCancel(ctx)
+	}
+	return ctx
 }
 
 func (p *ProcHandle) startHeartbeat(ctx context.Context) error {

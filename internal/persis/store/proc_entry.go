@@ -88,7 +88,9 @@ func (s *ProcStore) removeCollectionIfStale(ctx context.Context, entry exec.Proc
 	if current.Fresh || !sameProcEntry(current, entry) {
 		return nil
 	}
-	if err := s.col.Delete(ctx, entry.FilePath); err != nil && !errors.Is(err, persis.ErrNotFound) {
+	if err := s.col.CompareAndDelete(ctx, currentRec); errors.Is(err, persis.ErrNotFound) || errors.Is(err, persis.ErrConflict) {
+		return nil
+	} else if err != nil {
 		return err
 	}
 

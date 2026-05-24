@@ -75,6 +75,20 @@ func (c *MemoryCollection) Delete(ctx context.Context, id string) error {
 	return err
 }
 
+func (c *MemoryCollection) CompareAndDelete(_ context.Context, expected *persis.Record) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	current, ok := c.records[expected.ID]
+	if !ok {
+		return persis.ErrNotFound
+	}
+	if !sameMemoryRecord(current, expected) {
+		return persis.ErrConflict
+	}
+	delete(c.records, expected.ID)
+	return nil
+}
+
 // RecordIDs returns record IDs matching prefix without decoding record payloads.
 func (c *MemoryCollection) RecordIDs(_ context.Context, prefix string) ([]string, error) {
 	c.mu.Lock()
@@ -212,6 +226,22 @@ func copyRecord(r *persis.Record) *persis.Record {
 		cp.ExpiresAt = &t
 	}
 	return &cp
+}
+
+func sameMemoryRecord(a, b *persis.Record) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if a.ID != b.ID || a.Encoding != b.Encoding || !bytes.Equal(a.Data, b.Data) {
+		return false
+	}
+	if !a.CreatedAt.Equal(b.CreatedAt) || !a.UpdatedAt.Equal(b.UpdatedAt) {
+		return false
+	}
+	if a.ExpiresAt == nil || b.ExpiresAt == nil {
+		return a.ExpiresAt == b.ExpiresAt
+	}
+	return a.ExpiresAt.Equal(*b.ExpiresAt)
 }
 
 type memCursorVal struct {

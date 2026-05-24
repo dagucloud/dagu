@@ -89,6 +89,10 @@ type Collection interface {
 	// Returns nil if the record does not exist.
 	Delete(ctx context.Context, id string) error
 
+	// CompareAndDelete atomically removes expected.ID only when the current
+	// record still matches expected. Returns [ErrConflict] when it does not.
+	CompareAndDelete(ctx context.Context, expected *Record) error
+
 	// List returns a page of records matching q, ordered by CreatedAt ascending.
 	List(ctx context.Context, q ListQuery) (*Page, error)
 

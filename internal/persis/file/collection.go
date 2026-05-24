@@ -85,6 +85,22 @@ func (fr *fileRecord) toRecord() *persis.Record {
 	}
 }
 
+func sameRecord(a, b *persis.Record) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if a.ID != b.ID || a.Encoding != b.Encoding || !bytes.Equal(a.Data, b.Data) {
+		return false
+	}
+	if !a.CreatedAt.Equal(b.CreatedAt) || !a.UpdatedAt.Equal(b.UpdatedAt) {
+		return false
+	}
+	if a.ExpiresAt == nil || b.ExpiresAt == nil {
+		return a.ExpiresAt == b.ExpiresAt
+	}
+	return a.ExpiresAt.Equal(*b.ExpiresAt)
+}
+
 // ─── Collection methods ───────────────────────────────────────────────────────
 
 func (c *Collection) Get(_ context.Context, id string) (*persis.Record, error) {
@@ -116,6 +132,33 @@ func (c *Collection) Put(_ context.Context, rec *persis.Record) error {
 func (c *Collection) Delete(ctx context.Context, id string) error {
 	_, err := c.DeleteIfExists(ctx, id)
 	return err
+}
+
+// CompareAndDelete removes expected.ID only when the current record still
+// matches expected.
+func (c *Collection) CompareAndDelete(_ context.Context, expected *persis.Record) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	path, err := c.filePath(expected.ID)
+	if err != nil {
+		return err
+	}
+	fr, err := c.readFile(path)
+	if err != nil {
+		return err
+	}
+	if !sameRecord(fr.toRecord(), expected) {
+		return persis.ErrConflict
+	}
+	if err := os.Remove(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return persis.ErrNotFound
+		}
+		return err
+	}
+	removeEmptyDirs(filepath.Dir(path), c.dir)
+	return nil
 }
 
 // RecordIDs returns record IDs matching prefix without decoding record payloads.

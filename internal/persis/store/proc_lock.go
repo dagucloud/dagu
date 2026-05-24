@@ -44,6 +44,7 @@ func (s *ProcStore) Lock(ctx context.Context, groupName string) error {
 			delete(s.locks, groupName)
 		}
 		s.mu.Unlock()
+		held.signalRelease()
 		close(held.released)
 		return err
 	}
@@ -64,7 +65,7 @@ func (s *ProcStore) Unlock(ctx context.Context, groupName string) {
 		held.local.Unlock()
 		return
 	}
-	close(held.release)
+	held.signalRelease()
 	select {
 	case <-held.done:
 	case <-ctx.Done():
@@ -77,7 +78,14 @@ type procHeldLock struct {
 	release   chan struct{}
 	done      chan struct{}
 	released  chan struct{}
+	once      sync.Once
 	local     *sync.Mutex
+}
+
+func (h *procHeldLock) signalRelease() {
+	h.once.Do(func() {
+		close(h.release)
+	})
 }
 
 type procLockCollection interface {
@@ -96,15 +104,43 @@ func (s *ProcStore) acquireLock(ctx context.Context, held *procHeldLock) error {
 }
 
 func (s *ProcStore) acquireBackendLock(ctx context.Context, col procLockCollection, held *procHeldLock) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	acquired := make(chan error, 1)
+	callbackStarted := make(chan struct{})
+	done := make(chan struct{})
+	lockCtx, cancelLock := context.WithCancel(context.WithoutCancel(ctx))
+
 	go func() {
-		err := col.WithLock(ctx, procLockKey(held.groupName), func() error {
+		select {
+		case <-ctx.Done():
 			select {
-			case <-ctx.Done():
-				return ctx.Err()
+			case <-callbackStarted:
 			default:
+				cancelLock()
 			}
-			acquired <- nil
+		case <-callbackStarted:
+		case <-done:
+		}
+	}()
+
+	go func() {
+		defer close(done)
+		defer cancelLock()
+
+		err := col.WithLock(lockCtx, procLockKey(held.groupName), func() error {
+			close(callbackStarted)
+			select {
+			default:
+			case <-held.release:
+				return nil
+			}
+			select {
+			case acquired <- nil:
+			case <-held.release:
+				return nil
+			}
 			<-held.release
 			return nil
 		})
@@ -114,7 +150,12 @@ func (s *ProcStore) acquireBackendLock(ctx context.Context, col procLockCollecti
 		}
 		close(held.done)
 	}()
-	return <-acquired
+	select {
+	case err := <-acquired:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (s *ProcStore) localLock(groupName string) *sync.Mutex {

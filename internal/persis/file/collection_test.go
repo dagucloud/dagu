@@ -82,6 +82,46 @@ func RunCollectionContract(t *testing.T, col persis.Collection, freshCollection 
 		assert.NoError(t, col.Delete(ctx, "nonexistent"))
 	})
 
+	t.Run("compare_and_delete_ok", func(t *testing.T) {
+		col2 := freshCollection(t)
+		rec := &persis.Record{
+			ID:        "cad-ok",
+			Data:      []byte(`{"v":1}`),
+			Encoding:  persis.EncodingJSON,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+		require.NoError(t, col2.Put(ctx, rec))
+		got, err := col2.Get(ctx, "cad-ok")
+		require.NoError(t, err)
+		require.NoError(t, col2.CompareAndDelete(ctx, got))
+
+		_, err = col2.Get(ctx, "cad-ok")
+		assert.ErrorIs(t, err, persis.ErrNotFound)
+	})
+
+	t.Run("compare_and_delete_conflict", func(t *testing.T) {
+		col2 := freshCollection(t)
+		rec := &persis.Record{
+			ID:        "cad-conflict",
+			Data:      []byte(`{"v":1}`),
+			Encoding:  persis.EncodingJSON,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+		require.NoError(t, col2.Put(ctx, rec))
+		expected, err := col2.Get(ctx, "cad-conflict")
+		require.NoError(t, err)
+		rec.Data = []byte(`{"v":2}`)
+		rec.UpdatedAt = now.Add(time.Second)
+		require.NoError(t, col2.Put(ctx, rec))
+
+		err = col2.CompareAndDelete(ctx, expected)
+		assert.ErrorIs(t, err, persis.ErrConflict)
+		_, err = col2.Get(ctx, "cad-conflict")
+		assert.NoError(t, err)
+	})
+
 	t.Run("list_all", func(t *testing.T) {
 		col2 := freshCollection(t)
 		t1 := now.Add(time.Millisecond)
