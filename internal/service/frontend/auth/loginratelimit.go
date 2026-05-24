@@ -18,6 +18,9 @@ const (
 	loginMaxAttempts = 5
 	// loginWindow is the sliding window duration for login rate limiting.
 	loginWindow = 15 * time.Minute
+	// loginMaxTrackedIPs is the maximum number of distinct IPs tracked in the failure map.
+	// When the map is full, a random entry is evicted to make room for the new one.
+	loginMaxTrackedIPs = 1000
 )
 
 // loginRateLimiter tracks failed login attempts per IP using a sliding window
@@ -34,20 +37,22 @@ const (
 // bound memory growth under many distinct source IPs.
 // No background goroutine is used, making instances safe to create in tests.
 type loginRateLimiter struct {
-	mu          sync.Mutex
-	failures    map[string][]time.Time
-	pending     map[string]int
-	maxAttempts int
-	window      time.Duration
-	callCount   int
+	mu            sync.Mutex
+	failures      map[string][]time.Time
+	pending       map[string]int
+	maxAttempts   int
+	maxTrackedIPs int
+	window        time.Duration
+	callCount     int
 }
 
 func newLoginRateLimiter() *loginRateLimiter {
 	return &loginRateLimiter{
-		failures:    make(map[string][]time.Time),
-		pending:     make(map[string]int),
-		maxAttempts: loginMaxAttempts,
-		window:      loginWindow,
+		failures:      make(map[string][]time.Time),
+		pending:       make(map[string]int),
+		maxAttempts:   loginMaxAttempts,
+		maxTrackedIPs: loginMaxTrackedIPs,
+		window:        loginWindow,
 	}
 }
 
@@ -108,6 +113,14 @@ func (l *loginRateLimiter) confirmFailure(ip string) {
 		l.pending[ip]--
 		if l.pending[ip] == 0 {
 			delete(l.pending, ip)
+		}
+	}
+	// Enforce the IP cap: if this is a new IP and the map is full, evict one
+	// random entry to bound memory growth under many distinct source addresses.
+	if _, exists := l.failures[ip]; !exists && l.maxTrackedIPs > 0 && len(l.failures) >= l.maxTrackedIPs {
+		for k := range l.failures {
+			delete(l.failures, k)
+			break
 		}
 	}
 	l.failures[ip] = append(l.failures[ip], time.Now())

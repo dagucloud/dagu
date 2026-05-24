@@ -4,6 +4,7 @@
 package auth
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -27,10 +28,11 @@ var okHandler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 
 func newTestLimiter(maxAttempts int, window time.Duration) *loginRateLimiter {
 	return &loginRateLimiter{
-		failures:    make(map[string][]time.Time),
-		pending:     make(map[string]int),
-		maxAttempts: maxAttempts,
-		window:      window,
+		failures:      make(map[string][]time.Time),
+		pending:       make(map[string]int),
+		maxAttempts:   maxAttempts,
+		maxTrackedIPs: loginMaxTrackedIPs,
+		window:        window,
 	}
 }
 
@@ -133,6 +135,26 @@ func TestLoginRateLimiter(t *testing.T) {
 		blocked, retryAfter := l.reserve("1.2.3.4")
 		assert.False(t, blocked)
 		assert.InDelta(t, window.Seconds(), retryAfter.Seconds(), 1.0)
+	})
+
+	t.Run("failure map capped at maxTrackedIPs", func(t *testing.T) {
+		t.Parallel()
+		const cap = 5
+		l := &loginRateLimiter{
+			failures:      make(map[string][]time.Time),
+			pending:       make(map[string]int),
+			maxAttempts:   10,
+			maxTrackedIPs: cap,
+			window:        15 * time.Minute,
+		}
+		// Insert cap+10 distinct IPs; each gets one confirmed failure.
+		for i := range cap + 10 {
+			ip := fmt.Sprintf("10.0.0.%d", i+1)
+			ok, _ := l.reserve(ip)
+			require.True(t, ok)
+			l.confirmFailure(ip)
+		}
+		assert.LessOrEqual(t, len(l.failures), cap, "failure map must not exceed maxTrackedIPs")
 	})
 }
 
