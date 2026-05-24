@@ -151,27 +151,19 @@ func extractBearerToken(r *http.Request) string {
 	return strings.TrimPrefix(authHeader, bearerPrefix)
 }
 
-// ErrorResponse represents an error response.
-type ErrorResponse struct {
-	Error ErrorDetail `json:"error"`
-}
-
-// ErrorDetail contains error details.
-type ErrorDetail struct {
+// authErrorBody is the JSON payload for auth error responses. It matches the
+// flat shape of #/components/schemas/Error in the OpenAPI spec so that
+// generated clients and contract tests parse responses correctly.
+type authErrorBody struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 }
 
-// writeAuthError writes an HTTP JSON error response with the provided status and error details.
-// It sets the Content-Type header to "application/json", writes the HTTP status, and encodes an
-// ErrorResponse containing the given code and message.
+// writeAuthError writes an HTTP JSON error response with the given status,
+// error code, and message. The response body is a flat JSON object
+// {"code":"…","message":"…"} matching the OpenAPI Error schema.
 func writeAuthError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(ErrorResponse{
-		Error: ErrorDetail{
-			Code:    code,
-			Message: message,
-		},
-	})
+	_ = json.NewEncoder(w).Encode(authErrorBody{Code: code, Message: message})
 }

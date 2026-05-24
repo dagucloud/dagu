@@ -4,28 +4,33 @@
 package auth
 
 import (
+	"math"
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
 
 const (
-	// loginMaxAttempts is the number of login attempts allowed per IP within loginWindow.
+	// loginMaxAttempts is the number of failed login attempts allowed per IP within loginWindow.
 	loginMaxAttempts = 5
 	// loginWindow is the sliding window duration for login rate limiting.
 	loginWindow = 15 * time.Minute
 )
 
-// loginRateLimiter tracks login attempts per IP using a sliding window counter.
-// Stale attempts older than loginWindow are pruned inline on every call to allow(),
-// so no background goroutine is required and instances are safe to create in tests.
+// loginRateLimiter tracks failed login attempts per IP using a sliding window counter.
+// Stale attempts older than loginWindow are pruned inline on every call to isBlocked
+// and recordFailure. A periodic eviction pass (every 256 calls) deletes map entries
+// whose entire window has expired, bounding memory growth under many distinct IPs.
+// No background goroutine is used, so instances are safe to create in tests.
 type loginRateLimiter struct {
 	mu          sync.Mutex
 	attempts    map[string][]time.Time
 	maxAttempts int
 	window      time.Duration
+	callCount   int // for periodic stale-key eviction
 }
 
 func newLoginRateLimiter() *loginRateLimiter {
@@ -36,59 +41,85 @@ func newLoginRateLimiter() *loginRateLimiter {
 	}
 }
 
-// allow returns true if the IP is within the rate limit.
-// When false, it also returns the duration until the limit resets (for Retry-After).
-func (l *loginRateLimiter) allow(ip string) (bool, time.Duration) {
+// isBlocked returns true if ip has exceeded the failure limit within the window.
+// When true it also returns the time until the oldest in-window failure expires.
+func (l *loginRateLimiter) isBlocked(ip string) (bool, time.Duration) {
 	now := time.Now()
 	cutoff := now.Add(-l.window)
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	// Prune stale entries for this IP.
 	prev := l.attempts[ip]
-	// Prune attempts outside the window, reusing the backing array.
 	valid := prev[:0]
 	for _, t := range prev {
 		if t.After(cutoff) {
 			valid = append(valid, t)
 		}
 	}
-
-	if len(valid) >= l.maxAttempts {
+	if len(valid) == 0 {
+		delete(l.attempts, ip)
+	} else {
 		l.attempts[ip] = valid
-		// Retry-After = when the oldest in-window attempt falls out of the window.
-		retryAfter := max(valid[0].Add(l.window).Sub(now), 0)
-		return false, retryAfter
 	}
 
-	l.attempts[ip] = append(valid, now)
-	return true, 0
+	// Periodically evict fully-expired keys from other IPs to bound map growth.
+	l.callCount++
+	if l.callCount&0xFF == 0 {
+		for k, v := range l.attempts {
+			if len(v) > 0 && !v[len(v)-1].After(cutoff) {
+				delete(l.attempts, k)
+			}
+		}
+	}
+
+	if len(valid) >= l.maxAttempts {
+		retryAfter := max(valid[0].Add(l.window).Sub(now), 0)
+		return true, retryAfter
+	}
+	return false, 0
 }
 
-// LoginRateLimitMiddleware returns chi-compatible middleware that rate-limits POST
-// requests to loginPath. Requests to all other paths pass through unaffected.
-// The limiter is created once per middleware instance and shared across requests.
+// recordFailure records one failed login attempt for ip.
+func (l *loginRateLimiter) recordFailure(ip string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.attempts[ip] = append(l.attempts[ip], time.Now())
+}
+
+// LoginRateLimitMiddleware returns chi-compatible middleware that rate-limits
+// failed POST attempts to loginPath based on the client's IP address. Only
+// HTTP 401 responses from downstream are counted as failures; successful logins
+// do not consume the brute-force budget, preventing lockout of shared egress
+// IPs (office NAT, VPN).
 //
-// Loopback exemption: when the raw TCP connection comes directly from a loopback
-// address (127.0.0.1, ::1, …) and no forwarded-IP header is present, the request
-// is considered local dev/test traffic and is never counted. If a same-host reverse
-// proxy is in use it must set X-Forwarded-For or X-Real-IP so the real client IP
-// is available; without that header the limiter cannot distinguish clients and is
-// intentionally a no-op (the alternative — all users sharing one bucket — would
-// cause false lockouts).
+// The rate-limit key is derived from the raw TCP source address (RemoteAddr),
+// which clients cannot spoof. X-Forwarded-For/X-Real-IP are trusted only when
+// RemoteAddr is a loopback address, indicating a same-host reverse proxy.
+//
+// Loopback exemption: when the resolved key is a loopback address no failure
+// is recorded. This exempts local dev and E2E test traffic that originates
+// directly from the same machine.
 func LoginRateLimitMiddleware(loginPath string) func(http.Handler) http.Handler {
 	limiter := newLoginRateLimiter()
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method == http.MethodPost && r.URL.Path == loginPath {
-				ip := GetClientIP(r)
-				if !isTrulyLocal(r, ip) {
-					if allowed, retryAfter := limiter.allow(ip); !allowed {
-						secs := max(int(retryAfter.Seconds()), 1)
+				ip := rateLimitKey(r)
+				if !isLoopbackIP(ip) {
+					if blocked, retryAfter := limiter.isBlocked(ip); blocked {
+						secs := max(int(math.Ceil(retryAfter.Seconds())), 1)
 						w.Header().Set("Retry-After", strconv.Itoa(secs))
 						writeAuthError(w, http.StatusTooManyRequests, "rate_limited", "Too many login attempts. Please try again later.")
 						return
 					}
+					rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+					next.ServeHTTP(rec, r)
+					if rec.status == http.StatusUnauthorized {
+						limiter.recordFailure(ip)
+					}
+					return
 				}
 			}
 			next.ServeHTTP(w, r)
@@ -96,19 +127,46 @@ func LoginRateLimitMiddleware(loginPath string) func(http.Handler) http.Handler 
 	}
 }
 
-// isTrulyLocal reports whether a request originates from a loopback address with
-// no upstream proxy involved. It returns true only when:
-//   - the resolved client IP (from GetClientIP) is a loopback address, AND
-//   - neither X-Forwarded-For nor X-Real-IP is present (i.e., no proxy is
-//     forwarding on behalf of an external client).
-//
-// When a same-host reverse proxy correctly sets forwarded headers, GetClientIP
-// returns the real client IP and isTrulyLocal is false, so rate limiting applies.
-func isTrulyLocal(r *http.Request, clientIP string) bool {
-	ip := net.ParseIP(clientIP)
-	if ip == nil || !ip.IsLoopback() {
-		return false
+// rateLimitKey returns the IP address to use as the rate-limit bucket key.
+// It uses RemoteAddr (the actual TCP connection source, which clients cannot
+// forge) as the primary key. X-Forwarded-For and X-Real-IP are consulted only
+// when RemoteAddr is a loopback address, indicating a same-host reverse proxy
+// that has set the header on behalf of an external client.
+func rateLimitKey(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
 	}
-	// Loopback IP but proxy headers present → external client behind a local proxy.
-	return r.Header.Get("X-Forwarded-For") == "" && r.Header.Get("X-Real-IP") == ""
+	ip := net.ParseIP(host)
+	if ip != nil && ip.IsLoopback() {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			raw := xff
+			if before, _, ok := strings.Cut(xff, ","); ok {
+				raw = before
+			}
+			return stripPort(strings.TrimSpace(raw))
+		}
+		if xri := r.Header.Get("X-Real-IP"); xri != "" {
+			return stripPort(strings.TrimSpace(xri))
+		}
+	}
+	return host
+}
+
+// isLoopbackIP reports whether addr is a loopback address.
+func isLoopbackIP(addr string) bool {
+	ip := net.ParseIP(addr)
+	return ip != nil && ip.IsLoopback()
+}
+
+// statusRecorder wraps http.ResponseWriter to capture the HTTP status code
+// written by the downstream handler.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (s *statusRecorder) WriteHeader(code int) {
+	s.status = code
+	s.ResponseWriter.WriteHeader(code)
 }
