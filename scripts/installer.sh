@@ -19,12 +19,15 @@ ERROR='\033[38;2;196;62;62m'
 MUTED='\033[38;2;120;128;142m'
 NC='\033[0m'
 
-TMPFILES=()
+TMPFILE_REGISTRY="$(mktemp)"
 cleanup_tmpfiles() {
     local f
-    for f in "${TMPFILES[@]:-}"; do
-        rm -rf "$f" 2>/dev/null || true
-    done
+    if [[ -f "$TMPFILE_REGISTRY" ]]; then
+        while IFS= read -r f; do
+            rm -rf "$f" 2>/dev/null || true
+        done <"$TMPFILE_REGISTRY"
+        rm -f "$TMPFILE_REGISTRY" 2>/dev/null || true
+    fi
 }
 trap cleanup_tmpfiles EXIT
 
@@ -36,7 +39,7 @@ mktempdir() {
     else
         d="$(mktemp -d)"
     fi
-    TMPFILES+=("$d")
+    printf '%s\n' "$d" >>"$TMPFILE_REGISTRY"
     printf '%s\n' "$d"
 }
 
