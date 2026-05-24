@@ -4,6 +4,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/subtle"
 	"fmt"
 	"net"
@@ -13,6 +14,21 @@ import (
 	"github.com/dagucloud/dagu/internal/auth"
 	"github.com/dagucloud/dagu/internal/service/frontend/api/pathutil"
 )
+
+// rawRemoteAddrKey is the context key for the pre-RealIP remote address.
+type rawRemoteAddrKey struct{}
+
+// PreserveRawRemoteAddr stores r.RemoteAddr in the request context before
+// chi's middleware.RealIP (or any other middleware) can overwrite it.
+// It must be registered before middleware.RealIP in the middleware chain so
+// that LoginRateLimitMiddleware can derive the rate-limit key from the true
+// TCP source address rather than an attacker-controlled forwarded header.
+func PreserveRawRemoteAddr(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.WithValue(r.Context(), rawRemoteAddrKey{}, r.RemoteAddr)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
 
 // Options configures the authentication middleware.
 type Options struct {

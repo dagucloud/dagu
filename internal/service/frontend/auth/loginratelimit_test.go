@@ -6,6 +6,8 @@ package auth
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,99 +25,113 @@ var okHandler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
 })
 
+func newTestLimiter(maxAttempts int, window time.Duration) *loginRateLimiter {
+	return &loginRateLimiter{
+		failures:    make(map[string][]time.Time),
+		pending:     make(map[string]int),
+		maxAttempts: maxAttempts,
+		window:      window,
+	}
+}
+
 func TestLoginRateLimiter(t *testing.T) {
 	t.Parallel()
 
-	t.Run("not blocked before max failures", func(t *testing.T) {
+	t.Run("not blocked before reaching max failures", func(t *testing.T) {
 		t.Parallel()
-		l := &loginRateLimiter{
-			attempts:    make(map[string][]time.Time),
-			maxAttempts: 3,
-			window:      15 * time.Minute,
-		}
-		for range 3 {
-			l.recordFailure("1.2.3.4")
-		}
-		// 3 failures recorded; isBlocked at exactly maxAttempts should block.
-		blocked, _ := l.isBlocked("1.2.3.4")
-		assert.True(t, blocked, "should be blocked after maxAttempts failures")
-	})
-
-	t.Run("not blocked before reaching max", func(t *testing.T) {
-		t.Parallel()
-		l := &loginRateLimiter{
-			attempts:    make(map[string][]time.Time),
-			maxAttempts: 3,
-			window:      15 * time.Minute,
-		}
+		l := newTestLimiter(3, 15*time.Minute)
 		for range 2 {
-			l.recordFailure("1.2.3.4")
+			ok, _ := l.reserve("1.2.3.4")
+			require.True(t, ok)
+			l.confirmFailure("1.2.3.4")
 		}
-		blocked, _ := l.isBlocked("1.2.3.4")
-		assert.False(t, blocked, "should not be blocked before maxAttempts failures")
+		blocked, _ := l.reserve("1.2.3.4")
+		assert.True(t, blocked, "should be allowed at attempt 3 (not yet blocked)")
+		l.confirmFailure("1.2.3.4")
 	})
 
-	t.Run("blocked after max failures with retry-after", func(t *testing.T) {
+	t.Run("blocked after max failures", func(t *testing.T) {
 		t.Parallel()
-		l := &loginRateLimiter{
-			attempts:    make(map[string][]time.Time),
-			maxAttempts: 3,
-			window:      15 * time.Minute,
-		}
+		l := newTestLimiter(3, 15*time.Minute)
 		for range 3 {
-			l.recordFailure("1.2.3.4")
+			ok, _ := l.reserve("1.2.3.4")
+			require.True(t, ok)
+			l.confirmFailure("1.2.3.4")
 		}
-		blocked, retryAfter := l.isBlocked("1.2.3.4")
-		assert.True(t, blocked)
+		blocked, retryAfter := l.reserve("1.2.3.4")
+		assert.False(t, blocked)
 		assert.Positive(t, retryAfter)
+	})
+
+	t.Run("successful login releases slot without counting failure", func(t *testing.T) {
+		t.Parallel()
+		l := newTestLimiter(3, 15*time.Minute)
+		for range 10 {
+			ok, _ := l.reserve("1.2.3.4")
+			require.True(t, ok, "should never be blocked on successful logins")
+			l.releaseSlot("1.2.3.4") // simulate successful login
+		}
+		blocked, _ := l.reserve("1.2.3.4")
+		assert.True(t, blocked, "successful logins must not consume failure budget")
+	})
+
+	t.Run("pending slots count toward limit to prevent burst bypass", func(t *testing.T) {
+		t.Parallel()
+		l := newTestLimiter(3, 15*time.Minute)
+		// Reserve 3 slots without confirming — simulates concurrent in-flight requests.
+		for range 3 {
+			ok, _ := l.reserve("1.2.3.4")
+			require.True(t, ok)
+		}
+		// A 4th concurrent request must be blocked even though no failure is confirmed.
+		blocked, _ := l.reserve("1.2.3.4")
+		assert.False(t, blocked, "pending slots must count toward limit")
 	})
 
 	t.Run("different IPs have independent limits", func(t *testing.T) {
 		t.Parallel()
-		l := &loginRateLimiter{
-			attempts:    make(map[string][]time.Time),
-			maxAttempts: 2,
-			window:      15 * time.Minute,
-		}
+		l := newTestLimiter(2, 15*time.Minute)
 		for range 2 {
-			l.recordFailure("1.1.1.1")
+			ok, _ := l.reserve("1.1.1.1")
+			require.True(t, ok)
+			l.confirmFailure("1.1.1.1")
 		}
-		blocked1, _ := l.isBlocked("1.1.1.1")
-		blocked2, _ := l.isBlocked("2.2.2.2")
-		assert.True(t, blocked1, "1.1.1.1 should be blocked")
-		assert.False(t, blocked2, "2.2.2.2 should not be blocked")
+		blocked1, _ := l.reserve("1.1.1.1")
+		blocked2, _ := l.reserve("2.2.2.2")
+		assert.False(t, blocked1, "1.1.1.1 should be blocked")
+		assert.True(t, blocked2, "2.2.2.2 should not be blocked")
+		l.releaseSlot("2.2.2.2")
 	})
 
 	t.Run("old failures outside window are pruned", func(t *testing.T) {
 		t.Parallel()
-		l := &loginRateLimiter{
-			attempts:    make(map[string][]time.Time),
-			maxAttempts: 2,
-			window:      time.Second,
-		}
+		l := newTestLimiter(2, time.Second)
 		for range 2 {
-			l.recordFailure("1.2.3.4")
+			ok, _ := l.reserve("1.2.3.4")
+			require.True(t, ok)
+			l.confirmFailure("1.2.3.4")
 		}
-		blocked, _ := l.isBlocked("1.2.3.4")
-		require.True(t, blocked, "should be blocked before window expires")
+		blocked, _ := l.reserve("1.2.3.4")
+		require.False(t, blocked, "should be blocked before window expires")
+		// 4th reserve was blocked, nothing to confirm/release.
 
 		time.Sleep(1100 * time.Millisecond)
 
-		blocked, _ = l.isBlocked("1.2.3.4")
-		assert.False(t, blocked, "should not be blocked after window expires")
+		ok, _ := l.reserve("1.2.3.4")
+		assert.True(t, ok, "should be allowed after window expires")
+		l.releaseSlot("1.2.3.4")
 	})
 
 	t.Run("retry-after points to when oldest failure expires", func(t *testing.T) {
 		t.Parallel()
 		window := 10 * time.Second
-		l := &loginRateLimiter{
-			attempts:    make(map[string][]time.Time),
-			maxAttempts: 1,
-			window:      window,
-		}
-		l.recordFailure("1.2.3.4")
-		blocked, retryAfter := l.isBlocked("1.2.3.4")
-		assert.True(t, blocked)
+		l := newTestLimiter(1, window)
+		ok, _ := l.reserve("1.2.3.4")
+		require.True(t, ok)
+		l.confirmFailure("1.2.3.4")
+
+		blocked, retryAfter := l.reserve("1.2.3.4")
+		assert.False(t, blocked)
 		assert.InDelta(t, window.Seconds(), retryAfter.Seconds(), 1.0)
 	})
 }
@@ -149,14 +165,14 @@ func TestLoginRateLimitMiddleware(t *testing.T) {
 			r.RemoteAddr = "1.2.3.4:1234"
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, r)
-			assert.Equal(t, http.StatusUnauthorized, w.Code, "GET to login path must pass through")
+			assert.Equal(t, http.StatusUnauthorized, w.Code, "GET must pass through")
 		}
 	})
 
 	t.Run("failed logins up to limit are passed through", func(t *testing.T) {
 		t.Parallel()
 		mw := LoginRateLimitMiddleware(loginPath)
-		handler := mw(failHandler) // handler returns 401
+		handler := mw(failHandler)
 
 		for i := range loginMaxAttempts {
 			r := httptest.NewRequest(http.MethodPost, loginPath, nil)
@@ -170,9 +186,8 @@ func TestLoginRateLimitMiddleware(t *testing.T) {
 	t.Run("returns 429 after max failed attempts", func(t *testing.T) {
 		t.Parallel()
 		mw := LoginRateLimitMiddleware(loginPath)
-		handler := mw(failHandler) // handler returns 401
+		handler := mw(failHandler)
 
-		// Exhaust the budget with 401 responses.
 		for range loginMaxAttempts {
 			r := httptest.NewRequest(http.MethodPost, loginPath, nil)
 			r.RemoteAddr = "6.6.6.6:1234"
@@ -193,15 +208,54 @@ func TestLoginRateLimitMiddleware(t *testing.T) {
 	t.Run("successful logins do not consume failure budget", func(t *testing.T) {
 		t.Parallel()
 		mw := LoginRateLimitMiddleware(loginPath)
-		handler := mw(okHandler) // handler returns 200 (successful login)
+		handler := mw(okHandler)
 
 		for range loginMaxAttempts * 3 {
 			r := httptest.NewRequest(http.MethodPost, loginPath, nil)
 			r.RemoteAddr = "7.7.7.7:1234"
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, r)
-			assert.Equal(t, http.StatusOK, w.Code, "successful logins must never trigger rate limit")
+			assert.Equal(t, http.StatusOK, w.Code, "successful logins must not trigger rate limit")
 		}
+	})
+
+	t.Run("concurrent burst requests blocked atomically", func(t *testing.T) {
+		t.Parallel()
+		mw := LoginRateLimitMiddleware(loginPath)
+
+		// Slow handler that gives concurrent requests time to pile up.
+		var started sync.WaitGroup
+		started.Add(loginMaxAttempts)
+		slow := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			started.Done()
+			started.Wait() // hold until all are in-flight
+			w.WriteHeader(http.StatusUnauthorized)
+		})
+		handler := mw(slow)
+
+		results := make([]int, loginMaxAttempts+2)
+		var wg sync.WaitGroup
+		for i := range loginMaxAttempts + 2 {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				r := httptest.NewRequest(http.MethodPost, loginPath, nil)
+				r.RemoteAddr = "9.9.9.9:1234"
+				w := httptest.NewRecorder()
+				handler.ServeHTTP(w, r)
+				results[idx] = w.Code
+			}(i)
+		}
+		wg.Wait()
+
+		tooMany := 0
+		for _, code := range results {
+			if code == http.StatusTooManyRequests {
+				tooMany++
+			}
+		}
+		// At least the overflow requests must be blocked.
+		assert.GreaterOrEqual(t, tooMany, 2, "concurrent burst beyond limit must be blocked")
 	})
 
 	t.Run("loopback never rate-limited", func(t *testing.T) {
@@ -214,16 +268,15 @@ func TestLoginRateLimitMiddleware(t *testing.T) {
 			r.RemoteAddr = "127.0.0.1:1234"
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, r)
-			assert.Equal(t, http.StatusUnauthorized, w.Code, "loopback should never be rate-limited")
+			assert.Equal(t, http.StatusUnauthorized, w.Code, "loopback must never be rate-limited")
 		}
 	})
 
 	t.Run("loopback with forwarded header is rate-limited", func(t *testing.T) {
 		t.Parallel()
 		mw := LoginRateLimitMiddleware(loginPath)
-		handler := mw(failHandler) // handler returns 401
+		handler := mw(failHandler)
 
-		// Same-host proxy scenario: RemoteAddr is loopback, proxy sets X-Forwarded-For.
 		for range loginMaxAttempts {
 			r := httptest.NewRequest(http.MethodPost, loginPath, nil)
 			r.RemoteAddr = "127.0.0.1:1234"
@@ -239,26 +292,39 @@ func TestLoginRateLimitMiddleware(t *testing.T) {
 		assert.Equal(t, http.StatusTooManyRequests, w.Code, "proxied loopback should be rate-limited using forwarded IP")
 	})
 
-	t.Run("spoofed X-Forwarded-For header does not affect key for direct clients", func(t *testing.T) {
+	t.Run("PreserveRawRemoteAddr prevents X-Forwarded-For spoofing", func(t *testing.T) {
 		t.Parallel()
 		mw := LoginRateLimitMiddleware(loginPath)
-		handler := mw(failHandler)
 
-		// Direct client (non-loopback RemoteAddr) tries to evade rate limit by
-		// rotating X-Forwarded-For values. The limiter must use RemoteAddr, not the header.
+		// simulateRealIP mimics chi's middleware.RealIP: rewrites RemoteAddr from XFF.
+		simulateRealIP := func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+					r.RemoteAddr = strings.TrimSpace(strings.Split(xff, ",")[0]) + ":0"
+				}
+				next.ServeHTTP(w, r)
+			})
+		}
+
+		// Correct server chain: PreserveRawRemoteAddr → RealIP → rate limiter → handler.
+		handler := PreserveRawRemoteAddr(simulateRealIP(mw(failHandler)))
+
+		// Attacker from 8.8.8.8 exhausts limit with real TCP connection but
+		// tries to use a different XFF each time. preserveRawRemoteAddr captures
+		// the true RemoteAddr before simulateRealIP overwrites it.
 		for range loginMaxAttempts {
 			r := httptest.NewRequest(http.MethodPost, loginPath, nil)
 			r.RemoteAddr = "8.8.8.8:1234"
-			r.Header.Set("X-Forwarded-For", "1.1.1.1") // spoofed; different each time would still use RemoteAddr
+			r.Header.Set("X-Forwarded-For", "1.1.1.1") // spoofed
 			handler.ServeHTTP(httptest.NewRecorder(), r)
 		}
 
-		// Now try with a different spoofed header — should still be blocked by RemoteAddr.
+		// Different spoofed XFF — should still be blocked because key = 8.8.8.8.
 		r := httptest.NewRequest(http.MethodPost, loginPath, nil)
 		r.RemoteAddr = "8.8.8.8:1234"
 		r.Header.Set("X-Forwarded-For", "9.9.9.9")
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, r)
-		assert.Equal(t, http.StatusTooManyRequests, w.Code, "RemoteAddr key must not be bypassable via X-Forwarded-For")
+		assert.Equal(t, http.StatusTooManyRequests, w.Code, "spoofed XFF must not bypass the limit")
 	})
 }
