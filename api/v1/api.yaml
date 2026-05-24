@@ -175,6 +175,17 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "429":
+          description: "Too many login attempts — rate limit exceeded"
+          headers:
+            Retry-After:
+              description: "Seconds to wait before retrying"
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         default:
           description: "Unexpected error"
           content:

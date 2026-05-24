@@ -1052,19 +1052,22 @@ func buildCurrentExecutable(t *testing.T, root string) string {
 	t.Helper()
 
 	builtExecutableOnce.Do(func() {
-		// Prefer the binary already compiled at the standard output path (e.g. by
-		// "make bin" or the CI build step). Reusing an existing binary avoids a
-		// redundant compilation and — on Windows — prevents Windows Defender from
-		// scanning a freshly-compiled executable for the first time when a test
-		// spawns it as a subprocess, which can add 30–60 s of latency and cause
-		// flaky registration timeouts.
-		prebuilt := filepath.Join(root, ".local", "bin", "dagu")
-		if runtime.GOOS == "windows" {
-			prebuilt += ".exe"
-		}
-		if _, err := os.Stat(prebuilt); err == nil {
-			builtExecutablePath = prebuilt
-			return
+		// On CI the build step already compiles .local/bin/dagu[.exe] from the
+		// current commit before tests run. Reusing that binary avoids a redundant
+		// compilation and — on Windows — prevents Windows Defender from scanning a
+		// freshly-compiled executable on first use, which can add 30–60 s of
+		// latency and cause flaky worker-registration timeouts. We only take this
+		// shortcut under CI=true to avoid using a stale binary during local dev
+		// (where the developer may not have rebuilt after changing cmd/).
+		if os.Getenv("CI") == "true" {
+			prebuilt := filepath.Join(root, ".local", "bin", "dagu")
+			if runtime.GOOS == "windows" {
+				prebuilt += ".exe"
+			}
+			if _, err := os.Stat(prebuilt); err == nil {
+				builtExecutablePath = prebuilt
+				return
+			}
 		}
 
 		tmpDir, err := os.MkdirTemp("", "dagu-test-bin-*")

@@ -182,4 +182,25 @@ func TestLoginRateLimitMiddleware(t *testing.T) {
 			assert.Equal(t, http.StatusOK, w.Code, "loopback should never be rate-limited")
 		}
 	})
+
+	t.Run("loopback with forwarded header is rate-limited", func(t *testing.T) {
+		t.Parallel()
+		mw := LoginRateLimitMiddleware(loginPath)
+		handler := mw(noop)
+
+		// Same-host proxy scenario: RemoteAddr is loopback but proxy sets X-Forwarded-For.
+		for range loginMaxAttempts {
+			r := httptest.NewRequest(http.MethodPost, loginPath, nil)
+			r.RemoteAddr = "127.0.0.1:1234"
+			r.Header.Set("X-Forwarded-For", "203.0.113.1")
+			handler.ServeHTTP(httptest.NewRecorder(), r)
+		}
+
+		r := httptest.NewRequest(http.MethodPost, loginPath, nil)
+		r.RemoteAddr = "127.0.0.1:1234"
+		r.Header.Set("X-Forwarded-For", "203.0.113.1")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		assert.Equal(t, http.StatusTooManyRequests, w.Code, "proxied loopback should be rate-limited using forwarded IP")
+	})
 }

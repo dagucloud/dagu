@@ -19,29 +19,21 @@ const (
 )
 
 // loginRateLimiter tracks login attempts per IP using a sliding window counter.
-// Attempts older than loginWindow are discarded on each check.
+// Stale attempts older than loginWindow are pruned inline on every call to allow(),
+// so no background goroutine is required and instances are safe to create in tests.
 type loginRateLimiter struct {
 	mu          sync.Mutex
 	attempts    map[string][]time.Time
 	maxAttempts int
 	window      time.Duration
-	stop        chan struct{}
 }
 
 func newLoginRateLimiter() *loginRateLimiter {
-	l := &loginRateLimiter{
+	return &loginRateLimiter{
 		attempts:    make(map[string][]time.Time),
 		maxAttempts: loginMaxAttempts,
 		window:      loginWindow,
-		stop:        make(chan struct{}),
 	}
-	go l.cleanup()
-	return l
-}
-
-// Close stops the background cleanup goroutine. Safe to call once.
-func (l *loginRateLimiter) Close() {
-	close(l.stop)
 }
 
 // allow returns true if the IP is within the rate limit.
@@ -73,40 +65,24 @@ func (l *loginRateLimiter) allow(ip string) (bool, time.Duration) {
 	return true, 0
 }
 
-// cleanup periodically removes IPs whose last attempt has expired from the window.
-// It exits when Close is called.
-func (l *loginRateLimiter) cleanup() {
-	ticker := time.NewTicker(l.window)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-l.stop:
-			return
-		case <-ticker.C:
-		}
-		cutoff := time.Now().Add(-l.window)
-		l.mu.Lock()
-		for ip, attempts := range l.attempts {
-			if len(attempts) == 0 || !attempts[len(attempts)-1].After(cutoff) {
-				delete(l.attempts, ip)
-			}
-		}
-		l.mu.Unlock()
-	}
-}
-
 // LoginRateLimitMiddleware returns chi-compatible middleware that rate-limits POST
 // requests to loginPath. Requests to all other paths pass through unaffected.
 // The limiter is created once per middleware instance and shared across requests.
-// Loopback addresses (127.0.0.1, ::1, etc.) are always allowed so that local
-// development and E2E test suites are not affected.
+//
+// Loopback exemption: when the raw TCP connection comes directly from a loopback
+// address (127.0.0.1, ::1, …) and no forwarded-IP header is present, the request
+// is considered local dev/test traffic and is never counted. If a same-host reverse
+// proxy is in use it must set X-Forwarded-For or X-Real-IP so the real client IP
+// is available; without that header the limiter cannot distinguish clients and is
+// intentionally a no-op (the alternative — all users sharing one bucket — would
+// cause false lockouts).
 func LoginRateLimitMiddleware(loginPath string) func(http.Handler) http.Handler {
 	limiter := newLoginRateLimiter()
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method == http.MethodPost && r.URL.Path == loginPath {
 				ip := GetClientIP(r)
-				if !isLoopback(ip) {
+				if !isTrulyLocal(r, ip) {
 					if allowed, retryAfter := limiter.allow(ip); !allowed {
 						secs := max(int(retryAfter.Seconds()), 1)
 						w.Header().Set("Retry-After", strconv.Itoa(secs))
@@ -120,8 +96,19 @@ func LoginRateLimitMiddleware(loginPath string) func(http.Handler) http.Handler 
 	}
 }
 
-// isLoopback reports whether addr is a loopback address.
-func isLoopback(addr string) bool {
-	ip := net.ParseIP(addr)
-	return ip != nil && ip.IsLoopback()
+// isTrulyLocal reports whether a request originates from a loopback address with
+// no upstream proxy involved. It returns true only when:
+//   - the resolved client IP (from GetClientIP) is a loopback address, AND
+//   - neither X-Forwarded-For nor X-Real-IP is present (i.e., no proxy is
+//     forwarding on behalf of an external client).
+//
+// When a same-host reverse proxy correctly sets forwarded headers, GetClientIP
+// returns the real client IP and isTrulyLocal is false, so rate limiting applies.
+func isTrulyLocal(r *http.Request, clientIP string) bool {
+	ip := net.ParseIP(clientIP)
+	if ip == nil || !ip.IsLoopback() {
+		return false
+	}
+	// Loopback IP but proxy headers present → external client behind a local proxy.
+	return r.Header.Get("X-Forwarded-For") == "" && r.Header.Get("X-Real-IP") == ""
 }
