@@ -14,9 +14,10 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/filedagrun"
 	"github.com/dagucloud/dagu/internal/persis/fileproc"
-	"github.com/dagucloud/dagu/internal/persis/filequeue"
+	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/stretchr/testify/require"
 )
@@ -101,7 +102,7 @@ func newHASchedulerFixture(t *testing.T) *haSchedulerFixture {
 		cfg.Paths.DAGRunsDir,
 		filedagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
 	)
-	queueStore := filequeue.New(cfg.Paths.QueueDir)
+	queueStore := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
 	procStore := fileproc.New(
 		cfg.Paths.ProcDir,
 		fileproc.WithHeartbeatInterval(cfg.Proc.HeartbeatInterval),

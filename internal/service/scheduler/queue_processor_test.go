@@ -19,10 +19,11 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/filedagrun"
 	"github.com/dagucloud/dagu/internal/persis/filedistributed"
 	"github.com/dagucloud/dagu/internal/persis/fileproc"
-	"github.com/dagucloud/dagu/internal/persis/filequeue"
+	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/runtime"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -79,7 +80,7 @@ func newQueueFixture(t *testing.T) *queueFixture {
 		dagRunStore:    filedagrun.New(filepath.Join(tmpDir, "dag-runs")),
 		leaseStore:     filedistributed.NewDAGRunLeaseStore(filepath.Join(tmpDir, "distributed")),
 		dispatchStore:  filedistributed.NewDispatchTaskStore(filepath.Join(tmpDir, "distributed")),
-		queueStore:     filequeue.New(filepath.Join(tmpDir, "queue")),
+		queueStore:     store.NewQueueStore(file.NewCollection(filepath.Join(tmpDir, "queue"))),
 		procStore:      fileproc.New(filepath.Join(tmpDir, "proc")),
 	}
 }

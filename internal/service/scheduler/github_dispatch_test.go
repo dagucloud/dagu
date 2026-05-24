@@ -17,11 +17,12 @@ import (
 	coreexec "github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/license"
+	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/filedag"
 	"github.com/dagucloud/dagu/internal/persis/filedagrun"
 	"github.com/dagucloud/dagu/internal/persis/filegithubdispatch"
 	"github.com/dagucloud/dagu/internal/persis/fileproc"
-	"github.com/dagucloud/dagu/internal/persis/filequeue"
+	persiststore "github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -429,7 +430,7 @@ func newDispatchTestEnv(t *testing.T, dagName string) dispatchTestEnv {
 		fileproc.WithHeartbeatSyncInterval(cfg.Proc.HeartbeatSyncInterval),
 		fileproc.WithStaleThreshold(cfg.Proc.StaleThreshold),
 	)
-	queue := filequeue.New(cfg.Paths.QueueDir)
+	queue := persiststore.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
 	runMgr := runtime.NewManager(dagRuns, proc, cfg)
 
 	return dispatchTestEnv{

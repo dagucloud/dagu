@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package store
+package schedulerstore
 
 import (
 	"context"
@@ -88,8 +88,6 @@ func (s *WatermarkStore) Save(ctx context.Context, state *scheduler.SchedulerSta
 	}
 	return nil
 }
-
-// ─── helpers ─────────────────────────────────────────────────────────────────
 
 func watermarkNewEmptyState() *scheduler.SchedulerState {
 	return &scheduler.SchedulerState{

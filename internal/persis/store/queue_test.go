@@ -205,6 +205,7 @@ func TestQueueStore_ReadsLegacyFileQueueItems(t *testing.T) {
 
 	itemPath := filepath.Join(root, queueName, itemFile)
 	require.NoError(t, os.MkdirAll(filepath.Dir(itemPath), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(root, queueName, ".queue-index.json"), []byte(`{"version":1,"high":["`+itemFile+`"]}`), 0o600))
 	require.NoError(t, os.WriteFile(itemPath, []byte(raw), 0o600))
 
 	s := store.NewQueueStore(file.NewCollection(root))
