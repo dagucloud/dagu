@@ -660,6 +660,7 @@ func (l *ConfigLoader) warnIfWeakValue(value string, weakList []string, msg stri
 func (l *ConfigLoader) loadServerDefaults(cfg *Config, def Definition) {
 	cfg.Server.BasePath = cleanServerBasePath(cfg.Server.BasePath)
 	cfg.Server.CheckUpdates = l.v.GetBool("check_updates")
+	cfg.Server.CORSAllowedOrigins = parseStringList(l.v.Get("cors_allowed_origins"))
 
 	cfg.Server.Metrics = MetricsAccessPrivate
 	if def.Metrics != nil {
@@ -1700,6 +1701,7 @@ var envBindings = []envBinding{
 	{key: "debug", env: "DEBUG"},
 	{key: "headless", env: "HEADLESS"},
 	{key: "check_updates", env: "CHECK_UPDATES"},
+	{key: "cors_allowed_origins", env: "CORS_ALLOWED_ORIGINS"},
 	{key: "latest_status_today", env: "LATEST_STATUS_TODAY"},
 	{key: "metrics", env: "SERVER_METRICS"},
 	{key: "cache", env: "CACHE"},

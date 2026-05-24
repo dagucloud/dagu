@@ -15,7 +15,8 @@ type Definition struct {
 	APIBaseURL   string  `mapstructure:"api_base_url"` // Deprecated: use APIBasePath
 	Headless     *bool   `mapstructure:"headless"`
 	CheckUpdates *bool   `mapstructure:"check_updates"`
-	TLS          *TLSDef `mapstructure:"tls"`
+	TLS               *TLSDef  `mapstructure:"tls"`
+	CORSAllowedOrigins []string `mapstructure:"cors_allowed_origins"`
 
 	// Core settings
 	Debug                  bool     `mapstructure:"debug"`

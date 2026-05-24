@@ -1034,12 +1034,17 @@ func (srv *Server) Serve(ctx context.Context) error {
 	}
 	r.Use(middleware.Recoverer)
 	r.Use(securityHeadersMiddleware(srv.config.Server.TLS != nil))
+	corsOrigins := srv.config.Server.CORSAllowedOrigins
+	allowCredentials := len(corsOrigins) > 0
+	if !allowCredentials {
+		corsOrigins = []string{"*"}
+	}
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"*"},
+		AllowedOrigins:   corsOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Content-Type", "Authorization", "Content-Encoding", "Accept", "MCP-Protocol-Version", "Mcp-Session-Id", "Last-Event-ID"},
 		ExposedHeaders:   []string{"Mcp-Session-Id"},
-		AllowCredentials: true,
+		AllowCredentials: allowCredentials,
 		MaxAge:           300,
 	}))
 	r.Use(middleware.RedirectSlashes)
