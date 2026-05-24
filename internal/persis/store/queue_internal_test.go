@@ -92,6 +92,7 @@ func TestPollingQueueWatcherPublishesAndStops(t *testing.T) {
 	t.Parallel()
 
 	watcher := newPollingQueueWatcher(time.Millisecond)
+	//nolint:staticcheck // The watcher accepts nil and normalizes it to context.Background.
 	notifyCh, err := watcher.Start(nil)
 	require.NoError(t, err)
 
@@ -103,6 +104,7 @@ func TestPollingQueueWatcherPublishesAndStops(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
+		//nolint:staticcheck // Stop also accepts nil and normalizes it to context.Background.
 		watcher.Stop(nil)
 		watcher.Stop(context.Background())
 		close(done)
