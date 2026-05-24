@@ -21,7 +21,6 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/filedag"
 	"github.com/dagucloud/dagu/internal/persis/filedagrun"
 	"github.com/dagucloud/dagu/internal/persis/filegithubdispatch"
-	"github.com/dagucloud/dagu/internal/persis/fileproc"
 	persiststore "github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/stretchr/testify/assert"
@@ -424,12 +423,7 @@ func newDispatchTestEnv(t *testing.T, dagName string) dispatchTestEnv {
 		filedagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
 		filedagrun.WithLocation(time.UTC),
 	)
-	proc := fileproc.New(
-		cfg.Paths.ProcDir,
-		fileproc.WithHeartbeatInterval(cfg.Proc.HeartbeatInterval),
-		fileproc.WithHeartbeatSyncInterval(cfg.Proc.HeartbeatSyncInterval),
-		fileproc.WithStaleThreshold(cfg.Proc.StaleThreshold),
-	)
+	proc := newSchedulerTestProcStore(cfg.Paths.ProcDir, cfg)
 	queue := persiststore.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
 	runMgr := runtime.NewManager(dagRuns, proc, cfg)
 

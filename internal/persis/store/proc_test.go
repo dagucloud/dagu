@@ -1,0 +1,318 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package store_test
+
+import (
+	"context"
+	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/persis"
+	"github.com/dagucloud/dagu/internal/persis/file"
+	"github.com/dagucloud/dagu/internal/persis/store"
+	"github.com/dagucloud/dagu/internal/persis/testutil"
+)
+
+func newProcStore(t *testing.T, opts ...store.ProcStoreOption) *store.ProcStore {
+	t.Helper()
+	return store.NewProcStore(testutil.NewMemoryBackend().Collection("proc_entries"), opts...)
+}
+
+func procMeta(ref exec.DAGRunRef) exec.ProcMeta {
+	return exec.ProcMeta{
+		StartedAt:    time.Now().UTC().Unix(),
+		Name:         ref.Name,
+		DAGRunID:     ref.ID,
+		AttemptID:    "attempt_" + ref.ID,
+		RootName:     ref.Name,
+		RootDAGRunID: ref.ID,
+	}
+}
+
+func TestProcStoreAcquireStop(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := newProcStore(t)
+	ref := exec.NewDAGRunRef("proc-dag", "run-1")
+
+	proc, err := s.Acquire(ctx, "queue-a", procMeta(ref))
+	require.NoError(t, err)
+
+	count, err := s.CountAlive(ctx, "queue-a")
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+
+	entries, err := s.ListEntries(ctx, "queue-a")
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.True(t, entries[0].Fresh)
+	assert.Equal(t, ref, entries[0].DAGRun())
+	assert.NotEmpty(t, entries[0].FilePath)
+
+	require.NoError(t, proc.Stop(ctx))
+
+	count, err = s.CountAlive(ctx, "queue-a")
+	require.NoError(t, err)
+	assert.Equal(t, 0, count)
+}
+
+func TestProcStoreHeartbeatAdvances(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := newProcStore(t,
+		store.WithProcHeartbeatInterval(10*time.Millisecond),
+		store.WithProcHeartbeatSyncInterval(10*time.Millisecond),
+	)
+	ref := exec.NewDAGRunRef("heartbeat-dag", "run-1")
+
+	proc, err := s.Acquire(ctx, "queue-a", procMeta(ref))
+	require.NoError(t, err)
+	defer func() { _ = proc.Stop(ctx) }()
+
+	first, err := s.LatestFreshEntryByDAGName(ctx, "queue-a", "heartbeat-dag")
+	require.NoError(t, err)
+	require.NotNil(t, first)
+
+	timeout := time.Until(time.Unix(first.LastHeartbeatAt+1, 0).Add(500 * time.Millisecond))
+	if timeout < 500*time.Millisecond {
+		timeout = 500 * time.Millisecond
+	}
+	require.Eventually(t, func() bool {
+		next, err := s.LatestFreshEntryByDAGName(ctx, "queue-a", "heartbeat-dag")
+		require.NoError(t, err)
+		return next != nil && next.LastHeartbeatAt > first.LastHeartbeatAt
+	}, timeout, 10*time.Millisecond)
+}
+
+func TestProcHandleRemovesEntryWhenContextCanceled(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	s := newProcStore(t,
+		store.WithProcHeartbeatInterval(time.Hour),
+		store.WithProcStaleThreshold(time.Hour),
+	)
+	ref := exec.NewDAGRunRef("cancel-dag", "run-1")
+
+	_, err := s.Acquire(ctx, "queue-a", procMeta(ref))
+	require.NoError(t, err)
+
+	count, err := s.CountAlive(context.Background(), "queue-a")
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
+
+	cancel()
+
+	require.Eventually(t, func() bool {
+		count, err := s.CountAlive(context.Background(), "queue-a")
+		require.NoError(t, err)
+		return count == 0
+	}, time.Second, 10*time.Millisecond)
+}
+
+func TestProcStoreAcquireCleansRecordWhenLegacyWriteFails(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	legacyRoot := filepath.Join(t.TempDir(), "legacy-root")
+	require.NoError(t, os.WriteFile(legacyRoot, []byte("not a directory"), 0o600))
+	col := testutil.NewMemoryBackend().Collection("proc_entries")
+	s := store.NewProcStore(col, store.WithProcLegacyDir(legacyRoot))
+	ref := exec.NewDAGRunRef("failed-legacy-dag", "run-1")
+
+	proc, err := s.Acquire(ctx, "queue-a", procMeta(ref))
+	require.Error(t, err)
+	require.Nil(t, proc)
+
+	page, listErr := col.List(ctx, persis.ListQuery{Prefix: "queue-a/"})
+	require.NoError(t, listErr)
+	assert.Empty(t, page.Records)
+}
+
+func TestProcStoreRemoveIfStale(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := newProcStore(t,
+		store.WithProcStaleThreshold(20*time.Millisecond),
+		store.WithProcHeartbeatInterval(time.Hour),
+	)
+	ref := exec.NewDAGRunRef("stale-dag", "run-1")
+
+	proc, err := s.Acquire(ctx, "queue-a", procMeta(ref))
+	require.NoError(t, err)
+	defer func() { _ = proc.Stop(ctx) }()
+
+	var stale exec.ProcEntry
+	require.Eventually(t, func() bool {
+		entries, err := s.ListEntries(ctx, "queue-a")
+		require.NoError(t, err)
+		if len(entries) != 1 || entries[0].Fresh {
+			return false
+		}
+		stale = entries[0]
+		return true
+	}, time.Second, 10*time.Millisecond)
+
+	require.NoError(t, s.RemoveIfStale(ctx, stale))
+
+	entries, err := s.ListEntries(ctx, "queue-a")
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}
+
+func TestProcStoreLatestFreshEntryByDAGName(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := newProcStore(t)
+
+	older := procMeta(exec.NewDAGRunRef("latest-dag", "run-older"))
+	older.StartedAt = 100
+	newer := procMeta(exec.NewDAGRunRef("latest-dag", "run-newer"))
+	newer.StartedAt = 200
+
+	proc1, err := s.Acquire(ctx, "queue-a", older)
+	require.NoError(t, err)
+	defer func() { _ = proc1.Stop(ctx) }()
+	proc2, err := s.Acquire(ctx, "queue-a", newer)
+	require.NoError(t, err)
+	defer func() { _ = proc2.Stop(ctx) }()
+
+	entry, err := s.LatestFreshEntryByDAGName(ctx, "queue-a", "latest-dag")
+	require.NoError(t, err)
+	require.NotNil(t, entry)
+	assert.Equal(t, "run-newer", entry.Meta.DAGRunID)
+}
+
+func TestProcStoreFileBackendWritesLegacySidecar(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	s := store.NewProcStore(file.NewCollection(root),
+		store.WithProcLegacyDir(root),
+		store.WithProcHeartbeatInterval(10*time.Millisecond),
+		store.WithProcHeartbeatSyncInterval(10*time.Millisecond),
+	)
+	ref := exec.NewDAGRunRef("sidecar-dag", "run-1")
+
+	proc, err := s.Acquire(ctx, "queue-a", procMeta(ref))
+	require.NoError(t, err)
+
+	procFile := waitForLegacyProcFile(t, root, "queue-a", "sidecar-dag")
+	requireLegacyHeartbeatAdvance(t, procFile)
+
+	count, err := s.CountAlive(ctx, "queue-a")
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+
+	require.NoError(t, proc.Stop(ctx))
+
+	matches, err := filepath.Glob(filepath.Join(root, "queue-a", "sidecar-dag", "proc_*.proc"))
+	require.NoError(t, err)
+	assert.Empty(t, matches)
+}
+
+func TestProcStoreReadsAndRemovesLegacyProcFiles(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	ref := exec.NewDAGRunRef("legacy-dag", "run-1")
+	meta := procMeta(ref)
+	legacyFile := writeLegacyProcFile(t, root, "queue-a", meta, time.Now().Add(-time.Hour))
+
+	s := store.NewProcStore(file.NewCollection(root),
+		store.WithProcLegacyDir(root),
+		store.WithProcStaleThreshold(10*time.Millisecond),
+	)
+
+	entries, err := s.ListEntries(ctx, "queue-a")
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.False(t, entries[0].Fresh)
+	assert.Equal(t, legacyFile, entries[0].FilePath)
+
+	require.NoError(t, s.RemoveIfStale(ctx, entries[0]))
+
+	_, err = os.Stat(legacyFile)
+	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func waitForLegacyProcFile(t *testing.T, root, groupName, dagName string) string {
+	t.Helper()
+
+	var match string
+	require.Eventually(t, func() bool {
+		matches, err := filepath.Glob(filepath.Join(root, groupName, dagName, "proc_*.proc"))
+		require.NoError(t, err)
+		if len(matches) == 0 {
+			return false
+		}
+		match = matches[0]
+		return true
+	}, time.Second, 10*time.Millisecond)
+	return match
+}
+
+func requireLegacyHeartbeatAdvance(t *testing.T, procFile string) {
+	t.Helper()
+
+	initialValue, initialModTime := readLegacyHeartbeat(t, procFile)
+	require.Eventually(t, func() bool {
+		value, modTime := readLegacyHeartbeat(t, procFile)
+		return value > initialValue || modTime.After(initialModTime)
+	}, time.Second, 10*time.Millisecond)
+}
+
+func readLegacyHeartbeat(t *testing.T, procFile string) (int64, time.Time) {
+	t.Helper()
+
+	data, err := os.ReadFile(procFile) //nolint:gosec // test reads its temp directory.
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(data), 8)
+	info, err := os.Stat(procFile)
+	require.NoError(t, err)
+	return int64(binary.BigEndian.Uint64(data[:8])), info.ModTime()
+}
+
+func writeLegacyProcFile(t *testing.T, root, groupName string, meta exec.ProcMeta, heartbeatAt time.Time) string {
+	t.Helper()
+
+	dir := filepath.Join(root, groupName, meta.Name)
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	fileName := "proc_" + heartbeatAt.UTC().Format("20060102_150405") + "Z_" +
+		hex.EncodeToString([]byte(meta.DAGRunID)) + "_" +
+		hex.EncodeToString([]byte(meta.AttemptID)) + ".proc"
+	procFile := filepath.Join(dir, fileName)
+
+	payload, err := json.Marshal(map[string]any{
+		"version":         1,
+		"dag_name":        meta.Name,
+		"dag_run_id":      meta.DAGRunID,
+		"attempt_id":      meta.AttemptID,
+		"root_name":       meta.RootName,
+		"root_dag_run_id": meta.RootDAGRunID,
+		"started_at":      meta.StartedAt,
+	})
+	require.NoError(t, err)
+	data := make([]byte, 8+len(payload))
+	binary.BigEndian.PutUint64(data[:8], uint64(heartbeatAt.Unix())) //nolint:gosec // test timestamp.
+	copy(data[8:], payload)
+	require.NoError(t, os.WriteFile(procFile, data, 0o600))
+	require.NoError(t, os.Chtimes(procFile, heartbeatAt, heartbeatAt))
+	return procFile
+}

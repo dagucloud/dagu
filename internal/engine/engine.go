@@ -15,10 +15,11 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/core"
 	coreexec "github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/filedag"
 	"github.com/dagucloud/dagu/internal/persis/filedagrun"
-	"github.com/dagucloud/dagu/internal/persis/fileproc"
 	"github.com/dagucloud/dagu/internal/persis/fileserviceregistry"
+	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/workspace"
@@ -60,11 +61,12 @@ func New(ctx context.Context, opts Options) (*Engine, error) {
 		return nil, fmt.Errorf("create artifact directory: %w", err)
 	}
 
-	procStore := fileproc.New(
-		cfg.Paths.ProcDir,
-		fileproc.WithStaleThreshold(cfg.Proc.StaleThreshold),
-		fileproc.WithHeartbeatInterval(cfg.Proc.HeartbeatInterval),
-		fileproc.WithHeartbeatSyncInterval(cfg.Proc.HeartbeatSyncInterval),
+	procStore := store.NewProcStore(
+		file.NewCollection(cfg.Paths.ProcDir),
+		store.WithProcStaleThreshold(cfg.Proc.StaleThreshold),
+		store.WithProcHeartbeatInterval(cfg.Proc.HeartbeatInterval),
+		store.WithProcHeartbeatSyncInterval(cfg.Proc.HeartbeatSyncInterval),
+		store.WithProcLegacyDir(cfg.Paths.ProcDir),
 	)
 	if err := procStore.Validate(ctx); err != nil {
 		return nil, err

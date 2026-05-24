@@ -37,7 +37,6 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/filedistributed"
 	"github.com/dagucloud/dagu/internal/persis/fileeventstore"
 	"github.com/dagucloud/dagu/internal/persis/filelicense"
-	"github.com/dagucloud/dagu/internal/persis/fileproc"
 	"github.com/dagucloud/dagu/internal/persis/fileserviceregistry"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/runtime"
@@ -331,10 +330,11 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		hrOpts = append(hrOpts, filedagrun.WithHistoryFileCache(hc))
 	}
 
-	ps := fileproc.New(cfg.Paths.ProcDir,
-		fileproc.WithStaleThreshold(cfg.Proc.StaleThreshold),
-		fileproc.WithHeartbeatInterval(cfg.Proc.HeartbeatInterval),
-		fileproc.WithHeartbeatSyncInterval(cfg.Proc.HeartbeatSyncInterval),
+	ps := store.NewProcStore(file.NewCollection(cfg.Paths.ProcDir),
+		store.WithProcStaleThreshold(cfg.Proc.StaleThreshold),
+		store.WithProcHeartbeatInterval(cfg.Proc.HeartbeatInterval),
+		store.WithProcHeartbeatSyncInterval(cfg.Proc.HeartbeatSyncInterval),
+		store.WithProcLegacyDir(cfg.Paths.ProcDir),
 	)
 	if err := ps.Validate(ctx); err != nil {
 		return nil, fmt.Errorf("failed to validate proc directory %s: %w", cfg.Paths.ProcDir, err)

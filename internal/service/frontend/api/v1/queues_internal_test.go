@@ -16,7 +16,6 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/filedagrun"
 	"github.com/dagucloud/dagu/internal/persis/filedistributed"
-	"github.com/dagucloud/dagu/internal/persis/fileproc"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,7 +28,7 @@ func TestGetQueueFiltersDistributedRunsByLeaseFreshness(t *testing.T) {
 	tmpDir := t.TempDir()
 	dagRunStore := filedagrun.New(filepath.Join(tmpDir, "dag-runs"))
 	leaseStore := filedistributed.NewDAGRunLeaseStore(filepath.Join(tmpDir, "distributed"))
-	procStore := fileproc.New(filepath.Join(tmpDir, "proc"))
+	procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
 
 	createDistributedQueueRun(t, ctx, dagRunStore, leaseStore, "lease-q", "fresh-run", "lease-q", time.Now())
 	createDistributedQueueRun(t, ctx, dagRunStore, leaseStore, "lease-q", "stale-run", "lease-q", time.Now().Add(-2*time.Minute))
@@ -61,7 +60,7 @@ func TestGetQueueFallsBackToDAGNameWhenLeaseQueueIsEmpty(t *testing.T) {
 	tmpDir := t.TempDir()
 	dagRunStore := filedagrun.New(filepath.Join(tmpDir, "dag-runs"))
 	leaseStore := filedistributed.NewDAGRunLeaseStore(filepath.Join(tmpDir, "distributed"))
-	procStore := fileproc.New(filepath.Join(tmpDir, "proc"))
+	procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
 
 	createDistributedQueueRun(t, ctx, dagRunStore, leaseStore, "fallback-q", "fresh-run", "", time.Now())
 
@@ -103,7 +102,7 @@ func TestGetQueueCountsFreshLeaseForClaimedAttemptAsRunning(t *testing.T) {
 			tmpDir := t.TempDir()
 			dagRunStore := filedagrun.New(filepath.Join(tmpDir, "dag-runs"))
 			leaseStore := filedistributed.NewDAGRunLeaseStore(filepath.Join(tmpDir, "distributed"))
-			procStore := fileproc.New(filepath.Join(tmpDir, "proc"))
+			procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
 
 			createDistributedQueueRunWithStatus(t, ctx, dagRunStore, leaseStore, "lease-q", "claimed-run", "lease-q", time.Now(), tt.status)
 
@@ -138,7 +137,7 @@ func TestGetQueueCountsQueuedItemsSeparatelyFromRunningItems(t *testing.T) {
 	dagRunStore := filedagrun.New(filepath.Join(tmpDir, "dag-runs"))
 	leaseStore := filedistributed.NewDAGRunLeaseStore(filepath.Join(tmpDir, "distributed"))
 	queueStore := store.NewQueueStore(file.NewCollection(filepath.Join(tmpDir, "queue")))
-	procStore := fileproc.New(filepath.Join(tmpDir, "proc"))
+	procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
 
 	createDistributedQueueRun(t, ctx, dagRunStore, leaseStore, "mixed-q", "running-run", "mixed-q", time.Now())
 	createQueuedQueueRun(t, ctx, dagRunStore, queueStore, "mixed-q", "queued-run", core.Queued)
@@ -170,7 +169,7 @@ func TestListQueueItemsUsesCursorPaginationAndSkipsRunningEntries(t *testing.T) 
 	tmpDir := t.TempDir()
 	dagRunStore := filedagrun.New(filepath.Join(tmpDir, "dag-runs"))
 	queueStore := store.NewQueueStore(file.NewCollection(filepath.Join(tmpDir, "queue")))
-	procStore := fileproc.New(filepath.Join(tmpDir, "proc"))
+	procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
 
 	createQueuedQueueRun(t, ctx, dagRunStore, queueStore, "cursor-q", "run-1", core.Queued)
 	createQueuedQueueRun(t, ctx, dagRunStore, queueStore, "cursor-q", "run-2", core.Running)
