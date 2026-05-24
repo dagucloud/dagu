@@ -147,7 +147,7 @@
 
   <!-- Current architecture diagram -->
   <div class="bg-white rounded-xl border border-slate-200 p-8">
-    <h3 class="font-semibold text-slate-700 mb-6 text-center">Current Architecture — Each Store Owns Its Own File I/O</h3>
+    <h3 class="font-semibold text-slate-700 mb-6 text-center">Original Architecture — Each Store Owned Its Own File I/O</h3>
     <div class="mermaid">
 graph TB
   subgraph App["Application Layer"]
@@ -162,7 +162,7 @@ graph TB
 
   subgraph Stores["30 File Stores  ·  internal/persis/"]
     FDR["filedagrun\n~1,400 lines"]
-    FQ["filequeue\n~350 lines"]
+    FQ["filequeue\nremoved"]
     FP["fileproc\n~300 lines"]
     FD["filedistributed\n~600 lines"]
     FU["fileuser\n~250 lines"]
@@ -367,7 +367,7 @@ graph TB
           <!-- Stores grid -->
           <div class="grid grid-cols-3 gap-2 mb-4">
             <div class="bg-red-200 border border-red-300 rounded p-2 text-center text-xs font-mono">filedagrun<br/><span class="text-red-600">1,400 ln</span></div>
-            <div class="bg-red-200 border border-red-300 rounded p-2 text-center text-xs font-mono">filequeue<br/><span class="text-red-600">350 ln</span></div>
+            <div class="bg-red-200 border border-red-300 rounded p-2 text-center text-xs font-mono">filequeue<br/><span class="text-red-600">removed</span></div>
             <div class="bg-red-200 border border-red-300 rounded p-2 text-center text-xs font-mono">fileproc<br/><span class="text-red-600">300 ln</span></div>
             <div class="bg-red-200 border border-red-300 rounded p-2 text-center text-xs font-mono">fileuser<br/><span class="text-red-600">250 ln</span></div>
             <div class="bg-red-200 border border-red-300 rounded p-2 text-center text-xs font-mono">filesecret<br/><span class="text-red-600">200 ln</span></div>
@@ -691,7 +691,7 @@ graph TB
         <div class="text-slate-400">internal/persis/</div>
         <div class="ml-4 text-red-500">filedag/ <span class="text-slate-400 ml-1">(dag YAML — not changing)</span></div>
         <div class="ml-4 text-red-400">filedagrun/ <span class="text-slate-400 ml-1">1,400 ln impl</span></div>
-        <div class="ml-4 text-red-400">filequeue/ <span class="text-slate-400 ml-1">350 ln impl</span></div>
+        <div class="ml-4 text-red-400">filequeue/ <span class="text-slate-400 ml-1">removed after queue port</span></div>
         <div class="ml-4 text-red-400">fileproc/ <span class="text-slate-400 ml-1">300 ln impl</span></div>
         <div class="ml-4 text-red-400">filedistributed/ <span class="text-slate-400 ml-1">600 ln impl</span></div>
         <div class="ml-4 text-red-400">fileuser/ <span class="text-slate-400 ml-1">250 ln impl</span></div>
@@ -730,7 +730,7 @@ graph TB
         <div class="ml-6 text-green-600">✅ webhook.go <span class="text-slate-400 ml-1">319 ln</span></div>
         <div class="ml-6 text-green-600">✅ watermark.go <span class="text-slate-400 ml-1">122 ln</span></div>
         <div class="ml-6 text-green-600">✅ workerheartbeat.go <span class="text-slate-400 ml-1">168 ln</span></div>
-        <div class="ml-6 text-red-400">⏳ queue/ <span class="text-slate-400 ml-1">pending</span></div>
+        <div class="ml-6 text-green-600">✅ queue*.go <span class="text-slate-400 ml-1">collection-backed QueueStore; filequeue removed</span></div>
         <div class="ml-6 text-red-400">⏳ proc/ <span class="text-slate-400 ml-1">pending</span></div>
         <div class="ml-6 text-red-400">⏳ distributed/ <span class="text-slate-400 ml-1">pending</span></div>
         <div class="ml-6 text-red-400">⏳ dagrun/ <span class="text-slate-400 ml-1">pending (most complex)</span></div>
@@ -756,7 +756,7 @@ graph TB
         <div class="bg-slate-900 rounded-lg p-4 overflow-x-auto">
           <pre class="text-xs text-slate-300"><span class="cm">// context.go — NewContext()</span>
 drs := filedagrun.<span class="fn">New</span>(cfg.Paths.DAGRunsDir, ...)
-qs  := filequeue.<span class="fn">New</span>(cfg.Paths.QueueDir)
+<span class="cm">// queue had its own file-backed constructor here; that package is now removed</span>
 ps  := fileproc.<span class="fn">New</span>(cfg.Paths.ProcDir, ...)
 sm  := fileserviceregistry.<span class="fn">New</span>(cfg.Paths.ServiceRegistryDir)
 dls := filedistributed.<span class="fn">NewDAGRunLeaseStore</span>(...)
@@ -769,22 +769,15 @@ ss  := filesecret.<span class="fn">New</span>(cfg.Paths.SecretsDir, ...)
         </div>
       </div>
       <div>
-        <p class="text-xs font-mono text-green-500 mb-2">AFTER — one backend, named collections</p>
+        <p class="text-xs font-mono text-green-500 mb-2">AFTER — current transitional wiring</p>
         <div class="bg-slate-900 rounded-lg p-4 overflow-x-auto">
           <pre class="text-xs text-slate-300"><span class="cm">// context.go — NewContext()</span>
-backend := file.<span class="fn">NewBackend</span>(cfg.Paths.DataDir)
-
-drs := dagrun.<span class="fn">NewStore</span>(
-  backend.<span class="fn">Collection</span>(<span class="st">"dag_runs"</span>))
-qs  := queue.<span class="fn">NewStore</span>(
-  backend.<span class="fn">Collection</span>(<span class="st">"queue_items"</span>))
-ps  := proc.<span class="fn">NewStore</span>(
-  backend.<span class="fn">Collection</span>(<span class="st">"proc_entries"</span>))
-us  := user.<span class="fn">NewStore</span>(
-  backend.<span class="fn">Collection</span>(<span class="st">"users"</span>))
-ss  := secret.<span class="fn">NewStore</span>(
-  backend.<span class="fn">Collection</span>(<span class="st">"secrets"</span>), encryptor)
-<span class="cm">// future: backend = pg.NewBackend(cfg.DB.DSN)</span></pre>
+drs := filedagrun.<span class="fn">New</span>(cfg.Paths.DAGRunsDir, ...)
+qs  := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
+ps  := fileproc.<span class="fn">New</span>(cfg.Paths.ProcDir, ...)
+us  := store.<span class="fn">NewUserStore</span>(file.<span class="fn">NewCollection</span>(cfg.Paths.UsersDir), ...)
+ss  := store.<span class="fn">NewSecretStore</span>(file.<span class="fn">NewCollection</span>(cfg.Paths.SecretsDir), encryptor)
+<span class="cm">// remaining stores move one at a time until context.go can use one backend</span></pre>
         </div>
       </div>
     </div>
@@ -945,7 +938,7 @@ graph LR
   A["✅ Step 1\nDefine interfaces\npersis/backend.go\npersis/codec.go\npersis/errors.go"] -->
   B["✅ Step 2\nFileBackend\npersis/file/\nbackend.go + collection.go\n480 ln total"] -->
   C["✅ Step 3\nPort stores\napikey, webhook, user\nsecret, session\nwatermark, workerheartbeat"] -->
-  D["⏳ Step 4\nPort complex stores\nqueue, proc,\ndistributed"] -->
+  D["⏳ Step 4\nPort complex stores\nqueue ✅\nproc, distributed"] -->
   E["⏳ Step 5\nPort dagrun store\n(most complex)"] -->
   F["⏳ Step 6\nRemove file*/ packages\nUnify context.go\nwiring"] -->
   G["✅ Step 7\nMemoryBackend\npersis/testutil/\nmemory.go 217 ln"]
@@ -990,7 +983,7 @@ graph LR
 
     <p class="text-slate-300 text-lg mb-8 max-w-3xl">
       The seam exists. <code class="text-sm bg-white/10 px-1 rounded">persis.Backend</code> and <code class="text-sm bg-white/10 px-1 rounded">persis.Collection</code> are live.
-      Seven store adapters are ported. The three heaviest stores — queue, proc, distributed, and dagrun — remain on the old file* packages.
+      Eight store adapters are ported. Queue now uses <code class="text-sm bg-white/10 px-1 rounded">store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))</code>, and the old <code class="text-sm bg-white/10 px-1 rounded">filequeue</code> package is removed. Proc, distributed, and dagrun remain on the old file* packages.
     </p>
 
     <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
@@ -1001,13 +994,13 @@ graph LR
       </div>
       <div class="bg-green-900/40 border border-green-600/40 rounded-xl p-5">
         <p class="text-sm font-semibold text-green-300 mb-2">Stores ported</p>
-        <p class="text-3xl font-bold text-green-400">7</p>
-        <p class="text-sm text-slate-400 mt-1">apikey, secret, session, user, webhook, watermark, workerheartbeat</p>
+        <p class="text-3xl font-bold text-green-400">8</p>
+        <p class="text-sm text-slate-400 mt-1">apikey, secret, session, user, webhook, watermark, workerheartbeat, queue</p>
       </div>
       <div class="bg-amber-900/40 border border-amber-600/40 rounded-xl p-5">
         <p class="text-sm font-semibold text-amber-300 mb-2">Stores remaining</p>
-        <p class="text-3xl font-bold text-amber-400">4+</p>
-        <p class="text-sm text-slate-400 mt-1">queue, proc, distributed, dagrun (+ others)</p>
+        <p class="text-3xl font-bold text-amber-400">3+</p>
+        <p class="text-sm text-slate-400 mt-1">proc, distributed, dagrun (+ others)</p>
       </div>
       <div class="bg-white/10 rounded-xl p-5">
         <p class="text-sm font-semibold text-slate-200 mb-2">Backend surface</p>
@@ -1025,13 +1018,13 @@ graph LR
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/errors.go</code> — ErrNotFound, ErrConflict</li>
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/file/</code> — FileBackend + FileCollection (480 ln)</li>
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/testutil/memory.go</code> — MemoryBackend (217 ln)</li>
-          <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/store/</code> — 7 ported adapters with tests</li>
+          <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/store/</code> — 8 ported adapters with tests, including queue</li>
+          <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">internal/persis/filequeue</code> — removed after queue wiring moved to <code class="text-xs bg-white/10 px-1 rounded">store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))</code></li>
         </ol>
       </div>
       <div class="bg-amber-900/20 border border-amber-600/30 rounded-xl p-6">
         <p class="text-sm font-semibold text-amber-300 mb-3">⏳ Next — Phase 2</p>
         <ol class="text-sm text-slate-300 space-y-2">
-          <li><span class="text-amber-400 font-bold">4.</span> Port <code class="text-xs bg-white/10 px-1 rounded">filequeue</code> → <code class="text-xs bg-white/10 px-1 rounded">store/queue</code> (Claim = atomic dequeue)</li>
           <li><span class="text-amber-400 font-bold">4.</span> Port <code class="text-xs bg-white/10 px-1 rounded">fileproc</code> → <code class="text-xs bg-white/10 px-1 rounded">store/proc</code> (ExpiresAt-based TTL)</li>
           <li><span class="text-amber-400 font-bold">4.</span> Port <code class="text-xs bg-white/10 px-1 rounded">filedistributed</code> → <code class="text-xs bg-white/10 px-1 rounded">store/distributed</code> (lease + task stores)</li>
           <li><span class="text-amber-400 font-bold">5.</span> Port <code class="text-xs bg-white/10 px-1 rounded">filedagrun</code> → <code class="text-xs bg-white/10 px-1 rounded">store/dagrun</code> (most complex — CAS on status)</li>

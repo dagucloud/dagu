@@ -70,6 +70,18 @@ func TestQueueStore_EnqueueListAndDequeue(t *testing.T) {
 	assert.ErrorIs(t, err, exec.ErrQueueEmpty)
 }
 
+func TestQueueStore_EnqueueRejectsInvalidInputs(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := newQueueStore(t)
+
+	assert.ErrorContains(t, s.Enqueue(ctx, "", exec.QueuePriorityLow, queueRef("dag", "run")), "queue name is required")
+	assert.ErrorContains(t, s.Enqueue(ctx, "main", exec.QueuePriorityLow, queueRef("", "run")), "dag-run reference is required")
+	assert.ErrorContains(t, s.Enqueue(ctx, "main", exec.QueuePriorityLow, queueRef("dag", "")), "dag-run reference is required")
+	assert.ErrorContains(t, s.Enqueue(ctx, "main", exec.QueuePriority(99), queueRef("dag", "run")), "invalid queue priority")
+}
+
 func TestQueueStore_ListCursor(t *testing.T) {
 	t.Parallel()
 
@@ -134,6 +146,36 @@ func TestQueueStore_DequeueByDAGRunIDAndDeleteByItemIDs(t *testing.T) {
 	assert.ErrorIs(t, err, exec.ErrQueueItemNotFound)
 }
 
+func TestQueueStore_DeleteByItemIDsNormalizesFilePaths(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := newQueueStore(t)
+
+	require.NoError(t, s.Enqueue(ctx, "main", exec.QueuePriorityLow, queueRef("dag", "run")))
+	items, err := s.List(ctx, "main")
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+
+	deleted, err := s.DeleteByItemIDs(ctx, "main", []string{
+		filepath.Join("ignored", items[0].ID()+".json"),
+		" ",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, deleted)
+
+	n, err := s.Len(ctx, "main")
+	require.NoError(t, err)
+	assert.Zero(t, n)
+}
+
+func TestQueueStore_QueueWatcher(t *testing.T) {
+	t.Parallel()
+
+	s := newQueueStore(t)
+	assert.NotNil(t, s.QueueWatcher(context.Background()))
+}
+
 func TestQueueStore_AllQueueListAndListByDAGName(t *testing.T) {
 	t.Parallel()
 
@@ -151,6 +193,12 @@ func TestQueueStore_AllQueueListAndListByDAGName(t *testing.T) {
 	byDAG, err := s.ListByDAGName(ctx, "queue-a", "dag-shared")
 	require.NoError(t, err)
 	require.Len(t, byDAG, 2)
+	assert.Equal(t, queueRef("dag-shared", "run-a-high"), requireQueuedRef(t, byDAG[0]))
+	assert.Equal(t, queueRef("dag-shared", "run-a-low"), requireQueuedRef(t, byDAG[1]))
+
+	none, err := s.ListByDAGName(ctx, "queue-a", "missing-dag")
+	require.NoError(t, err)
+	assert.Empty(t, none)
 
 	all, err := s.All(ctx)
 	require.NoError(t, err)

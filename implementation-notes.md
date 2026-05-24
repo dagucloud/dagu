@@ -19,3 +19,5 @@
 - Cleanup: moved `WatermarkStore` to `internal/persis/schedulerstore` so the generic `internal/persis/store` package no longer imports scheduler. Scheduler package tests can now use `store.NewQueueStore`.
 - Cleanup: split queue item parsing, cursor handling, and watcher polling into separate files.
 - Removed the legacy `internal/persis/filequeue` package after verifying it had no non-test consumers. Legacy file layout coverage now lives in `internal/persis/store/queue_test.go`.
+- Documentation cleanup: updated `refactor_persis_layer.html` so the queue slice is marked complete, `filequeue` is described as removed, and the current wiring shows `store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))`.
+- Coverage cleanup: added focused queue-store tests for invalid enqueue input, normalized item deletion, cursor edge cases, invalid record parsing, queue metadata parsing, and the polling watcher.
