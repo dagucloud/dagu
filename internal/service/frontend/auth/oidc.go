@@ -33,12 +33,10 @@ const (
 	oidcProviderInitialInterval = 500 * time.Millisecond // initial backoff interval
 	oidcProviderMaxInterval     = 5 * time.Second        // maximum backoff interval
 	stateCookieExpiry           = 120                    // seconds for transient state/nonce/originalURL cookies
-	defaultTokenExpirySecs      = 60                     // fallback when ID token expiry is invalid or already passed
 )
 
 // Cookie names centralised to avoid copy-paste strings.
 const (
-	cookieOIDCToken   = "oidcToken"
 	cookieState       = "state"
 	cookieNonce       = "nonce"
 	cookieOriginalURL = "originalURL"
@@ -377,15 +375,14 @@ func BuiltinOIDCCallbackHandler(cfg *BuiltinOIDCConfig) http.HandlerFunc {
 		// Clear OIDC cookies
 		clearOIDCStateCookies(w, r)
 
-		// Redirect to login page with token in URL for frontend to store in localStorage
-		// This is secure because:
-		// 1. It's a one-time redirect (not a shareable link)
-		// 2. Frontend stores the token and navigates away with replace:true (React Router)
-		// 3. Token won't appear in browser history after navigation completes
-		redirectURL := strings.TrimSuffix(cfg.LoginBasePath, "/") + "/login?token=" + url.QueryEscape(tokenResult.Token)
+		// Redirect to login page with token in the URL hash fragment.
+		// Hash fragments are never sent to the server, so the JWT does not appear
+		// in server access logs, reverse-proxy logs, or Referer headers.
+		redirectURL := strings.TrimSuffix(cfg.LoginBasePath, "/") + "/login"
 		if isNewUser {
-			redirectURL += "&welcome=true"
+			redirectURL += "?welcome=true"
 		}
+		redirectURL += "#token=" + url.QueryEscape(tokenResult.Token)
 		http.Redirect(w, r, redirectURL, http.StatusFound)
 	}
 }

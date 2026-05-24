@@ -23,9 +23,11 @@ export default function LoginPage() {
 
   const from = (location.state as { from?: Location })?.from?.pathname || '/';
 
-  // Handle OIDC callback token and messages from URL params
+  // Handle OIDC callback: token from hash fragment, error/welcome from query params
   useEffect(() => {
-    const tokenParam = searchParams.get('token');
+    // Token is in the hash fragment so it never appears in server access logs
+    const hashParams = new URLSearchParams(location.hash.slice(1));
+    const tokenParam = hashParams.get('token');
     const errorParam = searchParams.get('error');
     const welcomeParam = searchParams.get('welcome');
 
@@ -43,7 +45,7 @@ export default function LoginPage() {
     if (welcomeParam === 'true') {
       setWelcomeMessage('Welcome! Your account has been created.');
     }
-  }, [searchParams, navigate, from]);
+  }, [searchParams, location.hash, navigate, from]);
 
   // Redirect to setup page if initial admin account hasn't been created.
   // Wait for auth state to settle (isLoading=false) to avoid acting on
