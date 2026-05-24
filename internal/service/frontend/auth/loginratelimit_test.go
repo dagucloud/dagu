@@ -292,6 +292,66 @@ func TestLoginRateLimitMiddleware(t *testing.T) {
 		assert.Equal(t, http.StatusTooManyRequests, w.Code, "proxied loopback should be rate-limited using forwarded IP")
 	})
 
+	t.Run("non-loopback private proxy: per-client rate limit via XFF", func(t *testing.T) {
+		t.Parallel()
+		mw := LoginRateLimitMiddleware(loginPath)
+		handler := mw(failHandler)
+
+		// Ingress at 10.0.0.1 forwards real client IPs via X-Forwarded-For.
+		for range loginMaxAttempts {
+			r := httptest.NewRequest(http.MethodPost, loginPath, nil)
+			r.RemoteAddr = "10.0.0.1:1234"
+			r.Header.Set("X-Forwarded-For", "203.0.113.5")
+			handler.ServeHTTP(httptest.NewRecorder(), r)
+		}
+
+		// 203.0.113.5 is blocked.
+		r := httptest.NewRequest(http.MethodPost, loginPath, nil)
+		r.RemoteAddr = "10.0.0.1:1234"
+		r.Header.Set("X-Forwarded-For", "203.0.113.5")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		assert.Equal(t, http.StatusTooManyRequests, w.Code, "client behind private proxy must be rate-limited by their real IP")
+
+		// 203.0.113.6 (different client, same proxy) is NOT blocked.
+		r2 := httptest.NewRequest(http.MethodPost, loginPath, nil)
+		r2.RemoteAddr = "10.0.0.1:1234"
+		r2.Header.Set("X-Forwarded-For", "203.0.113.6")
+		w2 := httptest.NewRecorder()
+		handler.ServeHTTP(w2, r2)
+		assert.Equal(t, http.StatusUnauthorized, w2.Code, "different client through same proxy must not be blocked")
+	})
+
+	t.Run("panic in handler releases pending slot", func(t *testing.T) {
+		t.Parallel()
+		mw := LoginRateLimitMiddleware(loginPath)
+		panicHandler := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+			panic("simulated handler panic")
+		})
+		// Outer recoverer — mirrors chi's middleware.Recoverer position.
+		recoverer := func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				defer func() {
+					if rec := recover(); rec != nil {
+						w.WriteHeader(http.StatusInternalServerError)
+					}
+				}()
+				next.ServeHTTP(w, r)
+			})
+		}
+		handler := recoverer(mw(panicHandler))
+
+		// Send more than maxAttempts panicking requests; each slot must be
+		// released by the defer so pending[ip] never accumulates.
+		for i := range loginMaxAttempts + 2 {
+			r := httptest.NewRequest(http.MethodPost, loginPath, nil)
+			r.RemoteAddr = "11.11.11.11:1234"
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, r)
+			assert.Equal(t, http.StatusInternalServerError, w.Code, "panic must yield 500 not 429, attempt %d", i+1)
+		}
+	})
+
 	t.Run("PreserveRawRemoteAddr prevents X-Forwarded-For spoofing", func(t *testing.T) {
 		t.Parallel()
 		mw := LoginRateLimitMiddleware(loginPath)

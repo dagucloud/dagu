@@ -163,12 +163,14 @@ func LoginRateLimitMiddleware(loginPath string) func(http.Handler) http.Handler 
 						return
 					}
 					rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+					defer func() {
+						if rec.status == http.StatusUnauthorized {
+							limiter.confirmFailure(ip)
+						} else {
+							limiter.releaseSlot(ip)
+						}
+					}()
 					next.ServeHTTP(rec, r)
-					if rec.status == http.StatusUnauthorized {
-						limiter.confirmFailure(ip)
-					} else {
-						limiter.releaseSlot(ip)
-					}
 					return
 				}
 			}
@@ -181,12 +183,20 @@ func LoginRateLimitMiddleware(loginPath string) func(http.Handler) http.Handler 
 //
 // It reads the raw TCP RemoteAddr stored in context by PreserveRawRemoteAddr
 // (before chi's middleware.RealIP can overwrite r.RemoteAddr from forwarded
-// headers). This makes the key unspoofable for direct connections.
+// headers). This makes the key unspoofable for direct connections from
+// public IPs.
 //
-// When the raw address is a loopback address, the function falls back to
-// X-Forwarded-For / X-Real-IP: this handles the same-host reverse proxy
-// topology where the TCP source is always loopback but the proxy correctly
-// forwards the real client IP.
+// When the raw address is a loopback or RFC-1918 private address the
+// function falls back to X-Forwarded-For / X-Real-IP. This covers two proxy
+// topologies:
+//   - Same-host proxy (loopback): TCP peer is always 127.0.0.1/::1.
+//   - Off-host private proxy (e.g. 10.x, 192.168.x): common in cloud/k8s
+//     where the ingress runs on a different node within the same VPC.
+//
+// In both cases the proxy is controlled by the operator and its forwarded
+// headers are therefore trusted. A public-IP client cannot exploit this
+// fallback because its raw RemoteAddr is public and the forwarded-header
+// lookup is skipped.
 func rateLimitKey(r *http.Request) string {
 	rawAddr, _ := r.Context().Value(rawRemoteAddrKey{}).(string)
 	if rawAddr == "" {
@@ -199,7 +209,7 @@ func rateLimitKey(r *http.Request) string {
 	}
 
 	ip := net.ParseIP(host)
-	if ip != nil && ip.IsLoopback() {
+	if ip != nil && (ip.IsLoopback() || ip.IsPrivate()) {
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 			raw := xff
 			if before, _, ok := strings.Cut(xff, ","); ok {
