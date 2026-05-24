@@ -637,6 +637,111 @@ func TestService_CreateUser_InvalidRole(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid role")
 }
 
+func TestService_GetUserFromToken_PasswordChangeInvalidatesToken(t *testing.T) {
+	svc, cleanup := setupTestService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	user, err := svc.CreateUser(ctx, CreateUserInput{
+		Username: "testuser",
+		Password: "password123",
+		Role:     auth.RoleAdmin,
+	})
+	require.NoError(t, err)
+
+	// Issue token before password change.
+	tokenResult, err := svc.GenerateToken(user)
+	require.NoError(t, err)
+
+	// Token is valid before password change.
+	_, err = svc.GetUserFromToken(ctx, tokenResult.Token)
+	require.NoError(t, err, "token should be valid before password change")
+
+	// Change password — stamps PasswordChangedAt on the user record.
+	err = svc.ChangePassword(ctx, user.ID, "password123", "newpassword456")
+	require.NoError(t, err)
+
+	// Old token must now be rejected.
+	_, err = svc.GetUserFromToken(ctx, tokenResult.Token)
+	assert.ErrorIs(t, err, ErrInvalidToken, "old token must be rejected after password change")
+}
+
+func TestService_GetUserFromToken_NewTokenValidAfterPasswordChange(t *testing.T) {
+	svc, cleanup := setupTestService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	user, err := svc.CreateUser(ctx, CreateUserInput{
+		Username: "testuser",
+		Password: "password123",
+		Role:     auth.RoleAdmin,
+	})
+	require.NoError(t, err)
+
+	err = svc.ChangePassword(ctx, user.ID, "password123", "newpassword456")
+	require.NoError(t, err)
+
+	// Fetch updated user (has PasswordChangedAt set) and issue fresh token.
+	updatedUser, err := svc.GetUser(ctx, user.ID)
+	require.NoError(t, err)
+
+	newToken, err := svc.GenerateToken(updatedUser)
+	require.NoError(t, err)
+
+	// New token must be accepted.
+	_, err = svc.GetUserFromToken(ctx, newToken.Token)
+	require.NoError(t, err, "token issued after password change should be valid")
+}
+
+func TestService_GetUserFromToken_ResetPasswordInvalidatesToken(t *testing.T) {
+	svc, cleanup := setupTestService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	user, err := svc.CreateUser(ctx, CreateUserInput{
+		Username: "victim",
+		Password: "password123",
+		Role:     auth.RoleViewer,
+	})
+	require.NoError(t, err)
+
+	tokenResult, err := svc.GenerateToken(user)
+	require.NoError(t, err)
+
+	// Admin resets password.
+	err = svc.ResetPassword(ctx, user.ID, "adminreset789")
+	require.NoError(t, err)
+
+	// Old token must be rejected.
+	_, err = svc.GetUserFromToken(ctx, tokenResult.Token)
+	assert.ErrorIs(t, err, ErrInvalidToken, "token must be rejected after admin password reset")
+}
+
+func TestService_GetUserFromToken_NoPasswordChangeTokenStillValid(t *testing.T) {
+	svc, cleanup := setupTestService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// User never changes password — PasswordChangedAt stays nil.
+	user, err := svc.CreateUser(ctx, CreateUserInput{
+		Username: "testuser",
+		Password: "password123",
+		Role:     auth.RoleViewer,
+	})
+	require.NoError(t, err)
+
+	tokenResult, err := svc.GenerateToken(user)
+	require.NoError(t, err)
+
+	// Token must remain valid when password never changed.
+	_, err = svc.GetUserFromToken(ctx, tokenResult.Token)
+	require.NoError(t, err, "token should remain valid when user never changed password")
+}
+
 func setupTestServiceWithAPIKeys(t *testing.T) (*Service, func()) {
 	t.Helper()
 	backend := testutil.NewMemoryBackend()

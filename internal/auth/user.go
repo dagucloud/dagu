@@ -38,6 +38,9 @@ type User struct {
 	// IsDisabled indicates if the user account is disabled.
 	// Disabled users cannot log in.
 	IsDisabled bool `json:"is_disabled,omitempty"`
+	// PasswordChangedAt records when the password was last changed.
+	// Tokens issued before this time are rejected. Nil means never changed.
+	PasswordChangedAt *time.Time `json:"password_changed_at,omitempty"`
 }
 
 // NewUser creates a User with a new UUID and sets CreatedAt and UpdatedAt to the current UTC time.
@@ -65,43 +68,46 @@ type UserForStorage struct {
 	WorkspaceAccess *WorkspaceAccess `json:"workspace_access,omitempty"`
 	CreatedAt       time.Time        `json:"created_at"`
 	UpdatedAt       time.Time        `json:"updated_at"`
-	AuthProvider    string           `json:"auth_provider,omitempty"`
-	OIDCIssuer      string           `json:"oidc_issuer,omitempty"`
-	OIDCSubject     string           `json:"oidc_subject,omitempty"`
-	IsDisabled      bool             `json:"is_disabled,omitempty"`
+	AuthProvider      string     `json:"auth_provider,omitempty"`
+	OIDCIssuer        string     `json:"oidc_issuer,omitempty"`
+	OIDCSubject       string     `json:"oidc_subject,omitempty"`
+	IsDisabled        bool       `json:"is_disabled,omitempty"`
+	PasswordChangedAt *time.Time `json:"password_changed_at,omitempty"`
 }
 
 // ToStorage converts a User to UserForStorage for persistence.
 func (u *User) ToStorage() *UserForStorage {
 	return &UserForStorage{
-		ID:              u.ID,
-		Username:        u.Username,
-		PasswordHash:    u.PasswordHash,
-		Role:            u.Role,
-		WorkspaceAccess: CloneWorkspaceAccess(u.WorkspaceAccess),
-		CreatedAt:       u.CreatedAt,
-		UpdatedAt:       u.UpdatedAt,
-		AuthProvider:    u.AuthProvider,
-		OIDCIssuer:      u.OIDCIssuer,
-		OIDCSubject:     u.OIDCSubject,
-		IsDisabled:      u.IsDisabled,
+		ID:                u.ID,
+		Username:          u.Username,
+		PasswordHash:      u.PasswordHash,
+		Role:              u.Role,
+		WorkspaceAccess:   CloneWorkspaceAccess(u.WorkspaceAccess),
+		CreatedAt:         u.CreatedAt,
+		UpdatedAt:         u.UpdatedAt,
+		AuthProvider:      u.AuthProvider,
+		OIDCIssuer:        u.OIDCIssuer,
+		OIDCSubject:       u.OIDCSubject,
+		IsDisabled:        u.IsDisabled,
+		PasswordChangedAt: u.PasswordChangedAt,
 	}
 }
 
 // ToUser converts UserForStorage back to User.
 func (s *UserForStorage) ToUser() *User {
 	return &User{
-		ID:              s.ID,
-		Username:        s.Username,
-		PasswordHash:    s.PasswordHash,
-		Role:            s.Role,
-		WorkspaceAccess: CloneWorkspaceAccess(s.WorkspaceAccess),
-		CreatedAt:       s.CreatedAt,
-		UpdatedAt:       s.UpdatedAt,
-		AuthProvider:    s.AuthProvider,
-		OIDCIssuer:      s.OIDCIssuer,
-		OIDCSubject:     s.OIDCSubject,
-		IsDisabled:      s.IsDisabled,
+		ID:                s.ID,
+		Username:          s.Username,
+		PasswordHash:      s.PasswordHash,
+		Role:              s.Role,
+		WorkspaceAccess:   CloneWorkspaceAccess(s.WorkspaceAccess),
+		CreatedAt:         s.CreatedAt,
+		UpdatedAt:         s.UpdatedAt,
+		AuthProvider:      s.AuthProvider,
+		OIDCIssuer:        s.OIDCIssuer,
+		OIDCSubject:       s.OIDCSubject,
+		IsDisabled:        s.IsDisabled,
+		PasswordChangedAt: s.PasswordChangedAt,
 	}
 }
 
