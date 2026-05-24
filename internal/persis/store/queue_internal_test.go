@@ -65,12 +65,14 @@ func TestQueueItemHelpersHandleInvalidRecords(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = queueItemFromRecord(&persis.Record{
+	item, err := queueItemFromRecord(&persis.Record{
 		ID:        "queue-a/item_low_20260102_030405_000000006Z_run",
 		Data:      data,
 		Encoding:  enc,
 		CreatedAt: now,
 	})
+	require.NoError(t, err)
+	_, err = item.Data()
 	assert.ErrorContains(t, err, "invalid dag-run")
 }
 

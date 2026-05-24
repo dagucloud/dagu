@@ -228,14 +228,14 @@ func (s *QueueStore) loadOrRebuildQueueIndexLocked(ctx context.Context, name str
 }
 
 func (s *QueueStore) rebuildQueueIndexLocked(ctx context.Context, name string) (*queueReadIndex, error) {
-	recs, err := listAll(ctx, s.col, persis.ListQuery{Prefix: queueItemPrefix(name)})
+	ids, err := s.queueRecordIDs(ctx, queueItemPrefix(name))
 	if err != nil {
 		return nil, err
 	}
 
 	idx := newQueueReadIndex()
-	for _, rec := range recs {
-		_, itemID, ok := splitQueueRecordID(rec.ID)
+	for _, id := range ids {
+		_, itemID, ok := splitQueueRecordID(id)
 		if !ok || itemID == "" {
 			continue
 		}
@@ -419,13 +419,19 @@ func (s *QueueStore) queueItemsByID(ctx context.Context, name string, itemIDs []
 	items := make([]exec.QueuedItemData, 0, len(itemIDs))
 	missing := false
 	for _, itemID := range itemIDs {
-		rec, err := s.col.Get(ctx, queueRecordID(name, itemID))
+		recordID := queueRecordID(name, itemID)
+		rec, err := s.col.Get(ctx, recordID)
 		if errors.Is(err, persis.ErrNotFound) {
 			missing = true
 			continue
 		}
 		if err != nil {
-			return nil, false, err
+			item, invalidErr := invalidQueueItemFromRecordID(recordID, err)
+			if invalidErr != nil {
+				return nil, false, invalidErr
+			}
+			items = append(items, item)
+			continue
 		}
 		item, err := queueItemFromRecord(rec)
 		if err != nil {

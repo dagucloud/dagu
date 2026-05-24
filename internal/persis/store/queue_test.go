@@ -135,7 +135,10 @@ func TestQueueStore_ListCursorDecodesOnlyPageItems(t *testing.T) {
 	assert.NotEmpty(t, firstPage.NextCursor)
 	assert.Equal(t, queueRef("valid-dag", "run-valid"), requireQueuedRef(t, firstPage.Items[0]))
 
-	_, err = s.ListCursor(ctx, queueName, firstPage.NextCursor, 1)
+	secondPage, err := s.ListCursor(ctx, queueName, firstPage.NextCursor, 1)
+	require.NoError(t, err)
+	require.Len(t, secondPage.Items, 1)
+	_, err = secondPage.Items[0].Data()
 	require.ErrorContains(t, err, "invalid dag-run")
 }
 
@@ -251,8 +254,32 @@ func TestQueueStore_ListSurfacesInvalidItemRecords(t *testing.T) {
 	require.NoError(t, os.WriteFile(itemPath, []byte(raw), 0o600))
 
 	s := store.NewQueueStore(file.NewCollection(root))
-	_, err := s.List(ctx, queueName)
+	items, err := s.List(ctx, queueName)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	_, err = items[0].Data()
 	require.ErrorContains(t, err, "invalid dag-run")
+}
+
+func TestQueueStore_ListSurfacesUnreadableItemRecords(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	queueName := "invalid-q"
+	itemFile := "item_high_20260101_000000_000000001Z_run-invalid.json"
+
+	itemPath := filepath.Join(root, queueName, itemFile)
+	require.NoError(t, os.MkdirAll(filepath.Dir(itemPath), 0o750))
+	require.NoError(t, os.WriteFile(itemPath, []byte(`{`), 0o600))
+
+	s := store.NewQueueStore(file.NewCollection(root))
+	items, err := s.List(ctx, queueName)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, "item_high_20260101_000000_000000001Z_run-invalid", items[0].ID())
+	_, err = items[0].Data()
+	require.ErrorContains(t, err, "corrupt record")
 }
 
 func TestQueueStore_QueueWatcher(t *testing.T) {

@@ -34,6 +34,7 @@ type queueItem struct {
 	queuedAt time.Time
 	dagRun   exec.DAGRunRef
 	recordID string
+	dataErr  error
 }
 
 var _ exec.QueuedItemData = (*queueItem)(nil)
@@ -48,6 +49,9 @@ func (i *queueItem) ID() string {
 func (i *queueItem) Data() (*exec.DAGRunRef, error) {
 	if i == nil {
 		return nil, fmt.Errorf("queue item is nil")
+	}
+	if i.dataErr != nil {
+		return nil, i.dataErr
 	}
 	ref := i.dagRun
 	return &ref, nil
@@ -64,7 +68,7 @@ func queueItemFromRecord(rec *persis.Record) (*queueItem, error) {
 
 	var payload queueItemPayload
 	if err := persis.Decode(rec, &payload); err != nil {
-		return nil, fmt.Errorf("queue store: decode %q: %w", rec.ID, err)
+		return invalidQueueItem(queueName, fallbackItemID, rec.ID, rec.CreatedAt, fmt.Errorf("queue store: decode %q: %w", rec.ID, err)), nil
 	}
 
 	itemID := normalizeQueueItemID(payload.FileName)
@@ -76,7 +80,14 @@ func queueItemFromRecord(rec *persis.Record) (*queueItem, error) {
 		queuedAt = payload.QueuedAt.UTC()
 	}
 	if payload.DAGRun.Name == "" || payload.DAGRun.ID == "" {
-		return nil, fmt.Errorf("queue store: invalid dag-run in %q", rec.ID)
+		return &queueItem{
+			id:       itemID,
+			queue:    queueName,
+			priority: priority,
+			queuedAt: queuedAt,
+			recordID: rec.ID,
+			dataErr:  fmt.Errorf("queue store: invalid dag-run in %q", rec.ID),
+		}, nil
 	}
 
 	return &queueItem{
@@ -87,6 +98,26 @@ func queueItemFromRecord(rec *persis.Record) (*queueItem, error) {
 		dagRun:   payload.DAGRun,
 		recordID: rec.ID,
 	}, nil
+}
+
+func invalidQueueItem(queueName, itemID, recordID string, fallback time.Time, err error) *queueItem {
+	priority, queuedAt := queueItemMetadata(itemID, fallback)
+	return &queueItem{
+		id:       itemID,
+		queue:    queueName,
+		priority: priority,
+		queuedAt: queuedAt,
+		recordID: recordID,
+		dataErr:  err,
+	}
+}
+
+func invalidQueueItemFromRecordID(recordID string, err error) (*queueItem, error) {
+	queueName, itemID, ok := splitQueueRecordID(recordID)
+	if !ok {
+		return nil, fmt.Errorf("queue store: invalid record ID %q", recordID)
+	}
+	return invalidQueueItem(queueName, itemID, recordID, time.Time{}, err), nil
 }
 
 func queueItemsAsData(items []*queueItem) []exec.QueuedItemData {

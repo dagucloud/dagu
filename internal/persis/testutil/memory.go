@@ -75,6 +75,21 @@ func (c *MemoryCollection) Delete(ctx context.Context, id string) error {
 	return err
 }
 
+// RecordIDs returns record IDs matching prefix without decoding record payloads.
+func (c *MemoryCollection) RecordIDs(_ context.Context, prefix string) ([]string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	ids := make([]string, 0, len(c.records))
+	for id := range c.records {
+		if prefix != "" && !strings.HasPrefix(id, prefix) {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids, nil
+}
+
 // RecordVersion returns a cheap version token for cache validation.
 func (c *MemoryCollection) RecordVersion(_ context.Context, id string) (string, error) {
 	c.mu.Lock()
