@@ -22,7 +22,7 @@ func (s *ProcStore) listCollectionEntries(ctx context.Context, groupName string)
 	if groupName != "" {
 		prefix = procGroupPrefix(groupName)
 	}
-	recs, err := listAll(ctx, s.col, persis.ListQuery{Prefix: prefix})
+	recs, err := s.listCollectionRecords(ctx, prefix)
 	if err != nil {
 		return nil, err
 	}
@@ -39,6 +39,28 @@ func (s *ProcStore) listCollectionEntries(ctx context.Context, groupName string)
 		entries = append(entries, entry)
 	}
 	return entries, nil
+}
+
+func (s *ProcStore) listCollectionRecords(ctx context.Context, prefix string) ([]*persis.Record, error) {
+	if col, ok := s.col.(recordIDsCollection); ok {
+		ids, err := col.RecordIDs(ctx, prefix)
+		if err != nil {
+			return nil, err
+		}
+		recs := make([]*persis.Record, 0, len(ids))
+		for _, id := range ids {
+			rec, err := s.col.Get(ctx, id)
+			if errors.Is(err, persis.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			recs = append(recs, rec)
+		}
+		return recs, nil
+	}
+	return listAll(ctx, s.col, persis.ListQuery{Prefix: prefix})
 }
 
 func (s *ProcStore) entryFromRecord(rec *persis.Record, now time.Time) (exec.ProcEntry, error) {

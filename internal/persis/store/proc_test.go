@@ -324,6 +324,25 @@ func TestProcStoreRejectsFutureCollectionHeartbeat(t *testing.T) {
 	assert.Contains(t, err.Error(), "future")
 }
 
+func TestProcStoreFileBackendSurfacesCorruptCollectionRecord(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "queue-a"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "queue-a", "corrupt.json"), []byte("{"), 0o600))
+
+	s := store.NewProcStore(file.NewCollection(root))
+
+	_, err := s.CountAlive(ctx, "queue-a")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "corrupt record")
+
+	err = s.Validate(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "corrupt record")
+}
+
 func TestProcStoreFileBackendWritesLegacySidecar(t *testing.T) {
 	t.Parallel()
 
