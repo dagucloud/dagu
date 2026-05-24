@@ -4,7 +4,6 @@
 package auth
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"sync"
@@ -25,6 +24,7 @@ type loginRateLimiter struct {
 	attempts    map[string][]time.Time
 	maxAttempts int
 	window      time.Duration
+	stop        chan struct{}
 }
 
 func newLoginRateLimiter() *loginRateLimiter {
@@ -32,9 +32,15 @@ func newLoginRateLimiter() *loginRateLimiter {
 		attempts:    make(map[string][]time.Time),
 		maxAttempts: loginMaxAttempts,
 		window:      loginWindow,
+		stop:        make(chan struct{}),
 	}
 	go l.cleanup()
 	return l
+}
+
+// Close stops the background cleanup goroutine. Safe to call once.
+func (l *loginRateLimiter) Close() {
+	close(l.stop)
 }
 
 // allow returns true if the IP is within the rate limit.
@@ -67,11 +73,16 @@ func (l *loginRateLimiter) allow(ip string) (bool, time.Duration) {
 }
 
 // cleanup periodically removes IPs whose last attempt has expired from the window.
-// It runs until the process exits.
+// It exits when Close is called.
 func (l *loginRateLimiter) cleanup() {
 	ticker := time.NewTicker(l.window)
 	defer ticker.Stop()
-	for range ticker.C {
+	for {
+		select {
+		case <-l.stop:
+			return
+		case <-ticker.C:
+		}
 		cutoff := time.Now().Add(-l.window)
 		l.mu.Lock()
 		for ip, attempts := range l.attempts {
@@ -93,14 +104,8 @@ func LoginRateLimitMiddleware(loginPath string) func(http.Handler) http.Handler 
 			if r.Method == http.MethodPost && r.URL.Path == loginPath {
 				if allowed, retryAfter := limiter.allow(GetClientIP(r)); !allowed {
 					secs := max(int(retryAfter.Seconds()), 1)
-					w.Header().Set("Content-Type", "application/json")
 					w.Header().Set("Retry-After", strconv.Itoa(secs))
-					w.WriteHeader(http.StatusTooManyRequests)
-					body, _ := json.Marshal(map[string]string{
-						"code":    "rate_limited",
-						"message": "Too many login attempts. Please try again later.",
-					})
-					_, _ = w.Write(body)
+					writeAuthError(w, http.StatusTooManyRequests, "rate_limited", "Too many login attempts. Please try again later.")
 					return
 				}
 			}
