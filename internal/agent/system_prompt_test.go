@@ -303,10 +303,11 @@ func TestGenerateSystemPrompt(t *testing.T) {
 
 		result := GenerateSystemPrompt(SystemPromptParams{Env: env, Role: auth.RoleDeveloper})
 
-		assert.Contains(t, result, "Use the appropriate action (`http.request`, `s3.*`, `postgres.query`, `artifact.*`, `file.*`, etc.) instead of shelling out.")
+		assert.Contains(t, result, "Use the appropriate action (`http.request`, `s3.*`, `postgres.query`, `artifact.*`, `file.*`, `state.*`, etc.) instead of shelling out.")
 		assert.Contains(t, result, "use `file.stat`, `file.read`, `file.write`, `file.copy`, `file.move`, `file.delete`, `file.mkdir`, or `file.list`")
 		assert.Contains(t, result, "instead of shell commands such as `cat`, `cp`, `mv`, `rm`, or `mkdir`")
 		assert.Contains(t, result, "For DAG-run outputs such as reports, JSON snapshots, Markdown summaries, logs, and handoff files, use `stdout.artifact`/`stderr.artifact`")
+		assert.Contains(t, result, "Use `state.*` for small JSON values that must persist across DAG runs")
 		assert.Contains(t, result, "When a command produces large data for an artifact, let it write to stdout/stderr and attach the stream directly")
 		assert.Contains(t, result, "artifact: reports/report.md")
 		assert.Contains(t, result, "Do not route large payloads through `output:` variables")

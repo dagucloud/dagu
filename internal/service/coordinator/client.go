@@ -86,6 +86,18 @@ type Client interface {
 	Metrics() Metrics
 }
 
+// StateClient exposes coordinator-backed persistent DAG state RPCs.
+type StateClient interface {
+	// GetState retrieves one state entry by reference.
+	GetState(ctx context.Context, req *coordinatorv1.GetStateRequest) (*coordinatorv1.GetStateResponse, error)
+	// PutState creates or updates one state entry.
+	PutState(ctx context.Context, req *coordinatorv1.PutStateRequest) (*coordinatorv1.PutStateResponse, error)
+	// DeleteState removes one state entry by reference.
+	DeleteState(ctx context.Context, req *coordinatorv1.DeleteStateRequest) (*coordinatorv1.DeleteStateResponse, error)
+	// ListState lists state entries under a scope, namespace, and key prefix.
+	ListState(ctx context.Context, req *coordinatorv1.ListStateRequest) (*coordinatorv1.ListStateResponse, error)
+}
+
 // Metrics defines the metrics for the coordinator client
 type Metrics struct {
 	FailCount        int   // Total number of failures
@@ -109,6 +121,14 @@ type clientImpl struct {
 
 	stateMu sync.RWMutex // Mutex for state access
 	state   *Metrics     // Connection state tracking
+
+	stateCoordinatorMu sync.Mutex
+	stateCoordinators  map[string]pinnedStateCoordinator
+}
+
+type pinnedStateCoordinator struct {
+	member    exec.HostInfo
+	memberKey string
 }
 
 // client holds the gRPC connection and clients for the coordinator service.
@@ -133,9 +153,10 @@ var (
 // New creates a new coordinator client with the given configuration
 func New(registry exec.ServiceRegistry, config *Config) Client {
 	return &clientImpl{
-		config:   config,
-		registry: registry,
-		clients:  make(map[string]*client),
+		config:            config,
+		registry:          registry,
+		clients:           make(map[string]*client),
+		stateCoordinators: make(map[string]pinnedStateCoordinator),
 		state: &Metrics{
 			IsConnected: true, // Assume connected initially
 		},
@@ -311,6 +332,128 @@ func (cli *clientImpl) attemptCall(ctx context.Context, members []exec.HostInfo,
 	}
 
 	return lastErr
+}
+
+// callPinnedStateCoordinator keeps all state RPCs on one coordinator for this
+// client because file-backed state can be local to each coordinator.
+func (cli *clientImpl) callPinnedStateCoordinator(ctx context.Context, routingKey string, callback func(ctx context.Context, member exec.HostInfo, client *client) error) error {
+	member, err := cli.pinnedStateCoordinator(ctx, routingKey)
+	if err != nil {
+		return err
+	}
+
+	err = cli.callMemberWithTimeout(ctx, member, func(ctx context.Context, client *client) error {
+		return callback(ctx, member, client)
+	})
+	if shouldRefreshPinnedStateCoordinator(err) {
+		cli.removeClient(member)
+		cli.refreshPinnedStateCoordinator(ctx, routingKey, member)
+	}
+	return err
+}
+
+func shouldRefreshPinnedStateCoordinator(err error) bool {
+	st, ok := status.FromError(err)
+	if !ok {
+		return false
+	}
+	code := st.Code()
+	return code == codes.Unavailable || code == codes.DeadlineExceeded
+}
+
+func (cli *clientImpl) pinnedStateCoordinator(ctx context.Context, routingKey string) (exec.HostInfo, error) {
+	cli.stateCoordinatorMu.Lock()
+	defer cli.stateCoordinatorMu.Unlock()
+
+	if cli.stateCoordinators == nil {
+		cli.stateCoordinators = make(map[string]pinnedStateCoordinator)
+	}
+	if pinned, ok := cli.stateCoordinators[routingKey]; ok {
+		return pinned.member, nil
+	}
+
+	members, err := cli.getCoordinatorMembers(ctx)
+	if err != nil {
+		return exec.HostInfo{}, err
+	}
+	members = orderStateCoordinatorMembers(members, routingKey)
+
+	member, err := cli.selectHealthyCoordinator(ctx, members)
+	if err != nil {
+		return exec.HostInfo{}, err
+	}
+
+	cli.stateCoordinators[routingKey] = pinnedStateCoordinator{
+		member:    member,
+		memberKey: coordinatorMemberKey(member),
+	}
+	return member, nil
+}
+
+func (cli *clientImpl) refreshPinnedStateCoordinator(ctx context.Context, routingKey string, failed exec.HostInfo) {
+	failedKey := coordinatorMemberKey(failed)
+
+	cli.stateCoordinatorMu.Lock()
+	defer cli.stateCoordinatorMu.Unlock()
+
+	pinned, ok := cli.stateCoordinators[routingKey]
+	if !ok || pinned.memberKey != failedKey {
+		return
+	}
+
+	members, err := cli.getCoordinatorMembers(ctx)
+	if err != nil {
+		logger.Debug(ctx, "Failed to refresh pinned state coordinator",
+			slog.String("coordinator-id", failed.ID),
+			tag.Host(failed.Host),
+			tag.Port(failed.Port),
+			tag.Error(err))
+		return
+	}
+	for _, member := range members {
+		if coordinatorMemberKey(member) == failedKey {
+			cli.stateCoordinators[routingKey] = pinnedStateCoordinator{
+				member:    member,
+				memberKey: failedKey,
+			}
+			return
+		}
+	}
+	delete(cli.stateCoordinators, routingKey)
+}
+
+func (cli *clientImpl) selectHealthyCoordinator(ctx context.Context, members []exec.HostInfo) (exec.HostInfo, error) {
+	var lastErr error
+	for _, member := range members {
+		if _, err := cli.getOrCreateClient(member); err != nil {
+			logger.Warn(ctx, "Failed to connect to coordinator",
+				slog.String("coordinator-id", member.ID),
+				tag.Host(member.Host),
+				tag.Port(member.Port),
+				tag.Error(err))
+			cli.removeClient(member)
+			cli.recordFailure(err)
+			lastErr = err
+			continue
+		}
+
+		if err := cli.isHealthy(ctx, member); err != nil {
+			logger.Warn(ctx, "Failed to check coordinator health",
+				slog.String("coordinator-id", member.ID),
+				tag.Host(member.Host),
+				tag.Port(member.Port),
+				tag.Error(err))
+			cli.recordFailure(err)
+			lastErr = err
+			continue
+		}
+
+		return member, nil
+	}
+	if lastErr != nil {
+		return exec.HostInfo{}, lastErr
+	}
+	return exec.HostInfo{}, fmt.Errorf("no coordinators available")
 }
 
 func (cli *clientImpl) callMember(ctx context.Context, member exec.HostInfo, callback func(context.Context, *client) error) error {
@@ -575,6 +718,35 @@ func sortCoordinatorMembers(members []exec.HostInfo) []exec.HostInfo {
 		return coordinatorMemberKey(sorted[i]) < coordinatorMemberKey(sorted[j])
 	})
 	return sorted
+}
+
+func orderStateCoordinatorMembers(members []exec.HostInfo, routingKey string) []exec.HostInfo {
+	ordered := sortCoordinatorMembers(members)
+	if len(ordered) < 2 {
+		return ordered
+	}
+
+	start := stateCoordinatorStartIndex(routingKey, len(ordered))
+	if start == 0 {
+		return ordered
+	}
+
+	rotated := make([]exec.HostInfo, 0, len(ordered))
+	rotated = append(rotated, ordered[start:]...)
+	rotated = append(rotated, ordered[:start]...)
+	return rotated
+}
+
+func stateCoordinatorStartIndex(routingKey string, memberCount int) int {
+	if memberCount < 2 {
+		return 0
+	}
+
+	start := 0
+	for _, b := range []byte(routingKey) {
+		start = (start*33 + int(b)) % memberCount
+	}
+	return start
 }
 
 func coordinatorMemberKey(member exec.HostInfo) string {

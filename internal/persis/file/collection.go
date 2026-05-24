@@ -357,7 +357,12 @@ func (c *Collection) lockDir(key string) (string, error) {
 }
 
 func (c *Collection) readFile(path string) (*fileRecord, error) {
-	raw, err := os.ReadFile(path) //nolint:gosec // path is derived from a validated root + record ID
+	var raw []byte
+	err := retryFileAccess(func() error {
+		var readErr error
+		raw, readErr = os.ReadFile(path) //nolint:gosec // path is derived from a validated root + record ID
+		return readErr
+	})
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, persis.ErrNotFound
@@ -548,7 +553,11 @@ func writeAtomic(path string, data []byte) error {
 		_ = os.Remove(tmpPath)
 		return err
 	}
-	return os.Rename(tmpPath, path)
+	if err := replaceFile(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return nil
 }
 
 // removeEmptyDirs removes dir and its ancestors up to (but not including)

@@ -5,6 +5,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,6 +20,9 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/dagstate"
+	"github.com/dagucloud/dagu/internal/persis/store"
+	"github.com/dagucloud/dagu/internal/persis/testutil"
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	"github.com/dagucloud/dagu/internal/runtime/remote"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
@@ -446,6 +450,36 @@ func (m *mockRemoteCoordinatorClient) RequestCancel(ctx context.Context, dagName
 	return nil
 }
 
+type mockRemoteStateCoordinatorClient struct {
+	*mockRemoteCoordinatorClient
+	handler *coordinator.Handler
+}
+
+func newMockRemoteStateCoordinatorClient(stateStore dagstate.Store) *mockRemoteStateCoordinatorClient {
+	return &mockRemoteStateCoordinatorClient{
+		mockRemoteCoordinatorClient: newMockRemoteCoordinatorClient(),
+		handler: coordinator.NewHandler(coordinator.HandlerConfig{
+			StateStore: stateStore,
+		}),
+	}
+}
+
+func (m *mockRemoteStateCoordinatorClient) GetState(ctx context.Context, req *coordinatorv1.GetStateRequest) (*coordinatorv1.GetStateResponse, error) {
+	return m.handler.GetState(ctx, req)
+}
+
+func (m *mockRemoteStateCoordinatorClient) PutState(ctx context.Context, req *coordinatorv1.PutStateRequest) (*coordinatorv1.PutStateResponse, error) {
+	return m.handler.PutState(ctx, req)
+}
+
+func (m *mockRemoteStateCoordinatorClient) DeleteState(ctx context.Context, req *coordinatorv1.DeleteStateRequest) (*coordinatorv1.DeleteStateResponse, error) {
+	return m.handler.DeleteState(ctx, req)
+}
+
+func (m *mockRemoteStateCoordinatorClient) ListState(ctx context.Context, req *coordinatorv1.ListStateRequest) (*coordinatorv1.ListStateResponse, error) {
+	return m.handler.ListState(ctx, req)
+}
+
 // mockRemoteDAGRunAttempt implements execution.DAGRunAttempt for testing
 type mockRemoteDAGRunAttempt struct {
 	id       string
@@ -730,6 +764,44 @@ func TestNewRemoteTaskHandler(t *testing.T) {
 		assert.Nil(t, rh.dagRunStore)
 		assert.Nil(t, rh.dagStore)
 		assert.Nil(t, rh.serviceRegistry)
+	})
+
+	t.Run("StateStoreSet", func(t *testing.T) {
+		t.Parallel()
+
+		stateStore := store.NewDAGStateStore(testutil.NewMemoryBackend().Collection("dag_state"))
+		handler := NewRemoteTaskHandler(RemoteTaskHandlerConfig{
+			WorkerID:          "worker-state",
+			CoordinatorClient: newMockRemoteCoordinatorClient(),
+			StateStore:        stateStore,
+		})
+
+		rh, ok := handler.(*remoteTaskHandler)
+		require.True(t, ok)
+		assert.Equal(t, stateStore, rh.stateStore)
+	})
+
+	t.Run("StateStoreDefaultsToCoordinatorStateClient", func(t *testing.T) {
+		t.Parallel()
+
+		stateStore := store.NewDAGStateStore(testutil.NewMemoryBackend().Collection("dag_state"))
+		client := newMockRemoteStateCoordinatorClient(stateStore)
+		handler := NewRemoteTaskHandler(RemoteTaskHandlerConfig{
+			WorkerID:          "worker-state-client",
+			CoordinatorClient: client,
+		})
+
+		rh, ok := handler.(*remoteTaskHandler)
+		require.True(t, ok)
+		require.NotNil(t, rh.stateStore)
+
+		ref := dagstate.Ref{Scope: dagstate.ScopeDAG, Namespace: "daily-agent", Key: "cursor"}
+		_, err := rh.stateStore.Put(context.Background(), ref, json.RawMessage(`{"last_id":123}`), dagstate.PutOptions{})
+		require.NoError(t, err)
+
+		got, err := stateStore.Get(context.Background(), ref)
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"last_id":123}`, string(got.Value))
 	})
 }
 

@@ -20,6 +20,7 @@ Load only the reference file that matches the task.
 - Prefer string-form `output: VAR_NAME` for capturing small stdout values into flat variables.
 - Prefer object-form `output:` when downstream steps need structured values via `${step_id.output.*}`.
 - Prefer `stdout.outputs` or `action: outputs.write` when a DAG or remote action needs to return caller-visible values via `${step_id.outputs.*}`.
+- Prefer `state.*` actions for small persistent JSON state across DAG runs, such as cursors, checkpoints, and previous-value comparisons.
 - Prefer temporary files in the artifacts dir only when downstream steps need file paths; otherwise let commands write large artifact content to stdout and attach it with `stdout.artifact`.
 - Declare portable external CLI dependencies in top-level `tools` using aqua shorthand when the binary version affects reproducibility, for example `tools: ["jqlang/jq@jq-1.7.1"]`.
 - For remote actions, put `tools` in the referenced action DAG file, not in `dagu-action.yaml`; caller DAG tools are not inherited across the action boundary.
@@ -40,6 +41,7 @@ Load only the reference file that matches the task.
 - Sub-DAGs do not inherit parent env vars; pass what you need via `params:`.
 - For arbitrary text inside shell steps, prefer `printenv VAR_NAME` or `action: template.render` over `${VAR}` interpolation.
 - DAG/action outputs are collected from string-form `output: VAR_NAME`, `stdout.outputs`, and `action: outputs.write`. Object-form `output:` stays step-scoped for `${step_id.output.*}` unless the workflow explicitly republishes values through `stdout.outputs` or `outputs.write`.
+- `state.get`, `state.set`, `state.delete`, `state.list`, and `state.diff` persist small JSON values across DAG runs. State scopes are `dag`, `root_dag`, `global`, and `custom`; use artifacts or external storage for large payloads.
 - Remote action packages define `dagu-action.yaml` with `apiVersion: v1alpha1`, `name`, `dag`, and optional `inputs`/`outputs` JSON Schemas. `inputs` validates caller `with:` before the action DAG starts; `outputs` validates the final action output object after the action DAG returns.
 - Remote action manifests do not support `tools`. Declare external CLI tools in the action DAG itself so local and distributed workers prepare the right binaries for that action run.
 - In remote action examples, prefer `dag: workflow.yaml` for the action DAG filename. The `dag` field accepts any safe relative file path, but `workflow.yaml` avoids confusing the executable DAG with the `dagu-action.yaml` manifest.
@@ -157,7 +159,7 @@ steps:
 
 Load only the file you need:
 
-- `references/steptypes.md` when choosing an action or checking executor-specific caveats such as `dag.run`, `parallel`, `jq.filter`, `file.*`, or `template.render`
+- `references/steptypes.md` when choosing an action or checking executor-specific caveats such as `dag.run`, `parallel`, `jq.filter`, `file.*`, `state.*`, or `template.render`
 - `references/dagu-action.md` when creating a reusable `dagu-action.yaml` package or checking action input/output schema behavior
 - `references/cli.md` when you need command flags or lookup commands such as `dagu schema`, `dagu config`, or `dagu history`
 - `references/env.md` when execution environment variables, `DAGU_*` config vars, or `params:`/`env:` resolution order matters

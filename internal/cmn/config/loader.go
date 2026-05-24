@@ -383,6 +383,7 @@ func (l *ConfigLoader) loadPathsConfig(cfg *Config, def Definition) error {
 		{"ToolsDir", &cfg.Paths.ToolsDir, def.Paths.ToolsDir},
 		{"LogDir", &cfg.Paths.LogDir, def.Paths.LogDir},
 		{"ArtifactDir", &cfg.Paths.ArtifactDir, def.Paths.ArtifactDir},
+		{"DAGStateDir", &cfg.Paths.DAGStateDir, def.Paths.DAGStateDir},
 		{"AdminLogsDir", &cfg.Paths.AdminLogsDir, def.Paths.AdminLogsDir},
 		{"EventStoreDir", &cfg.Paths.EventStoreDir, def.Paths.EventStoreDir},
 		{"BaseConfig", &cfg.Paths.BaseConfig, def.Paths.BaseConfig},
@@ -1413,6 +1414,7 @@ func (l *ConfigLoader) finalizePaths(cfg *Config) {
 		defaultPath string
 	}{
 		{&cfg.Paths.DAGRunsDir, "dag-runs"},
+		{&cfg.Paths.DAGStateDir, "dag-state"},
 		{&cfg.Paths.ProcDir, "proc"},
 		{&cfg.Paths.QueueDir, "queue"},
 		{&cfg.Paths.ServiceRegistryDir, "service-registry"},
@@ -1802,6 +1804,7 @@ var envBindings = []envBinding{
 	{key: "paths.executable", env: "EXECUTABLE", isPath: true},
 	{key: "paths.log_dir", env: "LOG_DIR", isPath: true},
 	{key: "paths.artifact_dir", env: "ARTIFACT_DIR", isPath: true},
+	{key: "paths.dag_state_dir", env: "DAG_STATE_DIR", isPath: true},
 	{key: "paths.data_dir", env: "DATA_DIR", isPath: true},
 	{key: "paths.tools_dir", env: "TOOLS_DIR", isPath: true},
 	{key: "paths.suspend_flags_dir", env: "SUSPEND_FLAGS_DIR", isPath: true},

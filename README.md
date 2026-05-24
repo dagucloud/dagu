@@ -528,6 +528,7 @@ Dagu includes built-in actions that run within the Dagu process or on the select
 | [`s3.upload` / `s3.download` / `s3.list` / `s3.delete`](https://docs.dagu.sh/step-types/s3) | Upload, download, list, and delete S3 objects |
 | [`file.stat` / `file.read` / `file.write` / `file.copy` / `file.move` / `file.delete` / `file.mkdir` / `file.list`](https://docs.dagu.sh/writing-workflows/yaml-specification#built-in-action-names) | Local file operations without shell commands |
 | [`artifact.write` / `artifact.read` / `artifact.list`](https://docs.dagu.sh/step-types/artifact) | Write, read, and list DAG-run artifacts |
+| [`state.get` / `state.set` / `state.delete` / `state.list` / `state.diff`](https://docs.dagu.sh/writing-workflows/persistent-state) | Persistent JSON state across DAG runs |
 | [`data.convert` / `data.pick`](https://docs.dagu.sh/step-types/data) | Convert and select structured data |
 | [`jq.filter`](https://docs.dagu.sh/step-types/jq) | JSON transformation using jq expressions |
 | [`archive.create` / `archive.extract` / `archive.list`](https://docs.dagu.sh/step-types/archive) | Create, extract, and list zip/tar archives |
@@ -797,6 +798,7 @@ The embedded API is experimental and may change. See the [embedded API documenta
 | `DAGU_LOG_DIR` | `~/.local/share/dagu/logs` | Log files |
 | `DAGU_DATA_DIR` | `~/.local/share/dagu/data` | Application state |
 | `DAGU_TOOLS_DIR` | `{DAGU_DATA_DIR}/tools` | Managed DAG tool cache |
+| `DAGU_DAG_STATE_DIR` | `{DAGU_DATA_DIR}/dag-state` | Persistent DAG state files |
 
 ### Authentication
 

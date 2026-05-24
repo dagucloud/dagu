@@ -36,6 +36,10 @@ const (
 	CoordinatorService_GetWorkspaceBundle_FullMethodName = "/coordinator.v1.CoordinatorService/GetWorkspaceBundle"
 	CoordinatorService_GetDAGRunStatus_FullMethodName    = "/coordinator.v1.CoordinatorService/GetDAGRunStatus"
 	CoordinatorService_RequestCancel_FullMethodName      = "/coordinator.v1.CoordinatorService/RequestCancel"
+	CoordinatorService_GetState_FullMethodName           = "/coordinator.v1.CoordinatorService/GetState"
+	CoordinatorService_PutState_FullMethodName           = "/coordinator.v1.CoordinatorService/PutState"
+	CoordinatorService_DeleteState_FullMethodName        = "/coordinator.v1.CoordinatorService/DeleteState"
+	CoordinatorService_ListState_FullMethodName          = "/coordinator.v1.CoordinatorService/ListState"
 )
 
 // CoordinatorServiceClient is the client API for CoordinatorService service.
@@ -79,6 +83,14 @@ type CoordinatorServiceClient interface {
 	// Used in shared-nothing mode for sub-DAG cancellation where the parent
 	// cannot directly access the sub-DAG's attempt.
 	RequestCancel(ctx context.Context, in *RequestCancelRequest, opts ...grpc.CallOption) (*RequestCancelResponse, error)
+	// GetState retrieves persistent DAG state from the coordinator-owned store.
+	GetState(ctx context.Context, in *GetStateRequest, opts ...grpc.CallOption) (*GetStateResponse, error)
+	// PutState creates or updates persistent DAG state with optimistic concurrency.
+	PutState(ctx context.Context, in *PutStateRequest, opts ...grpc.CallOption) (*PutStateResponse, error)
+	// DeleteState removes persistent DAG state.
+	DeleteState(ctx context.Context, in *DeleteStateRequest, opts ...grpc.CallOption) (*DeleteStateResponse, error)
+	// ListState lists persistent DAG state entries by scope, namespace, and key prefix.
+	ListState(ctx context.Context, in *ListStateRequest, opts ...grpc.CallOption) (*ListStateResponse, error)
 }
 
 type coordinatorServiceClient struct {
@@ -247,6 +259,46 @@ func (c *coordinatorServiceClient) RequestCancel(ctx context.Context, in *Reques
 	return out, nil
 }
 
+func (c *coordinatorServiceClient) GetState(ctx context.Context, in *GetStateRequest, opts ...grpc.CallOption) (*GetStateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetStateResponse)
+	err := c.cc.Invoke(ctx, CoordinatorService_GetState_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coordinatorServiceClient) PutState(ctx context.Context, in *PutStateRequest, opts ...grpc.CallOption) (*PutStateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PutStateResponse)
+	err := c.cc.Invoke(ctx, CoordinatorService_PutState_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coordinatorServiceClient) DeleteState(ctx context.Context, in *DeleteStateRequest, opts ...grpc.CallOption) (*DeleteStateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteStateResponse)
+	err := c.cc.Invoke(ctx, CoordinatorService_DeleteState_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coordinatorServiceClient) ListState(ctx context.Context, in *ListStateRequest, opts ...grpc.CallOption) (*ListStateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListStateResponse)
+	err := c.cc.Invoke(ctx, CoordinatorService_ListState_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CoordinatorServiceServer is the server API for CoordinatorService service.
 // All implementations must embed UnimplementedCoordinatorServiceServer
 // for forward compatibility.
@@ -288,6 +340,14 @@ type CoordinatorServiceServer interface {
 	// Used in shared-nothing mode for sub-DAG cancellation where the parent
 	// cannot directly access the sub-DAG's attempt.
 	RequestCancel(context.Context, *RequestCancelRequest) (*RequestCancelResponse, error)
+	// GetState retrieves persistent DAG state from the coordinator-owned store.
+	GetState(context.Context, *GetStateRequest) (*GetStateResponse, error)
+	// PutState creates or updates persistent DAG state with optimistic concurrency.
+	PutState(context.Context, *PutStateRequest) (*PutStateResponse, error)
+	// DeleteState removes persistent DAG state.
+	DeleteState(context.Context, *DeleteStateRequest) (*DeleteStateResponse, error)
+	// ListState lists persistent DAG state entries by scope, namespace, and key prefix.
+	ListState(context.Context, *ListStateRequest) (*ListStateResponse, error)
 	mustEmbedUnimplementedCoordinatorServiceServer()
 }
 
@@ -339,6 +399,18 @@ func (UnimplementedCoordinatorServiceServer) GetDAGRunStatus(context.Context, *G
 }
 func (UnimplementedCoordinatorServiceServer) RequestCancel(context.Context, *RequestCancelRequest) (*RequestCancelResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RequestCancel not implemented")
+}
+func (UnimplementedCoordinatorServiceServer) GetState(context.Context, *GetStateRequest) (*GetStateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetState not implemented")
+}
+func (UnimplementedCoordinatorServiceServer) PutState(context.Context, *PutStateRequest) (*PutStateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PutState not implemented")
+}
+func (UnimplementedCoordinatorServiceServer) DeleteState(context.Context, *DeleteStateRequest) (*DeleteStateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteState not implemented")
+}
+func (UnimplementedCoordinatorServiceServer) ListState(context.Context, *ListStateRequest) (*ListStateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListState not implemented")
 }
 func (UnimplementedCoordinatorServiceServer) mustEmbedUnimplementedCoordinatorServiceServer() {}
 func (UnimplementedCoordinatorServiceServer) testEmbeddedByValue()                            {}
@@ -573,6 +645,78 @@ func _CoordinatorService_RequestCancel_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CoordinatorService_GetState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetStateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoordinatorServiceServer).GetState(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoordinatorService_GetState_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoordinatorServiceServer).GetState(ctx, req.(*GetStateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoordinatorService_PutState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PutStateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoordinatorServiceServer).PutState(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoordinatorService_PutState_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoordinatorServiceServer).PutState(ctx, req.(*PutStateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoordinatorService_DeleteState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteStateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoordinatorServiceServer).DeleteState(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoordinatorService_DeleteState_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoordinatorServiceServer).DeleteState(ctx, req.(*DeleteStateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoordinatorService_ListState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListStateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoordinatorServiceServer).ListState(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoordinatorService_ListState_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoordinatorServiceServer).ListState(ctx, req.(*ListStateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CoordinatorService_ServiceDesc is the grpc.ServiceDesc for CoordinatorService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -619,6 +763,22 @@ var CoordinatorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RequestCancel",
 			Handler:    _CoordinatorService_RequestCancel_Handler,
+		},
+		{
+			MethodName: "GetState",
+			Handler:    _CoordinatorService_GetState_Handler,
+		},
+		{
+			MethodName: "PutState",
+			Handler:    _CoordinatorService_PutState_Handler,
+		},
+		{
+			MethodName: "DeleteState",
+			Handler:    _CoordinatorService_DeleteState_Handler,
+		},
+		{
+			MethodName: "ListState",
+			Handler:    _CoordinatorService_ListState_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

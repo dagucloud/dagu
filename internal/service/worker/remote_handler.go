@@ -26,6 +26,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
+	"github.com/dagucloud/dagu/internal/dagstate"
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/fileagentconfig"
 	"github.com/dagucloud/dagu/internal/persis/fileagentmodel"
@@ -59,6 +60,8 @@ type RemoteTaskHandlerConfig struct {
 	DAGStore exec.DAGStore
 	// DAGRunMgr is the manager for DAG runs
 	DAGRunMgr runtime.Manager
+	// StateStore is the persistent state store shared across DAG runs.
+	StateStore dagstate.Store
 	// ServiceRegistry is the service registry
 	ServiceRegistry exec.ServiceRegistry
 	// PeerConfig is the peer configuration
@@ -73,12 +76,19 @@ func NewRemoteTaskHandler(cfg RemoteTaskHandlerConfig) TaskHandler {
 	if cfg.Config == nil {
 		cfg.Config = &config.Config{}
 	}
+	stateStore := cfg.StateStore
+	if stateStore == nil {
+		if stateClient, ok := cfg.CoordinatorClient.(coordinator.StateClient); ok {
+			stateStore = coordinator.NewStateStoreClient(stateClient)
+		}
+	}
 	return &remoteTaskHandler{
 		workerID:          cfg.WorkerID,
 		coordinatorClient: cfg.CoordinatorClient,
 		dagRunStore:       cfg.DAGRunStore,
 		dagStore:          cfg.DAGStore,
 		dagRunMgr:         cfg.DAGRunMgr,
+		stateStore:        stateStore,
 		serviceRegistry:   cfg.ServiceRegistry,
 		peerConfig:        cfg.PeerConfig,
 		config:            cfg.Config,
@@ -91,6 +101,7 @@ type remoteTaskHandler struct {
 	dagRunStore       exec.DAGRunStore
 	dagStore          exec.DAGStore
 	dagRunMgr         runtime.Manager
+	stateStore        dagstate.Store
 	serviceRegistry   exec.ServiceRegistry
 	peerConfig        config.Peer
 	config            *config.Config
@@ -669,6 +680,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		QueuedRun:         queuedRun,
 		AttemptID:         attemptID,
 		DAGRunStore:       h.dagRunStore,
+		StateStore:        h.stateStore,
 		SecretStore:       agentStores.secretStore,
 		ServiceRegistry:   h.serviceRegistry,
 		RootDAGRun:        root,

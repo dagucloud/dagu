@@ -2333,6 +2333,41 @@
         },
         {
           "if": {
+            "properties": { "action": { "enum": ["state.get", "state.delete"] } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/stateKeyActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "enum": ["state.set", "state.diff"] } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/stateValueActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "state.list" } },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "with": { "$ref": "#/definitions/stateActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": { "action": { "enum": ["file.stat", "file.read", "file.write", "file.copy", "file.move", "file.delete", "file.mkdir", "file.list"] } },
             "required": ["action"]
           },
@@ -6054,6 +6089,11 @@
             "sqlite.import",
             "sqlite.query",
             "ssh.run",
+            "state.delete",
+            "state.diff",
+            "state.get",
+            "state.list",
+            "state.set",
             "template.render",
             "wait.duration",
             "wait.file",
@@ -6894,6 +6934,89 @@
         }
       },
       "description": "Configuration for outputs.write."
+    },
+    "stateActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "scope": { "const": "custom" }
+            },
+            "required": ["scope"]
+          },
+          "then": {
+            "required": ["namespace"],
+            "properties": {
+              "namespace": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "scope": {
+          "type": "string",
+          "enum": ["dag", "root_dag", "global", "custom"],
+          "description": "State scope. Defaults to dag."
+        },
+        "namespace": {
+          "type": "string",
+          "description": "State namespace. Required for custom scope; otherwise defaults from scope."
+        },
+        "key": {
+          "type": "string",
+          "description": "State key for state.get, state.set, state.delete, and state.diff."
+        },
+        "prefix": {
+          "type": "string",
+          "description": "Key prefix for state.list."
+        },
+        "value": {
+          "description": "JSON-serializable value for state.set and state.diff."
+        },
+        "default": {
+          "description": "Default value returned by state.get when the key is missing."
+        },
+        "expected_version": {
+          "type": "integer",
+          "description": "Optimistic concurrency version required for state.set or state.diff."
+        },
+        "create_only": {
+          "type": "boolean",
+          "description": "Fail state.set when the key already exists."
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Fail state.get when the key is missing."
+        },
+        "update": {
+          "type": "boolean",
+          "description": "Whether state.diff writes the new value when changed. Defaults to true."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Maximum entries returned by state.list. Zero means no limit."
+        },
+        "include_values": {
+          "type": "boolean",
+          "description": "Include entry values in state.list output."
+        }
+      },
+      "description": "Configuration for persistent DAG state actions."
+    },
+    "stateKeyActionConfig": {
+      "allOf": [
+        { "$ref": "#/definitions/stateActionConfig" },
+        { "required": ["key"] }
+      ]
+    },
+    "stateValueActionConfig": {
+      "allOf": [
+        { "$ref": "#/definitions/stateActionConfig" },
+        { "required": ["key", "value"] }
+      ]
     },
     "customActions": {
       "type": "object",

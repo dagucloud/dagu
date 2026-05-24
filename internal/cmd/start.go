@@ -526,6 +526,7 @@ func executeDAGRun(ctx *Context, d *core.DAG, parent exec.DAGRunRef, dagRunID st
 			PreparedAttempt:            preparedAttempt,
 			DAGRunStore:                ctx.DAGRunStore,
 			QueueStore:                 ctx.QueueStore,
+			StateStore:                 ctx.StateStore,
 			SecretStore:                as.SecretStore,
 			ServiceRegistry:            ctx.ServiceRegistry,
 			RootDAGRun:                 root,
