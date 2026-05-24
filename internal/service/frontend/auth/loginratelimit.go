@@ -183,20 +183,26 @@ func LoginRateLimitMiddleware(loginPath string) func(http.Handler) http.Handler 
 //
 // It reads the raw TCP RemoteAddr stored in context by PreserveRawRemoteAddr
 // (before chi's middleware.RealIP can overwrite r.RemoteAddr from forwarded
-// headers). This makes the key unspoofable for direct connections from
-// public IPs.
+// headers). This makes the key unspoofable for direct connections.
 //
-// When the raw address is a loopback or RFC-1918 private address the
-// function falls back to X-Forwarded-For / X-Real-IP. This covers two proxy
-// topologies:
-//   - Same-host proxy (loopback): TCP peer is always 127.0.0.1/::1.
-//   - Off-host private proxy (e.g. 10.x, 192.168.x): common in cloud/k8s
-//     where the ingress runs on a different node within the same VPC.
+// Forwarded headers are consulted only when the raw TCP peer is a loopback
+// address, which reliably identifies a same-host reverse proxy. Private-range
+// peers (10.x, 192.168.x, …) are NOT treated as trusted proxies: direct
+// LAN/VPN clients also originate from private addresses and could supply
+// arbitrary forwarded headers to rotate their rate-limit bucket.
 //
-// In both cases the proxy is controlled by the operator and its forwarded
-// headers are therefore trusted. A public-IP client cannot exploit this
-// fallback because its raw RemoteAddr is public and the forwarded-header
-// lookup is skipped.
+// Header priority (loopback peers only):
+//  1. True-Client-IP – set by some CDN/proxy stacks (chi's RealIP checks this first).
+//  2. X-Real-IP – set by nginx to the direct upstream address; single, canonical value.
+//  3. X-Forwarded-For (rightmost entry) – the value the last trusted proxy appended.
+//     The rightmost entry is used instead of the leftmost because proxies that append
+//     to an existing header place the attacker-controlled leftmost value first; the
+//     rightmost entry is what the trusted proxy itself added.
+//
+// Note: deployments where Dagu is behind a non-loopback reverse proxy (e.g. a
+// separate-host nginx) cannot benefit from per-client granularity without a
+// configurable trusted-proxy list. In that topology all clients share the proxy's
+// raw TCP address as their rate-limit bucket.
 func rateLimitKey(r *http.Request) string {
 	rawAddr, _ := r.Context().Value(rawRemoteAddrKey{}).(string)
 	if rawAddr == "" {
@@ -209,16 +215,19 @@ func rateLimitKey(r *http.Request) string {
 	}
 
 	ip := net.ParseIP(host)
-	if ip != nil && (ip.IsLoopback() || ip.IsPrivate()) {
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			raw := xff
-			if before, _, ok := strings.Cut(xff, ","); ok {
-				raw = before
-			}
-			return stripPort(strings.TrimSpace(raw))
+	if ip != nil && ip.IsLoopback() {
+		if tci := r.Header.Get("True-Client-IP"); tci != "" {
+			return stripPort(strings.TrimSpace(tci))
 		}
 		if xri := r.Header.Get("X-Real-IP"); xri != "" {
 			return stripPort(strings.TrimSpace(xri))
+		}
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			// Use the rightmost entry: what the trusted loopback proxy appended.
+			parts := strings.Split(xff, ",")
+			if last := strings.TrimSpace(parts[len(parts)-1]); last != "" {
+				return stripPort(last)
+			}
 		}
 	}
 	return host

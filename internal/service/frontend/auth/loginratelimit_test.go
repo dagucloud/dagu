@@ -292,34 +292,69 @@ func TestLoginRateLimitMiddleware(t *testing.T) {
 		assert.Equal(t, http.StatusTooManyRequests, w.Code, "proxied loopback should be rate-limited using forwarded IP")
 	})
 
-	t.Run("non-loopback private proxy: per-client rate limit via XFF", func(t *testing.T) {
+	t.Run("private-range peer XFF is ignored (LAN client spoofing prevention)", func(t *testing.T) {
 		t.Parallel()
 		mw := LoginRateLimitMiddleware(loginPath)
 		handler := mw(failHandler)
 
-		// Ingress at 10.0.0.1 forwards real client IPs via X-Forwarded-For.
+		// Direct LAN client at 10.x can set arbitrary XFF — must not be trusted.
+		// All requests from the same private IP share one bucket regardless of XFF.
 		for range loginMaxAttempts {
 			r := httptest.NewRequest(http.MethodPost, loginPath, nil)
-			r.RemoteAddr = "10.0.0.1:1234"
-			r.Header.Set("X-Forwarded-For", "203.0.113.5")
+			r.RemoteAddr = "10.0.0.5:1234"
+			r.Header.Set("X-Forwarded-For", "1.1.1.1") // spoofed — different each time
 			handler.ServeHTTP(httptest.NewRecorder(), r)
 		}
 
-		// 203.0.113.5 is blocked.
+		// The 6th attempt is blocked by 10.0.0.5 (raw key), not 1.1.1.1.
 		r := httptest.NewRequest(http.MethodPost, loginPath, nil)
-		r.RemoteAddr = "10.0.0.1:1234"
-		r.Header.Set("X-Forwarded-For", "203.0.113.5")
+		r.RemoteAddr = "10.0.0.5:1234"
+		r.Header.Set("X-Forwarded-For", "9.9.9.9") // different spoofed value
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, r)
-		assert.Equal(t, http.StatusTooManyRequests, w.Code, "client behind private proxy must be rate-limited by their real IP")
+		assert.Equal(t, http.StatusTooManyRequests, w.Code, "private peer XFF must not be trusted as rate-limit key")
+	})
 
-		// 203.0.113.6 (different client, same proxy) is NOT blocked.
-		r2 := httptest.NewRequest(http.MethodPost, loginPath, nil)
-		r2.RemoteAddr = "10.0.0.1:1234"
-		r2.Header.Set("X-Forwarded-For", "203.0.113.6")
-		w2 := httptest.NewRecorder()
-		handler.ServeHTTP(w2, r2)
-		assert.Equal(t, http.StatusUnauthorized, w2.Code, "different client through same proxy must not be blocked")
+	t.Run("loopback proxy: rightmost XFF used (client-supplied leftmost ignored)", func(t *testing.T) {
+		t.Parallel()
+		mw := LoginRateLimitMiddleware(loginPath)
+		handler := mw(failHandler)
+
+		// Client spoofs leftmost XFF; proxy appends real client IP as rightmost.
+		for range loginMaxAttempts {
+			r := httptest.NewRequest(http.MethodPost, loginPath, nil)
+			r.RemoteAddr = "127.0.0.1:1234"
+			r.Header.Set("X-Forwarded-For", "spoofed-value, 203.0.113.7")
+			handler.ServeHTTP(httptest.NewRecorder(), r)
+		}
+
+		// Blocked by 203.0.113.7 (rightmost, proxy-added value).
+		r := httptest.NewRequest(http.MethodPost, loginPath, nil)
+		r.RemoteAddr = "127.0.0.1:1234"
+		r.Header.Set("X-Forwarded-For", "different-spoof, 203.0.113.7")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		assert.Equal(t, http.StatusTooManyRequests, w.Code, "rightmost XFF (proxy-added) must be used as rate-limit key")
+	})
+
+	t.Run("loopback proxy: True-Client-IP honored", func(t *testing.T) {
+		t.Parallel()
+		mw := LoginRateLimitMiddleware(loginPath)
+		handler := mw(failHandler)
+
+		for range loginMaxAttempts {
+			r := httptest.NewRequest(http.MethodPost, loginPath, nil)
+			r.RemoteAddr = "127.0.0.1:1234"
+			r.Header.Set("True-Client-IP", "203.0.113.8")
+			handler.ServeHTTP(httptest.NewRecorder(), r)
+		}
+
+		r := httptest.NewRequest(http.MethodPost, loginPath, nil)
+		r.RemoteAddr = "127.0.0.1:1234"
+		r.Header.Set("True-Client-IP", "203.0.113.8")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		assert.Equal(t, http.StatusTooManyRequests, w.Code, "True-Client-IP must be used as rate-limit key")
 	})
 
 	t.Run("panic in handler releases pending slot", func(t *testing.T) {
