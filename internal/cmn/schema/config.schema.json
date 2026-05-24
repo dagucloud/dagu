@@ -42,6 +42,11 @@
     "tls": {
       "$ref": "#/definitions/TLSDef"
     },
+    "cors_allowed_origins": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Explicit list of origins allowed to make cross-origin requests. When unset, all origins are allowed without credentials. When set, only listed origins are allowed and credentials are enabled. A wildcard '*' in the list is treated the same as unset."
+    },
     "debug": {
       "type": "boolean",
       "description": "Enable debug mode with verbose logging."
