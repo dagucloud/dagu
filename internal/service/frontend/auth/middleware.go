@@ -253,19 +253,22 @@ func requireBearerAuth(w http.ResponseWriter, realm string) {
 
 // GetClientIP extracts the client IP address from the request.
 // It checks X-Forwarded-For and X-Real-IP headers for proxied requests.
+// Port suffixes (e.g. from HAProxy source-port annotation) are stripped so
+// that all connections from the same client IP share one rate-limit bucket.
 func GetClientIP(r *http.Request) string {
 	// Check X-Forwarded-For header first (for proxies)
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		// Take the first IP in the chain
+		raw := xff
 		if before, _, ok := strings.Cut(xff, ","); ok {
-			return strings.TrimSpace(before)
+			raw = before
 		}
-		return strings.TrimSpace(xff)
+		return stripPort(strings.TrimSpace(raw))
 	}
 
 	// Check X-Real-IP header
 	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return strings.TrimSpace(xri)
+		return stripPort(strings.TrimSpace(xri))
 	}
 
 	// Fall back to RemoteAddr - use net.SplitHostPort for proper IPv6 handling
@@ -273,6 +276,17 @@ func GetClientIP(r *http.Request) string {
 	if err != nil {
 		// Return as-is if parsing fails (e.g., no port present)
 		return r.RemoteAddr
+	}
+	return host
+}
+
+// stripPort removes a trailing ":port" from an IP string.
+// It handles bare IPv4 ("1.2.3.4:1234"), bracketed IPv6 ("[::1]:1234"),
+// and plain addresses without a port.
+func stripPort(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr // no port present; return unchanged
 	}
 	return host
 }

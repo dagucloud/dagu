@@ -9786,6 +9786,7 @@ components:
         - "auth.token_invalid"
         - "auth.forbidden"
         - "timeout"
+        - "rate_limited"
 
     WebhookRequest:
       type: object
