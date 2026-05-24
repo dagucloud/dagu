@@ -83,9 +83,7 @@ func (p *ProcHandle) startHeartbeat(ctx context.Context) error {
 	p.cancel = cancel
 	p.mu.Unlock()
 
-	p.wg.Add(1)
-	go func() {
-		defer p.wg.Done()
+	p.wg.Go(func() {
 		defer func() {
 			p.started.Store(false)
 			if !p.canceled.Load() {
@@ -107,7 +105,7 @@ func (p *ProcHandle) startHeartbeat(ctx context.Context) error {
 				}
 			}
 		}
-	}()
+	})
 	return nil
 }
 

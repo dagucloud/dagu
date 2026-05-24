@@ -85,10 +85,7 @@ func TestProcStoreHeartbeatAdvances(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, first)
 
-	timeout := time.Until(time.Unix(first.LastHeartbeatAt+1, 0).Add(500 * time.Millisecond))
-	if timeout < 500*time.Millisecond {
-		timeout = 500 * time.Millisecond
-	}
+	timeout := max(time.Until(time.Unix(first.LastHeartbeatAt+1, 0).Add(500*time.Millisecond)), 500*time.Millisecond)
 	require.Eventually(t, func() bool {
 		next, err := s.LatestFreshEntryByDAGName(ctx, "queue-a", "heartbeat-dag")
 		require.NoError(t, err)

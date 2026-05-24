@@ -188,9 +188,9 @@ func procGroupPrefix(groupName string) string {
 }
 
 func procGroupNameFromRecordID(id string) string {
-	idx := strings.Index(id, "/")
-	if idx < 0 {
+	before, _, ok := strings.Cut(id, "/")
+	if !ok {
 		return ""
 	}
-	return id[:idx]
+	return before
 }
