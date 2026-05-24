@@ -5,6 +5,9 @@ package store
 
 import (
 	"context"
+	"strconv"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -91,15 +94,25 @@ func TestQueueItemMetadataAndNormalization(t *testing.T) {
 func TestPollingQueueWatcherPublishesAndStops(t *testing.T) {
 	t.Parallel()
 
-	watcher := newPollingQueueWatcher(time.Millisecond)
+	var state atomic.Int64
+	initialSnapshot := make(chan struct{})
+	var initialSnapshotOnce sync.Once
+	watcher := newPollingQueueWatcher(time.Millisecond, func(context.Context) (string, error) {
+		initialSnapshotOnce.Do(func() {
+			close(initialSnapshot)
+		})
+		return strconv.FormatInt(state.Load(), 10), nil
+	})
 	//nolint:staticcheck // The watcher accepts nil and normalizes it to context.Background.
 	notifyCh, err := watcher.Start(nil)
 	require.NoError(t, err)
+	<-initialSnapshot
+	state.Store(1)
 
 	select {
 	case <-notifyCh:
 	case <-time.After(100 * time.Millisecond):
-		t.Fatal("queue watcher did not publish")
+		require.FailNow(t, "queue watcher did not publish")
 	}
 
 	done := make(chan struct{})
@@ -113,13 +126,13 @@ func TestPollingQueueWatcherPublishesAndStops(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(100 * time.Millisecond):
-		t.Fatal("queue watcher did not stop")
+		require.FailNow(t, "queue watcher did not stop")
 	}
 }
 
 func TestPollingQueueWatcherUsesDefaultInterval(t *testing.T) {
 	t.Parallel()
 
-	watcher := newPollingQueueWatcher(0)
+	watcher := newPollingQueueWatcher(0, nil)
 	assert.Equal(t, queuePollInterval, watcher.interval)
 }

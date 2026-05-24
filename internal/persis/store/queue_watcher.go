@@ -11,17 +11,22 @@ import (
 
 type pollingQueueWatcher struct {
 	interval time.Duration
+	snapshot func(context.Context) (string, error)
 	stopCh   chan struct{}
 	stopOnce sync.Once
 	wg       sync.WaitGroup
 }
 
-func newPollingQueueWatcher(interval time.Duration) *pollingQueueWatcher {
+func newPollingQueueWatcher(interval time.Duration, snapshot func(context.Context) (string, error)) *pollingQueueWatcher {
 	if interval <= 0 {
 		interval = queuePollInterval
 	}
+	if snapshot == nil {
+		snapshot = func(context.Context) (string, error) { return "", nil }
+	}
 	return &pollingQueueWatcher{
 		interval: interval,
+		snapshot: snapshot,
 		stopCh:   make(chan struct{}),
 	}
 }
@@ -34,6 +39,7 @@ func (w *pollingQueueWatcher) Start(ctx context.Context) (<-chan struct{}, error
 	w.wg.Go(func() {
 		ticker := time.NewTicker(w.interval)
 		defer ticker.Stop()
+		last, _ := w.snapshot(ctx)
 		for {
 			select {
 			case <-ctx.Done():
@@ -41,6 +47,11 @@ func (w *pollingQueueWatcher) Start(ctx context.Context) (<-chan struct{}, error
 			case <-w.stopCh:
 				return
 			case <-ticker.C:
+				next, err := w.snapshot(ctx)
+				if err != nil || next == last {
+					continue
+				}
+				last = next
 				select {
 				case notifyCh <- struct{}{}:
 				default:

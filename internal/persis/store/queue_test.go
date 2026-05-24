@@ -111,6 +111,34 @@ func TestQueueStore_ListCursor(t *testing.T) {
 	assert.ErrorIs(t, err, exec.ErrInvalidCursor)
 }
 
+func TestQueueStore_ListCursorDecodesOnlyPageItems(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	queueName := "cursor-q"
+	validFile := "item_high_20260101_000000_000000001Z_run-valid.json"
+	invalidFile := "item_low_20260101_000000_000000002Z_run-invalid.json"
+	validRaw := `{"fileName":"` + validFile + `","dagRun":{"name":"valid-dag","id":"run-valid"},"queuedAt":"2026-01-01T00:00:00.000000001Z"}`
+	invalidRaw := `{"fileName":"` + invalidFile + `","dagRun":{"name":"","id":""},"queuedAt":"2026-01-01T00:00:00.000000002Z"}`
+
+	queueDir := filepath.Join(root, queueName)
+	require.NoError(t, os.MkdirAll(queueDir, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(queueDir, validFile), []byte(validRaw), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(queueDir, invalidFile), []byte(invalidRaw), 0o600))
+
+	s := store.NewQueueStore(file.NewCollection(root))
+	firstPage, err := s.ListCursor(ctx, queueName, "", 1)
+	require.NoError(t, err)
+	require.Len(t, firstPage.Items, 1)
+	assert.True(t, firstPage.HasMore)
+	assert.NotEmpty(t, firstPage.NextCursor)
+	assert.Equal(t, queueRef("valid-dag", "run-valid"), requireQueuedRef(t, firstPage.Items[0]))
+
+	_, err = s.ListCursor(ctx, queueName, firstPage.NextCursor, 1)
+	require.ErrorContains(t, err, "invalid dag-run")
+}
+
 func TestQueueStore_DequeueByDAGRunIDAndDeleteByItemIDs(t *testing.T) {
 	t.Parallel()
 
@@ -167,6 +195,64 @@ func TestQueueStore_DeleteByItemIDsNormalizesFilePaths(t *testing.T) {
 	n, err := s.Len(ctx, "main")
 	require.NoError(t, err)
 	assert.Zero(t, n)
+}
+
+func TestQueueStore_DeleteByItemIDsRemovesInvalidItemRecords(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	queueName := "invalid-q"
+	itemID := "item_high_20260101_000000_000000001Z_run-invalid"
+	itemFile := itemID + ".json"
+	raw := `{"fileName":"` + itemFile + `","dagRun":{"name":"","id":""},"queuedAt":"2026-01-01T00:00:00.000000001Z"}`
+
+	itemPath := filepath.Join(root, queueName, itemFile)
+	require.NoError(t, os.MkdirAll(filepath.Dir(itemPath), 0o750))
+	require.NoError(t, os.WriteFile(itemPath, []byte(raw), 0o600))
+
+	s := store.NewQueueStore(file.NewCollection(root))
+	deleted, err := s.DeleteByItemIDs(ctx, queueName, []string{itemID, "missing-item"})
+	require.NoError(t, err)
+	assert.Equal(t, 1, deleted)
+	assert.NoFileExists(t, itemPath)
+}
+
+func TestQueueStore_DequeueByNameRestoresInvalidClaimedItem(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	queueName := "invalid-q"
+	itemFile := "item_high_20260101_000000_000000001Z_run-invalid.json"
+	raw := `{"fileName":"` + itemFile + `","dagRun":{"name":"","id":""},"queuedAt":"2026-01-01T00:00:00.000000001Z"}`
+
+	itemPath := filepath.Join(root, queueName, itemFile)
+	require.NoError(t, os.MkdirAll(filepath.Dir(itemPath), 0o750))
+	require.NoError(t, os.WriteFile(itemPath, []byte(raw), 0o600))
+
+	s := store.NewQueueStore(file.NewCollection(root))
+	_, err := s.DequeueByName(ctx, queueName)
+	require.ErrorContains(t, err, "invalid dag-run")
+	assert.FileExists(t, itemPath)
+}
+
+func TestQueueStore_ListSurfacesInvalidItemRecords(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	queueName := "invalid-q"
+	itemFile := "item_high_20260101_000000_000000001Z_run-invalid.json"
+	raw := `{"fileName":"` + itemFile + `","dagRun":{"name":"","id":""},"queuedAt":"2026-01-01T00:00:00.000000001Z"}`
+
+	itemPath := filepath.Join(root, queueName, itemFile)
+	require.NoError(t, os.MkdirAll(filepath.Dir(itemPath), 0o750))
+	require.NoError(t, os.WriteFile(itemPath, []byte(raw), 0o600))
+
+	s := store.NewQueueStore(file.NewCollection(root))
+	_, err := s.List(ctx, queueName)
+	require.ErrorContains(t, err, "invalid dag-run")
 }
 
 func TestQueueStore_QueueWatcher(t *testing.T) {

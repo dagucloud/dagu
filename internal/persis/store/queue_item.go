@@ -124,6 +124,19 @@ func queueItemPrefix(name string) string {
 	return queuePrefix(name) + "item_"
 }
 
+func queueNameFromItemRecordID(id string) (string, bool) {
+	queueName, itemID, ok := splitQueueRecordID(id)
+	if !ok || !strings.HasPrefix(itemID, "item_") {
+		return "", false
+	}
+	return queueName, true
+}
+
+func isQueueItemRecordID(id string) bool {
+	_, ok := queueNameFromItemRecordID(id)
+	return ok
+}
+
 func queueRecordID(name, itemID string) string {
 	return queuePrefix(name) + normalizeQueueItemID(itemID)
 }

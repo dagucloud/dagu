@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -26,12 +28,17 @@ var _ exec.QueueStore = (*QueueStore)(nil)
 // Records are keyed as "{queueName}/{itemID}", while item IDs exposed through
 // exec.QueuedItemData intentionally stay as "{itemID}" for caller compatibility.
 type QueueStore struct {
-	col persis.Collection
+	col     persis.Collection
+	indices map[string]*queueReadIndexCache
+	mu      sync.Mutex
 }
 
 // NewQueueStore creates a QueueStore backed by col.
 func NewQueueStore(col persis.Collection) *QueueStore {
-	return &QueueStore{col: col}
+	return &QueueStore{
+		col:     col,
+		indices: make(map[string]*queueReadIndexCache),
+	}
 }
 
 // Enqueue adds a DAG-run reference to the named queue.
@@ -57,17 +64,28 @@ func (s *QueueStore) Enqueue(ctx context.Context, name string, priority exec.Que
 	if err != nil {
 		return fmt.Errorf("queue store: encode item: %w", err)
 	}
-	return s.col.Put(ctx, &persis.Record{
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.col.Put(ctx, &persis.Record{
 		ID:        queueRecordID(name, itemID),
 		Data:      data,
 		Encoding:  enc,
 		CreatedAt: now,
 		UpdatedAt: now,
-	})
+	}); err != nil {
+		return err
+	}
+
+	s.addQueueIndexItemLocked(ctx, name, priority, itemID)
+	return nil
 }
 
 // DequeueByName retrieves and removes the next item from the queue.
 func (s *QueueStore) DequeueByName(ctx context.Context, name string) (exec.QueuedItemData, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	rec, err := s.col.Claim(ctx, persis.ListQuery{Prefix: queueItemPrefix(name)})
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
@@ -77,13 +95,20 @@ func (s *QueueStore) DequeueByName(ctx context.Context, name string) (exec.Queue
 	}
 	item, err := queueItemFromRecord(rec)
 	if err != nil {
+		if restoreErr := s.col.Put(ctx, rec); restoreErr != nil {
+			return nil, fmt.Errorf("queue store: decode claimed item: %w; restore failed: %v", err, restoreErr)
+		}
 		return nil, err
 	}
+	s.removeQueueIndexItemsLocked(ctx, name, item.ID())
 	return item, nil
 }
 
 // DequeueByDAGRunID removes all queued items matching dagRun from the named queue.
 func (s *QueueStore) DequeueByDAGRunID(ctx context.Context, name string, dagRun exec.DAGRunRef) ([]exec.QueuedItemData, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	items, err := s.listQueue(ctx, name)
 	if err != nil {
 		return nil, err
@@ -102,29 +127,37 @@ func (s *QueueStore) DequeueByDAGRunID(ctx context.Context, name string, dagRun 
 	if len(removed) == 0 {
 		return nil, exec.ErrQueueItemNotFound
 	}
+	removedIDs := make([]string, 0, len(removed))
+	for _, item := range removed {
+		removedIDs = append(removedIDs, item.ID())
+	}
+	s.removeQueueIndexItemsLocked(ctx, name, removedIDs...)
 	return removed, nil
 }
 
 // DeleteByItemIDs removes exact queue item IDs from the named queue.
 func (s *QueueStore) DeleteByItemIDs(ctx context.Context, name string, itemIDs []string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	deleted := 0
+	deletedIDs := make([]string, 0, len(itemIDs))
 	for _, itemID := range itemIDs {
 		itemID = normalizeQueueItemID(itemID)
 		if itemID == "" {
 			continue
 		}
 		recordID := queueRecordID(name, itemID)
-		if _, err := s.col.Get(ctx, recordID); err != nil {
-			if errors.Is(err, persis.ErrNotFound) {
-				continue
-			}
+		ok, err := s.deleteQueueRecord(ctx, recordID)
+		if err != nil {
 			return deleted, err
 		}
-		if err := s.col.Delete(ctx, recordID); err != nil && !errors.Is(err, persis.ErrNotFound) {
-			return deleted, err
+		if ok {
+			deleted++
+			deletedIDs = append(deletedIDs, itemID)
 		}
-		deleted++
 	}
+	s.removeQueueIndexItemsLocked(ctx, name, deletedIDs...)
 	return deleted, nil
 }
 
@@ -151,31 +184,14 @@ func (s *QueueStore) ListCursor(ctx context.Context, name, cursor string, limit 
 	if limit <= 0 {
 		limit = 1
 	}
-	items, err := s.listQueue(ctx, name)
-	if err != nil {
-		return exec.CursorResult[exec.QueuedItemData]{}, err
-	}
 	decoded, err := decodeQueueCursor(name, cursor)
 	if err != nil {
 		return exec.CursorResult[exec.QueuedItemData]{}, err
 	}
-	start, err := resolveQueueCursorStart(items, decoded)
-	if err != nil {
-		return exec.CursorResult[exec.QueuedItemData]{}, err
-	}
 
-	end := min(start+limit, len(items))
-	pageItems := queueItemsAsData(items[start:end])
-	hasMore := end < len(items)
-	nextCursor := ""
-	if hasMore && len(pageItems) > 0 {
-		nextCursor = encodeQueueCursor(name, end, pageItems[len(pageItems)-1].ID())
-	}
-	return exec.CursorResult[exec.QueuedItemData]{
-		Items:      pageItems,
-		HasMore:    hasMore,
-		NextCursor: nextCursor,
-	}, nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.listCursorLocked(ctx, name, decoded, limit)
 }
 
 // All returns all queued items across all queues.
@@ -202,16 +218,17 @@ func (s *QueueStore) ListByDAGName(ctx context.Context, name, dagName string) ([
 	return queueItemsAsData(filtered), nil
 }
 
-// QueueList lists queue names that currently have at least one valid item.
+// QueueList lists queue names that currently have at least one item record.
 func (s *QueueStore) QueueList(ctx context.Context) ([]string, error) {
-	items, err := s.listAllQueueItems(ctx, persis.ListQuery{})
+	recs, err := listAll(ctx, s.col, persis.ListQuery{})
 	if err != nil {
 		return nil, err
 	}
 	seen := make(map[string]struct{})
-	for _, item := range items {
-		if item.queue != "" {
-			seen[item.queue] = struct{}{}
+	for _, rec := range recs {
+		queueName, ok := queueNameFromItemRecordID(rec.ID)
+		if ok {
+			seen[queueName] = struct{}{}
 		}
 	}
 	names := make([]string, 0, len(seen))
@@ -223,8 +240,13 @@ func (s *QueueStore) QueueList(ctx context.Context) ([]string, error) {
 }
 
 // QueueWatcher returns a backend-neutral polling watcher.
-func (s *QueueStore) QueueWatcher(_ context.Context) exec.QueueWatcher {
-	return newPollingQueueWatcher(queuePollInterval)
+func (s *QueueStore) QueueWatcher(ctx context.Context) exec.QueueWatcher {
+	return newPollingQueueWatcher(queuePollInterval, func(watchCtx context.Context) (string, error) {
+		if watchCtx == nil {
+			watchCtx = ctx
+		}
+		return s.queueFingerprint(watchCtx)
+	})
 }
 
 func (s *QueueStore) listQueue(ctx context.Context, name string) ([]*queueItem, error) {
@@ -238,12 +260,50 @@ func (s *QueueStore) listAllQueueItems(ctx context.Context, q persis.ListQuery) 
 	}
 	items := make([]*queueItem, 0, len(recs))
 	for _, rec := range recs {
+		if !isQueueItemRecordID(rec.ID) {
+			continue
+		}
 		item, err := queueItemFromRecord(rec)
 		if err != nil {
-			continue
+			return nil, err
 		}
 		items = append(items, item)
 	}
 	sortQueueItems(items)
 	return items, nil
+}
+
+type deleteIfExistsCollection interface {
+	DeleteIfExists(ctx context.Context, id string) (bool, error)
+}
+
+func (s *QueueStore) deleteQueueRecord(ctx context.Context, recordID string) (bool, error) {
+	if col, ok := s.col.(deleteIfExistsCollection); ok {
+		return col.DeleteIfExists(ctx, recordID)
+	}
+	if _, err := s.col.Get(ctx, recordID); err != nil {
+		if errors.Is(err, persis.ErrNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	if err := s.col.Delete(ctx, recordID); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *QueueStore) queueFingerprint(ctx context.Context) (string, error) {
+	recs, err := listAll(ctx, s.col, persis.ListQuery{})
+	if err != nil {
+		return "", err
+	}
+	ids := make([]string, 0, len(recs))
+	for _, rec := range recs {
+		if isQueueItemRecordID(rec.ID) {
+			ids = append(ids, rec.ID)
+		}
+	}
+	sort.Strings(ids)
+	return strings.Join(ids, "\n"), nil
 }

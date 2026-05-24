@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -69,11 +70,31 @@ func (c *MemoryCollection) Put(_ context.Context, rec *persis.Record) error {
 	return nil
 }
 
-func (c *MemoryCollection) Delete(_ context.Context, id string) error {
+func (c *MemoryCollection) Delete(ctx context.Context, id string) error {
+	_, err := c.DeleteIfExists(ctx, id)
+	return err
+}
+
+// RecordVersion returns a cheap version token for cache validation.
+func (c *MemoryCollection) RecordVersion(_ context.Context, id string) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	r, ok := c.records[id]
+	if !ok {
+		return "", persis.ErrNotFound
+	}
+	return fmt.Sprintf("%d/%d", r.UpdatedAt.UTC().UnixNano(), len(r.Data)), nil
+}
+
+// DeleteIfExists removes a record and reports whether it existed.
+func (c *MemoryCollection) DeleteIfExists(_ context.Context, id string) (bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, ok := c.records[id]; !ok {
+		return false, nil
+	}
 	delete(c.records, id)
-	return nil
+	return true, nil
 }
 
 func (c *MemoryCollection) List(_ context.Context, q persis.ListQuery) (*persis.Page, error) {

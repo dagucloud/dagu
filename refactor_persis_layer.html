@@ -48,7 +48,7 @@
     <div class="mt-6 flex items-center gap-3">
       <span class="inline-flex items-center gap-2 bg-green-600 text-white text-sm font-semibold px-4 py-2 rounded-full">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-        PR #2194 merged — Phase 1 complete
+        PR #2197 open as of May 24, 2026 — queue slice complete
       </span>
       <span class="text-slate-400 text-sm font-mono">Steps 1–3 &amp; 7 done · Steps 4–6 pending</span>
     </div>
@@ -179,14 +179,14 @@ graph TB
     F[("📂 File System")]
   end
 
-  RT --> FDR
-  SC --> FQ & FP
-  CO --> FD
-  AU --> FU & FS & FK
-  WH --> FW
-  AG --> FSS & FA & FEV
+  RT --&gt; FDR
+  SC --&gt; FQ & FP
+  CO --&gt; FD
+  AU --&gt; FU & FS & FK
+  WH --&gt; FW
+  AG --&gt; FSS & FA & FEV
 
-  FDR & FQ & FP & FD & FU & FS & FW & FA & FK & FSS & FEV & FM --> F
+  FDR & FQ & FP & FD & FU & FS & FW & FA & FK & FSS & FEV & FM --&gt; F
 
   style App fill:#f0f9ff,stroke:#bae6fd
   style Stores fill:#fef2f2,stroke:#fecaca
@@ -928,19 +928,19 @@ ss  := store.<span class="fn">NewSecretStore</span>(file.<span class="fn">NewCol
   <h2 class="text-2xl font-bold mb-2">Migration Strategy</h2>
   <p class="text-slate-500 mb-4">Incremental, non-destructive — one store at a time</p>
   <div class="flex flex-wrap gap-3 mb-8 text-xs font-semibold">
-    <span class="bg-green-100 text-green-800 border border-green-300 px-3 py-1 rounded-full">✅ Done (PR #2194)</span>
+    <span class="bg-green-100 text-green-800 border border-green-300 px-3 py-1 rounded-full">✅ Done through PR #2197</span>
     <span class="bg-amber-100 text-amber-800 border border-amber-300 px-3 py-1 rounded-full">⏳ Pending</span>
   </div>
 
   <div class="bg-white rounded-xl border border-slate-200 p-8">
     <div class="mermaid">
 graph LR
-  A["✅ Step 1\nDefine interfaces\npersis/backend.go\npersis/codec.go\npersis/errors.go"] -->
-  B["✅ Step 2\nFileBackend\npersis/file/\nbackend.go + collection.go\n480 ln total"] -->
-  C["✅ Step 3\nPort stores\napikey, webhook, user\nsecret, session\nwatermark, workerheartbeat"] -->
-  D["⏳ Step 4\nPort complex stores\nqueue ✅\nproc, distributed"] -->
-  E["⏳ Step 5\nPort dagrun store\n(most complex)"] -->
-  F["⏳ Step 6\nRemove file*/ packages\nUnify context.go\nwiring"] -->
+  A["✅ Step 1\nDefine interfaces\npersis/backend.go\npersis/codec.go\npersis/errors.go"] --&gt;
+  B["✅ Step 2\nFileBackend\npersis/file/\nbackend.go + collection.go\n480 ln total"] --&gt;
+  C["✅ Step 3\nPort stores\napikey, webhook, user\nsecret, session\nwatermark, workerheartbeat"] --&gt;
+  D["⏳ Step 4\nPort complex stores\nqueue ✅\nproc, distributed"] --&gt;
+  E["⏳ Step 5\nPort dagrun store\n(most complex)"] --&gt;
+  F["⏳ Step 6\nRemove file*/ packages\nUnify context.go\nwiring"] --&gt;
   G["✅ Step 7\nMemoryBackend\npersis/testutil/\nmemory.go 217 ln"]
 
   style A fill:#dcfce7,stroke:#16a34a
@@ -978,7 +978,7 @@ graph LR
 <!-- ══════════════════════════ STATUS ══════════════════════════ -->
 <section id="top">
   <div class="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-10 text-white">
-    <p class="text-xs font-mono text-slate-400 tracking-widest uppercase mb-4">Status — PR #2194 merged</p>
+    <p class="text-xs font-mono text-slate-400 tracking-widest uppercase mb-4">Status — PR #2197 open as of May 24, 2026</p>
     <h2 class="text-3xl font-bold mb-4">Phase 1 Complete · Phase 2 In Progress</h2>
 
     <p class="text-slate-300 text-lg mb-8 max-w-3xl">
@@ -1011,7 +1011,7 @@ graph LR
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
       <div class="bg-green-900/30 border border-green-600/30 rounded-xl p-6">
-        <p class="text-sm font-semibold text-green-300 mb-3">✅ Done (PR #2194)</p>
+        <p class="text-sm font-semibold text-green-300 mb-3">✅ Done through PR #2197</p>
         <ol class="text-sm text-slate-300 space-y-2">
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/backend.go</code> — Backend, Collection, Record, ListQuery, Page</li>
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/codec.go</code> — Encode[T], Decode[T]</li>

@@ -112,19 +112,47 @@ func (c *Collection) Put(_ context.Context, rec *persis.Record) error {
 	return c.writeFile(path, toFileRecord(rec))
 }
 
-func (c *Collection) Delete(_ context.Context, id string) error {
+func (c *Collection) Delete(ctx context.Context, id string) error {
+	_, err := c.DeleteIfExists(ctx, id)
+	return err
+}
+
+// RecordVersion returns a cheap version token for cache validation.
+func (c *Collection) RecordVersion(_ context.Context, id string) (string, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	path, err := c.filePath(id)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", persis.ErrNotFound
+		}
+		return "", err
+	}
+	return fmt.Sprintf("%d/%d", info.ModTime().UTC().UnixNano(), info.Size()), nil
+}
+
+// DeleteIfExists removes the record with the given id and reports whether it existed.
+func (c *Collection) DeleteIfExists(_ context.Context, id string) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	path, err := c.filePath(id)
 	if err != nil {
-		return err
+		return false, err
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+	if err := os.Remove(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
 	}
 	removeEmptyDirs(filepath.Dir(path), c.dir)
-	return nil
+	return true, nil
 }
 
 func (c *Collection) List(_ context.Context, q persis.ListQuery) (*persis.Page, error) {
