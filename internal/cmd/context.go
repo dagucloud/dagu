@@ -38,7 +38,6 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/fileeventstore"
 	"github.com/dagucloud/dagu/internal/persis/filelicense"
 	"github.com/dagucloud/dagu/internal/persis/fileproc"
-	"github.com/dagucloud/dagu/internal/persis/filequeue"
 	"github.com/dagucloud/dagu/internal/persis/fileserviceregistry"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/runtime"
@@ -345,7 +344,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	dagRunLeaseStore := filedistributed.NewDAGRunLeaseStore(distributedDir)
 	activeDistributedRunStore := filedistributed.NewActiveDistributedRunStore(distributedDir)
 	drm := runtime.NewManager(drs, ps, cfg)
-	qs := filequeue.New(cfg.Paths.QueueDir)
+	qs := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
 	sm := fileserviceregistry.New(cfg.Paths.ServiceRegistryDir)
 	dispatchTaskStore := filedistributed.NewDispatchTaskStore(distributedDir)
 	workerHeartbeatStore := store.NewWorkerHeartbeatStore(file.NewCollection(filepath.Join(distributedDir, "workers")))
