@@ -46,6 +46,11 @@ func TestRefRecordIDEncodesFilesystemSensitiveParts(t *testing.T) {
 	require.Equal(t, ref, roundTrip)
 }
 
+func TestRefFromRecordIDRejectsUnversionedIDs(t *testing.T) {
+	_, err := RefFromRecordID("dag/daily-agent/cursor")
+	require.ErrorIs(t, err, ErrInvalidRef)
+}
+
 func TestRefRecordIDAvoidsHierarchicalKeyPathCollisions(t *testing.T) {
 	plain, err := (Ref{Scope: ScopeDAG, Namespace: "daily-agent", Key: "cursor"}).RecordID()
 	require.NoError(t, err)

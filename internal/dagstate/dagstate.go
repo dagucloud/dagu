@@ -133,33 +133,20 @@ func (r Ref) RecordID() (string, error) {
 
 // RefFromRecordID parses a storage key back into a state reference.
 func RefFromRecordID(id string) (Ref, error) {
-	if ref, ok, err := refFromVersionedRecordID(id); ok || err != nil {
-		return ref, err
-	}
-
-	parts := strings.SplitN(id, "/", 3)
-	if len(parts) != 3 {
-		return Ref{}, fmt.Errorf("%w: malformed record id", ErrInvalidRef)
-	}
-	ref := Ref{Scope: Scope(parts[0]), Namespace: parts[1], Key: parts[2]}
-	return ref, ref.Validate()
-}
-
-func refFromVersionedRecordID(id string) (Ref, bool, error) {
 	parts := strings.SplitN(id, "/", 4)
 	if len(parts) != 4 || parts[0] != recordIDVersion {
-		return Ref{}, false, nil
+		return Ref{}, fmt.Errorf("%w: malformed record id", ErrInvalidRef)
 	}
 	namespace, err := decodeRecordIDPart(parts[2])
 	if err != nil {
-		return Ref{}, true, err
+		return Ref{}, err
 	}
 	key, err := decodeRecordIDPart(parts[3])
 	if err != nil {
-		return Ref{}, true, err
+		return Ref{}, err
 	}
 	ref := Ref{Scope: Scope(parts[1]), Namespace: namespace, Key: key}
-	return ref, true, ref.Validate()
+	return ref, ref.Validate()
 }
 
 // RecordIDPrefix returns the storage prefix for a list filter.
