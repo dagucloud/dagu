@@ -223,7 +223,7 @@ func TestDAGRunStore_CompareAndSwapSubAttemptStatus(t *testing.T) {
 
 	updated, swapped, err := s.CompareAndSwapLatestAttemptStatus(
 		ctx,
-		exec.NewDAGRunRef(child.Name, "child-run"),
+		exec.NewDAGRunRef("", "child-run"),
 		subAttempt.ID(),
 		core.Running,
 		func(st *exec.DAGRunStatus) error {
@@ -328,6 +328,39 @@ func TestDAGRunAttempt_WriteRejectsMismatchedSubAttemptHierarchy(t *testing.T) {
 	err = parentMismatchAttempt.Write(ctx, parentMismatchStatus)
 	require.ErrorContains(t, err, "status parent")
 	require.NoError(t, parentMismatchAttempt.Close(ctx))
+}
+
+func TestDAGRunAttempt_WriteRejectsMismatchedRunIdentity(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := newDAGRunStore(t)
+	dag := testDAG("identity-dag")
+	base := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+
+	dagRunMismatchAttempt, err := s.CreateAttempt(ctx, dag, base, "run-1", exec.NewDAGRunAttemptOptions{AttemptID: "attempt-1"})
+	require.NoError(t, err)
+	dagRunMismatchStatus := exec.InitialStatus(dag)
+	dagRunMismatchStatus.DAGRunID = "other-run"
+	dagRunMismatchStatus.AttemptID = dagRunMismatchAttempt.ID()
+	dagRunMismatchStatus.Status = core.Running
+
+	require.NoError(t, dagRunMismatchAttempt.Open(ctx))
+	err = dagRunMismatchAttempt.Write(ctx, dagRunMismatchStatus)
+	require.ErrorContains(t, err, "status dag-run ID")
+	require.NoError(t, dagRunMismatchAttempt.Close(ctx))
+
+	attemptMismatchAttempt, err := s.CreateAttempt(ctx, dag, base.Add(time.Second), "run-2", exec.NewDAGRunAttemptOptions{AttemptID: "attempt-2"})
+	require.NoError(t, err)
+	attemptMismatchStatus := exec.InitialStatus(dag)
+	attemptMismatchStatus.DAGRunID = "run-2"
+	attemptMismatchStatus.AttemptID = "other-attempt"
+	attemptMismatchStatus.Status = core.Running
+
+	require.NoError(t, attemptMismatchAttempt.Open(ctx))
+	err = attemptMismatchAttempt.Write(ctx, attemptMismatchStatus)
+	require.ErrorContains(t, err, "status attempt")
+	require.NoError(t, attemptMismatchAttempt.Close(ctx))
 }
 
 func TestDAGRunStore_CompareAndSwapSubAttemptRejectsMissingRootName(t *testing.T) {

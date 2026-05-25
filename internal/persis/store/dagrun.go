@@ -234,12 +234,12 @@ func (s *DAGRunStore) CompareAndSwapLatestAttemptStatus(
 	if dagRun.ID == "" {
 		return nil, false, ErrDAGRunIDEmpty
 	}
-	if dagRun.Name == "" {
-		return nil, false, fmt.Errorf("dag-run store: DAG name is required")
-	}
 	cfg := exec.NewCompareAndSwapStatusOptions(opts...)
 	rootRef := cfg.RootDAGRun
 	if rootRef.Zero() {
+		if dagRun.Name == "" {
+			return nil, false, fmt.Errorf("dag-run store: DAG name is required")
+		}
 		rootRef = dagRun
 	} else if rootRef.Name == "" {
 		return nil, false, fmt.Errorf("dag-run store: root DAG name is required")

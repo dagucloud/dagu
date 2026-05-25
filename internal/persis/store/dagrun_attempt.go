@@ -55,9 +55,13 @@ func (a *DAGRunAttempt) Write(ctx context.Context, status exec.DAGRunStatus) err
 		}
 		if status.DAGRunID == "" {
 			status.DAGRunID = payload.DAGRunID
+		} else if status.DAGRunID != payload.DAGRunID {
+			return fmt.Errorf("dag-run store: status dag-run ID %q does not match record dag-run ID %q", status.DAGRunID, payload.DAGRunID)
 		}
 		if status.AttemptID == "" {
 			status.AttemptID = payload.AttemptID
+		} else if status.AttemptID != payload.AttemptID {
+			return fmt.Errorf("dag-run store: status attempt %q does not match record attempt %q", status.AttemptID, payload.AttemptID)
 		}
 		if status.Root.Zero() {
 			status.Root = payload.Root
@@ -68,9 +72,6 @@ func (a *DAGRunAttempt) Write(ctx context.Context, status exec.DAGRunStatus) err
 			status.Parent = payload.Parent
 		} else if status.Parent != payload.Parent {
 			return fmt.Errorf("dag-run store: status parent %q does not match record parent %q", status.Parent.String(), payload.Parent.String())
-		}
-		if status.AttemptID != payload.AttemptID {
-			return fmt.Errorf("dag-run store: status attempt %q does not match record attempt %q", status.AttemptID, payload.AttemptID)
 		}
 		payload.Status = cloneDAGRunStatus(&status)
 		if a.dag != nil {
