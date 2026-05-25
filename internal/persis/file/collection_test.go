@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/internal/persis"
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
@@ -312,6 +313,45 @@ func TestFileCollection(t *testing.T) {
 	}
 
 	RunCollectionContract(t, b.Collection("test"), freshCollection)
+}
+
+func TestFileCollectionWithLockOptionsUsesCustomTiming(t *testing.T) {
+	t.Parallel()
+
+	type lockOptionsCollection interface {
+		WithLockOptions(ctx context.Context, key string, opts dirlock.LockOptions, fn func() error) error
+	}
+
+	col, ok := file.NewCollection(t.TempDir()).(lockOptionsCollection)
+	require.True(t, ok)
+
+	ctx := context.Background()
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	firstErr := make(chan error, 1)
+	go func() {
+		firstErr <- col.WithLockOptions(ctx, "shared", dirlock.LockOptions{
+			StaleThreshold: time.Hour,
+			RetryInterval:  time.Millisecond,
+		}, func() error {
+			close(entered)
+			<-release
+			return nil
+		})
+	}()
+	<-entered
+
+	stealCtx, cancelSteal := context.WithTimeout(ctx, time.Second)
+	defer cancelSteal()
+	require.NoError(t, col.WithLockOptions(stealCtx, "shared", dirlock.LockOptions{
+		StaleThreshold: 20 * time.Millisecond,
+		RetryInterval:  5 * time.Millisecond,
+	}, func() error {
+		return nil
+	}))
+
+	close(release)
+	require.NoError(t, <-firstErr)
 }
 
 func TestMemoryCollection(t *testing.T) {

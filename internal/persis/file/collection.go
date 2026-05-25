@@ -195,14 +195,24 @@ func (c *Collection) RecordVersion(_ context.Context, id string) (string, error)
 
 // WithLock runs fn while holding a cross-process lock scoped to key.
 func (c *Collection) WithLock(ctx context.Context, key string, fn func() error) error {
+	return c.withLock(ctx, key, dirlock.LockOptions{
+		StaleThreshold: 30 * time.Second,
+		RetryInterval:  50 * time.Millisecond,
+	}, fn)
+}
+
+// WithLockOptions runs fn while holding a cross-process lock scoped to key,
+// using the supplied lock timing options.
+func (c *Collection) WithLockOptions(ctx context.Context, key string, opts dirlock.LockOptions, fn func() error) error {
+	return c.withLock(ctx, key, opts, fn)
+}
+
+func (c *Collection) withLock(ctx context.Context, key string, opts dirlock.LockOptions, fn func() error) error {
 	lockDir, err := c.lockDir(key)
 	if err != nil {
 		return err
 	}
-	lock := dirlock.New(lockDir, &dirlock.LockOptions{
-		StaleThreshold: 30 * time.Second,
-		RetryInterval:  50 * time.Millisecond,
-	})
+	lock := dirlock.New(lockDir, &opts)
 	if err := lock.Lock(ctx); err != nil {
 		return err
 	}

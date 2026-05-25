@@ -186,13 +186,17 @@ func (m *mockDAGRunStore) ListStatusesPage(ctx context.Context, opts ...exec.Lis
 	return exec.DAGRunStatusPage{Items: items}, nil
 }
 func (m *mockDAGRunStore) CompareAndSwapLatestAttemptStatus(
-	_ context.Context,
+	ctx context.Context,
 	dagRun exec.DAGRunRef,
 	expectedAttemptID string,
 	expectedStatus core.Status,
 	mutate func(*exec.DAGRunStatus) error,
 	opts ...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.compareAndSwapCalls++
@@ -1184,6 +1188,60 @@ func TestHandler_Heartbeat(t *testing.T) {
 		assert.Equal(t, "attempt-1", record.AttemptID)
 		assert.Equal(t, "worker-1", record.WorkerID)
 		assert.Equal(t, core.Running, record.Status)
+	})
+
+	t.Run("RunHeartbeatStaleRepairSurvivesCallerCancellation", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMockDAGRunStore()
+		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+		h := NewHandler(HandlerConfig{
+			DAGRunStore:      store,
+			DAGRunLeaseStore: leaseStore,
+			Owner:            exec.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
+		})
+		ctx := context.Background()
+
+		ref := exec.NewDAGRunRef("test-dag", "run-123")
+		reason := staleDistributedLeaseReason("worker-1")
+		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+			Name:       "test-dag",
+			DAGRunID:   "run-123",
+			Root:       ref,
+			AttemptID:  "attempt-1",
+			AttemptKey: "attempt-key-1",
+			Status:     core.Failed,
+			WorkerID:   "worker-1",
+			FinishedAt: "2026-04-20T00:00:01Z",
+			Error:      reason,
+		})
+
+		observedAt := time.Now().UTC()
+		require.NoError(t, leaseStore.Upsert(ctx, exec.DAGRunLease{
+			AttemptKey:      "attempt-key-1",
+			DAGRun:          ref,
+			Root:            ref,
+			AttemptID:       "attempt-1",
+			QueueName:       "test-dag",
+			WorkerID:        "worker-1",
+			Owner:           exec.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
+			ClaimedAt:       observedAt.UnixMilli(),
+			LastHeartbeatAt: observedAt.UnixMilli(),
+		}))
+
+		cancelledCtx, cancel := context.WithCancel(ctx)
+		cancel()
+		h.repairStaleLeaseFailureFromRunHeartbeat(cancelledCtx, "worker-1", &coordinatorv1.RunningTask{
+			AttemptKey: "attempt-key-1",
+			DagRunId:   "run-123",
+			DagName:    "test-dag",
+		}, observedAt)
+
+		status, err := attempt.ReadStatus(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, core.Running, status.Status)
+		assert.Empty(t, status.Error)
+		assert.Empty(t, status.FinishedAt)
 	})
 
 	t.Run("RunHeartbeatSkipsStaleRepairCASForActiveAttempt", func(t *testing.T) {

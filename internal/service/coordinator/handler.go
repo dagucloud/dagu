@@ -58,6 +58,10 @@ const defaultStaleLeaseThreshold = exec.DefaultStaleLeaseThreshold
 // heartbeat-driven lease refreshes for a running distributed task.
 const defaultLeaseRefreshWriteInterval = 5 * time.Second
 
+// runHeartbeatRepairTimeout bounds stale-failure repair work that should
+// survive caller cancellation after a lease heartbeat has already succeeded.
+const runHeartbeatRepairTimeout = 5 * time.Second
+
 const (
 	remoteAttemptRejectedLeaseInactive = "stale attempt: lease no longer active"
 	remoteAttemptRejectedSuperseded    = "stale attempt: superseded by newer attempt"
@@ -1017,8 +1021,11 @@ func (h *Handler) repairStaleLeaseFailureFromRunHeartbeat(
 		return
 	}
 
+	repairCtx, cancelRepair := context.WithTimeout(context.WithoutCancel(ctx), runHeartbeatRepairTimeout)
+	defer cancelRepair()
+
 	repairedStatus, swapped, err := h.dagRunStore.CompareAndSwapLatestAttemptStatus(
-		ctx,
+		repairCtx,
 		lease.DAGRun,
 		lease.AttemptID,
 		core.Failed,
@@ -1047,7 +1054,7 @@ func (h *Handler) repairStaleLeaseFailureFromRunHeartbeat(
 		return
 	}
 
-	h.distributedAttempts().upsertActiveFromStatus(ctx, repairedStatus, workerID, lease.AttemptID)
+	h.distributedAttempts().upsertActiveFromStatus(repairCtx, repairedStatus, workerID, lease.AttemptID)
 	logger.Info(ctx, "Repaired stale distributed run failure from fresh heartbeat",
 		tag.DAG(lease.DAGRun.Name),
 		tag.RunID(lease.DAGRun.ID),
