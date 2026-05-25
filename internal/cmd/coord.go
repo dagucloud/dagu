@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/dagstate"
 	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
@@ -100,6 +101,7 @@ func runCoordinator(ctx *Context, _ []string) error {
 		coordCtx.Config,
 		coordCtx.ServiceRegistry,
 		coordCtx.DAGRunStore,
+		coordCtx.StateStore,
 		coordCtx.DispatchTaskStore,
 		coordCtx.WorkerHeartbeatStore,
 		coordCtx.DAGRunLeaseStore,
@@ -138,6 +140,7 @@ func newCoordinator(
 	cfg *config.Config,
 	registry exec.ServiceRegistry,
 	dagRunStore exec.DAGRunStore,
+	stateStore dagstate.Store,
 	dispatchTaskStore exec.DispatchTaskStore,
 	workerHeartbeatStore exec.WorkerHeartbeatStore,
 	dagRunLeaseStore exec.DAGRunLeaseStore,
@@ -222,6 +225,7 @@ func newCoordinator(
 	// Create handler with DAGRunStore for status persistence and LogDir for log streaming
 	handler := coordinator.NewHandler(coordinator.HandlerConfig{
 		DAGRunStore:               dagRunStore,
+		StateStore:                stateStore,
 		LogDir:                    cfg.Paths.LogDir,
 		ArtifactDir:               cfg.Paths.ArtifactDir,
 		WorkspaceBundleDir:        workspacebundle.StoreDir(cfg.Paths.DataDir),

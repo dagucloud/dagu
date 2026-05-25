@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/core"
 	coreexec "github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/dagstate"
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/filedag"
 	"github.com/dagucloud/dagu/internal/persis/filedagrun"
@@ -29,6 +30,7 @@ import (
 type Engine struct {
 	cfg             *config.Config
 	dagRunStore     coreexec.DAGRunStore
+	stateStore      dagstate.Store
 	procStore       coreexec.ProcStore
 	serviceRegistry coreexec.ServiceRegistry
 	dagStore        coreexec.DAGStore
@@ -60,6 +62,9 @@ func New(ctx context.Context, opts Options) (*Engine, error) {
 	if err := os.MkdirAll(cfg.Paths.ArtifactDir, 0o750); err != nil {
 		return nil, fmt.Errorf("create artifact directory: %w", err)
 	}
+	if err := os.MkdirAll(cfg.Paths.DAGStateDir, 0o750); err != nil {
+		return nil, fmt.Errorf("create DAG state directory: %w", err)
+	}
 
 	procStore := store.NewProcStore(
 		file.NewCollection(cfg.Paths.ProcDir),
@@ -79,6 +84,7 @@ func New(ctx context.Context, opts Options) (*Engine, error) {
 		filedagrun.WithLocation(cfg.Core.Location),
 	)
 	serviceRegistry := fileserviceregistry.New(cfg.Paths.ServiceRegistryDir)
+	stateStore := store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir))
 	dagRunMgr := runtime.NewManager(dagRunStore, procStore, cfg)
 
 	dagStore, err := newDAGStore(cfg, nil, false)
@@ -98,6 +104,7 @@ func New(ctx context.Context, opts Options) (*Engine, error) {
 	return &Engine{
 		cfg:             cfg,
 		dagRunStore:     dagRunStore,
+		stateStore:      stateStore,
 		procStore:       procStore,
 		serviceRegistry: serviceRegistry,
 		dagStore:        dagStore,
@@ -150,6 +157,7 @@ func applyOptions(cfg *config.Config, opts Options) {
 	}
 	if opts.DataDir != "" {
 		cfg.Paths.DataDir = resolvePath(opts.DataDir)
+		cfg.Paths.DAGStateDir = filepath.Join(cfg.Paths.DataDir, "dag-state")
 		cfg.Paths.ToolsDir = filepath.Join(cfg.Paths.DataDir, "tools")
 		cfg.Paths.DAGRunsDir = filepath.Join(cfg.Paths.DataDir, "dag-runs")
 		cfg.Paths.ProcDir = filepath.Join(cfg.Paths.DataDir, "proc")

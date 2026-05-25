@@ -85,6 +85,7 @@ func runDry(ctx *Context, args []string) error {
 			Dry:                        true,
 			DAGRunStore:                ctx.DAGRunStore,
 			QueueStore:                 ctx.QueueStore,
+			StateStore:                 ctx.StateStore,
 			SecretStore:                as.SecretStore,
 			ServiceRegistry:            ctx.ServiceRegistry,
 			RootDAGRun:                 exec.NewDAGRunRef(dag.Name, dagRunID),

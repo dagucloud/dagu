@@ -51,6 +51,8 @@ var (
 	WithDAGRunStore = exec.WithDAGRunStore
 	// WithQueueStore sets the queue store.
 	WithQueueStore = exec.WithQueueStore
+	// WithStateStore sets the persistent DAG state store.
+	WithStateStore = exec.WithStateStore
 	// WithDAGRunLogDir sets the base log directory for newly persisted DAG runs.
 	WithDAGRunLogDir = exec.WithDAGRunLogDir
 	// WithDAGRunArtifactDir sets the base artifact directory for newly persisted DAG runs.

@@ -188,6 +188,7 @@ type PathsDef struct {
 	Executable         string `mapstructure:"executable"`
 	LogDir             string `mapstructure:"log_dir"`
 	ArtifactDir        string `mapstructure:"artifact_dir"`
+	DAGStateDir        string `mapstructure:"dag_state_dir"`
 	DataDir            string `mapstructure:"data_dir"`
 	ToolsDir           string `mapstructure:"tools_dir"`
 	SuspendFlagsDir    string `mapstructure:"suspend_flags_dir"`

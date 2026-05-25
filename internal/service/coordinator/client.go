@@ -6,6 +6,7 @@ package coordinator
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -86,6 +87,18 @@ type Client interface {
 	Metrics() Metrics
 }
 
+// StateClient exposes coordinator-backed persistent DAG state RPCs.
+type StateClient interface {
+	// GetState retrieves one state entry by reference.
+	GetState(ctx context.Context, req *coordinatorv1.GetStateRequest) (*coordinatorv1.GetStateResponse, error)
+	// PutState creates or updates one state entry.
+	PutState(ctx context.Context, req *coordinatorv1.PutStateRequest) (*coordinatorv1.PutStateResponse, error)
+	// DeleteState removes one state entry by reference.
+	DeleteState(ctx context.Context, req *coordinatorv1.DeleteStateRequest) (*coordinatorv1.DeleteStateResponse, error)
+	// ListState lists state entries under a scope, namespace, and key prefix.
+	ListState(ctx context.Context, req *coordinatorv1.ListStateRequest) (*coordinatorv1.ListStateResponse, error)
+}
+
 // Metrics defines the metrics for the coordinator client
 type Metrics struct {
 	FailCount        int   // Total number of failures
@@ -109,6 +122,15 @@ type clientImpl struct {
 
 	stateMu sync.RWMutex // Mutex for state access
 	state   *Metrics     // Connection state tracking
+
+	stateCoordinatorMu sync.Mutex
+	stateCoordinators  map[string]pinnedStateCoordinator
+}
+
+type pinnedStateCoordinator struct {
+	member    exec.HostInfo
+	memberKey string
+	lastUsed  time.Time
 }
 
 // client holds the gRPC connection and clients for the coordinator service.
@@ -125,6 +147,8 @@ type client struct {
 // payloads that include LLM session messages in shared-nothing mode.
 const grpcMaxMsgSize = 16 * 1024 * 1024
 
+const maxPinnedStateCoordinators = 1024
+
 // Errors
 var (
 	ErrMissingTLSConfig = fmt.Errorf("TLS enabled but no certificates provided")
@@ -133,9 +157,10 @@ var (
 // New creates a new coordinator client with the given configuration
 func New(registry exec.ServiceRegistry, config *Config) Client {
 	return &clientImpl{
-		config:   config,
-		registry: registry,
-		clients:  make(map[string]*client),
+		config:            config,
+		registry:          registry,
+		clients:           make(map[string]*client),
+		stateCoordinators: make(map[string]pinnedStateCoordinator),
 		state: &Metrics{
 			IsConnected: true, // Assume connected initially
 		},
@@ -311,6 +336,149 @@ func (cli *clientImpl) attemptCall(ctx context.Context, members []exec.HostInfo,
 	}
 
 	return lastErr
+}
+
+// callPinnedStateCoordinator keeps all state RPCs on one coordinator for this
+// client because file-backed state can be local to each coordinator.
+func (cli *clientImpl) callPinnedStateCoordinator(ctx context.Context, routingKey string, callback func(ctx context.Context, member exec.HostInfo, client *client) error) error {
+	member, err := cli.pinnedStateCoordinator(ctx, routingKey)
+	if err != nil {
+		return err
+	}
+
+	err = cli.callMemberWithTimeout(ctx, member, func(ctx context.Context, client *client) error {
+		return callback(ctx, member, client)
+	})
+	if shouldRefreshPinnedStateCoordinator(err) {
+		cli.removeClient(member)
+		cli.refreshPinnedStateCoordinator(ctx, routingKey, member)
+	}
+	return err
+}
+
+func shouldRefreshPinnedStateCoordinator(err error) bool {
+	st, ok := status.FromError(err)
+	if !ok {
+		return false
+	}
+	code := st.Code()
+	return code == codes.Unavailable || code == codes.DeadlineExceeded
+}
+
+func (cli *clientImpl) pinnedStateCoordinator(ctx context.Context, routingKey string) (exec.HostInfo, error) {
+	if member, ok := cli.cachedPinnedStateCoordinator(routingKey); ok {
+		return member, nil
+	}
+
+	members, err := cli.getCoordinatorMembers(ctx)
+	if err != nil {
+		return exec.HostInfo{}, err
+	}
+
+	member, err := selectStateCoordinatorOwner(members, routingKey)
+	if err != nil {
+		return exec.HostInfo{}, err
+	}
+
+	cli.stateCoordinatorMu.Lock()
+	defer cli.stateCoordinatorMu.Unlock()
+
+	if pinned, ok := cli.stateCoordinators[routingKey]; ok {
+		pinned.lastUsed = time.Now().UTC()
+		cli.stateCoordinators[routingKey] = pinned
+		return pinned.member, nil
+	}
+
+	cli.rememberPinnedStateCoordinatorLocked(routingKey, member)
+	return member, nil
+}
+
+func (cli *clientImpl) cachedPinnedStateCoordinator(routingKey string) (exec.HostInfo, bool) {
+	cli.stateCoordinatorMu.Lock()
+	defer cli.stateCoordinatorMu.Unlock()
+
+	if cli.stateCoordinators == nil {
+		cli.stateCoordinators = make(map[string]pinnedStateCoordinator)
+	}
+	if pinned, ok := cli.stateCoordinators[routingKey]; ok {
+		pinned.lastUsed = time.Now().UTC()
+		cli.stateCoordinators[routingKey] = pinned
+		return pinned.member, true
+	}
+	return exec.HostInfo{}, false
+}
+
+func (cli *clientImpl) rememberPinnedStateCoordinatorLocked(routingKey string, member exec.HostInfo) {
+	if cli.stateCoordinators == nil {
+		cli.stateCoordinators = make(map[string]pinnedStateCoordinator)
+	}
+
+	if _, exists := cli.stateCoordinators[routingKey]; !exists && len(cli.stateCoordinators) >= maxPinnedStateCoordinators {
+		cli.evictOldestPinnedStateCoordinatorLocked()
+	}
+	cli.stateCoordinators[routingKey] = pinnedStateCoordinator{
+		member:    member,
+		memberKey: coordinatorMemberKey(member),
+		lastUsed:  time.Now().UTC(),
+	}
+}
+
+func (cli *clientImpl) evictOldestPinnedStateCoordinatorLocked() {
+	var oldestKey string
+	var oldestTime time.Time
+	for key, pinned := range cli.stateCoordinators {
+		if oldestKey == "" || pinned.lastUsed.Before(oldestTime) {
+			oldestKey = key
+			oldestTime = pinned.lastUsed
+		}
+	}
+	if oldestKey != "" {
+		delete(cli.stateCoordinators, oldestKey)
+	}
+}
+
+func (cli *clientImpl) refreshPinnedStateCoordinator(ctx context.Context, routingKey string, failed exec.HostInfo) {
+	failedKey := coordinatorMemberKey(failed)
+
+	cli.stateCoordinatorMu.Lock()
+	pinned, ok := cli.stateCoordinators[routingKey]
+	if !ok || pinned.memberKey != failedKey {
+		cli.stateCoordinatorMu.Unlock()
+		return
+	}
+	cli.stateCoordinatorMu.Unlock()
+
+	members, err := cli.getCoordinatorMembers(ctx)
+	if err != nil {
+		logger.Debug(ctx, "Failed to refresh pinned state coordinator",
+			slog.String("coordinator-id", failed.ID),
+			tag.Host(failed.Host),
+			tag.Port(failed.Port),
+			tag.Error(err))
+		return
+	}
+
+	var replacement *exec.HostInfo
+	for _, member := range members {
+		if coordinatorMemberKey(member) == failedKey {
+			member := member
+			replacement = &member
+			break
+		}
+	}
+
+	cli.stateCoordinatorMu.Lock()
+	defer cli.stateCoordinatorMu.Unlock()
+
+	pinned, ok = cli.stateCoordinators[routingKey]
+	if !ok || pinned.memberKey != failedKey {
+		return
+	}
+	if replacement != nil {
+		cli.rememberPinnedStateCoordinatorLocked(routingKey, *replacement)
+		return
+	}
+	delete(cli.stateCoordinators, routingKey)
 }
 
 func (cli *clientImpl) callMember(ctx context.Context, member exec.HostInfo, callback func(context.Context, *client) error) error {
@@ -575,6 +743,35 @@ func sortCoordinatorMembers(members []exec.HostInfo) []exec.HostInfo {
 		return coordinatorMemberKey(sorted[i]) < coordinatorMemberKey(sorted[j])
 	})
 	return sorted
+}
+
+func orderStateCoordinatorMembers(members []exec.HostInfo, routingKey string) []exec.HostInfo {
+	ordered := append([]exec.HostInfo(nil), members...)
+	if len(ordered) < 2 {
+		return ordered
+	}
+
+	sort.Slice(ordered, func(i, j int) bool {
+		left := stateCoordinatorMemberScore(routingKey, ordered[i])
+		right := stateCoordinatorMemberScore(routingKey, ordered[j])
+		if cmp := bytes.Compare(left[:], right[:]); cmp != 0 {
+			return cmp > 0
+		}
+		return coordinatorMemberKey(ordered[i]) < coordinatorMemberKey(ordered[j])
+	})
+	return ordered
+}
+
+func selectStateCoordinatorOwner(members []exec.HostInfo, routingKey string) (exec.HostInfo, error) {
+	ordered := orderStateCoordinatorMembers(members, routingKey)
+	if len(ordered) == 0 {
+		return exec.HostInfo{}, fmt.Errorf("no coordinators available")
+	}
+	return ordered[0], nil
+}
+
+func stateCoordinatorMemberScore(routingKey string, member exec.HostInfo) [sha256.Size]byte {
+	return sha256.Sum256([]byte(routingKey + "\x00" + coordinatorMemberKey(member)))
 }
 
 func coordinatorMemberKey(member exec.HostInfo) string {

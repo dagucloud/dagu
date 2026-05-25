@@ -30,6 +30,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	exec1 "github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
+	"github.com/dagucloud/dagu/internal/dagstate"
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/filebaseconfig"
 	"github.com/dagucloud/dagu/internal/persis/filedag"
@@ -291,6 +292,7 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 	)
 	procStore := newProcStore(cfg)
 	queueStore := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
+	stateStore := store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir))
 	serviceMonitor := fileserviceregistry.New(cfg.Paths.ServiceRegistryDir)
 	distributedDir := filepath.Join(cfg.Paths.DataDir, "distributed")
 	var dispatchStoreOpts []store.DispatchTaskStoreOption
@@ -315,6 +317,7 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 		DAGRunStore:               runStore,
 		ProcStore:                 procStore,
 		QueueStore:                queueStore,
+		StateStore:                stateStore,
 		ServiceRegistry:           serviceMonitor,
 		DispatchTaskStore:         dispatchTaskStore,
 		WorkerHeartbeatStore:      workerHeartbeatStore,
@@ -521,6 +524,7 @@ type Helper struct {
 	DAGRunMgr                 runtimepkg.Manager
 	ProcStore                 exec1.ProcStore
 	QueueStore                exec1.QueueStore
+	StateStore                dagstate.Store
 	ServiceRegistry           exec1.ServiceRegistry
 	DispatchTaskStore         exec1.DispatchTaskStore
 	WorkerHeartbeatStore      exec1.WorkerHeartbeatStore
