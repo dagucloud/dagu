@@ -71,6 +71,7 @@ func (er *entryReaderImpl) setEvents(ch chan DAGChangeEvent) {
 	er.events = ch
 }
 
+// Init loads the initial DAG registry and starts watching the target directory.
 func (er *entryReaderImpl) Init(ctx context.Context) error {
 	er.lock.Lock()
 	defer er.lock.Unlock()
@@ -90,6 +91,7 @@ func (er *entryReaderImpl) Init(ctx context.Context) error {
 	return nil
 }
 
+// Start forwards watcher events into registry updates until the reader stops.
 func (er *entryReaderImpl) Start(ctx context.Context) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -151,6 +153,7 @@ func (er *entryReaderImpl) handleFSEvent(ctx context.Context, event fsnotify.Eve
 	}
 }
 
+// reloadDAGFile reloads a create/write event when the file still snapshots as present.
 func (er *entryReaderImpl) reloadDAGFile(ctx context.Context, fileName, eventName string) {
 	snapshot, err := er.dagFileSource().snapshot(ctx, fileName)
 	if err != nil {
@@ -167,6 +170,7 @@ func (er *entryReaderImpl) reloadDAGFile(ctx context.Context, fileName, eventNam
 	logger.Info(ctx, "DAG added/updated", tag.Name(fileName))
 }
 
+// applyDAGFileSnapshot stores a loaded DAG and emits the matching add/update events.
 func (er *entryReaderImpl) applyDAGFileSnapshot(ctx context.Context, fileName string, dag *core.DAG) {
 	// Determine add vs update by checking registry before updating
 	er.lock.Lock()
@@ -197,6 +201,7 @@ func (er *entryReaderImpl) applyDAGFileSnapshot(ctx context.Context, fileName st
 	})
 }
 
+// removeDAGFile drops a confirmed-absent DAG file from the registry.
 func (er *entryReaderImpl) removeDAGFile(ctx context.Context, fileName string) {
 	// Capture DAG name from registry before deleting
 	er.lock.Lock()
@@ -213,6 +218,7 @@ func (er *entryReaderImpl) removeDAGFile(ctx context.Context, fileName string) {
 	logger.Info(ctx, "DAG removed", tag.Name(fileName))
 }
 
+// dagFileSource returns the snapshot loader used by watcher and initialization paths.
 func (er *entryReaderImpl) dagFileSource() *dagFileSource {
 	if er.dagSource == nil {
 		er.dagSource = newDAGFileSource(er.targetDir)
@@ -233,6 +239,7 @@ func (er *entryReaderImpl) sendEvent(ctx context.Context, event DAGChangeEvent) 
 	}
 }
 
+// Stop closes the watcher and prevents future event sends.
 func (er *entryReaderImpl) Stop() {
 	er.lock.Lock()
 	defer er.lock.Unlock()
@@ -245,6 +252,7 @@ func (er *entryReaderImpl) Stop() {
 	})
 }
 
+// DAGs returns the currently loaded DAG metadata.
 func (er *entryReaderImpl) DAGs() []*core.DAG {
 	er.lock.Lock()
 	defer er.lock.Unlock()
@@ -256,10 +264,12 @@ func (er *entryReaderImpl) DAGs() []*core.DAG {
 	return dags
 }
 
+// DAGStore returns the backing DAG store for full DAG details.
 func (er *entryReaderImpl) DAGStore() exec.DAGStore {
 	return er.dagStore
 }
 
+// initialize loads existing YAML files through the same stable snapshot path as watcher events.
 func (er *entryReaderImpl) initialize(ctx context.Context) error {
 	// Note: This method expects the caller to already hold er.lock
 	logger.Info(ctx, "Loading DAGs", tag.Dir(er.targetDir))
