@@ -20,6 +20,12 @@ func TestNormalizeValueRejectsNormalizedValueOverLimit(t *testing.T) {
 	require.ErrorIs(t, err, ErrValueTooLarge)
 }
 
+func TestNormalizeValuePreservesNumericPrecision(t *testing.T) {
+	value, err := NormalizeValue([]byte(`{"id":9007199254740993,"decimal":1.2300}`))
+	require.NoError(t, err)
+	assert.Equal(t, `{"decimal":1.2300,"id":9007199254740993}`, string(value))
+}
+
 func TestRefRecordIDEncodesFilesystemSensitiveParts(t *testing.T) {
 	ref := Ref{
 		Scope:     ScopeDAG,

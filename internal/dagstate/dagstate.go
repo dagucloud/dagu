@@ -5,12 +5,14 @@
 package dagstate
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 )
@@ -183,10 +185,23 @@ func NormalizeValue(data []byte) (json.RawMessage, error) {
 	if len(data) > DefaultMaxValueBytes {
 		return nil, fmt.Errorf("%w: %d bytes exceeds %d", ErrValueTooLarge, len(data), DefaultMaxValueBytes)
 	}
+
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+
 	var decoded any
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := decoder.Decode(&decoded); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidValue, err)
 	}
+
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			err = fmt.Errorf("multiple JSON values")
+		}
+		return nil, fmt.Errorf("%w: %v", ErrInvalidValue, err)
+	}
+
 	normalized, err := json.Marshal(decoded)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidValue, err)
