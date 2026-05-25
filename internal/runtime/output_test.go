@@ -9,79 +9,27 @@ import (
 	"fmt"
 	"io"
 	"os"
-	osrt "runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	executorpkg "github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func repeatedXOutputScript(size int) string {
-	if osrt.GOOS == "windows" {
-		return fmt.Sprintf("$value = 'x' * %d; [Console]::Write($value)", size)
-	}
-	return fmt.Sprintf("head -c %d /dev/zero | tr '\\000' 'x'", size)
-}
-
-func concurrentRepeatedXOutputScript(processes, bytesPerProcess int) string {
-	if osrt.GOOS == "windows" {
-		return fmt.Sprintf("1..%d | ForEach-Object { [Console]::Write((\"Process {0}: \" -f $_)); [Console]::Write('x' * %d); [Console]::Write([Environment]::NewLine) }", processes, bytesPerProcess)
-	}
-	return fmt.Sprintf(`
-		for i in $(seq 1 %d); do
-			(
-				printf 'Process %%s: ' "$i"
-				head -c %d /dev/zero | tr '\000' 'x'
-				printf '\n'
-			) &
-		done
-		wait
-	`, processes, bytesPerProcess)
-}
-
-func outputCommandEntry(script string) core.CommandEntry {
-	if osrt.GOOS == "windows" {
-		return core.CommandEntry{
-			Command: "powershell",
-			Args: []string{
-				"-NoLogo",
-				"-NoProfile",
-				"-NonInteractive",
-				"-ExecutionPolicy",
-				"Bypass",
-				"-Command",
-				script,
-			},
-		}
-	}
-	return core.CommandEntry{
-		Command: "sh",
-		Args:    []string{"-c", script},
-	}
-}
-
 func outputCommandTimeout() time.Duration {
-	if osrt.GOOS == "windows" {
-		return 20 * time.Second
-	}
 	return 5 * time.Second
 }
 
 func outputDeadlockTimeout() time.Duration {
-	if osrt.GOOS == "windows" {
-		return 30 * time.Second
-	}
-	return 10 * time.Second
+	return 5 * time.Second
 }
 
 func outputCommandCleanupWait() time.Duration {
-	if osrt.GOOS == "windows" {
-		return 10 * time.Second
-	}
 	return 2 * time.Second
 }
 
@@ -110,6 +58,7 @@ func startNodeExecuteAsync(t *testing.T, node *Node, ctx context.Context) <-chan
 type outputTestExecutor struct {
 	stdout io.Writer
 	stderr io.Writer
+	run    func(context.Context, *outputTestExecutor) error
 }
 
 func (e *outputTestExecutor) SetStdout(out io.Writer) {
@@ -124,7 +73,63 @@ func (e *outputTestExecutor) Kill(_ os.Signal) error {
 	return nil
 }
 
-func (e *outputTestExecutor) Run(_ context.Context) error {
+func (e *outputTestExecutor) Run(ctx context.Context) error {
+	if e.run != nil {
+		return e.run(ctx, e)
+	}
+	return nil
+}
+
+var outputTestExecutorSeq atomic.Int64
+
+func registerOutputTestExecutor(t *testing.T, run func(context.Context, *outputTestExecutor) error) string {
+	t.Helper()
+
+	executorType := fmt.Sprintf("__output_test_%d", outputTestExecutorSeq.Add(1))
+	executorpkg.RegisterExecutor(executorType, func(context.Context, core.Step) (executorpkg.Executor, error) {
+		return &outputTestExecutor{run: run}, nil
+	}, nil, core.ExecutorCapabilities{})
+	t.Cleanup(func() {
+		executorpkg.UnregisterExecutor(executorType)
+	})
+	return executorType
+}
+
+func writeRepeatedX(ctx context.Context, w io.Writer, size int) error {
+	if size <= 0 {
+		return nil
+	}
+
+	chunk := strings.Repeat("x", 8*1024)
+	remaining := size
+	for remaining > 0 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		n := min(remaining, len(chunk))
+		if _, err := io.WriteString(w, chunk[:n]); err != nil {
+			return err
+		}
+		remaining -= n
+	}
+	return nil
+}
+
+func writeProcessLikeOutput(ctx context.Context, w io.Writer, processes, bytesPerProcess int) error {
+	for i := 1; i <= processes; i++ {
+		if _, err := fmt.Fprintf(w, "Process %d: ", i); err != nil {
+			return err
+		}
+		if err := writeRepeatedX(ctx, w, bytesPerProcess); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(w, "\n"); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -132,47 +137,44 @@ func TestNode_LargeOutput(t *testing.T) {
 	tests := []struct {
 		name       string
 		outputSize int
-		script     string
 		expectHang bool
 	}{
 		{
 			name:       "SmallOutput",
 			outputSize: 1024, // 1KB
-			script:     repeatedXOutputScript(1024),
 			expectHang: false,
 		},
 		{
 			name:       "MediumOutput",
 			outputSize: 32 * 1024, // 32KB
-			script:     repeatedXOutputScript(32 * 1024),
 			expectHang: false,
 		},
 		{
 			name:       "LargeOutputJustBelow64KB",
 			outputSize: 63 * 1024, // 63KB
-			script:     repeatedXOutputScript(63 * 1024),
 			expectHang: false,
 		},
 		{
 			name:       "LargeOutputAt64KB",
 			outputSize: 64 * 1024, // 64KB
-			script:     repeatedXOutputScript(64 * 1024),
-			expectHang: false, // Fixed - no longer hangs
+			expectHang: false,     // Fixed - no longer hangs
 		},
 		{
 			name:       "LargeOutputAbove64KB",
 			outputSize: 128 * 1024, // 128KB
-			script:     repeatedXOutputScript(128 * 1024),
-			expectHang: false, // Fixed - no longer hangs
+			expectHang: false,      // Fixed - no longer hangs
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			executorType := registerOutputTestExecutor(t, func(ctx context.Context, exec *outputTestExecutor) error {
+				return writeRepeatedX(ctx, exec.stdout, tt.outputSize)
+			})
 			step := core.Step{
-				Name:     "test",
-				Output:   "RESULT",
-				Commands: []core.CommandEntry{outputCommandEntry(tt.script)},
+				Name:           "test",
+				Output:         "RESULT",
+				ExecutorConfig: core.ExecutorConfig{Type: executorType},
 			}
 
 			node := NewNode(step, NodeState{})
@@ -224,11 +226,15 @@ func TestNode_LargeOutput(t *testing.T) {
 }
 
 func TestNode_OutputCaptureDeadlock(t *testing.T) {
+	executorType := registerOutputTestExecutor(t, func(ctx context.Context, exec *outputTestExecutor) error {
+		return writeRepeatedX(ctx, exec.stdout, 64*1024+1)
+	})
+
 	// Test specifically for the pipe deadlock issue
 	step := core.Step{
-		Name:     "deadlock-test",
-		Output:   "RESULT",
-		Commands: []core.CommandEntry{outputCommandEntry(repeatedXOutputScript(64*1024 + 1))},
+		Name:           "deadlock-test",
+		Output:         "RESULT",
+		ExecutorConfig: core.ExecutorConfig{Type: executorType},
 	}
 
 	node := NewNode(step, NodeState{})
@@ -264,11 +270,15 @@ func TestNode_OutputCaptureDeadlock(t *testing.T) {
 }
 
 func TestNode_OutputExceedsLimit(t *testing.T) {
+	executorType := registerOutputTestExecutor(t, func(ctx context.Context, exec *outputTestExecutor) error {
+		return writeRepeatedX(ctx, exec.stdout, 2*1024*1024)
+	})
+
 	// Test that output exceeding the limit returns an error
 	step := core.Step{
-		Name:     "exceed-limit-test",
-		Output:   "RESULT",
-		Commands: []core.CommandEntry{outputCommandEntry(repeatedXOutputScript(2 * 1024 * 1024))},
+		Name:           "exceed-limit-test",
+		Output:         "RESULT",
+		ExecutorConfig: core.ExecutorConfig{Type: executorType},
 	}
 
 	node := NewNode(step, NodeState{})
@@ -293,11 +303,15 @@ func TestNode_OutputExceedsLimit(t *testing.T) {
 }
 
 func TestNode_CustomOutputLimit(t *testing.T) {
+	executorType := registerOutputTestExecutor(t, func(ctx context.Context, exec *outputTestExecutor) error {
+		return writeRepeatedX(ctx, exec.stdout, 100*1024)
+	})
+
 	// Test with custom output limit
 	step := core.Step{
-		Name:     "custom-limit-test",
-		Output:   "RESULT",
-		Commands: []core.CommandEntry{outputCommandEntry(repeatedXOutputScript(100 * 1024))},
+		Name:           "custom-limit-test",
+		Output:         "RESULT",
+		ExecutorConfig: core.ExecutorConfig{Type: executorType},
 	}
 
 	node := NewNode(step, NodeState{})
@@ -325,11 +339,15 @@ func TestNode_CustomOutputLimit(t *testing.T) {
 }
 
 func TestNode_ConcurrentOutputCapture(t *testing.T) {
+	executorType := registerOutputTestExecutor(t, func(ctx context.Context, exec *outputTestExecutor) error {
+		return writeProcessLikeOutput(ctx, exec.stdout, 10, 10000)
+	})
+
 	// Test that output capture doesn't interfere with concurrent writes
 	step := core.Step{
-		Name:     "concurrent-test",
-		Commands: []core.CommandEntry{outputCommandEntry(concurrentRepeatedXOutputScript(10, 10000))},
-		Output:   "RESULT",
+		Name:           "concurrent-test",
+		ExecutorConfig: core.ExecutorConfig{Type: executorType},
+		Output:         "RESULT",
 	}
 
 	node := NewNode(step, NodeState{})
