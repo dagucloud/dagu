@@ -374,9 +374,8 @@ func (cli *clientImpl) pinnedStateCoordinator(ctx context.Context, routingKey st
 	if err != nil {
 		return exec.HostInfo{}, err
 	}
-	members = orderStateCoordinatorMembers(members, routingKey)
 
-	member, err := cli.selectHealthyCoordinator(ctx, members)
+	member, err := selectStateCoordinatorOwner(members, routingKey)
 	if err != nil {
 		return exec.HostInfo{}, err
 	}
@@ -480,40 +479,6 @@ func (cli *clientImpl) refreshPinnedStateCoordinator(ctx context.Context, routin
 		return
 	}
 	delete(cli.stateCoordinators, routingKey)
-}
-
-func (cli *clientImpl) selectHealthyCoordinator(ctx context.Context, members []exec.HostInfo) (exec.HostInfo, error) {
-	var lastErr error
-	for _, member := range members {
-		if _, err := cli.getOrCreateClient(member); err != nil {
-			logger.Warn(ctx, "Failed to connect to coordinator",
-				slog.String("coordinator-id", member.ID),
-				tag.Host(member.Host),
-				tag.Port(member.Port),
-				tag.Error(err))
-			cli.removeClient(member)
-			cli.recordFailure(err)
-			lastErr = err
-			continue
-		}
-
-		if err := cli.isHealthy(ctx, member); err != nil {
-			logger.Warn(ctx, "Failed to check coordinator health",
-				slog.String("coordinator-id", member.ID),
-				tag.Host(member.Host),
-				tag.Port(member.Port),
-				tag.Error(err))
-			cli.recordFailure(err)
-			lastErr = err
-			continue
-		}
-
-		return member, nil
-	}
-	if lastErr != nil {
-		return exec.HostInfo{}, lastErr
-	}
-	return exec.HostInfo{}, fmt.Errorf("no coordinators available")
 }
 
 func (cli *clientImpl) callMember(ctx context.Context, member exec.HostInfo, callback func(context.Context, *client) error) error {
@@ -795,6 +760,14 @@ func orderStateCoordinatorMembers(members []exec.HostInfo, routingKey string) []
 		return coordinatorMemberKey(ordered[i]) < coordinatorMemberKey(ordered[j])
 	})
 	return ordered
+}
+
+func selectStateCoordinatorOwner(members []exec.HostInfo, routingKey string) (exec.HostInfo, error) {
+	ordered := orderStateCoordinatorMembers(members, routingKey)
+	if len(ordered) == 0 {
+		return exec.HostInfo{}, fmt.Errorf("no coordinators available")
+	}
+	return ordered[0], nil
 }
 
 func stateCoordinatorMemberScore(routingKey string, member exec.HostInfo) [sha256.Size]byte {

@@ -39,6 +39,31 @@ func TestOrderStateCoordinatorMembersIsDeterministicAndMinimizesMovement(t *test
 	require.Equal(t, owner.ID, orderStateCoordinatorMembers(remaining, key)[0].ID)
 }
 
+func TestPinnedStateCoordinatorUsesDeterministicOwnerWithoutHealthFailover(t *testing.T) {
+	t.Parallel()
+
+	members := []exec.HostInfo{
+		{ID: "coord-a", Host: "127.0.0.1", Port: 1001},
+		{ID: "coord-b", Host: "127.0.0.1", Port: 1002},
+		{ID: "coord-c", Host: "127.0.0.1", Port: 1003},
+	}
+	key := "dag\x00namespace"
+	owner, err := selectStateCoordinatorOwner(members, key)
+	require.NoError(t, err)
+
+	cli := &clientImpl{
+		config:            DefaultConfig(),
+		registry:          staticStateRegistry{members: members},
+		stateCoordinators: make(map[string]pinnedStateCoordinator),
+		state:             &Metrics{IsConnected: true},
+	}
+
+	pinned, err := cli.pinnedStateCoordinator(context.Background(), key)
+	require.NoError(t, err)
+	require.Equal(t, owner.ID, pinned.ID)
+	require.Equal(t, coordinatorMemberKey(owner), cli.stateCoordinators[key].memberKey)
+}
+
 func TestPinnedStateCoordinatorDiscoveryDoesNotHoldPinLock(t *testing.T) {
 	t.Parallel()
 
@@ -118,5 +143,23 @@ func (r *blockingStateRegistry) GetServiceMembers(context.Context, exec.ServiceN
 }
 
 func (r *blockingStateRegistry) UpdateStatus(context.Context, exec.ServiceName, exec.ServiceStatus) error {
+	return nil
+}
+
+type staticStateRegistry struct {
+	members []exec.HostInfo
+}
+
+func (r staticStateRegistry) Register(context.Context, exec.ServiceName, exec.HostInfo) error {
+	return nil
+}
+
+func (r staticStateRegistry) Unregister(context.Context) {}
+
+func (r staticStateRegistry) GetServiceMembers(context.Context, exec.ServiceName) ([]exec.HostInfo, error) {
+	return append([]exec.HostInfo(nil), r.members...), nil
+}
+
+func (r staticStateRegistry) UpdateStatus(context.Context, exec.ServiceName, exec.ServiceStatus) error {
 	return nil
 }
