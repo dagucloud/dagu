@@ -36,7 +36,9 @@ func (s *ProcStore) latestCollectionHeartbeat(
 	for _, rec := range recs {
 		entry, err := s.entryFromRecord(rec, now)
 		if err != nil {
-			return nil, err
+			// Heartbeat observation is best-effort; ListEntries and Validate
+			// still surface corrupt collection records.
+			continue
 		}
 		if entry.GroupName != groupName || entry.Meta.Name != dagRun.Name || entry.Meta.DAGRunID != dagRun.ID {
 			continue

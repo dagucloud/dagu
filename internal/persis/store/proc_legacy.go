@@ -252,7 +252,9 @@ func (s *ProcStore) latestLegacyHeartbeat(groupName string, dagRun exec.DAGRunRe
 	for _, file := range files {
 		observed, err := readLegacyProcEntryObserved(file, groupName, s.staleTime, now)
 		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
+			if errors.Is(err, os.ErrNotExist) || errors.Is(err, errInvalidProcFile) {
+				// Heartbeat observation should not fail because an unrelated
+				// legacy sidecar is concurrently removed or corrupt.
 				continue
 			}
 			return nil, err

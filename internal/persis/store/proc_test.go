@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -466,6 +467,77 @@ func TestProcStoreLatestHeartbeatFallsBackToFreshLegacyWhenCollectionRecordIsSta
 	assert.Equal(t, freshAt.Unix(), heartbeat.LastHeartbeatAt)
 }
 
+func TestProcStoreLatestHeartbeatFallsBackToLegacyWhenCollectionReadFails(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	col := listErrorCollection{Collection: testutil.NewMemoryBackend().Collection("proc_entries")}
+	s := store.NewProcStore(col, store.WithProcLegacyDir(root))
+	ref := exec.NewDAGRunRef("collection-error-dag", "run-1")
+	meta := procMeta(ref)
+	heartbeatAt := time.Now().UTC()
+	_ = writeLegacyProcFile(t, root, "queue-a", meta, heartbeatAt)
+
+	heartbeat, err := s.LatestHeartbeat(ctx, "queue-a", ref)
+	require.NoError(t, err)
+	require.NotNil(t, heartbeat)
+	assert.Equal(t, ref, heartbeat.DAGRun)
+	assert.Equal(t, heartbeatAt.Unix(), heartbeat.LastHeartbeatAt)
+}
+
+func TestProcStoreLatestHeartbeatSkipsCorruptCollectionRecords(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	col := testutil.NewMemoryBackend().Collection("proc_entries")
+	s := store.NewProcStore(col)
+	ref := exec.NewDAGRunRef("collection-corrupt-dag", "run-1")
+
+	proc, err := s.Acquire(ctx, "queue-a", procMeta(ref))
+	require.NoError(t, err)
+	defer func() { _ = proc.Stop(ctx) }()
+
+	otherMeta := procMeta(exec.NewDAGRunRef(ref.Name, "run-other"))
+	now := time.Now().UTC()
+	require.NoError(t, col.Put(ctx, &persis.Record{
+		ID:        procRecordIDForTest("queue-a", otherMeta, now),
+		Encoding:  persis.EncodingJSON,
+		Data:      []byte("{"),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}))
+
+	heartbeat, err := s.LatestHeartbeat(ctx, "queue-a", ref)
+	require.NoError(t, err)
+	require.NotNil(t, heartbeat)
+	assert.Equal(t, ref, heartbeat.DAGRun)
+}
+
+func TestProcStoreLatestHeartbeatSkipsCorruptLegacySidecars(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	s := store.NewProcStore(testutil.NewMemoryBackend().Collection("proc_entries"),
+		store.WithProcLegacyDir(root),
+	)
+	ref := exec.NewDAGRunRef("legacy-corrupt-dag", "run-1")
+	meta := procMeta(ref)
+	heartbeatAt := time.Now().UTC()
+	_ = writeLegacyProcFile(t, root, "queue-a", meta, heartbeatAt)
+
+	otherMeta := procMeta(exec.NewDAGRunRef(ref.Name, "run-other"))
+	corruptFile := writeLegacyProcFile(t, root, "queue-a", otherMeta, heartbeatAt)
+	require.NoError(t, os.WriteFile(corruptFile, []byte("invalid legacy proc sidecar"), 0o600))
+
+	heartbeat, err := s.LatestHeartbeat(ctx, "queue-a", ref)
+	require.NoError(t, err)
+	require.NotNil(t, heartbeat)
+	assert.Equal(t, ref, heartbeat.DAGRun)
+	assert.Equal(t, heartbeatAt.Unix(), heartbeat.LastHeartbeatAt)
+}
+
 func TestProcStoreReadsAndRemovesLegacyProcFiles(t *testing.T) {
 	t.Parallel()
 
@@ -557,6 +629,16 @@ func writeLegacyProcFile(t *testing.T, root, groupName string, meta exec.ProcMet
 	return procFile
 }
 
+func procRecordIDForTest(groupName string, meta exec.ProcMeta, t time.Time) string {
+	return filepath.ToSlash(filepath.Join(
+		groupName,
+		meta.Name,
+		"proc_"+t.UTC().Format("20060102_150405")+"Z_"+
+			hex.EncodeToString([]byte(meta.DAGRunID))+"_"+
+			hex.EncodeToString([]byte(meta.AttemptID)),
+	))
+}
+
 type contextIgnoringLockCollection struct {
 	persis.Collection
 }
@@ -574,6 +656,18 @@ func (c cancelAwareDeleteCollection) Delete(ctx context.Context, id string) erro
 		return err
 	}
 	return c.Collection.Delete(ctx, id)
+}
+
+type listErrorCollection struct {
+	persis.Collection
+}
+
+func (c listErrorCollection) List(context.Context, persis.ListQuery) (*persis.Page, error) {
+	return nil, errors.New("collection unavailable")
+}
+
+func (c listErrorCollection) RecordIDs(context.Context, string) ([]string, error) {
+	return nil, errors.New("collection unavailable")
 }
 
 type refreshBeforeCompareDeleteCollection struct {

@@ -5,6 +5,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -226,6 +227,15 @@ func (s *ProcStore) LatestFreshEntryByDAGName(ctx context.Context, groupName, da
 func (s *ProcStore) LatestHeartbeat(ctx context.Context, groupName string, dagRun exec.DAGRunRef) (*exec.ProcHeartbeat, error) {
 	collectionHeartbeat, err := s.latestCollectionHeartbeat(ctx, groupName, dagRun)
 	if err != nil {
+		if s.legacyDir != "" {
+			legacyHeartbeat, legacyErr := s.latestLegacyHeartbeat(groupName, dagRun)
+			if legacyErr != nil {
+				return nil, errors.Join(err, legacyErr)
+			}
+			if legacyHeartbeat != nil {
+				return legacyHeartbeat, nil
+			}
+		}
 		return nil, err
 	}
 	if s.legacyDir == "" || (collectionHeartbeat != nil && collectionHeartbeat.Fresh) {
