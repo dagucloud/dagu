@@ -26,8 +26,9 @@ import (
 // "/" in record IDs maps to the OS path separator, so hierarchical IDs
 // become nested subdirectories on disk.
 type Collection struct {
-	dir string
-	mu  sync.RWMutex
+	dir      string
+	lockRoot string
+	mu       sync.RWMutex
 }
 
 var _ persis.Collection = (*Collection)(nil)
@@ -346,24 +347,32 @@ func (c *Collection) Claim(_ context.Context, q persis.ListQuery) (*persis.Recor
 // ─── internal helpers ─────────────────────────────────────────────────────────
 
 func (c *Collection) filePath(id string) (string, error) {
-	base := filepath.Clean(c.dir)
-	full := filepath.Clean(filepath.Join(base, idToRelPath(id)))
-	rel, err := filepath.Rel(base, full)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("file backend: record ID %q escapes collection root", id)
-	}
-	return full, nil
+	return pathUnderRoot(c.dir, id, "record ID")
 }
 
 func (c *Collection) lockDir(key string) (string, error) {
-	if key == "" {
-		return c.dir, nil
+	root := c.dir
+	if c.lockRoot != "" {
+		root = c.lockRoot
 	}
-	path, err := c.filePath(strings.TrimSuffix(key, "/") + "/_lock")
+	if key == "" {
+		return root, nil
+	}
+	path, err := pathUnderRoot(root, strings.TrimSuffix(key, "/")+"/_lock", "lock key")
 	if err != nil {
 		return "", err
 	}
 	return filepath.Dir(path), nil
+}
+
+func pathUnderRoot(root, id, kind string) (string, error) {
+	base := filepath.Clean(root)
+	full := filepath.Clean(filepath.Join(base, idToRelPath(id)))
+	rel, err := filepath.Rel(base, full)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("file backend: %s %q escapes collection root", kind, id)
+	}
+	return full, nil
 }
 
 func (c *Collection) readFile(path string) (*fileRecord, error) {

@@ -299,8 +299,10 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 	}
 	dispatchTaskStore := store.NewDispatchTaskStore(file.NewCollection(distributedDir), dispatchStoreOpts...)
 	workerHeartbeatStore := store.NewWorkerHeartbeatStore(file.NewCollection(filepath.Join(distributedDir, "workers")))
-	dagRunLeaseStore := store.NewDAGRunLeaseStore(file.NewCollection(filepath.Join(distributedDir, "leases")))
-	activeDistributedRunStore := store.NewActiveDistributedRunStore(file.NewCollection(filepath.Join(distributedDir, "active-runs")))
+	leaseCollection := file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "leases"), distributedDir)
+	activeRunCollection := file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "active-runs"), distributedDir)
+	dagRunLeaseStore := store.NewDAGRunLeaseStore(leaseCollection)
+	activeDistributedRunStore := store.NewActiveDistributedRunStore(activeRunCollection)
 
 	drm := runtimepkg.NewManager(runStore, procStore, cfg)
 

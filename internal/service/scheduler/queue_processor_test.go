@@ -67,6 +67,8 @@ func newQueueFixture(t *testing.T) *queueFixture {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
+	distributedDir := filepath.Join(tmpDir, "distributed")
+	leaseCollection := file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "leases"), distributedDir)
 	logBuffer := &syncBuffer{buf: new(bytes.Buffer)}
 	ctx := logger.WithFixedLogger(context.Background(), logger.NewLogger(
 		logger.WithDebug(), logger.WithFormat("text"), logger.WithWriter(logBuffer),
@@ -74,10 +76,10 @@ func newQueueFixture(t *testing.T) *queueFixture {
 
 	return &queueFixture{
 		t: t, ctx: ctx, logBuffer: logBuffer,
-		distributedDir: filepath.Join(tmpDir, "distributed"),
+		distributedDir: distributedDir,
 		dagRunStore:    filedagrun.New(filepath.Join(tmpDir, "dag-runs")),
-		leaseStore:     store.NewDAGRunLeaseStore(file.NewCollection(filepath.Join(tmpDir, "distributed", "leases"))),
-		dispatchStore:  store.NewDispatchTaskStore(file.NewCollection(filepath.Join(tmpDir, "distributed"))),
+		leaseStore:     store.NewDAGRunLeaseStore(leaseCollection),
+		dispatchStore:  store.NewDispatchTaskStore(file.NewCollection(distributedDir)),
 		queueStore:     store.NewQueueStore(file.NewCollection(filepath.Join(tmpDir, "queue"))),
 		procStore:      newSchedulerTestProcStore(filepath.Join(tmpDir, "proc"), nil),
 	}

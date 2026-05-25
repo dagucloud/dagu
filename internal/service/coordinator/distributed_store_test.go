@@ -19,9 +19,9 @@ func newTestWorkerHeartbeatStore(baseDir string) *store.WorkerHeartbeatStore {
 }
 
 func newTestDAGRunLeaseStore(baseDir string) *store.DAGRunLeaseStore {
-	return store.NewDAGRunLeaseStore(file.NewCollection(filepath.Join(baseDir, "leases")))
+	return store.NewDAGRunLeaseStore(file.NewCollectionWithLockRoot(filepath.Join(baseDir, "leases"), baseDir))
 }
 
 func newTestActiveDistributedRunStore(baseDir string) *store.ActiveDistributedRunStore {
-	return store.NewActiveDistributedRunStore(file.NewCollection(filepath.Join(baseDir, "active-runs")))
+	return store.NewActiveDistributedRunStore(file.NewCollectionWithLockRoot(filepath.Join(baseDir, "active-runs"), baseDir))
 }

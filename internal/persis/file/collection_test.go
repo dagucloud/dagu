@@ -5,6 +5,8 @@ package file_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -352,6 +354,31 @@ func TestFileCollectionWithLockOptionsUsesCustomTiming(t *testing.T) {
 
 	close(release)
 	require.NoError(t, <-firstErr)
+}
+
+func TestFileCollectionWithLockRootScopesLocksOutsideCollection(t *testing.T) {
+	t.Parallel()
+
+	type lockOptionsCollection interface {
+		WithLockOptions(ctx context.Context, key string, opts dirlock.LockOptions, fn func() error) error
+	}
+
+	root := filepath.Join(t.TempDir(), "distributed")
+	collectionDir := filepath.Join(root, "leases")
+	col, ok := file.NewCollectionWithLockRoot(collectionDir, root).(lockOptionsCollection)
+	require.True(t, ok)
+
+	require.NoError(t, col.WithLockOptions(context.Background(), "locks/shared", dirlock.LockOptions{
+		StaleThreshold: time.Hour,
+		RetryInterval:  time.Millisecond,
+	}, func() error {
+		_, err := os.Stat(filepath.Join(root, "locks", "shared", ".dagu_lock"))
+		require.NoError(t, err)
+
+		_, err = os.Stat(filepath.Join(collectionDir, "locks", "shared", ".dagu_lock"))
+		require.ErrorIs(t, err, os.ErrNotExist)
+		return nil
+	}))
 }
 
 func TestMemoryCollection(t *testing.T) {

@@ -141,5 +141,5 @@ func (s *DAGRunLeaseStore) putLease(ctx context.Context, lease exec.DAGRunLease,
 }
 
 func (s *DAGRunLeaseStore) withLeaseLock(ctx context.Context, attemptKey string, fn func() error) error {
-	return withDistributedCollectionLock(ctx, s.col, "locks/lease-"+distributedRecordKey(attemptKey), fn)
+	return withDistributedCollectionLock(ctx, s.col, "locks/"+distributedRecordKey(attemptKey), fn)
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis"
@@ -132,6 +133,29 @@ func TestDAGRunLeaseStore_ListAllSurfacesCorruptRecord(t *testing.T) {
 	assert.Contains(t, err.Error(), "corrupt")
 }
 
+func TestDAGRunLeaseStore_UsesLegacyLockPath(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	distributedDir := t.TempDir()
+	attemptKey := "attempt-key-lock-compat"
+	legacyLock := dirlock.New(filepath.Join(distributedDir, "locks", legacyHash(attemptKey)), &dirlock.LockOptions{
+		StaleThreshold: time.Hour,
+		RetryInterval:  time.Millisecond,
+	})
+	require.NoError(t, legacyLock.Lock(ctx))
+	defer func() { _ = legacyLock.Unlock() }()
+
+	s := store.NewDAGRunLeaseStore(file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "leases"), distributedDir))
+	lockCtx, cancel := context.WithTimeout(ctx, 30*time.Millisecond)
+	defer cancel()
+	err := s.Upsert(lockCtx, exec.DAGRunLease{AttemptKey: attemptKey})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+
+	require.NoError(t, legacyLock.Unlock())
+	require.NoError(t, s.Upsert(ctx, exec.DAGRunLease{AttemptKey: attemptKey}))
+}
+
 func TestActiveDistributedRunStore_UpsertListGetAndDelete(t *testing.T) {
 	t.Parallel()
 
@@ -214,6 +238,29 @@ func TestActiveDistributedRunStore_ListAllSkipsCorruptRecord(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, records, 1)
 	assert.Equal(t, "attempt-key-1", records[0].AttemptKey)
+}
+
+func TestActiveDistributedRunStore_UsesLegacyLockPath(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	distributedDir := t.TempDir()
+	attemptKey := "attempt-key-active-lock-compat"
+	legacyLock := dirlock.New(filepath.Join(distributedDir, "locks", "active-run-"+legacyHash(attemptKey)), &dirlock.LockOptions{
+		StaleThreshold: time.Hour,
+		RetryInterval:  time.Millisecond,
+	})
+	require.NoError(t, legacyLock.Lock(ctx))
+	defer func() { _ = legacyLock.Unlock() }()
+
+	s := store.NewActiveDistributedRunStore(file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "active-runs"), distributedDir))
+	lockCtx, cancel := context.WithTimeout(ctx, 30*time.Millisecond)
+	defer cancel()
+	err := s.Upsert(lockCtx, exec.ActiveDistributedRun{AttemptKey: attemptKey})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+
+	require.NoError(t, legacyLock.Unlock())
+	require.NoError(t, s.Upsert(ctx, exec.ActiveDistributedRun{AttemptKey: attemptKey}))
 }
 
 func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {
@@ -526,7 +573,7 @@ func TestDistributedStores_ReadLegacyFileLayout(t *testing.T) {
 	}
 	writeLegacyJSON(t, filepath.Join(distributedDir, "leases", legacyHash(leaseKey)+".json"), legacyLease)
 
-	leaseStore := store.NewDAGRunLeaseStore(file.NewCollection(filepath.Join(distributedDir, "leases")))
+	leaseStore := store.NewDAGRunLeaseStore(file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "leases"), distributedDir))
 	gotLease, err := leaseStore.Get(ctx, leaseKey)
 	require.NoError(t, err)
 	assert.Equal(t, legacyLease.AttemptKey, gotLease.AttemptKey)
@@ -542,7 +589,7 @@ func TestDistributedStores_ReadLegacyFileLayout(t *testing.T) {
 	}
 	writeLegacyJSON(t, filepath.Join(distributedDir, "active-runs", legacyHash(activeKey)+".json"), legacyActive)
 
-	activeStore := store.NewActiveDistributedRunStore(file.NewCollection(filepath.Join(distributedDir, "active-runs")))
+	activeStore := store.NewActiveDistributedRunStore(file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "active-runs"), distributedDir))
 	gotActive, err := activeStore.Get(ctx, activeKey)
 	require.NoError(t, err)
 	assert.Equal(t, legacyActive.AttemptKey, gotActive.AttemptKey)

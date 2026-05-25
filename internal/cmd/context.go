@@ -340,8 +340,10 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	}
 	drs := filedagrun.New(cfg.Paths.DAGRunsDir, hrOpts...)
 	distributedDir := filepath.Join(cfg.Paths.DataDir, "distributed")
-	dagRunLeaseStore := store.NewDAGRunLeaseStore(file.NewCollection(filepath.Join(distributedDir, "leases")))
-	activeDistributedRunStore := store.NewActiveDistributedRunStore(file.NewCollection(filepath.Join(distributedDir, "active-runs")))
+	leaseCollection := file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "leases"), distributedDir)
+	activeRunCollection := file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "active-runs"), distributedDir)
+	dagRunLeaseStore := store.NewDAGRunLeaseStore(leaseCollection)
+	activeDistributedRunStore := store.NewActiveDistributedRunStore(activeRunCollection)
 	drm := runtime.NewManager(drs, ps, cfg)
 	qs := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
 	sm := fileserviceregistry.New(cfg.Paths.ServiceRegistryDir)

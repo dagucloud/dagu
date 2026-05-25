@@ -21,7 +21,7 @@ import (
 )
 
 func newTestDAGRunLeaseStore(distributedDir string) *store.DAGRunLeaseStore {
-	return store.NewDAGRunLeaseStore(file.NewCollection(filepath.Join(distributedDir, "leases")))
+	return store.NewDAGRunLeaseStore(file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "leases"), distributedDir))
 }
 
 func TestGetQueueFiltersDistributedRunsByLeaseFreshness(t *testing.T) {
