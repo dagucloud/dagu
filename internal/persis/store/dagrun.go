@@ -203,7 +203,7 @@ func (s *DAGRunStore) LatestAttempt(ctx context.Context, dagName string) (exec.D
 }
 
 func (s *DAGRunStore) ListStatuses(ctx context.Context, opts ...exec.ListDAGRunStatusesOption) ([]*exec.DAGRunStatus, error) {
-	options, err := prepareDAGRunListOptions(opts)
+	options, err := prepareDAGRunListOptions(s.location, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -212,7 +212,7 @@ func (s *DAGRunStore) ListStatuses(ctx context.Context, opts ...exec.ListDAGRunS
 }
 
 func (s *DAGRunStore) ListStatusesPage(ctx context.Context, opts ...exec.ListDAGRunStatusesOption) (exec.DAGRunStatusPage, error) {
-	options, err := prepareDAGRunListOptions(opts)
+	options, err := prepareDAGRunListOptions(s.location, opts)
 	if err != nil {
 		return exec.DAGRunStatusPage{}, err
 	}
@@ -233,6 +233,9 @@ func (s *DAGRunStore) CompareAndSwapLatestAttemptStatus(
 ) (*exec.DAGRunStatus, bool, error) {
 	if dagRun.ID == "" {
 		return nil, false, ErrDAGRunIDEmpty
+	}
+	if dagRun.Name == "" {
+		return nil, false, fmt.Errorf("dag-run store: DAG name is required")
 	}
 	cfg := exec.NewCompareAndSwapStatusOptions(opts...)
 	rootRef := cfg.RootDAGRun
@@ -294,6 +297,9 @@ func (s *DAGRunStore) FindAttempt(ctx context.Context, ref exec.DAGRunRef) (exec
 	if ref.ID == "" {
 		return nil, ErrDAGRunIDEmpty
 	}
+	if ref.Name == "" {
+		return nil, fmt.Errorf("dag-run store: DAG name is required")
+	}
 	item, err := s.latestRootAttemptForRun(ctx, ref.Name, ref.ID)
 	if err != nil {
 		return nil, err
@@ -305,6 +311,9 @@ func (s *DAGRunStore) FindSubAttempt(ctx context.Context, ref exec.DAGRunRef, su
 	if ref.ID == "" {
 		return nil, ErrDAGRunIDEmpty
 	}
+	if ref.Name == "" {
+		return nil, fmt.Errorf("dag-run store: root DAG name is required")
+	}
 	item, err := s.latestSubAttemptForRun(ctx, ref, exec.NewDAGRunRef("", subDAGRunID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to find sub dag-run: %w", err)
@@ -315,6 +324,9 @@ func (s *DAGRunStore) FindSubAttempt(ctx context.Context, ref exec.DAGRunRef, su
 func (s *DAGRunStore) CreateSubAttempt(ctx context.Context, rootRef exec.DAGRunRef, subDAGRunID string) (exec.DAGRunAttempt, error) {
 	if rootRef.ID == "" {
 		return nil, ErrDAGRunIDEmpty
+	}
+	if rootRef.Name == "" {
+		return nil, fmt.Errorf("dag-run store: root DAG name is required")
 	}
 	return s.createSubAttempt(ctx, nil, time.Now().UTC(), subDAGRunID, exec.NewDAGRunAttemptOptions{RootDAGRun: &rootRef})
 }
@@ -330,7 +342,7 @@ func (s *DAGRunStore) RemoveOldDAGRuns(ctx context.Context, name string, retenti
 	if retentionDays < 0 && options.RetentionRuns == nil {
 		return nil, nil
 	}
-	if options.RetentionRuns != nil && *options.RetentionRuns <= 0 {
+	if options.RetentionRuns != nil && *options.RetentionRuns < 0 {
 		return nil, nil
 	}
 
@@ -429,6 +441,9 @@ func (s *DAGRunStore) RemoveDAGRun(ctx context.Context, dagRun exec.DAGRunRef, o
 	if dagRun.ID == "" {
 		return ErrDAGRunIDEmpty
 	}
+	if dagRun.Name == "" {
+		return fmt.Errorf("dag-run store: DAG name is required")
+	}
 	var options exec.RemoveDAGRunOptions
 	for _, opt := range opts {
 		opt(&options)
@@ -464,6 +479,9 @@ func (s *DAGRunStore) createSubAttempt(ctx context.Context, dag *core.DAG, ts ti
 	rootRef := opts.RootDAGRun
 	if rootRef == nil || rootRef.ID == "" {
 		return nil, ErrDAGRunIDEmpty
+	}
+	if rootRef.Name == "" {
+		return nil, fmt.Errorf("dag-run store: root DAG name is required")
 	}
 	var attempt *DAGRunAttempt
 	err := s.withLock(ctx, dagRunLockKey(rootRef.Name, rootRef.ID), func() error {

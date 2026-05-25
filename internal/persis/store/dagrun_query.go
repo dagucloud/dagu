@@ -130,13 +130,13 @@ func statusesFromItems(items []dagRunListItem) []*exec.DAGRunStatus {
 	return out
 }
 
-func prepareDAGRunListOptions(opts []exec.ListDAGRunStatusesOption) (exec.ListDAGRunStatusesOptions, error) {
+func prepareDAGRunListOptions(location *time.Location, opts []exec.ListDAGRunStatusesOption) (exec.ListDAGRunStatusesOptions, error) {
 	var options exec.ListDAGRunStatusesOptions
 	for _, opt := range opts {
 		opt(&options)
 	}
 	if !options.AllHistory && options.From.IsZero() && options.To.IsZero() {
-		options.From = exec.NewUTC(time.Now().Truncate(24 * time.Hour))
+		options.From = exec.NewUTC(startOfToday(location))
 	}
 	if !options.Unlimited {
 		const maxLimit = 1000
