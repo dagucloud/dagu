@@ -30,6 +30,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/dagstate"
 	"github.com/dagucloud/dagu/internal/license"
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/filebaseconfig"
@@ -66,6 +67,7 @@ type Context struct {
 	DAGRunMgr                 runtime.Manager
 	ProcStore                 exec.ProcStore
 	QueueStore                exec.QueueStore
+	StateStore                dagstate.Store
 	ServiceRegistry           exec.ServiceRegistry
 	DispatchTaskStore         exec.DispatchTaskStore
 	WorkerHeartbeatStore      exec.WorkerHeartbeatStore
@@ -95,6 +97,7 @@ func (c *Context) WithContext(ctx context.Context) *Context {
 		DAGRunMgr:                 c.DAGRunMgr,
 		ProcStore:                 c.ProcStore,
 		QueueStore:                c.QueueStore,
+		StateStore:                c.StateStore,
 		ServiceRegistry:           c.ServiceRegistry,
 		DispatchTaskStore:         c.DispatchTaskStore,
 		WorkerHeartbeatStore:      c.WorkerHeartbeatStore,
@@ -348,6 +351,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	activeDistributedRunStore := store.NewActiveDistributedRunStore(activeRunCollection)
 	drm := runtime.NewManager(drs, ps, cfg)
 	qs := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
+	stateStore := store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir))
 	sm := fileserviceregistry.New(cfg.Paths.ServiceRegistryDir)
 	dispatchTaskStore := store.NewDispatchTaskStore(file.NewCollection(distributedDir))
 	workerHeartbeatStore := store.NewWorkerHeartbeatStore(file.NewCollection(filepath.Join(distributedDir, "workers")))
@@ -382,6 +386,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		slog.String("log-dir", cfg.Paths.LogDir),
 		slog.String("data-dir", cfg.Paths.DataDir),
 		slog.String("dag-runs-dir", cfg.Paths.DAGRunsDir),
+		slog.String("dag-state-dir", cfg.Paths.DAGStateDir),
 	)
 
 	// Initialize default base config if it doesn't exist
@@ -410,6 +415,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		Flags:                     flags,
 		ProcStore:                 ps,
 		QueueStore:                qs,
+		StateStore:                stateStore,
 		ServiceRegistry:           sm,
 		DispatchTaskStore:         dispatchTaskStore,
 		WorkerHeartbeatStore:      workerHeartbeatStore,

@@ -110,6 +110,62 @@ Notes:
 - Keep values small and JSON-compatible; use artifacts for files, reports, logs, screenshots, or large JSON payloads.
 - If the remote action manifest declares an `outputs` schema, Dagu validates the final collected action output object after the action DAG returns. `outputs.write` itself does not validate the manifest.
 
+## state.get / state.set / state.delete / state.list / state.diff
+
+Read and write persistent JSON state that survives across DAG runs. Use state actions for cursors, checkpoints, and comparing the current result with the previous run. Use artifacts or external storage for large files.
+
+```yaml
+steps:
+  - id: load_cursor
+    action: state.get
+    with:
+      key: cursors/feed
+      default: null
+
+  - id: save_cursor
+    action: state.set
+    with:
+      key: cursors/feed
+      value: ${fetch.output.nextCursor}
+
+  - id: detect_change
+    action: state.diff
+    with:
+      key: snapshots/feed
+      value: ${fetch.output.items}
+      update: true
+```
+
+Scope fields:
+
+- `scope` - state scope: `dag` (default), `root_dag`, `global`, or `custom`
+- `namespace` - namespace override. For `custom` scope, this is required.
+
+Default namespaces:
+
+- `dag` - current DAG name
+- `root_dag` - root DAG name for nested DAG runs
+- `global` - `_`
+- `custom` - no default; set `namespace`
+
+Operation fields:
+
+- `state.get`: `key`, optional `default`, `required`
+- `state.set`: `key`, `value`, optional `expected_version`, `create_only`
+- `state.delete`: `key`
+- `state.list`: optional `prefix`, `limit`, `include_values`
+- `state.diff`: `key`, `value`, optional `expected_version`, `update`
+
+All state actions write JSON to stdout. Common output fields include `operation`, `scope`, `namespace`, and key or prefix information.
+
+- `state.get` returns `found`, and when found, `value`, `version`, and `hash`. If not found and `default` is set, `value` contains the default.
+- `state.set` returns `version`, `hash`, and `created`.
+- `state.delete` returns `deleted`.
+- `state.list` returns `entries`; entry values are omitted unless `include_values` is true.
+- `state.diff` returns `changed`, `foundPrevious`, `current`, optional `previous`, and `version` / `hash` when the stored value was written or already exists.
+
+Values must be JSON-serializable. Dagu normalizes state values before storing them and enforces the state payload size limit after normalization.
+
 ## parallel
 
 `parallel:` currently works only with `action: dag.run`.

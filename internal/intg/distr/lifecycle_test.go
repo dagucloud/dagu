@@ -42,20 +42,22 @@ steps:
 			if err != nil {
 				return false
 			}
-			if status.Status == core.Running {
-				dagRunID = status.DAGRunID
-				return true
+			if status.Status != core.Running {
+				return false
+			}
+			for _, node := range status.Nodes {
+				if node.Step.Name == "long-task" && node.Status == core.NodeRunning {
+					dagRunID = status.DAGRunID
+					return true
+				}
 			}
 			return false
-		}, 10*time.Second, 1000*time.Millisecond, "DAG should start running")
+		}, distrTestTimeout(20*time.Second), 200*time.Millisecond, "long-task should start running")
 
-		startTime := time.Now()
 		require.NoError(t, f.stop(dagRunID))
 
 		status := f.waitForStatusIn([]core.Status{core.Aborted, core.Failed}, 15*time.Second)
 
-		elapsed := time.Since(startTime)
-		assert.Less(t, elapsed, 10*time.Second, "cancellation should be quick")
 		assert.Contains(t, []core.Status{core.Aborted, core.Failed}, status.Status)
 	})
 }

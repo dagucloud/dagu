@@ -372,6 +372,7 @@ type PathsConfig struct {
 	Executable         string
 	LogDir             string
 	ArtifactDir        string
+	DAGStateDir        string
 	DataDir            string
 	ToolsDir           string
 	SuspendFlagsDir    string

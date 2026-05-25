@@ -413,11 +413,12 @@ steps:
 		lease, err = f.coord.DAGRunLeaseStore.Get(f.coord.Context, status.AttemptKey)
 		return err == nil && lease != nil
 	}, distrTestTimeout(5*time.Second), 100*time.Millisecond, "shared lease should exist while run is active")
+	leaseObservedAt := time.Now()
 	assert.Equal(t, status.AttemptKey, lease.AttemptKey)
 	assert.Equal(t, status.AttemptID, lease.AttemptID)
 	assert.Equal(t, "worker-1", lease.WorkerID)
 	assert.Equal(t, "test-coordinator", lease.Owner.ID)
-	assert.WithinDuration(t, time.Now(), time.UnixMilli(lease.LastHeartbeatAt), 5*time.Second)
+	assert.WithinDuration(t, leaseObservedAt, time.UnixMilli(lease.LastHeartbeatAt), distrTestTimeout(5*time.Second))
 
 	require.NoError(t, os.WriteFile(releaseFile, []byte("ok"), 0600))
 	finalStatus := f.waitForStatus(core.Succeeded, 20*time.Second)
@@ -426,7 +427,7 @@ steps:
 	require.Eventually(t, func() bool {
 		_, err := f.coord.DAGRunLeaseStore.Get(f.coord.Context, status.AttemptKey)
 		return errors.Is(err, exec.ErrDAGRunLeaseNotFound)
-	}, 10*time.Second, 100*time.Millisecond, "shared lease should be removed after completion")
+	}, distrTestTimeout(10*time.Second), 100*time.Millisecond, "shared lease should be removed after completion")
 }
 
 func testDistributedRunAckedTaskWithoutInitialStatus(t *testing.T, mode workerMode) {

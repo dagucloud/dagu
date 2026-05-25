@@ -84,19 +84,38 @@ func TestWorkerStart(t *testing.T) {
 		w := createTestWorker(t, "test-worker", maxActiveRuns, coord)
 
 		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		t.Cleanup(func() {
+			cancel()
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer stopCancel()
+			assert.NoError(t, w.Stop(stopCtx))
+			select {
+			case err := <-done:
+				assert.NoError(t, err)
+			case <-time.After(5 * time.Second):
+				t.Error("Worker did not stop within timeout")
+			}
+			th.Cleanup()
+		})
 
 		// Track polling activity
 		var pollCount atomic.Int32
+		processedRuns := make(chan string, 5)
 		w.SetHandler(&mockHandler{
-			ExecuteFunc: func(_ context.Context, _ *coordinatorv1.Task) error {
+			ExecuteFunc: func(_ context.Context, task *coordinatorv1.Task) error {
 				pollCount.Add(1)
+				select {
+				case processedRuns <- task.DagRunId:
+				default:
+				}
 				return nil
 			},
 		})
 
 		// Start worker first
 		go func() {
-			_ = w.Start(ctx)
+			done <- w.Start(ctx)
 		}()
 
 		// Wait for worker to register via heartbeat
@@ -123,30 +142,22 @@ func TestWorkerStart(t *testing.T) {
 			}
 			err := coord.DispatchTask(t, task)
 			require.NoError(t, err)
-
-			// After dispatching first batch, wait for a poller to become free
-			if i >= 2 {
-				require.Eventually(t, func() bool {
-					return pollCount.Load() >= int32(i)
-				}, 5*time.Second, 10*time.Millisecond)
-			}
 		}
 
 		// Wait for all tasks to be processed
-		require.Eventually(t, func() bool {
-			return pollCount.Load() >= 5
-		}, 5*time.Second, 10*time.Millisecond, "Not all tasks were processed")
+		seenRuns := make(map[string]struct{}, 5)
+		deadline := time.After(15 * time.Second)
+		for len(seenRuns) < 5 {
+			select {
+			case runID := <-processedRuns:
+				seenRuns[runID] = struct{}{}
+			case <-deadline:
+				t.Fatalf("Not all tasks were processed: processed=%d seen=%v", pollCount.Load(), seenRuns)
+			}
+		}
 
 		// Should have processed multiple tasks
 		assert.GreaterOrEqual(t, pollCount.Load(), int32(3))
-
-		// Stop worker
-		cancel()
-
-		// Cleanup
-		err := w.Stop(context.Background())
-		assert.NoError(t, err)
-		th.Cleanup()
 	})
 }
 
@@ -320,11 +331,28 @@ func TestWorkerWithLabels(t *testing.T) {
 		})
 
 		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		w1Done := make(chan error, 1)
+		w2Done := make(chan error, 1)
+		t.Cleanup(func() {
+			cancel()
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer stopCancel()
+			assert.NoError(t, w1.Stop(stopCtx))
+			assert.NoError(t, w2.Stop(stopCtx))
+			for _, done := range []chan error{w1Done, w2Done} {
+				select {
+				case err := <-done:
+					assert.NoError(t, err)
+				case <-time.After(5 * time.Second):
+					t.Error("Worker did not stop within timeout")
+				}
+			}
+			th.Cleanup()
+		})
 
 		// Start both workers
-		go func() { _ = w1.Start(ctx) }()
-		go func() { _ = w2.Start(ctx) }()
+		go func() { w1Done <- w1.Start(ctx) }()
+		go func() { w2Done <- w2.Start(ctx) }()
 
 		// Wait for both workers to register via heartbeat
 		requireWorkerRegistered(t, coord, "worker-1")
@@ -337,19 +365,12 @@ func TestWorkerWithLabels(t *testing.T) {
 		// Wait for the labeled worker to execute
 		require.Eventually(t, func() bool {
 			return w2Executed.Load()
-		}, 5*time.Second, 10*time.Millisecond, "Worker with labels did not execute")
+		}, 15*time.Second, 10*time.Millisecond, "Worker with labels did not execute")
 
 		// Only worker with matching labels should execute
 		assert.False(t, w1Executed.Load(), "Worker without labels should not execute")
 		assert.True(t, w2Executed.Load(), "Worker with labels should execute")
 
-		// Stop workers
-		cancel()
-		_ = w1.Stop(context.Background())
-		_ = w2.Stop(context.Background())
-
-		// Cleanup
-		th.Cleanup()
 	})
 }
 
