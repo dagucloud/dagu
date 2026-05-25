@@ -448,6 +448,9 @@ func (m *Manager) repairStaleLocalRunIfDead(
 		)
 		return st, nil
 	}
+	if m.procStore == nil {
+		return st, nil
+	}
 
 	alive, err := m.procStore.IsAttemptAlive(ctx, dag.ProcGroup(), st.DAGRun(), st.AttemptID)
 	if err != nil {

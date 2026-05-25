@@ -139,9 +139,6 @@ func runRetry(ctx *Context, args []string) error {
 	if err := applyRetryDefaultWorkingDir(ctx, dag, status); err != nil {
 		return err
 	}
-	if err := waitForRetrySourceRelease(ctx, dag, status); err != nil {
-		return err
-	}
 
 	if err := prepareQueuedCatchupRetry(ctx, attempt, dag, status); err != nil {
 		return err
@@ -168,6 +165,10 @@ func runRetry(ctx *Context, args []string) error {
 	queueConfig := ctx.Config.FindQueueConfig(dag.ProcGroup())
 	if stepName == "" && queueConfig != nil && status.Status != core.Queued {
 		return enqueueRetry(ctx, attempt, dag, status, dagRunID)
+	}
+
+	if err := waitForRetrySourceRelease(ctx, dag, status); err != nil {
+		return err
 	}
 
 	ctx.Context = logger.WithValues(ctx.Context, tag.DAG(dag.Name), tag.RunID(dagRunID))

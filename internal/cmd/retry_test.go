@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmd"
+	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -177,6 +178,67 @@ steps:
 		require.NoError(t, err)
 		require.Equal(t, core.Succeeded, latestStatus.Status)
 		require.Equal(t, core.TriggerTypeRetry, latestStatus.TriggerType)
+	})
+
+	t.Run("QueuedRetryDoesNotWaitForTerminalSourceProc", func(t *testing.T) {
+		const dagName = "queued-retry-live-source-dag"
+		th := test.SetupCommand(t, test.WithConfigMutator(func(cfg *config.Config) {
+			cfg.Queues = config.Queues{
+				Enabled: true,
+				Config: []config.QueueConfig{{
+					Name:          dagName,
+					MaxActiveRuns: 1,
+				}},
+			}
+		}))
+
+		dagFile := th.DAG(t, `name: queued-retry-live-source-dag
+steps:
+  - name: "1"
+    run: echo queued retry
+`)
+
+		runID := "queued-retry-live-source-run"
+		startedAt := time.Now().Add(-time.Minute)
+		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dagFile.DAG, startedAt, runID, exec.NewDAGRunAttemptOptions{})
+		require.NoError(t, err)
+		logPath := filepath.Join(th.Config.Paths.LogDir, "queued-retry-live-source-test.log")
+		require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
+
+		status := transform.NewStatusBuilder(dagFile.DAG).Create(
+			runID,
+			core.Failed,
+			1,
+			startedAt,
+			transform.WithAttemptID(attempt.ID()),
+			transform.WithLogFilePath(logPath),
+		)
+		writeStatus(t, th.Context, attempt, status)
+
+		proc, err := th.ProcStore.Acquire(th.Context, dagFile.ProcGroup(), exec.ProcMeta{
+			StartedAt:    startedAt.Unix(),
+			Name:         dagFile.Name,
+			DAGRunID:     runID,
+			AttemptID:    attempt.ID(),
+			RootName:     dagFile.Name,
+			RootDAGRunID: runID,
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			_ = proc.Stop(th.Context)
+		})
+
+		args := []string{"retry", fmt.Sprintf("--run-id=%s", runID), dagFile.Location}
+		th.RunCommand(t, cmd.Retry(), test.CmdTest{Args: args})
+
+		items, err := th.QueueStore.List(th.Context, dagFile.ProcGroup())
+		require.NoError(t, err)
+		require.Len(t, items, 1)
+
+		queuedStatus, err := attempt.ReadStatus(th.Context)
+		require.NoError(t, err)
+		require.Equal(t, core.Queued, queuedStatus.Status)
+		require.Equal(t, core.TriggerTypeRetry, queuedStatus.TriggerType)
 	})
 
 	t.Run("QueueDispatchRetryTreatsMissingRunAsStaleDispatch", func(t *testing.T) {

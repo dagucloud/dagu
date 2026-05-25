@@ -617,6 +617,36 @@ steps:
 		require.NoError(t, err)
 		require.Equal(t, core.NotStarted, status.Status)
 	})
+	t.Run("GetCurrentStatusWithoutRunIDSkipsRepairWithoutProcStore", func(t *testing.T) {
+		dag := th.DAG(t, `steps:
+  - name: "1"
+    run: "exit 0"
+`)
+		ctx := th.Context
+		dagRunID := uuid.Must(uuid.NewV7()).String()
+		startedAt := time.Now().Add(-time.Minute)
+		mgr := runtime.NewManager(
+			th.DAGRunStore,
+			nil,
+			th.Config,
+			runtime.WithManagerClock(func() time.Time { return time.Now() }),
+		)
+
+		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, startedAt, dagRunID, exec.NewDAGRunAttemptOptions{})
+		require.NoError(t, err)
+		require.NoError(t, att.Open(ctx))
+
+		runningStatus := testNewStatus(dag.DAG, dagRunID, core.Running, core.NodeRunning)
+		runningStatus.StartedAt = exec.FormatTime(startedAt)
+		runningStatus.CreatedAt = startedAt.UnixMilli()
+		require.NoError(t, att.Write(ctx, runningStatus))
+		require.NoError(t, att.Close(ctx))
+
+		status, err := mgr.GetCurrentStatus(ctx, dag.DAG, "")
+		require.NoError(t, err)
+		require.Equal(t, core.Running, status.Status)
+		require.Equal(t, dagRunID, status.DAGRunID)
+	})
 }
 
 // testNewStatus builds a minimal persisted DAG run status for manager tests.
