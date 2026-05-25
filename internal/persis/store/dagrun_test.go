@@ -248,7 +248,7 @@ func TestDAGRunStore_CompareAndSwapSubAttemptRejectsMissingRootName(t *testing.T
 
 	ctx := context.Background()
 	s := newDAGRunStore(t)
-	rootDAG := testDAG("child")
+	rootDAG := testDAG("root")
 	childDAG := testDAG("child")
 	base := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 
