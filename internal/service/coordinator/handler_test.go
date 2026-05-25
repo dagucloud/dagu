@@ -117,7 +117,11 @@ func (m *mockDAGRunStore) RecentAttempts(_ context.Context, _ string, _ int) []e
 func (m *mockDAGRunStore) LatestAttempt(_ context.Context, _ string) (exec.DAGRunAttempt, error) {
 	return nil, exec.ErrDAGRunIDNotFound
 }
-func (m *mockDAGRunStore) ListStatuses(_ context.Context, opts ...exec.ListDAGRunStatusesOption) ([]*exec.DAGRunStatus, error) {
+func (m *mockDAGRunStore) ListStatuses(ctx context.Context, opts ...exec.ListDAGRunStatusesOption) ([]*exec.DAGRunStatus, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	var options exec.ListDAGRunStatusesOptions
 	for _, opt := range opts {
 		opt(&options)
