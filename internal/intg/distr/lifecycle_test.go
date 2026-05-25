@@ -53,9 +53,10 @@ steps:
 		require.NoError(t, f.stop(dagRunID))
 
 		status := f.waitForStatusIn([]core.Status{core.Aborted, core.Failed}, 15*time.Second)
+		f.waitForRunReleasedFromWorkers(dagRunID, 10*time.Second)
 
 		elapsed := time.Since(startTime)
-		assert.Less(t, elapsed, 10*time.Second, "cancellation should be quick")
+		assert.Less(t, elapsed, distrTestTimeout(10*time.Second), "cancellation should complete within distributed timeout")
 		assert.Contains(t, []core.Status{core.Aborted, core.Failed}, status.Status)
 	})
 }

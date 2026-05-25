@@ -1381,6 +1381,11 @@ func (a *Agent) writeStatus(ctx context.Context, attempt exec.DAGRunAttempt, sta
 
 func (a *Agent) pushStatus(ctx context.Context, status exec.DAGRunStatus) {
 	pushCtx := context.WithoutCancel(ctx)
+	if remoteStatusPushTimeout > 0 {
+		var cancel context.CancelFunc
+		pushCtx, cancel = context.WithTimeout(pushCtx, remoteStatusPushTimeout)
+		defer cancel()
+	}
 	if err := a.statusPusher.Push(pushCtx, status); err != nil {
 		logger.Error(ctx, "Failed to push status to coordinator", tag.Error(err))
 		var rejectedErr *remote.AttemptRejectedError
@@ -1435,6 +1440,8 @@ func (a *Agent) Signal(ctx context.Context, sig os.Signal) {
 // wait before read the running status
 const waitForRunning = time.Millisecond * 100
 const artifactFinalizeTimeout = 30 * time.Second
+
+var remoteStatusPushTimeout = 5 * time.Second
 
 // Simple regular expressions for request routing
 var (
