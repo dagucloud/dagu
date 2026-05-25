@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestSendEvent_UnblocksOnQuit verifies shutdown unblocks a pending event send.
 func TestSendEvent_UnblocksOnQuit(t *testing.T) {
 	t.Parallel()
 
@@ -48,6 +49,7 @@ func TestSendEvent_UnblocksOnQuit(t *testing.T) {
 	}
 }
 
+// TestSendEvent_UnblocksOnContextCancel verifies context cancellation unblocks a pending event send.
 func TestSendEvent_UnblocksOnContextCancel(t *testing.T) {
 	t.Parallel()
 
@@ -81,6 +83,7 @@ func TestSendEvent_UnblocksOnContextCancel(t *testing.T) {
 	}
 }
 
+// TestSendEvent_NilChannelReturnsImmediately verifies missing event wiring cannot block shutdown.
 func TestSendEvent_NilChannelReturnsImmediately(t *testing.T) {
 	t.Parallel()
 
@@ -106,6 +109,7 @@ func TestSendEvent_NilChannelReturnsImmediately(t *testing.T) {
 	}
 }
 
+// writeDAGFile writes a minimal DAG fixture and returns its path.
 func writeDAGFile(t *testing.T, dir, fileName, dagName string) string {
 	t.Helper()
 	content := "name: " + dagName + "\nsteps:\n  - name: step1\n    command: echo hello\n"
@@ -114,6 +118,7 @@ func writeDAGFile(t *testing.T, dir, fileName, dagName string) string {
 	return path
 }
 
+// TestHandleFSEvent_CreateAddsDAG verifies create events load DAG metadata and emit an add event.
 func TestHandleFSEvent_CreateAddsDAG(t *testing.T) {
 	t.Parallel()
 
@@ -152,6 +157,7 @@ func TestHandleFSEvent_CreateAddsDAG(t *testing.T) {
 	}
 }
 
+// TestHandleFSEvent_WriteUpdatesDAG verifies write events update existing registry entries.
 func TestHandleFSEvent_WriteUpdatesDAG(t *testing.T) {
 	t.Parallel()
 
@@ -186,6 +192,7 @@ func TestHandleFSEvent_WriteUpdatesDAG(t *testing.T) {
 	}
 }
 
+// TestHandleFSEvent_RemoveDeletesDAG verifies remove events delete confirmed-absent DAG files.
 func TestHandleFSEvent_RemoveDeletesDAG(t *testing.T) {
 	t.Parallel()
 
@@ -223,6 +230,7 @@ func TestHandleFSEvent_RemoveDeletesDAG(t *testing.T) {
 	}
 }
 
+// TestHandleFSEvent_RemoveReloadsDAGWhenFileStillExists verifies remove events reload files that still exist after replacement.
 func TestHandleFSEvent_RemoveReloadsDAGWhenFileStillExists(t *testing.T) {
 	t.Parallel()
 
@@ -260,6 +268,7 @@ func TestHandleFSEvent_RemoveReloadsDAGWhenFileStillExists(t *testing.T) {
 	}
 }
 
+// TestHandleFSEvent_NameChangeEmitsDeleteThenAdd verifies renamed DAG metadata emits delete before add.
 func TestHandleFSEvent_NameChangeEmitsDeleteThenAdd(t *testing.T) {
 	t.Parallel()
 

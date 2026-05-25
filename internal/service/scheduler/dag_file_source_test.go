@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestDAGFileSourceSnapshotRetriesTemporaryAbsence verifies transient missing files are retried before deletion.
 func TestDAGFileSourceSnapshotRetriesTemporaryAbsence(t *testing.T) {
 	t.Parallel()
 
@@ -38,6 +39,7 @@ func TestDAGFileSourceSnapshotRetriesTemporaryAbsence(t *testing.T) {
 	assert.Equal(t, 2, attempts)
 }
 
+// TestDAGFileSourceSnapshotReturnsNonAbsenceError verifies parse/load errors are not treated as deletion.
 func TestDAGFileSourceSnapshotReturnsNonAbsenceError(t *testing.T) {
 	t.Parallel()
 
