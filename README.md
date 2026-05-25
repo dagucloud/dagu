@@ -1,5 +1,7 @@
 <div align="center">
   <img src="./assets/images/hero-logo.webp" width="480" alt="Dagu Logo">
+  <br />
+  <p><strong>Expose any local script or workflow as an async MCP tool.</strong></p>
   <p>
     <a href="https://docs.dagu.sh/overview/changelog"><img src="https://img.shields.io/github/release/dagucloud/dagu.svg?style=flat-square" alt="Latest Release"></a>
     <a href="https://github.com/dagucloud/dagu/actions/workflows/ci.yaml"><img src="https://img.shields.io/github/actions/workflow/status/dagucloud/dagu/ci.yaml?style=flat-square" alt="Build Status"></a>
@@ -15,6 +17,8 @@
 </div>
 
 ## Local-first Control Plane for Existing Ops Automation and AI Agent Workflows
+
+Dagu is the control plane for operational workflows in your private infrastructure. Single binary with a built-in Web UI. It runs any job, scripts, containers, k8s jobs, SSH commands, or [AI-agent harnesses](https://docs.dagu.sh/step-types/harness/) behind MCP or at a schedule. It supports Linux, macOS, and Windows. Use your favorite AI agents to manage your workflows via MCP.
 
 Define workflows in simple declarative YAML syntax, execute them anywhere with a single binary, compose complex pipelines from reusable sub-workflows, and distribute tasks across workers. The built-in Web UI eliminates the need for SSHing into servers to debug failed runs, check logs, or retry steps manually. All without requiring databases, message brokers, or code changes to your existing scripts. It natively supports command execution via SSH, running docker containers, kubernetes jobs, and you can extend it with custom step types for your specific use case.
 
