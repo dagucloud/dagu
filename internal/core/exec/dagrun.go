@@ -18,11 +18,12 @@ import (
 
 // Errors related to dag-run management
 var (
-	ErrDAGRunIDNotFound    = errors.New("dag-run ID not found")
-	ErrDAGRunAlreadyExists = errors.New("dag-run already exists")
-	ErrDAGRunActive        = errors.New("dag-run is active")
-	ErrNoStatusData        = errors.New("no status data")
-	ErrCorruptedStatusFile = errors.New("corrupted status file") // Status file exists but contains no valid data or is corrupted
+	ErrDAGRunIDNotFound         = errors.New("dag-run ID not found")
+	ErrDAGRunAlreadyExists      = errors.New("dag-run already exists")
+	ErrDAGRunActive             = errors.New("dag-run is active")
+	ErrNoStatusData             = errors.New("no status data")
+	ErrCorruptedStatusFile      = errors.New("corrupted status file") // Status file exists but contains no valid data or is corrupted
+	ErrInvalidDAGRunQueryCursor = errors.New("invalid dag-run query cursor")
 )
 
 // reDAGRunID validates dag-run IDs: alphanumeric, hyphens, and underscores only.
