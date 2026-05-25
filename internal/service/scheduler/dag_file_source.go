@@ -15,9 +15,14 @@ import (
 )
 
 const (
-	dagFileSnapshotAttempts    = 6
+	// dagFileSnapshotAttempts bounds how long watcher handling waits for
+	// atomic replace operations to settle before treating the file as deleted.
+	dagFileSnapshotAttempts = 6
+	// dagFileSnapshotInitialWait keeps the common retry path short for
+	// transient Windows sharing and rename gaps.
 	dagFileSnapshotInitialWait = 10 * time.Millisecond
-	dagFileSnapshotMaxWait     = 100 * time.Millisecond
+	// dagFileSnapshotMaxWait caps backoff so watcher processing stays responsive.
+	dagFileSnapshotMaxWait = 100 * time.Millisecond
 )
 
 // dagFileSource resolves watched DAG files into stable metadata snapshots.
