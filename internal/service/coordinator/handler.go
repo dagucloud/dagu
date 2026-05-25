@@ -59,6 +59,10 @@ const defaultStaleLeaseThreshold = exec.DefaultStaleLeaseThreshold
 // heartbeat-driven lease refreshes for a running distributed task.
 const defaultLeaseRefreshWriteInterval = 5 * time.Second
 
+// runHeartbeatRepairTimeout bounds stale-failure repair work that should
+// survive caller cancellation after a lease heartbeat has already succeeded.
+const runHeartbeatRepairTimeout = 5 * time.Second
+
 const (
 	remoteAttemptRejectedLeaseInactive = "stale attempt: lease no longer active"
 	remoteAttemptRejectedSuperseded    = "stale attempt: superseded by newer attempt"
@@ -993,7 +997,10 @@ func (h *Handler) repairStaleLeaseFailureFromRunHeartbeat(
 		return
 	}
 
-	lease, err := h.dagRunLeaseStore.Get(ctx, task.AttemptKey)
+	repairCtx, cancelRepair := context.WithTimeout(context.WithoutCancel(ctx), runHeartbeatRepairTimeout)
+	defer cancelRepair()
+
+	lease, err := h.dagRunLeaseStore.Get(repairCtx, task.AttemptKey)
 	if err != nil {
 		if !errors.Is(err, exec.ErrDAGRunLeaseNotFound) {
 			logger.Warn(ctx, "Failed to read distributed lease after run heartbeat",
@@ -1008,9 +1015,23 @@ func (h *Handler) repairStaleLeaseFailureFromRunHeartbeat(
 	}
 
 	reason := staleDistributedLeaseReason(workerID)
-	storeCtx := context.WithoutCancel(ctx)
+	_, currentStatus, err := h.resolveLatestAttempt(repairCtx, lease.DAGRun.Name, lease.DAGRun.ID, lease.Root)
+	if err != nil {
+		if !errors.Is(err, exec.ErrDAGRunIDNotFound) && !errors.Is(err, exec.ErrNoStatusData) {
+			logger.Warn(ctx, "Failed to read distributed run before stale failure repair",
+				tag.RunID(lease.DAGRun.ID),
+				tag.AttemptKey(task.AttemptKey),
+				tag.Error(err),
+			)
+		}
+		return
+	}
+	if !h.canRepairStaleLeaseFailureFromRunHeartbeat(workerID, task, lease, currentStatus, reason, observedAt) {
+		return
+	}
+
 	repairedStatus, swapped, err := h.dagRunStore.CompareAndSwapLatestAttemptStatus(
-		storeCtx,
+		repairCtx,
 		lease.DAGRun,
 		lease.AttemptID,
 		core.Failed,
@@ -1039,7 +1060,7 @@ func (h *Handler) repairStaleLeaseFailureFromRunHeartbeat(
 		return
 	}
 
-	h.distributedAttempts().upsertActiveFromStatus(ctx, repairedStatus, workerID, lease.AttemptID)
+	h.distributedAttempts().upsertActiveFromStatus(repairCtx, repairedStatus, workerID, lease.AttemptID)
 	logger.Info(ctx, "Repaired stale distributed run failure from fresh heartbeat",
 		tag.DAG(lease.DAGRun.Name),
 		tag.RunID(lease.DAGRun.ID),

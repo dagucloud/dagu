@@ -35,7 +35,6 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/filebaseconfig"
 	"github.com/dagucloud/dagu/internal/persis/filedagrun"
-	"github.com/dagucloud/dagu/internal/persis/filedistributed"
 	"github.com/dagucloud/dagu/internal/persis/fileeventstore"
 	"github.com/dagucloud/dagu/internal/persis/filelicense"
 	"github.com/dagucloud/dagu/internal/persis/fileserviceregistry"
@@ -344,13 +343,17 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	}
 	drs := filedagrun.New(cfg.Paths.DAGRunsDir, hrOpts...)
 	distributedDir := filepath.Join(cfg.Paths.DataDir, "distributed")
-	dagRunLeaseStore := filedistributed.NewDAGRunLeaseStore(distributedDir)
-	activeDistributedRunStore := filedistributed.NewActiveDistributedRunStore(distributedDir)
+	// Records live in store-specific subdirectories, but locks stay under the
+	// shared distributed root to preserve mixed-version coordinator exclusion.
+	leaseCollection := file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "leases"), distributedDir)
+	activeRunCollection := file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "active-runs"), distributedDir)
+	dagRunLeaseStore := store.NewDAGRunLeaseStore(leaseCollection)
+	activeDistributedRunStore := store.NewActiveDistributedRunStore(activeRunCollection)
 	drm := runtime.NewManager(drs, ps, cfg)
 	qs := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
 	stateStore := store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir))
 	sm := fileserviceregistry.New(cfg.Paths.ServiceRegistryDir)
-	dispatchTaskStore := filedistributed.NewDispatchTaskStore(distributedDir)
+	dispatchTaskStore := store.NewDispatchTaskStore(file.NewCollection(distributedDir))
 	workerHeartbeatStore := store.NewWorkerHeartbeatStore(file.NewCollection(filepath.Join(distributedDir, "workers")))
 
 	// Initialize license manager for server commands

@@ -26,8 +26,9 @@ import (
 // "/" in record IDs maps to the OS path separator, so hierarchical IDs
 // become nested subdirectories on disk.
 type Collection struct {
-	dir string
-	mu  sync.RWMutex
+	dir      string
+	lockRoot string
+	mu       sync.RWMutex
 }
 
 var _ persis.Collection = (*Collection)(nil)
@@ -195,14 +196,24 @@ func (c *Collection) RecordVersion(_ context.Context, id string) (string, error)
 
 // WithLock runs fn while holding a cross-process lock scoped to key.
 func (c *Collection) WithLock(ctx context.Context, key string, fn func() error) error {
+	return c.withLock(ctx, key, dirlock.LockOptions{
+		StaleThreshold: 30 * time.Second,
+		RetryInterval:  50 * time.Millisecond,
+	}, fn)
+}
+
+// WithLockOptions runs fn while holding a cross-process lock scoped to key,
+// using the supplied lock timing options.
+func (c *Collection) WithLockOptions(ctx context.Context, key string, opts dirlock.LockOptions, fn func() error) error {
+	return c.withLock(ctx, key, opts, fn)
+}
+
+func (c *Collection) withLock(ctx context.Context, key string, opts dirlock.LockOptions, fn func() error) error {
 	lockDir, err := c.lockDir(key)
 	if err != nil {
 		return err
 	}
-	lock := dirlock.New(lockDir, &dirlock.LockOptions{
-		StaleThreshold: 30 * time.Second,
-		RetryInterval:  50 * time.Millisecond,
-	})
+	lock := dirlock.New(lockDir, &opts)
 	if err := lock.Lock(ctx); err != nil {
 		return err
 	}
@@ -336,24 +347,32 @@ func (c *Collection) Claim(_ context.Context, q persis.ListQuery) (*persis.Recor
 // ─── internal helpers ─────────────────────────────────────────────────────────
 
 func (c *Collection) filePath(id string) (string, error) {
-	base := filepath.Clean(c.dir)
-	full := filepath.Clean(filepath.Join(base, idToRelPath(id)))
-	rel, err := filepath.Rel(base, full)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("file backend: record ID %q escapes collection root", id)
-	}
-	return full, nil
+	return pathUnderRoot(c.dir, id, "record ID")
 }
 
 func (c *Collection) lockDir(key string) (string, error) {
-	if key == "" {
-		return c.dir, nil
+	root := c.dir
+	if c.lockRoot != "" {
+		root = c.lockRoot
 	}
-	path, err := c.filePath(strings.TrimSuffix(key, "/") + "/_lock")
+	if key == "" {
+		return root, nil
+	}
+	path, err := pathUnderRoot(root, strings.TrimSuffix(key, "/")+"/_lock", "lock key")
 	if err != nil {
 		return "", err
 	}
 	return filepath.Dir(path), nil
+}
+
+func pathUnderRoot(root, id, kind string) (string, error) {
+	base := filepath.Clean(root)
+	full := filepath.Clean(filepath.Join(base, idToRelPath(id)))
+	rel, err := filepath.Rel(base, full)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("file backend: %s %q escapes collection root", kind, id)
+	}
+	return full, nil
 }
 
 func (c *Collection) readFile(path string) (*fileRecord, error) {

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/internal/persis"
 )
 
@@ -36,7 +37,10 @@ func (b *MemoryBackend) Collection(name string) persis.Collection {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if _, ok := b.cols[name]; !ok {
-		b.cols[name] = &MemoryCollection{records: make(map[string]*persis.Record)}
+		b.cols[name] = &MemoryCollection{
+			records: make(map[string]*persis.Record),
+			locks:   make(map[string]*sync.Mutex),
+		}
 	}
 	return b.cols[name]
 }
@@ -49,9 +53,58 @@ func (b *MemoryBackend) Close() error { return nil }
 type MemoryCollection struct {
 	mu      sync.Mutex
 	records map[string]*persis.Record
+	lockMu  sync.Mutex
+	locks   map[string]*sync.Mutex
 }
 
 var _ persis.Collection = (*MemoryCollection)(nil)
+
+func (c *MemoryCollection) WithLock(ctx context.Context, key string, fn func() error) error {
+	return c.withLock(ctx, key, 50*time.Millisecond, fn)
+}
+
+func (c *MemoryCollection) WithLockOptions(ctx context.Context, key string, opts dirlock.LockOptions, fn func() error) error {
+	retryInterval := opts.RetryInterval
+	if retryInterval <= 0 {
+		retryInterval = 50 * time.Millisecond
+	}
+	return c.withLock(ctx, key, retryInterval, fn)
+}
+
+func (c *MemoryCollection) withLock(ctx context.Context, key string, retryInterval time.Duration, fn func() error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	lock := c.lockForKey(key)
+	ticker := time.NewTicker(retryInterval)
+	defer ticker.Stop()
+	for {
+		if lock.TryLock() {
+			defer lock.Unlock()
+			return fn()
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (c *MemoryCollection) lockForKey(key string) *sync.Mutex {
+	c.lockMu.Lock()
+	defer c.lockMu.Unlock()
+	if c.locks == nil {
+		c.locks = make(map[string]*sync.Mutex)
+	}
+	lock, ok := c.locks[key]
+	if !ok {
+		lock = &sync.Mutex{}
+		c.locks[key] = lock
+	}
+	return lock
+}
 
 func (c *MemoryCollection) Get(_ context.Context, id string) (*persis.Record, error) {
 	c.mu.Lock()

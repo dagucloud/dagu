@@ -18,7 +18,6 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/service/scheduler/filenotify"
 
 	"github.com/fsnotify/fsnotify"
@@ -48,6 +47,7 @@ type entryReaderImpl struct {
 	registry  map[string]*core.DAG
 	lock      sync.Mutex
 	dagStore  exec.DAGStore
+	dagSource *dagFileSource
 	watcher   filenotify.FileWatcher
 	quit      chan struct{}
 	closeOnce sync.Once
@@ -60,6 +60,7 @@ func NewEntryReader(dir string, dagCli exec.DAGStore) EntryReader {
 		targetDir: dir,
 		registry:  make(map[string]*core.DAG),
 		dagStore:  dagCli,
+		dagSource: newDAGFileSource(dir),
 		quit:      make(chan struct{}),
 	}
 }
@@ -70,6 +71,7 @@ func (er *entryReaderImpl) setEvents(ch chan DAGChangeEvent) {
 	er.events = ch
 }
 
+// Init loads the initial DAG registry and starts watching the target directory.
 func (er *entryReaderImpl) Init(ctx context.Context) error {
 	er.lock.Lock()
 	defer er.lock.Unlock()
@@ -89,6 +91,7 @@ func (er *entryReaderImpl) Init(ctx context.Context) error {
 	return nil
 }
 
+// Start forwards watcher events into registry updates until the reader stops.
 func (er *entryReaderImpl) Start(ctx context.Context) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -128,67 +131,91 @@ func (er *entryReaderImpl) handleFSEvent(ctx context.Context, event fsnotify.Eve
 	fileName := filepath.Base(event.Name)
 
 	if event.Op&(fsnotify.Create|fsnotify.Write) != 0 {
-		filePath := filepath.Join(er.targetDir, fileName)
-		dag, err := spec.Load(
-			ctx,
-			filePath,
-			spec.OnlyMetadata(),
-			spec.WithoutEval(),
-			spec.SkipSchemaValidation(),
-		)
+		er.reloadDAGFile(ctx, fileName, event.Name)
+		return
+	}
+
+	if event.Op&(fsnotify.Rename|fsnotify.Remove) != 0 {
+		snapshot, err := er.dagSource.snapshot(ctx, fileName)
 		if err != nil {
 			logger.Error(ctx, "DAG load failed",
 				tag.Error(err),
 				tag.File(event.Name))
 			return
 		}
-
-		// Determine add vs update by checking registry before updating
-		er.lock.Lock()
-		oldDAG, existed := er.registry[fileName]
-		var oldDAGName string
-		if existed && oldDAG.Name != dag.Name {
-			oldDAGName = oldDAG.Name
-		}
-		er.registry[fileName] = dag
-		er.lock.Unlock()
-
-		// If the DAG name changed, emit delete for the old name first
-		if oldDAGName != "" {
-			er.sendEvent(ctx, DAGChangeEvent{
-				Type:    DAGChangeDeleted,
-				DAGName: oldDAGName,
-			})
+		if snapshot.exists {
+			er.applyDAGFileSnapshot(ctx, fileName, snapshot.dag)
+			logger.Info(ctx, "DAG added/updated", tag.Name(fileName))
+			return
 		}
 
-		changeType := DAGChangeAdded
-		if existed && oldDAGName == "" {
-			changeType = DAGChangeUpdated
-		}
-		er.sendEvent(ctx, DAGChangeEvent{
-			Type:    changeType,
-			DAG:     dag,
-			DAGName: dag.Name,
-		})
-		logger.Info(ctx, "DAG added/updated", tag.Name(fileName))
+		er.removeDAGFile(ctx, fileName)
+	}
+}
+
+// reloadDAGFile reloads a create/write event when the file still snapshots as present.
+func (er *entryReaderImpl) reloadDAGFile(ctx context.Context, fileName, eventName string) {
+	snapshot, err := er.dagSource.snapshot(ctx, fileName)
+	if err != nil {
+		logger.Error(ctx, "DAG load failed",
+			tag.Error(err),
+			tag.File(eventName))
+		return
+	}
+	if !snapshot.exists {
 		return
 	}
 
-	if event.Op&(fsnotify.Rename|fsnotify.Remove) != 0 {
-		// Capture DAG name from registry before deleting
-		er.lock.Lock()
-		dag, existed := er.registry[fileName]
-		delete(er.registry, fileName)
-		er.lock.Unlock()
+	er.applyDAGFileSnapshot(ctx, fileName, snapshot.dag)
+	logger.Info(ctx, "DAG added/updated", tag.Name(fileName))
+}
 
-		if existed && dag != nil {
-			er.sendEvent(ctx, DAGChangeEvent{
-				Type:    DAGChangeDeleted,
-				DAGName: dag.Name,
-			})
-		}
-		logger.Info(ctx, "DAG removed", tag.Name(fileName))
+// applyDAGFileSnapshot stores a loaded DAG and emits the matching add/update events.
+func (er *entryReaderImpl) applyDAGFileSnapshot(ctx context.Context, fileName string, dag *core.DAG) {
+	// Determine add vs update by checking registry before updating
+	er.lock.Lock()
+	oldDAG, existed := er.registry[fileName]
+	var oldDAGName string
+	if existed && oldDAG.Name != dag.Name {
+		oldDAGName = oldDAG.Name
 	}
+	er.registry[fileName] = dag
+	er.lock.Unlock()
+
+	// If the DAG name changed, emit delete for the old name first
+	if oldDAGName != "" {
+		er.sendEvent(ctx, DAGChangeEvent{
+			Type:    DAGChangeDeleted,
+			DAGName: oldDAGName,
+		})
+	}
+
+	changeType := DAGChangeAdded
+	if existed && oldDAGName == "" {
+		changeType = DAGChangeUpdated
+	}
+	er.sendEvent(ctx, DAGChangeEvent{
+		Type:    changeType,
+		DAG:     dag,
+		DAGName: dag.Name,
+	})
+}
+
+// removeDAGFile drops a confirmed-absent DAG file from the registry.
+func (er *entryReaderImpl) removeDAGFile(ctx context.Context, fileName string) {
+	// Capture DAG name from registry before deleting
+	er.lock.Lock()
+	dag, existed := er.registry[fileName]
+	delete(er.registry, fileName)
+	er.lock.Unlock()
+
+	if existed && dag != nil {
+		er.sendEvent(ctx, DAGChangeEvent{
+			Type:    DAGChangeDeleted,
+			DAGName: dag.Name,
+		})
+	}
+	logger.Info(ctx, "DAG removed", tag.Name(fileName))
 }
 
 // sendEvent sends a DAGChangeEvent on the channel.
@@ -204,6 +231,7 @@ func (er *entryReaderImpl) sendEvent(ctx context.Context, event DAGChangeEvent) 
 	}
 }
 
+// Stop closes the watcher and prevents future event sends.
 func (er *entryReaderImpl) Stop() {
 	er.lock.Lock()
 	defer er.lock.Unlock()
@@ -216,6 +244,7 @@ func (er *entryReaderImpl) Stop() {
 	})
 }
 
+// DAGs returns the currently loaded DAG metadata.
 func (er *entryReaderImpl) DAGs() []*core.DAG {
 	er.lock.Lock()
 	defer er.lock.Unlock()
@@ -227,10 +256,12 @@ func (er *entryReaderImpl) DAGs() []*core.DAG {
 	return dags
 }
 
+// DAGStore returns the backing DAG store for full DAG details.
 func (er *entryReaderImpl) DAGStore() exec.DAGStore {
 	return er.dagStore
 }
 
+// initialize loads existing YAML files through the same stable snapshot path as watcher events.
 func (er *entryReaderImpl) initialize(ctx context.Context) error {
 	// Note: This method expects the caller to already hold er.lock
 	logger.Info(ctx, "Loading DAGs", tag.Dir(er.targetDir))
@@ -246,20 +277,17 @@ func (er *entryReaderImpl) initialize(ctx context.Context) error {
 	var dags []string
 	for _, fi := range fis {
 		if fileutil.IsYAMLFile(fi.Name()) {
-			dag, err := spec.Load(
-				ctx,
-				filepath.Join(er.targetDir, fi.Name()),
-				spec.OnlyMetadata(),
-				spec.WithoutEval(),
-				spec.SkipSchemaValidation(),
-			)
+			snapshot, err := er.dagSource.snapshot(ctx, fi.Name())
 			if err != nil {
 				logger.Error(ctx, "DAG load failed",
 					tag.Error(err),
 					tag.Name(fi.Name()))
 				continue
 			}
-			er.registry[fi.Name()] = dag
+			if !snapshot.exists {
+				continue
+			}
+			er.registry[fi.Name()] = snapshot.dag
 			dags = append(dags, fi.Name())
 		}
 	}

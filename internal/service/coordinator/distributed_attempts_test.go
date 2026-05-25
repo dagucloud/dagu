@@ -11,7 +11,6 @@ import (
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/persis/filedistributed"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -51,7 +50,7 @@ func TestDistributedAttemptOwnershipStatusDecision(t *testing.T) {
 	t.Run("rejects active update after terminal status when lease is gone", func(t *testing.T) {
 		t.Parallel()
 
-		leaseStore := filedistributed.NewDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
 		ownership := newAttemptOwnership(attemptOwnershipConfig{
 			LeaseStore:          leaseStore,
 			StaleLeaseThreshold: time.Minute,
@@ -86,8 +85,8 @@ func TestDistributedAttemptOwnershipSyncFromStatus(t *testing.T) {
 
 	ctx := context.Background()
 	baseDir := filepath.Join(t.TempDir(), "distributed")
-	leaseStore := filedistributed.NewDAGRunLeaseStore(baseDir)
-	activeStore := filedistributed.NewActiveDistributedRunStore(baseDir)
+	leaseStore := newTestDAGRunLeaseStore(baseDir)
+	activeStore := newTestActiveDistributedRunStore(baseDir)
 
 	oldTime := time.Unix(90, 0).UTC()
 	now := time.Unix(100, 0).UTC()
@@ -121,7 +120,9 @@ func TestDistributedAttemptOwnershipSyncFromStatus(t *testing.T) {
 		Status:     core.Running,
 		WorkerID:   "worker-1",
 	}
+	activeUpdatedLowerBound := time.Now().UTC().UnixMilli()
 	ownership.syncFromStatus(ctx, "", status, "")
+	activeUpdatedUpperBound := time.Now().UTC().UnixMilli()
 
 	lease, err := leaseStore.Get(ctx, "attempt-key-1")
 	require.NoError(t, err)
@@ -138,10 +139,13 @@ func TestDistributedAttemptOwnershipSyncFromStatus(t *testing.T) {
 	assert.Equal(t, "attempt-1", record.AttemptID)
 	assert.Equal(t, "worker-1", record.WorkerID)
 	assert.Equal(t, core.Running, record.Status)
-	assert.Equal(t, now.UnixMilli(), record.UpdatedAt)
+	assert.GreaterOrEqual(t, record.UpdatedAt, activeUpdatedLowerBound)
+	assert.LessOrEqual(t, record.UpdatedAt, activeUpdatedUpperBound)
 
 	status.Status = core.Queued
+	activeUpdatedLowerBound = time.Now().UTC().UnixMilli()
 	ownership.syncFromStatus(ctx, "worker-1", status, "")
+	activeUpdatedUpperBound = time.Now().UTC().UnixMilli()
 
 	lease, err = leaseStore.Get(ctx, "attempt-key-1")
 	require.NoError(t, err)
@@ -149,7 +153,8 @@ func TestDistributedAttemptOwnershipSyncFromStatus(t *testing.T) {
 	record, err = activeStore.Get(ctx, "attempt-key-1")
 	require.NoError(t, err)
 	assert.Equal(t, core.Queued, record.Status)
-	assert.Equal(t, now.UnixMilli(), record.UpdatedAt)
+	assert.GreaterOrEqual(t, record.UpdatedAt, activeUpdatedLowerBound)
+	assert.LessOrEqual(t, record.UpdatedAt, activeUpdatedUpperBound)
 
 	status.Status = core.Succeeded
 	ownership.syncFromStatus(ctx, "worker-1", status, "")
@@ -165,8 +170,8 @@ func TestDistributedAttemptOwnershipTaskClaimTracking(t *testing.T) {
 
 	ctx := context.Background()
 	baseDir := filepath.Join(t.TempDir(), "distributed")
-	leaseStore := filedistributed.NewDAGRunLeaseStore(baseDir)
-	activeStore := filedistributed.NewActiveDistributedRunStore(baseDir)
+	leaseStore := newTestDAGRunLeaseStore(baseDir)
+	activeStore := newTestActiveDistributedRunStore(baseDir)
 	clockCalls := 0
 	now := time.Unix(100, 0).UTC()
 
@@ -186,7 +191,9 @@ func TestDistributedAttemptOwnershipTaskClaimTracking(t *testing.T) {
 		AttemptId:  "attempt-1",
 		AttemptKey: "attempt-key-1",
 	}
+	activeUpdatedLowerBound := time.Now().UTC().UnixMilli()
 	require.NoError(t, ownership.recordTaskClaim(ctx, task, "worker-1"))
+	activeUpdatedUpperBound := time.Now().UTC().UnixMilli()
 	assert.Equal(t, 1, clockCalls)
 
 	lease, err := leaseStore.Get(ctx, "attempt-key-1")
@@ -207,5 +214,6 @@ func TestDistributedAttemptOwnershipTaskClaimTracking(t *testing.T) {
 	assert.Equal(t, "attempt-1", record.AttemptID)
 	assert.Equal(t, "worker-1", record.WorkerID)
 	assert.Equal(t, core.Queued, record.Status)
-	assert.Equal(t, now.UnixMilli(), record.UpdatedAt)
+	assert.GreaterOrEqual(t, record.UpdatedAt, activeUpdatedLowerBound)
+	assert.LessOrEqual(t, record.UpdatedAt, activeUpdatedUpperBound)
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestSendEvent_UnblocksOnQuit verifies shutdown unblocks a pending event send.
 func TestSendEvent_UnblocksOnQuit(t *testing.T) {
 	t.Parallel()
 
@@ -48,6 +49,7 @@ func TestSendEvent_UnblocksOnQuit(t *testing.T) {
 	}
 }
 
+// TestSendEvent_UnblocksOnContextCancel verifies context cancellation unblocks a pending event send.
 func TestSendEvent_UnblocksOnContextCancel(t *testing.T) {
 	t.Parallel()
 
@@ -81,6 +83,7 @@ func TestSendEvent_UnblocksOnContextCancel(t *testing.T) {
 	}
 }
 
+// TestSendEvent_NilChannelReturnsImmediately verifies missing event wiring cannot block shutdown.
 func TestSendEvent_NilChannelReturnsImmediately(t *testing.T) {
 	t.Parallel()
 
@@ -106,6 +109,7 @@ func TestSendEvent_NilChannelReturnsImmediately(t *testing.T) {
 	}
 }
 
+// writeDAGFile writes a minimal DAG fixture and returns its path.
 func writeDAGFile(t *testing.T, dir, fileName, dagName string) string {
 	t.Helper()
 	content := "name: " + dagName + "\nsteps:\n  - name: step1\n    command: echo hello\n"
@@ -114,18 +118,24 @@ func writeDAGFile(t *testing.T, dir, fileName, dagName string) string {
 	return path
 }
 
+// newTestEntryReader creates an entry reader wired like the production constructor.
+func newTestEntryReader(dir string, events chan DAGChangeEvent) *entryReaderImpl {
+	return &entryReaderImpl{
+		targetDir: dir,
+		registry:  make(map[string]*core.DAG),
+		dagSource: newDAGFileSource(dir),
+		quit:      make(chan struct{}),
+		events:    events,
+	}
+}
+
+// TestHandleFSEvent_CreateAddsDAG verifies create events load DAG metadata and emit an add event.
 func TestHandleFSEvent_CreateAddsDAG(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
 	events := make(chan DAGChangeEvent, 10)
-
-	er := &entryReaderImpl{
-		targetDir: tmpDir,
-		registry:  make(map[string]*core.DAG),
-		quit:      make(chan struct{}),
-		events:    events,
-	}
+	er := newTestEntryReader(tmpDir, events)
 
 	writeDAGFile(t, tmpDir, "create-test.yaml", "create-test")
 
@@ -152,18 +162,13 @@ func TestHandleFSEvent_CreateAddsDAG(t *testing.T) {
 	}
 }
 
+// TestHandleFSEvent_WriteUpdatesDAG verifies write events update existing registry entries.
 func TestHandleFSEvent_WriteUpdatesDAG(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
 	events := make(chan DAGChangeEvent, 10)
-
-	er := &entryReaderImpl{
-		targetDir: tmpDir,
-		registry:  make(map[string]*core.DAG),
-		quit:      make(chan struct{}),
-		events:    events,
-	}
+	er := newTestEntryReader(tmpDir, events)
 
 	// Pre-populate registry with existing DAG
 	er.registry["update-test.yaml"] = &core.DAG{Name: "update-test"}
@@ -186,18 +191,13 @@ func TestHandleFSEvent_WriteUpdatesDAG(t *testing.T) {
 	}
 }
 
+// TestHandleFSEvent_RemoveDeletesDAG verifies remove events delete confirmed-absent DAG files.
 func TestHandleFSEvent_RemoveDeletesDAG(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
 	events := make(chan DAGChangeEvent, 10)
-
-	er := &entryReaderImpl{
-		targetDir: tmpDir,
-		registry:  make(map[string]*core.DAG),
-		quit:      make(chan struct{}),
-		events:    events,
-	}
+	er := newTestEntryReader(tmpDir, events)
 
 	// Pre-populate registry
 	er.registry["remove-test.yaml"] = &core.DAG{Name: "remove-test"}
@@ -223,18 +223,45 @@ func TestHandleFSEvent_RemoveDeletesDAG(t *testing.T) {
 	}
 }
 
+// TestHandleFSEvent_RemoveReloadsDAGWhenFileStillExists verifies remove events reload files that still exist after replacement.
+func TestHandleFSEvent_RemoveReloadsDAGWhenFileStillExists(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	events := make(chan DAGChangeEvent, 10)
+	er := newTestEntryReader(tmpDir, events)
+
+	er.registry["replace-test.yaml"] = &core.DAG{Name: "replace-test"}
+	writeDAGFile(t, tmpDir, "replace-test.yaml", "replace-test")
+
+	er.handleFSEvent(context.Background(), fsnotify.Event{
+		Name: filepath.Join(tmpDir, "replace-test.yaml"),
+		Op:   fsnotify.Remove,
+	})
+
+	er.lock.Lock()
+	dag, ok := er.registry["replace-test.yaml"]
+	er.lock.Unlock()
+	require.True(t, ok, "DAG should stay in registry when the source file still exists")
+	assert.Equal(t, "replace-test", dag.Name)
+
+	select {
+	case event := <-events:
+		assert.Equal(t, DAGChangeUpdated, event.Type)
+		assert.Equal(t, "replace-test", event.DAGName)
+		assert.NotNil(t, event.DAG)
+	case <-time.After(time.Second):
+		t.Fatal("expected DAGChangeUpdated event")
+	}
+}
+
+// TestHandleFSEvent_NameChangeEmitsDeleteThenAdd verifies renamed DAG metadata emits delete before add.
 func TestHandleFSEvent_NameChangeEmitsDeleteThenAdd(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
 	events := make(chan DAGChangeEvent, 10)
-
-	er := &entryReaderImpl{
-		targetDir: tmpDir,
-		registry:  make(map[string]*core.DAG),
-		quit:      make(chan struct{}),
-		events:    events,
-	}
+	er := newTestEntryReader(tmpDir, events)
 
 	// Pre-populate registry with old name
 	er.registry["rename-test.yaml"] = &core.DAG{Name: "old-name"}
