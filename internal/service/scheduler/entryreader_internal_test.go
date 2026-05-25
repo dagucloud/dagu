@@ -223,6 +223,43 @@ func TestHandleFSEvent_RemoveDeletesDAG(t *testing.T) {
 	}
 }
 
+func TestHandleFSEvent_RemoveReloadsDAGWhenFileStillExists(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	events := make(chan DAGChangeEvent, 10)
+
+	er := &entryReaderImpl{
+		targetDir: tmpDir,
+		registry:  make(map[string]*core.DAG),
+		quit:      make(chan struct{}),
+		events:    events,
+	}
+
+	er.registry["replace-test.yaml"] = &core.DAG{Name: "replace-test"}
+	writeDAGFile(t, tmpDir, "replace-test.yaml", "replace-test")
+
+	er.handleFSEvent(context.Background(), fsnotify.Event{
+		Name: filepath.Join(tmpDir, "replace-test.yaml"),
+		Op:   fsnotify.Remove,
+	})
+
+	er.lock.Lock()
+	dag, ok := er.registry["replace-test.yaml"]
+	er.lock.Unlock()
+	require.True(t, ok, "DAG should stay in registry when the source file still exists")
+	assert.Equal(t, "replace-test", dag.Name)
+
+	select {
+	case event := <-events:
+		assert.Equal(t, DAGChangeUpdated, event.Type)
+		assert.Equal(t, "replace-test", event.DAGName)
+		assert.NotNil(t, event.DAG)
+	case <-time.After(time.Second):
+		t.Fatal("expected DAGChangeUpdated event")
+	}
+}
+
 func TestHandleFSEvent_NameChangeEmitsDeleteThenAdd(t *testing.T) {
 	t.Parallel()
 

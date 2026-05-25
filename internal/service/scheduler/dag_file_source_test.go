@@ -1,0 +1,56 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package scheduler
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"testing"
+
+	"github.com/dagucloud/dagu/internal/core"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestDAGFileSourceSnapshotRetriesTemporaryAbsence(t *testing.T) {
+	t.Parallel()
+
+	attempts := 0
+	source := &dagFileSource{
+		dir: t.TempDir(),
+		load: func(context.Context, string) (*core.DAG, error) {
+			attempts++
+			if attempts == 1 {
+				return nil, fmt.Errorf("open dag.yaml: %w", os.ErrNotExist)
+			}
+			return &core.DAG{Name: "replace-test"}, nil
+		},
+	}
+
+	snapshot, err := source.snapshot(context.Background(), "replace-test.yaml")
+
+	require.NoError(t, err)
+	assert.True(t, snapshot.exists)
+	assert.Equal(t, "replace-test", snapshot.dag.Name)
+	assert.Equal(t, 2, attempts)
+}
+
+func TestDAGFileSourceSnapshotReturnsNonAbsenceError(t *testing.T) {
+	t.Parallel()
+
+	loadErr := errors.New("invalid dag")
+	source := &dagFileSource{
+		dir: t.TempDir(),
+		load: func(context.Context, string) (*core.DAG, error) {
+			return nil, loadErr
+		},
+	}
+
+	snapshot, err := source.snapshot(context.Background(), "invalid.yaml")
+
+	require.ErrorIs(t, err, loadErr)
+	assert.False(t, snapshot.exists)
+}
