@@ -232,16 +232,16 @@ func (m *Manager) IsRunning(ctx context.Context, dag *core.DAG, dagRunID string)
 }
 
 // GetCurrentStatus retrieves the current status of a dag-run by its run ID.
+// If the run ID is empty, it resolves the latest run first.
 // If the dag-run is running, it queries the socket for the current status.
 // If the socket doesn't exist or times out, it falls back to stored status or creates an initial status.
 func (m *Manager) GetCurrentStatus(ctx context.Context, dag *core.DAG, dagRunID string) (*exec.DAGRunStatus, error) {
 	if dagRunID == "" {
-		status, err := m.currentStatus(ctx, dag, dagRunID)
-		if err == nil {
-			return status, nil
+		status, err := m.GetLatestStatus(ctx, dag)
+		if err != nil {
+			return nil, err
 		}
-		// The DAG is not running so return the default status
-		return new(exec.InitialStatus(dag)), nil
+		return &status, nil
 	}
 	status, err := m.getPersistedOrCurrentStatus(ctx, dag, dagRunID)
 	if err == nil {
@@ -377,17 +377,23 @@ func (m *Manager) resolveRunningStatus(
 // If the DAG is running, it attempts to get the current status from the socket.
 // If that fails and the local proc is dead, it repairs the stale run before returning it.
 func (m *Manager) GetLatestStatus(ctx context.Context, dag *core.DAG) (exec.DAGRunStatus, error) {
-	if entry, err := m.procStore.LatestFreshEntryByDAGName(ctx, dag.ProcGroup(), dag.Name); err == nil && entry != nil {
-		attempt, findErr := m.findAttemptForProcEntry(ctx, *entry)
-		if findErr == nil {
-			st, readErr := attempt.ReadStatus(ctx)
-			if readErr == nil && st.AttemptID == entry.Meta.AttemptID {
-				st = m.resolveRunningStatus(ctx, dag, attempt, st, entry.IsRoot())
-				return *st, nil
+	if m.dagRunStore == nil {
+		return exec.InitialStatus(dag), nil
+	}
+
+	if m.procStore != nil {
+		if entry, err := m.procStore.LatestFreshEntryByDAGName(ctx, dag.ProcGroup(), dag.Name); err == nil && entry != nil {
+			attempt, findErr := m.findAttemptForProcEntry(ctx, *entry)
+			if findErr == nil {
+				st, readErr := attempt.ReadStatus(ctx)
+				if readErr == nil && st.AttemptID == entry.Meta.AttemptID {
+					st = m.resolveRunningStatus(ctx, dag, attempt, st, entry.IsRoot())
+					return *st, nil
+				}
 			}
+		} else if err != nil {
+			logger.Debug(ctx, "Failed to resolve freshest proc entry for latest status", tag.Error(err))
 		}
-	} else if err != nil {
-		logger.Debug(ctx, "Failed to resolve freshest proc entry for latest status", tag.Error(err))
 	}
 
 	// Find the latest status by name
