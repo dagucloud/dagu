@@ -593,7 +593,7 @@ func requireLegacyHeartbeatAdvance(t *testing.T, procFile string) {
 func readLegacyHeartbeat(t *testing.T, procFile string) (int64, time.Time) {
 	t.Helper()
 
-	data, err := fileutil.ReadFileWithRetry(procFile)
+	data, err := fileutil.ReadFile(procFile)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(data), 8)
 	info, err := os.Stat(procFile)
