@@ -1002,9 +1002,23 @@ func (h *Handler) repairStaleLeaseFailureFromRunHeartbeat(
 	}
 
 	reason := staleDistributedLeaseReason(workerID)
-	storeCtx := context.WithoutCancel(ctx)
+	_, currentStatus, err := h.resolveLatestAttempt(ctx, lease.DAGRun.Name, lease.DAGRun.ID, lease.Root)
+	if err != nil {
+		if !errors.Is(err, exec.ErrDAGRunIDNotFound) && !errors.Is(err, exec.ErrNoStatusData) {
+			logger.Warn(ctx, "Failed to read distributed run before stale failure repair",
+				tag.RunID(lease.DAGRun.ID),
+				tag.AttemptKey(task.AttemptKey),
+				tag.Error(err),
+			)
+		}
+		return
+	}
+	if !h.canRepairStaleLeaseFailureFromRunHeartbeat(workerID, task, lease, currentStatus, reason, observedAt) {
+		return
+	}
+
 	repairedStatus, swapped, err := h.dagRunStore.CompareAndSwapLatestAttemptStatus(
-		storeCtx,
+		ctx,
 		lease.DAGRun,
 		lease.AttemptID,
 		core.Failed,
