@@ -109,14 +109,8 @@ func (e *templateExec) writeToFile(data []byte) error {
 		return fmt.Errorf("template: failed to create output directory: %w", err)
 	}
 
-	tmpFile := e.outputFile + ".tmp"
-	if err := fileutil.WriteFileAtomic(tmpFile, data, 0600); err != nil {
-		return fmt.Errorf("template: failed to write temp file: %w", err)
-	}
-
-	if err := fileutil.ReplaceFile(tmpFile, e.outputFile); err != nil {
-		_ = fileutil.Remove(tmpFile)
-		return fmt.Errorf("template: failed to rename output file: %w", err)
+	if err := fileutil.WriteFileAtomic(e.outputFile, data, 0600); err != nil {
+		return fmt.Errorf("template: failed to write output file: %w", err)
 	}
 
 	return nil

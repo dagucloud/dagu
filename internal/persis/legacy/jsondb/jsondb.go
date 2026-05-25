@@ -237,29 +237,38 @@ func (db *JSONDB) Compact(_ context.Context, targetFilePath string) error {
 
 	newFile := fmt.Sprintf("%s_c.dat", strings.TrimSuffix(filepath.Base(targetFilePath), filepath.Ext(targetFilePath)))
 	tempFilePath := filepath.Join(filepath.Dir(targetFilePath), newFile)
+	cleanupTemp := func() error {
+		if err := fileutil.Remove(tempFilePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+
 	writer := newWriter(tempFilePath)
 	if err := writer.open(); err != nil {
 		return err
 	}
-	defer func() {
-		_ = writer.close()
-	}()
 
 	if err := writer.write(*status); err != nil {
-		if removeErr := fileutil.Remove(tempFilePath); removeErr != nil {
-			return fmt.Errorf("%w: %s", err, removeErr)
+		_ = writer.close()
+		if removeErr := cleanupTemp(); removeErr != nil {
+			return fmt.Errorf("%w: %s (cleanup failed: %v)", err, tempFilePath, removeErr)
 		}
 		return fmt.Errorf("%w: %s", err, tempFilePath)
 	}
 
-	// remove the original file
-	if err := fileutil.Remove(targetFilePath); err != nil {
-		return fmt.Errorf("%w: %s", err, targetFilePath)
+	if err := writer.close(); err != nil {
+		if removeErr := cleanupTemp(); removeErr != nil {
+			return fmt.Errorf("%w: %s (cleanup failed: %v)", err, tempFilePath, removeErr)
+		}
+		return fmt.Errorf("%w: %s", err, tempFilePath)
 	}
 
-	// rename the file to the original
-	if err := fileutil.Rename(tempFilePath, targetFilePath); err != nil {
-		return fmt.Errorf("%w: %s", err, targetFilePath)
+	if err := fileutil.ReplaceFile(tempFilePath, targetFilePath); err != nil {
+		if removeErr := cleanupTemp(); removeErr != nil {
+			return fmt.Errorf("%w: %s -> %s (cleanup failed: %v)", err, tempFilePath, targetFilePath, removeErr)
+		}
+		return fmt.Errorf("%w: %s -> %s", err, tempFilePath, targetFilePath)
 	}
 
 	return nil
