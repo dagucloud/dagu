@@ -101,3 +101,145 @@ func TestRestoreRetryExecutionContext_BackfillsAttemptWorkDirSnapshot(t *testing
 	assert.True(t, dag.WorkingDirExplicit)
 	attempt.AssertExpectations(t)
 }
+
+func TestWaitForRetrySourceRelease_WaitsForTerminalRunProcToStop(t *testing.T) {
+	t.Parallel()
+
+	store := &retryReleaseProcStore{attemptAlive: []bool{true, true, false}}
+	dag := &core.DAG{Name: "retry-test"}
+	status := &exec.DAGRunStatus{
+		Name:      dag.Name,
+		DAGRunID:  "run-1",
+		AttemptID: "attempt-1",
+		Status:    core.Succeeded,
+	}
+
+	err := waitForRetrySourceReleaseFor(
+		&Context{Context: context.Background(), ProcStore: store},
+		dag,
+		status,
+		time.Second,
+		time.Millisecond,
+	)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, store.calls, 3)
+	assert.Equal(t, dag.ProcGroup(), store.groupName)
+	assert.Equal(t, exec.NewDAGRunRef(dag.Name, "run-1"), store.dagRun)
+	assert.Equal(t, "attempt-1", store.attemptID)
+}
+
+func TestWaitForRetrySourceRelease_SkipsActiveStatus(t *testing.T) {
+	t.Parallel()
+
+	store := &retryReleaseProcStore{alive: []bool{true}}
+	dag := &core.DAG{Name: "retry-test"}
+	status := &exec.DAGRunStatus{
+		Name:     dag.Name,
+		DAGRunID: "run-1",
+		Status:   core.Running,
+	}
+
+	err := waitForRetrySourceReleaseFor(
+		&Context{Context: context.Background(), ProcStore: store},
+		dag,
+		status,
+		time.Second,
+		time.Millisecond,
+	)
+	require.NoError(t, err)
+	assert.Zero(t, store.calls)
+}
+
+func TestWaitForRetrySourceRelease_TimesOutWhileProcAlive(t *testing.T) {
+	t.Parallel()
+
+	store := &retryReleaseProcStore{attemptAlwaysAlive: true}
+	dag := &core.DAG{Name: "retry-test"}
+	status := &exec.DAGRunStatus{
+		Name:      dag.Name,
+		DAGRunID:  "run-1",
+		AttemptID: "attempt-1",
+		Status:    core.Failed,
+	}
+
+	err := waitForRetrySourceReleaseFor(
+		&Context{Context: context.Background(), ProcStore: store},
+		dag,
+		status,
+		5*time.Millisecond,
+		time.Millisecond,
+	)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "still finalizing")
+	assert.NotZero(t, store.calls)
+}
+
+func TestWaitForRetrySourceReleaseRejectsDifferentActiveAttempt(t *testing.T) {
+	t.Parallel()
+
+	store := &retryReleaseProcStore{
+		attemptAlive: []bool{false},
+		alive:        []bool{true},
+	}
+	dag := &core.DAG{Name: "retry-test"}
+	status := &exec.DAGRunStatus{
+		Name:      dag.Name,
+		DAGRunID:  "run-1",
+		AttemptID: "attempt-1",
+		Status:    core.Failed,
+	}
+
+	err := waitForRetrySourceReleaseFor(
+		&Context{Context: context.Background(), ProcStore: store},
+		dag,
+		status,
+		time.Second,
+		time.Millisecond,
+	)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "another active attempt")
+}
+
+type retryReleaseProcStore struct {
+	exec.ProcStore
+
+	alive              []bool
+	attemptAlive       []bool
+	attemptAlwaysAlive bool
+	alwaysAlive        bool
+	calls              int
+	groupName          string
+	dagRun             exec.DAGRunRef
+	attemptID          string
+}
+
+func (s *retryReleaseProcStore) IsRunAlive(_ context.Context, groupName string, dagRun exec.DAGRunRef) (bool, error) {
+	s.calls++
+	s.groupName = groupName
+	s.dagRun = dagRun
+	if s.alwaysAlive {
+		return true, nil
+	}
+	if len(s.alive) == 0 {
+		return false, nil
+	}
+	alive := s.alive[0]
+	s.alive = s.alive[1:]
+	return alive, nil
+}
+
+func (s *retryReleaseProcStore) IsAttemptAlive(_ context.Context, groupName string, dagRun exec.DAGRunRef, attemptID string) (bool, error) {
+	s.calls++
+	s.groupName = groupName
+	s.dagRun = dagRun
+	s.attemptID = attemptID
+	if s.attemptAlwaysAlive {
+		return true, nil
+	}
+	if len(s.attemptAlive) == 0 {
+		return false, nil
+	}
+	alive := s.attemptAlive[0]
+	s.attemptAlive = s.attemptAlive[1:]
+	return alive, nil
+}

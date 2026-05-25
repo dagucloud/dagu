@@ -54,6 +54,11 @@ var retryWorkerIDFlag = commandLineFlag{
 	usage: "Worker ID executing this DAG run (auto-set in distributed mode, defaults to 'local')",
 }
 
+const (
+	retrySourceReleaseTimeout      = 10 * time.Second
+	retrySourceReleasePollInterval = 50 * time.Millisecond
+)
+
 func runRetry(ctx *Context, args []string) error {
 	if ctx.IsRemote() {
 		for _, flag := range []commandLineFlag{
@@ -132,6 +137,9 @@ func runRetry(ctx *Context, args []string) error {
 	}
 	restoreRetryExecutionContext(dag, status, attempt)
 	if err := applyRetryDefaultWorkingDir(ctx, dag, status); err != nil {
+		return err
+	}
+	if err := waitForRetrySourceRelease(ctx, dag, status); err != nil {
 		return err
 	}
 
@@ -424,6 +432,103 @@ func prepareQueuedCatchupRetry(ctx *Context, attempt exec.DAGRunAttempt, dag *co
 	}
 
 	return nil
+}
+
+func waitForRetrySourceRelease(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus) error {
+	return waitForRetrySourceReleaseFor(ctx, dag, status, retrySourceReleaseTimeout, retrySourceReleasePollInterval)
+}
+
+func waitForRetrySourceReleaseFor(
+	ctx *Context,
+	dag *core.DAG,
+	status *exec.DAGRunStatus,
+	timeout time.Duration,
+	pollInterval time.Duration,
+) error {
+	if ctx == nil || ctx.ProcStore == nil || dag == nil || !retrySourceMayStillBeFinalizing(status) {
+		return nil
+	}
+
+	run := status.DAGRun()
+	if run.Name == "" {
+		run.Name = dag.Name
+	}
+	if run.ID == "" {
+		return nil
+	}
+
+	baseCtx := ctx.Context
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+	if timeout <= 0 {
+		timeout = retrySourceReleaseTimeout
+	}
+	if pollInterval <= 0 {
+		pollInterval = retrySourceReleasePollInterval
+	}
+
+	waitCtx, cancel := context.WithTimeout(baseCtx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	for {
+		alive, err := retrySourceAlive(waitCtx, ctx.ProcStore, dag, status, run)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return fmt.Errorf("previous dag-run %s is still finalizing: %w", run, err)
+			}
+			return fmt.Errorf("failed to check whether previous dag-run %s is still finalizing: %w", run, err)
+		}
+		if !alive {
+			return nil
+		}
+
+		select {
+		case <-waitCtx.Done():
+			return fmt.Errorf("previous dag-run %s is still finalizing: %w", run, waitCtx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+func retrySourceAlive(
+	ctx context.Context,
+	procStore exec.ProcStore,
+	dag *core.DAG,
+	status *exec.DAGRunStatus,
+	run exec.DAGRunRef,
+) (bool, error) {
+	groupName := dag.ProcGroup()
+	if status.AttemptID == "" {
+		return procStore.IsRunAlive(ctx, groupName, run)
+	}
+
+	alive, err := procStore.IsAttemptAlive(ctx, groupName, run, status.AttemptID)
+	if err != nil {
+		return false, err
+	}
+	if alive {
+		return true, nil
+	}
+
+	runAlive, err := procStore.IsRunAlive(ctx, groupName, run)
+	if err != nil {
+		return false, err
+	}
+	if runAlive {
+		return false, fmt.Errorf("dag-run %s already has another active attempt", run)
+	}
+	return false, nil
+}
+
+func retrySourceMayStillBeFinalizing(status *exec.DAGRunStatus) bool {
+	if status == nil {
+		return false
+	}
+	return status.Status != core.NotStarted && !status.Status.IsActive()
 }
 
 // executeRetry runs a retry of a DAG run using the original run's log file.
