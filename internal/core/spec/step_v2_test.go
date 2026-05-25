@@ -797,6 +797,68 @@ steps:
 	assert.Equal(t, map[string]any{"messageId": "msg-123"}, step.ExecutorConfig.Config["values"])
 }
 
+func TestStepSchemaV2_ActionStateOperations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		action string
+		op     string
+		with   string
+	}{
+		{
+			action: "state.set",
+			op:     "set",
+			with: `key: cursors/api
+      value:
+        last_id: 123`,
+		},
+		{
+			action: "state.get",
+			op:     "get",
+			with:   "key: cursors/api",
+		},
+		{
+			action: "state.diff",
+			op:     "diff",
+			with: `key: snapshots/api
+      value:
+        count: 10`,
+		},
+		{
+			action: "state.list",
+			op:     "list",
+			with:   "prefix: cursors/",
+		},
+		{
+			action: "state.delete",
+			op:     "delete",
+			with:   "key: cursors/api",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.action, func(t *testing.T) {
+			t.Parallel()
+
+			dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: state_step
+    action: `+tt.action+`
+    with:
+      `+tt.with+`
+`))
+			require.NoError(t, err)
+			require.Len(t, dag.Steps, 1)
+
+			step := dag.Steps[0]
+			assert.Equal(t, "state", step.ExecutorConfig.Type)
+			require.Len(t, step.Commands, 1)
+			assert.Equal(t, tt.op, step.Commands[0].Command)
+			assert.NotEmpty(t, step.ExecutorConfig.Config)
+		})
+	}
+}
+
 func TestStepSchemaV2_StdoutArtifact(t *testing.T) {
 	t.Parallel()
 

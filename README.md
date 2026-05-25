@@ -1,5 +1,7 @@
 <div align="center">
   <img src="./assets/images/hero-logo.webp" width="480" alt="Dagu Logo">
+  <br />
+  <p><strong>Turn any operation into observable workflows in your own infrastructure.</strong></p>
   <p>
     <a href="https://docs.dagu.sh/overview/changelog"><img src="https://img.shields.io/github/release/dagucloud/dagu.svg?style=flat-square" alt="Latest Release"></a>
     <a href="https://github.com/dagucloud/dagu/actions/workflows/ci.yaml"><img src="https://img.shields.io/github/actions/workflow/status/dagucloud/dagu/ci.yaml?style=flat-square" alt="Build Status"></a>
@@ -15,6 +17,8 @@
 </div>
 
 ## Local-first Control Plane for Existing Ops Automation and AI Agent Workflows
+
+Dagu is a lightweight workflow engine built in a single binary with Web UI. It runs any job, scripts, containers, k8s jobs, SSH commands, or [AI-agent harnesses](https://docs.dagu.sh/step-types/harness/) behind MCP or at a schedule. It supports Linux, macOS, and Windows. Use your favorite AI agents to manage your workflows via MCP.
 
 Define workflows in simple declarative YAML syntax, execute them anywhere with a single binary, compose complex pipelines from reusable sub-workflows, and distribute tasks across workers. The built-in Web UI eliminates the need for SSHing into servers to debug failed runs, check logs, or retry steps manually. All without requiring databases, message brokers, or code changes to your existing scripts. It natively supports command execution via SSH, running docker containers, kubernetes jobs, and you can extend it with custom step types for your specific use case.
 
@@ -528,6 +532,7 @@ Dagu includes built-in actions that run within the Dagu process or on the select
 | [`s3.upload` / `s3.download` / `s3.list` / `s3.delete`](https://docs.dagu.sh/step-types/s3) | Upload, download, list, and delete S3 objects |
 | [`file.stat` / `file.read` / `file.write` / `file.copy` / `file.move` / `file.delete` / `file.mkdir` / `file.list`](https://docs.dagu.sh/writing-workflows/yaml-specification#built-in-action-names) | Local file operations without shell commands |
 | [`artifact.write` / `artifact.read` / `artifact.list`](https://docs.dagu.sh/step-types/artifact) | Write, read, and list DAG-run artifacts |
+| [`state.get` / `state.set` / `state.delete` / `state.list` / `state.diff`](https://docs.dagu.sh/writing-workflows/persistent-state) | Persistent JSON state across DAG runs |
 | [`data.convert` / `data.pick`](https://docs.dagu.sh/step-types/data) | Convert and select structured data |
 | [`jq.filter`](https://docs.dagu.sh/step-types/jq) | JSON transformation using jq expressions |
 | [`archive.create` / `archive.extract` / `archive.list`](https://docs.dagu.sh/step-types/archive) | Create, extract, and list zip/tar archives |
@@ -797,6 +802,7 @@ The embedded API is experimental and may change. See the [embedded API documenta
 | `DAGU_LOG_DIR` | `~/.local/share/dagu/logs` | Log files |
 | `DAGU_DATA_DIR` | `~/.local/share/dagu/data` | Application state |
 | `DAGU_TOOLS_DIR` | `{DAGU_DATA_DIR}/tools` | Managed DAG tool cache |
+| `DAGU_DAG_STATE_DIR` | `{DAGU_DATA_DIR}/dag-state` | Persistent DAG state files |
 
 ### Authentication
 

@@ -85,6 +85,7 @@ func SetupCoordinator(t *testing.T, opts ...HelperOption) *Coordinator {
 		cfg.StaleLeaseThreshold = helper.StaleLeaseThreshold
 	}
 	cfg.Owner = exec.CoordinatorEndpoint{ID: "test-coordinator", Host: "127.0.0.1", Port: port}
+	cfg.StateStore = helper.StateStore
 	cfg.DispatchTaskStore = helper.DispatchTaskStore
 	cfg.WorkerHeartbeatStore = helper.WorkerHeartbeatStore
 	cfg.DAGRunLeaseStore = helper.DAGRunLeaseStore

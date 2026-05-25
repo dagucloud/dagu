@@ -551,6 +551,82 @@ steps:
 `,
 		},
 		{
+			name: "StateActions",
+			spec: `
+steps:
+  - action: state.set
+    with:
+      key: cursors/api
+      value:
+        last_id: 123
+  - action: state.get
+    with:
+      key: cursors/api
+  - action: state.diff
+    with:
+      key: snapshots/api
+      value:
+        count: 10
+  - action: state.list
+    with:
+      prefix: cursors/
+  - action: state.delete
+    with:
+      key: cursors/api
+`,
+		},
+		{
+			name: "RejectStateGetMissingKey",
+			spec: `
+steps:
+  - action: state.get
+    with:
+      default: null
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectStateSetMissingValue",
+			spec: `
+steps:
+  - action: state.set
+    with:
+      key: cursors/api
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectStateDiffMissingKey",
+			spec: `
+steps:
+  - action: state.diff
+    with:
+      value:
+        last_id: 123
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectStateDeleteMissingKey",
+			spec: `
+steps:
+  - action: state.delete
+    with: {}
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectStateCustomScopeMissingNamespace",
+			spec: `
+steps:
+  - action: state.get
+    with:
+      scope: custom
+      key: cursor
+`,
+			wantErr: "did not validate",
+		},
+		{
 			name: "LegacyFileTypeConfig",
 			spec: `
 steps:

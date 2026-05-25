@@ -54,6 +54,18 @@ service CoordinatorService {
   // Used in shared-nothing mode for sub-DAG cancellation where the parent
   // cannot directly access the sub-DAG's attempt.
   rpc RequestCancel (RequestCancelRequest) returns (RequestCancelResponse);
+
+  // GetState retrieves persistent DAG state from the coordinator-owned store.
+  rpc GetState (GetStateRequest) returns (GetStateResponse);
+
+  // PutState creates or updates persistent DAG state with optimistic concurrency.
+  rpc PutState (PutStateRequest) returns (PutStateResponse);
+
+  // DeleteState removes persistent DAG state.
+  rpc DeleteState (DeleteStateRequest) returns (DeleteStateResponse);
+
+  // ListState lists persistent DAG state entries by scope, namespace, and key prefix.
+  rpc ListState (ListStateRequest) returns (ListStateResponse);
 }
 
 // Request message for polling a task.
@@ -372,4 +384,68 @@ message RequestCancelRequest {
 message RequestCancelResponse {
   bool accepted = 1;
   string error = 2;
+}
+
+message StateRef {
+  string scope = 1;
+  string namespace = 2;
+  string key = 3;
+}
+
+message StateUpdateSource {
+  string dag_name = 1;
+  string dag_run_id = 2;
+  string attempt_id = 3;
+  string step_name = 4;
+}
+
+message StateEntry {
+  StateRef ref = 1;
+  bytes value = 2;
+  int64 version = 3;
+  string hash = 4;
+  int64 created_at = 5;
+  int64 updated_at = 6;
+  StateUpdateSource updated_by = 7;
+}
+
+message GetStateRequest {
+  StateRef ref = 1;
+}
+
+message GetStateResponse {
+  bool found = 1;
+  StateEntry entry = 2;
+}
+
+message PutStateRequest {
+  StateRef ref = 1;
+  bytes value = 2;
+  bool has_expected_version = 3;
+  int64 expected_version = 4;
+  bool create_only = 5;
+  StateUpdateSource updated_by = 6;
+}
+
+message PutStateResponse {
+  StateEntry entry = 1;
+}
+
+message DeleteStateRequest {
+  StateRef ref = 1;
+}
+
+message DeleteStateResponse {
+  bool deleted = 1;
+}
+
+message ListStateRequest {
+  string scope = 1;
+  string namespace = 2;
+  string key_prefix = 3;
+  int32 limit = 4;
+}
+
+message ListStateResponse {
+  repeated StateEntry entries = 1;
 }

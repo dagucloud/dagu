@@ -76,7 +76,7 @@ name: sleep-dag
 queue: global-queue
 steps:
   - name: sleep
-    command: |
+    run: |
 %s
 `, indentQueueTestScript(markQueueRunStartedAndWaitCommand(startedDir, releaseFile), 6)), WithQueue("global-queue"), WithGlobalQueue("global-queue", 3)).
 		Enqueue(3).StartScheduler(30 * time.Second)
@@ -106,12 +106,20 @@ steps:
 func markQueueRunStartedAndWaitCommand(startedDir, releaseFile string) string {
 	return test.ForOS(
 		fmt.Sprintf(`mkdir -p %s
-: > %s/"started-$$"
+run_id=$(printenv DAG_RUN_ID 2>/dev/null || true)
+if [ -z "$run_id" ]; then
+  run_id=$$
+fi
+: > %s/"started-$run_id"
 while [ ! -f %s ]; do
   sleep 0.05
 done`, test.PosixQuote(startedDir), test.PosixQuote(startedDir), test.PosixQuote(releaseFile)),
 		fmt.Sprintf(`New-Item -ItemType Directory -Path %s -Force | Out-Null
-New-Item -ItemType File -Path (Join-Path %s ("started-" + [guid]::NewGuid().ToString())) -Force | Out-Null
+$runId = $env:DAG_RUN_ID
+if ([string]::IsNullOrWhiteSpace($runId)) {
+  $runId = [guid]::NewGuid().ToString()
+}
+New-Item -ItemType File -Path (Join-Path %s ("started-" + $runId)) -Force | Out-Null
 while (-not (Test-Path %s)) {
   Start-Sleep -Milliseconds 50
 }`, test.PowerShellQuote(startedDir), test.PowerShellQuote(startedDir), test.PowerShellQuote(releaseFile)),

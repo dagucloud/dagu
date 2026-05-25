@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/internal/dagstate"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
 
@@ -31,6 +32,7 @@ type Context struct {
 	CoordinatorCli     Dispatcher
 	DAGRunStore        DAGRunStore
 	QueueStore         QueueStore
+	StateStore         dagstate.Store
 	DAGRunLogDir       string
 	DAGRunArtifactDir  string
 	Shell              string               // Default shell for this DAG (from DAG.Shell)
@@ -212,6 +214,7 @@ type contextOptions struct {
 	defaultExecMode    config.ExecutionMode
 	dagRunStore        DAGRunStore
 	queueStore         QueueStore
+	stateStore         dagstate.Store
 	dagRunLogDir       string
 	dagRunArtifactDir  string
 	workDir            string
@@ -299,6 +302,13 @@ func WithQueueStore(store QueueStore) ContextOption {
 	}
 }
 
+// WithStateStore sets the persistent DAG state store for state actions.
+func WithStateStore(store dagstate.Store) ContextOption {
+	return func(o *contextOptions) {
+		o.stateStore = store
+	}
+}
+
 // WithDAGRunLogDir sets the base log directory for newly persisted DAG runs.
 func WithDAGRunLogDir(dir string) ContextOption {
 	return func(o *contextOptions) {
@@ -382,6 +392,7 @@ func NewContext(
 		CoordinatorCli:     options.coordinator,
 		DAGRunStore:        options.dagRunStore,
 		QueueStore:         options.queueStore,
+		StateStore:         options.stateStore,
 		DAGRunLogDir:       options.dagRunLogDir,
 		DAGRunArtifactDir:  options.dagRunArtifactDir,
 		Shell:              dag.Shell,

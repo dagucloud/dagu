@@ -46,5 +46,11 @@ func NewCollection(dir string) persis.Collection {
 	return &Collection{dir: dir}
 }
 
+// NewCollectionWithLockRoot creates a collection whose records live under dir
+// while its cross-process locks are scoped under lockRoot.
+func NewCollectionWithLockRoot(dir, lockRoot string) persis.Collection {
+	return &Collection{dir: dir, lockRoot: lockRoot}
+}
+
 // Close is a no-op; the file backend holds no persistent resources.
 func (b *Backend) Close() error { return nil }
