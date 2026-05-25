@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	// dagFileSnapshotAttempts bounds how long watcher handling waits for
+	// dagFileSnapshotRetries bounds how long watcher handling waits for
 	// atomic replace operations to settle before treating the file as deleted.
-	dagFileSnapshotAttempts = 6
+	dagFileSnapshotRetries = 6
 	// dagFileSnapshotInitialWait keeps the common retry path short for
 	// transient Windows sharing and rename gaps.
 	dagFileSnapshotInitialWait = 10 * time.Millisecond
@@ -70,7 +70,7 @@ func (s *dagFileSource) snapshot(ctx context.Context, fileName string) (dagFileS
 		if !errors.Is(err, os.ErrNotExist) {
 			return dagFileSnapshot{}, err
 		}
-		if attempt >= dagFileSnapshotAttempts {
+		if attempt >= dagFileSnapshotRetries {
 			return dagFileSnapshot{exists: false}, nil
 		}
 		if !sleepDAGFileSnapshot(ctx, wait) {

@@ -118,19 +118,24 @@ func writeDAGFile(t *testing.T, dir, fileName, dagName string) string {
 	return path
 }
 
+// newTestEntryReader creates an entry reader wired like the production constructor.
+func newTestEntryReader(dir string, events chan DAGChangeEvent) *entryReaderImpl {
+	return &entryReaderImpl{
+		targetDir: dir,
+		registry:  make(map[string]*core.DAG),
+		dagSource: newDAGFileSource(dir),
+		quit:      make(chan struct{}),
+		events:    events,
+	}
+}
+
 // TestHandleFSEvent_CreateAddsDAG verifies create events load DAG metadata and emit an add event.
 func TestHandleFSEvent_CreateAddsDAG(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
 	events := make(chan DAGChangeEvent, 10)
-
-	er := &entryReaderImpl{
-		targetDir: tmpDir,
-		registry:  make(map[string]*core.DAG),
-		quit:      make(chan struct{}),
-		events:    events,
-	}
+	er := newTestEntryReader(tmpDir, events)
 
 	writeDAGFile(t, tmpDir, "create-test.yaml", "create-test")
 
@@ -163,13 +168,7 @@ func TestHandleFSEvent_WriteUpdatesDAG(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	events := make(chan DAGChangeEvent, 10)
-
-	er := &entryReaderImpl{
-		targetDir: tmpDir,
-		registry:  make(map[string]*core.DAG),
-		quit:      make(chan struct{}),
-		events:    events,
-	}
+	er := newTestEntryReader(tmpDir, events)
 
 	// Pre-populate registry with existing DAG
 	er.registry["update-test.yaml"] = &core.DAG{Name: "update-test"}
@@ -198,13 +197,7 @@ func TestHandleFSEvent_RemoveDeletesDAG(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	events := make(chan DAGChangeEvent, 10)
-
-	er := &entryReaderImpl{
-		targetDir: tmpDir,
-		registry:  make(map[string]*core.DAG),
-		quit:      make(chan struct{}),
-		events:    events,
-	}
+	er := newTestEntryReader(tmpDir, events)
 
 	// Pre-populate registry
 	er.registry["remove-test.yaml"] = &core.DAG{Name: "remove-test"}
@@ -236,13 +229,7 @@ func TestHandleFSEvent_RemoveReloadsDAGWhenFileStillExists(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	events := make(chan DAGChangeEvent, 10)
-
-	er := &entryReaderImpl{
-		targetDir: tmpDir,
-		registry:  make(map[string]*core.DAG),
-		quit:      make(chan struct{}),
-		events:    events,
-	}
+	er := newTestEntryReader(tmpDir, events)
 
 	er.registry["replace-test.yaml"] = &core.DAG{Name: "replace-test"}
 	writeDAGFile(t, tmpDir, "replace-test.yaml", "replace-test")
@@ -274,13 +261,7 @@ func TestHandleFSEvent_NameChangeEmitsDeleteThenAdd(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	events := make(chan DAGChangeEvent, 10)
-
-	er := &entryReaderImpl{
-		targetDir: tmpDir,
-		registry:  make(map[string]*core.DAG),
-		quit:      make(chan struct{}),
-		events:    events,
-	}
+	er := newTestEntryReader(tmpDir, events)
 
 	// Pre-populate registry with old name
 	er.registry["rename-test.yaml"] = &core.DAG{Name: "old-name"}

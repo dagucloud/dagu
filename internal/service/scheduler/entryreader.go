@@ -136,7 +136,7 @@ func (er *entryReaderImpl) handleFSEvent(ctx context.Context, event fsnotify.Eve
 	}
 
 	if event.Op&(fsnotify.Rename|fsnotify.Remove) != 0 {
-		snapshot, err := er.dagFileSource().snapshot(ctx, fileName)
+		snapshot, err := er.dagSource.snapshot(ctx, fileName)
 		if err != nil {
 			logger.Error(ctx, "DAG load failed",
 				tag.Error(err),
@@ -155,7 +155,7 @@ func (er *entryReaderImpl) handleFSEvent(ctx context.Context, event fsnotify.Eve
 
 // reloadDAGFile reloads a create/write event when the file still snapshots as present.
 func (er *entryReaderImpl) reloadDAGFile(ctx context.Context, fileName, eventName string) {
-	snapshot, err := er.dagFileSource().snapshot(ctx, fileName)
+	snapshot, err := er.dagSource.snapshot(ctx, fileName)
 	if err != nil {
 		logger.Error(ctx, "DAG load failed",
 			tag.Error(err),
@@ -218,14 +218,6 @@ func (er *entryReaderImpl) removeDAGFile(ctx context.Context, fileName string) {
 	logger.Info(ctx, "DAG removed", tag.Name(fileName))
 }
 
-// dagFileSource returns the snapshot loader used by watcher and initialization paths.
-func (er *entryReaderImpl) dagFileSource() *dagFileSource {
-	if er.dagSource == nil {
-		er.dagSource = newDAGFileSource(er.targetDir)
-	}
-	return er.dagSource
-}
-
 // sendEvent sends a DAGChangeEvent on the channel.
 // Returns immediately if the entry reader is shutting down or the context is cancelled.
 func (er *entryReaderImpl) sendEvent(ctx context.Context, event DAGChangeEvent) {
@@ -285,7 +277,7 @@ func (er *entryReaderImpl) initialize(ctx context.Context) error {
 	var dags []string
 	for _, fi := range fis {
 		if fileutil.IsYAMLFile(fi.Name()) {
-			snapshot, err := er.dagFileSource().snapshot(ctx, fi.Name())
+			snapshot, err := er.dagSource.snapshot(ctx, fi.Name())
 			if err != nil {
 				logger.Error(ctx, "DAG load failed",
 					tag.Error(err),

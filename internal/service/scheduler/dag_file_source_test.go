@@ -56,3 +56,25 @@ func TestDAGFileSourceSnapshotReturnsNonAbsenceError(t *testing.T) {
 	require.ErrorIs(t, err, loadErr)
 	assert.False(t, snapshot.exists)
 }
+
+// TestDAGFileSourceSnapshotHonorsContextCancellation verifies retry waits stop on cancellation.
+func TestDAGFileSourceSnapshotHonorsContextCancellation(t *testing.T) {
+	t.Parallel()
+
+	attempts := 0
+	source := &dagFileSource{
+		dir: t.TempDir(),
+		load: func(context.Context, string) (*core.DAG, error) {
+			attempts++
+			return nil, os.ErrNotExist
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	snapshot, err := source.snapshot(ctx, "missing.yaml")
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.False(t, snapshot.exists)
+	assert.Equal(t, 1, attempts)
+}
