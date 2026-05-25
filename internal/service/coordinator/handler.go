@@ -2087,7 +2087,20 @@ func (h *Handler) confirmAndRepairStaleDistributedRun(
 	fallbackAttemptID string,
 	fallbackWorkerID string,
 ) (*exec.DAGRunStatus, bool, error) {
-	return runtime.ConfirmAndRepairStaleDistributedRun(ctx, runtime.DistributedRunRepairConfig{
+	repairCtx := context.WithoutCancel(ctx)
+	if status != nil && status.DAGRunID != "" {
+		runMu := h.getRunMutex(status.DAGRunID)
+		runMu.Lock()
+		defer runMu.Unlock()
+
+		attemptID := status.AttemptID
+		if attemptID == "" {
+			attemptID = fallbackAttemptID
+		}
+		h.closeCachedAttemptForRun(ctx, repairCtx, status.DAGRunID, attemptID)
+	}
+
+	return runtime.ConfirmAndRepairStaleDistributedRun(repairCtx, runtime.DistributedRunRepairConfig{
 		DAGRunStore:                   h.dagRunStore,
 		DAGRunLeaseStore:              h.dagRunLeaseStore,
 		WorkerHeartbeatStore:          h.workerHeartbeatStore,
@@ -2360,6 +2373,10 @@ func (h *Handler) failDistributedAttemptIfCurrent(
 	expectedStatuses ...core.Status,
 ) {
 	storeCtx := context.WithoutCancel(ctx)
+	runMu := h.getRunMutex(dagRun.ID)
+	runMu.Lock()
+	defer runMu.Unlock()
+
 	if attemptID == "" {
 		logger.Error(ctx, "Skipping distributed stale-run repair due to missing attempt ID",
 			tag.DAG(dagRun.Name),
@@ -2367,6 +2384,8 @@ func (h *Handler) failDistributedAttemptIfCurrent(
 		)
 		return
 	}
+
+	h.closeCachedAttemptForRun(ctx, storeCtx, dagRun.ID, attemptID)
 
 	mutate := func(status *exec.DAGRunStatus) error {
 		finishedAt := time.Now()
@@ -2447,6 +2466,30 @@ func (h *Handler) failDistributedAttemptIfCurrent(
 		tag.RunID(dagRun.ID),
 		slog.String("reason", reason),
 	)
+}
+
+func (h *Handler) closeCachedAttemptForRun(ctx, closeCtx context.Context, dagRunID, attemptID string) {
+	h.attemptsMu.Lock()
+	cachedAttempt, ok := h.openAttempts[dagRunID]
+	if ok && attemptID != "" && cachedAttempt.ID() != attemptID {
+		ok = false
+	}
+	if ok {
+		delete(h.openAttempts, dagRunID)
+	}
+	h.attemptsMu.Unlock()
+
+	if !ok {
+		return
+	}
+
+	if err := cachedAttempt.Close(closeCtx); err != nil {
+		logger.Warn(ctx, "Failed to close cached attempt before distributed stale-run repair",
+			tag.RunID(dagRunID),
+			tag.AttemptID(cachedAttempt.ID()),
+			tag.Error(err),
+		)
+	}
 }
 
 // markRunFailed is kept for compatibility with older tests and non-lease based
