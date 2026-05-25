@@ -65,7 +65,7 @@ func (c *MemoryCollection) WithLock(ctx context.Context, key string, fn func() e
 
 func (c *MemoryCollection) WithLockOptions(ctx context.Context, key string, opts dirlock.LockOptions, fn func() error) error {
 	retryInterval := opts.RetryInterval
-	if retryInterval == 0 {
+	if retryInterval <= 0 {
 		retryInterval = 50 * time.Millisecond
 	}
 	return c.withLock(ctx, key, retryInterval, fn)

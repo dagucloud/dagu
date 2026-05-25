@@ -381,6 +381,26 @@ func TestFileCollectionWithLockRootScopesLocksOutsideCollection(t *testing.T) {
 	}))
 }
 
+func TestMemoryCollectionWithLockOptionsClampsNonPositiveRetryInterval(t *testing.T) {
+	t.Parallel()
+
+	type lockOptionsCollection interface {
+		WithLockOptions(ctx context.Context, key string, opts dirlock.LockOptions, fn func() error) error
+	}
+
+	col, ok := testutil.NewMemoryBackend().Collection("test").(lockOptionsCollection)
+	require.True(t, ok)
+
+	require.NotPanics(t, func() {
+		err := col.WithLockOptions(context.Background(), "shared", dirlock.LockOptions{
+			RetryInterval: -time.Millisecond,
+		}, func() error {
+			return nil
+		})
+		require.NoError(t, err)
+	})
+}
+
 func TestMemoryCollection(t *testing.T) {
 	t.Parallel()
 
