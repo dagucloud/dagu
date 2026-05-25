@@ -5,11 +5,15 @@ package runtime
 
 import (
 	"context"
+	"errors"
 
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 )
+
+var errNodeExecutionAborted = errors.New("node execution aborted before start")
 
 // StepExecutor owns a single step execution attempt.
 //
@@ -30,19 +34,16 @@ func (e *StepExecutor) Execute(ctx context.Context, node *Node, onSetup ...func(
 	ctx, cancel, stepTimeout := node.setupContextWithTimeout(ctx)
 	defer cancel()
 
+	if err := preRunAbortErr(ctx, node); err != nil {
+		node.SetError(err)
+		return err
+	}
+
 	cmd, err := node.setupExecutor(ctx)
 	if err != nil {
 		err = wrapStepSetupError(err)
 		node.SetError(err)
 		return err
-	}
-
-	// Notify after executor setup so SubRuns (set for subDAG steps) are
-	// persisted to storage before the executor starts running.
-	for _, fn := range onSetup {
-		if fn != nil {
-			fn()
-		}
 	}
 
 	defer func() {
@@ -52,6 +53,19 @@ func (e *StepExecutor) Execute(ctx context.Context, node *Node, onSetup ...func(
 				tag.Error(closeErr))
 		}
 	}()
+
+	// Notify after executor setup so SubRuns (set for subDAG steps) are
+	// persisted to storage before the executor starts running.
+	for _, fn := range onSetup {
+		if fn != nil {
+			fn()
+		}
+	}
+
+	if err := preRunAbortErr(ctx, node); err != nil {
+		node.SetError(err)
+		return err
+	}
 
 	e.setupExecutorSideChannels(cmd, node)
 
@@ -77,6 +91,13 @@ func (e *StepExecutor) Execute(ctx context.Context, node *Node, onSetup ...func(
 		return execErr
 	}
 	return statusErr
+}
+
+func preRunAbortErr(ctx context.Context, node *Node) error {
+	if node.Status() == core.NodeAborted {
+		return errNodeExecutionAborted
+	}
+	return ctx.Err()
 }
 
 func wrapStepSetupError(err error) error {

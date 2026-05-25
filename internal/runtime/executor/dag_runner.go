@@ -515,6 +515,9 @@ func (e *SubDAGExecutor) Execute(ctx context.Context, runParams RunParams, workD
 		e.distributedRuns[runParams.RunID] = true
 		e.mu.Unlock()
 
+		if err := e.cancellationErr(ctx); err != nil {
+			return nil, err
+		}
 		return e.dispatch(ctx, runParams)
 	}
 
@@ -547,6 +550,9 @@ func (e *SubDAGExecutor) Retry(ctx context.Context, runParams RunParams, stepNam
 		e.distributedRuns[runParams.RunID] = true
 		e.mu.Unlock()
 
+		if err := e.cancellationErr(ctx); err != nil {
+			return nil, err
+		}
 		if err := e.dispatchRetryToCoordinator(ctx, runParams, stepName); err != nil {
 			return nil, fmt.Errorf("distributed step retry failed: %w", err)
 		}
@@ -657,6 +663,9 @@ func (e *SubDAGExecutor) dispatch(ctx context.Context, runParams RunParams) (*ex
 
 // dispatchToCoordinator builds and dispatches a task to the coordinator.
 func (e *SubDAGExecutor) dispatchToCoordinator(ctx context.Context, runParams RunParams) error {
+	if err := e.cancellationErr(ctx); err != nil {
+		return err
+	}
 	if e.coordinatorCli == nil {
 		return fmt.Errorf("no coordinator client configured for distributed execution")
 	}
@@ -665,11 +674,17 @@ func (e *SubDAGExecutor) dispatchToCoordinator(ctx context.Context, runParams Ru
 		if !ok {
 			return fmt.Errorf("coordinator client does not support workspace bundles")
 		}
+		if err := e.cancellationErr(ctx); err != nil {
+			return err
+		}
 		if err := client.PutWorkspaceBundle(ctx, e.workspaceSeed.Descriptor, e.workspaceSeed.Archive); err != nil {
 			return fmt.Errorf("upload workspace bundle: %w", err)
 		}
 	}
 
+	if err := e.cancellationErr(ctx); err != nil {
+		return err
+	}
 	task, err := e.BuildCoordinatorTask(ctx, runParams)
 	if err != nil {
 		return fmt.Errorf("failed to build coordinator task: %w", err)
@@ -683,6 +698,9 @@ func (e *SubDAGExecutor) dispatchToCoordinator(ctx context.Context, runParams Ru
 		slog.Any("worker-selector", task.WorkerSelector),
 	)
 
+	if err := e.cancellationErr(ctx); err != nil {
+		return err
+	}
 	if err := e.coordinatorCli.Dispatch(ctx, task); err != nil {
 		return fmt.Errorf("failed to dispatch task: %w", err)
 	}
@@ -691,6 +709,9 @@ func (e *SubDAGExecutor) dispatchToCoordinator(ctx context.Context, runParams Ru
 }
 
 func (e *SubDAGExecutor) dispatchRetryToCoordinator(ctx context.Context, runParams RunParams, stepName string) error {
+	if err := e.cancellationErr(ctx); err != nil {
+		return err
+	}
 	if e.coordinatorCli == nil {
 		return fmt.Errorf("no coordinator client configured for distributed execution")
 	}
@@ -714,8 +735,23 @@ func (e *SubDAGExecutor) dispatchRetryToCoordinator(ctx context.Context, runPara
 		slog.Any("worker-selector", task.WorkerSelector),
 	)
 
+	if err := e.cancellationErr(ctx); err != nil {
+		return err
+	}
 	if err := e.coordinatorCli.Dispatch(ctx, task); err != nil {
 		return fmt.Errorf("failed to dispatch retry task: %w", err)
+	}
+	return nil
+}
+
+func (e *SubDAGExecutor) cancellationErr(ctx context.Context) error {
+	select {
+	case <-e.killed:
+		return errSubDAGCancelled
+	default:
+	}
+	if err := ctx.Err(); err != nil {
+		return errors.Join(errSubDAGCancelled, err)
 	}
 	return nil
 }

@@ -5,6 +5,7 @@ package exec
 
 import (
 	"context"
+	"time"
 )
 
 // ProcStore is an interface for managing process storage.
@@ -33,6 +34,8 @@ type ProcStore interface {
 	ListEntries(ctx context.Context, groupName string) ([]ProcEntry, error)
 	// LatestFreshEntryByDAGName returns the freshest proc entry for the DAG in the group.
 	LatestFreshEntryByDAGName(ctx context.Context, groupName, dagName string) (*ProcEntry, error)
+	// LatestHeartbeat returns the latest heartbeat observation for a DAG-run in the group.
+	LatestHeartbeat(ctx context.Context, groupName string, dagRun DAGRunRef) (*ProcHeartbeat, error)
 	// ListAllEntries returns all proc entries across all groups, including stale entries.
 	ListAllEntries(ctx context.Context) ([]ProcEntry, error)
 	// RemoveIfStale removes the exact proc entry if it is still stale and unchanged.
@@ -77,6 +80,28 @@ type ProcEntry struct {
 	Meta            ProcMeta
 	LastHeartbeatAt int64
 	Fresh           bool
+}
+
+// ProcHeartbeat is a storage-independent observation of a proc heartbeat.
+type ProcHeartbeat struct {
+	GroupName       string
+	DAGRun          DAGRunRef
+	AttemptID       string
+	StartedAt       int64
+	LastHeartbeatAt int64
+	ObservedAt      time.Time
+	Fresh           bool
+}
+
+// AdvancedSince reports whether this observation is newer than previous.
+func (h ProcHeartbeat) AdvancedSince(previous ProcHeartbeat) bool {
+	if h.GroupName != previous.GroupName || h.DAGRun != previous.DAGRun {
+		return false
+	}
+	if h.AttemptID != previous.AttemptID {
+		return h.StartedAt > previous.StartedAt || h.ObservedAt.After(previous.ObservedAt)
+	}
+	return h.LastHeartbeatAt > previous.LastHeartbeatAt || h.ObservedAt.After(previous.ObservedAt)
 }
 
 // DAGRun returns the DAG-run reference for the proc entry.

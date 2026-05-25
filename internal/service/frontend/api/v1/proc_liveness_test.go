@@ -177,7 +177,7 @@ steps:
 	require.NoError(t, attempt.Write(server.Context, status))
 	require.NoError(t, attempt.Close(server.Context))
 
-	_ = test.CreateStaleProcFileWithAttempt(
+	_ = test.CreateStaleLegacyProcFileWithAttempt(
 		t,
 		server.Config.Paths.ProcDir,
 		dag.ProcGroup(),

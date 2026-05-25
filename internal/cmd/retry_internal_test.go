@@ -101,3 +101,147 @@ func TestRestoreRetryExecutionContext_BackfillsAttemptWorkDirSnapshot(t *testing
 	assert.True(t, dag.WorkingDirExplicit)
 	attempt.AssertExpectations(t)
 }
+
+func TestWaitForRetrySourceRelease_WaitsForTerminalRunProcToStop(t *testing.T) {
+	t.Parallel()
+
+	dag := &core.DAG{Name: "retry-test"}
+	store := &retryReleaseProcStore{heartbeats: []*exec.ProcHeartbeat{
+		retryReleaseHeartbeat(dag.Name, "run-1", "attempt-1", true),
+		retryReleaseHeartbeat(dag.Name, "run-1", "attempt-1", true),
+		nil,
+	}}
+	status := &exec.DAGRunStatus{
+		Name:      dag.Name,
+		DAGRunID:  "run-1",
+		AttemptID: "attempt-1",
+		Status:    core.Succeeded,
+	}
+
+	err := waitForRetrySourceReleaseFor(
+		&Context{Context: context.Background(), ProcStore: store},
+		dag,
+		status,
+		time.Second,
+		time.Millisecond,
+	)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, store.calls, 3)
+	assert.Equal(t, dag.ProcGroup(), store.groupName)
+	assert.Equal(t, exec.NewDAGRunRef(dag.Name, "run-1"), store.dagRun)
+}
+
+func TestWaitForRetrySourceRelease_SkipsActiveStatus(t *testing.T) {
+	t.Parallel()
+
+	store := &retryReleaseProcStore{
+		heartbeats: []*exec.ProcHeartbeat{
+			retryReleaseHeartbeat("retry-test", "run-1", "attempt-1", true),
+		},
+	}
+	dag := &core.DAG{Name: "retry-test"}
+	status := &exec.DAGRunStatus{
+		Name:     dag.Name,
+		DAGRunID: "run-1",
+		Status:   core.Running,
+	}
+
+	err := waitForRetrySourceReleaseFor(
+		&Context{Context: context.Background(), ProcStore: store},
+		dag,
+		status,
+		time.Second,
+		time.Millisecond,
+	)
+	require.NoError(t, err)
+	assert.Zero(t, store.calls)
+}
+
+func TestWaitForRetrySourceRelease_TimesOutWhileProcAlive(t *testing.T) {
+	t.Parallel()
+
+	dag := &core.DAG{Name: "retry-test"}
+	store := &retryReleaseProcStore{
+		alwaysHeartbeat: retryReleaseHeartbeat(dag.Name, "run-1", "attempt-1", true),
+	}
+	status := &exec.DAGRunStatus{
+		Name:      dag.Name,
+		DAGRunID:  "run-1",
+		AttemptID: "attempt-1",
+		Status:    core.Failed,
+	}
+
+	err := waitForRetrySourceReleaseFor(
+		&Context{Context: context.Background(), ProcStore: store},
+		dag,
+		status,
+		5*time.Millisecond,
+		time.Millisecond,
+	)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "still finalizing")
+	assert.NotZero(t, store.calls)
+}
+
+func TestWaitForRetrySourceReleaseRejectsDifferentActiveAttempt(t *testing.T) {
+	t.Parallel()
+
+	dag := &core.DAG{Name: "retry-test"}
+	store := &retryReleaseProcStore{heartbeats: []*exec.ProcHeartbeat{
+		retryReleaseHeartbeat(dag.Name, "run-1", "attempt-2", true),
+	}}
+	status := &exec.DAGRunStatus{
+		Name:      dag.Name,
+		DAGRunID:  "run-1",
+		AttemptID: "attempt-1",
+		Status:    core.Failed,
+	}
+
+	err := waitForRetrySourceReleaseFor(
+		&Context{Context: context.Background(), ProcStore: store},
+		dag,
+		status,
+		time.Second,
+		time.Millisecond,
+	)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "another active attempt")
+}
+
+type retryReleaseProcStore struct {
+	exec.ProcStore
+
+	heartbeats      []*exec.ProcHeartbeat
+	alwaysHeartbeat *exec.ProcHeartbeat
+	calls           int
+	groupName       string
+	dagRun          exec.DAGRunRef
+}
+
+func (s *retryReleaseProcStore) LatestHeartbeat(_ context.Context, groupName string, dagRun exec.DAGRunRef) (*exec.ProcHeartbeat, error) {
+	s.calls++
+	s.groupName = groupName
+	s.dagRun = dagRun
+	if s.alwaysHeartbeat != nil {
+		heartbeat := *s.alwaysHeartbeat
+		return &heartbeat, nil
+	}
+	if len(s.heartbeats) == 0 {
+		return nil, nil
+	}
+	heartbeat := s.heartbeats[0]
+	s.heartbeats = s.heartbeats[1:]
+	if heartbeat == nil {
+		return nil, nil
+	}
+	copy := *heartbeat
+	return &copy, nil
+}
+
+func retryReleaseHeartbeat(dagName, runID, attemptID string, fresh bool) *exec.ProcHeartbeat {
+	return &exec.ProcHeartbeat{
+		DAGRun:    exec.NewDAGRunRef(dagName, runID),
+		AttemptID: attemptID,
+		Fresh:     fresh,
+	}
+}

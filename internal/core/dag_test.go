@@ -150,9 +150,11 @@ func TestSockAddr(t *testing.T) {
 	t.Run("DAGMethodsUseSockAddr", func(t *testing.T) {
 		t.Parallel()
 
-		// With Location set: uses Location
+		// With Location set: uses Location and dag-run ID so concurrent runs of
+		// the same DAG file do not collide on one socket.
 		dag1 := &core.DAG{Name: "mydag", Location: "path/to/dag.yml"}
-		require.Equal(t, core.SockAddr("path/to/dag.yml", ""), dag1.SockAddr("run123"))
+		require.Equal(t, core.SockAddr("path/to/dag.yml", "run123"), dag1.SockAddr("run123"))
+		require.NotEqual(t, dag1.SockAddr("run123"), dag1.SockAddr("run456"))
 
 		// Without Location: uses Name and dagRunID
 		dag2 := &core.DAG{Name: "mydag"}

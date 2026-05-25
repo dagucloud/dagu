@@ -203,6 +203,28 @@ func TestNode(t *testing.T) {
 		require.Contains(t, err.Error(), "signal: interrupt")
 		require.Equal(t, core.NodeAborted.String(), node.State().Status.String())
 	})
+	t.Run("SignalBeforeExecutorRunPreventsStart", func(t *testing.T) {
+		execCh, restore := withNodeSignalExecutor(t)
+		defer restore()
+
+		node := setupNode(t, withNodeExecutorType(nodeSignalExecutorType))
+		node.SetStatus(core.NodeRunning)
+
+		dagRunID := uuid.Must(uuid.NewV7()).String()
+		err := runtime.NewStepExecutor().Execute(node.execContext(dagRunID), node.Node, func() {
+			node.Signal(node.Context, syscall.SIGTERM, false)
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "node execution aborted before start")
+		require.Equal(t, core.NodeAborted.String(), node.State().Status.String())
+
+		exec := <-execCh
+		select {
+		case <-exec.ready:
+			t.Fatal("executor Run should not start after a pre-run signal")
+		default:
+		}
+	})
 	t.Run("SignalMarksAbortedBeforeKillReturns", func(t *testing.T) {
 		execCh, restore := withNodeSignalExecutorFactory(t, func() *blockingSignalExecutor {
 			exec := newBlockingSignalExecutor()

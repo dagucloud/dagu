@@ -59,6 +59,7 @@ func (o *attemptOwnership) statusDecision(
 	ctx context.Context,
 	latest *exec.DAGRunStatus,
 	incoming *exec.DAGRunStatus,
+	opts statusDecisionOptions,
 ) (accepted bool, rejectionReason string) {
 	if latest == nil || incoming == nil {
 		return false, remoteAttemptRejectedLeaseInactive
@@ -75,7 +76,14 @@ func (o *attemptOwnership) statusDecision(
 	if latest.Status == incoming.Status {
 		return true, ""
 	}
+	if opts.CancellationRequested && latest.Status == core.Failed && incoming.Status == core.Aborted {
+		return true, ""
+	}
 	return false, remoteAttemptRejectedTerminal
+}
+
+type statusDecisionOptions struct {
+	CancellationRequested bool
 }
 
 func (o *attemptOwnership) leaseInactive(ctx context.Context, attemptKey string) bool {

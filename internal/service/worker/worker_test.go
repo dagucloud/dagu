@@ -79,27 +79,16 @@ func TestWorkerStart(t *testing.T) {
 		// Setup test environment
 		coord := test.SetupCoordinator(t, test.WithStatusPersistence())
 		th := test.Setup(t)
+		t.Cleanup(th.Cleanup)
 
 		maxActiveRuns := 3
 		w := createTestWorker(t, "test-worker", maxActiveRuns, coord)
 
 		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan error, 1)
-		t.Cleanup(func() {
-			cancel()
-			stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer stopCancel()
-			assert.NoError(t, w.Stop(stopCtx))
-			select {
-			case err := <-done:
-				assert.NoError(t, err)
-			case <-time.After(5 * time.Second):
-				t.Error("Worker did not stop within timeout")
-			}
-			th.Cleanup()
-		})
 
-		// Track polling activity
+		// Track completed task identities instead of inferring completion from
+		// the number of poller callbacks racing with dispatch.
 		var pollCount atomic.Int32
 		processedRuns := make(chan string, 5)
 		w.SetHandler(&mockHandler{
@@ -117,6 +106,22 @@ func TestWorkerStart(t *testing.T) {
 		go func() {
 			done <- w.Start(ctx)
 		}()
+		var stopOnce sync.Once
+		stopWorker := func() {
+			stopOnce.Do(func() {
+				cancel()
+				stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer stopCancel()
+				assert.NoError(t, w.Stop(stopCtx))
+				select {
+				case err := <-done:
+					assert.NoError(t, err)
+				case <-time.After(10 * time.Second):
+					t.Error("Worker did not stop within timeout")
+				}
+			})
+		}
+		t.Cleanup(stopWorker)
 
 		// Wait for worker to register via heartbeat
 		require.Eventually(t, func() bool {
@@ -133,9 +138,12 @@ func TestWorkerStart(t *testing.T) {
 		}, 5*time.Second, 10*time.Millisecond, "Worker did not register via heartbeat")
 
 		// Dispatch multiple tasks
+		expectedRuns := make(map[string]struct{}, 5)
 		for i := range 5 {
+			runID := fmt.Sprintf("run-%c", 'a'+i)
+			expectedRuns[runID] = struct{}{}
 			task := &coordinatorv1.Task{
-				DagRunId:   "run-" + string(rune('a'+i)),
+				DagRunId:   runID,
 				Target:     "test.yaml",
 				Operation:  coordinatorv1.Operation_OPERATION_START,
 				Definition: "name: test\nsteps:\n  - name: step1\n    command: echo hello",
@@ -145,19 +153,24 @@ func TestWorkerStart(t *testing.T) {
 		}
 
 		// Wait for all tasks to be processed
-		seenRuns := make(map[string]struct{}, 5)
-		deadline := time.After(15 * time.Second)
-		for len(seenRuns) < 5 {
+		seenRuns := make(map[string]struct{}, len(expectedRuns))
+		timeout := time.After(20 * time.Second)
+		for len(seenRuns) < len(expectedRuns) {
 			select {
 			case runID := <-processedRuns:
-				seenRuns[runID] = struct{}{}
-			case <-deadline:
-				t.Fatalf("Not all tasks were processed: processed=%d seen=%v", pollCount.Load(), seenRuns)
+				if _, ok := expectedRuns[runID]; ok {
+					seenRuns[runID] = struct{}{}
+				}
+			case <-timeout:
+				t.Fatalf("processed %d/%d expected tasks; seen=%v expected=%v", len(seenRuns), len(expectedRuns), seenRuns, expectedRuns)
 			}
 		}
 
 		// Should have processed multiple tasks
 		assert.GreaterOrEqual(t, pollCount.Load(), int32(3))
+
+		// Stop worker
+		stopWorker()
 	})
 }
 

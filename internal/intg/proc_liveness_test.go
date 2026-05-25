@@ -56,8 +56,7 @@ steps:
 		return ok && status.Status == core.Running
 	}, intgTestTimeout(5*time.Second), 50*time.Millisecond)
 
-	procFile := test.WaitForProcFile(t, th.Config.Paths.ProcDir, dag.ProcGroup(), ref, intgTestTimeout(2*time.Second))
-	test.RequireHeartbeatAdvance(t, procFile, intgTestTimeout(3*time.Second))
+	test.RequireProcHeartbeatAdvance(t, th.Context, th.ProcStore, dag.ProcGroup(), ref, intgTestTimeout(3*time.Second))
 
 	require.NoError(t, <-errCh)
 
@@ -97,8 +96,7 @@ steps:
 		return ok && status.Status == core.Running
 	}, intgTestTimeout(5*time.Second), 50*time.Millisecond)
 
-	procFile := test.WaitForProcFile(t, th.Config.Paths.ProcDir, dag.ProcGroup(), ref, intgTestTimeout(2*time.Second))
-	test.RequireHeartbeatAdvance(t, procFile, intgTestTimeout(3*time.Second))
+	test.RequireProcHeartbeatAdvance(t, th.Context, th.ProcStore, dag.ProcGroup(), ref, intgTestTimeout(3*time.Second))
 
 	require.NoError(t, <-errCh)
 

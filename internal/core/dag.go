@@ -413,7 +413,7 @@ func (d *DAG) HasApprovalSteps() bool {
 // The address is used to communicate with the agent process.
 func (d *DAG) SockAddr(dagRunID string) string {
 	if d.Location != "" {
-		return SockAddr(d.Location, "")
+		return SockAddr(d.Location, dagRunID)
 	}
 	return SockAddr(d.Name, dagRunID)
 }

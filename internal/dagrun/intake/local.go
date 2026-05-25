@@ -26,9 +26,17 @@ var (
 // will own.
 type LocalAttemptBuilder func(context.Context) (exec.DAGRunAttempt, error)
 
+// LocalProcStore is the proc-store surface needed to claim local execution
+// ownership.
+type LocalProcStore interface {
+	Lock(ctx context.Context, groupName string) error
+	Unlock(ctx context.Context, groupName string)
+	Acquire(ctx context.Context, groupName string, meta exec.ProcMeta) (exec.ProcHandle, error)
+}
+
 // LocalRequest describes local DAG-run intake before execution starts.
 type LocalRequest struct {
-	ProcStore exec.ProcStore
+	ProcStore LocalProcStore
 	DAG       *core.DAG
 	DAGRunID  string
 

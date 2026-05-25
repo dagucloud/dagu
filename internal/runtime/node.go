@@ -46,6 +46,7 @@ type Node struct {
 	id           int
 	mu           sync.RWMutex
 	cmd          executor.Executor
+	execCancel   context.CancelFunc
 	done         atomic.Bool
 	retryPolicy  RetryPolicy
 	cmdEvaluated atomic.Bool
@@ -187,14 +188,34 @@ func (n *Node) setupContextWithTimeout(ctx context.Context) (context.Context, co
 	if step.Timeout > 0 {
 		stepTimeout = step.Timeout
 		ctx, cancel := context.WithTimeout(ctx, stepTimeout)
+		n.setExecCancel(cancel)
 		logger.Info(ctx, "Step execution started with timeout",
 			tag.Timeout(stepTimeout),
 		)
-		return ctx, cancel, stepTimeout
+		return ctx, func() {
+			cancel()
+			n.clearExecCancel()
+		}, stepTimeout
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
-	return ctx, cancel, 0
+	n.setExecCancel(cancel)
+	return ctx, func() {
+		cancel()
+		n.clearExecCancel()
+	}, 0
+}
+
+func (n *Node) setExecCancel(cancel context.CancelFunc) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.execCancel = cancel
+}
+
+func (n *Node) clearExecCancel() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.execCancel = nil
 }
 
 // flusherControl coordinates shutdown of the output flusher goroutine.
@@ -904,24 +925,37 @@ func (n *Node) evaluateCommandArgs(ctx context.Context) error {
 
 func (n *Node) Signal(ctx context.Context, sig os.Signal, allowOverride bool) {
 	n.mu.Lock()
-	defer n.mu.Unlock()
-
 	status := n.Status()
-	if status == core.NodeRunning && n.cmd != nil {
-		killSignal := n.signalToSend(sig, allowOverride)
-		logger.Info(ctx, "Sending signal",
-			tag.Signal(killSignal.String()),
+	if status != core.NodeRunning {
+		n.mu.Unlock()
+		return
+	}
+
+	killSignal := n.signalToSend(sig, allowOverride)
+	isTermination := signal.IsTerminationSignalOS(killSignal)
+	if isTermination {
+		n.SetStatus(core.NodeAborted)
+	}
+	cancel := n.execCancel
+	cmd := n.cmd
+	n.mu.Unlock()
+
+	if isTermination && cancel != nil && cmd == nil {
+		cancel()
+	}
+	if cmd == nil {
+		return
+	}
+
+	logger.Info(ctx, "Sending signal",
+		tag.Signal(killSignal.String()),
+		tag.Step(n.Name()),
+	)
+	if err := cmd.Kill(killSignal); err != nil {
+		logger.Error(ctx, "Failed to send signal",
+			tag.Error(err),
 			tag.Step(n.Name()),
 		)
-		if signal.IsTerminationSignalOS(killSignal) {
-			n.SetStatus(core.NodeAborted)
-		}
-		if err := n.cmd.Kill(killSignal); err != nil {
-			logger.Error(ctx, "Failed to send signal",
-				tag.Error(err),
-				tag.Step(n.Name()),
-			)
-		}
 	}
 }
 

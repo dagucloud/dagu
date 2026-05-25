@@ -141,33 +141,6 @@ func (s *localProcStore) Acquire(_ context.Context, groupName string, meta exec.
 	return s.handle, nil
 }
 
-func (s *localProcStore) CountAlive(context.Context, string) (int, error) { return 0, nil }
-func (s *localProcStore) CountAliveByDAGName(context.Context, string, string) (int, error) {
-	return 0, nil
-}
-func (s *localProcStore) IsRunAlive(context.Context, string, exec.DAGRunRef) (bool, error) {
-	return false, nil
-}
-func (s *localProcStore) IsAttemptAlive(context.Context, string, exec.DAGRunRef, string) (bool, error) {
-	return false, nil
-}
-func (s *localProcStore) ListAlive(context.Context, string) ([]exec.DAGRunRef, error) {
-	return nil, nil
-}
-func (s *localProcStore) ListAllAlive(context.Context) (map[string][]exec.DAGRunRef, error) {
-	return nil, nil
-}
-func (s *localProcStore) ListEntries(context.Context, string) ([]exec.ProcEntry, error) {
-	return nil, nil
-}
-func (s *localProcStore) LatestFreshEntryByDAGName(context.Context, string, string) (*exec.ProcEntry, error) {
-	return nil, nil
-}
-func (s *localProcStore) ListAllEntries(context.Context) ([]exec.ProcEntry, error) {
-	return nil, nil
-}
-func (s *localProcStore) RemoveIfStale(context.Context, exec.ProcEntry) error { return nil }
-
 type localProcHandle struct {
 	meta exec.ProcMeta
 }
