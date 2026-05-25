@@ -105,8 +105,12 @@ func TestRestoreRetryExecutionContext_BackfillsAttemptWorkDirSnapshot(t *testing
 func TestWaitForRetrySourceRelease_WaitsForTerminalRunProcToStop(t *testing.T) {
 	t.Parallel()
 
-	store := &retryReleaseProcStore{attemptAlive: []bool{true, true, false}}
 	dag := &core.DAG{Name: "retry-test"}
+	store := &retryReleaseProcStore{heartbeats: []*exec.ProcHeartbeat{
+		retryReleaseHeartbeat(dag.Name, "run-1", "attempt-1", true),
+		retryReleaseHeartbeat(dag.Name, "run-1", "attempt-1", true),
+		nil,
+	}}
 	status := &exec.DAGRunStatus{
 		Name:      dag.Name,
 		DAGRunID:  "run-1",
@@ -125,13 +129,16 @@ func TestWaitForRetrySourceRelease_WaitsForTerminalRunProcToStop(t *testing.T) {
 	assert.GreaterOrEqual(t, store.calls, 3)
 	assert.Equal(t, dag.ProcGroup(), store.groupName)
 	assert.Equal(t, exec.NewDAGRunRef(dag.Name, "run-1"), store.dagRun)
-	assert.Equal(t, "attempt-1", store.attemptID)
 }
 
 func TestWaitForRetrySourceRelease_SkipsActiveStatus(t *testing.T) {
 	t.Parallel()
 
-	store := &retryReleaseProcStore{alive: []bool{true}}
+	store := &retryReleaseProcStore{
+		heartbeats: []*exec.ProcHeartbeat{
+			retryReleaseHeartbeat("retry-test", "run-1", "attempt-1", true),
+		},
+	}
 	dag := &core.DAG{Name: "retry-test"}
 	status := &exec.DAGRunStatus{
 		Name:     dag.Name,
@@ -153,8 +160,10 @@ func TestWaitForRetrySourceRelease_SkipsActiveStatus(t *testing.T) {
 func TestWaitForRetrySourceRelease_TimesOutWhileProcAlive(t *testing.T) {
 	t.Parallel()
 
-	store := &retryReleaseProcStore{attemptAlwaysAlive: true}
 	dag := &core.DAG{Name: "retry-test"}
+	store := &retryReleaseProcStore{
+		alwaysHeartbeat: retryReleaseHeartbeat(dag.Name, "run-1", "attempt-1", true),
+	}
 	status := &exec.DAGRunStatus{
 		Name:      dag.Name,
 		DAGRunID:  "run-1",
@@ -177,11 +186,10 @@ func TestWaitForRetrySourceRelease_TimesOutWhileProcAlive(t *testing.T) {
 func TestWaitForRetrySourceReleaseRejectsDifferentActiveAttempt(t *testing.T) {
 	t.Parallel()
 
-	store := &retryReleaseProcStore{
-		attemptAlive: []bool{false},
-		alive:        []bool{true},
-	}
 	dag := &core.DAG{Name: "retry-test"}
+	store := &retryReleaseProcStore{heartbeats: []*exec.ProcHeartbeat{
+		retryReleaseHeartbeat(dag.Name, "run-1", "attempt-2", true),
+	}}
 	status := &exec.DAGRunStatus{
 		Name:      dag.Name,
 		DAGRunID:  "run-1",
@@ -203,43 +211,37 @@ func TestWaitForRetrySourceReleaseRejectsDifferentActiveAttempt(t *testing.T) {
 type retryReleaseProcStore struct {
 	exec.ProcStore
 
-	alive              []bool
-	attemptAlive       []bool
-	attemptAlwaysAlive bool
-	alwaysAlive        bool
-	calls              int
-	groupName          string
-	dagRun             exec.DAGRunRef
-	attemptID          string
+	heartbeats      []*exec.ProcHeartbeat
+	alwaysHeartbeat *exec.ProcHeartbeat
+	calls           int
+	groupName       string
+	dagRun          exec.DAGRunRef
 }
 
-func (s *retryReleaseProcStore) IsRunAlive(_ context.Context, groupName string, dagRun exec.DAGRunRef) (bool, error) {
+func (s *retryReleaseProcStore) LatestHeartbeat(_ context.Context, groupName string, dagRun exec.DAGRunRef) (*exec.ProcHeartbeat, error) {
 	s.calls++
 	s.groupName = groupName
 	s.dagRun = dagRun
-	if s.alwaysAlive {
-		return true, nil
+	if s.alwaysHeartbeat != nil {
+		heartbeat := *s.alwaysHeartbeat
+		return &heartbeat, nil
 	}
-	if len(s.alive) == 0 {
-		return false, nil
+	if len(s.heartbeats) == 0 {
+		return nil, nil
 	}
-	alive := s.alive[0]
-	s.alive = s.alive[1:]
-	return alive, nil
+	heartbeat := s.heartbeats[0]
+	s.heartbeats = s.heartbeats[1:]
+	if heartbeat == nil {
+		return nil, nil
+	}
+	copy := *heartbeat
+	return &copy, nil
 }
 
-func (s *retryReleaseProcStore) IsAttemptAlive(_ context.Context, groupName string, dagRun exec.DAGRunRef, attemptID string) (bool, error) {
-	s.calls++
-	s.groupName = groupName
-	s.dagRun = dagRun
-	s.attemptID = attemptID
-	if s.attemptAlwaysAlive {
-		return true, nil
+func retryReleaseHeartbeat(dagName, runID, attemptID string, fresh bool) *exec.ProcHeartbeat {
+	return &exec.ProcHeartbeat{
+		DAGRun:    exec.NewDAGRunRef(dagName, runID),
+		AttemptID: attemptID,
+		Fresh:     fresh,
 	}
-	if len(s.attemptAlive) == 0 {
-		return false, nil
-	}
-	alive := s.attemptAlive[0]
-	s.attemptAlive = s.attemptAlive[1:]
-	return alive, nil
 }

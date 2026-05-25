@@ -502,27 +502,17 @@ func retrySourceAlive(
 	status *exec.DAGRunStatus,
 	run exec.DAGRunRef,
 ) (bool, error) {
-	groupName := dag.ProcGroup()
-	if status.AttemptID == "" {
-		return procStore.IsRunAlive(ctx, groupName, run)
-	}
-
-	alive, err := procStore.IsAttemptAlive(ctx, groupName, run, status.AttemptID)
+	heartbeat, err := procStore.LatestHeartbeat(ctx, dag.ProcGroup(), run)
 	if err != nil {
 		return false, err
 	}
-	if alive {
+	if heartbeat == nil || !heartbeat.Fresh {
+		return false, nil
+	}
+	if status.AttemptID == "" || heartbeat.AttemptID == status.AttemptID {
 		return true, nil
 	}
-
-	runAlive, err := procStore.IsRunAlive(ctx, groupName, run)
-	if err != nil {
-		return false, err
-	}
-	if runAlive {
-		return false, fmt.Errorf("dag-run %s already has another active attempt", run)
-	}
-	return false, nil
+	return false, fmt.Errorf("dag-run %s already has another active attempt", run)
 }
 
 func retrySourceMayStillBeFinalizing(status *exec.DAGRunStatus) bool {

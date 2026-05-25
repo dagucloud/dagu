@@ -29,6 +29,7 @@ func TestDistributedAttemptOwnershipStatusDecision(t *testing.T) {
 		accepted, reason := ownership.statusDecision(ctx,
 			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Running},
 			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Running},
+			statusDecisionOptions{},
 		)
 
 		assert.True(t, accepted)
@@ -42,6 +43,7 @@ func TestDistributedAttemptOwnershipStatusDecision(t *testing.T) {
 		accepted, reason := ownership.statusDecision(ctx,
 			&exec.DAGRunStatus{AttemptID: "attempt-2", AttemptKey: "attempt-key-2", Status: core.Running},
 			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Running},
+			statusDecisionOptions{},
 		)
 
 		assert.False(t, accepted)
@@ -61,6 +63,7 @@ func TestDistributedAttemptOwnershipStatusDecision(t *testing.T) {
 		accepted, reason := ownership.statusDecision(ctx,
 			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Failed},
 			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Running},
+			statusDecisionOptions{},
 		)
 
 		assert.False(t, accepted)
@@ -74,6 +77,35 @@ func TestDistributedAttemptOwnershipStatusDecision(t *testing.T) {
 		accepted, reason := ownership.statusDecision(ctx,
 			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Succeeded},
 			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Succeeded},
+			statusDecisionOptions{},
+		)
+
+		assert.True(t, accepted)
+		assert.Empty(t, reason)
+	})
+
+	t.Run("rejects terminal change without cancellation request", func(t *testing.T) {
+		t.Parallel()
+
+		ownership := newAttemptOwnership(attemptOwnershipConfig{})
+		accepted, reason := ownership.statusDecision(ctx,
+			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Failed},
+			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Aborted},
+			statusDecisionOptions{},
+		)
+
+		assert.False(t, accepted)
+		assert.Equal(t, remoteAttemptRejectedTerminal, reason)
+	})
+
+	t.Run("accepts cancellation terminal status after lease failure", func(t *testing.T) {
+		t.Parallel()
+
+		ownership := newAttemptOwnership(attemptOwnershipConfig{})
+		accepted, reason := ownership.statusDecision(ctx,
+			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Failed},
+			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Aborted},
+			statusDecisionOptions{CancellationRequested: true},
 		)
 
 		assert.True(t, accepted)

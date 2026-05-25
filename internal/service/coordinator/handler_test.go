@@ -2603,6 +2603,64 @@ func TestHandler_ReportStatus(t *testing.T) {
 		assert.ErrorIs(t, err, exec.ErrDAGRunLeaseNotFound)
 	})
 
+	t.Run("AcceptsCancelledTerminalStatusAfterLeaseFailure", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMockDAGRunStore()
+		baseDir := filepath.Join(t.TempDir(), "distributed")
+		leaseStore := filedistributed.NewDAGRunLeaseStore(baseDir)
+		activeStore := filedistributed.NewActiveDistributedRunStore(baseDir)
+		h := NewHandler(HandlerConfig{
+			DAGRunStore:               store,
+			DAGRunLeaseStore:          leaseStore,
+			ActiveDistributedRunStore: activeStore,
+			Owner:                     exec.CoordinatorEndpoint{ID: "coord-a"},
+		})
+		ctx := context.Background()
+
+		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-123"}
+		attempt := store.addAbortingAttempt(ref, &exec.DAGRunStatus{
+			Name:       "test-dag",
+			DAGRunID:   "run-123",
+			AttemptID:  "attempt-1",
+			AttemptKey: "attempt-key-1",
+			WorkerID:   "worker-1",
+			Status:     core.Failed,
+		})
+
+		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+			Name:       "test-dag",
+			DAGRunID:   "run-123",
+			AttemptID:  "attempt-1",
+			AttemptKey: "attempt-key-1",
+			WorkerID:   "worker-1",
+			Status:     core.Aborted,
+			Error:      context.Canceled.Error(),
+		})
+		require.NoError(t, convErr)
+
+		resp, err := h.ReportStatus(ctx, &coordinatorv1.ReportStatusRequest{
+			Status:             protoStatus,
+			WorkerId:           "worker-1",
+			OwnerCoordinatorId: "coord-a",
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.True(t, resp.Accepted)
+		assert.True(t, attempt.WasWritten())
+
+		current, err := attempt.ReadStatus(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, core.Aborted, current.Status)
+		assert.Equal(t, context.Canceled.Error(), current.Error)
+
+		_, err = leaseStore.Get(ctx, "attempt-key-1")
+		assert.ErrorIs(t, err, exec.ErrDAGRunLeaseNotFound)
+
+		_, err = activeStore.Get(ctx, "attempt-key-1")
+		assert.ErrorIs(t, err, exec.ErrActiveRunNotFound)
+	})
+
 	t.Run("RejectsSupersededAttemptStatus", func(t *testing.T) {
 		t.Parallel()
 

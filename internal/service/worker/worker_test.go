@@ -79,25 +79,50 @@ func TestWorkerStart(t *testing.T) {
 		// Setup test environment
 		coord := test.SetupCoordinator(t, test.WithStatusPersistence())
 		th := test.Setup(t)
+		t.Cleanup(th.Cleanup)
 
 		maxActiveRuns := 3
 		w := createTestWorker(t, "test-worker", maxActiveRuns, coord)
 
 		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-		// Track polling activity
+		// Track completed task identities instead of inferring completion from
+		// the number of poller callbacks racing with dispatch.
 		var pollCount atomic.Int32
+		processedRuns := make(chan string, 5)
 		w.SetHandler(&mockHandler{
-			ExecuteFunc: func(_ context.Context, _ *coordinatorv1.Task) error {
+			ExecuteFunc: func(_ context.Context, task *coordinatorv1.Task) error {
 				pollCount.Add(1)
+				select {
+				case processedRuns <- task.DagRunId:
+				default:
+				}
 				return nil
 			},
 		})
 
 		// Start worker first
+		done := make(chan error, 1)
 		go func() {
-			_ = w.Start(ctx)
+			done <- w.Start(ctx)
 		}()
+		var stopOnce sync.Once
+		stopWorker := func() {
+			stopOnce.Do(func() {
+				cancel()
+				stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer stopCancel()
+				assert.NoError(t, w.Stop(stopCtx))
+				select {
+				case err := <-done:
+					assert.NoError(t, err)
+				case <-time.After(10 * time.Second):
+					t.Fatal("Worker did not stop within timeout")
+				}
+			})
+		}
+		t.Cleanup(stopWorker)
 
 		// Wait for worker to register via heartbeat
 		require.Eventually(t, func() bool {
@@ -114,39 +139,39 @@ func TestWorkerStart(t *testing.T) {
 		}, 5*time.Second, 10*time.Millisecond, "Worker did not register via heartbeat")
 
 		// Dispatch multiple tasks
+		expectedRuns := make(map[string]struct{}, 5)
 		for i := range 5 {
+			runID := fmt.Sprintf("run-%c", 'a'+i)
+			expectedRuns[runID] = struct{}{}
 			task := &coordinatorv1.Task{
-				DagRunId:   "run-" + string(rune('a'+i)),
+				DagRunId:   runID,
 				Target:     "test.yaml",
 				Operation:  coordinatorv1.Operation_OPERATION_START,
 				Definition: "name: test\nsteps:\n  - name: step1\n    command: echo hello",
 			}
 			err := coord.DispatchTask(t, task)
 			require.NoError(t, err)
-
-			// After dispatching first batch, wait for a poller to become free
-			if i >= 2 {
-				require.Eventually(t, func() bool {
-					return pollCount.Load() >= int32(i)
-				}, 5*time.Second, 10*time.Millisecond)
-			}
 		}
 
 		// Wait for all tasks to be processed
-		require.Eventually(t, func() bool {
-			return pollCount.Load() >= 5
-		}, 5*time.Second, 10*time.Millisecond, "Not all tasks were processed")
+		seenRuns := make(map[string]struct{}, len(expectedRuns))
+		timeout := time.After(20 * time.Second)
+		for len(seenRuns) < len(expectedRuns) {
+			select {
+			case runID := <-processedRuns:
+				if _, ok := expectedRuns[runID]; ok {
+					seenRuns[runID] = struct{}{}
+				}
+			case <-timeout:
+				t.Fatalf("processed %d/%d expected tasks; seen=%v expected=%v", len(seenRuns), len(expectedRuns), seenRuns, expectedRuns)
+			}
+		}
 
 		// Should have processed multiple tasks
 		assert.GreaterOrEqual(t, pollCount.Load(), int32(3))
 
 		// Stop worker
-		cancel()
-
-		// Cleanup
-		err := w.Stop(context.Background())
-		assert.NoError(t, err)
-		th.Cleanup()
+		stopWorker()
 	})
 }
 

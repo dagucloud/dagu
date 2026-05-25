@@ -48,8 +48,6 @@ func WithProcHeartbeatInterval(d time.Duration) ProcStoreOption {
 // proc store option.
 // Collection-backed proc heartbeats are complete writes, so there is no
 // separate sync loop to configure.
-//
-// Deprecated: this option is retained only for configuration compatibility.
 func WithProcHeartbeatSyncInterval(_ time.Duration) ProcStoreOption {
 	return func(_ *ProcStore) {
 	}

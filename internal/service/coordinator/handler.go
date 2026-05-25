@@ -1379,7 +1379,9 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	}
 
 	ownership := h.distributedAttempts()
-	accepted, rejectReason := ownership.statusDecision(ctx, latestStatus, dagRunStatus)
+	accepted, rejectReason := ownership.statusDecision(ctx, latestStatus, dagRunStatus, statusDecisionOptions{
+		CancellationRequested: h.sameAttemptCancellationRequested(ctx, latestAttempt, latestStatus, dagRunStatus),
+	})
 	if !accepted {
 		logRejectedRemoteStatusUpdate(ctx, req.WorkerId, dagRunStatus, latestStatus, rejectReason)
 		return &coordinatorv1.ReportStatusResponse{
@@ -1412,6 +1414,30 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	// the agent may push the same terminal status multiple times from different
 	// code paths. Attempts are cleaned up during coordinator shutdown.
 	return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
+}
+
+func (h *Handler) sameAttemptCancellationRequested(
+	ctx context.Context,
+	attempt exec.DAGRunAttempt,
+	latest *exec.DAGRunStatus,
+	incoming *exec.DAGRunStatus,
+) bool {
+	if attempt == nil || latest == nil || incoming == nil {
+		return false
+	}
+	if latest.Status != core.Failed || incoming.Status != core.Aborted || !sameAttemptStatus(latest, incoming) {
+		return false
+	}
+	aborting, err := attempt.IsAborting(ctx)
+	if err != nil {
+		logger.Warn(ctx, "Failed to check abort state while validating remote terminal status",
+			tag.RunID(incoming.DAGRunID),
+			tag.AttemptKey(incoming.AttemptKey),
+			tag.Error(err),
+		)
+		return false
+	}
+	return aborting
 }
 
 // transformLogPaths rewrites worker-local log paths to coordinator paths.
