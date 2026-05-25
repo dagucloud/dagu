@@ -1,12 +1,13 @@
 <div align="center">
   <img src="./assets/images/hero-logo.webp" width="480" alt="Dagu Logo">
+  <br>
+  <p><b>Lightweight and Powerful Workflow Engine</b></p>
   <p>
     <a href="https://docs.dagu.sh/overview/changelog"><img src="https://img.shields.io/github/release/dagucloud/dagu.svg?style=flat-square" alt="Latest Release"></a>
     <a href="https://github.com/dagucloud/dagu/actions/workflows/ci.yaml"><img src="https://img.shields.io/github/actions/workflow/status/dagucloud/dagu/ci.yaml?style=flat-square" alt="Build Status"></a>
     <a href="https://discord.gg/gpahPUjGRk"><img src="https://img.shields.io/discord/1095289480774172772?style=flat-square&logo=discord" alt="Discord"></a>
     <a href="https://bsky.app/profile/dagu-org.bsky.social"><img src="https://img.shields.io/badge/Bluesky-0285FF?style=flat-square&logo=bluesky&logoColor=white" alt="Bluesky"></a>
   </p>
-
   <p>
     <a href="https://docs.dagu.sh">Docs</a> |
     <a href="https://docs.dagu.sh/writing-workflows/examples">Examples</a> |
@@ -14,15 +15,22 @@
   </p>
 </div>
 
-## Local-first Control Plane for Existing Ops Automation and AI Agent Workflows
+<h1><b> Dagu </b></h1>
 
-Define workflows in simple declarative YAML syntax, execute them anywhere with a single binary, compose complex pipelines from reusable sub-workflows, and distribute tasks across workers. The built-in Web UI eliminates the need for SSHing into servers to debug failed runs, check logs, or retry steps manually. All without requiring databases, message brokers, or code changes to your existing scripts. It natively supports command execution via SSH, running docker containers, kubernetes jobs, and you can extend it with custom step types for your specific use case.
+Dagu is a powerful Cron or Airflow alternative that comes with a Web UI. It allows you to define dependencies between commands as a [Directed Acyclic Graph (DAG)](https://en.wikipedia.org/wiki/Directed_acyclic_graph) in a declarative [YAML format](https://dagu.readthedocs.io/en/latest/yaml_format.html). Dagu simplifies the management and execution of complex workflows. It natively supports running Docker containers, k8s jobs, SSH, or [AI-agent harnesses](https://docs.dagu.sh/step-types/harness/). Use your favorite AI agents to manage your DAGs via MCP.
 
-Built for developers who want powerful workflow orchestration without the operational overhead. For a quick feel of how it works, take a look at the [examples](https://docs.daguit.dev/writing-workflows/examples).
+Built for developers who want powerful workflow orchestration without the operational overhead. For a quick feel of how it works, take a look at the [examples](https://docs.dagu.sh/writing-workflows/examples).
 
-- **Local-first and self-hosted:** One static binary; no databases, brokers, or sidecars. Battery included.
-- **Language-agnostic:** No need to rewrite existing scripts.
-- **AI integration:** Use your favorite AI agent through [MCP](https://docs.dagu.sh/getting-started/mcp#mcp-server) or [Skill](https://docs.dagu.sh/getting-started/ai-agent#ai-coding-tool-integration) to manage your workflows.
+**Highlights:**
+
+- Single binary file installation.
+- Declarative YAML format for defining DAGs.
+- Web UI for visually managing, retrying, and monitoring pipelines.
+- Use existing scripts or tools without any modifications.
+- Self-contained, with no need for a DBMS.
+- Built-in MCP support for AI agents to manage workflows.
+
+## Quick Look
 
 For a quick look at how workflows are defined, see the [examples](https://docs.dagu.sh/writing-workflows/examples).
 

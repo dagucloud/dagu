@@ -10,20 +10,20 @@ metadata:
   labels:
     {{- include "dagu.labels" $ | nindent 4 }}
     app.kubernetes.io/component: worker
-    daguit.dev/worker-pool: {{ $poolName }}
+    dagu.sh/worker-pool: {{ $poolName }}
 spec:
   replicas: {{ $pool.replicas }}
   selector:
     matchLabels:
       {{- include "dagu.selectorLabels" $ | nindent 6 }}
       app.kubernetes.io/component: worker
-      daguit.dev/worker-pool: {{ $poolName }}
+      dagu.sh/worker-pool: {{ $poolName }}
   template:
     metadata:
       labels:
         {{- include "dagu.labels" $ | nindent 8 }}
         app.kubernetes.io/component: worker
-        daguit.dev/worker-pool: {{ $poolName }}
+        dagu.sh/worker-pool: {{ $poolName }}
     spec:
       # Disable Kubernetes Service env var injection to avoid overriding
       # dagu config values (e.g., scheduler.port) with Service URLs
