@@ -482,6 +482,40 @@ func TestRetry_Distributed(t *testing.T) {
 	assert.Equal(t, 1, dispatcher.requestCancelCalled)
 }
 
+func TestSubDAGExecutor_ExecuteDoesNotDispatchAfterPreRunKill(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dagCtx := exec1.Context{
+		DAG:        &core.DAG{Name: "parent"},
+		RootDAGRun: exec1.NewDAGRunRef("parent", "root-123"),
+		DAGRunID:   "parent-456",
+	}
+	ctx = exec1.WithContext(ctx, dagCtx)
+
+	dispatcher := &mockDispatcher{}
+	executor := &SubDAGExecutor{
+		DAG: &core.DAG{
+			Name:           "test-child",
+			YamlData:       []byte("name: test-child"),
+			WorkerSelector: map[string]string{"role": "worker"},
+		},
+		coordinatorCli:  dispatcher,
+		distributedRuns: make(map[string]bool),
+		cmds:            make(map[string]*exec.Cmd),
+		dagCtx:          dagCtx,
+		killed:          make(chan struct{}),
+	}
+
+	require.NoError(t, executor.Kill(os.Interrupt))
+
+	result, err := executor.Execute(ctx, RunParams{RunID: "child-789"}, "")
+	require.ErrorIs(t, err, errSubDAGCancelled)
+	require.Nil(t, result)
+	assert.Empty(t, dispatcher.dispatches)
+	assert.True(t, executor.distributedRuns["child-789"])
+}
+
 func TestBuildRetryCommand_NoRootDAGRun(t *testing.T) {
 	t.Parallel()
 
