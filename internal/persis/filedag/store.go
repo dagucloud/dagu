@@ -312,7 +312,7 @@ func (store *Storage) GetSpec(_ context.Context, name string) (string, error) {
 	if err != nil {
 		return "", exec.ErrDAGNotFound
 	}
-	dat, err := os.ReadFile(filePath) // nolint:gosec
+	dat, err := fileutil.ReadFile(filePath)
 	if err != nil {
 		return "", err
 	}
@@ -381,7 +381,7 @@ func (store *Storage) Delete(_ context.Context, name string) error {
 		}
 		return fmt.Errorf("failed to locate DAG %s: %w", name, err)
 	}
-	if err := os.Remove(filePath); err != nil {
+	if err := fileutil.Remove(filePath); err != nil {
 		return err
 	}
 	if store.fileCache != nil {
@@ -469,7 +469,7 @@ func (store *Storage) loadOrRebuildIndex(ctx context.Context) []*indexv1.DAGInde
 func (store *Storage) invalidateIndex() {
 	store.indexMu.Lock()
 	defer store.indexMu.Unlock()
-	_ = os.Remove(filepath.Join(store.baseDir, dagindex.IndexFileName))
+	_ = fileutil.Remove(filepath.Join(store.baseDir, dagindex.IndexFileName))
 }
 
 // List lists DAGs with pagination support.
@@ -735,7 +735,7 @@ func (store *Storage) Grep(ctx context.Context, pattern string) (
 	for _, entry := range entries {
 		if fileutil.IsYAMLFile(entry.Name()) {
 			filePath := filepath.Join(store.baseDir, entry.Name())
-			dat, err := os.ReadFile(filePath) //nolint:gosec
+			dat, err := fileutil.ReadFile(filePath)
 			if err != nil {
 				logger.Error(ctx, "Failed to read DAG file",
 					tag.File(entry.Name()),
@@ -833,7 +833,7 @@ func (store *Storage) SearchCursor(ctx context.Context, opts exec.SearchDAGsOpti
 				continue
 			}
 		}
-		dat, err := os.ReadFile(filePath) //nolint:gosec
+		dat, err := fileutil.ReadFile(filePath)
 		if err != nil {
 			logger.Error(ctx, "Failed to read DAG file", tag.File(entry.Name()), tag.Error(err))
 			errs = append(errs, fmt.Sprintf("read %s failed: %s", entry.Name(), err))
@@ -928,7 +928,7 @@ func (store *Storage) SearchMatches(ctx context.Context, fileName string, opts e
 		return nil, exec.ErrDAGNotFound
 	}
 
-	dat, err := os.ReadFile(filePath) //nolint:gosec
+	dat, err := fileutil.ReadFile(filePath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, exec.ErrDAGNotFound
@@ -1016,7 +1016,7 @@ func (store *Storage) Rename(_ context.Context, oldID, newID string) error {
 	if fileExists(newFilePath) {
 		return exec.ErrDAGAlreadyExists
 	}
-	if err := os.Rename(oldFilePath, newFilePath); err != nil {
+	if err := fileutil.Rename(oldFilePath, newFilePath); err != nil {
 		return err
 	}
 	store.invalidateIndex()
@@ -1126,7 +1126,7 @@ func (store *Storage) LabelList(ctx context.Context) ([]string, []string, error)
 // CreateFlag creates the given file.
 func (store *Storage) createFlag(file string) error {
 	_ = os.MkdirAll(store.flagsBaseDir, flagPermission)
-	return os.WriteFile(path.Join(store.flagsBaseDir, file), []byte{}, flagPermission)
+	return fileutil.WriteFileAtomic(path.Join(store.flagsBaseDir, file), []byte{}, flagPermission)
 }
 
 // flagExists returns true if the given file exists.
@@ -1139,7 +1139,7 @@ func (store *Storage) flagExists(file string) bool {
 // deleteFlag deletes the given file.
 func (store *Storage) deleteFlag(file string) error {
 	_ = os.MkdirAll(store.flagsBaseDir, flagPermission)
-	return os.Remove(path.Join(store.flagsBaseDir, file))
+	return fileutil.Remove(path.Join(store.flagsBaseDir, file))
 }
 
 // flagPermission is the default file permission for newly created files.
@@ -1214,7 +1214,7 @@ func (store *Storage) createExampleDAGs() error {
 	// Create each example DAG
 	for filename, content := range exampleDAGs {
 		filePath := filepath.Join(store.baseDir, filename)
-		if err := os.WriteFile(filePath, []byte(content), defaultPerm); err != nil {
+		if err := fileutil.WriteFileAtomic(filePath, []byte(content), defaultPerm); err != nil {
 			logger.Error(context.Background(), "Failed to create example DAG",
 				tag.File(filename),
 				tag.Error(err))
@@ -1225,7 +1225,7 @@ func (store *Storage) createExampleDAGs() error {
 	// Create marker file to indicate examples were created
 	markerFile := filepath.Join(store.baseDir, ".examples-created")
 	markerContent := []byte("# This file indicates that example DAGs have been created.\n# Delete this file to re-create examples on next startup.\n")
-	if err := os.WriteFile(markerFile, markerContent, defaultPerm); err != nil {
+	if err := fileutil.WriteFileAtomic(markerFile, markerContent, defaultPerm); err != nil {
 		logger.Error(context.Background(), "Failed to create examples marker file",
 			tag.Error(err))
 	}

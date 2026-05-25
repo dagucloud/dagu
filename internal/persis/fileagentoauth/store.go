@@ -68,7 +68,7 @@ func (s *Store) Get(_ context.Context, provider string) (*agentoauth.Credential,
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	data, err := os.ReadFile(path) //nolint:gosec // path is validated internally
+	data, err := fileutil.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, agentoauth.ErrCredentialNotFound
@@ -115,7 +115,7 @@ func (s *Store) Delete(_ context.Context, provider string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := fileutil.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("fileagentoauth: delete credential: %w", err)
 	}
 	return nil

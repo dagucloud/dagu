@@ -93,7 +93,7 @@ func (s *Store) loadFromFile() (*agent.Config, error) {
 
 	cfg := agent.DefaultConfig()
 
-	data, err := os.ReadFile(s.configPath())
+	data, err := fileutil.ReadFile(s.configPath())
 	if err == nil {
 		if err := json.Unmarshal(data, cfg); err != nil {
 			return nil, fmt.Errorf("fileagentconfig: failed to parse config file: %w", err)

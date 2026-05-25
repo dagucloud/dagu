@@ -112,7 +112,7 @@ func (s *Store) rebuildIndex() error {
 
 // loadModelFromFile reads and parses a model config from a JSON file.
 func loadModelFromFile(filePath string) (*agent.ModelConfig, error) {
-	data, err := os.ReadFile(filePath) //nolint:gosec // filePath is constructed internally
+	data, err := fileutil.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file %s: %w", filePath, err)
 	}
@@ -294,7 +294,7 @@ func (s *Store) Delete(_ context.Context, id string) error {
 	// Load the model name before removing the file for direct index cleanup.
 	model, loadErr := loadModelFromFile(filePath)
 
-	if err := os.Remove(filePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := fileutil.Remove(filePath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("fileagentmodel: failed to delete model file: %w", err)
 	}
 

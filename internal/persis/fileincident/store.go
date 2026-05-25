@@ -134,7 +134,7 @@ func (s *Store) DeleteProvider(_ context.Context, providerID string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := os.Remove(s.providerFilePath(providerID)); err != nil {
+	if err := fileutil.Remove(s.providerFilePath(providerID)); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return incident.ErrProviderNotFound
 		}
@@ -208,7 +208,7 @@ func (s *Store) ListPolicySets(_ context.Context) ([]*incident.PolicySet, error)
 func (s *Store) DeletePolicySet(_ context.Context, scope incident.PolicyScope, workspaceName, dagName string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := os.Remove(s.policySetFilePath(scope, workspaceName, dagName)); err != nil {
+	if err := fileutil.Remove(s.policySetFilePath(scope, workspaceName, dagName)); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return incident.ErrPolicySetNotFound
 		}
@@ -279,7 +279,7 @@ func (s *Store) ListOpenStatesByDAG(_ context.Context, dagName string) ([]*incid
 func (s *Store) DeleteState(_ context.Context, providerID, dedupKey string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := os.Remove(s.stateFilePath(providerID, dedupKey)); err != nil {
+	if err := fileutil.Remove(s.stateFilePath(providerID, dedupKey)); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return os.ErrNotExist
 		}
@@ -335,7 +335,7 @@ func hashFileName(value string) string {
 }
 
 func (s *Store) loadProviderFromFile(path string) (*incident.Provider, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // path is derived from configured store directory and hashed IDs.
+	data, err := fileutil.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -347,7 +347,7 @@ func (s *Store) loadProviderFromFile(path string) (*incident.Provider, error) {
 }
 
 func (s *Store) loadPolicySetFromFile(path string) (*incident.PolicySet, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // path is derived from configured store directory and hashed scopes.
+	data, err := fileutil.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -359,7 +359,7 @@ func (s *Store) loadPolicySetFromFile(path string) (*incident.PolicySet, error) 
 }
 
 func (s *Store) loadStateFromFile(path string) (*incident.IncidentState, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // path is derived from configured store directory and hashed state key.
+	data, err := fileutil.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}

@@ -155,29 +155,11 @@ func writeLegacyProcFileAtomic(path string, data []byte) error {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, ".tmp-proc-*")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpPath)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return err
-	}
-	if err := fileutil.ReplaceFileWithRetry(tmpPath, path); err != nil {
-		_ = os.Remove(tmpPath)
-		return err
-	}
-	return nil
+	return fileutil.WriteFileAtomic(path, data, 0o600)
 }
 
 func removeLegacyProcFile(path string) error {
-	err := fileutil.RemoveWithRetry(path)
+	err := fileutil.Remove(path)
 	if err == nil || errors.Is(err, os.ErrNotExist) {
 		removeEmptyLegacyDirs(filepath.Dir(path))
 		return nil
@@ -194,7 +176,7 @@ func removeEmptyLegacyDirs(dir string) {
 	if err != nil || len(entries) > 0 {
 		return
 	}
-	_ = os.Remove(dir)
+	_ = fileutil.Remove(dir)
 }
 
 func (l *legacyProcStore) listEntries(groupName string) ([]exec.ProcEntry, error) {
@@ -355,7 +337,7 @@ func readLegacyProcEntryObserved(path, groupName string, staleTime time.Duration
 		return observedProcEntry{}, err
 	}
 
-	data, err := fileutil.ReadFileWithRetry(path)
+	data, err := fileutil.ReadFile(path)
 	if err != nil {
 		return observedProcEntry{}, err
 	}

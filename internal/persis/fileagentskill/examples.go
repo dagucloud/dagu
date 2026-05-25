@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	bundledskills "github.com/dagucloud/dagu/skills"
 )
 
@@ -45,7 +46,7 @@ func SeedReferences(destDir string) string {
 			return nil
 		}
 
-		if err := os.WriteFile(destPath, data, filePermissions); err != nil {
+		if err := fileutil.WriteFileAtomic(destPath, data, filePermissions); err != nil {
 			slog.Warn("Failed to write knowledge file", "path", destPath, "error", err)
 		}
 		return nil

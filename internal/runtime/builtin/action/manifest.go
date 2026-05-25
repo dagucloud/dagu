@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/goccy/go-yaml"
 	"github.com/google/jsonschema-go/jsonschema"
 )
@@ -30,7 +31,7 @@ type manifest struct {
 
 func loadManifest(rootDir string) (*manifest, error) {
 	path := filepath.Join(rootDir, manifestFileName)
-	data, err := os.ReadFile(filepath.Clean(path)) //nolint:gosec
+	data, err := fileutil.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return nil, fmt.Errorf("read action manifest: %w", err)
 	}

@@ -84,7 +84,7 @@ func (s *Store) Initialize() error {
 		return fmt.Errorf("filebaseconfig: failed to create default base config: %w", err)
 	}
 	markerContent := []byte("# Marker: default base.yaml was auto-created.\n# Delete this file and base.yaml to re-create defaults on next startup.\n")
-	_ = os.WriteFile(markerFile, markerContent, filePermissions)
+	_ = fileutil.WriteFileAtomic(markerFile, markerContent, filePermissions)
 	return nil
 }
 
@@ -102,7 +102,7 @@ func (s *Store) readFromFile() (string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	data, err := os.ReadFile(s.filePath)
+	data, err := fileutil.ReadFile(s.filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", nil

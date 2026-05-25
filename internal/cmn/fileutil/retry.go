@@ -13,14 +13,14 @@ import (
 )
 
 const (
-	windowsFileRetryAttempts    = 12
-	windowsFileRetryInitialWait = 10 * time.Millisecond
+	windowsFileRetryAttempts    = 40
+	windowsFileRetryInitialWait = 5 * time.Millisecond
 	windowsFileRetryMaxWait     = 100 * time.Millisecond
 )
 
-// ReadFileWithRetry retries transient Windows sharing violations while reading
+// ReadFile retries transient Windows sharing violations while reading
 // files that may be momentarily held by another process.
-func ReadFileWithRetry(path string) ([]byte, error) {
+func ReadFile(path string) ([]byte, error) {
 	var data []byte
 	err := retryWindowsFileOp(func() error {
 		readData, err := os.ReadFile(path) //nolint:gosec // caller controls internal path
@@ -33,16 +33,31 @@ func ReadFileWithRetry(path string) ([]byte, error) {
 	return data, err
 }
 
-// RemoveWithRetry retries transient Windows sharing violations while deleting a file.
-func RemoveWithRetry(path string) error {
+// ReadFileWithRetry retries transient Windows sharing violations while reading
+// files that may be momentarily held by another process.
+//
+// Deprecated: use ReadFile.
+func ReadFileWithRetry(path string) ([]byte, error) {
+	return ReadFile(path)
+}
+
+// Remove retries transient Windows sharing violations while deleting a file.
+func Remove(path string) error {
 	return retryWindowsFileOp(func() error {
 		return os.Remove(path)
 	})
 }
 
-// RemoveAllWithRetry removes a tree without using os.RemoveAll's recursive
+// RemoveWithRetry retries transient Windows sharing violations while deleting a file.
+//
+// Deprecated: use Remove.
+func RemoveWithRetry(path string) error {
+	return Remove(path)
+}
+
+// RemoveAll removes a tree without using os.RemoveAll's recursive
 // open-at path, which fails on older Windows versions with openfdat errors.
-func RemoveAllWithRetry(path string) error {
+func RemoveAll(path string) error {
 	if path == "" {
 		return nil
 	}
@@ -57,10 +72,18 @@ func RemoveAllWithRetry(path string) error {
 	return removeAllWithRetry(path, info)
 }
 
+// RemoveAllWithRetry removes a tree without using os.RemoveAll's recursive
+// open-at path, which fails on older Windows versions with openfdat errors.
+//
+// Deprecated: use RemoveAll.
+func RemoveAllWithRetry(path string) error {
+	return RemoveAll(path)
+}
+
 // removeAllWithRetry recursively removes path's children before removing path.
 func removeAllWithRetry(path string, info os.FileInfo) error {
 	if !info.IsDir() {
-		if err := RemoveWithRetry(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 		return nil
@@ -92,32 +115,48 @@ func removeAllWithRetry(path string, info os.FileInfo) error {
 		}
 	}
 
-	if err := RemoveWithRetry(path); err != nil && !errors.Is(err, os.ErrNotExist) && firstErr == nil {
+	if err := Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) && firstErr == nil {
 		firstErr = err
 	}
 	return firstErr
 }
 
-// RenameWithRetry retries transient Windows sharing violations while renaming a file.
-func RenameWithRetry(oldPath, newPath string) error {
+// Rename retries transient Windows sharing violations while renaming a file.
+func Rename(oldPath, newPath string) error {
 	return retryWindowsFileOp(func() error {
 		return os.Rename(oldPath, newPath)
+	})
+}
+
+// RenameWithRetry retries transient Windows sharing violations while renaming a file.
+//
+// Deprecated: use Rename.
+func RenameWithRetry(oldPath, newPath string) error {
+	return Rename(oldPath, newPath)
+}
+
+// ReplaceFile replaces target with source, retrying transient Windows
+// sharing violations that can happen while another process is still releasing
+// the target file handle.
+func ReplaceFile(source, target string) error {
+	return retryWindowsFileOp(func() error {
+		return replaceFile(source, target)
 	})
 }
 
 // ReplaceFileWithRetry replaces target with source, retrying transient Windows
 // sharing violations that can happen while another process is still releasing
 // the target file handle.
+//
+// Deprecated: use ReplaceFile.
 func ReplaceFileWithRetry(source, target string) error {
-	return retryWindowsFileOp(func() error {
-		return replaceFile(source, target)
-	})
+	return ReplaceFile(source, target)
 }
 
 // retryWindowsFileOp retries transient Windows file operation failures.
 func retryWindowsFileOp(op func() error) error {
 	err := op()
-	if err == nil || !isTransientWindowsFileError(err) {
+	if err == nil || !IsTransientFileError(err) {
 		return err
 	}
 
@@ -125,7 +164,7 @@ func retryWindowsFileOp(op func() error) error {
 	for range windowsFileRetryAttempts {
 		time.Sleep(wait)
 		err = op()
-		if err == nil || !isTransientWindowsFileError(err) {
+		if err == nil || !IsTransientFileError(err) {
 			return err
 		}
 		wait *= 2
@@ -137,8 +176,9 @@ func retryWindowsFileOp(op func() error) error {
 	return err
 }
 
-// isTransientWindowsFileError reports whether err is a retryable Windows file error.
-func isTransientWindowsFileError(err error) bool {
+// IsTransientFileError reports whether err is a retryable transient file error
+// for the current platform.
+func IsTransientFileError(err error) bool {
 	if runtime.GOOS != "windows" || err == nil {
 		return false
 	}

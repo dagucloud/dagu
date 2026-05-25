@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/internal/auth"
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 )
 
 const (
@@ -51,7 +52,7 @@ func (s *Store) Resolve(_ context.Context) (auth.TokenSecret, error) {
 	path := filepath.Join(s.dir, secretFileName)
 
 	fileExists := false
-	data, err := os.ReadFile(path) //nolint:gosec // path is constructed from trusted config dir + constant filename
+	data, err := fileutil.ReadFile(path)
 	if err == nil {
 		fileExists = true
 		// File exists — check if it has usable content.
@@ -81,7 +82,7 @@ func (s *Store) Resolve(_ context.Context) (auth.TokenSecret, error) {
 
 	if fileExists {
 		// File exists but is empty — remove it so writeExclusive can atomically create.
-		if err := os.Remove(path); err != nil {
+		if err := fileutil.Remove(path); err != nil {
 			return auth.TokenSecret{}, fmt.Errorf("failed to remove empty token secret file %s: %w", path, err)
 		}
 	}
@@ -90,7 +91,7 @@ func (s *Store) Resolve(_ context.Context) (auth.TokenSecret, error) {
 	// If another process created the file first, read their secret instead.
 	if err := writeExclusive(path, []byte(secret), filePerm); err != nil {
 		if errors.Is(err, os.ErrExist) {
-			data, readErr := os.ReadFile(path) //nolint:gosec // path is constructed from trusted config dir + constant filename
+			data, readErr := fileutil.ReadFile(path)
 			if readErr != nil {
 				return auth.TokenSecret{}, fmt.Errorf("failed to read token secret after race: %w", readErr)
 			}
@@ -124,7 +125,7 @@ func writeExclusive(path string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	tmpPath := tmp.Name()
-	defer func() { _ = os.Remove(tmpPath) }() // Clean up temp file regardless.
+	defer func() { _ = fileutil.Remove(tmpPath) }() // Clean up temp file regardless.
 
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()

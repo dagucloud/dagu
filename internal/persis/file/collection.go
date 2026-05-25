@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/dirlock"
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/persis"
 )
 
@@ -152,7 +153,7 @@ func (c *Collection) CompareAndDelete(_ context.Context, expected *persis.Record
 	if !sameRecord(fr.toRecord(), expected) {
 		return persis.ErrConflict
 	}
-	if err := os.Remove(path); err != nil {
+	if err := fileutil.Remove(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return persis.ErrNotFound
 		}
@@ -232,7 +233,7 @@ func (c *Collection) DeleteIfExists(_ context.Context, id string) (bool, error) 
 	if err != nil {
 		return false, err
 	}
-	if err := os.Remove(path); err != nil {
+	if err := fileutil.Remove(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return false, nil
 		}
@@ -332,7 +333,7 @@ func (c *Collection) Claim(_ context.Context, q persis.ListQuery) (*persis.Recor
 			}
 			continue
 		}
-		if err := os.Remove(path); err != nil {
+		if err := fileutil.Remove(path); err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
 				return nil, err
 			}
@@ -376,12 +377,7 @@ func pathUnderRoot(root, id, kind string) (string, error) {
 }
 
 func (c *Collection) readFile(path string) (*fileRecord, error) {
-	var raw []byte
-	err := retryFileAccess(func() error {
-		var readErr error
-		raw, readErr = os.ReadFile(path) //nolint:gosec // path is derived from a validated root + record ID
-		return readErr
-	})
+	raw, err := fileutil.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, persis.ErrNotFound
@@ -418,7 +414,10 @@ func (c *Collection) writeFile(path string, fr *fileRecord) error {
 	if err != nil {
 		return err
 	}
-	return writeAtomic(path, data)
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return err
+	}
+	return fileutil.WriteFileAtomic(path, data, 0o600)
 }
 
 func (c *Collection) collectIDs(prefix string) ([]string, error) {
@@ -550,35 +549,6 @@ func applycursor(recs []*persis.Record, cursor string) []*persis.Record {
 	return nil
 }
 
-// ─── file I/O helpers ─────────────────────────────────────────────────────────
-
-// writeAtomic writes data to path via a temp-file + rename to avoid partial writes.
-func writeAtomic(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, ".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpPath)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return err
-	}
-	if err := replaceFile(tmpPath, path); err != nil {
-		_ = os.Remove(tmpPath)
-		return err
-	}
-	return nil
-}
-
 // removeEmptyDirs removes dir and its ancestors up to (but not including)
 // stopAt if they are empty.
 func removeEmptyDirs(dir, stopAt string) {
@@ -587,7 +557,7 @@ func removeEmptyDirs(dir, stopAt string) {
 		if err != nil || len(entries) > 0 {
 			return
 		}
-		if err := os.Remove(dir); err != nil {
+		if err := fileutil.Remove(dir); err != nil {
 			return
 		}
 		dir = filepath.Dir(dir)

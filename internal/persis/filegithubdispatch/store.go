@@ -12,6 +12,8 @@ import (
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 )
 
 const (
@@ -87,7 +89,7 @@ func (s *Store) List() ([]TrackedJob, error) {
 
 func (s *Store) loadLocked() (map[string]TrackedJob, error) {
 	path := filepath.Join(s.dir, trackerFile)
-	data, err := os.ReadFile(path) //nolint:gosec // trusted config path
+	data, err := fileutil.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return map[string]TrackedJob{}, nil
@@ -119,7 +121,7 @@ func (s *Store) saveLocked(jobs map[string]TrackedJob) error {
 		return fmt.Errorf("create tracker temp file: %w", err)
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName) //nolint:errcheck
+	defer func() { _ = fileutil.Remove(tmpName) }()
 
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
@@ -136,7 +138,7 @@ func (s *Store) saveLocked(jobs map[string]TrackedJob) error {
 		return fmt.Errorf("chmod tracker temp file: %w", err)
 	}
 	finalPath := filepath.Join(s.dir, trackerFile)
-	if err := os.Rename(tmpName, finalPath); err != nil {
+	if err := fileutil.ReplaceFile(tmpName, finalPath); err != nil {
 		return fmt.Errorf("rename tracker temp file: %w", err)
 	}
 	if err := syncTrackerDir(s.dir); err != nil {

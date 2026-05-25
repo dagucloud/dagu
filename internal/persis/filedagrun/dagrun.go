@@ -250,7 +250,7 @@ func (dr DAGRun) Remove(ctx context.Context) error {
 			tag.Error(err),
 			tag.RunID(dr.dagRunID))
 	}
-	return fileutil.RemoveAllWithRetry(dr.baseDir)
+	return fileutil.RemoveAll(dr.baseDir)
 }
 
 // removeLogFiles removes all log files associated with the dag-run and its sub dag-runs.
@@ -305,7 +305,7 @@ func (dr DAGRun) removeLogFiles(ctx context.Context) error {
 		if file == "" {
 			continue
 		}
-		if err := fileutil.RemoveWithRetry(file); err != nil {
+		if err := fileutil.Remove(file); err != nil {
 			logger.Error(ctx, "Failed to remove log file",
 				tag.Error(err),
 				tag.RunID(dr.dagRunID),
@@ -322,7 +322,7 @@ func (dr DAGRun) removeLogFiles(ctx context.Context) error {
 			)
 			continue
 		}
-		if err := fileutil.RemoveAllWithRetry(validDir); err != nil {
+		if err := fileutil.RemoveAll(validDir); err != nil {
 			logger.Error(ctx, "Failed to remove artifact directory",
 				tag.Error(err),
 				tag.RunID(dr.dagRunID),
@@ -334,7 +334,7 @@ func (dr DAGRun) removeLogFiles(ctx context.Context) error {
 
 	// Remove parent dirs if they are empty.
 	for p := range parentDirs {
-		_ = fileutil.RemoveWithRetry(p)
+		_ = fileutil.Remove(p)
 	}
 
 	return nil

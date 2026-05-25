@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/minio/minio-go/v7"
 )
 
@@ -41,13 +42,13 @@ func (e *executorImpl) runDownload(ctx context.Context) error {
 
 	// Download to temp file for atomic write
 	tmpFile := e.cfg.Destination + ".tmp"
-	defer func() { _ = os.Remove(tmpFile) }()
+	defer func() { _ = fileutil.Remove(tmpFile) }()
 
 	if err := e.client.FGetObject(ctx, e.cfg.Bucket, e.cfg.Key, tmpFile, minio.GetObjectOptions{}); err != nil {
 		return fmt.Errorf("%w: %v", ErrDownloadFailed, err)
 	}
 
-	if err := os.Rename(tmpFile, e.cfg.Destination); err != nil {
+	if err := fileutil.ReplaceFile(tmpFile, e.cfg.Destination); err != nil {
 		return fmt.Errorf("%w: failed to move file to destination: %v", ErrDownloadFailed, err)
 	}
 

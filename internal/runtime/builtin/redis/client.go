@@ -8,9 +8,9 @@ import (
 	"crypto/x509"
 	"fmt"
 	"net/url"
-	"os"
 	"strconv"
 
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -154,7 +154,7 @@ func buildTLSConfig(cfg *Config) (*tls.Config, error) {
 
 	// Load CA certificate if provided
 	if cfg.TLSCA != "" {
-		caCert, err := os.ReadFile(cfg.TLSCA)
+		caCert, err := fileutil.ReadFile(cfg.TLSCA)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read CA certificate: %w", err)
 		}

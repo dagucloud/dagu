@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
@@ -157,7 +158,7 @@ func ResolveBaseConfig(baseConfigData []byte, fallbackPath string) string {
 	if fallbackPath == "" {
 		return ""
 	}
-	data, err := os.ReadFile(fallbackPath) //nolint:gosec
+	data, err := fileutil.ReadFile(fallbackPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			slog.Debug("failed to read base config file", "path", fallbackPath, "error", err)

@@ -493,7 +493,7 @@ func (e *SubDAGExecutor) Cleanup(ctx context.Context) error {
 	ctx = logger.WithValues(ctx, tag.File(e.tempFile))
 	logger.Info(ctx, "Cleaning up temporary DAG file")
 
-	if err := os.Remove(e.tempFile); err != nil && !os.IsNotExist(err) {
+	if err := fileutil.Remove(e.tempFile); err != nil && !os.IsNotExist(err) {
 		logger.Error(ctx, "Failed to remove temporary DAG file", tag.File(e.tempFile), tag.Error(err))
 		return fmt.Errorf("failed to remove temp file: %w", err)
 	}
@@ -635,7 +635,7 @@ func (e *SubDAGExecutor) materializeLocalWorkspace(runParams RunParams) (string,
 		return "", nil, fmt.Errorf("create local action workspace: %w", err)
 	}
 	cleanup := func() {
-		_ = os.RemoveAll(tmp)
+		_ = fileutil.RemoveAll(tmp)
 	}
 	dest := filepath.Join(tmp, "workspace")
 	if err := workspacebundle.Extract(e.workspaceSeed.Archive, dest, e.workspaceSeed.Descriptor, workspacebundle.DefaultLimits()); err != nil {

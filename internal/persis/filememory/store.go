@@ -174,7 +174,7 @@ func (s *Store) DeleteGlobalMemory(_ context.Context) error {
 	defer s.mu.Unlock()
 
 	path := s.globalMemoryPath()
-	err := os.Remove(path)
+	err := fileutil.Remove(path)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("filememory: failed to delete global memory: %w", err)
 	}
@@ -195,7 +195,7 @@ func (s *Store) DeleteDAGMemory(_ context.Context, dagName string) error {
 
 	dagDir := filepath.Join(s.baseDir, dagSubDir, dagName)
 	memPath := s.dagMemoryPath(dagName)
-	err := os.RemoveAll(dagDir)
+	err := fileutil.RemoveAll(dagDir)
 	if err != nil {
 		return fmt.Errorf("filememory: failed to delete DAG memory directory: %w", err)
 	}
@@ -222,7 +222,7 @@ func (s *Store) loadMemoryWithCache(path string) (string, error) {
 // readMemoryFile reads a memory file and truncates it to maxLines.
 // Returns empty string if the file does not exist.
 func (s *Store) readMemoryFile(path string) (string, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // path constructed internally
+	data, err := fileutil.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", nil

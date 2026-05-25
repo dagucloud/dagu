@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -87,18 +88,18 @@ func GetKeepaliveFile(platform specs.Platform) (string, error) {
 	// Write the binary data and close the file
 	if _, err := tmpFile.Write(data); err != nil {
 		_ = tmpFile.Close()
-		_ = os.Remove(tmpPath)
+		_ = fileutil.Remove(tmpPath)
 		return "", fmt.Errorf("failed to write keepalive binary: %w", err)
 	}
 	if err := tmpFile.Close(); err != nil {
-		_ = os.Remove(tmpPath)
+		_ = fileutil.Remove(tmpPath)
 		return "", fmt.Errorf("failed to close temp file: %w", err)
 	}
 
 	// Set executable permissions
 	// #nosec G302 - Binary needs to be executable by the user
 	if err := os.Chmod(tmpPath, 0755); err != nil {
-		_ = os.Remove(tmpPath)
+		_ = fileutil.Remove(tmpPath)
 		return "", fmt.Errorf("failed to set executable permissions: %w", err)
 	}
 

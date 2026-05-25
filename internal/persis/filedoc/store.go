@@ -406,7 +406,7 @@ func (s *Store) recordDirLocked(id, absPath string, info os.FileInfo) {
 }
 
 func (s *Store) upsertDocLocked(ctx context.Context, id, absPath string, info os.FileInfo) error {
-	data, err := os.ReadFile(absPath) //nolint:gosec // path comes from validated baseDir traversal
+	data, err := fileutil.ReadFile(absPath)
 	title := titleFromID(id)
 	var description string
 	readable := false
@@ -714,7 +714,7 @@ func (s *Store) Get(_ context.Context, id string) (*agent.Doc, error) {
 		return nil, err
 	}
 
-	data, err := os.ReadFile(filePath) //nolint:gosec // path validated by docFilePath
+	data, err := fileutil.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, agent.ErrDocNotFound
@@ -817,7 +817,7 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 		return err
 	}
 	if _, err := os.Stat(filePath); err == nil {
-		if err := os.Remove(filePath); err != nil {
+		if err := fileutil.Remove(filePath); err != nil {
 			return fmt.Errorf("filedoc: failed to delete file: %w", err)
 		}
 		s.cleanEmptyParents(filepath.Dir(filePath))
@@ -843,7 +843,7 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 }
 
 // safeDeleteDir removes a directory tree safely without using os.RemoveAll.
-// It walks depth-first and uses os.Remove for each entry, which never follows
+// It walks depth-first and uses fileutil.Remove for each entry, which never follows
 // symlinks and only removes empty directories.
 func (s *Store) safeDeleteDir(dirPath string) error {
 	var paths []string
@@ -863,8 +863,8 @@ func (s *Store) safeDeleteDir(dirPath string) error {
 
 	var lastErr error
 	for _, p := range paths {
-		// os.Remove: deletes file/symlink/empty-dir. Never follows symlinks.
-		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+		// fileutil.Remove deletes file/symlink/empty-dir. Never follows symlinks.
+		if err := fileutil.Remove(p); err != nil && !os.IsNotExist(err) {
 			lastErr = err
 		}
 	}
@@ -907,7 +907,7 @@ func (s *Store) DeleteBatch(ctx context.Context, ids []string) ([]string, []agen
 			continue
 		}
 		if _, err := os.Stat(filePath); err == nil {
-			if err := os.Remove(filePath); err != nil {
+			if err := fileutil.Remove(filePath); err != nil {
 				failed = append(failed, agent.DeleteError{ID: id, Error: err.Error()})
 				continue
 			}
@@ -993,7 +993,7 @@ func (s *Store) Rename(ctx context.Context, oldID, newID string) error {
 		if err := os.MkdirAll(filepath.Dir(newFilePath), docDirPermissions); err != nil {
 			return fmt.Errorf("filedoc: failed to create target directories: %w", err)
 		}
-		if err := os.Rename(oldFilePath, newFilePath); err != nil {
+		if err := fileutil.Rename(oldFilePath, newFilePath); err != nil {
 			return fmt.Errorf("filedoc: failed to rename file: %w", err)
 		}
 		s.cleanEmptyParents(filepath.Dir(oldFilePath))
@@ -1027,7 +1027,7 @@ func (s *Store) Rename(ctx context.Context, oldID, newID string) error {
 	if err := os.MkdirAll(filepath.Dir(newDirPath), docDirPermissions); err != nil {
 		return fmt.Errorf("filedoc: failed to create target directories: %w", err)
 	}
-	if err := os.Rename(oldDirPath, newDirPath); err != nil {
+	if err := fileutil.Rename(oldDirPath, newDirPath); err != nil {
 		return fmt.Errorf("filedoc: failed to rename directory: %w", err)
 	}
 	s.cleanEmptyParents(filepath.Dir(oldDirPath))
@@ -1047,7 +1047,7 @@ func (s *Store) Search(ctx context.Context, query string) ([]*agent.DocSearchRes
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		data, err := os.ReadFile(candidate.AbsPath) //nolint:gosec // path constructed from baseDir
+		data, err := fileutil.ReadFile(candidate.AbsPath)
 		if err != nil {
 			logger.Warn(ctx, "Failed to read doc while searching", tag.File(candidate.RelPath), tag.Error(err))
 			continue
@@ -1215,7 +1215,7 @@ func (s *Store) SearchCursor(ctx context.Context, opts agent.SearchDocsOptions) 
 			continue
 		}
 
-		data, err := os.ReadFile(candidate.AbsPath) //nolint:gosec // path constructed from baseDir
+		data, err := fileutil.ReadFile(candidate.AbsPath)
 		if err != nil {
 			logger.Warn(ctx, "Failed to read doc while searching", tag.File(candidate.RelPath), tag.Error(err))
 			continue
@@ -1306,7 +1306,7 @@ func (s *Store) SearchMatches(_ context.Context, id string, opts agent.SearchDoc
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(path) //nolint:gosec // validated path within baseDir
+	data, err := fileutil.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, agent.ErrDocNotFound
@@ -1557,7 +1557,7 @@ func (s *Store) cleanEmptyParents(dir string) {
 		if err != nil || len(entries) > 0 {
 			return
 		}
-		if err := os.Remove(dir); err != nil {
+		if err := fileutil.Remove(dir); err != nil {
 			return
 		}
 		dir = filepath.Dir(dir)

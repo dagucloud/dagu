@@ -207,7 +207,7 @@ func (s *Store) sortUserSessions(userID string) {
 
 // loadSessionFromFile reads and parses a session from a JSON file.
 func (s *Store) loadSessionFromFile(filePath string) (*SessionForStorage, error) {
-	data, err := os.ReadFile(filePath) //nolint:gosec // filePath is constructed internally
+	data, err := fileutil.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("filesession: failed to read file %s: %w", filePath, err)
 	}
@@ -396,7 +396,7 @@ func (s *Store) deleteSessionLocked(id string) error {
 		return fmt.Errorf("filesession: failed to load session for deletion: %w", err)
 	}
 
-	if err := os.Remove(filePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := fileutil.Remove(filePath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("filesession: failed to delete session file: %w", err)
 	}
 

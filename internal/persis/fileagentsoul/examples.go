@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 )
 
@@ -81,7 +82,7 @@ func SeedExampleSouls(ctx context.Context, baseDir string) (bool, error) {
 			continue // don't overwrite existing files
 		}
 
-		if err := os.WriteFile(destPath, data, filePermissions); err != nil {
+		if err := fileutil.WriteFileAtomic(destPath, data, filePermissions); err != nil {
 			return false, fmt.Errorf("failed to write example soul %s: %w", destPath, err)
 		}
 		created++
@@ -92,7 +93,7 @@ func SeedExampleSouls(ctx context.Context, baseDir string) (bool, error) {
 	}
 
 	markerContent := []byte("# This file indicates that example souls have been created.\n# Delete this file to re-create examples on next startup.\n")
-	if err := os.WriteFile(markerPath, markerContent, filePermissions); err != nil {
+	if err := fileutil.WriteFileAtomic(markerPath, markerContent, filePermissions); err != nil {
 		return false, fmt.Errorf("failed to create examples marker file: %w", err)
 	}
 

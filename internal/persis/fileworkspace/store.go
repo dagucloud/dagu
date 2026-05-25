@@ -94,7 +94,7 @@ func (s *Store) rebuildIndex() error {
 }
 
 func loadStoredFromFile(filePath string) (*workspace.WorkspaceForStorage, error) {
-	data, err := os.ReadFile(filePath) //nolint:gosec // filePath is constructed internally
+	data, err := fileutil.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file %s: %w", filePath, err)
 	}
@@ -280,7 +280,7 @@ func (s *Store) Delete(_ context.Context, id string) error {
 		stored = nil
 	}
 
-	if err := os.Remove(filePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := fileutil.Remove(filePath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("fileworkspace: failed to delete workspace file: %w", err)
 	}
 

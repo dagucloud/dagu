@@ -879,7 +879,7 @@ func cleanupStdoutSpool(file *os.File) error {
 
 	name := file.Name()
 	closeErr := file.Close()
-	removeErr := os.Remove(name)
+	removeErr := fileutil.Remove(name)
 	if closeErr != nil {
 		return closeErr
 	}

@@ -286,7 +286,7 @@ func (dr DataRoot) IsEmpty() bool {
 // Remove completely removes the dag-runs directory and all its contents.
 // This operation cannot be undone.
 func (dr DataRoot) Remove() error {
-	if err := fileutil.RemoveAllWithRetry(dr.dagRunsDir); err != nil {
+	if err := fileutil.RemoveAll(dr.dagRunsDir); err != nil {
 		return fmt.Errorf("failed to remove directory %s: %w", dr.dagRunsDir, err)
 	}
 	return nil
@@ -334,7 +334,7 @@ func (dr DataRoot) Rename(ctx context.Context, newRoot DataRoot) error {
 		}
 
 		// Rename the file
-		if err := os.Rename(targetDir, newDir); err != nil {
+		if err := fileutil.Rename(targetDir, newDir); err != nil {
 			logger.Error(dirCtx, "Failed to rename directory", tag.Error(err))
 			return fmt.Errorf("failed to rename %s to %s: %w", targetDir, newDir, err)
 		}
@@ -500,7 +500,7 @@ func (dr DataRoot) removeEmptyDir(ctx context.Context, dayDir string) {
 	removeDir := func(dirPath, dirType string) {
 		dirCtx := logger.WithValues(ctx, tag.Dir(dirPath))
 		if isDirEmpty(dirPath) {
-			if err := os.Remove(dirPath); err != nil {
+			if err := fileutil.Remove(dirPath); err != nil {
 				logger.Error(dirCtx, fmt.Sprintf("Failed to remove %s directory", dirType),
 					tag.Error(err))
 			}

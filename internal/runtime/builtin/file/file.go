@@ -233,7 +233,7 @@ func (e *executorImpl) runRead() error {
 	}
 
 	if e.cfg.Format == "json" {
-		data, err := os.ReadFile(path) //nolint:gosec // path is workflow-controlled local file input.
+		data, err := fileutil.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("file read %s: %w", path, err)
 		}
@@ -364,13 +364,13 @@ func (e *executorImpl) runMove() error {
 			return fmt.Errorf("file move %s to %s: stat destination: %w", source, destination, err)
 		}
 	}
-	if err := os.Rename(source, destination); err != nil {
+	if err := fileutil.Rename(source, destination); err != nil {
 		if errors.Is(err, syscall.EXDEV) {
 			if err := e.moveAcrossDevices(source, destination); err != nil {
 				return err
 			}
 		} else if e.cfg.Overwrite && !sourceInfo.IsDir() {
-			if err := fileutil.ReplaceFileWithRetry(source, destination); err != nil {
+			if err := fileutil.ReplaceFile(source, destination); err != nil {
 				return fmt.Errorf("file move %s to %s: replace destination: %w", source, destination, err)
 			}
 		} else {
@@ -405,9 +405,9 @@ func (e *executorImpl) runDelete() error {
 		return e.writeJSON(opResult{Operation: opDelete, Path: path, DryRun: true, Deleted: &deleted})
 	}
 	if info.IsDir() {
-		err = os.RemoveAll(path)
+		err = fileutil.RemoveAll(path)
 	} else {
-		err = os.Remove(path)
+		err = fileutil.Remove(path)
 	}
 	if err != nil {
 		return fmt.Errorf("file delete %s: %w", path, err)
@@ -638,7 +638,7 @@ func copyRegularFileAtomically(src *os.File, source, destination string, mode os
 	removeTmp := true
 	defer func() {
 		if removeTmp {
-			_ = os.Remove(tmpPath)
+			_ = fileutil.Remove(tmpPath)
 		}
 	}()
 
@@ -654,7 +654,7 @@ func copyRegularFileAtomically(src *os.File, source, destination string, mode os
 	if err := tmp.Close(); err != nil {
 		return written, fmt.Errorf("file copy %s to %s: close temporary destination: %w", source, destination, err)
 	}
-	if err := fileutil.ReplaceFileWithRetry(tmpPath, destination); err != nil {
+	if err := fileutil.ReplaceFile(tmpPath, destination); err != nil {
 		return written, fmt.Errorf("file copy %s to %s: replace destination: %w", source, destination, err)
 	}
 	removeTmp = false
@@ -670,7 +670,7 @@ func (e *executorImpl) copySymlink(source, destination string) error {
 		if !e.cfg.Overwrite {
 			return fmt.Errorf("file copy %s to %s: destination exists", source, destination)
 		}
-		if err := os.RemoveAll(destination); err != nil {
+		if err := fileutil.RemoveAll(destination); err != nil {
 			return fmt.Errorf("file copy %s to %s: remove destination: %w", source, destination, err)
 		}
 	} else if !os.IsNotExist(err) {
@@ -701,12 +701,12 @@ func (e *executorImpl) moveAcrossDevices(source, destination string) error {
 		return err
 	}
 	if info.IsDir() {
-		if err := os.RemoveAll(source); err != nil {
+		if err := fileutil.RemoveAll(source); err != nil {
 			return fmt.Errorf("file move %s to %s: remove source: %w", source, destination, err)
 		}
 		return nil
 	}
-	if err := os.Remove(source); err != nil {
+	if err := fileutil.Remove(source); err != nil {
 		return fmt.Errorf("file move %s to %s: remove source: %w", source, destination, err)
 	}
 	return nil

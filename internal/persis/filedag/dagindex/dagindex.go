@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -40,7 +39,7 @@ type SuspendFlags map[string]struct{}
 // Load reads and validates the index against the current filesystem state.
 // Returns nil if the index is missing, corrupt, version-mismatched, or stale.
 func Load(indexPath string, yamlFiles []YAMLFileMeta, flags SuspendFlags) []*indexv1.DAGIndexEntry {
-	data, err := os.ReadFile(indexPath) //nolint:gosec
+	data, err := fileutil.ReadFile(indexPath)
 	if err != nil {
 		return nil
 	}

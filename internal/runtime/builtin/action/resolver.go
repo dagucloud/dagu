@@ -18,6 +18,7 @@ import (
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 	cmnconfig "github.com/dagucloud/dagu/internal/cmn/config"
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	dagutools "github.com/dagucloud/dagu/internal/tools"
 )
 
@@ -155,7 +156,7 @@ func cloneGitSource(ctx context.Context, target, version string, opts resolveOpt
 	cleanupTmp := true
 	defer func() {
 		if cleanupTmp {
-			_ = os.RemoveAll(tmp)
+			_ = fileutil.RemoveAll(tmp)
 		}
 	}()
 
@@ -165,7 +166,7 @@ func cloneGitSource(ctx context.Context, target, version string, opts resolveOpt
 		err = fmt.Errorf("shallow clone skipped for unresolved ref")
 	}
 	if err != nil {
-		_ = os.RemoveAll(tmp)
+		_ = fileutil.RemoveAll(tmp)
 		if err := runGit(ctx, "", "clone", repoURL, tmp); err != nil {
 			return "", "", fmt.Errorf("clone action source: %w", err)
 		}
@@ -182,7 +183,7 @@ func cloneGitSource(ctx context.Context, target, version string, opts resolveOpt
 	if info, err := os.Stat(filepath.Join(root, ".git")); err == nil && info.IsDir() {
 		return root, resolved, nil
 	}
-	if err := os.Rename(tmp, root); err != nil {
+	if err := fileutil.Rename(tmp, root); err != nil {
 		if info, statErr := os.Stat(filepath.Join(root, ".git")); statErr == nil && info.IsDir() {
 			resolved, revErr := gitRevParse(ctx, root)
 			return root, resolved, revErr

@@ -17,6 +17,7 @@ import (
 	"sync"
 
 	"github.com/dagucloud/dagu/internal/cmn/eval"
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
@@ -179,7 +180,7 @@ func (e *executorImpl) readValue(ctx context.Context) (any, error) {
 	}
 	inputPath = filepath.Clean(inputPath)
 
-	data, err := os.ReadFile(inputPath) //nolint:gosec // input path is workflow-controlled local file input.
+	data, err := fileutil.ReadFile(inputPath)
 	if err != nil {
 		return nil, fmt.Errorf("data: reading input file %q: %w", inputPath, err)
 	}

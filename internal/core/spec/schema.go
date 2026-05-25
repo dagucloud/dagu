@@ -181,7 +181,7 @@ func loadSchemaFromFile(workingDir string, dagLocation string, filePath string) 
 			tried = append(tried, fmt.Sprintf("%s: %s", label, resolved))
 			return nil, resolved, os.ErrNotExist
 		}
-		data, err := os.ReadFile(resolved) // #nosec G304 - validated path
+		data, err := fileutil.ReadFile(resolved)
 		if err != nil {
 			tried = append(tried, fmt.Sprintf("%s: %s (read error: %v)", label, resolved, err))
 			return nil, resolved, err

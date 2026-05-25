@@ -178,11 +178,11 @@ func RebuildForDay(dayDir string, dagRunDirs []os.DirEntry) ([]Entry, bool, erro
 
 // DeleteIndex removes the .dagrun.index file from a day directory.
 func DeleteIndex(dayDir string) {
-	_ = os.Remove(filepath.Join(dayDir, IndexFileName))
+	_ = fileutil.Remove(filepath.Join(dayDir, IndexFileName))
 }
 
 func readIndex(indexPath string) (*indexv1.DAGRunIndex, error) {
-	data, err := os.ReadFile(indexPath) //nolint:gosec
+	data, err := fileutil.ReadFile(indexPath)
 	if err != nil {
 		return nil, err
 	}
@@ -390,7 +390,7 @@ func parseTimeToUnix(s string) int64 {
 // It reads the file and finds the last valid JSON line.
 // Keep in sync with internal/core/exec/runstatus.go:StatusFromJSON if the format changes.
 func parseStatusFile(filePath string) (*exec.DAGRunStatus, error) {
-	data, err := os.ReadFile(filePath) //nolint:gosec
+	data, err := fileutil.ReadFile(filePath)
 	if err != nil {
 		return nil, err
 	}

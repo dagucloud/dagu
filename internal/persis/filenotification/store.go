@@ -169,7 +169,7 @@ func (s *Store) DeleteByDAGName(_ context.Context, dagName string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := os.Remove(s.filePath(dagName)); err != nil {
+	if err := fileutil.Remove(s.filePath(dagName)); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return notification.ErrSettingsNotFound
 		}
@@ -247,7 +247,7 @@ func (s *Store) DeleteChannel(_ context.Context, channelID string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := os.Remove(s.channelFilePath(channelID)); err != nil {
+	if err := fileutil.Remove(s.channelFilePath(channelID)); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return notification.ErrChannelNotFound
 		}
@@ -351,7 +351,7 @@ func (s *Store) ListRouteSets(_ context.Context) ([]*notification.RouteSet, erro
 func (s *Store) DeleteRouteSet(_ context.Context, scope notification.RouteScope, workspace string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := os.Remove(s.routeSetFilePath(scope, workspace)); err != nil {
+	if err := fileutil.Remove(s.routeSetFilePath(scope, workspace)); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return notification.ErrRouteSetNotFound
 		}
@@ -404,7 +404,7 @@ func defaultWorkspaceSettingsFile(baseDir string) string {
 }
 
 func (s *Store) loadFromFile(path string) (*notification.Settings, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // path is derived from configured store directory and hashed DAG name.
+	data, err := fileutil.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -416,7 +416,7 @@ func (s *Store) loadFromFile(path string) (*notification.Settings, error) {
 }
 
 func (s *Store) loadChannelFromFile(path string) (*notification.Channel, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // path is derived from configured store directory and hashed channel ID.
+	data, err := fileutil.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -428,7 +428,7 @@ func (s *Store) loadChannelFromFile(path string) (*notification.Channel, error) 
 }
 
 func (s *Store) loadWorkspaceSettingsFromFile(path string) (*notification.WorkspaceSettings, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // path is derived from configured store directory and constant filename.
+	data, err := fileutil.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -440,7 +440,7 @@ func (s *Store) loadWorkspaceSettingsFromFile(path string) (*notification.Worksp
 }
 
 func (s *Store) loadRouteSetFromFile(path string) (*notification.RouteSet, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // path is derived from configured route directory and hashed workspace name.
+	data, err := fileutil.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}

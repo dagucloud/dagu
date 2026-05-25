@@ -131,7 +131,7 @@ func (att *Attempt) ReadDAG(_ context.Context) (*core.DAG, error) {
 	}
 
 	// Read the file
-	data, err := os.ReadFile(dagFile) //nolint:gosec
+	data, err := fileutil.ReadFile(dagFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read DAG definition file: %w", err)
 	}
@@ -167,7 +167,7 @@ func (att *Attempt) Open(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to marshal DAG definition: %w", err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, DAGDefinition), dagJSON, 0600); err != nil {
+		if err := fileutil.WriteFileAtomic(filepath.Join(dir, DAGDefinition), dagJSON, 0600); err != nil {
 			return fmt.Errorf("failed to write DAG definition: %w", err)
 		}
 	}
@@ -329,7 +329,7 @@ func (att *Attempt) compactLocked(ctx context.Context) (retErr error) {
 	success := false
 	defer func() {
 		if !success {
-			if removeErr := os.Remove(tempFilePath); removeErr != nil {
+			if removeErr := fileutil.Remove(tempFilePath); removeErr != nil {
 				logger.Error(ctx, "Failed to remove temp file", tag.Error(removeErr))
 			}
 		}
@@ -368,7 +368,7 @@ func (att *Attempt) compactLocked(ctx context.Context) (retErr error) {
 // safeRename safely replaces the target file with the source file,
 // handling platform-specific differences
 func safeRename(source, target string) error {
-	if err := fileutil.ReplaceFileWithRetry(source, target); err != nil {
+	if err := fileutil.ReplaceFile(source, target); err != nil {
 		if _, statErr := os.Stat(target); statErr == nil {
 			return fmt.Errorf("failed to remove target file: %w", err)
 		}
@@ -552,7 +552,7 @@ func (att *Attempt) Abort(ctx context.Context) error {
 	if _, err := os.Stat(cancelFile); err == nil {
 		return nil
 	}
-	if err := os.WriteFile(cancelFile, []byte{}, 0600); err != nil {
+	if err := fileutil.WriteFileAtomic(cancelFile, []byte{}, 0600); err != nil {
 		return fmt.Errorf("failed to create cancel request file: %w", err)
 	}
 	logger.Info(ctx, "Cancel request created for attempt",
@@ -696,7 +696,7 @@ func (att *Attempt) WriteOutputs(_ context.Context, outputs *exec.DAGRunOutputs)
 		return fmt.Errorf("failed to marshal outputs: %w", err)
 	}
 
-	if err := os.WriteFile(outputsFile, data, 0600); err != nil {
+	if err := fileutil.WriteFileAtomic(outputsFile, data, 0600); err != nil {
 		return fmt.Errorf("failed to write outputs file: %w", err)
 	}
 
@@ -709,7 +709,7 @@ func (att *Attempt) ReadOutputs(_ context.Context) (*exec.DAGRunOutputs, error) 
 	dir := filepath.Dir(att.file)
 	outputsFile := filepath.Join(dir, OutputsFile)
 
-	data, err := os.ReadFile(outputsFile) //nolint:gosec
+	data, err := fileutil.ReadFile(outputsFile)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -750,7 +750,7 @@ func (att *Attempt) WriteStepMessages(_ context.Context, stepName string, messag
 		return fmt.Errorf("failed to marshal messages: %w", err)
 	}
 
-	if err := os.WriteFile(file, data, 0600); err != nil {
+	if err := fileutil.WriteFileAtomic(file, data, 0600); err != nil {
 		return fmt.Errorf("failed to write messages file: %w", err)
 	}
 
@@ -764,7 +764,7 @@ func (att *Attempt) ReadStepMessages(_ context.Context, stepName string) ([]exec
 	// Read from dag-run level (parent of attempt directory) for retry persistence
 	file := filepath.Join(att.dagRunDir(), MessagesDir, stepName+".json")
 
-	data, err := os.ReadFile(file) //nolint:gosec
+	data, err := fileutil.ReadFile(file)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil

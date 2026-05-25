@@ -8,9 +8,9 @@ import (
 	"crypto/sha1" //nolint:gosec // SHA1 used for Redis EVALSHA, not security
 	"encoding/hex"
 	"fmt"
-	"os"
 	"strings"
 
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	goredis "github.com/redis/go-redis/v9"
 )
 
@@ -90,7 +90,7 @@ func (e *ScriptExecutor) getScript() (string, error) {
 
 	// If script file is provided
 	if e.cfg.ScriptFile != "" {
-		content, err := os.ReadFile(e.cfg.ScriptFile)
+		content, err := fileutil.ReadFile(e.cfg.ScriptFile)
 		if err != nil {
 			return "", fmt.Errorf("failed to read script file %s: %w", e.cfg.ScriptFile, err)
 		}

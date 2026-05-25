@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/mholt/archives"
 )
 
@@ -186,7 +187,7 @@ func (e *executorImpl) runExtract(ctx context.Context) error {
 				return wrapError(ErrExtract, err)
 			}
 
-			_ = os.Remove(targetPath)
+			_ = fileutil.Remove(targetPath)
 			if err := os.Symlink(safeTarget, targetPath); err != nil {
 				if errors.Is(err, fs.ErrPermission) {
 					return fmt.Errorf("%w: %v", ErrPermission, err)

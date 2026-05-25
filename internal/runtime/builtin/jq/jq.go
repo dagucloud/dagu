@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
@@ -53,7 +54,7 @@ func newJQ(ctx context.Context, step core.Step) (executor.Executor, error) {
 		if err != nil {
 			return nil, fmt.Errorf("jq: failed to evaluate config.input: %w", err)
 		}
-		data, err := os.ReadFile(inputPath)
+		data, err := fileutil.ReadFile(inputPath)
 		if err != nil {
 			return nil, fmt.Errorf("jq: reading input file %q: %w", inputPath, err)
 		}
@@ -62,7 +63,7 @@ func newJQ(ctx context.Context, step core.Step) (executor.Executor, error) {
 		}
 	case step.Script != "":
 		if after, ok := strings.CutPrefix(step.Script, "file://"); ok {
-			data, err := os.ReadFile(after)
+			data, err := fileutil.ReadFile(after)
 			if err != nil {
 				return nil, fmt.Errorf("jq: reading input file %q: %w", after, err)
 			}

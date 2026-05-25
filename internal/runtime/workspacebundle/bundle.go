@@ -20,6 +20,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 )
 
 const (
@@ -218,7 +220,7 @@ func Extract(data []byte, dest string, desc Descriptor, limits Limits) error {
 	cleanupTmp := true
 	defer func() {
 		if cleanupTmp {
-			_ = os.RemoveAll(tmp)
+			_ = fileutil.RemoveAll(tmp)
 		}
 	}()
 
@@ -294,10 +296,10 @@ func Extract(data []byte, dest string, desc Descriptor, limits Limits) error {
 	if _, err := os.Stat(filepath.Join(tmp, filepath.FromSlash(desc.DAGPath))); err != nil {
 		return fmt.Errorf("workspace bundle DAG %q is missing: %w", desc.DAGPath, err)
 	}
-	if err := os.RemoveAll(dest); err != nil {
+	if err := fileutil.RemoveAll(dest); err != nil {
 		return fmt.Errorf("remove existing workspace: %w", err)
 	}
-	if err := os.Rename(tmp, dest); err != nil {
+	if err := fileutil.Rename(tmp, dest); err != nil {
 		return fmt.Errorf("install workspace: %w", err)
 	}
 	cleanupTmp = false
@@ -495,7 +497,7 @@ func (s *Store) Put(_ context.Context, desc Descriptor, data []byte) error {
 	cleanup := true
 	defer func() {
 		if cleanup {
-			_ = os.Remove(tmpName)
+			_ = fileutil.Remove(tmpName)
 		}
 	}()
 	if _, err := tmp.Write(data); err != nil {
@@ -505,7 +507,7 @@ func (s *Store) Put(_ context.Context, desc Descriptor, data []byte) error {
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close workspace bundle: %w", err)
 	}
-	if err := os.Rename(tmpName, path); err != nil {
+	if err := fileutil.ReplaceFile(tmpName, path); err != nil {
 		return fmt.Errorf("commit workspace bundle: %w", err)
 	}
 	cleanup = false
@@ -520,7 +522,7 @@ func (s *Store) Get(_ context.Context, digest string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(path) //nolint:gosec
+	data, err := fileutil.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read workspace bundle: %w", err)
 	}

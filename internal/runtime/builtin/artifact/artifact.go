@@ -268,7 +268,7 @@ func (e *executorImpl) runRead() error {
 	}
 
 	if e.cfg.Format == "json" {
-		data, err := os.ReadFile(target.abs) //nolint:gosec // artifact path is constrained to the DAG-run artifact directory.
+		data, err := fileutil.ReadFile(target.abs)
 		if err != nil {
 			return fmt.Errorf("artifact read %s: %w", target.rel, err)
 		}

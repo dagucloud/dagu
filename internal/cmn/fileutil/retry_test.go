@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestReplaceFileWithRetry verifies replacing existing and missing target files.
-func TestReplaceFileWithRetry(t *testing.T) {
+// TestReplaceFile verifies replacing existing and missing target files.
+func TestReplaceFile(t *testing.T) {
 	t.Parallel()
 
 	t.Run("overwrites existing target", func(t *testing.T) {
@@ -25,7 +25,7 @@ func TestReplaceFileWithRetry(t *testing.T) {
 		require.NoError(t, os.WriteFile(source, []byte("new"), 0o600))
 		require.NoError(t, os.WriteFile(target, []byte("old"), 0o600))
 
-		require.NoError(t, ReplaceFileWithRetry(source, target))
+		require.NoError(t, ReplaceFile(source, target))
 
 		data, err := os.ReadFile(target)
 		require.NoError(t, err)
@@ -41,7 +41,7 @@ func TestReplaceFileWithRetry(t *testing.T) {
 		target := filepath.Join(dir, "target.txt")
 		require.NoError(t, os.WriteFile(source, []byte("new"), 0o600))
 
-		require.NoError(t, ReplaceFileWithRetry(source, target))
+		require.NoError(t, ReplaceFile(source, target))
 
 		data, err := os.ReadFile(target)
 		require.NoError(t, err)
@@ -50,8 +50,28 @@ func TestReplaceFileWithRetry(t *testing.T) {
 	})
 }
 
-// TestRemoveAllWithRetry verifies recursive removal and symlink handling.
-func TestRemoveAllWithRetry(t *testing.T) {
+func TestReadRenameAndRemove(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.txt")
+	target := filepath.Join(dir, "target.txt")
+	require.NoError(t, os.WriteFile(source, []byte("data"), 0o600))
+
+	data, err := ReadFile(source)
+	require.NoError(t, err)
+	require.Equal(t, []byte("data"), data)
+
+	require.NoError(t, Rename(source, target))
+	require.NoFileExists(t, source)
+	require.FileExists(t, target)
+
+	require.NoError(t, Remove(target))
+	require.NoFileExists(t, target)
+}
+
+// TestRemoveAll verifies recursive removal and symlink handling.
+func TestRemoveAll(t *testing.T) {
 	t.Parallel()
 
 	t.Run("removes nested directory tree", func(t *testing.T) {
@@ -64,7 +84,7 @@ func TestRemoveAllWithRetry(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(target, "root.txt"), []byte("root"), 0o600))
 		require.NoError(t, os.WriteFile(filepath.Join(nested, "leaf.txt"), []byte("leaf"), 0o600))
 
-		require.NoError(t, RemoveAllWithRetry(target))
+		require.NoError(t, RemoveAll(target))
 
 		require.NoDirExists(t, target)
 	})
@@ -72,7 +92,7 @@ func TestRemoveAllWithRetry(t *testing.T) {
 	t.Run("missing path is success", func(t *testing.T) {
 		t.Parallel()
 
-		require.NoError(t, RemoveAllWithRetry(filepath.Join(t.TempDir(), "missing")))
+		require.NoError(t, RemoveAll(filepath.Join(t.TempDir(), "missing")))
 	})
 
 	t.Run("removes symlink without following target", func(t *testing.T) {
@@ -93,7 +113,7 @@ func TestRemoveAllWithRetry(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		require.NoError(t, RemoveAllWithRetry(target))
+		require.NoError(t, RemoveAll(target))
 
 		require.NoDirExists(t, target)
 		require.FileExists(t, filepath.Join(external, "keep.txt"))

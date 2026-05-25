@@ -1372,7 +1372,7 @@ func (a *Agent) prepareWorkDir(ctx context.Context, attempt exec.DAGRunAttempt) 
 		if a.workDir == "" {
 			return
 		}
-		if err := os.RemoveAll(a.workDir); err != nil {
+		if err := fileutil.RemoveAll(a.workDir); err != nil {
 			logger.Warn(ctx, "Failed to remove temp work dir", tag.Error(err))
 		}
 	}, nil

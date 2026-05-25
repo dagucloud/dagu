@@ -22,6 +22,7 @@ import (
 	"github.com/containerd/errdefs"
 	"github.com/containerd/platforms"
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/cmn/signal"
@@ -508,7 +509,7 @@ func (c *Client) StopContainerKeepAlive(ctx context.Context) {
 
 	if c.keepAliveTmp != "" {
 		// Remove the temporary keep alive file if it exists
-		if err := os.Remove(c.keepAliveTmp); err != nil && !os.IsNotExist(err) {
+		if err := fileutil.Remove(c.keepAliveTmp); err != nil && !os.IsNotExist(err) {
 			logger.Error(ctx, "Docker executor: remove keep alive file", tag.Error(err))
 		}
 	}

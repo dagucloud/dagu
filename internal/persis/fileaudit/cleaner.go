@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/service/audit"
 )
 
@@ -107,7 +108,7 @@ func (c *cleaner) purgeExpiredFiles() {
 
 		if fileDate.Before(cutoff) {
 			filePath := filepath.Join(c.baseDir, name)
-			if err := os.Remove(filePath); err != nil {
+			if err := fileutil.Remove(filePath); err != nil {
 				slog.Warn("fileaudit: failed to remove expired audit file",
 					slog.String("file", filePath),
 					slog.String("error", err.Error()))

@@ -19,6 +19,7 @@ import (
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/internal/cmn/eval"
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core"
@@ -58,7 +59,7 @@ func (e *commandExecutor) Run(ctx context.Context) error {
 		}
 		e.scriptFile = scriptFile
 		defer func() {
-			_ = os.Remove(scriptFile)
+			_ = fileutil.Remove(scriptFile)
 		}()
 	}
 	// Wrap stderr with a tailing writer so we can include recent

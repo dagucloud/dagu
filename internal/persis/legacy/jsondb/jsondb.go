@@ -217,7 +217,7 @@ func (db *JSONDB) RemoveOld(_ context.Context, key string, retentionDays int) er
 			continue
 		}
 		if info.ModTime().Before(oldDate) {
-			if err := os.Remove(m); err != nil {
+			if err := fileutil.Remove(m); err != nil {
 				lastErr = err
 			}
 		}
@@ -246,19 +246,19 @@ func (db *JSONDB) Compact(_ context.Context, targetFilePath string) error {
 	}()
 
 	if err := writer.write(*status); err != nil {
-		if removeErr := os.Remove(tempFilePath); removeErr != nil {
+		if removeErr := fileutil.Remove(tempFilePath); removeErr != nil {
 			return fmt.Errorf("%w: %s", err, removeErr)
 		}
 		return fmt.Errorf("%w: %s", err, tempFilePath)
 	}
 
 	// remove the original file
-	if err := os.Remove(targetFilePath); err != nil {
+	if err := fileutil.Remove(targetFilePath); err != nil {
 		return fmt.Errorf("%w: %s", err, targetFilePath)
 	}
 
 	// rename the file to the original
-	if err := os.Rename(tempFilePath, targetFilePath); err != nil {
+	if err := fileutil.Rename(tempFilePath, targetFilePath); err != nil {
 		return fmt.Errorf("%w: %s", err, targetFilePath)
 	}
 
@@ -292,12 +292,12 @@ func (db *JSONDB) Rename(_ context.Context, oldKey, newKey string) error {
 	for _, m := range matches {
 		base := filepath.Base(m)
 		f := strings.Replace(base, oldPrefix, newPrefix, 1)
-		if err := os.Rename(m, filepath.Join(newDir, f)); err != nil {
+		if err := fileutil.Rename(m, filepath.Join(newDir, f)); err != nil {
 			log.Printf("failed to rename %s to %s: %s", m, f, err)
 		}
 	}
 	if files, _ := os.ReadDir(oldDir); len(files) == 0 {
-		_ = os.Remove(oldDir)
+		_ = fileutil.Remove(oldDir)
 	}
 	return nil
 }

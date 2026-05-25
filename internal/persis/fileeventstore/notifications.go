@@ -223,7 +223,7 @@ func (s *Store) readCommittedEventsFromOffset(name string, offset int64) ([]*eve
 
 func (s *Store) readInboxDAGRunEvent(name string) (*eventstore.Event, error) {
 	path := filepath.Join(s.inboxDir, name)
-	data, err := fileutil.ReadFileWithRetry(path)
+	data, err := fileutil.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -250,7 +250,7 @@ func (s *Store) quarantineInboxFile(path, name string, parseErr error) error {
 	if _, err := os.Stat(dest); err == nil {
 		dest = filepath.Join(s.quarantineDir, fmt.Sprintf("%d-%s", time.Now().UTC().UnixNano(), name))
 	}
-	if err := fileutil.RenameWithRetry(path, dest); err != nil {
+	if err := fileutil.Rename(path, dest); err != nil {
 		return fmt.Errorf("fileeventstore: quarantine inbox file %s: %w", path, err)
 	}
 	slog.Warn("fileeventstore: quarantined malformed inbox file",

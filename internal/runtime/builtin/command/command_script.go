@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/core"
 )
 
@@ -39,7 +40,7 @@ func setupScript(workDir, script, command string, shell []string) (string, error
 	// cleanup removes the temp file on error
 	cleanup := func() {
 		_ = file.Close()
-		_ = os.Remove(file.Name())
+		_ = fileutil.Remove(file.Name())
 	}
 
 	// Apply shell-specific preprocessing

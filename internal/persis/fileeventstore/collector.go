@@ -152,7 +152,7 @@ func (c *Collector) DrainOnce(_ context.Context) error {
 			continue
 		}
 		if _, ok := c.seenIDs[pending.event.ID]; ok {
-			if err := fileutil.RemoveWithRetry(path); err != nil && !os.IsNotExist(err) {
+			if err := fileutil.Remove(path); err != nil && !os.IsNotExist(err) {
 				slog.Warn("fileeventstore: failed to delete duplicate inbox file",
 					slog.String("file", path),
 					slog.String("error", err.Error()))
@@ -160,7 +160,7 @@ func (c *Collector) DrainOnce(_ context.Context) error {
 			continue
 		}
 		if _, ok := queuedIDs[pending.event.ID]; ok {
-			if err := fileutil.RemoveWithRetry(path); err != nil && !os.IsNotExist(err) {
+			if err := fileutil.Remove(path); err != nil && !os.IsNotExist(err) {
 				slog.Warn("fileeventstore: failed to delete duplicate inbox file",
 					slog.String("file", path),
 					slog.String("error", err.Error()))
@@ -204,7 +204,7 @@ func (c *Collector) appendGroup(hour string, group []pendingInboxEvent) error {
 			if _, ok := c.seenIDs[item.event.ID]; !ok {
 				continue
 			}
-			if err := fileutil.RemoveWithRetry(item.path); err != nil && !os.IsNotExist(err) {
+			if err := fileutil.Remove(item.path); err != nil && !os.IsNotExist(err) {
 				slog.Warn("fileeventstore: failed to delete processed inbox file",
 					slog.String("file", item.path),
 					slog.String("error", err.Error()))
@@ -249,7 +249,7 @@ func (c *Collector) appendGroup(hour string, group []pendingInboxEvent) error {
 }
 
 func (c *Collector) readPendingEvent(path string) (pendingInboxEvent, error) {
-	data, err := fileutil.ReadFileWithRetry(path)
+	data, err := fileutil.ReadFile(path)
 	if err != nil {
 		return pendingInboxEvent{}, err
 	}
@@ -273,7 +273,7 @@ func (c *Collector) quarantine(path, name string, parseErr error) {
 	if _, err := os.Stat(dest); err == nil {
 		dest = filepath.Join(c.store.quarantineDir, fmt.Sprintf("%d-%s", c.now().UTC().UnixNano(), name))
 	}
-	if err := fileutil.RenameWithRetry(path, dest); err != nil {
+	if err := fileutil.Rename(path, dest); err != nil {
 		slog.Warn("fileeventstore: failed to quarantine inbox file",
 			slog.String("file", path),
 			slog.String("error", err.Error()))
@@ -352,7 +352,7 @@ func (c *Collector) cleanupExpired() {
 				continue
 			}
 			path := window.path
-			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			if err := fileutil.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 				slog.Warn("fileeventstore: failed to remove expired event log",
 					slog.String("file", path),
 					slog.String("error", err.Error()))
@@ -388,7 +388,7 @@ func (c *Collector) cleanupExpired() {
 			continue
 		}
 		path := filepath.Join(c.store.quarantineDir, entry.Name())
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := fileutil.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			slog.Warn("fileeventstore: failed to remove expired quarantined event file",
 				slog.String("file", path),
 				slog.String("error", err.Error()))

@@ -43,7 +43,7 @@ func writeInstanceFile(filename string, info *instanceInfo) error {
 
 // readInstanceFile reads instance information from a file
 func readInstanceFile(path string) (*instanceInfo, error) {
-	data, err := fileutil.ReadFileWithRetry(path)
+	data, err := fileutil.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read instance file: %w", err)
 	}
@@ -58,7 +58,7 @@ func readInstanceFile(path string) (*instanceInfo, error) {
 
 // removeInstanceFile removes an instance file
 func removeInstanceFile(filename string) error {
-	if err := fileutil.RemoveWithRetry(filename); err != nil && !os.IsNotExist(err) {
+	if err := fileutil.Remove(filename); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to remove instance file: %w", err)
 	}
 	return nil

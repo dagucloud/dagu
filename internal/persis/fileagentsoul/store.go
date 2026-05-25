@@ -206,7 +206,7 @@ func marshalSoulFile(soul *agent.Soul) ([]byte, error) {
 
 // loadSoulFromFile reads and parses a soul .md file.
 func loadSoulFromFile(filePath, id string) (*agent.Soul, error) {
-	data, err := os.ReadFile(filePath) //nolint:gosec // filePath is constructed internally
+	data, err := fileutil.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file %s: %w", filePath, err)
 	}
@@ -474,7 +474,7 @@ func (s *Store) Delete(_ context.Context, id string) error {
 		return err
 	}
 
-	if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
+	if err := fileutil.Remove(filePath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("fileagentsoul: failed to delete soul file: %w", err)
 	}
 

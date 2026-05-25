@@ -54,7 +54,7 @@ func (s *store) Load() (*upgrade.UpgradeCheckCache, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	data, err := os.ReadFile(s.cachePath())
+	data, err := fileutil.ReadFile(s.cachePath())
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil

@@ -310,7 +310,7 @@ func WriteFileAtomic(filePath string, data []byte, perm os.FileMode) error {
 		return fmt.Errorf("failed to close temp file %s: %w", tempPath, err)
 	}
 
-	if err := ReplaceFileWithRetry(tempPath, filePath); err != nil {
+	if err := ReplaceFile(tempPath, filePath); err != nil {
 		cleanup()
 		return fmt.Errorf("failed to rename %s to %s: %w", tempPath, filePath, err)
 	}

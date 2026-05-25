@@ -10,6 +10,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -115,7 +116,7 @@ func (s *LogStreamer) NewSchedulerLogWriter(ctx context.Context, localFile *os.F
 func (s *LogStreamer) StreamSchedulerLog(ctx context.Context, logFilePath string) error {
 	// Read the scheduler.log file
 	// #nosec G304 - logFilePath is a controlled internal path from createAgentEnv
-	data, err := os.ReadFile(logFilePath)
+	data, err := fileutil.ReadFile(logFilePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil // No scheduler log, nothing to stream

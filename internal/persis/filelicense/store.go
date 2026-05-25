@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/license"
 )
 
@@ -38,7 +39,7 @@ func (s *Store) Load() (*license.ActivationData, error) {
 	defer s.mu.RUnlock()
 
 	path := filepath.Join(s.dir, activationFile)
-	data, err := os.ReadFile(path) //nolint:gosec // path is constructed from trusted config dir
+	data, err := fileutil.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
@@ -76,7 +77,7 @@ func (s *Store) Save(ad *license.ActivationData) error {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName) //nolint:errcheck // best-effort cleanup on error
+	defer func() { _ = fileutil.Remove(tmpName) }() // best-effort cleanup on error
 
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
@@ -92,7 +93,7 @@ func (s *Store) Save(ad *license.ActivationData) error {
 	if err := os.Chmod(tmpName, filePerm); err != nil {
 		return fmt.Errorf("failed to set permissions on temp file: %w", err)
 	}
-	if err := os.Rename(tmpName, path); err != nil {
+	if err := fileutil.ReplaceFile(tmpName, path); err != nil {
 		return fmt.Errorf("failed to rename temp file: %w", err)
 	}
 
@@ -105,7 +106,7 @@ func (s *Store) Remove() error {
 	defer s.mu.Unlock()
 
 	path := filepath.Join(s.dir, activationFile)
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := fileutil.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("failed to remove activation file: %w", err)
 	}
 

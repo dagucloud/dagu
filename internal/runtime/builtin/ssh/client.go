@@ -285,7 +285,7 @@ func findDefaultSSHKey() string {
 }
 
 func getPublicKeySigner(path string) (ssh.Signer, error) {
-	key, err := os.ReadFile(path) //nolint:gosec
+	key, err := fileutil.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}

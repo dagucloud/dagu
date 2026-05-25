@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/backoff"
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -146,7 +147,7 @@ func (q *quarantine) markStaleFile(ctx context.Context, path string, observedMod
 	}
 
 	quarantinePath := q.generateQuarantinePath(path)
-	if err := os.Rename(path, quarantinePath); err != nil {
+	if err := fileutil.Rename(path, quarantinePath); err != nil {
 		if !os.IsNotExist(err) {
 			logger.Warn(ctx, "Failed to quarantine stale file",
 				tag.File(path),
