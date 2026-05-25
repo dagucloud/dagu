@@ -42,6 +42,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/telemetry"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/dagstate"
 	"github.com/dagucloud/dagu/internal/output"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/builtin/docker"
@@ -85,6 +86,9 @@ type Agent struct {
 
 	// queueStore is the database to store queued dag-run items.
 	queueStore exec.QueueStore
+
+	// stateStore is the persistent state store shared across DAG runs.
+	stateStore dagstate.Store
 
 	// secretStore resolves workspace-local team-managed secret references.
 	secretStore secretpkg.Store
@@ -300,6 +304,8 @@ type Options struct {
 	DAGRunStore exec.DAGRunStore
 	// QueueStore is the store for queued dag-run items. Nil when queues are unavailable.
 	QueueStore exec.QueueStore
+	// StateStore is the persistent state store shared across DAG runs.
+	StateStore dagstate.Store
 	// SecretStore resolves workspace-local team-managed secret references.
 	SecretStore secretpkg.Store
 	// ServiceRegistry is the registry for service discovery.
@@ -365,6 +371,7 @@ func New(
 		dagStore:                   ds,
 		dagRunStore:                opts.DAGRunStore,
 		queueStore:                 opts.QueueStore,
+		stateStore:                 opts.StateStore,
 		secretStore:                opts.SecretStore,
 		registry:                   opts.ServiceRegistry,
 		extraEnvs:                  append([]string{}, opts.ExtraEnvs...),
@@ -568,6 +575,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 	if a.queueStore != nil {
 		contextOpts = append(contextOpts, runtime.WithQueueStore(a.queueStore))
+	}
+	if a.stateStore != nil {
+		contextOpts = append(contextOpts, runtime.WithStateStore(a.stateStore))
 	}
 	if a.dagRunLogDir != "" {
 		contextOpts = append(contextOpts, runtime.WithDAGRunLogDir(a.dagRunLogDir))
@@ -1765,6 +1775,9 @@ func (a *Agent) dryRun(ctx context.Context) error {
 	}
 	if a.queueStore != nil {
 		contextOpts = append(contextOpts, runtime.WithQueueStore(a.queueStore))
+	}
+	if a.stateStore != nil {
+		contextOpts = append(contextOpts, runtime.WithStateStore(a.stateStore))
 	}
 	if a.dagRunLogDir != "" {
 		contextOpts = append(contextOpts, runtime.WithDAGRunLogDir(a.dagRunLogDir))

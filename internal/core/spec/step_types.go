@@ -103,6 +103,7 @@ var builtinStepTypeNames = map[string]struct{}{
 	"shell":         {},
 	"sqlite":        {},
 	"ssh":           {},
+	"state":         {},
 	"subworkflow":   {},
 	"template":      {},
 	"wait":          {},

@@ -176,6 +176,7 @@ func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *core.DAG, dagRu
 			PreparedAttempt:            preparedAttempt,
 			DAGRunStore:                ctx.DAGRunStore,
 			QueueStore:                 ctx.QueueStore,
+			StateStore:                 ctx.StateStore,
 			SecretStore:                as.SecretStore,
 			ServiceRegistry:            ctx.ServiceRegistry,
 			RootDAGRun:                 exec.NewDAGRunRef(dag.Name, dagRunID),

@@ -121,6 +121,7 @@ func TestLoad_Env(t *testing.T) {
 		"DAGU_LOG_DIR":              filepath.Join(testPaths, "logs"),
 		"DAGU_DATA_DIR":             filepath.Join(testPaths, "data"),
 		"DAGU_ARTIFACT_DIR":         filepath.Join(testPaths, "artifacts"),
+		"DAGU_DAG_STATE_DIR":        filepath.Join(testPaths, "dag-state"),
 		"DAGU_SUSPEND_FLAGS_DIR":    filepath.Join(testPaths, "suspend"),
 		"DAGU_ADMIN_LOG_DIR":        filepath.Join(testPaths, "admin"),
 		"DAGU_BASE_CONFIG":          filepath.Join(testPaths, "base.yaml"),
@@ -256,6 +257,7 @@ func TestLoad_Env(t *testing.T) {
 			DataDir:            filepath.Join(testPaths, "data"),
 			ToolsDir:           filepath.Join(testPaths, "data", "tools"),
 			ArtifactDir:        filepath.Join(testPaths, "artifacts"),
+			DAGStateDir:        filepath.Join(testPaths, "dag-state"),
 			SuspendFlagsDir:    filepath.Join(testPaths, "suspend"),
 			AdminLogsDir:       filepath.Join(testPaths, "admin"),
 			EventStoreDir:      cfg.Paths.EventStoreDir,
@@ -719,6 +721,7 @@ scheduler:
 			DocsDir:            resolvedTestPath(t, "/var/dagu/dags/docs"),
 			LogDir:             resolvedTestPath(t, "/var/dagu/logs"),
 			DataDir:            resolvedTestPath(t, "/var/dagu/data"),
+			DAGStateDir:        resolvedTestPath(t, "/var/dagu/data/dag-state"),
 			ToolsDir:           resolvedTestPath(t, "/var/dagu/tools"),
 			ArtifactDir:        cfg.Paths.ArtifactDir,
 			SuspendFlagsDir:    resolvedTestPath(t, "/var/dagu/suspend"),
@@ -916,6 +919,32 @@ func TestLoad_ArtifactDirFromEnv(t *testing.T) {
 	})
 
 	assert.Equal(t, resolvedTestPath(t, "/env/artifacts"), cfg.Paths.ArtifactDir)
+}
+
+func TestLoad_DAGStateDirFromConfig(t *testing.T) {
+	cfg := loadFromYAML(t, `
+paths:
+  dag_state_dir: "/custom/dag-state"
+`)
+
+	assert.Equal(t, resolvedTestPath(t, "/custom/dag-state"), cfg.Paths.DAGStateDir)
+}
+
+func TestLoad_DAGStateDirFromEnv(t *testing.T) {
+	cfg := loadWithEnv(t, "# empty", map[string]string{
+		"DAGU_DAG_STATE_DIR": "/env/dag-state",
+	})
+
+	assert.Equal(t, resolvedTestPath(t, "/env/dag-state"), cfg.Paths.DAGStateDir)
+}
+
+func TestLoad_DAGStateDirDefaultDerivedFromDataDir(t *testing.T) {
+	cfg := loadFromYAML(t, `
+paths:
+  data_dir: "/custom/data"
+`)
+
+	assert.Equal(t, resolvedTestPath(t, "/custom/data/dag-state"), cfg.Paths.DAGStateDir)
 }
 
 func TestLoad_EdgeCases_Errors(t *testing.T) {

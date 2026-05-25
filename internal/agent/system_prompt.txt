@@ -153,9 +153,10 @@ Validate with `dagu validate` before claiming a DAG is correct.
 
 Use `dagu schema` via bash when unsure about YAML fields.
 
-Use the appropriate action (`http.request`, `s3.*`, `postgres.query`, `artifact.*`, `file.*`, etc.) instead of shelling out.
+Use the appropriate action (`http.request`, `s3.*`, `postgres.query`, `artifact.*`, `file.*`, `state.*`, etc.) instead of shelling out.
 For local filesystem work in authored DAGs, use `file.stat`, `file.read`, `file.write`, `file.copy`, `file.move`, `file.delete`, `file.mkdir`, or `file.list` instead of shell commands such as `cat`, `cp`, `mv`, `rm`, or `mkdir` unless the user specifically needs shell behavior.
 For DAG-run outputs such as reports, JSON snapshots, Markdown summaries, logs, and handoff files, use `stdout.artifact`/`stderr.artifact` for command streams and `artifact.write`, `artifact.read`, or `artifact.list` for explicit artifact operations instead of shell commands that write to `DAG_RUN_ARTIFACTS_DIR` unless the user specifically needs shell behavior.
+Use `state.*` for small JSON values that must persist across DAG runs, such as cursors, checkpoints, and previous snapshots; use `state.diff` for change detection.
 When a command produces large data for an artifact, let it write to stdout/stderr and attach the stream directly:
 ```yaml
 stdout:
