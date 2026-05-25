@@ -467,22 +467,25 @@ func dagRunQueryFilterHash(opts exec.ListDAGRunStatusesOptions) string {
 	sort.Ints(statuses)
 	labels := append([]string(nil), opts.Labels...)
 	sort.Strings(labels)
+	workspace := normalizedWorkspaceFilter(opts.WorkspaceFilter)
 	normalized := struct {
-		DAGRunID   string   `json:"dag_run_id,omitempty"`
-		Name       string   `json:"name,omitempty"`
-		ExactName  string   `json:"exact_name,omitempty"`
-		From       string   `json:"from,omitempty"`
-		To         string   `json:"to,omitempty"`
-		Statuses   []int    `json:"statuses,omitempty"`
-		Labels     []string `json:"labels,omitempty"`
-		AllHistory bool     `json:"all_history,omitempty"`
+		DAGRunID        string                    `json:"dag_run_id,omitempty"`
+		Name            string                    `json:"name,omitempty"`
+		ExactName       string                    `json:"exact_name,omitempty"`
+		From            string                    `json:"from,omitempty"`
+		To              string                    `json:"to,omitempty"`
+		Statuses        []int                     `json:"statuses,omitempty"`
+		Labels          []string                  `json:"labels,omitempty"`
+		WorkspaceFilter *dagRunWorkspaceFilterKey `json:"workspace_filter,omitempty"`
+		AllHistory      bool                      `json:"all_history,omitempty"`
 	}{
-		DAGRunID:   opts.DAGRunID,
-		Name:       opts.Name,
-		ExactName:  opts.ExactName,
-		Statuses:   statuses,
-		Labels:     labels,
-		AllHistory: opts.AllHistory,
+		DAGRunID:        opts.DAGRunID,
+		Name:            opts.Name,
+		ExactName:       opts.ExactName,
+		Statuses:        statuses,
+		Labels:          labels,
+		WorkspaceFilter: workspace,
+		AllHistory:      opts.AllHistory,
 	}
 	if !opts.From.IsZero() {
 		normalized.From = opts.From.UTC().Format(time.RFC3339Nano)
@@ -493,6 +496,23 @@ func dagRunQueryFilterHash(opts exec.ListDAGRunStatusesOptions) string {
 	data, _ := json.Marshal(normalized)
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+type dagRunWorkspaceFilterKey struct {
+	Workspaces        []string `json:"workspaces,omitempty"`
+	IncludeUnlabelled bool     `json:"include_unlabelled,omitempty"`
+}
+
+func normalizedWorkspaceFilter(filter *exec.WorkspaceFilter) *dagRunWorkspaceFilterKey {
+	if filter == nil || !filter.Enabled {
+		return nil
+	}
+	workspaces := append([]string(nil), filter.Workspaces...)
+	sort.Strings(workspaces)
+	return &dagRunWorkspaceFilterKey{
+		Workspaces:        workspaces,
+		IncludeUnlabelled: filter.IncludeUnlabelled,
+	}
 }
 
 func invalidDAGRunQueryCursor(reason string) error {

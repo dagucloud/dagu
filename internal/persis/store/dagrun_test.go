@@ -5,6 +5,7 @@ package store_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/persis"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
 )
@@ -32,6 +34,31 @@ func testDAG(name string, labels ...string) *core.DAG {
 		Location: "/tmp/" + name + ".yaml",
 		Labels:   core.NewLabels(labels),
 	}
+}
+
+type recordingLockCollection struct {
+	persis.Collection
+	mu   sync.Mutex
+	keys []string
+}
+
+func (c *recordingLockCollection) WithLock(ctx context.Context, key string, fn func() error) error {
+	c.mu.Lock()
+	c.keys = append(c.keys, key)
+	c.mu.Unlock()
+
+	if lockable, ok := c.Collection.(interface {
+		WithLock(context.Context, string, func() error) error
+	}); ok {
+		return lockable.WithLock(ctx, key, fn)
+	}
+	return fn()
+}
+
+func (c *recordingLockCollection) lockedKeys() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.keys...)
 }
 
 func writeDAGRunStatus(t *testing.T, ctx context.Context, att exec.DAGRunAttempt, dag *core.DAG, dagRunID string, status core.Status) exec.DAGRunStatus {
@@ -216,6 +243,46 @@ func TestDAGRunStore_CompareAndSwapSubAttemptStatus(t *testing.T) {
 	assert.Equal(t, core.Succeeded, requireAttemptStatus(t, ctx, found).Status)
 }
 
+func TestDAGRunStore_CompareAndSwapSubAttemptRejectsMissingRootName(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := newDAGRunStore(t)
+	rootDAG := testDAG("child")
+	childDAG := testDAG("child")
+	base := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+
+	rootAttempt, err := s.CreateAttempt(ctx, rootDAG, base, "parent-run", exec.NewDAGRunAttemptOptions{AttemptID: "root-attempt"})
+	require.NoError(t, err)
+	writeDAGRunStatus(t, ctx, rootAttempt, rootDAG, "parent-run", core.Running)
+
+	rootRef := exec.NewDAGRunRef(rootDAG.Name, "parent-run")
+	subAttempt, err := s.CreateAttempt(ctx, childDAG, base.Add(time.Second), "child-run", exec.NewDAGRunAttemptOptions{
+		RootDAGRun: &rootRef,
+		AttemptID:  "child-attempt",
+	})
+	require.NoError(t, err)
+	subStatus := writeDAGRunStatus(t, ctx, subAttempt, childDAG, "child-run", core.Running)
+
+	_, swapped, err := s.CompareAndSwapLatestAttemptStatus(
+		ctx,
+		exec.NewDAGRunRef(childDAG.Name, "child-run"),
+		subAttempt.ID(),
+		core.Running,
+		func(st *exec.DAGRunStatus) error {
+			st.Status = core.Succeeded
+			return nil
+		},
+		exec.WithCompareAndSwapRootDAGRun(exec.NewDAGRunRef("", "parent-run")),
+	)
+	require.ErrorContains(t, err, "root DAG name is required")
+	assert.False(t, swapped)
+
+	found, err := s.FindSubAttempt(ctx, rootRef, "child-run")
+	require.NoError(t, err)
+	assert.Equal(t, subStatus.Status, requireAttemptStatus(t, ctx, found).Status)
+}
+
 func TestDAGRunStore_CreateSubAttemptRejectsDuplicateAttemptID(t *testing.T) {
 	t.Parallel()
 
@@ -328,6 +395,40 @@ func TestDAGRunStore_RenameDAGRunsRejectsDestinationConflict(t *testing.T) {
 	assert.Equal(t, core.Failed, requireAttemptStatus(t, ctx, foundOld).Status)
 }
 
+func TestDAGRunStore_RenameDAGRunsLocksDestinationRunNamespace(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	col := &recordingLockCollection{Collection: testutil.NewMemoryBackend().Collection("dag_runs")}
+	s := store.NewDAGRunStore(
+		col,
+		store.WithDAGRunLatestStatusToday(false),
+		store.WithDAGRunLocation(time.UTC),
+	)
+	oldDAG := testDAG("old-dag")
+	base := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+
+	att, err := s.CreateAttempt(ctx, oldDAG, base, "run-1", exec.NewDAGRunAttemptOptions{AttemptID: "attempt-a"})
+	require.NoError(t, err)
+	writeDAGRunStatus(t, ctx, att, oldDAG, "run-1", core.Succeeded)
+
+	require.NoError(t, s.RenameDAGRuns(ctx, "old-dag", "new-dag"))
+	keys := col.lockedKeys()
+	assert.Contains(t, keys, "rename/old-dag")
+	assert.Contains(t, keys, "rename/new-dag")
+	assert.Contains(t, keys, "runs/new-dag/run-1/lock")
+}
+
+func TestDAGRunStore_RemoveDAGRunReturnsNotFoundForMissingRun(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := newDAGRunStore(t)
+
+	err := s.RemoveDAGRun(ctx, exec.NewDAGRunRef("missing-dag", "missing-run"))
+	require.ErrorIs(t, err, exec.ErrDAGRunIDNotFound)
+}
+
 func TestDAGRunAttempt_MetadataHelpers(t *testing.T) {
 	t.Parallel()
 
@@ -418,6 +519,32 @@ func TestDAGRunStore_ListStatusesAndPages(t *testing.T) {
 	assert.Empty(t, page2.NextCursor)
 }
 
+func TestDAGRunStore_ListStatusesKeepsSameRunIDAcrossDAGNames(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := newDAGRunStore(t)
+	alpha := testDAG("alpha")
+	beta := testDAG("beta")
+	base := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+
+	alphaAttempt, err := s.CreateAttempt(ctx, alpha, base, "shared-run", exec.NewDAGRunAttemptOptions{AttemptID: "attempt-a"})
+	require.NoError(t, err)
+	writeDAGRunStatus(t, ctx, alphaAttempt, alpha, "shared-run", core.Succeeded)
+
+	betaAttempt, err := s.CreateAttempt(ctx, beta, base.Add(time.Second), "shared-run", exec.NewDAGRunAttemptOptions{AttemptID: "attempt-b"})
+	require.NoError(t, err)
+	writeDAGRunStatus(t, ctx, betaAttempt, beta, "shared-run", core.Failed)
+
+	statuses, err := s.ListStatuses(ctx, exec.WithAllHistory())
+	require.NoError(t, err)
+	require.Len(t, statuses, 2)
+	assert.Equal(t, "beta", statuses[0].Name)
+	assert.Equal(t, "alpha", statuses[1].Name)
+	assert.Equal(t, "shared-run", statuses[0].DAGRunID)
+	assert.Equal(t, "shared-run", statuses[1].DAGRunID)
+}
+
 func TestDAGRunStore_ListStatusesPageRejectsChangedFiltersWithSharedCursorError(t *testing.T) {
 	t.Parallel()
 
@@ -459,16 +586,66 @@ func TestDAGRunStore_ListStatusesPageRejectsChangedFiltersWithSharedCursorError(
 	require.ErrorIs(t, err, exec.ErrInvalidDAGRunQueryCursor)
 }
 
-func TestDAGRunStore_RemoveOldDAGRunsUsesLatestAttemptActivity(t *testing.T) {
+func TestDAGRunStore_ListStatusesPageRejectsChangedWorkspaceFilter(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	s := newDAGRunStore(t)
+	dag := testDAG("workspace-dag", "workspace=ops")
+	base := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+
+	for _, tc := range []struct {
+		runID   string
+		offset  time.Duration
+		attempt string
+	}{
+		{runID: "run-1", offset: time.Second, attempt: "attempt-a"},
+		{runID: "run-0", offset: 0, attempt: "attempt-b"},
+	} {
+		att, err := s.CreateAttempt(ctx, dag, base.Add(tc.offset), tc.runID, exec.NewDAGRunAttemptOptions{AttemptID: tc.attempt})
+		require.NoError(t, err)
+		writeDAGRunStatus(t, ctx, att, dag, tc.runID, core.Succeeded)
+	}
+
+	page, err := s.ListStatusesPage(
+		ctx,
+		exec.WithAllHistory(),
+		exec.WithWorkspaceFilter(&exec.WorkspaceFilter{Enabled: true, Workspaces: []string{"ops"}}),
+		exec.WithLimit(1),
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, page.NextCursor)
+
+	_, err = s.ListStatusesPage(
+		ctx,
+		exec.WithAllHistory(),
+		exec.WithWorkspaceFilter(&exec.WorkspaceFilter{Enabled: true, Workspaces: []string{"dev"}}),
+		exec.WithLimit(1),
+		exec.WithCursor(page.NextCursor),
+	)
+	require.ErrorIs(t, err, exec.ErrInvalidDAGRunQueryCursor)
+}
+
+func TestDAGRunStore_RemoveOldDAGRunsUsesLatestAttemptActivity(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	col := testutil.NewMemoryBackend().Collection("dag_runs")
+	s := store.NewDAGRunStore(
+		col,
+		store.WithDAGRunLatestStatusToday(false),
+		store.WithDAGRunLocation(time.UTC),
+	)
 	dag := testDAG("retention-dag")
 	old := time.Now().UTC().AddDate(0, 0, -10)
 
-	_, err := s.CreateAttempt(ctx, dag, old, "stale-run", exec.NewDAGRunAttemptOptions{AttemptID: "attempt-a"})
+	stale, err := s.CreateAttempt(ctx, dag, old, "stale-run", exec.NewDAGRunAttemptOptions{AttemptID: "attempt-a"})
 	require.NoError(t, err)
+	writeDAGRunStatus(t, ctx, stale, dag, "stale-run", core.Failed)
+	staleRecord, err := col.Get(ctx, "runs/retention-dag/stale-run/attempts/attempt-a")
+	require.NoError(t, err)
+	staleRecord.UpdatedAt = old
+	require.NoError(t, col.Put(ctx, staleRecord))
 
 	first, err := s.CreateAttempt(ctx, dag, old, "retried-run", exec.NewDAGRunAttemptOptions{AttemptID: "attempt-a"})
 	require.NoError(t, err)
@@ -488,6 +665,25 @@ func TestDAGRunStore_RemoveOldDAGRunsUsesLatestAttemptActivity(t *testing.T) {
 	_, err = s.FindAttempt(ctx, exec.NewDAGRunRef(dag.Name, "stale-run"))
 	require.Error(t, err)
 	_, err = s.FindAttempt(ctx, exec.NewDAGRunRef(dag.Name, "retried-run"))
+	require.NoError(t, err)
+}
+
+func TestDAGRunStore_RemoveOldDAGRunsPreservesStatuslessLatestAttempts(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := newDAGRunStore(t)
+	dag := testDAG("statusless-retention-dag")
+	old := time.Now().UTC().AddDate(0, 0, -10)
+
+	_, err := s.CreateAttempt(ctx, dag, old, "statusless-run", exec.NewDAGRunAttemptOptions{AttemptID: "attempt-a"})
+	require.NoError(t, err)
+
+	removed, err := s.RemoveOldDAGRuns(ctx, dag.Name, 0)
+	require.NoError(t, err)
+	assert.NotContains(t, removed, "statusless-run")
+
+	_, err = s.FindAttempt(ctx, exec.NewDAGRunRef(dag.Name, "statusless-run"))
 	require.NoError(t, err)
 }
 

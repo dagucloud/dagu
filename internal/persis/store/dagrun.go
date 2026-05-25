@@ -238,9 +238,8 @@ func (s *DAGRunStore) CompareAndSwapLatestAttemptStatus(
 	rootRef := cfg.RootDAGRun
 	if rootRef.Zero() {
 		rootRef = dagRun
-	}
-	if rootRef.Name == "" {
-		rootRef.Name = dagRun.Name
+	} else if rootRef.Name == "" {
+		return nil, false, fmt.Errorf("dag-run store: root DAG name is required")
 	}
 	if rootRef.ID == "" {
 		return nil, false, ErrDAGRunIDEmpty
@@ -345,7 +344,7 @@ func (s *DAGRunStore) RemoveOldDAGRuns(ctx context.Context, name string, retenti
 			if i >= *options.RetentionRuns {
 				break
 			}
-			keep[item.payload.DAGRunID] = struct{}{}
+			keep[dagRunKey(item.payload)] = struct{}{}
 		}
 	}
 
@@ -353,14 +352,18 @@ func (s *DAGRunStore) RemoveOldDAGRuns(ctx context.Context, name string, retenti
 	var removed []string
 	seen := make(map[string]struct{})
 	for _, item := range attempts {
-		if _, ok := seen[item.payload.DAGRunID]; ok {
+		key := dagRunKey(item.payload)
+		if _, ok := seen[key]; ok {
 			continue
 		}
-		seen[item.payload.DAGRunID] = struct{}{}
-		if _, ok := keep[item.payload.DAGRunID]; ok {
+		seen[key] = struct{}{}
+		if _, ok := keep[key]; ok {
 			continue
 		}
-		if item.payload.Status != nil && item.payload.Status.Status.IsActive() {
+		if item.payload.Status == nil {
+			continue
+		}
+		if item.payload.Status.Status.IsActive() {
 			continue
 		}
 		if options.RetentionRuns == nil && retentionDays > 0 && !dagRunAttemptActivity(item).Before(cutoff) {
@@ -370,7 +373,7 @@ func (s *DAGRunStore) RemoveOldDAGRuns(ctx context.Context, name string, retenti
 		if options.DryRun {
 			continue
 		}
-		if err := s.deleteRootRun(ctx, name, item.payload.DAGRunID); err != nil {
+		if err := s.deleteRootRun(ctx, item.payload.Name, item.payload.DAGRunID); err != nil {
 			return nil, err
 		}
 	}
@@ -384,7 +387,10 @@ func (s *DAGRunStore) RenameDAGRuns(ctx context.Context, oldName, newName string
 	if oldName == newName {
 		return nil
 	}
-	return s.withLock(ctx, "rename/"+escapeDAGRunComponent(oldName), func() error {
+	return s.withLocks(ctx, []string{
+		"rename/" + escapeDAGRunComponent(oldName),
+		"rename/" + escapeDAGRunComponent(newName),
+	}, func() error {
 		items, err := s.listAttemptItems(ctx, dagRunRootPrefix+escapeDAGRunComponent(oldName)+"/")
 		if err != nil {
 			return err
@@ -400,20 +406,22 @@ func (s *DAGRunStore) RenameDAGRuns(ctx context.Context, oldName, newName string
 				updatedAt: time.Now().UTC(),
 			})
 		}
-		for _, op := range ops {
-			if err := s.ensureRecordDoesNotExist(ctx, op.newID); err != nil {
-				return err
+		return s.withLocks(ctx, dagRunRenameLockKeys(ops), func() error {
+			for _, op := range ops {
+				if err := s.ensureRecordDoesNotExist(ctx, op.newID); err != nil {
+					return err
+				}
 			}
-		}
-		for _, op := range ops {
-			if err := s.putPayload(ctx, op.newID, op.payload, op.createdAt, op.updatedAt); err != nil {
-				return err
+			for _, op := range ops {
+				if err := s.putPayload(ctx, op.newID, op.payload, op.createdAt, op.updatedAt); err != nil {
+					return err
+				}
+				if err := s.col.Delete(ctx, op.oldID); err != nil && !errors.Is(err, persis.ErrNotFound) {
+					return err
+				}
 			}
-			if err := s.col.Delete(ctx, op.oldID); err != nil && !errors.Is(err, persis.ErrNotFound) {
-				return err
-			}
-		}
-		return nil
+			return nil
+		})
 	})
 }
 
@@ -426,10 +434,17 @@ func (s *DAGRunStore) RemoveDAGRun(ctx context.Context, dagRun exec.DAGRunRef, o
 		opt(&options)
 	}
 	return s.withLock(ctx, dagRunLockKey(dagRun.Name, dagRun.ID), func() error {
+		records, err := s.recordsForRootRun(ctx, dagRun.Name, dagRun.ID)
+		if err != nil {
+			return err
+		}
+		if len(records) == 0 {
+			return exec.ErrDAGRunIDNotFound
+		}
 		if options.RejectActive {
-			item, err := s.latestRootAttemptForRun(ctx, dagRun.Name, dagRun.ID)
-			if err != nil {
-				return fmt.Errorf("failed to find latest attempt for dag-run %s: %w", dagRun.ID, err)
+			item, ok := latestVisibleAttempt(records)
+			if !ok {
+				return fmt.Errorf("failed to find latest attempt for dag-run %s: %w", dagRun.ID, exec.ErrNoStatusData)
 			}
 			if item.payload.Status == nil {
 				return fmt.Errorf("failed to read dag-run %s status: %w", dagRun.ID, exec.ErrNoStatusData)
@@ -524,6 +539,44 @@ type dagRunRenameOp struct {
 	updatedAt time.Time
 }
 
+func dagRunKey(payload dagRunPayload) string {
+	return payload.Name + "\x00" + payload.DAGRunID
+}
+
+func dagRunRenameLockKeys(ops []dagRunRenameOp) []string {
+	keys := make([]string, 0, len(ops))
+	for _, op := range ops {
+		keys = append(keys, dagRunPayloadLockKey(op.payload))
+	}
+	return keys
+}
+
+func dagRunPayloadLockKey(payload dagRunPayload) string {
+	if payload.Parent.Zero() {
+		return dagRunLockKey(payload.Name, payload.DAGRunID)
+	}
+	return dagRunLockKey(payload.Root.Name, payload.Root.ID)
+}
+
+func normalizeDAGRunLockKeys(keys []string) []string {
+	if len(keys) == 0 {
+		return nil
+	}
+	sorted := append([]string(nil), keys...)
+	sort.Strings(sorted)
+	out := sorted[:0]
+	for _, key := range sorted {
+		if key == "" {
+			continue
+		}
+		if len(out) > 0 && out[len(out)-1] == key {
+			continue
+		}
+		out = append(out, key)
+	}
+	return out
+}
+
 func (s *DAGRunStore) latestRootAttempts(ctx context.Context, name string) ([]dagRunRecordItem, error) {
 	items, err := s.rootAttemptItems(ctx, name)
 	if err != nil {
@@ -534,9 +587,10 @@ func (s *DAGRunStore) latestRootAttempts(ctx context.Context, name string) ([]da
 		if item.payload.Hidden {
 			continue
 		}
-		current, ok := latestByRun[item.payload.DAGRunID]
+		key := dagRunKey(item.payload)
+		current, ok := latestByRun[key]
 		if !ok || compareAttemptPayload(item.payload, current.payload) > 0 {
-			latestByRun[item.payload.DAGRunID] = item
+			latestByRun[key] = item
 		}
 	}
 	out := make([]dagRunRecordItem, 0, len(latestByRun))
@@ -766,6 +820,20 @@ func (s *DAGRunStore) withLock(ctx context.Context, key string, fn func() error)
 	unlock := s.lockFallbackKey(key)
 	defer unlock()
 	return fn()
+}
+
+func (s *DAGRunStore) withLocks(ctx context.Context, keys []string, fn func() error) error {
+	keys = normalizeDAGRunLockKeys(keys)
+	var lockNext func(int) error
+	lockNext = func(i int) error {
+		if i >= len(keys) {
+			return fn()
+		}
+		return s.withLock(ctx, keys[i], func() error {
+			return lockNext(i + 1)
+		})
+	}
+	return lockNext(0)
 }
 
 func (s *DAGRunStore) lockFallbackKey(key string) func() {

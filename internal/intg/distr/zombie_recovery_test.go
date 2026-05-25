@@ -415,7 +415,11 @@ steps:
 	assert.Equal(t, status.AttemptID, lease.AttemptID)
 	assert.Equal(t, "worker-1", lease.WorkerID)
 	assert.Equal(t, "test-coordinator", lease.Owner.ID)
-	assert.WithinDuration(t, leaseObservedAt, time.UnixMilli(lease.LastHeartbeatAt), distrTestTimeout(5*time.Second))
+	assert.Truef(t,
+		lease.IsFresh(leaseObservedAt.UTC(), exec.DefaultStaleLeaseThreshold),
+		"shared lease heartbeat should be fresh; last heartbeat was %s",
+		time.UnixMilli(lease.LastHeartbeatAt).UTC(),
+	)
 
 	require.NoError(t, os.WriteFile(releaseFile, []byte("ok"), 0600))
 	finalStatus := f.waitForStatus(core.Succeeded, 20*time.Second)
