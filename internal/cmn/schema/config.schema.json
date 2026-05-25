@@ -450,6 +450,10 @@
           "type": "string",
           "description": "Directory for DAG run artifact files."
         },
+        "dag_state_dir": {
+          "type": "string",
+          "description": "Directory for persistent DAG state files."
+        },
         "data_dir": {
           "type": "string",
           "description": "Directory for application data."

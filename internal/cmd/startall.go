@@ -150,6 +150,7 @@ func runStartAll(ctx *Context, _ []string) error {
 			ctx.Config,
 			ctx.ServiceRegistry,
 			ctx.DAGRunStore,
+			ctx.StateStore,
 			ctx.DispatchTaskStore,
 			ctx.WorkerHeartbeatStore,
 			ctx.DAGRunLeaseStore,

@@ -73,6 +73,8 @@ func TestMain(m *testing.M) {
 	core.RegisterExecutorCapabilities("log", core.ExecutorCapabilities{})
 	// outputs: supports write command
 	core.RegisterExecutorCapabilities("outputs", core.ExecutorCapabilities{Command: true})
+	// state: supports operation commands only
+	core.RegisterExecutorCapabilities("state", core.ExecutorCapabilities{Command: true})
 	// chat: LLM executor
 	core.RegisterExecutorCapabilities("chat", core.ExecutorCapabilities{LLM: true})
 
