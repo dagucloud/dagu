@@ -74,7 +74,7 @@ steps:
 	require.NoError(t, attempt.Write(f.th.Context, status))
 	require.NoError(t, attempt.Close(f.th.Context))
 
-	procFile := test.CreateStaleProcFileWithAttempt(
+	procFile := test.CreateStaleLegacyProcFileWithAttempt(
 		t,
 		f.th.Config.Paths.ProcDir,
 		f.dag.ProcGroup(),
@@ -112,7 +112,7 @@ steps:
 	fakeRunID := uuid.Must(uuid.NewV7()).String()
 	fakeRef := exec.NewDAGRunRef(f.dag.Name, fakeRunID)
 	staleStartedAt := time.Now().Add(-30 * time.Second)
-	procFile := test.CreateStaleProcFile(
+	procFile := test.CreateStaleLegacyProcFile(
 		t,
 		f.th.Config.Paths.ProcDir,
 		f.dag.ProcGroup(),

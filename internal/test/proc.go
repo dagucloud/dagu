@@ -35,11 +35,16 @@ func procGroupDir(procDir, groupName, dagName string) string {
 	return filepath.Join(procDir, groupName, dagName)
 }
 
+// ProcHeartbeatObserver is the proc-store surface needed by heartbeat liveness tests.
+type ProcHeartbeatObserver interface {
+	LatestHeartbeat(ctx context.Context, groupName string, dagRun exec.DAGRunRef) (*exec.ProcHeartbeat, error)
+}
+
 // WaitForProcHeartbeat returns the latest heartbeat observation for dagRun once it exists.
 func WaitForProcHeartbeat(
 	t *testing.T,
 	ctx context.Context,
-	procStore exec.ProcStore,
+	procStore ProcHeartbeatObserver,
 	groupName string,
 	dagRun exec.DAGRunRef,
 	timeout time.Duration,
@@ -63,7 +68,7 @@ func WaitForProcHeartbeat(
 func RequireProcHeartbeatAdvance(
 	t *testing.T,
 	ctx context.Context,
-	procStore exec.ProcStore,
+	procStore ProcHeartbeatObserver,
 	groupName string,
 	dagRun exec.DAGRunRef,
 	timeout time.Duration,
@@ -83,8 +88,8 @@ func RequireProcHeartbeatAdvance(
 	}, timeout, 25*time.Millisecond, "proc heartbeat did not advance for %s: %v", dagRun.String(), lastErr)
 }
 
-// CreateStaleProcFile writes a stale proc heartbeat file for the given dag-run.
-func CreateStaleProcFile(
+// CreateStaleLegacyProcFile writes a stale legacy .proc heartbeat file for the given dag-run.
+func CreateStaleLegacyProcFile(
 	t *testing.T,
 	procDir string,
 	groupName string,
@@ -92,11 +97,11 @@ func CreateStaleProcFile(
 	startedAt time.Time,
 	age time.Duration,
 ) string {
-	return CreateStaleProcFileWithAttempt(t, procDir, groupName, dagRun, "attempt_"+dagRun.ID, startedAt, age)
+	return CreateStaleLegacyProcFileWithAttempt(t, procDir, groupName, dagRun, "attempt_"+dagRun.ID, startedAt, age)
 }
 
-// CreateStaleProcFileWithAttempt writes a stale proc heartbeat file for the given dag-run and attempt.
-func CreateStaleProcFileWithAttempt(
+// CreateStaleLegacyProcFileWithAttempt writes a stale legacy .proc heartbeat file for the given dag-run and attempt.
+func CreateStaleLegacyProcFileWithAttempt(
 	t *testing.T,
 	procDir string,
 	groupName string,

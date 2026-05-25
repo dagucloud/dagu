@@ -22,6 +22,7 @@ type ProcHandle struct {
 	store      *ProcStore
 	groupName  string
 	recordID   string
+	legacy     *legacyProcStore
 	legacyPath string
 	createdAt  time.Time
 	meta       exec.ProcMeta
@@ -61,8 +62,8 @@ func (p *ProcHandle) cleanup(ctx context.Context) error {
 	if err := p.store.col.Delete(ctx, p.recordID); err != nil && !errors.Is(err, persis.ErrNotFound) {
 		errs = append(errs, err)
 	}
-	if p.legacyPath != "" {
-		if err := removeLegacyProcFile(p.legacyPath); err != nil {
+	if p.legacy != nil && p.legacyPath != "" {
+		if err := p.legacy.remove(p.legacyPath); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -145,8 +146,8 @@ func (p *ProcHandle) writeHeartbeat(ctx context.Context, now time.Time) error {
 	}); err != nil {
 		return err
 	}
-	if p.legacyPath != "" {
-		return writeLegacyProcFile(p.legacyPath, now.Unix(), p.meta)
+	if p.legacy != nil && p.legacyPath != "" {
+		return p.legacy.write(p.legacyPath, now.Unix(), p.meta)
 	}
 	return nil
 }

@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -69,6 +68,18 @@ type observedProcEntry struct {
 	observedAt time.Time
 }
 
+type legacyProcStore struct {
+	root      string
+	staleTime time.Duration
+}
+
+func newLegacyProcStore(root string) *legacyProcStore {
+	if root == "" {
+		return nil
+	}
+	return &legacyProcStore{root: root}
+}
+
 func validateProcMeta(meta exec.ProcMeta) error {
 	if meta.Name == "" {
 		return fmt.Errorf("proc meta name is required")
@@ -109,15 +120,15 @@ func procRecordName(meta exec.ProcMeta, t time.Time) string {
 	)
 }
 
-func procLegacyFilePath(root, groupName string, meta exec.ProcMeta, t time.Time) string {
-	return filepath.Join(root, groupName, meta.Name, procRecordName(meta, t)+procFileExt)
+func (l *legacyProcStore) filePath(groupName string, meta exec.ProcMeta, t time.Time) string {
+	return filepath.Join(l.root, groupName, meta.Name, procRecordName(meta, t)+procFileExt)
 }
 
 func procEntryIsLegacyPath(path string) bool {
 	return strings.HasSuffix(path, procFileExt)
 }
 
-func writeLegacyProcFile(path string, heartbeatUnix int64, meta exec.ProcMeta) error {
+func (l *legacyProcStore) write(path string, heartbeatUnix int64, meta exec.ProcMeta) error {
 	if err := validateProcMeta(meta); err != nil {
 		return err
 	}
@@ -166,20 +177,16 @@ func writeLegacyProcFileAtomic(path string, data []byte) error {
 }
 
 func removeLegacyProcFile(path string) error {
-	var lastErr error
-	for attempt := range 12 {
-		err := os.Remove(path)
-		if err == nil || errors.Is(err, os.ErrNotExist) {
-			removeEmptyLegacyDirs(filepath.Dir(path))
-			return nil
-		}
-		if !isRetryableLegacyProcFileError(err) {
-			return err
-		}
-		lastErr = err
-		time.Sleep(time.Duration(attempt+1) * 25 * time.Millisecond)
+	err := fileutil.RemoveWithRetry(path)
+	if err == nil || errors.Is(err, os.ErrNotExist) {
+		removeEmptyLegacyDirs(filepath.Dir(path))
+		return nil
 	}
-	return lastErr
+	return err
+}
+
+func (l *legacyProcStore) remove(path string) error {
+	return removeLegacyProcFile(path)
 }
 
 func removeEmptyLegacyDirs(dir string) {
@@ -190,16 +197,8 @@ func removeEmptyLegacyDirs(dir string) {
 	_ = os.Remove(dir)
 }
 
-func isRetryableLegacyProcFileError(err error) bool {
-	if runtime.GOOS != "windows" {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "used by another process") || strings.Contains(msg, "access is denied")
-}
-
-func (s *ProcStore) listLegacyEntries(groupName string) ([]exec.ProcEntry, error) {
-	groupDir := filepath.Join(s.legacyDir, groupName)
+func (l *legacyProcStore) listEntries(groupName string) ([]exec.ProcEntry, error) {
+	groupDir := filepath.Join(l.root, groupName)
 	if _, err := os.Stat(groupDir); errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -207,11 +206,11 @@ func (s *ProcStore) listLegacyEntries(groupName string) ([]exec.ProcEntry, error
 	if err != nil {
 		return nil, err
 	}
-	return s.legacyEntriesFromFiles(groupName, files)
+	return l.entriesFromFiles(groupName, files)
 }
 
-func (s *ProcStore) listAllLegacyEntries() ([]exec.ProcEntry, error) {
-	dirEntries, err := os.ReadDir(s.legacyDir)
+func (l *legacyProcStore) listAllEntries() ([]exec.ProcEntry, error) {
+	dirEntries, err := os.ReadDir(l.root)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
@@ -225,11 +224,11 @@ func (s *ProcStore) listAllLegacyEntries() ([]exec.ProcEntry, error) {
 			continue
 		}
 		groupName := entry.Name()
-		files, err := procLegacyFilesInGroup(filepath.Join(s.legacyDir, groupName))
+		files, err := procLegacyFilesInGroup(filepath.Join(l.root, groupName))
 		if err != nil {
 			return nil, err
 		}
-		groupEntries, err := s.legacyEntriesFromFiles(groupName, files)
+		groupEntries, err := l.entriesFromFiles(groupName, files)
 		if err != nil {
 			return nil, err
 		}
@@ -238,8 +237,8 @@ func (s *ProcStore) listAllLegacyEntries() ([]exec.ProcEntry, error) {
 	return entries, nil
 }
 
-func (s *ProcStore) latestLegacyHeartbeat(groupName string, dagRun exec.DAGRunRef) (*exec.ProcHeartbeat, error) {
-	groupDir := filepath.Join(s.legacyDir, groupName)
+func (l *legacyProcStore) latestHeartbeat(groupName string, dagRun exec.DAGRunRef) (*exec.ProcHeartbeat, error) {
+	groupDir := filepath.Join(l.root, groupName)
 	if _, err := os.Stat(groupDir); errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -250,7 +249,7 @@ func (s *ProcStore) latestLegacyHeartbeat(groupName string, dagRun exec.DAGRunRe
 	now := time.Now().UTC()
 	var latest *exec.ProcHeartbeat
 	for _, file := range files {
-		observed, err := readLegacyProcEntryObserved(file, groupName, s.staleTime, now)
+		observed, err := readLegacyProcEntryObserved(file, groupName, l.staleTime, now)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) || errors.Is(err, errInvalidProcFile) {
 				// Heartbeat observation should not fail because an unrelated
@@ -302,11 +301,11 @@ func procLegacyFilesInGroup(groupDir string) ([]string, error) {
 	return files, nil
 }
 
-func (s *ProcStore) legacyEntriesFromFiles(groupName string, files []string) ([]exec.ProcEntry, error) {
+func (l *legacyProcStore) entriesFromFiles(groupName string, files []string) ([]exec.ProcEntry, error) {
 	now := time.Now().UTC()
 	entries := make([]exec.ProcEntry, 0, len(files))
 	for _, file := range files {
-		entry, err := readLegacyProcEntry(file, groupName, s.staleTime, now)
+		entry, err := readLegacyProcEntry(file, groupName, l.staleTime, now)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				continue
@@ -318,8 +317,8 @@ func (s *ProcStore) legacyEntriesFromFiles(groupName string, files []string) ([]
 	return entries, nil
 }
 
-func (s *ProcStore) removeLegacyIfStale(ctx context.Context, entry exec.ProcEntry) error {
-	current, err := readLegacyProcEntry(entry.FilePath, entry.GroupName, s.staleTime, time.Now().UTC())
+func (l *legacyProcStore) removeIfStale(ctx context.Context, entry exec.ProcEntry) error {
+	current, err := readLegacyProcEntry(entry.FilePath, entry.GroupName, l.staleTime, time.Now().UTC())
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -329,7 +328,7 @@ func (s *ProcStore) removeLegacyIfStale(ctx context.Context, entry exec.ProcEntr
 	if current.Fresh || !sameProcEntry(current, entry) {
 		return nil
 	}
-	if err := removeLegacyProcFile(entry.FilePath); err != nil {
+	if err := l.remove(entry.FilePath); err != nil {
 		return err
 	}
 	logger.Info(ctx, "Removed stale legacy proc file", tag.File(entry.FilePath))

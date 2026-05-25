@@ -48,6 +48,8 @@ func WithProcHeartbeatInterval(d time.Duration) ProcStoreOption {
 // proc store option.
 // Collection-backed proc heartbeats are complete writes, so there is no
 // separate sync loop to configure.
+//
+// Deprecated: this option is retained only for configuration compatibility.
 func WithProcHeartbeatSyncInterval(_ time.Duration) ProcStoreOption {
 	return func(_ *ProcStore) {
 	}
@@ -57,7 +59,7 @@ func WithProcHeartbeatSyncInterval(_ time.Duration) ProcStoreOption {
 // pre-refactor .proc heartbeat files under dir.
 func WithProcLegacyDir(dir string) ProcStoreOption {
 	return func(s *ProcStore) {
-		s.legacyDir = dir
+		s.legacy = newLegacyProcStore(dir)
 	}
 }
 
@@ -66,7 +68,7 @@ type ProcStore struct {
 	col               persis.Collection
 	staleTime         time.Duration
 	heartbeatInterval time.Duration
-	legacyDir         string
+	legacy            *legacyProcStore
 
 	mu         sync.Mutex
 	locks      map[string]*procHeldLock
@@ -84,6 +86,9 @@ func NewProcStore(col persis.Collection, opts ...ProcStoreOption) *ProcStore {
 	}
 	for _, opt := range opts {
 		opt(s)
+	}
+	if s.legacy != nil {
+		s.legacy.staleTime = s.staleTime
 	}
 	return s
 }
@@ -104,8 +109,9 @@ func (s *ProcStore) Acquire(ctx context.Context, groupName string, meta exec.Pro
 		createdAt: now,
 		meta:      meta,
 	}
-	if s.legacyDir != "" {
-		handle.legacyPath = procLegacyFilePath(s.legacyDir, groupName, meta, now)
+	if s.legacy != nil {
+		handle.legacy = s.legacy
+		handle.legacyPath = s.legacy.filePath(groupName, meta, now)
 	}
 	if err := handle.startHeartbeat(ctx); err != nil {
 		return nil, err
@@ -191,8 +197,8 @@ func (s *ProcStore) ListEntries(ctx context.Context, groupName string) ([]exec.P
 	if err != nil {
 		return nil, err
 	}
-	if s.legacyDir != "" {
-		legacy, err := s.listLegacyEntries(groupName)
+	if s.legacy != nil {
+		legacy, err := s.legacy.listEntries(groupName)
 		if err != nil {
 			return nil, err
 		}
@@ -227,8 +233,8 @@ func (s *ProcStore) LatestFreshEntryByDAGName(ctx context.Context, groupName, da
 func (s *ProcStore) LatestHeartbeat(ctx context.Context, groupName string, dagRun exec.DAGRunRef) (*exec.ProcHeartbeat, error) {
 	collectionHeartbeat, err := s.latestCollectionHeartbeat(ctx, groupName, dagRun)
 	if err != nil {
-		if s.legacyDir != "" {
-			legacyHeartbeat, legacyErr := s.latestLegacyHeartbeat(groupName, dagRun)
+		if s.legacy != nil {
+			legacyHeartbeat, legacyErr := s.legacy.latestHeartbeat(groupName, dagRun)
 			if legacyErr != nil {
 				return nil, errors.Join(err, legacyErr)
 			}
@@ -238,10 +244,10 @@ func (s *ProcStore) LatestHeartbeat(ctx context.Context, groupName string, dagRu
 		}
 		return nil, err
 	}
-	if s.legacyDir == "" || (collectionHeartbeat != nil && collectionHeartbeat.Fresh) {
+	if s.legacy == nil || (collectionHeartbeat != nil && collectionHeartbeat.Fresh) {
 		return collectionHeartbeat, nil
 	}
-	legacyHeartbeat, err := s.latestLegacyHeartbeat(groupName, dagRun)
+	legacyHeartbeat, err := s.legacy.latestHeartbeat(groupName, dagRun)
 	if err != nil {
 		return nil, err
 	}
@@ -294,8 +300,8 @@ func (s *ProcStore) ListAllEntries(ctx context.Context) ([]exec.ProcEntry, error
 	if err != nil {
 		return nil, err
 	}
-	if s.legacyDir != "" {
-		legacy, err := s.listAllLegacyEntries()
+	if s.legacy != nil {
+		legacy, err := s.legacy.listAllEntries()
 		if err != nil {
 			return nil, err
 		}
@@ -310,7 +316,10 @@ func (s *ProcStore) RemoveIfStale(ctx context.Context, entry exec.ProcEntry) err
 		return nil
 	}
 	if procEntryIsLegacyPath(entry.FilePath) {
-		return s.removeLegacyIfStale(ctx, entry)
+		if s.legacy == nil {
+			return nil
+		}
+		return s.legacy.removeIfStale(ctx, entry)
 	}
 	return s.removeCollectionIfStale(ctx, entry)
 }
