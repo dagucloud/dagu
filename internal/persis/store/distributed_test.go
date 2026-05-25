@@ -91,11 +91,9 @@ func TestDAGRunLeaseStore_ConcurrentTouchPreservesLatestHeartbeat(t *testing.T) 
 	var wg sync.WaitGroup
 	errCh := make(chan error, 3)
 	for range 3 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			errCh <- s.Touch(ctx, "attempt-key-concurrent", latest)
-		}()
+		})
 	}
 	wg.Wait()
 	close(errCh)
