@@ -109,6 +109,18 @@ func TestDAGRunStore_CreateWriteFindAndRetry(t *testing.T) {
 	assert.Equal(t, core.Succeeded, requireAttemptStatus(t, ctx, found).Status)
 }
 
+func TestDAGRunStore_GeneratedAttemptIDUsesEightRandomBytes(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := newDAGRunStore(t)
+	dag := testDAG("generated-attempt-id-dag")
+
+	att, err := s.CreateAttempt(ctx, dag, time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), "run-1", exec.NewDAGRunAttemptOptions{})
+	require.NoError(t, err)
+	assert.Len(t, att.ID(), 16)
+}
+
 func TestDAGRunStore_CompareAndSwapLatestAttemptStatus(t *testing.T) {
 	t.Parallel()
 

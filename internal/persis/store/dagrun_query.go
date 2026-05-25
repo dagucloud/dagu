@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/url"
 	"sort"
 	"strings"
@@ -165,10 +166,7 @@ func inDAGRunTimeRange(t, start, end time.Time, fromZero, toZero bool) bool {
 	if !toZero && !t.Before(end) {
 		return false
 	}
-	if fromZero && toZero {
-		return true
-	}
-	return !t.Before(start) && t.Before(end)
+	return true
 }
 
 func compareDagRunListKeys(a, b dagRunListKey) int {
@@ -306,7 +304,7 @@ func normalizeOrGenerateAttemptID(attemptID string) (string, error) {
 	if attemptID != "" {
 		return attemptID, nil
 	}
-	b := make([]byte, 3)
+	b := make([]byte, 8)
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("failed to generate attempt ID: %w", err)
 	}
@@ -350,9 +348,7 @@ func copyStringMap(in map[string]string) map[string]string {
 		return nil
 	}
 	out := make(map[string]string, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
+	maps.Copy(out, in)
 	return out
 }
 
@@ -369,6 +365,8 @@ func copyStepMessagesMap(in map[string][]exec.LLMMessage) map[string][]exec.LLMM
 
 func stepMessagesFromPayloads(items []dagRunRecordItem) map[string][]exec.LLMMessage {
 	sorted := append([]dagRunRecordItem(nil), items...)
+	// Merge from oldest to newest so retry attempts inherit the latest message
+	// set for each step while preserving earlier steps that were not rewritten.
 	sort.Slice(sorted, func(i, j int) bool {
 		return compareAttemptPayload(sorted[i].payload, sorted[j].payload) < 0
 	})
@@ -389,6 +387,8 @@ func stepMessagesFromPayloads(items []dagRunRecordItem) map[string][]exec.LLMMes
 
 func latestStepMessagesFromPayloads(items []dagRunRecordItem, stepName string) []exec.LLMMessage {
 	sorted := append([]dagRunRecordItem(nil), items...)
+	// Read from newest to oldest because direct reads should return the most
+	// recent message set for the requested step.
 	sort.Slice(sorted, func(i, j int) bool {
 		return compareAttemptPayload(sorted[i].payload, sorted[j].payload) > 0
 	})
@@ -404,6 +404,8 @@ func containsFold(value, query string) bool {
 	return strings.Contains(strings.ToLower(value), strings.ToLower(query))
 }
 
+// Cursor versions are backend-scoped; filedagrun cursors intentionally do not
+// round-trip through this collection-backed store.
 const dagRunQueryCursorVersion = 1
 
 type dagRunQueryCursorPayload struct {

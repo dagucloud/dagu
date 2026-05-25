@@ -19,6 +19,9 @@ import (
 const (
 	dagRunStoreVersion = 1
 
+	// DAG-run records are stored as:
+	// runs/<dagName>/<dagRunID>/attempts/<attemptID>
+	// runs/<dagName>/<dagRunID>/children/<subDAGRunID>/attempts/<attemptID>
 	dagRunRootPrefix  = "runs/"
 	dagRunSubPrefix   = "children/"
 	dagRunAttemptPart = "attempts/"
@@ -54,16 +57,24 @@ type DAGRunStore struct {
 	col               persis.Collection
 	latestStatusToday bool
 	location          *time.Location
-	mu                sync.Mutex
+	mu                sync.Mutex // guards fallbackLocks
+	fallbackLocks     map[string]*dagRunFallbackLock
 }
 
 var _ exec.DAGRunStore = (*DAGRunStore)(nil)
 
+type dagRunFallbackLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
 type dagRunPayload struct {
-	Version          int                          `json:"version"`
-	Name             string                       `json:"name"`
-	DAGRunID         string                       `json:"dagRunId"`
-	AttemptID        string                       `json:"attemptId"`
+	Version   int    `json:"version"`
+	Name      string `json:"name"`
+	DAGRunID  string `json:"dagRunId"`
+	AttemptID string `json:"attemptId"`
+	// Root and Parent rely on Go 1.26 encoding/json omitzero support so
+	// zero DAGRunRef structs are omitted; omitempty would still encode them.
 	Root             exec.DAGRunRef               `json:"root,omitzero"`
 	Parent           exec.DAGRunRef               `json:"parent,omitzero"`
 	RunCreatedAt     int64                        `json:"runCreatedAt"`
@@ -82,6 +93,7 @@ func NewDAGRunStore(col persis.Collection, opts ...DAGRunStoreOption) *DAGRunSto
 		col:               col,
 		latestStatusToday: true,
 		location:          time.Local,
+		fallbackLocks:     make(map[string]*dagRunFallbackLock),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -308,6 +320,9 @@ func (s *DAGRunStore) CreateSubAttempt(ctx context.Context, rootRef exec.DAGRunR
 	return s.createSubAttempt(ctx, nil, time.Now().UTC(), subDAGRunID, exec.NewDAGRunAttemptOptions{RootDAGRun: &rootRef})
 }
 
+// RemoveOldDAGRuns removes old history records by retention days, or by run
+// count when WithRetentionRuns is configured. Run-count retention matches the
+// file-backed store and takes precedence over retentionDays.
 func (s *DAGRunStore) RemoveOldDAGRuns(ctx context.Context, name string, retentionDays int, opts ...exec.RemoveOldDAGRunsOption) ([]string, error) {
 	var options exec.RemoveOldDAGRunsOptions
 	for _, opt := range opts {
@@ -748,7 +763,30 @@ func (s *DAGRunStore) withLock(ctx context.Context, key string, fn func() error)
 	}); ok {
 		return col.WithLock(ctx, key, fn)
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	unlock := s.lockFallbackKey(key)
+	defer unlock()
 	return fn()
+}
+
+func (s *DAGRunStore) lockFallbackKey(key string) func() {
+	s.mu.Lock()
+	lock := s.fallbackLocks[key]
+	if lock == nil {
+		lock = &dagRunFallbackLock{}
+		s.fallbackLocks[key] = lock
+	}
+	lock.refs++
+	s.mu.Unlock()
+
+	lock.mu.Lock()
+	return func() {
+		lock.mu.Unlock()
+
+		s.mu.Lock()
+		lock.refs--
+		if lock.refs == 0 {
+			delete(s.fallbackLocks, key)
+		}
+		s.mu.Unlock()
+	}
 }
