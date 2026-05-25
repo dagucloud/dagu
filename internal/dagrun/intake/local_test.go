@@ -163,6 +163,9 @@ func (s *localProcStore) ListEntries(context.Context, string) ([]exec.ProcEntry,
 func (s *localProcStore) LatestFreshEntryByDAGName(context.Context, string, string) (*exec.ProcEntry, error) {
 	return nil, nil
 }
+func (s *localProcStore) LatestHeartbeat(context.Context, string, exec.DAGRunRef) (*exec.ProcHeartbeat, error) {
+	return nil, nil
+}
 func (s *localProcStore) ListAllEntries(context.Context) ([]exec.ProcEntry, error) {
 	return nil, nil
 }

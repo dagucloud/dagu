@@ -507,6 +507,18 @@ func (m *mockProcStore) LatestFreshEntryByDAGName(ctx context.Context, groupName
 	return &entry, args.Error(1)
 }
 
+func (m *mockProcStore) LatestHeartbeat(ctx context.Context, groupName string, dagRun exec.DAGRunRef) (*exec.ProcHeartbeat, error) {
+	args := m.Called(ctx, groupName, dagRun)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	if heartbeat, ok := args.Get(0).(*exec.ProcHeartbeat); ok {
+		return heartbeat, args.Error(1)
+	}
+	heartbeat := args.Get(0).(exec.ProcHeartbeat)
+	return &heartbeat, args.Error(1)
+}
+
 func (m *mockProcStore) ListAllEntries(ctx context.Context) ([]exec.ProcEntry, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {

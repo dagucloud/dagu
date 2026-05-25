@@ -15,14 +15,11 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/config"
-	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/stretchr/testify/require"
 )
-
-const procFilePattern = "proc_*.proc"
 
 func newProcStore(cfg *config.Config) *store.ProcStore {
 	return store.NewProcStore(
@@ -38,37 +35,52 @@ func procGroupDir(procDir, groupName, dagName string) string {
 	return filepath.Join(procDir, groupName, dagName)
 }
 
-// WaitForProcFile returns the heartbeat proc file for the given dag-run once it exists.
-func WaitForProcFile(t *testing.T, procDir, groupName string, dagRun exec.DAGRunRef, timeout time.Duration) string {
+// WaitForProcHeartbeat returns the latest heartbeat observation for dagRun once it exists.
+func WaitForProcHeartbeat(
+	t *testing.T,
+	ctx context.Context,
+	procStore exec.ProcStore,
+	groupName string,
+	dagRun exec.DAGRunRef,
+	timeout time.Duration,
+) exec.ProcHeartbeat {
 	t.Helper()
 
-	var match string
+	var heartbeat *exec.ProcHeartbeat
+	var lastErr error
 	require.Eventually(t, func() bool {
-		pattern := filepath.Join(procGroupDir(procDir, groupName, dagRun.Name), procFilePattern)
-		matches, err := filepath.Glob(pattern)
-		require.NoError(t, err)
-		if len(matches) == 0 {
+		heartbeat, lastErr = procStore.LatestHeartbeat(ctx, groupName, dagRun)
+		if lastErr != nil {
 			return false
 		}
-		match = matches[0]
-		return true
-	}, timeout, 25*time.Millisecond, "timed out waiting for proc file for %s", dagRun.String())
+		return heartbeat != nil && heartbeat.Fresh
+	}, timeout, 25*time.Millisecond, "timed out waiting for proc heartbeat for %s: %v", dagRun.String(), lastErr)
 
-	return match
+	return *heartbeat
 }
 
-// RequireHeartbeatAdvance verifies the proc file heartbeat updates within the timeout.
-func RequireHeartbeatAdvance(t *testing.T, procFile string, timeout time.Duration) {
+// RequireProcHeartbeatAdvance verifies dagRun's proc heartbeat updates within the timeout.
+func RequireProcHeartbeatAdvance(
+	t *testing.T,
+	ctx context.Context,
+	procStore exec.ProcStore,
+	groupName string,
+	dagRun exec.DAGRunRef,
+	timeout time.Duration,
+) {
 	t.Helper()
 
-	initialValue, initialModTime, err := readHeartbeat(procFile)
-	require.NoError(t, err)
+	initial := WaitForProcHeartbeat(t, ctx, procStore, groupName, dagRun, timeout)
 
+	var lastErr error
 	require.Eventually(t, func() bool {
-		value, modTime, err := readHeartbeat(procFile)
-		require.NoError(t, err)
-		return value > initialValue || modTime.After(initialModTime)
-	}, timeout, 25*time.Millisecond, "proc heartbeat did not advance for %s", procFile)
+		next, err := procStore.LatestHeartbeat(ctx, groupName, dagRun)
+		if err != nil {
+			lastErr = err
+			return false
+		}
+		return next != nil && next.Fresh && next.AdvancedSince(initial)
+	}, timeout, 25*time.Millisecond, "proc heartbeat did not advance for %s: %v", dagRun.String(), lastErr)
 }
 
 // CreateStaleProcFile writes a stale proc heartbeat file for the given dag-run.
@@ -138,21 +150,4 @@ func ReadRunStatus(ctx context.Context, t *testing.T, store exec.DAGRunStore, da
 	status, err := attempt.ReadStatus(ctx)
 	require.NoError(t, err)
 	return status
-}
-
-func readHeartbeat(procFile string) (uint64, time.Time, error) {
-	info, err := os.Stat(procFile)
-	if err != nil {
-		return 0, time.Time{}, err
-	}
-
-	data, err := fileutil.ReadFileWithRetry(procFile)
-	if err != nil {
-		return 0, time.Time{}, err
-	}
-	if len(data) < 8 {
-		return 0, time.Time{}, fmt.Errorf("heartbeat file %s is too short", procFile)
-	}
-
-	return binary.BigEndian.Uint64(data[:8]), info.ModTime(), nil
 }

@@ -64,6 +64,11 @@ type procFileName struct {
 	attemptID string
 }
 
+type observedProcEntry struct {
+	entry      exec.ProcEntry
+	observedAt time.Time
+}
+
 func validateProcMeta(meta exec.ProcMeta) error {
 	if meta.Name == "" {
 		return fmt.Errorf("proc meta name is required")
@@ -233,6 +238,37 @@ func (s *ProcStore) listAllLegacyEntries() ([]exec.ProcEntry, error) {
 	return entries, nil
 }
 
+func (s *ProcStore) latestLegacyHeartbeat(groupName string, dagRun exec.DAGRunRef) (*exec.ProcHeartbeat, error) {
+	groupDir := filepath.Join(s.legacyDir, groupName)
+	if _, err := os.Stat(groupDir); errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	files, err := procLegacyFilesInGroup(groupDir)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	var latest *exec.ProcHeartbeat
+	for _, file := range files {
+		observed, err := readLegacyProcEntryObserved(file, groupName, s.staleTime, now)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return nil, err
+		}
+		entry := observed.entry
+		if entry.Meta.Name != dagRun.Name || entry.Meta.DAGRunID != dagRun.ID {
+			continue
+		}
+		heartbeat := procHeartbeatFromEntry(entry, observed.observedAt)
+		if latest == nil || procHeartbeatPreferred(heartbeat, *latest) {
+			latest = &heartbeat
+		}
+	}
+	return latest, nil
+}
+
 func procLegacyFilesInGroup(groupDir string) ([]string, error) {
 	dagEntries, err := os.ReadDir(groupDir)
 	if err != nil {
@@ -299,47 +335,56 @@ func (s *ProcStore) removeLegacyIfStale(ctx context.Context, entry exec.ProcEntr
 }
 
 func readLegacyProcEntry(path, groupName string, staleTime time.Duration, now time.Time) (exec.ProcEntry, error) {
+	observed, err := readLegacyProcEntryObserved(path, groupName, staleTime, now)
+	if err != nil {
+		return exec.ProcEntry{}, err
+	}
+	return observed.entry, nil
+}
+
+func readLegacyProcEntryObserved(path, groupName string, staleTime time.Duration, now time.Time) (observedProcEntry, error) {
 	filename := filepath.Base(path)
 	parsedName, err := parseProcFileName(filename)
 	if err != nil {
-		return exec.ProcEntry{}, err
+		return observedProcEntry{}, err
 	}
 
 	info, err := os.Stat(path)
 	if err != nil {
-		return exec.ProcEntry{}, err
+		return observedProcEntry{}, err
 	}
 
 	data, err := fileutil.ReadFileWithRetry(path)
 	if err != nil {
-		return exec.ProcEntry{}, err
+		return observedProcEntry{}, err
 	}
 	if len(data) < procHeartbeatSize {
-		return exec.ProcEntry{}, fmt.Errorf("%w: proc file %s is shorter than the %d-byte heartbeat header", errInvalidProcFile, path, procHeartbeatSize)
+		return observedProcEntry{}, fmt.Errorf("%w: proc file %s is shorter than the %d-byte heartbeat header", errInvalidProcFile, path, procHeartbeatSize)
 	}
 
 	lastHeartbeatAt := int64(binary.BigEndian.Uint64(data[:procHeartbeatSize])) //nolint:gosec // heartbeat unix time.
 	heartbeatTime := time.Unix(lastHeartbeatAt, 0).UTC()
 	if heartbeatTime.After(now.Add(5 * time.Minute)) {
-		return exec.ProcEntry{}, fmt.Errorf("%w: proc heartbeat timestamp is in the future for %s", errInvalidProcFile, path)
+		return observedProcEntry{}, fmt.Errorf("%w: proc heartbeat timestamp is in the future for %s", errInvalidProcFile, path)
 	}
 
 	meta, err := procMetaFromLegacyData(path, parsedName, data[procHeartbeatSize:], heartbeatTime, info)
 	if err != nil {
-		return exec.ProcEntry{}, err
+		return observedProcEntry{}, err
 	}
 
 	fresh := now.Sub(info.ModTime()) < staleTime
 	if !fresh {
 		fresh = now.Sub(heartbeatTime) < staleTime
 	}
-	return exec.ProcEntry{
+	entry := exec.ProcEntry{
 		GroupName:       groupName,
 		FilePath:        path,
 		Meta:            meta,
 		LastHeartbeatAt: lastHeartbeatAt,
 		Fresh:           fresh,
-	}, nil
+	}
+	return observedProcEntry{entry: entry, observedAt: info.ModTime()}, nil
 }
 
 func procMetaFromLegacyData(path string, parsedName procFileName, payload []byte, heartbeatTime time.Time, info os.FileInfo) (exec.ProcMeta, error) {

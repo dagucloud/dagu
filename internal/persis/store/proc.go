@@ -222,6 +222,28 @@ func (s *ProcStore) LatestFreshEntryByDAGName(ctx context.Context, groupName, da
 	return freshest, nil
 }
 
+// LatestHeartbeat returns the latest heartbeat observation for dagRun.
+func (s *ProcStore) LatestHeartbeat(ctx context.Context, groupName string, dagRun exec.DAGRunRef) (*exec.ProcHeartbeat, error) {
+	collectionHeartbeat, err := s.latestCollectionHeartbeat(ctx, groupName, dagRun)
+	if err != nil {
+		return nil, err
+	}
+	if s.legacyDir == "" || (collectionHeartbeat != nil && collectionHeartbeat.Fresh) {
+		return collectionHeartbeat, nil
+	}
+	legacyHeartbeat, err := s.latestLegacyHeartbeat(groupName, dagRun)
+	if err != nil {
+		return nil, err
+	}
+	if collectionHeartbeat == nil {
+		return legacyHeartbeat, nil
+	}
+	if legacyHeartbeat == nil || !procHeartbeatPreferred(*legacyHeartbeat, *collectionHeartbeat) {
+		return collectionHeartbeat, nil
+	}
+	return legacyHeartbeat, nil
+}
+
 // ListAllAlive returns all fresh DAG runs grouped by process group.
 func (s *ProcStore) ListAllAlive(ctx context.Context) (map[string][]exec.DAGRunRef, error) {
 	entries, err := s.ListAllEntries(ctx)

@@ -83,15 +83,15 @@ func TestProcStoreHeartbeatAdvances(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = proc.Stop(ctx) }()
 
-	first, err := s.LatestFreshEntryByDAGName(ctx, "queue-a", "heartbeat-dag")
+	first, err := s.LatestHeartbeat(ctx, "queue-a", ref)
 	require.NoError(t, err)
 	require.NotNil(t, first)
 
 	timeout := max(time.Until(time.Unix(first.LastHeartbeatAt+1, 0).Add(500*time.Millisecond)), 500*time.Millisecond)
 	require.Eventually(t, func() bool {
-		next, err := s.LatestFreshEntryByDAGName(ctx, "queue-a", "heartbeat-dag")
+		next, err := s.LatestHeartbeat(ctx, "queue-a", ref)
 		require.NoError(t, err)
-		return next != nil && next.LastHeartbeatAt > first.LastHeartbeatAt
+		return next != nil && next.AdvancedSince(*first)
 	}, timeout, 10*time.Millisecond)
 }
 
@@ -401,6 +401,69 @@ func TestProcStoreFileBackendWritesLegacySidecar(t *testing.T) {
 	matches, err := filepath.Glob(filepath.Join(root, "queue-a", "sidecar-dag", "proc_*.proc"))
 	require.NoError(t, err)
 	assert.Empty(t, matches)
+}
+
+func TestProcStoreLatestHeartbeatPrefersCollectionRecordOverLegacySidecar(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	s := store.NewProcStore(file.NewCollection(root),
+		store.WithProcLegacyDir(root),
+		store.WithProcHeartbeatInterval(time.Hour),
+	)
+	ref := exec.NewDAGRunRef("sidecar-prefer-dag", "run-1")
+
+	proc, err := s.Acquire(ctx, "queue-a", procMeta(ref))
+	require.NoError(t, err)
+	defer func() { _ = proc.Stop(ctx) }()
+
+	procFile := waitForLegacyProcFile(t, root, "queue-a", "sidecar-prefer-dag")
+	require.NoError(t, os.WriteFile(procFile, []byte("invalid legacy proc sidecar"), 0o600))
+
+	heartbeat, err := s.LatestHeartbeat(ctx, "queue-a", ref)
+	require.NoError(t, err)
+	require.NotNil(t, heartbeat)
+	assert.Equal(t, ref, heartbeat.DAGRun)
+	assert.True(t, heartbeat.Fresh)
+}
+
+func TestProcStoreLatestHeartbeatFallsBackToFreshLegacyWhenCollectionRecordIsStale(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	col := file.NewCollection(root)
+	s := store.NewProcStore(col,
+		store.WithProcLegacyDir(root),
+		store.WithProcStaleThreshold(time.Second),
+	)
+	ref := exec.NewDAGRunRef("sidecar-fallback-dag", "run-1")
+	meta := procMeta(ref)
+	staleAt := time.Now().Add(-time.Hour).UTC()
+	freshAt := time.Now().UTC()
+
+	data, err := json.Marshal(map[string]any{
+		"version":         1,
+		"groupName":       "queue-a",
+		"meta":            meta,
+		"lastHeartbeatAt": staleAt.Unix(),
+	})
+	require.NoError(t, err)
+	require.NoError(t, col.Put(ctx, &persis.Record{
+		ID:        "queue-a/sidecar-fallback-dag/proc_stale",
+		Encoding:  persis.EncodingJSON,
+		Data:      data,
+		CreatedAt: staleAt,
+		UpdatedAt: staleAt,
+	}))
+	_ = writeLegacyProcFile(t, root, "queue-a", meta, freshAt)
+
+	heartbeat, err := s.LatestHeartbeat(ctx, "queue-a", ref)
+	require.NoError(t, err)
+	require.NotNil(t, heartbeat)
+	assert.True(t, heartbeat.Fresh)
+	assert.Equal(t, freshAt.Unix(), heartbeat.LastHeartbeatAt)
 }
 
 func TestProcStoreReadsAndRemovesLegacyProcFiles(t *testing.T) {
