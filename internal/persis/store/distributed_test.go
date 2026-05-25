@@ -194,17 +194,26 @@ func TestActiveDistributedRunStore_UpsertRefreshesUpdatedAt(t *testing.T) {
 	assert.Greater(t, record.UpdatedAt, staleUpdatedAt)
 }
 
-func TestActiveDistributedRunStore_ListAllSurfacesCorruptRecord(t *testing.T) {
+func TestActiveDistributedRunStore_ListAllSkipsCorruptRecord(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	dir := t.TempDir()
+	s := store.NewActiveDistributedRunStore(file.NewCollection(dir))
+	require.NoError(t, s.Upsert(ctx, exec.ActiveDistributedRun{
+		AttemptKey: "attempt-key-1",
+		DAGRun:     exec.NewDAGRunRef("dag-a", "run-1"),
+		Root:       exec.NewDAGRunRef("dag-a", "run-1"),
+		AttemptID:  "attempt-1",
+		WorkerID:   "worker-1",
+		Status:     core.Running,
+	}))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, legacyHash("corrupt-active")+".json"), []byte("{"), 0o600))
 
-	s := store.NewActiveDistributedRunStore(file.NewCollection(dir))
-	_, err := s.ListAll(ctx)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "corrupt")
+	records, err := s.ListAll(ctx)
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+	assert.Equal(t, "attempt-key-1", records[0].AttemptKey)
 }
 
 func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {

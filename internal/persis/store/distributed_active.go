@@ -10,6 +10,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/logger"
+	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis"
 )
@@ -68,7 +70,12 @@ func (s *ActiveDistributedRunStore) Get(ctx context.Context, attemptKey string) 
 }
 
 func (s *ActiveDistributedRunStore) ListAll(ctx context.Context) ([]exec.ActiveDistributedRun, error) {
-	recs, err := listAllStrict(ctx, s.col, persis.ListQuery{})
+	recs, err := listAllBestEffort(ctx, s.col, persis.ListQuery{}, func(id string, err error) {
+		logger.Warn(ctx, "Skipping corrupted active distributed run entry",
+			tag.Name(id),
+			tag.Error(err),
+		)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +83,11 @@ func (s *ActiveDistributedRunStore) ListAll(ctx context.Context) ([]exec.ActiveD
 	for _, rec := range recs {
 		var record exec.ActiveDistributedRun
 		if err := persis.Decode(rec, &record); err != nil {
-			return nil, fmt.Errorf("active distributed run store: decode %q: %w", rec.ID, err)
+			logger.Warn(ctx, "Skipping corrupted active distributed run entry",
+				tag.Name(rec.ID),
+				tag.Error(err),
+			)
+			continue
 		}
 		if record.AttemptKey == "" {
 			continue
