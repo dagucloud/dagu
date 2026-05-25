@@ -50,8 +50,14 @@ func (a *DAGRunAttempt) Write(ctx context.Context, status exec.DAGRunStatus) err
 		return fmt.Errorf("attempt not open")
 	}
 	return a.store.updatePayload(ctx, a.recordID, func(payload *dagRunPayload) error {
+		expectedName := payload.Name
+		if a.dag != nil && a.dag.Name != "" {
+			expectedName = a.dag.Name
+		}
 		if status.Name == "" {
-			status.Name = payload.Name
+			status.Name = expectedName
+		} else if status.Name != expectedName {
+			return fmt.Errorf("dag-run store: status name %q does not match record name %q", status.Name, expectedName)
 		}
 		if status.DAGRunID == "" {
 			status.DAGRunID = payload.DAGRunID
@@ -73,6 +79,7 @@ func (a *DAGRunAttempt) Write(ctx context.Context, status exec.DAGRunStatus) err
 		} else if status.Parent != payload.Parent {
 			return fmt.Errorf("dag-run store: status parent %q does not match record parent %q", status.Parent.String(), payload.Parent.String())
 		}
+		payload.Name = expectedName
 		payload.Status = cloneDAGRunStatus(&status)
 		if a.dag != nil {
 			payload.DAG = cloneDAG(a.dag)

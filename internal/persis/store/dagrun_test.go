@@ -350,10 +350,23 @@ func TestDAGRunAttempt_WriteRejectsMismatchedRunIdentity(t *testing.T) {
 	require.ErrorContains(t, err, "status dag-run ID")
 	require.NoError(t, dagRunMismatchAttempt.Close(ctx))
 
-	attemptMismatchAttempt, err := s.CreateAttempt(ctx, dag, base.Add(time.Second), "run-2", exec.NewDAGRunAttemptOptions{AttemptID: "attempt-2"})
+	nameMismatchAttempt, err := s.CreateAttempt(ctx, dag, base.Add(time.Second), "run-2", exec.NewDAGRunAttemptOptions{AttemptID: "attempt-2"})
+	require.NoError(t, err)
+	nameMismatchStatus := exec.InitialStatus(dag)
+	nameMismatchStatus.Name = "other-dag"
+	nameMismatchStatus.DAGRunID = "run-2"
+	nameMismatchStatus.AttemptID = nameMismatchAttempt.ID()
+	nameMismatchStatus.Status = core.Running
+
+	require.NoError(t, nameMismatchAttempt.Open(ctx))
+	err = nameMismatchAttempt.Write(ctx, nameMismatchStatus)
+	require.ErrorContains(t, err, "status name")
+	require.NoError(t, nameMismatchAttempt.Close(ctx))
+
+	attemptMismatchAttempt, err := s.CreateAttempt(ctx, dag, base.Add(2*time.Second), "run-3", exec.NewDAGRunAttemptOptions{AttemptID: "attempt-3"})
 	require.NoError(t, err)
 	attemptMismatchStatus := exec.InitialStatus(dag)
-	attemptMismatchStatus.DAGRunID = "run-2"
+	attemptMismatchStatus.DAGRunID = "run-3"
 	attemptMismatchStatus.AttemptID = "other-attempt"
 	attemptMismatchStatus.Status = core.Running
 
