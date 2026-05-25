@@ -6,6 +6,7 @@ package coordinator
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -129,6 +130,7 @@ type clientImpl struct {
 type pinnedStateCoordinator struct {
 	member    exec.HostInfo
 	memberKey string
+	lastUsed  time.Time
 }
 
 // client holds the gRPC connection and clients for the coordinator service.
@@ -144,6 +146,8 @@ type client struct {
 // Default gRPC limit is 4 MB; we increase to 16 MB to handle large status
 // payloads that include LLM session messages in shared-nothing mode.
 const grpcMaxMsgSize = 16 * 1024 * 1024
+
+const maxPinnedStateCoordinators = 1024
 
 // Errors
 var (
@@ -362,14 +366,8 @@ func shouldRefreshPinnedStateCoordinator(err error) bool {
 }
 
 func (cli *clientImpl) pinnedStateCoordinator(ctx context.Context, routingKey string) (exec.HostInfo, error) {
-	cli.stateCoordinatorMu.Lock()
-	defer cli.stateCoordinatorMu.Unlock()
-
-	if cli.stateCoordinators == nil {
-		cli.stateCoordinators = make(map[string]pinnedStateCoordinator)
-	}
-	if pinned, ok := cli.stateCoordinators[routingKey]; ok {
-		return pinned.member, nil
+	if member, ok := cli.cachedPinnedStateCoordinator(routingKey); ok {
+		return member, nil
 	}
 
 	members, err := cli.getCoordinatorMembers(ctx)
@@ -383,23 +381,73 @@ func (cli *clientImpl) pinnedStateCoordinator(ctx context.Context, routingKey st
 		return exec.HostInfo{}, err
 	}
 
+	cli.stateCoordinatorMu.Lock()
+	defer cli.stateCoordinatorMu.Unlock()
+
+	if pinned, ok := cli.stateCoordinators[routingKey]; ok {
+		pinned.lastUsed = time.Now().UTC()
+		cli.stateCoordinators[routingKey] = pinned
+		return pinned.member, nil
+	}
+
+	cli.rememberPinnedStateCoordinatorLocked(routingKey, member)
+	return member, nil
+}
+
+func (cli *clientImpl) cachedPinnedStateCoordinator(routingKey string) (exec.HostInfo, bool) {
+	cli.stateCoordinatorMu.Lock()
+	defer cli.stateCoordinatorMu.Unlock()
+
+	if cli.stateCoordinators == nil {
+		cli.stateCoordinators = make(map[string]pinnedStateCoordinator)
+	}
+	if pinned, ok := cli.stateCoordinators[routingKey]; ok {
+		pinned.lastUsed = time.Now().UTC()
+		cli.stateCoordinators[routingKey] = pinned
+		return pinned.member, true
+	}
+	return exec.HostInfo{}, false
+}
+
+func (cli *clientImpl) rememberPinnedStateCoordinatorLocked(routingKey string, member exec.HostInfo) {
+	if cli.stateCoordinators == nil {
+		cli.stateCoordinators = make(map[string]pinnedStateCoordinator)
+	}
+
+	if _, exists := cli.stateCoordinators[routingKey]; !exists && len(cli.stateCoordinators) >= maxPinnedStateCoordinators {
+		cli.evictOldestPinnedStateCoordinatorLocked()
+	}
 	cli.stateCoordinators[routingKey] = pinnedStateCoordinator{
 		member:    member,
 		memberKey: coordinatorMemberKey(member),
+		lastUsed:  time.Now().UTC(),
 	}
-	return member, nil
+}
+
+func (cli *clientImpl) evictOldestPinnedStateCoordinatorLocked() {
+	var oldestKey string
+	var oldestTime time.Time
+	for key, pinned := range cli.stateCoordinators {
+		if oldestKey == "" || pinned.lastUsed.Before(oldestTime) {
+			oldestKey = key
+			oldestTime = pinned.lastUsed
+		}
+	}
+	if oldestKey != "" {
+		delete(cli.stateCoordinators, oldestKey)
+	}
 }
 
 func (cli *clientImpl) refreshPinnedStateCoordinator(ctx context.Context, routingKey string, failed exec.HostInfo) {
 	failedKey := coordinatorMemberKey(failed)
 
 	cli.stateCoordinatorMu.Lock()
-	defer cli.stateCoordinatorMu.Unlock()
-
 	pinned, ok := cli.stateCoordinators[routingKey]
 	if !ok || pinned.memberKey != failedKey {
+		cli.stateCoordinatorMu.Unlock()
 		return
 	}
+	cli.stateCoordinatorMu.Unlock()
 
 	members, err := cli.getCoordinatorMembers(ctx)
 	if err != nil {
@@ -410,14 +458,26 @@ func (cli *clientImpl) refreshPinnedStateCoordinator(ctx context.Context, routin
 			tag.Error(err))
 		return
 	}
+
+	var replacement *exec.HostInfo
 	for _, member := range members {
 		if coordinatorMemberKey(member) == failedKey {
-			cli.stateCoordinators[routingKey] = pinnedStateCoordinator{
-				member:    member,
-				memberKey: failedKey,
-			}
-			return
+			member := member
+			replacement = &member
+			break
 		}
+	}
+
+	cli.stateCoordinatorMu.Lock()
+	defer cli.stateCoordinatorMu.Unlock()
+
+	pinned, ok = cli.stateCoordinators[routingKey]
+	if !ok || pinned.memberKey != failedKey {
+		return
+	}
+	if replacement != nil {
+		cli.rememberPinnedStateCoordinatorLocked(routingKey, *replacement)
+		return
 	}
 	delete(cli.stateCoordinators, routingKey)
 }
@@ -721,32 +781,24 @@ func sortCoordinatorMembers(members []exec.HostInfo) []exec.HostInfo {
 }
 
 func orderStateCoordinatorMembers(members []exec.HostInfo, routingKey string) []exec.HostInfo {
-	ordered := sortCoordinatorMembers(members)
+	ordered := append([]exec.HostInfo(nil), members...)
 	if len(ordered) < 2 {
 		return ordered
 	}
 
-	start := stateCoordinatorStartIndex(routingKey, len(ordered))
-	if start == 0 {
-		return ordered
-	}
-
-	rotated := make([]exec.HostInfo, 0, len(ordered))
-	rotated = append(rotated, ordered[start:]...)
-	rotated = append(rotated, ordered[:start]...)
-	return rotated
+	sort.Slice(ordered, func(i, j int) bool {
+		left := stateCoordinatorMemberScore(routingKey, ordered[i])
+		right := stateCoordinatorMemberScore(routingKey, ordered[j])
+		if cmp := bytes.Compare(left[:], right[:]); cmp != 0 {
+			return cmp > 0
+		}
+		return coordinatorMemberKey(ordered[i]) < coordinatorMemberKey(ordered[j])
+	})
+	return ordered
 }
 
-func stateCoordinatorStartIndex(routingKey string, memberCount int) int {
-	if memberCount < 2 {
-		return 0
-	}
-
-	start := 0
-	for _, b := range []byte(routingKey) {
-		start = (start*33 + int(b)) % memberCount
-	}
-	return start
+func stateCoordinatorMemberScore(routingKey string, member exec.HostInfo) [sha256.Size]byte {
+	return sha256.Sum256([]byte(routingKey + "\x00" + coordinatorMemberKey(member)))
 }
 
 func coordinatorMemberKey(member exec.HostInfo) string {
