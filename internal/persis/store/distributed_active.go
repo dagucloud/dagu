@@ -122,5 +122,5 @@ func (s *ActiveDistributedRunStore) putActiveRun(ctx context.Context, record exe
 }
 
 func (s *ActiveDistributedRunStore) withActiveRunLock(ctx context.Context, attemptKey string, fn func() error) error {
-	return withDistributedCollectionLock(ctx, s.col, "locks/active-run-"+distributedRecordKey(attemptKey), fn)
+	return withDistributedCollectionLock(ctx, s.col, distributedActiveRunLockKey(attemptKey), fn)
 }

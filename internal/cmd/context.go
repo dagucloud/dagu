@@ -340,6 +340,8 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	}
 	drs := filedagrun.New(cfg.Paths.DAGRunsDir, hrOpts...)
 	distributedDir := filepath.Join(cfg.Paths.DataDir, "distributed")
+	// Records live in store-specific subdirectories, but locks stay under the
+	// shared distributed root to preserve mixed-version coordinator exclusion.
 	leaseCollection := file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "leases"), distributedDir)
 	activeRunCollection := file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "active-runs"), distributedDir)
 	dagRunLeaseStore := store.NewDAGRunLeaseStore(leaseCollection)

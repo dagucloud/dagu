@@ -117,7 +117,7 @@ func TestDAGRunLeaseStore_RequiresDistributedCollectionLock(t *testing.T) {
 	s := store.NewDAGRunLeaseStore(locklessCollection{Collection: base})
 
 	err := s.Upsert(ctx, exec.DAGRunLease{AttemptKey: "attempt-key-lock-required"})
-	require.ErrorContains(t, err, "WithLock support")
+	require.ErrorContains(t, err, "WithLockOptions support")
 }
 
 func TestDAGRunLeaseStore_ListAllSurfacesCorruptRecord(t *testing.T) {

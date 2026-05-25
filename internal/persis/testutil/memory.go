@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/internal/persis"
 )
 
@@ -59,12 +60,24 @@ type MemoryCollection struct {
 var _ persis.Collection = (*MemoryCollection)(nil)
 
 func (c *MemoryCollection) WithLock(ctx context.Context, key string, fn func() error) error {
+	return c.withLock(ctx, key, 50*time.Millisecond, fn)
+}
+
+func (c *MemoryCollection) WithLockOptions(ctx context.Context, key string, opts dirlock.LockOptions, fn func() error) error {
+	retryInterval := opts.RetryInterval
+	if retryInterval == 0 {
+		retryInterval = 50 * time.Millisecond
+	}
+	return c.withLock(ctx, key, retryInterval, fn)
+}
+
+func (c *MemoryCollection) withLock(ctx context.Context, key string, retryInterval time.Duration, fn func() error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
 	lock := c.lockForKey(key)
-	ticker := time.NewTicker(50 * time.Millisecond)
+	ticker := time.NewTicker(retryInterval)
 	defer ticker.Stop()
 	for {
 		if lock.TryLock() {

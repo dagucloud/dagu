@@ -19,10 +19,6 @@ const (
 	distributedLockRetryInterval  = 5 * time.Millisecond
 )
 
-type distributedLockCollection interface {
-	WithLock(ctx context.Context, key string, fn func() error) error
-}
-
 type distributedLockOptionsCollection interface {
 	WithLockOptions(ctx context.Context, key string, opts dirlock.LockOptions, fn func() error) error
 }
@@ -32,16 +28,21 @@ func distributedRecordKey(input string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func distributedLeaseLockKey(attemptKey string) string {
+	return "locks/" + distributedRecordKey(attemptKey)
+}
+
+func distributedActiveRunLockKey(attemptKey string) string {
+	return "locks/active-run-" + distributedRecordKey(attemptKey)
+}
+
 func withDistributedCollectionLock(ctx context.Context, col persis.Collection, key string, fn func() error) error {
-	if lockable, ok := col.(distributedLockOptionsCollection); ok {
-		return lockable.WithLockOptions(ctx, key, dirlock.LockOptions{
-			StaleThreshold: distributedLockStaleThreshold,
-			RetryInterval:  distributedLockRetryInterval,
-		}, fn)
-	}
-	lockable, ok := col.(distributedLockCollection)
+	lockable, ok := col.(distributedLockOptionsCollection)
 	if !ok {
-		return fmt.Errorf("distributed store requires collection with WithLock support: %T", col)
+		return fmt.Errorf("distributed store requires collection with WithLockOptions support: %T", col)
 	}
-	return lockable.WithLock(ctx, key, fn)
+	return lockable.WithLockOptions(ctx, key, dirlock.LockOptions{
+		StaleThreshold: distributedLockStaleThreshold,
+		RetryInterval:  distributedLockRetryInterval,
+	}, fn)
 }
