@@ -120,7 +120,9 @@ func TestDistributedAttemptOwnershipSyncFromStatus(t *testing.T) {
 		Status:     core.Running,
 		WorkerID:   "worker-1",
 	}
+	activeUpdatedLowerBound := time.Now().UTC().UnixMilli()
 	ownership.syncFromStatus(ctx, "", status, "")
+	activeUpdatedUpperBound := time.Now().UTC().UnixMilli()
 
 	lease, err := leaseStore.Get(ctx, "attempt-key-1")
 	require.NoError(t, err)
@@ -137,10 +139,13 @@ func TestDistributedAttemptOwnershipSyncFromStatus(t *testing.T) {
 	assert.Equal(t, "attempt-1", record.AttemptID)
 	assert.Equal(t, "worker-1", record.WorkerID)
 	assert.Equal(t, core.Running, record.Status)
-	assert.Equal(t, now.UnixMilli(), record.UpdatedAt)
+	assert.GreaterOrEqual(t, record.UpdatedAt, activeUpdatedLowerBound)
+	assert.LessOrEqual(t, record.UpdatedAt, activeUpdatedUpperBound)
 
 	status.Status = core.Queued
+	activeUpdatedLowerBound = time.Now().UTC().UnixMilli()
 	ownership.syncFromStatus(ctx, "worker-1", status, "")
+	activeUpdatedUpperBound = time.Now().UTC().UnixMilli()
 
 	lease, err = leaseStore.Get(ctx, "attempt-key-1")
 	require.NoError(t, err)
@@ -148,7 +153,8 @@ func TestDistributedAttemptOwnershipSyncFromStatus(t *testing.T) {
 	record, err = activeStore.Get(ctx, "attempt-key-1")
 	require.NoError(t, err)
 	assert.Equal(t, core.Queued, record.Status)
-	assert.Equal(t, now.UnixMilli(), record.UpdatedAt)
+	assert.GreaterOrEqual(t, record.UpdatedAt, activeUpdatedLowerBound)
+	assert.LessOrEqual(t, record.UpdatedAt, activeUpdatedUpperBound)
 
 	status.Status = core.Succeeded
 	ownership.syncFromStatus(ctx, "worker-1", status, "")
@@ -185,7 +191,9 @@ func TestDistributedAttemptOwnershipTaskClaimTracking(t *testing.T) {
 		AttemptId:  "attempt-1",
 		AttemptKey: "attempt-key-1",
 	}
+	activeUpdatedLowerBound := time.Now().UTC().UnixMilli()
 	require.NoError(t, ownership.recordTaskClaim(ctx, task, "worker-1"))
+	activeUpdatedUpperBound := time.Now().UTC().UnixMilli()
 	assert.Equal(t, 1, clockCalls)
 
 	lease, err := leaseStore.Get(ctx, "attempt-key-1")
@@ -206,5 +214,6 @@ func TestDistributedAttemptOwnershipTaskClaimTracking(t *testing.T) {
 	assert.Equal(t, "attempt-1", record.AttemptID)
 	assert.Equal(t, "worker-1", record.WorkerID)
 	assert.Equal(t, core.Queued, record.Status)
-	assert.Equal(t, now.UnixMilli(), record.UpdatedAt)
+	assert.GreaterOrEqual(t, record.UpdatedAt, activeUpdatedLowerBound)
+	assert.LessOrEqual(t, record.UpdatedAt, activeUpdatedUpperBound)
 }

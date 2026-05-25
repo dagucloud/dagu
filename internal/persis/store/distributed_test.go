@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -107,6 +108,17 @@ func TestDAGRunLeaseStore_ConcurrentTouchPreservesLatestHeartbeat(t *testing.T) 
 	assert.Equal(t, latest.UnixMilli(), lease.LastHeartbeatAt)
 }
 
+func TestDAGRunLeaseStore_RequiresDistributedCollectionLock(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	base := testutil.NewMemoryBackend().Collection("dag_run_leases")
+	s := store.NewDAGRunLeaseStore(locklessCollection{Collection: base})
+
+	err := s.Upsert(ctx, exec.DAGRunLease{AttemptKey: "attempt-key-lock-required"})
+	require.ErrorContains(t, err, "WithLock support")
+}
+
 func TestActiveDistributedRunStore_UpsertListGetAndDelete(t *testing.T) {
 	t.Parallel()
 
@@ -144,6 +156,29 @@ func TestActiveDistributedRunStore_UpsertListGetAndDelete(t *testing.T) {
 	require.NoError(t, s.Delete(ctx, "attempt-key-1"))
 	_, err = s.Get(ctx, "attempt-key-1")
 	assert.ErrorIs(t, err, exec.ErrActiveRunNotFound)
+}
+
+func TestActiveDistributedRunStore_UpsertRefreshesUpdatedAt(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := store.NewActiveDistributedRunStore(testutil.NewMemoryBackend().Collection("active_runs"))
+
+	staleUpdatedAt := time.Now().Add(-time.Hour).UTC().UnixMilli()
+	require.NoError(t, s.Upsert(ctx, exec.ActiveDistributedRun{
+		AttemptKey: "attempt-key-refresh",
+		DAGRun:     exec.NewDAGRunRef("dag-a", "run-1"),
+		Root:       exec.NewDAGRunRef("dag-a", "run-1"),
+		AttemptID:  "attempt-1",
+		WorkerID:   "worker-1",
+		Status:     core.Running,
+		UpdatedAt:  staleUpdatedAt,
+	}))
+
+	record, err := s.Get(ctx, "attempt-key-refresh")
+	require.NoError(t, err)
+	require.NotNil(t, record)
+	assert.Greater(t, record.UpdatedAt, staleUpdatedAt)
 }
 
 func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {
@@ -215,6 +250,43 @@ func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {
 
 	_, err = s.GetClaim(ctx, claimed.ClaimToken)
 	assert.ErrorIs(t, err, exec.ErrDispatchTaskNotFound)
+}
+
+func TestDispatchTaskStore_RemovesPendingDuplicateWhenActiveClaimExists(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	col := testutil.NewMemoryBackend().Collection("dispatch_tasks")
+	s := store.NewDispatchTaskStore(col)
+
+	require.NoError(t, s.Enqueue(ctx, &coordinatorv1.Task{
+		DagRunId:   "run-duplicate",
+		Target:     "dag-duplicate",
+		QueueName:  "queue-a",
+		AttemptId:  "attempt-duplicate",
+		AttemptKey: "attempt-key-duplicate",
+	}))
+	claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		WorkerID: "worker-1",
+		PollerID: "poller-1",
+		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+
+	putPendingDuplicateFromClaim(t, col, claimed.ClaimToken)
+
+	count, err := s.CountOutstandingByQueue(ctx, "queue-a", time.Second)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+
+	next, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{WorkerID: "worker-2"})
+	require.NoError(t, err)
+	assert.Nil(t, next)
+
+	page, err := col.List(ctx, persis.ListQuery{Prefix: "pending/"})
+	require.NoError(t, err)
+	assert.Empty(t, page.Records)
 }
 
 func TestDispatchTaskStore_ConcurrentClaimIsExclusive(t *testing.T) {
@@ -450,6 +522,48 @@ type dispatchTaskRecord struct {
 	WorkerID     string                   `json:"workerId,omitempty"`
 	PollerID     string                   `json:"pollerId,omitempty"`
 	Owner        exec.CoordinatorEndpoint `json:"owner,omitzero"`
+}
+
+type locklessCollection struct {
+	persis.Collection
+}
+
+func putPendingDuplicateFromClaim(t *testing.T, col persis.Collection, claimToken string) {
+	t.Helper()
+
+	ctx := context.Background()
+	claimRec, err := col.Get(ctx, "claims/claim_"+legacyHash(claimToken))
+	require.NoError(t, err)
+
+	var payload dispatchTaskRecord
+	require.NoError(t, persis.Decode(claimRec, &payload))
+	payload.ClaimToken = ""
+	payload.ClaimedAt = 0
+	payload.WorkerID = ""
+	payload.PollerID = ""
+	payload.Owner = exec.CoordinatorEndpoint{}
+	if payload.Task != nil {
+		payload.Task.OwnerCoordinatorId = ""
+		payload.Task.OwnerCoordinatorHost = ""
+		payload.Task.OwnerCoordinatorPort = 0
+		payload.Task.ClaimToken = ""
+		payload.Task.WorkerId = ""
+	}
+	data, enc, err := persis.Encode(payload)
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	require.NoError(t, col.Put(ctx, &persis.Record{
+		ID:        pendingRecordIDForTest(payload.TaskFileName),
+		Data:      data,
+		Encoding:  enc,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}))
+}
+
+func pendingRecordIDForTest(fileName string) string {
+	return "pending/" + strings.TrimSuffix(filepath.Base(fileName), ".json")
 }
 
 func ageClaimedDispatchRecord(t *testing.T, col persis.Collection, claimToken string, pendingAge, claimAge time.Duration) {

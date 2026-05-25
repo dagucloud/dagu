@@ -36,7 +36,10 @@ func (b *MemoryBackend) Collection(name string) persis.Collection {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if _, ok := b.cols[name]; !ok {
-		b.cols[name] = &MemoryCollection{records: make(map[string]*persis.Record)}
+		b.cols[name] = &MemoryCollection{
+			records: make(map[string]*persis.Record),
+			locks:   make(map[string]*sync.Mutex),
+		}
 	}
 	return b.cols[name]
 }
@@ -49,9 +52,46 @@ func (b *MemoryBackend) Close() error { return nil }
 type MemoryCollection struct {
 	mu      sync.Mutex
 	records map[string]*persis.Record
+	lockMu  sync.Mutex
+	locks   map[string]*sync.Mutex
 }
 
 var _ persis.Collection = (*MemoryCollection)(nil)
+
+func (c *MemoryCollection) WithLock(ctx context.Context, key string, fn func() error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	lock := c.lockForKey(key)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if lock.TryLock() {
+			defer lock.Unlock()
+			return fn()
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (c *MemoryCollection) lockForKey(key string) *sync.Mutex {
+	c.lockMu.Lock()
+	defer c.lockMu.Unlock()
+	if c.locks == nil {
+		c.locks = make(map[string]*sync.Mutex)
+	}
+	lock, ok := c.locks[key]
+	if !ok {
+		lock = &sync.Mutex{}
+		c.locks[key] = lock
+	}
+	return lock
+}
 
 func (c *MemoryCollection) Get(_ context.Context, id string) (*persis.Record, error) {
 	c.mu.Lock()

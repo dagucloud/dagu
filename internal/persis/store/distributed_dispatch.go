@@ -134,14 +134,14 @@ func (s *DispatchTaskStore) ClaimNext(ctx context.Context, claim exec.DispatchTa
 			if err != nil {
 				return err
 			}
+			if err := s.col.Put(ctx, claimRec); err != nil {
+				return err
+			}
 			if err := s.col.CompareAndDelete(ctx, rec); err != nil {
+				_ = s.col.CompareAndDelete(context.WithoutCancel(ctx), claimRec)
 				if errors.Is(err, persis.ErrNotFound) || errors.Is(err, persis.ErrConflict) {
 					continue
 				}
-				return err
-			}
-			if err := s.col.Put(ctx, claimRec); err != nil {
-				_ = s.col.Put(context.WithoutCancel(ctx), rec)
 				return err
 			}
 
@@ -248,6 +248,9 @@ func (s *DispatchTaskStore) recycleExpiredReservationsLocked(ctx context.Context
 	if err := s.recycleExpiredClaimsLocked(ctx); err != nil {
 		return err
 	}
+	if err := s.removePendingRecordsWithActiveClaimsLocked(ctx); err != nil {
+		return err
+	}
 	return s.recycleExpiredPendingLocked(ctx)
 }
 
@@ -284,14 +287,61 @@ func (s *DispatchTaskStore) recycleExpiredClaimsLocked(ctx context.Context) erro
 		if err != nil {
 			return err
 		}
+		if err := s.col.Put(ctx, pendingRec); err != nil {
+			return err
+		}
 		if err := s.col.CompareAndDelete(ctx, rec); err != nil {
 			if errors.Is(err, persis.ErrNotFound) || errors.Is(err, persis.ErrConflict) {
 				continue
 			}
 			return err
 		}
-		if err := s.col.Put(ctx, pendingRec); err != nil {
-			_ = s.col.Put(context.WithoutCancel(ctx), rec)
+	}
+	return nil
+}
+
+func (s *DispatchTaskStore) removePendingRecordsWithActiveClaimsLocked(ctx context.Context) error {
+	claimRecs, err := s.listDispatchRecords(ctx, dispatchClaimsPrefix)
+	if err != nil {
+		return err
+	}
+
+	now := time.Now().UTC()
+	activeTaskFiles := make(map[string]struct{}, len(claimRecs))
+	for _, rec := range claimRecs {
+		payload, err := dispatchTaskPayloadFromRecord(rec)
+		if err != nil {
+			return err
+		}
+		if payload.TaskFileName == "" || payload.ClaimToken == "" || payload.ClaimedAt == 0 {
+			continue
+		}
+		claimedAt := dispatchRecordTimestamp(payload.ClaimedAt, rec.UpdatedAt)
+		if now.Sub(claimedAt) >= s.reservationTTL {
+			continue
+		}
+		activeTaskFiles[payload.TaskFileName] = struct{}{}
+	}
+	if len(activeTaskFiles) == 0 {
+		return nil
+	}
+
+	pendingRecs, err := s.listDispatchRecords(ctx, dispatchPendingPrefix)
+	if err != nil {
+		return err
+	}
+	for _, rec := range pendingRecs {
+		payload, err := dispatchTaskPayloadFromRecord(rec)
+		if err != nil {
+			return err
+		}
+		if _, ok := activeTaskFiles[payload.TaskFileName]; !ok {
+			continue
+		}
+		if err := s.col.CompareAndDelete(ctx, rec); err != nil {
+			if errors.Is(err, persis.ErrNotFound) || errors.Is(err, persis.ErrConflict) {
+				continue
+			}
 			return err
 		}
 	}

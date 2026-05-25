@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 
 	"github.com/dagucloud/dagu/internal/persis"
 )
@@ -21,8 +22,9 @@ func distributedRecordKey(input string) string {
 }
 
 func withDistributedCollectionLock(ctx context.Context, col persis.Collection, key string, fn func() error) error {
-	if lockable, ok := col.(distributedLockCollection); ok {
-		return lockable.WithLock(ctx, key, fn)
+	lockable, ok := col.(distributedLockCollection)
+	if !ok {
+		return fmt.Errorf("distributed store requires collection with WithLock support: %T", col)
 	}
-	return fn()
+	return lockable.WithLock(ctx, key, fn)
 }

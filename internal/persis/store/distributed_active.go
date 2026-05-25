@@ -39,9 +39,7 @@ func (s *ActiveDistributedRunStore) Upsert(ctx context.Context, record exec.Acti
 
 	return s.withActiveRunLock(ctx, record.AttemptKey, func() error {
 		now := time.Now().UTC()
-		if record.UpdatedAt == 0 {
-			record.UpdatedAt = now.UnixMilli()
-		}
+		record.UpdatedAt = now.UnixMilli()
 		return s.putActiveRun(ctx, record, now)
 	})
 }
