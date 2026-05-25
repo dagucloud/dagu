@@ -60,7 +60,7 @@ func (s *WorkerHeartbeatStore) Upsert(ctx context.Context, record exec.WorkerHea
 }
 
 // workerHeartbeatLegacyKey returns the SHA-256-encoded key used by the
-// pre-refactor filedistributed.WorkerHeartbeatStore for backward compatibility.
+// pre-refactor file-backed worker heartbeat store for backward compatibility.
 func workerHeartbeatLegacyKey(workerID string) string {
 	sum := sha256.Sum256([]byte(workerID))
 	return hex.EncodeToString(sum[:])

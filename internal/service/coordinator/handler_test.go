@@ -17,7 +17,6 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis/filedagrun"
-	"github.com/dagucloud/dagu/internal/persis/filedistributed"
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -640,8 +639,8 @@ func TestHandler_Poll(t *testing.T) {
 		registerCommandExecutorCapsForCoordinatorTest()
 
 		baseDir := filepath.Join(t.TempDir(), "distributed")
-		dispatchStore := filedistributed.NewDispatchTaskStore(baseDir)
-		heartbeatStore := filedistributed.NewWorkerHeartbeatStore(baseDir)
+		dispatchStore := newTestDispatchTaskStore(baseDir)
+		heartbeatStore := newTestWorkerHeartbeatStore(baseDir)
 		require.NoError(t, heartbeatStore.Upsert(context.Background(), exec.WorkerHeartbeatRecord{
 			WorkerID:        "worker-1",
 			LastHeartbeatAt: time.Now().UTC().UnixMilli(),
@@ -679,7 +678,7 @@ func TestHandler_Poll(t *testing.T) {
 		t.Parallel()
 		registerCommandExecutorCapsForCoordinatorTest()
 
-		heartbeatStore := filedistributed.NewWorkerHeartbeatStore(filepath.Join(t.TempDir(), "distributed"))
+		heartbeatStore := newTestWorkerHeartbeatStore(filepath.Join(t.TempDir(), "distributed"))
 		require.NoError(t, heartbeatStore.Upsert(context.Background(), exec.WorkerHeartbeatRecord{
 			WorkerID:        "worker-1",
 			LastHeartbeatAt: time.Now().UTC().UnixMilli(),
@@ -719,7 +718,7 @@ func TestHandler_Poll(t *testing.T) {
 		t.Parallel()
 		registerCommandExecutorCapsForCoordinatorTest()
 
-		heartbeatStore := filedistributed.NewWorkerHeartbeatStore(filepath.Join(t.TempDir(), "distributed"))
+		heartbeatStore := newTestWorkerHeartbeatStore(filepath.Join(t.TempDir(), "distributed"))
 		require.NoError(t, heartbeatStore.Upsert(context.Background(), exec.WorkerHeartbeatRecord{
 			WorkerID:        "worker-1",
 			LastHeartbeatAt: time.Now().UTC().UnixMilli(),
@@ -804,8 +803,8 @@ func TestHandler_DispatchRejectsStaleQueueDispatchRetry(t *testing.T) {
 	registerCommandExecutorCapsForCoordinatorTest()
 
 	baseDir := filepath.Join(t.TempDir(), "distributed")
-	dispatchStore := filedistributed.NewDispatchTaskStore(baseDir)
-	heartbeatStore := filedistributed.NewWorkerHeartbeatStore(baseDir)
+	dispatchStore := newTestDispatchTaskStore(baseDir)
+	heartbeatStore := newTestWorkerHeartbeatStore(baseDir)
 	require.NoError(t, heartbeatStore.Upsert(context.Background(), exec.WorkerHeartbeatRecord{
 		WorkerID:        "worker-1",
 		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
@@ -1049,7 +1048,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 	t.Run("RunHeartbeatTouchesSharedLease", func(t *testing.T) {
 		t.Parallel()
 
-		leaseStore := filedistributed.NewDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
 		h := NewHandler(HandlerConfig{
 			DAGRunLeaseStore: leaseStore,
 			Owner:            exec.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
@@ -1089,8 +1088,8 @@ func TestHandler_Heartbeat(t *testing.T) {
 
 		store := newMockDAGRunStore()
 		baseDir := filepath.Join(t.TempDir(), "distributed")
-		leaseStore := filedistributed.NewDAGRunLeaseStore(baseDir)
-		activeStore := filedistributed.NewActiveDistributedRunStore(baseDir)
+		leaseStore := newTestDAGRunLeaseStore(baseDir)
+		activeStore := newTestActiveDistributedRunStore(baseDir)
 		h := NewHandler(HandlerConfig{
 			DAGRunStore:               store,
 			DAGRunLeaseStore:          leaseStore,
@@ -1183,7 +1182,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		leaseStore := filedistributed.NewDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
 		h := NewHandler(HandlerConfig{
 			DAGRunStore:      store,
 			DAGRunLeaseStore: leaseStore,
@@ -1242,7 +1241,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 	t.Run("RunHeartbeatCancelsTaskWhenLeaseMissing", func(t *testing.T) {
 		t.Parallel()
 
-		leaseStore := filedistributed.NewDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
 		h := NewHandler(HandlerConfig{
 			DAGRunLeaseStore: leaseStore,
 			Owner:            exec.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
@@ -1264,7 +1263,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 	t.Run("RunHeartbeatRejectsNonOwnerCoordinator", func(t *testing.T) {
 		t.Parallel()
 
-		leaseStore := filedistributed.NewDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
 		h := NewHandler(HandlerConfig{
 			DAGRunLeaseStore: leaseStore,
 			Owner:            exec.CoordinatorEndpoint{ID: "coord-a"},
@@ -1820,7 +1819,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 				t.Parallel()
 
 				store := newMockDAGRunStore()
-				leaseStore := filedistributed.NewDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+				leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
 				h := NewHandler(HandlerConfig{
 					DAGRunStore:         store,
 					DAGRunLeaseStore:    leaseStore,
@@ -1874,8 +1873,8 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		ctx := context.Background()
 		store := newMockDAGRunStore()
 		baseDir := filepath.Join(t.TempDir(), "distributed")
-		leaseStore := filedistributed.NewDAGRunLeaseStore(baseDir)
-		activeStore := filedistributed.NewActiveDistributedRunStore(baseDir)
+		leaseStore := newTestDAGRunLeaseStore(baseDir)
+		activeStore := newTestActiveDistributedRunStore(baseDir)
 		h := NewHandler(HandlerConfig{
 			DAGRunStore:               store,
 			DAGRunLeaseStore:          leaseStore,
@@ -1928,8 +1927,8 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		ctx := context.Background()
 		store := newMockDAGRunStore()
 		baseDir := filepath.Join(t.TempDir(), "distributed")
-		leaseStore := filedistributed.NewDAGRunLeaseStore(baseDir)
-		heartbeatStore := filedistributed.NewWorkerHeartbeatStore(baseDir)
+		leaseStore := newTestDAGRunLeaseStore(baseDir)
+		heartbeatStore := newTestWorkerHeartbeatStore(baseDir)
 		h := NewHandler(HandlerConfig{
 			DAGRunStore:             store,
 			DAGRunLeaseStore:        leaseStore,
@@ -1993,8 +1992,8 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		ctx := context.Background()
 		store := newMockDAGRunStore()
 		baseDir := filepath.Join(t.TempDir(), "distributed")
-		leaseStore := filedistributed.NewDAGRunLeaseStore(baseDir)
-		heartbeatStore := filedistributed.NewWorkerHeartbeatStore(baseDir)
+		leaseStore := newTestDAGRunLeaseStore(baseDir)
+		heartbeatStore := newTestWorkerHeartbeatStore(baseDir)
 		h := NewHandler(HandlerConfig{
 			DAGRunStore:             store,
 			WorkerHeartbeatStore:    heartbeatStore,
@@ -2064,8 +2063,8 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		ctx := context.Background()
 		store := newMockDAGRunStore()
 		baseDir := filepath.Join(t.TempDir(), "distributed")
-		leaseStore := filedistributed.NewDAGRunLeaseStore(baseDir)
-		heartbeatStore := filedistributed.NewWorkerHeartbeatStore(baseDir)
+		leaseStore := newTestDAGRunLeaseStore(baseDir)
+		heartbeatStore := newTestWorkerHeartbeatStore(baseDir)
 		h := NewHandler(HandlerConfig{
 			DAGRunStore:             store,
 			WorkerHeartbeatStore:    heartbeatStore,
@@ -2123,8 +2122,8 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		ctx := context.Background()
 		store := newMockDAGRunStore()
 		baseDir := filepath.Join(t.TempDir(), "distributed")
-		leaseStore := filedistributed.NewDAGRunLeaseStore(baseDir)
-		heartbeatStore := filedistributed.NewWorkerHeartbeatStore(baseDir)
+		leaseStore := newTestDAGRunLeaseStore(baseDir)
+		heartbeatStore := newTestWorkerHeartbeatStore(baseDir)
 		h := NewHandler(HandlerConfig{
 			DAGRunStore:             store,
 			WorkerHeartbeatStore:    heartbeatStore,
@@ -2182,7 +2181,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		leaseStore := filedistributed.NewDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
 		h := NewHandler(HandlerConfig{
 			DAGRunStore:         store,
 			DAGRunLeaseStore:    leaseStore,
@@ -2218,9 +2217,9 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		ctx := context.Background()
 		store := newMockDAGRunStore()
 		baseDir := filepath.Join(t.TempDir(), "distributed")
-		leaseStore := filedistributed.NewDAGRunLeaseStore(baseDir)
-		heartbeatStore := filedistributed.NewWorkerHeartbeatStore(baseDir)
-		activeStore := filedistributed.NewActiveDistributedRunStore(baseDir)
+		leaseStore := newTestDAGRunLeaseStore(baseDir)
+		heartbeatStore := newTestWorkerHeartbeatStore(baseDir)
+		activeStore := newTestActiveDistributedRunStore(baseDir)
 		h := NewHandler(HandlerConfig{
 			DAGRunStore:               store,
 			WorkerHeartbeatStore:      heartbeatStore,
@@ -2293,8 +2292,8 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		ctx := context.Background()
 		store := newMockDAGRunStore()
 		baseDir := filepath.Join(t.TempDir(), "distributed")
-		leaseStore := filedistributed.NewDAGRunLeaseStore(baseDir)
-		activeStore := filedistributed.NewActiveDistributedRunStore(baseDir)
+		leaseStore := newTestDAGRunLeaseStore(baseDir)
+		activeStore := newTestActiveDistributedRunStore(baseDir)
 		h := NewHandler(HandlerConfig{
 			DAGRunStore:               store,
 			DAGRunLeaseStore:          leaseStore,
@@ -2348,8 +2347,8 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		ctx := context.Background()
 		store := newMockDAGRunStore()
 		baseDir := filepath.Join(t.TempDir(), "distributed")
-		leaseStore := filedistributed.NewDAGRunLeaseStore(baseDir)
-		activeStore := filedistributed.NewActiveDistributedRunStore(baseDir)
+		leaseStore := newTestDAGRunLeaseStore(baseDir)
+		activeStore := newTestActiveDistributedRunStore(baseDir)
 		h := NewHandler(HandlerConfig{
 			DAGRunStore:               store,
 			DAGRunLeaseStore:          leaseStore,
@@ -2396,8 +2395,8 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		ctx := context.Background()
 		store := newMockDAGRunStore()
 		baseDir := filepath.Join(t.TempDir(), "distributed")
-		leaseStore := filedistributed.NewDAGRunLeaseStore(baseDir)
-		activeStore := filedistributed.NewActiveDistributedRunStore(baseDir)
+		leaseStore := newTestDAGRunLeaseStore(baseDir)
+		activeStore := newTestActiveDistributedRunStore(baseDir)
 		h := NewHandler(HandlerConfig{
 			DAGRunStore:               store,
 			DAGRunLeaseStore:          leaseStore,
@@ -2436,8 +2435,8 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		ctx := context.Background()
 		store := newMockDAGRunStore()
 		baseDir := filepath.Join(t.TempDir(), "distributed")
-		leaseStore := filedistributed.NewDAGRunLeaseStore(baseDir)
-		activeStore := filedistributed.NewActiveDistributedRunStore(baseDir)
+		leaseStore := newTestDAGRunLeaseStore(baseDir)
+		activeStore := newTestActiveDistributedRunStore(baseDir)
 		h := NewHandler(HandlerConfig{
 			DAGRunStore:               store,
 			DAGRunLeaseStore:          leaseStore,
@@ -2558,7 +2557,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		leaseStore := filedistributed.NewDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
 		h := NewHandler(HandlerConfig{
 			DAGRunStore:      store,
 			DAGRunLeaseStore: leaseStore,
@@ -2646,8 +2645,8 @@ func TestHandler_ReportStatus(t *testing.T) {
 
 		store := newMockDAGRunStore()
 		baseDir := filepath.Join(t.TempDir(), "distributed")
-		leaseStore := filedistributed.NewDAGRunLeaseStore(baseDir)
-		activeStore := filedistributed.NewActiveDistributedRunStore(baseDir)
+		leaseStore := newTestDAGRunLeaseStore(baseDir)
+		activeStore := newTestActiveDistributedRunStore(baseDir)
 		h := NewHandler(HandlerConfig{
 			DAGRunStore:               store,
 			DAGRunLeaseStore:          leaseStore,
@@ -2957,7 +2956,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		leaseStore := filedistributed.NewDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
 		h := NewHandler(HandlerConfig{
 			DAGRunStore:      store,
 			DAGRunLeaseStore: leaseStore,
@@ -3007,7 +3006,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		leaseStore := filedistributed.NewDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
 		h := NewHandler(HandlerConfig{
 			DAGRunStore:      store,
 			DAGRunLeaseStore: leaseStore,
@@ -3060,8 +3059,8 @@ func TestHandler_ReportStatus(t *testing.T) {
 
 		store := newMockDAGRunStore()
 		baseDir := filepath.Join(t.TempDir(), "distributed")
-		leaseStore := filedistributed.NewDAGRunLeaseStore(baseDir)
-		activeStore := filedistributed.NewActiveDistributedRunStore(baseDir)
+		leaseStore := newTestDAGRunLeaseStore(baseDir)
+		activeStore := newTestActiveDistributedRunStore(baseDir)
 		h := NewHandler(HandlerConfig{
 			DAGRunStore:               store,
 			DAGRunLeaseStore:          leaseStore,
@@ -3131,9 +3130,9 @@ func TestHandler_ReportStatus(t *testing.T) {
 		t.Parallel()
 
 		baseDir := filepath.Join(t.TempDir(), "distributed")
-		dispatchStore := filedistributed.NewDispatchTaskStore(baseDir)
-		leaseStore := filedistributed.NewDAGRunLeaseStore(baseDir)
-		activeStore := filedistributed.NewActiveDistributedRunStore(baseDir)
+		dispatchStore := newTestDispatchTaskStore(baseDir)
+		leaseStore := newTestDAGRunLeaseStore(baseDir)
+		activeStore := newTestActiveDistributedRunStore(baseDir)
 		h := NewHandler(HandlerConfig{
 			DispatchTaskStore:         dispatchStore,
 			DAGRunLeaseStore:          leaseStore,
@@ -3190,9 +3189,9 @@ func TestHandler_ReportStatus(t *testing.T) {
 		t.Parallel()
 
 		baseDir := filepath.Join(t.TempDir(), "distributed")
-		dispatchStore := filedistributed.NewDispatchTaskStore(baseDir)
-		leaseStore := filedistributed.NewDAGRunLeaseStore(baseDir)
-		activeStore := filedistributed.NewActiveDistributedRunStore(baseDir)
+		dispatchStore := newTestDispatchTaskStore(baseDir)
+		leaseStore := newTestDAGRunLeaseStore(baseDir)
+		activeStore := newTestActiveDistributedRunStore(baseDir)
 		h := NewHandler(HandlerConfig{
 			DispatchTaskStore:         dispatchStore,
 			DAGRunLeaseStore:          leaseStore,

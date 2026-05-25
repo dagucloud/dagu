@@ -11,7 +11,6 @@ import (
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/persis/filedistributed"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -51,7 +50,7 @@ func TestDistributedAttemptOwnershipStatusDecision(t *testing.T) {
 	t.Run("rejects active update after terminal status when lease is gone", func(t *testing.T) {
 		t.Parallel()
 
-		leaseStore := filedistributed.NewDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
 		ownership := newAttemptOwnership(attemptOwnershipConfig{
 			LeaseStore:          leaseStore,
 			StaleLeaseThreshold: time.Minute,
@@ -86,8 +85,8 @@ func TestDistributedAttemptOwnershipSyncFromStatus(t *testing.T) {
 
 	ctx := context.Background()
 	baseDir := filepath.Join(t.TempDir(), "distributed")
-	leaseStore := filedistributed.NewDAGRunLeaseStore(baseDir)
-	activeStore := filedistributed.NewActiveDistributedRunStore(baseDir)
+	leaseStore := newTestDAGRunLeaseStore(baseDir)
+	activeStore := newTestActiveDistributedRunStore(baseDir)
 
 	oldTime := time.Unix(90, 0).UTC()
 	now := time.Unix(100, 0).UTC()
@@ -165,8 +164,8 @@ func TestDistributedAttemptOwnershipTaskClaimTracking(t *testing.T) {
 
 	ctx := context.Background()
 	baseDir := filepath.Join(t.TempDir(), "distributed")
-	leaseStore := filedistributed.NewDAGRunLeaseStore(baseDir)
-	activeStore := filedistributed.NewActiveDistributedRunStore(baseDir)
+	leaseStore := newTestDAGRunLeaseStore(baseDir)
+	activeStore := newTestActiveDistributedRunStore(baseDir)
 	clockCalls := 0
 	now := time.Unix(100, 0).UTC()
 
