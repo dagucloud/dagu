@@ -119,6 +119,19 @@ func TestDAGRunLeaseStore_RequiresDistributedCollectionLock(t *testing.T) {
 	require.ErrorContains(t, err, "WithLock support")
 }
 
+func TestDAGRunLeaseStore_ListAllSurfacesCorruptRecord(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, legacyHash("corrupt-lease")+".json"), []byte("{"), 0o600))
+
+	s := store.NewDAGRunLeaseStore(file.NewCollection(dir))
+	_, err := s.ListAll(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "corrupt")
+}
+
 func TestActiveDistributedRunStore_UpsertListGetAndDelete(t *testing.T) {
 	t.Parallel()
 
@@ -179,6 +192,19 @@ func TestActiveDistributedRunStore_UpsertRefreshesUpdatedAt(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, record)
 	assert.Greater(t, record.UpdatedAt, staleUpdatedAt)
+}
+
+func TestActiveDistributedRunStore_ListAllSurfacesCorruptRecord(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, legacyHash("corrupt-active")+".json"), []byte("{"), 0o600))
+
+	s := store.NewActiveDistributedRunStore(file.NewCollection(dir))
+	_, err := s.ListAll(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "corrupt")
 }
 
 func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {
@@ -336,6 +362,21 @@ func TestDispatchTaskStore_ConcurrentClaimIsExclusive(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, claimedCount)
+}
+
+func TestDispatchTaskStore_ClaimNextSurfacesCorruptPendingRecord(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "pending"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "pending", "task_corrupt.json"), []byte("{"), 0o600))
+
+	s := store.NewDispatchTaskStore(file.NewCollection(dir))
+	claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{WorkerID: "worker-1"})
+	require.Error(t, err)
+	assert.Nil(t, claimed)
+	assert.Contains(t, err.Error(), "corrupt")
 }
 
 func TestDispatchTaskStore_CountOutstandingByQueueAndAttempt(t *testing.T) {

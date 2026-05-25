@@ -8,11 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"sync"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/cmn/logger"
-	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis"
 )
@@ -24,7 +21,6 @@ var _ exec.ActiveDistributedRunStore = (*ActiveDistributedRunStore)(nil)
 // file-backed distributed store SHA-256 key.
 type ActiveDistributedRunStore struct {
 	col persis.Collection
-	mu  sync.Mutex
 }
 
 // NewActiveDistributedRunStore creates an ActiveDistributedRunStore backed by col.
@@ -72,7 +68,7 @@ func (s *ActiveDistributedRunStore) Get(ctx context.Context, attemptKey string) 
 }
 
 func (s *ActiveDistributedRunStore) ListAll(ctx context.Context) ([]exec.ActiveDistributedRun, error) {
-	recs, err := listAll(ctx, s.col, persis.ListQuery{})
+	recs, err := listAllStrict(ctx, s.col, persis.ListQuery{})
 	if err != nil {
 		return nil, err
 	}
@@ -80,11 +76,7 @@ func (s *ActiveDistributedRunStore) ListAll(ctx context.Context) ([]exec.ActiveD
 	for _, rec := range recs {
 		var record exec.ActiveDistributedRun
 		if err := persis.Decode(rec, &record); err != nil {
-			logger.Warn(ctx, "Skipping corrupted active distributed run entry",
-				tag.Name(rec.ID),
-				tag.Error(err),
-			)
-			continue
+			return nil, fmt.Errorf("active distributed run store: decode %q: %w", rec.ID, err)
 		}
 		if record.AttemptKey == "" {
 			continue
@@ -119,7 +111,5 @@ func (s *ActiveDistributedRunStore) putActiveRun(ctx context.Context, record exe
 }
 
 func (s *ActiveDistributedRunStore) withActiveRunLock(ctx context.Context, attemptKey string, fn func() error) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	return withDistributedCollectionLock(ctx, s.col, "locks/active-run-"+distributedRecordKey(attemptKey), fn)
 }

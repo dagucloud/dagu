@@ -403,7 +403,7 @@ func (s *DispatchTaskStore) listOutstandingDispatchRecords(ctx context.Context) 
 }
 
 func (s *DispatchTaskStore) listDispatchRecords(ctx context.Context, prefix string) ([]*persis.Record, error) {
-	recs, err := listAll(ctx, s.col, persis.ListQuery{Prefix: prefix})
+	recs, err := listAllStrict(ctx, s.col, persis.ListQuery{Prefix: prefix})
 	if err != nil {
 		return nil, err
 	}

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -22,7 +21,6 @@ var _ exec.DAGRunLeaseStore = (*DAGRunLeaseStore)(nil)
 // old file-backed distributed store, so existing lease files remain readable.
 type DAGRunLeaseStore struct {
 	col persis.Collection
-	mu  sync.Mutex
 }
 
 // NewDAGRunLeaseStore creates a DAGRunLeaseStore backed by col.
@@ -100,7 +98,7 @@ func (s *DAGRunLeaseStore) ListByQueue(ctx context.Context, queueName string) ([
 }
 
 func (s *DAGRunLeaseStore) ListAll(ctx context.Context) ([]exec.DAGRunLease, error) {
-	recs, err := listAll(ctx, s.col, persis.ListQuery{})
+	recs, err := listAllStrict(ctx, s.col, persis.ListQuery{})
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +141,5 @@ func (s *DAGRunLeaseStore) putLease(ctx context.Context, lease exec.DAGRunLease,
 }
 
 func (s *DAGRunLeaseStore) withLeaseLock(ctx context.Context, attemptKey string, fn func() error) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	return withDistributedCollectionLock(ctx, s.col, "locks/lease-"+distributedRecordKey(attemptKey), fn)
 }
