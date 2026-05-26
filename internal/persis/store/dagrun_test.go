@@ -279,6 +279,89 @@ func TestDAGRunStore_FileCollectionWritesExistingFileSubDAGRunLayout(t *testing.
 	assert.Equal(t, rootRef, status.Parent)
 }
 
+func TestDAGRunStore_FileCollectionPreservesAttemptSidecarLayout(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dagRunsDir := t.TempDir()
+	dag := testDAG("file-sidecar-dag")
+	base := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+
+	compat := store.NewDAGRunStore(
+		file.NewCollection(dagRunsDir),
+		store.WithDAGRunLatestStatusToday(false),
+		store.WithDAGRunLocation(time.UTC),
+	)
+	attempt, err := compat.CreateAttempt(ctx, dag, base, "run-file", exec.NewDAGRunAttemptOptions{AttemptID: "attempt-file"})
+	require.NoError(t, err)
+	writeDAGRunStatus(t, ctx, attempt, dag, "run-file", core.Succeeded)
+
+	outputs := &exec.DAGRunOutputs{
+		Metadata: exec.OutputsMetadata{
+			DAGName:   dag.Name,
+			DAGRunID:  "run-file",
+			AttemptID: attempt.ID(),
+			Status:    core.Succeeded.String(),
+		},
+		Outputs: map[string]string{"result": "ok"},
+	}
+	require.NoError(t, attempt.WriteOutputs(ctx, outputs))
+
+	messages := []exec.LLMMessage{{Role: "assistant", Content: "ready"}}
+	require.NoError(t, attempt.WriteStepMessages(ctx, "step-one", messages))
+	require.NoError(t, attempt.Abort(ctx))
+	aborting, err := attempt.IsAborting(ctx)
+	require.NoError(t, err)
+	assert.True(t, aborting)
+
+	dagRunDirs, err := filepath.Glob(filepath.Join(
+		dagRunsDir,
+		"*",
+		"dag-runs",
+		"2026",
+		"01",
+		"02",
+		"dag-run_*_run-file",
+	))
+	require.NoError(t, err)
+	require.Len(t, dagRunDirs, 1)
+	attemptDirs, err := filepath.Glob(filepath.Join(dagRunDirs[0], "attempt_*_attempt-file"))
+	require.NoError(t, err)
+	require.Len(t, attemptDirs, 1)
+	require.FileExists(t, filepath.Join(attemptDirs[0], "dag.json"))
+	require.FileExists(t, filepath.Join(attemptDirs[0], "outputs.json"))
+	require.FileExists(t, filepath.Join(attemptDirs[0], "status.jsonl"))
+	require.FileExists(t, filepath.Join(dagRunDirs[0], "messages", "step-one.json"))
+	require.DirExists(t, filepath.Join(dagRunDirs[0], "work"))
+	require.NoDirExists(t, filepath.Join(dagRunsDir, "runs"))
+
+	existing := filedagrun.New(
+		dagRunsDir,
+		filedagrun.WithLatestStatusToday(false),
+		filedagrun.WithLocation(time.UTC),
+	)
+	found, err := existing.FindAttempt(ctx, exec.NewDAGRunRef(dag.Name, "run-file"))
+	require.NoError(t, err)
+
+	readDAG, err := found.ReadDAG(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, dag.Name, readDAG.Name)
+
+	readOutputs, err := found.ReadOutputs(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, readOutputs)
+	assert.Equal(t, outputs.Metadata, readOutputs.Metadata)
+	assert.Equal(t, outputs.Outputs, readOutputs.Outputs)
+
+	readMessages, err := found.ReadStepMessages(ctx, "step-one")
+	require.NoError(t, err)
+	assert.Equal(t, messages, readMessages)
+
+	aborting, err = found.IsAborting(ctx)
+	require.NoError(t, err)
+	assert.True(t, aborting)
+}
+
 func TestDAGRunStore_FileCollectionLatestAttemptUsesDefaultLocation(t *testing.T) {
 	t.Parallel()
 
