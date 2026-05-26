@@ -74,10 +74,14 @@ func (p *SchedulerProbe) RequireEventually(label string, timeout time.Duration, 
 // HasLoadedSchedule reports whether the scheduler entry reader has dagName with expression.
 func (p *SchedulerProbe) HasLoadedSchedule(dagName, expression string) bool {
 	for _, loaded := range p.entryReader.DAGs() {
-		if loaded.Name != dagName || len(loaded.Schedule) != 1 {
+		if loaded.Name != dagName {
 			continue
 		}
-		return loaded.Schedule[0].Expression == expression
+		for _, schedule := range loaded.Schedule {
+			if schedule.Expression == expression {
+				return true
+			}
+		}
 	}
 	return false
 }
@@ -86,9 +90,20 @@ func (p *SchedulerProbe) HasLoadedSchedule(dagName, expression string) bool {
 func (p *SchedulerProbe) Stop(ctx context.Context, cancel context.CancelFunc, timeout time.Duration) {
 	p.h.t.Helper()
 
-	p.scheduler.Stop(ctx)
+	stopDone := make(chan struct{})
+	go func() {
+		p.scheduler.Stop(ctx)
+		close(stopDone)
+	}()
+
 	if cancel != nil {
 		cancel()
+	}
+
+	select {
+	case <-stopDone:
+	case <-time.After(p.h.Timeout(timeout)):
+		p.h.t.Fatal("scheduler stop did not return within timeout")
 	}
 
 	if p.stopped {

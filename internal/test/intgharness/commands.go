@@ -37,6 +37,9 @@ func commandsForShell(shell shellKind) Commands {
 
 // Sleep returns a shell snippet that waits for d.
 func (c Commands) Sleep(d time.Duration) string {
+	if d <= 0 {
+		d = time.Millisecond
+	}
 	if c.shell == powerShell {
 		millis := d.Milliseconds()
 		if millis <= 0 {
