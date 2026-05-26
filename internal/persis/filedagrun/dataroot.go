@@ -38,6 +38,7 @@ type DataRoot struct {
 
 	baseDir     string // Base directory for all DAGs
 	artifactDir string // Trusted root for artifact cleanup
+	lockRoot    string // Optional root for cross-process lock directories
 	prefix      string // Sanitized prefix for directory names
 	dagRunsDir  string // Path to the dag-runs directory
 	globPattern string // Pattern for finding run directories
@@ -58,8 +59,15 @@ func NewDataRoot(baseDir, dagName string) DataRoot {
 
 // NewDataRootWithArtifactDir creates a new DataRoot with an explicit trusted artifact root.
 func NewDataRootWithArtifactDir(baseDir, dagName, artifactDir string) DataRoot {
+	return NewDataRootWithArtifactDirAndLockRoot(baseDir, dagName, artifactDir, "")
+}
+
+// NewDataRootWithArtifactDirAndLockRoot creates a new DataRoot with explicit
+// artifact and lock roots. When lockRoot is empty, locks live next to the
+// dag-run data to preserve the historical filedagrun behavior.
+func NewDataRootWithArtifactDirAndLockRoot(baseDir, dagName, artifactDir, lockRoot string) DataRoot {
 	ext := filepath.Ext(dagName)
-	root := DataRoot{baseDir: baseDir, artifactDir: artifactDir}
+	root := DataRoot{baseDir: baseDir, artifactDir: artifactDir, lockRoot: lockRoot}
 
 	base := filepath.Base(dagName)
 	if fileutil.IsYAMLFile(dagName) {
@@ -79,7 +87,11 @@ func NewDataRootWithArtifactDir(baseDir, dagName, artifactDir string) DataRoot {
 	root.prefix = prefix
 	root.dagRunsDir = filepath.Join(baseDir, root.prefix, "dag-runs")
 	root.globPattern = filepath.Join(root.dagRunsDir, "*", "*", "*", DAGRunDirPrefix+"*")
-	root.DirLock = dirlock.New(root.dagRunsDir, &dirlock.LockOptions{
+	lockDir := root.dagRunsDir
+	if lockRoot != "" {
+		lockDir = filepath.Join(lockRoot, root.prefix, "dag-runs")
+	}
+	root.DirLock = dirlock.New(lockDir, &dirlock.LockOptions{
 		StaleThreshold: 30 * time.Second,      // Default stale threshold
 		RetryInterval:  50 * time.Millisecond, // Default retry interval
 	})

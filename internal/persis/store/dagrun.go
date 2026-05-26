@@ -127,6 +127,11 @@ func NewDAGRunStore(col persis.Collection, opts ...DAGRunStoreOption) *DAGRunSto
 			filedagrun.WithLatestStatusToday(s.latestStatusToday),
 			filedagrun.WithLocation(s.location),
 		}
+		if lockRooted, ok := col.(interface{ LockRootDir() string }); ok {
+			if lockRoot := lockRooted.LockRootDir(); lockRoot != "" {
+				fileOpts = append(fileOpts, filedagrun.WithLockRoot(lockRoot))
+			}
+		}
 		if s.artifactDir != "" {
 			fileOpts = append(fileOpts, filedagrun.WithArtifactDir(s.artifactDir))
 		}

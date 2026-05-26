@@ -41,6 +41,11 @@ func (c *Collection) RootDir() string {
 	return c.dir
 }
 
+// LockRootDir returns the optional root used for cross-process locks.
+func (c *Collection) LockRootDir() string {
+	return c.lockRoot
+}
+
 // fileRecord is the on-disk JSON envelope for a [persis.Record].
 // Data is kept as json.RawMessage so the file is human-readable when
 // the encoding is JSON.

@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis"
@@ -306,6 +307,28 @@ func TestDAGRunStore_FileCollectionLatestAttemptUsesDefaultLocation(t *testing.T
 			assert.Equal(t, "attempt-file", latest.ID())
 		})
 	}
+}
+
+func TestDAGRunStore_FileCollectionPreservesLockRoot(t *testing.T) {
+	ctx := context.Background()
+	dagRunsDir := filepath.Join(t.TempDir(), "dag-runs")
+	lockRoot := filepath.Join(t.TempDir(), "locks")
+	dag := testDAG("file-lock-root")
+
+	lock := dirlock.New(filepath.Join(lockRoot, "file-lock-root", "dag-runs"), nil)
+	require.NoError(t, lock.Lock(ctx))
+	defer func() { require.NoError(t, lock.Unlock()) }()
+
+	s := store.NewDAGRunStore(
+		file.NewCollectionWithLockRoot(dagRunsDir, lockRoot),
+		store.WithDAGRunLatestStatusToday(false),
+		store.WithDAGRunLocation(time.UTC),
+	)
+
+	blockedCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
+	_, err := s.CreateAttempt(blockedCtx, dag, time.Now(), "run-file", exec.NewDAGRunAttemptOptions{AttemptID: "attempt-file"})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
 func TestDAGRunStore_CreateWriteFindAndRetry(t *testing.T) {

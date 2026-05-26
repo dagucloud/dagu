@@ -44,6 +44,20 @@ func TestDataRoot(t *testing.T) {
 			assert.Equal(t, "test-dag", dr.prefix, "prefix should have extension removed")
 		})
 
+		t.Run("WithLockRoot", func(t *testing.T) {
+			ctx := context.Background()
+			baseDir := filepath.Join(t.TempDir(), "data")
+			lockRoot := filepath.Join(t.TempDir(), "locks")
+			artifactDir := filepath.Join(t.TempDir(), "artifacts")
+
+			dr := NewDataRootWithArtifactDirAndLockRoot(baseDir, "test-dag", artifactDir, lockRoot)
+			require.NoError(t, dr.Lock(ctx))
+			defer func() { require.NoError(t, dr.Unlock()) }()
+
+			require.DirExists(t, filepath.Join(lockRoot, "test-dag", "dag-runs", ".dagu_lock"))
+			require.NoDirExists(t, filepath.Join(baseDir, "test-dag", "dag-runs", ".dagu_lock"))
+		})
+
 		t.Run("WithUnsafeName", func(t *testing.T) {
 			baseDir := "/tmp"
 			dagName := "test/dag with spaces.yaml"
