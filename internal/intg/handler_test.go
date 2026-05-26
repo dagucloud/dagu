@@ -347,7 +347,7 @@ steps:
 		close(done)
 	}()
 
-	started.RequireExists(10 * time.Second)
+	started.RequireExists(intgTestTimeout(10 * time.Second))
 
 	// Abort the DAG
 	dagAgent.Abort()
@@ -656,7 +656,7 @@ steps:
 			close(done)
 		}()
 
-		started.RequireExists(10 * time.Second)
+		started.RequireExists(intgTestTimeout(10 * time.Second))
 		dagAgent.Abort()
 		select {
 		case <-done:
