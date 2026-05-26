@@ -5,7 +5,6 @@ package queue_test
 
 import (
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -36,11 +35,7 @@ steps:
 	runID := f.runIDs[0]
 	f.WaitForStatus(runID, core.Running, 10*time.Second)
 
-	ref := exec.NewDAGRunRef(f.dag.Name, runID)
-	require.Eventually(t, func() bool {
-		alive, err := f.th.ProcStore.IsRunAlive(f.th.Context, f.dag.ProcGroup(), ref)
-		return err == nil && alive
-	}, 10*time.Second, 100*time.Millisecond, "proc heartbeat should report run as alive")
+	f.RequireRunHeartbeatAdvance(runID, 10*time.Second)
 
 	f.WaitForStatus(runID, core.Succeeded, 20*time.Second)
 }
@@ -92,10 +87,7 @@ steps:
 	require.Equal(t, core.NodeFailed, repaired.Nodes[0].Status)
 	require.Contains(t, repaired.Nodes[0].Error, "stale local process detected")
 
-	require.Eventually(t, func() bool {
-		_, err := os.Stat(procFile)
-		return os.IsNotExist(err)
-	}, 5*time.Second, 50*time.Millisecond)
+	f.RequireProcFileMissing(procFile, 5*time.Second)
 }
 
 func TestQueueStaleProcFileDoesNotBlockDrain(t *testing.T) {
@@ -121,24 +113,10 @@ steps:
 		30*time.Second,
 	)
 
-	require.Eventually(t, func() bool {
-		entries, err := f.th.ProcStore.ListEntries(f.th.Context, f.dag.ProcGroup())
-		if err != nil {
-			return false
-		}
-		for _, entry := range entries {
-			if entry.Meta.DAGRunID == fakeRunID {
-				return !entry.Fresh
-			}
-		}
-		return false
-	}, 5*time.Second, 50*time.Millisecond, "stale proc file should be visible before scheduler starts")
+	f.RequireProcEntryStale(fakeRunID, 5*time.Second)
 
 	f.StartScheduler(30 * time.Second)
 	f.WaitForStatus(f.runIDs[0], core.Succeeded, 20*time.Second)
 
-	require.Eventually(t, func() bool {
-		_, err := os.Stat(procFile)
-		return os.IsNotExist(err)
-	}, 15*time.Second, 100*time.Millisecond)
+	f.RequireProcFileMissing(procFile, 15*time.Second)
 }

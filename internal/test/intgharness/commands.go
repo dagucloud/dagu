@@ -31,6 +31,11 @@ func defaultCommands() Commands {
 	return commandsForShell(posixShell)
 }
 
+// PortableCommands returns command snippets for the current test platform.
+func PortableCommands() Commands {
+	return defaultCommands()
+}
+
 func commandsForShell(shell shellKind) Commands {
 	return Commands{shell: shell}
 }

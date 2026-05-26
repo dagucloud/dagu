@@ -47,6 +47,12 @@ func (w Waiter) EventuallyEvery(label string, timeout, interval time.Duration, c
 	require.Eventually(w.t, condition, ScaleTimeout(timeout), interval, label)
 }
 
+// EventuallyEveryWithin waits until condition is satisfied using an already scaled timeout.
+func (w Waiter) EventuallyEveryWithin(label string, timeout, interval time.Duration, condition func() bool) {
+	w.t.Helper()
+	require.Eventually(w.t, condition, timeout, interval, label)
+}
+
 // FileExists waits until path exists.
 func (w Waiter) FileExists(path string, timeout time.Duration) {
 	w.Eventually("expected file to exist: "+path, timeout, func() bool {

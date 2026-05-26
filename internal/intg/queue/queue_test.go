@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
 	"github.com/dagucloud/dagu/internal/test"
+	"github.com/dagucloud/dagu/internal/test/intgharness"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -92,7 +93,7 @@ steps:
 	}()
 
 	f.WaitDrain(35 * time.Second)
-	waitForStartedQueueRuns(t, startedDir, 3, 20*time.Second)
+	f.WaitForStartedFiles(startedDir, 3, 20*time.Second)
 	f.AssertConcurrent(maxDiff)
 
 	require.NoError(t, os.WriteFile(releaseFile, []byte("release"), 0600))
@@ -104,6 +105,7 @@ steps:
 }
 
 func markQueueRunStartedAndWaitCommand(startedDir, releaseFile string) string {
+	waitForRelease := intgharness.PortableCommands().WaitForFile(releaseFile)
 	return test.ForOS(
 		fmt.Sprintf(`mkdir -p %s
 run_id=$(printenv DAG_RUN_ID 2>/dev/null || true)
@@ -111,18 +113,14 @@ if [ -z "$run_id" ]; then
   run_id=$$
 fi
 : > %s/"started-$run_id"
-while [ ! -f %s ]; do
-  sleep 0.05
-done`, test.PosixQuote(startedDir), test.PosixQuote(startedDir), test.PosixQuote(releaseFile)),
+%s`, test.PosixQuote(startedDir), test.PosixQuote(startedDir), waitForRelease),
 		fmt.Sprintf(`New-Item -ItemType Directory -Path %s -Force | Out-Null
 $runId = $env:DAG_RUN_ID
 if ([string]::IsNullOrWhiteSpace($runId)) {
   $runId = [guid]::NewGuid().ToString()
 }
 New-Item -ItemType File -Path (Join-Path %s ("started-" + $runId)) -Force | Out-Null
-while (-not (Test-Path %s)) {
-  Start-Sleep -Milliseconds 50
-}`, test.PowerShellQuote(startedDir), test.PowerShellQuote(startedDir), test.PowerShellQuote(releaseFile)),
+%s`, test.PowerShellQuote(startedDir), test.PowerShellQuote(startedDir), waitForRelease),
 	)
 }
 
@@ -133,14 +131,6 @@ func indentQueueTestScript(script string, spaces int) string {
 		lines[i] = indent + line
 	}
 	return strings.Join(lines, "\n")
-}
-
-func waitForStartedQueueRuns(t *testing.T, startedDir string, want int, timeout time.Duration) {
-	t.Helper()
-	require.Eventually(t, func() bool {
-		entries, err := os.ReadDir(startedDir)
-		return err == nil && len(entries) >= want
-	}, queueTestTimeout(timeout), 50*time.Millisecond)
 }
 
 func TestLocalQueueFIFOProcessing(t *testing.T) {
@@ -321,10 +311,7 @@ handler_on:
 steps:
   - id: retry_step
     run: echo retried
-`, test.ForOS(
-			fmt.Sprintf("printf '%%s' %s > %s", test.PosixQuote("failed"), test.PosixQuote(markerPath)),
-			fmt.Sprintf("Set-Content -Path %s -Value %s -NoNewline", test.PowerShellQuote(markerPath), test.PowerShellQuote("failed")),
-		)), WithQueue("retry-queue"), WithGlobalQueue("retry-queue", 1))
+`, intgharness.PortableCommands().WriteFile(markerPath, "failed")), WithQueue("retry-queue"), WithGlobalQueue("retry-queue", 1))
 
 		failedAt := time.Now().UTC().Add(-30 * time.Second)
 		runID := f.FailedRunWithMetadata(runStatusOptions{
@@ -370,10 +357,7 @@ handler_on:
 steps:
   - id: retry_step
     run: echo retried
-`, test.ForOS(
-			fmt.Sprintf("printf '%%s' %s > %s", test.PosixQuote("failed"), test.PosixQuote(markerPath)),
-			fmt.Sprintf("Set-Content -Path %s -Value %s -NoNewline", test.PowerShellQuote(markerPath), test.PowerShellQuote("failed")),
-		)), WithQueue("retry-queue"), WithGlobalQueue("retry-queue", 1))
+`, intgharness.PortableCommands().WriteFile(markerPath, "failed")), WithQueue("retry-queue"), WithGlobalQueue("retry-queue", 1))
 
 		failedAt := time.Now().UTC().Add(-30 * time.Second)
 		runID := f.FailedRunWithMetadata(runStatusOptions{
@@ -476,10 +460,7 @@ handler_on:
 steps:
   - id: retry_step
     run: echo retried
-`, test.ForOS(
-			fmt.Sprintf("printf '%%s' %s > %s", test.PosixQuote("failed"), test.PosixQuote(markerPath)),
-			fmt.Sprintf("Set-Content -Path %s -Value %s -NoNewline", test.PowerShellQuote(markerPath), test.PowerShellQuote("failed")),
-		)), WithQueue("retry-queue"), WithGlobalQueue("retry-queue", 1), WithRetryWindow(48*time.Hour))
+`, intgharness.PortableCommands().WriteFile(markerPath, "failed")), WithQueue("retry-queue"), WithGlobalQueue("retry-queue", 1), WithRetryWindow(48*time.Hour))
 
 		now := time.Now().UTC()
 		midnight := retryScanReferenceMidnight(now)

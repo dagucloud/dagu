@@ -38,7 +38,14 @@ func (r RunProbe) RequireRunning(timeout time.Duration) {
 func (r RunProbe) RequireStatus(status core.Status, timeout time.Duration) {
 	r.h.t.Helper()
 
-	r.RequireStatusMatch(fmt.Sprintf("expected %s to reach status %s", r.ref.String(), status), timeout, func(current *exec.DAGRunStatus) bool {
+	r.RequireStatusWithin(status, r.h.Timeout(timeout))
+}
+
+// RequireStatusWithin waits until the run reaches status using an already scaled timeout.
+func (r RunProbe) RequireStatusWithin(status core.Status, timeout time.Duration) {
+	r.h.t.Helper()
+
+	r.RequireStatusMatchWithin(fmt.Sprintf("expected %s to reach status %s", r.ref.String(), status), timeout, func(current *exec.DAGRunStatus) bool {
 		return current.Status == status
 	})
 }
@@ -47,7 +54,14 @@ func (r RunProbe) RequireStatus(status core.Status, timeout time.Duration) {
 func (r RunProbe) RequireStatusIn(statuses []core.Status, timeout time.Duration) *exec.DAGRunStatus {
 	r.h.t.Helper()
 
-	return r.RequireStatusMatch(fmt.Sprintf("expected %s to reach one of statuses %v", r.ref.String(), statuses), timeout, func(current *exec.DAGRunStatus) bool {
+	return r.RequireStatusInWithin(statuses, r.h.Timeout(timeout))
+}
+
+// RequireStatusInWithin waits until the run reaches one of statuses using an already scaled timeout.
+func (r RunProbe) RequireStatusInWithin(statuses []core.Status, timeout time.Duration) *exec.DAGRunStatus {
+	r.h.t.Helper()
+
+	return r.RequireStatusMatchWithin(fmt.Sprintf("expected %s to reach one of statuses %v", r.ref.String(), statuses), timeout, func(current *exec.DAGRunStatus) bool {
 		return slices.Contains(statuses, current.Status)
 	})
 }
@@ -56,8 +70,15 @@ func (r RunProbe) RequireStatusIn(statuses []core.Status, timeout time.Duration)
 func (r RunProbe) RequireStatusMatch(label string, timeout time.Duration, match func(*exec.DAGRunStatus) bool) *exec.DAGRunStatus {
 	r.h.t.Helper()
 
+	return r.RequireStatusMatchWithin(label, r.h.Timeout(timeout), match)
+}
+
+// RequireStatusMatchWithin waits until match accepts the persisted run status using an already scaled timeout.
+func (r RunProbe) RequireStatusMatchWithin(label string, timeout time.Duration, match func(*exec.DAGRunStatus) bool) *exec.DAGRunStatus {
+	r.h.t.Helper()
+
 	var matched *exec.DAGRunStatus
-	r.h.Wait.EventuallyEvery(label, timeout, defaultPollInterval, func() bool {
+	r.h.Wait.EventuallyEveryWithin(label, timeout, defaultPollInterval, func() bool {
 		current, ok := r.readStatusIfPresent()
 		if !ok || !match(current) {
 			return false
@@ -72,13 +93,20 @@ func (r RunProbe) RequireStatusMatch(label string, timeout time.Duration, match 
 func (r RunProbe) RequireHeartbeatAdvance(timeout time.Duration) {
 	r.h.t.Helper()
 
+	r.RequireHeartbeatAdvanceWithin(r.h.Timeout(timeout))
+}
+
+// RequireHeartbeatAdvanceWithin waits until the run's proc heartbeat advances using an already scaled timeout.
+func (r RunProbe) RequireHeartbeatAdvanceWithin(timeout time.Duration) {
+	r.h.t.Helper()
+
 	testutil.RequireProcHeartbeatAdvance(
 		r.h.t,
 		r.h.Helper.Context,
 		r.h.Helper.ProcStore,
 		r.procGroup,
 		r.ref,
-		r.h.Timeout(timeout),
+		timeout,
 	)
 }
 

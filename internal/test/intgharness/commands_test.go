@@ -15,6 +15,10 @@ func TestCommandsSleepUsesShellSyntax(t *testing.T) {
 	require.Equal(t, "Start-Sleep -Milliseconds 1500", commandsForShell(powerShell).Sleep(1500*time.Millisecond))
 }
 
+func TestPortableCommandsReturnsPlatformCommands(t *testing.T) {
+	require.NotEmpty(t, PortableCommands().Sleep(time.Millisecond))
+}
+
 func TestCommandsSleepClampsNonPositiveDurations(t *testing.T) {
 	require.Equal(t, "sleep 0.001", commandsForShell(posixShell).Sleep(0))
 	require.Equal(t, "Start-Sleep -Milliseconds 1", commandsForShell(powerShell).Sleep(-time.Second))

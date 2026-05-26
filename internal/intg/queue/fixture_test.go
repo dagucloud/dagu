@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"testing"
 	"time"
 
@@ -25,8 +24,8 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
 	"github.com/dagucloud/dagu/internal/test"
+	"github.com/dagucloud/dagu/internal/test/intgharness"
 	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -34,6 +33,7 @@ import (
 type fixture struct {
 	t            *testing.T
 	th           test.Command
+	h            intgharness.Harness
 	dag          *core.DAG
 	queue        string
 	runIDs       []string
@@ -92,6 +92,7 @@ func newFixture(t *testing.T, dagYAML string, opts ...func(*fixture)) *fixture {
 		}),
 	}
 	f.th = test.SetupCommand(t, helperOpts...)
+	f.h = intgharness.New(t, f.th.Helper)
 
 	require.NoError(t, os.MkdirAll(f.th.Config.Paths.DAGsDir, 0755))
 	dagFile := filepath.Join(f.th.Config.Paths.DAGsDir, "test.yaml")
@@ -106,6 +107,14 @@ func newFixture(t *testing.T, dagYAML string, opts ...func(*fixture)) *fixture {
 
 	t.Cleanup(f.cleanup)
 	return f
+}
+
+func (f *fixture) Run(runID string) intgharness.RunProbe {
+	return f.h.Run(exec.NewDAGRunRef(f.dag.Name, runID), f.queue)
+}
+
+func (f *fixture) Marker(path string) intgharness.Marker {
+	return f.h.Marker(path)
 }
 
 func queueTestTimeout(timeout time.Duration) time.Duration {
@@ -246,28 +255,22 @@ func (f *fixture) StartScheduler(timeout time.Duration) *fixture {
 // WaitDrain waits for the queue to empty.
 func (f *fixture) WaitDrain(timeout time.Duration) *fixture {
 	timeout = queueTestTimeout(timeout)
-	require.Eventually(f.t, func() bool {
+	f.h.Wait.EventuallyEveryWithin(fmt.Sprintf("timed out waiting for queue %s to drain", f.queue), timeout, 200*time.Millisecond, func() bool {
 		items, err := f.th.QueueStore.List(f.th.Context, f.queue)
 		return err == nil && len(items) == 0
-	}, timeout, 200*time.Millisecond, "timed out waiting for queue %s to drain", f.queue)
+	})
 	return f
 }
 
 func (f *fixture) WaitForStatus(runID string, expected core.Status, timeout time.Duration) *fixture {
 	f.t.Helper()
-	_, err := f.WaitForStatusMatch(runID, timeout, func(status *exec.DAGRunStatus) bool {
-		return status.Status == expected
-	})
-	require.NoError(f.t, err)
+	f.Run(runID).RequireStatusWithin(expected, queueTestTimeout(timeout))
 	return f
 }
 
 func (f *fixture) WaitForStatusIn(runID string, expected []core.Status, timeout time.Duration) *fixture {
 	f.t.Helper()
-	_, err := f.WaitForStatusMatch(runID, timeout, func(status *exec.DAGRunStatus) bool {
-		return slices.Contains(expected, status.Status)
-	})
-	require.NoError(f.t, err)
+	f.Run(runID).RequireStatusInWithin(expected, queueTestTimeout(timeout))
 	return f
 }
 
@@ -282,7 +285,7 @@ func (f *fixture) WaitForAllStatuses(expected core.Status, timeout time.Duration
 func (f *fixture) WaitForAllStopped(timeout time.Duration) *fixture {
 	f.t.Helper()
 	timeout = queueTestTimeout(timeout)
-	require.Eventually(f.t, func() bool {
+	f.h.Wait.EventuallyEveryWithin("timed out waiting for queued runs to stop", timeout, 50*time.Millisecond, func() bool {
 		for _, runID := range f.runIDs {
 			alive, err := f.th.ProcStore.IsRunAlive(f.th.Context, f.queue, exec.NewDAGRunRef(f.dag.Name, runID))
 			if err != nil || alive {
@@ -290,7 +293,48 @@ func (f *fixture) WaitForAllStopped(timeout time.Duration) *fixture {
 			}
 		}
 		return true
-	}, timeout, 50*time.Millisecond, "timed out waiting for queued runs to stop")
+	})
+	return f
+}
+
+func (f *fixture) RequireRunHeartbeatAdvance(runID string, timeout time.Duration) *fixture {
+	f.t.Helper()
+	f.Run(runID).RequireHeartbeatAdvanceWithin(queueTestTimeout(timeout))
+	return f
+}
+
+func (f *fixture) RequireProcFileMissing(path string, timeout time.Duration) *fixture {
+	f.t.Helper()
+	f.h.Wait.EventuallyEveryWithin("expected proc file to be removed: "+path, queueTestTimeout(timeout), 50*time.Millisecond, func() bool {
+		_, err := os.Stat(path)
+		return os.IsNotExist(err)
+	})
+	return f
+}
+
+func (f *fixture) RequireProcEntryStale(runID string, timeout time.Duration) *fixture {
+	f.t.Helper()
+	f.h.Wait.EventuallyEveryWithin("expected stale proc entry to be visible", queueTestTimeout(timeout), 50*time.Millisecond, func() bool {
+		entries, err := f.th.ProcStore.ListEntries(f.th.Context, f.dag.ProcGroup())
+		if err != nil {
+			return false
+		}
+		for _, entry := range entries {
+			if entry.Meta.DAGRunID == runID {
+				return !entry.Fresh
+			}
+		}
+		return false
+	})
+	return f
+}
+
+func (f *fixture) WaitForStartedFiles(startedDir string, want int, timeout time.Duration) *fixture {
+	f.t.Helper()
+	f.h.Wait.EventuallyEveryWithin(fmt.Sprintf("expected at least %d started files in %s", want, startedDir), queueTestTimeout(timeout), 50*time.Millisecond, func() bool {
+		entries, err := os.ReadDir(startedDir)
+		return err == nil && len(entries) >= want
+	})
 	return f
 }
 
@@ -344,25 +388,8 @@ func (f *fixture) WaitForStatusMatch(
 ) (*exec.DAGRunStatus, error) {
 	f.t.Helper()
 
-	var matched *exec.DAGRunStatus
-	var lastErr error
 	timeout = queueTestTimeout(timeout)
-	ok := assert.Eventually(f.t, func() bool {
-		status, err := f.Status(runID)
-		if err != nil {
-			lastErr = err
-			return false
-		}
-		if match(status) {
-			matched = status
-			return true
-		}
-		return false
-	}, timeout, 50*time.Millisecond)
-
-	if !ok {
-		return nil, fmt.Errorf("timed out waiting for matching status for run %s: %w", runID, lastErr)
-	}
+	matched := f.Run(runID).RequireStatusMatchWithin(fmt.Sprintf("timed out waiting for matching status for run %s", runID), timeout, match)
 	return matched, nil
 }
 
@@ -386,7 +413,7 @@ func (f *fixture) collectStartTimes() []time.Time {
 	var times []time.Time
 	for _, id := range f.runIDs {
 		var startedAt string
-		require.Eventually(f.t, func() bool {
+		f.h.Wait.EventuallyEveryWithin(fmt.Sprintf("timed out waiting for run %s to record a start time", id), queueTestTimeout(10*time.Second), 50*time.Millisecond, func() bool {
 			st, err := f.Status(id)
 			if err != nil {
 				return false
@@ -396,7 +423,7 @@ func (f *fixture) collectStartTimes() []time.Time {
 			}
 			startedAt = st.StartedAt
 			return true
-		}, queueTestTimeout(10*time.Second), 50*time.Millisecond, "timed out waiting for run %s to record a start time", id)
+		})
 
 		t, err := stringutil.ParseTime(startedAt)
 		require.NoError(f.t, err)
@@ -410,7 +437,7 @@ func (f *fixture) waitForRecentStatus(timeout time.Duration, match func(exec.DAG
 
 	var matched exec.DAGRunStatus
 	timeout = queueTestTimeout(timeout)
-	require.Eventually(f.t, func() bool {
+	f.h.Wait.EventuallyEveryWithin("timed out waiting for recent status match", timeout, 200*time.Millisecond, func() bool {
 		for _, status := range f.th.DAGRunMgr.ListRecentStatus(f.th.Context, f.dag.Name, 10) {
 			if match(status) {
 				matched = status
@@ -418,7 +445,7 @@ func (f *fixture) waitForRecentStatus(timeout time.Duration, match func(exec.DAG
 			}
 		}
 		return false
-	}, timeout, 200*time.Millisecond, "timed out waiting for recent status match")
+	})
 
 	return matched
 }
