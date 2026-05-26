@@ -278,6 +278,36 @@ func TestDAGRunStore_FileCollectionWritesExistingFileSubDAGRunLayout(t *testing.
 	assert.Equal(t, rootRef, status.Parent)
 }
 
+func TestDAGRunStore_FileCollectionLatestAttemptUsesDefaultLocation(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		opts []store.DAGRunStoreOption
+	}{
+		{name: "default"},
+		{name: "nil-location", opts: []store.DAGRunStoreOption{store.WithDAGRunLocation(nil)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			dagRunsDir := t.TempDir()
+			dag := testDAG("file-default-location-" + tc.name)
+			base := time.Now().Add(24 * time.Hour)
+
+			s := store.NewDAGRunStore(file.NewCollection(dagRunsDir), tc.opts...)
+			attempt, err := s.CreateAttempt(ctx, dag, base, "run-file", exec.NewDAGRunAttemptOptions{AttemptID: "attempt-file"})
+			require.NoError(t, err)
+			writeDAGRunStatus(t, ctx, attempt, dag, "run-file", core.Succeeded)
+
+			latest, err := s.LatestAttempt(ctx, dag.Name)
+			require.NoError(t, err)
+			assert.Equal(t, "attempt-file", latest.ID())
+		})
+	}
+}
+
 func TestDAGRunStore_CreateWriteFindAndRetry(t *testing.T) {
 	t.Parallel()
 

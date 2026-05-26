@@ -53,7 +53,8 @@ func WithDAGRunLocation(location *time.Location) DAGRunStoreOption {
 }
 
 // WithDAGRunArtifactDir sets the trusted artifact root for file-backed DAG-run
-// stores. Non-file collections do not store artifacts locally.
+// stores. This option has no effect when the collection does not expose a file
+// root.
 func WithDAGRunArtifactDir(dir string) DAGRunStoreOption {
 	return func(s *DAGRunStore) {
 		s.artifactDir = dir
@@ -61,7 +62,8 @@ func WithDAGRunArtifactDir(dir string) DAGRunStoreOption {
 }
 
 // WithDAGRunHistoryFileCache sets the status-file cache for file-backed DAG-run
-// stores used by long-running processes.
+// stores used by long-running processes. This option has no effect when the
+// collection does not expose a file root.
 func WithDAGRunHistoryFileCache(cache *fileutil.Cache[*exec.DAGRunStatus]) DAGRunStoreOption {
 	return func(s *DAGRunStore) {
 		s.historyFileCache = cache
