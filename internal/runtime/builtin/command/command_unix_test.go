@@ -50,7 +50,7 @@ func TestCommandExecutor_CleansProcessGroupWhenParentDies(t *testing.T) {
 		if helperCmd == nil || helperCmd.Process == nil {
 			return
 		}
-		_ = cmdutil.KillProcessGroup(helperCmd, os.Kill)
+		_ = cmdutil.TerminateProcessGroup(helperCmd, cmdutil.ForceTermination())
 		select {
 		case <-cmdDone:
 		case <-time.After(2 * time.Second):
@@ -72,7 +72,7 @@ func TestCommandExecutor_CleansProcessGroupWhenParentDies(t *testing.T) {
 		}
 	})
 
-	require.NoError(t, cmdutil.KillProcessGroup(cmd, os.Kill))
+	require.NoError(t, cmdutil.TerminateProcessGroup(cmd, cmdutil.ForceTermination()))
 	select {
 	case <-cmdDone:
 	case <-time.After(5 * time.Second):
