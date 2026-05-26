@@ -11,9 +11,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis"
+	"github.com/dagucloud/dagu/internal/persis/filedagrun"
 )
 
 const (
@@ -50,11 +52,31 @@ func WithDAGRunLocation(location *time.Location) DAGRunStoreOption {
 	}
 }
 
-// DAGRunStore implements [exec.DAGRunStore] on top of a [persis.Collection].
-// It stores only control-plane metadata; local execution artifacts remain
-// outside the backend until the artifact/log story is ported separately.
+// WithDAGRunArtifactDir sets the trusted artifact root for file-backed DAG-run
+// stores. Non-file collections do not store artifacts locally.
+func WithDAGRunArtifactDir(dir string) DAGRunStoreOption {
+	return func(s *DAGRunStore) {
+		s.artifactDir = dir
+	}
+}
+
+// WithDAGRunHistoryFileCache sets the status-file cache for file-backed DAG-run
+// stores used by long-running processes.
+func WithDAGRunHistoryFileCache(cache *fileutil.Cache[*exec.DAGRunStatus]) DAGRunStoreOption {
+	return func(s *DAGRunStore) {
+		s.historyFileCache = cache
+	}
+}
+
+// DAGRunStore implements [exec.DAGRunStore]. When constructed with the file
+// backend collection it preserves the existing filedagrun layout; other
+// backends use collection records for control-plane metadata only.
 type DAGRunStore struct {
-	col               persis.Collection
+	col              persis.Collection
+	fileStore        exec.DAGRunStore
+	artifactDir      string
+	historyFileCache *fileutil.Cache[*exec.DAGRunStatus]
+
 	latestStatusToday bool
 	location          *time.Location
 	mu                sync.Mutex // guards fallbackLocks
@@ -98,10 +120,26 @@ func NewDAGRunStore(col persis.Collection, opts ...DAGRunStoreOption) *DAGRunSto
 	for _, opt := range opts {
 		opt(s)
 	}
+	if rooted, ok := col.(interface{ RootDir() string }); ok {
+		fileOpts := []filedagrun.DAGRunStoreOption{
+			filedagrun.WithLatestStatusToday(s.latestStatusToday),
+			filedagrun.WithLocation(s.location),
+		}
+		if s.artifactDir != "" {
+			fileOpts = append(fileOpts, filedagrun.WithArtifactDir(s.artifactDir))
+		}
+		if s.historyFileCache != nil {
+			fileOpts = append(fileOpts, filedagrun.WithHistoryFileCache(s.historyFileCache))
+		}
+		s.fileStore = filedagrun.New(rooted.RootDir(), fileOpts...)
+	}
 	return s
 }
 
 func (s *DAGRunStore) CreateAttempt(ctx context.Context, dag *core.DAG, ts time.Time, dagRunID string, opts exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
+	if s.fileStore != nil {
+		return s.fileStore.CreateAttempt(ctx, dag, ts, dagRunID, opts)
+	}
 	if dagRunID == "" {
 		return nil, ErrDAGRunIDEmpty
 	}
@@ -163,6 +201,9 @@ func (s *DAGRunStore) CreateAttempt(ctx context.Context, dag *core.DAG, ts time.
 }
 
 func (s *DAGRunStore) RecentAttempts(ctx context.Context, name string, itemLimit int) []exec.DAGRunAttempt {
+	if s.fileStore != nil {
+		return s.fileStore.RecentAttempts(ctx, name, itemLimit)
+	}
 	if itemLimit <= 0 {
 		itemLimit = 10
 	}
@@ -181,6 +222,9 @@ func (s *DAGRunStore) RecentAttempts(ctx context.Context, name string, itemLimit
 }
 
 func (s *DAGRunStore) LatestAttempt(ctx context.Context, dagName string) (exec.DAGRunAttempt, error) {
+	if s.fileStore != nil {
+		return s.fileStore.LatestAttempt(ctx, dagName)
+	}
 	attempts, err := s.latestRootAttempts(ctx, dagName)
 	if err != nil {
 		return nil, err
@@ -203,6 +247,9 @@ func (s *DAGRunStore) LatestAttempt(ctx context.Context, dagName string) (exec.D
 }
 
 func (s *DAGRunStore) ListStatuses(ctx context.Context, opts ...exec.ListDAGRunStatusesOption) ([]*exec.DAGRunStatus, error) {
+	if s.fileStore != nil {
+		return s.fileStore.ListStatuses(ctx, opts...)
+	}
 	options, err := prepareDAGRunListOptions(s.location, opts)
 	if err != nil {
 		return nil, err
@@ -212,6 +259,9 @@ func (s *DAGRunStore) ListStatuses(ctx context.Context, opts ...exec.ListDAGRunS
 }
 
 func (s *DAGRunStore) ListStatusesPage(ctx context.Context, opts ...exec.ListDAGRunStatusesOption) (exec.DAGRunStatusPage, error) {
+	if s.fileStore != nil {
+		return s.fileStore.ListStatusesPage(ctx, opts...)
+	}
 	options, err := prepareDAGRunListOptions(s.location, opts)
 	if err != nil {
 		return exec.DAGRunStatusPage{}, err
@@ -231,6 +281,9 @@ func (s *DAGRunStore) CompareAndSwapLatestAttemptStatus(
 	mutate func(*exec.DAGRunStatus) error,
 	opts ...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {
+	if s.fileStore != nil {
+		return s.fileStore.CompareAndSwapLatestAttemptStatus(ctx, dagRun, expectedAttemptID, expectedStatus, mutate, opts...)
+	}
 	if dagRun.ID == "" {
 		return nil, false, ErrDAGRunIDEmpty
 	}
@@ -294,6 +347,9 @@ func (s *DAGRunStore) CompareAndSwapLatestAttemptStatus(
 }
 
 func (s *DAGRunStore) FindAttempt(ctx context.Context, ref exec.DAGRunRef) (exec.DAGRunAttempt, error) {
+	if s.fileStore != nil {
+		return s.fileStore.FindAttempt(ctx, ref)
+	}
 	if ref.ID == "" {
 		return nil, ErrDAGRunIDEmpty
 	}
@@ -308,6 +364,9 @@ func (s *DAGRunStore) FindAttempt(ctx context.Context, ref exec.DAGRunRef) (exec
 }
 
 func (s *DAGRunStore) FindSubAttempt(ctx context.Context, ref exec.DAGRunRef, subDAGRunID string) (exec.DAGRunAttempt, error) {
+	if s.fileStore != nil {
+		return s.fileStore.FindSubAttempt(ctx, ref, subDAGRunID)
+	}
 	if ref.ID == "" {
 		return nil, ErrDAGRunIDEmpty
 	}
@@ -322,6 +381,9 @@ func (s *DAGRunStore) FindSubAttempt(ctx context.Context, ref exec.DAGRunRef, su
 }
 
 func (s *DAGRunStore) CreateSubAttempt(ctx context.Context, rootRef exec.DAGRunRef, subDAGRunID string) (exec.DAGRunAttempt, error) {
+	if s.fileStore != nil {
+		return s.fileStore.CreateSubAttempt(ctx, rootRef, subDAGRunID)
+	}
 	if rootRef.ID == "" {
 		return nil, ErrDAGRunIDEmpty
 	}
@@ -335,6 +397,9 @@ func (s *DAGRunStore) CreateSubAttempt(ctx context.Context, rootRef exec.DAGRunR
 // count when WithRetentionRuns is configured. Run-count retention matches the
 // file-backed store and takes precedence over retentionDays.
 func (s *DAGRunStore) RemoveOldDAGRuns(ctx context.Context, name string, retentionDays int, opts ...exec.RemoveOldDAGRunsOption) ([]string, error) {
+	if s.fileStore != nil {
+		return s.fileStore.RemoveOldDAGRuns(ctx, name, retentionDays, opts...)
+	}
 	var options exec.RemoveOldDAGRunsOptions
 	for _, opt := range opts {
 		opt(&options)
@@ -393,6 +458,9 @@ func (s *DAGRunStore) RemoveOldDAGRuns(ctx context.Context, name string, retenti
 }
 
 func (s *DAGRunStore) RenameDAGRuns(ctx context.Context, oldName, newName string) error {
+	if s.fileStore != nil {
+		return s.fileStore.RenameDAGRuns(ctx, oldName, newName)
+	}
 	if oldName == "" || newName == "" {
 		return fmt.Errorf("dag-run store: old and new names are required")
 	}
@@ -438,6 +506,9 @@ func (s *DAGRunStore) RenameDAGRuns(ctx context.Context, oldName, newName string
 }
 
 func (s *DAGRunStore) RemoveDAGRun(ctx context.Context, dagRun exec.DAGRunRef, opts ...exec.RemoveDAGRunOption) error {
+	if s.fileStore != nil {
+		return s.fileStore.RemoveDAGRun(ctx, dagRun, opts...)
+	}
 	if dagRun.ID == "" {
 		return ErrDAGRunIDEmpty
 	}

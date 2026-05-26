@@ -34,6 +34,13 @@ type Collection struct {
 
 var _ persis.Collection = (*Collection)(nil)
 
+// RootDir returns the collection root on disk. Adapters that must preserve an
+// established file layout can use this to select a layout-aware implementation
+// instead of the generic record envelope.
+func (c *Collection) RootDir() string {
+	return c.dir
+}
+
 // fileRecord is the on-disk JSON envelope for a [persis.Record].
 // Data is kept as json.RawMessage so the file is human-readable when
 // the encoding is JSON.

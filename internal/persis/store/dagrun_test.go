@@ -5,6 +5,7 @@ package store_test
 
 import (
 	"context"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -15,6 +16,8 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis"
+	"github.com/dagucloud/dagu/internal/persis/file"
+	"github.com/dagucloud/dagu/internal/persis/filedagrun"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
 )
@@ -82,6 +85,83 @@ func requireAttemptStatus(t *testing.T, ctx context.Context, att exec.DAGRunAtte
 	require.NoError(t, err)
 	require.NotNil(t, st)
 	return st
+}
+
+func TestDAGRunStore_FileCollectionReadsExistingFileDAGRunLayout(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dagRunsDir := t.TempDir()
+	dag := testDAG("file-compat-dag", "env=prod")
+	base := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+
+	existing := filedagrun.New(
+		dagRunsDir,
+		filedagrun.WithLatestStatusToday(false),
+		filedagrun.WithLocation(time.UTC),
+	)
+	attempt, err := existing.CreateAttempt(ctx, dag, base, "run-file", exec.NewDAGRunAttemptOptions{AttemptID: "attempt-file"})
+	require.NoError(t, err)
+	writeDAGRunStatus(t, ctx, attempt, dag, "run-file", core.Succeeded)
+
+	compat := store.NewDAGRunStore(
+		file.NewCollection(dagRunsDir),
+		store.WithDAGRunLatestStatusToday(false),
+		store.WithDAGRunLocation(time.UTC),
+	)
+
+	found, err := compat.FindAttempt(ctx, exec.NewDAGRunRef(dag.Name, "run-file"))
+	require.NoError(t, err)
+	assert.Equal(t, "attempt-file", found.ID())
+	assert.Equal(t, core.Succeeded, requireAttemptStatus(t, ctx, found).Status)
+
+	statuses, err := compat.ListStatuses(ctx, exec.WithAllHistory(), exec.WithExactName(dag.Name))
+	require.NoError(t, err)
+	require.Len(t, statuses, 1)
+	assert.Equal(t, "run-file", statuses[0].DAGRunID)
+	assert.Equal(t, "attempt-file", statuses[0].AttemptID)
+}
+
+func TestDAGRunStore_FileCollectionWritesExistingFileDAGRunLayout(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dagRunsDir := t.TempDir()
+	dag := testDAG("file-layout-dag")
+	base := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+
+	compat := store.NewDAGRunStore(
+		file.NewCollection(dagRunsDir),
+		store.WithDAGRunLatestStatusToday(false),
+		store.WithDAGRunLocation(time.UTC),
+	)
+	attempt, err := compat.CreateAttempt(ctx, dag, base, "run-file", exec.NewDAGRunAttemptOptions{AttemptID: "attempt-file"})
+	require.NoError(t, err)
+	writeDAGRunStatus(t, ctx, attempt, dag, "run-file", core.Succeeded)
+
+	matches, err := filepath.Glob(filepath.Join(
+		dagRunsDir,
+		"*",
+		"dag-runs",
+		"2026",
+		"01",
+		"02",
+		"dag-run_*_run-file",
+		"attempt_*_attempt-file",
+		"status.jsonl",
+	))
+	require.NoError(t, err)
+	require.Len(t, matches, 1)
+
+	existing := filedagrun.New(
+		dagRunsDir,
+		filedagrun.WithLatestStatusToday(false),
+		filedagrun.WithLocation(time.UTC),
+	)
+	found, err := existing.FindAttempt(ctx, exec.NewDAGRunRef(dag.Name, "run-file"))
+	require.NoError(t, err)
+	assert.Equal(t, "attempt-file", found.ID())
+	assert.Equal(t, core.Succeeded, requireAttemptStatus(t, ctx, found).Status)
 }
 
 func TestDAGRunStore_CreateWriteFindAndRetry(t *testing.T) {
