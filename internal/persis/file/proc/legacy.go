@@ -1,10 +1,11 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package store
+package proc
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
@@ -67,16 +69,25 @@ type observedProcEntry struct {
 	observedAt time.Time
 }
 
-type legacyProcStore struct {
+// LegacyStore reads and writes the historical file-based .proc sidecar layout.
+type LegacyStore struct {
 	root      string
 	staleTime time.Duration
 }
 
-func newLegacyProcStore(root string) *legacyProcStore {
+// NewLegacyStore creates a LegacyStore rooted at dir.
+func NewLegacyStore(root string) *LegacyStore {
 	if root == "" {
 		return nil
 	}
-	return &legacyProcStore{root: root}
+	return &LegacyStore{root: root}
+}
+
+// SetStaleThreshold sets the duration used to classify legacy proc entries as stale.
+func (l *LegacyStore) SetStaleThreshold(d time.Duration) {
+	if l != nil && d > 0 {
+		l.staleTime = d
+	}
 }
 
 func validateProcMeta(meta exec.ProcMeta) error {
@@ -106,10 +117,6 @@ func validateProcMeta(meta exec.ProcMeta) error {
 	return nil
 }
 
-func procRecordID(groupName string, meta exec.ProcMeta, t time.Time) string {
-	return filepath.ToSlash(filepath.Join(groupName, meta.Name, procRecordName(meta, t)))
-}
-
 func procRecordName(meta exec.ProcMeta, t time.Time) string {
 	return fmt.Sprintf("%s%sZ_%s_%s",
 		procFilePrefix,
@@ -119,11 +126,13 @@ func procRecordName(meta exec.ProcMeta, t time.Time) string {
 	)
 }
 
-func (l *legacyProcStore) filePath(groupName string, meta exec.ProcMeta, t time.Time) string {
+// FilePath returns the historical .proc sidecar path for a proc heartbeat.
+func (l *LegacyStore) FilePath(groupName string, meta exec.ProcMeta, t time.Time) string {
 	return filepath.Join(l.root, groupName, meta.Name, procRecordName(meta, t)+procFileExt)
 }
 
-func (l *legacyProcStore) write(path string, heartbeatUnix int64, meta exec.ProcMeta) error {
+// Write writes or updates a historical .proc sidecar.
+func (l *LegacyStore) Write(path string, heartbeatUnix int64, meta exec.ProcMeta) error {
 	if err := validateProcMeta(meta); err != nil {
 		return err
 	}
@@ -162,7 +171,8 @@ func removeLegacyProcFile(path string) error {
 	return err
 }
 
-func (l *legacyProcStore) remove(path string) error {
+// Remove deletes a historical .proc sidecar.
+func (l *LegacyStore) Remove(path string) error {
 	return removeLegacyProcFile(path)
 }
 
@@ -174,7 +184,8 @@ func removeEmptyLegacyDirs(dir string) {
 	_ = fileutil.Remove(dir)
 }
 
-func (l *legacyProcStore) listEntries(groupName string) ([]exec.ProcEntry, error) {
+// ListEntries returns legacy proc entries for a group.
+func (l *LegacyStore) ListEntries(groupName string) ([]exec.ProcEntry, error) {
 	groupDir := filepath.Join(l.root, groupName)
 	if _, err := os.Stat(groupDir); errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -186,7 +197,8 @@ func (l *legacyProcStore) listEntries(groupName string) ([]exec.ProcEntry, error
 	return l.entriesFromFiles(groupName, files)
 }
 
-func (l *legacyProcStore) listAllEntries() ([]exec.ProcEntry, error) {
+// ListAllEntries returns all legacy proc entries under the store root.
+func (l *LegacyStore) ListAllEntries() ([]exec.ProcEntry, error) {
 	dirEntries, err := os.ReadDir(l.root)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -214,7 +226,8 @@ func (l *legacyProcStore) listAllEntries() ([]exec.ProcEntry, error) {
 	return entries, nil
 }
 
-func (l *legacyProcStore) latestHeartbeat(groupName string, dagRun exec.DAGRunRef) (*exec.ProcHeartbeat, error) {
+// LatestHeartbeat returns the latest legacy heartbeat for dagRun.
+func (l *LegacyStore) LatestHeartbeat(groupName string, dagRun exec.DAGRunRef) (*exec.ProcHeartbeat, error) {
 	groupDir := filepath.Join(l.root, groupName)
 	if _, err := os.Stat(groupDir); errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -278,7 +291,7 @@ func procLegacyFilesInGroup(groupDir string) ([]string, error) {
 	return files, nil
 }
 
-func (l *legacyProcStore) entriesFromFiles(groupName string, files []string) ([]exec.ProcEntry, error) {
+func (l *LegacyStore) entriesFromFiles(groupName string, files []string) ([]exec.ProcEntry, error) {
 	now := time.Now().UTC()
 	entries := make([]exec.ProcEntry, 0, len(files))
 	for _, file := range files {
@@ -294,7 +307,8 @@ func (l *legacyProcStore) entriesFromFiles(groupName string, files []string) ([]
 	return entries, nil
 }
 
-func (l *legacyProcStore) removeIfStale(ctx context.Context, entry exec.ProcEntry) error {
+// RemoveIfStale deletes entry when the on-disk legacy sidecar is still stale.
+func (l *LegacyStore) RemoveIfStale(ctx context.Context, entry exec.ProcEntry) error {
 	path, ok := procEntryIdentityValue(entry, procEntryIdentityLegacy)
 	if !ok {
 		return nil
@@ -309,7 +323,7 @@ func (l *legacyProcStore) removeIfStale(ctx context.Context, entry exec.ProcEntr
 	if current.Fresh || !sameProcEntry(current, entry) {
 		return nil
 	}
-	if err := l.remove(path); err != nil {
+	if err := l.Remove(path); err != nil {
 		return err
 	}
 	logger.Info(ctx, "Removed stale legacy proc file", tag.File(path))
@@ -451,6 +465,79 @@ func parseProcFileName(filename string) (procFileName, error) {
 
 func legacyProcAttemptID(dagRunID string) string {
 	return "legacy_" + hex.EncodeToString([]byte(dagRunID))
+}
+
+const procEntryIdentityLegacy = "legacy"
+
+func legacyProcEntryID(path string) exec.ProcEntryID {
+	return procEntryID(procEntryIdentityLegacy, path)
+}
+
+func procEntryID(kind, value string) exec.ProcEntryID {
+	if kind == "" || value == "" {
+		return exec.ProcEntryID{}
+	}
+	encoded := base64.RawURLEncoding.EncodeToString([]byte(value))
+	return exec.NewProcEntryID(kind + ":" + encoded)
+}
+
+func procEntryIdentityValue(entry exec.ProcEntry, expectedKind string) (string, bool) {
+	kind, value, ok := splitProcEntryID(entry.Identity)
+	if !ok || kind != expectedKind {
+		return "", false
+	}
+	return value, true
+}
+
+func splitProcEntryID(id exec.ProcEntryID) (kind, value string, ok bool) {
+	if id.IsZero() {
+		return "", "", false
+	}
+	raw := id.String()
+	kind, encoded, found := strings.Cut(raw, ":")
+	if !found || kind == "" || encoded == "" {
+		return "", "", false
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil || len(decoded) == 0 {
+		return "", "", false
+	}
+	return kind, string(decoded), true
+}
+
+func sameProcEntry(a, b exec.ProcEntry) bool {
+	return a.GroupName == b.GroupName &&
+		a.Identity == b.Identity &&
+		a.LastHeartbeatAt == b.LastHeartbeatAt &&
+		a.Meta == b.Meta
+}
+
+func procHeartbeatFromEntry(entry exec.ProcEntry, observedAt time.Time) exec.ProcHeartbeat {
+	return exec.ProcHeartbeat{
+		GroupName:       entry.GroupName,
+		DAGRun:          entry.Meta.DAGRun(),
+		AttemptID:       entry.Meta.AttemptID,
+		StartedAt:       entry.Meta.StartedAt,
+		LastHeartbeatAt: entry.LastHeartbeatAt,
+		ObservedAt:      observedAt,
+		Fresh:           entry.Fresh,
+	}
+}
+
+func procHeartbeatPreferred(candidate, existing exec.ProcHeartbeat) bool {
+	if candidate.Fresh != existing.Fresh {
+		return candidate.Fresh
+	}
+	if candidate.StartedAt != existing.StartedAt {
+		return candidate.StartedAt > existing.StartedAt
+	}
+	if candidate.LastHeartbeatAt != existing.LastHeartbeatAt {
+		return candidate.LastHeartbeatAt > existing.LastHeartbeatAt
+	}
+	if !candidate.ObservedAt.Equal(existing.ObservedAt) {
+		return candidate.ObservedAt.After(existing.ObservedAt)
+	}
+	return candidate.AttemptID < existing.AttemptID
 }
 
 func legacyProcMeta(path string, parsedName procFileName, heartbeatTime time.Time, info os.FileInfo) (exec.ProcMeta, error) {

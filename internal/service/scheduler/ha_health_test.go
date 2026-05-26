@@ -15,7 +15,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis/file"
-	"github.com/dagucloud/dagu/internal/persis/filedagrun"
+	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/stretchr/testify/require"
@@ -97,9 +97,9 @@ func newHASchedulerFixture(t *testing.T) *haSchedulerFixture {
 		DefaultExecMode: config.ExecutionModeLocal,
 	}
 
-	dagRunStore := filedagrun.New(
+	dagRunStore := dagrun.New(
 		cfg.Paths.DAGRunsDir,
-		filedagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
+		dagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
 	)
 	queueStore := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
 	procStore := newSchedulerTestProcStore(cfg.Paths.ProcDir, cfg)

@@ -18,7 +18,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis/file"
-	"github.com/dagucloud/dagu/internal/persis/filedagrun"
+	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/internal/persis/schedulerstore"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
@@ -634,10 +634,10 @@ func (f *testFixture) latestStatus() (exec.DAGRunStatus, error) {
 }
 
 func (f *testFixture) latestStoredStatus() (exec.DAGRunStatus, error) {
-	store := filedagrun.New(
+	store := dagrun.New(
 		f.coord.Config.Paths.DAGRunsDir,
-		filedagrun.WithLatestStatusToday(f.coord.Config.Server.LatestStatusToday),
-		filedagrun.WithLocation(f.coord.Config.Core.Location),
+		dagrun.WithLatestStatusToday(f.coord.Config.Server.LatestStatusToday),
+		dagrun.WithLocation(f.coord.Config.Core.Location),
 	)
 
 	attempt, err := store.LatestAttempt(f.coord.Context, f.dagWrapper.Name)

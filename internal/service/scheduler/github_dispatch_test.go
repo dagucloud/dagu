@@ -18,8 +18,8 @@ import (
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/license"
 	"github.com/dagucloud/dagu/internal/persis/file"
+	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/internal/persis/filedag"
-	"github.com/dagucloud/dagu/internal/persis/filedagrun"
 	"github.com/dagucloud/dagu/internal/persis/filegithubdispatch"
 	persiststore "github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/runtime"
@@ -418,10 +418,10 @@ func newDispatchTestEnv(t *testing.T, dagName string) dispatchTestEnv {
 	dag, err := spec.Load(ctx, dagFile)
 	require.NoError(t, err)
 
-	dagRuns := filedagrun.New(
+	dagRuns := dagrun.New(
 		cfg.Paths.DAGRunsDir,
-		filedagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
-		filedagrun.WithLocation(time.UTC),
+		dagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
+		dagrun.WithLocation(time.UTC),
 	)
 	proc := newSchedulerTestProcStore(cfg.Paths.ProcDir, cfg)
 	queue := persiststore.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))

@@ -16,7 +16,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
-	"github.com/dagucloud/dagu/internal/persis/filedagrun"
+	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
@@ -53,7 +53,7 @@ steps:
 	dag, err := spec.Load(ctx, dagFile)
 	require.NoError(t, err)
 
-	dagRunStore := filedagrun.New(filepath.Join(tmpDir, "dag-runs"))
+	dagRunStore := dagrun.New(filepath.Join(tmpDir, "dag-runs"))
 	attempt, err := dagRunStore.CreateAttempt(
 		ctx,
 		dag,
@@ -161,7 +161,7 @@ steps:
 	dag, err := spec.Load(ctx, dagFile)
 	require.NoError(t, err)
 
-	dagRunStore := filedagrun.New(filepath.Join(tmpDir, "dag-runs"))
+	dagRunStore := dagrun.New(filepath.Join(tmpDir, "dag-runs"))
 	attempt, err := dagRunStore.CreateAttempt(
 		ctx,
 		dag,

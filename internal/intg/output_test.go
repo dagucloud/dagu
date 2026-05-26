@@ -15,7 +15,7 @@ import (
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/persis/filedagrun"
+	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -444,7 +444,7 @@ func readFullOutputsFile(t *testing.T, th test.Helper, dag *core.DAG) *exec.DAGR
 	var outputsPath string
 	_ = filepath.Walk(dagRunDir, func(path string, info os.FileInfo, err error) error {
 		require.NoError(t, err)
-		if info.Name() == filedagrun.OutputsFile {
+		if info.Name() == dagrun.OutputsFile {
 			outputsPath = path
 			return filepath.SkipAll
 		}

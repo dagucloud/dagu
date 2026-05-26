@@ -33,8 +33,9 @@ import (
 	"github.com/dagucloud/dagu/internal/dagstate"
 	"github.com/dagucloud/dagu/internal/license"
 	"github.com/dagucloud/dagu/internal/persis/file"
+	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
+	fileproc "github.com/dagucloud/dagu/internal/persis/file/proc"
 	"github.com/dagucloud/dagu/internal/persis/filebaseconfig"
-	"github.com/dagucloud/dagu/internal/persis/filedagrun"
 	"github.com/dagucloud/dagu/internal/persis/fileeventstore"
 	"github.com/dagucloud/dagu/internal/persis/filelicense"
 	"github.com/dagucloud/dagu/internal/persis/fileserviceregistry"
@@ -317,10 +318,10 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	}
 
 	// Initialize history repository and history manager
-	hrOpts := []filedagrun.DAGRunStoreOption{
-		filedagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
-		filedagrun.WithLatestStatusToday(cfg.Server.LatestStatusToday),
-		filedagrun.WithLocation(cfg.Core.Location),
+	hrOpts := []dagrun.DAGRunStoreOption{
+		dagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
+		dagrun.WithLatestStatusToday(cfg.Server.LatestStatusToday),
+		dagrun.WithLocation(cfg.Core.Location),
 	}
 
 	switch cmd.Name() {
@@ -329,19 +330,19 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		limits := cfg.Cache.Limits()
 		hc := fileutil.NewCache[*exec.DAGRunStatus]("dag_run_status", limits.DAGRun.Limit, limits.DAGRun.TTL)
 		hc.StartEviction(ctx)
-		hrOpts = append(hrOpts, filedagrun.WithHistoryFileCache(hc))
+		hrOpts = append(hrOpts, dagrun.WithHistoryFileCache(hc))
 	}
 
 	ps := store.NewProcStore(file.NewCollection(cfg.Paths.ProcDir),
 		store.WithProcStaleThreshold(cfg.Proc.StaleThreshold),
 		store.WithProcHeartbeatInterval(cfg.Proc.HeartbeatInterval),
 		store.WithProcHeartbeatSyncInterval(cfg.Proc.HeartbeatSyncInterval),
-		store.WithProcLegacyDir(cfg.Paths.ProcDir),
+		store.WithProcLegacyStore(fileproc.NewLegacyStore(cfg.Paths.ProcDir)),
 	)
 	if err := ps.Validate(ctx); err != nil {
 		return nil, fmt.Errorf("failed to validate proc directory %s: %w", cfg.Paths.ProcDir, err)
 	}
-	drs := filedagrun.New(cfg.Paths.DAGRunsDir, hrOpts...)
+	drs := dagrun.New(cfg.Paths.DAGRunsDir, hrOpts...)
 	distributedDir := filepath.Join(cfg.Paths.DataDir, "distributed")
 	// Records live in store-specific subdirectories, but locks stay under the
 	// shared distributed root to preserve mixed-version coordinator exclusion.

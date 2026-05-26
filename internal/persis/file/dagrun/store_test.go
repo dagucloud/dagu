@@ -1,10 +1,11 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package filedagrun
+package dagrun
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +17,123 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestStorePreservesDAGRunFileCompatibilityLayout(t *testing.T) {
+	ctx := context.Background()
+	baseDir := t.TempDir()
+	store := New(baseDir, WithArtifactDir(filepath.Join(baseDir, "artifacts")))
+
+	parentDAG := &core.DAG{
+		Name:     "compat-dag",
+		Location: filepath.Join(baseDir, "compat-dag.yaml"),
+	}
+	parentTS := time.Date(2026, 5, 27, 1, 2, 3, 456_000_000, time.UTC)
+	parentAttempt, err := store.CreateAttempt(ctx, parentDAG, parentTS, "run-compat", exec.NewDAGRunAttemptOptions{
+		AttemptID: "attempt-compat",
+	})
+	require.NoError(t, err)
+	require.NoError(t, parentAttempt.Open(ctx))
+
+	parentStatus := exec.InitialStatus(parentDAG)
+	parentStatus.DAGRunID = "run-compat"
+	parentStatus.AttemptID = parentAttempt.ID()
+	parentStatus.Status = core.Succeeded
+	require.NoError(t, parentAttempt.Write(ctx, parentStatus))
+
+	parentOutputs := &exec.DAGRunOutputs{
+		Metadata: exec.OutputsMetadata{
+			DAGName:     parentDAG.Name,
+			DAGRunID:    parentStatus.DAGRunID,
+			AttemptID:   parentStatus.AttemptID,
+			Status:      parentStatus.Status.String(),
+			CompletedAt: "2026-05-27T01:02:03Z",
+		},
+		Outputs: map[string]string{"step-one": "ok"},
+	}
+	require.NoError(t, parentAttempt.WriteOutputs(ctx, parentOutputs))
+	require.NoError(t, parentAttempt.WriteStepMessages(ctx, "step-one", []exec.LLMMessage{
+		{Role: exec.RoleUser, Content: "hello"},
+	}))
+	require.NoError(t, parentAttempt.Close(ctx))
+
+	rootRef := exec.NewDAGRunRef(parentDAG.Name, parentStatus.DAGRunID)
+	childDAG := &core.DAG{
+		Name:     "child-dag",
+		Location: filepath.Join(baseDir, "child-dag.yaml"),
+	}
+	childTS := time.Date(2026, 5, 27, 1, 2, 4, 789_000_000, time.UTC)
+	childAttempt, err := store.CreateAttempt(ctx, childDAG, childTS, "child-run", exec.NewDAGRunAttemptOptions{
+		RootDAGRun: &rootRef,
+		AttemptID:  "child-attempt",
+	})
+	require.NoError(t, err)
+	require.NoError(t, childAttempt.Open(ctx))
+
+	childStatus := exec.InitialStatus(childDAG)
+	childStatus.Root = rootRef
+	childStatus.DAGRunID = "child-run"
+	childStatus.AttemptID = childAttempt.ID()
+	childStatus.Status = core.Succeeded
+	require.NoError(t, childAttempt.Write(ctx, childStatus))
+	require.NoError(t, childAttempt.Close(ctx))
+
+	runDir := filepath.Join(baseDir, "compat-dag", "dag-runs", "2026", "05", "27", "dag-run_20260527_010203Z_run-compat")
+	attemptDir := filepath.Join(runDir, "attempt_20260527_010203_456Z_attempt-compat")
+	statusFile := filepath.Join(attemptDir, JSONLStatusFile)
+	assert.Equal(t, statusFile, parentAttempt.(*Attempt).file)
+	require.DirExists(t, runDir)
+	require.DirExists(t, attemptDir)
+	require.FileExists(t, statusFile)
+	require.FileExists(t, filepath.Join(attemptDir, DAGDefinition))
+	require.FileExists(t, filepath.Join(attemptDir, OutputsFile))
+	require.DirExists(t, filepath.Join(runDir, "work"))
+	require.FileExists(t, filepath.Join(runDir, MessagesDir, "step-one.json"))
+
+	childAttemptDir := filepath.Join(runDir, SubDAGRunsDir, "child_child-run", "attempt_20260527_010204_789Z_child-attempt")
+	require.DirExists(t, childAttemptDir)
+	require.FileExists(t, filepath.Join(childAttemptDir, JSONLStatusFile))
+	require.FileExists(t, filepath.Join(childAttemptDir, DAGDefinition))
+	require.DirExists(t, filepath.Join(runDir, SubDAGRunsDir, "child_child-run", "work"))
+
+	assert.NoDirExists(t, filepath.Join(baseDir, "dag_runs"))
+	assert.NoDirExists(t, filepath.Join(baseDir, "dagruns"))
+
+	rawStatus, err := os.ReadFile(statusFile)
+	require.NoError(t, err)
+	assert.Contains(t, string(rawStatus), `"dagRunId"`)
+	assert.Contains(t, string(rawStatus), `"attemptId"`)
+	assert.NotContains(t, string(rawStatus), `"dag_run_id"`)
+	assert.NotContains(t, string(rawStatus), `"attempt_id"`)
+
+	var statusShape map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(rawStatus, &statusShape))
+	assert.Contains(t, statusShape, "dagRunId")
+	assert.Contains(t, statusShape, "attemptId")
+	assert.Contains(t, statusShape, "status")
+
+	foundParent, err := store.FindAttempt(ctx, rootRef)
+	require.NoError(t, err)
+	foundStatus, err := foundParent.ReadStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, parentStatus.DAGRunID, foundStatus.DAGRunID)
+	assert.Equal(t, parentStatus.AttemptID, foundStatus.AttemptID)
+
+	foundOutputs, err := foundParent.ReadOutputs(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, foundOutputs)
+	assert.Equal(t, parentOutputs, foundOutputs)
+
+	foundMessages, err := foundParent.ReadStepMessages(ctx, "step-one")
+	require.NoError(t, err)
+	assert.Equal(t, []exec.LLMMessage{{Role: exec.RoleUser, Content: "hello"}}, foundMessages)
+
+	foundChild, err := store.FindSubAttempt(ctx, rootRef, "child-run")
+	require.NoError(t, err)
+	foundChildStatus, err := foundChild.ReadStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, childStatus.DAGRunID, foundChildStatus.DAGRunID)
+	assert.Equal(t, childStatus.AttemptID, foundChildStatus.AttemptID)
+}
 
 func TestJSONDB(t *testing.T) {
 	t.Run("RecentRecords", func(t *testing.T) {

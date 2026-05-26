@@ -20,7 +20,8 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis/file"
-	"github.com/dagucloud/dagu/internal/persis/filedagrun"
+	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
+	fileproc "github.com/dagucloud/dagu/internal/persis/file/proc"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/runtime"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
@@ -77,7 +78,7 @@ func newQueueFixture(t *testing.T) *queueFixture {
 	return &queueFixture{
 		t: t, ctx: ctx, logBuffer: logBuffer,
 		distributedDir: distributedDir,
-		dagRunStore:    filedagrun.New(filepath.Join(tmpDir, "dag-runs")),
+		dagRunStore:    dagrun.New(filepath.Join(tmpDir, "dag-runs")),
 		leaseStore:     store.NewDAGRunLeaseStore(leaseCollection),
 		dispatchStore:  store.NewDispatchTaskStore(file.NewCollection(distributedDir)),
 		queueStore:     store.NewQueueStore(file.NewCollection(filepath.Join(tmpDir, "queue"))),
@@ -86,7 +87,7 @@ func newQueueFixture(t *testing.T) *queueFixture {
 }
 
 func newSchedulerTestProcStore(procDir string, cfg *config.Config) *store.ProcStore {
-	opts := []store.ProcStoreOption{store.WithProcLegacyDir(procDir)}
+	opts := []store.ProcStoreOption{store.WithProcLegacyStore(fileproc.NewLegacyStore(procDir))}
 	if cfg != nil {
 		opts = append(opts,
 			store.WithProcHeartbeatInterval(cfg.Proc.HeartbeatInterval),

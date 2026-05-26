@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package filedagrun
+package dagrun
 
 import (
 	// nolint: gosec
@@ -27,7 +27,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/persis/filedagrun/dagrunindex"
+	"github.com/dagucloud/dagu/internal/persis/file/dagrun/dagrunindex"
 )
 
 // DataRoot manages the directory structure for run history data.

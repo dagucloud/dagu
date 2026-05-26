@@ -11,7 +11,7 @@ import (
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/persis/filedagrun"
+	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +19,7 @@ import (
 func TestEnsureQueueDispatchRetryTarget_MissingRunReturnsNotQueued(t *testing.T) {
 	t.Parallel()
 
-	store := filedagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
+	store := dagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
 	err := ensureQueueDispatchRetryTarget(
 		context.Background(),
 		store,
@@ -37,7 +37,7 @@ func TestEnsureQueueDispatchRetryTarget_MissingStatusReturnsNotQueued(t *testing
 	t.Parallel()
 
 	ctx := context.Background()
-	store := filedagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
+	store := dagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
 	dag := &core.DAG{
 		Name: "retry-test",
 		Steps: []core.Step{

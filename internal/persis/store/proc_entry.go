@@ -127,8 +127,8 @@ func (s *ProcStore) removeCollectionIfStale(ctx context.Context, entry exec.Proc
 	}
 
 	var payload procPayload
-	if err := persis.Decode(currentRec, &payload); err == nil && payload.LegacyPath != "" {
-		_ = removeLegacyProcFile(payload.LegacyPath)
+	if err := persis.Decode(currentRec, &payload); err == nil && payload.LegacyPath != "" && s.legacy != nil {
+		_ = s.legacy.Remove(payload.LegacyPath)
 	}
 	logger.Info(ctx, "Removed stale proc record", tag.Name(recordID))
 	return nil

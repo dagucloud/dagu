@@ -19,7 +19,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/license"
 	"github.com/dagucloud/dagu/internal/persis/file"
-	"github.com/dagucloud/dagu/internal/persis/filedagrun"
+	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/internal/persis/fileeventstore"
 	"github.com/dagucloud/dagu/internal/persis/filegithubdispatch"
 	"github.com/dagucloud/dagu/internal/persis/fileincident"
@@ -72,12 +72,12 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 
 	statusCache := fileutil.NewCache[*exec.DAGRunStatus]("scheduler_dag_run_status", limits.DAGRun.Limit, limits.DAGRun.TTL)
 	statusCache.StartEviction(ctx)
-	schedulerRunStore := filedagrun.New(
+	schedulerRunStore := dagrun.New(
 		cfg.Config.Paths.DAGRunsDir,
-		filedagrun.WithArtifactDir(cfg.Config.Paths.ArtifactDir),
-		filedagrun.WithLatestStatusToday(false),
-		filedagrun.WithLocation(cfg.Config.Core.Location),
-		filedagrun.WithHistoryFileCache(statusCache),
+		dagrun.WithArtifactDir(cfg.Config.Paths.ArtifactDir),
+		dagrun.WithLatestStatusToday(false),
+		dagrun.WithLocation(cfg.Config.Core.Location),
+		dagrun.WithHistoryFileCache(statusCache),
 	)
 	schedulerRunManager := runtime.NewManager(schedulerRunStore, cfg.ProcStore, cfg.Config)
 

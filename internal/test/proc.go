@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis/file"
+	fileproc "github.com/dagucloud/dagu/internal/persis/file/proc"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/stretchr/testify/require"
 )
@@ -27,7 +28,7 @@ func newProcStore(cfg *config.Config) *store.ProcStore {
 		store.WithProcHeartbeatInterval(cfg.Proc.HeartbeatInterval),
 		store.WithProcHeartbeatSyncInterval(cfg.Proc.HeartbeatSyncInterval),
 		store.WithProcStaleThreshold(cfg.Proc.StaleThreshold),
-		store.WithProcLegacyDir(cfg.Paths.ProcDir),
+		store.WithProcLegacyStore(fileproc.NewLegacyStore(cfg.Paths.ProcDir)),
 	)
 }
 

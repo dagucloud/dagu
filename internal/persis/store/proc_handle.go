@@ -22,7 +22,7 @@ type ProcHandle struct {
 	store      *ProcStore
 	groupName  string
 	recordID   string
-	legacy     *legacyProcStore
+	legacy     ProcLegacyStore
 	legacyPath string
 	createdAt  time.Time
 	meta       exec.ProcMeta
@@ -63,7 +63,7 @@ func (p *ProcHandle) cleanup(ctx context.Context) error {
 		errs = append(errs, err)
 	}
 	if p.legacy != nil && p.legacyPath != "" {
-		if err := p.legacy.remove(p.legacyPath); err != nil {
+		if err := p.legacy.Remove(p.legacyPath); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -147,7 +147,7 @@ func (p *ProcHandle) writeHeartbeat(ctx context.Context, now time.Time) error {
 		return err
 	}
 	if p.legacy != nil && p.legacyPath != "" {
-		return p.legacy.write(p.legacyPath, now.Unix(), p.meta)
+		return p.legacy.Write(p.legacyPath, now.Unix(), p.meta)
 	}
 	return nil
 }

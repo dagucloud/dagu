@@ -22,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis"
 	"github.com/dagucloud/dagu/internal/persis/file"
+	fileproc "github.com/dagucloud/dagu/internal/persis/file/proc"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
 )
@@ -29,6 +30,10 @@ import (
 func newProcStore(t *testing.T, opts ...store.ProcStoreOption) *store.ProcStore {
 	t.Helper()
 	return store.NewProcStore(testutil.NewMemoryBackend().Collection("proc_entries"), opts...)
+}
+
+func withProcLegacyDir(dir string) store.ProcStoreOption {
+	return store.WithProcLegacyStore(fileproc.NewLegacyStore(dir))
 }
 
 func procMeta(ref exec.DAGRunRef) exec.ProcMeta {
@@ -149,7 +154,7 @@ func TestProcStoreAcquireCleansRecordWhenLegacyWriteFails(t *testing.T) {
 	legacyRoot := filepath.Join(t.TempDir(), "legacy-root")
 	require.NoError(t, os.WriteFile(legacyRoot, []byte("not a directory"), 0o600))
 	col := testutil.NewMemoryBackend().Collection("proc_entries")
-	s := store.NewProcStore(col, store.WithProcLegacyDir(legacyRoot))
+	s := store.NewProcStore(col, withProcLegacyDir(legacyRoot))
 	ref := exec.NewDAGRunRef("failed-legacy-dag", "run-1")
 
 	proc, err := s.Acquire(ctx, "queue-a", procMeta(ref))
@@ -426,7 +431,7 @@ func TestProcStoreFileBackendWritesLegacySidecar(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	s := store.NewProcStore(file.NewCollection(root),
-		store.WithProcLegacyDir(root),
+		withProcLegacyDir(root),
 		store.WithProcHeartbeatInterval(10*time.Millisecond),
 		store.WithProcHeartbeatSyncInterval(10*time.Millisecond),
 	)
@@ -456,7 +461,7 @@ func TestProcStoreLatestHeartbeatPrefersCollectionRecordOverLegacySidecar(t *tes
 	ctx := context.Background()
 	root := t.TempDir()
 	s := store.NewProcStore(file.NewCollection(root),
-		store.WithProcLegacyDir(root),
+		withProcLegacyDir(root),
 		store.WithProcHeartbeatInterval(time.Hour),
 	)
 	ref := exec.NewDAGRunRef("sidecar-prefer-dag", "run-1")
@@ -482,7 +487,7 @@ func TestProcStoreLatestHeartbeatFallsBackToFreshLegacyWhenCollectionRecordIsSta
 	root := t.TempDir()
 	col := file.NewCollection(root)
 	s := store.NewProcStore(col,
-		store.WithProcLegacyDir(root),
+		withProcLegacyDir(root),
 		store.WithProcStaleThreshold(time.Second),
 	)
 	ref := exec.NewDAGRunRef("sidecar-fallback-dag", "run-1")
@@ -519,7 +524,7 @@ func TestProcStoreLatestHeartbeatFallsBackToLegacyWhenCollectionReadFails(t *tes
 	ctx := context.Background()
 	root := t.TempDir()
 	col := listErrorCollection{Collection: testutil.NewMemoryBackend().Collection("proc_entries")}
-	s := store.NewProcStore(col, store.WithProcLegacyDir(root))
+	s := store.NewProcStore(col, withProcLegacyDir(root))
 	ref := exec.NewDAGRunRef("collection-error-dag", "run-1")
 	meta := procMeta(ref)
 	heartbeatAt := time.Now().UTC()
@@ -566,7 +571,7 @@ func TestProcStoreLatestHeartbeatSkipsCorruptLegacySidecars(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	s := store.NewProcStore(testutil.NewMemoryBackend().Collection("proc_entries"),
-		store.WithProcLegacyDir(root),
+		withProcLegacyDir(root),
 	)
 	ref := exec.NewDAGRunRef("legacy-corrupt-dag", "run-1")
 	meta := procMeta(ref)
@@ -594,7 +599,7 @@ func TestProcStoreReadsAndRemovesLegacyProcFiles(t *testing.T) {
 	legacyFile := writeLegacyProcFile(t, root, "queue-a", meta, time.Now().Add(-time.Hour))
 
 	s := store.NewProcStore(file.NewCollection(root),
-		store.WithProcLegacyDir(root),
+		withProcLegacyDir(root),
 		store.WithProcStaleThreshold(10*time.Millisecond),
 	)
 

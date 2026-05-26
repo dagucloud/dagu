@@ -20,7 +20,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/persis/filedagrun"
+	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	"github.com/dagucloud/dagu/internal/test"
 	"github.com/stretchr/testify/assert"
@@ -101,10 +101,10 @@ func waitForStoredDAGRunStatus(
 	// Read persisted status through a fresh store without the long-lived server cache.
 	// API tests intentionally verify out-of-band status writes (approve/reject/reschedule),
 	// so cached reads can hide valid cross-process updates on Windows.
-	store := filedagrun.New(
+	store := dagrun.New(
 		server.Config.Paths.DAGRunsDir,
-		filedagrun.WithLatestStatusToday(server.Config.Server.LatestStatusToday),
-		filedagrun.WithLocation(server.Config.Core.Location),
+		dagrun.WithLatestStatusToday(server.Config.Server.LatestStatusToday),
+		dagrun.WithLocation(server.Config.Core.Location),
 	)
 	var status *exec.DAGRunStatus
 	require.Eventually(t, func() bool {

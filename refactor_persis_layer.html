@@ -957,6 +957,8 @@ graph LR
         <p class="font-semibold text-green-800 mb-2">Why this is safe</p>
         <ul class="text-sm text-green-700 space-y-1">
           <li>• FileBackend maps IDs to the <em>same</em> directory layout. No data migration.</li>
+          <li>• DAG-run is a strict compatibility refactor: physical paths, sidecar files, status log shape, indexes, and lock behavior must not change.</li>
+          <li>• Removing <code class="text-xs bg-green-100 px-1 rounded">filedagrun</code> means removing the legacy package/API, not moving file-layout code into the DB-neutral <code class="text-xs bg-green-100 px-1 rounded">store</code> package.</li>
           <li>• Old and new code can run together during porting (different stores).</li>
           <li>• Each store port is independently testable and reviewable.</li>
           <li>• File format (JSON) unchanged — existing data readable immediately.</li>
@@ -1027,7 +1029,7 @@ graph LR
         <ol class="text-sm text-slate-300 space-y-2">
           <li><span class="text-amber-400 font-bold">4.</span> Port <code class="text-xs bg-white/10 px-1 rounded">fileproc</code> → <code class="text-xs bg-white/10 px-1 rounded">store/proc</code> (ExpiresAt-based TTL)</li>
           <li><span class="text-amber-400 font-bold">4.</span> Port <code class="text-xs bg-white/10 px-1 rounded">filedistributed</code> → <code class="text-xs bg-white/10 px-1 rounded">store/distributed</code> (lease + task stores)</li>
-          <li><span class="text-amber-400 font-bold">5.</span> Port <code class="text-xs bg-white/10 px-1 rounded">filedagrun</code> → <code class="text-xs bg-white/10 px-1 rounded">store/dagrun</code> (most complex — CAS on status)</li>
+          <li><span class="text-amber-400 font-bold">5.</span> Port <code class="text-xs bg-white/10 px-1 rounded">filedagrun</code> → DAG-run store with exact existing file-layout compatibility; <code class="text-xs bg-white/10 px-1 rounded">store</code> stays storage-neutral, and file-specific path mechanics stay below the persistence abstraction.</li>
           <li><span class="text-amber-400 font-bold">6.</span> Delete old <code class="text-xs bg-white/10 px-1 rounded">file*/</code> packages; unify <code class="text-xs bg-white/10 px-1 rounded">context.go</code> wiring to single <code class="text-xs bg-white/10 px-1 rounded">file.NewBackend</code></li>
         </ol>
       </div>

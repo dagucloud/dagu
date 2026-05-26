@@ -18,7 +18,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
-	"github.com/dagucloud/dagu/internal/persis/filedagrun"
+	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
@@ -338,7 +338,7 @@ func setupEditRetryAPI(t *testing.T, tmpDir string, yamlContent string) (*API, *
 	dag, err := spec.LoadYAML(context.Background(), []byte(yamlContent))
 	require.NoError(t, err)
 
-	dagRunStore := filedagrun.New(filepath.Join(tmpDir, "dag-runs"))
+	dagRunStore := dagrun.New(filepath.Join(tmpDir, "dag-runs"))
 	api := &API{
 		dagRunStore: dagRunStore,
 		config: &config.Config{

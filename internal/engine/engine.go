@@ -17,8 +17,9 @@ import (
 	coreexec "github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/dagstate"
 	"github.com/dagucloud/dagu/internal/persis/file"
+	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
+	fileproc "github.com/dagucloud/dagu/internal/persis/file/proc"
 	"github.com/dagucloud/dagu/internal/persis/filedag"
-	"github.com/dagucloud/dagu/internal/persis/filedagrun"
 	"github.com/dagucloud/dagu/internal/persis/fileserviceregistry"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/runtime"
@@ -71,17 +72,17 @@ func New(ctx context.Context, opts Options) (*Engine, error) {
 		store.WithProcStaleThreshold(cfg.Proc.StaleThreshold),
 		store.WithProcHeartbeatInterval(cfg.Proc.HeartbeatInterval),
 		store.WithProcHeartbeatSyncInterval(cfg.Proc.HeartbeatSyncInterval),
-		store.WithProcLegacyDir(cfg.Paths.ProcDir),
+		store.WithProcLegacyStore(fileproc.NewLegacyStore(cfg.Paths.ProcDir)),
 	)
 	if err := procStore.Validate(ctx); err != nil {
 		return nil, err
 	}
 
-	dagRunStore := filedagrun.New(
+	dagRunStore := dagrun.New(
 		cfg.Paths.DAGRunsDir,
-		filedagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
-		filedagrun.WithLatestStatusToday(false),
-		filedagrun.WithLocation(cfg.Core.Location),
+		dagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
+		dagrun.WithLatestStatusToday(false),
+		dagrun.WithLocation(cfg.Core.Location),
 	)
 	serviceRegistry := fileserviceregistry.New(cfg.Paths.ServiceRegistryDir)
 	stateStore := store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir))

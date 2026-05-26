@@ -53,20 +53,12 @@ func WithProcHeartbeatSyncInterval(_ time.Duration) ProcStoreOption {
 	}
 }
 
-// WithProcLegacyDir enables transitional read/write compatibility with
-// pre-refactor .proc heartbeat files under dir.
-func WithProcLegacyDir(dir string) ProcStoreOption {
-	return func(s *ProcStore) {
-		s.legacy = newLegacyProcStore(dir)
-	}
-}
-
 // ProcStore implements [exec.ProcStore] on top of a [persis.Collection].
 type ProcStore struct {
 	col               persis.Collection
 	staleTime         time.Duration
 	heartbeatInterval time.Duration
-	legacy            *legacyProcStore
+	legacy            ProcLegacyStore
 
 	mu         sync.Mutex
 	locks      map[string]*procHeldLock
@@ -86,7 +78,7 @@ func NewProcStore(col persis.Collection, opts ...ProcStoreOption) *ProcStore {
 		opt(s)
 	}
 	if s.legacy != nil {
-		s.legacy.staleTime = s.staleTime
+		s.legacy.SetStaleThreshold(s.staleTime)
 	}
 	return s
 }
@@ -109,7 +101,7 @@ func (s *ProcStore) Acquire(ctx context.Context, groupName string, meta exec.Pro
 	}
 	if s.legacy != nil {
 		handle.legacy = s.legacy
-		handle.legacyPath = s.legacy.filePath(groupName, meta, now)
+		handle.legacyPath = s.legacy.FilePath(groupName, meta, now)
 	}
 	if err := handle.startHeartbeat(ctx); err != nil {
 		return nil, err
@@ -196,7 +188,7 @@ func (s *ProcStore) ListEntries(ctx context.Context, groupName string) ([]exec.P
 		return nil, err
 	}
 	if s.legacy != nil {
-		legacy, err := s.legacy.listEntries(groupName)
+		legacy, err := s.legacy.ListEntries(groupName)
 		if err != nil {
 			return nil, err
 		}
@@ -232,7 +224,7 @@ func (s *ProcStore) LatestHeartbeat(ctx context.Context, groupName string, dagRu
 	collectionHeartbeat, err := s.latestCollectionHeartbeat(ctx, groupName, dagRun)
 	if err != nil {
 		if s.legacy != nil {
-			legacyHeartbeat, legacyErr := s.legacy.latestHeartbeat(groupName, dagRun)
+			legacyHeartbeat, legacyErr := s.legacy.LatestHeartbeat(groupName, dagRun)
 			if legacyErr != nil {
 				return nil, errors.Join(err, legacyErr)
 			}
@@ -245,7 +237,7 @@ func (s *ProcStore) LatestHeartbeat(ctx context.Context, groupName string, dagRu
 	if s.legacy == nil || (collectionHeartbeat != nil && collectionHeartbeat.Fresh) {
 		return collectionHeartbeat, nil
 	}
-	legacyHeartbeat, err := s.legacy.latestHeartbeat(groupName, dagRun)
+	legacyHeartbeat, err := s.legacy.LatestHeartbeat(groupName, dagRun)
 	if err != nil {
 		return nil, err
 	}
@@ -299,7 +291,7 @@ func (s *ProcStore) ListAllEntries(ctx context.Context) ([]exec.ProcEntry, error
 		return nil, err
 	}
 	if s.legacy != nil {
-		legacy, err := s.legacy.listAllEntries()
+		legacy, err := s.legacy.ListAllEntries()
 		if err != nil {
 			return nil, err
 		}
@@ -318,7 +310,7 @@ func (s *ProcStore) RemoveIfStale(ctx context.Context, entry exec.ProcEntry) err
 		if s.legacy == nil {
 			return nil
 		}
-		return s.legacy.removeIfStale(ctx, entry)
+		return s.legacy.RemoveIfStale(ctx, entry)
 	case procEntryIdentityCollection:
 		return s.removeCollectionIfStale(ctx, entry)
 	default:

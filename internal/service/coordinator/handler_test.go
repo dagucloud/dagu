@@ -16,7 +16,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/persis/filedagrun"
+	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -717,7 +717,7 @@ func TestHandler_Poll(t *testing.T) {
 			LastHeartbeatAt: time.Now().UTC().UnixMilli(),
 		}))
 
-		store := filedagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
+		store := dagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
 		h := NewHandler(HandlerConfig{
 			DAGRunStore:          store,
 			DispatchTaskStore:    &failingDispatchTaskStore{enqueueErr: errors.New("disk full")},
