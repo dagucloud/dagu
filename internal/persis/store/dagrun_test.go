@@ -486,6 +486,8 @@ func TestDAGRunStore_RecentAttemptsRejectsEmptyName(t *testing.T) {
 
 	require.Empty(t, s.RecentAttempts(ctx, "", 10))
 	require.Len(t, s.RecentAttempts(ctx, dag.Name, 10), 1)
+	_, err = s.LatestAttempt(ctx, "")
+	require.ErrorContains(t, err, "DAG name is required")
 }
 
 func TestDAGRunAttempt_UpdateUsesDAGRunLock(t *testing.T) {
@@ -1049,6 +1051,7 @@ func TestDAGRunStore_RenameDAGRunsLocksDestinationRunNamespace(t *testing.T) {
 	keys := col.lockedKeys()
 	assert.Contains(t, keys, "rename/old-dag")
 	assert.Contains(t, keys, "rename/new-dag")
+	assert.Contains(t, keys, "runs/old-dag/run-1/lock")
 	assert.Contains(t, keys, "runs/new-dag/run-1/lock")
 }
 

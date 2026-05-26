@@ -235,6 +235,9 @@ func (s *DAGRunStore) LatestAttempt(ctx context.Context, dagName string) (exec.D
 	if s.fileStore != nil {
 		return s.fileStore.LatestAttempt(ctx, dagName)
 	}
+	if dagName == "" {
+		return nil, fmt.Errorf("dag-run store: DAG name is required")
+	}
 	attempts, err := s.latestRootAttempts(ctx, dagName)
 	if err != nil {
 		return nil, err
@@ -492,11 +495,12 @@ func (s *DAGRunStore) RenameDAGRuns(ctx context.Context, oldName, newName string
 		for _, item := range items {
 			next, newID := renameDAGRunPayload(item.payload, oldName, newName)
 			ops = append(ops, dagRunRenameOp{
-				oldID:     item.record.ID,
-				newID:     newID,
-				payload:   next,
-				createdAt: item.record.CreatedAt,
-				updatedAt: time.Now().UTC(),
+				oldID:      item.record.ID,
+				newID:      newID,
+				oldPayload: item.payload,
+				payload:    next,
+				createdAt:  item.record.CreatedAt,
+				updatedAt:  time.Now().UTC(),
 			})
 		}
 		return s.withLocks(ctx, dagRunRenameLockKeys(ops), func() error {
@@ -634,11 +638,12 @@ type dagRunRecordItem struct {
 }
 
 type dagRunRenameOp struct {
-	oldID     string
-	newID     string
-	payload   dagRunPayload
-	createdAt time.Time
-	updatedAt time.Time
+	oldID      string
+	newID      string
+	oldPayload dagRunPayload
+	payload    dagRunPayload
+	createdAt  time.Time
+	updatedAt  time.Time
 }
 
 func dagRunKey(payload dagRunPayload) string {
@@ -646,8 +651,9 @@ func dagRunKey(payload dagRunPayload) string {
 }
 
 func dagRunRenameLockKeys(ops []dagRunRenameOp) []string {
-	keys := make([]string, 0, len(ops))
+	keys := make([]string, 0, len(ops)*2)
 	for _, op := range ops {
+		keys = append(keys, dagRunPayloadLockKey(op.oldPayload))
 		keys = append(keys, dagRunPayloadLockKey(op.payload))
 	}
 	return keys
