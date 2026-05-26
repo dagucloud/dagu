@@ -193,7 +193,6 @@ func TestZombieDetectorDetectAndCleanZombies_SubDAGUsesRootScopedLookup(t *testi
 	}
 	entry := exec.ProcEntry{
 		GroupName: dag.ProcGroup(),
-		FilePath:  "/tmp/stale-sub.proc",
 		Meta: exec.ProcMeta{
 			StartedAt:    time.Now().Add(-time.Minute).Unix(),
 			Name:         dag.Name,
@@ -316,7 +315,6 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryWithCorruptedStatusIsRemo
 func testRootProcEntry(groupName, dagName, dagRunID, attemptID string, fresh bool) exec.ProcEntry {
 	return exec.ProcEntry{
 		GroupName: groupName,
-		FilePath:  "/tmp/" + dagRunID + "_" + attemptID + ".proc",
 		Meta: exec.ProcMeta{
 			StartedAt:    time.Now().Add(-time.Minute).Unix(),
 			Name:         dagName,

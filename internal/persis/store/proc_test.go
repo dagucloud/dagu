@@ -61,7 +61,7 @@ func TestProcStoreAcquireStop(t *testing.T) {
 	require.Len(t, entries, 1)
 	assert.True(t, entries[0].Fresh)
 	assert.Equal(t, ref, entries[0].DAGRun())
-	assert.NotEmpty(t, entries[0].FilePath)
+	assert.False(t, entries[0].Identity.IsZero())
 
 	require.NoError(t, proc.Stop(ctx))
 
@@ -220,16 +220,50 @@ func TestProcStoreRemoveIfStaleKeepsRefreshedCollectionRecord(t *testing.T) {
 		return true
 	}, time.Second, 10*time.Millisecond)
 
-	col.refresh = func() {
-		rec, err := base.Get(ctx, stale.FilePath)
+	col.refresh = func(expected *persis.Record) {
+		rec, err := base.Get(ctx, expected.ID)
 		require.NoError(t, err)
 		rec.UpdatedAt = time.Now().UTC()
 		require.NoError(t, base.Put(ctx, rec))
 	}
 
 	require.NoError(t, s.RemoveIfStale(ctx, stale))
-	_, err = base.Get(ctx, stale.FilePath)
+	entries, err := s.ListEntries(ctx, "queue-a")
 	require.NoError(t, err)
+	require.Len(t, entries, 1)
+}
+
+func TestProcStoreRemoveIfStaleIgnoresEntryWithoutStoreIdentity(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := newProcStore(t,
+		store.WithProcStaleThreshold(20*time.Millisecond),
+		store.WithProcHeartbeatInterval(time.Hour),
+	)
+	ref := exec.NewDAGRunRef("stale-no-identity-dag", "run-1")
+
+	proc, err := s.Acquire(ctx, "queue-a", procMeta(ref))
+	require.NoError(t, err)
+	defer func() { _ = proc.Stop(ctx) }()
+
+	var stale exec.ProcEntry
+	require.Eventually(t, func() bool {
+		entries, err := s.ListEntries(ctx, "queue-a")
+		require.NoError(t, err)
+		if len(entries) != 1 || entries[0].Fresh {
+			return false
+		}
+		stale = entries[0]
+		return true
+	}, time.Second, 10*time.Millisecond)
+
+	stale.Identity = exec.ProcEntryID{}
+	require.NoError(t, s.RemoveIfStale(ctx, stale))
+
+	entries, err := s.ListEntries(ctx, "queue-a")
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
 }
 
 func TestProcStoreLatestFreshEntryByDAGName(t *testing.T) {
@@ -556,7 +590,8 @@ func TestProcStoreReadsAndRemovesLegacyProcFiles(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
 	assert.False(t, entries[0].Fresh)
-	assert.Equal(t, legacyFile, entries[0].FilePath)
+	assert.False(t, entries[0].Identity.IsZero())
+	assert.NotEqual(t, legacyFile, entries[0].Identity.String())
 
 	require.NoError(t, s.RemoveIfStale(ctx, entries[0]))
 
@@ -673,13 +708,13 @@ func (c listErrorCollection) RecordIDs(context.Context, string) ([]string, error
 type refreshBeforeCompareDeleteCollection struct {
 	persis.Collection
 	once    sync.Once
-	refresh func()
+	refresh func(*persis.Record)
 }
 
 func (c *refreshBeforeCompareDeleteCollection) CompareAndDelete(ctx context.Context, expected *persis.Record) error {
 	c.once.Do(func() {
 		if c.refresh != nil {
-			c.refresh()
+			c.refresh(expected)
 		}
 	})
 	return c.Collection.CompareAndDelete(ctx, expected)
