@@ -21,10 +21,11 @@ type Waiter struct {
 
 // Timeout scales timeout for Windows and race builds.
 func (w Waiter) Timeout(timeout time.Duration) time.Duration {
-	return scaleTimeout(timeout)
+	return ScaleTimeout(timeout)
 }
 
-func scaleTimeout(timeout time.Duration) time.Duration {
+// ScaleTimeout applies the integration-test timeout multiplier for this platform.
+func ScaleTimeout(timeout time.Duration) time.Duration {
 	switch {
 	case runtime.GOOS == "windows" && raceEnabled():
 		return timeout * 4
@@ -43,7 +44,7 @@ func (w Waiter) Eventually(label string, timeout time.Duration, condition func()
 // EventuallyEvery waits until condition is satisfied using interval.
 func (w Waiter) EventuallyEvery(label string, timeout, interval time.Duration, condition func() bool) {
 	w.t.Helper()
-	require.Eventually(w.t, condition, scaleTimeout(timeout), interval, label)
+	require.Eventually(w.t, condition, ScaleTimeout(timeout), interval, label)
 }
 
 // FileExists waits until path exists.
@@ -51,5 +52,13 @@ func (w Waiter) FileExists(path string, timeout time.Duration) {
 	w.Eventually("expected file to exist: "+path, timeout, func() bool {
 		_, err := os.Stat(path)
 		return err == nil
+	})
+}
+
+// FileMissing waits until path no longer exists.
+func (w Waiter) FileMissing(path string, timeout time.Duration) {
+	w.Eventually("expected file to be removed: "+path, timeout, func() bool {
+		_, err := os.Stat(path)
+		return os.IsNotExist(err)
 	})
 }

@@ -16,10 +16,10 @@ func TestScaleTimeoutAppliesPlatformAndRaceMultiplier(t *testing.T) {
 
 	switch {
 	case runtime.GOOS == "windows" && raceEnabled():
-		require.Equal(t, 8*time.Second, scaleTimeout(base))
+		require.Equal(t, 8*time.Second, ScaleTimeout(base))
 	case runtime.GOOS == "windows" || raceEnabled():
-		require.Equal(t, 4*time.Second, scaleTimeout(base))
+		require.Equal(t, 4*time.Second, ScaleTimeout(base))
 	default:
-		require.Equal(t, base, scaleTimeout(base))
+		require.Equal(t, base, ScaleTimeout(base))
 	}
 }
