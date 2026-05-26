@@ -29,6 +29,11 @@ func TestCommandsWriteFileUsesShellSyntax(t *testing.T) {
 	require.Equal(t, "Set-Content -Path 'C:/tmp/marker' -Value 'started' -NoNewline", commandsForShell(powerShell).WriteFile("C:/tmp/marker", "started"))
 }
 
+func TestCommandsEnvOutputWithSeparatorUsesShellSyntax(t *testing.T) {
+	require.Equal(t, "printf '%s:%s' ${TASK_ID:-} ${TASK_NAME:-}", commandsForShell(posixShell).EnvOutputWithSeparator(":", "TASK_ID", "TASK_NAME"))
+	require.Equal(t, "Write-Output ((@($env:TASK_ID, $env:TASK_NAME) | ForEach-Object { if ($null -eq $_) { '' } else { [string]$_ } }) -join ':')", commandsForShell(powerShell).EnvOutputWithSeparator(":", "TASK_ID", "TASK_NAME"))
+}
+
 func TestCommandsWaitForFileUsesShellSyntax(t *testing.T) {
 	require.Equal(t, "while [ ! -f '/tmp/marker' ]; do\n  sleep 0.05\ndone", commandsForShell(posixShell).WaitForFile("/tmp/marker"))
 	require.Equal(t, "while (-not (Test-Path 'C:/tmp/marker')) {\n  Start-Sleep -Milliseconds 50\n}", commandsForShell(powerShell).WaitForFile("C:/tmp/marker"))

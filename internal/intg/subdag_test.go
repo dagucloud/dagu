@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/test"
+	"github.com/dagucloud/dagu/internal/test/intgharness"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
@@ -230,7 +231,7 @@ steps:
 	t.Run("ParallelExecution", func(t *testing.T) {
 		th := test.Setup(t)
 
-		testDAG := th.DAG(t, `
+		testDAG := th.DAG(t, fmt.Sprintf(`
 steps:
   - name: parallel-tasks
     action: dag.run
@@ -250,10 +251,11 @@ params:
   - TASK_ID
   - TASK_NAME
 steps:
-  - run: echo "Starting task ${TASK_ID} - ${TASK_NAME}"
-  - run: echo "Processing ${TASK_NAME} with ID ${TASK_ID}"
-  - run: echo "Completed ${TASK_NAME}"
-`)
+  - name: report-task
+    run: |
+%s
+    output: TASK_RESULT
+`, indentCommandBlock(intgharness.PortableCommands().EnvOutputWithSeparator(": ", "TASK_ID", "TASK_NAME"), 6)))
 
 		agent := testDAG.Agent()
 		require.NoError(t, agent.Run(agent.Context))
@@ -266,6 +268,7 @@ steps:
 		require.Len(t, dagRunStatus.Nodes, 1)
 		require.Equal(t, "parallel-tasks", dagRunStatus.Nodes[0].Step.Name)
 		require.Equal(t, core.NodeSucceeded, dagRunStatus.Nodes[0].Status)
+		require.Len(t, dagRunStatus.Nodes[0].SubRuns, 3)
 	})
 
 	t.Run("ConditionalExecution", func(t *testing.T) {

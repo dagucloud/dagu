@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	testutil "github.com/dagucloud/dagu/internal/test"
@@ -61,6 +62,36 @@ func (c Commands) WriteFile(path, content string) string {
 		return fmt.Sprintf("Set-Content -Path %s -Value %s -NoNewline", testutil.PowerShellQuote(path), testutil.PowerShellQuote(content))
 	}
 	return fmt.Sprintf("printf '%%s' %s > %s", testutil.PosixQuote(content), testutil.PosixQuote(path))
+}
+
+// EnvOutputWithSeparator prints environment variables joined by separator.
+func (c Commands) EnvOutputWithSeparator(separator string, names ...string) string {
+	if len(names) == 0 {
+		if c.shell == powerShell {
+			return "Write-Output ''"
+		}
+		return "printf ''"
+	}
+
+	if c.shell == powerShell {
+		refs := make([]string, 0, len(names))
+		for _, name := range names {
+			refs = append(refs, "$env:"+name)
+		}
+		return fmt.Sprintf(
+			"Write-Output ((@(%s) | ForEach-Object { if ($null -eq $_) { '' } else { [string]$_ } }) -join %s)",
+			strings.Join(refs, ", "),
+			testutil.PowerShellQuote(separator),
+		)
+	}
+
+	placeholders := make([]string, 0, len(names))
+	values := make([]string, 0, len(names))
+	for _, name := range names {
+		placeholders = append(placeholders, "%s")
+		values = append(values, fmt.Sprintf("${%s:-}", name))
+	}
+	return fmt.Sprintf("printf '%s' %s", strings.Join(placeholders, separator), strings.Join(values, " "))
 }
 
 // WaitForFile returns a shell snippet that blocks until path exists.
