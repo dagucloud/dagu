@@ -16,7 +16,7 @@ If you report an issue against an older release, we may ask you to verify it on 
 
 Please do not open a public GitHub issue for suspected security vulnerabilities.
 
-Report vulnerabilities privately to `contact@dagu.cloud` with a subject such as `Security report: Dagu`.
+Report vulnerabilities privately to `contact@dagu.sh` with a subject such as `Security report: Dagu`.
 
 If GitHub private vulnerability reporting is available for this repository, you may use that flow instead. When in doubt, email first and we can coordinate from there.
 
