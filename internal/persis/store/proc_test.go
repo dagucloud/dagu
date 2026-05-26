@@ -258,12 +258,24 @@ func TestProcStoreRemoveIfStaleIgnoresEntryWithoutStoreIdentity(t *testing.T) {
 		return true
 	}, time.Second, 10*time.Millisecond)
 
-	stale.Identity = exec.ProcEntryID{}
-	require.NoError(t, s.RemoveIfStale(ctx, stale))
+	for _, tc := range []struct {
+		name     string
+		identity exec.ProcEntryID
+	}{
+		{name: "zero", identity: exec.ProcEntryID{}},
+		{name: "missing separator", identity: exec.NewProcEntryID("plain-file.proc")},
+		{name: "bad encoding", identity: exec.NewProcEntryID("collection:not base64")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			entry := stale
+			entry.Identity = tc.identity
+			require.NoError(t, s.RemoveIfStale(ctx, entry))
 
-	entries, err := s.ListEntries(ctx, "queue-a")
-	require.NoError(t, err)
-	require.Len(t, entries, 1)
+			entries, err := s.ListEntries(ctx, "queue-a")
+			require.NoError(t, err)
+			require.Len(t, entries, 1)
+		})
+	}
 }
 
 func TestProcStoreLatestFreshEntryByDAGName(t *testing.T) {
