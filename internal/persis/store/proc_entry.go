@@ -94,7 +94,7 @@ func (s *ProcStore) entryFromRecord(rec *persis.Record, now time.Time) (exec.Pro
 	}
 	return exec.ProcEntry{
 		GroupName:       groupName,
-		FilePath:        rec.ID,
+		Identity:        collectionProcEntryID(rec.ID),
 		Meta:            payload.Meta,
 		LastHeartbeatAt: payload.LastHeartbeatAt,
 		Fresh:           fresh,
@@ -102,7 +102,11 @@ func (s *ProcStore) entryFromRecord(rec *persis.Record, now time.Time) (exec.Pro
 }
 
 func (s *ProcStore) removeCollectionIfStale(ctx context.Context, entry exec.ProcEntry) error {
-	currentRec, err := s.col.Get(ctx, entry.FilePath)
+	recordID, ok := procEntryIdentityValue(entry, procEntryIdentityCollection)
+	if !ok {
+		return nil
+	}
+	currentRec, err := s.col.Get(ctx, recordID)
 	if errors.Is(err, persis.ErrNotFound) {
 		return nil
 	}
@@ -126,7 +130,7 @@ func (s *ProcStore) removeCollectionIfStale(ctx context.Context, entry exec.Proc
 	if err := persis.Decode(currentRec, &payload); err == nil && payload.LegacyPath != "" {
 		_ = removeLegacyProcFile(payload.LegacyPath)
 	}
-	logger.Info(ctx, "Removed stale proc record", tag.Name(entry.FilePath))
+	logger.Info(ctx, "Removed stale proc record", tag.Name(recordID))
 	return nil
 }
 
@@ -157,7 +161,7 @@ func dedupeAndSortProcEntries(entries []exec.ProcEntry) []exec.ProcEntry {
 	for _, entry := range entries {
 		key := entry.AttemptKey()
 		if key == "" || strings.Count(key, "|") < 4 {
-			key = entry.GroupName + "|" + entry.FilePath
+			key = entry.GroupName + "|" + procEntrySortKey(entry)
 		}
 		existing, ok := byKey[key]
 		if !ok || procEntryPreferred(entry, existing) {
@@ -176,15 +180,15 @@ func procEntryPreferred(candidate, existing exec.ProcEntry) bool {
 	if candidate.Fresh != existing.Fresh {
 		return candidate.Fresh
 	}
-	candidateLegacy := procEntryIsLegacyPath(candidate.FilePath)
-	existingLegacy := procEntryIsLegacyPath(existing.FilePath)
+	candidateLegacy := procEntryIdentityKind(candidate) == procEntryIdentityLegacy
+	existingLegacy := procEntryIdentityKind(existing) == procEntryIdentityLegacy
 	if candidateLegacy != existingLegacy {
 		return !candidateLegacy
 	}
 	if candidate.LastHeartbeatAt != existing.LastHeartbeatAt {
 		return candidate.LastHeartbeatAt > existing.LastHeartbeatAt
 	}
-	return candidate.FilePath < existing.FilePath
+	return procEntrySortKey(candidate) < procEntrySortKey(existing)
 }
 
 func sortProcEntries(entries []exec.ProcEntry) {
@@ -202,13 +206,13 @@ func sortProcEntries(entries []exec.ProcEntry) {
 		if left.LastHeartbeatAt != right.LastHeartbeatAt {
 			return left.LastHeartbeatAt < right.LastHeartbeatAt
 		}
-		return left.FilePath < right.FilePath
+		return procEntrySortKey(left) < procEntrySortKey(right)
 	})
 }
 
 func sameProcEntry(a, b exec.ProcEntry) bool {
 	return a.GroupName == b.GroupName &&
-		a.FilePath == b.FilePath &&
+		a.Identity == b.Identity &&
 		a.LastHeartbeatAt == b.LastHeartbeatAt &&
 		a.Meta == b.Meta
 }

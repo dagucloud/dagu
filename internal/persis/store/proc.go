@@ -313,13 +313,17 @@ func (s *ProcStore) RemoveIfStale(ctx context.Context, entry exec.ProcEntry) err
 	if entry.GroupName == "" || entry.Fresh {
 		return nil
 	}
-	if procEntryIsLegacyPath(entry.FilePath) {
+	switch procEntryIdentityKind(entry) {
+	case procEntryIdentityLegacy:
 		if s.legacy == nil {
 			return nil
 		}
 		return s.legacy.removeIfStale(ctx, entry)
+	case procEntryIdentityCollection:
+		return s.removeCollectionIfStale(ctx, entry)
+	default:
+		return nil
 	}
-	return s.removeCollectionIfStale(ctx, entry)
 }
 
 // Validate fails if any proc entry cannot be decoded.

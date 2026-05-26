@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
@@ -122,10 +121,6 @@ func procRecordName(meta exec.ProcMeta, t time.Time) string {
 
 func (l *legacyProcStore) filePath(groupName string, meta exec.ProcMeta, t time.Time) string {
 	return filepath.Join(l.root, groupName, meta.Name, procRecordName(meta, t)+procFileExt)
-}
-
-func procEntryIsLegacyPath(path string) bool {
-	return strings.HasSuffix(path, procFileExt)
 }
 
 func (l *legacyProcStore) write(path string, heartbeatUnix int64, meta exec.ProcMeta) error {
@@ -300,7 +295,11 @@ func (l *legacyProcStore) entriesFromFiles(groupName string, files []string) ([]
 }
 
 func (l *legacyProcStore) removeIfStale(ctx context.Context, entry exec.ProcEntry) error {
-	current, err := readLegacyProcEntry(entry.FilePath, entry.GroupName, l.staleTime, time.Now().UTC())
+	path, ok := procEntryIdentityValue(entry, procEntryIdentityLegacy)
+	if !ok {
+		return nil
+	}
+	current, err := readLegacyProcEntry(path, entry.GroupName, l.staleTime, time.Now().UTC())
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -310,10 +309,10 @@ func (l *legacyProcStore) removeIfStale(ctx context.Context, entry exec.ProcEntr
 	if current.Fresh || !sameProcEntry(current, entry) {
 		return nil
 	}
-	if err := l.remove(entry.FilePath); err != nil {
+	if err := l.remove(path); err != nil {
 		return err
 	}
-	logger.Info(ctx, "Removed stale legacy proc file", tag.File(entry.FilePath))
+	logger.Info(ctx, "Removed stale legacy proc file", tag.File(path))
 	return nil
 }
 
@@ -362,7 +361,7 @@ func readLegacyProcEntryObserved(path, groupName string, staleTime time.Duration
 	}
 	entry := exec.ProcEntry{
 		GroupName:       groupName,
-		FilePath:        path,
+		Identity:        legacyProcEntryID(path),
 		Meta:            meta,
 		LastHeartbeatAt: lastHeartbeatAt,
 		Fresh:           fresh,
