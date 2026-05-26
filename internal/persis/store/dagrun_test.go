@@ -65,6 +65,12 @@ func (c *recordingLockCollection) lockedKeys() []string {
 	return append([]string(nil), c.keys...)
 }
 
+func (c *recordingLockCollection) resetKeys() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.keys = nil
+}
+
 func writeDAGRunStatus(t *testing.T, ctx context.Context, att exec.DAGRunAttempt, dag *core.DAG, dagRunID string, status core.Status) exec.DAGRunStatus {
 	t.Helper()
 
@@ -466,6 +472,46 @@ func TestDAGRunStore_CreateWriteFindAndRetry(t *testing.T) {
 	assert.Equal(t, core.Succeeded, requireAttemptStatus(t, ctx, found).Status)
 }
 
+func TestDAGRunStore_RecentAttemptsRejectsEmptyName(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := newDAGRunStore(t)
+	dag := testDAG("recent-name-dag")
+	base := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+
+	attempt, err := s.CreateAttempt(ctx, dag, base, "run-1", exec.NewDAGRunAttemptOptions{AttemptID: "attempt-a"})
+	require.NoError(t, err)
+	writeDAGRunStatus(t, ctx, attempt, dag, "run-1", core.Succeeded)
+
+	require.Empty(t, s.RecentAttempts(ctx, "", 10))
+	require.Len(t, s.RecentAttempts(ctx, dag.Name, 10), 1)
+}
+
+func TestDAGRunAttempt_UpdateUsesDAGRunLock(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	col := &recordingLockCollection{Collection: testutil.NewMemoryBackend().Collection("dag_runs")}
+	s := store.NewDAGRunStore(
+		col,
+		store.WithDAGRunLatestStatusToday(false),
+		store.WithDAGRunLocation(time.UTC),
+	)
+	dag := testDAG("lock-dag")
+	attempt, err := s.CreateAttempt(ctx, dag, time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), "run-1", exec.NewDAGRunAttemptOptions{AttemptID: "attempt-a"})
+	require.NoError(t, err)
+
+	col.resetKeys()
+	writeDAGRunStatus(t, ctx, attempt, dag, "run-1", core.Succeeded)
+
+	keys := col.lockedKeys()
+	assert.Contains(t, keys, "runs/lock-dag/run-1/lock")
+	for _, key := range keys {
+		assert.NotContains(t, key, "record/")
+	}
+}
+
 func TestDAGRunStore_GeneratedAttemptIDUsesEightRandomBytes(t *testing.T) {
 	t.Parallel()
 
@@ -831,6 +877,9 @@ func TestDAGRunStore_RejectsMissingDAGRunRefNames(t *testing.T) {
 
 	_, err = s.FindSubAttempt(ctx, exec.NewDAGRunRef("", "parent-run"), "child-run")
 	require.ErrorContains(t, err, "root DAG name is required")
+
+	_, err = s.FindSubAttempt(ctx, rootRef, "")
+	require.ErrorIs(t, err, store.ErrDAGRunIDEmpty)
 
 	_, err = s.CreateSubAttempt(ctx, exec.NewDAGRunRef("", "parent-run"), "child-run-2")
 	require.ErrorContains(t, err, "root DAG name is required")

@@ -211,6 +211,9 @@ func (s *DAGRunStore) RecentAttempts(ctx context.Context, name string, itemLimit
 	if s.fileStore != nil {
 		return s.fileStore.RecentAttempts(ctx, name, itemLimit)
 	}
+	if name == "" {
+		return nil
+	}
 	if itemLimit <= 0 {
 		itemLimit = 10
 	}
@@ -379,6 +382,9 @@ func (s *DAGRunStore) FindSubAttempt(ctx context.Context, ref exec.DAGRunRef, su
 	}
 	if ref.Name == "" {
 		return nil, fmt.Errorf("dag-run store: root DAG name is required")
+	}
+	if subDAGRunID == "" {
+		return nil, ErrDAGRunIDEmpty
 	}
 	item, err := s.latestSubAttemptForRun(ctx, ref, exec.NewDAGRunRef("", subDAGRunID))
 	if err != nil {
@@ -822,7 +828,15 @@ func (s *DAGRunStore) payloadByID(ctx context.Context, id string) (dagRunPayload
 }
 
 func (s *DAGRunStore) updatePayload(ctx context.Context, id string, mutate func(*dagRunPayload) error) error {
-	return s.withLock(ctx, "record/"+id, func() error {
+	rec, err := s.col.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	payload, err := decodeDAGRunPayload(rec)
+	if err != nil {
+		return err
+	}
+	return s.withLock(ctx, dagRunPayloadLockKey(payload), func() error {
 		rec, err := s.col.Get(ctx, id)
 		if err != nil {
 			return err
