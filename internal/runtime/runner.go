@@ -16,10 +16,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/internal/cmn/eval"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/internal/cmn/signal"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"go.opentelemetry.io/otel"
@@ -850,7 +850,14 @@ func (r *Runner) execNode(ctx context.Context, node *Node, progressCh chan *Node
 func (r *Runner) Signal(
 	ctx context.Context, plan *Plan, sig os.Signal, done chan bool, allowOverride bool,
 ) {
-	isTermination := signal.IsTerminationSignalOS(sig)
+	r.Stop(ctx, plan, cmdutil.TerminationFromSignal(sig), done, allowOverride)
+}
+
+// Stop requests that all active nodes stop according to lifecycle intent.
+func (r *Runner) Stop(
+	ctx context.Context, plan *Plan, intent cmdutil.TerminationIntent, done chan bool, allowOverride bool,
+) {
+	isTermination := intent.IsTermination()
 
 	// Set canceled flag FIRST so execution loops see it immediately.
 	// This prevents a race where the execution loop checks isCanceled()
@@ -869,7 +876,7 @@ func (r *Runner) Signal(
 			)
 			continue
 		}
-		node.Signal(ctx, sig, allowOverride)
+		node.Stop(ctx, intent, allowOverride)
 	}
 
 	if done != nil && isTermination {

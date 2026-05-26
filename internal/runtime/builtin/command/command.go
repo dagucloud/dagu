@@ -31,6 +31,7 @@ import (
 var errNoCommandSpecified = fmt.Errorf("no command specified")
 
 var _ executor.Executor = (*commandExecutor)(nil)
+var _ executor.Stopper = (*commandExecutor)(nil)
 var _ executor.ExitCoder = (*commandExecutor)(nil)
 
 type commandExecutor struct {
@@ -105,7 +106,7 @@ func (e *commandExecutor) Run(ctx context.Context) error {
 		cmd := e.cmd
 		e.exitCode = 1
 		e.mu.Unlock()
-		_ = cmdutil.KillProcessGroup(cmd, os.Kill)
+		_ = cmdutil.TerminateProcessGroup(cmd, cmdutil.ForceTermination())
 		_ = cmd.Wait()
 		return fmt.Errorf("failed to start parent exit watcher: %w", err)
 	}
@@ -151,10 +152,14 @@ func (e *commandExecutor) SetStderr(out io.Writer) {
 }
 
 func (e *commandExecutor) Kill(sig os.Signal) error {
+	return e.Stop(cmdutil.TerminationFromSignal(sig))
+}
+
+func (e *commandExecutor) Stop(intent cmdutil.TerminationIntent) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	return cmdutil.KillProcessGroup(e.cmd, sig)
+	return cmdutil.TerminateProcessGroup(e.cmd, intent)
 }
 
 // annotateStderrTail writes the full script to the stderr log with the

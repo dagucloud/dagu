@@ -10,6 +10,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core"
@@ -35,6 +36,12 @@ type Executor interface {
 	SetStderr(out io.Writer)
 	Kill(sig os.Signal) error
 	Run(ctx context.Context) error
+}
+
+// Stopper is implemented by executors that can handle lifecycle stop intent
+// directly instead of receiving only a legacy OS signal.
+type Stopper interface {
+	Stop(cmdutil.TerminationIntent) error
 }
 
 // ExecutorFactory is a function type that creates an Executor based on the step configuration.

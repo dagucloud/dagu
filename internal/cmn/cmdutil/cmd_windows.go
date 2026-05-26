@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -21,30 +22,48 @@ func SetupCommand(cmd *exec.Cmd) {
 
 // setupCommand configures Windows-specific command attributes
 func setupCommand(cmd *exec.Cmd) {
-	// Windows doesn't support process groups in the same way as Unix
-	// No special configuration needed
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.CreationFlags |= windows.CREATE_NEW_PROCESS_GROUP
 }
 
-// KillProcessGroup kills the process and its subprocess tree on Windows systems
-func KillProcessGroup(cmd *exec.Cmd, sig os.Signal) error {
+// TerminateProcessGroup stops the process tree on Windows systems according to
+// the requested lifecycle intent. Windows does not support POSIX signal
+// delivery for arbitrary child process trees, so both graceful and forceful
+// intents use the platform adapter's process-tree termination strategy.
+func TerminateProcessGroup(cmd *exec.Cmd, intent TerminationIntent) error {
 	if cmd != nil && cmd.Process != nil {
-		// Kill the entire process tree to ensure child processes are terminated
 		return killProcessTree(uint32(cmd.Process.Pid))
 	}
 	return nil
 }
 
-// KillMultipleProcessGroups kills multiple processes on Windows systems
-func KillMultipleProcessGroups(cmds map[string]*exec.Cmd, sig os.Signal) error {
+// KillProcessGroup kills the process and its subprocess tree on Windows systems.
+//
+// Deprecated: use TerminateProcessGroup with a TerminationIntent.
+func KillProcessGroup(cmd *exec.Cmd, sig os.Signal) error {
+	return TerminateProcessGroup(cmd, TerminationFromSignal(sig))
+}
+
+// TerminateMultipleProcessGroups stops multiple process trees on Windows systems.
+func TerminateMultipleProcessGroups(cmds map[string]*exec.Cmd, intent TerminationIntent) error {
 	var lastErr error
 	for _, cmd := range cmds {
 		if cmd != nil && cmd.Process != nil {
-			if err := killProcessTree(uint32(cmd.Process.Pid)); err != nil {
+			if err := TerminateProcessGroup(cmd, intent); err != nil {
 				lastErr = err
 			}
 		}
 	}
 	return lastErr
+}
+
+// KillMultipleProcessGroups kills multiple processes on Windows systems.
+//
+// Deprecated: use TerminateMultipleProcessGroups with a TerminationIntent.
+func KillMultipleProcessGroups(cmds map[string]*exec.Cmd, sig os.Signal) error {
+	return TerminateMultipleProcessGroups(cmds, TerminationFromSignal(sig))
 }
 
 // killProcessTree kills a process and its subprocess tree on Windows

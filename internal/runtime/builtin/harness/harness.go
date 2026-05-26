@@ -29,6 +29,7 @@ import (
 )
 
 var _ executor.Executor = (*harnessExecutor)(nil)
+var _ executor.Stopper = (*harnessExecutor)(nil)
 var _ executor.ExitCoder = (*harnessExecutor)(nil)
 var _ executor.PushBackAware = (*harnessExecutor)(nil)
 var _ executor.PushBackPreviousStdoutAware = (*harnessExecutor)(nil)
@@ -75,9 +76,13 @@ func (e *harnessExecutor) SetStderr(out io.Writer) {
 }
 
 func (e *harnessExecutor) Kill(sig os.Signal) error {
+	return e.Stop(cmdutil.TerminationFromSignal(sig))
+}
+
+func (e *harnessExecutor) Stop(intent cmdutil.TerminationIntent) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return cmdutil.KillProcessGroup(e.cmd, sig)
+	return cmdutil.TerminateProcessGroup(e.cmd, intent)
 }
 
 func (e *harnessExecutor) SetPushBackContext(inputs map[string]string, iteration int) {
