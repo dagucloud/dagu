@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	"github.com/dagucloud/dagu/internal/test"
+	"github.com/dagucloud/dagu/internal/test/intgharness"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
@@ -34,12 +35,13 @@ func TestProcHeartbeat_StartCommand(t *testing.T) {
 		cfg.Proc.HeartbeatSyncInterval = testProcHeartbeatInterval
 		cfg.Proc.StaleThreshold = testProcStaleThreshold
 	}))
+	h := intgharness.New(t, th.Helper)
 
 	dag := th.DAG(t, `
 name: proc-heartbeat-start
 steps:
   - name: sleep
-    run: sleep 2
+    run: `+h.Commands.Sleep(2*time.Second)+`
 `)
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()
@@ -51,16 +53,13 @@ steps:
 	})
 
 	ref := exec.NewDAGRunRef(dag.Name, dagRunID)
-	require.Eventually(t, func() bool {
-		status, ok := readStatusIfPresent(th, ref)
-		return ok && status.Status == core.Running
-	}, intgTestTimeout(5*time.Second), 50*time.Millisecond)
-
-	test.RequireProcHeartbeatAdvance(t, th.Context, th.ProcStore, dag.ProcGroup(), ref, intgTestTimeout(3*time.Second))
+	run := h.Run(ref, dag.ProcGroup())
+	run.RequireRunning(5 * time.Second)
+	run.RequireHeartbeatAdvance(3 * time.Second)
 
 	require.NoError(t, <-errCh)
 
-	status := test.ReadRunStatus(th.Context, t, th.DAGRunStore, ref)
+	status := run.ReadStatus()
 	require.Equal(t, core.Succeeded, status.Status)
 }
 
@@ -72,12 +71,13 @@ func TestProcHeartbeat_RetryCommand(t *testing.T) {
 		cfg.Proc.HeartbeatSyncInterval = testProcHeartbeatInterval
 		cfg.Proc.StaleThreshold = testProcStaleThreshold
 	}))
+	h := intgharness.New(t, th.Helper)
 
 	dag := th.DAG(t, `
 name: proc-heartbeat-retry
 steps:
   - name: sleep
-    run: sleep 2
+    run: `+h.Commands.Sleep(2*time.Second)+`
 `)
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()
@@ -91,16 +91,13 @@ steps:
 	})
 
 	ref := exec.NewDAGRunRef(dag.Name, dagRunID)
-	require.Eventually(t, func() bool {
-		status, ok := readStatusIfPresent(th, ref)
-		return ok && status.Status == core.Running
-	}, intgTestTimeout(5*time.Second), 50*time.Millisecond)
-
-	test.RequireProcHeartbeatAdvance(t, th.Context, th.ProcStore, dag.ProcGroup(), ref, intgTestTimeout(3*time.Second))
+	run := h.Run(ref, dag.ProcGroup())
+	run.RequireRunning(5 * time.Second)
+	run.RequireHeartbeatAdvance(3 * time.Second)
 
 	require.NoError(t, <-errCh)
 
-	status := test.ReadRunStatus(th.Context, t, th.DAGRunStore, ref)
+	status := run.ReadStatus()
 	require.Equal(t, core.Succeeded, status.Status)
 }
 
@@ -138,16 +135,4 @@ func createFailedRun(t *testing.T, th test.Command, dag *core.DAG, dagRunID stri
 	require.NoError(t, attempt.Open(th.Context))
 	require.NoError(t, attempt.Write(th.Context, status))
 	require.NoError(t, attempt.Close(th.Context))
-}
-
-func readStatusIfPresent(th test.Command, dagRun exec.DAGRunRef) (*exec.DAGRunStatus, bool) {
-	attempt, err := th.DAGRunStore.FindAttempt(th.Context, dagRun)
-	if err != nil {
-		return nil, false
-	}
-	status, err := attempt.ReadStatus(th.Context)
-	if err != nil {
-		return nil, false
-	}
-	return status, true
 }

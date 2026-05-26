@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/test"
+	"github.com/dagucloud/dagu/internal/test/intgharness"
 	"github.com/stretchr/testify/require"
 )
 
@@ -197,82 +198,24 @@ func TestScheduleEditWhileSuspendedDoesNotSuppressNewSlot(t *testing.T) {
 	ctx, cancel := context.WithCancel(th.Context)
 	defer cancel()
 
-	errCh := make(chan error, 1)
-	go func() { errCh <- sc.Start(ctx) }()
-
-	var schedulerErr error
-	var schedulerStopped bool
-	pollSchedulerErr := func() error {
-		if schedulerStopped {
-			return schedulerErr
-		}
-		select {
-		case err := <-errCh:
-			schedulerStopped = true
-			if err == nil {
-				err = errors.New("scheduler exited unexpectedly before test completed")
-			}
-			schedulerErr = err
-		default:
-		}
-		return schedulerErr
-	}
-
-	schedulerHasSchedule := func(expression string) bool {
-		for _, loaded := range th.EntryReader.DAGs() {
-			if loaded.Name != dagName || len(loaded.Schedule) != 1 {
-				continue
-			}
-			return loaded.Schedule[0].Expression == expression
-		}
-		return false
-	}
-
-	require.Eventually(t, func() bool {
-		if err := pollSchedulerErr(); err != nil {
-			return true
-		}
-		return sc.IsRunning() && schedulerHasSchedule("0 10 * * *")
-	}, intgTestTimeout(2*time.Second), 50*time.Millisecond)
-	require.NoError(t, schedulerErr)
+	h := intgharness.New(t, th.Helper)
+	probe := h.StartScheduler(ctx, sc, th.EntryReader)
+	probe.RequireRunningWithSchedule(dagName, "0 10 * * *", 2*time.Second)
 
 	writeSpec("5 10 * * *")
 
-	require.Eventually(t, func() bool {
-		if err := pollSchedulerErr(); err != nil {
-			return true
-		}
-		return schedulerHasSchedule("5 10 * * *")
-	}, intgTestTimeout(5*time.Second), 50*time.Millisecond)
-	require.NoError(t, schedulerErr)
+	probe.RequireLoadedSchedule(dagName, "5 10 * * *", 5*time.Second)
 
 	require.NoError(t, os.Remove(suspendFlag))
 
-	require.Eventually(t, func() bool {
-		if err := pollSchedulerErr(); err != nil {
-			return true
-		}
+	probe.RequireEventually("expected edited schedule to dispatch", 35*time.Second, func() bool {
 		return dispatchCount.Load() > 0
-	}, intgTestTimeout(35*time.Second), 50*time.Millisecond)
-	require.NoError(t, schedulerErr)
+	})
 	require.Equal(t, int32(1), dispatchCount.Load(), "edited schedules should dispatch exactly once")
 	lastDispatchMu.Lock()
 	require.Equal(t, core.TriggerTypeScheduler, lastDispatchType)
 	require.Equal(t, newSlot, lastDispatchTime)
 	lastDispatchMu.Unlock()
 
-	sc.Stop(context.Background())
-	cancel()
-
-	if !schedulerStopped {
-		select {
-		case err := <-errCh:
-			require.True(t,
-				err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded),
-				"unexpected scheduler shutdown error: %v", err,
-			)
-		case <-time.After(intgTestTimeout(5 * time.Second)):
-			t.Fatal("scheduler did not stop within 5 seconds")
-		}
-	}
+	probe.Stop(context.Background(), cancel, 5*time.Second)
 }
