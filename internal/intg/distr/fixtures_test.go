@@ -26,6 +26,7 @@ import (
 	"github.com/dagucloud/dagu/internal/service/scheduler"
 	"github.com/dagucloud/dagu/internal/service/worker"
 	"github.com/dagucloud/dagu/internal/test"
+	"github.com/dagucloud/dagu/internal/test/intgharness"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -144,6 +145,7 @@ func withZombieDetectionInterval(interval time.Duration) fixtureOption {
 type testFixture struct {
 	t                   *testing.T
 	coord               *test.Coordinator
+	h                   intgharness.Harness
 	dagWrapper          *test.DAG
 	coordinatorClient   coordinator.Client
 	workerMaxActiveRuns int
@@ -213,6 +215,7 @@ func newTestFixture(t *testing.T, yaml string, opts ...fixtureOption) *testFixtu
 	f := &testFixture{
 		t:                   t,
 		coord:               coord,
+		h:                   intgharness.New(t, coord.Helper),
 		coordinatorClient:   coord.GetCoordinatorClient(t),
 		workerMaxActiveRuns: cfg.workerMaxActiveRuns,
 	}
@@ -319,8 +322,7 @@ func (f *testFixture) startWorker(w *worker.Worker, workerID string) *worker.Wor
 
 func (f *testFixture) waitForWorkerRegistration(workerID string, timeout time.Duration) {
 	f.t.Helper()
-	timeout = distrTestTimeout(timeout)
-	require.Eventually(f.t, func() bool {
+	f.h.Wait.EventuallyEveryWithin(fmt.Sprintf("worker %s should register with coordinator", workerID), distrTestTimeout(timeout), 50*time.Millisecond, func() bool {
 		workers, err := f.coordinatorClient.GetWorkers(f.coord.Context)
 		if err != nil {
 			return false
@@ -331,7 +333,7 @@ func (f *testFixture) waitForWorkerRegistration(workerID string, timeout time.Du
 			}
 		}
 		return false
-	}, timeout, 50*time.Millisecond, "worker %s should register with coordinator", workerID)
+	})
 }
 
 func (f *testFixture) startScheduler(timeout time.Duration) {
@@ -419,10 +421,10 @@ func (f *testFixture) startSchedulerWithOptions(
 		case <-startTimer.C:
 			if ownsSchedulerCtx && schedulerCancel != nil {
 				schedulerCancel()
-				require.Eventually(f.t, func() bool {
+				f.h.Wait.EventuallyEveryWithin("scheduler startup did not stop after cancellation", distrTestTimeout(time.Second), 25*time.Millisecond, func() bool {
 					startErr = f.pollSchedulerErr()
 					return startErr != nil
-				}, distrTestTimeout(time.Second), 25*time.Millisecond, "scheduler startup did not stop after cancellation")
+				})
 			}
 
 			if startErr != nil {
@@ -540,71 +542,43 @@ func (f *testFixture) retry(dagRunID string) error {
 
 func (f *testFixture) waitForQueued() {
 	f.t.Helper()
-	var schedulerErr error
-	timeout := distrTestTimeout(5 * time.Second)
-	require.Eventually(f.t, func() bool {
-		schedulerErr = f.pollSchedulerErr()
-		if schedulerErr != nil {
-			return true
-		}
+	f.requireEventuallyNoSchedulerError("DAG should be enqueued", 5*time.Second, 100*time.Millisecond, func() bool {
 		items, err := f.coord.QueueStore.ListByDAGName(f.coord.Context, f.dagWrapper.ProcGroup(), f.dagWrapper.Name)
 		return err == nil && len(items) == 1
-	}, timeout, 100*time.Millisecond, "DAG should be enqueued")
-	require.NoError(f.t, schedulerErr)
+	})
 }
 
 func (f *testFixture) waitForStatus(expected core.Status, timeout time.Duration) exec.DAGRunStatus {
 	f.t.Helper()
-	timeout = distrTestTimeout(timeout)
 	var status exec.DAGRunStatus
-	var schedulerErr error
-	require.Eventually(f.t, func() bool {
-		schedulerErr = f.pollSchedulerErr()
-		if schedulerErr != nil {
-			return true
-		}
+	f.requireEventuallyNoSchedulerError(fmt.Sprintf("timeout waiting for status %s", expected), timeout, 100*time.Millisecond, func() bool {
 		var err error
 		status, err = f.latestStoredStatus()
 		if err != nil {
 			return false
 		}
 		return status.Status == expected
-	}, timeout, 100*time.Millisecond, "timeout waiting for status %s", expected)
-	require.NoError(f.t, schedulerErr)
+	})
 	return status
 }
 
 func (f *testFixture) waitForStatusIn(expected []core.Status, timeout time.Duration) exec.DAGRunStatus {
 	f.t.Helper()
-	timeout = distrTestTimeout(timeout)
 	var status exec.DAGRunStatus
-	var schedulerErr error
-	require.Eventually(f.t, func() bool {
-		schedulerErr = f.pollSchedulerErr()
-		if schedulerErr != nil {
-			return true
-		}
+	f.requireEventuallyNoSchedulerError(fmt.Sprintf("timeout waiting for status in %v", expected), timeout, 100*time.Millisecond, func() bool {
 		var err error
 		status, err = f.latestStoredStatus()
 		if err != nil {
 			return false
 		}
 		return slices.Contains(expected, status.Status)
-	}, timeout, 100*time.Millisecond, "timeout waiting for status in %v", expected)
-	require.NoError(f.t, schedulerErr)
+	})
 	return status
 }
 
 func (f *testFixture) waitForRunReleasedFromWorkers(dagRunID string, timeout time.Duration) {
 	f.t.Helper()
-	timeout = distrTestTimeout(timeout)
-	var schedulerErr error
-	require.Eventually(f.t, func() bool {
-		schedulerErr = f.pollSchedulerErr()
-		if schedulerErr != nil {
-			return true
-		}
-
+	f.requireEventuallyNoSchedulerError(fmt.Sprintf("DAG run %s should be released from workers", dagRunID), timeout, 100*time.Millisecond, func() bool {
 		workers, err := f.coordinatorClient.GetWorkers(f.coord.Context)
 		if err != nil {
 			return false
@@ -617,7 +591,19 @@ func (f *testFixture) waitForRunReleasedFromWorkers(dagRunID string, timeout tim
 			}
 		}
 		return true
-	}, timeout, 100*time.Millisecond, "DAG run %s should be released from workers", dagRunID)
+	})
+}
+
+func (f *testFixture) requireEventuallyNoSchedulerError(label string, timeout, interval time.Duration, condition func() bool) {
+	f.t.Helper()
+	var schedulerErr error
+	f.h.Wait.EventuallyEveryWithin(label, distrTestTimeout(timeout), interval, func() bool {
+		schedulerErr = f.pollSchedulerErr()
+		if schedulerErr != nil {
+			return true
+		}
+		return condition()
+	})
 	require.NoError(f.t, schedulerErr)
 }
 

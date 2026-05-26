@@ -127,8 +127,18 @@ func (s *Scheduler) Start(t *testing.T, ctx context.Context) (*scheduler.Schedul
 		errCh <- instance.Start(ctx)
 	}()
 
-	// Give scheduler time to start
-	time.Sleep(100 * time.Millisecond)
+	var startErr error
+	var stopped bool
+	require.Eventually(t, func() bool {
+		select {
+		case startErr = <-errCh:
+			stopped = true
+			return true
+		default:
+		}
+		return instance.IsRunning()
+	}, 5*time.Second, 25*time.Millisecond, "scheduler should start")
+	require.False(t, stopped, "scheduler exited before it started: %v", startErr)
 
 	return instance, errCh
 }

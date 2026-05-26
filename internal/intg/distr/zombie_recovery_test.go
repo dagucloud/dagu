@@ -20,7 +20,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/service/worker"
-	"github.com/dagucloud/dagu/internal/test"
+	"github.com/dagucloud/dagu/internal/test/intgharness"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -40,10 +40,7 @@ func delayedAfterAckFailureTimeout(mode workerMode) time.Duration {
 }
 
 func waitForReleaseFileScript(path string) string {
-	return test.ForOS(
-		fmt.Sprintf("while [ ! -f %s ]; do\n  sleep 0.05\ndone", test.PosixQuote(path)),
-		fmt.Sprintf("while (-not (Test-Path %s)) {\n  Start-Sleep -Milliseconds 50\n}", test.PowerShellQuote(path)),
-	)
+	return intgharness.PortableCommands().WaitForFile(path)
 }
 
 // TestDistributedRun_WorkerCrash_MarkedFailed verifies that a hard-killed worker
