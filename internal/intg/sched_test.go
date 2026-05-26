@@ -5,7 +5,6 @@ package intg_test
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -22,13 +21,6 @@ import (
 	"github.com/dagucloud/dagu/internal/test/intgharness"
 	"github.com/stretchr/testify/require"
 )
-
-func cronScheduleRunsTwiceTimeout() time.Duration {
-	if runtime.GOOS == "windows" {
-		return 30 * time.Second
-	}
-	return 15 * time.Second
-}
 
 // TestCronScheduleRunsTwice verifies that a DAG with */1 * * * * schedule
 // runs twice in two minutes.
@@ -75,50 +67,16 @@ steps:
 	ctx, cancel := context.WithCancel(th.Context)
 	defer cancel()
 
-	errCh := make(chan error, 1)
-	go func() { errCh <- schedulerInstance.Start(ctx) }()
-	var schedulerErr error
-	var schedulerStopped bool
-	pollSchedulerErr := func() error {
-		if schedulerStopped {
-			return schedulerErr
-		}
-		select {
-		case err := <-errCh:
-			schedulerStopped = true
-			if err == nil {
-				err = errors.New("scheduler exited unexpectedly before test completed")
-			}
-			schedulerErr = err
-		default:
-		}
-		return schedulerErr
-	}
+	h := intgharness.New(t, th.Helper)
+	probe := h.StartScheduler(ctx, schedulerInstance, th.EntryReader)
 
 	_, err = spec.Load(th.Context, dagFile)
 	require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		if err := pollSchedulerErr(); err != nil {
-			return true
-		}
+	probe.RequireEventually("expected cron schedule to dispatch twice", 15*time.Second, func() bool {
 		return dispatchCount.Load() >= 2
-	}, cronScheduleRunsTwiceTimeout(), 50*time.Millisecond)
-	require.NoError(t, schedulerErr)
-
-	schedulerInstance.Stop(ctx)
-	cancel()
-
-	if !schedulerStopped {
-		select {
-		case err = <-errCh:
-			require.True(t,
-				err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded),
-				"unexpected scheduler shutdown error: %v", err,
-			)
-		case <-time.After(5 * time.Second):
-		}
-	}
+	})
+	probe.Stop(context.Background(), cancel, 5*time.Second)
 
 	require.GreaterOrEqual(t, dispatchCount.Load(), int32(2))
 }

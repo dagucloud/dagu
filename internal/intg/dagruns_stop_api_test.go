@@ -6,29 +6,31 @@ package intg_test
 import (
 	"fmt"
 	"net/http"
-	"os"
 	"testing"
 	"time"
 
 	api "github.com/dagucloud/dagu/api/v1"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/test"
+	"github.com/dagucloud/dagu/internal/test/intgharness"
 	"github.com/stretchr/testify/require"
 )
 
 func TestAPITerminateLocalRun_DoesNotRequireCoordinator(t *testing.T) {
 	server := test.SetupServer(t)
+	h := intgharness.New(t, server.Helper)
 
 	const dagName = "intg_local_stop_regression"
 	releaseFile := t.TempDir() + "/release"
+	release := h.Marker(releaseFile)
 	t.Cleanup(func() {
-		_ = os.WriteFile(releaseFile, []byte("ok"), 0600)
+		release.Write("ok")
 	})
 	spec := fmt.Sprintf(`steps:
   - name: hold
     run: |
 %s
-`, indentTestScript(waitForFileCommand(releaseFile), 6))
+`, indentTestScript(release.WaitCommand(), 6))
 
 	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
 		Name: dagName,

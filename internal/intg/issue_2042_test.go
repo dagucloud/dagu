@@ -5,7 +5,6 @@ package intg_test
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	"github.com/dagucloud/dagu/internal/test"
+	"github.com/dagucloud/dagu/internal/test/intgharness"
 	"github.com/stretchr/testify/require"
 )
 
@@ -30,6 +30,7 @@ func TestIssue2042_EditedSuspendedScheduleDispatchesWithSkipIfSuccessful(t *test
 	require.NoError(t, os.WriteFile(dagFile, []byte(issue2042DAGSpec(dagName, "34 * * * *")), 0o600))
 
 	th := test.SetupScheduler(t, test.WithDAGsDir(dagsDir))
+	h := intgharness.New(t, th.Helper)
 
 	dispatchedAt := make(chan time.Time, 4)
 	dispatchStub := func(ctx context.Context, dag *core.DAG, runID string, trigger core.TriggerType, scheduleTime time.Time) error {
@@ -75,57 +76,18 @@ func TestIssue2042_EditedSuspendedScheduleDispatchesWithSkipIfSuccessful(t *test
 		ctx, cancel := context.WithCancel(th.Context)
 		defer cancel()
 
-		errCh := make(chan error, 1)
-		go func() { errCh <- schedulerInstance.Start(ctx) }()
-
-		var (
-			schedulerErr     error
-			schedulerStopped bool
-		)
-		pollSchedulerErr := func() error {
-			if schedulerStopped {
-				return schedulerErr
-			}
-			select {
-			case err := <-errCh:
-				schedulerStopped = true
-				if err == nil {
-					err = errors.New("scheduler exited unexpectedly before test completed")
-				}
-				schedulerErr = err
-			default:
-			}
-			return schedulerErr
-		}
+		probe := h.StartScheduler(ctx, schedulerInstance, th.EntryReader)
 
 		var dispatched time.Time
-		require.Eventually(t, func() bool {
-			if err := pollSchedulerErr(); err != nil {
-				return true
-			}
+		probe.RequireEventually("expected edited schedule to dispatch", 5*time.Second, func() bool {
 			select {
 			case dispatched = <-dispatchedAt:
 				return true
 			default:
 				return false
 			}
-		}, 5*time.Second, 50*time.Millisecond)
-		require.NoError(t, schedulerErr)
-
-		schedulerInstance.Stop(ctx)
-		cancel()
-
-		if !schedulerStopped {
-			select {
-			case err := <-errCh:
-				require.True(t,
-					err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded),
-					"unexpected scheduler shutdown error: %v", err,
-				)
-			case <-time.After(5 * time.Second):
-				t.Fatal("scheduler did not stop within 5 seconds")
-			}
-		}
+		})
+		probe.Stop(context.Background(), cancel, 5*time.Second)
 
 		return dispatched
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	runtimeagent "github.com/dagucloud/dagu/internal/runtime/agent"
 	"github.com/dagucloud/dagu/internal/test"
+	"github.com/dagucloud/dagu/internal/test/intgharness"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -313,11 +314,14 @@ func TestHandlerOn_Abort(t *testing.T) {
 	t.Parallel()
 
 	th := test.Setup(t)
+	h := intgharness.New(t, th)
 	tmpDir := t.TempDir()
 	releaseFile := filepath.Join(tmpDir, "abort.release")
 	startedFile := filepath.Join(tmpDir, "abort.started")
+	release := h.Marker(releaseFile)
+	started := h.Marker(startedFile)
 	t.Cleanup(func() {
-		_ = os.WriteFile(releaseFile, []byte("ok"), 0600)
+		release.Write("ok")
 	})
 	dag := th.DAG(t, `
 handler_on:
@@ -327,8 +331,8 @@ handler_on:
 steps:
   - name: long-running
     run: |
-`+indentTestScript(writeFileCommand(startedFile), 6)+`
-`+indentTestScript(waitForFileCommand(releaseFile), 6)+`
+`+indentTestScript(started.WriteCommand("started"), 6)+`
+`+indentTestScript(release.WaitCommand(), 6)+`
 `)
 
 	// Verify parsing: abort field maps to the canonical abort handler
@@ -343,7 +347,7 @@ steps:
 		close(done)
 	}()
 
-	waitForTestFile(t, startedFile, intgTestTimeout(10*time.Second))
+	started.RequireExists(10 * time.Second)
 
 	// Abort the DAG
 	dagAgent.Abort()
@@ -621,11 +625,14 @@ steps:
 	t.Run("AbortHandler_AllEnvVars", func(t *testing.T) {
 		t.Parallel()
 		th := test.Setup(t)
+		h := intgharness.New(t, th)
 		tmpDir := t.TempDir()
 		releaseFile := filepath.Join(tmpDir, "abort-env.release")
 		startedFile := filepath.Join(tmpDir, "abort-env.started")
+		release := h.Marker(releaseFile)
+		started := h.Marker(startedFile)
 		t.Cleanup(func() {
-			_ = os.WriteFile(releaseFile, []byte("ok"), 0600)
+			release.Write("ok")
 		})
 
 		dag := th.DAG(t, `
@@ -638,8 +645,8 @@ handler_on:
 steps:
   - name: long-running
     run: |
-`+indentTestScript(writeFileCommand(startedFile), 6)+`
-`+indentTestScript(waitForFileCommand(releaseFile), 6)+`
+`+indentTestScript(started.WriteCommand("started"), 6)+`
+`+indentTestScript(release.WaitCommand(), 6)+`
 `)
 		dagAgent := dagAgentWithProc(t, th, dag)
 
@@ -649,7 +656,7 @@ steps:
 			close(done)
 		}()
 
-		waitForTestFile(t, startedFile, intgTestTimeout(10*time.Second))
+		started.RequireExists(10 * time.Second)
 		dagAgent.Abort()
 		select {
 		case <-done:
