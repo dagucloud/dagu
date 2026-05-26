@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/test"
+	"github.com/dagucloud/dagu/internal/test/intgharness"
 	"github.com/stretchr/testify/require"
 )
 
@@ -444,18 +445,11 @@ func waitForApprovalStepWaitingStatus(
 ) *exec.DAGRunStatus {
 	t.Helper()
 
-	var status *exec.DAGRunStatus
-	require.Eventually(t, func() bool {
-		attempt, err := server.DAGRunStore.FindAttempt(server.Context, exec.NewDAGRunRef(dagName, dagRunID))
-		if err != nil {
+	h := intgharness.New(t, server.Helper)
+	return h.Run(exec.NewDAGRunRef(dagName, dagRunID), "").RequireStatusMatchWithin("approval step should reach waiting status", intgTestTimeout(15*time.Second), func(status *exec.DAGRunStatus) bool {
+		if status.Status != core.Waiting {
 			return false
 		}
-
-		status, err = attempt.ReadStatus(server.Context)
-		if err != nil || status == nil || status.Status != core.Waiting {
-			return false
-		}
-
 		for _, node := range status.Nodes {
 			if node.Step.Name != stepName {
 				continue
@@ -464,9 +458,7 @@ func waitForApprovalStepWaitingStatus(
 		}
 
 		return false
-	}, intgTestTimeout(15*time.Second), 200*time.Millisecond)
-
-	return status
+	})
 }
 
 func waitForDAGRunStatus(
@@ -477,22 +469,8 @@ func waitForDAGRunStatus(
 ) *exec.DAGRunStatus {
 	t.Helper()
 
-	var status *exec.DAGRunStatus
-	require.Eventually(t, func() bool {
-		attempt, err := server.DAGRunStore.FindAttempt(server.Context, exec.NewDAGRunRef(dagName, dagRunID))
-		if err != nil {
-			return false
-		}
-
-		status, err = attempt.ReadStatus(server.Context)
-		if err != nil || status == nil {
-			return false
-		}
-
-		return status.Status == expected
-	}, intgTestTimeout(15*time.Second), 200*time.Millisecond)
-
-	return status
+	h := intgharness.New(t, server.Helper)
+	return h.Run(exec.NewDAGRunRef(dagName, dagRunID), "").RequireStatusWithin(expected, intgTestTimeout(15*time.Second))
 }
 
 func nodeByName(t *testing.T, status *exec.DAGRunStatus, stepName string) *exec.Node {

@@ -66,7 +66,8 @@ func waitForAPIRunStatus(
 ) {
 	t.Helper()
 
-	require.Eventually(t, func() bool {
+	h := intgharness.New(t, server.Helper)
+	h.Wait.EventuallyEveryWithin(fmt.Sprintf("run %s should reach one of %v", runID, expected), timeout, 200*time.Millisecond, func() bool {
 		resp := server.Client().Get(
 			fmt.Sprintf("/api/v1/dag-runs/%s/%s", dagName, runID),
 		).Send(t)
@@ -87,5 +88,5 @@ func waitForAPIRunStatus(
 			}
 		}
 		return false
-	}, timeout, 200*time.Millisecond, "run %s should reach one of %v", runID, expected)
+	})
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/test"
+	"github.com/dagucloud/dagu/internal/test/intgharness"
 	"github.com/stretchr/testify/require"
 )
 
@@ -197,16 +198,8 @@ steps:
 func waitForEditRetryStoredStatus(t *testing.T, server test.Server, dagName, dagRunID string, expected core.Status) *exec.DAGRunStatus {
 	t.Helper()
 
-	var status *exec.DAGRunStatus
-	require.Eventually(t, func() bool {
-		attempt, err := server.DAGRunStore.FindAttempt(server.Context, exec.NewDAGRunRef(dagName, dagRunID))
-		if err != nil {
-			return false
-		}
-		status, err = attempt.ReadStatus(server.Context)
-		return err == nil && status != nil && status.Status == expected
-	}, intgTestTimeout(15*time.Second), 200*time.Millisecond)
-	return status
+	h := intgharness.New(t, server.Helper)
+	return h.Run(exec.NewDAGRunRef(dagName, dagRunID), "").RequireStatusWithin(expected, intgTestTimeout(15*time.Second))
 }
 
 func indentStepField(value string) string {

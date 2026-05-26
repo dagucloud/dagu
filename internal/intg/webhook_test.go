@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/internal/license"
 	"github.com/dagucloud/dagu/internal/service/frontend"
 	"github.com/dagucloud/dagu/internal/test"
+	"github.com/dagucloud/dagu/internal/test/intgharness"
 	"github.com/stretchr/testify/require"
 )
 
@@ -239,20 +240,6 @@ func waitForWebhookRunStatus(
 ) {
 	t.Helper()
 
-	require.Eventually(t, func() bool {
-		attempt, err := server.DAGRunStore.FindAttempt(
-			server.Context,
-			exec1.NewDAGRunRef(dagName, runID),
-		)
-		if err != nil {
-			return false
-		}
-
-		status, err := attempt.ReadStatus(server.Context)
-		if err != nil {
-			return false
-		}
-
-		return status.Status == expected
-	}, test.SubprocessRunTimeout(30*time.Second), 200*time.Millisecond)
+	h := intgharness.New(t, server.Helper)
+	h.Run(exec1.NewDAGRunRef(dagName, runID), "").RequireStatusWithin(expected, test.SubprocessRunTimeout(30*time.Second))
 }

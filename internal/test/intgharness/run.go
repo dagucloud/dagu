@@ -30,22 +30,22 @@ func (h Harness) Run(ref exec.DAGRunRef, procGroup string) RunProbe {
 }
 
 // RequireRunning waits until the run reaches running status.
-func (r RunProbe) RequireRunning(timeout time.Duration) {
-	r.RequireStatus(core.Running, timeout)
+func (r RunProbe) RequireRunning(timeout time.Duration) *exec.DAGRunStatus {
+	return r.RequireStatus(core.Running, timeout)
 }
 
 // RequireStatus waits until the run reaches status.
-func (r RunProbe) RequireStatus(status core.Status, timeout time.Duration) {
+func (r RunProbe) RequireStatus(status core.Status, timeout time.Duration) *exec.DAGRunStatus {
 	r.h.t.Helper()
 
-	r.RequireStatusWithin(status, r.h.Timeout(timeout))
+	return r.RequireStatusWithin(status, r.h.Timeout(timeout))
 }
 
 // RequireStatusWithin waits until the run reaches status using an already scaled timeout.
-func (r RunProbe) RequireStatusWithin(status core.Status, timeout time.Duration) {
+func (r RunProbe) RequireStatusWithin(status core.Status, timeout time.Duration) *exec.DAGRunStatus {
 	r.h.t.Helper()
 
-	r.RequireStatusMatchWithin(fmt.Sprintf("expected %s to reach status %s", r.ref.String(), status), timeout, func(current *exec.DAGRunStatus) bool {
+	return r.RequireStatusMatchWithin(fmt.Sprintf("expected %s to reach status %s", r.ref.String(), status), timeout, func(current *exec.DAGRunStatus) bool {
 		return current.Status == status
 	})
 }
