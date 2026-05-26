@@ -54,7 +54,7 @@ func StartParentExitWatcher(cmd *exec.Cmd) (func(), error) {
 			select {
 			case <-done:
 			case <-time.After(2 * time.Second):
-				_ = KillProcessGroup(watcher, os.Kill)
+				_ = TerminateProcessGroup(watcher, ForceTermination())
 				select {
 				case <-done:
 				case <-time.After(time.Second):

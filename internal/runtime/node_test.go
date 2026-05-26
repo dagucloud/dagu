@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/internal/cmn/eval"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -37,8 +38,9 @@ var (
 )
 
 type blockingSignalExecutor struct {
-	ready  chan struct{}
-	killed chan os.Signal
+	ready   chan struct{}
+	killed  chan os.Signal
+	stopped chan cmdutil.TerminationIntent
 	// Optional test hooks for controlling Kill ordering.
 	killStarted  chan struct{}
 	killContinue chan struct{}
@@ -83,6 +85,16 @@ func (e *blockingSignalExecutor) Kill(sig os.Signal) error {
 		<-e.killContinue
 	}
 	return nil
+}
+
+func (e *blockingSignalExecutor) Stop(intent cmdutil.TerminationIntent) error {
+	if e.stopped != nil {
+		select {
+		case e.stopped <- intent:
+		default:
+		}
+	}
+	return e.Kill(intent.Signal)
 }
 
 func registerNodeSignalExecutor(t *testing.T) {
@@ -265,6 +277,72 @@ func TestNode(t *testing.T) {
 		}
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "signal: interrupt")
+	})
+	t.Run("SignalUsesStopIntent", func(t *testing.T) {
+		execCh, restore := withNodeSignalExecutorFactory(t, func() *blockingSignalExecutor {
+			exec := newBlockingSignalExecutor()
+			exec.stopped = make(chan cmdutil.TerminationIntent, 1)
+			return exec
+		})
+		defer restore()
+
+		node := setupNode(t, withNodeExecutorType(nodeSignalExecutorType))
+		seen := make(chan *blockingSignalExecutor, 1)
+		go func() {
+			exec := <-execCh
+			seen <- exec
+			<-exec.ready
+			node.Signal(node.Context, syscall.SIGTERM, false)
+		}()
+
+		node.SetStatus(core.NodeRunning)
+
+		dagRunID := uuid.Must(uuid.NewV7()).String()
+		err := node.Node.Execute(node.execContext(dagRunID))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "signal: terminated")
+
+		exec := <-seen
+		select {
+		case intent := <-exec.stopped:
+			require.Equal(t, cmdutil.TerminationModeGraceful, intent.Mode)
+			require.Equal(t, os.Signal(syscall.SIGTERM), intent.Signal)
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for stop intent")
+		}
+	})
+	t.Run("ForceSignalIgnoresSignalOnStopOverride", func(t *testing.T) {
+		execCh, restore := withNodeSignalExecutorFactory(t, func() *blockingSignalExecutor {
+			exec := newBlockingSignalExecutor()
+			exec.stopped = make(chan cmdutil.TerminationIntent, 1)
+			return exec
+		})
+		defer restore()
+
+		node := setupNode(t, withNodeExecutorType(nodeSignalExecutorType), withNodeSignalOnStop("SIGINT"))
+		seen := make(chan *blockingSignalExecutor, 1)
+		go func() {
+			exec := <-execCh
+			seen <- exec
+			<-exec.ready
+			node.Signal(node.Context, syscall.SIGKILL, true)
+		}()
+
+		node.SetStatus(core.NodeRunning)
+
+		dagRunID := uuid.Must(uuid.NewV7()).String()
+		err := node.Node.Execute(node.execContext(dagRunID))
+		require.Error(t, err)
+		require.Equal(t, core.NodeAborted.String(), node.State().Status.String())
+
+		exec := <-seen
+		select {
+		case intent := <-exec.stopped:
+			require.Equal(t, cmdutil.TerminationModeForce, intent.Mode)
+			require.Equal(t, os.Kill, intent.Signal)
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for stop intent")
+		}
 	})
 	t.Run("CancelUpdatesOnlyRunningOrWaiting", func(t *testing.T) {
 		t.Parallel()

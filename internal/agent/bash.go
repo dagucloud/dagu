@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"time"
 
@@ -184,7 +183,7 @@ func executeWithBash(ctx context.Context, bashPath, command, workDir string) com
 		default:
 		}
 
-		_ = cmdutil.KillProcessGroup(cmd, os.Kill)
+		_ = cmdutil.TerminateProcessGroup(cmd, cmdutil.ForceTermination())
 		<-waitCh
 
 		return commandRunResult{

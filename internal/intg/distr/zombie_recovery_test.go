@@ -83,7 +83,7 @@ steps:
 	lease := waitForLease(t, f, status.AttemptKey, 5*time.Second)
 	require.Equal(t, "crash-worker", lease.WorkerID)
 
-	require.NoError(t, cmdutil.KillProcessGroup(workerCmd, os.Kill))
+	require.NoError(t, cmdutil.TerminateProcessGroup(workerCmd, cmdutil.ForceTermination()))
 
 	finalStatus := f.waitForStatus(core.Failed, 20*time.Second)
 	assert.Equal(t, core.Failed, finalStatus.Status)
@@ -744,7 +744,7 @@ func startWorkerProcess(t *testing.T, f *testFixture, workerID, labels string) (
 		}
 
 		if cmd.Process != nil {
-			_ = cmdutil.KillProcessGroup(cmd, os.Kill)
+			_ = cmdutil.TerminateProcessGroup(cmd, cmdutil.ForceTermination())
 		}
 		select {
 		case <-done:

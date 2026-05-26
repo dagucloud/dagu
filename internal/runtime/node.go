@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -20,6 +21,7 @@ import (
 
 	"syscall"
 
+	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/internal/cmn/collections"
 	"github.com/dagucloud/dagu/internal/cmn/eval"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
@@ -924,6 +926,11 @@ func (n *Node) evaluateCommandArgs(ctx context.Context) error {
 }
 
 func (n *Node) Signal(ctx context.Context, sig os.Signal, allowOverride bool) {
+	n.Stop(ctx, cmdutil.TerminationFromSignal(sig), allowOverride)
+}
+
+// Stop requests that the node's executor stop according to lifecycle intent.
+func (n *Node) Stop(ctx context.Context, intent cmdutil.TerminationIntent, allowOverride bool) {
 	n.mu.Lock()
 	status := n.Status()
 	if status != core.NodeRunning {
@@ -931,8 +938,8 @@ func (n *Node) Signal(ctx context.Context, sig os.Signal, allowOverride bool) {
 		return
 	}
 
-	killSignal := n.signalToSend(sig, allowOverride)
-	isTermination := signal.IsTerminationSignalOS(killSignal)
+	stopIntent := n.stopIntentToSend(intent, allowOverride)
+	isTermination := stopIntent.IsTermination()
 	if isTermination {
 		n.SetStatus(core.NodeAborted)
 	}
@@ -947,23 +954,31 @@ func (n *Node) Signal(ctx context.Context, sig os.Signal, allowOverride bool) {
 		return
 	}
 
-	logger.Info(ctx, "Sending signal",
-		tag.Signal(killSignal.String()),
+	logger.Info(ctx, "Requesting step stop",
+		slog.String("stop-mode", string(stopIntent.Mode)),
+		tag.Signal(stopIntent.SignalName()),
 		tag.Step(n.Name()),
 	)
-	if err := cmd.Kill(killSignal); err != nil {
-		logger.Error(ctx, "Failed to send signal",
+	if err := stopExecutor(cmd, stopIntent); err != nil {
+		logger.Error(ctx, "Failed to stop step",
 			tag.Error(err),
 			tag.Step(n.Name()),
 		)
 	}
 }
 
-func (n *Node) signalToSend(sig os.Signal, allowOverride bool) os.Signal {
+func (n *Node) stopIntentToSend(intent cmdutil.TerminationIntent, allowOverride bool) cmdutil.TerminationIntent {
 	if allowOverride && n.SignalOnStop() != "" {
-		return syscall.Signal(signal.GetSignalNum(n.SignalOnStop()))
+		return intent.WithSignal(syscall.Signal(signal.GetSignalNum(n.SignalOnStop())))
 	}
-	return sig
+	return intent
+}
+
+func stopExecutor(cmd executor.Executor, intent cmdutil.TerminationIntent) error {
+	if stopper, ok := cmd.(executor.Stopper); ok {
+		return stopper.Stop(intent)
+	}
+	return cmd.Kill(intent.Signal)
 }
 
 func (n *Node) Cancel() {

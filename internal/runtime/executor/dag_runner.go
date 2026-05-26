@@ -1019,6 +1019,12 @@ func extractOutputValuesFromNodes(nodes []*exec.Node) map[string]any {
 
 // Kill terminates all running sub DAG processes (both local and distributed)
 func (e *SubDAGExecutor) Kill(sig os.Signal) error {
+	return e.Stop(cmdutil.TerminationFromSignal(sig))
+}
+
+// Stop terminates all running sub DAG processes (both local and distributed)
+// according to the requested lifecycle intent.
+func (e *SubDAGExecutor) Stop(intent cmdutil.TerminationIntent) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -1072,17 +1078,19 @@ func (e *SubDAGExecutor) Kill(sig os.Signal) error {
 	// Kill local processes
 	for runID, cmd := range e.cmds {
 		if cmd != nil && cmd.Process != nil {
-			if err := cmdutil.KillProcessGroup(cmd, sig); err != nil {
+			if err := cmdutil.TerminateProcessGroup(cmd, intent); err != nil {
 				errs = append(errs, err)
-				logger.Warn(ctx, "Failed to kill local sub DAG process",
+				logger.Warn(ctx, "Failed to stop local sub DAG process",
 					tag.RunID(runID),
 					tag.DAG(e.DAG.Name),
 					tag.Error(err),
 				)
 			} else {
-				logger.Info(ctx, "Requested kill for local sub DAG process",
+				logger.Info(ctx, "Requested stop for local sub DAG process",
 					tag.RunID(runID),
 					tag.DAG(e.DAG.Name),
+					slog.String("stop-mode", string(intent.Mode)),
+					tag.Signal(intent.SignalName()),
 				)
 			}
 		}

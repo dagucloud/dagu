@@ -7,7 +7,6 @@ package terminal
 
 import (
 	"os/exec"
-	"syscall"
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 )
@@ -23,5 +22,5 @@ func forceKillProcess(cmd *exec.Cmd) error {
 	if cmd == nil || cmd.Process == nil {
 		return nil
 	}
-	return cmdutil.KillProcessGroup(cmd, syscall.SIGKILL)
+	return cmdutil.TerminateProcessGroup(cmd, cmdutil.ForceTermination())
 }
