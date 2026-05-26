@@ -262,7 +262,12 @@ func renameDAGRunPayload(payload dagRunPayload, oldName, newName string) (dagRun
 	next := payload
 	next.DAG = cloneDAG(payload.DAG)
 	next.Status = cloneDAGRunStatus(payload.Status)
+	next.Outputs = cloneDAGRunOutputs(payload.Outputs)
 	next.StepMessages = copyStepMessagesMap(payload.StepMessages)
+
+	if next.Outputs != nil && next.Outputs.Metadata.DAGName == oldName {
+		next.Outputs.Metadata.DAGName = newName
+	}
 
 	if payload.Parent.Zero() {
 		next.Name = newName
@@ -341,6 +346,15 @@ func cloneDAGRunStatus(st *exec.DAGRunStatus) *exec.DAGRunStatus {
 		return &cp
 	}
 	return &cloned
+}
+
+func cloneDAGRunOutputs(outputs *exec.DAGRunOutputs) *exec.DAGRunOutputs {
+	if outputs == nil {
+		return nil
+	}
+	copied := *outputs
+	copied.Outputs = copyStringMap(outputs.Outputs)
+	return &copied
 }
 
 func copyStringMap(in map[string]string) map[string]string {

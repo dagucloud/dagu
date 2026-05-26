@@ -74,10 +74,14 @@ func (a *DAGRunAttempt) Write(ctx context.Context, status exec.DAGRunStatus) err
 		} else if status.Root != payload.Root {
 			return fmt.Errorf("dag-run store: status root %q does not match record root %q", status.Root.String(), payload.Root.String())
 		}
-		if status.Parent.Zero() {
+		if payload.Parent.Zero() {
+			if !status.Parent.Zero() {
+				return fmt.Errorf("dag-run store: status parent %q does not match root record", status.Parent.String())
+			}
+		} else if status.Parent.Zero() {
 			status.Parent = payload.Parent
-		} else if status.Parent != payload.Parent {
-			return fmt.Errorf("dag-run store: status parent %q does not match record parent %q", status.Parent.String(), payload.Parent.String())
+		} else {
+			payload.Parent = status.Parent
 		}
 		payload.Name = expectedName
 		payload.Status = cloneDAGRunStatus(&status)

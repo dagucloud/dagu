@@ -558,17 +558,15 @@ func TestDAGRunAttempt_WriteRejectsMismatchedSubAttemptHierarchy(t *testing.T) {
 	require.ErrorContains(t, err, "status root")
 	require.NoError(t, subAttempt.Close(ctx))
 
-	parentMismatchAttempt, err := s.CreateAttempt(ctx, child, base.Add(2*time.Second), "child-run-parent", exec.NewDAGRunAttemptOptions{
-		RootDAGRun: &rootRef,
-		AttemptID:  "child-attempt-parent",
+	parentMismatchAttempt, err := s.CreateAttempt(ctx, parent, base.Add(2*time.Second), "parent-run-with-parent", exec.NewDAGRunAttemptOptions{
+		AttemptID: "parent-attempt-with-parent",
 	})
 	require.NoError(t, err)
-	parentMismatchStatus := exec.InitialStatus(child)
-	parentMismatchStatus.Root = rootRef
+	parentMismatchStatus := exec.InitialStatus(parent)
 	parentMismatchStatus.Parent = exec.NewDAGRunRef("other-parent", "parent-run")
-	parentMismatchStatus.DAGRunID = "child-run-parent"
+	parentMismatchStatus.DAGRunID = "parent-run-with-parent"
 	parentMismatchStatus.AttemptID = parentMismatchAttempt.ID()
-	parentMismatchStatus.AttemptKey = exec.GenerateAttemptKey(parent.Name, rootRef.ID, child.Name, parentMismatchStatus.DAGRunID, parentMismatchAttempt.ID())
+	parentMismatchStatus.AttemptKey = exec.GenerateAttemptKey(parent.Name, parentMismatchStatus.DAGRunID, parent.Name, parentMismatchStatus.DAGRunID, parentMismatchAttempt.ID())
 	parentMismatchStatus.Status = core.Running
 
 	require.NoError(t, parentMismatchAttempt.Open(ctx))
@@ -661,6 +659,54 @@ func TestDAGRunStore_CompareAndSwapSubAttemptRejectsMissingRootName(t *testing.T
 	found, err := s.FindSubAttempt(ctx, rootRef, "child-run")
 	require.NoError(t, err)
 	assert.Equal(t, subStatus.Status, requireAttemptStatus(t, ctx, found).Status)
+}
+
+func TestDAGRunAttempt_WriteAllowsNestedSubRunParent(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := newDAGRunStore(t)
+	rootDAG := testDAG("root")
+	childDAG := testDAG("child")
+	grandchildDAG := testDAG("grandchild")
+	base := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+
+	rootAttempt, err := s.CreateAttempt(ctx, rootDAG, base, "root-run", exec.NewDAGRunAttemptOptions{AttemptID: "root-attempt"})
+	require.NoError(t, err)
+	writeDAGRunStatus(t, ctx, rootAttempt, rootDAG, "root-run", core.Running)
+
+	rootRef := exec.NewDAGRunRef(rootDAG.Name, "root-run")
+	childAttempt, err := s.CreateAttempt(ctx, childDAG, base.Add(time.Second), "child-run", exec.NewDAGRunAttemptOptions{
+		RootDAGRun: &rootRef,
+		AttemptID:  "child-attempt",
+	})
+	require.NoError(t, err)
+	writeSubDAGRunStatus(t, ctx, childAttempt, rootRef, childDAG, "child-run", core.Running)
+
+	childRef := exec.NewDAGRunRef(childDAG.Name, "child-run")
+	grandchildAttempt, err := s.CreateAttempt(ctx, grandchildDAG, base.Add(2*time.Second), "grandchild-run", exec.NewDAGRunAttemptOptions{
+		RootDAGRun: &rootRef,
+		AttemptID:  "grandchild-attempt",
+	})
+	require.NoError(t, err)
+
+	grandchildStatus := exec.InitialStatus(grandchildDAG)
+	grandchildStatus.Root = rootRef
+	grandchildStatus.Parent = childRef
+	grandchildStatus.DAGRunID = "grandchild-run"
+	grandchildStatus.AttemptID = grandchildAttempt.ID()
+	grandchildStatus.AttemptKey = exec.GenerateAttemptKey(rootRef.Name, rootRef.ID, grandchildDAG.Name, grandchildStatus.DAGRunID, grandchildAttempt.ID())
+	grandchildStatus.Status = core.Succeeded
+	require.NoError(t, grandchildAttempt.Open(ctx))
+	require.NoError(t, grandchildAttempt.Write(ctx, grandchildStatus))
+	require.NoError(t, grandchildAttempt.Close(ctx))
+
+	found, err := s.FindSubAttempt(ctx, rootRef, "grandchild-run")
+	require.NoError(t, err)
+	foundStatus := requireAttemptStatus(t, ctx, found)
+	assert.Equal(t, rootRef, foundStatus.Root)
+	assert.Equal(t, childRef, foundStatus.Parent)
+	assert.Equal(t, core.Succeeded, foundStatus.Status)
 }
 
 func TestDAGRunStore_RejectsMissingDAGRunRefNames(t *testing.T) {
@@ -762,6 +808,14 @@ func TestDAGRunStore_RenameDAGRunsPreservesSubAttempts(t *testing.T) {
 	parentAttempt, err := s.CreateAttempt(ctx, parent, base, "parent-run", exec.NewDAGRunAttemptOptions{AttemptID: "parent-attempt"})
 	require.NoError(t, err)
 	writeDAGRunStatus(t, ctx, parentAttempt, parent, "parent-run", core.Running)
+	require.NoError(t, parentAttempt.WriteOutputs(ctx, &exec.DAGRunOutputs{
+		Metadata: exec.OutputsMetadata{DAGName: parent.Name, DAGRunID: "parent-run", AttemptID: parentAttempt.ID(), Status: core.Running.String()},
+		Outputs:  map[string]string{"root": "ok"},
+	}))
+	parentOutputsBeforeRename, err := parentAttempt.ReadOutputs(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, parentOutputsBeforeRename)
+	assert.Equal(t, "old-parent", parentOutputsBeforeRename.Metadata.DAGName)
 
 	rootRef := exec.NewDAGRunRef(parent.Name, "parent-run")
 	subAttempt, err := s.CreateAttempt(ctx, child, base.Add(time.Second), "child-run", exec.NewDAGRunAttemptOptions{
@@ -780,6 +834,10 @@ func TestDAGRunStore_RenameDAGRunsPreservesSubAttempts(t *testing.T) {
 	require.NoError(t, subAttempt.Open(ctx))
 	require.NoError(t, subAttempt.Write(ctx, subStatus))
 	require.NoError(t, subAttempt.Close(ctx))
+	require.NoError(t, subAttempt.WriteOutputs(ctx, &exec.DAGRunOutputs{
+		Metadata: exec.OutputsMetadata{DAGName: child.Name, DAGRunID: "child-run", AttemptID: subAttempt.ID(), Status: core.Succeeded.String()},
+		Outputs:  map[string]string{"child": "ok"},
+	}))
 
 	require.NoError(t, s.RenameDAGRuns(ctx, "old-parent", "new-parent"))
 
@@ -787,6 +845,11 @@ func TestDAGRunStore_RenameDAGRunsPreservesSubAttempts(t *testing.T) {
 	foundParent, err := s.FindAttempt(ctx, newRootRef)
 	require.NoError(t, err)
 	assert.Equal(t, "new-parent", requireAttemptStatus(t, ctx, foundParent).Name)
+	parentOutputs, err := foundParent.ReadOutputs(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, parentOutputs)
+	assert.Equal(t, "new-parent", parentOutputs.Metadata.DAGName)
+	assert.Equal(t, map[string]string{"root": "ok"}, parentOutputs.Outputs)
 
 	foundSub, err := s.FindSubAttempt(ctx, newRootRef, "child-run")
 	require.NoError(t, err)
@@ -794,6 +857,11 @@ func TestDAGRunStore_RenameDAGRunsPreservesSubAttempts(t *testing.T) {
 	assert.Equal(t, "child", foundSubStatus.Name)
 	assert.Equal(t, "new-parent", foundSubStatus.Root.Name)
 	assert.Equal(t, "new-parent", foundSubStatus.Parent.Name)
+	subOutputs, err := foundSub.ReadOutputs(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, subOutputs)
+	assert.Equal(t, "child", subOutputs.Metadata.DAGName)
+	assert.Equal(t, map[string]string{"child": "ok"}, subOutputs.Outputs)
 
 	_, err = s.FindSubAttempt(ctx, rootRef, "child-run")
 	require.Error(t, err)
@@ -912,6 +980,32 @@ func TestDAGRunAttempt_MetadataHelpers(t *testing.T) {
 	assert.True(t, att.Hidden())
 	_, err = s.FindAttempt(ctx, exec.NewDAGRunRef(dag.Name, "run-1"))
 	assert.ErrorIs(t, err, exec.ErrNoStatusData)
+}
+
+func TestDAGRunStore_HiddenLatestRetryFallsBackToLatestVisibleAttempt(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := newDAGRunStore(t)
+	dag := testDAG("hidden-retry-dag")
+	base := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+
+	first, err := s.CreateAttempt(ctx, dag, base, "run-1", exec.NewDAGRunAttemptOptions{AttemptID: "attempt-a"})
+	require.NoError(t, err)
+	writeDAGRunStatus(t, ctx, first, dag, "run-1", core.Failed)
+
+	retry, err := s.CreateAttempt(ctx, dag, base.Add(time.Second), "run-1", exec.NewDAGRunAttemptOptions{
+		Retry:     true,
+		AttemptID: "attempt-b",
+	})
+	require.NoError(t, err)
+	writeDAGRunStatus(t, ctx, retry, dag, "run-1", core.Queued)
+	require.NoError(t, retry.Hide(ctx))
+
+	found, err := s.FindAttempt(ctx, exec.NewDAGRunRef(dag.Name, "run-1"))
+	require.NoError(t, err)
+	assert.Equal(t, "attempt-a", found.ID())
+	assert.Equal(t, core.Failed, requireAttemptStatus(t, ctx, found).Status)
 }
 
 func TestDAGRunStore_ListStatusesAndPages(t *testing.T) {

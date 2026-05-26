@@ -434,6 +434,49 @@ func TestJSONDB(t *testing.T) {
 		_, err := th.Store.CreateSubAttempt(th.Context, rootRef, "sub-id")
 		require.ErrorIs(t, err, ErrDAGRunIDEmpty)
 	})
+	t.Run("RejectsMissingDAGRunRefNames", func(t *testing.T) {
+		th := setupTestStore(t)
+
+		ts := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
+		th.CreateAttempt(t, ts, "parent-id", core.Running)
+
+		_, err := th.Store.LatestAttempt(th.Context, "")
+		require.ErrorContains(t, err, "DAG name is required")
+
+		require.Empty(t, th.Store.RecentAttempts(th.Context, "", 2))
+
+		_, err = th.Store.FindAttempt(th.Context, exec.NewDAGRunRef("", "parent-id"))
+		require.ErrorContains(t, err, "DAG name is required")
+
+		_, swapped, err := th.Store.CompareAndSwapLatestAttemptStatus(
+			th.Context,
+			exec.NewDAGRunRef("", "parent-id"),
+			"",
+			core.Running,
+			func(status *exec.DAGRunStatus) error {
+				status.Status = core.Succeeded
+				return nil
+			},
+		)
+		require.ErrorContains(t, err, "DAG name is required")
+		require.False(t, swapped)
+
+		rootWithoutName := exec.NewDAGRunRef("", "parent-id")
+		_, err = th.Store.FindSubAttempt(th.Context, rootWithoutName, "sub-id")
+		require.ErrorContains(t, err, "root DAG name is required")
+
+		_, err = th.Store.CreateSubAttempt(th.Context, rootWithoutName, "sub-id")
+		require.ErrorContains(t, err, "root DAG name is required")
+
+		child := th.DAG("child")
+		_, err = th.Store.CreateAttempt(th.Context, child.DAG, ts, "sub-id", exec.NewDAGRunAttemptOptions{
+			RootDAGRun: &rootWithoutName,
+		})
+		require.ErrorContains(t, err, "root DAG name is required")
+
+		err = th.Store.RemoveDAGRun(th.Context, rootWithoutName)
+		require.ErrorContains(t, err, "DAG name is required")
+	})
 	t.Run("ReadDAG", func(t *testing.T) {
 		th := setupTestStore(t)
 
