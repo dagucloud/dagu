@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package filedagrun
+package store
 
 import (
 	"context"
@@ -68,7 +68,7 @@ func TestJSONDB(t *testing.T) {
 
 		// Set the database to return the latest status (even if it was created today)
 		// Verify that record created before today is returned
-		obj := th.Store.(*Store)
+		obj := th.Store.(*fileDAGRunStore)
 		obj.latestStatusToday = false
 		attempt, err := th.Store.LatestAttempt(th.Context, "test_DAG")
 		require.NoError(t, err)
@@ -535,7 +535,7 @@ func TestListRoot(t *testing.T) {
 	require.NoError(t, err, "Failed to create test file")
 
 	// Create localStore instance
-	store := &Store{baseDir: tmpDir}
+	store := &fileDAGRunStore{baseDir: tmpDir}
 
 	// Call listRoot
 	ctx := context.Background()
@@ -565,7 +565,7 @@ func TestListRootExactMatch(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "go"), 0750))
 	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "go_fasthttp"), 0750))
 
-	store := &Store{baseDir: tmpDir}
+	store := &fileDAGRunStore{baseDir: tmpDir}
 	roots, err := store.listRoot(context.Background(), "go")
 	require.NoError(t, err)
 	require.Len(t, roots, 1, "should only match 'go', not 'go_fasthttp'")
@@ -579,7 +579,7 @@ func TestListRootEmptyDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create localStore instance
-	store := &Store{baseDir: tmpDir}
+	store := &fileDAGRunStore{baseDir: tmpDir}
 
 	// Call listRoot
 	ctx := context.Background()
@@ -598,7 +598,7 @@ func TestListRootNonExistentDirectory(t *testing.T) {
 	nonExistentDir := filepath.Join(tmpDir, "non-existent")
 
 	// Create localStore instance
-	store := &Store{baseDir: nonExistentDir}
+	store := &fileDAGRunStore{baseDir: nonExistentDir}
 
 	// Call listRoot
 	ctx := context.Background()
@@ -616,7 +616,7 @@ func TestListRootCanceledContext(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create localStore instance
-	store := &Store{baseDir: tmpDir}
+	store := &fileDAGRunStore{baseDir: tmpDir}
 
 	// Create a canceled context
 	ctx, cancel := context.WithCancel(context.Background())
@@ -811,9 +811,9 @@ func TestLatestStatusTimezone(t *testing.T) {
 			_ = os.RemoveAll(tmpDir)
 		})
 
-		store := New(tmpDir,
-			WithLatestStatusToday(true),
-			WithLocation(parisLoc),
+		store := newFileDAGRunStore(tmpDir,
+			withFileDAGRunLatestStatusToday(true),
+			withFileDAGRunLocation(parisLoc),
 		)
 
 		th := StoreTest{
@@ -848,7 +848,7 @@ func TestLatestStatusTimezone(t *testing.T) {
 
 		// To properly test this, we'd need to mock time.Now() to be on June 8, 2025
 		// For now, let's verify that the timezone is properly set in the store
-		obj := th.Store.(*Store)
+		obj := th.Store.(*fileDAGRunStore)
 		assert.Equal(t, parisLoc, obj.location)
 		assert.True(t, obj.latestStatusToday)
 
@@ -877,9 +877,9 @@ func TestLatestStatusTimezone(t *testing.T) {
 			_ = os.RemoveAll(tmpDir)
 		})
 
-		store := New(tmpDir,
-			WithLatestStatusToday(true),
-			WithLocation(tokyoLoc),
+		store := newFileDAGRunStore(tmpDir,
+			withFileDAGRunLatestStatusToday(true),
+			withFileDAGRunLocation(tokyoLoc),
 		)
 
 		th := StoreTest{
@@ -940,7 +940,7 @@ func TestFormatUnixToRFC3339(t *testing.T) {
 }
 
 func TestResolveStatus_FastPath(t *testing.T) {
-	store := &Store{}
+	store := &fileDAGRunStore{}
 	ctx := context.Background()
 
 	dagRun := &DAGRun{
@@ -979,7 +979,7 @@ func TestResolveStatus_FastPath(t *testing.T) {
 }
 
 func TestResolveStatus_FastPath_StatusFilterReject(t *testing.T) {
-	store := &Store{}
+	store := &fileDAGRunStore{}
 	ctx := context.Background()
 
 	dagRun := &DAGRun{
@@ -995,7 +995,7 @@ func TestResolveStatus_FastPath_StatusFilterReject(t *testing.T) {
 }
 
 func TestResolveStatus_FastPath_LabelFilterReject(t *testing.T) {
-	store := &Store{}
+	store := &fileDAGRunStore{}
 	ctx := context.Background()
 
 	dagRun := &DAGRun{
@@ -1018,7 +1018,7 @@ func TestResolveStatus_StandardPath(t *testing.T) {
 	dag.Labels = core.NewLabels([]string{"env=prod"})
 	th.CreateAttemptWithDAG(t, ts, "std-run-1", core.Succeeded, dag.DAG)
 
-	store := th.Store.(*Store)
+	store := th.Store.(*fileDAGRunStore)
 	ctx := context.Background()
 
 	root := NewDataRoot(th.TmpDir, "std-path-dag")
@@ -1049,7 +1049,7 @@ func TestResolveStatus_StandardPath(t *testing.T) {
 }
 
 func TestResolveStatus_StandardPath_NoAttempt(t *testing.T) {
-	store := &Store{}
+	store := &fileDAGRunStore{}
 	ctx := context.Background()
 
 	// Create a DAGRun directory with correct naming but no attempt files.

@@ -14,8 +14,8 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/persis/filedagrun"
 	legacymodel "github.com/dagucloud/dagu/internal/persis/legacy/model"
+	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -72,7 +72,7 @@ func TestMigrateHistoryCommand(t *testing.T) {
 	}
 
 	// Create stores
-	dagRunStore := filedagrun.New(dagRunsDir)
+	dagRunStore := store.NewFileDAGRunStore(dagRunsDir)
 
 	// Create command context
 	cmd := &cobra.Command{}
@@ -137,7 +137,7 @@ func TestMigrateCommand_NoLegacyData(t *testing.T) {
 	}
 
 	// Create stores
-	dagRunStore := filedagrun.New(dagRunsDir)
+	dagRunStore := store.NewFileDAGRunStore(dagRunsDir)
 
 	// Create command context
 	cmd := &cobra.Command{}

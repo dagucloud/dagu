@@ -18,7 +18,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
-	"github.com/dagucloud/dagu/internal/persis/filedagrun"
+	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
@@ -141,7 +141,7 @@ func (e *taskHandler) sharedVolumeActionWorkDir(ctx context.Context, task *coord
 	if root.ID == "" {
 		return "", fmt.Errorf("root dag-run is required for action workspace materialization")
 	}
-	attempt, err := filedagrun.New(e.dagRunsDir).FindSubAttempt(ctx, root, task.DagRunId)
+	attempt, err := store.NewFileDAGRunStore(e.dagRunsDir).FindSubAttempt(ctx, root, task.DagRunId)
 	if err != nil {
 		return "", fmt.Errorf("find sub-DAG attempt work directory: %w", err)
 	}

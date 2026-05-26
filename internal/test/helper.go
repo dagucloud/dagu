@@ -34,7 +34,6 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/filebaseconfig"
 	"github.com/dagucloud/dagu/internal/persis/filedag"
-	"github.com/dagucloud/dagu/internal/persis/filedagrun"
 	"github.com/dagucloud/dagu/internal/persis/fileserviceregistry"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	runtimepkg "github.com/dagucloud/dagu/internal/runtime"
@@ -286,9 +285,9 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 		filedag.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(cfg.Paths.DAGsDir)),
 		filedag.WithSkipExamples(true),
 	)
-	runStore := filedagrun.New(
+	runStore := store.NewFileDAGRunStore(
 		cfg.Paths.DAGRunsDir,
-		filedagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
+		store.WithDAGRunArtifactDir(cfg.Paths.ArtifactDir),
 	)
 	procStore := newProcStore(cfg)
 	queueStore := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
@@ -727,7 +726,7 @@ func (d *DAG) ReadOutputs(t *testing.T) map[string]string {
 		if err != nil {
 			return err
 		}
-		if info.Name() == filedagrun.OutputsFile {
+		if info.Name() == store.OutputsFile {
 			outputsPath = path
 			return filepath.SkipAll
 		}

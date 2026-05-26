@@ -18,7 +18,6 @@ import (
 	"github.com/dagucloud/dagu/internal/dagstate"
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/filedag"
-	"github.com/dagucloud/dagu/internal/persis/filedagrun"
 	"github.com/dagucloud/dagu/internal/persis/fileserviceregistry"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/runtime"
@@ -77,11 +76,11 @@ func New(ctx context.Context, opts Options) (*Engine, error) {
 		return nil, err
 	}
 
-	dagRunStore := filedagrun.New(
+	dagRunStore := store.NewFileDAGRunStore(
 		cfg.Paths.DAGRunsDir,
-		filedagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
-		filedagrun.WithLatestStatusToday(false),
-		filedagrun.WithLocation(cfg.Core.Location),
+		store.WithDAGRunArtifactDir(cfg.Paths.ArtifactDir),
+		store.WithDAGRunLatestStatusToday(false),
+		store.WithDAGRunLocation(cfg.Core.Location),
 	)
 	serviceRegistry := fileserviceregistry.New(cfg.Paths.ServiceRegistryDir)
 	stateStore := store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir))

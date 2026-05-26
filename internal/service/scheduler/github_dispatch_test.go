@@ -19,8 +19,8 @@ import (
 	"github.com/dagucloud/dagu/internal/license"
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/filedag"
-	"github.com/dagucloud/dagu/internal/persis/filedagrun"
 	"github.com/dagucloud/dagu/internal/persis/filegithubdispatch"
+	"github.com/dagucloud/dagu/internal/persis/store"
 	persiststore "github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/stretchr/testify/assert"
@@ -404,12 +404,12 @@ func newDispatchTestEnv(t *testing.T, dagName string) dispatchTestEnv {
 		},
 	}
 
-	store := filedag.New(
+	dagStore := filedag.New(
 		cfg.Paths.DAGsDir,
 		filedag.WithFlagsBaseDir(cfg.Paths.SuspendFlagsDir),
 		filedag.WithSkipExamples(true),
 	)
-	require.NoError(t, store.(*filedag.Storage).Initialize())
+	require.NoError(t, dagStore.(*filedag.Storage).Initialize())
 
 	dagFile := filepath.Join(dagsDir, dagName+".yaml")
 	require.NoError(t, os.WriteFile(dagFile, []byte("name: "+dagName+"\nsteps:\n  - name: step1\n    command: echo ok\n"), 0o600))
@@ -418,10 +418,10 @@ func newDispatchTestEnv(t *testing.T, dagName string) dispatchTestEnv {
 	dag, err := spec.Load(ctx, dagFile)
 	require.NoError(t, err)
 
-	dagRuns := filedagrun.New(
+	dagRuns := store.NewFileDAGRunStore(
 		cfg.Paths.DAGRunsDir,
-		filedagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
-		filedagrun.WithLocation(time.UTC),
+		store.WithDAGRunArtifactDir(cfg.Paths.ArtifactDir),
+		store.WithDAGRunLocation(time.UTC),
 	)
 	proc := newSchedulerTestProcStore(cfg.Paths.ProcDir, cfg)
 	queue := persiststore.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
@@ -431,7 +431,7 @@ func newDispatchTestEnv(t *testing.T, dagName string) dispatchTestEnv {
 		ctx:      ctx,
 		cfg:      cfg,
 		dag:      dag,
-		dagStore: store,
+		dagStore: dagStore,
 		dagRuns:  dagRuns,
 		queue:    queue,
 		proc:     proc,

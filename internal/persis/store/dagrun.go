@@ -15,7 +15,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis"
-	"github.com/dagucloud/dagu/internal/persis/filedagrun"
+	"github.com/dagucloud/dagu/internal/persis/file"
 )
 
 const (
@@ -71,7 +71,7 @@ func WithDAGRunHistoryFileCache(cache *fileutil.Cache[*exec.DAGRunStatus]) DAGRu
 }
 
 // DAGRunStore implements [exec.DAGRunStore]. When constructed with the file
-// backend collection it preserves the existing filedagrun layout; other
+// backend collection it preserves the existing file-backed DAG-run layout; other
 // backends use collection records for control-plane metadata only.
 type DAGRunStore struct {
 	col              persis.Collection
@@ -123,24 +123,30 @@ func NewDAGRunStore(col persis.Collection, opts ...DAGRunStoreOption) *DAGRunSto
 		opt(s)
 	}
 	if rooted, ok := col.(interface{ RootDir() string }); ok {
-		fileOpts := []filedagrun.DAGRunStoreOption{
-			filedagrun.WithLatestStatusToday(s.latestStatusToday),
-			filedagrun.WithLocation(s.location),
+		fileOpts := []fileDAGRunStoreOption{
+			withFileDAGRunLatestStatusToday(s.latestStatusToday),
+			withFileDAGRunLocation(s.location),
 		}
 		if lockRooted, ok := col.(interface{ LockRootDir() string }); ok {
 			if lockRoot := lockRooted.LockRootDir(); lockRoot != "" {
-				fileOpts = append(fileOpts, filedagrun.WithLockRoot(lockRoot))
+				fileOpts = append(fileOpts, withFileDAGRunLockRoot(lockRoot))
 			}
 		}
 		if s.artifactDir != "" {
-			fileOpts = append(fileOpts, filedagrun.WithArtifactDir(s.artifactDir))
+			fileOpts = append(fileOpts, withFileDAGRunArtifactDir(s.artifactDir))
 		}
 		if s.historyFileCache != nil {
-			fileOpts = append(fileOpts, filedagrun.WithHistoryFileCache(s.historyFileCache))
+			fileOpts = append(fileOpts, withFileDAGRunHistoryFileCache(s.historyFileCache))
 		}
-		s.fileStore = filedagrun.New(rooted.RootDir(), fileOpts...)
+		s.fileStore = newFileDAGRunStore(rooted.RootDir(), fileOpts...)
 	}
 	return s
+}
+
+// NewFileDAGRunStore creates a DAG-run store backed by the existing on-disk
+// dag-run layout.
+func NewFileDAGRunStore(baseDir string, opts ...DAGRunStoreOption) *DAGRunStore {
+	return NewDAGRunStore(file.NewCollection(baseDir), opts...)
 }
 
 func (s *DAGRunStore) CreateAttempt(ctx context.Context, dag *core.DAG, ts time.Time, dagRunID string, opts exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {

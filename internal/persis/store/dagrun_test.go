@@ -18,7 +18,6 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis"
 	"github.com/dagucloud/dagu/internal/persis/file"
-	"github.com/dagucloud/dagu/internal/persis/filedagrun"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
 )
@@ -119,10 +118,10 @@ func TestDAGRunStore_FileCollectionReadsExistingFileDAGRunLayout(t *testing.T) {
 	dag := testDAG("file-compat-dag", "env=prod")
 	base := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 
-	existing := filedagrun.New(
+	existing := store.NewFileDAGRunStore(
 		dagRunsDir,
-		filedagrun.WithLatestStatusToday(false),
-		filedagrun.WithLocation(time.UTC),
+		store.WithDAGRunLatestStatusToday(false),
+		store.WithDAGRunLocation(time.UTC),
 	)
 	attempt, err := existing.CreateAttempt(ctx, dag, base, "run-file", exec.NewDAGRunAttemptOptions{AttemptID: "attempt-file"})
 	require.NoError(t, err)
@@ -155,10 +154,10 @@ func TestDAGRunStore_FileCollectionReadsExistingFileSubDAGRunLayout(t *testing.T
 	child := testDAG("file-compat-child")
 	base := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 
-	existing := filedagrun.New(
+	existing := store.NewFileDAGRunStore(
 		dagRunsDir,
-		filedagrun.WithLatestStatusToday(false),
-		filedagrun.WithLocation(time.UTC),
+		store.WithDAGRunLatestStatusToday(false),
+		store.WithDAGRunLocation(time.UTC),
 	)
 	parentAttempt, err := existing.CreateAttempt(ctx, parent, base, "parent-run", exec.NewDAGRunAttemptOptions{AttemptID: "parent-attempt"})
 	require.NoError(t, err)
@@ -218,10 +217,10 @@ func TestDAGRunStore_FileCollectionWritesExistingFileDAGRunLayout(t *testing.T) 
 	require.NoError(t, err)
 	require.Len(t, matches, 1)
 
-	existing := filedagrun.New(
+	existing := store.NewFileDAGRunStore(
 		dagRunsDir,
-		filedagrun.WithLatestStatusToday(false),
-		filedagrun.WithLocation(time.UTC),
+		store.WithDAGRunLatestStatusToday(false),
+		store.WithDAGRunLocation(time.UTC),
 	)
 	found, err := existing.FindAttempt(ctx, exec.NewDAGRunRef(dag.Name, "run-file"))
 	require.NoError(t, err)
@@ -271,10 +270,10 @@ func TestDAGRunStore_FileCollectionWritesExistingFileSubDAGRunLayout(t *testing.
 	require.NoError(t, err)
 	require.Len(t, matches, 1)
 
-	existing := filedagrun.New(
+	existing := store.NewFileDAGRunStore(
 		dagRunsDir,
-		filedagrun.WithLatestStatusToday(false),
-		filedagrun.WithLocation(time.UTC),
+		store.WithDAGRunLatestStatusToday(false),
+		store.WithDAGRunLocation(time.UTC),
 	)
 	found, err := existing.FindSubAttempt(ctx, rootRef, "child-run")
 	require.NoError(t, err)
@@ -341,10 +340,10 @@ func TestDAGRunStore_FileCollectionPreservesAttemptSidecarLayout(t *testing.T) {
 	require.DirExists(t, filepath.Join(dagRunDirs[0], "work"))
 	require.NoDirExists(t, filepath.Join(dagRunsDir, "runs"))
 
-	existing := filedagrun.New(
+	existing := store.NewFileDAGRunStore(
 		dagRunsDir,
-		filedagrun.WithLatestStatusToday(false),
-		filedagrun.WithLocation(time.UTC),
+		store.WithDAGRunLatestStatusToday(false),
+		store.WithDAGRunLocation(time.UTC),
 	)
 	found, err := existing.FindAttempt(ctx, exec.NewDAGRunRef(dag.Name, "run-file"))
 	require.NoError(t, err)

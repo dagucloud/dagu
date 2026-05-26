@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package filedagrun
+package store
 
 import (
 	"context"
@@ -15,7 +15,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/persis/filedagrun/dagrunindex"
+	"github.com/dagucloud/dagu/internal/persis/store/dagrunindex"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -44,7 +44,7 @@ func TestDataRoot(t *testing.T) {
 			assert.Equal(t, "test-dag", dr.prefix, "prefix should have extension removed")
 		})
 
-		t.Run("WithLockRoot", func(t *testing.T) {
+		t.Run("withFileDAGRunLockRoot", func(t *testing.T) {
 			ctx := context.Background()
 			baseDir := filepath.Join(t.TempDir(), "data")
 			lockRoot := filepath.Join(t.TempDir(), "locks")

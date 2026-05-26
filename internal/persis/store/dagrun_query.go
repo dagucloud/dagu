@@ -418,7 +418,7 @@ func containsFold(value, query string) bool {
 	return strings.Contains(strings.ToLower(value), strings.ToLower(query))
 }
 
-// Cursor versions are backend-scoped; filedagrun cursors intentionally do not
+// Cursor versions are backend-scoped; file-backed cursors intentionally do not
 // round-trip through this collection-backed store.
 const dagRunQueryCursorVersion = 1
 

@@ -16,7 +16,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/persis/filedagrun"
+	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
 	"github.com/stretchr/testify/require"
@@ -113,10 +113,10 @@ func AssertInlineRescheduledRunParams(t *testing.T, server Server, dagName, dagR
 }
 
 func latestStoredAttemptStatus(server Server, dagName, dagRunID string) (*exec.DAGRunStatus, error) {
-	store := filedagrun.New(
+	store := store.NewFileDAGRunStore(
 		server.Config.Paths.DAGRunsDir,
-		filedagrun.WithLatestStatusToday(server.Config.Server.LatestStatusToday),
-		filedagrun.WithLocation(server.Config.Core.Location),
+		store.WithDAGRunLatestStatusToday(server.Config.Server.LatestStatusToday),
+		store.WithDAGRunLocation(server.Config.Core.Location),
 	)
 
 	attempt, err := store.FindAttempt(server.Context, exec.NewDAGRunRef(dagName, dagRunID))
@@ -130,10 +130,10 @@ func latestStoredAttemptStatus(server Server, dagName, dagRunID string) (*exec.D
 func WaitForAttemptSnapshot(t *testing.T, server Server, dagName, dagRunID string) exec.DAGRunAttempt {
 	t.Helper()
 
-	store := filedagrun.New(
+	store := store.NewFileDAGRunStore(
 		server.Config.Paths.DAGRunsDir,
-		filedagrun.WithLatestStatusToday(server.Config.Server.LatestStatusToday),
-		filedagrun.WithLocation(server.Config.Core.Location),
+		store.WithDAGRunLatestStatusToday(server.Config.Server.LatestStatusToday),
+		store.WithDAGRunLocation(server.Config.Core.Location),
 	)
 
 	var attempt exec.DAGRunAttempt

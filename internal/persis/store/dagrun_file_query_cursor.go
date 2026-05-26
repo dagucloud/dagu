@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package filedagrun
+package store
 
 import (
 	"crypto/sha256"
@@ -28,7 +28,7 @@ type queryCursorPayload struct {
 	DAGRunID   string `json:"r"`
 }
 
-func encodeQueryCursor(opts exec.ListDAGRunStatusesOptions, key dagRunListKey) (string, error) {
+func encodeQueryCursor(opts exec.ListDAGRunStatusesOptions, key fileDAGRunListKey) (string, error) {
 	payload := queryCursorPayload{
 		Version:    queryCursorVersion,
 		FilterHash: queryFilterHash(opts),
@@ -38,41 +38,41 @@ func encodeQueryCursor(opts exec.ListDAGRunStatusesOptions, key dagRunListKey) (
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
-		return "", fmt.Errorf("filedagrun: marshal query cursor: %w", err)
+		return "", fmt.Errorf("dag-run file store: marshal query cursor: %w", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(data), nil
 }
 
-func decodeQueryCursor(cursor string, opts exec.ListDAGRunStatusesOptions) (dagRunListKey, error) {
+func decodeQueryCursor(cursor string, opts exec.ListDAGRunStatusesOptions) (fileDAGRunListKey, error) {
 	if cursor == "" {
-		return dagRunListKey{}, nil
+		return fileDAGRunListKey{}, nil
 	}
 
 	data, err := base64.RawURLEncoding.DecodeString(cursor)
 	if err != nil {
-		return dagRunListKey{}, invalidQueryCursor("decode cursor")
+		return fileDAGRunListKey{}, invalidQueryCursor("decode cursor")
 	}
 
 	var payload queryCursorPayload
 	if err := json.Unmarshal(data, &payload); err != nil {
-		return dagRunListKey{}, invalidQueryCursor("parse cursor")
+		return fileDAGRunListKey{}, invalidQueryCursor("parse cursor")
 	}
 	if payload.Version != queryCursorVersion {
-		return dagRunListKey{}, invalidQueryCursor("unsupported cursor version")
+		return fileDAGRunListKey{}, invalidQueryCursor("unsupported cursor version")
 	}
 	if payload.FilterHash == "" || payload.Timestamp == "" || payload.Name == "" || payload.DAGRunID == "" {
-		return dagRunListKey{}, invalidQueryCursor("cursor is incomplete")
+		return fileDAGRunListKey{}, invalidQueryCursor("cursor is incomplete")
 	}
 	if payload.FilterHash != queryFilterHash(opts) {
-		return dagRunListKey{}, invalidQueryCursor("cursor does not match the current filters")
+		return fileDAGRunListKey{}, invalidQueryCursor("cursor does not match the current filters")
 	}
 
 	ts, err := time.Parse(time.RFC3339Nano, payload.Timestamp)
 	if err != nil {
-		return dagRunListKey{}, invalidQueryCursor("invalid cursor timestamp")
+		return fileDAGRunListKey{}, invalidQueryCursor("invalid cursor timestamp")
 	}
 
-	return dagRunListKey{
+	return fileDAGRunListKey{
 		Timestamp: ts.UTC(),
 		Name:      payload.Name,
 		DAGRunID:  payload.DAGRunID,

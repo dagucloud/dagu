@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package filedagrun
+package store
 
 import (
 	"context"
@@ -28,7 +28,7 @@ func setupTestStore(t *testing.T) StoreTest {
 
 	th := StoreTest{
 		Context: context.Background(),
-		Store:   New(tmpDir, WithArtifactDir(filepath.Join(tmpDir, "artifacts"))),
+		Store:   newFileDAGRunStore(tmpDir, withFileDAGRunArtifactDir(filepath.Join(tmpDir, "artifacts"))),
 		TmpDir:  tmpDir,
 	}
 
@@ -90,7 +90,7 @@ func (d DAGTest) Writer(t *testing.T, dagRunID string, startedAt time.Time) Writ
 	dagRun, err := root.CreateDAGRun(exec.NewUTC(startedAt), dagRunID)
 	require.NoError(t, err)
 
-	store := d.th.Store.(*Store)
+	store := d.th.Store.(*fileDAGRunStore)
 	attempt, err := dagRun.CreateAttempt(d.th.Context, exec.NewUTC(startedAt), store.cache, "", WithDAG(d.DAG))
 	require.NoError(t, err)
 

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package filedagrun
+package store
 
 import (
 	// nolint: gosec
@@ -27,7 +27,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/persis/filedagrun/dagrunindex"
+	"github.com/dagucloud/dagu/internal/persis/store/dagrunindex"
 )
 
 // DataRoot manages the directory structure for run history data.
@@ -64,7 +64,7 @@ func NewDataRootWithArtifactDir(baseDir, dagName, artifactDir string) DataRoot {
 
 // NewDataRootWithArtifactDirAndLockRoot creates a new DataRoot with explicit
 // artifact and lock roots. When lockRoot is empty, locks live next to the
-// dag-run data to preserve the historical filedagrun behavior.
+// dag-run data to preserve the historical file-backed behavior.
 func NewDataRootWithArtifactDirAndLockRoot(baseDir, dagName, artifactDir, lockRoot string) DataRoot {
 	ext := filepath.Ext(dagName)
 	root := DataRoot{baseDir: baseDir, artifactDir: artifactDir, lockRoot: lockRoot}

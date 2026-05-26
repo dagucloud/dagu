@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package filedagrun
+package store
 
 import (
 	"container/heap"
@@ -17,21 +17,21 @@ import (
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/persis/filedagrun/dagrunindex"
+	"github.com/dagucloud/dagu/internal/persis/store/dagrunindex"
 )
 
-type dagRunListKey struct {
+type fileDAGRunListKey struct {
 	Timestamp time.Time
 	Name      string
 	DAGRunID  string
 }
 
-type dagRunListItem struct {
-	Key    dagRunListKey
+type fileDAGRunListItem struct {
+	Key    fileDAGRunListKey
 	Status *exec.DAGRunStatus
 }
 
-func compareDagRunListKeys(a, b dagRunListKey) int {
+func compareFileDAGRunListKeys(a, b fileDAGRunListKey) int {
 	switch {
 	case a.Timestamp.After(b.Timestamp):
 		return -1
@@ -50,7 +50,7 @@ func compareDagRunListKeys(a, b dagRunListKey) int {
 	}
 }
 
-func (store *Store) ListStatusesPage(ctx context.Context, opts ...exec.ListDAGRunStatusesOption) (exec.DAGRunStatusPage, error) {
+func (store *fileDAGRunStore) ListStatusesPage(ctx context.Context, opts ...exec.ListDAGRunStatusesOption) (exec.DAGRunStatusPage, error) {
 	options, err := prepareListOptions(opts)
 	if err != nil {
 		return exec.DAGRunStatusPage{}, fmt.Errorf("failed to prepare options: %w", err)
@@ -67,7 +67,7 @@ func (store *Store) ListStatusesPage(ctx context.Context, opts ...exec.ListDAGRu
 	}, nil
 }
 
-func (store *Store) listStatusesOrdered(
+func (store *fileDAGRunStore) listStatusesOrdered(
 	ctx context.Context,
 	opts exec.ListDAGRunStatusesOptions,
 	limit int,
@@ -115,11 +115,11 @@ func (store *Store) listStatusesOrdered(
 	heap.Init(&pq)
 
 	statuses := make([]*exec.DAGRunStatus, 0, min(target, len(iterators)))
-	keys := make([]dagRunListKey, 0, cap(statuses))
+	keys := make([]fileDAGRunListKey, 0, cap(statuses))
 
 	for pq.Len() > 0 && len(statuses) < target {
 		current := heap.Pop(&pq).(dagRunHeapItem)
-		if opts.Cursor == "" || compareDagRunListKeys(current.Item.Key, cursorKey) > 0 {
+		if opts.Cursor == "" || compareFileDAGRunListKeys(current.Item.Key, cursorKey) > 0 {
 			statuses = append(statuses, current.Item.Status)
 			keys = append(keys, current.Item.Key)
 		}
@@ -145,7 +145,7 @@ func (store *Store) listStatusesOrdered(
 	return statuses[:limit], nextCursor, nil
 }
 
-func (store *Store) newStatusIterators(ctx context.Context, opts exec.ListDAGRunStatusesOptions) ([]*dagRunStatusIterator, error) {
+func (store *fileDAGRunStore) newStatusIterators(ctx context.Context, opts exec.ListDAGRunStatusesOptions) ([]*dagRunStatusIterator, error) {
 	var roots []DataRoot
 	if opts.ExactName == "" {
 		listed, err := store.listRoot(ctx, "")
@@ -170,19 +170,19 @@ func (store *Store) newStatusIterators(ctx context.Context, opts exec.ListDAGRun
 }
 
 type dagRunStatusIterator struct {
-	store           *Store
+	store           *fileDAGRunStore
 	root            DataRoot
 	opts            exec.ListDAGRunStatusesOptions
 	dayPaths        []string
 	dayIndex        int
-	dayItems        []dagRunListItem
+	dayItems        []fileDAGRunListItem
 	dayItemIndex    int
 	labelFilters    []core.LabelFilter
 	statusesFilter  map[core.Status]struct{}
 	hasStatusFilter bool
 }
 
-func newDAGRunStatusIterator(store *Store, root DataRoot, opts exec.ListDAGRunStatusesOptions) (*dagRunStatusIterator, error) {
+func newDAGRunStatusIterator(store *fileDAGRunStore, root DataRoot, opts exec.ListDAGRunStatusesOptions) (*dagRunStatusIterator, error) {
 	dayPaths, err := listDayPathsInRange(root, opts.From, opts.To)
 	if err != nil {
 		return nil, err
@@ -211,7 +211,7 @@ func newDAGRunStatusIterator(store *Store, root DataRoot, opts exec.ListDAGRunSt
 	}, nil
 }
 
-func (it *dagRunStatusIterator) Next(ctx context.Context) (*dagRunListItem, error) {
+func (it *dagRunStatusIterator) Next(ctx context.Context) (*fileDAGRunListItem, error) {
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -241,7 +241,7 @@ func (it *dagRunStatusIterator) Next(ctx context.Context) (*dagRunListItem, erro
 	}
 }
 
-func (it *dagRunStatusIterator) loadDay(ctx context.Context, dayPath string) ([]dagRunListItem, error) {
+func (it *dagRunStatusIterator) loadDay(ctx context.Context, dayPath string) ([]fileDAGRunListItem, error) {
 	entries, err := os.ReadDir(dayPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -256,7 +256,7 @@ func (it *dagRunStatusIterator) loadDay(ctx context.Context, dayPath string) ([]
 	}
 
 	startTime, endTime := effectiveTimeRange(it.opts.From, it.opts.To)
-	items := make([]dagRunListItem, 0, len(runs))
+	items := make([]fileDAGRunListItem, 0, len(runs))
 	for _, run := range runs {
 		if !inTimeRange(run.timestamp, startTime, endTime, it.opts.From.IsZero(), it.opts.To.IsZero()) {
 			continue
@@ -269,12 +269,12 @@ func (it *dagRunStatusIterator) loadDay(ctx context.Context, dayPath string) ([]
 		if status == nil {
 			continue
 		}
-		if it.opts.Name != "" && !containsFold(status.Name, it.opts.Name) {
+		if it.opts.Name != "" && !containsFileFold(status.Name, it.opts.Name) {
 			continue
 		}
 
-		items = append(items, dagRunListItem{
-			Key: dagRunListKey{
+		items = append(items, fileDAGRunListItem{
+			Key: fileDAGRunListKey{
 				Timestamp: run.timestamp.UTC(),
 				Name:      status.Name,
 				DAGRunID:  status.DAGRunID,
@@ -287,7 +287,7 @@ func (it *dagRunStatusIterator) loadDay(ctx context.Context, dayPath string) ([]
 	return items, nil
 }
 
-func containsFold(value, query string) bool {
+func containsFileFold(value, query string) bool {
 	return strings.Contains(strings.ToLower(value), strings.ToLower(query))
 }
 
@@ -397,15 +397,15 @@ func loadDayRuns(dayPath string, dayEntries []os.DirEntry) ([]*DAGRun, error) {
 	return runs, nil
 }
 
-func sortDayItems(items []dagRunListItem) {
+func sortDayItems(items []fileDAGRunListItem) {
 	sort.Slice(items, func(i, j int) bool {
-		return compareDagRunListKeys(items[i].Key, items[j].Key) < 0
+		return compareFileDAGRunListKeys(items[i].Key, items[j].Key) < 0
 	})
 }
 
 type dagRunHeapItem struct {
 	Iterator *dagRunStatusIterator
-	Item     dagRunListItem
+	Item     fileDAGRunListItem
 }
 
 type dagRunIteratorHeap []dagRunHeapItem
@@ -413,7 +413,7 @@ type dagRunIteratorHeap []dagRunHeapItem
 func (h dagRunIteratorHeap) Len() int { return len(h) }
 
 func (h dagRunIteratorHeap) Less(i, j int) bool {
-	return compareDagRunListKeys(h[i].Item.Key, h[j].Item.Key) < 0
+	return compareFileDAGRunListKeys(h[i].Item.Key, h[j].Item.Key) < 0
 }
 
 func (h dagRunIteratorHeap) Swap(i, j int) {
