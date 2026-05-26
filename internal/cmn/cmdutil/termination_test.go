@@ -47,3 +47,11 @@ func TestForceTerminationIgnoresSignalOverride(t *testing.T) {
 	require.Equal(t, os.Kill, intent.Signal)
 	require.True(t, intent.IsForce())
 }
+
+func TestGracefulTerminationNormalizesForceSignal(t *testing.T) {
+	intent := GracefulTermination(os.Kill)
+
+	require.Equal(t, TerminationModeForce, intent.Mode)
+	require.Equal(t, os.Kill, intent.Signal)
+	require.True(t, intent.IsForce())
+}

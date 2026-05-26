@@ -39,7 +39,14 @@ func TerminationFromSignal(sig os.Signal) TerminationIntent {
 }
 
 // GracefulTermination creates a graceful stop request for the given signal.
+// Force-class signals are normalized to a forceful intent.
 func GracefulTermination(sig os.Signal) TerminationIntent {
+	if isForceSignal(sig) {
+		return TerminationIntent{
+			Mode:   TerminationModeForce,
+			Signal: sig,
+		}
+	}
 	return TerminationIntent{
 		Mode:   TerminationModeGraceful,
 		Signal: sig,
