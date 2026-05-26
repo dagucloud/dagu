@@ -79,6 +79,23 @@ func writeDAGRunStatus(t *testing.T, ctx context.Context, att exec.DAGRunAttempt
 	return st
 }
 
+func writeSubDAGRunStatus(t *testing.T, ctx context.Context, att exec.DAGRunAttempt, root exec.DAGRunRef, dag *core.DAG, dagRunID string, status core.Status) exec.DAGRunStatus {
+	t.Helper()
+
+	st := exec.InitialStatus(dag)
+	st.Root = root
+	st.Parent = root
+	st.DAGRunID = dagRunID
+	st.AttemptID = att.ID()
+	st.AttemptKey = exec.GenerateAttemptKey(root.Name, root.ID, dag.Name, dagRunID, att.ID())
+	st.Status = status
+
+	require.NoError(t, att.Open(ctx))
+	require.NoError(t, att.Write(ctx, st))
+	require.NoError(t, att.Close(ctx))
+	return st
+}
+
 func requireAttemptStatus(t *testing.T, ctx context.Context, att exec.DAGRunAttempt) *exec.DAGRunStatus {
 	t.Helper()
 	st, err := att.ReadStatus(ctx)
@@ -122,6 +139,47 @@ func TestDAGRunStore_FileCollectionReadsExistingFileDAGRunLayout(t *testing.T) {
 	assert.Equal(t, "attempt-file", statuses[0].AttemptID)
 }
 
+func TestDAGRunStore_FileCollectionReadsExistingFileSubDAGRunLayout(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dagRunsDir := t.TempDir()
+	parent := testDAG("file-compat-parent")
+	child := testDAG("file-compat-child")
+	base := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+
+	existing := filedagrun.New(
+		dagRunsDir,
+		filedagrun.WithLatestStatusToday(false),
+		filedagrun.WithLocation(time.UTC),
+	)
+	parentAttempt, err := existing.CreateAttempt(ctx, parent, base, "parent-run", exec.NewDAGRunAttemptOptions{AttemptID: "parent-attempt"})
+	require.NoError(t, err)
+	writeDAGRunStatus(t, ctx, parentAttempt, parent, "parent-run", core.Running)
+
+	rootRef := exec.NewDAGRunRef(parent.Name, "parent-run")
+	childAttempt, err := existing.CreateAttempt(ctx, child, base.Add(time.Second), "child-run", exec.NewDAGRunAttemptOptions{
+		AttemptID:  "child-attempt",
+		RootDAGRun: &rootRef,
+	})
+	require.NoError(t, err)
+	writeSubDAGRunStatus(t, ctx, childAttempt, rootRef, child, "child-run", core.Succeeded)
+
+	compat := store.NewDAGRunStore(
+		file.NewCollection(dagRunsDir),
+		store.WithDAGRunLatestStatusToday(false),
+		store.WithDAGRunLocation(time.UTC),
+	)
+
+	found, err := compat.FindSubAttempt(ctx, rootRef, "child-run")
+	require.NoError(t, err)
+	assert.Equal(t, "child-attempt", found.ID())
+	status := requireAttemptStatus(t, ctx, found)
+	assert.Equal(t, core.Succeeded, status.Status)
+	assert.Equal(t, rootRef, status.Root)
+	assert.Equal(t, rootRef, status.Parent)
+}
+
 func TestDAGRunStore_FileCollectionWritesExistingFileDAGRunLayout(t *testing.T) {
 	t.Parallel()
 
@@ -162,6 +220,62 @@ func TestDAGRunStore_FileCollectionWritesExistingFileDAGRunLayout(t *testing.T) 
 	require.NoError(t, err)
 	assert.Equal(t, "attempt-file", found.ID())
 	assert.Equal(t, core.Succeeded, requireAttemptStatus(t, ctx, found).Status)
+}
+
+func TestDAGRunStore_FileCollectionWritesExistingFileSubDAGRunLayout(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dagRunsDir := t.TempDir()
+	parent := testDAG("file-layout-parent")
+	child := testDAG("file-layout-child")
+	base := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+
+	compat := store.NewDAGRunStore(
+		file.NewCollection(dagRunsDir),
+		store.WithDAGRunLatestStatusToday(false),
+		store.WithDAGRunLocation(time.UTC),
+	)
+	parentAttempt, err := compat.CreateAttempt(ctx, parent, base, "parent-run", exec.NewDAGRunAttemptOptions{AttemptID: "parent-attempt"})
+	require.NoError(t, err)
+	writeDAGRunStatus(t, ctx, parentAttempt, parent, "parent-run", core.Running)
+
+	rootRef := exec.NewDAGRunRef(parent.Name, "parent-run")
+	childAttempt, err := compat.CreateAttempt(ctx, child, base.Add(time.Second), "child-run", exec.NewDAGRunAttemptOptions{
+		AttemptID:  "child-attempt",
+		RootDAGRun: &rootRef,
+	})
+	require.NoError(t, err)
+	writeSubDAGRunStatus(t, ctx, childAttempt, rootRef, child, "child-run", core.Succeeded)
+
+	matches, err := filepath.Glob(filepath.Join(
+		dagRunsDir,
+		"*",
+		"dag-runs",
+		"2026",
+		"01",
+		"02",
+		"dag-run_*_parent-run",
+		"children",
+		"child_child-run",
+		"attempt_*_child-attempt",
+		"status.jsonl",
+	))
+	require.NoError(t, err)
+	require.Len(t, matches, 1)
+
+	existing := filedagrun.New(
+		dagRunsDir,
+		filedagrun.WithLatestStatusToday(false),
+		filedagrun.WithLocation(time.UTC),
+	)
+	found, err := existing.FindSubAttempt(ctx, rootRef, "child-run")
+	require.NoError(t, err)
+	assert.Equal(t, "child-attempt", found.ID())
+	status := requireAttemptStatus(t, ctx, found)
+	assert.Equal(t, core.Succeeded, status.Status)
+	assert.Equal(t, rootRef, status.Root)
+	assert.Equal(t, rootRef, status.Parent)
 }
 
 func TestDAGRunStore_CreateWriteFindAndRetry(t *testing.T) {
