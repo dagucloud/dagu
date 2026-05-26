@@ -510,6 +510,30 @@ func TestJSONDB(t *testing.T) {
 	})
 }
 
+func TestFileDAGRunStoreNilLocationDefaultsToLocal(t *testing.T) {
+	tmpDir := t.TempDir()
+	th := StoreTest{
+		Context: context.Background(),
+		Store: newFileDAGRunStore(
+			tmpDir,
+			withFileDAGRunArtifactDir(filepath.Join(tmpDir, "artifacts")),
+			withFileDAGRunLocation(nil),
+		),
+		TmpDir: tmpDir,
+	}
+
+	obj := th.Store.(*fileDAGRunStore)
+	require.NotNil(t, obj.location)
+
+	th.CreateAttempt(t, time.Now(), "dagrun-id", core.Succeeded)
+
+	attempt, err := th.Store.LatestAttempt(th.Context, "test_DAG")
+	require.NoError(t, err)
+	status, err := attempt.ReadStatus(th.Context)
+	require.NoError(t, err)
+	assert.Equal(t, "dagrun-id", status.DAGRunID)
+}
+
 func TestListRoot(t *testing.T) {
 	t.Parallel()
 

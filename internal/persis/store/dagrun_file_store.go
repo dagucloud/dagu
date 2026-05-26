@@ -92,6 +92,9 @@ func newFileDAGRunStore(baseDir string, opts ...fileDAGRunStoreOption) exec.DAGR
 	for _, opt := range opts {
 		opt(options)
 	}
+	if options.Location == nil {
+		options.Location = time.Local
+	}
 
 	return &fileDAGRunStore{
 		baseDir:           baseDir,
@@ -485,10 +488,7 @@ func (store *fileDAGRunStore) LatestAttempt(ctx context.Context, dagName string)
 	root := store.dataRoot(dagName)
 
 	if store.latestStatusToday {
-		// Use the configured timezone to calculate "today"
-		now := time.Now().In(store.location)
-		startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, store.location)
-		startOfDayInUTC := exec.NewUTC(startOfDay)
+		startOfDayInUTC := exec.NewUTC(startOfToday(store.location))
 
 		// Get the latest execution data after the start of the day.
 		exec, err := root.LatestAfter(ctx, startOfDayInUTC)
