@@ -454,15 +454,16 @@ steps:
 
 	labels := map[string]string{"test": "true"}
 	var (
-		crashWorker *worker.Worker
-		abandonOnce sync.Once
+		crashWorker   *worker.Worker
+		abandonedTask = make(chan *coordinatorv1.Task, 1)
 	)
-	afterAckHook := func(context.Context, *coordinatorv1.Task) bool {
-		triggered := false
-		abandonOnce.Do(func() {
-			triggered = true
-		})
-		return triggered
+	afterAckHook := func(ctx context.Context, task *coordinatorv1.Task) bool {
+		select {
+		case abandonedTask <- task:
+		default:
+		}
+		<-ctx.Done()
+		return true
 	}
 
 	switch mode {
@@ -479,13 +480,27 @@ steps:
 	f.waitForQueued()
 	f.startScheduler(30 * time.Second)
 
+	var task *coordinatorv1.Task
+	select {
+	case task = <-abandonedTask:
+	case <-time.After(distrTestTimeout(15 * time.Second)):
+		t.Fatal("timed out waiting for worker to accept and abandon task")
+	}
+	require.NotNil(t, task)
+	require.Equal(t, "ack-orphan-test", task.Target)
+
 	lease := waitForAnyLease(t, f, 5*time.Second)
 	require.Equal(t, "crash-worker", lease.WorkerID)
+	require.Equal(t, lease.AttemptKey, task.AttemptKey)
 
 	queuedStatus, err := f.latestStatus()
 	require.NoError(t, err)
 	require.Equal(t, core.Queued, queuedStatus.Status)
 	require.Equal(t, lease.AttemptKey, queuedStatus.AttemptKey)
+
+	stopCtx, cancel := context.WithTimeout(context.Background(), distrTestTimeout(5*time.Second))
+	defer cancel()
+	require.NoError(t, crashWorker.Stop(stopCtx))
 
 	finalStatus := f.waitForStatus(core.Failed, delayedAfterAckFailureTimeout(mode))
 	require.Equal(t, core.Failed, finalStatus.Status)
