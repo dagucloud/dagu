@@ -4,12 +4,13 @@
 package cmdutil
 
 import (
+	"errors"
 	"fmt"
 	"os/exec"
 	"sync"
 )
 
-// ManagedProcess owns the lifecycle seam for one local OS process.
+// ManagedProcess owns the lifecycle for one local OS process.
 type ManagedProcess struct {
 	mu sync.Mutex
 
@@ -38,7 +39,14 @@ func NewManagedProcess(cmd *exec.Cmd) *ManagedProcess {
 
 // StartManagedProcess configures, starts, and contains cmd for lifecycle management.
 func StartManagedProcess(cmd *exec.Cmd) (*ManagedProcess, error) {
-	proc := NewManagedProcess(cmd)
+	return startManagedProcess(cmd, newManagedPlatformProcess())
+}
+
+func startManagedProcess(cmd *exec.Cmd, platform managedPlatformProcess) (*ManagedProcess, error) {
+	proc := &ManagedProcess{
+		cmd:      cmd,
+		platform: platform,
+	}
 	if cmd == nil {
 		return proc, nil
 	}
@@ -52,8 +60,9 @@ func StartManagedProcess(cmd *exec.Cmd) (*ManagedProcess, error) {
 		return nil, err
 	}
 	if err := proc.platform.afterStart(cmd); err != nil {
-		_ = proc.platform.release()
-		return nil, fmt.Errorf("failed to contain process: %w", err)
+		waitErr := stopAndWaitStartedCommand(cmd)
+		releaseErr := proc.platform.release()
+		return nil, fmt.Errorf("failed to contain process: %w", errors.Join(err, waitErr, releaseErr))
 	}
 
 	stopWatch, err := StartParentExitWatcher(cmd)
@@ -109,10 +118,28 @@ func (p *ManagedProcess) Release() error {
 		return nil
 	}
 	p.releaseOnce.Do(func() {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+
 		if p.stopWatch != nil {
 			p.stopWatch()
 		}
 		p.releaseErr = p.platform.release()
 	})
 	return p.releaseErr
+}
+
+func stopAndWaitStartedCommand(cmd *exec.Cmd) error {
+	if cmd == nil || cmd.Process == nil {
+		return nil
+	}
+
+	var errs []error
+	if err := cmd.Process.Kill(); err != nil {
+		errs = append(errs, fmt.Errorf("kill started process: %w", err))
+	}
+	if err := cmd.Wait(); err != nil {
+		errs = append(errs, fmt.Errorf("wait for started process: %w", err))
+	}
+	return errors.Join(errs...)
 }

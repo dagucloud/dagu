@@ -5,6 +5,7 @@ package cmdutil
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"runtime"
 	"testing"
@@ -62,6 +63,39 @@ func TestManagedProcessReleaseIsIdempotent(t *testing.T) {
 
 	require.NoError(t, proc.Release())
 	require.NoError(t, proc.Release())
+}
+
+func TestStartManagedProcessCleansUpAfterContainmentFailure(t *testing.T) {
+	cmd := longRunningCommand()
+
+	_, err := startManagedProcess(cmd, failingAfterStartPlatform{
+		err: errors.New("containment failed"),
+	})
+
+	require.Error(t, err)
+	require.ErrorContains(t, err, "failed to contain process")
+	require.ErrorContains(t, err, "containment failed")
+	require.NotNil(t, cmd.ProcessState)
+}
+
+type failingAfterStartPlatform struct {
+	err error
+}
+
+func (p failingAfterStartPlatform) prepare(*exec.Cmd) error {
+	return nil
+}
+
+func (p failingAfterStartPlatform) afterStart(*exec.Cmd) error {
+	return p.err
+}
+
+func (p failingAfterStartPlatform) stop(*exec.Cmd, StopRequest) (StopOutcome, error) {
+	return StopOutcome{}, nil
+}
+
+func (p failingAfterStartPlatform) release() error {
+	return nil
 }
 
 func longRunningCommand() *exec.Cmd {
