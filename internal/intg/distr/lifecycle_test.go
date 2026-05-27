@@ -353,7 +353,7 @@ steps:
 			}
 			parallelNode := st.Nodes[0]
 			return parallelNode.Status == core.NodeRunning
-		}, 5*time.Second, 100*time.Millisecond)
+		}, distrTestTimeout(5*time.Second), 100*time.Millisecond)
 
 		require.Eventually(t, func() bool {
 			workerInfo, err := f.coordinatorClient.GetWorkers(f.coord.Context)
@@ -363,7 +363,7 @@ steps:
 				runningTasks += len(w.RunningTasks)
 			}
 			return runningTasks > 0
-		}, 5*time.Second, 100*time.Millisecond)
+		}, distrTestTimeout(5*time.Second), 100*time.Millisecond)
 
 		agent.Signal(f.coord.Context, os.Signal(syscall.SIGINT))
 
