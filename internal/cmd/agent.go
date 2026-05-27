@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -21,8 +20,7 @@ import (
 	"github.com/dagucloud/dagu/internal/auth"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/internal/persis/fileagentskill"
-	"github.com/dagucloud/dagu/internal/persis/filesession"
+	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/spf13/cobra"
 )
 
@@ -234,7 +232,7 @@ func (c *Context) newAgentAPI() (*agent.API, error) {
 		return nil, fmt.Errorf("agent is not configured properly")
 	}
 
-	sessStore, err := filesession.New(c.Config.Paths.SessionsDir, filesession.WithMaxPerUser(c.Config.Server.Session.MaxPerUser))
+	sessStore, err := file.NewAgentSessionStore(c.Config)
 	if err != nil {
 		logger.Warn(c, "Failed to create agent session store, persistence disabled", tag.Error(err))
 	}
@@ -244,7 +242,6 @@ func (c *Context) newAgentAPI() (*agent.API, error) {
 		return nil, fmt.Errorf("failed to initialize DAG store: %w", err)
 	}
 
-	referencesDir := fileagentskill.SeedReferences(filepath.Join(c.Config.Paths.DataDir, "agent", "references"))
 	hooks := agent.NewHooks()
 	hooks.OnBeforeToolExec(newCLIAgentPolicyHook(stores.ConfigStore))
 	agentAPI := agent.NewAPI(agent.APIConfig{
@@ -270,7 +267,7 @@ func (c *Context) newAgentAPI() (*agent.API, error) {
 			ConfigFile:     c.Config.Paths.ConfigFileUsed,
 			WorkingDir:     c.Config.Paths.DAGsDir,
 			BaseConfigFile: c.Config.Paths.BaseConfig,
-			ReferencesDir:  referencesDir,
+			ReferencesDir:  stores.ReferencesDir,
 		},
 	})
 	agentAPI.StartCleanup(c)

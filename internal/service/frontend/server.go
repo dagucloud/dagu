@@ -51,20 +51,13 @@ import (
 	"github.com/dagucloud/dagu/internal/license"
 	_ "github.com/dagucloud/dagu/internal/llm/allproviders" // Register LLM providers
 	"github.com/dagucloud/dagu/internal/persis/file"
-	"github.com/dagucloud/dagu/internal/persis/fileagentconfig"
-	"github.com/dagucloud/dagu/internal/persis/fileagentmodel"
-	"github.com/dagucloud/dagu/internal/persis/fileagentoauth"
-	"github.com/dagucloud/dagu/internal/persis/fileagentskill"
-	"github.com/dagucloud/dagu/internal/persis/fileagentsoul"
 	"github.com/dagucloud/dagu/internal/persis/fileaudit"
 	"github.com/dagucloud/dagu/internal/persis/filebaseconfig"
 	"github.com/dagucloud/dagu/internal/persis/filedoc"
 	"github.com/dagucloud/dagu/internal/persis/fileeventstore"
 	"github.com/dagucloud/dagu/internal/persis/fileincident"
-	"github.com/dagucloud/dagu/internal/persis/filememory"
 	"github.com/dagucloud/dagu/internal/persis/filenotification"
 	"github.com/dagucloud/dagu/internal/persis/fileremotenode"
-	"github.com/dagucloud/dagu/internal/persis/filesession"
 	"github.com/dagucloud/dagu/internal/persis/filetokensecret"
 	"github.com/dagucloud/dagu/internal/persis/fileupgradecheck"
 	"github.com/dagucloud/dagu/internal/persis/fileworkspace"
@@ -114,7 +107,7 @@ type RouteRegistrar func(context.Context, chi.Router, string)
 type Server struct {
 	apiV1               *apiv1.API
 	agentAPI            *agent.API
-	agentConfigStore    *fileagentconfig.Store
+	agentConfigStore    agent.ConfigStore
 	config              *config.Config
 	httpServer          *http.Server
 	funcsConfig         funcsConfig
@@ -240,49 +233,27 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		}
 	}
 
-	agentConfigStore, err := fileagentconfig.New(cfg.Paths.DataDir)
-	if err != nil {
-		logger.Warn(ctx, "Failed to create agent config store", tag.Error(err))
-	}
-
-	var agentModelStore *fileagentmodel.Store
-	if agentConfigStore != nil {
-		agentModelStore, err = fileagentmodel.New(filepath.Join(cfg.Paths.DataDir, "agent", "models"))
-		if err != nil {
-			logger.Warn(ctx, "Failed to create agent model store", tag.Error(err))
-		}
-	}
-
-	// Seed built-in knowledge references to data dir (not git-synced).
-	referencesDir := fileagentskill.SeedReferences(
-		filepath.Join(cfg.Paths.DataDir, "agent", "references"),
-	)
-
-	var agentSoulStore agent.SoulStore
-	soulsDir := filepath.Join(cfg.Paths.DAGsDir, "souls")
-	if _, err := fileagentsoul.SeedExampleSouls(ctx, soulsDir); err != nil {
-		logger.Warn(ctx, "Failed to seed example souls", tag.Error(err))
-	}
-	if soulStore, soulErr := fileagentsoul.New(ctx, soulsDir); soulErr != nil {
-		logger.Warn(ctx, "Failed to create agent soul store", tag.Error(soulErr))
-	} else {
-		agentSoulStore = soulStore
-	}
-
-	docStore := filedoc.New(cfg.Paths.DocsDir)
-
-	var memoryStore agent.MemoryStore
 	cacheLimits := cfg.Cache.Limits()
 	memoryCache := fileutil.NewCache[string]("agent_memory", cacheLimits.DAG.Limit, cacheLimits.DAG.TTL)
 	memoryCache.StartEviction(ctx)
 	if collector != nil {
 		collector.RegisterCache(memoryCache)
 	}
-	if ms, err := filememory.New(cfg.Paths.DAGsDir, filememory.WithFileCache(memoryCache)); err != nil {
-		logger.Warn(ctx, "Failed to create memory store", tag.Error(err))
-	} else {
-		memoryStore = ms
-	}
+	agentStores := file.NewAgentStores(
+		ctx,
+		cfg,
+		file.WithAgentMemoryCache(memoryCache),
+		file.WithAgentSeedReferences(),
+		file.WithAgentSeedExampleSouls(),
+	)
+	agentConfigStore := agentStores.ConfigStore
+	agentModelStore := agentStores.ModelStore
+	agentSoulStore := agentStores.SoulStore
+	memoryStore := agentStores.MemoryStore
+	referencesDir := agentStores.ReferencesDir
+	agentOAuthManager := agentStores.OAuthManager
+
+	docStore := filedoc.New(cfg.Paths.DocsDir)
 
 	var authSvc *authservice.Service
 	if cfg.Server.Auth.Mode == config.AuthModeBuiltin {
@@ -341,7 +312,6 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 	var (
 		remoteNodeResolver *remotenode.Resolver
 		encryptor          *crypto.Encryptor
-		agentOAuthManager  *agentoauth.Manager
 		licenseChecker     license.Checker
 	)
 	encKey, encErr := crypto.ResolveKey(cfg.Paths.DataDir)
@@ -376,23 +346,11 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		remoteNodes = names
 	}
 
-	if encryptor != nil {
-		secretBackend, secretBackendErr := file.New(cfg.Paths.DataDir)
-		if secretBackendErr != nil {
-			logger.Warn(ctx, "Failed to open file backend for secret store", tag.Error(secretBackendErr))
-		} else if secretStore, secretErr := store.NewSecretStore(secretBackend.Collection("secrets"), encryptor); secretErr != nil {
-			logger.Warn(ctx, "Failed to create secret store", tag.Error(secretErr))
-		} else {
-			apiOpts = append(apiOpts, apiv1.WithSecretStore(secretStore))
-		}
-
-		store, err := fileagentoauth.New(filepath.Join(cfg.Paths.DataDir, "agent", "oauth"), encryptor)
-		if err != nil {
-			logger.Warn(ctx, "Failed to create agent OAuth store", tag.Error(err))
-		} else {
-			agentOAuthManager = agentoauth.NewManager(store)
-			apiOpts = append(apiOpts, apiv1.WithAgentOAuthManager(agentOAuthManager))
-		}
+	if agentStores.SecretStore != nil {
+		apiOpts = append(apiOpts, apiv1.WithSecretStore(agentStores.SecretStore))
+	}
+	if agentOAuthManager != nil {
+		apiOpts = append(apiOpts, apiv1.WithAgentOAuthManager(agentOAuthManager))
 	}
 
 	var notificationSvc *notificationservice.Service
@@ -457,7 +415,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 
 	var agentAPI *agent.API
 	if agentConfigStore != nil {
-		agentAPI, err = initAgentAPI(ctx, agentConfigStore, agentModelStore, agentSoulStore, agentOAuthManager, &cfg.Paths, referencesDir, cfg.Server.Session.MaxPerUser, dr, drs, auditSvc, auditEnabled, eventSvc, memoryStore, docStore, wsStore, newRemoteNodeAdapter(remoteNodeResolver))
+		agentAPI, err = initAgentAPI(ctx, agentConfigStore, agentModelStore, agentSoulStore, agentOAuthManager, cfg, referencesDir, dr, drs, auditSvc, auditEnabled, eventSvc, memoryStore, docStore, wsStore, newRemoteNodeAdapter(remoteNodeResolver))
 		if err != nil {
 			logger.Warn(ctx, "Failed to initialize agent API", tag.Error(err))
 		}
@@ -836,20 +794,21 @@ func initSyncService(ctx context.Context, cfg *config.Config) gitsync.Service {
 
 // initAgentAPI creates and returns an agent API.
 // The API uses the config store to check enabled status and resolve providers via the model store.
-func initAgentAPI(ctx context.Context, store *fileagentconfig.Store, modelStore agent.ModelStore, soulStore agent.SoulStore, oauthManager *agentoauth.Manager, paths *config.PathsConfig, referencesDir string, sessionMaxPerUser int, dagStore exec.DAGStore, dagRunStore exec.DAGRunStore, auditSvc *audit.Service, auditEnabled func() bool, eventSvc *eventstore.Service, memoryStore agent.MemoryStore, docStore agent.DocStore, workspaceStore workspacepkg.Store, remoteResolver agent.RemoteContextResolver) (*agent.API, error) {
-	sessStore, err := filesession.New(paths.SessionsDir, filesession.WithMaxPerUser(sessionMaxPerUser))
+func initAgentAPI(ctx context.Context, configStore agent.ConfigStore, modelStore agent.ModelStore, soulStore agent.SoulStore, oauthManager *agentoauth.Manager, cfg *config.Config, referencesDir string, dagStore exec.DAGStore, dagRunStore exec.DAGRunStore, auditSvc *audit.Service, auditEnabled func() bool, eventSvc *eventstore.Service, memoryStore agent.MemoryStore, docStore agent.DocStore, workspaceStore workspacepkg.Store, remoteResolver agent.RemoteContextResolver) (*agent.API, error) {
+	sessStore, err := file.NewAgentSessionStore(cfg)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create session store, persistence disabled", tag.Error(err))
 	}
+	paths := &cfg.Paths
 
 	hooks := agent.NewHooks()
-	hooks.OnBeforeToolExec(newAgentPolicyHook(store, auditSvc, auditEnabled))
+	hooks.OnBeforeToolExec(newAgentPolicyHook(configStore, auditSvc, auditEnabled))
 	if auditSvc != nil {
 		hooks.OnAfterToolExec(newAgentAuditHook(auditSvc, auditEnabled))
 	}
 
 	api := agent.NewAPI(agent.APIConfig{
-		ConfigStore:           store,
+		ConfigStore:           configStore,
 		ModelStore:            modelStore,
 		SoulStore:             soulStore,
 		WorkingDir:            paths.DAGsDir,

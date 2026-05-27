@@ -5,17 +5,13 @@ package agentsnapshot
 
 import (
 	"context"
-	"path/filepath"
 
 	"github.com/dagucloud/dagu/internal/agent"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core"
 	coreexec "github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
-	"github.com/dagucloud/dagu/internal/persis/fileagentconfig"
-	"github.com/dagucloud/dagu/internal/persis/fileagentmodel"
-	"github.com/dagucloud/dagu/internal/persis/fileagentsoul"
-	"github.com/dagucloud/dagu/internal/persis/filememory"
+	"github.com/dagucloud/dagu/internal/persis/file/agentstores"
 	"github.com/dagucloud/dagu/internal/workspace"
 )
 
@@ -45,32 +41,12 @@ func BuildFromPaths(
 		return nil, nil
 	}
 
-	configStore, err := fileagentconfig.New(paths.DataDir)
+	stores, err := agentstores.NewSnapshotStores(ctx, paths)
 	if err != nil {
 		return nil, err
 	}
 
-	modelStore, err := fileagentmodel.New(filepath.Join(paths.DataDir, "agent", "models"))
-	if err != nil {
-		return nil, err
-	}
-
-	soulStore, err := fileagentsoul.New(ctx, filepath.Join(paths.DAGsDir, "souls"))
-	if err != nil {
-		return nil, err
-	}
-
-	memoryStore, err := filememory.New(paths.DAGsDir)
-	if err != nil {
-		return nil, err
-	}
-
-	return agent.BuildSnapshotForDAG(ctx, dag, agent.SnapshotStores{
-		ConfigStore: configStore,
-		ModelStore:  modelStore,
-		SoulStore:   soulStore,
-		MemoryStore: memoryStore,
-	}, agent.SnapshotBuildOptions{
+	return agent.BuildSnapshotForDAG(ctx, dag, stores, agent.SnapshotBuildOptions{
 		ResolveDAG: resolve,
 		MaxBytes:   agent.DefaultSnapshotMaxBytes,
 	})
