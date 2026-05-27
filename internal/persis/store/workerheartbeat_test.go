@@ -5,6 +5,11 @@ package store_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
 )
@@ -30,6 +36,11 @@ func newRecord(workerID string) exec.WorkerHeartbeatRecord {
 	}
 }
 
+func encodedWorkerHeartbeatKey(workerID string) string {
+	sum := sha256.Sum256([]byte(workerID))
+	return hex.EncodeToString(sum[:])
+}
+
 func TestWorkerHeartbeatUpsertAndGet(t *testing.T) {
 	ctx := context.Background()
 	s := newWorkerHeartbeatStore(t)
@@ -41,6 +52,35 @@ func TestWorkerHeartbeatUpsertAndGet(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "worker-1", got.WorkerID)
 	assert.Equal(t, "test", got.Labels["env"])
+}
+
+func TestWorkerHeartbeatFileLayout(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	s := store.NewWorkerHeartbeatStore(file.NewCollection(filepath.Join(root, "workers")))
+	rec := exec.WorkerHeartbeatRecord{
+		WorkerID:        "worker-1",
+		Labels:          map[string]string{"env": "test"},
+		LastHeartbeatAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).UnixMilli(),
+	}
+
+	require.NoError(t, s.Upsert(ctx, rec))
+
+	path := filepath.Join(root, "workers", encodedWorkerHeartbeatKey("worker-1")+".json")
+	assert.FileExists(t, path)
+	assert.NoFileExists(t, filepath.Join(root, "workers", "worker-1.json"))
+
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var body map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(raw, &body))
+	assert.NotContains(t, body, "encoding")
+	assert.NotContains(t, body, "data")
+
+	var saved exec.WorkerHeartbeatRecord
+	require.NoError(t, json.Unmarshal(raw, &saved))
+	assert.Equal(t, rec.WorkerID, saved.WorkerID)
+	assert.Equal(t, rec.LastHeartbeatAt, saved.LastHeartbeatAt)
 }
 
 func TestWorkerHeartbeatUpsert_Overwrite(t *testing.T) {

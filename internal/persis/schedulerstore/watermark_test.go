@@ -5,7 +5,10 @@ package schedulerstore_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -13,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/internal/persis"
+	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/schedulerstore"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
@@ -58,6 +62,31 @@ func TestWatermarkSaveAndLoad(t *testing.T) {
 	assert.Equal(t, now, got.LastTick)
 	assert.Contains(t, got.DAGs, "my-dag")
 	assert.Equal(t, now, got.DAGs["my-dag"].LastScheduledTime)
+}
+
+func TestWatermarkSaveFileLayoutCompatibility(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	backend, err := file.New(root)
+	require.NoError(t, err)
+	s := schedulerstore.NewWatermarkStore(backend.Collection("scheduler"))
+	state := &scheduler.SchedulerState{
+		Version: scheduler.SchedulerStateVersion,
+		DAGs: map[string]scheduler.DAGWatermark{
+			"my-dag": {},
+		},
+	}
+
+	require.NoError(t, s.Save(ctx, state))
+
+	raw, err := os.ReadFile(filepath.Join(root, "scheduler", "state.json"))
+	require.NoError(t, err)
+	var body map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(raw, &body))
+	assert.NotContains(t, body, "encoding")
+	assert.NotContains(t, body, "data")
+	assert.Contains(t, body, "version")
+	assert.Contains(t, body, "dags")
 }
 
 func TestWatermarkSave_Overwrite(t *testing.T) {

@@ -125,7 +125,7 @@ func TestDAGRunLeaseStore_ListAllSurfacesCorruptRecord(t *testing.T) {
 
 	ctx := context.Background()
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, legacyHash("corrupt-lease")+".json"), []byte("{"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, encodedKey("corrupt-lease")+".json"), []byte("{"), 0o600))
 
 	s := store.NewDAGRunLeaseStore(file.NewCollection(dir))
 	_, err := s.ListAll(ctx)
@@ -133,18 +133,18 @@ func TestDAGRunLeaseStore_ListAllSurfacesCorruptRecord(t *testing.T) {
 	assert.Contains(t, err.Error(), "corrupt")
 }
 
-func TestDAGRunLeaseStore_UsesLegacyLockPath(t *testing.T) {
+func TestDAGRunLeaseStore_UsesFileLockPath(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	distributedDir := t.TempDir()
 	attemptKey := "attempt-key-lock-compat"
-	legacyLock := dirlock.New(filepath.Join(distributedDir, "locks", legacyHash(attemptKey)), &dirlock.LockOptions{
+	existingLock := dirlock.New(filepath.Join(distributedDir, "locks", encodedKey(attemptKey)), &dirlock.LockOptions{
 		StaleThreshold: time.Hour,
 		RetryInterval:  time.Millisecond,
 	})
-	require.NoError(t, legacyLock.Lock(ctx))
-	defer func() { _ = legacyLock.Unlock() }()
+	require.NoError(t, existingLock.Lock(ctx))
+	defer func() { _ = existingLock.Unlock() }()
 
 	s := store.NewDAGRunLeaseStore(file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "leases"), distributedDir))
 	lockCtx, cancel := context.WithTimeout(ctx, 30*time.Millisecond)
@@ -152,7 +152,7 @@ func TestDAGRunLeaseStore_UsesLegacyLockPath(t *testing.T) {
 	err := s.Upsert(lockCtx, exec.DAGRunLease{AttemptKey: attemptKey})
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 
-	require.NoError(t, legacyLock.Unlock())
+	require.NoError(t, existingLock.Unlock())
 	require.NoError(t, s.Upsert(ctx, exec.DAGRunLease{AttemptKey: attemptKey}))
 }
 
@@ -232,7 +232,7 @@ func TestActiveDistributedRunStore_ListAllSkipsCorruptRecord(t *testing.T) {
 		WorkerID:   "worker-1",
 		Status:     core.Running,
 	}))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, legacyHash("corrupt-active")+".json"), []byte("{"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, encodedKey("corrupt-active")+".json"), []byte("{"), 0o600))
 
 	records, err := s.ListAll(ctx)
 	require.NoError(t, err)
@@ -240,18 +240,18 @@ func TestActiveDistributedRunStore_ListAllSkipsCorruptRecord(t *testing.T) {
 	assert.Equal(t, "attempt-key-1", records[0].AttemptKey)
 }
 
-func TestActiveDistributedRunStore_UsesLegacyLockPath(t *testing.T) {
+func TestActiveDistributedRunStore_UsesFileLockPath(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	distributedDir := t.TempDir()
 	attemptKey := "attempt-key-active-lock-compat"
-	legacyLock := dirlock.New(filepath.Join(distributedDir, "locks", "active-run-"+legacyHash(attemptKey)), &dirlock.LockOptions{
+	existingLock := dirlock.New(filepath.Join(distributedDir, "locks", "active-run-"+encodedKey(attemptKey)), &dirlock.LockOptions{
 		StaleThreshold: time.Hour,
 		RetryInterval:  time.Millisecond,
 	})
-	require.NoError(t, legacyLock.Lock(ctx))
-	defer func() { _ = legacyLock.Unlock() }()
+	require.NoError(t, existingLock.Lock(ctx))
+	defer func() { _ = existingLock.Unlock() }()
 
 	s := store.NewActiveDistributedRunStore(file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "active-runs"), distributedDir))
 	lockCtx, cancel := context.WithTimeout(ctx, 30*time.Millisecond)
@@ -259,7 +259,7 @@ func TestActiveDistributedRunStore_UsesLegacyLockPath(t *testing.T) {
 	err := s.Upsert(lockCtx, exec.ActiveDistributedRun{AttemptKey: attemptKey})
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 
-	require.NoError(t, legacyLock.Unlock())
+	require.NoError(t, existingLock.Unlock())
 	require.NoError(t, s.Upsert(ctx, exec.ActiveDistributedRun{AttemptKey: attemptKey}))
 }
 
@@ -553,15 +553,15 @@ func TestDispatchTaskStore_UsesStoreReservationTTLForCleanup(t *testing.T) {
 	assert.Equal(t, "run-shared-ttl", claimed.Task.DagRunId)
 }
 
-func TestDistributedStores_ReadLegacyFileLayout(t *testing.T) {
+func TestDistributedStores_ReadFileLayout(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	distributedDir := t.TempDir()
-	leaseKey := "attempt-key-legacy-lease"
-	activeKey := "attempt-key-legacy-active"
+	leaseKey := "attempt-key-file-lease"
+	activeKey := "attempt-key-file-active"
 
-	legacyLease := exec.DAGRunLease{
+	fileLease := exec.DAGRunLease{
 		AttemptKey:      leaseKey,
 		DAGRun:          exec.NewDAGRunRef("dag-a", "run-1"),
 		Root:            exec.NewDAGRunRef("dag-a", "run-1"),
@@ -571,14 +571,14 @@ func TestDistributedStores_ReadLegacyFileLayout(t *testing.T) {
 		ClaimedAt:       time.Now().UTC().UnixMilli(),
 		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
 	}
-	writeLegacyJSON(t, filepath.Join(distributedDir, "leases", legacyHash(leaseKey)+".json"), legacyLease)
+	writeJSONFile(t, filepath.Join(distributedDir, "leases", encodedKey(leaseKey)+".json"), fileLease)
 
 	leaseStore := store.NewDAGRunLeaseStore(file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "leases"), distributedDir))
 	gotLease, err := leaseStore.Get(ctx, leaseKey)
 	require.NoError(t, err)
-	assert.Equal(t, legacyLease.AttemptKey, gotLease.AttemptKey)
+	assert.Equal(t, fileLease.AttemptKey, gotLease.AttemptKey)
 
-	legacyActive := exec.ActiveDistributedRun{
+	fileActive := exec.ActiveDistributedRun{
 		AttemptKey: activeKey,
 		DAGRun:     exec.NewDAGRunRef("dag-a", "run-1"),
 		Root:       exec.NewDAGRunRef("dag-a", "run-1"),
@@ -587,26 +587,26 @@ func TestDistributedStores_ReadLegacyFileLayout(t *testing.T) {
 		Status:     core.Running,
 		UpdatedAt:  time.Now().UTC().UnixMilli(),
 	}
-	writeLegacyJSON(t, filepath.Join(distributedDir, "active-runs", legacyHash(activeKey)+".json"), legacyActive)
+	writeJSONFile(t, filepath.Join(distributedDir, "active-runs", encodedKey(activeKey)+".json"), fileActive)
 
 	activeStore := store.NewActiveDistributedRunStore(file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "active-runs"), distributedDir))
 	gotActive, err := activeStore.Get(ctx, activeKey)
 	require.NoError(t, err)
-	assert.Equal(t, legacyActive.AttemptKey, gotActive.AttemptKey)
+	assert.Equal(t, fileActive.AttemptKey, gotActive.AttemptKey)
 
-	legacyTask := dispatchTaskRecord{
+	fileTask := dispatchTaskRecord{
 		Version:      1,
-		Task:         &coordinatorv1.Task{DagRunId: "run-legacy", Target: "dag-legacy", AttemptKey: "attempt-key-legacy-task"},
-		TaskFileName: "task_00000000000000000001_legacy.json",
+		Task:         &coordinatorv1.Task{DagRunId: "run-file", Target: "dag-file", AttemptKey: "attempt-key-file-task"},
+		TaskFileName: "task_00000000000000000001_file.json",
 		EnqueuedAt:   time.Now().UTC().UnixMilli(),
 	}
-	writeLegacyJSON(t, filepath.Join(distributedDir, "pending", legacyTask.TaskFileName), legacyTask)
+	writeJSONFile(t, filepath.Join(distributedDir, "pending", fileTask.TaskFileName), fileTask)
 
 	dispatchStore := store.NewDispatchTaskStore(file.NewCollection(distributedDir))
 	claimed, err := dispatchStore.ClaimNext(ctx, exec.DispatchTaskClaim{WorkerID: "worker-1"})
 	require.NoError(t, err)
 	require.NotNil(t, claimed)
-	assert.Equal(t, "run-legacy", claimed.Task.DagRunId)
+	assert.Equal(t, "run-file", claimed.Task.DagRunId)
 }
 
 type dispatchTaskRecord struct {
@@ -629,7 +629,7 @@ func putPendingDuplicateFromClaim(t *testing.T, col persis.Collection, claimToke
 	t.Helper()
 
 	ctx := context.Background()
-	claimRec, err := col.Get(ctx, "claims/claim_"+legacyHash(claimToken))
+	claimRec, err := col.Get(ctx, "claims/claim_"+encodedKey(claimToken))
 	require.NoError(t, err)
 
 	var payload dispatchTaskRecord
@@ -667,7 +667,7 @@ func ageClaimedDispatchRecord(t *testing.T, col persis.Collection, claimToken st
 	t.Helper()
 
 	ctx := context.Background()
-	rec, err := col.Get(ctx, "claims/claim_"+legacyHash(claimToken))
+	rec, err := col.Get(ctx, "claims/claim_"+encodedKey(claimToken))
 	require.NoError(t, err)
 
 	var payload dispatchTaskRecord
@@ -707,7 +707,7 @@ func agePendingDispatchRecords(t *testing.T, col persis.Collection, age time.Dur
 	}
 }
 
-func writeLegacyJSON(t *testing.T, path string, value any) {
+func writeJSONFile(t *testing.T, path string, value any) {
 	t.Helper()
 
 	data, err := json.Marshal(value)
@@ -716,7 +716,7 @@ func writeLegacyJSON(t *testing.T, path string, value any) {
 	require.NoError(t, os.WriteFile(path, data, 0o600))
 }
 
-func legacyHash(input string) string {
+func encodedKey(input string) string {
 	sum := sha256.Sum256([]byte(input))
 	return hex.EncodeToString(sum[:])
 }
