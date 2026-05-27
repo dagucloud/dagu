@@ -33,9 +33,6 @@ import (
 	"github.com/dagucloud/dagu/internal/dagstate"
 	"github.com/dagucloud/dagu/internal/license"
 	"github.com/dagucloud/dagu/internal/persis/file"
-	"github.com/dagucloud/dagu/internal/persis/filebaseconfig"
-	"github.com/dagucloud/dagu/internal/persis/fileeventstore"
-	"github.com/dagucloud/dagu/internal/persis/filelicense"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
@@ -258,10 +255,10 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	var eventSvc *eventstore.Service
 	sharedNothingWorker := isSharedNothingWorker(cmd, cfg)
 	if !sharedNothingWorker && cfg.EventStore.Enabled {
-		store, eventErr := fileeventstore.New(cfg.Paths.EventStoreDir)
+		store, eventErr := file.NewEventStore(cfg)
 		if eventErr != nil {
 			logger.Warn(ctx, "Failed to initialize event store; continuing without event persistence", tag.Error(eventErr))
-		} else {
+		} else if store != nil {
 			eventSvc = eventstore.New(store)
 			ctx = eventstore.WithContext(ctx, eventSvc, eventstore.Source{
 				Service:  eventSourceServiceForCommand(cmd.Name()),
@@ -354,8 +351,8 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 			logger.Warn(ctx, "Failed to load license public key", tag.Error(pubKeyErr))
 			break
 		}
-		licenseDir := filepath.Join(cfg.Paths.DataDir, "license")
-		licStore := filelicense.New(licenseDir)
+		licenseDir := file.LicenseDir(cfg)
+		licStore := file.NewLicenseStore(cfg)
 		licMgr = license.NewManager(license.ManagerConfig{
 			LicenseDir: licenseDir,
 			ConfigKey:  cfg.License.Key,
@@ -380,8 +377,8 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 
 	// Initialize default base config if it doesn't exist
 	if cfg.Paths.BaseConfig != "" {
-		bcStore, bcErr := filebaseconfig.New(cfg.Paths.BaseConfig,
-			filebaseconfig.WithSkipDefault(cfg.Core.SkipExamples),
+		bcStore, bcErr := file.NewBaseConfigStore(cfg.Paths.BaseConfig,
+			file.WithBaseConfigSkipDefault(cfg.Core.SkipExamples),
 		)
 		if bcErr != nil {
 			logger.Warn(ctx, "Failed to create base config store", tag.Error(bcErr))

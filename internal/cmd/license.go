@@ -6,11 +6,10 @@ package cmd
 import (
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"strings"
 
 	"github.com/dagucloud/dagu/internal/license"
-	"github.com/dagucloud/dagu/internal/persis/filelicense"
+	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/spf13/cobra"
 )
 
@@ -43,8 +42,8 @@ func licenseActivate() *cobra.Command {
 				return fmt.Errorf("failed to load license public key: %w", err)
 			}
 
-			licenseDir := filepath.Join(ctx.Config.Paths.DataDir, "license")
-			store := filelicense.New(licenseDir)
+			licenseDir := file.LicenseDir(ctx.Config)
+			store := file.NewLicenseStore(ctx.Config)
 
 			mgr := license.NewManager(license.ManagerConfig{
 				LicenseDir: licenseDir,
@@ -81,8 +80,8 @@ func licenseDeactivate() *cobra.Command {
 				return fmt.Errorf("failed to load license public key: %w", err)
 			}
 
-			licenseDir := filepath.Join(ctx.Config.Paths.DataDir, "license")
-			store := filelicense.New(licenseDir)
+			licenseDir := file.LicenseDir(ctx.Config)
+			store := file.NewLicenseStore(ctx.Config)
 
 			mgr := license.NewManager(license.ManagerConfig{
 				LicenseDir: licenseDir,
@@ -116,8 +115,8 @@ func licenseCheck() *cobra.Command {
 				return fmt.Errorf("failed to load license public key: %w", err)
 			}
 
-			licenseDir := filepath.Join(ctx.Config.Paths.DataDir, "license")
-			store := filelicense.New(licenseDir)
+			licenseDir := file.LicenseDir(ctx.Config)
+			store := file.NewLicenseStore(ctx.Config)
 
 			mgr := license.NewManager(license.ManagerConfig{
 				LicenseDir: licenseDir,

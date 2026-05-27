@@ -739,6 +739,7 @@ graph TB
         <div class="ml-4 text-slate-400">  collection.go</div>
         <div class="ml-6 text-green-600">✅ dag_store.go <span class="text-slate-400 ml-1">file-backed DAGStore wiring boundary</span></div>
         <div class="ml-6 text-green-600">✅ agent_stores.go <span class="text-slate-400 ml-1">file-backed agent store wiring boundary</span></div>
+        <div class="ml-6 text-green-600">✅ service_stores.go <span class="text-slate-400 ml-1">file-backed service/CLI store wiring boundary</span></div>
         <div class="ml-6 text-green-600">✅ dagrun/ <span class="text-slate-400 ml-1">DAG-run file layout compatibility implementation</span></div>
         <div class="ml-6 text-green-600">✅ proc/ <span class="text-slate-400 ml-1">legacy .proc sidecar compatibility adapter</span></div>
         <div class="ml-4 text-slate-400">sql/ <span class="text-slate-400 ml-1">future Backend + collection adapters; separate DAGRunStore required</span></div>
@@ -788,7 +789,8 @@ dts := store.NewDispatchTaskStore(file.NewCollection(distributedDir))
 us  := store.<span class="fn">NewUserStore</span>(file.<span class="fn">NewCollection</span>(cfg.Paths.UsersDir), ...)
 ss  := store.<span class="fn">NewSecretStore</span>(file.<span class="fn">NewCollection</span>(cfg.Paths.SecretsDir), encryptor)
 <span class="cm">// DAG-run, DAG definition, proc, and service-registry wiring should go through the file backend boundary instead of leaf file packages.</span>
-<span class="cm">// Agent config/model/soul/memory/OAuth/session wiring follows the same file boundary for CLI, server, worker, and snapshots.</span></pre>
+<span class="cm">// Agent config/model/soul/memory/OAuth/session wiring follows the same file boundary for CLI, server, worker, and snapshots.</span>
+<span class="cm">// Service stores such as audit, event, notification, incident, workspace, license, token secret, and upgrade cache also go through the same file boundary.</span></pre>
         </div>
       </div>
     </div>

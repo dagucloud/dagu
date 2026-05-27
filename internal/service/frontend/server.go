@@ -51,16 +51,6 @@ import (
 	"github.com/dagucloud/dagu/internal/license"
 	_ "github.com/dagucloud/dagu/internal/llm/allproviders" // Register LLM providers
 	"github.com/dagucloud/dagu/internal/persis/file"
-	"github.com/dagucloud/dagu/internal/persis/fileaudit"
-	"github.com/dagucloud/dagu/internal/persis/filebaseconfig"
-	"github.com/dagucloud/dagu/internal/persis/filedoc"
-	"github.com/dagucloud/dagu/internal/persis/fileeventstore"
-	"github.com/dagucloud/dagu/internal/persis/fileincident"
-	"github.com/dagucloud/dagu/internal/persis/filenotification"
-	"github.com/dagucloud/dagu/internal/persis/fileremotenode"
-	"github.com/dagucloud/dagu/internal/persis/filetokensecret"
-	"github.com/dagucloud/dagu/internal/persis/fileupgradecheck"
-	"github.com/dagucloud/dagu/internal/persis/fileworkspace"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/remotenode"
 	"github.com/dagucloud/dagu/internal/runtime"
@@ -114,7 +104,7 @@ type Server struct {
 	builtinOIDCCfg      *auth.BuiltinOIDCConfig
 	authService         *authservice.Service
 	auditService        *audit.Service
-	auditStore          *fileaudit.Store
+	auditStore          file.AuditStore
 	eventService        *eventstore.Service
 	incidentService     *incidentservice.Service
 	notificationService *notificationservice.Service
@@ -209,6 +199,10 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		oidcButtonLabel string
 		setupRequired   bool
 	)
+	apiOpts = append(apiOpts,
+		apiv1.WithSnapshotStoreFactory(file.NewSnapshotStores),
+		apiv1.WithWorkspaceBaseConfigStoreFactory(file.NewWorkspaceBaseConfigStore),
+	)
 	evaluatedBasePath := evaluateConfiguredBasePath(ctx, cfg.Server.BasePath)
 
 	auditSvc, auditStore, err := initAuditService(cfg)
@@ -225,7 +219,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 	}
 
 	if cfg.Paths.BaseConfig != "" {
-		baseConfigStore, bcErr := filebaseconfig.New(cfg.Paths.BaseConfig)
+		baseConfigStore, bcErr := file.NewBaseConfigStore(cfg.Paths.BaseConfig)
 		if bcErr != nil {
 			logger.Warn(ctx, "Failed to create base config store", tag.Error(bcErr))
 		} else {
@@ -253,7 +247,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 	referencesDir := agentStores.ReferencesDir
 	agentOAuthManager := agentStores.OAuthManager
 
-	docStore := filedoc.New(cfg.Paths.DocsDir)
+	docStore := file.NewDocStore(cfg)
 
 	var authSvc *authservice.Service
 	if cfg.Server.Auth.Mode == config.AuthModeBuiltin {
@@ -323,7 +317,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		if encErr != nil {
 			logger.Warn(ctx, "Failed to create encryptor for encrypted stores", tag.Error(encErr))
 		} else {
-			rnStore, rnErr := fileremotenode.New(cfg.Paths.RemoteNodesDir, encryptor)
+			rnStore, rnErr := file.NewRemoteNodeStore(cfg, encryptor)
 			if rnErr != nil {
 				logger.Warn(ctx, "Failed to create remote node store", tag.Error(rnErr))
 			} else {
@@ -355,10 +349,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 
 	var notificationSvc *notificationservice.Service
 	if encryptor != nil {
-		store, err := filenotification.New(
-			filepath.Join(cfg.Paths.DataDir, "notifications", "dags"),
-			filenotification.WithEncryptor(encryptor),
-		)
+		store, err := file.NewNotificationStore(cfg, encryptor)
 		if err != nil {
 			logger.Warn(ctx, "Failed to create notification settings store", tag.Error(err))
 		} else {
@@ -375,10 +366,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 
 	var incidentSvc *incidentservice.Service
 	if encryptor != nil {
-		store, err := fileincident.New(
-			filepath.Join(cfg.Paths.DataDir, "incidents"),
-			fileincident.WithEncryptor(encryptor),
-		)
+		store, err := file.NewIncidentStore(cfg, encryptor)
 		if err != nil {
 			logger.Warn(ctx, "Failed to create incident settings store", tag.Error(err))
 		} else {
@@ -396,7 +384,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 	}
 
 	// Initialize workspace store
-	wsStore, wsErr := fileworkspace.New(cfg.Paths.WorkspacesDir)
+	wsStore, wsErr := file.NewWorkspaceStore(cfg)
 	if wsErr != nil {
 		logger.Warn(ctx, "Failed to create workspace store", tag.Error(wsErr))
 	} else {
@@ -426,7 +414,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		updateInfoChecker UpdateChecker
 	)
 	if cfg.Server.CheckUpdates {
-		upgradeStore, err = fileupgradecheck.New(cfg.Paths.DataDir)
+		upgradeStore, err = file.NewUpgradeCheckStore(cfg)
 		if err != nil {
 			logger.Warn(ctx, "Failed to create upgrade check store", tag.Error(err))
 		} else {
@@ -746,20 +734,19 @@ func buildTokenSecretProvider(ctx context.Context, cfg *config.Config) authmodel
 	}
 
 	// File provider (auto-generate if missing)
-	providers = append(providers, filetokensecret.New(authDir))
+	providers = append(providers, file.NewTokenSecretProvider(cfg))
 
 	return tokensecret.NewChain(providers...)
 }
 
-// initAuditService creates a file-based audit store and service.
-func initAuditService(cfg *config.Config) (*audit.Service, *fileaudit.Store, error) {
-	if !cfg.Server.Audit.Enabled {
-		return nil, nil, nil
-	}
-
-	store, err := fileaudit.New(filepath.Join(cfg.Paths.AdminLogsDir, "audit"), cfg.Server.Audit.RetentionDays)
+// initAuditService creates the configured audit store and service.
+func initAuditService(cfg *config.Config) (*audit.Service, file.AuditStore, error) {
+	store, err := file.NewAuditStore(cfg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create audit store: %w", err)
+	}
+	if store == nil {
+		return nil, nil, nil
 	}
 
 	return audit.New(store), store, nil
@@ -844,12 +831,12 @@ func initAgentAPI(ctx context.Context, configStore agent.ConfigStore, modelStore
 }
 
 func initEventService(cfg *config.Config) (*eventstore.Service, error) {
-	if cfg == nil || !cfg.EventStore.Enabled {
-		return nil, nil
-	}
-	store, err := fileeventstore.New(cfg.Paths.EventStoreDir)
+	store, err := file.NewEventStore(cfg)
 	if err != nil {
 		return nil, err
+	}
+	if store == nil {
+		return nil, nil
 	}
 	return eventstore.New(store), nil
 }

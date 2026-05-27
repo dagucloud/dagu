@@ -14,8 +14,8 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/internal/core/baseconfig"
 	"github.com/dagucloud/dagu/internal/core/spec"
-	"github.com/dagucloud/dagu/internal/persis/filebaseconfig"
 	"github.com/dagucloud/dagu/internal/service/audit"
 	"github.com/dagucloud/dagu/internal/workspace"
 )
@@ -170,7 +170,7 @@ func (a *API) UpdateWorkspaceBaseConfig(
 		}
 	}
 
-	store, err := workspaceBaseConfigStore(a.config.Paths.DAGsDir, workspaceName)
+	store, err := a.workspaceBaseConfigStore(a.config.Paths.DAGsDir, workspaceName)
 	if err != nil {
 		logger.Error(ctx, "Failed to initialize workspace base config store", tag.Name(workspaceName), tag.Error(err))
 		return nil, ErrFailedToSaveWorkspaceBaseConfig
@@ -246,11 +246,11 @@ func readWorkspaceBaseConfigSpec(dagsDir, workspaceName string) (string, error) 
 	return string(data), nil
 }
 
-func workspaceBaseConfigStore(dagsDir, workspaceName string) (*filebaseconfig.Store, error) {
-	return filebaseconfig.New(
-		workspace.BaseConfigPath(dagsDir, workspaceName),
-		filebaseconfig.WithSkipDefault(true),
-	)
+func (a *API) workspaceBaseConfigStore(dagsDir, workspaceName string) (baseconfig.Store, error) {
+	if a.baseConfigFactory == nil {
+		return nil, errors.New("workspace base config store factory is not configured")
+	}
+	return a.baseConfigFactory(dagsDir, workspaceName)
 }
 
 // validateBaseConfig parses the YAML spec and returns any validation errors.

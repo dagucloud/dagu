@@ -791,7 +791,7 @@ func (a *API) dispatchEditRetry(ctx context.Context, dag *core.DAG, status *exec
 	if dag.SourceFile != "" {
 		opts = append(opts, executor.WithSourceFile(dag.SourceFile))
 	}
-	if snapshot, err := agentsnapshot.BuildFromPaths(ctx, dag, a.config.Paths, a.dagStore); err != nil {
+	if snapshot, err := agentsnapshot.BuildFromPaths(ctx, dag, a.config.Paths, a.dagStore, a.snapshotStoreFactory); err != nil {
 		return fmt.Errorf("build distributed agent snapshot: %w", err)
 	} else if len(snapshot) > 0 {
 		opts = append(opts, executor.WithAgentSnapshot(snapshot))

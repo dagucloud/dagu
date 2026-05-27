@@ -19,8 +19,8 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core"
 	coreexec "github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/githubdispatch"
 	"github.com/dagucloud/dagu/internal/license"
-	"github.com/dagucloud/dagu/internal/persis/filegithubdispatch"
 )
 
 const (
@@ -38,9 +38,9 @@ type githubDispatchClient interface {
 }
 
 type githubDispatchTracker interface {
-	Upsert(filegithubdispatch.TrackedJob) error
+	Upsert(githubdispatch.TrackedJob) error
 	Delete(string) error
-	List() ([]filegithubdispatch.TrackedJob, error)
+	List() ([]githubdispatch.TrackedJob, error)
 }
 
 type githubDispatchLicenseManager interface {
@@ -222,7 +222,7 @@ func (w *githubDispatchWorker) processJob(ctx context.Context, creds githubDispa
 		return err
 	}
 
-	tracked := filegithubdispatch.TrackedJob{
+	tracked := githubdispatch.TrackedJob{
 		JobID:     job.ID,
 		DAGName:   job.DAGName,
 		DAGRunID:  runID,
@@ -245,7 +245,7 @@ func (w *githubDispatchWorker) processCancelJob(ctx context.Context, creds githu
 	})
 }
 
-func (w *githubDispatchWorker) acceptTrackedJob(ctx context.Context, creds githubDispatchCredentials, tracked filegithubdispatch.TrackedJob) error {
+func (w *githubDispatchWorker) acceptTrackedJob(ctx context.Context, creds githubDispatchCredentials, tracked githubdispatch.TrackedJob) error {
 	if err := w.client.AcceptGitHubDispatch(ctx, tracked.JobID, license.AcceptGitHubDispatchRequest{
 		LicenseID: creds.licenseID,
 		ServerID:  creds.serverID,
@@ -276,7 +276,7 @@ func (w *githubDispatchWorker) reportTrackedJobs(ctx context.Context, creds gith
 	return nil
 }
 
-func (w *githubDispatchWorker) handleTrackedJob(ctx context.Context, creds githubDispatchCredentials, tracked filegithubdispatch.TrackedJob) error {
+func (w *githubDispatchWorker) handleTrackedJob(ctx context.Context, creds githubDispatchCredentials, tracked githubdispatch.TrackedJob) error {
 	if tracked.Phase == githubDispatchPendingAccept {
 		if err := w.acceptTrackedJob(ctx, creds, tracked); err != nil {
 			return err

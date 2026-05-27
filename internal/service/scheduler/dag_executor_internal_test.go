@@ -13,6 +13,6 @@ import (
 func TestBuildSnapshotBuilder_AllowsNilDAGStore(t *testing.T) {
 	t.Parallel()
 
-	builder := buildSnapshotBuilder(config.PathsConfig{}, nil)
+	builder := buildSnapshotBuilder(config.PathsConfig{}, nil, nil)
 	require.NotNil(t, builder)
 }

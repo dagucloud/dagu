@@ -430,7 +430,7 @@ func (e *Engine) runDistributed(ctx context.Context, dag *core.DAG, runID string
 	if dag.SourceFile != "" {
 		taskOpts = append(taskOpts, runtimeexec.WithSourceFile(dag.SourceFile))
 	}
-	if snapshot, snapErr := agentsnapshot.BuildFromPaths(ctx, dag, e.cfg.Paths, e.dagStore); snapErr != nil {
+	if snapshot, snapErr := agentsnapshot.BuildFromPaths(ctx, dag, e.cfg.Paths, e.dagStore, file.NewSnapshotStores); snapErr != nil {
 		_ = client.Cleanup(ctx)
 		return nil, fmt.Errorf("build agent snapshot: %w", snapErr)
 	} else if len(snapshot) > 0 {

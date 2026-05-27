@@ -16,13 +16,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/agentsnapshot"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/persis/fileeventstore"
 	"github.com/dagucloud/dagu/internal/runtime"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
@@ -56,7 +56,7 @@ type Scheduler struct {
 	startupCancel       context.CancelFunc
 	lockHeld            atomic.Bool
 	clock               Clock // Clock function for getting current time
-	eventCollector      *fileeventstore.Collector
+	eventCollector      eventCollector
 	githubDispatch      githubDispatchRunner
 	notificationMonitor backgroundRunner
 	incidentMonitor     backgroundRunner
@@ -66,8 +66,24 @@ type schedulerHooks struct {
 	onLockWait func()
 }
 
+type schedulerOptions struct {
+	snapshotStoreFactory agentsnapshot.StoreFactory
+}
+
+type Option func(*schedulerOptions)
+
+func WithSnapshotStoreFactory(factory agentsnapshot.StoreFactory) Option {
+	return func(opts *schedulerOptions) {
+		opts.snapshotStoreFactory = factory
+	}
+}
+
 type backgroundRunner interface {
 	Run(ctx context.Context)
+}
+
+type eventCollector interface {
+	Start(context.Context)
 }
 
 type startupState struct {
@@ -92,8 +108,15 @@ func New(
 	reg exec.ServiceRegistry,
 	coordinatorCli exec.Dispatcher,
 	watermarkStore WatermarkStore,
+	opts ...Option,
 ) (*Scheduler, error) {
-	return newScheduler(cfg, er, drm, dagRunStore, queueStore, procStore, reg, coordinatorCli, watermarkStore, schedulerHooks{})
+	var options schedulerOptions
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&options)
+		}
+	}
+	return newScheduler(cfg, er, drm, dagRunStore, queueStore, procStore, reg, coordinatorCli, watermarkStore, schedulerHooks{}, options)
 }
 
 func newScheduler(
@@ -107,6 +130,7 @@ func newScheduler(
 	coordinatorCli exec.Dispatcher,
 	watermarkStore WatermarkStore,
 	hooks schedulerHooks,
+	options schedulerOptions,
 ) (*Scheduler, error) {
 	timeLoc := cfg.Core.Location
 	if timeLoc == nil {
@@ -126,7 +150,7 @@ func newScheduler(
 		subCmdBuilder,
 		cfg.DefaultExecMode,
 		cfg.Paths.BaseConfig,
-		buildSnapshotBuilder(cfg.Paths, dagStore),
+		buildSnapshotBuilder(cfg.Paths, dagStore, options.snapshotStoreFactory),
 	)
 	healthServer := NewHealthServer(cfg.Scheduler.Port)
 
@@ -253,7 +277,7 @@ func (s *Scheduler) SetClock(clock Clock) {
 
 // SetEventCollector configures the scheduler-owned collector loop.
 // This must be called before Start().
-func (s *Scheduler) SetEventCollector(collector *fileeventstore.Collector) {
+func (s *Scheduler) SetEventCollector(collector eventCollector) {
 	if s == nil {
 		return
 	}

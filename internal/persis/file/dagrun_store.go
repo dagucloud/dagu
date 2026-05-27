@@ -10,6 +10,8 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
 )
 
+const DAGRunOutputsFileName = dagrun.OutputsFile
+
 // DAGRunStoreOption configures the file-backed DAG-run store.
 type DAGRunStoreOption func(*DAGRunStoreOptions)
 

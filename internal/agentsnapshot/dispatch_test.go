@@ -22,7 +22,7 @@ func TestBuildFromPaths_SkipsStoreInitForNonAgentDAG(t *testing.T) {
 		},
 	}
 
-	snapshot, err := BuildFromPaths(context.Background(), dag, config.PathsConfig{}, nil)
+	snapshot, err := BuildFromPaths(context.Background(), dag, config.PathsConfig{}, nil, nil)
 	require.NoError(t, err)
 	require.Nil(t, snapshot)
 }
@@ -40,8 +40,8 @@ func TestBuildFromPaths_RequiresConfiguredStoresForAgentDAG(t *testing.T) {
 		},
 	}
 
-	snapshot, err := BuildFromPaths(context.Background(), dag, config.PathsConfig{}, nil)
+	snapshot, err := BuildFromPaths(context.Background(), dag, config.PathsConfig{}, nil, nil)
 	require.Nil(t, snapshot)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "dataDir cannot be empty")
+	require.Contains(t, err.Error(), "snapshot store factory is not configured")
 }

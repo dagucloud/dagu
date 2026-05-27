@@ -1418,7 +1418,7 @@ func (a *API) dispatchStartToCoordinator(ctx context.Context, dag *core.DAG, dag
 	if dag.SourceFile != "" {
 		taskOpts = append(taskOpts, executor.WithSourceFile(dag.SourceFile))
 	}
-	if snapshot, err := agentsnapshot.BuildFromPaths(ctx, dag, a.config.Paths, a.dagStore); err != nil {
+	if snapshot, err := agentsnapshot.BuildFromPaths(ctx, dag, a.config.Paths, a.dagStore, a.snapshotStoreFactory); err != nil {
 		return fmt.Errorf("build distributed agent snapshot: %w", err)
 	} else if len(snapshot) > 0 {
 		taskOpts = append(taskOpts, executor.WithAgentSnapshot(snapshot))

@@ -37,5 +37,6 @@ func NewWithHooksForTest(
 		coordinatorCli,
 		watermarkStore,
 		schedulerHooks{onLockWait: hooks.OnLockWait},
+		schedulerOptions{},
 	)
 }

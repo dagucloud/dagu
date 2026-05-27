@@ -5,15 +5,17 @@ package agentsnapshot
 
 import (
 	"context"
+	"errors"
 
 	"github.com/dagucloud/dagu/internal/agent"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core"
 	coreexec "github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
-	"github.com/dagucloud/dagu/internal/persis/file/agentstores"
 	"github.com/dagucloud/dagu/internal/workspace"
 )
+
+type StoreFactory func(context.Context, config.PathsConfig) (agent.SnapshotStores, error)
 
 // BuildFromPaths builds a worker snapshot from fresh filesystem-backed stores.
 func BuildFromPaths(
@@ -21,6 +23,7 @@ func BuildFromPaths(
 	dag *core.DAG,
 	paths config.PathsConfig,
 	dagStore coreexec.DAGStore,
+	storeFactory StoreFactory,
 ) ([]byte, error) {
 	var resolve agent.DAGResolver
 	if dagStore != nil {
@@ -41,7 +44,10 @@ func BuildFromPaths(
 		return nil, nil
 	}
 
-	stores, err := agentstores.NewSnapshotStores(ctx, paths)
+	if storeFactory == nil {
+		return nil, errors.New("agentsnapshot: snapshot store factory is not configured")
+	}
+	stores, err := storeFactory(ctx, paths)
 	if err != nil {
 		return nil, err
 	}

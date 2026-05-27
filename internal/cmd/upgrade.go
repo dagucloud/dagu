@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/dagucloud/dagu/internal/persis/fileupgradecheck"
+	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/upgrade"
 	"github.com/spf13/cobra"
 )
@@ -95,7 +95,7 @@ func runUpgrade(ctx *Context, _ []string) error {
 		return fmt.Errorf("%s", reason)
 	}
 
-	upgradeStore, err := fileupgradecheck.New(ctx.Config.Paths.DataDir)
+	upgradeStore, err := file.NewUpgradeCheckStore(ctx.Config)
 	if err != nil {
 		return fmt.Errorf("failed to create upgrade check store: %w", err)
 	}

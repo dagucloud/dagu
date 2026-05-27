@@ -32,8 +32,6 @@ import (
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/dagstate"
 	"github.com/dagucloud/dagu/internal/persis/file"
-	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
-	"github.com/dagucloud/dagu/internal/persis/filebaseconfig"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	runtimepkg "github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/agent"
@@ -269,9 +267,9 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 	ctx = config.WithConfig(ctx, cfg)
 
 	if cfg.Paths.BaseConfig != "" {
-		baseConfigStore, err := filebaseconfig.New(
+		baseConfigStore, err := file.NewBaseConfigStore(
 			cfg.Paths.BaseConfig,
-			filebaseconfig.WithSkipDefault(cfg.Core.SkipExamples),
+			file.WithBaseConfigSkipDefault(cfg.Core.SkipExamples),
 		)
 		require.NoError(t, err)
 		require.NoError(t, baseConfigStore.Initialize())
@@ -717,7 +715,7 @@ func (d *DAG) ReadOutputs(t *testing.T) map[string]string {
 		if err != nil {
 			return err
 		}
-		if info.Name() == dagrun.OutputsFile {
+		if info.Name() == file.DAGRunOutputsFileName {
 			outputsPath = path
 			return filepath.SkipAll
 		}
