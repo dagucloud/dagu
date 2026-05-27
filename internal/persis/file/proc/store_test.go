@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/core/exec"
 )
 
@@ -117,12 +118,22 @@ func requireHeartbeatAdvance(t *testing.T, procFile string) {
 func readHeartbeat(t *testing.T, procFile string) (int64, time.Time) {
 	t.Helper()
 
-	data, err := os.ReadFile(procFile) //nolint:gosec // test reads temp proc file.
-	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(data), 8)
-	info, err := os.Stat(procFile)
-	require.NoError(t, err)
-	return int64(binary.BigEndian.Uint64(data[:8])), info.ModTime()
+	deadline := time.Now().Add(time.Second)
+	for {
+		data, err := fileutil.ReadFile(procFile)
+		if err == nil {
+			require.GreaterOrEqual(t, len(data), 8)
+			info, statErr := os.Stat(procFile)
+			if statErr == nil {
+				return int64(binary.BigEndian.Uint64(data[:8])), info.ModTime()
+			}
+			err = statErr
+		}
+		if !fileutil.IsTransientFileError(err) || time.Now().After(deadline) {
+			require.NoError(t, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func assertNoJSONFiles(t *testing.T, root string) {

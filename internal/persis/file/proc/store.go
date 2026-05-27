@@ -35,6 +35,7 @@ const (
 	procHeartbeatSize = 8
 	procDateTimeUTC   = "20060102_150405"
 	procFileTimeFmt   = procDateTimeUTC + "Z"
+	procFileRetries   = 12
 )
 
 var (
@@ -562,7 +563,7 @@ func (s *Store) LatestHeartbeat(_ context.Context, groupName string, dagRun exec
 	now := time.Now().UTC()
 	var latest *exec.ProcHeartbeat
 	for _, file := range files {
-		observed, err := readProcEntryObserved(file, groupName, s.staleTime, now)
+		observed, err := readProcEntryObservedWithRetry(file, groupName, s.staleTime, now)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) || errors.Is(err, errInvalidProcFile) {
 				// Heartbeat observation should not fail because an unrelated
@@ -618,7 +619,7 @@ func (s *Store) entriesFromFiles(groupName string, files []string) ([]exec.ProcE
 	now := time.Now().UTC()
 	entries := make([]exec.ProcEntry, 0, len(files))
 	for _, file := range files {
-		entry, err := readProcEntry(file, groupName, s.staleTime, now)
+		entry, err := readProcEntryWithRetry(file, groupName, s.staleTime, now)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				continue
@@ -636,7 +637,7 @@ func (s *Store) RemoveIfStale(ctx context.Context, entry exec.ProcEntry) error {
 	if !ok {
 		return nil
 	}
-	current, err := readProcEntry(path, entry.GroupName, s.staleTime, time.Now().UTC())
+	current, err := readProcEntryWithRetry(path, entry.GroupName, s.staleTime, time.Now().UTC())
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -659,6 +660,38 @@ func readProcEntry(path, groupName string, staleTime time.Duration, now time.Tim
 		return exec.ProcEntry{}, err
 	}
 	return observed.entry, nil
+}
+
+func readProcEntryWithRetry(path, groupName string, staleTime time.Duration, now time.Time) (exec.ProcEntry, error) {
+	var lastErr error
+	for attempt := range procFileRetries {
+		entry, err := readProcEntry(path, groupName, staleTime, now)
+		if err == nil || errors.Is(err, os.ErrNotExist) {
+			return entry, err
+		}
+		if !fileutil.IsTransientFileError(err) {
+			return exec.ProcEntry{}, err
+		}
+		lastErr = err
+		time.Sleep(time.Duration(attempt+1) * 25 * time.Millisecond)
+	}
+	return exec.ProcEntry{}, lastErr
+}
+
+func readProcEntryObservedWithRetry(path, groupName string, staleTime time.Duration, now time.Time) (observedProcEntry, error) {
+	var lastErr error
+	for attempt := range procFileRetries {
+		observed, err := readProcEntryObserved(path, groupName, staleTime, now)
+		if err == nil || errors.Is(err, os.ErrNotExist) {
+			return observed, err
+		}
+		if !fileutil.IsTransientFileError(err) {
+			return observedProcEntry{}, err
+		}
+		lastErr = err
+		time.Sleep(time.Duration(attempt+1) * 25 * time.Millisecond)
+	}
+	return observedProcEntry{}, lastErr
 }
 
 func readProcEntryObserved(path, groupName string, staleTime time.Duration, now time.Time) (observedProcEntry, error) {
