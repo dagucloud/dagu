@@ -41,16 +41,13 @@ func (s *WorkerHeartbeatStore) Upsert(ctx context.Context, record exec.WorkerHea
 		return err
 	}
 	now := time.Now().UTC()
-	if err := s.col.Put(ctx, &persis.Record{
+	return s.col.Put(ctx, &persis.Record{
 		ID:        workerHeartbeatKey(record.WorkerID),
 		Data:      data,
 		Encoding:  enc,
 		CreatedAt: now,
 		UpdatedAt: now,
-	}); err != nil {
-		return err
-	}
-	return nil
+	})
 }
 
 func workerHeartbeatKey(workerID string) string {
