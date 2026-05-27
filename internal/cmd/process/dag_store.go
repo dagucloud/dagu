@@ -4,14 +4,11 @@
 package process
 
 import (
-	"fmt"
-
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/persis/filedag"
-	"github.com/dagucloud/dagu/internal/workspace"
+	"github.com/dagucloud/dagu/internal/persis/file"
 )
 
 // DAGStoreConfig contains process wiring options for creating a DAG store.
@@ -27,23 +24,10 @@ func NewDAGStore(cfg *config.Config, storeCfg DAGStoreConfig) (exec.DAGStore, er
 	if cfg.Paths.AltDAGsDir != "" {
 		searchPaths = append(searchPaths, cfg.Paths.AltDAGsDir)
 	}
-
-	store := filedag.New(
-		cfg.Paths.DAGsDir,
-		filedag.WithFlagsBaseDir(cfg.Paths.SuspendFlagsDir),
-		filedag.WithSearchPaths(searchPaths),
-		filedag.WithBaseConfig(cfg.Paths.BaseConfig),
-		filedag.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(cfg.Paths.DAGsDir)),
-		filedag.WithFileCache(storeCfg.Cache),
-		filedag.WithSkipExamples(cfg.Core.SkipExamples),
-		filedag.WithSkipDirectoryCreation(storeCfg.SkipDirectoryCreation),
+	return file.NewDAGStore(
+		cfg,
+		file.WithDAGFileCache(storeCfg.Cache),
+		file.WithDAGSearchPaths(searchPaths),
+		file.WithDAGSkipDirectoryCreation(storeCfg.SkipDirectoryCreation),
 	)
-
-	if s, ok := store.(*filedag.Storage); ok {
-		if err := s.Initialize(); err != nil {
-			return nil, fmt.Errorf("failed to initialize DAG store: %w", err)
-		}
-	}
-
-	return store, nil
 }

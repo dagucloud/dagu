@@ -16,12 +16,8 @@ import (
 	"syscall"
 	"time"
 
-	agentstores "github.com/dagucloud/dagu/internal/agent"
-	"github.com/dagucloud/dagu/internal/agentoauth"
 	"github.com/dagucloud/dagu/internal/agentsnapshot"
-	"github.com/dagucloud/dagu/internal/clicontext"
 	"github.com/dagucloud/dagu/internal/cmn/config"
-	"github.com/dagucloud/dagu/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
@@ -30,17 +26,10 @@ import (
 	coreexec "github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/persis/file"
-	"github.com/dagucloud/dagu/internal/persis/fileagentconfig"
-	"github.com/dagucloud/dagu/internal/persis/fileagentmodel"
-	"github.com/dagucloud/dagu/internal/persis/fileagentoauth"
-	"github.com/dagucloud/dagu/internal/persis/fileagentsoul"
-	"github.com/dagucloud/dagu/internal/persis/filememory"
-	persiststore "github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	rtagent "github.com/dagucloud/dagu/internal/runtime/agent"
 	runtimeexec "github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
-	secretpkg "github.com/dagucloud/dagu/internal/secret"
 	"github.com/dagucloud/dagu/internal/workspace"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
@@ -340,7 +329,7 @@ func (e *Engine) runLocal(ctx context.Context, dag *core.DAG, runID string, opts
 		_ = logFile.Close()
 		return nil, err
 	}
-	dagStore, err := newDAGStore(e.cfg, []string{filepath.Dir(dag.Location)}, false)
+	dagStore, err := file.NewDAGStore(e.cfg, file.WithDAGSearchPaths([]string{filepath.Dir(dag.Location)}))
 	if err != nil {
 		_ = logFile.Close()
 		return nil, err
@@ -593,76 +582,8 @@ func (e *Engine) artifactDir(ctx context.Context, dag *core.DAG, runID string) (
 	return logpath.GenerateDir(ctx, e.cfg.Paths.ArtifactDir, dagArtifactDir, dag.Name, runID)
 }
 
-type agentStoresResult struct {
-	ConfigStore     agentstores.ConfigStore
-	ModelStore      agentstores.ModelStore
-	MemoryStore     agentstores.MemoryStore
-	SoulStore       agentstores.SoulStore
-	OAuthManager    *agentoauth.Manager
-	ContextResolver agentstores.RemoteContextResolver
-	SecretStore     secretpkg.Store
-}
-
-func (e *Engine) agentStores(ctx context.Context) agentStoresResult {
-	var result agentStoresResult
-	if encKey, encErr := crypto.ResolveKey(e.cfg.Paths.DataDir); encErr != nil {
-		logger.Warn(ctx, "Failed to resolve encryption key for secret store", tag.Error(encErr))
-	} else if enc, encErr := crypto.NewEncryptor(encKey); encErr != nil {
-		logger.Warn(ctx, "Failed to create encryptor for secret store", tag.Error(encErr))
-	} else if backend, backendErr := file.New(e.cfg.Paths.DataDir); backendErr != nil {
-		logger.Warn(ctx, "Failed to open file backend for secret store", tag.Error(backendErr))
-	} else if store, storeErr := persiststore.NewSecretStore(backend.Collection("secrets"), enc); storeErr != nil {
-		logger.Warn(ctx, "Failed to create secret store", tag.Error(storeErr))
-	} else {
-		result.SecretStore = store
-	}
-	if store, err := fileagentconfig.New(e.cfg.Paths.DataDir); err == nil {
-		result.ConfigStore = store
-	} else {
-		logger.Warn(ctx, "Failed to create agent config store", tag.Error(err))
-	}
-	if store, err := fileagentmodel.New(filepath.Join(e.cfg.Paths.DataDir, "agent", "models")); err == nil {
-		result.ModelStore = store
-	} else {
-		logger.Warn(ctx, "Failed to create agent model store", tag.Error(err))
-	}
-	if store, err := filememory.New(e.cfg.Paths.DAGsDir); err == nil {
-		result.MemoryStore = store
-	} else {
-		logger.Warn(ctx, "Failed to create agent memory store", tag.Error(err))
-	}
-	if store, err := fileagentsoul.New(ctx, filepath.Join(e.cfg.Paths.DAGsDir, "souls")); err == nil {
-		result.SoulStore = store
-	} else {
-		logger.Warn(ctx, "Failed to create agent soul store", tag.Error(err))
-	}
-	if manager, err := fileagentoauth.NewManager(e.cfg.Paths.DataDir); err == nil {
-		result.OAuthManager = manager
-	} else {
-		logger.Warn(ctx, "Failed to create agent OAuth manager", tag.Error(err))
-	}
-	if resolver, err := e.buildRemoteContextResolver(); err == nil {
-		result.ContextResolver = resolver
-	} else {
-		logger.Warn(ctx, "Failed to create agent remote context resolver", tag.Error(err))
-	}
-	return result
-}
-
-func (e *Engine) buildRemoteContextResolver() (agentstores.RemoteContextResolver, error) {
-	encKey, err := crypto.ResolveKey(e.cfg.Paths.DataDir)
-	if err != nil {
-		return nil, err
-	}
-	enc, err := crypto.NewEncryptor(encKey)
-	if err != nil {
-		return nil, err
-	}
-	store, err := clicontext.NewStore(e.cfg.Paths.ContextsDir, enc)
-	if err != nil {
-		return nil, err
-	}
-	return &agentstores.RemoteContextResolverAdapter{Store: store}, nil
+func (e *Engine) agentStores(ctx context.Context) file.AgentStores {
+	return file.NewAgentStores(ctx, e.cfg, file.WithAgentContextResolverFromConfig())
 }
 
 func preparedAttempt(prepared *localPreparation) coreexec.DAGRunAttempt {

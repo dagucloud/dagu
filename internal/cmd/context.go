@@ -33,11 +33,9 @@ import (
 	"github.com/dagucloud/dagu/internal/dagstate"
 	"github.com/dagucloud/dagu/internal/license"
 	"github.com/dagucloud/dagu/internal/persis/file"
-	fileproc "github.com/dagucloud/dagu/internal/persis/file/proc"
 	"github.com/dagucloud/dagu/internal/persis/filebaseconfig"
 	"github.com/dagucloud/dagu/internal/persis/fileeventstore"
 	"github.com/dagucloud/dagu/internal/persis/filelicense"
-	"github.com/dagucloud/dagu/internal/persis/fileserviceregistry"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
@@ -328,12 +326,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		hrOpts = append(hrOpts, file.WithDAGRunHistoryFileCache(hc))
 	}
 
-	ps := store.NewProcStore(file.NewCollection(cfg.Paths.ProcDir),
-		store.WithProcStaleThreshold(cfg.Proc.StaleThreshold),
-		store.WithProcHeartbeatInterval(cfg.Proc.HeartbeatInterval),
-		store.WithProcHeartbeatSyncInterval(cfg.Proc.HeartbeatSyncInterval),
-		store.WithProcLegacyStore(fileproc.NewLegacyStore(cfg.Paths.ProcDir)),
-	)
+	ps := file.NewProcStore(cfg)
 	if err := ps.Validate(ctx); err != nil {
 		return nil, fmt.Errorf("failed to validate proc directory %s: %w", cfg.Paths.ProcDir, err)
 	}
@@ -348,7 +341,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	drm := runtime.NewManager(drs, ps, cfg)
 	qs := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
 	stateStore := store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir))
-	sm := fileserviceregistry.New(cfg.Paths.ServiceRegistryDir)
+	sm := file.NewServiceRegistry(cfg)
 	dispatchTaskStore := store.NewDispatchTaskStore(file.NewCollection(distributedDir))
 	workerHeartbeatStore := store.NewWorkerHeartbeatStore(file.NewCollection(filepath.Join(distributedDir, "workers")))
 

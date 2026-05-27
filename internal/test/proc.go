@@ -17,19 +17,12 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis/file"
-	fileproc "github.com/dagucloud/dagu/internal/persis/file/proc"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/stretchr/testify/require"
 )
 
 func newProcStore(cfg *config.Config) *store.ProcStore {
-	return store.NewProcStore(
-		file.NewCollection(cfg.Paths.ProcDir),
-		store.WithProcHeartbeatInterval(cfg.Proc.HeartbeatInterval),
-		store.WithProcHeartbeatSyncInterval(cfg.Proc.HeartbeatSyncInterval),
-		store.WithProcStaleThreshold(cfg.Proc.StaleThreshold),
-		store.WithProcLegacyStore(fileproc.NewLegacyStore(cfg.Paths.ProcDir)),
-	)
+	return file.NewProcStore(cfg)
 }
 
 func procGroupDir(procDir, groupName, dagName string) string {

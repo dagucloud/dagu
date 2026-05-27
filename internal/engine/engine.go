@@ -17,13 +17,9 @@ import (
 	coreexec "github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/dagstate"
 	"github.com/dagucloud/dagu/internal/persis/file"
-	fileproc "github.com/dagucloud/dagu/internal/persis/file/proc"
-	"github.com/dagucloud/dagu/internal/persis/filedag"
-	"github.com/dagucloud/dagu/internal/persis/fileserviceregistry"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
-	"github.com/dagucloud/dagu/internal/workspace"
 	"github.com/spf13/viper"
 )
 
@@ -66,13 +62,7 @@ func New(ctx context.Context, opts Options) (*Engine, error) {
 		return nil, fmt.Errorf("create DAG state directory: %w", err)
 	}
 
-	procStore := store.NewProcStore(
-		file.NewCollection(cfg.Paths.ProcDir),
-		store.WithProcStaleThreshold(cfg.Proc.StaleThreshold),
-		store.WithProcHeartbeatInterval(cfg.Proc.HeartbeatInterval),
-		store.WithProcHeartbeatSyncInterval(cfg.Proc.HeartbeatSyncInterval),
-		store.WithProcLegacyStore(fileproc.NewLegacyStore(cfg.Paths.ProcDir)),
-	)
+	procStore := file.NewProcStore(cfg)
 	if err := procStore.Validate(ctx); err != nil {
 		return nil, err
 	}
@@ -81,11 +71,11 @@ func New(ctx context.Context, opts Options) (*Engine, error) {
 	if dagRunStore == nil {
 		dagRunStore = file.NewDAGRunStore(cfg, file.WithDAGRunLatestStatusToday(false))
 	}
-	serviceRegistry := fileserviceregistry.New(cfg.Paths.ServiceRegistryDir)
+	serviceRegistry := file.NewServiceRegistry(cfg)
 	stateStore := store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir))
 	dagRunMgr := runtime.NewManager(dagRunStore, procStore, cfg)
 
-	dagStore, err := newDAGStore(cfg, nil, false)
+	dagStore, err := file.NewDAGStore(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -195,24 +185,6 @@ func resolvePath(path string) string {
 		return resolved
 	}
 	return path
-}
-
-func newDAGStore(cfg *config.Config, searchPaths []string, skipDirectoryCreation bool) (coreexec.DAGStore, error) {
-	store := filedag.New(
-		cfg.Paths.DAGsDir,
-		filedag.WithFlagsBaseDir(cfg.Paths.SuspendFlagsDir),
-		filedag.WithSearchPaths(searchPaths),
-		filedag.WithBaseConfig(cfg.Paths.BaseConfig),
-		filedag.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(cfg.Paths.DAGsDir)),
-		filedag.WithSkipExamples(cfg.Core.SkipExamples),
-		filedag.WithSkipDirectoryCreation(skipDirectoryCreation),
-	)
-	if s, ok := store.(*filedag.Storage); ok {
-		if err := s.Initialize(); err != nil {
-			return nil, fmt.Errorf("initialize DAG store: %w", err)
-		}
-	}
-	return store, nil
 }
 
 func (e *Engine) coordinatorClient(opts DistributedOptions) (coordinator.Client, error) {

@@ -34,8 +34,6 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/internal/persis/filebaseconfig"
-	"github.com/dagucloud/dagu/internal/persis/filedag"
-	"github.com/dagucloud/dagu/internal/persis/fileserviceregistry"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	runtimepkg "github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/agent"
@@ -279,18 +277,13 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 		require.NoError(t, baseConfigStore.Initialize())
 	}
 
-	dagStore := filedag.New(
-		cfg.Paths.DAGsDir,
-		filedag.WithFlagsBaseDir(cfg.Paths.SuspendFlagsDir),
-		filedag.WithBaseConfig(cfg.Paths.BaseConfig),
-		filedag.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(cfg.Paths.DAGsDir)),
-		filedag.WithSkipExamples(true),
-	)
+	dagStore, err := file.NewDAGStore(cfg, file.WithDAGSkipExamples(true))
+	require.NoError(t, err)
 	runStore := file.NewDAGRunStore(cfg)
 	procStore := newProcStore(cfg)
 	queueStore := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
 	stateStore := store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir))
-	serviceMonitor := fileserviceregistry.New(cfg.Paths.ServiceRegistryDir)
+	serviceMonitor := file.NewServiceRegistry(cfg)
 	distributedDir := filepath.Join(cfg.Paths.DataDir, "distributed")
 	var dispatchStoreOpts []store.DispatchTaskStoreOption
 	if options.StaleLeaseThreshold > 0 {
