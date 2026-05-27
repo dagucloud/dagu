@@ -62,6 +62,9 @@ func (c *Collection) Put(_ context.Context, rec *persis.Record) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if rec == nil {
+		return fmt.Errorf("file backend: nil record")
+	}
 	path, err := c.filePath(rec.ID)
 	if err != nil {
 		return err

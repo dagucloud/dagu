@@ -351,6 +351,14 @@ func TestFileCollectionWritesRawJSONBody(t *testing.T) {
 	assert.Equal(t, persis.EncodingJSON, got.Encoding)
 }
 
+func TestFileCollectionPutNilReturnsError(t *testing.T) {
+	t.Parallel()
+
+	col := file.NewCollection(t.TempDir())
+	err := col.Put(context.Background(), nil)
+	require.ErrorContains(t, err, "nil record")
+}
+
 func TestFileCollectionWithLockOptionsUsesCustomTiming(t *testing.T) {
 	t.Parallel()
 
