@@ -4,6 +4,7 @@
 package filegithubdispatch
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,19 +34,28 @@ func New(dir string) *Store {
 	return &Store{dir: dir}
 }
 
-func (s *Store) Upsert(job TrackedJob) error {
+func (s *Store) Upsert(ctx context.Context, job TrackedJob) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	jobs, err := s.loadLocked()
 	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	jobs[job.JobID] = job
 	return s.saveLocked(jobs)
 }
 
-func (s *Store) Delete(jobID string) error {
+func (s *Store) Delete(ctx context.Context, jobID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -53,16 +63,25 @@ func (s *Store) Delete(jobID string) error {
 	if err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	delete(jobs, jobID)
 	return s.saveLocked(jobs)
 }
 
-func (s *Store) List() ([]TrackedJob, error) {
+func (s *Store) List(ctx context.Context) ([]TrackedJob, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	jobs, err := s.loadLocked()
 	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	out := make([]TrackedJob, 0, len(jobs))

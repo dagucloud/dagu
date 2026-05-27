@@ -106,7 +106,7 @@ func TestGitHubDispatchWorker_ProcessAndReportJob(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, items, 1)
 
-	tracked, err := tracker.List()
+	tracked, err := tracker.List(env.ctx)
 	require.NoError(t, err)
 	require.Len(t, tracked, 1)
 	assert.Equal(t, githubDispatchAccepted, tracked[0].Phase)
@@ -133,7 +133,7 @@ func TestGitHubDispatchWorker_ProcessAndReportJob(t *testing.T) {
 	assert.Equal(t, "job-1", client.finishes[0].jobID)
 	assert.Equal(t, "succeeded", client.finishes[0].req.ResultStatus)
 
-	tracked, err = tracker.List()
+	tracked, err = tracker.List(env.ctx)
 	require.NoError(t, err)
 	assert.Empty(t, tracked)
 }
@@ -174,7 +174,7 @@ func TestGitHubDispatchWorker_CancelCommandDoesNotStopDag(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, items)
 
-	tracked, err := tracker.List()
+	tracked, err := tracker.List(env.ctx)
 	require.NoError(t, err)
 	assert.Empty(t, tracked)
 }
@@ -229,7 +229,7 @@ func TestGitHubDispatchWorker_ReportTrackedJobsContinuesAfterError(t *testing.T)
 	assert.Equal(t, "job-1", client.finishes[0].jobID)
 	assert.Equal(t, "job-2", client.finishes[1].jobID)
 
-	tracked, err := tracker.List()
+	tracked, err := tracker.List(env.ctx)
 	require.NoError(t, err)
 	require.Len(t, tracked, 1)
 	assert.Equal(t, "job-1", tracked[0].JobID)

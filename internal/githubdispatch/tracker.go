@@ -3,7 +3,10 @@
 
 package githubdispatch
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // TrackedJob is the durable scheduler state for a cloud GitHub dispatch job.
 type TrackedJob struct {
@@ -16,7 +19,7 @@ type TrackedJob struct {
 
 // Tracker persists in-flight GitHub dispatch jobs until they are reported.
 type Tracker interface {
-	Upsert(TrackedJob) error
-	Delete(string) error
-	List() ([]TrackedJob, error)
+	Upsert(context.Context, TrackedJob) error
+	Delete(context.Context, string) error
+	List(context.Context) ([]TrackedJob, error)
 }
