@@ -126,10 +126,6 @@ func (s *ProcStore) removeCollectionIfStale(ctx context.Context, entry exec.Proc
 		return err
 	}
 
-	var payload procPayload
-	if err := persis.Decode(currentRec, &payload); err == nil && payload.LegacyPath != "" && s.legacy != nil {
-		_ = s.legacy.Remove(payload.LegacyPath)
-	}
 	logger.Info(ctx, "Removed stale proc record", tag.Name(recordID))
 	return nil
 }
@@ -179,11 +175,6 @@ func dedupeAndSortProcEntries(entries []exec.ProcEntry) []exec.ProcEntry {
 func procEntryPreferred(candidate, existing exec.ProcEntry) bool {
 	if candidate.Fresh != existing.Fresh {
 		return candidate.Fresh
-	}
-	candidateLegacy := procEntryIdentityKind(candidate) == procEntryIdentityLegacy
-	existingLegacy := procEntryIdentityKind(existing) == procEntryIdentityLegacy
-	if candidateLegacy != existingLegacy {
-		return !candidateLegacy
 	}
 	if candidate.LastHeartbeatAt != existing.LastHeartbeatAt {
 		return candidate.LastHeartbeatAt > existing.LastHeartbeatAt

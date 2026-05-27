@@ -16,10 +16,8 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/internal/core"
-	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
-	fileproc "github.com/dagucloud/dagu/internal/persis/file/proc"
-	"github.com/dagucloud/dagu/internal/persis/store"
+	"github.com/dagucloud/dagu/internal/persis/file/proc"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/stretchr/testify/require"
 )
@@ -88,8 +86,8 @@ func newLocalStartTestAPI(t *testing.T) *API {
 	}
 }
 
-func newTestProcStore(procDir string) *store.ProcStore {
-	return store.NewProcStore(file.NewCollection(procDir), store.WithProcLegacyStore(fileproc.NewLegacyStore(procDir)))
+func newTestProcStore(procDir string) *proc.Store {
+	return proc.New(procDir)
 }
 
 func currentProcessStartResult(t *testing.T, done <-chan error) *runtime.StartResult {

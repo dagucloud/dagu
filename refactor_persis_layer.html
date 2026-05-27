@@ -50,7 +50,7 @@
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
         Current branch as of May 27, 2026 — DAG-run compatibility slice
       </span>
-      <span class="text-slate-400 text-sm font-mono">Queue/proc/dagrun compatibility done · distributed lock neutrality and SQL backend pending</span>
+      <span class="text-slate-400 text-sm font-mono">Queue/dagrun/proc file compatibility done · distributed lock neutrality and SQL backend pending</span>
     </div>
   </div>
 </header>
@@ -731,7 +731,7 @@ graph TB
         <div class="ml-6 text-green-600">✅ watermark.go <span class="text-slate-400 ml-1">122 ln</span></div>
         <div class="ml-6 text-green-600">✅ workerheartbeat.go <span class="text-slate-400 ml-1">168 ln</span></div>
         <div class="ml-6 text-green-600">✅ queue*.go <span class="text-slate-400 ml-1">collection-backed QueueStore; filequeue removed</span></div>
-        <div class="ml-6 text-green-600">✅ proc*.go <span class="text-slate-400 ml-1">collection-backed ProcStore with file/proc legacy sidecar adapter</span></div>
+        <div class="ml-6 text-green-600">✅ proc*.go <span class="text-slate-400 ml-1">collection-backed ProcStore for non-file backends/tests; no file sidecar adapter</span></div>
         <div class="ml-6 text-amber-400">◐ distributed*.go <span class="text-slate-400 ml-1">collection-backed records; lock API still file-backend-bound</span></div>
         <div class="ml-4 mt-2 text-slate-400">── backend implementations ──</div>
         <div class="ml-4 text-emerald-600 font-semibold">✅ file/ <span class="text-slate-400 font-normal">FileBackend 480 ln (backend.go 50 + collection.go 430)</span></div>
@@ -741,7 +741,7 @@ graph TB
         <div class="ml-6 text-green-600">✅ agent_stores.go <span class="text-slate-400 ml-1">file-backed agent store wiring boundary</span></div>
         <div class="ml-6 text-green-600">✅ service_stores.go <span class="text-slate-400 ml-1">file-backed service/CLI store wiring boundary</span></div>
         <div class="ml-6 text-green-600">✅ dagrun/ <span class="text-slate-400 ml-1">DAG-run file layout compatibility implementation</span></div>
-        <div class="ml-6 text-green-600">✅ proc/ <span class="text-slate-400 ml-1">legacy .proc sidecar compatibility adapter</span></div>
+        <div class="ml-6 text-green-600">✅ proc/ <span class="text-slate-400 ml-1">file-backed ProcStore preserving released .proc paths and payloads</span></div>
         <div class="ml-4 text-slate-400">sql/ <span class="text-slate-400 ml-1">future Backend + collection adapters; separate DAGRunStore required</span></div>
         <div class="ml-4 text-slate-400">etcd/ <span class="text-slate-400 ml-1">future</span></div>
         <div class="ml-4 mt-2 text-slate-500">legacy/ <span class="text-slate-400">unchanged</span></div>
@@ -831,9 +831,9 @@ ss  := store.<span class="fn">NewSecretStore</span>(file.<span class="fn">NewCol
         </tr>
         <tr class="hover:bg-slate-50">
           <td class="px-5 py-3 font-mono text-xs text-blue-700 bg-blue-50">proc_entries</td>
-          <td class="px-5 py-3 text-slate-700">ProcStore</td>
+          <td class="px-5 py-3 text-slate-700">ProcStore (collection backend only)</td>
           <td class="px-5 py-3 font-mono text-xs text-slate-600">{group}/{procName}</td>
-          <td class="px-5 py-3 text-slate-500 text-xs">ExpiresAt used for heartbeat TTL detection.</td>
+          <td class="px-5 py-3 text-slate-500 text-xs">Not used by the file backend. File-backed proc uses <code>internal/persis/file/proc</code> and keeps the released <code>.proc</code> layout.</td>
         </tr>
         <tr class="hover:bg-slate-50">
           <td class="px-5 py-3 font-mono text-xs text-blue-700 bg-blue-50">dispatch_tasks</td>
@@ -1036,11 +1036,11 @@ graph LR
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/errors.go</code> — ErrNotFound, ErrConflict</li>
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/file/</code> — FileBackend + FileCollection (480 ln)</li>
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/testutil/memory.go</code> — MemoryBackend (217 ln)</li>
-          <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/store/</code> — collection-backed adapters with tests, including queue and proc</li>
+          <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/store/</code> — collection-backed adapters with tests; proc remains collection-only and is not wired to the file backend</li>
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">internal/persis/filequeue</code> — removed after queue wiring moved to <code class="text-xs bg-white/10 px-1 rounded">store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))</code></li>
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">internal/persis/file/dagrun</code> — file-backed DAG-run store with exact existing file-layout compatibility</li>
           <li><span class="text-green-400 font-bold">✓</span> DAG-run wiring goes through <code class="text-xs bg-white/10 px-1 rounded">file.NewDAGRunStore</code> and service code depends on <code class="text-xs bg-white/10 px-1 rounded">exec.DAGRunStore</code></li>
-          <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">internal/persis/file/proc</code> — legacy .proc sidecar mechanics kept below the store abstraction</li>
+          <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">internal/persis/file/proc</code> — file-backed ProcStore keeps released <code>.proc</code> paths and payloads; no collection JSON is written under the proc directory</li>
         </ol>
       </div>
       <div class="bg-amber-900/20 border border-amber-600/30 rounded-xl p-6">

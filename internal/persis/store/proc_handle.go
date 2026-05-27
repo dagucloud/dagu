@@ -19,13 +19,11 @@ import (
 
 // ProcHandle is a collection-backed process heartbeat handle.
 type ProcHandle struct {
-	store      *ProcStore
-	groupName  string
-	recordID   string
-	legacy     ProcLegacyStore
-	legacyPath string
-	createdAt  time.Time
-	meta       exec.ProcMeta
+	store     *ProcStore
+	groupName string
+	recordID  string
+	createdAt time.Time
+	meta      exec.ProcMeta
 
 	started  atomic.Bool
 	canceled atomic.Bool
@@ -61,11 +59,6 @@ func (p *ProcHandle) cleanup(ctx context.Context) error {
 	var errs []error
 	if err := p.store.col.Delete(ctx, p.recordID); err != nil && !errors.Is(err, persis.ErrNotFound) {
 		errs = append(errs, err)
-	}
-	if p.legacy != nil && p.legacyPath != "" {
-		if err := p.legacy.Remove(p.legacyPath); err != nil {
-			errs = append(errs, err)
-		}
 	}
 	return errors.Join(errs...)
 }
@@ -129,27 +122,20 @@ func (p *ProcHandle) writeHeartbeat(ctx context.Context, now time.Time) error {
 		GroupName:       p.groupName,
 		Meta:            p.meta,
 		LastHeartbeatAt: now.Unix(),
-		LegacyPath:      p.legacyPath,
 	}
 	data, enc, err := persis.Encode(payload)
 	if err != nil {
 		return err
 	}
 	expiresAt := now.Add(p.store.staleTime)
-	if err := p.store.col.Put(ctx, &persis.Record{
+	return p.store.col.Put(ctx, &persis.Record{
 		ID:        p.recordID,
 		Data:      data,
 		Encoding:  enc,
 		CreatedAt: p.createdAt,
 		UpdatedAt: now,
 		ExpiresAt: &expiresAt,
-	}); err != nil {
-		return err
-	}
-	if p.legacy != nil && p.legacyPath != "" {
-		return p.legacy.Write(p.legacyPath, now.Unix(), p.meta)
-	}
-	return nil
+	})
 }
 
 type procPayload struct {
@@ -157,5 +143,4 @@ type procPayload struct {
 	GroupName       string        `json:"groupName"`
 	Meta            exec.ProcMeta `json:"meta"`
 	LastHeartbeatAt int64         `json:"lastHeartbeatAt"`
-	LegacyPath      string        `json:"legacyPath,omitempty"`
 }

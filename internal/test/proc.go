@@ -17,11 +17,10 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis/file"
-	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/stretchr/testify/require"
 )
 
-func newProcStore(cfg *config.Config) *store.ProcStore {
+func newProcStore(cfg *config.Config) exec.ProcStore {
 	return file.NewProcStore(cfg)
 }
 

@@ -5,18 +5,17 @@ package file
 
 import (
 	"github.com/dagucloud/dagu/internal/cmn/config"
-	fileproc "github.com/dagucloud/dagu/internal/persis/file/proc"
-	"github.com/dagucloud/dagu/internal/persis/store"
+	"github.com/dagucloud/dagu/internal/persis/file/proc"
 )
 
-// NewProcStore wires the collection-backed proc store with file sidecar compatibility.
-func NewProcStore(cfg *config.Config, opts ...store.ProcStoreOption) *store.ProcStore {
-	storeOpts := []store.ProcStoreOption{
-		store.WithProcStaleThreshold(cfg.Proc.StaleThreshold),
-		store.WithProcHeartbeatInterval(cfg.Proc.HeartbeatInterval),
-		store.WithProcHeartbeatSyncInterval(cfg.Proc.HeartbeatSyncInterval),
-		store.WithProcLegacyStore(fileproc.NewLegacyStore(cfg.Paths.ProcDir)),
+// NewProcStore wires the file-backed proc store without changing the released
+// .proc file layout under cfg.Paths.ProcDir.
+func NewProcStore(cfg *config.Config, opts ...proc.StoreOption) *proc.Store {
+	storeOpts := []proc.StoreOption{
+		proc.WithStaleThreshold(cfg.Proc.StaleThreshold),
+		proc.WithHeartbeatInterval(cfg.Proc.HeartbeatInterval),
+		proc.WithHeartbeatSyncInterval(cfg.Proc.HeartbeatSyncInterval),
 	}
 	storeOpts = append(storeOpts, opts...)
-	return store.NewProcStore(NewCollection(cfg.Paths.ProcDir), storeOpts...)
+	return proc.New(cfg.Paths.ProcDir, storeOpts...)
 }

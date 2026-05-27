@@ -5,7 +5,6 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -58,7 +57,6 @@ type ProcStore struct {
 	col               persis.Collection
 	staleTime         time.Duration
 	heartbeatInterval time.Duration
-	legacy            ProcLegacyStore
 
 	mu         sync.Mutex
 	locks      map[string]*procHeldLock
@@ -76,9 +74,6 @@ func NewProcStore(col persis.Collection, opts ...ProcStoreOption) *ProcStore {
 	}
 	for _, opt := range opts {
 		opt(s)
-	}
-	if s.legacy != nil {
-		s.legacy.SetStaleThreshold(s.staleTime)
 	}
 	return s
 }
@@ -98,10 +93,6 @@ func (s *ProcStore) Acquire(ctx context.Context, groupName string, meta exec.Pro
 		recordID:  procRecordID(groupName, meta, now),
 		createdAt: now,
 		meta:      meta,
-	}
-	if s.legacy != nil {
-		handle.legacy = s.legacy
-		handle.legacyPath = s.legacy.FilePath(groupName, meta, now)
 	}
 	if err := handle.startHeartbeat(ctx); err != nil {
 		return nil, err
@@ -187,13 +178,6 @@ func (s *ProcStore) ListEntries(ctx context.Context, groupName string) ([]exec.P
 	if err != nil {
 		return nil, err
 	}
-	if s.legacy != nil {
-		legacy, err := s.legacy.ListEntries(groupName)
-		if err != nil {
-			return nil, err
-		}
-		entries = append(entries, legacy...)
-	}
 	return dedupeAndSortProcEntries(entries), nil
 }
 
@@ -221,33 +205,7 @@ func (s *ProcStore) LatestFreshEntryByDAGName(ctx context.Context, groupName, da
 
 // LatestHeartbeat returns the latest heartbeat observation for dagRun.
 func (s *ProcStore) LatestHeartbeat(ctx context.Context, groupName string, dagRun exec.DAGRunRef) (*exec.ProcHeartbeat, error) {
-	collectionHeartbeat, err := s.latestCollectionHeartbeat(ctx, groupName, dagRun)
-	if err != nil {
-		if s.legacy != nil {
-			legacyHeartbeat, legacyErr := s.legacy.LatestHeartbeat(groupName, dagRun)
-			if legacyErr != nil {
-				return nil, errors.Join(err, legacyErr)
-			}
-			if legacyHeartbeat != nil {
-				return legacyHeartbeat, nil
-			}
-		}
-		return nil, err
-	}
-	if s.legacy == nil || (collectionHeartbeat != nil && collectionHeartbeat.Fresh) {
-		return collectionHeartbeat, nil
-	}
-	legacyHeartbeat, err := s.legacy.LatestHeartbeat(groupName, dagRun)
-	if err != nil {
-		return nil, err
-	}
-	if collectionHeartbeat == nil {
-		return legacyHeartbeat, nil
-	}
-	if legacyHeartbeat == nil || !procHeartbeatPreferred(*legacyHeartbeat, *collectionHeartbeat) {
-		return collectionHeartbeat, nil
-	}
-	return legacyHeartbeat, nil
+	return s.latestCollectionHeartbeat(ctx, groupName, dagRun)
 }
 
 // ListAllAlive returns all fresh DAG runs grouped by process group.
@@ -290,13 +248,6 @@ func (s *ProcStore) ListAllEntries(ctx context.Context) ([]exec.ProcEntry, error
 	if err != nil {
 		return nil, err
 	}
-	if s.legacy != nil {
-		legacy, err := s.legacy.ListAllEntries()
-		if err != nil {
-			return nil, err
-		}
-		entries = append(entries, legacy...)
-	}
 	return dedupeAndSortProcEntries(entries), nil
 }
 
@@ -305,17 +256,10 @@ func (s *ProcStore) RemoveIfStale(ctx context.Context, entry exec.ProcEntry) err
 	if entry.GroupName == "" || entry.Fresh {
 		return nil
 	}
-	switch procEntryIdentityKind(entry) {
-	case procEntryIdentityLegacy:
-		if s.legacy == nil {
-			return nil
-		}
-		return s.legacy.RemoveIfStale(ctx, entry)
-	case procEntryIdentityCollection:
+	if procEntryIdentityKind(entry) == procEntryIdentityCollection {
 		return s.removeCollectionIfStale(ctx, entry)
-	default:
-		return nil
 	}
+	return nil
 }
 
 // Validate fails if any proc entry cannot be decoded.

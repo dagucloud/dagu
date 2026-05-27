@@ -21,7 +21,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
-	fileproc "github.com/dagucloud/dagu/internal/persis/file/proc"
+	"github.com/dagucloud/dagu/internal/persis/file/proc"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/runtime"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
@@ -86,16 +86,16 @@ func newQueueFixture(t *testing.T) *queueFixture {
 	}
 }
 
-func newSchedulerTestProcStore(procDir string, cfg *config.Config) *store.ProcStore {
-	opts := []store.ProcStoreOption{store.WithProcLegacyStore(fileproc.NewLegacyStore(procDir))}
+func newSchedulerTestProcStore(procDir string, cfg *config.Config) exec.ProcStore {
+	opts := []proc.StoreOption{}
 	if cfg != nil {
 		opts = append(opts,
-			store.WithProcHeartbeatInterval(cfg.Proc.HeartbeatInterval),
-			store.WithProcHeartbeatSyncInterval(cfg.Proc.HeartbeatSyncInterval),
-			store.WithProcStaleThreshold(cfg.Proc.StaleThreshold),
+			proc.WithHeartbeatInterval(cfg.Proc.HeartbeatInterval),
+			proc.WithHeartbeatSyncInterval(cfg.Proc.HeartbeatSyncInterval),
+			proc.WithStaleThreshold(cfg.Proc.StaleThreshold),
 		)
 	}
-	return store.NewProcStore(file.NewCollection(procDir), opts...)
+	return proc.New(procDir, opts...)
 }
 
 func (f *queueFixture) withDAG(name string, maxActiveRuns int) *queueFixture {

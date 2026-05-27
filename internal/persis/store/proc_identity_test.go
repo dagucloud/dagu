@@ -27,12 +27,6 @@ func TestProcEntryIdentityRoundTrip(t *testing.T) {
 			kind:  procEntryIdentityCollection,
 			value: "queue-a/proc-dag/run-1",
 		},
-		{
-			name:  "legacy windows path",
-			id:    legacyProcEntryID(`C:\Users\runneradmin\AppData\Local\Temp\dagu proc\queue-a\proc_123.proc`),
-			kind:  procEntryIdentityLegacy,
-			value: `C:\Users\runneradmin\AppData\Local\Temp\dagu proc\queue-a\proc_123.proc`,
-		},
 	}
 
 	for _, tc := range cases {

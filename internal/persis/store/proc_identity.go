@@ -12,15 +12,10 @@ import (
 
 const (
 	procEntryIdentityCollection = "collection"
-	procEntryIdentityLegacy     = "legacy"
 )
 
 func collectionProcEntryID(recordID string) exec.ProcEntryID {
 	return procEntryID(procEntryIdentityCollection, recordID)
-}
-
-func legacyProcEntryID(path string) exec.ProcEntryID {
-	return procEntryID(procEntryIdentityLegacy, path)
 }
 
 func procEntryID(kind, value string) exec.ProcEntryID {
