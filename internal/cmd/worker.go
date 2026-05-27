@@ -111,10 +111,11 @@ func runWorker(ctx *Context, _ []string) error {
 
 	if useRemoteHandler {
 		handlerCfg := worker.RemoteTaskHandlerConfig{
-			WorkerID:          workerID,
-			CoordinatorClient: coordinatorCli,
-			PeerConfig:        ctx.Config.Core.Peer,
-			Config:            ctx.Config,
+			WorkerID:           workerID,
+			CoordinatorClient:  coordinatorCli,
+			PeerConfig:         ctx.Config.Core.Peer,
+			Config:             ctx.Config,
+			AgentStoresFactory: cmdprocess.NewRuntimeAgentStores,
 		}
 		w.SetHandler(worker.NewRemoteTaskHandler(handlerCfg))
 		logger.Info(ctx, "Using remote task handler for shared-nothing mode")

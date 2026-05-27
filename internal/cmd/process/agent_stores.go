@@ -23,3 +23,8 @@ func NewAgentStores(ctx context.Context, cfg *config.Config, contextStore *clico
 		file.WithAgentSeedReferences(),
 	)
 }
+
+// NewRuntimeAgentStores creates the agent stores used by worker/runtime execution.
+func NewRuntimeAgentStores(ctx context.Context, cfg *config.Config) AgentStores {
+	return file.NewAgentStores(ctx, cfg)
+}

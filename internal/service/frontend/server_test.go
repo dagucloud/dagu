@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -19,10 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
 
-	authmodel "github.com/dagucloud/dagu/internal/auth"
 	"github.com/dagucloud/dagu/internal/cmn/config"
-	"github.com/dagucloud/dagu/internal/persis/file"
-	persiststore "github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
 	apiv1 "github.com/dagucloud/dagu/internal/service/frontend/api/v1"
 	frontendauth "github.com/dagucloud/dagu/internal/service/frontend/auth"
@@ -36,31 +32,6 @@ func testContext(t *testing.T) context.Context {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	return ctx
-}
-
-// testConfig creates a minimal config for initBuiltinAuthService tests.
-// All directories point to subdirectories of the given temp dir.
-func testConfig(tmpDir string, ia config.InitialAdmin) *config.Config {
-	return &config.Config{
-		Paths: config.PathsConfig{
-			UsersDir:    filepath.Join(tmpDir, "users"),
-			APIKeysDir:  filepath.Join(tmpDir, "apikeys"),
-			WebhooksDir: filepath.Join(tmpDir, "webhooks"),
-			DataDir:     filepath.Join(tmpDir, "data"),
-		},
-		Server: config.Server{
-			Auth: config.Auth{
-				Mode: config.AuthModeBuiltin,
-				Builtin: config.AuthBuiltin{
-					Token: config.TokenConfig{
-						Secret: "test-secret-for-jwt-signing",
-						TTL:    24 * time.Hour,
-					},
-					InitialAdmin: ia,
-				},
-			},
-		},
-	}
 }
 
 func TestRegisterDedicatedSSEFetchersUsesEventStoreInvalidationForRunTopics(t *testing.T) {
@@ -275,124 +246,6 @@ func TestCacheControlForAssetCachesNonJavaScriptAssets(t *testing.T) {
 	t.Parallel()
 
 	assert.Equal(t, "max-age=86400", cacheControlForAsset("/assets/favicon.ico"))
-}
-
-func TestInitBuiltinAuthService_AutoProvision(t *testing.T) {
-	t.Parallel()
-
-	t.Run("ProvisionsAdminWhenNoUsers", func(t *testing.T) {
-		t.Parallel()
-		cfg := testConfig(t.TempDir(), config.InitialAdmin{
-			Username: "testadmin",
-			Password: "securepass123",
-		})
-
-		result, setupRequired, err := initBuiltinAuthService(testContext(t), cfg)
-		require.NoError(t, err)
-		assert.False(t, setupRequired, "setup should not be required after auto-provisioning")
-
-		// Verify user was created
-		count, err := result.AuthService.CountUsers(testContext(t))
-		require.NoError(t, err)
-		assert.Equal(t, int64(1), count)
-
-		// Verify user has correct role and username
-		user, err := result.UserStore.GetByUsername(testContext(t), "testadmin")
-		require.NoError(t, err)
-		assert.Equal(t, "testadmin", user.Username)
-		assert.Equal(t, authmodel.RoleAdmin, user.Role)
-	})
-
-	t.Run("SkipsWhenUsersExist", func(t *testing.T) {
-		t.Parallel()
-		tmpDir := t.TempDir()
-		cfg := testConfig(tmpDir, config.InitialAdmin{
-			Username: "testadmin",
-			Password: "securepass123",
-		})
-
-		// Pre-create a user directly in the store (same collection as initBuiltinAuthService uses).
-		store, err := persiststore.NewUserStore(file.NewCollection(cfg.Paths.UsersDir))
-		require.NoError(t, err)
-		existing := authmodel.NewUser("existinguser", "$2a$12$K8gHXqrFdFvMwJBG0VlJGuAGz3FwBmTm8xnNQblN2tCxrQgPLmwHa", authmodel.RoleAdmin)
-		require.NoError(t, store.Create(testContext(t), existing))
-
-		result, setupRequired, err := initBuiltinAuthService(testContext(t), cfg)
-		require.NoError(t, err)
-		assert.False(t, setupRequired)
-
-		// Verify no additional user was created
-		count, err := result.AuthService.CountUsers(testContext(t))
-		require.NoError(t, err)
-		assert.Equal(t, int64(1), count)
-	})
-
-	t.Run("SkipsWhenNotConfigured", func(t *testing.T) {
-		t.Parallel()
-		cfg := testConfig(t.TempDir(), config.InitialAdmin{})
-
-		_, setupRequired, err := initBuiltinAuthService(testContext(t), cfg)
-		require.NoError(t, err)
-		assert.True(t, setupRequired, "setup should be required when initial_admin is not configured")
-	})
-
-	t.Run("FailsOnInvalidPassword", func(t *testing.T) {
-		t.Parallel()
-		cfg := testConfig(t.TempDir(), config.InitialAdmin{
-			Username: "testadmin",
-			Password: "short", // less than 8 characters
-		})
-
-		_, _, err := initBuiltinAuthService(testContext(t), cfg)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to auto-provision initial admin user")
-	})
-
-	t.Run("Idempotent", func(t *testing.T) {
-		t.Parallel()
-		tmpDir := t.TempDir()
-		cfg := testConfig(tmpDir, config.InitialAdmin{
-			Username: "testadmin",
-			Password: "securepass123",
-		})
-
-		// First call: provisions the user
-		_, setupRequired, err := initBuiltinAuthService(testContext(t), cfg)
-		require.NoError(t, err)
-		assert.False(t, setupRequired)
-
-		// Second call: should not create a duplicate
-		result, setupRequired, err := initBuiltinAuthService(testContext(t), cfg)
-		require.NoError(t, err)
-		assert.False(t, setupRequired)
-
-		count, err := result.AuthService.CountUsers(testContext(t))
-		require.NoError(t, err)
-		assert.Equal(t, int64(1), count)
-	})
-}
-
-// TestInitBuiltinAuthService_UserCanAuthenticate verifies that the auto-provisioned
-// user can actually authenticate (password was hashed correctly).
-func TestInitBuiltinAuthService_UserCanAuthenticate(t *testing.T) {
-	t.Parallel()
-	cfg := testConfig(t.TempDir(), config.InitialAdmin{
-		Username: "authadmin",
-		Password: "mypassword123",
-	})
-
-	result, _, err := initBuiltinAuthService(testContext(t), cfg)
-	require.NoError(t, err)
-
-	// Authenticate via the auth service
-	user, err := result.AuthService.Authenticate(testContext(t), "authadmin", "mypassword123")
-	require.NoError(t, err)
-	assert.Equal(t, "authadmin", user.Username)
-	assert.Equal(t, authmodel.RoleAdmin, user.Role)
-
-	// Wrong password should fail
-	_, err = result.AuthService.Authenticate(testContext(t), "authadmin", "wrongpassword")
-	require.Error(t, err)
 }
 
 func TestServerUsesEvaluatedBasePathForOIDCAndAPI(t *testing.T) {

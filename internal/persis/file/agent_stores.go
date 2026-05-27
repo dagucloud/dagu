@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 
 	"github.com/dagucloud/dagu/internal/agent"
-	"github.com/dagucloud/dagu/internal/agentoauth"
 	"github.com/dagucloud/dagu/internal/clicontext"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/crypto"
@@ -29,16 +28,7 @@ import (
 )
 
 // AgentStores contains the stores and resolvers used by runtime agent flows.
-type AgentStores struct {
-	ConfigStore     agent.ConfigStore
-	ModelStore      agent.ModelStore
-	MemoryStore     agent.MemoryStore
-	SoulStore       agent.SoulStore
-	OAuthManager    *agentoauth.Manager
-	ContextResolver agent.RemoteContextResolver
-	SecretStore     secret.Store
-	ReferencesDir   string
-}
+type AgentStores = agent.RuntimeStores
 
 // AgentStoresOption configures file-backed agent store wiring.
 type AgentStoresOption func(*AgentStoresOptions)

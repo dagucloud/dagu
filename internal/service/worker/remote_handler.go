@@ -25,7 +25,6 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/dagstate"
-	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	"github.com/dagucloud/dagu/internal/runtime"
 	rtagent "github.com/dagucloud/dagu/internal/runtime/agent"
@@ -59,7 +58,12 @@ type RemoteTaskHandlerConfig struct {
 	PeerConfig config.Peer
 	// Config is the main application configuration
 	Config *config.Config
+	// AgentStoresFactory creates backend-specific agent runtime stores.
+	AgentStoresFactory AgentStoresFactory
 }
+
+// AgentStoresFactory wires backend-specific agent runtime stores.
+type AgentStoresFactory func(context.Context, *config.Config) agent.RuntimeStores
 
 // NewRemoteTaskHandler creates a new TaskHandler that runs tasks in-process
 // with status pushing and log streaming to the coordinator.
@@ -74,28 +78,30 @@ func NewRemoteTaskHandler(cfg RemoteTaskHandlerConfig) TaskHandler {
 		}
 	}
 	return &remoteTaskHandler{
-		workerID:          cfg.WorkerID,
-		coordinatorClient: cfg.CoordinatorClient,
-		dagRunStore:       cfg.DAGRunStore,
-		dagStore:          cfg.DAGStore,
-		dagRunMgr:         cfg.DAGRunMgr,
-		stateStore:        stateStore,
-		serviceRegistry:   cfg.ServiceRegistry,
-		peerConfig:        cfg.PeerConfig,
-		config:            cfg.Config,
+		workerID:           cfg.WorkerID,
+		coordinatorClient:  cfg.CoordinatorClient,
+		dagRunStore:        cfg.DAGRunStore,
+		dagStore:           cfg.DAGStore,
+		dagRunMgr:          cfg.DAGRunMgr,
+		stateStore:         stateStore,
+		serviceRegistry:    cfg.ServiceRegistry,
+		peerConfig:         cfg.PeerConfig,
+		config:             cfg.Config,
+		agentStoresFactory: cfg.AgentStoresFactory,
 	}
 }
 
 type remoteTaskHandler struct {
-	workerID          string
-	coordinatorClient coordinator.Client
-	dagRunStore       exec.DAGRunStore
-	dagStore          exec.DAGStore
-	dagRunMgr         runtime.Manager
-	stateStore        dagstate.Store
-	serviceRegistry   exec.ServiceRegistry
-	peerConfig        config.Peer
-	config            *config.Config
+	workerID           string
+	coordinatorClient  coordinator.Client
+	dagRunStore        exec.DAGRunStore
+	dagStore           exec.DAGStore
+	dagRunMgr          runtime.Manager
+	stateStore         dagstate.Store
+	serviceRegistry    exec.ServiceRegistry
+	peerConfig         config.Peer
+	config             *config.Config
+	agentStoresFactory AgentStoresFactory
 }
 
 // Handle executes a task in-process with remote status/log streaming
@@ -281,7 +287,7 @@ type retryConfig struct {
 	triggerType core.TriggerType
 }
 
-type agentStoreBundle = file.AgentStores
+type agentStoreBundle = agent.RuntimeStores
 
 type taskInitError struct {
 	err error
@@ -339,10 +345,13 @@ func (h *remoteTaskHandler) createRemoteHandlers(dagRunID, dagName string, root 
 
 // agentStores creates the agent config, model, soul, memory, and OAuth stores from the config paths.
 func (h *remoteTaskHandler) agentStores(ctx context.Context) agentStoreBundle {
-	return file.NewAgentStores(ctx, h.config)
+	if h.agentStoresFactory == nil {
+		return agentStoreBundle{}
+	}
+	return h.agentStoresFactory(ctx, h.config)
 }
 
-func (h *remoteTaskHandler) agentStoresFromSnapshot(snapshotPayload []byte) (agentStoreBundle, error) {
+func (h *remoteTaskHandler) agentStoresFromSnapshot(ctx context.Context, snapshotPayload []byte) (agentStoreBundle, error) {
 	snapshot, err := agent.UnmarshalSnapshot(snapshotPayload)
 	if err != nil {
 		return agentStoreBundle{}, err
@@ -359,12 +368,13 @@ func (h *remoteTaskHandler) agentStoresFromSnapshot(snapshotPayload []byte) (age
 		return agentStoreBundle{}, fmt.Errorf("agent snapshot is missing models")
 	}
 
+	runtimeStores := h.agentStores(ctx)
 	return agentStoreBundle{
 		ConfigStore: stores.ConfigStore,
 		ModelStore:  stores.ModelStore,
 		SoulStore:   stores.SoulStore,
 		MemoryStore: stores.MemoryStore,
-		SecretStore: file.NewSecretStore(context.Background(), h.config),
+		SecretStore: runtimeStores.SecretStore,
 	}, nil
 }
 
@@ -571,7 +581,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 	// Create agent stores for agent step execution
 	var agentStores agentStoreBundle
 	if len(agentSnapshot) > 0 {
-		agentStores, err = h.agentStoresFromSnapshot(agentSnapshot)
+		agentStores, err = h.agentStoresFromSnapshot(ctx, agentSnapshot)
 		if err != nil {
 			return newTaskInitError(fmt.Errorf("hydrate agent snapshot: %w", err))
 		}

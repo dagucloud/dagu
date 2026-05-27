@@ -55,14 +55,15 @@ func (e *Engine) NewWorker(opts WorkerOptions) (*Worker, error) {
 	labels := cloneStringMap(opts.Labels)
 	w := worker.NewWorker(workerID, maxActiveRuns, client, labels, &cfg, worker.WithDAGRunStore(e.dagRunStore))
 	w.SetHandler(worker.NewRemoteTaskHandler(worker.RemoteTaskHandlerConfig{
-		WorkerID:          workerID,
-		CoordinatorClient: client,
-		DAGRunStore:       e.dagRunStore,
-		DAGStore:          e.dagStore,
-		DAGRunMgr:         e.dagRunMgr,
-		ServiceRegistry:   e.serviceRegistry,
-		PeerConfig:        cfg.Core.Peer,
-		Config:            &cfg,
+		WorkerID:           workerID,
+		CoordinatorClient:  client,
+		DAGRunStore:        e.dagRunStore,
+		DAGStore:           e.dagStore,
+		DAGRunMgr:          e.dagRunMgr,
+		ServiceRegistry:    e.serviceRegistry,
+		PeerConfig:         cfg.Core.Peer,
+		Config:             &cfg,
+		AgentStoresFactory: worker.AgentStoresFactory(e.agentStoresFactory),
 	}))
 	return &Worker{inner: w}, nil
 }

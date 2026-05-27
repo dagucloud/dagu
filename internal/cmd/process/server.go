@@ -95,6 +95,7 @@ func NewServer(cfg ServerConfig, opts ...frontend.ServerOption) (*frontend.Serve
 		metricsRegistry,
 		collector,
 		cfg.ResourceService,
+		NewFrontendStoreFactories(),
 		opts...,
 	)
 }

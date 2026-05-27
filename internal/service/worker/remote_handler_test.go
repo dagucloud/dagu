@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/dagstate"
+	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
 	"github.com/dagucloud/dagu/internal/proto/convert"
@@ -866,6 +867,9 @@ func TestAgentStoresFromSnapshot_HydratesSnapshotStores(t *testing.T) {
 				DataDir: t.TempDir(),
 			},
 		},
+		agentStoresFactory: func(ctx context.Context, cfg *config.Config) agent.RuntimeStores {
+			return file.NewAgentStores(ctx, cfg)
+		},
 	}
 	payload, err := agent.MarshalSnapshot(&agent.Snapshot{
 		Config: &agent.Config{
@@ -891,7 +895,7 @@ func TestAgentStoresFromSnapshot_HydratesSnapshotStores(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	stores, err := handler.agentStoresFromSnapshot(payload)
+	stores, err := handler.agentStoresFromSnapshot(context.Background(), payload)
 	require.NoError(t, err)
 	require.NotNil(t, stores.ConfigStore)
 	require.NotNil(t, stores.ModelStore)

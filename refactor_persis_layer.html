@@ -790,7 +790,8 @@ us  := store.<span class="fn">NewUserStore</span>(file.<span class="fn">NewColle
 ss  := store.<span class="fn">NewSecretStore</span>(file.<span class="fn">NewCollection</span>(cfg.Paths.SecretsDir), encryptor)
 <span class="cm">// DAG-run, DAG definition, proc, and service-registry wiring should go through the file backend boundary instead of leaf file packages.</span>
 <span class="cm">// Agent config/model/soul/memory/OAuth/session wiring follows the same file boundary for CLI, server, worker, and snapshots.</span>
-<span class="cm">// Service stores such as audit, event, notification, incident, workspace, license, token secret, and upgrade cache also go through the same file boundary.</span></pre>
+<span class="cm">// Service stores such as audit, event, notification, incident, workspace, license, token secret, and upgrade cache also go through the same file boundary.</span>
+<span class="cm">// frontend.NewServer receives backend-neutral StoreFactories; cmd/process supplies the file-backed factory bundle.</span></pre>
         </div>
       </div>
     </div>

@@ -438,16 +438,7 @@ func fileEngineDAGStore(_ context.Context, cfg *config.Config, opts iengine.DAGS
 }
 
 func fileEngineAgentStores(ctx context.Context, cfg *config.Config) iengine.AgentStores {
-	stores := file.NewAgentStores(ctx, cfg, file.WithAgentContextResolverFromConfig())
-	return iengine.AgentStores{
-		ConfigStore:     stores.ConfigStore,
-		ModelStore:      stores.ModelStore,
-		MemoryStore:     stores.MemoryStore,
-		SoulStore:       stores.SoulStore,
-		OAuthManager:    stores.OAuthManager,
-		ContextResolver: stores.ContextResolver,
-		SecretStore:     stores.SecretStore,
-	}
+	return file.NewAgentStores(ctx, cfg, file.WithAgentContextResolverFromConfig())
 }
 
 func internalDistributedOptions(opts DistributedOptions) iengine.DistributedOptions {

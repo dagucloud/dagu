@@ -9,12 +9,10 @@ import (
 	"fmt"
 
 	"github.com/dagucloud/dagu/internal/agent"
-	"github.com/dagucloud/dagu/internal/agentoauth"
 	"github.com/dagucloud/dagu/internal/agentsnapshot"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/dagstate"
-	"github.com/dagucloud/dagu/internal/secret"
 )
 
 // PersistenceFactory wires backend-specific stores after configuration is loaded.
@@ -44,15 +42,7 @@ type DAGStoreFactory func(context.Context, *config.Config, DAGStoreFactoryOption
 type AgentStoresFactory func(context.Context, *config.Config) AgentStores
 
 // AgentStores contains the stores and resolvers used by runtime agent flows.
-type AgentStores struct {
-	ConfigStore     agent.ConfigStore
-	ModelStore      agent.ModelStore
-	MemoryStore     agent.MemoryStore
-	SoulStore       agent.SoulStore
-	OAuthManager    *agentoauth.Manager
-	ContextResolver agent.RemoteContextResolver
-	SecretStore     secret.Store
-}
+type AgentStores = agent.RuntimeStores
 
 type validatingProcStore interface {
 	Validate(context.Context) error
