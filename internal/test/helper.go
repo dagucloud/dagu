@@ -286,10 +286,7 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 		filedag.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(cfg.Paths.DAGsDir)),
 		filedag.WithSkipExamples(true),
 	)
-	runStore := dagrun.New(
-		cfg.Paths.DAGRunsDir,
-		dagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
-	)
+	runStore := file.NewDAGRunStore(cfg)
 	procStore := newProcStore(cfg)
 	queueStore := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
 	stateStore := store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir))

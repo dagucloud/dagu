@@ -100,7 +100,14 @@ func runWorker(ctx *Context, _ []string) error {
 		return err
 	}
 
-	w := worker.NewWorker(workerID, maxActiveRuns, coordinatorCli, labels, ctx.Config)
+	w := worker.NewWorker(
+		workerID,
+		maxActiveRuns,
+		coordinatorCli,
+		labels,
+		ctx.Config,
+		worker.WithDAGRunStore(ctx.DAGRunStore),
+	)
 
 	if useRemoteHandler {
 		handlerCfg := worker.RemoteTaskHandlerConfig{

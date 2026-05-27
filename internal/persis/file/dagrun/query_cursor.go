@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -16,7 +15,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 )
 
-var ErrInvalidQueryCursor = errors.New("dagrun: invalid query cursor")
+var ErrInvalidQueryCursor = exec.ErrInvalidQueryCursor
 
 // queryCursorVersion 2 reflects the filter hash JSON key migration from tags to labels.
 const queryCursorVersion = 2

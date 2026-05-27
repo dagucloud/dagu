@@ -11,7 +11,6 @@ import (
 
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis/file"
-	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/internal/persis/filedag"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/runtime"
@@ -68,10 +67,7 @@ func SetupScheduler(t *testing.T, opts ...HelperOption) *Scheduler {
 		filedag.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(helper.Config.Paths.DAGsDir)),
 		filedag.WithSkipExamples(true),
 	)
-	drs := dagrun.New(
-		helper.Config.Paths.DAGRunsDir,
-		dagrun.WithArtifactDir(helper.Config.Paths.ArtifactDir),
-	)
+	drs := file.NewDAGRunStore(helper.Config)
 	ps := newProcStore(helper.Config)
 	qs := store.NewQueueStore(file.NewCollection(helper.Config.Paths.QueueDir))
 

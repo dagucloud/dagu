@@ -53,11 +53,11 @@ func (e *Engine) NewWorker(opts WorkerOptions) (*Worker, error) {
 		return nil, err
 	}
 	labels := cloneStringMap(opts.Labels)
-	w := worker.NewWorker(workerID, maxActiveRuns, client, labels, &cfg)
+	w := worker.NewWorker(workerID, maxActiveRuns, client, labels, &cfg, worker.WithDAGRunStore(e.dagRunStore))
 	w.SetHandler(worker.NewRemoteTaskHandler(worker.RemoteTaskHandlerConfig{
 		WorkerID:          workerID,
 		CoordinatorClient: client,
-		DAGRunStore:       nil,
+		DAGRunStore:       e.dagRunStore,
 		DAGStore:          e.dagStore,
 		DAGRunMgr:         e.dagRunMgr,
 		ServiceRegistry:   e.serviceRegistry,

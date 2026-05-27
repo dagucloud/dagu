@@ -423,7 +423,7 @@ graph TB
             <div class="bg-slate-200 border border-slate-300 rounded p-2 text-center text-xs font-mono text-slate-500">sql/<br/><span>future</span></div>
             <div class="bg-slate-200 border border-slate-300 rounded p-2 text-center text-xs font-mono text-slate-500">etcd/<br/><span>future</span></div>
           </div>
-          <p class="text-xs text-green-600 text-center mt-4">Add PostgreSQL → implement Backend + Collection only</p>
+          <p class="text-xs text-green-600 text-center mt-4">Add PostgreSQL → Backend + Collection for collection-backed stores; separate lock and DAGRunStore work remains</p>
         </div>
       </div>
     </div>
@@ -605,7 +605,7 @@ graph TB
           <span class="text-green-500 text-xl mt-0.5">🔒</span>
           <div>
             <p class="font-medium text-slate-800">Schema stability</p>
-            <p class="text-sm text-slate-600">SQL schema never changes as domain evolves. New fields in DAGRunStatus? Update the struct, marshal to JSON, done. No migrations for domain changes.</p>
+            <p class="text-sm text-slate-600">Collection-backed SQL records can keep a stable envelope as fields evolve. DAG-run remains a separate backend-specific store, so it is not covered by this generic schema claim.</p>
           </div>
         </div>
         <div class="flex gap-3">
@@ -773,7 +773,7 @@ ss  := filesecret.<span class="fn">New</span>(cfg.Paths.SecretsDir, ...)
         <p class="text-xs font-mono text-green-500 mb-2">AFTER — current branch wiring</p>
         <div class="bg-slate-900 rounded-lg p-4 overflow-x-auto">
           <pre class="text-xs text-slate-300"><span class="cm">// context.go — NewContext()</span>
-drs := dagrun.<span class="fn">New</span>(cfg.Paths.DAGRunsDir, ...)
+drs := file.<span class="fn">NewDAGRunStore</span>(cfg, ...)
 qs  := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
 ps  := store.NewProcStore(file.NewCollection(cfg.Paths.ProcDir),
         store.WithProcLegacyStore(fileproc.NewLegacyStore(cfg.Paths.ProcDir)))
@@ -784,7 +784,7 @@ ads := store.NewActiveDistributedRunStore(activeRunCollection)
 dts := store.NewDispatchTaskStore(file.NewCollection(distributedDir))
 us  := store.<span class="fn">NewUserStore</span>(file.<span class="fn">NewCollection</span>(cfg.Paths.UsersDir), ...)
 ss  := store.<span class="fn">NewSecretStore</span>(file.<span class="fn">NewCollection</span>(cfg.Paths.SecretsDir), encryptor)
-<span class="cm">// DAG-run currently stays file-backed behind exec.DAGRunStore.</span></pre>
+<span class="cm">// API, worker, and engine paths use exec.DAGRunStore instead of importing file/dagrun.</span></pre>
         </div>
       </div>
     </div>
@@ -966,6 +966,7 @@ graph LR
           <li>• FileBackend maps collection IDs to the <em>same</em> directory layout for collection-backed stores. No data migration.</li>
           <li>• DAG-run is a strict compatibility refactor: physical paths, sidecar files, status log shape, indexes, and lock behavior must not change.</li>
           <li>• Removing <code class="text-xs bg-green-100 px-1 rounded">filedagrun</code> means removing the legacy package/API, not moving file-layout code into the DB-neutral <code class="text-xs bg-green-100 px-1 rounded">store</code> package.</li>
+          <li>• API, worker, and engine code must depend on <code class="text-xs bg-green-100 px-1 rounded">exec.DAGRunStore</code>; only file persistence wiring and tests should import <code class="text-xs bg-green-100 px-1 rounded">internal/persis/file/dagrun</code>.</li>
           <li>• Old and new code can run together during porting (different stores).</li>
           <li>• Each store port is independently testable and reviewable.</li>
           <li>• File format (JSON) unchanged — existing file-backed data remains readable immediately.</li>
@@ -1031,6 +1032,7 @@ graph LR
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/store/</code> — collection-backed adapters with tests, including queue and proc</li>
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">internal/persis/filequeue</code> — removed after queue wiring moved to <code class="text-xs bg-white/10 px-1 rounded">store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))</code></li>
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">internal/persis/file/dagrun</code> — file-backed DAG-run store with exact existing file-layout compatibility</li>
+          <li><span class="text-green-400 font-bold">✓</span> DAG-run wiring goes through <code class="text-xs bg-white/10 px-1 rounded">file.NewDAGRunStore</code> and service code depends on <code class="text-xs bg-white/10 px-1 rounded">exec.DAGRunStore</code></li>
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">internal/persis/file/proc</code> — legacy .proc sidecar mechanics kept below the store abstraction</li>
         </ol>
       </div>

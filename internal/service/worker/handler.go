@@ -18,7 +18,6 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
-	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
@@ -34,6 +33,15 @@ var _ TaskHandler = (*taskHandler)(nil)
 
 // NewTaskHandler creates a new TaskHandler
 func NewTaskHandler(cfg *config.Config, bundleClients ...workspacebundle.Client) TaskHandler {
+	return NewTaskHandlerWithDAGRunStore(cfg, nil, bundleClients...)
+}
+
+// NewTaskHandlerWithDAGRunStore creates a new TaskHandler using the provided DAG-run store.
+func NewTaskHandlerWithDAGRunStore(
+	cfg *config.Config,
+	dagRunStore exec.DAGRunStore,
+	bundleClients ...workspacebundle.Client,
+) TaskHandler {
 	var bundleClient workspacebundle.Client
 	if len(bundleClients) > 0 {
 		bundleClient = bundleClients[0]
@@ -41,7 +49,7 @@ func NewTaskHandler(cfg *config.Config, bundleClients ...workspacebundle.Client)
 	return &taskHandler{
 		subCmdBuilder: runtime.NewSubCmdBuilder(cfg),
 		baseConfig:    cfg.Paths.BaseConfig,
-		dagRunsDir:    cfg.Paths.DAGRunsDir,
+		dagRunStore:   dagRunStore,
 		bundleClient:  bundleClient,
 	}
 }
@@ -49,7 +57,7 @@ func NewTaskHandler(cfg *config.Config, bundleClients ...workspacebundle.Client)
 type taskHandler struct {
 	subCmdBuilder *runtime.SubCmdBuilder
 	baseConfig    string
-	dagRunsDir    string
+	dagRunStore   exec.DAGRunStore
 	bundleClient  workspacebundle.Client
 }
 
@@ -134,14 +142,14 @@ func (e *taskHandler) prepareTaskDAG(ctx context.Context, task *coordinatorv1.Ta
 }
 
 func (e *taskHandler) sharedVolumeActionWorkDir(ctx context.Context, task *coordinatorv1.Task) (string, error) {
-	if e.dagRunsDir == "" {
-		return "", fmt.Errorf("dag-run directory is required for action workspace materialization")
+	if e.dagRunStore == nil {
+		return "", fmt.Errorf("dag-run store is required for action workspace materialization")
 	}
 	root := exec.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
 	if root.ID == "" {
 		return "", fmt.Errorf("root dag-run is required for action workspace materialization")
 	}
-	attempt, err := dagrun.New(e.dagRunsDir).FindSubAttempt(ctx, root, task.DagRunId)
+	attempt, err := e.dagRunStore.FindSubAttempt(ctx, root, task.DagRunId)
 	if err != nil {
 		return "", fmt.Errorf("find sub-DAG attempt work directory: %w", err)
 	}

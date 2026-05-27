@@ -60,6 +60,20 @@ type runningTaskState struct {
 	lastOwnerHeartbeatAt time.Time
 }
 
+type workerOptions struct {
+	dagRunStore exec.DAGRunStore
+}
+
+// Option configures a Worker.
+type Option func(*workerOptions)
+
+// WithDAGRunStore provides the DAG-run store used by the default task handler.
+func WithDAGRunStore(store exec.DAGRunStore) Option {
+	return func(o *workerOptions) {
+		o.dagRunStore = store
+	}
+}
+
 var errTaskClaimRejectedBeforeExecution = errors.New("task claim rejected before execution")
 
 const (
@@ -82,7 +96,19 @@ func (w *Worker) SetAfterTaskAckHook(hook func(context.Context, *coordinatorv1.T
 }
 
 // NewWorker creates a new worker instance.
-func NewWorker(workerID string, maxActiveRuns int, coordinatorClient coordinator.Client, labels map[string]string, cfg *config.Config) *Worker {
+func NewWorker(
+	workerID string,
+	maxActiveRuns int,
+	coordinatorClient coordinator.Client,
+	labels map[string]string,
+	cfg *config.Config,
+	opts ...Option,
+) *Worker {
+	var options workerOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+
 	// Generate default worker ID if not provided
 	if workerID == "" {
 		hostname, err := os.Hostname()
@@ -106,7 +132,7 @@ func NewWorker(workerID string, maxActiveRuns int, coordinatorClient coordinator
 		id:             workerID,
 		maxActiveRuns:  maxActiveRuns,
 		coordinatorCli: coordinatorClient,
-		handler:        NewTaskHandler(cfg, bundleClient),
+		handler:        NewTaskHandlerWithDAGRunStore(cfg, options.dagRunStore, bundleClient),
 		labels:         labels,
 		cfg:            cfg,
 		runningTasks:   make(map[string]*runningTaskState),

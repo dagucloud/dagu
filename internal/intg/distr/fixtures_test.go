@@ -18,7 +18,6 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis/file"
-	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/internal/persis/schedulerstore"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
@@ -291,8 +290,15 @@ func (f *testFixture) setupSharedFSWorkerWithAfterAckHook(
 ) *worker.Worker {
 	f.t.Helper()
 
-	w := worker.NewWorker(workerID, f.workerMaxActiveRuns, f.coordinatorClient, labels, f.coord.Config)
-	w.SetHandler(worker.NewTaskHandler(f.coord.Config))
+	w := worker.NewWorker(
+		workerID,
+		f.workerMaxActiveRuns,
+		f.coordinatorClient,
+		labels,
+		f.coord.Config,
+		worker.WithDAGRunStore(f.coord.DAGRunStore),
+	)
+	w.SetHandler(worker.NewTaskHandlerWithDAGRunStore(f.coord.Config, f.coord.DAGRunStore))
 	if afterAckHook != nil {
 		w.SetAfterTaskAckHook(afterAckHook)
 	}
@@ -634,11 +640,7 @@ func (f *testFixture) latestStatus() (exec.DAGRunStatus, error) {
 }
 
 func (f *testFixture) latestStoredStatus() (exec.DAGRunStatus, error) {
-	store := dagrun.New(
-		f.coord.Config.Paths.DAGRunsDir,
-		dagrun.WithLatestStatusToday(f.coord.Config.Server.LatestStatusToday),
-		dagrun.WithLocation(f.coord.Config.Core.Location),
-	)
+	store := file.NewDAGRunStore(f.coord.Config)
 
 	attempt, err := store.LatestAttempt(f.coord.Context, f.dagWrapper.Name)
 	if err != nil {

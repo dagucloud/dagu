@@ -33,7 +33,6 @@ import (
 	"github.com/dagucloud/dagu/internal/dagstate"
 	"github.com/dagucloud/dagu/internal/license"
 	"github.com/dagucloud/dagu/internal/persis/file"
-	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
 	fileproc "github.com/dagucloud/dagu/internal/persis/file/proc"
 	"github.com/dagucloud/dagu/internal/persis/filebaseconfig"
 	"github.com/dagucloud/dagu/internal/persis/fileeventstore"
@@ -318,11 +317,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	}
 
 	// Initialize history repository and history manager
-	hrOpts := []dagrun.DAGRunStoreOption{
-		dagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
-		dagrun.WithLatestStatusToday(cfg.Server.LatestStatusToday),
-		dagrun.WithLocation(cfg.Core.Location),
-	}
+	hrOpts := []file.DAGRunStoreOption{}
 
 	switch cmd.Name() {
 	case "server", "scheduler", "start-all", "coordinator":
@@ -330,7 +325,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		limits := cfg.Cache.Limits()
 		hc := fileutil.NewCache[*exec.DAGRunStatus]("dag_run_status", limits.DAGRun.Limit, limits.DAGRun.TTL)
 		hc.StartEviction(ctx)
-		hrOpts = append(hrOpts, dagrun.WithHistoryFileCache(hc))
+		hrOpts = append(hrOpts, file.WithDAGRunHistoryFileCache(hc))
 	}
 
 	ps := store.NewProcStore(file.NewCollection(cfg.Paths.ProcDir),
@@ -342,7 +337,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	if err := ps.Validate(ctx); err != nil {
 		return nil, fmt.Errorf("failed to validate proc directory %s: %w", cfg.Paths.ProcDir, err)
 	}
-	drs := dagrun.New(cfg.Paths.DAGRunsDir, hrOpts...)
+	drs := file.NewDAGRunStore(cfg, hrOpts...)
 	distributedDir := filepath.Join(cfg.Paths.DataDir, "distributed")
 	// Records live in store-specific subdirectories, but locks stay under the
 	// shared distributed root to preserve mixed-version coordinator exclusion.

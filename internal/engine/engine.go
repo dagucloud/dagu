@@ -17,7 +17,6 @@ import (
 	coreexec "github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/dagstate"
 	"github.com/dagucloud/dagu/internal/persis/file"
-	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
 	fileproc "github.com/dagucloud/dagu/internal/persis/file/proc"
 	"github.com/dagucloud/dagu/internal/persis/filedag"
 	"github.com/dagucloud/dagu/internal/persis/fileserviceregistry"
@@ -78,12 +77,10 @@ func New(ctx context.Context, opts Options) (*Engine, error) {
 		return nil, err
 	}
 
-	dagRunStore := dagrun.New(
-		cfg.Paths.DAGRunsDir,
-		dagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
-		dagrun.WithLatestStatusToday(false),
-		dagrun.WithLocation(cfg.Core.Location),
-	)
+	dagRunStore := opts.DAGRunStore
+	if dagRunStore == nil {
+		dagRunStore = file.NewDAGRunStore(cfg, file.WithDAGRunLatestStatusToday(false))
+	}
 	serviceRegistry := fileserviceregistry.New(cfg.Paths.ServiceRegistryDir)
 	stateStore := store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir))
 	dagRunMgr := runtime.NewManager(dagRunStore, procStore, cfg)

@@ -23,6 +23,7 @@ var (
 	ErrDAGRunActive        = errors.New("dag-run is active")
 	ErrNoStatusData        = errors.New("no status data")
 	ErrCorruptedStatusFile = errors.New("corrupted status file") // Status file exists but contains no valid data or is corrupted
+	ErrInvalidQueryCursor  = errors.New("dagrun: invalid query cursor")
 )
 
 // reDAGRunID validates dag-run IDs: alphanumeric, hyphens, and underscores only.

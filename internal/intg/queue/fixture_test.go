@@ -19,7 +19,6 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/persis/file"
-	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/internal/persis/schedulerstore"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
@@ -361,11 +360,7 @@ func (f *fixture) Status(runID string) (*exec.DAGRunStatus, error) {
 	defer cancel()
 
 	ref := exec.NewDAGRunRef(f.dag.Name, runID)
-	store := dagrun.New(
-		f.th.Config.Paths.DAGRunsDir,
-		dagrun.WithLatestStatusToday(f.th.Config.Server.LatestStatusToday),
-		dagrun.WithLocation(f.th.Config.Core.Location),
-	)
+	store := file.NewDAGRunStore(f.th.Config)
 	attempt, err := store.FindAttempt(ctx, ref)
 	if err != nil {
 		return nil, err
