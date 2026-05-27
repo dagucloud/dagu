@@ -165,6 +165,7 @@ steps:
 
 		rootRef := exec.NewDAGRunRef(f.dagWrapper.Name, runID)
 		var subRunID string
+		subDAGCancelTimeout := distrTestTimeout(30 * time.Second)
 		require.Eventually(t, func() bool {
 			attempt, err := f.dagWrapper.DAGRunStore.FindAttempt(ctx, rootRef)
 			if err != nil {
@@ -183,12 +184,12 @@ steps:
 				return subRunID != ""
 			}
 			return false
-		}, 30*time.Second, 100*time.Millisecond, "expected parent DAG to start sub DAG before cancellation")
+		}, subDAGCancelTimeout, 100*time.Millisecond, "expected parent DAG to start sub DAG before cancellation")
 
 		require.Eventually(t, func() bool {
 			status, err := f.dagWrapper.DAGRunMgr.FindSubDAGRunStatus(ctx, rootRef, subRunID)
 			return err == nil && status != nil && status.Status == core.Running
-		}, 30*time.Second, 100*time.Millisecond, "expected sub DAG to reach running state before cancellation")
+		}, subDAGCancelTimeout, 100*time.Millisecond, "expected sub DAG to reach running state before cancellation")
 
 		require.NoError(t, f.stop(runID))
 
@@ -197,14 +198,14 @@ steps:
 		select {
 		case err := <-errCh:
 			require.NoError(t, err)
-		case <-time.After(30 * time.Second):
-			t.Fatal("timed out waiting for parent DAG cancellation")
+		case <-time.After(subDAGCancelTimeout):
+			require.FailNow(t, "timed out waiting for parent DAG cancellation")
 		}
 
 		require.Eventually(t, func() bool {
 			subStatus, err := f.dagWrapper.DAGRunMgr.FindSubDAGRunStatus(ctx, rootRef, subRunID)
 			return err == nil && subStatus != nil && subStatus.Status == core.Aborted
-		}, 30*time.Second, 100*time.Millisecond, "expected sub DAG to become aborted after parent cancellation")
+		}, subDAGCancelTimeout, 100*time.Millisecond, "expected sub DAG to become aborted after parent cancellation")
 	})
 }
 

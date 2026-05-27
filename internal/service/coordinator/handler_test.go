@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -25,6 +26,13 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
+
+func coordinatorTestTimeout(timeout time.Duration) time.Duration {
+	if runtime.GOOS == "windows" {
+		return timeout * 5
+	}
+	return timeout
+}
 
 // mockDAGRunStore is a test implementation of execution.DAGRunStore
 type mockDAGRunStore struct {
@@ -2189,10 +2197,11 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			reportDone <- nil
 		}()
 
+		statusReportTimeout := coordinatorTestTimeout(time.Second)
 		select {
 		case <-writeStarted:
-		case <-time.After(time.Second):
-			t.Fatal("timed out waiting for status report to reach write")
+		case <-time.After(statusReportTimeout):
+			require.FailNow(t, "timed out waiting for status report to reach write")
 		}
 
 		detectDone := make(chan struct{})
@@ -2203,7 +2212,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 
 		select {
 		case <-detectDone:
-			t.Fatal("stale-lease repair completed while status report held the run mutex")
+			require.FailNow(t, "stale-lease repair completed while status report held the run mutex")
 		case <-time.After(50 * time.Millisecond):
 		}
 
@@ -2211,13 +2220,13 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		select {
 		case err := <-reportDone:
 			require.NoError(t, err)
-		case <-time.After(time.Second):
-			t.Fatal("timed out waiting for status report")
+		case <-time.After(statusReportTimeout):
+			require.FailNow(t, "timed out waiting for status report")
 		}
 		select {
 		case <-detectDone:
-		case <-time.After(time.Second):
-			t.Fatal("timed out waiting for stale-lease repair")
+		case <-time.After(statusReportTimeout):
+			require.FailNow(t, "timed out waiting for stale-lease repair")
 		}
 
 		status, err := attempt.ReadStatus(ctx)
