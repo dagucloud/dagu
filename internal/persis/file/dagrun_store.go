@@ -39,7 +39,9 @@ func NewDAGRunStore(cfg *config.Config, opts ...DAGRunStoreOption) exec.DAGRunSt
 		LatestStatusToday: cfg.Server.LatestStatusToday,
 	}
 	for _, opt := range opts {
-		opt(&options)
+		if opt != nil {
+			opt(&options)
+		}
 	}
 
 	storeOpts := []dagrun.DAGRunStoreOption{

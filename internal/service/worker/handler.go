@@ -31,11 +31,6 @@ type TaskHandler interface {
 
 var _ TaskHandler = (*taskHandler)(nil)
 
-// NewTaskHandler creates a new TaskHandler
-func NewTaskHandler(cfg *config.Config, bundleClients ...workspacebundle.Client) TaskHandler {
-	return NewTaskHandlerWithDAGRunStore(cfg, nil, bundleClients...)
-}
-
 // NewTaskHandlerWithDAGRunStore creates a new TaskHandler using the provided DAG-run store.
 func NewTaskHandlerWithDAGRunStore(
 	cfg *config.Config,

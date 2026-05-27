@@ -98,7 +98,7 @@ func TestTaskHandler(t *testing.T) {
 		defer cancel()
 
 		// Execute the task (retry without step re-runs all steps)
-		handler := NewTaskHandler(th.Config)
+		handler := NewTaskHandlerWithDAGRunStore(th.Config, th.DAGRunStore)
 		err = handler.Handle(taskCtx, task)
 		require.NoError(t, err)
 
@@ -146,7 +146,7 @@ func TestTaskHandler(t *testing.T) {
 		defer cancel()
 
 		// Execute the task
-		handler := NewTaskHandler(th.Config)
+		handler := NewTaskHandlerWithDAGRunStore(th.Config, th.DAGRunStore)
 		err = handler.Handle(taskCtx, task)
 		require.NoError(t, err)
 
@@ -183,7 +183,7 @@ func TestTaskHandler(t *testing.T) {
 		defer cancel()
 
 		// Execute the task
-		handler := NewTaskHandler(th.Config)
+		handler := NewTaskHandlerWithDAGRunStore(th.Config, th.DAGRunStore)
 		err := handler.Handle(taskCtx, task)
 		require.NoError(t, err)
 
@@ -210,7 +210,7 @@ func TestTaskHandler(t *testing.T) {
 		}
 
 		// Execute the task
-		handler := NewTaskHandler(th.Config)
+		handler := NewTaskHandlerWithDAGRunStore(th.Config, th.DAGRunStore)
 		err := handler.Handle(ctx, task)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "operation not specified")
@@ -235,7 +235,7 @@ steps:
 			runID,
 		)
 
-		handler := NewTaskHandler(th.Config)
+		handler := NewTaskHandlerWithDAGRunStore(th.Config, th.DAGRunStore)
 		err := handler.Handle(th.Context, task)
 		require.NoError(t, err)
 
@@ -258,7 +258,7 @@ steps:
 `, test.EnvOutput("EXPORTED_SECRET", "WORKER_TASK_RETRY_ENV"))
 		dag := th.DAG(t, dagContent)
 		runID := uuid.Must(uuid.NewV7()).String()
-		handler := NewTaskHandler(th.Config)
+		handler := NewTaskHandlerWithDAGRunStore(th.Config, th.DAGRunStore)
 
 		startTask := runtimeexec.CreateTask(
 			dag.Name,
@@ -314,7 +314,7 @@ steps:
 			runID,
 		)
 
-		handler := NewTaskHandler(th.Config)
+		handler := NewTaskHandlerWithDAGRunStore(th.Config, th.DAGRunStore)
 		err := handler.Handle(th.Context, task)
 		require.NoError(t, err)
 
@@ -337,7 +337,7 @@ steps:
 `, test.EnvOutput("KUBERNETES_SERVICE_HOST", "KUBERNETES_SERVICE_PORT", "WORKER_TASK_HOST_ONLY_ENV"))
 		dag := th.DAG(t, dagContent)
 		runID := uuid.Must(uuid.NewV7()).String()
-		handler := NewTaskHandler(th.Config)
+		handler := NewTaskHandlerWithDAGRunStore(th.Config, th.DAGRunStore)
 
 		startTask := runtimeexec.CreateTask(
 			dag.Name,
@@ -396,7 +396,7 @@ steps:
 			runID,
 		)
 
-		handler := NewTaskHandler(th.Config)
+		handler := NewTaskHandlerWithDAGRunStore(th.Config, th.DAGRunStore)
 		err := handler.Handle(th.Context, task)
 		require.NoError(t, err)
 
@@ -422,7 +422,7 @@ steps:
 `, test.EnvOutput("WORKER_TASK_EXACT_ENV", "WORKER_TASK_PREFIX_TOKEN", "WORKER_TASK_HOST_ONLY_ENV"))
 		dag := th.DAG(t, dagContent)
 		runID := uuid.Must(uuid.NewV7()).String()
-		handler := NewTaskHandler(th.Config)
+		handler := NewTaskHandlerWithDAGRunStore(th.Config, th.DAGRunStore)
 
 		startTask := runtimeexec.CreateTask(
 			dag.Name,
@@ -498,7 +498,7 @@ func TestTaskHandlerStartWithDefinition(t *testing.T) {
 		},
 	}
 
-	handler := NewTaskHandler(cfg)
+	handler := NewTaskHandlerWithDAGRunStore(cfg, nil)
 
 	originalTarget := "workflow.yaml"
 	task := &coordinatorv1.Task{

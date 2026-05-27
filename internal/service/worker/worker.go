@@ -106,7 +106,9 @@ func NewWorker(
 ) *Worker {
 	var options workerOptions
 	for _, opt := range opts {
-		opt(&options)
+		if opt != nil {
+			opt(&options)
+		}
 	}
 
 	// Generate default worker ID if not provided
