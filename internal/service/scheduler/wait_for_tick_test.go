@@ -34,7 +34,7 @@ func TestWaitForTickSignalStopsScheduler(t *testing.T) {
 	select {
 	case <-sc.quit:
 	default:
-		t.Fatal("expected scheduler quit channel to close on signal")
+		require.FailNow(t, "expected scheduler quit channel to close on signal")
 	}
 }
 
@@ -80,7 +80,7 @@ func TestCronLoopRecoversTickPanicAndKeepsRunning(t *testing.T) {
 		select {
 		case <-done:
 		case <-time.After(time.Second):
-			t.Fatal("cronLoop did not stop")
+			require.FailNow(t, "cronLoop did not stop")
 		}
 	}()
 
@@ -88,9 +88,9 @@ func TestCronLoopRecoversTickPanicAndKeepsRunning(t *testing.T) {
 
 	select {
 	case r := <-panicCh:
-		t.Fatalf("cronLoop panic escaped: %v", r)
+		require.Failf(t, "cronLoop panic escaped", "%v", r)
 	case <-done:
-		t.Fatal("cronLoop exited after tick panic")
+		require.FailNow(t, "cronLoop exited after tick panic")
 	case <-time.After(100 * time.Millisecond):
 	}
 }
@@ -105,11 +105,11 @@ func requireCronLoopRunning(t *testing.T, sc *Scheduler, done <-chan struct{}, p
 	for {
 		select {
 		case r := <-panicCh:
-			t.Fatalf("cronLoop panic escaped: %v", r)
+			require.Failf(t, "cronLoop panic escaped", "%v", r)
 		case <-done:
-			t.Fatal("cronLoop exited before reporting running")
+			require.FailNow(t, "cronLoop exited before reporting running")
 		case <-deadline:
-			t.Fatal("cronLoop did not report running")
+			require.FailNow(t, "cronLoop did not report running")
 		case <-ticker.C:
 			if sc.IsRunning() {
 				return
