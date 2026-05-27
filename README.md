@@ -1,25 +1,23 @@
 <div align="center">
   <img src="./assets/images/hero-logo.webp" width="480" alt="Dagu Logo">
-  <br>
-  <p><b>Lightweight control plane for data scripts and ops automation.</b></p>
   <p>
     <a href="https://docs.dagu.sh/overview/changelog"><img src="https://img.shields.io/github/release/dagucloud/dagu.svg?style=flat-square" alt="Latest Release"></a>
     <a href="https://github.com/dagucloud/dagu/actions/workflows/ci.yaml"><img src="https://img.shields.io/github/actions/workflow/status/dagucloud/dagu/ci.yaml?style=flat-square" alt="Build Status"></a>
     <a href="https://discord.gg/gpahPUjGRk"><img src="https://img.shields.io/discord/1095289480774172772?style=flat-square&logo=discord" alt="Discord"></a>
-    <a href="https://bsky.app/profile/dagu-org.bsky.social"><img src="https://img.shields.io/badge/Bluesky-0285FF?style=flat-square&logo=bluesky&logoColor=white" alt="Bluesky"></a>
+    <a href="https://bsky.app/profile/dagu-sh.bsky.social"><img src="https://img.shields.io/badge/Bluesky-0285FF?style=flat-square&logo=bluesky&logoColor=white" alt="Bluesky"></a>
   </p>
   <p>
     <a href="https://docs.dagu.sh">Docs</a> |
     <a href="https://docs.dagu.sh/writing-workflows/examples">Examples</a> |
-    <a href="https://discord.gg/gpahPUjGRk">Support & Community</a>
+    <a href="https://discord.gg/gpahPUjGRk">Community</a>
   </p>
 </div>
 
-<h1><b> Dagu </b></h1>
+<h1>Local-first Control Plane for Existing Ops Automation and AI Agent Workflows</h1>
 
-Dagu is a powerful Cron or Airflow alternative that comes with a Web UI. It allows you to define dependencies between commands as a [Directed Acyclic Graph (DAG)](https://en.wikipedia.org/wiki/Directed_acyclic_graph) in a declarative [YAML format](https://dagu.readthedocs.io/en/latest/yaml_format.html). Dagu simplifies the management and execution of complex workflows. It natively supports running Docker containers, k8s jobs, SSH commands, or [AI-agent harnesses](https://docs.dagu.sh/step-types/harness/). Use your favorite AI agents to manage your DAGs via MCP.
+Define dependencies between any scripts, commands, or AI agents as a [Directed Acyclic Graph (DAG)](https://en.wikipedia.org/wiki/Directed_acyclic_graph) in a simple declarative [YAML format](https://docs.dagu.sh/writing-workflows/examples). It simplifies the management and execution of complex workflows. It natively supports running shell commands, Docker containers, k8s jobs, remote commands over SSH, or [AI-agent harnesses](https://docs.dagu.sh/step-types/harness/).
 
-Built for developers who want powerful workflow orchestration without the operational overhead. For a quick feel of how it works, take a look at the [examples](https://docs.dagu.sh/writing-workflows/examples).
+Bring your existing scripts or programs as they are. Dagu adds the operational layer they are missing: scheduling, durable execution, logs, artifacts, queues, a Web UI, API/webhooks, distributed workers, and notifications. Built for devs who want a powerful orchestrator without the operational overhead.
 
 **Highlights:**
 
@@ -28,7 +26,8 @@ Built for developers who want powerful workflow orchestration without the operat
 - Web UI for visually managing, retrying, and monitoring pipelines.
 - Use existing scripts or tools without any modifications.
 - Self-contained, with no need for a DBMS.
-- Built-in MCP support for AI agents to manage workflows.
+- Built-in [MCP](https://docs.dagu.sh/mcp/clients) support for AI agents to manage workflows.
+- Simple AI workflows with [Built in Agent](https://docs.dagu.sh/features/agent/step) and [Harness](https://docs.dagu.sh/step-types/harness/) actions.
 
 ## Quick Look
 
@@ -191,7 +190,7 @@ Run Dagu on one machine, scale out with distributed workers, or use a managed Da
 | **Local single-server** | `dagu start-all` on one machine. | Same machine. | Development, small scheduled workloads, edge jobs, and simple internal automation. |
 | **Self-hosted** | Dagu server on your infrastructure. | Local execution or distributed workers on your infrastructure. | Teams that need ownership of infrastructure. |
 | **Managed Server** | Full managed Dagu server in a dedicated, isolated gVisor instance on GKE. | Managed instance. | Teams that want Dagu operated for them without running the server themselves. |
-| **Hybrid** | Full managed Dagu Cloud server. | Private workers in your infrastructure over mTLS. | Docker steps, private networks, specialized hardware, or data-local work. |
+| **Hybrid** | Full managed Dagu server. | Private workers in your infrastructure over mTLS. | Docker steps, private networks, specialized hardware, or data-local work. |
 
 ### Licensing
 
