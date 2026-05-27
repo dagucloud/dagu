@@ -25,7 +25,6 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	coreexec "github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
-	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	rtagent "github.com/dagucloud/dagu/internal/runtime/agent"
 	runtimeexec "github.com/dagucloud/dagu/internal/runtime/executor"
@@ -329,7 +328,9 @@ func (e *Engine) runLocal(ctx context.Context, dag *core.DAG, runID string, opts
 		_ = logFile.Close()
 		return nil, err
 	}
-	dagStore, err := file.NewDAGStore(e.cfg, file.WithDAGSearchPaths([]string{filepath.Dir(dag.Location)}))
+	dagStore, err := e.dagStoreFactory(ctx, e.cfg, DAGStoreFactoryOptions{
+		SearchPaths: []string{filepath.Dir(dag.Location)},
+	})
 	if err != nil {
 		_ = logFile.Close()
 		return nil, err
@@ -430,7 +431,7 @@ func (e *Engine) runDistributed(ctx context.Context, dag *core.DAG, runID string
 	if dag.SourceFile != "" {
 		taskOpts = append(taskOpts, runtimeexec.WithSourceFile(dag.SourceFile))
 	}
-	if snapshot, snapErr := agentsnapshot.BuildFromPaths(ctx, dag, e.cfg.Paths, e.dagStore, file.NewSnapshotStores); snapErr != nil {
+	if snapshot, snapErr := agentsnapshot.BuildFromPaths(ctx, dag, e.cfg.Paths, e.dagStore, e.snapshotStoreFactory); snapErr != nil {
 		_ = client.Cleanup(ctx)
 		return nil, fmt.Errorf("build agent snapshot: %w", snapErr)
 	} else if len(snapshot) > 0 {
@@ -582,8 +583,11 @@ func (e *Engine) artifactDir(ctx context.Context, dag *core.DAG, runID string) (
 	return logpath.GenerateDir(ctx, e.cfg.Paths.ArtifactDir, dagArtifactDir, dag.Name, runID)
 }
 
-func (e *Engine) agentStores(ctx context.Context) file.AgentStores {
-	return file.NewAgentStores(ctx, e.cfg, file.WithAgentContextResolverFromConfig())
+func (e *Engine) agentStores(ctx context.Context) AgentStores {
+	if e.agentStoresFactory == nil {
+		return AgentStores{}
+	}
+	return e.agentStoresFactory(ctx, e.cfg)
 }
 
 func preparedAttempt(prepared *localPreparation) coreexec.DAGRunAttempt {

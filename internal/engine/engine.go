@@ -10,14 +10,13 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/agentsnapshot"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/core"
 	coreexec "github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/dagstate"
-	"github.com/dagucloud/dagu/internal/persis/file"
-	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/spf13/viper"
@@ -34,6 +33,10 @@ type Engine struct {
 	defaultMode     ExecutionMode
 	distributed     DistributedOptions
 	logger          logger.Logger
+
+	dagStoreFactory      DAGStoreFactory
+	agentStoresFactory   AgentStoresFactory
+	snapshotStoreFactory agentsnapshot.StoreFactory
 }
 
 func New(ctx context.Context, opts Options) (*Engine, error) {
@@ -49,36 +52,18 @@ func New(ctx context.Context, opts Options) (*Engine, error) {
 	}
 	ctx = logger.WithLogger(config.WithConfig(ctx, cfg), log)
 
-	if err := os.MkdirAll(cfg.Paths.DataDir, 0o750); err != nil {
-		return nil, fmt.Errorf("create data directory: %w", err)
-	}
 	if err := os.MkdirAll(cfg.Paths.LogDir, 0o750); err != nil {
 		return nil, fmt.Errorf("create log directory: %w", err)
 	}
 	if err := os.MkdirAll(cfg.Paths.ArtifactDir, 0o750); err != nil {
 		return nil, fmt.Errorf("create artifact directory: %w", err)
 	}
-	if err := os.MkdirAll(cfg.Paths.DAGStateDir, 0o750); err != nil {
-		return nil, fmt.Errorf("create DAG state directory: %w", err)
-	}
 
-	procStore := file.NewProcStore(cfg)
-	if err := procStore.Validate(ctx); err != nil {
-		return nil, err
-	}
-
-	dagRunStore := opts.DAGRunStore
-	if dagRunStore == nil {
-		dagRunStore = file.NewDAGRunStore(cfg, file.WithDAGRunLatestStatusToday(false))
-	}
-	serviceRegistry := file.NewServiceRegistry(cfg)
-	stateStore := store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir))
-	dagRunMgr := runtime.NewManager(dagRunStore, procStore, cfg)
-
-	dagStore, err := file.NewDAGStore(cfg)
+	persistence, err := buildPersistence(ctx, cfg, opts)
 	if err != nil {
 		return nil, err
 	}
+	dagRunMgr := runtime.NewManager(persistence.DAGRunStore, persistence.ProcStore, cfg)
 
 	mode := opts.DefaultMode
 	if mode == "" {
@@ -91,15 +76,19 @@ func New(ctx context.Context, opts Options) (*Engine, error) {
 
 	return &Engine{
 		cfg:             cfg,
-		dagRunStore:     dagRunStore,
-		stateStore:      stateStore,
-		procStore:       procStore,
-		serviceRegistry: serviceRegistry,
-		dagStore:        dagStore,
+		dagRunStore:     persistence.DAGRunStore,
+		stateStore:      persistence.StateStore,
+		procStore:       persistence.ProcStore,
+		serviceRegistry: persistence.ServiceRegistry,
+		dagStore:        persistence.DAGStore,
 		dagRunMgr:       dagRunMgr,
 		defaultMode:     mode,
 		distributed:     distributed,
 		logger:          log,
+
+		dagStoreFactory:      persistence.DAGStoreFactory,
+		agentStoresFactory:   persistence.AgentStoresFactory,
+		snapshotStoreFactory: persistence.SnapshotStoreFactory,
 	}, nil
 }
 
@@ -107,7 +96,9 @@ func (e *Engine) Close(ctx context.Context) error {
 	if e == nil {
 		return nil
 	}
-	e.serviceRegistry.Unregister(ctx)
+	if e.serviceRegistry != nil {
+		e.serviceRegistry.Unregister(ctx)
+	}
 	return nil
 }
 

@@ -33,9 +33,11 @@ type Options struct {
 	BaseConfig  string
 	Logger      *slog.Logger
 
-	DAGRunStore coreexec.DAGRunStore
-	DefaultMode ExecutionMode
-	Distributed *DistributedOptions
+	Persistence        Persistence
+	PersistenceFactory PersistenceFactory
+	DAGRunStore        coreexec.DAGRunStore
+	DefaultMode        ExecutionMode
+	Distributed        *DistributedOptions
 }
 
 type DistributedOptions struct {

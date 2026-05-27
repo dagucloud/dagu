@@ -8,10 +8,15 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"os"
 	"slices"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/config"
+	coreexec "github.com/dagucloud/dagu/internal/core/exec"
 	iengine "github.com/dagucloud/dagu/internal/engine"
+	"github.com/dagucloud/dagu/internal/persis/file"
+	"github.com/dagucloud/dagu/internal/persis/store"
 
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin" // Register built-in executors for embedded use.
 )
@@ -379,21 +384,70 @@ func WithDryRun(enabled bool) RunOption {
 
 func internalOptions(opts Options) iengine.Options {
 	out := iengine.Options{
-		HomeDir:     opts.HomeDir,
-		ConfigFile:  opts.ConfigFile,
-		DAGsDir:     opts.DAGsDir,
-		DataDir:     opts.DataDir,
-		LogDir:      opts.LogDir,
-		ArtifactDir: opts.ArtifactDir,
-		BaseConfig:  opts.BaseConfig,
-		Logger:      opts.Logger,
-		DefaultMode: iengine.ExecutionMode(opts.DefaultMode),
+		HomeDir:            opts.HomeDir,
+		ConfigFile:         opts.ConfigFile,
+		DAGsDir:            opts.DAGsDir,
+		DataDir:            opts.DataDir,
+		LogDir:             opts.LogDir,
+		ArtifactDir:        opts.ArtifactDir,
+		BaseConfig:         opts.BaseConfig,
+		Logger:             opts.Logger,
+		PersistenceFactory: filePersistenceFactory,
+		DefaultMode:        iengine.ExecutionMode(opts.DefaultMode),
 	}
 	if opts.Distributed != nil {
 		distributed := internalDistributedOptions(*opts.Distributed)
 		out.Distributed = &distributed
 	}
 	return out
+}
+
+func filePersistenceFactory(ctx context.Context, cfg *config.Config) (iengine.Persistence, error) {
+	if err := os.MkdirAll(cfg.Paths.DataDir, 0o750); err != nil {
+		return iengine.Persistence{}, fmt.Errorf("create data directory: %w", err)
+	}
+	if err := os.MkdirAll(cfg.Paths.DAGStateDir, 0o750); err != nil {
+		return iengine.Persistence{}, fmt.Errorf("create DAG state directory: %w", err)
+	}
+
+	procStore := file.NewProcStore(cfg)
+	dagStore, err := fileEngineDAGStore(ctx, cfg, iengine.DAGStoreFactoryOptions{})
+	if err != nil {
+		return iengine.Persistence{}, err
+	}
+
+	return iengine.Persistence{
+		DAGStore:        dagStore,
+		DAGRunStore:     file.NewDAGRunStore(cfg, file.WithDAGRunLatestStatusToday(false)),
+		ProcStore:       procStore,
+		StateStore:      store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir)),
+		ServiceRegistry: file.NewServiceRegistry(cfg),
+
+		DAGStoreFactory:      fileEngineDAGStore,
+		AgentStoresFactory:   fileEngineAgentStores,
+		SnapshotStoreFactory: file.NewSnapshotStores,
+	}, nil
+}
+
+func fileEngineDAGStore(_ context.Context, cfg *config.Config, opts iengine.DAGStoreFactoryOptions) (coreexec.DAGStore, error) {
+	var fileOpts []file.DAGStoreOption
+	if len(opts.SearchPaths) > 0 {
+		fileOpts = append(fileOpts, file.WithDAGSearchPaths(opts.SearchPaths))
+	}
+	return file.NewDAGStore(cfg, fileOpts...)
+}
+
+func fileEngineAgentStores(ctx context.Context, cfg *config.Config) iengine.AgentStores {
+	stores := file.NewAgentStores(ctx, cfg, file.WithAgentContextResolverFromConfig())
+	return iengine.AgentStores{
+		ConfigStore:     stores.ConfigStore,
+		ModelStore:      stores.ModelStore,
+		MemoryStore:     stores.MemoryStore,
+		SoulStore:       stores.SoulStore,
+		OAuthManager:    stores.OAuthManager,
+		ContextResolver: stores.ContextResolver,
+		SecretStore:     stores.SecretStore,
+	}
 }
 
 func internalDistributedOptions(opts DistributedOptions) iengine.DistributedOptions {

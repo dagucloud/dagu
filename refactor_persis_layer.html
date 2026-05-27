@@ -746,7 +746,7 @@ graph TB
         <div class="ml-4 text-slate-400">etcd/ <span class="text-slate-400 ml-1">future</span></div>
         <div class="ml-4 mt-2 text-slate-500">legacy/ <span class="text-slate-400">unchanged</span></div>
         <div class="ml-4 text-green-600">✅ testutil/ <span class="text-slate-400">memory.go 217 ln — in-memory Backend for unit tests</span></div>
-        <div class="ml-4 text-slate-500">filedag/ <span class="text-slate-400 font-normal">← untouched leaf implementation; callers use file.NewDAGStore or exec.DAGStore</span></div>
+        <div class="ml-4 text-slate-500">filedag/ <span class="text-slate-400 font-normal">← untouched leaf implementation; composition roots use file.NewDAGStore, app/engine code receives exec.DAGStore</span></div>
       </div>
     </div>
   </div>
@@ -972,7 +972,7 @@ graph LR
           <li>• FileBackend maps collection IDs to the <em>same</em> directory layout for collection-backed stores. No data migration.</li>
           <li>• DAG-run is a strict compatibility refactor: physical paths, sidecar files, status log shape, indexes, and lock behavior must not change.</li>
           <li>• Removing <code class="text-xs bg-green-100 px-1 rounded">filedagrun</code> means removing the legacy package/API, not moving file-layout code into the DB-neutral <code class="text-xs bg-green-100 px-1 rounded">store</code> package.</li>
-          <li>• API, worker, and engine code must depend on <code class="text-xs bg-green-100 px-1 rounded">exec.DAGRunStore</code>; only file persistence wiring and tests should import <code class="text-xs bg-green-100 px-1 rounded">internal/persis/file/dagrun</code>.</li>
+          <li>• API, worker, and engine code must depend on persistence interfaces/factories such as <code class="text-xs bg-green-100 px-1 rounded">exec.DAGRunStore</code>; only composition wiring and tests should import file backend implementations such as <code class="text-xs bg-green-100 px-1 rounded">internal/persis/file/dagrun</code>.</li>
           <li>• Old and new code can run together during porting (different stores).</li>
           <li>• Each store port is independently testable and reviewable.</li>
           <li>• File format (JSON) unchanged — existing file-backed data remains readable immediately.</li>
