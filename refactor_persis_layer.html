@@ -40,17 +40,17 @@
       without touching any domain code.
     </p>
     <div class="mt-8 flex flex-wrap gap-3 text-sm">
-      <span class="bg-slate-800 text-slate-300 px-3 py-1 rounded-full">30 file stores → 1 Backend interface</span>
+      <span class="bg-slate-800 text-slate-300 px-3 py-1 rounded-full">Control-plane stores → Backend interface</span>
       <span class="bg-slate-800 text-slate-300 px-3 py-1 rounded-full">id + data blob (Temporal pattern)</span>
-      <span class="bg-slate-800 text-slate-300 px-3 py-1 rounded-full">Deep Module philosophy</span>
-      <span class="bg-slate-800 text-slate-300 px-3 py-1 rounded-full">Zero domain-code changes</span>
+      <span class="bg-slate-800 text-slate-300 px-3 py-1 rounded-full">DAG-run stays backend-specific</span>
+      <span class="bg-slate-800 text-slate-300 px-3 py-1 rounded-full">Zero data-layout changes</span>
     </div>
     <div class="mt-6 flex items-center gap-3">
       <span class="inline-flex items-center gap-2 bg-green-600 text-white text-sm font-semibold px-4 py-2 rounded-full">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-        PR #2197 open as of May 24, 2026 — queue slice complete
+        Current branch as of May 27, 2026 — DAG-run compatibility slice
       </span>
-      <span class="text-slate-400 text-sm font-mono">Steps 1–3 &amp; 7 done · Steps 4–6 pending</span>
+      <span class="text-slate-400 text-sm font-mono">Queue/proc/dagrun compatibility done · distributed lock neutrality and SQL backend pending</span>
     </div>
   </div>
 </header>
@@ -582,7 +582,7 @@ graph TB
           <span class="text-green-500 text-xl mt-0.5">⬆</span>
           <div>
             <p class="font-medium text-slate-800">Leverage</p>
-            <p class="text-sm text-slate-600">8 methods unlock all store capabilities. Adding a new database requires implementing <em>only</em> Backend + Collection — all 30+ domain stores work immediately.</p>
+            <p class="text-sm text-slate-600">8 methods unlock the collection-backed control-plane stores. Adding a new database still requires backend-neutral lock semantics for distributed stores and a backend-specific <code class="text-xs bg-slate-100 px-1 rounded">exec.DAGRunStore</code>.</p>
           </div>
         </div>
         <div class="flex gap-3">
@@ -731,14 +731,15 @@ graph TB
         <div class="ml-6 text-green-600">✅ watermark.go <span class="text-slate-400 ml-1">122 ln</span></div>
         <div class="ml-6 text-green-600">✅ workerheartbeat.go <span class="text-slate-400 ml-1">168 ln</span></div>
         <div class="ml-6 text-green-600">✅ queue*.go <span class="text-slate-400 ml-1">collection-backed QueueStore; filequeue removed</span></div>
-        <div class="ml-6 text-red-400">⏳ proc/ <span class="text-slate-400 ml-1">pending</span></div>
-        <div class="ml-6 text-red-400">⏳ distributed/ <span class="text-slate-400 ml-1">pending</span></div>
-        <div class="ml-6 text-red-400">⏳ dagrun/ <span class="text-slate-400 ml-1">pending (most complex)</span></div>
+        <div class="ml-6 text-green-600">✅ proc*.go <span class="text-slate-400 ml-1">collection-backed ProcStore with file/proc legacy sidecar adapter</span></div>
+        <div class="ml-6 text-amber-400">◐ distributed*.go <span class="text-slate-400 ml-1">collection-backed records; lock API still file-backend-bound</span></div>
         <div class="ml-4 mt-2 text-slate-400">── backend implementations ──</div>
         <div class="ml-4 text-emerald-600 font-semibold">✅ file/ <span class="text-slate-400 font-normal">FileBackend 480 ln (backend.go 50 + collection.go 430)</span></div>
         <div class="ml-4 text-slate-400">  backend.go</div>
         <div class="ml-4 text-slate-400">  collection.go</div>
-        <div class="ml-4 text-slate-400">sql/ <span class="text-slate-400 ml-1">future</span></div>
+        <div class="ml-6 text-green-600">✅ dagrun/ <span class="text-slate-400 ml-1">DAG-run file layout compatibility implementation</span></div>
+        <div class="ml-6 text-green-600">✅ proc/ <span class="text-slate-400 ml-1">legacy .proc sidecar compatibility adapter</span></div>
+        <div class="ml-4 text-slate-400">sql/ <span class="text-slate-400 ml-1">future Backend + collection adapters; separate DAGRunStore required</span></div>
         <div class="ml-4 text-slate-400">etcd/ <span class="text-slate-400 ml-1">future</span></div>
         <div class="ml-4 mt-2 text-slate-500">legacy/ <span class="text-slate-400">unchanged</span></div>
         <div class="ml-4 text-green-600">✅ testutil/ <span class="text-slate-400">memory.go 217 ln — in-memory Backend for unit tests</span></div>
@@ -769,15 +770,21 @@ ss  := filesecret.<span class="fn">New</span>(cfg.Paths.SecretsDir, ...)
         </div>
       </div>
       <div>
-        <p class="text-xs font-mono text-green-500 mb-2">AFTER — current transitional wiring</p>
+        <p class="text-xs font-mono text-green-500 mb-2">AFTER — current branch wiring</p>
         <div class="bg-slate-900 rounded-lg p-4 overflow-x-auto">
           <pre class="text-xs text-slate-300"><span class="cm">// context.go — NewContext()</span>
-drs := filedagrun.<span class="fn">New</span>(cfg.Paths.DAGRunsDir, ...)
+drs := dagrun.<span class="fn">New</span>(cfg.Paths.DAGRunsDir, ...)
 qs  := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
-ps  := fileproc.<span class="fn">New</span>(cfg.Paths.ProcDir, ...)
+ps  := store.NewProcStore(file.NewCollection(cfg.Paths.ProcDir),
+        store.WithProcLegacyStore(fileproc.NewLegacyStore(cfg.Paths.ProcDir)))
+leaseCollection := file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "leases"), distributedDir)
+activeRunCollection := file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "active-runs"), distributedDir)
+dls := store.NewDAGRunLeaseStore(leaseCollection)
+ads := store.NewActiveDistributedRunStore(activeRunCollection)
+dts := store.NewDispatchTaskStore(file.NewCollection(distributedDir))
 us  := store.<span class="fn">NewUserStore</span>(file.<span class="fn">NewCollection</span>(cfg.Paths.UsersDir), ...)
 ss  := store.<span class="fn">NewSecretStore</span>(file.<span class="fn">NewCollection</span>(cfg.Paths.SecretsDir), encryptor)
-<span class="cm">// remaining stores move one at a time until context.go can use one backend</span></pre>
+<span class="cm">// DAG-run currently stays file-backed behind exec.DAGRunStore.</span></pre>
         </div>
       </div>
     </div>
@@ -928,8 +935,8 @@ ss  := store.<span class="fn">NewSecretStore</span>(file.<span class="fn">NewCol
   <h2 class="text-2xl font-bold mb-2">Migration Strategy</h2>
   <p class="text-slate-500 mb-4">Incremental, non-destructive — one store at a time</p>
   <div class="flex flex-wrap gap-3 mb-8 text-xs font-semibold">
-    <span class="bg-green-100 text-green-800 border border-green-300 px-3 py-1 rounded-full">✅ Done through PR #2197</span>
-    <span class="bg-amber-100 text-amber-800 border border-amber-300 px-3 py-1 rounded-full">⏳ Pending</span>
+    <span class="bg-green-100 text-green-800 border border-green-300 px-3 py-1 rounded-full">✅ File layout compatibility preserved</span>
+    <span class="bg-amber-100 text-amber-800 border border-amber-300 px-3 py-1 rounded-full">◐ Backend-neutral gaps remain</span>
   </div>
 
   <div class="bg-white rounded-xl border border-slate-200 p-8">
@@ -938,16 +945,16 @@ graph LR
   A["✅ Step 1\nDefine interfaces\npersis/backend.go\npersis/codec.go\npersis/errors.go"] --&gt;
   B["✅ Step 2\nFileBackend\npersis/file/\nbackend.go + collection.go\n480 ln total"] --&gt;
   C["✅ Step 3\nPort stores\napikey, webhook, user\nsecret, session\nwatermark, workerheartbeat"] --&gt;
-  D["⏳ Step 4\nPort complex stores\nqueue ✅\nproc, distributed"] --&gt;
-  E["⏳ Step 5\nPort dagrun store\n(most complex)"] --&gt;
-  F["⏳ Step 6\nRemove file*/ packages\nUnify context.go\nwiring"] --&gt;
+  D["◐ Step 4\nComplex stores\nqueue ✅\nproc ✅\ndistributed lock gap"] --&gt;
+  E["✅ Step 5\nMove dagrun file store\npreserve exact layout"] --&gt;
+  F["⏳ Step 6\nBackend-neutral locks\nSQL backend\nbackend-specific DAGRunStore"] --&gt;
   G["✅ Step 7\nMemoryBackend\npersis/testutil/\nmemory.go 217 ln"]
 
   style A fill:#dcfce7,stroke:#16a34a
   style B fill:#dcfce7,stroke:#16a34a
   style C fill:#dcfce7,stroke:#16a34a
   style D fill:#fef9c3,stroke:#ca8a04
-  style E fill:#fef9c3,stroke:#ca8a04
+  style E fill:#dcfce7,stroke:#16a34a
   style F fill:#fef9c3,stroke:#ca8a04
   style G fill:#dcfce7,stroke:#16a34a
     </div>
@@ -956,21 +963,21 @@ graph LR
       <div class="bg-green-50 border border-green-200 rounded-lg p-5">
         <p class="font-semibold text-green-800 mb-2">Why this is safe</p>
         <ul class="text-sm text-green-700 space-y-1">
-          <li>• FileBackend maps IDs to the <em>same</em> directory layout. No data migration.</li>
+          <li>• FileBackend maps collection IDs to the <em>same</em> directory layout for collection-backed stores. No data migration.</li>
           <li>• DAG-run is a strict compatibility refactor: physical paths, sidecar files, status log shape, indexes, and lock behavior must not change.</li>
           <li>• Removing <code class="text-xs bg-green-100 px-1 rounded">filedagrun</code> means removing the legacy package/API, not moving file-layout code into the DB-neutral <code class="text-xs bg-green-100 px-1 rounded">store</code> package.</li>
           <li>• Old and new code can run together during porting (different stores).</li>
           <li>• Each store port is independently testable and reviewable.</li>
-          <li>• File format (JSON) unchanged — existing data readable immediately.</li>
+          <li>• File format (JSON) unchanged — existing file-backed data remains readable immediately.</li>
         </ul>
       </div>
       <div class="bg-blue-50 border border-blue-200 rounded-lg p-5">
         <p class="font-semibold text-blue-800 mb-2">How to add PostgreSQL later</p>
         <ul class="text-sm text-blue-700 space-y-1">
           <li>• Create <code class="text-xs bg-blue-100 px-1 rounded">persis/sql/backend.go</code> implementing Backend + Collection.</li>
-          <li>• Single <code class="text-xs bg-blue-100 px-1 rounded">records</code> table schema (shown above).</li>
-          <li>• Wire via config: <code class="text-xs bg-blue-100 px-1 rounded">backend := sql.NewBackend(dsn)</code>.</li>
-          <li>• All 30+ store adapters work unchanged.</li>
+          <li>• Single <code class="text-xs bg-blue-100 px-1 rounded">records</code> table schema can support the collection-backed stores.</li>
+          <li>• Distributed stores still need backend-neutral lock/claim semantics before they are portable beyond the file backend.</li>
+          <li>• DAG-run needs a backend-specific <code class="text-xs bg-blue-100 px-1 rounded">exec.DAGRunStore</code> implementation; do not force its file-layout mechanics into <code class="text-xs bg-blue-100 px-1 rounded">persis/store</code>.</li>
         </ul>
       </div>
     </div>
@@ -980,12 +987,13 @@ graph LR
 <!-- ══════════════════════════ STATUS ══════════════════════════ -->
 <section id="top">
   <div class="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-10 text-white">
-    <p class="text-xs font-mono text-slate-400 tracking-widest uppercase mb-4">Status — PR #2197 open as of May 24, 2026</p>
-    <h2 class="text-3xl font-bold mb-4">Phase 1 Complete · Phase 2 In Progress</h2>
+    <p class="text-xs font-mono text-slate-400 tracking-widest uppercase mb-4">Status — current refactor branch as of May 27, 2026</p>
+    <h2 class="text-3xl font-bold mb-4">Phase 1 Complete · Phase 2 Compatibility Refactor In Progress</h2>
 
     <p class="text-slate-300 text-lg mb-8 max-w-3xl">
       The seam exists. <code class="text-sm bg-white/10 px-1 rounded">persis.Backend</code> and <code class="text-sm bg-white/10 px-1 rounded">persis.Collection</code> are live.
-      Eight store adapters are ported. Queue now uses <code class="text-sm bg-white/10 px-1 rounded">store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))</code>, and the old <code class="text-sm bg-white/10 px-1 rounded">filequeue</code> package is removed. Proc, distributed, and dagrun remain on the old file* packages.
+      Queue and proc use collection-backed stores. Distributed records are collection-backed but still depend on file-backend lock behavior.
+      DAG-run is moved from <code class="text-sm bg-white/10 px-1 rounded">filedagrun</code> to <code class="text-sm bg-white/10 px-1 rounded">internal/persis/file/dagrun</code> as a file-backed <code class="text-sm bg-white/10 px-1 rounded">exec.DAGRunStore</code>; its physical paths and JSON shape remain unchanged.
     </p>
 
     <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
@@ -996,41 +1004,43 @@ graph LR
       </div>
       <div class="bg-green-900/40 border border-green-600/40 rounded-xl p-5">
         <p class="text-sm font-semibold text-green-300 mb-2">Stores ported</p>
-        <p class="text-3xl font-bold text-green-400">8</p>
-        <p class="text-sm text-slate-400 mt-1">apikey, secret, session, user, webhook, watermark, workerheartbeat, queue</p>
+        <p class="text-3xl font-bold text-green-400">10+</p>
+        <p class="text-sm text-slate-400 mt-1">collection-backed adapters plus file-backed DAG-run compatibility</p>
       </div>
       <div class="bg-amber-900/40 border border-amber-600/40 rounded-xl p-5">
-        <p class="text-sm font-semibold text-amber-300 mb-2">Stores remaining</p>
-        <p class="text-3xl font-bold text-amber-400">3+</p>
-        <p class="text-sm text-slate-400 mt-1">proc, distributed, dagrun (+ others)</p>
+        <p class="text-sm font-semibold text-amber-300 mb-2">Neutrality gaps</p>
+        <p class="text-3xl font-bold text-amber-400">2</p>
+        <p class="text-sm text-slate-400 mt-1">distributed locks and backend-specific DAGRunStore</p>
       </div>
       <div class="bg-white/10 rounded-xl p-5">
         <p class="text-sm font-semibold text-slate-200 mb-2">Backend surface</p>
         <p class="text-3xl font-bold text-violet-400">480</p>
-        <p class="text-sm text-slate-400 mt-1">lines in file/ backend — all file I/O centralized</p>
+        <p class="text-sm text-slate-400 mt-1">shared collection backend; DAG-run file layout remains in file/dagrun</p>
       </div>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
       <div class="bg-green-900/30 border border-green-600/30 rounded-xl p-6">
-        <p class="text-sm font-semibold text-green-300 mb-3">✅ Done through PR #2197</p>
+        <p class="text-sm font-semibold text-green-300 mb-3">✅ Done / preserved</p>
         <ol class="text-sm text-slate-300 space-y-2">
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/backend.go</code> — Backend, Collection, Record, ListQuery, Page</li>
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/codec.go</code> — Encode[T], Decode[T]</li>
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/errors.go</code> — ErrNotFound, ErrConflict</li>
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/file/</code> — FileBackend + FileCollection (480 ln)</li>
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/testutil/memory.go</code> — MemoryBackend (217 ln)</li>
-          <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/store/</code> — 8 ported adapters with tests, including queue</li>
+          <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/store/</code> — collection-backed adapters with tests, including queue and proc</li>
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">internal/persis/filequeue</code> — removed after queue wiring moved to <code class="text-xs bg-white/10 px-1 rounded">store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))</code></li>
+          <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">internal/persis/file/dagrun</code> — file-backed DAG-run store with exact existing file-layout compatibility</li>
+          <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">internal/persis/file/proc</code> — legacy .proc sidecar mechanics kept below the store abstraction</li>
         </ol>
       </div>
       <div class="bg-amber-900/20 border border-amber-600/30 rounded-xl p-6">
         <p class="text-sm font-semibold text-amber-300 mb-3">⏳ Next — Phase 2</p>
         <ol class="text-sm text-slate-300 space-y-2">
-          <li><span class="text-amber-400 font-bold">4.</span> Port <code class="text-xs bg-white/10 px-1 rounded">fileproc</code> → <code class="text-xs bg-white/10 px-1 rounded">store/proc</code> (ExpiresAt-based TTL)</li>
-          <li><span class="text-amber-400 font-bold">4.</span> Port <code class="text-xs bg-white/10 px-1 rounded">filedistributed</code> → <code class="text-xs bg-white/10 px-1 rounded">store/distributed</code> (lease + task stores)</li>
-          <li><span class="text-amber-400 font-bold">5.</span> Port <code class="text-xs bg-white/10 px-1 rounded">filedagrun</code> → DAG-run store with exact existing file-layout compatibility; <code class="text-xs bg-white/10 px-1 rounded">store</code> stays storage-neutral, and file-specific path mechanics stay below the persistence abstraction.</li>
-          <li><span class="text-amber-400 font-bold">6.</span> Delete old <code class="text-xs bg-white/10 px-1 rounded">file*/</code> packages; unify <code class="text-xs bg-white/10 px-1 rounded">context.go</code> wiring to single <code class="text-xs bg-white/10 px-1 rounded">file.NewBackend</code></li>
+          <li><span class="text-amber-400 font-bold">4.</span> Replace distributed stores' file-lock dependency with backend-neutral lock/claim semantics.</li>
+          <li><span class="text-amber-400 font-bold">5.</span> Keep DAG-run behind <code class="text-xs bg-white/10 px-1 rounded">exec.DAGRunStore</code>; add a backend-specific SQL implementation when DBMS support is added.</li>
+          <li><span class="text-amber-400 font-bold">6.</span> Continue deleting old <code class="text-xs bg-white/10 px-1 rounded">file*/</code> packages only when their file-layout compatibility has a clear replacement.</li>
+          <li><span class="text-amber-400 font-bold">7.</span> Unify wiring where it is honest to do so; do not hide file-specific behavior inside <code class="text-xs bg-white/10 px-1 rounded">persis/store</code>.</li>
         </ol>
       </div>
     </div>
