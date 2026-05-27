@@ -1,7 +1,7 @@
 <div align="center">
   <img src="./assets/images/hero-logo.webp" width="480" alt="Dagu Logo">
   <br>
-  <p><b>Lightweight and Powerful Workflow Engine</b></p>
+  <p><b>Lightweight control plane for data scripts and ops automation.</b></p>
   <p>
     <a href="https://docs.dagu.sh/overview/changelog"><img src="https://img.shields.io/github/release/dagucloud/dagu.svg?style=flat-square" alt="Latest Release"></a>
     <a href="https://github.com/dagucloud/dagu/actions/workflows/ci.yaml"><img src="https://img.shields.io/github/actions/workflow/status/dagucloud/dagu/ci.yaml?style=flat-square" alt="Build Status"></a>
