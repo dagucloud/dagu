@@ -88,6 +88,9 @@ type EventCollector interface {
 }
 
 func NewEventCollector(cfg *config.Config) (EventCollector, error) {
+	if cfg == nil || !cfg.EventStore.Enabled {
+		return nil, nil
+	}
 	return fileeventstore.NewCollector(cfg.Paths.EventStoreDir, cfg.EventStore.RetentionDays)
 }
 

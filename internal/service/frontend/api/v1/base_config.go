@@ -190,7 +190,7 @@ func (a *API) UpdateWorkspaceBaseConfig(
 }
 
 func (a *API) requireBaseConfigManagement() error {
-	if a.baseConfigStore == nil {
+	if a.baseConfigStore == nil || a.baseConfigFactory == nil {
 		return ErrBaseConfigNotAvailable
 	}
 	return nil

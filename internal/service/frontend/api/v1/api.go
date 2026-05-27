@@ -407,12 +407,19 @@ func New(
 	for _, opt := range opts {
 		opt(a)
 	}
+	a.requireValidBaseConfigWiring()
 
 	// Set read-only mode flag based on git sync config
 	// When enabled with push disabled, DAG write operations are blocked
 	a.dagWritesDisabled = cfg.GitSync.Enabled && !cfg.GitSync.PushEnabled
 
 	return a
+}
+
+func (a *API) requireValidBaseConfigWiring() {
+	if a.baseConfigStore != nil && a.baseConfigFactory == nil {
+		panic("api: workspace base config store factory must be configured when base config store is configured")
+	}
 }
 
 func (a *API) notifyDAGMutation(fileName string) {

@@ -220,6 +220,9 @@ func SeedAgentReferences(cfg *config.Config) string {
 
 // NewContextStore wires the encrypted file-backed CLI context store from config paths.
 func NewContextStore(cfg *config.Config) (*clicontext.Store, error) {
+	if cfg == nil {
+		return nil, errors.New("file: config cannot be nil")
+	}
 	encKey, err := crypto.ResolveKey(cfg.Paths.DataDir)
 	if err != nil {
 		return nil, err
