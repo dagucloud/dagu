@@ -16,6 +16,7 @@ import (
 
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis"
+	"github.com/dagucloud/dagu/internal/persis/testutil"
 )
 
 func TestQueueCursorHelpersRejectInvalidState(t *testing.T) {
@@ -137,4 +138,37 @@ func TestPollingQueueWatcherUsesDefaultInterval(t *testing.T) {
 
 	watcher := newPollingQueueWatcher(0, nil)
 	assert.Equal(t, queuePollInterval, watcher.interval)
+}
+
+func TestQueueStoreNextQueueItemIDSkipsExistingTimestamp(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	queueName := "main"
+	dagRun := exec.NewDAGRunRef("dag", "run-same")
+	priority := exec.QueuePriorityLow
+	start := time.Date(2026, 1, 1, 0, 0, 0, 1, time.UTC)
+
+	s := NewQueueStore(testutil.NewMemoryBackend().Collection("queue"))
+	firstID := newQueueItemID(priority, dagRun.ID, start)
+	data, enc, err := persis.Encode(queueItemPayload{
+		FileName: firstID + ".json",
+		DAGRun:   dagRun,
+		QueuedAt: start,
+	})
+	require.NoError(t, err)
+	require.NoError(t, s.col.Put(ctx, &persis.Record{
+		ID:        queueRecordID(queueName, firstID),
+		Data:      data,
+		Encoding:  enc,
+		CreatedAt: start,
+		UpdatedAt: start,
+	}))
+
+	gotID, gotQueuedAt, err := s.nextQueueItemID(ctx, queueName, priority, dagRun.ID, start)
+	require.NoError(t, err)
+
+	wantQueuedAt := start.Add(time.Nanosecond)
+	assert.Equal(t, newQueueItemID(priority, dagRun.ID, wantQueuedAt), gotID)
+	assert.Equal(t, wantQueuedAt, gotQueuedAt)
 }

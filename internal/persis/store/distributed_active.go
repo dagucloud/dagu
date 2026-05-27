@@ -19,8 +19,8 @@ import (
 var _ exec.ActiveDistributedRunStore = (*ActiveDistributedRunStore)(nil)
 
 // ActiveDistributedRunStore implements [exec.ActiveDistributedRunStore] on top
-// of a [persis.Collection]. Record IDs intentionally match the legacy
-// file-backed distributed store SHA-256 key.
+// of a [persis.Collection]. Record IDs intentionally match the file-backed
+// distributed store SHA-256 key.
 type ActiveDistributedRunStore struct {
 	col persis.Collection
 }

@@ -17,9 +17,10 @@ import (
 )
 
 const (
-	queueCursorVersion = 1
-	queueDateTimeUTC   = "20060102_150405"
-	queuePollInterval  = 2 * time.Second
+	queueCursorVersion       = 1
+	queueDateTimeUTC         = "20060102_150405"
+	queueItemIDMaxCollisions = 1000
+	queuePollInterval        = 2 * time.Second
 )
 
 var _ exec.QueueStore = (*QueueStore)(nil)
@@ -54,26 +55,30 @@ func (s *QueueStore) Enqueue(ctx context.Context, name string, priority exec.Que
 	}
 
 	now := time.Now().UTC()
-	itemID := newQueueItemID(priority, dagRun.ID, now)
-	payload := queueItemPayload{
-		FileName: itemID + ".json",
-		DAGRun:   dagRun,
-		QueuedAt: now,
-	}
-	data, enc, err := persis.Encode(payload)
-	if err != nil {
-		return fmt.Errorf("queue store: encode item: %w", err)
-	}
 	return s.withQueueLock(ctx, name, func() error {
 		s.mu.Lock()
 		defer s.mu.Unlock()
+
+		itemID, queuedAt, err := s.nextQueueItemID(ctx, name, priority, dagRun.ID, now)
+		if err != nil {
+			return err
+		}
+		payload := queueItemPayload{
+			FileName: itemID + ".json",
+			DAGRun:   dagRun,
+			QueuedAt: queuedAt,
+		}
+		data, enc, err := persis.Encode(payload)
+		if err != nil {
+			return fmt.Errorf("queue store: encode item: %w", err)
+		}
 
 		if err := s.col.Put(ctx, &persis.Record{
 			ID:        queueRecordID(name, itemID),
 			Data:      data,
 			Encoding:  enc,
-			CreatedAt: now,
-			UpdatedAt: now,
+			CreatedAt: queuedAt,
+			UpdatedAt: queuedAt,
 		}); err != nil {
 			return err
 		}
@@ -81,6 +86,28 @@ func (s *QueueStore) Enqueue(ctx context.Context, name string, priority exec.Que
 		s.addQueueIndexItemLocked(ctx, name, priority, itemID)
 		return nil
 	})
+}
+
+func (s *QueueStore) nextQueueItemID(
+	ctx context.Context,
+	name string,
+	priority exec.QueuePriority,
+	dagRunID string,
+	start time.Time,
+) (string, time.Time, error) {
+	start = start.UTC()
+	for attempt := range queueItemIDMaxCollisions {
+		queuedAt := start.Add(time.Duration(attempt) * time.Nanosecond)
+		itemID := newQueueItemID(priority, dagRunID, queuedAt)
+		_, err := s.col.Get(ctx, queueRecordID(name, itemID))
+		if errors.Is(err, persis.ErrNotFound) {
+			return itemID, queuedAt, nil
+		}
+		if err != nil {
+			return "", time.Time{}, err
+		}
+	}
+	return "", time.Time{}, fmt.Errorf("queue store: could not allocate unique item ID for dag-run %q", dagRunID)
 }
 
 // DequeueByName retrieves and removes the next item from the queue.

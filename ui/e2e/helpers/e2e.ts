@@ -284,12 +284,8 @@ export async function waitForSchedulerDAGRegistered(
           const raw = await fs.readFile(schedulerStatePath, 'utf8');
           const parsed = JSON.parse(raw) as {
             dags?: Record<string, unknown>;
-            data?: { dags?: Record<string, unknown> };
           };
-          // Support both legacy flat format and the persis-envelope format
-          // ({"id","encoding","data":{...state...},...}) used by the new store.
-          const state = parsed.data ?? parsed;
-          return Boolean(state.dags?.[dagName]);
+          return Boolean(parsed.dags?.[dagName]);
         } catch {
           return false;
         }
