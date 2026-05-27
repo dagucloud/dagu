@@ -17,8 +17,8 @@ import (
 var _ exec.DAGRunLeaseStore = (*DAGRunLeaseStore)(nil)
 
 // DAGRunLeaseStore implements [exec.DAGRunLeaseStore] on top of a
-// [persis.Collection]. Record IDs intentionally use the same SHA-256 key as the
-// old file-backed distributed store, so existing lease files remain readable.
+// [persis.Collection]. Record IDs use the file-backed distributed store
+// SHA-256 key.
 type DAGRunLeaseStore struct {
 	col persis.Collection
 }

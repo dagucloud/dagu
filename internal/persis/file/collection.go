@@ -34,73 +34,11 @@ type Collection struct {
 
 var _ persis.Collection = (*Collection)(nil)
 
-// fileRecord is the on-disk JSON envelope for a [persis.Record].
-// Data is kept as json.RawMessage so the file is human-readable when
-// the encoding is JSON.
-type fileRecord struct {
-	ID        string          `json:"id"`
-	Encoding  persis.Encoding `json:"encoding"`
-	Data      json.RawMessage `json:"data"`
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
-	ExpiresAt *time.Time      `json:"expires_at,omitempty"`
-}
-
-func toFileRecord(r *persis.Record) *fileRecord {
-	var data json.RawMessage
-	if r.Encoding == persis.EncodingJSON {
-		data = json.RawMessage(r.Data)
-	} else {
-		// Non-JSON (e.g. proto/binary) payloads are not valid JSON, so base64-encode
-		// them as a JSON string so the file envelope always marshals cleanly.
-		quoted, _ := json.Marshal(base64.StdEncoding.EncodeToString(r.Data))
-		data = json.RawMessage(quoted)
-	}
-	return &fileRecord{
-		ID:        r.ID,
-		Encoding:  r.Encoding,
-		Data:      data,
-		CreatedAt: r.CreatedAt,
-		UpdatedAt: r.UpdatedAt,
-		ExpiresAt: r.ExpiresAt,
-	}
-}
-
-func (fr *fileRecord) toRecord() *persis.Record {
-	data := []byte(fr.Data)
-	if fr.Encoding != persis.EncodingJSON {
-		// Non-JSON data was stored as a base64 JSON string; decode it.
-		var encoded string
-		if json.Unmarshal(fr.Data, &encoded) == nil {
-			if decoded, err := base64.StdEncoding.DecodeString(encoded); err == nil {
-				data = decoded
-			}
-		}
-	}
-	return &persis.Record{
-		ID:        fr.ID,
-		Encoding:  fr.Encoding,
-		Data:      data,
-		CreatedAt: fr.CreatedAt,
-		UpdatedAt: fr.UpdatedAt,
-		ExpiresAt: fr.ExpiresAt,
-	}
-}
-
 func sameRecord(a, b *persis.Record) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
-	if a.ID != b.ID || a.Encoding != b.Encoding || !bytes.Equal(a.Data, b.Data) {
-		return false
-	}
-	if !a.CreatedAt.Equal(b.CreatedAt) || !a.UpdatedAt.Equal(b.UpdatedAt) {
-		return false
-	}
-	if a.ExpiresAt == nil || b.ExpiresAt == nil {
-		return a.ExpiresAt == b.ExpiresAt
-	}
-	return a.ExpiresAt.Equal(*b.ExpiresAt)
+	return a.ID == b.ID && a.Encoding == b.Encoding && bytes.Equal(a.Data, b.Data)
 }
 
 // ─── Collection methods ───────────────────────────────────────────────────────
@@ -113,11 +51,11 @@ func (c *Collection) Get(_ context.Context, id string) (*persis.Record, error) {
 	if err != nil {
 		return nil, err
 	}
-	fr, err := c.readFile(path)
+	rec, err := c.readFile(path)
 	if err != nil {
 		return nil, err
 	}
-	return fr.toRecord(), nil
+	return rec, nil
 }
 
 func (c *Collection) Put(_ context.Context, rec *persis.Record) error {
@@ -128,7 +66,7 @@ func (c *Collection) Put(_ context.Context, rec *persis.Record) error {
 	if err != nil {
 		return err
 	}
-	return c.writeFile(path, toFileRecord(rec))
+	return c.writeFile(path, rec)
 }
 
 func (c *Collection) Delete(ctx context.Context, id string) error {
@@ -146,11 +84,11 @@ func (c *Collection) CompareAndDelete(_ context.Context, expected *persis.Record
 	if err != nil {
 		return err
 	}
-	fr, err := c.readFile(path)
+	rec, err := c.readFile(path)
 	if err != nil {
 		return err
 	}
-	if !sameRecord(fr.toRecord(), expected) {
+	if !sameRecord(rec, expected) {
 		return persis.ErrConflict
 	}
 	if err := fileutil.Remove(path); err != nil {
@@ -286,20 +224,16 @@ func (c *Collection) CompareAndSwap(_ context.Context, id string, expected, next
 	if err != nil {
 		return err
 	}
-	fr, err := c.readFile(path)
+	rec, err := c.readFile(path)
 	if err != nil {
 		return err
 	}
-	// Compare decoded Record.Data bytes, not the raw envelope bytes, so CAS
-	// works correctly regardless of whether data was base64-wrapped on disk.
-	rec := fr.toRecord()
 	if !bytes.Equal(rec.Data, expected) {
 		return persis.ErrConflict
 	}
 	rec.Data = next
-	updated := toFileRecord(rec)
-	updated.UpdatedAt = time.Now().UTC()
-	return c.writeFile(path, updated)
+	rec.UpdatedAt = time.Now().UTC()
+	return c.writeFile(path, rec)
 }
 
 // Claim atomically dequeues one record matching q.
@@ -326,7 +260,7 @@ func (c *Collection) Claim(_ context.Context, q persis.ListQuery) (*persis.Recor
 	sort.Strings(candidates)
 
 	for _, path := range candidates {
-		fr, err := c.readFile(path)
+		rec, err := c.readFile(path)
 		if err != nil {
 			if !errors.Is(err, persis.ErrNotFound) {
 				return nil, err
@@ -340,7 +274,7 @@ func (c *Collection) Claim(_ context.Context, q persis.ListQuery) (*persis.Recor
 			continue
 		}
 		removeEmptyDirs(filepath.Dir(path), c.dir)
-		return fr.toRecord(), nil
+		return rec, nil
 	}
 	return nil, persis.ErrNotFound
 }
@@ -376,7 +310,7 @@ func pathUnderRoot(root, id, kind string) (string, error) {
 	return full, nil
 }
 
-func (c *Collection) readFile(path string) (*fileRecord, error) {
+func (c *Collection) readFile(path string) (*persis.Record, error) {
 	raw, err := fileutil.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -384,40 +318,52 @@ func (c *Collection) readFile(path string) (*fileRecord, error) {
 		}
 		return nil, err
 	}
-	var fr fileRecord
-	if err := json.Unmarshal(raw, &fr); err != nil {
-		return nil, fmt.Errorf("file backend: corrupt record at %q: %w", path, err)
+	if !json.Valid(raw) {
+		return nil, fmt.Errorf("file backend: corrupt record at %q: invalid JSON", path)
 	}
-	// Legacy format: flat JSON without the "encoding" envelope field.
-	// Wrap the raw bytes as the Data payload so old files are readable
-	// by the new adapters. The file is rewritten in new format on next Put.
-	if fr.Encoding == "" {
-		rel, _ := filepath.Rel(c.dir, path)
-		info, _ := os.Stat(path)
-		mtime := time.Now().UTC()
-		if info != nil {
-			mtime = info.ModTime().UTC()
+
+	info, err := os.Stat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, persis.ErrNotFound
 		}
-		fr = fileRecord{
-			ID:        relPathToID(rel),
-			Encoding:  persis.EncodingJSON,
-			Data:      json.RawMessage(raw),
-			CreatedAt: mtime,
-			UpdatedAt: mtime,
-		}
+		return nil, err
 	}
-	return &fr, nil
+	rel, _ := filepath.Rel(c.dir, path)
+	mtime := info.ModTime().UTC()
+	return &persis.Record{
+		ID:        relPathToID(rel),
+		Data:      raw,
+		Encoding:  persis.EncodingJSON,
+		CreatedAt: mtime,
+		UpdatedAt: mtime,
+	}, nil
 }
 
-func (c *Collection) writeFile(path string, fr *fileRecord) error {
-	data, err := json.Marshal(fr)
-	if err != nil {
-		return err
+func (c *Collection) writeFile(path string, rec *persis.Record) error {
+	if rec == nil {
+		return fmt.Errorf("file backend: nil record")
+	}
+	if rec.Encoding != "" && rec.Encoding != persis.EncodingJSON {
+		return fmt.Errorf("file backend: unsupported encoding %q", rec.Encoding)
+	}
+	if !json.Valid(rec.Data) {
+		return fmt.Errorf("file backend: invalid JSON record %q", rec.ID)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
-	return fileutil.WriteFileAtomic(path, data, 0o600)
+	if err := fileutil.WriteFileAtomic(path, rec.Data, 0o600); err != nil {
+		return err
+	}
+	mtime := rec.UpdatedAt
+	if mtime.IsZero() {
+		mtime = rec.CreatedAt
+	}
+	if mtime.IsZero() {
+		return nil
+	}
+	return os.Chtimes(path, mtime, mtime)
 }
 
 func (c *Collection) collectIDs(prefix string) ([]string, error) {
@@ -457,11 +403,10 @@ func (c *Collection) collect(prefix string, since, until *time.Time) ([]*persis.
 		if prefix != "" && !strings.HasPrefix(id, prefix) {
 			return nil
 		}
-		fr, err := c.readFile(path)
+		r, err := c.readFile(path)
 		if err != nil {
 			return nil // skip corrupt records
 		}
-		r := fr.toRecord()
 		if since != nil && r.CreatedAt.Before(*since) {
 			return nil
 		}

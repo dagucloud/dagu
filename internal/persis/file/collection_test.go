@@ -5,6 +5,7 @@ package file_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -315,6 +316,39 @@ func TestFileCollection(t *testing.T) {
 	}
 
 	RunCollectionContract(t, b.Collection("test"), freshCollection)
+}
+
+func TestFileCollectionWritesRawJSONBody(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	col := file.NewCollection(root)
+	raw := []byte(`{"id":"user-1","name":"admin"}`)
+	rec := &persis.Record{
+		ID:        "users/user-1",
+		Data:      raw,
+		Encoding:  persis.EncodingJSON,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+
+	require.NoError(t, col.Put(ctx, rec))
+
+	path := filepath.Join(root, "users", "user-1.json")
+	gotRaw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, raw, gotRaw)
+
+	var body map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(gotRaw, &body))
+	assert.NotContains(t, body, "encoding")
+	assert.NotContains(t, body, "data")
+
+	got, err := col.Get(ctx, "users/user-1")
+	require.NoError(t, err)
+	assert.Equal(t, raw, got.Data)
+	assert.Equal(t, persis.EncodingJSON, got.Encoding)
 }
 
 func TestFileCollectionWithLockOptionsUsesCustomTiming(t *testing.T) {
