@@ -724,7 +724,7 @@ func (s *Scheduler) cronLoop(ctx context.Context, sig chan os.Signal) {
 	defer s.running.Store(false)
 
 	for s.waitForTick(ctx, sig, timer) {
-		s.runTick(ctx, tickTime)
+		s.runTickSafely(ctx, tickTime)
 		tickTime = s.NextTick(tickTime)
 		timer.Reset(tickTime.Sub(s.clock()))
 	}
@@ -743,6 +743,18 @@ func (s *Scheduler) waitForTick(ctx context.Context, sig chan os.Signal, timer *
 		_ = timer.Stop()
 		return true
 	}
+}
+
+func (s *Scheduler) runTickSafely(ctx context.Context, tickTime time.Time) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error(ctx, "Scheduler tick panicked",
+				slog.Time("tick_time", tickTime),
+				tag.Error(panicToError(r)),
+			)
+		}
+	}()
+	s.runTick(ctx, tickTime)
 }
 
 func (s *Scheduler) runTick(ctx context.Context, tickTime time.Time) {
