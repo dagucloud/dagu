@@ -11,8 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis"
 )
@@ -196,12 +194,11 @@ func newQueueItemID(priority exec.QueuePriority, dagRunID string, t time.Time) s
 		label = "high"
 	}
 	t = t.UTC()
-	return fmt.Sprintf("item_%s_%s_%09dZ_%s_%s",
+	return fmt.Sprintf("item_%s_%s_%09dZ_%s",
 		label,
 		t.Format(queueDateTimeUTC),
 		t.Nanosecond(),
 		dagRunID,
-		uuid.NewString(),
 	)
 }
 

@@ -5,9 +5,11 @@ package store_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -140,6 +142,47 @@ func TestQueueStore_ListCursorDecodesOnlyPageItems(t *testing.T) {
 	require.Len(t, secondPage.Items, 1)
 	_, err = secondPage.Items[0].Data()
 	require.ErrorContains(t, err, "invalid dag-run")
+}
+
+func TestQueueStore_FileLayoutCompatibility(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	s := store.NewQueueStore(file.NewCollection(root))
+
+	require.NoError(t, s.Enqueue(ctx, "main", exec.QueuePriorityLow, queueRef("dag", "run-file-layout")))
+
+	queueDir := filepath.Join(root, "main")
+	entries, err := os.ReadDir(queueDir)
+	require.NoError(t, err)
+
+	var itemFile string
+	itemNamePattern := regexp.MustCompile(`^item_low_\d{8}_\d{6}_\d{9}Z_run-file-layout\.json$`)
+	for _, entry := range entries {
+		if itemNamePattern.MatchString(entry.Name()) {
+			itemFile = entry.Name()
+		}
+	}
+	require.NotEmpty(t, itemFile, "queue item file should keep the existing file name")
+	assert.FileExists(t, filepath.Join(queueDir, ".queue-index.json"))
+	assert.NoFileExists(t, filepath.Join(queueDir, "_queue_index.json"))
+
+	itemRaw, err := os.ReadFile(filepath.Join(queueDir, itemFile))
+	require.NoError(t, err)
+	var itemBody map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(itemRaw, &itemBody))
+	assert.NotContains(t, itemBody, "encoding")
+	assert.NotContains(t, itemBody, "data")
+	assert.JSONEq(t, `"`+itemFile+`"`, string(itemBody["fileName"]))
+
+	indexRaw, err := os.ReadFile(filepath.Join(queueDir, ".queue-index.json"))
+	require.NoError(t, err)
+	var indexBody struct {
+		Low []string `json:"low"`
+	}
+	require.NoError(t, json.Unmarshal(indexRaw, &indexBody))
+	assert.Equal(t, []string{itemFile}, indexBody.Low)
 }
 
 func TestQueueStore_DequeueByDAGRunIDAndDeleteByItemIDs(t *testing.T) {
@@ -352,15 +395,15 @@ func TestQueueStore_ConcurrentDequeueIsExclusive(t *testing.T) {
 	assert.Equal(t, int32(1), claimed.Load())
 }
 
-func TestQueueStore_ReadsLegacyFileQueueItems(t *testing.T) {
+func TestQueueStore_ReadsFileQueueItems(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	root := t.TempDir()
-	queueName := "legacy-q"
-	itemFile := "item_high_20260101_000000_000000001Z_run-legacy.json"
+	queueName := "file-q"
+	itemFile := "item_high_20260101_000000_000000001Z_run-file.json"
 	queuedAt := time.Date(2026, 1, 1, 0, 0, 0, 1, time.UTC)
-	raw := `{"fileName":"` + itemFile + `","dagRun":{"name":"legacy-dag","id":"run-legacy"},"queuedAt":"` + queuedAt.Format(time.RFC3339Nano) + `"}`
+	raw := `{"fileName":"` + itemFile + `","dagRun":{"name":"file-dag","id":"run-file"},"queuedAt":"` + queuedAt.Format(time.RFC3339Nano) + `"}`
 
 	itemPath := filepath.Join(root, queueName, itemFile)
 	require.NoError(t, os.MkdirAll(filepath.Dir(itemPath), 0o750))
@@ -371,8 +414,8 @@ func TestQueueStore_ReadsLegacyFileQueueItems(t *testing.T) {
 	items, err := s.List(ctx, queueName)
 	require.NoError(t, err)
 	require.Len(t, items, 1)
-	assert.Equal(t, "item_high_20260101_000000_000000001Z_run-legacy", items[0].ID())
-	assert.Equal(t, queueRef("legacy-dag", "run-legacy"), requireQueuedRef(t, items[0]))
+	assert.Equal(t, "item_high_20260101_000000_000000001Z_run-file", items[0].ID())
+	assert.Equal(t, queueRef("file-dag", "run-file"), requireQueuedRef(t, items[0]))
 
 	claimed, err := s.DequeueByName(ctx, queueName)
 	require.NoError(t, err)

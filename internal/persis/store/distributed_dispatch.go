@@ -37,8 +37,8 @@ type DispatchTaskStoreOption func(*DispatchTaskStore)
 
 // DispatchTaskStore implements [exec.DispatchTaskStore] on top of a
 // [persis.Collection]. Record IDs use "pending/" and "claims/" prefixes so a
-// file collection rooted at the legacy distributed directory reads the old
-// on-disk layout without migration.
+// file collection rooted at the distributed directory uses the existing
+// on-disk layout directly.
 type DispatchTaskStore struct {
 	col            persis.Collection
 	reservationTTL time.Duration

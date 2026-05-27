@@ -55,6 +55,8 @@ func (idx *queueReadIndex) ensureDefaults() {
 	if idx.Low == nil {
 		idx.Low = []string{}
 	}
+	idx.High = normalizeQueueIndexEntries(idx.High)
+	idx.Low = normalizeQueueIndexEntries(idx.Low)
 }
 
 func (idx *queueReadIndex) total() int {
@@ -77,12 +79,13 @@ func (idx *queueReadIndex) append(priority exec.QueuePriority, itemID string) bo
 	if itemID == "" || idx.findItemOffset(itemID) >= 0 {
 		return false
 	}
+	entry := queueIndexEntryName(itemID)
 	switch priority {
 	case exec.QueuePriorityHigh:
-		idx.High = append(idx.High, itemID)
+		idx.High = append(idx.High, entry)
 		sort.Strings(idx.High)
 	case exec.QueuePriorityLow:
-		idx.Low = append(idx.Low, itemID)
+		idx.Low = append(idx.Low, entry)
 		sort.Strings(idx.Low)
 	default:
 		return false
@@ -111,11 +114,11 @@ func (idx *queueReadIndex) itemIDAt(offset int) (string, bool) {
 		return "", false
 	}
 	if offset < len(idx.High) {
-		return idx.High[offset], true
+		return queueIndexItemID(idx.High[offset]), true
 	}
 	offset -= len(idx.High)
 	if offset < len(idx.Low) {
-		return idx.Low[offset], true
+		return queueIndexItemID(idx.Low[offset]), true
 	}
 	return "", false
 }
@@ -162,13 +165,14 @@ func (idx *queueReadIndex) slice(start, limit int) []string {
 }
 
 func (idx *queueReadIndex) findItemOffset(itemID string) int {
+	itemID = normalizeQueueItemID(itemID)
 	for pos, current := range idx.High {
-		if current == itemID {
+		if queueIndexItemID(current) == itemID {
 			return pos
 		}
 	}
 	for pos, current := range idx.Low {
-		if current == itemID {
+		if queueIndexItemID(current) == itemID {
 			return len(idx.High) + pos
 		}
 	}
@@ -176,8 +180,9 @@ func (idx *queueReadIndex) findItemOffset(itemID string) int {
 }
 
 func removeQueueItemID(target *[]string, itemID string) bool {
+	itemID = normalizeQueueItemID(itemID)
 	for i, current := range *target {
-		if current != itemID {
+		if queueIndexItemID(current) != itemID {
 			continue
 		}
 		copy((*target)[i:], (*target)[i+1:])
@@ -187,11 +192,45 @@ func removeQueueItemID(target *[]string, itemID string) bool {
 	return false
 }
 
+func normalizeQueueIndexEntries(entries []string) []string {
+	if len(entries) == 0 {
+		return []string{}
+	}
+	out := make([]string, 0, len(entries))
+	seen := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		fileName := queueIndexEntryName(entry)
+		if fileName == "" {
+			continue
+		}
+		if _, ok := seen[fileName]; ok {
+			continue
+		}
+		seen[fileName] = struct{}{}
+		out = append(out, fileName)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func queueIndexEntryName(itemID string) string {
+	itemID = normalizeQueueItemID(itemID)
+	if itemID == "" {
+		return ""
+	}
+	return itemID + ".json"
+}
+
+func queueIndexItemID(entry string) string {
+	return normalizeQueueItemID(entry)
+}
+
 func queueIndexRecordID(name string) string {
-	return queuePrefix(name) + "_queue_index"
+	return queuePrefix(name) + ".queue-index"
 }
 
 func queuePriorityFromItemID(itemID string) exec.QueuePriority {
+	itemID = normalizeQueueItemID(itemID)
 	if strings.HasPrefix(itemID, "item_high_") {
 		return exec.QueuePriorityHigh
 	}
@@ -239,17 +278,8 @@ func (s *QueueStore) rebuildQueueIndexLocked(ctx context.Context, name string) (
 		if !ok || itemID == "" {
 			continue
 		}
-		switch queuePriorityFromItemID(itemID) {
-		case exec.QueuePriorityHigh:
-			idx.High = append(idx.High, itemID)
-		case exec.QueuePriorityLow:
-			idx.Low = append(idx.Low, itemID)
-		default:
-			continue
-		}
+		idx.append(queuePriorityFromItemID(itemID), itemID)
 	}
-	sort.Strings(idx.High)
-	sort.Strings(idx.Low)
 	idx.touch()
 
 	if err := s.saveQueueIndexLocked(ctx, name, idx); err != nil {
