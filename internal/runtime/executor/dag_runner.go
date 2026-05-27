@@ -61,9 +61,9 @@ type SubDAGExecutor struct {
 
 	// Process tracking for ALL executions
 	mu              sync.Mutex
-	cmds            map[string]*osexec.Cmd // runID -> cmd for local processes
-	distributedRuns map[string]bool        // runID -> true for distributed runs
-	dagCtx          exec.Context           // for DB access when cancelling distributed runs
+	processes       map[string]*cmdutil.ManagedProcess // runID -> local process
+	distributedRuns map[string]bool                    // runID -> true for distributed runs
+	dagCtx          exec.Context                       // for DB access when cancelling distributed runs
 
 	// killed should be closed when Kill is called
 	killed     chan struct{}
@@ -110,7 +110,7 @@ func NewSubDAGExecutor(ctx context.Context, childName string) (*SubDAGExecutor, 
 				DAG:             dag,
 				tempFile:        tempFile,
 				coordinatorCli:  rCtx.CoordinatorCli,
-				cmds:            make(map[string]*osexec.Cmd),
+				processes:       make(map[string]*cmdutil.ManagedProcess),
 				distributedRuns: make(map[string]bool),
 				dagCtx:          rCtx,
 				killed:          make(chan struct{}),
@@ -127,7 +127,7 @@ func NewSubDAGExecutor(ctx context.Context, childName string) (*SubDAGExecutor, 
 	return &SubDAGExecutor{
 		DAG:             dag,
 		coordinatorCli:  rCtx.CoordinatorCli,
-		cmds:            make(map[string]*osexec.Cmd),
+		processes:       make(map[string]*cmdutil.ManagedProcess),
 		distributedRuns: make(map[string]bool),
 		dagCtx:          rCtx,
 		killed:          make(chan struct{}),
@@ -145,7 +145,7 @@ func NewSubDAGExecutorForDAG(ctx context.Context, dag *core.DAG) (*SubDAGExecuto
 	return &SubDAGExecutor{
 		DAG:             dag,
 		coordinatorCli:  rCtx.CoordinatorCli,
-		cmds:            make(map[string]*osexec.Cmd),
+		processes:       make(map[string]*cmdutil.ManagedProcess),
 		distributedRuns: make(map[string]bool),
 		dagCtx:          rCtx,
 		killed:          make(chan struct{}),
@@ -575,23 +575,23 @@ func (e *SubDAGExecutor) runLocalCommand(ctx context.Context, runID string, cmd 
 	// Ensure we clear command reference when done
 	defer func() {
 		e.mu.Lock()
-		delete(e.cmds, runID)
+		delete(e.processes, runID)
 		e.mu.Unlock()
 	}()
 
 	logger.Info(ctx, "Executing sub DAG locally")
 
-	// Start the command first to initialize cmd.Process
-	if err := cmd.Start(); err != nil {
+	process, err := cmdutil.StartManagedProcess(cmd)
+	if err != nil {
 		return nil, fmt.Errorf("failed to start sub dag-run: %w", err)
 	}
+	defer func() { _ = process.Release() }()
 
-	// Store command reference for Kill AFTER starting, so cmd.Process is already set
 	e.mu.Lock()
-	e.cmds[runID] = cmd
+	e.processes[runID] = process
 	e.mu.Unlock()
 
-	waitErr := cmd.Wait()
+	waitErr := process.Wait()
 	if waitErr != nil {
 		logger.Error(ctx, "Sub DAG execution returned error", tag.Error(waitErr))
 	}
@@ -1076,9 +1076,9 @@ func (e *SubDAGExecutor) Stop(intent cmdutil.TerminationIntent) error {
 	}
 
 	// Kill local processes
-	for runID, cmd := range e.cmds {
-		if cmd != nil && cmd.Process != nil {
-			if err := cmdutil.TerminateProcessGroup(cmd, intent); err != nil {
+	for runID, process := range e.processes {
+		if process != nil {
+			if _, err := process.Stop(cmdutil.StopRequest{Intent: intent}); err != nil {
 				errs = append(errs, err)
 				logger.Warn(ctx, "Failed to stop local sub DAG process",
 					tag.RunID(runID),

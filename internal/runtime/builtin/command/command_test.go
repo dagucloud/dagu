@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/runtime"
@@ -399,7 +400,7 @@ func TestCommandExecutor_Kill(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Test that Kill returns nil for command without process
-	executor = &commandExecutor{cmd: &exec.Cmd{}}
+	executor = &commandExecutor{process: cmdutil.NewManagedProcess(&exec.Cmd{})}
 	err = executor.Kill(os.Interrupt)
 	assert.NoError(t, err)
 }

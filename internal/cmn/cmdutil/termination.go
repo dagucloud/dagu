@@ -29,6 +29,43 @@ type TerminationIntent struct {
 	Signal os.Signal
 }
 
+// StopReason describes why a process stop was requested.
+type StopReason string
+
+const (
+	StopReasonUnknown    StopReason = ""
+	StopReasonCancel     StopReason = "cancel"
+	StopReasonTimeout    StopReason = "timeout"
+	StopReasonShutdown   StopReason = "shutdown"
+	StopReasonParentExit StopReason = "parent-exit"
+)
+
+// StopMechanism describes how a platform adapter requested process termination.
+type StopMechanism string
+
+const (
+	StopMechanismNone         StopMechanism = "none"
+	StopMechanismProcessGroup StopMechanism = "process-group"
+	StopMechanismProcessTree  StopMechanism = "process-tree"
+	StopMechanismJobObject    StopMechanism = "job-object"
+)
+
+// StopRequest is the platform-neutral lifecycle request for a local process.
+type StopRequest struct {
+	Intent TerminationIntent
+	Reason StopReason
+}
+
+// StopOutcome reports how a platform adapter applied a stop request.
+type StopOutcome struct {
+	RequestedMode TerminationMode
+	AppliedMode   TerminationMode
+	Mechanism     StopMechanism
+	Contained     bool
+	Partial       bool
+	Reason        StopReason
+}
+
 // TerminationFromSignal preserves the legacy signal-based call sites while
 // moving the implementation behind an intent-based seam.
 func TerminationFromSignal(sig os.Signal) TerminationIntent {
@@ -98,4 +135,22 @@ func (i TerminationIntent) SignalName() string {
 func isForceSignal(sig os.Signal) bool {
 	sysSig, ok := sig.(syscall.Signal)
 	return ok && sysSig == syscall.SIGKILL
+}
+
+func (r StopRequest) normalize() StopRequest {
+	if r.Intent.Mode == "" {
+		r.Intent = GracefulTermination(r.Intent.Signal)
+	}
+	return r
+}
+
+func noopStopOutcome(req StopRequest) StopOutcome {
+	req = req.normalize()
+	return StopOutcome{
+		RequestedMode: req.Intent.Mode,
+		AppliedMode:   req.Intent.Mode,
+		Mechanism:     StopMechanismNone,
+		Contained:     true,
+		Reason:        req.Reason,
+	}
 }

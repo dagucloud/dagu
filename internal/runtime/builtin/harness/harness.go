@@ -49,7 +49,7 @@ type defaultConfigProvider interface {
 
 type harnessExecutor struct {
 	mu                     sync.Mutex
-	cmd                    *exec.Cmd
+	process                *cmdutil.ManagedProcess
 	stdout                 io.Writer
 	stderr                 io.Writer
 	exitCode               int
@@ -80,9 +80,17 @@ func (e *harnessExecutor) Kill(sig os.Signal) error {
 }
 
 func (e *harnessExecutor) Stop(intent cmdutil.TerminationIntent) error {
+	return e.stop(cmdutil.StopRequest{Intent: intent})
+}
+
+func (e *harnessExecutor) stop(req cmdutil.StopRequest) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return cmdutil.TerminateProcessGroup(e.cmd, intent)
+	if e.process == nil {
+		return nil
+	}
+	_, err := e.process.Stop(req)
+	return err
 }
 
 func (e *harnessExecutor) SetPushBackContext(inputs map[string]string, iteration int) {
@@ -199,8 +207,6 @@ func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.
 	cmd.Dir = e.workDir
 	cmd.Stdout = stdout
 	cmd.Stderr = tw
-	cmdutil.SetupCommand(cmd)
-
 	if cmd.Dir != "" {
 		if err := os.MkdirAll(cmd.Dir, 0o750); err != nil {
 			e.exitCode = 1
@@ -214,29 +220,30 @@ func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.
 		cmd.Stdin = stdin
 	}
 
-	e.cmd = cmd
-
-	if err := cmd.Start(); err != nil {
+	process, err := cmdutil.StartManagedProcess(cmd)
+	if err != nil {
 		e.exitCode = exitCodeFromError(err)
 		_ = cleanupStdoutSpool(stdout)
 		e.mu.Unlock()
 		return nil, formatProcessFailure(err, tw.Tail(), "")
 	}
+	e.process = process
 	if guard := resourcelimit.FromContext(ctx); guard != nil {
-		if err := guard.AssignProcess(cmd.Process.Pid); err != nil {
+		if err := guard.AssignProcess(process.PID()); err != nil {
 			logger.Warn(ctx, "Resource limits requested but process assignment failed", tag.Error(err))
 		}
 	}
 	e.mu.Unlock()
+	defer func() { _ = process.Release() }()
 
 	waitDone := make(chan error, 1)
 	go func() {
-		waitDone <- cmd.Wait()
+		waitDone <- process.Wait()
 	}()
 
 	select {
 	case <-ctx.Done():
-		_ = e.Kill(os.Kill)
+		_ = e.stop(cmdutil.StopRequest{Intent: cmdutil.ForceTermination(), Reason: cmdutil.StopReasonTimeout})
 		<-waitDone
 		e.exitCode = 124
 		_ = cleanupStdoutSpool(stdout)

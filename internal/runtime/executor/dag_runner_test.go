@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core"
 	exec1 "github.com/dagucloud/dagu/internal/core/exec"
@@ -460,7 +461,7 @@ func TestRetry_Distributed(t *testing.T) {
 		coordinatorCli:    dispatcher,
 		externalStepRetry: true,
 		distributedRuns:   make(map[string]bool),
-		cmds:              make(map[string]*exec.Cmd),
+		processes:         make(map[string]*cmdutil.ManagedProcess),
 		dagCtx:            dagCtx,
 		killed:            make(chan struct{}),
 	}
@@ -502,7 +503,7 @@ func TestSubDAGExecutor_ExecuteDoesNotDispatchAfterPreRunKill(t *testing.T) {
 		},
 		coordinatorCli:  dispatcher,
 		distributedRuns: make(map[string]bool),
-		cmds:            make(map[string]*exec.Cmd),
+		processes:       make(map[string]*cmdutil.ManagedProcess),
 		dagCtx:          dagCtx,
 		killed:          make(chan struct{}),
 	}
@@ -637,9 +638,9 @@ func TestSubDAGExecutor_Kill_MixedProcesses(t *testing.T) {
 	executor := &SubDAGExecutor{
 		DAG:    subDAG,
 		dagCtx: dagCtx,
-		cmds: map[string]*exec.Cmd{
-			"local-run-1": {Process: &os.Process{Pid: 999999999}},
-			"local-run-2": {Process: &os.Process{Pid: 999999998}},
+		processes: map[string]*cmdutil.ManagedProcess{
+			"local-run-1": cmdutil.NewManagedProcess(&exec.Cmd{Process: &os.Process{Pid: 999999999}}),
+			"local-run-2": cmdutil.NewManagedProcess(&exec.Cmd{Process: &os.Process{Pid: 999999998}}),
 		},
 		distributedRuns: map[string]bool{
 			"distributed-run-1": true,
@@ -686,9 +687,9 @@ func TestSubDAGExecutor_Kill_OnlyDistributed(t *testing.T) {
 
 	// Create child executor with only distributed processes
 	executor := &SubDAGExecutor{
-		DAG:    subDAG,
-		dagCtx: dagCtx,
-		cmds:   make(map[string]*exec.Cmd),
+		DAG:       subDAG,
+		dagCtx:    dagCtx,
+		processes: make(map[string]*cmdutil.ManagedProcess),
 		distributedRuns: map[string]bool{
 			"distributed-run-1": true,
 			"distributed-run-2": true,
@@ -732,8 +733,8 @@ func TestSubDAGExecutor_Kill_OnlyLocal(t *testing.T) {
 	executor := &SubDAGExecutor{
 		DAG:    subDAG,
 		dagCtx: dagCtx,
-		cmds: map[string]*exec.Cmd{
-			"local-run-1": {Process: &os.Process{Pid: 999999999}},
+		processes: map[string]*cmdutil.ManagedProcess{
+			"local-run-1": cmdutil.NewManagedProcess(&exec.Cmd{Process: &os.Process{Pid: 999999999}}),
 		},
 		distributedRuns: make(map[string]bool),
 		killed:          make(chan struct{}),
@@ -774,7 +775,7 @@ func TestSubDAGExecutor_Kill_Empty(t *testing.T) {
 	executor := &SubDAGExecutor{
 		DAG:             subDAG,
 		dagCtx:          dagCtx,
-		cmds:            make(map[string]*exec.Cmd),
+		processes:       make(map[string]*cmdutil.ManagedProcess),
 		distributedRuns: make(map[string]bool),
 		killed:          make(chan struct{}),
 	}
