@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/config"
@@ -58,11 +59,9 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 
 	coordinatorClient := NewCoordinatorClient(ctx, cfg.Config, cfg.ServiceRegistry)
 	entryReader := scheduler.NewEntryReader(cfg.Config.Paths.DAGsDir, dagStore)
-	wmBackend, wmErr := file.New(cfg.Config.Paths.DataDir)
-	if wmErr != nil {
-		return nil, fmt.Errorf("failed to open file backend for watermark: %w", wmErr)
-	}
-	watermarkStore := schedulerstore.NewWatermarkStore(wmBackend.Collection("scheduler"))
+	watermarkStore := schedulerstore.NewWatermarkStore(
+		file.NewCollection(filepath.Join(cfg.Config.Paths.DataDir, "scheduler"), file.WithIndentedJSON()),
+	)
 
 	statusCache := fileutil.NewCache[*exec.DAGRunStatus]("scheduler_dag_run_status", limits.DAGRun.Limit, limits.DAGRun.TTL)
 	statusCache.StartEviction(ctx)

@@ -122,6 +122,7 @@ func (p *ProcHandle) writeHeartbeat(ctx context.Context, now time.Time) error {
 		GroupName:       p.groupName,
 		Meta:            p.meta,
 		LastHeartbeatAt: now.Unix(),
+		RevisionNanos:   now.UnixNano(),
 	}
 	data, enc, err := persis.Encode(payload)
 	if err != nil {
@@ -143,4 +144,10 @@ type procPayload struct {
 	GroupName       string        `json:"groupName"`
 	Meta            exec.ProcMeta `json:"meta"`
 	LastHeartbeatAt int64         `json:"lastHeartbeatAt"`
+	// RevisionNanos is a monotonic per-write nonce (now.UnixNano()) included
+	// so every heartbeat changes Data. The Collection contract makes
+	// CompareAndSwap / CompareAndDelete identity Data-only (see persis.Record),
+	// so an in-Data nonce is what lets stale-removal detect a concurrent
+	// refresh without depending on backend-specific timestamp semantics.
+	RevisionNanos int64 `json:"revisionNanos,omitempty"`
 }

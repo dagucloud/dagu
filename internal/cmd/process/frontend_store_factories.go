@@ -80,12 +80,12 @@ func newBuiltinAuthService(ctx context.Context, cfg *config.Config) (*frontend.B
 		return nil, false, fmt.Errorf("failed to resolve token secret: %w", err)
 	}
 
-	userStore, err := store.NewUserStore(file.NewCollection(cfg.Paths.UsersDir))
+	userStore, err := store.NewUserStore(file.NewCollection(cfg.Paths.UsersDir, file.WithIndentedJSON()))
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to create user store: %w", err)
 	}
 
-	apiKeyStore, err := store.NewAPIKeyStore(file.NewCollection(cfg.Paths.APIKeysDir))
+	apiKeyStore, err := store.NewAPIKeyStore(file.NewCollection(cfg.Paths.APIKeysDir, file.WithIndentedJSON()))
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to create API key store: %w", err)
 	}
@@ -100,7 +100,7 @@ func newBuiltinAuthService(ctx context.Context, cfg *config.Config) (*frontend.B
 			logger.Warn(ctx, "Failed to create encryptor for webhook store", tag.Error(encErr))
 		}
 	}
-	webhookStore, err := store.NewWebhookStore(file.NewCollection(cfg.Paths.WebhooksDir), webhookEncryptor)
+	webhookStore, err := store.NewWebhookStore(file.NewCollection(cfg.Paths.WebhooksDir, file.WithIndentedJSON()), webhookEncryptor)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to create webhook store: %w", err)
 	}
