@@ -26,7 +26,6 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/filenotification"
 	"github.com/dagucloud/dagu/internal/persis/fileremotenode"
 	"github.com/dagucloud/dagu/internal/persis/filetokensecret"
-	"github.com/dagucloud/dagu/internal/persis/fileworkspace"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/remotenode"
 	"github.com/dagucloud/dagu/internal/service/audit"
@@ -155,5 +154,12 @@ func NewUpgradeCheckStore(cfg *config.Config) (upgrade.CacheStore, error) {
 }
 
 func NewWorkspaceStore(cfg *config.Config) (workspace.Store, error) {
-	return fileworkspace.New(cfg.Paths.WorkspacesDir)
+	dir := cfg.Paths.WorkspacesDir
+	if dir == "" {
+		return nil, fmt.Errorf("workspace store: WorkspacesDir cannot be empty")
+	}
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return nil, fmt.Errorf("workspace store: create directory %s: %w", dir, err)
+	}
+	return store.NewWorkspaceStore(NewCollection(dir, WithIndentedJSON()))
 }
