@@ -30,8 +30,8 @@ func NewActiveDistributedRunStore(col persis.Collection) *ActiveDistributedRunSt
 	return &ActiveDistributedRunStore{col: col}
 }
 
-// Upsert writes the active-run record. Uses optimistic concurrency:
-// Get → Create if absent / CompareAndSwap if present, retrying on conflict.
+// Upsert writes the active-run record. Get → Create if absent /
+// CompareAndSwap if present, retrying on conflict.
 func (s *ActiveDistributedRunStore) Upsert(ctx context.Context, record exec.ActiveDistributedRun) error {
 	if record.AttemptKey == "" {
 		return fmt.Errorf("attempt key is required")

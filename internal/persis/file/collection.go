@@ -77,10 +77,9 @@ func (c *Collection) Put(_ context.Context, rec *persis.Record) error {
 	return c.writeFile(path, rec)
 }
 
-// Create atomically inserts rec. Returns [persis.ErrConflict] when a record
-// with rec.ID already exists. Uses O_EXCL|O_CREATE so the check-and-insert
-// is atomic across processes; [fileutil.WriteFileAtomic] cannot be used here
-// because its rename step is unconditional and would silently replace.
+// Create atomically inserts rec. Returns [persis.ErrConflict] when a
+// record with rec.ID already exists. Uses O_EXCL|O_CREATE for atomic
+// cross-process insert.
 func (c *Collection) Create(_ context.Context, rec *persis.Record) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()

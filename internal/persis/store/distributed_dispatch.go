@@ -42,14 +42,8 @@ type DispatchTaskStoreOption func(*DispatchTaskStore)
 type DispatchTaskStore struct {
 	col            persis.Collection
 	reservationTTL time.Duration
-	// mu serializes in-process callers across recycle + scan + claim. CAS
-	// on individual records is what provides cross-process safety
-	// (CompareAndDelete on the pending record is the per-task atomicity
-	// point), but the per-method scan+recycle workload is O(N) per call
-	// — without an in-process mutex, every concurrent ClaimNext starts a
-	// fresh O(N) scan and the throughput collapses. The bulk-dispatch
-	// integration test (1000 items, 10 in-process worker goroutines)
-	// regressed from minutes to a timeout when this was removed.
+	// mu serializes the in-process recycle+scan+claim sequence;
+	// per-record CompareAndDelete provides cross-process safety.
 	mu sync.Mutex
 }
 
@@ -105,11 +99,10 @@ func (s *DispatchTaskStore) Enqueue(ctx context.Context, task *coordinatorv1.Tas
 	return s.putDispatchRecord(ctx, pendingID, payload, enqueuedAt, enqueuedAt)
 }
 
-// ClaimNext atomically transitions one matching pending record into a claim.
-// The coarse file-lock that previously serialized this method has been
-// removed: CompareAndDelete(pending) is the per-task atomicity point —
-// concurrent pollers racing on the same pending record see one winner and
-// the losers clean up their orphan claim and continue to the next pending.
+// ClaimNext atomically transitions one matching pending record into a
+// claim. CompareAndDelete(pending) is the per-task atomicity point;
+// concurrent pollers racing on the same pending see one winner and the
+// losers clean up their orphan claim and continue to the next pending.
 func (s *DispatchTaskStore) ClaimNext(ctx context.Context, claim exec.DispatchTaskClaim) (*exec.ClaimedDispatchTask, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -204,9 +197,9 @@ func (s *DispatchTaskStore) DeleteClaim(ctx context.Context, claimToken string) 
 }
 
 // CountOutstandingByQueue returns the number of pending+claimed dispatch
-// records matching queueName. Eventually consistent: a task transitioning
-// between pending and claim during the scan may be counted as both within a
-// sub-millisecond window — acceptable for observability/capacity hints.
+// records matching queueName. A task transitioning between pending and
+// claim during the scan may be counted as both for a sub-millisecond
+// window — acceptable for observability.
 func (s *DispatchTaskStore) CountOutstandingByQueue(ctx context.Context, queueName string, _ time.Duration) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -231,8 +224,9 @@ func (s *DispatchTaskStore) CountOutstandingByQueue(ctx context.Context, queueNa
 	return count, nil
 }
 
-// HasOutstandingAttempt reports whether any pending or claimed record matches
-// attemptKey. Same eventual-consistency caveat as [CountOutstandingByQueue].
+// HasOutstandingAttempt reports whether any pending or claimed record
+// matches attemptKey. Same eventual-consistency caveat as
+// [CountOutstandingByQueue].
 func (s *DispatchTaskStore) HasOutstandingAttempt(ctx context.Context, attemptKey string, _ time.Duration) (bool, error) {
 	if attemptKey == "" {
 		return false, nil

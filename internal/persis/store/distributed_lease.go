@@ -28,9 +28,8 @@ func NewDAGRunLeaseStore(col persis.Collection) *DAGRunLeaseStore {
 	return &DAGRunLeaseStore{col: col}
 }
 
-// Upsert writes lease for the given attempt key. Uses optimistic concurrency:
-// Get → Create if absent / CompareAndSwap if present, retrying on conflict.
-// Replaces the previous file-lock-based pessimistic serialization.
+// Upsert writes lease for attemptKey. Get → Create if absent /
+// CompareAndSwap if present, retrying on conflict.
 func (s *DAGRunLeaseStore) Upsert(ctx context.Context, lease exec.DAGRunLease) error {
 	if lease.AttemptKey == "" {
 		return fmt.Errorf("attempt key is required")
@@ -39,7 +38,6 @@ func (s *DAGRunLeaseStore) Upsert(ctx context.Context, lease exec.DAGRunLease) e
 
 	return retryCAS(ctx, func(ctx context.Context) error {
 		now := time.Now().UTC()
-		// Apply caller defaults — preserves today's L38-46 semantics.
 		current := lease
 		if current.ClaimedAt == 0 {
 			current.ClaimedAt = now.UnixMilli()
@@ -72,16 +70,15 @@ func (s *DAGRunLeaseStore) Upsert(ctx context.Context, lease exec.DAGRunLease) e
 		}
 		casErr := s.col.CompareAndSwap(ctx, id, existing.Data, data)
 		if errors.Is(casErr, persis.ErrNotFound) {
-			// Record was deleted between Get and CAS — retry as Create.
+			// Concurrent delete: retry as Create on next loop.
 			return persis.ErrConflict
 		}
 		return casErr
 	})
 }
 
-// Touch updates LastHeartbeatAt to observedAt. Returns ErrDAGRunLeaseNotFound
-// when the lease has been deleted (either initially or concurrently during
-// retry) — preserves today's caller-visible behavior.
+// Touch sets LastHeartbeatAt = observedAt. Returns ErrDAGRunLeaseNotFound
+// when the lease is gone (initially or via concurrent delete).
 func (s *DAGRunLeaseStore) Touch(ctx context.Context, attemptKey string, observedAt time.Time) error {
 	id := distributedRecordKey(attemptKey)
 

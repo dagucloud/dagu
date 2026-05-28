@@ -13,31 +13,16 @@ import (
 )
 
 const (
-	// casRetryInitialBackoff matches the previous distributed-lock retry
-	// interval so a CAS-retry under contention has the same baseline latency
-	// as the lock-wait it replaces.
 	casRetryInitialBackoff = 5 * time.Millisecond
-
-	// casRetryMaxBackoff caps the per-attempt jittered sleep. It mirrors the
-	// previous distributedLockStaleThreshold, so a single op cannot starve
-	// the caller longer than the lock-acquisition deadline did before.
-	casRetryMaxBackoff = 5 * time.Second
+	casRetryMaxBackoff     = 5 * time.Second
 )
 
-// retryCAS runs op until success, ctx cancellation, or op returns an error
-// that is not [persis.ErrConflict]. Conflicts trigger an exponential
-// full-jitter backoff (sleep uniformly in [0, backoff)) and double the bound
-// up to casRetryMaxBackoff. Total time is bounded by ctx, not by an attempt
-// count — callers control the deadline.
-//
-// Only persis.ErrConflict is treated as retryable. Any other error
-// (including persis.ErrNotFound from CompareAndSwap on a deleted record)
-// propagates immediately so callers can translate it to their domain error.
+// retryCAS runs op with exponential full-jitter backoff while op returns
+// [persis.ErrConflict]. Any other error (including ErrNotFound) propagates.
+// Total time is bounded by ctx.
 func retryCAS(ctx context.Context, op func(ctx context.Context) error) error {
 	backoff := casRetryInitialBackoff
 	for {
-		// Guard before invoking op so a pre-cancelled context never causes
-		// an extra Get/Create/CompareAndSwap round-trip.
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -49,8 +34,6 @@ func retryCAS(ctx context.Context, op func(ctx context.Context) error) error {
 			return err
 		}
 
-		// Full jitter: sleep in [0, backoff). math/rand/v2 is intentional —
-		// retry spread is not a security context.
 		sleep := time.Duration(rand.Int64N(int64(backoff))) //nolint:gosec // jitter, not cryptographic
 		timer := time.NewTimer(sleep)
 		select {

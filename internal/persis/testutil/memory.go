@@ -123,8 +123,8 @@ func (c *MemoryCollection) Put(_ context.Context, rec *persis.Record) error {
 	return nil
 }
 
-// Create atomically inserts rec. Returns [persis.ErrConflict] when a record
-// with rec.ID already exists. Mirrors the file backend's O_EXCL semantics.
+// Create atomically inserts rec. Returns [persis.ErrConflict] when a
+// record with rec.ID already exists.
 func (c *MemoryCollection) Create(_ context.Context, rec *persis.Record) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
