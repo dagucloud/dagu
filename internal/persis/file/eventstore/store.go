@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package fileeventstore provides a file-based implementation of the event store.
+// Package eventstore provides a file-based implementation of the event store.
 package eventstore
 
 import (

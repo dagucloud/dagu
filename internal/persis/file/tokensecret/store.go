@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package filetokensecret provides a file-based implementation of auth.TokenSecretProvider.
+// Package tokensecret provides a file-based implementation of auth.TokenSecretProvider.
 package tokensecret
 
 import (

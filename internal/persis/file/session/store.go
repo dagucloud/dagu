@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package filesession provides a file-based implementation of the SessionStore interface.
+// Package session provides a file-based implementation of the SessionStore interface.
 package session
 
 import (
