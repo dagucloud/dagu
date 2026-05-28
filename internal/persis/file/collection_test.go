@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -65,6 +67,65 @@ func RunCollectionContract(t *testing.T, col persis.Collection, freshCollection 
 		got, err := col.Get(ctx, "beta")
 		require.NoError(t, err)
 		assert.Equal(t, []byte(`{"v":2}`), got.Data)
+	})
+
+	t.Run("create_inserts_new_record", func(t *testing.T) {
+		col2 := freshCollection(t)
+		rec := &persis.Record{
+			ID:        "create-new",
+			Data:      []byte(`{"n":1}`),
+			Encoding:  persis.EncodingJSON,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+		require.NoError(t, col2.Create(ctx, rec))
+
+		got, err := col2.Get(ctx, "create-new")
+		require.NoError(t, err)
+		assert.Equal(t, []byte(`{"n":1}`), got.Data)
+	})
+
+	t.Run("create_returns_conflict_when_present", func(t *testing.T) {
+		col2 := freshCollection(t)
+		rec := &persis.Record{
+			ID:        "create-dup",
+			Data:      []byte(`{"n":1}`),
+			Encoding:  persis.EncodingJSON,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+		require.NoError(t, col2.Create(ctx, rec))
+
+		dup := *rec
+		dup.Data = []byte(`{"n":2}`)
+		err := col2.Create(ctx, &dup)
+		assert.ErrorIs(t, err, persis.ErrConflict)
+
+		// Original record is unchanged.
+		got, err := col2.Get(ctx, "create-dup")
+		require.NoError(t, err)
+		assert.Equal(t, []byte(`{"n":1}`), got.Data)
+	})
+
+	t.Run("create_after_delete_succeeds", func(t *testing.T) {
+		col2 := freshCollection(t)
+		rec := &persis.Record{
+			ID:        "create-recycled",
+			Data:      []byte(`{"n":1}`),
+			Encoding:  persis.EncodingJSON,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+		require.NoError(t, col2.Create(ctx, rec))
+		require.NoError(t, col2.Delete(ctx, "create-recycled"))
+
+		fresh := *rec
+		fresh.Data = []byte(`{"n":2}`)
+		require.NoError(t, col2.Create(ctx, &fresh))
+
+		got, err := col2.Get(ctx, "create-recycled")
+		require.NoError(t, err)
+		assert.Equal(t, []byte(`{"n":2}`), got.Data)
 	})
 
 	t.Run("delete", func(t *testing.T) {
@@ -431,6 +492,53 @@ func TestFileCollectionPutNilReturnsError(t *testing.T) {
 	col := file.NewCollection(t.TempDir())
 	err := col.Put(context.Background(), nil)
 	require.ErrorContains(t, err, "nil record")
+}
+
+// TestFileCollectionCreateIsAtomicAcrossGoroutines races 16 goroutines on the
+// same ID and asserts that exactly one Create succeeds and the rest see
+// ErrConflict. Exercises the O_EXCL guarantee against in-process concurrency.
+func TestFileCollectionCreateIsAtomicAcrossGoroutines(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	col := file.NewCollection(t.TempDir())
+
+	const goroutines = 16
+	var (
+		wg        sync.WaitGroup
+		successes int64
+		conflicts int64
+		other     int64
+	)
+	start := make(chan struct{})
+	for range goroutines {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			err := col.Create(ctx, &persis.Record{
+				ID:        "shared",
+				Data:      []byte(`{}`),
+				Encoding:  persis.EncodingJSON,
+				CreatedAt: time.Now().UTC(),
+				UpdatedAt: time.Now().UTC(),
+			})
+			switch err {
+			case nil:
+				atomic.AddInt64(&successes, 1)
+			case persis.ErrConflict:
+				atomic.AddInt64(&conflicts, 1)
+			default:
+				atomic.AddInt64(&other, 1)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	assert.Equal(t, int64(1), successes, "exactly one Create must win")
+	assert.Equal(t, int64(goroutines-1), conflicts, "all losers must see ErrConflict")
+	assert.Equal(t, int64(0), other, "no other error class is acceptable")
 }
 
 func TestFileCollectionWithLockOptionsUsesCustomTiming(t *testing.T) {

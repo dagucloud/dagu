@@ -77,6 +77,69 @@ func (c *Collection) Put(_ context.Context, rec *persis.Record) error {
 	return c.writeFile(path, rec)
 }
 
+// Create atomically inserts rec. Returns [persis.ErrConflict] when a record
+// with rec.ID already exists. Uses O_EXCL|O_CREATE so the check-and-insert
+// is atomic across processes; [fileutil.WriteFileAtomic] cannot be used here
+// because its rename step is unconditional and would silently replace.
+func (c *Collection) Create(_ context.Context, rec *persis.Record) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if rec == nil {
+		return fmt.Errorf("file backend: nil record")
+	}
+	if rec.Encoding != "" && rec.Encoding != persis.EncodingJSON {
+		return fmt.Errorf("file backend: unsupported encoding %q", rec.Encoding)
+	}
+	if !json.Valid(rec.Data) {
+		return fmt.Errorf("file backend: invalid JSON record %q", rec.ID)
+	}
+	path, err := c.filePath(rec.ID)
+	if err != nil {
+		return err
+	}
+	body := rec.Data
+	if c.indent {
+		var buf bytes.Buffer
+		if err := json.Indent(&buf, rec.Data, "", "  "); err != nil {
+			return fmt.Errorf("file backend: indent record %q: %w", rec.ID, err)
+		}
+		body = buf.Bytes()
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // path is sanitized via c.filePath -> pathUnderRoot
+	if err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return persis.ErrConflict
+		}
+		return err
+	}
+	if _, err := f.Write(body); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+	mtime := rec.UpdatedAt
+	if mtime.IsZero() {
+		mtime = rec.CreatedAt
+	}
+	if mtime.IsZero() {
+		return nil
+	}
+	return os.Chtimes(path, mtime, mtime)
+}
+
 func (c *Collection) Delete(ctx context.Context, id string) error {
 	_, err := c.DeleteIfExists(ctx, id)
 	return err

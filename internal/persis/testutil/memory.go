@@ -123,6 +123,21 @@ func (c *MemoryCollection) Put(_ context.Context, rec *persis.Record) error {
 	return nil
 }
 
+// Create atomically inserts rec. Returns [persis.ErrConflict] when a record
+// with rec.ID already exists. Mirrors the file backend's O_EXCL semantics.
+func (c *MemoryCollection) Create(_ context.Context, rec *persis.Record) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if rec == nil {
+		return fmt.Errorf("memory backend: nil record")
+	}
+	if _, ok := c.records[rec.ID]; ok {
+		return persis.ErrConflict
+	}
+	c.records[rec.ID] = copyRecord(rec)
+	return nil
+}
+
 func (c *MemoryCollection) Delete(ctx context.Context, id string) error {
 	_, err := c.DeleteIfExists(ctx, id)
 	return err

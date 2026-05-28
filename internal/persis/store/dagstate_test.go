@@ -287,6 +287,10 @@ func (c *countingRecordIDCollection) Put(context.Context, *persis.Record) error 
 	return nil
 }
 
+func (c *countingRecordIDCollection) Create(context.Context, *persis.Record) error {
+	return nil
+}
+
 func (c *countingRecordIDCollection) Delete(context.Context, string) error {
 	return nil
 }

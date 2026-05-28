@@ -90,6 +90,11 @@ type Collection interface {
 	// Put creates or replaces a record.
 	Put(ctx context.Context, rec *Record) error
 
+	// Create atomically inserts rec. Returns [ErrConflict] when a record with
+	// rec.ID already exists. Backends must guarantee the check-and-insert is
+	// atomic with respect to concurrent Put, CompareAndSwap, and Create calls.
+	Create(ctx context.Context, rec *Record) error
+
 	// Delete removes the record with the given id.
 	// Returns nil if the record does not exist.
 	Delete(ctx context.Context, id string) error
