@@ -85,6 +85,13 @@ jobs:
             exit 0
           fi
 
+          if ! git cat-file -e "${base_sha}^{commit}" 2>/dev/null; then
+            echo "Base commit ${base_sha} is not available locally; running CI conservatively."
+            echo "go=true" >> "${GITHUB_OUTPUT}"
+            echo "e2e=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
           changed_files="$(git diff --name-only "${base_sha}" "${GITHUB_SHA}")"
           printf '%s\n' "${changed_files}"
 
