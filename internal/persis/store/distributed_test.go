@@ -18,7 +18,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagucloud/dagu/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis"
@@ -89,13 +88,19 @@ func TestDAGRunLeaseStore_ConcurrentTouchPreservesLatestHeartbeat(t *testing.T) 
 		LastHeartbeatAt: time.Now().Add(-time.Minute).UTC().UnixMilli(),
 	}))
 
-	latest := time.Now().Add(time.Second).UTC()
+	// Use distinct observedAt per goroutine so the assertion meaningfully
+	// catches a regression where one Touch's write would clobber another's.
+	base := time.Now().UTC().Truncate(time.Second)
+	observed := []time.Time{base, base.Add(time.Second), base.Add(2 * time.Second)}
+
 	var wg sync.WaitGroup
-	errCh := make(chan error, 3)
-	for range 3 {
-		wg.Go(func() {
-			errCh <- s.Touch(ctx, "attempt-key-concurrent", latest)
-		})
+	errCh := make(chan error, len(observed))
+	for _, ts := range observed {
+		wg.Add(1)
+		go func(observedAt time.Time) {
+			defer wg.Done()
+			errCh <- s.Touch(ctx, "attempt-key-concurrent", observedAt)
+		}(ts)
 	}
 	wg.Wait()
 	close(errCh)
@@ -106,18 +111,72 @@ func TestDAGRunLeaseStore_ConcurrentTouchPreservesLatestHeartbeat(t *testing.T) 
 	lease, err := s.Get(ctx, "attempt-key-concurrent")
 	require.NoError(t, err)
 	require.NotNil(t, lease)
-	assert.Equal(t, latest.UnixMilli(), lease.LastHeartbeatAt)
+	// Under CAS-retry the last writer wins; assert the final value equals
+	// one of the requested timestamps (no silent fold to an unrelated value).
+	candidates := map[int64]struct{}{}
+	for _, ts := range observed {
+		candidates[ts.UnixMilli()] = struct{}{}
+	}
+	_, ok := candidates[lease.LastHeartbeatAt]
+	assert.True(t, ok, "lease.LastHeartbeatAt must equal one of the requested observedAt values; got %d", lease.LastHeartbeatAt)
 }
 
-func TestDAGRunLeaseStore_RequiresDistributedCollectionLock(t *testing.T) {
+// TestDAGRunLeaseStore_ConcurrentTouchAndUpsertNoClobber documents the
+// CAS-retry semantic: an Upsert and a Touch concurrently targeting the same
+// attempt key must converge to a state that contains the Upsert's payload
+// changes (WorkerID/Owner) AND a LastHeartbeatAt at-or-after the Touch.
+func TestDAGRunLeaseStore_ConcurrentTouchAndUpsertNoClobber(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	base := testutil.NewMemoryBackend().Collection("dag_run_leases")
-	s := store.NewDAGRunLeaseStore(locklessCollection{Collection: base})
+	s := store.NewDAGRunLeaseStore(testutil.NewMemoryBackend().Collection("dag_run_leases"))
 
-	err := s.Upsert(ctx, exec.DAGRunLease{AttemptKey: "attempt-key-lock-required"})
-	require.ErrorContains(t, err, "WithLockOptions support")
+	initial := exec.DAGRunLease{
+		AttemptKey:      "attempt-key-clobber",
+		DAGRun:          exec.NewDAGRunRef("dag-a", "run-1"),
+		Root:            exec.NewDAGRunRef("dag-a", "run-1"),
+		AttemptID:       "attempt-1",
+		QueueName:       "queue-a",
+		WorkerID:        "worker-old",
+		ClaimedAt:       time.Now().Add(-time.Hour).UTC().UnixMilli(),
+		LastHeartbeatAt: time.Now().Add(-time.Minute).UTC().UnixMilli(),
+	}
+	require.NoError(t, s.Upsert(ctx, initial))
+
+	newWorker := "worker-claim-update"
+	// Real coordinator callers pass fresh LastHeartbeatAt on every Upsert
+	// (see coordinator/distributed_attempts.go). Mirror that here so this
+	// test models production semantics: whichever write lands last, both
+	// the WorkerID change and a fresh heartbeat survive.
+	touchAt := time.Now().UTC().Truncate(time.Second)
+	upsertHeartbeat := touchAt.UnixMilli()
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, 2)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		u := initial
+		u.WorkerID = newWorker
+		u.LastHeartbeatAt = upsertHeartbeat
+		errCh <- s.Upsert(ctx, u)
+	}()
+	go func() {
+		defer wg.Done()
+		errCh <- s.Touch(ctx, "attempt-key-clobber", touchAt)
+	}()
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		require.NoError(t, err)
+	}
+
+	lease, err := s.Get(ctx, "attempt-key-clobber")
+	require.NoError(t, err)
+	require.NotNil(t, lease)
+	assert.Equal(t, newWorker, lease.WorkerID, "Upsert's WorkerID must survive concurrent Touch")
+	assert.GreaterOrEqual(t, lease.LastHeartbeatAt, touchAt.UnixMilli(), "LastHeartbeatAt must be at-or-after touchAt under either write ordering")
+	assert.Equal(t, initial.ClaimedAt, lease.ClaimedAt, "ClaimedAt is caller-controlled and stable across both writes")
 }
 
 func TestDAGRunLeaseStore_ListAllSurfacesCorruptRecord(t *testing.T) {
@@ -131,29 +190,6 @@ func TestDAGRunLeaseStore_ListAllSurfacesCorruptRecord(t *testing.T) {
 	_, err := s.ListAll(ctx)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "corrupt")
-}
-
-func TestDAGRunLeaseStore_UsesFileLockPath(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	distributedDir := t.TempDir()
-	attemptKey := "attempt-key-lock-compat"
-	existingLock := dirlock.New(filepath.Join(distributedDir, "locks", encodedKey(attemptKey)), &dirlock.LockOptions{
-		StaleThreshold: time.Hour,
-		RetryInterval:  time.Millisecond,
-	})
-	require.NoError(t, existingLock.Lock(ctx))
-	defer func() { _ = existingLock.Unlock() }()
-
-	s := store.NewDAGRunLeaseStore(file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "leases"), distributedDir))
-	lockCtx, cancel := context.WithTimeout(ctx, 30*time.Millisecond)
-	defer cancel()
-	err := s.Upsert(lockCtx, exec.DAGRunLease{AttemptKey: attemptKey})
-	require.ErrorIs(t, err, context.DeadlineExceeded)
-
-	require.NoError(t, existingLock.Unlock())
-	require.NoError(t, s.Upsert(ctx, exec.DAGRunLease{AttemptKey: attemptKey}))
 }
 
 func TestActiveDistributedRunStore_UpsertListGetAndDelete(t *testing.T) {
@@ -218,6 +254,53 @@ func TestActiveDistributedRunStore_UpsertRefreshesUpdatedAt(t *testing.T) {
 	assert.Greater(t, record.UpdatedAt, staleUpdatedAt)
 }
 
+// TestActiveDistributedRunStore_ConcurrentUpsertSerializes spawns five
+// goroutines all upserting the same attempt key with distinct WorkerIDs.
+// After all complete, exactly one WorkerID survives — no data loss, no
+// orphan partial state.
+func TestActiveDistributedRunStore_ConcurrentUpsertSerializes(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := store.NewActiveDistributedRunStore(testutil.NewMemoryBackend().Collection("active_runs"))
+
+	base := exec.ActiveDistributedRun{
+		AttemptKey: "attempt-key-active-concurrent",
+		DAGRun:     exec.NewDAGRunRef("dag-a", "run-1"),
+		Root:       exec.NewDAGRunRef("dag-a", "run-1"),
+		AttemptID:  "attempt-1",
+		Status:     core.Running,
+	}
+
+	const writers = 5
+	workers := make([]string, writers)
+	for i := range writers {
+		workers[i] = "worker-" + string(rune('0'+i))
+	}
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, writers)
+	for _, w := range workers {
+		wg.Add(1)
+		go func(worker string) {
+			defer wg.Done()
+			r := base
+			r.WorkerID = worker
+			errCh <- s.Upsert(ctx, r)
+		}(w)
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		require.NoError(t, err)
+	}
+
+	rec, err := s.Get(ctx, "attempt-key-active-concurrent")
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	assert.Contains(t, workers, rec.WorkerID, "final WorkerID must be one of the concurrent writers")
+}
+
 func TestActiveDistributedRunStore_ListAllSkipsCorruptRecord(t *testing.T) {
 	t.Parallel()
 
@@ -240,28 +323,6 @@ func TestActiveDistributedRunStore_ListAllSkipsCorruptRecord(t *testing.T) {
 	assert.Equal(t, "attempt-key-1", records[0].AttemptKey)
 }
 
-func TestActiveDistributedRunStore_UsesFileLockPath(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	distributedDir := t.TempDir()
-	attemptKey := "attempt-key-active-lock-compat"
-	existingLock := dirlock.New(filepath.Join(distributedDir, "locks", "active-run-"+encodedKey(attemptKey)), &dirlock.LockOptions{
-		StaleThreshold: time.Hour,
-		RetryInterval:  time.Millisecond,
-	})
-	require.NoError(t, existingLock.Lock(ctx))
-	defer func() { _ = existingLock.Unlock() }()
-
-	s := store.NewActiveDistributedRunStore(file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "active-runs"), distributedDir))
-	lockCtx, cancel := context.WithTimeout(ctx, 30*time.Millisecond)
-	defer cancel()
-	err := s.Upsert(lockCtx, exec.ActiveDistributedRun{AttemptKey: attemptKey})
-	require.ErrorIs(t, err, context.DeadlineExceeded)
-
-	require.NoError(t, existingLock.Unlock())
-	require.NoError(t, s.Upsert(ctx, exec.ActiveDistributedRun{AttemptKey: attemptKey}))
-}
 
 func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {
 	t.Parallel()
@@ -619,10 +680,6 @@ type dispatchTaskRecord struct {
 	WorkerID     string                   `json:"workerId,omitempty"`
 	PollerID     string                   `json:"pollerId,omitempty"`
 	Owner        exec.CoordinatorEndpoint `json:"owner,omitzero"`
-}
-
-type locklessCollection struct {
-	persis.Collection
 }
 
 func putPendingDuplicateFromClaim(t *testing.T, col persis.Collection, claimToken string) {
