@@ -17,7 +17,6 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/internal/persis/fileagentmodel"
 	"github.com/dagucloud/dagu/internal/persis/fileagentoauth"
 	"github.com/dagucloud/dagu/internal/persis/fileagentskill"
 	"github.com/dagucloud/dagu/internal/persis/fileagentsoul"
@@ -99,7 +98,7 @@ func NewAgentStores(ctx context.Context, cfg *config.Config, opts ...AgentStores
 	} else {
 		logger.Warn(ctx, "Failed to create agent config store", tag.Error(err))
 	}
-	if modelStore, err := fileagentmodel.New(filepath.Join(cfg.Paths.DataDir, "agent", "models")); err == nil {
+	if modelStore, err := newAgentModelStore(filepath.Join(cfg.Paths.DataDir, "agent", "models")); err == nil {
 		result.ModelStore = modelStore
 	} else {
 		logger.Warn(ctx, "Failed to create agent model store", tag.Error(err))
@@ -150,7 +149,7 @@ func NewSnapshotStores(ctx context.Context, paths config.PathsConfig) (agent.Sna
 	if err != nil {
 		return agent.SnapshotStores{}, fmt.Errorf("create agent config store: %w", err)
 	}
-	modelStore, err := fileagentmodel.New(filepath.Join(paths.DataDir, "agent", "models"))
+	modelStore, err := newAgentModelStore(filepath.Join(paths.DataDir, "agent", "models"))
 	if err != nil {
 		return agent.SnapshotStores{}, fmt.Errorf("create agent model store: %w", err)
 	}
@@ -233,4 +232,14 @@ func newAgentConfigStore(dataDir string) (agent.ConfigStore, error) {
 		return nil, fmt.Errorf("agent config store: create directory %s: %w", dir, err)
 	}
 	return store.NewAgentConfigStore(NewCollection(dir, WithIndentedJSON())), nil
+}
+
+func newAgentModelStore(baseDir string) (agent.ModelStore, error) {
+	if baseDir == "" {
+		return nil, errors.New("agent model store: baseDir cannot be empty")
+	}
+	if err := os.MkdirAll(baseDir, 0o750); err != nil {
+		return nil, fmt.Errorf("agent model store: create directory %s: %w", baseDir, err)
+	}
+	return store.NewAgentModelStore(NewCollection(baseDir, WithIndentedJSON()))
 }
