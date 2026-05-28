@@ -11,16 +11,12 @@ import (
 	"github.com/dagucloud/dagu/internal/upgrade"
 )
 
-// upgradeCheckRecordID is the single record ID under which upgrade-check
-// cache data is stored. With the file backend, this maps to
-// "{collection_dir}/upgrade-check.json" — byte-identical to the
-// pre-refactor [fileupgradecheck] on-disk layout.
 const upgradeCheckRecordID = "upgrade-check"
 
 var _ upgrade.CacheStore = (*UpgradeCheckStore)(nil)
 
-// UpgradeCheckStore implements [upgrade.CacheStore] by persisting a single
-// record (id "upgrade-check") in a [persis.Collection].
+// UpgradeCheckStore implements [upgrade.CacheStore] over a single
+// [persis.Collection] record.
 type UpgradeCheckStore struct {
 	col persis.Collection
 }
@@ -30,11 +26,8 @@ func NewUpgradeCheckStore(col persis.Collection) *UpgradeCheckStore {
 	return &UpgradeCheckStore{col: col}
 }
 
-// Load returns the cached upgrade-check data, or (nil, nil) when no record
-// exists, when the on-disk data is unreadable, or when it fails to decode.
-// Callers in [internal/upgrade] treat any non-cache result as a cache miss
-// and trigger a fresh remote check, so collapsing read errors into a miss
-// is observationally equivalent to the pre-refactor behavior.
+// Load returns the cached upgrade-check data, or (nil, nil) when no usable
+// record exists. Any read or decode failure is reported as a cache miss.
 func (s *UpgradeCheckStore) Load() (*upgrade.UpgradeCheckCache, error) {
 	rec, err := s.col.Get(context.Background(), upgradeCheckRecordID)
 	if err != nil {

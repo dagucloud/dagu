@@ -24,8 +24,6 @@ import (
 
 func sampleUpgradeCache() *upgrade.UpgradeCheckCache {
 	return &upgrade.UpgradeCheckCache{
-		// Truncate to second granularity so JSON round-trip is bit-stable on
-		// platforms whose temp dirs strip sub-second mtimes.
 		LastCheck:       time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC),
 		LatestVersion:   "v1.30.3",
 		CurrentVersion:  "v1.30.0",
@@ -38,9 +36,7 @@ func newMemoryUpgradeCheckStore() *store.UpgradeCheckStore {
 	return store.NewUpgradeCheckStore(col)
 }
 
-// newFileUpgradeCheckStore mirrors the production wiring in
-// internal/persis/file/service_stores.go::NewUpgradeCheckStore so file-layout
-// tests exercise the same Collection construction.
+// newFileUpgradeCheckStore constructs the store the same way production wiring does.
 func newFileUpgradeCheckStore(t *testing.T, dir string) *store.UpgradeCheckStore {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(dir, 0o750))
@@ -97,11 +93,8 @@ func TestUpgradeCheckStore_Load_NoRecord(t *testing.T) {
 
 // ─── File-layout compatibility tests ──────────────────────────────────────────
 
-// TestUpgradeCheckStore_File_OnDiskFormatMatchesPreRefactor proves the new
-// adapter writes byte-identical output to the pre-refactor fileupgradecheck
-// format: pretty-printed JSON via json.MarshalIndent("", "  ") at
-// {dir}/upgrade-check.json.
-func TestUpgradeCheckStore_File_OnDiskFormatMatchesPreRefactor(t *testing.T) {
+// On-disk bytes equal json.MarshalIndent(v, "", "  ") at {dir}/upgrade-check.json.
+func TestUpgradeCheckStore_File_OnDiskFormatMatchesReleasedJSON(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	s := newFileUpgradeCheckStore(t, dir)
@@ -116,14 +109,12 @@ func TestUpgradeCheckStore_File_OnDiskFormatMatchesPreRefactor(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.True(t, bytes.Equal(got, expected),
-		"on-disk bytes must match pre-refactor json.MarshalIndent output\n  got:  %q\n  want: %q",
+		"on-disk bytes must equal json.MarshalIndent output\n  got:  %q\n  want: %q",
 		string(got), string(expected))
 }
 
-// TestUpgradeCheckStore_File_ReadsPreRefactorFile proves the new adapter
-// can read data written by the pre-refactor fileupgradecheck package
-// (forward compatibility from existing installs).
-func TestUpgradeCheckStore_File_ReadsPreRefactorFile(t *testing.T) {
+// Files written by older binaries (json.MarshalIndent, 0o600) decode through Load.
+func TestUpgradeCheckStore_File_ReadsReleasedFile(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(dir, 0o750))
@@ -171,9 +162,7 @@ func TestUpgradeCheckStore_File_Save_PrettyPrinted(t *testing.T) {
 	assert.True(t, strings.Contains(content, "  "), "on-disk JSON must be 2-space indented")
 }
 
-// TestUpgradeCheckStore_File_Load_InvalidJSON preserves the pre-refactor quirk:
-// invalid JSON on disk returns (nil, nil) rather than an error
-// (fileupgradecheck/store.go:67).
+// Invalid on-disk JSON loads as (nil, nil) so callers fall back to a fresh check.
 func TestUpgradeCheckStore_File_Load_InvalidJSON(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -186,8 +175,6 @@ func TestUpgradeCheckStore_File_Load_InvalidJSON(t *testing.T) {
 	assert.Nil(t, got, "Load() must return nil for invalid JSON")
 }
 
-// TestUpgradeCheckStore_File_Concurrent_SaveLoad guards against data races
-// during concurrent Save/Load (run with -race).
 func TestUpgradeCheckStore_File_Concurrent_SaveLoad(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

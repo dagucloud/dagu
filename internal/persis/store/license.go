@@ -12,15 +12,12 @@ import (
 	"github.com/dagucloud/dagu/internal/persis"
 )
 
-// licenseRecordID is the single record ID under which activation data is
-// stored. With the file backend, this maps to "{collection_dir}/activation.json"
-// — byte-identical to the pre-refactor [filelicense] on-disk layout.
 const licenseRecordID = "activation"
 
 var _ license.ActivationStore = (*LicenseStore)(nil)
 
-// LicenseStore implements [license.ActivationStore] by persisting a single
-// record (id "activation") in a [persis.Collection].
+// LicenseStore implements [license.ActivationStore] over a single
+// [persis.Collection] record.
 type LicenseStore struct {
 	col persis.Collection
 }
@@ -61,7 +58,7 @@ func (s *LicenseStore) Save(ad *license.ActivationData) error {
 	return nil
 }
 
-// Remove deletes the activation record. Idempotent: returns nil when no record exists.
+// Remove deletes the activation record. Returns nil when no record exists.
 func (s *LicenseStore) Remove() error {
 	if err := s.col.Delete(context.Background(), licenseRecordID); err != nil {
 		return fmt.Errorf("license store: remove: %w", err)

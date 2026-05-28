@@ -1816,11 +1816,9 @@ func (a *Agent) stopChildren(ctx context.Context, sig os.Signal, allowOverride b
 		slog.Duration("max-cleanup-time", a.dag.MaxCleanUpTime),
 	)
 
-	// Snapshot runner+plan under the same lock used by Status() to bound the
-	// race with Run()'s lazy initialization. listenSignals attaches before
-	// Run() sets a.runner / a.plan, so a signal arriving during early setup
-	// (or after an early-failure return) would otherwise nil-deref below.
-	// Status() already handles the same nil-runner window at agent.go:1248.
+	// Snapshot runner+plan under the read lock: listenSignals can attach
+	// before Run() assigns a.runner and a.plan, so an early signal would
+	// otherwise nil-deref below.
 	a.lock.RLock()
 	runner := a.runner
 	plan := a.plan

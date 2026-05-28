@@ -112,11 +112,9 @@ func IncidentMonitorStateFile(cfg *config.Config) string {
 
 func NewLicenseStore(cfg *config.Config) license.ActivationStore {
 	dir := LicenseDir(cfg)
-	// Preserve the released 0o700 directory permission. The Collection's
-	// internal MkdirAll uses 0o750, but it only runs if the directory does
-	// not yet exist — pre-creating at 0o700 here ensures fresh installs
-	// match the pre-refactor [filelicense] layout. License IDs are flat
-	// (single "activation" record), so no nested subdirs are ever created.
+	// Pre-create at 0o700 so the directory ends up with the stricter perm.
+	// Collection.Put falls back to MkdirAll(0o750) when the dir is missing,
+	// which would otherwise relax the bit on fresh installs.
 	_ = os.MkdirAll(dir, 0o700)
 	return store.NewLicenseStore(NewCollection(dir, WithIndentedJSON()))
 }
