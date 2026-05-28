@@ -37,7 +37,7 @@
     <p class="text-slate-300 text-lg max-w-3xl">
       Deep Module redesign: introduce a single pluggable
       <strong class="text-white">Backend</strong> interface so control-plane stores share one file-I/O implementation.
-      Boundary established and the first wave of stores ported; ~15 still run behind their original leaf packages
+      Boundary established and the first wave of stores ported; ~9 still run behind their original leaf packages
       (incremental, ongoing), while DAG-run and proc stay file-specific by design. The seam makes future
       PostgreSQL/etcd backends possible without rewriting every store.
     </p>
@@ -741,6 +741,12 @@ graph TB
         <div class="ml-6 text-green-600">✅ webhook.go <span class="text-slate-400 ml-1">319 ln</span></div>
         <div class="ml-6 text-green-600">✅ license.go <span class="text-slate-400 ml-1">76 ln · filelicense removed; on-disk format byte-identical to pre-refactor activation.json</span></div>
         <div class="ml-6 text-green-600">✅ upgradecheck.go <span class="text-slate-400 ml-1">62 ln · fileupgradecheck removed; single-record cache at upgrade-check.json, layout preserved</span></div>
+        <div class="ml-6 text-green-600">✅ githubdispatch.go <span class="text-slate-400 ml-1">filegithubdispatch removed; single tracked.json map preserved</span></div>
+        <div class="ml-6 text-green-600">✅ workspace.go <span class="text-slate-400 ml-1">fileworkspace removed; per-workspace JSON, byName index rebuilt on startup</span></div>
+        <div class="ml-6 text-green-600">✅ agentconfig.go <span class="text-slate-400 ml-1">fileagentconfig removed; single config.json, env override preserved</span></div>
+        <div class="ml-6 text-green-600">✅ agentmodel.go <span class="text-slate-400 ml-1">fileagentmodel removed; per-model JSON, byName index rebuilt</span></div>
+        <div class="ml-6 text-green-600">✅ agentoauth.go <span class="text-slate-400 ml-1">fileagentoauth removed; per-provider encrypted credential, RFC3339Nano timestamps preserved</span></div>
+        <div class="ml-6 text-green-600">✅ remotenode.go <span class="text-slate-400 ml-1">fileremotenode removed; per-node JSON with encrypted credentials, byName index rebuilt</span></div>
         <div class="ml-6 text-green-600">✅ watermark.go <span class="text-slate-400 ml-1">122 ln · lives in persis/schedulerstore/, not store/</span></div>
         <div class="ml-6 text-green-600">✅ workerheartbeat.go <span class="text-slate-400 ml-1">168 ln</span></div>
         <div class="ml-6 text-green-600">✅ queue*.go <span class="text-slate-400 ml-1">collection-backed QueueStore; filequeue removed</span></div>
@@ -760,7 +766,7 @@ graph TB
         <div class="ml-4 mt-2 text-slate-500">legacy/ <span class="text-slate-400">unchanged</span></div>
         <div class="ml-4 text-green-600">✅ testutil/ <span class="text-slate-400">memory.go 217 ln — in-memory Backend for unit tests</span></div>
         <div class="ml-4 text-slate-500">filedag/ <span class="text-slate-400 font-normal">← untouched leaf implementation; composition roots use file.NewDAGStore, app/engine code receives exec.DAGStore</span></div>
-        <div class="ml-4 text-amber-400">◐ file*/ <span class="text-slate-400 font-normal">← ~15 leaf packages still in use (agent*, audit, eventstore, notification, session, serviceregistry, baseconfig, …), each wrapped by a file/ boundary; ported incrementally, not yet behind Backend</span></div>
+        <div class="ml-4 text-amber-400">◐ file*/ <span class="text-slate-400 font-normal">← ~9 leaf packages still in use (audit, eventstore, notification, session, serviceregistry, baseconfig, incident, agentsoul, memory), each wrapped by a file/ boundary; ported incrementally, not yet behind Backend</span></div>
       </div>
     </div>
   </div>
@@ -1026,7 +1032,7 @@ graph LR
       </div>
       <div class="bg-green-900/40 border border-green-600/40 rounded-xl p-5">
         <p class="text-sm font-semibold text-green-300 mb-2">Stores ported</p>
-        <p class="text-3xl font-bold text-green-400">12+</p>
+        <p class="text-3xl font-bold text-green-400">18+</p>
         <p class="text-sm text-slate-400 mt-1">collection-backed adapters plus file-backed DAG-run compatibility</p>
       </div>
       <div class="bg-amber-900/40 border border-amber-600/40 rounded-xl p-5">

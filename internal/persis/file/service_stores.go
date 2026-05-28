@@ -22,12 +22,9 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/filebaseconfig"
 	"github.com/dagucloud/dagu/internal/persis/filedoc"
 	"github.com/dagucloud/dagu/internal/persis/fileeventstore"
-	"github.com/dagucloud/dagu/internal/persis/filegithubdispatch"
 	"github.com/dagucloud/dagu/internal/persis/fileincident"
 	"github.com/dagucloud/dagu/internal/persis/filenotification"
-	"github.com/dagucloud/dagu/internal/persis/fileremotenode"
 	"github.com/dagucloud/dagu/internal/persis/filetokensecret"
-	"github.com/dagucloud/dagu/internal/persis/fileworkspace"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/remotenode"
 	"github.com/dagucloud/dagu/internal/service/audit"
@@ -96,7 +93,9 @@ func NewEventCollector(cfg *config.Config) (EventCollector, error) {
 }
 
 func NewGitHubDispatchTracker(cfg *config.Config) githubdispatch.Tracker {
-	return filegithubdispatch.New(filepath.Join(cfg.Paths.DataDir, "github-dispatch"))
+	dir := filepath.Join(cfg.Paths.DataDir, "github-dispatch")
+	_ = os.MkdirAll(dir, 0o700)
+	return store.NewGitHubDispatchStore(NewCollection(dir, WithIndentedJSON()))
 }
 
 func NewIncidentStore(cfg *config.Config, enc *crypto.Encryptor) (incident.Store, error) {
@@ -135,7 +134,14 @@ func NotificationMonitorStateFile(cfg *config.Config) string {
 }
 
 func NewRemoteNodeStore(cfg *config.Config, enc *crypto.Encryptor) (remotenode.Store, error) {
-	return fileremotenode.New(cfg.Paths.RemoteNodesDir, enc)
+	dir := cfg.Paths.RemoteNodesDir
+	if dir == "" {
+		return nil, fmt.Errorf("remote-node store: RemoteNodesDir cannot be empty")
+	}
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return nil, fmt.Errorf("remote-node store: create directory %s: %w", dir, err)
+	}
+	return store.NewRemoteNodeStore(NewCollection(dir, WithIndentedJSON()), enc)
 }
 
 func NewTokenSecretProvider(cfg *config.Config) authmodel.TokenSecretProvider {
@@ -154,5 +160,12 @@ func NewUpgradeCheckStore(cfg *config.Config) (upgrade.CacheStore, error) {
 }
 
 func NewWorkspaceStore(cfg *config.Config) (workspace.Store, error) {
-	return fileworkspace.New(cfg.Paths.WorkspacesDir)
+	dir := cfg.Paths.WorkspacesDir
+	if dir == "" {
+		return nil, fmt.Errorf("workspace store: WorkspacesDir cannot be empty")
+	}
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return nil, fmt.Errorf("workspace store: create directory %s: %w", dir, err)
+	}
+	return store.NewWorkspaceStore(NewCollection(dir, WithIndentedJSON()))
 }
