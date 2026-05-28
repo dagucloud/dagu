@@ -21,7 +21,7 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/file/agentskill"
 	"github.com/dagucloud/dagu/internal/persis/file/agentsoul"
 	"github.com/dagucloud/dagu/internal/persis/file/memory"
-	"github.com/dagucloud/dagu/internal/persis/filesession"
+	filesession "github.com/dagucloud/dagu/internal/persis/file/session"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/secret"
 )

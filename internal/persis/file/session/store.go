@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Package filesession provides a file-based implementation of the SessionStore interface.
-package filesession
+package session
 
 import (
 	"context"
