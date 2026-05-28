@@ -127,7 +127,6 @@ func TestLoad_MigratesLegacyVersions(t *testing.T) {
 			require.NoError(t, col.Put(ctx, &persis.Record{
 				ID:        "state",
 				Data:      rawJSON,
-				Encoding:  persis.EncodingJSON,
 				CreatedAt: now,
 				UpdatedAt: now,
 			}))
@@ -150,7 +149,6 @@ func TestLoad_UnknownVersionFallsBackToEmpty(t *testing.T) {
 	require.NoError(t, col.Put(ctx, &persis.Record{
 		ID:        "state",
 		Data:      rawJSON,
-		Encoding:  persis.EncodingJSON,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}))
@@ -170,7 +168,6 @@ func TestLoad_CorruptDataFallsBackToEmpty(t *testing.T) {
 	require.NoError(t, col.Put(ctx, &persis.Record{
 		ID:        "state",
 		Data:      []byte(`not valid json {{`),
-		Encoding:  persis.EncodingJSON,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}))

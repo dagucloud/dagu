@@ -75,7 +75,7 @@ func (s *WebhookStore) Create(ctx context.Context, webhook *auth.Webhook) error 
 	if err != nil {
 		return err
 	}
-	data, enc, err := persis.Encode(stored)
+	data, err := persis.Encode(stored)
 	if err != nil {
 		return err
 	}
@@ -89,7 +89,6 @@ func (s *WebhookStore) Create(ctx context.Context, webhook *auth.Webhook) error 
 	if err := s.col.Put(ctx, &persis.Record{
 		ID:        webhook.ID,
 		Data:      data,
-		Encoding:  enc,
 		CreatedAt: webhook.CreatedAt,
 		UpdatedAt: webhook.UpdatedAt,
 	}); err != nil {
@@ -179,7 +178,7 @@ func (s *WebhookStore) Update(ctx context.Context, webhook *auth.Webhook) error 
 	if err != nil {
 		return err
 	}
-	data, enc, err := persis.Encode(stored)
+	data, err := persis.Encode(stored)
 	if err != nil {
 		return err
 	}
@@ -192,7 +191,6 @@ func (s *WebhookStore) Update(ctx context.Context, webhook *auth.Webhook) error 
 	if err := s.col.Put(ctx, &persis.Record{
 		ID:        webhook.ID,
 		Data:      data,
-		Encoding:  enc,
 		CreatedAt: existingRec.CreatedAt,
 		UpdatedAt: time.Now().UTC(),
 	}); err != nil {
@@ -269,14 +267,13 @@ func (s *WebhookStore) UpdateLastUsed(ctx context.Context, id string) error {
 	}
 	now := time.Now().UTC()
 	stored.LastUsedAt = &now
-	data, enc, err := persis.Encode(stored)
+	data, err := persis.Encode(stored)
 	if err != nil {
 		return err
 	}
 	return s.col.Put(ctx, &persis.Record{
 		ID:        rec.ID,
 		Data:      data,
-		Encoding:  enc,
 		CreatedAt: rec.CreatedAt,
 		UpdatedAt: now,
 	})

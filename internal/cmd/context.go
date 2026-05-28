@@ -329,10 +329,11 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	}
 	drs := file.NewDAGRunStore(cfg, hrOpts...)
 	distributedDir := filepath.Join(cfg.Paths.DataDir, "distributed")
-	// Records live in store-specific subdirectories, but locks stay under the
-	// shared distributed root to preserve mixed-version coordinator exclusion.
-	leaseCollection := file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "leases"), distributedDir)
-	activeRunCollection := file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "active-runs"), distributedDir)
+	// Lease and active-run stores use CompareAndSwap-based optimistic
+	// concurrency, so plain collections suffice — the previous lockRoot
+	// scoping for file flock is no longer needed.
+	leaseCollection := file.NewCollection(filepath.Join(distributedDir, "leases"))
+	activeRunCollection := file.NewCollection(filepath.Join(distributedDir, "active-runs"))
 	dagRunLeaseStore := store.NewDAGRunLeaseStore(leaseCollection)
 	activeDistributedRunStore := store.NewActiveDistributedRunStore(activeRunCollection)
 	drm := runtime.NewManager(drs, ps, cfg)

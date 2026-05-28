@@ -139,7 +139,7 @@ func (s *SessionStore) CreateSession(ctx context.Context, sess *agent.Session) e
 	}
 
 	ss := sessionFromSession(sess, nil)
-	data, enc, err := persis.Encode(ss)
+	data, err := persis.Encode(ss)
 	if err != nil {
 		return err
 	}
@@ -157,7 +157,6 @@ func (s *SessionStore) CreateSession(ctx context.Context, sess *agent.Session) e
 	if err := s.col.Put(ctx, &persis.Record{
 		ID:        sess.ID,
 		Data:      data,
-		Encoding:  enc,
 		CreatedAt: sess.CreatedAt,
 		UpdatedAt: sess.UpdatedAt,
 	}); err != nil {
@@ -236,14 +235,13 @@ func (s *SessionStore) UpdateSession(ctx context.Context, sess *agent.Session) e
 	existing.Title = sess.Title
 	existing.UpdatedAt = sess.UpdatedAt
 
-	data, enc, err := persis.Encode(&existing)
+	data, err := persis.Encode(&existing)
 	if err != nil {
 		return err
 	}
 	if err := s.col.Put(ctx, &persis.Record{
 		ID:        collID,
 		Data:      data,
-		Encoding:  enc,
 		CreatedAt: rec.CreatedAt,
 		UpdatedAt: sess.UpdatedAt,
 	}); err != nil {
@@ -294,14 +292,13 @@ func (s *SessionStore) AddMessage(ctx context.Context, sessionID string, msg *ag
 	ss.UpdatedAt = time.Now().UTC()
 	sessionSetTitleFromMessage(&ss, msg)
 
-	data, enc, err := persis.Encode(&ss)
+	data, err := persis.Encode(&ss)
 	if err != nil {
 		return err
 	}
 	if err := s.col.Put(ctx, &persis.Record{
 		ID:        collID,
 		Data:      data,
-		Encoding:  enc,
 		CreatedAt: rec.CreatedAt,
 		UpdatedAt: ss.UpdatedAt,
 	}); err != nil {

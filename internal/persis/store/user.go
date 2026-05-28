@@ -76,7 +76,7 @@ func (s *UserStore) Create(ctx context.Context, user *auth.User) error {
 		return auth.ErrInvalidUsername
 	}
 
-	data, enc, err := persis.Encode(user.ToStorage())
+	data, err := persis.Encode(user.ToStorage())
 	if err != nil {
 		return err
 	}
@@ -95,7 +95,6 @@ func (s *UserStore) Create(ctx context.Context, user *auth.User) error {
 	if err := s.col.Put(ctx, &persis.Record{
 		ID:        user.ID,
 		Data:      data,
-		Encoding:  enc,
 		CreatedAt: user.CreatedAt,
 		UpdatedAt: user.UpdatedAt,
 	}); err != nil {
@@ -200,7 +199,7 @@ func (s *UserStore) Update(ctx context.Context, user *auth.User) error {
 		return fmt.Errorf("user store: decode existing: %w", err)
 	}
 
-	data, enc, err := persis.Encode(user.ToStorage())
+	data, err := persis.Encode(user.ToStorage())
 	if err != nil {
 		return err
 	}
@@ -223,7 +222,6 @@ func (s *UserStore) Update(ctx context.Context, user *auth.User) error {
 	if err := s.col.Put(ctx, &persis.Record{
 		ID:        user.ID,
 		Data:      data,
-		Encoding:  enc,
 		CreatedAt: existingRec.CreatedAt,
 		UpdatedAt: time.Now().UTC(),
 	}); err != nil {

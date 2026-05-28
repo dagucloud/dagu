@@ -68,7 +68,7 @@ func (s *QueueStore) Enqueue(ctx context.Context, name string, priority exec.Que
 			DAGRun:   dagRun,
 			QueuedAt: queuedAt,
 		}
-		data, enc, err := persis.Encode(payload)
+		data, err := persis.Encode(payload)
 		if err != nil {
 			return fmt.Errorf("queue store: encode item: %w", err)
 		}
@@ -76,7 +76,6 @@ func (s *QueueStore) Enqueue(ctx context.Context, name string, priority exec.Que
 		if err := s.col.Put(ctx, &persis.Record{
 			ID:        queueRecordID(name, itemID),
 			Data:      data,
-			Encoding:  enc,
 			CreatedAt: queuedAt,
 			UpdatedAt: queuedAt,
 		}); err != nil {
@@ -110,14 +109,25 @@ func (s *QueueStore) nextQueueItemID(
 	return "", time.Time{}, fmt.Errorf("queue store: could not allocate unique item ID for dag-run %q", dagRunID)
 }
 
-// DequeueByName retrieves and removes the next item from the queue.
+// DequeueByName retrieves and removes the next item from the queue. Items
+// sort by filename (priority-prefixed ID) so `item_high_*` is dequeued
+// before `item_low_*`; the surrounding withQueueLock + s.mu provides
+// serialization, so a plain Get→Delete is atomic in practice.
 func (s *QueueStore) DequeueByName(ctx context.Context, name string) (exec.QueuedItemData, error) {
 	var item exec.QueuedItemData
 	err := s.withQueueLock(ctx, name, func() error {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 
-		rec, err := s.col.Claim(ctx, persis.ListQuery{Prefix: queueItemPrefix(name)})
+		ids, err := s.queueRecordIDs(ctx, queueItemPrefix(name))
+		if err != nil {
+			return err
+		}
+		if len(ids) == 0 {
+			return exec.ErrQueueEmpty
+		}
+		nextID := ids[0]
+		rec, err := s.col.Get(ctx, nextID)
 		if err != nil {
 			if errors.Is(err, persis.ErrNotFound) {
 				return exec.ErrQueueEmpty
@@ -129,10 +139,10 @@ func (s *QueueStore) DequeueByName(ctx context.Context, name string) (exec.Queue
 			return err
 		}
 		if queueItem.dataErr != nil {
-			if restoreErr := s.col.Put(ctx, rec); restoreErr != nil {
-				return fmt.Errorf("queue store: decode claimed item: %w; restore failed: %v", queueItem.dataErr, restoreErr)
-			}
 			return queueItem.dataErr
+		}
+		if err := s.col.Delete(ctx, nextID); err != nil {
+			return err
 		}
 		s.removeQueueIndexItemsLocked(ctx, name, queueItem.ID())
 		item = queueItem

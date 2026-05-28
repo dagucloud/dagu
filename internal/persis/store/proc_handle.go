@@ -124,18 +124,15 @@ func (p *ProcHandle) writeHeartbeat(ctx context.Context, now time.Time) error {
 		LastHeartbeatAt: now.Unix(),
 		RevisionNanos:   now.UnixNano(),
 	}
-	data, enc, err := persis.Encode(payload)
+	data, err := persis.Encode(payload)
 	if err != nil {
 		return err
 	}
-	expiresAt := now.Add(p.store.staleTime)
 	return p.store.col.Put(ctx, &persis.Record{
 		ID:        p.recordID,
 		Data:      data,
-		Encoding:  enc,
 		CreatedAt: p.createdAt,
 		UpdatedAt: now,
-		ExpiresAt: &expiresAt,
 	})
 }
 

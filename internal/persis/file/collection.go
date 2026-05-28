@@ -27,8 +27,7 @@ import (
 // "/" in record IDs maps to the OS path separator, so hierarchical IDs
 // become nested subdirectories on disk.
 type Collection struct {
-	dir      string
-	lockRoot string
+	dir string
 	// indent, when true, stores records as 2-space indented JSON on disk to
 	// match the pre-refactor (<= v2.7.4) released file format. Records are
 	// normalized back to compact JSON in memory on read, so Record.Data stays
@@ -43,7 +42,7 @@ func sameRecord(a, b *persis.Record) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
-	return a.ID == b.ID && a.Encoding == b.Encoding && bytes.Equal(a.Data, b.Data)
+	return a.ID == b.ID && bytes.Equal(a.Data, b.Data)
 }
 
 // ─── Collection methods ───────────────────────────────────────────────────────
@@ -75,6 +74,65 @@ func (c *Collection) Put(_ context.Context, rec *persis.Record) error {
 		return err
 	}
 	return c.writeFile(path, rec)
+}
+
+// Create atomically inserts rec. Returns [persis.ErrConflict] when a
+// record with rec.ID already exists. Uses O_EXCL|O_CREATE for atomic
+// cross-process insert.
+func (c *Collection) Create(_ context.Context, rec *persis.Record) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if rec == nil {
+		return fmt.Errorf("file backend: nil record")
+	}
+	if !json.Valid(rec.Data) {
+		return fmt.Errorf("file backend: invalid JSON record %q", rec.ID)
+	}
+	path, err := c.filePath(rec.ID)
+	if err != nil {
+		return err
+	}
+	body := rec.Data
+	if c.indent {
+		var buf bytes.Buffer
+		if err := json.Indent(&buf, rec.Data, "", "  "); err != nil {
+			return fmt.Errorf("file backend: indent record %q: %w", rec.ID, err)
+		}
+		body = buf.Bytes()
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // path is sanitized via c.filePath -> pathUnderRoot
+	if err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return persis.ErrConflict
+		}
+		return err
+	}
+	if _, err := f.Write(body); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+	mtime := rec.UpdatedAt
+	if mtime.IsZero() {
+		mtime = rec.CreatedAt
+	}
+	if mtime.IsZero() {
+		return nil
+	}
+	return os.Chtimes(path, mtime, mtime)
 }
 
 func (c *Collection) Delete(ctx context.Context, id string) error {
@@ -143,24 +201,14 @@ func (c *Collection) RecordVersion(_ context.Context, id string) (string, error)
 
 // WithLock runs fn while holding a cross-process lock scoped to key.
 func (c *Collection) WithLock(ctx context.Context, key string, fn func() error) error {
-	return c.withLock(ctx, key, dirlock.LockOptions{
-		StaleThreshold: 30 * time.Second,
-		RetryInterval:  50 * time.Millisecond,
-	}, fn)
-}
-
-// WithLockOptions runs fn while holding a cross-process lock scoped to key,
-// using the supplied lock timing options.
-func (c *Collection) WithLockOptions(ctx context.Context, key string, opts dirlock.LockOptions, fn func() error) error {
-	return c.withLock(ctx, key, opts, fn)
-}
-
-func (c *Collection) withLock(ctx context.Context, key string, opts dirlock.LockOptions, fn func() error) error {
 	lockDir, err := c.lockDir(key)
 	if err != nil {
 		return err
 	}
-	lock := dirlock.New(lockDir, &opts)
+	lock := dirlock.New(lockDir, &dirlock.LockOptions{
+		StaleThreshold: 30 * time.Second,
+		RetryInterval:  50 * time.Millisecond,
+	})
 	if err := lock.Lock(ctx); err != nil {
 		return err
 	}
@@ -244,49 +292,6 @@ func (c *Collection) CompareAndSwap(_ context.Context, id string, expected, next
 	return c.writeFile(path, rec)
 }
 
-// Claim atomically dequeues one record matching q.
-// Records are ordered by filename (natural sort), so queue adapters control
-// priority by encoding it at the start of the ID (e.g., "high_<uuid>").
-func (c *Collection) Claim(_ context.Context, q persis.ListQuery) (*persis.Record, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	walkRoot := c.prefixWalkRoot(q.Prefix)
-
-	var candidates []string
-	_ = filepath.WalkDir(walkRoot, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".json") {
-			return err
-		}
-		rel, _ := filepath.Rel(c.dir, path)
-		if q.Prefix != "" && !strings.HasPrefix(relPathToID(rel), q.Prefix) {
-			return nil
-		}
-		candidates = append(candidates, path)
-		return nil
-	})
-	sort.Strings(candidates)
-
-	for _, path := range candidates {
-		rec, err := c.readFile(path)
-		if err != nil {
-			if !errors.Is(err, persis.ErrNotFound) {
-				return nil, err
-			}
-			continue
-		}
-		if err := fileutil.Remove(path); err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
-				return nil, err
-			}
-			continue
-		}
-		removeEmptyDirs(filepath.Dir(path), c.dir)
-		return rec, nil
-	}
-	return nil, persis.ErrNotFound
-}
-
 // ─── internal helpers ─────────────────────────────────────────────────────────
 
 func (c *Collection) filePath(id string) (string, error) {
@@ -294,14 +299,10 @@ func (c *Collection) filePath(id string) (string, error) {
 }
 
 func (c *Collection) lockDir(key string) (string, error) {
-	root := c.dir
-	if c.lockRoot != "" {
-		root = c.lockRoot
-	}
 	if key == "" {
-		return root, nil
+		return c.dir, nil
 	}
-	path, err := pathUnderRoot(root, strings.TrimSuffix(key, "/")+"/_lock", "lock key")
+	path, err := pathUnderRoot(c.dir, strings.TrimSuffix(key, "/")+"/_lock", "lock key")
 	if err != nil {
 		return "", err
 	}
@@ -353,7 +354,6 @@ func (c *Collection) readFile(path string) (*persis.Record, error) {
 	return &persis.Record{
 		ID:        relPathToID(rel),
 		Data:      data,
-		Encoding:  persis.EncodingJSON,
 		CreatedAt: mtime,
 		UpdatedAt: mtime,
 	}, nil
@@ -362,9 +362,6 @@ func (c *Collection) readFile(path string) (*persis.Record, error) {
 func (c *Collection) writeFile(path string, rec *persis.Record) error {
 	if rec == nil {
 		return fmt.Errorf("file backend: nil record")
-	}
-	if rec.Encoding != "" && rec.Encoding != persis.EncodingJSON {
-		return fmt.Errorf("file backend: unsupported encoding %q", rec.Encoding)
 	}
 	if !json.Valid(rec.Data) {
 		return fmt.Errorf("file backend: invalid JSON record %q", rec.ID)

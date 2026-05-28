@@ -69,7 +69,7 @@ func (s *APIKeyStore) Create(ctx context.Context, key *auth.APIKey) error {
 		return auth.ErrInvalidAPIKeyName
 	}
 
-	data, enc, err := persis.Encode(key.ToStorage())
+	data, err := persis.Encode(key.ToStorage())
 	if err != nil {
 		return err
 	}
@@ -86,7 +86,6 @@ func (s *APIKeyStore) Create(ctx context.Context, key *auth.APIKey) error {
 	if err := s.col.Put(ctx, &persis.Record{
 		ID:        key.ID,
 		Data:      data,
-		Encoding:  enc,
 		CreatedAt: key.CreatedAt,
 		UpdatedAt: key.UpdatedAt,
 	}); err != nil {
@@ -157,7 +156,7 @@ func (s *APIKeyStore) Update(ctx context.Context, key *auth.APIKey) error {
 		return fmt.Errorf("apikey store: decode existing: %w", err)
 	}
 
-	data, enc, err := persis.Encode(key.ToStorage())
+	data, err := persis.Encode(key.ToStorage())
 	if err != nil {
 		return err
 	}
@@ -170,7 +169,6 @@ func (s *APIKeyStore) Update(ctx context.Context, key *auth.APIKey) error {
 	if err := s.col.Put(ctx, &persis.Record{
 		ID:        key.ID,
 		Data:      data,
-		Encoding:  enc,
 		CreatedAt: existingRec.CreatedAt,
 		UpdatedAt: time.Now().UTC(),
 	}); err != nil {
@@ -232,14 +230,13 @@ func (s *APIKeyStore) UpdateLastUsed(ctx context.Context, id string) error {
 	}
 	now := time.Now().UTC()
 	stored.LastUsedAt = &now
-	data, enc, err := persis.Encode(stored)
+	data, err := persis.Encode(stored)
 	if err != nil {
 		return err
 	}
 	return s.col.Put(ctx, &persis.Record{
 		ID:        rec.ID,
 		Data:      data,
-		Encoding:  enc,
 		CreatedAt: rec.CreatedAt,
 		UpdatedAt: now,
 	})
