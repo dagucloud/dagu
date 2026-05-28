@@ -5,6 +5,7 @@ package file
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -26,7 +27,6 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/filenotification"
 	"github.com/dagucloud/dagu/internal/persis/fileremotenode"
 	"github.com/dagucloud/dagu/internal/persis/filetokensecret"
-	"github.com/dagucloud/dagu/internal/persis/fileupgradecheck"
 	"github.com/dagucloud/dagu/internal/persis/fileworkspace"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/remotenode"
@@ -112,11 +112,9 @@ func IncidentMonitorStateFile(cfg *config.Config) string {
 
 func NewLicenseStore(cfg *config.Config) license.ActivationStore {
 	dir := LicenseDir(cfg)
-	// Preserve the released 0o700 directory permission. The Collection's
-	// internal MkdirAll uses 0o750, but it only runs if the directory does
-	// not yet exist — pre-creating at 0o700 here ensures fresh installs
-	// match the pre-refactor [filelicense] layout. License IDs are flat
-	// (single "activation" record), so no nested subdirs are ever created.
+	// Pre-create at 0o700 so the directory ends up with the stricter perm.
+	// Collection.Put falls back to MkdirAll(0o750) when the dir is missing,
+	// which would otherwise relax the bit on fresh installs.
 	_ = os.MkdirAll(dir, 0o700)
 	return store.NewLicenseStore(NewCollection(dir, WithIndentedJSON()))
 }
@@ -145,7 +143,14 @@ func NewTokenSecretProvider(cfg *config.Config) authmodel.TokenSecretProvider {
 }
 
 func NewUpgradeCheckStore(cfg *config.Config) (upgrade.CacheStore, error) {
-	return fileupgradecheck.New(cfg.Paths.DataDir)
+	if cfg.Paths.DataDir == "" {
+		return nil, fmt.Errorf("upgrade check store: data directory cannot be empty")
+	}
+	dir := filepath.Join(cfg.Paths.DataDir, "upgrade")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return nil, fmt.Errorf("upgrade check store: create directory %s: %w", dir, err)
+	}
+	return store.NewUpgradeCheckStore(NewCollection(dir, WithIndentedJSON())), nil
 }
 
 func NewWorkspaceStore(cfg *config.Config) (workspace.Store, error) {

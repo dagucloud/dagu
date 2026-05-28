@@ -35,9 +35,7 @@ func newMemoryLicenseStore() *store.LicenseStore {
 	return store.NewLicenseStore(col)
 }
 
-// newFileLicenseStore mirrors the production wiring in
-// internal/persis/file/service_stores.go::NewLicenseStore so file-layout
-// tests exercise the same Collection construction.
+// newFileLicenseStore constructs the store the same way production wiring does.
 func newFileLicenseStore(t *testing.T, dir string) *store.LicenseStore {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(dir, 0o700))
@@ -106,10 +104,8 @@ func TestLicenseStore_Remove_Idempotent(t *testing.T) {
 
 // ─── File-layout compatibility tests ──────────────────────────────────────────
 
-// TestLicenseStore_File_OnDiskFormatMatchesPreRefactor proves the new adapter
-// writes byte-identical output to the pre-refactor filelicense format:
-// pretty-printed JSON via json.MarshalIndent("", "  ") at {dir}/activation.json.
-func TestLicenseStore_File_OnDiskFormatMatchesPreRefactor(t *testing.T) {
+// On-disk bytes equal json.MarshalIndent(v, "", "  ") at {dir}/activation.json.
+func TestLicenseStore_File_OnDiskFormatMatchesReleasedJSON(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	s := newFileLicenseStore(t, dir)
@@ -124,14 +120,12 @@ func TestLicenseStore_File_OnDiskFormatMatchesPreRefactor(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.True(t, bytes.Equal(got, expected),
-		"on-disk bytes must match pre-refactor json.MarshalIndent output\n  got:  %q\n  want: %q",
+		"on-disk bytes must equal json.MarshalIndent output\n  got:  %q\n  want: %q",
 		string(got), string(expected))
 }
 
-// TestLicenseStore_File_ReadsPreRefactorFile proves the new adapter can read
-// data written by the pre-refactor filelicense package (forward compatibility
-// from existing installs).
-func TestLicenseStore_File_ReadsPreRefactorFile(t *testing.T) {
+// Files written by older binaries (json.MarshalIndent, 0o600) decode through Load.
+func TestLicenseStore_File_ReadsReleasedFile(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(dir, 0o700))
@@ -177,7 +171,7 @@ func TestLicenseStore_File_DirPermissions(t *testing.T) {
 
 	if testutil.SupportsPOSIXPermissionBits() {
 		assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(),
-			"license directory must remain 0700 (pre-create discipline)")
+			"license directory must be 0700")
 	}
 }
 
@@ -219,8 +213,6 @@ func TestLicenseStore_File_Remove_DeletesFile(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "activation file must not exist after Remove")
 }
 
-// TestLicenseStore_File_Concurrent_SaveLoad guards against data races during
-// concurrent Save/Load (run with -race).
 func TestLicenseStore_File_Concurrent_SaveLoad(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
