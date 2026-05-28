@@ -29,7 +29,12 @@ import (
 type Collection struct {
 	dir      string
 	lockRoot string
-	mu       sync.RWMutex
+	// indent, when true, stores records as 2-space indented JSON on disk to
+	// match the pre-refactor (<= v2.7.4) released file format. Records are
+	// normalized back to compact JSON in memory on read, so Record.Data stays
+	// canonical regardless of on-disk whitespace.
+	indent bool
+	mu     sync.RWMutex
 }
 
 var _ persis.Collection = (*Collection)(nil)
@@ -334,9 +339,20 @@ func (c *Collection) readFile(path string) (*persis.Record, error) {
 	}
 	rel, _ := filepath.Rel(c.dir, path)
 	mtime := info.ModTime().UTC()
+	data := raw
+	if c.indent {
+		// Normalize indented on-disk JSON back to compact so the in-memory
+		// Record.Data is canonical (matches the memory backend and keeps
+		// CompareAndSwap/CompareAndDelete byte comparisons stable). json.Valid
+		// above guarantees Compact succeeds.
+		var buf bytes.Buffer
+		if err := json.Compact(&buf, raw); err == nil {
+			data = buf.Bytes()
+		}
+	}
 	return &persis.Record{
 		ID:        relPathToID(rel),
-		Data:      raw,
+		Data:      data,
 		Encoding:  persis.EncodingJSON,
 		CreatedAt: mtime,
 		UpdatedAt: mtime,
@@ -353,10 +369,21 @@ func (c *Collection) writeFile(path string, rec *persis.Record) error {
 	if !json.Valid(rec.Data) {
 		return fmt.Errorf("file backend: invalid JSON record %q", rec.ID)
 	}
+	body := rec.Data
+	if c.indent {
+		// Match the pre-refactor on-disk format. json.Indent over compact
+		// json.Marshal output is byte-identical to json.MarshalIndent of the
+		// same value, so existing released files stay format-compatible.
+		var buf bytes.Buffer
+		if err := json.Indent(&buf, rec.Data, "", "  "); err != nil {
+			return fmt.Errorf("file backend: indent record %q: %w", rec.ID, err)
+		}
+		body = buf.Bytes()
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
-	if err := fileutil.WriteFileAtomic(path, rec.Data, 0o600); err != nil {
+	if err := fileutil.WriteFileAtomic(path, body, 0o600); err != nil {
 		return err
 	}
 	mtime := rec.UpdatedAt

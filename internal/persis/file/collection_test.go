@@ -351,6 +351,80 @@ func TestFileCollectionWritesRawJSONBody(t *testing.T) {
 	assert.Equal(t, persis.EncodingJSON, got.Encoding)
 }
 
+// TestFileCollectionIndentedMatchesReleasedFormat pins the on-disk bytes of an
+// indented collection to json.MarshalIndent(v, "", "  ") — the exact format the
+// pre-refactor (<= v2.7.4) file stores wrote — so upgrades need no migration.
+func TestFileCollectionIndentedMatchesReleasedFormat(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	col := file.NewCollection(root, file.WithIndentedJSON())
+
+	type sample struct {
+		ID   string   `json:"id"`
+		Name string   `json:"name"`
+		Tags []string `json:"tags"`
+	}
+	v := sample{ID: "u1", Name: "admin", Tags: []string{"a", "b"}}
+
+	compact, err := json.Marshal(v)
+	require.NoError(t, err)
+	rec := &persis.Record{
+		ID:        "users/u1",
+		Data:      compact,
+		Encoding:  persis.EncodingJSON,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	require.NoError(t, col.Put(ctx, rec))
+
+	// On-disk bytes must equal the released json.MarshalIndent output.
+	onDisk, err := os.ReadFile(filepath.Join(root, "users", "u1.json"))
+	require.NoError(t, err)
+	wantIndented, err := json.MarshalIndent(v, "", "  ")
+	require.NoError(t, err)
+	assert.Equal(t, wantIndented, onDisk)
+
+	// Get normalizes back to canonical compact Data.
+	got, err := col.Get(ctx, "users/u1")
+	require.NoError(t, err)
+	assert.Equal(t, compact, got.Data)
+}
+
+// TestFileCollectionIndentedReadsLegacyIndentedFile verifies a file written by
+// an older release (indented, no envelope) is read back as canonical compact
+// Data without any migration step.
+func TestFileCollectionIndentedReadsLegacyIndentedFile(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	col := file.NewCollection(root, file.WithIndentedJSON())
+
+	compact := []byte(`{"id":"k1","name":"ci"}`)
+	legacy, err := json.MarshalIndent(json.RawMessage(compact), "", "  ")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "api_keys"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "api_keys", "k1.json"), legacy, 0o600))
+
+	got, err := col.Get(ctx, "api_keys/k1")
+	require.NoError(t, err)
+	assert.Equal(t, compact, got.Data)
+}
+
+// TestFileCollectionIndentedContract runs the full Collection contract against
+// an indented collection, proving CompareAndSwap, CompareAndDelete, List, and
+// Claim all stay correct when records are indented on disk.
+func TestFileCollectionIndentedContract(t *testing.T) {
+	t.Parallel()
+
+	freshCollection := func(t *testing.T) persis.Collection {
+		return file.NewCollection(t.TempDir(), file.WithIndentedJSON())
+	}
+	RunCollectionContract(t, file.NewCollection(t.TempDir(), file.WithIndentedJSON()), freshCollection)
+}
+
 func TestFileCollectionPutNilReturnsError(t *testing.T) {
 	t.Parallel()
 
