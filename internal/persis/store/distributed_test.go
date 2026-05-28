@@ -323,7 +323,6 @@ func TestActiveDistributedRunStore_ListAllSkipsCorruptRecord(t *testing.T) {
 	assert.Equal(t, "attempt-key-1", records[0].AttemptKey)
 }
 
-
 func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {
 	t.Parallel()
 

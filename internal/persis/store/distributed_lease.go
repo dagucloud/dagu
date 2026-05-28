@@ -167,4 +167,3 @@ func (s *DAGRunLeaseStore) ListAll(ctx context.Context) ([]exec.DAGRunLease, err
 	})
 	return leases, nil
 }
-

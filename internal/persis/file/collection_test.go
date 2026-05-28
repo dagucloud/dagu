@@ -512,9 +512,7 @@ func TestFileCollectionCreateIsAtomicAcrossGoroutines(t *testing.T) {
 	)
 	start := make(chan struct{})
 	for range goroutines {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			err := col.Create(ctx, &persis.Record{
 				ID:        "shared",
@@ -531,7 +529,7 @@ func TestFileCollectionCreateIsAtomicAcrossGoroutines(t *testing.T) {
 			default:
 				atomic.AddInt64(&other, 1)
 			}
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()
