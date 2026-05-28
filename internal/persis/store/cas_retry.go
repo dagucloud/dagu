@@ -43,11 +43,6 @@ func retryCAS(ctx context.Context, op func(ctx context.Context) error) error {
 		case <-timer.C:
 		}
 
-		if backoff < casRetryMaxBackoff {
-			backoff *= 2
-			if backoff > casRetryMaxBackoff {
-				backoff = casRetryMaxBackoff
-			}
-		}
+		backoff = min(backoff*2, casRetryMaxBackoff)
 	}
 }
