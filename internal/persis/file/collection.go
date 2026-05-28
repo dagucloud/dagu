@@ -343,12 +343,12 @@ func (c *Collection) readFile(path string) (*persis.Record, error) {
 	if c.indent {
 		// Normalize indented on-disk JSON back to compact so the in-memory
 		// Record.Data is canonical (matches the memory backend and keeps
-		// CompareAndSwap/CompareAndDelete byte comparisons stable). json.Valid
-		// above guarantees Compact succeeds.
+		// CompareAndSwap/CompareAndDelete byte comparisons stable). The
+		// json.Valid check above makes json.Compact infallible here, so we
+		// drop its error rather than fall back to non-canonical raw bytes.
 		var buf bytes.Buffer
-		if err := json.Compact(&buf, raw); err == nil {
-			data = buf.Bytes()
-		}
+		_ = json.Compact(&buf, raw)
+		data = buf.Bytes()
 	}
 	return &persis.Record{
 		ID:        relPathToID(rel),
