@@ -285,16 +285,11 @@ func sameMemoryRecord(a, b *persis.Record) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
-	if a.ID != b.ID || a.Encoding != b.Encoding || !bytes.Equal(a.Data, b.Data) {
-		return false
-	}
-	if !a.CreatedAt.Equal(b.CreatedAt) || !a.UpdatedAt.Equal(b.UpdatedAt) {
-		return false
-	}
-	if a.ExpiresAt == nil || b.ExpiresAt == nil {
-		return a.ExpiresAt == b.ExpiresAt
-	}
-	return a.ExpiresAt.Equal(*b.ExpiresAt)
+	// Identity must match the file backend (file/collection.go sameRecord):
+	// ID + Encoding + Data only. Timestamps and ExpiresAt are not part of
+	// CompareAndSwap / CompareAndDelete identity, so this test double must not
+	// compare them either — otherwise CAS semantics diverge from production.
+	return a.ID == b.ID && a.Encoding == b.Encoding && bytes.Equal(a.Data, b.Data)
 }
 
 type memCursorVal struct {

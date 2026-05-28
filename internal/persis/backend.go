@@ -42,8 +42,13 @@ type Record struct {
 	Encoding  Encoding
 	CreatedAt time.Time
 	UpdatedAt time.Time
-	// ExpiresAt, when non-nil, signals the backend that this record may be
-	// purged after this time. Used for heartbeat / lease / TTL records.
+	// ExpiresAt is an optional, non-authoritative GC/TTL hint: when non-nil it
+	// tells the backend the record MAY be purged after this time. Correctness
+	// must not depend on it — adapters that need real expiry (heartbeats,
+	// leases) keep the authoritative timestamp inside Data. It is also NOT part
+	// of record identity for CompareAndSwap / CompareAndDelete. The file
+	// backend does not persist it; a SQL backend MAY honor it via an
+	// expires_at column and index.
 	ExpiresAt *time.Time
 }
 
