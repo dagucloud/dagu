@@ -111,6 +111,7 @@ func rebuildDAGFromYAML(ctx context.Context, dag *core.DAG) (*core.DAG, error) {
 		return dag, nil
 	}
 
+	loadedEnv := append([]string{}, dag.Env...)
 	buildEnvMap := buildenv.ToMap(dag.Env)
 	for key, value := range dag.PresolvedBuildEnv {
 		if buildEnvMap == nil {
@@ -122,6 +123,7 @@ func rebuildDAGFromYAML(ctx context.Context, dag *core.DAG) (*core.DAG, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to load presolved build env: %w", err)
 	}
+	transportEnv := buildenv.FromMap(presolvedBuildEnv)
 	for key, value := range presolvedBuildEnv {
 		if buildEnvMap == nil {
 			buildEnvMap = make(map[string]string)
@@ -152,7 +154,7 @@ func rebuildDAGFromYAML(ctx context.Context, dag *core.DAG) (*core.DAG, error) {
 	// Copy only fields excluded from JSON serialization (json:"-").
 	// All other fields (Queue, WorkerSelector, HandlerOn, Steps, Labels, etc.)
 	// are already correctly stored in dag.json and must be preserved.
-	dag.Env = fresh.Env
+	dag.Env = buildenv.AppendMissing(fresh.Env, loadedEnv, buildenv.FromMap(dag.PresolvedBuildEnv), transportEnv)
 	dag.Params = fresh.Params
 	dag.ParamsJSON = fresh.ParamsJSON
 	dag.SMTP = fresh.SMTP

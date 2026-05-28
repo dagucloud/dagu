@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 )
 
@@ -93,4 +94,75 @@ func ToMap(env []string) map[string]string {
 		return nil
 	}
 	return entries
+}
+
+// FromMap converts env entries into a deterministic KEY=value slice.
+func FromMap(env map[string]string) []string {
+	if len(env) == 0 {
+		return nil
+	}
+
+	keys := make([]string, 0, len(env))
+	for key := range env {
+		if key != "" {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+
+	entries := make([]string, 0, len(keys))
+	for _, key := range keys {
+		entries = append(entries, key+"="+env[key])
+	}
+	return entries
+}
+
+// AppendMissing appends env entries whose keys are absent from base.
+// Duplicate extra keys use the last extra value, matching env slice semantics.
+func AppendMissing(base []string, extras ...[]string) []string {
+	result := append([]string{}, base...)
+	seen := make(map[string]struct{})
+	for _, entry := range result {
+		key, _, ok := strings.Cut(entry, "=")
+		if ok && key != "" {
+			seen[key] = struct{}{}
+		}
+	}
+
+	type indexedEntry struct {
+		index int
+		key   string
+		entry string
+	}
+
+	var entries []indexedEntry
+	lastIndex := make(map[string]int)
+	for _, extra := range extras {
+		for _, entry := range extra {
+			key, _, ok := strings.Cut(entry, "=")
+			if !ok || key == "" {
+				continue
+			}
+			index := len(entries)
+			entries = append(entries, indexedEntry{
+				index: index,
+				key:   key,
+				entry: entry,
+			})
+			lastIndex[key] = index
+		}
+	}
+
+	for _, item := range entries {
+		if _, ok := seen[item.key]; ok {
+			continue
+		}
+		if lastIndex[item.key] != item.index {
+			continue
+		}
+		result = append(result, item.entry)
+		seen[item.key] = struct{}{}
+	}
+
+	return result
 }
