@@ -35,9 +35,11 @@
     <p class="text-blue-400 text-xs font-mono tracking-widest uppercase mb-3">Architecture Review · Persistence Layer</p>
     <h1 class="text-4xl font-bold mb-4 tracking-tight">Dagu Persistence Layer Refactoring</h1>
     <p class="text-slate-300 text-lg max-w-3xl">
-      Deep Module redesign: consolidate 30 file-store implementations behind a single pluggable
-      <strong class="text-white">Backend</strong> interface — enabling PostgreSQL, etcd, or Cassandra support
-      without touching any domain code.
+      Deep Module redesign: introduce a single pluggable
+      <strong class="text-white">Backend</strong> interface so control-plane stores share one file-I/O implementation.
+      Boundary established and the first wave of stores ported; ~17 still run behind their original leaf packages
+      (incremental, ongoing), while DAG-run and proc stay file-specific by design. The seam makes future
+      PostgreSQL/etcd backends possible without rewriting every store.
     </p>
     <div class="mt-8 flex flex-wrap gap-3 text-sm">
       <span class="bg-slate-800 text-slate-300 px-3 py-1 rounded-full">Control-plane stores → Backend interface</span>
@@ -268,7 +270,7 @@ graph TB
 
 <span class="kw">const</span> (
     <span class="ty">EncodingJSON</span>  <span class="ty">Encoding</span> = <span class="st">"json"</span>
-    <span class="ty">EncodingProto</span> <span class="ty">Encoding</span> = <span class="st">"proto3"</span>
+    <span class="ty">EncodingProto</span> <span class="ty">Encoding</span> = <span class="st">"proto3"</span> <span class="cm">// reserved; not yet supported</span>
 )
 
 <span class="cm">// Record is the universal storage primitive for all control-plane data.
@@ -280,7 +282,7 @@ graph TB
     // Example: "mydag/run-abc/attempt-0"</span>
     ID        <span class="kw">string</span>
 
-    Data      []<span class="kw">byte</span>    <span class="cm">// opaque serialized payload (JSON or proto3)</span>
+    Data      []<span class="kw">byte</span>    <span class="cm">// opaque serialized payload (JSON only; proto3 reserved, not yet supported)</span>
     Encoding  <span class="ty">Encoding</span> <span class="cm">// describes Data's format</span>
 
     CreatedAt <span class="ty">time.Time</span>
@@ -649,8 +651,8 @@ graph TB
           A thin <code class="text-xs bg-slate-100 px-1 rounded">persis/codec.go</code> with two generic helpers:
         </p>
         <div class="bg-slate-900 rounded-lg p-4 mt-3 overflow-x-auto">
-          <pre class="text-xs text-slate-300"><span class="cm">// Encode marshals v into a Record Data+Encoding pair.</span>
-<span class="kw">func</span> <span class="fn">Encode</span>[T <span class="kw">any</span>](v T) (<span class="ty">Record</span>, <span class="kw">error</span>)
+          <pre class="text-xs text-slate-300"><span class="cm">// Encode marshals v to JSON, returning the bytes and encoding.</span>
+<span class="kw">func</span> <span class="fn">Encode</span>(v <span class="kw">any</span>) ([]<span class="kw">byte</span>, <span class="ty">Encoding</span>, <span class="kw">error</span>)
 
 <span class="cm">// Decode unmarshals rec.Data into *v using rec.Encoding.</span>
 <span class="kw">func</span> <span class="fn">Decode</span>[T <span class="kw">any</span>](rec *<span class="ty">Record</span>, v *T) <span class="kw">error</span></pre>
@@ -660,7 +662,7 @@ graph TB
       <div>
         <h3 class="font-semibold text-slate-900 mb-3">Benefits</h3>
         <ul class="text-sm text-slate-600 space-y-2">
-          <li class="flex gap-2"><span class="text-amber-500">→</span> One place to switch JSON → proto3 globally</li>
+          <li class="flex gap-2"><span class="text-amber-500">→</span> One place to change encoding later (currently JSON-only; file backend rejects non-JSON)</li>
           <li class="flex gap-2"><span class="text-amber-500">→</span> One place to add a version field for future migrations</li>
           <li class="flex gap-2"><span class="text-amber-500">→</span> Store adapters become 2-line encode/decode calls</li>
           <li class="flex gap-2"><span class="text-amber-500">→</span> Codec is tested in isolation, independently of backend</li>
@@ -719,19 +721,19 @@ graph TB
       <div class="font-mono text-xs text-slate-600 leading-relaxed">
         <div class="text-slate-400">internal/persis/</div>
         <div class="ml-4 text-purple-600 font-semibold">backend.go <span class="text-slate-400 font-normal">← Backend, Collection, Record</span></div>
-        <div class="ml-4 text-purple-600 font-semibold">codec.go <span class="text-slate-400 font-normal">← Encode[T], Decode[T]</span></div>
+        <div class="ml-4 text-purple-600 font-semibold">codec.go <span class="text-slate-400 font-normal">← Encode, Decode[T]</span></div>
         <div class="ml-4 text-purple-600 font-semibold">errors.go <span class="text-slate-400 font-normal">← ErrNotFound, ErrConflict</span></div>
         <div class="ml-4 mt-2 text-slate-400">── adapters (thin, pure Go) ──</div>
         <div class="ml-4 text-green-600">store/ <span class="text-slate-400 ml-1 font-normal">── ported adapters (persis/store/) ──</span></div>
         <div class="ml-6 text-green-600">✅ apikey.go <span class="text-slate-400 ml-1">254 ln</span></div>
         <div class="ml-6 text-green-600">✅ secret.go <span class="text-slate-400 ml-1">453 ln</span></div>
-        <div class="ml-6 text-green-600">✅ session.go <span class="text-slate-400 ml-1">528 ln</span></div>
+        <div class="ml-6 text-amber-400">◐ session.go <span class="text-slate-400 ml-1">528 ln · ported, unwired; awaits non-file backend (prod uses filesession)</span></div>
         <div class="ml-6 text-green-600">✅ user.go <span class="text-slate-400 ml-1">303 ln</span></div>
         <div class="ml-6 text-green-600">✅ webhook.go <span class="text-slate-400 ml-1">319 ln</span></div>
-        <div class="ml-6 text-green-600">✅ watermark.go <span class="text-slate-400 ml-1">122 ln</span></div>
+        <div class="ml-6 text-green-600">✅ watermark.go <span class="text-slate-400 ml-1">122 ln · lives in persis/schedulerstore/, not store/</span></div>
         <div class="ml-6 text-green-600">✅ workerheartbeat.go <span class="text-slate-400 ml-1">168 ln</span></div>
         <div class="ml-6 text-green-600">✅ queue*.go <span class="text-slate-400 ml-1">collection-backed QueueStore; filequeue removed</span></div>
-        <div class="ml-6 text-green-600">✅ proc*.go <span class="text-slate-400 ml-1">collection-backed ProcStore for non-file backends/tests; no file sidecar adapter</span></div>
+        <div class="ml-6 text-amber-400">◐ proc*.go <span class="text-slate-400 ml-1">collection-backed ProcStore · unwired in production (file backend uses file/proc); for future non-file backends/tests</span></div>
         <div class="ml-6 text-amber-400">◐ distributed*.go <span class="text-slate-400 ml-1">collection-backed records; lock API still file-backend-bound</span></div>
         <div class="ml-4 mt-2 text-slate-400">── backend implementations ──</div>
         <div class="ml-4 text-emerald-600 font-semibold">✅ file/ <span class="text-slate-400 font-normal">FileBackend 480 ln (backend.go 50 + collection.go 430)</span></div>
@@ -747,6 +749,7 @@ graph TB
         <div class="ml-4 mt-2 text-slate-500">legacy/ <span class="text-slate-400">unchanged</span></div>
         <div class="ml-4 text-green-600">✅ testutil/ <span class="text-slate-400">memory.go 217 ln — in-memory Backend for unit tests</span></div>
         <div class="ml-4 text-slate-500">filedag/ <span class="text-slate-400 font-normal">← untouched leaf implementation; composition roots use file.NewDAGStore, app/engine code receives exec.DAGStore</span></div>
+        <div class="ml-4 text-amber-400">◐ file*/ <span class="text-slate-400 font-normal">← ~17 leaf packages still in use (agent*, audit, eventstore, notification, session, serviceregistry, baseconfig, …), each wrapped by a file/ boundary; ported incrementally, not yet behind Backend</span></div>
       </div>
     </div>
   </div>
@@ -1032,7 +1035,7 @@ graph LR
         <p class="text-sm font-semibold text-green-300 mb-3">✅ Done / preserved</p>
         <ol class="text-sm text-slate-300 space-y-2">
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/backend.go</code> — Backend, Collection, Record, ListQuery, Page</li>
-          <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/codec.go</code> — Encode[T], Decode[T]</li>
+          <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/codec.go</code> — Encode(v any) ([]byte, Encoding, error), Decode[T]</li>
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/errors.go</code> — ErrNotFound, ErrConflict</li>
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/file/</code> — FileBackend + FileCollection (480 ln)</li>
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/testutil/memory.go</code> — MemoryBackend (217 ln)</li>
