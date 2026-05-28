@@ -7,18 +7,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/dagucloud/dagu/internal/agent"
+	"github.com/dagucloud/dagu/internal/agentoauth"
 	"github.com/dagucloud/dagu/internal/clicontext"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/internal/persis/fileagentconfig"
-	"github.com/dagucloud/dagu/internal/persis/fileagentmodel"
-	"github.com/dagucloud/dagu/internal/persis/fileagentoauth"
 	"github.com/dagucloud/dagu/internal/persis/fileagentskill"
 	"github.com/dagucloud/dagu/internal/persis/fileagentsoul"
 	"github.com/dagucloud/dagu/internal/persis/filememory"
@@ -94,12 +93,12 @@ func NewAgentStores(ctx context.Context, cfg *config.Config, opts ...AgentStores
 	if options.SeedReferences {
 		result.ReferencesDir = SeedAgentReferences(cfg)
 	}
-	if configStore, err := fileagentconfig.New(cfg.Paths.DataDir); err == nil {
+	if configStore, err := newAgentConfigStore(cfg.Paths.DataDir); err == nil {
 		result.ConfigStore = configStore
 	} else {
 		logger.Warn(ctx, "Failed to create agent config store", tag.Error(err))
 	}
-	if modelStore, err := fileagentmodel.New(filepath.Join(cfg.Paths.DataDir, "agent", "models")); err == nil {
+	if modelStore, err := newAgentModelStore(filepath.Join(cfg.Paths.DataDir, "agent", "models")); err == nil {
 		result.ModelStore = modelStore
 	} else {
 		logger.Warn(ctx, "Failed to create agent model store", tag.Error(err))
@@ -124,7 +123,7 @@ func NewAgentStores(ctx context.Context, cfg *config.Config, opts ...AgentStores
 	} else {
 		logger.Warn(ctx, "Failed to create agent soul store", tag.Error(err))
 	}
-	if manager, err := fileagentoauth.NewManager(cfg.Paths.DataDir); err == nil {
+	if manager, err := newAgentOAuthManager(cfg.Paths.DataDir); err == nil {
 		result.OAuthManager = manager
 	} else {
 		logger.Warn(ctx, "Failed to create agent OAuth manager", tag.Error(err))
@@ -146,11 +145,11 @@ func NewAgentStores(ctx context.Context, cfg *config.Config, opts ...AgentStores
 
 // NewSnapshotStores wires the file-backed stores required to build worker snapshots.
 func NewSnapshotStores(ctx context.Context, paths config.PathsConfig) (agent.SnapshotStores, error) {
-	configStore, err := fileagentconfig.New(paths.DataDir)
+	configStore, err := newAgentConfigStore(paths.DataDir)
 	if err != nil {
 		return agent.SnapshotStores{}, fmt.Errorf("create agent config store: %w", err)
 	}
-	modelStore, err := fileagentmodel.New(filepath.Join(paths.DataDir, "agent", "models"))
+	modelStore, err := newAgentModelStore(filepath.Join(paths.DataDir, "agent", "models"))
 	if err != nil {
 		return agent.SnapshotStores{}, fmt.Errorf("create agent model store: %w", err)
 	}
@@ -222,4 +221,48 @@ func NewContextStore(cfg *config.Config) (*clicontext.Store, error) {
 		return nil, err
 	}
 	return clicontext.NewStore(cfg.Paths.ContextsDir, enc)
+}
+
+func newAgentConfigStore(dataDir string) (agent.ConfigStore, error) {
+	if dataDir == "" {
+		return nil, errors.New("agent config store: dataDir cannot be empty")
+	}
+	dir := filepath.Join(dataDir, "agent")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return nil, fmt.Errorf("agent config store: create directory %s: %w", dir, err)
+	}
+	return store.NewAgentConfigStore(NewCollection(dir, WithIndentedJSON())), nil
+}
+
+func newAgentModelStore(baseDir string) (agent.ModelStore, error) {
+	if baseDir == "" {
+		return nil, errors.New("agent model store: baseDir cannot be empty")
+	}
+	if err := os.MkdirAll(baseDir, 0o750); err != nil {
+		return nil, fmt.Errorf("agent model store: create directory %s: %w", baseDir, err)
+	}
+	return store.NewAgentModelStore(NewCollection(baseDir, WithIndentedJSON()))
+}
+
+func newAgentOAuthManager(dataDir string) (*agentoauth.Manager, error) {
+	if dataDir == "" {
+		return nil, errors.New("agent oauth store: dataDir cannot be empty")
+	}
+	encKey, err := crypto.ResolveKey(dataDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve encryption key for agent OAuth store: %w", err)
+	}
+	enc, err := crypto.NewEncryptor(encKey)
+	if err != nil {
+		return nil, fmt.Errorf("create encryptor for agent OAuth store: %w", err)
+	}
+	dir := filepath.Join(dataDir, "agent", "oauth")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return nil, fmt.Errorf("agent oauth store: create directory %s: %w", dir, err)
+	}
+	oauthStore, err := store.NewAgentOAuthStore(NewCollection(dir, WithIndentedJSON()), enc)
+	if err != nil {
+		return nil, fmt.Errorf("create agent OAuth store: %w", err)
+	}
+	return agentoauth.NewManager(oauthStore), nil
 }
