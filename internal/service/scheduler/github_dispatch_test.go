@@ -19,7 +19,7 @@ import (
 	"github.com/dagucloud/dagu/internal/license"
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
-	"github.com/dagucloud/dagu/internal/persis/filedag"
+	filedag "github.com/dagucloud/dagu/internal/persis/file/dag"
 	persiststore "github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/stretchr/testify/assert"

@@ -13,8 +13,8 @@ import (
 	"github.com/dagucloud/dagu/internal/agent"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/persis/filedag"
-	"github.com/dagucloud/dagu/internal/persis/filedoc"
+	filedag "github.com/dagucloud/dagu/internal/persis/file/dag"
+	"github.com/dagucloud/dagu/internal/persis/file/doc"
 	"github.com/dagucloud/dagu/internal/runtime"
 	apiv1 "github.com/dagucloud/dagu/internal/service/frontend/api/v1"
 	workspacepkg "github.com/dagucloud/dagu/internal/workspace"
@@ -59,7 +59,7 @@ func newSearchTestSetup(t *testing.T, withDocs bool) *searchTestSetup {
 	dagStore := filedag.New(t.TempDir(), filedag.WithSkipExamples(true))
 	var docStore agent.DocStore
 	if withDocs {
-		docStore = filedoc.New(t.TempDir())
+		docStore = doc.New(t.TempDir())
 	}
 
 	return &searchTestSetup{
@@ -196,7 +196,7 @@ func TestSearchDocFeed(t *testing.T) {
 		t.Parallel()
 
 		dagStore := filedag.New(t.TempDir(), filedag.WithSkipExamples(true))
-		docStore := filedoc.New(t.TempDir())
+		docStore := doc.New(t.TempDir())
 		api := newSearchAPI(
 			dagStore,
 			docStore,
@@ -395,7 +395,7 @@ func TestSearchDocFeedReturnsErrorWhenSearchRootIsBroken(t *testing.T) {
 
 	api := newSearchAPI(
 		filedag.New(t.TempDir(), filedag.WithSkipExamples(true)),
-		filedoc.New(docBasePath),
+		doc.New(docBasePath),
 	)
 	resp, err := api.SearchDocFeed(adminCtx(), apigen.SearchDocFeedRequestObject{
 		Params: apigen.SearchDocFeedParams{Q: "needle"},
