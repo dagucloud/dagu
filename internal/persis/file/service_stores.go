@@ -22,7 +22,6 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/filebaseconfig"
 	"github.com/dagucloud/dagu/internal/persis/filedoc"
 	"github.com/dagucloud/dagu/internal/persis/fileeventstore"
-	"github.com/dagucloud/dagu/internal/persis/filegithubdispatch"
 	"github.com/dagucloud/dagu/internal/persis/fileincident"
 	"github.com/dagucloud/dagu/internal/persis/filenotification"
 	"github.com/dagucloud/dagu/internal/persis/fileremotenode"
@@ -96,7 +95,9 @@ func NewEventCollector(cfg *config.Config) (EventCollector, error) {
 }
 
 func NewGitHubDispatchTracker(cfg *config.Config) githubdispatch.Tracker {
-	return filegithubdispatch.New(filepath.Join(cfg.Paths.DataDir, "github-dispatch"))
+	dir := filepath.Join(cfg.Paths.DataDir, "github-dispatch")
+	_ = os.MkdirAll(dir, 0o700)
+	return store.NewGitHubDispatchStore(NewCollection(dir, WithIndentedJSON()))
 }
 
 func NewIncidentStore(cfg *config.Config, enc *crypto.Encryptor) (incident.Store, error) {
