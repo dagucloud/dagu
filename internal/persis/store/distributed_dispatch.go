@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -42,7 +41,6 @@ type DispatchTaskStoreOption func(*DispatchTaskStore)
 type DispatchTaskStore struct {
 	col            persis.Collection
 	reservationTTL time.Duration
-	mu             sync.Mutex
 }
 
 type dispatchTaskPayload struct {
@@ -97,70 +95,67 @@ func (s *DispatchTaskStore) Enqueue(ctx context.Context, task *coordinatorv1.Tas
 	return s.putDispatchRecord(ctx, pendingID, payload, enqueuedAt, enqueuedAt)
 }
 
+// ClaimNext atomically transitions one matching pending record into a claim.
+// The coarse file-lock that previously serialized this method has been
+// removed: CompareAndDelete(pending) is the per-task atomicity point —
+// concurrent pollers racing on the same pending record see one winner and
+// the losers clean up their orphan claim and continue to the next pending.
 func (s *DispatchTaskStore) ClaimNext(ctx context.Context, claim exec.DispatchTaskClaim) (*exec.ClaimedDispatchTask, error) {
-	var claimed *exec.ClaimedDispatchTask
-	err := s.withDispatchLock(ctx, func() error {
-		if err := s.recycleExpiredReservationsLocked(ctx); err != nil {
-			return err
-		}
+	if err := s.recycleExpiredReservations(ctx); err != nil {
+		return nil, err
+	}
 
-		recs, err := s.listDispatchRecords(ctx, dispatchPendingPrefix)
-		if err != nil {
-			return err
-		}
-		for _, rec := range recs {
-			payload, err := dispatchTaskPayloadFromRecord(rec)
-			if err != nil {
-				return err
-			}
-			if payload.Task == nil || !matchesDispatchSelector(claim.Labels, payload.Task.WorkerSelector) {
-				continue
-			}
-
-			claimToken := uuid.NewString()
-			claimedAt := time.Now().UTC()
-			task, err := applyDispatchTaskClaim(payload.Task, claim.Owner, claimToken)
-			if err != nil {
-				return err
-			}
-			payload.Task = task
-			payload.ClaimToken = claimToken
-			payload.ClaimedAt = claimedAt.UnixMilli()
-			payload.WorkerID = claim.WorkerID
-			payload.PollerID = claim.PollerID
-			payload.Owner = claim.Owner
-
-			claimRec, err := s.newDispatchRecord(claimDispatchRecordID(claimToken), payload, rec.CreatedAt, claimedAt)
-			if err != nil {
-				return err
-			}
-			if err := s.col.Put(ctx, claimRec); err != nil {
-				return err
-			}
-			if err := s.col.CompareAndDelete(ctx, rec); err != nil {
-				_ = s.col.CompareAndDelete(context.WithoutCancel(ctx), claimRec)
-				if errors.Is(err, persis.ErrNotFound) || errors.Is(err, persis.ErrConflict) {
-					continue
-				}
-				return err
-			}
-
-			claimed = &exec.ClaimedDispatchTask{
-				Task:       cloneDispatchTask(task),
-				ClaimToken: claimToken,
-				ClaimedAt:  claimedAt,
-				WorkerID:   claim.WorkerID,
-				PollerID:   claim.PollerID,
-				Owner:      claim.Owner,
-			}
-			return nil
-		}
-		return nil
-	})
+	recs, err := s.listDispatchRecords(ctx, dispatchPendingPrefix)
 	if err != nil {
 		return nil, err
 	}
-	return claimed, nil
+	for _, rec := range recs {
+		payload, err := dispatchTaskPayloadFromRecord(rec)
+		if err != nil {
+			return nil, err
+		}
+		if payload.Task == nil || !matchesDispatchSelector(claim.Labels, payload.Task.WorkerSelector) {
+			continue
+		}
+
+		claimToken := uuid.NewString()
+		claimedAt := time.Now().UTC()
+		task, err := applyDispatchTaskClaim(payload.Task, claim.Owner, claimToken)
+		if err != nil {
+			return nil, err
+		}
+		payload.Task = task
+		payload.ClaimToken = claimToken
+		payload.ClaimedAt = claimedAt.UnixMilli()
+		payload.WorkerID = claim.WorkerID
+		payload.PollerID = claim.PollerID
+		payload.Owner = claim.Owner
+
+		claimRec, err := s.newDispatchRecord(claimDispatchRecordID(claimToken), payload, rec.CreatedAt, claimedAt)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.col.Put(ctx, claimRec); err != nil {
+			return nil, err
+		}
+		if err := s.col.CompareAndDelete(ctx, rec); err != nil {
+			_ = s.col.CompareAndDelete(context.WithoutCancel(ctx), claimRec)
+			if errors.Is(err, persis.ErrNotFound) || errors.Is(err, persis.ErrConflict) {
+				continue
+			}
+			return nil, err
+		}
+
+		return &exec.ClaimedDispatchTask{
+			Task:       cloneDispatchTask(task),
+			ClaimToken: claimToken,
+			ClaimedAt:  claimedAt,
+			WorkerID:   claim.WorkerID,
+			PollerID:   claim.PollerID,
+			Owner:      claim.Owner,
+		}, nil
+	}
+	return nil, nil
 }
 
 func (s *DispatchTaskStore) GetClaim(ctx context.Context, claimToken string) (*exec.ClaimedDispatchTask, error) {
@@ -195,66 +190,63 @@ func (s *DispatchTaskStore) DeleteClaim(ctx context.Context, claimToken string) 
 	return nil
 }
 
+// CountOutstandingByQueue returns the number of pending+claimed dispatch
+// records matching queueName. Eventually consistent: a task transitioning
+// between pending and claim during the scan may be counted as both within a
+// sub-millisecond window — acceptable for observability/capacity hints.
 func (s *DispatchTaskStore) CountOutstandingByQueue(ctx context.Context, queueName string, _ time.Duration) (int, error) {
+	if err := s.recycleExpiredReservations(ctx); err != nil {
+		return 0, err
+	}
+	payloads, err := s.outstandingDispatchPayloads(ctx)
+	if err != nil {
+		return 0, err
+	}
 	var count int
-	err := s.withDispatchLock(ctx, func() error {
-		if err := s.recycleExpiredReservationsLocked(ctx); err != nil {
-			return err
+	for _, payload := range payloads {
+		if payload.Task == nil {
+			continue
 		}
-		payloads, err := s.outstandingDispatchPayloads(ctx)
-		if err != nil {
-			return err
+		if queueName != "" && payload.Task.QueueName != queueName {
+			continue
 		}
-		for _, payload := range payloads {
-			if payload.Task == nil {
-				continue
-			}
-			if queueName != "" && payload.Task.QueueName != queueName {
-				continue
-			}
-			count++
-		}
-		return nil
-	})
-	return count, err
+		count++
+	}
+	return count, nil
 }
 
+// HasOutstandingAttempt reports whether any pending or claimed record matches
+// attemptKey. Same eventual-consistency caveat as [CountOutstandingByQueue].
 func (s *DispatchTaskStore) HasOutstandingAttempt(ctx context.Context, attemptKey string, _ time.Duration) (bool, error) {
 	if attemptKey == "" {
 		return false, nil
 	}
-
-	var found bool
-	err := s.withDispatchLock(ctx, func() error {
-		if err := s.recycleExpiredReservationsLocked(ctx); err != nil {
-			return err
+	if err := s.recycleExpiredReservations(ctx); err != nil {
+		return false, err
+	}
+	payloads, err := s.outstandingDispatchPayloads(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, payload := range payloads {
+		if payload.Task != nil && payload.Task.AttemptKey == attemptKey {
+			return true, nil
 		}
-		payloads, err := s.outstandingDispatchPayloads(ctx)
-		if err != nil {
-			return err
-		}
-		for _, payload := range payloads {
-			if payload.Task != nil && payload.Task.AttemptKey == attemptKey {
-				found = true
-				return nil
-			}
-		}
-		return nil
-	})
-	return found, err
+	}
+	return false, nil
 }
 
-func (s *DispatchTaskStore) recycleExpiredReservationsLocked(ctx context.Context) error {
-	if err := s.recycleExpiredClaimsLocked(ctx); err != nil {
+func (s *DispatchTaskStore) recycleExpiredReservations(ctx context.Context) error {
+	if err := s.recycleExpiredClaims(ctx); err != nil {
 		return err
 	}
-	if err := s.removePendingRecordsWithActiveClaimsLocked(ctx); err != nil {
+	if err := s.removePendingRecordsWithActiveClaims(ctx); err != nil {
 		return err
 	}
-	return s.recycleExpiredPendingLocked(ctx)
+	return s.recycleExpiredPending(ctx)
 }
 
-func (s *DispatchTaskStore) recycleExpiredClaimsLocked(ctx context.Context) error {
+func (s *DispatchTaskStore) recycleExpiredClaims(ctx context.Context) error {
 	recs, err := s.listDispatchRecords(ctx, dispatchClaimsPrefix)
 	if err != nil {
 		return err
@@ -300,7 +292,7 @@ func (s *DispatchTaskStore) recycleExpiredClaimsLocked(ctx context.Context) erro
 	return nil
 }
 
-func (s *DispatchTaskStore) removePendingRecordsWithActiveClaimsLocked(ctx context.Context) error {
+func (s *DispatchTaskStore) removePendingRecordsWithActiveClaims(ctx context.Context) error {
 	claimRecs, err := s.listDispatchRecords(ctx, dispatchClaimsPrefix)
 	if err != nil {
 		return err
@@ -348,7 +340,7 @@ func (s *DispatchTaskStore) removePendingRecordsWithActiveClaimsLocked(ctx conte
 	return nil
 }
 
-func (s *DispatchTaskStore) recycleExpiredPendingLocked(ctx context.Context) error {
+func (s *DispatchTaskStore) recycleExpiredPending(ctx context.Context) error {
 	recs, err := s.listDispatchRecords(ctx, dispatchPendingPrefix)
 	if err != nil {
 		return err
@@ -433,12 +425,6 @@ func (s *DispatchTaskStore) newDispatchRecord(id string, payload dispatchTaskPay
 		CreatedAt: createdAt,
 		UpdatedAt: updatedAt,
 	}, nil
-}
-
-func (s *DispatchTaskStore) withDispatchLock(ctx context.Context, fn func() error) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return withDistributedCollectionLock(ctx, s.col, "locks/dispatch_tasks", fn)
 }
 
 func dispatchTaskPayloadFromRecord(rec *persis.Record) (dispatchTaskPayload, error) {
