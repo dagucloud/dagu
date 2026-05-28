@@ -24,7 +24,6 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/fileeventstore"
 	"github.com/dagucloud/dagu/internal/persis/fileincident"
 	"github.com/dagucloud/dagu/internal/persis/filenotification"
-	"github.com/dagucloud/dagu/internal/persis/fileremotenode"
 	"github.com/dagucloud/dagu/internal/persis/filetokensecret"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/remotenode"
@@ -135,7 +134,14 @@ func NotificationMonitorStateFile(cfg *config.Config) string {
 }
 
 func NewRemoteNodeStore(cfg *config.Config, enc *crypto.Encryptor) (remotenode.Store, error) {
-	return fileremotenode.New(cfg.Paths.RemoteNodesDir, enc)
+	dir := cfg.Paths.RemoteNodesDir
+	if dir == "" {
+		return nil, fmt.Errorf("remote-node store: RemoteNodesDir cannot be empty")
+	}
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return nil, fmt.Errorf("remote-node store: create directory %s: %w", dir, err)
+	}
+	return store.NewRemoteNodeStore(NewCollection(dir, WithIndentedJSON()), enc)
 }
 
 func NewTokenSecretProvider(cfg *config.Config) authmodel.TokenSecretProvider {
