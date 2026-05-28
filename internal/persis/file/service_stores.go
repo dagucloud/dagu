@@ -5,6 +5,7 @@ package file
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -26,7 +27,6 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/filenotification"
 	"github.com/dagucloud/dagu/internal/persis/fileremotenode"
 	"github.com/dagucloud/dagu/internal/persis/filetokensecret"
-	"github.com/dagucloud/dagu/internal/persis/fileupgradecheck"
 	"github.com/dagucloud/dagu/internal/persis/fileworkspace"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/remotenode"
@@ -145,7 +145,14 @@ func NewTokenSecretProvider(cfg *config.Config) authmodel.TokenSecretProvider {
 }
 
 func NewUpgradeCheckStore(cfg *config.Config) (upgrade.CacheStore, error) {
-	return fileupgradecheck.New(cfg.Paths.DataDir)
+	if cfg.Paths.DataDir == "" {
+		return nil, fmt.Errorf("upgrade check store: data directory cannot be empty")
+	}
+	dir := filepath.Join(cfg.Paths.DataDir, "upgrade")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return nil, fmt.Errorf("upgrade check store: create directory %s: %w", dir, err)
+	}
+	return store.NewUpgradeCheckStore(NewCollection(dir, WithIndentedJSON())), nil
 }
 
 func NewWorkspaceStore(cfg *config.Config) (workspace.Store, error) {
