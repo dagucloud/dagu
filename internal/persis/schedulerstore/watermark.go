@@ -5,7 +5,6 @@ package schedulerstore
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -73,7 +72,7 @@ func (s *WatermarkStore) Save(ctx context.Context, state *scheduler.SchedulerSta
 	if state == nil {
 		return fmt.Errorf("watermark store: state is nil")
 	}
-	data, err := json.MarshalIndent(state, "", "  ")
+	data, enc, err := persis.Encode(state)
 	if err != nil {
 		return fmt.Errorf("watermark store: encode: %w", err)
 	}
@@ -81,7 +80,7 @@ func (s *WatermarkStore) Save(ctx context.Context, state *scheduler.SchedulerSta
 	if err := s.col.Put(ctx, &persis.Record{
 		ID:        watermarkStateID,
 		Data:      data,
-		Encoding:  persis.EncodingJSON,
+		Encoding:  enc,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}); err != nil {
