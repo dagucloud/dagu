@@ -67,9 +67,8 @@ func TestWatermarkSaveAndLoad(t *testing.T) {
 func TestWatermarkSaveFileLayoutCompatibility(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
-	backend, err := file.New(root)
-	require.NoError(t, err)
-	s := schedulerstore.NewWatermarkStore(backend.Collection("scheduler"))
+	col := file.NewCollection(filepath.Join(root, "scheduler"), file.WithIndentedJSON())
+	s := schedulerstore.NewWatermarkStore(col)
 	state := &scheduler.SchedulerState{
 		Version: scheduler.SchedulerStateVersion,
 		DAGs: map[string]scheduler.DAGWatermark{

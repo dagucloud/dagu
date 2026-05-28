@@ -53,6 +53,15 @@ func WithProcHeartbeatSyncInterval(_ time.Duration) ProcStoreOption {
 }
 
 // ProcStore implements [exec.ProcStore] on top of a [persis.Collection].
+//
+// This is the backend-neutral proc store, intended for non-file backends
+// (SQL/etcd) and tests. It serializes each entry as a JSON record and derives
+// liveness from the entry's heartbeat timestamp plus the record's UpdatedAt.
+//
+// It is NOT layout-compatible with the file backend's proc store
+// ([github.com/dagucloud/dagu/internal/persis/file/proc]), which writes the
+// released binary ".proc" files. The file backend must use file.NewProcStore;
+// do not point this store at a file backend's ProcDir. See [NewProcStore].
 type ProcStore struct {
 	col               persis.Collection
 	staleTime         time.Duration
@@ -64,6 +73,11 @@ type ProcStore struct {
 }
 
 // NewProcStore creates a ProcStore backed by col.
+//
+// For non-file backends and tests only. The file backend uses
+// file.NewProcStore (binary ".proc" layout); this collection-backed store
+// writes JSON records and is not compatible with that on-disk layout, so it
+// must not be wired over a file backend's ProcDir without a migration.
 func NewProcStore(col persis.Collection, opts ...ProcStoreOption) *ProcStore {
 	s := &ProcStore{
 		col:               col,

@@ -198,9 +198,19 @@ func TestProcStoreRemoveIfStaleKeepsRefreshedCollectionRecord(t *testing.T) {
 		return true
 	}, time.Second, 10*time.Millisecond)
 
+	// Simulate a concurrent heartbeat by bumping the in-Data revision nonce.
+	// The Collection CAS contract is Data-only (matches the file backend), so
+	// only a Data change is observable to CompareAndDelete; touching just
+	// UpdatedAt would not be — and would not protect the record in production.
 	col.refresh = func(expected *persis.Record) {
 		rec, err := base.Get(ctx, expected.ID)
 		require.NoError(t, err)
+		var payload map[string]any
+		require.NoError(t, json.Unmarshal(rec.Data, &payload))
+		payload["revisionNanos"] = time.Now().UnixNano()
+		newData, err := json.Marshal(payload)
+		require.NoError(t, err)
+		rec.Data = newData
 		rec.UpdatedAt = time.Now().UTC()
 		require.NoError(t, base.Put(ctx, rec))
 	}
