@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -41,6 +42,15 @@ type DispatchTaskStoreOption func(*DispatchTaskStore)
 type DispatchTaskStore struct {
 	col            persis.Collection
 	reservationTTL time.Duration
+	// mu serializes in-process callers across recycle + scan + claim. CAS
+	// on individual records is what provides cross-process safety
+	// (CompareAndDelete on the pending record is the per-task atomicity
+	// point), but the per-method scan+recycle workload is O(N) per call
+	// — without an in-process mutex, every concurrent ClaimNext starts a
+	// fresh O(N) scan and the throughput collapses. The bulk-dispatch
+	// integration test (1000 items, 10 in-process worker goroutines)
+	// regressed from minutes to a timeout when this was removed.
+	mu sync.Mutex
 }
 
 type dispatchTaskPayload struct {
@@ -101,6 +111,9 @@ func (s *DispatchTaskStore) Enqueue(ctx context.Context, task *coordinatorv1.Tas
 // concurrent pollers racing on the same pending record see one winner and
 // the losers clean up their orphan claim and continue to the next pending.
 func (s *DispatchTaskStore) ClaimNext(ctx context.Context, claim exec.DispatchTaskClaim) (*exec.ClaimedDispatchTask, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if err := s.recycleExpiredReservations(ctx); err != nil {
 		return nil, err
 	}
@@ -195,6 +208,9 @@ func (s *DispatchTaskStore) DeleteClaim(ctx context.Context, claimToken string) 
 // between pending and claim during the scan may be counted as both within a
 // sub-millisecond window — acceptable for observability/capacity hints.
 func (s *DispatchTaskStore) CountOutstandingByQueue(ctx context.Context, queueName string, _ time.Duration) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if err := s.recycleExpiredReservations(ctx); err != nil {
 		return 0, err
 	}
@@ -221,6 +237,9 @@ func (s *DispatchTaskStore) HasOutstandingAttempt(ctx context.Context, attemptKe
 	if attemptKey == "" {
 		return false, nil
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if err := s.recycleExpiredReservations(ctx); err != nil {
 		return false, err
 	}
