@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/dagucloud/dagu/internal/agent"
@@ -16,7 +17,6 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/internal/persis/fileagentconfig"
 	"github.com/dagucloud/dagu/internal/persis/fileagentmodel"
 	"github.com/dagucloud/dagu/internal/persis/fileagentoauth"
 	"github.com/dagucloud/dagu/internal/persis/fileagentskill"
@@ -94,7 +94,7 @@ func NewAgentStores(ctx context.Context, cfg *config.Config, opts ...AgentStores
 	if options.SeedReferences {
 		result.ReferencesDir = SeedAgentReferences(cfg)
 	}
-	if configStore, err := fileagentconfig.New(cfg.Paths.DataDir); err == nil {
+	if configStore, err := newAgentConfigStore(cfg.Paths.DataDir); err == nil {
 		result.ConfigStore = configStore
 	} else {
 		logger.Warn(ctx, "Failed to create agent config store", tag.Error(err))
@@ -146,7 +146,7 @@ func NewAgentStores(ctx context.Context, cfg *config.Config, opts ...AgentStores
 
 // NewSnapshotStores wires the file-backed stores required to build worker snapshots.
 func NewSnapshotStores(ctx context.Context, paths config.PathsConfig) (agent.SnapshotStores, error) {
-	configStore, err := fileagentconfig.New(paths.DataDir)
+	configStore, err := newAgentConfigStore(paths.DataDir)
 	if err != nil {
 		return agent.SnapshotStores{}, fmt.Errorf("create agent config store: %w", err)
 	}
@@ -222,4 +222,15 @@ func NewContextStore(cfg *config.Config) (*clicontext.Store, error) {
 		return nil, err
 	}
 	return clicontext.NewStore(cfg.Paths.ContextsDir, enc)
+}
+
+func newAgentConfigStore(dataDir string) (agent.ConfigStore, error) {
+	if dataDir == "" {
+		return nil, errors.New("agent config store: dataDir cannot be empty")
+	}
+	dir := filepath.Join(dataDir, "agent")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return nil, fmt.Errorf("agent config store: create directory %s: %w", dir, err)
+	}
+	return store.NewAgentConfigStore(NewCollection(dir, WithIndentedJSON())), nil
 }
