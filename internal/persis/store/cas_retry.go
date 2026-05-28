@@ -36,6 +36,11 @@ const (
 func retryCAS(ctx context.Context, op func(ctx context.Context) error) error {
 	backoff := casRetryInitialBackoff
 	for {
+		// Guard before invoking op so a pre-cancelled context never causes
+		// an extra Get/Create/CompareAndSwap round-trip.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		err := op(ctx)
 		if err == nil {
 			return nil

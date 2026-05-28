@@ -255,7 +255,7 @@ graph TB
 
   <!-- The Interface — full code -->
   <div class="bg-slate-900 rounded-xl p-8 mb-8 overflow-x-auto">
-    <p class="text-xs font-mono text-slate-400 mb-4">internal/persis/backend.go — THE SEAM (9 public methods total)</p>
+    <p class="text-xs font-mono text-slate-400 mb-4">internal/persis/backend.go — THE SEAM (Collection: 8 methods, Backend: 2 methods)</p>
     <pre class="text-sm text-slate-100 leading-relaxed"><span class="cm">// Package persis defines the storage backend interface for Dagu's control plane.</span>
 <span class="kw">package</span> <span class="ty">persis</span>
 
@@ -317,9 +317,18 @@ graph TB
     <span class="cm">// Put creates or replaces a record.</span>
     <span class="fn">Put</span>(ctx <span class="ty">context.Context</span>, rec *<span class="ty">Record</span>) <span class="kw">error</span>
 
+    <span class="cm">// Create atomically inserts rec, returning ErrConflict when the
+    // record already exists. Used for backend-neutral "must not exist"
+    // semantics — the create-if-absent half of optimistic concurrency.</span>
+    <span class="fn">Create</span>(ctx <span class="ty">context.Context</span>, rec *<span class="ty">Record</span>) <span class="kw">error</span>
+
     <span class="cm">// Delete removes the record with the given id.
     // Returns nil if the record does not exist.</span>
     <span class="fn">Delete</span>(ctx <span class="ty">context.Context</span>, id <span class="kw">string</span>) <span class="kw">error</span>
+
+    <span class="cm">// CompareAndDelete atomically removes expected.ID only when the
+    // current record still matches expected. ErrConflict on mismatch.</span>
+    <span class="fn">CompareAndDelete</span>(ctx <span class="ty">context.Context</span>, expected *<span class="ty">Record</span>) <span class="kw">error</span>
 
     <span class="cm">// List returns a page of records ordered by CreatedAt ascending.</span>
     <span class="fn">List</span>(ctx <span class="ty">context.Context</span>, q <span class="ty">ListQuery</span>) (*<span class="ty">Page</span>, <span class="kw">error</span>)
@@ -1010,8 +1019,8 @@ graph LR
     <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
       <div class="bg-green-900/40 border border-green-600/40 rounded-xl p-5">
         <p class="text-sm font-semibold text-green-300 mb-2">Interface surface</p>
-        <p class="text-3xl font-bold text-green-400">9</p>
-        <p class="text-sm text-slate-400 mt-1">methods across Backend + Collection (Create added)</p>
+        <p class="text-3xl font-bold text-green-400">10</p>
+        <p class="text-sm text-slate-400 mt-1">Collection 8 + Backend 2 (Create added)</p>
       </div>
       <div class="bg-green-900/40 border border-green-600/40 rounded-xl p-5">
         <p class="text-sm font-semibold text-green-300 mb-2">Stores ported</p>
