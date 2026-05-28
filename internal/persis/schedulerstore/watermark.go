@@ -72,7 +72,7 @@ func (s *WatermarkStore) Save(ctx context.Context, state *scheduler.SchedulerSta
 	if state == nil {
 		return fmt.Errorf("watermark store: state is nil")
 	}
-	data, enc, err := persis.Encode(state)
+	data, err := persis.Encode(state)
 	if err != nil {
 		return fmt.Errorf("watermark store: encode: %w", err)
 	}
@@ -80,7 +80,6 @@ func (s *WatermarkStore) Save(ctx context.Context, state *scheduler.SchedulerSta
 	if err := s.col.Put(ctx, &persis.Record{
 		ID:        watermarkStateID,
 		Data:      data,
-		Encoding:  enc,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}); err != nil {

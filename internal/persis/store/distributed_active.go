@@ -30,15 +30,41 @@ func NewActiveDistributedRunStore(col persis.Collection) *ActiveDistributedRunSt
 	return &ActiveDistributedRunStore{col: col}
 }
 
+// Upsert writes the active-run record. Get → Create if absent /
+// CompareAndSwap if present, retrying on conflict.
 func (s *ActiveDistributedRunStore) Upsert(ctx context.Context, record exec.ActiveDistributedRun) error {
 	if record.AttemptKey == "" {
 		return fmt.Errorf("attempt key is required")
 	}
+	id := distributedRecordKey(record.AttemptKey)
 
-	return s.withActiveRunLock(ctx, record.AttemptKey, func() error {
+	return retryCAS(ctx, func(ctx context.Context) error {
 		now := time.Now().UTC()
 		record.UpdatedAt = now.UnixMilli()
-		return s.putActiveRun(ctx, record, now)
+
+		existing, getErr := s.col.Get(ctx, id)
+		if getErr != nil && !errors.Is(getErr, persis.ErrNotFound) {
+			return getErr
+		}
+
+		data, err := persis.Encode(record)
+		if err != nil {
+			return err
+		}
+
+		if existing == nil {
+			return s.col.Create(ctx, &persis.Record{
+				ID:        id,
+				Data:      data,
+				CreatedAt: now,
+				UpdatedAt: now,
+			})
+		}
+		casErr := s.col.CompareAndSwap(ctx, id, existing.Data, data)
+		if errors.Is(casErr, persis.ErrNotFound) {
+			return persis.ErrConflict
+		}
+		return casErr
 	})
 }
 
@@ -46,12 +72,10 @@ func (s *ActiveDistributedRunStore) Delete(ctx context.Context, attemptKey strin
 	if attemptKey == "" {
 		return nil
 	}
-	return s.withActiveRunLock(ctx, attemptKey, func() error {
-		if err := s.col.Delete(ctx, distributedRecordKey(attemptKey)); err != nil && !errors.Is(err, persis.ErrNotFound) {
-			return err
-		}
-		return nil
-	})
+	if err := s.col.Delete(ctx, distributedRecordKey(attemptKey)); err != nil && !errors.Is(err, persis.ErrNotFound) {
+		return err
+	}
+	return nil
 }
 
 func (s *ActiveDistributedRunStore) Get(ctx context.Context, attemptKey string) (*exec.ActiveDistributedRun, error) {
@@ -98,29 +122,4 @@ func (s *ActiveDistributedRunStore) ListAll(ctx context.Context) ([]exec.ActiveD
 		return records[i].AttemptKey < records[j].AttemptKey
 	})
 	return records, nil
-}
-
-func (s *ActiveDistributedRunStore) putActiveRun(ctx context.Context, record exec.ActiveDistributedRun, updatedAt time.Time) error {
-	id := distributedRecordKey(record.AttemptKey)
-	createdAt := updatedAt
-	if existing, err := s.col.Get(ctx, id); err == nil && !existing.CreatedAt.IsZero() {
-		createdAt = existing.CreatedAt
-	} else if err != nil && !errors.Is(err, persis.ErrNotFound) {
-		return err
-	}
-	data, enc, err := persis.Encode(record)
-	if err != nil {
-		return err
-	}
-	return s.col.Put(ctx, &persis.Record{
-		ID:        id,
-		Data:      data,
-		Encoding:  enc,
-		CreatedAt: createdAt,
-		UpdatedAt: updatedAt,
-	})
-}
-
-func (s *ActiveDistributedRunStore) withActiveRunLock(ctx context.Context, attemptKey string, fn func() error) error {
-	return withDistributedCollectionLock(ctx, s.col, distributedActiveRunLockKey(attemptKey), fn)
 }

@@ -218,14 +218,13 @@ func (s *DAGStateStore) withRecordLock(ctx context.Context, id string, fn func()
 }
 
 func (s *DAGStateStore) putEntry(ctx context.Context, id string, entry *dagstate.Entry, createdAt, updatedAt time.Time) error {
-	data, enc, err := persis.Encode(entry)
+	data, err := persis.Encode(entry)
 	if err != nil {
 		return err
 	}
 	return mapDAGStateStoreError(s.col.Put(ctx, &persis.Record{
 		ID:        id,
 		Data:      data,
-		Encoding:  enc,
 		CreatedAt: createdAt,
 		UpdatedAt: updatedAt,
 	}))

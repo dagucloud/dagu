@@ -36,7 +36,7 @@ func (s *WorkerHeartbeatStore) Upsert(ctx context.Context, record exec.WorkerHea
 	if record.LastHeartbeatAt == 0 {
 		record.LastHeartbeatAt = time.Now().UTC().UnixMilli()
 	}
-	data, enc, err := persis.Encode(record)
+	data, err := persis.Encode(record)
 	if err != nil {
 		return err
 	}
@@ -44,7 +44,6 @@ func (s *WorkerHeartbeatStore) Upsert(ctx context.Context, record exec.WorkerHea
 	return s.col.Put(ctx, &persis.Record{
 		ID:        workerHeartbeatKey(record.WorkerID),
 		Data:      data,
-		Encoding:  enc,
 		CreatedAt: now,
 		UpdatedAt: now,
 	})
