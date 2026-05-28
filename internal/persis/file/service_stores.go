@@ -5,6 +5,7 @@ package file
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 
 	"github.com/dagucloud/dagu/internal/agent"
@@ -22,12 +23,12 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/fileeventstore"
 	"github.com/dagucloud/dagu/internal/persis/filegithubdispatch"
 	"github.com/dagucloud/dagu/internal/persis/fileincident"
-	"github.com/dagucloud/dagu/internal/persis/filelicense"
 	"github.com/dagucloud/dagu/internal/persis/filenotification"
 	"github.com/dagucloud/dagu/internal/persis/fileremotenode"
 	"github.com/dagucloud/dagu/internal/persis/filetokensecret"
 	"github.com/dagucloud/dagu/internal/persis/fileupgradecheck"
 	"github.com/dagucloud/dagu/internal/persis/fileworkspace"
+	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/remotenode"
 	"github.com/dagucloud/dagu/internal/service/audit"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
@@ -110,7 +111,14 @@ func IncidentMonitorStateFile(cfg *config.Config) string {
 }
 
 func NewLicenseStore(cfg *config.Config) license.ActivationStore {
-	return filelicense.New(LicenseDir(cfg))
+	dir := LicenseDir(cfg)
+	// Preserve the released 0o700 directory permission. The Collection's
+	// internal MkdirAll uses 0o750, but it only runs if the directory does
+	// not yet exist — pre-creating at 0o700 here ensures fresh installs
+	// match the pre-refactor [filelicense] layout. License IDs are flat
+	// (single "activation" record), so no nested subdirs are ever created.
+	_ = os.MkdirAll(dir, 0o700)
+	return store.NewLicenseStore(NewCollection(dir, WithIndentedJSON()))
 }
 
 func LicenseDir(cfg *config.Config) string {

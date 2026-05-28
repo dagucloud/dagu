@@ -1816,9 +1816,24 @@ func (a *Agent) stopChildren(ctx context.Context, sig os.Signal, allowOverride b
 		slog.Duration("max-cleanup-time", a.dag.MaxCleanUpTime),
 	)
 
+	// Snapshot runner+plan under the same lock used by Status() to bound the
+	// race with Run()'s lazy initialization. listenSignals attaches before
+	// Run() sets a.runner / a.plan, so a signal arriving during early setup
+	// (or after an early-failure return) would otherwise nil-deref below.
+	// Status() already handles the same nil-runner window at agent.go:1248.
+	a.lock.RLock()
+	runner := a.runner
+	plan := a.plan
+	a.lock.RUnlock()
+	if runner == nil || plan == nil {
+		logger.Debug(ctx, "Agent not yet initialized; ignoring stop request",
+			tag.Signal(intent.SignalName()))
+		return
+	}
+
 	if !intent.IsTermination() {
 		// For non-termination signals, just forward the request once and return.
-		a.runner.Stop(ctx, a.plan, intent, nil, allowOverride)
+		runner.Stop(ctx, plan, intent, nil, allowOverride)
 		return
 	}
 
@@ -1827,7 +1842,7 @@ func (a *Agent) stopChildren(ctx context.Context, sig os.Signal, allowOverride b
 
 	done := make(chan bool, 1)
 	go func() {
-		a.runner.Stop(ctx, a.plan, intent, done, allowOverride)
+		runner.Stop(ctx, plan, intent, done, allowOverride)
 	}()
 
 	resendTicker := time.NewTicker(5 * time.Second)
@@ -1847,7 +1862,7 @@ func (a *Agent) stopChildren(ctx context.Context, sig os.Signal, allowOverride b
 				slog.String("stop-mode", string(forceIntent.Mode)),
 				tag.Signal(forceIntent.SignalName()),
 			)
-			a.runner.Stop(ctx, a.plan, forceIntent, nil, false)
+			runner.Stop(ctx, plan, forceIntent, nil, false)
 			return
 
 		case <-resendTicker.C:
@@ -1855,10 +1870,10 @@ func (a *Agent) stopChildren(ctx context.Context, sig os.Signal, allowOverride b
 				slog.String("stop-mode", string(intent.Mode)),
 				tag.Signal(intent.SignalName()),
 			)
-			a.runner.Stop(ctx, a.plan, intent, nil, false)
+			runner.Stop(ctx, plan, intent, nil, false)
 
 		case <-probeTicker.C:
-			if a.plan != nil && !a.plan.HasActiveNodes() {
+			if !plan.HasActiveNodes() {
 				logger.Info(ctx, "No running processes detected, termination complete")
 				return
 			}

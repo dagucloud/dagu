@@ -37,7 +37,7 @@
     <p class="text-slate-300 text-lg max-w-3xl">
       Deep Module redesign: introduce a single pluggable
       <strong class="text-white">Backend</strong> interface so control-plane stores share one file-I/O implementation.
-      Boundary established and the first wave of stores ported; ~17 still run behind their original leaf packages
+      Boundary established and the first wave of stores ported; ~16 still run behind their original leaf packages
       (incremental, ongoing), while DAG-run and proc stay file-specific by design. The seam makes future
       PostgreSQL/etcd backends possible without rewriting every store.
     </p>
@@ -739,6 +739,7 @@ graph TB
         <div class="ml-6 text-amber-400">◐ session.go <span class="text-slate-400 ml-1">528 ln · ported, unwired; awaits non-file backend (prod uses filesession)</span></div>
         <div class="ml-6 text-green-600">✅ user.go <span class="text-slate-400 ml-1">303 ln</span></div>
         <div class="ml-6 text-green-600">✅ webhook.go <span class="text-slate-400 ml-1">319 ln</span></div>
+        <div class="ml-6 text-green-600">✅ license.go <span class="text-slate-400 ml-1">76 ln · filelicense removed; on-disk format byte-identical to pre-refactor activation.json</span></div>
         <div class="ml-6 text-green-600">✅ watermark.go <span class="text-slate-400 ml-1">122 ln · lives in persis/schedulerstore/, not store/</span></div>
         <div class="ml-6 text-green-600">✅ workerheartbeat.go <span class="text-slate-400 ml-1">168 ln</span></div>
         <div class="ml-6 text-green-600">✅ queue*.go <span class="text-slate-400 ml-1">collection-backed QueueStore; filequeue removed</span></div>
@@ -758,7 +759,7 @@ graph TB
         <div class="ml-4 mt-2 text-slate-500">legacy/ <span class="text-slate-400">unchanged</span></div>
         <div class="ml-4 text-green-600">✅ testutil/ <span class="text-slate-400">memory.go 217 ln — in-memory Backend for unit tests</span></div>
         <div class="ml-4 text-slate-500">filedag/ <span class="text-slate-400 font-normal">← untouched leaf implementation; composition roots use file.NewDAGStore, app/engine code receives exec.DAGStore</span></div>
-        <div class="ml-4 text-amber-400">◐ file*/ <span class="text-slate-400 font-normal">← ~17 leaf packages still in use (agent*, audit, eventstore, notification, session, serviceregistry, baseconfig, …), each wrapped by a file/ boundary; ported incrementally, not yet behind Backend</span></div>
+        <div class="ml-4 text-amber-400">◐ file*/ <span class="text-slate-400 font-normal">← ~16 leaf packages still in use (agent*, audit, eventstore, notification, session, serviceregistry, baseconfig, …), each wrapped by a file/ boundary; ported incrementally, not yet behind Backend</span></div>
       </div>
     </div>
   </div>
@@ -1024,7 +1025,7 @@ graph LR
       </div>
       <div class="bg-green-900/40 border border-green-600/40 rounded-xl p-5">
         <p class="text-sm font-semibold text-green-300 mb-2">Stores ported</p>
-        <p class="text-3xl font-bold text-green-400">10+</p>
+        <p class="text-3xl font-bold text-green-400">11+</p>
         <p class="text-sm text-slate-400 mt-1">collection-backed adapters plus file-backed DAG-run compatibility</p>
       </div>
       <div class="bg-amber-900/40 border border-amber-600/40 rounded-xl p-5">
@@ -1050,6 +1051,7 @@ graph LR
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/testutil/memory.go</code> — MemoryBackend (217 ln)</li>
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">persis/store/</code> — collection-backed adapters with tests; proc remains collection-only and is not wired to the file backend</li>
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">internal/persis/filequeue</code> — removed after queue wiring moved to <code class="text-xs bg-white/10 px-1 rounded">store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))</code></li>
+          <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">internal/persis/filelicense</code> — removed; replaced in <code class="text-xs bg-white/10 px-1 rounded">file.NewLicenseStore(cfg)</code> (pre-creates license dir at <code class="text-xs bg-white/10 px-1 rounded">0o700</code>, then uses <code class="text-xs bg-white/10 px-1 rounded">store.NewLicenseStore(NewCollection(dir, WithIndentedJSON()))</code>) with byte-identical on-disk format</li>
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">internal/persis/file/dagrun</code> — file-backed DAG-run store with exact existing file-layout compatibility</li>
           <li><span class="text-green-400 font-bold">✓</span> DAG-run wiring goes through <code class="text-xs bg-white/10 px-1 rounded">file.NewDAGRunStore</code> and service code depends on <code class="text-xs bg-white/10 px-1 rounded">exec.DAGRunStore</code></li>
           <li><span class="text-green-400 font-bold">✓</span> <code class="text-xs bg-white/10 px-1 rounded">internal/persis/file/proc</code> — file-backed ProcStore keeps released <code>.proc</code> paths and payloads; no collection JSON is written under the proc directory</li>
