@@ -113,14 +113,13 @@ func (s *SecretStore) Create(ctx context.Context, sec *secret.Secret, initialVal
 		}
 	}
 
-	data, enc, err := persis.Encode(sr)
+	data, err := persis.Encode(sr)
 	if err != nil {
 		return err
 	}
 	if err := s.col.Put(ctx, &persis.Record{
 		ID:        sec.ID,
 		Data:      data,
-		Encoding:  enc,
 		CreatedAt: sec.CreatedAt,
 		UpdatedAt: sec.UpdatedAt,
 	}); err != nil {
@@ -236,14 +235,13 @@ func (s *SecretStore) Update(ctx context.Context, sec *secret.Secret) error {
 	}
 
 	existing.Secret = updated
-	data, enc, err := persis.Encode(&existing)
+	data, err := persis.Encode(&existing)
 	if err != nil {
 		return err
 	}
 	if err := s.col.Put(ctx, &persis.Record{
 		ID:        sec.ID,
 		Data:      data,
-		Encoding:  enc,
 		CreatedAt: existingRec.CreatedAt,
 		UpdatedAt: time.Now().UTC(),
 	}); err != nil {
@@ -307,14 +305,13 @@ func (s *SecretStore) WriteValue(ctx context.Context, id string, input secret.Wr
 	if err := s.appendVersion(&sr, input); err != nil {
 		return nil, err
 	}
-	data, enc, err := persis.Encode(&sr)
+	data, err := persis.Encode(&sr)
 	if err != nil {
 		return nil, err
 	}
 	if err := s.col.Put(ctx, &persis.Record{
 		ID:        rec.ID,
 		Data:      data,
-		Encoding:  enc,
 		CreatedAt: rec.CreatedAt,
 		UpdatedAt: time.Now().UTC(),
 	}); err != nil {
@@ -368,14 +365,13 @@ func (s *SecretStore) ResolveValue(ctx context.Context, id string) (string, *sec
 	now := time.Now().UTC()
 	sr.Secret.LastResolvedAt = &now
 	sr.Secret.UpdatedAt = now
-	data, enc, err := persis.Encode(&sr)
+	data, err := persis.Encode(&sr)
 	if err != nil {
 		return "", nil, err
 	}
 	if err := s.col.Put(ctx, &persis.Record{
 		ID:        rec.ID,
 		Data:      data,
-		Encoding:  enc,
 		CreatedAt: rec.CreatedAt,
 		UpdatedAt: now,
 	}); err != nil {

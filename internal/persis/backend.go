@@ -16,14 +16,6 @@ import (
 	"time"
 )
 
-// Encoding identifies the serialization format of [Record.Data].
-type Encoding string
-
-const (
-	EncodingJSON  Encoding = "json"
-	EncodingProto Encoding = "proto3"
-)
-
 // Record is the universal storage primitive for all control-plane data.
 //
 // ID uses "/" as a hierarchy separator so that a [ListQuery.Prefix] of
@@ -39,17 +31,8 @@ const (
 type Record struct {
 	ID        string
 	Data      []byte
-	Encoding  Encoding
 	CreatedAt time.Time
 	UpdatedAt time.Time
-	// ExpiresAt is an optional, non-authoritative GC/TTL hint: when non-nil it
-	// tells the backend the record MAY be purged after this time. Correctness
-	// must not depend on it — adapters that need real expiry (heartbeats,
-	// leases) keep the authoritative timestamp inside Data. It is also NOT part
-	// of record identity for CompareAndSwap / CompareAndDelete. The file
-	// backend does not persist it; a SQL backend MAY honor it via an
-	// expires_at column and index.
-	ExpiresAt *time.Time
 }
 
 // ListQuery controls what [Collection.List] returns.
@@ -110,11 +93,6 @@ type Collection interface {
 	// bytes equal expected. Returns [ErrConflict] when they do not match.
 	// Used for optimistic concurrency on DAGRunStatus updates.
 	CompareAndSwap(ctx context.Context, id string, expected, next []byte) error
-
-	// Claim atomically removes one record matching q and returns it.
-	// Returns [ErrNotFound] when no matching record exists.
-	// Used exclusively by queue adapters to implement atomic dequeue.
-	Claim(ctx context.Context, q ListQuery) (*Record, error)
 }
 
 // Backend is the factory for storage [Collection]s and the sole interface

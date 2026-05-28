@@ -255,9 +255,9 @@ func newCountingRecordIDCollection(t *testing.T, ids []string) *countingRecordID
 			Value:   rawJSON(t, `1`),
 			Version: 1,
 		}
-		data, enc, err := persis.Encode(entry)
+		data, err := persis.Encode(entry)
 		require.NoError(t, err)
-		records[id] = &persis.Record{ID: id, Data: data, Encoding: enc}
+		records[id] = &persis.Record{ID: id, Data: data}
 	}
 	return &countingRecordIDCollection{ids: append([]string(nil), ids...), records: records}
 }
@@ -306,8 +306,4 @@ func (c *countingRecordIDCollection) List(context.Context, persis.ListQuery) (*p
 
 func (c *countingRecordIDCollection) CompareAndSwap(context.Context, string, []byte, []byte) error {
 	return nil
-}
-
-func (c *countingRecordIDCollection) Claim(context.Context, persis.ListQuery) (*persis.Record, error) {
-	return nil, persis.ErrNotFound
 }

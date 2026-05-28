@@ -349,7 +349,6 @@ func TestProcStoreRejectsFutureCollectionHeartbeat(t *testing.T) {
 	now := time.Now().UTC()
 	require.NoError(t, col.Put(ctx, &persis.Record{
 		ID:        "queue-a/future-dag/proc_future",
-		Encoding:  persis.EncodingJSON,
 		Data:      data,
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -378,7 +377,6 @@ func TestProcStoreRejectsCollectionRecordGroupMismatch(t *testing.T) {
 	now := time.Now().UTC()
 	require.NoError(t, col.Put(ctx, &persis.Record{
 		ID:        "queue-a/mismatch-dag/proc_mismatch",
-		Encoding:  persis.EncodingJSON,
 		Data:      data,
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -424,7 +422,6 @@ func TestProcStoreLatestHeartbeatSkipsCorruptCollectionRecords(t *testing.T) {
 	now := time.Now().UTC()
 	require.NoError(t, col.Put(ctx, &persis.Record{
 		ID:        procRecordIDForTest("queue-a", otherMeta, now),
-		Encoding:  persis.EncodingJSON,
 		Data:      []byte("{"),
 		CreatedAt: now,
 		UpdatedAt: now,

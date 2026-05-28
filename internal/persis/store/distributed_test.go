@@ -633,7 +633,7 @@ func TestDistributedStores_ReadFileLayout(t *testing.T) {
 	}
 	writeJSONFile(t, filepath.Join(distributedDir, "leases", encodedKey(leaseKey)+".json"), fileLease)
 
-	leaseStore := store.NewDAGRunLeaseStore(file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "leases"), distributedDir))
+	leaseStore := store.NewDAGRunLeaseStore(file.NewCollection(filepath.Join(distributedDir, "leases")))
 	gotLease, err := leaseStore.Get(ctx, leaseKey)
 	require.NoError(t, err)
 	assert.Equal(t, fileLease.AttemptKey, gotLease.AttemptKey)
@@ -649,7 +649,7 @@ func TestDistributedStores_ReadFileLayout(t *testing.T) {
 	}
 	writeJSONFile(t, filepath.Join(distributedDir, "active-runs", encodedKey(activeKey)+".json"), fileActive)
 
-	activeStore := store.NewActiveDistributedRunStore(file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "active-runs"), distributedDir))
+	activeStore := store.NewActiveDistributedRunStore(file.NewCollection(filepath.Join(distributedDir, "active-runs")))
 	gotActive, err := activeStore.Get(ctx, activeKey)
 	require.NoError(t, err)
 	assert.Equal(t, fileActive.AttemptKey, gotActive.AttemptKey)
@@ -702,14 +702,13 @@ func putPendingDuplicateFromClaim(t *testing.T, col persis.Collection, claimToke
 		payload.Task.ClaimToken = ""
 		payload.Task.WorkerId = ""
 	}
-	data, enc, err := persis.Encode(payload)
+	data, err := persis.Encode(payload)
 	require.NoError(t, err)
 
 	now := time.Now().UTC()
 	require.NoError(t, col.Put(ctx, &persis.Record{
 		ID:        pendingRecordIDForTest(payload.TaskFileName),
 		Data:      data,
-		Encoding:  enc,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}))
@@ -730,11 +729,10 @@ func ageClaimedDispatchRecord(t *testing.T, col persis.Collection, claimToken st
 	require.NoError(t, persis.Decode(rec, &payload))
 	payload.EnqueuedAt = time.Now().Add(-pendingAge).UTC().UnixMilli()
 	payload.ClaimedAt = time.Now().Add(-claimAge).UTC().UnixMilli()
-	data, enc, err := persis.Encode(payload)
+	data, err := persis.Encode(payload)
 	require.NoError(t, err)
 
 	rec.Data = data
-	rec.Encoding = enc
 	rec.UpdatedAt = time.Now().Add(-claimAge).UTC()
 	require.NoError(t, col.Put(ctx, rec))
 }
@@ -752,11 +750,10 @@ func agePendingDispatchRecords(t *testing.T, col persis.Collection, age time.Dur
 		var payload dispatchTaskRecord
 		require.NoError(t, persis.Decode(rec, &payload))
 		payload.EnqueuedAt = targetTime.UnixMilli()
-		data, enc, err := persis.Encode(payload)
+		data, err := persis.Encode(payload)
 		require.NoError(t, err)
 
 		rec.Data = data
-		rec.Encoding = enc
 		rec.CreatedAt = targetTime
 		rec.UpdatedAt = targetTime
 		require.NoError(t, col.Put(ctx, rec))

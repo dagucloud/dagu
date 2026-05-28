@@ -69,7 +69,7 @@ func newQueueFixture(t *testing.T) *queueFixture {
 
 	tmpDir := t.TempDir()
 	distributedDir := filepath.Join(tmpDir, "distributed")
-	leaseCollection := file.NewCollectionWithLockRoot(filepath.Join(distributedDir, "leases"), distributedDir)
+	leaseCollection := file.NewCollection(filepath.Join(distributedDir, "leases"))
 	logBuffer := &syncBuffer{buf: new(bytes.Buffer)}
 	ctx := logger.WithFixedLogger(context.Background(), logger.NewLogger(
 		logger.WithDebug(), logger.WithFormat("text"), logger.WithWriter(logBuffer),

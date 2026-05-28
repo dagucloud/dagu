@@ -15,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/internal/persis"
 )
 
@@ -61,14 +60,6 @@ var _ persis.Collection = (*MemoryCollection)(nil)
 
 func (c *MemoryCollection) WithLock(ctx context.Context, key string, fn func() error) error {
 	return c.withLock(ctx, key, 50*time.Millisecond, fn)
-}
-
-func (c *MemoryCollection) WithLockOptions(ctx context.Context, key string, opts dirlock.LockOptions, fn func() error) error {
-	retryInterval := opts.RetryInterval
-	if retryInterval <= 0 {
-		retryInterval = 50 * time.Millisecond
-	}
-	return c.withLock(ctx, key, retryInterval, fn)
 }
 
 func (c *MemoryCollection) withLock(ctx context.Context, key string, retryInterval time.Duration, fn func() error) error {
@@ -255,32 +246,6 @@ func (c *MemoryCollection) CompareAndSwap(_ context.Context, id string, expected
 	return nil
 }
 
-// Claim dequeues the lexicographically first record matching q.Prefix,
-// matching the natural filename ordering of [file.Collection.Claim].
-func (c *MemoryCollection) Claim(_ context.Context, q persis.ListQuery) (*persis.Record, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	var candidates []*persis.Record
-	for _, r := range c.records {
-		if q.Prefix != "" && !strings.HasPrefix(r.ID, q.Prefix) {
-			continue
-		}
-		candidates = append(candidates, r)
-	}
-	if len(candidates) == 0 {
-		return nil, persis.ErrNotFound
-	}
-
-	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].ID < candidates[j].ID
-	})
-
-	chosen := candidates[0]
-	delete(c.records, chosen.ID)
-	return copyRecord(chosen), nil
-}
-
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 func copyRecord(r *persis.Record) *persis.Record {
@@ -289,10 +254,6 @@ func copyRecord(r *persis.Record) *persis.Record {
 		cp.Data = make([]byte, len(r.Data))
 		copy(cp.Data, r.Data)
 	}
-	if r.ExpiresAt != nil {
-		t := *r.ExpiresAt
-		cp.ExpiresAt = &t
-	}
 	return &cp
 }
 
@@ -300,11 +261,8 @@ func sameMemoryRecord(a, b *persis.Record) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
-	// Identity must match the file backend (file/collection.go sameRecord):
-	// ID + Encoding + Data only. Timestamps and ExpiresAt are not part of
-	// CompareAndSwap / CompareAndDelete identity, so this test double must not
-	// compare them either — otherwise CAS semantics diverge from production.
-	return a.ID == b.ID && a.Encoding == b.Encoding && bytes.Equal(a.Data, b.Data)
+	// CAS identity is Data-only — must match file/collection.go sameRecord.
+	return a.ID == b.ID && bytes.Equal(a.Data, b.Data)
 }
 
 type memCursorVal struct {

@@ -427,14 +427,13 @@ func (s *DispatchTaskStore) putDispatchRecord(ctx context.Context, id string, pa
 }
 
 func (s *DispatchTaskStore) newDispatchRecord(id string, payload dispatchTaskPayload, createdAt, updatedAt time.Time) (*persis.Record, error) {
-	data, enc, err := persis.Encode(payload)
+	data, err := persis.Encode(payload)
 	if err != nil {
 		return nil, err
 	}
 	return &persis.Record{
 		ID:        id,
 		Data:      data,
-		Encoding:  enc,
 		CreatedAt: createdAt,
 		UpdatedAt: updatedAt,
 	}, nil

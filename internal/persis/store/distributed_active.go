@@ -47,7 +47,7 @@ func (s *ActiveDistributedRunStore) Upsert(ctx context.Context, record exec.Acti
 			return getErr
 		}
 
-		data, enc, err := persis.Encode(record)
+		data, err := persis.Encode(record)
 		if err != nil {
 			return err
 		}
@@ -56,7 +56,6 @@ func (s *ActiveDistributedRunStore) Upsert(ctx context.Context, record exec.Acti
 			return s.col.Create(ctx, &persis.Record{
 				ID:        id,
 				Data:      data,
-				Encoding:  enc,
 				CreatedAt: now,
 				UpdatedAt: now,
 			})

@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagucloud/dagu/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/internal/persis"
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
@@ -38,7 +37,6 @@ func RunCollectionContract(t *testing.T, col persis.Collection, freshCollection 
 		rec := &persis.Record{
 			ID:        "alpha",
 			Data:      []byte(`{"v":1}`),
-			Encoding:  persis.EncodingJSON,
 			CreatedAt: now,
 			UpdatedAt: now,
 		}
@@ -48,14 +46,12 @@ func RunCollectionContract(t *testing.T, col persis.Collection, freshCollection 
 		require.NoError(t, err)
 		assert.Equal(t, rec.ID, got.ID)
 		assert.Equal(t, rec.Data, got.Data)
-		assert.Equal(t, rec.Encoding, got.Encoding)
 	})
 
 	t.Run("put_overwrites", func(t *testing.T) {
 		rec := &persis.Record{
 			ID:        "beta",
 			Data:      []byte(`{"v":1}`),
-			Encoding:  persis.EncodingJSON,
 			CreatedAt: now,
 			UpdatedAt: now,
 		}
@@ -74,7 +70,6 @@ func RunCollectionContract(t *testing.T, col persis.Collection, freshCollection 
 		rec := &persis.Record{
 			ID:        "create-new",
 			Data:      []byte(`{"n":1}`),
-			Encoding:  persis.EncodingJSON,
 			CreatedAt: now,
 			UpdatedAt: now,
 		}
@@ -90,7 +85,6 @@ func RunCollectionContract(t *testing.T, col persis.Collection, freshCollection 
 		rec := &persis.Record{
 			ID:        "create-dup",
 			Data:      []byte(`{"n":1}`),
-			Encoding:  persis.EncodingJSON,
 			CreatedAt: now,
 			UpdatedAt: now,
 		}
@@ -112,7 +106,6 @@ func RunCollectionContract(t *testing.T, col persis.Collection, freshCollection 
 		rec := &persis.Record{
 			ID:        "create-recycled",
 			Data:      []byte(`{"n":1}`),
-			Encoding:  persis.EncodingJSON,
 			CreatedAt: now,
 			UpdatedAt: now,
 		}
@@ -132,7 +125,6 @@ func RunCollectionContract(t *testing.T, col persis.Collection, freshCollection 
 		rec := &persis.Record{
 			ID:        "gamma",
 			Data:      []byte(`{}`),
-			Encoding:  persis.EncodingJSON,
 			CreatedAt: now,
 			UpdatedAt: now,
 		}
@@ -152,7 +144,6 @@ func RunCollectionContract(t *testing.T, col persis.Collection, freshCollection 
 		rec := &persis.Record{
 			ID:        "cad-ok",
 			Data:      []byte(`{"v":1}`),
-			Encoding:  persis.EncodingJSON,
 			CreatedAt: now,
 			UpdatedAt: now,
 		}
@@ -170,7 +161,6 @@ func RunCollectionContract(t *testing.T, col persis.Collection, freshCollection 
 		rec := &persis.Record{
 			ID:        "cad-conflict",
 			Data:      []byte(`{"v":1}`),
-			Encoding:  persis.EncodingJSON,
 			CreatedAt: now,
 			UpdatedAt: now,
 		}
@@ -193,9 +183,9 @@ func RunCollectionContract(t *testing.T, col persis.Collection, freshCollection 
 		t2 := now.Add(2 * time.Millisecond)
 		t3 := now.Add(3 * time.Millisecond)
 		for _, r := range []*persis.Record{
-			{ID: "x/a", Data: []byte(`{}`), Encoding: persis.EncodingJSON, CreatedAt: t2, UpdatedAt: t2},
-			{ID: "x/b", Data: []byte(`{}`), Encoding: persis.EncodingJSON, CreatedAt: t1, UpdatedAt: t1},
-			{ID: "y/c", Data: []byte(`{}`), Encoding: persis.EncodingJSON, CreatedAt: t3, UpdatedAt: t3},
+			{ID: "x/a", Data: []byte(`{}`), CreatedAt: t2, UpdatedAt: t2},
+			{ID: "x/b", Data: []byte(`{}`), CreatedAt: t1, UpdatedAt: t1},
+			{ID: "y/c", Data: []byte(`{}`), CreatedAt: t3, UpdatedAt: t3},
 		} {
 			require.NoError(t, col2.Put(ctx, r))
 		}
@@ -213,9 +203,9 @@ func RunCollectionContract(t *testing.T, col persis.Collection, freshCollection 
 		t1 := now.Add(time.Millisecond)
 		t2 := now.Add(2 * time.Millisecond)
 		for _, r := range []*persis.Record{
-			{ID: "dag1/run1", Data: []byte(`{}`), Encoding: persis.EncodingJSON, CreatedAt: t1, UpdatedAt: t1},
-			{ID: "dag1/run2", Data: []byte(`{}`), Encoding: persis.EncodingJSON, CreatedAt: t2, UpdatedAt: t2},
-			{ID: "dag2/run1", Data: []byte(`{}`), Encoding: persis.EncodingJSON, CreatedAt: t1, UpdatedAt: t1},
+			{ID: "dag1/run1", Data: []byte(`{}`), CreatedAt: t1, UpdatedAt: t1},
+			{ID: "dag1/run2", Data: []byte(`{}`), CreatedAt: t2, UpdatedAt: t2},
+			{ID: "dag2/run1", Data: []byte(`{}`), CreatedAt: t1, UpdatedAt: t1},
 		} {
 			require.NoError(t, col2.Put(ctx, r))
 		}
@@ -232,9 +222,9 @@ func RunCollectionContract(t *testing.T, col persis.Collection, freshCollection 
 		t2 := now.Add(2 * time.Millisecond)
 		t3 := now.Add(3 * time.Millisecond)
 		for _, r := range []*persis.Record{
-			{ID: "r1", Data: []byte(`{}`), Encoding: persis.EncodingJSON, CreatedAt: t1, UpdatedAt: t1},
-			{ID: "r2", Data: []byte(`{}`), Encoding: persis.EncodingJSON, CreatedAt: t2, UpdatedAt: t2},
-			{ID: "r3", Data: []byte(`{}`), Encoding: persis.EncodingJSON, CreatedAt: t3, UpdatedAt: t3},
+			{ID: "r1", Data: []byte(`{}`), CreatedAt: t1, UpdatedAt: t1},
+			{ID: "r2", Data: []byte(`{}`), CreatedAt: t2, UpdatedAt: t2},
+			{ID: "r3", Data: []byte(`{}`), CreatedAt: t3, UpdatedAt: t3},
 		} {
 			require.NoError(t, col2.Put(ctx, r))
 		}
@@ -253,7 +243,6 @@ func RunCollectionContract(t *testing.T, col persis.Collection, freshCollection 
 			r := &persis.Record{
 				ID:        []string{"p0", "p1", "p2", "p3", "p4"}[i],
 				Data:      []byte(`{}`),
-				Encoding:  persis.EncodingJSON,
 				CreatedAt: ts,
 				UpdatedAt: ts,
 			}
@@ -286,7 +275,6 @@ func RunCollectionContract(t *testing.T, col persis.Collection, freshCollection 
 		rec := &persis.Record{
 			ID:        "cas-ok",
 			Data:      []byte(`{"v":1}`),
-			Encoding:  persis.EncodingJSON,
 			CreatedAt: now,
 			UpdatedAt: now,
 		}
@@ -303,7 +291,6 @@ func RunCollectionContract(t *testing.T, col persis.Collection, freshCollection 
 		rec := &persis.Record{
 			ID:        "cas-conflict",
 			Data:      []byte(`{"v":1}`),
-			Encoding:  persis.EncodingJSON,
 			CreatedAt: now,
 			UpdatedAt: now,
 		}
@@ -312,42 +299,12 @@ func RunCollectionContract(t *testing.T, col persis.Collection, freshCollection 
 		assert.ErrorIs(t, err, persis.ErrConflict)
 	})
 
-	t.Run("claim", func(t *testing.T) {
-		col2 := freshCollection(t)
-		t1 := now.Add(time.Millisecond)
-		t2 := now.Add(2 * time.Millisecond)
-		for _, r := range []*persis.Record{
-			{ID: "q/high_001", Data: []byte(`{"n":1}`), Encoding: persis.EncodingJSON, CreatedAt: t1, UpdatedAt: t1},
-			{ID: "q/high_002", Data: []byte(`{"n":2}`), Encoding: persis.EncodingJSON, CreatedAt: t2, UpdatedAt: t2},
-		} {
-			require.NoError(t, col2.Put(ctx, r))
-		}
-
-		claimed, err := col2.Claim(ctx, persis.ListQuery{Prefix: "q/"})
-		require.NoError(t, err)
-		assert.Equal(t, "q/high_001", claimed.ID)
-
-		// verify it's gone
-		_, err = col2.Get(ctx, "q/high_001")
-		assert.ErrorIs(t, err, persis.ErrNotFound)
-
-		// second claim gets next
-		claimed2, err := col2.Claim(ctx, persis.ListQuery{Prefix: "q/"})
-		require.NoError(t, err)
-		assert.Equal(t, "q/high_002", claimed2.ID)
-
-		// nothing left
-		_, err = col2.Claim(ctx, persis.ListQuery{Prefix: "q/"})
-		assert.ErrorIs(t, err, persis.ErrNotFound)
-	})
-
 	t.Run("hierarchical_ids", func(t *testing.T) {
 		col2 := freshCollection(t)
 		t1 := now.Add(time.Millisecond)
 		rec := &persis.Record{
 			ID:        "dag/run-1/attempt-0",
 			Data:      []byte(`{"status":"ok"}`),
-			Encoding:  persis.EncodingJSON,
 			CreatedAt: t1,
 			UpdatedAt: t1,
 		}
@@ -389,7 +346,6 @@ func TestFileCollectionWritesRawJSONBody(t *testing.T) {
 	rec := &persis.Record{
 		ID:        "users/user-1",
 		Data:      raw,
-		Encoding:  persis.EncodingJSON,
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
 	}
@@ -409,7 +365,6 @@ func TestFileCollectionWritesRawJSONBody(t *testing.T) {
 	got, err := col.Get(ctx, "users/user-1")
 	require.NoError(t, err)
 	assert.Equal(t, raw, got.Data)
-	assert.Equal(t, persis.EncodingJSON, got.Encoding)
 }
 
 // TestFileCollectionIndentedMatchesReleasedFormat pins the on-disk bytes of an
@@ -434,7 +389,6 @@ func TestFileCollectionIndentedMatchesReleasedFormat(t *testing.T) {
 	rec := &persis.Record{
 		ID:        "users/u1",
 		Data:      compact,
-		Encoding:  persis.EncodingJSON,
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
 	}
@@ -517,7 +471,6 @@ func TestFileCollectionCreateIsAtomicAcrossGoroutines(t *testing.T) {
 			err := col.Create(ctx, &persis.Record{
 				ID:        "shared",
 				Data:      []byte(`{}`),
-				Encoding:  persis.EncodingJSON,
 				CreatedAt: time.Now().UTC(),
 				UpdatedAt: time.Now().UTC(),
 			})
@@ -537,90 +490,6 @@ func TestFileCollectionCreateIsAtomicAcrossGoroutines(t *testing.T) {
 	assert.Equal(t, int64(1), successes, "exactly one Create must win")
 	assert.Equal(t, int64(goroutines-1), conflicts, "all losers must see ErrConflict")
 	assert.Equal(t, int64(0), other, "no other error class is acceptable")
-}
-
-func TestFileCollectionWithLockOptionsUsesCustomTiming(t *testing.T) {
-	t.Parallel()
-
-	type lockOptionsCollection interface {
-		WithLockOptions(ctx context.Context, key string, opts dirlock.LockOptions, fn func() error) error
-	}
-
-	col, ok := file.NewCollection(t.TempDir()).(lockOptionsCollection)
-	require.True(t, ok)
-
-	ctx := context.Background()
-	entered := make(chan struct{})
-	release := make(chan struct{})
-	firstErr := make(chan error, 1)
-	go func() {
-		firstErr <- col.WithLockOptions(ctx, "shared", dirlock.LockOptions{
-			StaleThreshold: time.Hour,
-			RetryInterval:  time.Millisecond,
-		}, func() error {
-			close(entered)
-			<-release
-			return nil
-		})
-	}()
-	<-entered
-
-	stealCtx, cancelSteal := context.WithTimeout(ctx, time.Second)
-	defer cancelSteal()
-	require.NoError(t, col.WithLockOptions(stealCtx, "shared", dirlock.LockOptions{
-		StaleThreshold: 20 * time.Millisecond,
-		RetryInterval:  5 * time.Millisecond,
-	}, func() error {
-		return nil
-	}))
-
-	close(release)
-	require.NoError(t, <-firstErr)
-}
-
-func TestFileCollectionWithLockRootScopesLocksOutsideCollection(t *testing.T) {
-	t.Parallel()
-
-	type lockOptionsCollection interface {
-		WithLockOptions(ctx context.Context, key string, opts dirlock.LockOptions, fn func() error) error
-	}
-
-	root := filepath.Join(t.TempDir(), "distributed")
-	collectionDir := filepath.Join(root, "leases")
-	col, ok := file.NewCollectionWithLockRoot(collectionDir, root).(lockOptionsCollection)
-	require.True(t, ok)
-
-	require.NoError(t, col.WithLockOptions(context.Background(), "locks/shared", dirlock.LockOptions{
-		StaleThreshold: time.Hour,
-		RetryInterval:  time.Millisecond,
-	}, func() error {
-		_, err := os.Stat(filepath.Join(root, "locks", "shared", ".dagu_lock"))
-		require.NoError(t, err)
-
-		_, err = os.Stat(filepath.Join(collectionDir, "locks", "shared", ".dagu_lock"))
-		require.ErrorIs(t, err, os.ErrNotExist)
-		return nil
-	}))
-}
-
-func TestMemoryCollectionWithLockOptionsClampsNonPositiveRetryInterval(t *testing.T) {
-	t.Parallel()
-
-	type lockOptionsCollection interface {
-		WithLockOptions(ctx context.Context, key string, opts dirlock.LockOptions, fn func() error) error
-	}
-
-	col, ok := testutil.NewMemoryBackend().Collection("test").(lockOptionsCollection)
-	require.True(t, ok)
-
-	require.NotPanics(t, func() {
-		err := col.WithLockOptions(context.Background(), "shared", dirlock.LockOptions{
-			RetryInterval: -time.Millisecond,
-		}, func() error {
-			return nil
-		})
-		require.NoError(t, err)
-	})
 }
 
 func TestMemoryCollection(t *testing.T) {

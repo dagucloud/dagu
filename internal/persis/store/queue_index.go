@@ -300,7 +300,7 @@ func (s *QueueStore) saveQueueIndexLocked(ctx context.Context, name string, idx 
 	}
 
 	idx.ensureDefaults()
-	data, enc, err := persis.Encode(idx)
+	data, err := persis.Encode(idx)
 	if err != nil {
 		return fmt.Errorf("queue store: encode index: %w", err)
 	}
@@ -308,7 +308,6 @@ func (s *QueueStore) saveQueueIndexLocked(ctx context.Context, name string, idx 
 	if err := s.col.Put(ctx, &persis.Record{
 		ID:        recordID,
 		Data:      data,
-		Encoding:  enc,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}); err != nil {

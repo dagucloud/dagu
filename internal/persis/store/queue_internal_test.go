@@ -59,7 +59,7 @@ func TestQueueItemHelpersHandleInvalidRecords(t *testing.T) {
 	assert.ErrorContains(t, err, "invalid record ID")
 
 	now := time.Date(2026, 1, 2, 3, 4, 5, 6, time.UTC)
-	data, enc, err := persis.Encode(queueItemPayload{
+	data, err := persis.Encode(queueItemPayload{
 		FileName: "bad-name.json",
 		DAGRun:   exec.DAGRunRef{},
 		QueuedAt: now,
@@ -69,7 +69,6 @@ func TestQueueItemHelpersHandleInvalidRecords(t *testing.T) {
 	item, err := queueItemFromRecord(&persis.Record{
 		ID:        "queue-a/item_low_20260102_030405_000000006Z_run",
 		Data:      data,
-		Encoding:  enc,
 		CreatedAt: now,
 	})
 	require.NoError(t, err)
@@ -151,7 +150,7 @@ func TestQueueStoreNextQueueItemIDSkipsExistingTimestamp(t *testing.T) {
 
 	s := NewQueueStore(testutil.NewMemoryBackend().Collection("queue"))
 	firstID := newQueueItemID(priority, dagRun.ID, start)
-	data, enc, err := persis.Encode(queueItemPayload{
+	data, err := persis.Encode(queueItemPayload{
 		FileName: firstID + ".json",
 		DAGRun:   dagRun,
 		QueuedAt: start,
@@ -160,7 +159,6 @@ func TestQueueStoreNextQueueItemIDSkipsExistingTimestamp(t *testing.T) {
 	require.NoError(t, s.col.Put(ctx, &persis.Record{
 		ID:        queueRecordID(queueName, firstID),
 		Data:      data,
-		Encoding:  enc,
 		CreatedAt: start,
 		UpdatedAt: start,
 	}))

@@ -54,7 +54,7 @@ func (s *DAGRunLeaseStore) Upsert(ctx context.Context, lease exec.DAGRunLease) e
 			return getErr
 		}
 
-		data, enc, err := persis.Encode(current)
+		data, err := persis.Encode(current)
 		if err != nil {
 			return err
 		}
@@ -63,7 +63,6 @@ func (s *DAGRunLeaseStore) Upsert(ctx context.Context, lease exec.DAGRunLease) e
 			return s.col.Create(ctx, &persis.Record{
 				ID:        id,
 				Data:      data,
-				Encoding:  enc,
 				CreatedAt: now,
 				UpdatedAt: now,
 			})
@@ -95,7 +94,7 @@ func (s *DAGRunLeaseStore) Touch(ctx context.Context, attemptKey string, observe
 			return fmt.Errorf("dag-run lease store: decode %q: %w", attemptKey, err)
 		}
 		lease.LastHeartbeatAt = observedAt.UTC().UnixMilli()
-		next, _, err := persis.Encode(lease)
+		next, err := persis.Encode(lease)
 		if err != nil {
 			return err
 		}
