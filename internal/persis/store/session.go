@@ -24,6 +24,15 @@ const sessionMaxTitleLength = 50
 // SessionStore implements [agent.SessionStore].
 // Three in-memory indices (byUser, byParent, updatedAt) are rebuilt from
 // the collection on startup and kept in sync under mu.
+//
+// This is the backend-neutral session store, intended for non-file backends
+// (SQL/etcd) and tests. It keys records by flat session ID ("{sessionID}").
+//
+// It is NOT layout-compatible with the file backend's agent session store
+// ([github.com/dagucloud/dagu/internal/persis/filesession]), which nests
+// files as "{userID}/{sessionID}.json". The file backend must use
+// file.NewAgentSessionStore; do not point this store at a file backend's
+// SessionsDir. See [NewSessionStore].
 type SessionStore struct {
 	col        persis.Collection
 	maxPerUser int
@@ -73,6 +82,12 @@ func WithMaxPerUser(n int) SessionOption {
 }
 
 // NewSessionStore creates a SessionStore backed by col.
+//
+// For non-file backends and tests only. The file backend uses
+// file.NewAgentSessionStore (nested "{userID}/{sessionID}.json" layout); this
+// collection-backed store keys records by flat session ID and is not
+// compatible with that on-disk layout, so it must not be wired over a file
+// backend's SessionsDir without a migration.
 func NewSessionStore(col persis.Collection, opts ...SessionOption) (*SessionStore, error) {
 	s := &SessionStore{
 		col:          col,

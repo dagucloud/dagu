@@ -5,7 +5,7 @@ package process
 
 import (
 	"context"
-	"fmt"
+	"path/filepath"
 
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
@@ -74,12 +74,10 @@ func NewServer(cfg ServerConfig, opts ...frontend.ServerOption) (*frontend.Serve
 	if cfg.WorkerHeartbeatStore != nil {
 		opts = append(opts, frontend.WithAPIOption(apiv1.WithWorkerHeartbeatStore(cfg.WorkerHeartbeatStore)))
 	}
-	wmBackend, wmErr := file.New(cfg.Config.Paths.DataDir)
-	if wmErr != nil {
-		return nil, fmt.Errorf("failed to open file backend for watermark: %w", wmErr)
-	}
 	opts = append(opts, frontend.WithAPIOption(apiv1.WithSchedulerStateStore(
-		schedulerstore.NewWatermarkStore(wmBackend.Collection("scheduler")),
+		schedulerstore.NewWatermarkStore(
+			file.NewCollection(filepath.Join(cfg.Config.Paths.DataDir, "scheduler"), file.WithIndentedJSON()),
+		),
 	)))
 
 	return frontend.NewServer(

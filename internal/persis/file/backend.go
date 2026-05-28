@@ -39,17 +39,37 @@ func (b *Backend) Collection(name string) persis.Collection {
 	return v.(*Collection)
 }
 
+// CollectionOption configures a file-backed [Collection].
+type CollectionOption func(*Collection)
+
+// WithIndentedJSON stores records as 2-space indented JSON on disk, matching
+// the pre-refactor (<= v2.7.4) released format for human-readable stores such
+// as users, API keys, secrets, and webhooks. Records are normalized back to
+// compact JSON in memory on read, so callers see canonical Record.Data
+// regardless of on-disk indentation.
+func WithIndentedJSON() CollectionOption {
+	return func(c *Collection) { c.indent = true }
+}
+
 // NewCollection creates a [persis.Collection] backed by the given directory.
 // Unlike [New]+[Collection], this skips the root MkdirAll — the directory
 // is created lazily on the first write.
-func NewCollection(dir string) persis.Collection {
-	return &Collection{dir: dir}
+func NewCollection(dir string, opts ...CollectionOption) persis.Collection {
+	c := &Collection{dir: dir}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 // NewCollectionWithLockRoot creates a collection whose records live under dir
 // while its cross-process locks are scoped under lockRoot.
-func NewCollectionWithLockRoot(dir, lockRoot string) persis.Collection {
-	return &Collection{dir: dir, lockRoot: lockRoot}
+func NewCollectionWithLockRoot(dir, lockRoot string, opts ...CollectionOption) persis.Collection {
+	c := &Collection{dir: dir, lockRoot: lockRoot}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 // Close is a no-op; the file backend holds no persistent resources.

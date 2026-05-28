@@ -179,9 +179,9 @@ func NewSecretStore(ctx context.Context, cfg *config.Config) secret.Store {
 		logger.Warn(ctx, "Failed to resolve encryption key for secret store", tag.Error(encErr))
 	} else if enc, encErr := crypto.NewEncryptor(encKey); encErr != nil {
 		logger.Warn(ctx, "Failed to create encryptor for secret store", tag.Error(encErr))
-	} else if backend, backendErr := New(cfg.Paths.DataDir); backendErr != nil {
-		logger.Warn(ctx, "Failed to open file backend for secret store", tag.Error(backendErr))
-	} else if secretStore, storeErr := store.NewSecretStore(backend.Collection("secrets"), enc); storeErr != nil {
+	} else if secretStore, storeErr := store.NewSecretStore(
+		NewCollection(filepath.Join(cfg.Paths.DataDir, "secrets"), WithIndentedJSON()), enc,
+	); storeErr != nil {
 		logger.Warn(ctx, "Failed to create secret store", tag.Error(storeErr))
 	} else {
 		return secretStore
