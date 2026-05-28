@@ -93,9 +93,12 @@ func TestWorkspaceStore_UpdateRenamesIndex(t *testing.T) {
 	t.Parallel()
 	s := newMemoryWorkspaceStore(t)
 	ctx := context.Background()
-	require.NoError(t, s.Create(ctx, sampleWorkspace("ws-1", "alpha")))
+	original := sampleWorkspace("ws-1", "alpha")
+	require.NoError(t, s.Create(ctx, original))
 
 	updated := sampleWorkspace("ws-1", "beta")
+	// Caller sets a zero CreatedAt to prove the adapter preserves the original.
+	updated.CreatedAt = time.Time{}
 	updated.UpdatedAt = time.Now().UTC()
 	require.NoError(t, s.Update(ctx, updated))
 
@@ -105,6 +108,8 @@ func TestWorkspaceStore_UpdateRenamesIndex(t *testing.T) {
 	got, err := s.GetByName(ctx, "beta")
 	require.NoError(t, err)
 	assert.Equal(t, "ws-1", got.ID)
+	assert.True(t, got.CreatedAt.Equal(original.CreatedAt),
+		"Update must preserve the original CreatedAt; got %v want %v", got.CreatedAt, original.CreatedAt)
 }
 
 func TestWorkspaceStore_Delete(t *testing.T) {

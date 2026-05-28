@@ -78,8 +78,13 @@ func (s *AgentModelStore) Create(ctx context.Context, model *agent.ModelConfig) 
 	if _, exists := s.byName[model.Name]; exists {
 		return agent.ErrModelNameAlreadyExists
 	}
-	if _, err := s.col.Get(ctx, model.ID); err == nil {
+	switch _, err := s.col.Get(ctx, model.ID); {
+	case err == nil:
 		return agent.ErrModelAlreadyExists
+	case errors.Is(err, persis.ErrNotFound):
+		// proceed
+	default:
+		return fmt.Errorf("agent-model store: precheck: %w", err)
 	}
 	if err := s.col.Put(ctx, &persis.Record{ID: model.ID, Data: data}); err != nil {
 		return fmt.Errorf("agent-model store: create: %w", err)

@@ -76,8 +76,13 @@ func (s *WorkspaceStore) Create(ctx context.Context, ws *workspace.Workspace) er
 	if _, exists := s.byName[ws.Name]; exists {
 		return workspace.ErrWorkspaceAlreadyExists
 	}
-	if _, err := s.col.Get(ctx, ws.ID); err == nil {
+	switch _, err := s.col.Get(ctx, ws.ID); {
+	case err == nil:
 		return workspace.ErrWorkspaceAlreadyExists
+	case errors.Is(err, persis.ErrNotFound):
+		// proceed
+	default:
+		return fmt.Errorf("workspace store: precheck: %w", err)
 	}
 	if err := s.col.Put(ctx, &persis.Record{
 		ID:        ws.ID,
@@ -170,7 +175,9 @@ func (s *WorkspaceStore) Update(ctx context.Context, ws *workspace.Workspace) er
 		}
 	}
 
-	data, err := persis.Encode(ws.ToStorage())
+	stored := ws.ToStorage()
+	stored.CreatedAt = existingStored.CreatedAt
+	data, err := persis.Encode(stored)
 	if err != nil {
 		return fmt.Errorf("workspace store: encode: %w", err)
 	}

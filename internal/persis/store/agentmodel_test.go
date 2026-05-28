@@ -102,6 +102,11 @@ func TestAgentModelStore_UpdateRenamesIndex(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, "beta", got[0].Name)
+
+	// byName must have released "alpha" and claimed "beta": creating "alpha" succeeds, "beta" rejects.
+	require.NoError(t, s.Create(ctx, sampleModel("m-2", "alpha")))
+	err = s.Create(ctx, sampleModel("m-3", "beta"))
+	assert.ErrorIs(t, err, agent.ErrModelNameAlreadyExists)
 }
 
 func TestAgentModelStore_Delete(t *testing.T) {
@@ -127,6 +132,10 @@ func TestAgentModelStore_RebuildsIndexOnReopen(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, "m-1", got[0].ID)
+
+	// byName must have been rebuilt: creating a new model with the same name rejects.
+	err = s2.Create(ctx, sampleModel("m-2", "alpha"))
+	assert.ErrorIs(t, err, agent.ErrModelNameAlreadyExists)
 }
 
 // On-disk bytes equal json.MarshalIndent(model, "", "  ") at {dir}/{id}.json.

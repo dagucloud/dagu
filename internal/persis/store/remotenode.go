@@ -86,10 +86,20 @@ func (s *RemoteNodeStore) Create(ctx context.Context, node *remotenode.RemoteNod
 	if _, exists := s.byName[node.Name]; exists {
 		return remotenode.ErrRemoteNodeAlreadyExists
 	}
-	if _, err := s.col.Get(ctx, node.ID); err == nil {
+	switch _, err := s.col.Get(ctx, node.ID); {
+	case err == nil:
 		return remotenode.ErrRemoteNodeAlreadyExists
+	case errors.Is(err, persis.ErrNotFound):
+		// proceed
+	default:
+		return fmt.Errorf("remote-node store: precheck: %w", err)
 	}
-	if err := s.col.Put(ctx, &persis.Record{ID: node.ID, Data: data}); err != nil {
+	if err := s.col.Put(ctx, &persis.Record{
+		ID:        node.ID,
+		Data:      data,
+		CreatedAt: node.CreatedAt,
+		UpdatedAt: node.UpdatedAt,
+	}); err != nil {
 		return fmt.Errorf("remote-node store: create: %w", err)
 	}
 	s.byName[node.Name] = node.ID
@@ -178,11 +188,17 @@ func (s *RemoteNodeStore) Update(ctx context.Context, node *remotenode.RemoteNod
 	if err != nil {
 		return err
 	}
+	stored.CreatedAt = existing.CreatedAt
 	data, err := persis.Encode(stored)
 	if err != nil {
 		return fmt.Errorf("remote-node store: encode: %w", err)
 	}
-	if err := s.col.Put(ctx, &persis.Record{ID: node.ID, Data: data}); err != nil {
+	if err := s.col.Put(ctx, &persis.Record{
+		ID:        node.ID,
+		Data:      data,
+		CreatedAt: existingRec.CreatedAt,
+		UpdatedAt: node.UpdatedAt,
+	}); err != nil {
 		return fmt.Errorf("remote-node store: update: %w", err)
 	}
 	if existing.Name != node.Name {
