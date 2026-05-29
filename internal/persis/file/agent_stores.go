@@ -21,7 +21,6 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/file/agentskill"
 	"github.com/dagucloud/dagu/internal/persis/file/agentsoul"
 	"github.com/dagucloud/dagu/internal/persis/file/memory"
-	filesession "github.com/dagucloud/dagu/internal/persis/file/session"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/secret"
 )
@@ -189,13 +188,24 @@ func NewSecretStore(ctx context.Context, cfg *config.Config) secret.Store {
 }
 
 // NewAgentSessionStore wires the file-backed agent session store from config paths.
+// The collection-backed [store.SessionStore] uses hierarchical IDs
+// ("{userID}/{sessionID}") that map under the file backend to
+// {SessionsDir}/{userID}/{sessionID}.json — byte-identical to the
+// pre-refactor on-disk layout.
 func NewAgentSessionStore(cfg *config.Config) (agent.SessionStore, error) {
 	if cfg == nil {
 		return nil, errors.New("file: config cannot be nil")
 	}
-	return filesession.New(
-		cfg.Paths.SessionsDir,
-		filesession.WithMaxPerUser(cfg.Server.Session.MaxPerUser),
+	dir := cfg.Paths.SessionsDir
+	if dir == "" {
+		return nil, errors.New("session store: SessionsDir cannot be empty")
+	}
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return nil, fmt.Errorf("session store: create directory %s: %w", dir, err)
+	}
+	return store.NewSessionStore(
+		NewCollection(dir, WithIndentedJSON()),
+		store.WithMaxPerUser(cfg.Server.Session.MaxPerUser),
 	)
 }
 

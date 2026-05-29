@@ -4,8 +4,12 @@
 package store_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/internal/agent"
+	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
 )
@@ -250,4 +255,150 @@ func TestSessionIndexRebuiltOnStartup(t *testing.T) {
 	subs, err := s2.ListSubSessions(ctx, "s1")
 	require.NoError(t, err)
 	assert.Len(t, subs, 1)
+}
+
+// ─── File-layout compatibility ───────────────────────────────────────────────
+
+// releasedSessionFile mirrors the on-wire format the released file/session
+// implementation persisted (and that the new adapter must keep producing).
+// Field order, tags, and omitempty rules are identical to the adapter's
+// internal storedSession type, so json.MarshalIndent of an equivalent value
+// produces byte-identical output.
+type releasedSessionFile struct {
+	ID              string          `json:"id"`
+	UserID          string          `json:"user_id"`
+	DAGName         string          `json:"dag_name,omitempty"`
+	Title           string          `json:"title,omitempty"`
+	Model           string          `json:"model,omitempty"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
+	ParentSessionID string          `json:"parent_session_id,omitempty"`
+	DelegateTask    string          `json:"delegate_task,omitempty"`
+	Messages        []agent.Message `json:"messages"`
+}
+
+// TestSession_File_OnDiskLayoutMatchesReleased proves CreateSession writes
+// the session JSON at {dir}/{userID}/{sessionID}.json with the same bytes
+// the released file/session implementation produced.
+func TestSession_File_OnDiskLayoutMatchesReleased(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	s, err := store.NewSessionStore(file.NewCollection(dir, file.WithIndentedJSON()))
+	require.NoError(t, err)
+
+	createdAt := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	sess := &agent.Session{
+		ID:        "sess-A",
+		UserID:    "alice",
+		Model:     "gpt-4",
+		CreatedAt: createdAt,
+		UpdatedAt: createdAt,
+	}
+	require.NoError(t, s.CreateSession(context.Background(), sess))
+
+	// File must land at exactly {dir}/{userID}/{sessionID}.json.
+	path := filepath.Join(dir, "alice", "sess-A.json")
+	got, err := os.ReadFile(path)
+	require.NoError(t, err, "session file must exist at the released path")
+
+	expected, err := json.MarshalIndent(releasedSessionFile{
+		ID:        "sess-A",
+		UserID:    "alice",
+		Model:     "gpt-4",
+		CreatedAt: createdAt,
+		UpdatedAt: createdAt,
+		Messages:  nil,
+	}, "", "  ")
+	require.NoError(t, err)
+
+	assert.True(t, bytes.Equal(got, expected),
+		"on-disk bytes must equal the released file/session format\n  got:  %q\n  want: %q",
+		string(got), string(expected))
+
+	// Permissions (POSIX only).
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	if testutil.SupportsPOSIXPermissionBits() {
+		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "session file must be 0600")
+	}
+	userDirInfo, err := os.Stat(filepath.Join(dir, "alice"))
+	require.NoError(t, err)
+	if testutil.SupportsPOSIXPermissionBits() {
+		assert.Equal(t, os.FileMode(0o750), userDirInfo.Mode().Perm(), "user dir must be 0750")
+	}
+}
+
+// TestSession_File_ReadsReleasedFile proves the adapter loads sessions that
+// were written by the released file/session implementation byte-for-byte.
+func TestSession_File_ReadsReleasedFile(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "bob"), 0o750))
+
+	createdAt := time.Date(2026, 3, 1, 9, 30, 0, 0, time.UTC)
+	updatedAt := time.Date(2026, 3, 2, 10, 0, 0, 0, time.UTC)
+	released := map[string]any{
+		"id":                "sess-released",
+		"user_id":           "bob",
+		"title":             "hello",
+		"model":             "gpt-4",
+		"created_at":        createdAt,
+		"updated_at":        updatedAt,
+		"parent_session_id": "",
+		"messages":          []map[string]any{},
+	}
+	raw, err := json.MarshalIndent(released, "", "  ")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "bob", "sess-released.json"), raw, 0o600))
+
+	s, err := store.NewSessionStore(file.NewCollection(dir, file.WithIndentedJSON()))
+	require.NoError(t, err)
+
+	got, err := s.GetSession(context.Background(), "sess-released")
+	require.NoError(t, err)
+	assert.Equal(t, "bob", got.UserID)
+	assert.Equal(t, "hello", got.Title)
+	assert.True(t, got.CreatedAt.Equal(createdAt))
+	assert.True(t, got.UpdatedAt.Equal(updatedAt))
+
+	// ListSessions also returns the rebuilt entry.
+	list, err := s.ListSessions(context.Background(), "bob")
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, "sess-released", list[0].ID)
+}
+
+// TestSession_File_RebuildsIndexAcrossUsers proves rebuildIndex walks the
+// nested user directories and recovers byID + byUser + byParent without
+// help from the writer.
+func TestSession_File_RebuildsIndexAcrossUsers(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+
+	s1, err := store.NewSessionStore(file.NewCollection(dir, file.WithIndentedJSON()))
+	require.NoError(t, err)
+	ctx := context.Background()
+	require.NoError(t, s1.CreateSession(ctx, newSession("alice", "a1")))
+	require.NoError(t, s1.CreateSession(ctx, newSession("bob", "b1")))
+	child := newSession("alice", "a1-child")
+	child.ParentSessionID = "a1"
+	require.NoError(t, s1.CreateSession(ctx, child))
+
+	s2, err := store.NewSessionStore(file.NewCollection(dir, file.WithIndentedJSON()))
+	require.NoError(t, err)
+
+	aliceList, err := s2.ListSessions(ctx, "alice")
+	require.NoError(t, err)
+	assert.Len(t, aliceList, 2)
+
+	bobList, err := s2.ListSessions(ctx, "bob")
+	require.NoError(t, err)
+	assert.Len(t, bobList, 1)
+
+	subs, err := s2.ListSubSessions(ctx, "a1")
+	require.NoError(t, err)
+	require.Len(t, subs, 1)
+	assert.Equal(t, "a1-child", subs[0].ID)
 }
