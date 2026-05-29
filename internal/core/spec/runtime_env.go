@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/dagucloud/dagu/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/internal/core"
 )
 
@@ -58,9 +59,12 @@ func ResolveEnv(ctx context.Context, dag *core.DAG, params any, opts ResolveEnvO
 		cloned.Env = nil
 	}
 	cloned.LoadDotEnv(ctx)
-	if buildEnv := buildEnvMap(cloned.Env); len(buildEnv) > 0 {
+	loadedEnv := append([]string{}, cloned.Env...)
+	buildEnv := buildEnvMap(loadedEnv)
+	if len(buildEnv) > 0 {
 		loadOpts = append(loadOpts, WithBuildEnv(buildEnv))
 	}
+	presolvedEnv := buildenv.FromMap(dag.PresolvedBuildEnv)
 
 	switch {
 	case len(dag.YamlData) > 0:
@@ -68,17 +72,17 @@ func ResolveEnv(ctx context.Context, dag *core.DAG, params any, opts ResolveEnvO
 		if err != nil {
 			return nil, err
 		}
-		return append([]string{}, fresh.Env...), nil
+		return buildenv.AppendMissing(fresh.Env, loadedEnv, presolvedEnv), nil
 
 	case dag.Location != "":
 		fresh, err := Load(ctx, dag.Location, loadOpts...)
 		if err != nil {
 			return nil, err
 		}
-		return append([]string{}, fresh.Env...), nil
+		return buildenv.AppendMissing(fresh.Env, loadedEnv, presolvedEnv), nil
 
 	default:
-		return append([]string{}, dag.Env...), nil
+		return buildenv.AppendMissing(dag.Env, loadedEnv, presolvedEnv), nil
 	}
 }
 
