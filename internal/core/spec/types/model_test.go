@@ -31,8 +31,8 @@ func TestModelValue_UnmarshalYAML(t *testing.T) {
 		},
 		{
 			name:       "QuotedModelString",
-			input:      `"claude-sonnet-4-20250514"`,
-			wantString: "claude-sonnet-4-20250514",
+			input:      `"claude-sonnet-4-6"`,
+			wantString: "claude-sonnet-4-6",
 		},
 		{
 			name: "SingleEntryArray",
@@ -49,7 +49,7 @@ func TestModelValue_UnmarshalYAML(t *testing.T) {
 - provider: openai
   name: gpt-4o
 - provider: anthropic
-  name: claude-sonnet-4-20250514
+  name: claude-sonnet-4-6
 `,
 			wantIsArray: true,
 			wantLen:     2,
@@ -317,7 +317,7 @@ model:
   - provider: openai
     name: gpt-4o
   - provider: anthropic
-    name: claude-sonnet-4-20250514
+    name: claude-sonnet-4-6
 `,
 			wantIsArray: true,
 		},

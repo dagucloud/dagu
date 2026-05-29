@@ -271,7 +271,7 @@ func TestNewChatExecutor(t *testing.T) {
 			Name: "test",
 			LLM: &core.LLMConfig{
 				Provider: "anthropic",
-				Model:    "claude-sonnet-4-20250514",
+				Model:    "claude-sonnet-4-6",
 				System:   "You are a helpful assistant",
 			},
 		}

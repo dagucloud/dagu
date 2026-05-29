@@ -37,7 +37,7 @@ func newFileAgentModelStore(t *testing.T, dir string) *store.AgentModelStore {
 }
 
 func sampleModel(id, name string) *agent.ModelConfig {
-	return &agent.ModelConfig{ID: id, Name: name, Provider: "anthropic", Model: "claude-opus-4-7"}
+	return &agent.ModelConfig{ID: id, Name: name, Provider: "anthropic", Model: "claude-opus-4-8"}
 }
 
 func TestAgentModelStore_CreateAndGetByID(t *testing.T) {

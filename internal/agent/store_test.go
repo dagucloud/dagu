@@ -105,7 +105,7 @@ func TestModelConfig_ToLLMConfig(t *testing.T) {
 			ID:               "test-model",
 			Name:             "Test Model",
 			Provider:         "anthropic",
-			Model:            "claude-sonnet-4-5",
+			Model:            "claude-sonnet-4-6",
 			APIKey:           "sk-test-key-123",
 			BaseURL:          "https://custom.api.example.com",
 			ContextWindow:    200000,
@@ -119,7 +119,7 @@ func TestModelConfig_ToLLMConfig(t *testing.T) {
 		llmCfg := mc.ToLLMConfig()
 
 		assert.Equal(t, "anthropic", llmCfg.Provider)
-		assert.Equal(t, "claude-sonnet-4-5", llmCfg.Model)
+		assert.Equal(t, "claude-sonnet-4-6", llmCfg.Model)
 		assert.Equal(t, "sk-test-key-123", llmCfg.APIKey)
 		assert.Equal(t, "https://custom.api.example.com", llmCfg.BaseURL)
 	})

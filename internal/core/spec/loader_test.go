@@ -877,7 +877,7 @@ max_clean_up_time_sec: 30
 
 llm:
   provider: anthropic
-  model: claude-sonnet-4-20250514
+  model: claude-sonnet-4-6
   system: "Override system prompt"
 
 steps:
@@ -903,7 +903,7 @@ steps:
 		// LLM overridden
 		require.NotNil(t, dag.LLM)
 		assert.Equal(t, "anthropic", dag.LLM.Provider)
-		assert.Equal(t, "claude-sonnet-4-20250514", dag.LLM.Model)
+		assert.Equal(t, "claude-sonnet-4-6", dag.LLM.Model)
 		assert.Equal(t, "Override system prompt", dag.LLM.System)
 
 		// Env still inherited from base (since not specified in override DAG)

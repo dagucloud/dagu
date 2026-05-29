@@ -23,7 +23,7 @@ func TestBuildRequestBody_WebSearch(t *testing.T) {
 	t.Run("web search disabled - no tool added", func(t *testing.T) {
 		t.Parallel()
 		req := &llm.ChatRequest{
-			Model:    "claude-sonnet-4-20250514",
+			Model:    "claude-sonnet-4-6",
 			Messages: []llm.Message{{Role: llm.RoleUser, Content: "Hello"}},
 		}
 		body, err := provider.buildRequestBody(req, false)
@@ -37,7 +37,7 @@ func TestBuildRequestBody_WebSearch(t *testing.T) {
 	t.Run("web search enabled - tool appended", func(t *testing.T) {
 		t.Parallel()
 		req := &llm.ChatRequest{
-			Model:    "claude-sonnet-4-20250514",
+			Model:    "claude-sonnet-4-6",
 			Messages: []llm.Message{{Role: llm.RoleUser, Content: "Hello"}},
 			WebSearch: &llm.WebSearchRequest{
 				Enabled: true,
@@ -62,7 +62,7 @@ func TestBuildRequestBody_WebSearch(t *testing.T) {
 		t.Parallel()
 		maxUses := 5
 		req := &llm.ChatRequest{
-			Model:    "claude-sonnet-4-20250514",
+			Model:    "claude-sonnet-4-6",
 			Messages: []llm.Message{{Role: llm.RoleUser, Content: "Hello"}},
 			WebSearch: &llm.WebSearchRequest{
 				Enabled:        true,
@@ -97,7 +97,7 @@ func TestBuildRequestBody_WebSearch(t *testing.T) {
 	t.Run("web search alongside function tools", func(t *testing.T) {
 		t.Parallel()
 		req := &llm.ChatRequest{
-			Model:    "claude-sonnet-4-20250514",
+			Model:    "claude-sonnet-4-6",
 			Messages: []llm.Message{{Role: llm.RoleUser, Content: "Hello"}},
 			Tools: []llm.Tool{{
 				Type: "function",
@@ -278,7 +278,7 @@ func TestBuildRequestBody_ThinkingTokens(t *testing.T) {
 			t.Parallel()
 
 			req := &llm.ChatRequest{
-				Model: "claude-sonnet-4-20250514",
+				Model: "claude-sonnet-4-6",
 				Messages: []llm.Message{
 					{Role: llm.RoleUser, Content: "Hello"},
 				},

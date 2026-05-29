@@ -17,14 +17,14 @@ var modelPresets = []ModelConfig{
 	// --- Anthropic ---
 	// https://platform.claude.com/docs/en/docs/about-claude/models
 	// https://platform.claude.com/docs/en/docs/about-claude/pricing
+	{Name: "Anthropic Claude Opus 4.8", Provider: "anthropic", Model: "claude-opus-4-8",
+		ContextWindow: 1_000_000, MaxOutputTokens: 128_000,
+		InputCostPer1M: 5, OutputCostPer1M: 25, SupportsThinking: true,
+		Description: "Most capable to date. State-of-the-art long-horizon agentic work, knowledge work, and memory. 1M context."},
 	{Name: "Anthropic Claude Opus 4.7", Provider: "anthropic", Model: "claude-opus-4-7",
 		ContextWindow: 1_000_000, MaxOutputTokens: 128_000,
 		InputCostPer1M: 5, OutputCostPer1M: 25, SupportsThinking: true,
-		Description: "Most capable. Step-change improvement in agentic coding. 1M context."},
-	{Name: "Anthropic Claude Opus 4.6", Provider: "anthropic", Model: "claude-opus-4-6",
-		ContextWindow: 1_000_000, MaxOutputTokens: 128_000,
-		InputCostPer1M: 5, OutputCostPer1M: 25, SupportsThinking: true,
-		Description: "Previous Opus. Strong at complex agents and coding. 1M context."},
+		Description: "Previous Opus. Highly autonomous; strong long-horizon agentic work and coding. 1M context."},
 	{Name: "Anthropic Claude Sonnet 4.6", Provider: "anthropic", Model: "claude-sonnet-4-6",
 		ContextWindow: 1_000_000, MaxOutputTokens: 64_000,
 		InputCostPer1M: 3, OutputCostPer1M: 15, SupportsThinking: true,

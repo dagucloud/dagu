@@ -215,7 +215,7 @@ func TestListAgentModels(t *testing.T) {
 			ID: "model-1", Name: "Model 1", Provider: "openai", Model: "gpt-4",
 		})
 		setup.modelStore.addModel(&agent.ModelConfig{
-			ID: "model-2", Name: "Model 2", Provider: "anthropic", Model: "claude-sonnet-4-5",
+			ID: "model-2", Name: "Model 2", Provider: "anthropic", Model: "claude-sonnet-4-6",
 		})
 		setup.configStore.config.DefaultModelID = "model-1"
 

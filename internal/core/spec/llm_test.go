@@ -36,7 +36,7 @@ model:
   - provider: openai
     name: gpt-4
   - provider: anthropic
-    name: claude-sonnet-4-20250514
+    name: claude-sonnet-4-6
 `,
 			wantErr: "",
 		},

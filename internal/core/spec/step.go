@@ -284,7 +284,7 @@ type llmConfig struct {
 	Provider string `yaml:"provider,omitempty"`
 	// Model can be a string (single model) or array of model entries (fallback support).
 	// String example: "gpt-4o"
-	// Array example: [{provider: openai, name: gpt-4o}, {provider: anthropic, name: claude-sonnet-4-20250514}]
+	// Array example: [{provider: openai, name: gpt-4o}, {provider: anthropic, name: claude-sonnet-4-6}]
 	Model types.ModelValue `yaml:"model,omitempty"`
 	// System is the default system prompt for sessions.
 	System string `yaml:"system,omitempty"`

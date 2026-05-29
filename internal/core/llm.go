@@ -74,7 +74,7 @@ type ThinkingConfig struct {
 type ModelEntry struct {
 	// Provider is the LLM provider for this model.
 	Provider string `json:"provider"`
-	// Name is the model name (e.g., gpt-4o, claude-sonnet-4-20250514).
+	// Name is the model name (e.g., gpt-4o, claude-sonnet-4-6).
 	Name string `json:"name"`
 	// Temperature overrides the shared temperature for this model.
 	Temperature *float64 `json:"temperature,omitempty"`
@@ -93,7 +93,7 @@ type LLMConfig struct {
 	// Provider is the LLM provider (openai, anthropic, gemini, openrouter, local).
 	// Used for single model config (backward compatible).
 	Provider string `json:"provider,omitempty"`
-	// Model is the model to use (e.g., gpt-4o, claude-sonnet-4-20250514).
+	// Model is the model to use (e.g., gpt-4o, claude-sonnet-4-6).
 	// Used for single model config (backward compatible).
 	Model string `json:"model,omitempty"`
 	// Models is an array of models for fallback support.
