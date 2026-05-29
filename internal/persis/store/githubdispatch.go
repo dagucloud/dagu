@@ -5,7 +5,6 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -21,13 +20,15 @@ var _ githubdispatch.Tracker = (*GitHubDispatchStore)(nil)
 // GitHubDispatchStore implements [githubdispatch.Tracker] over a single
 // [persis.Collection] record holding the entire tracked-jobs map.
 type GitHubDispatchStore struct {
-	col persis.Collection
+	rec *SingleRecord[map[string]githubdispatch.TrackedJob]
 	mu  sync.Mutex
 }
 
 // NewGitHubDispatchStore creates a GitHubDispatchStore backed by col.
 func NewGitHubDispatchStore(col persis.Collection) *GitHubDispatchStore {
-	return &GitHubDispatchStore{col: col}
+	return &GitHubDispatchStore{
+		rec: NewSingleRecord[map[string]githubdispatch.TrackedJob](col, githubDispatchRecordID),
+	}
 }
 
 // Upsert inserts or replaces a tracked job.
@@ -100,29 +101,15 @@ func (s *GitHubDispatchStore) List(ctx context.Context) ([]githubdispatch.Tracke
 }
 
 func (s *GitHubDispatchStore) load(ctx context.Context) (map[string]githubdispatch.TrackedJob, error) {
-	rec, err := s.col.Get(ctx, githubDispatchRecordID)
-	if err != nil {
-		if errors.Is(err, persis.ErrNotFound) {
-			return map[string]githubdispatch.TrackedJob{}, nil
-		}
-		return nil, fmt.Errorf("github-dispatch store: load: %w", err)
-	}
 	jobs := map[string]githubdispatch.TrackedJob{}
-	if err := persis.Decode(rec, &jobs); err != nil {
-		return nil, fmt.Errorf("github-dispatch store: decode: %w", err)
+	if _, err := s.rec.Load(ctx, &jobs); err != nil {
+		return nil, fmt.Errorf("github-dispatch store: load: %w", err)
 	}
 	return jobs, nil
 }
 
 func (s *GitHubDispatchStore) save(ctx context.Context, jobs map[string]githubdispatch.TrackedJob) error {
-	data, err := persis.Encode(jobs)
-	if err != nil {
-		return fmt.Errorf("github-dispatch store: encode: %w", err)
-	}
-	if err := s.col.Put(ctx, &persis.Record{
-		ID:   githubDispatchRecordID,
-		Data: data,
-	}); err != nil {
+	if err := s.rec.Save(ctx, &jobs); err != nil {
 		return fmt.Errorf("github-dispatch store: save: %w", err)
 	}
 	return nil
