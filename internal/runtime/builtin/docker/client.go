@@ -849,6 +849,20 @@ func (c *Client) execInContainer(ctx context.Context, cli *client.Client, cmd []
 	// Wrap command with shell if specified
 	cmd = wrapCommandWithShell(c.cfg.Shell, cmd)
 
+	// Merge container env vars with exec env vars.
+	// ExecCreateOptions.Env replaces the container's environment, so we must
+	// merge the container's Config.Env (from container.env:) with any exec-level env.
+	var execEnv []string
+	if info.Config != nil {
+		execEnv = append(execEnv, info.Config.Env...)
+	}
+	if c.cfg.Container != nil {
+		execEnv = append(execEnv, c.cfg.Container.Env...)
+	}
+	if c.cfg.ExecOptions != nil {
+		execEnv = append(execEnv, c.cfg.ExecOptions.Env...)
+	}
+
 	// Create exec configuration
 	execOpts := client.ExecCreateOptions{
 		User:         c.cfg.ExecOptions.User,
@@ -858,7 +872,7 @@ func (c *Client) execInContainer(ctx context.Context, cli *client.Client, cmd []
 		AttachStdout: true,
 		AttachStderr: true,
 		Cmd:          cmd,
-		Env:          c.cfg.ExecOptions.Env,
+		Env:          execEnv,
 		WorkingDir:   c.cfg.ExecOptions.WorkingDir,
 	}
 

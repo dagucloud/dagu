@@ -65,8 +65,9 @@ func TestDAGJSONSecuritySensitiveFieldsExcluded(t *testing.T) {
 	assert.Contains(t, jsonStr, "yamlData", "yamlData should be preserved in JSON")
 }
 
-// TestContainerJSONSecurityEnvExcluded verifies that Container.Env is excluded from JSON.
-func TestContainerJSONSecurityEnvExcluded(t *testing.T) {
+// TestContainerJSONEnvSerialized verifies that Container.Env is serialized to JSON
+// so it can be correctly restored when ReadDAG deserializes from the stored DAGDefinition file.
+func TestContainerJSONEnvSerialized(t *testing.T) {
 	container := &Container{
 		Image: "nginx:latest",
 		Env:   []string{"DB_PASSWORD=super_secret", "API_KEY=my_api_key"},
@@ -77,10 +78,9 @@ func TestContainerJSONSecurityEnvExcluded(t *testing.T) {
 
 	jsonStr := string(data)
 
-	// Container.Env should NOT be in JSON
-	assert.NotContains(t, jsonStr, "super_secret", "Container.Env should not contain secrets in JSON")
-	assert.NotContains(t, jsonStr, "my_api_key", "Container.Env should not contain API keys in JSON")
-	assert.NotContains(t, jsonStr, "DB_PASSWORD", "Container.Env key should not be in JSON")
+	// Container.Env MUST be in JSON so ReadDAG can restore it from DAGDefinition
+	assert.Contains(t, jsonStr, "DB_PASSWORD=super_secret", "Container.Env must be serialized for DAGDefinition persistence")
+	assert.Contains(t, jsonStr, "API_KEY=my_api_key", "Container.Env must be serialized for DAGDefinition persistence")
 
 	// Image should be preserved
 	assert.Contains(t, jsonStr, "nginx:latest", "Container.Image should be preserved in JSON")
