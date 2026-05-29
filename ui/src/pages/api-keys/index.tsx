@@ -21,6 +21,7 @@ import {
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { TOKEN_KEY, useIsAdmin } from '@/contexts/AuthContext';
 import { useConfig } from '@/contexts/ConfigContext';
+import { useLicense } from '@/hooks/useLicense';
 import dayjs from '@/lib/dayjs';
 import ConfirmModal from '@/components/ui/confirm-dialog';
 import {
@@ -52,6 +53,7 @@ function attributionLabel(key: APIKey): string {
 
 export default function APIKeysPage() {
   const config = useConfig();
+  const license = useLicense();
   const isAdmin = useIsAdmin();
   const appBarContext = useContext(AppBarContext);
   const [apiKeys, setApiKeys] = useState<APIKey[]>([]);
@@ -62,7 +64,7 @@ export default function APIKeysPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingKey, setEditingKey] = useState<APIKey | null>(null);
   const [deletingKey, setDeletingKey] = useState<APIKey | null>(null);
-  const hasActiveLicense = config.license.valid || config.license.gracePeriod;
+  const hasActiveLicense = license.valid || license.gracePeriod;
   const communityLimitReached =
     !hasActiveLicense && apiKeys.length >= COMMUNITY_API_KEY_LIMIT;
 
