@@ -24,12 +24,12 @@ var _ agent.ConfigStore = (*AgentConfigStore)(nil)
 // AgentConfigStore implements [agent.ConfigStore] over a single
 // [persis.Collection] record.
 type AgentConfigStore struct {
-	col persis.Collection
+	rec *SingleRecord[agent.Config]
 }
 
 // NewAgentConfigStore creates an AgentConfigStore backed by col.
 func NewAgentConfigStore(col persis.Collection) *AgentConfigStore {
-	return &AgentConfigStore{col: col}
+	return &AgentConfigStore{rec: NewSingleRecord[agent.Config](col, agentConfigRecordID)}
 }
 
 // Load reads the agent configuration. Missing record falls back to
@@ -37,14 +37,10 @@ func NewAgentConfigStore(col persis.Collection) *AgentConfigStore {
 // Enabled field after the file value is applied.
 func (s *AgentConfigStore) Load(ctx context.Context) (*agent.Config, error) {
 	cfg := agent.DefaultConfig()
-	rec, err := s.col.Get(ctx, agentConfigRecordID)
-	if err != nil && !errors.Is(err, persis.ErrNotFound) {
+	// Decode over the defaults: an absent record keeps them, and a stored
+	// record overrides only the fields it contains.
+	if _, err := s.rec.Load(ctx, cfg); err != nil {
 		return nil, fmt.Errorf("agent-config store: load: %w", err)
-	}
-	if rec != nil {
-		if err := persis.Decode(rec, cfg); err != nil {
-			return nil, fmt.Errorf("agent-config store: decode: %w", err)
-		}
 	}
 	applyAgentEnvOverrides(cfg)
 	return cfg, nil
@@ -55,14 +51,7 @@ func (s *AgentConfigStore) Save(ctx context.Context, cfg *agent.Config) error {
 	if cfg == nil {
 		return errors.New("agent-config store: config cannot be nil")
 	}
-	data, err := persis.Encode(cfg)
-	if err != nil {
-		return fmt.Errorf("agent-config store: encode: %w", err)
-	}
-	if err := s.col.Put(ctx, &persis.Record{
-		ID:   agentConfigRecordID,
-		Data: data,
-	}); err != nil {
+	if err := s.rec.Save(ctx, cfg); err != nil {
 		return fmt.Errorf("agent-config store: save: %w", err)
 	}
 	return nil

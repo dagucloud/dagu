@@ -14,11 +14,11 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/license"
 	"github.com/dagucloud/dagu/internal/persis/file"
-	"github.com/dagucloud/dagu/internal/persis/schedulerstore"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/service/frontend"
 	apiv1 "github.com/dagucloud/dagu/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/internal/service/resource"
+	"github.com/dagucloud/dagu/internal/service/scheduler"
 )
 
 // ServerConfig contains the wiring needed to construct the frontend process role.
@@ -75,7 +75,7 @@ func NewServer(cfg ServerConfig, opts ...frontend.ServerOption) (*frontend.Serve
 		opts = append(opts, frontend.WithAPIOption(apiv1.WithWorkerHeartbeatStore(cfg.WorkerHeartbeatStore)))
 	}
 	opts = append(opts, frontend.WithAPIOption(apiv1.WithSchedulerStateStore(
-		schedulerstore.NewWatermarkStore(
+		scheduler.NewWatermarkStore(
 			file.NewCollection(filepath.Join(cfg.Config.Paths.DataDir, "scheduler"), file.WithIndentedJSON()),
 		),
 	)))

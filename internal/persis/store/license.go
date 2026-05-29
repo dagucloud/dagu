@@ -5,7 +5,6 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/dagucloud/dagu/internal/license"
@@ -19,40 +18,30 @@ var _ license.ActivationStore = (*LicenseStore)(nil)
 // LicenseStore implements [license.ActivationStore] over a single
 // [persis.Collection] record.
 type LicenseStore struct {
-	col persis.Collection
+	rec *SingleRecord[license.ActivationData]
 }
 
 // NewLicenseStore creates a LicenseStore backed by col.
 func NewLicenseStore(col persis.Collection) *LicenseStore {
-	return &LicenseStore{col: col}
+	return &LicenseStore{rec: NewSingleRecord[license.ActivationData](col, licenseRecordID)}
 }
 
 // Load returns the activation data, or (nil, nil) when no record exists.
 func (s *LicenseStore) Load() (*license.ActivationData, error) {
-	rec, err := s.col.Get(context.Background(), licenseRecordID)
+	var ad license.ActivationData
+	found, err := s.rec.Load(context.Background(), &ad)
 	if err != nil {
-		if errors.Is(err, persis.ErrNotFound) {
-			return nil, nil
-		}
 		return nil, fmt.Errorf("license store: load: %w", err)
 	}
-	var ad license.ActivationData
-	if err := persis.Decode(rec, &ad); err != nil {
-		return nil, fmt.Errorf("license store: decode: %w", err)
+	if !found {
+		return nil, nil
 	}
 	return &ad, nil
 }
 
 // Save replaces the stored activation data.
 func (s *LicenseStore) Save(ad *license.ActivationData) error {
-	data, err := persis.Encode(ad)
-	if err != nil {
-		return fmt.Errorf("license store: encode: %w", err)
-	}
-	if err := s.col.Put(context.Background(), &persis.Record{
-		ID:   licenseRecordID,
-		Data: data,
-	}); err != nil {
+	if err := s.rec.Save(context.Background(), ad); err != nil {
 		return fmt.Errorf("license store: save: %w", err)
 	}
 	return nil
@@ -60,7 +49,7 @@ func (s *LicenseStore) Save(ad *license.ActivationData) error {
 
 // Remove deletes the activation record. Returns nil when no record exists.
 func (s *LicenseStore) Remove() error {
-	if err := s.col.Delete(context.Background(), licenseRecordID); err != nil {
+	if err := s.rec.Delete(context.Background()); err != nil {
 		return fmt.Errorf("license store: remove: %w", err)
 	}
 	return nil
