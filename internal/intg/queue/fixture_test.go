@@ -19,7 +19,6 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/persis/file"
-	"github.com/dagucloud/dagu/internal/persis/schedulerstore"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
 	"github.com/dagucloud/dagu/internal/test"
@@ -547,7 +546,7 @@ func (f *fixture) seedWatermark(lastTick, lastScheduledTime time.Time) {
 
 	wmBackend, err := file.New(f.th.Config.Paths.DataDir)
 	require.NoError(f.t, err)
-	store := schedulerstore.NewWatermarkStore(wmBackend.Collection("scheduler"))
+	store := scheduler.NewWatermarkStore(wmBackend.Collection("scheduler"))
 	state := &scheduler.SchedulerState{
 		Version:  1,
 		LastTick: lastTick,
