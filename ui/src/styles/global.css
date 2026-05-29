@@ -83,26 +83,29 @@
 
 @layer base {
   :root {
-    --background: #f5f7fb;
-    --foreground: #111827;
+    /* "Discovery One" daylight flight deck — clinical cool-white surfaces and
+       instrument-panel neutrals. The blue primary accent and the canonical
+       status colors are intentionally left unchanged. */
+    --background: #f6f8fc;
+    --foreground: #0e141d;
 
     --card: #ffffff;
-    --card-foreground: #111827;
+    --card-foreground: #0e141d;
     --popover: #ffffff;
-    --popover-foreground: #111827;
+    --popover-foreground: #0e141d;
     --surface: #ffffff;
-    --surface-variant: #eef2f7;
+    --surface-variant: #eef2f8;
 
-    --primary: #2563eb;
+    --primary: #0e8ca0;
     --primary-foreground: #ffffff;
-    --primary-hover: #1d4ed8;
+    --primary-hover: #0b7286;
 
-    --secondary: #eef2f7;
-    --secondary-foreground: #1f2937;
-    --muted: #eef2f7;
-    --muted-foreground: #64748b;
-    --accent: #e6f6f2;
-    --accent-foreground: #0f5132;
+    --secondary: #eef2f8;
+    --secondary-foreground: #1a2230;
+    --muted: #eef2f8;
+    --muted-foreground: #5e6c7e;
+    --accent: #e7edf6;
+    --accent-foreground: #0e141d;
 
     --destructive: #dc2626;
     --destructive-foreground: #ffffff;
@@ -120,62 +123,65 @@
     --status-warning: #d97706;
     --status-aborted: #9333ea;
 
-    --border: #d7dde6;
-    --border-strong: #aeb8c6;
-    --input: #cbd5e1;
-    --ring: #2563eb;
+    --border: #d3dbe8;
+    --border-strong: #c3cdde;
+    --input: #c3cdde;
+    --ring: #0e8ca0;
 
-    --text-primary: #111827;
-    --text-secondary: #475569;
-    --text-tertiary: #64748b;
+    --text-primary: #0e141d;
+    --text-secondary: #48566a;
+    --text-tertiary: #5e6c7e;
     --text-disabled: #94a3b8;
 
-    --sidebar: #20242c;
-    --sidebar-foreground: #d1d5db;
-    --sidebar-border: #343a46;
-    --sidebar-hover: #2a303a;
-    --sidebar-active: #303846;
-    --sidebar-primary: #60a5fa;
-    --sidebar-primary-foreground: #ffffff;
-    --sidebar-accent: #2a303a;
-    --sidebar-accent-foreground: #f3f4f6;
-    --sidebar-ring: #60a5fa;
+    --sidebar: #0a0e15;
+    --sidebar-foreground: #99a6b6;
+    --sidebar-border: #1b2230;
+    --sidebar-hover: #0e131b;
+    --sidebar-active: #141b27;
+    --sidebar-primary: #36d3e0;
+    --sidebar-primary-foreground: #07090e;
+    --sidebar-accent: #0e131b;
+    --sidebar-accent-foreground: #eef2f7;
+    --sidebar-ring: #36d3e0;
 
-    --shadow-sm: 0 1px 2px 0 rgba(17, 24, 39, 0.06);
+    --shadow-sm: 0 1px 2px 0 rgba(7, 9, 14, 0.06);
     --shadow-md:
-      0 1px 3px 0 rgba(17, 24, 39, 0.1), 0 1px 2px 0 rgba(17, 24, 39, 0.06);
+      0 1px 3px 0 rgba(7, 9, 14, 0.1), 0 1px 2px 0 rgba(7, 9, 14, 0.06);
     --shadow-lg:
-      0 10px 15px -3px rgba(17, 24, 39, 0.12),
-      0 4px 6px -4px rgba(17, 24, 39, 0.1);
+      0 10px 15px -3px rgba(7, 9, 14, 0.12),
+      0 4px 6px -4px rgba(7, 9, 14, 0.1);
 
-    --bg: 245 247 251;
-    --text: 17 24 39;
-    --sidebar-bg: 32 36 44;
-    --sidebar-text: 209 213 219;
-    --primary-rgb: 37 99 235;
+    --bg: 246 248 252;
+    --text: 14 20 29;
+    --sidebar-bg: 10 14 21;
+    --sidebar-text: 153 166 182;
+    --primary-rgb: 14 140 160;
   }
 
   .dark {
-    --background: #111318;
-    --foreground: #e5e7eb;
+    /* "Discovery One" — the void. Deep-space surfaces lit by backlit panels.
+       The blue primary accent and the canonical status colors are
+       intentionally left unchanged. */
+    --background: #07090e;
+    --foreground: #eef2f7;
 
-    --card: #181b22;
-    --card-foreground: #e5e7eb;
-    --popover: #1f232d;
-    --popover-foreground: #e5e7eb;
-    --surface: #181b22;
-    --surface-variant: #242936;
+    --card: #0e131b;
+    --card-foreground: #eef2f7;
+    --popover: #141b27;
+    --popover-foreground: #eef2f7;
+    --surface: #0e131b;
+    --surface-variant: #141b27;
 
-    --primary: #60a5fa;
+    --primary: #36d3e0;
     --primary-foreground: #0b1220;
-    --primary-hover: #93c5fd;
+    --primary-hover: #5fdfeb;
 
-    --secondary: #242936;
-    --secondary-foreground: #e5e7eb;
-    --muted: #242936;
-    --muted-foreground: #9ca3af;
-    --accent: #12352f;
-    --accent-foreground: #a7f3d0;
+    --secondary: #141b27;
+    --secondary-foreground: #eef2f7;
+    --muted: #141b27;
+    --muted-foreground: #99a6b6;
+    --accent: #141b27;
+    --accent-foreground: #eef2f7;
 
     --destructive: #f87171;
     --destructive-foreground: #1f0909;
@@ -193,26 +199,26 @@
     --status-warning: #fbbf24;
     --status-aborted: #c084fc;
 
-    --border: #303746;
-    --border-strong: #4b5563;
-    --input: #4b5563;
-    --ring: #60a5fa;
+    --border: #1b2230;
+    --border-strong: #2d3744;
+    --input: #2d3744;
+    --ring: #36d3e0;
 
-    --text-primary: #f3f4f6;
-    --text-secondary: #cbd5e1;
-    --text-tertiary: #94a3b8;
-    --text-disabled: #64748b;
+    --text-primary: #eef2f7;
+    --text-secondary: #99a6b6;
+    --text-tertiary: #5e6c7e;
+    --text-disabled: #5e6c7e;
 
-    --sidebar: #181b22;
-    --sidebar-foreground: #cbd5e1;
-    --sidebar-border: #303746;
-    --sidebar-hover: #242936;
-    --sidebar-active: #2f3747;
-    --sidebar-primary: #60a5fa;
-    --sidebar-primary-foreground: #0b1220;
-    --sidebar-accent: #242936;
-    --sidebar-accent-foreground: #e5e7eb;
-    --sidebar-ring: #60a5fa;
+    --sidebar: #0a0e15;
+    --sidebar-foreground: #99a6b6;
+    --sidebar-border: #1b2230;
+    --sidebar-hover: #0e131b;
+    --sidebar-active: #141b27;
+    --sidebar-primary: #36d3e0;
+    --sidebar-primary-foreground: #07090e;
+    --sidebar-accent: #141b27;
+    --sidebar-accent-foreground: #eef2f7;
+    --sidebar-ring: #36d3e0;
 
     /* Elevation (More Subtle in Dark Mode) */
     --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
@@ -221,11 +227,11 @@
       0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
 
     /* RGB fallbacks */
-    --bg: 17 19 24;
-    --text: 229 231 235;
-    --sidebar-bg: 24 27 34;
-    --sidebar-text: 203 213 225;
-    --primary-rgb: 96 165 250;
+    --bg: 7 9 14;
+    --text: 238 242 247;
+    --sidebar-bg: 10 14 21;
+    --sidebar-text: 153 166 182;
+    --primary-rgb: 54 211 224;
   }
 
   * {
