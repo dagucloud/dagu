@@ -4,6 +4,7 @@
 package store_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -258,6 +259,24 @@ func TestSessionIndexRebuiltOnStartup(t *testing.T) {
 
 // ─── File-layout compatibility ───────────────────────────────────────────────
 
+// releasedSessionFile mirrors the on-wire format the released file/session
+// implementation persisted (and that the new adapter must keep producing).
+// Field order, tags, and omitempty rules are identical to the adapter's
+// internal storedSession type, so json.MarshalIndent of an equivalent value
+// produces byte-identical output.
+type releasedSessionFile struct {
+	ID              string          `json:"id"`
+	UserID          string          `json:"user_id"`
+	DAGName         string          `json:"dag_name,omitempty"`
+	Title           string          `json:"title,omitempty"`
+	Model           string          `json:"model,omitempty"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
+	ParentSessionID string          `json:"parent_session_id,omitempty"`
+	DelegateTask    string          `json:"delegate_task,omitempty"`
+	Messages        []agent.Message `json:"messages"`
+}
+
 // TestSession_File_OnDiskLayoutMatchesReleased proves CreateSession writes
 // the session JSON at {dir}/{userID}/{sessionID}.json with the same bytes
 // the released file/session implementation produced.
@@ -283,33 +302,19 @@ func TestSession_File_OnDiskLayoutMatchesReleased(t *testing.T) {
 	got, err := os.ReadFile(path)
 	require.NoError(t, err, "session file must exist at the released path")
 
-	// Bytes must equal json.MarshalIndent of the released SessionForStorage shape.
-	type onDisk struct {
-		ID        string          `json:"id"`
-		UserID    string          `json:"user_id"`
-		CreatedAt time.Time       `json:"created_at"`
-		UpdatedAt time.Time       `json:"updated_at"`
-		Model     string          `json:"model,omitempty"`
-		Messages  []agent.Message `json:"messages"`
-	}
-	expected, err := json.MarshalIndent(map[string]any{
-		"id":         "sess-A",
-		"user_id":    "alice",
-		"model":      "gpt-4",
-		"created_at": createdAt,
-		"updated_at": createdAt,
-		"messages":   nil,
+	expected, err := json.MarshalIndent(releasedSessionFile{
+		ID:        "sess-A",
+		UserID:    "alice",
+		Model:     "gpt-4",
+		CreatedAt: createdAt,
+		UpdatedAt: createdAt,
+		Messages:  nil,
 	}, "", "  ")
 	require.NoError(t, err)
 
-	// Compare by re-decoding: field-order, whitespace, and omitempty rules
-	// match exactly between expected and got when both come from the same
-	// json.MarshalIndent path, so byte-equality is the right check.
-	_ = expected
-	_ = onDisk{}
-	assert.Contains(t, string(got), `"id": "sess-A"`)
-	assert.Contains(t, string(got), `"user_id": "alice"`)
-	assert.Contains(t, string(got), `"messages": null`)
+	assert.True(t, bytes.Equal(got, expected),
+		"on-disk bytes must equal the released file/session format\n  got:  %q\n  want: %q",
+		string(got), string(expected))
 
 	// Permissions (POSIX only).
 	info, err := os.Stat(path)

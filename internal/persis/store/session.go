@@ -294,7 +294,7 @@ func (s *SessionStore) AddMessage(ctx context.Context, sessionID string, msg *ag
 	}
 
 	ss.Messages = append(ss.Messages, *msg)
-	ss.UpdatedAt = time.Now()
+	ss.UpdatedAt = time.Now().UTC()
 	sessionSetTitleFromMessage(&ss, msg)
 
 	data, err := persis.Encode(&ss)
@@ -413,14 +413,15 @@ func (s *SessionStore) loadSession(ctx context.Context, id string) (*storedSessi
 
 // deleteLocked removes a session by id while holding s.mu for write.
 func (s *SessionStore) deleteLocked(ctx context.Context, id string) error {
-	collID, ok := s.collectionIDLocked(id)
+	userID, ok := s.byID[id]
 	if !ok {
 		return agent.ErrSessionNotFound
 	}
+	collID := sessionCollectionID(userID, id)
 	rec, err := s.col.Get(ctx, collID)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
-			s.removeFromIndexes(id, "", "")
+			s.removeFromIndexes(id, userID, "")
 			return agent.ErrSessionNotFound
 		}
 		return fmt.Errorf("session store: get for delete: %w", err)
