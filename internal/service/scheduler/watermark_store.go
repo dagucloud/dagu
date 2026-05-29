@@ -7,8 +7,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 
+	"github.com/dagucloud/dagu/internal/cmn/logger"
+	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/persis"
 	"github.com/dagucloud/dagu/internal/persis/store"
 )
@@ -33,7 +34,7 @@ func (s *watermarkStore) Load(ctx context.Context) (*SchedulerState, error) {
 	found, err := s.rec.Load(ctx, &state)
 	if err != nil {
 		if errors.Is(err, store.ErrCorrupt) {
-			slog.Warn("watermark: corrupt state, starting fresh", slog.String("error", err.Error()))
+			logger.Warn(ctx, "watermark: corrupt state, starting fresh", tag.Error(err))
 			return newEmptyWatermarkState(), nil
 		}
 		return nil, fmt.Errorf("watermark store: get: %w", err)
@@ -48,12 +49,12 @@ func (s *watermarkStore) Load(ctx context.Context) (*SchedulerState, error) {
 	case 0, 1, 2:
 		migrated, migrateErr := migrateWatermarkState(state.Version, &state)
 		if migrateErr != nil {
-			slog.Warn("watermark: failed to migrate state, starting fresh", slog.String("error", migrateErr.Error()))
+			logger.Warn(ctx, "watermark: failed to migrate state, starting fresh", tag.Error(migrateErr))
 			return newEmptyWatermarkState(), nil
 		}
 		state = *migrated
 	default:
-		slog.Warn("watermark: unknown version, starting fresh", slog.Int("version", state.Version))
+		logger.Warn(ctx, "watermark: unknown version, starting fresh", tag.Version(fmt.Sprint(state.Version)))
 		return newEmptyWatermarkState(), nil
 	}
 
@@ -74,6 +75,8 @@ func (s *watermarkStore) Save(ctx context.Context, state *SchedulerState) error 
 	return nil
 }
 
+// newEmptyWatermarkState returns a fresh state at the current version with an
+// initialized DAGs map.
 func newEmptyWatermarkState() *SchedulerState {
 	return &SchedulerState{
 		Version: SchedulerStateVersion,
@@ -81,6 +84,8 @@ func newEmptyWatermarkState() *SchedulerState {
 	}
 }
 
+// migrateWatermarkState upgrades a legacy state (versions 0 to 2) to the
+// current version, returning an error for any version it cannot migrate.
 func migrateWatermarkState(version int, state *SchedulerState) (*SchedulerState, error) {
 	if state == nil {
 		return nil, fmt.Errorf("watermark store: state is nil")
