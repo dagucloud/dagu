@@ -18,13 +18,13 @@ import (
 	"github.com/dagucloud/dagu/internal/incident"
 	"github.com/dagucloud/dagu/internal/license"
 	"github.com/dagucloud/dagu/internal/notification"
-	"github.com/dagucloud/dagu/internal/persis/fileaudit"
-	"github.com/dagucloud/dagu/internal/persis/filebaseconfig"
-	"github.com/dagucloud/dagu/internal/persis/filedoc"
-	"github.com/dagucloud/dagu/internal/persis/fileeventstore"
-	"github.com/dagucloud/dagu/internal/persis/fileincident"
-	"github.com/dagucloud/dagu/internal/persis/filenotification"
-	"github.com/dagucloud/dagu/internal/persis/filetokensecret"
+	fileaudit "github.com/dagucloud/dagu/internal/persis/file/audit"
+	filebaseconfig "github.com/dagucloud/dagu/internal/persis/file/baseconfig"
+	"github.com/dagucloud/dagu/internal/persis/file/doc"
+	fileeventstore "github.com/dagucloud/dagu/internal/persis/file/eventstore"
+	fileincident "github.com/dagucloud/dagu/internal/persis/file/incident"
+	filenotification "github.com/dagucloud/dagu/internal/persis/file/notification"
+	"github.com/dagucloud/dagu/internal/persis/file/tokensecret"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/remotenode"
 	"github.com/dagucloud/dagu/internal/service/audit"
@@ -70,7 +70,7 @@ func NewAuditStore(cfg *config.Config) (AuditStore, error) {
 }
 
 func NewDocStore(cfg *config.Config) agent.DocStore {
-	return filedoc.New(cfg.Paths.DocsDir)
+	return doc.New(cfg.Paths.DocsDir)
 }
 
 func NewEventStore(cfg *config.Config) (eventstore.Store, error) {
@@ -145,7 +145,7 @@ func NewRemoteNodeStore(cfg *config.Config, enc *crypto.Encryptor) (remotenode.S
 }
 
 func NewTokenSecretProvider(cfg *config.Config) authmodel.TokenSecretProvider {
-	return filetokensecret.New(filepath.Join(cfg.Paths.DataDir, "auth"))
+	return tokensecret.New(filepath.Join(cfg.Paths.DataDir, "auth"))
 }
 
 func NewUpgradeCheckStore(cfg *config.Config) (upgrade.CacheStore, error) {

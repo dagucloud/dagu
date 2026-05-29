@@ -17,7 +17,7 @@ import (
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/persis/fileeventstore"
+	fileeventstore "github.com/dagucloud/dagu/internal/persis/file/eventstore"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
 	"github.com/dagucloud/dagu/internal/testutil"
 	"github.com/stretchr/testify/assert"

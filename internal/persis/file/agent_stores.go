@@ -18,10 +18,10 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/internal/persis/fileagentskill"
-	"github.com/dagucloud/dagu/internal/persis/fileagentsoul"
-	"github.com/dagucloud/dagu/internal/persis/filememory"
-	"github.com/dagucloud/dagu/internal/persis/filesession"
+	"github.com/dagucloud/dagu/internal/persis/file/agentskill"
+	"github.com/dagucloud/dagu/internal/persis/file/agentsoul"
+	"github.com/dagucloud/dagu/internal/persis/file/memory"
+	filesession "github.com/dagucloud/dagu/internal/persis/file/session"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/secret"
 )
@@ -103,22 +103,22 @@ func NewAgentStores(ctx context.Context, cfg *config.Config, opts ...AgentStores
 	} else {
 		logger.Warn(ctx, "Failed to create agent model store", tag.Error(err))
 	}
-	var memoryOpts []filememory.Option
+	var memoryOpts []memory.Option
 	if options.MemoryCache != nil {
-		memoryOpts = append(memoryOpts, filememory.WithFileCache(options.MemoryCache))
+		memoryOpts = append(memoryOpts, memory.WithFileCache(options.MemoryCache))
 	}
-	if memoryStore, err := filememory.New(cfg.Paths.DAGsDir, memoryOpts...); err == nil {
+	if memoryStore, err := memory.New(cfg.Paths.DAGsDir, memoryOpts...); err == nil {
 		result.MemoryStore = memoryStore
 	} else {
 		logger.Warn(ctx, "Failed to create agent memory store", tag.Error(err))
 	}
 	soulsDir := filepath.Join(cfg.Paths.DAGsDir, "souls")
 	if options.SeedExampleSouls {
-		if _, err := fileagentsoul.SeedExampleSouls(ctx, soulsDir); err != nil {
+		if _, err := agentsoul.SeedExampleSouls(ctx, soulsDir); err != nil {
 			logger.Warn(ctx, "Failed to seed example souls", tag.Error(err))
 		}
 	}
-	if soulStore, err := fileagentsoul.New(ctx, soulsDir); err == nil {
+	if soulStore, err := agentsoul.New(ctx, soulsDir); err == nil {
 		result.SoulStore = soulStore
 	} else {
 		logger.Warn(ctx, "Failed to create agent soul store", tag.Error(err))
@@ -153,11 +153,11 @@ func NewSnapshotStores(ctx context.Context, paths config.PathsConfig) (agent.Sna
 	if err != nil {
 		return agent.SnapshotStores{}, fmt.Errorf("create agent model store: %w", err)
 	}
-	soulStore, err := fileagentsoul.New(ctx, filepath.Join(paths.DAGsDir, "souls"))
+	soulStore, err := agentsoul.New(ctx, filepath.Join(paths.DAGsDir, "souls"))
 	if err != nil {
 		return agent.SnapshotStores{}, fmt.Errorf("create agent soul store: %w", err)
 	}
-	memoryStore, err := filememory.New(paths.DAGsDir)
+	memoryStore, err := memory.New(paths.DAGsDir)
 	if err != nil {
 		return agent.SnapshotStores{}, fmt.Errorf("create agent memory store: %w", err)
 	}
@@ -204,7 +204,7 @@ func SeedAgentReferences(cfg *config.Config) string {
 	if cfg == nil || cfg.Paths.DataDir == "" {
 		return ""
 	}
-	return fileagentskill.SeedReferences(filepath.Join(cfg.Paths.DataDir, "agent", "references"))
+	return agentskill.SeedReferences(filepath.Join(cfg.Paths.DataDir, "agent", "references"))
 }
 
 // NewContextStore wires the encrypted file-backed CLI context store from config paths.
