@@ -6,7 +6,7 @@ package file
 import (
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/persis/fileserviceregistry"
+	fileserviceregistry "github.com/dagucloud/dagu/internal/persis/file/serviceregistry"
 )
 
 // NewServiceRegistry wires the file-backed service registry from application config.
