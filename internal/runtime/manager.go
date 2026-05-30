@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"runtime/debug"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/config"
@@ -580,35 +579,4 @@ func (m *Manager) UpdateStatus(ctx context.Context, rootDAGRun exec.DAGRunRef, n
 	}
 
 	return nil
-}
-
-// execWithRecovery executes a function with panic recovery and detailed error reporting
-// It captures stack traces and provides structured error information for debugging
-func execWithRecovery(ctx context.Context, fn func()) {
-	defer func() {
-		if panicObj := recover(); panicObj != nil {
-			stack := debug.Stack()
-
-			// Convert panic object to error
-			var err error
-			switch v := panicObj.(type) {
-			case error:
-				err = v
-			case string:
-				err = fmt.Errorf("panic: %s", v)
-			default:
-				err = fmt.Errorf("panic: %v", v)
-			}
-
-			// Log with structured information
-			logger.Error(ctx, "Recovered from panic",
-				slog.String("err", err.Error()),
-				slog.String("err-type", fmt.Sprintf("%T", panicObj)),
-				slog.String("stack-trace", string(stack)),
-			)
-		}
-	}()
-
-	// Execute the function
-	fn()
 }
