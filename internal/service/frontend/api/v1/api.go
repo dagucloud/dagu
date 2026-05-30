@@ -28,6 +28,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/baseconfig"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	incidentmodel "github.com/dagucloud/dagu/internal/incident"
+	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/license"
 	notificationmodel "github.com/dagucloud/dagu/internal/notification"
 	"github.com/dagucloud/dagu/internal/remotenode"
@@ -70,7 +71,7 @@ type API struct {
 	metricsRegistry      *prometheus.Registry
 	coordinatorCli       coordinator.Client
 	serviceRegistry      exec.ServiceRegistry
-	subCmdBuilder        *runtime.SubCmdBuilder
+	subCmdBuilder        *launcher.SubCmdBuilder
 	resourceService      *resource.Service
 	authService          AuthService
 	auditService         *audit.Service
@@ -394,7 +395,7 @@ func New(
 		procStore:           ps,
 		dagRunMgr:           drm,
 		logEncodingCharset:  cfg.UI.LogEncodingCharset,
-		subCmdBuilder:       runtime.NewSubCmdBuilder(cfg),
+		subCmdBuilder:       launcher.NewSubCmdBuilder(cfg),
 		config:              cfg,
 		coordinatorCli:      cc,
 		serviceRegistry:     sr,

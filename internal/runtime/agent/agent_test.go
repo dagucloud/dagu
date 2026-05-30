@@ -21,9 +21,9 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/sock"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
-	runtimepkg "github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/agent"
 	secretpkg "github.com/dagucloud/dagu/internal/secret"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
@@ -1233,7 +1233,7 @@ steps:
 
 	dagExecutor := scheduler.NewDAGExecutor(
 		nil,
-		runtimepkg.NewSubCmdBuilder(th.Config),
+		launcher.NewSubCmdBuilder(th.Config),
 		th.Config.DefaultExecMode,
 		th.Config.Paths.BaseConfig,
 		nil,

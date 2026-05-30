@@ -39,6 +39,7 @@ import (
 	spectypes "github.com/dagucloud/dagu/internal/core/spec/types"
 	"github.com/dagucloud/dagu/internal/dagrun/intake"
 	"github.com/dagucloud/dagu/internal/dispatch"
+	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/service/audit"
@@ -2651,7 +2652,7 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 	}
 
 	spec := a.subCmdBuilder.Retry(prepared, retryDagRunID, stepName)
-	if err := runtime.Start(ctx, spec); err != nil {
+	if err := launcher.Start(ctx, spec); err != nil {
 		return retryDAGRunResult{}, fmt.Errorf("error retrying DAG: %w", err)
 	}
 
@@ -2699,7 +2700,7 @@ func (a *API) logRetryAudit(ctx context.Context, dagName, dagRunID, stepName str
 
 // waitForRetryStarted polls briefly to confirm the retry subprocess has started.
 // This is best-effort: if the timeout elapses we still return 200 since the
-// subprocess was spawned successfully by runtime.Start.
+// subprocess was spawned successfully by launcher.Start.
 func (a *API) waitForRetryStarted(ctx context.Context, dag *core.DAG, dagRunID string) {
 	const (
 		timeout      = 3 * time.Second
@@ -3424,7 +3425,7 @@ func (a *API) resumeDAGRun(ctx context.Context, ref exec.DAGRunRef, dagRunID str
 	}
 
 	retrySpec := a.subCmdBuilder.Retry(prepared, dagRunID, "")
-	return runtime.Start(ctx, retrySpec)
+	return launcher.Start(ctx, retrySpec)
 }
 
 func (a *API) resumeSubDAGRun(ctx context.Context, rootRef exec.DAGRunRef, subDAGRunID string) error {
@@ -3449,7 +3450,7 @@ func (a *API) resumeSubDAGRun(ctx context.Context, rootRef exec.DAGRunRef, subDA
 	}
 
 	retrySpec := a.subCmdBuilder.Retry(prepared, subDAGRunID, "")
-	return runtime.Start(ctx, retrySpec)
+	return launcher.Start(ctx, retrySpec)
 }
 
 func (a *API) prepareRetryDAGForSubprocess(ctx context.Context, dag *core.DAG, status *exec.DAGRunStatus) (*core.DAG, error) {

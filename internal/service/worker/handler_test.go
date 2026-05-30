@@ -17,7 +17,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/runtime"
+	"github.com/dagucloud/dagu/internal/launcher"
 	runtimeexec "github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/test"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
@@ -70,8 +70,8 @@ func TestTaskHandler(t *testing.T) {
 
 		// First, create an initial dag-run (simulating what coordinator does during enqueue)
 		// This creates the status record that retry will use
-		spec := th.SubCmdBuilder.Start(dag.DAG, runtime.StartOptions{})
-		err := runtime.Start(th.Context, spec)
+		spec := th.SubCmdBuilder.Start(dag.DAG, launcher.StartOptions{})
+		err := launcher.Start(th.Context, spec)
 		require.NoError(t, err)
 
 		// Wait for the initial run to complete
@@ -118,8 +118,8 @@ func TestTaskHandler(t *testing.T) {
 		cli := th.DAGRunMgr
 
 		// First, start a DAG run
-		spec := th.SubCmdBuilder.Start(dag.DAG, runtime.StartOptions{})
-		err := runtime.Start(th.Context, spec)
+		spec := th.SubCmdBuilder.Start(dag.DAG, launcher.StartOptions{})
+		err := launcher.Start(th.Context, spec)
 		require.NoError(t, err)
 
 		// Wait for the DAG to finish

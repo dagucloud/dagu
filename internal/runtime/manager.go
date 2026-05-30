@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/google/uuid"
 )
 
@@ -41,7 +42,7 @@ func NewManager(drs exec.DAGRunStore, ps exec.ProcStore, cfg *config.Config, opt
 	m := Manager{
 		dagRunStore:   drs,
 		procStore:     ps,
-		subCmdBuilder: NewSubCmdBuilder(cfg),
+		subCmdBuilder: launcher.NewSubCmdBuilder(cfg),
 		nowFunc:       time.Now,
 	}
 	for _, opt := range opts {
@@ -54,9 +55,9 @@ func NewManager(drs exec.DAGRunStore, ps exec.ProcStore, cfg *config.Config, opt
 // restarting, and retrieving status information. It communicates with the DAG
 // through a socket interface and manages dag-run data.
 type Manager struct {
-	dagRunStore   exec.DAGRunStore // Store interface for persisting run data
-	procStore     exec.ProcStore   // Store interface for process management
-	subCmdBuilder *SubCmdBuilder   // Command builder for constructing command specs
+	dagRunStore   exec.DAGRunStore        // Store interface for persisting run data
+	procStore     exec.ProcStore          // Store interface for process management
+	subCmdBuilder *launcher.SubCmdBuilder // Command builder for constructing command specs
 	nowFunc       func() time.Time
 }
 

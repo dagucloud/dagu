@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/sock"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	"github.com/dagucloud/dagu/internal/test"
@@ -129,8 +130,8 @@ steps:
 ---
 `)
 
-		spec := th.SubCmdBuilder.Start(dag.DAG, runtime.StartOptions{})
-		err := runtime.Start(th.Context, spec)
+		spec := th.SubCmdBuilder.Start(dag.DAG, launcher.StartOptions{})
+		err := launcher.Start(th.Context, spec)
 		require.NoError(t, err)
 
 		var status exec.DAGRunStatus

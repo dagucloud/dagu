@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/internal/persis/file/proc"
 	"github.com/dagucloud/dagu/internal/runtime"
@@ -61,7 +62,7 @@ func TestWaitForLocalDAGStartReturnsErrorWhenStarterExitedWithoutStatus(t *testi
 	done <- errors.New("exit status 1")
 	close(done)
 
-	err := api.waitForLocalDAGStart(context.Background(), &core.DAG{Name: "pending"}, "run-1", &runtime.StartResult{
+	err := api.waitForLocalDAGStart(context.Background(), &core.DAG{Name: "pending"}, "run-1", &launcher.StartResult{
 		PID:  1,
 		Done: done,
 	}, time.Nanosecond)
@@ -90,12 +91,12 @@ func newTestProcStore(procDir string) *proc.Store {
 	return proc.New(procDir)
 }
 
-func currentProcessStartResult(t *testing.T, done <-chan error) *runtime.StartResult {
+func currentProcessStartResult(t *testing.T, done <-chan error) *launcher.StartResult {
 	t.Helper()
 
 	pid := os.Getpid()
 	startedAt, _ := procutil.StartTime(pid)
-	return &runtime.StartResult{
+	return &launcher.StartResult{
 		PID:          pid,
 		PIDStartedAt: startedAt,
 		Done:         done,

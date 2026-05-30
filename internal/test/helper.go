@@ -31,6 +31,7 @@ import (
 	exec1 "github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/dagstate"
+	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	runtimepkg "github.com/dagucloud/dagu/internal/runtime"
@@ -311,7 +312,7 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 		WorkerHeartbeatStore:      workerHeartbeatStore,
 		DAGRunLeaseStore:          dagRunLeaseStore,
 		ActiveDistributedRunStore: activeDistributedRunStore,
-		SubCmdBuilder:             runtimepkg.NewSubCmdBuilder(cfg),
+		SubCmdBuilder:             launcher.NewSubCmdBuilder(cfg),
 		ServerOptions:             options.ServerOptions,
 		StaleHeartbeatThreshold:   options.StaleHeartbeatThreshold,
 		StaleLeaseThreshold:       options.StaleLeaseThreshold,
@@ -518,7 +519,7 @@ type Helper struct {
 	WorkerHeartbeatStore      exec1.WorkerHeartbeatStore
 	DAGRunLeaseStore          exec1.DAGRunLeaseStore
 	ActiveDistributedRunStore exec1.ActiveDistributedRunStore
-	SubCmdBuilder             *runtimepkg.SubCmdBuilder
+	SubCmdBuilder             *launcher.SubCmdBuilder
 	ServerOptions             []frontend.ServerOption
 	StaleHeartbeatThreshold   time.Duration
 	StaleLeaseThreshold       time.Duration

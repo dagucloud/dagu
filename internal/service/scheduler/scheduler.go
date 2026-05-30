@@ -23,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/runtime"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
@@ -143,7 +144,7 @@ func newScheduler(
 	}
 	lockDir := filepath.Join(cfg.Paths.DataDir, "scheduler", "locks")
 	dirLock := dirlock.New(lockDir, lockOpts)
-	subCmdBuilder := runtime.NewSubCmdBuilder(cfg)
+	subCmdBuilder := launcher.NewSubCmdBuilder(cfg)
 	dagStore := er.DAGStore()
 	dagExecutor := NewDAGExecutor(
 		coordinatorCli,

@@ -17,8 +17,8 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/persis/file"
-	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
@@ -443,9 +443,9 @@ func (f *testFixture) startSchedulerWithOptions(
 
 func (f *testFixture) enqueue() error {
 	f.t.Helper()
-	subCmdBuilder := runtime.NewSubCmdBuilder(f.coord.Config)
-	enqueueSpec := subCmdBuilder.Enqueue(f.dagWrapper.DAG, runtime.EnqueueOptions{Quiet: true})
-	return runtime.Run(f.coord.Context, enqueueSpec)
+	subCmdBuilder := launcher.NewSubCmdBuilder(f.coord.Config)
+	enqueueSpec := subCmdBuilder.Enqueue(f.dagWrapper.DAG, launcher.EnqueueOptions{Quiet: true})
+	return launcher.Run(f.coord.Context, enqueueSpec)
 }
 
 func (f *testFixture) enqueueDirect() error {
@@ -533,16 +533,16 @@ func (f *testFixture) start() error {
 
 func (f *testFixture) startWithLabels(labels string) error {
 	f.t.Helper()
-	subCmdBuilder := runtime.NewSubCmdBuilder(f.coord.Config)
-	startSpec := subCmdBuilder.Start(f.dagWrapper.DAG, runtime.StartOptions{Quiet: true, Labels: labels})
-	return runtime.Start(f.coord.Context, startSpec)
+	subCmdBuilder := launcher.NewSubCmdBuilder(f.coord.Config)
+	startSpec := subCmdBuilder.Start(f.dagWrapper.DAG, launcher.StartOptions{Quiet: true, Labels: labels})
+	return launcher.Start(f.coord.Context, startSpec)
 }
 
 func (f *testFixture) retry(dagRunID string) error {
 	f.t.Helper()
-	subCmdBuilder := runtime.NewSubCmdBuilder(f.coord.Config)
+	subCmdBuilder := launcher.NewSubCmdBuilder(f.coord.Config)
 	retrySpec := subCmdBuilder.Retry(f.dagWrapper.DAG, dagRunID, "")
-	return runtime.Start(f.coord.Context, retrySpec)
+	return launcher.Start(f.coord.Context, retrySpec)
 }
 
 func (f *testFixture) waitForQueued() {

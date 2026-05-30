@@ -18,8 +18,8 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
+	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/proto/convert"
-	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
@@ -42,7 +42,7 @@ func NewTaskHandlerWithDAGRunStore(
 		bundleClient = bundleClients[0]
 	}
 	return &taskHandler{
-		subCmdBuilder: runtime.NewSubCmdBuilder(cfg),
+		subCmdBuilder: launcher.NewSubCmdBuilder(cfg),
 		baseConfig:    cfg.Paths.BaseConfig,
 		dagRunStore:   dagRunStore,
 		bundleClient:  bundleClient,
@@ -50,7 +50,7 @@ func NewTaskHandlerWithDAGRunStore(
 }
 
 type taskHandler struct {
-	subCmdBuilder *runtime.SubCmdBuilder
+	subCmdBuilder *launcher.SubCmdBuilder
 	baseConfig    string
 	dagRunStore   exec.DAGRunStore
 	bundleClient  workspacebundle.Client
@@ -78,7 +78,7 @@ func (e *taskHandler) Handle(ctx context.Context, task *coordinatorv1.Task) erro
 		return err
 	}
 
-	if err := runtime.Run(ctx, spec); err != nil {
+	if err := launcher.Run(ctx, spec); err != nil {
 		logger.Error(ctx, "Distributed task execution failed",
 			slog.String("operation", task.Operation.String()),
 			tag.Target(task.Target),
@@ -158,14 +158,14 @@ func (e *taskHandler) sharedVolumeActionWorkDir(ctx context.Context, task *coord
 	return workDir, nil
 }
 
-func (e *taskHandler) buildCommandSpec(ctx context.Context, task *coordinatorv1.Task, originalTarget string) (runtime.CmdSpec, error) {
+func (e *taskHandler) buildCommandSpec(ctx context.Context, task *coordinatorv1.Task, originalTarget string) (launcher.CmdSpec, error) {
 	dagName := dagNameHint(originalTarget)
 
 	switch task.Operation {
 	case coordinatorv1.Operation_OPERATION_START:
 		hints, err := e.subprocessHints(ctx, task, originalTarget)
 		if err != nil {
-			return runtime.CmdSpec{}, err
+			return launcher.CmdSpec{}, err
 		}
 		spec := e.subCmdBuilder.TaskStart(task, hints.env, dagName)
 		return withDefaultWorkingDir(spec, hints.defaultWorkingDir), nil
@@ -173,7 +173,7 @@ func (e *taskHandler) buildCommandSpec(ctx context.Context, task *coordinatorv1.
 	case coordinatorv1.Operation_OPERATION_RETRY:
 		hints, err := e.subprocessHints(ctx, task, originalTarget)
 		if err != nil {
-			return runtime.CmdSpec{}, err
+			return launcher.CmdSpec{}, err
 		}
 		if isQueueDispatchTask(task) {
 			spec := e.subCmdBuilder.QueueDispatchTaskRetry(task, hints.env, dagName)
@@ -183,10 +183,10 @@ func (e *taskHandler) buildCommandSpec(ctx context.Context, task *coordinatorv1.
 		return withDefaultWorkingDir(spec, hints.defaultWorkingDir), nil
 
 	case coordinatorv1.Operation_OPERATION_UNSPECIFIED:
-		return runtime.CmdSpec{}, fmt.Errorf("operation not specified")
+		return launcher.CmdSpec{}, fmt.Errorf("operation not specified")
 
 	default:
-		return runtime.CmdSpec{}, fmt.Errorf("unknown operation: %v", task.Operation)
+		return launcher.CmdSpec{}, fmt.Errorf("unknown operation: %v", task.Operation)
 	}
 }
 
@@ -263,7 +263,7 @@ func workspaceDefaultWorkingDir(task *coordinatorv1.Task) string {
 	return dir
 }
 
-func withDefaultWorkingDir(spec runtime.CmdSpec, workDir string) runtime.CmdSpec {
+func withDefaultWorkingDir(spec launcher.CmdSpec, workDir string) launcher.CmdSpec {
 	if strings.TrimSpace(workDir) == "" {
 		return spec
 	}

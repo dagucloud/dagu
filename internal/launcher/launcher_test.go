@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package runtime_test
+package launcher_test
 
 import (
 	"context"
@@ -21,7 +21,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/runtime"
+	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	"github.com/dagucloud/dagu/internal/test"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
@@ -39,7 +39,7 @@ func TestNewSubCmdBuilder(t *testing.T) {
 		},
 	}
 
-	builder := runtime.NewSubCmdBuilder(cfg)
+	builder := launcher.NewSubCmdBuilder(cfg)
 	require.NotNil(t, builder)
 }
 
@@ -56,9 +56,9 @@ func TestSubCmdBuilderStartInheritsParentEnv(t *testing.T) {
 		},
 	}
 
-	builder := runtime.NewSubCmdBuilder(cfg)
+	builder := launcher.NewSubCmdBuilder(cfg)
 	dag := &core.DAG{Location: "/tmp/test.yaml"}
-	spec := builder.Start(dag, runtime.StartOptions{})
+	spec := builder.Start(dag, launcher.StartOptions{})
 
 	assert.Contains(t, spec.Env, "SUBCMD_PARENT_ENV=from-parent")
 }
@@ -77,13 +77,13 @@ func TestSubCmdBuilderFilteredCommandsUseBaseEnv(t *testing.T) {
 		},
 	}
 
-	builder := runtime.NewSubCmdBuilder(cfg)
+	builder := launcher.NewSubCmdBuilder(cfg)
 	dag := &core.DAG{
 		Name:     "test-dag",
 		Location: "/tmp/test.yaml",
 	}
 
-	enqueueSpec := builder.Enqueue(dag, runtime.EnqueueOptions{})
+	enqueueSpec := builder.Enqueue(dag, launcher.EnqueueOptions{})
 	assert.Equal(t, baseEnv, enqueueSpec.Env)
 	assert.NotContains(t, enqueueSpec.Env, "SUBCMD_PARENT_ENV=from-parent")
 
@@ -124,7 +124,7 @@ steps:
 	require.NoError(t, attempt.Close(th.Context))
 
 	spec := th.SubCmdBuilder.Retry(dagFile.DAG, runID, "")
-	err = runtime.Run(th.Context, spec)
+	err = launcher.Run(th.Context, spec)
 	require.NoError(t, err, "env=%s", strings.Join(spec.Env, "\n"))
 }
 
@@ -159,7 +159,7 @@ steps:
 	require.NoError(t, attempt.Close(th.Context))
 
 	spec := th.SubCmdBuilder.Retry(dagFile.DAG, runID, "")
-	err = runtime.Run(th.Context, spec)
+	err = launcher.Run(th.Context, spec)
 	require.NoError(t, err, "env=%s", strings.Join(spec.Env, "\n"))
 }
 
@@ -194,7 +194,7 @@ steps:
 	require.NoError(t, attempt.Close(th.Context))
 
 	spec := th.SubCmdBuilder.Retry(dagFile.DAG, runID, "")
-	err = runtime.Run(th.Context, spec)
+	err = launcher.Run(th.Context, spec)
 	require.NoError(t, err, "env=%s", strings.Join(spec.Env, "\n"))
 }
 
@@ -236,9 +236,18 @@ steps:
 	freshCfg, err := loader.Load()
 	require.NoError(t, err)
 
-	spec := runtime.NewSubCmdBuilder(freshCfg).Retry(dagFile.DAG, runID, "")
-	err = runtime.Run(th.Context, spec)
+	spec := launcher.NewSubCmdBuilder(freshCfg).Retry(dagFile.DAG, runID, "")
+	err = launcher.Run(th.Context, spec)
 	require.NoError(t, err, "env=%s", strings.Join(spec.Env, "\n"))
+}
+
+// platformTestDuration returns the windows duration on Windows and the
+// non-windows duration elsewhere, giving slower platforms more headroom.
+func platformTestDuration(nonWindows, windows time.Duration) time.Duration {
+	if goruntime.GOOS == "windows" {
+		return windows
+	}
+	return nonWindows
 }
 
 func TestRunStartWithBuiltExecutablePreservesExplicitEnv(t *testing.T) {
@@ -255,8 +264,8 @@ steps:
     output: RESULT
 `, test.EnvOutput("EXPORTED_SECRET", "SUBCMD_START_EXPLICIT_ENV")))
 
-	spec := th.SubCmdBuilder.Start(dagFile.DAG, runtime.StartOptions{})
-	err := runtime.Start(th.Context, spec)
+	spec := th.SubCmdBuilder.Start(dagFile.DAG, launcher.StartOptions{})
+	err := launcher.Start(th.Context, spec)
 	require.NoError(t, err, "env=%s", strings.Join(spec.Env, "\n"))
 
 	var status exec.DAGRunStatus
@@ -287,12 +296,12 @@ steps:
     output: RESULT
 `, test.EnvOutput("EXPORTED_SECRET", "SUBCMD_START_SECRET_SOURCE")))
 
-	spec := th.SubCmdBuilder.Start(dagFile.DAG, runtime.StartOptions{})
+	spec := th.SubCmdBuilder.Start(dagFile.DAG, launcher.StartOptions{})
 	for _, entry := range spec.Env {
 		require.False(t, strings.HasPrefix(entry, "_DAGU_PRESOLVED_SECRET_"), "unexpected presolved secret transport env: %s", entry)
 	}
 
-	err := runtime.Start(th.Context, spec)
+	err := launcher.Start(th.Context, spec)
 	require.NoError(t, err, "env=%s", strings.Join(spec.Env, "\n"))
 
 	var status exec.DAGRunStatus
@@ -320,7 +329,7 @@ func TestStart(t *testing.T) {
 		},
 	}
 
-	builder := runtime.NewSubCmdBuilder(cfg)
+	builder := launcher.NewSubCmdBuilder(cfg)
 	dag := &core.DAG{
 		Name:     "test-dag",
 		Location: "/path/to/dag.yaml",
@@ -328,7 +337,7 @@ func TestStart(t *testing.T) {
 
 	t.Run("BasicStart", func(t *testing.T) {
 		t.Parallel()
-		opts := runtime.StartOptions{}
+		opts := launcher.StartOptions{}
 		spec := builder.Start(dag, opts)
 
 		assert.Equal(t, "/usr/bin/dagu", spec.Executable)
@@ -340,7 +349,7 @@ func TestStart(t *testing.T) {
 
 	t.Run("StartWithParams", func(t *testing.T) {
 		t.Parallel()
-		opts := runtime.StartOptions{
+		opts := launcher.StartOptions{
 			Params: "key=value",
 		}
 		spec := builder.Start(dag, opts)
@@ -351,7 +360,7 @@ func TestStart(t *testing.T) {
 
 	t.Run("StartWithQuiet", func(t *testing.T) {
 		t.Parallel()
-		opts := runtime.StartOptions{
+		opts := launcher.StartOptions{
 			Quiet: true,
 		}
 		spec := builder.Start(dag, opts)
@@ -361,7 +370,7 @@ func TestStart(t *testing.T) {
 
 	t.Run("StartWithDAGRunID", func(t *testing.T) {
 		t.Parallel()
-		opts := runtime.StartOptions{
+		opts := launcher.StartOptions{
 			DAGRunID: "test-run-id",
 		}
 		spec := builder.Start(dag, opts)
@@ -371,7 +380,7 @@ func TestStart(t *testing.T) {
 
 	t.Run("StartWithAllOptions", func(t *testing.T) {
 		t.Parallel()
-		opts := runtime.StartOptions{
+		opts := launcher.StartOptions{
 			Params:   "env=prod",
 			Quiet:    true,
 			DAGRunID: "full-test-id",
@@ -395,8 +404,8 @@ func TestStart(t *testing.T) {
 				ConfigFileUsed: "",
 			},
 		}
-		builderNoFile := runtime.NewSubCmdBuilder(cfgNoFile)
-		opts := runtime.StartOptions{}
+		builderNoFile := launcher.NewSubCmdBuilder(cfgNoFile)
+		opts := launcher.StartOptions{}
 		spec := builderNoFile.Start(dag, opts)
 
 		assert.NotContains(t, spec.Args, "--config")
@@ -412,7 +421,7 @@ func TestEnqueue(t *testing.T) {
 		},
 	}
 
-	builder := runtime.NewSubCmdBuilder(cfg)
+	builder := launcher.NewSubCmdBuilder(cfg)
 	dag := &core.DAG{
 		Name:       "test-dag",
 		Location:   "/path/to/dag.yaml",
@@ -421,7 +430,7 @@ func TestEnqueue(t *testing.T) {
 
 	t.Run("BasicEnqueue", func(t *testing.T) {
 		t.Parallel()
-		opts := runtime.EnqueueOptions{}
+		opts := launcher.EnqueueOptions{}
 		spec := builder.Enqueue(dag, opts)
 
 		assert.Equal(t, "/usr/bin/dagu", spec.Executable)
@@ -435,7 +444,7 @@ func TestEnqueue(t *testing.T) {
 
 	t.Run("EnqueueWithParams", func(t *testing.T) {
 		t.Parallel()
-		opts := runtime.EnqueueOptions{
+		opts := launcher.EnqueueOptions{
 			Params: "key=value",
 		}
 		spec := builder.Enqueue(dag, opts)
@@ -446,7 +455,7 @@ func TestEnqueue(t *testing.T) {
 
 	t.Run("EnqueueWithQuiet", func(t *testing.T) {
 		t.Parallel()
-		opts := runtime.EnqueueOptions{
+		opts := launcher.EnqueueOptions{
 			Quiet: true,
 		}
 		spec := builder.Enqueue(dag, opts)
@@ -456,7 +465,7 @@ func TestEnqueue(t *testing.T) {
 
 	t.Run("EnqueueWithDAGRunID", func(t *testing.T) {
 		t.Parallel()
-		opts := runtime.EnqueueOptions{
+		opts := launcher.EnqueueOptions{
 			DAGRunID: "enqueue-run-id",
 		}
 		spec := builder.Enqueue(dag, opts)
@@ -466,7 +475,7 @@ func TestEnqueue(t *testing.T) {
 
 	t.Run("EnqueueWithQueue", func(t *testing.T) {
 		t.Parallel()
-		opts := runtime.EnqueueOptions{
+		opts := launcher.EnqueueOptions{
 			Queue: "custom-queue",
 		}
 		spec := builder.Enqueue(dag, opts)
@@ -477,7 +486,7 @@ func TestEnqueue(t *testing.T) {
 
 	t.Run("EnqueueWithAllOptions", func(t *testing.T) {
 		t.Parallel()
-		opts := runtime.EnqueueOptions{
+		opts := launcher.EnqueueOptions{
 			Params:   "env=staging",
 			Quiet:    true,
 			DAGRunID: "full-enqueue-id",
@@ -505,7 +514,7 @@ func TestDequeue(t *testing.T) {
 		},
 	}
 
-	builder := runtime.NewSubCmdBuilder(cfg)
+	builder := launcher.NewSubCmdBuilder(cfg)
 	dag := &core.DAG{
 		Name:       "test-dag",
 		Location:   "/path/to/dag.yaml",
@@ -535,7 +544,7 @@ func TestDequeue(t *testing.T) {
 				Executable: "/usr/bin/dagu",
 			},
 		}
-		builderNoFile := runtime.NewSubCmdBuilder(cfgNoFile)
+		builderNoFile := launcher.NewSubCmdBuilder(cfgNoFile)
 		dagRun := exec.NewDAGRunRef("test-dag", "run-456")
 		spec := builderNoFile.Dequeue(dag, dagRun)
 
@@ -571,7 +580,7 @@ func TestRestart(t *testing.T) {
 		},
 	}
 
-	builder := runtime.NewSubCmdBuilder(cfg)
+	builder := launcher.NewSubCmdBuilder(cfg)
 	dag := &core.DAG{
 		Name:       "test-dag",
 		Location:   "/path/to/dag.yaml",
@@ -580,7 +589,7 @@ func TestRestart(t *testing.T) {
 
 	t.Run("BasicRestart", func(t *testing.T) {
 		t.Parallel()
-		opts := runtime.RestartOptions{}
+		opts := launcher.RestartOptions{}
 		spec := builder.Restart(dag, opts)
 
 		assert.Equal(t, "/usr/bin/dagu", spec.Executable)
@@ -592,7 +601,7 @@ func TestRestart(t *testing.T) {
 
 	t.Run("RestartWithQuiet", func(t *testing.T) {
 		t.Parallel()
-		opts := runtime.RestartOptions{
+		opts := launcher.RestartOptions{
 			Quiet: true,
 		}
 		spec := builder.Restart(dag, opts)
@@ -602,7 +611,7 @@ func TestRestart(t *testing.T) {
 
 	t.Run("RestartWithScheduleTime", func(t *testing.T) {
 		t.Parallel()
-		opts := runtime.RestartOptions{
+		opts := launcher.RestartOptions{
 			ScheduleTime: "2026-03-13T10:00:00Z",
 		}
 		spec := builder.Restart(dag, opts)
@@ -617,8 +626,8 @@ func TestRestart(t *testing.T) {
 				Executable: "/usr/bin/dagu",
 			},
 		}
-		builderNoFile := runtime.NewSubCmdBuilder(cfgNoFile)
-		opts := runtime.RestartOptions{}
+		builderNoFile := launcher.NewSubCmdBuilder(cfgNoFile)
+		opts := launcher.RestartOptions{}
 		spec := builderNoFile.Restart(dag, opts)
 
 		assert.NotContains(t, spec.Args, "--config")
@@ -633,7 +642,7 @@ func TestRetry(t *testing.T) {
 		},
 	}
 
-	builder := runtime.NewSubCmdBuilder(cfg)
+	builder := launcher.NewSubCmdBuilder(cfg)
 	dag := &core.DAG{
 		Name:       "test-dag",
 		Location:   "/path/to/dag.yaml",
@@ -690,7 +699,7 @@ func TestRetry(t *testing.T) {
 				Executable: "/usr/bin/dagu",
 			},
 		}
-		builderNoFile := runtime.NewSubCmdBuilder(cfgNoFile)
+		builderNoFile := launcher.NewSubCmdBuilder(cfgNoFile)
 		spec := builderNoFile.Retry(dag, "retry-run-id", "")
 
 		assert.NotContains(t, spec.Args, "--config")
@@ -706,7 +715,7 @@ func TestTaskStart(t *testing.T) {
 		},
 	}
 
-	builder := runtime.NewSubCmdBuilder(cfg)
+	builder := launcher.NewSubCmdBuilder(cfg)
 
 	t.Run("BasicTaskStart", func(t *testing.T) {
 		t.Parallel()
@@ -882,7 +891,7 @@ func TestTaskStart(t *testing.T) {
 				Executable: "/usr/bin/dagu",
 			},
 		}
-		builderNoFile := runtime.NewSubCmdBuilder(cfgNoFile)
+		builderNoFile := launcher.NewSubCmdBuilder(cfgNoFile)
 		task := &coordinatorv1.Task{
 			DagRunId:  "task-run-id",
 			AttemptId: "attempt-1",
@@ -902,7 +911,7 @@ func TestTaskRetry(t *testing.T) {
 		},
 	}
 
-	builder := runtime.NewSubCmdBuilder(cfg)
+	builder := launcher.NewSubCmdBuilder(cfg)
 
 	t.Run("BasicTaskRetry", func(t *testing.T) {
 		t.Parallel()
@@ -1010,7 +1019,7 @@ func TestTaskRetry(t *testing.T) {
 				Executable: "/usr/bin/dagu",
 			},
 		}
-		builderNoFile := runtime.NewSubCmdBuilder(cfgNoFile)
+		builderNoFile := launcher.NewSubCmdBuilder(cfgNoFile)
 		task := &coordinatorv1.Task{
 			DagRunId:  "retry-run-id",
 			AttemptId: "attempt-2",
@@ -1026,7 +1035,7 @@ func TestCmdSpec(t *testing.T) {
 	t.Parallel()
 	t.Run("CmdSpecStructure", func(t *testing.T) {
 		t.Parallel()
-		spec := runtime.CmdSpec{
+		spec := launcher.CmdSpec{
 			Executable: "/usr/bin/test",
 			Args:       []string{"arg1", "arg2"},
 			Env:        []string{"VAR=value"},
@@ -1045,7 +1054,7 @@ func TestCmdSpec(t *testing.T) {
 func TestStartProcessReportsPIDAndCompletion(t *testing.T) {
 	t.Parallel()
 
-	result, err := runtime.StartProcess(context.Background(), exitingCommandSpec())
+	result, err := launcher.StartProcess(context.Background(), exitingCommandSpec())
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Positive(t, result.PID)
@@ -1060,14 +1069,14 @@ func TestStartProcessReportsPIDAndCompletion(t *testing.T) {
 	}
 }
 
-func exitingCommandSpec() runtime.CmdSpec {
+func exitingCommandSpec() launcher.CmdSpec {
 	if goruntime.GOOS == "windows" {
-		return runtime.CmdSpec{
+		return launcher.CmdSpec{
 			Executable: "cmd.exe",
 			Args:       []string{"/c", "exit", "0"},
 		}
 	}
-	return runtime.CmdSpec{
+	return launcher.CmdSpec{
 		Executable: "/bin/sh",
 		Args:       []string{"-c", "exit 0"},
 	}

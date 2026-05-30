@@ -18,7 +18,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/dispatch"
-	"github.com/dagucloud/dagu/internal/runtime"
+	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
@@ -57,7 +57,7 @@ import (
 // - ExecuteDAG(): Executes/dispatches already-persisted jobs (no persistence)
 type DAGExecutor struct {
 	coordinatorCli  exec.Dispatcher
-	subCmdBuilder   *runtime.SubCmdBuilder
+	subCmdBuilder   *launcher.SubCmdBuilder
 	defaultExecMode config.ExecutionMode
 	baseConfigPath  string
 	snapshotBuilder func(context.Context, *core.DAG) ([]byte, error)
@@ -66,7 +66,7 @@ type DAGExecutor struct {
 // NewDAGExecutor creates a new DAGExecutor instance.
 func NewDAGExecutor(
 	coordinatorCli exec.Dispatcher,
-	subCmdBuilder *runtime.SubCmdBuilder,
+	subCmdBuilder *launcher.SubCmdBuilder,
 	defaultExecMode config.ExecutionMode,
 	baseConfigPath string,
 	snapshotBuilder func(context.Context, *core.DAG) ([]byte, error),
@@ -115,12 +115,12 @@ func (e *DAGExecutor) HandleJob(
 			slog.Any("worker-selector", dag.WorkerSelector),
 		)
 
-		spec := e.subCmdBuilder.Enqueue(dag, runtime.EnqueueOptions{
+		spec := e.subCmdBuilder.Enqueue(dag, launcher.EnqueueOptions{
 			DAGRunID:     runID,
 			TriggerType:  triggerType.String(),
 			ScheduleTime: stringutil.FormatTime(scheduleTime),
 		})
-		if err := runtime.Run(ctx, spec); err != nil {
+		if err := launcher.Run(ctx, spec); err != nil {
 			return fmt.Errorf("failed to enqueue DAG run: %w", err)
 		}
 		return nil
@@ -195,17 +195,17 @@ func (e *DAGExecutor) ExecuteDAG(
 		return fmt.Errorf("operation not specified")
 
 	case coordinatorv1.Operation_OPERATION_START:
-		spec := e.subCmdBuilder.Start(dag, runtime.StartOptions{
+		spec := e.subCmdBuilder.Start(dag, launcher.StartOptions{
 			DAGRunID:     runID,
 			Quiet:        true,
 			TriggerType:  triggerType.String(),
 			ScheduleTime: scheduleTime,
 		})
-		return runtime.Start(ctx, spec)
+		return launcher.Start(ctx, spec)
 
 	case coordinatorv1.Operation_OPERATION_RETRY:
 		spec := e.subCmdBuilder.QueueDispatchRetry(dag, runID, "")
-		return runtime.Run(ctx, spec)
+		return launcher.Run(ctx, spec)
 
 	default:
 		return fmt.Errorf("unsupported operation: %v", operation)
@@ -265,11 +265,11 @@ func (e *DAGExecutor) Restart(ctx context.Context, dag *core.DAG, scheduleTime t
 	if err != nil {
 		return fmt.Errorf("failed to prepare DAG env for restart: %w", err)
 	}
-	spec := e.subCmdBuilder.Restart(prepared, runtime.RestartOptions{
+	spec := e.subCmdBuilder.Restart(prepared, launcher.RestartOptions{
 		Quiet:        true,
 		ScheduleTime: stringutil.FormatTime(scheduleTime),
 	})
-	return runtime.Start(ctx, spec)
+	return launcher.Start(ctx, spec)
 }
 
 func (e *DAGExecutor) prepareDAGForSubprocess(ctx context.Context, dag *core.DAG, params any) (*core.DAG, error) {
