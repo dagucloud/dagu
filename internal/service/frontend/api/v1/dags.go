@@ -28,6 +28,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
+	"github.com/dagucloud/dagu/internal/dispatch"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/service/audit"
@@ -1488,7 +1489,7 @@ func (a *API) startPreparedDAGRunWithOptions(
 	dispatchParams string,
 ) error {
 	// Check if this DAG should be dispatched to the coordinator for distributed execution
-	if core.ShouldDispatchToCoordinator(dag, a.coordinatorCli != nil, a.defaultExecMode) {
+	if dispatch.ShouldDispatchToCoordinator(dag, a.coordinatorCli != nil, a.defaultExecMode) {
 		timeout := 10 * time.Second
 		if osrt.GOOS == "windows" {
 			timeout = 20 * time.Second

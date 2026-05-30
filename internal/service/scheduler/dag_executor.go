@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
+	"github.com/dagucloud/dagu/internal/dispatch"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
@@ -212,10 +213,10 @@ func (e *DAGExecutor) ExecuteDAG(
 }
 
 // shouldUseDistributedExecution checks if distributed execution should be used.
-// Delegates to core.ShouldDispatchToCoordinator for consistent dispatch logic
+// Delegates to dispatch.ShouldDispatchToCoordinator for consistent dispatch logic
 // across all execution paths (API, CLI, scheduler, sub-DAG).
 func (e *DAGExecutor) shouldUseDistributedExecution(dag *core.DAG) bool {
-	return core.ShouldDispatchToCoordinator(dag, e.coordinatorCli != nil, e.defaultExecMode)
+	return dispatch.ShouldDispatchToCoordinator(dag, e.coordinatorCli != nil, e.defaultExecMode)
 }
 
 // IsDistributed returns whether the given DAG would use distributed execution.

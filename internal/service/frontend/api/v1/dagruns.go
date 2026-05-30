@@ -38,6 +38,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/spec"
 	spectypes "github.com/dagucloud/dagu/internal/core/spec/types"
 	"github.com/dagucloud/dagu/internal/dagrun/intake"
+	"github.com/dagucloud/dagu/internal/dispatch"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/service/audit"
@@ -2596,7 +2597,7 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 	}
 
 	// Check if this DAG should be dispatched to the coordinator for distributed execution
-	if core.ShouldDispatchToCoordinator(dag, a.coordinatorCli != nil, a.defaultExecMode) {
+	if dispatch.ShouldDispatchToCoordinator(dag, a.coordinatorCli != nil, a.defaultExecMode) {
 		// Get previous status for retry context
 		prevStatus, err := attempt.ReadStatus(ctx)
 		if err != nil {
@@ -2815,7 +2816,7 @@ func (a *API) TerminateDAGRun(ctx context.Context, request api.TerminateDAGRunRe
 			return nil, fmt.Errorf("error reading DAG: %w", err)
 		}
 
-		if core.ShouldDispatchToCoordinator(dag, a.coordinatorCli != nil, a.defaultExecMode) {
+		if dispatch.ShouldDispatchToCoordinator(dag, a.coordinatorCli != nil, a.defaultExecMode) {
 			// For distributed DAGs, use saved status for running check
 			if savedStatus.Status != core.Running {
 				return nil, &Error{

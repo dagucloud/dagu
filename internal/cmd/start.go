@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
+	"github.com/dagucloud/dagu/internal/dispatch"
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	"github.com/dagucloud/dagu/internal/runtime/agent"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
@@ -230,7 +231,7 @@ func tryExecuteDAG(ctx *Context, dag *core.DAG, dagRunID string, root exec.DAGRu
 	// Skip if already running on a worker (workerID != "local").
 	if workerID == "local" {
 		coordinatorCli := ctx.NewCoordinatorClient()
-		if core.ShouldDispatchToCoordinator(dag, coordinatorCli != nil, ctx.Config.DefaultExecMode) {
+		if dispatch.ShouldDispatchToCoordinator(dag, coordinatorCli != nil, ctx.Config.DefaultExecMode) {
 			return dispatchToCoordinatorAndWait(ctx, dag, dagRunID, scheduleTime, coordinatorCli)
 		}
 	}
