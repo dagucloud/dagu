@@ -19,8 +19,6 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/internal/cmn/eval"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/internal/cmn/logger"
-	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/joho/godotenv"
 	"github.com/robfig/cron/v3"
 )
@@ -580,7 +578,7 @@ func (d *DAG) loadSingleDotEnvFile(ctx context.Context, resolver *fileutil.FileR
 
 	evaluatedPath, err := eval.String(ctx, filePath, eval.WithOSExpansion())
 	if err != nil {
-		logger.Warn(ctx, "Failed to evaluate filepath", tag.File(filePath), tag.Error(err))
+		d.BuildWarnings = append(d.BuildWarnings, fmt.Sprintf("failed to evaluate dotenv path %q: %v", filePath, err))
 		return
 	}
 
@@ -591,14 +589,13 @@ func (d *DAG) loadSingleDotEnvFile(ctx context.Context, resolver *fileutil.FileR
 
 	vars, err := godotenv.Read(resolvedPath)
 	if err != nil {
-		logger.Warn(ctx, "Failed to load .env file", tag.File(resolvedPath), tag.Error(err))
+		d.BuildWarnings = append(d.BuildWarnings, fmt.Sprintf("failed to load .env file %q: %v", resolvedPath, err))
 		return
 	}
 
 	for k, v := range vars {
 		d.Env = append(d.Env, fmt.Sprintf("%s=%s", k, v))
 	}
-	logger.Info(ctx, "Loaded dotenv file", tag.File(resolvedPath))
 }
 
 // initializeDefaults sets the default values for the DAG.
