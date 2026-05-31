@@ -5,6 +5,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -55,6 +56,40 @@ type dispatchTaskPayload struct {
 	WorkerID     string                   `json:"workerId,omitempty"`
 	PollerID     string                   `json:"pollerId,omitempty"`
 	Owner        exec.CoordinatorEndpoint `json:"owner,omitzero"`
+}
+
+type legacyDAGRunStatusProto struct {
+	JSONData string `json:"json_data,omitempty"`
+}
+
+var legacyDispatchTaskJSONFields = map[string]string{
+	"root_dag_run_name":             "RootDAGRunName",
+	"root_dag_run_id":               "RootDAGRunID",
+	"parent_dag_run_name":           "ParentDAGRunName",
+	"parent_dag_run_id":             "ParentDAGRunID",
+	"operation":                     "Operation",
+	"dag_run_id":                    "DAGRunID",
+	"target":                        "Target",
+	"definition":                    "Definition",
+	"worker_id":                     "WorkerID",
+	"attempt_id":                    "AttemptID",
+	"attempt_key":                   "AttemptKey",
+	"step":                          "Step",
+	"params":                        "Params",
+	"queue_name":                    "QueueName",
+	"base_config":                   "BaseConfig",
+	"labels":                        "Labels",
+	"schedule_time":                 "ScheduleTime",
+	"source_file":                   "SourceFile",
+	"worker_selector":               "WorkerSelector",
+	"agent_snapshot":                "AgentSnapshot",
+	"external_step_retry":           "ExternalStepRetry",
+	"workspace_bundle_digest":       "WorkspaceBundleDigest",
+	"workspace_bundle_size":         "WorkspaceBundleSize",
+	"workspace_bundle_dag_path":     "WorkspaceBundleDAGPath",
+	"workspace_bundle_original_ref": "WorkspaceBundleOriginalRef",
+	"workspace_bundle_resolved_ref": "WorkspaceBundleResolvedRef",
+	"claim_token":                   "ClaimToken",
 }
 
 // WithDispatchReservationTTL sets how long pending and claimed dispatch
@@ -480,7 +515,111 @@ func dispatchTaskPayloadFromRecord(rec *persis.Record) (dispatchTaskPayload, err
 	if err := persis.Decode(rec, &payload); err != nil {
 		return dispatchTaskPayload{}, fmt.Errorf("dispatch task store: decode %q: %w", rec.ID, err)
 	}
+	task, err := legacyDispatchTaskFromRecord(rec.Data)
+	if err != nil {
+		return dispatchTaskPayload{}, fmt.Errorf("dispatch task store: decode legacy task %q: %w", rec.ID, err)
+	}
+	if task != nil {
+		payload.Task = task
+	}
 	return payload, nil
+}
+
+func legacyDispatchTaskFromRecord(data []byte) (*exec.DispatchTask, error) {
+	var raw struct {
+		Task map[string]json.RawMessage `json:"task"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+	if len(raw.Task) == 0 {
+		return nil, nil
+	}
+
+	current := make(map[string]json.RawMessage, len(raw.Task))
+	var hasLegacyKeys bool
+	for legacyKey, currentKey := range legacyDispatchTaskJSONFields {
+		value, ok := raw.Task[legacyKey]
+		if !ok {
+			continue
+		}
+		hasLegacyKeys = true
+		current[currentKey] = value
+	}
+	if statusData, ok := raw.Task["previous_status"]; ok {
+		hasLegacyKeys = true
+		previousStatus, err := legacyPreviousStatusJSON(statusData)
+		if err != nil {
+			return nil, err
+		}
+		if len(previousStatus) > 0 {
+			current["PreviousStatus"] = previousStatus
+		}
+	}
+	owner, ok, err := legacyOwnerJSON(raw.Task)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		hasLegacyKeys = true
+		current["Owner"] = owner
+	}
+	if !hasLegacyKeys {
+		return nil, nil
+	}
+
+	encoded, err := json.Marshal(current)
+	if err != nil {
+		return nil, err
+	}
+	var task exec.DispatchTask
+	if err := json.Unmarshal(encoded, &task); err != nil {
+		return nil, err
+	}
+	return &task, nil
+}
+
+func legacyPreviousStatusJSON(data json.RawMessage) (json.RawMessage, error) {
+	var status legacyDAGRunStatusProto
+	if err := json.Unmarshal(data, &status); err != nil {
+		return nil, fmt.Errorf("decode previous status wrapper: %w", err)
+	}
+	if status.JSONData == "" {
+		return nil, nil
+	}
+	var decoded exec.DAGRunStatus
+	if err := json.Unmarshal([]byte(status.JSONData), &decoded); err != nil {
+		return nil, fmt.Errorf("decode previous status: %w", err)
+	}
+	return json.RawMessage(status.JSONData), nil
+}
+
+func legacyOwnerJSON(fields map[string]json.RawMessage) (json.RawMessage, bool, error) {
+	var owner exec.CoordinatorEndpoint
+	var ok bool
+	if err := decodeLegacyOwnerField(fields, "owner_coordinator_id", &owner.ID, &ok); err != nil {
+		return nil, false, err
+	}
+	if err := decodeLegacyOwnerField(fields, "owner_coordinator_host", &owner.Host, &ok); err != nil {
+		return nil, false, err
+	}
+	if err := decodeLegacyOwnerField(fields, "owner_coordinator_port", &owner.Port, &ok); err != nil {
+		return nil, false, err
+	}
+	if !ok {
+		return nil, false, nil
+	}
+	data, err := json.Marshal(owner)
+	return data, true, err
+}
+
+func decodeLegacyOwnerField[T any](fields map[string]json.RawMessage, key string, dst *T, ok *bool) error {
+	value, exists := fields[key]
+	if !exists {
+		return nil
+	}
+	*ok = true
+	return json.Unmarshal(value, dst)
 }
 
 func pendingDispatchRecordID(fileName string) (string, error) {

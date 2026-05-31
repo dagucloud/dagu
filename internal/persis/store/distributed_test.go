@@ -393,6 +393,98 @@ func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {
 	assert.ErrorIs(t, err, exec.ErrDispatchTaskNotFound)
 }
 
+func TestDispatchTaskStore_ClaimsLegacyProtoJSONTaskRecord(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dir := t.TempDir()
+	s := store.NewDispatchTaskStore(file.NewCollection(dir))
+
+	statusData, err := json.Marshal(exec.DAGRunStatus{
+		Name:     "dag-legacy",
+		DAGRunID: "run-legacy",
+		Status:   core.Running,
+	})
+	require.NoError(t, err)
+
+	fileName := "task_00000000000000000001_legacy.json"
+	writeJSONFile(t, filepath.Join(dir, "pending", fileName), map[string]any{
+		"version":      1,
+		"taskFileName": fileName,
+		"enqueuedAt":   time.Now().UTC().UnixMilli(),
+		"task": map[string]any{
+			"root_dag_run_name":             "root-dag",
+			"root_dag_run_id":               "root-run",
+			"parent_dag_run_name":           "parent-dag",
+			"parent_dag_run_id":             "parent-run",
+			"operation":                     int32(exec.DispatchOperationRetry),
+			"dag_run_id":                    "run-legacy",
+			"target":                        "dag-legacy",
+			"definition":                    "steps:\n  - run: echo legacy\n",
+			"worker_id":                     "worker-old",
+			"attempt_id":                    "attempt-legacy",
+			"attempt_key":                   "attempt-key-legacy",
+			"step":                          "step-a",
+			"params":                        "PARAM=value",
+			"queue_name":                    "queue-legacy",
+			"base_config":                   "env:\n  - BASE=1\n",
+			"labels":                        "team=ops",
+			"schedule_time":                 "2026-05-31T00:00:00Z",
+			"source_file":                   "/dags/legacy.yaml",
+			"worker_selector":               map[string]string{"type": "gpu"},
+			"agent_snapshot":                []byte{1, 2, 3},
+			"external_step_retry":           true,
+			"workspace_bundle_digest":       "sha256:legacy",
+			"workspace_bundle_size":         42,
+			"workspace_bundle_dag_path":     "legacy.yaml",
+			"workspace_bundle_original_ref": "main",
+			"workspace_bundle_resolved_ref": "abc123",
+			"owner_coordinator_id":          "coord-old",
+			"owner_coordinator_host":        "old.example.test",
+			"owner_coordinator_port":        int32(8090),
+			"claim_token":                   "claim-old",
+			"previous_status":               map[string]any{"json_data": string(statusData)},
+		},
+	})
+
+	claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		WorkerID: "worker-1",
+		PollerID: "poller-1",
+		Labels:   map[string]string{"type": "gpu"},
+		Owner:    exec.CoordinatorEndpoint{ID: "coord-new", Host: "new.example.test", Port: 9090},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	require.NotNil(t, claimed.Task)
+
+	assert.Equal(t, "root-dag", claimed.Task.RootDAGRunName)
+	assert.Equal(t, "root-run", claimed.Task.RootDAGRunID)
+	assert.Equal(t, "parent-dag", claimed.Task.ParentDAGRunName)
+	assert.Equal(t, "parent-run", claimed.Task.ParentDAGRunID)
+	assert.Equal(t, exec.DispatchOperationRetry, claimed.Task.Operation)
+	assert.Equal(t, "run-legacy", claimed.Task.DAGRunID)
+	assert.Equal(t, "dag-legacy", claimed.Task.Target)
+	assert.Equal(t, "attempt-legacy", claimed.Task.AttemptID)
+	assert.Equal(t, "attempt-key-legacy", claimed.Task.AttemptKey)
+	assert.Equal(t, "step-a", claimed.Task.Step)
+	assert.Equal(t, "PARAM=value", claimed.Task.Params)
+	assert.Equal(t, "queue-legacy", claimed.Task.QueueName)
+	assert.Equal(t, "team=ops", claimed.Task.Labels)
+	assert.Equal(t, map[string]string{"type": "gpu"}, claimed.Task.WorkerSelector)
+	assert.Equal(t, []byte{1, 2, 3}, claimed.Task.AgentSnapshot)
+	assert.Equal(t, "sha256:legacy", claimed.Task.WorkspaceBundleDigest)
+	assert.Equal(t, int64(42), claimed.Task.WorkspaceBundleSize)
+	assert.Equal(t, "legacy.yaml", claimed.Task.WorkspaceBundleDAGPath)
+	assert.Equal(t, "main", claimed.Task.WorkspaceBundleOriginalRef)
+	assert.Equal(t, "abc123", claimed.Task.WorkspaceBundleResolvedRef)
+	assert.Equal(t, exec.CoordinatorEndpoint{ID: "coord-new", Host: "new.example.test", Port: 9090}, claimed.Task.Owner)
+	assert.NotEmpty(t, claimed.Task.ClaimToken)
+	require.NotNil(t, claimed.Task.PreviousStatus)
+	assert.Equal(t, "dag-legacy", claimed.Task.PreviousStatus.Name)
+	assert.Equal(t, "run-legacy", claimed.Task.PreviousStatus.DAGRunID)
+	assert.Equal(t, core.Running, claimed.Task.PreviousStatus.Status)
+}
+
 func TestDispatchTaskStore_ReleaseClaimReturnsTaskToPending(t *testing.T) {
 	t.Parallel()
 
