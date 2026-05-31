@@ -70,10 +70,13 @@ func ResolveEnvWithWarnings(ctx context.Context, dag *core.DAG, params any, opts
 	}
 
 	cloned := dag.Clone()
+	cloned.BuildWarnings = append([]string(nil), cloned.BuildWarnings...)
 	if hasRuntimeParams(params) {
 		// Recompute DAG/base-config env entries for the new runtime params instead
 		// of short-circuiting to whatever happened to be on the current snapshot.
 		cloned.Env = nil
+	} else {
+		cloned.Env = append([]string(nil), cloned.Env...)
 	}
 	warningStart := len(cloned.BuildWarnings)
 	cloned.LoadDotEnv(ctx)

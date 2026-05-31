@@ -103,14 +103,14 @@ func (e *DAGExecutor) HandleJob(
 ) error {
 	// For distributed execution with START operation, enqueue for persistence
 	if e.shouldUseDistributedExecution(dag) && operation == coordinatorv1.Operation_OPERATION_START {
-		dag, err := e.prepareDAGForSubprocess(ctx, dag, "")
-		if err != nil {
-			return fmt.Errorf("failed to prepare DAG env for enqueue: %w", err)
-		}
 		ctx = logger.WithValues(ctx,
 			tag.DAG(dag.Name),
 			tag.RunID(runID),
 		)
+		dag, err := e.prepareDAGForSubprocess(ctx, dag, "")
+		if err != nil {
+			return fmt.Errorf("failed to prepare DAG env for enqueue: %w", err)
+		}
 
 		logger.Info(ctx, "Enqueueing DAG for distributed execution",
 			slog.Any("worker-selector", dag.WorkerSelector),

@@ -72,6 +72,57 @@ steps:
 	require.Contains(t, result.BuildWarnings[0], "failed to load .env file")
 }
 
+func TestResolveEnvWithWarningsDoesNotMutateDAGBackingSlices(t *testing.T) {
+	t.Parallel()
+
+	t.Run("env", func(t *testing.T) {
+		t.Parallel()
+
+		root := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(root, ".env"), []byte("DOTENV_VALUE=ready\n"), 0o600))
+
+		dag, err := spec.LoadYAMLWithOpts(context.Background(), fmt.Appendf(nil, `
+working_dir: %s
+dotenv: .env
+steps:
+  - run: echo hello
+`, root), spec.BuildOpts{Flags: spec.BuildFlagNoEval})
+		require.NoError(t, err)
+
+		dag.Env = make([]string, 0, 1)
+
+		result, err := spec.ResolveEnvWithWarnings(context.Background(), dag, nil, spec.ResolveEnvOptions{})
+		require.NoError(t, err)
+		require.Contains(t, result.Env, "DOTENV_VALUE=ready")
+		require.Empty(t, dag.Env)
+		require.Empty(t, dag.Env[:cap(dag.Env)][0])
+	})
+
+	t.Run("build warnings", func(t *testing.T) {
+		t.Parallel()
+
+		root := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(root, ".env"), []byte("INVALID LINE\n"), 0o600))
+
+		dag, err := spec.LoadYAMLWithOpts(context.Background(), fmt.Appendf(nil, `
+working_dir: %s
+dotenv: .env
+steps:
+  - run: echo hello
+`, root), spec.BuildOpts{Flags: spec.BuildFlagNoEval})
+		require.NoError(t, err)
+
+		dag.BuildWarnings = make([]string, 1, 2)
+		dag.BuildWarnings[0] = "existing warning"
+
+		result, err := spec.ResolveEnvWithWarnings(context.Background(), dag, nil, spec.ResolveEnvOptions{})
+		require.NoError(t, err)
+		require.Len(t, result.BuildWarnings, 1)
+		require.Len(t, dag.BuildWarnings, 1)
+		require.Empty(t, dag.BuildWarnings[:cap(dag.BuildWarnings)][1])
+	})
+}
+
 func runtimeEnvSliceMap(envs []string) map[string]string {
 	envMap := make(map[string]string)
 	for _, env := range envs {
