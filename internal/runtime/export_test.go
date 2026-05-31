@@ -7,6 +7,7 @@ import (
 	"context"
 	"maps"
 
+	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 )
 
@@ -18,6 +19,11 @@ func (r *Runner) SetupChatMessages(ctx context.Context, node *Node) {
 // SetupPushBackConversation exports setupPushBackConversation for testing.
 func (r *Runner) SetupPushBackConversation(ctx context.Context, node *Node) {
 	r.setupPushBackConversation(ctx, node)
+}
+
+// StepSupportsChatMessages exposes stepSupportsChatMessages for testing.
+func StepSupportsChatMessages(step core.Step) bool {
+	return stepSupportsChatMessages(step)
 }
 
 // SetApprovalIteration sets the approval iteration count for testing.

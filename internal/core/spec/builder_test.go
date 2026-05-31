@@ -3054,6 +3054,39 @@ steps:
 		assert.Equal(t, true, fallback[0]["full-auto"])
 	})
 
+	t.Run("StepInheritsBuiltinHarnessFromDAG", func(t *testing.T) {
+		yaml := `
+harness:
+  provider: builtin
+  model: coder-default
+  tools:
+    enabled: [read, bash, patch, think]
+  fallback:
+    - provider: codex
+      full-auto: true
+steps:
+  - name: step1
+    action: harness.run
+    with:
+      prompt: "Review this repository"
+      max_iterations: 20
+`
+		dag, err := spec.LoadYAML(context.Background(), []byte(yaml))
+		require.NoError(t, err)
+		require.NotNil(t, dag.Harness)
+		require.Len(t, dag.Steps, 1)
+
+		step := dag.Steps[0]
+		assert.Equal(t, "harness", step.ExecutorConfig.Type)
+		assert.Equal(t, "builtin", step.ExecutorConfig.Config["provider"])
+		assert.Equal(t, "coder-default", step.ExecutorConfig.Config["model"])
+		assert.EqualValues(t, 20, step.ExecutorConfig.Config["max_iterations"])
+		fallback := mustHarnessFallback(t, step.ExecutorConfig.Config["fallback"])
+		require.Len(t, fallback, 1)
+		assert.Equal(t, "codex", fallback[0]["provider"])
+		assert.Equal(t, true, fallback[0]["full-auto"])
+	})
+
 	t.Run("StepOverridesPrimaryConfigAndInheritsFallback", func(t *testing.T) {
 		yaml := `
 harness:
@@ -3270,6 +3303,19 @@ steps:
 harnesses:
   claude:
     binary: gemini
+steps:
+  - run: "Review this repository"
+`
+		_, err := spec.LoadYAML(context.Background(), []byte(yaml))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `conflicts with built-in provider`)
+	})
+
+	t.Run("BuiltinAgentHarnessNameCollisionFailsBuild", func(t *testing.T) {
+		yaml := `
+harnesses:
+  builtin:
+    binary: my-agent
 steps:
   - run: "Review this repository"
 `

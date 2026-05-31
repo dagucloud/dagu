@@ -2857,7 +2857,10 @@ func validateHarnessProviderConfig(defs core.HarnessDefinitions, cfg map[string]
 	if strings.Contains(providerName, "${") {
 		return nil
 	}
-	if core.IsBuiltinHarnessProvider(providerName) {
+	if core.IsBuiltinAgentHarnessProvider(providerName) {
+		return core.ValidateBuiltinAgentHarnessConfig(cfg)
+	}
+	if core.IsBuiltinCLIHarnessProvider(providerName) {
 		return nil
 	}
 	if defs != nil {

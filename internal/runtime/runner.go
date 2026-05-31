@@ -627,8 +627,7 @@ func (r *Runner) setupChatMessages(ctx context.Context, node *Node) {
 
 	step := node.Step()
 
-	executorType := step.ExecutorConfig.Type
-	if !core.SupportsLLM(executorType) && !core.SupportsAgent(executorType) {
+	if !stepSupportsChatMessages(step) {
 		return
 	}
 
@@ -681,7 +680,7 @@ func (r *Runner) setupPushBackConversation(ctx context.Context, node *Node) {
 		return
 	}
 	step := node.Step()
-	if !core.SupportsAgent(step.ExecutorConfig.Type) && !core.SupportsLLM(step.ExecutorConfig.Type) {
+	if !stepSupportsChatMessages(step) {
 		return
 	}
 	if node.State().ApprovalIteration == 0 {
@@ -707,6 +706,50 @@ func (r *Runner) setupPushBackConversation(ctx context.Context, node *Node) {
 	// REPLACE (not merge) — dependencies are already embedded in the
 	// previous conversation from iteration 0.
 	node.SetChatMessages(ownMessages)
+}
+
+func stepSupportsChatMessages(step core.Step) bool {
+	executorType := step.ExecutorConfig.Type
+	if core.SupportsLLM(executorType) || core.SupportsAgent(executorType) {
+		return true
+	}
+	if executorType != "harness" {
+		return false
+	}
+	return harnessConfigHasBuiltinProvider(step.ExecutorConfig.Config)
+}
+
+func harnessConfigHasBuiltinProvider(cfg map[string]any) bool {
+	if cfg == nil {
+		return false
+	}
+	provider, _ := cfg["provider"].(string)
+	if provider == core.HarnessProviderBuiltin {
+		return true
+	}
+	switch fallbacks := cfg["fallback"].(type) {
+	case []any:
+		for _, fallback := range fallbacks {
+			fallbackCfg, ok := fallback.(map[string]any)
+			if !ok {
+				continue
+			}
+			provider, _ := fallbackCfg["provider"].(string)
+			if provider == core.HarnessProviderBuiltin {
+				return true
+			}
+		}
+	case []map[string]any:
+		for _, fallbackCfg := range fallbacks {
+			provider, _ := fallbackCfg["provider"].(string)
+			if provider == core.HarnessProviderBuiltin {
+				return true
+			}
+		}
+	default:
+		return false
+	}
+	return false
 }
 
 func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) context.Context {

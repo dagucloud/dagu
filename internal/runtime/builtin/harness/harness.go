@@ -22,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core"
+	coreexec "github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/runtime/resourcelimit"
@@ -31,6 +32,7 @@ import (
 var _ executor.Executor = (*harnessExecutor)(nil)
 var _ executor.Stopper = (*harnessExecutor)(nil)
 var _ executor.ExitCoder = (*harnessExecutor)(nil)
+var _ executor.ChatMessageHandler = (*harnessExecutor)(nil)
 var _ executor.PushBackAware = (*harnessExecutor)(nil)
 var _ executor.PushBackPreviousStdoutAware = (*harnessExecutor)(nil)
 
@@ -38,6 +40,7 @@ const failedStdoutTailLimit = 1024
 
 type providerConfig struct {
 	name       string
+	builtin    bool
 	provider   Provider
 	definition *core.HarnessDefinition
 	flags      map[string]any
@@ -54,10 +57,15 @@ type harnessExecutor struct {
 	stderr                 io.Writer
 	exitCode               int
 	stderrTail             *executor.TailWriter
+	step                   core.Step
 	configs                []providerConfig
 	prompt                 string
 	script                 string // piped to stdin if present
 	workDir                string
+	cancelBuiltin          context.CancelFunc
+	builtinStopped         bool
+	contextMessages        []coreexec.LLMMessage
+	savedMessages          []coreexec.LLMMessage
 	pushBackInputs         map[string]string
 	pushBackIteration      int
 	pushBackPreviousStdout string
@@ -75,6 +83,17 @@ func (e *harnessExecutor) SetStderr(out io.Writer) {
 	e.stderr = out
 }
 
+func (e *harnessExecutor) SetContext(msgs []coreexec.LLMMessage) {
+	e.contextMessages = append([]coreexec.LLMMessage(nil), msgs...)
+}
+
+func (e *harnessExecutor) GetMessages() []coreexec.LLMMessage {
+	if e.savedMessages == nil {
+		return append([]coreexec.LLMMessage(nil), e.contextMessages...)
+	}
+	return append([]coreexec.LLMMessage(nil), e.savedMessages...)
+}
+
 func (e *harnessExecutor) Kill(sig os.Signal) error {
 	return e.Stop(cmdutil.TerminationFromSignal(sig))
 }
@@ -87,6 +106,11 @@ func (e *harnessExecutor) stop(req cmdutil.StopRequest) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.process == nil {
+		if e.cancelBuiltin != nil {
+			e.builtinStopped = true
+			e.cancelBuiltin()
+			e.cancelBuiltin = nil
+		}
 		return nil
 	}
 	_, err := e.process.Stop(req)
@@ -170,6 +194,10 @@ func (e *harnessExecutor) Run(ctx context.Context) error {
 }
 
 func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.File, error) {
+	if cfg.builtin {
+		return e.runBuiltinOnce(ctx, cfg)
+	}
+
 	e.mu.Lock()
 
 	env := runtime.GetEnv(ctx)
@@ -395,6 +423,7 @@ func newHarness(ctx context.Context, step core.Step) (executor.Executor, error) 
 	return &harnessExecutor{
 		stdout:  os.Stdout,
 		stderr:  os.Stderr,
+		step:    step,
 		configs: configs,
 		prompt:  prompt,
 		script:  step.Script,
@@ -476,7 +505,10 @@ func resolveProvider(cfg map[string]any, defs core.HarnessDefinitions) (provider
 	if isTemplatedValue(providerName) {
 		return providerConfig{}, fmt.Errorf("harness: unresolved provider template %q", providerName)
 	}
-	if core.IsBuiltinHarnessProvider(providerName) {
+	if core.IsBuiltinAgentHarnessProvider(providerName) {
+		return providerConfig{name: providerName, builtin: true}, nil
+	}
+	if core.IsBuiltinCLIHarnessProvider(providerName) {
 		provider, err := getProvider(providerName)
 		if err != nil {
 			return providerConfig{}, err
@@ -694,6 +726,9 @@ func validateProviderConfig(cfg map[string]any, allowFallback bool) error {
 	}
 	if providerStr == "" {
 		return fmt.Errorf("harness: config.provider is required")
+	}
+	if providerStr == core.HarnessProviderBuiltin {
+		return core.ValidateBuiltinAgentHarnessConfig(cfg)
 	}
 	return nil
 }

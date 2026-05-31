@@ -4,6 +4,7 @@
 package core
 
 import (
+	"fmt"
 	"maps"
 	"sort"
 	"strings"
@@ -46,7 +47,12 @@ type HarnessDefinition struct {
 // Nil values are used internally during base-config merge to delete inherited entries.
 type HarnessDefinitions map[string]*HarnessDefinition
 
-var builtinHarnessProviders = map[string]struct{}{
+const (
+	// HarnessProviderBuiltin selects Dagu's in-process agent harness.
+	HarnessProviderBuiltin = "builtin"
+)
+
+var builtinHarnessCLIProviders = map[string]struct{}{
 	"claude":   {},
 	"codex":    {},
 	"copilot":  {},
@@ -56,14 +62,57 @@ var builtinHarnessProviders = map[string]struct{}{
 
 // IsBuiltinHarnessProvider reports whether name is a built-in harness provider.
 func IsBuiltinHarnessProvider(name string) bool {
-	_, ok := builtinHarnessProviders[name]
+	return IsBuiltinAgentHarnessProvider(name) || IsBuiltinCLIHarnessProvider(name)
+}
+
+// IsBuiltinAgentHarnessProvider reports whether name selects the in-process
+// agent harness instead of a CLI harness provider.
+func IsBuiltinAgentHarnessProvider(name string) bool {
+	return name == HarnessProviderBuiltin
+}
+
+// IsBuiltinCLIHarnessProvider reports whether name selects a built-in CLI
+// harness provider.
+func IsBuiltinCLIHarnessProvider(name string) bool {
+	_, ok := builtinHarnessCLIProviders[name]
 	return ok
+}
+
+var builtinAgentHarnessConfigKeys = map[string]struct{}{
+	"fallback":       {},
+	"max_iterations": {},
+	"memory":         {},
+	"model":          {},
+	"provider":       {},
+	"safe_mode":      {},
+	"skills":         {},
+	"soul":           {},
+	"tools":          {},
+	"web_search":     {},
+}
+
+// ValidateBuiltinAgentHarnessConfig rejects pass-through CLI flags for the
+// in-process agent harness provider.
+func ValidateBuiltinAgentHarnessConfig(cfg map[string]any) error {
+	for key := range cfg {
+		if _, ok := builtinAgentHarnessConfigKeys[key]; !ok {
+			return fmt.Errorf("unsupported builtin provider field %q", key)
+		}
+	}
+	return nil
 }
 
 // BuiltinHarnessProviderNames returns the built-in harness provider names.
 func BuiltinHarnessProviderNames() []string {
-	names := make([]string, 0, len(builtinHarnessProviders))
-	for name := range builtinHarnessProviders {
+	names := append([]string{HarnessProviderBuiltin}, BuiltinCLIHarnessProviderNames()...)
+	sort.Strings(names)
+	return names
+}
+
+// BuiltinCLIHarnessProviderNames returns the built-in CLI harness provider names.
+func BuiltinCLIHarnessProviderNames() []string {
+	names := make([]string, 0, len(builtinHarnessCLIProviders))
+	for name := range builtinHarnessCLIProviders {
 		names = append(names, name)
 	}
 	sort.Strings(names)

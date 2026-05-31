@@ -2019,7 +2019,7 @@ func mergeHarnessConfig(dagHarness *core.HarnessConfig, stepConfig map[string]an
 	if effectiveProvider == "" && dagHarness != nil {
 		effectiveProvider = harnessProviderName(dagHarness.Config)
 	}
-	if core.IsBuiltinHarnessProvider(effectiveProvider) {
+	if core.IsBuiltinCLIHarnessProvider(effectiveProvider) {
 		stepConfig = core.NormalizeBuiltinHarnessFlagKeys(stepConfig)
 	}
 
@@ -2033,7 +2033,7 @@ func mergeHarnessConfig(dagHarness *core.HarnessConfig, stepConfig map[string]an
 	}
 
 	dagConfig := dagHarness.Config
-	if core.IsBuiltinHarnessProvider(effectiveProvider) {
+	if core.IsBuiltinCLIHarnessProvider(effectiveProvider) {
 		dagConfig = core.NormalizeBuiltinHarnessFlagKeys(dagConfig)
 	}
 

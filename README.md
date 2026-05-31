@@ -202,7 +202,7 @@ Managed Dagu instances do not expose a Docker daemon or Docker socket. Workflows
 - **Multiplayer Agent:** Shared [AI agents](https://docs.dagu.sh/features/agent/) integrated into workflows, the Web UI, and chat tools (Slack, Telegram, Discord, etc.).
 - **Built-in Approvals:** The [Human-in-the-loop steps](https://docs.dagu.sh/writing-workflows/approval#approval) for manual approvals, review, and intervention in any workflow.
 - **MCP Server:** Built-in [MCP server](https://docs.dagu.sh/mcp/) for authoring and running workflows via AI agents like Claude Code, Codex, Gemini CLI, Pi, OpenCode, and more.
-- **Harness-agnostic:** You can run any coding agent (Claude Code, Codex, Gemini CLI, Pi, OpenCode, etc.) with a built-in [harness](https://docs.dagu.sh/step-types/harness/) action.
+- **Harness-agnostic:** You can run Dagu's built-in agent or any coding agent CLI (Claude Code, Codex, Gemini CLI, Pi, OpenCode, etc.) with a built-in [harness](https://docs.dagu.sh/step-types/harness/) action.
 - **Secret management:** Built-in [secret management](https://docs.dagu.sh/web-ui/secrets) with secure log masking, preventing credentials from leaking to AI agents or the Web UI.
 - **Self-host or managed:** Self-hosted via a single binary that runs on Linux, macOS, and Windows. Includes an optional distributed worker mode for scaling out execution across machines.
 - **Permission Control:** [RBAC and SSO support](https://docs.dagu.sh/server-admin/authentication/builtin) for team environments, controlling who can view, run, and edit workflows through granular permissions and audit logging.
@@ -521,7 +521,7 @@ Dagu includes built-in actions that run within the Dagu process or on the select
 | [`sftp.upload` / `sftp.download`](https://docs.dagu.sh/step-types/sftp) | File transfer over SFTP |
 | [`http.request`](https://docs.dagu.sh/step-types/http) | HTTP requests with headers, auth, and request bodies |
 | [`chat.completion`](https://docs.dagu.sh/writing-workflows/yaml-specification#built-in-action-names) | Run an LLM chat completion step |
-| [`harness.run`](https://docs.dagu.sh/step-types/harness) | Run coding agent CLIs such as Claude Code, Codex, Copilot, OpenCode, and Pi |
+| [`harness.run`](https://docs.dagu.sh/step-types/harness) | Run Dagu's built-in agent or coding agent CLIs such as Claude Code, Codex, Copilot, OpenCode, and Pi |
 | [`agent.run`](https://docs.dagu.sh/features/agent/step) | Built-in agent action with tool use |
 | [`postgres.query` / `postgres.import`](https://docs.dagu.sh/step-types/sql/postgresql) | PostgreSQL queries and imports |
 | [`sqlite.query` / `sqlite.import`](https://docs.dagu.sh/step-types/sql/sqlite) | SQLite queries and imports |

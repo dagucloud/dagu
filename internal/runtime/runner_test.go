@@ -3404,6 +3404,38 @@ func TestNewEnvWithStepInfo(t *testing.T) {
 }
 
 func TestRunner_ChatMessagesHandler(t *testing.T) {
+	t.Run("BuiltinHarnessSupportsChatMessages", func(t *testing.T) {
+		t.Parallel()
+
+		step := newStep("harness1", withExecutorType("harness"))
+		step.ExecutorConfig.Config = map[string]any{"provider": core.HarnessProviderBuiltin}
+
+		assert.True(t, runtime.StepSupportsChatMessages(step))
+	})
+
+	t.Run("BuiltinHarnessFallbackSupportsChatMessages", func(t *testing.T) {
+		t.Parallel()
+
+		step := newStep("harness1", withExecutorType("harness"))
+		step.ExecutorConfig.Config = map[string]any{
+			"provider": "codex",
+			"fallback": []any{
+				map[string]any{"provider": core.HarnessProviderBuiltin},
+			},
+		}
+
+		assert.True(t, runtime.StepSupportsChatMessages(step))
+	})
+
+	t.Run("CLIHarnessDoesNotSupportChatMessages", func(t *testing.T) {
+		t.Parallel()
+
+		step := newStep("harness1", withExecutorType("harness"))
+		step.ExecutorConfig.Config = map[string]any{"provider": "codex"}
+
+		assert.False(t, runtime.StepSupportsChatMessages(step))
+	})
+
 	t.Run("HandlerNotCalledForNonChatSteps", func(t *testing.T) {
 		t.Parallel()
 

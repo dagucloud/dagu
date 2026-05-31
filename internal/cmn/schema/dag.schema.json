@@ -4513,7 +4513,50 @@
       "properties": {
         "provider": {
           "type": "string",
-          "description": "Harness provider name. May reference a built-in provider such as claude, codex, copilot, opencode, or pi, or a custom top-level harnesses entry. Supports ${VAR} interpolation."
+          "description": "Harness provider name. Use builtin for Dagu's in-process agent, a built-in CLI provider such as claude, codex, copilot, opencode, or pi, or a custom top-level harnesses entry. Supports ${VAR} interpolation."
+        },
+        "model": {
+          "type": "string",
+          "description": "For provider: builtin, model ID from Agent Settings. For CLI providers, passed through as a CLI flag."
+        },
+        "tools": {
+          "$ref": "#/definitions/agentToolsConfig",
+          "description": "For provider: builtin, tool selection and bash policy."
+        },
+        "memory": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "For provider: builtin, whether to load global and per-DAG memory into agent context."
+            }
+          },
+          "description": "For provider: builtin, memory configuration."
+        },
+        "max_iterations": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "For provider: builtin, maximum tool-call rounds before stopping."
+        },
+        "safe_mode": {
+          "type": "boolean",
+          "description": "For provider: builtin, safe mode setting."
+        },
+        "skills": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "For provider: builtin, skill IDs the agent is allowed to use."
+        },
+        "soul": {
+          "type": "string",
+          "description": "For provider: builtin, soul ID for the agent identity."
+        },
+        "web_search": {
+          "$ref": "#/definitions/webSearchConfig",
+          "description": "For provider: builtin, provider-native web search configuration."
         }
       },
       "additionalProperties": {
@@ -4532,7 +4575,7 @@
       "properties": {
         "provider": {
           "type": "string",
-          "description": "Harness provider name. May reference a built-in provider such as claude, codex, copilot, opencode, or pi, or a custom top-level harnesses entry. Supports ${VAR} interpolation."
+          "description": "Harness provider name. Use builtin for Dagu's in-process agent, a built-in CLI provider such as claude, codex, copilot, opencode, or pi, or a custom top-level harnesses entry. Supports ${VAR} interpolation."
         },
         "fallback": {
           "type": "array",
@@ -4540,6 +4583,49 @@
             "$ref": "#/definitions/harnessProviderConfig"
           },
           "description": "Ordered fallback harness provider configs tried after the primary config fails. The fallback key is reserved and is not passed through as a CLI flag."
+        },
+        "model": {
+          "type": "string",
+          "description": "For provider: builtin, model ID from Agent Settings. For CLI providers, passed through as a CLI flag."
+        },
+        "tools": {
+          "$ref": "#/definitions/agentToolsConfig",
+          "description": "For provider: builtin, tool selection and bash policy."
+        },
+        "memory": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "For provider: builtin, whether to load global and per-DAG memory into agent context."
+            }
+          },
+          "description": "For provider: builtin, memory configuration."
+        },
+        "max_iterations": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "For provider: builtin, maximum tool-call rounds before stopping."
+        },
+        "safe_mode": {
+          "type": "boolean",
+          "description": "For provider: builtin, safe mode setting."
+        },
+        "skills": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "For provider: builtin, skill IDs the agent is allowed to use."
+        },
+        "soul": {
+          "type": "string",
+          "description": "For provider: builtin, soul ID for the agent identity."
+        },
+        "web_search": {
+          "$ref": "#/definitions/webSearchConfig",
+          "description": "For provider: builtin, provider-native web search configuration."
         }
       },
       "additionalProperties": {

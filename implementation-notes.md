@@ -30,3 +30,20 @@
 - Follow-up review cleanup: file-backed queue listing now discovers item IDs without decoding payloads, so corrupt/truncated queue files remain visible to `List`, `Len`, `All`, `QueueList`, and watcher fingerprints. Invalid items are returned with `Data()` errors instead of making the whole queue listing fail.
 - Follow-up review cleanup: scheduler dispatch selection now skips invalid queued items and continues to healthy items behind them, avoiding a head-of-line block from one malformed payload.
 - Follow-up review cleanup: file-backed queue mutations and cursor-index rebuilds run under a per-queue `dirlock` via an optional collection lock hook, so persisted queue index updates are serialized across Dagu processes.
+
+## 2026-05-31
+
+- Success invariant: `harness.run` remains compatible with existing CLI harness providers while adding an explicit built-in agent selector.
+- Literal provider string chosen for the new selector: `builtin`.
+- Provider omission remains invalid for now. This keeps missing or misspelled provider configuration from silently running the built-in agent and preserves the existing harness validation contract.
+- Added failing contract tests before implementation:
+  - `provider: builtin` is accepted in runtime harness config.
+  - top-level `harness.provider: builtin` is inherited by `action: harness.run`.
+  - `builtin` is reserved and cannot be redefined under `harnesses:`.
+  - builtin harness config rejects CLI-only pass-through flags instead of treating typos as agent settings.
+- Implementation direction: `provider: builtin` delegates to the existing `agent.run` executor in-process. It does not register a fake CLI binary provider.
+- `with.stdin` on `harness.run` is preserved for `builtin` by appending it to the user prompt with a blank line, matching custom harness `prompt_mode: stdin` behavior.
+- JSON schema/docs now expose `builtin` as a reserved provider. The schema allows agent-shaped fields such as `tools` and `memory` in harness config because step-level harness config can inherit `provider: builtin` from the DAG-level `harness:` block.
+- Chat-message persistence and push-back history are enabled only for harness steps whose configured attempt list includes `builtin`. Marking the whole `harness` executor type as agent-capable would make ordinary CLI harness steps fail agent-message validation.
+- Fallbacks can mix `builtin` and CLI providers in either order. A failed `builtin` attempt discards its stdout spool like failed CLI attempts; successful `builtin` attempts persist the agent conversation for downstream agent steps and push-back.
+- Cleanup: split built-in harness provider taxonomy into all built-ins and CLI-only built-ins. Runtime CLI provider resolution, flag normalization, and sync tests now use the CLI-only helper so `builtin` is not treated like a registered binary provider.

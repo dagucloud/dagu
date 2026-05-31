@@ -11,7 +11,7 @@ import (
 var configSchema = &jsonschema.Schema{
 	Type: "object",
 	Properties: map[string]*jsonschema.Schema{
-		"provider": {Type: "string", Description: "Harness provider name. May reference a built-in provider or a custom top-level harnesses entry."},
+		"provider": {Type: "string", Description: "Harness provider name. Use builtin for Dagu's in-process agent, a built-in CLI provider, or a custom top-level harnesses entry."},
 		"fallback": {
 			Type: "array",
 			Items: &jsonschema.Schema{

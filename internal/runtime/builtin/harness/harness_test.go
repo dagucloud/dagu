@@ -199,6 +199,18 @@ func TestValidateHarnessStep(t *testing.T) {
 		assert.Contains(t, err.Error(), "config.provider is required")
 	})
 
+	t.Run("builtin_provider", func(t *testing.T) {
+		err := validateHarnessStep(core.Step{
+			Commands: []core.CommandEntry{{Command: "prompt"}},
+			ExecutorConfig: core.ExecutorConfig{Config: map[string]any{
+				"provider":       "builtin",
+				"model":          "coder-default",
+				"max_iterations": 20,
+			}},
+		})
+		assert.NoError(t, err)
+	})
+
 	t.Run("templated_provider_allowed", func(t *testing.T) {
 		err := validateHarnessStep(core.Step{
 			Commands:       []core.CommandEntry{{Command: "prompt"}},
@@ -275,6 +287,15 @@ func TestResolveProvider(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, []string{"-p", "hello"}, args)
 		assert.Equal(t, "context", mustReadAll(t, stdin))
+	})
+
+	t.Run("builtin_agent", func(t *testing.T) {
+		cfg, err := resolveProvider(map[string]any{"provider": "builtin"}, nil)
+		require.NoError(t, err)
+		assert.Equal(t, "builtin", cfg.name)
+		assert.Empty(t, cfg.binaryName())
+		assert.Nil(t, cfg.provider)
+		assert.Nil(t, cfg.definition)
 	})
 
 	t.Run("custom_definition", func(t *testing.T) {
@@ -398,6 +419,101 @@ func TestBuildProviderConfigs(t *testing.T) {
 			"skip-git-repo-check": false,
 		}, configs[0].flags)
 	})
+
+	t.Run("builtin_agent_with_cli_fallback", func(t *testing.T) {
+		configs, err := buildProviderConfigs(map[string]any{
+			"provider":       "builtin",
+			"model":          "coder-default",
+			"max_iterations": 20,
+			"fallback": []any{
+				map[string]any{"provider": "codex"},
+			},
+		}, nil)
+		require.NoError(t, err)
+		require.Len(t, configs, 2)
+		assert.Equal(t, "builtin", configs[0].name)
+		assert.Equal(t, map[string]any{
+			"provider":       "builtin",
+			"model":          "coder-default",
+			"max_iterations": 20,
+		}, configs[0].flags)
+		assert.Equal(t, "codex", configs[1].name)
+	})
+
+	t.Run("cli_provider_with_builtin_agent_fallback", func(t *testing.T) {
+		configs, err := buildProviderConfigs(map[string]any{
+			"provider": "codex",
+			"fallback": []any{
+				map[string]any{
+					"provider": "builtin",
+					"model":    "coder-default",
+				},
+			},
+		}, nil)
+		require.NoError(t, err)
+		require.Len(t, configs, 2)
+		assert.Equal(t, "codex", configs[0].name)
+		assert.Equal(t, "builtin", configs[1].name)
+		assert.Equal(t, map[string]any{
+			"provider": "builtin",
+			"model":    "coder-default",
+		}, configs[1].flags)
+	})
+
+	t.Run("builtin_agent_rejects_cli_flags", func(t *testing.T) {
+		_, err := buildProviderConfigs(map[string]any{
+			"provider":  "builtin",
+			"model":     "coder-default",
+			"full-auto": true,
+		}, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `unsupported builtin provider field "full-auto"`)
+	})
+}
+
+func TestBuiltinAgentStep(t *testing.T) {
+	exec := &harnessExecutor{
+		step: core.Step{
+			ID:   "review",
+			Name: "Review",
+			Approval: &core.ApprovalConfig{
+				Input: []string{"FEEDBACK"},
+			},
+		},
+		prompt: "Review this repository",
+		script: "Use the current branch diff as context.",
+	}
+
+	step, err := exec.builtinAgentStep(providerConfig{
+		name:    "builtin",
+		builtin: true,
+		flags: map[string]any{
+			"provider":       "builtin",
+			"model":          "coder-default",
+			"max_iterations": uint64(20),
+			"safe_mode":      false,
+			"tools": map[string]any{
+				"enabled": []any{"read", "bash", "think"},
+			},
+			"memory": map[string]any{
+				"enabled": true,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, core.ExecutorTypeAgent, step.ExecutorConfig.Type)
+	require.Len(t, step.Messages, 1)
+	assert.Equal(t, core.LLMRoleUser, step.Messages[0].Role)
+	assert.Equal(t, "Review this repository\n\nUse the current branch diff as context.", step.Messages[0].Content)
+	require.NotNil(t, step.Agent)
+	assert.Equal(t, "coder-default", step.Agent.Model)
+	assert.Equal(t, 20, step.Agent.MaxIterations)
+	assert.False(t, step.Agent.SafeMode)
+	assert.Equal(t, []string{"read", "bash", "think"}, step.Agent.Tools.Enabled)
+	require.NotNil(t, step.Agent.Memory)
+	assert.True(t, step.Agent.Memory.Enabled)
+	assert.Equal(t, []string{"FEEDBACK"}, step.Approval.Input)
 }
 
 func TestProviderConfigBuildInvocation(t *testing.T) {
@@ -866,7 +982,7 @@ func TestExtractPrompt(t *testing.T) {
 }
 
 func TestGetProvider(t *testing.T) {
-	for _, name := range []string{"claude", "codex", "copilot", "opencode", "pi"} {
+	for _, name := range core.BuiltinCLIHarnessProviderNames() {
 		t.Run(name, func(t *testing.T) {
 			p, err := getProvider(name)
 			require.NoError(t, err)
@@ -875,14 +991,14 @@ func TestGetProvider(t *testing.T) {
 	}
 }
 
-func TestBuiltinProvidersStayInSyncWithCoreList(t *testing.T) {
+func TestBuiltinCLIProvidersStayInSyncWithCoreList(t *testing.T) {
 	registered := make([]string, 0, len(providers))
 	for name := range providers {
 		registered = append(registered, name)
 	}
 	sort.Strings(registered)
 
-	assert.Equal(t, core.BuiltinHarnessProviderNames(), registered)
+	assert.Equal(t, core.BuiltinCLIHarnessProviderNames(), registered)
 }
 
 func TestRegisterProviderPanicsOnDuplicate(t *testing.T) {

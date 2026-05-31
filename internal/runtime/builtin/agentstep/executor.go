@@ -40,6 +40,11 @@ func init() {
 	)
 }
 
+// NewExecutor creates an executor for an agent workflow step.
+func NewExecutor(_ context.Context, step core.Step) (executor.Executor, error) {
+	return &Executor{step: step}, nil
+}
+
 // Executor runs the agent loop as a workflow step.
 type Executor struct {
 	step              core.Step
@@ -53,8 +58,8 @@ type Executor struct {
 	pushBackIteration int
 }
 
-func newAgentExecutor(_ context.Context, step core.Step) (executor.Executor, error) {
-	return &Executor{step: step}, nil
+func newAgentExecutor(ctx context.Context, step core.Step) (executor.Executor, error) {
+	return NewExecutor(ctx, step)
 }
 
 func (e *Executor) SetStdout(w io.Writer) { e.stdout = w }
