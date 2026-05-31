@@ -21,7 +21,6 @@ import (
 	"github.com/dagucloud/dagu/internal/dispatch"
 	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
-	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
 
 // DAGExecutor handles both local and distributed DAG execution.
@@ -96,13 +95,13 @@ func NewDAGExecutor(
 func (e *DAGExecutor) HandleJob(
 	ctx context.Context,
 	dag *core.DAG,
-	operation coordinatorv1.Operation,
+	operation exec.DispatchOperation,
 	runID string,
 	triggerType core.TriggerType,
 	scheduleTime time.Time,
 ) error {
 	// For distributed execution with START operation, enqueue for persistence
-	if e.shouldUseDistributedExecution(dag) && operation == coordinatorv1.Operation_OPERATION_START {
+	if e.shouldUseDistributedExecution(dag) && operation == exec.DispatchOperationStart {
 		ctx = logger.WithValues(ctx,
 			tag.DAG(dag.Name),
 			tag.RunID(runID),
@@ -143,12 +142,16 @@ func (e *DAGExecutor) HandleJob(
 func (e *DAGExecutor) ExecuteDAG(
 	ctx context.Context,
 	dag *core.DAG,
-	operation coordinatorv1.Operation,
+	operation exec.DispatchOperation,
 	runID string,
 	previousStatus *exec.DAGRunStatus,
 	triggerType core.TriggerType,
 	scheduleTime string,
 ) error {
+	if err := validateDispatchOperation(operation); err != nil {
+		return err
+	}
+
 	if e.shouldUseDistributedExecution(dag) {
 		// Distributed execution: dispatch to coordinator
 		taskOpts := []executor.TaskOption{
@@ -192,10 +195,10 @@ func (e *DAGExecutor) ExecuteDAG(
 	}
 
 	switch operation {
-	case coordinatorv1.Operation_OPERATION_UNSPECIFIED:
+	case exec.DispatchOperationUnspecified:
 		return fmt.Errorf("operation not specified")
 
-	case coordinatorv1.Operation_OPERATION_START:
+	case exec.DispatchOperationStart:
 		spec := e.subCmdBuilder.Start(dag, launcher.StartOptions{
 			DAGRunID:     runID,
 			Quiet:        true,
@@ -204,12 +207,23 @@ func (e *DAGExecutor) ExecuteDAG(
 		})
 		return launcher.Start(ctx, spec)
 
-	case coordinatorv1.Operation_OPERATION_RETRY:
+	case exec.DispatchOperationRetry:
 		spec := e.subCmdBuilder.QueueDispatchRetry(dag, runID, "")
 		return launcher.Run(ctx, spec)
 
 	default:
-		return fmt.Errorf("unsupported operation: %v", operation)
+		return fmt.Errorf("unknown operation: %s", operation)
+	}
+}
+
+func validateDispatchOperation(operation exec.DispatchOperation) error {
+	switch operation {
+	case exec.DispatchOperationStart, exec.DispatchOperationRetry:
+		return nil
+	case exec.DispatchOperationUnspecified:
+		return fmt.Errorf("operation not specified")
+	default:
+		return fmt.Errorf("unknown operation: %s", operation)
 	}
 }
 
@@ -233,10 +247,10 @@ func (e *DAGExecutor) IsDistributed(dag *core.DAG) bool {
 // 1. Select an appropriate worker based on the task's workerSelector
 // 2. Forward the task to the selected worker
 // 3. Track the execution status
-func (e *DAGExecutor) dispatchToCoordinator(ctx context.Context, task *coordinatorv1.Task) error {
+func (e *DAGExecutor) dispatchToCoordinator(ctx context.Context, task *exec.DispatchTask) error {
 	ctx = logger.WithValues(ctx,
 		tag.Target(task.Target),
-		tag.RunID(task.DagRunId),
+		tag.RunID(task.DAGRunID),
 	)
 
 	if err := e.coordinatorCli.Dispatch(ctx, task); err != nil {

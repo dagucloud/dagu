@@ -88,6 +88,7 @@ func runDry(ctx *Context, args []string) error {
 			StateStore:                 ctx.StateStore,
 			SecretStore:                as.SecretStore,
 			ServiceRegistry:            ctx.ServiceRegistry,
+			DispatcherFactory:          ctx.RuntimeDispatcherFactory(),
 			RootDAGRun:                 exec.NewDAGRunRef(dag.Name, dagRunID),
 			PeerConfig:                 ctx.Config.Core.Peer,
 			DefaultExecMode:            ctx.Config.DefaultExecMode,

@@ -25,12 +25,10 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	coreexec "github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
-	"github.com/dagucloud/dagu/internal/proto/convert"
 	rtagent "github.com/dagucloud/dagu/internal/runtime/agent"
 	runtimeexec "github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	"github.com/dagucloud/dagu/internal/workspace"
-	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
 
 func (e *Engine) RunFile(ctx context.Context, path string, opts RunOptions) (*Run, error) {
@@ -100,18 +98,14 @@ func (r *Run) Wait(ctx context.Context) (*Status, error) {
 
 func (r *Run) Status(ctx context.Context) (*Status, error) {
 	if r.mode == ExecutionModeDistributed {
-		resp, err := r.coordinator.GetDAGRunStatus(ctx, r.ref.Name, r.ref.ID, nil)
+		result, err := r.coordinator.GetDAGRunStatus(ctx, r.ref.Name, r.ref.ID, nil)
 		if err != nil {
 			return nil, err
 		}
-		if resp == nil || resp.Status == nil {
+		if result == nil || !result.Found || result.Status == nil {
 			return nil, nil
 		}
-		status, err := convert.ProtoToDAGRunStatus(resp.Status)
-		if err != nil {
-			return nil, err
-		}
-		return runStatusToPublic(status)
+		return runStatusToPublic(result.Status)
 	}
 	if r.agent != nil {
 		select {
@@ -361,6 +355,7 @@ func (e *Engine) runLocal(ctx context.Context, dag *core.DAG, runID string, opts
 			StateStore:                 e.stateStore,
 			SecretStore:                stores.SecretStore,
 			ServiceRegistry:            e.serviceRegistry,
+			DispatcherFactory:          e.runtimeDispatcherFactory(),
 			RootDAGRun:                 root,
 			PeerConfig:                 e.cfg.Core.Peer,
 			TriggerType:                core.TriggerTypeManual,
@@ -440,7 +435,7 @@ func (e *Engine) runDistributed(ctx context.Context, dag *core.DAG, runID string
 	task := runtimeexec.CreateTask(
 		dag.Name,
 		string(dag.YamlData),
-		coordinatorv1.Operation_OPERATION_START,
+		coreexec.DispatchOperationStart,
 		runID,
 		taskOpts...,
 	)

@@ -16,9 +16,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core"
 	exec1 "github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/proto/convert"
 	dagutools "github.com/dagucloud/dagu/internal/tools"
-	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -407,7 +405,7 @@ func TestBuildCoordinatorTask_ExternalStepRetry(t *testing.T) {
 	task, err := executor.BuildCoordinatorTask(ctx, RunParams{RunID: "child-789", Params: "ITEM=1"})
 	require.NoError(t, err)
 
-	assert.Equal(t, coordinatorv1.Operation_OPERATION_START, task.Operation)
+	assert.Equal(t, exec1.DispatchOperationStart, task.Operation)
 	assert.True(t, task.ExternalStepRetry)
 	assert.Equal(t, "ITEM=1", task.Params)
 }
@@ -446,7 +444,7 @@ func TestRetry_Distributed(t *testing.T) {
 	}
 
 	dispatcher := &mockDispatcher{
-		getStatusResponses: []*coordinatorv1.GetDAGRunStatusResponse{
+		getStatusResponses: []*exec1.DAGRunStatusResult{
 			mustStatusResponse(t, previousStatus),
 			mustStatusResponse(t, completedStatus),
 		},
@@ -473,7 +471,7 @@ func TestRetry_Distributed(t *testing.T) {
 
 	require.Len(t, dispatcher.dispatches, 1)
 	task := dispatcher.dispatches[0]
-	assert.Equal(t, coordinatorv1.Operation_OPERATION_RETRY, task.Operation)
+	assert.Equal(t, exec1.DispatchOperationRetry, task.Operation)
 	assert.Equal(t, "flaky", task.Step)
 	assert.True(t, task.ExternalStepRetry)
 	require.NotNil(t, task.PreviousStatus)
@@ -798,13 +796,13 @@ type mockDatabase struct {
 }
 
 type mockDispatcher struct {
-	dispatches          []*coordinatorv1.Task
-	getStatusResponses  []*coordinatorv1.GetDAGRunStatusResponse
+	dispatches          []*exec1.DispatchTask
+	getStatusResponses  []*exec1.DAGRunStatusResult
 	getStatusErr        error
 	requestCancelCalled int
 }
 
-func (m *mockDispatcher) Dispatch(_ context.Context, task *coordinatorv1.Task) error {
+func (m *mockDispatcher) Dispatch(_ context.Context, task *exec1.DispatchTask) error {
 	m.dispatches = append(m.dispatches, task)
 	return nil
 }
@@ -816,12 +814,12 @@ func (m *mockDispatcher) GetDAGRunStatus(
 	_ string,
 	_ string,
 	_ *exec1.DAGRunRef,
-) (*coordinatorv1.GetDAGRunStatusResponse, error) {
+) (*exec1.DAGRunStatusResult, error) {
 	if m.getStatusErr != nil {
 		return nil, m.getStatusErr
 	}
 	if len(m.getStatusResponses) == 0 {
-		return &coordinatorv1.GetDAGRunStatusResponse{Found: false}, nil
+		return &exec1.DAGRunStatusResult{Found: false}, nil
 	}
 	resp := m.getStatusResponses[0]
 	m.getStatusResponses = m.getStatusResponses[1:]
@@ -861,12 +859,10 @@ func (m *mockDatabase) RequestChildCancel(ctx context.Context, dagRunID string, 
 	return args.Error(0)
 }
 
-func mustStatusResponse(t *testing.T, status *exec1.DAGRunStatus) *coordinatorv1.GetDAGRunStatusResponse {
+func mustStatusResponse(t *testing.T, status *exec1.DAGRunStatus) *exec1.DAGRunStatusResult {
 	t.Helper()
-	protoStatus, err := convert.DAGRunStatusToProto(status)
-	require.NoError(t, err)
-	return &coordinatorv1.GetDAGRunStatusResponse{
+	return &exec1.DAGRunStatusResult{
 		Found:  true,
-		Status: protoStatus,
+		Status: status,
 	}
 }

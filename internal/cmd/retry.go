@@ -588,6 +588,7 @@ func executeRetry(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus, rootRu
 			StateStore:                 ctx.StateStore,
 			SecretStore:                as.SecretStore,
 			ServiceRegistry:            ctx.ServiceRegistry,
+			DispatcherFactory:          ctx.RuntimeDispatcherFactory(),
 			RootDAGRun:                 rootRun,
 			PeerConfig:                 ctx.Config.Core.Peer,
 			TriggerType:                triggerType,

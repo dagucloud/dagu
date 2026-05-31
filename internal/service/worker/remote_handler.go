@@ -28,9 +28,9 @@ import (
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	"github.com/dagucloud/dagu/internal/runtime"
 	rtagent "github.com/dagucloud/dagu/internal/runtime/agent"
-	"github.com/dagucloud/dagu/internal/runtime/remote"
 	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
+	"github.com/dagucloud/dagu/internal/service/worker/coordreport"
 	dagutools "github.com/dagucloud/dagu/internal/tools"
 	daguaqua "github.com/dagucloud/dagu/internal/tools/aqua"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
@@ -199,7 +199,7 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 }
 
 func (h *remoteTaskHandler) reportTaskLoadFailure(ctx context.Context, task *coordinatorv1.Task, root, parent exec.DAGRunRef, owner exec.HostInfo, loadErr error) {
-	statusPusher := remote.NewStatusPusher(h.coordinatorClient, h.workerID, owner)
+	statusPusher := coordreport.NewStatusPusher(h.coordinatorClient, h.workerID, owner)
 	finishedAt := stringutil.FormatTime(time.Now())
 	logger.Warn(ctx, "Failed to load DAG on worker",
 		tag.Target(task.Target),
@@ -232,7 +232,7 @@ func (h *remoteTaskHandler) reportTaskInitFailure(
 	task *coordinatorv1.Task,
 	root exec.DAGRunRef,
 	parent exec.DAGRunRef,
-	statusPusher *remote.StatusPusher,
+	statusPusher runtime.StatusPusher,
 	initErr error,
 ) {
 	if statusPusher == nil || initErr == nil {
@@ -316,13 +316,13 @@ func taskExtraEnvs(task *coordinatorv1.Task) []string {
 }
 
 // createRemoteHandlers creates the remote status, log, and artifact transport handlers.
-func (h *remoteTaskHandler) createRemoteHandlers(dagRunID, dagName string, root exec.DAGRunRef, owner ...exec.HostInfo) (*remote.StatusPusher, *remote.LogStreamer, *remote.ArtifactUploader) {
+func (h *remoteTaskHandler) createRemoteHandlers(dagRunID, dagName string, root exec.DAGRunRef, owner ...exec.HostInfo) (runtime.StatusPusher, runtime.SchedulerLogStreamer, runtime.ArtifactFinalizer) {
 	var target exec.HostInfo
 	if len(owner) > 0 {
 		target = owner[0]
 	}
-	statusPusher := remote.NewStatusPusher(h.coordinatorClient, h.workerID, target)
-	logStreamer := remote.NewLogStreamer(
+	statusPusher := coordreport.NewStatusPusher(h.coordinatorClient, h.workerID, target)
+	logStreamer := coordreport.NewLogStreamer(
 		h.coordinatorClient,
 		h.workerID,
 		dagRunID,
@@ -331,7 +331,7 @@ func (h *remoteTaskHandler) createRemoteHandlers(dagRunID, dagName string, root 
 		root,
 		target,
 	)
-	artifactUploader := remote.NewArtifactUploader(
+	artifactUploader := coordreport.NewArtifactUploader(
 		h.coordinatorClient,
 		h.workerID,
 		dagRunID,
@@ -401,10 +401,8 @@ func (h *remoteTaskHandler) loadDAG(ctx context.Context, task *coordinatorv1.Tas
 		}
 	}
 
-	// Prepare load options
-	// Note: DAGsDir is intentionally NOT included because:
-	// 1. Remote handlers always receive DAG definitions from the coordinator
-	// 2. Shared-nothing workers should not access local DAG directories
+	// Remote tasks load the DAG definition received from the coordinator.
+	// Local DAG directories are outside the shared-nothing task boundary.
 	loadOpts := []spec.LoadOption{
 		spec.WithName(task.Target), // Use original DAG name, not temp file path
 	}
@@ -536,9 +534,9 @@ func (h *remoteTaskHandler) executeDAGRun(
 	scheduleTime string,
 	root exec.DAGRunRef,
 	parent exec.DAGRunRef,
-	statusPusher *remote.StatusPusher,
-	logStreamer *remote.LogStreamer,
-	artifactUploader *remote.ArtifactUploader,
+	statusPusher runtime.StatusPusher,
+	logStreamer runtime.SchedulerLogStreamer,
+	artifactUploader runtime.ArtifactFinalizer,
 	queuedRun bool,
 	retry *retryConfig,
 	agentSnapshot []byte,
@@ -597,17 +595,20 @@ func (h *remoteTaskHandler) executeDAGRun(
 
 	// Build agent options
 	opts := rtagent.Options{
-		ParentDAGRun:      parent,
-		WorkerID:          h.workerID,
-		StatusPusher:      statusPusher,
-		LogWriterFactory:  logStreamer,
-		ExtraEnvs:         extraEnvs,
-		QueuedRun:         queuedRun,
-		AttemptID:         attemptID,
-		DAGRunStore:       h.dagRunStore,
-		StateStore:        h.stateStore,
-		SecretStore:       agentStores.SecretStore,
-		ServiceRegistry:   h.serviceRegistry,
+		ParentDAGRun:     parent,
+		WorkerID:         h.workerID,
+		StatusPusher:     statusPusher,
+		LogWriterFactory: logStreamer,
+		ExtraEnvs:        extraEnvs,
+		QueuedRun:        queuedRun,
+		AttemptID:        attemptID,
+		DAGRunStore:      h.dagRunStore,
+		StateStore:       h.stateStore,
+		SecretStore:      agentStores.SecretStore,
+		ServiceRegistry:  h.serviceRegistry,
+		DispatcherFactory: func(_ context.Context) (runtime.Dispatcher, error) {
+			return coordinator.NewRuntimeDispatcher(h.serviceRegistry, h.peerConfig)
+		},
 		RootDAGRun:        root,
 		PeerConfig:        h.peerConfig,
 		DefaultExecMode:   h.config.DefaultExecMode,

@@ -19,9 +19,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
-	"github.com/dagucloud/dagu/internal/proto/convert"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
-	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"github.com/stretchr/testify/require"
 )
 
@@ -172,11 +170,10 @@ func TestEditRetryDAGRun_DispatchesSeededRetryWithSkippedOutputs(t *testing.T) {
 
 	require.Len(t, recorder.dispatched, 1)
 	task := recorder.dispatched[0]
-	require.Equal(t, coordinatorv1.Operation_OPERATION_RETRY, task.Operation)
-	require.Equal(t, "edit-run", task.DagRunId)
+	require.Equal(t, exec.DispatchOperationRetry, task.Operation)
+	require.Equal(t, "edit-run", task.DAGRunID)
 	require.NotNil(t, task.PreviousStatus)
-	previousStatus, err := convert.ProtoToDAGRunStatus(task.PreviousStatus)
-	require.NoError(t, err)
+	previousStatus := task.PreviousStatus
 	require.Equal(t, core.Queued, previousStatus.Status)
 	require.True(t, previousStatus.Nodes[0].SkippedByRetry)
 }
@@ -272,8 +269,8 @@ func TestEditRetryDAGRun_ExplicitEmptySkipStepsRunsAllSteps(t *testing.T) {
 	require.Contains(t, string(raw), `"skippedSteps":[]`)
 
 	require.Len(t, recorder.dispatched, 1)
-	previousStatus, err := convert.ProtoToDAGRunStatus(recorder.dispatched[0].PreviousStatus)
-	require.NoError(t, err)
+	previousStatus := recorder.dispatched[0].PreviousStatus
+	require.NotNil(t, previousStatus)
 	require.Len(t, previousStatus.Nodes, 3)
 	require.Equal(t, core.NodeNotStarted, previousStatus.Nodes[0].Status)
 	require.False(t, previousStatus.Nodes[0].SkippedByRetry)

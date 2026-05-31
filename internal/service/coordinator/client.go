@@ -25,6 +25,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/proto/convert"
 	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"google.golang.org/grpc"
@@ -39,9 +40,6 @@ import (
 // service registry and gRPC.
 type Client interface {
 	exec.Dispatcher
-
-	// Dispatch sends a task to the coordinator
-	Dispatch(ctx context.Context, task *coordinatorv1.Task) error
 
 	// Poll retrieves a task from the coordinator.
 	Poll(ctx context.Context, policy backoff.RetryPolicy, req *coordinatorv1.PollRequest) (*coordinatorv1.Task, error)
@@ -167,11 +165,19 @@ func New(registry exec.ServiceRegistry, config *Config) Client {
 	}
 }
 
-// Dispatch sends a task to the coordinator
-func (cli *clientImpl) Dispatch(ctx context.Context, task *coordinatorv1.Task) error {
+// Dispatch sends a task to the coordinator.
+func (cli *clientImpl) Dispatch(ctx context.Context, task *exec.DispatchTask) error {
+	if task == nil {
+		return fmt.Errorf("dispatch task is nil")
+	}
+	protoTask, err := convert.DispatchTaskToProto(task)
+	if err != nil {
+		return err
+	}
+
 	logger.Info(ctx, "Client dispatching task",
 		slog.String("operation", task.Operation.String()),
-		tag.RunID(task.DagRunId),
+		tag.RunID(task.DAGRunID),
 		tag.Target(task.Target),
 	)
 
@@ -195,7 +201,7 @@ func (cli *clientImpl) Dispatch(ctx context.Context, task *coordinatorv1.Task) e
 
 		return cli.attemptCall(ctx, members, func(ctx context.Context, member exec.HostInfo, client *client) error {
 			// Create request
-			req := &coordinatorv1.DispatchRequest{Task: task}
+			req := &coordinatorv1.DispatchRequest{Task: protoTask}
 
 			// Apply request timeout
 			dispatchCtx, cancel := context.WithTimeout(ctx, cli.config.RequestTimeout)
@@ -204,7 +210,7 @@ func (cli *clientImpl) Dispatch(ctx context.Context, task *coordinatorv1.Task) e
 			// Try to dispatch
 			if _, err := client.client.Dispatch(dispatchCtx, req); err != nil {
 				logger.Warn(ctx, "Failed to dispatch task to coordinator",
-					tag.RunID(task.DagRunId),
+					tag.RunID(task.DAGRunID),
 					tag.Target(task.Target),
 					slog.Any("worker-selector", task.WorkerSelector),
 					slog.String("coordinator-id", member.ID),
@@ -226,7 +232,7 @@ func (cli *clientImpl) Dispatch(ctx context.Context, task *coordinatorv1.Task) e
 			}
 
 			logger.Info(ctx, "Task dispatched successfully",
-				tag.RunID(task.DagRunId),
+				tag.RunID(task.DAGRunID),
 				tag.Target(task.Target),
 				slog.Any("worker-selector", task.WorkerSelector),
 				slog.String("coordinator-id", member.ID),
@@ -951,8 +957,8 @@ func openStreamWithFailover[T any](
 	return zero, fmt.Errorf("failed to create %s stream: %w", streamType, lastErr)
 }
 
-// GetDAGRunStatus retrieves the status of a DAG run from the coordinator
-func (cli *clientImpl) GetDAGRunStatus(ctx context.Context, dagName, dagRunID string, rootRef *exec.DAGRunRef) (*coordinatorv1.GetDAGRunStatusResponse, error) {
+// GetDAGRunStatus retrieves the status of a DAG run from the coordinator.
+func (cli *clientImpl) GetDAGRunStatus(ctx context.Context, dagName, dagRunID string, rootRef *exec.DAGRunRef) (*exec.DAGRunStatusResult, error) {
 	members, err := cli.getCoordinatorMembers(ctx)
 	if err != nil {
 		return nil, err
@@ -978,7 +984,22 @@ func (cli *clientImpl) GetDAGRunStatus(ctx context.Context, dagName, dagRunID st
 		}
 		return nil
 	})
-	return resp, err
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, fmt.Errorf("coordinator returned empty DAG run status response")
+	}
+
+	result := &exec.DAGRunStatusResult{Found: resp.Found}
+	if resp.Status != nil {
+		status, convErr := convert.ProtoToDAGRunStatus(resp.Status)
+		if convErr != nil {
+			return nil, fmt.Errorf("convert coordinator status: %w", convErr)
+		}
+		result.Status = status
+	}
+	return result, nil
 }
 
 // RequestCancel requests cancellation of a DAG run through the coordinator

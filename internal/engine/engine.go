@@ -202,6 +202,12 @@ func (e *Engine) coordinatorClient(opts DistributedOptions) (coordinator.Client,
 	return coordinator.New(registry, cfg), nil
 }
 
+func (e *Engine) runtimeDispatcherFactory() func(context.Context) (runtime.Dispatcher, error) {
+	return func(_ context.Context) (runtime.Dispatcher, error) {
+		return coordinator.NewRuntimeDispatcher(e.serviceRegistry, e.cfg.Core.Peer)
+	}
+}
+
 func runStatusToPublic(status *coreexec.DAGRunStatus) (*Status, error) {
 	if status == nil {
 		return nil, nil

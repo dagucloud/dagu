@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package remote
+package coordreport_test
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
+	"github.com/dagucloud/dagu/internal/service/worker/coordreport"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -37,7 +38,7 @@ func (m *mockCoordinatorClient) ReportStatus(ctx context.Context, req *coordinat
 }
 
 // Stub methods for interface compliance - panic if called unexpectedly
-func (m *mockCoordinatorClient) Dispatch(_ context.Context, _ *coordinatorv1.Task) error {
+func (m *mockCoordinatorClient) Dispatch(_ context.Context, _ *exec.DispatchTask) error {
 	panic("Dispatch not implemented in mock")
 }
 
@@ -93,7 +94,7 @@ func (m *mockCoordinatorClient) Cleanup(_ context.Context) error {
 	return nil
 }
 
-func (m *mockCoordinatorClient) GetDAGRunStatus(_ context.Context, _, _ string, _ *exec.DAGRunRef) (*coordinatorv1.GetDAGRunStatusResponse, error) {
+func (m *mockCoordinatorClient) GetDAGRunStatus(_ context.Context, _, _ string, _ *exec.DAGRunRef) (*exec.DAGRunStatusResult, error) {
 	panic("GetDAGRunStatus not implemented in mock")
 }
 
@@ -105,11 +106,12 @@ func TestNewStatusPusher(t *testing.T) {
 	t.Parallel()
 
 	client := &mockCoordinatorClient{}
-	pusher := NewStatusPusher(client, "worker-123")
+	pusher := coordreport.NewStatusPusher(client, "worker-123")
 
 	require.NotNil(t, pusher)
-	assert.Equal(t, "worker-123", pusher.workerID)
-	assert.Equal(t, client, pusher.client)
+	snapshot := coordreport.SnapshotStatusPusher(pusher)
+	assert.Equal(t, "worker-123", snapshot.WorkerID)
+	assert.Equal(t, client, snapshot.Client)
 }
 
 func TestPush(t *testing.T) {
@@ -126,7 +128,7 @@ func TestPush(t *testing.T) {
 			},
 		}
 
-		pusher := NewStatusPusher(client, "worker-1")
+		pusher := coordreport.NewStatusPusher(client, "worker-1")
 		status := exec.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
@@ -159,7 +161,7 @@ func TestPush(t *testing.T) {
 			},
 		}
 
-		pusher := NewStatusPusher(client, "worker-1")
+		pusher := coordreport.NewStatusPusher(client, "worker-1")
 		status := exec.DAGRunStatus{Name: "test-dag", DAGRunID: "run-123"}
 
 		err := pusher.Push(context.Background(), status)
@@ -167,7 +169,7 @@ func TestPush(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "status rejected")
 		assert.Contains(t, err.Error(), "duplicate status")
-		var rejectedErr *AttemptRejectedError
+		var rejectedErr *coordreport.AttemptRejectedError
 		require.ErrorAs(t, err, &rejectedErr)
 		assert.Equal(t, "duplicate status", rejectedErr.Reason)
 	})
@@ -181,12 +183,12 @@ func TestPush(t *testing.T) {
 			},
 		}
 
-		pusher := NewStatusPusher(client, "worker-1")
+		pusher := coordreport.NewStatusPusher(client, "worker-1")
 		err := pusher.Push(context.Background(), exec.DAGRunStatus{})
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "status rejected")
-		var rejectedErr *AttemptRejectedError
+		var rejectedErr *coordreport.AttemptRejectedError
 		require.ErrorAs(t, err, &rejectedErr)
 		assert.Empty(t, rejectedErr.Reason)
 	})
@@ -200,7 +202,7 @@ func TestPush(t *testing.T) {
 			},
 		}
 
-		pusher := NewStatusPusher(client, "worker-1")
+		pusher := coordreport.NewStatusPusher(client, "worker-1")
 		err := pusher.Push(context.Background(), exec.DAGRunStatus{})
 
 		require.Error(t, err)
@@ -216,7 +218,7 @@ func TestPush(t *testing.T) {
 			},
 		}
 
-		pusher := NewStatusPusher(client, "worker-1")
+		pusher := coordreport.NewStatusPusher(client, "worker-1")
 		err := pusher.Push(context.Background(), exec.DAGRunStatus{})
 
 		require.Error(t, err)
@@ -236,7 +238,7 @@ func TestPush(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel immediately
 
-		pusher := NewStatusPusher(client, "worker-1")
+		pusher := coordreport.NewStatusPusher(client, "worker-1")
 		err := pusher.Push(ctx, exec.DAGRunStatus{})
 
 		require.Error(t, err)
@@ -274,7 +276,7 @@ func TestPush(t *testing.T) {
 			},
 		}
 
-		pusher := NewStatusPusher(client, "worker-1")
+		pusher := coordreport.NewStatusPusher(client, "worker-1")
 		err := pusher.Push(context.Background(), status)
 
 		require.NoError(t, err)
@@ -304,7 +306,7 @@ func TestPush(t *testing.T) {
 			},
 		}
 
-		pusher := NewStatusPusher(client, "worker-1", exec.HostInfo{ID: "coord-1", Host: "127.0.0.1", Port: 4321})
+		pusher := coordreport.NewStatusPusher(client, "worker-1", exec.HostInfo{ID: "coord-1", Host: "127.0.0.1", Port: 4321})
 		err := pusher.Push(context.Background(), exec.DAGRunStatus{Name: "test-dag", DAGRunID: "run-owner"})
 
 		require.NoError(t, err)

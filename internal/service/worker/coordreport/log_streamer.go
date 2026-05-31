@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package remote
+package coordreport
 
 import (
 	"context"
@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
@@ -28,6 +29,7 @@ const (
 )
 
 var _ exec.LogWriterFactory = (*LogStreamer)(nil)
+var _ runtime.SchedulerLogStreamer = (*LogStreamer)(nil)
 
 // LogStreamer streams logs to coordinator via gRPC
 type LogStreamer struct {
@@ -112,7 +114,6 @@ func (s *LogStreamer) NewSchedulerLogWriter(ctx context.Context, localFile *os.F
 }
 
 // StreamSchedulerLog reads the local scheduler.log file and streams it to the coordinator.
-// This should be called after DAG execution completes.
 func (s *LogStreamer) StreamSchedulerLog(ctx context.Context, logFilePath string) error {
 	// Read the scheduler.log file
 	// #nosec G304 - logFilePath is a controlled internal path from createAgentEnv
@@ -500,6 +501,6 @@ func (w *schedulerLogWriter) Close() error {
 		_, _ = w.stream.CloseAndRecv() // Ignore error - best effort
 	}
 
-	// Note: localFile is NOT closed here - caller owns it
+	// The caller owns localFile.
 	return nil
 }

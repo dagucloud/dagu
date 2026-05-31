@@ -25,7 +25,7 @@ type stubCoordinatorClient struct {
 	err     error
 }
 
-func (s *stubCoordinatorClient) Dispatch(context.Context, *coordinatorv1.Task) error {
+func (s *stubCoordinatorClient) Dispatch(context.Context, *exec.DispatchTask) error {
 	return nil
 }
 
@@ -33,7 +33,7 @@ func (s *stubCoordinatorClient) Cleanup(context.Context) error {
 	return nil
 }
 
-func (s *stubCoordinatorClient) GetDAGRunStatus(context.Context, string, string, *exec.DAGRunRef) (*coordinatorv1.GetDAGRunStatusResponse, error) {
+func (s *stubCoordinatorClient) GetDAGRunStatus(context.Context, string, string, *exec.DAGRunRef) (*exec.DAGRunStatusResult, error) {
 	return nil, nil
 }
 

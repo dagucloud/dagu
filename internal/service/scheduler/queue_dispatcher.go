@@ -17,7 +17,6 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
 
 type queueDispatchDeps struct {
@@ -228,7 +227,7 @@ func (d *queueDispatcher) dispatchQueuedItem(ctx context.Context, item exec.Queu
 	var execDoneErr error
 	go func() {
 		defer d.wakeUp()
-		err := d.dagExecutor.ExecuteDAG(ctx, dag, coordinatorv1.Operation_OPERATION_RETRY, runID, status, status.TriggerType, status.ScheduleTime)
+		err := d.dagExecutor.ExecuteDAG(ctx, dag, exec.DispatchOperationRetry, runID, status, status.TriggerType, status.ScheduleTime)
 		execDoneErr = err
 		close(execDoneCh)
 		if err != nil {
@@ -326,7 +325,7 @@ func (d *queueDispatcher) dispatchAndWaitForStartup(
 		}
 
 		if !dispatched {
-			err := d.dagExecutor.ExecuteDAG(ctx, dag, coordinatorv1.Operation_OPERATION_RETRY,
+			err := d.dagExecutor.ExecuteDAG(ctx, dag, exec.DispatchOperationRetry,
 				runID, dagStatus, dagStatus.TriggerType, dagStatus.ScheduleTime)
 			if err != nil {
 				var staleErr *exec.StaleQueueDispatchError

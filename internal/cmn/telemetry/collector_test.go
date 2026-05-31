@@ -18,7 +18,6 @@ import (
 
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
-	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
 
 var _ exec.DAGStore = (*mockDAGStore)(nil)
@@ -543,12 +542,12 @@ func TestCollector_Collect_WithWorkerHeartbeatMetrics(t *testing.T) {
 					"pool":   "gpu",
 					"region": "ap-northeast-1",
 				},
-				Stats: &coordinatorv1.WorkerStats{
+				Stats: &exec.WorkerStats{
 					TotalPollers: 4,
 					BusyPollers:  2,
-					RunningTasks: []*coordinatorv1.RunningTask{
-						{DagRunId: "run-1", DagName: "dag-1", StartedAt: now.Add(-2 * time.Minute).Unix()},
-						{DagRunId: "run-2", DagName: "dag-2", StartedAt: now.Add(-30 * time.Second).Unix()},
+					RunningTasks: []*exec.RunningTask{
+						{DAGRunID: "run-1", DAGName: "dag-1", StartedAt: now.Add(-2 * time.Minute).Unix()},
+						{DAGRunID: "run-2", DAGName: "dag-2", StartedAt: now.Add(-30 * time.Second).Unix()},
 					},
 				},
 				LastHeartbeatAt: now.Add(-2 * time.Second).UnixMilli(),

@@ -22,7 +22,6 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/internal/core"
 	exec1 "github.com/dagucloud/dagu/internal/core/exec"
-	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
 
 // CommandError wraps a command execution error with captured output.
@@ -300,7 +299,7 @@ func (b *SubCmdBuilder) QueueDispatchRetry(dag *core.DAG, dagRunID string, stepN
 }
 
 // QueueDispatchTaskRetry creates a retry command spec for a worker-consumed queued run.
-func (b *SubCmdBuilder) QueueDispatchTaskRetry(task *coordinatorv1.Task, envHints []string, dagName string) CmdSpec {
+func (b *SubCmdBuilder) QueueDispatchTaskRetry(task *exec1.DispatchTask, envHints []string, dagName string) CmdSpec {
 	spec := b.TaskRetry(task, envHints, dagName)
 	spec.Env = append(spec.Env, exec1.EnvKeyQueueDispatchRetry+"=1")
 	return spec
@@ -309,26 +308,26 @@ func (b *SubCmdBuilder) QueueDispatchTaskRetry(task *coordinatorv1.Task, envHint
 // TaskStart creates a start command spec for coordinator tasks.
 // envHints optionally provides resolved DAG/base-config env entries for
 // rebuild-time env values in the child process.
-func (b *SubCmdBuilder) TaskStart(task *coordinatorv1.Task, envHints []string, dagName string) CmdSpec {
+func (b *SubCmdBuilder) TaskStart(task *exec1.DispatchTask, envHints []string, dagName string) CmdSpec {
 	args := []string{"start", "-q"}
 	env := b.parentEnv()
 
 	// Add hierarchy flags for sub DAGs
-	if task.RootDagRunId != "" {
-		args = append(args, fmt.Sprintf("--root=%s:%s", task.RootDagRunName, task.RootDagRunId))
+	if task.RootDAGRunID != "" {
+		args = append(args, fmt.Sprintf("--root=%s:%s", task.RootDAGRunName, task.RootDAGRunID))
 	}
-	if task.ParentDagRunId != "" {
-		args = append(args, fmt.Sprintf("--parent=%s:%s", task.ParentDagRunName, task.ParentDagRunId))
+	if task.ParentDAGRunID != "" {
+		args = append(args, fmt.Sprintf("--parent=%s:%s", task.ParentDAGRunName, task.ParentDAGRunID))
 	}
 
-	args = append(args, fmt.Sprintf("--run-id=%s", task.DagRunId))
-	if task.AttemptId != "" {
-		args = append(args, fmt.Sprintf("--attempt-id=%s", task.AttemptId))
+	args = append(args, fmt.Sprintf("--run-id=%s", task.DAGRunID))
+	if task.AttemptID != "" {
+		args = append(args, fmt.Sprintf("--attempt-id=%s", task.AttemptID))
 	}
 
 	// Override derived name since temp files lack 'name:' field
 	if dagName == "" {
-		dagName = task.RootDagRunName
+		dagName = task.RootDAGRunName
 	}
 	if dagName == "" {
 		dagName = dagNameHint(task.Target)
@@ -338,8 +337,8 @@ func (b *SubCmdBuilder) TaskStart(task *coordinatorv1.Task, envHints []string, d
 	}
 
 	// Worker ID prevents re-dispatch to coordinator
-	if task.WorkerId != "" {
-		args = append(args, fmt.Sprintf("--worker-id=%s", task.WorkerId))
+	if task.WorkerID != "" {
+		args = append(args, fmt.Sprintf("--worker-id=%s", task.WorkerID))
 	}
 
 	if task.Labels != "" {
@@ -375,11 +374,11 @@ func (b *SubCmdBuilder) TaskStart(task *coordinatorv1.Task, envHints []string, d
 // TaskRetry creates a retry command spec for coordinator tasks.
 // envHints optionally provides resolved DAG/base-config env entries for
 // rebuild-time env values in the child process.
-func (b *SubCmdBuilder) TaskRetry(task *coordinatorv1.Task, envHints []string, dagName string) CmdSpec {
-	args := []string{"retry", fmt.Sprintf("--run-id=%s", task.DagRunId), "-q"}
+func (b *SubCmdBuilder) TaskRetry(task *exec1.DispatchTask, envHints []string, dagName string) CmdSpec {
+	args := []string{"retry", fmt.Sprintf("--run-id=%s", task.DAGRunID), "-q"}
 	env := b.parentEnv()
-	if task.AttemptId != "" {
-		args = append(args, fmt.Sprintf("--attempt-id=%s", task.AttemptId))
+	if task.AttemptID != "" {
+		args = append(args, fmt.Sprintf("--attempt-id=%s", task.AttemptID))
 	}
 
 	if task.Step != "" {
@@ -387,15 +386,15 @@ func (b *SubCmdBuilder) TaskRetry(task *coordinatorv1.Task, envHints []string, d
 	}
 
 	// Pass worker ID for tracking which worker executes this DAG run
-	if task.WorkerId != "" {
-		args = append(args, fmt.Sprintf("--worker-id=%s", task.WorkerId))
+	if task.WorkerID != "" {
+		args = append(args, fmt.Sprintf("--worker-id=%s", task.WorkerID))
 	}
 
 	if b.configFile != "" {
 		args = append(args, "--config", b.configFile)
 	}
 	if dagName == "" {
-		dagName = task.RootDagRunName
+		dagName = task.RootDAGRunName
 	}
 	if dagName == "" {
 		dagName = dagNameHint(task.Target)

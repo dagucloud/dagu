@@ -49,11 +49,9 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime/builtin/docker"
 	"github.com/dagucloud/dagu/internal/runtime/builtin/s3"
 	"github.com/dagucloud/dagu/internal/runtime/builtin/ssh"
-	"github.com/dagucloud/dagu/internal/runtime/remote"
 	"github.com/dagucloud/dagu/internal/runtime/resourcelimit"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	secretpkg "github.com/dagucloud/dagu/internal/secret"
-	"github.com/dagucloud/dagu/internal/service/coordinator"
 
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin"
 )
@@ -188,6 +186,9 @@ type Agent struct {
 	// When nil, status is written to local filesystem via DAGRunAttempt.
 	statusPusher StatusPusher
 
+	// dispatcherFactory creates a dispatcher for distributed child DAG execution.
+	dispatcherFactory DispatcherFactory
+
 	// logWriterFactory is used to create log writers for step output.
 	// When nil, logs are written to local filesystem.
 	logWriterFactory exec.LogWriterFactory
@@ -237,10 +238,8 @@ type Agent struct {
 	evaluatedS3            *core.S3Config
 }
 
-// StatusPusher is an interface for pushing status updates remotely.
-type StatusPusher interface {
-	Push(ctx context.Context, status exec.DAGRunStatus) error
-}
+// StatusPusher reports DAG run status outside the current execution process.
+type StatusPusher = runtime.StatusPusher
 
 // SocketServer handles local status/control requests for a running DAG.
 type SocketServer interface {
@@ -257,9 +256,10 @@ func defaultSocketServerFactory(addr string, handlerFunc sock.HTTPHandlerFunc) (
 }
 
 // ArtifactFinalizer uploads or persists artifacts before the final terminal status is written.
-type ArtifactFinalizer interface {
-	Finalize(ctx context.Context, attemptID, dir string) error
-}
+type ArtifactFinalizer = runtime.ArtifactFinalizer
+
+// DispatcherFactory creates a dispatcher for distributed child DAG execution.
+type DispatcherFactory func(ctx context.Context) (runtime.Dispatcher, error)
 
 // Options is the configuration for the Agent.
 type Options struct {
@@ -287,6 +287,8 @@ type Options struct {
 	// StatusPusher is used to push status updates to a remote coordinator.
 	// When nil, status is written to local filesystem via DAGRunAttempt.
 	StatusPusher StatusPusher
+	// DispatcherFactory creates dispatchers for distributed child DAG execution.
+	DispatcherFactory DispatcherFactory
 	// LogWriterFactory is used to create log writers for step output.
 	// When nil, logs are written to local filesystem.
 	LogWriterFactory exec.LogWriterFactory
@@ -380,6 +382,7 @@ func New(
 		peerConfig:                 opts.PeerConfig,
 		workerID:                   opts.WorkerID,
 		statusPusher:               opts.StatusPusher,
+		dispatcherFactory:          opts.DispatcherFactory,
 		logWriterFactory:           opts.LogWriterFactory,
 		queuedRun:                  opts.QueuedRun,
 		attemptID:                  opts.AttemptID,
@@ -550,14 +553,16 @@ func (a *Agent) Run(ctx context.Context) error {
 	// Create a new environment for the dag-run.
 	dbClient := newDBClient(a.dagRunStore, a.dagStore)
 
-	// Initialize coordinator client factory for distributed execution
-	coordinatorCli := a.createCoordinatorClient(ctx)
+	dispatcher, err := a.createDispatcher(ctx)
+	if err != nil {
+		return err
+	}
 
 	contextOpts := []runtime.ContextOption{
 		runtime.WithDatabase(dbClient),
 		runtime.WithRootDAGRun(a.rootDAGRun),
 		runtime.WithParams(a.dag.Params),
-		runtime.WithCoordinator(coordinatorCli),
+		runtime.WithCoordinator(dispatcher),
 		runtime.WithSecrets(secretEnvs),
 		runtime.WithDefaultExecMode(a.defaultExecMode),
 	}
@@ -964,10 +969,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	<-progressDone
 	progressDrained = true
 
-	if coordinatorCli != nil {
-		// Cleanup the coordinator client resources if it was created.
-		if err := coordinatorCli.Cleanup(ctx); err != nil {
-			logger.Warn(ctx, "Failed to cleanup coordinator client", tag.Error(err))
+	if dispatcher != nil {
+		if err := dispatcher.Cleanup(ctx); err != nil {
+			logger.Warn(ctx, "Failed to cleanup dispatcher", tag.Error(err))
 		}
 	}
 
@@ -1040,7 +1044,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// Stream scheduler log to coordinator if using remote logging (shared-nothing mode)
 	if a.logWriterFactory != nil {
-		if streamer, ok := a.logWriterFactory.(*remote.LogStreamer); ok {
+		if streamer, ok := a.logWriterFactory.(runtime.SchedulerLogStreamer); ok {
 			if err := streamer.StreamSchedulerLog(ctx, a.logFile); err != nil {
 				logger.Warn(ctx, "Failed to stream scheduler log", tag.Error(err))
 			}
@@ -1399,11 +1403,11 @@ func (a *Agent) pushStatus(ctx context.Context, status exec.DAGRunStatus) {
 	}
 	if err := a.statusPusher.Push(pushCtx, status); err != nil {
 		logger.Error(ctx, "Failed to push status to coordinator", tag.Error(err))
-		var rejectedErr *remote.AttemptRejectedError
+		var rejectedErr runtime.AttemptRejected
 		if errors.As(err, &rejectedErr) && !a.finished.Load() {
 			logger.Warn(ctx, "Coordinator rejected the worker attempt; stopping execution",
 				tag.AttemptID(a.dagRunAttemptID),
-				slog.String("reason", rejectedErr.Reason),
+				slog.String("reason", rejectedErr.AttemptRejectedReason()),
 			)
 			a.stopChildren(context.Background(), syscall.SIGTERM, true)
 		}
@@ -1430,7 +1434,7 @@ func (a *Agent) watchCancelRequested(ctx context.Context, attempt exec.DAGRunAtt
 			// Only signal if the agent hasn't finished yet.
 			// This handles cancellation from the worker (via heartbeat CancelledRuns)
 			// in shared-nothing mode. If the agent already finished normally,
-			// we don't want to send an unnecessary SIGTERM.
+			// sending an extra SIGTERM is unnecessary.
 			if !a.finished.Load() {
 				a.stopChildren(context.Background(), syscall.SIGTERM, true)
 			}
@@ -1557,25 +1561,15 @@ func (a *Agent) newRunner(attempt exec.DAGRunAttempt) *runtime.Runner {
 	return runtime.New(cfg)
 }
 
-// createCoordinatorClient creates a coordinator client factory for distributed execution
-func (a *Agent) createCoordinatorClient(ctx context.Context) runtime.Dispatcher {
-	if a.registry == nil {
-		logger.Debug(ctx, "Service monitor is not configured; skipping coordinator client creation")
-		return nil
+func (a *Agent) createDispatcher(ctx context.Context) (runtime.Dispatcher, error) {
+	if a.dispatcherFactory == nil {
+		if a.registry != nil {
+			logger.Debug(ctx, "Dispatcher factory is not configured; running in local-only mode")
+		}
+		return nil, nil
 	}
 
-	// Create and configure factory
-	coordinatorCliCfg := coordinator.DefaultConfig()
-	coordinatorCliCfg.MaxRetries = 50
-
-	// Configure the coordinator client based on the global configuration
-	coordinatorCliCfg.CAFile = a.peerConfig.ClientCaFile
-	coordinatorCliCfg.CertFile = a.peerConfig.CertFile
-	coordinatorCliCfg.KeyFile = a.peerConfig.KeyFile
-	coordinatorCliCfg.SkipTLSVerify = a.peerConfig.SkipTLSVerify
-	coordinatorCliCfg.Insecure = a.peerConfig.Insecure
-
-	return coordinator.New(a.registry, coordinatorCliCfg)
+	return a.dispatcherFactory(ctx)
 }
 
 // resolveSecrets resolves all secrets defined in the DAG and returns them as

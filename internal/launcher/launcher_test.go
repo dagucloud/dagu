@@ -24,7 +24,6 @@ import (
 	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	"github.com/dagucloud/dagu/internal/test"
-	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
 
 func TestNewSubCmdBuilder(t *testing.T) {
@@ -719,9 +718,9 @@ func TestTaskStart(t *testing.T) {
 
 	t.Run("BasicTaskStart", func(t *testing.T) {
 		t.Parallel()
-		task := &coordinatorv1.Task{
-			DagRunId:  "task-run-id",
-			AttemptId: "attempt-1",
+		task := &exec.DispatchTask{
+			DAGRunID:  "task-run-id",
+			AttemptID: "attempt-1",
 			Target:    "/path/to/task.yaml",
 		}
 		spec := builder.TaskStart(task, nil, "")
@@ -738,13 +737,13 @@ func TestTaskStart(t *testing.T) {
 
 	t.Run("TaskStartWithHierarchy", func(t *testing.T) {
 		t.Parallel()
-		task := &coordinatorv1.Task{
-			DagRunId:         "child-run-id",
+		task := &exec.DispatchTask{
+			DAGRunID:         "child-run-id",
 			Target:           "/path/to/child.yaml",
-			RootDagRunId:     "root-id",
-			RootDagRunName:   "root-dag",
-			ParentDagRunId:   "parent-id",
-			ParentDagRunName: "parent-dag",
+			RootDAGRunID:     "root-id",
+			RootDAGRunName:   "root-dag",
+			ParentDAGRunID:   "parent-id",
+			ParentDAGRunName: "parent-dag",
 		}
 		spec := builder.TaskStart(task, nil, "")
 
@@ -756,11 +755,11 @@ func TestTaskStart(t *testing.T) {
 
 	t.Run("TaskStartWithExplicitDagName", func(t *testing.T) {
 		t.Parallel()
-		task := &coordinatorv1.Task{
-			DagRunId:       "child-run-id",
+		task := &exec.DispatchTask{
+			DAGRunID:       "child-run-id",
 			Target:         "/tmp/worker-child.yaml",
-			RootDagRunId:   "root-id",
-			RootDagRunName: "root-dag",
+			RootDAGRunID:   "root-id",
+			RootDAGRunName: "root-dag",
 		}
 		spec := builder.TaskStart(task, nil, "child-dag")
 
@@ -772,9 +771,9 @@ func TestTaskStart(t *testing.T) {
 
 	t.Run("TaskStartWithParams", func(t *testing.T) {
 		t.Parallel()
-		task := &coordinatorv1.Task{
-			DagRunId:  "task-run-id",
-			AttemptId: "attempt-1",
+		task := &exec.DispatchTask{
+			DAGRunID:  "task-run-id",
+			AttemptID: "attempt-1",
 			Target:    "/path/to/task.yaml",
 			Params:    "env=production",
 		}
@@ -786,11 +785,11 @@ func TestTaskStart(t *testing.T) {
 
 	t.Run("TaskStartWithRootOnly", func(t *testing.T) {
 		t.Parallel()
-		task := &coordinatorv1.Task{
-			DagRunId:       "task-run-id",
+		task := &exec.DispatchTask{
+			DAGRunID:       "task-run-id",
 			Target:         "/path/to/task.yaml",
-			RootDagRunId:   "root-id",
-			RootDagRunName: "root-dag",
+			RootDAGRunID:   "root-id",
+			RootDAGRunName: "root-dag",
 		}
 		spec := builder.TaskStart(task, nil, "")
 
@@ -803,11 +802,11 @@ func TestTaskStart(t *testing.T) {
 
 	t.Run("TaskStartWithParentOnly", func(t *testing.T) {
 		t.Parallel()
-		task := &coordinatorv1.Task{
-			DagRunId:         "task-run-id",
+		task := &exec.DispatchTask{
+			DAGRunID:         "task-run-id",
 			Target:           "/path/to/task.yaml",
-			ParentDagRunId:   "parent-id",
-			ParentDagRunName: "parent-dag",
+			ParentDAGRunID:   "parent-id",
+			ParentDAGRunName: "parent-dag",
 		}
 		spec := builder.TaskStart(task, nil, "")
 
@@ -820,9 +819,9 @@ func TestTaskStart(t *testing.T) {
 
 	t.Run("TaskStartWithLabels", func(t *testing.T) {
 		t.Parallel()
-		task := &coordinatorv1.Task{
-			DagRunId:  "task-run-id",
-			AttemptId: "attempt-1",
+		task := &exec.DispatchTask{
+			DAGRunID:  "task-run-id",
+			AttemptID: "attempt-1",
 			Target:    "/path/to/task.yaml",
 			Labels:    "env=prod,team=backend",
 		}
@@ -833,9 +832,9 @@ func TestTaskStart(t *testing.T) {
 
 	t.Run("TaskStartWithScheduleTime", func(t *testing.T) {
 		t.Parallel()
-		task := &coordinatorv1.Task{
-			DagRunId:     "task-run-id",
-			AttemptId:    "attempt-1",
+		task := &exec.DispatchTask{
+			DAGRunID:     "task-run-id",
+			AttemptID:    "attempt-1",
 			Target:       "/path/to/task.yaml",
 			ScheduleTime: "2026-03-13T10:00:00Z",
 		}
@@ -846,9 +845,9 @@ func TestTaskStart(t *testing.T) {
 
 	t.Run("TaskStartWithSourceFile", func(t *testing.T) {
 		t.Parallel()
-		task := &coordinatorv1.Task{
-			DagRunId:   "task-run-id",
-			AttemptId:  "attempt-1",
+		task := &exec.DispatchTask{
+			DAGRunID:   "task-run-id",
+			AttemptID:  "attempt-1",
 			Target:     "/path/to/task.yaml",
 			SourceFile: "/dags/original.yaml",
 		}
@@ -859,9 +858,9 @@ func TestTaskStart(t *testing.T) {
 
 	t.Run("TaskStartWithExternalStepRetry", func(t *testing.T) {
 		t.Parallel()
-		task := &coordinatorv1.Task{
-			DagRunId:          "task-run-id",
-			AttemptId:         "attempt-1",
+		task := &exec.DispatchTask{
+			DAGRunID:          "task-run-id",
+			AttemptID:         "attempt-1",
 			Target:            "/path/to/task.yaml",
 			ExternalStepRetry: true,
 		}
@@ -872,9 +871,9 @@ func TestTaskStart(t *testing.T) {
 
 	t.Run("TaskStartWithoutLabels", func(t *testing.T) {
 		t.Parallel()
-		task := &coordinatorv1.Task{
-			DagRunId:  "task-run-id",
-			AttemptId: "attempt-1",
+		task := &exec.DispatchTask{
+			DAGRunID:  "task-run-id",
+			AttemptID: "attempt-1",
 			Target:    "/path/to/task.yaml",
 		}
 		spec := builder.TaskStart(task, nil, "")
@@ -892,9 +891,9 @@ func TestTaskStart(t *testing.T) {
 			},
 		}
 		builderNoFile := launcher.NewSubCmdBuilder(cfgNoFile)
-		task := &coordinatorv1.Task{
-			DagRunId:  "task-run-id",
-			AttemptId: "attempt-1",
+		task := &exec.DispatchTask{
+			DAGRunID:  "task-run-id",
+			AttemptID: "attempt-1",
 			Target:    "/path/to/task.yaml",
 		}
 		spec := builderNoFile.TaskStart(task, nil, "")
@@ -915,11 +914,11 @@ func TestTaskRetry(t *testing.T) {
 
 	t.Run("BasicTaskRetry", func(t *testing.T) {
 		t.Parallel()
-		task := &coordinatorv1.Task{
-			DagRunId:       "retry-run-id",
-			AttemptId:      "attempt-2",
+		task := &exec.DispatchTask{
+			DAGRunID:       "retry-run-id",
+			AttemptID:      "attempt-2",
 			Target:         "/path/to/task.yaml",
-			RootDagRunName: "root-dag",
+			RootDAGRunName: "root-dag",
 		}
 		spec := builder.TaskRetry(task, nil, "")
 
@@ -934,9 +933,9 @@ func TestTaskRetry(t *testing.T) {
 
 	t.Run("TaskRetryWithStep", func(t *testing.T) {
 		t.Parallel()
-		task := &coordinatorv1.Task{
-			DagRunId:  "retry-run-id",
-			AttemptId: "attempt-2",
+		task := &exec.DispatchTask{
+			DAGRunID:  "retry-run-id",
+			AttemptID: "attempt-2",
 			Target:    "/path/to/task.yaml",
 			Step:      "failed-step",
 		}
@@ -947,11 +946,11 @@ func TestTaskRetry(t *testing.T) {
 
 	t.Run("TaskRetryWithExplicitDagName", func(t *testing.T) {
 		t.Parallel()
-		task := &coordinatorv1.Task{
-			DagRunId:       "retry-run-id",
-			AttemptId:      "attempt-2",
+		task := &exec.DispatchTask{
+			DAGRunID:       "retry-run-id",
+			AttemptID:      "attempt-2",
 			Target:         "/tmp/worker-child.yaml",
-			RootDagRunName: "root-dag",
+			RootDAGRunName: "root-dag",
 		}
 		spec := builder.TaskRetry(task, nil, "child-dag")
 
@@ -961,11 +960,11 @@ func TestTaskRetry(t *testing.T) {
 
 	t.Run("TaskRetryWithExternalStepRetry", func(t *testing.T) {
 		t.Parallel()
-		task := &coordinatorv1.Task{
-			DagRunId:          "retry-run-id",
-			AttemptId:         "attempt-2",
+		task := &exec.DispatchTask{
+			DAGRunID:          "retry-run-id",
+			AttemptID:         "attempt-2",
 			Target:            "/path/to/task.yaml",
-			RootDagRunName:    "root-dag",
+			RootDAGRunName:    "root-dag",
 			ExternalStepRetry: true,
 		}
 		spec := builder.TaskRetry(task, nil, "")
@@ -975,11 +974,11 @@ func TestTaskRetry(t *testing.T) {
 
 	t.Run("TaskRetryDoesNotMarkQueueDispatch", func(t *testing.T) {
 		t.Parallel()
-		task := &coordinatorv1.Task{
-			DagRunId:       "retry-run-id",
-			AttemptId:      "attempt-2",
+		task := &exec.DispatchTask{
+			DAGRunID:       "retry-run-id",
+			AttemptID:      "attempt-2",
 			Target:         "/path/to/task.yaml",
-			RootDagRunName: "root-dag",
+			RootDAGRunName: "root-dag",
 		}
 		spec := builder.TaskRetry(task, nil, "")
 
@@ -988,11 +987,11 @@ func TestTaskRetry(t *testing.T) {
 
 	t.Run("TaskRetryStripsInheritedQueueDispatchMarker", func(t *testing.T) {
 		t.Setenv(exec.EnvKeyQueueDispatchRetry, "1")
-		task := &coordinatorv1.Task{
-			DagRunId:       "retry-run-id",
-			AttemptId:      "attempt-2",
+		task := &exec.DispatchTask{
+			DAGRunID:       "retry-run-id",
+			AttemptID:      "attempt-2",
 			Target:         "/path/to/task.yaml",
-			RootDagRunName: "root-dag",
+			RootDAGRunName: "root-dag",
 		}
 		spec := builder.TaskRetry(task, nil, "")
 
@@ -1001,11 +1000,11 @@ func TestTaskRetry(t *testing.T) {
 
 	t.Run("QueueDispatchTaskRetryMarksQueueDispatch", func(t *testing.T) {
 		t.Parallel()
-		task := &coordinatorv1.Task{
-			DagRunId:       "retry-run-id",
-			AttemptId:      "attempt-2",
+		task := &exec.DispatchTask{
+			DAGRunID:       "retry-run-id",
+			AttemptID:      "attempt-2",
 			Target:         "/path/to/task.yaml",
-			RootDagRunName: "root-dag",
+			RootDAGRunName: "root-dag",
 		}
 		spec := builder.QueueDispatchTaskRetry(task, nil, "")
 
@@ -1020,9 +1019,9 @@ func TestTaskRetry(t *testing.T) {
 			},
 		}
 		builderNoFile := launcher.NewSubCmdBuilder(cfgNoFile)
-		task := &coordinatorv1.Task{
-			DagRunId:  "retry-run-id",
-			AttemptId: "attempt-2",
+		task := &exec.DispatchTask{
+			DAGRunID:  "retry-run-id",
+			AttemptID: "attempt-2",
 			Target:    "/path/to/task.yaml",
 		}
 		spec := builderNoFile.TaskRetry(task, nil, "")

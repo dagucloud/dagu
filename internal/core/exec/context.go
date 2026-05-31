@@ -18,7 +18,6 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/dagstate"
-	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
 
 // Context contains the execution metadata for a dag-run.
@@ -179,26 +178,6 @@ func (r *RunStatus) MarshalJSON() ([]byte, error) {
 		Status:             r.Status.String(),
 		PendingStepRetries: r.PendingStepRetries,
 	}, "", "  ")
-}
-
-// Dispatcher defines the interface for coordinator operations
-type Dispatcher interface {
-	// Dispatch sends a task to the coordinator
-	Dispatch(ctx context.Context, task *coordinatorv1.Task) error
-
-	// Cleanup cleans up any resources used by the coordinator client
-	Cleanup(ctx context.Context) error
-
-	// GetDAGRunStatus retrieves the status of a DAG run from the coordinator.
-	// Used by parent DAGs to poll status of remote sub-DAGs.
-	// For sub-DAG queries, provide rootRef to look up the status under the root DAG run.
-	// Returns (nil, nil) if the DAG run is not found.
-	GetDAGRunStatus(ctx context.Context, dagName, dagRunID string, rootRef *DAGRunRef) (*coordinatorv1.GetDAGRunStatusResponse, error)
-
-	// RequestCancel requests cancellation of a DAG run through the coordinator.
-	// Used in shared-nothing mode for sub-DAG cancellation where the parent
-	// worker cannot directly access the sub-DAG's attempt.
-	RequestCancel(ctx context.Context, dagName, dagRunID string, rootRef *DAGRunRef) error
 }
 
 // contextOptions holds optional configuration for NewContext.

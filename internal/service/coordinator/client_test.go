@@ -81,8 +81,8 @@ func TestClientDispatch(t *testing.T) {
 
 		client := coordinator.New(monitor, config)
 
-		task := &coordinatorv1.Task{
-			DagRunId: "test-dag-run",
+		task := &exec.DispatchTask{
+			DAGRunID: "test-dag-run",
 			Target:   "test.yaml",
 		}
 
@@ -106,8 +106,8 @@ func TestClientDispatch(t *testing.T) {
 
 		client := coordinator.New(monitor, config)
 
-		task := &coordinatorv1.Task{
-			DagRunId: "test-dag-run",
+		task := &exec.DispatchTask{
+			DAGRunID: "test-dag-run",
 			Target:   "test.yaml",
 		}
 
@@ -148,8 +148,8 @@ func TestClientDispatch(t *testing.T) {
 
 		client := coordinator.New(monitor, config)
 
-		err := client.Dispatch(context.Background(), &coordinatorv1.Task{
-			DagRunId: "run-123",
+		err := client.Dispatch(context.Background(), &exec.DispatchTask{
+			DAGRunID: "run-123",
 			Target:   "test-dag",
 		})
 		require.Error(t, err)
@@ -1159,7 +1159,7 @@ func TestClientMetrics(t *testing.T) {
 	assert.True(t, metrics.IsConnected)
 	assert.Equal(t, 0, metrics.ConsecutiveFails)
 
-	task := &coordinatorv1.Task{DagRunId: "test"}
+	task := &exec.DispatchTask{DAGRunID: "test"}
 
 	// Attempt dispatch - should fail
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
@@ -1198,7 +1198,7 @@ func TestClientCleanup(t *testing.T) {
 	client := coordinator.New(monitor, config)
 
 	// Make a call to establish connection
-	task := &coordinatorv1.Task{DagRunId: "test"}
+	task := &exec.DispatchTask{DAGRunID: "test"}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
@@ -1225,8 +1225,8 @@ func TestClientDispatch_NoCoordinators(t *testing.T) {
 	monitor := &mockServiceMonitor{}
 	client := coordinator.New(monitor, config)
 
-	task := &coordinatorv1.Task{
-		DagRunId: "test-dag-run",
+	task := &exec.DispatchTask{
+		DAGRunID: "test-dag-run",
 		Target:   "test.yaml",
 	}
 

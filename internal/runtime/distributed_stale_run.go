@@ -160,7 +160,7 @@ func workerHeartbeatReportsAttempt(record *exec.WorkerHeartbeatRecord, status *e
 		if task.AttemptKey != "" && task.AttemptKey == attemptKey {
 			return true
 		}
-		if task.AttemptKey == "" && task.DagRunId == status.DAGRunID && task.DagName == status.Name {
+		if task.AttemptKey == "" && task.DAGRunID == status.DAGRunID && task.DAGName == status.Name {
 			return true
 		}
 	}

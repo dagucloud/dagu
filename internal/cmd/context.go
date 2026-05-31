@@ -586,6 +586,12 @@ func (c *Context) NewCoordinatorClient() coordinator.Client {
 	return cmdprocess.NewCoordinatorClient(c.Context, c.Config, c.ServiceRegistry)
 }
 
+func (c *Context) RuntimeDispatcherFactory() func(context.Context) (runtime.Dispatcher, error) {
+	return func(_ context.Context) (runtime.Dispatcher, error) {
+		return coordinator.NewRuntimeDispatcher(c.ServiceRegistry, c.Config.Core.Peer)
+	}
+}
+
 // NewScheduler creates a scheduler for this command context.
 func (c *Context) NewScheduler() (*scheduler.Scheduler, error) {
 	return cmdprocess.NewScheduler(cmdprocess.SchedulerConfig{

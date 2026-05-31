@@ -22,12 +22,10 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/dispatch"
-	"github.com/dagucloud/dagu/internal/proto/convert"
 	"github.com/dagucloud/dagu/internal/runtime/agent"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/workspace"
-	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"github.com/spf13/cobra"
 )
 
@@ -530,6 +528,7 @@ func executeDAGRun(ctx *Context, d *core.DAG, parent exec.DAGRunRef, dagRunID st
 			StateStore:                 ctx.StateStore,
 			SecretStore:                as.SecretStore,
 			ServiceRegistry:            ctx.ServiceRegistry,
+			DispatcherFactory:          ctx.RuntimeDispatcherFactory(),
 			RootDAGRun:                 root,
 			PeerConfig:                 ctx.Config.Core.Peer,
 			TriggerType:                triggerType,
@@ -593,7 +592,7 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *core.DAG, dagRunID string, sc
 	task := executor.CreateTask(
 		d.Name,
 		string(d.YamlData),
-		coordinatorv1.Operation_OPERATION_START,
+		exec.DispatchOperationStart,
 		dagRunID,
 		taskOpts...,
 	)
@@ -643,8 +642,7 @@ func handleDistributedCancellation(ctx context.Context, dag *core.DAG, dagRunID 
 				continue
 			}
 			progress.Update(resp.Status)
-			dagStatus, convErr := convert.ProtoToDAGRunStatus(resp.Status)
-			if convErr == nil && dagStatus != nil && !dagStatus.Status.IsActive() {
+			if !resp.Status.Status.IsActive() {
 				return originalErr
 			}
 		}
@@ -697,19 +695,14 @@ func waitForDAGCompletionWithProgress(ctx *Context, d *core.DAG, dagRunID string
 				progress.Update(resp.Status)
 			}
 
-			// Check status
-			dagStatus, convErr := convert.ProtoToDAGRunStatus(resp.Status)
-			if convErr != nil || dagStatus == nil {
-				continue
-			}
+			dagStatus := resp.Status
 			if !dagStatus.Status.IsActive() {
 				if dagStatus.Status.IsSuccess() {
 					logger.Info(ctx, "DAG completed successfully", tag.RunID(dagRunID))
 					return nil
 				}
-				// Include error details from response if available
-				if resp.Error != "" {
-					return fmt.Errorf("DAG run failed with status %s: %s", dagStatus.Status, resp.Error)
+				if dagStatus.Error != "" {
+					return fmt.Errorf("DAG run failed with status %s: %s", dagStatus.Status, dagStatus.Error)
 				}
 				return fmt.Errorf("DAG run failed with status: %s", dagStatus.Status)
 			}

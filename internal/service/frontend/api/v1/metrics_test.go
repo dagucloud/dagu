@@ -12,7 +12,6 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/test"
-	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"github.com/stretchr/testify/require"
 )
 
@@ -71,11 +70,11 @@ func TestMetrics_ExportsWorkerMetrics(t *testing.T) {
 			"pool":   "gpu",
 			"region": "ap-northeast-1",
 		},
-		Stats: &coordinatorv1.WorkerStats{
+		Stats: &exec.WorkerStats{
 			TotalPollers: 4,
 			BusyPollers:  2,
-			RunningTasks: []*coordinatorv1.RunningTask{
-				{DagRunId: "run-1", DagName: "dag-1", StartedAt: time.Now().Add(-time.Minute).Unix()},
+			RunningTasks: []*exec.RunningTask{
+				{DAGRunID: "run-1", DAGName: "dag-1", StartedAt: time.Now().Add(-time.Minute).Unix()},
 			},
 		},
 		LastHeartbeatAt: time.Now().UnixMilli(),

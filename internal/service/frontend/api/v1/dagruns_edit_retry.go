@@ -33,7 +33,6 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	"github.com/dagucloud/dagu/internal/service/audit"
-	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
 
 type editRetryOptions struct {
@@ -802,7 +801,7 @@ func (a *API) dispatchEditRetry(ctx context.Context, dag *core.DAG, status *exec
 	task := executor.CreateTask(
 		dag.Name,
 		string(dag.YamlData),
-		coordinatorv1.Operation_OPERATION_RETRY,
+		exec.DispatchOperationRetry,
 		status.DAGRunID,
 		opts...,
 	)

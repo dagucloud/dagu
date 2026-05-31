@@ -27,10 +27,8 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/telemetry"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/proto/convert"
 	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
 	dagutools "github.com/dagucloud/dagu/internal/tools"
-	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
 
 var (
@@ -373,8 +371,8 @@ func isDAGToolsEnvKey(key string) bool {
 	return false
 }
 
-// BuildCoordinatorTask creates a coordinator task for distributed execution
-func (e *SubDAGExecutor) BuildCoordinatorTask(ctx context.Context, runParams RunParams) (*coordinatorv1.Task, error) {
+// BuildCoordinatorTask creates a dispatch task for distributed execution.
+func (e *SubDAGExecutor) BuildCoordinatorTask(ctx context.Context, runParams RunParams) (*exec.DispatchTask, error) {
 	rCtx := exec.GetContext(ctx)
 
 	if runParams.RunID == "" {
@@ -394,7 +392,7 @@ func (e *SubDAGExecutor) BuildCoordinatorTask(ctx context.Context, runParams Run
 	task := CreateTask(
 		e.DAG.Name,
 		string(e.DAG.YamlData),
-		coordinatorv1.Operation_OPERATION_START,
+		exec.DispatchOperationStart,
 		runParams.RunID,
 		taskOpts...,
 	)
@@ -415,7 +413,7 @@ func (e *SubDAGExecutor) buildCoordinatorRetryTask(
 	runParams RunParams,
 	stepName string,
 	previousStatus *exec.DAGRunStatus,
-) (*coordinatorv1.Task, error) {
+) (*exec.DispatchTask, error) {
 	rCtx := exec.GetContext(ctx)
 	if runParams.RunID == "" {
 		return nil, errDAGRunIDNotSet
@@ -436,7 +434,7 @@ func (e *SubDAGExecutor) buildCoordinatorRetryTask(
 	task := CreateTask(
 		e.DAG.Name,
 		string(e.DAG.YamlData),
-		coordinatorv1.Operation_OPERATION_RETRY,
+		exec.DispatchOperationRetry,
 		runParams.RunID,
 		taskOpts...,
 	)
@@ -691,7 +689,7 @@ func (e *SubDAGExecutor) dispatchToCoordinator(ctx context.Context, runParams Ru
 	}
 
 	taskCtx := logger.WithValues(ctx,
-		tag.RunID(task.DagRunId),
+		tag.RunID(task.DAGRunID),
 		tag.Target(task.Target),
 	)
 	logger.Info(taskCtx, "Dispatching task to coordinator",
@@ -727,7 +725,7 @@ func (e *SubDAGExecutor) dispatchRetryToCoordinator(ctx context.Context, runPara
 	}
 
 	taskCtx := logger.WithValues(ctx,
-		tag.RunID(task.DagRunId),
+		tag.RunID(task.DAGRunID),
 		tag.Target(task.Target),
 		tag.Step(stepName),
 	)
@@ -944,22 +942,20 @@ func (e *SubDAGExecutor) getFullStatusFromCoordinator(
 	rootDAGRun exec.DAGRunRef,
 ) (*exec.DAGRunStatus, error) {
 	rootRef := &rootDAGRun
-	resp, err := e.coordinatorCli.GetDAGRunStatus(ctx, e.DAG.Name, dagRunID, rootRef)
+	result, err := e.coordinatorCli.GetDAGRunStatus(ctx, e.DAG.Name, dagRunID, rootRef)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get DAG run status from coordinator: %w", err)
 	}
-	if resp == nil {
+	if result == nil {
 		return nil, fmt.Errorf("no response from coordinator")
 	}
-	if !resp.Found {
+	if !result.Found {
 		return nil, fmt.Errorf("DAG run not found in coordinator")
 	}
-
-	dagRunStatus, convErr := convert.ProtoToDAGRunStatus(resp.Status)
-	if convErr != nil {
-		return nil, fmt.Errorf("failed to convert status: %w", convErr)
+	if result.Status == nil {
+		return nil, fmt.Errorf("coordinator returned empty DAG run status")
 	}
-	return dagRunStatus, nil
+	return result.Status, nil
 }
 
 // extractOutputsFromNodes extracts output variables from nodes.

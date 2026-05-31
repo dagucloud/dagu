@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/core"
-	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
 
 var (
@@ -59,7 +58,7 @@ type DispatchTaskClaim struct {
 // ClaimedDispatchTask is a shared pending task that has been claimed by a
 // specific worker poller and must be acknowledged before execution begins.
 type ClaimedDispatchTask struct {
-	Task       *coordinatorv1.Task
+	Task       *DispatchTask
 	ClaimToken string
 	ClaimedAt  time.Time
 	WorkerID   string
@@ -69,9 +68,10 @@ type ClaimedDispatchTask struct {
 
 // DispatchTaskStore manages the shared distributed dispatch queue.
 type DispatchTaskStore interface {
-	Enqueue(ctx context.Context, task *coordinatorv1.Task) error
+	Enqueue(ctx context.Context, task *DispatchTask) error
 	ClaimNext(ctx context.Context, claim DispatchTaskClaim) (*ClaimedDispatchTask, error)
 	GetClaim(ctx context.Context, claimToken string) (*ClaimedDispatchTask, error)
+	ReleaseClaim(ctx context.Context, claimToken string) error
 	DeleteClaim(ctx context.Context, claimToken string) error
 	CountOutstandingByQueue(ctx context.Context, queueName string, claimTimeout time.Duration) (int, error)
 	HasOutstandingAttempt(ctx context.Context, attemptKey string, claimTimeout time.Duration) (bool, error)
@@ -79,10 +79,29 @@ type DispatchTaskStore interface {
 
 // WorkerHeartbeatRecord is the shared presence record for a worker.
 type WorkerHeartbeatRecord struct {
-	WorkerID        string                     `json:"workerId"`
-	Labels          map[string]string          `json:"labels,omitempty"`
-	Stats           *coordinatorv1.WorkerStats `json:"stats,omitempty"`
-	LastHeartbeatAt int64                      `json:"lastHeartbeatAt"`
+	WorkerID        string            `json:"workerId"`
+	Labels          map[string]string `json:"labels,omitempty"`
+	Stats           *WorkerStats      `json:"stats,omitempty"`
+	LastHeartbeatAt int64             `json:"lastHeartbeatAt"`
+}
+
+// WorkerStats describes worker poller capacity and running distributed tasks.
+type WorkerStats struct {
+	TotalPollers int32          `json:"totalPollers,omitempty"`
+	BusyPollers  int32          `json:"busyPollers,omitempty"`
+	RunningTasks []*RunningTask `json:"runningTasks,omitempty"`
+}
+
+// RunningTask describes one task currently executing on a worker.
+type RunningTask struct {
+	DAGRunID         string `json:"dagRunId,omitempty"`
+	DAGName          string `json:"dagName,omitempty"`
+	StartedAt        int64  `json:"startedAt,omitempty"`
+	RootDAGRunName   string `json:"rootDagRunName,omitempty"`
+	RootDAGRunID     string `json:"rootDagRunId,omitempty"`
+	ParentDAGRunName string `json:"parentDagRunName,omitempty"`
+	ParentDAGRunID   string `json:"parentDagRunId,omitempty"`
+	AttemptKey       string `json:"attemptKey,omitempty"`
 }
 
 // LastHeartbeatTime returns the last heartbeat as a time.

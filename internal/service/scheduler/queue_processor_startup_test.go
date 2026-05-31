@@ -15,7 +15,6 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -296,7 +295,7 @@ type mockDispatcher struct {
 	errFunc   func(callNum int32) error
 }
 
-func (m *mockDispatcher) Dispatch(_ context.Context, _ *coordinatorv1.Task) error {
+func (m *mockDispatcher) Dispatch(_ context.Context, _ *exec.DispatchTask) error {
 	n := m.callCount.Add(1)
 	if m.errFunc != nil {
 		return m.errFunc(n)
@@ -306,7 +305,7 @@ func (m *mockDispatcher) Dispatch(_ context.Context, _ *coordinatorv1.Task) erro
 
 func (m *mockDispatcher) Cleanup(_ context.Context) error { return nil }
 
-func (m *mockDispatcher) GetDAGRunStatus(_ context.Context, _, _ string, _ *exec.DAGRunRef) (*coordinatorv1.GetDAGRunStatusResponse, error) {
+func (m *mockDispatcher) GetDAGRunStatus(_ context.Context, _, _ string, _ *exec.DAGRunRef) (*exec.DAGRunStatusResult, error) {
 	return nil, nil
 }
 

@@ -18,7 +18,6 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	"github.com/dagucloud/dagu/internal/test"
-	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
@@ -256,8 +255,8 @@ steps:
 	require.NoError(t, server.WorkerHeartbeatStore.Upsert(server.Context, exec.WorkerHeartbeatRecord{
 		WorkerID:        status.WorkerID,
 		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
-		Stats: &coordinatorv1.WorkerStats{
-			RunningTasks: []*coordinatorv1.RunningTask{},
+		Stats: &exec.WorkerStats{
+			RunningTasks: []*exec.RunningTask{},
 		},
 	}))
 
@@ -326,8 +325,8 @@ steps:
 	require.NoError(t, server.WorkerHeartbeatStore.Upsert(server.Context, exec.WorkerHeartbeatRecord{
 		WorkerID:        "worker-1",
 		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
-		Stats: &coordinatorv1.WorkerStats{
-			RunningTasks: []*coordinatorv1.RunningTask{},
+		Stats: &exec.WorkerStats{
+			RunningTasks: []*exec.RunningTask{},
 		},
 	}))
 
