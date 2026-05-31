@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
+	"github.com/dagucloud/dagu/internal/dagwarning"
 	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
@@ -234,13 +235,14 @@ func (e *taskHandler) subprocessHints(ctx context.Context, task *coordinatorv1.T
 	if workspaceDefaultDir == "" {
 		resolveOpts.BaseConfig = e.baseConfig
 	}
-	env, err := spec.ResolveEnv(ctx, dag, params, resolveOpts)
+	result, err := spec.ResolveEnvWithWarnings(ctx, dag, params, resolveOpts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve DAG env for subprocess: %w", err)
 	}
+	dagwarning.Log(ctx, result.BuildWarnings)
 
 	return &subprocessHintSet{
-		env:               env,
+		env:               result.Env,
 		defaultWorkingDir: workspaceDefaultWorkingDir(task),
 	}, nil
 }

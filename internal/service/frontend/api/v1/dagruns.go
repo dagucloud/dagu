@@ -38,6 +38,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/spec"
 	spectypes "github.com/dagucloud/dagu/internal/core/spec/types"
 	"github.com/dagucloud/dagu/internal/dagrun/intake"
+	"github.com/dagucloud/dagu/internal/dagwarning"
 	"github.com/dagucloud/dagu/internal/dispatch"
 	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/runtime"
@@ -523,7 +524,7 @@ func (a *API) loadInlineDAG(ctx context.Context, specContent string, name *strin
 func restoreDAGRunSnapshot(ctx context.Context, dag *core.DAG, status *exec.DAGRunStatus) (*core.DAG, string, error) {
 	quotedParams := spec.QuoteRuntimeParams(status.ParamsList, dag.ParamDefs)
 	dag.Params = quotedParams
-	dag.LoadDotEnv(ctx)
+	dagwarning.LoadDotEnv(ctx, dag)
 
 	restored, err := rebuildDAGRunSnapshotFromYAML(ctx, dag)
 	if err != nil {
@@ -3458,15 +3459,16 @@ func (a *API) prepareRetryDAGForSubprocess(ctx context.Context, dag *core.DAG, s
 		return dag, nil
 	}
 
-	env, err := spec.ResolveEnv(ctx, dag, spec.QuoteRuntimeParams(status.ParamsList, dag.ParamDefs), spec.ResolveEnvOptions{
+	result, err := spec.ResolveEnvWithWarnings(ctx, dag, spec.QuoteRuntimeParams(status.ParamsList, dag.ParamDefs), spec.ResolveEnvOptions{
 		BaseConfig: a.config.Paths.BaseConfig,
 	})
 	if err != nil {
 		return nil, err
 	}
+	dagwarning.Log(ctx, result.BuildWarnings)
 
 	prepared := dag.Clone()
-	prepared.Env = env
+	prepared.Env = result.Env
 	return prepared, nil
 }
 

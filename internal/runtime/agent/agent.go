@@ -43,6 +43,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/dagstate"
+	"github.com/dagucloud/dagu/internal/dagwarning"
 	"github.com/dagucloud/dagu/internal/output"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/builtin/docker"
@@ -436,7 +437,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// Resolve secrets early so they're available for OTel config evaluation.
 	// LoadDotEnv is idempotent - safe to call even if already loaded by caller.
-	a.dag.LoadDotEnv(ctx)
+	dagwarning.LoadDotEnv(ctx, a.dag)
 
 	secretEnvs, secretErr := a.resolveSecrets(ctx)
 

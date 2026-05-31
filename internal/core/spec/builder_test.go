@@ -4,7 +4,6 @@
 package spec_test
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -17,7 +16,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/config"
-	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/spec"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/harness"
@@ -3512,7 +3510,7 @@ steps:
 		assert.Equal(t, "test_value", envMap["TEST_VAR_LOAD_ENV"])
 	})
 
-	t.Run("LoadEnvWithMalformedDotenvFileLogsWarning", func(t *testing.T) {
+	t.Run("LoadEnvWithMalformedDotenvFileRecordsWarning", func(t *testing.T) {
 		tempDir := t.TempDir()
 		envFile := filepath.Join(tempDir, ".env")
 		require.NoError(t, os.WriteFile(envFile, []byte("INVALID LINE\n"), 0600))
@@ -3528,19 +3526,10 @@ steps:
 		require.NoError(t, err)
 		require.NotNil(t, dag)
 
-		var logs bytes.Buffer
-		ctx := logger.WithFixedLogger(context.Background(), logger.NewLogger(
-			logger.WithFormat("text"),
-			logger.WithQuiet(),
-			logger.WithWriter(&logs),
-		))
-
-		dag.LoadDotEnv(ctx)
+		dag.LoadDotEnv(context.Background())
 
 		require.Len(t, dag.BuildWarnings, 1)
 		assert.Contains(t, dag.BuildWarnings[0], "failed to load .env file")
-		assert.Contains(t, logs.String(), "Failed to load .env file")
-		assert.Contains(t, logs.String(), envFile)
 	})
 
 	t.Run("LoadEnvFromBaseEnvResolvedWorkingDir", func(t *testing.T) {

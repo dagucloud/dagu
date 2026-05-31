@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
+	"github.com/dagucloud/dagu/internal/dagwarning"
 )
 
 // parseTriggerTypeParam parses and validates the trigger-type flag from the command context.
@@ -81,7 +82,7 @@ func parseScheduleTimeParam(ctx *Context) (string, error) {
 // from JSON serialization (env, params JSON, registryAuths, etc.).
 func restoreDAGFromStatus(ctx context.Context, dag *core.DAG, status *exec.DAGRunStatus) (*core.DAG, error) {
 	dag.Params = spec.QuoteRuntimeParams(status.ParamsList, dag.ParamDefs)
-	dag.LoadDotEnv(ctx)
+	dagwarning.LoadDotEnv(ctx, dag)
 	restored, err := rebuildDAGFromYAML(ctx, dag)
 	if err != nil {
 		return nil, err

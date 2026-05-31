@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
+	"github.com/dagucloud/dagu/internal/dagwarning"
 	"github.com/dagucloud/dagu/internal/dispatch"
 	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
@@ -277,15 +278,16 @@ func (e *DAGExecutor) prepareDAGForSubprocess(ctx context.Context, dag *core.DAG
 		return nil, nil
 	}
 
-	env, err := spec.ResolveEnv(ctx, dag, params, spec.ResolveEnvOptions{
+	result, err := spec.ResolveEnvWithWarnings(ctx, dag, params, spec.ResolveEnvOptions{
 		BaseConfig: e.baseConfigPath,
 	})
 	if err != nil {
 		return nil, err
 	}
+	dagwarning.Log(ctx, result.BuildWarnings)
 
 	prepared := dag.Clone()
-	prepared.Env = env
+	prepared.Env = result.Env
 	return prepared, nil
 }
 

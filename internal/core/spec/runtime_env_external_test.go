@@ -51,6 +51,27 @@ steps:
 	require.Equal(t, "/work/quant-signal", envMap["PROJECT_DIR"])
 }
 
+func TestResolveEnvWithWarningsReturnsDotenvWarnings(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".env"), []byte("INVALID LINE\n"), 0o600))
+
+	dag, err := spec.LoadYAMLWithOpts(context.Background(), fmt.Appendf(nil, `
+working_dir: %s
+dotenv: .env
+steps:
+  - run: echo hello
+`, root), spec.BuildOpts{Flags: spec.BuildFlagNoEval})
+	require.NoError(t, err)
+
+	result, err := spec.ResolveEnvWithWarnings(context.Background(), dag, nil, spec.ResolveEnvOptions{})
+	require.NoError(t, err)
+	require.Empty(t, result.Env)
+	require.Len(t, result.BuildWarnings, 1)
+	require.Contains(t, result.BuildWarnings[0], "failed to load .env file")
+}
+
 func runtimeEnvSliceMap(envs []string) map[string]string {
 	envMap := make(map[string]string)
 	for _, env := range envs {
