@@ -4,6 +4,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -24,6 +25,8 @@ import (
 const (
 	dispatchTaskStoreVersion      = 1
 	defaultDispatchReservationTTL = exec.DefaultStaleLeaseThreshold
+	minDispatchCleanupInterval    = 100 * time.Millisecond
+	maxDispatchCleanupInterval    = time.Second
 
 	dispatchPendingPrefix = "pending/"
 	dispatchClaimsPrefix  = "claims/"
@@ -39,8 +42,9 @@ type DispatchTaskStoreOption func(*DispatchTaskStore)
 // file collection rooted at the distributed directory uses the existing
 // on-disk layout directly.
 type DispatchTaskStore struct {
-	col            persis.Collection
-	reservationTTL time.Duration
+	col                      persis.Collection
+	reservationTTL           time.Duration
+	lastReservationCleanupAt time.Time
 	// mu serializes the in-process recycle+scan+claim sequence;
 	// per-record CompareAndDelete provides cross-process safety.
 	mu sync.Mutex
@@ -92,6 +96,20 @@ var legacyDispatchTaskJSONFields = map[string]string{
 	"claim_token":                   "ClaimToken",
 }
 
+var legacyDispatchTaskJSONMarkers = func() [][]byte {
+	markers := make([][]byte, 0, len(legacyDispatchTaskJSONFields)+4)
+	for legacyKey := range legacyDispatchTaskJSONFields {
+		markers = append(markers, []byte(`"`+legacyKey+`"`))
+	}
+	markers = append(markers,
+		[]byte(`"previous_status"`),
+		[]byte(`"owner_coordinator_id"`),
+		[]byte(`"owner_coordinator_host"`),
+		[]byte(`"owner_coordinator_port"`),
+	)
+	return markers
+}()
+
 // WithDispatchReservationTTL sets how long pending and claimed dispatch
 // records can remain outstanding before cleanup recycles or removes them.
 func WithDispatchReservationTTL(ttl time.Duration) DispatchTaskStoreOption {
@@ -140,15 +158,36 @@ func (s *DispatchTaskStore) ClaimNext(ctx context.Context, claim exec.DispatchTa
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := s.recycleExpiredReservations(ctx); err != nil {
-		return nil, err
-	}
-
-	recs, err := s.listDispatchRecords(ctx, dispatchPendingPrefix)
+	cleaned, err := s.maybeRecycleExpiredReservations(ctx)
 	if err != nil {
 		return nil, err
 	}
-	for _, rec := range recs {
+
+	claimed, err := s.claimNextPending(ctx, claim)
+	if err != nil || claimed != nil || cleaned {
+		return claimed, err
+	}
+
+	if err := s.recycleExpiredReservations(ctx); err != nil {
+		return nil, err
+	}
+	s.lastReservationCleanupAt = time.Now().UTC()
+	return s.claimNextPending(ctx, claim)
+}
+
+func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim exec.DispatchTaskClaim) (*exec.ClaimedDispatchTask, error) {
+	ids, err := s.listDispatchRecordIDs(ctx, dispatchPendingPrefix)
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range ids {
+		rec, err := s.col.Get(ctx, id)
+		if err != nil {
+			if errors.Is(err, persis.ErrNotFound) {
+				continue
+			}
+			return nil, fmt.Errorf("list record %q: %w", id, err)
+		}
 		payload, err := dispatchTaskPayloadFromRecord(rec)
 		if err != nil {
 			return nil, err
@@ -195,6 +234,19 @@ func (s *DispatchTaskStore) ClaimNext(ctx context.Context, claim exec.DispatchTa
 		}, nil
 	}
 	return nil, nil
+}
+
+func (s *DispatchTaskStore) maybeRecycleExpiredReservations(ctx context.Context) (bool, error) {
+	now := time.Now().UTC()
+	if !s.lastReservationCleanupAt.IsZero() &&
+		now.Sub(s.lastReservationCleanupAt) < dispatchCleanupInterval(s.reservationTTL) {
+		return false, nil
+	}
+	if err := s.recycleExpiredReservations(ctx); err != nil {
+		return false, err
+	}
+	s.lastReservationCleanupAt = now
+	return true, nil
 }
 
 func (s *DispatchTaskStore) GetClaim(ctx context.Context, claimToken string) (*exec.ClaimedDispatchTask, error) {
@@ -489,6 +541,27 @@ func (s *DispatchTaskStore) listDispatchRecords(ctx context.Context, prefix stri
 	return recs, nil
 }
 
+func (s *DispatchTaskStore) listDispatchRecordIDs(ctx context.Context, prefix string) ([]string, error) {
+	if idCol, ok := s.col.(strictRecordIDsCollection); ok {
+		ids, err := idCol.RecordIDs(ctx, prefix)
+		if err != nil {
+			return nil, err
+		}
+		sort.Strings(ids)
+		return ids, nil
+	}
+
+	recs, err := s.listDispatchRecords(ctx, prefix)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(recs))
+	for _, rec := range recs {
+		ids = append(ids, rec.ID)
+	}
+	return ids, nil
+}
+
 func (s *DispatchTaskStore) putDispatchRecord(ctx context.Context, id string, payload dispatchTaskPayload, createdAt, updatedAt time.Time) error {
 	rec, err := s.newDispatchRecord(id, payload, createdAt, updatedAt)
 	if err != nil {
@@ -515,6 +588,9 @@ func dispatchTaskPayloadFromRecord(rec *persis.Record) (dispatchTaskPayload, err
 	if err := persis.Decode(rec, &payload); err != nil {
 		return dispatchTaskPayload{}, fmt.Errorf("dispatch task store: decode %q: %w", rec.ID, err)
 	}
+	if !hasLegacyDispatchTaskJSON(rec.Data) {
+		return payload, nil
+	}
 	task, err := legacyDispatchTaskFromRecord(rec.Data)
 	if err != nil {
 		return dispatchTaskPayload{}, fmt.Errorf("dispatch task store: decode legacy task %q: %w", rec.ID, err)
@@ -523,6 +599,15 @@ func dispatchTaskPayloadFromRecord(rec *persis.Record) (dispatchTaskPayload, err
 		payload.Task = task
 	}
 	return payload, nil
+}
+
+func hasLegacyDispatchTaskJSON(data []byte) bool {
+	for _, marker := range legacyDispatchTaskJSONMarkers {
+		if bytes.Contains(data, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func legacyDispatchTaskFromRecord(data []byte) (*exec.DispatchTask, error) {
@@ -648,6 +733,17 @@ func normalizeDispatchReservationTTL(ttl time.Duration) time.Duration {
 		return defaultDispatchReservationTTL
 	}
 	return ttl
+}
+
+func dispatchCleanupInterval(ttl time.Duration) time.Duration {
+	interval := normalizeDispatchReservationTTL(ttl) / 10
+	if interval < minDispatchCleanupInterval {
+		return minDispatchCleanupInterval
+	}
+	if interval > maxDispatchCleanupInterval {
+		return maxDispatchCleanupInterval
+	}
+	return interval
 }
 
 func dispatchRecordTimestamp(unixMillis int64, fallback time.Time) time.Time {
