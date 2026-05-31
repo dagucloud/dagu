@@ -13,6 +13,7 @@ import (
 )
 
 func agentConfigFromBuiltinHarnessConfig(cfg map[string]any) (*core.AgentStepConfig, error) {
+	cfg = core.NormalizeBuiltinAgentHarnessConfig(cfg)
 	if err := core.ValidateBuiltinAgentHarnessConfig(cfg); err != nil {
 		return nil, fmt.Errorf("harness: %w", err)
 	}

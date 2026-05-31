@@ -4563,7 +4563,7 @@
         "$ref": "#/definitions/harnessConfigValue"
       },
       "required": ["provider"],
-      "description": "Primary or fallback harness provider configuration. Reserved keys are provider and fallback; all other keys are passed through to the CLI as flags."
+      "description": "Primary or fallback harness provider configuration. For CLI providers, reserved keys are provider and fallback and all other keys are passed through to the CLI as flags. For provider: builtin, the listed builtin agent fields are validated against a fixed allowlist."
     },
     "harnessExecutorConfig": {
       "type": "object",
@@ -4631,7 +4631,7 @@
       "additionalProperties": {
         "$ref": "#/definitions/harnessConfigValue"
       },
-      "description": "Harness step configuration. Unknown keys are passed through to the CLI as flags. When no DAG-level harness defaults exist, specify provider."
+      "description": "Harness step configuration. For CLI providers, unknown keys are passed through to the CLI as flags. For provider: builtin, builtin agent fields are validated against a fixed allowlist. When no DAG-level harness defaults exist, specify provider."
     },
     "harnessDefaultsConfig": {
       "allOf": [

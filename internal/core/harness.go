@@ -91,15 +91,55 @@ var builtinAgentHarnessConfigKeys = map[string]struct{}{
 	"web_search":     {},
 }
 
+var builtinAgentHarnessConfigAliases = map[string]string{
+	"max-iterations": "max_iterations",
+	"safe-mode":      "safe_mode",
+	"web-search":     "web_search",
+}
+
 // ValidateBuiltinAgentHarnessConfig rejects pass-through CLI flags for the
 // in-process agent harness provider.
 func ValidateBuiltinAgentHarnessConfig(cfg map[string]any) error {
 	for key := range cfg {
-		if _, ok := builtinAgentHarnessConfigKeys[key]; !ok {
+		if _, ok := builtinAgentHarnessConfigKeys[canonicalBuiltinAgentHarnessConfigKey(key)]; !ok {
 			return fmt.Errorf("unsupported builtin provider field %q", key)
 		}
 	}
 	return nil
+}
+
+// NormalizeBuiltinAgentHarnessConfig clones cfg and canonicalizes known
+// builtin agent field aliases to the agent config field names.
+func NormalizeBuiltinAgentHarnessConfig(cfg map[string]any) map[string]any {
+	if cfg == nil {
+		return nil
+	}
+
+	normalized := make(map[string]any, len(cfg))
+	sourceKeys := make(map[string]string, len(cfg))
+	keys := make([]string, 0, len(cfg))
+	for key := range cfg {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		canonical := canonicalBuiltinAgentHarnessConfigKey(key)
+		if prevKey, exists := sourceKeys[canonical]; exists && prevKey == canonical {
+			continue
+		}
+		normalized[canonical] = cloneHarnessValue(cfg[key])
+		sourceKeys[canonical] = key
+	}
+
+	return normalized
+}
+
+func canonicalBuiltinAgentHarnessConfigKey(key string) string {
+	if canonical, ok := builtinAgentHarnessConfigAliases[key]; ok {
+		return canonical
+	}
+	return key
 }
 
 // BuiltinHarnessProviderNames returns the built-in harness provider names.

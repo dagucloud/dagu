@@ -63,6 +63,8 @@ func (e *harnessExecutor) runBuiltinOnce(ctx context.Context, cfg providerConfig
 	e.mu.Unlock()
 
 	err = agentExec.Run(runCtx)
+	runCtxErr := runCtx.Err()
+	parentCtxErr := ctx.Err()
 	cancel()
 
 	e.mu.Lock()
@@ -71,7 +73,7 @@ func (e *harnessExecutor) runBuiltinOnce(ctx context.Context, cfg providerConfig
 	e.builtinStopped = false
 	e.mu.Unlock()
 
-	if stopped {
+	if builtinRunCanceled(stopped, runCtxErr, parentCtxErr) {
 		e.exitCode = 124
 		_ = cleanupStdoutSpool(stdout)
 		return nil, context.Canceled
@@ -101,6 +103,10 @@ func (e *harnessExecutor) runBuiltinOnce(ctx context.Context, cfg providerConfig
 	}
 
 	return stdout, nil
+}
+
+func builtinRunCanceled(stopped bool, runCtxErr, parentCtxErr error) bool {
+	return stopped || errors.Is(runCtxErr, context.Canceled) || errors.Is(parentCtxErr, context.Canceled)
 }
 
 func (e *harnessExecutor) builtinAgentStep(cfg providerConfig) (core.Step, error) {

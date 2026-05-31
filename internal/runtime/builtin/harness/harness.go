@@ -727,7 +727,7 @@ func validateProviderConfig(cfg map[string]any, allowFallback bool) error {
 	if providerStr == "" {
 		return fmt.Errorf("harness: config.provider is required")
 	}
-	if providerStr == core.HarnessProviderBuiltin {
+	if core.IsBuiltinAgentHarnessProvider(providerStr) {
 		return core.ValidateBuiltinAgentHarnessConfig(cfg)
 	}
 	return nil

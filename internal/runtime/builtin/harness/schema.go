@@ -21,7 +21,8 @@ var configSchema = &jsonschema.Schema{
 		},
 	},
 	// provider is required (validated in Go).
-	// All other keys are passed through as CLI flags.
+	// CLI providers pass other keys through as CLI flags; builtin validates its
+	// agent fields in Go.
 }
 
 func init() {

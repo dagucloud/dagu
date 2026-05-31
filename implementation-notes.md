@@ -47,3 +47,9 @@
 - Chat-message persistence and push-back history are enabled only for harness steps whose configured attempt list includes `builtin`. Marking the whole `harness` executor type as agent-capable would make ordinary CLI harness steps fail agent-message validation.
 - Fallbacks can mix `builtin` and CLI providers in either order. A failed `builtin` attempt discards its stdout spool like failed CLI attempts; successful `builtin` attempts persist the agent conversation for downstream agent steps and push-back.
 - Cleanup: split built-in harness provider taxonomy into all built-ins and CLI-only built-ins. Runtime CLI provider resolution, flag normalization, and sync tests now use the CLI-only helper so `builtin` is not treated like a registered binary provider.
+
+## 2026-06-01
+
+- Review cleanup: builtin harness validation now accepts top-level `max-iterations`, `safe-mode`, and `web-search` aliases by canonicalizing them to the agent config field names before parsing. The documented field names remain snake_case.
+- Review cleanup: builtin harness execution snapshots parent/run context errors before calling the local cleanup cancel function, so a parent cancellation is treated as cancellation without turning every successful run into a canceled run.
+- Review cleanup: schema wording now distinguishes CLI pass-through keys from validated `provider: builtin` agent fields.
