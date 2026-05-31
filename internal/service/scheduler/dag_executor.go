@@ -156,6 +156,9 @@ func (e *DAGExecutor) ExecuteDAG(
 			executor.WithPreviousStatus(previousStatus),
 			executor.WithBaseConfig(executor.ResolveBaseConfig(dag.BaseConfigData, e.baseConfigPath)),
 		}
+		if previousStatus != nil && previousStatus.Params != "" {
+			taskOpts = append(taskOpts, executor.WithTaskParams(previousStatus.Params))
+		}
 		if dag.SourceFile != "" {
 			taskOpts = append(taskOpts, executor.WithSourceFile(dag.SourceFile))
 		}
