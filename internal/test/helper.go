@@ -792,7 +792,10 @@ func (d *DAG) Agent(opts ...AgentOption) *Agent {
 			if err != nil {
 				return nil, err
 			}
-			return subflow.New(dispatcher, d.Config.DefaultExecMode), nil
+			return subflow.NewRouter(
+				subflow.New(dispatcher, d.Config.DefaultExecMode),
+				subflow.NewLocalCLI(),
+			), nil
 		}
 	}
 

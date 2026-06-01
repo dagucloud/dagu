@@ -191,7 +191,7 @@ type Agent struct {
 	// When nil, status is written to local filesystem via DAGRunAttempt.
 	statusPusher StatusPusher
 
-	// subWorkflowRunnerFactory creates a runner for distributed child workflows.
+	// subWorkflowRunnerFactory creates a runner for child workflows.
 	subWorkflowRunnerFactory SubWorkflowRunnerFactory
 
 	// logWriterFactory is used to create log writers for step output.
@@ -271,7 +271,7 @@ func defaultSocketServerFactory(addr string, handlerFunc sock.HTTPHandlerFunc) (
 // ArtifactFinalizer uploads or persists artifacts before the final terminal status is written.
 type ArtifactFinalizer = runtime.ArtifactFinalizer
 
-// SubWorkflowRunnerFactory creates a runner for distributed child workflows.
+// SubWorkflowRunnerFactory creates a runner for child workflows.
 type SubWorkflowRunnerFactory func(ctx context.Context) (runtimeexec.SubWorkflowRunner, error)
 
 // Options is the configuration for the Agent.
@@ -300,7 +300,7 @@ type Options struct {
 	// StatusPusher is used to push status updates to a remote coordinator.
 	// When nil, status is written to local filesystem via DAGRunAttempt.
 	StatusPusher StatusPusher
-	// SubWorkflowRunnerFactory creates a runner for distributed child workflows.
+	// SubWorkflowRunnerFactory creates a runner for child workflows.
 	SubWorkflowRunnerFactory SubWorkflowRunnerFactory
 	// LogWriterFactory is used to create log writers for step output.
 	// When nil, logs are written to local filesystem.

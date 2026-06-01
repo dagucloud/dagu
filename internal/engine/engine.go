@@ -210,7 +210,10 @@ func (e *Engine) subWorkflowRunnerFactory() func(context.Context) (runtimeexec.S
 		if err != nil {
 			return nil, err
 		}
-		return subflow.New(dispatcher, configExecutionMode(e.defaultMode)), nil
+		return subflow.NewRouter(
+			subflow.New(dispatcher, configExecutionMode(e.defaultMode)),
+			subflow.NewLocalCLI(),
+		), nil
 	}
 }
 
