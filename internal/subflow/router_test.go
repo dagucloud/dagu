@@ -68,12 +68,71 @@ func TestRouterFallsBackToLocalRunner(t *testing.T) {
 	assert.Equal(t, 1, local.runCount)
 }
 
+func TestRouterCancelRoutesToSelectedRunner(t *testing.T) {
+	t.Parallel()
+
+	distributed := newBlockingRunner(true)
+	local := &stubRunner{shouldRun: true}
+	router := subflow.NewRouter(distributed, local)
+
+	req := validSubWorkflowRequest()
+	done := make(chan error, 1)
+	go func() {
+		_, err := router.Run(context.Background(), req)
+		done <- err
+	}()
+
+	<-distributed.started
+	err := router.Cancel(context.Background(), executor.SubWorkflowCancelRequest{
+		DAG:        req.DAG,
+		RootDAGRun: req.RootDAGRun,
+		RunID:      req.RunID,
+	})
+	require.NoError(t, err)
+
+	close(distributed.release)
+	require.NoError(t, <-done)
+
+	assert.Equal(t, 1, distributed.cancelCount)
+	assert.Equal(t, 0, local.cancelCount)
+}
+
+func TestRouterCancelFallsBackToAllRunnersWhenOwnerUnknown(t *testing.T) {
+	t.Parallel()
+
+	distributed := &stubRunner{shouldRun: true}
+	local := &stubRunner{shouldRun: true}
+	router := subflow.NewRouter(distributed, local)
+
+	req := validSubWorkflowRequest()
+	err := router.Cancel(context.Background(), executor.SubWorkflowCancelRequest{
+		DAG:        req.DAG,
+		RootDAGRun: req.RootDAGRun,
+		RunID:      req.RunID,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, distributed.cancelCount)
+	assert.Equal(t, 1, local.cancelCount)
+}
+
 func TestLocalCLIShouldRunValidLocalRequest(t *testing.T) {
 	t.Parallel()
 
 	runner := subflow.NewLocalCLI()
 
 	assert.True(t, runner.ShouldRun(context.Background(), validSubWorkflowRequest()))
+}
+
+func TestLocalCLIIsFallbackRunnerForValidRequests(t *testing.T) {
+	t.Parallel()
+
+	req := validSubWorkflowRequest()
+	req.WorkerSelector = map[string]string{"gpu": "true"}
+
+	runner := subflow.NewLocalCLI()
+
+	assert.True(t, runner.ShouldRun(context.Background(), req))
 }
 
 func validSubWorkflowRequest() executor.SubWorkflowRequest {
@@ -89,9 +148,10 @@ func validSubWorkflowRequest() executor.SubWorkflowRequest {
 }
 
 type stubRunner struct {
-	shouldRun bool
-	result    *exec.RunStatus
-	runCount  int
+	shouldRun   bool
+	result      *exec.RunStatus
+	runCount    int
+	cancelCount int
 }
 
 func (r *stubRunner) ShouldRun(context.Context, executor.SubWorkflowRequest) bool {
@@ -108,5 +168,44 @@ func (r *stubRunner) Retry(context.Context, executor.SubWorkflowRetryRequest) (*
 }
 
 func (r *stubRunner) Cancel(context.Context, executor.SubWorkflowCancelRequest) error {
+	r.cancelCount++
+	return nil
+}
+
+type blockingRunner struct {
+	shouldRun   bool
+	started     chan struct{}
+	release     chan struct{}
+	cancelCount int
+}
+
+func newBlockingRunner(shouldRun bool) *blockingRunner {
+	return &blockingRunner{
+		shouldRun: shouldRun,
+		started:   make(chan struct{}),
+		release:   make(chan struct{}),
+	}
+}
+
+func (r *blockingRunner) ShouldRun(context.Context, executor.SubWorkflowRequest) bool {
+	return r.shouldRun
+}
+
+func (r *blockingRunner) Run(context.Context, executor.SubWorkflowRequest) (*exec.RunStatus, error) {
+	close(r.started)
+	<-r.release
+	return &exec.RunStatus{
+		Name:     "child",
+		DAGRunID: "child-run",
+		Status:   core.Succeeded,
+	}, nil
+}
+
+func (r *blockingRunner) Retry(context.Context, executor.SubWorkflowRetryRequest) (*exec.RunStatus, error) {
+	return nil, nil
+}
+
+func (r *blockingRunner) Cancel(context.Context, executor.SubWorkflowCancelRequest) error {
+	r.cancelCount++
 	return nil
 }

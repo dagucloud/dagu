@@ -22,10 +22,10 @@ import (
 )
 
 var (
-	errSubDAGCancelled       = errors.New("sub DAG execution cancelled")
-	errDAGRunIDNotSet        = errors.New("DAG run ID is not set")
-	errRootDAGRunNotSet      = errors.New("root DAG run ID is not set")
-	errSubWorkflowRunnerNone = errors.New("sub-workflow runner is not configured")
+	errSubDAGCancelled     = errors.New("sub DAG execution cancelled")
+	errDAGRunIDNotSet      = errors.New("DAG run ID is not set")
+	errRootDAGRunNotSet    = errors.New("root DAG run ID is not set")
+	errNoSubWorkflowRunner = errors.New("no sub-workflow runner accepted request")
 )
 
 // SubDAGExecutor is a helper for executing sub DAGs.
@@ -194,7 +194,7 @@ func (e *SubDAGExecutor) Execute(ctx context.Context, runParams RunParams, workD
 		return nil, err
 	}
 	if !e.shouldRunWithSubWorkflowRunner(ctx, req) {
-		return nil, errSubWorkflowRunnerNone
+		return nil, errNoSubWorkflowRunner
 	}
 
 	logger.Info(ctx, "Executing sub DAG via injected sub-workflow runner")
@@ -218,7 +218,7 @@ func (e *SubDAGExecutor) Retry(ctx context.Context, runParams RunParams, stepNam
 		return nil, err
 	}
 	if !e.shouldRunWithSubWorkflowRunner(ctx, req) {
-		return nil, errSubWorkflowRunnerNone
+		return nil, errNoSubWorkflowRunner
 	}
 
 	logger.Info(ctx, "Retrying sub DAG via injected sub-workflow runner", tag.Step(stepName))
@@ -336,7 +336,7 @@ func (e *SubDAGExecutor) Stop(intent cmdutil.TerminationIntent) error {
 				DAG:        e.DAG,
 				RootDAGRun: e.dagCtx.RootDAGRun,
 				RunID:      run.runID,
-				Intent:     intent,
+				Intent:     subWorkflowCancelIntent(intent),
 			}); err != nil {
 				errs = append(errs, err)
 				logger.Warn(ctx, "Failed to request sub DAG cancellation",
@@ -377,4 +377,18 @@ func (e *SubDAGExecutor) Stop(intent cmdutil.TerminationIntent) error {
 	})
 
 	return errors.Join(errs...)
+}
+
+func subWorkflowCancelIntent(intent cmdutil.TerminationIntent) SubWorkflowCancelIntent {
+	if intent.Mode == "" {
+		intent = cmdutil.TerminationFromSignal(intent.Signal)
+	}
+	mode := SubWorkflowCancelModeGraceful
+	if intent.IsForce() {
+		mode = SubWorkflowCancelModeForce
+	}
+	return SubWorkflowCancelIntent{
+		Mode:   mode,
+		Signal: intent.Signal,
+	}
 }

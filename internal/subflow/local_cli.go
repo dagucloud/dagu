@@ -31,6 +31,7 @@ import (
 var errNoRunDatabase = errors.New("child workflow status database is not configured")
 
 // LocalCLI executes child workflows through the Dagu CLI subprocess contract.
+// It is intended as the final router fallback after policy-specific runners.
 type LocalCLI struct {
 	mu        sync.Mutex
 	processes map[string]*cmdutil.ManagedProcess
@@ -95,7 +96,7 @@ func (r *LocalCLI) Cancel(ctx context.Context, req executor.SubWorkflowCancelReq
 
 	if process != nil {
 		_, err := process.Stop(cmdutil.StopRequest{
-			Intent: req.Intent,
+			Intent: localStopIntent(req.Intent),
 			Reason: cmdutil.StopReasonCancel,
 		})
 		return err
@@ -112,6 +113,20 @@ func (r *LocalCLI) Cancel(ctx context.Context, req executor.SubWorkflowCancelReq
 		return err
 	}
 	return nil
+}
+
+func localStopIntent(intent executor.SubWorkflowCancelIntent) cmdutil.TerminationIntent {
+	if intent.Mode == "" {
+		return cmdutil.TerminationFromSignal(intent.Signal)
+	}
+	mode := cmdutil.TerminationModeGraceful
+	if intent.Mode == executor.SubWorkflowCancelModeForce {
+		mode = cmdutil.TerminationModeForce
+	}
+	return cmdutil.TerminationIntent{
+		Mode:   mode,
+		Signal: intent.Signal,
+	}
 }
 
 func validateLocalRequest(req executor.SubWorkflowRequest) error {

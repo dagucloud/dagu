@@ -5,8 +5,8 @@ package executor
 
 import (
 	"context"
+	"os"
 
-	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
@@ -40,12 +40,26 @@ type SubWorkflowRetryRequest struct {
 	StepName string
 }
 
+// SubWorkflowCancelMode describes how a child workflow should be stopped.
+type SubWorkflowCancelMode string
+
+const (
+	SubWorkflowCancelModeGraceful SubWorkflowCancelMode = "graceful"
+	SubWorkflowCancelModeForce    SubWorkflowCancelMode = "force"
+)
+
+// SubWorkflowCancelIntent carries runtime-owned cancellation intent.
+type SubWorkflowCancelIntent struct {
+	Mode   SubWorkflowCancelMode
+	Signal os.Signal
+}
+
 // SubWorkflowCancelRequest describes a child workflow cancellation.
 type SubWorkflowCancelRequest struct {
 	DAG        *core.DAG
 	RootDAGRun exec.DAGRunRef
 	RunID      string
-	Intent     cmdutil.TerminationIntent
+	Intent     SubWorkflowCancelIntent
 }
 
 // SubWorkflowWorkspace carries an immutable child workflow workspace.

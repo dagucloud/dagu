@@ -66,6 +66,7 @@ func (r *Router) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest
 }
 
 // Cancel routes cancellation to the runner that owns req.RunID.
+// Unknown ownership falls back to best-effort cancellation across all runners.
 func (r *Router) Cancel(ctx context.Context, req executor.SubWorkflowCancelRequest) error {
 	r.mu.Lock()
 	runner := r.selected[req.RunID]
