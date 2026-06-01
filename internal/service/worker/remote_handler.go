@@ -28,9 +28,11 @@ import (
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	"github.com/dagucloud/dagu/internal/runtime"
 	rtagent "github.com/dagucloud/dagu/internal/runtime/agent"
+	runtimeexec "github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/worker/coordreport"
+	"github.com/dagucloud/dagu/internal/subflow"
 	dagutools "github.com/dagucloud/dagu/internal/tools"
 	daguaqua "github.com/dagucloud/dagu/internal/tools/aqua"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
@@ -614,8 +616,12 @@ func (h *remoteTaskHandler) executeDAGRun(
 		ProfileStore:     agentStores.ProfileStore,
 		ProfileName:      profileName,
 		ServiceRegistry:  h.serviceRegistry,
-		DispatcherFactory: func(_ context.Context) (runtime.Dispatcher, error) {
-			return coordinator.NewRuntimeDispatcher(h.serviceRegistry, h.peerConfig)
+		SubWorkflowRunnerFactory: func(_ context.Context) (runtimeexec.SubWorkflowRunner, error) {
+			dispatcher, err := coordinator.NewRuntimeDispatcher(h.serviceRegistry, h.peerConfig)
+			if err != nil {
+				return nil, err
+			}
+			return subflow.New(dispatcher, h.config.DefaultExecMode), nil
 		},
 		RootDAGRun:        root,
 		PeerConfig:        h.peerConfig,

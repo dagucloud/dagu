@@ -18,12 +18,14 @@ spec:
         app: dagu
         component: worker
     spec:
+      securityContext:
+        fsGroup: 1000
       containers:
       - name: dagu
         # Use official latest image
         image: ghcr.io/dagucloud/dagu:latest
         imagePullPolicy: IfNotPresent
-        command:
+        args:
           - dagu
           - worker
           - --worker.labels

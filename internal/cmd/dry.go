@@ -94,7 +94,7 @@ func runDry(ctx *Context, args []string) error {
 			ProfileStore:               as.ProfileStore,
 			ProfileName:                profileName,
 			ServiceRegistry:            ctx.ServiceRegistry,
-			DispatcherFactory:          ctx.RuntimeDispatcherFactory(),
+			SubWorkflowRunnerFactory:   ctx.SubWorkflowRunnerFactory(),
 			RootDAGRun:                 exec.NewDAGRunRef(dag.Name, dagRunID),
 			PeerConfig:                 ctx.Config.Core.Peer,
 			DefaultExecMode:            ctx.Config.DefaultExecMode,

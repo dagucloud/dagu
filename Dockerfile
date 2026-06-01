@@ -68,6 +68,7 @@ RUN set -eux; \
                      -o APT::Update::Error-Mode=any && \
       apt-get -o Acquire::Retries=5 install -y \
       sudo \
+      tini \
       tzdata \
       jq \
       && break; \
@@ -75,7 +76,8 @@ RUN set -eux; \
       apt-get clean; \
       sleep $((attempt * 10)); \
     done; \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+    apt-get clean && rm -rf /var/lib/apt/lists/*; \
+    ln -sf /usr/bin/tini /usr/local/bin/tini
 
 COPY --from=go-builder /app/bin/dagu /usr/local/bin/
 COPY ./entrypoint.sh /entrypoint.sh
@@ -122,5 +124,5 @@ ENV PGID=${USER_GID}
 ENV DOCKER_GID=-1
 ENV DEBIAN_FRONTEND=noninteractive
 EXPOSE 8080
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/tini", "-g", "--", "/entrypoint.sh"]
 CMD ["dagu", "start-all"]

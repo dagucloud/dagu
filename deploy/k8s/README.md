@@ -169,7 +169,7 @@ kubectl get pods -n dagu-dev -l component=worker
 Workers are configured with labels for capability-based task matching. Edit `worker-deployment.yaml` to customize:
 
 ```yaml
-command:
+args:
   - dagu
   - worker
   - --worker.labels

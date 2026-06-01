@@ -37,6 +37,7 @@ RUN set -ex && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
     sudo \
+    tini \
     git \
     curl \
     wget \
@@ -52,7 +53,8 @@ RUN set -ex && \
     npm \
     ca-certificates \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/tini /usr/local/bin/tini
 
 COPY --from=go-builder /app/bin/dagu /usr/local/bin/
 COPY ./entrypoint.sh /entrypoint.sh
@@ -98,5 +100,5 @@ ENV PUID=${USER_UID}
 ENV PGID=${USER_GID}
 ENV DOCKER_GID=-1
 EXPOSE 8080
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/tini", "-g", "--", "/entrypoint.sh"]
 CMD ["dagu", "start-all"]

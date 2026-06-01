@@ -541,7 +541,7 @@ func executeDAGRun(ctx *Context, d *core.DAG, parent exec.DAGRunRef, dagRunID st
 			ProfileStore:               as.ProfileStore,
 			ProfileName:                profileName,
 			ServiceRegistry:            ctx.ServiceRegistry,
-			DispatcherFactory:          ctx.RuntimeDispatcherFactory(),
+			SubWorkflowRunnerFactory:   ctx.SubWorkflowRunnerFactory(),
 			RootDAGRun:                 root,
 			PeerConfig:                 ctx.Config.Core.Peer,
 			TriggerType:                triggerType,

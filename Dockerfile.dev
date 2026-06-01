@@ -47,6 +47,7 @@ RUN set -ex && \
                      -o APT::Update::Error-Mode=any && \
       apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
       sudo \
+      tini \
       git \
       curl \
       wget \
@@ -66,7 +67,8 @@ RUN set -ex && \
       apt-get clean; \
       sleep $((attempt * 10)); \
     done && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+    apt-get clean && rm -rf /var/lib/apt/lists/*; \
+    ln -sf /usr/bin/tini /usr/local/bin/tini
 
 COPY --from=go-builder /app/bin/dagu /usr/local/bin/
 COPY ./entrypoint.sh /entrypoint.sh
@@ -112,5 +114,5 @@ ENV PUID=${USER_UID}
 ENV PGID=${USER_GID}
 ENV DOCKER_GID=-1
 EXPOSE 8080
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/tini", "-g", "--", "/entrypoint.sh"]
 CMD ["dagu", "start-all"]

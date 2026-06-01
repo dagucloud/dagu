@@ -599,7 +599,7 @@ func executeRetry(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus, rootRu
 			ProfileStore:               as.ProfileStore,
 			ProfileName:                profileName,
 			ServiceRegistry:            ctx.ServiceRegistry,
-			DispatcherFactory:          ctx.RuntimeDispatcherFactory(),
+			SubWorkflowRunnerFactory:   ctx.SubWorkflowRunnerFactory(),
 			RootDAGRun:                 rootRun,
 			PeerConfig:                 ctx.Config.Core.Peer,
 			TriggerType:                triggerType,
