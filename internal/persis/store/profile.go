@@ -120,15 +120,12 @@ func (s *ProfileStore) Update(ctx context.Context, p *profile.Profile) error {
 	if err != nil {
 		return err
 	}
-	if err := s.col.Put(ctx, &persis.Record{
+	return s.col.Put(ctx, &persis.Record{
 		ID:        stored.Name,
 		Data:      data,
 		CreatedAt: rec.CreatedAt,
 		UpdatedAt: time.Now().UTC(),
-	}); err != nil {
-		return err
-	}
-	return nil
+	})
 }
 
 func (s *ProfileStore) Delete(ctx context.Context, name string) error {

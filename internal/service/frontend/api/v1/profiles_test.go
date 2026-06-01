@@ -31,8 +31,8 @@ func TestRuntimeProfilesAPI_CreateSetEntriesDoesNotReturnPlaintext(t *testing.T)
 	resp, err := api.CreateRuntimeProfile(ctx, apigen.CreateRuntimeProfileRequestObject{
 		Body: &apigen.CreateRuntimeProfileRequest{
 			Name:        "local",
-			Description: ptrTo("Local development"),
-			Protected:   ptrTo(true),
+			Description: new("Local development"),
+			Protected:   new(true),
 		},
 	})
 	require.NoError(t, err)
@@ -143,7 +143,7 @@ steps:
 
 	server.Client().Post("/api/v1/profiles", apigen.CreateRuntimeProfileJSONRequestBody{
 		Name:      "prod",
-		Protected: ptrTo(true),
+		Protected: new(true),
 	}).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t)
 
 	localProfile := apigen.RuntimeProfileName("local")
@@ -176,7 +176,7 @@ func TestRuntimeProfilesAPI_ProtectedProfileManagementRequiresAdmin(t *testing.T
 
 	server.Client().Post("/api/v1/profiles", apigen.CreateRuntimeProfileJSONRequestBody{
 		Name:      "manager-protected",
-		Protected: ptrTo(true),
+		Protected: new(true),
 	}).WithBearerToken(managerToken).ExpectStatus(http.StatusForbidden).Send(t)
 
 	server.Client().Post("/api/v1/profiles", apigen.CreateRuntimeProfileJSONRequestBody{
@@ -184,12 +184,12 @@ func TestRuntimeProfilesAPI_ProtectedProfileManagementRequiresAdmin(t *testing.T
 	}).WithBearerToken(managerToken).ExpectStatus(http.StatusCreated).Send(t)
 
 	server.Client().Patch("/api/v1/profiles/local", apigen.UpdateRuntimeProfileJSONRequestBody{
-		Protected: ptrTo(true),
+		Protected: new(true),
 	}).WithBearerToken(managerToken).ExpectStatus(http.StatusForbidden).Send(t)
 
 	server.Client().Post("/api/v1/profiles", apigen.CreateRuntimeProfileJSONRequestBody{
 		Name:      "prod",
-		Protected: ptrTo(true),
+		Protected: new(true),
 	}).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t)
 
 	server.Client().Get("/api/v1/profiles/prod").
@@ -260,8 +260,4 @@ func createRuntimeProfileUserToken(t *testing.T, server testhelper.Server, admin
 	resp.Unmarshal(t, &login)
 	require.NotEmpty(t, login.Token)
 	return login.Token
-}
-
-func ptrTo[T any](value T) *T {
-	return &value
 }
