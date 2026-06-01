@@ -12,8 +12,8 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/node/subflow"
 	runtimeexec "github.com/dagucloud/dagu/internal/runtime/executor"
+	"github.com/dagucloud/dagu/internal/subflow"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

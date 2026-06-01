@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package subflow adapts Dagu's coordinator-backed node execution to the
+// Package subflow adapts Dagu's coordinator-backed child workflow execution to the
 // runtime executor's child workflow interface.
 package subflow
 

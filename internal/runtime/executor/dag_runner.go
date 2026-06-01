@@ -103,16 +103,7 @@ func NewSubDAGExecutor(ctx context.Context, childName string) (*SubDAGExecutor, 
 			dag := localDAG.Clone()
 			dag.Location = tempFile
 
-			return &SubDAGExecutor{
-				DAG:                dag,
-				tempFile:           tempFile,
-				subWorkflowRunner:  subWorkflowRunnerFromContext(ctx),
-				processes:          make(map[string]*cmdutil.ManagedProcess),
-				distributedRuns:    make(map[string]bool),
-				distributedCancels: make(map[string]context.CancelFunc),
-				dagCtx:             rCtx,
-				killed:             make(chan struct{}),
-			}, nil
+			return newSubDAGExecutor(ctx, rCtx, dag, tempFile), nil
 		}
 	}
 
@@ -122,34 +113,30 @@ func NewSubDAGExecutor(ctx context.Context, childName string) (*SubDAGExecutor, 
 		return nil, fmt.Errorf("failed to find DAG %q: %w", childName, err)
 	}
 
-	return &SubDAGExecutor{
-		DAG:                dag,
-		subWorkflowRunner:  subWorkflowRunnerFromContext(ctx),
-		processes:          make(map[string]*cmdutil.ManagedProcess),
-		distributedRuns:    make(map[string]bool),
-		distributedCancels: make(map[string]context.CancelFunc),
-		dagCtx:             rCtx,
-		killed:             make(chan struct{}),
-	}, nil
+	return newSubDAGExecutor(ctx, rCtx, dag, ""), nil
 }
 
 // NewSubDAGExecutorForDAG creates a SubDAGExecutor for an already-loaded DAG.
-// This is used when the child DAG comes from an external source bundle rather
-// than the parent DAG's local definitions or configured DAG store.
 func NewSubDAGExecutorForDAG(ctx context.Context, dag *core.DAG) (*SubDAGExecutor, error) {
 	if dag == nil {
 		return nil, fmt.Errorf("sub DAG is required")
 	}
 	rCtx := exec.GetContext(ctx)
+	return newSubDAGExecutor(ctx, rCtx, dag, ""), nil
+}
+
+func newSubDAGExecutor(ctx context.Context, rCtx exec.Context, dag *core.DAG, tempFile string) *SubDAGExecutor {
+	subWorkflowRunner, _ := SubWorkflowRunnerFromContext(ctx)
 	return &SubDAGExecutor{
 		DAG:                dag,
-		subWorkflowRunner:  subWorkflowRunnerFromContext(ctx),
+		tempFile:           tempFile,
+		subWorkflowRunner:  subWorkflowRunner,
 		processes:          make(map[string]*cmdutil.ManagedProcess),
 		distributedRuns:    make(map[string]bool),
 		distributedCancels: make(map[string]context.CancelFunc),
 		dagCtx:             rCtx,
 		killed:             make(chan struct{}),
-	}, nil
+	}
 }
 
 // buildCommand builds the command to execute the sub DAG.
@@ -244,11 +231,6 @@ func (e *SubDAGExecutor) effectiveWorkerSelector() map[string]string {
 		return e.workerSelector
 	}
 	return e.DAG.WorkerSelector
-}
-
-func subWorkflowRunnerFromContext(ctx context.Context) SubWorkflowRunner {
-	runner, _ := SubWorkflowRunnerFromContext(ctx)
-	return runner
 }
 
 func (e *SubDAGExecutor) shouldRunWithSubWorkflowRunner(ctx context.Context, req SubWorkflowRequest) bool {

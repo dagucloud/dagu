@@ -17,10 +17,10 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	coreexec "github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/dagstate"
-	"github.com/dagucloud/dagu/internal/node/subflow"
 	"github.com/dagucloud/dagu/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
+	"github.com/dagucloud/dagu/internal/subflow"
 	"github.com/spf13/viper"
 )
 
