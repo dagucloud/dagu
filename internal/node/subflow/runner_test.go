@@ -20,6 +20,79 @@ import (
 
 var _ exec.Dispatcher = (*mockDispatcher)(nil)
 
+func TestRunnerShouldRun(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := &mockDispatcher{}
+	validReq := runtimeexec.SubWorkflowRequest{
+		DAG: &core.DAG{Name: "child"},
+	}
+
+	tests := []struct {
+		name   string
+		runner *subflow.Runner
+		req    runtimeexec.SubWorkflowRequest
+		want   bool
+	}{
+		{
+			name: "nil runner",
+			req:  validReq,
+			want: false,
+		},
+		{
+			name:   "missing dispatcher",
+			runner: subflow.New(nil, config.ExecutionModeDistributed),
+			req:    validReq,
+			want:   false,
+		},
+		{
+			name:   "missing child DAG",
+			runner: subflow.New(dispatcher, config.ExecutionModeDistributed),
+			req:    runtimeexec.SubWorkflowRequest{},
+			want:   false,
+		},
+		{
+			name:   "force local wins over distributed mode and selector",
+			runner: subflow.New(dispatcher, config.ExecutionModeDistributed),
+			req: runtimeexec.SubWorkflowRequest{
+				DAG:            &core.DAG{Name: "child", ForceLocal: true},
+				WorkerSelector: map[string]string{"role": "gpu"},
+			},
+			want: false,
+		},
+		{
+			name:   "worker selector uses distributed path in local mode",
+			runner: subflow.New(dispatcher, config.ExecutionModeLocal),
+			req: runtimeexec.SubWorkflowRequest{
+				DAG:            &core.DAG{Name: "child"},
+				WorkerSelector: map[string]string{"role": "gpu"},
+			},
+			want: true,
+		},
+		{
+			name:   "distributed default mode uses distributed path",
+			runner: subflow.New(dispatcher, config.ExecutionModeDistributed),
+			req:    validReq,
+			want:   true,
+		},
+		{
+			name:   "local default mode stays local without selector",
+			runner: subflow.New(dispatcher, config.ExecutionModeLocal),
+			req:    validReq,
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, tt.runner.ShouldRun(context.Background(), tt.req))
+		})
+	}
+}
+
 func TestRunnerRunDispatchesWorkflowRequest(t *testing.T) {
 	t.Parallel()
 
@@ -46,12 +119,7 @@ func TestRunnerRunDispatchesWorkflowRequest(t *testing.T) {
 			},
 		},
 	}
-	runner := subflow.New(
-		dispatcher,
-		config.ExecutionModeDistributed,
-		subflow.WithPollInterval(time.Millisecond),
-		subflow.WithLogInterval(time.Hour),
-	)
+	runner := newFastRunner(dispatcher)
 
 	req := runtimeexec.SubWorkflowRequest{
 		DAG: &core.DAG{
@@ -116,12 +184,7 @@ func TestRunnerRetryDispatchesPreviousStatus(t *testing.T) {
 			},
 		},
 	}
-	runner := subflow.New(
-		dispatcher,
-		config.ExecutionModeDistributed,
-		subflow.WithPollInterval(time.Millisecond),
-		subflow.WithLogInterval(time.Hour),
-	)
+	runner := newFastRunner(dispatcher)
 
 	result, err := runner.Retry(context.Background(), runtimeexec.SubWorkflowRetryRequest{
 		SubWorkflowRequest: runtimeexec.SubWorkflowRequest{
@@ -145,6 +208,37 @@ func TestRunnerRetryDispatchesPreviousStatus(t *testing.T) {
 	assert.Equal(t, previous, task.PreviousStatus)
 	assert.Equal(t, "queue-a", task.QueueName)
 	assert.Equal(t, core.Succeeded, result.Status)
+}
+
+func TestRunnerCancelRequestsDispatcherCancel(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := &mockDispatcher{}
+	runner := newFastRunner(dispatcher)
+	root := exec.NewDAGRunRef("parent", "root-1")
+
+	err := runner.Cancel(context.Background(), runtimeexec.SubWorkflowCancelRequest{
+		DAG:        &core.DAG{Name: "child"},
+		RootDAGRun: root,
+		RunID:      "child-1",
+	})
+	require.NoError(t, err)
+
+	require.Len(t, dispatcher.cancels, 1)
+	cancel := dispatcher.cancels[0]
+	assert.Equal(t, "child", cancel.name)
+	assert.Equal(t, "child-1", cancel.id)
+	require.NotNil(t, cancel.root)
+	assert.Equal(t, root, *cancel.root)
+}
+
+func newFastRunner(dispatcher exec.Dispatcher) *subflow.Runner {
+	return subflow.New(
+		dispatcher,
+		config.ExecutionModeDistributed,
+		subflow.WithPollInterval(time.Millisecond),
+		subflow.WithLogInterval(time.Hour),
+	)
 }
 
 type mockDispatcher struct {

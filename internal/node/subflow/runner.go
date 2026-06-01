@@ -33,6 +33,14 @@ var (
 	errChildCancelled  = errors.New("sub DAG execution cancelled")
 )
 
+const (
+	defaultPollInterval         = time.Second
+	defaultLogInterval          = 15 * time.Second
+	defaultCancellationTimeout  = 30 * time.Second
+	defaultCancellationLogDelay = 5 * time.Second
+	defaultMaxConsecutiveErrors = 10
+)
+
 var _ executor.SubWorkflowRunner = (*Runner)(nil)
 
 // Runner executes child workflows through Dagu's distributed coordinator.
@@ -74,25 +82,25 @@ func New(dispatcher exec.Dispatcher, defaultMode config.ExecutionMode, opts ...O
 	r := &Runner{
 		dispatcher:           dispatcher,
 		defaultMode:          defaultMode,
-		pollInterval:         time.Second,
-		logInterval:          15 * time.Second,
-		cancellationTimeout:  30 * time.Second,
-		maxConsecutiveErrors: 10,
+		pollInterval:         defaultPollInterval,
+		logInterval:          defaultLogInterval,
+		cancellationTimeout:  defaultCancellationTimeout,
+		maxConsecutiveErrors: defaultMaxConsecutiveErrors,
 	}
 	for _, opt := range opts {
 		opt(r)
 	}
 	if r.pollInterval <= 0 {
-		r.pollInterval = time.Second
+		r.pollInterval = defaultPollInterval
 	}
 	if r.logInterval <= 0 {
-		r.logInterval = 15 * time.Second
+		r.logInterval = defaultLogInterval
 	}
 	if r.cancellationTimeout <= 0 {
-		r.cancellationTimeout = 30 * time.Second
+		r.cancellationTimeout = defaultCancellationTimeout
 	}
 	if r.maxConsecutiveErrors <= 0 {
-		r.maxConsecutiveErrors = 10
+		r.maxConsecutiveErrors = defaultMaxConsecutiveErrors
 	}
 	return r
 }
@@ -396,7 +404,7 @@ func (r *Runner) waitForCancellation(
 	pollTicker := time.NewTicker(r.pollInterval)
 	defer pollTicker.Stop()
 
-	logTicker := time.NewTicker(5 * time.Second)
+	logTicker := time.NewTicker(defaultCancellationLogDelay)
 	defer logTicker.Stop()
 
 	var lastStatus *exec.RunStatus
