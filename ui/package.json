@@ -67,7 +67,7 @@
     "ts-loader": "9.5.7",
     "typescript": "5.8.3",
     "url-loader": "4.1.1",
-    "vitest": "4.0.18",
+    "vitest": "4.1.0",
     "webpack": "5.104.1",
     "webpack-bundle-analyzer": "4.10.2",
     "webpack-cli": "6.0.1",
