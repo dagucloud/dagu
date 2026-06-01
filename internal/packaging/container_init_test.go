@@ -71,6 +71,36 @@ func TestKubernetesDaguContainersPreserveImageEntrypoint(t *testing.T) {
 	}
 }
 
+func TestKubernetesDefaultSecurityContextKeepsKubernetes119Compatibility(t *testing.T) {
+	t.Parallel()
+
+	files := []string{
+		"charts/dagu/values.yaml",
+		"deploy/k8s/server-deployment.yaml",
+		"deploy/k8s/worker-deployment.yaml",
+	}
+
+	root := repoRoot(t)
+	for _, file := range files {
+		t.Run(file, func(t *testing.T) {
+			t.Parallel()
+
+			content := readFile(t, filepath.Join(root, file))
+			require.Contains(t, content, "fsGroup: 1000", "%s must keep shared volumes writable after entrypoint privilege drop", file)
+			require.NotContains(t,
+				content,
+				"\n        fsGroupChangePolicy:",
+				"%s must not require a post-1.19 PodSecurityContext field by default", file,
+			)
+			require.NotContains(t,
+				content,
+				"\n  fsGroupChangePolicy:",
+				"%s must not require a post-1.19 PodSecurityContext field by default", file,
+			)
+		})
+	}
+}
+
 func TestDockerComposeEntrypointOverridesPreserveTini(t *testing.T) {
 	t.Parallel()
 

@@ -85,6 +85,8 @@ persistence:
   storageClass: "<your-rwx-storage-class>"
 ```
 
+The chart sets `podSecurityContext.fsGroup: 1000` by default so the shared `/data` volume stays writable after the image entrypoint drops from root to the default `PUID`/`PGID` user. If you override `PUID` or `PGID`, set `podSecurityContext.fsGroup` to the same group. Clusters that support `fsGroupChangePolicy` can add it under `podSecurityContext`; it is not set by default so the chart remains compatible with Kubernetes 1.19.
+
 ### Local Testing (Kind, Docker Desktop)
 
 For local single-node clusters that don't support RWX:

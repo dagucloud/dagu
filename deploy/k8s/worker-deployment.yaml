@@ -20,7 +20,6 @@ spec:
     spec:
       securityContext:
         fsGroup: 1000
-        fsGroupChangePolicy: OnRootMismatch
       containers:
       - name: dagu
         # Use official latest image
