@@ -307,7 +307,12 @@ describe('DAGDetailsSidePanel', () => {
         'Previewing example-dag [status] forced queued-run'
       )
     ).toBeInTheDocument();
-    expect(onEnqueue).toHaveBeenCalledWith('["x"]', 'manual-run', undefined);
+    expect(onEnqueue).toHaveBeenCalledWith(
+      '["x"]',
+      'manual-run',
+      undefined,
+      undefined
+    );
     expect(mutate).toHaveBeenCalled();
   });
 });
