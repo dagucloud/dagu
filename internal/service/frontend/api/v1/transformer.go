@@ -230,6 +230,7 @@ func toDAGRunSummary(s exec.DAGRunStatus) api.DAGRunSummary {
 		DagRunId:           s.DAGRunID,
 		Workspace:          workspaceResponseNameFromLabelStrings(s.Labels),
 		Params:             ptrOf(s.Params),
+		ProfileName:        ptrOf(s.ProfileName),
 		QueuedAt:           ptrOf(s.QueuedAt),
 		AutoRetryCount:     s.AutoRetryCount,
 		AutoRetryLimit:     autoRetryLimit,

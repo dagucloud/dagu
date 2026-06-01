@@ -59,6 +59,8 @@ tags:
     description: "Remote node management operations (admin only)"
   - name: "secrets"
     description: "Workspace secret registry operations"
+  - name: "profiles"
+    description: "Runtime profile operations for managed environment variables and secrets"
 
 paths:
   /health:
@@ -1069,6 +1071,9 @@ paths:
                 dagName:
                   type: string
                   description: "Optional DAG name override to use for the created dag-run"
+                profileName:
+                  $ref: "#/components/schemas/RuntimeProfileName"
+                  description: "Runtime profile to apply to this DAG-run. Selecting a profile grants the run access to all profile entries."
                 singleton:
                   type: boolean
                   description: "If true, prevent starting if DAG is already running (returns 409 conflict)"
@@ -1144,6 +1149,9 @@ paths:
                 dagName:
                   type: string
                   description: "Optional DAG name override to use for the created dag-run"
+                profileName:
+                  $ref: "#/components/schemas/RuntimeProfileName"
+                  description: "Runtime profile to apply to this DAG-run. Selecting a profile grants the run access to all profile entries."
                 singleton:
                   type: boolean
                   description: "If true, prevent starting if DAG is already running (returns 409 conflict)"
@@ -1223,6 +1231,9 @@ paths:
                 dagName:
                   type: string
                   description: "Optional DAG name override to use for the queued dag-run"
+                profileName:
+                  $ref: "#/components/schemas/RuntimeProfileName"
+                  description: "Runtime profile to apply to this queued DAG-run. Selecting a profile grants the run access to all profile entries."
                 queue:
                   type: string
                   description: "Override the DAG-level queue definition"
@@ -1892,6 +1903,9 @@ paths:
                 name:
                   type: string
                   description: "Optional name to use when the spec omits a name"
+                profileName:
+                  $ref: "#/components/schemas/RuntimeProfileName"
+                  description: "Runtime profile to apply to this DAG-run. Selecting a profile grants the run access to all profile entries."
                 params:
                   type: string
                   description: "Parameters to pass to the DAG-run in JSON format"
@@ -1968,6 +1982,9 @@ paths:
                 name:
                   type: string
                   description: "Optional name to use when the spec omits a name"
+                profileName:
+                  $ref: "#/components/schemas/RuntimeProfileName"
+                  description: "Runtime profile to apply to this DAG-run. Selecting a profile grants the run access to all profile entries."
                 params:
                   type: string
                   description: "Parameters to persist with the queued DAG-run in JSON format"
@@ -2188,6 +2205,9 @@ paths:
                 dagName:
                   type: string
                   description: "Optional DAG name override for the new run."
+                profileName:
+                  $ref: "#/components/schemas/RuntimeProfileName"
+                  description: "Runtime profile to apply to the new DAG-run. Omit to inherit the source run profile."
                 useCurrentDagFile:
                   type: boolean
                   description: "When true, reschedule from the current contents of the original DAG file instead of the stored historical YAML snapshot."
@@ -2350,6 +2370,9 @@ paths:
                 dagName:
                   type: string
                   description: "Optional DAG name override for the edited retry run."
+                profileName:
+                  $ref: "#/components/schemas/RuntimeProfileName"
+                  description: "Runtime profile to apply to the edited retry run. Omit to inherit the source run profile."
                 skipSteps:
                   type: array
                   description: "Steps to mark skipped while preserving their previous output variables."
@@ -2690,6 +2713,9 @@ paths:
                 stepName:
                   type: string
                   description: "Optional. If provided, only this step will be retried."
+                profileName:
+                  $ref: "#/components/schemas/RuntimeProfileName"
+                  description: "Runtime profile to apply to the retry. Omit to inherit the source run profile."
               required:
                 - dagRunId
       responses:
@@ -8393,6 +8419,403 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /profiles:
+    get:
+      summary: "List runtime profiles"
+      description: "Lists runtime profile metadata and entries. Secret values are never returned."
+      operationId: "listRuntimeProfiles"
+      tags:
+        - "profiles"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "Runtime profiles"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeProfileListResponse"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      summary: "Create runtime profile"
+      description: "Creates a runtime profile for managed environment variables and secrets."
+      operationId: "createRuntimeProfile"
+      tags:
+        - "profiles"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRuntimeProfileRequest"
+      responses:
+        "201":
+          description: "Runtime profile created"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeProfileResponse"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Runtime profile already exists"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /profiles/{profileName}:
+    get:
+      summary: "Get runtime profile"
+      operationId: "getRuntimeProfile"
+      tags:
+        - "profiles"
+      parameters:
+        - name: profileName
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/RuntimeProfileName"
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "Runtime profile"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeProfileResponse"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Runtime profile not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    patch:
+      summary: "Update runtime profile metadata"
+      operationId: "updateRuntimeProfile"
+      tags:
+        - "profiles"
+      parameters:
+        - name: profileName
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/RuntimeProfileName"
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRuntimeProfileRequest"
+      responses:
+        "200":
+          description: "Runtime profile updated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeProfileResponse"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Runtime profile not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      summary: "Delete runtime profile"
+      operationId: "deleteRuntimeProfile"
+      tags:
+        - "profiles"
+      parameters:
+        - name: profileName
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/RuntimeProfileName"
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "204":
+          description: "Runtime profile deleted"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Runtime profile not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /profiles/{profileName}/variables/{key}:
+    put:
+      summary: "Set runtime profile variable"
+      description: "Creates or updates a non-secret environment variable in a runtime profile."
+      operationId: "setRuntimeProfileVariable"
+      tags:
+        - "profiles"
+      parameters:
+        - name: profileName
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/RuntimeProfileName"
+        - name: key
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/RuntimeProfileKey"
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetRuntimeProfileVariableRequest"
+      responses:
+        "200":
+          description: "Runtime profile variable set"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeProfileResponse"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Runtime profile not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /profiles/{profileName}/secrets/{key}:
+    put:
+      summary: "Set runtime profile secret"
+      description: "Creates or rotates a Dagu-managed secret value and maps it to a runtime profile key. Plaintext values are write-only."
+      operationId: "setRuntimeProfileSecret"
+      tags:
+        - "profiles"
+      parameters:
+        - name: profileName
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/RuntimeProfileName"
+        - name: key
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/RuntimeProfileKey"
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetRuntimeProfileSecretRequest"
+      responses:
+        "200":
+          description: "Runtime profile secret set"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeProfileResponse"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Runtime profile not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /profiles/{profileName}/entries/{key}:
+    delete:
+      summary: "Delete runtime profile entry"
+      operationId: "deleteRuntimeProfileEntry"
+      tags:
+        - "profiles"
+      parameters:
+        - name: profileName
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/RuntimeProfileName"
+        - name: key
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/RuntimeProfileKey"
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "204":
+          description: "Runtime profile entry deleted"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Runtime profile or entry not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /secrets:
     get:
       summary: "List secrets"
@@ -11751,6 +12174,9 @@ components:
         params:
           type: string
           description: "Runtime parameters passed to the DAG-run in JSON format"
+        profileName:
+          $ref: "#/components/schemas/RuntimeProfileName"
+          description: "Runtime profile selected for this DAG-run."
         workerId:
           type: string
           description: "ID of the worker that executed this DAG-run ('local' for local execution)"
@@ -14859,6 +15285,139 @@ components:
           type: string
         error:
           type: string
+
+    RuntimeProfileName:
+      type: string
+      minLength: 1
+      maxLength: 128
+      pattern: "^[a-z0-9][a-z0-9._-]*$"
+      description: "Runtime profile name."
+
+    RuntimeProfileKey:
+      type: string
+      minLength: 1
+      maxLength: 255
+      pattern: "^[A-Za-z_][A-Za-z0-9_]*$"
+      description: "Environment variable key stored in a runtime profile. Keys with the DAGU_ prefix are reserved."
+
+    RuntimeProfileStatus:
+      type: string
+      enum:
+        - active
+        - disabled
+
+    RuntimeProfileEntryKind:
+      type: string
+      enum:
+        - variable
+        - secret
+
+    CreateRuntimeProfileRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          $ref: "#/components/schemas/RuntimeProfileName"
+        description:
+          type: string
+        protected:
+          type: boolean
+          default: false
+
+    UpdateRuntimeProfileRequest:
+      type: object
+      properties:
+        description:
+          type: string
+        status:
+          $ref: "#/components/schemas/RuntimeProfileStatus"
+        protected:
+          type: boolean
+
+    SetRuntimeProfileVariableRequest:
+      type: object
+      required:
+        - value
+      properties:
+        value:
+          type: string
+
+    SetRuntimeProfileSecretRequest:
+      type: object
+      required:
+        - value
+      properties:
+        value:
+          type: string
+          writeOnly: true
+
+    RuntimeProfileEntryResponse:
+      type: object
+      required:
+        - key
+        - kind
+        - createdAt
+        - updatedAt
+      properties:
+        key:
+          $ref: "#/components/schemas/RuntimeProfileKey"
+        kind:
+          $ref: "#/components/schemas/RuntimeProfileEntryKind"
+        value:
+          type: string
+          description: "Stored value for non-secret variables. Omitted for secret entries."
+        secretId:
+          type: string
+          description: "Managed secret ID for secret entries. The secret value is never returned."
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    RuntimeProfileResponse:
+      type: object
+      required:
+        - id
+        - name
+        - status
+        - protected
+        - entries
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        name:
+          $ref: "#/components/schemas/RuntimeProfileName"
+        description:
+          type: string
+        status:
+          $ref: "#/components/schemas/RuntimeProfileStatus"
+        protected:
+          type: boolean
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuntimeProfileEntryResponse"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    RuntimeProfileListResponse:
+      type: object
+      required:
+        - profiles
+      properties:
+        profiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuntimeProfileResponse"
 
     SecretProviderType:
       type: string

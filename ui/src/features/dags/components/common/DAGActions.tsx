@@ -33,9 +33,11 @@ import React from 'react';
 import { Button } from '@/components/ui/button';
 import { components, NodeStatus, Status } from '../../../../api/v1/schema';
 import { AppBarContext } from '../../../../contexts/AppBarContext';
+import { useCanManageProfiles } from '../../../../contexts/AuthContext';
 import { useConfig } from '../../../../contexts/ConfigContext';
 import { useUnsavedChanges } from '../../../../contexts/UnsavedChangesContext';
-import { useClient } from '../../../../hooks/api';
+import { useClient, useQuery } from '../../../../hooks/api';
+import { whenEnabled } from '../../../../hooks/queryUtils';
 import ConfirmModal from '@/components/ui/confirm-dialog';
 import LabeledItem from '@/components/ui/labeled-item';
 import { getDAGRunTerminateActionDetails } from '../../../dag-runs/components/common/terminateAction';
@@ -81,6 +83,7 @@ function DAGActions({
   const { hasUnsavedChanges } = useUnsavedChanges();
   const { showError } = useErrorModal();
   const { showToast } = useSimpleToast();
+  const canManageProfiles = useCanManageProfiles();
   const [isEnqueueModal, setIsEnqueueModal] = React.useState(false);
   const [startModalDag, setStartModalDag] =
     React.useState<components['schemas']['DAGDetails']>();
@@ -107,6 +110,21 @@ function DAGActions({
     React.useState(false);
 
   const client = useClient();
+  const remoteNode = appBarContext.selectedRemoteNode || 'local';
+  const profilesQuery = React.useMemo(
+    () =>
+      whenEnabled(canManageProfiles, {
+        params: {
+          query: { remoteNode },
+        },
+      }),
+    [canManageProfiles, remoteNode]
+  );
+  const { data: profilesData, isLoading: profilesLoading } = useQuery(
+    '/profiles',
+    profilesQuery
+  );
+  const runtimeProfiles = profilesData?.profiles || [];
 
   React.useEffect(() => {
     if (!isRetryModal || !status?.name || !retryDagRunId) {
@@ -816,13 +834,18 @@ function DAGActions({
           loading={startModalLoading}
           loadError={startModalLoadError}
           action={dagContext.forceEnqueue ? 'enqueue' : undefined}
-          onSubmit={async (params, dagRunId, immediate) => {
+          profiles={runtimeProfiles}
+          profilesLoading={profilesLoading}
+          onSubmit={async (params, dagRunId, immediate, profileName) => {
             if (dagContext.onEnqueue) {
-              const result = await dagContext.onEnqueue(
-                params,
-                dagRunId,
-                immediate
-              );
+              const result = profileName
+                ? await dagContext.onEnqueue(
+                    params,
+                    dagRunId,
+                    immediate,
+                    profileName
+                  )
+                : await dagContext.onEnqueue(params, dagRunId, immediate);
               const startedRunId =
                 typeof result === 'string' && result ? result : dagRunId;
               if (startedRunId) {
@@ -831,9 +854,16 @@ function DAGActions({
               return;
             }
 
-            const body: { params: string; dagRunId?: string } = { params };
+            const body: {
+              params: string;
+              dagRunId?: string;
+              profileName?: string;
+            } = { params };
             if (dagRunId) {
               body.dagRunId = dagRunId;
+            }
+            if (profileName) {
+              body.profileName = profileName;
             }
 
             // Use /start endpoint if immediate is true, otherwise use /enqueue
@@ -844,7 +874,7 @@ function DAGActions({
                       fileName: fileName,
                     },
                     query: {
-                      remoteNode: appBarContext.selectedRemoteNode || 'local',
+                      remoteNode,
                     },
                   },
                   body,
@@ -855,7 +885,7 @@ function DAGActions({
                       fileName: fileName,
                     },
                     query: {
-                      remoteNode: appBarContext.selectedRemoteNode || 'local',
+                      remoteNode,
                     },
                   },
                   body,

@@ -78,6 +78,7 @@ import NotificationChannelsPage from './pages/notification-channels';
 import NotificationRulesPage from './pages/notification-rules';
 import NotificationsPage from './pages/notifications';
 import OverviewPage from './pages/overview';
+import ProfilesPage from './pages/profiles';
 import Queues from './pages/queues';
 import QueueDetailsPage from './pages/queues/queue';
 import Search from './pages/search';
@@ -737,6 +738,14 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                           element={
                                             <ManagerElement>
                                               <SecretsPage />
+                                            </ManagerElement>
+                                          }
+                                        />
+                                        <Route
+                                          path="/profiles"
+                                          element={
+                                            <ManagerElement>
+                                              <ProfilesPage />
                                             </ManagerElement>
                                           }
                                         />

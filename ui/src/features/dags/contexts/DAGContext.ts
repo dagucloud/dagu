@@ -9,7 +9,8 @@ export const DAGContext = React.createContext<{
   onEnqueue?: (
     params: string,
     dagRunId?: string,
-    immediate?: boolean
+    immediate?: boolean,
+    profileName?: string
   ) => string | void | Promise<string | void>;
   onRunStarted?: (dagRunId: string) => void | Promise<void>;
 }>({

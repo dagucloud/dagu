@@ -47,7 +47,8 @@ type DAGDetailsContentProps = {
   onEnqueue?: (
     params: string,
     dagRunId?: string,
-    immediate?: boolean
+    immediate?: boolean,
+    profileName?: string
   ) => string | void | Promise<string | void>;
   onRunStarted?: (dagRunId: string) => void | Promise<void>;
   /** When true, forces enqueue mode in DAGContext (used by cockpit) */

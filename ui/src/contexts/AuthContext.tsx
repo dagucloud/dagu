@@ -330,6 +330,10 @@ export function useCanManageSecrets(scope?: string | null): boolean {
   return roleAtLeast(effectiveWorkspaceRole(user, workspace), UserRole.manager);
 }
 
+export function useCanManageProfiles(): boolean {
+  return useCanManageSecrets('global');
+}
+
 export function useCanViewEventLogs(): boolean {
   const { user } = useAuth();
   const config = useConfig();

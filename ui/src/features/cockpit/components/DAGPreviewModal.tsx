@@ -21,7 +21,12 @@ export function DAGPreviewModal({
   const remoteNode = appBarContext.selectedRemoteNode || 'local';
 
   const handleEnqueue = React.useCallback(
-    async (params: string, dagRunId?: string): Promise<string | void> => {
+    async (
+      params: string,
+      dagRunId?: string,
+      _immediate?: boolean,
+      profileName?: string
+    ): Promise<string | void> => {
       const labels: string[] = [];
       if (selectedWorkspace) {
         const safeName = selectedWorkspace.replace(/[^a-zA-Z0-9_-]/g, '');
@@ -38,6 +43,7 @@ export function DAGPreviewModal({
         body: {
           params: params || undefined,
           dagRunId: dagRunId || undefined,
+          profileName: profileName || undefined,
           labels: labels.length > 0 ? labels : undefined,
         },
       });

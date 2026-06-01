@@ -75,6 +75,12 @@ type CreateInput struct {
 	CreatedBy   string
 }
 
+type UpdateInput struct {
+	Description *string
+	Protected   *bool
+	UpdatedBy   string
+}
+
 func New(input CreateInput, now time.Time) (*Profile, error) {
 	if now.IsZero() {
 		now = time.Now().UTC()
@@ -128,6 +134,16 @@ func (p *Profile) SetStatus(status Status, actor string, now time.Time) error {
 	p.Status = status
 	p.touch(actor, now)
 	return nil
+}
+
+func (p *Profile) ApplyUpdate(input UpdateInput, now time.Time) {
+	if input.Description != nil {
+		p.Description = *input.Description
+	}
+	if input.Protected != nil {
+		p.Protected = *input.Protected
+	}
+	p.touch(input.UpdatedBy, now)
 }
 
 func (p *Profile) SetVariable(key, value, actor string, now time.Time) error {

@@ -33,7 +33,8 @@ type DAGLoadState = 'loading' | 'ready' | 'not_found' | 'error';
 type EnqueueHandler = (
   params: string,
   dagRunId?: string,
-  immediate?: boolean
+  immediate?: boolean,
+  profileName?: string
 ) => string | void | Promise<string | void>;
 
 type Props = {

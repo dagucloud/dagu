@@ -999,8 +999,12 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 	if err != nil {
 		return nil, err
 	}
+	profileName, err := a.runProfileName(ctx, request.Body.ProfileName)
+	if err != nil {
+		return nil, err
+	}
 
-	if err := a.startDAGRun(ctx, dag, params, dagRunId, nameOverride, labels); err != nil {
+	if err := a.startDAGRun(ctx, dag, params, dagRunId, nameOverride, labels, profileName); err != nil {
 		return nil, fmt.Errorf("error starting dag-run: %w", err)
 	}
 
@@ -1092,8 +1096,12 @@ func (a *API) ExecuteDAGSync(ctx context.Context, request api.ExecuteDAGSyncRequ
 	if err != nil {
 		return nil, err
 	}
+	profileName, err := a.runProfileName(ctx, request.Body.ProfileName)
+	if err != nil {
+		return nil, err
+	}
 
-	if err := a.startDAGRun(ctx, dag, params, dagRunId, nameOverride, labels); err != nil {
+	if err := a.startDAGRun(ctx, dag, params, dagRunId, nameOverride, labels, profileName); err != nil {
 		return nil, fmt.Errorf("error starting dag-run: %w", err)
 	}
 
@@ -1195,13 +1203,14 @@ func (a *API) readDAGRunStatusForSync(ctx context.Context, dag *core.DAG, dagRun
 	return status, nil
 }
 
-func (a *API) startDAGRun(ctx context.Context, dag *core.DAG, params, dagRunID, nameOverride, labels string) error {
+func (a *API) startDAGRun(ctx context.Context, dag *core.DAG, params, dagRunID, nameOverride, labels, profileName string) error {
 	return a.startDAGRunWithOptions(ctx, dag, startDAGRunOptions{
 		params:       params,
 		dagRunID:     dagRunID,
 		nameOverride: nameOverride,
 		triggerType:  core.TriggerTypeManual,
 		labels:       labels,
+		profileName:  profileName,
 	})
 }
 
@@ -1284,6 +1293,7 @@ type startDAGRunOptions struct {
 	target       string
 	triggerType  core.TriggerType
 	labels       string
+	profileName  string
 }
 
 // waitForDAGStatusChange waits until the DAG status transitions from NotStarted.
@@ -1403,7 +1413,7 @@ func localStartProcessStillRunning(started *launcher.StartResult) bool {
 
 // dispatchStartToCoordinator dispatches a DAG start operation to the coordinator
 // and waits for the DAG status to change from NotStarted within the given timeout.
-func (a *API) dispatchStartToCoordinator(ctx context.Context, dag *core.DAG, dagRunID string, timeout time.Duration, params, labels string) error {
+func (a *API) dispatchStartToCoordinator(ctx context.Context, dag *core.DAG, dagRunID string, timeout time.Duration, params, labels, profileName string) error {
 	var taskOpts []executor.TaskOption
 	if len(dag.WorkerSelector) > 0 {
 		taskOpts = append(taskOpts, executor.WithWorkerSelector(dag.WorkerSelector))
@@ -1413,6 +1423,9 @@ func (a *API) dispatchStartToCoordinator(ctx context.Context, dag *core.DAG, dag
 	}
 	if labels != "" {
 		taskOpts = append(taskOpts, executor.WithLabels(labels))
+	}
+	if profileName != "" {
+		taskOpts = append(taskOpts, executor.WithProfileName(profileName))
 	}
 	taskOpts = append(taskOpts, executor.WithBaseConfig(executor.ResolveBaseConfig(dag.BaseConfigData, a.config.Paths.BaseConfig)))
 	if dag.SourceFile != "" {
@@ -1493,7 +1506,7 @@ func (a *API) startPreparedDAGRunWithOptions(
 		if osrt.GOOS == "windows" {
 			timeout = 20 * time.Second
 		}
-		return a.dispatchStartToCoordinator(ctx, dag, opts.dagRunID, timeout, dispatchParams, opts.labels)
+		return a.dispatchStartToCoordinator(ctx, dag, opts.dagRunID, timeout, dispatchParams, opts.labels, opts.profileName)
 	}
 
 	// Only pass trigger type if it's a known value (not TriggerTypeUnknown)
@@ -1523,6 +1536,7 @@ func (a *API) startPreparedDAGRunWithOptions(
 		Target:       target,
 		TriggerType:  triggerTypeStr,
 		Labels:       opts.labels,
+		ProfileName:  opts.profileName,
 	})
 
 	started, err := launcher.StartProcess(ctx, spec)
@@ -1631,8 +1645,12 @@ func (a *API) EnqueueDAGDAGRun(ctx context.Context, request api.EnqueueDAGDAGRun
 	if err != nil {
 		return nil, err
 	}
+	profileName, err := a.runProfileName(ctx, request.Body.ProfileName)
+	if err != nil {
+		return nil, err
+	}
 
-	if err := a.enqueueDAGRun(ctx, dag, valueOf(request.Body.Params), dagRunId, nameOverride, core.TriggerTypeManual, labels); err != nil {
+	if err := a.enqueueDAGRun(ctx, dag, valueOf(request.Body.Params), dagRunId, nameOverride, core.TriggerTypeManual, labels, profileName); err != nil {
 		return nil, fmt.Errorf("error enqueuing dag-run: %w", err)
 	}
 
@@ -1650,7 +1668,7 @@ func (a *API) EnqueueDAGDAGRun(ctx context.Context, request api.EnqueueDAGDAGRun
 	}, nil
 }
 
-func (a *API) enqueueDAGRun(ctx context.Context, dag *core.DAG, params, dagRunID, nameOverride string, triggerType core.TriggerType, labels string) error {
+func (a *API) enqueueDAGRun(ctx context.Context, dag *core.DAG, params, dagRunID, nameOverride string, triggerType core.TriggerType, labels, profileName string) error {
 	resolvedDAG, err := spec.ResolveRuntimeParams(ctx, dag, params, spec.ResolveRuntimeParamsOptions{
 		BaseConfig: a.config.Paths.BaseConfig,
 	})
@@ -1688,6 +1706,7 @@ func (a *API) enqueueDAGRun(ctx context.Context, dag *core.DAG, params, dagRunID
 		NameOverride: nameOverride,
 		TriggerType:  triggerTypeStr,
 		Labels:       labels,
+		ProfileName:  profileName,
 	}
 	if dag.Queue != "" {
 		opts.Queue = dag.Queue

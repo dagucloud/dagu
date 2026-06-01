@@ -31,6 +31,7 @@ import (
 	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/license"
 	notificationmodel "github.com/dagucloud/dagu/internal/notification"
+	profilepkg "github.com/dagucloud/dagu/internal/profile"
 	"github.com/dagucloud/dagu/internal/remotenode"
 	"github.com/dagucloud/dagu/internal/runtime"
 	secretpkg "github.com/dagucloud/dagu/internal/secret"
@@ -91,6 +92,7 @@ type API struct {
 	docStore             agent.DocStore
 	baseConfigStore      baseconfig.Store
 	secretStore          secretpkg.Store
+	profileStore         profilepkg.Store
 	licenseManager       *license.Manager
 	apiKeyCreateMu       sync.Mutex
 	workspaceStore       workspace.Store
@@ -245,6 +247,13 @@ func WithSnapshotStoreFactory(factory agentsnapshot.StoreFactory) APIOption {
 func WithSecretStore(store secretpkg.Store) APIOption {
 	return func(a *API) {
 		a.secretStore = store
+	}
+}
+
+// WithProfileStore returns an APIOption that sets the runtime profile store.
+func WithProfileStore(store profilepkg.Store) APIOption {
+	return func(a *API) {
+		a.profileStore = store
 	}
 }
 

@@ -11,6 +11,7 @@ import {
   useCanViewEventLogs,
   useCanManageWebhooks,
   useCanManageSecrets,
+  useCanManageProfiles,
   useCanViewAuditLogs,
   useAuth,
   useIsAdmin,
@@ -34,6 +35,7 @@ import {
   Moon,
   Network,
   PanelLeft,
+  SlidersHorizontal,
   Sun,
   Terminal,
   Webhook,
@@ -473,6 +475,7 @@ export const mainListItems = React.forwardRef<
   const canAccessSystemStatus = useCanAccessSystemStatus();
   const canManageWebhooks = useCanManageWebhooks();
   const canManageSecrets = useCanManageSecrets();
+  const canManageProfiles = useCanManageProfiles();
   const canViewEventLogs = useCanViewEventLogs();
   const canViewAuditLogs = useCanViewAuditLogs();
   const { preferences, updatePreference } = useUserPreferences();
@@ -835,6 +838,17 @@ export const mainListItems = React.forwardRef<
               to="/secrets"
               text="Secrets"
               icon={<KeyRound size={18} />}
+              isOpen={isOpen}
+              onClick={onNavItemClick}
+              customColor={customColor}
+            />
+          )}
+
+          {canManageProfiles && (
+            <NavItem
+              to="/profiles"
+              text="Profiles"
+              icon={<SlidersHorizontal size={18} />}
               isOpen={isOpen}
               onClick={onNavItemClick}
               customColor={customColor}

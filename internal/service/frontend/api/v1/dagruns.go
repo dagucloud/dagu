@@ -218,8 +218,12 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 	if err := a.requireExecuteForWorkspace(ctx, runtimeWorkspaceName(dag, labels)); err != nil {
 		return nil, err
 	}
+	profileName, err := a.runProfileName(ctx, request.Body.ProfileName)
+	if err != nil {
+		return nil, err
+	}
 
-	if err := a.startDAGRun(ctx, dag, params, dagRunId, valueOf(request.Body.Name), labels); err != nil {
+	if err := a.startDAGRun(ctx, dag, params, dagRunId, valueOf(request.Body.Name), labels, profileName); err != nil {
 		return nil, &Error{
 			HTTPStatus: http.StatusInternalServerError,
 			Code:       api.ErrorCodeInternalError,
@@ -311,6 +315,10 @@ func (a *API) EnqueueDAGRunFromSpec(ctx context.Context, request api.EnqueueDAGR
 	if err := a.requireExecuteForWorkspace(ctx, runtimeWorkspaceName(dag, labels)); err != nil {
 		return nil, err
 	}
+	profileName, err := a.runProfileName(ctx, request.Body.ProfileName)
+	if err != nil {
+		return nil, err
+	}
 
 	if err := persistInlineEnqueueLabels(dag, labels); err != nil {
 		return nil, &Error{
@@ -320,7 +328,7 @@ func (a *API) EnqueueDAGRunFromSpec(ctx context.Context, request api.EnqueueDAGR
 		}
 	}
 
-	if err := a.enqueueDAGRun(ctx, dag, params, dagRunId, valueOf(request.Body.Name), core.TriggerTypeManual, ""); err != nil {
+	if err := a.enqueueDAGRun(ctx, dag, params, dagRunId, valueOf(request.Body.Name), core.TriggerTypeManual, "", profileName); err != nil {
 		return nil, fmt.Errorf("error enqueuing dag-run: %w", err)
 	}
 
@@ -2506,8 +2514,12 @@ func (a *API) RetryDAGRun(ctx context.Context, request api.RetryDAGRunRequestObj
 		}
 		stepName = valueOf(request.Body.StepName)
 	}
+	var profileName *api.RuntimeProfileName
+	if request.Body != nil {
+		profileName = request.Body.ProfileName
+	}
 
-	if _, err := a.retryDAGRun(ctx, request.Name, request.DagRunId, retryDagRunID, stepName); err != nil {
+	if _, err := a.retryDAGRun(ctx, request.Name, request.DagRunId, retryDagRunID, stepName, profileName); err != nil {
 		return nil, err
 	}
 
@@ -2561,7 +2573,7 @@ func (a *API) resolveAttemptForDAGRun(
 	return attempt, status.DAGRunID, nil
 }
 
-func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID, stepName string) (retryDAGRunResult, error) {
+func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID, stepName string, requestedProfileName *api.RuntimeProfileName) (retryDAGRunResult, error) {
 	if retryDagRunID == "" {
 		retryDagRunID = dagRunID
 	}
@@ -2586,11 +2598,22 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 	if err != nil {
 		return retryDAGRunResult{}, fmt.Errorf("error reading DAG: %w", err)
 	}
+	prevStatus, err := attempt.ReadStatus(ctx)
+	if err != nil {
+		return retryDAGRunResult{}, fmt.Errorf("error reading status: %w", err)
+	}
+	if prevStatus == nil {
+		return retryDAGRunResult{}, fmt.Errorf("error reading status: status data is nil")
+	}
+	profileName, err := a.runProfileNameWithInheritance(ctx, requestedProfileName, prevStatus.ProfileName)
+	if err != nil {
+		return retryDAGRunResult{}, err
+	}
 
 	// For DAGs using a global queue, enqueue the retry so it respects queue capacity.
 	// Step retry is not supported via queue (queue processor does not pass step name).
 	if stepName == "" && a.config.FindQueueConfig(dag.ProcGroup()) != nil {
-		if err := a.enqueueRetry(ctx, attempt, dag); err != nil {
+		if err := a.enqueueRetry(ctx, attempt, dag, profileName); err != nil {
 			return retryDAGRunResult{}, err
 		}
 		a.logRetryAudit(ctx, dagName, sourceDagRunID, stepName, false)
@@ -2599,12 +2622,6 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 
 	// Check if this DAG should be dispatched to the coordinator for distributed execution
 	if dispatch.ShouldDispatchToCoordinator(dag, a.coordinatorCli != nil, a.defaultExecMode) {
-		// Get previous status for retry context
-		prevStatus, err := attempt.ReadStatus(ctx)
-		if err != nil {
-			return retryDAGRunResult{}, fmt.Errorf("error reading status: %w", err)
-		}
-
 		// Create and dispatch retry task to coordinator
 		opts := []executor.TaskOption{
 			executor.WithWorkerSelector(dag.WorkerSelector),
@@ -2616,6 +2633,9 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 		}
 		if stepName != "" {
 			opts = append(opts, executor.WithStep(stepName))
+		}
+		if profileName != "" {
+			opts = append(opts, executor.WithProfileName(profileName))
 		}
 		if snapshot, err := agentsnapshot.BuildFromPaths(ctx, dag, a.config.Paths, a.dagStore, a.snapshotStoreFactory); err != nil {
 			return retryDAGRunResult{}, fmt.Errorf("build distributed agent snapshot: %w", err)
@@ -2641,17 +2661,12 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 
 	// Local retry path: launch the retry subprocess asynchronously so the API
 	// returns immediately instead of blocking until the DAG run completes.
-	prevStatus, err := attempt.ReadStatus(ctx)
-	if err != nil {
-		return retryDAGRunResult{}, fmt.Errorf("error reading status: %w", err)
-	}
-
 	prepared, err := a.prepareRetryDAGForSubprocess(ctx, dag, prevStatus)
 	if err != nil {
 		return retryDAGRunResult{}, fmt.Errorf("error preparing DAG retry env: %w", err)
 	}
 
-	spec := a.subCmdBuilder.Retry(prepared, retryDagRunID, stepName, "")
+	spec := a.subCmdBuilder.Retry(prepared, retryDagRunID, stepName, profileName)
 	if err := launcher.Start(ctx, spec); err != nil {
 		return retryDAGRunResult{}, fmt.Errorf("error retrying DAG: %w", err)
 	}
@@ -2667,13 +2682,13 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 // enqueueRetry enqueues the retry and persists Queued status via exec.EnqueueRetry.
 // Retries respect global queue capacity because the queue processor picks them up
 // when capacity is available.
-func (a *API) enqueueRetry(ctx context.Context, attempt exec.DAGRunAttempt, dag *core.DAG) error {
+func (a *API) enqueueRetry(ctx context.Context, attempt exec.DAGRunAttempt, dag *core.DAG, profileName string) error {
 	status, err := attempt.ReadStatus(ctx)
 	if err != nil {
 		return fmt.Errorf("error reading status: %w", err)
 	}
 	eventCtx := a.withEventContext(ctx)
-	if err := exec.EnqueueRetry(eventCtx, a.dagRunStore, a.queueStore, dag, status, exec.EnqueueRetryOptions{}); err != nil {
+	if err := exec.EnqueueRetry(eventCtx, a.dagRunStore, a.queueStore, dag, status, exec.EnqueueRetryOptions{ProfileName: profileName}); err != nil {
 		if errors.Is(err, exec.ErrRetryStaleLatest) {
 			return &Error{
 				HTTPStatus: http.StatusBadRequest,
@@ -2924,6 +2939,7 @@ func (a *API) RescheduleDAGRun(ctx context.Context, request api.RescheduleDAGRun
 		if body.UseCurrentDagFile != nil {
 			opts.useCurrentDAGFile = *body.UseCurrentDagFile
 		}
+		opts.profileName = body.ProfileName
 	}
 
 	result, err := a.rescheduleDAGRun(ctx, request.Name, request.DagRunId, opts)
@@ -2941,6 +2957,7 @@ type rescheduleDAGRunOptions struct {
 	nameOverride      string
 	newDagRunID       string
 	useCurrentDAGFile bool
+	profileName       *api.RuntimeProfileName
 }
 
 type rescheduleDAGRunResult struct {
@@ -2970,6 +2987,10 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 		return rescheduleDAGRunResult{}, fmt.Errorf("failed to read status: status data is nil")
 	}
 	if err := a.requireDAGRunStatusExecute(ctx, status); err != nil {
+		return rescheduleDAGRunResult{}, err
+	}
+	profileName, err := a.runProfileNameWithInheritance(ctx, opts.profileName, status.ProfileName)
+	if err != nil {
 		return rescheduleDAGRunResult{}, err
 	}
 
@@ -3067,9 +3088,9 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 	}
 	var enqueueErr error
 	if opts.useCurrentDAGFile {
-		enqueueErr = a.enqueueDAGRun(ctx, dag, paramsToUse, newDagRunID, "", core.TriggerTypeManual, "")
+		enqueueErr = a.enqueueDAGRun(ctx, dag, paramsToUse, newDagRunID, "", core.TriggerTypeManual, "", profileName)
 	} else {
-		enqueueErr = a.enqueuePreparedDAGRun(ctx, dag, paramsToUse, newDagRunID, core.TriggerTypeManual)
+		enqueueErr = a.enqueuePreparedDAGRun(ctx, dag, paramsToUse, newDagRunID, core.TriggerTypeManual, profileName)
 	}
 	if enqueueErr != nil {
 		return rescheduleDAGRunResult{}, fmt.Errorf("failed to enqueue dag-run: %w", enqueueErr)
@@ -3103,6 +3124,7 @@ func (a *API) enqueuePreparedDAGRun(
 	params string,
 	dagRunID string,
 	triggerType core.TriggerType,
+	profileName string,
 ) error {
 	resolvedDAG, err := spec.ResolveRuntimeParams(ctx, dag, params, spec.ResolveRuntimeParamsOptions{
 		BaseConfig: a.config.Paths.BaseConfig,
@@ -3141,6 +3163,7 @@ func (a *API) enqueuePreparedDAGRun(
 		ArtifactBaseDir:         a.config.Paths.ArtifactDir,
 		TriggerType:             triggerType,
 		ProceedOnStatusCloseErr: true,
+		ProfileName:             profileName,
 	})
 	if err != nil {
 		return err

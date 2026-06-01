@@ -4,7 +4,6 @@
 package cmd
 
 import (
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -390,5 +389,5 @@ func upsertRuntimeProfileSecret(ctx *Context, store secretpkg.Store, profileName
 }
 
 func runtimeProfileSecretRef(profileName, key string) string {
-	return fmt.Sprintf("runtime-profiles/%s/key-%s", profileName, hex.EncodeToString([]byte(key)))
+	return profile.SecretRef(profileName, key)
 }

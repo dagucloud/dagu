@@ -349,6 +349,9 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 	if agentStores.SecretStore != nil {
 		apiOpts = append(apiOpts, apiv1.WithSecretStore(agentStores.SecretStore))
 	}
+	if agentStores.ProfileStore != nil {
+		apiOpts = append(apiOpts, apiv1.WithProfileStore(agentStores.ProfileStore))
+	}
 	if agentOAuthManager != nil {
 		apiOpts = append(apiOpts, apiv1.WithAgentOAuthManager(agentOAuthManager))
 	}

@@ -1,4 +1,5 @@
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -28,7 +29,11 @@ import validator from '@rjsf/validator-ajv8';
 import { AlertTriangle, ListPlus, Play, X } from 'lucide-react';
 import React from 'react';
 
-import { components, ParamDefType } from '../../../../api/v1/schema';
+import {
+  components,
+  ParamDefType,
+  RuntimeProfileStatus,
+} from '../../../../api/v1/schema';
 import {
   Parameter,
   parseParams,
@@ -77,10 +82,15 @@ type Props = {
   onSubmit: (
     params: string,
     dagRunId?: string,
-    immediate?: boolean
+    immediate?: boolean,
+    profileName?: string
   ) => Promise<void> | void;
   action?: 'start' | 'enqueue';
+  profiles?: components['schemas']['RuntimeProfileResponse'][];
+  profilesLoading?: boolean;
 };
+
+const NO_PROFILE_VALUE = '__none__';
 
 function createParamFields(paramDefs: ParamDef[] = []): ParamField[] {
   return paramDefs.map((def, index) => {
@@ -245,6 +255,8 @@ function StartDAGModal({
   dismissModal,
   onSubmit,
   action,
+  profiles = [],
+  profilesLoading = false,
 }: Props) {
   const dagDetails = dag as components['schemas']['DAGDetails'] | undefined;
   const paramSchema = React.useMemo(() => {
@@ -297,8 +309,17 @@ function StartDAGModal({
   const [submitError, setSubmitError] = React.useState<string | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
   const [dagRunId, setDAGRunId] = React.useState('');
+  const [selectedProfileName, setSelectedProfileName] = React.useState('');
   const forceEnqueue = action === 'enqueue';
   const [enqueue, setEnqueue] = React.useState(forceEnqueue);
+  const activeProfiles = React.useMemo(
+    () =>
+      profiles.filter(
+        (profile) => profile.status === RuntimeProfileStatus.active
+      ),
+    [profiles]
+  );
+  const showProfileSelector = profilesLoading || activeProfiles.length > 0;
 
   const dagWithRunConfig = dag as DAGLike & {
     runConfig?: { disableParamEdit?: boolean; disableRunIdEdit?: boolean };
@@ -335,6 +356,7 @@ function StartDAGModal({
     setSubmitError(null);
     setSubmitting(false);
     setDAGRunId('');
+    setSelectedProfileName('');
     setEnqueue(forceEnqueue);
   }, [
     visible,
@@ -403,7 +425,16 @@ function StartDAGModal({
     setSubmitting(true);
     setSubmitError(null);
     try {
-      await onSubmit(paramsPayload, dagRunId || undefined, !enqueue);
+      if (selectedProfileName) {
+        await onSubmit(
+          paramsPayload,
+          dagRunId || undefined,
+          !enqueue,
+          selectedProfileName
+        );
+      } else {
+        await onSubmit(paramsPayload, dagRunId || undefined, !enqueue);
+      }
       dismissModal();
     } catch (error) {
       setSubmitError(
@@ -424,6 +455,7 @@ function StartDAGModal({
     schemaFormData,
     useSchemaFields,
     submitting,
+    selectedProfileName,
     typedFields,
     useTypedFields,
   ]);
@@ -533,6 +565,43 @@ function StartDAGModal({
               }}
             />
           </div>
+
+          {showProfileSelector && (
+            <div className="space-y-2">
+              <Label htmlFor="runtime-profile">Profile</Label>
+              <Select
+                value={selectedProfileName || NO_PROFILE_VALUE}
+                disabled={loading || submitting || profilesLoading}
+                onValueChange={(value) =>
+                  setSelectedProfileName(
+                    value === NO_PROFILE_VALUE ? '' : value
+                  )
+                }
+              >
+                <SelectTrigger id="runtime-profile" className="w-full">
+                  <SelectValue placeholder="No profile" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_PROFILE_VALUE}>No profile</SelectItem>
+                  {activeProfiles.map((profile) => (
+                    <SelectItem key={profile.id} value={profile.name}>
+                      <span className="flex w-full items-center justify-between gap-3">
+                        <span>{profile.name}</span>
+                        {profile.protected && (
+                          <Badge
+                            variant="outline"
+                            className="h-4 px-1.5 text-[10px]"
+                          >
+                            Protected
+                          </Badge>
+                        )}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           {loading && (
             <div className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">

@@ -6,6 +6,7 @@ import {
   FileText,
   RefreshCw,
   Server,
+  SlidersHorizontal,
   Terminal,
   Timer,
 } from 'lucide-react';
@@ -227,6 +228,15 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({ dagRun, refreshFn }) => {
                 <Server className="h-4 w-4 text-muted-foreground" />
                 <span className="font-medium text-xs font-mono">
                   {dagRun.workerId}
+                </span>
+              </div>
+            )}
+
+            {dagRun.profileName && (
+              <div className="flex items-center gap-2 text-foreground bg-accent rounded-md px-3 py-1.5 border">
+                <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
+                <span className="font-medium text-xs font-mono">
+                  {dagRun.profileName}
                 </span>
               </div>
             )}
