@@ -218,6 +218,14 @@ func toTriggerType(t core.TriggerType) *api.TriggerType {
 	return new(api.TriggerType(t.String()))
 }
 
+func toRuntimeProfileName(name string) *api.RuntimeProfileName {
+	if name == "" {
+		return nil
+	}
+	profileName := api.RuntimeProfileName(name)
+	return &profileName
+}
+
 func toDAGRunSummary(s exec.DAGRunStatus) api.DAGRunSummary {
 	var autoRetryLimit *int
 	if s.AutoRetryLimit > 0 {
@@ -230,7 +238,7 @@ func toDAGRunSummary(s exec.DAGRunStatus) api.DAGRunSummary {
 		DagRunId:           s.DAGRunID,
 		Workspace:          workspaceResponseNameFromLabelStrings(s.Labels),
 		Params:             ptrOf(s.Params),
-		ProfileName:        ptrOf(s.ProfileName),
+		ProfileName:        toRuntimeProfileName(s.ProfileName),
 		QueuedAt:           ptrOf(s.QueuedAt),
 		AutoRetryCount:     s.AutoRetryCount,
 		AutoRetryLimit:     autoRetryLimit,
@@ -294,6 +302,7 @@ func ToDAGRunDetails(s exec.DAGRunStatus) api.DAGRunDetails {
 		Params:             ptrOf(s.Params),
 		DagRunId:           s.DAGRunID,
 		Workspace:          workspaceResponseNameFromLabelStrings(s.Labels),
+		ProfileName:        toRuntimeProfileName(s.ProfileName),
 		QueuedAt:           ptrOf(s.QueuedAt),
 		AutoRetryCount:     s.AutoRetryCount,
 		AutoRetryLimit:     autoRetryLimit,

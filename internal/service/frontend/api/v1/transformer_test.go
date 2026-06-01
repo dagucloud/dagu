@@ -97,6 +97,54 @@ func TestToDAGRunDetailsOmitsAutoRetryLimitWhenUnconfigured(t *testing.T) {
 	assert.False(t, details.ArtifactsAvailable)
 }
 
+func TestToDAGRunSummarySetsProfileNameWhenPresent(t *testing.T) {
+	status := exec.DAGRunStatus{
+		Name:        "test-dag",
+		DAGRunID:    "run-1",
+		Status:      core.Succeeded,
+		ProfileName: "prod",
+	}
+
+	summary := toDAGRunSummary(status)
+	require.NotNil(t, summary.ProfileName)
+	assert.Equal(t, "prod", string(*summary.ProfileName))
+}
+
+func TestToDAGRunSummaryOmitsProfileNameWhenEmpty(t *testing.T) {
+	status := exec.DAGRunStatus{
+		Name:     "test-dag",
+		DAGRunID: "run-1",
+		Status:   core.Succeeded,
+	}
+
+	summary := toDAGRunSummary(status)
+	assert.Nil(t, summary.ProfileName)
+}
+
+func TestToDAGRunDetailsSetsProfileNameWhenPresent(t *testing.T) {
+	status := exec.DAGRunStatus{
+		Name:        "test-dag",
+		DAGRunID:    "run-1",
+		Status:      core.Succeeded,
+		ProfileName: "prod",
+	}
+
+	details := ToDAGRunDetails(status)
+	require.NotNil(t, details.ProfileName)
+	assert.Equal(t, "prod", string(*details.ProfileName))
+}
+
+func TestToDAGRunDetailsOmitsProfileNameWhenEmpty(t *testing.T) {
+	status := exec.DAGRunStatus{
+		Name:     "test-dag",
+		DAGRunID: "run-1",
+		Status:   core.Succeeded,
+	}
+
+	details := ToDAGRunDetails(status)
+	assert.Nil(t, details.ProfileName)
+}
+
 func TestToDAGDetailsIncludesParamDefDescriptions(t *testing.T) {
 	details := toDAGDetails(&core.DAG{
 		Name: "described-params",

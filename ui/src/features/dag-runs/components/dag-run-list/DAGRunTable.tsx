@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useNavigate } from 'react-router-dom';
+import { SlidersHorizontal } from 'lucide-react';
 import { components, Status } from '../../../../api/v1/schema';
 import {
   Table,
@@ -253,6 +254,9 @@ function DAGRunTable({
   const showScheduleColumn = dagRuns.some((dagRun) =>
     Boolean(dagRun.scheduleTime)
   );
+  const showProfileColumn = dagRuns.some((dagRun) =>
+    Boolean(dagRun.profileName)
+  );
   const isBulkSelected = (dagRun: DAGRunSelectionItem) =>
     selectedRunKeys?.has(getDAGRunSelectionKey(dagRun)) ?? false;
 
@@ -391,6 +395,18 @@ function DAGRunTable({
                   {dagRun.workerId}
                 </div>
               )}
+              {dagRun.profileName && (
+                <div className="text-left flex min-w-0 items-center gap-1.5">
+                  <span className="text-muted-foreground">Profile: </span>
+                  <span
+                    className="inline-flex min-w-0 items-center gap-1 font-mono"
+                    title={dagRun.profileName}
+                  >
+                    <SlidersHorizontal className="h-3 w-3 shrink-0 text-muted-foreground" />
+                    <span className="truncate">{dagRun.profileName}</span>
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Timezone info */}
@@ -416,6 +432,7 @@ function DAGRunTable({
             <TableHead>Run ID</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Trigger</TableHead>
+            {showProfileColumn && <TableHead>Profile</TableHead>}
             {showScheduleColumn && (
               <TableHead>
                 <div>Scheduled At</div>
@@ -523,6 +540,21 @@ function DAGRunTable({
               <TableCell className="py-1 px-2">
                 <TriggerTypeIndicator type={dagRun.triggerType} />
               </TableCell>
+              {showProfileColumn && (
+                <TableCell className="py-1 px-2">
+                  {dagRun.profileName ? (
+                    <span
+                      className="inline-flex max-w-[160px] items-center gap-1 font-mono text-xs"
+                      title={dagRun.profileName}
+                    >
+                      <SlidersHorizontal className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      <span className="truncate">{dagRun.profileName}</span>
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">-</span>
+                  )}
+                </TableCell>
+              )}
               {showScheduleColumn && (
                 <TableCell className="py-1 px-2 text-left whitespace-normal break-words">
                   {dagRun.scheduleTime || '-'}

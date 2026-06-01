@@ -1,4 +1,4 @@
-import { Server } from 'lucide-react';
+import { Server, SlidersHorizontal } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { components, Status } from '../../../../api/v1/schema';
 import {
@@ -94,6 +94,20 @@ function DAGRunCard({ dagRun, timezoneInfo }: DAGRunCardProps) {
               </span>
               <span className="truncate ml-2 font-mono text-xs">
                 {dagRun.workerId}
+              </span>
+            </div>
+          )}
+          {dagRun.profileName && (
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-muted-foreground text-xs flex items-center">
+                <SlidersHorizontal className="h-3 w-3 mr-1" />
+                Profile:
+              </span>
+              <span
+                className="truncate ml-2 font-mono text-xs"
+                title={dagRun.profileName}
+              >
+                {dagRun.profileName}
               </span>
             </div>
           )}
