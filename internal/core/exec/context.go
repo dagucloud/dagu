@@ -45,7 +45,9 @@ type Context struct {
 
 // RuntimeProfileEntry is non-secret metadata about a profile key injected into a run.
 type RuntimeProfileEntry struct {
-	Key  string `json:"key"`
+	// Key is the injected environment variable name.
+	Key string `json:"key"`
+	// Kind is the profile entry type, such as variable or secret.
 	Kind string `json:"kind"`
 }
 

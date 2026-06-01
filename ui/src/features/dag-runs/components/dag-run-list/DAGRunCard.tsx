@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import { Server, SlidersHorizontal } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { components, Status } from '../../../../api/v1/schema';

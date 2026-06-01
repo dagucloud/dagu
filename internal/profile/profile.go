@@ -235,5 +235,5 @@ func normalizeTime(t time.Time) time.Time {
 	if t.IsZero() {
 		return time.Now().UTC()
 	}
-	return t
+	return t.UTC()
 }

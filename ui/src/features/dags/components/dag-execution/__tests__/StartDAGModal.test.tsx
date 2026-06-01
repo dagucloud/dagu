@@ -269,4 +269,38 @@ describe('StartDAGModal', () => {
     });
     expect(protectedOption).toHaveAttribute('data-disabled');
   });
+
+  it('submits the selected runtime profile', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <StartDAGModal
+        visible={true}
+        dismissModal={vi.fn()}
+        onSubmit={onSubmit}
+        dag={{ name: 'profile-dag' } as never}
+        profiles={[
+          {
+            id: 'prod-id',
+            name: 'prod',
+            status: RuntimeProfileStatus.active,
+            protected: false,
+            description: '',
+            entries: [],
+            createdAt: '2026-01-01T00:00:00Z',
+            updatedAt: '2026-01-01T00:00:00Z',
+          },
+        ]}
+      />
+    );
+
+    await user.click(screen.getByRole('combobox', { name: /profile/i }));
+    await user.click(await screen.findByRole('option', { name: 'prod' }));
+    await user.click(screen.getByRole('button', { name: 'Start' }));
+
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith('', undefined, true, 'prod')
+    );
+  });
 });
