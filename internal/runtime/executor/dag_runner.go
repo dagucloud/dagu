@@ -171,6 +171,9 @@ func (e *SubDAGExecutor) buildCommand(ctx context.Context, runParams RunParams, 
 	if workDir != "" {
 		args = append(args, fmt.Sprintf("--default-working-dir=%s", workDir))
 	}
+	if rCtx.ProfileName != "" {
+		args = append(args, fmt.Sprintf("--profile=%s", rCtx.ProfileName))
+	}
 
 	target := e.DAG.Location
 	if e.workspaceSeed != nil && workDir != "" {
@@ -217,6 +220,9 @@ func (e *SubDAGExecutor) buildRetryCommand(
 	}
 	if stepName != "" {
 		args = append(args, fmt.Sprintf("--step=%s", stepName))
+	}
+	if rCtx.ProfileName != "" {
+		args = append(args, fmt.Sprintf("--profile=%s", rCtx.ProfileName))
 	}
 	return e.newLocalCLICommand(ctx, workDir, args, e.DAG.Location)
 }
@@ -466,6 +472,9 @@ func (e *SubDAGExecutor) coordinatorTaskOptions(ctx context.Context, extra ...Ta
 	}
 	if e.externalStepRetry {
 		options = append(options, WithExternalStepRetry(true))
+	}
+	if rCtx.ProfileName != "" {
+		options = append(options, WithProfileName(rCtx.ProfileName))
 	}
 	snapshot, err := agentsnapshot.BuildFromContext(ctx, e.DAG)
 	if err != nil {

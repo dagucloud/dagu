@@ -22,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/file/agentsoul"
 	"github.com/dagucloud/dagu/internal/persis/file/memory"
 	"github.com/dagucloud/dagu/internal/persis/store"
+	"github.com/dagucloud/dagu/internal/profile"
 	"github.com/dagucloud/dagu/internal/secret"
 )
 
@@ -89,6 +90,7 @@ func NewAgentStores(ctx context.Context, cfg *config.Config, opts ...AgentStores
 
 	var result AgentStores
 	result.SecretStore = NewSecretStore(ctx, cfg)
+	result.ProfileStore = NewProfileStore(ctx, cfg)
 	if options.SeedReferences {
 		result.ReferencesDir = SeedAgentReferences(cfg)
 	}
@@ -185,6 +187,21 @@ func NewSecretStore(ctx context.Context, cfg *config.Config) secret.Store {
 		return secretStore
 	}
 	return nil
+}
+
+// NewProfileStore wires the file-backed runtime profile store from config paths.
+func NewProfileStore(ctx context.Context, cfg *config.Config) profile.Store {
+	if cfg == nil || cfg.Paths.DataDir == "" {
+		return nil
+	}
+	profileStore, err := store.NewProfileStore(
+		NewCollection(filepath.Join(cfg.Paths.DataDir, "profiles"), WithIndentedJSON()),
+	)
+	if err != nil {
+		logger.Warn(ctx, "Failed to create profile store", tag.Error(err))
+		return nil
+	}
+	return profileStore
 }
 
 // NewAgentSessionStore wires the file-backed agent session store from config paths.

@@ -30,6 +30,22 @@ func TestDispatchTaskToProtoClonesWorkerSelector(t *testing.T) {
 	assert.Equal(t, map[string]string{"host": "server-a"}, protoTask.WorkerSelector)
 }
 
+func TestDispatchTaskProfileNameRoundTrips(t *testing.T) {
+	t.Parallel()
+
+	task := &exec.DispatchTask{ProfileName: "prod"}
+
+	protoTask, err := convert.DispatchTaskToProto(task)
+	require.NoError(t, err)
+	require.NotNil(t, protoTask)
+	assert.Equal(t, "prod", protoTask.ProfileName)
+
+	got, err := convert.ProtoToDispatchTask(protoTask)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "prod", got.ProfileName)
+}
+
 func TestDispatchTaskToProtoValidatesOwnerPort(t *testing.T) {
 	t.Parallel()
 

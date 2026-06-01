@@ -34,10 +34,19 @@ type Context struct {
 	StateStore         dagstate.Store
 	DAGRunLogDir       string
 	DAGRunArtifactDir  string
+	ProfileName        string
+	ProfileResolvedAt  string
+	ProfileEntries     []RuntimeProfileEntry
 	Shell              string               // Default shell for this DAG (from DAG.Shell)
 	LogEncodingCharset string               // Character encoding for log files (e.g., "utf-8", "shift_jis", "euc-jp")
 	LogWriterFactory   LogWriterFactory     // For remote log streaming (nil = use local files)
 	DefaultExecMode    config.ExecutionMode // Server-level default execution mode (local or distributed)
+}
+
+// RuntimeProfileEntry is non-secret metadata about a profile key injected into a run.
+type RuntimeProfileEntry struct {
+	Key  string `json:"key"`
+	Kind string `json:"kind"`
 }
 
 // LogWriterFactory creates log writers for step stdout/stderr.
@@ -196,6 +205,9 @@ type contextOptions struct {
 	stateStore         dagstate.Store
 	dagRunLogDir       string
 	dagRunArtifactDir  string
+	profileName        string
+	profileResolvedAt  string
+	profileEntries     []RuntimeProfileEntry
 	workDir            string
 	artifactDir        string
 }
@@ -316,6 +328,15 @@ func WithArtifactDir(dir string) ContextOption {
 	}
 }
 
+// WithRuntimeProfile sets the selected profile metadata for this run context.
+func WithRuntimeProfile(name, resolvedAt string, entries []RuntimeProfileEntry) ContextOption {
+	return func(o *contextOptions) {
+		o.profileName = name
+		o.profileResolvedAt = resolvedAt
+		o.profileEntries = append([]RuntimeProfileEntry(nil), entries...)
+	}
+}
+
 // NewContext creates a new context with DAG execution metadata.
 // Required: ctx, dag, dagRunID, logFile
 // Optional: use ContextOption functions (WithDatabase, WithParams, etc.)
@@ -374,6 +395,9 @@ func NewContext(
 		StateStore:         options.stateStore,
 		DAGRunLogDir:       options.dagRunLogDir,
 		DAGRunArtifactDir:  options.dagRunArtifactDir,
+		ProfileName:        options.profileName,
+		ProfileResolvedAt:  options.profileResolvedAt,
+		ProfileEntries:     append([]RuntimeProfileEntry(nil), options.profileEntries...),
 		Shell:              dag.Shell,
 		LogEncodingCharset: options.logEncodingCharset,
 		LogWriterFactory:   options.logWriterFactory,

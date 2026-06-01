@@ -146,7 +146,7 @@ func (h *remoteTaskHandler) handleStart(ctx context.Context, task *coordinatorv1
 	}
 
 	statusPusher, logStreamer, artifactUploader := h.createRemoteHandlers(task.DagRunId, dag.Name, root, owner)
-	err = h.executeDAGRun(ctx, dag, task.DagRunId, task.AttemptId, task.ScheduleTime, root, parent, statusPusher, logStreamer, artifactUploader, queuedRun, nil, task.AgentSnapshot, taskExtraEnvs(task))
+	err = h.executeDAGRun(ctx, dag, task.DagRunId, task.AttemptId, task.ScheduleTime, root, parent, statusPusher, logStreamer, artifactUploader, queuedRun, nil, task.AgentSnapshot, taskExtraEnvs(task), task.ProfileName)
 	var initErr *taskInitError
 	if errors.As(err, &initErr) {
 		h.reportTaskInitFailure(ctx, task, root, parent, statusPusher, initErr.err)
@@ -185,12 +185,16 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 
 	statusPusher, logStreamer, artifactUploader := h.createRemoteHandlers(task.DagRunId, dag.Name, root, owner)
 	triggerType := exec.PreservedQueueTriggerType(status)
+	profileName := task.ProfileName
+	if profileName == "" {
+		profileName = status.ProfileName
+	}
 
 	err = h.executeDAGRun(ctx, dag, task.DagRunId, task.AttemptId, task.ScheduleTime, root, parent, statusPusher, logStreamer, artifactUploader, false, &retryConfig{
 		target:      status,
 		stepName:    task.Step,
 		triggerType: triggerType,
-	}, task.AgentSnapshot, taskExtraEnvs(task))
+	}, task.AgentSnapshot, taskExtraEnvs(task), profileName)
 	var initErr *taskInitError
 	if errors.As(err, &initErr) {
 		h.reportTaskInitFailure(ctx, task, root, parent, statusPusher, initErr.err)
@@ -370,11 +374,12 @@ func (h *remoteTaskHandler) agentStoresFromSnapshot(ctx context.Context, snapsho
 
 	runtimeStores := h.agentStores(ctx)
 	return agentStoreBundle{
-		ConfigStore: stores.ConfigStore,
-		ModelStore:  stores.ModelStore,
-		SoulStore:   stores.SoulStore,
-		MemoryStore: stores.MemoryStore,
-		SecretStore: runtimeStores.SecretStore,
+		ConfigStore:  stores.ConfigStore,
+		ModelStore:   stores.ModelStore,
+		SoulStore:    stores.SoulStore,
+		MemoryStore:  stores.MemoryStore,
+		SecretStore:  runtimeStores.SecretStore,
+		ProfileStore: runtimeStores.ProfileStore,
 	}, nil
 }
 
@@ -541,6 +546,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 	retry *retryConfig,
 	agentSnapshot []byte,
 	extraEnvs []string,
+	profileName string,
 ) error {
 	// Create temporary directory for local operations
 	env, err := h.createAgentEnv(ctx, dag, dagRunID)
@@ -605,6 +611,8 @@ func (h *remoteTaskHandler) executeDAGRun(
 		DAGRunStore:      h.dagRunStore,
 		StateStore:       h.stateStore,
 		SecretStore:      agentStores.SecretStore,
+		ProfileStore:     agentStores.ProfileStore,
+		ProfileName:      profileName,
 		ServiceRegistry:  h.serviceRegistry,
 		DispatcherFactory: func(_ context.Context) (runtime.Dispatcher, error) {
 			return coordinator.NewRuntimeDispatcher(h.serviceRegistry, h.peerConfig)

@@ -87,6 +87,7 @@ func TestRootCommand(t *testing.T) {
 			rootCmd.AddCommand(cmd.Retry())
 			rootCmd.AddCommand(cmd.StartAll())
 			rootCmd.AddCommand(cmd.Migrate())
+			rootCmd.AddCommand(cmd.Profile())
 
 			// Set args
 			rootCmd.SetArgs(tt.args[1:]) // Skip program name
@@ -176,6 +177,7 @@ func TestRootCommandStructure(t *testing.T) {
 		"retry",
 		"start-all",
 		"migrate",
+		"profile",
 	}
 
 	// Get all commands
@@ -249,4 +251,5 @@ operations, or remote commands.
 	rootCmd.AddCommand(cmd.Retry())
 	rootCmd.AddCommand(cmd.StartAll())
 	rootCmd.AddCommand(cmd.Migrate())
+	rootCmd.AddCommand(cmd.Profile())
 }

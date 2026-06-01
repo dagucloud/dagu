@@ -354,6 +354,7 @@ func (e *Engine) runLocal(ctx context.Context, dag *core.DAG, runID string, opts
 			DAGRunStore:                e.dagRunStore,
 			StateStore:                 e.stateStore,
 			SecretStore:                stores.SecretStore,
+			ProfileStore:               stores.ProfileStore,
 			ServiceRegistry:            e.serviceRegistry,
 			DispatcherFactory:          e.runtimeDispatcherFactory(),
 			RootDAGRun:                 root,

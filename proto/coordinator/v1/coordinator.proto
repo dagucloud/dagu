@@ -137,6 +137,8 @@ message Task {
   string workspace_bundle_dag_path = 29;
   string workspace_bundle_original_ref = 30;
   string workspace_bundle_resolved_ref = 31;
+  // Runtime profile name. Workers resolve values at attempt start.
+  string profile_name = 32;
 }
 
 enum Operation {

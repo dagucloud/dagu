@@ -29,6 +29,7 @@ func TestEnqueueRunWritesQueuedStatusBeforeQueuePublish(t *testing.T) {
 		LogBaseDir:      f.logDir,
 		ArtifactBaseDir: f.artifactDir,
 		TriggerType:     core.TriggerTypeManual,
+		ProfileName:     "prod",
 		Now:             fixedQueueNow,
 	})
 
@@ -41,6 +42,7 @@ func TestEnqueueRunWritesQueuedStatusBeforeQueuePublish(t *testing.T) {
 	assert.Equal(t, "attempt-1", f.attempt.status.AttemptID)
 	assert.Equal(t, "2026-05-19T01:02:03Z", f.attempt.status.QueuedAt)
 	assert.Equal(t, core.TriggerTypeManual, f.attempt.status.TriggerType)
+	assert.Equal(t, "prod", f.attempt.status.ProfileName)
 	assert.Equal(t, f.attempt.status.Log, queued.LogFile)
 	assert.Equal(t, f.attempt.status.ArchiveDir, queued.ArtifactDir)
 }

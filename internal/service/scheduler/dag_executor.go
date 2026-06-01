@@ -159,6 +159,9 @@ func (e *DAGExecutor) ExecuteDAG(
 			executor.WithPreviousStatus(previousStatus),
 			executor.WithBaseConfig(executor.ResolveBaseConfig(dag.BaseConfigData, e.baseConfigPath)),
 		}
+		if previousStatus != nil && previousStatus.ProfileName != "" {
+			taskOpts = append(taskOpts, executor.WithProfileName(previousStatus.ProfileName))
+		}
 		if previousStatus != nil && previousStatus.Params != "" {
 			taskOpts = append(taskOpts, executor.WithTaskParams(previousStatus.Params))
 		}
@@ -207,16 +210,24 @@ func (e *DAGExecutor) ExecuteDAG(
 			Quiet:        true,
 			TriggerType:  triggerType.String(),
 			ScheduleTime: scheduleTime,
+			ProfileName:  profileNameFromStatus(previousStatus),
 		})
 		return launcher.Start(ctx, spec)
 
 	case exec.DispatchOperationRetry:
-		spec := e.subCmdBuilder.QueueDispatchRetry(dag, runID, "")
+		spec := e.subCmdBuilder.QueueDispatchRetry(dag, runID, "", profileNameFromStatus(previousStatus))
 		return launcher.Run(ctx, spec)
 
 	default:
 		return fmt.Errorf("unknown operation: %s", operation)
 	}
+}
+
+func profileNameFromStatus(status *exec.DAGRunStatus) string {
+	if status == nil {
+		return ""
+	}
+	return status.ProfileName
 }
 
 func validateDispatchOperation(operation exec.DispatchOperation) error {

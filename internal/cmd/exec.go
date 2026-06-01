@@ -151,7 +151,7 @@ func runExec(ctx *Context, args []string) error {
 	)
 	logger.Debug(ctx, "Command details", tag.Command(strings.Join(args, " ")))
 
-	return tryExecuteDAG(ctx, dag, runID, dagRunRef, "local", "", core.TriggerTypeManual, "")
+	return tryExecuteDAG(ctx, dag, runID, dagRunRef, "local", "", core.TriggerTypeManual, "", "")
 }
 
 // resolveRunID returns a validated run ID from the flag or generates a new one.

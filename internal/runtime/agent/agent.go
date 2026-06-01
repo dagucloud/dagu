@@ -45,6 +45,7 @@ import (
 	"github.com/dagucloud/dagu/internal/dagstate"
 	"github.com/dagucloud/dagu/internal/dagwarning"
 	"github.com/dagucloud/dagu/internal/output"
+	profilepkg "github.com/dagucloud/dagu/internal/profile"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/builtin/docker"
 	"github.com/dagucloud/dagu/internal/runtime/builtin/s3"
@@ -91,6 +92,9 @@ type Agent struct {
 
 	// secretStore resolves workspace-local team-managed secret references.
 	secretStore secretpkg.Store
+
+	// profileStore resolves runtime profiles selected for DAG execution.
+	profileStore profilepkg.Store
 
 	// registry is the service registry to find the coordinator service.
 	registry exec.ServiceRegistry
@@ -226,6 +230,14 @@ type Agent struct {
 	workDir string
 	// extraEnvs are additional execution-scoped env vars injected into the DAG run context.
 	extraEnvs []string
+	// profileName is the selected runtime profile name for this run.
+	profileName string
+	// profileResolvedAt records when the selected runtime profile was resolved.
+	profileResolvedAt string
+	// profileEntries records non-secret injected key metadata for status/history.
+	profileEntries []exec.RuntimeProfileEntry
+	// secretMasker redacts resolved secret values from status/history snapshots.
+	secretMasker *masking.Masker
 
 	// Evaluated configs - these are expanded at runtime and stored separately
 	// to avoid mutating the original DAG struct.
@@ -311,6 +323,10 @@ type Options struct {
 	StateStore dagstate.Store
 	// SecretStore resolves workspace-local team-managed secret references.
 	SecretStore secretpkg.Store
+	// ProfileStore resolves named runtime profiles.
+	ProfileStore profilepkg.Store
+	// ProfileName selects the runtime profile for this DAG run.
+	ProfileName string
 	// ServiceRegistry is the registry for service discovery.
 	ServiceRegistry exec.ServiceRegistry
 	// RootDAGRun is the root dag-run reference for sub-DAG runs.
@@ -376,8 +392,10 @@ func New(
 		queueStore:                 opts.QueueStore,
 		stateStore:                 opts.StateStore,
 		secretStore:                opts.SecretStore,
+		profileStore:               opts.ProfileStore,
 		registry:                   opts.ServiceRegistry,
 		extraEnvs:                  append([]string{}, opts.ExtraEnvs...),
+		profileName:                opts.ProfileName,
 		stepRetry:                  opts.StepRetry,
 		peerConfig:                 opts.PeerConfig,
 		workerID:                   opts.WorkerID,
@@ -443,9 +461,14 @@ func (a *Agent) Run(ctx context.Context) error {
 	dagwarning.LoadDotEnv(ctx, a.dag)
 
 	secretEnvs, secretErr := a.resolveSecrets(ctx)
+	profileEnvs, profileSecrets, profileErr := a.resolveProfile(ctx)
+	a.lock.Lock()
+	a.secretMasker = newStatusSecretMasker(append(profileSecrets, secretEnvs...))
+	a.lock.Unlock()
 
-	// Build variables map for config evaluation (DAG env + secrets)
-	configVars := envSliceToMap(a.dag.Env, secretEnvs)
+	// Build variables map for config evaluation using the same broad precedence
+	// as runtime env construction.
+	configVars := envSliceToMap(a.dag.Env, profileEnvs, profileSecrets, secretEnvs)
 
 	// Extract trace context from environment variables if present
 	// This must be done BEFORE initializing the tracer so sub DAGs
@@ -563,11 +586,13 @@ func (a *Agent) Run(ctx context.Context) error {
 		runtime.WithRootDAGRun(a.rootDAGRun),
 		runtime.WithParams(a.dag.Params),
 		runtime.WithCoordinator(dispatcher),
-		runtime.WithSecrets(secretEnvs),
+		runtime.WithSecrets(append(profileSecrets, secretEnvs...)),
 		runtime.WithDefaultExecMode(a.defaultExecMode),
+		runtime.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
 	}
-	if len(a.extraEnvs) > 0 {
-		contextOpts = append(contextOpts, runtime.WithEnvVars(a.extraEnvs...))
+	envs := append(profileEnvs, a.extraEnvs...)
+	if len(envs) > 0 {
+		contextOpts = append(contextOpts, runtime.WithEnvVars(envs...))
 	}
 
 	if a.workDir != "" {
@@ -700,6 +725,10 @@ func (a *Agent) Run(ctx context.Context) error {
 	// If there was an error resolving secrets, stop execution here
 	if secretErr != nil {
 		initErr = secretErr // Stop execution if secret resolution failed
+		return initErr
+	}
+	if profileErr != nil {
+		initErr = profileErr
 		return initErr
 	}
 
@@ -1259,6 +1288,7 @@ func (a *Agent) Status(ctx context.Context) exec.DAGRunStatus {
 			transform.WithTriggerType(a.triggerType),
 			transform.WithAutoRetryCount(a.currentAutoRetryCount()),
 			transform.WithPIDStartedAt(currentPIDStartedAt()),
+			transform.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
 		}
 		if source != nil {
 			statusOpts = append(statusOpts,
@@ -1271,8 +1301,10 @@ func (a *Agent) Status(ctx context.Context) exec.DAGRunStatus {
 		} else if a.scheduleTime != "" {
 			statusOpts = append(statusOpts, transform.WithScheduleTime(a.scheduleTime))
 		}
-		return transform.NewStatusBuilder(a.dag).
+		status := transform.NewStatusBuilder(a.dag).
 			Create(a.dagRunID, core.Failed, os.Getpid(), time.Time{}, statusOpts...)
+		a.maskStatusSecrets(&status)
+		return status
 	}
 
 	runnerStatus := a.runner.Status(ctx, a.plan)
@@ -1302,6 +1334,7 @@ func (a *Agent) Status(ctx context.Context) exec.DAGRunStatus {
 		transform.WithTriggerType(a.triggerType),
 		transform.WithAutoRetryCount(a.currentAutoRetryCount()),
 		transform.WithPIDStartedAt(currentPIDStartedAt()),
+		transform.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
 	}
 
 	// If the current execution is based on a persisted target, copy timing data
@@ -1328,6 +1361,7 @@ func (a *Agent) Status(ctx context.Context) exec.DAGRunStatus {
 			a.plan.StartAt(),
 			opts...,
 		)
+	a.maskStatusSecrets(&status)
 	return status
 }
 
@@ -1570,6 +1604,63 @@ func (a *Agent) createDispatcher(ctx context.Context) (runtime.Dispatcher, error
 	}
 
 	return a.dispatcherFactory(ctx)
+}
+
+// resolveProfile resolves the selected runtime profile into environment values.
+func (a *Agent) resolveProfile(ctx context.Context) ([]string, []string, error) {
+	if a.profileName == "" {
+		return nil, nil, nil
+	}
+
+	resolver := profilepkg.NewResolver(a.profileStore, a.secretStore)
+	resolved, err := resolver.Resolve(ctx, a.profileName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to resolve profile %q: %w", a.profileName, err)
+	}
+
+	a.profileName = resolved.Name
+	a.profileResolvedAt = exec.FormatTime(time.Now())
+	a.profileEntries = profileEntries(resolved)
+	logger.Info(ctx, "Resolved runtime profile",
+		slog.String("profile", resolved.Name),
+		tag.Count(len(a.profileEntries)),
+	)
+	return profileEnvVars(resolved, profilepkg.EntryKindVariable),
+		profileEnvVars(resolved, profilepkg.EntryKindSecret),
+		nil
+}
+
+func profileEnvVars(resolved *profilepkg.Resolved, kind profilepkg.EntryKind) []string {
+	if resolved == nil {
+		return nil
+	}
+	envs := make([]string, 0, len(resolved.Entries))
+	for _, entry := range resolved.Entries {
+		if entry.Kind != kind {
+			continue
+		}
+		switch kind {
+		case profilepkg.EntryKindVariable:
+			envs = append(envs, stringutil.NewKeyValue(entry.Key, resolved.Variables[entry.Key]).String())
+		case profilepkg.EntryKindSecret:
+			envs = append(envs, stringutil.NewKeyValue(entry.Key, resolved.Secrets[entry.Key]).String())
+		}
+	}
+	return envs
+}
+
+func profileEntries(resolved *profilepkg.Resolved) []exec.RuntimeProfileEntry {
+	if resolved == nil {
+		return nil
+	}
+	entries := make([]exec.RuntimeProfileEntry, 0, len(resolved.Entries))
+	for _, entry := range resolved.Entries {
+		entries = append(entries, exec.RuntimeProfileEntry{
+			Key:  entry.Key,
+			Kind: string(entry.Kind),
+		})
+	}
+	return entries
 }
 
 // resolveSecrets resolves all secrets defined in the DAG and returns them as

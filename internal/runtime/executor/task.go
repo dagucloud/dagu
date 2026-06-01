@@ -111,6 +111,13 @@ func WithScheduleTime(scheduleTime string) TaskOption {
 	}
 }
 
+// WithProfileName sets the runtime profile name for a dispatched task.
+func WithProfileName(profileName string) TaskOption {
+	return func(task *exec.DispatchTask) {
+		task.ProfileName = profileName
+	}
+}
+
 // WithBaseConfig sets the base config YAML content on the task.
 // This allows workers to apply base config without needing local base config files.
 func WithBaseConfig(content string) TaskOption {

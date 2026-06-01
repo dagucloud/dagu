@@ -61,6 +61,8 @@ var (
 	WithWorkDir = exec.WithWorkDir
 	// WithArtifactDir sets the per-DAG-run artifact directory path.
 	WithArtifactDir = exec.WithArtifactDir
+	// WithRuntimeProfile sets selected runtime profile metadata.
+	WithRuntimeProfile = exec.WithRuntimeProfile
 )
 
 // LogWriterFactory is re-exported from execution package

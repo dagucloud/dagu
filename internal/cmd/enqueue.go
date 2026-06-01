@@ -32,7 +32,7 @@ Examples:
 	)
 }
 
-var enqueueFlags = []commandLineFlag{paramsFlag, nameFlag, dagRunIDFlag, queueFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, triggerTypeFlag, scheduleTimeFlag}
+var enqueueFlags = []commandLineFlag{paramsFlag, nameFlag, dagRunIDFlag, queueFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, triggerTypeFlag, scheduleTimeFlag}
 
 func runEnqueue(ctx *Context, args []string) error {
 	if ctx.IsRemote() {
@@ -79,14 +79,18 @@ func runEnqueue(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	profileName, err := runtimeProfileNameParam(ctx)
+	if err != nil {
+		return err
+	}
 
-	return enqueueDAGRun(ctx, dag, runID, triggerType, scheduleTime)
+	return enqueueDAGRun(ctx, dag, runID, triggerType, scheduleTime, profileName)
 }
 
 // enqueueDAGRun enqueues a dag-run to the queue.
 // The DAG location is cleared to allow concurrent queued runs (location is used
 // for unix pipe generation which would prevent parallel execution).
-func enqueueDAGRun(ctx *Context, dag *core.DAG, dagRunID string, triggerType core.TriggerType, scheduleTime string) error {
+func enqueueDAGRun(ctx *Context, dag *core.DAG, dagRunID string, triggerType core.TriggerType, scheduleTime, profileName string) error {
 	dag.Location = ""
 
 	if !ctx.Config.Queues.Enabled {
@@ -108,6 +112,7 @@ func enqueueDAGRun(ctx *Context, dag *core.DAG, dagRunID string, triggerType cor
 		ArtifactBaseDir:         ctx.Config.Paths.ArtifactDir,
 		TriggerType:             triggerType,
 		ScheduleTime:            scheduleTime,
+		ProfileName:             profileName,
 		ProceedOnStatusCloseErr: true,
 	})
 	if err != nil {

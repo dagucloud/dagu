@@ -1,0 +1,2201 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RFC 020: Runtime Profiles for Variables and Secrets</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fb;
+      --paper: #ffffff;
+      --ink: #1d2433;
+      --muted: #647084;
+      --line: #d9dee8;
+      --soft: #eef2f7;
+      --accent: #2463eb;
+      --accent-soft: #e8efff;
+      --warn: #9a5b00;
+      --warn-soft: #fff5d8;
+      --danger: #a62626;
+      --danger-soft: #ffe8e8;
+      --ok: #126447;
+      --ok-soft: #e4f7ef;
+      --code: #0f172a;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .page {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .toc {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+      padding: 28px 22px;
+      border-right: 1px solid var(--line);
+      background: #f1f4f8;
+    }
+
+    .toc h2 {
+      margin: 0 0 16px;
+      font-size: 14px;
+      letter-spacing: 0;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .toc a {
+      display: block;
+      padding: 7px 0;
+      color: #334155;
+      font-size: 14px;
+    }
+
+    .main {
+      width: min(1120px, 100%);
+      padding: 48px 40px 80px;
+    }
+
+    .article {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 42px;
+      box-shadow: 0 16px 40px rgba(15, 23, 42, 0.06);
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 34px;
+      line-height: 1.15;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 44px 0 14px;
+      padding-top: 8px;
+      border-top: 1px solid var(--line);
+      font-size: 22px;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 28px 0 10px;
+      font-size: 17px;
+      letter-spacing: 0;
+    }
+
+    h4 {
+      margin: 22px 0 8px;
+      font-size: 15px;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 10px 0;
+    }
+
+    ul, ol {
+      padding-left: 22px;
+    }
+
+    li {
+      margin: 5px 0;
+    }
+
+    code {
+      padding: 2px 5px;
+      border-radius: 5px;
+      background: var(--soft);
+      color: var(--code);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 0.92em;
+    }
+
+    pre {
+      margin: 14px 0;
+      padding: 16px;
+      overflow: auto;
+      border-radius: 8px;
+      background: #111827;
+      color: #f8fafc;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    pre code {
+      padding: 0;
+      background: transparent;
+      color: inherit;
+      font-size: inherit;
+    }
+
+    table {
+      width: 100%;
+      margin: 16px 0;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th, td {
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      vertical-align: top;
+      text-align: left;
+    }
+
+    th {
+      background: var(--soft);
+      font-weight: 650;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 16px 0 26px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      background: var(--soft);
+      color: #344256;
+      font-size: 13px;
+    }
+
+    .summary {
+      margin: 24px 0;
+      padding: 20px;
+      border: 1px solid #bcd0ff;
+      border-radius: 8px;
+      background: var(--accent-soft);
+    }
+
+    .callout {
+      margin: 18px 0;
+      padding: 15px 16px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: var(--soft);
+    }
+
+    .callout strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .warning {
+      border-color: #f0cf84;
+      background: var(--warn-soft);
+      color: #4b3300;
+    }
+
+    .danger {
+      border-color: #f0a3a3;
+      background: var(--danger-soft);
+      color: #5a1717;
+    }
+
+    .ok {
+      border-color: #a6dec9;
+      background: var(--ok-soft);
+      color: #0f3f2e;
+    }
+
+    .diagram {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcff;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 13px;
+      white-space: pre-wrap;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      background: #fbfcff;
+    }
+
+    .card h3 {
+      margin-top: 0;
+    }
+
+    .mock-intro {
+      margin: 12px 0 18px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .mock-frame {
+      margin: 18px 0 30px;
+      overflow: hidden;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background: #f8fafc;
+    }
+
+    .mock-windowbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 9px 14px;
+      border-bottom: 1px solid #d9dee8;
+      background: #eef2f7;
+      color: #475569;
+      font-size: 12px;
+    }
+
+    .mock-app {
+      display: grid;
+      grid-template-columns: 168px minmax(0, 1fr);
+      min-height: 430px;
+      background: #ffffff;
+    }
+
+    .mock-sidebar {
+      padding: 16px 12px;
+      border-right: 1px solid #e2e8f0;
+      background: #f8fafc;
+    }
+
+    .mock-brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 18px;
+      color: #0f172a;
+      font-weight: 700;
+      font-size: 15px;
+    }
+
+    .mock-brand::before {
+      content: "";
+      flex: 0 0 auto;
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      background: #1f6feb;
+    }
+
+    .mock-nav-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 8px;
+      border-radius: 6px;
+      color: #475569;
+      font-size: 13px;
+    }
+
+    .mock-nav-item.active {
+      background: #e8efff;
+      color: #1d4ed8;
+      font-weight: 650;
+    }
+
+    .mock-nav-item::before {
+      content: "";
+      flex: 0 0 auto;
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #94a3b8;
+    }
+
+    .mock-nav-item.active::before {
+      background: #1d4ed8;
+    }
+
+    .mock-screen {
+      padding: 20px;
+      background: #ffffff;
+    }
+
+    .mock-topbar,
+    .mock-row,
+    .mock-title-row,
+    .mock-dialog-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .mock-title h3,
+    .mock-title h4 {
+      margin: 0;
+      color: #111827;
+    }
+
+    .mock-title p {
+      margin: 3px 0 0;
+      color: #64748b;
+      font-size: 13px;
+    }
+
+    .mock-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 32px;
+      padding: 0 12px;
+      border: 1px solid #1d4ed8;
+      border-radius: 6px;
+      background: #1d4ed8;
+      color: #ffffff;
+      font-size: 13px;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+
+    .mock-button.secondary {
+      border-color: #cbd5e1;
+      background: #ffffff;
+      color: #334155;
+    }
+
+    .mock-button.danger {
+      border-color: #dc2626;
+      background: #dc2626;
+    }
+
+    .mock-stats {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin: 18px 0;
+    }
+
+    .mock-stat,
+    .mock-panel,
+    .mock-sidepanel,
+    .mock-dialog,
+    .mock-history-panel {
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      background: #ffffff;
+    }
+
+    .mock-stat {
+      padding: 12px;
+    }
+
+    .mock-stat strong {
+      display: block;
+      color: #0f172a;
+      font-size: 20px;
+      line-height: 1.1;
+    }
+
+    .mock-stat span {
+      color: #64748b;
+      font-size: 12px;
+    }
+
+    .mock-panel {
+      overflow: hidden;
+    }
+
+    .mock-panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-bottom: 1px solid #e2e8f0;
+      background: #f8fafc;
+    }
+
+    .mock-panel-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #1f2937;
+    }
+
+    .mock-search {
+      min-width: 180px;
+      padding: 6px 9px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      color: #64748b;
+      font-size: 12px;
+      background: #ffffff;
+    }
+
+    .mock-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0;
+      font-size: 12px;
+    }
+
+    .mock-table th,
+    .mock-table td {
+      padding: 10px 12px;
+      border: 0;
+      border-bottom: 1px solid #e2e8f0;
+      white-space: nowrap;
+    }
+
+    .mock-table th {
+      background: #ffffff;
+      color: #64748b;
+      font-weight: 650;
+    }
+
+    .mock-table td {
+      color: #334155;
+    }
+
+    .mock-table tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 650;
+    }
+
+    .status-pill.active {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .status-pill.protected {
+      background: #fff7ed;
+      color: #9a3412;
+    }
+
+    .status-pill.disabled {
+      background: #f1f5f9;
+      color: #64748b;
+    }
+
+    .kind-secret {
+      color: #a62626;
+      font-weight: 650;
+    }
+
+    .kind-var {
+      color: #126447;
+      font-weight: 650;
+    }
+
+    .mock-detail-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 250px;
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .mock-tabs {
+      display: flex;
+      gap: 6px;
+      padding: 8px;
+      border-bottom: 1px solid #e2e8f0;
+      background: #f8fafc;
+    }
+
+    .mock-tab {
+      padding: 6px 10px;
+      border-radius: 6px;
+      color: #475569;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .mock-tab.active {
+      background: #ffffff;
+      color: #1d4ed8;
+      box-shadow: inset 0 0 0 1px #cbd5e1;
+    }
+
+    .mock-sidepanel {
+      padding: 14px;
+    }
+
+    .mock-sidepanel h4 {
+      margin: 0 0 10px;
+      font-size: 13px;
+    }
+
+    .mock-kv {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      font-size: 12px;
+      color: #475569;
+    }
+
+    .mock-kv strong {
+      color: #0f172a;
+    }
+
+    .mock-run-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 330px;
+      gap: 16px;
+      align-items: start;
+      padding: 20px;
+      background: #f8fafc;
+    }
+
+    .mock-run-canvas {
+      min-height: 380px;
+      border: 1px dashed #cbd5e1;
+      border-radius: 8px;
+      background: #ffffff;
+      padding: 18px;
+    }
+
+    .mock-node {
+      display: inline-flex;
+      align-items: center;
+      min-width: 120px;
+      min-height: 42px;
+      margin: 12px;
+      padding: 0 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 7px;
+      background: #ffffff;
+      color: #334155;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .mock-dialog {
+      padding: 16px;
+      box-shadow: 0 18px 42px rgba(15, 23, 42, 0.12);
+    }
+
+    .mock-field {
+      margin-top: 12px;
+    }
+
+    .mock-field label {
+      display: block;
+      margin-bottom: 5px;
+      color: #334155;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .mock-select,
+    .mock-input {
+      width: 100%;
+      min-height: 34px;
+      padding: 7px 9px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      background: #ffffff;
+      color: #0f172a;
+      font-size: 13px;
+    }
+
+    .mock-preview {
+      margin-top: 12px;
+      padding: 11px;
+      border: 1px solid #bfdbfe;
+      border-radius: 7px;
+      background: #eff6ff;
+      font-size: 12px;
+      color: #1e3a8a;
+    }
+
+    .mock-preview ul {
+      margin: 7px 0 0;
+      padding-left: 17px;
+    }
+
+    .mock-dialog-actions {
+      margin-top: 16px;
+      justify-content: flex-end;
+    }
+
+    .mock-history {
+      display: grid;
+      grid-template-columns: 1fr 300px;
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .mock-log {
+      min-height: 260px;
+      padding: 14px;
+      border-radius: 8px;
+      background: #0f172a;
+      color: #dbeafe;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .mock-history-panel {
+      padding: 14px;
+    }
+
+    .mock-history-panel h4 {
+      margin: 0 0 12px;
+      font-size: 13px;
+    }
+
+    .mock-source-list {
+      display: grid;
+      gap: 7px;
+      margin-top: 10px;
+      font-size: 12px;
+    }
+
+    .mock-source {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 7px 8px;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      background: #f8fafc;
+    }
+
+    @media (max-width: 900px) {
+      .page {
+        display: block;
+      }
+
+      .toc {
+        position: static;
+        height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .main {
+        padding: 20px 14px 48px;
+      }
+
+      .article {
+        padding: 24px 18px;
+      }
+
+      .two-col {
+        grid-template-columns: 1fr;
+      }
+
+      .mock-app,
+      .mock-detail-grid,
+      .mock-run-layout,
+      .mock-history {
+        grid-template-columns: 1fr;
+      }
+
+      .mock-sidebar {
+        border-right: 0;
+        border-bottom: 1px solid #e2e8f0;
+      }
+
+      .mock-stats {
+        grid-template-columns: 1fr;
+      }
+
+      .mock-topbar,
+      .mock-title-row,
+      .mock-row,
+      .mock-dialog-actions {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .mock-search {
+        width: 100%;
+        min-width: 0;
+      }
+
+      .mock-table {
+        display: block;
+        overflow-x: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="toc" role="navigation" aria-label="Table of contents">
+      <h2>Contents</h2>
+      <a href="#summary">Summary</a>
+      <a href="#problem">Problem</a>
+      <a href="#mental-model">Mental Model</a>
+      <a href="#user-experience">User Experience</a>
+      <a href="#workflow-examples">Workflow Examples</a>
+      <a href="#external-patterns">External Patterns</a>
+      <a href="#goals">Goals and Non-Goals</a>
+      <a href="#decision">Proposed Decision</a>
+      <a href="#naming">Naming</a>
+      <a href="#data-model">Data Model</a>
+      <a href="#storage">Storage</a>
+      <a href="#resolution">Resolution</a>
+      <a href="#execution-patterns">Execution Patterns</a>
+      <a href="#ui-design">UI Design</a>
+      <a href="#ui-mockups">UI Mockups</a>
+      <a href="#api-cli">API and CLI</a>
+      <a href="#security">Security</a>
+      <a href="#migration">Migration</a>
+      <a href="#testing">Testing</a>
+      <a href="#task-list">Task List</a>
+      <a href="#completion-proof">Completion Proof</a>
+      <a href="#risks">Risks</a>
+      <a href="#phasing">Phasing</a>
+      <a href="#open-questions">Open Questions</a>
+      <a href="#sources">Sources</a>
+    </div>
+
+    <div class="main">
+      <div class="article">
+        <h1>RFC 020: Runtime Profiles for Variables and Secrets</h1>
+        <div class="meta">
+          <span class="pill">Status: Draft</span>
+          <span class="pill">Date: 2026-06-01</span>
+          <span class="pill">Owner: Dagu core</span>
+          <span class="pill">Scope: Product and architecture design</span>
+        </div>
+
+        <div id="summary" class="summary">
+          <h2>Summary</h2>
+          <p>
+            Add <strong>Runtime Profiles</strong> as the user-facing way to select a named set of
+            variables and secrets when starting, enqueueing, retrying, or composing Dagu workflows.
+            A profile is not another secret type. A profile is a runtime selection layer above
+            Dagu-managed secrets and future non-secret variables.
+          </p>
+          <p>
+            The primary user outcome is simple: keep one DAG file and run it against <code>local</code>,
+            <code>staging</code>, or <code>prod</code> values without rewriting the DAG and without relying on
+            brittle <code>.env</code> file choreography.
+          </p>
+        </div>
+
+        <div id="problem">
+          <h2>Problem</h2>
+          <p>
+            Today, users can define DAG-level <code>env:</code>, load <code>dotenv:</code> files, or declare
+            <code>secrets:</code> entries. These mechanisms work, but they make environment switching awkward:
+          </p>
+          <ul>
+            <li><code>env:</code> is part of the DAG definition, so switching values often means editing YAML.</li>
+            <li><code>dotenv:</code> depends on local files and path conventions that are easy to drift between machines.</li>
+            <li><code>secrets:</code> protects values, but it does not by itself express a complete runtime context such as <code>local</code> or <code>prod</code>.</li>
+            <li>Testing a DAG against different targets requires repetitive declarations such as <code>LOG_LEVEL: ${LOG_LEVEL}</code>.</li>
+          </ul>
+          <p>
+            The missing primitive is not a new YAML field. It is a managed runtime context that can be
+            selected outside the DAG file.
+          </p>
+        </div>
+
+        <div id="mental-model">
+          <h2>Mental Model</h2>
+          <div class="two-col">
+            <div class="card">
+              <h3>Managed Secret</h3>
+              <p>A managed secret is one protected value. It is write-only through UI/API and decrypted only for run execution.</p>
+              <pre><code>Secret:
+  ref: prod/db-password
+  value: ********</code></pre>
+            </div>
+            <div class="card">
+              <h3>Runtime Profile</h3>
+              <p>A profile is a named bundle of plain variables and secret variables injected into a run.</p>
+              <pre><code>Profile: prod
+Variables:
+  LOG_LEVEL=info
+  REGION=ap-northeast-1
+Secrets:
+  DB_PASSWORD=********
+  API_TOKEN=********</code></pre>
+            </div>
+          </div>
+
+          <div class="diagram">Managed secret = secure value storage
+Profile = runtime selection and injection layer
+
+DAG + selected profile -&gt; resolved run environment -&gt; step process</div>
+
+          <p>
+            A profile can be backed by the existing Dagu-managed secret store. The user should not need
+            to manually create global secret names and map each one back into a profile for the normal
+            case. The normal case is: open a profile, add a key, choose whether it is a variable or a
+            secret, and run with that profile.
+          </p>
+        </div>
+
+        <div id="user-experience">
+          <h2>User Experience</h2>
+
+          <h3>Create Profiles</h3>
+          <p>
+            A user opens <strong>Profiles</strong> in the Web UI and creates <code>local</code>, <code>staging</code>,
+            and <code>prod</code>. Each profile contains two explicit sections:
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>Section</th>
+                <th>Used For</th>
+                <th>Visibility</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Variables</td>
+                <td>Non-sensitive runtime values such as <code>LOG_LEVEL</code>, <code>REGION</code>, <code>CLICKHOUSE_HOST</code>.</td>
+                <td>Values are visible to users with profile read permission.</td>
+              </tr>
+              <tr>
+                <td>Secrets</td>
+                <td>Sensitive runtime values such as tokens, passwords, and DSNs.</td>
+                <td>Values are write-only and masked after save.</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h3>Run Without YAML Rewrites</h3>
+          <pre><code>dagu start --profile local etl.yaml
+dagu start --profile prod etl.yaml</code></pre>
+
+          <p>The DAG can use the environment normally:</p>
+          <pre><code>steps:
+  - name: load
+    run: python load.py "$CLICKHOUSE_DSN_PY" "$LOG_LEVEL"</code></pre>
+
+          <p>
+            There is no repeated pass-through block such as <code>LOG_LEVEL: ${LOG_LEVEL}</code>. The profile
+            injects <code>LOG_LEVEL</code> directly.
+          </p>
+
+          <h3>Inspect Run History</h3>
+          <p>Run history should show metadata, not plaintext:</p>
+          <pre><code>Profile: local
+Resolved at: 2026-06-01 14:31:20 JST
+Injected keys:
+  LOG_LEVEL          variable
+  CLICKHOUSE_HOST    variable
+  CLICKHOUSE_DSN_PY  secret
+  API_TOKEN          secret</code></pre>
+
+          <h3>Retry Defaults</h3>
+          <p>
+            Retry defaults to the previous attempt's profile name and resolves the latest values at retry
+            attempt start. Users can override the profile explicitly:
+          </p>
+          <pre><code>dagu retry 20260601T143120Z
+dagu retry --profile staging 20260601T143120Z</code></pre>
+
+          <div class="callout warning">
+            <strong>Important latest-value behavior</strong>
+            Dagu should not pin profile revisions in v1. The run history records the profile name and
+            resolved key names. The actual values are the latest profile values at attempt start.
+          </div>
+        </div>
+
+        <div id="workflow-examples">
+          <h2>Workflow Examples</h2>
+
+          <h3>Before</h3>
+          <pre><code>env:
+  - LOG_LEVEL: ${LOG_LEVEL}
+  - CLICKHOUSE_HOST: ${CLICKHOUSE_HOST}
+
+secrets:
+  - name: CLICKHOUSE_DSN_PY
+    provider: env
+    key: CLICKHOUSE_DSN_PY
+
+steps:
+  - run: python foo.py "$CLICKHOUSE_DSN_PY"</code></pre>
+
+          <h3>After</h3>
+          <pre><code>steps:
+  - run: python foo.py "$CLICKHOUSE_DSN_PY"</code></pre>
+
+          <h3>Selected Profile</h3>
+          <pre><code>Profile: local
+Variables:
+  LOG_LEVEL=debug
+  CLICKHOUSE_HOST=localhost
+Secrets:
+  CLICKHOUSE_DSN_PY=********
+
+Profile: prod
+Variables:
+  LOG_LEVEL=info
+  CLICKHOUSE_HOST=clickhouse.internal
+Secrets:
+  CLICKHOUSE_DSN_PY=********</code></pre>
+        </div>
+
+        <div id="external-patterns">
+          <h2>External Patterns</h2>
+          <p>
+            Popular workflow, CI, deployment, and developer tools converge on a few patterns. The Dagu
+            design should take the useful parts and avoid copying their friction.
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>Tool</th>
+                <th>Relevant Pattern</th>
+                <th>Dagu Takeaway</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>CircleCI</td>
+                <td>Contexts are named groups of environment variables injected at runtime.</td>
+                <td>Named profile/context injection is a proven user model.</td>
+              </tr>
+              <tr>
+                <td>GitHub Actions</td>
+                <td>Jobs can target environments, and environments can have variables, secrets, and protection rules.</td>
+                <td>Environment selection and secret/variable grouping belong at run/job selection time.</td>
+              </tr>
+              <tr>
+                <td>GitLab CI/CD</td>
+                <td>Variables can be scoped to environments and protected/masked.</td>
+                <td>Same key can carry different values by runtime target, but masking is not containment.</td>
+              </tr>
+              <tr>
+                <td>Doppler</td>
+                <td>A selected config is injected into a command with <code>doppler run</code>.</td>
+                <td>CLI selection should be short and process-oriented: <code>dagu start --profile local</code>.</td>
+              </tr>
+              <tr>
+                <td>Prefect</td>
+                <td>Variables are non-sensitive; blocks store typed configuration and secrets.</td>
+                <td>Keep plain variables and secrets distinct, even if they are injected together.</td>
+              </tr>
+              <tr>
+                <td>Dagster</td>
+                <td>Code can declare environment variable dependencies through <code>EnvVar</code>.</td>
+                <td>Explicit dependencies are safer, but too verbose for Dagu's target use case.</td>
+              </tr>
+              <tr>
+                <td>Kubernetes and Argo Workflows</td>
+                <td>ConfigMaps and Secrets can be injected as env vars or mounted files.</td>
+                <td>Bulk injection is common, but values become readable by the process.</td>
+              </tr>
+              <tr>
+                <td>Netlify and Vercel</td>
+                <td>Environment variables are scoped to production, preview, development, or deploy contexts.</td>
+                <td>Contextual values are expected UX for switching targets.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div id="goals">
+          <h2>Goals and Non-Goals</h2>
+
+          <h3>Goals</h3>
+          <ul>
+            <li>Let users switch runtime values without editing DAG YAML.</li>
+            <li>Reuse the existing managed secret store for secret values.</li>
+            <li>Add a foundation for first-class non-secret variables.</li>
+            <li>Apply the same profile consistently across start, enqueue, retry, scheduled runs, sub-DAGs, and distributed workers.</li>
+            <li>Keep plaintext secret values out of queue records, run history, status records, API responses, and coordinator task payloads.</li>
+            <li>Expose clear run provenance: profile name, selected key names, source type, and resolution time.</li>
+          </ul>
+
+          <h3>Non-Goals</h3>
+          <ul>
+            <li>Do not add workspace-specific profile scoping in v1.</li>
+            <li>Do not add pinned profile revisions in v1.</li>
+            <li>Do not require <code>required_env</code> or repeated pass-through entries in DAG YAML.</li>
+            <li>Do not replace external secret managers such as Vault, Kubernetes Secrets, or cloud secret managers.</li>
+            <li>Do not claim to prevent a workload from leaking a secret after Dagu intentionally gives it the secret.</li>
+            <li>Do not make <code>.env</code> files the primary environment management mechanism.</li>
+          </ul>
+        </div>
+
+        <div id="decision">
+          <h2>Proposed Decision</h2>
+          <p>
+            Add a global <strong>Profile</strong> resource. A profile contains environment-variable-shaped
+            entries. Each entry has a key, type, and value source.
+          </p>
+
+          <pre><code>Profile:
+  name: local
+  description: Local development dependencies
+  variables:
+    LOG_LEVEL: debug
+    CLICKHOUSE_HOST: localhost
+  secrets:
+    CLICKHOUSE_DSN_PY: ********
+    API_TOKEN: ********</code></pre>
+
+          <p>
+            A run may select zero or one profile. If no profile is selected, Dagu keeps the existing
+            behavior. If a profile is selected, Dagu resolves the profile at attempt start and inserts
+            the entries into the run environment before step execution.
+          </p>
+
+          <div class="callout ok">
+            <strong>Main design rule</strong>
+            The profile name is durable run metadata. Profile values are resolved at attempt start and
+            are not persisted as plaintext.
+          </div>
+        </div>
+
+        <div id="naming">
+          <h2>Naming</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Assessment</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>profile</code></td>
+                <td>Best fit. Neutral, short, not confused with DAG <code>env:</code>, and usable for local/staging/prod.</td>
+              </tr>
+              <tr>
+                <td><code>context</code></td>
+                <td>Good precedent from CircleCI and Kubernetes, but may conflict with execution context terminology.</td>
+              </tr>
+              <tr>
+                <td><code>target</code></td>
+                <td>Useful for deployment, less clear for testing or data-source switching.</td>
+              </tr>
+              <tr>
+                <td><code>stage</code></td>
+                <td>Too deployment-specific.</td>
+              </tr>
+              <tr>
+                <td><code>environment</code></td>
+                <td>Too easy to confuse with environment variables and YAML <code>env:</code>.</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <p>
+            Public surfaces should use <code>profile</code>. Internal code can use <code>runtimeprofile</code> or
+            <code>profile</code> depending on package context. API fields should use <code>profile</code> or
+            <code>profileName</code>.
+          </p>
+        </div>
+
+        <div id="data-model">
+          <h2>Data Model</h2>
+
+          <h3>Profile</h3>
+          <pre><code>{
+  "id": "prf_...",
+  "name": "local",
+  "description": "Local development values",
+  "status": "ACTIVE",
+  "createdAt": "...",
+  "updatedAt": "...",
+  "createdBy": "...",
+  "updatedBy": "..."
+}</code></pre>
+
+          <h3>Profile Entry</h3>
+          <pre><code>{
+  "profileId": "prf_...",
+  "key": "CLICKHOUSE_DSN_PY",
+  "kind": "SECRET",
+  "value": null,
+  "secretRef": "internal profile secret reference",
+  "updatedAt": "..."
+}</code></pre>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Field</th>
+                <th>Rule</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>name</code></td>
+                <td>Unique global slug. Recommended validation: lowercase letters, numbers, hyphen, underscore, and dot.</td>
+              </tr>
+              <tr>
+                <td><code>key</code></td>
+                <td>Valid environment variable name: starts with a letter or underscore, then letters, numbers, or underscore.</td>
+              </tr>
+              <tr>
+                <td><code>kind</code></td>
+                <td><code>VARIABLE</code> or <code>SECRET</code>.</td>
+              </tr>
+              <tr>
+                <td><code>value</code></td>
+                <td>Plain variable value. Stored as normal profile data.</td>
+              </tr>
+              <tr>
+                <td><code>secretRef</code></td>
+                <td>Pointer to existing Dagu-managed secret storage. Not exposed as a stable public ref in v1.</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h3>Run Metadata</h3>
+          <pre><code>{
+  "profileName": "local",
+  "profileResolvedAt": "...",
+  "profileInjectedKeys": [
+    {"key": "LOG_LEVEL", "kind": "VARIABLE"},
+    {"key": "CLICKHOUSE_DSN_PY", "kind": "SECRET"}
+  ]
+}</code></pre>
+
+          <p>
+            Do not store resolved values. Do not store secret revision pins. Do not store decrypted secret
+            value hashes unless there is a concrete audit requirement; even hashes can create comparison
+            and correlation problems.
+          </p>
+        </div>
+
+        <div id="storage">
+          <h2>Storage</h2>
+          <p>
+            Dagu should keep the storage split aligned with the current secret system:
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Storage</th>
+                <th>Plaintext Allowed?</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Profile metadata</td>
+                <td><code>&lt;data_dir&gt;/profiles</code> or equivalent collection backend</td>
+                <td>Yes</td>
+              </tr>
+              <tr>
+                <td>Profile plain variables</td>
+                <td>Profile store</td>
+                <td>Yes</td>
+              </tr>
+              <tr>
+                <td>Profile secret values</td>
+                <td>Existing encrypted Dagu secret store at <code>&lt;data_dir&gt;/secrets</code></td>
+                <td>No durable plaintext</td>
+              </tr>
+              <tr>
+                <td>Run profile selection</td>
+                <td>Queue/status/history metadata</td>
+                <td>Profile name and key names only</td>
+              </tr>
+              <tr>
+                <td>Resolved runtime values</td>
+                <td>In-memory execution environment only</td>
+                <td>Yes, only inside runtime process boundary</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <p>
+            The file backend should be one implementation of the profile store. The interface should
+            remain collection-oriented so a database backend can use the same logical model later.
+          </p>
+        </div>
+
+        <div id="resolution">
+          <h2>Resolution</h2>
+
+          <h3>Attempt Start Flow</h3>
+          <div class="diagram">Run request
+  - DAG file/ref
+  - params
+  - selected profile name
+
+Attempt start
+  1. Load DAG.
+  2. Load dotenv and DAG env using existing behavior.
+  3. Resolve DAG secrets using existing behavior.
+  4. Resolve selected profile from profile store.
+  5. Decrypt profile secrets through existing secret store.
+  6. Build runtime EnvScope layers.
+  7. Start steps.
+
+Durable records
+  - store profile name
+  - store injected key names and kinds
+  - never store plaintext values</div>
+
+          <h3>Precedence</h3>
+          <p>
+            Insert the profile layer above DAG-level env/dotenv and below explicit DAG secrets:
+          </p>
+          <ol>
+            <li>Step environment values.</li>
+            <li>Output variables from dependency steps.</li>
+            <li>DAG-declared <code>secrets:</code>.</li>
+            <li>Profile secrets.</li>
+            <li>Profile variables.</li>
+            <li>DAG-level <code>env:</code>, <code>dotenv:</code>, params, and runtime metadata.</li>
+            <li>Filtered process environment.</li>
+          </ol>
+
+          <p>
+            This makes profiles useful as runtime overrides while preserving the stronger intent of
+            explicit DAG <code>secrets:</code>.
+          </p>
+
+          <h3>Collision Rules</h3>
+          <ul>
+            <li>A profile cannot contain the same key in both Variables and Secrets.</li>
+            <li>Profile keys must not start with <code>DAGU_</code>.</li>
+            <li>Profile keys that override DAG <code>env:</code> are allowed and shown in the run preview.</li>
+            <li>Profile keys that collide with DAG <code>secrets:</code> are allowed only if explicit DAG secrets win and the preview shows the override source.</li>
+            <li>A future strict mode can fail on collisions, but v1 should prioritize practical switching.</li>
+          </ul>
+        </div>
+
+        <div id="execution-patterns">
+          <h2>Execution Patterns</h2>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Pattern</th>
+                <th>Profile Behavior</th>
+                <th>Failure Mode</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>start</code></td>
+                <td>CLI/API passes profile name. Values resolve at attempt start.</td>
+                <td>Missing/disabled profile fails before steps start.</td>
+              </tr>
+              <tr>
+                <td><code>enqueue</code></td>
+                <td>Queue record stores profile name only. Values resolve when dequeued and executed.</td>
+                <td>If the profile changes before execution, latest values are used. If removed, the attempt fails.</td>
+              </tr>
+              <tr>
+                <td><code>retry</code></td>
+                <td>Defaults to previous attempt's profile name. <code>--profile</code> can override.</td>
+                <td>If previous profile no longer exists, retry requires an explicit replacement profile or fails.</td>
+              </tr>
+              <tr>
+                <td>Scheduled run</td>
+                <td>Uses a saved default profile outside the DAG file, or no profile if unset.</td>
+                <td>Missing profile fails the scheduled attempt before steps start.</td>
+              </tr>
+              <tr>
+                <td>Sub-DAG local</td>
+                <td>Child inherits parent profile by default.</td>
+                <td>Child fails if inherited profile cannot be resolved in the child execution context.</td>
+              </tr>
+              <tr>
+                <td>Sub-DAG distributed</td>
+                <td>Task carries inherited profile name, not values.</td>
+                <td>Worker must resolve via coordinator/runtime resolver or fail closed.</td>
+              </tr>
+              <tr>
+                <td>Distributed shared-volume</td>
+                <td>Worker resolves profile through the common Dagu store or resolver.</td>
+                <td>Store access or secret decrypt errors fail before steps start.</td>
+              </tr>
+              <tr>
+                <td>Distributed shared-nothing</td>
+                <td>Worker asks coordinator/runtime resolver for the selected profile values at attempt start.</td>
+                <td>If resolver is unavailable or unauthorized, worker fails the attempt before steps start.</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h3>Distributed Resolver Contract</h3>
+          <p>
+            To keep shared-nothing and shared-volume behavior consistent, add one runtime resolution
+            boundary:
+          </p>
+          <pre><code>ResolveRuntimeProfile(taskId, attemptId, profileName) -&gt; {
+  variables: map[string]string,
+  secrets: map[string]string,
+  metadata: injected keys and kinds
+}</code></pre>
+
+          <p>
+            Local execution can implement this by calling local stores directly. Distributed workers can
+            call the coordinator. The coordinator validates that the worker owns the task before returning
+            any plaintext.
+          </p>
+
+          <div class="callout danger">
+            <strong>Do not put plaintext values in coordinator tasks</strong>
+            Coordinator task payloads, queue records, previous status records, and workflow bundle metadata
+            must carry only <code>profileName</code> and non-secret metadata.
+          </div>
+        </div>
+
+        <div id="ui-design">
+          <h2>UI Design</h2>
+
+          <h3>Navigation</h3>
+          <p>Add a top-level or settings-level page named <strong>Profiles</strong>. Avoid naming it "Environments".</p>
+
+          <h3>Profile List</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Column</th>
+                <th>Purpose</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Name</td>
+                <td><code>local</code>, <code>staging</code>, <code>prod</code>.</td>
+              </tr>
+              <tr>
+                <td>Status</td>
+                <td>Active, disabled, protected.</td>
+              </tr>
+              <tr>
+                <td>Entries</td>
+                <td>Counts for variables and secrets.</td>
+              </tr>
+              <tr>
+                <td>Last updated</td>
+                <td>Human-readable update time and user.</td>
+              </tr>
+              <tr>
+                <td>Recent runs</td>
+                <td>Links to run history filtered by profile name.</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h3>Profile Detail</h3>
+          <p>
+            Use tabs or segmented controls for <strong>Variables</strong>, <strong>Secrets</strong>,
+            <strong>Usage</strong>, and <strong>Settings</strong>.
+          </p>
+          <ul>
+            <li>Variables table: key, value, updated by, updated at.</li>
+            <li>Secrets table: key, masked value marker, updated by, updated at, rotate action.</li>
+            <li>Usage table: recent runs and DAGs that selected the profile.</li>
+            <li>Settings: description, disabled state, protected state.</li>
+          </ul>
+
+          <h3>Run Dialog</h3>
+          <p>
+            Manual start, retry, and enqueue dialogs get a <strong>Profile</strong> dropdown. The dropdown
+            includes <code>No profile</code> plus active profiles. Selecting a profile shows a compact preview:
+          </p>
+          <pre><code>local
+  Variables: LOG_LEVEL, CLICKHOUSE_HOST
+  Secrets: CLICKHOUSE_DSN_PY, API_TOKEN
+
+Latest values will be resolved when the attempt starts.</code></pre>
+
+          <h3>Run History</h3>
+          <p>
+            Add a profile section to run detail pages. Display only profile name, resolution time, and
+            key names. Secret values stay masked and unrecoverable through the UI.
+          </p>
+        </div>
+
+        <div id="ui-mockups">
+          <h2>UI Mockups</h2>
+          <p class="mock-intro">
+            These mockups show the intended product shape. They are not final visual design, but they
+            define the key surfaces, density, labels, and information hierarchy.
+          </p>
+
+          <h3>Profiles Index</h3>
+          <div class="mock-frame">
+            <div class="mock-windowbar">
+              <span>Dagu Web UI</span>
+              <span>Settings / Profiles</span>
+            </div>
+            <div class="mock-app">
+              <div class="mock-sidebar">
+                <div class="mock-brand"><span>Dagu</span></div>
+                <div class="mock-nav-item"><span>Dashboard</span></div>
+                <div class="mock-nav-item"><span>DAGs</span></div>
+                <div class="mock-nav-item"><span>Runs</span></div>
+                <div class="mock-nav-item active"><span>Profiles</span></div>
+                <div class="mock-nav-item"><span>Secrets</span></div>
+                <div class="mock-nav-item"><span>Settings</span></div>
+              </div>
+              <div class="mock-screen">
+                <div class="mock-topbar">
+                  <div class="mock-title">
+                    <h3>Profiles</h3>
+                    <p>Runtime values selected when a DAG run starts.</p>
+                  </div>
+                  <span class="mock-button">New profile</span>
+                </div>
+
+                <div class="mock-stats">
+                  <div class="mock-stat"><strong>3</strong><span>Active profiles</span></div>
+                  <div class="mock-stat"><strong>18</strong><span>Variables</span></div>
+                  <div class="mock-stat"><strong>7</strong><span>Secrets</span></div>
+                </div>
+
+                <div class="mock-panel">
+                  <div class="mock-panel-head">
+                    <span class="mock-panel-title">Runtime profiles</span>
+                    <span class="mock-search">Search profiles</span>
+                  </div>
+                  <table class="mock-table">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Status</th>
+                        <th>Variables</th>
+                        <th>Secrets</th>
+                        <th>Last updated</th>
+                        <th>Recent use</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td><strong>local</strong></td>
+                        <td><span class="status-pill active">Active</span></td>
+                        <td>6</td>
+                        <td>2</td>
+                        <td>Today 14:18</td>
+                        <td>etl.clickhouse</td>
+                      </tr>
+                      <tr>
+                        <td><strong>staging</strong></td>
+                        <td><span class="status-pill active">Active</span></td>
+                        <td>5</td>
+                        <td>2</td>
+                        <td>Yesterday 19:02</td>
+                        <td>sync.customers</td>
+                      </tr>
+                      <tr>
+                        <td><strong>prod</strong></td>
+                        <td><span class="status-pill protected">Protected</span></td>
+                        <td>7</td>
+                        <td>3</td>
+                        <td>May 30 09:44</td>
+                        <td>daily.pipeline</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <h3>Profile Detail</h3>
+          <div class="mock-frame">
+            <div class="mock-windowbar">
+              <span>Dagu Web UI</span>
+              <span>Profiles / local</span>
+            </div>
+            <div class="mock-app">
+              <div class="mock-sidebar">
+                <div class="mock-brand"><span>Dagu</span></div>
+                <div class="mock-nav-item"><span>Dashboard</span></div>
+                <div class="mock-nav-item"><span>DAGs</span></div>
+                <div class="mock-nav-item active"><span>Profiles</span></div>
+                <div class="mock-nav-item"><span>Secrets</span></div>
+              </div>
+              <div class="mock-screen">
+                <div class="mock-title-row">
+                  <div class="mock-title">
+                    <h3>local</h3>
+                    <p>Local development dependencies and non-prod tokens.</p>
+                  </div>
+                  <div class="mock-row">
+                    <span class="mock-button secondary">Disable</span>
+                    <span class="mock-button">Add key</span>
+                  </div>
+                </div>
+
+                <div class="mock-detail-grid">
+                  <div class="mock-panel">
+                    <div class="mock-tabs">
+                      <span class="mock-tab active">Variables</span>
+                      <span class="mock-tab">Secrets</span>
+                      <span class="mock-tab">Usage</span>
+                      <span class="mock-tab">Settings</span>
+                    </div>
+                    <table class="mock-table">
+                      <thead>
+                        <tr>
+                          <th>Key</th>
+                          <th>Value</th>
+                          <th>Source</th>
+                          <th>Updated</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td><strong>LOG_LEVEL</strong></td>
+                          <td>debug</td>
+                          <td><span class="kind-var">Variable</span></td>
+                          <td>Today 14:18</td>
+                        </tr>
+                        <tr>
+                          <td><strong>CLICKHOUSE_HOST</strong></td>
+                          <td>localhost</td>
+                          <td><span class="kind-var">Variable</span></td>
+                          <td>Today 14:18</td>
+                        </tr>
+                        <tr>
+                          <td><strong>CLICKHOUSE_DSN_PY</strong></td>
+                          <td>********</td>
+                          <td><span class="kind-secret">Secret</span></td>
+                          <td>Today 13:50</td>
+                        </tr>
+                        <tr>
+                          <td><strong>API_TOKEN</strong></td>
+                          <td>********</td>
+                          <td><span class="kind-secret">Secret</span></td>
+                          <td>May 29 10:11</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div class="mock-sidepanel">
+                    <h4>Run impact</h4>
+                    <ul class="mock-kv">
+                      <li><strong>Selected by default</strong><br>None</li>
+                      <li><strong>Recent DAGs</strong><br>etl.clickhouse, sync.customers</li>
+                      <li><strong>Resolution</strong><br>Latest values at attempt start</li>
+                      <li><strong>Secret storage</strong><br>Dagu-managed encrypted store</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <h3>Start Run Dialog</h3>
+          <div class="mock-frame">
+            <div class="mock-windowbar">
+              <span>Dagu Web UI</span>
+              <span>DAG / etl.clickhouse / Start</span>
+            </div>
+            <div class="mock-run-layout">
+              <div class="mock-run-canvas">
+                <div class="mock-title">
+                  <h4>etl.clickhouse</h4>
+                  <p>Graph preview</p>
+                </div>
+                <span class="mock-node">extract</span>
+                <span class="mock-node">transform</span>
+                <span class="mock-node">load</span>
+              </div>
+
+              <div class="mock-dialog">
+                <div class="mock-title">
+                  <h3>Start DAG</h3>
+                  <p>Run with a selected runtime profile.</p>
+                </div>
+                <div class="mock-field">
+                  <label>DAG</label>
+                  <div class="mock-input">etl.clickhouse</div>
+                </div>
+                <div class="mock-field">
+                  <label>Profile</label>
+                  <div class="mock-select">local</div>
+                </div>
+                <div class="mock-preview">
+                  <strong>local will inject 4 keys</strong>
+                  <ul>
+                    <li>Variables: LOG_LEVEL, CLICKHOUSE_HOST</li>
+                    <li>Secrets: CLICKHOUSE_DSN_PY, API_TOKEN</li>
+                    <li>Values resolve when this attempt starts.</li>
+                  </ul>
+                </div>
+                <div class="mock-field">
+                  <label>Params</label>
+                  <div class="mock-input">date=2026-06-01</div>
+                </div>
+                <div class="mock-dialog-actions">
+                  <span class="mock-button secondary">Cancel</span>
+                  <span class="mock-button">Start</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <h3>Run History Profile Panel</h3>
+          <div class="mock-frame">
+            <div class="mock-windowbar">
+              <span>Dagu Web UI</span>
+              <span>Run / etl.clickhouse / 20260601T143120Z</span>
+            </div>
+            <div class="mock-screen">
+              <div class="mock-title-row">
+                <div class="mock-title">
+                  <h3>etl.clickhouse</h3>
+                  <p>Attempt finished successfully in profile local.</p>
+                </div>
+                <span class="status-pill active">Success</span>
+              </div>
+
+              <div class="mock-history">
+                <div class="mock-log">[14:31:20] resolving profile local
+[14:31:20] injected variables: LOG_LEVEL, CLICKHOUSE_HOST
+[14:31:20] injected secrets: CLICKHOUSE_DSN_PY, API_TOKEN
+[14:31:21] starting step extract
+[14:31:22] output: connected to ClickHouse
+[14:31:25] completed</div>
+
+                <div class="mock-history-panel">
+                  <h4>Runtime profile</h4>
+                  <ul class="mock-kv">
+                    <li><strong>Name</strong><br>local</li>
+                    <li><strong>Resolved at</strong><br>2026-06-01 14:31:20 JST</li>
+                    <li><strong>Values</strong><br>Latest at attempt start</li>
+                  </ul>
+                  <div class="mock-source-list">
+                    <div class="mock-source"><span>LOG_LEVEL</span><span class="kind-var">Variable</span></div>
+                    <div class="mock-source"><span>CLICKHOUSE_HOST</span><span class="kind-var">Variable</span></div>
+                    <div class="mock-source"><span>CLICKHOUSE_DSN_PY</span><span class="kind-secret">Secret</span></div>
+                    <div class="mock-source"><span>API_TOKEN</span><span class="kind-secret">Secret</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="api-cli">
+          <h2>API and CLI</h2>
+
+          <h3>CLI</h3>
+          <pre><code>dagu profile list
+dagu profile create local
+dagu profile set-var local LOG_LEVEL debug
+printf '%s' "$CLICKHOUSE_DSN_PY" | dagu profile set-secret local CLICKHOUSE_DSN_PY --value-stdin
+dagu profile delete-key local LOG_LEVEL
+
+dagu start --profile local foo.yaml
+dagu enqueue --profile staging foo.yaml
+dagu retry --profile prod &lt;run-id&gt;</code></pre>
+
+          <p>
+            The CLI may support import/export later, but import from <code>.env</code> should be a convenience
+            operation, not the runtime model.
+          </p>
+
+          <h3>REST API Sketch</h3>
+          <pre><code>GET    /api/v1/profiles
+POST   /api/v1/profiles
+GET    /api/v1/profiles/{name}
+PATCH  /api/v1/profiles/{name}
+DELETE /api/v1/profiles/{name}
+
+PUT    /api/v1/profiles/{name}/variables/{key}
+DELETE /api/v1/profiles/{name}/variables/{key}
+
+PUT    /api/v1/profiles/{name}/secrets/{key}
+DELETE /api/v1/profiles/{name}/secrets/{key}</code></pre>
+
+          <h3>Run Request Extension</h3>
+          <pre><code>{
+  "dag": "foo.yaml",
+  "params": "...",
+  "profile": "local"
+}</code></pre>
+
+          <h3>Coordinator Task Extension</h3>
+          <pre><code>{
+  "definition": "...",
+  "previousStatus": "...",
+  "profile": "local"
+}</code></pre>
+        </div>
+
+        <div id="security">
+          <h2>Security</h2>
+
+          <h3>Trust Boundary</h3>
+          <p>
+            Dagu can prevent plaintext profile secrets from appearing in Dagu durable state, UI responses,
+            API responses, logs, queue payloads, and coordinator task payloads. Dagu cannot prevent a
+            trusted workload from reading or exfiltrating a secret after the secret is injected into the
+            process environment.
+          </p>
+
+          <h3>Permissions</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Action</th>
+                <th>Suggested Permission</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>View profile metadata and key names</td>
+                <td>Viewer and above.</td>
+              </tr>
+              <tr>
+                <td>View plain variable values</td>
+                <td>Developer/operator/manager/admin, subject to existing settings.</td>
+              </tr>
+              <tr>
+                <td>Create or edit profiles</td>
+                <td>Manager/admin by default.</td>
+              </tr>
+              <tr>
+                <td>Set or rotate profile secrets</td>
+                <td>Manager/admin by default.</td>
+              </tr>
+              <tr>
+                <td>Run with a profile</td>
+                <td>Anyone allowed to run the DAG and allowed to use the selected profile.</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h3>Protected Profiles</h3>
+          <p>
+            Add a <code>protected</code> flag as a small but useful guard. Protected profiles can require
+            higher roles or confirmation for manual use. This mirrors the idea behind protected deploy
+            environments without adding a full policy engine in v1.
+          </p>
+
+          <h3>Masking</h3>
+          <p>
+            Profile secret values must be added to the existing masking set. Profile variables are not
+            masked unless explicitly marked secret. Empty secret values should not create masker entries.
+          </p>
+        </div>
+
+        <div id="migration">
+          <h2>Migration</h2>
+
+          <h3>Existing DAGs</h3>
+          <p>
+            Existing DAGs continue to work. <code>env:</code>, <code>dotenv:</code>, and <code>secrets:</code> remain
+            valid. Profiles are opt-in.
+          </p>
+
+          <h3>Existing Managed Secrets</h3>
+          <p>
+            Existing managed secrets remain usable through DAG <code>secrets:</code>. A later enhancement can let
+            a profile secret reference an existing managed secret. The v1 default UX should still allow
+            users to create profile-owned secret keys directly inside the profile page.
+          </p>
+
+          <h3>Import From Dotenv</h3>
+          <p>
+            Optional import is useful for onboarding:
+          </p>
+          <pre><code>dagu profile import-dotenv local .env</code></pre>
+          <p>
+            The import command copies keys into Dagu-managed profile storage. It does not make
+            <code>.env</code> the source of truth.
+          </p>
+        </div>
+
+        <div id="testing">
+          <h2>Testing</h2>
+
+          <h3>Unit Tests</h3>
+          <ul>
+            <li>Profile name validation.</li>
+            <li>Profile key validation.</li>
+            <li>Variable/secret duplicate rejection within a profile.</li>
+            <li>Precedence layering with DAG env, dotenv, profile vars, profile secrets, DAG secrets, outputs, and step env.</li>
+            <li>Secret masking set includes profile secrets.</li>
+          </ul>
+
+          <h3>Integration Tests</h3>
+          <ul>
+            <li><code>start --profile local</code> injects variables and secrets.</li>
+            <li><code>enqueue --profile local</code> stores profile name and resolves latest values at execution.</li>
+            <li><code>retry</code> defaults to previous profile name and resolves latest values.</li>
+            <li><code>retry --profile other</code> overrides the previous profile name.</li>
+            <li>Sub-DAG inherits profile locally.</li>
+            <li>Distributed worker receives profile name and resolves values through the runtime resolver.</li>
+            <li>Run history contains key names but no plaintext secret values.</li>
+            <li>Logs mask profile secret values.</li>
+          </ul>
+
+          <h3>Regression Tests Inspired By Issue 2234</h3>
+          <p>
+            Include retry tests that combine runtime-loaded values with retry restoration. The previous
+            dotenv retry bug happened because first-run dotenv behavior and retry restore behavior were
+            tested separately. Profile tests should explicitly cover first attempt and retry attempt
+            environment reconstruction.
+          </p>
+        </div>
+
+        <div id="task-list">
+          <h2>Task List</h2>
+          <p>
+            Implementation should keep the profile name in the run attempt model from the first task.
+            Local-only support must not be merged as a finished feature if retry, enqueue, and
+            distributed execution still need incompatible metadata changes.
+          </p>
+
+          <h3>1. Core Model and Store</h3>
+          <ul>
+            <li>Add profile domain types: profile metadata, entry kind, variable entry, secret entry, status, protected flag.</li>
+            <li>Add profile store interface and file-backed implementation under the configured data directory.</li>
+            <li>Store plain variables in the profile store.</li>
+            <li>Store profile secret values through the existing encrypted Dagu-managed secret store.</li>
+            <li>Keep profile-owned secret refs internal; do not expose storage refs as a stable public API.</li>
+            <li>Validate profile names, entry keys, duplicate keys, reserved <code>DAGU_</code> prefix, and profile status transitions.</li>
+          </ul>
+
+          <h3>2. Runtime Resolver</h3>
+          <ul>
+            <li>Add a single runtime profile resolver interface used by local execution and distributed execution.</li>
+            <li>Resolve latest profile values at attempt start.</li>
+            <li>Return variables, secrets, and non-secret metadata about injected keys.</li>
+            <li>Never return plaintext values to API/UI list or detail endpoints.</li>
+            <li>Add profile secrets to the existing masking path before step output can be written.</li>
+            <li>Enforce the precedence order: step env, outputs, DAG secrets, profile secrets, profile variables, DAG env/dotenv/params/runtime metadata, filtered process env.</li>
+          </ul>
+
+          <h3>3. Run Attempt Metadata</h3>
+          <ul>
+            <li>Add <code>profileName</code> to start, enqueue, retry, scheduler, sub-DAG, and coordinator task request paths.</li>
+            <li>Persist profile name, profile resolution time, and injected key names/kinds in run metadata.</li>
+            <li>Do not persist profile values, decrypted secret values, or resolved secret hashes.</li>
+            <li>Make retry default to the previous attempt's profile name unless <code>--profile</code> overrides it.</li>
+            <li>Make enqueue store only the profile name and resolve latest values when the attempt starts.</li>
+          </ul>
+
+          <h3>4. Authorization and User Management</h3>
+          <ul>
+            <li>Add profile actions to user management: read profile metadata, read variable values, write profiles, write profile secrets, use profile, and use protected profile.</li>
+            <li>Implement <code>canUseProfile(actor, profile)</code> as the shared gate for all run entrypoints.</li>
+            <li>Call the gate from start, enqueue, retry, scheduled run creation/execution, inherited sub-DAG execution, and distributed profile resolution.</li>
+            <li>Make protected profiles usable only by admin/manager or the explicit protected-profile permission.</li>
+            <li>Record audit events for profile create/update/delete, secret set/rotate/delete, and run-with-profile decisions.</li>
+            <li>Keep per-secret ACL out of v1; profile-level permission is the unit of access.</li>
+          </ul>
+
+          <h3>5. CLI and API</h3>
+          <ul>
+            <li>Add CLI commands for profile list, create, update, disable, set variable, set secret, delete key, and inspect metadata.</li>
+            <li>Add <code>--profile</code> to start, enqueue, retry, dry, and any equivalent command path.</li>
+            <li>Add REST endpoints for profile CRUD and entry CRUD.</li>
+            <li>Extend run request/response schemas with profile name and injected key metadata.</li>
+            <li>Ensure API responses never include plaintext secret values after write.</li>
+          </ul>
+
+          <h3>6. Distributed Execution</h3>
+          <ul>
+            <li>Extend coordinator task metadata with <code>profileName</code> only.</li>
+            <li>Add coordinator/runtime resolver API for workers to resolve assigned task profile values at attempt start.</li>
+            <li>Validate task lease/assignment before returning plaintext profile secrets to a worker.</li>
+            <li>Fail closed when a worker asks for a profile that does not match the assigned task.</li>
+            <li>Require secure worker transport or fail closed for profiles containing secrets in distributed mode.</li>
+            <li>Keep shared-volume and shared-nothing behavior equivalent by routing both through the same resolver contract.</li>
+          </ul>
+
+          <h3>7. Sub-DAGs and Scheduling</h3>
+          <ul>
+            <li>Make sub-DAGs inherit the parent profile by default.</li>
+            <li>Add an explicit override path only if the current sub-DAG executor already has a clean option surface for it.</li>
+            <li>Add schedule metadata for the selected default profile, outside the DAG YAML.</li>
+            <li>Recheck profile state and use permission when a scheduled attempt starts.</li>
+          </ul>
+
+          <h3>8. Web UI</h3>
+          <ul>
+            <li>Add Profiles navigation, list page, profile detail page, and create/edit flows.</li>
+            <li>Show Variables, Secrets, Usage, and Settings sections on profile detail.</li>
+            <li>Add profile selector and injected-key preview to start, enqueue, retry, and schedule configuration flows.</li>
+            <li>Show protected profile lock/confirmation in run dialogs.</li>
+            <li>Show profile name, resolution time, and injected key names/kinds in run history.</li>
+            <li>Hide secret plaintext everywhere except the one-time write path.</li>
+          </ul>
+
+          <h3>9. Documentation and Migration</h3>
+          <ul>
+            <li>Document the mental model: managed secret is value storage; profile is runtime selection.</li>
+            <li>Document latest-at-attempt-start behavior for start, enqueue, retry, schedule, and sub-DAGs.</li>
+            <li>Document profile access as secret access.</li>
+            <li>Document distributed-mode requirements for profile secrets.</li>
+            <li>Add migration examples from <code>env: LOG_LEVEL: ${LOG_LEVEL}</code>, <code>dotenv:</code>, and DAG <code>secrets:</code>.</li>
+          </ul>
+        </div>
+
+        <div id="completion-proof">
+          <h2>Completion Proof</h2>
+          <p>
+            The feature is not finished until these checks pass. The proof should be attached to the PR
+            description with exact commands, relevant log snippets, and screenshots for UI flows.
+          </p>
+
+          <h3>Functional Proof</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Scenario</th>
+                <th>Proof Required</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Profile injects undeclared values</td>
+                <td>A DAG with no <code>env:</code> or <code>secrets:</code> declarations reads <code>$LOG_LEVEL</code> and <code>$CLICKHOUSE_DSN_PY</code> from the selected profile.</td>
+              </tr>
+              <tr>
+                <td>Start resolves latest values</td>
+                <td>Update a profile value, run <code>dagu start --profile local</code>, and show the new value is used.</td>
+              </tr>
+              <tr>
+                <td>Enqueue resolves at execution</td>
+                <td>Enqueue with profile, change profile before the worker/scheduler executes it, and show the executed attempt uses the latest value.</td>
+              </tr>
+              <tr>
+                <td>Retry restores profile name</td>
+                <td>Run with profile, update profile value, retry without <code>--profile</code>, and show retry uses the previous profile name with latest value.</td>
+              </tr>
+              <tr>
+                <td>Retry override works</td>
+                <td>Retry a run with <code>--profile staging</code> and show the retry uses <code>staging</code>, not the original profile.</td>
+              </tr>
+              <tr>
+                <td>Precedence is correct</td>
+                <td>One integration test proves step env overrides outputs/DAG secrets/profile values and profile values override DAG env/dotenv.</td>
+              </tr>
+              <tr>
+                <td>Masking works</td>
+                <td>A step prints a profile secret and Dagu-managed logs/history show only the masking token.</td>
+              </tr>
+              <tr>
+                <td>Run metadata is safe</td>
+                <td>Inspect queue/status/history files or API responses and show profile name/key names exist but plaintext secret values do not.</td>
+              </tr>
+              <tr>
+                <td>Sub-DAG inheritance works</td>
+                <td>Parent DAG runs a child DAG; child reads inherited profile variable and secret without redeclaring them.</td>
+              </tr>
+              <tr>
+                <td>Distributed shared-volume works</td>
+                <td>Distributed worker receives profile name, resolves values at attempt start, and completes without plaintext in task payload.</td>
+              </tr>
+              <tr>
+                <td>Distributed shared-nothing works</td>
+                <td>Worker resolves through coordinator/runtime resolver, and a mismatched profile/task lease request fails closed.</td>
+              </tr>
+              <tr>
+                <td>Protected profile is enforced</td>
+                <td>User without protected-profile permission cannot start, enqueue, retry, schedule, or resolve distributed work with <code>prod</code>.</td>
+              </tr>
+              <tr>
+                <td>UI flow works</td>
+                <td>Screenshots show profile creation, variable entry, secret entry, run profile selector, protected profile confirmation, and run history metadata.</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h3>Required Automated Checks</h3>
+          <ul>
+            <li>Unit tests for profile validation, store behavior, resolver behavior, precedence, masking, and authorization gates.</li>
+            <li>CLI integration tests for <code>start --profile</code>, <code>enqueue --profile</code>, and <code>retry --profile</code>.</li>
+            <li>Retry regression test that combines profile-loaded values with restored attempt state.</li>
+            <li>Sub-DAG integration test for inherited profile values.</li>
+            <li>Distributed integration tests for shared-volume and shared-nothing resolution paths.</li>
+            <li>API tests proving secret values are write-only and never returned in profile responses.</li>
+            <li>UI tests for profile CRUD, profile selector, protected profile confirmation, and run history display.</li>
+            <li>Security tests proving unauthorized profile use fails for all entrypoints and resolver calls.</li>
+          </ul>
+
+          <h3>Manual Inspection Checklist</h3>
+          <ul>
+            <li>Search durable output files for the literal secret used in tests; no queue, status, history, log, audit, or task file may contain it.</li>
+            <li>Inspect coordinator task payloads and confirm they contain <code>profileName</code> only.</li>
+            <li>Inspect API responses for profile list/detail and run detail; secret values must be absent or masked.</li>
+            <li>Verify browser screenshots at desktop and narrow viewport widths do not truncate key labels or overlap controls.</li>
+            <li>Verify product docs state that profile access is equivalent to access to all secrets inside that profile.</li>
+          </ul>
+
+          <h3>PR Completion Statement</h3>
+          <pre><code>Proof of completion:
+- Local start/enqueue/retry with profile: PASS
+- Sub-DAG inheritance: PASS
+- Distributed shared-volume/shared-nothing profile resolution: PASS
+- Protected profile authorization across all entrypoints: PASS
+- Secret masking and durable-state scan: PASS
+- API/UI secret non-disclosure: PASS
+- UI screenshots attached: PASS
+- Docs updated: PASS</code></pre>
+        </div>
+
+        <div id="risks">
+          <h2>Risks</h2>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Risk</th>
+                <th>Impact</th>
+                <th>Mitigation</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Latest values reduce reproducibility.</td>
+                <td>A retry or queued run can use values different from the original request time.</td>
+                <td>Make latest-at-attempt-start explicit in UI, CLI help, and run history.</td>
+              </tr>
+              <tr>
+                <td>Bulk injection hides dependencies.</td>
+                <td>A DAG may depend on profile keys that are not obvious in YAML.</td>
+                <td>Preview injected key names and record them in history. Add diagnostics before strict required-key features.</td>
+              </tr>
+              <tr>
+                <td>Secrets in env can be leaked by workload.</td>
+                <td>A malicious or careless command can print or upload the secret.</td>
+                <td>Document the trust boundary. Mask logs. Use protected profiles and RBAC for profile use.</td>
+              </tr>
+              <tr>
+                <td>Distributed shared-nothing workers lack local profile data.</td>
+                <td>Workers could behave differently from local execution.</td>
+                <td>Resolve through coordinator/runtime resolver and fail closed when unavailable.</td>
+              </tr>
+              <tr>
+                <td>Name collision confusion.</td>
+                <td>Users may not know which layer won.</td>
+                <td>Use clear precedence, run preview, and history metadata.</td>
+              </tr>
+              <tr>
+                <td>Environment size limits.</td>
+                <td>Large profiles can exceed OS process environment limits.</td>
+                <td>Enforce reasonable limits and fail with a clear message before process launch.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div id="phasing">
+          <h2>Phasing</h2>
+
+          <h3>Phase 1: Core Runtime Profiles</h3>
+          <ul>
+            <li>Profile store.</li>
+            <li>Plain variables and profile-owned secrets.</li>
+            <li>CLI and API CRUD.</li>
+            <li><code>start</code>, <code>enqueue</code>, and <code>retry</code> selection.</li>
+            <li>Run metadata and masking.</li>
+          </ul>
+
+          <h3>Phase 2: UI</h3>
+          <ul>
+            <li>Profiles list and detail pages.</li>
+            <li>Run dialog profile selector.</li>
+            <li>Run history profile panel.</li>
+            <li>Protected profile UI guard.</li>
+          </ul>
+
+          <h3>Phase 3: Distributed and Sub-DAG Hardening</h3>
+          <ul>
+            <li>Coordinator resolver API.</li>
+            <li>Worker authorization for runtime resolution.</li>
+            <li>Sub-DAG inheritance tests for local and distributed execution.</li>
+          </ul>
+
+          <h3>Deferred</h3>
+          <ul>
+            <li>Workspace-scoped profiles.</li>
+            <li>Profile revision pinning.</li>
+            <li>Required-key contracts.</li>
+            <li>External secret manager references inside profile entries.</li>
+            <li>Import/export and diff tooling.</li>
+          </ul>
+        </div>
+
+        <div id="open-questions">
+          <h2>Open Questions</h2>
+          <ol>
+            <li>Should scheduled runs have a per-DAG default profile stored in Dagu metadata, or should scheduled profile selection require an explicit user setting in the scheduler UI?</li>
+            <li>Should profile use permission be separate from DAG run permission in v1, or should protected profiles be the only new authorization control?</li>
+            <li>Should profile variables be visible to all users who can view a profile, or should plain variables have a hidden option distinct from secrets?</li>
+            <li>Should <code>dagu dry --profile local</code> resolve secrets by default, matching current dry behavior, or offer a metadata-only mode for safer previews?</li>
+          </ol>
+        </div>
+
+        <div id="sources">
+          <h2>Sources</h2>
+          <p>External product patterns were checked against official documentation:</p>
+          <ul>
+            <li><a href="https://circleci.com/docs/contexts/">CircleCI contexts</a></li>
+            <li><a href="https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments">GitHub Actions deployments and environments</a></li>
+            <li><a href="https://docs.github.com/en/actions/how-tos/writing-workflows/choosing-what-your-workflow-does/store-information-in-variables">GitHub Actions variables</a></li>
+            <li><a href="https://docs.gitlab.com/ci/variables/">GitLab CI/CD variables</a></li>
+            <li><a href="https://docs.doppler.com/docs/cli">Doppler CLI</a></li>
+            <li><a href="https://docs.prefect.io/latest/concepts/variables">Prefect variables</a></li>
+            <li><a href="https://docs.prefect.io/v3/concepts/blocks">Prefect blocks</a></li>
+            <li><a href="https://docs.dagster.io/guides/operate/configuration/using-environment-variables-and-secrets">Dagster environment variables and secrets</a></li>
+            <li><a href="https://argo-workflows.readthedocs.io/en/latest/walk-through/secrets/">Argo Workflows secrets</a></li>
+            <li><a href="https://kubernetes.io/docs/concepts/configuration/configmap/">Kubernetes ConfigMaps</a></li>
+            <li><a href="https://kubernetes.io/docs/concepts/configuration/secret/">Kubernetes Secrets</a></li>
+            <li><a href="https://docs.netlify.com/build/environment-variables/overview">Netlify environment variables</a></li>
+            <li><a href="https://developer.hashicorp.com/terraform/cloud-docs/variables/managing-variables">HCP Terraform variables</a></li>
+          </ul>
+
+          <p>
+            Current Dagu behavior referenced in this design comes from local Dagu docs for workflow
+            secrets and environment variables, plus RFC 019 for the team secret integration layer.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

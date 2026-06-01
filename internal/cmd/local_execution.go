@@ -21,6 +21,7 @@ func withPreparedLocalExecution(
 	parent exec.DAGRunRef,
 	triggerType core.TriggerType,
 	scheduleTime string,
+	profileName string,
 	buildAttempt func(context.Context) (exec.DAGRunAttempt, error),
 	run func(exec.DAGRunAttempt) error,
 ) error {
@@ -32,6 +33,7 @@ func withPreparedLocalExecution(
 		Parent:          parent,
 		TriggerType:     triggerType,
 		ScheduleTime:    scheduleTime,
+		ProfileName:     profileName,
 		LogBaseDir:      ctx.Config.Paths.LogDir,
 		ArtifactBaseDir: ctx.Config.Paths.ArtifactDir,
 		BuildAttempt:    buildAttempt,

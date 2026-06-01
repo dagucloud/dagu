@@ -35,6 +35,7 @@ type QueueRequest struct {
 	Parent       exec.DAGRunRef
 	TriggerType  core.TriggerType
 	ScheduleTime string
+	ProfileName  string
 
 	AttemptOptions exec.NewDAGRunAttemptOptions
 
@@ -180,6 +181,7 @@ func queuedStatus(req QueueRequest, dagRun exec.DAGRunRef, attemptID, logFile, a
 		transform.WithQueuedAt(stringutil.FormatTime(now)),
 		transform.WithHierarchyRefs(root, req.Parent),
 		transform.WithTriggerType(req.TriggerType),
+		transform.WithRuntimeProfile(req.ProfileName, "", nil),
 	}
 	if req.ScheduleTime != "" {
 		opts = append(opts, transform.WithScheduleTime(req.ScheduleTime))

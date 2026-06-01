@@ -16,7 +16,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var dryFlags = []commandLineFlag{paramsFlag, nameFlag}
+var dryFlags = []commandLineFlag{paramsFlag, nameFlag, profileFlag}
 
 // Dry returns the cobra command for dry-run simulation.
 func Dry() *cobra.Command {
@@ -73,6 +73,10 @@ func runDry(ctx *Context, args []string) error {
 	}
 
 	as := ctx.agentStores()
+	profileName, err := runtimeProfileNameParam(ctx)
+	if err != nil {
+		return err
+	}
 
 	ag := agent.New(
 		dagRunID,
@@ -87,6 +91,8 @@ func runDry(ctx *Context, args []string) error {
 			QueueStore:                 ctx.QueueStore,
 			StateStore:                 ctx.StateStore,
 			SecretStore:                as.SecretStore,
+			ProfileStore:               as.ProfileStore,
+			ProfileName:                profileName,
 			ServiceRegistry:            ctx.ServiceRegistry,
 			DispatcherFactory:          ctx.RuntimeDispatcherFactory(),
 			RootDAGRun:                 exec.NewDAGRunRef(dag.Name, dagRunID),

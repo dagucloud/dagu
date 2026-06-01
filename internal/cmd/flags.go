@@ -110,6 +110,11 @@ var (
 		name:  "default-working-dir",
 		usage: "Default working directory for DAGs without explicit workingDir",
 	}
+
+	profileFlag = commandLineFlag{
+		name:  "profile",
+		usage: "Runtime profile to inject into the DAG run",
+	}
 )
 
 // DAG run ID flags for different commands

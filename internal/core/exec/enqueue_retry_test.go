@@ -51,7 +51,9 @@ func TestEnqueueRetry(t *testing.T) {
 				AttemptID:      "att-1",
 				Status:         core.Failed,
 				AutoRetryCount: 2,
+				ProfileName:    "old-profile",
 			},
+			opts: exec.EnqueueRetryOptions{ProfileName: "prod"},
 			store: &stubDAGRunStore{
 				status: &exec.DAGRunStatus{
 					Name:           "test-dag",
@@ -59,6 +61,7 @@ func TestEnqueueRetry(t *testing.T) {
 					AttemptID:      "att-1",
 					Status:         core.Failed,
 					AutoRetryCount: 2,
+					ProfileName:    "old-profile",
 				},
 			},
 			setupQueue: func(qs *exec.MockQueueStore) {
@@ -71,6 +74,7 @@ func TestEnqueueRetry(t *testing.T) {
 				assert.Equal(t, core.TriggerTypeRetry, store.status.TriggerType)
 				assert.NotEmpty(t, store.status.QueuedAt)
 				assert.Equal(t, 2, store.status.AutoRetryCount)
+				assert.Equal(t, "prod", store.status.ProfileName)
 				assert.Equal(t, 1, store.casCalls)
 			},
 		},

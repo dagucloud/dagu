@@ -2651,7 +2651,7 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 		return retryDAGRunResult{}, fmt.Errorf("error preparing DAG retry env: %w", err)
 	}
 
-	spec := a.subCmdBuilder.Retry(prepared, retryDagRunID, stepName)
+	spec := a.subCmdBuilder.Retry(prepared, retryDagRunID, stepName, "")
 	if err := launcher.Start(ctx, spec); err != nil {
 		return retryDAGRunResult{}, fmt.Errorf("error retrying DAG: %w", err)
 	}
@@ -3424,7 +3424,7 @@ func (a *API) resumeDAGRun(ctx context.Context, ref exec.DAGRunRef, dagRunID str
 		return fmt.Errorf("prepare DAG retry env: %w", err)
 	}
 
-	retrySpec := a.subCmdBuilder.Retry(prepared, dagRunID, "")
+	retrySpec := a.subCmdBuilder.Retry(prepared, dagRunID, "", "")
 	return launcher.Start(ctx, retrySpec)
 }
 
@@ -3449,7 +3449,7 @@ func (a *API) resumeSubDAGRun(ctx context.Context, rootRef exec.DAGRunRef, subDA
 		return fmt.Errorf("prepare sub-DAG retry env: %w", err)
 	}
 
-	retrySpec := a.subCmdBuilder.Retry(prepared, subDAGRunID, "")
+	retrySpec := a.subCmdBuilder.Retry(prepared, subDAGRunID, "", "")
 	return launcher.Start(ctx, retrySpec)
 }
 

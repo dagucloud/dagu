@@ -169,6 +169,9 @@ func (b *SubCmdBuilder) Start(dag *core.DAG, opts StartOptions) CmdSpec {
 	if opts.ScheduleTime != "" {
 		args = append(args, fmt.Sprintf("--schedule-time=%s", opts.ScheduleTime))
 	}
+	if opts.ProfileName != "" {
+		args = append(args, fmt.Sprintf("--profile=%s", opts.ProfileName))
+	}
 	if b.configFile != "" {
 		args = append(args, "--config", b.configFile)
 	}
@@ -216,6 +219,9 @@ func (b *SubCmdBuilder) Enqueue(dag *core.DAG, opts EnqueueOptions) CmdSpec {
 	}
 	if opts.ScheduleTime != "" {
 		args = append(args, fmt.Sprintf("--schedule-time=%s", opts.ScheduleTime))
+	}
+	if opts.ProfileName != "" {
+		args = append(args, fmt.Sprintf("--profile=%s", opts.ProfileName))
 	}
 	args = append(args, dag.Location)
 
@@ -271,11 +277,14 @@ func (b *SubCmdBuilder) Restart(dag *core.DAG, opts RestartOptions) CmdSpec {
 }
 
 // Retry creates a retry command spec.
-func (b *SubCmdBuilder) Retry(dag *core.DAG, dagRunID string, stepName string) CmdSpec {
+func (b *SubCmdBuilder) Retry(dag *core.DAG, dagRunID string, stepName string, profileName string) CmdSpec {
 	args := []string{"retry", fmt.Sprintf("--run-id=%s", dagRunID), "-q"}
 
 	if stepName != "" {
 		args = append(args, fmt.Sprintf("--step=%s", stepName))
+	}
+	if profileName != "" {
+		args = append(args, fmt.Sprintf("--profile=%s", profileName))
 	}
 
 	if b.configFile != "" {
@@ -292,8 +301,8 @@ func (b *SubCmdBuilder) Retry(dag *core.DAG, dagRunID string, stepName string) C
 }
 
 // QueueDispatchRetry creates a retry command spec for a scheduler-consumed queued run.
-func (b *SubCmdBuilder) QueueDispatchRetry(dag *core.DAG, dagRunID string, stepName string) CmdSpec {
-	spec := b.Retry(dag, dagRunID, stepName)
+func (b *SubCmdBuilder) QueueDispatchRetry(dag *core.DAG, dagRunID string, stepName string, profileName string) CmdSpec {
+	spec := b.Retry(dag, dagRunID, stepName, profileName)
 	spec.Env = append(spec.Env, exec1.EnvKeyQueueDispatchRetry+"=1")
 	return spec
 }
@@ -350,6 +359,9 @@ func (b *SubCmdBuilder) TaskStart(task *exec1.DispatchTask, envHints []string, d
 	if task.SourceFile != "" {
 		args = append(args, fmt.Sprintf("--source-file=%s", task.SourceFile))
 	}
+	if task.ProfileName != "" {
+		args = append(args, fmt.Sprintf("--profile=%s", task.ProfileName))
+	}
 
 	if b.configFile != "" {
 		args = append(args, "--config", b.configFile)
@@ -388,6 +400,9 @@ func (b *SubCmdBuilder) TaskRetry(task *exec1.DispatchTask, envHints []string, d
 	// Pass worker ID for tracking which worker executes this DAG run
 	if task.WorkerID != "" {
 		args = append(args, fmt.Sprintf("--worker-id=%s", task.WorkerID))
+	}
+	if task.ProfileName != "" {
+		args = append(args, fmt.Sprintf("--profile=%s", task.ProfileName))
 	}
 
 	if b.configFile != "" {
@@ -435,6 +450,7 @@ type StartOptions struct {
 	Labels       string // Additional labels (comma-separated)
 	Tags         string // Deprecated: use Labels.
 	ScheduleTime string // RFC 3339 timestamp of when this run was scheduled
+	ProfileName  string // Runtime profile name
 }
 
 // EnqueueOptions contains options for enqueuing a dag-run.
@@ -448,6 +464,7 @@ type EnqueueOptions struct {
 	Labels       string // Additional labels (comma-separated)
 	Tags         string // Deprecated: use Labels.
 	ScheduleTime string // RFC 3339 timestamp of when this run was scheduled
+	ProfileName  string // Runtime profile name
 }
 
 // RestartOptions contains options for restarting a dag-run.

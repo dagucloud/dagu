@@ -122,7 +122,7 @@ steps:
 	require.NoError(t, attempt.Write(th.Context, status))
 	require.NoError(t, attempt.Close(th.Context))
 
-	spec := th.SubCmdBuilder.Retry(dagFile.DAG, runID, "")
+	spec := th.SubCmdBuilder.Retry(dagFile.DAG, runID, "", "")
 	err = launcher.Run(th.Context, spec)
 	require.NoError(t, err, "env=%s", strings.Join(spec.Env, "\n"))
 }
@@ -157,7 +157,7 @@ steps:
 	require.NoError(t, attempt.Write(th.Context, status))
 	require.NoError(t, attempt.Close(th.Context))
 
-	spec := th.SubCmdBuilder.Retry(dagFile.DAG, runID, "")
+	spec := th.SubCmdBuilder.Retry(dagFile.DAG, runID, "", "")
 	err = launcher.Run(th.Context, spec)
 	require.NoError(t, err, "env=%s", strings.Join(spec.Env, "\n"))
 }
@@ -192,7 +192,7 @@ steps:
 	require.NoError(t, attempt.Write(th.Context, status))
 	require.NoError(t, attempt.Close(th.Context))
 
-	spec := th.SubCmdBuilder.Retry(dagFile.DAG, runID, "")
+	spec := th.SubCmdBuilder.Retry(dagFile.DAG, runID, "", "")
 	err = launcher.Run(th.Context, spec)
 	require.NoError(t, err, "env=%s", strings.Join(spec.Env, "\n"))
 }
@@ -235,7 +235,7 @@ steps:
 	freshCfg, err := loader.Load()
 	require.NoError(t, err)
 
-	spec := launcher.NewSubCmdBuilder(freshCfg).Retry(dagFile.DAG, runID, "")
+	spec := launcher.NewSubCmdBuilder(freshCfg).Retry(dagFile.DAG, runID, "", "")
 	err = launcher.Run(th.Context, spec)
 	require.NoError(t, err, "env=%s", strings.Join(spec.Env, "\n"))
 }
@@ -650,7 +650,7 @@ func TestRetry(t *testing.T) {
 
 	t.Run("BasicRetry", func(t *testing.T) {
 		t.Parallel()
-		spec := builder.Retry(dag, "retry-run-id", "")
+		spec := builder.Retry(dag, "retry-run-id", "", "")
 
 		assert.Equal(t, "/usr/bin/dagu", spec.Executable)
 		assert.Contains(t, spec.Args, "retry")
@@ -662,14 +662,14 @@ func TestRetry(t *testing.T) {
 
 	t.Run("RetryWithStepName", func(t *testing.T) {
 		t.Parallel()
-		spec := builder.Retry(dag, "retry-run-id", "step-1")
+		spec := builder.Retry(dag, "retry-run-id", "step-1", "")
 
 		assert.Contains(t, spec.Args, "--step=step-1")
 	})
 
 	t.Run("RetryWithAllOptions", func(t *testing.T) {
 		t.Parallel()
-		spec := builder.Retry(dag, "full-retry-id", "step-2")
+		spec := builder.Retry(dag, "full-retry-id", "step-2", "")
 
 		assert.Contains(t, spec.Args, "retry")
 		assert.Contains(t, spec.Args, "--run-id=full-retry-id")
@@ -679,14 +679,14 @@ func TestRetry(t *testing.T) {
 
 	t.Run("RetryDoesNotMarkQueueDispatch", func(t *testing.T) {
 		t.Parallel()
-		spec := builder.Retry(dag, "retry-run-id", "")
+		spec := builder.Retry(dag, "retry-run-id", "", "")
 
 		assert.NotContains(t, spec.Env, exec.EnvKeyQueueDispatchRetry+"=1")
 	})
 
 	t.Run("RetryStripsInheritedQueueDispatchMarker", func(t *testing.T) {
 		t.Setenv(exec.EnvKeyQueueDispatchRetry, "1")
-		spec := builder.Retry(dag, "retry-run-id", "")
+		spec := builder.Retry(dag, "retry-run-id", "", "")
 
 		assert.NotContains(t, spec.Env, exec.EnvKeyQueueDispatchRetry+"=1")
 	})
@@ -699,7 +699,7 @@ func TestRetry(t *testing.T) {
 			},
 		}
 		builderNoFile := launcher.NewSubCmdBuilder(cfgNoFile)
-		spec := builderNoFile.Retry(dag, "retry-run-id", "")
+		spec := builderNoFile.Retry(dag, "retry-run-id", "", "")
 
 		assert.NotContains(t, spec.Args, "--config")
 	})

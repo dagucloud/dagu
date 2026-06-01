@@ -5,6 +5,7 @@ package agent
 
 import (
 	"github.com/dagucloud/dagu/internal/agentoauth"
+	"github.com/dagucloud/dagu/internal/profile"
 	"github.com/dagucloud/dagu/internal/secret"
 )
 
@@ -17,5 +18,6 @@ type RuntimeStores struct {
 	OAuthManager    *agentoauth.Manager
 	ContextResolver RemoteContextResolver
 	SecretStore     secret.Store
+	ProfileStore    profile.Store
 	ReferencesDir   string
 }

@@ -19,7 +19,7 @@ import (
 func TestEnqueueDAGRunClosesStatusBeforeQueuePublish(t *testing.T) {
 	f := newEnqueueDAGRunFixture(t, nil)
 
-	require.NoError(t, enqueueDAGRun(f.ctx, f.dag, "run-1", core.TriggerTypeManual, ""))
+	require.NoError(t, enqueueDAGRun(f.ctx, f.dag, "run-1", core.TriggerTypeManual, "", ""))
 	assert.True(t, f.queueStore.enqueued)
 	require.NotNil(t, f.attempt.status)
 	assert.Equal(t, core.Queued, f.attempt.status.Status)
@@ -28,7 +28,7 @@ func TestEnqueueDAGRunClosesStatusBeforeQueuePublish(t *testing.T) {
 func TestEnqueueDAGRunPublishesQueueWhenCloseFails(t *testing.T) {
 	f := newEnqueueDAGRunFixture(t, errors.New("sync failed"))
 
-	require.NoError(t, enqueueDAGRun(f.ctx, f.dag, "run-1", core.TriggerTypeManual, ""))
+	require.NoError(t, enqueueDAGRun(f.ctx, f.dag, "run-1", core.TriggerTypeManual, "", ""))
 	assert.True(t, f.queueStore.enqueued)
 	assert.True(t, f.attempt.closed, "attempt should be closed even when Close returns an error")
 	require.NotNil(t, f.attempt.status)

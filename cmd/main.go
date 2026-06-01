@@ -58,6 +58,7 @@ func init() {
 	rootCmd.AddCommand(cmd.Example())
 	rootCmd.AddCommand(cmd.Config())
 	rootCmd.AddCommand(cmd.ContextCommand())
+	rootCmd.AddCommand(cmd.Profile())
 	rootCmd.AddCommand(cmd.Agent())
 
 	config.Version = version

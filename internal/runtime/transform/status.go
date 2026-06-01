@@ -210,6 +210,15 @@ func WithPendingStepRetries(retries []exec.PendingStepRetry) StatusOption {
 	}
 }
 
+// WithRuntimeProfile returns a StatusOption that records selected profile metadata.
+func WithRuntimeProfile(name, resolvedAt string, entries []exec.RuntimeProfileEntry) StatusOption {
+	return func(s *exec.DAGRunStatus) {
+		s.ProfileName = name
+		s.ProfileResolvedAt = resolvedAt
+		s.ProfileEntries = append([]exec.RuntimeProfileEntry(nil), entries...)
+	}
+}
+
 // Create builds a Status object for a dag-run with the specified parameters
 func (f *StatusBuilder) Create(
 	dagRunID string,

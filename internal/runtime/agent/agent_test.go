@@ -5,6 +5,7 @@ package agent_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -24,6 +25,7 @@ import (
 	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
+	profilepkg "github.com/dagucloud/dagu/internal/profile"
 	"github.com/dagucloud/dagu/internal/runtime/agent"
 	secretpkg "github.com/dagucloud/dagu/internal/secret"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
@@ -1067,6 +1069,77 @@ steps:
 
 	outputs := dag.ReadOutputs(t)
 	require.Equal(t, "ok", outputs["response"])
+}
+
+func TestAgent_RuntimeProfileInjection(t *testing.T) {
+	t.Parallel()
+	th := test.Setup(t)
+
+	enc, err := crypto.NewEncryptor("test-key")
+	require.NoError(t, err)
+	secretStore, err := store.NewSecretStore(testutil.NewMemoryBackend().Collection("secrets"), enc)
+	require.NoError(t, err)
+	profileStore, err := store.NewProfileStore(testutil.NewMemoryBackend().Collection("profiles"))
+	require.NoError(t, err)
+
+	sec, err := secretpkg.New(secretpkg.CreateInput{
+		Ref:          "prod/api-token",
+		ProviderType: secretpkg.ProviderDaguManaged,
+		CreatedBy:    "alice",
+	}, time.Now().UTC())
+	require.NoError(t, err)
+	require.NoError(t, secretStore.Create(context.Background(), sec, &secretpkg.WriteValueInput{
+		Value:     "managed-secret",
+		CreatedBy: "alice",
+		CreatedAt: time.Now().UTC(),
+	}))
+
+	prof, err := profilepkg.New(profilepkg.CreateInput{
+		Name:      "prod",
+		CreatedBy: "alice",
+	}, time.Now().UTC())
+	require.NoError(t, err)
+	require.NoError(t, prof.SetVariable("LOG_LEVEL", "debug", "alice", time.Now().UTC()))
+	require.NoError(t, prof.SetSecret("API_TOKEN", sec.ID, "alice", time.Now().UTC()))
+	require.NoError(t, profileStore.Create(context.Background(), prof))
+
+	dag := th.DAG(t, `
+steps:
+  - name: step1
+    run: echo "Level is ${LOG_LEVEL}; token is ${API_TOKEN}"
+    output: RESPONSE`)
+
+	dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{
+		ProfileStore: profileStore,
+		SecretStore:  secretStore,
+		ProfileName:  "prod",
+	}))
+	dagAgent.RunSuccess(t)
+
+	outputs := dag.ReadOutputs(t)
+	require.Contains(t, outputs["response"], "Level is debug")
+	require.NotContains(t, outputs["response"], "managed-secret")
+	require.Contains(t, outputs["response"], "*******")
+
+	status := dagAgent.Status(th.Context)
+	require.Equal(t, "prod", status.ProfileName)
+	require.NotEmpty(t, status.ProfileResolvedAt)
+	require.ElementsMatch(t, []exec.RuntimeProfileEntry{
+		{Key: "LOG_LEVEL", Kind: "variable"},
+		{Key: "API_TOKEN", Kind: "secret"},
+	}, status.ProfileEntries)
+
+	statusJSON, err := json.Marshal(status)
+	require.NoError(t, err)
+	require.NotContains(t, string(statusJSON), "managed-secret")
+	require.Contains(t, string(statusJSON), "*******")
+
+	latest, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
+	require.NoError(t, err)
+	latestStatusJSON, err := json.Marshal(latest)
+	require.NoError(t, err)
+	require.NotContains(t, string(latestStatusJSON), "managed-secret")
+	require.Contains(t, string(latestStatusJSON), "*******")
 }
 
 func TestAgent_SubDAGRunVisibleWhileRunning(t *testing.T) {

@@ -45,6 +45,7 @@ type LocalRequest struct {
 	TriggerType core.TriggerType
 
 	ScheduleTime string
+	ProfileName  string
 
 	LogBaseDir      string
 	ArtifactBaseDir string
@@ -159,6 +160,7 @@ func recordPreparedAttemptFailure(
 		transform.WithError(runErr.Error()),
 		transform.WithWorkerID("local"),
 		transform.WithTriggerType(req.TriggerType),
+		transform.WithRuntimeProfile(req.ProfileName, "", nil),
 	}
 	if req.ScheduleTime != "" {
 		opts = append(opts, transform.WithScheduleTime(req.ScheduleTime))
