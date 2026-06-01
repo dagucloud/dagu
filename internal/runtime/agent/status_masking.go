@@ -90,11 +90,11 @@ func maskStepSecrets(masker *masking.Masker, step core.Step) core.Step {
 	}
 
 	if len(step.ExecutorConfig.Config) > 0 {
-		step.ExecutorConfig.Config = maskAnyStringValues(masker, step.ExecutorConfig.Config).(map[string]any)
+		step.ExecutorConfig.Config = maskAnyStringMap(masker, step.ExecutorConfig.Config)
 	}
 
 	if len(step.ExecutorConfig.Metadata) > 0 {
-		step.ExecutorConfig.Metadata = maskAnyStringValues(masker, step.ExecutorConfig.Metadata).(map[string]any)
+		step.ExecutorConfig.Metadata = maskAnyStringMap(masker, step.ExecutorConfig.Metadata)
 	}
 
 	return step
@@ -138,4 +138,12 @@ func maskAnyStringValues(masker *masking.Masker, value any) any {
 	default:
 		return value
 	}
+}
+
+func maskAnyStringMap(masker *masking.Masker, values map[string]any) map[string]any {
+	masked := maps.Clone(values)
+	for key, val := range masked {
+		masked[key] = maskAnyStringValues(masker, val)
+	}
+	return masked
 }

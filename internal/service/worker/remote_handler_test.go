@@ -1359,6 +1359,14 @@ steps:
 	})
 }
 
+func TestRetryTaskProfileNameUsesStoredStatus(t *testing.T) {
+	t.Parallel()
+
+	status := &exec.DAGRunStatus{ProfileName: "prod"}
+	assert.Equal(t, "prod", retryTaskProfileName(status))
+	assert.Empty(t, retryTaskProfileName(nil))
+}
+
 func TestTaskExtraEnvs(t *testing.T) {
 	t.Parallel()
 

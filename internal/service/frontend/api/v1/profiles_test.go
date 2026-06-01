@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	apigen "github.com/dagucloud/dagu/api/v1"
 	"github.com/dagucloud/dagu/internal/cmn/config"
@@ -125,6 +126,9 @@ func TestRuntimeProfilesAPI_ProtectedProfileUseRequiresAdmin(t *testing.T) {
 	managerToken := createRuntimeProfileUserToken(
 		t, server, adminToken, "profile-manager", "managerpass1", apigen.UserRoleManager,
 	)
+	operatorToken := createRuntimeProfileUserToken(
+		t, server, adminToken, "profile-operator", "operatorpass1", apigen.UserRoleOperator,
+	)
 
 	dagName := "protected_profile_run_dag"
 	spec := `
@@ -152,6 +156,12 @@ steps:
 		DagRunId:    &managerRunID,
 		ProfileName: &localProfile,
 	}).WithBearerToken(managerToken).ExpectStatus(http.StatusOK).Send(t)
+
+	operatorRunID := "operator-unprotected-profile"
+	server.Client().Post(fmt.Sprintf("/api/v1/dags/%s/start", dagName), apigen.ExecuteDAGJSONRequestBody{
+		DagRunId:    &operatorRunID,
+		ProfileName: &localProfile,
+	}).WithBearerToken(operatorToken).ExpectStatus(http.StatusOK).Send(t)
 
 	protectedProfile := apigen.RuntimeProfileName("prod")
 	forbiddenRunID := "manager-protected-profile"
@@ -192,8 +202,18 @@ func TestRuntimeProfilesAPI_ProtectedProfileManagementRequiresAdmin(t *testing.T
 		Protected: new(true),
 	}).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t)
 
-	server.Client().Get("/api/v1/profiles/prod").
+	listResp := server.Client().Get("/api/v1/profiles").
 		WithBearerToken(managerToken).ExpectStatus(http.StatusOK).Send(t)
+	var list apigen.RuntimeProfileListResponse
+	listResp.Unmarshal(t, &list)
+	require.Len(t, list.Profiles, 1)
+	assert.Equal(t, "local", list.Profiles[0].Name)
+
+	server.Client().Get("/api/v1/profiles/prod").
+		WithBearerToken(managerToken).ExpectStatus(http.StatusForbidden).Send(t)
+
+	server.Client().Get("/api/v1/profiles/prod").
+		WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t)
 
 	server.Client().Put("/api/v1/profiles/prod/variables/API_TOKEN", apigen.SetRuntimeProfileVariableJSONRequestBody{
 		Value: "manager-value",
@@ -213,6 +233,73 @@ func TestRuntimeProfilesAPI_ProtectedProfileManagementRequiresAdmin(t *testing.T
 		WithBearerToken(adminToken).ExpectStatus(http.StatusNoContent).Send(t)
 }
 
+func TestRuntimeProfilesAPI_SetSecretDeletesCreatedSecretWhenProfileUpdateFails(t *testing.T) {
+	ctx := context.Background()
+	_, profileStore, secretStore := newRuntimeProfilesTestAPI(t)
+
+	prof, err := profile.New(profile.CreateInput{Name: "local", CreatedBy: "test"}, nowForRuntimeProfileTest())
+	require.NoError(t, err)
+	require.NoError(t, profileStore.Create(ctx, prof))
+
+	api := newRuntimeProfilesTestAPIWithStores(t, failingUpdateProfileStore{
+		Store: profileStore,
+		err:   fmt.Errorf("forced profile update failure"),
+	}, secretStore)
+
+	plainSecret := "new-value"
+	_, err = api.SetRuntimeProfileSecret(ctx, apigen.SetRuntimeProfileSecretRequestObject{
+		ProfileName: "local",
+		Key:         "API_TOKEN",
+		Body: &apigen.SetRuntimeProfileSecretRequest{
+			Value: &plainSecret,
+		},
+	})
+	require.Error(t, err)
+
+	_, err = secretStore.GetByRef(ctx, "", profile.SecretRef("local", "API_TOKEN"))
+	require.ErrorIs(t, err, secretpkg.ErrNotFound)
+}
+
+func TestRuntimeProfilesAPI_SetSecretDoesNotRotateExistingSecretWhenProfileUpdateFails(t *testing.T) {
+	ctx := context.Background()
+	_, profileStore, secretStore := newRuntimeProfilesTestAPI(t)
+
+	prof, err := profile.New(profile.CreateInput{Name: "local", CreatedBy: "test"}, nowForRuntimeProfileTest())
+	require.NoError(t, err)
+	require.NoError(t, profileStore.Create(ctx, prof))
+
+	sec, err := secretpkg.New(secretpkg.CreateInput{
+		Workspace:    "",
+		Ref:          profile.SecretRef("local", "API_TOKEN"),
+		ProviderType: secretpkg.ProviderDaguManaged,
+		CreatedBy:    "test",
+	}, nowForRuntimeProfileTest())
+	require.NoError(t, err)
+	require.NoError(t, secretStore.Create(ctx, sec, &secretpkg.WriteValueInput{
+		Value:     "old-value",
+		CreatedBy: "test",
+	}))
+
+	api := newRuntimeProfilesTestAPIWithStores(t, failingUpdateProfileStore{
+		Store: profileStore,
+		err:   fmt.Errorf("forced profile update failure"),
+	}, secretStore)
+
+	plainSecret := "new-value"
+	_, err = api.SetRuntimeProfileSecret(ctx, apigen.SetRuntimeProfileSecretRequestObject{
+		ProfileName: "local",
+		Key:         "API_TOKEN",
+		Body: &apigen.SetRuntimeProfileSecretRequest{
+			Value: &plainSecret,
+		},
+	})
+	require.Error(t, err)
+
+	resolved, _, err := secretStore.ResolveValue(ctx, sec.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "old-value", resolved)
+}
+
 func newRuntimeProfilesTestAPI(t *testing.T) (*apiv1.API, profile.Store, secretpkg.Store) {
 	t.Helper()
 
@@ -224,6 +311,12 @@ func newRuntimeProfilesTestAPI(t *testing.T) (*apiv1.API, profile.Store, secretp
 	require.NoError(t, err)
 	secretStore, err := persiststore.NewSecretStore(backend.Collection("secrets"), enc)
 	require.NoError(t, err)
+
+	return newRuntimeProfilesTestAPIWithStores(t, profileStore, secretStore), profileStore, secretStore
+}
+
+func newRuntimeProfilesTestAPIWithStores(t *testing.T, profileStore profile.Store, secretStore secretpkg.Store) *apiv1.API {
+	t.Helper()
 
 	cfg := &config.Config{}
 	return apiv1.New(
@@ -239,7 +332,7 @@ func newRuntimeProfilesTestAPI(t *testing.T) (*apiv1.API, profile.Store, secretp
 		nil,
 		apiv1.WithProfileStore(profileStore),
 		apiv1.WithSecretStore(secretStore),
-	), profileStore, secretStore
+	)
 }
 
 func createRuntimeProfileUserToken(t *testing.T, server testhelper.Server, adminToken, username, password string, role apigen.UserRole) string {
@@ -260,4 +353,17 @@ func createRuntimeProfileUserToken(t *testing.T, server testhelper.Server, admin
 	resp.Unmarshal(t, &login)
 	require.NotEmpty(t, login.Token)
 	return login.Token
+}
+
+func nowForRuntimeProfileTest() time.Time {
+	return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+}
+
+type failingUpdateProfileStore struct {
+	profile.Store
+	err error
+}
+
+func (s failingUpdateProfileStore) Update(context.Context, *profile.Profile) error {
+	return s.err
 }

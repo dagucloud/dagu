@@ -187,10 +187,7 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 
 	statusPusher, logStreamer, artifactUploader := h.createRemoteHandlers(task.DagRunId, dag.Name, root, owner)
 	triggerType := exec.PreservedQueueTriggerType(status)
-	profileName := task.ProfileName
-	if profileName == "" {
-		profileName = status.ProfileName
-	}
+	profileName := retryTaskProfileName(status)
 
 	err = h.executeDAGRun(ctx, dag, task.DagRunId, task.AttemptId, task.ScheduleTime, root, parent, statusPusher, logStreamer, artifactUploader, false, &retryConfig{
 		target:      status,
@@ -202,6 +199,13 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 		h.reportTaskInitFailure(ctx, task, root, parent, statusPusher, initErr.err)
 	}
 	return err
+}
+
+func retryTaskProfileName(status *exec.DAGRunStatus) string {
+	if status == nil {
+		return ""
+	}
+	return status.ProfileName
 }
 
 func (h *remoteTaskHandler) reportTaskLoadFailure(ctx context.Context, task *coordinatorv1.Task, root, parent exec.DAGRunRef, owner exec.HostInfo, loadErr error) {

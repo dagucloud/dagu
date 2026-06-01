@@ -930,10 +930,10 @@ Injected keys:
           <h3>Retry Defaults</h3>
           <p>
             Retry defaults to the previous attempt's profile name and resolves the latest values at retry
-            attempt start. Users can override the profile explicitly:
+            attempt start. Profile selection is immutable across CLI, API, queue, scheduler, and subprocess retry paths.
+            Profile overrides are not accepted for retries:
           </p>
-          <pre><code>dagu retry 20260601T143120Z
-dagu retry --profile staging 20260601T143120Z</code></pre>
+          <pre><code>dagu retry 20260601T143120Z</code></pre>
 
           <div class="callout warning">
             <strong>Important latest-value behavior</strong>

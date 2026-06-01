@@ -8417,6 +8417,9 @@ paths:
       operationId: "listRuntimeProfiles"
       tags:
         - "profiles"
+      security:
+        - apiToken: []
+        - basicAuth: []
       parameters:
         - $ref: "#/components/parameters/RemoteNode"
       responses:
@@ -8450,6 +8453,9 @@ paths:
       operationId: "createRuntimeProfile"
       tags:
         - "profiles"
+      security:
+        - apiToken: []
+        - basicAuth: []
       parameters:
         - $ref: "#/components/parameters/RemoteNode"
       requestBody:
@@ -8502,6 +8508,9 @@ paths:
       operationId: "getRuntimeProfile"
       tags:
         - "profiles"
+      security:
+        - apiToken: []
+        - basicAuth: []
       parameters:
         - name: profileName
           in: path
@@ -8545,6 +8554,9 @@ paths:
       operationId: "updateRuntimeProfile"
       tags:
         - "profiles"
+      security:
+        - apiToken: []
+        - basicAuth: []
       parameters:
         - name: profileName
           in: path
@@ -8600,6 +8612,9 @@ paths:
       operationId: "deleteRuntimeProfile"
       tags:
         - "profiles"
+      security:
+        - apiToken: []
+        - basicAuth: []
       parameters:
         - name: profileName
           in: path
@@ -8642,6 +8657,9 @@ paths:
       operationId: "setRuntimeProfileVariable"
       tags:
         - "profiles"
+      security:
+        - apiToken: []
+        - basicAuth: []
       parameters:
         - name: profileName
           in: path
@@ -8705,6 +8723,9 @@ paths:
       operationId: "setRuntimeProfileSecret"
       tags:
         - "profiles"
+      security:
+        - apiToken: []
+        - basicAuth: []
       parameters:
         - name: profileName
           in: path
@@ -8767,6 +8788,9 @@ paths:
       operationId: "deleteRuntimeProfileEntry"
       tags:
         - "profiles"
+      security:
+        - apiToken: []
+        - basicAuth: []
       parameters:
         - name: profileName
           in: path
@@ -15289,6 +15313,8 @@ components:
       minLength: 1
       maxLength: 255
       pattern: "^[A-Za-z_][A-Za-z0-9_]*$"
+      not:
+        pattern: "^DAGU_"
       description: "Environment variable key stored in a runtime profile. Keys with the DAGU_ prefix are reserved."
 
     RuntimeProfileStatus:
