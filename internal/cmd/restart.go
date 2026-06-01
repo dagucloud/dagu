@@ -179,7 +179,7 @@ func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *core.DAG, dagRu
 			StateStore:                 ctx.StateStore,
 			SecretStore:                as.SecretStore,
 			ServiceRegistry:            ctx.ServiceRegistry,
-			DispatcherFactory:          ctx.RuntimeDispatcherFactory(),
+			SubWorkflowRunnerFactory:   ctx.SubWorkflowRunnerFactory(),
 			RootDAGRun:                 exec.NewDAGRunRef(dag.Name, dagRunID),
 			PeerConfig:                 ctx.Config.Core.Peer,
 			DefaultExecMode:            ctx.Config.DefaultExecMode,

@@ -32,9 +32,11 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/dagstate"
 	"github.com/dagucloud/dagu/internal/license"
+	"github.com/dagucloud/dagu/internal/node/subflow"
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/runtime"
+	runtimeexec "github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
@@ -586,9 +588,13 @@ func (c *Context) NewCoordinatorClient() coordinator.Client {
 	return cmdprocess.NewCoordinatorClient(c.Context, c.Config, c.ServiceRegistry)
 }
 
-func (c *Context) RuntimeDispatcherFactory() func(context.Context) (runtime.Dispatcher, error) {
-	return func(_ context.Context) (runtime.Dispatcher, error) {
-		return coordinator.NewRuntimeDispatcher(c.ServiceRegistry, c.Config.Core.Peer)
+func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
+	return func(_ context.Context) (runtimeexec.SubWorkflowRunner, error) {
+		dispatcher, err := coordinator.NewRuntimeDispatcher(c.ServiceRegistry, c.Config.Core.Peer)
+		if err != nil {
+			return nil, err
+		}
+		return subflow.New(dispatcher, c.Config.DefaultExecMode), nil
 	}
 }
 

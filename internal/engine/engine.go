@@ -17,7 +17,9 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	coreexec "github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/dagstate"
+	"github.com/dagucloud/dagu/internal/node/subflow"
 	"github.com/dagucloud/dagu/internal/runtime"
+	runtimeexec "github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/spf13/viper"
 )
@@ -202,9 +204,13 @@ func (e *Engine) coordinatorClient(opts DistributedOptions) (coordinator.Client,
 	return coordinator.New(registry, cfg), nil
 }
 
-func (e *Engine) runtimeDispatcherFactory() func(context.Context) (runtime.Dispatcher, error) {
-	return func(_ context.Context) (runtime.Dispatcher, error) {
-		return coordinator.NewRuntimeDispatcher(e.serviceRegistry, e.cfg.Core.Peer)
+func (e *Engine) subWorkflowRunnerFactory() func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
+	return func(_ context.Context) (runtimeexec.SubWorkflowRunner, error) {
+		dispatcher, err := coordinator.NewRuntimeDispatcher(e.serviceRegistry, e.cfg.Core.Peer)
+		if err != nil {
+			return nil, err
+		}
+		return subflow.New(dispatcher, configExecutionMode(e.defaultMode)), nil
 	}
 }
 

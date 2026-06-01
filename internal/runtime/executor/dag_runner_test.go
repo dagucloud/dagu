@@ -33,26 +33,6 @@ func envSliceToMap(envs []string) map[string]string {
 	return result
 }
 
-func TestExtractOutputValuesFromNodes(t *testing.T) {
-	t.Parallel()
-
-	first := `{"messageId":"msg-123","accepted":true}`
-	second := `{"status":"sent"}`
-
-	got := extractOutputValuesFromNodes([]*exec1.Node{
-		nil,
-		{OutputsValue: &first},
-		{OutputsValue: nil},
-		{OutputsValue: &second},
-	})
-
-	assert.Equal(t, map[string]any{
-		"messageId": "msg-123",
-		"accepted":  true,
-		"status":    "sent",
-	}, got)
-}
-
 func TestNewSubDAGExecutor_LocalDAG(t *testing.T) {
 	t.Parallel()
 
@@ -381,7 +361,7 @@ func TestBuildRetryCommand(t *testing.T) {
 	assert.Contains(t, cmd.Args, "/path/to/test.yaml")
 }
 
-func TestBuildCoordinatorTask_ExternalStepRetry(t *testing.T) {
+func TestExecute_UsesInjectedSubWorkflowRunner(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -392,22 +372,42 @@ func TestBuildCoordinatorTask_ExternalStepRetry(t *testing.T) {
 	}
 	ctx = exec1.WithContext(ctx, dagCtx)
 
+	runner := &mockSubWorkflowRunner{
+		shouldRun: true,
+		runResult: &exec1.RunStatus{
+			Name:     "test-child",
+			DAGRunID: "child-789",
+			Status:   core.Succeeded,
+		},
+	}
 	executor := &SubDAGExecutor{
 		DAG: &core.DAG{
 			Name:           "test-child",
 			YamlData:       []byte("name: test-child"),
 			WorkerSelector: map[string]string{"role": "worker"},
 		},
+		subWorkflowRunner: runner,
 		externalStepRetry: true,
+		distributedRuns:   make(map[string]bool),
+		processes:         make(map[string]*cmdutil.ManagedProcess),
+		dagCtx:            dagCtx,
 		killed:            make(chan struct{}),
 	}
 
-	task, err := executor.BuildCoordinatorTask(ctx, RunParams{RunID: "child-789", Params: "ITEM=1"})
+	result, err := executor.Execute(ctx, RunParams{RunID: "child-789", Params: "ITEM=1"}, "/work/dir")
 	require.NoError(t, err)
+	require.NotNil(t, result)
 
-	assert.Equal(t, exec1.DispatchOperationStart, task.Operation)
-	assert.True(t, task.ExternalStepRetry)
-	assert.Equal(t, "ITEM=1", task.Params)
+	require.Len(t, runner.runRequests, 1)
+	req := runner.runRequests[0]
+	assert.Equal(t, "child-789", req.RunID)
+	assert.Equal(t, "ITEM=1", req.Params)
+	assert.Equal(t, "/work/dir", req.WorkDir)
+	assert.Equal(t, exec1.NewDAGRunRef("parent", "root-123"), req.RootDAGRun)
+	assert.Equal(t, exec1.NewDAGRunRef("parent", "parent-456"), req.ParentDAGRun)
+	assert.Equal(t, map[string]string{"role": "worker"}, req.WorkerSelector)
+	assert.True(t, req.ExternalStepRetry)
+	assert.True(t, executor.distributedRuns["child-789"])
 }
 
 func TestRetry_Distributed(t *testing.T) {
@@ -415,48 +415,27 @@ func TestRetry_Distributed(t *testing.T) {
 
 	ctx := context.Background()
 	dagCtx := exec1.Context{
-		DAG:             &core.DAG{Name: "parent"},
-		RootDAGRun:      exec1.NewDAGRunRef("parent", "root-123"),
-		DAGRunID:        "parent-456",
-		DefaultExecMode: config.ExecutionModeDistributed,
+		DAG:        &core.DAG{Name: "parent"},
+		RootDAGRun: exec1.NewDAGRunRef("parent", "root-123"),
+		DAGRunID:   "parent-456",
 	}
 	ctx = exec1.WithContext(ctx, dagCtx)
 
-	previousStatus := &exec1.DAGRunStatus{
-		Name:     "test-child",
-		DAGRunID: "child-789",
-		Root:     exec1.NewDAGRunRef("parent", "root-123"),
-		Parent:   exec1.NewDAGRunRef("parent", "parent-456"),
-		Status:   core.Queued,
-		Nodes: []*exec1.Node{
-			{
-				Step:   core.Step{Name: "flaky"},
-				Status: core.NodeRetrying,
-			},
+	runner := &mockSubWorkflowRunner{
+		shouldRun: true,
+		retryResult: &exec1.RunStatus{
+			Name:     "test-child",
+			DAGRunID: "child-789",
+			Status:   core.Succeeded,
 		},
 	}
-	completedStatus := &exec1.DAGRunStatus{
-		Name:     "test-child",
-		DAGRunID: "child-789",
-		Root:     exec1.NewDAGRunRef("parent", "root-123"),
-		Parent:   exec1.NewDAGRunRef("parent", "parent-456"),
-		Status:   core.Succeeded,
-	}
-
-	dispatcher := &mockDispatcher{
-		getStatusResponses: []*exec1.DAGRunStatusResult{
-			mustStatusResponse(t, previousStatus),
-			mustStatusResponse(t, completedStatus),
-		},
-	}
-
 	executor := &SubDAGExecutor{
 		DAG: &core.DAG{
 			Name:           "test-child",
 			YamlData:       []byte("name: test-child"),
 			WorkerSelector: map[string]string{"role": "worker"},
 		},
-		coordinatorCli:    dispatcher,
+		subWorkflowRunner: runner,
 		externalStepRetry: true,
 		distributedRuns:   make(map[string]bool),
 		processes:         make(map[string]*cmdutil.ManagedProcess),
@@ -469,16 +448,15 @@ func TestRetry_Distributed(t *testing.T) {
 	require.NotNil(t, result)
 	assert.Equal(t, core.Succeeded, result.Status)
 
-	require.Len(t, dispatcher.dispatches, 1)
-	task := dispatcher.dispatches[0]
-	assert.Equal(t, exec1.DispatchOperationRetry, task.Operation)
-	assert.Equal(t, "flaky", task.Step)
-	assert.True(t, task.ExternalStepRetry)
-	require.NotNil(t, task.PreviousStatus)
+	require.Len(t, runner.retryRequests, 1)
+	req := runner.retryRequests[0]
+	assert.Equal(t, "flaky", req.StepName)
+	assert.Equal(t, "child-789", req.RunID)
+	assert.True(t, req.ExternalStepRetry)
 	assert.True(t, executor.distributedRuns["child-789"])
 
 	require.NoError(t, executor.Kill(os.Interrupt))
-	assert.Equal(t, 1, dispatcher.requestCancelCalled)
+	assert.Equal(t, 1, runner.cancelCalled)
 }
 
 func TestSubDAGExecutor_ExecuteDoesNotDispatchAfterPreRunKill(t *testing.T) {
@@ -492,18 +470,18 @@ func TestSubDAGExecutor_ExecuteDoesNotDispatchAfterPreRunKill(t *testing.T) {
 	}
 	ctx = exec1.WithContext(ctx, dagCtx)
 
-	dispatcher := &mockDispatcher{}
+	runner := &mockSubWorkflowRunner{shouldRun: true}
 	executor := &SubDAGExecutor{
 		DAG: &core.DAG{
 			Name:           "test-child",
 			YamlData:       []byte("name: test-child"),
 			WorkerSelector: map[string]string{"role": "worker"},
 		},
-		coordinatorCli:  dispatcher,
-		distributedRuns: make(map[string]bool),
-		processes:       make(map[string]*cmdutil.ManagedProcess),
-		dagCtx:          dagCtx,
-		killed:          make(chan struct{}),
+		subWorkflowRunner: runner,
+		distributedRuns:   make(map[string]bool),
+		processes:         make(map[string]*cmdutil.ManagedProcess),
+		dagCtx:            dagCtx,
+		killed:            make(chan struct{}),
 	}
 
 	require.NoError(t, executor.Kill(os.Interrupt))
@@ -511,7 +489,7 @@ func TestSubDAGExecutor_ExecuteDoesNotDispatchAfterPreRunKill(t *testing.T) {
 	result, err := executor.Execute(ctx, RunParams{RunID: "child-789"}, "")
 	require.ErrorIs(t, err, errSubDAGCancelled)
 	require.Nil(t, result)
-	assert.Empty(t, dispatcher.dispatches)
+	assert.Empty(t, runner.runRequests)
 	assert.True(t, executor.distributedRuns["child-789"])
 }
 
@@ -795,39 +773,33 @@ type mockDatabase struct {
 	mock.Mock
 }
 
-type mockDispatcher struct {
-	dispatches          []*exec1.DispatchTask
-	getStatusResponses  []*exec1.DAGRunStatusResult
-	getStatusErr        error
-	requestCancelCalled int
+type mockSubWorkflowRunner struct {
+	shouldRun     bool
+	runResult     *exec1.RunStatus
+	runErr        error
+	retryResult   *exec1.RunStatus
+	retryErr      error
+	runRequests   []SubWorkflowRequest
+	retryRequests []SubWorkflowRetryRequest
+	cancelCalled  int
 }
 
-func (m *mockDispatcher) Dispatch(_ context.Context, task *exec1.DispatchTask) error {
-	m.dispatches = append(m.dispatches, task)
-	return nil
+func (m *mockSubWorkflowRunner) ShouldRun(context.Context, SubWorkflowRequest) bool {
+	return m.shouldRun
 }
 
-func (m *mockDispatcher) Cleanup(context.Context) error { return nil }
-
-func (m *mockDispatcher) GetDAGRunStatus(
-	_ context.Context,
-	_ string,
-	_ string,
-	_ *exec1.DAGRunRef,
-) (*exec1.DAGRunStatusResult, error) {
-	if m.getStatusErr != nil {
-		return nil, m.getStatusErr
-	}
-	if len(m.getStatusResponses) == 0 {
-		return &exec1.DAGRunStatusResult{Found: false}, nil
-	}
-	resp := m.getStatusResponses[0]
-	m.getStatusResponses = m.getStatusResponses[1:]
-	return resp, nil
+func (m *mockSubWorkflowRunner) Run(_ context.Context, req SubWorkflowRequest) (*exec1.RunStatus, error) {
+	m.runRequests = append(m.runRequests, req)
+	return m.runResult, m.runErr
 }
 
-func (m *mockDispatcher) RequestCancel(context.Context, string, string, *exec1.DAGRunRef) error {
-	m.requestCancelCalled++
+func (m *mockSubWorkflowRunner) Retry(_ context.Context, req SubWorkflowRetryRequest) (*exec1.RunStatus, error) {
+	m.retryRequests = append(m.retryRequests, req)
+	return m.retryResult, m.retryErr
+}
+
+func (m *mockSubWorkflowRunner) Cancel(context.Context, SubWorkflowCancelRequest) error {
+	m.cancelCalled++
 	return nil
 }
 
@@ -857,12 +829,4 @@ func (m *mockDatabase) IsSubDAGRunCompleted(ctx context.Context, dagRunID string
 func (m *mockDatabase) RequestChildCancel(ctx context.Context, dagRunID string, rootDAGRun exec1.DAGRunRef) error {
 	args := m.Called(ctx, dagRunID, rootDAGRun)
 	return args.Error(0)
-}
-
-func mustStatusResponse(t *testing.T, status *exec1.DAGRunStatus) *exec1.DAGRunStatusResult {
-	t.Helper()
-	return &exec1.DAGRunStatusResult{
-		Found:  true,
-		Status: status,
-	}
 }
