@@ -1,8 +1,8 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package subflow adapts Dagu's coordinator-backed child workflow execution to the
-// runtime executor's child workflow interface.
+// Package subflow adapts Dagu child workflow execution to the runtime executor's
+// child workflow interface.
 package subflow
 
 import (
@@ -30,6 +30,7 @@ var (
 	errRootRunNotSet   = errors.New("root DAG run ID is not set")
 	errNoDispatcher    = errors.New("no dispatcher configured for child workflow execution")
 	errMissingChildDAG = errors.New("child workflow DAG is required")
+	errMissingDAGPath  = errors.New("child workflow DAG location is required")
 	errStepNameNotSet  = errors.New("retry step name is not set")
 	errChildCancelled  = errors.New("sub DAG execution cancelled")
 )
