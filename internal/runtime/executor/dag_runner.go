@@ -479,6 +479,7 @@ func (e *SubDAGExecutor) clearDistributedCancel(runID string) {
 	e.mu.Lock()
 	cancel := e.distributedCancels[runID]
 	delete(e.distributedCancels, runID)
+	delete(e.distributedRuns, runID)
 	e.mu.Unlock()
 
 	if cancel != nil {

@@ -407,7 +407,8 @@ func TestExecute_UsesInjectedSubWorkflowRunner(t *testing.T) {
 	assert.Equal(t, exec1.NewDAGRunRef("parent", "parent-456"), req.ParentDAGRun)
 	assert.Equal(t, map[string]string{"role": "worker"}, req.WorkerSelector)
 	assert.True(t, req.ExternalStepRetry)
-	assert.True(t, executor.distributedRuns["child-789"])
+	assert.NotContains(t, executor.distributedRuns, "child-789")
+	assert.NotContains(t, executor.distributedCancels, "child-789")
 }
 
 func TestRetry_Distributed(t *testing.T) {
@@ -453,10 +454,11 @@ func TestRetry_Distributed(t *testing.T) {
 	assert.Equal(t, "flaky", req.StepName)
 	assert.Equal(t, "child-789", req.RunID)
 	assert.True(t, req.ExternalStepRetry)
-	assert.True(t, executor.distributedRuns["child-789"])
+	assert.NotContains(t, executor.distributedRuns, "child-789")
+	assert.NotContains(t, executor.distributedCancels, "child-789")
 
 	require.NoError(t, executor.Kill(os.Interrupt))
-	assert.Equal(t, 1, runner.cancelCalled)
+	assert.Equal(t, 0, runner.cancelCalled)
 }
 
 func TestSubDAGExecutor_ExecuteDoesNotDispatchAfterPreRunKill(t *testing.T) {
@@ -490,7 +492,8 @@ func TestSubDAGExecutor_ExecuteDoesNotDispatchAfterPreRunKill(t *testing.T) {
 	require.ErrorIs(t, err, errSubDAGCancelled)
 	require.Nil(t, result)
 	assert.Empty(t, runner.runRequests)
-	assert.True(t, executor.distributedRuns["child-789"])
+	assert.NotContains(t, executor.distributedRuns, "child-789")
+	assert.NotContains(t, executor.distributedCancels, "child-789")
 }
 
 func TestBuildRetryCommand_NoRootDAGRun(t *testing.T) {
