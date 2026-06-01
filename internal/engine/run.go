@@ -355,7 +355,7 @@ func (e *Engine) runLocal(ctx context.Context, dag *core.DAG, runID string, opts
 			StateStore:                 e.stateStore,
 			SecretStore:                stores.SecretStore,
 			ServiceRegistry:            e.serviceRegistry,
-			SubWorkflowRunnerFactory:   e.subWorkflowRunnerFactory(),
+			SubWorkflowRunnerFactory:   e.subWorkflowRunnerFactory(stores),
 			RootDAGRun:                 root,
 			PeerConfig:                 e.cfg.Core.Peer,
 			TriggerType:                core.TriggerTypeManual,

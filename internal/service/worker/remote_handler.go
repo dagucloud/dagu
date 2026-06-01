@@ -595,40 +595,56 @@ func (h *remoteTaskHandler) executeDAGRun(
 	}
 	extraEnvs = append(extraEnvs, toolEnvs...)
 
+	var subWorkflowRunnerFactory func(context.Context) (runtimeexec.SubWorkflowRunner, error)
+	subWorkflowRunnerFactory = func(_ context.Context) (runtimeexec.SubWorkflowRunner, error) {
+		dispatcher, err := coordinator.NewRuntimeDispatcher(h.serviceRegistry, h.peerConfig)
+		if err != nil {
+			return nil, err
+		}
+		return subflow.NewRouter(
+			subflow.New(dispatcher, h.config.DefaultExecMode),
+			subflow.NewLocal(
+				h.dagRunMgr,
+				h.dagStore,
+				subflow.WithLocalDAGRunStore(h.dagRunStore),
+				subflow.WithLocalStateStore(h.stateStore),
+				subflow.WithLocalSecretStore(agentStores.SecretStore),
+				subflow.WithLocalServiceRegistry(h.serviceRegistry),
+				subflow.WithLocalStatusPusher(statusPusher),
+				subflow.WithLocalLogWriterFactory(logStreamer),
+				subflow.WithLocalArtifactFinalizer(artifactUploader),
+				subflow.WithLocalSubWorkflowRunnerFactory(subWorkflowRunnerFactory),
+				subflow.WithLocalWorkerID(h.workerID),
+				subflow.WithLocalDAGRunDirs(h.config.Paths.LogDir, h.config.Paths.ArtifactDir),
+			),
+		), nil
+	}
+
 	// Build agent options
 	opts := rtagent.Options{
-		ParentDAGRun:     parent,
-		WorkerID:         h.workerID,
-		StatusPusher:     statusPusher,
-		LogWriterFactory: logStreamer,
-		ExtraEnvs:        extraEnvs,
-		QueuedRun:        queuedRun,
-		AttemptID:        attemptID,
-		DAGRunStore:      h.dagRunStore,
-		StateStore:       h.stateStore,
-		SecretStore:      agentStores.SecretStore,
-		ServiceRegistry:  h.serviceRegistry,
-		SubWorkflowRunnerFactory: func(_ context.Context) (runtimeexec.SubWorkflowRunner, error) {
-			dispatcher, err := coordinator.NewRuntimeDispatcher(h.serviceRegistry, h.peerConfig)
-			if err != nil {
-				return nil, err
-			}
-			return subflow.NewRouter(
-				subflow.New(dispatcher, h.config.DefaultExecMode),
-				subflow.NewLocalCLI(),
-			), nil
-		},
-		RootDAGRun:        root,
-		PeerConfig:        h.peerConfig,
-		DefaultExecMode:   h.config.DefaultExecMode,
-		AgentConfigStore:  agentStores.ConfigStore,
-		AgentModelStore:   agentStores.ModelStore,
-		AgentSoulStore:    agentStores.SoulStore,
-		AgentMemoryStore:  agentStores.MemoryStore,
-		AgentOAuthManager: agentStores.OAuthManager,
-		ScheduleTime:      scheduleTime,
-		ArtifactDir:       env.artifactDir,
-		ArtifactFinalizer: artifactUploader,
+		ParentDAGRun:             parent,
+		WorkerID:                 h.workerID,
+		StatusPusher:             statusPusher,
+		LogWriterFactory:         logStreamer,
+		ExtraEnvs:                extraEnvs,
+		QueuedRun:                queuedRun,
+		AttemptID:                attemptID,
+		DAGRunStore:              h.dagRunStore,
+		StateStore:               h.stateStore,
+		SecretStore:              agentStores.SecretStore,
+		ServiceRegistry:          h.serviceRegistry,
+		SubWorkflowRunnerFactory: subWorkflowRunnerFactory,
+		RootDAGRun:               root,
+		PeerConfig:               h.peerConfig,
+		DefaultExecMode:          h.config.DefaultExecMode,
+		AgentConfigStore:         agentStores.ConfigStore,
+		AgentModelStore:          agentStores.ModelStore,
+		AgentSoulStore:           agentStores.SoulStore,
+		AgentMemoryStore:         agentStores.MemoryStore,
+		AgentOAuthManager:        agentStores.OAuthManager,
+		ScheduleTime:             scheduleTime,
+		ArtifactDir:              env.artifactDir,
+		ArtifactFinalizer:        artifactUploader,
 	}
 
 	if retry != nil {

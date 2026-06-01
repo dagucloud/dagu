@@ -31,6 +31,7 @@ var (
 	errNoDispatcher    = errors.New("no dispatcher configured for child workflow execution")
 	errMissingChildDAG = errors.New("child workflow DAG is required")
 	errMissingDAGPath  = errors.New("child workflow DAG location is required")
+	errNoRunDatabase   = errors.New("child workflow status database is not configured")
 	errStepNameNotSet  = errors.New("retry step name is not set")
 	errChildCancelled  = errors.New("sub DAG execution cancelled")
 )

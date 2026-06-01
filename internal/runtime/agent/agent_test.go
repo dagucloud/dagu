@@ -1132,6 +1132,117 @@ steps:
 	require.NoError(t, <-runErr)
 }
 
+func TestAgent_LocalSubDAGRunDoesNotRequireDaguExecutable(t *testing.T) {
+	t.Parallel()
+
+	const parentRunID = "parent-run-in-process"
+
+	th := test.Setup(t,
+		test.WithConfigMutator(func(cfg *config.Config) {
+			cfg.Paths.Executable = filepath.Join(t.TempDir(), "missing-dagu")
+		}),
+	)
+
+	th.CreateDAGFile(t, th.Config.Paths.DAGsDir, "child-in-process", []byte(`
+params:
+  - TARGET: default
+steps:
+  - name: emit
+    run: echo "child=${TARGET}"
+    output: RESULT
+`))
+
+	parent := th.DAG(t, `
+type: graph
+steps:
+  - name: run-child
+    action: dag.run
+    with:
+      dag: child-in-process
+      params:
+        TARGET: from-parent
+`)
+
+	a := parent.Agent(test.WithDAGRunID(parentRunID))
+	a.RunSuccess(t)
+
+	status := a.Status(parent.Context)
+	require.Len(t, status.Nodes, 1)
+	require.Len(t, status.Nodes[0].SubRuns, 1)
+
+	subRun := status.Nodes[0].SubRuns[0]
+	attempt, err := th.DAGRunStore.FindSubAttempt(
+		th.Context,
+		exec.NewDAGRunRef(parent.Name, parentRunID),
+		subRun.DAGRunID,
+	)
+	require.NoError(t, err)
+
+	childStatus, err := attempt.ReadStatus(th.Context)
+	require.NoError(t, err)
+	require.Equal(t, core.Succeeded, childStatus.Status)
+	require.Equal(t, []string{"TARGET=from-parent"}, childStatus.ParamsList)
+	require.Len(t, childStatus.Nodes, 1)
+	require.NotNil(t, childStatus.Nodes[0].OutputVariables)
+	result, ok := childStatus.Nodes[0].OutputVariables.Load("RESULT")
+	require.True(t, ok)
+	require.Equal(t, "RESULT=child=from-parent", result)
+}
+
+func TestAgent_LocalSubDAGRunSetsArtifactDir(t *testing.T) {
+	t.Parallel()
+
+	const parentRunID = "parent-run-artifact"
+
+	th := test.Setup(t,
+		test.WithConfigMutator(func(cfg *config.Config) {
+			cfg.Paths.Executable = filepath.Join(t.TempDir(), "missing-dagu")
+		}),
+	)
+
+	th.CreateDAGFile(t, th.Config.Paths.DAGsDir, "child-artifact", []byte(`
+steps:
+  - name: write
+    action: artifact.write
+    with:
+      path: reports/summary.txt
+      content: child artifact
+`))
+
+	parent := th.DAG(t, `
+type: graph
+steps:
+  - name: run-child
+    action: dag.run
+    with:
+      dag: child-artifact
+`)
+
+	a := parent.Agent(test.WithDAGRunID(parentRunID))
+	a.RunSuccess(t)
+
+	status := a.Status(parent.Context)
+	require.Len(t, status.Nodes, 1)
+	require.Len(t, status.Nodes[0].SubRuns, 1)
+
+	subRun := status.Nodes[0].SubRuns[0]
+	attempt, err := th.DAGRunStore.FindSubAttempt(
+		th.Context,
+		exec.NewDAGRunRef(parent.Name, parentRunID),
+		subRun.DAGRunID,
+	)
+	require.NoError(t, err)
+
+	childStatus, err := attempt.ReadStatus(th.Context)
+	require.NoError(t, err)
+	require.Equal(t, core.Succeeded, childStatus.Status)
+	require.NotEmpty(t, childStatus.ArchiveDir)
+
+	data, err := os.ReadFile(filepath.Join(childStatus.ArchiveDir, "reports", "summary.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "child artifact", string(data))
+}
+
 func TestAgent_DAGEnqueueQueuesChildWithoutWaiting(t *testing.T) {
 	t.Parallel()
 
