@@ -44,8 +44,10 @@ type SubWorkflowRetryRequest struct {
 type SubWorkflowCancelMode string
 
 const (
+	// SubWorkflowCancelModeGraceful requests a graceful stop of the child workflow.
 	SubWorkflowCancelModeGraceful SubWorkflowCancelMode = "graceful"
-	SubWorkflowCancelModeForce    SubWorkflowCancelMode = "force"
+	// SubWorkflowCancelModeForce requests a forced stop of the child workflow.
+	SubWorkflowCancelModeForce SubWorkflowCancelMode = "force"
 )
 
 // SubWorkflowCancelIntent carries runtime-owned cancellation intent.

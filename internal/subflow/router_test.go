@@ -10,6 +10,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
+	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/internal/subflow"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -124,6 +125,18 @@ func TestLocalCLIShouldRunValidLocalRequest(t *testing.T) {
 	assert.True(t, runner.ShouldRun(context.Background(), validSubWorkflowRequest()))
 }
 
+func TestLocalCLIRejectsMissingDAGLocation(t *testing.T) {
+	t.Parallel()
+
+	req := validSubWorkflowRequest()
+	req.DAG.Location = ""
+	runner := subflow.NewLocalCLI()
+
+	assert.False(t, runner.ShouldRun(context.Background(), req))
+	_, err := runner.Run(context.Background(), req)
+	require.ErrorContains(t, err, "child workflow DAG location is required")
+}
+
 func TestLocalCLIIsFallbackRunnerForValidRequests(t *testing.T) {
 	t.Parallel()
 
@@ -133,6 +146,22 @@ func TestLocalCLIIsFallbackRunnerForValidRequests(t *testing.T) {
 	runner := subflow.NewLocalCLI()
 
 	assert.True(t, runner.ShouldRun(context.Background(), req))
+}
+
+func TestLocalCLIRunRejectsInvalidWorkspaceDAGPath(t *testing.T) {
+	t.Parallel()
+
+	req := validSubWorkflowRequest()
+	req.Workspace = &executor.SubWorkflowWorkspace{
+		Descriptor: workspacebundle.Descriptor{
+			DAGPath: "../child.yaml",
+		},
+		Archive: []byte("invalid archive"),
+	}
+	runner := subflow.NewLocalCLI()
+
+	_, err := runner.Run(context.Background(), req)
+	require.ErrorContains(t, err, "invalid workspace DAG path")
 }
 
 func validSubWorkflowRequest() executor.SubWorkflowRequest {

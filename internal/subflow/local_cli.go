@@ -133,6 +133,9 @@ func validateLocalRequest(req executor.SubWorkflowRequest) error {
 	if req.DAG == nil {
 		return errMissingChildDAG
 	}
+	if strings.TrimSpace(req.DAG.Location) == "" {
+		return errMissingDAGPath
+	}
 	if req.RunID == "" {
 		return errRunIDNotSet
 	}
@@ -274,6 +277,16 @@ func (r *LocalCLI) runCommand(
 }
 
 func materializeLocalWorkspace(req executor.SubWorkflowRequest) (string, string, func(), error) {
+	if req.Workspace == nil {
+		return "", "", nil, fmt.Errorf("missing workspace for run %q", req.RunID)
+	}
+	desc := req.Workspace.Descriptor
+	dagPath, err := workspacebundle.NormalizeRelativePath(desc.DAGPath)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("invalid workspace DAG path for run %q: %w", req.RunID, err)
+	}
+	desc.DAGPath = dagPath
+
 	tmp, err := os.MkdirTemp("", "dagu-action-workspace-*")
 	if err != nil {
 		return "", "", nil, fmt.Errorf("create local action workspace: %w", err)
@@ -282,11 +295,15 @@ func materializeLocalWorkspace(req executor.SubWorkflowRequest) (string, string,
 		_ = fileutil.RemoveAll(tmp)
 	}
 	dest := filepath.Join(tmp, "workspace")
-	if err := workspacebundle.Extract(req.Workspace.Archive, dest, req.Workspace.Descriptor, workspacebundle.DefaultLimits()); err != nil {
+	if err := workspacebundle.Extract(req.Workspace.Archive, dest, desc, workspacebundle.DefaultLimits()); err != nil {
 		cleanup()
 		return "", "", nil, fmt.Errorf("materialize action workspace for run %q: %w", req.RunID, err)
 	}
-	target := filepath.Join(dest, filepath.FromSlash(req.Workspace.Descriptor.DAGPath))
+	target := filepath.Join(dest, filepath.FromSlash(dagPath))
+	if !workspacebundle.IsPathWithin(dest, target) {
+		cleanup()
+		return "", "", nil, fmt.Errorf("workspace DAG path escapes workspace for run %q", req.RunID)
+	}
 	return dest, target, cleanup, nil
 }
 

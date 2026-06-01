@@ -311,6 +311,10 @@ func (e *SubDAGExecutor) Kill(sig os.Signal) error {
 
 // Stop cancels all running sub DAG executions according to the requested lifecycle intent.
 func (e *SubDAGExecutor) Stop(intent cmdutil.TerminationIntent) error {
+	e.cancelOnce.Do(func() {
+		close(e.killed)
+	})
+
 	type activeRun struct {
 		runID  string
 		cancel context.CancelFunc
@@ -371,10 +375,6 @@ func (e *SubDAGExecutor) Stop(intent cmdutil.TerminationIntent) error {
 			run.cancel()
 		}
 	}
-
-	e.cancelOnce.Do(func() {
-		close(e.killed)
-	})
 
 	return errors.Join(errs...)
 }

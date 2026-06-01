@@ -30,6 +30,7 @@ var (
 	errRootRunNotSet   = errors.New("root DAG run ID is not set")
 	errNoDispatcher    = errors.New("no dispatcher configured for child workflow execution")
 	errMissingChildDAG = errors.New("child workflow DAG is required")
+	errMissingDAGPath  = errors.New("child workflow DAG location is required")
 	errStepNameNotSet  = errors.New("retry step name is not set")
 	errChildCancelled  = errors.New("sub DAG execution cancelled")
 )
