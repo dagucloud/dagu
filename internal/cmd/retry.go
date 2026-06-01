@@ -45,7 +45,6 @@ var retryFlags = []commandLineFlag{
 	stepNameForRetry,
 	rootDAGRunFlag,
 	defaultWorkingDirFlag,
-	profileFlag,
 	retryWorkerIDFlag,
 	attemptIDFlag,
 }
@@ -65,7 +64,6 @@ func runRetry(ctx *Context, args []string) error {
 		for _, flag := range []commandLineFlag{
 			rootDAGRunFlag,
 			defaultWorkingDirFlag,
-			profileFlag,
 			retryWorkerIDFlag,
 			attemptIDFlag,
 		} {
@@ -80,10 +78,6 @@ func runRetry(ctx *Context, args []string) error {
 	rootRefStr, _ := ctx.StringParam("root")
 	workerID := getWorkerID(ctx)
 	attemptID, err := requireWorkerAttemptID(ctx, workerID)
-	if err != nil {
-		return err
-	}
-	profileName, err := runtimeProfileNameParam(ctx)
 	if err != nil {
 		return err
 	}
@@ -128,10 +122,14 @@ func runRetry(ctx *Context, args []string) error {
 		}
 		return fmt.Errorf("failed to read status: %w", err)
 	}
-	if profileName == "" {
-		profileName = status.ProfileName
+	if status == nil {
+		if queueDispatchRetry {
+			return newQueueDispatchNotQueuedError(status)
+		}
+		return fmt.Errorf("failed to read status: status data is nil")
 	}
-	if queueDispatchRetry && (status == nil || status.Status != core.Queued) {
+	profileName := status.ProfileName
+	if queueDispatchRetry && status.Status != core.Queued {
 		return newQueueDispatchNotQueuedError(status)
 	}
 
@@ -173,7 +171,7 @@ func runRetry(ctx *Context, args []string) error {
 	// Step retry is not supported via queue (queue processor does not pass step name).
 	queueConfig := ctx.Config.FindQueueConfig(dag.ProcGroup())
 	if stepName == "" && queueConfig != nil && status.Status != core.Queued {
-		return enqueueRetry(ctx, attempt, dag, status, dagRunID, profileName)
+		return enqueueRetry(ctx, attempt, dag, status, dagRunID)
 	}
 
 	if err := waitForRetrySourceRelease(ctx, dag, status); err != nil {
@@ -393,10 +391,8 @@ func newQueueDispatchNotQueuedError(status *exec.DAGRunStatus) *exec.DAGRunNotQu
 // enqueueRetry enqueues the retry and persists Queued status via exec.EnqueueRetry.
 // Retries respect global queue capacity because the queue processor picks them up
 // when capacity is available.
-func enqueueRetry(ctx *Context, _ exec.DAGRunAttempt, dag *core.DAG, status *exec.DAGRunStatus, dagRunID, profileName string) error {
-	if err := exec.EnqueueRetry(ctx.Context, ctx.DAGRunStore, ctx.QueueStore, dag, status, exec.EnqueueRetryOptions{
-		ProfileName: profileName,
-	}); err != nil {
+func enqueueRetry(ctx *Context, _ exec.DAGRunAttempt, dag *core.DAG, status *exec.DAGRunStatus, dagRunID string) error {
+	if err := exec.EnqueueRetry(ctx.Context, ctx.DAGRunStore, ctx.QueueStore, dag, status, exec.EnqueueRetryOptions{}); err != nil {
 		if errors.Is(err, exec.ErrRetryStaleLatest) {
 			return fmt.Errorf("dag-run state changed before retry could be queued")
 		}

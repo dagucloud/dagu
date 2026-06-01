@@ -43,7 +43,7 @@ func TestEnqueueRetry(t *testing.T) {
 			},
 		},
 		{
-			name: "Success",
+			name: "SuccessPreservesProfile",
 			dag:  &core.DAG{Name: "test-dag"},
 			status: &exec.DAGRunStatus{
 				Name:           "test-dag",
@@ -53,7 +53,6 @@ func TestEnqueueRetry(t *testing.T) {
 				AutoRetryCount: 2,
 				ProfileName:    "old-profile",
 			},
-			opts: exec.EnqueueRetryOptions{ProfileName: "prod"},
 			store: &stubDAGRunStore{
 				status: &exec.DAGRunStatus{
 					Name:           "test-dag",
@@ -74,7 +73,7 @@ func TestEnqueueRetry(t *testing.T) {
 				assert.Equal(t, core.TriggerTypeRetry, store.status.TriggerType)
 				assert.NotEmpty(t, store.status.QueuedAt)
 				assert.Equal(t, 2, store.status.AutoRetryCount)
-				assert.Equal(t, "prod", store.status.ProfileName)
+				assert.Equal(t, "old-profile", store.status.ProfileName)
 				assert.Equal(t, 1, store.casCalls)
 			},
 		},

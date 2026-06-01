@@ -2205,9 +2205,6 @@ paths:
                 dagName:
                   type: string
                   description: "Optional DAG name override for the new run."
-                profileName:
-                  $ref: "#/components/schemas/RuntimeProfileName"
-                  description: "Runtime profile to apply to the new DAG-run. Omit to inherit the source run profile."
                 useCurrentDagFile:
                   type: boolean
                   description: "When true, reschedule from the current contents of the original DAG file instead of the stored historical YAML snapshot."
@@ -2370,9 +2367,6 @@ paths:
                 dagName:
                   type: string
                   description: "Optional DAG name override for the edited retry run."
-                profileName:
-                  $ref: "#/components/schemas/RuntimeProfileName"
-                  description: "Runtime profile to apply to the edited retry run. Omit to inherit the source run profile."
                 skipSteps:
                   type: array
                   description: "Steps to mark skipped while preserving their previous output variables."
@@ -2713,9 +2707,6 @@ paths:
                 stepName:
                   type: string
                   description: "Optional. If provided, only this step will be retried."
-                profileName:
-                  $ref: "#/components/schemas/RuntimeProfileName"
-                  description: "Runtime profile to apply to the retry. Omit to inherit the source run profile."
               required:
                 - dagRunId
       responses:

@@ -1100,8 +1100,13 @@ steps:
     run: echo queued retry
 `)
 
+	server.Client().Post("/api/v1/profiles", api.CreateRuntimeProfileJSONRequestBody{
+		Name: "prod",
+	}).ExpectStatus(http.StatusCreated).Send(t)
+
 	seedLatestDAGRunStatus(t, server, dag.DAG, "queued-run", core.Failed, seedDAGRunStatusOptions{
-		errorText: "queued run failed",
+		errorText:   "queued run failed",
+		profileName: "prod",
 	})
 
 	server.Client().Post(
@@ -1116,6 +1121,7 @@ steps:
 	require.NoError(t, err)
 	require.Equal(t, core.Queued, status.Status)
 	require.Equal(t, core.TriggerTypeRetry, status.TriggerType)
+	require.Equal(t, "prod", status.ProfileName)
 }
 
 func TestGetSubDAGRunsIncludesTopLevelDagEnqueueRun(t *testing.T) {
@@ -1533,6 +1539,7 @@ type seedDAGRunStatusOptions struct {
 	errorText      string
 	parentRef      exec.DAGRunRef
 	paramsList     []string
+	profileName    string
 	nodeStatuses   map[string]core.NodeStatus
 	subRuns        map[string][]exec.SubDAGRun
 }
@@ -1562,6 +1569,9 @@ func seedLatestDAGRunStatus(
 		transform.WithHierarchyRefs(ref, opts.parentRef),
 		transform.WithAutoRetryCount(opts.autoRetryCount),
 		transform.WithError(opts.errorText),
+	}
+	if opts.profileName != "" {
+		statusOptions = append(statusOptions, transform.WithRuntimeProfile(opts.profileName, "", nil))
 	}
 	if !status.IsActive() && status != core.NotStarted {
 		statusOptions = append(statusOptions, transform.WithFinishedAt(time.Now().Add(-time.Minute)))

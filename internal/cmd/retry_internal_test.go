@@ -33,6 +33,13 @@ func TestEnsureQueueDispatchRetryTarget_MissingRunReturnsNotQueued(t *testing.T)
 	assert.False(t, notQueuedErr.HasStatus)
 }
 
+func TestRetryCommandDoesNotExposeProfileFlag(t *testing.T) {
+	t.Parallel()
+
+	cmd := Retry()
+	assert.Nil(t, cmd.Flags().Lookup(profileFlag.name))
+}
+
 func TestEnsureQueueDispatchRetryTarget_MissingStatusReturnsNotQueued(t *testing.T) {
 	t.Parallel()
 

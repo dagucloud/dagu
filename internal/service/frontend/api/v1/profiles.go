@@ -372,12 +372,8 @@ func (a *API) runProfileName(ctx context.Context, raw *api.RuntimeProfileName) (
 	return a.ensureRunnableRuntimeProfile(ctx, string(*raw))
 }
 
-func (a *API) runProfileNameWithInheritance(ctx context.Context, raw *api.RuntimeProfileName, inherited string) (string, error) {
-	requested := strings.TrimSpace(inherited)
-	if raw != nil {
-		requested = strings.TrimSpace(string(*raw))
-	}
-	return a.ensureRunnableRuntimeProfile(ctx, requested)
+func (a *API) inheritedRunProfileName(ctx context.Context, inherited string) (string, error) {
+	return a.ensureRunnableRuntimeProfile(ctx, strings.TrimSpace(inherited))
 }
 
 func (a *API) ensureRunnableRuntimeProfile(ctx context.Context, name string) (string, error) {

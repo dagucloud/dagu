@@ -21,8 +21,6 @@ type EnqueueRetryOptions struct {
 	// AutoRetry marks scheduler-issued DAG auto-retries. These consume the
 	// DAG-level retry budget at enqueue time.
 	AutoRetry bool
-	// ProfileName overrides the runtime profile name for the queued retry.
-	ProfileName string
 	// OnQueued is called after the queued status and queue item are both durably written.
 	// Errors from this callback are returned to the caller but do not roll back the
 	// already-persisted queue item and status.
@@ -56,9 +54,6 @@ func EnqueueRetry(
 			latest.Status = core.Queued
 			latest.QueuedAt = stringutil.FormatTime(time.Now())
 			latest.TriggerType = core.TriggerTypeRetry
-			if opts.ProfileName != "" {
-				latest.ProfileName = opts.ProfileName
-			}
 			if opts.AutoRetry {
 				latest.AutoRetryCount++
 			}

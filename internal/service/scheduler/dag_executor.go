@@ -215,7 +215,7 @@ func (e *DAGExecutor) ExecuteDAG(
 		return launcher.Start(ctx, spec)
 
 	case exec.DispatchOperationRetry:
-		spec := e.subCmdBuilder.QueueDispatchRetry(dag, runID, "", profileNameFromStatus(previousStatus))
+		spec := e.subCmdBuilder.QueueDispatchRetry(dag, runID, "")
 		return launcher.Run(ctx, spec)
 
 	default:

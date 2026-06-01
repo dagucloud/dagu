@@ -277,14 +277,11 @@ func (b *SubCmdBuilder) Restart(dag *core.DAG, opts RestartOptions) CmdSpec {
 }
 
 // Retry creates a retry command spec.
-func (b *SubCmdBuilder) Retry(dag *core.DAG, dagRunID string, stepName string, profileName string) CmdSpec {
+func (b *SubCmdBuilder) Retry(dag *core.DAG, dagRunID string, stepName string) CmdSpec {
 	args := []string{"retry", fmt.Sprintf("--run-id=%s", dagRunID), "-q"}
 
 	if stepName != "" {
 		args = append(args, fmt.Sprintf("--step=%s", stepName))
-	}
-	if profileName != "" {
-		args = append(args, fmt.Sprintf("--profile=%s", profileName))
 	}
 
 	if b.configFile != "" {
@@ -301,8 +298,8 @@ func (b *SubCmdBuilder) Retry(dag *core.DAG, dagRunID string, stepName string, p
 }
 
 // QueueDispatchRetry creates a retry command spec for a scheduler-consumed queued run.
-func (b *SubCmdBuilder) QueueDispatchRetry(dag *core.DAG, dagRunID string, stepName string, profileName string) CmdSpec {
-	spec := b.Retry(dag, dagRunID, stepName, profileName)
+func (b *SubCmdBuilder) QueueDispatchRetry(dag *core.DAG, dagRunID string, stepName string) CmdSpec {
+	spec := b.Retry(dag, dagRunID, stepName)
 	spec.Env = append(spec.Env, exec1.EnvKeyQueueDispatchRetry+"=1")
 	return spec
 }
@@ -400,9 +397,6 @@ func (b *SubCmdBuilder) TaskRetry(task *exec1.DispatchTask, envHints []string, d
 	// Pass worker ID for tracking which worker executes this DAG run
 	if task.WorkerID != "" {
 		args = append(args, fmt.Sprintf("--worker-id=%s", task.WorkerID))
-	}
-	if task.ProfileName != "" {
-		args = append(args, fmt.Sprintf("--profile=%s", task.ProfileName))
 	}
 
 	if b.configFile != "" {

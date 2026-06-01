@@ -9158,8 +9158,6 @@ export interface operations {
                     dagRunId?: components["schemas"]["DAGRunId"] & unknown;
                     /** @description Optional DAG name override for the new run. */
                     dagName?: string;
-                    /** @description Runtime profile to apply to the new DAG-run. Omit to inherit the source run profile. */
-                    profileName?: components["schemas"]["RuntimeProfileName"];
                     /** @description When true, reschedule from the current contents of the original DAG file instead of the stored historical YAML snapshot. */
                     useCurrentDagFile?: boolean;
                 };
@@ -9304,8 +9302,6 @@ export interface operations {
                     dagRunId?: components["schemas"]["DAGRunCreateId"] & unknown;
                     /** @description Optional DAG name override for the edited retry run. */
                     dagName?: string;
-                    /** @description Runtime profile to apply to the edited retry run. Omit to inherit the source run profile. */
-                    profileName?: components["schemas"]["RuntimeProfileName"];
                     /** @description Steps to mark skipped while preserving their previous output variables. */
                     skipSteps?: string[];
                 };
@@ -9747,8 +9743,6 @@ export interface operations {
                     dagRunId: components["schemas"]["DAGRunId"] & unknown;
                     /** @description Optional. If provided, only this step will be retried. */
                     stepName?: string;
-                    /** @description Runtime profile to apply to the retry. Omit to inherit the source run profile. */
-                    profileName?: components["schemas"]["RuntimeProfileName"];
                 };
             };
         };

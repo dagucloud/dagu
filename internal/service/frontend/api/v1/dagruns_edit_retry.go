@@ -39,7 +39,6 @@ type editRetryOptions struct {
 	specContent  string
 	nameOverride string
 	newDAGRunID  string
-	profileName  *api.RuntimeProfileName
 	skipSteps    *[]string
 }
 
@@ -83,7 +82,7 @@ func (a *API) PreviewEditRetryDAGRun(ctx context.Context, request api.PreviewEdi
 		if err := a.requireExecuteForWorkspace(ctx, dagWorkspaceName(plan.editedDAG)); err != nil {
 			return nil, err
 		}
-		profileName, err := a.runProfileNameWithInheritance(ctx, opts.profileName, plan.sourceStatus.ProfileName)
+		profileName, err := a.inheritedRunProfileName(ctx, plan.sourceStatus.ProfileName)
 		if err != nil {
 			return nil, err
 		}
@@ -226,7 +225,6 @@ func editRetryOptionsFromBody(body *api.EditRetryDAGRunJSONRequestBody) (editRet
 	if body.DagRunId != nil {
 		opts.newDAGRunID = strings.TrimSpace(*body.DagRunId)
 	}
-	opts.profileName = body.ProfileName
 	if body.SkipSteps != nil {
 		skipSteps := append([]string(nil), (*body.SkipSteps)...)
 		opts.skipSteps = &skipSteps
@@ -541,7 +539,7 @@ func (a *API) launchEditRetryDAGRun(ctx context.Context, plan *editRetryPlan) (q
 		return false, fmt.Errorf("error preparing edit retry DAG env: %w", err)
 	}
 
-	retrySpec := a.subCmdBuilder.QueueDispatchRetry(prepared, plan.newDAGRunID, "", plan.profileName)
+	retrySpec := a.subCmdBuilder.QueueDispatchRetry(prepared, plan.newDAGRunID, "")
 	if err := launcher.Start(ctx, retrySpec); err != nil {
 		return false, fmt.Errorf("error starting edit retry DAG: %w", err)
 	}
