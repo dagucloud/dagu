@@ -30,6 +30,7 @@ var (
 	errRootRunNotSet   = errors.New("root DAG run ID is not set")
 	errNoDispatcher    = errors.New("no dispatcher configured for child workflow execution")
 	errMissingChildDAG = errors.New("child workflow DAG is required")
+	errStepNameNotSet  = errors.New("retry step name is not set")
 	errChildCancelled  = errors.New("sub DAG execution cancelled")
 )
 
@@ -110,6 +111,9 @@ func (r *Runner) ShouldRun(_ context.Context, req executor.SubWorkflowRequest) b
 	if r == nil || r.dispatcher == nil || req.DAG == nil {
 		return false
 	}
+	if req.RunID == "" || req.RootDAGRun.Zero() {
+		return false
+	}
 	if req.DAG.ForceLocal {
 		return false
 	}
@@ -143,6 +147,9 @@ func (r *Runner) Run(ctx context.Context, req executor.SubWorkflowRequest) (*exe
 func (r *Runner) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest) (*exec.RunStatus, error) {
 	if err := r.validate(req.SubWorkflowRequest); err != nil {
 		return nil, err
+	}
+	if req.StepName == "" {
+		return nil, errStepNameNotSet
 	}
 
 	logger.Info(ctx, "Retrying child workflow via distributed execution", tag.Step(req.StepName))

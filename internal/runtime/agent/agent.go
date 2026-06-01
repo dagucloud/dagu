@@ -637,6 +637,14 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 	ctx = logger.WithValues(ctx, logFields...)
 
+	if cleaner, ok := subWorkflowRunner.(interface{ Cleanup(context.Context) error }); ok {
+		defer func() {
+			if err := cleaner.Cleanup(context.WithoutCancel(ctx)); err != nil {
+				logger.Warn(ctx, "Failed to cleanup sub-workflow runner", tag.Error(err))
+			}
+		}()
+	}
+
 	// Handle dry execution.
 	if a.dry {
 		return a.dryRun(ctx)
@@ -969,12 +977,6 @@ func (a *Agent) Run(ctx context.Context) error {
 	close(progressCh)
 	<-progressDone
 	progressDrained = true
-
-	if cleaner, ok := subWorkflowRunner.(interface{ Cleanup(context.Context) error }); ok {
-		if err := cleaner.Cleanup(ctx); err != nil {
-			logger.Warn(ctx, "Failed to cleanup sub-workflow runner", tag.Error(err))
-		}
-	}
 
 	// Update the finished status to the runstore database.
 	finishedStatus := a.Status(ctx)

@@ -477,8 +477,13 @@ func (e *SubDAGExecutor) trackDistributedRun(runID string, cancel context.Cancel
 
 func (e *SubDAGExecutor) clearDistributedCancel(runID string) {
 	e.mu.Lock()
-	defer e.mu.Unlock()
+	cancel := e.distributedCancels[runID]
 	delete(e.distributedCancels, runID)
+	e.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
 }
 
 func (e *SubDAGExecutor) runLocalCommand(ctx context.Context, runID string, cmd *osexec.Cmd) (*exec.RunStatus, error) {
@@ -580,33 +585,56 @@ func (e *SubDAGExecutor) Kill(sig os.Signal) error {
 // Stop terminates all running sub DAG processes (both local and distributed)
 // according to the requested lifecycle intent.
 func (e *SubDAGExecutor) Stop(intent cmdutil.TerminationIntent) error {
+	type distributedRun struct {
+		runID  string
+		cancel context.CancelFunc
+	}
+	type localProcess struct {
+		runID   string
+		process *cmdutil.ManagedProcess
+	}
+
 	e.mu.Lock()
-	defer e.mu.Unlock()
+	distributedRuns := make([]distributedRun, 0, len(e.distributedRuns))
+	for runID := range e.distributedRuns {
+		distributedRuns = append(distributedRuns, distributedRun{
+			runID:  runID,
+			cancel: e.distributedCancels[runID],
+		})
+	}
+	processes := make([]localProcess, 0, len(e.processes))
+	for runID, process := range e.processes {
+		processes = append(processes, localProcess{
+			runID:   runID,
+			process: process,
+		})
+	}
+	e.mu.Unlock()
 
 	var errs []error
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	// Cancel distributed runs
-	for runID := range e.distributedRuns {
-		if cancel := e.distributedCancels[runID]; cancel != nil {
-			cancel()
+	for _, run := range distributedRuns {
+		if run.cancel != nil {
+			run.cancel()
 		}
 		if e.subWorkflowRunner != nil {
 			if err := e.subWorkflowRunner.Cancel(ctx, SubWorkflowCancelRequest{
 				DAG:        e.DAG,
 				RootDAGRun: e.dagCtx.RootDAGRun,
-				RunID:      runID,
+				RunID:      run.runID,
 			}); err != nil {
 				errs = append(errs, err)
 				logger.Warn(ctx, "Failed to request distributed sub DAG cancellation",
-					tag.RunID(runID),
+					tag.RunID(run.runID),
 					tag.DAG(e.DAG.Name),
 					tag.Error(err),
 				)
 			} else {
 				logger.Info(ctx, "Requested distributed sub DAG cancellation",
-					tag.RunID(runID),
+					tag.RunID(run.runID),
 					tag.DAG(e.DAG.Name),
 				)
 			}
@@ -614,19 +642,19 @@ func (e *SubDAGExecutor) Stop(intent cmdutil.TerminationIntent) error {
 		}
 
 		if e.dagCtx.DB != nil {
-			if err := e.dagCtx.DB.RequestChildCancel(ctx, runID, e.dagCtx.RootDAGRun); err != nil {
+			if err := e.dagCtx.DB.RequestChildCancel(ctx, run.runID, e.dagCtx.RootDAGRun); err != nil {
 				if errors.Is(err, exec.ErrDAGRunIDNotFound) {
 					continue
 				}
 				errs = append(errs, err)
 				logger.Warn(ctx, "Failed to request child cancel via local DB",
-					tag.RunID(runID),
+					tag.RunID(run.runID),
 					tag.DAG(e.DAG.Name),
 					tag.Error(err),
 				)
 			} else {
 				logger.Info(ctx, "Requested distributed sub DAG cancellation via local DB",
-					tag.RunID(runID),
+					tag.RunID(run.runID),
 					tag.DAG(e.DAG.Name),
 				)
 			}
@@ -634,23 +662,24 @@ func (e *SubDAGExecutor) Stop(intent cmdutil.TerminationIntent) error {
 	}
 
 	// Kill local processes
-	for runID, process := range e.processes {
-		if process != nil {
-			if _, err := process.Stop(cmdutil.StopRequest{Intent: intent}); err != nil {
-				errs = append(errs, err)
-				logger.Warn(ctx, "Failed to stop local sub DAG process",
-					tag.RunID(runID),
-					tag.DAG(e.DAG.Name),
-					tag.Error(err),
-				)
-			} else {
-				logger.Info(ctx, "Requested stop for local sub DAG process",
-					tag.RunID(runID),
-					tag.DAG(e.DAG.Name),
-					slog.String("stop-mode", string(intent.Mode)),
-					tag.Signal(intent.SignalName()),
-				)
-			}
+	for _, local := range processes {
+		if local.process == nil {
+			continue
+		}
+		if _, err := local.process.Stop(cmdutil.StopRequest{Intent: intent}); err != nil {
+			errs = append(errs, err)
+			logger.Warn(ctx, "Failed to stop local sub DAG process",
+				tag.RunID(local.runID),
+				tag.DAG(e.DAG.Name),
+				tag.Error(err),
+			)
+		} else {
+			logger.Info(ctx, "Requested stop for local sub DAG process",
+				tag.RunID(local.runID),
+				tag.DAG(e.DAG.Name),
+				slog.String("stop-mode", string(intent.Mode)),
+				tag.Signal(intent.SignalName()),
+			)
 		}
 	}
 
