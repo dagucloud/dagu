@@ -110,6 +110,27 @@ func TestDockerComposeEntrypointOverridesPreserveTini(t *testing.T) {
 	require.Contains(t, content, `entrypoint: ["/usr/local/bin/tini", "-g", "--"]`, "compose.minimal.yaml must keep tini as PID 1 when overriding the image entrypoint")
 }
 
+func TestDockerComposeDAGMountsStayWritable(t *testing.T) {
+	t.Parallel()
+
+	expectedMountCounts := map[string]int{
+		"deploy/docker/compose.minimal.yaml": 1,
+		"deploy/docker/compose.prod.yaml":    4,
+	}
+
+	root := repoRoot(t)
+	for file, expectedCount := range expectedMountCounts {
+		t.Run(file, func(t *testing.T) {
+			t.Parallel()
+
+			content := readFile(t, filepath.Join(root, file))
+			require.NotContains(t, content, "./dags:/var/lib/dagu/dags:ro", "%s must keep the DAG directory writable for first-run seeding and DAG edits", file)
+			require.Contains(t, content, "./dags:/var/lib/dagu/dags", "%s must mount the local DAG directory", file)
+			require.Equal(t, expectedCount, strings.Count(content, "./dags:/var/lib/dagu/dags"), "%s must keep DAG mounts on all expected services", file)
+		})
+	}
+}
+
 func repoRoot(t *testing.T) string {
 	t.Helper()
 

@@ -14,3 +14,5 @@ Run examples from the repository root:
 ```bash
 docker compose -f deploy/docker/compose.minimal.yaml up -d
 ```
+
+The Compose stacks mount `deploy/docker/dags/` read-write so Dagu can seed first-run examples and save DAG edits. Add `:ro` to that mount only when using immutable DAG sources.
