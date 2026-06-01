@@ -455,11 +455,33 @@ func writeProcFile(path string, heartbeatUnix int64, meta exec.ProcMeta) error {
 }
 
 func writeProcFileAtomic(path string, data []byte) error {
+	return writeProcFileAtomicWithCreateTemp(path, data, os.CreateTemp)
+}
+
+type createProcTempFileFunc func(dir, pattern string) (*os.File, error)
+
+func writeProcFileAtomicWithCreateTemp(path string, data []byte, createTemp createProcTempFileFunc) error {
+	var lastErr error
+	for attempt := range procFileRetries {
+		if err := writeProcFileAtomicOnce(path, data, createTemp); err != nil {
+			if !errors.Is(err, os.ErrNotExist) && !fileutil.IsTransientFileError(err) {
+				return err
+			}
+			lastErr = err
+			time.Sleep(time.Duration(attempt+1) * 25 * time.Millisecond)
+			continue
+		}
+		return nil
+	}
+	return lastErr
+}
+
+func writeProcFileAtomicOnce(path string, data []byte, createTemp createProcTempFileFunc) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
-	tmpFile, err := os.CreateTemp(dir, filepath.Base(path)+".tmp.*")
+	tmpFile, err := createTemp(dir, filepath.Base(path)+".tmp.*")
 	if err != nil {
 		return err
 	}
