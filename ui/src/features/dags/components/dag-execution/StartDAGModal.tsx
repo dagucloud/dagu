@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { useIsAdmin } from '@/contexts/AuthContext';
 import {
   Dialog,
   DialogContent,
@@ -258,6 +259,7 @@ function StartDAGModal({
   profiles = [],
   profilesLoading = false,
 }: Props) {
+  const canUseProtectedProfiles = useIsAdmin();
   const dagDetails = dag as components['schemas']['DAGDetails'] | undefined;
   const paramSchema = React.useMemo(() => {
     const schema = dagDetails?.paramSchema as JSONSchema | undefined;
@@ -320,6 +322,18 @@ function StartDAGModal({
     [profiles]
   );
   const showProfileSelector = profilesLoading || activeProfiles.length > 0;
+
+  React.useEffect(() => {
+    if (canUseProtectedProfiles || selectedProfileName === '') {
+      return;
+    }
+    const selectedProfile = activeProfiles.find(
+      (profile) => profile.name === selectedProfileName
+    );
+    if (selectedProfile?.protected) {
+      setSelectedProfileName('');
+    }
+  }, [activeProfiles, canUseProtectedProfiles, selectedProfileName]);
 
   const dagWithRunConfig = dag as DAGLike & {
     runConfig?: { disableParamEdit?: boolean; disableRunIdEdit?: boolean };
@@ -583,21 +597,39 @@ function StartDAGModal({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={NO_PROFILE_VALUE}>No profile</SelectItem>
-                  {activeProfiles.map((profile) => (
-                    <SelectItem key={profile.id} value={profile.name}>
-                      <span className="flex w-full items-center justify-between gap-3">
-                        <span>{profile.name}</span>
-                        {profile.protected && (
-                          <Badge
-                            variant="outline"
-                            className="h-4 px-1.5 text-[10px]"
-                          >
-                            Protected
-                          </Badge>
-                        )}
-                      </span>
-                    </SelectItem>
-                  ))}
+                  {activeProfiles.map((profile) => {
+                    const protectedUnavailable =
+                      profile.protected && !canUseProtectedProfiles;
+                    return (
+                      <SelectItem
+                        key={profile.id}
+                        value={profile.name}
+                        disabled={protectedUnavailable}
+                      >
+                        <span className="flex w-full items-center justify-between gap-3">
+                          <span>{profile.name}</span>
+                          <span className="flex items-center gap-1.5">
+                            {profile.protected && (
+                              <Badge
+                                variant="outline"
+                                className="h-4 px-1.5 text-[10px]"
+                              >
+                                Protected
+                              </Badge>
+                            )}
+                            {protectedUnavailable && (
+                              <Badge
+                                variant="secondary"
+                                className="h-4 px-1.5 text-[10px]"
+                              >
+                                Admin
+                              </Badge>
+                            )}
+                          </span>
+                        </span>
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             </div>

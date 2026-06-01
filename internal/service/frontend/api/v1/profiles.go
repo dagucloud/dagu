@@ -47,6 +47,20 @@ func runtimeProfileConflict(message string) api.Error {
 	}
 }
 
+func (a *API) requireRuntimeProfileManage(ctx context.Context, item *profilepkg.Profile) error {
+	if item.Protected {
+		return a.requireAdmin(ctx)
+	}
+	return a.requireManagerOrAbove(ctx)
+}
+
+func (a *API) requireRuntimeProfileUpdate(ctx context.Context, item *profilepkg.Profile, protectedRequested bool) error {
+	if item.Protected || protectedRequested {
+		return a.requireAdmin(ctx)
+	}
+	return a.requireManagerOrAbove(ctx)
+}
+
 func (a *API) ListRuntimeProfiles(ctx context.Context, _ api.ListRuntimeProfilesRequestObject) (api.ListRuntimeProfilesResponseObject, error) {
 	if a.profileStore == nil {
 		return nil, profileStoreUnavailable()
@@ -79,13 +93,19 @@ func (a *API) CreateRuntimeProfile(ctx context.Context, request api.CreateRuntim
 	if request.Body == nil {
 		return api.CreateRuntimeProfile400JSONResponse(runtimeProfileBadRequest("Request body is required")), nil
 	}
+	protected := valueOf(request.Body.Protected)
+	if protected {
+		if err := a.requireAdmin(ctx); err != nil {
+			return nil, err
+		}
+	}
 
 	now := time.Now().UTC()
 	actor := currentActorID(ctx)
 	item, err := profilepkg.New(profilepkg.CreateInput{
 		Name:        strings.TrimSpace(request.Body.Name),
 		Description: valueOf(request.Body.Description),
-		Protected:   valueOf(request.Body.Protected),
+		Protected:   protected,
 		CreatedBy:   actor,
 	}, now)
 	if err != nil {
@@ -108,7 +128,7 @@ func (a *API) CreateRuntimeProfile(ctx context.Context, request api.CreateRuntim
 }
 
 func (a *API) GetRuntimeProfile(ctx context.Context, request api.GetRuntimeProfileRequestObject) (api.GetRuntimeProfileResponseObject, error) {
-	item, err := a.getRuntimeProfileForManage(ctx, request.ProfileName)
+	item, err := a.getRuntimeProfileForView(ctx, request.ProfileName)
 	if err != nil {
 		if errors.Is(err, profilepkg.ErrNotFound) {
 			return api.GetRuntimeProfile404JSONResponse(runtimeProfileNotFound()), nil
@@ -122,7 +142,7 @@ func (a *API) GetRuntimeProfile(ctx context.Context, request api.GetRuntimeProfi
 }
 
 func (a *API) UpdateRuntimeProfile(ctx context.Context, request api.UpdateRuntimeProfileRequestObject) (api.UpdateRuntimeProfileResponseObject, error) {
-	item, err := a.getRuntimeProfileForManage(ctx, request.ProfileName)
+	item, err := a.getRuntimeProfileForView(ctx, request.ProfileName)
 	if err != nil {
 		if errors.Is(err, profilepkg.ErrNotFound) {
 			return api.UpdateRuntimeProfile404JSONResponse(runtimeProfileNotFound()), nil
@@ -134,6 +154,9 @@ func (a *API) UpdateRuntimeProfile(ctx context.Context, request api.UpdateRuntim
 	}
 	if request.Body == nil {
 		return api.UpdateRuntimeProfile400JSONResponse(runtimeProfileBadRequest("Request body is required")), nil
+	}
+	if err := a.requireRuntimeProfileUpdate(ctx, item, valueOf(request.Body.Protected)); err != nil {
+		return nil, err
 	}
 
 	actor := currentActorID(ctx)
@@ -304,7 +327,7 @@ func (a *API) DeleteRuntimeProfileEntry(ctx context.Context, request api.DeleteR
 	return api.DeleteRuntimeProfileEntry204Response{}, nil
 }
 
-func (a *API) getRuntimeProfileForManage(ctx context.Context, name string) (*profilepkg.Profile, error) {
+func (a *API) getRuntimeProfileForView(ctx context.Context, name string) (*profilepkg.Profile, error) {
 	if a.profileStore == nil {
 		return nil, profileStoreUnavailable()
 	}
@@ -316,6 +339,17 @@ func (a *API) getRuntimeProfileForManage(ctx context.Context, name string) (*pro
 		return nil, err
 	}
 	return a.profileStore.GetByName(ctx, trimmed)
+}
+
+func (a *API) getRuntimeProfileForManage(ctx context.Context, name string) (*profilepkg.Profile, error) {
+	item, err := a.getRuntimeProfileForView(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.requireRuntimeProfileManage(ctx, item); err != nil {
+		return nil, err
+	}
+	return item, nil
 }
 
 func (a *API) upsertRuntimeProfileSecret(ctx context.Context, profileName, key, value string) (string, error) {
@@ -411,6 +445,11 @@ func (a *API) ensureRunnableRuntimeProfile(ctx context.Context, name string) (st
 			HTTPStatus: http.StatusBadRequest,
 			Code:       api.ErrorCodeBadRequest,
 			Message:    fmt.Sprintf("runtime profile %s is disabled", trimmed),
+		}
+	}
+	if item.Protected {
+		if err := a.requireAdmin(ctx); err != nil {
+			return "", err
 		}
 	}
 	return item.Name, nil

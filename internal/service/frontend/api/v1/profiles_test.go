@@ -5,6 +5,8 @@ package api_test
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 	"testing"
 
 	apigen "github.com/dagucloud/dagu/api/v1"
@@ -16,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime"
 	secretpkg "github.com/dagucloud/dagu/internal/secret"
 	apiv1 "github.com/dagucloud/dagu/internal/service/frontend/api/v1"
+	testhelper "github.com/dagucloud/dagu/internal/test"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -116,6 +119,100 @@ func TestRuntimeProfilesAPI_RejectsReservedDaguKey(t *testing.T) {
 	assert.Contains(t, rejected.Message, "reserved")
 }
 
+func TestRuntimeProfilesAPI_ProtectedProfileUseRequiresAdmin(t *testing.T) {
+	server := setupBuiltinAuthServer(t)
+	adminToken := getAdminToken(t, server)
+	managerToken := createRuntimeProfileUserToken(
+		t, server, adminToken, "profile-manager", "managerpass1", apigen.UserRoleManager,
+	)
+
+	dagName := "protected_profile_run_dag"
+	spec := `
+steps:
+  - name: main
+    run: echo runtime profile
+`
+	server.Client().Post("/api/v1/dags", apigen.CreateNewDAGJSONRequestBody{
+		Name: dagName,
+		Spec: &spec,
+	}).WithBearerToken(managerToken).ExpectStatus(http.StatusCreated).Send(t)
+
+	server.Client().Post("/api/v1/profiles", apigen.CreateRuntimeProfileJSONRequestBody{
+		Name: "local",
+	}).WithBearerToken(managerToken).ExpectStatus(http.StatusCreated).Send(t)
+
+	server.Client().Post("/api/v1/profiles", apigen.CreateRuntimeProfileJSONRequestBody{
+		Name:      "prod",
+		Protected: ptrTo(true),
+	}).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t)
+
+	localProfile := apigen.RuntimeProfileName("local")
+	managerRunID := "manager-unprotected-profile"
+	server.Client().Post(fmt.Sprintf("/api/v1/dags/%s/start", dagName), apigen.ExecuteDAGJSONRequestBody{
+		DagRunId:    &managerRunID,
+		ProfileName: &localProfile,
+	}).WithBearerToken(managerToken).ExpectStatus(http.StatusOK).Send(t)
+
+	protectedProfile := apigen.RuntimeProfileName("prod")
+	forbiddenRunID := "manager-protected-profile"
+	server.Client().Post(fmt.Sprintf("/api/v1/dags/%s/start", dagName), apigen.ExecuteDAGJSONRequestBody{
+		DagRunId:    &forbiddenRunID,
+		ProfileName: &protectedProfile,
+	}).WithBearerToken(managerToken).ExpectStatus(http.StatusForbidden).Send(t)
+
+	adminRunID := "admin-protected-profile"
+	server.Client().Post(fmt.Sprintf("/api/v1/dags/%s/start", dagName), apigen.ExecuteDAGJSONRequestBody{
+		DagRunId:    &adminRunID,
+		ProfileName: &protectedProfile,
+	}).WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t)
+}
+
+func TestRuntimeProfilesAPI_ProtectedProfileManagementRequiresAdmin(t *testing.T) {
+	server := setupBuiltinAuthServer(t)
+	adminToken := getAdminToken(t, server)
+	managerToken := createRuntimeProfileUserToken(
+		t, server, adminToken, "profile-manager", "managerpass1", apigen.UserRoleManager,
+	)
+
+	server.Client().Post("/api/v1/profiles", apigen.CreateRuntimeProfileJSONRequestBody{
+		Name:      "manager-protected",
+		Protected: ptrTo(true),
+	}).WithBearerToken(managerToken).ExpectStatus(http.StatusForbidden).Send(t)
+
+	server.Client().Post("/api/v1/profiles", apigen.CreateRuntimeProfileJSONRequestBody{
+		Name: "local",
+	}).WithBearerToken(managerToken).ExpectStatus(http.StatusCreated).Send(t)
+
+	server.Client().Patch("/api/v1/profiles/local", apigen.UpdateRuntimeProfileJSONRequestBody{
+		Protected: ptrTo(true),
+	}).WithBearerToken(managerToken).ExpectStatus(http.StatusForbidden).Send(t)
+
+	server.Client().Post("/api/v1/profiles", apigen.CreateRuntimeProfileJSONRequestBody{
+		Name:      "prod",
+		Protected: ptrTo(true),
+	}).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t)
+
+	server.Client().Get("/api/v1/profiles/prod").
+		WithBearerToken(managerToken).ExpectStatus(http.StatusOK).Send(t)
+
+	server.Client().Put("/api/v1/profiles/prod/variables/API_TOKEN", apigen.SetRuntimeProfileVariableJSONRequestBody{
+		Value: "manager-value",
+	}).WithBearerToken(managerToken).ExpectStatus(http.StatusForbidden).Send(t)
+
+	server.Client().Put("/api/v1/profiles/prod/variables/API_TOKEN", apigen.SetRuntimeProfileVariableJSONRequestBody{
+		Value: "admin-value",
+	}).WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t)
+
+	server.Client().Delete("/api/v1/profiles/prod/entries/API_TOKEN").
+		WithBearerToken(managerToken).ExpectStatus(http.StatusForbidden).Send(t)
+
+	server.Client().Delete("/api/v1/profiles/prod").
+		WithBearerToken(managerToken).ExpectStatus(http.StatusForbidden).Send(t)
+
+	server.Client().Delete("/api/v1/profiles/prod/entries/API_TOKEN").
+		WithBearerToken(adminToken).ExpectStatus(http.StatusNoContent).Send(t)
+}
+
 func newRuntimeProfilesTestAPI(t *testing.T) (*apiv1.API, profile.Store, secretpkg.Store) {
 	t.Helper()
 
@@ -143,6 +240,26 @@ func newRuntimeProfilesTestAPI(t *testing.T) (*apiv1.API, profile.Store, secretp
 		apiv1.WithProfileStore(profileStore),
 		apiv1.WithSecretStore(secretStore),
 	), profileStore, secretStore
+}
+
+func createRuntimeProfileUserToken(t *testing.T, server testhelper.Server, adminToken, username, password string, role apigen.UserRole) string {
+	t.Helper()
+
+	server.Client().Post("/api/v1/users", apigen.CreateUserRequest{
+		Username: username,
+		Password: password,
+		Role:     role,
+	}).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t)
+
+	resp := server.Client().Post("/api/v1/auth/login", apigen.LoginRequest{
+		Username: username,
+		Password: password,
+	}).ExpectStatus(http.StatusOK).Send(t)
+
+	var login apigen.LoginResponse
+	resp.Unmarshal(t, &login)
+	require.NotEmpty(t, login.Token)
+	return login.Token
 }
 
 func ptrTo[T any](value T) *T {
