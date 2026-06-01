@@ -36,10 +36,10 @@ services:
       # - PUID=1000 # optional. default is 1000
       # - PGID=1000 # optional. default is 1000
 
-    # Dev-friendly mounts (persistent data + read-only DAGs)
+    # Dev-friendly mounts (persistent data + writable DAGs)
     volumes:
       - dagu-data:/var/lib/dagu
-      - ./dags:/var/lib/dagu/dags:ro
+      - ./dags:/var/lib/dagu/dags
       # For Docker in Docker (DinD) support, mount the host Docker socket:
       - /var/run/docker.sock:/var/run/docker.sock
 

@@ -48,7 +48,7 @@ services:
       - "50055:50055"
     volumes:
       - dagu-data:/var/lib/dagu
-      - ./dags:/var/lib/dagu/dags:ro
+      - ./dags:/var/lib/dagu/dags
     networks: [dagu-net]
 
   # Dagu scheduler service (reads DAGs and enqueues runs)
@@ -69,7 +69,7 @@ services:
       - "8090:8090" # Scheduler health
     volumes:
       - dagu-data:/var/lib/dagu
-      - ./dags:/var/lib/dagu/dags:ro
+      - ./dags:/var/lib/dagu/dags
     networks: [dagu-net]
 
   # Dagu web UI / API server
@@ -97,7 +97,7 @@ services:
       - "8080:8080"
     volumes:
       - dagu-data:/var/lib/dagu
-      - ./dags:/var/lib/dagu/dags:ro
+      - ./dags:/var/lib/dagu/dags
     networks: [dagu-net]
 
   # Dagu worker (polls coordinator and executes tasks)
@@ -116,7 +116,7 @@ services:
     volumes:
       - dagu-data:/var/lib/dagu
       # Workers typically don't need DAG definitions, but sharing is harmless
-      - ./dags:/var/lib/dagu/dags:ro
+      - ./dags:/var/lib/dagu/dags
     networks: [dagu-net]
 
   # Grafana: visualize Prometheus metrics
