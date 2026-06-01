@@ -134,3 +134,54 @@ steps:
 		require.Contains(t, err.Error(), "failed to dispatch task")
 	})
 }
+
+func TestDAGExecutor_DistributedRetryPassesQueuedParams(t *testing.T) {
+	dispatcher := &capturingDispatcher{}
+	dagExecutor := scheduler.NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, "", nil)
+
+	dag := &core.DAG{
+		Name:           "queued-param-dag",
+		YamlData:       []byte("name: queued-param-dag\n"),
+		WorkerSelector: map[string]string{"type": "test-worker"},
+	}
+	previousStatus := &exec.DAGRunStatus{
+		Status:     core.Queued,
+		Params:     "content_hash=sha256:abc123",
+		ParamsList: []string{"content_hash=sha256:abc123"},
+	}
+
+	err := dagExecutor.ExecuteDAG(
+		context.Background(),
+		dag,
+		exec.DispatchOperationRetry,
+		"queued-param-run",
+		previousStatus,
+		core.TriggerTypeManual,
+		"",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, dispatcher.task)
+	require.Equal(t, "content_hash=sha256:abc123", dispatcher.task.Params)
+	require.NotNil(t, dispatcher.task.PreviousStatus)
+}
+
+type capturingDispatcher struct {
+	task *exec.DispatchTask
+}
+
+func (d *capturingDispatcher) Dispatch(_ context.Context, task *exec.DispatchTask) error {
+	d.task = task
+	return nil
+}
+
+func (d *capturingDispatcher) Cleanup(context.Context) error {
+	return nil
+}
+
+func (d *capturingDispatcher) GetDAGRunStatus(context.Context, string, string, *exec.DAGRunRef) (*exec.DAGRunStatusResult, error) {
+	return nil, nil
+}
+
+func (d *capturingDispatcher) RequestCancel(context.Context, string, string, *exec.DAGRunRef) error {
+	return nil
+}
