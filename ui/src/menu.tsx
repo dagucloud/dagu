@@ -10,7 +10,6 @@ import {
   useCanAccessSystemStatus,
   useCanViewEventLogs,
   useCanManageWebhooks,
-  useCanManageSecrets,
   useCanManageProfiles,
   useCanViewAuditLogs,
   useAuth,
@@ -31,7 +30,6 @@ import {
   Shield,
   Globe,
   History,
-  KeyRound,
   Moon,
   Network,
   PanelLeft,
@@ -474,7 +472,6 @@ export const mainListItems = React.forwardRef<
   const canManageIncidents = canManageNotifications;
   const canAccessSystemStatus = useCanAccessSystemStatus();
   const canManageWebhooks = useCanManageWebhooks();
-  const canManageSecrets = useCanManageSecrets();
   const canManageProfiles = useCanManageProfiles();
   const canViewEventLogs = useCanViewEventLogs();
   const canViewAuditLogs = useCanViewAuditLogs();
@@ -832,17 +829,6 @@ export const mainListItems = React.forwardRef<
               customColor={customColor}
             />
           </NavGroup>
-
-          {canManageSecrets && (
-            <NavItem
-              to="/secrets"
-              text="Secrets"
-              icon={<KeyRound size={18} />}
-              isOpen={isOpen}
-              onClick={onNavItemClick}
-              customColor={customColor}
-            />
-          )}
 
           {canManageProfiles && (
             <NavItem

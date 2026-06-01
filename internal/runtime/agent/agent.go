@@ -1615,8 +1615,7 @@ func (a *Agent) resolveProfile(ctx context.Context) ([]string, []string, error) 
 		return nil, nil, nil
 	}
 
-	resolver := profilepkg.NewResolver(a.profileStore, a.secretStore)
-	resolved, err := resolver.Resolve(ctx, a.profileName)
+	resolved, err := profilepkg.NewManager(a.profileStore, a.secretStore).Resolve(ctx, a.profileName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to resolve profile %q: %w", a.profileName, err)
 	}
@@ -1628,28 +1627,9 @@ func (a *Agent) resolveProfile(ctx context.Context) ([]string, []string, error) 
 		slog.String("profile", resolved.Name),
 		tag.Count(len(a.profileEntries)),
 	)
-	return profileEnvVars(resolved, profilepkg.EntryKindVariable),
-		profileEnvVars(resolved, profilepkg.EntryKindSecret),
+	return resolved.EnvVars(profilepkg.EntryKindVariable),
+		resolved.EnvVars(profilepkg.EntryKindSecret),
 		nil
-}
-
-func profileEnvVars(resolved *profilepkg.Resolved, kind profilepkg.EntryKind) []string {
-	if resolved == nil {
-		return nil
-	}
-	envs := make([]string, 0, len(resolved.Entries))
-	for _, entry := range resolved.Entries {
-		if entry.Kind != kind {
-			continue
-		}
-		switch kind {
-		case profilepkg.EntryKindVariable:
-			envs = append(envs, stringutil.NewKeyValue(entry.Key, resolved.Variables[entry.Key]).String())
-		case profilepkg.EntryKindSecret:
-			envs = append(envs, stringutil.NewKeyValue(entry.Key, resolved.Secrets[entry.Key]).String())
-		}
-	}
-	return envs
 }
 
 func profileEntries(resolved *profilepkg.Resolved) []exec.RuntimeProfileEntry {

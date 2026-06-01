@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/secret"
 )
 
@@ -25,6 +26,25 @@ type Resolved struct {
 type ResolvedEntry struct {
 	Key  string
 	Kind EntryKind
+}
+
+func (r *Resolved) EnvVars(kind EntryKind) []string {
+	if r == nil {
+		return nil
+	}
+	envs := make([]string, 0, len(r.Entries))
+	for _, entry := range r.Entries {
+		if entry.Kind != kind {
+			continue
+		}
+		switch kind {
+		case EntryKindVariable:
+			envs = append(envs, stringutil.NewKeyValue(entry.Key, r.Variables[entry.Key]).String())
+		case EntryKindSecret:
+			envs = append(envs, stringutil.NewKeyValue(entry.Key, r.Secrets[entry.Key]).String())
+		}
+	}
+	return envs
 }
 
 func NewResolver(profileStore Store, secretStore secret.Store) *Resolver {

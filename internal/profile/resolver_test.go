@@ -56,6 +56,8 @@ func TestResolverResolvesVariablesAndSecrets(t *testing.T) {
 		{Key: "LOG_LEVEL", Kind: profile.EntryKindVariable},
 		{Key: "CLICKHOUSE_DSN_PY", Kind: profile.EntryKindSecret},
 	}, resolved.Entries)
+	assert.Equal(t, []string{"LOG_LEVEL=debug"}, resolved.EnvVars(profile.EntryKindVariable))
+	assert.Equal(t, []string{"CLICKHOUSE_DSN_PY=clickhouse://local"}, resolved.EnvVars(profile.EntryKindSecret))
 }
 
 func TestResolverFailsForDisabledProfile(t *testing.T) {

@@ -79,9 +79,9 @@ export default function AdministrationPage(): React.ReactElement {
       title: 'Security',
       links: [
         {
-          to: '/secrets',
-          label: 'Secrets',
-          description: 'Manage secret refs and values.',
+          to: '/profiles',
+          label: 'Profiles',
+          description: 'Manage runtime variables and secrets.',
         },
       ],
     },

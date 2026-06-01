@@ -237,11 +237,9 @@ func (a *API) SetRuntimeProfileVariable(ctx context.Context, request api.SetRunt
 		return api.SetRuntimeProfileVariable400JSONResponse(runtimeProfileBadRequest("Request body is required")), nil
 	}
 
-	actor := currentActorID(ctx)
-	if err := item.SetVariable(request.Key, request.Body.Value, actor, time.Now().UTC()); err != nil {
-		return api.SetRuntimeProfileVariable400JSONResponse(runtimeProfileBadRequest(err.Error())), nil
-	}
-	if err := a.profileStore.Update(ctx, item); err != nil {
+	updated, err := profilepkg.NewManager(a.profileStore, a.secretStore).
+		SetVariable(ctx, item, request.Key, request.Body.Value, currentActorID(ctx))
+	if err != nil {
 		if errors.Is(err, profilepkg.ErrNotFound) {
 			return api.SetRuntimeProfileVariable404JSONResponse(runtimeProfileNotFound()), nil
 		}
@@ -251,10 +249,6 @@ func (a *API) SetRuntimeProfileVariable(ctx context.Context, request api.SetRunt
 		return nil, fmt.Errorf("failed to update runtime profile variable: %w", err)
 	}
 
-	updated, err := a.profileStore.GetByName(ctx, item.Name)
-	if err != nil {
-		return nil, fmt.Errorf("failed to reload runtime profile: %w", err)
-	}
 	a.logAudit(ctx, audit.CategorySecret, "runtime_profile_variable_set", runtimeProfileAuditDetails(updated))
 
 	return api.SetRuntimeProfileVariable200JSONResponse(toRuntimeProfileResponse(updated)), nil
@@ -274,8 +268,12 @@ func (a *API) SetRuntimeProfileSecret(ctx context.Context, request api.SetRuntim
 	if request.Body == nil || request.Body.Value == nil || *request.Body.Value == "" {
 		return api.SetRuntimeProfileSecret400JSONResponse(runtimeProfileBadRequest("value must not be empty")), nil
 	}
+	if a.secretStore == nil {
+		return nil, secretStoreUnavailable()
+	}
 
-	updated, err := a.setRuntimeProfileSecret(ctx, item, request.Key, *request.Body.Value)
+	updated, err := profilepkg.NewManager(a.profileStore, a.secretStore).
+		SetSecret(ctx, item, request.Key, *request.Body.Value, currentActorID(ctx))
 	if err != nil {
 		if errors.Is(err, profilepkg.ErrNotFound) {
 			return api.SetRuntimeProfileSecret404JSONResponse(runtimeProfileNotFound()), nil
@@ -303,15 +301,13 @@ func (a *API) DeleteRuntimeProfileEntry(ctx context.Context, request api.DeleteR
 		return nil, err
 	}
 
-	if err := item.DeleteEntry(request.Key, currentActorID(ctx), time.Now().UTC()); err != nil {
+	if err := profilepkg.NewManager(a.profileStore, a.secretStore).
+		DeleteEntry(ctx, item, request.Key, currentActorID(ctx)); err != nil {
 		if errors.Is(err, profilepkg.ErrNotFound) {
 			return api.DeleteRuntimeProfileEntry404JSONResponse(runtimeProfileNotFound()), nil
 		}
-		return api.DeleteRuntimeProfileEntry400JSONResponse(runtimeProfileBadRequest(err.Error())), nil
-	}
-	if err := a.profileStore.Update(ctx, item); err != nil {
-		if errors.Is(err, profilepkg.ErrNotFound) {
-			return api.DeleteRuntimeProfileEntry404JSONResponse(runtimeProfileNotFound()), nil
+		if isRuntimeProfileValidationError(err) {
+			return api.DeleteRuntimeProfileEntry400JSONResponse(runtimeProfileBadRequest(err.Error())), nil
 		}
 		return nil, fmt.Errorf("failed to delete runtime profile entry: %w", err)
 	}
@@ -355,120 +351,6 @@ func (a *API) getRuntimeProfileForManage(ctx context.Context, name string) (*pro
 	return item, nil
 }
 
-func (a *API) setRuntimeProfileSecret(ctx context.Context, item *profilepkg.Profile, key, value string) (*profilepkg.Profile, error) {
-	if a.secretStore == nil {
-		return nil, secretStoreUnavailable()
-	}
-	if err := profilepkg.ValidateKey(key); err != nil {
-		return nil, err
-	}
-
-	now := time.Now().UTC()
-	actor := currentActorID(ctx)
-	ref := profilepkg.SecretRef(item.Name, key)
-	sec, err := a.secretStore.GetByRef(ctx, "", ref)
-	if err == nil {
-		return a.setExistingRuntimeProfileSecret(ctx, item, key, value, sec.ID, actor, now)
-	}
-	if !errors.Is(err, secretpkg.ErrNotFound) {
-		return nil, err
-	}
-	return a.createRuntimeProfileSecret(ctx, item, key, value, ref, actor, now)
-}
-
-func (a *API) setExistingRuntimeProfileSecret(
-	ctx context.Context,
-	item *profilepkg.Profile,
-	key string,
-	value string,
-	secretID string,
-	actor string,
-	now time.Time,
-) (*profilepkg.Profile, error) {
-	original := item.Clone()
-	entry, ok := runtimeProfileEntry(item, key)
-	if ok && entry.Kind != profilepkg.EntryKindSecret {
-		return nil, fmt.Errorf("%w: %s", profilepkg.ErrDuplicateKey, key)
-	}
-
-	profileNeedsUpdate := !ok || entry.SecretID != secretID
-	if profileNeedsUpdate {
-		if err := item.SetSecret(key, secretID, actor, now); err != nil {
-			return nil, err
-		}
-		if err := a.profileStore.Update(ctx, item); err != nil {
-			return nil, err
-		}
-	}
-
-	if _, err := a.secretStore.WriteValue(ctx, secretID, secretpkg.WriteValueInput{
-		Value:     value,
-		CreatedBy: actor,
-		CreatedAt: now,
-	}); err != nil {
-		if profileNeedsUpdate {
-			if restoreErr := a.profileStore.Update(context.WithoutCancel(ctx), original); restoreErr != nil {
-				return nil, fmt.Errorf("failed to write runtime profile secret: %w; failed to restore profile mapping: %v", err, restoreErr)
-			}
-		}
-		return nil, err
-	}
-
-	return a.profileStore.GetByName(ctx, item.Name)
-}
-
-func (a *API) createRuntimeProfileSecret(
-	ctx context.Context,
-	item *profilepkg.Profile,
-	key string,
-	value string,
-	ref string,
-	actor string,
-	now time.Time,
-) (*profilepkg.Profile, error) {
-	if entry, ok := runtimeProfileEntry(item, key); ok && entry.Kind != profilepkg.EntryKindSecret {
-		return nil, fmt.Errorf("%w: %s", profilepkg.ErrDuplicateKey, key)
-	}
-
-	sec, err := secretpkg.New(secretpkg.CreateInput{
-		Workspace:    "",
-		Ref:          ref,
-		Description:  fmt.Sprintf("Runtime profile %s secret %s", item.Name, key),
-		ProviderType: secretpkg.ProviderDaguManaged,
-		CreatedBy:    actor,
-	}, now)
-	if err != nil {
-		return nil, err
-	}
-	if err := a.secretStore.Create(ctx, sec, &secretpkg.WriteValueInput{
-		Value:     value,
-		CreatedBy: actor,
-		CreatedAt: now,
-	}); err != nil {
-		return nil, err
-	}
-
-	if err := item.SetSecret(key, sec.ID, actor, now); err != nil {
-		_ = a.secretStore.Delete(context.WithoutCancel(ctx), sec.ID)
-		return nil, err
-	}
-	if err := a.profileStore.Update(ctx, item); err != nil {
-		_ = a.secretStore.Delete(context.WithoutCancel(ctx), sec.ID)
-		return nil, err
-	}
-
-	return a.profileStore.GetByName(ctx, item.Name)
-}
-
-func runtimeProfileEntry(item *profilepkg.Profile, key string) (profilepkg.Entry, bool) {
-	for _, entry := range item.Entries {
-		if entry.Key == key {
-			return entry, true
-		}
-	}
-	return profilepkg.Entry{}, false
-}
-
 func (a *API) runProfileName(ctx context.Context, raw *api.RuntimeProfileName) (string, error) {
 	if raw == nil {
 		return "", nil
@@ -488,30 +370,30 @@ func (a *API) ensureRunnableRuntimeProfile(ctx context.Context, name string) (st
 	if a.profileStore == nil {
 		return "", profileStoreUnavailable()
 	}
-	if err := profilepkg.ValidateName(trimmed); err != nil {
+	item, err := profilepkg.NewManager(a.profileStore, a.secretStore).EnsureRunnable(ctx, trimmed)
+	if errors.Is(err, profilepkg.ErrInvalidName) {
 		return "", &Error{
 			HTTPStatus: http.StatusBadRequest,
 			Code:       api.ErrorCodeBadRequest,
 			Message:    err.Error(),
 		}
 	}
-	item, err := a.profileStore.GetByName(ctx, trimmed)
-	if err != nil {
-		if errors.Is(err, profilepkg.ErrNotFound) {
-			return "", &Error{
-				HTTPStatus: http.StatusNotFound,
-				Code:       api.ErrorCodeNotFound,
-				Message:    fmt.Sprintf("runtime profile %s not found", trimmed),
-			}
+	if errors.Is(err, profilepkg.ErrNotFound) {
+		return "", &Error{
+			HTTPStatus: http.StatusNotFound,
+			Code:       api.ErrorCodeNotFound,
+			Message:    fmt.Sprintf("runtime profile %s not found", trimmed),
 		}
-		return "", err
 	}
-	if item.Status == profilepkg.StatusDisabled {
+	if errors.Is(err, profilepkg.ErrDisabled) {
 		return "", &Error{
 			HTTPStatus: http.StatusBadRequest,
 			Code:       api.ErrorCodeBadRequest,
 			Message:    fmt.Sprintf("runtime profile %s is disabled", trimmed),
 		}
+	}
+	if err != nil {
+		return "", err
 	}
 	if item.Protected {
 		if err := a.requireAdmin(ctx); err != nil {

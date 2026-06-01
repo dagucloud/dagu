@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/profile"
-	secretpkg "github.com/dagucloud/dagu/internal/secret"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -208,13 +207,11 @@ func profileSetVarCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		if err := item.SetVariable(args[1], args[2], profileCLIActor, time.Now().UTC()); err != nil {
+		updated, err := profile.NewManager(store, nil).SetVariable(ctx, item, args[1], args[2], profileCLIActor)
+		if err != nil {
 			return err
 		}
-		if err := store.Update(ctx, item); err != nil {
-			return err
-		}
-		fmt.Printf("%s %s\n", item.Name, args[1])
+		fmt.Printf("%s %s\n", updated.Name, args[1])
 		return nil
 	})
 }
@@ -237,17 +234,12 @@ func profileSetSecretCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		secretID, err := upsertRuntimeProfileSecret(ctx, stores.SecretStore, item.Name, args[1], value)
+		updated, err := profile.NewManager(profileStore, stores.SecretStore).
+			SetSecret(ctx, item, args[1], value, profileCLIActor)
 		if err != nil {
 			return err
 		}
-		if err := item.SetSecret(args[1], secretID, profileCLIActor, time.Now().UTC()); err != nil {
-			return err
-		}
-		if err := profileStore.Update(ctx, item); err != nil {
-			return err
-		}
-		fmt.Printf("%s %s\n", item.Name, args[1])
+		fmt.Printf("%s %s\n", updated.Name, args[1])
 		return nil
 	})
 }
@@ -292,10 +284,7 @@ func profileDeleteKeyCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		if err := item.DeleteEntry(args[1], profileCLIActor, time.Now().UTC()); err != nil {
-			return err
-		}
-		if err := store.Update(ctx, item); err != nil {
+		if err := profile.NewManager(store, nil).DeleteEntry(ctx, item, args[1], profileCLIActor); err != nil {
 			return err
 		}
 		fmt.Printf("%s %s\n", item.Name, args[1])
@@ -345,49 +334,4 @@ func getRuntimeProfileForUpdate(ctx *Context, name string) (profile.Store, *prof
 		return nil, nil, err
 	}
 	return store, item, nil
-}
-
-func upsertRuntimeProfileSecret(ctx *Context, store secretpkg.Store, profileName, key, value string) (string, error) {
-	if err := profile.ValidateKey(key); err != nil {
-		return "", err
-	}
-	if value == "" {
-		return "", fmt.Errorf("secret value must not be empty")
-	}
-	ref := runtimeProfileSecretRef(profileName, key)
-	now := time.Now().UTC()
-	if existing, err := store.GetByRef(ctx, "", ref); err == nil {
-		_, err := store.WriteValue(ctx, existing.ID, secretpkg.WriteValueInput{
-			Value:     value,
-			CreatedBy: profileCLIActor,
-			CreatedAt: now,
-		})
-		if err != nil {
-			return "", err
-		}
-		return existing.ID, nil
-	} else if !errors.Is(err, secretpkg.ErrNotFound) {
-		return "", err
-	}
-
-	sec, err := secretpkg.New(secretpkg.CreateInput{
-		Ref:          ref,
-		ProviderType: secretpkg.ProviderDaguManaged,
-		CreatedBy:    profileCLIActor,
-	}, now)
-	if err != nil {
-		return "", err
-	}
-	if err := store.Create(ctx, sec, &secretpkg.WriteValueInput{
-		Value:     value,
-		CreatedBy: profileCLIActor,
-		CreatedAt: now,
-	}); err != nil {
-		return "", err
-	}
-	return sec.ID, nil
-}
-
-func runtimeProfileSecretRef(profileName, key string) string {
-	return profile.SecretRef(profileName, key)
 }
