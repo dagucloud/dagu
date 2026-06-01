@@ -8,7 +8,7 @@ services:
     ports:
       - "8080:8080"
 
-    entrypoint: [] # Override any default entrypoint for Docker in Docker (DinD) support
+    entrypoint: ["/usr/local/bin/tini", "-g", "--"] # Preserve PID 1 reaping while running as root for Docker in Docker (DinD) support
 
     # Default command: run all-in-one (server + scheduler + coordinator in-process)
     # You may override this at runtime, e.g.:

@@ -32,7 +32,7 @@ spec:
         - name: worker
           image: "{{ $.Values.image.repository }}:{{ $.Values.image.tag }}"
           imagePullPolicy: {{ $.Values.image.pullPolicy }}
-          command:
+          args:
             - dagu
             - worker
             - --config

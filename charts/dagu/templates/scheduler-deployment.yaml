@@ -24,7 +24,7 @@ spec:
         - name: scheduler
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: 
+          args:
             - dagu
             - scheduler
             - --config

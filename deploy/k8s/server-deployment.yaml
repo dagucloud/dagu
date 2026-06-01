@@ -23,7 +23,7 @@ spec:
         # Use official latest image
         image: ghcr.io/dagucloud/dagu:latest
         imagePullPolicy: IfNotPresent
-        command: ["dagu", "start-all"]
+        args: ["dagu", "start-all"]
         ports:
         - containerPort: 8080
           name: http

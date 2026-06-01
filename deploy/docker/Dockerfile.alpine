@@ -32,7 +32,8 @@ ARG DAGU_HOME="/var/lib/dagu"
 
 # Install common tools
 RUN apk update && \
-    apk add jq tzdata sudo shadow bash && \
+    apk add jq tzdata sudo shadow bash tini && \
+    ln -sf /sbin/tini /usr/local/bin/tini && \
     rm -rf /var/cache/apk/*
 
 COPY --from=go-builder /app/bin/dagu /usr/local/bin/
@@ -71,5 +72,5 @@ ENV PUID=${USER_UID}
 ENV PGID=${USER_GID}
 ENV DOCKER_GID=-1
 EXPOSE 8080
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/tini", "-g", "--", "/entrypoint.sh"]
 CMD ["dagu", "start-all"]
