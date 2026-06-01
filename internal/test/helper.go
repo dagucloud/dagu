@@ -36,8 +36,10 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/store"
 	runtimepkg "github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/agent"
+	runtimeexec "github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/frontend"
+	"github.com/dagucloud/dagu/internal/subflow"
 	"github.com/dagucloud/dagu/internal/workspace"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -784,9 +786,13 @@ func (d *DAG) Agent(opts ...AgentOption) *Agent {
 	helper.opts.DefaultExecMode = d.Config.DefaultExecMode
 	helper.opts.DAGRunLogDir = d.Config.Paths.LogDir
 	helper.opts.DAGRunArtifactDir = d.Config.Paths.ArtifactDir
-	if helper.opts.DispatcherFactory == nil {
-		helper.opts.DispatcherFactory = func(_ context.Context) (runtimepkg.Dispatcher, error) {
-			return coordinator.NewRuntimeDispatcher(d.ServiceRegistry, d.Config.Core.Peer)
+	if helper.opts.SubWorkflowRunnerFactory == nil {
+		helper.opts.SubWorkflowRunnerFactory = func(_ context.Context) (runtimeexec.SubWorkflowRunner, error) {
+			dispatcher, err := coordinator.NewRuntimeDispatcher(d.ServiceRegistry, d.Config.Core.Peer)
+			if err != nil {
+				return nil, err
+			}
+			return subflow.New(dispatcher, d.Config.DefaultExecMode), nil
 		}
 	}
 

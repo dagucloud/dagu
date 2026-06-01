@@ -49,6 +49,7 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime/builtin/docker"
 	"github.com/dagucloud/dagu/internal/runtime/builtin/s3"
 	"github.com/dagucloud/dagu/internal/runtime/builtin/ssh"
+	runtimeexec "github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/runtime/resourcelimit"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	secretpkg "github.com/dagucloud/dagu/internal/secret"
@@ -186,8 +187,8 @@ type Agent struct {
 	// When nil, status is written to local filesystem via DAGRunAttempt.
 	statusPusher StatusPusher
 
-	// dispatcherFactory creates a dispatcher for distributed child DAG execution.
-	dispatcherFactory DispatcherFactory
+	// subWorkflowRunnerFactory creates a runner for distributed child workflows.
+	subWorkflowRunnerFactory SubWorkflowRunnerFactory
 
 	// logWriterFactory is used to create log writers for step output.
 	// When nil, logs are written to local filesystem.
@@ -258,8 +259,8 @@ func defaultSocketServerFactory(addr string, handlerFunc sock.HTTPHandlerFunc) (
 // ArtifactFinalizer uploads or persists artifacts before the final terminal status is written.
 type ArtifactFinalizer = runtime.ArtifactFinalizer
 
-// DispatcherFactory creates a dispatcher for distributed child DAG execution.
-type DispatcherFactory func(ctx context.Context) (runtime.Dispatcher, error)
+// SubWorkflowRunnerFactory creates a runner for distributed child workflows.
+type SubWorkflowRunnerFactory func(ctx context.Context) (runtimeexec.SubWorkflowRunner, error)
 
 // Options is the configuration for the Agent.
 type Options struct {
@@ -287,8 +288,8 @@ type Options struct {
 	// StatusPusher is used to push status updates to a remote coordinator.
 	// When nil, status is written to local filesystem via DAGRunAttempt.
 	StatusPusher StatusPusher
-	// DispatcherFactory creates dispatchers for distributed child DAG execution.
-	DispatcherFactory DispatcherFactory
+	// SubWorkflowRunnerFactory creates a runner for distributed child workflows.
+	SubWorkflowRunnerFactory SubWorkflowRunnerFactory
 	// LogWriterFactory is used to create log writers for step output.
 	// When nil, logs are written to local filesystem.
 	LogWriterFactory exec.LogWriterFactory
@@ -382,7 +383,7 @@ func New(
 		peerConfig:                 opts.PeerConfig,
 		workerID:                   opts.WorkerID,
 		statusPusher:               opts.StatusPusher,
-		dispatcherFactory:          opts.DispatcherFactory,
+		subWorkflowRunnerFactory:   opts.SubWorkflowRunnerFactory,
 		logWriterFactory:           opts.LogWriterFactory,
 		queuedRun:                  opts.QueuedRun,
 		attemptID:                  opts.AttemptID,
@@ -553,7 +554,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	// Create a new environment for the dag-run.
 	dbClient := newDBClient(a.dagRunStore, a.dagStore)
 
-	dispatcher, err := a.createDispatcher(ctx)
+	subWorkflowRunner, err := a.createSubWorkflowRunner(ctx)
 	if err != nil {
 		return err
 	}
@@ -562,7 +563,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		runtime.WithDatabase(dbClient),
 		runtime.WithRootDAGRun(a.rootDAGRun),
 		runtime.WithParams(a.dag.Params),
-		runtime.WithCoordinator(dispatcher),
 		runtime.WithSecrets(secretEnvs),
 		runtime.WithDefaultExecMode(a.defaultExecMode),
 	}
@@ -595,6 +595,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		contextOpts = append(contextOpts, runtime.WithLogWriterFactory(a.logWriterFactory))
 	}
 	ctx = runtime.NewContext(ctx, a.dag, a.dagRunID, a.logFile, contextOpts...)
+	ctx = runtimeexec.WithSubWorkflowRunner(ctx, subWorkflowRunner)
 
 	// Inject agent stores into context via context.Value.
 	// This avoids a backwards dependency from the execution context to the agent package.
@@ -635,6 +636,14 @@ func (a *Agent) Run(ctx context.Context) error {
 		)
 	}
 	ctx = logger.WithValues(ctx, logFields...)
+
+	if cleaner, ok := subWorkflowRunner.(interface{ Cleanup(context.Context) error }); ok {
+		defer func() {
+			if err := cleaner.Cleanup(context.WithoutCancel(ctx)); err != nil {
+				logger.Warn(ctx, "Failed to cleanup sub-workflow runner", tag.Error(err))
+			}
+		}()
+	}
 
 	// Handle dry execution.
 	if a.dry {
@@ -968,12 +977,6 @@ func (a *Agent) Run(ctx context.Context) error {
 	close(progressCh)
 	<-progressDone
 	progressDrained = true
-
-	if dispatcher != nil {
-		if err := dispatcher.Cleanup(ctx); err != nil {
-			logger.Warn(ctx, "Failed to cleanup dispatcher", tag.Error(err))
-		}
-	}
 
 	// Update the finished status to the runstore database.
 	finishedStatus := a.Status(ctx)
@@ -1561,15 +1564,15 @@ func (a *Agent) newRunner(attempt exec.DAGRunAttempt) *runtime.Runner {
 	return runtime.New(cfg)
 }
 
-func (a *Agent) createDispatcher(ctx context.Context) (runtime.Dispatcher, error) {
-	if a.dispatcherFactory == nil {
+func (a *Agent) createSubWorkflowRunner(ctx context.Context) (runtimeexec.SubWorkflowRunner, error) {
+	if a.subWorkflowRunnerFactory == nil {
 		if a.registry != nil {
-			logger.Debug(ctx, "Dispatcher factory is not configured; running in local-only mode")
+			logger.Debug(ctx, "Sub-workflow runner factory is not configured; running in local-only mode")
 		}
 		return nil, nil
 	}
 
-	return a.dispatcherFactory(ctx)
+	return a.subWorkflowRunnerFactory(ctx)
 }
 
 // resolveSecrets resolves all secrets defined in the DAG and returns them as
