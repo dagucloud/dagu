@@ -18,6 +18,9 @@ spec:
         app: dagu
         component: worker
     spec:
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
       containers:
       - name: dagu
         # Use official latest image

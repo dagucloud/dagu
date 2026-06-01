@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 const tiniEntrypoint = `ENTRYPOINT ["/usr/local/bin/tini", "-g", "--", "/entrypoint.sh"]`
@@ -30,12 +32,11 @@ func TestDockerfilesRunEntrypointUnderTini(t *testing.T) {
 			t.Parallel()
 
 			content := readFile(t, filepath.Join(root, file))
-			if !strings.Contains(content, tiniEntrypoint) {
-				t.Fatalf("%s must run /entrypoint.sh under tini", file)
-			}
-			if !strings.Contains(content, "tini \\") && !strings.Contains(content, "tini &&") {
-				t.Fatalf("%s must install tini in the final image", file)
-			}
+			require.Contains(t, content, tiniEntrypoint, "%s must run /entrypoint.sh under tini", file)
+			require.True(t,
+				strings.Contains(content, "tini \\") || strings.Contains(content, "tini &&"),
+				"%s must install tini in the final image", file,
+			)
 		})
 	}
 }
@@ -58,12 +59,14 @@ func TestKubernetesDaguContainersPreserveImageEntrypoint(t *testing.T) {
 			t.Parallel()
 
 			content := readFile(t, filepath.Join(root, file))
-			if strings.Contains(content, "\n          command:") || strings.Contains(content, "\n        command:") {
-				t.Fatalf("%s must use args so the image entrypoint remains active", file)
-			}
-			if !strings.Contains(content, "\n          args:") && !strings.Contains(content, "\n        args:") {
-				t.Fatalf("%s must pass the Dagu command through args", file)
-			}
+			require.False(t,
+				strings.Contains(content, "\n          command:") || strings.Contains(content, "\n        command:"),
+				"%s must use args so the image entrypoint remains active", file,
+			)
+			require.True(t,
+				strings.Contains(content, "\n          args:") || strings.Contains(content, "\n        args:"),
+				"%s must pass the Dagu command through args", file,
+			)
 		})
 	}
 }
@@ -73,21 +76,15 @@ func TestDockerComposeEntrypointOverridesPreserveTini(t *testing.T) {
 
 	root := repoRoot(t)
 	content := readFile(t, filepath.Join(root, "deploy/docker/compose.minimal.yaml"))
-	if strings.Contains(content, "entrypoint: []") {
-		t.Fatal("compose.minimal.yaml must not clear the image entrypoint without preserving tini")
-	}
-	if !strings.Contains(content, `entrypoint: ["/usr/local/bin/tini", "-g", "--"]`) {
-		t.Fatal("compose.minimal.yaml must keep tini as PID 1 when overriding the image entrypoint")
-	}
+	require.NotContains(t, content, "entrypoint: []", "compose.minimal.yaml must not clear the image entrypoint without preserving tini")
+	require.Contains(t, content, `entrypoint: ["/usr/local/bin/tini", "-g", "--"]`, "compose.minimal.yaml must keep tini as PID 1 when overriding the image entrypoint")
 }
 
 func repoRoot(t *testing.T) string {
 	t.Helper()
 
 	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("failed to resolve test file path")
-	}
+	require.True(t, ok, "failed to resolve test file path")
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }
 
@@ -95,8 +92,6 @@ func readFile(t *testing.T, path string) string {
 	t.Helper()
 
 	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
+	require.NoError(t, err, "read %s", path)
 	return string(data)
 }
