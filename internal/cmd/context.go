@@ -594,7 +594,10 @@ func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.
 		if err != nil {
 			return nil, err
 		}
-		return subflow.New(dispatcher, c.Config.DefaultExecMode), nil
+		return subflow.NewRouter(
+			subflow.New(dispatcher, c.Config.DefaultExecMode),
+			subflow.NewLocalCLI(),
+		), nil
 	}
 }
 

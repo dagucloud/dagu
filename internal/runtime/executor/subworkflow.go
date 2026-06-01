@@ -6,6 +6,7 @@ package executor
 import (
 	"context"
 
+	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
@@ -44,6 +45,7 @@ type SubWorkflowCancelRequest struct {
 	DAG        *core.DAG
 	RootDAGRun exec.DAGRunRef
 	RunID      string
+	Intent     cmdutil.TerminationIntent
 }
 
 // SubWorkflowWorkspace carries an immutable child workflow workspace.

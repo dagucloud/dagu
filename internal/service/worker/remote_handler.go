@@ -613,7 +613,10 @@ func (h *remoteTaskHandler) executeDAGRun(
 			if err != nil {
 				return nil, err
 			}
-			return subflow.New(dispatcher, h.config.DefaultExecMode), nil
+			return subflow.NewRouter(
+				subflow.New(dispatcher, h.config.DefaultExecMode),
+				subflow.NewLocalCLI(),
+			), nil
 		},
 		RootDAGRun:        root,
 		PeerConfig:        h.peerConfig,
