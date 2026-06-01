@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package remote
+package coordreport
 
 import (
 	"context"
@@ -13,9 +13,12 @@ import (
 	"sync"
 
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
+
+var _ runtime.ArtifactFinalizer = (*ArtifactUploader)(nil)
 
 // ArtifactUploader uploads DAG run artifacts to the coordinator in shared-nothing mode.
 type ArtifactUploader struct {

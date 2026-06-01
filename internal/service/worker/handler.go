@@ -161,6 +161,10 @@ func (e *taskHandler) sharedVolumeActionWorkDir(ctx context.Context, task *coord
 
 func (e *taskHandler) buildCommandSpec(ctx context.Context, task *coordinatorv1.Task, originalTarget string) (launcher.CmdSpec, error) {
 	dagName := dagNameHint(originalTarget)
+	dispatchTask, err := convert.ProtoToDispatchTask(task)
+	if err != nil {
+		return launcher.CmdSpec{}, fmt.Errorf("convert coordinator task: %w", err)
+	}
 
 	switch task.Operation {
 	case coordinatorv1.Operation_OPERATION_START:
@@ -168,7 +172,7 @@ func (e *taskHandler) buildCommandSpec(ctx context.Context, task *coordinatorv1.
 		if err != nil {
 			return launcher.CmdSpec{}, err
 		}
-		spec := e.subCmdBuilder.TaskStart(task, hints.env, dagName)
+		spec := e.subCmdBuilder.TaskStart(dispatchTask, hints.env, dagName)
 		return withDefaultWorkingDir(spec, hints.defaultWorkingDir), nil
 
 	case coordinatorv1.Operation_OPERATION_RETRY:
@@ -177,10 +181,10 @@ func (e *taskHandler) buildCommandSpec(ctx context.Context, task *coordinatorv1.
 			return launcher.CmdSpec{}, err
 		}
 		if isQueueDispatchTask(task) {
-			spec := e.subCmdBuilder.QueueDispatchTaskRetry(task, hints.env, dagName)
+			spec := e.subCmdBuilder.QueueDispatchTaskRetry(dispatchTask, hints.env, dagName)
 			return withDefaultWorkingDir(spec, hints.defaultWorkingDir), nil
 		}
-		spec := e.subCmdBuilder.TaskRetry(task, hints.env, dagName)
+		spec := e.subCmdBuilder.TaskRetry(dispatchTask, hints.env, dagName)
 		return withDefaultWorkingDir(spec, hints.defaultWorkingDir), nil
 
 	case coordinatorv1.Operation_OPERATION_UNSPECIFIED:

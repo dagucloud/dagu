@@ -25,9 +25,9 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
 	"github.com/dagucloud/dagu/internal/proto/convert"
-	"github.com/dagucloud/dagu/internal/runtime/remote"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
+	"github.com/dagucloud/dagu/internal/service/worker/coordreport"
 	"github.com/dagucloud/dagu/internal/test"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -309,8 +309,8 @@ type mockRemoteCoordinatorClient struct {
 	StreamLogsToFunc      func(ctx context.Context, owner exec.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error)
 	StreamArtifactsFunc   func(ctx context.Context) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error)
 	StreamArtifactsToFunc func(ctx context.Context, owner exec.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error)
-	GetDAGRunStatusFunc   func(ctx context.Context, dagName, dagRunID string, rootRef *exec.DAGRunRef) (*coordinatorv1.GetDAGRunStatusResponse, error)
-	DispatchFunc          func(ctx context.Context, task *coordinatorv1.Task) error
+	GetDAGRunStatusFunc   func(ctx context.Context, dagName, dagRunID string, rootRef *exec.DAGRunRef) (*exec.DAGRunStatusResult, error)
+	DispatchFunc          func(ctx context.Context, task *exec.DispatchTask) error
 	PollFunc              func(ctx context.Context, policy backoff.RetryPolicy, req *coordinatorv1.PollRequest) (*coordinatorv1.Task, error)
 	HeartbeatFunc         func(ctx context.Context, req *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error)
 	GetWorkersFunc        func(ctx context.Context) ([]*coordinatorv1.WorkerInfo, error)
@@ -330,8 +330,8 @@ func newMockRemoteCoordinatorClient() *mockRemoteCoordinatorClient {
 		StreamArtifactsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
 			return newMockStreamArtifactsClient(), nil
 		},
-		GetDAGRunStatusFunc: func(_ context.Context, _, _ string, _ *exec.DAGRunRef) (*coordinatorv1.GetDAGRunStatusResponse, error) {
-			return &coordinatorv1.GetDAGRunStatusResponse{Found: false}, nil
+		GetDAGRunStatusFunc: func(_ context.Context, _, _ string, _ *exec.DAGRunRef) (*exec.DAGRunStatusResult, error) {
+			return &exec.DAGRunStatusResult{Found: false}, nil
 		},
 		MetricsFunc: func() coordinator.Metrics {
 			return coordinator.Metrics{IsConnected: true}
@@ -395,14 +395,14 @@ func (m *mockRemoteCoordinatorClient) StreamArtifactsTo(ctx context.Context, own
 	return m.StreamArtifacts(ctx)
 }
 
-func (m *mockRemoteCoordinatorClient) GetDAGRunStatus(ctx context.Context, dagName, dagRunID string, rootRef *exec.DAGRunRef) (*coordinatorv1.GetDAGRunStatusResponse, error) {
+func (m *mockRemoteCoordinatorClient) GetDAGRunStatus(ctx context.Context, dagName, dagRunID string, rootRef *exec.DAGRunRef) (*exec.DAGRunStatusResult, error) {
 	if m.GetDAGRunStatusFunc != nil {
 		return m.GetDAGRunStatusFunc(ctx, dagName, dagRunID, rootRef)
 	}
-	return &coordinatorv1.GetDAGRunStatusResponse{Found: false}, nil
+	return &exec.DAGRunStatusResult{Found: false}, nil
 }
 
-func (m *mockRemoteCoordinatorClient) Dispatch(ctx context.Context, task *coordinatorv1.Task) error {
+func (m *mockRemoteCoordinatorClient) Dispatch(ctx context.Context, task *exec.DispatchTask) error {
 	if m.DispatchFunc != nil {
 		return m.DispatchFunc(ctx, task)
 	}
@@ -1281,6 +1281,7 @@ steps:
 			dagStore:          th.DAGStore,
 			dagRunMgr:         th.DAGRunMgr,
 			serviceRegistry:   th.ServiceRegistry,
+			peerConfig:        config.Peer{Insecure: true},
 			config:            th.Config,
 		}
 
@@ -1402,6 +1403,7 @@ steps:
 		dagStore:          th.DAGStore,
 		dagRunMgr:         th.DAGRunMgr,
 		serviceRegistry:   th.ServiceRegistry,
+		peerConfig:        config.Peer{Insecure: true},
 		config:            th.Config,
 	}
 
@@ -1934,15 +1936,16 @@ steps:
 		dagStore:          th.DAGStore,
 		dagRunMgr:         th.DAGRunMgr,
 		serviceRegistry:   th.ServiceRegistry,
+		peerConfig:        config.Peer{Insecure: true},
 		config:            th.Config,
 	}
 
 	// For a top-level run, root ID should match the dagRunID
 	dagRunID := "run-success-1"
 	root := exec.DAGRunRef{Name: dag.Name, ID: dagRunID}
-	statusPusher := remote.NewStatusPusher(client, "integration-test-worker")
-	logStreamer := remote.NewLogStreamer(client, "integration-test-worker", dagRunID, dag.Name, "", root)
-	artifactUploader := remote.NewArtifactUploader(client, "integration-test-worker", dagRunID, dag.Name, "", root)
+	statusPusher := coordreport.NewStatusPusher(client, "integration-test-worker")
+	logStreamer := coordreport.NewLogStreamer(client, "integration-test-worker", dagRunID, dag.Name, "", root)
+	artifactUploader := coordreport.NewArtifactUploader(client, "integration-test-worker", dagRunID, dag.Name, "", root)
 
 	// Call executeDAGRun - this should succeed and log completion
 	// For top-level runs, pass empty parent and ensure root matches dagRunID
@@ -1973,14 +1976,15 @@ func TestExecuteDAGRun_FailedExecutionStillUploadsArtifacts(t *testing.T) {
 		dagStore:          th.DAGStore,
 		dagRunMgr:         th.DAGRunMgr,
 		serviceRegistry:   th.ServiceRegistry,
+		peerConfig:        config.Peer{Insecure: true},
 		config:            th.Config,
 	}
 
 	dagRunID := "run-failure-artifacts-1"
 	root := exec.DAGRunRef{Name: dag.Name, ID: dagRunID}
-	statusPusher := remote.NewStatusPusher(client, "integration-test-worker")
-	logStreamer := remote.NewLogStreamer(client, "integration-test-worker", dagRunID, dag.Name, "", root)
-	artifactUploader := remote.NewArtifactUploader(client, "integration-test-worker", dagRunID, dag.Name, "", root)
+	statusPusher := coordreport.NewStatusPusher(client, "integration-test-worker")
+	logStreamer := coordreport.NewLogStreamer(client, "integration-test-worker", dagRunID, dag.Name, "", root)
+	artifactUploader := coordreport.NewArtifactUploader(client, "integration-test-worker", dagRunID, dag.Name, "", root)
 
 	err := handler.executeDAGRun(th.Context, dag.DAG, dagRunID, "", "", root, exec.DAGRunRef{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, nil)
 	require.Error(t, err)
@@ -2037,14 +2041,15 @@ func TestExecuteDAGRun_ArtifactUploadFailureMarksRunFailed(t *testing.T) {
 		dagStore:          th.DAGStore,
 		dagRunMgr:         th.DAGRunMgr,
 		serviceRegistry:   th.ServiceRegistry,
+		peerConfig:        config.Peer{Insecure: true},
 		config:            th.Config,
 	}
 
 	dagRunID := "run-upload-failure-1"
 	root := exec.DAGRunRef{Name: dag.Name, ID: dagRunID}
-	statusPusher := remote.NewStatusPusher(client, "integration-test-worker")
-	logStreamer := remote.NewLogStreamer(client, "integration-test-worker", dagRunID, dag.Name, "", root)
-	artifactUploader := remote.NewArtifactUploader(client, "integration-test-worker", dagRunID, dag.Name, "", root)
+	statusPusher := coordreport.NewStatusPusher(client, "integration-test-worker")
+	logStreamer := coordreport.NewLogStreamer(client, "integration-test-worker", dagRunID, dag.Name, "", root)
+	artifactUploader := coordreport.NewArtifactUploader(client, "integration-test-worker", dagRunID, dag.Name, "", root)
 
 	err := handler.executeDAGRun(th.Context, dag.DAG, dagRunID, "", "", root, exec.DAGRunRef{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, nil)
 	require.Error(t, err)
@@ -2093,14 +2098,15 @@ func TestExecuteDAGRun_FailedExecutionWithArtifactUploadFailurePreservesFailedSt
 		dagStore:          th.DAGStore,
 		dagRunMgr:         th.DAGRunMgr,
 		serviceRegistry:   th.ServiceRegistry,
+		peerConfig:        config.Peer{Insecure: true},
 		config:            th.Config,
 	}
 
 	dagRunID := "run-failure-upload-failure-1"
 	root := exec.DAGRunRef{Name: dag.Name, ID: dagRunID}
-	statusPusher := remote.NewStatusPusher(client, "integration-test-worker")
-	logStreamer := remote.NewLogStreamer(client, "integration-test-worker", dagRunID, dag.Name, "", root)
-	artifactUploader := remote.NewArtifactUploader(client, "integration-test-worker", dagRunID, dag.Name, "", root)
+	statusPusher := coordreport.NewStatusPusher(client, "integration-test-worker")
+	logStreamer := coordreport.NewLogStreamer(client, "integration-test-worker", dagRunID, dag.Name, "", root)
+	artifactUploader := coordreport.NewArtifactUploader(client, "integration-test-worker", dagRunID, dag.Name, "", root)
 
 	err := handler.executeDAGRun(th.Context, dag.DAG, dagRunID, "", "", root, exec.DAGRunRef{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, nil)
 	require.Error(t, err)

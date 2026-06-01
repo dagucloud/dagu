@@ -10,12 +10,11 @@ import (
 
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core"
-	exec1 "github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
 	"github.com/dagucloud/dagu/internal/test"
-	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"github.com/stretchr/testify/require"
 )
 
@@ -48,7 +47,7 @@ steps:
 		err := dagExecutor.HandleJob(
 			context.Background(),
 			dag,
-			coordinatorv1.Operation_OPERATION_START,
+			exec.DispatchOperationStart,
 			"handle-job-test-123",
 			core.TriggerTypeScheduler,
 			time.Time{},
@@ -63,7 +62,7 @@ steps:
 		err := dagExecutor.ExecuteDAG(
 			context.Background(),
 			dag,
-			coordinatorv1.Operation_OPERATION_START,
+			exec.DispatchOperationStart,
 			"execute-dag-test-456",
 			nil,
 			core.TriggerTypeScheduler,
@@ -72,6 +71,34 @@ steps:
 
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to dispatch task")
+	})
+
+	t.Run("ExecuteDAG_Distributed_RejectsInvalidOperation", func(t *testing.T) {
+		dag := loadDAGWithWorkerSelector(t)
+
+		err := dagExecutor.ExecuteDAG(
+			context.Background(),
+			dag,
+			exec.DispatchOperationUnspecified,
+			"execute-dag-invalid-operation",
+			nil,
+			core.TriggerTypeScheduler,
+			"",
+		)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "operation not specified")
+
+		err = dagExecutor.ExecuteDAG(
+			context.Background(),
+			dag,
+			exec.DispatchOperation(99),
+			"execute-dag-unknown-operation",
+			nil,
+			core.TriggerTypeScheduler,
+			"",
+		)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "unknown operation")
 	})
 
 	t.Run("HandleJob_Local_ExecutesDirectly", func(t *testing.T) {
@@ -83,7 +110,7 @@ steps:
 		err = localExecutor.HandleJob(
 			context.Background(),
 			dag,
-			coordinatorv1.Operation_OPERATION_START,
+			exec.DispatchOperationStart,
 			"handle-job-local-789",
 			core.TriggerTypeScheduler,
 			time.Time{},
@@ -97,7 +124,7 @@ steps:
 		err := dagExecutor.HandleJob(
 			context.Background(),
 			dag,
-			coordinatorv1.Operation_OPERATION_RETRY,
+			exec.DispatchOperationRetry,
 			"handle-job-retry-999",
 			core.TriggerTypeScheduler,
 			time.Time{},
@@ -117,7 +144,7 @@ func TestDAGExecutor_DistributedRetryPassesQueuedParams(t *testing.T) {
 		YamlData:       []byte("name: queued-param-dag\n"),
 		WorkerSelector: map[string]string{"type": "test-worker"},
 	}
-	previousStatus := &exec1.DAGRunStatus{
+	previousStatus := &exec.DAGRunStatus{
 		Status:     core.Queued,
 		Params:     "content_hash=sha256:abc123",
 		ParamsList: []string{"content_hash=sha256:abc123"},
@@ -126,7 +153,7 @@ func TestDAGExecutor_DistributedRetryPassesQueuedParams(t *testing.T) {
 	err := dagExecutor.ExecuteDAG(
 		context.Background(),
 		dag,
-		coordinatorv1.Operation_OPERATION_RETRY,
+		exec.DispatchOperationRetry,
 		"queued-param-run",
 		previousStatus,
 		core.TriggerTypeManual,
@@ -139,10 +166,10 @@ func TestDAGExecutor_DistributedRetryPassesQueuedParams(t *testing.T) {
 }
 
 type capturingDispatcher struct {
-	task *coordinatorv1.Task
+	task *exec.DispatchTask
 }
 
-func (d *capturingDispatcher) Dispatch(_ context.Context, task *coordinatorv1.Task) error {
+func (d *capturingDispatcher) Dispatch(_ context.Context, task *exec.DispatchTask) error {
 	d.task = task
 	return nil
 }
@@ -151,10 +178,10 @@ func (d *capturingDispatcher) Cleanup(context.Context) error {
 	return nil
 }
 
-func (d *capturingDispatcher) GetDAGRunStatus(context.Context, string, string, *exec1.DAGRunRef) (*coordinatorv1.GetDAGRunStatusResponse, error) {
+func (d *capturingDispatcher) GetDAGRunStatus(context.Context, string, string, *exec.DAGRunRef) (*exec.DAGRunStatusResult, error) {
 	return nil, nil
 }
 
-func (d *capturingDispatcher) RequestCancel(context.Context, string, string, *exec1.DAGRunRef) error {
+func (d *capturingDispatcher) RequestCancel(context.Context, string, string, *exec.DAGRunRef) error {
 	return nil
 }

@@ -4,10 +4,12 @@
 package store
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
+	"maps"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -15,16 +17,16 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis"
-	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
 
 const (
 	dispatchTaskStoreVersion      = 1
 	defaultDispatchReservationTTL = exec.DefaultStaleLeaseThreshold
+	minDispatchCleanupInterval    = 100 * time.Millisecond
+	maxDispatchCleanupInterval    = time.Second
 
 	dispatchPendingPrefix = "pending/"
 	dispatchClaimsPrefix  = "claims/"
@@ -40,8 +42,9 @@ type DispatchTaskStoreOption func(*DispatchTaskStore)
 // file collection rooted at the distributed directory uses the existing
 // on-disk layout directly.
 type DispatchTaskStore struct {
-	col            persis.Collection
-	reservationTTL time.Duration
+	col                      persis.Collection
+	reservationTTL           time.Duration
+	lastReservationCleanupAt time.Time
 	// mu serializes the in-process recycle+scan+claim sequence;
 	// per-record CompareAndDelete provides cross-process safety.
 	mu sync.Mutex
@@ -49,7 +52,7 @@ type DispatchTaskStore struct {
 
 type dispatchTaskPayload struct {
 	Version      int                      `json:"version"`
-	Task         *coordinatorv1.Task      `json:"task"`
+	Task         *exec.DispatchTask       `json:"task"`
 	TaskFileName string                   `json:"taskFileName"`
 	EnqueuedAt   int64                    `json:"enqueuedAt"`
 	ClaimToken   string                   `json:"claimToken,omitempty"`
@@ -58,6 +61,54 @@ type dispatchTaskPayload struct {
 	PollerID     string                   `json:"pollerId,omitempty"`
 	Owner        exec.CoordinatorEndpoint `json:"owner,omitzero"`
 }
+
+type legacyDAGRunStatusProto struct {
+	JSONData string `json:"json_data,omitempty"`
+}
+
+var legacyDispatchTaskJSONFields = map[string]string{
+	"root_dag_run_name":             "RootDAGRunName",
+	"root_dag_run_id":               "RootDAGRunID",
+	"parent_dag_run_name":           "ParentDAGRunName",
+	"parent_dag_run_id":             "ParentDAGRunID",
+	"operation":                     "Operation",
+	"dag_run_id":                    "DAGRunID",
+	"target":                        "Target",
+	"definition":                    "Definition",
+	"worker_id":                     "WorkerID",
+	"attempt_id":                    "AttemptID",
+	"attempt_key":                   "AttemptKey",
+	"step":                          "Step",
+	"params":                        "Params",
+	"queue_name":                    "QueueName",
+	"base_config":                   "BaseConfig",
+	"labels":                        "Labels",
+	"schedule_time":                 "ScheduleTime",
+	"source_file":                   "SourceFile",
+	"worker_selector":               "WorkerSelector",
+	"agent_snapshot":                "AgentSnapshot",
+	"external_step_retry":           "ExternalStepRetry",
+	"workspace_bundle_digest":       "WorkspaceBundleDigest",
+	"workspace_bundle_size":         "WorkspaceBundleSize",
+	"workspace_bundle_dag_path":     "WorkspaceBundleDAGPath",
+	"workspace_bundle_original_ref": "WorkspaceBundleOriginalRef",
+	"workspace_bundle_resolved_ref": "WorkspaceBundleResolvedRef",
+	"claim_token":                   "ClaimToken",
+}
+
+var legacyDispatchTaskJSONMarkers = func() [][]byte {
+	markers := make([][]byte, 0, len(legacyDispatchTaskJSONFields)+4)
+	for legacyKey := range legacyDispatchTaskJSONFields {
+		markers = append(markers, []byte(`"`+legacyKey+`"`))
+	}
+	markers = append(markers,
+		[]byte(`"previous_status"`),
+		[]byte(`"owner_coordinator_id"`),
+		[]byte(`"owner_coordinator_host"`),
+		[]byte(`"owner_coordinator_port"`),
+	)
+	return markers
+}()
 
 // WithDispatchReservationTTL sets how long pending and claimed dispatch
 // records can remain outstanding before cleanup recycles or removes them.
@@ -79,7 +130,7 @@ func NewDispatchTaskStore(col persis.Collection, opts ...DispatchTaskStoreOption
 	return s
 }
 
-func (s *DispatchTaskStore) Enqueue(ctx context.Context, task *coordinatorv1.Task) error {
+func (s *DispatchTaskStore) Enqueue(ctx context.Context, task *exec.DispatchTask) error {
 	if task == nil {
 		return fmt.Errorf("task is required")
 	}
@@ -107,15 +158,36 @@ func (s *DispatchTaskStore) ClaimNext(ctx context.Context, claim exec.DispatchTa
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := s.recycleExpiredReservations(ctx); err != nil {
-		return nil, err
-	}
-
-	recs, err := s.listDispatchRecords(ctx, dispatchPendingPrefix)
+	cleaned, err := s.maybeRecycleExpiredReservations(ctx)
 	if err != nil {
 		return nil, err
 	}
-	for _, rec := range recs {
+
+	claimed, err := s.claimNextPending(ctx, claim)
+	if err != nil || claimed != nil || cleaned {
+		return claimed, err
+	}
+
+	if err := s.recycleExpiredReservations(ctx); err != nil {
+		return nil, err
+	}
+	s.lastReservationCleanupAt = time.Now().UTC()
+	return s.claimNextPending(ctx, claim)
+}
+
+func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim exec.DispatchTaskClaim) (*exec.ClaimedDispatchTask, error) {
+	ids, err := s.listDispatchRecordIDs(ctx, dispatchPendingPrefix)
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range ids {
+		rec, err := s.col.Get(ctx, id)
+		if err != nil {
+			if errors.Is(err, persis.ErrNotFound) {
+				continue
+			}
+			return nil, fmt.Errorf("list record %q: %w", id, err)
+		}
 		payload, err := dispatchTaskPayloadFromRecord(rec)
 		if err != nil {
 			return nil, err
@@ -164,6 +236,19 @@ func (s *DispatchTaskStore) ClaimNext(ctx context.Context, claim exec.DispatchTa
 	return nil, nil
 }
 
+func (s *DispatchTaskStore) maybeRecycleExpiredReservations(ctx context.Context) (bool, error) {
+	now := time.Now().UTC()
+	if !s.lastReservationCleanupAt.IsZero() &&
+		now.Sub(s.lastReservationCleanupAt) < dispatchCleanupInterval(s.reservationTTL) {
+		return false, nil
+	}
+	if err := s.recycleExpiredReservations(ctx); err != nil {
+		return false, err
+	}
+	s.lastReservationCleanupAt = now
+	return true, nil
+}
+
 func (s *DispatchTaskStore) GetClaim(ctx context.Context, claimToken string) (*exec.ClaimedDispatchTask, error) {
 	rec, err := s.col.Get(ctx, claimDispatchRecordID(claimToken))
 	if err != nil {
@@ -187,6 +272,27 @@ func (s *DispatchTaskStore) GetClaim(ctx context.Context, claimToken string) (*e
 		PollerID:   payload.PollerID,
 		Owner:      payload.Owner,
 	}, nil
+}
+
+func (s *DispatchTaskStore) ReleaseClaim(ctx context.Context, claimToken string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rec, err := s.col.Get(ctx, claimDispatchRecordID(claimToken))
+	if err != nil {
+		if errors.Is(err, persis.ErrNotFound) {
+			return exec.ErrDispatchTaskNotFound
+		}
+		return err
+	}
+	payload, err := dispatchTaskPayloadFromRecord(rec)
+	if err != nil {
+		return err
+	}
+	if payload.Task == nil || payload.ClaimToken == "" || payload.ClaimToken != claimToken || payload.ClaimedAt == 0 {
+		return exec.ErrDispatchTaskNotFound
+	}
+	return s.releaseClaimRecord(ctx, rec, payload, time.Now().UTC())
 }
 
 func (s *DispatchTaskStore) DeleteClaim(ctx context.Context, claimToken string) error {
@@ -276,26 +382,7 @@ func (s *DispatchTaskStore) recycleExpiredClaims(ctx context.Context) error {
 			continue
 		}
 
-		payload.EnqueuedAt = now.UnixMilli()
-		payload.ClaimToken = ""
-		payload.ClaimedAt = 0
-		payload.WorkerID = ""
-		payload.PollerID = ""
-		payload.Owner = exec.CoordinatorEndpoint{}
-		payload.Task = clearDispatchTaskClaim(payload.Task)
-
-		pendingID, err := pendingDispatchRecordID(payload.TaskFileName)
-		if err != nil {
-			return err
-		}
-		pendingRec, err := s.newDispatchRecord(pendingID, payload, now, now)
-		if err != nil {
-			return err
-		}
-		if err := s.col.Put(ctx, pendingRec); err != nil {
-			return err
-		}
-		if err := s.col.CompareAndDelete(ctx, rec); err != nil {
+		if err := s.releaseClaimRecord(ctx, rec, payload, now); err != nil {
 			if errors.Is(err, persis.ErrNotFound) || errors.Is(err, persis.ErrConflict) {
 				continue
 			}
@@ -305,6 +392,35 @@ func (s *DispatchTaskStore) recycleExpiredClaims(ctx context.Context) error {
 	return nil
 }
 
+func (s *DispatchTaskStore) releaseClaimRecord(ctx context.Context, rec *persis.Record, payload dispatchTaskPayload, now time.Time) error {
+	releasedAt := now
+	enqueuedAt := now.UnixMilli()
+	if payload.ClaimedAt >= enqueuedAt {
+		enqueuedAt = payload.ClaimedAt + 1
+		releasedAt = time.UnixMilli(enqueuedAt).UTC()
+	}
+	payload.EnqueuedAt = enqueuedAt
+	payload.ClaimToken = ""
+	payload.ClaimedAt = 0
+	payload.WorkerID = ""
+	payload.PollerID = ""
+	payload.Owner = exec.CoordinatorEndpoint{}
+	payload.Task = clearDispatchTaskClaim(payload.Task)
+
+	pendingID, err := pendingDispatchRecordID(payload.TaskFileName)
+	if err != nil {
+		return err
+	}
+	pendingRec, err := s.newDispatchRecord(pendingID, payload, releasedAt, releasedAt)
+	if err != nil {
+		return err
+	}
+	if err := s.col.Put(ctx, pendingRec); err != nil {
+		return err
+	}
+	return s.col.CompareAndDelete(ctx, rec)
+}
+
 func (s *DispatchTaskStore) removePendingRecordsWithActiveClaims(ctx context.Context) error {
 	claimRecs, err := s.listDispatchRecords(ctx, dispatchClaimsPrefix)
 	if err != nil {
@@ -312,7 +428,7 @@ func (s *DispatchTaskStore) removePendingRecordsWithActiveClaims(ctx context.Con
 	}
 
 	now := time.Now().UTC()
-	activeTaskFiles := make(map[string]struct{}, len(claimRecs))
+	activeTaskFiles := make(map[string]time.Time, len(claimRecs))
 	for _, rec := range claimRecs {
 		payload, err := dispatchTaskPayloadFromRecord(rec)
 		if err != nil {
@@ -325,7 +441,9 @@ func (s *DispatchTaskStore) removePendingRecordsWithActiveClaims(ctx context.Con
 		if now.Sub(claimedAt) >= s.reservationTTL {
 			continue
 		}
-		activeTaskFiles[payload.TaskFileName] = struct{}{}
+		if prev, ok := activeTaskFiles[payload.TaskFileName]; !ok || claimedAt.After(prev) {
+			activeTaskFiles[payload.TaskFileName] = claimedAt
+		}
 	}
 	if len(activeTaskFiles) == 0 {
 		return nil
@@ -340,7 +458,12 @@ func (s *DispatchTaskStore) removePendingRecordsWithActiveClaims(ctx context.Con
 		if err != nil {
 			return err
 		}
-		if _, ok := activeTaskFiles[payload.TaskFileName]; !ok {
+		claimedAt, ok := activeTaskFiles[payload.TaskFileName]
+		if !ok {
+			continue
+		}
+		enqueuedAt := dispatchRecordTimestamp(payload.EnqueuedAt, rec.CreatedAt)
+		if enqueuedAt.After(claimedAt) {
 			continue
 		}
 		if err := s.col.CompareAndDelete(ctx, rec); err != nil {
@@ -418,6 +541,27 @@ func (s *DispatchTaskStore) listDispatchRecords(ctx context.Context, prefix stri
 	return recs, nil
 }
 
+func (s *DispatchTaskStore) listDispatchRecordIDs(ctx context.Context, prefix string) ([]string, error) {
+	if idCol, ok := s.col.(strictRecordIDsCollection); ok {
+		ids, err := idCol.RecordIDs(ctx, prefix)
+		if err != nil {
+			return nil, err
+		}
+		sort.Strings(ids)
+		return ids, nil
+	}
+
+	recs, err := s.listDispatchRecords(ctx, prefix)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(recs))
+	for _, rec := range recs {
+		ids = append(ids, rec.ID)
+	}
+	return ids, nil
+}
+
 func (s *DispatchTaskStore) putDispatchRecord(ctx context.Context, id string, payload dispatchTaskPayload, createdAt, updatedAt time.Time) error {
 	rec, err := s.newDispatchRecord(id, payload, createdAt, updatedAt)
 	if err != nil {
@@ -444,7 +588,123 @@ func dispatchTaskPayloadFromRecord(rec *persis.Record) (dispatchTaskPayload, err
 	if err := persis.Decode(rec, &payload); err != nil {
 		return dispatchTaskPayload{}, fmt.Errorf("dispatch task store: decode %q: %w", rec.ID, err)
 	}
+	if !hasLegacyDispatchTaskJSON(rec.Data) {
+		return payload, nil
+	}
+	task, err := legacyDispatchTaskFromRecord(rec.Data)
+	if err != nil {
+		return dispatchTaskPayload{}, fmt.Errorf("dispatch task store: decode legacy task %q: %w", rec.ID, err)
+	}
+	if task != nil {
+		payload.Task = task
+	}
 	return payload, nil
+}
+
+func hasLegacyDispatchTaskJSON(data []byte) bool {
+	for _, marker := range legacyDispatchTaskJSONMarkers {
+		if bytes.Contains(data, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func legacyDispatchTaskFromRecord(data []byte) (*exec.DispatchTask, error) {
+	var raw struct {
+		Task map[string]json.RawMessage `json:"task"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+	if len(raw.Task) == 0 {
+		return nil, nil
+	}
+
+	current := make(map[string]json.RawMessage, len(raw.Task))
+	var hasLegacyKeys bool
+	for legacyKey, currentKey := range legacyDispatchTaskJSONFields {
+		value, ok := raw.Task[legacyKey]
+		if !ok {
+			continue
+		}
+		hasLegacyKeys = true
+		current[currentKey] = value
+	}
+	if statusData, ok := raw.Task["previous_status"]; ok {
+		hasLegacyKeys = true
+		previousStatus, err := legacyPreviousStatusJSON(statusData)
+		if err != nil {
+			return nil, err
+		}
+		if len(previousStatus) > 0 {
+			current["PreviousStatus"] = previousStatus
+		}
+	}
+	owner, ok, err := legacyOwnerJSON(raw.Task)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		hasLegacyKeys = true
+		current["Owner"] = owner
+	}
+	if !hasLegacyKeys {
+		return nil, nil
+	}
+
+	encoded, err := json.Marshal(current)
+	if err != nil {
+		return nil, err
+	}
+	var task exec.DispatchTask
+	if err := json.Unmarshal(encoded, &task); err != nil {
+		return nil, err
+	}
+	return &task, nil
+}
+
+func legacyPreviousStatusJSON(data json.RawMessage) (json.RawMessage, error) {
+	var status legacyDAGRunStatusProto
+	if err := json.Unmarshal(data, &status); err != nil {
+		return nil, fmt.Errorf("decode previous status wrapper: %w", err)
+	}
+	if status.JSONData == "" {
+		return nil, nil
+	}
+	var decoded exec.DAGRunStatus
+	if err := json.Unmarshal([]byte(status.JSONData), &decoded); err != nil {
+		return nil, fmt.Errorf("decode previous status: %w", err)
+	}
+	return json.RawMessage(status.JSONData), nil
+}
+
+func legacyOwnerJSON(fields map[string]json.RawMessage) (json.RawMessage, bool, error) {
+	var owner exec.CoordinatorEndpoint
+	var ok bool
+	if err := decodeLegacyOwnerField(fields, "owner_coordinator_id", &owner.ID, &ok); err != nil {
+		return nil, false, err
+	}
+	if err := decodeLegacyOwnerField(fields, "owner_coordinator_host", &owner.Host, &ok); err != nil {
+		return nil, false, err
+	}
+	if err := decodeLegacyOwnerField(fields, "owner_coordinator_port", &owner.Port, &ok); err != nil {
+		return nil, false, err
+	}
+	if !ok {
+		return nil, false, nil
+	}
+	data, err := json.Marshal(owner)
+	return data, true, err
+}
+
+func decodeLegacyOwnerField[T any](fields map[string]json.RawMessage, key string, dst *T, ok *bool) error {
+	value, exists := fields[key]
+	if !exists {
+		return nil
+	}
+	*ok = true
+	return json.Unmarshal(value, dst)
 }
 
 func pendingDispatchRecordID(fileName string) (string, error) {
@@ -475,6 +735,17 @@ func normalizeDispatchReservationTTL(ttl time.Duration) time.Duration {
 	return ttl
 }
 
+func dispatchCleanupInterval(ttl time.Duration) time.Duration {
+	interval := normalizeDispatchReservationTTL(ttl) / 10
+	if interval < minDispatchCleanupInterval {
+		return minDispatchCleanupInterval
+	}
+	if interval > maxDispatchCleanupInterval {
+		return maxDispatchCleanupInterval
+	}
+	return interval
+}
+
 func dispatchRecordTimestamp(unixMillis int64, fallback time.Time) time.Time {
 	if unixMillis > 0 {
 		return time.UnixMilli(unixMillis).UTC()
@@ -485,42 +756,34 @@ func dispatchRecordTimestamp(unixMillis int64, fallback time.Time) time.Time {
 	return time.Now().UTC()
 }
 
-func cloneDispatchTask(task *coordinatorv1.Task) *coordinatorv1.Task {
+func cloneDispatchTask(task *exec.DispatchTask) *exec.DispatchTask {
 	if task == nil {
 		return nil
 	}
-	cloned, ok := proto.Clone(task).(*coordinatorv1.Task)
-	if !ok {
-		return nil
-	}
-	return cloned
+	cloned := *task
+	cloned.WorkerSelector = maps.Clone(task.WorkerSelector)
+	cloned.AgentSnapshot = append([]byte(nil), task.AgentSnapshot...)
+	return &cloned
 }
 
-func applyDispatchTaskClaim(task *coordinatorv1.Task, owner exec.CoordinatorEndpoint, claimToken string) (*coordinatorv1.Task, error) {
+func applyDispatchTaskClaim(task *exec.DispatchTask, owner exec.CoordinatorEndpoint, claimToken string) (*exec.DispatchTask, error) {
 	task = cloneDispatchTask(task)
 	if task == nil {
 		return nil, nil
 	}
-	if owner.Port < 0 || owner.Port > math.MaxInt32 {
-		return nil, fmt.Errorf("owner coordinator port out of range: %d", owner.Port)
-	}
-	task.OwnerCoordinatorId = owner.ID
-	task.OwnerCoordinatorHost = owner.Host
-	task.OwnerCoordinatorPort = int32(owner.Port)
+	task.Owner = owner
 	task.ClaimToken = claimToken
 	return task, nil
 }
 
-func clearDispatchTaskClaim(task *coordinatorv1.Task) *coordinatorv1.Task {
+func clearDispatchTaskClaim(task *exec.DispatchTask) *exec.DispatchTask {
 	task = cloneDispatchTask(task)
 	if task == nil {
 		return nil
 	}
-	task.OwnerCoordinatorId = ""
-	task.OwnerCoordinatorHost = ""
-	task.OwnerCoordinatorPort = 0
+	task.Owner = exec.CoordinatorEndpoint{}
 	task.ClaimToken = ""
-	task.WorkerId = ""
+	task.WorkerID = ""
 	return task
 }
 

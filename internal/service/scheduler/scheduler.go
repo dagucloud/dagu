@@ -25,7 +25,6 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/runtime"
-	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
 
 // Clock is a function that returns the current time.
@@ -206,7 +205,7 @@ func newScheduler(
 		Dispatch: func(ctx context.Context, dag *core.DAG, runID string, triggerType core.TriggerType, scheduleTime time.Time) error {
 			return dagExecutor.HandleJob(
 				ctx, dag,
-				coordinatorv1.Operation_OPERATION_START,
+				exec.DispatchOperationStart,
 				runID, triggerType, scheduleTime,
 			)
 		},

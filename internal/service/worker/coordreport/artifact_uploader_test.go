@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package remote
+package coordreport_test
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
+	"github.com/dagucloud/dagu/internal/service/worker/coordreport"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -116,7 +117,7 @@ func TestArtifactUploaderUploadDirIncludesEmptyFiles(t *testing.T) {
 		},
 	}
 
-	uploader := NewArtifactUploader(client, "worker-1", "run-123", "test-dag", "attempt-1", exec.DAGRunRef{})
+	uploader := coordreport.NewArtifactUploader(client, "worker-1", "run-123", "test-dag", "attempt-1", exec.DAGRunRef{})
 	err := uploader.UploadDir(context.Background(), dir)
 	require.NoError(t, err)
 
@@ -137,7 +138,7 @@ func TestArtifactUploaderUploadDirUsesSingleAttemptIDSnapshot(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "artifact.txt"), []byte("hello"), 0o600))
 
-	var uploader *ArtifactUploader
+	var uploader *coordreport.ArtifactUploader
 	var once sync.Once
 
 	stream := &mockStreamArtifactsClient{
@@ -156,7 +157,7 @@ func TestArtifactUploaderUploadDirUsesSingleAttemptIDSnapshot(t *testing.T) {
 		},
 	}
 
-	uploader = NewArtifactUploader(client, "worker-1", "run-123", "test-dag", "attempt-1", exec.DAGRunRef{})
+	uploader = coordreport.NewArtifactUploader(client, "worker-1", "run-123", "test-dag", "attempt-1", exec.DAGRunRef{})
 	err := uploader.UploadDir(context.Background(), dir)
 	require.NoError(t, err)
 

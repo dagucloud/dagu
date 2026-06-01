@@ -13,8 +13,6 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/output"
-	"github.com/dagucloud/dagu/internal/proto/convert"
-	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"golang.org/x/term"
 )
 
@@ -98,19 +96,14 @@ func (p *RemoteProgressDisplay) animationLoop() {
 }
 
 // Update updates the display with new status from coordinator.
-func (p *RemoteProgressDisplay) Update(protoStatus *coordinatorv1.DAGRunStatusProto) {
-	if protoStatus == nil {
+func (p *RemoteProgressDisplay) Update(status *exec.DAGRunStatus) {
+	if status == nil {
 		return
 	}
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Convert proto to execution status
-	status, err := convert.ProtoToDAGRunStatus(protoStatus)
-	if err != nil || status == nil {
-		return
-	}
 	p.lastStatus = status
 
 	// Capture worker ID if available and update header

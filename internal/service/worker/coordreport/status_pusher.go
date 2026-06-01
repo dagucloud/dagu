@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package remote
+package coordreport
 
 import (
 	"context"
@@ -9,9 +9,12 @@ import (
 
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/proto/convert"
+	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
+
+var _ runtime.StatusPusher = (*StatusPusher)(nil)
 
 // StatusPusher sends status updates to coordinator via gRPC
 type StatusPusher struct {
@@ -31,6 +34,14 @@ func (e *AttemptRejectedError) Error() string {
 		return "status rejected"
 	}
 	return fmt.Sprintf("status rejected: %s", e.Reason)
+}
+
+// AttemptRejectedReason returns the coordinator rejection reason.
+func (e *AttemptRejectedError) AttemptRejectedReason() string {
+	if e == nil {
+		return ""
+	}
+	return e.Reason
 }
 
 // NewStatusPusher creates a new StatusPusher

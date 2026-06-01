@@ -308,8 +308,16 @@ func (h *Handler) Poll(ctx context.Context, req *coordinatorv1.PollRequest) (*co
 			return nil, status.Error(codes.Internal, "failed to claim task: "+err.Error())
 		}
 		if claimed != nil && claimed.Task != nil {
-			claimed.Task.WorkerId = req.WorkerId
-			return &coordinatorv1.PollResponse{Task: claimed.Task}, nil
+			claimed.Task.WorkerID = req.WorkerId
+			task, err := convert.DispatchTaskToProto(claimed.Task)
+			if err != nil {
+				releaseCtx := context.WithoutCancel(ctx)
+				if releaseErr := h.dispatchTaskStore.ReleaseClaim(releaseCtx, claimed.ClaimToken); releaseErr != nil && !errors.Is(releaseErr, exec.ErrDispatchTaskNotFound) {
+					return nil, status.Error(codes.Internal, fmt.Sprintf("failed to encode claimed task: %v; failed to release task claim: %v", err, releaseErr))
+				}
+				return nil, status.Error(codes.Internal, "failed to encode claimed task: "+err.Error())
+			}
+			return &coordinatorv1.PollResponse{Task: task}, nil
 		}
 
 		select {
@@ -380,7 +388,12 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 	if err != nil {
 		return nil, status.Error(prepareAttemptErrorCode(err), "failed to prepare attempt: "+err.Error())
 	}
-	if err := h.dispatchTaskStore.Enqueue(ctx, req.Task); err != nil {
+	dispatchTask, err := convert.ProtoToDispatchTask(req.Task)
+	if err != nil {
+		h.markPreparedAttemptDispatchFailed(ctx, req.Task, prepared, err)
+		return nil, status.Error(codes.Internal, "failed to encode task: "+err.Error())
+	}
+	if err := h.dispatchTaskStore.Enqueue(ctx, dispatchTask); err != nil {
 		h.markPreparedAttemptDispatchFailed(ctx, req.Task, prepared, err)
 		return nil, status.Error(codes.Internal, "failed to enqueue task: "+err.Error())
 	}
@@ -845,7 +858,7 @@ func (h *Handler) GetWorkers(_ context.Context, _ *coordinatorv1.GetWorkersReque
 		if hb.Stats != nil {
 			workerInfo.TotalPollers = hb.Stats.TotalPollers
 			workerInfo.BusyPollers = hb.Stats.BusyPollers
-			workerInfo.RunningTasks = hb.Stats.RunningTasks
+			workerInfo.RunningTasks = convert.WorkerStatsToProto(hb.Stats).RunningTasks
 		}
 
 		workers = append(workers, workerInfo)
@@ -890,7 +903,7 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 		if err := h.workerHeartbeatStore.Upsert(ctx, exec.WorkerHeartbeatRecord{
 			WorkerID:        req.WorkerId,
 			Labels:          req.Labels,
-			Stats:           req.Stats,
+			Stats:           convert.ProtoToWorkerStats(req.Stats),
 			LastHeartbeatAt: receivedAt.UnixMilli(),
 		}); err != nil {
 			return nil, status.Error(codes.Internal, "failed to persist worker heartbeat: "+err.Error())
@@ -942,7 +955,11 @@ func (h *Handler) AckTaskClaim(ctx context.Context, req *coordinatorv1.AckTaskCl
 		return &coordinatorv1.AckTaskClaimResponse{Accepted: false, Error: "worker_id is required"}, nil
 	}
 
-	if err := h.distributedAttempts().recordTaskClaim(ctx, claimed.Task, workerID); err != nil {
+	task, err := convert.DispatchTaskToProto(claimed.Task)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to encode claimed task: "+err.Error())
+	}
+	if err := h.distributedAttempts().recordTaskClaim(ctx, task, workerID); err != nil {
 		return nil, status.Error(codes.Internal, "failed to create run lease: "+err.Error())
 	}
 	if err := h.dispatchTaskStore.DeleteClaim(ctx, req.ClaimToken); err != nil {

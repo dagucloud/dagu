@@ -45,7 +45,6 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/service/audit"
 	"github.com/dagucloud/dagu/internal/workspace"
-	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"github.com/goccy/go-yaml"
 	"github.com/goccy/go-yaml/parser"
 )
@@ -2627,7 +2626,7 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 		task := executor.CreateTask(
 			dag.Name,
 			string(dag.YamlData),
-			coordinatorv1.Operation_OPERATION_RETRY,
+			exec.DispatchOperationRetry,
 			retryDagRunID,
 			opts...,
 		)

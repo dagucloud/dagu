@@ -24,7 +24,6 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
-	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 )
 
 func TestDAGRunLeaseStore_UpsertTouchListAndDelete(t *testing.T) {
@@ -331,17 +330,17 @@ func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {
 	claimTimeout := 3 * time.Second
 	s := store.NewDispatchTaskStore(col, store.WithDispatchReservationTTL(claimTimeout))
 
-	require.NoError(t, s.Enqueue(ctx, &coordinatorv1.Task{
-		DagRunId:       "run-a",
+	require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
+		DAGRunID:       "run-a",
 		Target:         "dag-a",
-		AttemptId:      "attempt-a",
+		AttemptID:      "attempt-a",
 		AttemptKey:     "attempt-key-a",
 		WorkerSelector: map[string]string{"type": "gpu"},
 	}))
-	require.NoError(t, s.Enqueue(ctx, &coordinatorv1.Task{
-		DagRunId:       "run-b",
+	require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
+		DAGRunID:       "run-b",
 		Target:         "dag-b",
-		AttemptId:      "attempt-b",
+		AttemptID:      "attempt-b",
 		AttemptKey:     "attempt-key-b",
 		WorkerSelector: map[string]string{"type": "cpu"},
 	}))
@@ -354,8 +353,8 @@ func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, claimed)
-	assert.Equal(t, "run-b", claimed.Task.DagRunId)
-	assert.Equal(t, "coord-a", claimed.Task.OwnerCoordinatorId)
+	assert.Equal(t, "run-b", claimed.Task.DAGRunID)
+	assert.Equal(t, "coord-a", claimed.Task.Owner.ID)
 	assert.NotEmpty(t, claimed.Task.ClaimToken)
 
 	secondClaim, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
@@ -375,7 +374,7 @@ func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, gpuClaim)
-	assert.Equal(t, "run-a", gpuClaim.Task.DagRunId)
+	assert.Equal(t, "run-a", gpuClaim.Task.DAGRunID)
 
 	ageClaimedDispatchRecord(t, col, claimed.ClaimToken, 10*time.Second, 10*time.Second)
 
@@ -387,11 +386,145 @@ func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, reclaimed)
-	assert.Equal(t, "run-b", reclaimed.Task.DagRunId)
-	assert.Equal(t, "coord-b", reclaimed.Task.OwnerCoordinatorId)
+	assert.Equal(t, "run-b", reclaimed.Task.DAGRunID)
+	assert.Equal(t, "coord-b", reclaimed.Task.Owner.ID)
 
 	_, err = s.GetClaim(ctx, claimed.ClaimToken)
 	assert.ErrorIs(t, err, exec.ErrDispatchTaskNotFound)
+}
+
+func TestDispatchTaskStore_ClaimsLegacyProtoJSONTaskRecord(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dir := t.TempDir()
+	s := store.NewDispatchTaskStore(file.NewCollection(dir))
+
+	statusData, err := json.Marshal(exec.DAGRunStatus{
+		Name:     "dag-legacy",
+		DAGRunID: "run-legacy",
+		Status:   core.Running,
+	})
+	require.NoError(t, err)
+
+	fileName := "task_00000000000000000001_legacy.json"
+	writeJSONFile(t, filepath.Join(dir, "pending", fileName), map[string]any{
+		"version":      1,
+		"taskFileName": fileName,
+		"enqueuedAt":   time.Now().UTC().UnixMilli(),
+		"task": map[string]any{
+			"root_dag_run_name":             "root-dag",
+			"root_dag_run_id":               "root-run",
+			"parent_dag_run_name":           "parent-dag",
+			"parent_dag_run_id":             "parent-run",
+			"operation":                     int32(exec.DispatchOperationRetry),
+			"dag_run_id":                    "run-legacy",
+			"target":                        "dag-legacy",
+			"definition":                    "steps:\n  - run: echo legacy\n",
+			"worker_id":                     "worker-old",
+			"attempt_id":                    "attempt-legacy",
+			"attempt_key":                   "attempt-key-legacy",
+			"step":                          "step-a",
+			"params":                        "PARAM=value",
+			"queue_name":                    "queue-legacy",
+			"base_config":                   "env:\n  - BASE=1\n",
+			"labels":                        "team=ops",
+			"schedule_time":                 "2026-05-31T00:00:00Z",
+			"source_file":                   "/dags/legacy.yaml",
+			"worker_selector":               map[string]string{"type": "gpu"},
+			"agent_snapshot":                []byte{1, 2, 3},
+			"external_step_retry":           true,
+			"workspace_bundle_digest":       "sha256:legacy",
+			"workspace_bundle_size":         42,
+			"workspace_bundle_dag_path":     "legacy.yaml",
+			"workspace_bundle_original_ref": "main",
+			"workspace_bundle_resolved_ref": "abc123",
+			"owner_coordinator_id":          "coord-old",
+			"owner_coordinator_host":        "old.example.test",
+			"owner_coordinator_port":        int32(8090),
+			"claim_token":                   "claim-old",
+			"previous_status":               map[string]any{"json_data": string(statusData)},
+		},
+	})
+
+	claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		WorkerID: "worker-1",
+		PollerID: "poller-1",
+		Labels:   map[string]string{"type": "gpu"},
+		Owner:    exec.CoordinatorEndpoint{ID: "coord-new", Host: "new.example.test", Port: 9090},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	require.NotNil(t, claimed.Task)
+
+	assert.Equal(t, "root-dag", claimed.Task.RootDAGRunName)
+	assert.Equal(t, "root-run", claimed.Task.RootDAGRunID)
+	assert.Equal(t, "parent-dag", claimed.Task.ParentDAGRunName)
+	assert.Equal(t, "parent-run", claimed.Task.ParentDAGRunID)
+	assert.Equal(t, exec.DispatchOperationRetry, claimed.Task.Operation)
+	assert.Equal(t, "run-legacy", claimed.Task.DAGRunID)
+	assert.Equal(t, "dag-legacy", claimed.Task.Target)
+	assert.Equal(t, "attempt-legacy", claimed.Task.AttemptID)
+	assert.Equal(t, "attempt-key-legacy", claimed.Task.AttemptKey)
+	assert.Equal(t, "step-a", claimed.Task.Step)
+	assert.Equal(t, "PARAM=value", claimed.Task.Params)
+	assert.Equal(t, "queue-legacy", claimed.Task.QueueName)
+	assert.Equal(t, "team=ops", claimed.Task.Labels)
+	assert.Equal(t, map[string]string{"type": "gpu"}, claimed.Task.WorkerSelector)
+	assert.Equal(t, []byte{1, 2, 3}, claimed.Task.AgentSnapshot)
+	assert.Equal(t, "sha256:legacy", claimed.Task.WorkspaceBundleDigest)
+	assert.Equal(t, int64(42), claimed.Task.WorkspaceBundleSize)
+	assert.Equal(t, "legacy.yaml", claimed.Task.WorkspaceBundleDAGPath)
+	assert.Equal(t, "main", claimed.Task.WorkspaceBundleOriginalRef)
+	assert.Equal(t, "abc123", claimed.Task.WorkspaceBundleResolvedRef)
+	assert.Equal(t, exec.CoordinatorEndpoint{ID: "coord-new", Host: "new.example.test", Port: 9090}, claimed.Task.Owner)
+	assert.NotEmpty(t, claimed.Task.ClaimToken)
+	require.NotNil(t, claimed.Task.PreviousStatus)
+	assert.Equal(t, "dag-legacy", claimed.Task.PreviousStatus.Name)
+	assert.Equal(t, "run-legacy", claimed.Task.PreviousStatus.DAGRunID)
+	assert.Equal(t, core.Running, claimed.Task.PreviousStatus.Status)
+}
+
+func TestDispatchTaskStore_ReleaseClaimReturnsTaskToPending(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := store.NewDispatchTaskStore(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+
+	require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
+		DAGRunID:       "run-release",
+		Target:         "dag-release",
+		AttemptID:      "attempt-release",
+		AttemptKey:     "attempt-key-release",
+		WorkerSelector: map[string]string{"type": "cpu"},
+	}))
+
+	claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		WorkerID: "worker-1",
+		PollerID: "poller-1",
+		Labels:   map[string]string{"type": "cpu"},
+		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	require.NotEmpty(t, claimed.ClaimToken)
+
+	require.NoError(t, s.ReleaseClaim(ctx, claimed.ClaimToken))
+
+	_, err = s.GetClaim(ctx, claimed.ClaimToken)
+	assert.ErrorIs(t, err, exec.ErrDispatchTaskNotFound)
+
+	reclaimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		WorkerID: "worker-2",
+		PollerID: "poller-2",
+		Labels:   map[string]string{"type": "cpu"},
+		Owner:    exec.CoordinatorEndpoint{ID: "coord-b"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, reclaimed)
+	assert.Equal(t, "run-release", reclaimed.Task.DAGRunID)
+	assert.Equal(t, "coord-b", reclaimed.Task.Owner.ID)
+	assert.NotEqual(t, claimed.ClaimToken, reclaimed.ClaimToken)
 }
 
 func TestDispatchTaskStore_RemovesPendingDuplicateWhenActiveClaimExists(t *testing.T) {
@@ -401,11 +534,11 @@ func TestDispatchTaskStore_RemovesPendingDuplicateWhenActiveClaimExists(t *testi
 	col := testutil.NewMemoryBackend().Collection("dispatch_tasks")
 	s := store.NewDispatchTaskStore(col)
 
-	require.NoError(t, s.Enqueue(ctx, &coordinatorv1.Task{
-		DagRunId:   "run-duplicate",
+	require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
+		DAGRunID:   "run-duplicate",
 		Target:     "dag-duplicate",
 		QueueName:  "queue-a",
-		AttemptId:  "attempt-duplicate",
+		AttemptID:  "attempt-duplicate",
 		AttemptKey: "attempt-key-duplicate",
 	}))
 	claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
@@ -431,15 +564,44 @@ func TestDispatchTaskStore_RemovesPendingDuplicateWhenActiveClaimExists(t *testi
 	assert.Empty(t, page.Records)
 }
 
+func TestDispatchTaskStore_KeepsNewerPendingDuplicateDuringActiveClaimCleanup(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	col := testutil.NewMemoryBackend().Collection("dispatch_tasks")
+	s := store.NewDispatchTaskStore(col)
+
+	require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
+		DAGRunID:   "run-newer-pending",
+		Target:     "dag-newer-pending",
+		QueueName:  "queue-a",
+		AttemptID:  "attempt-newer-pending",
+		AttemptKey: "attempt-key-newer-pending",
+	}))
+	claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		WorkerID: "worker-1",
+		PollerID: "poller-1",
+		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+
+	putNewerPendingDuplicateFromClaim(t, col, claimed.ClaimToken)
+
+	count, err := s.CountOutstandingByQueue(ctx, "queue-a", time.Second)
+	require.NoError(t, err)
+	assert.Equal(t, 2, count)
+}
+
 func TestDispatchTaskStore_ConcurrentClaimIsExclusive(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	s := store.NewDispatchTaskStore(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
-	require.NoError(t, s.Enqueue(ctx, &coordinatorv1.Task{
-		DagRunId:       "run-exclusive",
+	require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
+		DAGRunID:       "run-exclusive",
 		Target:         "dag-exclusive",
-		AttemptId:      "attempt-exclusive",
+		AttemptID:      "attempt-exclusive",
 		AttemptKey:     "attempt-key-exclusive",
 		WorkerSelector: map[string]string{"type": "cpu"},
 	}))
@@ -501,19 +663,19 @@ func TestDispatchTaskStore_CountOutstandingByQueueAndAttempt(t *testing.T) {
 	ctx := context.Background()
 	s := store.NewDispatchTaskStore(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
 
-	require.NoError(t, s.Enqueue(ctx, &coordinatorv1.Task{
-		DagRunId:       "run-a",
+	require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
+		DAGRunID:       "run-a",
 		Target:         "dag-a",
 		QueueName:      "queue-a",
-		AttemptId:      "attempt-a",
+		AttemptID:      "attempt-a",
 		AttemptKey:     "attempt-key-a",
 		WorkerSelector: map[string]string{"type": "queue-a"},
 	}))
-	require.NoError(t, s.Enqueue(ctx, &coordinatorv1.Task{
-		DagRunId:       "run-b",
+	require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
+		DAGRunID:       "run-b",
 		Target:         "dag-b",
 		QueueName:      "queue-b",
-		AttemptId:      "attempt-b",
+		AttemptID:      "attempt-b",
 		AttemptKey:     "attempt-key-b",
 		WorkerSelector: map[string]string{"type": "queue-b"},
 	}))
@@ -557,11 +719,11 @@ func TestDispatchTaskStore_StalePendingReservationsExpire(t *testing.T) {
 	col := testutil.NewMemoryBackend().Collection("dispatch_tasks")
 	s := store.NewDispatchTaskStore(col, store.WithDispatchReservationTTL(500*time.Millisecond))
 
-	require.NoError(t, s.Enqueue(ctx, &coordinatorv1.Task{
-		DagRunId:   "run-stale",
+	require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
+		DAGRunID:   "run-stale",
 		Target:     "dag-stale",
 		QueueName:  "queue-a",
-		AttemptId:  "attempt-stale",
+		AttemptID:  "attempt-stale",
 		AttemptKey: "attempt-key-stale",
 	}))
 	agePendingDispatchRecords(t, col, 2*time.Second)
@@ -590,11 +752,11 @@ func TestDispatchTaskStore_UsesStoreReservationTTLForCleanup(t *testing.T) {
 	col := testutil.NewMemoryBackend().Collection("dispatch_tasks")
 	s := store.NewDispatchTaskStore(col, store.WithDispatchReservationTTL(5*time.Second))
 
-	require.NoError(t, s.Enqueue(ctx, &coordinatorv1.Task{
-		DagRunId:   "run-shared-ttl",
+	require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
+		DAGRunID:   "run-shared-ttl",
 		Target:     "dag-shared-ttl",
 		QueueName:  "queue-a",
-		AttemptId:  "attempt-shared-ttl",
+		AttemptID:  "attempt-shared-ttl",
 		AttemptKey: "attempt-key-shared-ttl",
 	}))
 	agePendingDispatchRecords(t, col, 2*time.Second)
@@ -610,7 +772,7 @@ func TestDispatchTaskStore_UsesStoreReservationTTLForCleanup(t *testing.T) {
 	claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{WorkerID: "worker-1"})
 	require.NoError(t, err)
 	require.NotNil(t, claimed)
-	assert.Equal(t, "run-shared-ttl", claimed.Task.DagRunId)
+	assert.Equal(t, "run-shared-ttl", claimed.Task.DAGRunID)
 }
 
 func TestDistributedStores_ReadFileLayout(t *testing.T) {
@@ -656,7 +818,7 @@ func TestDistributedStores_ReadFileLayout(t *testing.T) {
 
 	fileTask := dispatchTaskRecord{
 		Version:      1,
-		Task:         &coordinatorv1.Task{DagRunId: "run-file", Target: "dag-file", AttemptKey: "attempt-key-file-task"},
+		Task:         &exec.DispatchTask{DAGRunID: "run-file", Target: "dag-file", AttemptKey: "attempt-key-file-task"},
 		TaskFileName: "task_00000000000000000001_file.json",
 		EnqueuedAt:   time.Now().UTC().UnixMilli(),
 	}
@@ -666,12 +828,12 @@ func TestDistributedStores_ReadFileLayout(t *testing.T) {
 	claimed, err := dispatchStore.ClaimNext(ctx, exec.DispatchTaskClaim{WorkerID: "worker-1"})
 	require.NoError(t, err)
 	require.NotNil(t, claimed)
-	assert.Equal(t, "run-file", claimed.Task.DagRunId)
+	assert.Equal(t, "run-file", claimed.Task.DAGRunID)
 }
 
 type dispatchTaskRecord struct {
 	Version      int                      `json:"version"`
-	Task         *coordinatorv1.Task      `json:"task"`
+	Task         *exec.DispatchTask       `json:"task"`
 	TaskFileName string                   `json:"taskFileName"`
 	EnqueuedAt   int64                    `json:"enqueuedAt"`
 	ClaimToken   string                   `json:"claimToken,omitempty"`
@@ -696,11 +858,41 @@ func putPendingDuplicateFromClaim(t *testing.T, col persis.Collection, claimToke
 	payload.PollerID = ""
 	payload.Owner = exec.CoordinatorEndpoint{}
 	if payload.Task != nil {
-		payload.Task.OwnerCoordinatorId = ""
-		payload.Task.OwnerCoordinatorHost = ""
-		payload.Task.OwnerCoordinatorPort = 0
+		payload.Task.Owner = exec.CoordinatorEndpoint{}
 		payload.Task.ClaimToken = ""
-		payload.Task.WorkerId = ""
+		payload.Task.WorkerID = ""
+	}
+	data, err := persis.Encode(payload)
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	require.NoError(t, col.Put(ctx, &persis.Record{
+		ID:        pendingRecordIDForTest(payload.TaskFileName),
+		Data:      data,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}))
+}
+
+func putNewerPendingDuplicateFromClaim(t *testing.T, col persis.Collection, claimToken string) {
+	t.Helper()
+
+	ctx := context.Background()
+	claimRec, err := col.Get(ctx, "claims/claim_"+encodedKey(claimToken))
+	require.NoError(t, err)
+
+	var payload dispatchTaskRecord
+	require.NoError(t, persis.Decode(claimRec, &payload))
+	payload.EnqueuedAt = time.Now().Add(time.Second).UTC().UnixMilli()
+	payload.ClaimToken = ""
+	payload.ClaimedAt = 0
+	payload.WorkerID = ""
+	payload.PollerID = ""
+	payload.Owner = exec.CoordinatorEndpoint{}
+	if payload.Task != nil {
+		payload.Task.Owner = exec.CoordinatorEndpoint{}
+		payload.Task.ClaimToken = ""
+		payload.Task.WorkerID = ""
 	}
 	data, err := persis.Encode(payload)
 	require.NoError(t, err)

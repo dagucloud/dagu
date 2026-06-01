@@ -908,7 +908,7 @@ type failingDispatchTaskStore struct {
 	enqueueErr error
 }
 
-func (s *failingDispatchTaskStore) Enqueue(context.Context, *coordinatorv1.Task) error {
+func (s *failingDispatchTaskStore) Enqueue(context.Context, *exec.DispatchTask) error {
 	return s.enqueueErr
 }
 
@@ -918,6 +918,10 @@ func (s *failingDispatchTaskStore) ClaimNext(context.Context, exec.DispatchTaskC
 
 func (s *failingDispatchTaskStore) GetClaim(context.Context, string) (*exec.ClaimedDispatchTask, error) {
 	return nil, exec.ErrDispatchTaskNotFound
+}
+
+func (s *failingDispatchTaskStore) ReleaseClaim(context.Context, string) error {
+	return nil
 }
 
 func (s *failingDispatchTaskStore) DeleteClaim(context.Context, string) error {
@@ -2284,8 +2288,8 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		require.NoError(t, heartbeatStore.Upsert(ctx, exec.WorkerHeartbeatRecord{
 			WorkerID:        "worker-1",
 			LastHeartbeatAt: time.Now().UTC().UnixMilli(),
-			Stats: &coordinatorv1.WorkerStats{
-				RunningTasks: []*coordinatorv1.RunningTask{},
+			Stats: &exec.WorkerStats{
+				RunningTasks: []*exec.RunningTask{},
 			},
 		}))
 
@@ -2346,13 +2350,13 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		require.NoError(t, heartbeatStore.Upsert(ctx, exec.WorkerHeartbeatRecord{
 			WorkerID:        "worker-1",
 			LastHeartbeatAt: time.Now().UTC().UnixMilli(),
-			Stats: &coordinatorv1.WorkerStats{
-				RunningTasks: []*coordinatorv1.RunningTask{
+			Stats: &exec.WorkerStats{
+				RunningTasks: []*exec.RunningTask{
 					{
-						DagRunId:       "run-lease",
-						DagName:        "lease-dag",
-						RootDagRunId:   "run-lease",
-						RootDagRunName: "lease-dag",
+						DAGRunID:       "run-lease",
+						DAGName:        "lease-dag",
+						RootDAGRunID:   "run-lease",
+						RootDAGRunName: "lease-dag",
 						AttemptKey:     attemptKey,
 					},
 				},
@@ -2406,13 +2410,13 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		require.NoError(t, heartbeatStore.Upsert(ctx, exec.WorkerHeartbeatRecord{
 			WorkerID:        "worker-1",
 			LastHeartbeatAt: time.Now().UTC().UnixMilli(),
-			Stats: &coordinatorv1.WorkerStats{
-				RunningTasks: []*coordinatorv1.RunningTask{
+			Stats: &exec.WorkerStats{
+				RunningTasks: []*exec.RunningTask{
 					{
-						DagRunId:       "run-lease",
-						DagName:        "lease-dag",
-						RootDagRunId:   "run-lease",
-						RootDagRunName: "lease-dag",
+						DAGRunID:       "run-lease",
+						DAGName:        "lease-dag",
+						RootDAGRunID:   "run-lease",
+						RootDAGRunName: "lease-dag",
 						AttemptKey:     attemptKey,
 					},
 				},
@@ -2476,8 +2480,8 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		require.NoError(t, heartbeatStore.Upsert(ctx, exec.WorkerHeartbeatRecord{
 			WorkerID:        "worker-1",
 			LastHeartbeatAt: time.Now().UTC().UnixMilli(),
-			Stats: &coordinatorv1.WorkerStats{
-				RunningTasks: []*coordinatorv1.RunningTask{},
+			Stats: &exec.WorkerStats{
+				RunningTasks: []*exec.RunningTask{},
 			},
 		}))
 
@@ -2571,13 +2575,13 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		require.NoError(t, heartbeatStore.Upsert(ctx, exec.WorkerHeartbeatRecord{
 			WorkerID:        "worker-1",
 			LastHeartbeatAt: time.Now().UTC().UnixMilli(),
-			Stats: &coordinatorv1.WorkerStats{
-				RunningTasks: []*coordinatorv1.RunningTask{
+			Stats: &exec.WorkerStats{
+				RunningTasks: []*exec.RunningTask{
 					{
-						DagRunId:       "run-lease",
-						DagName:        "lease-dag",
-						RootDagRunId:   "run-lease",
-						RootDagRunName: "lease-dag",
+						DAGRunID:       "run-lease",
+						DAGName:        "lease-dag",
+						RootDAGRunID:   "run-lease",
+						RootDAGRunName: "lease-dag",
 						AttemptKey:     attemptKey,
 					},
 				},
@@ -3515,14 +3519,14 @@ func TestHandler_ReportStatus(t *testing.T) {
 		})
 		ctx := context.Background()
 
-		task := &coordinatorv1.Task{
-			DagRunId:       "run-123",
+		task := &exec.DispatchTask{
+			DAGRunID:       "run-123",
 			Target:         "test-dag",
-			AttemptId:      "attempt-1",
+			AttemptID:      "attempt-1",
 			AttemptKey:     "attempt-key-1",
 			QueueName:      "queue-a",
-			RootDagRunName: "test-dag",
-			RootDagRunId:   "run-123",
+			RootDAGRunName: "test-dag",
+			RootDAGRunID:   "run-123",
 		}
 		require.NoError(t, dispatchStore.Enqueue(ctx, task))
 
@@ -3574,10 +3578,10 @@ func TestHandler_ReportStatus(t *testing.T) {
 		})
 		ctx := context.Background()
 
-		task := &coordinatorv1.Task{
-			DagRunId:   "run-123",
+		task := &exec.DispatchTask{
+			DAGRunID:   "run-123",
 			Target:     "test-dag",
-			AttemptId:  "attempt-1",
+			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 			QueueName:  "queue-a",
 		}

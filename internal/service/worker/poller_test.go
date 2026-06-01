@@ -378,7 +378,7 @@ var _ coordinator.Client = (*mockCoordinatorCli)(nil)
 // mockCoordinatorCli is a mock implementation of coordinator.Client
 type mockCoordinatorCli struct {
 	PollFunc         func(ctx context.Context, policy backoff.RetryPolicy, req *coordinatorv1.PollRequest) (*coordinatorv1.Task, error)
-	DispatchFunc     func(ctx context.Context, task *coordinatorv1.Task) error
+	DispatchFunc     func(ctx context.Context, task *exec.DispatchTask) error
 	MetricsFunc      func() coordinator.Metrics
 	CleanupFunc      func(ctx context.Context) error
 	HeartbeatFunc    func(ctx context.Context, req *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error)
@@ -410,7 +410,7 @@ func (m *mockCoordinatorCli) Poll(ctx context.Context, policy backoff.RetryPolic
 	return nil, nil
 }
 
-func (m *mockCoordinatorCli) Dispatch(ctx context.Context, task *coordinatorv1.Task) error {
+func (m *mockCoordinatorCli) Dispatch(ctx context.Context, task *exec.DispatchTask) error {
 	m.mu.Lock()
 	dispatchFunc := m.DispatchFunc
 	m.mu.Unlock()
@@ -504,8 +504,8 @@ func (m *mockCoordinatorCli) StreamArtifactsTo(ctx context.Context, _ exec.HostI
 	return m.StreamArtifacts(ctx)
 }
 
-func (m *mockCoordinatorCli) GetDAGRunStatus(_ context.Context, _, _ string, _ *exec.DAGRunRef) (*coordinatorv1.GetDAGRunStatusResponse, error) {
-	return &coordinatorv1.GetDAGRunStatusResponse{Found: false}, nil
+func (m *mockCoordinatorCli) GetDAGRunStatus(_ context.Context, _, _ string, _ *exec.DAGRunRef) (*exec.DAGRunStatusResult, error) {
+	return &exec.DAGRunStatusResult{Found: false}, nil
 }
 
 func (m *mockCoordinatorCli) RequestCancel(_ context.Context, _, _ string, _ *exec.DAGRunRef) error {

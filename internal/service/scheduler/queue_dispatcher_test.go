@@ -9,7 +9,6 @@ import (
 
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -44,11 +43,11 @@ func TestQueueDispatcher_SelectRunnableQueueItemsSkipsOutstandingReservations(t 
 	reservedStatus, err := reservedAttempt.ReadStatus(f.ctx)
 	require.NoError(t, err)
 
-	require.NoError(t, f.dispatchStore.Enqueue(f.ctx, &coordinatorv1.Task{
-		DagRunId:   reservedRef.ID,
+	require.NoError(t, f.dispatchStore.Enqueue(f.ctx, &exec.DispatchTask{
+		DAGRunID:   reservedRef.ID,
 		Target:     f.dag.Name,
 		QueueName:  f.dag.Name,
-		AttemptId:  reservedAttempt.ID(),
+		AttemptID:  reservedAttempt.ID(),
 		AttemptKey: queueAttemptKey(reservedRef, reservedAttempt, reservedStatus),
 	}))
 
