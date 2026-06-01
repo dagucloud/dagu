@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/internal/cmn/config"
+	"github.com/dagucloud/dagu/internal/cmn/masking"
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -312,7 +313,7 @@ steps:
 		status = latest
 		return status.Status == core.Succeeded
 	}, statusTimeout, 100*time.Millisecond)
-	require.Equal(t, "from-host|", test.StatusOutputValue(t, &status, "RESULT"))
+	require.Equal(t, masking.DefaultMaskString+"|", test.StatusOutputValue(t, &status, "RESULT"))
 }
 
 func TestStart(t *testing.T) {

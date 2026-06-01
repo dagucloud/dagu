@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/masking"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis/file"
@@ -173,7 +174,7 @@ steps:
 	require.NoError(t, err)
 	require.Equal(t, core.Succeeded, status.Status)
 	require.Equal(t, core.TriggerTypeScheduler, status.TriggerType)
-	require.Equal(t, "from-host|", test.StatusOutputValue(t, &status, "RESULT"))
+	require.Equal(t, masking.DefaultMaskString+"|", test.StatusOutputValue(t, &status, "RESULT"))
 
 	probe.Stop(context.Background(), cancel, 5*time.Second)
 }
