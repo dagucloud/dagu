@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/internal/core"
 	exec1 "github.com/dagucloud/dagu/internal/core/exec"
@@ -116,6 +117,42 @@ steps:
 	subStatus := readDistributedSubAttemptStatus(t, f, rootRef, subRunID)
 	require.NotEqual(t, core.Succeeded, subStatus.Status)
 	require.True(t, statusErrorsContain(subStatus.Errors(), "count"), "expected child status errors to mention count")
+}
+
+func TestParams_DistributedQueuedRunRuntimeParams(t *testing.T) {
+	f := newTestFixture(t, `
+name: queued-runtime-params
+worker_selector:
+  test: "true"
+params:
+  - name: content_hash
+    type: string
+    required: true
+steps:
+  - name: shell-value
+    run: echo "content_hash=$content_hash"
+    output: SHELL_VALUE
+  - name: params-json
+    run: printenv DAGU_PARAMS_JSON
+    output: PARAMS_JSON
+`)
+	defer f.cleanup()
+
+	require.NoError(t, f.enqueueWithParams("content_hash=sha256:abc123"))
+	f.waitForQueued()
+
+	queuedStatus, err := f.latestStatus()
+	require.NoError(t, err)
+	require.Equal(t, core.Queued, queuedStatus.Status)
+	require.Equal(t, []string{"content_hash=sha256:abc123"}, queuedStatus.ParamsList)
+
+	f.startScheduler(30 * time.Second)
+	status := f.waitForStatus(core.Succeeded, executionStatusTimeout())
+
+	require.Equal(t, []string{"content_hash=sha256:abc123"}, status.ParamsList)
+	require.Len(t, status.Nodes, 2)
+	assert.Equal(t, "content_hash=sha256:abc123", nodeOutputValue(t, status.Nodes[0], "SHELL_VALUE"))
+	assert.JSONEq(t, `{"content_hash":"sha256:abc123"}`, nodeOutputValue(t, status.Nodes[1], "PARAMS_JSON"))
 }
 
 func readDistributedSubAttemptStatus(t *testing.T, f *testFixture, rootRef exec1.DAGRunRef, subRunID string) *exec1.DAGRunStatus {

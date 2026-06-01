@@ -443,8 +443,16 @@ func (f *testFixture) startSchedulerWithOptions(
 
 func (f *testFixture) enqueue() error {
 	f.t.Helper()
+	return f.enqueueWithParams("")
+}
+
+func (f *testFixture) enqueueWithParams(params string) error {
+	f.t.Helper()
 	subCmdBuilder := launcher.NewSubCmdBuilder(f.coord.Config)
-	enqueueSpec := subCmdBuilder.Enqueue(f.dagWrapper.DAG, launcher.EnqueueOptions{Quiet: true})
+	enqueueSpec := subCmdBuilder.Enqueue(f.dagWrapper.DAG, launcher.EnqueueOptions{
+		Quiet:  true,
+		Params: params,
+	})
 	return launcher.Run(f.coord.Context, enqueueSpec)
 }
 
