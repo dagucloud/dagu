@@ -13,6 +13,7 @@ import ConfirmModal from '@/components/ui/confirm-dialog';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -35,7 +36,7 @@ import {
 } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { AppBarContext } from '@/contexts/AppBarContext';
-import { useCanManageProfiles } from '@/contexts/AuthContext';
+import { useCanManageProfiles, useIsAdmin } from '@/contexts/AuthContext';
 import { useClient, useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
 import dayjs from '@/lib/dayjs';
@@ -111,6 +112,7 @@ export default function ProfilesPage(): React.ReactNode {
   const appBarContext = useContext(AppBarContext);
   const remoteNode = appBarContext.selectedRemoteNode || 'local';
   const canManageProfiles = useCanManageProfiles();
+  const canManageProtectedProfiles = useIsAdmin();
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -143,11 +145,18 @@ export default function ProfilesPage(): React.ReactNode {
   const { data, mutate, isLoading } = useQuery('/profiles', queryInit);
   const profiles = data?.profiles || [];
 
+  function canManageProfile(profile: RuntimeProfileResponse): boolean {
+    return (
+      canManageProfiles && (!profile.protected || canManageProtectedProfiles)
+    );
+  }
+
   const reload = useCallback(() => {
     void mutate();
   }, [mutate]);
 
   async function toggleStatus(profile: RuntimeProfileResponse): Promise<void> {
+    if (!canManageProfile(profile)) return;
     setError(null);
     setSuccess(null);
     setActionProfile(profile.name);
@@ -180,6 +189,7 @@ export default function ProfilesPage(): React.ReactNode {
 
   async function deleteProfile(): Promise<void> {
     if (!deletingProfile) return;
+    if (!canManageProfile(deletingProfile)) return;
     setError(null);
     setSuccess(null);
     setActionProfile(deletingProfile.name);
@@ -208,6 +218,7 @@ export default function ProfilesPage(): React.ReactNode {
 
   async function deleteEntry(): Promise<void> {
     if (!deletingEntry) return;
+    if (!canManageProfile(deletingEntry.profile)) return;
     setError(null);
     setSuccess(null);
     setActionProfile(deletingEntry.profile.name);
@@ -311,174 +322,197 @@ export default function ProfilesPage(): React.ReactNode {
                 </TableCell>
               </TableRow>
             ) : (
-              profiles.map((profile) => (
-                <TableRow key={profile.id}>
-                  <TableCell>
-                    <div className="flex min-w-0 flex-col gap-1">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <SlidersHorizontal className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-                        <code className="whitespace-normal break-words text-xs">
-                          {profile.name}
-                        </code>
-                        {profile.protected && (
-                          <Badge
-                            variant="outline"
-                            className="h-5 px-1.5 text-[10px]"
-                          >
-                            Protected
-                          </Badge>
+              profiles.map((profile) => {
+                const profileManageDisabled = !canManageProfile(profile);
+                const profileBusy = actionProfile === profile.name;
+
+                return (
+                  <TableRow key={profile.id}>
+                    <TableCell>
+                      <div className="flex min-w-0 flex-col gap-1">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <SlidersHorizontal className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                          <code className="whitespace-normal break-words text-xs">
+                            {profile.name}
+                          </code>
+                          {profile.protected && (
+                            <Badge
+                              variant="outline"
+                              className="h-5 px-1.5 text-[10px]"
+                            >
+                              Protected
+                            </Badge>
+                          )}
+                          {profile.protected && !canManageProtectedProfiles && (
+                            <Badge
+                              variant="secondary"
+                              className="h-5 px-1.5 text-[10px]"
+                            >
+                              Admin
+                            </Badge>
+                          )}
+                        </div>
+                        {profile.description && (
+                          <span className="text-xs text-muted-foreground">
+                            {profile.description}
+                          </span>
                         )}
                       </div>
-                      {profile.description && (
-                        <span className="text-xs text-muted-foreground">
-                          {profile.description}
-                        </span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={
-                        profile.status === RuntimeProfileStatus.active
-                          ? 'success'
-                          : 'warning'
-                      }
-                    >
-                      {profile.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex min-w-0 flex-col gap-2">
-                      <div className="flex flex-wrap gap-1.5">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-7 px-2 text-xs"
-                          onClick={() =>
-                            setEntryDialog({
-                              profile,
-                              kind: RuntimeProfileEntryKind.variable,
-                            })
-                          }
-                        >
-                          <Plus className="h-3.5 w-3.5" />
-                          Variable
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-7 px-2 text-xs"
-                          onClick={() =>
-                            setEntryDialog({
-                              profile,
-                              kind: RuntimeProfileEntryKind.secret,
-                            })
-                          }
-                        >
-                          <KeyRound className="h-3.5 w-3.5" />
-                          Secret
-                        </Button>
-                      </div>
-                      {profile.entries.length === 0 ? (
-                        <span className="text-xs text-muted-foreground">
-                          No entries
-                        </span>
-                      ) : (
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={
+                          profile.status === RuntimeProfileStatus.active
+                            ? 'success'
+                            : 'warning'
+                        }
+                      >
+                        {profile.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex min-w-0 flex-col gap-2">
                         <div className="flex flex-wrap gap-1.5">
-                          {profile.entries.map((entry) => (
-                            <div
-                              key={entry.key}
-                              className="flex max-w-full items-center gap-1 rounded border border-border bg-muted/40 px-2 py-1"
-                            >
-                              <Badge variant="outline" className="h-5 px-1.5">
-                                {entryLabel(entry)}
-                              </Badge>
-                              <code className="break-all text-xs">
-                                {entry.key}
-                              </code>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-5 w-5"
-                                aria-label={`Edit ${entry.key}`}
-                                onClick={() =>
-                                  setEntryDialog({
-                                    profile,
-                                    kind: entry.kind,
-                                    entry,
-                                  })
-                                }
-                              >
-                                <Pencil className="h-3 w-3" />
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-5 w-5 text-destructive"
-                                aria-label={`Delete ${entry.key}`}
-                                onClick={() =>
-                                  setDeletingEntry({ profile, entry })
-                                }
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          ))}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            disabled={profileManageDisabled || profileBusy}
+                            onClick={() =>
+                              setEntryDialog({
+                                profile,
+                                kind: RuntimeProfileEntryKind.variable,
+                              })
+                            }
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            Variable
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            disabled={profileManageDisabled || profileBusy}
+                            onClick={() =>
+                              setEntryDialog({
+                                profile,
+                                kind: RuntimeProfileEntryKind.secret,
+                              })
+                            }
+                          >
+                            <KeyRound className="h-3.5 w-3.5" />
+                            Secret
+                          </Button>
                         </div>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {dayjs(profile.updatedAt).format('MMM D, YYYY HH:mm')}
-                  </TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label={`Actions for ${profile.name}`}
-                          disabled={actionProfile === profile.name}
-                        >
-                          {actionProfile === profile.name ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <MoreHorizontal className="h-4 w-4" />
-                          )}
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onClick={() => {
-                            setEditingProfile(profile);
-                            setProfileFormOpen(true);
-                          }}
-                        >
-                          <Pencil className="mr-2 h-4 w-4" />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => toggleStatus(profile)}>
-                          <Power className="mr-2 h-4 w-4" />
-                          {profile.status === RuntimeProfileStatus.active
-                            ? 'Disable'
-                            : 'Enable'}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="text-destructive"
-                          onClick={() => setDeletingProfile(profile)}
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))
+                        {profile.entries.length === 0 ? (
+                          <span className="text-xs text-muted-foreground">
+                            No entries
+                          </span>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {profile.entries.map((entry) => (
+                              <div
+                                key={entry.key}
+                                className="flex max-w-full items-center gap-1 rounded border border-border bg-muted/40 px-2 py-1"
+                              >
+                                <Badge variant="outline" className="h-5 px-1.5">
+                                  {entryLabel(entry)}
+                                </Badge>
+                                <code className="break-all text-xs">
+                                  {entry.key}
+                                </code>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-5 w-5"
+                                  aria-label={`Edit ${entry.key}`}
+                                  disabled={
+                                    profileManageDisabled || profileBusy
+                                  }
+                                  onClick={() =>
+                                    setEntryDialog({
+                                      profile,
+                                      kind: entry.kind,
+                                      entry,
+                                    })
+                                  }
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-5 w-5 text-destructive"
+                                  aria-label={`Delete ${entry.key}`}
+                                  disabled={
+                                    profileManageDisabled || profileBusy
+                                  }
+                                  onClick={() =>
+                                    setDeletingEntry({ profile, entry })
+                                  }
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {dayjs(profile.updatedAt).format('MMM D, YYYY HH:mm')}
+                    </TableCell>
+                    <TableCell>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`Actions for ${profile.name}`}
+                            disabled={profileManageDisabled || profileBusy}
+                          >
+                            {profileBusy ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <MoreHorizontal className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setEditingProfile(profile);
+                              setProfileFormOpen(true);
+                            }}
+                          >
+                            <Pencil className="mr-2 h-4 w-4" />
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => toggleStatus(profile)}
+                          >
+                            <Power className="mr-2 h-4 w-4" />
+                            {profile.status === RuntimeProfileStatus.active
+                              ? 'Disable'
+                              : 'Enable'}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="text-destructive"
+                            onClick={() => setDeletingProfile(profile)}
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
@@ -488,6 +522,7 @@ export default function ProfilesPage(): React.ReactNode {
         open={profileFormOpen}
         profile={editingProfile}
         remoteNode={remoteNode}
+        canSetProtected={canManageProtectedProfiles}
         onClose={() => {
           setProfileFormOpen(false);
           setEditingProfile(null);
@@ -544,12 +579,14 @@ function ProfileFormDialog({
   open,
   profile,
   remoteNode,
+  canSetProtected,
   onClose,
   onSaved,
 }: {
   open: boolean;
   profile: RuntimeProfileResponse | null;
   remoteNode: string;
+  canSetProtected: boolean;
   onClose: () => void;
   onSaved: (message: string) => void;
 }): React.ReactElement {
@@ -628,6 +665,9 @@ function ProfileFormDialog({
             <DialogTitle>
               {isEditing ? 'Edit Profile' : 'Add Profile'}
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              Configure runtime profile metadata and protection.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             {error && (
@@ -667,7 +707,7 @@ function ProfileFormDialog({
               <Checkbox
                 id="profile-protected"
                 checked={form.protected}
-                disabled={isSaving}
+                disabled={isSaving || !canSetProtected}
                 onCheckedChange={(checked) =>
                   setForm((prev) => ({ ...prev, protected: checked === true }))
                 }
@@ -799,6 +839,9 @@ function ProfileEntryDialog({
                   ? 'Edit Variable'
                   : 'Add Variable'}
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              Configure a runtime profile entry.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             {error && (
