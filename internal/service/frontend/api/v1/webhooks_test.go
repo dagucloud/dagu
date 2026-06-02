@@ -140,6 +140,12 @@ steps:
   - name: test
     run: echo hello
 `
+	createTestDAGWithSpec(t, server, token, name, spec)
+}
+
+func createTestDAGWithSpec(t *testing.T, server test.Server, token, name, spec string) {
+	t.Helper()
+
 	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
 		Name: name,
 		Spec: &spec,
@@ -586,7 +592,13 @@ func TestWebhooks_TriggerUsesDAGDefaultProfile(t *testing.T) {
 	token := getWebhookAdminToken(t, server)
 
 	dagName := "webhook_default_profile_test"
-	createTestDAG(t, server, token, dagName)
+	runtimeName := "webhook_runtime_name"
+	createTestDAGWithSpec(t, server, token, dagName, `
+name: webhook_runtime_name
+steps:
+  - name: test
+    run: echo hello
+`)
 
 	server.Client().Post("/api/v1/profiles", api.CreateRuntimeProfileJSONRequestBody{
 		Name:      "prod",
@@ -611,7 +623,7 @@ func TestWebhooks_TriggerUsesDAGDefaultProfile(t *testing.T) {
 	var triggerResult api.WebhookResponse
 	triggerResp.Unmarshal(t, &triggerResult)
 
-	status := waitForStoredDAGRunStatus(t, server, dagName, triggerResult.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	status := waitForStoredDAGRunStatus(t, server, runtimeName, triggerResult.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
 		return status.ProfileName == "prod"
 	})
 	assert.Equal(t, "prod", status.ProfileName)
