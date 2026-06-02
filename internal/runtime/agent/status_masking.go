@@ -43,14 +43,8 @@ func maskNodeSecrets(masker *masking.Masker, node *exec.Node) {
 	node.Step = maskStepSecrets(masker, node.Step)
 	node.Error = masker.MaskString(node.Error)
 	node.OutputVariables = maskOutputVariables(masker, node.OutputVariables)
-	if node.OutputValue != nil {
-		value := masker.MaskString(*node.OutputValue)
-		node.OutputValue = &value
-	}
-	if node.OutputsValue != nil {
-		value := masker.MaskString(*node.OutputsValue)
-		node.OutputsValue = &value
-	}
+	node.OutputValue = maskStringPointer(masker, node.OutputValue)
+	node.OutputsValue = maskStringPointer(masker, node.OutputsValue)
 }
 
 func maskOutputVariables(masker *masking.Masker, values *collections.SyncMap) *collections.SyncMap {
@@ -109,6 +103,14 @@ func maskStrings(masker *masking.Masker, values []string) []string {
 		masked[i] = masker.MaskString(masked[i])
 	}
 	return masked
+}
+
+func maskStringPointer(masker *masking.Masker, value *string) *string {
+	if value == nil {
+		return nil
+	}
+	masked := masker.MaskString(*value)
+	return &masked
 }
 
 func maskAnyStringValues(masker *masking.Masker, value any) any {

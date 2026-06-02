@@ -304,17 +304,7 @@ func runtimeProfileStore(ctx *Context) (profile.Store, error) {
 }
 
 func getRuntimeProfile(ctx *Context, name string) (*profile.Profile, error) {
-	store, err := runtimeProfileStore(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if err := profile.ValidateName(name); err != nil {
-		return nil, err
-	}
-	item, err := store.GetByName(ctx, name)
-	if errors.Is(err, profile.ErrNotFound) {
-		return nil, fmt.Errorf("profile %q not found", name)
-	}
+	_, item, err := getRuntimeProfileForUpdate(ctx, name)
 	return item, err
 }
 

@@ -107,6 +107,13 @@ function entryLabel(entry: RuntimeProfileEntryResponse): string {
   return entry.kind === RuntimeProfileEntryKind.secret ? 'Secret' : 'Variable';
 }
 
+function entryDialogTitle(isSecret: boolean, isEditing: boolean): string {
+  if (isSecret) {
+    return isEditing ? 'Rotate Secret' : 'Add Secret';
+  }
+  return isEditing ? 'Edit Variable' : 'Add Variable';
+}
+
 export default function ProfilesPage(): React.ReactNode {
   const client = useClient();
   const appBarContext = useContext(AppBarContext);
@@ -830,15 +837,7 @@ function ProfileEntryDialog({
       <DialogContent className="sm:max-w-[480px]">
         <form onSubmit={(event) => void handleSubmit(event)}>
           <DialogHeader>
-            <DialogTitle>
-              {isSecret
-                ? isEditing
-                  ? 'Rotate Secret'
-                  : 'Add Secret'
-                : isEditing
-                  ? 'Edit Variable'
-                  : 'Add Variable'}
-            </DialogTitle>
+            <DialogTitle>{entryDialogTitle(isSecret, isEditing)}</DialogTitle>
             <DialogDescription className="sr-only">
               Configure a runtime profile entry.
             </DialogDescription>

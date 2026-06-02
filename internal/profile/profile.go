@@ -147,59 +147,43 @@ func (p *Profile) ApplyUpdate(input UpdateInput, now time.Time) {
 }
 
 func (p *Profile) SetVariable(key, value, actor string, now time.Time) error {
-	if err := ValidateKey(key); err != nil {
-		return err
-	}
-	idx, ok := p.entryIndex(key)
-	if ok && p.Entries[idx].Kind != EntryKindVariable {
-		return fmt.Errorf("%w: %s", ErrDuplicateKey, key)
-	}
-	if ok {
-		p.Entries[idx].Value = value
-		p.Entries[idx].UpdatedBy = actor
-		p.Entries[idx].UpdatedAt = normalizeTime(now)
-		p.touch(actor, now)
-		return nil
-	}
-	t := normalizeTime(now)
-	p.Entries = append(p.Entries, Entry{
-		Key:       key,
-		Kind:      EntryKindVariable,
-		Value:     value,
-		CreatedBy: actor,
-		CreatedAt: t,
-		UpdatedBy: actor,
-		UpdatedAt: t,
+	return p.setEntry(key, EntryKindVariable, actor, now, func(entry *Entry) {
+		entry.Value = value
 	})
-	p.touch(actor, now)
-	return nil
 }
 
 func (p *Profile) SetSecret(key, secretID, actor string, now time.Time) error {
+	return p.setEntry(key, EntryKindSecret, actor, now, func(entry *Entry) {
+		entry.SecretID = secretID
+	})
+}
+
+func (p *Profile) setEntry(key string, kind EntryKind, actor string, now time.Time, apply func(*Entry)) error {
 	if err := ValidateKey(key); err != nil {
 		return err
 	}
 	idx, ok := p.entryIndex(key)
-	if ok && p.Entries[idx].Kind != EntryKindSecret {
+	if ok && p.Entries[idx].Kind != kind {
 		return fmt.Errorf("%w: %s", ErrDuplicateKey, key)
 	}
 	if ok {
-		p.Entries[idx].SecretID = secretID
+		apply(&p.Entries[idx])
 		p.Entries[idx].UpdatedBy = actor
 		p.Entries[idx].UpdatedAt = normalizeTime(now)
 		p.touch(actor, now)
 		return nil
 	}
 	t := normalizeTime(now)
-	p.Entries = append(p.Entries, Entry{
+	entry := Entry{
 		Key:       key,
-		Kind:      EntryKindSecret,
-		SecretID:  secretID,
+		Kind:      kind,
 		CreatedBy: actor,
 		CreatedAt: t,
 		UpdatedBy: actor,
 		UpdatedAt: t,
-	})
+	}
+	apply(&entry)
+	p.Entries = append(p.Entries, entry)
 	p.touch(actor, now)
 	return nil
 }

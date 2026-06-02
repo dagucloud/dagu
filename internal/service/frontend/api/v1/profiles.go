@@ -412,10 +412,10 @@ func toRuntimeProfileResponse(item *profilepkg.Profile) api.RuntimeProfileRespon
 			Kind:      api.RuntimeProfileEntryKind(entry.Kind),
 			UpdatedAt: entry.UpdatedAt,
 		}
-		if entry.Kind == profilepkg.EntryKindVariable {
+		switch entry.Kind {
+		case profilepkg.EntryKindVariable:
 			resp.Value = ptrOf(entry.Value)
-		}
-		if entry.Kind == profilepkg.EntryKindSecret {
+		case profilepkg.EntryKindSecret:
 			resp.SecretId = ptrOf(entry.SecretID)
 		}
 		entries = append(entries, resp)

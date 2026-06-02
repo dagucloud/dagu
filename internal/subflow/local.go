@@ -287,7 +287,7 @@ func (r *Local) newAgent(
 	opts.SecretStore = r.secretStore
 	opts.ProfileStore = r.profileStore
 	opts.ProfileName = req.ProfileName
-	opts.ServiceRegistry = r.serviceRegistryFromContext(ctx)
+	opts.ServiceRegistry = r.serviceRegistry
 	opts.DefaultExecMode = rCtx.DefaultExecMode
 	opts.AgentConfigStore = agentctx.GetConfigStore(ctx)
 	opts.AgentModelStore = agentctx.GetModelStore(ctx)
@@ -365,13 +365,6 @@ func (r *Local) stateStoreFromContext(ctx context.Context) dagstate.Store {
 		return r.stateStore
 	}
 	return exec.GetContext(ctx).StateStore
-}
-
-func (r *Local) serviceRegistryFromContext(ctx context.Context) exec.ServiceRegistry {
-	if r.serviceRegistry != nil {
-		return r.serviceRegistry
-	}
-	return nil
 }
 
 func validateInProcessRequest(req executor.SubWorkflowRequest) error {
