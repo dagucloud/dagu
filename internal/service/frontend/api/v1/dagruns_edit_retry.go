@@ -75,10 +75,7 @@ func (a *API) PreviewEditRetryDAGRun(ctx context.Context, request api.PreviewEdi
 		return nil, err
 	}
 	if plan != nil {
-		if err := a.requireDAGRunStatusExecute(ctx, plan.sourceStatus); err != nil {
-			return nil, err
-		}
-		if err := a.requireExecuteForWorkspace(ctx, dagWorkspaceName(plan.editedDAG)); err != nil {
+		if err := a.requireEditRetryPermissions(ctx, plan); err != nil {
 			return nil, err
 		}
 	}
@@ -132,16 +129,13 @@ func (a *API) EditRetryDAGRun(ctx context.Context, request api.EditRetryDAGRunRe
 	if err != nil {
 		return nil, err
 	}
+	if plan != nil {
+		if err := a.requireEditRetryPermissions(ctx, plan); err != nil {
+			return nil, err
+		}
+	}
 	if len(validationErrors) > 0 {
 		return nil, badEditRetryRequest(strings.Join(validationErrors, "; "))
-	}
-	if plan != nil {
-		if err := a.requireDAGRunStatusExecute(ctx, plan.sourceStatus); err != nil {
-			return nil, err
-		}
-		if err := a.requireExecuteForWorkspace(ctx, dagWorkspaceName(plan.editedDAG)); err != nil {
-			return nil, err
-		}
 	}
 
 	if plan.newDAGRunID == "" {
@@ -178,6 +172,13 @@ func nonNilEditRetryStrings(values []string) []string {
 		return []string{}
 	}
 	return values
+}
+
+func (a *API) requireEditRetryPermissions(ctx context.Context, plan *editRetryPlan) error {
+	if err := a.requireDAGRunStatusExecute(ctx, plan.sourceStatus); err != nil {
+		return err
+	}
+	return a.requireDAGWriteForWorkspace(ctx, dagWorkspaceName(plan.editedDAG))
 }
 
 func editRetryRuntimeParams(status *exec.DAGRunStatus, preservedParams string) string {

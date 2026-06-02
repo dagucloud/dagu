@@ -93,6 +93,20 @@ func newCreateAPIKeyRequest(name string, role api.UserRole) api.CreateAPIKeyRequ
 	}
 }
 
+func createAPIKeyForRole(t *testing.T, server test.Server, adminToken, name string, role api.UserRole) string {
+	t.Helper()
+
+	resp := server.Client().Post("/api/v1/api-keys", newCreateAPIKeyRequest(name, role)).
+		WithBearerToken(adminToken).
+		ExpectStatus(http.StatusCreated).
+		Send(t)
+
+	var result api.CreateAPIKeyResponse
+	resp.Unmarshal(t, &result)
+	require.NotEmpty(t, result.Key)
+	return result.Key
+}
+
 // TestAPIKeys_ListEmpty tests listing API keys when none exist
 func TestAPIKeys_ListEmpty(t *testing.T) {
 	t.Parallel()

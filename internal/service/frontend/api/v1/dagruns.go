@@ -201,6 +201,14 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 	}
 	defer cleanup()
 
+	labels, err := extractLabelsParam(request.Body.Labels, request.Body.Tags)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.requireDAGWriteForWorkspace(ctx, runtimeWorkspaceName(dag, labels)); err != nil {
+		return nil, err
+	}
+
 	if err := a.ensureDAGRunIDUnique(ctx, dag, dagRunId); err != nil {
 		return nil, err
 	}
@@ -209,14 +217,6 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 		if err := a.checkSingletonRunning(ctx, dag); err != nil {
 			return nil, err
 		}
-	}
-
-	labels, err := extractLabelsParam(request.Body.Labels, request.Body.Tags)
-	if err != nil {
-		return nil, err
-	}
-	if err := a.requireExecuteForWorkspace(ctx, runtimeWorkspaceName(dag, labels)); err != nil {
-		return nil, err
 	}
 
 	if err := a.startDAGRun(ctx, dag, params, dagRunId, valueOf(request.Body.Name), labels); err != nil {
@@ -283,6 +283,14 @@ func (a *API) EnqueueDAGRunFromSpec(ctx context.Context, request api.EnqueueDAGR
 	}
 	defer cleanup()
 
+	labels, err := extractLabelsParam(request.Body.Labels, request.Body.Tags)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.requireDAGWriteForWorkspace(ctx, runtimeWorkspaceName(dag, labels)); err != nil {
+		return nil, err
+	}
+
 	if request.Body.Queue != nil && *request.Body.Queue != "" {
 		dag.Queue = *request.Body.Queue
 	}
@@ -302,14 +310,6 @@ func (a *API) EnqueueDAGRunFromSpec(ctx context.Context, request api.EnqueueDAGR
 		if err := a.checkSingletonQueued(ctx, dag); err != nil {
 			return nil, err
 		}
-	}
-
-	labels, err := extractLabelsParam(request.Body.Labels, request.Body.Tags)
-	if err != nil {
-		return nil, err
-	}
-	if err := a.requireExecuteForWorkspace(ctx, runtimeWorkspaceName(dag, labels)); err != nil {
-		return nil, err
 	}
 
 	if err := persistInlineEnqueueLabels(dag, labels); err != nil {

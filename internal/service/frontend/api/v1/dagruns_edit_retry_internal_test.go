@@ -345,7 +345,8 @@ func setupEditRetryAPI(t *testing.T, tmpDir string, yamlContent string) (*API, *
 			},
 			Server: config.Server{
 				Permissions: map[config.Permission]bool{
-					config.PermissionRunDAGs: true,
+					config.PermissionRunDAGs:   true,
+					config.PermissionWriteDAGs: true,
 				},
 			},
 		},
