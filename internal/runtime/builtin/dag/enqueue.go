@@ -165,6 +165,7 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 		return enqueueRunOutput{}, fmt.Errorf("failed to check existing DAG run: %w", err)
 	}
 
+	root, parent := subDAGQueueRefs(rCtx)
 	_, err = intake.EnqueueRun(ctx, intake.QueueRequest{
 		DAGRunStore:     rCtx.DAGRunStore,
 		QueueStore:      rCtx.QueueStore,
@@ -173,7 +174,10 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 		QueueName:       queueName,
 		LogBaseDir:      rCtx.DAGRunLogDir,
 		ArtifactBaseDir: rCtx.DAGRunArtifactDir,
+		Root:            root,
+		Parent:          parent,
 		TriggerType:     core.TriggerTypeSubDAG,
+		ProfileName:     rCtx.ProfileName,
 	})
 	if err != nil {
 		return enqueueRunOutput{}, fmt.Errorf("failed to enqueue DAG run: %w", err)
@@ -193,6 +197,18 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 		Queue:    queueName,
 		Status:   core.Queued.String(),
 	}, nil
+}
+
+func subDAGQueueRefs(rCtx runtime.Context) (exec1.DAGRunRef, exec1.DAGRunRef) {
+	var parent exec1.DAGRunRef
+	if rCtx.DAG != nil && rCtx.DAGRunID != "" {
+		parent = rCtx.DAGRunRef()
+	}
+	root := rCtx.RootDAGRun
+	if root.Zero() {
+		root = parent
+	}
+	return root, parent
 }
 
 func (e *enqueueExecutor) outputFromExisting(ctx context.Context, attempt exec1.DAGRunAttempt, dagName string, params executor.RunParams, queueName string) enqueueRunOutput {
