@@ -373,6 +373,132 @@ func TestGetDAGRunSpecInlineEnqueueWithLabelsPatchesSpec(t *testing.T) {
 	require.Contains(t, specBody.Spec, "team=backend")
 }
 
+func TestOperatorCannotSubmitInlineDAGSpec(t *testing.T) {
+	server := setupBuiltinAuthServer(t)
+	adminToken := getAdminToken(t, server)
+	operatorKey := createAPIKeyForRole(t, server, adminToken, "operator-inline-spec", api.UserRoleOperator)
+
+	storedDAGSpec := fmt.Sprintf(`
+steps:
+  - %s
+`, test.ShellQuote("exit 0"))
+	storedDAGName := "operator_existing_dag"
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+		Name: storedDAGName,
+		Spec: &storedDAGSpec,
+	}).
+		WithBearerToken(adminToken).
+		ExpectStatus(http.StatusCreated).
+		Send(t)
+
+	startResp := server.Client().Post("/api/v1/dags/"+storedDAGName+"/start", api.ExecuteDAGJSONRequestBody{}).
+		WithBearerToken(operatorKey).
+		ExpectStatus(http.StatusOK).
+		Send(t)
+	var startBody api.ExecuteDAG200JSONResponse
+	startResp.Unmarshal(t, &startBody)
+	require.NotEmpty(t, startBody.DagRunId)
+
+	inlineDAGSpec := fmt.Sprintf(`
+steps:
+  - %s
+`, test.ShellQuote("echo inline denied"))
+	inlineDAGName := "operator_inline_spec_denied"
+	executeResp := server.Client().Post("/api/v1/dag-runs", api.ExecuteDAGRunFromSpecJSONRequestBody{
+		Spec: inlineDAGSpec,
+		Name: &inlineDAGName,
+	}).
+		WithBearerToken(operatorKey).
+		Send(t)
+	require.Equal(t, http.StatusForbidden, executeResp.Response.StatusCode())
+
+	inlineEnqueueDAGName := "operator_inline_enqueue_denied"
+	enqueueResp := server.Client().Post("/api/v1/dag-runs/enqueue", api.EnqueueDAGRunFromSpecJSONRequestBody{
+		Spec: inlineDAGSpec,
+		Name: &inlineEnqueueDAGName,
+	}).
+		WithBearerToken(operatorKey).
+		Send(t)
+	require.Equal(t, http.StatusForbidden, enqueueResp.Response.StatusCode())
+
+	invalidInlineSpec := ":"
+	invalidInlineDAGName := "operator_invalid_inline_spec_denied"
+	invalidResp := server.Client().Post("/api/v1/dag-runs", api.ExecuteDAGRunFromSpecJSONRequestBody{
+		Spec: invalidInlineSpec,
+		Name: &invalidInlineDAGName,
+	}).
+		WithBearerToken(operatorKey).
+		Send(t)
+	require.Equal(t, http.StatusForbidden, invalidResp.Response.StatusCode())
+}
+
+func TestOperatorCannotSubmitEditedRetrySpec(t *testing.T) {
+	server := setupBuiltinAuthServer(t)
+	adminToken := getAdminToken(t, server)
+	operatorKey := createAPIKeyForRole(t, server, adminToken, "operator-edit-retry", api.UserRoleOperator)
+
+	dagSpec := fmt.Sprintf(`
+steps:
+  - %s
+`, test.ShellQuote("exit 0"))
+	dagName := "operator_edit_retry_source"
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+		Name: dagName,
+		Spec: &dagSpec,
+	}).
+		WithBearerToken(adminToken).
+		ExpectStatus(http.StatusCreated).
+		Send(t)
+
+	startResp := server.Client().Post("/api/v1/dags/"+dagName+"/start", api.ExecuteDAGJSONRequestBody{}).
+		WithBearerToken(adminToken).
+		ExpectStatus(http.StatusOK).
+		Send(t)
+	var startBody api.ExecuteDAG200JSONResponse
+	startResp.Unmarshal(t, &startBody)
+	require.NotEmpty(t, startBody.DagRunId)
+	waitForDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+		return status.Status == core.Succeeded || status.Status == core.Failed
+	})
+
+	server.Client().Post(
+		fmt.Sprintf("/api/v1/dag-runs/%s/%s/retry", dagName, startBody.DagRunId),
+		api.RetryDAGRunJSONRequestBody{},
+	).
+		WithBearerToken(operatorKey).
+		ExpectStatus(http.StatusOK).
+		Send(t)
+	waitForDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+		return status.Status == core.Succeeded || status.Status == core.Failed
+	})
+
+	editedSpec := fmt.Sprintf(`
+steps:
+  - %s
+`, test.ShellQuote("echo edited retry denied"))
+	previewResp := server.Client().Post(
+		fmt.Sprintf("/api/v1/dag-runs/%s/%s/edit-retry/preview", dagName, startBody.DagRunId),
+		api.PreviewEditRetryDAGRunJSONRequestBody{
+			Spec: editedSpec,
+		},
+	).
+		WithBearerToken(operatorKey).
+		Send(t)
+	require.Equal(t, http.StatusForbidden, previewResp.Response.StatusCode())
+
+	editRetryRunID := "operator-edit-retry-denied"
+	editResp := server.Client().Post(
+		fmt.Sprintf("/api/v1/dag-runs/%s/%s/edit-retry", dagName, startBody.DagRunId),
+		api.EditRetryDAGRunJSONRequestBody{
+			DagRunId: &editRetryRunID,
+			Spec:     editedSpec,
+		},
+	).
+		WithBearerToken(operatorKey).
+		Send(t)
+	require.Equal(t, http.StatusForbidden, editResp.Response.StatusCode())
+}
+
 func TestGetDAGRunSpecFileEnqueueWithLabelsDoesNotPatchSpec(t *testing.T) {
 	server := test.SetupServer(t)
 
