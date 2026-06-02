@@ -39,6 +39,7 @@ func EnqueueCatchupRun(
 	runID string,
 	triggerType core.TriggerType,
 	scheduleTime time.Time,
+	profileName string,
 ) error {
 	dagRun := exec.NewDAGRunRef(dag.Name, runID)
 
@@ -58,7 +59,6 @@ func EnqueueCatchupRun(
 	if fullDAG == nil {
 		return fmt.Errorf("failed to load full DAG for catchup enqueue: DAG is nil")
 	}
-
 	// Clone to avoid mutating the shared planner entry.
 	// Location is cleared to prevent unix pipe conflicts for concurrent runs
 	// (same as cmd/enqueue.go:87).
@@ -74,6 +74,7 @@ func EnqueueCatchupRun(
 		ArtifactBaseDir: baseArtifactDir,
 		TriggerType:     triggerType,
 		ScheduleTime:    stringutil.FormatTime(scheduleTime),
+		ProfileName:     profileName,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to enqueue catchup run: %w", err)

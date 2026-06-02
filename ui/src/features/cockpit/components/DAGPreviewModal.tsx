@@ -25,7 +25,7 @@ export function DAGPreviewModal({
       params: string,
       dagRunId?: string,
       _immediate?: boolean,
-      profileName?: string
+      profile?: string
     ): Promise<string | void> => {
       const labels: string[] = [];
       if (selectedWorkspace) {
@@ -43,7 +43,7 @@ export function DAGPreviewModal({
         body: {
           params: params || undefined,
           dagRunId: dagRunId || undefined,
-          profileName: profileName || undefined,
+          profile,
           labels: labels.length > 0 ? labels : undefined,
         },
       });

@@ -6,6 +6,7 @@ import {
   History,
   PlayCircle,
   ScrollText,
+  Settings as SettingsIcon,
   Webhook,
 } from 'lucide-react';
 import React, { useState } from 'react';
@@ -23,6 +24,7 @@ import {
   StepLog,
 } from '../dag-execution';
 import { DAGHeader } from './';
+import DAGSettingsTab from './DAGSettingsTab';
 import IncidentsTab from './IncidentsTab';
 import NotificationsTab from './NotificationsTab';
 import WebhookTab from './WebhookTab';
@@ -48,7 +50,7 @@ type DAGDetailsContentProps = {
     params: string,
     dagRunId?: string,
     immediate?: boolean,
-    profileName?: string
+    profile?: string
   ) => string | void | Promise<string | void>;
   onRunStarted?: (dagRunId: string) => void | Promise<void>;
   /** When true, forces enqueue mode in DAGContext (used by cockpit) */
@@ -196,6 +198,23 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
                   value={`${baseUrl}/webhook`}
                   isActive={activeTab === 'webhook'}
                   icon={Webhook}
+                />
+              )}
+
+              {isModal ? (
+                <ModalLinkTab
+                  label="Settings"
+                  value="settings"
+                  isActive={activeTab === 'settings'}
+                  icon={SettingsIcon}
+                  onClick={() => handleTabClick('settings')}
+                />
+              ) : (
+                <LinkTab
+                  label="Settings"
+                  value={`${baseUrl}/settings`}
+                  isActive={activeTab === 'settings'}
+                  icon={SettingsIcon}
                 />
               )}
 
@@ -360,6 +379,27 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
               {isModal ? (
                 <ModalLinkTab
                   label=""
+                  value="settings"
+                  isActive={activeTab === 'settings'}
+                  icon={SettingsIcon}
+                  onClick={() => handleTabClick('settings')}
+                  className="flex-1 justify-center"
+                  aria-label="Settings"
+                />
+              ) : (
+                <LinkTab
+                  label=""
+                  value={`${baseUrl}/settings`}
+                  isActive={activeTab === 'settings'}
+                  icon={SettingsIcon}
+                  className="flex-1 justify-center"
+                  aria-label="Settings"
+                />
+              )}
+
+              {isModal ? (
+                <ModalLinkTab
+                  label=""
                   value="notifications"
                   isActive={activeTab === 'notifications'}
                   icon={Bell}
@@ -458,6 +498,12 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
           {activeTab === 'webhook' ? (
             <>
               <WebhookTab fileName={fileName || ''} />
+              <div className="h-6 flex-shrink-0" />
+            </>
+          ) : null}
+          {activeTab === 'settings' ? (
+            <>
+              <DAGSettingsTab fileName={fileName || ''} />
               <div className="h-6 flex-shrink-0" />
             </>
           ) : null}

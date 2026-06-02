@@ -1071,9 +1071,9 @@ paths:
                 dagName:
                   type: string
                   description: "Optional DAG name override to use for the created dag-run"
-                profileName:
-                  $ref: "#/components/schemas/RuntimeProfileName"
-                  description: "Runtime profile to apply to this DAG-run. Selecting a profile grants the run access to all profile entries."
+                profile:
+                  $ref: "#/components/schemas/RuntimeProfileOverride"
+                  description: "Runtime profile override. Omit to use the DAG default profile, set to an empty string to run without a profile, or set to a profile name to override the DAG default."
                 singleton:
                   type: boolean
                   description: "If true, prevent starting if DAG is already running (returns 409 conflict)"
@@ -1149,9 +1149,9 @@ paths:
                 dagName:
                   type: string
                   description: "Optional DAG name override to use for the created dag-run"
-                profileName:
-                  $ref: "#/components/schemas/RuntimeProfileName"
-                  description: "Runtime profile to apply to this DAG-run. Selecting a profile grants the run access to all profile entries."
+                profile:
+                  $ref: "#/components/schemas/RuntimeProfileOverride"
+                  description: "Runtime profile override. Omit to use the DAG default profile, set to an empty string to run without a profile, or set to a profile name to override the DAG default."
                 singleton:
                   type: boolean
                   description: "If true, prevent starting if DAG is already running (returns 409 conflict)"
@@ -1231,9 +1231,9 @@ paths:
                 dagName:
                   type: string
                   description: "Optional DAG name override to use for the queued dag-run"
-                profileName:
-                  $ref: "#/components/schemas/RuntimeProfileName"
-                  description: "Runtime profile to apply to this queued DAG-run. Selecting a profile grants the run access to all profile entries."
+                profile:
+                  $ref: "#/components/schemas/RuntimeProfileOverride"
+                  description: "Runtime profile override. Omit to use the DAG default profile, set to an empty string to run without a profile, or set to a profile name to override the DAG default."
                 queue:
                   type: string
                   description: "Override the DAG-level queue definition"
@@ -1903,9 +1903,9 @@ paths:
                 name:
                   type: string
                   description: "Optional name to use when the spec omits a name"
-                profileName:
-                  $ref: "#/components/schemas/RuntimeProfileName"
-                  description: "Runtime profile to apply to this DAG-run. Selecting a profile grants the run access to all profile entries."
+                profile:
+                  $ref: "#/components/schemas/RuntimeProfileOverride"
+                  description: "Runtime profile to apply to this DAG-run. Set to an empty string or omit to run without a profile."
                 params:
                   type: string
                   description: "Parameters to pass to the DAG-run in JSON format"
@@ -1982,9 +1982,9 @@ paths:
                 name:
                   type: string
                   description: "Optional name to use when the spec omits a name"
-                profileName:
-                  $ref: "#/components/schemas/RuntimeProfileName"
-                  description: "Runtime profile to apply to this DAG-run. Selecting a profile grants the run access to all profile entries."
+                profile:
+                  $ref: "#/components/schemas/RuntimeProfileOverride"
+                  description: "Runtime profile to apply to this queued DAG-run. Set to an empty string or omit to run without a profile."
                 params:
                   type: string
                   description: "Parameters to persist with the queued DAG-run in JSON format"
@@ -5240,6 +5240,108 @@ paths:
                 $ref: "#/components/schemas/Error"
         "404":
           description: "No webhook configured for this DAG"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dags/{fileName}/settings:
+    get:
+      summary: "Get DAG settings"
+      description: "Returns server-side settings for a specific DAG."
+      operationId: "getDAGSettings"
+      tags:
+        - "dags"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      responses:
+        "200":
+          description: "DAG settings"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DAGSettings"
+        "404":
+          description: "DAG not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    put:
+      summary: "Update DAG settings"
+      description: "Creates or replaces server-side settings for a specific DAG. Manager or admin only; protected profiles require admin."
+      operationId: "updateDAGSettings"
+      tags:
+        - "dags"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDAGSettingsRequest"
+      responses:
+        "200":
+          description: "DAG settings updated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DAGSettings"
+        "400":
+          description: "Invalid DAG settings"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Forbidden - insufficient permissions"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "DAG or runtime profile not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    delete:
+      summary: "Delete DAG settings"
+      description: "Removes server-side settings for the specified DAG. Manager or admin only."
+      operationId: "deleteDAGSettings"
+      tags:
+        - "dags"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      responses:
+        "204":
+          description: "DAG settings deleted"
+        "404":
+          description: "DAG not found"
           content:
             application/json:
               schema:
@@ -10977,6 +11079,33 @@ components:
             $ref: "#/components/schemas/NotificationEventType"
           description: "Subscription-level event filter. Empty means the subscription inherits DAG-level events."
 
+    DAGSettings:
+      type: object
+      description: "Server-side DAG settings"
+      required:
+        - dagName
+      properties:
+        dagName:
+          type: string
+          description: "DAG file identifier these settings apply to"
+        profile:
+          $ref: "#/components/schemas/RuntimeProfileName"
+          description: "Default runtime profile used when a DAG run does not provide an explicit profile override"
+        updatedAt:
+          type: string
+          format: date-time
+        updatedBy:
+          type: string
+          description: "User ID that last updated the settings"
+
+    UpdateDAGSettingsRequest:
+      type: object
+      description: "Request to replace DAG settings. Omit `profile` to clear the DAG default profile."
+      properties:
+        profile:
+          $ref: "#/components/schemas/RuntimeProfileName"
+          description: "Default runtime profile used when a DAG run does not provide an explicit profile override"
+
     DAGNotificationSettings:
       type: object
       description: "Server-side DAG notification settings"
@@ -15307,6 +15436,12 @@ components:
       maxLength: 128
       pattern: "^[a-z0-9][a-z0-9._-]*$"
       description: "Runtime profile name."
+
+    RuntimeProfileOverride:
+      type: string
+      maxLength: 128
+      pattern: "^$|^[a-z0-9][a-z0-9._-]*$"
+      description: "Runtime profile override. Empty string means no profile."
 
     RuntimeProfileKey:
       type: string

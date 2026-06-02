@@ -13,6 +13,7 @@ import (
 	apigen "github.com/dagucloud/dagu/api/v1"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/crypto"
+	"github.com/dagucloud/dagu/internal/core/exec"
 	persiststore "github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
 	"github.com/dagucloud/dagu/internal/profile"
@@ -150,31 +151,101 @@ steps:
 		Protected: new(true),
 	}).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t)
 
-	localProfile := apigen.RuntimeProfileName("local")
+	localProfile := apigen.RuntimeProfileOverride("local")
 	managerRunID := "manager-unprotected-profile"
 	server.Client().Post(fmt.Sprintf("/api/v1/dags/%s/start", dagName), apigen.ExecuteDAGJSONRequestBody{
-		DagRunId:    &managerRunID,
-		ProfileName: &localProfile,
+		DagRunId: &managerRunID,
+		Profile:  &localProfile,
 	}).WithBearerToken(managerToken).ExpectStatus(http.StatusOK).Send(t)
 
 	operatorRunID := "operator-unprotected-profile"
 	server.Client().Post(fmt.Sprintf("/api/v1/dags/%s/start", dagName), apigen.ExecuteDAGJSONRequestBody{
-		DagRunId:    &operatorRunID,
-		ProfileName: &localProfile,
+		DagRunId: &operatorRunID,
+		Profile:  &localProfile,
 	}).WithBearerToken(operatorToken).ExpectStatus(http.StatusOK).Send(t)
 
-	protectedProfile := apigen.RuntimeProfileName("prod")
+	protectedProfile := apigen.RuntimeProfileOverride("prod")
 	forbiddenRunID := "manager-protected-profile"
 	server.Client().Post(fmt.Sprintf("/api/v1/dags/%s/start", dagName), apigen.ExecuteDAGJSONRequestBody{
-		DagRunId:    &forbiddenRunID,
-		ProfileName: &protectedProfile,
+		DagRunId: &forbiddenRunID,
+		Profile:  &protectedProfile,
 	}).WithBearerToken(managerToken).ExpectStatus(http.StatusForbidden).Send(t)
 
 	adminRunID := "admin-protected-profile"
 	server.Client().Post(fmt.Sprintf("/api/v1/dags/%s/start", dagName), apigen.ExecuteDAGJSONRequestBody{
-		DagRunId:    &adminRunID,
-		ProfileName: &protectedProfile,
+		DagRunId: &adminRunID,
+		Profile:  &protectedProfile,
 	}).WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t)
+}
+
+func TestRuntimeProfilesAPI_DAGDefaultProfile(t *testing.T) {
+	server := setupBuiltinAuthServer(t)
+	adminToken := getAdminToken(t, server)
+	managerToken := createRuntimeProfileUserToken(
+		t, server, adminToken, "default-profile-manager", "managerpass1", apigen.UserRoleManager,
+	)
+	operatorToken := createRuntimeProfileUserToken(
+		t, server, adminToken, "default-profile-operator", "operatorpass1", apigen.UserRoleOperator,
+	)
+
+	dagName := "default_profile_dag"
+	spec := `
+steps:
+  - name: main
+    run: echo default profile
+`
+	server.Client().Post("/api/v1/dags", apigen.CreateNewDAGJSONRequestBody{
+		Name: dagName,
+		Spec: &spec,
+	}).WithBearerToken(managerToken).ExpectStatus(http.StatusCreated).Send(t)
+
+	server.Client().Post("/api/v1/profiles", apigen.CreateRuntimeProfileJSONRequestBody{
+		Name: "local",
+	}).WithBearerToken(managerToken).ExpectStatus(http.StatusCreated).Send(t)
+	server.Client().Post("/api/v1/profiles", apigen.CreateRuntimeProfileJSONRequestBody{
+		Name:      "prod",
+		Protected: new(true),
+	}).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t)
+
+	localProfile := apigen.RuntimeProfileName("local")
+	server.Client().Put(fmt.Sprintf("/api/v1/dags/%s/settings", dagName), apigen.UpdateDAGSettingsJSONRequestBody{
+		Profile: &localProfile,
+	}).WithBearerToken(managerToken).ExpectStatus(http.StatusOK).Send(t)
+
+	var settings apigen.DAGSettings
+	server.Client().Get(fmt.Sprintf("/api/v1/dags/%s/settings", dagName)).
+		WithBearerToken(operatorToken).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &settings)
+	require.NotNil(t, settings.Profile)
+	assert.Equal(t, "local", *settings.Profile)
+
+	protectedProfile := apigen.RuntimeProfileName("prod")
+	server.Client().Put(fmt.Sprintf("/api/v1/dags/%s/settings", dagName), apigen.UpdateDAGSettingsJSONRequestBody{
+		Profile: &protectedProfile,
+	}).WithBearerToken(managerToken).ExpectStatus(http.StatusForbidden).Send(t)
+
+	server.Client().Put(fmt.Sprintf("/api/v1/dags/%s/settings", dagName), apigen.UpdateDAGSettingsJSONRequestBody{
+		Profile: &protectedProfile,
+	}).WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t)
+
+	defaultRunID := "uses-protected-default"
+	server.Client().Post(fmt.Sprintf("/api/v1/dags/%s/start", dagName), apigen.ExecuteDAGJSONRequestBody{
+		DagRunId: &defaultRunID,
+	}).WithBearerToken(operatorToken).ExpectStatus(http.StatusOK).Send(t)
+	defaultStatus := waitForStoredDAGRunStatus(t, server, dagName, defaultRunID, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+		return status.ProfileName == "prod"
+	})
+	assert.Equal(t, "prod", defaultStatus.ProfileName)
+
+	noProfile := apigen.RuntimeProfileOverride("")
+	noProfileRunID := "bypasses-default-profile"
+	server.Client().Post(fmt.Sprintf("/api/v1/dags/%s/start", dagName), apigen.ExecuteDAGJSONRequestBody{
+		DagRunId: &noProfileRunID,
+		Profile:  &noProfile,
+	}).WithBearerToken(operatorToken).ExpectStatus(http.StatusOK).Send(t)
+	noProfileStatus := waitForStoredDAGRunStatus(t, server, dagName, noProfileRunID, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+		return status.DAGRunID == noProfileRunID
+	})
+	assert.Empty(t, noProfileStatus.ProfileName)
 }
 
 func TestRuntimeProfilesAPI_ProtectedProfileManagementRequiresAdmin(t *testing.T) {

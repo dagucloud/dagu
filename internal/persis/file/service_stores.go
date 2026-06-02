@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/internal/core/baseconfig"
+	"github.com/dagucloud/dagu/internal/dagsettings"
 	"github.com/dagucloud/dagu/internal/githubdispatch"
 	"github.com/dagucloud/dagu/internal/incident"
 	"github.com/dagucloud/dagu/internal/license"
@@ -96,6 +97,17 @@ func NewGitHubDispatchTracker(cfg *config.Config) githubdispatch.Tracker {
 	dir := filepath.Join(cfg.Paths.DataDir, "github-dispatch")
 	_ = os.MkdirAll(dir, 0o700)
 	return store.NewGitHubDispatchStore(NewCollection(dir, WithIndentedJSON()))
+}
+
+func NewDAGSettingsStore(cfg *config.Config) (dagsettings.Store, error) {
+	if cfg == nil || cfg.Paths.DataDir == "" {
+		return nil, fmt.Errorf("DAG settings store: DataDir cannot be empty")
+	}
+	dir := filepath.Join(cfg.Paths.DataDir, "dag-settings")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return nil, fmt.Errorf("DAG settings store: create directory %s: %w", dir, err)
+	}
+	return store.NewDAGSettingsStore(NewCollection(dir, WithIndentedJSON()))
 }
 
 func NewIncidentStore(cfg *config.Config, enc *crypto.Encryptor) (incident.Store, error) {

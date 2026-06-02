@@ -27,6 +27,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/baseconfig"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/dagsettings"
 	incidentmodel "github.com/dagucloud/dagu/internal/incident"
 	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/license"
@@ -91,6 +92,7 @@ type API struct {
 	agentAPI             *agent.API
 	docStore             agent.DocStore
 	baseConfigStore      baseconfig.Store
+	dagSettingsStore     dagsettings.Store
 	secretStore          secretpkg.Store
 	profileStore         profilepkg.Store
 	licenseManager       *license.Manager
@@ -254,6 +256,13 @@ func WithSecretStore(store secretpkg.Store) APIOption {
 func WithProfileStore(store profilepkg.Store) APIOption {
 	return func(a *API) {
 		a.profileStore = store
+	}
+}
+
+// WithDAGSettingsStore returns an APIOption that sets the DAG settings store.
+func WithDAGSettingsStore(store dagsettings.Store) APIOption {
+	return func(a *API) {
+		a.dagSettingsStore = store
 	}
 }
 

@@ -87,14 +87,30 @@ type Props = {
     params: string,
     dagRunId?: string,
     immediate?: boolean,
-    profileName?: string
+    profile?: string
   ) => Promise<void> | void;
   action?: 'start' | 'enqueue';
   profiles?: components['schemas']['RuntimeProfileResponse'][];
   profilesLoading?: boolean;
+  defaultProfile?: string;
+  defaultProfileLoading?: boolean;
 };
 
+const DAG_DEFAULT_PROFILE_VALUE = '__dag_default__';
 const NO_PROFILE_VALUE = '__none__';
+
+function profileOverrideForSelection(
+  selection: string,
+  hasDefaultProfile: boolean
+): string | undefined {
+  if (selection === DAG_DEFAULT_PROFILE_VALUE) {
+    return undefined;
+  }
+  if (selection === NO_PROFILE_VALUE) {
+    return hasDefaultProfile ? '' : undefined;
+  }
+  return selection;
+}
 
 function createParamFields(paramDefs: ParamDef[] = []): ParamField[] {
   return paramDefs.map((def, index) => {
@@ -261,6 +277,8 @@ function StartDAGModal({
   action,
   profiles = [],
   profilesLoading = false,
+  defaultProfile = '',
+  defaultProfileLoading = false,
 }: Props) {
   const canUseProtectedProfiles = useIsAdmin();
   const dagDetails = dag as components['schemas']['DAGDetails'] | undefined;
@@ -314,7 +332,9 @@ function StartDAGModal({
   const [submitError, setSubmitError] = React.useState<string | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
   const [dagRunId, setDAGRunId] = React.useState('');
-  const [selectedProfileName, setSelectedProfileName] = React.useState('');
+  const [profileSelection, setProfileSelection] = React.useState(
+    defaultProfile ? DAG_DEFAULT_PROFILE_VALUE : NO_PROFILE_VALUE
+  );
   const forceEnqueue = action === 'enqueue';
   const [enqueue, setEnqueue] = React.useState(forceEnqueue);
   const activeProfiles = React.useMemo(
@@ -324,19 +344,36 @@ function StartDAGModal({
       ),
     [profiles]
   );
-  const showProfileSelector = profilesLoading || activeProfiles.length > 0;
+  const hasDefaultProfile = defaultProfile !== '';
+  const showProfileSelector =
+    defaultProfileLoading ||
+    profilesLoading ||
+    hasDefaultProfile ||
+    activeProfiles.length > 0;
 
   React.useEffect(() => {
-    if (canUseProtectedProfiles || selectedProfileName === '') {
+    if (
+      canUseProtectedProfiles ||
+      profileSelection === '' ||
+      profileSelection === DAG_DEFAULT_PROFILE_VALUE ||
+      profileSelection === NO_PROFILE_VALUE
+    ) {
       return;
     }
     const selectedProfile = activeProfiles.find(
-      (profile) => profile.name === selectedProfileName
+      (profile) => profile.name === profileSelection
     );
     if (selectedProfile?.protected) {
-      setSelectedProfileName('');
+      setProfileSelection(
+        hasDefaultProfile ? DAG_DEFAULT_PROFILE_VALUE : NO_PROFILE_VALUE
+      );
     }
-  }, [activeProfiles, canUseProtectedProfiles, selectedProfileName]);
+  }, [
+    activeProfiles,
+    canUseProtectedProfiles,
+    hasDefaultProfile,
+    profileSelection,
+  ]);
 
   const dagWithRunConfig = dag as DAGLike & {
     runConfig?: { disableParamEdit?: boolean; disableRunIdEdit?: boolean };
@@ -373,9 +410,12 @@ function StartDAGModal({
     setSubmitError(null);
     setSubmitting(false);
     setDAGRunId('');
-    setSelectedProfileName('');
+    setProfileSelection(
+      defaultProfile ? DAG_DEFAULT_PROFILE_VALUE : NO_PROFILE_VALUE
+    );
     setEnqueue(forceEnqueue);
   }, [
+    defaultProfile,
     visible,
     initialSchemaFormData,
     initialTypedFields,
@@ -442,15 +482,19 @@ function StartDAGModal({
     setSubmitting(true);
     setSubmitError(null);
     try {
-      if (selectedProfileName) {
+      const profileOverride = profileOverrideForSelection(
+        profileSelection,
+        hasDefaultProfile
+      );
+      if (profileOverride === undefined) {
+        await onSubmit(paramsPayload, dagRunId || undefined, !enqueue);
+      } else {
         await onSubmit(
           paramsPayload,
           dagRunId || undefined,
           !enqueue,
-          selectedProfileName
+          profileOverride
         );
-      } else {
-        await onSubmit(paramsPayload, dagRunId || undefined, !enqueue);
       }
       dismissModal();
     } catch (error) {
@@ -465,6 +509,7 @@ function StartDAGModal({
     dagRunId,
     dismissModal,
     enqueue,
+    hasDefaultProfile,
     loadError,
     loading,
     onSubmit,
@@ -472,7 +517,7 @@ function StartDAGModal({
     schemaFormData,
     useSchemaFields,
     submitting,
-    selectedProfileName,
+    profileSelection,
     typedFields,
     useTypedFields,
   ]);
@@ -587,18 +632,29 @@ function StartDAGModal({
             <div className="space-y-2">
               <Label htmlFor="runtime-profile">Profile</Label>
               <Select
-                value={selectedProfileName || NO_PROFILE_VALUE}
-                disabled={loading || submitting || profilesLoading}
-                onValueChange={(value) =>
-                  setSelectedProfileName(
-                    value === NO_PROFILE_VALUE ? '' : value
-                  )
+                value={profileSelection}
+                disabled={
+                  loading ||
+                  submitting ||
+                  profilesLoading ||
+                  defaultProfileLoading
                 }
+                onValueChange={setProfileSelection}
               >
                 <SelectTrigger id="runtime-profile" className="w-full">
                   <SelectValue placeholder="No profile" />
                 </SelectTrigger>
                 <SelectContent>
+                  {hasDefaultProfile && (
+                    <SelectItem value={DAG_DEFAULT_PROFILE_VALUE}>
+                      <span className="flex w-full items-center justify-between gap-3">
+                        <span>DAG default</span>
+                        <span className="truncate text-xs text-muted-foreground">
+                          {defaultProfile}
+                        </span>
+                      </span>
+                    </SelectItem>
+                  )}
                   <SelectItem value={NO_PROFILE_VALUE}>No profile</SelectItem>
                   {activeProfiles.map((profile) => {
                     const protectedUnavailable =

@@ -218,7 +218,7 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 	if err := a.requireExecuteForWorkspace(ctx, runtimeWorkspaceName(dag, labels)); err != nil {
 		return nil, err
 	}
-	profileName, err := a.runProfileName(ctx, request.Body.ProfileName)
+	profileName, _, err := a.explicitRunProfile(ctx, request.Body.Profile)
 	if err != nil {
 		return nil, err
 	}
@@ -315,7 +315,7 @@ func (a *API) EnqueueDAGRunFromSpec(ctx context.Context, request api.EnqueueDAGR
 	if err := a.requireExecuteForWorkspace(ctx, runtimeWorkspaceName(dag, labels)); err != nil {
 		return nil, err
 	}
-	profileName, err := a.runProfileName(ctx, request.Body.ProfileName)
+	profileName, _, err := a.explicitRunProfile(ctx, request.Body.Profile)
 	if err != nil {
 		return nil, err
 	}

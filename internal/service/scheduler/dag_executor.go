@@ -61,6 +61,19 @@ type DAGExecutor struct {
 	defaultExecMode config.ExecutionMode
 	baseConfigPath  string
 	snapshotBuilder func(context.Context, *core.DAG) ([]byte, error)
+	profileResolver DAGProfileResolver
+}
+
+type DAGProfileResolver interface {
+	ResolveProfile(ctx context.Context, dagName string) (string, error)
+}
+
+type DAGExecutorOption func(*DAGExecutor)
+
+func WithDAGExecutorProfileResolver(resolver DAGProfileResolver) DAGExecutorOption {
+	return func(e *DAGExecutor) {
+		e.profileResolver = resolver
+	}
 }
 
 // NewDAGExecutor creates a new DAGExecutor instance.
@@ -70,14 +83,21 @@ func NewDAGExecutor(
 	defaultExecMode config.ExecutionMode,
 	baseConfigPath string,
 	snapshotBuilder func(context.Context, *core.DAG) ([]byte, error),
+	opts ...DAGExecutorOption,
 ) *DAGExecutor {
-	return &DAGExecutor{
+	executor := &DAGExecutor{
 		coordinatorCli:  coordinatorCli,
 		subCmdBuilder:   subCmdBuilder,
 		defaultExecMode: defaultExecMode,
 		baseConfigPath:  baseConfigPath,
 		snapshotBuilder: snapshotBuilder,
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(executor)
+		}
+	}
+	return executor
 }
 
 // HandleJob is the entry point for new scheduled jobs (from DAGRunJob.Start).
@@ -100,6 +120,15 @@ func (e *DAGExecutor) HandleJob(
 	triggerType core.TriggerType,
 	scheduleTime time.Time,
 ) error {
+	profileName := ""
+	if operation == exec.DispatchOperationStart {
+		var err error
+		profileName, err = e.defaultProfileName(ctx, dag)
+		if err != nil {
+			return fmt.Errorf("failed to resolve DAG profile: %w", err)
+		}
+	}
+
 	// For distributed execution with START operation, enqueue for persistence
 	if e.shouldUseDistributedExecution(dag) && operation == exec.DispatchOperationStart {
 		ctx = logger.WithValues(ctx,
@@ -119,6 +148,7 @@ func (e *DAGExecutor) HandleJob(
 			DAGRunID:     runID,
 			TriggerType:  triggerType.String(),
 			ScheduleTime: stringutil.FormatTime(scheduleTime),
+			ProfileName:  profileName,
 		})
 		if err := launcher.Run(ctx, spec); err != nil {
 			return fmt.Errorf("failed to enqueue DAG run: %w", err)
@@ -127,7 +157,7 @@ func (e *DAGExecutor) HandleJob(
 	}
 
 	// For all other cases (local execution or non-START operations), use ExecuteDAG
-	return e.ExecuteDAG(ctx, dag, operation, runID, nil, triggerType, stringutil.FormatTime(scheduleTime))
+	return e.executeDAG(ctx, dag, operation, runID, nil, triggerType, stringutil.FormatTime(scheduleTime), profileName)
 }
 
 // ExecuteDAG executes or dispatches an already-persisted DAG.
@@ -148,6 +178,19 @@ func (e *DAGExecutor) ExecuteDAG(
 	triggerType core.TriggerType,
 	scheduleTime string,
 ) error {
+	return e.executeDAG(ctx, dag, operation, runID, previousStatus, triggerType, scheduleTime, "")
+}
+
+func (e *DAGExecutor) executeDAG(
+	ctx context.Context,
+	dag *core.DAG,
+	operation exec.DispatchOperation,
+	runID string,
+	previousStatus *exec.DAGRunStatus,
+	triggerType core.TriggerType,
+	scheduleTime string,
+	defaultProfileName string,
+) error {
 	if err := validateDispatchOperation(operation); err != nil {
 		return err
 	}
@@ -159,8 +202,12 @@ func (e *DAGExecutor) ExecuteDAG(
 			executor.WithPreviousStatus(previousStatus),
 			executor.WithBaseConfig(executor.ResolveBaseConfig(dag.BaseConfigData, e.baseConfigPath)),
 		}
-		if previousStatus != nil && previousStatus.ProfileName != "" {
-			taskOpts = append(taskOpts, executor.WithProfileName(previousStatus.ProfileName))
+		profileName := profileNameFromStatus(previousStatus)
+		if profileName == "" {
+			profileName = defaultProfileName
+		}
+		if profileName != "" {
+			taskOpts = append(taskOpts, executor.WithProfileName(profileName))
 		}
 		if previousStatus != nil && previousStatus.Params != "" {
 			taskOpts = append(taskOpts, executor.WithTaskParams(previousStatus.Params))
@@ -210,7 +257,7 @@ func (e *DAGExecutor) ExecuteDAG(
 			Quiet:        true,
 			TriggerType:  triggerType.String(),
 			ScheduleTime: scheduleTime,
-			ProfileName:  profileNameFromStatus(previousStatus),
+			ProfileName:  fallbackProfileName(profileNameFromStatus(previousStatus), defaultProfileName),
 		})
 		return launcher.Start(ctx, spec)
 
@@ -221,6 +268,27 @@ func (e *DAGExecutor) ExecuteDAG(
 	default:
 		return fmt.Errorf("unknown operation: %s", operation)
 	}
+}
+
+func fallbackProfileName(profileName, fallback string) string {
+	if profileName != "" {
+		return profileName
+	}
+	return fallback
+}
+
+func (e *DAGExecutor) defaultProfileName(ctx context.Context, dag *core.DAG) (string, error) {
+	if e.profileResolver == nil || dag == nil {
+		return "", nil
+	}
+	dagName := dag.FileName()
+	if dagName == "" {
+		dagName = dag.Name
+	}
+	if dagName == "" {
+		return "", nil
+	}
+	return e.profileResolver.ResolveProfile(ctx, dagName)
 }
 
 func profileNameFromStatus(status *exec.DAGRunStatus) string {

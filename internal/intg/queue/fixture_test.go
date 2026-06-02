@@ -223,6 +223,7 @@ func (f *fixture) enqueueCatchup(scheduleTime time.Time) string {
 		runID,
 		core.TriggerTypeCatchUp,
 		scheduleTime,
+		"",
 	))
 	f.runIDs = append(f.runIDs, runID)
 	return runID

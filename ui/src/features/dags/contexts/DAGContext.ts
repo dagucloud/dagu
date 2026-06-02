@@ -13,7 +13,7 @@ export const DAGContext = React.createContext<{
     params: string,
     dagRunId?: string,
     immediate?: boolean,
-    profileName?: string
+    profile?: string
   ) => string | void | Promise<string | void>;
   onRunStarted?: (dagRunId: string) => void | Promise<void>;
 }>({

@@ -356,6 +356,15 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		apiOpts = append(apiOpts, apiv1.WithAgentOAuthManager(agentOAuthManager))
 	}
 
+	if stores.DAGSettingsStoreFactory != nil {
+		store, err := stores.DAGSettingsStoreFactory(cfg)
+		if err != nil {
+			logger.Warn(ctx, "Failed to create DAG settings store", tag.Error(err))
+		} else {
+			apiOpts = append(apiOpts, apiv1.WithDAGSettingsStore(store))
+		}
+	}
+
 	var notificationSvc *notificationservice.Service
 	if encryptor != nil && stores.NotificationStoreFactory != nil {
 		store, err := stores.NotificationStoreFactory(cfg, encryptor)

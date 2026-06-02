@@ -68,6 +68,7 @@ type schedulerHooks struct {
 
 type schedulerOptions struct {
 	snapshotStoreFactory agentsnapshot.StoreFactory
+	profileResolver      DAGProfileResolver
 }
 
 type Option func(*schedulerOptions)
@@ -75,6 +76,12 @@ type Option func(*schedulerOptions)
 func WithSnapshotStoreFactory(factory agentsnapshot.StoreFactory) Option {
 	return func(opts *schedulerOptions) {
 		opts.snapshotStoreFactory = factory
+	}
+}
+
+func WithDAGProfileResolver(resolver DAGProfileResolver) Option {
+	return func(opts *schedulerOptions) {
+		opts.profileResolver = resolver
 	}
 }
 
@@ -151,6 +158,7 @@ func newScheduler(
 		cfg.DefaultExecMode,
 		cfg.Paths.BaseConfig,
 		buildSnapshotBuilder(cfg.Paths, dagStore, options.snapshotStoreFactory),
+		WithDAGExecutorProfileResolver(options.profileResolver),
 	)
 	healthServer := NewHealthServer(cfg.Scheduler.Port)
 
@@ -186,7 +194,11 @@ func newScheduler(
 			return len(items) > 0, nil
 		}
 		enqueueFunc = func(ctx context.Context, dag *core.DAG, runID string, triggerType core.TriggerType, scheduleTime time.Time) error {
-			return EnqueueCatchupRun(ctx, dagRunStore, queueStore, cfg.Paths.LogDir, cfg.Paths.ArtifactDir, cfg.Paths.BaseConfig, dag, runID, triggerType, scheduleTime)
+			profileName, err := dagExecutor.defaultProfileName(ctx, dag)
+			if err != nil {
+				return fmt.Errorf("failed to resolve DAG profile: %w", err)
+			}
+			return EnqueueCatchupRun(ctx, dagRunStore, queueStore, cfg.Paths.LogDir, cfg.Paths.ArtifactDir, cfg.Paths.BaseConfig, dag, runID, triggerType, scheduleTime, profileName)
 		}
 	}
 

@@ -125,6 +125,20 @@ function DAGActions({
     profilesQuery
   );
   const runtimeProfiles = profilesData?.profiles || [];
+  const dagSettingsQuery = React.useMemo(
+    () =>
+      whenEnabled(isEnqueueModal && !!fileName, {
+        params: {
+          path: { fileName },
+          query: { remoteNode },
+        },
+      }),
+    [fileName, isEnqueueModal, remoteNode]
+  );
+  const { data: dagSettingsData, isLoading: dagSettingsLoading } = useQuery(
+    '/dags/{fileName}/settings',
+    dagSettingsQuery
+  );
 
   React.useEffect(() => {
     if (!isRetryModal || !status?.name || !retryDagRunId) {
@@ -836,16 +850,19 @@ function DAGActions({
           action={dagContext.forceEnqueue ? 'enqueue' : undefined}
           profiles={runtimeProfiles}
           profilesLoading={profilesLoading}
-          onSubmit={async (params, dagRunId, immediate, profileName) => {
+          defaultProfile={dagSettingsData?.profile}
+          defaultProfileLoading={dagSettingsLoading}
+          onSubmit={async (params, dagRunId, immediate, profile) => {
             if (dagContext.onEnqueue) {
-              const result = profileName
-                ? await dagContext.onEnqueue(
-                    params,
-                    dagRunId,
-                    immediate,
-                    profileName
-                  )
-                : await dagContext.onEnqueue(params, dagRunId, immediate);
+              const result =
+                profile !== undefined
+                  ? await dagContext.onEnqueue(
+                      params,
+                      dagRunId,
+                      immediate,
+                      profile
+                    )
+                  : await dagContext.onEnqueue(params, dagRunId, immediate);
               const startedRunId =
                 typeof result === 'string' && result ? result : dagRunId;
               if (startedRunId) {
@@ -857,13 +874,13 @@ function DAGActions({
             const body: {
               params: string;
               dagRunId?: string;
-              profileName?: string;
+              profile?: string;
             } = { params };
             if (dagRunId) {
               body.dagRunId = dagRunId;
             }
-            if (profileName) {
-              body.profileName = profileName;
+            if (profile !== undefined) {
+              body.profile = profile;
             }
 
             // Use /start endpoint if immediate is true, otherwise use /enqueue

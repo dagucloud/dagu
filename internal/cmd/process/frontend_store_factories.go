@@ -38,6 +38,7 @@ func NewFrontendStoreFactories() frontend.StoreFactories {
 		DocStoreFactory:                  file.NewDocStore,
 		BuiltinAuthFactory:               newBuiltinAuthService,
 		RemoteNodeStoreFactory:           file.NewRemoteNodeStore,
+		DAGSettingsStoreFactory:          file.NewDAGSettingsStore,
 		NotificationStoreFactory:         file.NewNotificationStore,
 		NotificationMonitorStateFileFunc: file.NotificationMonitorStateFile,
 		IncidentStoreFactory:             file.NewIncidentStore,

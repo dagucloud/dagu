@@ -2132,6 +2132,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dags/{fileName}/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get DAG settings
+         * @description Returns server-side settings for a specific DAG.
+         */
+        get: operations["getDAGSettings"];
+        /**
+         * Update DAG settings
+         * @description Creates or replaces server-side settings for a specific DAG. Manager or admin only; protected profiles require admin.
+         */
+        put: operations["updateDAGSettings"];
+        post?: never;
+        /**
+         * Delete DAG settings
+         * @description Removes server-side settings for the specified DAG. Manager or admin only.
+         */
+        delete: operations["deleteDAGSettings"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dags/{fileName}/notifications": {
         parameters: {
             query?: never;
@@ -4111,6 +4139,22 @@ export interface components {
             enabled: boolean;
             /** @description Subscription-level event filter. Empty means the subscription inherits DAG-level events. */
             events?: components["schemas"]["NotificationEventType"][];
+        };
+        /** @description Server-side DAG settings */
+        DAGSettings: {
+            /** @description DAG file identifier these settings apply to */
+            dagName: string;
+            /** @description Default runtime profile used when a DAG run does not provide an explicit profile override */
+            profile?: components["schemas"]["RuntimeProfileName"];
+            /** Format: date-time */
+            updatedAt?: string;
+            /** @description User ID that last updated the settings */
+            updatedBy?: string;
+        };
+        /** @description Request to replace DAG settings. Omit `profile` to clear the DAG default profile. */
+        UpdateDAGSettingsRequest: {
+            /** @description Default runtime profile used when a DAG run does not provide an explicit profile override */
+            profile?: components["schemas"]["RuntimeProfileName"];
         };
         /** @description Server-side DAG notification settings */
         DAGNotificationSettings: {
@@ -6355,6 +6399,8 @@ export interface components {
         };
         /** @description Runtime profile name. */
         RuntimeProfileName: string;
+        /** @description Runtime profile override. Empty string means no profile. */
+        RuntimeProfileOverride: string;
         /** @description Environment variable key stored in a runtime profile. Keys with the DAGU_ prefix are reserved. */
         RuntimeProfileKey: string;
         /** @enum {string} */
@@ -7844,8 +7890,8 @@ export interface operations {
                     dagRunId?: components["schemas"]["DAGRunId"] & unknown;
                     /** @description Optional DAG name override to use for the created dag-run */
                     dagName?: string;
-                    /** @description Runtime profile to apply to this DAG-run. Selecting a profile grants the run access to all profile entries. */
-                    profileName?: components["schemas"]["RuntimeProfileName"];
+                    /** @description Runtime profile override. Omit to use the DAG default profile, set to an empty string to run without a profile, or set to a profile name to override the DAG default. */
+                    profile?: components["schemas"]["RuntimeProfileOverride"];
                     /**
                      * @description If true, prevent starting if DAG is already running (returns 409 conflict)
                      * @default false
@@ -7920,8 +7966,8 @@ export interface operations {
                     dagRunId?: components["schemas"]["DAGRunId"] & unknown;
                     /** @description Optional DAG name override to use for the created dag-run */
                     dagName?: string;
-                    /** @description Runtime profile to apply to this DAG-run. Selecting a profile grants the run access to all profile entries. */
-                    profileName?: components["schemas"]["RuntimeProfileName"];
+                    /** @description Runtime profile override. Omit to use the DAG default profile, set to an empty string to run without a profile, or set to a profile name to override the DAG default. */
+                    profile?: components["schemas"]["RuntimeProfileOverride"];
                     /**
                      * @description If true, prevent starting if DAG is already running (returns 409 conflict)
                      * @default false
@@ -8007,8 +8053,8 @@ export interface operations {
                     dagRunId?: components["schemas"]["DAGRunId"] & unknown;
                     /** @description Optional DAG name override to use for the queued dag-run */
                     dagName?: string;
-                    /** @description Runtime profile to apply to this queued DAG-run. Selecting a profile grants the run access to all profile entries. */
-                    profileName?: components["schemas"]["RuntimeProfileName"];
+                    /** @description Runtime profile override. Omit to use the DAG default profile, set to an empty string to run without a profile, or set to a profile name to override the DAG default. */
+                    profile?: components["schemas"]["RuntimeProfileOverride"];
                     /** @description Override the DAG-level queue definition */
                     queue?: string;
                     /**
@@ -8794,8 +8840,8 @@ export interface operations {
                     spec: string;
                     /** @description Optional name to use when the spec omits a name */
                     name?: string;
-                    /** @description Runtime profile to apply to this DAG-run. Selecting a profile grants the run access to all profile entries. */
-                    profileName?: components["schemas"]["RuntimeProfileName"];
+                    /** @description Runtime profile to apply to this DAG-run. Set to an empty string or omit to run without a profile. */
+                    profile?: components["schemas"]["RuntimeProfileOverride"];
                     /** @description Parameters to pass to the DAG-run in JSON format */
                     params?: string;
                     dagRunId?: components["schemas"]["DAGRunId"] & unknown;
@@ -8869,8 +8915,8 @@ export interface operations {
                     spec: string;
                     /** @description Optional name to use when the spec omits a name */
                     name?: string;
-                    /** @description Runtime profile to apply to this DAG-run. Selecting a profile grants the run access to all profile entries. */
-                    profileName?: components["schemas"]["RuntimeProfileName"];
+                    /** @description Runtime profile to apply to this queued DAG-run. Set to an empty string or omit to run without a profile. */
+                    profile?: components["schemas"]["RuntimeProfileOverride"];
                     /** @description Parameters to persist with the queued DAG-run in JSON format */
                     params?: string;
                     dagRunId?: components["schemas"]["DAGRunId"] & unknown;
@@ -13027,6 +13073,158 @@ export interface operations {
             };
             /** @description Webhook HMAC is not supported on this node */
             501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getDAGSettings: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description DAG settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DAGSettings"];
+                };
+            };
+            /** @description DAG not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateDAGSettings: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDAGSettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description DAG settings updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DAGSettings"];
+                };
+            };
+            /** @description Invalid DAG settings */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description DAG or runtime profile not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteDAGSettings: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description DAG settings deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description DAG not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

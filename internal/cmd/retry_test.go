@@ -481,6 +481,7 @@ steps:
 			runID,
 			core.TriggerTypeCatchUp,
 			scheduleTime,
+			"",
 		))
 
 		args := []string{"retry", fmt.Sprintf("--run-id=%s", runID), dagFile.Location}

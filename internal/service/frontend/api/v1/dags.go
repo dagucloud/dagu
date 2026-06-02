@@ -369,6 +369,7 @@ func (a *API) RenameDAG(ctx context.Context, request api.RenameDAGRequestObject)
 	if err := a.dagStore.Rename(ctx, request.FileName, request.Body.NewFileName); err != nil {
 		return nil, fmt.Errorf("failed to move DAG: %w", err)
 	}
+	a.migrateDAGSettingsAfterRename(ctx, request.FileName, request.Body.NewFileName)
 
 	a.logAudit(ctx, audit.CategoryDAG, "dag_rename", map[string]any{
 		"old_name": request.FileName,
@@ -999,7 +1000,7 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 	if err != nil {
 		return nil, err
 	}
-	profileName, err := a.runProfileName(ctx, request.Body.ProfileName)
+	profileName, err := a.runProfileForDAG(ctx, request.FileName, request.Body.Profile)
 	if err != nil {
 		return nil, err
 	}
@@ -1096,7 +1097,7 @@ func (a *API) ExecuteDAGSync(ctx context.Context, request api.ExecuteDAGSyncRequ
 	if err != nil {
 		return nil, err
 	}
-	profileName, err := a.runProfileName(ctx, request.Body.ProfileName)
+	profileName, err := a.runProfileForDAG(ctx, request.FileName, request.Body.Profile)
 	if err != nil {
 		return nil, err
 	}
@@ -1645,7 +1646,7 @@ func (a *API) EnqueueDAGDAGRun(ctx context.Context, request api.EnqueueDAGDAGRun
 	if err != nil {
 		return nil, err
 	}
-	profileName, err := a.runProfileName(ctx, request.Body.ProfileName)
+	profileName, err := a.runProfileForDAG(ctx, request.FileName, request.Body.Profile)
 	if err != nil {
 		return nil, err
 	}

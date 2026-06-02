@@ -351,11 +351,12 @@ func (a *API) getRuntimeProfileForManage(ctx context.Context, name string) (*pro
 	return item, nil
 }
 
-func (a *API) runProfileName(ctx context.Context, raw *api.RuntimeProfileName) (string, error) {
-	if raw == nil {
-		return "", nil
+func (a *API) explicitRunProfile(ctx context.Context, raw *api.RuntimeProfileOverride) (string, bool, error) {
+	if raw != nil {
+		profileName, err := a.ensureRunnableRuntimeProfile(ctx, string(*raw))
+		return profileName, true, err
 	}
-	return a.ensureRunnableRuntimeProfile(ctx, string(*raw))
+	return "", false, nil
 }
 
 func (a *API) inheritedRunProfileName(ctx context.Context, inherited string) (string, error) {
@@ -363,6 +364,14 @@ func (a *API) inheritedRunProfileName(ctx context.Context, inherited string) (st
 }
 
 func (a *API) ensureRunnableRuntimeProfile(ctx context.Context, name string) (string, error) {
+	return a.ensureRunnableRuntimeProfileAccess(ctx, name, true)
+}
+
+func (a *API) ensureRunnableRuntimeProfileAvailable(ctx context.Context, name string) (string, error) {
+	return a.ensureRunnableRuntimeProfileAccess(ctx, name, false)
+}
+
+func (a *API) ensureRunnableRuntimeProfileAccess(ctx context.Context, name string, requireProtectedAccess bool) (string, error) {
 	trimmed := strings.TrimSpace(name)
 	if trimmed == "" {
 		return "", nil
@@ -395,7 +404,7 @@ func (a *API) ensureRunnableRuntimeProfile(ctx context.Context, name string) (st
 	if err != nil {
 		return "", err
 	}
-	if item.Protected {
+	if requireProtectedAccess && item.Protected {
 		if err := a.requireAdmin(ctx); err != nil {
 			return "", err
 		}

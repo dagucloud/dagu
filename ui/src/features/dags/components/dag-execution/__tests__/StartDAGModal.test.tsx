@@ -303,4 +303,52 @@ describe('StartDAGModal', () => {
       expect(onSubmit).toHaveBeenCalledWith('', undefined, true, 'prod')
     );
   });
+
+  it('omits the profile override when using the DAG default', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <StartDAGModal
+        visible={true}
+        dismissModal={vi.fn()}
+        onSubmit={onSubmit}
+        dag={{ name: 'profile-dag' } as never}
+        defaultProfile="prod"
+      />
+    );
+
+    expect(
+      screen.getByRole('combobox', { name: /profile/i })
+    ).toHaveTextContent(/dag default/i);
+
+    await user.click(screen.getByRole('button', { name: 'Start' }));
+
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith('', undefined, true)
+    );
+  });
+
+  it('submits an empty profile override when bypassing the DAG default', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <StartDAGModal
+        visible={true}
+        dismissModal={vi.fn()}
+        onSubmit={onSubmit}
+        dag={{ name: 'profile-dag' } as never}
+        defaultProfile="prod"
+      />
+    );
+
+    await user.click(screen.getByRole('combobox', { name: /profile/i }));
+    await user.click(await screen.findByRole('option', { name: 'No profile' }));
+    await user.click(screen.getByRole('button', { name: 'Start' }));
+
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith('', undefined, true, '')
+    );
+  });
 });

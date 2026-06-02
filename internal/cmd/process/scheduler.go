@@ -71,6 +71,12 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 	)
 	schedulerRunManager := runtime.NewManager(schedulerRunStore, cfg.ProcStore, cfg.Config)
 
+	dagSettingsStore, err := file.NewDAGSettingsStore(cfg.Config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize DAG settings store: %w", err)
+	}
+	profileStore := file.NewProfileStore(ctx, cfg.Config)
+
 	sched, err := scheduler.New(
 		cfg.Config,
 		entryReader,
@@ -82,6 +88,7 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 		coordinatorClient,
 		watermarkStore,
 		scheduler.WithSnapshotStoreFactory(file.NewSnapshotStores),
+		scheduler.WithDAGProfileResolver(scheduler.NewDAGProfileResolver(dagSettingsStore, profileStore)),
 	)
 	if err != nil {
 		return nil, err
