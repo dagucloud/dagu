@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime"
 	rtagent "github.com/dagucloud/dagu/internal/runtime/agent"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
+	"github.com/dagucloud/dagu/internal/runtime/runstate"
 	secretpkg "github.com/dagucloud/dagu/internal/secret"
 	"github.com/dagucloud/dagu/internal/workspace"
 )
@@ -193,11 +194,11 @@ func (r *Local) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest)
 		return nil, errStepNameNotSet
 	}
 
-	dagRunStore := r.dagRunStoreFromContext(ctx)
-	if dagRunStore == nil {
+	runStateStore := r.runStateStoreFromContext(ctx)
+	if runStateStore == nil {
 		return nil, errNoRunDatabase
 	}
-	attempt, err := dagRunStore.FindSubAttempt(ctx, req.RootDAGRun, req.RunID)
+	attempt, err := runStateStore.OpenChildAttempt(ctx, req.RootDAGRun, req.RunID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find child workflow attempt: %w", err)
 	}
@@ -236,15 +237,15 @@ func (r *Local) Cancel(ctx context.Context, req executor.SubWorkflowCancelReques
 		return nil
 	}
 
-	dagRunStore := r.dagRunStoreFromContext(ctx)
-	if dagRunStore == nil || req.RunID == "" || req.RootDAGRun.Zero() {
+	runStateStore := r.runStateStoreFromContext(ctx)
+	if runStateStore == nil || req.RunID == "" || req.RootDAGRun.Zero() {
 		return nil
 	}
-	attempt, err := dagRunStore.FindSubAttempt(ctx, req.RootDAGRun, req.RunID)
+	attempt, err := runStateStore.OpenChildAttempt(ctx, req.RootDAGRun, req.RunID)
 	if err != nil {
 		return nil
 	}
-	return attempt.Abort(ctx)
+	return attempt.RequestCancel(ctx)
 }
 
 func (r *Local) newAgent(
@@ -351,6 +352,13 @@ func (r *Local) dagRunStoreFromContext(ctx context.Context) exec.DAGRunStore {
 		return rCtx.DAGRunStore
 	}
 	return agentctx.GetDAGRunStore(ctx)
+}
+
+func (r *Local) runStateStoreFromContext(ctx context.Context) runstate.Store {
+	if dagRunStore := r.dagRunStoreFromContext(ctx); dagRunStore != nil {
+		return runstate.NewHistoryStore(dagRunStore)
+	}
+	return nil
 }
 
 func (r *Local) queueStoreFromContext(ctx context.Context) exec.QueueStore {

@@ -52,6 +52,7 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime/builtin/ssh"
 	runtimeexec "github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/runtime/resourcelimit"
+	"github.com/dagucloud/dagu/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	secretpkg "github.com/dagucloud/dagu/internal/secret"
 
@@ -84,6 +85,9 @@ type Agent struct {
 
 	// dagRunStore is the database to store the run history.
 	dagRunStore exec.DAGRunStore
+
+	// runStateStore opens execution state for this run.
+	runStateStore runstate.Store
 
 	// queueStore is the database to store queued dag-run items.
 	queueStore exec.QueueStore
@@ -188,7 +192,7 @@ type Agent struct {
 	tracer *telemetry.Tracer
 
 	// statusPusher is used to push status updates to a remote coordinator.
-	// When nil, status is written to local filesystem via DAGRunAttempt.
+	// When nil, status is written to local filesystem via the run-state attempt.
 	statusPusher StatusPusher
 
 	// subWorkflowRunnerFactory creates a runner for child workflows.
@@ -209,10 +213,6 @@ type Agent struct {
 	// attemptID is the attempt ID from the coordinator.
 	// When set, the agent creates an attempt with this ID instead of generating a new one.
 	attemptID string
-
-	// preparedAttempt is an exact local attempt prepared before proc acquisition.
-	// When set, the agent must reuse this attempt instead of creating another one.
-	preparedAttempt exec.DAGRunAttempt
 
 	// agentConfigStore is the agent config store for agent step execution.
 	agentConfigStore agentpkg.ConfigStore
@@ -298,7 +298,7 @@ type Options struct {
 	// For local execution, this defaults to "local".
 	WorkerID string
 	// StatusPusher is used to push status updates to a remote coordinator.
-	// When nil, status is written to local filesystem via DAGRunAttempt.
+	// When nil, status is written to local filesystem via the run-state attempt.
 	StatusPusher StatusPusher
 	// SubWorkflowRunnerFactory creates a runner for child workflows.
 	SubWorkflowRunnerFactory SubWorkflowRunnerFactory
@@ -376,6 +376,11 @@ func New(
 	ds exec.DAGStore,
 	opts Options,
 ) *Agent {
+	runStateStore := runstate.NewHistoryStore(opts.DAGRunStore)
+	if opts.PreparedAttempt != nil {
+		runStateStore = runstate.NewHistoryStore(opts.DAGRunStore, runstate.WithPreparedAttempt(opts.PreparedAttempt))
+	}
+
 	a := &Agent{
 		rootDAGRun:                 opts.RootDAGRun,
 		parentDAGRun:               opts.ParentDAGRun,
@@ -390,6 +395,7 @@ func New(
 		dagRunMgr:                  drm,
 		dagStore:                   ds,
 		dagRunStore:                opts.DAGRunStore,
+		runStateStore:              runStateStore,
 		queueStore:                 opts.QueueStore,
 		stateStore:                 opts.StateStore,
 		secretStore:                opts.SecretStore,
@@ -405,7 +411,6 @@ func New(
 		logWriterFactory:           opts.LogWriterFactory,
 		queuedRun:                  opts.QueuedRun,
 		attemptID:                  opts.AttemptID,
-		preparedAttempt:            opts.PreparedAttempt,
 		triggerType:                opts.TriggerType,
 		defaultExecMode:            opts.DefaultExecMode,
 		agentConfigStore:           opts.AgentConfigStore,
@@ -527,7 +532,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 	}
 
-	var attempt exec.DAGRunAttempt
+	var attempt runstate.Attempt
 
 	// Check if the DAG is already running.
 	if err := a.checkIsAlreadyRunning(ctx); err != nil {
@@ -1066,7 +1071,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// Collect and write step outputs BEFORE finalizing status (per spec)
 	if dagOutputs := a.buildOutputs(ctx, finishedStatus.Status); dagOutputs != nil {
-		if err := attempt.WriteOutputs(ctx, dagOutputs); err != nil {
+		if err := attempt.RecordOutputs(ctx, dagOutputs); err != nil {
 			logger.Error(ctx, "Failed to write outputs", tag.Error(err))
 		}
 	}
@@ -1389,7 +1394,7 @@ func (a *Agent) statusSourceTarget() *exec.DAGRunStatus {
 	return a.retryTarget
 }
 
-func (a *Agent) prepareWorkDir(ctx context.Context, attempt exec.DAGRunAttempt) (func(), error) {
+func (a *Agent) prepareWorkDir(ctx context.Context, attempt runstate.Attempt) (func(), error) {
 	if attempt == nil {
 		return nil, nil
 	}
@@ -1422,8 +1427,8 @@ func (a *Agent) prepareWorkDir(ctx context.Context, attempt exec.DAGRunAttempt) 
 
 // writeStatus writes the current status to storage.
 // In shared-nothing mode (statusPusher is set), it only pushes to the coordinator.
-// In local mode, it writes to local storage via attempt.Write.
-func (a *Agent) writeStatus(ctx context.Context, attempt exec.DAGRunAttempt, status exec.DAGRunStatus) {
+// In local mode, it writes to local storage via the run-state attempt.
+func (a *Agent) writeStatus(ctx context.Context, attempt runstate.Attempt, status exec.DAGRunStatus) {
 	if a.statusPusher != nil {
 		a.pushStatus(ctx, status)
 		return
@@ -1451,17 +1456,17 @@ func (a *Agent) pushStatus(ctx context.Context, status exec.DAGRunStatus) {
 	}
 }
 
-func (a *Agent) writeStatusLocally(ctx context.Context, attempt exec.DAGRunAttempt, status exec.DAGRunStatus) {
+func (a *Agent) writeStatusLocally(ctx context.Context, attempt runstate.Attempt, status exec.DAGRunStatus) {
 	if attempt == nil {
 		return
 	}
-	if err := attempt.Write(ctx, status); err != nil {
+	if err := attempt.RecordStatus(ctx, status); err != nil {
 		logger.Error(ctx, "Failed to write status to local storage", tag.Error(err))
 	}
 }
 
 // watchCancelRequested is a goroutine that watches for cancel requests
-func (a *Agent) watchCancelRequested(ctx context.Context, attempt exec.DAGRunAttempt) {
+func (a *Agent) watchCancelRequested(ctx context.Context, attempt runstate.Attempt) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
@@ -1477,7 +1482,7 @@ func (a *Agent) watchCancelRequested(ctx context.Context, attempt exec.DAGRunAtt
 			}
 			return
 		case <-ticker.C:
-			if cancelled, _ := attempt.IsAborting(ctx); cancelled {
+			if cancelled, _ := attempt.CancelRequested(ctx); cancelled {
 				a.stopChildren(ctx, syscall.SIGTERM, true)
 			}
 		}
@@ -1565,7 +1570,7 @@ func (a *Agent) setupReporter(ctx context.Context) {
 }
 
 // newRunner creates a runner instance for the dag-run.
-func (a *Agent) newRunner(attempt exec.DAGRunAttempt) *runtime.Runner {
+func (a *Agent) newRunner(attempt runstate.Attempt) *runtime.Runner {
 	// runnerLogDir is the directory to store the log files for each node in the dag-run.
 	const dateTimeFormatUTC = "20060102_150405Z"
 	ts := time.Now().UTC().Format(dateTimeFormatUTC)
@@ -2014,63 +2019,17 @@ func (a *Agent) setupDefaultRetryPlan(ctx context.Context, nodes []*runtime.Node
 	return nil
 }
 
-func (a *Agent) setupDAGRunAttempt(ctx context.Context) (exec.DAGRunAttempt, error) {
-	if a.dagRunStore == nil {
-		logger.Debug(ctx, "Using no-op DAGRunAttempt in shared-nothing mode")
-		return exec.NewNoopDAGRunAttempt(a.noopAttemptID(), a.dag), nil
+func (a *Agent) setupDAGRunAttempt(ctx context.Context) (runstate.Attempt, error) {
+	if a.runStateStore == nil {
+		a.runStateStore = runstate.NewHistoryStore(a.dagRunStore)
 	}
-
-	if a.dag.HistRetentionRuns == 0 {
-		retentionDays := a.dag.HistRetentionDays
-		if _, err := a.dagRunStore.RemoveOldDAGRuns(ctx, a.dag.Name, retentionDays); err != nil {
-			logger.Error(ctx, "DAG runs data cleanup failed", tag.Error(err))
-		}
-	}
-
-	var attempt exec.DAGRunAttempt
-	if a.preparedAttempt != nil {
-		if a.attemptID != "" && a.preparedAttempt.ID() != a.attemptID {
-			return nil, fmt.Errorf(
-				"prepared attempt ID %q does not match requested attempt ID %q",
-				a.preparedAttempt.ID(),
-				a.attemptID,
-			)
-		}
-		a.preparedAttempt.SetDAG(a.dag)
-		attempt = a.preparedAttempt
-	} else {
-		var err error
-		attempt, err = a.dagRunStore.CreateAttempt(ctx, a.dag, time.Now(), a.dagRunID, a.attemptOptions())
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if a.dag.HistRetentionRuns > 0 {
-		if _, err := a.dagRunStore.RemoveOldDAGRuns(ctx, a.dag.Name, 0, exec.WithRetentionRuns(a.dag.HistRetentionRuns)); err != nil {
-			logger.Error(ctx, "DAG runs data cleanup failed", tag.Error(err))
-		}
-	}
-
-	return attempt, nil
-}
-
-func (a *Agent) noopAttemptID() string {
-	if a.attemptID != "" {
-		return a.attemptID
-	}
-	return a.dagRunID
-}
-
-func (a *Agent) attemptOptions() exec.NewDAGRunAttemptOptions {
-	opts := exec.NewDAGRunAttemptOptions{
-		Retry:     a.retryTarget != nil || a.queuedRun,
-		AttemptID: a.attemptID,
-	}
-	if a.isSubDAGRun.Load() {
-		opts.RootDAGRun = &a.rootDAGRun
-	}
-	return opts
+	return a.runStateStore.BeginAttempt(ctx, runstate.BeginAttemptRequest{
+		DAG:        a.dag,
+		RunID:      a.dagRunID,
+		AttemptID:  a.attemptID,
+		Retry:      a.retryTarget != nil || a.queuedRun,
+		RootDAGRun: a.rootDAGRun,
+	})
 }
 
 // setupSocketServer creates a socket server instance.
