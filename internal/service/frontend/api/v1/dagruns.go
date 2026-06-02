@@ -172,6 +172,14 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 		}
 	}
 
+	labels, err := extractLabelsParam(request.Body.Labels, request.Body.Tags)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.requireDAGWriteForWorkspace(ctx, submittedSpecRuntimeWorkspaceName(request.Body.Spec, labels)); err != nil {
+		return nil, err
+	}
+
 	// Determine dagRunId upfront (used for unique temp dir path)
 	var dagRunId, params string
 	var singleton bool
@@ -201,10 +209,6 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 	}
 	defer cleanup()
 
-	labels, err := extractLabelsParam(request.Body.Labels, request.Body.Tags)
-	if err != nil {
-		return nil, err
-	}
 	if err := a.requireDAGWriteForWorkspace(ctx, runtimeWorkspaceName(dag, labels)); err != nil {
 		return nil, err
 	}
@@ -256,6 +260,14 @@ func (a *API) EnqueueDAGRunFromSpec(ctx context.Context, request api.EnqueueDAGR
 		}
 	}
 
+	labels, err := extractLabelsParam(request.Body.Labels, request.Body.Tags)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.requireDAGWriteForWorkspace(ctx, submittedSpecRuntimeWorkspaceName(request.Body.Spec, labels)); err != nil {
+		return nil, err
+	}
+
 	var dagRunId, params string
 	var singleton bool
 	if request.Body.DagRunId != nil {
@@ -283,10 +295,6 @@ func (a *API) EnqueueDAGRunFromSpec(ctx context.Context, request api.EnqueueDAGR
 	}
 	defer cleanup()
 
-	labels, err := extractLabelsParam(request.Body.Labels, request.Body.Tags)
-	if err != nil {
-		return nil, err
-	}
 	if err := a.requireDAGWriteForWorkspace(ctx, runtimeWorkspaceName(dag, labels)); err != nil {
 		return nil, err
 	}
@@ -419,6 +427,34 @@ func extractInlineEnqueueLabelStrings(data []byte) ([]string, error) {
 		return parsed.Labels.Values(), nil
 	}
 	return parsed.DeprecatedTags.Values(), nil
+}
+
+func submittedSpecRuntimeWorkspaceName(specContent string, labels string) string {
+	if workspaceName := workspaceNameFromLabelString(labels); workspaceName != "" {
+		return workspaceName
+	}
+	return workspaceNameFromSubmittedSpec(specContent)
+}
+
+func workspaceNameFromSubmittedSpec(specContent string) string {
+	var parsed struct {
+		Labels         spectypes.LabelsValue `yaml:"labels"`
+		DeprecatedTags spectypes.LabelsValue `yaml:"tags"`
+	}
+	if err := yaml.NewDecoder(strings.NewReader(specContent)).Decode(&parsed); err != nil {
+		return ""
+	}
+	if workspaceName := workspaceNameFromLabelsValue(parsed.Labels); workspaceName != "" {
+		return workspaceName
+	}
+	return workspaceNameFromLabelsValue(parsed.DeprecatedTags)
+}
+
+func workspaceNameFromLabelsValue(labels spectypes.LabelsValue) string {
+	if labels.IsZero() {
+		return ""
+	}
+	return workspaceNameFromLabelString(strings.Join(labels.Values(), ","))
 }
 
 func getInlineEnqueueMapValue(ms yaml.MapSlice, key string) (any, bool) {

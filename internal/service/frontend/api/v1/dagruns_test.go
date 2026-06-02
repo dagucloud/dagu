@@ -420,6 +420,16 @@ steps:
 		WithBearerToken(operatorKey).
 		Send(t)
 	require.Equal(t, http.StatusForbidden, enqueueResp.Response.StatusCode())
+
+	invalidInlineSpec := ":"
+	invalidInlineDAGName := "operator_invalid_inline_spec_denied"
+	invalidResp := server.Client().Post("/api/v1/dag-runs", api.ExecuteDAGRunFromSpecJSONRequestBody{
+		Spec: invalidInlineSpec,
+		Name: &invalidInlineDAGName,
+	}).
+		WithBearerToken(operatorKey).
+		Send(t)
+	require.Equal(t, http.StatusForbidden, invalidResp.Response.StatusCode())
 }
 
 func TestOperatorCannotSubmitEditedRetrySpec(t *testing.T) {
@@ -447,6 +457,17 @@ steps:
 	var startBody api.ExecuteDAG200JSONResponse
 	startResp.Unmarshal(t, &startBody)
 	require.NotEmpty(t, startBody.DagRunId)
+	waitForDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+		return status.Status == core.Succeeded || status.Status == core.Failed
+	})
+
+	server.Client().Post(
+		fmt.Sprintf("/api/v1/dag-runs/%s/%s/retry", dagName, startBody.DagRunId),
+		api.RetryDAGRunJSONRequestBody{},
+	).
+		WithBearerToken(operatorKey).
+		ExpectStatus(http.StatusOK).
+		Send(t)
 	waitForDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
 		return status.Status == core.Succeeded || status.Status == core.Failed
 	})
