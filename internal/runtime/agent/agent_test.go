@@ -23,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/launcher"
+	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
 	profilepkg "github.com/dagucloud/dagu/internal/profile"
@@ -1390,6 +1391,14 @@ func TestAgent_DAGEnqueueQueuedChildRunsFromQueue(t *testing.T) {
 		}),
 	)
 
+	profileStore := file.NewProfileStore(th.Context, th.Config)
+	prof, err := profilepkg.New(profilepkg.CreateInput{
+		Name:      "prod",
+		CreatedBy: "alice",
+	}, time.Now().UTC())
+	require.NoError(t, err)
+	require.NoError(t, profileStore.Create(th.Context, prof))
+
 	th.CreateDAGFile(t, th.Config.Paths.DAGsDir, "child-queue-exec", fmt.Appendf(nil, `
 steps:
   - name: write-output
@@ -1406,7 +1415,10 @@ steps:
       queue: background
 `)
 
-	a := parent.Agent()
+	a := parent.Agent(test.WithAgentOptions(agent.Options{
+		ProfileStore: profileStore,
+		ProfileName:  "prod",
+	}))
 	a.RunSuccess(t)
 
 	status := a.Status(parent.Context)
@@ -1441,6 +1453,10 @@ steps:
 		childStatus, err := th.DAGRunMgr.GetSavedStatus(th.Context, ref)
 		return err == nil && childStatus.Status == core.Succeeded
 	}, subDAGVisibleTimeout(), 100*time.Millisecond)
+
+	childStatus, err := th.DAGRunMgr.GetSavedStatus(th.Context, ref)
+	require.NoError(t, err)
+	require.Equal(t, "prod", childStatus.ProfileName)
 
 	require.Eventually(t, func() bool {
 		processor.ProcessQueueItems(th.Context, "background")
