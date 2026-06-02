@@ -9,8 +9,8 @@ import (
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
-	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/internal/subflow"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -117,85 +117,36 @@ func TestRouterCancelFallsBackToAllRunnersWhenOwnerUnknown(t *testing.T) {
 	assert.Equal(t, 1, local.cancelCount)
 }
 
-func TestLocalCLIShouldRunValidLocalRequest(t *testing.T) {
-	t.Parallel()
-
-	runner := subflow.NewLocalCLI()
-
-	assert.True(t, runner.ShouldRun(context.Background(), validSubWorkflowRequest()))
-}
-
-func TestLocalCLIRejectsMissingDAGLocation(t *testing.T) {
+func TestLocalShouldRunValidInProcessRequestWithoutDAGLocation(t *testing.T) {
 	t.Parallel()
 
 	req := validSubWorkflowRequest()
 	req.DAG.Location = ""
-	runner := subflow.NewLocalCLI()
-
-	assert.False(t, runner.ShouldRun(context.Background(), req))
-	_, err := runner.Run(context.Background(), req)
-	require.ErrorContains(t, err, "child workflow DAG location is required")
-}
-
-func TestLocalCLIIsFallbackRunnerForValidRequests(t *testing.T) {
-	t.Parallel()
-
-	req := validSubWorkflowRequest()
-	req.WorkerSelector = map[string]string{"gpu": "true"}
-
-	runner := subflow.NewLocalCLI()
+	req.DAG.YamlData = []byte("name: child\nsteps:\n  - name: ok\n    run: echo ok\n")
+	runner := subflow.NewLocal(runtime.Manager{}, nil)
 
 	assert.True(t, runner.ShouldRun(context.Background(), req))
 }
 
-func TestLocalCLIRunRejectsInvalidWorkspaceDAGPath(t *testing.T) {
+func TestLocalRejectsWorkerSelector(t *testing.T) {
 	t.Parallel()
 
 	req := validSubWorkflowRequest()
-	req.Workspace = &executor.SubWorkflowWorkspace{
-		Descriptor: workspacebundle.Descriptor{
-			DAGPath: "../child.yaml",
-		},
-		Archive: []byte("invalid archive"),
-	}
-	runner := subflow.NewLocalCLI()
+	req.WorkerSelector = map[string]string{"gpu": "true"}
+	runner := subflow.NewLocal(runtime.Manager{}, nil)
 
-	_, err := runner.Run(context.Background(), req)
-	require.ErrorContains(t, err, "invalid workspace DAG path")
+	assert.False(t, runner.ShouldRun(context.Background(), req))
 }
 
-func TestLocalCLIStartCommandIncludesProfileName(t *testing.T) {
+func TestLocalForceLocalOverridesWorkerSelector(t *testing.T) {
 	t.Parallel()
 
 	req := validSubWorkflowRequest()
-	req.Params = "ITEM=1"
-	req.ProfileName = "prod"
-	runner := subflow.NewLocalCLI()
-	ctx := exec.WithContext(context.Background(), exec.Context{})
+	req.DAG.ForceLocal = true
+	req.WorkerSelector = map[string]string{"gpu": "true"}
+	runner := subflow.NewLocal(runtime.Manager{}, nil)
 
-	cmd, err := subflow.BuildStartCommandForTest(runner, ctx, req, "/work", req.DAG.Location)
-	require.NoError(t, err)
-
-	assert.Contains(t, cmd.Args, "--profile=prod")
-	assert.Contains(t, cmd.Args, req.DAG.Location)
-}
-
-func TestLocalCLIRetryCommandDoesNotPassProfileName(t *testing.T) {
-	t.Parallel()
-
-	req := validSubWorkflowRequest()
-	req.ProfileName = "prod"
-	runner := subflow.NewLocalCLI()
-	ctx := exec.WithContext(context.Background(), exec.Context{})
-
-	cmd, err := subflow.BuildRetryCommandForTest(runner, ctx, executor.SubWorkflowRetryRequest{
-		SubWorkflowRequest: req,
-		StepName:           "flaky",
-	})
-	require.NoError(t, err)
-
-	assert.NotContains(t, cmd.Args, "--profile=prod")
-	assert.Contains(t, cmd.Args, "--step=flaky")
+	assert.True(t, runner.ShouldRun(context.Background(), req))
 }
 
 func validSubWorkflowRequest() executor.SubWorkflowRequest {

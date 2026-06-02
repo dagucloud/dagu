@@ -787,16 +787,29 @@ func (d *DAG) Agent(opts ...AgentOption) *Agent {
 	helper.opts.DAGRunLogDir = d.Config.Paths.LogDir
 	helper.opts.DAGRunArtifactDir = d.Config.Paths.ArtifactDir
 	if helper.opts.SubWorkflowRunnerFactory == nil {
-		helper.opts.SubWorkflowRunnerFactory = func(_ context.Context) (runtimeexec.SubWorkflowRunner, error) {
+		var subWorkflowRunnerFactory func(context.Context) (runtimeexec.SubWorkflowRunner, error)
+		subWorkflowRunnerFactory = func(_ context.Context) (runtimeexec.SubWorkflowRunner, error) {
 			dispatcher, err := coordinator.NewRuntimeDispatcher(d.ServiceRegistry, d.Config.Core.Peer)
 			if err != nil {
 				return nil, err
 			}
 			return subflow.NewRouter(
 				subflow.New(dispatcher, d.Config.DefaultExecMode),
-				subflow.NewLocalCLI(),
+				subflow.NewLocal(
+					d.DAGRunMgr,
+					d.DAGStore,
+					subflow.WithLocalDAGRunStore(d.DAGRunStore),
+					subflow.WithLocalQueueStore(d.QueueStore),
+					subflow.WithLocalStateStore(d.StateStore),
+					subflow.WithLocalSecretStore(helper.opts.SecretStore),
+					subflow.WithLocalServiceRegistry(d.ServiceRegistry),
+					subflow.WithLocalSubWorkflowRunnerFactory(subWorkflowRunnerFactory),
+					subflow.WithLocalWorkerID("local"),
+					subflow.WithLocalDAGRunDirs(d.Config.Paths.LogDir, d.Config.Paths.ArtifactDir),
+				),
 			), nil
 		}
+		helper.opts.SubWorkflowRunnerFactory = subWorkflowRunnerFactory
 	}
 
 	helper.Agent = agent.New(

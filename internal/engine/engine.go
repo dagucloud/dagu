@@ -204,17 +204,29 @@ func (e *Engine) coordinatorClient(opts DistributedOptions) (coordinator.Client,
 	return coordinator.New(registry, cfg), nil
 }
 
-func (e *Engine) subWorkflowRunnerFactory() func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
-	return func(_ context.Context) (runtimeexec.SubWorkflowRunner, error) {
+func (e *Engine) subWorkflowRunnerFactory(stores AgentStores) func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
+	var factory func(context.Context) (runtimeexec.SubWorkflowRunner, error)
+	factory = func(_ context.Context) (runtimeexec.SubWorkflowRunner, error) {
 		dispatcher, err := coordinator.NewRuntimeDispatcher(e.serviceRegistry, e.cfg.Core.Peer)
 		if err != nil {
 			return nil, err
 		}
 		return subflow.NewRouter(
 			subflow.New(dispatcher, configExecutionMode(e.defaultMode)),
-			subflow.NewLocalCLI(),
+			subflow.NewLocal(
+				e.dagRunMgr,
+				e.dagStore,
+				subflow.WithLocalDAGRunStore(e.dagRunStore),
+				subflow.WithLocalStateStore(e.stateStore),
+				subflow.WithLocalSecretStore(stores.SecretStore),
+				subflow.WithLocalServiceRegistry(e.serviceRegistry),
+				subflow.WithLocalSubWorkflowRunnerFactory(factory),
+				subflow.WithLocalWorkerID("local"),
+				subflow.WithLocalDAGRunDirs(e.cfg.Paths.LogDir, e.cfg.Paths.ArtifactDir),
+			),
 		), nil
 	}
+	return factory
 }
 
 func runStatusToPublic(status *coreexec.DAGRunStatus) (*Status, error) {

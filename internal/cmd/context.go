@@ -589,16 +589,34 @@ func (c *Context) NewCoordinatorClient() coordinator.Client {
 }
 
 func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
-	return func(_ context.Context) (runtimeexec.SubWorkflowRunner, error) {
+	var factory func(context.Context) (runtimeexec.SubWorkflowRunner, error)
+	factory = func(_ context.Context) (runtimeexec.SubWorkflowRunner, error) {
+		dagStore, err := c.dagStore(dagStoreConfig{})
+		if err != nil {
+			return nil, err
+		}
 		dispatcher, err := coordinator.NewRuntimeDispatcher(c.ServiceRegistry, c.Config.Core.Peer)
 		if err != nil {
 			return nil, err
 		}
+		stores := c.agentStores()
 		return subflow.NewRouter(
 			subflow.New(dispatcher, c.Config.DefaultExecMode),
-			subflow.NewLocalCLI(),
+			subflow.NewLocal(
+				c.DAGRunMgr,
+				dagStore,
+				subflow.WithLocalDAGRunStore(c.DAGRunStore),
+				subflow.WithLocalQueueStore(c.QueueStore),
+				subflow.WithLocalStateStore(c.StateStore),
+				subflow.WithLocalSecretStore(stores.SecretStore),
+				subflow.WithLocalServiceRegistry(c.ServiceRegistry),
+				subflow.WithLocalSubWorkflowRunnerFactory(factory),
+				subflow.WithLocalWorkerID("local"),
+				subflow.WithLocalDAGRunDirs(c.Config.Paths.LogDir, c.Config.Paths.ArtifactDir),
+			),
 		), nil
 	}
+	return factory
 }
 
 // NewScheduler creates a scheduler for this command context.
