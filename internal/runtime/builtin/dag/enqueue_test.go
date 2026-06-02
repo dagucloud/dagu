@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestEnqueueExecutorPersistsInheritedProfileAndHierarchy(t *testing.T) {
+func TestEnqueueExecutorPersistsInheritedProfile(t *testing.T) {
 	t.Parallel()
 
 	th := test.Setup(t, test.WithConfigMutator(func(cfg *config.Config) {
@@ -77,6 +77,6 @@ func TestEnqueueExecutorPersistsInheritedProfileAndHierarchy(t *testing.T) {
 	assert.Equal(t, core.Queued, status.Status)
 	assert.Equal(t, core.TriggerTypeSubDAG, status.TriggerType)
 	assert.Equal(t, "prod", status.ProfileName)
-	assert.Equal(t, parentRun, status.Root)
-	assert.Equal(t, parentRun, status.Parent)
+	assert.Equal(t, exec.NewDAGRunRef("child", "child-run"), status.Root)
+	assert.True(t, status.Parent.Zero())
 }
