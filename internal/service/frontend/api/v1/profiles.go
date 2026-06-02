@@ -360,7 +360,7 @@ func (a *API) explicitRunProfile(ctx context.Context, raw *api.RuntimeProfileOve
 }
 
 func (a *API) inheritedRunProfileName(ctx context.Context, inherited string) (string, error) {
-	return a.ensureRunnableRuntimeProfile(ctx, strings.TrimSpace(inherited))
+	return a.ensureRunnableRuntimeProfileAvailable(ctx, strings.TrimSpace(inherited))
 }
 
 func (a *API) ensureRunnableRuntimeProfile(ctx context.Context, name string) (string, error) {

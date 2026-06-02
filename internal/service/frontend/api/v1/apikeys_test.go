@@ -31,13 +31,16 @@ func getAdminToken(t *testing.T, server test.Server) string {
 	return loginResult.Token
 }
 
-func setupBuiltinAuthServer(t *testing.T) test.Server {
+func setupBuiltinAuthServer(t *testing.T, configMutators ...func(*config.Config)) test.Server {
 	t.Helper()
 	server := test.SetupServer(t,
 		test.WithConfigMutator(func(cfg *config.Config) {
 			cfg.Server.Auth.Mode = config.AuthModeBuiltin
 			cfg.Server.Auth.Builtin.Token.Secret = "jwt-secret-key"
 			cfg.Server.Auth.Builtin.Token.TTL = 24 * time.Hour
+			for _, mutate := range configMutators {
+				mutate(cfg)
+			}
 		}),
 		test.WithServerOptions(frontend.WithLicenseManager(defaultTestLicenseManager())),
 	)

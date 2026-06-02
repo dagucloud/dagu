@@ -13,6 +13,7 @@ import (
 	apigen "github.com/dagucloud/dagu/api/v1"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/crypto"
+	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	persiststore "github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
@@ -302,6 +303,62 @@ func TestRuntimeProfilesAPI_ProtectedProfileManagementRequiresAdmin(t *testing.T
 
 	server.Client().Delete("/api/v1/profiles/prod/entries/API_TOKEN").
 		WithBearerToken(adminToken).ExpectStatus(http.StatusNoContent).Send(t)
+}
+
+func TestRuntimeProfilesAPI_RetryInheritsProtectedProfileWithoutAdmin(t *testing.T) {
+	server := setupBuiltinAuthServer(t, func(cfg *config.Config) {
+		cfg.Queues.Enabled = true
+		cfg.Queues.Config = []config.QueueConfig{
+			{Name: "protected-profile-retry", MaxActiveRuns: 1},
+		}
+	})
+	adminToken := getAdminToken(t, server)
+	operatorToken := createRuntimeProfileUserToken(
+		t, server, adminToken, "protected-profile-retry-operator", "operatorpass1", apigen.UserRoleOperator,
+	)
+
+	dagName := "protected_profile_retry_dag"
+	spec := `
+queue: protected-profile-retry
+steps:
+  - name: main
+    run: echo retry inherited profile
+`
+	server.Client().Post("/api/v1/dags", apigen.CreateNewDAGJSONRequestBody{
+		Name: dagName,
+		Spec: &spec,
+	}).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t)
+
+	server.Client().Post("/api/v1/profiles", apigen.CreateRuntimeProfileJSONRequestBody{
+		Name:      "prod",
+		Protected: new(true),
+	}).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t)
+
+	protectedProfile := apigen.RuntimeProfileName("prod")
+	server.Client().Put(fmt.Sprintf("/api/v1/dags/%s/settings", dagName), apigen.UpdateDAGSettingsJSONRequestBody{
+		Profile: &protectedProfile,
+	}).WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t)
+
+	dag, err := server.DAGStore.GetMetadata(server.Context, dagName)
+	require.NoError(t, err)
+
+	seedLatestDAGRunStatus(t, server, dag, "protected-profile-source-run", core.Failed, seedDAGRunStatusOptions{
+		errorText:   "source run failed",
+		profileName: "prod",
+	})
+
+	server.Client().Post(
+		fmt.Sprintf("/api/v1/dag-runs/%s/%s/retry", dagName, "protected-profile-source-run"),
+		apigen.RetryDAGRunJSONRequestBody{DagRunId: "protected-profile-source-run"},
+	).WithBearerToken(operatorToken).ExpectStatus(http.StatusOK).Send(t)
+
+	attempt, err := server.DAGRunStore.FindAttempt(server.Context, exec.NewDAGRunRef(dagName, "protected-profile-source-run"))
+	require.NoError(t, err)
+
+	status, err := attempt.ReadStatus(server.Context)
+	require.NoError(t, err)
+	require.Equal(t, core.Queued, status.Status)
+	assert.Equal(t, "prod", status.ProfileName)
 }
 
 func TestRuntimeProfilesAPI_SetSecretDeletesCreatedSecretWhenProfileUpdateFails(t *testing.T) {
