@@ -2023,6 +2023,13 @@ func (a *Agent) setupDAGRunAttempt(ctx context.Context) (runstate.Attempt, error
 	if a.runStateStore == nil {
 		a.runStateStore = runstate.NewHistoryStore(a.dagRunStore)
 	}
+	if a.attemptID != "" && a.dagRunAttemptID != "" && a.attemptID != a.dagRunAttemptID {
+		return nil, fmt.Errorf(
+			"prepared attempt ID %q does not match requested attempt ID %q",
+			a.dagRunAttemptID,
+			a.attemptID,
+		)
+	}
 	return a.runStateStore.BeginAttempt(ctx, runstate.BeginAttemptRequest{
 		DAG:        a.dag,
 		RunID:      a.dagRunID,

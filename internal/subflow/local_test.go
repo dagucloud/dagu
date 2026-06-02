@@ -5,6 +5,7 @@ package subflow_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -39,8 +40,97 @@ func TestLocalCancelRequestsStoredChildAttemptWhenInactive(t *testing.T) {
 	attempt.AssertExpectations(t)
 }
 
+func TestLocalCancelIgnoresMissingStoredChildAttemptWhenInactive(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := exec.NewDAGRunRef("root", "root-run")
+	store := &localDAGRunStore{}
+	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunStore(store))
+
+	err := runner.Cancel(ctx, executor.SubWorkflowCancelRequest{
+		DAG:        &core.DAG{Name: "child"},
+		RootDAGRun: root,
+		RunID:      "child-run",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, root, store.findRoot)
+	require.Equal(t, "child-run", store.findRunID)
+}
+
+func TestLocalCancelReturnsStoredChildAttemptLookupError(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := exec.NewDAGRunRef("root", "root-run")
+	findErr := errors.New("store unavailable")
+	store := &localDAGRunStore{findErr: findErr}
+	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunStore(store))
+
+	err := runner.Cancel(ctx, executor.SubWorkflowCancelRequest{
+		DAG:        &core.DAG{Name: "child"},
+		RootDAGRun: root,
+		RunID:      "child-run",
+	})
+
+	require.ErrorIs(t, err, findErr)
+	require.ErrorContains(t, err, "failed to find child workflow attempt")
+	require.Equal(t, root, store.findRoot)
+	require.Equal(t, "child-run", store.findRunID)
+}
+
+func TestLocalRetryRejectsMissingRunDatabase(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := exec.NewDAGRunRef("root", "root-run")
+	runner := subflow.NewLocal(runtime.Manager{}, nil)
+
+	result, err := runner.Retry(ctx, executor.SubWorkflowRetryRequest{
+		SubWorkflowRequest: executor.SubWorkflowRequest{
+			DAG:        &core.DAG{Name: "child"},
+			RootDAGRun: root,
+			RunID:      "child-run",
+		},
+		StepName: "step-1",
+	})
+
+	require.Nil(t, result)
+	require.ErrorContains(t, err, "child workflow status database is not configured")
+}
+
+func TestLocalRetryReadsStoredChildAttemptStatus(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := exec.NewDAGRunRef("root", "root-run")
+	readErr := errors.New("read status failed")
+	attempt := new(exec.MockDAGRunAttempt)
+	attempt.On("ReadStatus", ctx).Return(nil, readErr).Once()
+	store := &localDAGRunStore{subAttempt: attempt}
+	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunStore(store))
+
+	result, err := runner.Retry(ctx, executor.SubWorkflowRetryRequest{
+		SubWorkflowRequest: executor.SubWorkflowRequest{
+			DAG:        &core.DAG{Name: "child"},
+			RootDAGRun: root,
+			RunID:      "child-run",
+		},
+		StepName: "step-1",
+	})
+
+	require.Nil(t, result)
+	require.ErrorIs(t, err, readErr)
+	require.ErrorContains(t, err, "failed to read child workflow status")
+	require.Equal(t, root, store.findRoot)
+	require.Equal(t, "child-run", store.findRunID)
+	attempt.AssertExpectations(t)
+}
+
 type localDAGRunStore struct {
 	subAttempt exec.DAGRunAttempt
+	findErr    error
 	findRoot   exec.DAGRunRef
 	findRunID  string
 }
@@ -83,6 +173,9 @@ func (s *localDAGRunStore) FindAttempt(context.Context, exec.DAGRunRef) (exec.DA
 func (s *localDAGRunStore) FindSubAttempt(_ context.Context, root exec.DAGRunRef, childRunID string) (exec.DAGRunAttempt, error) {
 	s.findRoot = root
 	s.findRunID = childRunID
+	if s.findErr != nil {
+		return nil, s.findErr
+	}
 	if s.subAttempt == nil {
 		return nil, exec.ErrDAGRunIDNotFound
 	}

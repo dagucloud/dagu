@@ -5,6 +5,7 @@ package subflow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -243,7 +244,10 @@ func (r *Local) Cancel(ctx context.Context, req executor.SubWorkflowCancelReques
 	}
 	attempt, err := runStateStore.OpenChildAttempt(ctx, req.RootDAGRun, req.RunID)
 	if err != nil {
-		return nil
+		if errors.Is(err, exec.ErrDAGRunIDNotFound) {
+			return nil
+		}
+		return fmt.Errorf("failed to find child workflow attempt: %w", err)
 	}
 	return attempt.RequestCancel(ctx)
 }
