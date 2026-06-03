@@ -151,6 +151,11 @@ func TestNewSubDAGExecutor_NotFound(t *testing.T) {
 	mockDB.AssertExpectations(t)
 }
 
+// TestNewSubDAGExecutor_NilDB verifies that NewSubDAGExecutor returns a
+// structured error wrapping exec.ErrDAGNotFound when the runtime context
+// has no DAG store (rCtx.DB == nil), instead of panicking with a nil
+// pointer dereference. The error message must include the
+// worker_selector: local remediation hint.
 func TestNewSubDAGExecutor_NilDB(t *testing.T) {
 	t.Parallel()
 
@@ -173,6 +178,10 @@ func TestNewSubDAGExecutor_NilDB(t *testing.T) {
 	assert.Contains(t, err.Error(), "worker_selector: local")
 }
 
+// TestNewSubDAGExecutor_NilDAGReturn verifies that NewSubDAGExecutor
+// returns a structured error wrapping exec.ErrDAGNotFound when the DAG
+// store's GetDAG call resolves to a nil DAG without an explicit error,
+// instead of passing nil down to newSubDAGExecutor and panicking.
 func TestNewSubDAGExecutor_NilDAGReturn(t *testing.T) {
 	t.Parallel()
 
