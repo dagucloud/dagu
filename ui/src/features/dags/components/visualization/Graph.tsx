@@ -141,6 +141,7 @@ function Graph({
   const { preferences } = useUserPreferences();
   const isDarkMode = preferences.theme !== 'light';
   const applyGraphStyles = React.useCallback(applyRenderedGraphStyles, []);
+  const graphControlButtonClass = 'h-8 w-9 shrink-0 px-0 sm:w-auto sm:px-4';
 
   /** Increase zoom level */
   const zoomIn = () => {
@@ -404,8 +405,11 @@ function Graph({
       )}
       ref={containerRef}
     >
-      <div className="absolute right-4 top-2 z-10 bg-card rounded-md shadow-sm border border-border/50">
-        <ToggleGroup aria-label="Graph controls">
+      <div className="absolute inset-x-2 top-2 z-10 max-w-[calc(100%-1rem)] overflow-x-auto rounded-md border border-border/50 bg-card shadow-sm sm:left-auto sm:right-4">
+        <ToggleGroup
+          aria-label="Graph controls"
+          className="min-w-max border-0 bg-transparent"
+        >
           {onChangeFlowchart && (
             <>
               <ToggleButton
@@ -414,6 +418,7 @@ function Graph({
                 onClick={() => onChangeFlowchart('LR')}
                 aria-label="Horizontal layout"
                 position="first"
+                className={graphControlButtonClass}
               >
                 <ArrowRightLeft className="h-4 w-4" />
               </ToggleButton>
@@ -423,10 +428,11 @@ function Graph({
                 onClick={() => onChangeFlowchart('TD')}
                 aria-label="Vertical layout"
                 position="middle"
+                className={graphControlButtonClass}
               >
                 <ArrowDownUp className="h-4 w-4" />
               </ToggleButton>
-              <div className="w-px h-6 bg-border mx-1 self-center" />
+              <div className="h-6 w-px shrink-0 self-center bg-border" />
             </>
           )}
 
@@ -435,6 +441,7 @@ function Graph({
             onClick={() => zoomIn()}
             aria-label="Zoom in"
             position={onChangeFlowchart ? 'middle' : 'first'}
+            className={graphControlButtonClass}
           >
             <ZoomIn className="h-4 w-4" />
           </ToggleButton>
@@ -443,6 +450,7 @@ function Graph({
             onClick={() => zoomOut()}
             aria-label="Zoom out"
             position="middle"
+            className={graphControlButtonClass}
           >
             <ZoomOut className="h-4 w-4" />
           </ToggleButton>
@@ -451,6 +459,7 @@ function Graph({
             onClick={() => fitToScreen()}
             aria-label="Fit to screen"
             position="middle"
+            className={graphControlButtonClass}
           >
             <Maximize2 className="h-4 w-4" />
           </ToggleButton>
@@ -459,18 +468,20 @@ function Graph({
             onClick={() => resetZoom()}
             aria-label="Reset zoom"
             position="middle"
+            className={graphControlButtonClass}
           >
             <RotateCcw className="h-4 w-4" />
           </ToggleButton>
 
           {!isExpandedView && (
             <>
-              <div className="w-px h-6 bg-border mx-1 self-center" />
+              <div className="h-6 w-px shrink-0 self-center bg-border" />
               <ToggleButton
                 value="expand"
                 onClick={() => setIsModalOpen(true)}
                 aria-label="Expand graph"
                 position="last"
+                className={graphControlButtonClass}
               >
                 <Expand className="h-4 w-4" />
               </ToggleButton>
@@ -481,7 +492,7 @@ function Graph({
 
       <div
         className={cn(
-          'custom-scrollbar overflow-auto',
+          'custom-scrollbar overflow-auto pt-14 sm:pt-0',
           isExpandedView
             ? 'min-h-0 flex-1 rounded-lg border border-border/30 bg-muted/5'
             : ''

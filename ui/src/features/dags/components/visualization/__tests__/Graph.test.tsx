@@ -173,4 +173,38 @@ describe('Graph', () => {
       );
     });
   });
+
+  it('keeps graph controls constrained above the graph on narrow screens', async () => {
+    mermaidRenderMock.mockResolvedValueOnce({
+      svg: '<svg></svg>',
+      bindFunctions: vi.fn(),
+    });
+
+    const { container } = render(
+      <Graph
+        type="status"
+        steps={[node('load', NodeStatus.Running)]}
+        flowchart="LR"
+        onChangeFlowchart={vi.fn()}
+        showIcons={false}
+      />
+    );
+
+    const controls = screen.getByRole('group', { name: 'Graph controls' });
+    expect(controls).toHaveClass('min-w-max');
+
+    const controlsViewport = controls.parentElement;
+    expect(controlsViewport).toHaveClass('inset-x-2');
+    expect(controlsViewport).toHaveClass('max-w-[calc(100%-1rem)]');
+    expect(controlsViewport).toHaveClass('overflow-x-auto');
+
+    expect(
+      screen.getByRole('button', { name: 'Horizontal layout' })
+    ).toHaveClass('w-9');
+    expect(screen.getByRole('button', { name: 'Expand graph' })).toHaveClass(
+      'w-9'
+    );
+
+    expect(container.querySelector('.custom-scrollbar')).toHaveClass('pt-14');
+  });
 });
