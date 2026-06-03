@@ -31,6 +31,8 @@ func StartParentExitWatcher(cmd *exec.Cmd) (func(), error) {
 	const script = `if IFS= read -r line <&3 && [ "$line" = "` + parentExitWatcherOK + `" ]; then exit 0; fi; kill -KILL -"$1" 2>/dev/null; exit 0`
 	watcher := exec.Command("/bin/sh", "-c", script, "dagu-parent-exit-watcher", strconv.Itoa(cmd.Process.Pid)) //nolint:gosec
 	watcher.ExtraFiles = []*os.File{readPipe}
+	// Keep shell control variables from changing the watcher's blocking read.
+	watcher.Env = []string{"PATH=/usr/bin:/bin"}
 	setupCommand(watcher)
 
 	if err := watcher.Start(); err != nil {
