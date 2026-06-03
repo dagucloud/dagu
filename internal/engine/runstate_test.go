@@ -121,7 +121,7 @@ steps:
 }
 
 func memoryPersistenceFactory(runStateStore *memstore.Store) engine.PersistenceFactory {
-	return func(ctx context.Context, cfg *config.Config) (engine.Persistence, error) {
+	return func(_ context.Context, cfg *config.Config) (engine.Persistence, error) {
 		backend := testutil.NewMemoryBackend()
 		dagStore, err := file.NewDAGStore(cfg, file.WithDAGSkipExamples(true))
 		if err != nil {
