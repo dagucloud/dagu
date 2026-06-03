@@ -429,75 +429,82 @@ function DAGStatus({
       )}
     >
       {/* Status Detail Tabs */}
-      <Tabs className={cn('whitespace-nowrap', fillHeight && 'shrink-0')}>
-        <Tab
-          isActive={activeTab === 'status'}
-          onClick={() => setActiveTab('status')}
-          className="flex items-center gap-2 cursor-pointer"
-        >
-          <ActivitySquare className="h-4 w-4" />
-          Status
-        </Tab>
-        {hasWaitingSteps && (
-          <Tab
-            isActive={activeTab === 'approval'}
-            onClick={() => setActiveTab('approval')}
-            className="flex items-center gap-2 cursor-pointer"
-          >
-            <ShieldCheck className="h-4 w-4" />
-            Approval
-            <span className="bg-warning/15 text-warning text-xs font-medium px-1.5 py-0.5 rounded-full">
-              {waitingStepCount}
-            </span>
-          </Tab>
+      <div
+        className={cn(
+          'w-full min-w-0 overflow-x-auto',
+          fillHeight && 'shrink-0'
         )}
-        {showTimeline && (
+      >
+        <Tabs className="w-max min-w-full whitespace-nowrap">
           <Tab
-            isActive={activeTab === 'timeline'}
-            onClick={() => setActiveTab('timeline')}
-            className="flex items-center gap-2 cursor-pointer"
+            isActive={activeTab === 'status'}
+            onClick={() => setActiveTab('status')}
+            className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
           >
-            <GanttChart className="h-4 w-4" />
-            Timeline
+            <ActivitySquare className="h-4 w-4" />
+            Status
           </Tab>
-        )}
-        <Tab
-          isActive={activeTab === 'outputs'}
-          onClick={() => setActiveTab('outputs')}
-          className="flex items-center gap-2 cursor-pointer"
-        >
-          <Package className="h-4 w-4" />
-          Outputs
-        </Tab>
-        {hasArtifacts && (
+          {hasWaitingSteps && (
+            <Tab
+              isActive={activeTab === 'approval'}
+              onClick={() => setActiveTab('approval')}
+              className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+            >
+              <ShieldCheck className="h-4 w-4" />
+              Approval
+              <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-xs font-medium text-warning">
+                {waitingStepCount}
+              </span>
+            </Tab>
+          )}
+          {showTimeline && (
+            <Tab
+              isActive={activeTab === 'timeline'}
+              onClick={() => setActiveTab('timeline')}
+              className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+            >
+              <GanttChart className="h-4 w-4" />
+              Timeline
+            </Tab>
+          )}
           <Tab
-            isActive={activeTab === 'artifacts'}
-            onClick={() => setActiveTab('artifacts')}
-            className="flex items-center gap-2 cursor-pointer"
+            isActive={activeTab === 'outputs'}
+            onClick={() => setActiveTab('outputs')}
+            className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
           >
-            <Archive className="h-4 w-4" />
-            Artifacts
+            <Package className="h-4 w-4" />
+            Outputs
           </Tab>
-        )}
-        {hasChatSteps && (
+          {hasArtifacts && (
+            <Tab
+              isActive={activeTab === 'artifacts'}
+              onClick={() => setActiveTab('artifacts')}
+              className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+            >
+              <Archive className="h-4 w-4" />
+              Artifacts
+            </Tab>
+          )}
+          {hasChatSteps && (
+            <Tab
+              isActive={activeTab === 'chat'}
+              onClick={() => setActiveTab('chat')}
+              className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+            >
+              <MessageSquare className="h-4 w-4" />
+              Chat
+            </Tab>
+          )}
           <Tab
-            isActive={activeTab === 'chat'}
-            onClick={() => setActiveTab('chat')}
-            className="flex items-center gap-2 cursor-pointer"
+            isActive={activeTab === 'spec'}
+            onClick={() => setActiveTab('spec')}
+            className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
           >
-            <MessageSquare className="h-4 w-4" />
-            Chat
+            <FileCode className="h-4 w-4" />
+            Spec
           </Tab>
-        )}
-        <Tab
-          isActive={activeTab === 'spec'}
-          onClick={() => setActiveTab('spec')}
-          className="flex items-center gap-2 cursor-pointer"
-        >
-          <FileCode className="h-4 w-4" />
-          Spec
-        </Tab>
-      </Tabs>
+        </Tabs>
+      </div>
 
       {/* Status Tab Content */}
       {activeTab === 'status' && (
@@ -559,7 +566,7 @@ function DAGStatus({
           <DAGContext.Consumer>
             {(props) => (
               <>
-                <div className="grid grid-cols-1 gap-6">
+                <div className="grid min-w-0 grid-cols-1 gap-6">
                   {/* Status Overview */}
                   <div className="bg-surface border border-border rounded-lg p-4">
                     <DAGStatusOverview

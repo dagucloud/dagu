@@ -133,7 +133,7 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
         onRunStarted,
       }}
     >
-      <div className="w-full flex flex-col">
+      <div className="flex w-full min-w-0 flex-col">
         {/* Only render the header if skipHeader is not true */}
         {!skipHeader && (
           <DAGHeader
@@ -146,7 +146,7 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
             navigateToStatusTab={navigateToStatusTab}
           />
         )}
-        <div className="flex flex-col lg:flex-row justify-between items-center gap-3 lg:gap-0 mb-4 mt-3">
+        <div className="mb-4 mt-3 flex min-w-0 flex-col items-center justify-between gap-3 lg:flex-row lg:gap-0">
           {/* Desktop Tabs (lg and up) */}
           <div className="hidden lg:block flex-1 min-w-0">
             <Tabs className="whitespace-nowrap">
@@ -290,8 +290,8 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
           </div>
 
           {/* Mobile/Tablet Tabs (sm to lg) */}
-          <div className="lg:hidden w-full overflow-x-auto">
-            <div className="flex space-x-1 w-full">
+          <div className="w-full min-w-0 overflow-x-auto lg:hidden">
+            <div className="flex min-w-max space-x-1">
               {isModal ? (
                 <ModalLinkTab
                   label=""

@@ -238,19 +238,22 @@ function DAGStatusOverview({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="min-w-0 space-y-2">
       {/* Parameters - Only show when present */}
       {status.params && (
-        <div className="flex items-center gap-1.5 text-xs font-mono">
+        <div className="flex min-w-0 items-center gap-1.5 text-xs font-mono">
           <Terminal className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-          <span className="text-foreground truncate" title={status.params}>
+          <span
+            className="min-w-0 truncate text-foreground"
+            title={status.params}
+          >
             {status.params}
           </span>
         </div>
       )}
 
       {/* Timing & Metadata - Compact grid */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-xs">
         {status.scheduleTime && (
           <span>
             <span className="text-muted-foreground">Scheduled </span>
@@ -291,7 +294,7 @@ function DAGStatusOverview({
       </div>
 
       {/* Metadata row */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs">
         {status.triggerType && (
           <span>
             <span className="text-muted-foreground">Trigger </span>
@@ -319,10 +322,10 @@ function DAGStatusOverview({
         {status.dagRunId && (
           <button
             onClick={copyRunId}
-            className="inline-flex items-center gap-1 font-mono text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+            className="inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1 font-mono text-muted-foreground transition-colors hover:text-foreground"
             title={`Click to copy: ${status.dagRunId}`}
           >
-            <span>{truncateId(status.dagRunId)}</span>
+            <span className="truncate">{truncateId(status.dagRunId)}</span>
             {copied ? (
               <Check className="h-3 w-3 text-success" />
             ) : (

@@ -334,7 +334,7 @@ function DAGDetails() {
             setData: setRootDAGRunData,
           }}
         >
-          <div className="max-w-7xl flex flex-col">
+          <div className="flex w-full min-w-0 max-w-7xl flex-col">
             {dagData?.dag && dagMatchesWorkspace && (
               <>
                 <DAGHeader

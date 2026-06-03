@@ -161,9 +161,9 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
     dagRunToDisplay.dagRunId === dagRunToDisplay.rootDAGRunId;
 
   return (
-    <div className="bg-card rounded-2xl p-6 border border-border shadow-sm">
+    <div className="min-w-0 rounded-xl border border-border bg-card p-4 shadow-sm sm:rounded-2xl sm:p-6">
       {/* Header with title and actions */}
-      <div className="flex items-start justify-between gap-6 mb-4">
+      <div className="mb-4 flex min-w-0 flex-col items-stretch gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
         <div className="flex-1 min-w-0">
           {/* Breadcrumb navigation */}
           {dagRunToDisplay && (
@@ -201,8 +201,8 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
             </nav>
           )}
 
-          <div className="flex items-center gap-2 min-w-0">
-            <h1 className="text-2xl font-bold text-foreground truncate">
+          <div className="flex min-w-0 items-center gap-2">
+            <h1 className="min-w-0 break-words text-2xl font-bold text-foreground sm:truncate">
               {dagRunToDisplay?.name || dag.name}
             </h1>
             {filePath && (
@@ -222,7 +222,7 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
         </div>
 
         {showActions && (
-          <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 sm:flex-shrink-0 sm:justify-end">
             <DAGActions
               status={dagRunToDisplay}
               dag={dag}
@@ -239,7 +239,7 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
       {dagRunToDisplay &&
         dagRunToDisplay.status !== undefined &&
         dagRunToDisplay.status !== null && (
-          <div className="flex flex-wrap items-center gap-2 text-sm">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
             <StatusChip status={dagRunToDisplay.status} size="md">
               {dagRunToDisplay.statusLabel || ''}
             </StatusChip>
@@ -261,11 +261,13 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
               <span>Refresh</span>
             </button>
 
-            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+            <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
               <Calendar className="h-3 w-3" />
-              {dagRunToDisplay?.startedAt
-                ? dayjs(dagRunToDisplay.startedAt).format('MMM D, HH:mm:ss')
-                : '--'}
+              <span className="truncate">
+                {dagRunToDisplay?.startedAt
+                  ? dayjs(dagRunToDisplay.startedAt).format('MMM D, HH:mm:ss')
+                  : '--'}
+              </span>
             </span>
 
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -279,11 +281,13 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
             {dagRunToDisplay.workerId && (
               <span className="flex items-center gap-1 text-xs text-muted-foreground">
                 <Server className="h-3 w-3" />
-                <span className="font-mono">{dagRunToDisplay.workerId}</span>
+                <span className="min-w-0 truncate font-mono">
+                  {dagRunToDisplay.workerId}
+                </span>
               </span>
             )}
 
-            <code className="text-xs font-mono text-muted-foreground">
+            <code className="max-w-full break-all text-xs font-mono text-muted-foreground sm:max-w-xs sm:truncate">
               {dagRunToDisplay.rootDAGRunId}
             </code>
           </div>
