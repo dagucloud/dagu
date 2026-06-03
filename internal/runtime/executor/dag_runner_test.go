@@ -151,6 +151,55 @@ func TestNewSubDAGExecutor_NotFound(t *testing.T) {
 	mockDB.AssertExpectations(t)
 }
 
+func TestNewSubDAGExecutor_NilDB(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	parentDAG := &core.DAG{Name: "parent"}
+
+	// Set up context with nil DB
+	dagCtx := exec1.Context{
+		DAG:        parentDAG,
+		DB:         nil,
+		RootDAGRun: exec1.NewDAGRunRef("parent", "root-123"),
+		DAGRunID:   "parent-456",
+	}
+	ctx = exec1.WithContext(ctx, dagCtx)
+
+	executor, err := NewSubDAGExecutor(ctx, "child-dag")
+	require.Error(t, err)
+	require.Nil(t, executor)
+	assert.ErrorIs(t, err, exec1.ErrDAGNotFound)
+	assert.Contains(t, err.Error(), "worker_selector: local")
+}
+
+func TestNewSubDAGExecutor_NilDAGReturn(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	parentDAG := &core.DAG{Name: "parent"}
+
+	mockDB := new(mockDatabase)
+	dagCtx := exec1.Context{
+		DAG:        parentDAG,
+		DB:         mockDB,
+		RootDAGRun: exec1.NewDAGRunRef("parent", "root-123"),
+		DAGRunID:   "parent-456",
+	}
+	ctx = exec1.WithContext(ctx, dagCtx)
+
+	// Mock returns nil DAG with nil error
+	mockDB.On("GetDAG", ctx, "child-dag").Return(nil, nil)
+
+	executor, err := NewSubDAGExecutor(ctx, "child-dag")
+	require.Error(t, err)
+	require.Nil(t, executor)
+	assert.ErrorIs(t, err, exec1.ErrDAGNotFound)
+	assert.Contains(t, err.Error(), "worker_selector: local")
+
+	mockDB.AssertExpectations(t)
+}
+
 func TestExecute_NoRunID(t *testing.T) {
 	t.Parallel()
 
