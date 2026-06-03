@@ -793,7 +793,8 @@ func (d *DAG) Agent(opts ...AgentOption) *Agent {
 			QueueStore:  d.QueueStore,
 			StateStore:  d.StateStore,
 			AgentStores: agentstore.RuntimeStores{
-				SecretStore: helper.opts.SecretStore,
+				SecretStore:  helper.opts.SecretStore,
+				ProfileStore: helper.opts.ProfileStore,
 			},
 			ServiceRegistry:   d.ServiceRegistry,
 			PeerConfig:        d.Config.Core.Peer,

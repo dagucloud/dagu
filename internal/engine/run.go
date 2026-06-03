@@ -64,7 +64,7 @@ func (e *Engine) Status(ctx context.Context, ref RunRef) (*Status, error) {
 	} else if e.dagRunStore != nil {
 		status, err = e.dagRunMgr.GetSavedStatus(ctx, runRef)
 	} else {
-		err = fmt.Errorf("run-state store is not configured")
+		err = fmt.Errorf("neither run-state store nor DAG-run store is configured")
 	}
 	if err != nil {
 		return nil, err
@@ -205,7 +205,7 @@ func (e *Engine) readOutputs(ctx context.Context, ref coreexec.DAGRunRef) (*core
 		}
 		return attempt.ReadOutputs(ctx)
 	}
-	return nil, fmt.Errorf("run-state store is not configured")
+	return nil, fmt.Errorf("neither run-state store nor DAG-run store is configured")
 }
 
 func (r *Run) waitLocal(ctx context.Context) (*Status, error) {
