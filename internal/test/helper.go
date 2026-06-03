@@ -22,6 +22,7 @@ import (
 
 	"github.com/spf13/viper"
 
+	agentstore "github.com/dagucloud/dagu/internal/agent"
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
@@ -32,14 +33,12 @@ import (
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/dagstate"
 	"github.com/dagucloud/dagu/internal/launcher"
+	"github.com/dagucloud/dagu/internal/node"
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	runtimepkg "github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/agent"
-	runtimeexec "github.com/dagucloud/dagu/internal/runtime/executor"
-	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/frontend"
-	"github.com/dagucloud/dagu/internal/subflow"
 	"github.com/dagucloud/dagu/internal/workspace"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -787,29 +786,22 @@ func (d *DAG) Agent(opts ...AgentOption) *Agent {
 	helper.opts.DAGRunLogDir = d.Config.Paths.LogDir
 	helper.opts.DAGRunArtifactDir = d.Config.Paths.ArtifactDir
 	if helper.opts.SubWorkflowRunnerFactory == nil {
-		var subWorkflowRunnerFactory func(context.Context) (runtimeexec.SubWorkflowRunner, error)
-		subWorkflowRunnerFactory = func(_ context.Context) (runtimeexec.SubWorkflowRunner, error) {
-			dispatcher, err := coordinator.NewRuntimeDispatcher(d.ServiceRegistry, d.Config.Core.Peer)
-			if err != nil {
-				return nil, err
-			}
-			return subflow.NewRouter(
-				subflow.New(dispatcher, d.Config.DefaultExecMode),
-				subflow.NewLocal(
-					d.DAGRunMgr,
-					d.DAGStore,
-					subflow.WithLocalDAGRunStore(d.DAGRunStore),
-					subflow.WithLocalQueueStore(d.QueueStore),
-					subflow.WithLocalStateStore(d.StateStore),
-					subflow.WithLocalSecretStore(helper.opts.SecretStore),
-					subflow.WithLocalServiceRegistry(d.ServiceRegistry),
-					subflow.WithLocalSubWorkflowRunnerFactory(subWorkflowRunnerFactory),
-					subflow.WithLocalWorkerID("local"),
-					subflow.WithLocalDAGRunDirs(d.Config.Paths.LogDir, d.Config.Paths.ArtifactDir),
-				),
-			), nil
-		}
-		helper.opts.SubWorkflowRunnerFactory = subWorkflowRunnerFactory
+		helper.opts.SubWorkflowRunnerFactory = node.NewSubWorkflowRunnerFactory(node.SubWorkflowRunnerConfig{
+			DAGRunMgr:   d.DAGRunMgr,
+			DAGStore:    d.DAGStore,
+			DAGRunStore: d.DAGRunStore,
+			QueueStore:  d.QueueStore,
+			StateStore:  d.StateStore,
+			AgentStores: agentstore.RuntimeStores{
+				SecretStore: helper.opts.SecretStore,
+			},
+			ServiceRegistry:   d.ServiceRegistry,
+			PeerConfig:        d.Config.Core.Peer,
+			DefaultExecMode:   d.Config.DefaultExecMode,
+			WorkerID:          "local",
+			DAGRunLogDir:      d.Config.Paths.LogDir,
+			DAGRunArtifactDir: d.Config.Paths.ArtifactDir,
+		})
 	}
 
 	helper.Agent = agent.New(

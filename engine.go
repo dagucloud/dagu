@@ -197,7 +197,7 @@ func (e *Engine) RunYAML(ctx context.Context, yaml []byte, opts ...RunOption) (*
 	return &Run{inner: inner}, nil
 }
 
-// Status reads the latest file-backed status for a local DAG run.
+// Status reads the latest status for a local DAG run.
 func (e *Engine) Status(ctx context.Context, ref RunRef) (*Status, error) {
 	if e == nil || e.inner == nil {
 		return nil, fmt.Errorf("engine is not initialized")
@@ -207,6 +207,14 @@ func (e *Engine) Status(ctx context.Context, ref RunRef) (*Status, error) {
 		return nil, err
 	}
 	return publicStatus(status), nil
+}
+
+// Outputs reads the collected step outputs for a local DAG run.
+func (e *Engine) Outputs(ctx context.Context, ref RunRef) (map[string]string, error) {
+	if e == nil || e.inner == nil {
+		return nil, fmt.Errorf("engine is not initialized")
+	}
+	return e.inner.Outputs(ctx, internalRunRef(ref))
 }
 
 // Stop requests cancellation for a local DAG run.
@@ -269,6 +277,14 @@ func (r *Run) Status(ctx context.Context) (*Status, error) {
 	}
 	status, err := r.inner.Status(ctx)
 	return publicStatus(status), err
+}
+
+// Outputs reads the collected step outputs for this run.
+func (r *Run) Outputs(ctx context.Context) (map[string]string, error) {
+	if r == nil || r.inner == nil {
+		return nil, fmt.Errorf("run is not initialized")
+	}
+	return r.inner.Outputs(ctx)
 }
 
 // Stop requests cancellation for this run.

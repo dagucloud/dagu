@@ -215,7 +215,7 @@ func (m *Manager) IsRunning(ctx context.Context, dag *core.DAG, dagRunID string)
 	if st != nil && st.DAGRunID == dagRunID && st.Status == core.Running {
 		return true
 	}
-	if m.procStore == nil {
+	if m.procStore == nil || m.dagRunStore == nil {
 		return false
 	}
 

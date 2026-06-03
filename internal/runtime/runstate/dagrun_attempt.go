@@ -37,6 +37,10 @@ func (a dagRunAttempt) ReadStatus(ctx context.Context) (*exec.DAGRunStatus, erro
 	return a.attempt.ReadStatus(ctx)
 }
 
+func (a dagRunAttempt) ReadOutputs(ctx context.Context) (*exec.DAGRunOutputs, error) {
+	return a.attempt.ReadOutputs(ctx)
+}
+
 func (a dagRunAttempt) RequestCancel(ctx context.Context) error {
 	return a.attempt.Abort(ctx)
 }

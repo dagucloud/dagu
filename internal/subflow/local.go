@@ -31,6 +31,7 @@ type Local struct {
 	dagRunMgr                runtime.Manager
 	dagStore                 exec.DAGStore
 	dagRunStore              exec.DAGRunStore
+	runStateStore            runstate.Store
 	queueStore               exec.QueueStore
 	stateStore               dagstate.Store
 	secretStore              secretpkg.Store
@@ -57,6 +58,13 @@ type LocalOption func(*Local)
 func WithLocalDAGRunStore(store exec.DAGRunStore) LocalOption {
 	return func(r *Local) {
 		r.dagRunStore = store
+	}
+}
+
+// WithLocalRunStateStore sets the run-state store used by child workflow agents.
+func WithLocalRunStateStore(store runstate.Store) LocalOption {
+	return func(r *Local) {
+		r.runStateStore = store
 	}
 }
 
@@ -286,6 +294,7 @@ func (r *Local) newAgent(
 	opts.StatusPusher = r.statusPusher
 	opts.SubWorkflowRunnerFactory = r.subWorkflowRunnerFactory
 	opts.LogWriterFactory = r.logWriterFactory
+	opts.RunStateStore = r.runStateStoreFromContext(ctx)
 	opts.DAGRunStore = r.dagRunStoreFromContext(ctx)
 	opts.QueueStore = r.queueStoreFromContext(ctx)
 	opts.StateStore = r.stateStoreFromContext(ctx)
@@ -359,6 +368,9 @@ func (r *Local) dagRunStoreFromContext(ctx context.Context) exec.DAGRunStore {
 }
 
 func (r *Local) runStateStoreFromContext(ctx context.Context) runstate.Store {
+	if r.runStateStore != nil {
+		return r.runStateStore
+	}
 	if dagRunStore := r.dagRunStoreFromContext(ctx); dagRunStore != nil {
 		return runstate.NewHistoryStore(dagRunStore)
 	}

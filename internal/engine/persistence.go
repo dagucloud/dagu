@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/dagstate"
+	"github.com/dagucloud/dagu/internal/runtime/runstate"
 )
 
 // PersistenceFactory wires backend-specific stores after configuration is loaded.
@@ -22,6 +23,7 @@ type PersistenceFactory func(context.Context, *config.Config) (Persistence, erro
 type Persistence struct {
 	DAGStore             exec.DAGStore
 	DAGRunStore          exec.DAGRunStore
+	RunStateStore        runstate.Store
 	ProcStore            exec.ProcStore
 	StateStore           dagstate.Store
 	ServiceRegistry      exec.ServiceRegistry
@@ -61,6 +63,9 @@ func buildPersistence(ctx context.Context, cfg *config.Config, opts Options) (Pe
 	if opts.DAGRunStore != nil {
 		p.DAGRunStore = opts.DAGRunStore
 	}
+	if opts.RunStateStore != nil {
+		p.RunStateStore = opts.RunStateStore
+	}
 	if err := validatePersistence(ctx, p); err != nil {
 		return Persistence{}, err
 	}
@@ -73,6 +78,9 @@ func overridePersistence(base, override Persistence) Persistence {
 	}
 	if override.DAGRunStore != nil {
 		base.DAGRunStore = override.DAGRunStore
+	}
+	if override.RunStateStore != nil {
+		base.RunStateStore = override.RunStateStore
 	}
 	if override.ProcStore != nil {
 		base.ProcStore = override.ProcStore
@@ -100,8 +108,8 @@ func validatePersistence(ctx context.Context, p Persistence) error {
 	if p.DAGStore == nil {
 		errs = append(errs, errors.New("DAG store is not configured"))
 	}
-	if p.DAGRunStore == nil {
-		errs = append(errs, errors.New("DAG-run store is not configured"))
+	if p.DAGRunStore == nil && p.RunStateStore == nil {
+		errs = append(errs, errors.New("DAG-run store or run-state store is not configured"))
 	}
 	if p.ProcStore == nil {
 		errs = append(errs, errors.New("proc store is not configured"))

@@ -25,14 +25,13 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/dagstate"
+	"github.com/dagucloud/dagu/internal/node"
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	"github.com/dagucloud/dagu/internal/runtime"
 	rtagent "github.com/dagucloud/dagu/internal/runtime/agent"
-	runtimeexec "github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/worker/coordreport"
-	"github.com/dagucloud/dagu/internal/subflow"
 	dagutools "github.com/dagucloud/dagu/internal/tools"
 	daguaqua "github.com/dagucloud/dagu/internal/tools/aqua"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
@@ -608,31 +607,22 @@ func (h *remoteTaskHandler) executeDAGRun(
 	}
 	extraEnvs = append(extraEnvs, toolEnvs...)
 
-	var subWorkflowRunnerFactory func(context.Context) (runtimeexec.SubWorkflowRunner, error)
-	subWorkflowRunnerFactory = func(_ context.Context) (runtimeexec.SubWorkflowRunner, error) {
-		dispatcher, err := coordinator.NewRuntimeDispatcher(h.serviceRegistry, h.peerConfig)
-		if err != nil {
-			return nil, err
-		}
-		return subflow.NewRouter(
-			subflow.New(dispatcher, h.config.DefaultExecMode),
-			subflow.NewLocal(
-				h.dagRunMgr,
-				h.dagStore,
-				subflow.WithLocalDAGRunStore(h.dagRunStore),
-				subflow.WithLocalStateStore(h.stateStore),
-				subflow.WithLocalSecretStore(agentStores.SecretStore),
-				subflow.WithLocalProfileStore(agentStores.ProfileStore),
-				subflow.WithLocalServiceRegistry(h.serviceRegistry),
-				subflow.WithLocalStatusPusher(statusPusher),
-				subflow.WithLocalLogWriterFactory(logStreamer),
-				subflow.WithLocalArtifactFinalizer(artifactUploader),
-				subflow.WithLocalSubWorkflowRunnerFactory(subWorkflowRunnerFactory),
-				subflow.WithLocalWorkerID(h.workerID),
-				subflow.WithLocalDAGRunDirs(h.config.Paths.LogDir, h.config.Paths.ArtifactDir),
-			),
-		), nil
-	}
+	subWorkflowRunnerFactory := node.NewSubWorkflowRunnerFactory(node.SubWorkflowRunnerConfig{
+		DAGRunMgr:         h.dagRunMgr,
+		DAGStore:          h.dagStore,
+		DAGRunStore:       h.dagRunStore,
+		StateStore:        h.stateStore,
+		AgentStores:       agentStores,
+		ServiceRegistry:   h.serviceRegistry,
+		PeerConfig:        h.peerConfig,
+		DefaultExecMode:   h.config.DefaultExecMode,
+		StatusPusher:      statusPusher,
+		LogWriterFactory:  logStreamer,
+		ArtifactFinalizer: artifactUploader,
+		WorkerID:          h.workerID,
+		DAGRunLogDir:      h.config.Paths.LogDir,
+		DAGRunArtifactDir: h.config.Paths.ArtifactDir,
+	})
 
 	// Build agent options
 	opts := rtagent.Options{

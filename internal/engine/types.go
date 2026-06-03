@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	coreexec "github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime/agent"
+	"github.com/dagucloud/dagu/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/worker"
 )
@@ -35,6 +36,7 @@ type Options struct {
 
 	Persistence        Persistence
 	PersistenceFactory PersistenceFactory
+	RunStateStore      runstate.Store
 	DAGRunStore        coreexec.DAGRunStore
 	DefaultMode        ExecutionMode
 	Distributed        *DistributedOptions

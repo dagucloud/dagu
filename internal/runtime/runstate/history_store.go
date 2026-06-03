@@ -75,6 +75,17 @@ func (s *historyStore) BeginAttempt(ctx context.Context, req BeginAttemptRequest
 	return wrapDAGRunAttempt(attempt), nil
 }
 
+func (s *historyStore) OpenAttempt(ctx context.Context, ref exec.DAGRunRef) (Attempt, error) {
+	if s.store == nil {
+		return nil, exec.ErrNoopAttemptNotSupported
+	}
+	attempt, err := s.store.FindAttempt(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	return wrapDAGRunAttempt(attempt), nil
+}
+
 func (s *historyStore) OpenChildAttempt(ctx context.Context, root exec.DAGRunRef, childRunID string) (Attempt, error) {
 	if s.store == nil {
 		return nil, exec.ErrNoopAttemptNotSupported

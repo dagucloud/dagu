@@ -17,16 +17,18 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	coreexec "github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/dagstate"
+	"github.com/dagucloud/dagu/internal/node"
 	"github.com/dagucloud/dagu/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/internal/runtime/executor"
+	"github.com/dagucloud/dagu/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
-	"github.com/dagucloud/dagu/internal/subflow"
 	"github.com/spf13/viper"
 )
 
 type Engine struct {
 	cfg             *config.Config
 	dagRunStore     coreexec.DAGRunStore
+	runStateStore   runstate.Store
 	stateStore      dagstate.Store
 	procStore       coreexec.ProcStore
 	serviceRegistry coreexec.ServiceRegistry
@@ -79,6 +81,7 @@ func New(ctx context.Context, opts Options) (*Engine, error) {
 	return &Engine{
 		cfg:             cfg,
 		dagRunStore:     persistence.DAGRunStore,
+		runStateStore:   persistence.RunStateStore,
 		stateStore:      persistence.StateStore,
 		procStore:       persistence.ProcStore,
 		serviceRegistry: persistence.ServiceRegistry,
@@ -205,28 +208,20 @@ func (e *Engine) coordinatorClient(opts DistributedOptions) (coordinator.Client,
 }
 
 func (e *Engine) subWorkflowRunnerFactory(stores AgentStores) func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
-	var factory func(context.Context) (runtimeexec.SubWorkflowRunner, error)
-	factory = func(_ context.Context) (runtimeexec.SubWorkflowRunner, error) {
-		dispatcher, err := coordinator.NewRuntimeDispatcher(e.serviceRegistry, e.cfg.Core.Peer)
-		if err != nil {
-			return nil, err
-		}
-		return subflow.NewRouter(
-			subflow.New(dispatcher, configExecutionMode(e.defaultMode)),
-			subflow.NewLocal(
-				e.dagRunMgr,
-				e.dagStore,
-				subflow.WithLocalDAGRunStore(e.dagRunStore),
-				subflow.WithLocalStateStore(e.stateStore),
-				subflow.WithLocalSecretStore(stores.SecretStore),
-				subflow.WithLocalServiceRegistry(e.serviceRegistry),
-				subflow.WithLocalSubWorkflowRunnerFactory(factory),
-				subflow.WithLocalWorkerID("local"),
-				subflow.WithLocalDAGRunDirs(e.cfg.Paths.LogDir, e.cfg.Paths.ArtifactDir),
-			),
-		), nil
-	}
-	return factory
+	return node.NewSubWorkflowRunnerFactory(node.SubWorkflowRunnerConfig{
+		DAGRunMgr:         e.dagRunMgr,
+		DAGStore:          e.dagStore,
+		DAGRunStore:       e.dagRunStore,
+		RunStateStore:     e.runStateStore,
+		StateStore:        e.stateStore,
+		AgentStores:       stores,
+		ServiceRegistry:   e.serviceRegistry,
+		PeerConfig:        e.cfg.Core.Peer,
+		DefaultExecMode:   configExecutionMode(e.defaultMode),
+		WorkerID:          "local",
+		DAGRunLogDir:      e.cfg.Paths.LogDir,
+		DAGRunArtifactDir: e.cfg.Paths.ArtifactDir,
+	})
 }
 
 func runStatusToPublic(status *coreexec.DAGRunStatus) (*Status, error) {

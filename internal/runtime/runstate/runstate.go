@@ -14,6 +14,7 @@ import (
 // Store opens execution state for workflow runs.
 type Store interface {
 	BeginAttempt(ctx context.Context, req BeginAttemptRequest) (Attempt, error)
+	OpenAttempt(ctx context.Context, ref exec.DAGRunRef) (Attempt, error)
 	OpenChildAttempt(ctx context.Context, root exec.DAGRunRef, childRunID string) (Attempt, error)
 }
 
@@ -33,6 +34,7 @@ type Attempt interface {
 	RecordStatus(ctx context.Context, status exec.DAGRunStatus) error
 	RecordOutputs(ctx context.Context, outputs *exec.DAGRunOutputs) error
 	ReadStatus(ctx context.Context) (*exec.DAGRunStatus, error)
+	ReadOutputs(ctx context.Context) (*exec.DAGRunOutputs, error)
 	RequestCancel(ctx context.Context) error
 	CancelRequested(ctx context.Context) (bool, error)
 	ReadStepMessages(ctx context.Context, stepName string) ([]exec.LLMMessage, error)

@@ -316,6 +316,8 @@ type Options struct {
 	// PreparedAttempt is an exact attempt that was created or reopened before proc acquisition.
 	// This is used for local execution so the proc heartbeat can include the final attempt ID.
 	PreparedAttempt exec.DAGRunAttempt
+	// RunStateStore records execution state for this DAG run.
+	RunStateStore runstate.Store
 	// DAGRunStore is the store for dag-run data. Nil in shared-nothing mode.
 	DAGRunStore exec.DAGRunStore
 	// QueueStore is the store for queued dag-run items. Nil when queues are unavailable.
@@ -376,9 +378,11 @@ func New(
 	ds exec.DAGStore,
 	opts Options,
 ) *Agent {
-	runStateStore := runstate.NewHistoryStore(opts.DAGRunStore)
-	if opts.PreparedAttempt != nil {
+	runStateStore := opts.RunStateStore
+	if runStateStore == nil && opts.PreparedAttempt != nil {
 		runStateStore = runstate.NewHistoryStore(opts.DAGRunStore, runstate.WithPreparedAttempt(opts.PreparedAttempt))
+	} else if runStateStore == nil {
+		runStateStore = runstate.NewHistoryStore(opts.DAGRunStore)
 	}
 
 	a := &Agent{

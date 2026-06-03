@@ -32,6 +32,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/dagstate"
 	"github.com/dagucloud/dagu/internal/license"
+	"github.com/dagucloud/dagu/internal/node"
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/runtime"
@@ -42,7 +43,6 @@ import (
 	"github.com/dagucloud/dagu/internal/service/frontend"
 	"github.com/dagucloud/dagu/internal/service/resource"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
-	"github.com/dagucloud/dagu/internal/subflow"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -589,34 +589,22 @@ func (c *Context) NewCoordinatorClient() coordinator.Client {
 }
 
 func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
-	var factory func(context.Context) (runtimeexec.SubWorkflowRunner, error)
-	factory = func(_ context.Context) (runtimeexec.SubWorkflowRunner, error) {
-		dagStore, err := c.dagStore(dagStoreConfig{})
-		if err != nil {
-			return nil, err
-		}
-		dispatcher, err := coordinator.NewRuntimeDispatcher(c.ServiceRegistry, c.Config.Core.Peer)
-		if err != nil {
-			return nil, err
-		}
-		stores := c.agentStores()
-		return subflow.NewRouter(
-			subflow.New(dispatcher, c.Config.DefaultExecMode),
-			subflow.NewLocal(
-				c.DAGRunMgr,
-				dagStore,
-				subflow.WithLocalDAGRunStore(c.DAGRunStore),
-				subflow.WithLocalQueueStore(c.QueueStore),
-				subflow.WithLocalStateStore(c.StateStore),
-				subflow.WithLocalSecretStore(stores.SecretStore),
-				subflow.WithLocalServiceRegistry(c.ServiceRegistry),
-				subflow.WithLocalSubWorkflowRunnerFactory(factory),
-				subflow.WithLocalWorkerID("local"),
-				subflow.WithLocalDAGRunDirs(c.Config.Paths.LogDir, c.Config.Paths.ArtifactDir),
-			),
-		), nil
-	}
-	return factory
+	return node.NewSubWorkflowRunnerFactory(node.SubWorkflowRunnerConfig{
+		DAGRunMgr: c.DAGRunMgr,
+		DAGStoreFactory: func(context.Context) (exec.DAGStore, error) {
+			return c.dagStore(dagStoreConfig{})
+		},
+		DAGRunStore:       c.DAGRunStore,
+		QueueStore:        c.QueueStore,
+		StateStore:        c.StateStore,
+		AgentStores:       c.agentStores(),
+		ServiceRegistry:   c.ServiceRegistry,
+		PeerConfig:        c.Config.Core.Peer,
+		DefaultExecMode:   c.Config.DefaultExecMode,
+		WorkerID:          "local",
+		DAGRunLogDir:      c.Config.Paths.LogDir,
+		DAGRunArtifactDir: c.Config.Paths.ArtifactDir,
+	})
 }
 
 // NewScheduler creates a scheduler for this command context.
