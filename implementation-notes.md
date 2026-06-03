@@ -40,6 +40,7 @@
 - Added embedded run output readback so no-file local execution can verify collected outputs through runtime state instead of relying on file-backed dag-run history.
 - Added `internal/node` as the adapter for child workflow runner construction. The adapter owns the distributed/local router composition, while command, worker, engine, and test code still own their concrete stores and remote transport dependencies.
 - When both `RunStateStore` and `DAGRunStore` are configured for embedded execution, `RunStateStore` is now authoritative for status, outputs, and cancel requests because the agent writes to that store.
+- A missing run-state attempt now falls back to DAG-run history in hybrid configurations. Other run-state errors still remain authoritative. This preserves compatibility for runs created before the direct run-state store saw them without hiding real runtime-state failures.
 - Direct run-state embedded execution now preflights duplicate run IDs before returning a run handle. This matches the file-backed path more closely and keeps duplicate errors synchronous.
 - `memstore` validates run IDs at the adapter boundary instead of relying only on engine-level validation.
 - CodeRabbit review fixes kept the missing-store errors explicit when neither runtime nor history storage is configured, and preserved `ProfileStore` when test-helper subworkflows are routed through the centralized factory.

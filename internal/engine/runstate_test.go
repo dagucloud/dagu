@@ -90,6 +90,60 @@ steps:
 	require.Equal(t, map[string]string{"result": "hybrid-state"}, outputs)
 }
 
+func TestStatusAndOutputsFallBackToDAGRunStoreWhenRunStateMissing(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	homeDir := t.TempDir()
+	historyEngine, err := engine.New(ctx, engine.Options{
+		HomeDir:            homeDir,
+		PersistenceFactory: dagRunPersistenceFactory(),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, historyEngine.Close(context.Background()))
+	})
+
+	run, err := historyEngine.RunYAML(ctx, []byte(`
+name: embedded-history-state
+steps:
+  - name: produce
+    command: echo history-state
+    output: RESULT
+`), engine.RunOptions{RunID: "history-run"})
+	require.NoError(t, err)
+
+	status, err := run.Wait(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "succeeded", status.Status)
+	require.Equal(t, "embedded-history-state", status.Name)
+
+	ref := run.Ref()
+	runStateStore := memstore.New()
+	hybridEngine, err := engine.New(ctx, engine.Options{
+		HomeDir:            homeDir,
+		PersistenceFactory: hybridPersistenceFactory(runStateStore),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, hybridEngine.Close(context.Background()))
+	})
+
+	_, err = runStateStore.OpenAttempt(ctx, coreexec.NewDAGRunRef("embedded-history-state", "history-run"))
+	require.ErrorIs(t, err, coreexec.ErrDAGRunIDNotFound)
+
+	status, err = hybridEngine.Status(ctx, ref)
+	require.NoError(t, err)
+	require.Equal(t, "succeeded", status.Status)
+	require.Equal(t, "embedded-history-state", status.Name)
+
+	outputs, err := hybridEngine.Outputs(ctx, ref)
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{"result": "history-state"}, outputs)
+
+	require.NoError(t, hybridEngine.Stop(ctx, ref))
+}
+
 func TestRunYAMLRejectsDuplicateRunIDWithoutDAGRunStore(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -127,9 +181,8 @@ func memoryPersistenceFactory(runStateStore *memstore.Store) engine.PersistenceF
 		if err != nil {
 			return engine.Persistence{}, err
 		}
-		return engine.Persistence{
+		persistence := engine.Persistence{
 			DAGStore:        dagStore,
-			RunStateStore:   runStateStore,
 			ProcStore:       store.NewProcStore(backend.Collection("proc")),
 			StateStore:      store.NewDAGStateStore(backend.Collection("dag_state")),
 			ServiceRegistry: file.NewServiceRegistry(cfg),
@@ -140,7 +193,22 @@ func memoryPersistenceFactory(runStateStore *memstore.Store) engine.PersistenceF
 				}
 				return file.NewDAGStore(cfg, fileOpts...)
 			},
-		}, nil
+		}
+		if runStateStore != nil {
+			persistence.RunStateStore = runStateStore
+		}
+		return persistence, nil
+	}
+}
+
+func dagRunPersistenceFactory() engine.PersistenceFactory {
+	return func(ctx context.Context, cfg *config.Config) (engine.Persistence, error) {
+		persistence, err := memoryPersistenceFactory(nil)(ctx, cfg)
+		if err != nil {
+			return engine.Persistence{}, err
+		}
+		persistence.DAGRunStore = file.NewDAGRunStore(cfg, file.WithDAGRunLatestStatusToday(false))
+		return persistence, nil
 	}
 }
 

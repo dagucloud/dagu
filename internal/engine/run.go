@@ -54,18 +54,7 @@ func (e *Engine) Status(ctx context.Context, ref RunRef) (*Status, error) {
 	if ref.Name == "" || ref.ID == "" {
 		return nil, fmt.Errorf("run name and ID are required")
 	}
-	runRef := coreexec.NewDAGRunRef(ref.Name, ref.ID)
-	var (
-		status *coreexec.DAGRunStatus
-		err    error
-	)
-	if e.runStateStore != nil {
-		status, err = e.readRunStateStatus(ctx, runRef)
-	} else if e.dagRunStore != nil {
-		status, err = e.dagRunMgr.GetSavedStatus(ctx, runRef)
-	} else {
-		err = fmt.Errorf("neither run-state store nor DAG-run store is configured")
-	}
+	status, err := e.readStatus(ctx, coreexec.NewDAGRunRef(ref.Name, ref.ID))
 	if err != nil {
 		return nil, err
 	}
@@ -92,17 +81,40 @@ func (e *Engine) Stop(ctx context.Context, ref RunRef) error {
 	if ref.Name == "" || ref.ID == "" {
 		return fmt.Errorf("run name and ID are required")
 	}
+	runRef := coreexec.NewDAGRunRef(ref.Name, ref.ID)
 	if e.runStateStore != nil {
-		attempt, err := e.runStateStore.OpenAttempt(ctx, coreexec.NewDAGRunRef(ref.Name, ref.ID))
-		if err != nil {
+		attempt, err := e.runStateStore.OpenAttempt(ctx, runRef)
+		if err == nil {
+			return attempt.RequestCancel(ctx)
+		}
+		if !e.shouldFallbackToDAGRunStore(err) {
 			return err
 		}
-		return attempt.RequestCancel(ctx)
 	}
 	if e.dagRunStore == nil {
 		return fmt.Errorf("DAG-run store is not configured")
 	}
-	attempt, err := e.dagRunStore.FindAttempt(ctx, coreexec.NewDAGRunRef(ref.Name, ref.ID))
+	return e.stopDAGRunStore(ctx, ref.ID, runRef)
+}
+
+func (e *Engine) readStatus(ctx context.Context, ref coreexec.DAGRunRef) (*coreexec.DAGRunStatus, error) {
+	if e.runStateStore != nil {
+		status, err := e.readRunStateStatus(ctx, ref)
+		if err == nil {
+			return status, nil
+		}
+		if !e.shouldFallbackToDAGRunStore(err) {
+			return nil, err
+		}
+	}
+	if e.dagRunStore != nil {
+		return e.dagRunMgr.GetSavedStatus(ctx, ref)
+	}
+	return nil, fmt.Errorf("neither run-state store nor DAG-run store is configured")
+}
+
+func (e *Engine) stopDAGRunStore(ctx context.Context, dagRunID string, ref coreexec.DAGRunRef) error {
+	attempt, err := e.dagRunStore.FindAttempt(ctx, ref)
 	if err != nil {
 		return err
 	}
@@ -110,7 +122,7 @@ func (e *Engine) Stop(ctx context.Context, ref RunRef) error {
 	if err != nil {
 		return err
 	}
-	return e.dagRunMgr.Stop(ctx, dag, ref.ID)
+	return e.dagRunMgr.Stop(ctx, dag, dagRunID)
 }
 
 func (r *Run) Ref() RunRef {
@@ -192,20 +204,38 @@ func (e *Engine) readRunStateStatus(ctx context.Context, ref coreexec.DAGRunRef)
 
 func (e *Engine) readOutputs(ctx context.Context, ref coreexec.DAGRunRef) (*coreexec.DAGRunOutputs, error) {
 	if e.runStateStore != nil {
-		attempt, err := e.runStateStore.OpenAttempt(ctx, ref)
-		if err != nil {
+		outputs, err := e.readRunStateOutputs(ctx, ref)
+		if err == nil {
+			return outputs, nil
+		}
+		if !e.shouldFallbackToDAGRunStore(err) {
 			return nil, err
 		}
-		return attempt.ReadOutputs(ctx)
 	}
 	if e.dagRunStore != nil {
-		attempt, err := e.dagRunStore.FindAttempt(ctx, ref)
-		if err != nil {
-			return nil, err
-		}
-		return attempt.ReadOutputs(ctx)
+		return e.readDAGRunOutputs(ctx, ref)
 	}
 	return nil, fmt.Errorf("neither run-state store nor DAG-run store is configured")
+}
+
+func (e *Engine) readRunStateOutputs(ctx context.Context, ref coreexec.DAGRunRef) (*coreexec.DAGRunOutputs, error) {
+	attempt, err := e.runStateStore.OpenAttempt(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	return attempt.ReadOutputs(ctx)
+}
+
+func (e *Engine) readDAGRunOutputs(ctx context.Context, ref coreexec.DAGRunRef) (*coreexec.DAGRunOutputs, error) {
+	attempt, err := e.dagRunStore.FindAttempt(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	return attempt.ReadOutputs(ctx)
+}
+
+func (e *Engine) shouldFallbackToDAGRunStore(err error) bool {
+	return e.dagRunStore != nil && errors.Is(err, coreexec.ErrDAGRunIDNotFound)
 }
 
 func (r *Run) waitLocal(ctx context.Context) (*Status, error) {
