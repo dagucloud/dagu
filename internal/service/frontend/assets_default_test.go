@@ -30,7 +30,7 @@ func TestEmbeddedWebUIAvailableInDefaultBuild(t *testing.T) {
 	require.NoError(t, frontend.SetupRoutesForTest(context.Background(), srv, r))
 
 	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/assets/bundle.js", nil))
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
