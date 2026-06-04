@@ -1036,7 +1036,7 @@ func ensureLeadingSlash(p string) string {
 }
 
 func (srv *Server) setupRoutes(ctx context.Context, r *chi.Mux) error {
-	if srv.config.Server.Headless {
+	if !srv.webUIEnabled() {
 		logger.Info(ctx, "Headless mode enabled: UI is disabled, but API remains active")
 		return nil
 	}
