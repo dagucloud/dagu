@@ -505,15 +505,26 @@ func TestPlan_WaitingStepNames(t *testing.T) {
 	}
 }
 
-func TestCreateRetryPlan_PrefersPersistedNodeWorkingDir(t *testing.T) {
+func TestCreateRetryPlan_PreservesConfiguredStepDirOnly(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		nodeDir string
+		name         string
+		dagStepDir   string
+		stateWorkDir string
+		wantStepDir  string
 	}{
-		{name: "restored dag step dir changed"},
-		{name: "persisted node step dir changed", nodeDir: "/stale-node-work"},
+		{
+			name:         "implicit step working dir ignores persisted effective work dir",
+			stateWorkDir: "/var/lib/dagu/data/dag-runs/example/dag-runs/2026/06/04/dag-run_20260604_134911Z_run/work",
+			wantStepDir:  "",
+		},
+		{
+			name:         "configured step working dir remains configured",
+			dagStepDir:   "/remote/app",
+			stateWorkDir: "/remote/app",
+			wantStepDir:  "/remote/app",
+		},
 	}
 
 	for _, tt := range tests {
@@ -523,14 +534,14 @@ func TestCreateRetryPlan_PrefersPersistedNodeWorkingDir(t *testing.T) {
 			dag := &core.DAG{
 				Name: "retry-work-dir",
 				Steps: []core.Step{
-					{Name: "target", Dir: "/changed-work"},
+					{Name: "target", Dir: tt.dagStepDir},
 				},
 			}
 			node := runtime.NodeWithData(runtime.NodeData{
-				Step: core.Step{Name: "target", Dir: tt.nodeDir},
+				Step: core.Step{Name: "target"},
 				State: runtime.NodeState{
 					Status:     core.NodeFailed,
-					WorkingDir: "/original-work",
+					WorkingDir: tt.stateWorkDir,
 				},
 			})
 
@@ -539,7 +550,45 @@ func TestCreateRetryPlan_PrefersPersistedNodeWorkingDir(t *testing.T) {
 
 			target := plan.GetNodeByName("target")
 			require.NotNil(t, target)
-			require.Equal(t, "/original-work", target.Step().Dir)
+			require.Equal(t, tt.wantStepDir, target.Step().Dir)
 		})
 	}
+}
+
+func TestCreateRetryPlan_DoesNotPromoteImplicitRunWorkDirToStepDir(t *testing.T) {
+	t.Parallel()
+
+	runWorkDir := "/var/lib/dagu/data/dag-runs/abc_build-c3c5/dag-runs/2026/06/04/dag-run_20260604_134911Z_019e92e5-2799-762b-9e13-6bb7eac6e62f/work"
+	dag := &core.DAG{
+		Name: "ssh-retry-work-dir",
+		Steps: []core.Step{
+			{
+				Name:           "remote",
+				ExecutorConfig: core.ExecutorConfig{Type: "ssh"},
+				Commands: []core.CommandEntry{
+					{Command: "echo", Args: []string{"ok"}},
+				},
+			},
+		},
+	}
+	node := runtime.NodeWithData(runtime.NodeData{
+		Step: core.Step{
+			Name:           "remote",
+			ExecutorConfig: core.ExecutorConfig{Type: "ssh"},
+			Commands: []core.CommandEntry{
+				{Command: "echo", Args: []string{"ok"}},
+			},
+		},
+		State: runtime.NodeState{
+			Status:     core.NodeFailed,
+			WorkingDir: runWorkDir,
+		},
+	})
+
+	plan, err := runtime.CreateRetryPlan(context.Background(), dag, node)
+	require.NoError(t, err)
+
+	target := plan.GetNodeByName("remote")
+	require.NotNil(t, target)
+	require.Empty(t, target.Step().Dir)
 }
