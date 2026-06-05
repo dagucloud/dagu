@@ -555,40 +555,46 @@ func TestCreateRetryPlan_PreservesConfiguredStepDirOnly(t *testing.T) {
 	}
 }
 
-func TestCreateRetryPlan_DoesNotPromoteImplicitRunWorkDirToStepDir(t *testing.T) {
+func TestCreateRetryPlan_CommandStepUsesNewRunWorkDirAfterRetry(t *testing.T) {
 	t.Parallel()
 
-	runWorkDir := "/var/lib/dagu/data/dag-runs/abc_build-c3c5/dag-runs/2026/06/04/dag-run_20260604_134911Z_019e92e5-2799-762b-9e13-6bb7eac6e62f/work"
+	staleRunWorkDir := "/var/lib/dagu/data/dag-runs/abc_build-c3c5/dag-runs/2026/06/04/dag-run_20260604_134911Z_019e92e5-2799-762b-9e13-6bb7eac6e62f/work"
+	freshRunWorkDir := t.TempDir()
 	dag := &core.DAG{
-		Name: "ssh-retry-work-dir",
+		Name: "command-retry-work-dir",
 		Steps: []core.Step{
 			{
-				Name:           "remote",
-				ExecutorConfig: core.ExecutorConfig{Type: "ssh"},
-				Commands: []core.CommandEntry{
-					{Command: "echo", Args: []string{"ok"}},
-				},
+				Name:   "build",
+				Script: "echo ok",
 			},
 		},
 	}
 	node := runtime.NodeWithData(runtime.NodeData{
 		Step: core.Step{
-			Name:           "remote",
-			ExecutorConfig: core.ExecutorConfig{Type: "ssh"},
-			Commands: []core.CommandEntry{
-				{Command: "echo", Args: []string{"ok"}},
-			},
+			Name:   "build",
+			Script: "echo ok",
 		},
 		State: runtime.NodeState{
 			Status:     core.NodeFailed,
-			WorkingDir: runWorkDir,
+			WorkingDir: staleRunWorkDir,
 		},
 	})
+	ctx := runtime.NewContext(
+		context.Background(),
+		dag,
+		"retry-run",
+		"dag.log",
+		runtime.WithWorkDir(freshRunWorkDir),
+	)
 
-	plan, err := runtime.CreateRetryPlan(context.Background(), dag, node)
+	plan, err := runtime.CreateRetryPlan(ctx, dag, node)
 	require.NoError(t, err)
 
-	target := plan.GetNodeByName("remote")
+	target := plan.GetNodeByName("build")
 	require.NotNil(t, target)
 	require.Empty(t, target.Step().Dir)
+
+	env := runtime.NewPlanEnv(ctx, target.Step(), plan)
+	require.Equal(t, freshRunWorkDir, env.WorkingDir)
+	require.NotEqual(t, staleRunWorkDir, env.WorkingDir)
 }
