@@ -581,6 +581,8 @@ func TestPlan_WaitingStepNames(t *testing.T) {
 func TestCreateRetryPlan_PreservesExplicitStepWorkingDirOnly(t *testing.T) {
 	t.Parallel()
 
+	const explicitStepWorkDir = "explicit-step-work-dir"
+
 	tests := []struct {
 		name         string
 		dagStepDir   string
@@ -596,10 +598,10 @@ func TestCreateRetryPlan_PreservesExplicitStepWorkingDirOnly(t *testing.T) {
 		},
 		{
 			name:         "configured step working dir keeps restored source dir",
-			dagStepDir:   "/remote/app",
+			dagStepDir:   explicitStepWorkDir,
 			stateWorkDir: "/var/lib/dagu/data/dag-runs/example/work",
-			wantStepDir:  "/remote/app",
-			wantEnvDir:   "/remote/app",
+			wantStepDir:  explicitStepWorkDir,
+			wantEnvDir:   explicitStepWorkDir,
 		},
 	}
 
@@ -607,10 +609,19 @@ func TestCreateRetryPlan_PreservesExplicitStepWorkingDirOnly(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			dagStepDir := tt.dagStepDir
+			wantStepDir := tt.wantStepDir
+			wantEnvDir := tt.wantEnvDir
+			if dagStepDir == explicitStepWorkDir {
+				dagStepDir = t.TempDir()
+				wantStepDir = dagStepDir
+				wantEnvDir = dagStepDir
+			}
+
 			dag := &core.DAG{
 				Name: "retry-work-dir",
 				Steps: []core.Step{
-					{Name: "target", Dir: tt.dagStepDir},
+					{Name: "target", Dir: dagStepDir},
 				},
 			}
 			node := runtime.NodeWithData(runtime.NodeData{
@@ -634,9 +645,8 @@ func TestCreateRetryPlan_PreservesExplicitStepWorkingDirOnly(t *testing.T) {
 
 			target := plan.GetNodeByName("target")
 			require.NotNil(t, target)
-			require.Equal(t, tt.wantStepDir, target.Step().Dir)
+			require.Equal(t, wantStepDir, target.Step().Dir)
 
-			wantEnvDir := tt.wantEnvDir
 			if wantEnvDir == "fresh-run-work-dir" {
 				wantEnvDir = freshRunWorkDir
 			}
@@ -660,7 +670,7 @@ func TestCreateRetryPlan_ExplicitVariableStepDirUsesRestoredSourceDefinition(t *
 		},
 	}
 	node := runtime.NodeWithData(runtime.NodeData{
-		Step: core.Step{Name: "target", Dir: "${STEP_WORK_DIR}"},
+		Step: core.Step{Name: "target", Dir: restoredStepWorkDir},
 		State: runtime.NodeState{
 			Status:     core.NodeFailed,
 			WorkingDir: "/stale/effective/work/dir",
