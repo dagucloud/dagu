@@ -259,6 +259,79 @@ func TestStepRetryPlan_RebindsStepsFromRestoredDAG(t *testing.T) {
 	require.Equal(t, []string{"CONTAINER_ENV=from-container"}, rebound.Container.Env)
 }
 
+func TestRetryPlan_ReplacesPersistedRuntimeMutatedStepSnapshot(t *testing.T) {
+	t.Parallel()
+
+	sourceStep := core.Step{
+		Name:   "target",
+		Dir:    "${STEP_DIR}",
+		Script: "echo source",
+		Commands: []core.CommandEntry{
+			{Command: "echo", Args: []string{"source"}, CmdWithArgs: "echo source"},
+		},
+		Stdout: "/source/stdout",
+		Stderr: "/source/stderr",
+		ExecutorConfig: core.ExecutorConfig{
+			Type: "command",
+			Config: map[string]any{
+				"shell": "bash",
+			},
+		},
+		RetryPolicy: core.RetryPolicy{
+			LimitStr:       "${RETRY_LIMIT}",
+			IntervalSecStr: "${RETRY_INTERVAL}",
+		},
+		RepeatPolicy: core.RepeatPolicy{
+			RepeatMode:  core.RepeatModeUntil,
+			LimitStr:    "${REPEAT_LIMIT}",
+			IntervalStr: "${REPEAT_INTERVAL}",
+		},
+	}
+	dag := &core.DAG{
+		Steps: []core.Step{sourceStep},
+	}
+	node := runtime.NodeWithData(runtime.NodeData{
+		Step: core.Step{
+			Name:   "target",
+			Dir:    "/stale/effective/work/dir",
+			Script: "echo evaluated",
+			Commands: []core.CommandEntry{
+				{Command: "echo", Args: []string{"evaluated"}, CmdWithArgs: "echo evaluated"},
+			},
+			Stdout: "/stale/stdout",
+			Stderr: "/stale/stderr",
+			ExecutorConfig: core.ExecutorConfig{
+				Type: "command",
+				Config: map[string]any{
+					"shell": "sh",
+				},
+			},
+			RetryPolicy: core.RetryPolicy{
+				Limit:    3,
+				Interval: time.Second,
+			},
+			RepeatPolicy: core.RepeatPolicy{
+				RepeatMode: core.RepeatModeWhile,
+				Limit:      4,
+				Interval:   time.Second,
+			},
+		},
+		State: runtime.NodeState{
+			Status:     core.NodeFailed,
+			WorkingDir: "/stale/effective/work/dir",
+		},
+	})
+
+	plan, err := runtime.CreateRetryPlan(context.Background(), dag, node)
+	require.NoError(t, err)
+
+	target := plan.GetNodeByName("target")
+	require.NotNil(t, target)
+	require.Equal(t, sourceStep, target.Step())
+	require.Equal(t, core.NodeNotStarted, target.State().Status)
+	require.Empty(t, target.State().WorkingDir)
+}
+
 func TestStepRetryPlan(t *testing.T) {
 	dag := &core.DAG{Steps: []core.Step{
 		{Name: "1"}, {Name: "2", Depends: []string{"1"}}, {Name: "3", Depends: []string{"2"}},
