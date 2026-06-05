@@ -81,9 +81,10 @@ func parseScheduleTimeParam(ctx *Context) (string, error) {
 // It restores params from the status, loads dotenv, and rebuilds fields excluded
 // from JSON serialization (env, params JSON, registryAuths, etc.).
 func restoreDAGFromStatus(ctx context.Context, dag *core.DAG, status *exec.DAGRunStatus) (*core.DAG, error) {
-	dag.Params = spec.QuoteRuntimeParams(status.ParamsList, dag.ParamDefs)
+	runtimeParams := append([]string(nil), status.ParamsList...)
+	dag.Params = runtimeParams
 	dagwarning.LoadDotEnv(ctx, dag)
-	restored, err := rebuildDAGFromYAML(ctx, dag)
+	restored, err := rebuildDAGFromYAML(ctx, dag, spec.QuoteRuntimeParams(runtimeParams, dag.ParamDefs))
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +108,7 @@ func applyPersistedRunWorkingDir(dag *core.DAG, status *exec.DAGRunStatus) {
 // only copies JSON-excluded fields (Env, Params, ParamsJSON, SMTP, SSH, S3,
 // Redis, Harness, Harnesses, Kubernetes, RegistryAuths, WorkingDirExplicit)
 // from the rebuilt DAG.
-func rebuildDAGFromYAML(ctx context.Context, dag *core.DAG) (*core.DAG, error) {
+func rebuildDAGFromYAML(ctx context.Context, dag *core.DAG, paramsOverride ...[]string) (*core.DAG, error) {
 	if len(dag.YamlData) == 0 {
 		return dag, nil
 	}
@@ -132,8 +133,12 @@ func rebuildDAGFromYAML(ctx context.Context, dag *core.DAG) (*core.DAG, error) {
 		buildEnvMap[key] = value
 	}
 
+	params := dag.Params
+	if len(paramsOverride) > 0 {
+		params = paramsOverride[0]
+	}
 	loadOpts := []spec.LoadOption{
-		spec.WithParams(dag.Params),
+		spec.WithParams(params),
 		spec.SkipSchemaValidation(),
 	}
 	if len(buildEnvMap) > 0 {

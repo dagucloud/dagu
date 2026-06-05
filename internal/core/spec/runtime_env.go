@@ -68,9 +68,14 @@ func ResolveEnvWithWarnings(ctx context.Context, dag *core.DAG, params any, opts
 	if err != nil {
 		return ResolveEnvResult{}, err
 	}
+	runtimeParams, err := resolveRuntimeParamsForEnv(ctx, dag, loadOpts)
+	if err != nil {
+		return ResolveEnvResult{}, err
+	}
 
 	cloned := dag.Clone()
 	cloned.BuildWarnings = append([]string(nil), cloned.BuildWarnings...)
+	cloned.Params = runtimeParams
 	if hasRuntimeParams(params) {
 		// Recompute DAG/base-config env entries for the new runtime params instead
 		// of short-circuiting to whatever happened to be on the current snapshot.
@@ -114,6 +119,25 @@ func ResolveEnvWithWarnings(ctx context.Context, dag *core.DAG, params any, opts
 			Env:           buildenv.AppendMissing(dag.Env, loadedEnv, presolvedEnv),
 			BuildWarnings: buildWarnings,
 		}, nil
+	}
+}
+
+func resolveRuntimeParamsForEnv(ctx context.Context, dag *core.DAG, loadOpts []LoadOption) ([]string, error) {
+	switch {
+	case len(dag.YamlData) > 0:
+		fresh, err := LoadYAML(ctx, dag.YamlData, loadOpts...)
+		if err != nil {
+			return nil, err
+		}
+		return append([]string(nil), fresh.Params...), nil
+	case dag.Location != "":
+		fresh, err := Load(ctx, dag.Location, loadOpts...)
+		if err != nil {
+			return nil, err
+		}
+		return append([]string(nil), fresh.Params...), nil
+	default:
+		return append([]string(nil), dag.Params...), nil
 	}
 }
 

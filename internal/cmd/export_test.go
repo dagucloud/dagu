@@ -3,4 +3,13 @@
 
 package cmd
 
-var RestoreDAGFromStatusForTest = restoreDAGFromStatus
+import (
+	"context"
+
+	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/internal/core/exec"
+)
+
+func RestoreDAGFromStatusForTest(ctx context.Context, dag *core.DAG, status *exec.DAGRunStatus) (*core.DAG, error) {
+	return restoreDAGFromStatus(ctx, dag, status)
+}

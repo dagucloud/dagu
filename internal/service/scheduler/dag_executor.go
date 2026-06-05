@@ -240,7 +240,7 @@ func (e *DAGExecutor) executeDAG(
 	// Local execution
 	var params any
 	if previousStatus != nil {
-		params = spec.QuoteRuntimeParams(previousStatus.ParamsList, dag.ParamDefs)
+		params = previousStatus.ParamsList
 	}
 	dag, err := e.prepareDAGForSubprocess(ctx, dag, params)
 	if err != nil {

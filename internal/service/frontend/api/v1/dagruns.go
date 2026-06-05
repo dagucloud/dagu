@@ -567,19 +567,21 @@ func (a *API) loadInlineDAG(ctx context.Context, specContent string, name *strin
 }
 
 func restoreDAGRunSnapshot(ctx context.Context, dag *core.DAG, status *exec.DAGRunStatus) (*core.DAG, string, error) {
-	quotedParams := spec.QuoteRuntimeParams(status.ParamsList, dag.ParamDefs)
-	dag.Params = quotedParams
+	runtimeParams := append([]string(nil), status.ParamsList...)
+	dag.Params = runtimeParams
 	dagwarning.LoadDotEnv(ctx, dag)
 
-	restored, err := rebuildDAGRunSnapshotFromYAML(ctx, dag)
+	quotedParams := spec.QuoteRuntimeParams(runtimeParams, dag.ParamDefs)
+	restored, err := rebuildDAGRunSnapshotFromYAML(ctx, dag, quotedParams)
 	if err != nil {
 		return nil, "", err
 	}
 
-	return restored, strings.Join(quotedParams, " "), nil
+	preservedParams := strings.Join(quotedParams, " ")
+	return restored, preservedParams, nil
 }
 
-func rebuildDAGRunSnapshotFromYAML(ctx context.Context, dag *core.DAG) (*core.DAG, error) {
+func rebuildDAGRunSnapshotFromYAML(ctx context.Context, dag *core.DAG, paramsOverride ...[]string) (*core.DAG, error) {
 	if len(dag.YamlData) == 0 {
 		return dag, nil
 	}
@@ -603,8 +605,12 @@ func rebuildDAGRunSnapshotFromYAML(ctx context.Context, dag *core.DAG) (*core.DA
 		buildEnvMap[key] = value
 	}
 
+	params := dag.Params
+	if len(paramsOverride) > 0 {
+		params = paramsOverride[0]
+	}
 	loadOpts := []spec.LoadOption{
-		spec.WithParams(dag.Params),
+		spec.WithParams(params),
 		spec.SkipSchemaValidation(),
 	}
 	if len(buildEnvMap) > 0 {
@@ -3512,7 +3518,7 @@ func (a *API) prepareRetryDAGForSubprocess(ctx context.Context, dag *core.DAG, s
 		return dag, nil
 	}
 
-	result, err := spec.ResolveEnvWithWarnings(ctx, dag, spec.QuoteRuntimeParams(status.ParamsList, dag.ParamDefs), spec.ResolveEnvOptions{
+	result, err := spec.ResolveEnvWithWarnings(ctx, dag, status.ParamsList, spec.ResolveEnvOptions{
 		BaseConfig: a.config.Paths.BaseConfig,
 	})
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 
+	"github.com/dagucloud/dagu/internal/cmn/config"
+	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
@@ -64,4 +66,13 @@ func ReportTaskInitFailureStatusForTest(ctx context.Context, task *coordinatorv1
 		return nil, errors.New("init failure status was not reported")
 	}
 	return pusher.status, nil
+}
+
+// LoadRemoteTaskDAGForTest loads the DAG definition for a remote task.
+func LoadRemoteTaskDAGForTest(ctx context.Context, cfg *config.Config, task *coordinatorv1.Task) (*core.DAG, func(), error) {
+	if cfg == nil {
+		cfg = &config.Config{}
+	}
+	handler := &remoteTaskHandler{config: cfg}
+	return handler.loadDAG(ctx, task)
 }

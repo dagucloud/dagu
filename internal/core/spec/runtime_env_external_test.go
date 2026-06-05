@@ -72,6 +72,40 @@ steps:
 	require.Contains(t, result.BuildWarnings[0], "failed to load .env file")
 }
 
+func TestResolveEnvWithWarningsLoadsDotenvWithRuntimeParams(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	workDir := filepath.Join(root, "zscores")
+	require.NoError(t, os.MkdirAll(workDir, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, ".env.foo"), []byte("TARGET_TABLE=foo\n"), 0o600))
+
+	yamlData := fmt.Appendf(nil, `
+name: calculate_zscores
+working_dir: %q
+params:
+  - name: COL
+    type: string
+    required: true
+dotenv:
+  - ".env.${COL}"
+steps:
+  - name: assert_variables_defined
+    run: echo "${TARGET_TABLE}"
+`, workDir)
+	dag, err := spec.LoadYAML(context.Background(), yamlData, spec.WithParams("COL=foo"))
+	require.NoError(t, err)
+	dag.LoadDotEnv(context.Background())
+	require.Equal(t, "foo", runtimeEnvSliceMap(dag.Env)["TARGET_TABLE"])
+
+	persisted := dag.Clone()
+	persisted.Env = nil
+	persisted.Params = nil
+	result, err := spec.ResolveEnvWithWarnings(context.Background(), persisted, []string{"COL=foo"}, spec.ResolveEnvOptions{})
+	require.NoError(t, err)
+	require.Equal(t, "foo", runtimeEnvSliceMap(result.Env)["TARGET_TABLE"])
+}
+
 func TestResolveEnvWithWarningsDoesNotMutateDAGBackingSlices(t *testing.T) {
 	t.Parallel()
 

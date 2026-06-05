@@ -56,7 +56,7 @@ func runtimeParamLoadOptions(dag *core.DAG, params any, opts ResolveRuntimeParam
 	case string:
 		loadOpts = append(loadOpts, WithParams(value))
 	case []string:
-		loadOpts = append(loadOpts, WithParams(value))
+		loadOpts = append(loadOpts, WithParams(QuoteRuntimeParams(value, dag.ParamDefs)))
 	default:
 		return nil, fmt.Errorf("invalid runtime params type %T", params)
 	}

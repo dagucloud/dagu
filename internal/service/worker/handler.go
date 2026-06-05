@@ -227,10 +227,12 @@ func (e *taskHandler) subprocessHints(ctx context.Context, task *coordinatorv1.T
 	}
 	dag.SourceFile = task.SourceFile
 
-	params, err := retryParams(task, dag)
+	var params any
+	retryParams, err := previousStatusParams(task)
 	if err != nil {
 		return nil, err
 	}
+	params = retryParams
 	if task.Operation == coordinatorv1.Operation_OPERATION_START {
 		params = task.Params
 	}
@@ -304,7 +306,7 @@ func dagNameHint(target string) string {
 	return base
 }
 
-func retryParams(task *coordinatorv1.Task, dag *core.DAG) (any, error) {
+func previousStatusParams(task *coordinatorv1.Task) ([]string, error) {
 	if task.Operation != coordinatorv1.Operation_OPERATION_RETRY || task.PreviousStatus == nil {
 		return nil, nil
 	}
@@ -314,7 +316,7 @@ func retryParams(task *coordinatorv1.Task, dag *core.DAG) (any, error) {
 		return nil, fmt.Errorf("failed to decode previous task status: %w", err)
 	}
 
-	return spec.QuoteRuntimeParams(status.ParamsList, dag.ParamDefs), nil
+	return append([]string(nil), status.ParamsList...), nil
 }
 
 func isQueueDispatchTask(task *coordinatorv1.Task) bool {

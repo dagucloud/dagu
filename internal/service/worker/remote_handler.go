@@ -431,6 +431,10 @@ func (h *remoteTaskHandler) loadDAG(ctx context.Context, task *coordinatorv1.Tas
 	// Pass task params to the DAG (e.g., from parallel execution items)
 	if task.Params != "" {
 		loadOpts = append(loadOpts, spec.WithParams(task.Params))
+	} else if params, err := previousStatusParams(task); err != nil {
+		return nil, nil, err
+	} else if len(params) > 0 {
+		loadOpts = append(loadOpts, spec.WithParams(spec.QuoteRuntimeParams(params, nil)))
 	}
 
 	dag, err := spec.Load(ctx, tempFile, loadOpts...)
@@ -468,6 +472,10 @@ func (h *remoteTaskHandler) loadActionWorkspaceDAG(ctx context.Context, task *co
 	}
 	if task.Params != "" {
 		loadOpts = append(loadOpts, spec.WithParams(task.Params))
+	} else if params, err := previousStatusParams(task); err != nil {
+		return nil, nil, err
+	} else if len(params) > 0 {
+		loadOpts = append(loadOpts, spec.WithParams(spec.QuoteRuntimeParams(params, nil)))
 	}
 
 	dag, err := spec.Load(ctx, workspace.dagFile, loadOpts...)
