@@ -3055,9 +3055,9 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 			}
 		}
 	}
-	currentFileParams := status.Params
+	currentFileParams := preservedSnapshotParams
 	if currentFileParams == "" {
-		currentFileParams = preservedSnapshotParams
+		currentFileParams = status.Params
 	}
 
 	newDagRunID := strings.TrimSpace(opts.newDagRunID)

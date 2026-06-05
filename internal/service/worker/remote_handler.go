@@ -432,6 +432,7 @@ func (h *remoteTaskHandler) loadDAG(ctx context.Context, task *coordinatorv1.Tas
 	if task.Params != "" {
 		loadOpts = append(loadOpts, spec.WithParams(task.Params))
 	} else if params, err := previousStatusParams(task); err != nil {
+		cleanupFunc()
 		return nil, nil, err
 	} else if len(params) > 0 {
 		loadOpts = append(loadOpts, spec.WithParams(spec.QuoteRuntimeParams(params, nil)))
@@ -473,6 +474,7 @@ func (h *remoteTaskHandler) loadActionWorkspaceDAG(ctx context.Context, task *co
 	if task.Params != "" {
 		loadOpts = append(loadOpts, spec.WithParams(task.Params))
 	} else if params, err := previousStatusParams(task); err != nil {
+		cleanupFunc()
 		return nil, nil, err
 	} else if len(params) > 0 {
 		loadOpts = append(loadOpts, spec.WithParams(spec.QuoteRuntimeParams(params, nil)))

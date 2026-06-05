@@ -135,7 +135,7 @@ steps:
 	})
 }
 
-func TestDAGExecutor_DistributedRetryPassesQueuedParams(t *testing.T) {
+func TestDAGExecutor_DistributedRetryUsesPreviousStatusParamsList(t *testing.T) {
 	dispatcher := &capturingDispatcher{}
 	dagExecutor := scheduler.NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, "", nil)
 
@@ -146,8 +146,8 @@ func TestDAGExecutor_DistributedRetryPassesQueuedParams(t *testing.T) {
 	}
 	previousStatus := &exec.DAGRunStatus{
 		Status:     core.Queued,
-		Params:     "content_hash=sha256:abc123",
-		ParamsList: []string{"content_hash=sha256:abc123"},
+		Params:     "content_hash=sha256:abc123 message=hello world",
+		ParamsList: []string{"content_hash=sha256:abc123", "message=hello world"},
 	}
 
 	err := dagExecutor.ExecuteDAG(
@@ -155,6 +155,36 @@ func TestDAGExecutor_DistributedRetryPassesQueuedParams(t *testing.T) {
 		dag,
 		exec.DispatchOperationRetry,
 		"queued-param-run",
+		previousStatus,
+		core.TriggerTypeManual,
+		"",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, dispatcher.task)
+	require.Empty(t, dispatcher.task.Params)
+	require.NotNil(t, dispatcher.task.PreviousStatus)
+	require.Equal(t, previousStatus.ParamsList, dispatcher.task.PreviousStatus.ParamsList)
+}
+
+func TestDAGExecutor_DistributedRetryPassesLegacyQueuedParams(t *testing.T) {
+	dispatcher := &capturingDispatcher{}
+	dagExecutor := scheduler.NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, "", nil)
+
+	dag := &core.DAG{
+		Name:           "legacy-queued-param-dag",
+		YamlData:       []byte("name: legacy-queued-param-dag\n"),
+		WorkerSelector: map[string]string{"type": "test-worker"},
+	}
+	previousStatus := &exec.DAGRunStatus{
+		Status: core.Queued,
+		Params: "content_hash=sha256:abc123",
+	}
+
+	err := dagExecutor.ExecuteDAG(
+		context.Background(),
+		dag,
+		exec.DispatchOperationRetry,
+		"legacy-queued-param-run",
 		previousStatus,
 		core.TriggerTypeManual,
 		"",

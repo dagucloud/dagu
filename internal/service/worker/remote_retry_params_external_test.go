@@ -69,6 +69,35 @@ steps:
 	require.Equal(t, "foo", workerTestEnvValue(dag.Env, "TARGET_TABLE"))
 }
 
+func TestRemoteRetryLoadDAGCleansTempFileWhenPreviousStatusInvalid(t *testing.T) {
+	target := "cleanup-retry-params"
+	pattern := filepath.Join(os.TempDir(), "dagu", "worker-dags", target+"-*.yaml")
+	before, err := filepath.Glob(pattern)
+	require.NoError(t, err)
+
+	task := &coordinatorv1.Task{
+		Operation: coordinatorv1.Operation_OPERATION_RETRY,
+		Target:    target,
+		Definition: `
+name: cleanup-retry-params
+steps:
+  - name: noop
+    run: echo noop
+`,
+		DagRunId:       "run-1",
+		PreviousStatus: &coordinatorv1.DAGRunStatusProto{JsonData: "{"},
+	}
+
+	dag, cleanup, err := worker.LoadRemoteTaskDAGForTest(context.Background(), &config.Config{}, task)
+	require.Error(t, err)
+	require.Nil(t, dag)
+	require.Nil(t, cleanup)
+
+	after, err := filepath.Glob(pattern)
+	require.NoError(t, err)
+	require.ElementsMatch(t, before, after)
+}
+
 func workerTestEnvValue(env []string, key string) string {
 	for _, entry := range env {
 		k, value, ok := strings.Cut(entry, "=")

@@ -1105,18 +1105,23 @@ func TestRescheduleDAGRunCanUseCurrentDAGFile(t *testing.T) {
 
 	dagName := "reschedule_use_current_file"
 	initialSpec := `queue: reschedule_use_current_file
+params:
+  - name: MESSAGE
+    type: string
+    required: true
 steps:
   - name: main
-    run: echo stored snapshot`
+    run: echo "${MESSAGE} stored snapshot"`
 
 	_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
 		Name: dagName,
 		Spec: &initialSpec,
 	}).ExpectStatus(http.StatusCreated).Send(t)
 
+	startParams := `MESSAGE="hello world"`
 	startResp := server.Client().Post(
 		fmt.Sprintf("/api/v1/dags/%s/start", dagName),
-		api.ExecuteDAGJSONRequestBody{},
+		api.ExecuteDAGJSONRequestBody{Params: &startParams},
 	).ExpectStatus(http.StatusOK).Send(t)
 
 	var startBody api.ExecuteDAG200JSONResponse
@@ -1136,9 +1141,13 @@ steps:
 	}, dagRunEventuallyTimeout(10*time.Second), 200*time.Millisecond)
 
 	currentSpec := `queue: reschedule_use_current_file
+params:
+  - name: MESSAGE
+    type: string
+    required: true
 steps:
   - name: main
-    run: echo current file`
+    run: echo "${MESSAGE} current file"`
 	dagPath := filepath.Join(server.Config.Paths.DAGsDir, dagName+".yaml")
 	assertRescheduleSpecSourceFlag(t, server, dagName, startBody.DagRunId, true)
 	originalAttempt, originalDAG := test.WaitForAttemptSnapshotWithDAG(t, server, dagName, startBody.DagRunId)
@@ -1160,12 +1169,13 @@ steps:
 	test.ProcessQueuedInlineRun(t, server, dagName)
 
 	_, dag := test.WaitForAttemptSnapshotWithDAG(t, server, dagName, body.DagRunId)
-	require.Contains(t, string(dag.YamlData), "echo current file")
+	require.Contains(t, string(dag.YamlData), "current file")
 	require.Equal(t, dagPath, dag.SourceFile)
 
-	waitForStoredDAGRunStatus(t, server, dagName, body.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	rescheduledStatus := waitForStoredDAGRunStatus(t, server, dagName, body.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
 		return status.Status == core.Succeeded
 	})
+	require.Contains(t, rescheduledStatus.ParamsList, "MESSAGE=hello world")
 }
 
 func TestRescheduleDAGRunRequiresQueuesEnabled(t *testing.T) {
