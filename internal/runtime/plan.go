@@ -219,6 +219,11 @@ func retryStepForNode(node *Node, steps map[string]core.Step) (core.Step, error)
 	if !ok {
 		return core.Step{}, fmt.Errorf("%w: %s", ErrMissingNode, node.Name())
 	}
+	if step.Dir != "" {
+		if workingDir := node.State().WorkingDir; workingDir != "" {
+			step.Dir = workingDir
+		}
+	}
 	return step, nil
 }
 

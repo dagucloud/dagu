@@ -505,7 +505,7 @@ func TestPlan_WaitingStepNames(t *testing.T) {
 	}
 }
 
-func TestCreateRetryPlan_PreservesConfiguredStepDirOnly(t *testing.T) {
+func TestCreateRetryPlan_PreservesExplicitStepWorkingDirOnly(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -520,10 +520,10 @@ func TestCreateRetryPlan_PreservesConfiguredStepDirOnly(t *testing.T) {
 			wantStepDir:  "",
 		},
 		{
-			name:         "configured step working dir remains configured",
+			name:         "configured step working dir reuses persisted effective work dir",
 			dagStepDir:   "/remote/app",
 			stateWorkDir: "/var/lib/dagu/data/dag-runs/example/work",
-			wantStepDir:  "/remote/app",
+			wantStepDir:  "/var/lib/dagu/data/dag-runs/example/work",
 		},
 	}
 
@@ -553,6 +553,35 @@ func TestCreateRetryPlan_PreservesConfiguredStepDirOnly(t *testing.T) {
 			require.Equal(t, tt.wantStepDir, target.Step().Dir)
 		})
 	}
+}
+
+func TestCreateRetryPlan_ExplicitVariableStepDirUsesPersistedEvaluatedWorkDir(t *testing.T) {
+	t.Parallel()
+
+	originalStepWorkDir := t.TempDir()
+	dag := &core.DAG{
+		Name: "retry-variable-work-dir",
+		Env: []string{
+			"STEP_WORK_DIR=/changed/work/dir",
+		},
+		Steps: []core.Step{
+			{Name: "target", Dir: "${STEP_WORK_DIR}"},
+		},
+	}
+	node := runtime.NodeWithData(runtime.NodeData{
+		Step: core.Step{Name: "target", Dir: "${STEP_WORK_DIR}"},
+		State: runtime.NodeState{
+			Status:     core.NodeFailed,
+			WorkingDir: originalStepWorkDir,
+		},
+	})
+
+	plan, err := runtime.CreateRetryPlan(context.Background(), dag, node)
+	require.NoError(t, err)
+
+	target := plan.GetNodeByName("target")
+	require.NotNil(t, target)
+	require.Equal(t, originalStepWorkDir, target.Step().Dir)
 }
 
 func TestCreateRetryPlan_CommandStepUsesNewRunWorkDirAfterRetry(t *testing.T) {
