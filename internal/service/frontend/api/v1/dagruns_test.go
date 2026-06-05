@@ -1408,19 +1408,28 @@ func TestRetryDAGRunStartsLocalRetrySubprocess(t *testing.T) {
 	server := test.SetupServer(t)
 
 	retryCommand := `
-if [ -f "$DAG_RUN_LOG_FILE.marker" ]; then
+if [ "$PWD" != "$DAG_RUN_WORK_DIR" ]; then
+  echo "wrong workdir: $PWD expected $DAG_RUN_WORK_DIR"
+  exit 2
+fi
+if [ -f "$DAG_RUN_WORK_DIR/retry.marker" ]; then
   echo local retry
 else
-  touch "$DAG_RUN_LOG_FILE.marker"
+  touch "$DAG_RUN_WORK_DIR/retry.marker"
   exit 1
 fi
 `
 	if runtime.GOOS == "windows" {
 		retryCommand = `
-if (Test-Path "$env:DAG_RUN_LOG_FILE.marker") {
+if ((Get-Location).Path -ne $env:DAG_RUN_WORK_DIR) {
+  Write-Output "wrong workdir: $((Get-Location).Path) expected $env:DAG_RUN_WORK_DIR"
+  exit 2
+}
+$marker = Join-Path $env:DAG_RUN_WORK_DIR "retry.marker"
+if (Test-Path $marker) {
   Write-Output "local retry"
 } else {
-  New-Item -ItemType File -Path "$env:DAG_RUN_LOG_FILE.marker" -Force | Out-Null
+  New-Item -ItemType File -Path $marker -Force | Out-Null
   exit 1
 }
 `
@@ -1447,7 +1456,7 @@ steps:
 	startResp.Unmarshal(t, &startBody)
 	require.NotEmpty(t, startBody.DagRunId)
 
-	waitForStoredDAGRunStatus(
+	failedStatus := waitForStoredDAGRunStatus(
 		t,
 		server,
 		"single_retry_local_dag",
@@ -1457,13 +1466,27 @@ steps:
 			return status.Status == core.Failed
 		},
 	)
+	require.NotEmpty(t, failedStatus.Nodes)
+	sourceWorkDir := failedStatus.Nodes[0].WorkingDir
+	require.NotEmpty(t, sourceWorkDir)
+
+	staleWorkDir := filepath.Join(t.TempDir(), "stale-work")
+	attempt, err := server.DAGRunStore.FindAttempt(server.Context, exec.NewDAGRunRef("single_retry_local_dag", startBody.DagRunId))
+	require.NoError(t, err)
+	persistedStatus, err := attempt.ReadStatus(server.Context)
+	require.NoError(t, err)
+	require.NotEmpty(t, persistedStatus.Nodes)
+	persistedStatus.Nodes[0].WorkingDir = staleWorkDir
+	require.NoError(t, attempt.Open(server.Context))
+	require.NoError(t, attempt.Write(server.Context, *persistedStatus))
+	require.NoError(t, attempt.Close(server.Context))
 
 	server.Client().Post(
 		fmt.Sprintf("/api/v1/dag-runs/%s/%s/retry", "single_retry_local_dag", "latest"),
 		api.RetryDAGRunJSONRequestBody{},
 	).ExpectStatus(http.StatusOK).Send(t)
 
-	waitForStoredDAGRunStatus(
+	retriedStatus := waitForStoredDAGRunStatus(
 		t,
 		server,
 		"single_retry_local_dag",
@@ -1473,6 +1496,9 @@ steps:
 			return status.Status == core.Succeeded
 		},
 	)
+	require.NotEmpty(t, retriedStatus.Nodes)
+	require.Equal(t, sourceWorkDir, retriedStatus.Nodes[0].WorkingDir)
+	require.NotEqual(t, staleWorkDir, retriedStatus.Nodes[0].WorkingDir)
 }
 
 func TestTerminateDAGRunCancelsFailedAutoRetryPendingRun(t *testing.T) {
