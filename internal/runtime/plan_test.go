@@ -5,12 +5,10 @@ package runtime_test
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/core"
-	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/stretchr/testify/require"
 )
@@ -524,9 +522,9 @@ func TestCreateRetryPlan_PreservesExplicitStepWorkingDirOnly(t *testing.T) {
 			wantEnvDir:   "fresh-run-work-dir",
 		},
 		{
-			name:         "configured step working dir reuses persisted effective work dir",
+			name:         "configured step working dir keeps restored source dir",
 			dagStepDir:   "/remote/app",
-			stateWorkDir: "/remote/app",
+			stateWorkDir: "/var/lib/dagu/data/dag-runs/example/work",
 			wantStepDir:  "/remote/app",
 			wantEnvDir:   "/remote/app",
 		},
@@ -575,15 +573,14 @@ func TestCreateRetryPlan_PreservesExplicitStepWorkingDirOnly(t *testing.T) {
 	}
 }
 
-func TestCreateRetryPlan_ExplicitVariableStepDirUsesPersistedEvaluatedWorkDir(t *testing.T) {
+func TestCreateRetryPlan_ExplicitVariableStepDirUsesRestoredSourceDefinition(t *testing.T) {
 	t.Parallel()
 
-	originalStepWorkDir := t.TempDir()
-	changedRunWorkDir := t.TempDir()
+	restoredStepWorkDir := t.TempDir()
 	dag := &core.DAG{
 		Name: "retry-variable-work-dir",
 		Env: []string{
-			"STEP_WORK_DIR=/changed/work/dir",
+			"STEP_WORK_DIR=" + restoredStepWorkDir,
 		},
 		Steps: []core.Step{
 			{Name: "target", Dir: "${STEP_WORK_DIR}"},
@@ -592,25 +589,11 @@ func TestCreateRetryPlan_ExplicitVariableStepDirUsesPersistedEvaluatedWorkDir(t 
 	node := runtime.NodeWithData(runtime.NodeData{
 		Step: core.Step{Name: "target", Dir: "${STEP_WORK_DIR}"},
 		State: runtime.NodeState{
-			Status: core.NodeFailed,
-			WorkingDir: filepath.Join(
-				originalStepWorkDir,
-				"legacy-effective-path",
-			),
-			WorkingDirSnapshot: exec.WorkingDirSnapshot{
-				Origin:    exec.WorkingDirOriginStepExplicit,
-				Raw:       "${STEP_WORK_DIR}",
-				Evaluated: originalStepWorkDir,
-			},
+			Status:     core.NodeFailed,
+			WorkingDir: "/stale/effective/work/dir",
 		},
 	})
-	ctx := runtime.NewContext(
-		context.Background(),
-		dag,
-		"retry-run",
-		"dag.log",
-		runtime.WithWorkDir(changedRunWorkDir),
-	)
+	ctx := runtime.NewContext(context.Background(), dag, "retry-run", "dag.log")
 
 	plan, err := runtime.CreateRetryPlan(ctx, dag, node)
 	require.NoError(t, err)
@@ -620,7 +603,7 @@ func TestCreateRetryPlan_ExplicitVariableStepDirUsesPersistedEvaluatedWorkDir(t 
 	require.Equal(t, "${STEP_WORK_DIR}", target.Step().Dir)
 
 	env := runtime.NewPlanEnv(ctx, target.Step(), plan)
-	require.Equal(t, originalStepWorkDir, env.WorkingDir)
+	require.Equal(t, restoredStepWorkDir, env.WorkingDir)
 }
 
 func TestCreateRetryPlan_CommandStepUsesNewRunWorkDirAfterRetry(t *testing.T) {
@@ -645,10 +628,6 @@ func TestCreateRetryPlan_CommandStepUsesNewRunWorkDirAfterRetry(t *testing.T) {
 		State: runtime.NodeState{
 			Status:     core.NodeFailed,
 			WorkingDir: staleRunWorkDir,
-			WorkingDirSnapshot: exec.WorkingDirSnapshot{
-				Origin:    exec.WorkingDirOriginRunWorkDir,
-				Evaluated: staleRunWorkDir,
-			},
 		},
 	})
 	ctx := runtime.NewContext(

@@ -13,7 +13,6 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core"
-	"github.com/dagucloud/dagu/internal/core/exec"
 )
 
 var (
@@ -157,7 +156,7 @@ func CreateStepRetryPlan(dag *core.DAG, nodes []*Node, stepName string) (*Plan, 
 	}
 	preserveRetryBudget := targetNode.State().Status == core.NodeRetrying
 
-	step, override, err := retryStepForNode(targetNode, steps)
+	step, err := retryStepForNode(targetNode, steps)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +167,6 @@ func CreateStepRetryPlan(dag *core.DAG, nodes []*Node, stepName string) (*Plan, 
 	if !preserveRetryBudget {
 		targetNode.retryPolicy = RetryPolicy{} // manual step retries start with a fresh retry budget
 	}
-	targetNode.SetWorkingDirOverride(override)
 
 	return p, nil
 }
@@ -207,7 +205,7 @@ func rebindRetryNodesToSteps(nodes []*Node, steps map[string]core.Step) error {
 		if node == nil {
 			continue
 		}
-		step, err := sourceStepForNode(node, steps)
+		step, err := retryStepForNode(node, steps)
 		if err != nil {
 			return err
 		}
@@ -216,63 +214,12 @@ func rebindRetryNodesToSteps(nodes []*Node, steps map[string]core.Step) error {
 	return nil
 }
 
-func sourceStepForNode(node *Node, steps map[string]core.Step) (core.Step, error) {
+func retryStepForNode(node *Node, steps map[string]core.Step) (core.Step, error) {
 	step, ok := steps[node.Name()]
 	if !ok {
 		return core.Step{}, fmt.Errorf("%w: %s", ErrMissingNode, node.Name())
 	}
 	return step, nil
-}
-
-func retryStepForNode(node *Node, steps map[string]core.Step) (core.Step, exec.WorkingDirSnapshot, error) {
-	step, err := sourceStepForNode(node, steps)
-	if err != nil {
-		return core.Step{}, exec.WorkingDirSnapshot{}, err
-	}
-	return step, retryWorkingDirOverride(node.State(), step), nil
-}
-
-func retryWorkingDirOverride(state NodeState, step core.Step) exec.WorkingDirSnapshot {
-	switch state.WorkingDirSnapshot.Origin {
-	case exec.WorkingDirOriginStepExplicit:
-		return stepExplicitWorkingDirOverride(state, step)
-	case exec.WorkingDirOriginUnknown, "":
-		if step.Dir != "" {
-			return historicalStepWorkingDirOverride(state, step)
-		}
-	case exec.WorkingDirOriginDAGExplicit,
-		exec.WorkingDirOriginRunWorkDir,
-		exec.WorkingDirOriginLoaderFallback,
-		exec.WorkingDirOriginProcessFallback:
-	}
-	return exec.WorkingDirSnapshot{}
-}
-
-func stepExplicitWorkingDirOverride(state NodeState, step core.Step) exec.WorkingDirSnapshot {
-	snapshot := state.WorkingDirSnapshot
-	if snapshot.Raw == "" {
-		snapshot.Raw = step.Dir
-	}
-	if snapshot.Evaluated == "" {
-		snapshot.Evaluated = state.WorkingDir
-	}
-	return snapshot
-}
-
-func historicalStepWorkingDirOverride(state NodeState, step core.Step) exec.WorkingDirSnapshot {
-	if state.WorkingDir == "" && state.WorkingDirSnapshot.Evaluated == "" {
-		return exec.WorkingDirSnapshot{}
-	}
-	evaluated := state.WorkingDirSnapshot.Evaluated
-	if evaluated == "" {
-		evaluated = state.WorkingDir
-	}
-	return exec.WorkingDirSnapshot{
-		Origin:    exec.WorkingDirOriginUnknown,
-		Raw:       step.Dir,
-		Evaluated: evaluated,
-		Base:      state.WorkingDirSnapshot.Base,
-	}
 }
 
 // addEdge adds a directed edge from 'from' to 'to'.
@@ -344,12 +291,11 @@ func (p *Plan) setupRetry(ctx context.Context, steps map[string]core.Step) error
 				logger.Debug(ctx, "Clearing node state",
 					tag.Step(node.Name()),
 				)
-				step, override, err := retryStepForNode(node, steps)
+				step, err := retryStepForNode(node, steps)
 				if err != nil {
 					return err
 				}
 				node.ClearState(step)
-				node.SetWorkingDirOverride(override)
 				toRetry[u] = true
 			}
 

@@ -50,9 +50,6 @@ type Env struct {
 	// 2. Current working directory if Dir is not specified
 	// This path is also set as the PWD environment variable
 	WorkingDir string
-
-	// WorkingDirSnapshot records the resolved working directory and its source.
-	WorkingDirSnapshot exec.WorkingDirSnapshot
 }
 
 // AllEnvs returns all environment variables that needs to be passed to the command.
@@ -79,8 +76,7 @@ func (e Env) UserEnvsMap() map[string]string {
 // variables: PWD to the resolved working directory and the DAG run step name.
 func NewEnv(ctx context.Context, step core.Step) Env {
 	rCtx := GetDAGContext(ctx)
-	workingDirSnapshot := resolveWorkingDir(ctx, step, rCtx)
-	workingDir := workingDirSnapshot.Evaluated
+	workingDir := resolveWorkingDir(ctx, step, rCtx)
 
 	// Build step-specific env vars
 	stepEnvs := map[string]string{
@@ -98,31 +94,24 @@ func NewEnv(ctx context.Context, step core.Step) Env {
 	scope = scope.WithEntries(stepEnvs, eval.EnvSourceStepEnv)
 
 	return Env{
-		Context:            rCtx,
-		Scope:              scope,
-		Step:               step,
-		StepMap:            make(map[string]eval.StepInfo),
-		WorkingDir:         workingDir,
-		WorkingDirSnapshot: workingDirSnapshot,
+		Context:    rCtx,
+		Scope:      scope,
+		Step:       step,
+		StepMap:    make(map[string]eval.StepInfo),
+		WorkingDir: workingDir,
 	}
 }
 
-func resolveWorkingDir(ctx context.Context, step core.Step, rCtx Context) exec.WorkingDirSnapshot {
+func resolveWorkingDir(ctx context.Context, step core.Step, rCtx Context) string {
 	dag := rCtx.DAG
 
 	if step.Dir != "" {
 		expandedDir := expandStepDir(step.Dir, dag)
-		resolvedDir, baseDir := resolveExpandedStepDir(ctx, expandedDir, step.Name, dag, rCtx)
-		return exec.WorkingDirSnapshot{
-			Origin:    exec.WorkingDirOriginStepExplicit,
-			Raw:       step.Dir,
-			Evaluated: resolvedDir,
-			Base:      baseDir,
-		}
+		return resolveExpandedDir(ctx, expandedDir, step.Name, dag, rCtx)
 	}
 
-	if snapshot, ok := dagWorkingDir(ctx, dag, rCtx); ok {
-		return snapshot
+	if workDir := dagWorkingDir(ctx, dag, rCtx); workDir != "" {
+		return workDir
 	}
 
 	return fallbackWorkingDir(ctx, step.Name)
@@ -142,8 +131,8 @@ func expandStepDir(dir string, dag *core.DAG) string {
 	})
 }
 
-// resolveExpandedStepDir resolves an expanded directory path to an absolute path.
-func resolveExpandedStepDir(ctx context.Context, expandedDir, stepName string, dag *core.DAG, rCtx Context) (string, string) {
+// resolveExpandedDir resolves an expanded directory path to an absolute path.
+func resolveExpandedDir(ctx context.Context, expandedDir, stepName string, dag *core.DAG, rCtx Context) string {
 	if filepath.IsAbs(expandedDir) || strings.HasPrefix(expandedDir, "~") {
 		dir, err := fileutil.ResolvePath(expandedDir)
 		if err != nil {
@@ -152,44 +141,33 @@ func resolveExpandedStepDir(ctx context.Context, expandedDir, stepName string, d
 				tag.Dir(expandedDir),
 				tag.Error(err),
 			)
-			return expandedDir, ""
+			return expandedDir
 		}
-		return dir, ""
+		return dir
 	}
 
-	if snapshot, ok := dagWorkingDir(ctx, dag, rCtx); ok {
-		return filepath.Clean(filepath.Join(snapshot.Evaluated, expandedDir)), snapshot.Evaluated
+	if workDir := dagWorkingDir(ctx, dag, rCtx); workDir != "" {
+		return filepath.Clean(filepath.Join(workDir, expandedDir))
 	}
 
 	logger.Warn(ctx, "Failed to resolve working directory for step",
 		tag.Step(stepName),
 		tag.Dir(expandedDir),
 	)
-	return expandedDir, ""
+	return expandedDir
 }
 
-func dagWorkingDir(ctx context.Context, dag *core.DAG, rCtx Context) (exec.WorkingDirSnapshot, bool) {
+func dagWorkingDir(ctx context.Context, dag *core.DAG, rCtx Context) string {
 	if dag != nil && dag.WorkingDirExplicit && dag.WorkingDir != "" {
-		return exec.WorkingDirSnapshot{
-			Origin:    exec.WorkingDirOriginDAGExplicit,
-			Raw:       dag.WorkingDir,
-			Evaluated: expandDAGWorkingDir(ctx, dag.WorkingDir, rCtx),
-		}, true
+		return expandDAGWorkingDir(ctx, dag.WorkingDir, rCtx)
 	}
 	if workDir := dagRunWorkDir(rCtx); workDir != "" {
-		return exec.WorkingDirSnapshot{
-			Origin:    exec.WorkingDirOriginRunWorkDir,
-			Evaluated: workDir,
-		}, true
+		return workDir
 	}
 	if dag != nil && dag.WorkingDir != "" {
-		return exec.WorkingDirSnapshot{
-			Origin:    exec.WorkingDirOriginLoaderFallback,
-			Raw:       dag.WorkingDir,
-			Evaluated: expandDAGWorkingDir(ctx, dag.WorkingDir, rCtx),
-		}, true
+		return expandDAGWorkingDir(ctx, dag.WorkingDir, rCtx)
 	}
-	return exec.WorkingDirSnapshot{}, false
+	return ""
 }
 
 func dagRunWorkDir(rCtx Context) string {
@@ -225,17 +203,14 @@ func expandDAGWorkingDir(ctx context.Context, workingDir string, rCtx Context) s
 }
 
 // fallbackWorkingDir returns a fallback working directory when none is specified.
-func fallbackWorkingDir(ctx context.Context, stepName string) exec.WorkingDirSnapshot {
+func fallbackWorkingDir(ctx context.Context, stepName string) string {
 	logger.Warn(ctx, "Failed to resolve working directory for step",
 		tag.Step(stepName),
 	)
 
 	wd, err := os.Getwd()
 	if err == nil {
-		return exec.WorkingDirSnapshot{
-			Origin:    exec.WorkingDirOriginProcessFallback,
-			Evaluated: wd,
-		}
+		return wd
 	}
 	logger.Error(ctx, "Failed to get current working directory", tag.Error(err))
 
@@ -243,10 +218,7 @@ func fallbackWorkingDir(ctx context.Context, stepName string) exec.WorkingDirSna
 	if err != nil {
 		logger.Error(ctx, "Failed to get user home directory", tag.Error(err))
 	}
-	return exec.WorkingDirSnapshot{
-		Origin:    exec.WorkingDirOriginProcessFallback,
-		Evaluated: dir,
-	}
+	return dir
 }
 
 // Shell returns the shell command to use for this execution context.
