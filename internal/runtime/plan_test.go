@@ -522,7 +522,7 @@ func TestCreateRetryPlan_PreservesConfiguredStepDirOnly(t *testing.T) {
 		{
 			name:         "configured step working dir remains configured",
 			dagStepDir:   "/remote/app",
-			stateWorkDir: "/remote/app",
+			stateWorkDir: "/var/lib/dagu/data/dag-runs/example/work",
 			wantStepDir:  "/remote/app",
 		},
 	}
