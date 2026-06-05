@@ -1968,7 +1968,10 @@ func (a *Agent) setupPlan(ctx context.Context) error {
 
 // setupRetryPlan sets up the plan for retry.
 func (a *Agent) setupRetryPlan(ctx context.Context) error {
-	nodes := a.retryNodes()
+	nodes, err := a.retryNodes()
+	if err != nil {
+		return err
+	}
 	// If the previous run was killed before writing node data to the status
 	// (e.g., SIGKILL before the initial 100ms status write), retryTarget.Nodes
 	// will be empty. Fall back to a fresh plan from the DAG definition so that
@@ -1995,12 +1998,24 @@ func (a *Agent) setupFreshPlan() error {
 	return nil
 }
 
-func (a *Agent) retryNodes() []*runtime.Node {
+func (a *Agent) retryNodes() ([]*runtime.Node, error) {
+	steps := make(map[string]core.Step, len(a.dag.Steps))
+	for _, step := range a.dag.Steps {
+		steps[step.Name] = step
+	}
+
 	nodes := make([]*runtime.Node, 0, len(a.retryTarget.Nodes))
 	for _, node := range a.retryTarget.Nodes {
-		nodes = append(nodes, transform.ToNode(node))
+		if node == nil {
+			continue
+		}
+		step, ok := steps[node.Step.Name]
+		if !ok {
+			return nil, fmt.Errorf("%w: %s", runtime.ErrMissingNode, node.Step.Name)
+		}
+		nodes = append(nodes, transform.ToNodeWithStep(node, step))
 	}
-	return nodes
+	return nodes, nil
 }
 
 // setupStepRetryPlan sets up the plan for retrying a specific step.
