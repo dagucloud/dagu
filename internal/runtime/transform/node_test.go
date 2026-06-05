@@ -21,11 +21,17 @@ func TestNodeFieldsRoundTrip(t *testing.T) {
 	outputVars.Store("KEY", "KEY=value")
 
 	original := &exec.Node{
-		Step:            core.Step{Name: "test-step"},
-		Status:          core.NodeSucceeded,
-		Stdout:          "/tmp/stdout.log",
-		Stderr:          "/tmp/stderr.log",
-		WorkingDir:      "/tmp/original-work",
+		Step:       core.Step{Name: "test-step"},
+		Status:     core.NodeSucceeded,
+		Stdout:     "/tmp/stdout.log",
+		Stderr:     "/tmp/stderr.log",
+		WorkingDir: "/tmp/original-work",
+		WorkingDirSnapshot: exec.WorkingDirSnapshot{
+			Origin:    exec.WorkingDirOriginStepExplicit,
+			Raw:       "${STEP_WORK_DIR}",
+			Evaluated: "/tmp/original-work",
+			Base:      "/tmp",
+		},
 		StartedAt:       "2024-01-15T10:00:00Z",
 		FinishedAt:      "2024-01-15T10:05:00Z",
 		RetriedAt:       "2024-01-15T10:01:00Z",

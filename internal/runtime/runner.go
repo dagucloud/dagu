@@ -754,7 +754,7 @@ func harnessConfigHasBuiltinProvider(cfg map[string]any) bool {
 
 func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) context.Context {
 	env := NewPlanEnv(ctx, node.Step(), plan)
-	node.SetWorkingDir(env.WorkingDir)
+	node.SetWorkingDirSnapshot(env.WorkingDirSnapshot)
 
 	// Load output variables and approval inputs from predecessor nodes (dependencies)
 	// This traverses backwards from the current node to find all nodes it depends on
@@ -839,7 +839,7 @@ func (r *Runner) setupEnvironEventHandler(
 	existingEnv := GetEnv(ctx)
 
 	env := NewPlanEnv(ctx, node.Step(), plan)
-	node.SetWorkingDir(env.WorkingDir)
+	node.SetWorkingDirSnapshot(env.WorkingDirSnapshot)
 
 	// Add DAG_RUN_STATUS to scope
 	env.Scope = env.Scope.WithEntry(
@@ -1546,10 +1546,28 @@ func (r *Runner) prepareNodeForRepeat(ctx context.Context, node *Node, progressC
 
 func NewPlanEnv(ctx context.Context, step core.Step, plan *Plan) Env {
 	env := NewEnv(ctx, step)
+	if plan == nil {
+		return env
+	}
+	if node := plan.GetNodeByName(step.Name); node != nil {
+		env = applyWorkingDirOverride(env, node.State().WorkingDirOverride)
+	}
 	for _, n := range plan.Nodes() {
 		if n.Step().ID != "" {
 			env.StepMap[n.Step().ID] = n.StepInfo()
 		}
+	}
+	return env
+}
+
+func applyWorkingDirOverride(env Env, snapshot exec.WorkingDirSnapshot) Env {
+	if snapshot.Evaluated == "" {
+		return env
+	}
+	env.WorkingDir = snapshot.Evaluated
+	env.WorkingDirSnapshot = snapshot
+	if env.Scope != nil {
+		env.Scope = env.Scope.WithEntry("PWD", snapshot.Evaluated, eval.EnvSourceStepEnv)
 	}
 	return env
 }

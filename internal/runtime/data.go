@@ -42,6 +42,10 @@ type NodeState struct {
 	Stderr string
 	// WorkingDir is the effective working directory used for this node execution.
 	WorkingDir string
+	// WorkingDirSnapshot records why WorkingDir was selected for this node.
+	WorkingDirSnapshot exec.WorkingDirSnapshot
+	// WorkingDirOverride is an execution-only cwd used by retry planning.
+	WorkingDirOverride exec.WorkingDirSnapshot
 	// StartedAt is the time when the node started.
 	StartedAt time.Time
 	// FinishedAt is the time when the node finished.
@@ -643,12 +647,20 @@ func (d *Data) SetExitCode(exitCode int) {
 	d.inner.State.ExitCode = exitCode
 }
 
-// SetWorkingDir records the effective working directory for the node execution.
-func (d *Data) SetWorkingDir(workingDir string) {
+// SetWorkingDirSnapshot records the effective working directory for the node execution.
+func (d *Data) SetWorkingDirSnapshot(snapshot exec.WorkingDirSnapshot) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	d.inner.State.WorkingDir = workingDir
+	d.inner.State.WorkingDir = snapshot.Evaluated
+	d.inner.State.WorkingDirSnapshot = snapshot
+}
+
+func (d *Data) SetWorkingDirOverride(snapshot exec.WorkingDirSnapshot) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.inner.State.WorkingDirOverride = snapshot
 }
 
 func (d *Data) ClearState(s core.Step) {

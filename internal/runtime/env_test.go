@@ -439,6 +439,92 @@ func TestNewEnvForStep_ExplicitWorkingDirIgnoresDAGRunWorkDir(t *testing.T) {
 	assert.Equal(t, filepath.Join(explicitDir, "child"), env.WorkingDir)
 }
 
+func TestNewEnvForStep_WorkingDirSnapshotOrigins(t *testing.T) {
+	t.Parallel()
+
+	runWorkDir := t.TempDir()
+	dagExplicitDir := t.TempDir()
+	fallbackDir := t.TempDir()
+
+	t.Run("StepExplicit", func(t *testing.T) {
+		t.Parallel()
+
+		dag := &core.DAG{
+			Name:               "test-dag",
+			WorkingDir:         dagExplicitDir,
+			WorkingDirExplicit: true,
+		}
+		ctx := runtime.NewContext(context.Background(), dag, "run-id", "", runtime.WithWorkDir(runWorkDir))
+
+		env := runtime.NewEnv(ctx, core.Step{Name: "test-step", Dir: "child"})
+
+		require.Equal(t, exec.WorkingDirOriginStepExplicit, env.WorkingDirSnapshot.Origin)
+		require.Equal(t, "child", env.WorkingDirSnapshot.Raw)
+		require.Equal(t, filepath.Join(dagExplicitDir, "child"), env.WorkingDirSnapshot.Evaluated)
+		require.Equal(t, dagExplicitDir, env.WorkingDirSnapshot.Base)
+	})
+
+	t.Run("DAGExplicit", func(t *testing.T) {
+		t.Parallel()
+
+		dag := &core.DAG{
+			Name:               "test-dag",
+			WorkingDir:         dagExplicitDir,
+			WorkingDirExplicit: true,
+		}
+		ctx := runtime.NewContext(context.Background(), dag, "run-id", "", runtime.WithWorkDir(runWorkDir))
+
+		env := runtime.NewEnv(ctx, core.Step{Name: "test-step"})
+
+		require.Equal(t, exec.WorkingDirOriginDAGExplicit, env.WorkingDirSnapshot.Origin)
+		require.Equal(t, dagExplicitDir, env.WorkingDirSnapshot.Raw)
+		require.Equal(t, dagExplicitDir, env.WorkingDirSnapshot.Evaluated)
+		require.Empty(t, env.WorkingDirSnapshot.Base)
+	})
+
+	t.Run("RunWorkDir", func(t *testing.T) {
+		t.Parallel()
+
+		dag := &core.DAG{Name: "test-dag", WorkingDir: fallbackDir}
+		ctx := runtime.NewContext(context.Background(), dag, "run-id", "", runtime.WithWorkDir(runWorkDir))
+
+		env := runtime.NewEnv(ctx, core.Step{Name: "test-step"})
+
+		require.Equal(t, exec.WorkingDirOriginRunWorkDir, env.WorkingDirSnapshot.Origin)
+		require.Empty(t, env.WorkingDirSnapshot.Raw)
+		require.Equal(t, runWorkDir, env.WorkingDirSnapshot.Evaluated)
+		require.Empty(t, env.WorkingDirSnapshot.Base)
+	})
+
+	t.Run("LoaderFallback", func(t *testing.T) {
+		t.Parallel()
+
+		dag := &core.DAG{Name: "test-dag", WorkingDir: fallbackDir}
+		ctx := runtime.NewContext(context.Background(), dag, "run-id", "")
+
+		env := runtime.NewEnv(ctx, core.Step{Name: "test-step"})
+
+		require.Equal(t, exec.WorkingDirOriginLoaderFallback, env.WorkingDirSnapshot.Origin)
+		require.Equal(t, fallbackDir, env.WorkingDirSnapshot.Raw)
+		require.Equal(t, fallbackDir, env.WorkingDirSnapshot.Evaluated)
+		require.Empty(t, env.WorkingDirSnapshot.Base)
+	})
+
+	t.Run("ProcessFallback", func(t *testing.T) {
+		t.Parallel()
+
+		dag := &core.DAG{Name: "test-dag"}
+		ctx := runtime.NewContext(context.Background(), dag, "run-id", "")
+
+		env := runtime.NewEnv(ctx, core.Step{Name: "test-step"})
+
+		require.Equal(t, exec.WorkingDirOriginProcessFallback, env.WorkingDirSnapshot.Origin)
+		require.NotEmpty(t, env.WorkingDirSnapshot.Evaluated)
+		require.Empty(t, env.WorkingDirSnapshot.Raw)
+		require.Empty(t, env.WorkingDirSnapshot.Base)
+	})
+}
+
 func TestNewEnvForStep_BasicFields(t *testing.T) {
 	t.Parallel()
 

@@ -64,6 +64,32 @@ func TestInitialStatusSnapshotsDisabledDAGRetryPolicy(t *testing.T) {
 	assert.Equal(t, "retry-disabled-dag", status.SuspendFlagName)
 }
 
+func TestNodeWorkingDirSnapshotJSON(t *testing.T) {
+	t.Parallel()
+
+	data, err := json.Marshal(&exec.Node{Step: core.Step{Name: "step"}})
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "workingDirSnapshot")
+
+	node := &exec.Node{
+		Step:       core.Step{Name: "step"},
+		WorkingDir: "/tmp/original-work",
+		WorkingDirSnapshot: exec.WorkingDirSnapshot{
+			Origin:    exec.WorkingDirOriginStepExplicit,
+			Raw:       "${STEP_WORK_DIR}",
+			Evaluated: "/tmp/original-work",
+			Base:      "/tmp",
+		},
+	}
+	data, err = json.Marshal(node)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "workingDirSnapshot")
+
+	var restored exec.Node
+	require.NoError(t, json.Unmarshal(data, &restored))
+	assert.Equal(t, node.WorkingDirSnapshot, restored.WorkingDirSnapshot)
+}
+
 func TestPendingStepRetriesFromStatus(t *testing.T) {
 	t.Parallel()
 
