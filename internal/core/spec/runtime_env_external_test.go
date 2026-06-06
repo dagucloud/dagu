@@ -190,6 +190,42 @@ steps:
 	require.Equal(t, "${ISSUE_2268_TOKEN}", runtimeEnvSliceMap(metadata.Env)["TOKEN"])
 }
 
+func TestResolveEnvWithWarningsReloadsNoEvalMetadataEnvFromSourceFile(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("ISSUE_2268_TOKEN", "secret123")
+
+	dagPath := filepath.Join(t.TempDir(), "issue2268.yaml")
+	require.NoError(t, os.WriteFile(dagPath, []byte(`
+name: issue2268
+schedule:
+  - "*/5 * * * *"
+env:
+  - TOKEN: ${ISSUE_2268_TOKEN}
+steps:
+  - name: check
+    run: echo "$TOKEN"
+`), 0o600))
+
+	metadata, err := spec.Load(
+		ctx,
+		dagPath,
+		spec.OnlyMetadata(),
+		spec.WithoutEval(),
+		spec.SkipSchemaValidation(),
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, metadata.SourceFile)
+	require.Equal(t, "${ISSUE_2268_TOKEN}", runtimeEnvSliceMap(metadata.Env)["TOKEN"])
+
+	metadata.Location = ""
+	metadata.YamlData = nil
+
+	result, err := spec.ResolveEnvWithWarnings(ctx, metadata, nil, spec.ResolveEnvOptions{})
+	require.NoError(t, err)
+	require.Equal(t, "secret123", runtimeEnvSliceMap(result.Env)["TOKEN"])
+	require.Equal(t, "${ISSUE_2268_TOKEN}", runtimeEnvSliceMap(metadata.Env)["TOKEN"])
+}
+
 func TestLoadWithoutEvalDoesNotCaptureRawEnvAsPresolvedBuildEnv(t *testing.T) {
 	dag, err := spec.LoadYAML(context.Background(), []byte(`
 name: raw-metadata-env
