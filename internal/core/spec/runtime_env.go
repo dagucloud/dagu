@@ -60,7 +60,7 @@ func ResolveEnvWithWarnings(ctx context.Context, dag *core.DAG, params any, opts
 	if dag == nil {
 		return ResolveEnvResult{}, nil
 	}
-	if !hasRuntimeParams(params) && len(dag.Env) > 0 {
+	if canReuseCurrentEnv(dag, params) {
 		return ResolveEnvResult{Env: append([]string{}, dag.Env...)}, nil
 	}
 
@@ -76,9 +76,9 @@ func ResolveEnvWithWarnings(ctx context.Context, dag *core.DAG, params any, opts
 	cloned := dag.Clone()
 	cloned.BuildWarnings = append([]string(nil), cloned.BuildWarnings...)
 	cloned.Params = runtimeParams
-	if hasRuntimeParams(params) {
-		// Recompute DAG/base-config env entries for the new runtime params instead
-		// of short-circuiting to whatever happened to be on the current snapshot.
+	if shouldRecomputeEnv(dag, params) {
+		// Recompute DAG/base-config env entries when params or raw source-backed
+		// metadata can affect build-time env resolution.
 		cloned.Env = nil
 	} else {
 		cloned.Env = append([]string(nil), cloned.Env...)
@@ -114,12 +114,34 @@ func ResolveEnvWithWarnings(ctx context.Context, dag *core.DAG, params any, opts
 			BuildWarnings: buildWarnings,
 		}, nil
 
+	case dag.SourceFile != "":
+		fresh, err := Load(ctx, dag.SourceFile, loadOpts...)
+		if err != nil {
+			return ResolveEnvResult{}, err
+		}
+		return ResolveEnvResult{
+			Env:           buildenv.AppendMissing(fresh.Env, loadedEnv, presolvedEnv),
+			BuildWarnings: buildWarnings,
+		}, nil
+
 	default:
 		return ResolveEnvResult{
 			Env:           buildenv.AppendMissing(dag.Env, loadedEnv, presolvedEnv),
 			BuildWarnings: buildWarnings,
 		}, nil
 	}
+}
+
+func canReuseCurrentEnv(dag *core.DAG, params any) bool {
+	return !hasRuntimeParams(params) && len(dag.Env) > 0 && (dag.EnvEvaluated || !hasDAGSource(dag))
+}
+
+func shouldRecomputeEnv(dag *core.DAG, params any) bool {
+	return hasRuntimeParams(params) || (hasDAGSource(dag) && !dag.EnvEvaluated)
+}
+
+func hasDAGSource(dag *core.DAG) bool {
+	return len(dag.YamlData) > 0 || dag.Location != "" || dag.SourceFile != ""
 }
 
 func resolveRuntimeParamsForEnv(ctx context.Context, dag *core.DAG, loadOpts []LoadOption) ([]string, error) {
@@ -132,6 +154,12 @@ func resolveRuntimeParamsForEnv(ctx context.Context, dag *core.DAG, loadOpts []L
 		return append([]string(nil), fresh.Params...), nil
 	case dag.Location != "":
 		fresh, err := Load(ctx, dag.Location, loadOpts...)
+		if err != nil {
+			return nil, err
+		}
+		return append([]string(nil), fresh.Params...), nil
+	case dag.SourceFile != "":
+		fresh, err := Load(ctx, dag.SourceFile, loadOpts...)
 		if err != nil {
 			return nil, err
 		}

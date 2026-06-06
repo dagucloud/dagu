@@ -775,9 +775,16 @@ func (s *dagBuildState) validateResult() {
 }
 
 func (s *dagBuildState) capturePresolvedBuildEnv() {
+	if s.ctx.opts.Has(BuildFlagNoEval) {
+		return
+	}
 	if len(s.ctx.envScope.buildEnv) > 0 {
 		s.result.PresolvedBuildEnv = maps.Clone(s.ctx.envScope.buildEnv)
 	}
+}
+
+func (s *dagBuildState) markEnvEvaluated() {
+	s.result.EnvEvaluated = !s.ctx.opts.Has(BuildFlagNoEval)
 }
 
 func (s *dagBuildState) finish() (*core.DAG, error) {
@@ -798,6 +805,7 @@ func (d *dag) build(ctx BuildContext) (*core.DAG, error) {
 	state.prepareParamEnvStage()
 	state.runFieldStages()
 	state.composeInheritedContext()
+	state.markEnvEvaluated()
 	state.collectWarnings()
 	state.buildActionGraph()
 	state.validateResult()

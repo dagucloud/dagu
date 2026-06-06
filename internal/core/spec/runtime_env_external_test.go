@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/stretchr/testify/require"
 )
@@ -155,6 +156,122 @@ steps:
 		require.Len(t, dag.BuildWarnings, 1)
 		require.Empty(t, dag.BuildWarnings[:cap(dag.BuildWarnings)][1])
 	})
+}
+
+func TestResolveEnvWithWarningsReloadsNoEvalMetadataEnvFromSource(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("ISSUE_2268_TOKEN", "secret123")
+
+	dagPath := filepath.Join(t.TempDir(), "issue2268.yaml")
+	require.NoError(t, os.WriteFile(dagPath, []byte(`
+name: issue2268
+schedule:
+  - "*/5 * * * *"
+env:
+  - TOKEN: ${ISSUE_2268_TOKEN}
+steps:
+  - name: check
+    run: echo "$TOKEN"
+`), 0o600))
+
+	metadata, err := spec.Load(
+		ctx,
+		dagPath,
+		spec.OnlyMetadata(),
+		spec.WithoutEval(),
+		spec.SkipSchemaValidation(),
+	)
+	require.NoError(t, err)
+	require.Equal(t, "${ISSUE_2268_TOKEN}", runtimeEnvSliceMap(metadata.Env)["TOKEN"])
+
+	result, err := spec.ResolveEnvWithWarnings(ctx, metadata, nil, spec.ResolveEnvOptions{})
+	require.NoError(t, err)
+	require.Equal(t, "secret123", runtimeEnvSliceMap(result.Env)["TOKEN"])
+	require.Equal(t, "${ISSUE_2268_TOKEN}", runtimeEnvSliceMap(metadata.Env)["TOKEN"])
+}
+
+func TestResolveEnvWithWarningsReloadsNoEvalMetadataEnvFromSourceFile(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("ISSUE_2268_TOKEN", "secret123")
+
+	dagPath := filepath.Join(t.TempDir(), "issue2268.yaml")
+	require.NoError(t, os.WriteFile(dagPath, []byte(`
+name: issue2268
+schedule:
+  - "*/5 * * * *"
+env:
+  - TOKEN: ${ISSUE_2268_TOKEN}
+steps:
+  - name: check
+    run: echo "$TOKEN"
+`), 0o600))
+
+	metadata, err := spec.Load(
+		ctx,
+		dagPath,
+		spec.OnlyMetadata(),
+		spec.WithoutEval(),
+		spec.SkipSchemaValidation(),
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, metadata.SourceFile)
+	require.Equal(t, "${ISSUE_2268_TOKEN}", runtimeEnvSliceMap(metadata.Env)["TOKEN"])
+
+	metadata.Location = ""
+	metadata.YamlData = nil
+
+	result, err := spec.ResolveEnvWithWarnings(ctx, metadata, nil, spec.ResolveEnvOptions{})
+	require.NoError(t, err)
+	require.Equal(t, "secret123", runtimeEnvSliceMap(result.Env)["TOKEN"])
+	require.Equal(t, "${ISSUE_2268_TOKEN}", runtimeEnvSliceMap(metadata.Env)["TOKEN"])
+}
+
+func TestLoadWithoutEvalDoesNotCaptureRawEnvAsPresolvedBuildEnv(t *testing.T) {
+	dag, err := spec.LoadYAML(context.Background(), []byte(`
+name: raw-metadata-env
+env:
+  - TOKEN: ${ISSUE_2268_TOKEN}
+steps:
+  - name: check
+    run: echo "$TOKEN"
+`), spec.OnlyMetadata(), spec.WithoutEval())
+	require.NoError(t, err)
+
+	require.Equal(t, "${ISSUE_2268_TOKEN}", runtimeEnvSliceMap(dag.Env)["TOKEN"])
+	require.Empty(t, dag.PresolvedBuildEnv)
+}
+
+func TestResolveEnvWithWarningsReusesEvaluatedSourceEnv(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("ISSUE_2268_TOKEN", "old-value")
+
+	dag, err := spec.LoadYAML(ctx, []byte(`
+name: evaluated-source-env
+env:
+  - TOKEN: ${ISSUE_2268_TOKEN}
+steps:
+  - name: check
+    run: echo "$TOKEN"
+`))
+	require.NoError(t, err)
+	require.Equal(t, "old-value", runtimeEnvSliceMap(dag.Env)["TOKEN"])
+
+	t.Setenv("ISSUE_2268_TOKEN", "new-value")
+
+	result, err := spec.ResolveEnvWithWarnings(ctx, dag, nil, spec.ResolveEnvOptions{})
+	require.NoError(t, err)
+	require.Equal(t, "old-value", runtimeEnvSliceMap(result.Env)["TOKEN"])
+}
+
+func TestResolveEnvWithWarningsKeepsProgrammaticEnvWithoutSource(t *testing.T) {
+	dag := &core.DAG{
+		Name: "programmatic-env",
+		Env:  []string{"TOKEN=${ISSUE_2268_TOKEN}"},
+	}
+
+	result, err := spec.ResolveEnvWithWarnings(context.Background(), dag, nil, spec.ResolveEnvOptions{})
+	require.NoError(t, err)
+	require.Equal(t, "${ISSUE_2268_TOKEN}", runtimeEnvSliceMap(result.Env)["TOKEN"])
 }
 
 func runtimeEnvSliceMap(envs []string) map[string]string {
