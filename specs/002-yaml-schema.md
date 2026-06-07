@@ -33,6 +33,33 @@ steps:
     run: echo hello
 ```
 
+## Command
+
+Workflow validation command:
+
+```sh
+dagu workflow validate <workflow_file>
+```
+
+`workflow_file` must point to one YAML file.
+
+When `workflow_file` is relative, it is resolved from the caller's current
+working directory.
+
+The command validates the YAML stream and root fields defined by this spec.
+
+The command does not validate project structure.
+
+The command must not execute steps.
+
+On success, the command exits with code `0`.
+
+On success, stdout and stderr are empty.
+
+On failure, the command exits with a non-zero code.
+
+On failure, stdout is empty and stderr describes the validation error.
+
 ## Behavior
 
 The first DAG document is the entrypoint.
@@ -69,9 +96,9 @@ These root fields are part of the data-plane YAML schema:
 | `description` | no | human-readable description |
 | `working_dir` | no | default working directory |
 | `params` | no | workflow parameters |
+| `constants` | no | immutable literal values |
 | `defaults` | no | default step settings |
 | `steps` | yes | executable steps |
-| `actions` | no | reusable packaged DAG actions |
 | `handler_on` | no | lifecycle handler steps |
 | `preconditions` | no | workflow start conditions |
 | `retry_policy` | no | workflow retry policy |
@@ -80,6 +107,7 @@ These root fields are part of the data-plane YAML schema:
 | `max_active_steps` | no | maximum concurrently running steps |
 | `max_clean_up_time_sec` | no | cleanup timeout in seconds |
 | `max_output_size` | no | maximum captured output size |
+| `container` | no | default Docker container settings |
 | `ssh` | no | default SSH settings |
 | `kubernetes` | no | default Kubernetes settings |
 | `llm` | no | default LLM settings |
@@ -179,6 +207,9 @@ name: empty
 
 ## Acceptance Criteria
 
+- A black-box fixture verifies `dagu workflow validate` accepts the minimal
+  valid workflow.
+- A black-box fixture verifies `dagu workflow validate` does not execute steps.
 - A black-box fixture accepts the minimal valid workflow.
 - A black-box fixture rejects a workflow with no `steps`.
 - A black-box fixture rejects a workflow with empty `steps`.

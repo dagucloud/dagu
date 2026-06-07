@@ -30,6 +30,30 @@ project/
     config.json
 ```
 
+## Command
+
+Project validation command:
+
+```sh
+dagu project validate [project_root]
+```
+
+When `project_root` is omitted, it defaults to the caller's current working
+directory.
+
+The command validates project structure and discovered workflow definitions.
+
+The command must not execute steps.
+
+On success, the command exits with code `0`.
+
+On success, stdout lists discovered `workflow_id` values in sorted order, one
+per line.
+
+On failure, the command exits with a non-zero code.
+
+On failure, stdout is empty and stderr describes the validation error.
+
 ## Behavior
 
 `project_root` is the directory containing `.dagu/`.
@@ -40,13 +64,6 @@ under `.dagu/`.
 Subdirectories under `.dagu/` are not valid workflow definition locations.
 
 `workflow_id` is the workflow definition filename, such as `deploy.yaml`.
-
-The first YAML document in a workflow definition is the entrypoint DAG.
-
-Later YAML documents in the same workflow definition are inline sub-DAG
-definitions for that workflow.
-
-Later YAML documents are not separate top-level workflow definitions.
 
 The default process working directory is `project_root`.
 
@@ -61,6 +78,8 @@ system or shell relative to the step's process working directory.
 
 Project-relative behavior must not depend on the caller's current working
 directory after `project_root` has been resolved.
+
+Workflow definition content is validated by the YAML schema spec.
 
 ## Outputs
 
@@ -79,7 +98,8 @@ A `.dagu` path that is not a directory must fail project loading.
 
 A workflow definition nested below `.dagu/` must fail project loading.
 
-A workflow definition that fails YAML validation must fail before execution.
+A discovered workflow definition that fails YAML schema validation must fail
+before execution.
 
 A relative `working_dir` that resolves outside `project_root` must fail before
 execution.
@@ -127,11 +147,12 @@ project/
 
 - A black-box fixture discovers direct `.yaml` files under `.dagu/`.
 - A black-box fixture discovers direct `.yml` files under `.dagu/`.
+- A black-box fixture verifies `dagu project validate` prints discovered
+  `workflow_id` values in sorted order.
+- A black-box fixture verifies `dagu project validate` does not execute steps.
 - A black-box fixture rejects a project without `.dagu/`.
 - A black-box fixture rejects `.dagu` when it is not a directory.
 - A black-box fixture rejects nested workflow definitions under `.dagu/`.
-- A black-box fixture does not treat later `---` documents as top-level
-  workflow definitions.
 - A black-box fixture runs `.dagu/deploy.yaml` with `project_root` as the
   default process working directory.
 - A black-box fixture resolves `./scripts/deploy.sh` from `project_root`.
