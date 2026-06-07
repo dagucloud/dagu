@@ -14,6 +14,8 @@ type Store interface {
 	Create(ctx context.Context, profile *Profile) error
 	// GetByName returns the Profile with the given name or ErrNotFound.
 	GetByName(ctx context.Context, name string) (*Profile, error)
+	// GetInherited returns the inherited profile layer identified by ref or ErrNotFound.
+	GetInherited(ctx context.Context, ref InheritedRef) (*Profile, error)
 	// List returns all stored profiles.
 	List(ctx context.Context) ([]*Profile, error)
 	// Update replaces an existing Profile and returns ErrNotFound when it does not exist.

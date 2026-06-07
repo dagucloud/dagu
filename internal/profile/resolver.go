@@ -47,6 +47,38 @@ func (r *Resolved) EnvVars(kind EntryKind) []string {
 	return envs
 }
 
+func MergeResolved(name string, layers ...*Resolved) *Resolved {
+	merged := &Resolved{
+		Name:      name,
+		Variables: make(map[string]string),
+		Secrets:   make(map[string]string),
+		Entries:   make([]ResolvedEntry, 0),
+	}
+	entryIndex := make(map[string]int)
+	for _, layer := range layers {
+		if layer == nil {
+			continue
+		}
+		for _, entry := range layer.Entries {
+			if idx, ok := entryIndex[entry.Key]; ok {
+				merged.Entries[idx] = entry
+			} else {
+				entryIndex[entry.Key] = len(merged.Entries)
+				merged.Entries = append(merged.Entries, entry)
+			}
+			switch entry.Kind {
+			case EntryKindVariable:
+				merged.Variables[entry.Key] = layer.Variables[entry.Key]
+				delete(merged.Secrets, entry.Key)
+			case EntryKindSecret:
+				merged.Secrets[entry.Key] = layer.Secrets[entry.Key]
+				delete(merged.Variables, entry.Key)
+			}
+		}
+	}
+	return merged
+}
+
 func NewResolver(profileStore Store, secretStore secret.Store) *Resolver {
 	return &Resolver{
 		profileStore: profileStore,
@@ -62,6 +94,21 @@ func (r *Resolver) Resolve(ctx context.Context, name string) (*Resolved, error) 
 	if err != nil {
 		return nil, err
 	}
+	return r.resolve(ctx, p)
+}
+
+func (r *Resolver) ResolveInherited(ctx context.Context, ref InheritedRef) (*Resolved, error) {
+	if r == nil || r.profileStore == nil {
+		return nil, fmt.Errorf("profile store is not configured")
+	}
+	p, err := r.profileStore.GetInherited(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	return r.resolve(ctx, p)
+}
+
+func (r *Resolver) resolve(ctx context.Context, p *Profile) (*Resolved, error) {
 	if p.Status == StatusDisabled {
 		return nil, ErrDisabled
 	}
