@@ -21,7 +21,6 @@ Input is one YAML file passed to a Dagu-compatible data-plane runner.
 **Valid entrypoint example:**
 
 ```yaml
-name: hello
 steps:
   - name: say-hello
     run: echo hello
@@ -55,7 +54,9 @@ dagu workflow validate <workflow_file>
 **Document rules:**
 
 - The first DAG document is the entrypoint.
+- The entrypoint document must not define `name`.
 - Later DAG documents must have `name`.
+- Later DAG document `name` values identify local sub-DAG definitions inside the YAML file.
 - Later DAG documents are not executed by `dagu run` unless referenced by sub-DAG behavior.
 - Each DAG document must contain `steps`.
 - DAG document names must be unique inside one YAML file.
@@ -75,7 +76,7 @@ These root fields are part of the data-plane YAML schema:
 
 | Field | Required | Value |
 | --- | --- | --- |
-| `name` | Entrypoint: no; later documents: yes. | DAG name. |
+| `name` | Entrypoint: forbidden; later documents: yes. | Local sub-DAG identifier. |
 | `description` | No. | Human-readable description. |
 | `working_dir` | No. | Default working directory. |
 | `params` | No. | Workflow parameters. |
@@ -134,7 +135,6 @@ steps:
 Valid workflow with root metadata:
 
 ```yaml
-name: deploy
 description: deploy service
 params:
   - name: environment
@@ -180,6 +180,15 @@ Invalid workflow without steps:
 name: empty
 ```
 
+Invalid entrypoint with `name`:
+
+```yaml
+name: deploy
+steps:
+  - name: deploy
+    run: ./deploy.sh
+```
+
 ## Acceptance Criteria
 
 - A black-box fixture verifies `dagu workflow validate` accepts the minimal valid workflow.
@@ -187,6 +196,7 @@ name: empty
 - A black-box fixture accepts the minimal valid workflow.
 - A black-box fixture rejects a workflow with no `steps`.
 - A black-box fixture rejects a workflow with empty `steps`.
+- A black-box fixture rejects an entrypoint document with `name`.
 - A black-box fixture rejects an unknown root field.
 - A black-box fixture rejects duplicate root keys.
 - A black-box fixture accepts an inline sub-DAG separated by `---`.
