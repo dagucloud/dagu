@@ -40,6 +40,7 @@ This guide explains how to implement the v3 specs. It is not a numbered spec and
 **Coverage expectations:**
 
 - Target complete coverage of every behavior defined by the numbered specs.
+- Unit tests should cover nearly all implementation paths.
 - Exercise successful behavior, invalid input, runtime failure, timeout, abort, cleanup, and lifecycle effects when the relevant spec defines them.
 - Cover public behavior from the outside with black-box tests.
 - Use lower-level tests for parsing details, rare branches, and failure paths that are impractical to trigger through a full run.
@@ -53,6 +54,7 @@ This guide explains how to implement the v3 specs. It is not a numbered spec and
 
 - Change the spec before changing behavior.
 - If implementation work exposes an ambiguous requirement, update the relevant spec instead of guessing.
+- If implementation work requires a tradeoff or exposes something maintainers should know, ask for a decision or update the relevant spec doc.
 - If a feature is useful but not yet specified, leave it unsupported until a numbered spec defines it.
 - Keep examples in specs runnable as black-box test inputs.
 - Keep acceptance criteria concrete enough to prove conformance.
