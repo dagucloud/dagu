@@ -45,7 +45,8 @@ func (r *Runner) Run(args ...string) *Result {
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, daguBinary(r.t), args...)
+	// Binary-level tests intentionally execute the configured Dagu binary.
+	cmd := exec.CommandContext(ctx, daguBinary(r.t), args...) //nolint:gosec
 	cmd.Dir = r.dir
 	cmd.Env = append(isolatedEnv(r.t), "PWD="+r.dir)
 	cmd.Stdout = &stdout
@@ -157,7 +158,7 @@ func isolatedEnv(t *testing.T) []string {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
 	config := filepath.Join(root, "xdg")
-	if err := os.MkdirAll(config, 0o755); err != nil {
+	if err := os.MkdirAll(config, 0o750); err != nil {
 		t.Fatalf("creating config dir: %v", err)
 	}
 
