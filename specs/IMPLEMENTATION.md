@@ -55,7 +55,8 @@ This guide explains how to implement the v3 specs. It is not a numbered spec and
 - Change the spec before changing behavior.
 - If implementation work exposes an ambiguous requirement, update the relevant spec instead of guessing.
 - If implementation work requires a tradeoff or exposes something maintainers should know, ask for a decision or update the relevant spec doc.
-- If a feature is useful but not yet specified, leave it unsupported until a numbered spec defines it.
+- If implementation work finds behavior that is needed but not specified, do not silently leave it unimplemented; ask for a decision or update the relevant spec doc.
+- If behavior is intentionally unsupported, make that decision explicit in the relevant spec doc.
 - Keep examples in specs runnable as black-box test inputs.
 - Keep acceptance criteria concrete enough to prove conformance.
 
