@@ -102,8 +102,11 @@ func IsInheritedStorageName(name string) bool {
 	if encoded == "" {
 		return false
 	}
-	_, err := hex.DecodeString(encoded)
-	return err == nil
+	decoded, err := hex.DecodeString(encoded)
+	if err != nil {
+		return false
+	}
+	return workspace.ValidateName(string(decoded)) == nil
 }
 
 func SecretRefForProfileName(profileName, key string) string {

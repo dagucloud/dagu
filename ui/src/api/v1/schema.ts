@@ -5507,7 +5507,7 @@ export interface components {
          * @enum {string}
          */
         UserRole: UserRole;
-        /** @description Workspace name. The reserved names all and default are not allowed. */
+        /** @description Workspace name. The reserved names all, default, and global are not allowed. */
         WorkspaceName: string;
         /** @description Role granted for a specific workspace */
         WorkspaceGrant: {

@@ -162,6 +162,14 @@ func validateStoredProfile(p *profile.Profile) error {
 	if err := validateProfileStorageName(p.Name); err != nil {
 		return err
 	}
+	if profile.IsInheritedStorageName(p.Name) {
+		if !p.Protected {
+			return errors.New("profile store: inherited profiles must be protected")
+		}
+		if p.Status != profile.StatusActive {
+			return errors.New("profile store: inherited profiles must be active")
+		}
+	}
 	for _, entry := range p.Entries {
 		if err := profile.ValidateKey(entry.Key); err != nil {
 			return err

@@ -96,6 +96,7 @@ type ProfileEntryTarget = {
   actionKey: string;
   updatedAt?: string;
   workspaceName?: string;
+  loadError?: string;
 };
 
 function initialProfileForm(): ProfileFormState {
@@ -292,7 +293,8 @@ function targetFromProfile(
 
 function targetFromGlobalDefaults(
   defaults: InheritedRuntimeProfileResponse | undefined,
-  canManage: boolean
+  canManage: boolean,
+  loadError?: string
 ): ProfileEntryTarget {
   return {
     kind: 'global',
@@ -301,16 +303,18 @@ function targetFromGlobalDefaults(
     description: defaults?.description,
     protected: true,
     entries: defaults?.entries || [],
-    canManage,
+    canManage: canManage && !loadError,
     actionKey: '_global',
     updatedAt: defaults?.updatedAt,
+    loadError,
   };
 }
 
 function targetFromWorkspaceDefaults(
   workspaceName: string,
   defaults: InheritedRuntimeProfileResponse | undefined,
-  canManage: boolean
+  canManage: boolean,
+  loadError?: string
 ): ProfileEntryTarget {
   return {
     kind: 'workspace',
@@ -319,10 +323,11 @@ function targetFromWorkspaceDefaults(
     description: defaults?.description,
     protected: true,
     entries: defaults?.entries || [],
-    canManage,
+    canManage: canManage && !loadError,
     actionKey: `_workspaces/${workspaceName}`,
     updatedAt: defaults?.updatedAt,
     workspaceName,
+    loadError,
   };
 }
 
@@ -372,6 +377,7 @@ export default function ProfilesPage(): React.ReactNode {
     data: globalDefaults,
     mutate: mutateGlobalDefaults,
     isLoading: isGlobalDefaultsLoading,
+    error: globalDefaultsError,
   } = useQuery(
     '/profiles/_global',
     whenEnabled(canManageProtectedProfiles, {
@@ -384,6 +390,7 @@ export default function ProfilesPage(): React.ReactNode {
     data: workspaceDefaults,
     mutate: mutateWorkspaceDefaults,
     isLoading: isWorkspaceDefaultsLoading,
+    error: workspaceDefaultsError,
   } = useQuery(
     '/profiles/_workspaces/{workspaceName}',
     selectedWorkspaceName && canManageWorkspaceDefaults
@@ -393,12 +400,22 @@ export default function ProfilesPage(): React.ReactNode {
             query: { remoteNode },
           },
         }
-      : null
+        : null
   );
+  const globalDefaultsLoadError = globalDefaultsError
+    ? errorMessage(globalDefaultsError, 'Failed to load global defaults')
+    : undefined;
+  const workspaceDefaultsLoadError = workspaceDefaultsError
+    ? errorMessage(workspaceDefaultsError, 'Failed to load workspace defaults')
+    : undefined;
   const globalTarget = useMemo(
     () =>
-      targetFromGlobalDefaults(globalDefaults, canManageProtectedProfiles),
-    [canManageProtectedProfiles, globalDefaults]
+      targetFromGlobalDefaults(
+        globalDefaults,
+        canManageProtectedProfiles,
+        globalDefaultsLoadError
+      ),
+    [canManageProtectedProfiles, globalDefaults, globalDefaultsLoadError]
   );
   const workspaceTarget = useMemo(
     () =>
@@ -406,10 +423,16 @@ export default function ProfilesPage(): React.ReactNode {
         ? targetFromWorkspaceDefaults(
             selectedWorkspaceName,
             workspaceDefaults,
-            canManageWorkspaceDefaults
+            canManageWorkspaceDefaults,
+            workspaceDefaultsLoadError
           )
         : null,
-    [canManageWorkspaceDefaults, selectedWorkspaceName, workspaceDefaults]
+    [
+      canManageWorkspaceDefaults,
+      selectedWorkspaceName,
+      workspaceDefaults,
+      workspaceDefaultsLoadError,
+    ]
   );
 
   function canManageProfile(profile: RuntimeProfileResponse): boolean {
@@ -899,7 +922,7 @@ function ProfileEntriesCell({
     entry: RuntimeProfileEntryResponse
   ) => void;
 }): React.ReactElement {
-  const controlsDisabled = !target.canManage || busy;
+  const controlsDisabled = !target.canManage || !!target.loadError || busy;
   return (
     <div className="flex min-w-0 flex-col gap-2">
       <div className="flex flex-wrap gap-1.5">
@@ -928,6 +951,8 @@ function ProfileEntriesCell({
       </div>
       {isLoading ? (
         <span className="text-xs text-muted-foreground">Loading...</span>
+      ) : target.loadError ? (
+        <span className="text-xs text-destructive">{target.loadError}</span>
       ) : target.entries.length === 0 ? (
         <span className="text-xs text-muted-foreground">No entries</span>
       ) : (
@@ -940,7 +965,9 @@ function ProfileEntriesCell({
               <Badge variant="outline" className="h-5 px-1.5">
                 {entryLabel(entry)}
               </Badge>
-              <code className="break-all text-xs">{entry.key}</code>
+              <code className="whitespace-normal break-words text-xs">
+                {entry.key}
+              </code>
               <Button
                 type="button"
                 variant="ghost"

@@ -13880,10 +13880,15 @@ components:
 
     WorkspaceName:
       type: string
-      description: "Workspace name. The reserved names all and default are not allowed."
+      description: "Workspace name. The reserved names all, default, and global are not allowed."
       minLength: 1
       maxLength: 64
       pattern: "^[A-Za-z0-9_-]+$"
+      not:
+        enum:
+          - all
+          - default
+          - global
 
     WorkspaceGrant:
       type: object

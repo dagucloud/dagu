@@ -39,6 +39,17 @@ func TestNewInheritedProfile(t *testing.T) {
 	assert.True(t, item.Protected)
 }
 
+func TestIsInheritedStorageNameRequiresValidWorkspaceName(t *testing.T) {
+	workspaceRef, err := profile.WorkspaceInheritedRef("payments")
+	require.NoError(t, err)
+
+	assert.True(t, profile.IsInheritedStorageName("_global"))
+	assert.True(t, profile.IsInheritedStorageName(workspaceRef.StorageName()))
+	assert.False(t, profile.IsInheritedStorageName("_workspace.2f"))
+	assert.False(t, profile.IsInheritedStorageName("_workspace.616c6c"))
+	assert.False(t, profile.IsInheritedStorageName("_workspace.676c6f62616c"))
+}
+
 func TestMergeResolvedUsesHigherLayerKindAndValue(t *testing.T) {
 	global := &profile.Resolved{
 		Name: "global",

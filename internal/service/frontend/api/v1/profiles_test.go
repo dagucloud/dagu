@@ -242,6 +242,23 @@ func TestRuntimeProfilesAPI_WorkspaceDefaultsUseProfileStore(t *testing.T) {
 	assert.Empty(t, listed.Profiles)
 }
 
+func TestRuntimeProfilesAPI_WorkspaceDefaultsAuthorizeBeforeWorkspaceLookup(t *testing.T) {
+	server := setupBuiltinAuthServer(t)
+	adminToken := getAdminToken(t, server)
+	viewerToken := createRuntimeProfileUserToken(
+		t, server, adminToken, "profile-viewer", "viewerpass1", apigen.UserRoleViewer,
+	)
+
+	server.Client().Post("/api/v1/workspaces", apigen.CreateWorkspaceRequest{
+		Name: "ops",
+	}).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t)
+
+	server.Client().Get("/api/v1/profiles/_workspaces/ops").
+		WithBearerToken(viewerToken).ExpectStatus(http.StatusForbidden).Send(t)
+	server.Client().Get("/api/v1/profiles/_workspaces/missing").
+		WithBearerToken(viewerToken).ExpectStatus(http.StatusForbidden).Send(t)
+}
+
 func TestRuntimeProfilesAPI_ProtectedProfileUseRequiresAdmin(t *testing.T) {
 	server := setupBuiltinAuthServer(t)
 	adminToken := getAdminToken(t, server)

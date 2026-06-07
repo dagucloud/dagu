@@ -259,9 +259,6 @@ func (a *API) GetWorkspaceRuntimeProfileDefaults(
 		}
 		return api.GetWorkspaceRuntimeProfileDefaults400JSONResponse(*clientErr), nil
 	}
-	if err := a.requireWorkspaceConfigWrite(ctx, target.workspaceName); err != nil {
-		return nil, err
-	}
 	item, err := a.getInheritedRuntimeProfileForView(ctx, target.ref)
 	if err != nil {
 		return nil, err
@@ -284,9 +281,6 @@ func (a *API) UpdateWorkspaceRuntimeProfileDefaults(
 			return api.UpdateWorkspaceRuntimeProfileDefaults404JSONResponse(*clientErr), nil
 		}
 		return api.UpdateWorkspaceRuntimeProfileDefaults400JSONResponse(*clientErr), nil
-	}
-	if err := a.requireWorkspaceConfigWrite(ctx, target.workspaceName); err != nil {
-		return nil, err
 	}
 	updated, clientErr, err := a.updateInheritedRuntimeProfile(ctx, target.ref, target.workspaceName, request.Body)
 	if err != nil {
@@ -312,9 +306,6 @@ func (a *API) SetWorkspaceRuntimeProfileDefaultVariable(
 		}
 		return api.SetWorkspaceRuntimeProfileDefaultVariable400JSONResponse(*clientErr), nil
 	}
-	if err := a.requireWorkspaceConfigWrite(ctx, target.workspaceName); err != nil {
-		return nil, err
-	}
 	updated, clientErr, err := a.setInheritedRuntimeProfileVariable(ctx, target.ref, target.workspaceName, request.Key, request.Body)
 	if err != nil {
 		return nil, err
@@ -339,9 +330,6 @@ func (a *API) SetWorkspaceRuntimeProfileDefaultSecret(
 		}
 		return api.SetWorkspaceRuntimeProfileDefaultSecret400JSONResponse(*clientErr), nil
 	}
-	if err := a.requireWorkspaceConfigWrite(ctx, target.workspaceName); err != nil {
-		return nil, err
-	}
 	updated, clientErr, err := a.setInheritedRuntimeProfileSecret(ctx, target.ref, target.workspaceName, request.Key, request.Body)
 	if err != nil {
 		return nil, err
@@ -365,9 +353,6 @@ func (a *API) DeleteWorkspaceRuntimeProfileDefaultEntry(
 			return api.DeleteWorkspaceRuntimeProfileDefaultEntry404JSONResponse(*clientErr), nil
 		}
 		return api.DeleteWorkspaceRuntimeProfileDefaultEntry400JSONResponse(*clientErr), nil
-	}
-	if err := a.requireWorkspaceConfigWrite(ctx, target.workspaceName); err != nil {
-		return nil, err
 	}
 	clientErr, err = a.deleteInheritedRuntimeProfileEntry(ctx, target.ref, target.workspaceName, request.Key)
 	if err != nil {
@@ -771,6 +756,9 @@ func (a *API) workspaceInheritedRuntimeProfileRef(
 	}
 	if workspaceName == "" {
 		return workspaceInheritedRuntimeProfileTarget{}, ptrOf(runtimeProfileBadRequest("workspace name is required")), nil
+	}
+	if err := a.requireWorkspaceConfigWrite(ctx, workspaceName); err != nil {
+		return workspaceInheritedRuntimeProfileTarget{}, nil, err
 	}
 	ws, err := a.workspaceStore.GetByName(ctx, workspaceName)
 	if err != nil {
