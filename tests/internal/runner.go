@@ -3,7 +3,6 @@ package dagutest
 import (
 	"bytes"
 	"context"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,7 +31,9 @@ func New(t *testing.T, project string) *Runner {
 		dir: t.TempDir(),
 	}
 	src := filepath.Join("testdata", filepath.FromSlash(project))
-	copyDir(r.t, src, r.dir)
+	if err := os.CopyFS(r.dir, os.DirFS(src)); err != nil {
+		r.t.Fatalf("copying project %s: %v", project, err)
+	}
 	return r
 }
 
@@ -191,53 +192,5 @@ func isolatedEnvKey(key string) bool {
 		return true
 	default:
 		return false
-	}
-}
-
-func copyDir(t *testing.T, src string, dst string) {
-	t.Helper()
-
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		t.Fatalf("reading fixture %s: %v", src, err)
-	}
-
-	for _, entry := range entries {
-		srcPath := filepath.Join(src, entry.Name())
-		dstPath := filepath.Join(dst, entry.Name())
-		info, err := entry.Info()
-		if err != nil {
-			t.Fatalf("reading fixture file %s: %v", srcPath, err)
-		}
-
-		if entry.IsDir() {
-			if err := os.MkdirAll(dstPath, info.Mode().Perm()); err != nil {
-				t.Fatalf("creating fixture dir %s: %v", dstPath, err)
-			}
-			copyDir(t, srcPath, dstPath)
-			continue
-		}
-
-		copyFile(t, srcPath, dstPath, info.Mode().Perm())
-	}
-}
-
-func copyFile(t *testing.T, src string, dst string, mode os.FileMode) {
-	t.Helper()
-
-	in, err := os.Open(src)
-	if err != nil {
-		t.Fatalf("opening fixture file %s: %v", src, err)
-	}
-	defer in.Close()
-
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
-	if err != nil {
-		t.Fatalf("creating fixture file %s: %v", dst, err)
-	}
-	defer out.Close()
-
-	if _, err := io.Copy(out, in); err != nil {
-		t.Fatalf("copying fixture file %s: %v", src, err)
 	}
 }

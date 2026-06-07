@@ -6,13 +6,13 @@ import (
 	dagutest "github.com/dagucloud/dagu/tests/internal"
 )
 
-func Test002YAMLSchema(t *testing.T) {
+func Test002Schema(t *testing.T) {
 	t.Parallel()
 
 	t.Run("entrypoint name is forbidden", func(t *testing.T) {
 		t.Parallel()
 
-		dagu := dagutest.New(t, "002_yaml_schema")
+		dagu := dagutest.New(t, "002_schema")
 
 		result := dagu.Run("workflow", "validate", ".dagu/entrypoint_name_forbidden.yaml")
 		result.ExpectExitCode(1)
