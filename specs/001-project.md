@@ -34,12 +34,13 @@ project/
 Project validation command:
 
 ```sh
-dagu project validate [project_root]
+dagu project validate [--project <project_root>]
 ```
 
 **Command behavior:**
 
-- When `project_root` is omitted, it defaults to the caller's current working directory.
+- `--project <project_root>` selects the project root.
+- When `--project` is omitted, `project_root` defaults to the caller's current working directory.
 - The command validates project structure and discovered workflow definitions.
 - The command must not execute steps.
 
@@ -57,6 +58,8 @@ dagu project validate [project_root]
 - `project_root` is the directory containing `.dagu/`.
 - Workflow definitions are discovered by listing direct `.yaml` and `.yml` files under `.dagu/`.
 - `workflow_id` is the workflow definition filename, such as `deploy.yaml`.
+- `workflow_id` includes the filename extension.
+- Dagu must not infer `.yaml` or `.yml` extensions from extensionless workflow names.
 - Project-relative behavior must not depend on the caller's current working directory after `project_root` has been resolved.
 - Workflow definition content is validated by the YAML schema spec.
 
@@ -129,6 +132,7 @@ project/
 - A black-box fixture discovers direct `.yaml` files under `.dagu/`.
 - A black-box fixture discovers direct `.yml` files under `.dagu/`.
 - A black-box fixture verifies `dagu project validate` prints discovered `workflow_id` values in sorted order.
+- A black-box fixture verifies `dagu project validate --project <project_root>` validates the selected project.
 - A black-box fixture verifies `dagu project validate` does not execute steps.
 - A black-box fixture rejects a project without `.dagu/`.
 - A black-box fixture rejects `.dagu` when it is not a directory.
