@@ -64,6 +64,9 @@ ${{ steps.step_id.outputs.name }}
 A `steps.<step_id>.outputs.<name>` reference requires the referenced step to
 complete before the owning step starts.
 
+Output declaration and publication behavior is defined by the step outputs
+spec.
+
 Step ids are scoped to one DAG document.
 
 Inline sub-DAG documents have independent step-id scopes.
@@ -101,8 +104,10 @@ Valid dependency and output reference:
 steps:
   - id: build
     name: Build image
-    run: ./build.sh
-    output: image
+    run: |
+      printf 'image=v1.2.3\n' >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: image
 
   - id: deploy
     name: Deploy service
