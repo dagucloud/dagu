@@ -96,7 +96,7 @@ These root fields are part of the data-plane YAML schema:
 | `description` | no | human-readable description |
 | `working_dir` | no | default working directory |
 | `params` | no | workflow parameters |
-| `constants` | no | immutable literal values |
+| `consts` | no | immutable literal values |
 | `defaults` | no | default step settings |
 | `steps` | yes | executable steps |
 | `handler_on` | no | lifecycle handler steps |
@@ -171,7 +171,7 @@ params:
     required: true
 steps:
   - name: deploy
-    run: ./deploy.sh ${environment} ${version}
+    run: ./deploy.sh ${{ params.environment }} ${{ params.version }}
 ```
 
 Valid workflow with inline sub-DAG:
