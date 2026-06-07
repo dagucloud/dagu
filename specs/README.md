@@ -1,20 +1,24 @@
 # Specs
 
-Specs describe behavior.
+Specs describe v3 data-plane behavior. They are written for implementers and for black-box conformance tests.
 
-- describe observable behavior in a way that can not be misinterpreted
-- keep each file focused on one topic
-- name spec files with numeric prefixes to show reading order, such as `001-language.md`
-- define public inputs, outputs, errors, side effects, and lifecycle effects
-- include examples that can be used as test fixtures
-- do not require control-plane behavior
+**Writing guidelines:**
 
-Each spec should document:
+- Describe observable behavior in a way that cannot be misinterpreted.
+- Keep each file focused on one topic.
+- Name numbered specs with numeric prefixes to show reading order, such as `001-language.md`.
+- Define public inputs, outputs, errors, side effects, and lifecycle effects.
+- Include examples that can be used as test fixtures.
+- Do not require control-plane behavior.
 
-- scope: what behavior the spec covers
-- inputs: commands, files, env, params, and config
-- behavior: what must happen
-- outputs: exit code, stdout/stderr, events, result files, logs, and artifacts
-- errors: invalid input, runtime failure, timeout, abort, and cleanup behavior
-- examples: minimal cases that can become black-box tests
-- acceptance criteria: conditions that prove the behavior is implemented
+**Each spec should document:**
+
+| Section | Purpose |
+| --- | --- |
+| Scope | Behavior covered by the spec. |
+| Inputs | Commands, files, env, params, and config. |
+| Behavior | Required behavior. |
+| Outputs | Exit code, stdout/stderr, events, result files, logs, and artifacts. |
+| Errors | Invalid input, runtime failure, timeout, abort, and cleanup behavior. |
+| Examples | Minimal cases that can become black-box tests. |
+| Acceptance Criteria | Conditions that prove the behavior is implemented. |
