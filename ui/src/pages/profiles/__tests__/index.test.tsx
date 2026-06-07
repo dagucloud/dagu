@@ -14,6 +14,7 @@ const mutateMock = vi.fn();
 
 vi.mock('@/contexts/AuthContext', () => ({
   useCanManageProfiles: () => true,
+  useCanWriteForWorkspace: () => false,
   useIsAdmin: () => false,
 }));
 
@@ -39,7 +40,7 @@ Object.defineProperty(globalThis, 'ResizeObserver', {
 });
 
 const useQueryMock = useQuery as unknown as {
-  mockReturnValue: (value: unknown) => void;
+  mockImplementation: (fn: (path: string) => unknown) => void;
 };
 
 function renderPage() {
@@ -60,30 +61,40 @@ function renderPage() {
 describe('ProfilesPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useQueryMock.mockReturnValue({
-      data: {
-        profiles: [
-          {
-            id: 'prod-id',
-            name: 'prod',
-            status: RuntimeProfileStatus.active,
-            protected: true,
-            description: 'Production credentials',
-            entries: [
+    useQueryMock.mockImplementation((path: string) => {
+      if (path === '/profiles') {
+        return {
+          data: {
+            profiles: [
               {
-                key: 'API_TOKEN',
-                kind: RuntimeProfileEntryKind.secret,
+                id: 'prod-id',
+                name: 'prod',
+                status: RuntimeProfileStatus.active,
+                protected: true,
+                description: 'Production credentials',
+                entries: [
+                  {
+                    key: 'API_TOKEN',
+                    kind: RuntimeProfileEntryKind.secret,
+                    createdAt: '2026-01-01T00:00:00Z',
+                    updatedAt: '2026-01-01T00:00:00Z',
+                  },
+                ],
                 createdAt: '2026-01-01T00:00:00Z',
                 updatedAt: '2026-01-01T00:00:00Z',
               },
             ],
-            createdAt: '2026-01-01T00:00:00Z',
-            updatedAt: '2026-01-01T00:00:00Z',
           },
-        ],
-      },
-      mutate: mutateMock,
-      isLoading: false,
+          mutate: mutateMock,
+          isLoading: false,
+        };
+      }
+
+      return {
+        data: undefined,
+        mutate: vi.fn(),
+        isLoading: false,
+      };
     });
   });
 
