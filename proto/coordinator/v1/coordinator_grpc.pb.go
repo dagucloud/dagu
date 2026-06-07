@@ -40,6 +40,7 @@ const (
 	CoordinatorService_PutState_FullMethodName           = "/coordinator.v1.CoordinatorService/PutState"
 	CoordinatorService_DeleteState_FullMethodName        = "/coordinator.v1.CoordinatorService/DeleteState"
 	CoordinatorService_ListState_FullMethodName          = "/coordinator.v1.CoordinatorService/ListState"
+	CoordinatorService_GetDAG_FullMethodName             = "/coordinator.v1.CoordinatorService/GetDAG"
 )
 
 // CoordinatorServiceClient is the client API for CoordinatorService service.
@@ -91,6 +92,10 @@ type CoordinatorServiceClient interface {
 	DeleteState(ctx context.Context, in *DeleteStateRequest, opts ...grpc.CallOption) (*DeleteStateResponse, error)
 	// ListState lists persistent DAG state entries by scope, namespace, and key prefix.
 	ListState(ctx context.Context, in *ListStateRequest, opts ...grpc.CallOption) (*ListStateResponse, error)
+	// GetDAG retrieves a DAG definition (raw YAML spec) from the coordinator's DAG store.
+	// Used as a fallback when a worker's local DAG store misses a definition during
+	// sub-DAG execution.
+	GetDAG(ctx context.Context, in *GetDAGRequest, opts ...grpc.CallOption) (*GetDAGResponse, error)
 }
 
 type coordinatorServiceClient struct {
@@ -299,6 +304,16 @@ func (c *coordinatorServiceClient) ListState(ctx context.Context, in *ListStateR
 	return out, nil
 }
 
+func (c *coordinatorServiceClient) GetDAG(ctx context.Context, in *GetDAGRequest, opts ...grpc.CallOption) (*GetDAGResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetDAGResponse)
+	err := c.cc.Invoke(ctx, CoordinatorService_GetDAG_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CoordinatorServiceServer is the server API for CoordinatorService service.
 // All implementations must embed UnimplementedCoordinatorServiceServer
 // for forward compatibility.
@@ -348,6 +363,10 @@ type CoordinatorServiceServer interface {
 	DeleteState(context.Context, *DeleteStateRequest) (*DeleteStateResponse, error)
 	// ListState lists persistent DAG state entries by scope, namespace, and key prefix.
 	ListState(context.Context, *ListStateRequest) (*ListStateResponse, error)
+	// GetDAG retrieves a DAG definition (raw YAML spec) from the coordinator's DAG store.
+	// Used as a fallback when a worker's local DAG store misses a definition during
+	// sub-DAG execution.
+	GetDAG(context.Context, *GetDAGRequest) (*GetDAGResponse, error)
 	mustEmbedUnimplementedCoordinatorServiceServer()
 }
 
@@ -411,6 +430,9 @@ func (UnimplementedCoordinatorServiceServer) DeleteState(context.Context, *Delet
 }
 func (UnimplementedCoordinatorServiceServer) ListState(context.Context, *ListStateRequest) (*ListStateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListState not implemented")
+}
+func (UnimplementedCoordinatorServiceServer) GetDAG(context.Context, *GetDAGRequest) (*GetDAGResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetDAG not implemented")
 }
 func (UnimplementedCoordinatorServiceServer) mustEmbedUnimplementedCoordinatorServiceServer() {}
 func (UnimplementedCoordinatorServiceServer) testEmbeddedByValue()                            {}
@@ -717,6 +739,24 @@ func _CoordinatorService_ListState_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CoordinatorService_GetDAG_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetDAGRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoordinatorServiceServer).GetDAG(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoordinatorService_GetDAG_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoordinatorServiceServer).GetDAG(ctx, req.(*GetDAGRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CoordinatorService_ServiceDesc is the grpc.ServiceDesc for CoordinatorService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -779,6 +819,10 @@ var CoordinatorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListState",
 			Handler:    _CoordinatorService_ListState_Handler,
+		},
+		{
+			MethodName: "GetDAG",
+			Handler:    _CoordinatorService_GetDAG_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

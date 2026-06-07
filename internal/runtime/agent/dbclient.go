@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/dagucloud/dagu/internal/cmn/logger"
+	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime"
@@ -16,17 +18,43 @@ import (
 var _ runtime.Database = &dbClient{}
 
 type dbClient struct {
-	ds  exec.DAGStore
-	drs exec.DAGRunStore
+	ds              exec.DAGStore
+	drs             exec.DAGRunStore
+	remoteDAGLoader RemoteDAGLoader
 }
 
-func newDBClient(drs exec.DAGRunStore, ds exec.DAGStore) *dbClient {
-	return &dbClient{drs: drs, ds: ds}
+func newDBClient(drs exec.DAGRunStore, ds exec.DAGStore, remoteDAGLoader RemoteDAGLoader) *dbClient {
+	return &dbClient{drs: drs, ds: ds, remoteDAGLoader: remoteDAGLoader}
 }
 
 // GetDAG implements core.DBClient.
 func (o *dbClient) GetDAG(ctx context.Context, name string) (*core.DAG, error) {
-	return o.ds.GetDetails(ctx, name)
+	dag, err := o.ds.GetDetails(ctx, name)
+	if err == nil {
+		return dag, nil
+	}
+	// Try remote fallback if configured
+	if o.remoteDAGLoader == nil {
+		return nil, err
+	}
+	logger.Info(ctx, "DAG not found locally, trying remote fallback",
+		tag.DAG(name),
+	)
+	remoteDAG, remoteErr := o.remoteDAGLoader(ctx, name)
+	if remoteErr != nil {
+		logger.Warn(ctx, "Remote DAG fallback failed",
+			tag.DAG(name),
+			tag.Error(remoteErr),
+		)
+		return nil, err // Return the original local error
+	}
+	if remoteDAG == nil {
+		return nil, err // Return the original local error
+	}
+	logger.Info(ctx, "DAG loaded from remote fallback",
+		tag.DAG(name),
+	)
+	return remoteDAG, nil
 }
 
 func (o *dbClient) GetSubDAGRunStatus(ctx context.Context, dagRunID string, rootDAGRun exec.DAGRunRef) (*runtime.RunStatus, error) {

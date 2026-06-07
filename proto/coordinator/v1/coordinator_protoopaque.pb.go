@@ -4650,6 +4650,138 @@ func (b0 ListStateResponse_builder) Build() *ListStateResponse {
 	return m0
 }
 
+// GetDAG retrieves a DAG definition (raw YAML spec) from the coordinator's DAG store.
+// Used as a fallback when a worker's local DAG store misses a definition during
+// sub-DAG execution. This eliminates race conditions in git-synced setups where
+// a new DAG YAML may not yet be present on the worker.
+type GetDAGRequest struct {
+	state           protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Name string                 `protobuf:"bytes,1,opt,name=name,proto3"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *GetDAGRequest) Reset() {
+	*x = GetDAGRequest{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDAGRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDAGRequest) ProtoMessage() {}
+
+func (x *GetDAGRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *GetDAGRequest) GetName() string {
+	if x != nil {
+		return x.xxx_hidden_Name
+	}
+	return ""
+}
+
+func (x *GetDAGRequest) SetName(v string) {
+	x.xxx_hidden_Name = v
+}
+
+type GetDAGRequest_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Name string
+}
+
+func (b0 GetDAGRequest_builder) Build() *GetDAGRequest {
+	m0 := &GetDAGRequest{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Name = b.Name
+	return m0
+}
+
+type GetDAGResponse struct {
+	state            protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Spec  string                 `protobuf:"bytes,1,opt,name=spec,proto3"`
+	xxx_hidden_Error string                 `protobuf:"bytes,2,opt,name=error,proto3"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *GetDAGResponse) Reset() {
+	*x = GetDAGResponse{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDAGResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDAGResponse) ProtoMessage() {}
+
+func (x *GetDAGResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *GetDAGResponse) GetSpec() string {
+	if x != nil {
+		return x.xxx_hidden_Spec
+	}
+	return ""
+}
+
+func (x *GetDAGResponse) GetError() string {
+	if x != nil {
+		return x.xxx_hidden_Error
+	}
+	return ""
+}
+
+func (x *GetDAGResponse) SetSpec(v string) {
+	x.xxx_hidden_Spec = v
+}
+
+func (x *GetDAGResponse) SetError(v string) {
+	x.xxx_hidden_Error = v
+}
+
+type GetDAGResponse_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Spec  string
+	Error string
+}
+
+func (b0 GetDAGResponse_builder) Build() *GetDAGResponse {
+	m0 := &GetDAGResponse{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Spec = b.Spec
+	x.xxx_hidden_Error = b.Error
+	return m0
+}
+
 var File_proto_coordinator_v1_coordinator_proto protoreflect.FileDescriptor
 
 const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
@@ -4909,7 +5041,12 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"key_prefix\x18\x03 \x01(\tR\tkeyPrefix\x12\x14\n" +
 	"\x05limit\x18\x04 \x01(\x05R\x05limit\"I\n" +
 	"\x11ListStateResponse\x124\n" +
-	"\aentries\x18\x01 \x03(\v2\x1a.coordinator.v1.StateEntryR\aentries*P\n" +
+	"\aentries\x18\x01 \x03(\v2\x1a.coordinator.v1.StateEntryR\aentries\"#\n" +
+	"\rGetDAGRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\":\n" +
+	"\x0eGetDAGResponse\x12\x12\n" +
+	"\x04spec\x18\x01 \x01(\tR\x04spec\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error*P\n" +
 	"\tOperation\x12\x19\n" +
 	"\x15OPERATION_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fOPERATION_START\x10\x01\x12\x13\n" +
@@ -4923,7 +5060,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x1bLOG_STREAM_TYPE_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16LOG_STREAM_TYPE_STDOUT\x10\x01\x12\x1a\n" +
 	"\x16LOG_STREAM_TYPE_STDERR\x10\x02\x12\x1d\n" +
-	"\x19LOG_STREAM_TYPE_SCHEDULER\x10\x032\xd3\f\n" +
+	"\x19LOG_STREAM_TYPE_SCHEDULER\x10\x032\x9c\r\n" +
 	"\x12CoordinatorService\x12A\n" +
 	"\x04Poll\x12\x1b.coordinator.v1.PollRequest\x1a\x1c.coordinator.v1.PollResponse\x12M\n" +
 	"\bDispatch\x12\x1f.coordinator.v1.DispatchRequest\x1a .coordinator.v1.DispatchResponse\x12S\n" +
@@ -4944,10 +5081,11 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\bGetState\x12\x1f.coordinator.v1.GetStateRequest\x1a .coordinator.v1.GetStateResponse\x12M\n" +
 	"\bPutState\x12\x1f.coordinator.v1.PutStateRequest\x1a .coordinator.v1.PutStateResponse\x12V\n" +
 	"\vDeleteState\x12\".coordinator.v1.DeleteStateRequest\x1a#.coordinator.v1.DeleteStateResponse\x12P\n" +
-	"\tListState\x12 .coordinator.v1.ListStateRequest\x1a!.coordinator.v1.ListStateResponseB>Z<github.com/dagucloud/dagu/proto/coordinator/v1;coordinatorv1b\x06proto3"
+	"\tListState\x12 .coordinator.v1.ListStateRequest\x1a!.coordinator.v1.ListStateResponse\x12G\n" +
+	"\x06GetDAG\x12\x1d.coordinator.v1.GetDAGRequest\x1a\x1e.coordinator.v1.GetDAGResponseB>Z<github.com/dagucloud/dagu/proto/coordinator/v1;coordinatorv1b\x06proto3"
 
 var file_proto_coordinator_v1_coordinator_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_proto_coordinator_v1_coordinator_proto_msgTypes = make([]protoimpl.MessageInfo, 49)
+var file_proto_coordinator_v1_coordinator_proto_msgTypes = make([]protoimpl.MessageInfo, 51)
 var file_proto_coordinator_v1_coordinator_proto_goTypes = []any{
 	(Operation)(0),                     // 0: coordinator.v1.Operation
 	(WorkerHealthStatus)(0),            // 1: coordinator.v1.WorkerHealthStatus
@@ -4997,23 +5135,25 @@ var file_proto_coordinator_v1_coordinator_proto_goTypes = []any{
 	(*DeleteStateResponse)(nil),        // 45: coordinator.v1.DeleteStateResponse
 	(*ListStateRequest)(nil),           // 46: coordinator.v1.ListStateRequest
 	(*ListStateResponse)(nil),          // 47: coordinator.v1.ListStateResponse
-	nil,                                // 48: coordinator.v1.PollRequest.LabelsEntry
-	nil,                                // 49: coordinator.v1.Task.WorkerSelectorEntry
-	nil,                                // 50: coordinator.v1.WorkerInfo.LabelsEntry
-	nil,                                // 51: coordinator.v1.HeartbeatRequest.LabelsEntry
+	(*GetDAGRequest)(nil),              // 48: coordinator.v1.GetDAGRequest
+	(*GetDAGResponse)(nil),             // 49: coordinator.v1.GetDAGResponse
+	nil,                                // 50: coordinator.v1.PollRequest.LabelsEntry
+	nil,                                // 51: coordinator.v1.Task.WorkerSelectorEntry
+	nil,                                // 52: coordinator.v1.WorkerInfo.LabelsEntry
+	nil,                                // 53: coordinator.v1.HeartbeatRequest.LabelsEntry
 }
 var file_proto_coordinator_v1_coordinator_proto_depIdxs = []int32{
-	48, // 0: coordinator.v1.PollRequest.labels:type_name -> coordinator.v1.PollRequest.LabelsEntry
+	50, // 0: coordinator.v1.PollRequest.labels:type_name -> coordinator.v1.PollRequest.LabelsEntry
 	7,  // 1: coordinator.v1.PollResponse.task:type_name -> coordinator.v1.Task
 	7,  // 2: coordinator.v1.DispatchRequest.task:type_name -> coordinator.v1.Task
 	0,  // 3: coordinator.v1.Task.operation:type_name -> coordinator.v1.Operation
-	49, // 4: coordinator.v1.Task.worker_selector:type_name -> coordinator.v1.Task.WorkerSelectorEntry
+	51, // 4: coordinator.v1.Task.worker_selector:type_name -> coordinator.v1.Task.WorkerSelectorEntry
 	22, // 5: coordinator.v1.Task.previous_status:type_name -> coordinator.v1.DAGRunStatusProto
 	10, // 6: coordinator.v1.GetWorkersResponse.workers:type_name -> coordinator.v1.WorkerInfo
-	50, // 7: coordinator.v1.WorkerInfo.labels:type_name -> coordinator.v1.WorkerInfo.LabelsEntry
+	52, // 7: coordinator.v1.WorkerInfo.labels:type_name -> coordinator.v1.WorkerInfo.LabelsEntry
 	19, // 8: coordinator.v1.WorkerInfo.running_tasks:type_name -> coordinator.v1.RunningTask
 	1,  // 9: coordinator.v1.WorkerInfo.health_status:type_name -> coordinator.v1.WorkerHealthStatus
-	51, // 10: coordinator.v1.HeartbeatRequest.labels:type_name -> coordinator.v1.HeartbeatRequest.LabelsEntry
+	53, // 10: coordinator.v1.HeartbeatRequest.labels:type_name -> coordinator.v1.HeartbeatRequest.LabelsEntry
 	18, // 11: coordinator.v1.HeartbeatRequest.stats:type_name -> coordinator.v1.WorkerStats
 	17, // 12: coordinator.v1.HeartbeatResponse.cancelled_runs:type_name -> coordinator.v1.CancelledRun
 	19, // 13: coordinator.v1.RunHeartbeatRequest.running_tasks:type_name -> coordinator.v1.RunningTask
@@ -5050,26 +5190,28 @@ var file_proto_coordinator_v1_coordinator_proto_depIdxs = []int32{
 	42, // 44: coordinator.v1.CoordinatorService.PutState:input_type -> coordinator.v1.PutStateRequest
 	44, // 45: coordinator.v1.CoordinatorService.DeleteState:input_type -> coordinator.v1.DeleteStateRequest
 	46, // 46: coordinator.v1.CoordinatorService.ListState:input_type -> coordinator.v1.ListStateRequest
-	4,  // 47: coordinator.v1.CoordinatorService.Poll:output_type -> coordinator.v1.PollResponse
-	6,  // 48: coordinator.v1.CoordinatorService.Dispatch:output_type -> coordinator.v1.DispatchResponse
-	9,  // 49: coordinator.v1.CoordinatorService.GetWorkers:output_type -> coordinator.v1.GetWorkersResponse
-	12, // 50: coordinator.v1.CoordinatorService.Heartbeat:output_type -> coordinator.v1.HeartbeatResponse
-	14, // 51: coordinator.v1.CoordinatorService.AckTaskClaim:output_type -> coordinator.v1.AckTaskClaimResponse
-	16, // 52: coordinator.v1.CoordinatorService.RunHeartbeat:output_type -> coordinator.v1.RunHeartbeatResponse
-	21, // 53: coordinator.v1.CoordinatorService.ReportStatus:output_type -> coordinator.v1.ReportStatusResponse
-	24, // 54: coordinator.v1.CoordinatorService.StreamLogs:output_type -> coordinator.v1.StreamLogsResponse
-	26, // 55: coordinator.v1.CoordinatorService.StreamArtifacts:output_type -> coordinator.v1.StreamArtifactsResponse
-	29, // 56: coordinator.v1.CoordinatorService.PutWorkspaceBundle:output_type -> coordinator.v1.PutWorkspaceBundleResponse
-	31, // 57: coordinator.v1.CoordinatorService.HasWorkspaceBundle:output_type -> coordinator.v1.HasWorkspaceBundleResponse
-	28, // 58: coordinator.v1.CoordinatorService.GetWorkspaceBundle:output_type -> coordinator.v1.WorkspaceBundleChunk
-	34, // 59: coordinator.v1.CoordinatorService.GetDAGRunStatus:output_type -> coordinator.v1.GetDAGRunStatusResponse
-	36, // 60: coordinator.v1.CoordinatorService.RequestCancel:output_type -> coordinator.v1.RequestCancelResponse
-	41, // 61: coordinator.v1.CoordinatorService.GetState:output_type -> coordinator.v1.GetStateResponse
-	43, // 62: coordinator.v1.CoordinatorService.PutState:output_type -> coordinator.v1.PutStateResponse
-	45, // 63: coordinator.v1.CoordinatorService.DeleteState:output_type -> coordinator.v1.DeleteStateResponse
-	47, // 64: coordinator.v1.CoordinatorService.ListState:output_type -> coordinator.v1.ListStateResponse
-	47, // [47:65] is the sub-list for method output_type
-	29, // [29:47] is the sub-list for method input_type
+	48, // 47: coordinator.v1.CoordinatorService.GetDAG:input_type -> coordinator.v1.GetDAGRequest
+	4,  // 48: coordinator.v1.CoordinatorService.Poll:output_type -> coordinator.v1.PollResponse
+	6,  // 49: coordinator.v1.CoordinatorService.Dispatch:output_type -> coordinator.v1.DispatchResponse
+	9,  // 50: coordinator.v1.CoordinatorService.GetWorkers:output_type -> coordinator.v1.GetWorkersResponse
+	12, // 51: coordinator.v1.CoordinatorService.Heartbeat:output_type -> coordinator.v1.HeartbeatResponse
+	14, // 52: coordinator.v1.CoordinatorService.AckTaskClaim:output_type -> coordinator.v1.AckTaskClaimResponse
+	16, // 53: coordinator.v1.CoordinatorService.RunHeartbeat:output_type -> coordinator.v1.RunHeartbeatResponse
+	21, // 54: coordinator.v1.CoordinatorService.ReportStatus:output_type -> coordinator.v1.ReportStatusResponse
+	24, // 55: coordinator.v1.CoordinatorService.StreamLogs:output_type -> coordinator.v1.StreamLogsResponse
+	26, // 56: coordinator.v1.CoordinatorService.StreamArtifacts:output_type -> coordinator.v1.StreamArtifactsResponse
+	29, // 57: coordinator.v1.CoordinatorService.PutWorkspaceBundle:output_type -> coordinator.v1.PutWorkspaceBundleResponse
+	31, // 58: coordinator.v1.CoordinatorService.HasWorkspaceBundle:output_type -> coordinator.v1.HasWorkspaceBundleResponse
+	28, // 59: coordinator.v1.CoordinatorService.GetWorkspaceBundle:output_type -> coordinator.v1.WorkspaceBundleChunk
+	34, // 60: coordinator.v1.CoordinatorService.GetDAGRunStatus:output_type -> coordinator.v1.GetDAGRunStatusResponse
+	36, // 61: coordinator.v1.CoordinatorService.RequestCancel:output_type -> coordinator.v1.RequestCancelResponse
+	41, // 62: coordinator.v1.CoordinatorService.GetState:output_type -> coordinator.v1.GetStateResponse
+	43, // 63: coordinator.v1.CoordinatorService.PutState:output_type -> coordinator.v1.PutStateResponse
+	45, // 64: coordinator.v1.CoordinatorService.DeleteState:output_type -> coordinator.v1.DeleteStateResponse
+	47, // 65: coordinator.v1.CoordinatorService.ListState:output_type -> coordinator.v1.ListStateResponse
+	49, // 66: coordinator.v1.CoordinatorService.GetDAG:output_type -> coordinator.v1.GetDAGResponse
+	48, // [48:67] is the sub-list for method output_type
+	29, // [29:48] is the sub-list for method input_type
 	29, // [29:29] is the sub-list for extension type_name
 	29, // [29:29] is the sub-list for extension extendee
 	0,  // [0:29] is the sub-list for field type_name
@@ -5086,7 +5228,7 @@ func file_proto_coordinator_v1_coordinator_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_coordinator_v1_coordinator_proto_rawDesc), len(file_proto_coordinator_v1_coordinator_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   49,
+			NumMessages:   51,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

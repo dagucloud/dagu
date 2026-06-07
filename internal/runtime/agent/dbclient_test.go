@@ -48,7 +48,7 @@ func TestDBClient_GetSubDAGRunStatus(t *testing.T) {
 			},
 		}, nil)
 		// Create dbClient
-		dbClient := newDBClient(mockDAGRunStore, mockDAGStore)
+		dbClient := newDBClient(mockDAGRunStore, mockDAGStore, nil)
 
 		// Test GetSubDAGRunStatus
 		st, err := dbClient.GetSubDAGRunStatus(ctx, subRunID, rootRef)
@@ -77,7 +77,7 @@ func TestDBClient_GetSubDAGRunStatus(t *testing.T) {
 
 		mockDAGRunStore.On("FindSubAttempt", ctx, rootRef, subRunID).Return(nil, errors.New("not found"))
 
-		dbClient := newDBClient(mockDAGRunStore, mockDAGStore)
+		dbClient := newDBClient(mockDAGRunStore, mockDAGStore, nil)
 
 		status, err := dbClient.GetSubDAGRunStatus(ctx, subRunID, rootRef)
 		assert.Error(t, err)
@@ -106,7 +106,7 @@ func TestDBClient_IsSubDAGRunCompleted(t *testing.T) {
 			Status:   core.Succeeded,
 		}, nil)
 
-		dbClient := newDBClient(mockDAGRunStore, mockDAGStore)
+		dbClient := newDBClient(mockDAGRunStore, mockDAGStore, nil)
 
 		completed, err := dbClient.IsSubDAGRunCompleted(ctx, subRunID, rootRef)
 		require.NoError(t, err)
@@ -133,7 +133,7 @@ func TestDBClient_IsSubDAGRunCompleted(t *testing.T) {
 			Status:   core.Failed,
 		}, nil)
 
-		dbClient := newDBClient(mockDAGRunStore, mockDAGStore)
+		dbClient := newDBClient(mockDAGRunStore, mockDAGStore, nil)
 
 		completed, err := dbClient.IsSubDAGRunCompleted(ctx, subRunID, rootRef)
 		require.NoError(t, err)
@@ -153,7 +153,7 @@ func TestDBClient_IsSubDAGRunCompleted(t *testing.T) {
 
 		mockDAGRunStore.On("FindSubAttempt", ctx, rootRef, subRunID).Return(nil, errors.New("not found"))
 
-		dbClient := newDBClient(mockDAGRunStore, mockDAGStore)
+		dbClient := newDBClient(mockDAGRunStore, mockDAGStore, nil)
 
 		completed, err := dbClient.IsSubDAGRunCompleted(ctx, subRunID, rootRef)
 		assert.Error(t, err)
