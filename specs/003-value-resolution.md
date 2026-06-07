@@ -60,8 +60,9 @@ Reference path segments must use `snake_case`.
 
 Unqualified references such as `${{ name }}` are invalid.
 
-Expressions, operators, functions, filters, and default values are not part of
-this spec.
+Function call expressions are defined by the expression functions spec.
+
+Operators, filters, and inline default values are not part of this spec.
 
 This spec requires value resolution for step `run` fields. Other fields support
 value resolution only when their own specs say so.
