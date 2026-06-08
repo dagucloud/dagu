@@ -4,6 +4,8 @@
 package scheduler
 
 import (
+	"context"
+
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime"
@@ -39,4 +41,8 @@ func NewWithHooksForTest(
 		schedulerHooks{onLockWait: hooks.OnLockWait},
 		schedulerOptions{},
 	)
+}
+
+func (s *RetryScanner) ScanForTest(ctx context.Context) error {
+	return s.scan(ctx)
 }

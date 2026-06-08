@@ -215,6 +215,13 @@ func (att *Attempt) Write(ctx context.Context, status exec.DAGRunStatus) error {
 		att.cache.Invalidate(att.file)
 	}
 
+	if err := updateRetryCandidateFromStatus(att.file, status); err != nil {
+		logger.Warn(ctx, "Failed to update DAG-run retry candidate", tag.Error(err))
+		if dirtyErr := markRetryCandidatesDirty(att.file); dirtyErr != nil {
+			logger.Warn(ctx, "Failed to mark DAG-run retry candidates dirty", tag.Error(dirtyErr))
+		}
+	}
+
 	nextEventType, _, err := eventstore.EmitPersistedStatusTransitionFromContext(
 		ctx,
 		att.lastEmittedEventType,

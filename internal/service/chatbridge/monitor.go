@@ -385,6 +385,12 @@ func (m *NotificationMonitor) pollSource(ctx context.Context) {
 	cursor := m.state.SourceCursor
 	m.stateMu.Unlock()
 
+	destinations := m.transport.NotificationDestinations()
+	if len(destinationSet(destinations)) == 0 {
+		m.advanceSourceCursorToHead(ctx)
+		return
+	}
+
 	events, nextCursor, err := m.eventService.ReadDAGRunEvents(ctx, cursor)
 	if err != nil {
 		m.logger.Debug("Failed to read DAG-run events", slog.String("error", err.Error()))
@@ -423,6 +429,27 @@ func (m *NotificationMonitor) pollSource(ctx context.Context) {
 	for _, item := range queued {
 		m.enqueueBatch(item.destination, item.event)
 	}
+}
+
+func (m *NotificationMonitor) advanceSourceCursorToHead(ctx context.Context) {
+	cursor, err := m.eventService.DAGRunHeadCursor(ctx)
+	if err != nil {
+		m.logger.Debug("Failed to advance DAG-run notification cursor", slog.String("error", err.Error()))
+		return
+	}
+
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+
+	if !m.state.Bootstrapped {
+		return
+	}
+
+	m.applyStateTransitionLocked(ctx, func(candidate *notificationMonitorState) bool {
+		cursorChanged := !candidate.SourceCursor.Equal(cursor)
+		candidate.SourceCursor = cursor.Normalize()
+		return cursorChanged
+	})
 }
 
 func (m *NotificationMonitor) syncPendingDestinations(ctx context.Context) {
