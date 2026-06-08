@@ -12,7 +12,8 @@ Specs may be implemented incrementally. A change that implements part of a spec 
 - Define public inputs, outputs, errors, side effects, and lifecycle effects.
 - Include examples that can be used as test fixtures.
 - Do not require control-plane behavior.
-- Remove v3-obsolete public behavior instead of preserving compatibility aliases.
+- Remove obsolete functionality or behavior instead of preserving compatibility.
+- Do not add tests that verify a functionality or behavior is removed.
 
 **Each spec should document:**
 
