@@ -59,18 +59,37 @@ func ValidateWorkflow(data []byte) error {
 func validateDocument(index int, doc *ast.DocumentNode, names map[string]struct{}) []error {
 	var errs validationErrors
 	label := documentLabel(index)
+
+	root, err := documentRoot(label, doc)
+	if err != nil {
+		return []error{err}
+	}
+
+	fields, fieldErrs := collectRootFields(label, root)
+	errs.add(fieldErrs...)
+	errs.add(validateDocumentName(index, label, fields, names)...)
+	errs.add(validateSteps(label, fields)...)
+	return errs
+}
+
+func documentRoot(label string, doc *ast.DocumentNode) (*ast.MappingNode, error) {
 	if doc == nil || doc.Body == nil {
-		return []error{fmt.Errorf("%s must not be empty", label)}
+		return nil, fmt.Errorf("%s must not be empty", label)
 	}
 
 	root, ok := doc.Body.(*ast.MappingNode)
 	if !ok || root == nil {
-		return []error{fmt.Errorf("%s root must be a mapping", label)}
+		return nil, fmt.Errorf("%s root must be a mapping", label)
 	}
 	if len(root.Values) == 0 {
-		return []error{fmt.Errorf("%s must not be empty", label)}
+		return nil, fmt.Errorf("%s must not be empty", label)
 	}
 
+	return root, nil
+}
+
+func collectRootFields(label string, root *ast.MappingNode) (map[string]*ast.MappingValueNode, []error) {
+	var errs validationErrors
 	fields := map[string]*ast.MappingValueNode{}
 	for _, item := range root.Values {
 		key, ok := rootFieldName(item)
@@ -84,7 +103,11 @@ func validateDocument(index int, doc *ast.DocumentNode, names map[string]struct{
 		}
 		fields[key] = item
 	}
+	return fields, errs
+}
 
+func validateDocumentName(index int, label string, fields map[string]*ast.MappingValueNode, names map[string]struct{}) []error {
+	var errs validationErrors
 	if _, ok := fields["name"]; index == 0 && ok {
 		errs.add(fmt.Errorf("%s must not define name", label))
 	}
@@ -100,7 +123,11 @@ func validateDocument(index int, doc *ast.DocumentNode, names map[string]struct{
 			names[name] = struct{}{}
 		}
 	}
+	return errs
+}
 
+func validateSteps(label string, fields map[string]*ast.MappingValueNode) []error {
+	var errs validationErrors
 	stepsField, ok := fields["steps"]
 	if !ok {
 		errs.add(fmt.Errorf("%s must define steps", label))
