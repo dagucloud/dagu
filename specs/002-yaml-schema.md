@@ -60,7 +60,7 @@ dagu workflow validate <workflow_file>
 - Later DAG documents are not executed by `dagu run` unless referenced by sub-DAG behavior.
 - Each DAG document must contain `steps`.
 - DAG document names must be unique inside one YAML file.
-- `steps` must be a non-empty sequence or mapping.
+- `steps` must be a non-empty sequence.
 
 **Field rules:**
 
@@ -196,6 +196,7 @@ steps:
 - A black-box fixture accepts the minimal valid workflow.
 - A black-box fixture rejects a workflow with no `steps`.
 - A black-box fixture rejects a workflow with empty `steps`.
+- A black-box fixture rejects mapping-shaped `steps`.
 - A black-box fixture rejects an entrypoint document with `name`.
 - A black-box fixture rejects an unknown root field.
 - A black-box fixture rejects duplicate root keys.

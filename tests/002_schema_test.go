@@ -23,4 +23,16 @@ func Test002Schema(t *testing.T) {
 		result.ExpectStderrContains("entrypoint", "name")
 		dagu.ExpectNoFile("executed.txt")
 	})
+
+	t.Run("steps mapping is forbidden", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := dagutest.New(t, "002_schema")
+
+		result := dagu.Run("workflow", "validate", ".dagu/steps_mapping_forbidden.yaml")
+		result.ExpectExitCode(1)
+		result.ExpectStdout("")
+		result.ExpectStderrContains("steps")
+		dagu.ExpectNoFile("executed.txt")
+	})
 }
