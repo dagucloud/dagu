@@ -79,7 +79,6 @@ func TestRootCommand(t *testing.T) {
 			rootCmd.AddCommand(cmd.Stop())
 			rootCmd.AddCommand(cmd.Restart())
 			rootCmd.AddCommand(cmd.Dry())
-			rootCmd.AddCommand(cmd.Validate())
 			rootCmd.AddCommand(cmd.Workflow())
 			rootCmd.AddCommand(cmd.Status())
 			rootCmd.AddCommand(cmd.Version())
@@ -170,7 +169,6 @@ func TestRootCommandStructure(t *testing.T) {
 		"stop",
 		"restart",
 		"dry",
-		"validate",
 		"workflow",
 		"status",
 		"version",
@@ -192,6 +190,7 @@ func TestRootCommandStructure(t *testing.T) {
 	for _, expected := range expectedCommands {
 		assert.True(t, commands[expected], "Command %s not found", expected)
 	}
+	assert.False(t, commands["validate"], "Command validate should be removed from the v3 root command surface")
 }
 
 func TestRootCommandMetadata(t *testing.T) {
@@ -245,7 +244,6 @@ operations, or remote commands.
 	rootCmd.AddCommand(cmd.Stop())
 	rootCmd.AddCommand(cmd.Restart())
 	rootCmd.AddCommand(cmd.Dry())
-	rootCmd.AddCommand(cmd.Validate())
 	rootCmd.AddCommand(cmd.Workflow())
 	rootCmd.AddCommand(cmd.Status())
 	rootCmd.AddCommand(cmd.Version())

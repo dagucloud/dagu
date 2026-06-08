@@ -540,7 +540,7 @@ func serviceForCommand(cmdName string) config.Service {
 	case "start", "restart", "retry", "dry", "exec", "agent":
 		return config.ServiceAgent
 	default:
-		// For all other commands (status, stop, validate, etc.), load all config
+		// For all other commands (status, stop, etc.), load all config.
 		return config.ServiceNone
 	}
 }
