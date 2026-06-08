@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -91,8 +92,9 @@ func (store *Store) listRetryCandidatesForDayAfterRebuild(ctx context.Context, d
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), retryCandidateExt) {
 			continue
 		}
-		candidatePath := filepath.Join(candidateDir, entry.Name())
-		candidate, err := readRetryCandidateFile(candidatePath)
+		candidateName := entry.Name()
+		candidatePath := filepath.Join(candidateDir, candidateName)
+		candidate, err := readRetryCandidateFile(candidateDir, candidateName)
 		if err != nil {
 			if rebuiltCorruptCandidate {
 				return nil, fmt.Errorf("read retry candidate file %s: %w", candidatePath, err)
@@ -256,8 +258,19 @@ func rebuildRetryCandidatesForDay(ctx context.Context, dayPath string, cache *fi
 	return nil
 }
 
-func readRetryCandidateFile(path string) (*retryCandidateFile, error) {
-	data, err := os.ReadFile(path)
+func readRetryCandidateFile(dir, name string) (*retryCandidateFile, error) {
+	if filepath.Base(name) != name || !strings.HasSuffix(name, retryCandidateExt) {
+		return nil, fmt.Errorf("invalid retry candidate file name %q", name)
+	}
+	file, err := os.OpenInRoot(dir, name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+
+	data, err := io.ReadAll(file)
 	if err != nil {
 		return nil, err
 	}
