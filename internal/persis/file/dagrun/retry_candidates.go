@@ -96,6 +96,9 @@ func (store *Store) listRetryCandidatesForDayAfterRebuild(ctx context.Context, d
 		candidatePath := filepath.Join(candidateDir, candidateName)
 		candidate, err := readRetryCandidateFile(candidateDir, candidateName)
 		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
 			if rebuiltCorruptCandidate {
 				return nil, fmt.Errorf("read retry candidate file %s: %w", candidatePath, err)
 			}
