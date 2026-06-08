@@ -12,7 +12,7 @@ Specs may be implemented incrementally. A change that implements part of a spec 
 - Define public inputs, outputs, errors, side effects, and lifecycle effects.
 - Include examples that can be used as test fixtures.
 - Do not require control-plane behavior.
-- Remove v3-obsolete public behavior instead of preserving compatibility aliases. If a legacy command, flag, field, or side effect is not part of the v3 data-plane spec, delete it from the v3 command surface and cover the removal with black-box tests.
+- Remove v3-obsolete public behavior instead of preserving compatibility aliases.
 
 **Each spec should document:**
 

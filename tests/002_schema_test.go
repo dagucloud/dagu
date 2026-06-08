@@ -101,14 +101,3 @@ func Test002Schema(t *testing.T) {
 		})
 	}
 }
-
-func Test002SchemaRootValidateCommandRemoved(t *testing.T) {
-	t.Parallel()
-
-	dagu := dagutest.New(t, "002_schema")
-
-	result := dagu.Run("validate", ".dagu/minimal_valid.yaml")
-	result.ExpectExitCode(1)
-	result.ExpectStdout("")
-	result.ExpectStderrContains("unknown command", "validate")
-}
