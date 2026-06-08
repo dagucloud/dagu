@@ -51,8 +51,13 @@ func TestDAGRunMonitor_RetriesOnlyUndeliveredTelegramChat(t *testing.T) {
 	require.True(t, monitor.notifyCompletion(context.Background(), status))
 	require.Eventually(t, func() bool {
 		service.mu.Lock()
-		defer service.mu.Unlock()
-		return countMatches(service.appendAttempts, "session-1") == 1 && countMatches(service.appendAttempts, "session-2") == 1
+		session1Attempts := countMatches(service.appendAttempts, "session-1")
+		session2Attempts := countMatches(service.appendAttempts, "session-2")
+		service.mu.Unlock()
+		return session1Attempts == 1 &&
+			session2Attempts == 1 &&
+			monitor.isSeen("1", status) &&
+			!monitor.isSeen("2", status)
 	}, time.Second, 10*time.Millisecond)
 	assert.True(t, monitor.isSeen("1", status))
 	assert.False(t, monitor.isSeen("2", status))
