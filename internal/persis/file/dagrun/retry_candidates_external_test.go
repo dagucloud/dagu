@@ -104,6 +104,33 @@ func TestStoreListRetryCandidatesRebuildsDirtyCandidateDirectory(t *testing.T) {
 	require.DirExists(t, candidateDir)
 }
 
+func TestStoreListRetryCandidatesRebuildsCorruptedCandidateFile(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	baseDir := t.TempDir()
+	store := dagrun.New(baseDir)
+	lister, ok := store.(retryCandidateLister)
+	require.True(t, ok)
+
+	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
+	dag := retryCandidateDAG()
+	candidateDir := filepath.Join(baseDir, dag.Name, "dag-runs", "2026", "06", "08", ".dagrun.retry-candidates")
+
+	attempt, _ := writeRetryCandidateStatus(t, ctx, store, dag, now, "failed-run", core.Failed)
+	defer func() { require.NoError(t, attempt.Close(ctx)) }()
+
+	entries, err := os.ReadDir(candidateDir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	require.NoError(t, os.WriteFile(filepath.Join(candidateDir, entries[0].Name()), []byte("{"), 0600))
+
+	candidates, err := lister.ListRetryCandidates(ctx, exec.NewUTC(now.Add(-time.Hour)))
+	require.NoError(t, err)
+	require.Len(t, candidates, 1)
+	assert.Equal(t, "failed-run", candidates[0].DAGRunID)
+}
+
 func TestStoreListRetryCandidatesRemovesCandidateWhenRunIsGone(t *testing.T) {
 	t.Parallel()
 

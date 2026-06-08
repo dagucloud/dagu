@@ -193,7 +193,7 @@ func TestNotificationMonitorDeliversOnlyFutureEventsAfterDestinationIsAdded(t *t
 
 	require.Never(t, func() bool {
 		return slices.Contains(transport.deliveredNames(), "old-run")
-	}, 50*time.Millisecond, 5*time.Millisecond)
+	}, 300*time.Millisecond, 10*time.Millisecond)
 }
 
 func newMonitorDAGRunEvent(name string) *eventstore.Event {

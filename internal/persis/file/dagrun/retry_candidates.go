@@ -63,6 +63,10 @@ func (store *Store) ListRetryCandidates(ctx context.Context, from exec.TimeInUTC
 }
 
 func (store *Store) listRetryCandidatesForDay(ctx context.Context, dayPath string, from exec.TimeInUTC) ([]*exec.DAGRunStatus, error) {
+	return store.listRetryCandidatesForDayAfterRebuild(ctx, dayPath, from, false)
+}
+
+func (store *Store) listRetryCandidatesForDayAfterRebuild(ctx context.Context, dayPath string, from exec.TimeInUTC, rebuiltCorruptCandidate bool) ([]*exec.DAGRunStatus, error) {
 	candidateDir := filepath.Join(dayPath, retryCandidateDirName)
 	needsRebuild, err := retryCandidatesNeedRebuild(dayPath)
 	if err != nil {
@@ -90,7 +94,19 @@ func (store *Store) listRetryCandidatesForDay(ctx context.Context, dayPath strin
 		candidatePath := filepath.Join(candidateDir, entry.Name())
 		candidate, err := readRetryCandidateFile(candidatePath)
 		if err != nil {
-			continue
+			if rebuiltCorruptCandidate {
+				return nil, fmt.Errorf("read retry candidate file %s: %w", candidatePath, err)
+			}
+			if err := fileutil.Remove(candidatePath); err != nil && !os.IsNotExist(err) {
+				return nil, fmt.Errorf("remove corrupted retry candidate %s: %w", candidatePath, err)
+			}
+			if err := markRetryCandidatesDirtyForDay(dayPath); err != nil {
+				return nil, err
+			}
+			if err := rebuildRetryCandidatesForDay(ctx, dayPath, store.cache); err != nil {
+				return nil, err
+			}
+			return store.listRetryCandidatesForDayAfterRebuild(ctx, dayPath, from, true)
 		}
 		exists, err := retryCandidateRunExists(dayPath, candidate)
 		if err != nil {
@@ -152,6 +168,10 @@ func markRetryCandidatesDirty(statusFile string) error {
 	if !ok {
 		return nil
 	}
+	return markRetryCandidatesDirtyForDay(dayDir)
+}
+
+func markRetryCandidatesDirtyForDay(dayDir string) error {
 	return fileutil.WriteFileAtomic(filepath.Join(dayDir, retryCandidateDirtyFileName), []byte("dirty\n"), 0600)
 }
 
