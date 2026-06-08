@@ -44,6 +44,8 @@ dagu workflow validate <workflow_file>
 - A step must not depend on itself.
 - Dependencies must not contain cycles.
 - DAG execution order must respect `depends`.
+- A step must not start until all steps it depends on have completed successfully.
+- If a dependency fails, dependent steps must not start.
 
 **Value reference rules:**
 
@@ -148,4 +150,7 @@ steps:
 - A black-box fixture verifies `dagu workflow validate` rejects an unknown `depends` reference.
 - A black-box fixture verifies `dagu workflow validate` rejects self-dependency.
 - A black-box fixture verifies `dagu workflow validate` rejects dependency cycles.
+- A black-box fixture verifies `dagu run` does not start `step_b` before `step_a` completes successfully when `step_b` declares `depends: step_a`.
+- A black-box fixture verifies `dagu run` exits with code `0` when every step in a dependency chain completes successfully.
+- A black-box fixture verifies `dagu run` does not start a step whose dependency failed, and exits non-zero.
 - A black-box fixture verifies `dagu run` resolves `${{ steps.step_id.outputs.name }}` by step `id`.
