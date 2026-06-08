@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -191,12 +192,7 @@ func TestNotificationMonitorDeliversOnlyFutureEventsAfterDestinationIsAdded(t *t
 	}, time.Second, 10*time.Millisecond)
 
 	require.Never(t, func() bool {
-		for _, name := range transport.deliveredNames() {
-			if name == "old-run" {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(transport.deliveredNames(), "old-run")
 	}, 50*time.Millisecond, 5*time.Millisecond)
 }
 
