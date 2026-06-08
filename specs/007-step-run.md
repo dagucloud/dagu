@@ -10,7 +10,7 @@ Define how a step runs a local command on the data-plane runner host.
 
 Input is a workflow YAML file accepted by the YAML schema spec.
 
-Step `run` validation uses:
+Step `run` validation extends:
 
 ```sh
 dagu workflow validate <workflow_file>
@@ -24,7 +24,7 @@ dagu run [--project <project_root>] <workflow_file>
 
 **Command behavior:**
 
-- `dagu workflow validate` validates the `run` field shape and statically checkable value references.
+- When this spec is implemented, `dagu workflow validate` validates the `run` field shape and statically checkable value references.
 - `dagu workflow validate` must not execute commands.
 - `dagu workflow validate` must not check whether the command path exists.
 - `dagu run` accepts `--project <project_root>` as defined by the project spec.

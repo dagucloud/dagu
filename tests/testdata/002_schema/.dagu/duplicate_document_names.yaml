@@ -1,0 +1,13 @@
+steps:
+  - name: first
+    run: echo first
+---
+name: child
+steps:
+  - name: second
+    run: echo second
+---
+name: child
+steps:
+  - name: third
+    run: echo third

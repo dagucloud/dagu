@@ -14,11 +14,13 @@ import (
 	"time"
 )
 
+// Runner executes Dagu commands against an isolated black-box test project.
 type Runner struct {
 	t   *testing.T
 	dir string
 }
 
+// Result captures a completed Dagu command invocation.
 type Result struct {
 	t        *testing.T
 	exitCode int
@@ -26,6 +28,7 @@ type Result struct {
 	stderr   string
 }
 
+// New creates an isolated copy of a black-box test project.
 func New(t *testing.T, project string) *Runner {
 	t.Helper()
 
@@ -40,6 +43,7 @@ func New(t *testing.T, project string) *Runner {
 	return r
 }
 
+// Run executes the configured Dagu binary inside the isolated project.
 func (r *Runner) Run(args ...string) *Result {
 	r.t.Helper()
 
@@ -77,6 +81,7 @@ func (r *Runner) Run(args ...string) *Result {
 	}
 }
 
+// ExpectNoFile fails the test when name exists in the isolated project.
 func (r *Runner) ExpectNoFile(name string) {
 	r.t.Helper()
 
@@ -88,6 +93,7 @@ func (r *Runner) ExpectNoFile(name string) {
 	}
 }
 
+// ExpectExitCode fails the test when the command exit code differs.
 func (r *Result) ExpectExitCode(code int) {
 	r.t.Helper()
 
@@ -97,6 +103,7 @@ func (r *Result) ExpectExitCode(code int) {
 	}
 }
 
+// ExpectStdout fails the test when stdout differs.
 func (r *Result) ExpectStdout(stdout string) {
 	r.t.Helper()
 
@@ -105,12 +112,33 @@ func (r *Result) ExpectStdout(stdout string) {
 	}
 }
 
+// ExpectStderr fails the test when stderr differs.
+func (r *Result) ExpectStderr(stderr string) {
+	r.t.Helper()
+
+	if r.stderr != stderr {
+		r.t.Fatalf("expected stderr %q, got:\n%s", stderr, r.stderr)
+	}
+}
+
+// ExpectStderrContains fails the test when stderr lacks any required text.
 func (r *Result) ExpectStderrContains(parts ...string) {
 	r.t.Helper()
 
 	for _, part := range parts {
 		if !strings.Contains(r.stderr, part) {
 			r.t.Fatalf("expected stderr to contain %q, got:\n%s", part, r.stderr)
+		}
+	}
+}
+
+// ExpectStderrNotContains fails the test when stderr contains forbidden text.
+func (r *Result) ExpectStderrNotContains(parts ...string) {
+	r.t.Helper()
+
+	for _, part := range parts {
+		if strings.Contains(r.stderr, part) {
+			r.t.Fatalf("expected stderr not to contain %q, got:\n%s", part, r.stderr)
 		}
 	}
 }

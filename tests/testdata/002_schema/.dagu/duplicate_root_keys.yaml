@@ -1,0 +1,6 @@
+steps:
+  - name: first
+    run: echo first
+steps:
+  - name: second
+    run: echo second

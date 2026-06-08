@@ -10,6 +10,8 @@ Define how workflow fields reference values without conflicting with shell envir
 
 Input is a workflow YAML file accepted by the YAML schema spec.
 
+The validation requirements in this spec extend `dagu workflow validate` when value-resolution validation is implemented. They are not part of the root/document validation boundary defined by the YAML schema spec.
+
 **Immutable values can be defined with `consts`:**
 
 ```yaml

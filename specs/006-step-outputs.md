@@ -10,7 +10,7 @@ Define how a step publishes values for later steps without parsing stdout, stder
 
 Input is a workflow YAML file accepted by the YAML schema spec.
 
-Step output validation uses:
+Step output validation extends:
 
 ```sh
 dagu workflow validate <workflow_file>
@@ -24,7 +24,7 @@ dagu run <workflow_file>
 
 **Command behavior:**
 
-- `dagu workflow validate` validates output declarations and output references.
+- When this spec is implemented, `dagu workflow validate` validates output declarations and output references.
 - `dagu workflow validate` must not execute steps.
 
 **A step may declare outputs:**

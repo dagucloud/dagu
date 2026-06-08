@@ -23,9 +23,10 @@ func Workflow() *cobra.Command {
 
 func workflowValidate() *cobra.Command {
 	return &cobra.Command{
-		Use:   "validate <workflow_file>",
-		Short: "Validate a v3 workflow YAML file",
-		Args:  cobra.ExactArgs(1),
+		Use:          "validate <workflow_file>",
+		Short:        "Validate a v3 workflow YAML file",
+		Args:         cobra.ExactArgs(1),
+		SilenceUsage: true,
 		RunE: func(_ *cobra.Command, args []string) error {
 			data, err := os.ReadFile(args[0])
 			if err != nil {

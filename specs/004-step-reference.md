@@ -10,7 +10,7 @@ Define how one step is identified and referenced by another step.
 
 Input is a workflow YAML file accepted by the YAML schema spec.
 
-Step reference validation uses:
+Step reference validation extends:
 
 ```sh
 dagu workflow validate <workflow_file>
@@ -18,7 +18,7 @@ dagu workflow validate <workflow_file>
 
 **Command behavior:**
 
-- The command validates step ids and step references.
+- When this spec is implemented, the command validates step ids and step references.
 - The command must not execute steps.
 
 ## Behavior

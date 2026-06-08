@@ -39,6 +39,7 @@ dagu workflow validate <workflow_file>
 - `workflow_file` must point to one YAML file.
 - When `workflow_file` is relative, it is resolved from the caller's current working directory.
 - The command validates the YAML stream and root fields defined by this spec.
+- The command does not validate internal field behavior that belongs to later specs.
 - The command does not validate project structure.
 - The command must not execute steps.
 
@@ -48,6 +49,8 @@ dagu workflow validate <workflow_file>
 | --- | --- | --- | --- |
 | Success | `0` | Empty. | Empty. |
 | Failure | Non-zero. | Empty. | Validation error. |
+
+Validation failures must not print command usage text.
 
 ## Behavior
 
@@ -205,3 +208,4 @@ steps:
 - A black-box fixture rejects a later DAG document without `name`.
 - A black-box fixture rejects duplicate DAG document names.
 - Rejected workflows do not start any step.
+- Validation failures do not print command usage text.
