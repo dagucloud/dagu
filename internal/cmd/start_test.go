@@ -214,6 +214,14 @@ steps:
 			Args: []string{"start", dagFile, "--", `{"KEY":"value"}`},
 		})
 		require.NoError(t, err)
+
+		dag, err := spec.Load(th.Context, dagFile)
+		require.NoError(t, err)
+
+		status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag)
+		require.NoError(t, err)
+		require.Equal(t, core.Succeeded, status.Status)
+		require.Contains(t, status.Params, "KEY=value")
 	})
 
 	t.Run("AllowsNamedPairsWhenNoParamsDeclared", func(t *testing.T) {
