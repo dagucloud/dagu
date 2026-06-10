@@ -33,7 +33,7 @@ type attemptStatusFileInfo struct {
 	attemptDirName     string
 }
 
-func updateLatestAttemptPointer(_ context.Context, statusFile string) error {
+func updateLatestAttemptPointer(ctx context.Context, statusFile string) error {
 	candidate, ok := parseAttemptStatusFileInfo(statusFile)
 	if !ok {
 		return nil
@@ -53,6 +53,10 @@ func updateLatestAttemptPointer(_ context.Context, statusFile string) error {
 		}
 	}()
 
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	current, err := latestAttemptInfoFromPointer(candidate.dagRunsDir)
 	if err == nil && !attemptStatusFileInfoLess(current, candidate) {
 		if unlockErr := lock.Unlock(); unlockErr != nil {
@@ -65,6 +69,9 @@ func updateLatestAttemptPointer(_ context.Context, statusFile string) error {
 	ptr := latestAttemptPointer{StatusFile: candidate.relativeStatusFile}
 	data, err := json.Marshal(ptr)
 	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if err := fileutil.WriteFileAtomic(latestAttemptPointerPath(candidate.dagRunsDir), data, 0600); err != nil {

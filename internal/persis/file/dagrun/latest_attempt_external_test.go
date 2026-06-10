@@ -46,6 +46,29 @@ func TestStoreLatestAttemptUsesPersistedLatestPointer(t *testing.T) {
 	require.Equal(t, core.Succeeded, status.Status)
 }
 
+func TestUpdateLatestAttemptPointerHonorsCanceledContext(t *testing.T) {
+	ctx := context.Background()
+	baseDir := t.TempDir()
+	dagName := "latest-pointer-canceled"
+	startedAt := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	statusFile := createStatuslessRunDir(t, baseDir, dagName, startedAt, "run-1")
+	require.NoError(t, os.WriteFile(statusFile, []byte("{}\n"), 0600))
+
+	canceledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+	err := dagrun.UpdateLatestAttemptPointerForTest(canceledCtx, statusFile)
+	require.ErrorIs(t, err, context.Canceled)
+
+	dagRunsDir := filepath.Join(baseDir, dagName, "dag-runs")
+	pointerFile := dagrun.LatestAttemptPointerPathForTest(dagRunsDir)
+	_, err = os.Stat(pointerFile)
+	require.ErrorIs(t, err, os.ErrNotExist)
+
+	require.NoError(t, dagrun.UpdateLatestAttemptPointerForTest(ctx, statusFile))
+	_, err = os.Stat(pointerFile)
+	require.NoError(t, err)
+}
+
 func BenchmarkStoreLatestAttemptWithPersistedLatestPointer(b *testing.B) {
 	ctx := context.Background()
 	baseDir := b.TempDir()
@@ -82,7 +105,7 @@ func BenchmarkStoreLatestAttemptWithPersistedLatestPointer(b *testing.B) {
 	}
 }
 
-func createStatuslessRunDir(t testing.TB, baseDir, dagName string, ts time.Time, runID string) {
+func createStatuslessRunDir(t testing.TB, baseDir, dagName string, ts time.Time, runID string) string {
 	t.Helper()
 
 	runDir := filepath.Join(
@@ -96,4 +119,5 @@ func createStatuslessRunDir(t testing.TB, baseDir, dagName string, ts time.Time,
 		fmt.Sprintf("attempt_%s_%06d", ts.UTC().Format("20060102_150405_000Z"), 1),
 	)
 	require.NoError(t, os.MkdirAll(runDir, 0750))
+	return filepath.Join(runDir, dagrun.JSONLStatusFile)
 }
