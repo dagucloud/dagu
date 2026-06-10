@@ -263,6 +263,19 @@ steps:
 	require.Equal(t, "old-value", runtimeEnvSliceMap(result.Env)["TOKEN"])
 }
 
+func TestResolveEnvWithWarningsReusesEvaluatedEmptySourceEnv(t *testing.T) {
+	dag := &core.DAG{
+		Name:         "evaluated-empty-source-env",
+		Env:          []string{},
+		EnvEvaluated: true,
+		YamlData:     []byte("invalid: ["),
+	}
+
+	result, err := spec.ResolveEnvWithWarnings(context.Background(), dag, nil, spec.ResolveEnvOptions{})
+	require.NoError(t, err)
+	require.Empty(t, result.Env)
+}
+
 func TestResolveEnvWithWarningsKeepsProgrammaticEnvWithoutSource(t *testing.T) {
 	dag := &core.DAG{
 		Name: "programmatic-env",

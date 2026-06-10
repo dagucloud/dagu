@@ -222,6 +222,10 @@ func (att *Attempt) Write(ctx context.Context, status exec.DAGRunStatus) error {
 		}
 	}
 
+	if err := updateLatestAttemptPointer(ctx, att.file); err != nil {
+		logger.Warn(ctx, "Failed to update DAG-run latest attempt pointer", tag.Error(err))
+	}
+
 	nextEventType, _, err := eventstore.EmitPersistedStatusTransitionFromContext(
 		ctx,
 		att.lastEmittedEventType,
