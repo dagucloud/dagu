@@ -340,7 +340,9 @@ func loadDAGWithParams(ctx *Context, args []string, isSubDAGRun bool) (*core.DAG
 	var params string
 
 	if ctx.Command.ArgsLenAtDash() != -1 && len(args) > 0 {
-		loadOpts = append(loadOpts, spec.WithParams(args[ctx.Command.ArgsLenAtDash():]))
+		dashArgs := args[ctx.Command.ArgsLenAtDash():]
+		loadOpts = append(loadOpts, spec.WithParams(quoteStartDashArgs(dashArgs)))
+		params = strings.Join(dashArgs, " ")
 	} else {
 		params, err = ctx.Command.Flags().GetString("params")
 		if err != nil {
