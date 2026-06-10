@@ -91,12 +91,12 @@ func stripFrontMatter(content string) string {
 	}
 
 	rest := strings.TrimPrefix(content, "---\n")
-	end := strings.Index(rest, "\n---\n")
-	if end < 0 {
+	_, after, ok := strings.Cut(rest, "\n---\n")
+	if !ok {
 		return strings.TrimLeft(content, "\n")
 	}
 
-	return strings.TrimLeft(rest[end+len("\n---\n"):], "\n")
+	return strings.TrimLeft(after, "\n")
 }
 
 func cleanPrefix(prefix string) string {
