@@ -315,12 +315,15 @@ func (att *Attempt) compactLocked(ctx context.Context) (retErr error) {
 		}()
 	}
 
-	status, err := att.parseLocked(ctx)
+	status, shouldCompact, err := att.statusForCompactionLocked(ctx)
 	if err == io.EOF {
 		return nil // Empty file, nothing to compact
 	}
 	if err != nil {
 		return fmt.Errorf("%w: %s: %v", ErrCompactFailed, att.file, err)
+	}
+	if !shouldCompact {
+		return nil
 	}
 
 	// Create a temporary file in the same directory
@@ -374,6 +377,52 @@ func (att *Attempt) compactLocked(ctx context.Context) (retErr error) {
 
 	success = true
 	return nil
+}
+
+// statusForCompactionLocked reads the current file and reports whether a
+// replacement would change its compacted contents.
+func (att *Attempt) statusForCompactionLocked(ctx context.Context) (*exec.DAGRunStatus, bool, error) {
+	f, err := openStatusFileWithRetry(att.file)
+	if err != nil {
+		return nil, false, fmt.Errorf("%w: %w", ErrReadFailed, err)
+	}
+	defer func() {
+		_ = f.Close()
+	}()
+
+	var (
+		offset          int64
+		result          *exec.DAGRunStatus
+		validLineCount  int
+		invalidLineSeen bool
+	)
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, false, fmt.Errorf("%w: %w", ErrReadFailed, err)
+		}
+		line, nextOffset, err := readLineFrom(f, offset)
+		if err == io.EOF {
+			if result == nil {
+				return nil, false, err
+			}
+			return result, invalidLineSeen || validLineCount > 1, nil
+		}
+		if err != nil {
+			return nil, false, fmt.Errorf("%w: %w", ErrReadFailed, err)
+		}
+
+		offset = nextOffset
+		if len(line) == 0 {
+			continue
+		}
+		status, err := exec.StatusFromJSON(string(line))
+		if err != nil {
+			invalidLineSeen = true
+			continue
+		}
+		result = status
+		validLineCount++
+	}
 }
 
 // safeRename safely replaces the target file with the source file,
