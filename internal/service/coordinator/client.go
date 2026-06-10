@@ -1018,22 +1018,22 @@ func (cli *clientImpl) GetDAG(ctx context.Context, name string) (string, error) 
 	}
 
 	var resp *coordinatorv1.GetDAGResponse
-	err = cli.attemptCall(ctx, members, func(ctx context.Context, _ exec.HostInfo, client *client) error {
+	err = cli.attemptCall(ctx, members, func(ctx context.Context, member exec.HostInfo, client *client) error {
 		var callErr error
 		resp, callErr = client.client.GetDAG(ctx, req)
 		if callErr != nil {
 			return fmt.Errorf("get DAG definition failed: %w", callErr)
 		}
+		if resp == nil {
+			return fmt.Errorf("coordinator %s returned empty DAG definition response", member.ID)
+		}
+		if resp.Error != "" {
+			return fmt.Errorf("coordinator %s get DAG failed: %s", member.ID, resp.Error)
+		}
 		return nil
 	})
 	if err != nil {
 		return "", err
-	}
-	if resp == nil {
-		return "", fmt.Errorf("coordinator returned empty DAG definition response")
-	}
-	if resp.Error != "" {
-		return "", errors.New(resp.Error)
 	}
 	return resp.Spec, nil
 }

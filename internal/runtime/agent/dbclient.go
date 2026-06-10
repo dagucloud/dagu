@@ -5,6 +5,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -29,9 +30,31 @@ func newDBClient(drs exec.DAGRunStore, ds exec.DAGStore, remoteDAGLoader RemoteD
 
 // GetDAG implements core.DBClient.
 func (o *dbClient) GetDAG(ctx context.Context, name string) (*core.DAG, error) {
+	// Guard against nil DAG store
+	if o.ds == nil {
+		logger.Info(ctx, "No local DAG store, trying remote fallback", tag.DAG(name))
+		if o.remoteDAGLoader == nil {
+			return nil, fmt.Errorf("no local DAG store and no remote loader configured for DAG %s", name)
+		}
+		remoteDAG, remoteErr := o.remoteDAGLoader(ctx, name)
+		if remoteErr != nil {
+			logger.Warn(ctx, "Remote DAG fallback failed", tag.DAG(name), tag.Error(remoteErr))
+			return nil, fmt.Errorf("remote DAG load failed for %s: %w", name, remoteErr)
+		}
+		if remoteDAG == nil {
+			return nil, fmt.Errorf("DAG %s not found locally or remotely", name)
+		}
+		logger.Info(ctx, "DAG loaded from remote fallback", tag.DAG(name))
+		return remoteDAG, nil
+	}
+
 	dag, err := o.ds.GetDetails(ctx, name)
 	if err == nil {
 		return dag, nil
+	}
+	// Only fallback to remote for not-found errors; propagate other errors directly
+	if !errors.Is(err, exec.ErrDAGNotFound) {
+		return nil, err
 	}
 	// Try remote fallback if configured
 	if o.remoteDAGLoader == nil {
