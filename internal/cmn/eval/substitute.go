@@ -36,14 +36,63 @@ func buildShellCommandContext(ctx context.Context, shell, cmdStr string) *exec.C
 		return exec.CommandContext(ctx, "sh", "-c", cmdStr) //nolint:gosec
 	}
 
+	shell, shellArgs := splitShellCommand(shell)
 	switch strings.ToLower(filepath.Base(shell)) {
 	case "powershell.exe", "powershell", "pwsh.exe", "pwsh":
-		return exec.CommandContext(ctx, shell, "-Command", cmdStr) //nolint:gosec
+		return exec.CommandContext(ctx, shell, appendPowerShellCommandArgs(shellArgs, cmdStr)...) //nolint:gosec
 	case "cmd.exe", "cmd":
-		return exec.CommandContext(ctx, shell, "/c", cmdStr) //nolint:gosec
+		return exec.CommandContext(ctx, shell, appendShellCommandArgs(shellArgs, "/c", cmdStr)...) //nolint:gosec
 	default:
-		return exec.CommandContext(ctx, shell, "-c", cmdStr) //nolint:gosec
+		return exec.CommandContext(ctx, shell, appendShellCommandArgs(shellArgs, "-c", cmdStr)...) //nolint:gosec
 	}
+}
+
+func splitShellCommand(shell string) (string, []string) {
+	command, args, err := cmdutil.SplitCommand(shell)
+	if err != nil || command == "" {
+		return shell, nil
+	}
+	return command, args
+}
+
+func appendPowerShellCommandArgs(args []string, cmdStr string) []string {
+	result := append([]string(nil), args...)
+	commandFlagIndex := shellArgIndex(result, "-Command")
+	if commandFlagIndex < 0 {
+		commandFlagIndex = len(result)
+	}
+
+	prefix := append([]string(nil), result[:commandFlagIndex]...)
+	suffix := append([]string(nil), result[commandFlagIndex:]...)
+	if !hasShellArg(result, "-NoProfile") {
+		prefix = append(prefix, "-NoProfile")
+	}
+	if !hasShellArg(result, "-NonInteractive") {
+		prefix = append(prefix, "-NonInteractive")
+	}
+	result = append(prefix, suffix...)
+	return appendShellCommandArgs(result, "-Command", cmdStr)
+}
+
+func appendShellCommandArgs(args []string, flag, cmdStr string) []string {
+	result := append([]string(nil), args...)
+	if !hasShellArg(result, flag) {
+		result = append(result, flag)
+	}
+	return append(result, cmdStr)
+}
+
+func shellArgIndex(args []string, flag string) int {
+	for i, arg := range args {
+		if strings.EqualFold(arg, flag) {
+			return i
+		}
+	}
+	return -1
+}
+
+func hasShellArg(args []string, flag string) bool {
+	return shellArgIndex(args, flag) >= 0
 }
 
 // runCommandWithContext executes cmdStr in a shell using the EnvScope from context,
