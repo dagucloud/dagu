@@ -49,6 +49,55 @@ func TestProfileStoreCreateGetList(t *testing.T) {
 	assert.Equal(t, "prod", all[1].Name)
 }
 
+func TestProfileStoreInheritedProfilesUseSameCollectionButNotRuntimeList(t *testing.T) {
+	ctx := context.Background()
+	s := newProfileStore(t)
+
+	runtimeProfile, err := profile.New(profile.CreateInput{Name: "prod"}, time.Now())
+	require.NoError(t, err)
+	require.NoError(t, s.Create(ctx, runtimeProfile))
+
+	globalProfile, err := profile.NewInherited(profile.GlobalInheritedRef(), profile.InheritedCreateInput{
+		Description: "Global defaults",
+		CreatedBy:   "alice",
+	}, time.Now())
+	require.NoError(t, err)
+	require.NoError(t, s.Create(ctx, globalProfile))
+
+	got, err := s.GetInherited(ctx, profile.GlobalInheritedRef())
+	require.NoError(t, err)
+	assert.Equal(t, "_global", got.Name)
+	assert.Equal(t, "Global defaults", got.Description)
+
+	all, err := s.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, all, 1)
+	assert.Equal(t, "prod", all[0].Name)
+}
+
+func TestProfileStoreInheritedProfilesMustStayActiveProtected(t *testing.T) {
+	ctx := context.Background()
+	s := newProfileStore(t)
+
+	globalProfile, err := profile.NewInherited(profile.GlobalInheritedRef(), profile.InheritedCreateInput{
+		Description: "Global defaults",
+		CreatedBy:   "alice",
+	}, time.Now())
+	require.NoError(t, err)
+	require.NoError(t, s.Create(ctx, globalProfile))
+
+	globalProfile.Protected = false
+	err = s.Update(ctx, globalProfile)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "inherited profiles must be protected")
+
+	globalProfile.Protected = true
+	globalProfile.Status = profile.StatusDisabled
+	err = s.Update(ctx, globalProfile)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "inherited profiles must be active")
+}
+
 func TestProfileStoreCreateRejectsDuplicateName(t *testing.T) {
 	ctx := context.Background()
 	s := newProfileStore(t)

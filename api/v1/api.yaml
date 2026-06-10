@@ -8604,6 +8604,539 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /profiles/_global:
+    get:
+      summary: "Get global runtime profile defaults"
+      description: "Returns the global inherited runtime profile layer. Secret values are never returned."
+      operationId: "getGlobalRuntimeProfileDefaults"
+      tags:
+        - "profiles"
+      security:
+        - apiToken: []
+        - basicAuth: []
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "Global runtime profile defaults"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InheritedRuntimeProfileResponse"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    patch:
+      summary: "Update global runtime profile defaults"
+      operationId: "updateGlobalRuntimeProfileDefaults"
+      tags:
+        - "profiles"
+      security:
+        - apiToken: []
+        - basicAuth: []
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateInheritedRuntimeProfileRequest"
+      responses:
+        "200":
+          description: "Global runtime profile defaults updated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InheritedRuntimeProfileResponse"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /profiles/_global/variables/{key}:
+    put:
+      summary: "Set global runtime profile default variable"
+      description: "Creates or updates a non-secret environment variable in the global inherited runtime profile layer."
+      operationId: "setGlobalRuntimeProfileDefaultVariable"
+      tags:
+        - "profiles"
+      security:
+        - apiToken: []
+        - basicAuth: []
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/RuntimeProfileKey"
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetRuntimeProfileVariableRequest"
+      responses:
+        "200":
+          description: "Global runtime profile default variable set"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InheritedRuntimeProfileResponse"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /profiles/_global/secrets/{key}:
+    put:
+      summary: "Set global runtime profile default secret"
+      description: "Creates or rotates a Dagu-managed secret value in the global inherited runtime profile layer. Plaintext values are write-only."
+      operationId: "setGlobalRuntimeProfileDefaultSecret"
+      tags:
+        - "profiles"
+      security:
+        - apiToken: []
+        - basicAuth: []
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/RuntimeProfileKey"
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetRuntimeProfileSecretRequest"
+      responses:
+        "200":
+          description: "Global runtime profile default secret set"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InheritedRuntimeProfileResponse"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /profiles/_global/entries/{key}:
+    delete:
+      summary: "Delete global runtime profile default entry"
+      operationId: "deleteGlobalRuntimeProfileDefaultEntry"
+      tags:
+        - "profiles"
+      security:
+        - apiToken: []
+        - basicAuth: []
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/RuntimeProfileKey"
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "204":
+          description: "Global runtime profile default entry deleted"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Runtime profile default entry not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /profiles/_workspaces/{workspaceName}:
+    get:
+      summary: "Get workspace runtime profile defaults"
+      description: "Returns the workspace inherited runtime profile layer. Secret values are never returned."
+      operationId: "getWorkspaceRuntimeProfileDefaults"
+      tags:
+        - "profiles"
+      security:
+        - apiToken: []
+        - basicAuth: []
+      parameters:
+        - name: workspaceName
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/WorkspaceName"
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "Workspace runtime profile defaults"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InheritedRuntimeProfileResponse"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Workspace not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    patch:
+      summary: "Update workspace runtime profile defaults"
+      operationId: "updateWorkspaceRuntimeProfileDefaults"
+      tags:
+        - "profiles"
+      security:
+        - apiToken: []
+        - basicAuth: []
+      parameters:
+        - name: workspaceName
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/WorkspaceName"
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateInheritedRuntimeProfileRequest"
+      responses:
+        "200":
+          description: "Workspace runtime profile defaults updated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InheritedRuntimeProfileResponse"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Workspace not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /profiles/_workspaces/{workspaceName}/variables/{key}:
+    put:
+      summary: "Set workspace runtime profile default variable"
+      description: "Creates or updates a non-secret environment variable in the workspace inherited runtime profile layer."
+      operationId: "setWorkspaceRuntimeProfileDefaultVariable"
+      tags:
+        - "profiles"
+      security:
+        - apiToken: []
+        - basicAuth: []
+      parameters:
+        - name: workspaceName
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/WorkspaceName"
+        - name: key
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/RuntimeProfileKey"
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetRuntimeProfileVariableRequest"
+      responses:
+        "200":
+          description: "Workspace runtime profile default variable set"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InheritedRuntimeProfileResponse"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Workspace not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /profiles/_workspaces/{workspaceName}/secrets/{key}:
+    put:
+      summary: "Set workspace runtime profile default secret"
+      description: "Creates or rotates a Dagu-managed secret value in the workspace inherited runtime profile layer. Plaintext values are write-only."
+      operationId: "setWorkspaceRuntimeProfileDefaultSecret"
+      tags:
+        - "profiles"
+      security:
+        - apiToken: []
+        - basicAuth: []
+      parameters:
+        - name: workspaceName
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/WorkspaceName"
+        - name: key
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/RuntimeProfileKey"
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetRuntimeProfileSecretRequest"
+      responses:
+        "200":
+          description: "Workspace runtime profile default secret set"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InheritedRuntimeProfileResponse"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Workspace not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /profiles/_workspaces/{workspaceName}/entries/{key}:
+    delete:
+      summary: "Delete workspace runtime profile default entry"
+      operationId: "deleteWorkspaceRuntimeProfileDefaultEntry"
+      tags:
+        - "profiles"
+      security:
+        - apiToken: []
+        - basicAuth: []
+      parameters:
+        - name: workspaceName
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/WorkspaceName"
+        - name: key
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/RuntimeProfileKey"
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "204":
+          description: "Workspace runtime profile default entry deleted"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Workspace or runtime profile default entry not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /profiles/{profileName}:
     get:
       summary: "Get runtime profile"
@@ -13347,10 +13880,15 @@ components:
 
     WorkspaceName:
       type: string
-      description: "Workspace name. The reserved names all and default are not allowed."
+      description: "Workspace name. The reserved names all, default, and global are not allowed."
       minLength: 1
       maxLength: 64
       pattern: "^[A-Za-z0-9_-]+$"
+      not:
+        enum:
+          - all
+          - default
+          - global
 
     WorkspaceGrant:
       type: object
@@ -15487,6 +16025,12 @@ components:
         protected:
           type: boolean
 
+    UpdateInheritedRuntimeProfileRequest:
+      type: object
+      properties:
+        description:
+          type: string
+
     SetRuntimeProfileVariableRequest:
       type: object
       required:
@@ -15544,6 +16088,52 @@ components:
           type: string
         name:
           $ref: "#/components/schemas/RuntimeProfileName"
+        description:
+          type: string
+        status:
+          $ref: "#/components/schemas/RuntimeProfileStatus"
+        protected:
+          type: boolean
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuntimeProfileEntryResponse"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    InheritedRuntimeProfileScope:
+      type: string
+      enum:
+        - global
+        - workspace
+
+    InheritedRuntimeProfileName:
+      type: string
+      description: "Non-selectable inherited profile layer name."
+      pattern: "^_global$|^_workspaces/[A-Za-z0-9_-]+$"
+
+    InheritedRuntimeProfileResponse:
+      type: object
+      required:
+        - name
+        - scope
+        - status
+        - protected
+        - entries
+      properties:
+        id:
+          type: string
+          description: "Persistent record ID. Omitted until the inherited layer is first saved."
+        name:
+          $ref: "#/components/schemas/InheritedRuntimeProfileName"
+        scope:
+          $ref: "#/components/schemas/InheritedRuntimeProfileScope"
+        workspace:
+          $ref: "#/components/schemas/WorkspaceName"
         description:
           type: string
         status:

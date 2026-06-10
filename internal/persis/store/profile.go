@@ -62,6 +62,20 @@ func (s *ProfileStore) GetByName(ctx context.Context, name string) (*profile.Pro
 	if err := profile.ValidateName(name); err != nil {
 		return nil, err
 	}
+	return s.getByStorageName(ctx, name)
+}
+
+func (s *ProfileStore) GetInherited(ctx context.Context, ref profile.InheritedRef) (*profile.Profile, error) {
+	if !ref.Valid() {
+		return nil, profile.ErrInvalidName
+	}
+	return s.getByStorageName(ctx, ref.StorageName())
+}
+
+func (s *ProfileStore) getByStorageName(ctx context.Context, name string) (*profile.Profile, error) {
+	if err := validateProfileStorageName(name); err != nil {
+		return nil, err
+	}
 	rec, err := s.col.Get(ctx, name)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
@@ -92,6 +106,9 @@ func (s *ProfileStore) List(ctx context.Context) ([]*profile.Profile, error) {
 		}
 		if stored.Profile == nil {
 			return nil, fmt.Errorf("profile store: decode %q: missing profile payload", rec.ID)
+		}
+		if profile.IsInheritedStorageName(stored.Profile.Name) {
+			continue
 		}
 		out = append(out, stored.Profile.Clone())
 	}
@@ -142,8 +159,16 @@ func (s *ProfileStore) Delete(ctx context.Context, name string) error {
 }
 
 func validateStoredProfile(p *profile.Profile) error {
-	if err := profile.ValidateName(p.Name); err != nil {
+	if err := validateProfileStorageName(p.Name); err != nil {
 		return err
+	}
+	if profile.IsInheritedStorageName(p.Name) {
+		if !p.Protected {
+			return errors.New("profile store: inherited profiles must be protected")
+		}
+		if p.Status != profile.StatusActive {
+			return errors.New("profile store: inherited profiles must be active")
+		}
 	}
 	for _, entry := range p.Entries {
 		if err := profile.ValidateKey(entry.Key); err != nil {
@@ -151,4 +176,11 @@ func validateStoredProfile(p *profile.Profile) error {
 		}
 	}
 	return nil
+}
+
+func validateProfileStorageName(name string) error {
+	if profile.IsInheritedStorageName(name) {
+		return nil
+	}
+	return profile.ValidateName(name)
 }

@@ -36,11 +36,18 @@ import {
 } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { AppBarContext } from '@/contexts/AppBarContext';
-import { useCanManageProfiles, useIsAdmin } from '@/contexts/AuthContext';
+import {
+  useCanManageProfiles,
+  useCanWriteForWorkspace,
+  useIsAdmin,
+} from '@/contexts/AuthContext';
 import { useClient, useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
 import dayjs from '@/lib/dayjs';
+import { workspaceNameForSelection } from '@/lib/workspace';
 import {
+  Building2,
+  Globe2,
   KeyRound,
   Loader2,
   MoreHorizontal,
@@ -59,8 +66,12 @@ import React, {
 } from 'react';
 
 type RuntimeProfileResponse = components['schemas']['RuntimeProfileResponse'];
+type InheritedRuntimeProfileResponse =
+  components['schemas']['InheritedRuntimeProfileResponse'];
 type RuntimeProfileEntryResponse =
   components['schemas']['RuntimeProfileEntryResponse'];
+type ProfileAPIError = components['schemas']['Error'];
+type APIClient = ReturnType<typeof useClient>;
 
 type ProfileFormState = {
   name: string;
@@ -69,9 +80,23 @@ type ProfileFormState = {
 };
 
 type EntryDialogState = {
-  profile: RuntimeProfileResponse;
+  target: ProfileEntryTarget;
   kind: RuntimeProfileEntryKind;
   entry?: RuntimeProfileEntryResponse;
+};
+
+type ProfileEntryTarget = {
+  kind: 'profile' | 'global' | 'workspace';
+  name: string;
+  title: string;
+  description?: string;
+  protected: boolean;
+  entries: RuntimeProfileEntryResponse[];
+  canManage: boolean;
+  actionKey: string;
+  updatedAt?: string;
+  workspaceName?: string;
+  loadError?: string;
 };
 
 function initialProfileForm(): ProfileFormState {
@@ -103,6 +128,141 @@ function errorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+async function saveProfileTargetEntry(
+  client: APIClient,
+  target: ProfileEntryTarget,
+  kind: RuntimeProfileEntryKind,
+  key: string,
+  value: string,
+  remoteNode: string
+): Promise<ProfileAPIError | undefined> {
+  if (kind === RuntimeProfileEntryKind.secret) {
+    switch (target.kind) {
+      case 'global': {
+        const { error } = await client.PUT('/profiles/_global/secrets/{key}', {
+          params: { path: { key }, query: { remoteNode } },
+          body: { value },
+        });
+        return error;
+      }
+      case 'workspace': {
+        if (!target.workspaceName) {
+          throw new Error('Workspace is required');
+        }
+        const { error } = await client.PUT(
+          '/profiles/_workspaces/{workspaceName}/secrets/{key}',
+          {
+            params: {
+              path: { workspaceName: target.workspaceName, key },
+              query: { remoteNode },
+            },
+            body: { value },
+          }
+        );
+        return error;
+      }
+      case 'profile':
+      default: {
+        const { error } = await client.PUT(
+          '/profiles/{profileName}/secrets/{key}',
+          {
+            params: {
+              path: { profileName: target.name, key },
+              query: { remoteNode },
+            },
+            body: { value },
+          }
+        );
+        return error;
+      }
+    }
+  }
+
+  switch (target.kind) {
+    case 'global': {
+      const { error } = await client.PUT('/profiles/_global/variables/{key}', {
+        params: { path: { key }, query: { remoteNode } },
+        body: { value },
+      });
+      return error;
+    }
+    case 'workspace': {
+      if (!target.workspaceName) {
+        throw new Error('Workspace is required');
+      }
+      const { error } = await client.PUT(
+        '/profiles/_workspaces/{workspaceName}/variables/{key}',
+        {
+          params: {
+            path: { workspaceName: target.workspaceName, key },
+            query: { remoteNode },
+          },
+          body: { value },
+        }
+      );
+      return error;
+    }
+    case 'profile':
+    default: {
+      const { error } = await client.PUT(
+        '/profiles/{profileName}/variables/{key}',
+        {
+          params: {
+            path: { profileName: target.name, key },
+            query: { remoteNode },
+          },
+          body: { value },
+        }
+      );
+      return error;
+    }
+  }
+}
+
+async function deleteProfileTargetEntry(
+  client: APIClient,
+  target: ProfileEntryTarget,
+  key: string,
+  remoteNode: string
+): Promise<ProfileAPIError | undefined> {
+  switch (target.kind) {
+    case 'global': {
+      const { error } = await client.DELETE('/profiles/_global/entries/{key}', {
+        params: { path: { key }, query: { remoteNode } },
+      });
+      return error;
+    }
+    case 'workspace': {
+      if (!target.workspaceName) {
+        throw new Error('Workspace is required');
+      }
+      const { error } = await client.DELETE(
+        '/profiles/_workspaces/{workspaceName}/entries/{key}',
+        {
+          params: {
+            path: { workspaceName: target.workspaceName, key },
+            query: { remoteNode },
+          },
+        }
+      );
+      return error;
+    }
+    case 'profile':
+    default: {
+      const { error } = await client.DELETE(
+        '/profiles/{profileName}/entries/{key}',
+        {
+          params: {
+            path: { profileName: target.name, key },
+            query: { remoteNode },
+          },
+        }
+      );
+      return error;
+    }
+  }
+}
+
 function entryLabel(entry: RuntimeProfileEntryResponse): string {
   return entry.kind === RuntimeProfileEntryKind.secret ? 'Secret' : 'Variable';
 }
@@ -114,12 +274,74 @@ function entryDialogTitle(isSecret: boolean, isEditing: boolean): string {
   return isEditing ? 'Edit Variable' : 'Add Variable';
 }
 
+function targetFromProfile(
+  profile: RuntimeProfileResponse,
+  canManage: boolean
+): ProfileEntryTarget {
+  return {
+    kind: 'profile',
+    name: profile.name,
+    title: profile.name,
+    description: profile.description,
+    protected: profile.protected,
+    entries: profile.entries,
+    canManage,
+    actionKey: profile.name,
+    updatedAt: profile.updatedAt,
+  };
+}
+
+function targetFromGlobalDefaults(
+  defaults: InheritedRuntimeProfileResponse | undefined,
+  canManage: boolean,
+  loadError?: string
+): ProfileEntryTarget {
+  return {
+    kind: 'global',
+    name: '_global',
+    title: 'Global defaults',
+    description: defaults?.description,
+    protected: true,
+    entries: defaults?.entries || [],
+    canManage: canManage && !loadError,
+    actionKey: '_global',
+    updatedAt: defaults?.updatedAt,
+    loadError,
+  };
+}
+
+function targetFromWorkspaceDefaults(
+  workspaceName: string,
+  defaults: InheritedRuntimeProfileResponse | undefined,
+  canManage: boolean,
+  loadError?: string
+): ProfileEntryTarget {
+  return {
+    kind: 'workspace',
+    name: `_workspaces/${workspaceName}`,
+    title: `${workspaceName} defaults`,
+    description: defaults?.description,
+    protected: true,
+    entries: defaults?.entries || [],
+    canManage: canManage && !loadError,
+    actionKey: `_workspaces/${workspaceName}`,
+    updatedAt: defaults?.updatedAt,
+    workspaceName,
+    loadError,
+  };
+}
+
 export default function ProfilesPage(): React.ReactNode {
   const client = useClient();
   const appBarContext = useContext(AppBarContext);
   const remoteNode = appBarContext.selectedRemoteNode || 'local';
   const canManageProfiles = useCanManageProfiles();
   const canManageProtectedProfiles = useIsAdmin();
+  const selectedWorkspaceName = workspaceNameForSelection(
+    appBarContext.workspaceSelection
+  );
+  const canManageWorkspaceDefaults =
+    useCanWriteForWorkspace(selectedWorkspaceName);
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -130,7 +352,7 @@ export default function ProfilesPage(): React.ReactNode {
   const [deletingProfile, setDeletingProfile] =
     useState<RuntimeProfileResponse | null>(null);
   const [deletingEntry, setDeletingEntry] = useState<{
-    profile: RuntimeProfileResponse;
+    target: ProfileEntryTarget;
     entry: RuntimeProfileEntryResponse;
   } | null>(null);
   const [actionProfile, setActionProfile] = useState<string | null>(null);
@@ -151,6 +373,67 @@ export default function ProfilesPage(): React.ReactNode {
 
   const { data, mutate, isLoading } = useQuery('/profiles', queryInit);
   const profiles = data?.profiles || [];
+  const {
+    data: globalDefaults,
+    mutate: mutateGlobalDefaults,
+    isLoading: isGlobalDefaultsLoading,
+    error: globalDefaultsError,
+  } = useQuery(
+    '/profiles/_global',
+    whenEnabled(canManageProtectedProfiles, {
+      params: {
+        query: { remoteNode },
+      },
+    })
+  );
+  const {
+    data: workspaceDefaults,
+    mutate: mutateWorkspaceDefaults,
+    isLoading: isWorkspaceDefaultsLoading,
+    error: workspaceDefaultsError,
+  } = useQuery(
+    '/profiles/_workspaces/{workspaceName}',
+    selectedWorkspaceName && canManageWorkspaceDefaults
+      ? {
+          params: {
+            path: { workspaceName: selectedWorkspaceName },
+            query: { remoteNode },
+          },
+        }
+        : null
+  );
+  const globalDefaultsLoadError = globalDefaultsError
+    ? errorMessage(globalDefaultsError, 'Failed to load global defaults')
+    : undefined;
+  const workspaceDefaultsLoadError = workspaceDefaultsError
+    ? errorMessage(workspaceDefaultsError, 'Failed to load workspace defaults')
+    : undefined;
+  const globalTarget = useMemo(
+    () =>
+      targetFromGlobalDefaults(
+        globalDefaults,
+        canManageProtectedProfiles,
+        globalDefaultsLoadError
+      ),
+    [canManageProtectedProfiles, globalDefaults, globalDefaultsLoadError]
+  );
+  const workspaceTarget = useMemo(
+    () =>
+      selectedWorkspaceName
+        ? targetFromWorkspaceDefaults(
+            selectedWorkspaceName,
+            workspaceDefaults,
+            canManageWorkspaceDefaults,
+            workspaceDefaultsLoadError
+          )
+        : null,
+    [
+      canManageWorkspaceDefaults,
+      selectedWorkspaceName,
+      workspaceDefaults,
+      workspaceDefaultsLoadError,
+    ]
+  );
 
   function canManageProfile(profile: RuntimeProfileResponse): boolean {
     return (
@@ -160,7 +443,30 @@ export default function ProfilesPage(): React.ReactNode {
 
   const reload = useCallback(() => {
     void mutate();
-  }, [mutate]);
+    void mutateGlobalDefaults();
+    void mutateWorkspaceDefaults();
+  }, [mutate, mutateGlobalDefaults, mutateWorkspaceDefaults]);
+
+  const openEntryDialog = useCallback(
+    (target: ProfileEntryTarget, kind: RuntimeProfileEntryKind) => {
+      setEntryDialog({ target, kind });
+    },
+    []
+  );
+
+  const editEntry = useCallback(
+    (target: ProfileEntryTarget, entry: RuntimeProfileEntryResponse) => {
+      setEntryDialog({ target, kind: entry.kind, entry });
+    },
+    []
+  );
+
+  const confirmDeleteEntry = useCallback(
+    (target: ProfileEntryTarget, entry: RuntimeProfileEntryResponse) => {
+      setDeletingEntry({ target, entry });
+    },
+    []
+  );
 
   async function toggleStatus(profile: RuntimeProfileResponse): Promise<void> {
     if (!canManageProfile(profile)) return;
@@ -225,22 +531,16 @@ export default function ProfilesPage(): React.ReactNode {
 
   async function deleteEntry(): Promise<void> {
     if (!deletingEntry) return;
-    if (!canManageProfile(deletingEntry.profile)) return;
+    if (!deletingEntry.target.canManage) return;
     setError(null);
     setSuccess(null);
-    setActionProfile(deletingEntry.profile.name);
+    setActionProfile(deletingEntry.target.actionKey);
     try {
-      const { error: apiError } = await client.DELETE(
-        '/profiles/{profileName}/entries/{key}',
-        {
-          params: {
-            path: {
-              profileName: deletingEntry.profile.name,
-              key: deletingEntry.entry.key,
-            },
-            query: { remoteNode },
-          },
-        }
+      const apiError = await deleteProfileTargetEntry(
+        client,
+        deletingEntry.target,
+        deletingEntry.entry.key,
+        remoteNode
       );
       if (apiError) {
         throw new Error(apiError.message || 'Failed to delete entry');
@@ -289,6 +589,108 @@ export default function ProfilesPage(): React.ReactNode {
         </div>
       )}
 
+      {(canManageProtectedProfiles ||
+        (workspaceTarget && canManageWorkspaceDefaults)) && (
+        <div className="card-obsidian min-h-0 overflow-auto">
+          <Table className="text-xs">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[260px]">Default Layer</TableHead>
+                <TableHead className="w-[120px]">Scope</TableHead>
+                <TableHead>Entries</TableHead>
+                <TableHead className="w-[170px]">Updated</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {canManageProtectedProfiles && (
+                <TableRow>
+                  <TableCell>
+                    <div className="flex min-w-0 flex-col gap-1">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <Globe2 className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                        <span className="font-medium">
+                          {globalTarget.title}
+                        </span>
+                        <code className="whitespace-normal break-words text-xs text-muted-foreground">
+                          {globalTarget.name}
+                        </code>
+                      </div>
+                      {globalTarget.description && (
+                        <span className="text-xs text-muted-foreground">
+                          {globalTarget.description}
+                        </span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline">Global</Badge>
+                  </TableCell>
+                  <TableCell>
+                    <ProfileEntriesCell
+                      target={globalTarget}
+                      busy={actionProfile === globalTarget.actionKey}
+                      isLoading={isGlobalDefaultsLoading}
+                      onAdd={openEntryDialog}
+                      onEdit={editEntry}
+                      onDelete={confirmDeleteEntry}
+                    />
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {globalTarget.updatedAt
+                      ? dayjs(globalTarget.updatedAt).format(
+                          'MMM D, YYYY HH:mm'
+                        )
+                      : 'Never'}
+                  </TableCell>
+                </TableRow>
+              )}
+              {workspaceTarget && canManageWorkspaceDefaults && (
+                <TableRow>
+                  <TableCell>
+                    <div className="flex min-w-0 flex-col gap-1">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <Building2 className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                        <span className="font-medium">
+                          {workspaceTarget.title}
+                        </span>
+                        <code className="whitespace-normal break-words text-xs text-muted-foreground">
+                          {workspaceTarget.name}
+                        </code>
+                      </div>
+                      {workspaceTarget.description && (
+                        <span className="text-xs text-muted-foreground">
+                          {workspaceTarget.description}
+                        </span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline">Workspace</Badge>
+                  </TableCell>
+                  <TableCell>
+                    <ProfileEntriesCell
+                      target={workspaceTarget}
+                      busy={actionProfile === workspaceTarget.actionKey}
+                      isLoading={isWorkspaceDefaultsLoading}
+                      onAdd={openEntryDialog}
+                      onEdit={editEntry}
+                      onDelete={confirmDeleteEntry}
+                    />
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {workspaceTarget.updatedAt
+                      ? dayjs(workspaceTarget.updatedAt).format(
+                          'MMM D, YYYY HH:mm'
+                        )
+                      : 'Never'}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+
       <div className="card-obsidian min-h-0 overflow-auto">
         <Table className="text-xs">
           <TableHeader>
@@ -332,6 +734,10 @@ export default function ProfilesPage(): React.ReactNode {
               profiles.map((profile) => {
                 const profileManageDisabled = !canManageProfile(profile);
                 const profileBusy = actionProfile === profile.name;
+                const target = targetFromProfile(
+                  profile,
+                  !profileManageDisabled
+                );
 
                 return (
                   <TableRow key={profile.id}>
@@ -378,97 +784,13 @@ export default function ProfilesPage(): React.ReactNode {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <div className="flex min-w-0 flex-col gap-2">
-                        <div className="flex flex-wrap gap-1.5">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-7 px-2 text-xs"
-                            disabled={profileManageDisabled || profileBusy}
-                            onClick={() =>
-                              setEntryDialog({
-                                profile,
-                                kind: RuntimeProfileEntryKind.variable,
-                              })
-                            }
-                          >
-                            <Plus className="h-3.5 w-3.5" />
-                            Variable
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-7 px-2 text-xs"
-                            disabled={profileManageDisabled || profileBusy}
-                            onClick={() =>
-                              setEntryDialog({
-                                profile,
-                                kind: RuntimeProfileEntryKind.secret,
-                              })
-                            }
-                          >
-                            <KeyRound className="h-3.5 w-3.5" />
-                            Secret
-                          </Button>
-                        </div>
-                        {profile.entries.length === 0 ? (
-                          <span className="text-xs text-muted-foreground">
-                            No entries
-                          </span>
-                        ) : (
-                          <div className="flex flex-wrap gap-1.5">
-                            {profile.entries.map((entry) => (
-                              <div
-                                key={entry.key}
-                                className="flex max-w-full items-center gap-1 rounded border border-border bg-muted/40 px-2 py-1"
-                              >
-                                <Badge variant="outline" className="h-5 px-1.5">
-                                  {entryLabel(entry)}
-                                </Badge>
-                                <code className="break-all text-xs">
-                                  {entry.key}
-                                </code>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-5 w-5"
-                                  aria-label={`Edit ${entry.key}`}
-                                  disabled={
-                                    profileManageDisabled || profileBusy
-                                  }
-                                  onClick={() =>
-                                    setEntryDialog({
-                                      profile,
-                                      kind: entry.kind,
-                                      entry,
-                                    })
-                                  }
-                                >
-                                  <Pencil className="h-3 w-3" />
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-5 w-5 text-destructive"
-                                  aria-label={`Delete ${entry.key}`}
-                                  disabled={
-                                    profileManageDisabled || profileBusy
-                                  }
-                                  onClick={() =>
-                                    setDeletingEntry({ profile, entry })
-                                  }
-                                >
-                                  <Trash2 className="h-3 w-3" />
-                                </Button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                      <ProfileEntriesCell
+                        target={target}
+                        busy={profileBusy}
+                        onAdd={openEntryDialog}
+                        onEdit={editEntry}
+                        onDelete={confirmDeleteEntry}
+                      />
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {dayjs(profile.updatedAt).format('MMM D, YYYY HH:mm')}
@@ -578,6 +900,100 @@ export default function ProfilesPage(): React.ReactNode {
           {deletingEntry ? `Delete ${deletingEntry.entry.key}?` : ''}
         </span>
       </ConfirmModal>
+    </div>
+  );
+}
+
+function ProfileEntriesCell({
+  target,
+  busy,
+  isLoading,
+  onAdd,
+  onEdit,
+  onDelete,
+}: {
+  target: ProfileEntryTarget;
+  busy: boolean;
+  isLoading?: boolean;
+  onAdd: (target: ProfileEntryTarget, kind: RuntimeProfileEntryKind) => void;
+  onEdit: (target: ProfileEntryTarget, entry: RuntimeProfileEntryResponse) => void;
+  onDelete: (
+    target: ProfileEntryTarget,
+    entry: RuntimeProfileEntryResponse
+  ) => void;
+}): React.ReactElement {
+  const controlsDisabled = !target.canManage || !!target.loadError || busy;
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      <div className="flex flex-wrap gap-1.5">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 px-2 text-xs"
+          disabled={controlsDisabled}
+          onClick={() => onAdd(target, RuntimeProfileEntryKind.variable)}
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Variable
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 px-2 text-xs"
+          disabled={controlsDisabled}
+          onClick={() => onAdd(target, RuntimeProfileEntryKind.secret)}
+        >
+          <KeyRound className="h-3.5 w-3.5" />
+          Secret
+        </Button>
+      </div>
+      {isLoading ? (
+        <span className="text-xs text-muted-foreground">Loading...</span>
+      ) : target.loadError ? (
+        <span className="text-xs text-destructive">{target.loadError}</span>
+      ) : target.entries.length === 0 ? (
+        <span className="text-xs text-muted-foreground">No entries</span>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {target.entries.map((entry) => (
+            <div
+              key={entry.key}
+              className="flex max-w-full items-center gap-1 rounded border border-border bg-muted/40 px-2 py-1"
+            >
+              <Badge variant="outline" className="h-5 px-1.5">
+                {entryLabel(entry)}
+              </Badge>
+              <code className="whitespace-normal break-words text-xs">
+                {entry.key}
+              </code>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-5 w-5"
+                aria-label={`Edit ${entry.key}`}
+                disabled={controlsDisabled}
+                onClick={() => onEdit(target, entry)}
+              >
+                <Pencil className="h-3 w-3" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-5 w-5 text-destructive"
+                aria-label={`Delete ${entry.key}`}
+                disabled={controlsDisabled}
+                onClick={() => onDelete(target, entry)}
+              >
+                <Trash2 className="h-3 w-3" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -757,7 +1173,7 @@ function ProfileEntryDialog({
   const [value, setValue] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const profile = state?.profile;
+  const target = state?.target;
   const kind = state?.kind ?? RuntimeProfileEntryKind.variable;
   const isEditing = !!state?.entry;
   const isSecret = kind === RuntimeProfileEntryKind.secret;
@@ -780,7 +1196,7 @@ function ProfileEntryDialog({
 
   async function handleSubmit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
-    if (!profile) return;
+    if (!target) return;
     setError(null);
 
     const trimmedKey = key.trim();
@@ -795,34 +1211,16 @@ function ProfileEntryDialog({
 
     setIsSaving(true);
     try {
-      if (isSecret) {
-        const { error: apiError } = await client.PUT(
-          '/profiles/{profileName}/secrets/{key}',
-          {
-            params: {
-              path: { profileName: profile.name, key: trimmedKey },
-              query: { remoteNode },
-            },
-            body: { value },
-          }
-        );
-        if (apiError) {
-          throw new Error(apiError.message || 'Failed to save secret');
-        }
-      } else {
-        const { error: apiError } = await client.PUT(
-          '/profiles/{profileName}/variables/{key}',
-          {
-            params: {
-              path: { profileName: profile.name, key: trimmedKey },
-              query: { remoteNode },
-            },
-            body: { value },
-          }
-        );
-        if (apiError) {
-          throw new Error(apiError.message || 'Failed to save variable');
-        }
+      const apiError = await saveProfileTargetEntry(
+        client,
+        target,
+        kind,
+        trimmedKey,
+        value,
+        remoteNode
+      );
+      if (apiError) {
+        throw new Error(apiError.message || 'Failed to save entry');
       }
       onSaved(`${trimmedKey} saved`);
     } catch (err) {

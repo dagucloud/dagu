@@ -16,6 +16,7 @@ import (
 	profilepkg "github.com/dagucloud/dagu/internal/profile"
 	secretpkg "github.com/dagucloud/dagu/internal/secret"
 	"github.com/dagucloud/dagu/internal/service/audit"
+	"github.com/dagucloud/dagu/internal/workspace"
 )
 
 func profileStoreUnavailable() *Error {
@@ -44,6 +45,20 @@ func runtimeProfileConflict(message string) api.Error {
 	return api.Error{
 		Code:    api.ErrorCodeAlreadyExists,
 		Message: message,
+	}
+}
+
+func serviceAPIError(err error) *api.Error {
+	var serviceErr *Error
+	if errors.As(err, &serviceErr) {
+		return &api.Error{
+			Code:    serviceErr.Code,
+			Message: serviceErr.Message,
+		}
+	}
+	return &api.Error{
+		Code:    api.ErrorCodeBadRequest,
+		Message: err.Error(),
 	}
 }
 
@@ -136,6 +151,220 @@ func (a *API) CreateRuntimeProfile(ctx context.Context, request api.CreateRuntim
 	a.logAudit(ctx, audit.CategorySecret, "runtime_profile_create", runtimeProfileAuditDetails(item))
 
 	return api.CreateRuntimeProfile201JSONResponse(toRuntimeProfileResponse(item)), nil
+}
+
+func (a *API) GetGlobalRuntimeProfileDefaults(
+	ctx context.Context,
+	_ api.GetGlobalRuntimeProfileDefaultsRequestObject,
+) (api.GetGlobalRuntimeProfileDefaultsResponseObject, error) {
+	if err := a.requireAdmin(ctx); err != nil {
+		return nil, err
+	}
+	ref := profilepkg.GlobalInheritedRef()
+	item, err := a.getInheritedRuntimeProfileForView(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	return api.GetGlobalRuntimeProfileDefaults200JSONResponse(
+		toInheritedRuntimeProfileResponse(ref, "", item),
+	), nil
+}
+
+func (a *API) UpdateGlobalRuntimeProfileDefaults(
+	ctx context.Context,
+	request api.UpdateGlobalRuntimeProfileDefaultsRequestObject,
+) (api.UpdateGlobalRuntimeProfileDefaultsResponseObject, error) {
+	if err := a.requireAdmin(ctx); err != nil {
+		return nil, err
+	}
+	ref := profilepkg.GlobalInheritedRef()
+	updated, clientErr, err := a.updateInheritedRuntimeProfile(ctx, ref, "", request.Body)
+	if err != nil {
+		return nil, err
+	}
+	if clientErr != nil {
+		return api.UpdateGlobalRuntimeProfileDefaults400JSONResponse(*clientErr), nil
+	}
+	return api.UpdateGlobalRuntimeProfileDefaults200JSONResponse(updated), nil
+}
+
+func (a *API) SetGlobalRuntimeProfileDefaultVariable(
+	ctx context.Context,
+	request api.SetGlobalRuntimeProfileDefaultVariableRequestObject,
+) (api.SetGlobalRuntimeProfileDefaultVariableResponseObject, error) {
+	if err := a.requireAdmin(ctx); err != nil {
+		return nil, err
+	}
+	ref := profilepkg.GlobalInheritedRef()
+	updated, clientErr, err := a.setInheritedRuntimeProfileVariable(ctx, ref, "", request.Key, request.Body)
+	if err != nil {
+		return nil, err
+	}
+	if clientErr != nil {
+		return api.SetGlobalRuntimeProfileDefaultVariable400JSONResponse(*clientErr), nil
+	}
+	return api.SetGlobalRuntimeProfileDefaultVariable200JSONResponse(updated), nil
+}
+
+func (a *API) SetGlobalRuntimeProfileDefaultSecret(
+	ctx context.Context,
+	request api.SetGlobalRuntimeProfileDefaultSecretRequestObject,
+) (api.SetGlobalRuntimeProfileDefaultSecretResponseObject, error) {
+	if err := a.requireAdmin(ctx); err != nil {
+		return nil, err
+	}
+	ref := profilepkg.GlobalInheritedRef()
+	updated, clientErr, err := a.setInheritedRuntimeProfileSecret(ctx, ref, "", request.Key, request.Body)
+	if err != nil {
+		return nil, err
+	}
+	if clientErr != nil {
+		return api.SetGlobalRuntimeProfileDefaultSecret400JSONResponse(*clientErr), nil
+	}
+	return api.SetGlobalRuntimeProfileDefaultSecret200JSONResponse(updated), nil
+}
+
+func (a *API) DeleteGlobalRuntimeProfileDefaultEntry(
+	ctx context.Context,
+	request api.DeleteGlobalRuntimeProfileDefaultEntryRequestObject,
+) (api.DeleteGlobalRuntimeProfileDefaultEntryResponseObject, error) {
+	if err := a.requireAdmin(ctx); err != nil {
+		return nil, err
+	}
+	ref := profilepkg.GlobalInheritedRef()
+	clientErr, err := a.deleteInheritedRuntimeProfileEntry(ctx, ref, "", request.Key)
+	if err != nil {
+		return nil, err
+	}
+	if clientErr != nil {
+		if clientErr.Code == api.ErrorCodeNotFound {
+			return api.DeleteGlobalRuntimeProfileDefaultEntry404JSONResponse(*clientErr), nil
+		}
+		return api.DeleteGlobalRuntimeProfileDefaultEntry400JSONResponse(*clientErr), nil
+	}
+	return api.DeleteGlobalRuntimeProfileDefaultEntry204Response{}, nil
+}
+
+func (a *API) GetWorkspaceRuntimeProfileDefaults(
+	ctx context.Context,
+	request api.GetWorkspaceRuntimeProfileDefaultsRequestObject,
+) (api.GetWorkspaceRuntimeProfileDefaultsResponseObject, error) {
+	target, clientErr, err := a.workspaceInheritedRuntimeProfileRef(ctx, request.WorkspaceName)
+	if err != nil {
+		return nil, err
+	}
+	if clientErr != nil {
+		if clientErr.Code == api.ErrorCodeNotFound {
+			return api.GetWorkspaceRuntimeProfileDefaults404JSONResponse(*clientErr), nil
+		}
+		return api.GetWorkspaceRuntimeProfileDefaults400JSONResponse(*clientErr), nil
+	}
+	item, err := a.getInheritedRuntimeProfileForView(ctx, target.ref)
+	if err != nil {
+		return nil, err
+	}
+	return api.GetWorkspaceRuntimeProfileDefaults200JSONResponse(
+		toInheritedRuntimeProfileResponse(target.ref, target.workspaceName, item),
+	), nil
+}
+
+func (a *API) UpdateWorkspaceRuntimeProfileDefaults(
+	ctx context.Context,
+	request api.UpdateWorkspaceRuntimeProfileDefaultsRequestObject,
+) (api.UpdateWorkspaceRuntimeProfileDefaultsResponseObject, error) {
+	target, clientErr, err := a.workspaceInheritedRuntimeProfileRef(ctx, request.WorkspaceName)
+	if err != nil {
+		return nil, err
+	}
+	if clientErr != nil {
+		if clientErr.Code == api.ErrorCodeNotFound {
+			return api.UpdateWorkspaceRuntimeProfileDefaults404JSONResponse(*clientErr), nil
+		}
+		return api.UpdateWorkspaceRuntimeProfileDefaults400JSONResponse(*clientErr), nil
+	}
+	updated, clientErr, err := a.updateInheritedRuntimeProfile(ctx, target.ref, target.workspaceName, request.Body)
+	if err != nil {
+		return nil, err
+	}
+	if clientErr != nil {
+		return api.UpdateWorkspaceRuntimeProfileDefaults400JSONResponse(*clientErr), nil
+	}
+	return api.UpdateWorkspaceRuntimeProfileDefaults200JSONResponse(updated), nil
+}
+
+func (a *API) SetWorkspaceRuntimeProfileDefaultVariable(
+	ctx context.Context,
+	request api.SetWorkspaceRuntimeProfileDefaultVariableRequestObject,
+) (api.SetWorkspaceRuntimeProfileDefaultVariableResponseObject, error) {
+	target, clientErr, err := a.workspaceInheritedRuntimeProfileRef(ctx, request.WorkspaceName)
+	if err != nil {
+		return nil, err
+	}
+	if clientErr != nil {
+		if clientErr.Code == api.ErrorCodeNotFound {
+			return api.SetWorkspaceRuntimeProfileDefaultVariable404JSONResponse(*clientErr), nil
+		}
+		return api.SetWorkspaceRuntimeProfileDefaultVariable400JSONResponse(*clientErr), nil
+	}
+	updated, clientErr, err := a.setInheritedRuntimeProfileVariable(ctx, target.ref, target.workspaceName, request.Key, request.Body)
+	if err != nil {
+		return nil, err
+	}
+	if clientErr != nil {
+		return api.SetWorkspaceRuntimeProfileDefaultVariable400JSONResponse(*clientErr), nil
+	}
+	return api.SetWorkspaceRuntimeProfileDefaultVariable200JSONResponse(updated), nil
+}
+
+func (a *API) SetWorkspaceRuntimeProfileDefaultSecret(
+	ctx context.Context,
+	request api.SetWorkspaceRuntimeProfileDefaultSecretRequestObject,
+) (api.SetWorkspaceRuntimeProfileDefaultSecretResponseObject, error) {
+	target, clientErr, err := a.workspaceInheritedRuntimeProfileRef(ctx, request.WorkspaceName)
+	if err != nil {
+		return nil, err
+	}
+	if clientErr != nil {
+		if clientErr.Code == api.ErrorCodeNotFound {
+			return api.SetWorkspaceRuntimeProfileDefaultSecret404JSONResponse(*clientErr), nil
+		}
+		return api.SetWorkspaceRuntimeProfileDefaultSecret400JSONResponse(*clientErr), nil
+	}
+	updated, clientErr, err := a.setInheritedRuntimeProfileSecret(ctx, target.ref, target.workspaceName, request.Key, request.Body)
+	if err != nil {
+		return nil, err
+	}
+	if clientErr != nil {
+		return api.SetWorkspaceRuntimeProfileDefaultSecret400JSONResponse(*clientErr), nil
+	}
+	return api.SetWorkspaceRuntimeProfileDefaultSecret200JSONResponse(updated), nil
+}
+
+func (a *API) DeleteWorkspaceRuntimeProfileDefaultEntry(
+	ctx context.Context,
+	request api.DeleteWorkspaceRuntimeProfileDefaultEntryRequestObject,
+) (api.DeleteWorkspaceRuntimeProfileDefaultEntryResponseObject, error) {
+	target, clientErr, err := a.workspaceInheritedRuntimeProfileRef(ctx, request.WorkspaceName)
+	if err != nil {
+		return nil, err
+	}
+	if clientErr != nil {
+		if clientErr.Code == api.ErrorCodeNotFound {
+			return api.DeleteWorkspaceRuntimeProfileDefaultEntry404JSONResponse(*clientErr), nil
+		}
+		return api.DeleteWorkspaceRuntimeProfileDefaultEntry400JSONResponse(*clientErr), nil
+	}
+	clientErr, err = a.deleteInheritedRuntimeProfileEntry(ctx, target.ref, target.workspaceName, request.Key)
+	if err != nil {
+		return nil, err
+	}
+	if clientErr != nil {
+		if clientErr.Code == api.ErrorCodeNotFound {
+			return api.DeleteWorkspaceRuntimeProfileDefaultEntry404JSONResponse(*clientErr), nil
+		}
+		return api.DeleteWorkspaceRuntimeProfileDefaultEntry400JSONResponse(*clientErr), nil
+	}
+	return api.DeleteWorkspaceRuntimeProfileDefaultEntry204Response{}, nil
 }
 
 func (a *API) GetRuntimeProfile(ctx context.Context, request api.GetRuntimeProfileRequestObject) (api.GetRuntimeProfileResponseObject, error) {
@@ -319,6 +548,238 @@ func (a *API) DeleteRuntimeProfileEntry(ctx context.Context, request api.DeleteR
 	return api.DeleteRuntimeProfileEntry204Response{}, nil
 }
 
+func (a *API) getInheritedRuntimeProfileForView(ctx context.Context, ref profilepkg.InheritedRef) (*profilepkg.Profile, error) {
+	if a.profileStore == nil {
+		return nil, profileStoreUnavailable()
+	}
+	item, err := a.profileStore.GetInherited(ctx, ref)
+	if errors.Is(err, profilepkg.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return item, nil
+}
+
+func (a *API) getOrCreateInheritedRuntimeProfile(
+	ctx context.Context,
+	ref profilepkg.InheritedRef,
+	actor string,
+) (*profilepkg.Profile, error) {
+	item, err := a.getInheritedRuntimeProfileForView(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	if item != nil {
+		return item, nil
+	}
+
+	created, err := profilepkg.NewInherited(ref, profilepkg.InheritedCreateInput{
+		CreatedBy: actor,
+	}, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	if err := a.profileStore.Create(ctx, created); err != nil {
+		if errors.Is(err, profilepkg.ErrAlreadyExists) {
+			return a.profileStore.GetInherited(ctx, ref)
+		}
+		return nil, err
+	}
+	return created, nil
+}
+
+func (a *API) updateInheritedRuntimeProfile(
+	ctx context.Context,
+	ref profilepkg.InheritedRef,
+	workspaceName string,
+	body *api.UpdateInheritedRuntimeProfileRequest,
+) (api.InheritedRuntimeProfileResponse, *api.Error, error) {
+	if body == nil {
+		return api.InheritedRuntimeProfileResponse{}, ptrOf(runtimeProfileBadRequest("Request body is required")), nil
+	}
+
+	actor := currentActorID(ctx)
+	item, err := a.getOrCreateInheritedRuntimeProfile(ctx, ref, actor)
+	if err != nil {
+		if isRuntimeProfileValidationError(err) {
+			return api.InheritedRuntimeProfileResponse{}, ptrOf(runtimeProfileBadRequest(err.Error())), nil
+		}
+		return api.InheritedRuntimeProfileResponse{}, nil, err
+	}
+	item.ApplyUpdate(profilepkg.UpdateInput{
+		Description: body.Description,
+		UpdatedBy:   actor,
+	}, time.Now().UTC())
+	item.Protected = true
+	item.Status = profilepkg.StatusActive
+
+	if err := a.profileStore.Update(ctx, item); err != nil {
+		if isRuntimeProfileValidationError(err) {
+			return api.InheritedRuntimeProfileResponse{}, ptrOf(runtimeProfileBadRequest(err.Error())), nil
+		}
+		return api.InheritedRuntimeProfileResponse{}, nil, fmt.Errorf("failed to update inherited runtime profile: %w", err)
+	}
+
+	a.logAudit(ctx, audit.CategorySecret, "runtime_profile_defaults_update",
+		inheritedRuntimeProfileAuditDetails(ref, workspaceName, item))
+
+	return toInheritedRuntimeProfileResponse(ref, workspaceName, item), nil, nil
+}
+
+func (a *API) setInheritedRuntimeProfileVariable(
+	ctx context.Context,
+	ref profilepkg.InheritedRef,
+	workspaceName string,
+	key string,
+	body *api.SetRuntimeProfileVariableRequest,
+) (api.InheritedRuntimeProfileResponse, *api.Error, error) {
+	if body == nil {
+		return api.InheritedRuntimeProfileResponse{}, ptrOf(runtimeProfileBadRequest("Request body is required")), nil
+	}
+
+	actor := currentActorID(ctx)
+	item, err := a.getOrCreateInheritedRuntimeProfile(ctx, ref, actor)
+	if err != nil {
+		if isRuntimeProfileValidationError(err) {
+			return api.InheritedRuntimeProfileResponse{}, ptrOf(runtimeProfileBadRequest(err.Error())), nil
+		}
+		return api.InheritedRuntimeProfileResponse{}, nil, err
+	}
+	updated, err := profilepkg.NewManager(a.profileStore, a.secretStore).
+		SetVariable(ctx, item, key, body.Value, actor)
+	if err != nil {
+		if isRuntimeProfileValidationError(err) {
+			return api.InheritedRuntimeProfileResponse{}, ptrOf(runtimeProfileBadRequest(err.Error())), nil
+		}
+		return api.InheritedRuntimeProfileResponse{}, nil, fmt.Errorf("failed to update inherited runtime profile variable: %w", err)
+	}
+
+	a.logAudit(ctx, audit.CategorySecret, "runtime_profile_default_variable_set",
+		inheritedRuntimeProfileAuditDetails(ref, workspaceName, updated))
+
+	return toInheritedRuntimeProfileResponse(ref, workspaceName, updated), nil, nil
+}
+
+func (a *API) setInheritedRuntimeProfileSecret(
+	ctx context.Context,
+	ref profilepkg.InheritedRef,
+	workspaceName string,
+	key string,
+	body *api.SetRuntimeProfileSecretRequest,
+) (api.InheritedRuntimeProfileResponse, *api.Error, error) {
+	if body == nil || body.Value == nil || *body.Value == "" {
+		return api.InheritedRuntimeProfileResponse{}, ptrOf(runtimeProfileBadRequest("value must not be empty")), nil
+	}
+	if a.secretStore == nil {
+		return api.InheritedRuntimeProfileResponse{}, nil, secretStoreUnavailable()
+	}
+
+	actor := currentActorID(ctx)
+	item, err := a.getOrCreateInheritedRuntimeProfile(ctx, ref, actor)
+	if err != nil {
+		if isRuntimeProfileValidationError(err) {
+			return api.InheritedRuntimeProfileResponse{}, ptrOf(runtimeProfileBadRequest(err.Error())), nil
+		}
+		return api.InheritedRuntimeProfileResponse{}, nil, err
+	}
+	updated, err := profilepkg.NewManager(a.profileStore, a.secretStore).
+		SetSecret(ctx, item, key, *body.Value, actor)
+	if err != nil {
+		if isRuntimeProfileValidationError(err) || isSecretValidationError(err) || errors.Is(err, secretpkg.ErrUnsupportedProvider) {
+			return api.InheritedRuntimeProfileResponse{}, ptrOf(runtimeProfileBadRequest(err.Error())), nil
+		}
+		return api.InheritedRuntimeProfileResponse{}, nil, err
+	}
+
+	a.logAudit(ctx, audit.CategorySecret, "runtime_profile_default_secret_set",
+		inheritedRuntimeProfileAuditDetails(ref, workspaceName, updated))
+
+	return toInheritedRuntimeProfileResponse(ref, workspaceName, updated), nil, nil
+}
+
+func (a *API) deleteInheritedRuntimeProfileEntry(
+	ctx context.Context,
+	ref profilepkg.InheritedRef,
+	workspaceName string,
+	key string,
+) (*api.Error, error) {
+	if err := profilepkg.ValidateKey(key); err != nil {
+		return ptrOf(runtimeProfileBadRequest(err.Error())), nil
+	}
+	if a.profileStore == nil {
+		return nil, profileStoreUnavailable()
+	}
+	item, err := a.profileStore.GetInherited(ctx, ref)
+	if errors.Is(err, profilepkg.ErrNotFound) {
+		return ptrOf(runtimeProfileNotFound()), nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := profilepkg.NewManager(a.profileStore, a.secretStore).
+		DeleteEntry(ctx, item, key, currentActorID(ctx)); err != nil {
+		if errors.Is(err, profilepkg.ErrNotFound) {
+			return ptrOf(runtimeProfileNotFound()), nil
+		}
+		if isRuntimeProfileValidationError(err) {
+			return ptrOf(runtimeProfileBadRequest(err.Error())), nil
+		}
+		return nil, fmt.Errorf("failed to delete inherited runtime profile entry: %w", err)
+	}
+
+	a.logAudit(ctx, audit.CategorySecret, "runtime_profile_default_entry_delete", map[string]any{
+		"name":      ref.PublicName(),
+		"workspace": workspaceName,
+		"key":       key,
+	})
+
+	return nil, nil
+}
+
+type workspaceInheritedRuntimeProfileTarget struct {
+	ref           profilepkg.InheritedRef
+	workspaceName string
+}
+
+func (a *API) workspaceInheritedRuntimeProfileRef(
+	ctx context.Context,
+	name string,
+) (workspaceInheritedRuntimeProfileTarget, *api.Error, error) {
+	if a.workspaceStore == nil {
+		return workspaceInheritedRuntimeProfileTarget{}, nil, workspaceStoreUnavailable()
+	}
+	workspaceName, err := validateWorkspaceParam(strings.TrimSpace(name))
+	if err != nil {
+		return workspaceInheritedRuntimeProfileTarget{}, serviceAPIError(err), nil
+	}
+	if workspaceName == "" {
+		return workspaceInheritedRuntimeProfileTarget{}, ptrOf(runtimeProfileBadRequest("workspace name is required")), nil
+	}
+	if err := a.requireWorkspaceConfigWrite(ctx, workspaceName); err != nil {
+		return workspaceInheritedRuntimeProfileTarget{}, nil, err
+	}
+	ws, err := a.workspaceStore.GetByName(ctx, workspaceName)
+	if err != nil {
+		if errors.Is(err, workspace.ErrWorkspaceNotFound) {
+			return workspaceInheritedRuntimeProfileTarget{}, &api.Error{
+				Code:    api.ErrorCodeNotFound,
+				Message: "Resource not found",
+			}, nil
+		}
+		return workspaceInheritedRuntimeProfileTarget{}, nil, err
+	}
+	ref, err := profilepkg.WorkspaceInheritedRef(ws.Name)
+	if err != nil {
+		return workspaceInheritedRuntimeProfileTarget{}, ptrOf(runtimeProfileBadRequest(err.Error())), nil
+	}
+	return workspaceInheritedRuntimeProfileTarget{
+		ref:           ref,
+		workspaceName: ws.Name,
+	}, nil, nil
+}
+
 func (a *API) getRuntimeProfileForView(ctx context.Context, name string) (*profilepkg.Profile, error) {
 	if a.profileStore == nil {
 		return nil, profileStoreUnavailable()
@@ -413,6 +874,55 @@ func (a *API) ensureRunnableRuntimeProfileAccess(ctx context.Context, name strin
 }
 
 func toRuntimeProfileResponse(item *profilepkg.Profile) api.RuntimeProfileResponse {
+	entries := runtimeProfileEntriesToAPI(item)
+
+	return api.RuntimeProfileResponse{
+		CreatedAt:   item.CreatedAt,
+		Description: ptrOf(item.Description),
+		Entries:     entries,
+		Id:          item.ID,
+		Name:        item.Name,
+		Protected:   item.Protected,
+		Status:      api.RuntimeProfileStatus(item.Status),
+		UpdatedAt:   item.UpdatedAt,
+	}
+}
+
+func toInheritedRuntimeProfileResponse(
+	ref profilepkg.InheritedRef,
+	workspaceName string,
+	item *profilepkg.Profile,
+) api.InheritedRuntimeProfileResponse {
+	scope := api.InheritedRuntimeProfileScopeGlobal
+	var workspaceValue *api.WorkspaceName
+	if workspaceName != "" {
+		scope = api.InheritedRuntimeProfileScopeWorkspace
+		workspace := api.WorkspaceName(workspaceName)
+		workspaceValue = &workspace
+	}
+
+	resp := api.InheritedRuntimeProfileResponse{
+		Entries:   runtimeProfileEntriesToAPI(item),
+		Name:      ref.PublicName(),
+		Protected: true,
+		Scope:     scope,
+		Status:    api.RuntimeProfileStatusActive,
+		Workspace: workspaceValue,
+	}
+	if item == nil {
+		return resp
+	}
+	resp.CreatedAt = ptrOf(item.CreatedAt)
+	resp.Description = ptrOf(item.Description)
+	resp.Id = ptrOf(item.ID)
+	resp.UpdatedAt = ptrOf(item.UpdatedAt)
+	return resp
+}
+
+func runtimeProfileEntriesToAPI(item *profilepkg.Profile) []api.RuntimeProfileEntryResponse {
+	if item == nil {
+		return []api.RuntimeProfileEntryResponse{}
+	}
 	entries := make([]api.RuntimeProfileEntryResponse, 0, len(item.Entries))
 	for _, entry := range item.Entries {
 		resp := api.RuntimeProfileEntryResponse{
@@ -433,16 +943,7 @@ func toRuntimeProfileResponse(item *profilepkg.Profile) api.RuntimeProfileRespon
 		return entries[i].Key < entries[j].Key
 	})
 
-	return api.RuntimeProfileResponse{
-		CreatedAt:   item.CreatedAt,
-		Description: ptrOf(item.Description),
-		Entries:     entries,
-		Id:          item.ID,
-		Name:        item.Name,
-		Protected:   item.Protected,
-		Status:      api.RuntimeProfileStatus(item.Status),
-		UpdatedAt:   item.UpdatedAt,
-	}
+	return entries
 }
 
 func runtimeProfileAuditDetails(item *profilepkg.Profile) map[string]any {
@@ -453,6 +954,27 @@ func runtimeProfileAuditDetails(item *profilepkg.Profile) map[string]any {
 		"protected":   item.Protected,
 		"entry_count": len(item.Entries),
 	}
+}
+
+func inheritedRuntimeProfileAuditDetails(
+	ref profilepkg.InheritedRef,
+	workspaceName string,
+	item *profilepkg.Profile,
+) map[string]any {
+	details := map[string]any{
+		"name":      ref.PublicName(),
+		"scope":     string(api.InheritedRuntimeProfileScopeGlobal),
+		"protected": true,
+	}
+	if workspaceName != "" {
+		details["scope"] = string(api.InheritedRuntimeProfileScopeWorkspace)
+		details["workspace"] = workspaceName
+	}
+	if item != nil {
+		details["id"] = item.ID
+		details["entry_count"] = len(item.Entries)
+	}
+	return details
 }
 
 func isRuntimeProfileValidationError(err error) bool {

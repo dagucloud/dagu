@@ -38,7 +38,7 @@ func (m *Manager) SetVariable(ctx context.Context, p *Profile, key, value, actor
 	if err := m.profileStore.Update(ctx, p); err != nil {
 		return nil, err
 	}
-	return m.profileStore.GetByName(ctx, p.Name)
+	return p.Clone(), nil
 }
 
 func (m *Manager) SetSecret(ctx context.Context, p *Profile, key, value, actor string) (*Profile, error) {
@@ -59,7 +59,7 @@ func (m *Manager) SetSecret(ctx context.Context, p *Profile, key, value, actor s
 	}
 
 	now := time.Now().UTC()
-	ref := SecretRef(p.Name, key)
+	ref := SecretRefForProfileName(p.Name, key)
 	sec, err := m.secretStore.GetByRef(ctx, "", ref)
 	if err == nil {
 		return m.setExistingSecret(ctx, p, key, value, sec.ID, actor, now)
@@ -145,7 +145,7 @@ func (m *Manager) setExistingSecret(
 		return nil, err
 	}
 
-	return m.profileStore.GetByName(ctx, p.Name)
+	return p.Clone(), nil
 }
 
 func (m *Manager) createSecret(
@@ -188,7 +188,7 @@ func (m *Manager) createSecret(
 		return nil, err
 	}
 
-	return m.profileStore.GetByName(ctx, p.Name)
+	return p.Clone(), nil
 }
 
 func profileEntry(p *Profile, key string) (Entry, bool) {

@@ -1143,6 +1143,139 @@ steps:
 	require.Contains(t, string(latestStatusJSON), "*******")
 }
 
+func TestAgent_RuntimeConfigVarsUseRuntimeProfilePrecedence(t *testing.T) {
+	t.Parallel()
+
+	vars := agent.RuntimeConfigVarsForTest(
+		[]string{
+			"DAG_BEATS_DEFAULT=global",
+			"DEFAULT_ONLY=global",
+		},
+		[]string{
+			"DAG_BEATS_DEFAULT_SECRET=global-secret",
+			"DEFAULT_SECRET=global-secret",
+			"SECRET_SHARED=global-secret",
+		},
+		[]string{
+			"DAG_BEATS_DEFAULT=dag",
+			"DAG_BEATS_DEFAULT_SECRET=dag",
+			"SELECTED_BEATS_DAG=dag",
+			"SECRET_SHARED=dag-env",
+		},
+		[]string{
+			"SELECTED_BEATS_DAG=selected",
+			"SELECTED_ONLY=selected",
+		},
+		[]string{
+			"SECRET_SHARED=selected-secret",
+		},
+		[]string{
+			"SECRET_SHARED=dag-secret",
+			"DAG_SECRET=dag-secret",
+		},
+	)
+
+	require.Equal(t, "dag", vars["DAG_BEATS_DEFAULT"])
+	require.Equal(t, "dag", vars["DAG_BEATS_DEFAULT_SECRET"])
+	require.Equal(t, "global", vars["DEFAULT_ONLY"])
+	require.Equal(t, "global-secret", vars["DEFAULT_SECRET"])
+	require.Equal(t, "selected", vars["SELECTED_BEATS_DAG"])
+	require.Equal(t, "selected", vars["SELECTED_ONLY"])
+	require.Equal(t, "dag-secret", vars["SECRET_SHARED"])
+	require.Equal(t, "dag-secret", vars["DAG_SECRET"])
+}
+
+func TestAgent_LayeredRuntimeProfiles(t *testing.T) {
+	t.Parallel()
+	th := test.Setup(t)
+
+	backend := testutil.NewMemoryBackend()
+	enc, err := crypto.NewEncryptor("test-key")
+	require.NoError(t, err)
+	secretStore, err := store.NewSecretStore(backend.Collection("secrets"), enc)
+	require.NoError(t, err)
+	profileStore, err := store.NewProfileStore(backend.Collection("profiles"))
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	globalRef := profilepkg.GlobalInheritedRef()
+	globalDefaults, err := profilepkg.NewInherited(globalRef, profilepkg.InheritedCreateInput{
+		CreatedBy: "alice",
+	}, now)
+	require.NoError(t, err)
+	require.NoError(t, globalDefaults.SetVariable("GLOBAL_ONLY", "global", "alice", now))
+	require.NoError(t, globalDefaults.SetVariable("WORKSPACE_ONLY", "global", "alice", now))
+	require.NoError(t, globalDefaults.SetVariable("SHARED", "global", "alice", now))
+	require.NoError(t, profileStore.Create(context.Background(), globalDefaults))
+
+	workspaceRef, err := profilepkg.WorkspaceInheritedRef("ops")
+	require.NoError(t, err)
+	workspaceDefaults, err := profilepkg.NewInherited(workspaceRef, profilepkg.InheritedCreateInput{
+		CreatedBy: "alice",
+	}, now)
+	require.NoError(t, err)
+	require.NoError(t, workspaceDefaults.SetVariable("WORKSPACE_ONLY", "workspace", "alice", now))
+	require.NoError(t, workspaceDefaults.SetVariable("SHARED", "workspace", "alice", now))
+
+	defaultToken, err := secretpkg.New(secretpkg.CreateInput{
+		Ref:          workspaceRef.SecretRef("DEFAULT_TOKEN"),
+		ProviderType: secretpkg.ProviderDaguManaged,
+		CreatedBy:    "alice",
+	}, now)
+	require.NoError(t, err)
+	require.NoError(t, secretStore.Create(context.Background(), defaultToken, &secretpkg.WriteValueInput{
+		Value:     "workspace-default-secret",
+		CreatedBy: "alice",
+		CreatedAt: now,
+	}))
+	require.NoError(t, workspaceDefaults.SetSecret("DEFAULT_TOKEN", defaultToken.ID, "alice", now))
+	require.NoError(t, profileStore.Create(context.Background(), workspaceDefaults))
+
+	selected, err := profilepkg.New(profilepkg.CreateInput{
+		Name:      "prod",
+		CreatedBy: "alice",
+	}, now)
+	require.NoError(t, err)
+	require.NoError(t, selected.SetVariable("SELECTED_ONLY", "selected", "alice", now))
+	require.NoError(t, selected.SetVariable("SHARED", "selected", "alice", now))
+	require.NoError(t, profileStore.Create(context.Background(), selected))
+
+	dag := th.DAG(t, `
+labels:
+  - workspace=ops
+steps:
+  - name: step1
+    run: echo "$GLOBAL_ONLY|$WORKSPACE_ONLY|$SELECTED_ONLY|$SHARED|$DEFAULT_TOKEN"
+    output: RESPONSE`)
+
+	dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{
+		ProfileStore: profileStore,
+		SecretStore:  secretStore,
+		ProfileName:  "prod",
+	}))
+	dagAgent.RunSuccess(t)
+
+	outputs := dag.ReadOutputs(t)
+	require.Contains(t, outputs["response"], "global|workspace|selected|selected|*******")
+	require.NotContains(t, outputs["response"], "workspace-default-secret")
+
+	status := dagAgent.Status(th.Context)
+	require.Equal(t, "prod", status.ProfileName)
+	require.NotEmpty(t, status.ProfileResolvedAt)
+	require.ElementsMatch(t, []exec.RuntimeProfileEntry{
+		{Key: "GLOBAL_ONLY", Kind: "variable"},
+		{Key: "WORKSPACE_ONLY", Kind: "variable"},
+		{Key: "SHARED", Kind: "variable"},
+		{Key: "DEFAULT_TOKEN", Kind: "secret"},
+		{Key: "SELECTED_ONLY", Kind: "variable"},
+	}, status.ProfileEntries)
+
+	statusJSON, err := json.Marshal(status)
+	require.NoError(t, err)
+	require.NotContains(t, string(statusJSON), "workspace-default-secret")
+	require.Contains(t, string(statusJSON), "*******")
+}
+
 func TestAgent_SubDAGRunVisibleWhileRunning(t *testing.T) {
 	t.Parallel()
 

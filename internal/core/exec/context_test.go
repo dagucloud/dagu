@@ -328,6 +328,32 @@ func TestNewContext_DAGEnvCanReferenceRuntimeManagedDirs(t *testing.T) {
 	assert.Equal(t, artifactDir, result[exec.EnvKeyDAGRunArtifactsDir])
 }
 
+func TestNewContext_DefaultProfileEnvsHaveLowestUserPrecedence(t *testing.T) {
+	t.Parallel()
+
+	dag := &core.DAG{
+		Name: "test-dag",
+		Env: []string{
+			"FROM_DEFAULT=${DEFAULT_ONLY}",
+			"SHARED=dag",
+			"SECRET_SHARED=dag",
+		},
+	}
+
+	ctx := exec.NewContext(context.Background(), dag, "run-1", "test.log",
+		exec.WithDefaultEnvVars("DEFAULT_ONLY=global", "SHARED=global"),
+		exec.WithDefaultSecrets([]string{"SECRET_ONLY=default-secret", "SECRET_SHARED=default-secret"}),
+		exec.WithEnvVars("SHARED=selected-profile", "SECRET_SHARED=selected-profile"),
+	)
+
+	result := exec.GetContext(ctx).UserEnvsMap()
+	assert.Equal(t, "global", result["DEFAULT_ONLY"])
+	assert.Equal(t, "global", result["FROM_DEFAULT"])
+	assert.Equal(t, "selected-profile", result["SHARED"])
+	assert.Equal(t, "default-secret", result["SECRET_ONLY"])
+	assert.Equal(t, "selected-profile", result["SECRET_SHARED"])
+}
+
 func TestNewContext_AllEnvsUsesFilteredBaseEnv(t *testing.T) {
 	t.Setenv("EXEC_CONTEXT_HOST_ONLY", "host-value")
 

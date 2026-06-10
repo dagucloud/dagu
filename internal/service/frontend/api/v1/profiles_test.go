@@ -22,6 +22,7 @@ import (
 	secretpkg "github.com/dagucloud/dagu/internal/secret"
 	apiv1 "github.com/dagucloud/dagu/internal/service/frontend/api/v1"
 	testhelper "github.com/dagucloud/dagu/internal/test"
+	workspacepkg "github.com/dagucloud/dagu/internal/workspace"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -120,6 +121,142 @@ func TestRuntimeProfilesAPI_RejectsReservedDaguKey(t *testing.T) {
 	rejected, ok := setResp.(apigen.SetRuntimeProfileVariable400JSONResponse)
 	require.True(t, ok)
 	assert.Contains(t, rejected.Message, "reserved")
+}
+
+func TestRuntimeProfilesAPI_GlobalDefaultsUseProfileStoreAndMaskSecrets(t *testing.T) {
+	ctx := context.Background()
+	api, profileStore, secretStore := newRuntimeProfilesTestAPI(t)
+
+	getResp, err := api.GetGlobalRuntimeProfileDefaults(ctx, apigen.GetGlobalRuntimeProfileDefaultsRequestObject{})
+	require.NoError(t, err)
+	virtualDefaults, ok := getResp.(apigen.GetGlobalRuntimeProfileDefaults200JSONResponse)
+	require.True(t, ok)
+	assert.Equal(t, "_global", virtualDefaults.Name)
+	assert.Equal(t, apigen.InheritedRuntimeProfileScopeGlobal, virtualDefaults.Scope)
+	assert.Nil(t, virtualDefaults.Id)
+	assert.Empty(t, virtualDefaults.Entries)
+
+	variableResp, err := api.SetGlobalRuntimeProfileDefaultVariable(ctx, apigen.SetGlobalRuntimeProfileDefaultVariableRequestObject{
+		Key: "LOG_LEVEL",
+		Body: &apigen.SetRuntimeProfileVariableRequest{
+			Value: "debug",
+		},
+	})
+	require.NoError(t, err)
+	_, ok = variableResp.(apigen.SetGlobalRuntimeProfileDefaultVariable200JSONResponse)
+	require.True(t, ok)
+
+	plainSecret := "global-default-secret"
+	secretResp, err := api.SetGlobalRuntimeProfileDefaultSecret(ctx, apigen.SetGlobalRuntimeProfileDefaultSecretRequestObject{
+		Key: "DB_PASSWORD",
+		Body: &apigen.SetRuntimeProfileSecretRequest{
+			Value: &plainSecret,
+		},
+	})
+	require.NoError(t, err)
+	withSecret, ok := secretResp.(apigen.SetGlobalRuntimeProfileDefaultSecret200JSONResponse)
+	require.True(t, ok)
+	assert.NotContains(t, mustJSON(t, withSecret), plainSecret)
+
+	require.Len(t, withSecret.Entries, 2)
+	entryByKey := map[string]apigen.RuntimeProfileEntryResponse{}
+	for _, entry := range withSecret.Entries {
+		entryByKey[entry.Key] = entry
+	}
+	assert.Equal(t, apigen.RuntimeProfileEntryKindVariable, entryByKey["LOG_LEVEL"].Kind)
+	assert.Equal(t, apigen.RuntimeProfileEntryKindSecret, entryByKey["DB_PASSWORD"].Kind)
+	assert.Nil(t, entryByKey["DB_PASSWORD"].Value)
+
+	globalRef := profile.GlobalInheritedRef()
+	stored, err := profileStore.GetInherited(ctx, globalRef)
+	require.NoError(t, err)
+	require.Len(t, stored.Entries, 2)
+
+	sec, err := secretStore.GetByRef(ctx, "", globalRef.SecretRef("DB_PASSWORD"))
+	require.NoError(t, err)
+	resolved, _, err := secretStore.ResolveValue(ctx, sec.ID)
+	require.NoError(t, err)
+	assert.Equal(t, plainSecret, resolved)
+
+	listResp, err := api.ListRuntimeProfiles(ctx, apigen.ListRuntimeProfilesRequestObject{})
+	require.NoError(t, err)
+	listed, ok := listResp.(apigen.ListRuntimeProfiles200JSONResponse)
+	require.True(t, ok)
+	assert.Empty(t, listed.Profiles)
+
+	deleteResp, err := api.DeleteGlobalRuntimeProfileDefaultEntry(ctx, apigen.DeleteGlobalRuntimeProfileDefaultEntryRequestObject{
+		Key: "LOG_LEVEL",
+	})
+	require.NoError(t, err)
+	_, ok = deleteResp.(apigen.DeleteGlobalRuntimeProfileDefaultEntry204Response)
+	require.True(t, ok)
+}
+
+func TestRuntimeProfilesAPI_WorkspaceDefaultsUseProfileStore(t *testing.T) {
+	ctx := context.Background()
+	backend := testutil.NewMemoryBackend()
+	profileStore, err := persiststore.NewProfileStore(backend.Collection("profiles"))
+	require.NoError(t, err)
+	enc, err := crypto.NewEncryptor("test-key-for-workspace-runtime-profile-defaults")
+	require.NoError(t, err)
+	secretStore, err := persiststore.NewSecretStore(backend.Collection("secrets"), enc)
+	require.NoError(t, err)
+	workspaceStore, err := persiststore.NewWorkspaceStore(backend.Collection("workspaces"))
+	require.NoError(t, err)
+	require.NoError(t, workspaceStore.Create(ctx, workspacepkg.NewWorkspace("ops", "")))
+
+	api := newRuntimeProfilesTestAPIWithStoresAndOptions(
+		t,
+		profileStore,
+		secretStore,
+		apiv1.WithWorkspaceStore(workspaceStore),
+	)
+
+	workspaceName := apigen.WorkspaceName("ops")
+	variableResp, err := api.SetWorkspaceRuntimeProfileDefaultVariable(ctx, apigen.SetWorkspaceRuntimeProfileDefaultVariableRequestObject{
+		WorkspaceName: workspaceName,
+		Key:           "LOG_LEVEL",
+		Body: &apigen.SetRuntimeProfileVariableRequest{
+			Value: "info",
+		},
+	})
+	require.NoError(t, err)
+	updated, ok := variableResp.(apigen.SetWorkspaceRuntimeProfileDefaultVariable200JSONResponse)
+	require.True(t, ok)
+	assert.Equal(t, "_workspaces/ops", updated.Name)
+	assert.Equal(t, apigen.InheritedRuntimeProfileScopeWorkspace, updated.Scope)
+	require.NotNil(t, updated.Workspace)
+	assert.Equal(t, "ops", *updated.Workspace)
+
+	ref, err := profile.WorkspaceInheritedRef("ops")
+	require.NoError(t, err)
+	stored, err := profileStore.GetInherited(ctx, ref)
+	require.NoError(t, err)
+	require.Len(t, stored.Entries, 1)
+	assert.Equal(t, "LOG_LEVEL", stored.Entries[0].Key)
+
+	listResp, err := api.ListRuntimeProfiles(ctx, apigen.ListRuntimeProfilesRequestObject{})
+	require.NoError(t, err)
+	listed, ok := listResp.(apigen.ListRuntimeProfiles200JSONResponse)
+	require.True(t, ok)
+	assert.Empty(t, listed.Profiles)
+}
+
+func TestRuntimeProfilesAPI_WorkspaceDefaultsAuthorizeBeforeWorkspaceLookup(t *testing.T) {
+	server := setupBuiltinAuthServer(t)
+	adminToken := getAdminToken(t, server)
+	viewerToken := createRuntimeProfileUserToken(
+		t, server, adminToken, "profile-viewer", "viewerpass1", apigen.UserRoleViewer,
+	)
+
+	server.Client().Post("/api/v1/workspaces", apigen.CreateWorkspaceRequest{
+		Name: "ops",
+	}).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t)
+
+	server.Client().Get("/api/v1/profiles/_workspaces/ops").
+		WithBearerToken(viewerToken).ExpectStatus(http.StatusForbidden).Send(t)
+	server.Client().Get("/api/v1/profiles/_workspaces/missing").
+		WithBearerToken(viewerToken).ExpectStatus(http.StatusForbidden).Send(t)
 }
 
 func TestRuntimeProfilesAPI_ProtectedProfileUseRequiresAdmin(t *testing.T) {
@@ -445,8 +582,22 @@ func newRuntimeProfilesTestAPI(t *testing.T) (*apiv1.API, profile.Store, secretp
 
 func newRuntimeProfilesTestAPIWithStores(t *testing.T, profileStore profile.Store, secretStore secretpkg.Store) *apiv1.API {
 	t.Helper()
+	return newRuntimeProfilesTestAPIWithStoresAndOptions(t, profileStore, secretStore)
+}
+
+func newRuntimeProfilesTestAPIWithStoresAndOptions(
+	t *testing.T,
+	profileStore profile.Store,
+	secretStore secretpkg.Store,
+	options ...apiv1.APIOption,
+) *apiv1.API {
+	t.Helper()
 
 	cfg := &config.Config{}
+	options = append([]apiv1.APIOption{
+		apiv1.WithProfileStore(profileStore),
+		apiv1.WithSecretStore(secretStore),
+	}, options...)
 	return apiv1.New(
 		nil,
 		nil,
@@ -458,8 +609,7 @@ func newRuntimeProfilesTestAPIWithStores(t *testing.T, profileStore profile.Stor
 		nil,
 		prometheus.NewRegistry(),
 		nil,
-		apiv1.WithProfileStore(profileStore),
-		apiv1.WithSecretStore(secretStore),
+		options...,
 	)
 }
 

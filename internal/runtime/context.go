@@ -35,10 +35,14 @@ var (
 	WithRootDAGRun = exec.WithRootDAGRun
 	// WithParams sets runtime parameters.
 	WithParams = exec.WithParams
+	// WithDefaultEnvVars sets low-precedence inherited environment variables.
+	WithDefaultEnvVars = exec.WithDefaultEnvVars
 	// WithEnvVars sets additional execution-scoped environment variables.
 	WithEnvVars = exec.WithEnvVars
 	// WithCoordinator sets the coordinator dispatcher for distributed execution.
 	WithCoordinator = exec.WithCoordinator
+	// WithDefaultSecrets sets low-precedence inherited secret environment variables.
+	WithDefaultSecrets = exec.WithDefaultSecrets
 	// WithSecrets sets secret environment variables.
 	WithSecrets = exec.WithSecrets
 	// WithLogEncoding sets the log file character encoding.

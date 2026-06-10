@@ -17,3 +17,19 @@ func RetryNodesForTest(dag *core.DAG, status *exec.DAGRunStatus) ([]*runtime.Nod
 	}
 	return a.retryNodes()
 }
+
+func RuntimeConfigVarsForTest(
+	defaultEnvs []string,
+	defaultSecrets []string,
+	dagEnv []string,
+	selectedEnvs []string,
+	selectedSecrets []string,
+	secretEnvs []string,
+) map[string]string {
+	return runtimeConfigVars(dagEnv, resolvedProfileValues{
+		defaultEnvs:     defaultEnvs,
+		defaultSecrets:  defaultSecrets,
+		selectedEnvs:    selectedEnvs,
+		selectedSecrets: selectedSecrets,
+	}, secretEnvs)
+}
