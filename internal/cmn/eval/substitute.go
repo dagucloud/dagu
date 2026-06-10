@@ -48,6 +48,10 @@ func buildShellCommandContext(ctx context.Context, shell, cmdStr string) *exec.C
 }
 
 func splitShellCommand(shell string) (string, []string) {
+	if _, err := os.Stat(shell); err == nil {
+		return shell, nil
+	}
+
 	command, args, err := cmdutil.SplitCommand(shell)
 	if err != nil || command == "" {
 		return shell, nil
