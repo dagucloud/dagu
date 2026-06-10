@@ -373,19 +373,19 @@ func TestDBClient_GetDAG(t *testing.T) {
 	}
 
 	tests := []struct {
-		name               string
-		ds                 exec.DAGStore      // nil means no local store
-		remoteLoader       RemoteDAGLoader    // nil means no remote loader
-		expectDAG          *core.DAG
-		expectError        bool
-		expectErrContains  string
+		name              string
+		ds                exec.DAGStore   // nil means no local store
+		remoteLoader      RemoteDAGLoader // nil means no remote loader
+		expectDAG         *core.DAG
+		expectError       bool
+		expectErrContains string
 	}{
 		{
-			name:        "local hit returns dag",
-			ds:          setupMockDS("test-dag", testDAG, nil),
+			name:         "local hit returns dag",
+			ds:           setupMockDS("test-dag", testDAG, nil),
 			remoteLoader: nil,
-			expectDAG:   testDAG,
-			expectError: false,
+			expectDAG:    testDAG,
+			expectError:  false,
 		},
 		{
 			name: "local not-found + remote hit",
@@ -415,9 +415,9 @@ func TestDBClient_GetDAG(t *testing.T) {
 			expectErrContains: "DAG is not found",
 		},
 		{
-			name: "local not-found + no remote loader",
-			ds:   setupMockDS("test-dag", nil, exec.ErrDAGNotFound),
-			remoteLoader: nil,
+			name:              "local not-found + no remote loader",
+			ds:                setupMockDS("test-dag", nil, exec.ErrDAGNotFound),
+			remoteLoader:      nil,
 			expectError:       true,
 			expectErrContains: "DAG is not found",
 		},
@@ -431,8 +431,8 @@ func TestDBClient_GetDAG(t *testing.T) {
 			expectErrContains: "permission denied",
 		},
 		{
-			name:        "nil ds + remote hit",
-			ds:          nil,
+			name: "nil ds + remote hit",
+			ds:   nil,
 			remoteLoader: func(ctx context.Context, name string) (*core.DAG, error) {
 				return testDAG, nil
 			},
