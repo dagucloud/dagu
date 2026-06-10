@@ -451,13 +451,27 @@ func (store *Store) LatestAttempt(ctx context.Context, dagName string) (exec.DAG
 		startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, store.location)
 		startOfDayInUTC := exec.NewUTC(startOfDay)
 
+		if attempt, err := root.latestAttemptFromPointer(ctx, store.cache, startOfDayInUTC); err == nil {
+			return attempt, nil
+		}
+
 		// Get the latest execution data after the start of the day.
 		exec, err := root.LatestAfter(ctx, startOfDayInUTC)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get latest after: %w", err)
 		}
 
-		return exec.LatestAttempt(ctx, store.cache)
+		attempt, err := exec.LatestAttempt(ctx, store.cache)
+		if err == nil {
+			if markerErr := updateLatestAttemptPointer(ctx, attempt.file); markerErr != nil {
+				logger.Debug(ctx, "Failed to refresh DAG-run latest attempt pointer", tag.Error(markerErr))
+			}
+		}
+		return attempt, err
+	}
+
+	if attempt, err := root.latestAttemptFromPointer(ctx, store.cache, exec.TimeInUTC{}); err == nil {
+		return attempt, nil
 	}
 
 	// Get the latest execution data.
@@ -465,7 +479,13 @@ func (store *Store) LatestAttempt(ctx context.Context, dagName string) (exec.DAG
 	if len(latest) == 0 {
 		return nil, exec.ErrNoStatusData
 	}
-	return latest[0].LatestAttempt(ctx, store.cache)
+	attempt, err := latest[0].LatestAttempt(ctx, store.cache)
+	if err == nil {
+		if markerErr := updateLatestAttemptPointer(ctx, attempt.file); markerErr != nil {
+			logger.Debug(ctx, "Failed to refresh DAG-run latest attempt pointer", tag.Error(markerErr))
+		}
+	}
+	return attempt, err
 }
 
 // FindAttempt finds a history record by dag-run ID.

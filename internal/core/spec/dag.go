@@ -1455,7 +1455,7 @@ func buildEnvs(ctx BuildContext, d *dag) ([]string, error) {
 		maps.Copy(ctx.envScope.buildEnv, vars)
 	}
 
-	var envs []string
+	envs := make([]string, 0, len(vars))
 	for k, v := range vars {
 		envs = append(envs, fmt.Sprintf("%s=%s", k, v))
 	}

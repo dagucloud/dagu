@@ -133,7 +133,7 @@ func ResolveEnvWithWarnings(ctx context.Context, dag *core.DAG, params any, opts
 }
 
 func canReuseCurrentEnv(dag *core.DAG, params any) bool {
-	return !hasRuntimeParams(params) && len(dag.Env) > 0 && (dag.EnvEvaluated || !hasDAGSource(dag))
+	return !hasRuntimeParams(params) && ((dag.EnvEvaluated && dag.Env != nil) || (len(dag.Env) > 0 && !hasDAGSource(dag)))
 }
 
 func shouldRecomputeEnv(dag *core.DAG, params any) bool {

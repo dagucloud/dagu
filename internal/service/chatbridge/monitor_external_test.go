@@ -22,10 +22,11 @@ import (
 )
 
 type monitorEventStore struct {
-	mu        sync.Mutex
-	events    []*eventstore.Event
-	headCalls int
-	readCalls int
+	mu             sync.Mutex
+	events         []*eventstore.Event
+	headCalls      int
+	readCalls      int
+	lastHeadOffset int64
 }
 
 var _ eventstore.Store = (*monitorEventStore)(nil)
@@ -51,6 +52,7 @@ func (s *monitorEventStore) NotificationHeadCursor(context.Context) (eventstore.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.headCalls++
+	s.lastHeadOffset = int64(len(s.events))
 	return s.currentCursorLocked(), nil
 }
 
@@ -76,6 +78,12 @@ func (s *monitorEventStore) stats() (int, int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.headCalls, s.readCalls
+}
+
+func (s *monitorEventStore) lastHead() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastHeadOffset
 }
 
 type mutableNotificationTransport struct {
@@ -144,8 +152,8 @@ func TestNotificationMonitorWithoutDestinationsAdvancesCursorWithoutReadingEvent
 	require.NoError(t, store.Emit(context.Background(), newMonitorDAGRunEvent("old-run")))
 
 	require.Eventually(t, func() bool {
-		headCalls, readCalls := store.stats()
-		return headCalls > 1 && readCalls == 0
+		_, readCalls := store.stats()
+		return store.lastHead() >= 1 && readCalls == 0
 	}, time.Second, 10*time.Millisecond)
 }
 
@@ -179,8 +187,8 @@ func TestNotificationMonitorDeliversOnlyFutureEventsAfterDestinationIsAdded(t *t
 
 	require.NoError(t, store.Emit(context.Background(), newMonitorDAGRunEvent("old-run")))
 	require.Eventually(t, func() bool {
-		headCalls, readCalls := store.stats()
-		return headCalls > 1 && readCalls == 0
+		_, readCalls := store.stats()
+		return store.lastHead() >= 1 && readCalls == 0
 	}, time.Second, 10*time.Millisecond)
 
 	transport.setDestinations([]string{"dest-1"})

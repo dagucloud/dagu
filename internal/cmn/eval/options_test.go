@@ -5,8 +5,10 @@ package eval
 
 import (
 	"context"
+	"runtime"
 	"testing"
 
+	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -46,6 +48,11 @@ func TestOptions_WithOSExpansion(t *testing.T) {
 func TestWithoutExpandShell(t *testing.T) {
 	t.Setenv("TEST_VAR", "test_value_for_shell")
 	ctx := context.Background()
+	if runtime.GOOS == "windows" {
+		ctx = config.WithConfig(ctx, &config.Config{
+			Core: config.Core{DefaultShell: "cmd"},
+		})
+	}
 
 	tests := []struct {
 		name  string
