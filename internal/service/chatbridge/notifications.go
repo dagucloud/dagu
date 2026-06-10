@@ -358,6 +358,31 @@ func (b *NotificationBatcher) DiscardDestinations(destinations []string) {
 	}
 }
 
+// flushBucketsLocked synchronously moves buffered buckets of the given class
+// to the ready queue, stopping any pending timers. It is safe to call when the
+// batcher has not been stopped.
+func (b *NotificationBatcher) flushBucketsLocked(class NotificationClass) {
+	b.mu.Lock()
+	type bucketRef struct {
+		key string
+		id  uint64
+	}
+	refs := make([]bucketRef, 0)
+	for key, bucket := range b.buckets {
+		if bucket != nil && bucket.class == class {
+			if bucket.timer != nil {
+				bucket.timer.Stop()
+			}
+			refs = append(refs, bucketRef{key: key, id: bucket.id})
+		}
+	}
+	b.mu.Unlock()
+
+	for _, ref := range refs {
+		b.readyBucket(ref.key, ref.id)
+	}
+}
+
 func (b *NotificationBatcher) readyBucket(bucketKey string, bucketID uint64) {
 	b.mu.Lock()
 	if b.stopped {
