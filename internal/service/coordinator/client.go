@@ -81,6 +81,10 @@ type Client interface {
 
 	// GetDAGRunStatus is inherited from execution.Dispatcher
 
+	// GetDAG retrieves a DAG definition (raw YAML) from the coordinator's DAG store.
+	// Used as a fallback when a worker's local DAG store misses a definition.
+	GetDAG(ctx context.Context, name string) (string, error)
+
 	// Metrics returns the metrics for the coordinator client
 	Metrics() Metrics
 }
@@ -1000,6 +1004,38 @@ func (cli *clientImpl) GetDAGRunStatus(ctx context.Context, dagName, dagRunID st
 		result.Status = status
 	}
 	return result, nil
+}
+
+// GetDAG retrieves a DAG definition (raw YAML spec) from the coordinator's DAG store.
+func (cli *clientImpl) GetDAG(ctx context.Context, name string) (string, error) {
+	members, err := cli.getCoordinatorMembers(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	req := &coordinatorv1.GetDAGRequest{
+		Name: name,
+	}
+
+	var resp *coordinatorv1.GetDAGResponse
+	err = cli.attemptCall(ctx, members, func(ctx context.Context, member exec.HostInfo, client *client) error {
+		var callErr error
+		resp, callErr = client.client.GetDAG(ctx, req)
+		if callErr != nil {
+			return fmt.Errorf("get DAG definition failed: %w", callErr)
+		}
+		if resp == nil {
+			return fmt.Errorf("coordinator %s returned empty DAG definition response", member.ID)
+		}
+		if resp.Error != "" {
+			return fmt.Errorf("coordinator %s get DAG failed: %s", member.ID, resp.Error)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return resp.Spec, nil
 }
 
 // RequestCancel requests cancellation of a DAG run through the coordinator

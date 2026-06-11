@@ -634,6 +634,23 @@ func (h *remoteTaskHandler) executeDAGRun(
 		DAGRunArtifactDir: h.config.Paths.ArtifactDir,
 	})
 
+	// Create a remote DAG loader that fetches DAG definitions from the coordinator
+	// as a fallback when the local DAG store misses.
+	remoteDAGLoader := rtagent.RemoteDAGLoader(func(ctx context.Context, name string) (*core.DAG, error) {
+		dagYAML, err := h.coordinatorClient.GetDAG(ctx, name)
+		if err != nil {
+			return nil, err
+		}
+		if dagYAML == "" {
+			return nil, nil
+		}
+		dag, loadErr := spec.LoadYAML(ctx, []byte(dagYAML), spec.WithName(name))
+		if loadErr != nil {
+			return nil, fmt.Errorf("failed to parse DAG from remote: %w", loadErr)
+		}
+		return dag, nil
+	})
+
 	// Build agent options
 	opts := rtagent.Options{
 		ParentDAGRun:             parent,
@@ -650,6 +667,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		ProfileName:              profileName,
 		ServiceRegistry:          h.serviceRegistry,
 		SubWorkflowRunnerFactory: subWorkflowRunnerFactory,
+		RemoteDAGLoader:          remoteDAGLoader,
 		RootDAGRun:               root,
 		PeerConfig:               h.peerConfig,
 		DefaultExecMode:          h.config.DefaultExecMode,

@@ -48,7 +48,7 @@ func TestDBClient_GetSubDAGRunStatus(t *testing.T) {
 			},
 		}, nil)
 		// Create dbClient
-		dbClient := newDBClient(mockDAGRunStore, mockDAGStore)
+		dbClient := newDBClient(mockDAGRunStore, mockDAGStore, nil)
 
 		// Test GetSubDAGRunStatus
 		st, err := dbClient.GetSubDAGRunStatus(ctx, subRunID, rootRef)
@@ -77,7 +77,7 @@ func TestDBClient_GetSubDAGRunStatus(t *testing.T) {
 
 		mockDAGRunStore.On("FindSubAttempt", ctx, rootRef, subRunID).Return(nil, errors.New("not found"))
 
-		dbClient := newDBClient(mockDAGRunStore, mockDAGStore)
+		dbClient := newDBClient(mockDAGRunStore, mockDAGStore, nil)
 
 		status, err := dbClient.GetSubDAGRunStatus(ctx, subRunID, rootRef)
 		assert.Error(t, err)
@@ -106,7 +106,7 @@ func TestDBClient_IsSubDAGRunCompleted(t *testing.T) {
 			Status:   core.Succeeded,
 		}, nil)
 
-		dbClient := newDBClient(mockDAGRunStore, mockDAGStore)
+		dbClient := newDBClient(mockDAGRunStore, mockDAGStore, nil)
 
 		completed, err := dbClient.IsSubDAGRunCompleted(ctx, subRunID, rootRef)
 		require.NoError(t, err)
@@ -133,7 +133,7 @@ func TestDBClient_IsSubDAGRunCompleted(t *testing.T) {
 			Status:   core.Failed,
 		}, nil)
 
-		dbClient := newDBClient(mockDAGRunStore, mockDAGStore)
+		dbClient := newDBClient(mockDAGRunStore, mockDAGStore, nil)
 
 		completed, err := dbClient.IsSubDAGRunCompleted(ctx, subRunID, rootRef)
 		require.NoError(t, err)
@@ -153,7 +153,7 @@ func TestDBClient_IsSubDAGRunCompleted(t *testing.T) {
 
 		mockDAGRunStore.On("FindSubAttempt", ctx, rootRef, subRunID).Return(nil, errors.New("not found"))
 
-		dbClient := newDBClient(mockDAGRunStore, mockDAGStore)
+		dbClient := newDBClient(mockDAGRunStore, mockDAGStore, nil)
 
 		completed, err := dbClient.IsSubDAGRunCompleted(ctx, subRunID, rootRef)
 		assert.Error(t, err)
@@ -360,4 +360,135 @@ func (m *mockDAGRunStore) RemoveOldDAGRuns(ctx context.Context, name string, ret
 func (m *mockDAGRunStore) RenameDAGRuns(ctx context.Context, oldName, newName string) error {
 	args := m.Called(ctx, oldName, newName)
 	return args.Error(0)
+}
+
+func TestDBClient_GetDAG(t *testing.T) {
+	testDAG := &core.DAG{Name: "test-dag"}
+
+	// Helper to create a mock DAG store with pre-set GetDetails expectations.
+	setupMockDS := func(name string, dag *core.DAG, err error) *mockDAGStore {
+		m := new(mockDAGStore)
+		m.On("GetDetails", mock.Anything, name, mock.Anything).Return(dag, err)
+		return m
+	}
+
+	tests := []struct {
+		name              string
+		ds                exec.DAGStore   // nil means no local store
+		remoteLoader      RemoteDAGLoader // nil means no remote loader
+		expectDAG         *core.DAG
+		expectError       bool
+		expectErrContains string
+	}{
+		{
+			name:         "local hit returns dag",
+			ds:           setupMockDS("test-dag", testDAG, nil),
+			remoteLoader: nil,
+			expectDAG:    testDAG,
+			expectError:  false,
+		},
+		{
+			name: "local not-found + remote hit",
+			ds:   setupMockDS("test-dag", nil, exec.ErrDAGNotFound),
+			remoteLoader: func(ctx context.Context, name string) (*core.DAG, error) {
+				return testDAG, nil
+			},
+			expectDAG:   testDAG,
+			expectError: false,
+		},
+		{
+			name: "local not-found + remote returns nil",
+			ds:   setupMockDS("test-dag", nil, exec.ErrDAGNotFound),
+			remoteLoader: func(ctx context.Context, name string) (*core.DAG, error) {
+				return nil, nil
+			},
+			expectError:       true,
+			expectErrContains: "DAG is not found",
+		},
+		{
+			name: "local not-found + remote returns error",
+			ds:   setupMockDS("test-dag", nil, exec.ErrDAGNotFound),
+			remoteLoader: func(ctx context.Context, name string) (*core.DAG, error) {
+				return nil, errors.New("remote unavailable")
+			},
+			expectError:       true,
+			expectErrContains: "DAG is not found",
+		},
+		{
+			name:              "local not-found + no remote loader",
+			ds:                setupMockDS("test-dag", nil, exec.ErrDAGNotFound),
+			remoteLoader:      nil,
+			expectError:       true,
+			expectErrContains: "DAG is not found",
+		},
+		{
+			name: "local non-not-found error propagates immediately",
+			ds:   setupMockDS("test-dag", nil, errors.New("permission denied")),
+			remoteLoader: func(ctx context.Context, name string) (*core.DAG, error) {
+				return testDAG, nil // should NOT be called
+			},
+			expectError:       true,
+			expectErrContains: "permission denied",
+		},
+		{
+			name: "nil ds + remote hit",
+			ds:   nil,
+			remoteLoader: func(ctx context.Context, name string) (*core.DAG, error) {
+				return testDAG, nil
+			},
+			expectDAG:   testDAG,
+			expectError: false,
+		},
+		{
+			name: "nil ds + remote returns nil dag",
+			ds:   nil,
+			remoteLoader: func(ctx context.Context, name string) (*core.DAG, error) {
+				return nil, nil
+			},
+			expectError:       true,
+			expectErrContains: "not found locally or remotely",
+		},
+		{
+			name: "nil ds + remote returns error",
+			ds:   nil,
+			remoteLoader: func(ctx context.Context, name string) (*core.DAG, error) {
+				return nil, errors.New("remote unavailable")
+			},
+			expectError:       true,
+			expectErrContains: "remote DAG load failed",
+		},
+		{
+			name:              "nil ds + no remote loader",
+			ds:                nil,
+			remoteLoader:      nil,
+			expectError:       true,
+			expectErrContains: "no local DAG store and no remote loader",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			mockDRS := new(mockDAGRunStore)
+			client := newDBClient(mockDRS, tt.ds, tt.remoteLoader)
+
+			dag, err := client.GetDAG(ctx, "test-dag")
+
+			if tt.expectError {
+				require.Error(t, err)
+				if tt.expectErrContains != "" {
+					assert.Contains(t, err.Error(), tt.expectErrContains)
+				}
+				assert.Nil(t, dag)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expectDAG, dag)
+			}
+
+			// Assert mock expectations for the DAG store (when a mock is used).
+			if mockDS, ok := tt.ds.(*mockDAGStore); ok {
+				mockDS.AssertExpectations(t)
+			}
+		})
+	}
 }

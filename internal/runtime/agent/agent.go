@@ -240,6 +240,9 @@ type Agent struct {
 	// secretMasker redacts resolved secret values from status/history snapshots.
 	secretMasker *masking.Masker
 
+	// remoteDAGLoader loads a DAG from a remote source when local store misses.
+	remoteDAGLoader RemoteDAGLoader
+
 	// Evaluated configs - these are expanded at runtime and stored separately
 	// to avoid mutating the original DAG struct.
 	evaluatedSMTP          *core.SMTPConfig
@@ -273,6 +276,10 @@ type ArtifactFinalizer = runtime.ArtifactFinalizer
 
 // SubWorkflowRunnerFactory creates a runner for child workflows.
 type SubWorkflowRunnerFactory func(ctx context.Context) (runtimeexec.SubWorkflowRunner, error)
+
+// RemoteDAGLoader loads a DAG definition from a remote source.
+// Returns nil, nil when the remote source does not have the DAG.
+type RemoteDAGLoader func(ctx context.Context, name string) (*core.DAG, error)
 
 // Options is the configuration for the Agent.
 type Options struct {
@@ -363,6 +370,9 @@ type Options struct {
 	DAGRunArtifactDir string
 	// ArtifactFinalizer persists artifacts before the final terminal status is written.
 	ArtifactFinalizer ArtifactFinalizer
+	// RemoteDAGLoader loads a DAG from a remote source when the local DAG store misses.
+	// When nil, no remote fallback is attempted.
+	RemoteDAGLoader RemoteDAGLoader
 	// SocketServerFactory creates the local status/control transport.
 	// When nil, the default Unix socket transport is used.
 	SocketServerFactory SocketServerFactory
@@ -427,6 +437,7 @@ func New(
 		dagRunLogDir:               opts.DAGRunLogDir,
 		dagRunArtifactDir:          opts.DAGRunArtifactDir,
 		socketServerFactory:        opts.SocketServerFactory,
+		remoteDAGLoader:            opts.RemoteDAGLoader,
 	}
 	if a.socketServerFactory == nil {
 		a.socketServerFactory = defaultSocketServerFactory
@@ -582,7 +593,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	// Create a new environment for the dag-run.
-	dbClient := newDBClient(a.dagRunStore, a.dagStore)
+	dbClient := newDBClient(a.dagRunStore, a.dagStore, a.remoteDAGLoader)
 
 	subWorkflowRunner, err := a.createSubWorkflowRunner(ctx)
 	if err != nil {
@@ -1933,7 +1944,7 @@ func (a *Agent) dryRun(ctx context.Context) error {
 		}
 	}()
 
-	db := newDBClient(a.dagRunStore, a.dagStore)
+	db := newDBClient(a.dagRunStore, a.dagStore, a.remoteDAGLoader)
 	contextOpts := []runtime.ContextOption{
 		runtime.WithDatabase(db),
 		runtime.WithRootDAGRun(a.rootDAGRun),

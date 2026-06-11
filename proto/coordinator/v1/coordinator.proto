@@ -66,6 +66,11 @@ service CoordinatorService {
 
   // ListState lists persistent DAG state entries by scope, namespace, and key prefix.
   rpc ListState (ListStateRequest) returns (ListStateResponse);
+
+  // GetDAG retrieves a DAG definition (raw YAML spec) from the coordinator's DAG store.
+  // Used as a fallback when a worker's local DAG store misses a definition during
+  // sub-DAG execution.
+  rpc GetDAG (GetDAGRequest) returns (GetDAGResponse);
 }
 
 // Request message for polling a task.
@@ -450,4 +455,17 @@ message ListStateRequest {
 
 message ListStateResponse {
   repeated StateEntry entries = 1;
+}
+
+// GetDAG retrieves a DAG definition (raw YAML spec) from the coordinator's DAG store.
+// Used as a fallback when a worker's local DAG store misses a definition during
+// sub-DAG execution. This eliminates race conditions in git-synced setups where
+// a new DAG YAML may not yet be present on the worker.
+message GetDAGRequest {
+  string name = 1;  // DAG name to look up
+}
+
+message GetDAGResponse {
+  string spec = 1;  // Raw YAML content of the DAG definition (empty if not found)
+  string error = 2; // Error description when the DAG cannot be retrieved
 }
