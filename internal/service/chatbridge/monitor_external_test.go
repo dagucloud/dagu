@@ -191,7 +191,13 @@ func TestNotificationMonitorDeliversOnlyFutureEventsAfterDestinationIsAdded(t *t
 		return store.lastHead() >= 1 && readCalls == 0
 	}, time.Second, 10*time.Millisecond)
 
+	_, readCallsBeforeDestination := store.stats()
 	transport.setDestinations([]string{"dest-1"})
+	require.Eventually(t, func() bool {
+		_, readCalls := store.stats()
+		return readCalls > readCallsBeforeDestination
+	}, time.Second, 10*time.Millisecond)
+
 	require.NoError(t, store.Emit(context.Background(), newMonitorDAGRunEvent("new-run")))
 
 	require.Eventually(t, func() bool {

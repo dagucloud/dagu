@@ -1,0 +1,10 @@
+steps:
+  - name: call-child
+    action: dag.run
+    with:
+      dag: child
+---
+name: child
+steps:
+  - name: child-step
+    run: echo executed > executed.txt
