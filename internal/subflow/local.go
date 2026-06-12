@@ -179,15 +179,26 @@ func (r *Local) Run(ctx context.Context, req executor.SubWorkflowRequest) (*exec
 		return nil, err
 	}
 
+	retryTarget, err := r.existingChildRetryTarget(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
 	dag, cleanup, err := loadInProcessDAG(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 	defer cleanup()
 
-	child, err := r.newAgent(ctx, req, dag, rtagent.Options{
+	opts := rtagent.Options{
 		TriggerType: core.TriggerTypeSubDAG,
-	})
+	}
+	if retryTarget != nil {
+		opts.RetryTarget = retryTarget
+		opts.TriggerType = inProcessRetryTriggerType(retryTarget)
+	}
+
+	child, err := r.newAgent(ctx, req, dag, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -231,6 +242,31 @@ func (r *Local) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest)
 		return nil, err
 	}
 	return r.runAgent(ctx, req.RunID, child)
+}
+
+func (r *Local) existingChildRetryTarget(
+	ctx context.Context,
+	req executor.SubWorkflowRequest,
+) (*exec.DAGRunStatus, error) {
+	runStateStore := r.runStateStoreFromContext(ctx)
+	if runStateStore == nil {
+		return nil, nil
+	}
+	attempt, err := runStateStore.OpenChildAttempt(ctx, req.RootDAGRun, req.RunID)
+	if err != nil {
+		if errors.Is(err, exec.ErrDAGRunIDNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to find child workflow attempt: %w", err)
+	}
+	retryTarget, err := attempt.ReadStatus(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read child workflow status: %w", err)
+	}
+	if retryTarget == nil {
+		return nil, fmt.Errorf("failed to read child workflow status: status data is nil")
+	}
+	return retryTarget, nil
 }
 
 // Cancel requests cancellation for a running in-process child workflow.

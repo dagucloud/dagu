@@ -128,6 +128,7 @@ func TestRunnerRunDispatchesWorkflowRequest(t *testing.T) {
 
 	dispatcher := &mockDispatcher{
 		statuses: []*exec.DAGRunStatusResult{
+			{Found: false},
 			{
 				Found: true,
 				Status: &exec.DAGRunStatus{
@@ -186,6 +187,61 @@ func TestRunnerRunDispatchesWorkflowRequest(t *testing.T) {
 	assert.Equal(t, core.Succeeded, result.Status)
 	assert.Equal(t, "ok", result.Outputs["RESULT"])
 	assert.Equal(t, true, result.OutputValues["typed"])
+}
+
+func TestRunnerRunDispatchesRetryWhenChildRunExists(t *testing.T) {
+	t.Parallel()
+
+	previous := &exec.DAGRunStatus{
+		Name:      "child",
+		DAGRunID:  "child-1",
+		ProcGroup: "queue-a",
+		Status:    core.Failed,
+		Nodes: []*exec.Node{
+			{
+				Step:   core.Step{Name: "already-done"},
+				Status: core.NodeSucceeded,
+			},
+			{
+				Step:   core.Step{Name: "flaky"},
+				Status: core.NodeFailed,
+			},
+		},
+	}
+	dispatcher := &mockDispatcher{
+		statuses: []*exec.DAGRunStatusResult{
+			{Found: true, Status: previous},
+			{
+				Found: true,
+				Status: &exec.DAGRunStatus{
+					Name:     "child",
+					DAGRunID: "child-1",
+					Status:   core.Succeeded,
+				},
+			},
+		},
+	}
+	runner := newFastRunner(dispatcher)
+
+	result, err := runner.Run(context.Background(), runtimeexec.SubWorkflowRequest{
+		DAG: &core.DAG{
+			Name:     "child",
+			YamlData: []byte("name: child"),
+		},
+		RootDAGRun:   exec.NewDAGRunRef("parent", "root-1"),
+		ParentDAGRun: exec.NewDAGRunRef("parent", "parent-1"),
+		RunID:        "child-1",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	require.Len(t, dispatcher.dispatches, 1)
+	task := dispatcher.dispatches[0]
+	assert.Equal(t, exec.DispatchOperationRetry, task.Operation)
+	assert.Empty(t, task.Step)
+	assert.Equal(t, previous, task.PreviousStatus)
+	assert.Equal(t, "queue-a", task.QueueName)
+	assert.Equal(t, core.Succeeded, result.Status)
 }
 
 func TestRunnerRetryDispatchesPreviousStatus(t *testing.T) {

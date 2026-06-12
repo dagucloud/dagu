@@ -711,6 +711,95 @@ steps:
 		require.Equal(t, dagRunID, sub2Status.Root.ID)
 	})
 
+	t.Run("ParentRetryDoesNotRerunSucceededSubDAGSteps", func(t *testing.T) {
+		th := test.SetupCommand(t)
+
+		runDir := t.TempDir()
+		successCounter := filepath.Join(runDir, "already-succeeded-count")
+		failOnceMarker := filepath.Join(runDir, "fail-once-marker")
+
+		incrementSuccessCounter := test.ForOS(
+			fmt.Sprintf(`
+count=0
+if [ -f %s ]; then
+  count=$(cat %s)
+fi
+count=$((count + 1))
+printf '%%s' "$count" > %s
+`, test.PosixQuote(test.ShellPath(successCounter)), test.PosixQuote(test.ShellPath(successCounter)), test.PosixQuote(test.ShellPath(successCounter))),
+			fmt.Sprintf(`
+$count = 0
+if (Test-Path %s) {
+  $raw = (Get-Content -Raw -Path %s).Trim()
+  if ($raw) { $count = [int]$raw }
+}
+$count = $count + 1
+Set-Content -Path %s -Value $count -NoNewline
+`, test.PowerShellQuote(successCounter), test.PowerShellQuote(successCounter), test.PowerShellQuote(successCounter)),
+		)
+		failOnce := test.ForOS(
+			fmt.Sprintf(`
+if [ ! -f %s ]; then
+  touch %s
+  exit 1
+fi
+echo ok
+`, test.PosixQuote(test.ShellPath(failOnceMarker)), test.PosixQuote(test.ShellPath(failOnceMarker))),
+			fmt.Sprintf(`
+if (-not (Test-Path %s)) {
+  New-Item -ItemType File %s | Out-Null
+  exit 1
+}
+"ok"
+`, test.PowerShellQuote(failOnceMarker), test.PowerShellQuote(failOnceMarker)),
+		)
+
+		th.CreateDAGFile(t, "parent_retry_child_state.yaml", `
+steps:
+  - name: call-child
+    action: dag.run
+    with:
+      dag: child_retry_state
+`)
+
+		th.CreateDAGFile(t, "child_retry_state.yaml", fmt.Sprintf(`
+steps:
+  - name: already-succeeded
+    run: |
+%s
+
+  - name: fail-once
+    run: |
+%s
+    depends: already-succeeded
+`, indentCommandBlock(incrementSuccessCounter, 6), indentCommandBlock(failOnce, 6)))
+
+		dagRunID := uuid.Must(uuid.NewV7()).String()
+		err := th.RunCommandWithError(t, cmd.Start(), test.CmdTest{
+			Args: []string{"start", "--run-id", dagRunID, "parent_retry_child_state"},
+		})
+		require.Error(t, err)
+
+		counter, err := os.ReadFile(successCounter)
+		require.NoError(t, err)
+		require.Equal(t, "1", strings.TrimSpace(string(counter)))
+
+		th.RunCommand(t, cmd.Retry(), test.CmdTest{
+			Args: []string{"retry", "--run-id", dagRunID, "parent_retry_child_state"},
+		})
+
+		counter, err = os.ReadFile(successCounter)
+		require.NoError(t, err)
+		require.Equal(t, "1", strings.TrimSpace(string(counter)), "parent retry should not rerun child steps that already succeeded")
+
+		ref := exec.NewDAGRunRef("parent_retry_child_state", dagRunID)
+		parentAttempt, err := th.DAGRunStore.FindAttempt(context.Background(), ref)
+		require.NoError(t, err)
+		parentStatus, err := parentAttempt.ReadStatus(context.Background())
+		require.NoError(t, err)
+		require.Equal(t, core.Succeeded, parentStatus.Status)
+	})
+
 	t.Run("RetryPolicyWithOutputCapture", func(t *testing.T) {
 		th := test.SetupCommand(t)
 

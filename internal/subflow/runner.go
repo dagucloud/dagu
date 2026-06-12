@@ -136,6 +136,18 @@ func (r *Runner) Run(ctx context.Context, req executor.SubWorkflowRequest) (*exe
 		tag.DAG(req.DAG.Name),
 	)
 
+	if previousStatus, found, err := r.existingStatus(ctx, req); err != nil {
+		return nil, fmt.Errorf("failed to load child workflow status before start: %w", err)
+	} else if found {
+		if err := r.dispatchRetryWithStatus(ctx, req, "", previousStatus); err != nil {
+			logger.Error(dispatchCtx, "Distributed child workflow retry dispatch failed", tag.Error(err))
+			return nil, fmt.Errorf("distributed retry failed: %w", err)
+		}
+
+		logger.Info(dispatchCtx, "Distributed child workflow retry dispatched; awaiting completion")
+		return r.waitCompletion(ctx, req)
+	}
+
 	if err := r.dispatchStart(ctx, req); err != nil {
 		logger.Error(dispatchCtx, "Distributed child workflow dispatch failed", tag.Error(err))
 		return nil, fmt.Errorf("distributed execution failed: %w", err)
@@ -237,8 +249,16 @@ func (r *Runner) dispatchRetry(ctx context.Context, req executor.SubWorkflowRetr
 	if err != nil {
 		return fmt.Errorf("failed to load child workflow status for retry: %w", err)
 	}
+	return r.dispatchRetryWithStatus(ctx, req.SubWorkflowRequest, req.StepName, previousStatus)
+}
 
-	task, err := r.buildRetryTask(ctx, req, previousStatus)
+func (r *Runner) dispatchRetryWithStatus(
+	ctx context.Context,
+	req executor.SubWorkflowRequest,
+	stepName string,
+	previousStatus *exec.DAGRunStatus,
+) error {
+	task, err := r.buildRetryTask(ctx, req, stepName, previousStatus)
 	if err != nil {
 		return fmt.Errorf("failed to build retry coordinator task: %w", err)
 	}
@@ -246,7 +266,7 @@ func (r *Runner) dispatchRetry(ctx context.Context, req executor.SubWorkflowRetr
 	taskCtx := logger.WithValues(ctx,
 		tag.RunID(task.DAGRunID),
 		tag.Target(task.Target),
-		tag.Step(req.StepName),
+		tag.Step(stepName),
 	)
 	logger.Info(taskCtx, "Dispatching child workflow retry task",
 		slog.Any("worker-selector", task.WorkerSelector),
@@ -274,15 +294,15 @@ func (r *Runner) buildStartTask(ctx context.Context, req executor.SubWorkflowReq
 
 func (r *Runner) buildRetryTask(
 	ctx context.Context,
-	req executor.SubWorkflowRetryRequest,
+	req executor.SubWorkflowRequest,
+	stepName string,
 	previousStatus *exec.DAGRunStatus,
 ) (*exec.DispatchTask, error) {
-	opts, err := r.taskOptions(
-		ctx,
-		req.SubWorkflowRequest,
-		executor.WithStep(req.StepName),
-		executor.WithPreviousStatus(previousStatus),
-	)
+	extra := []executor.TaskOption{executor.WithPreviousStatus(previousStatus)}
+	if stepName != "" {
+		extra = append(extra, executor.WithStep(stepName))
+	}
+	opts, err := r.taskOptions(ctx, req, extra...)
 	if err != nil {
 		return nil, err
 	}
@@ -293,6 +313,26 @@ func (r *Runner) buildRetryTask(
 		req.RunID,
 		opts...,
 	), nil
+}
+
+func (r *Runner) existingStatus(
+	ctx context.Context,
+	req executor.SubWorkflowRequest,
+) (*exec.DAGRunStatus, bool, error) {
+	result, err := r.dispatcher.GetDAGRunStatus(ctx, req.DAG.Name, req.RunID, &req.RootDAGRun)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to get DAG run status from coordinator: %w", err)
+	}
+	if result == nil {
+		return nil, false, fmt.Errorf("no response from coordinator")
+	}
+	if !result.Found {
+		return nil, false, nil
+	}
+	if result.Status == nil {
+		return nil, false, fmt.Errorf("coordinator returned empty DAG run status")
+	}
+	return result.Status, true, nil
 }
 
 func (r *Runner) taskOptions(
