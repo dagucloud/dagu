@@ -12,6 +12,8 @@ This guide explains how to implement the v3 specs. It is not a numbered spec and
 - Do not add fallback behavior for old YAML fields, old executor behavior, old value syntax, or old lifecycle behavior unless a v3 spec requires it.
 - Unspecified behavior must fail clearly or remain unsupported.
 - Specs can land ahead of their implementation. Each implementation slice must document the spec acceptance criteria it covers and must not imply conformance to unimplemented criteria.
+- Delete obsolete tests when they are replaced by new tests that cover the same behavior. Do not preserve old tests that verify removed behavior.
+- Delete obsolete code when v3 specs replace its behavior. Do not preserve old code that implements removed behavior.
 
 ## Code
 
