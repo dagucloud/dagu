@@ -106,6 +106,7 @@ func runCoordinator(ctx *Context, _ []string) error {
 		coordCtx.WorkerHeartbeatStore,
 		coordCtx.DAGRunLeaseStore,
 		coordCtx.ActiveDistributedRunStore,
+		coordCtx.DAGStore,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to initialize coordinator: %w", err)
@@ -145,6 +146,7 @@ func newCoordinator(
 	workerHeartbeatStore exec.WorkerHeartbeatStore,
 	dagRunLeaseStore exec.DAGRunLeaseStore,
 	activeDistributedRunStore exec.ActiveDistributedRunStore,
+	dagStore exec.DAGStore,
 ) (*coordinator.Service, *coordinator.Handler, error) {
 	// Generate instance ID
 	hostname, err := os.Hostname()
@@ -234,6 +236,7 @@ func newCoordinator(
 		WorkerHeartbeatStore:      workerHeartbeatStore,
 		DAGRunLeaseStore:          dagRunLeaseStore,
 		ActiveDistributedRunStore: activeDistributedRunStore,
+		DAGStore:                  dagStore,
 		EventService:              ctx.EventService,
 		EventSourceInstance:       ctx.EventSourceInstance,
 	})

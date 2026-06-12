@@ -226,11 +226,12 @@ func TestNotificationBatcher_DiscardDestinationsRemovesReadyAndBufferedBatches(t
 		Status:    core.Failed,
 	})))
 
-	require.Eventually(t, func() bool {
-		batcher.mu.Lock()
-		defer batcher.mu.Unlock()
-		return len(batcher.ready) == 2
-	}, time.Second, 10*time.Millisecond)
+	// Synchronously flush success-class buckets to ready
+	batcher.flushBucketsLocked(NotificationClassSuccessDigest)
+
+	batcher.mu.Lock()
+	require.Len(t, batcher.ready, 2)
+	batcher.mu.Unlock()
 
 	batcher.DiscardDestinations([]string{"ready-remove", "buffered-remove"})
 

@@ -104,6 +104,7 @@ type Handler struct {
 	workerHeartbeatStore      exec.WorkerHeartbeatStore      // Shared worker presence
 	dagRunLeaseStore          exec.DAGRunLeaseStore          // Shared distributed run leases
 	activeDistributedRunStore exec.ActiveDistributedRunStore // Shared active distributed attempt index
+	dagStore                  exec.DAGStore                  // DAG definitions for the GetDAG RPC
 
 	// Open attempts cache for status persistence
 	attemptsMu   sync.RWMutex
@@ -165,6 +166,10 @@ type HandlerConfig struct {
 	// active distributed attempt index used by zombie detection.
 	ActiveDistributedRunStore exec.ActiveDistributedRunStore
 
+	// DAGStore serves DAG definitions for the GetDAG RPC.
+	// Optional - when nil, GetDAG returns Unimplemented.
+	DAGStore exec.DAGStore
+
 	// StaleHeartbeatThreshold is the duration after which a worker's heartbeat
 	// is considered stale. Defaults to 30 seconds if not set.
 	StaleHeartbeatThreshold time.Duration
@@ -212,6 +217,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		workerHeartbeatStore:      cfg.WorkerHeartbeatStore,
 		dagRunLeaseStore:          cfg.DAGRunLeaseStore,
 		activeDistributedRunStore: cfg.ActiveDistributedRunStore,
+		dagStore:                  cfg.DAGStore,
 		staleHeartbeatThreshold:   cfg.StaleHeartbeatThreshold,
 		staleLeaseThreshold:       cfg.StaleLeaseThreshold,
 		eventService:              cfg.EventService,
@@ -1885,6 +1891,20 @@ func (h *Handler) GetDAGRunStatus(ctx context.Context, req *coordinatorv1.GetDAG
 		Found:  true,
 		Status: protoStatus,
 	}, nil
+}
+
+// GetDAG retrieves the raw specification of a DAG by name.
+// This is used by workers to obtain DAG definitions that may not be available locally
+// (e.g., in a shared-nothing worker architecture).
+func (h *Handler) GetDAG(ctx context.Context, req *coordinatorv1.GetDAGRequest) (*coordinatorv1.GetDAGResponse, error) {
+	if h.dagStore == nil {
+		return nil, status.Error(codes.Unimplemented, "DAG store not configured: GetDAG is not available")
+	}
+	spec, err := h.dagStore.GetSpec(ctx, req.Name)
+	if err != nil {
+		return &coordinatorv1.GetDAGResponse{Error: err.Error()}, nil
+	}
+	return &coordinatorv1.GetDAGResponse{Spec: spec}, nil
 }
 
 // StartZombieDetector starts a background goroutine that periodically checks for zombie runs.

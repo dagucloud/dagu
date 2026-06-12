@@ -89,6 +89,10 @@ func (s *stubCoordinatorClient) Metrics() coordinator.Metrics {
 	return coordinator.Metrics{}
 }
 
+func (s *stubCoordinatorClient) GetDAG(_ context.Context, _ string) (string, error) {
+	return "", errors.New("not implemented")
+}
+
 func TestAPIGetWorkers_ReturnsPartialResultsWithErrors(t *testing.T) {
 	t.Parallel()
 

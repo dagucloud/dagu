@@ -178,6 +178,12 @@ api: api-validate
 	@GOBIN=${LOCAL_BIN_DIR} go install ${PKG_oapi_codegen}
 	@${LOCAL_BIN_DIR}/oapi-codegen --config=${OAPI_CONFIG_FILE_V1} ${OAPI_SPEC_FILE_V1}
 
+# llms generates the AI-agent reference file.
+.PHONY: llms
+llms:
+	@printf '%b\n' "${COLOR_GREEN}Generating llms.txt...${COLOR_RESET}"
+	@go run ./internal/tools/llmsgen/cmd -source skills/dagu -source-prefix skills/dagu -output llms.txt
+
 # api-validate validates the OpenAPI specification.
 .PHONY: api-validate
 api-validate:

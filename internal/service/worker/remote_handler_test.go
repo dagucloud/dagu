@@ -310,6 +310,7 @@ type mockRemoteCoordinatorClient struct {
 	StreamArtifactsFunc   func(ctx context.Context) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error)
 	StreamArtifactsToFunc func(ctx context.Context, owner exec.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error)
 	GetDAGRunStatusFunc   func(ctx context.Context, dagName, dagRunID string, rootRef *exec.DAGRunRef) (*exec.DAGRunStatusResult, error)
+	GetDAGFunc            func(ctx context.Context, name string) (string, error)
 	DispatchFunc          func(ctx context.Context, task *exec.DispatchTask) error
 	PollFunc              func(ctx context.Context, policy backoff.RetryPolicy, req *coordinatorv1.PollRequest) (*coordinatorv1.Task, error)
 	HeartbeatFunc         func(ctx context.Context, req *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error)
@@ -400,6 +401,13 @@ func (m *mockRemoteCoordinatorClient) GetDAGRunStatus(ctx context.Context, dagNa
 		return m.GetDAGRunStatusFunc(ctx, dagName, dagRunID, rootRef)
 	}
 	return &exec.DAGRunStatusResult{Found: false}, nil
+}
+
+func (m *mockRemoteCoordinatorClient) GetDAG(ctx context.Context, name string) (string, error) {
+	if m.GetDAGFunc != nil {
+		return m.GetDAGFunc(ctx, name)
+	}
+	return "", nil
 }
 
 func (m *mockRemoteCoordinatorClient) Dispatch(ctx context.Context, task *exec.DispatchTask) error {

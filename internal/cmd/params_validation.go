@@ -26,7 +26,7 @@ func buildStartValidationInput(ctx *Context, args []string) (core.StartParamInpu
 		if argsLenAtDash >= len(args) {
 			return core.StartParamInput{}, nil
 		}
-		return core.StartParamInput{DashArgs: args[argsLenAtDash:]}, nil
+		return core.StartParamInput{DashArgs: quoteStartDashArgs(args[argsLenAtDash:])}, nil
 	}
 
 	raw, err := ctx.Command.Flags().GetString("params")

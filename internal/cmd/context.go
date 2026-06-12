@@ -71,6 +71,7 @@ type Context struct {
 	DAGRunLeaseStore          exec.DAGRunLeaseStore
 	ActiveDistributedRunStore exec.ActiveDistributedRunStore
 
+	DAGStore       exec.DAGStore
 	Proc           exec.ProcHandle
 	LicenseManager *license.Manager
 	ContextStore   *clicontext.Store
@@ -100,6 +101,7 @@ func (c *Context) WithContext(ctx context.Context) *Context {
 		WorkerHeartbeatStore:      c.WorkerHeartbeatStore,
 		DAGRunLeaseStore:          c.DAGRunLeaseStore,
 		ActiveDistributedRunStore: c.ActiveDistributedRunStore,
+		DAGStore:                  c.DAGStore,
 		Proc:                      c.Proc,
 		LicenseManager:            c.LicenseManager,
 		ContextStore:              c.ContextStore,
@@ -344,6 +346,10 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	sm := file.NewServiceRegistry(cfg)
 	dispatchTaskStore := store.NewDispatchTaskStore(file.NewCollection(distributedDir))
 	workerHeartbeatStore := store.NewWorkerHeartbeatStore(file.NewCollection(filepath.Join(distributedDir, "workers")))
+	dagStore, err := cmdprocess.NewDAGStore(cfg, cmdprocess.DAGStoreConfig{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create DAG store: %w", err)
+	}
 
 	// Initialize license manager for server commands
 	var licMgr *license.Manager
@@ -410,6 +416,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		WorkerHeartbeatStore:      workerHeartbeatStore,
 		DAGRunLeaseStore:          dagRunLeaseStore,
 		ActiveDistributedRunStore: activeDistributedRunStore,
+		DAGStore:                  dagStore,
 		LicenseManager:            licMgr,
 		ContextStore:              contextStore,
 		CLIContext:                selectedContext,
