@@ -13,8 +13,7 @@ Input is a workflow YAML file accepted by the YAML schema spec.
 Step reference validation extends:
 
 ```sh
-dagu validate [--project <project_root>] [<workflow>]
-dagu validate --file <workflow_file>
+dagu validate [<workflow>]
 ```
 
 **Command behavior:**

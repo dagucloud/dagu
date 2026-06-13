@@ -13,13 +13,12 @@ import (
 )
 
 func TestWorkflowValidateCommand(t *testing.T) {
-	dir := t.TempDir()
-	workflowFile := filepath.Join(dir, "workflow.yaml")
+	workflowFile := filepath.Join(t.TempDir(), "workflow.yaml")
 	require.NoError(t, os.WriteFile(workflowFile, []byte(`
 steps:
   - name: hello
     run: echo hello
-`), 0600))
+`), 0o600))
 
 	command := cmd.Workflow()
 	command.SetArgs([]string{"validate", workflowFile})

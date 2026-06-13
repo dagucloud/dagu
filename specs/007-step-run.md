@@ -13,15 +13,13 @@ Input is a workflow YAML file accepted by the YAML schema spec.
 Step `run` validation extends:
 
 ```sh
-dagu validate [--project <project_root>] [<workflow>]
-dagu validate --file <workflow_file>
+dagu validate [<workflow>]
 ```
 
 Workflow execution uses:
 
 ```sh
-dagu run [--project <project_root>] <workflow>
-dagu run --file <workflow_file>
+dagu run <workflow>
 ```
 
 **Command behavior:**
@@ -30,9 +28,8 @@ dagu run --file <workflow_file>
 - `dagu validate` must not execute commands.
 - `dagu validate` must not check whether the command path exists.
 - `dagu run` accepts project workflow targets as defined by the project spec.
-- `dagu run --file <workflow_file>` accepts a literal workflow file path.
-- Dagu must not append `.yaml` or `.yml` to extensionless workflow targets or literal workflow file paths.
-- Dagu must not fall back from an unknown project workflow target to a literal filesystem path.
+- Dagu must not append `.yaml` or `.yml` to extensionless workflow targets.
+- Dagu must not fall back from an unknown project workflow target to any other filesystem path.
 - `dagu run` executes the command when the step is ready to start.
 
 **A step may define `run`:**
@@ -81,7 +78,6 @@ steps:
 
 - The step process working directory is defined by the project spec.
 - In project mode, the default step process working directory is `project_root`.
-- In literal file mode, the default step process working directory is the caller's current working directory.
 - A root `working_dir` value changes the default step process working directory as defined by the project spec.
 - This spec does not define a step-level `working_dir` field.
 
@@ -219,9 +215,8 @@ steps:
 - A black-box fixture verifies `dagu validate` does not execute `run`.
 - A black-box fixture verifies `dagu validate` does not require the command path to exist.
 - A black-box fixture verifies `dagu run` accepts a discovered project workflow target.
-- A black-box fixture verifies `dagu run --file <workflow_file>` accepts a literal file path.
 - A black-box fixture verifies `dagu run` does not append `.yaml` or `.yml` to an extensionless workflow target.
-- A black-box fixture verifies `dagu run` does not fall back from an unknown project workflow target to a literal filesystem path.
+- A black-box fixture verifies `dagu run` does not fall back from an unknown project workflow target to any other filesystem path.
 - A black-box fixture verifies `dagu run` executes a simple `run` command.
 - A black-box fixture verifies `dagu run` executes from `project_root` by default.
 - A black-box fixture verifies `dagu run` respects root `working_dir`.

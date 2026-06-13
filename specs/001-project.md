@@ -49,37 +49,29 @@ When `workflows` is omitted, Dagu discovers direct files with the `.yaml` or `.y
 Project workflow listing command:
 
 ```sh
-dagu list [--project <project_root>]
+dagu list
 ```
 
 Project validation command:
 
 ```sh
-dagu validate [--project <project_root>] [<workflow>]
-dagu validate --file <workflow_file>
+dagu validate [<workflow>]
 ```
 
 Workflow execution command:
 
 ```sh
-dagu run [--project <project_root>] <workflow>
-dagu run --file <workflow_file>
+dagu run <workflow>
 ```
 
 **Command behavior:**
 
-- `--project <project_root>` selects the project root.
-- When `--project` is omitted, Dagu resolves `project_root` by searching from the caller's current working directory upward for `.dagu.json`.
-- `<workflow>` is a project workflow target, not a literal filesystem path.
-- `--file <workflow_file>` selects one literal workflow file and bypasses project workflow discovery.
-- `--file` does not load `.dagu.json`.
-- `--file` must not be combined with `--project`.
+- `project_root` is the caller's current working directory.
+- `<workflow>` is a project workflow target.
 - `dagu list` prints discovered workflow targets.
 - `dagu validate` without `<workflow>` validates the project configuration and all discovered workflows.
 - `dagu validate <workflow>` validates one discovered workflow target.
-- `dagu validate --file <workflow_file>` validates one literal workflow file and does not validate project structure.
 - `dagu run <workflow>` runs one discovered workflow target.
-- `dagu run --file <workflow_file>` runs one literal workflow file.
 - Validation and listing commands must not execute steps.
 
 **Command output:**
@@ -96,22 +88,20 @@ dagu run --file <workflow_file>
 **Project resolution rules:**
 
 - `project_root` is the directory containing `.dagu.json`.
-- An explicit `--project <project_root>` value must point to a directory containing `.dagu.json`.
-- Project-relative behavior must not depend on the caller's current working directory after `project_root` has been resolved.
+- Dagu must not search parent directories for `.dagu.json`.
 - Workflow definition content is validated by the YAML schema spec.
 
 **Workflow discovery rules:**
 
 - A workflow target is a path relative to the configured workflow definition directory.
-- Default workflow discovery includes only direct `.yaml` and `.yml` files under `<project_root>/workflows`.
+- Default workflow discovery includes only direct `.yaml` and `.yml` files under `project_root/workflows`.
 - The configured `workflows` directory is resolved relative to `project_root`.
 - The configured `workflows` directory must resolve inside `project_root`.
 - Subdirectories under the configured `workflows` directory are not searched by this spec.
 - Discovered workflow definitions must have the `.yaml` or `.yml` extension.
 - Discovered workflow targets must be sorted lexicographically for command output.
 - Dagu must not infer `.yaml` or `.yml` extensions from extensionless workflow targets.
-- Dagu must not fall back from an unknown project workflow target to a literal filesystem path.
-- A command that needs a literal workflow file must use `--file`.
+- Dagu must not fall back from an unknown project workflow target to any other filesystem path.
 
 **Working directory rules:**
 
@@ -122,14 +112,6 @@ dagu run --file <workflow_file>
 - When workflow root `working_dir` is absolute, it is used as written.
 - Step commands run from the step's process working directory.
 - A command path such as `./scripts/deploy.sh` is discovered by the operating system or shell relative to the step's process working directory.
-
-**Literal file mode rules:**
-
-- `dagu validate --file <workflow_file>` and `dagu run --file <workflow_file>` do not require a project.
-- When `<workflow_file>` is relative, it is resolved from the caller's current working directory.
-- The default process working directory is the caller's current working directory.
-- When workflow root `working_dir` is relative, it is resolved from the default process working directory.
-- When workflow root `working_dir` is absolute, it is used as written.
 
 ## Outputs
 
@@ -152,7 +134,6 @@ Project loading succeeds before step execution starts.
 - A workflow definition directory path that is not a directory must fail project loading.
 - A project with no discovered workflows must fail validation.
 - An unknown `<workflow>` target must fail before execution.
-- Combining `--file` and `--project` must fail before validation or execution.
 - A discovered workflow definition that fails YAML schema validation must fail before execution.
 - A relative `working_dir` that resolves outside `project_root` must fail before execution.
 - A `working_dir` path that does not exist must fail before execution.
@@ -216,36 +197,21 @@ project/
 deploy.yaml
 ```
 
-Run a literal workflow file:
-
-```sh
-dagu run --file ./tmp/one-off.yaml
-```
-
 ## Acceptance Criteria
 
-- A black-box fixture resolves `project_root` from `.dagu.json`.
-- A black-box fixture discovers direct `workflows/*.yaml` files by default.
-- A black-box fixture discovers direct `workflows/*.yml` files by default.
-- A black-box fixture does not discover workflow files outside the configured workflow definition directory.
+- A black-box fixture uses the caller's current working directory as `project_root`.
+- A black-box fixture rejects project commands when the caller's current working directory does not contain `.dagu.json`.
+- A black-box fixture verifies Dagu does not search parent directories for `.dagu.json`.
 - A black-box fixture verifies `dagu list` prints discovered workflow targets in sorted order.
-- A black-box fixture verifies `dagu list --project <project_root>` lists the selected project.
 - A black-box fixture verifies `dagu validate` validates the current project.
-- A black-box fixture verifies `dagu validate --project <project_root>` validates the selected project.
 - A black-box fixture verifies `dagu validate <workflow>` validates one discovered workflow target.
-- A black-box fixture verifies `dagu validate --file <workflow_file>` validates a literal workflow file without loading a project.
 - A black-box fixture verifies `dagu validate` does not execute steps.
 - A black-box fixture rejects a project without `.dagu.json`.
 - A black-box fixture rejects `.dagu.json` when it is not a file.
 - A black-box fixture rejects invalid `.dagu.json` syntax.
 - A black-box fixture rejects a missing workflow definition directory.
 - A black-box fixture rejects a workflow definition directory path that is not a directory.
-- A black-box fixture rejects an unknown workflow target without falling back to a literal file path.
-- A black-box fixture verifies configured `workflows` directory controls discovery.
+- A black-box fixture rejects an unknown workflow target without falling back to another filesystem path.
 - A black-box fixture verifies `dagu run deploy.yaml` runs `project_root/workflows/deploy.yaml`.
-- A black-box fixture verifies `dagu run --file <workflow_file>` runs a literal workflow file.
-- A black-box fixture rejects combining `--file` and `--project`.
 - A black-box fixture verifies `dagu run` executes from `project_root` by default.
-- A black-box fixture verifies `dagu run --file <workflow_file>` executes from the caller's current working directory by default.
 - A black-box fixture resolves `./scripts/deploy.sh` from `project_root`.
-- A black-box fixture gives the same project-mode result when invoked from outside `project_root`.

@@ -31,16 +31,13 @@ steps:
 Workflow validation commands:
 
 ```sh
-dagu validate [--project <project_root>] [<workflow>]
-dagu validate --file <workflow_file>
+dagu validate [<workflow>]
 ```
 
 **Command behavior:**
 
 - `dagu validate` without `<workflow>` validates the current project as defined by the project spec.
 - `<workflow>` is a project workflow target as defined by the project spec.
-- `--file <workflow_file>` validates one literal YAML file without validating project structure.
-- When `workflow_file` is relative, it is resolved from the caller's current working directory.
 - The command validates the YAML stream and root fields defined by this spec.
 - The command does not validate internal field behavior that belongs to later specs.
 - The command must not execute steps.
@@ -196,8 +193,8 @@ steps:
 
 ## Acceptance Criteria
 
-- A black-box fixture verifies `dagu validate --file <workflow_file>` accepts the minimal valid workflow.
-- A black-box fixture verifies `dagu validate --file <workflow_file>` does not execute steps.
+- A black-box fixture verifies `dagu validate <workflow>` accepts the minimal valid workflow.
+- A black-box fixture verifies `dagu validate <workflow>` does not execute steps.
 - A black-box fixture accepts the minimal valid workflow.
 - A black-box fixture rejects a workflow with no `steps`.
 - A black-box fixture rejects a workflow with empty `steps`.
