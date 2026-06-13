@@ -13,7 +13,8 @@ Input is a workflow YAML file accepted by the YAML schema spec.
 Step reference validation extends:
 
 ```sh
-dagu workflow validate <workflow_file>
+dagu validate [--project <project_root>] [<workflow>]
+dagu validate --file <workflow_file>
 ```
 
 **Command behavior:**
@@ -141,15 +142,15 @@ steps:
 
 ## Acceptance Criteria
 
-- A black-box fixture verifies `dagu workflow validate` accepts a referenced step with `id`.
-- A black-box fixture verifies `dagu workflow validate` accepts an unreferenced step without `id`.
-- A black-box fixture verifies `dagu workflow validate` does not execute steps.
-- A black-box fixture verifies `dagu workflow validate` rejects duplicate step ids.
-- A black-box fixture verifies `dagu workflow validate` rejects invalid step id syntax.
-- A black-box fixture verifies `dagu workflow validate` rejects `depends` that references a step `name`.
-- A black-box fixture verifies `dagu workflow validate` rejects an unknown `depends` reference.
-- A black-box fixture verifies `dagu workflow validate` rejects self-dependency.
-- A black-box fixture verifies `dagu workflow validate` rejects dependency cycles.
+- A black-box fixture verifies `dagu validate` accepts a referenced step with `id`.
+- A black-box fixture verifies `dagu validate` accepts an unreferenced step without `id`.
+- A black-box fixture verifies `dagu validate` does not execute steps.
+- A black-box fixture verifies `dagu validate` rejects duplicate step ids.
+- A black-box fixture verifies `dagu validate` rejects invalid step id syntax.
+- A black-box fixture verifies `dagu validate` rejects `depends` that references a step `name`.
+- A black-box fixture verifies `dagu validate` rejects an unknown `depends` reference.
+- A black-box fixture verifies `dagu validate` rejects self-dependency.
+- A black-box fixture verifies `dagu validate` rejects dependency cycles.
 - A black-box fixture verifies `dagu run` does not start `step_b` before `step_a` completes successfully when `step_b` declares `depends: step_a`.
 - A black-box fixture verifies `dagu run` exits with code `0` when every step in a dependency chain completes successfully.
 - A black-box fixture verifies `dagu run` does not start a step whose dependency failed, and exits non-zero.

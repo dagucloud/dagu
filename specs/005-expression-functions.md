@@ -10,7 +10,7 @@ Define dynamic values without using shell-style variables or Go template syntax 
 
 Input is a workflow YAML file accepted by the YAML schema spec.
 
-The validation requirements in this spec extend `dagu workflow validate` when expression-function validation is implemented. They are not part of the root/document validation boundary defined by the YAML schema spec.
+The validation requirements in this spec extend `dagu validate` when expression-function validation is implemented. They are not part of the root/document validation boundary defined by the YAML schema spec.
 
 **Input rules:**
 
@@ -82,7 +82,7 @@ ${{ shell "date +%Y%m%d" }}
 
 - If `shell` exits with a non-zero status, value resolution fails.
 - If the workflow run is aborted or times out while `shell` is running, Dagu must terminate the `shell` process and value resolution fails.
-- When this spec is implemented, `dagu workflow validate` parses function syntax, function names, and function arity, but does not execute functions.
+- When this spec is implemented, `dagu validate` parses function syntax, function names, and function arity, but does not execute functions.
 - Function calls in parameter defaults are evaluated only when the parameter value is not provided by the caller.
 - An evaluated parameter default becomes the value of `params.<name>` for the DAG run.
 - Function calls outside parameter defaults are evaluated when the owning field is resolved.
@@ -142,10 +142,10 @@ steps:
 
 ## Acceptance Criteria
 
-- A black-box fixture verifies `dagu workflow validate` accepts `${{ shell("printf ok") }}` syntax.
-- A black-box fixture verifies `dagu workflow validate` rejects Go template function syntax.
-- A black-box fixture verifies `dagu workflow validate` rejects unknown functions.
-- A black-box fixture verifies `dagu workflow validate` rejects invalid `shell` arity.
+- A black-box fixture verifies `dagu validate` accepts `${{ shell("printf ok") }}` syntax.
+- A black-box fixture verifies `dagu validate` rejects Go template function syntax.
+- A black-box fixture verifies `dagu validate` rejects unknown functions.
+- A black-box fixture verifies `dagu validate` rejects invalid `shell` arity.
 - A black-box fixture verifies `dagu run` resolves a parameter default produced by `shell`.
 - A black-box fixture verifies an explicit runtime parameter skips evaluation of that parameter default.
 - A black-box fixture verifies `dagu run` resolves a direct `shell` call in a step field.

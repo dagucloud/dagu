@@ -10,7 +10,7 @@ Define how workflow fields reference values without conflicting with shell envir
 
 Input is a workflow YAML file accepted by the YAML schema spec.
 
-The validation requirements in this spec extend `dagu workflow validate` when value-resolution validation is implemented. They are not part of the root/document validation boundary defined by the YAML schema spec.
+The validation requirements in this spec extend `dagu validate` when value-resolution validation is implemented. They are not part of the root/document validation boundary defined by the YAML schema spec.
 
 **Immutable values can be defined with `consts`:**
 
@@ -148,9 +148,9 @@ steps:
 
 ## Acceptance Criteria
 
-- A black-box fixture verifies `dagu workflow validate` accepts literal `consts` values.
-- A black-box fixture verifies `dagu workflow validate` rejects invalid `consts` value types.
-- A black-box fixture verifies `dagu workflow validate` rejects an unqualified Dagu reference.
+- A black-box fixture verifies `dagu validate` accepts literal `consts` values.
+- A black-box fixture verifies `dagu validate` rejects invalid `consts` value types.
+- A black-box fixture verifies `dagu validate` rejects an unqualified Dagu reference.
 - A black-box fixture verifies `dagu run` resolves `${{ consts.name }}`.
 - A black-box fixture verifies `dagu run` resolves `${{ params.name }}`.
 - A black-box fixture verifies `dagu run` resolves `${{ steps.step_id.outputs.name }}` after the referenced step completes.

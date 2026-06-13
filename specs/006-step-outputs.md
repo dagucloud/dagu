@@ -13,19 +13,21 @@ Input is a workflow YAML file accepted by the YAML schema spec.
 Step output validation extends:
 
 ```sh
-dagu workflow validate <workflow_file>
+dagu validate [--project <project_root>] [<workflow>]
+dagu validate --file <workflow_file>
 ```
 
 Workflow execution uses:
 
 ```sh
-dagu run <workflow_file>
+dagu run [--project <project_root>] <workflow>
+dagu run --file <workflow_file>
 ```
 
 **Command behavior:**
 
-- When this spec is implemented, `dagu workflow validate` validates output declarations and output references.
-- `dagu workflow validate` must not execute steps.
+- When this spec is implemented, `dagu validate` validates output declarations and output references.
+- `dagu validate` must not execute steps.
 
 **A step may declare outputs:**
 
@@ -248,13 +250,13 @@ steps:
 
 ## Acceptance Criteria
 
-- A black-box fixture verifies `dagu workflow validate` accepts a step with a declared output.
-- A black-box fixture verifies `dagu workflow validate` rejects invalid output names.
-- A black-box fixture verifies `dagu workflow validate` rejects duplicate output names in one step.
-- A black-box fixture verifies `dagu workflow validate` rejects invalid output types.
-- A black-box fixture verifies `dagu workflow validate` rejects a step with `outputs` but no `id`.
-- A black-box fixture verifies `dagu workflow validate` rejects an output reference to an undeclared output.
-- A black-box fixture verifies `dagu workflow validate` rejects an output reference without a direct or transitive dependency on the producing step.
+- A black-box fixture verifies `dagu validate` accepts a step with a declared output.
+- A black-box fixture verifies `dagu validate` rejects invalid output names.
+- A black-box fixture verifies `dagu validate` rejects duplicate output names in one step.
+- A black-box fixture verifies `dagu validate` rejects invalid output types.
+- A black-box fixture verifies `dagu validate` rejects a step with `outputs` but no `id`.
+- A black-box fixture verifies `dagu validate` rejects an output reference to an undeclared output.
+- A black-box fixture verifies `dagu validate` rejects an output reference without a direct or transitive dependency on the producing step.
 - A black-box fixture verifies `dagu run` resolves a string output emitted through `DAGU_OUTPUT_FILE`.
 - A black-box fixture verifies `dagu run` resolves a multi-line output emitted through `DAGU_OUTPUT_FILE`.
 - A black-box fixture verifies `dagu run` does not resolve stdout as a step output.
