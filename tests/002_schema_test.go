@@ -22,7 +22,7 @@ func Test002Schema(t *testing.T) {
 
 			dagu := dagutest.New(t, "002_schema")
 
-			result := dagu.Run("workflow", "validate", ".dagu/"+file)
+			result := dagu.Run("workflow", "validate", file)
 			result.ExpectExitCode(0)
 			result.ExpectStdout("")
 			result.ExpectStderr("")
@@ -90,7 +90,7 @@ func Test002Schema(t *testing.T) {
 
 			dagu := dagutest.New(t, "002_schema")
 
-			result := dagu.Run("workflow", "validate", ".dagu/"+tc.file)
+			result := dagu.Run("workflow", "validate", tc.file)
 			result.ExpectExitCode(1)
 			result.ExpectStdout("")
 			result.ExpectStderrContains(tc.stderrParts...)
