@@ -2,7 +2,7 @@
 
 ## Scope
 
-This spec defines the step-level top-level `outputs` field, `DAGU_OUTPUT_FILE`, and references to declared step outputs.
+This spec defines the step-level top-level `outputs` field, `DAGU_OUTPUT_FILE`, and output publication.
 
 The field shape is:
 
@@ -15,11 +15,13 @@ steps:
 
 It does not define the existing singular `output` field, `stdout.outputs`, `outputs.write`, or the `outputs` schema in `dagu-action.yaml`.
 
+Value-resolution references to published outputs are defined by [Spec 007: Value Resolution Steps](007-value-resolution-steps.md).
+
 ## Goal
 
 Define a file-based way for a step to publish named values for later steps.
 
-The producing step writes records to `DAGU_OUTPUT_FILE`. Dagu parses that file after the step succeeds. Later steps read the values through `${steps.<step_id>.outputs.<name>}`.
+The producing step writes records to `DAGU_OUTPUT_FILE`. Dagu parses that file after the step succeeds. Later steps read the values through value resolution.
 
 ## Input
 
@@ -39,7 +41,7 @@ dagu run <workflow_target>
 
 Rules:
 
-- Validation checks output declarations and statically checkable output references.
+- Validation checks output declarations.
 - Validation must not execute steps.
 
 Example:
@@ -69,28 +71,19 @@ Output item fields:
 
 | Field | Required | Rules |
 | --- | --- | --- |
-| `name` | Yes | Must match `[a-z][a-z0-9_]*`. |
+| `name` | Yes | Must match `^[A-Za-z][A-Za-z0-9_]*$`. |
 | `type` | No | Must be `string` or `json` when present. Defaults to `string`. |
 
-## Output references
+## Output reference inputs
 
-Output references use this form:
-
-```text
-${steps.step_id.outputs.output_name}
-```
+Value-resolution references to step outputs use the published output names from this spec.
 
 Rules:
 
-- `step_id` follows the step reference spec.
-- `output_name` must name an output declared by that step.
-- Output references do not create dependencies.
-- A field without an owning step must not reference step outputs.
-- The step containing the reference must depend directly or transitively on the producing step.
-- A step must not reference its own output.
 - Output names are scoped to the producing step.
 - Step outputs are scoped to one DAG document.
 - Inline sub-DAG documents have independent output scopes.
+- Reference syntax, dependency requirements, and runtime lookup behavior are defined by [Spec 007: Value Resolution Steps](007-value-resolution-steps.md).
 
 ## Output file lifecycle
 
@@ -180,8 +173,6 @@ Validation must fail when:
 - An output item contains an unknown field.
 - An output item uses an invalid `type`.
 - A step declares `outputs` but has no `id`.
-- A value reference names an undeclared output.
-- A value reference names an output without depending directly or transitively on the producing step.
 
 Runtime output parsing must fail when:
 

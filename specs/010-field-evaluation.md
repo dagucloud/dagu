@@ -39,19 +39,22 @@ Dagu uses three evaluation types.
 
 Field-specific behavior means this spec does not make the decision. The field or executor spec must say what happens.
 
+The value-resolution field list is defined by the value resolution spec. If this table and that spec disagree about value-resolved fields, the value resolution spec is authoritative.
+
 ## Field table
 
 | Field | Evaluation type | When it happens | Rule |
 | --- | --- | --- | --- |
-| Root `consts.*` | Literal | Validation or load | Values must be literal strings, numbers, or booleans. |
+| Root `consts` mapping-form values | Literal | Validation or load | Values must be literal strings, numbers, or booleans. |
+| Root `consts` list-form string values | Value-resolved | Workflow load | Dagu resolves only references allowed by the consts value-resolution spec. |
 | `params[].default` | Literal | Run start, when needed | Dagu uses the default exactly as written. |
 | Runtime parameter overrides | Literal | Caller input | Values from CLI, API, or sub-DAG calls are not evaluated. |
 | `params[].eval` | Dynamic-evaluated | Before any step starts | Used only when the caller did not provide that parameter. May run legacy backtick command substitution. Does not run `$()`. |
 | Root `env` values | Value-resolved | DAG load or run setup | Dagu resolves Dagu references. It does not run command substitution. |
 | `dotenv` paths | Value-resolved | Before loading the dotenv file | Dagu resolves the path. It does not run command substitution. |
 | Step `run` | Value-resolved | Step start | Dagu resolves Dagu references, then hands the command string to the target shell. Dagu does not run `$()`, backticks, or shell variables in this field. The shell may run them later. |
-| Step `env` values | Field-specific | Step start | The runtime path or executor spec decides whether value resolution is enabled. Dynamic evaluation is not implied. |
-| Executor `with` fields | Field-specific | Step start | The executor spec decides whether value resolution or dynamic evaluation is enabled. |
+| Step `env` values | Value-resolved | Step start | Dagu resolves Dagu references. It does not run command substitution. |
+| Executor `with` fields | Value-resolved | Step start | Dagu resolves Dagu references in nested string values. It does not run command substitution. |
 | Step object-form `output` string leaves | Value-resolved | Output publication | For string values inside step `output: {...}`, Dagu resolves Dagu references. It does not run dynamic evaluation or shell expansion. |
 | `secrets[].key` and `secrets[].options` | Literal | Secret resolution | Provider inputs are literal strings. |
 
