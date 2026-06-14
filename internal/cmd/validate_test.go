@@ -135,6 +135,21 @@ steps:
 		require.Contains(t, err.Error(), "Validation failed")
 	})
 
+	t.Run("ResolvedPathValidationErrorUsesResolvedLocation", func(t *testing.T) {
+		dagFile := th.CreateDAGFile(t, "resolved_path.yaml", `
+name: invalid-entrypoint-name
+steps:
+  - run: echo ok
+`)
+
+		err := th.RunCommandWithError(t, cmd.Validate(), test.CmdTest{
+			Args: []string{"validate", "resolved_path.yaml"},
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "Validation failed for "+dagFile)
+		require.NotContains(t, err.Error(), "Validation failed for resolved_path.yaml")
+	})
+
 	t.Run("MissingFile", func(t *testing.T) {
 		err := th.RunCommandWithError(t, cmd.Validate(), test.CmdTest{
 			Args: []string{"validate", "/nonexistent/file.yaml"},

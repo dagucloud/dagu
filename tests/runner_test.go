@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // Runner executes Dagu commands against an isolated black-box test project.
@@ -96,28 +98,21 @@ func (r *Runner) ExpectNoFile(name string) {
 func (r *Result) ExpectExitCode(code int) {
 	r.t.Helper()
 
-	if r.exitCode != code {
-		r.t.Fatalf("expected exit code %d, got %d\nstdout:\n%s\nstderr:\n%s",
-			code, r.exitCode, r.stdout, r.stderr)
-	}
+	require.Equal(r.t, code, r.exitCode, "stdout:\n%s\nstderr:\n%s", r.stdout, r.stderr)
 }
 
 // ExpectStdout fails the test when stdout differs.
 func (r *Result) ExpectStdout(stdout string) {
 	r.t.Helper()
 
-	if r.stdout != stdout {
-		r.t.Fatalf("expected stdout %q, got:\n%s", stdout, r.stdout)
-	}
+	require.Equal(r.t, stdout, r.stdout)
 }
 
 // ExpectStderr fails the test when stderr differs.
 func (r *Result) ExpectStderr(stderr string) {
 	r.t.Helper()
 
-	if r.stderr != stderr {
-		r.t.Fatalf("expected stderr %q, got:\n%s", stderr, r.stderr)
-	}
+	require.Equal(r.t, stderr, r.stderr)
 }
 
 // ExpectStderrContains fails the test when stderr lacks any required text.
@@ -125,9 +120,7 @@ func (r *Result) ExpectStderrContains(parts ...string) {
 	r.t.Helper()
 
 	for _, part := range parts {
-		if !strings.Contains(r.stderr, part) {
-			r.t.Fatalf("expected stderr to contain %q, got:\n%s", part, r.stderr)
-		}
+		require.Contains(r.t, r.stderr, part)
 	}
 }
 
@@ -136,9 +129,7 @@ func (r *Result) ExpectStderrNotContains(parts ...string) {
 	r.t.Helper()
 
 	for _, part := range parts {
-		if strings.Contains(r.stderr, part) {
-			r.t.Fatalf("expected stderr not to contain %q, got:\n%s", part, r.stderr)
-		}
+		require.NotContains(r.t, r.stderr, part)
 	}
 }
 

@@ -79,7 +79,7 @@ func runValidate(ctx *Context, args []string) error {
 
 	if !validatedInput && dag.Location != "" {
 		if _, err := validateWorkflowFile(dag.Location); err != nil {
-			return errors.New(formatValidationErrors(args[0], err))
+			return errors.New(formatValidationErrors(dag.Location, err))
 		}
 	}
 

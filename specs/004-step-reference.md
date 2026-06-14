@@ -27,7 +27,7 @@ dagu validate [<workflow>]
 
 | Field | Meaning | Rules |
 | --- | --- | --- |
-| `id` | Canonical step reference. | Optional, unique inside one DAG document, and must match `[a-z][a-z0-9_]*` when present. |
+| `id` | Canonical step reference. | Optional, unique inside one DAG document, and must match `^[a-zA-Z][a-zA-Z0-9_]*$` when present. |
 | `name` | Display text. | Optional, not a step reference, not required to use `snake_case`, and not required to be unique. |
 
 **Reference rules:**

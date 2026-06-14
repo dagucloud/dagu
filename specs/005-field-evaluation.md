@@ -17,8 +17,9 @@ The validation requirements in this spec extend `dagu validate` when field-evalu
 - Field evaluation applies only to fields explicitly listed by this spec or by the owning field spec.
 - A field that is not listed must not run Dagu dynamic evaluation unless its own spec explicitly opts in.
 - Runtime parameter overrides are caller-provided values and are not evaluated.
-- The only Dagu command-substitution surface in this spec is `params[].eval`.
-- Outside `params[].eval`, Dagu does not execute command substitution and leaves `$()` and backtick text unchanged.
+- The only field that may execute Dagu legacy backtick command substitution in this spec is `params[].eval`.
+- Dagu does not support `$()` command substitution in any workflow field and leaves `$()` text unchanged.
+- Outside `params[].eval`, Dagu leaves backtick text unchanged.
 - The presence of `$()` or backticks outside `params[].eval` is not a validation error by itself.
 
 **Parameter `eval` fields may compute a value:**
@@ -51,7 +52,7 @@ Fields opt in to value resolution and dynamic evaluation separately.
 | Root `consts.*` | Literal | Validation/load | Literal strings, numbers, and booleans only. |
 | `params[].default` | Literal | Run start fallback | Used exactly as written; no Dagu value resolution or dynamic evaluation. |
 | Runtime parameter overrides | Literal | Caller input | CLI, API, and sub-DAG-provided values are not evaluated. |
-| `params[].eval` | Dynamic-evaluated | Before the DAG run starts | Used only when the caller does not provide the parameter. |
+| `params[].eval` | Dynamic-evaluated | Before the DAG run starts | Used only when the caller does not provide the parameter. May execute legacy backtick command substitution. Does not execute `$()`. |
 | Root `env` values | Value-resolved | DAG load or run setup | Computes DAG-scoped environment values without Dagu command substitution. |
 | `dotenv` paths | Value-resolved | DAG load or run setup | Resolves the path before loading the dotenv file without Dagu command substitution. |
 | Step `run` | Value-resolved | Step start | Dagu resolves `${...}` references, then the target shell receives the command string. Dagu leaves `$()` and backticks unchanged. |
@@ -66,6 +67,7 @@ Fields opt in to value resolution and dynamic evaluation separately.
 - Dynamic-evaluated fields run Dagu dynamic evaluation before the field is consumed.
 - Literal fields preserve `$()`, backticks, `$NAME`, and other shell syntax as literal text.
 - Value-resolved fields preserve `$()`, backticks, and `$NAME` for the owning runtime to interpret later.
+- Dynamic-evaluated fields preserve `$()` text; `params[].eval` may execute legacy backtick command substitution.
 - Step `run` is shell text after Dagu value resolution. Dagu leaves `$()` and backtick text unchanged in this field.
 
 **Parameter evaluation rules:**
