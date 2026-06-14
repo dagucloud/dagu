@@ -1,12 +1,16 @@
 # Spec: Step Reference
 
-Scope: step identity, dependency references, and references from value resolution.
+Scope: step identity, dependencies, and step references used by value resolution.
+
+This spec defines how one step points at another step. It does not define how a step runs, how outputs are produced, or how output files are parsed.
 
 ## Objective
 
-Define how one step is identified and referenced by another step.
+Make step identity unambiguous.
 
-## Inputs
+`id` is the reference name. `name` is display text. A dependency or value reference must use `id`, not `name`.
+
+## Input
 
 Input is a workflow YAML file accepted by the YAML schema spec.
 
@@ -16,95 +20,52 @@ Step reference validation extends:
 dagu validate [<workflow>]
 ```
 
-**Command behavior:**
+Rules:
 
-- When this spec is implemented, the command validates step ids and step references.
-- The command must not execute steps.
+- When this spec is implemented, validation checks step ids, dependencies, and statically checkable step references.
+- Validation must not execute steps.
 
-## Behavior
-
-**Step identity fields:**
+## Step identity
 
 | Field | Meaning | Rules |
 | --- | --- | --- |
-| `id` | Canonical step reference. | Optional, unique inside one DAG document, and must match `^[a-zA-Z][a-zA-Z0-9_]*$` when present. |
-| `name` | Display text. | Optional, not a step reference, not required to use `snake_case`, and not required to be unique. |
+| `id` | Canonical reference name. | Optional. Must be unique inside one DAG document. Must match `^[a-zA-Z][a-zA-Z0-9_]*$` when present. |
+| `name` | Display text. | Optional. Not a reference name. Does not need to be unique. Does not need to be snake case. |
 
-**Reference rules:**
+Rules:
 
-- When a step is referenced, the referenced step must have `id`.
-- Steps without `id` are valid only when no field references them.
+- A referenced step must have `id`.
+- A step without `id` is valid only when no field references it.
 - Step ids are scoped to one DAG document.
-- Inline sub-DAG documents have independent step-id scopes.
+- Inline sub-DAG documents have their own independent step-id scopes.
 
-**Dependency rules:**
+## Dependencies
 
-- `depends` references step ids.
+`depends` names step ids.
+
+Rules:
+
 - `depends` may be a string or a non-empty sequence of strings.
+- Every dependency must name an existing step `id`.
 - A step must not depend on itself.
 - Dependencies must not contain cycles.
 - DAG execution order must respect `depends`.
-- A step must not start until all steps it depends on have completed successfully.
+- A step must not start until every dependency completed successfully.
 - If a dependency fails, dependent steps must not start.
 
-**Value reference rules:**
-
-Value references under the `steps` namespace use step ids:
-
-```text
-${steps.step_id.outputs.name}
-```
-
-- A `steps.<step_id>.outputs.<name>` reference requires the referenced step to complete before the owning step starts.
-- Output declaration and publication behavior is defined by the step outputs spec.
-
-## Outputs
-
-**Output rules:**
-
-- Step reference validation does not write workflow result events, run logs, or artifacts.
-- Runtime step status and outputs must identify steps by `id` when `id` is defined.
-
-## Errors
-
-**Validation and execution errors:**
-
-- Duplicate step ids in one DAG document must fail before execution.
-- Invalid step id syntax must fail before execution.
-- An unknown `depends` reference must fail before execution.
-- A self-dependency must fail before execution.
-- A dependency cycle must fail before execution.
-- An unknown `steps.<step_id>` value reference must fail before the owning step starts.
-- An attempt to reference a step without `id` must fail before execution.
-
-## Examples
-
-Valid dependency and output reference:
+Example:
 
 ```yaml
 steps:
   - id: build
-    name: Build image
-    run: |
-      printf 'image=v1.2.3\n' >> "$DAGU_OUTPUT_FILE"
-    outputs:
-      - name: image
+    run: ./build.sh
 
   - id: deploy
-    name: Deploy service
     depends: build
-    run: ./deploy.sh ${steps.build.outputs.image}
+    run: ./deploy.sh
 ```
 
-Valid unreferenced step without `id`:
-
-```yaml
-steps:
-  - name: Say hello
-    run: echo hello
-```
-
-Invalid dependency on display name:
+This is invalid because `depends` uses display text instead of `id`:
 
 ```yaml
 steps:
@@ -115,6 +76,63 @@ steps:
   - id: deploy
     depends: Build image
     run: ./deploy.sh
+```
+
+## Value references
+
+Step references under the `steps` namespace use step ids:
+
+```text
+${steps.step_id.outputs.name}
+```
+
+Rules:
+
+- `step_id` must be an existing step `id`.
+- The referenced step must complete before the owning step starts.
+- Output declaration and publication behavior belongs to the step outputs spec.
+
+Example:
+
+```yaml
+steps:
+  - id: build
+    run: |
+      printf 'image=v1.2.3\n' >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: image
+
+  - id: deploy
+    depends: build
+    run: ./deploy.sh ${steps.build.outputs.image}
+```
+
+## Outputs
+
+Step reference validation does not write workflow events, run logs, artifacts, or result files.
+
+Runtime step status and runtime outputs must identify a step by `id` when `id` is defined.
+
+## Errors
+
+Validation or execution must fail when:
+
+- Two steps in one DAG document use the same `id`.
+- A step `id` has invalid syntax.
+- `depends` names an unknown step id.
+- `depends` names the owning step.
+- Dependencies contain a cycle.
+- A value reference uses an unknown `steps.<step_id>`.
+- A field attempts to reference a step that has no `id`.
+
+## Examples
+
+Valid unreferenced step without `id`:
+
+```yaml
+steps:
+  - name: Say hello
+    run: echo hello
 ```
 
 Invalid duplicate ids:
@@ -139,7 +157,7 @@ steps:
     run: echo second
 ```
 
-## Acceptance Criteria
+## Acceptance criteria
 
 - A black-box fixture verifies `dagu validate` accepts a referenced step with `id`.
 - A black-box fixture verifies `dagu validate` accepts an unreferenced step without `id`.

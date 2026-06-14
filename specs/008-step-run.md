@@ -2,11 +2,15 @@
 
 Scope: local command execution through the step `run` field.
 
+This spec defines only `run`. It does not define `command`, `script`, `exec`, executor `with` fields, or the step-level `shell` field.
+
 ## Objective
 
-Define how a step runs a local command on the data-plane runner host.
+Define how Dagu runs a local command on the data-plane runner host.
 
-## Inputs
+A step with `run` is a shell command. Dagu value-resolves the command string, then passes it to the platform shell.
+
+## Input
 
 Input is a workflow YAML file accepted by the YAML schema spec.
 
@@ -22,17 +26,17 @@ Workflow execution uses:
 dagu run <workflow>
 ```
 
-**Command behavior:**
+Rules:
 
-- When this spec is implemented, `dagu validate` validates the `run` field shape and statically checkable value references.
-- `dagu validate` must not execute commands.
-- `dagu validate` must not check whether the command path exists.
+- Validation checks the shape of `run` and statically checkable value references.
+- Validation must not execute commands.
+- Validation must not check whether the command path exists.
 - `dagu run` accepts project workflow targets as defined by the project spec.
 - Dagu must not append `.yaml` or `.yml` to extensionless workflow targets.
-- Dagu must not fall back from an unknown project workflow target to any other filesystem path.
-- `dagu run` executes the command when the step is ready to start.
+- Dagu must not fall back from an unknown project workflow target to another filesystem path.
+- `dagu run` executes a step command only when that step is ready to start.
 
-**A step may define `run`:**
+Example:
 
 ```yaml
 steps:
@@ -40,108 +44,48 @@ steps:
     run: ./scripts/build.sh ${params.version}
 ```
 
-## Behavior
+## Field shape
 
-**Field rules:**
-
-| Field | Required | Rules |
+| Field | Required | Rule |
 | --- | --- | --- |
-| `run` | No. | Must be a string when present. The decoded string must contain at least one non-whitespace character. Dagu does not evaluate command-substitution syntax in this field. |
+| `run` | No | Must be a string when present. The decoded string must contain at least one non-whitespace character. |
 
-**Execution rules:**
+Dagu does not run command-substitution syntax while evaluating this field.
+
+## Command execution
+
+Rules:
 
 - A step with `run` uses the local command executor.
-- The command executes on the data-plane runner host.
-- The command string is passed to the platform shell as one command string.
+- The command runs on the data-plane runner host.
+- Dagu passes the command string to the platform shell as one command string.
 - Dagu must not split `run` into argv.
-- Multi-line `run` strings are valid and line breaks are preserved.
-- Command path lookup is performed by the platform shell or operating system from the step process working directory.
-- This spec does not define a `shell` step field.
+- Multi-line `run` strings are valid.
+- Line breaks in a multi-line `run` string are preserved.
+- Command path lookup is done by the shell or operating system from the step process working directory.
+- This spec does not define a step-level `shell` field.
 - To use a different shell, invoke that shell inside `run`.
 
-**Platform shell:**
+Platform shell:
 
 | Platform | Shell |
 | --- | --- |
 | POSIX | `/bin/sh -c` |
 | Windows | `%ComSpec% /S /C`, or `cmd.exe /S /C` when `ComSpec` is unset. |
 
-**Value resolution rules:**
+## Value resolution
 
-- Dagu value resolution runs before command execution.
+Dagu resolves Dagu references before command execution.
+
+Rules:
+
 - Value resolution for `run` follows the value resolution spec and field evaluation spec.
 - If value resolution fails, the command must not start.
 - Dagu must not resolve shell-style `$NAME` syntax.
 - Dagu must leave `$()` and backtick text unchanged.
-- Shell-style variables and command-substitution text remain in the command string passed to the platform shell.
+- Shell variables and command-substitution text remain in the command string passed to the platform shell.
 
-**Working directory rules:**
-
-- The step process working directory is defined by the project spec.
-- In project mode, the default step process working directory is `project_root`.
-- A root `working_dir` value changes the default step process working directory as defined by the project spec.
-- This spec does not define a step-level `working_dir` field.
-
-**Environment rules:**
-
-- The command inherits the Dagu process environment.
-- Dagu-defined environment variables override inherited variables with the same name.
-- If the step declares outputs, Dagu sets `DAGU_OUTPUT_FILE` to the output file path defined by the step outputs spec.
-- If the step does not declare outputs, `DAGU_OUTPUT_FILE` must be absent from the command environment.
-
-**Exit rules:**
-
-- Exit code `0` means the command execution succeeded.
-- A non-zero exit code means the command execution failed.
-- Termination by signal or platform termination request means the command execution failed.
-- If output parsing fails after command execution succeeds, the step attempt fails as defined by the step outputs spec.
-
-**Abort and timeout rules:**
-
-- If the workflow run is aborted while the command is running, Dagu must terminate the command.
-- If runtime timeout behavior stops the step while the command is running, Dagu must terminate the command.
-- A step must not reach a terminal state while its command process is still running.
-- Outputs from an aborted or timed-out command attempt must not be published.
-
-## Outputs
-
-**Runtime output rules:**
-
-- Dagu captures command stdout.
-- Dagu captures command stderr.
-- Captured stdout and stderr are runtime outputs, not step outputs.
-- Step outputs are published only through the step outputs spec.
-- This spec does not define durable result storage format.
-
-## Errors
-
-**Validation errors:**
-
-- A non-string `run` value must fail during workflow validation.
-- An empty or whitespace-only `run` value must fail during workflow validation.
-- A malformed value reference in `run` must fail during workflow validation when it is statically checkable.
-- An output reference in `run` that violates the step outputs spec must fail during workflow validation.
-
-**Runtime errors:**
-
-- A value resolution failure in `run` must fail before the command starts.
-- A command that cannot be started must fail the step attempt.
-- A command path that the shell cannot find must fail the step attempt.
-- A command that exits with a non-zero code must fail the step attempt.
-- A command terminated by abort or timeout must fail the step attempt.
-- A command that emits invalid declared outputs must fail the step attempt as defined by the step outputs spec.
-
-## Examples
-
-Valid simple command:
-
-```yaml
-steps:
-  - id: hello
-    run: echo hello
-```
-
-Valid command with value resolution:
+Example:
 
 ```yaml
 params:
@@ -153,7 +97,75 @@ steps:
     run: ./scripts/build.sh ${params.version}
 ```
 
-Valid multi-line command:
+## Working directory
+
+The project spec defines the step process working directory.
+
+Rules:
+
+- In project mode, the default step process working directory is `project_root`.
+- Root `working_dir` changes the default step process working directory as defined by the project spec.
+- This spec does not define a step-level `working_dir` field.
+
+## Environment
+
+Rules:
+
+- The command inherits the Dagu process environment.
+- Dagu-defined environment variables override inherited variables with the same name.
+- If the step declares top-level `outputs`, Dagu sets `DAGU_OUTPUT_FILE` to the output file path defined by the step outputs spec.
+- If the step does not declare top-level `outputs`, `DAGU_OUTPUT_FILE` must be absent from the command environment.
+
+## Exit, abort, and timeout
+
+Rules:
+
+- Exit code `0` means command execution succeeded.
+- A non-zero exit code means command execution failed.
+- Termination by signal or platform termination request means command execution failed.
+- If output parsing fails after the command exits successfully, the step attempt fails as defined by the step outputs spec.
+- If the workflow run is aborted while the command is running, Dagu must terminate the command.
+- If runtime timeout behavior stops the step while the command is running, Dagu must terminate the command.
+- A step must not reach a terminal state while its command process is still running.
+- Outputs from an aborted or timed-out command attempt must not be published.
+
+## Outputs
+
+Dagu captures command stdout and stderr.
+
+Captured stdout and stderr are runtime outputs. They are not step outputs under the step outputs spec.
+
+Step outputs are published only through the step outputs spec. This spec does not define durable result storage.
+
+## Errors
+
+Validation must fail when:
+
+- `run` is not a string.
+- `run` is empty or whitespace only.
+- `run` contains a malformed Dagu value reference that is statically checkable.
+- `run` contains an output reference that violates the step outputs spec.
+
+Runtime must fail when:
+
+- Value resolution in `run` fails.
+- The command cannot be started.
+- The shell cannot find the command path.
+- The command exits with a non-zero code.
+- The command is terminated by abort or timeout.
+- The command emits invalid declared outputs.
+
+## Examples
+
+Simple command:
+
+```yaml
+steps:
+  - id: hello
+    run: echo hello
+```
+
+Multi-line command:
 
 ```yaml
 steps:
@@ -164,7 +176,7 @@ steps:
       ./scripts/test.sh
 ```
 
-Shell variables are expanded by the shell, not Dagu:
+Shell variables are expanded by the shell, not by Dagu:
 
 ```yaml
 steps:
@@ -172,7 +184,7 @@ steps:
     run: echo "$HOME"
 ```
 
-Valid command with declared output:
+Command with declared step output:
 
 ```yaml
 steps:
@@ -207,7 +219,7 @@ steps:
     run: [echo, hello]
 ```
 
-## Acceptance Criteria
+## Acceptance criteria
 
 - A black-box fixture verifies `dagu validate` accepts a step with a simple `run` string.
 - A black-box fixture verifies `dagu validate` accepts a multi-line `run` string.
@@ -230,7 +242,7 @@ steps:
 - A black-box fixture verifies stdout is not treated as a step output.
 - A black-box fixture verifies non-zero command exit fails the step.
 - A black-box fixture verifies a command path that the shell cannot find fails the step.
-- A black-box fixture verifies `DAGU_OUTPUT_FILE` is set when the step declares outputs.
-- A black-box fixture verifies `DAGU_OUTPUT_FILE` is absent when the step does not declare outputs.
+- A black-box fixture verifies `DAGU_OUTPUT_FILE` is set when the step declares top-level `outputs`.
+- A black-box fixture verifies `DAGU_OUTPUT_FILE` is absent when the step does not declare top-level `outputs`.
 - A black-box fixture verifies abort terminates the running command.
 - A black-box fixture verifies timeout termination fails the running command.

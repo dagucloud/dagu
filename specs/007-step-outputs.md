@@ -1,12 +1,25 @@
 # Spec: Step Outputs
 
-Scope: declared step outputs, output file parsing, and output references.
+Scope: the step-level top-level `outputs` field, `DAGU_OUTPUT_FILE`, and references to declared step outputs.
+
+This spec defines a new step field:
+
+```yaml
+steps:
+  - id: build
+    outputs:
+      - name: image_tag
+```
+
+It does not define the existing singular `output` field, `stdout.outputs`, `outputs.write`, or the `outputs` schema in `dagu-action.yaml`.
 
 ## Objective
 
-Define how a step publishes values for later steps without parsing stdout, stderr, or logs.
+Define a file-based way for a step to publish named values for later steps.
 
-## Inputs
+The producing step writes records to `DAGU_OUTPUT_FILE`. Dagu parses that file after the step succeeds. Later steps read the values through `${steps.<step_id>.outputs.<name>}`.
+
+## Input
 
 Input is a workflow YAML file accepted by the YAML schema spec.
 
@@ -22,12 +35,12 @@ Workflow execution uses:
 dagu run <workflow>
 ```
 
-**Command behavior:**
+Rules:
 
-- When this spec is implemented, `dagu validate` validates output declarations and output references.
-- `dagu validate` must not execute steps.
+- Validation checks output declarations and statically checkable output references.
+- Validation must not execute steps.
 
-**A step may declare outputs:**
+Example:
 
 ```yaml
 steps:
@@ -38,83 +51,88 @@ steps:
       - name: image_tag
 ```
 
-## Behavior
+## Output declarations
 
-**Output declaration rules:**
+`outputs` is an optional step field.
 
-- `outputs` is an optional step field.
+Rules:
+
 - When present, `outputs` must be a non-empty sequence.
 - A step with `outputs` must define `id`.
 - Output names must be unique inside one step.
 - Unknown output item fields are invalid.
 - JSON Schema is not part of this spec.
 
-**Output item fields:**
+Output item fields:
 
 | Field | Required | Rules |
 | --- | --- | --- |
-| `name` | Yes. | Must match `[a-z][a-z0-9_]*`. |
-| `type` | No. | Must be a string when present. Defaults to `string`. Supported values are `string` and `json`. |
+| `name` | Yes | Must match `[a-z][a-z0-9_]*`. |
+| `type` | No | Must be `string` or `json` when present. Defaults to `string`. |
 
-**Output reference rules:**
+## Output references
 
-An output reference must point to a declared output:
+Output references use this form:
 
 ```text
 ${steps.step_id.outputs.output_name}
 ```
 
-- Output references use the step `id` rules from the step reference spec.
+Rules:
+
+- `step_id` follows the step reference spec.
+- `output_name` must name an output declared by that step.
 - Output references do not create dependencies.
-- Fields without an owning step must not reference step outputs.
-- The step containing an output reference must depend directly or transitively on the producing step.
-- An output reference to the owning step's own output is invalid.
+- A field without an owning step must not reference step outputs.
+- The step containing the reference must depend directly or transitively on the producing step.
+- A step must not reference its own output.
 - Output names are scoped to the producing step.
 - Step outputs are scoped to one DAG document.
 - Inline sub-DAG documents have independent output scopes.
 
-### Output File
+## Output file lifecycle
 
-**Output file lifecycle:**
+For each step attempt, Dagu creates an empty output file before the executor starts.
 
-- For each step attempt, Dagu creates an empty output file before the executor starts.
+Rules:
+
 - Dagu exposes the output file path to the executor as `DAGU_OUTPUT_FILE`.
-- Executor specs define how `DAGU_OUTPUT_FILE` is exposed for each executor.
-- Dagu must not read stdout or stderr as step outputs.
+- Executor specs define how each executor receives `DAGU_OUTPUT_FILE`.
+- Dagu must not read stdout, stderr, or logs as step outputs.
 - Dagu parses the output file only after the executor exits successfully.
-- If the executor fails, aborts, or times out, Dagu must not publish outputs from that attempt.
+- If the executor fails, aborts, or times out, Dagu does not publish outputs from that attempt.
 - If output parsing fails, the attempt fails.
-- Normal retry behavior may retry a failed attempt.
+- Normal retry behavior may retry the failed attempt.
 - Failed attempts publish no outputs.
 - Only the attempt that makes the step successful publishes outputs.
 - Each retry attempt receives a new empty output file.
 
-### Output File Format
+## Output file format
 
 Dagu parses the output file as UTF-8 text. Invalid UTF-8 fails output parsing. Line endings are normalized to `\n` before parsing.
 
-**Output record formats:**
+Record formats:
 
 | Format | Syntax | Value |
 | --- | --- | --- |
 | Single-line | `name=value` | Text after the first `=`. The line ending is not part of the value. Empty values are valid. |
-| Multi-line | `name<<DELIMITER` followed by value lines and a closing `DELIMITER` line. | Text between the line ending after the opening record and the line ending before the delimiter line. |
+| Multi-line | `name<<DELIMITER`, value lines, then a closing `DELIMITER` line. | Text between the line ending after the opening record and the line ending before the delimiter line. |
 
-**Single-line record rules:**
+Single-line rules:
 
 - The output name is the text before the first `=`.
 - The output value is the text after the first `=`.
 - The line ending is not part of the value.
 - Empty values are valid.
 
-**Multi-line record rules:**
+Multi-line rules:
 
 - The delimiter must match `[A-Za-z_][A-Za-z0-9_]*`.
 - The delimiter line must match the delimiter exactly.
 - The delimiter line ending is not part of the value.
 - An unclosed multi-line record fails output parsing.
 
-**Record validation rules:**
+Record validation rules:
 
 - An empty line outside a multi-line value is invalid.
 - Each emitted output name must be declared by the step.
@@ -122,58 +140,55 @@ Dagu parses the output file as UTF-8 text. Invalid UTF-8 fails output parsing. L
 - An undeclared emitted output fails output parsing.
 - A duplicate emitted output fails output parsing.
 
-### Output Values
+## Output values
 
-**Type behavior:**
+Type behavior:
 
 | Type | Behavior |
 | --- | --- |
 | `string` | Stored as emitted text after line ending normalization. |
 | `json` | Must parse as JSON. Any JSON value is valid: object, array, string, number, boolean, or null. |
 
-**JSON and size rules:**
+Rules:
 
 - Invalid JSON fails output parsing.
-- JSON output references insert the emitted JSON text after line ending normalization.
+- A JSON output reference inserts the emitted JSON text after line ending normalization.
 - If `max_output_size` is specified, output file content larger than that many bytes fails output parsing.
 
 ## Outputs
 
-Successful output parsing publishes declared step outputs for later step value resolution.
+After successful parsing, Dagu publishes declared step outputs for later value resolution.
 
-**Published output reference form:**
+Published reference form:
 
 ```text
 ${steps.step_id.outputs.output_name}
 ```
 
-**Output rules:**
-
-- Step outputs are not stdout, stderr, logs, or artifacts.
-- This spec does not define durable result storage format.
+Step outputs are not stdout, stderr, logs, artifacts, or durable result storage. This spec does not define how the published values are stored on disk.
 
 ## Errors
 
-**Validation errors:**
+Validation must fail when:
 
-- Invalid `outputs` shape must fail during workflow validation.
-- Missing output `name` must fail during workflow validation.
-- Invalid output `name` syntax must fail during workflow validation.
-- Duplicate output names in one step must fail during workflow validation.
-- Unknown output item fields must fail during workflow validation.
-- Invalid output `type` must fail during workflow validation.
-- A step with `outputs` but no `id` must fail during workflow validation.
-- An output reference to an undeclared output must fail during workflow validation.
-- An output reference without a direct or transitive dependency on the producing step must fail during workflow validation.
+- `outputs` has an invalid shape.
+- An output item omits `name`.
+- An output `name` has invalid syntax.
+- One step declares the same output name more than once.
+- An output item contains an unknown field.
+- An output item uses an invalid `type`.
+- A step declares `outputs` but has no `id`.
+- A value reference names an undeclared output.
+- A value reference names an output without depending directly or transitively on the producing step.
 
-**Runtime output errors:**
+Runtime output parsing must fail when:
 
-- Invalid output file UTF-8 must fail the producing attempt.
-- Invalid output file syntax must fail the producing attempt.
-- A missing declared output must fail the producing attempt.
-- An undeclared emitted output must fail the producing attempt.
-- A duplicate emitted output must fail the producing attempt.
-- Invalid JSON for a `json` output must fail the producing attempt.
+- The output file is not valid UTF-8.
+- The output file syntax is invalid.
+- A declared output is missing.
+- The output file emits an undeclared output.
+- The output file emits the same output more than once.
+- A `json` output emits invalid JSON.
 
 ## Examples
 
@@ -212,7 +227,7 @@ steps:
     run: printf '%s\n' '${steps.inspect.outputs.metadata}'
 ```
 
-Runtime failure because stdout is not an output:
+Runtime failure because stdout is not a step output:
 
 ```yaml
 steps:
@@ -246,7 +261,7 @@ steps:
     run: ./deploy.sh ${steps.build.outputs.image_tag}
 ```
 
-## Acceptance Criteria
+## Acceptance criteria
 
 - A black-box fixture verifies `dagu validate` accepts a step with a declared output.
 - A black-box fixture verifies `dagu validate` rejects invalid output names.

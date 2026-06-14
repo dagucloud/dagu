@@ -1,24 +1,28 @@
 # Spec: YAML Schema
 
-Scope: data-plane workflow YAML stream shape and root-level validation.
+Scope: workflow YAML stream shape and root fields accepted before execution.
+
+This spec validates the document structure and root keys. It does not define the full behavior of each field. Later specs define field behavior.
 
 ## Objective
 
-Define the YAML stream accepted by the Dagu data plane before execution starts. This spec covers document structure and root fields only; detailed behavior for each field and sub-DAG execution belongs in later specs.
+Define the YAML file shape accepted by a Dagu data-plane runner.
 
-## Inputs
+The file may contain one DAG document or several DAG documents separated by `---`. The first document is the entrypoint. Later documents are local sub-DAGs available to the entrypoint.
 
-Input is one YAML file passed to a Dagu-compatible data-plane runner.
+## Input
 
-**YAML stream rules:**
+Input is one YAML file.
 
-- The YAML file must contain one or more DAG documents.
+Rules:
+
+- The file must contain at least one non-empty YAML document.
 - Documents may be separated with YAML `---`.
-- The first document is the entrypoint DAG executed by `dagu run`.
-- Later documents are local DAG definitions available to sub-DAG references.
 - Empty documents are invalid.
+- The first document is the entrypoint DAG.
+- Later documents define local sub-DAGs.
 
-**Valid entrypoint example:**
+Minimal valid workflow:
 
 ```yaml
 steps:
@@ -28,112 +32,108 @@ steps:
 
 ## Command
 
-YAML file validation command:
+Validation command:
 
 ```sh
 dagu validate <file_path>
 ```
 
-**Command behavior:**
+Rules:
 
 - `<file_path>` is the YAML file to validate.
-- The command validates the YAML stream and root fields defined by this spec.
-- The command does not validate internal field behavior that belongs to later specs.
+- The command validates the YAML stream and the root fields listed in this spec.
 - The command must not execute steps.
+- The command does not validate behavior owned by later specs except where those specs explicitly extend validation.
 
-**Command output:**
+Output:
 
-| Condition | Exit Code | Stdout | Stderr |
+| Condition | Exit code | Stdout | Stderr |
 | --- | --- | --- | --- |
 | Success | `0` | Empty. | Empty. |
-| Failure | Non-zero. | Empty. | Validation error. |
+| Failure | Non-zero | Empty. | Validation error. |
 
 Validation failures must not print command usage text.
 
-## Behavior
+## Documents
 
-**Document rules:**
+Rules:
 
-- The first DAG document is the entrypoint.
 - The entrypoint document must not define `name`.
-- Later DAG documents must have `name`.
-- Later DAG document `name` values identify local sub-DAG definitions inside the YAML file.
-- Later DAG documents are not executed by `dagu run` unless referenced by sub-DAG behavior.
-- Each DAG document must contain `steps`.
+- Every later document must define `name`.
+- Later document names identify local sub-DAGs inside the same YAML file.
+- Later documents are not executed by `dagu run` unless an execution spec references them as sub-DAGs.
 - DAG document names must be unique inside one YAML file.
+- Every document must contain `steps`.
 - `steps` must be a non-empty sequence.
 
-**Field rules:**
+## Root fields
 
-- Root fields not listed in this spec must be rejected in every document.
-- Duplicate root keys must be rejected in every document.
+Root field rules:
+
+- Root fields not listed in this spec are invalid.
+- Duplicate root keys are invalid.
 - Field names are case-sensitive.
 - Field names use `snake_case`.
-- The data-plane YAML schema must not require scheduler, coordinator, API server, UI, auth, queue, or history behavior.
+- This data-plane schema must not require scheduler, coordinator, API server, UI, auth, queue, or history behavior.
 
-## Root Fields
+Accepted root fields:
 
-These root fields are part of the data-plane YAML schema:
-
-| Field | Required | Value |
+| Field | Required | Meaning |
 | --- | --- | --- |
-| `name` | Entrypoint: forbidden; later documents: yes. | Local sub-DAG identifier. |
-| `description` | No. | Human-readable description. |
-| `working_dir` | No. | Default working directory. |
-| `params` | No. | Workflow parameters. |
-| `consts` | No. | Immutable literal values. |
-| `defaults` | No. | Default step settings. |
-| `steps` | Yes. | Executable steps. |
-| `handler_on` | No. | Lifecycle handler steps. |
-| `preconditions` | No. | Workflow start conditions. |
-| `retry_policy` | No. | Workflow retry policy. |
-| `timeout_sec` | No. | Workflow timeout in seconds. |
-| `delay_sec` | No. | Workflow start delay in seconds. |
-| `max_active_steps` | No. | Maximum concurrently running steps. |
-| `max_clean_up_time_sec` | No. | Cleanup timeout in seconds. |
-| `max_output_size` | No. | Maximum captured output size. |
-| `container` | No. | Default Docker container settings. |
-| `ssh` | No. | Default SSH settings. |
-| `kubernetes` | No. | Default Kubernetes settings. |
-| `llm` | No. | Default LLM settings. |
-| `tools` | No. | Required tool declarations. |
+| `name` | Entrypoint: forbidden. Later documents: required. | Local sub-DAG identifier. |
+| `description` | No | Human-readable description. |
+| `working_dir` | No | Default process working directory. |
+| `params` | No | Workflow parameters. |
+| `consts` | No | Immutable literal values. |
+| `defaults` | No | Default step settings. |
+| `steps` | Yes | Executable steps. |
+| `handler_on` | No | Lifecycle handler steps. |
+| `preconditions` | No | Workflow start conditions. |
+| `retry_policy` | No | Workflow retry policy. |
+| `timeout_sec` | No | Workflow timeout in seconds. |
+| `delay_sec` | No | Workflow start delay in seconds. |
+| `max_active_steps` | No | Maximum concurrently running steps. |
+| `max_clean_up_time_sec` | No | Cleanup timeout in seconds. |
+| `max_output_size` | No | Maximum captured output size. |
+| `container` | No | Default Docker container settings. |
+| `ssh` | No | Default SSH settings. |
+| `kubernetes` | No | Default Kubernetes settings. |
+| `llm` | No | Default LLM settings. |
+| `tools` | No | Required tool declarations. |
 
-Each listed field must have a dedicated spec before its behavior becomes accepted conformance behavior.
+Each accepted field needs its own behavior spec before its behavior becomes part of conformance.
 
 ## Outputs
 
 YAML validation happens before workflow execution.
 
-**Output rules:**
+Rules:
 
-- When validation succeeds, the runner may continue to execution.
-- When validation fails, no step may start.
-- Validation success by itself must not write workflow result events, run logs, or artifacts. Those outputs belong to runtime specs.
+- If validation succeeds, the runner may continue to execution.
+- If validation fails, no step may start.
+- Validation success does not write workflow events, run logs, artifacts, or result files.
 
 ## Errors
 
-**Validation errors:**
+Validation must fail when:
 
-- Invalid YAML must fail before execution.
-- An empty YAML document must fail before execution.
-- A missing or empty `steps` field in any DAG document must fail before execution.
-- A later DAG document without `name` must fail before execution.
-- Duplicate DAG document names must fail before execution.
-- An unknown root field in any DAG document must fail before execution.
-- A duplicate root key in any DAG document must fail before execution.
-- Validation errors should identify the invalid field path when possible.
+- The file is not valid YAML.
+- The file contains no non-empty document.
+- Any document is empty.
+- Any document is missing `steps`.
+- `steps` is empty.
+- `steps` is not a sequence.
+- The entrypoint document defines `name`.
+- A later document omits `name`.
+- Two DAG documents use the same `name`.
+- A document contains an unknown root field.
+- A document contains duplicate root keys.
+
+Validation errors should identify the invalid field path when possible.
 
 ## Examples
 
-Minimal valid workflow:
-
-```yaml
-steps:
-  - name: hello
-    run: echo hello
-```
-
-Valid workflow with root metadata:
+Valid workflow with metadata:
 
 ```yaml
 description: deploy service
@@ -150,7 +150,7 @@ steps:
     run: ./deploy.sh ${params.environment} ${params.version}
 ```
 
-Valid workflow with inline sub-DAG:
+Valid workflow with an inline sub-DAG:
 
 ```yaml
 steps:
@@ -166,7 +166,7 @@ steps:
     run: echo child
 ```
 
-Invalid workflow with unknown root field:
+Invalid unknown root field:
 
 ```yaml
 unknown: true
@@ -175,13 +175,7 @@ steps:
     run: echo hello
 ```
 
-Invalid workflow without steps:
-
-```yaml
-name: empty
-```
-
-Invalid entrypoint with `name`:
+Invalid entrypoint name:
 
 ```yaml
 name: deploy
@@ -190,11 +184,12 @@ steps:
     run: ./deploy.sh
 ```
 
-## Acceptance Criteria
+## Acceptance criteria
 
 - A black-box fixture verifies `dagu validate <file_path>` accepts the minimal valid workflow.
 - A black-box fixture verifies `dagu validate <file_path>` does not execute steps.
-- A black-box fixture accepts the minimal valid workflow.
+- A black-box fixture rejects invalid YAML.
+- A black-box fixture rejects an empty YAML document.
 - A black-box fixture rejects a workflow with no `steps`.
 - A black-box fixture rejects a workflow with empty `steps`.
 - A black-box fixture rejects mapping-shaped `steps`.
@@ -202,7 +197,6 @@ steps:
 - A black-box fixture rejects an unknown root field.
 - A black-box fixture rejects duplicate root keys.
 - A black-box fixture accepts an inline sub-DAG separated by `---`.
-- A black-box fixture rejects an empty YAML document.
 - A black-box fixture rejects a later DAG document without `name`.
 - A black-box fixture rejects duplicate DAG document names.
 - Rejected workflows do not start any step.

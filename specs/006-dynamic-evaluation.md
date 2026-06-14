@@ -2,19 +2,21 @@
 
 Scope: Dagu dynamic evaluation for fields that explicitly opt in.
 
+This spec defines the dynamic evaluation pipeline. It does not make every shell syntax form part of the workflow language.
+
 ## Objective
 
-Define current Dagu dynamic evaluation behavior without treating all shell syntax as a workflow-language feature.
+Define what Dagu does when a field is marked dynamic-evaluated.
 
-## Inputs
+In this spec set, dynamic evaluation is available only for `params[].eval`. Other fields must opt in through the field evaluation spec or their owning spec.
+
+## Input
 
 Input is a workflow YAML file accepted by the YAML schema spec.
 
-The validation requirements in this spec extend `dagu validate` when dynamic-evaluation validation is implemented. They are not part of the root/document validation boundary defined by the YAML schema spec.
+Dynamic-evaluation validation extends `dagu validate` when that validation is implemented. Validation may parse dynamic-evaluation syntax, but it must not execute commands.
 
-Dagu command-substitution execution is available only in `params[].eval`.
-
-**Dynamic-evaluated field example:**
+Example:
 
 ```yaml
 params:
@@ -26,75 +28,79 @@ steps:
     run: echo ${params.build_date}
 ```
 
-## Behavior
+## Evaluation pipeline
 
-Dynamic evaluation for `params[].eval` runs Dagu variable expansion and legacy backtick command substitution.
+Dynamic evaluation for `params[].eval` runs these operations in order:
 
-**Dynamic evaluation rules:**
+1. Resolve Dagu value references such as `${params.name}`.
+2. Expand available environment variables according to the field's evaluation scope.
+3. Execute legacy backtick command substitutions.
 
-- Dagu expands value references such as `${params.name}` before executing legacy backtick command substitution.
-- Dagu expands available environment variables such as `$HOME` and `${HOME}` according to the owning field's evaluation scope.
+Rules:
+
+- Dagu expands value references before executing backtick commands.
+- Dagu expands available environment variables such as `$HOME` and `${HOME}` according to the owning field's scope.
 - Dagu executes commands enclosed in backticks.
-- Backtick command output is inserted into the evaluated field value.
-- Backtick text in fields other than `params[].eval` is not Dagu dynamic evaluation and is left unchanged by Dagu.
-- `$()` command substitution is not supported by Dagu dynamic evaluation and is left unchanged by Dagu.
+- Dagu inserts backtick command stdout into the evaluated value after trimming surrounding whitespace.
+- Backtick text in fields other than `params[].eval` is not dynamic evaluation. Dagu leaves it unchanged.
+- `$()` command substitution is not supported by Dagu dynamic evaluation. Dagu leaves `$()` text unchanged.
 
-**Backtick syntax rules:**
+## Backtick syntax
+
+Rules:
 
 - A backtick command starts with `` ` `` and ends with the next unescaped `` ` ``.
 - Backtick commands must not be nested.
 - An escaped backtick is preserved literally.
 - An unclosed backtick is preserved literally.
-- The command text is passed to the configured shell for execution.
+- The command text is passed to the configured shell.
 
-## Shell Execution
+## Shell execution
 
-Backtick command bodies are executed through the configured shell.
-
-**Shell execution rules:**
+Backtick command bodies run through the configured shell.
 
 | Rule | Behavior |
 | --- | --- |
 | Shell | Dagu's configured default shell, the scoped `SHELL`, or the platform fallback selected by the implementation. |
-| Environment | Inherits the Dagu evaluation scope available to the owning field. |
-| Return value | Stdout as a string after trimming surrounding whitespace. |
+| Environment | The command inherits the evaluation scope available to the owning field. |
+| Return value | Stdout, trimmed of surrounding whitespace. |
 | Successful stderr | Captured and ignored. |
 | Timeout | The implementation applies a short bounded timeout. |
-| Sandbox | Not sandboxed by Dagu. |
+| Sandbox | Dagu does not sandbox the command. |
 
-**Output rules:**
+Command side effects are real side effects. If the command writes files, starts processes, or uses the network, those effects happen outside the workflow result model.
 
-- File, process, and network side effects are the side effects of the executed command.
-- Dynamic evaluation does not write workflow result events, run logs, or artifacts by itself.
+Dynamic evaluation itself does not write workflow events, run logs, artifacts, or result files.
 
-**Failure rules:**
+## Failures
 
-- If the command exits with a non-zero status, dynamic evaluation fails.
-- If the command times out, dynamic evaluation fails.
-- When this spec is implemented, `dagu validate` parses dynamic-evaluation syntax but does not execute commands.
+Rules:
+
+- A backtick command that exits with a non-zero status makes dynamic evaluation fail.
+- A backtick command that times out makes dynamic evaluation fail.
 - Each backtick substitution occurrence is evaluated independently.
+- The field evaluation spec defines field-specific fallbacks, such as `params[].eval` falling back to `default`.
 
 ## Outputs
 
-**Output rules:**
+When dynamic evaluation succeeds, Dagu inserts the evaluated value into the owning field.
 
-- When dynamic evaluation succeeds, its evaluated value is inserted into the owning field.
-- `$()` text remains part of the evaluated value unless another evaluation phase or target runtime interprets it later.
+`$()` text remains part of the evaluated value unless a later phase or target runtime interprets it.
 
 ## Errors
 
-**Validation errors:**
+Validation errors:
 
-- Malformed Dagu value references in a dynamic-evaluated field must fail during workflow validation when statically checkable.
+- Malformed Dagu value references in a dynamic-evaluated field must fail during workflow validation when they are statically checkable.
 
-**Runtime errors:**
+Runtime errors:
 
-- A failed backtick command must fail before the owning field is consumed.
-- A timed-out backtick command must fail before the owning field is consumed.
+- A failed backtick command must fail before the owning field is consumed, unless the owning field defines a fallback.
+- A timed-out backtick command must fail before the owning field is consumed, unless the owning field defines a fallback.
 
 ## Examples
 
-Parameter value from legacy backtick substitution:
+Parameter value from backtick substitution:
 
 ```yaml
 params:
@@ -121,7 +127,16 @@ steps:
     run: echo ${params.service_name}
 ```
 
-## Acceptance Criteria
+Unsupported `$()` substitution stays text:
+
+```yaml
+params:
+  - name: today
+    type: string
+    eval: $(date)
+```
+
+## Acceptance criteria
 
 - A black-box fixture verifies `dagu run` resolves a parameter value produced by backtick substitution in `eval`.
 - A black-box fixture verifies dynamic evaluation expands available variables before legacy backtick substitution.
@@ -129,4 +144,4 @@ steps:
 - A black-box fixture verifies backtick text in step `run` is not evaluated by Dagu.
 - A black-box fixture verifies backtick text in root `env` is not evaluated by Dagu.
 - A black-box fixture verifies malformed value references fail validation when they are statically checkable.
-- A black-box fixture verifies a non-zero backtick command fails before the owning field is consumed.
+- A black-box fixture verifies a non-zero backtick command fails before the owning field is consumed, unless that field defines a fallback.

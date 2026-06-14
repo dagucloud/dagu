@@ -1,128 +1,102 @@
 # Spec: Field Evaluation
 
-Scope: workflow field evaluation classes, evaluation timing, and evaluator ordering.
+Scope: how Dagu evaluates values in workflow fields.
+
+This spec answers one question: when Dagu sees text in a workflow field, does it leave the text alone, resolve Dagu references such as `${params.name}`, or run Dagu dynamic evaluation?
+
+It does not define the shape of every field. Field shape belongs to the YAML schema spec or to the spec that owns that field.
 
 ## Objective
 
-Define which workflow fields are literal, which fields resolve Dagu value references, and which fields run Dagu dynamic evaluation.
+Make field evaluation explicit. A workflow author should be able to tell, for each field covered here, whether Dagu will:
+
+- use the field exactly as written
+- resolve Dagu value references
+- run `params[].eval`
+- leave shell syntax for a later runtime such as `/bin/sh`
 
 ## Inputs
 
-Input is a workflow YAML file accepted by the YAML schema spec.
+Input is a workflow YAML file accepted by the YAML schema spec and by the specs that own the fields used in the file.
 
-The validation requirements in this spec extend `dagu validate` when field-evaluation validation is implemented. They are not part of the root/document validation boundary defined by the YAML schema spec.
+These names are easy to confuse, so this spec uses them exactly:
 
-**Input rules:**
+- Step `output` is the singular step field. Current code accepts string form and object form.
+- Step `stdout.outputs` publishes DAG or action outputs from stdout.
+- Step top-level `outputs` is a separate field owned by the step outputs spec when that spec is implemented.
+- `dagu-action.yaml` top-level `outputs` is an action manifest schema. It is not a normal workflow root field.
+- A normal workflow root does not have a root `output` or root `outputs` field in this spec.
 
-- Field evaluation applies only to fields explicitly listed by this spec or by the owning field spec.
-- A field that is not listed must not run Dagu dynamic evaluation unless its own spec explicitly opts in.
-- Runtime parameter overrides are caller-provided values and are not evaluated.
-- The only field that may execute Dagu legacy backtick command substitution in this spec is `params[].eval`.
-- Dagu does not support `$()` command substitution in any workflow field and leaves `$()` text unchanged.
+## Evaluation types
+
+Dagu uses three evaluation types.
+
+| Type | Meaning |
+| --- | --- |
+| Literal | Dagu uses the value exactly as written. It does not resolve `${...}` and does not run dynamic evaluation. |
+| Value-resolved | Dagu resolves Dagu value references such as `${params.name}`. It does not run dynamic evaluation. |
+| Dynamic-evaluated | Dagu runs the dynamic evaluation pipeline. In this spec, only `params[].eval` uses this type. |
+
+Field-specific behavior means this spec does not make the decision. The field or executor spec must say what happens.
+
+## Field table
+
+| Field | Evaluation type | When it happens | Rule |
+| --- | --- | --- | --- |
+| Root `consts.*` | Literal | Validation or load | Values must be literal strings, numbers, or booleans. |
+| `params[].default` | Literal | Run start, when needed | Dagu uses the default exactly as written. |
+| Runtime parameter overrides | Literal | Caller input | Values from CLI, API, or sub-DAG calls are not evaluated. |
+| `params[].eval` | Dynamic-evaluated | Before any step starts | Used only when the caller did not provide that parameter. May run legacy backtick command substitution. Does not run `$()`. |
+| Root `env` values | Value-resolved | DAG load or run setup | Dagu resolves Dagu references. It does not run command substitution. |
+| `dotenv` paths | Value-resolved | Before loading the dotenv file | Dagu resolves the path. It does not run command substitution. |
+| Step `run` | Value-resolved | Step start | Dagu resolves Dagu references, then hands the command string to the target shell. Dagu does not run `$()`, backticks, or shell variables in this field. The shell may run them later. |
+| Step `env` values | Field-specific | Step start | The runtime path or executor spec decides whether value resolution is enabled. Dynamic evaluation is not implied. |
+| Executor `with` fields | Field-specific | Step start | The executor spec decides whether value resolution or dynamic evaluation is enabled. |
+| Step object-form `output` string leaves | Value-resolved | Output publication | For string values inside step `output: {...}`, Dagu resolves Dagu references. It does not run dynamic evaluation or shell expansion. |
+| `secrets[].key` and `secrets[].options` | Literal | Secret resolution | Provider inputs are literal strings. |
+
+## Command-substitution rules
+
+Dagu command substitution is intentionally narrow.
+
+- The only field in this spec that may execute legacy backtick substitution is `params[].eval`.
+- Dagu never executes `$()` command substitution in workflow fields.
 - Outside `params[].eval`, Dagu leaves backtick text unchanged.
 - The presence of `$()` or backticks outside `params[].eval` is not a validation error by itself.
 
-**Parameter `eval` fields may compute a value:**
+For step `run`, this means Dagu leaves shell syntax in the command string. After that, the shell receives the command and may interpret that syntax. That shell behavior is not Dagu field evaluation.
+
+## Parameter evaluation
+
+`params[].eval` computes a parameter value only when the caller did not provide that parameter.
+
+Rules:
+
+- If the caller provides a parameter value, Dagu uses that value and does not evaluate `params[].eval`.
+- If the caller does not provide a value and `eval` exists, Dagu evaluates `eval`.
+- The evaluated value becomes `params.<name>` for the DAG run.
+- If `eval` fails and `default` exists, Dagu uses `default` exactly as written.
+- If `eval` fails and no `default` exists, the DAG run fails before any step starts.
+- This `default` fallback is the only dynamic-evaluation failure fallback in this spec.
+
+Example:
 
 ```yaml
 params:
   - name: build_date
     type: string
     eval: `date +%Y%m%d`
+    default: unknown
 steps:
   - name: print
     run: echo ${params.build_date}
 ```
 
-## Behavior
+If the command in `eval` succeeds, `${params.build_date}` uses the command output. If it fails, `${params.build_date}` is `unknown`.
 
-Fields opt in to value resolution and dynamic evaluation separately.
+## Step `run`
 
-**Field classes:**
-
-- Literal fields do not resolve Dagu value references and do not run Dagu dynamic evaluation.
-- Value-resolved fields resolve Dagu `${...}` references but do not run Dagu dynamic evaluation.
-- Dynamic-evaluated fields run the Dagu dynamic evaluation pipeline.
-- Field-specific fields define evaluation behavior in the owning field or executor spec.
-
-**Field evaluation surface:**
-
-| Field | Class | Timing | Notes |
-| --- | --- | --- | --- |
-| Root `consts.*` | Literal | Validation/load | Literal strings, numbers, and booleans only. |
-| `params[].default` | Literal | Run start fallback | Used exactly as written; no Dagu value resolution or dynamic evaluation. |
-| Runtime parameter overrides | Literal | Caller input | CLI, API, and sub-DAG-provided values are not evaluated. |
-| `params[].eval` | Dynamic-evaluated | Before the DAG run starts | Used only when the caller does not provide the parameter. May execute legacy backtick command substitution. Does not execute `$()`. |
-| Root `env` values | Value-resolved | DAG load or run setup | Computes DAG-scoped environment values without Dagu command substitution. |
-| `dotenv` paths | Value-resolved | DAG load or run setup | Resolves the path before loading the dotenv file without Dagu command substitution. |
-| Step `run` | Value-resolved | Step start | Dagu resolves `${...}` references, then the target shell receives the command string. Dagu leaves `$()` and backticks unchanged. |
-| Step `env` values | Field-specific | Step start | The owning executor or runtime path decides whether value resolution is enabled; dynamic evaluation is not implied. |
-| Executor `with` fields | Field-specific | Step start | Each executor spec decides whether value resolution or dynamic evaluation is enabled. |
-| Object-form `output` string leaves | Value-resolved | Output publication | Dagu dynamic evaluation and shell expansion are not run while publishing outputs. |
-| `secrets[].key` and `secrets[].options` | Literal | Secret resolution | Provider inputs are literal strings. |
-
-**Evaluation order:**
-
-- Value-resolved fields run Dagu value resolution before the field is consumed.
-- Dynamic-evaluated fields run Dagu dynamic evaluation before the field is consumed.
-- Literal fields preserve `$()`, backticks, `$NAME`, and other shell syntax as literal text.
-- Value-resolved fields preserve `$()`, backticks, and `$NAME` for the owning runtime to interpret later.
-- Dynamic-evaluated fields preserve `$()` text; `params[].eval` may execute legacy backtick command substitution.
-- Step `run` is shell text after Dagu value resolution. Dagu leaves `$()` and backtick text unchanged in this field.
-
-**Parameter evaluation rules:**
-
-- If the caller provides a parameter value, Dagu uses that value and does not evaluate `params[].eval`.
-- If the caller does not provide a parameter value and `eval` exists, Dagu evaluates `eval`.
-- An evaluated parameter value becomes the value of `params.<name>` for the DAG run.
-- If parameter `eval` fails and `default` exists, Dagu uses the default value exactly as written.
-- If parameter `eval` fails and no `default` exists, the DAG run fails before any step starts.
-
-## Outputs
-
-**Output rules:**
-
-- Field evaluation does not write workflow result events, run logs, or artifacts by itself.
-- When field evaluation succeeds, the resolved value is supplied to the owning field.
-
-## Errors
-
-**Validation errors:**
-
-- A malformed value reference in a value-resolved or dynamic-evaluated field must fail during workflow validation when it is statically checkable.
-
-**Runtime errors:**
-
-- A value-resolution failure must fail before the owning field is consumed.
-- A dynamic-evaluation failure must fail before the owning field is consumed.
-
-## Examples
-
-Literal default value:
-
-```yaml
-params:
-  - name: today
-    type: string
-    default: 20260131
-steps:
-  - name: print
-    run: echo ${params.today}
-```
-
-Parameter value from `eval`:
-
-```yaml
-params:
-  - name: today
-    type: string
-    eval: `printf 20260131`
-steps:
-  - name: print
-    run: echo ${params.today}
-```
-
-Step `run` is value-resolved by Dagu:
+Step `run` is value-resolved by Dagu and then executed by the shell.
 
 ```yaml
 params:
@@ -134,13 +108,72 @@ steps:
     run: echo ${params.message}
 ```
 
-## Acceptance Criteria
+Dagu resolves `${params.message}` to `hello`.
 
-- A black-box fixture verifies `params[].default` is literal and does not run Dagu dynamic evaluation.
+Dagu does not execute this command substitution:
+
+```yaml
+steps:
+  - name: print
+    run: echo $(date)
+```
+
+Dagu passes `echo $(date)` to the shell. The shell may execute `$(date)`.
+
+## Step object-form `output`
+
+This section refers to the step-level singular `output` field:
+
+```yaml
+steps:
+  - id: publish
+    output:
+      label: "release-${params.version}"
+```
+
+The string value `"release-${params.version}"` is a string leaf. Dagu resolves `${params.version}` when publishing the step output.
+
+Dagu does not run shell syntax in these string leaves:
+
+```yaml
+steps:
+  - id: publish
+    output:
+      label: "`date`"
+      other: "$(date)"
+```
+
+The published values contain the backtick text and `$()` text as ordinary text.
+
+This is different from `stdout.outputs`, `outputs.write`, and the action manifest `outputs` schema. Those surfaces publish DAG or action outputs and are defined by their owning specs.
+
+## Outputs
+
+Field evaluation does not write workflow events, run logs, result files, or artifacts by itself.
+
+When field evaluation succeeds, Dagu gives the evaluated value to the field that asked for it.
+
+## Errors
+
+Validation errors:
+
+- A malformed Dagu value reference in a value-resolved or dynamic-evaluated field must fail during workflow validation when it is statically checkable.
+
+Runtime errors:
+
+- A value-resolution failure must fail before the owning field is consumed.
+- A dynamic-evaluation failure must fail before the owning field is consumed.
+- The exception is `params[].eval` with `default`: if `eval` fails and `default` exists, Dagu uses the literal `default` value.
+
+## Acceptance criteria
+
+- A black-box fixture verifies `params[].default` is literal and does not run dynamic evaluation.
 - A black-box fixture verifies `dagu run` resolves a parameter value produced by `params[].eval`.
-- A black-box fixture verifies an explicit runtime parameter skips evaluation of that parameter `eval`.
-- A black-box fixture verifies `dagu run` value-resolves an opted-in non-`run` field such as root `env`.
+- A black-box fixture verifies an explicit runtime parameter skips that parameter's `eval`.
+- A black-box fixture verifies a failed `params[].eval` uses the literal `default` value when `default` exists.
+- A black-box fixture verifies a failed `params[].eval` fails before any step starts when no `default` exists.
+- A black-box fixture verifies root `env` values resolve Dagu references without running command substitution.
 - A black-box fixture verifies `$()` in `params[].eval` is preserved by Dagu and not executed.
-- A black-box fixture verifies command-substitution syntax in `run` is not evaluated by Dagu.
+- A black-box fixture verifies command-substitution syntax in step `run` is preserved by Dagu before the command string is handed to the shell.
 - A black-box fixture verifies command-substitution syntax in root `env` is not evaluated by Dagu.
-- A black-box fixture verifies object-form `output` string leaves resolve Dagu references without running Dagu dynamic evaluation.
+- A black-box fixture verifies step object-form `output` string leaves resolve Dagu references without running dynamic evaluation.
