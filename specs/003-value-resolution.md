@@ -128,7 +128,7 @@ The validator and runtime must use this same field list. A reference that would 
 
 Adding a value-resolution-capable field requires updating this spec, the DAG JSON schema, validation traversal, runtime traversal, and black-box tests together.
 
-`consts` rules:
+### Consts rules
 
 - Root `consts` may be an ordered list of single-entry mappings or a mapping.
 - Ordered list form is the canonical form. Examples must use list form by default because mapping order is not part of the contract.
@@ -140,61 +140,34 @@ Adding a value-resolution-capable field requires updating this spec, the DAG JSO
 - List-form `consts` values must not reference runtime `env`, `params`, `steps`, later `consts`, or themselves.
 - `consts` values are immutable for one DAG run.
 
-### Evaluation order
+### Resolution timing
 
-Dagu does not pre-render the whole workflow file. It resolves Dagu references at the boundary where the owning field is about to be used.
+There is no workflow-wide evaluation pass.
 
-Workflow validation uses this order:
+Resolution happens at these points:
 
-1. Parse the YAML and apply load-time expansion for defaults, custom `step_types`, and custom `actions` into concrete steps.
-2. Validate and resolve root `consts`. Mapping-form `consts` are independent literal values. List-form `consts` are evaluated from top to bottom.
-3. Traverse the supported fields listed in this spec and validate every Dagu-looking reference.
-4. Reject statically knowable failures, including unknown `consts`, undeclared `params`, unknown step ids, unknown declared step outputs, invalid shorthand, invalid namespace shapes, and field-specific ordering errors.
+- `consts` are resolved while loading the workflow.
+- Runtime `params` are available after Dagu builds the run input.
+- Root fields are resolved while preparing the run. `dotenv[]` paths resolve before dotenv files are loaded, and root `env` resolves before step execution begins.
+- Step fields are resolved when the runner reaches the part of the step that uses the field: precondition fields before checking the precondition, executor fields before starting the executor, and output fields while collecting outputs.
+- Step output references resolve only after the referenced step publishes the output.
 
-Runtime resolution uses this order:
+### Runtime lookup rules
 
-1. Resolved `consts` are available for the whole run.
-2. Runtime `params` are available after Dagu builds the run's parameter set.
-3. Root setup fields are resolved before the scheduler or runner uses them. This includes `dotenv[]`, root `env`, root shell fields, root working directory, root preconditions, and root container fields.
-4. `dotenv[]` path strings are resolved before dotenv files are loaded.
-5. Root `env` entries are resolved and added to the run environment scope before step execution begins.
-6. A step-owned field is resolved before that field is used for the owning step. Step-owned fields are not resolved before their dependency and precondition checks make the step eligible to start.
-7. Step `env` and step container `env` entries are resolved before the step executor starts.
-8. `steps.<step_id>.outputs.<name>` becomes available only after the referenced step completes and publishes that output.
+Dagu-owned references resolve by namespace:
 
-Environment entry order:
+| Reference | Lookup rule |
+| --- | --- |
+| `${consts.name}` | Reads `name` from resolved root `consts`. |
+| `${params.name}` | Reads a declared named runtime parameter. Positional parameters are not addressable. |
+| `${env.NAME}` | Reads `NAME` from the environment scope available to the owning field. `NAME` must match `^[A-Za-z_][A-Za-z0-9_]*$`. |
+| `${steps.step_id.outputs.name}` | Reads `name` from a completed step output. The step id must exist; when the step declares an output contract, the output name must be declared. |
 
-- Map-form `env` entries are unordered. A map-form `env` entry must not reference another key declared in the same map.
-- List-form `env` entries are evaluated from top to bottom. A list entry may reference earlier entries in the same list, but must not reference itself or later entries.
-- Root `env` entries must not reference `steps`.
-- Step `env` entries may reference `steps` outputs that are available before the owning step starts.
-- These rules apply to root `env`, `steps[].env`, root container `env`, and step container `env`.
+Root `env` may reference `consts`, `params`, and earlier available `env`, but not `steps`. Step `env` may also reference step outputs that are available before the owning step starts. In map-form `env`, entries are unordered and must not reference another key from the same map. In list-form `env`, entries are evaluated from top to bottom and may reference earlier entries. The same map/list rule applies to container `env`.
 
-Runtime lookup rules:
+When Dagu inserts a referenced value into a string field, strings are inserted as written, booleans as `true` or `false`, integers in base-10 decimal form, and non-integer numbers in the shortest round-trippable base-10 decimal representation.
 
-- Runtime parameters are referenced only through `params`.
-- A `params` reference must name a parameter declared by root `params`.
-- Named parameters may come from legacy named parameter entries, rich parameter definitions, or explicit schema properties.
-- Positional parameters are not addressable through `params`.
-- Step outputs are referenced only through `steps.<step_id>.outputs.<name>`.
-- A `steps` reference must name an existing step `id`.
-- A `steps.<step_id>.outputs.<name>` reference must name a declared output when the referenced step declares an output contract.
-- Step `id` behavior belongs to the step reference spec.
-- Environment variables are referenced only through `env`.
-- An `env` reference must use `${env.<name>}` and the name must match `^[A-Za-z_][A-Za-z0-9_]*$`.
-- Root `env` values are value-resolution fields. A root entry such as `API_HOST: api.${consts.domain}` resolves to `api.internal` when `consts.domain` is `internal`.
-- Root `env` values may reference `consts`, `params`, and already-available `env` values. Root `env` values must not reference `steps` because no step has run yet.
-- Step `env` values may reference `consts`, `params`, already-available `env` values, and `steps` outputs that are available before the owning step starts.
-- An `env` reference resolves from the environment scope available to the owning field at lookup time.
-- When the owning field is itself an environment setup entry, `${env.<name>}` may read only entries already available before that entry is evaluated. The entry being defined and later entries are not visible.
-- An `env` reference is a direct Dagu lookup. It must not run shell expansion, shell parameter operators, command substitution, or target-runtime interpolation.
-- `dagu validate` must validate `env` reference syntax and path shape. It must not reject an `env` name only because the final runtime environment value is not available during validation.
-- When Dagu inserts a referenced value into a string field, strings are inserted as written and booleans are inserted as `true` or `false`.
-- Numeric values are formatted from the parsed YAML value, not from the source spelling. Integers use base-10 decimal form. Non-integer numbers use the shortest round-trippable base-10 decimal representation.
-- Dagu must not resolve shell-style `$NAME` syntax.
-- Dagu must not resolve unqualified `${NAME}` syntax as a Dagu reference.
-- Dagu must not execute `$()` or backtick command substitution during value resolution.
-- Shell-style variables and command-substitution text remain in the field after Dagu value resolution unless the owning field spec rejects them. A shell or target runtime may expand them later only when the owning field spec allows it.
+Dagu value resolution does not resolve shell-style `$NAME`, unqualified `${NAME}`, shell parameter operators, `$()`, or backtick command substitution. That text remains in the field unless the owning field spec rejects it.
 
 ## Outputs
 
@@ -202,6 +175,8 @@ Runtime lookup rules:
 - When value resolution succeeds, the owning field receives the resolved value before it is used.
 
 ## Errors
+
+`dagu validate` follows the same visibility rules and rejects failures that are knowable before execution.
 
 Workflow validation errors:
 
