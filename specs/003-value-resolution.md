@@ -4,7 +4,7 @@ Scope: Dagu reference syntax, root `consts`, and runtime value lookup.
 
 ## Objective
 
-Define how workflow fields reference values without conflicting with shell environment variable syntax.
+Define how workflow fields reference values using the current `${...}` format.
 
 ## Inputs
 
@@ -26,7 +26,7 @@ consts:
 ```yaml
 steps:
   - name: deploy
-    run: ${{ consts.deploy_script }} ${{ params.environment }}
+    run: ${consts.deploy_script} ${params.environment}
 ```
 
 ## Behavior
@@ -34,10 +34,12 @@ steps:
 Dagu references use this syntax:
 
 ```text
-${{ path }}
+${path}
 ```
 
-Whitespace after `${{` and before `}}` is ignored. The path must be namespaced.
+The path must be namespaced. Dotted references must use the `${name.path}` form. `$name.path` is not supported as a dotted reference form.
+
+The `${{ ... }}` format is not supported by the current implementation and must not be required by this spec.
 
 **Supported namespaces:**
 
@@ -50,15 +52,17 @@ Whitespace after `${{` and before `}}` is ignored. The path must be namespaced.
 **Supported reference forms:**
 
 ```text
-${{ consts.name }}
-${{ params.name }}
-${{ steps.step_id.outputs.name }}
+${consts.name}
+${params.name}
+${steps.step_id.outputs.name}
 ```
 
 **Reference rules:**
 
 - Reference path segments must use `snake_case`.
-- Unqualified references such as `${{ name }}` are invalid.
+- Unqualified references such as `${name}` are invalid.
+- Dotted references must use `${name.path}`.
+- `$name.path` is not supported as a dotted reference form.
 - Function call expressions are defined by the expression functions spec.
 - Operators, filters, and inline default values are not part of this spec.
 - This spec requires value resolution for step `run` fields.
@@ -78,7 +82,7 @@ ${{ steps.step_id.outputs.name }}
 - Step outputs are referenced only through `steps.<step_id>.outputs.<name>`.
 - Step `id` behavior is defined by the step reference spec.
 - When a referenced value is inserted into a string field, strings are inserted as written, booleans are inserted as `true` or `false`, and numbers are inserted in base-10 form.
-- Dagu must not resolve shell-style `$NAME` or `${NAME}` syntax.
+- Dagu must not resolve shell-style `$NAME` syntax.
 - Shell-style variables remain part of the field value after Dagu value resolution. A shell or target runtime may expand them later.
 
 ## Outputs
@@ -119,7 +123,7 @@ params:
     required: true
 steps:
   - name: deploy
-    run: ${{ consts.deploy_script }} ${{ params.environment }} ${{ consts.service }}
+    run: ${consts.deploy_script} ${params.environment} ${consts.service}
 ```
 
 Shell variables are not resolved by Dagu:
@@ -127,7 +131,7 @@ Shell variables are not resolved by Dagu:
 ```yaml
 steps:
   - name: shell_env
-    run: echo "$HOME ${HOME}"
+    run: echo "$HOME"
 ```
 
 Invalid unqualified reference:
@@ -135,7 +139,7 @@ Invalid unqualified reference:
 ```yaml
 steps:
   - name: bad
-    run: echo ${{ environment }}
+    run: echo ${environment}
 ```
 
 Invalid consts reference:
@@ -143,7 +147,15 @@ Invalid consts reference:
 ```yaml
 steps:
   - name: bad
-    run: echo ${{ consts.missing }}
+    run: echo ${consts.missing}
+```
+
+Invalid dotted reference syntax:
+
+```yaml
+steps:
+  - name: bad
+    run: echo $consts.service
 ```
 
 ## Acceptance Criteria
@@ -151,8 +163,10 @@ steps:
 - A black-box fixture verifies `dagu validate` accepts literal `consts` values.
 - A black-box fixture verifies `dagu validate` rejects invalid `consts` value types.
 - A black-box fixture verifies `dagu validate` rejects an unqualified Dagu reference.
-- A black-box fixture verifies `dagu run` resolves `${{ consts.name }}`.
-- A black-box fixture verifies `dagu run` resolves `${{ params.name }}`.
-- A black-box fixture verifies `dagu run` resolves `${{ steps.step_id.outputs.name }}` after the referenced step completes.
+- A black-box fixture verifies `dagu run` resolves `${consts.name}`.
+- A black-box fixture verifies `dagu run` resolves `${params.name}`.
+- A black-box fixture verifies `dagu run` resolves `${steps.step_id.outputs.name}` after the referenced step completes.
 - A black-box fixture verifies missing Dagu references fail before the owning step starts.
-- A black-box fixture verifies `$NAME` and `${NAME}` are not resolved by Dagu.
+- A black-box fixture verifies `$NAME` is not resolved by Dagu.
+- A black-box fixture verifies `$name.path` is not treated as supported dotted reference syntax.
+- A black-box fixture verifies `${{ name }}` is not treated as supported value-resolution syntax.
