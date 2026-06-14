@@ -515,7 +515,7 @@ func (s *DispatchTaskStore) ClaimNext(ctx context.Context, claim exec.DispatchTa
 		return nil, err
 	}
 
-	for attempt := 0; attempt < 2; attempt++ {
+	for range 2 {
 		claimed, stale, err := s.claimNextPending(ctx, claim)
 		if err != nil || !stale {
 			return claimed, err

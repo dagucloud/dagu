@@ -666,7 +666,7 @@ func TestDispatchTaskStore_RepeatedNoMatchDoesNotRereadPendingRecords(t *testing
 	col := newCountingRecordIDsCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
 	s := store.NewDispatchTaskStore(col)
 
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
 			DAGRunID:       "run-no-match-" + string(rune('a'+i)),
 			Target:         "dag-no-match",
@@ -678,7 +678,7 @@ func TestDispatchTaskStore_RepeatedNoMatchDoesNotRereadPendingRecords(t *testing
 
 	col.Reset()
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
 			WorkerID: "worker-cpu",
 			PollerID: "poller-cpu",
@@ -699,7 +699,7 @@ func TestDispatchTaskStore_RepeatedNoMatchWithClaimsThrottlesValidation(t *testi
 	col := newCountingRecordIDsCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
 	s := store.NewDispatchTaskStore(col)
 
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
 			DAGRunID:       "run-claim-throttle-" + string(rune('a'+i)),
 			Target:         "dag-claim-throttle",
@@ -719,7 +719,7 @@ func TestDispatchTaskStore_RepeatedNoMatchWithClaimsThrottlesValidation(t *testi
 
 	col.Reset()
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
 			WorkerID: "worker-gpu",
 			PollerID: "poller-gpu",
@@ -771,7 +771,7 @@ func TestDispatchTaskStore_OutstandingQueriesUseIndexAfterWarmup(t *testing.T) {
 	col := newCountingRecordIDsCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
 	s := store.NewDispatchTaskStore(col)
 
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
 			DAGRunID:   "run-outstanding-" + string(rune('a'+i)),
 			Target:     "dag-outstanding",
@@ -790,7 +790,7 @@ func TestDispatchTaskStore_OutstandingQueriesUseIndexAfterWarmup(t *testing.T) {
 
 	col.Reset()
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		count, err = s.CountOutstandingByQueue(ctx, "queue-a", time.Second)
 		require.NoError(t, err)
 		require.Equal(t, 8, count)
@@ -1054,7 +1054,7 @@ func BenchmarkDispatchTaskStoreClaimNextConcurrentNoMatch(b *testing.B) {
 func seedBenchmarkDispatchTasks(b *testing.B, ctx context.Context, s *store.DispatchTaskStore, count int, selector map[string]string, suffix string) {
 	b.Helper()
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		err := s.Enqueue(ctx, &exec.DispatchTask{
 			DAGRunID:       "run-bench-" + suffix + "-" + strconv.Itoa(i),
 			Target:         "dag-bench",
