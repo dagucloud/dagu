@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package dagutest
+package specs_test
 
 import (
 	"bytes"
@@ -28,8 +28,7 @@ type Result struct {
 	stderr   string
 }
 
-// New creates an isolated copy of a black-box test project.
-func New(t *testing.T, project string) *Runner {
+func newRunner(t *testing.T, project string) *Runner {
 	t.Helper()
 
 	r := &Runner{

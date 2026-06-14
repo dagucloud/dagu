@@ -1,12 +1,10 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package tests_test
+package specs_test
 
 import (
 	"testing"
-
-	dagutest "github.com/dagucloud/dagu/tests/internal"
 )
 
 func Test002Schema(t *testing.T) {
@@ -20,7 +18,7 @@ func Test002Schema(t *testing.T) {
 		t.Run(file, func(t *testing.T) {
 			t.Parallel()
 
-			dagu := dagutest.New(t, "002_schema")
+			dagu := newRunner(t, "002_schema")
 
 			result := dagu.Run("validate", file)
 			result.ExpectExitCode(0)
@@ -87,7 +85,7 @@ func Test002Schema(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			dagu := dagutest.New(t, "002_schema")
+			dagu := newRunner(t, "002_schema")
 
 			result := dagu.Run("validate", tc.file)
 			result.ExpectExitCode(1)
