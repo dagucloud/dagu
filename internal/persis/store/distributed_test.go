@@ -1950,7 +1950,7 @@ type disappearingRecordGetCollection struct {
 
 func (c *disappearingRecordGetCollection) Get(ctx context.Context, id string) (*persis.Record, error) {
 	if strings.HasPrefix(id, c.prefix) && c.removed.CompareAndSwap(false, true) {
-		if err := c.Collection.Delete(ctx, id); err != nil {
+		if err := c.Delete(ctx, id); err != nil {
 			return nil, err
 		}
 		return nil, persis.ErrNotFound
