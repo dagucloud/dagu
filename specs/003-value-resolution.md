@@ -41,7 +41,7 @@ Dagu references use this syntax:
 ${path}
 ```
 
-The path must be namespaced. Dotted references must use the `${name.path}` form. `$name.path` is not supported as a dotted reference form.
+The path must be namespaced. Dotted references must use the `${name.path}` form. `$name.path` is rejected as invalid Dagu-looking reference syntax when `name` is a supported namespace.
 
 **Supported namespaces:**
 
@@ -61,10 +61,11 @@ ${steps.step_id.outputs.name}
 
 **Reference rules:**
 
-- Reference path segments must use `snake_case`.
+- Reference path segments must match `^[A-Za-z][A-Za-z0-9_]*$`.
 - Unqualified references such as `${name}` are invalid.
 - Dotted references must use `${name.path}`.
-- `$name.path` is not supported as a dotted reference form.
+- `$consts.name`, `$params.name`, and `$steps.step_id.outputs.name` are invalid Dagu-looking reference syntax.
+- Dagu value resolution must not execute `$()` or backtick command substitution.
 - Dynamic evaluation is defined by the dynamic evaluation spec and enabled only by the field evaluation spec or the owning field spec.
 - Operators, filters, and inline default values are not part of this spec.
 - This spec requires value resolution for step `run` fields.
@@ -73,8 +74,9 @@ ${steps.step_id.outputs.name}
 **`consts` rules:**
 
 - Root `consts` must be a mapping.
-- `consts` keys must use `snake_case`.
+- `consts` keys must match `^[A-Za-z][A-Za-z0-9_]*$`.
 - `consts` values must be literal strings, numbers, or booleans.
+- Numeric `consts` values must be finite.
 - `consts` values must not contain Dagu references.
 - `consts` values are immutable for one DAG run.
 
@@ -83,9 +85,11 @@ ${steps.step_id.outputs.name}
 - Runtime parameters are referenced only through `params`.
 - Step outputs are referenced only through `steps.<step_id>.outputs.<name>`.
 - Step `id` behavior is defined by the step reference spec.
-- When a referenced value is inserted into a string field, strings are inserted as written, booleans are inserted as `true` or `false`, and numbers are inserted in base-10 form.
+- When a referenced value is inserted into a string field, strings are inserted as written and booleans are inserted as `true` or `false`.
+- Numeric values are formatted from the parsed YAML value, not from the source spelling. Integers are inserted in base-10 decimal form. Non-integer numbers are inserted as the shortest round-trippable base-10 decimal representation.
 - Dagu must not resolve shell-style `$NAME` syntax.
-- Shell-style variables remain part of the field value after Dagu value resolution. A shell or target runtime may expand them later.
+- Dagu must not execute `$()` or backtick command substitution during value resolution.
+- Shell-style variables and command-substitution syntax remain part of the field value after Dagu value resolution unless the owning field spec rejects them. A shell or target runtime may expand them later only when the owning field spec permits that runtime behavior.
 
 ## Outputs
 
@@ -99,6 +103,7 @@ ${steps.step_id.outputs.name}
 **Runtime resolution errors:**
 
 - Malformed Dagu reference syntax must fail before the owning step starts.
+- Invalid Dagu-looking shorthand reference syntax must fail before the owning step starts.
 - An unknown namespace must fail before the owning step starts.
 - An unknown `consts` reference must fail before the owning step starts.
 - An unknown `params` reference must fail before the owning step starts.
@@ -110,6 +115,7 @@ ${steps.step_id.outputs.name}
 - Invalid `consts` shape must fail during workflow validation.
 - Invalid `consts` key names must fail during workflow validation.
 - Invalid `consts` value types must fail during workflow validation.
+- Non-finite numeric `consts` values must fail during workflow validation.
 
 ## Examples
 
@@ -160,14 +166,24 @@ steps:
     run: echo $consts.service
 ```
 
+Dagu does not execute command substitution during value resolution:
+
+```yaml
+steps:
+  - name: shell_text
+    run: echo "$(date)" "`date`"
+```
+
 ## Acceptance Criteria
 
 - A black-box fixture verifies `dagu validate` accepts literal `consts` values.
 - A black-box fixture verifies `dagu validate` rejects invalid `consts` value types.
+- A black-box fixture verifies `dagu validate` rejects non-finite numeric `consts` values.
 - A black-box fixture verifies `dagu validate` rejects an unqualified Dagu reference.
 - A black-box fixture verifies `dagu run` resolves `${consts.name}`.
 - A black-box fixture verifies `dagu run` resolves `${params.name}`.
 - A black-box fixture verifies `dagu run` resolves `${steps.step_id.outputs.name}` after the referenced step completes.
 - A black-box fixture verifies missing Dagu references fail before the owning step starts.
 - A black-box fixture verifies `$NAME` is not resolved by Dagu.
-- A black-box fixture verifies `$name.path` is not treated as supported dotted reference syntax.
+- A black-box fixture verifies `$consts.name`, `$params.name`, and `$steps.step_id.outputs.name` fail as invalid Dagu-looking shorthand reference syntax.
+- A black-box fixture verifies Dagu value resolution does not execute `$()` or backtick command substitution.
