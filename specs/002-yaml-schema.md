@@ -148,7 +148,7 @@ params:
     required: true
 steps:
   - name: deploy
-    run: ./deploy.sh ${{ params.environment }} ${{ params.version }}
+    run: ./deploy.sh ${params.environment} ${params.version}
 ```
 
 Valid workflow with inline sub-DAG:

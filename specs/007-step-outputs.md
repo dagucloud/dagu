@@ -61,7 +61,7 @@ steps:
 An output reference must point to a declared output:
 
 ```text
-${{ steps.step_id.outputs.output_name }}
+${steps.step_id.outputs.output_name}
 ```
 
 - Output references use the step `id` rules from the step reference spec.
@@ -144,7 +144,7 @@ Successful output parsing publishes declared step outputs for later step value r
 **Published output reference form:**
 
 ```text
-${{ steps.step_id.outputs.output_name }}
+${steps.step_id.outputs.output_name}
 ```
 
 **Output rules:**
@@ -189,7 +189,7 @@ steps:
 
   - id: deploy
     depends: build
-    run: ./deploy.sh ${{ steps.build.outputs.image_tag }}
+    run: ./deploy.sh ${steps.build.outputs.image_tag}
 ```
 
 Valid JSON output:
@@ -209,7 +209,7 @@ steps:
 
   - id: print
     depends: inspect
-    run: printf '%s\n' '${{ steps.inspect.outputs.metadata }}'
+    run: printf '%s\n' '${steps.inspect.outputs.metadata}'
 ```
 
 Runtime failure because stdout is not an output:
@@ -230,7 +230,7 @@ steps:
     run: echo ok
   - id: deploy
     depends: build
-    run: ./deploy.sh ${{ steps.build.outputs.image_tag }}
+    run: ./deploy.sh ${steps.build.outputs.image_tag}
 ```
 
 Invalid missing dependency:
@@ -243,7 +243,7 @@ steps:
     outputs:
       - name: image_tag
   - id: deploy
-    run: ./deploy.sh ${{ steps.build.outputs.image_tag }}
+    run: ./deploy.sh ${steps.build.outputs.image_tag}
 ```
 
 ## Acceptance Criteria

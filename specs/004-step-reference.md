@@ -52,7 +52,7 @@ dagu validate [<workflow>]
 Value references under the `steps` namespace use step ids:
 
 ```text
-${{ steps.step_id.outputs.name }}
+${steps.step_id.outputs.name}
 ```
 
 - A `steps.<step_id>.outputs.<name>` reference requires the referenced step to complete before the owning step starts.
@@ -93,7 +93,7 @@ steps:
   - id: deploy
     name: Deploy service
     depends: build
-    run: ./deploy.sh ${{ steps.build.outputs.image }}
+    run: ./deploy.sh ${steps.build.outputs.image}
 ```
 
 Valid unreferenced step without `id`:
@@ -153,4 +153,4 @@ steps:
 - A black-box fixture verifies `dagu run` does not start `step_b` before `step_a` completes successfully when `step_b` declares `depends: step_a`.
 - A black-box fixture verifies `dagu run` exits with code `0` when every step in a dependency chain completes successfully.
 - A black-box fixture verifies `dagu run` does not start a step whose dependency failed, and exits non-zero.
-- A black-box fixture verifies `dagu run` resolves `${{ steps.step_id.outputs.name }}` by step `id`.
+- A black-box fixture verifies `dagu run` resolves `${steps.step_id.outputs.name}` by step `id`.

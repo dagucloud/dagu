@@ -63,7 +63,7 @@ ${steps.step_id.outputs.name}
 - Unqualified references such as `${name}` are invalid.
 - Dotted references must use `${name.path}`.
 - `$name.path` is not supported as a dotted reference form.
-- Function call expressions are defined by the expression functions spec.
+- Dynamic evaluation is defined by the dynamic evaluation spec and enabled only by the field evaluation spec or the owning field spec.
 - Operators, filters, and inline default values are not part of this spec.
 - This spec requires value resolution for step `run` fields.
 - Other fields support value resolution only when their own specs say so.

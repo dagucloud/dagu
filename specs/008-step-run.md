@@ -37,7 +37,7 @@ dagu run <workflow>
 ```yaml
 steps:
   - id: build
-    run: ./scripts/build.sh ${{ params.version }}
+    run: ./scripts/build.sh ${params.version}
 ```
 
 ## Behavior
@@ -69,9 +69,9 @@ steps:
 **Value resolution rules:**
 
 - Dagu value resolution runs before command execution.
-- Value resolution for `run` follows the value resolution spec and expression functions spec.
+- Value resolution for `run` follows the value resolution spec and field evaluation spec.
 - If value resolution fails, the command must not start.
-- Dagu must not resolve shell-style `$NAME` or `${NAME}` syntax.
+- Dagu must not resolve shell-style `$NAME` syntax.
 - Shell-style variables remain in the command string passed to the platform shell.
 
 **Working directory rules:**
@@ -149,7 +149,7 @@ params:
     required: true
 steps:
   - id: build
-    run: ./scripts/build.sh ${{ params.version }}
+    run: ./scripts/build.sh ${params.version}
 ```
 
 Valid multi-line command:
@@ -168,7 +168,7 @@ Shell variables are expanded by the shell, not Dagu:
 ```yaml
 steps:
   - id: home
-    run: echo "$HOME ${HOME}"
+    run: echo "$HOME"
 ```
 
 Valid command with declared output:
@@ -221,7 +221,7 @@ steps:
 - A black-box fixture verifies `dagu run` executes from `project_root` by default.
 - A black-box fixture verifies `dagu run` respects root `working_dir`.
 - A black-box fixture verifies `dagu run` resolves Dagu references before command execution.
-- A black-box fixture verifies `$NAME` and `${NAME}` remain available for shell expansion.
+- A black-box fixture verifies `$NAME` remains available for shell expansion.
 - A black-box fixture verifies command stdout is captured.
 - A black-box fixture verifies command stderr is captured.
 - A black-box fixture verifies stdout is not treated as a step output.
