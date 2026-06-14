@@ -10,6 +10,7 @@ Specs may be implemented incrementally. A change that implements part of a spec 
 - Write specs as observable contracts, not explanations of implementation.
 - Keep each file focused on one topic.
 - Keep each spec scoped to one owner and explicitly say what it does not define.
+- Every numbered spec must include a `Scope` section.
 - Name numbered specs with numeric prefixes to show reading order, such as `001-language.md`.
 - Define public inputs, outputs, errors, side effects, and lifecycle effects.
 - Include examples that can be used as test fixtures.

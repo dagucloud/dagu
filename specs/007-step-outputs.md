@@ -1,8 +1,10 @@
 # Spec: Step Outputs
 
-Scope: the step-level top-level `outputs` field, `DAGU_OUTPUT_FILE`, and references to declared step outputs.
+## Scope
 
-This spec defines a new step field:
+This spec defines the step-level top-level `outputs` field, `DAGU_OUTPUT_FILE`, and references to declared step outputs.
+
+The field shape is:
 
 ```yaml
 steps:

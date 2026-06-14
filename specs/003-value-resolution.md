@@ -1,6 +1,10 @@
 # Spec: Value Resolution
 
-Scope: Dagu reference syntax, root `consts`, and runtime value lookup.
+## Scope
+
+This spec defines Dagu reference syntax, root `consts`, and runtime value lookup.
+
+It does not define dynamic evaluation, step identity, output publication, shell variable expansion, or field-specific opt-in rules outside the fields named by this spec.
 
 ## Objective
 

@@ -1,8 +1,10 @@
 # Spec: YAML Schema
 
-Scope: workflow YAML stream shape and root fields accepted before execution.
+## Scope
 
-This spec validates the document structure and root keys. It does not define the full behavior of each field. Later specs define field behavior.
+This spec defines workflow YAML stream shape and root fields accepted before execution.
+
+It validates document structure and root keys. It does not define the full behavior of each field. Later specs define field behavior.
 
 ## Objective
 

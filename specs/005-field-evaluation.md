@@ -1,6 +1,6 @@
 # Spec: Field Evaluation
 
-Scope: how Dagu evaluates values in workflow fields.
+## Scope
 
 This spec answers one question: when Dagu sees text in a workflow field, does it leave the text alone, resolve Dagu references such as `${params.name}`, or run Dagu dynamic evaluation?
 

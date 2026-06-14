@@ -1,8 +1,10 @@
 # Spec: Step Reference
 
-Scope: step identity, dependencies, and step references used by value resolution.
+## Scope
 
-This spec defines how one step points at another step. It does not define how a step runs, how outputs are produced, or how output files are parsed.
+This spec defines step identity, dependencies, and step references used by value resolution.
+
+It does not define how a step runs, how outputs are produced, or how output files are parsed.
 
 ## Objective
 

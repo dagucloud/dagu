@@ -1,8 +1,10 @@
 # Spec: Dynamic Evaluation
 
-Scope: Dagu dynamic evaluation for fields that explicitly opt in.
+## Scope
 
-This spec defines the dynamic evaluation pipeline. It does not make every shell syntax form part of the workflow language.
+This spec defines Dagu dynamic evaluation for fields that explicitly opt in.
+
+It does not make every shell syntax form part of the workflow language.
 
 ## Objective
 

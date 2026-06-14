@@ -1,8 +1,10 @@
 # Spec: Project
 
-Scope: project root detection, workflow discovery, and relative path handling for data-plane execution.
+## Scope
 
-This spec defines project-mode behavior. It does not define workflow YAML semantics, step execution, or output formats.
+This spec defines project root detection, workflow discovery, and relative path handling for data-plane execution.
+
+It does not define workflow YAML semantics, step execution, or output formats.
 
 ## Objective
 

@@ -1,8 +1,10 @@
 # Spec: Step Run
 
-Scope: local command execution through the step `run` field.
+## Scope
 
-This spec defines only `run`. It does not define `command`, `script`, `exec`, executor `with` fields, or the step-level `shell` field.
+This spec defines local command execution through the step `run` field.
+
+It does not define `command`, `script`, `exec`, executor `with` fields, or the step-level `shell` field.
 
 ## Objective
 
