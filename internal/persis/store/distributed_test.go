@@ -1069,21 +1069,21 @@ func TestDispatchTaskStore_OutstandingQueryRebuildsAfterExternalPendingPayloadCh
 	require.Equal(t, 1, count)
 
 	rewritePendingDispatchRecords(t, col, func(payload *dispatchTaskRecord) {
-		payload.Task.QueueName = "queue-b"
-		payload.Task.AttemptKey = "attempt-key-versioned-b"
+		payload.Task.QueueName = "queue-b-updated"
+		payload.Task.AttemptKey = "attempt-key-versioned-updated"
 	})
 	waitDispatchIndexValidationWindow()
 
 	count, err = s.CountOutstandingByQueue(ctx, "queue-a", time.Second)
 	require.NoError(t, err)
 	assert.Zero(t, count)
-	count, err = s.CountOutstandingByQueue(ctx, "queue-b", time.Second)
+	count, err = s.CountOutstandingByQueue(ctx, "queue-b-updated", time.Second)
 	require.NoError(t, err)
 	assert.Equal(t, 1, count)
 	hasOutstanding, err := s.HasOutstandingAttempt(ctx, "attempt-key-versioned-a", time.Second)
 	require.NoError(t, err)
 	assert.False(t, hasOutstanding)
-	hasOutstanding, err = s.HasOutstandingAttempt(ctx, "attempt-key-versioned-b", time.Second)
+	hasOutstanding, err = s.HasOutstandingAttempt(ctx, "attempt-key-versioned-updated", time.Second)
 	require.NoError(t, err)
 	assert.True(t, hasOutstanding)
 }
