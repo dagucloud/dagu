@@ -791,6 +791,38 @@ func TestDispatchTaskStore_RepeatedNoMatchDoesNotRereadPendingRecords(t *testing
 	assert.LessOrEqual(t, col.GetCount(), int64(1), "repeated no-match claims should use indexed metadata instead of reading every pending record")
 }
 
+func TestDispatchTaskStore_NoMatchCacheDistinguishesSeparatorCharacters(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := store.NewDispatchTaskStore(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+
+	require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
+		DAGRunID:       "run-label-collision",
+		Target:         "dag-label-collision",
+		AttemptID:      "attempt-label-collision",
+		AttemptKey:     "attempt-key-label-collision",
+		WorkerSelector: map[string]string{"a": "b", "c": "d"},
+	}))
+
+	claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		WorkerID: "worker-colliding-labels",
+		Labels:   map[string]string{"a": "b\nc=d"},
+		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
+	})
+	require.NoError(t, err)
+	require.Nil(t, claimed)
+
+	claimed, err = s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		WorkerID: "worker-matching-labels",
+		Labels:   map[string]string{"a": "b", "c": "d"},
+		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	assert.Equal(t, "run-label-collision", claimed.Task.DAGRunID)
+}
+
 func TestDispatchTaskStore_RepeatedNoMatchWithClaimsThrottlesValidation(t *testing.T) {
 	t.Parallel()
 

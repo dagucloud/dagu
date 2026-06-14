@@ -12,6 +12,7 @@ import (
 	"maps"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -308,13 +309,14 @@ func dispatchClaimLabelsKey(labels map[string]string) string {
 	}
 	sort.Strings(keys)
 	var b strings.Builder
-	for i, key := range keys {
-		if i > 0 {
-			b.WriteByte('\n')
-		}
+	for _, key := range keys {
+		value := labels[key]
+		b.WriteString(strconv.Itoa(len(key)))
+		b.WriteByte(':')
 		b.WriteString(key)
-		b.WriteByte('=')
-		b.WriteString(labels[key])
+		b.WriteString(strconv.Itoa(len(value)))
+		b.WriteByte(':')
+		b.WriteString(value)
 	}
 	return b.String()
 }
