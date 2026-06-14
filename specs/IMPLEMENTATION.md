@@ -1,29 +1,28 @@
-# V3 Spec Implementation Guide
+# Spec Implementation Guide
 
-This guide explains how to implement the v3 specs. It is not a numbered spec and does not define workflow language behavior; the numbered specs are the source of truth.
+This guide explains how to implement the specs. It is not a numbered spec and does not define workflow language behavior; the numbered specs are the source of truth.
 
 ## Contract
 
 **Rules:**
 
-- Implement behavior only when a numbered v3 spec defines it.
-- When existing Dagu behavior conflicts with a v3 spec, the v3 spec wins.
-- When existing Dagu behavior is not defined by a v3 spec, do not preserve it for compatibility.
-- Add black-box tests for every behavior defined by a v3 spec in this directory.
-- Do not add fallback behavior for old YAML fields, old executor behavior, old value syntax, or old lifecycle behavior unless a v3 spec requires it.
+- When existing Dagu behavior conflicts with a spec, the spec wins.
+- When existing Dagu behavior is not defined by a spec, do not preserve it for compatibility.
+- Add black-box tests for every behavior defined by a spec in this directory.
+- Do not add fallback behavior for old YAML fields, old executor behavior, old value syntax, or old lifecycle behavior unless a spec requires it.
 - Unspecified behavior must fail clearly or remain unsupported.
 - Specs can land ahead of their implementation. Each implementation slice must document the spec acceptance criteria it covers and must not imply conformance to unimplemented criteria.
 - Delete obsolete tests when they are replaced by new tests that cover the same behavior. Do not preserve old tests that verify removed behavior.
-- Delete obsolete code when v3 specs replace its behavior. Do not preserve old code that implements removed behavior.
+- Delete obsolete code when specs replace its behavior. Do not preserve old code that implements removed behavior.
 
 ## Code
 
 **Implementation notes:**
 
 - Prefer simple code with explicit boundaries.
-- Delete or replace old code when keeping it makes the v3 implementation harder to understand or verify.
-- Reuse old code only when it directly implements the v3 contract without hidden compatibility behavior.
-- Avoid broad adapters that translate old behavior into v3 behavior.
+- Delete or replace old code when keeping it makes the implementation harder to understand or verify.
+- Reuse old code only when it directly implements the contract without hidden compatibility behavior.
+- Avoid broad adapters that translate old behavior into behavior.
 - Keep parsers strict.
 - Keep errors deterministic enough that black-box tests can assert the failure class and invalid field path.
 - Avoid global mutable registries unless the spec requires runtime extension.
@@ -35,7 +34,7 @@ This guide explains how to implement the v3 specs. It is not a numbered spec and
 - Hide parsing, normalization, state transitions, retries, cleanup, and executor details behind narrow contracts.
 - Make callers depend on what a module guarantees, not how the module does the work.
 - Avoid shallow modules that expose many knobs while doing little work internally.
-- Do not leak old Dagu compatibility concerns through v3 module interfaces.
+- Do not leak old Dagu compatibility concerns through module interfaces.
 - Keep each public type or function useful enough that callers do not need to understand its internals.
 - Move complexity behind a boundary only when the boundary makes the rest of the system simpler.
 
@@ -51,7 +50,7 @@ This guide explains how to implement the v3 specs. It is not a numbered spec and
 - Use lower-level tests for parsing details, rare branches, and failure paths that are impractical to trigger through a full run.
 - Limit untested paths to cases that are genuinely hard to trigger.
 - Name, justify, and keep small any hard-to-test exception.
-- Do not count old compatibility behavior toward v3 coverage.
+- Do not count old compatibility behavior toward coverage.
 
 ## Spec Changes
 

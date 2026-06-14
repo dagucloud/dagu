@@ -1,6 +1,6 @@
 # Specs
 
-Specs describe v3 data-plane behavior. They are written for implementers and for black-box conformance tests.
+Specs describe data-plane behavior. They are written for implementers and for black-box conformance tests.
 
 Specs may be implemented incrementally. A change that implements part of a spec must say which acceptance criteria it covers and must add black-box coverage for that covered behavior. Acceptance criteria that are documented but not implemented remain target conformance work, not implied current behavior.
 
