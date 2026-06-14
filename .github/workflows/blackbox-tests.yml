@@ -12,6 +12,7 @@ on:
       - "internal/**"
       - "Makefile"
       - "specs/**"
+      - "tests/**"
   pull_request:
     # Keep this workflow directly rerunnable from PR-only maintenance commits.
     types:
@@ -27,6 +28,7 @@ on:
       - "internal/**"
       - "Makefile"
       - "specs/**"
+      - "tests/**"
   workflow_dispatch:
 
 permissions:
@@ -55,4 +57,4 @@ jobs:
       - name: Run black-box tests
         env:
           DAGU_BIN: ${{ github.workspace }}/.local/bin/dagu
-        run: go test -count=1 ./specs/tests
+        run: go test -count=1 ./tests

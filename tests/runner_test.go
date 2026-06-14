@@ -162,7 +162,7 @@ func daguBinary(t *testing.T) string {
 		return path
 	}
 
-	return statBinary(t, filepath.Join("..", "..", bin))
+	return statBinary(t, filepath.Join("..", bin))
 }
 
 func hasPathSeparator(path string) bool {
