@@ -1,4 +1,0 @@
-working_dir: .
-steps:
-  - id: bad
-    run: echo ${vars.service} > should_not_run.txt

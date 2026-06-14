@@ -1,9 +1,0 @@
-working_dir: .
-consts:
-  service: api
-  count: 3
-  ratio: 1.5
-  enabled: true
-steps:
-  - id: should_not_run
-    run: echo executed > executed.txt

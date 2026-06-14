@@ -1,9 +1,0 @@
-working_dir: .
-steps:
-  - id: Build_1
-    run: printf '%s\n' v1.2.3
-    stdout:
-      outputs: image_tag
-  - id: deploy
-    depends: Build_1
-    run: printf '%s\n' '${steps.Build_1.outputs.image_tag}' > mixed_case_step_output.txt

@@ -1,6 +1,0 @@
-working_dir: .
-env:
-  BLACKBOX_SHELL_VALUE: shell-expanded
-steps:
-  - id: write
-    run: printf '%s\n' "$BLACKBOX_SHELL_VALUE" > shell_variable.txt

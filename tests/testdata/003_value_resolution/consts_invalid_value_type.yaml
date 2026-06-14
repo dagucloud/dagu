@@ -1,7 +1,0 @@
-working_dir: .
-consts:
-  service:
-    name: api
-steps:
-  - id: should_not_run
-    run: echo executed > executed.txt
