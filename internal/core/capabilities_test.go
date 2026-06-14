@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/cmn/eval"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -77,8 +77,8 @@ func TestExecutorCapabilities_ConcurrentAccess(t *testing.T) {
 	assert.True(t, registry.Get("executor-63").Command)
 }
 
-func optionsFromSlice(opts []eval.Option) *eval.Options {
-	out := eval.NewOptions()
+func optionsFromSlice(opts []cmnvalue.Option) *cmnvalue.Options {
+	out := cmnvalue.NewOptions()
 	for _, opt := range opts {
 		opt(out)
 	}
@@ -92,8 +92,8 @@ func TestStep_EvalOptions(t *testing.T) {
 	t.Run("CommandUsesFieldSpecificHook", func(t *testing.T) {
 		RegisterExecutorCapabilities("command-eval-opts-test", ExecutorCapabilities{
 			Command: true,
-			GetCommandEvalOptions: func(_ context.Context, _ Step) []eval.Option {
-				return []eval.Option{eval.WithoutExpandShell()}
+			GetCommandEvalOptions: func(_ context.Context, _ Step) []cmnvalue.Option {
+				return []cmnvalue.Option{cmnvalue.WithoutExpandShell()}
 			},
 		})
 		t.Cleanup(func() { UnregisterExecutorCapabilities("command-eval-opts-test") })
@@ -108,8 +108,8 @@ func TestStep_EvalOptions(t *testing.T) {
 		RegisterExecutorCapabilities("script-eval-opts-test", ExecutorCapabilities{
 			Command: true,
 			Script:  true,
-			GetScriptEvalOptions: func(_ context.Context, _ Step) []eval.Option {
-				return []eval.Option{eval.WithNoExpansion()}
+			GetScriptEvalOptions: func(_ context.Context, _ Step) []cmnvalue.Option {
+				return []cmnvalue.Option{cmnvalue.WithNoExpansion()}
 			},
 		})
 		t.Cleanup(func() { UnregisterExecutorCapabilities("script-eval-opts-test") })
@@ -135,8 +135,8 @@ func TestStep_EvalOptions(t *testing.T) {
 		RegisterExecutorCapabilities("legacy-eval-opts-test", ExecutorCapabilities{
 			Command: true,
 			Script:  true,
-			GetEvalOptions: func(_ context.Context, _ Step) []eval.Option {
-				return []eval.Option{eval.WithoutExpandShell()}
+			GetEvalOptions: func(_ context.Context, _ Step) []cmnvalue.Option {
+				return []cmnvalue.Option{cmnvalue.WithoutExpandShell()}
 			},
 		})
 		t.Cleanup(func() { UnregisterExecutorCapabilities("legacy-eval-opts-test") })

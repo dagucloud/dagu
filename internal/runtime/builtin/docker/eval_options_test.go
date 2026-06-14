@@ -7,14 +7,14 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/cmn/eval"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/stretchr/testify/require"
 )
 
 func getEscapeDollar(ctx context.Context, step core.Step) bool {
-	opts := eval.NewOptions()
+	opts := cmnvalue.NewOptions()
 	for _, opt := range step.CommandEvalOptions(ctx) {
 		opt(opts)
 	}

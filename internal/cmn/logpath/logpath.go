@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/cmn/eval"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 )
 
 // Config defines configuration for DAG run log file creation.
@@ -42,12 +42,12 @@ func Generate(ctx context.Context, baseLogDir, dagLogDir, dagName, dagRunID stri
 // GenerateDir expands the configured directories, creates the DAG-run
 // directory if needed, and returns the per-run directory path.
 func GenerateDir(ctx context.Context, baseDir, dagDir, dagName, dagRunID string) (string, error) {
-	baseDir, err := eval.String(ctx, baseDir, eval.WithOSExpansion())
+	baseDir, err := cmnvalue.String(ctx, baseDir, cmnvalue.WithOSExpansion())
 	if err != nil {
 		return "", fmt.Errorf("failed to expand base directory: %w", err)
 	}
 
-	dagDir, err = eval.String(ctx, dagDir, eval.WithOSExpansion())
+	dagDir, err = cmnvalue.String(ctx, dagDir, cmnvalue.WithOSExpansion())
 	if err != nil {
 		return "", fmt.Errorf("failed to expand DAG directory: %w", err)
 	}

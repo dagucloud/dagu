@@ -8,20 +8,20 @@ import (
 	goruntime "runtime"
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/cmn/eval"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/stretchr/testify/require"
 )
 
-func getEvalOptions(t *testing.T, step core.Step) *eval.Options {
+func getEvalOptions(t *testing.T, step core.Step) *cmnvalue.Options {
 	t.Helper()
 
 	ctx := runtime.NewContextForTest(context.Background(), &core.DAG{Name: "test-dag"}, "run-1", "test.log")
 	env := runtime.NewEnv(ctx, step)
 	ctx = runtime.WithEnv(ctx, env)
 
-	opts := eval.NewOptions()
+	opts := cmnvalue.NewOptions()
 	for _, opt := range step.CommandEvalOptions(ctx) {
 		opt(opts)
 	}

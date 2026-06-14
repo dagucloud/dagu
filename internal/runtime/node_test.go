@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
-	"github.com/dagucloud/dagu/internal/cmn/eval"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime"
@@ -694,7 +694,7 @@ func TestNodeBuildSubDAGRuns(t *testing.T) {
 			},
 			setupEnv: func(ctx context.Context) context.Context {
 				env := runtime.GetEnv(ctx)
-				env.Scope = env.Scope.WithEntry("LIST_VAR", `["item1", "item2", "item3"]`, eval.EnvSourceStepEnv)
+				env.Scope = env.Scope.WithEntry("LIST_VAR", `["item1", "item2", "item3"]`, cmnvalue.EnvSourceStepEnv)
 				return runtime.WithEnv(ctx, env)
 			},
 			expectCount: 3,
@@ -709,7 +709,7 @@ func TestNodeBuildSubDAGRuns(t *testing.T) {
 			},
 			setupEnv: func(ctx context.Context) context.Context {
 				env := runtime.GetEnv(ctx)
-				env.Scope = env.Scope.WithEntry("SPACE_VAR", "one two three", eval.EnvSourceStepEnv)
+				env.Scope = env.Scope.WithEntry("SPACE_VAR", "one two three", cmnvalue.EnvSourceStepEnv)
 				return runtime.WithEnv(ctx, env)
 			},
 			expectCount: 3,
@@ -750,7 +750,7 @@ func TestNodeBuildSubDAGRuns(t *testing.T) {
 			},
 			setupEnv: func(ctx context.Context) context.Context {
 				env := runtime.GetEnv(ctx)
-				env.Scope = env.Scope.WithEntry("EMPTY_VAR", "", eval.EnvSourceStepEnv)
+				env.Scope = env.Scope.WithEntry("EMPTY_VAR", "", cmnvalue.EnvSourceStepEnv)
 				return runtime.WithEnv(ctx, env)
 			},
 			expectError:   true,
@@ -784,7 +784,7 @@ func TestNodeBuildSubDAGRuns(t *testing.T) {
 			},
 			setupEnv: func(ctx context.Context) context.Context {
 				env := runtime.GetEnv(ctx)
-				env.Scope = env.Scope.WithEntry("SPACE_VAR", "one two three", eval.EnvSourceStepEnv)
+				env.Scope = env.Scope.WithEntry("SPACE_VAR", "one two three", cmnvalue.EnvSourceStepEnv)
 				return runtime.WithEnv(ctx, env)
 			},
 			expectCount: 3,

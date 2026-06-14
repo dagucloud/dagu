@@ -21,9 +21,9 @@ import (
 	"github.com/dagucloud/dagu/internal/agentsnapshot"
 	"github.com/dagucloud/dagu/internal/auth"
 	"github.com/dagucloud/dagu/internal/cmn/config"
-	"github.com/dagucloud/dagu/internal/cmn/eval"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/baseconfig"
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -648,7 +648,7 @@ func validateDAGFileNameFromRequest(request any) error {
 
 func (a *API) evaluateBasePath(ctx context.Context) string {
 	basePath := a.config.Server.BasePath
-	if evaluated, err := eval.String(ctx, basePath, eval.WithOSExpansion()); err != nil {
+	if evaluated, err := cmnvalue.String(ctx, basePath, cmnvalue.WithOSExpansion()); err != nil {
 		logger.Warn(ctx, "Failed to evaluate server base path",
 			tag.Path(basePath),
 			tag.Error(err))

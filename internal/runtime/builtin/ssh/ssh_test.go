@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/cmn/eval"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -278,7 +278,7 @@ func TestSSHExecutor_GetEvalOptions(t *testing.T) {
 			}
 
 			opts := tt.step.CommandEvalOptions(ctx)
-			evalOpts := eval.NewOptions()
+			evalOpts := cmnvalue.NewOptions()
 			for _, opt := range opts {
 				opt(evalOpts)
 			}

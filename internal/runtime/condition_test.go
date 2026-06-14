@@ -11,7 +11,7 @@ import (
 	goruntime "runtime"
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/cmn/eval"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/stretchr/testify/require"
@@ -172,7 +172,7 @@ func TestEvalConditions(t *testing.T) {
 			ctx := newTestContext()
 			// Add TEST_CONDITION to the env scope (not OS env)
 			env := runtime.GetEnv(ctx)
-			env.Scope = env.Scope.WithEntry("TEST_CONDITION", "100", eval.EnvSourceDAGEnv)
+			env.Scope = env.Scope.WithEntry("TEST_CONDITION", "100", cmnvalue.EnvSourceDAGEnv)
 			ctx = runtime.WithEnv(ctx, env)
 			err := runtime.EvalConditions(ctx, []string{"sh"}, tt.conditions)
 
@@ -229,7 +229,7 @@ func TestEvalConditions_CommandFormExpandsHomeRelativeScopeVars(t *testing.T) {
 
 	ctx := newTestContext()
 	env := runtime.GetEnv(ctx)
-	env.Scope = env.Scope.WithEntry("TEST_FILE", "~/"+filepath.Base(tempFile.Name()), eval.EnvSourceDAGEnv)
+	env.Scope = env.Scope.WithEntry("TEST_FILE", "~/"+filepath.Base(tempFile.Name()), cmnvalue.EnvSourceDAGEnv)
 	ctx = runtime.WithEnv(ctx, env)
 
 	err = runtime.EvalConditions(ctx, []string{"sh"}, []*core.Condition{

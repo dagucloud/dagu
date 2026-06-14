@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/dagucloud/dagu/internal/cmn/eval"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -44,7 +44,7 @@ func NewTracer(ctx context.Context, dag *core.DAG, vars map[string]string) (*Tra
 		return &Tracer{tracer: otel.Tracer(TracerName)}, nil
 	}
 
-	cfg, err := eval.Object(ctx, *dag.OTel, vars)
+	cfg, err := cmnvalue.Object(ctx, *dag.OTel, vars)
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate OTel config: %w", err)
 	}

@@ -475,7 +475,7 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 			}
 		}
 
-		// If catchup produced a run or was deferred, skip live eval.
+		// If catchup produced a run or was deferred, skip live evaluation.
 		if catchupProduced || catchupDeferred {
 			continue
 		}

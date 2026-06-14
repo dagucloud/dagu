@@ -36,13 +36,13 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/crypto"
-	"github.com/dagucloud/dagu/internal/cmn/eval"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	cmnschema "github.com/dagucloud/dagu/internal/cmn/schema"
 	"github.com/dagucloud/dagu/internal/cmn/signalctx"
 	"github.com/dagucloud/dagu/internal/cmn/telemetry"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/gitsync"
 	"github.com/dagucloud/dagu/internal/license"
@@ -1057,7 +1057,7 @@ func (srv *Server) setupRoutes(ctx context.Context, r *chi.Mux) error {
 }
 
 func evaluateConfiguredBasePath(ctx context.Context, basePath string) string {
-	evaluated, err := eval.String(ctx, basePath, eval.WithOSExpansion())
+	evaluated, err := cmnvalue.String(ctx, basePath, cmnvalue.WithOSExpansion())
 	if err != nil {
 		logger.Warn(ctx, "Failed to evaluate server base path", tag.Path(basePath), tag.Error(err))
 		return basePath
