@@ -17,7 +17,7 @@ Input is a workflow YAML file accepted by the YAML schema spec.
 Step reference validation extends:
 
 ```sh
-dagu validate [<workflow>]
+dagu validate <path/to/dag_file>
 ```
 
 Rules:

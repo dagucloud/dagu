@@ -35,12 +35,12 @@ steps:
 Validation command:
 
 ```sh
-dagu validate <file_path>
+dagu validate <path/to/dag_file>
 ```
 
 Rules:
 
-- `<file_path>` is the YAML file to validate.
+- `<path/to/dag_file>` is the YAML file to validate.
 - The command validates the YAML stream and the root fields listed in this spec.
 - The command must not execute steps.
 - The command does not validate behavior owned by later specs except where those specs explicitly extend validation.
@@ -186,8 +186,8 @@ steps:
 
 ## Acceptance criteria
 
-- A black-box fixture verifies `dagu validate <file_path>` accepts the minimal valid workflow.
-- A black-box fixture verifies `dagu validate <file_path>` does not execute steps.
+- A black-box fixture verifies `dagu validate <path/to/dag_file>` accepts the minimal valid workflow.
+- A black-box fixture verifies `dagu validate <path/to/dag_file>` does not execute steps.
 - A black-box fixture rejects invalid YAML.
 - A black-box fixture rejects an empty YAML document.
 - A black-box fixture rejects a workflow with no `steps`.

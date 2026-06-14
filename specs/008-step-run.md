@@ -17,13 +17,13 @@ Input is a workflow YAML file accepted by the YAML schema spec.
 Step `run` validation extends:
 
 ```sh
-dagu validate [<workflow>]
+dagu validate <path/to/dag_file>
 ```
 
 Workflow execution uses:
 
 ```sh
-dagu run <workflow>
+dagu run <workflow_target>
 ```
 
 Rules:

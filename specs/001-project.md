@@ -48,19 +48,19 @@ Project commands:
 
 ```sh
 dagu list
-dagu validate [<workflow>]
-dagu run <workflow>
+dagu validate [<workflow_target>]
+dagu run <workflow_target>
 ```
 
 Rules:
 
 - The caller's current working directory is `project_root`.
 - Dagu does not search parent directories for `.dagu.json`.
-- `<workflow>` is a workflow target discovered from the configured workflow directory.
+- `<workflow_target>` is a workflow target discovered from the configured workflow directory.
 - `dagu list` prints discovered workflow targets.
-- `dagu validate` without `<workflow>` validates the project file and every discovered workflow.
-- `dagu validate <workflow>` validates one discovered workflow.
-- `dagu run <workflow>` runs one discovered workflow.
+- `dagu validate` without `<workflow_target>` validates the project file and every discovered workflow.
+- `dagu validate <workflow_target>` validates one discovered workflow.
+- `dagu run <workflow_target>` runs one discovered workflow.
 - Listing and validation must not execute workflow steps.
 
 Command output:
@@ -90,7 +90,7 @@ Rules:
 - Workflow targets are paths relative to the workflow directory.
 - `dagu list` prints targets in lexicographic order.
 - Dagu must not append `.yaml` or `.yml` to an extensionless target.
-- If `<workflow>` does not match a discovered target, Dagu must fail. It must not try another filesystem path.
+- If `<workflow_target>` does not match a discovered target, Dagu must fail. It must not try another filesystem path.
 
 Workflow file contents are validated by the YAML schema spec and later field specs.
 
@@ -154,7 +154,7 @@ Project loading must fail when:
 
 Workflow selection or execution must fail when:
 
-- `<workflow>` is not a discovered target.
+- `<workflow_target>` is not a discovered target.
 - A discovered workflow fails YAML schema validation.
 - A relative `working_dir` resolves outside `project_root`.
 - The resolved `working_dir` does not exist.
@@ -209,7 +209,7 @@ If `../other.yaml` is not a discovered target, the command fails.
 - A black-box fixture rejects a project with no discovered workflows.
 - A black-box fixture verifies `dagu list` prints discovered workflow targets in sorted order.
 - A black-box fixture verifies `dagu validate` validates the current project.
-- A black-box fixture verifies `dagu validate <workflow>` validates one discovered workflow.
+- A black-box fixture verifies `dagu validate <workflow_target>` validates one discovered workflow.
 - A black-box fixture verifies `dagu validate` does not execute steps.
 - A black-box fixture rejects an unknown workflow target without falling back to another filesystem path.
 - A black-box fixture verifies `dagu run deploy.yaml` runs `project_root/workflows/deploy.yaml`.
