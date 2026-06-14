@@ -69,7 +69,11 @@ func (t Template) Resolve(scope Scope) (string, error) {
 	if err := t.Check(scope); err != nil {
 		return "", err
 	}
-	return walkBindings(t.source, func(_ string, path string) (string, error) {
+	return resolveBindings(t.source, scope)
+}
+
+func resolveBindings(input string, scope Scope) (string, error) {
+	return walkBindings(input, func(_ string, path string) (string, error) {
 		value, err := bindingValue(path, scope, true)
 		if err != nil {
 			return "", err

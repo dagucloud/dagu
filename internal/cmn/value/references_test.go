@@ -17,15 +17,32 @@ func TestScanReferencesClassifiesReservedAndCompatibilityRefs(t *testing.T) {
 	refs := value.ScanReferences("${consts.service} $env.FOO ${DATA.image} $DATA.tag", value.ModeWorkflowValue)
 
 	require.Len(t, refs, 4)
-	assert.Equal(t, value.ReferenceDagu, refs[0].Kind)
+	assert.Equal(t, value.ReferenceStrict, refs[0].Kind)
 	assert.Equal(t, "consts", refs[0].Namespace)
-	assert.True(t, refs[0].Strict)
+	assert.True(t, refs[0].Braced)
 	assert.Equal(t, value.ReferenceInvalid, refs[1].Kind)
 	assert.Contains(t, refs[1].Err.Error(), "invalid binding shorthand")
 	assert.Equal(t, value.ReferenceCompatibility, refs[2].Kind)
-	assert.True(t, refs[2].Strict)
+	assert.True(t, refs[2].Braced)
 	assert.Equal(t, value.ReferenceCompatibility, refs[3].Kind)
-	assert.False(t, refs[3].Strict)
+	assert.False(t, refs[3].Braced)
+}
+
+func TestScanReferencesMarksCompatibilityStepOutputRefs(t *testing.T) {
+	t.Parallel()
+
+	refs := value.ScanReferences("${extract.output.user.id} $extract.output.user.id ${extract.output.bad-name}", value.ModeStaticValidation)
+
+	require.Len(t, refs, 3)
+	require.NotNil(t, refs[0].StepOutput)
+	assert.Equal(t, "extract", refs[0].StepOutput.StepName)
+	assert.Equal(t, []string{"user", "id"}, refs[0].StepOutput.Path)
+	assert.Nil(t, refs[1].StepOutput)
+	assert.Nil(t, refs[2].StepOutput)
+
+	outputRefs := value.ScanStepOutputReferences("${extract.output.user.id} $extract.output.user.id ${extract.output.bad-name}")
+	require.Len(t, outputRefs, 1)
+	assert.Equal(t, "${extract.output.user.id}", outputRefs[0].Expression)
 }
 
 func TestValidateReferencesModeMatrix(t *testing.T) {

@@ -657,7 +657,7 @@ func (d *DAG) ParamsMap() map[string]string {
 }
 
 // StaticValueScope returns the statically known values and contracts available to
-// Dagu-owned value references.
+// strict value references.
 func (d *DAG) StaticValueScope() cmnvalue.Scope {
 	if d == nil {
 		return cmnvalue.Scope{}

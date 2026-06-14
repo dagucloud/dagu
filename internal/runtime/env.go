@@ -31,8 +31,8 @@ type Env struct {
 	// coordinator dispatcher
 	Context
 
-	// Unified scope chain for ALL environment variable lookups.
-	// This is THE single source of truth for $VAR and ${VAR} expansion.
+	// Unified scope chain for environment variable lookups.
+	// This scope is the source for $VAR and ${VAR} expansion.
 	// Layers (highest to lowest precedence): StepEnv > Outputs > Secrets > DAGEnv > OS
 	Scope *cmnvalue.EnvScope
 
@@ -42,7 +42,7 @@ type Env struct {
 	// Maps step IDs to their execution information (stdout, stderr, exitCode)
 	// allowing steps to reference outputs from other steps using expressions
 	// like ${stepID.stdout} or ${stepID.exitCode} in their configurations.
-	// NOTE: This is a SEPARATE system from env var expansion.
+	// Step references are resolved separately from environment variables.
 	StepMap map[string]cmnvalue.StepInfo
 
 	// Resolved absolute path for the step's working directory, determined by:
@@ -53,7 +53,7 @@ type Env struct {
 }
 
 // AllEnvs returns all environment variables that needs to be passed to the command.
-// Uses EnvScope as THE single source of truth.
+// Uses EnvScope as the source of environment variables.
 func (e Env) AllEnvs() []string {
 	if e.Scope == nil {
 		return nil
@@ -63,7 +63,7 @@ func (e Env) AllEnvs() []string {
 
 // UserEnvsMap returns user-defined environment variables as a map,
 // excluding OS environment (BaseEnv). Use this for isolated execution environments.
-// Uses EnvScope as THE single source of truth.
+// Uses EnvScope as the source of environment variables.
 func (e Env) UserEnvsMap() map[string]string {
 	if e.Scope == nil {
 		return make(map[string]string)
@@ -334,7 +334,7 @@ func (e Env) MailerConfig(ctx context.Context) (mailer.Config, error) {
 }
 
 // EvalString evaluates the given string with the variables within the execution context.
-// Uses EnvScope as THE single source of truth for $VAR and ${VAR} expansion.
+// Uses EnvScope for $VAR and ${VAR} expansion.
 // StepMap is used separately for ${step.stdout} style references.
 func (e Env) EvalString(ctx context.Context, s string, opts ...cmnvalue.Option) (string, error) {
 	return e.EvalStringMode(ctx, s, cmnvalue.ModeWorkflowValue, opts...)

@@ -152,7 +152,7 @@ func (g valueReferenceGraph) validateField(field ResolvableField, refs []cmnvalu
 
 	var errs ErrorList
 	for _, ref := range refs {
-		if ref.Kind != cmnvalue.ReferenceDagu || ref.Namespace != "steps" || len(ref.Segments) != 4 {
+		if ref.Kind != cmnvalue.ReferenceStrict || ref.Namespace != "steps" || len(ref.Segments) != 4 {
 			continue
 		}
 		target, ok := g.stepByID[ref.Segments[1]]

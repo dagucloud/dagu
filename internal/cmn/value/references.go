@@ -7,12 +7,9 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"regexp"
 	"sort"
 	"strings"
 )
-
-var stepOutputReferencePattern = regexp.MustCompile(`\$\{([A-Za-z0-9_-]+)\.output\.([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\}`)
 
 // Mode identifies the workflow phase that owns a value.
 type Mode int
@@ -49,22 +46,23 @@ func (m Mode) String() string {
 type ReferenceKind string
 
 const (
-	ReferenceDagu          ReferenceKind = "dagu"
+	ReferenceStrict        ReferenceKind = "strict"
 	ReferenceCompatibility ReferenceKind = "compatibility"
 	ReferenceInvalid       ReferenceKind = "invalid"
 )
 
 // Reference describes one scanned placeholder.
 type Reference struct {
-	Raw       string
-	Expr      string
-	Namespace string
-	Segments  []string
-	Kind      ReferenceKind
-	Strict    bool
-	Start     int
-	End       int
-	Err       error
+	Raw        string
+	Expr       string
+	Namespace  string
+	Segments   []string
+	Kind       ReferenceKind
+	Braced     bool
+	Start      int
+	End        int
+	Err        error
+	StepOutput *StepOutputReference
 }
 
 // StepOutputReference describes a legacy step output reference.
@@ -74,7 +72,7 @@ type StepOutputReference struct {
 	Path       []string
 }
 
-// ScanReferences classifies Dagu-owned references and legacy compatibility refs.
+// ScanReferences classifies strict references and compatibility refs.
 func ScanReferences(raw string, mode Mode) []Reference {
 	if raw == "" {
 		return nil
@@ -83,7 +81,7 @@ func ScanReferences(raw string, mode Mode) []Reference {
 	refs := make([]Reference, 0)
 	for _, loc := range bindingRefPattern.FindAllStringSubmatchIndex(raw, -1) {
 		expr := strings.TrimSpace(raw[loc[2]:loc[3]])
-		refs = append(refs, classifyStrictReference(raw[loc[0]:loc[1]], expr, loc[0], loc[1]))
+		refs = append(refs, classifyBracedReference(raw[loc[0]:loc[1]], expr, loc[0], loc[1]))
 	}
 	for _, loc := range referencePattern.FindAllStringSubmatchIndex(raw, -1) {
 		if loc[0]+1 < len(raw) && raw[loc[0]+1] == '{' {
@@ -114,39 +112,32 @@ func ScanReferences(raw string, mode Mode) []Reference {
 	return refs
 }
 
-// ScanStepOutputReferences returns legacy ${step.output.path} references.
+// ScanStepOutputReferences returns compatibility ${step.output.path} references.
 func ScanStepOutputReferences(raw string) []StepOutputReference {
-	matches := stepOutputReferencePattern.FindAllStringSubmatch(raw, -1)
-	if len(matches) == 0 {
-		return nil
-	}
-	refs := make([]StepOutputReference, 0, len(matches))
-	for _, match := range matches {
-		if len(match) != 3 {
+	scanned := ScanReferences(raw, ModeStaticValidation)
+	refs := make([]StepOutputReference, 0)
+	for _, ref := range scanned {
+		if ref.StepOutput == nil {
 			continue
 		}
-		refs = append(refs, StepOutputReference{
-			Expression: match[0],
-			StepName:   match[1],
-			Path:       strings.Split(match[2], "."),
-		})
+		refs = append(refs, *ref.StepOutput)
 	}
 	return refs
 }
 
-func classifyStrictReference(rawRef, expr string, start, end int) Reference {
+func classifyBracedReference(rawRef, expr string, start, end int) Reference {
 	segments := strings.Split(expr, ".")
 	ref := Reference{
 		Raw:       rawRef,
 		Expr:      expr,
 		Namespace: segments[0],
 		Segments:  segments,
-		Strict:    true,
+		Braced:    true,
 		Start:     start,
 		End:       end,
 	}
 	if reservedBinding(ref.Namespace) {
-		ref.Kind = ReferenceDagu
+		ref.Kind = ReferenceStrict
 		if err := validateBindingSegments(segments); err != nil {
 			ref.Kind = ReferenceInvalid
 			ref.Err = err
@@ -155,11 +146,66 @@ func classifyStrictReference(rawRef, expr string, start, end int) Reference {
 	}
 	if strings.Contains(expr, ".") {
 		ref.Kind = ReferenceCompatibility
+		if stepOutput, ok := parseStepOutputReference(ref); ok {
+			ref.StepOutput = &stepOutput
+		}
 	}
 	return ref
 }
 
-// ValidateReferences validates Dagu-owned references against a static scope.
+func parseStepOutputReference(ref Reference) (StepOutputReference, bool) {
+	if !ref.Braced || ref.Kind != ReferenceCompatibility || len(ref.Segments) < 3 || ref.Segments[1] != "output" {
+		return StepOutputReference{}, false
+	}
+	if !validStepOutputStepName(ref.Segments[0]) {
+		return StepOutputReference{}, false
+	}
+	path := ref.Segments[2:]
+	for _, segment := range path {
+		if !validOutputPathSegment(segment) {
+			return StepOutputReference{}, false
+		}
+	}
+	return StepOutputReference{
+		Expression: ref.Raw,
+		StepName:   ref.Segments[0],
+		Path:       append([]string(nil), path...),
+	}, true
+}
+
+func validStepOutputStepName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func validOutputPathSegment(segment string) bool {
+	if segment == "" {
+		return false
+	}
+	for i, r := range segment {
+		if i == 0 {
+			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || r == '_' {
+				continue
+			}
+			return false
+		}
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// ValidateReferences validates strict references against a static scope.
 func ValidateReferences(raw string, staticScope Scope, mode Mode, field string) error {
 	refs := ScanReferences(raw, mode)
 	var errs []string
@@ -167,8 +213,8 @@ func ValidateReferences(raw string, staticScope Scope, mode Mode, field string) 
 		switch ref.Kind {
 		case ReferenceInvalid:
 			errs = append(errs, ref.Err.Error())
-		case ReferenceDagu:
-			if err := validateDaguReference(ref, staticScope, mode); err != nil {
+		case ReferenceStrict:
+			if err := validateStrictReference(ref, staticScope, mode); err != nil {
 				errs = append(errs, err.Error())
 			}
 		}
@@ -182,7 +228,7 @@ func ValidateReferences(raw string, staticScope Scope, mode Mode, field string) 
 	return fmt.Errorf("%s", strings.Join(errs, "; "))
 }
 
-func validateDaguReference(ref Reference, scope Scope, mode Mode) error {
+func validateStrictReference(ref Reference, scope Scope, mode Mode) error {
 	if mode == ModeConstLoad && ref.Namespace != "consts" {
 		return fmt.Errorf("%s is not available while loading consts", ref.Raw)
 	}
@@ -226,7 +272,7 @@ func ExpandString(raw string, runtimeScope Scope, mode Mode, field string) (stri
 	return ExpandStringContext(context.Background(), raw, runtimeScope, mode, field)
 }
 
-// ExpandStringContext expands Dagu-owned references, then applies the legacy
+// ExpandStringContext expands strict references, then applies the legacy
 // compatibility evaluator for non-reserved references.
 func ExpandStringContext(ctx context.Context, raw string, runtimeScope Scope, mode Mode, field string, opts ...Option) (string, error) {
 	if raw == "" {
@@ -235,7 +281,7 @@ func ExpandStringContext(ctx context.Context, raw string, runtimeScope Scope, mo
 	if err := ValidateReferences(raw, runtimeScope, mode, field); err != nil {
 		return "", err
 	}
-	resolved, err := ParseTemplate(raw).Resolve(runtimeScope)
+	resolved, err := resolveBindings(raw, runtimeScope)
 	if err != nil {
 		if field != "" {
 			return "", fmt.Errorf("%s: %w", field, err)
@@ -256,10 +302,8 @@ func ExpandObject[T any](obj T, runtimeScope Scope, mode Mode, field string) (T,
 // ExpandObjectContext recursively expands all string fields in an object.
 func ExpandObjectContext[T any](ctx context.Context, obj T, runtimeScope Scope, mode Mode, field string, opts ...Option) (T, error) {
 	v := reflect.ValueOf(obj)
-	options := append(scopeOptions(runtimeScope, mode), opts...)
-	options = append(options, modeOptions(mode)...)
 	transform := func(ctx context.Context, s string) (string, error) {
-		return ExpandStringContext(ctx, s, runtimeScope, mode, field, options...)
+		return ExpandStringContext(ctx, s, runtimeScope, mode, field, opts...)
 	}
 	result, err := walkValue(ctx, v, transform)
 	if err != nil {

@@ -27,7 +27,7 @@ type Context struct {
 	DAG                *core.DAG
 	DB                 Database
 	BaseEnv            *config.BaseEnv
-	EnvScope           *cmnvalue.EnvScope // Unified environment scope - THE single source for all env vars
+	EnvScope           *cmnvalue.EnvScope // Unified environment scope for runtime variables
 	CoordinatorCli     Dispatcher
 	DAGRunStore        DAGRunStore
 	QueueStore         QueueStore
