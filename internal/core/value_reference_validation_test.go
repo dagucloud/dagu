@@ -13,6 +13,60 @@ import (
 
 var valueReferenceTestExec = core.ExecutorConfig{Type: "test-no-validator"}
 
+func TestValidateStepsStrictEnvReferencesUseRootEnvScope(t *testing.T) {
+	t.Parallel()
+
+	t.Run("declared root env is valid", func(t *testing.T) {
+		t.Parallel()
+		dag := &core.DAG{
+			Env: []string{"TOKEN=secret"},
+			Steps: []core.Step{
+				{
+					Name:           "deploy",
+					ExecutorConfig: valueReferenceTestExec,
+					Script:         "echo ${env.TOKEN}",
+				},
+			},
+		}
+
+		require.NoError(t, core.ValidateSteps(dag))
+	})
+
+	t.Run("runtime-only env is valid statically", func(t *testing.T) {
+		t.Parallel()
+		dag := &core.DAG{
+			Env: []string{"TOKEN=secret"},
+			Steps: []core.Step{
+				{
+					Name:           "deploy",
+					ExecutorConfig: valueReferenceTestExec,
+					Script:         "echo ${env.MISSING}",
+				},
+			},
+		}
+
+		require.NoError(t, core.ValidateSteps(dag))
+	})
+
+	t.Run("declared param without runtime value is valid statically", func(t *testing.T) {
+		t.Parallel()
+		dag := &core.DAG{
+			ParamDefs: []core.ParamDef{
+				{Name: "environment", Type: core.ParamDefTypeString, Required: true},
+			},
+			Steps: []core.Step{
+				{
+					Name:           "deploy",
+					ExecutorConfig: valueReferenceTestExec,
+					Script:         "echo ${params.environment}",
+				},
+			},
+		}
+
+		require.NoError(t, core.ValidateSteps(dag))
+	})
+}
+
 func TestValidateStepsStrictReferencesInHandlers(t *testing.T) {
 	t.Parallel()
 
@@ -68,4 +122,54 @@ func TestValidateStepsStrictReferencesInHandlers(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), `unknown step "notify"`)
 	})
+}
+
+func TestValidateStepsRejectsEnvSelfAndLaterReferences(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		env     []string
+		wantErr string
+	}{
+		{
+			name:    "SelfReference",
+			env:     []string{"SERVICE=${env.SERVICE}"},
+			wantErr: `env "SERVICE" cannot reference itself`,
+		},
+		{
+			name:    "LaterReference",
+			env:     []string{"API_HOST=${env.SERVICE}.internal", "SERVICE=api"},
+			wantErr: `env "API_HOST" cannot reference later env "SERVICE"`,
+		},
+		{
+			name: "EarlierReference",
+			env:  []string{"SERVICE=api", "API_HOST=${env.SERVICE}.internal"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dag := &core.DAG{
+				Env: tt.env,
+				Steps: []core.Step{
+					{
+						Name:           "print",
+						ExecutorConfig: valueReferenceTestExec,
+						Script:         "echo ok",
+					},
+				},
+			}
+
+			err := core.ValidateSteps(dag)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
 }

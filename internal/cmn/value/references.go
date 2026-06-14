@@ -46,9 +46,9 @@ func (m Mode) String() string {
 type ReferenceKind string
 
 const (
-	ReferenceStrict        ReferenceKind = "strict"
-	ReferenceCompatibility ReferenceKind = "compatibility"
-	ReferenceInvalid       ReferenceKind = "invalid"
+	ReferenceStrict  ReferenceKind = "strict"
+	ReferenceEval    ReferenceKind = "eval"
+	ReferenceInvalid ReferenceKind = "invalid"
 )
 
 // Reference describes one scanned placeholder.
@@ -72,7 +72,7 @@ type StepOutputReference struct {
 	Path       []string
 }
 
-// ScanReferences classifies strict references and compatibility refs.
+// ScanReferences classifies strict references and eval refs.
 func ScanReferences(raw string, mode Mode) []Reference {
 	if raw == "" {
 		return nil
@@ -95,7 +95,7 @@ func ScanReferences(raw string, mode Mode) []Reference {
 			Expr:      expr,
 			Namespace: namespace,
 			Segments:  strings.Split(expr, "."),
-			Kind:      ReferenceCompatibility,
+			Kind:      ReferenceEval,
 			Start:     loc[0],
 			End:       loc[1],
 		}
@@ -109,19 +109,6 @@ func ScanReferences(raw string, mode Mode) []Reference {
 	sort.SliceStable(refs, func(i, j int) bool {
 		return refs[i].Start < refs[j].Start
 	})
-	return refs
-}
-
-// ScanStepOutputReferences returns compatibility ${step.output.path} references.
-func ScanStepOutputReferences(raw string) []StepOutputReference {
-	scanned := ScanReferences(raw, ModeStaticValidation)
-	refs := make([]StepOutputReference, 0)
-	for _, ref := range scanned {
-		if ref.StepOutput == nil {
-			continue
-		}
-		refs = append(refs, *ref.StepOutput)
-	}
 	return refs
 }
 
@@ -145,7 +132,7 @@ func classifyBracedReference(rawRef, expr string, start, end int) Reference {
 		return ref
 	}
 	if strings.Contains(expr, ".") {
-		ref.Kind = ReferenceCompatibility
+		ref.Kind = ReferenceEval
 		if stepOutput, ok := parseStepOutputReference(ref); ok {
 			ref.StepOutput = &stepOutput
 		}
@@ -154,7 +141,7 @@ func classifyBracedReference(rawRef, expr string, start, end int) Reference {
 }
 
 func parseStepOutputReference(ref Reference) (StepOutputReference, bool) {
-	if !ref.Braced || ref.Kind != ReferenceCompatibility || len(ref.Segments) < 3 || ref.Segments[1] != "output" {
+	if !ref.Braced || ref.Kind != ReferenceEval || len(ref.Segments) < 3 || ref.Segments[1] != "output" {
 		return StepOutputReference{}, false
 	}
 	if !validStepOutputStepName(ref.Segments[0]) {
@@ -206,7 +193,7 @@ func validOutputPathSegment(segment string) bool {
 }
 
 // ValidateReferences validates strict references against a static scope.
-func ValidateReferences(raw string, staticScope Scope, mode Mode, field string) error {
+func ValidateReferences(raw string, staticScope StaticScope, mode Mode, field string) error {
 	refs := ScanReferences(raw, mode)
 	var errs []string
 	for _, ref := range refs {
@@ -228,7 +215,7 @@ func ValidateReferences(raw string, staticScope Scope, mode Mode, field string) 
 	return fmt.Errorf("%s", strings.Join(errs, "; "))
 }
 
-func validateStrictReference(ref Reference, scope Scope, mode Mode) error {
+func validateStrictReference(ref Reference, scope StaticScope, mode Mode) error {
 	if mode == ModeConstLoad && ref.Namespace != "consts" {
 		return fmt.Errorf("%s is not available while loading consts", ref.Raw)
 	}
@@ -238,7 +225,7 @@ func validateStrictReference(ref Reference, scope Scope, mode Mode) error {
 	case "params":
 		return validateMapReference(ref, "params", scope.Params)
 	case "env":
-		return validateMapReference(ref, "env", scope.Env)
+		return validateEnvReference(ref)
 	case "steps":
 		if len(ref.Segments) != 4 {
 			return validateBindingSegments(ref.Segments)
@@ -267,19 +254,22 @@ func validateMapReference(ref Reference, namespace string, values Values) error 
 	return nil
 }
 
+func validateEnvReference(ref Reference) error {
+	if len(ref.Segments) != 2 {
+		return validateBindingSegments(ref.Segments)
+	}
+	return nil
+}
+
 // ExpandString expands a value without a caller context.
-func ExpandString(raw string, runtimeScope Scope, mode Mode, field string) (string, error) {
+func ExpandString(raw string, runtimeScope RuntimeScope, mode Mode, field string) (string, error) {
 	return ExpandStringContext(context.Background(), raw, runtimeScope, mode, field)
 }
 
-// ExpandStringContext expands strict references, then applies the legacy
-// compatibility evaluator for non-reserved references.
-func ExpandStringContext(ctx context.Context, raw string, runtimeScope Scope, mode Mode, field string, opts ...Option) (string, error) {
+// ExpandStringContext expands strict references, then applies eval features for non-reserved references.
+func ExpandStringContext(ctx context.Context, raw string, runtimeScope RuntimeScope, mode Mode, field string, opts ...Option) (string, error) {
 	if raw == "" {
 		return "", nil
-	}
-	if err := ValidateReferences(raw, runtimeScope, mode, field); err != nil {
-		return "", err
 	}
 	resolved, err := resolveBindings(raw, runtimeScope)
 	if err != nil {
@@ -295,12 +285,12 @@ func ExpandStringContext(ctx context.Context, raw string, runtimeScope Scope, mo
 }
 
 // ExpandObject recursively expands all string fields in an object without a caller context.
-func ExpandObject[T any](obj T, runtimeScope Scope, mode Mode, field string) (T, error) {
+func ExpandObject[T any](obj T, runtimeScope RuntimeScope, mode Mode, field string) (T, error) {
 	return ExpandObjectContext(context.Background(), obj, runtimeScope, mode, field)
 }
 
 // ExpandObjectContext recursively expands all string fields in an object.
-func ExpandObjectContext[T any](ctx context.Context, obj T, runtimeScope Scope, mode Mode, field string, opts ...Option) (T, error) {
+func ExpandObjectContext[T any](ctx context.Context, obj T, runtimeScope RuntimeScope, mode Mode, field string, opts ...Option) (T, error) {
 	v := reflect.ValueOf(obj)
 	transform := func(ctx context.Context, s string) (string, error) {
 		return ExpandStringContext(ctx, s, runtimeScope, mode, field, opts...)
@@ -316,7 +306,7 @@ func ExpandObjectContext[T any](ctx context.Context, obj T, runtimeScope Scope, 
 	return val, nil
 }
 
-func scopeOptions(scope Scope, mode Mode) []Option {
+func scopeOptions(scope RuntimeScope, mode Mode) []Option {
 	opts := make([]Option, 0, 2)
 	if mode != ModeShellCommand {
 		vars := valuesToStrings(scope.Env)
@@ -332,8 +322,10 @@ func scopeOptions(scope Scope, mode Mode) []Option {
 
 func modeOptions(mode Mode) []Option {
 	switch mode {
-	case ModeConstLoad, ModeStaticValidation, ModeWorkflowValue, ModeShellCommand:
+	case ModeConstLoad, ModeStaticValidation, ModeShellCommand:
 		return []Option{WithoutSubstitute()}
+	case ModeWorkflowValue:
+		return nil
 	case ModeDirectCommand:
 		return []Option{WithoutSubstitute(), WithOSExpansion()}
 	case ModeDynamicEval:

@@ -102,6 +102,29 @@ func TestEvalStringResolvesReservedBindings(t *testing.T) {
 	assert.Equal(t, "api prod workspace repo/api:v1", got)
 }
 
+func TestEvalStringDoesNotResolveStepOutputContractAsRuntimeValue(t *testing.T) {
+	t.Parallel()
+
+	ctx := runtime.NewContext(context.Background(), &core.DAG{
+		Name: "test-dag",
+		Steps: []core.Step{
+			{
+				Name: "build",
+				ID:   "build",
+				StructuredOutput: map[string]core.StepOutputEntry{
+					"image": {},
+				},
+			},
+		},
+	}, "", "")
+	env := runtime.NewEnv(ctx, core.Step{Name: "test-step"})
+	ctx = runtime.WithEnv(ctx, env)
+
+	_, err := runtime.EvalString(ctx, "${steps.build.outputs.image}")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `unknown steps binding`)
+}
+
 func TestEvalBool(t *testing.T) {
 	// Create a test context with environment variables
 	ctx := context.Background()

@@ -50,10 +50,11 @@ func EvalObject[T any](ctx context.Context, obj T) (T, error) {
 	return cmnvalue.ExpandObjectContext(ctx, obj, env.valueScope(), cmnvalue.ModeWorkflowValue, "object")
 }
 
-func (e Env) valueScope() cmnvalue.Scope {
-	scope := cmnvalue.Scope{}
+func (e Env) valueScope() cmnvalue.RuntimeScope {
+	scope := cmnvalue.RuntimeScope{}
 	if e.DAG != nil {
-		scope = e.DAG.StaticValueScope()
+		scope.Consts = cmnvalue.Values(e.DAG.Consts)
+		scope.Params = cmnvalue.ValuesFromStrings(e.DAG.ParamsMap())
 	}
 	if e.Scope != nil {
 		scope.Env = cmnvalue.ValuesFromStrings(e.Scope.ToMap())

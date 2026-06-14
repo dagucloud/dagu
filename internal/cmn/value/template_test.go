@@ -11,52 +11,54 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestTemplateCheckAndResolveReservedBindings(t *testing.T) {
+func TestValidateAndExpandStringWithReservedBindings(t *testing.T) {
 	t.Parallel()
 
-	tmpl := value.ParseTemplate("deploy ${consts.service} ${params.environment} ${env.HOME} ${steps.build.outputs.image}")
-
-	scope := value.Scope{
+	raw := "deploy ${consts.service} ${params.environment} ${env.HOME} ${steps.build.outputs.image}"
+	staticScope := value.StaticScope{
 		Consts: value.Values{"service": "api"},
 		Params: value.Values{"environment": "prod"},
 		Env:    value.Values{"HOME": "/workspace"},
-		Steps: value.StepOutputs{
-			"build": value.Values{"image": "repo/api:v1"},
-		},
+		Steps:  value.StepOutputContracts{"build": value.StepOutputNames{"image": {}}},
 	}
 
-	require.NoError(t, tmpl.Check(scope))
+	require.NoError(t, value.ValidateReferences(raw, staticScope, value.ModeWorkflowValue, "run"))
 
-	got, err := tmpl.Resolve(scope)
+	got, err := value.ExpandString(raw, value.RuntimeScope{
+		Consts: value.Values{"service": "api"},
+		Params: value.Values{"environment": "prod"},
+		Env:    value.Values{"HOME": "/workspace"},
+		Steps:  value.StepOutputs{"build": value.Values{"image": "repo/api:v1"}},
+	}, value.ModeWorkflowValue, "run")
 	require.NoError(t, err)
 	assert.Equal(t, "deploy api prod /workspace repo/api:v1", got)
 }
 
-func TestTemplateCheckRejectsReservedBindingErrors(t *testing.T) {
+func TestValidateReferencesRejectsReservedBindingErrors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name  string
 		input string
-		scope value.Scope
+		scope value.StaticScope
 		want  string
 	}{
 		{
 			name:  "ReservedShorthand",
 			input: "echo $consts.service",
-			scope: value.Scope{Consts: value.Values{"service": "api"}},
+			scope: value.StaticScope{Consts: value.Values{"service": "api"}},
 			want:  "invalid binding shorthand",
 		},
 		{
 			name:  "MissingConst",
 			input: "echo ${consts.missing}",
-			scope: value.Scope{Consts: value.Values{"service": "api"}},
+			scope: value.StaticScope{Consts: value.Values{"service": "api"}},
 			want:  "unknown consts binding",
 		},
 		{
 			name:  "InvalidStepShape",
 			input: "echo ${steps.build.image}",
-			scope: value.Scope{Steps: value.StepOutputs{"build": value.Values{"image": "repo/api:v1"}}},
+			scope: value.StaticScope{Steps: value.StepOutputContracts{"build": value.StepOutputNames{"image": {}}}},
 			want:  "steps bindings must use",
 		},
 	}
@@ -65,22 +67,32 @@ func TestTemplateCheckRejectsReservedBindingErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := value.ParseTemplate(tt.input).Check(tt.scope)
+			err := value.ValidateReferences(tt.input, tt.scope, value.ModeWorkflowValue, "run")
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.want)
 		})
 	}
 }
 
-func TestTemplateLeavesLegacyReferencesForExistingEvaluator(t *testing.T) {
+func TestExpandStringRejectsMalformedBinding(t *testing.T) {
 	t.Parallel()
 
-	tmpl := value.ParseTemplate("legacy ${DATA.image} and $DATA.tag")
-	require.NoError(t, tmpl.Check(value.Scope{}))
+	_, err := value.ExpandString(
+		"echo ${consts.service",
+		value.Scope{Consts: value.Values{"service": "api"}},
+		value.ModeWorkflowValue,
+		"run",
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "malformed binding")
+}
 
-	got, err := tmpl.Resolve(value.Scope{})
+func TestExpandStringLeavesEvalReferencesForEvaluator(t *testing.T) {
+	t.Parallel()
+
+	got, err := value.ExpandString("eval ${DATA.image} and $DATA.tag", value.RuntimeScope{}, value.ModeWorkflowValue, "run")
 	require.NoError(t, err)
-	assert.Equal(t, "legacy ${DATA.image} and $DATA.tag", got)
+	assert.Equal(t, "eval ${DATA.image} and $DATA.tag", got)
 }
 
 func TestExpandStringResolvesReservedBindingsWithScope(t *testing.T) {
@@ -88,7 +100,7 @@ func TestExpandStringResolvesReservedBindingsWithScope(t *testing.T) {
 
 	got, err := value.ExpandString(
 		"${consts.service} ${params.environment} ${env.HOME} ${steps.build.outputs.image}",
-		value.Scope{
+		value.RuntimeScope{
 			Consts: value.Values{"service": "api"},
 			Params: value.Values{"environment": "prod"},
 			Env:    value.Values{"HOME": "/workspace"},

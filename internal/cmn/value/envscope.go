@@ -184,7 +184,7 @@ func expandWithLookup(s string, lookup func(key string) (string, bool)) string {
 		last = loc[1]
 
 		match := s[loc[0]:loc[1]]
-		if isSingleQuotedVar(s, loc[0], loc[1]) {
+		if isSingleQuotedVar(s, loc[0], loc[1]) || isEscapedDollar(s, loc[0]) {
 			b.WriteString(match)
 			continue
 		}

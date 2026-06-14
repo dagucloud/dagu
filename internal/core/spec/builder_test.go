@@ -374,7 +374,7 @@ steps:
 			},
 		},
 		{
-			name: "ValidEnvPreservesCommandSubstitution",
+			name: "ValidEnvEvaluatesCommandSubstitution",
 			yaml: `
 env:
   - VAR: "` + "`echo 123`" + `"
@@ -383,7 +383,7 @@ steps:
   - run: "true"
 `,
 			expected: map[string]string{
-				"VAR": "`echo 123`",
+				"VAR": "123",
 			},
 		},
 		{

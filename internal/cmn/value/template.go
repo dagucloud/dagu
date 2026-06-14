@@ -24,14 +24,27 @@ var (
 
 type Values map[string]any
 type StepOutputs map[string]Values
+type StepOutputNames map[string]struct{}
+type StepOutputContracts map[string]StepOutputNames
 
-type Scope struct {
+// StaticScope contains declarations and contracts used by static validation.
+type StaticScope struct {
+	Consts Values
+	Params Values
+	Env    Values
+	Steps  StepOutputContracts
+}
+
+// RuntimeScope contains actual values available during runtime resolution.
+type RuntimeScope struct {
 	Consts  Values
 	Params  Values
 	Env     Values
 	Steps   StepOutputs
 	StepMap map[string]StepInfo
 }
+
+type Scope = RuntimeScope
 
 // ValuesFromStrings converts string variables into binding values.
 func ValuesFromStrings(values map[string]string) Values {
@@ -45,34 +58,26 @@ func ValuesFromStrings(values map[string]string) Values {
 	return out
 }
 
-type Template struct{ source string }
+type template struct{ source string }
 
-func ParseTemplate(s string) Template {
-	return Template{source: s}
-}
-
-func (t Template) Check(scope Scope) error {
-	if match := bindingShorthandPattern.FindString(t.source); match != "" {
+func checkBindings(input string, scope RuntimeScope) error {
+	if match := bindingShorthandPattern.FindString(input); match != "" {
 		return fmt.Errorf("invalid binding shorthand %s; use ${...}", match)
 	}
-	if malformed := malformedBinding(t.source); malformed != "" {
+	if malformed := malformedBinding(input); malformed != "" {
 		return fmt.Errorf("malformed binding %s", malformed)
 	}
-	_, err := walkBindings(t.source, func(token, path string) (string, error) {
+	_, err := walkBindings(input, func(token, path string) (string, error) {
 		_, err := bindingValue(path, scope, false)
 		return token, err
 	})
 	return err
 }
 
-func (t Template) Resolve(scope Scope) (string, error) {
-	if err := t.Check(scope); err != nil {
+func resolveBindings(input string, scope RuntimeScope) (string, error) {
+	if err := checkBindings(input, scope); err != nil {
 		return "", err
 	}
-	return resolveBindings(t.source, scope)
-}
-
-func resolveBindings(input string, scope Scope) (string, error) {
 	return walkBindings(input, func(_ string, path string) (string, error) {
 		value, err := bindingValue(path, scope, true)
 		if err != nil {
@@ -82,7 +87,7 @@ func resolveBindings(input string, scope Scope) (string, error) {
 	})
 }
 
-func (t Template) resolveReferences(ctx context.Context, r *resolver) string {
+func (t template) resolveReferences(ctx context.Context, r *resolver) string {
 	return referencePattern.ReplaceAllStringFunc(t.source, func(match string) string {
 		subMatches := referencePattern.FindStringSubmatch(match)
 		if len(subMatches) < 3 {
@@ -105,7 +110,7 @@ func (t Template) resolveReferences(ctx context.Context, r *resolver) string {
 	})
 }
 
-func (t Template) resolveQuotedReferences(ctx context.Context, r *resolver) string {
+func (t template) resolveQuotedReferences(ctx context.Context, r *resolver) string {
 	return quotedReferencePattern.ReplaceAllStringFunc(t.source, func(match string) string {
 		ref := match[3 : len(match)-2]
 
@@ -124,7 +129,7 @@ func (t Template) resolveQuotedReferences(ctx context.Context, r *resolver) stri
 	})
 }
 
-func (t Template) resolveVariables(r *resolver) string {
+func (t template) resolveVariables(r *resolver) string {
 	matches := reVarSubstitution.FindAllStringSubmatchIndex(t.source, -1)
 	if len(matches) == 0 {
 		return t.source
@@ -137,7 +142,7 @@ func (t Template) resolveVariables(r *resolver) string {
 		last = loc[1]
 
 		match := t.source[loc[0]:loc[1]]
-		if isSingleQuotedVar(t.source, loc[0], loc[1]) {
+		if isSingleQuotedVar(t.source, loc[0], loc[1]) || isEscapedDollar(t.source, loc[0]) {
 			b.WriteString(match)
 			continue
 		}
@@ -193,7 +198,7 @@ func walkBindings(input string, visit func(token, path string) (string, error)) 
 	return b.String(), nil
 }
 
-func bindingValue(path string, scope Scope, requireValue bool) (any, error) {
+func bindingValue(path string, scope RuntimeScope, requireValue bool) (any, error) {
 	segments := strings.Split(path, ".")
 	if err := validateBindingSegments(segments); err != nil {
 		return nil, err

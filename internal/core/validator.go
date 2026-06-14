@@ -103,7 +103,9 @@ func validateBindingReferences(dag *DAG) ErrorList {
 	var errs ErrorList
 	scope := dag.StaticValueScope()
 	graph := newValueReferenceGraph(dag)
-	for _, field := range ResolvableFields(dag) {
+	fields := ResolvableFields(dag)
+	errs = append(errs, validateEnvOrderingReferences(fields)...)
+	for _, field := range fields {
 		if !strings.Contains(field.Value, "$") {
 			continue
 		}
@@ -115,6 +117,61 @@ func validateBindingReferences(dag *DAG) ErrorList {
 		}
 	}
 	return errs
+}
+
+func validateEnvOrderingReferences(fields []ResolvableField) ErrorList {
+	envLists := make(map[string]map[string]int)
+	for _, field := range fields {
+		if field.EnvIndex < 0 || field.EnvName == "" {
+			continue
+		}
+		listPath := envListPath(field.Path)
+		if listPath == "" {
+			continue
+		}
+		names := envLists[listPath]
+		if names == nil {
+			names = make(map[string]int)
+			envLists[listPath] = names
+		}
+		names[field.EnvName] = field.EnvIndex
+	}
+
+	var errs ErrorList
+	for _, field := range fields {
+		if field.EnvIndex < 0 || field.EnvName == "" || !strings.Contains(field.Value, "${env.") {
+			continue
+		}
+		names := envLists[envListPath(field.Path)]
+		if len(names) == 0 {
+			continue
+		}
+		for _, ref := range cmnvalue.ScanReferences(field.Value, field.Mode) {
+			if ref.Kind != cmnvalue.ReferenceStrict || ref.Namespace != "env" || len(ref.Segments) != 2 {
+				continue
+			}
+			target := ref.Segments[1]
+			targetIndex, ok := names[target]
+			if !ok {
+				continue
+			}
+			switch {
+			case targetIndex == field.EnvIndex:
+				errs = append(errs, NewValidationError(field.Path, field.Value, fmt.Errorf("env %q cannot reference itself", field.EnvName)))
+			case targetIndex > field.EnvIndex:
+				errs = append(errs, NewValidationError(field.Path, field.Value, fmt.Errorf("env %q cannot reference later env %q", field.EnvName, target)))
+			}
+		}
+	}
+	return errs
+}
+
+func envListPath(path string) string {
+	index := strings.LastIndex(path, "[")
+	if index < 0 {
+		return ""
+	}
+	return path[:index]
 }
 
 type valueReferenceGraph struct {

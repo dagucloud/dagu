@@ -78,7 +78,7 @@ var defaultPipeline = &pipeline{
 // double quotes. Resolved values are re-quoted so surrounding JSON stays valid.
 func expandQuotedRefs(ctx context.Context, input string, opts *Options) (string, error) {
 	r := newResolver(ctx, opts)
-	return (Template{source: input}).resolveQuotedReferences(ctx, r), nil
+	return (template{source: input}).resolveQuotedReferences(ctx, r), nil
 }
 
 // expandAllVariables resolves JSON path references, step property references,

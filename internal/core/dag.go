@@ -656,16 +656,28 @@ func (d *DAG) ParamsMap() map[string]string {
 	return params
 }
 
+func (d *DAG) envMap() map[string]string {
+	envs := make(map[string]string)
+	for _, entry := range d.Env {
+		key, value, found := strings.Cut(entry, "=")
+		if found {
+			envs[key] = value
+		}
+	}
+	return envs
+}
+
 // StaticValueScope returns the statically known values and contracts available to
 // strict value references.
-func (d *DAG) StaticValueScope() cmnvalue.Scope {
+func (d *DAG) StaticValueScope() cmnvalue.StaticScope {
 	if d == nil {
-		return cmnvalue.Scope{}
+		return cmnvalue.StaticScope{}
 	}
-	scope := cmnvalue.Scope{
+	scope := cmnvalue.StaticScope{
 		Consts: cmnvalue.Values(d.Consts),
-		Params: cmnvalue.ValuesFromStrings(d.ParamsMap()),
-		Steps:  make(cmnvalue.StepOutputs, len(d.Steps)),
+		Params: d.staticParamDeclarations(),
+		Env:    cmnvalue.ValuesFromStrings(d.envMap()),
+		Steps:  make(cmnvalue.StepOutputContracts, len(d.Steps)),
 	}
 	for _, step := range d.Steps {
 		if step.ID == "" {
@@ -676,13 +688,39 @@ func (d *DAG) StaticValueScope() cmnvalue.Scope {
 		if !ok || len(contract.Keys) == 0 {
 			continue
 		}
-		outputs := make(cmnvalue.Values, len(contract.Keys))
+		outputs := make(cmnvalue.StepOutputNames, len(contract.Keys))
 		for name := range contract.Keys {
-			outputs[name] = true
+			outputs[name] = struct{}{}
 		}
 		scope.Steps[step.ID] = outputs
 	}
 	return scope
+}
+
+func (d *DAG) staticParamDeclarations() cmnvalue.Values {
+	params := cmnvalue.ValuesFromStrings(d.ParamsMap())
+	for _, def := range d.ParamDefs {
+		name := strings.TrimSpace(def.Name)
+		if name == "" || isPositionalParamName(name) {
+			continue
+		}
+		if params == nil {
+			params = make(cmnvalue.Values)
+		}
+		if _, ok := params[name]; !ok {
+			params[name] = nil
+		}
+	}
+	return params
+}
+
+func isPositionalParamName(name string) bool {
+	for _, r := range name {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return name != ""
 }
 
 // ProcGroup returns the name of the process group for this DAG.

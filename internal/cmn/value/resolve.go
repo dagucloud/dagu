@@ -135,11 +135,11 @@ func (r *resolver) resolveJSONSource(name string) (string, bool) {
 
 // replaceVars substitutes $VAR and ${VAR} patterns using all resolver sources.
 // JSON path references (containing dots) are skipped; those are handled by expandReferences.
-func (r *resolver) replaceVars(template string) string {
-	return (Template{source: template}).resolveVariables(r)
+func (r *resolver) replaceVars(input string) string {
+	return (template{source: input}).resolveVariables(r)
 }
 
 // expandReferences resolves JSON path and step property references in the input.
 func (r *resolver) expandReferences(ctx context.Context, input string) string {
-	return (Template{source: input}).resolveReferences(ctx, r)
+	return (template{source: input}).resolveReferences(ctx, r)
 }

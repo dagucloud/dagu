@@ -149,6 +149,15 @@ func TestString_ShellExpandFallback(t *testing.T) {
 	assert.Contains(t, result, "fbval")
 }
 
+func TestString_WithoutDollarEscapeKeepsEscapedShellVariable(t *testing.T) {
+	t.Setenv("HOME", "/home/local")
+	ctx := context.Background()
+
+	result, err := String(ctx, `echo "\$HOME"`, WithoutDollarEscape(), WithOSExpansion())
+	require.NoError(t, err)
+	assert.Equal(t, `echo "\$HOME"`, result)
+}
+
 func TestString(t *testing.T) {
 	t.Setenv("TEST_ENV", "test_value")
 	t.Setenv("TEST_JSON", `{"key": "value"}`)

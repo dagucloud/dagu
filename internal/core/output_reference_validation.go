@@ -61,7 +61,7 @@ func (d *DAG) validateOutputReferences() []error {
 			continue
 		}
 		location := outputReferenceLocation{StepName: field.OwnerStepName, Field: field.Path}
-		for _, ref := range cmnvalue.ScanStepOutputReferences(field.Value) {
+		for _, ref := range outputReferences(field.Value) {
 			contract, ok := contracts[ref.StepName]
 			if !ok {
 				continue
@@ -78,6 +78,18 @@ func (d *DAG) validateOutputReferences() []error {
 		}
 	}
 	return errs
+}
+
+func outputReferences(raw string) []cmnvalue.StepOutputReference {
+	refs := cmnvalue.ScanReferences(raw, cmnvalue.ModeStaticValidation)
+	out := make([]cmnvalue.StepOutputReference, 0)
+	for _, ref := range refs {
+		if ref.StepOutput == nil {
+			continue
+		}
+		out = append(out, *ref.StepOutput)
+	}
+	return out
 }
 
 func buildPublishedOutputContract(step Step) (publishedOutputContract, bool) {

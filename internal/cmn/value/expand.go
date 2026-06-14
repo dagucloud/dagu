@@ -115,7 +115,7 @@ func expandWithShellContext(ctx context.Context, input string, opts *Options) (s
 		match := input[loc[0]:loc[1]]
 
 		// Single-quoted: preserve as-is.
-		if isSingleQuotedVar(input, loc[0], loc[1]) {
+		if isSingleQuotedVar(input, loc[0], loc[1]) || isEscapedDollar(input, loc[0]) {
 			b.WriteString(match)
 			continue
 		}

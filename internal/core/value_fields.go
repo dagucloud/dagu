@@ -56,7 +56,7 @@ func (w *resolvableFieldWalker) walkDAG(dag *DAG) {
 	if dag == nil {
 		return
 	}
-	root := ResolvableField{OwnerKind: ResolvableOwnerDAG, Mode: cmnvalue.ModeWorkflowValue}
+	root := ResolvableField{OwnerKind: ResolvableOwnerDAG, Mode: cmnvalue.ModeWorkflowValue, EnvIndex: -1}
 	w.walkEnv("env", dag.Env, root)
 	for i, dotenv := range dag.Dotenv {
 		w.add(root.withPathValue(fmt.Sprintf("dotenv[%d]", i), dotenv))
@@ -70,7 +70,7 @@ func (w *resolvableFieldWalker) walkDAG(dag *DAG) {
 	w.walkContainer("container", dag.Container, root.withContainerOwner("dag"))
 
 	for i := range dag.Steps {
-		w.walkStep(fmt.Sprintf("steps[%d]", i), i, dag.Steps[i], "", false)
+		w.walkStep(fmt.Sprintf("steps[%d]", i), i, dag.Steps[i], "")
 	}
 	w.walkHandlerStep("handler_on.init", dag.HandlerOn.Init, HandlerOnInit)
 	w.walkHandlerStep("handler_on.success", dag.HandlerOn.Success, HandlerOnSuccess)
@@ -84,10 +84,10 @@ func (w *resolvableFieldWalker) walkHandlerStep(path string, step *Step, handler
 	if step == nil {
 		return
 	}
-	w.walkStep(path, -1, *step, handler, true)
+	w.walkStep(path, -1, *step, handler)
 }
 
-func (w *resolvableFieldWalker) walkStep(path string, index int, step Step, handler HandlerType, handlerStep bool) {
+func (w *resolvableFieldWalker) walkStep(path string, index int, step Step, handler HandlerType) {
 	base := ResolvableField{
 		OwnerKind:      ResolvableOwnerStep,
 		OwnerStepIndex: index,
@@ -95,9 +95,7 @@ func (w *resolvableFieldWalker) walkStep(path string, index int, step Step, hand
 		OwnerStepName:  step.Name,
 		Handler:        handler,
 		Mode:           cmnvalue.ModeWorkflowValue,
-	}
-	if !handlerStep && index < 0 {
-		base.OwnerKind = ResolvableOwnerDAG
+		EnvIndex:       -1,
 	}
 
 	w.add(base.withPathValue(path+".run", step.Script).withMode(cmnvalue.ModeShellCommand))

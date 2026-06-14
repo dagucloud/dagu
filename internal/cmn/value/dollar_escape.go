@@ -80,6 +80,14 @@ func unescapeDollars(ctx context.Context, input string) string {
 	return strings.ReplaceAll(input, tokens.token, "$")
 }
 
+func isEscapedDollar(input string, dollarIndex int) bool {
+	count := 0
+	for i := dollarIndex - 1; i >= 0 && input[i] == '\\'; i-- {
+		count++
+	}
+	return count%2 == 1
+}
+
 func uniqueToken(input, base string) string {
 	const maxTokenAttempts = 1024
 	for range maxTokenAttempts {

@@ -145,7 +145,7 @@ func TestPublishedOutputContractValidatePath(t *testing.T) {
 	})
 }
 
-func TestScanStepOutputReferencesDescendsTypedContainersViaFieldWalker(t *testing.T) {
+func TestOutputReferencesDescendsTypedContainersViaFieldWalker(t *testing.T) {
 	t.Parallel()
 
 	type collectedReference struct {
@@ -166,7 +166,7 @@ func TestScanStepOutputReferencesDescendsTypedContainersViaFieldWalker(t *testin
 		},
 	}}}
 	for _, field := range ResolvableFields(dag) {
-		for _, ref := range cmnvalue.ScanStepOutputReferences(field.Value) {
+		for _, ref := range outputReferences(field.Value) {
 			refs = append(refs, collectedReference{field: field.Path, ref: ref})
 		}
 	}
@@ -194,7 +194,7 @@ func TestResolvableFieldsIncludesExecutorConfig(t *testing.T) {
 		},
 	}}}
 	for _, field := range ResolvableFields(dag) {
-		if len(cmnvalue.ScanStepOutputReferences(field.Value)) > 0 {
+		if len(outputReferences(field.Value)) > 0 {
 			refs = append(refs, field)
 		}
 	}
