@@ -49,10 +49,10 @@ The value-resolution field list is defined by the value resolution spec. If this
 | Root `consts` list-form string values | Value-resolved | Workflow load | Dagu resolves only references allowed by the consts value-resolution spec. |
 | `params[].default` | Literal | Run start, when needed | Dagu uses the default exactly as written. |
 | Runtime parameter overrides | Literal | Caller input | Values from CLI, API, or sub-DAG calls are not evaluated. |
-| `params[].eval` | Dynamic-evaluated | Before any step starts | Used only when the caller did not provide that parameter. May run legacy backtick command substitution. Does not run `$()`. |
+| `params[].eval` | Dynamic-evaluated | Before any step starts | Used only when the caller did not provide that parameter. May run backtick command substitution. Does not run `$()`. |
 | Root `env` values | Value-resolved | DAG load or run setup | Dagu resolves Dagu references. It does not run command substitution. |
 | `dotenv` paths | Value-resolved | Before loading the dotenv file | Dagu resolves the path. It does not run command substitution. |
-| Step `run` | Value-resolved | Step start | Dagu resolves Dagu references, then hands the command string to the target shell. Dagu does not run `$()`, backticks, or shell variables in this field. The shell may run them later. |
+| Step `run` | Value-resolved | Step start | Dagu resolves Dagu references and environment references supported by value resolution, then hands the command string to the target shell. Dagu does not run `$()` or backticks in this field. The shell may run them later. |
 | Step `env` values | Value-resolved | Step start | Dagu resolves Dagu references. It does not run command substitution. |
 | Executor `with` fields | Value-resolved | Step start | Dagu resolves Dagu references in nested string values. It does not run command substitution. |
 | Step object-form `output` string leaves | Value-resolved | Output publication | For string values inside step `output: {...}`, Dagu resolves Dagu references. It does not run dynamic evaluation or shell expansion. |
@@ -62,7 +62,7 @@ The value-resolution field list is defined by the value resolution spec. If this
 
 Dagu command substitution is intentionally narrow.
 
-- The only field in this spec that may execute legacy backtick substitution is `params[].eval`.
+- The only field in this spec that may execute backtick command substitution is `params[].eval`.
 - Dagu never executes `$()` command substitution in workflow fields.
 - Outside `params[].eval`, Dagu leaves backtick text unchanged.
 - The presence of `$()` or backticks outside `params[].eval` is not a validation error by itself.

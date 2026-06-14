@@ -34,9 +34,9 @@ steps:
 
 Dynamic evaluation for `params[].eval` runs these operations in order:
 
-1. Resolve Dagu value references such as `${params.name}`.
-2. Expand available environment variables according to the field's evaluation scope.
-3. Execute legacy backtick command substitutions.
+- Resolve Dagu value references such as `${params.name}`.
+- Expand available environment variables according to the field's evaluation scope.
+- Execute backtick command substitutions.
 
 Rules:
 
@@ -141,7 +141,7 @@ params:
 ## Acceptance criteria
 
 - A black-box fixture verifies `dagu run` resolves a parameter value produced by backtick substitution in `eval`.
-- A black-box fixture verifies dynamic evaluation expands available variables before legacy backtick substitution.
+- A black-box fixture verifies dynamic evaluation expands available variables before backtick command substitution.
 - A black-box fixture verifies `$()` in `params[].eval` is preserved by Dagu and not executed during dynamic evaluation.
 - A black-box fixture verifies backtick text in step `run` is not evaluated by Dagu.
 - A black-box fixture verifies backtick text in root `env` is not evaluated by Dagu.
