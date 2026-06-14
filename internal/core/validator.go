@@ -6,7 +6,6 @@ package core
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"regexp"
 	"strings"
 	"sync"
@@ -35,17 +34,6 @@ var reservedWords = map[string]bool{
 	"output":  true,
 	"outputs": true,
 }
-
-var (
-	valueResolutionBracedRefPattern   = regexp.MustCompile(`\$\{([^}]+)\}`)
-	valueResolutionShorthandPattern   = regexp.MustCompile(`\$(consts|params|steps)(\.[A-Za-z][A-Za-z0-9_]*)+`)
-	valueResolutionIdentifierPattern  = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
-	valueResolutionSupportedNamespace = map[string]struct{}{
-		"consts": {},
-		"params": {},
-		"steps":  {},
-	}
-)
 
 // ValidateDAGName validates a DAG name according to shared rules.
 // Empty name is allowed (caller may provide one via context or filename).
@@ -97,7 +85,6 @@ func ValidateSteps(dag *DAG) error {
 	resolveStepDependencies(dag)
 	validateDependenciesExist(dag, stepNames, &errs)
 	validateApprovalRewindTargets(dag, stepNames, &errs)
-	errs = append(errs, validateValueResolutionReferences(dag)...)
 
 	for _, step := range dag.Steps {
 		errs = append(errs, validateStep(step)...)
@@ -107,230 +94,6 @@ func ValidateSteps(dag *DAG) error {
 		return nil
 	}
 	return errs
-}
-
-func validateValueResolutionReferences(dag *DAG) ErrorList {
-	var errs ErrorList
-	if dag == nil {
-		return errs
-	}
-
-	ctx := newValueResolutionValidationContext(dag)
-	for _, step := range dag.Steps {
-		for _, ref := range valueResolutionRunFields(step) {
-			errs = append(errs, validateValueResolutionString(ctx, ref.field, ref.value)...)
-		}
-	}
-	return errs
-}
-
-type valueResolutionValidationContext struct {
-	dag             *DAG
-	declaredParams  map[string]struct{}
-	steps           map[string]Step
-	outputContracts map[string]publishedOutputContract
-}
-
-func newValueResolutionValidationContext(dag *DAG) valueResolutionValidationContext {
-	ctx := valueResolutionValidationContext{
-		dag:             dag,
-		declaredParams:  make(map[string]struct{}, len(dag.ParamDefs)),
-		steps:           make(map[string]Step, len(dag.Steps)),
-		outputContracts: make(map[string]publishedOutputContract, len(dag.Steps)),
-	}
-	for _, def := range dag.ParamDefs {
-		if def.Name != "" {
-			ctx.declaredParams[def.Name] = struct{}{}
-		}
-	}
-	for _, step := range dag.Steps {
-		if step.ID == "" {
-			continue
-		}
-		ctx.steps[step.ID] = step
-		if contract, ok := buildValueResolutionOutputContract(step); ok {
-			ctx.outputContracts[step.ID] = contract
-		}
-	}
-	return ctx
-}
-
-type valueResolutionRunField struct {
-	field string
-	value string
-}
-
-func valueResolutionRunFields(step Step) []valueResolutionRunField {
-	fields := make([]valueResolutionRunField, 0, len(step.Commands)+2)
-	if step.CmdWithArgs != "" {
-		fields = append(fields, valueResolutionRunField{field: "run", value: step.CmdWithArgs})
-	}
-	if step.Script != "" {
-		fields = append(fields, valueResolutionRunField{field: "run", value: step.Script})
-	}
-	for idx, cmd := range step.Commands {
-		if cmd.CmdWithArgs != "" {
-			fields = append(fields, valueResolutionRunField{
-				field: fmt.Sprintf("run[%d]", idx),
-				value: cmd.CmdWithArgs,
-			})
-		}
-	}
-	return fields
-}
-
-func validateValueResolutionString(ctx valueResolutionValidationContext, field string, value string) ErrorList {
-	var errs ErrorList
-
-	for _, match := range valueResolutionShorthandPattern.FindAllString(value, -1) {
-		errs = append(errs, NewValidationError(field, match,
-			fmt.Errorf("%s is invalid Dagu-looking reference syntax; use ${...}", match)))
-	}
-	for _, malformed := range malformedValueResolutionReferences(value) {
-		errs = append(errs, NewValidationError(field, malformed,
-			fmt.Errorf("malformed Dagu reference %s", malformed)))
-	}
-
-	matches := valueResolutionBracedRefPattern.FindAllStringSubmatch(value, -1)
-	for _, match := range matches {
-		if len(match) < 2 {
-			continue
-		}
-		ref := strings.TrimSpace(match[1])
-		segments := strings.Split(ref, ".")
-		if len(segments) == 1 {
-			if _, ok := valueResolutionSupportedNamespace[ref]; ok {
-				errs = append(errs, NewValidationError(field, match[0],
-					validateValueResolutionPath(ref, segments)))
-				continue
-			}
-			continue
-		}
-
-		namespace := segments[0]
-		if _, ok := valueResolutionSupportedNamespace[namespace]; !ok {
-			if isLegacyOutputReferencePath(segments) {
-				continue
-			}
-			errs = append(errs, NewValidationError(field, match[0],
-				fmt.Errorf("unknown namespace %q in Dagu reference %s", namespace, match[0])))
-			continue
-		}
-
-		if err := validateValueResolutionPath(namespace, segments); err != nil {
-			errs = append(errs, NewValidationError(field, match[0], err))
-			continue
-		}
-
-		switch namespace {
-		case "consts":
-			if _, ok := ctx.dag.Consts[segments[1]]; !ok {
-				errs = append(errs, NewValidationError(field, match[0],
-					fmt.Errorf("unknown consts reference %s", match[0])))
-			}
-		case "params":
-			if _, ok := ctx.declaredParams[segments[1]]; !ok {
-				errs = append(errs, NewValidationError(field, match[0],
-					fmt.Errorf("undeclared params reference %s", match[0])))
-			}
-		case "steps":
-			stepID := segments[1]
-			if _, ok := ctx.steps[stepID]; !ok {
-				errs = append(errs, NewValidationError(field, match[0],
-					fmt.Errorf("unknown steps reference %s", match[0])))
-				continue
-			}
-			contract, ok := ctx.outputContracts[stepID]
-			if !ok {
-				continue
-			}
-			if contract.validatePath([]string{segments[3]}) == outputReferenceInvalid {
-				errs = append(errs, NewValidationError(field, match[0],
-					fmt.Errorf("unknown steps output reference %s", match[0])))
-			}
-		}
-	}
-
-	return errs
-}
-
-func malformedValueResolutionReferences(value string) []string {
-	var malformed []string
-	for offset := 0; offset < len(value); {
-		start := strings.Index(value[offset:], "${")
-		if start < 0 {
-			break
-		}
-		start += offset
-		end := strings.IndexByte(value[start+2:], '}')
-		if end < 0 {
-			malformed = append(malformed, value[start:])
-			break
-		}
-		if end == 0 {
-			malformed = append(malformed, "${}")
-		}
-		offset = start + 2 + end + 1
-	}
-	return malformed
-}
-
-func isLegacyOutputReferencePath(segments []string) bool {
-	return len(segments) >= 3 && segments[1] == "output"
-}
-
-func buildValueResolutionOutputContract(step Step) (publishedOutputContract, bool) {
-	if step.StdoutOutputs != nil {
-		keys := map[string]StepOutputEntry{}
-		if step.StdoutOutputs.Field != "" {
-			keys[step.StdoutOutputs.Field] = StepOutputEntry{}
-		}
-		for name, entry := range step.StdoutOutputs.Fields {
-			keys[name] = entry
-		}
-		if len(keys) > 0 {
-			return publishedOutputContract{
-				StepName: step.ID,
-				Source:   "stdout.outputs",
-				Keys:     keys,
-			}, true
-		}
-	}
-	if len(step.StructuredOutput) > 0 {
-		return publishedOutputContract{
-			StepName: step.ID,
-			Source:   "output",
-			Keys:     maps.Clone(step.StructuredOutput),
-		}, true
-	}
-	if step.HasOutputSchema() {
-		return publishedOutputContract{
-			StepName: step.ID,
-			Source:   "output_schema",
-			Schema:   maps.Clone(step.OutputSchema),
-		}, true
-	}
-	return publishedOutputContract{}, false
-}
-
-func validateValueResolutionPath(namespace string, segments []string) error {
-	for _, segment := range segments {
-		if !valueResolutionIdentifierPattern.MatchString(segment) {
-			return fmt.Errorf("reference path segment %q must match %s", segment, valueResolutionIdentifierPattern.String())
-		}
-	}
-
-	switch namespace {
-	case "consts", "params":
-		if len(segments) != 2 {
-			return fmt.Errorf("%s references must use ${%s.<name>}", namespace, namespace)
-		}
-	case "steps":
-		if len(segments) != 4 || segments[2] != "outputs" {
-			return fmt.Errorf("steps references must use ${steps.<step_id>.outputs.<name>}")
-		}
-	}
-	return nil
 }
 
 // collectNamesAndIDs collects all step names and IDs, validating uniqueness and format.

@@ -94,16 +94,6 @@ func (r *Runner) ExpectNoFile(name string) {
 	}
 }
 
-// ExpectFileContent fails the test when name does not contain content.
-func (r *Runner) ExpectFileContent(name string, content string) {
-	r.t.Helper()
-
-	path := filepath.Join(r.dir, filepath.FromSlash(name))
-	data, err := os.ReadFile(path) //nolint:gosec // Test reads files from the isolated project directory.
-	require.NoError(r.t, err, "reading %s", name)
-	require.Equal(r.t, content, string(data))
-}
-
 // ExpectExitCode fails the test when the command exit code differs.
 func (r *Result) ExpectExitCode(code int) {
 	r.t.Helper()

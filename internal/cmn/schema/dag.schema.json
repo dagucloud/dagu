@@ -719,28 +719,6 @@
       ],
       "description": "Conditions that must be satisfied before the DAG can run. Can use shell expansions or command substitutions to validate external states."
     },
-    "consts": {
-      "oneOf": [
-        {
-          "type": "object",
-          "propertyNames": {
-            "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
-          },
-          "additionalProperties": {
-            "$ref": "#/definitions/constValue"
-          },
-          "description": "Named literal constants available as ${consts.name}. Map entries are independent and cannot reference other consts."
-        },
-        {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/constEntry"
-          },
-          "description": "Ordered constant entries. String values may reference earlier consts with ${consts.name}; ordering constraints are checked by DAG validation."
-        }
-      ],
-      "description": "Immutable literal values available through value resolution as ${consts.name}."
-    },
     "params": {
       "oneOf": [
         {
@@ -1115,32 +1093,6 @@
         }
       ],
       "description": "JSON Schema declaration. Can be a path/URL string, an inline schema object, or a boolean schema."
-    },
-    "constValue": {
-      "oneOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "number"
-        },
-        {
-          "type": "boolean"
-        }
-      ],
-      "description": "Literal constant value."
-    },
-    "constEntry": {
-      "type": "object",
-      "minProperties": 1,
-      "maxProperties": 1,
-      "propertyNames": {
-        "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
-      },
-      "additionalProperties": {
-        "$ref": "#/definitions/constValue"
-      },
-      "description": "Single ordered constant entry written as {name: value}."
     },
     "dagParamLegacyEntry": {
       "type": "object",

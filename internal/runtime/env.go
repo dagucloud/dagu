@@ -337,18 +337,13 @@ func (e Env) MailerConfig(ctx context.Context) (mailer.Config, error) {
 // Uses EnvScope as THE single source of truth for $VAR and ${VAR} expansion.
 // StepMap is used separately for ${step.stdout} style references.
 func (e Env) EvalString(ctx context.Context, s string, opts ...eval.Option) (string, error) {
-	resolved, err := e.resolveDAGValues(ctx, s, opts...)
-	if err != nil {
-		return "", err
-	}
-
 	// Use EnvScope for variable resolution via context
 	ctx = eval.WithEnvScope(ctx, e.Scope)
 
 	// StepMap for ${step.stdout} syntax (separate system from env vars)
 	opts = append(opts, eval.WithStepMap(e.StepMap))
 
-	return eval.String(ctx, resolved, opts...)
+	return eval.String(ctx, s, opts...)
 }
 
 // EvalBool evaluates the given value with the variables within the execution context
