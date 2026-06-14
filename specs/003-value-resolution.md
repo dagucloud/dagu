@@ -39,8 +39,6 @@ ${path}
 
 The path must be namespaced. Dotted references must use the `${name.path}` form. `$name.path` is not supported as a dotted reference form.
 
-The `${{ ... }}` format is not supported by the current implementation and must not be required by this spec.
-
 **Supported namespaces:**
 
 | Namespace | Meaning |
@@ -169,4 +167,3 @@ steps:
 - A black-box fixture verifies missing Dagu references fail before the owning step starts.
 - A black-box fixture verifies `$NAME` is not resolved by Dagu.
 - A black-box fixture verifies `$name.path` is not treated as supported dotted reference syntax.
-- A black-box fixture verifies `${{ name }}` is not treated as supported value-resolution syntax.
