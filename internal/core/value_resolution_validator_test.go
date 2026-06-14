@@ -21,10 +21,29 @@ func TestValidateStepsValueResolutionReferences(t *testing.T) {
 	}{
 		{
 			name: "AllowsNamespacedReferences",
-			dag: dagWithValueRun(
-				map[string]any{"service": "api"},
-				"printf '%s' ${consts.service} ${params.environment} ${steps.build.outputs.image}",
-			),
+			dag: &core.DAG{
+				Consts:    map[string]any{"service": "api"},
+				ParamDefs: []core.ParamDef{{Name: "environment", Type: core.ParamDefTypeString}},
+				Steps: []core.Step{
+					{
+						ID:   "Build_1",
+						Name: "build",
+						Commands: []core.CommandEntry{{
+							Command: "echo",
+						}},
+						StdoutOutputs: &core.StepOutputsConfig{
+							Field: "image",
+						},
+					},
+					{
+						ID:   "deploy",
+						Name: "deploy",
+						Commands: []core.CommandEntry{{
+							CmdWithArgs: "printf '%s' ${consts.service} ${params.environment} ${steps.Build_1.outputs.image}",
+						}},
+					},
+				},
+			},
 		},
 		{
 			name: "ChecksLegacyCmdWithArgsField",
@@ -65,6 +84,62 @@ func TestValidateStepsValueResolutionReferences(t *testing.T) {
 			errChecks: []string{"unknown consts reference", "${consts.missing}"},
 		},
 		{
+			name: "RejectsUndeclaredParamReference",
+			dag: &core.DAG{
+				ParamDefs: []core.ParamDef{{Name: "environment", Type: core.ParamDefTypeString}},
+				Steps: []core.Step{{
+					Name:     "deploy",
+					Commands: []core.CommandEntry{{CmdWithArgs: "echo ${params.region}"}},
+				}},
+			},
+			errChecks: []string{"undeclared params reference", "${params.region}"},
+		},
+		{
+			name:      "RejectsUnknownNamespace",
+			dag:       dagWithValueRun(nil, "echo ${vars.service}"),
+			errChecks: []string{"unknown namespace", "vars"},
+		},
+		{
+			name:      "RejectsNamespaceOnlyReference",
+			dag:       dagWithValueRun(nil, "echo ${params} ${environment}"),
+			errChecks: []string{"params references", "${params.<name>}", "unqualified", "params.environment"},
+		},
+		{
+			name:      "RejectsEmptyReference",
+			dag:       dagWithValueRun(nil, "echo ${}"),
+			errChecks: []string{"malformed Dagu reference", "${}"},
+		},
+		{
+			name: "AllowsLegacyOutputReferencePath",
+			dag: &core.DAG{
+				Consts: map[string]any{"service": "api"},
+				Steps: []core.Step{
+					{
+						ID:   "build",
+						Name: "build",
+						Commands: []core.CommandEntry{{
+							Command: "echo",
+						}},
+						StructuredOutput: map[string]core.StepOutputEntry{
+							"image": {HasValue: true, Value: "v1.2.3"},
+						},
+					},
+					{
+						ID:   "deploy",
+						Name: "deploy",
+						Commands: []core.CommandEntry{{
+							CmdWithArgs: "echo ${build.output.image}",
+						}},
+					},
+				},
+			},
+		},
+		{
+			name:      "RejectsMalformedReference",
+			dag:       dagWithValueRun(map[string]any{"service": "api"}, "echo ${consts.service"),
+			errChecks: []string{"malformed Dagu reference", "${consts.service"},
+		},
+		{
 			name:      "RejectsInvalidPathSegment",
 			dag:       dagWithValueRun(map[string]any{"service": "api"}, "echo ${consts.1service}"),
 			errChecks: []string{"path segment", "1service"},
@@ -78,6 +153,138 @@ func TestValidateStepsValueResolutionReferences(t *testing.T) {
 			name:      "RejectsInvalidStepsShape",
 			dag:       dagWithValueRun(nil, "echo ${steps.build.stdout}"),
 			errChecks: []string{"steps references", "outputs"},
+		},
+		{
+			name: "RejectsUnknownStepReference",
+			dag: &core.DAG{
+				Steps: []core.Step{{
+					Name:     "deploy",
+					Commands: []core.CommandEntry{{CmdWithArgs: "echo ${steps.build.outputs.image}"}},
+				}},
+			},
+			errChecks: []string{"unknown steps reference", "build"},
+		},
+		{
+			name: "RejectsUnknownDeclaredStepOutput",
+			dag: &core.DAG{
+				Steps: []core.Step{
+					{
+						ID:   "build",
+						Name: "build",
+						Commands: []core.CommandEntry{{
+							Command: "echo",
+						}},
+						StdoutOutputs: &core.StepOutputsConfig{
+							Field: "image_tag",
+						},
+					},
+					{
+						ID:   "deploy",
+						Name: "deploy",
+						Commands: []core.CommandEntry{{
+							CmdWithArgs: "echo ${steps.build.outputs.image}",
+						}},
+					},
+				},
+			},
+			errChecks: []string{"unknown steps output reference", "image"},
+		},
+		{
+			name: "AllowsUnknownStepOutputWithoutDeclaredContract",
+			dag: &core.DAG{
+				Steps: []core.Step{
+					{
+						ID:   "build",
+						Name: "build",
+						Commands: []core.CommandEntry{{
+							Command: "echo",
+						}},
+					},
+					{
+						ID:   "deploy",
+						Name: "deploy",
+						Commands: []core.CommandEntry{{
+							CmdWithArgs: "echo ${steps.build.outputs.image}",
+						}},
+					},
+				},
+			},
+		},
+		{
+			name: "AllowsEmptyStdoutOutputsAsUnknownContract",
+			dag: &core.DAG{
+				Steps: []core.Step{
+					{
+						ID:   "build",
+						Name: "build",
+						Commands: []core.CommandEntry{{
+							Command: "echo",
+						}},
+						StdoutOutputs: &core.StepOutputsConfig{},
+					},
+					{
+						ID:   "deploy",
+						Name: "deploy",
+						Commands: []core.CommandEntry{{
+							CmdWithArgs: "echo ${steps.build.outputs.image}",
+						}},
+					},
+				},
+			},
+		},
+		{
+			name: "RejectsUnknownStructuredStepOutput",
+			dag: &core.DAG{
+				Steps: []core.Step{
+					{
+						ID:   "build",
+						Name: "build",
+						Commands: []core.CommandEntry{{
+							Command: "echo",
+						}},
+						StructuredOutput: map[string]core.StepOutputEntry{
+							"image_tag": {HasValue: true, Value: "v1.2.3"},
+						},
+					},
+					{
+						ID:   "deploy",
+						Name: "deploy",
+						Commands: []core.CommandEntry{{
+							CmdWithArgs: "echo ${steps.build.outputs.image}",
+						}},
+					},
+				},
+			},
+			errChecks: []string{"unknown steps output reference", "image"},
+		},
+		{
+			name: "RejectsUnknownSchemaStepOutput",
+			dag: &core.DAG{
+				Steps: []core.Step{
+					{
+						ID:   "build",
+						Name: "build",
+						Commands: []core.CommandEntry{{
+							Command: "echo",
+						}},
+						OutputSchema: map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"image_tag": map[string]any{"type": "string"},
+							},
+							"additionalProperties": false,
+						},
+					},
+					{
+						ID:   "deploy",
+						Name: "deploy",
+						Commands: []core.CommandEntry{{
+							CmdWithArgs: "echo ${steps.build.outputs.image}",
+						}},
+					},
+				},
+			},
+			errChecks: []string{"unknown steps output reference", "image"},
 		},
 		{
 			name: "ChecksScriptAndCommandEntries",

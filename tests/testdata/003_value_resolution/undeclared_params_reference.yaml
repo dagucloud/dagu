@@ -1,0 +1,8 @@
+working_dir: .
+params:
+  - name: environment
+    type: string
+    required: true
+steps:
+  - id: bad
+    run: echo ${params.region} > should_not_run.txt

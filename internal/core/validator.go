@@ -6,6 +6,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"strings"
 	"sync"
@@ -114,12 +115,44 @@ func validateValueResolutionReferences(dag *DAG) ErrorList {
 		return errs
 	}
 
+	ctx := newValueResolutionValidationContext(dag)
 	for _, step := range dag.Steps {
 		for _, ref := range valueResolutionRunFields(step) {
-			errs = append(errs, validateValueResolutionString(dag, ref.field, ref.value)...)
+			errs = append(errs, validateValueResolutionString(ctx, ref.field, ref.value)...)
 		}
 	}
 	return errs
+}
+
+type valueResolutionValidationContext struct {
+	dag             *DAG
+	declaredParams  map[string]struct{}
+	steps           map[string]Step
+	outputContracts map[string]publishedOutputContract
+}
+
+func newValueResolutionValidationContext(dag *DAG) valueResolutionValidationContext {
+	ctx := valueResolutionValidationContext{
+		dag:             dag,
+		declaredParams:  make(map[string]struct{}, len(dag.ParamDefs)),
+		steps:           make(map[string]Step, len(dag.Steps)),
+		outputContracts: make(map[string]publishedOutputContract, len(dag.Steps)),
+	}
+	for _, def := range dag.ParamDefs {
+		if def.Name != "" {
+			ctx.declaredParams[def.Name] = struct{}{}
+		}
+	}
+	for _, step := range dag.Steps {
+		if step.ID == "" {
+			continue
+		}
+		ctx.steps[step.ID] = step
+		if contract, ok := buildValueResolutionOutputContract(step); ok {
+			ctx.outputContracts[step.ID] = contract
+		}
+	}
+	return ctx
 }
 
 type valueResolutionRunField struct {
@@ -146,13 +179,17 @@ func valueResolutionRunFields(step Step) []valueResolutionRunField {
 	return fields
 }
 
-func validateValueResolutionString(dag *DAG, field string, value string) ErrorList {
+func validateValueResolutionString(ctx valueResolutionValidationContext, field string, value string) ErrorList {
 	var errs ErrorList
-	strictUnqualified := usesValueResolutionSpec(dag, value)
+	strictUnqualified := usesValueResolutionSpec(ctx.dag, value)
 
 	for _, match := range valueResolutionShorthandPattern.FindAllString(value, -1) {
 		errs = append(errs, NewValidationError(field, match,
 			fmt.Errorf("%s is invalid Dagu-looking reference syntax; use ${...}", match)))
+	}
+	for _, malformed := range malformedValueResolutionReferences(value) {
+		errs = append(errs, NewValidationError(field, malformed,
+			fmt.Errorf("malformed Dagu reference %s", malformed)))
 	}
 
 	matches := valueResolutionBracedRefPattern.FindAllStringSubmatch(value, -1)
@@ -163,6 +200,11 @@ func validateValueResolutionString(dag *DAG, field string, value string) ErrorLi
 		ref := strings.TrimSpace(match[1])
 		segments := strings.Split(ref, ".")
 		if len(segments) == 1 {
+			if _, ok := valueResolutionSupportedNamespace[ref]; ok {
+				errs = append(errs, NewValidationError(field, match[0],
+					validateValueResolutionPath(ref, segments)))
+				continue
+			}
 			if strictUnqualified {
 				errs = append(errs, NewValidationError(field, match[0],
 					fmt.Errorf("reference %s is unqualified; use params.%s, consts.%s, or steps.<step_id>.outputs.<name>",
@@ -173,6 +215,11 @@ func validateValueResolutionString(dag *DAG, field string, value string) ErrorLi
 
 		namespace := segments[0]
 		if _, ok := valueResolutionSupportedNamespace[namespace]; !ok {
+			if isLegacyOutputReferencePath(segments) {
+				continue
+			}
+			errs = append(errs, NewValidationError(field, match[0],
+				fmt.Errorf("unknown namespace %q in Dagu reference %s", namespace, match[0])))
 			continue
 		}
 
@@ -181,15 +228,95 @@ func validateValueResolutionString(dag *DAG, field string, value string) ErrorLi
 			continue
 		}
 
-		if namespace == "consts" {
-			if _, ok := dag.Consts[segments[1]]; !ok {
+		switch namespace {
+		case "consts":
+			if _, ok := ctx.dag.Consts[segments[1]]; !ok {
 				errs = append(errs, NewValidationError(field, match[0],
 					fmt.Errorf("unknown consts reference %s", match[0])))
+			}
+		case "params":
+			if _, ok := ctx.declaredParams[segments[1]]; !ok {
+				errs = append(errs, NewValidationError(field, match[0],
+					fmt.Errorf("undeclared params reference %s", match[0])))
+			}
+		case "steps":
+			stepID := segments[1]
+			if _, ok := ctx.steps[stepID]; !ok {
+				errs = append(errs, NewValidationError(field, match[0],
+					fmt.Errorf("unknown steps reference %s", match[0])))
+				continue
+			}
+			contract, ok := ctx.outputContracts[stepID]
+			if !ok {
+				continue
+			}
+			if contract.validatePath([]string{segments[3]}) == outputReferenceInvalid {
+				errs = append(errs, NewValidationError(field, match[0],
+					fmt.Errorf("unknown steps output reference %s", match[0])))
 			}
 		}
 	}
 
 	return errs
+}
+
+func malformedValueResolutionReferences(value string) []string {
+	var malformed []string
+	for offset := 0; offset < len(value); {
+		start := strings.Index(value[offset:], "${")
+		if start < 0 {
+			break
+		}
+		start += offset
+		end := strings.IndexByte(value[start+2:], '}')
+		if end < 0 {
+			malformed = append(malformed, value[start:])
+			break
+		}
+		if end == 0 {
+			malformed = append(malformed, "${}")
+		}
+		offset = start + 2 + end + 1
+	}
+	return malformed
+}
+
+func isLegacyOutputReferencePath(segments []string) bool {
+	return len(segments) >= 3 && segments[1] == "output"
+}
+
+func buildValueResolutionOutputContract(step Step) (publishedOutputContract, bool) {
+	if step.StdoutOutputs != nil {
+		keys := map[string]StepOutputEntry{}
+		if step.StdoutOutputs.Field != "" {
+			keys[step.StdoutOutputs.Field] = StepOutputEntry{}
+		}
+		for name, entry := range step.StdoutOutputs.Fields {
+			keys[name] = entry
+		}
+		if len(keys) > 0 {
+			return publishedOutputContract{
+				StepName: step.ID,
+				Source:   "stdout.outputs",
+				Keys:     keys,
+			}, true
+		}
+	}
+	if len(step.StructuredOutput) > 0 {
+		return publishedOutputContract{
+			StepName: step.ID,
+			Source:   "output",
+			Keys:     maps.Clone(step.StructuredOutput),
+		}, true
+	}
+	if step.HasOutputSchema() {
+		return publishedOutputContract{
+			StepName: step.ID,
+			Source:   "output_schema",
+			Schema:   maps.Clone(step.OutputSchema),
+		}, true
+	}
+	return publishedOutputContract{}, false
 }
 
 func usesValueResolutionSpec(dag *DAG, value string) bool {
@@ -203,7 +330,11 @@ func usesValueResolutionSpec(dag *DAG, value string) bool {
 		if len(match) < 2 {
 			continue
 		}
-		namespace, _, ok := strings.Cut(strings.TrimSpace(match[1]), ".")
+		ref := strings.TrimSpace(match[1])
+		if _, supported := valueResolutionSupportedNamespace[ref]; supported {
+			return true
+		}
+		namespace, _, ok := strings.Cut(ref, ".")
 		if !ok {
 			continue
 		}

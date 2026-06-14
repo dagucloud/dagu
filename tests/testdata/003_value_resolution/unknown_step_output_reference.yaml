@@ -1,0 +1,9 @@
+working_dir: .
+steps:
+  - id: build
+    run: printf '%s\n' v1.2.3
+    stdout:
+      outputs: image_tag
+  - id: deploy
+    depends: build
+    run: echo ${steps.build.outputs.image} > should_not_run.txt

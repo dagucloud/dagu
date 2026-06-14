@@ -1,0 +1,4 @@
+working_dir: .
+steps:
+  - id: deploy
+    run: echo ${steps.build.outputs.image} > should_not_run.txt

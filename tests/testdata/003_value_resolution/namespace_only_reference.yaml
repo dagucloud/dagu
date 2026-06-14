@@ -1,0 +1,8 @@
+working_dir: .
+params:
+  - name: environment
+    type: string
+    default: prod
+steps:
+  - id: bad
+    run: echo ${params} > should_not_run.txt

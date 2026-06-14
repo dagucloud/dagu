@@ -38,6 +38,9 @@ func (e Env) resolveDAGValues(ctx context.Context, input string, opts ...eval.Op
 	for _, match := range runtimeValueShorthandPattern.FindAllString(input, -1) {
 		return "", fmt.Errorf("%s is invalid Dagu-looking reference syntax; use ${...}", match)
 	}
+	for _, malformed := range malformedRuntimeValueReferences(input) {
+		return "", fmt.Errorf("malformed Dagu reference %s", malformed)
+	}
 
 	matches := runtimeValueBracedRefPattern.FindAllStringSubmatchIndex(input, -1)
 	if len(matches) == 0 {
@@ -69,6 +72,9 @@ func (e Env) resolveDAGValues(ctx context.Context, input string, opts ...eval.Op
 func (e Env) resolveDAGValue(ctx context.Context, expr string) (string, bool, error) {
 	segments := strings.Split(expr, ".")
 	if len(segments) == 1 {
+		if _, ok := runtimeValueSupportedNamespace[segments[0]]; ok {
+			return "", false, validateRuntimeValuePath(segments[0], segments)
+		}
 		return "", false, nil
 	}
 
@@ -105,6 +111,40 @@ func (e Env) resolveDAGValue(ctx context.Context, expr string) (string, bool, er
 	default:
 		return "", false, nil
 	}
+}
+
+func malformedRuntimeValueReferences(value string) []string {
+	var malformed []string
+	for offset := 0; offset < len(value); {
+		start := strings.Index(value[offset:], "${")
+		if start < 0 {
+			break
+		}
+		start += offset
+		end := strings.IndexByte(value[start+2:], '}')
+		if end < 0 {
+			candidate := value[start:]
+			if isRuntimeDaguReferencePrefix(candidate) {
+				malformed = append(malformed, candidate)
+			}
+			break
+		}
+		if end == 0 {
+			malformed = append(malformed, "${}")
+		}
+		offset = start + 2 + end + 1
+	}
+	return malformed
+}
+
+func isRuntimeDaguReferencePrefix(value string) bool {
+	expr := strings.TrimSpace(strings.TrimPrefix(value, "${"))
+	for namespace := range runtimeValueSupportedNamespace {
+		if expr == namespace || strings.HasPrefix(expr, namespace+".") {
+			return true
+		}
+	}
+	return false
 }
 
 func validateRuntimeValuePath(namespace string, segments []string) error {

@@ -1,0 +1,6 @@
+working_dir: .
+consts:
+  service: api
+steps:
+  - id: bad
+    run: echo ${consts.service > should_not_run.txt

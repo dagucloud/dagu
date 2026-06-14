@@ -74,6 +74,24 @@ func TestEvalStringValueResolutionErrors(t *testing.T) {
 			errChecks: []string{"$consts.service", "invalid Dagu-looking reference"},
 		},
 		{
+			name:      "RejectsMalformedReference",
+			ctx:       valueResolutionContext(&core.DAG{Name: "value-resolution", Consts: map[string]any{"service": "api"}}, nil),
+			input:     "${consts.service",
+			errChecks: []string{"malformed Dagu reference", "${consts.service"},
+		},
+		{
+			name:      "RejectsEmptyReference",
+			ctx:       valueResolutionContext(&core.DAG{Name: "value-resolution"}, nil),
+			input:     "${}",
+			errChecks: []string{"malformed Dagu reference", "${}"},
+		},
+		{
+			name:      "RejectsNamespaceOnlyReference",
+			ctx:       valueResolutionContext(&core.DAG{Name: "value-resolution"}, nil),
+			input:     "${params}",
+			errChecks: []string{"params references", "${params.<name>}"},
+		},
+		{
 			name:      "RejectsMissingConstsDAG",
 			ctx:       runtime.WithEnv(context.Background(), runtime.Env{}),
 			input:     "${consts.service}",

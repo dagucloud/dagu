@@ -10,7 +10,9 @@ func Test003ValueResolutionValidate(t *testing.T) {
 
 	validCases := []string{
 		"consts_literal_values.yaml",
+		"params_schema_reference.yaml",
 		"resolve_consts_list.yaml",
+		"resolve_mixed_case_step_output.yaml",
 	}
 	for _, file := range validCases {
 		t.Run(file, func(t *testing.T) {
@@ -44,6 +46,41 @@ func Test003ValueResolutionValidate(t *testing.T) {
 			name:        "unqualified reference",
 			file:        "unqualified_reference.yaml",
 			stderrParts: []string{"reference", "params"},
+		},
+		{
+			name:        "unknown consts reference",
+			file:        "missing_reference.yaml",
+			stderrParts: []string{"consts", "missing"},
+		},
+		{
+			name:        "undeclared params reference",
+			file:        "undeclared_params_reference.yaml",
+			stderrParts: []string{"params", "region"},
+		},
+		{
+			name:        "unknown step reference",
+			file:        "unknown_step_reference.yaml",
+			stderrParts: []string{"steps", "build"},
+		},
+		{
+			name:        "unknown declared step output",
+			file:        "unknown_step_output_reference.yaml",
+			stderrParts: []string{"steps", "image"},
+		},
+		{
+			name:        "unknown namespace",
+			file:        "unknown_namespace_reference.yaml",
+			stderrParts: []string{"namespace", "vars"},
+		},
+		{
+			name:        "namespace-only reference",
+			file:        "namespace_only_reference.yaml",
+			stderrParts: []string{"params", "${params.<name>}"},
+		},
+		{
+			name:        "malformed reference",
+			file:        "malformed_reference.yaml",
+			stderrParts: []string{"malformed", "${consts.service"},
 		},
 	}
 	for _, tc := range invalidCases {
@@ -94,6 +131,12 @@ func Test003ValueResolutionRun(t *testing.T) {
 			name:    "step output reference",
 			file:    "resolve_step_output.yaml",
 			output:  "step_output.txt",
+			content: "v1.2.3\n",
+		},
+		{
+			name:    "mixed-case step ID output reference",
+			file:    "resolve_mixed_case_step_output.yaml",
+			output:  "mixed_case_step_output.txt",
 			content: "v1.2.3\n",
 		},
 		{

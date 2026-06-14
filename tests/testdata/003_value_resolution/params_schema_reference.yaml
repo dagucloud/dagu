@@ -1,0 +1,10 @@
+working_dir: .
+params:
+  type: object
+  properties:
+    region:
+      type: string
+      default: us-east-1
+steps:
+  - id: deploy
+    run: echo ${params.region}
