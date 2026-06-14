@@ -37,6 +37,7 @@ var dagRunArtifactsDirReferencePattern = regexp.MustCompile(
 
 var (
 	valueReferenceIdentifierPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
+	constValueBracedRefPattern      = regexp.MustCompile(`\$\{([^}]+)\}`)
 	constValueReferencePattern      = regexp.MustCompile(`\$\{[^}]+\}|\$(?:consts|params|steps)\.`)
 )
 
@@ -126,7 +127,7 @@ type dag struct {
 	// Params is the default parameters for the steps.
 	Params any `yaml:"params,omitempty"`
 	// Consts contains immutable literal values for value resolution.
-	Consts map[string]any `yaml:"consts,omitempty"`
+	Consts any `yaml:"consts,omitempty"`
 	// MaxCleanUpTimeSec is the maximum time in seconds to clean up the DAG.
 	// It is a wait time to kill the processes when it is requested to stop.
 	// If the time is exceeded, the process is killed.
@@ -1501,12 +1502,27 @@ type paramsResult struct {
 }
 
 func buildConsts(_ BuildContext, d *dag) (map[string]any, error) {
-	if len(d.Consts) == 0 {
+	if d.Consts == nil {
 		return nil, nil
 	}
 
-	result := make(map[string]any, len(d.Consts))
-	for key, value := range d.Consts {
+	switch consts := d.Consts.(type) {
+	case map[string]any:
+		return buildConstsMap(consts)
+	case []any:
+		return buildConstsList(consts)
+	default:
+		return nil, fmt.Errorf("consts must be a mapping or an ordered list of single-entry mappings")
+	}
+}
+
+func buildConstsMap(consts map[string]any) (map[string]any, error) {
+	if len(consts) == 0 {
+		return nil, nil
+	}
+
+	result := make(map[string]any, len(consts))
+	for key, value := range consts {
 		if !valueReferenceIdentifierPattern.MatchString(key) {
 			return nil, fmt.Errorf("consts key %q must match %s", key, valueReferenceIdentifierPattern.String())
 		}
@@ -1516,6 +1532,37 @@ func buildConsts(_ BuildContext, d *dag) (map[string]any, error) {
 			return nil, err
 		}
 		result[key] = normalized
+	}
+	return result, nil
+}
+
+func buildConstsList(consts []any) (map[string]any, error) {
+	if len(consts) == 0 {
+		return nil, nil
+	}
+
+	result := make(map[string]any, len(consts))
+	for idx, item := range consts {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("consts[%d] must be a single-entry mapping", idx)
+		}
+		if len(entry) != 1 {
+			return nil, fmt.Errorf("consts[%d] must contain exactly one key", idx)
+		}
+		for key, value := range entry {
+			if !valueReferenceIdentifierPattern.MatchString(key) {
+				return nil, fmt.Errorf("consts key %q must match %s", key, valueReferenceIdentifierPattern.String())
+			}
+			if _, exists := result[key]; exists {
+				return nil, fmt.Errorf("consts.%s is defined more than once", key)
+			}
+			normalized, err := validateConstListValue(key, value, result)
+			if err != nil {
+				return nil, err
+			}
+			result[key] = normalized
+		}
 	}
 	return result, nil
 }
@@ -1551,6 +1598,86 @@ func validateConstValue(key string, value any) (any, error) {
 		return v, nil
 	default:
 		return nil, fmt.Errorf("consts.%s must be a literal string, number, or boolean", key)
+	}
+}
+
+func validateConstListValue(key string, value any, resolved map[string]any) (any, error) {
+	switch v := value.(type) {
+	case string:
+		if constValueReferencePattern.MatchString(v) {
+			return resolveConstListStringValue(key, v, resolved)
+		}
+		return v, nil
+	default:
+		return validateConstValue(key, value)
+	}
+}
+
+func resolveConstListStringValue(key string, value string, resolved map[string]any) (string, error) {
+	if strings.Contains(value, "$consts.") || strings.Contains(value, "$params.") || strings.Contains(value, "$steps.") {
+		return "", fmt.Errorf("consts.%s contains invalid Dagu-looking reference syntax; use ${...}", key)
+	}
+
+	matches := constValueBracedRefPattern.FindAllStringSubmatchIndex(value, -1)
+	if len(matches) == 0 {
+		return value, nil
+	}
+
+	var b strings.Builder
+	last := 0
+	for _, loc := range matches {
+		b.WriteString(value[last:loc[0]])
+		last = loc[1]
+
+		ref := strings.TrimSpace(value[loc[2]:loc[3]])
+		segments := strings.Split(ref, ".")
+		if len(segments) != 2 || segments[0] != "consts" || !valueReferenceIdentifierPattern.MatchString(segments[1]) {
+			return "", fmt.Errorf("consts.%s may reference only earlier consts with ${consts.<name>}", key)
+		}
+		referenced, ok := resolved[segments[1]]
+		if !ok {
+			return "", fmt.Errorf("consts.%s references unknown or later consts.%s", key, segments[1])
+		}
+		b.WriteString(formatConstValue(referenced))
+	}
+	b.WriteString(value[last:])
+	return b.String(), nil
+}
+
+func formatConstValue(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case bool:
+		return strconv.FormatBool(v)
+	case int:
+		return strconv.FormatInt(int64(v), 10)
+	case int8:
+		return strconv.FormatInt(int64(v), 10)
+	case int16:
+		return strconv.FormatInt(int64(v), 10)
+	case int32:
+		return strconv.FormatInt(int64(v), 10)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case uint:
+		return strconv.FormatUint(uint64(v), 10)
+	case uint8:
+		return strconv.FormatUint(uint64(v), 10)
+	case uint16:
+		return strconv.FormatUint(uint64(v), 10)
+	case uint32:
+		return strconv.FormatUint(uint64(v), 10)
+	case uint64:
+		return strconv.FormatUint(v, 10)
+	case float32:
+		return strconv.FormatFloat(float64(v), 'f', -1, 32)
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	case json.Number:
+		return v.String()
+	default:
+		return fmt.Sprint(v)
 	}
 }
 

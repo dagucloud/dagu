@@ -73,11 +73,13 @@ ${steps.step_id.outputs.name}
 
 **`consts` rules:**
 
-- Root `consts` must be a mapping.
+- Root `consts` may be either a mapping or an ordered list of single-entry mappings.
 - `consts` keys must match `^[A-Za-z][A-Za-z0-9_]*$`.
 - `consts` values must be literal strings, numbers, or booleans.
 - Numeric `consts` values must be finite.
-- `consts` values must not contain Dagu references.
+- Mapping-form `consts` values must not contain Dagu references.
+- List-form `consts` values are resolved in order and string values may reference earlier `consts` entries with `${consts.name}`.
+- List-form `consts` values must not reference runtime `params`, `steps`, later `consts`, or themselves.
 - `consts` values are immutable for one DAG run.
 
 **Runtime lookup rules:**
@@ -132,6 +134,17 @@ params:
 steps:
   - name: deploy
     run: ${consts.deploy_script} ${params.environment} ${consts.service}
+```
+
+Ordered consts with const-to-const references:
+
+```yaml
+consts:
+  - service: api
+  - endpoint: http://localhost/${consts.service}
+steps:
+  - name: print_endpoint
+    run: echo ${consts.endpoint}
 ```
 
 Shell variables are not resolved by Dagu:

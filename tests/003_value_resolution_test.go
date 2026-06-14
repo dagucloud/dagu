@@ -10,6 +10,7 @@ func Test003ValueResolutionValidate(t *testing.T) {
 
 	validCases := []string{
 		"consts_literal_values.yaml",
+		"resolve_consts_list.yaml",
 	}
 	for _, file := range validCases {
 		t.Run(file, func(t *testing.T) {
@@ -75,6 +76,12 @@ func Test003ValueResolutionRun(t *testing.T) {
 			file:    "resolve_consts.yaml",
 			output:  "consts.txt",
 			content: "api true 1000 1.5\n",
+		},
+		{
+			name:    "consts list reference",
+			file:    "resolve_consts_list.yaml",
+			output:  "consts_list.txt",
+			content: "http://localhost/api\n",
 		},
 		{
 			name:    "params reference",

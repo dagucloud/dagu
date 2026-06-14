@@ -1,0 +1,7 @@
+working_dir: .
+consts:
+  - service: api
+  - endpoint: http://localhost/${consts.service}
+steps:
+  - id: write
+    run: printf '%s\n' '${consts.endpoint}' > consts_list.txt
