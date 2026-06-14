@@ -6,7 +6,7 @@ This spec defines workflow YAML stream shape and root fields accepted before exe
 
 It validates document structure and root keys. It does not define the full behavior of each field. Later specs define field behavior.
 
-## Objective
+## Goal
 
 Define the YAML file shape accepted by a Dagu data-plane runner.
 

@@ -24,6 +24,7 @@ Specs may be implemented incrementally. A change that implements part of a spec 
 | Section | Purpose |
 | --- | --- |
 | Scope | Behavior covered by the spec. |
+| Goal | The reason this behavior needs a spec. |
 | Inputs | Commands, files, env, params, and config. |
 | Behavior | Required behavior. |
 | Outputs | Exit code, stdout/stderr, events, result files, logs, and artifacts. |

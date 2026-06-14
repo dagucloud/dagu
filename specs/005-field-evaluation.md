@@ -6,7 +6,7 @@ This spec answers one question: when Dagu sees text in a workflow field, does it
 
 It does not define the shape of every field. Field shape belongs to the YAML schema spec or to the spec that owns that field.
 
-## Objective
+## Goal
 
 Make field evaluation explicit. A workflow author should be able to tell, for each field covered here, whether Dagu will:
 

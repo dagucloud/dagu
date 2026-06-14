@@ -6,7 +6,7 @@ This spec defines project root detection, workflow discovery, and relative path 
 
 It does not define workflow YAML semantics, step execution, or output formats.
 
-## Objective
+## Goal
 
 Define what counts as a Dagu project and how project commands find workflows.
 

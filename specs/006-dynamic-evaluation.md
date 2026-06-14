@@ -6,7 +6,7 @@ This spec defines Dagu dynamic evaluation for fields that explicitly opt in.
 
 It does not make every shell syntax form part of the workflow language.
 
-## Objective
+## Goal
 
 Define what Dagu does when a field is marked dynamic-evaluated.
 

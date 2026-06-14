@@ -6,7 +6,7 @@ This spec defines local command execution through the step `run` field.
 
 It does not define `command`, `script`, `exec`, executor `with` fields, or the step-level `shell` field.
 
-## Objective
+## Goal
 
 Define how Dagu runs a local command on the data-plane runner host.
 

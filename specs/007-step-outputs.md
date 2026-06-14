@@ -15,7 +15,7 @@ steps:
 
 It does not define the existing singular `output` field, `stdout.outputs`, `outputs.write`, or the `outputs` schema in `dagu-action.yaml`.
 
-## Objective
+## Goal
 
 Define a file-based way for a step to publish named values for later steps.
 

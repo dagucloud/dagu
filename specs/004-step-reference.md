@@ -6,7 +6,7 @@ This spec defines step identity, dependencies, and step references used by value
 
 It does not define how a step runs, how outputs are produced, or how output files are parsed.
 
-## Objective
+## Goal
 
 Make step identity unambiguous.
 
