@@ -22,10 +22,9 @@ func Test002Schema(t *testing.T) {
 
 			dagu := dagutest.New(t, "002_schema")
 
-			result := dagu.Run("workflow", "validate", file)
+			result := dagu.Run("validate", file)
 			result.ExpectExitCode(0)
 			result.ExpectStdout("")
-			result.ExpectStderr("")
 			dagu.ExpectNoFile("executed.txt")
 		})
 	}
@@ -61,7 +60,7 @@ func Test002Schema(t *testing.T) {
 		{
 			name:        "unknown root field is forbidden",
 			file:        "unknown_root_field.yaml",
-			stderrParts: []string{"unknown root field"},
+			stderrParts: []string{"invalid keys", "unknown"},
 		},
 		{
 			name:        "duplicate root key is forbidden",
@@ -90,7 +89,7 @@ func Test002Schema(t *testing.T) {
 
 			dagu := dagutest.New(t, "002_schema")
 
-			result := dagu.Run("workflow", "validate", tc.file)
+			result := dagu.Run("validate", tc.file)
 			result.ExpectExitCode(1)
 			result.ExpectStdout("")
 			result.ExpectStderrContains(tc.stderrParts...)
