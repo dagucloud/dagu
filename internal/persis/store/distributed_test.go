@@ -1219,15 +1219,28 @@ func (c *countingRecordIDsCollection) Get(ctx context.Context, id string) (*pers
 }
 
 func (c *countingRecordIDsCollection) RecordIDs(ctx context.Context, prefix string) ([]string, error) {
-	page, err := c.List(ctx, persis.ListQuery{Prefix: prefix})
-	if err != nil {
-		return nil, err
+	type recordIDsCollection interface {
+		RecordIDs(context.Context, string) ([]string, error)
 	}
-	ids := make([]string, 0, len(page.Records))
-	for _, rec := range page.Records {
-		ids = append(ids, rec.ID)
+	if idCol, ok := c.Collection.(recordIDsCollection); ok {
+		return idCol.RecordIDs(ctx, prefix)
 	}
-	return ids, nil
+
+	q := persis.ListQuery{Prefix: prefix}
+	var ids []string
+	for {
+		page, err := c.Collection.List(ctx, q)
+		if err != nil {
+			return nil, err
+		}
+		for _, rec := range page.Records {
+			ids = append(ids, rec.ID)
+		}
+		if page.NextCursor == "" {
+			return ids, nil
+		}
+		q.Cursor = page.NextCursor
+	}
 }
 
 func (c *countingRecordIDsCollection) RecordVersion(ctx context.Context, id string) (string, error) {
