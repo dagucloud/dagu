@@ -10,8 +10,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -657,6 +659,108 @@ func TestDispatchTaskStore_ClaimNextSurfacesCorruptPendingRecord(t *testing.T) {
 	assert.Contains(t, err.Error(), "corrupt")
 }
 
+func TestDispatchTaskStore_RepeatedNoMatchDoesNotRereadPendingRecords(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	col := newCountingRecordIDsCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+	s := store.NewDispatchTaskStore(col)
+
+	for i := 0; i < 8; i++ {
+		require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
+			DAGRunID:       "run-no-match-" + string(rune('a'+i)),
+			Target:         "dag-no-match",
+			AttemptID:      "attempt-no-match",
+			AttemptKey:     "attempt-key-no-match-" + string(rune('a'+i)),
+			WorkerSelector: map[string]string{"type": "gpu"},
+		}))
+	}
+
+	col.Reset()
+
+	for i := 0; i < 3; i++ {
+		claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
+			WorkerID: "worker-cpu",
+			PollerID: "poller-cpu",
+			Labels:   map[string]string{"type": "cpu"},
+			Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
+		})
+		require.NoError(t, err)
+		require.Nil(t, claimed)
+	}
+
+	assert.LessOrEqual(t, col.GetCount(), int64(1), "repeated no-match claims should use indexed metadata instead of reading every pending record")
+}
+
+func TestDispatchTaskStore_EnqueueInvalidatesIndexedNoMatch(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := store.NewDispatchTaskStore(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+
+	claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		WorkerID: "worker-cpu",
+		Labels:   map[string]string{"type": "cpu"},
+	})
+	require.NoError(t, err)
+	require.Nil(t, claimed)
+
+	require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
+		DAGRunID:       "run-cpu",
+		Target:         "dag-cpu",
+		AttemptID:      "attempt-cpu",
+		AttemptKey:     "attempt-key-cpu",
+		WorkerSelector: map[string]string{"type": "cpu"},
+	}))
+
+	claimed, err = s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		WorkerID: "worker-cpu",
+		Labels:   map[string]string{"type": "cpu"},
+		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	assert.Equal(t, "run-cpu", claimed.Task.DAGRunID)
+}
+
+func TestDispatchTaskStore_OutstandingQueriesUseIndexAfterWarmup(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	col := newCountingRecordIDsCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+	s := store.NewDispatchTaskStore(col)
+
+	for i := 0; i < 8; i++ {
+		require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
+			DAGRunID:   "run-outstanding-" + string(rune('a'+i)),
+			Target:     "dag-outstanding",
+			QueueName:  "queue-a",
+			AttemptID:  "attempt-outstanding",
+			AttemptKey: "attempt-key-outstanding-" + string(rune('a'+i)),
+		}))
+	}
+
+	count, err := s.CountOutstandingByQueue(ctx, "queue-a", time.Second)
+	require.NoError(t, err)
+	require.Equal(t, 8, count)
+	hasOutstanding, err := s.HasOutstandingAttempt(ctx, "attempt-key-outstanding-a", time.Second)
+	require.NoError(t, err)
+	require.True(t, hasOutstanding)
+
+	col.Reset()
+
+	for i := 0; i < 3; i++ {
+		count, err = s.CountOutstandingByQueue(ctx, "queue-a", time.Second)
+		require.NoError(t, err)
+		require.Equal(t, 8, count)
+		hasOutstanding, err = s.HasOutstandingAttempt(ctx, "attempt-key-outstanding-h", time.Second)
+		require.NoError(t, err)
+		require.True(t, hasOutstanding)
+	}
+
+	assert.Zero(t, col.GetCount(), "outstanding queries should use indexed metadata after warmup")
+}
+
 func TestDispatchTaskStore_CountOutstandingByQueueAndAttempt(t *testing.T) {
 	t.Parallel()
 
@@ -831,6 +935,98 @@ func TestDistributedStores_ReadFileLayout(t *testing.T) {
 	assert.Equal(t, "run-file", claimed.Task.DAGRunID)
 }
 
+func BenchmarkDispatchTaskStoreClaimNextNoMatch(b *testing.B) {
+	ctx := context.Background()
+	s := store.NewDispatchTaskStore(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+	seedBenchmarkDispatchTasks(b, ctx, s, 1000, map[string]string{"type": "gpu"}, "gpu")
+	claim := exec.DispatchTaskClaim{WorkerID: "worker-cpu", Labels: map[string]string{"type": "cpu"}}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		claimed, err := s.ClaimNext(ctx, claim)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if claimed != nil {
+			b.Fatalf("unexpected claim %q", claimed.Task.DAGRunID)
+		}
+	}
+}
+
+func BenchmarkDispatchTaskStoreClaimNextMatchFirst(b *testing.B) {
+	ctx := context.Background()
+	s := store.NewDispatchTaskStore(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+	seedBenchmarkDispatchTasks(b, ctx, s, b.N, map[string]string{"type": "cpu"}, "cpu")
+	claim := exec.DispatchTaskClaim{WorkerID: "worker-cpu", Labels: map[string]string{"type": "cpu"}}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		claimed, err := s.ClaimNext(ctx, claim)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if claimed == nil {
+			b.Fatal("expected claim")
+		}
+	}
+}
+
+func BenchmarkDispatchTaskStoreClaimNextMatchLate(b *testing.B) {
+	ctx := context.Background()
+	s := store.NewDispatchTaskStore(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+	seedBenchmarkDispatchTasks(b, ctx, s, 1000, map[string]string{"type": "gpu"}, "gpu")
+	seedBenchmarkDispatchTasks(b, ctx, s, b.N, map[string]string{"type": "cpu"}, "cpu")
+	claim := exec.DispatchTaskClaim{WorkerID: "worker-cpu", Labels: map[string]string{"type": "cpu"}}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		claimed, err := s.ClaimNext(ctx, claim)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if claimed == nil {
+			b.Fatal("expected claim")
+		}
+	}
+}
+
+func BenchmarkDispatchTaskStoreClaimNextConcurrentNoMatch(b *testing.B) {
+	ctx := context.Background()
+	s := store.NewDispatchTaskStore(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+	seedBenchmarkDispatchTasks(b, ctx, s, 1000, map[string]string{"type": "gpu"}, "gpu")
+	claim := exec.DispatchTaskClaim{WorkerID: "worker-cpu", Labels: map[string]string{"type": "cpu"}}
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			claimed, err := s.ClaimNext(ctx, claim)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if claimed != nil {
+				b.Fatalf("unexpected claim %q", claimed.Task.DAGRunID)
+			}
+		}
+	})
+}
+
+func seedBenchmarkDispatchTasks(b *testing.B, ctx context.Context, s *store.DispatchTaskStore, count int, selector map[string]string, suffix string) {
+	b.Helper()
+
+	for i := 0; i < count; i++ {
+		err := s.Enqueue(ctx, &exec.DispatchTask{
+			DAGRunID:       "run-bench-" + suffix + "-" + strconv.Itoa(i),
+			Target:         "dag-bench",
+			AttemptID:      "attempt-bench-" + suffix + "-" + strconv.Itoa(i),
+			AttemptKey:     "attempt-key-bench-" + suffix + "-" + strconv.Itoa(i),
+			WorkerSelector: selector,
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 type dispatchTaskRecord struct {
 	Version      int                      `json:"version"`
 	Task         *exec.DispatchTask       `json:"task"`
@@ -964,4 +1160,52 @@ func writeJSONFile(t *testing.T, path string, value any) {
 func encodedKey(input string) string {
 	sum := sha256.Sum256([]byte(input))
 	return hex.EncodeToString(sum[:])
+}
+
+type countingRecordIDsCollection struct {
+	persis.Collection
+	gets atomic.Int64
+}
+
+func newCountingRecordIDsCollection(col persis.Collection) *countingRecordIDsCollection {
+	return &countingRecordIDsCollection{Collection: col}
+}
+
+func (c *countingRecordIDsCollection) Get(ctx context.Context, id string) (*persis.Record, error) {
+	c.gets.Add(1)
+	return c.Collection.Get(ctx, id)
+}
+
+func (c *countingRecordIDsCollection) RecordIDs(ctx context.Context, prefix string) ([]string, error) {
+	page, err := c.List(ctx, persis.ListQuery{Prefix: prefix})
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(page.Records))
+	for _, rec := range page.Records {
+		ids = append(ids, rec.ID)
+	}
+	return ids, nil
+}
+
+func (c *countingRecordIDsCollection) RecordVersion(ctx context.Context, id string) (string, error) {
+	type recordVersionCollection interface {
+		RecordVersion(context.Context, string) (string, error)
+	}
+	if versionCol, ok := c.Collection.(recordVersionCollection); ok {
+		return versionCol.RecordVersion(ctx, id)
+	}
+	rec, err := c.Collection.Get(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	return rec.UpdatedAt.UTC().Format(time.RFC3339Nano) + "/" + strconv.Itoa(len(rec.Data)), nil
+}
+
+func (c *countingRecordIDsCollection) Reset() {
+	c.gets.Store(0)
+}
+
+func (c *countingRecordIDsCollection) GetCount() int64 {
+	return c.gets.Load()
 }

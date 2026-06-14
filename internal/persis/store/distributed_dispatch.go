@@ -27,6 +27,7 @@ const (
 	defaultDispatchReservationTTL = exec.DefaultStaleLeaseThreshold
 	minDispatchCleanupInterval    = 100 * time.Millisecond
 	maxDispatchCleanupInterval    = time.Second
+	dispatchIndexValidationWindow = 250 * time.Millisecond
 
 	dispatchPendingPrefix = "pending/"
 	dispatchClaimsPrefix  = "claims/"
@@ -45,9 +46,34 @@ type DispatchTaskStore struct {
 	col                      persis.Collection
 	reservationTTL           time.Duration
 	lastReservationCleanupAt time.Time
+	index                    *dispatchTaskIndex
 	// mu serializes the in-process recycle+scan+claim sequence;
 	// per-record CompareAndDelete provides cross-process safety.
 	mu sync.Mutex
+}
+
+type dispatchTaskIndex struct {
+	pending     map[string]dispatchTaskIndexEntry
+	pendingIDs  []string
+	claims      map[string]dispatchTaskIndexEntry
+	noMatch     map[string]uint64
+	generation  uint64
+	validatedAt time.Time
+}
+
+type dispatchTaskIndexEntry struct {
+	id             string
+	version        string
+	taskFileName   string
+	queueName      string
+	attemptKey     string
+	claimToken     string
+	workerSelector map[string]string
+	hasTask        bool
+	enqueuedAt     int64
+	claimedAt      int64
+	createdAt      time.Time
+	updatedAt      time.Time
 }
 
 type dispatchTaskPayload struct {
@@ -110,6 +136,180 @@ var legacyDispatchTaskJSONMarkers = func() [][]byte {
 	return markers
 }()
 
+func newDispatchTaskIndex() *dispatchTaskIndex {
+	return &dispatchTaskIndex{
+		pending: make(map[string]dispatchTaskIndexEntry),
+		claims:  make(map[string]dispatchTaskIndexEntry),
+		noMatch: make(map[string]uint64),
+	}
+}
+
+func (idx *dispatchTaskIndex) addPending(rec *persis.Record, payload dispatchTaskPayload) {
+	if idx == nil || rec == nil {
+		return
+	}
+	entry := dispatchTaskIndexEntryFromRecord(rec, payload)
+	idx.pending[rec.ID] = entry
+	idx.rebuildPendingIDs()
+	idx.bump()
+}
+
+func (idx *dispatchTaskIndex) removePending(id string) {
+	if idx == nil {
+		return
+	}
+	if _, ok := idx.pending[id]; !ok {
+		return
+	}
+	delete(idx.pending, id)
+	idx.rebuildPendingIDs()
+	idx.bump()
+}
+
+func (idx *dispatchTaskIndex) addClaim(rec *persis.Record, payload dispatchTaskPayload) {
+	if idx == nil || rec == nil {
+		return
+	}
+	idx.claims[rec.ID] = dispatchTaskIndexEntryFromRecord(rec, payload)
+	idx.bump()
+}
+
+func (idx *dispatchTaskIndex) removeClaim(id string) {
+	if idx == nil {
+		return
+	}
+	if _, ok := idx.claims[id]; !ok {
+		return
+	}
+	delete(idx.claims, id)
+	idx.bump()
+}
+
+func (idx *dispatchTaskIndex) replacePendingWithClaim(pendingID string, claimRec *persis.Record, payload dispatchTaskPayload) {
+	if idx == nil {
+		return
+	}
+	idx.removePending(pendingID)
+	idx.addClaim(claimRec, payload)
+}
+
+func (idx *dispatchTaskIndex) replaceClaimWithPending(claimID string, pendingRec *persis.Record, payload dispatchTaskPayload) {
+	if idx == nil {
+		return
+	}
+	idx.removeClaim(claimID)
+	idx.addPending(pendingRec, payload)
+}
+
+func (idx *dispatchTaskIndex) rebuildPendingIDs() {
+	idx.pendingIDs = idx.pendingIDs[:0]
+	for id := range idx.pending {
+		idx.pendingIDs = append(idx.pendingIDs, id)
+	}
+	sort.Strings(idx.pendingIDs)
+}
+
+func (idx *dispatchTaskIndex) bump() {
+	idx.generation++
+	idx.validatedAt = time.Time{}
+}
+
+func (idx *dispatchTaskIndex) candidatePendingIDs(workerLabels map[string]string) []string {
+	ids := make([]string, 0, len(idx.pendingIDs))
+	for _, id := range idx.pendingIDs {
+		entry, ok := idx.pending[id]
+		if !ok {
+			continue
+		}
+		if matchesDispatchSelector(workerLabels, entry.workerSelector) {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+func (idx *dispatchTaskIndex) hasExpired(now time.Time, ttl time.Duration) bool {
+	if idx == nil {
+		return false
+	}
+	for _, entry := range idx.pending {
+		enqueuedAt := dispatchRecordTimestamp(entry.enqueuedAt, entry.createdAt)
+		if now.Sub(enqueuedAt) >= ttl {
+			return true
+		}
+	}
+	for _, entry := range idx.claims {
+		claimedAt := dispatchRecordTimestamp(entry.claimedAt, entry.updatedAt)
+		if now.Sub(claimedAt) >= ttl {
+			return true
+		}
+	}
+	return false
+}
+
+func (idx *dispatchTaskIndex) rememberNoMatch(labels map[string]string) {
+	if idx == nil {
+		return
+	}
+	idx.noMatch[dispatchClaimLabelsKey(labels)] = idx.generation
+}
+
+func (idx *dispatchTaskIndex) hasNoMatch(labels map[string]string) bool {
+	if idx == nil {
+		return false
+	}
+	generation, ok := idx.noMatch[dispatchClaimLabelsKey(labels)]
+	return ok && generation == idx.generation
+}
+
+func dispatchTaskIndexEntryFromRecord(rec *persis.Record, payload dispatchTaskPayload) dispatchTaskIndexEntry {
+	entry := dispatchTaskIndexEntry{
+		id:           rec.ID,
+		version:      dispatchRecordVersionFromRecord(rec),
+		taskFileName: payload.TaskFileName,
+		claimToken:   payload.ClaimToken,
+		enqueuedAt:   payload.EnqueuedAt,
+		claimedAt:    payload.ClaimedAt,
+		createdAt:    rec.CreatedAt,
+		updatedAt:    rec.UpdatedAt,
+	}
+	if payload.Task != nil {
+		entry.hasTask = true
+		entry.queueName = payload.Task.QueueName
+		entry.attemptKey = payload.Task.AttemptKey
+		entry.workerSelector = maps.Clone(payload.Task.WorkerSelector)
+	}
+	return entry
+}
+
+func dispatchRecordVersionFromRecord(rec *persis.Record) string {
+	if rec == nil {
+		return ""
+	}
+	return fmt.Sprintf("%d/%d", rec.UpdatedAt.UTC().UnixNano(), len(rec.Data))
+}
+
+func dispatchClaimLabelsKey(labels map[string]string) string {
+	if len(labels) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(labels))
+	for key := range labels {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for i, key := range keys {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(key)
+		b.WriteByte('=')
+		b.WriteString(labels[key])
+	}
+	return b.String()
+}
+
 // WithDispatchReservationTTL sets how long pending and claimed dispatch
 // records can remain outstanding before cleanup recycles or removes them.
 func WithDispatchReservationTTL(ttl time.Duration) DispatchTaskStoreOption {
@@ -130,10 +330,143 @@ func NewDispatchTaskStore(col persis.Collection, opts ...DispatchTaskStoreOption
 	return s
 }
 
+func (s *DispatchTaskStore) ensureDispatchIndex(ctx context.Context) error {
+	return s.ensureDispatchIndexFor(ctx, false)
+}
+
+func (s *DispatchTaskStore) ensureDispatchIndexFor(ctx context.Context, validatePendingVersions bool) error {
+	if s.index == nil {
+		return s.rebuildDispatchIndex(ctx)
+	}
+	return s.validateDispatchIndex(ctx, validatePendingVersions)
+}
+
+func (s *DispatchTaskStore) rebuildDispatchIndex(ctx context.Context) error {
+	idx := newDispatchTaskIndex()
+	pendingRecs, err := s.listDispatchRecords(ctx, dispatchPendingPrefix)
+	if err != nil {
+		return err
+	}
+	for _, rec := range pendingRecs {
+		payload, err := dispatchTaskPayloadFromRecord(rec)
+		if err != nil {
+			return err
+		}
+		idx.pending[rec.ID] = dispatchTaskIndexEntryFromRecord(rec, payload)
+	}
+	idx.rebuildPendingIDs()
+
+	claimRecs, err := s.listDispatchRecords(ctx, dispatchClaimsPrefix)
+	if err != nil {
+		return err
+	}
+	for _, rec := range claimRecs {
+		payload, err := dispatchTaskPayloadFromRecord(rec)
+		if err != nil {
+			return err
+		}
+		idx.claims[rec.ID] = dispatchTaskIndexEntryFromRecord(rec, payload)
+	}
+	idx.generation++
+	idx.validatedAt = time.Now().UTC()
+	s.index = idx
+	return nil
+}
+
+func (s *DispatchTaskStore) validateDispatchIndex(ctx context.Context, validatePendingVersions bool) error {
+	if s.index == nil {
+		return s.rebuildDispatchIndex(ctx)
+	}
+	now := time.Now().UTC()
+	if !s.index.validatedAt.IsZero() && now.Sub(s.index.validatedAt) < dispatchIndexValidationWindow {
+		if validatePendingVersions {
+			if err := s.validatePendingRecordVersions(ctx); err != nil {
+				return err
+			}
+		}
+		return s.validateClaimRecordVersions(ctx)
+	}
+	if err := s.validateDispatchIndexIDs(ctx, dispatchPendingPrefix, s.index.pending); err != nil {
+		return err
+	}
+	if err := s.validateDispatchIndexIDs(ctx, dispatchClaimsPrefix, s.index.claims); err != nil {
+		return err
+	}
+	if validatePendingVersions {
+		if err := s.validatePendingRecordVersions(ctx); err != nil {
+			return err
+		}
+	}
+	if err := s.validateClaimRecordVersions(ctx); err != nil {
+		return err
+	}
+	s.index.validatedAt = now
+	return nil
+}
+
+func (s *DispatchTaskStore) validateDispatchIndexIDs(ctx context.Context, prefix string, indexed map[string]dispatchTaskIndexEntry) error {
+	ids, err := s.listDispatchRecordIDs(ctx, prefix)
+	if err != nil {
+		return err
+	}
+	if len(ids) != len(indexed) {
+		return s.rebuildDispatchIndex(ctx)
+	}
+	for _, id := range ids {
+		if _, ok := indexed[id]; !ok {
+			return s.rebuildDispatchIndex(ctx)
+		}
+	}
+	return nil
+}
+
+func (s *DispatchTaskStore) validateClaimRecordVersions(ctx context.Context) error {
+	if s.index == nil || len(s.index.claims) == 0 {
+		return nil
+	}
+	return s.validateRecordVersions(ctx, s.index.claims)
+}
+
+func (s *DispatchTaskStore) validatePendingRecordVersions(ctx context.Context) error {
+	if s.index == nil || len(s.index.pending) == 0 {
+		return nil
+	}
+	return s.validateRecordVersions(ctx, s.index.pending)
+}
+
+func (s *DispatchTaskStore) validateRecordVersions(ctx context.Context, indexed map[string]dispatchTaskIndexEntry) error {
+	versionCol, ok := s.col.(recordVersionCollection)
+	if !ok {
+		return nil
+	}
+	ids := make([]string, 0, len(indexed))
+	for id := range indexed {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		entry := indexed[id]
+		version, err := versionCol.RecordVersion(ctx, id)
+		if err != nil {
+			if errors.Is(err, persis.ErrNotFound) {
+				return s.rebuildDispatchIndex(ctx)
+			}
+			return err
+		}
+		if entry.version != "" && version != entry.version {
+			return s.rebuildDispatchIndex(ctx)
+		}
+	}
+	return nil
+}
+
 func (s *DispatchTaskStore) Enqueue(ctx context.Context, task *exec.DispatchTask) error {
 	if task == nil {
 		return fmt.Errorf("task is required")
 	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	enqueuedAt := time.Now().UTC()
 	fileName := fmt.Sprintf("task_%020d_%s.json", enqueuedAt.UnixMilli(), uuid.NewString())
@@ -147,7 +480,18 @@ func (s *DispatchTaskStore) Enqueue(ctx context.Context, task *exec.DispatchTask
 	if err != nil {
 		return err
 	}
-	return s.putDispatchRecord(ctx, pendingID, payload, enqueuedAt, enqueuedAt)
+	rec, err := s.newDispatchRecord(pendingID, payload, enqueuedAt, enqueuedAt)
+	if err != nil {
+		return err
+	}
+	if err := s.col.Put(ctx, rec); err != nil {
+		return err
+	}
+	if s.index == nil {
+		s.index = newDispatchTaskIndex()
+	}
+	s.index.addPending(rec, payload)
+	return nil
 }
 
 // ClaimNext atomically transitions one matching pending record into a
@@ -158,49 +502,80 @@ func (s *DispatchTaskStore) ClaimNext(ctx context.Context, claim exec.DispatchTa
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	cleaned, err := s.maybeRecycleExpiredReservations(ctx)
-	if err != nil {
+	if err := s.ensureDispatchIndex(ctx); err != nil {
+		return nil, err
+	}
+	if _, err := s.maybeRecycleExpiredReservations(ctx); err != nil {
 		return nil, err
 	}
 
-	claimed, err := s.claimNextPending(ctx, claim)
-	if err != nil || claimed != nil || cleaned {
-		return claimed, err
+	for attempt := 0; attempt < 2; attempt++ {
+		claimed, stale, err := s.claimNextPending(ctx, claim)
+		if err != nil || !stale {
+			return claimed, err
+		}
+		if err := s.rebuildDispatchIndex(ctx); err != nil {
+			return nil, err
+		}
 	}
-
-	if err := s.recycleExpiredReservations(ctx); err != nil {
-		return nil, err
-	}
-	s.lastReservationCleanupAt = time.Now().UTC()
-	return s.claimNextPending(ctx, claim)
+	return nil, nil
 }
 
-func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim exec.DispatchTaskClaim) (*exec.ClaimedDispatchTask, error) {
-	ids, err := s.listDispatchRecordIDs(ctx, dispatchPendingPrefix)
-	if err != nil {
-		return nil, err
+func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim exec.DispatchTaskClaim) (*exec.ClaimedDispatchTask, bool, error) {
+	if s.index == nil {
+		if err := s.rebuildDispatchIndex(ctx); err != nil {
+			return nil, false, err
+		}
 	}
+	if s.index.hasNoMatch(claim.Labels) {
+		return nil, false, nil
+	}
+	ids := s.index.candidatePendingIDs(claim.Labels)
+	if len(ids) == 0 {
+		s.index.rememberNoMatch(claim.Labels)
+		return nil, false, nil
+	}
+
+	now := time.Now().UTC()
 	for _, id := range ids {
 		rec, err := s.col.Get(ctx, id)
 		if err != nil {
 			if errors.Is(err, persis.ErrNotFound) {
-				continue
+				s.index.removePending(id)
+				return nil, true, nil
 			}
-			return nil, fmt.Errorf("list record %q: %w", id, err)
+			return nil, false, fmt.Errorf("list record %q: %w", id, err)
 		}
 		payload, err := dispatchTaskPayloadFromRecord(rec)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
-		if payload.Task == nil || !matchesDispatchSelector(claim.Labels, payload.Task.WorkerSelector) {
+		if payload.Task == nil {
+			s.index.addPending(rec, payload)
+			continue
+		}
+		enqueuedAt := dispatchRecordTimestamp(payload.EnqueuedAt, rec.CreatedAt)
+		if now.Sub(enqueuedAt) >= s.reservationTTL {
+			if err := s.col.CompareAndDelete(ctx, rec); err != nil {
+				if errors.Is(err, persis.ErrNotFound) || errors.Is(err, persis.ErrConflict) {
+					s.index.removePending(id)
+					return nil, true, nil
+				}
+				return nil, false, err
+			}
+			s.index.removePending(id)
+			continue
+		}
+		if !matchesDispatchSelector(claim.Labels, payload.Task.WorkerSelector) {
+			s.index.addPending(rec, payload)
 			continue
 		}
 
 		claimToken := uuid.NewString()
-		claimedAt := time.Now().UTC()
+		claimedAt := now
 		task, err := applyDispatchTaskClaim(payload.Task, claim.Owner, claimToken)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		payload.Task = task
 		payload.ClaimToken = claimToken
@@ -211,18 +586,20 @@ func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim exec.Dis
 
 		claimRec, err := s.newDispatchRecord(claimDispatchRecordID(claimToken), payload, rec.CreatedAt, claimedAt)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if err := s.col.Put(ctx, claimRec); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if err := s.col.CompareAndDelete(ctx, rec); err != nil {
 			_ = s.col.CompareAndDelete(context.WithoutCancel(ctx), claimRec)
 			if errors.Is(err, persis.ErrNotFound) || errors.Is(err, persis.ErrConflict) {
-				continue
+				s.index.removePending(id)
+				return nil, true, nil
 			}
-			return nil, err
+			return nil, false, err
 		}
+		s.index.replacePendingWithClaim(id, claimRec, payload)
 
 		return &exec.ClaimedDispatchTask{
 			Task:       cloneDispatchTask(task),
@@ -231,15 +608,18 @@ func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim exec.Dis
 			WorkerID:   claim.WorkerID,
 			PollerID:   claim.PollerID,
 			Owner:      claim.Owner,
-		}, nil
+		}, false, nil
 	}
-	return nil, nil
+	s.index.rememberNoMatch(claim.Labels)
+	return nil, false, nil
 }
 
 func (s *DispatchTaskStore) maybeRecycleExpiredReservations(ctx context.Context) (bool, error) {
 	now := time.Now().UTC()
-	if !s.lastReservationCleanupAt.IsZero() &&
-		now.Sub(s.lastReservationCleanupAt) < dispatchCleanupInterval(s.reservationTTL) {
+	due := s.lastReservationCleanupAt.IsZero() ||
+		now.Sub(s.lastReservationCleanupAt) >= dispatchCleanupInterval(s.reservationTTL)
+	needed := s.index != nil && s.index.hasExpired(now, s.reservationTTL)
+	if !due && !needed {
 		return false, nil
 	}
 	if err := s.recycleExpiredReservations(ctx); err != nil {
@@ -296,8 +676,15 @@ func (s *DispatchTaskStore) ReleaseClaim(ctx context.Context, claimToken string)
 }
 
 func (s *DispatchTaskStore) DeleteClaim(ctx context.Context, claimToken string) error {
-	if err := s.col.Delete(ctx, claimDispatchRecordID(claimToken)); err != nil && !errors.Is(err, persis.ErrNotFound) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	claimID := claimDispatchRecordID(claimToken)
+	if err := s.col.Delete(ctx, claimID); err != nil && !errors.Is(err, persis.ErrNotFound) {
 		return err
+	}
+	if s.index != nil {
+		s.index.removeClaim(claimID)
 	}
 	return nil
 }
@@ -310,19 +697,27 @@ func (s *DispatchTaskStore) CountOutstandingByQueue(ctx context.Context, queueNa
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if err := s.ensureDispatchIndexFor(ctx, true); err != nil {
+		return 0, err
+	}
 	if err := s.recycleExpiredReservations(ctx); err != nil {
 		return 0, err
 	}
-	payloads, err := s.outstandingDispatchPayloads(ctx)
-	if err != nil {
-		return 0, err
-	}
 	var count int
-	for _, payload := range payloads {
-		if payload.Task == nil {
+	for _, entry := range s.index.pending {
+		if !entry.hasTask {
 			continue
 		}
-		if queueName != "" && payload.Task.QueueName != queueName {
+		if queueName != "" && entry.queueName != queueName {
+			continue
+		}
+		count++
+	}
+	for _, entry := range s.index.claims {
+		if !entry.hasTask {
+			continue
+		}
+		if queueName != "" && entry.queueName != queueName {
 			continue
 		}
 		count++
@@ -340,15 +735,19 @@ func (s *DispatchTaskStore) HasOutstandingAttempt(ctx context.Context, attemptKe
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if err := s.ensureDispatchIndexFor(ctx, true); err != nil {
+		return false, err
+	}
 	if err := s.recycleExpiredReservations(ctx); err != nil {
 		return false, err
 	}
-	payloads, err := s.outstandingDispatchPayloads(ctx)
-	if err != nil {
-		return false, err
+	for _, entry := range s.index.pending {
+		if entry.attemptKey == attemptKey {
+			return true, nil
+		}
 	}
-	for _, payload := range payloads {
-		if payload.Task != nil && payload.Task.AttemptKey == attemptKey {
+	for _, entry := range s.index.claims {
+		if entry.attemptKey == attemptKey {
 			return true, nil
 		}
 	}
@@ -356,6 +755,11 @@ func (s *DispatchTaskStore) HasOutstandingAttempt(ctx context.Context, attemptKe
 }
 
 func (s *DispatchTaskStore) recycleExpiredReservations(ctx context.Context) error {
+	if s.index == nil {
+		if err := s.rebuildDispatchIndex(ctx); err != nil {
+			return err
+		}
+	}
 	if err := s.recycleExpiredClaims(ctx); err != nil {
 		return err
 	}
@@ -366,24 +770,46 @@ func (s *DispatchTaskStore) recycleExpiredReservations(ctx context.Context) erro
 }
 
 func (s *DispatchTaskStore) recycleExpiredClaims(ctx context.Context) error {
-	recs, err := s.listDispatchRecords(ctx, dispatchClaimsPrefix)
-	if err != nil {
-		return err
+	if s.index == nil {
+		return nil
 	}
-
 	now := time.Now().UTC()
-	for _, rec := range recs {
+	ids := make([]string, 0, len(s.index.claims))
+	for id := range s.index.claims {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		entry, ok := s.index.claims[id]
+		if !ok {
+			continue
+		}
+		claimedAt := dispatchRecordTimestamp(entry.claimedAt, entry.updatedAt)
+		if now.Sub(claimedAt) < s.reservationTTL {
+			continue
+		}
+
+		rec, err := s.col.Get(ctx, id)
+		if err != nil {
+			if errors.Is(err, persis.ErrNotFound) {
+				s.index.removeClaim(id)
+				continue
+			}
+			return err
+		}
 		payload, err := dispatchTaskPayloadFromRecord(rec)
 		if err != nil {
 			return err
 		}
-		claimedAt := dispatchRecordTimestamp(payload.ClaimedAt, rec.UpdatedAt)
+		claimedAt = dispatchRecordTimestamp(payload.ClaimedAt, rec.UpdatedAt)
 		if now.Sub(claimedAt) < s.reservationTTL {
+			s.index.addClaim(rec, payload)
 			continue
 		}
 
 		if err := s.releaseClaimRecord(ctx, rec, payload, now); err != nil {
 			if errors.Is(err, persis.ErrNotFound) || errors.Is(err, persis.ErrConflict) {
+				s.index.removeClaim(id)
 				continue
 			}
 			return err
@@ -418,116 +844,125 @@ func (s *DispatchTaskStore) releaseClaimRecord(ctx context.Context, rec *persis.
 	if err := s.col.Put(ctx, pendingRec); err != nil {
 		return err
 	}
-	return s.col.CompareAndDelete(ctx, rec)
+	if err := s.col.CompareAndDelete(ctx, rec); err != nil {
+		return err
+	}
+	if s.index != nil {
+		s.index.replaceClaimWithPending(rec.ID, pendingRec, payload)
+	}
+	return nil
 }
 
 func (s *DispatchTaskStore) removePendingRecordsWithActiveClaims(ctx context.Context) error {
-	claimRecs, err := s.listDispatchRecords(ctx, dispatchClaimsPrefix)
-	if err != nil {
-		return err
+	if s.index == nil {
+		return nil
 	}
-
 	now := time.Now().UTC()
-	activeTaskFiles := make(map[string]time.Time, len(claimRecs))
-	for _, rec := range claimRecs {
-		payload, err := dispatchTaskPayloadFromRecord(rec)
-		if err != nil {
-			return err
-		}
-		if payload.TaskFileName == "" || payload.ClaimToken == "" || payload.ClaimedAt == 0 {
+	activeTaskFiles := make(map[string]time.Time, len(s.index.claims))
+	for _, entry := range s.index.claims {
+		if entry.taskFileName == "" || entry.claimToken == "" || entry.claimedAt == 0 {
 			continue
 		}
-		claimedAt := dispatchRecordTimestamp(payload.ClaimedAt, rec.UpdatedAt)
-		if now.Sub(claimedAt) >= s.reservationTTL {
-			continue
-		}
-		if prev, ok := activeTaskFiles[payload.TaskFileName]; !ok || claimedAt.After(prev) {
-			activeTaskFiles[payload.TaskFileName] = claimedAt
+		claimedAt := dispatchRecordTimestamp(entry.claimedAt, entry.updatedAt)
+		if now.Sub(claimedAt) < s.reservationTTL {
+			if prev, ok := activeTaskFiles[entry.taskFileName]; !ok || claimedAt.After(prev) {
+				activeTaskFiles[entry.taskFileName] = claimedAt
+			}
 		}
 	}
 	if len(activeTaskFiles) == 0 {
 		return nil
 	}
-
-	pendingRecs, err := s.listDispatchRecords(ctx, dispatchPendingPrefix)
-	if err != nil {
-		return err
-	}
-	for _, rec := range pendingRecs {
-		payload, err := dispatchTaskPayloadFromRecord(rec)
-		if err != nil {
-			return err
-		}
-		claimedAt, ok := activeTaskFiles[payload.TaskFileName]
+	ids := append([]string(nil), s.index.pendingIDs...)
+	for _, id := range ids {
+		entry, ok := s.index.pending[id]
 		if !ok {
 			continue
 		}
-		enqueuedAt := dispatchRecordTimestamp(payload.EnqueuedAt, rec.CreatedAt)
+		claimedAt, ok := activeTaskFiles[entry.taskFileName]
+		if !ok {
+			continue
+		}
+		enqueuedAt := dispatchRecordTimestamp(entry.enqueuedAt, entry.createdAt)
 		if enqueuedAt.After(claimedAt) {
 			continue
 		}
-		if err := s.col.CompareAndDelete(ctx, rec); err != nil {
-			if errors.Is(err, persis.ErrNotFound) || errors.Is(err, persis.ErrConflict) {
+		rec, err := s.col.Get(ctx, id)
+		if err != nil {
+			if errors.Is(err, persis.ErrNotFound) {
+				s.index.removePending(id)
 				continue
 			}
 			return err
 		}
+		payload, err := dispatchTaskPayloadFromRecord(rec)
+		if err != nil {
+			return err
+		}
+		claimedAt, ok = activeTaskFiles[payload.TaskFileName]
+		if !ok {
+			s.index.addPending(rec, payload)
+			continue
+		}
+		enqueuedAt = dispatchRecordTimestamp(payload.EnqueuedAt, rec.CreatedAt)
+		if enqueuedAt.After(claimedAt) {
+			s.index.addPending(rec, payload)
+			continue
+		}
+		if err := s.col.CompareAndDelete(ctx, rec); err != nil {
+			if errors.Is(err, persis.ErrNotFound) || errors.Is(err, persis.ErrConflict) {
+				s.index.removePending(id)
+				continue
+			}
+			return err
+		}
+		s.index.removePending(id)
 	}
 	return nil
 }
 
 func (s *DispatchTaskStore) recycleExpiredPending(ctx context.Context) error {
-	recs, err := s.listDispatchRecords(ctx, dispatchPendingPrefix)
-	if err != nil {
-		return err
+	if s.index == nil {
+		return nil
 	}
-
 	now := time.Now().UTC()
-	for _, rec := range recs {
-		payload, err := dispatchTaskPayloadFromRecord(rec)
-		if err != nil {
-			return err
+	ids := append([]string(nil), s.index.pendingIDs...)
+	for _, id := range ids {
+		entry, ok := s.index.pending[id]
+		if !ok {
+			continue
 		}
-		enqueuedAt := dispatchRecordTimestamp(payload.EnqueuedAt, rec.CreatedAt)
+		enqueuedAt := dispatchRecordTimestamp(entry.enqueuedAt, entry.createdAt)
 		if now.Sub(enqueuedAt) < s.reservationTTL {
 			continue
 		}
-		if err := s.col.CompareAndDelete(ctx, rec); err != nil {
-			if errors.Is(err, persis.ErrNotFound) || errors.Is(err, persis.ErrConflict) {
+		rec, err := s.col.Get(ctx, id)
+		if err != nil {
+			if errors.Is(err, persis.ErrNotFound) {
+				s.index.removePending(id)
 				continue
 			}
 			return err
 		}
-	}
-	return nil
-}
-
-func (s *DispatchTaskStore) outstandingDispatchPayloads(ctx context.Context) ([]dispatchTaskPayload, error) {
-	recs, err := s.listOutstandingDispatchRecords(ctx)
-	if err != nil {
-		return nil, err
-	}
-	payloads := make([]dispatchTaskPayload, 0, len(recs))
-	for _, rec := range recs {
 		payload, err := dispatchTaskPayloadFromRecord(rec)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		payloads = append(payloads, payload)
+		enqueuedAt = dispatchRecordTimestamp(payload.EnqueuedAt, rec.CreatedAt)
+		if now.Sub(enqueuedAt) < s.reservationTTL {
+			s.index.addPending(rec, payload)
+			continue
+		}
+		if err := s.col.CompareAndDelete(ctx, rec); err != nil {
+			if errors.Is(err, persis.ErrNotFound) || errors.Is(err, persis.ErrConflict) {
+				s.index.removePending(id)
+				continue
+			}
+			return err
+		}
+		s.index.removePending(id)
 	}
-	return payloads, nil
-}
-
-func (s *DispatchTaskStore) listOutstandingDispatchRecords(ctx context.Context) ([]*persis.Record, error) {
-	pending, err := s.listDispatchRecords(ctx, dispatchPendingPrefix)
-	if err != nil {
-		return nil, err
-	}
-	claims, err := s.listDispatchRecords(ctx, dispatchClaimsPrefix)
-	if err != nil {
-		return nil, err
-	}
-	return append(pending, claims...), nil
+	return nil
 }
 
 func (s *DispatchTaskStore) listDispatchRecords(ctx context.Context, prefix string) ([]*persis.Record, error) {
@@ -560,14 +995,6 @@ func (s *DispatchTaskStore) listDispatchRecordIDs(ctx context.Context, prefix st
 		ids = append(ids, rec.ID)
 	}
 	return ids, nil
-}
-
-func (s *DispatchTaskStore) putDispatchRecord(ctx context.Context, id string, payload dispatchTaskPayload, createdAt, updatedAt time.Time) error {
-	rec, err := s.newDispatchRecord(id, payload, createdAt, updatedAt)
-	if err != nil {
-		return err
-	}
-	return s.col.Put(ctx, rec)
 }
 
 func (s *DispatchTaskStore) newDispatchRecord(id string, payload dispatchTaskPayload, createdAt, updatedAt time.Time) (*persis.Record, error) {
