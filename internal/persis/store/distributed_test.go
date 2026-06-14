@@ -1229,7 +1229,7 @@ func (c *countingRecordIDsCollection) RecordIDs(ctx context.Context, prefix stri
 	q := persis.ListQuery{Prefix: prefix}
 	var ids []string
 	for {
-		page, err := c.Collection.List(ctx, q)
+		page, err := c.List(ctx, q)
 		if err != nil {
 			return nil, err
 		}
