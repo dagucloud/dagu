@@ -24,23 +24,27 @@ This spec defines what Dagu can check statically and what must wait until runtim
 
 ## Behavior
 
+### References
+
 - `${env.NAME}` reads `NAME` from the Dagu environment scope for the field being resolved.
 
 - `$NAME` and `${NAME}` read from the same Dagu environment scope when the field supports environment expansion.
 
 - `NAME` must match `^[A-Za-z_][A-Za-z0-9_]*$`.
 
-- `dagu validate` must not require `${env.NAME}` to exist at validation time.
+- Environment values are inserted into string fields according to Spec 003 string insertion rules.
 
-- `dagu validate` must validate `${env.NAME}` syntax and statically knowable field restrictions.
+### Root Environment
 
 - Root `env` may reference `consts`, `params`, and earlier available `env`.
 
-- Root `env` must not reference `steps`.
+### Step and Container Environment
 
 - Step `env` may reference `consts`, `params`, `env`, and step outputs that are available before the owning step starts.
 
 - Container `env` follows the same namespace visibility rules as the root or step container that owns it.
+
+### Ordering
 
 - In map-form `env`, entries are unordered.
 
@@ -52,11 +56,13 @@ This spec defines what Dagu can check statically and what must wait until runtim
 
 - A list-form `env` entry must not reference itself or a later entry from the same list.
 
-- Environment values are inserted into string fields according to Spec 003 string insertion rules.
+### Validation
+
+- `dagu validate` must not require `${env.NAME}` to exist at validation time.
+
+- `dagu validate` must reject `${env.NAME}` when `NAME` does not match `^[A-Za-z_][A-Za-z0-9_]*$`.
 
 - Invalid `env` reference shape must fail during workflow validation.
-
-- A `steps` reference in root `env` must fail during workflow validation.
 
 - A map-form `env` entry that references another key declared in the same map must fail during workflow validation.
 
@@ -65,18 +71,6 @@ This spec defines what Dagu can check statically and what must wait until runtim
 - A missing `env` value must fail before the owning field is used.
 
 ## Examples
-
-Root environment from `consts`:
-
-```yaml
-consts:
-  - url: internal
-env:
-  API_HOST: api.${consts.url}
-steps:
-  - name: print_api_host
-    run: echo ${env.API_HOST}
-```
 
 Ordered environment entries:
 

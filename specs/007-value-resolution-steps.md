@@ -26,6 +26,8 @@ This spec keeps those rules in one place: references use step ids, require the p
 
 ## Behavior
 
+### Reference Form
+
 - `${steps.step_id.outputs.name}` reads `name` from a completed step output.
 
 - `step_id` must identify an existing step `id`.
@@ -36,6 +38,8 @@ This spec keeps those rules in one place: references use step ids, require the p
 
 - When the referenced step declares an output contract, `name` must be declared by that contract.
 
+### Dependency Rules
+
 - Step output references do not create dependencies.
 
 - The step containing the reference must depend directly or transitively on the producing step.
@@ -44,11 +48,15 @@ This spec keeps those rules in one place: references use step ids, require the p
 
 - A field without an owning step must not reference step outputs unless another spec explicitly allows that field to wait for step completion.
 
+### Runtime Lookup
+
 - A step output reference may resolve only after the referenced step completes and publishes the output.
 
 - A step-owned field may resolve a step output reference only when the referenced output is available before the owning step starts.
 
 - Step output values are inserted into string fields according to Spec 003 string insertion rules.
+
+### Validation
 
 - An unknown `steps.<step_id>` reference in a value-resolution field must fail during workflow validation.
 

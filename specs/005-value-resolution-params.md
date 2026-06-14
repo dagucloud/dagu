@@ -22,17 +22,25 @@ This spec separates declaration validation from runtime value availability. `dag
 
 ## Behavior
 
-- `${params.name}` reads a declared named runtime parameter.
+### Declarations
 
-- `name` must match `^[A-Za-z][A-Za-z0-9_]*$`.
+- Parameter names used by value resolution must be declared by name.
+
+- Parameter names must match `^[A-Za-z][A-Za-z0-9_]*$`.
 
 - Positional parameters are not addressable through the `params` namespace.
 
 - `params` declarations do not support Dagu references.
 
+### Runtime Values
+
 - Runtime `params` are available after Dagu builds the run input.
 
+- `${params.name}` reads the runtime value for the declared parameter `name`.
+
 - A resolved parameter value is inserted into string fields according to Spec 003 string insertion rules.
+
+### Validation
 
 - An undeclared `params` reference in a value-resolution field must fail during workflow validation.
 
