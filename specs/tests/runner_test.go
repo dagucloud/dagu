@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package specs_test
+package tests_test
 
 import (
 	"bytes"
@@ -162,7 +162,7 @@ func daguBinary(t *testing.T) string {
 		return path
 	}
 
-	return statBinary(t, filepath.Join("..", bin))
+	return statBinary(t, filepath.Join("..", "..", bin))
 }
 
 func hasPathSeparator(path string) bool {

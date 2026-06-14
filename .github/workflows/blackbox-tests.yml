@@ -55,4 +55,4 @@ jobs:
       - name: Run black-box tests
         env:
           DAGU_BIN: ${{ github.workspace }}/.local/bin/dagu
-        run: go test -count=1 ./specs
+        run: go test -count=1 ./specs/tests
