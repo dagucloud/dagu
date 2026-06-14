@@ -35,6 +35,11 @@ var dagRunArtifactsDirReferencePattern = regexp.MustCompile(
 		`|env\(["']` + regexp.QuoteMeta(dagRunArtifactsDirEnvKey) + `["']\))`,
 )
 
+var (
+	valueReferenceIdentifierPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
+	constValueReferencePattern      = regexp.MustCompile(`\$\{[^}]+\}|\$(?:consts|params|steps)\.`)
+)
+
 // dag is the intermediate representation of a DAG specification.
 // It mirrors the YAML structure and gets validated/transformed into core.DAG.
 type dag struct {
@@ -120,6 +125,8 @@ type dag struct {
 	MaxActiveSteps int `yaml:"max_active_steps,omitempty"`
 	// Params is the default parameters for the steps.
 	Params any `yaml:"params,omitempty"`
+	// Consts contains immutable literal values for value resolution.
+	Consts map[string]any `yaml:"consts,omitempty"`
 	// MaxCleanUpTimeSec is the maximum time in seconds to clean up the DAG.
 	// It is a wait time to kill the processes when it is requested to stop.
 	// If the time is exceeded, the process is killed.
@@ -524,6 +531,7 @@ var metadataIdentityStage = transformStage{
 
 // Params must run before env so that env: values can reference ${param_name}.
 var metadataParamsEnvStage = transformStage{
+	{"consts", newTransformer("Consts", buildConsts)},
 	{"params", newTransformer("Params", buildParams)},
 	{"default_params", newTransformer("DefaultParams", buildDefaultParams)},
 	{"param_defs", newTransformer("ParamDefs", buildParamDefs)},
@@ -1490,6 +1498,60 @@ type paramsResult struct {
 	ParamDefs     []core.ParamDef
 	ParamSchema   json.RawMessage
 	ParamsJSON    string // JSON representation of resolved params (original payload when provided as JSON)
+}
+
+func buildConsts(_ BuildContext, d *dag) (map[string]any, error) {
+	if len(d.Consts) == 0 {
+		return nil, nil
+	}
+
+	result := make(map[string]any, len(d.Consts))
+	for key, value := range d.Consts {
+		if !valueReferenceIdentifierPattern.MatchString(key) {
+			return nil, fmt.Errorf("consts key %q must match %s", key, valueReferenceIdentifierPattern.String())
+		}
+
+		normalized, err := validateConstValue(key, value)
+		if err != nil {
+			return nil, err
+		}
+		result[key] = normalized
+	}
+	return result, nil
+}
+
+func validateConstValue(key string, value any) (any, error) {
+	switch v := value.(type) {
+	case string:
+		if constValueReferencePattern.MatchString(v) {
+			return nil, fmt.Errorf("consts.%s must be a literal value and must not contain Dagu references", key)
+		}
+		return v, nil
+	case bool:
+		return v, nil
+	case int, int8, int16, int32, int64:
+		return v, nil
+	case uint, uint8, uint16, uint32, uint64:
+		return v, nil
+	case float32:
+		if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
+			return nil, fmt.Errorf("consts.%s numeric value must be finite", key)
+		}
+		return v, nil
+	case float64:
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return nil, fmt.Errorf("consts.%s numeric value must be finite", key)
+		}
+		return v, nil
+	case json.Number:
+		f, err := v.Float64()
+		if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
+			return nil, fmt.Errorf("consts.%s numeric value must be finite", key)
+		}
+		return v, nil
+	default:
+		return nil, fmt.Errorf("consts.%s must be a literal string, number, or boolean", key)
+	}
 }
 
 func buildParams(ctx BuildContext, d *dag) ([]string, error) {

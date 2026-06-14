@@ -1,0 +1,9 @@
+working_dir: .
+steps:
+  - id: build
+    run: printf '%s\n' v1.2.3
+    stdout:
+      outputs: image_tag
+  - id: deploy
+    depends: build
+    run: printf '%s\n' '${steps.build.outputs.image_tag}' > step_output.txt

@@ -136,6 +136,8 @@ type DAG struct {
 	LogOutput LogOutputMode `json:"logOutput,omitempty"`
 	// DefaultParams contains the default parameters to be passed to the DAG.
 	DefaultParams string `json:"defaultParams,omitempty"`
+	// Consts contains immutable literal values available to value resolution.
+	Consts map[string]any `json:"consts,omitempty"`
 	// ParamDefs contains ordered parameter metadata derived from DAG params.
 	// It is exposed to the API for typed UI rendering and validation hints.
 	ParamDefs []ParamDef `json:"paramDefs,omitempty"`
@@ -372,6 +374,9 @@ func (d *DAG) Clone() *DAG {
 	clone.dotenvOnce = sync.Once{}
 	if d.PresolvedBuildEnv != nil {
 		clone.PresolvedBuildEnv = maps.Clone(d.PresolvedBuildEnv)
+	}
+	if d.Consts != nil {
+		clone.Consts = maps.Clone(d.Consts)
 	}
 	if d.Artifacts != nil {
 		artifactsCopy := *d.Artifacts

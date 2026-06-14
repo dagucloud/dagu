@@ -1,0 +1,6 @@
+working_dir: .
+consts:
+  marker: ok
+steps:
+  - id: bad
+    run: echo ${environment}

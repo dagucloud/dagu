@@ -1,0 +1,6 @@
+working_dir: .
+consts:
+  bad: .nan
+steps:
+  - id: should_not_run
+    run: echo executed > executed.txt

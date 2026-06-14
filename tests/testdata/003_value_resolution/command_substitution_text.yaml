@@ -1,0 +1,6 @@
+working_dir: .
+consts:
+  message: ok
+steps:
+  - id: write
+    run: printf '%s %s %s\n' '$(touch dollar_command_executed)' '`touch backtick_executed`' '${consts.message}' > command_substitution.txt

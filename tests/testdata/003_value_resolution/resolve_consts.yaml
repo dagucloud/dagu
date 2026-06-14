@@ -1,0 +1,9 @@
+working_dir: .
+consts:
+  service: api
+  enabled: true
+  count: 1000
+  ratio: 1.5
+steps:
+  - id: write
+    run: printf '%s %s %s %s\n' '${consts.service}' '${consts.enabled}' '${consts.count}' '${consts.ratio}' > consts.txt

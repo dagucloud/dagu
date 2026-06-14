@@ -85,6 +85,7 @@ func ValidateSteps(dag *DAG) error {
 	resolveStepDependencies(dag)
 	validateDependenciesExist(dag, stepNames, &errs)
 	validateApprovalRewindTargets(dag, stepNames, &errs)
+	errs = append(errs, validateValueResolutionReferences(dag)...)
 
 	for _, step := range dag.Steps {
 		errs = append(errs, validateStep(step)...)
