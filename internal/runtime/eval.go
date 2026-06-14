@@ -6,6 +6,7 @@ package runtime
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"strconv"
@@ -42,7 +43,33 @@ func EvalBool(ctx context.Context, value any) (bool, error) {
 func EvalObject[T any](ctx context.Context, obj T) (T, error) {
 	env := GetEnv(ctx)
 	ctx = eval.WithEnvScope(ctx, env.Scope)
-	return eval.Object(ctx, obj, env.UserEnvsMap(), eval.WithStepMap(env.StepMap))
+	return eval.Object(ctx, obj, env.UserEnvsMap(), eval.WithBindingScope(env.bindingScope()), eval.WithStepMap(env.StepMap))
+}
+
+func (e Env) bindingScope() eval.Scope {
+	scope := eval.Scope{}
+	if e.DAG != nil {
+		scope = e.DAG.BindingScope()
+	}
+	if e.Scope != nil {
+		scope.Env = eval.ValuesFromStrings(e.Scope.ToMap())
+	}
+	if len(e.StepMap) > 0 {
+		if scope.Steps == nil {
+			scope.Steps = make(eval.StepOutputs, len(e.StepMap))
+		}
+		for stepID, info := range e.StepMap {
+			if info.Outputs == nil {
+				continue
+			}
+			var outputs map[string]any
+			if err := json.Unmarshal([]byte(*info.Outputs), &outputs); err != nil {
+				continue
+			}
+			scope.Steps[stepID] = eval.Values(outputs)
+		}
+	}
+	return scope
 }
 
 // templateConfigEvalVariables clones the user env map and seeds omitted named DAG

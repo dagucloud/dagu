@@ -64,7 +64,9 @@ func (d *DAG) validateOutputReferences() []error {
 	seen := make(map[string]struct{})
 	for _, step := range d.Steps {
 		location := outputReferenceLocation{StepName: step.Name}
-		for _, candidate := range collectStepOutputReferenceStrings(step) {
+		for _, candidate := range collectStepReferenceStrings(step, func(value string) bool {
+			return strings.Contains(value, ".output.")
+		}) {
 			location.Field = candidate.field
 			for _, ref := range extractOutputReferences(candidate.value) {
 				contract, ok := contracts[ref.StepName]
@@ -86,16 +88,16 @@ func (d *DAG) validateOutputReferences() []error {
 	return errs
 }
 
-type outputReferenceString struct {
+type stepReferenceString struct {
 	field string
 	value string
 }
 
-func collectStepOutputReferenceStrings(step Step) []outputReferenceString {
-	var refs []outputReferenceString
+func collectStepReferenceStrings(step Step, include func(string) bool) []stepReferenceString {
+	var refs []stepReferenceString
 	add := func(field, value string) {
-		if strings.Contains(value, ".output.") {
-			refs = append(refs, outputReferenceString{field: field, value: value})
+		if include(value) {
+			refs = append(refs, stepReferenceString{field: field, value: value})
 		}
 	}
 	add("command", step.Command)

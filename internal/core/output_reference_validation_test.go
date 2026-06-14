@@ -4,6 +4,7 @@
 package core
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -168,10 +169,10 @@ func TestCollectOutputValueReferenceStringsDescendsTypedContainers(t *testing.T)
 	assert.Equal(t, "alpha", refs[1].ref.Path[0])
 }
 
-func TestCollectStepOutputReferenceStringsIncludesExecutorConfig(t *testing.T) {
+func TestCollectStepReferenceStringsIncludesExecutorConfig(t *testing.T) {
 	t.Parallel()
 
-	refs := collectStepOutputReferenceStrings(Step{
+	refs := collectStepReferenceStrings(Step{
 		ExecutorConfig: ExecutorConfig{
 			Config: map[string]any{
 				"endpoint": "https://example.com/${build.output.host}",
@@ -180,6 +181,8 @@ func TestCollectStepOutputReferenceStringsIncludesExecutorConfig(t *testing.T) {
 				},
 			},
 		},
+	}, func(value string) bool {
+		return strings.Contains(value, ".output.")
 	})
 
 	require.Len(t, refs, 2)

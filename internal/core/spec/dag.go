@@ -76,6 +76,8 @@ type dag struct {
 	// Can be "separate" (default) for separate .out and .err files,
 	// or "merged" for a single combined .log file.
 	LogOutput types.LogOutputValue `yaml:"log_output,omitempty"`
+	// Consts contains immutable values resolved while loading the DAG.
+	Consts any `yaml:"consts,omitempty"`
 	// Env is the environment variables setting.
 	Env types.EnvValue `yaml:"env,omitempty"`
 	// HandlerOn is the handler configuration.
@@ -522,6 +524,10 @@ var metadataIdentityStage = transformStage{
 	{"labels", newTransformer("Labels", buildLabels)},
 }
 
+var metadataConstsStage = transformStage{
+	{"consts", newTransformer("Consts", buildConsts)},
+}
+
 // Params must run before env so that env: values can reference ${param_name}.
 var metadataParamsEnvStage = transformStage{
 	{"params", newTransformer("Params", buildParams)},
@@ -555,6 +561,7 @@ var metadataExecutionPlacementStage = transformStage{
 
 var metadataTransformStages = []transformStage{
 	metadataIdentityStage,
+	metadataConstsStage,
 	metadataParamsEnvStage,
 	metadataScheduleStage,
 	metadataExecutionPlacementStage,

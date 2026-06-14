@@ -6,8 +6,6 @@ package eval
 import (
 	"context"
 	"fmt"
-	"strconv"
-	"strings"
 )
 
 // phase represents a single step in the evaluation pipeline.
@@ -49,6 +47,10 @@ func (p *pipeline) execute(ctx context.Context, input string, opts *Options) (st
 var defaultPipeline = &pipeline{
 	phases: []phase{
 		{
+			name:    "bindings",
+			execute: expandBindings,
+		},
+		{
 			name:    "quoted-refs",
 			execute: expandQuotedRefs,
 		},
@@ -76,28 +78,15 @@ var defaultPipeline = &pipeline{
 	},
 }
 
+func expandBindings(_ context.Context, input string, opts *Options) (string, error) {
+	return ParseTemplate(input).Resolve(opts.Bindings)
+}
+
 // expandQuotedRefs handles quoted references like "${FOO.bar}" and "${VAR}" within
 // double quotes. Resolved values are re-quoted so surrounding JSON stays valid.
 func expandQuotedRefs(ctx context.Context, input string, opts *Options) (string, error) {
 	r := newResolver(ctx, opts)
-	result := reQuotedJSONRef.ReplaceAllStringFunc(input, func(match string) string {
-		ref := match[3 : len(match)-2] // Strip leading "$ { and trailing } "
-
-		var val string
-		var ok bool
-
-		if dotIdx := strings.Index(ref, "."); dotIdx >= 0 {
-			val, ok = r.resolveReference(ctx, ref[:dotIdx], ref[dotIdx:])
-		} else {
-			val, ok = r.resolve(ref)
-		}
-
-		if ok {
-			return strconv.Quote(val)
-		}
-		return match
-	})
-	return result, nil
+	return (Template{source: input}).resolveQuotedReferences(ctx, r), nil
 }
 
 // expandAllVariables resolves JSON path references, step property references,
@@ -141,9 +130,13 @@ func evalStringValue(ctx context.Context, value string, opts *Options) (string, 
 	if opts.EscapeDollar {
 		ctx, value = withDollarEscapes(ctx, value)
 	}
+	var err error
+	value, err = expandBindings(ctx, value, opts)
+	if err != nil {
+		return "", err
+	}
 	value = expandVariables(ctx, value, opts)
 	if opts.Substitute {
-		var err error
 		value, err = substituteCommandsWithContext(ctx, value)
 		if err != nil {
 			return "", err

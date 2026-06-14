@@ -77,6 +77,31 @@ func TestEvalString(t *testing.T) {
 	}
 }
 
+func TestEvalStringResolvesReservedBindings(t *testing.T) {
+	t.Parallel()
+
+	ctx := runtime.NewContext(context.Background(), &core.DAG{
+		Name: "test-dag",
+		Consts: map[string]any{
+			"service": "api",
+		},
+		Params: []string{"environment=prod"},
+	}, "", "")
+	env := runtime.NewEnv(ctx, core.Step{Name: "test-step"})
+	env.Scope = env.Scope.WithEntries(map[string]string{
+		"HOME": "workspace",
+	}, eval.EnvSourceStepEnv)
+	outputs := `{"image":"repo/api:v1"}`
+	env.StepMap = map[string]eval.StepInfo{
+		"build": {Outputs: &outputs},
+	}
+	ctx = runtime.WithEnv(ctx, env)
+
+	got, err := runtime.EvalString(ctx, "${consts.service} ${params.environment} ${env.HOME} ${steps.build.outputs.image}")
+	require.NoError(t, err)
+	assert.Equal(t, "api prod workspace repo/api:v1", got)
+}
+
 func TestEvalBool(t *testing.T) {
 	// Create a test context with environment variables
 	ctx := context.Background()

@@ -6,19 +6,7 @@ package eval
 import (
 	"context"
 	"os"
-	"regexp"
-	"strings"
 )
-
-// reVarSubstitution matches ${...} and $VAR patterns for variable substitution.
-// Quote handling is done by callers based on surrounding characters.
-var reVarSubstitution = regexp.MustCompile(`\$\{([^}]+)\}|\$([a-zA-Z0-9_][a-zA-Z0-9_]*)`)
-
-// reQuotedJSONRef matches quoted JSON references like "${FOO.bar}" and simple variables like "${VAR}"
-var reQuotedJSONRef = regexp.MustCompile(`"\$\{([A-Za-z0-9_]\w*(?:\.[^}]+)?)\}"`)
-
-// reJSONPathRef matches patterns like ${FOO.bar.baz} or $FOO.bar for JSON path expansion
-var reJSONPathRef = regexp.MustCompile(`\$\{([A-Za-z0-9_]\w*)(\.[^}]+)\}|\$([A-Za-z0-9_]\w*)(\.[^\s]+)`)
 
 // resolver provides unified variable resolution across explicit variable maps,
 // EnvScope, and OS environment.
@@ -145,82 +133,13 @@ func (r *resolver) resolveJSONSource(name string) (string, bool) {
 	return r.lookupScopeNonOS(name)
 }
 
-// isSingleQuotedVar reports whether the matched variable token is enclosed
-// in single quotes in the original input (e.g., '${VAR}' or '$VAR').
-// Note: this is a simple adjacent-character heuristic. It may misidentify
-// nested quote contexts such as 'foo'${BAR}'baz' where the quote before
-// ${BAR} actually closes a prior segment. This is acceptable for the
-// targeted use cases (nu shell $'...' syntax, simple quoting).
-func isSingleQuotedVar(input string, start, end int) bool {
-	return start > 0 && end < len(input) && input[start-1] == '\'' && input[end] == '\''
-}
-
 // replaceVars substitutes $VAR and ${VAR} patterns using all resolver sources.
 // JSON path references (containing dots) are skipped; those are handled by expandReferences.
 func (r *resolver) replaceVars(template string) string {
-	matches := reVarSubstitution.FindAllStringSubmatchIndex(template, -1)
-	if len(matches) == 0 {
-		return template
-	}
-
-	var b strings.Builder
-	last := 0
-	for _, loc := range matches {
-		b.WriteString(template[last:loc[0]])
-		last = loc[1]
-
-		match := template[loc[0]:loc[1]]
-		if isSingleQuotedVar(template, loc[0], loc[1]) {
-			b.WriteString(match)
-			continue
-		}
-
-		var key string
-		if loc[2] >= 0 { // Group 1: ${...}
-			key = template[loc[2]:loc[3]]
-		} else if loc[4] >= 0 { // Group 2: $VAR
-			key = template[loc[4]:loc[5]]
-		} else {
-			// Neither group captured — preserve original text.
-			b.WriteString(match)
-			continue
-		}
-
-		if strings.Contains(key, ".") {
-			b.WriteString(match)
-			continue
-		}
-		if val, found := r.resolveForReplace(key); found {
-			b.WriteString(val)
-			continue
-		}
-		b.WriteString(match)
-	}
-
-	b.WriteString(template[last:])
-	return b.String()
+	return (Template{source: template}).resolveVariables(r)
 }
 
 // expandReferences resolves JSON path and step property references in the input.
 func (r *resolver) expandReferences(ctx context.Context, input string) string {
-	return reJSONPathRef.ReplaceAllStringFunc(input, func(match string) string {
-		subMatches := reJSONPathRef.FindStringSubmatch(match)
-		if len(subMatches) < 3 {
-			return match
-		}
-
-		var varName, path string
-		if strings.HasPrefix(subMatches[0], "${") {
-			varName = subMatches[1]
-			path = subMatches[2]
-		} else {
-			varName = subMatches[3]
-			path = subMatches[4]
-		}
-
-		if value, ok := r.resolveReference(ctx, varName, path); ok {
-			return value
-		}
-		return match
-	})
+	return (Template{source: input}).resolveReferences(ctx, r)
 }

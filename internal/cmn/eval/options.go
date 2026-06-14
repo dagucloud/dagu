@@ -25,6 +25,7 @@ type Options struct {
 
 	Variables []map[string]string // Ordered variable maps for expansion
 	StepMap   map[string]StepInfo // Step info map for step reference expansion
+	Bindings  Scope               // Reserved binding namespace values
 }
 
 // NewOptions returns default Options with ExpandEnv, ExpandShell, and
@@ -52,6 +53,13 @@ func WithVariables(vars map[string]string) Option {
 func WithStepMap(stepMap map[string]StepInfo) Option {
 	return func(opts *Options) {
 		opts.StepMap = stepMap
+	}
+}
+
+// WithBindingScope sets reserved binding namespace values.
+func WithBindingScope(scope Scope) Option {
+	return func(opts *Options) {
+		opts.Bindings = scope
 	}
 }
 

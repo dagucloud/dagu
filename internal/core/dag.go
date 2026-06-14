@@ -119,6 +119,8 @@ type DAG struct {
 	// Note: This field is evaluated at build time and may contain secrets.
 	// It is excluded from JSON serialization to prevent secret leakage.
 	Env []string `json:"-"`
+	// Consts contains immutable values resolved while loading the DAG.
+	Consts map[string]any `json:"consts,omitempty"`
 	// EnvEvaluated reports whether Env is safe to reuse as resolved build env.
 	EnvEvaluated bool `json:"-"`
 	// PresolvedBuildEnv stores resolved DAG/base-config env entries needed to
@@ -372,6 +374,9 @@ func (d *DAG) Clone() *DAG {
 	clone.dotenvOnce = sync.Once{}
 	if d.PresolvedBuildEnv != nil {
 		clone.PresolvedBuildEnv = maps.Clone(d.PresolvedBuildEnv)
+	}
+	if d.Consts != nil {
+		clone.Consts = maps.Clone(d.Consts)
 	}
 	if d.Artifacts != nil {
 		artifactsCopy := *d.Artifacts
@@ -649,6 +654,35 @@ func (d *DAG) ParamsMap() map[string]string {
 		}
 	}
 	return params
+}
+
+// BindingScope returns the statically known values and contracts available to
+// Dagu-owned value references.
+func (d *DAG) BindingScope() eval.Scope {
+	if d == nil {
+		return eval.Scope{}
+	}
+	scope := eval.Scope{
+		Consts: eval.Values(d.Consts),
+		Params: eval.ValuesFromStrings(d.ParamsMap()),
+		Steps:  make(eval.StepOutputs, len(d.Steps)),
+	}
+	for _, step := range d.Steps {
+		if step.ID == "" {
+			continue
+		}
+		scope.Steps[step.ID] = nil
+		contract, ok := buildPublishedOutputContract(step)
+		if !ok || len(contract.Keys) == 0 {
+			continue
+		}
+		outputs := make(eval.Values, len(contract.Keys))
+		for name := range contract.Keys {
+			outputs[name] = true
+		}
+		scope.Steps[step.ID] = outputs
+	}
+	return scope
 }
 
 // ProcGroup returns the name of the process group for this DAG.
