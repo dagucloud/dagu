@@ -56,8 +56,7 @@ type dispatchTaskIndex struct {
 	pending     map[string]dispatchTaskIndexEntry
 	pendingIDs  []string
 	claims      map[string]dispatchTaskIndexEntry
-	noMatch     map[string]uint64
-	generation  uint64
+	noMatch     map[string]struct{}
 	validatedAt time.Time
 }
 
@@ -140,7 +139,7 @@ func newDispatchTaskIndex() *dispatchTaskIndex {
 	return &dispatchTaskIndex{
 		pending: make(map[string]dispatchTaskIndexEntry),
 		claims:  make(map[string]dispatchTaskIndexEntry),
-		noMatch: make(map[string]uint64),
+		noMatch: make(map[string]struct{}),
 	}
 }
 
@@ -151,7 +150,7 @@ func (idx *dispatchTaskIndex) addPending(rec *persis.Record, payload dispatchTas
 	entry := dispatchTaskIndexEntryFromRecord(rec, payload)
 	idx.pending[rec.ID] = entry
 	idx.rebuildPendingIDs()
-	idx.bump()
+	idx.invalidateDerivedState()
 }
 
 func (idx *dispatchTaskIndex) removePending(id string) {
@@ -163,7 +162,7 @@ func (idx *dispatchTaskIndex) removePending(id string) {
 	}
 	delete(idx.pending, id)
 	idx.rebuildPendingIDs()
-	idx.bump()
+	idx.invalidateDerivedState()
 }
 
 func (idx *dispatchTaskIndex) addClaim(rec *persis.Record, payload dispatchTaskPayload) {
@@ -171,7 +170,7 @@ func (idx *dispatchTaskIndex) addClaim(rec *persis.Record, payload dispatchTaskP
 		return
 	}
 	idx.claims[rec.ID] = dispatchTaskIndexEntryFromRecord(rec, payload)
-	idx.bump()
+	idx.invalidateDerivedState()
 }
 
 func (idx *dispatchTaskIndex) removeClaim(id string) {
@@ -182,7 +181,7 @@ func (idx *dispatchTaskIndex) removeClaim(id string) {
 		return
 	}
 	delete(idx.claims, id)
-	idx.bump()
+	idx.invalidateDerivedState()
 }
 
 func (idx *dispatchTaskIndex) replacePendingWithClaim(pendingID string, claimRec *persis.Record, payload dispatchTaskPayload) {
@@ -196,7 +195,7 @@ func (idx *dispatchTaskIndex) replacePendingWithClaim(pendingID string, claimRec
 	if claimRec != nil {
 		idx.claims[claimRec.ID] = dispatchTaskIndexEntryFromRecord(claimRec, payload)
 	}
-	idx.bump()
+	idx.invalidateDerivedState()
 }
 
 func (idx *dispatchTaskIndex) replaceClaimWithPending(claimID string, pendingRec *persis.Record, payload dispatchTaskPayload) {
@@ -208,7 +207,7 @@ func (idx *dispatchTaskIndex) replaceClaimWithPending(claimID string, pendingRec
 		idx.pending[pendingRec.ID] = dispatchTaskIndexEntryFromRecord(pendingRec, payload)
 		idx.rebuildPendingIDs()
 	}
-	idx.bump()
+	idx.invalidateDerivedState()
 }
 
 func (idx *dispatchTaskIndex) rebuildPendingIDs() {
@@ -219,8 +218,7 @@ func (idx *dispatchTaskIndex) rebuildPendingIDs() {
 	sort.Strings(idx.pendingIDs)
 }
 
-func (idx *dispatchTaskIndex) bump() {
-	idx.generation++
+func (idx *dispatchTaskIndex) invalidateDerivedState() {
 	clear(idx.noMatch)
 	idx.validatedAt = time.Time{}
 }
@@ -262,15 +260,15 @@ func (idx *dispatchTaskIndex) rememberNoMatch(labels map[string]string) {
 	if idx == nil {
 		return
 	}
-	idx.noMatch[dispatchClaimLabelsKey(labels)] = idx.generation
+	idx.noMatch[dispatchClaimLabelsKey(labels)] = struct{}{}
 }
 
 func (idx *dispatchTaskIndex) hasNoMatch(labels map[string]string) bool {
 	if idx == nil {
 		return false
 	}
-	generation, ok := idx.noMatch[dispatchClaimLabelsKey(labels)]
-	return ok && generation == idx.generation
+	_, ok := idx.noMatch[dispatchClaimLabelsKey(labels)]
+	return ok
 }
 
 func dispatchTaskIndexEntryFromRecord(rec *persis.Record, payload dispatchTaskPayload) dispatchTaskIndexEntry {
@@ -381,13 +379,12 @@ func (s *DispatchTaskStore) rebuildDispatchIndex(ctx context.Context) error {
 		}
 		idx.claims[rec.ID] = dispatchTaskIndexEntryFromRecord(rec, payload)
 	}
-	idx.generation++
 	idx.validatedAt = time.Now().UTC()
 	s.index = idx
 	return nil
 }
 
-func (s *DispatchTaskStore) validateDispatchIndex(ctx context.Context, validatePendingVersions bool) error {
+func (s *DispatchTaskStore) validateDispatchIndex(ctx context.Context, validatePendingPayloadVersions bool) error {
 	if s.index == nil {
 		return s.rebuildDispatchIndex(ctx)
 	}
@@ -401,7 +398,7 @@ func (s *DispatchTaskStore) validateDispatchIndex(ctx context.Context, validateP
 	if err := s.validateDispatchIndexIDs(ctx, dispatchClaimsPrefix, s.index.claims); err != nil {
 		return err
 	}
-	if validatePendingVersions {
+	if validatePendingPayloadVersions {
 		if err := s.validatePendingRecordVersions(ctx); err != nil {
 			return err
 		}
