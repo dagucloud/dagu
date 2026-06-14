@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/internal/cmn/eval"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime"
@@ -100,6 +101,19 @@ func TestEvalStringResolvesReservedBindings(t *testing.T) {
 	got, err := runtime.EvalString(ctx, "${consts.service} ${params.environment} ${env.HOME} ${steps.build.outputs.image}")
 	require.NoError(t, err)
 	assert.Equal(t, "api prod workspace repo/api:v1", got)
+}
+
+func TestEvalStringModeDirectCommandPreservesHostOnlyEnv(t *testing.T) {
+	t.Setenv("DAGU_RUNTIME_DIRECT_HOST_ONLY", "from-os")
+
+	ctx := runtime.NewContext(context.Background(), &core.DAG{Name: "test-dag"}, "", "")
+	env := runtime.NewEnv(ctx, core.Step{Name: "test-step"})
+	env.Scope = env.Scope.WithEntry("SCOPED", "from-scope", eval.EnvSourceStepEnv)
+	ctx = runtime.WithEnv(ctx, env)
+
+	got, err := runtime.EvalStringMode(ctx, "$SCOPED:$DAGU_RUNTIME_DIRECT_HOST_ONLY", cmnvalue.ModeDirectCommand)
+	require.NoError(t, err)
+	assert.Equal(t, "from-scope:$DAGU_RUNTIME_DIRECT_HOST_ONLY", got)
 }
 
 func TestEvalStringDoesNotResolveStepOutputContractAsRuntimeValue(t *testing.T) {

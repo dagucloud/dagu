@@ -203,7 +203,7 @@ func TestExpandObjectResolvesStrictRefsAcrossNestedValues(t *testing.T) {
 			"${env.TOKEN}",
 			"${steps.build.outputs.digest}",
 		},
-		"legacy": "${DATA.image}",
+		"evalRef": "${DATA.image}",
 	}
 
 	got, err := value.ExpandObject(obj, value.RuntimeScope{
@@ -216,7 +216,7 @@ func TestExpandObjectResolvesStrictRefsAcrossNestedValues(t *testing.T) {
 
 	assert.Equal(t, "repo/api:v1", got["image"])
 	assert.Equal(t, []any{"secret", "sha256:abc"}, got["env"])
-	assert.Equal(t, "${DATA.image}", got["legacy"])
+	assert.Equal(t, "${DATA.image}", got["evalRef"])
 }
 
 func TestExpandObjectRejectsInvalidReservedShorthand(t *testing.T) {
@@ -271,10 +271,16 @@ func TestExpandStringModesApplyOwnerSemantics(t *testing.T) {
 			want: "$TOKEN",
 		},
 		{
-			name: "DirectCommandCanReadOS",
+			name: "DirectCommandExpandsScopedEnv",
+			raw:  "$TOKEN",
+			mode: value.ModeDirectCommand,
+			want: "secret",
+		},
+		{
+			name: "DirectCommandPreservesHostOnlyEnv",
 			raw:  "$DAGU_VALUE_MODE_DIRECT",
 			mode: value.ModeDirectCommand,
-			want: "from-os",
+			want: "$DAGU_VALUE_MODE_DIRECT",
 		},
 		{
 			name: "DynamicEvalUsesDefaultExpansion",

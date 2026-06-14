@@ -22,42 +22,6 @@ var (
 	referencePattern        = regexp.MustCompile(`\$\{([A-Za-z0-9_]\w*)(\.[^}]+)\}|\$([A-Za-z0-9_]\w*)(\.[^\s]+)`)
 )
 
-type Values map[string]any
-type StepOutputs map[string]Values
-type StepOutputNames map[string]struct{}
-type StepOutputContracts map[string]StepOutputNames
-
-// StaticScope contains declarations and contracts used by static validation.
-type StaticScope struct {
-	Consts Values
-	Params Values
-	Env    Values
-	Steps  StepOutputContracts
-}
-
-// RuntimeScope contains actual values available during runtime resolution.
-type RuntimeScope struct {
-	Consts  Values
-	Params  Values
-	Env     Values
-	Steps   StepOutputs
-	StepMap map[string]StepInfo
-}
-
-type Scope = RuntimeScope
-
-// ValuesFromStrings converts string variables into binding values.
-func ValuesFromStrings(values map[string]string) Values {
-	if len(values) == 0 {
-		return nil
-	}
-	out := make(Values, len(values))
-	for key, value := range values {
-		out[key] = value
-	}
-	return out
-}
-
 type template struct{ source string }
 
 func checkBindings(input string, scope RuntimeScope) error {

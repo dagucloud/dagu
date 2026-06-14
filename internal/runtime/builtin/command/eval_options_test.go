@@ -47,10 +47,10 @@ func TestCommandExecutor_GetEvalOptions(t *testing.T) {
 			wantEscape:    false,
 		},
 		{
-			name:          "DirectShellUsesOSExpansion",
+			name:          "DirectShellUsesScopedExpansion",
 			shell:         "direct",
 			wantExpandEnv: true,
-			wantExpandOS:  true,
+			wantExpandOS:  false,
 			wantEscape:    true,
 		},
 		{

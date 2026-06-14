@@ -79,7 +79,7 @@ func constEntry(idx int, item any) (string, any, error) {
 func resolveConstValue(key string, value any, consts map[string]any) (any, error) {
 	switch v := value.(type) {
 	case string:
-		resolved, err := cmnvalue.ExpandString(v, cmnvalue.Scope{Consts: cmnvalue.Values(consts)}, cmnvalue.ModeConstLoad, "consts."+key)
+		resolved, err := cmnvalue.ExpandString(v, cmnvalue.RuntimeScope{Consts: cmnvalue.Values(consts)}, cmnvalue.ModeConstLoad, "consts."+key)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve const %q: %w", key, err)
 		}

@@ -113,7 +113,7 @@ func evaluatePairs(ctx BuildContext, pairs []pair) (map[string]string, error) {
 			if ctx.envScope != nil {
 				consts = ctx.envScope.consts
 			}
-			valueScope := cmnvalue.Scope{
+			valueScope := cmnvalue.RuntimeScope{
 				Consts: cmnvalue.Values(consts),
 				Params: cmnvalue.ValuesFromStrings(scope.AllBySource(cmnvalue.EnvSourceParam)),
 				Env:    cmnvalue.ValuesFromStrings(scope.AllUserEnvs()),

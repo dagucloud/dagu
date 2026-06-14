@@ -65,7 +65,7 @@ type Reference struct {
 	StepOutput *StepOutputReference
 }
 
-// StepOutputReference describes a legacy step output reference.
+// StepOutputReference describes a step output reference in eval syntax.
 type StepOutputReference struct {
 	Expression string
 	StepName   string
@@ -279,8 +279,7 @@ func ExpandStringContext(ctx context.Context, raw string, runtimeScope RuntimeSc
 		return "", err
 	}
 
-	options := append(scopeOptions(runtimeScope, mode), opts...)
-	options = append(options, modeOptions(mode)...)
+	options := append(fieldPolicyOptions(runtimeScope, mode), opts...)
 	return String(ctx, resolved, options...)
 }
 
@@ -306,9 +305,48 @@ func ExpandObjectContext[T any](ctx context.Context, obj T, runtimeScope Runtime
 	return val, nil
 }
 
-func scopeOptions(scope RuntimeScope, mode Mode) []Option {
-	opts := make([]Option, 0, 2)
-	if mode != ModeShellCommand {
+type fieldPolicy struct {
+	includeScopedEnv bool
+	options          []Option
+}
+
+var fieldPolicies = map[Mode]fieldPolicy{
+	ModeConstLoad: {
+		includeScopedEnv: true,
+		options:          []Option{WithoutSubstitute()},
+	},
+	ModeStaticValidation: {
+		includeScopedEnv: true,
+		options:          []Option{WithoutSubstitute()},
+	},
+	ModeWorkflowValue: {
+		includeScopedEnv: true,
+	},
+	ModeShellCommand: {
+		options: []Option{WithoutSubstitute()},
+	},
+	ModeDirectCommand: {
+		includeScopedEnv: true,
+		options:          []Option{WithoutSubstitute()},
+	},
+	ModeDynamicEval: {
+		includeScopedEnv: true,
+	},
+}
+
+var defaultFieldPolicy = fieldPolicy{
+	includeScopedEnv: true,
+	options:          []Option{WithoutSubstitute()},
+}
+
+func fieldPolicyOptions(scope RuntimeScope, mode Mode) []Option {
+	policy, ok := fieldPolicies[mode]
+	if !ok {
+		policy = defaultFieldPolicy
+	}
+
+	opts := make([]Option, 0, len(policy.options)+2)
+	if policy.includeScopedEnv {
 		vars := valuesToStrings(scope.Env)
 		if len(vars) > 0 {
 			opts = append(opts, WithVariables(vars))
@@ -317,22 +355,8 @@ func scopeOptions(scope RuntimeScope, mode Mode) []Option {
 	if len(scope.StepMap) > 0 {
 		opts = append(opts, WithStepMap(scope.StepMap))
 	}
+	opts = append(opts, policy.options...)
 	return opts
-}
-
-func modeOptions(mode Mode) []Option {
-	switch mode {
-	case ModeConstLoad, ModeStaticValidation, ModeShellCommand:
-		return []Option{WithoutSubstitute()}
-	case ModeWorkflowValue:
-		return nil
-	case ModeDirectCommand:
-		return []Option{WithoutSubstitute(), WithOSExpansion()}
-	case ModeDynamicEval:
-		return []Option{}
-	default:
-		return []Option{WithoutSubstitute()}
-	}
 }
 
 func valuesToStrings(values Values) map[string]string {

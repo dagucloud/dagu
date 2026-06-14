@@ -414,7 +414,7 @@ func resolveLegacyEntry(
 		evalCtx = cmnvalue.WithEnvScope(evalCtx, *scope)
 	}
 
-	var valueScope cmnvalue.Scope
+	var valueScope cmnvalue.RuntimeScope
 	if *scope != nil {
 		valueScope.Env = cmnvalue.ValuesFromStrings((*scope).ToMap())
 	}

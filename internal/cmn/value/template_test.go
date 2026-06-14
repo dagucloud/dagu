@@ -79,7 +79,7 @@ func TestExpandStringRejectsMalformedBinding(t *testing.T) {
 
 	_, err := value.ExpandString(
 		"echo ${consts.service",
-		value.Scope{Consts: value.Values{"service": "api"}},
+		value.RuntimeScope{Consts: value.Values{"service": "api"}},
 		value.ModeWorkflowValue,
 		"run",
 	)

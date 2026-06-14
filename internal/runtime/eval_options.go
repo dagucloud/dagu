@@ -17,11 +17,11 @@ import (
 //   - fish: intentionally excluded from IsUnixLikeShell (it lacks -e flag
 //     support and uses $VAR but not ${VAR}), so Dagu performs ${VAR} expansion.
 //   - Non-Unix (PowerShell, cmd.exe): do not understand ${VAR} syntax at all,
-//     so Dagu must expand variables on their behalf (ExpandEnv stays enabled).
-//   - direct / empty: no shell is involved; Dagu expands OS variables itself.
+//     so Dagu must expand scoped variables on their behalf (ExpandEnv stays enabled).
+//   - direct / empty: no shell is involved; Dagu expands scoped variables.
 func CommandEvalOptions(shell []string) []cmnvalue.Option {
 	if len(shell) == 0 || shell[0] == "direct" {
-		return []cmnvalue.Option{cmnvalue.WithOSExpansion()}
+		return nil
 	}
 
 	opts := []cmnvalue.Option{cmnvalue.WithoutDollarEscape()}
