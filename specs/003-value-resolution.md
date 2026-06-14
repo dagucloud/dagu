@@ -1,31 +1,33 @@
 # Spec: value resolution
 
-## Scope
+## 1. Scope
 
-This spec defines Dagu-owned `${...}` references in workflow YAML.
+1-1. This spec defines Dagu-owned `${...}` references in workflow YAML.
 
-Dagu-owned references are:
+1-2. The Dagu-owned reference forms are:
 
-- `${consts.name}`
-- `${params.name}`
-- `${env.NAME}`
-- `${steps.step_id.outputs.name}`
+| Reference form | Meaning |
+| --- | --- |
+| `${consts.name}` | Immutable values from root `consts`. |
+| `${params.name}` | Runtime parameters. |
+| `${env.NAME}` | Environment variables visible to the owning field at runtime. |
+| `${steps.step_id.outputs.name}` | Outputs from completed steps, addressed by step `id`. |
 
-Supported fields are listed in [Supported fields](#supported-fields). Do not infer support from the fact that a field is a string.
+1-3. Dagu value resolution applies only to fields listed in [4.2 Supported fields](#42-supported-fields). Support must not be inferred from the fact that a field is a string.
 
-This spec does not define shell expansion, command substitution, dynamic evaluation, step identity, or output publication. Those features can provide values to this spec, or consume values after this spec runs, but they do not change Dagu reference syntax.
+1-4. This spec does not define shell expansion, command substitution, dynamic evaluation, step identity, or output publication. Those features can provide values to this spec, or consume values after this spec runs, but they do not change Dagu reference syntax.
 
-## Goal
+## 2. Goal
 
-Workflows can reference values with `${...}` syntax.
+2-1. Workflows can reference values with Dagu-owned `${...}` syntax.
 
-## Inputs
+## 3. Inputs
 
-Input is a workflow YAML file accepted by the YAML schema spec.
+3-1. The input is a workflow YAML file accepted by the YAML schema spec.
 
-This spec adds validation rules to `dagu validate`. These rules are separate from the root and document validation boundary in the YAML schema spec.
+3-2. This spec adds validation rules to `dagu validate`. These rules are separate from the root and document validation boundary in the YAML schema spec.
 
-`consts` defines immutable values:
+3-3. `consts` defines immutable values:
 
 ```yaml
 consts:
@@ -34,7 +36,7 @@ consts:
   - enabled: true
 ```
 
-Value-resolution fields may use Dagu references:
+3-4. Value-resolution fields may use Dagu references:
 
 ```yaml
 consts:
@@ -56,17 +58,23 @@ steps:
       url: https://${env.API_HOST}/${consts.service}/health
 ```
 
-## Behavior
+## 4. Behavior
 
-Dagu references use this form:
+### 4.1 Reference syntax
+
+4-1. Dagu references use this form:
 
 ```text
 ${path}
 ```
 
-The path must include a namespace. Dotted references use `${name.path}`. `$name.path` is invalid Dagu-looking shorthand when `name` is a supported namespace.
+4-2. The path must include a namespace.
 
-Supported namespaces:
+4-3. Dotted references must use `${name.path}`.
+
+4-4. `$name.path` is invalid Dagu-looking shorthand when `name` is a supported namespace.
+
+4-5. Supported namespaces are:
 
 | Namespace | Meaning |
 | --- | --- |
@@ -75,7 +83,7 @@ Supported namespaces:
 | `steps` | Outputs from completed steps, addressed by step `id`. |
 | `env` | Environment variables visible to the owning field at runtime. |
 
-Supported reference forms:
+4-6. Supported reference forms are:
 
 ```text
 ${consts.name}
@@ -84,20 +92,23 @@ ${steps.step_id.outputs.name}
 ${env.NAME}
 ```
 
-Reference rules:
+4-7. Namespace names, `consts` keys, `params` names, step ids, `outputs`, and step output names must match `^[A-Za-z][A-Za-z0-9_]*$`.
 
-- Namespace names, `consts` keys, `params` names, step ids, `outputs`, and step output names must match `^[A-Za-z][A-Za-z0-9_]*$`.
-- Environment variable names under `env` must match `^[A-Za-z_][A-Za-z0-9_]*$`.
-- `${name}` has no Dagu namespace. Dagu value resolution must leave it unchanged for legacy variable resolution, shell expansion, or the owning field's evaluator.
-- Dotted references must use `${name.path}`.
-- `$consts.name`, `$params.name`, `$steps.step_id.outputs.name`, and `$env.NAME` are invalid Dagu-looking shorthand.
-- Dagu value resolution must not execute `$()` or backtick command substitution.
-- Dynamic evaluation belongs to the dynamic evaluation spec and only runs where the field evaluation spec or owning field spec enables it.
-- Operators, filters, and inline default values are outside this spec.
+4-8. Environment variable names under `env` must match `^[A-Za-z_][A-Za-z0-9_]*$`.
 
-### Supported fields
+4-9. `${name}` has no Dagu namespace. Dagu value resolution must leave it unchanged for legacy variable resolution, shell expansion, or the owning field's evaluator.
 
-Dagu references are supported only in these YAML fields:
+4-10. `$consts.name`, `$params.name`, `$steps.step_id.outputs.name`, and `$env.NAME` are invalid Dagu-looking shorthand.
+
+4-11. Dagu value resolution must not execute `$()` or backtick command substitution.
+
+4-12. Dynamic evaluation belongs to the dynamic evaluation spec and only runs where the field evaluation spec or owning field spec enables it.
+
+4-13. Operators, filters, and inline default values are outside this spec.
+
+### 4.2 Supported fields
+
+4-14. Dagu references are supported only in these YAML fields:
 
 | YAML field | String values that support Dagu references |
 | --- | --- |
@@ -120,41 +131,69 @@ Dagu references are supported only in these YAML fields:
 | `steps[].output.*` | Literal string values and `path` strings under structured output entries. |
 | `steps[].container` | Step container string form. In object form: `exec`, `image`, `name`, `user`, `working_dir`, `network`, `volumes[]`, `ports[]`, `env` values, `command[]`, and `shell[]`. |
 
-The `steps[]` rows also apply to handler steps under `handler_on.init`, `handler_on.success`, `handler_on.failure`, `handler_on.abort`, `handler_on.exit`, and `handler_on.wait`. Defaults, custom `step_types`, and custom `actions` are checked after Dagu expands them into concrete steps.
+4-15. The `steps[]` rows also apply to handler steps under `handler_on.init`, `handler_on.success`, `handler_on.failure`, `handler_on.abort`, `handler_on.exit`, and `handler_on.wait`.
 
-All other canonical fields are outside this spec unless this table is updated. In particular, these fields do not support Dagu references: `name`, `id`, `description`, `action`, `type`, `depends`, `output` string names, structured output keys, `stdout.outputs.field`, `stdout.outputs.select`, `output_schema`, `params` declarations, labels, schedules, queue names, selectors, `log_output`, timeout fields, retry interval fields, numeric controls, boolean controls, and enum fields.
+4-16. Defaults, custom `step_types`, and custom `actions` are checked after Dagu expands them into concrete steps.
 
-The validator and runtime must use this same field list. A reference that would fail at runtime must be rejected by `dagu validate` when the failure is statically knowable.
+4-17. All other canonical fields are outside this spec unless the table in 4-14 is updated.
 
-Adding a value-resolution-capable field requires updating this spec, the DAG JSON schema, validation traversal, runtime traversal, and black-box tests together.
+4-18. In particular, these fields do not support Dagu references: `name`, `id`, `description`, `action`, `type`, `depends`, `output` string names, structured output keys, `stdout.outputs.field`, `stdout.outputs.select`, `output_schema`, `params` declarations, labels, schedules, queue names, selectors, `log_output`, timeout fields, retry interval fields, numeric controls, boolean controls, and enum fields.
 
-### Consts rules
+4-19. The validator and runtime must use the same field list.
 
-- Root `consts` may be an ordered list of single-entry mappings or a mapping.
-- Ordered list form is the canonical form. Examples must use list form by default because mapping order is not part of the contract.
-- `consts` keys must match `^[A-Za-z][A-Za-z0-9_]*$`.
-- `consts` values must be literal strings, numbers, or booleans.
-- Numeric `consts` values must be finite.
-- Mapping form is only for independent literal constants. Mapping-form `consts` values must not contain Dagu references.
-- List-form `consts` values are resolved in order. String values may reference earlier `consts` entries with `${consts.name}`.
-- List-form `consts` values must not reference runtime `env`, `params`, `steps`, later `consts`, or themselves.
-- `consts` values are immutable for one DAG run.
+4-20. A reference that would fail at runtime must be rejected by `dagu validate` when the failure is statically knowable.
 
-### Resolution timing
+4-21. Adding a value-resolution-capable field requires updating this spec, the DAG JSON schema, validation traversal, runtime traversal, and black-box tests together.
 
-There is no workflow-wide evaluation pass.
+### 4.3 Consts rules
 
-Resolution happens at these points:
+4-22. Root `consts` may be an ordered list of single-entry mappings or a mapping.
 
-- `consts` are resolved while loading the workflow.
-- Runtime `params` are available after Dagu builds the run input.
-- Root fields are resolved while preparing the run. `dotenv[]` paths resolve before dotenv files are loaded, and root `env` resolves before step execution begins.
-- Step fields are resolved when the runner reaches the part of the step that uses the field: precondition fields before checking the precondition, executor fields before starting the executor, and output fields while collecting outputs.
-- Step output references resolve only after the referenced step publishes the output.
+4-23. Ordered list form is the canonical form. Examples must use list form by default because mapping order is not part of the contract.
 
-### Runtime lookup rules
+4-24. `consts` keys must match `^[A-Za-z][A-Za-z0-9_]*$`.
 
-Dagu-owned references resolve by namespace:
+4-25. `consts` values must be literal strings, numbers, or booleans.
+
+4-26. Numeric `consts` values must be finite.
+
+4-27. Mapping form is only for independent literal constants.
+
+4-28. Mapping-form `consts` values must not contain Dagu references.
+
+4-29. List-form `consts` values are resolved in order.
+
+4-30. String values in list-form `consts` may reference earlier `consts` entries with `${consts.name}`.
+
+4-31. List-form `consts` values must not reference runtime `env`, `params`, `steps`, later `consts`, or themselves.
+
+4-32. `consts` values are immutable for one DAG run.
+
+### 4.4 Resolution timing
+
+4-33. There is no workflow-wide evaluation pass.
+
+4-34. `consts` are resolved while loading the workflow.
+
+4-35. Runtime `params` are available after Dagu builds the run input.
+
+4-36. Root fields are resolved while preparing the run.
+
+4-37. `dotenv[]` paths resolve before dotenv files are loaded.
+
+4-38. Root `env` resolves before step execution begins.
+
+4-39. Step precondition fields resolve before checking the precondition.
+
+4-40. Step executor fields resolve before starting the executor.
+
+4-41. Step output fields resolve while collecting outputs.
+
+4-42. Step output references resolve only after the referenced step publishes the output.
+
+### 4.5 Runtime lookup rules
+
+4-43. Dagu-owned references resolve by namespace:
 
 | Reference | Lookup rule |
 | --- | --- |
@@ -163,47 +202,87 @@ Dagu-owned references resolve by namespace:
 | `${env.NAME}` | Reads `NAME` from the environment scope available to the owning field. `NAME` must match `^[A-Za-z_][A-Za-z0-9_]*$`. |
 | `${steps.step_id.outputs.name}` | Reads `name` from a completed step output. The step id must exist; when the step declares an output contract, the output name must be declared. |
 
-Root `env` may reference `consts`, `params`, and earlier available `env`, but not `steps`. Step `env` may also reference step outputs that are available before the owning step starts. In map-form `env`, entries are unordered and must not reference another key from the same map. In list-form `env`, entries are evaluated from top to bottom and may reference earlier entries. The same map/list rule applies to container `env`.
+4-44. Root `env` may reference `consts`, `params`, and earlier available `env`, but not `steps`.
 
-When Dagu inserts a referenced value into a string field, strings are inserted as written, booleans as `true` or `false`, integers in base-10 decimal form, and non-integer numbers in the shortest round-trippable base-10 decimal representation.
+4-45. Step `env` may also reference step outputs that are available before the owning step starts.
 
-Dagu value resolution does not resolve shell-style `$NAME`, unqualified `${NAME}`, shell parameter operators, `$()`, or backtick command substitution. That text remains in the field unless the owning field spec rejects it.
+4-46. In map-form `env`, entries are unordered and must not reference another key from the same map.
 
-## Outputs
+4-47. In list-form `env`, entries are evaluated from top to bottom and may reference earlier entries.
 
-- Value resolution does not write workflow result events, run logs, or artifacts.
-- When value resolution succeeds, the owning field receives the resolved value before it is used.
+4-48. The same map/list rule applies to container `env`.
 
-## Errors
+4-49. When Dagu inserts a referenced value into a string field, strings are inserted as written.
 
-`dagu validate` follows the same visibility rules and rejects failures that are knowable before execution.
+4-50. When Dagu inserts a referenced value into a string field, booleans are inserted as `true` or `false`.
 
-Workflow validation errors:
+4-51. When Dagu inserts a referenced value into a string field, integers are inserted in base-10 decimal form.
 
-- Malformed Dagu reference syntax in a value-resolution field must fail during workflow validation.
-- Invalid Dagu-looking shorthand in a value-resolution field must fail during workflow validation.
-- An unknown namespace in a value-resolution field must fail during workflow validation.
-- An unknown `consts` reference must fail during workflow validation.
-- An undeclared `params` reference must fail during workflow validation.
-- An unknown `steps.<step_id>` reference must fail during workflow validation.
-- An unknown `steps.<step_id>.outputs.<name>` reference must fail during workflow validation when the referenced step declares an output contract.
-- A `steps` reference in root `env` must fail during workflow validation.
-- A map-form `env` entry that references another key declared in the same map must fail during workflow validation.
-- A list-form `env` entry that references itself or a later entry in the same list must fail during workflow validation.
-- Invalid `env` reference shape must fail during workflow validation.
-- Invalid `consts` shape must fail during workflow validation.
-- Invalid `consts` key names must fail during workflow validation.
-- Invalid `consts` value types must fail during workflow validation.
-- Non-finite numeric `consts` values must fail during workflow validation.
+4-52. When Dagu inserts a referenced value into a string field, non-integer numbers are inserted in the shortest round-trippable base-10 decimal representation.
 
-Runtime resolution errors:
+4-53. Dagu value resolution does not resolve shell-style `$NAME`.
 
-- A missing runtime value for a declared `params` reference must fail before the owning field is used. For step-owned fields, it must fail before the owning step starts.
-- A missing `env` value must fail before the owning field is used. For step-owned fields, it must fail before the owning step starts.
-- An unavailable step output value must fail before the owning field is used. For step-owned fields, it must fail before the owning step starts.
-- An unknown `steps.<step_id>.outputs.<name>` reference must fail before the owning field is used when the referenced step does not declare an output contract that can be checked statically.
+4-54. Dagu value resolution does not resolve unqualified `${NAME}` as a Dagu reference.
 
-## Examples
+4-55. Dagu value resolution does not resolve shell parameter operators.
+
+4-56. Dagu value resolution does not execute `$()` command substitution.
+
+4-57. Dagu value resolution does not execute backtick command substitution.
+
+4-58. Text preserved by 4-53 through 4-57 remains in the field unless the owning field spec rejects it.
+
+## 5. Outputs
+
+5-1. Value resolution does not write workflow result events, run logs, or artifacts.
+
+5-2. When value resolution succeeds, the owning field receives the resolved value before it is used.
+
+## 6. Errors
+
+6-1. `dagu validate` follows the same visibility rules and rejects failures that are knowable before execution.
+
+6-2. Malformed Dagu reference syntax in a value-resolution field must fail during workflow validation.
+
+6-3. Invalid Dagu-looking shorthand in a value-resolution field must fail during workflow validation.
+
+6-4. An unknown namespace in a value-resolution field must fail during workflow validation.
+
+6-5. An unknown `consts` reference must fail during workflow validation.
+
+6-6. An undeclared `params` reference must fail during workflow validation.
+
+6-7. An unknown `steps.<step_id>` reference must fail during workflow validation.
+
+6-8. An unknown `steps.<step_id>.outputs.<name>` reference must fail during workflow validation when the referenced step declares an output contract.
+
+6-9. A `steps` reference in root `env` must fail during workflow validation.
+
+6-10. A map-form `env` entry that references another key declared in the same map must fail during workflow validation.
+
+6-11. A list-form `env` entry that references itself or a later entry in the same list must fail during workflow validation.
+
+6-12. Invalid `env` reference shape must fail during workflow validation.
+
+6-13. Invalid `consts` shape must fail during workflow validation.
+
+6-14. Invalid `consts` key names must fail during workflow validation.
+
+6-15. Invalid `consts` value types must fail during workflow validation.
+
+6-16. Non-finite numeric `consts` values must fail during workflow validation.
+
+6-17. A missing runtime value for a declared `params` reference must fail before the owning field is used.
+
+6-18. A missing `env` value must fail before the owning field is used.
+
+6-19. An unavailable step output value must fail before the owning field is used.
+
+6-20. For step-owned fields, runtime resolution errors must fail before the owning step starts.
+
+6-21. An unknown `steps.<step_id>.outputs.<name>` reference must fail before the owning field is used when the referenced step does not declare an output contract that can be checked statically.
+
+## 7. Examples
 
 Valid `consts` and parameters:
 
@@ -336,33 +415,26 @@ steps:
     run: echo "$(date)" "`date`"
 ```
 
-## Acceptance criteria
+## 8. Acceptance criteria
 
-- A black box fixture verifies `dagu validate` accepts ordered list-form literal `consts` values.
-- A black box fixture verifies `dagu validate` accepts mapping-form literal `consts` values.
-- A black box fixture verifies `dagu validate` rejects invalid `consts` value types.
-- A black box fixture verifies `dagu validate` rejects non-finite numeric `consts` values.
-- A black box fixture verifies `dagu validate` accepts an unqualified `${name}` placeholder.
-- A black box fixture verifies `dagu validate` rejects an unknown `consts` reference.
-- A black box fixture verifies `dagu validate` rejects an undeclared `params` reference.
-- A black box fixture verifies `dagu validate` rejects an unknown `steps.<step_id>` reference.
-- A black box fixture verifies `dagu validate` rejects a `steps` reference in root `env`.
-- A black box fixture verifies `dagu validate` rejects an unknown namespace in a Dagu reference.
-- A black box fixture verifies `dagu validate` accepts root `env` values that reference known `consts`.
-- A black box fixture verifies `dagu validate` accepts list-form `env` entries that reference earlier entries.
-- A black box fixture verifies `dagu validate` rejects map-form `env` entries that reference another key declared in the same map.
-- A black box fixture verifies `dagu validate` rejects list-form `env` entries that reference themselves or later entries.
-- A black box fixture verifies `dagu validate` accepts a well-formed `${env.NAME}` reference in a value-resolution field without requiring the runtime value to exist during validation.
-- A black box fixture verifies `dagu validate` traverses nested string values under step `with` configuration.
-- A black box fixture verifies `dagu validate` traverses value-resolution fields beyond `run`.
-- A black box fixture verifies `dagu run` resolves `${consts.name}`.
-- A black box fixture verifies `dagu run` resolves `${params.name}`.
-- A black box fixture verifies `dagu run` resolves `${steps.step_id.outputs.name}` after the referenced step completes.
-- A black box fixture verifies `dagu run` resolves `${env.NAME}` from workflow and step environment scopes.
-- A black box fixture verifies `dagu run` resolves root `env` values that reference `consts`.
-- A black box fixture verifies `dagu run` resolves list-form `env` entries in order.
-- A black box fixture verifies `dagu run` resolves Dagu references in a supported non-`run` field.
-- A black box fixture verifies missing Dagu references fail before the owning step starts.
-- A black box fixture verifies `$NAME` is not resolved by Dagu.
-- A black box fixture verifies `$consts.name`, `$params.name`, `$steps.step_id.outputs.name`, and `$env.NAME` fail as invalid Dagu-looking shorthand.
-- A black box fixture verifies Dagu value resolution does not execute `$()` or backtick command substitution.
+8-1. Black-box tests must cover every testable normative clause in sections 4, 5, and 6.
+
+8-2. Reference syntax coverage must cover 4-1 through 4-13 and 6-2 through 6-4.
+
+8-3. Supported field coverage must cover 4-14 through 4-21. The tests must include validation traversal coverage for every row in 4-14 and runtime resolution coverage for every row in 4-14 where runtime behavior applies.
+
+8-4. `consts` coverage must cover 4-22 through 4-32, 6-5, and 6-13 through 6-16.
+
+8-5. `params` coverage must cover the `params` row in 4-43, 6-6, and 6-17.
+
+8-6. `env` coverage must cover the `env` row in 4-43, 4-44 through 4-48, 6-9 through 6-12, and 6-18.
+
+8-7. Step output coverage must cover 4-42, the `steps` row in 4-43, 6-7, 6-8, 6-19, and 6-21.
+
+8-8. Resolution timing coverage must cover 4-33 through 4-42.
+
+8-9. Value formatting coverage must cover 4-49 through 4-52.
+
+8-10. Shell preservation coverage must cover 4-9, 4-53 through 4-58, and 6-3.
+
+8-11. Output behavior coverage must cover 5-1 and 5-2.
