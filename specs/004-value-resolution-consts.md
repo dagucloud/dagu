@@ -16,15 +16,21 @@ Workflows can define immutable values once and reference them from supported val
 
 ## Motivation
 
-Workflow authors need a deterministic way to name reusable literal values. Mapping order is not part of the contract, so ordered `consts` need a list form when one constant depends on an earlier constant.
+Workflow authors need a deterministic way to name reusable literal values. `consts` use list form so the order is explicit when one constant depends on an earlier constant.
 
 This spec keeps `consts` immutable and load-time resolvable so later value resolution can use them without runtime side effects.
 
 ## Behavior
 
-- Root `consts` may be an ordered list of single-entry mappings or a mapping.
+### Form
 
-- Ordered list form is the canonical form. Examples must use list form by default because mapping order is not part of the contract.
+- Root `consts` must use list form.
+
+- Each list item must be a single-entry mapping.
+
+- Mapping form is invalid.
+
+### Keys and Values
 
 - `consts` keys must match `^[A-Za-z][A-Za-z0-9_]*$`.
 
@@ -34,17 +40,23 @@ This spec keeps `consts` immutable and load-time resolvable so later value resol
 
 - `consts` values are immutable for one DAG run.
 
-- Mapping-form `consts` values must not contain Dagu references.
+### List Resolution
 
 - List-form `consts` values are resolved in order.
 
 - String values in list-form `consts` may reference earlier `consts` entries with `${consts.name}`.
 
-- List-form `consts` values must not reference runtime `env`, `params`, `steps`, later `consts`, or themselves.
+- List-form `consts` values must not reference themselves or later `consts` entries.
+
+- List-form `consts` values must not reference runtime `env`, `params`, or `steps`.
+
+### References
 
 - `${consts.name}` reads `name` from resolved root `consts`.
 
 - A resolved `consts` value is inserted into string fields according to Spec 003 string insertion rules.
+
+### Validation
 
 - Invalid `consts` shape must fail during workflow validation.
 
@@ -54,9 +66,9 @@ This spec keeps `consts` immutable and load-time resolvable so later value resol
 
 - Non-finite numeric `consts` values must fail during workflow validation.
 
-- Mapping-form `consts` values that contain Dagu references must fail during workflow validation.
+- Mapping-form `consts` must fail during workflow validation.
 
-- List-form `consts` references to runtime `env`, `params`, `steps`, later `consts`, or themselves must fail during workflow validation.
+- `consts` references to runtime `env`, `params`, `steps`, later `consts`, or themselves must fail during workflow validation.
 
 - An unknown `consts` reference in a value-resolution field must fail during workflow validation.
 
@@ -90,7 +102,7 @@ steps:
     run: echo ${consts.missing}
 ```
 
-Mapping form for independent literal constants:
+Invalid mapping form:
 
 ```yaml
 consts:

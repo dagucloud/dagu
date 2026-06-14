@@ -45,8 +45,7 @@ The value-resolution field list is defined by the value resolution spec. If this
 
 | Field | Evaluation type | When it happens | Rule |
 | --- | --- | --- | --- |
-| Root `consts` mapping-form values | Literal | Validation or load | Values must be literal strings, numbers, or booleans. |
-| Root `consts` list-form string values | Value-resolved | Workflow load | Dagu resolves only references allowed by the consts value-resolution spec. |
+| Root `consts` values | Value-resolved | Workflow load | Dagu resolves only references allowed by the consts value-resolution spec. |
 | `params[].default` | Literal | Run start, when needed | Dagu uses the default exactly as written. |
 | Runtime parameter overrides | Literal | Caller input | Values from CLI, API, or sub-DAG calls are not evaluated. |
 | `params[].eval` | Dynamic-evaluated | Before any step starts | Used only when the caller did not provide that parameter. May run backtick command substitution. Does not run `$()`. |
