@@ -62,7 +62,7 @@ ${steps.step_id.outputs.name}
 Reference rules:
 
 - Reference path segments must match `^[A-Za-z][A-Za-z0-9_]*$`.
-- `${name}` is invalid because it has no namespace.
+- `${name}` has no Dagu namespace. Dagu value resolution must leave it unchanged for legacy variable resolution, shell expansion, or the owning field's evaluator.
 - Dotted references must use `${name.path}`.
 - `$consts.name`, `$params.name`, and `$steps.step_id.outputs.name` are invalid Dagu-looking shorthand.
 - Dagu value resolution must not execute `$()` or backtick command substitution.
@@ -95,6 +95,7 @@ Runtime lookup rules:
 - When Dagu inserts a referenced value into a string field, strings are inserted as written and booleans are inserted as `true` or `false`.
 - Numeric values are formatted from the parsed YAML value, not from the source spelling. Integers use base-10 decimal form. Non-integer numbers use the shortest round-trippable base-10 decimal representation.
 - Dagu must not resolve shell-style `$NAME` syntax.
+- Dagu must not resolve unqualified `${NAME}` syntax as a Dagu reference.
 - Dagu must not execute `$()` or backtick command substitution during value resolution.
 - Shell-style variables and command-substitution text remain in the field after Dagu value resolution unless the owning field spec rejects them. A shell or target runtime may expand them later only when the owning field spec allows it.
 
@@ -110,7 +111,6 @@ Workflow validation errors:
 - Malformed Dagu reference syntax in a value-resolution field must fail during workflow validation.
 - Invalid Dagu-looking shorthand in a value-resolution field must fail during workflow validation.
 - An unknown namespace in a value-resolution field must fail during workflow validation.
-- An unqualified reference in a value-resolution field must fail during workflow validation.
 - An unknown `consts` reference must fail during workflow validation.
 - An undeclared `params` reference must fail during workflow validation.
 - An unknown `steps.<step_id>` reference must fail during workflow validation.
@@ -162,11 +162,11 @@ steps:
     run: echo "$HOME"
 ```
 
-Invalid unqualified reference:
+Unqualified placeholder preserved for the owning field:
 
 ```yaml
 steps:
-  - name: bad
+  - name: shell_env
     run: echo ${environment}
 ```
 
@@ -219,7 +219,7 @@ steps:
 - A black box fixture verifies `dagu validate` accepts literal `consts` values.
 - A black box fixture verifies `dagu validate` rejects invalid `consts` value types.
 - A black box fixture verifies `dagu validate` rejects non-finite numeric `consts` values.
-- A black box fixture verifies `dagu validate` rejects an unqualified Dagu reference.
+- A black box fixture verifies `dagu validate` accepts an unqualified `${name}` placeholder.
 - A black box fixture verifies `dagu validate` rejects an unknown `consts` reference.
 - A black box fixture verifies `dagu validate` rejects an undeclared `params` reference.
 - A black box fixture verifies `dagu validate` rejects an unknown `steps.<step_id>` reference.

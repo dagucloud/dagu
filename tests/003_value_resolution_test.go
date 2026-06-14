@@ -13,6 +13,7 @@ func Test003ValueResolutionValidate(t *testing.T) {
 		"params_schema_reference.yaml",
 		"resolve_consts_list.yaml",
 		"resolve_mixed_case_step_output.yaml",
+		"unqualified_reference.yaml",
 	}
 	for _, file := range validCases {
 		t.Run(file, func(t *testing.T) {
@@ -41,11 +42,6 @@ func Test003ValueResolutionValidate(t *testing.T) {
 			name:        "non-finite numeric consts value",
 			file:        "consts_non_finite_number.yaml",
 			stderrParts: []string{"consts", "finite"},
-		},
-		{
-			name:        "unqualified reference",
-			file:        "unqualified_reference.yaml",
-			stderrParts: []string{"reference", "params"},
 		},
 		{
 			name:        "unknown consts reference",

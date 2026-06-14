@@ -64,14 +64,18 @@ func TestValidateStepsValueResolutionReferences(t *testing.T) {
 			dag:  dagWithValueRun(nil, "echo ${ENVIRONMENT}"),
 		},
 		{
-			name:      "RejectsUnqualifiedReferenceWhenConstsArePresent",
-			dag:       dagWithValueRun(map[string]any{"service": "api"}, "echo ${environment}"),
-			errChecks: []string{"unqualified", "params.environment"},
+			name: "IgnoresLegacyUnqualifiedReferenceWhenConstsArePresent",
+			dag:  dagWithValueRun(map[string]any{"service": "api"}, "echo ${environment}"),
 		},
 		{
-			name:      "RejectsUnqualifiedReferenceWhenSupportedNamespaceIsPresent",
-			dag:       dagWithValueRun(nil, "echo ${params.environment} ${environment}"),
-			errChecks: []string{"unqualified", "params.environment"},
+			name: "IgnoresLegacyUnqualifiedReferenceWhenSupportedNamespaceIsPresent",
+			dag: &core.DAG{
+				ParamDefs: []core.ParamDef{{Name: "environment", Type: core.ParamDefTypeString}},
+				Steps: []core.Step{{
+					Name:     "deploy",
+					Commands: []core.CommandEntry{{CmdWithArgs: "echo ${params.environment} ${environment}"}},
+				}},
+			},
 		},
 		{
 			name:      "RejectsShorthandReference",
@@ -102,7 +106,7 @@ func TestValidateStepsValueResolutionReferences(t *testing.T) {
 		{
 			name:      "RejectsNamespaceOnlyReference",
 			dag:       dagWithValueRun(nil, "echo ${params} ${environment}"),
-			errChecks: []string{"params references", "${params.<name>}", "unqualified", "params.environment"},
+			errChecks: []string{"params references", "${params.<name>}"},
 		},
 		{
 			name:      "RejectsEmptyReference",
@@ -298,7 +302,7 @@ func TestValidateStepsValueResolutionReferences(t *testing.T) {
 					},
 				},
 			},
-			errChecks: []string{"unqualified", "unknown consts reference"},
+			errChecks: []string{"unknown consts reference"},
 		},
 	}
 

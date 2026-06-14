@@ -181,7 +181,6 @@ func valueResolutionRunFields(step Step) []valueResolutionRunField {
 
 func validateValueResolutionString(ctx valueResolutionValidationContext, field string, value string) ErrorList {
 	var errs ErrorList
-	strictUnqualified := usesValueResolutionSpec(ctx.dag, value)
 
 	for _, match := range valueResolutionShorthandPattern.FindAllString(value, -1) {
 		errs = append(errs, NewValidationError(field, match,
@@ -204,11 +203,6 @@ func validateValueResolutionString(ctx valueResolutionValidationContext, field s
 				errs = append(errs, NewValidationError(field, match[0],
 					validateValueResolutionPath(ref, segments)))
 				continue
-			}
-			if strictUnqualified {
-				errs = append(errs, NewValidationError(field, match[0],
-					fmt.Errorf("reference %s is unqualified; use params.%s, consts.%s, or steps.<step_id>.outputs.<name>",
-						match[0], ref, ref)))
 			}
 			continue
 		}
@@ -317,32 +311,6 @@ func buildValueResolutionOutputContract(step Step) (publishedOutputContract, boo
 		}, true
 	}
 	return publishedOutputContract{}, false
-}
-
-func usesValueResolutionSpec(dag *DAG, value string) bool {
-	if dag != nil && len(dag.Consts) > 0 {
-		return true
-	}
-	if valueResolutionShorthandPattern.MatchString(value) {
-		return true
-	}
-	for _, match := range valueResolutionBracedRefPattern.FindAllStringSubmatch(value, -1) {
-		if len(match) < 2 {
-			continue
-		}
-		ref := strings.TrimSpace(match[1])
-		if _, supported := valueResolutionSupportedNamespace[ref]; supported {
-			return true
-		}
-		namespace, _, ok := strings.Cut(ref, ".")
-		if !ok {
-			continue
-		}
-		if _, supported := valueResolutionSupportedNamespace[namespace]; supported {
-			return true
-		}
-	}
-	return false
 }
 
 func validateValueResolutionPath(namespace string, segments []string) error {
