@@ -46,7 +46,7 @@ steps:
 
 | Field | Required | Rules |
 | --- | --- | --- |
-| `run` | No. | Must be a string when present. The decoded string must contain at least one non-whitespace character. |
+| `run` | No. | Must be a string when present. The decoded string must contain at least one non-whitespace character. Dagu does not evaluate command-substitution syntax in this field. |
 
 **Execution rules:**
 
@@ -72,7 +72,8 @@ steps:
 - Value resolution for `run` follows the value resolution spec and field evaluation spec.
 - If value resolution fails, the command must not start.
 - Dagu must not resolve shell-style `$NAME` syntax.
-- Shell-style variables remain in the command string passed to the platform shell.
+- Dagu must leave `$()` and backtick text unchanged.
+- Shell-style variables and command-substitution text remain in the command string passed to the platform shell.
 
 **Working directory rules:**
 
@@ -212,6 +213,8 @@ steps:
 - A black-box fixture verifies `dagu validate` accepts a multi-line `run` string.
 - A black-box fixture verifies `dagu validate` rejects a non-string `run`.
 - A black-box fixture verifies `dagu validate` rejects an empty `run`.
+- A black-box fixture verifies `dagu validate` accepts `$()` text in `run` and does not execute it.
+- A black-box fixture verifies `dagu validate` accepts backtick text in `run` and does not execute it.
 - A black-box fixture verifies `dagu validate` does not execute `run`.
 - A black-box fixture verifies `dagu validate` does not require the command path to exist.
 - A black-box fixture verifies `dagu run` accepts a discovered project workflow target.

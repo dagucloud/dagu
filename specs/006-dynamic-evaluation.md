@@ -12,7 +12,7 @@ Input is a workflow YAML file accepted by the YAML schema spec.
 
 The validation requirements in this spec extend `dagu validate` when dynamic-evaluation validation is implemented. They are not part of the root/document validation boundary defined by the YAML schema spec.
 
-Dagu dynamic evaluation is available only in fields classified as dynamic-evaluated fields by the field evaluation spec or by the owning field spec.
+Dagu command-substitution execution is available only in `params[].eval`.
 
 **Dynamic-evaluated field example:**
 
@@ -28,7 +28,7 @@ steps:
 
 ## Behavior
 
-Dynamic evaluation runs Dagu variable expansion and legacy backtick command substitution.
+Dynamic evaluation for `params[].eval` runs Dagu variable expansion and legacy backtick command substitution.
 
 **Dynamic evaluation rules:**
 
@@ -36,9 +36,8 @@ Dynamic evaluation runs Dagu variable expansion and legacy backtick command subs
 - Dagu expands available environment variables such as `$HOME` and `${HOME}` according to the owning field's evaluation scope.
 - Dagu executes commands enclosed in backticks.
 - Backtick command output is inserted into the evaluated field value.
-- `$()` syntax is not Dagu dynamic evaluation and is preserved as text by Dagu.
-- `$()` may still be interpreted later by a target shell if the owning field passes the string to a shell.
-- Backtick substitution is legacy behavior. New fields must not enable it unless their spec explicitly opts in.
+- Backtick text in fields other than `params[].eval` is not Dagu dynamic evaluation and is left unchanged by Dagu.
+- `$()` command substitution is not supported by Dagu dynamic evaluation and is left unchanged by Dagu.
 
 **Backtick syntax rules:**
 
@@ -107,30 +106,19 @@ steps:
     run: echo ${params.today}
 ```
 
-Dynamic evaluation with Dagu references:
+Parameter `eval` with Dagu references:
 
 ```yaml
 params:
   - name: environment
     type: string
-    required: true
-env:
-  - SERVICE_NAME: `printf '%s-api' ${params.environment}`
-steps:
-  - name: print
-    run: echo ${SERVICE_NAME}
-```
-
-`$()` is preserved by Dagu dynamic evaluation:
-
-```yaml
-params:
-  - name: literal
+    default: prod
+  - name: service_name
     type: string
-    eval: $(printf 20260131)
+    eval: `printf '%s-api' ${params.environment}`
 steps:
   - name: print
-    run: printf '%s\n' '${params.literal}'
+    run: echo ${params.service_name}
 ```
 
 ## Acceptance Criteria
@@ -138,6 +126,7 @@ steps:
 - A black-box fixture verifies `dagu run` resolves a parameter value produced by backtick substitution in `eval`.
 - A black-box fixture verifies dynamic evaluation expands available variables before legacy backtick substitution.
 - A black-box fixture verifies `$()` in `params[].eval` is preserved by Dagu and not executed during dynamic evaluation.
-- A black-box fixture verifies dynamic evaluation is not enabled for step `run` before the shell receives the command string.
+- A black-box fixture verifies backtick text in step `run` is not evaluated by Dagu.
+- A black-box fixture verifies backtick text in root `env` is not evaluated by Dagu.
 - A black-box fixture verifies malformed value references fail validation when they are statically checkable.
 - A black-box fixture verifies a non-zero backtick command fails before the owning field is consumed.
