@@ -30,6 +30,10 @@ This spec keeps `consts` immutable and load-time resolvable so later value resol
 
 - Mapping form is invalid.
 
+### Single-Quoted Environment References
+
+- Single-quoted `$NAME` and `${NAME}` are preserved during Dagu environment expansion.
+
 ### Keys and Values
 
 - `consts` keys must match `^[A-Za-z][A-Za-z0-9_]*$`.

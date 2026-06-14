@@ -32,6 +32,10 @@ This spec separates declaration validation from runtime value availability. `dag
 
 - `params` declarations do not support Dagu references.
 
+### Single-Quoted Environment References
+
+- Single-quoted `$NAME` and `${NAME}` are preserved during Dagu environment expansion.
+
 ### Runtime Values
 
 - Runtime `params` are available after Dagu builds the run input.

@@ -79,6 +79,10 @@ ${steps.step_id.outputs.name}
 
 - An unknown namespace in a value-resolution field must fail during workflow validation.
 
+### Single-Quoted Environment References
+
+- Single-quoted `$NAME` and `${NAME}` are preserved during Dagu environment expansion.
+
 ### Supported Fields
 
 - Dagu references are supported only in these YAML fields:

@@ -48,6 +48,10 @@ This spec keeps those rules in one place: references use step ids, require the p
 
 - A field without an owning step must not reference step outputs unless another spec explicitly allows that field to wait for step completion.
 
+### Single-Quoted Environment References
+
+- Single-quoted `$NAME` and `${NAME}` are preserved during Dagu environment expansion.
+
 ### Runtime Lookup
 
 - A step output reference may resolve only after the referenced step completes and publishes the output.
