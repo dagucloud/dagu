@@ -692,6 +692,47 @@ func TestDispatchTaskStore_RepeatedNoMatchDoesNotRereadPendingRecords(t *testing
 	assert.LessOrEqual(t, col.GetCount(), int64(1), "repeated no-match claims should use indexed metadata instead of reading every pending record")
 }
 
+func TestDispatchTaskStore_RepeatedNoMatchWithClaimsThrottlesValidation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	col := newCountingRecordIDsCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+	s := store.NewDispatchTaskStore(col)
+
+	for i := 0; i < 8; i++ {
+		require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
+			DAGRunID:       "run-claim-throttle-" + string(rune('a'+i)),
+			Target:         "dag-claim-throttle",
+			AttemptID:      "attempt-claim-throttle",
+			AttemptKey:     "attempt-key-claim-throttle-" + string(rune('a'+i)),
+			WorkerSelector: map[string]string{"type": "cpu"},
+		}))
+		claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
+			WorkerID: "worker-cpu",
+			PollerID: "poller-cpu",
+			Labels:   map[string]string{"type": "cpu"},
+			Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, claimed)
+	}
+
+	col.Reset()
+
+	for i := 0; i < 3; i++ {
+		claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
+			WorkerID: "worker-gpu",
+			PollerID: "poller-gpu",
+			Labels:   map[string]string{"type": "gpu"},
+			Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
+		})
+		require.NoError(t, err)
+		require.Nil(t, claimed)
+	}
+
+	assert.LessOrEqual(t, col.RecordVersionCount(), int64(8), "claim validation should be throttled after index warmup")
+}
+
 func TestDispatchTaskStore_EnqueueInvalidatesIndexedNoMatch(t *testing.T) {
 	t.Parallel()
 
@@ -1164,7 +1205,8 @@ func encodedKey(input string) string {
 
 type countingRecordIDsCollection struct {
 	persis.Collection
-	gets atomic.Int64
+	gets           atomic.Int64
+	recordVersions atomic.Int64
 }
 
 func newCountingRecordIDsCollection(col persis.Collection) *countingRecordIDsCollection {
@@ -1189,6 +1231,7 @@ func (c *countingRecordIDsCollection) RecordIDs(ctx context.Context, prefix stri
 }
 
 func (c *countingRecordIDsCollection) RecordVersion(ctx context.Context, id string) (string, error) {
+	c.recordVersions.Add(1)
 	type recordVersionCollection interface {
 		RecordVersion(context.Context, string) (string, error)
 	}
@@ -1204,8 +1247,13 @@ func (c *countingRecordIDsCollection) RecordVersion(ctx context.Context, id stri
 
 func (c *countingRecordIDsCollection) Reset() {
 	c.gets.Store(0)
+	c.recordVersions.Store(0)
 }
 
 func (c *countingRecordIDsCollection) GetCount() int64 {
 	return c.gets.Load()
+}
+
+func (c *countingRecordIDsCollection) RecordVersionCount() int64 {
+	return c.recordVersions.Load()
 }

@@ -189,16 +189,26 @@ func (idx *dispatchTaskIndex) replacePendingWithClaim(pendingID string, claimRec
 	if idx == nil {
 		return
 	}
-	idx.removePending(pendingID)
-	idx.addClaim(claimRec, payload)
+	if _, ok := idx.pending[pendingID]; ok {
+		delete(idx.pending, pendingID)
+		idx.rebuildPendingIDs()
+	}
+	if claimRec != nil {
+		idx.claims[claimRec.ID] = dispatchTaskIndexEntryFromRecord(claimRec, payload)
+	}
+	idx.bump()
 }
 
 func (idx *dispatchTaskIndex) replaceClaimWithPending(claimID string, pendingRec *persis.Record, payload dispatchTaskPayload) {
 	if idx == nil {
 		return
 	}
-	idx.removeClaim(claimID)
-	idx.addPending(pendingRec, payload)
+	delete(idx.claims, claimID)
+	if pendingRec != nil {
+		idx.pending[pendingRec.ID] = dispatchTaskIndexEntryFromRecord(pendingRec, payload)
+		idx.rebuildPendingIDs()
+	}
+	idx.bump()
 }
 
 func (idx *dispatchTaskIndex) rebuildPendingIDs() {
@@ -211,6 +221,7 @@ func (idx *dispatchTaskIndex) rebuildPendingIDs() {
 
 func (idx *dispatchTaskIndex) bump() {
 	idx.generation++
+	clear(idx.noMatch)
 	idx.validatedAt = time.Time{}
 }
 
@@ -331,14 +342,17 @@ func NewDispatchTaskStore(col persis.Collection, opts ...DispatchTaskStoreOption
 }
 
 func (s *DispatchTaskStore) ensureDispatchIndex(ctx context.Context) error {
-	return s.ensureDispatchIndexFor(ctx, false)
-}
-
-func (s *DispatchTaskStore) ensureDispatchIndexFor(ctx context.Context, validatePendingVersions bool) error {
 	if s.index == nil {
 		return s.rebuildDispatchIndex(ctx)
 	}
-	return s.validateDispatchIndex(ctx, validatePendingVersions)
+	return s.validateDispatchIndex(ctx, false)
+}
+
+func (s *DispatchTaskStore) ensureDispatchIndexForOutstandingQuery(ctx context.Context) error {
+	if s.index == nil {
+		return s.rebuildDispatchIndex(ctx)
+	}
+	return s.validateDispatchIndex(ctx, true)
 }
 
 func (s *DispatchTaskStore) rebuildDispatchIndex(ctx context.Context) error {
@@ -379,12 +393,7 @@ func (s *DispatchTaskStore) validateDispatchIndex(ctx context.Context, validateP
 	}
 	now := time.Now().UTC()
 	if !s.index.validatedAt.IsZero() && now.Sub(s.index.validatedAt) < dispatchIndexValidationWindow {
-		if validatePendingVersions {
-			if err := s.validatePendingRecordVersions(ctx); err != nil {
-				return err
-			}
-		}
-		return s.validateClaimRecordVersions(ctx)
+		return nil
 	}
 	if err := s.validateDispatchIndexIDs(ctx, dispatchPendingPrefix, s.index.pending); err != nil {
 		return err
@@ -697,7 +706,7 @@ func (s *DispatchTaskStore) CountOutstandingByQueue(ctx context.Context, queueNa
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := s.ensureDispatchIndexFor(ctx, true); err != nil {
+	if err := s.ensureDispatchIndexForOutstandingQuery(ctx); err != nil {
 		return 0, err
 	}
 	if err := s.recycleExpiredReservations(ctx); err != nil {
@@ -735,7 +744,7 @@ func (s *DispatchTaskStore) HasOutstandingAttempt(ctx context.Context, attemptKe
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := s.ensureDispatchIndexFor(ctx, true); err != nil {
+	if err := s.ensureDispatchIndexForOutstandingQuery(ctx); err != nil {
 		return false, err
 	}
 	if err := s.recycleExpiredReservations(ctx); err != nil {
