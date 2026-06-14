@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package eval
+package value
 
 import (
 	"context"
@@ -26,10 +26,11 @@ type Values map[string]any
 type StepOutputs map[string]Values
 
 type Scope struct {
-	Consts Values
-	Params Values
-	Env    Values
-	Steps  StepOutputs
+	Consts  Values
+	Params  Values
+	Env     Values
+	Steps   StepOutputs
+	StepMap map[string]StepInfo
 }
 
 // ValuesFromStrings converts string variables into binding values.

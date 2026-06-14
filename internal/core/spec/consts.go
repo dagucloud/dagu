@@ -11,13 +11,13 @@ import (
 	"regexp"
 	"strconv"
 
-	"github.com/dagucloud/dagu/internal/cmn/eval"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 )
 
 var constNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
 
-func buildConsts(_ BuildContext, d *dag) (map[string]any, error) {
+func buildConsts(ctx BuildContext, d *dag) (map[string]any, error) {
 	if d.Consts == nil {
 		return nil, nil
 	}
@@ -40,6 +40,9 @@ func buildConsts(_ BuildContext, d *dag) (map[string]any, error) {
 			return nil, core.NewValidationError("consts."+key, value, err)
 		}
 		resolved[key] = resolvedValue
+	}
+	if ctx.envScope != nil {
+		ctx.envScope.consts = resolved
 	}
 	return resolved, nil
 }
@@ -76,7 +79,7 @@ func constEntry(idx int, item any) (string, any, error) {
 func resolveConstValue(key string, value any, consts map[string]any) (any, error) {
 	switch v := value.(type) {
 	case string:
-		resolved, err := eval.ParseTemplate(v).Resolve(eval.Scope{Consts: eval.Values(consts)})
+		resolved, err := cmnvalue.ExpandString(v, cmnvalue.Scope{Consts: cmnvalue.Values(consts)}, cmnvalue.ModeConstLoad, "consts."+key)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve const %q: %w", key, err)
 		}

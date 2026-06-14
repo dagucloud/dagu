@@ -1,12 +1,12 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package eval_test
+package value_test
 
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/cmn/eval"
+	"github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -14,14 +14,14 @@ import (
 func TestTemplateCheckAndResolveReservedBindings(t *testing.T) {
 	t.Parallel()
 
-	tmpl := eval.ParseTemplate("deploy ${consts.service} ${params.environment} ${env.HOME} ${steps.build.outputs.image}")
+	tmpl := value.ParseTemplate("deploy ${consts.service} ${params.environment} ${env.HOME} ${steps.build.outputs.image}")
 
-	scope := eval.Scope{
-		Consts: eval.Values{"service": "api"},
-		Params: eval.Values{"environment": "prod"},
-		Env:    eval.Values{"HOME": "/workspace"},
-		Steps: eval.StepOutputs{
-			"build": eval.Values{"image": "repo/api:v1"},
+	scope := value.Scope{
+		Consts: value.Values{"service": "api"},
+		Params: value.Values{"environment": "prod"},
+		Env:    value.Values{"HOME": "/workspace"},
+		Steps: value.StepOutputs{
+			"build": value.Values{"image": "repo/api:v1"},
 		},
 	}
 
@@ -38,25 +38,25 @@ func TestTemplateCheckRejectsReservedBindingErrors(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
-		scope eval.Scope
+		scope value.Scope
 		want  string
 	}{
 		{
 			name:  "ReservedShorthand",
 			input: "echo $consts.service",
-			scope: eval.Scope{Consts: eval.Values{"service": "api"}},
+			scope: value.Scope{Consts: value.Values{"service": "api"}},
 			want:  "invalid binding shorthand",
 		},
 		{
 			name:  "MissingConst",
 			input: "echo ${consts.missing}",
-			scope: eval.Scope{Consts: eval.Values{"service": "api"}},
+			scope: value.Scope{Consts: value.Values{"service": "api"}},
 			want:  "unknown consts binding",
 		},
 		{
 			name:  "InvalidStepShape",
 			input: "echo ${steps.build.image}",
-			scope: eval.Scope{Steps: eval.StepOutputs{"build": eval.Values{"image": "repo/api:v1"}}},
+			scope: value.Scope{Steps: value.StepOutputs{"build": value.Values{"image": "repo/api:v1"}}},
 			want:  "steps bindings must use",
 		},
 	}
@@ -65,7 +65,7 @@ func TestTemplateCheckRejectsReservedBindingErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := eval.ParseTemplate(tt.input).Check(tt.scope)
+			err := value.ParseTemplate(tt.input).Check(tt.scope)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.want)
 		})
@@ -75,26 +75,27 @@ func TestTemplateCheckRejectsReservedBindingErrors(t *testing.T) {
 func TestTemplateLeavesLegacyReferencesForExistingEvaluator(t *testing.T) {
 	t.Parallel()
 
-	tmpl := eval.ParseTemplate("legacy ${DATA.image} and $DATA.tag")
-	require.NoError(t, tmpl.Check(eval.Scope{}))
+	tmpl := value.ParseTemplate("legacy ${DATA.image} and $DATA.tag")
+	require.NoError(t, tmpl.Check(value.Scope{}))
 
-	got, err := tmpl.Resolve(eval.Scope{})
+	got, err := tmpl.Resolve(value.Scope{})
 	require.NoError(t, err)
 	assert.Equal(t, "legacy ${DATA.image} and $DATA.tag", got)
 }
 
-func TestStringResolvesReservedBindingsWithScope(t *testing.T) {
+func TestExpandStringResolvesReservedBindingsWithScope(t *testing.T) {
 	t.Parallel()
 
-	got, err := eval.String(
-		t.Context(),
+	got, err := value.ExpandString(
 		"${consts.service} ${params.environment} ${env.HOME} ${steps.build.outputs.image}",
-		eval.WithBindingScope(eval.Scope{
-			Consts: eval.Values{"service": "api"},
-			Params: eval.Values{"environment": "prod"},
-			Env:    eval.Values{"HOME": "/workspace"},
-			Steps:  eval.StepOutputs{"build": eval.Values{"image": "repo/api:v1"}},
-		}),
+		value.Scope{
+			Consts: value.Values{"service": "api"},
+			Params: value.Values{"environment": "prod"},
+			Env:    value.Values{"HOME": "/workspace"},
+			Steps:  value.StepOutputs{"build": value.Values{"image": "repo/api:v1"}},
+		},
+		value.ModeWorkflowValue,
+		"run",
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "api prod /workspace repo/api:v1", got)

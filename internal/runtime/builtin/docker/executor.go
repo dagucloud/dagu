@@ -16,9 +16,9 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
-	"github.com/dagucloud/dagu/internal/cmn/eval"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/signal"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
@@ -526,7 +526,7 @@ func evalEnvSequentially(ctx context.Context, envs []string) ([]string, error) {
 			result = append(result, entry)
 			continue
 		}
-		val, err := runtime.EvalString(ctx, rawVal, eval.WithVariables(resolved))
+		val, err := runtime.EvalString(ctx, rawVal, cmnvalue.WithVariables(resolved))
 		if err != nil {
 			return nil, fmt.Errorf("env %s: %w", key, err)
 		}
@@ -541,9 +541,9 @@ func init() {
 		Command:          true,
 		MultipleCommands: true,
 		Container:        true,
-		GetCommandEvalOptions: func(ctx context.Context, step core.Step) []eval.Option {
+		GetCommandEvalOptions: func(ctx context.Context, step core.Step) []cmnvalue.Option {
 			if hasShellConfigured(ctx, step) {
-				return []eval.Option{eval.WithoutDollarEscape()}
+				return []cmnvalue.Option{cmnvalue.WithoutDollarEscape()}
 			}
 			return nil
 		},

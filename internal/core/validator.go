@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/dagucloud/dagu/internal/cmn/eval"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 )
 
 // Constants for validation limits.
@@ -101,17 +101,85 @@ func ValidateSteps(dag *DAG) error {
 
 func validateBindingReferences(dag *DAG) ErrorList {
 	var errs ErrorList
-	scope := dag.BindingScope()
-	for _, step := range dag.Steps {
-		for _, field := range collectStepReferenceStrings(step, func(value string) bool {
-			return strings.Contains(value, "$")
-		}) {
-			if err := eval.ParseTemplate(field.value).Check(scope); err != nil {
-				errs = append(errs, NewValidationError(field.field, field.value, err))
-			}
+	scope := dag.StaticValueScope()
+	graph := newValueReferenceGraph(dag)
+	for _, field := range ResolvableFields(dag) {
+		if !strings.Contains(field.Value, "$") {
+			continue
+		}
+		if err := cmnvalue.ValidateReferences(field.Value, scope, field.Mode, field.Path); err != nil {
+			errs = append(errs, NewValidationError(field.Path, field.Value, err))
+		}
+		for _, err := range graph.validateField(field, cmnvalue.ScanReferences(field.Value, field.Mode)) {
+			errs = append(errs, err)
 		}
 	}
 	return errs
+}
+
+type valueReferenceGraph struct {
+	dagType       string
+	stepByID      map[string]Step
+	stepByName    map[string]Step
+	stepIndexByID map[string]int
+}
+
+func newValueReferenceGraph(dag *DAG) valueReferenceGraph {
+	graph := valueReferenceGraph{
+		dagType:       dag.Type,
+		stepByID:      make(map[string]Step, len(dag.Steps)),
+		stepByName:    make(map[string]Step, len(dag.Steps)),
+		stepIndexByID: make(map[string]int, len(dag.Steps)),
+	}
+	for i, step := range dag.Steps {
+		if step.ID != "" {
+			graph.stepByID[step.ID] = step
+			graph.stepIndexByID[step.ID] = i
+		}
+		graph.stepByName[step.Name] = step
+	}
+	return graph
+}
+
+func (g valueReferenceGraph) validateField(field ResolvableField, refs []cmnvalue.Reference) ErrorList {
+	if field.OwnerKind != ResolvableOwnerStep || field.Handler != "" {
+		return nil
+	}
+	owner, ok := g.stepByName[field.OwnerStepName]
+	if !ok {
+		return nil
+	}
+
+	var errs ErrorList
+	for _, ref := range refs {
+		if ref.Kind != cmnvalue.ReferenceDagu || ref.Namespace != "steps" || len(ref.Segments) != 4 {
+			continue
+		}
+		target, ok := g.stepByID[ref.Segments[1]]
+		if !ok {
+			continue
+		}
+		if owner.ID == target.ID {
+			errs = append(errs, NewValidationError(field.Path, field.Value, fmt.Errorf("step %q cannot reference its own output %s", owner.Name, ref.Raw)))
+			continue
+		}
+		if g.hasDependencyPath(owner, target) {
+			continue
+		}
+		if !isUpstreamDependency(g.stepByName, owner.Name, target.Name) {
+			errs = append(errs, NewValidationError(field.Path, field.Value, fmt.Errorf("step %q references output from %q without a dependency path", owner.Name, target.Name)))
+		}
+	}
+	return errs
+}
+
+func (g valueReferenceGraph) hasDependencyPath(owner, target Step) bool {
+	if g.dagType != TypeChain || owner.ID == "" || target.ID == "" {
+		return false
+	}
+	ownerIndex, ownerOK := g.stepIndexByID[owner.ID]
+	targetIndex, targetOK := g.stepIndexByID[target.ID]
+	return ownerOK && targetOK && targetIndex < ownerIndex
 }
 
 // collectNamesAndIDs collects all step names and IDs, validating uniqueness and format.

@@ -31,8 +31,8 @@ func TestEvalConditions(t *testing.T) {
 		notConditionNotMet  bool // true if error should NOT be ErrConditionNotMet
 	}{
 		{
-			name:       "CommandSubstitution",
-			conditions: []*core.Condition{{Condition: "`echo 1`", Expected: "1"}},
+			name:       "ValueMatch",
+			conditions: []*core.Condition{{Condition: "1", Expected: "1"}},
 		},
 		{
 			name:       "EnvVar",
@@ -41,15 +41,15 @@ func TestEvalConditions(t *testing.T) {
 		{
 			name: "MultipleCond",
 			conditions: []*core.Condition{
-				{Condition: "`echo 1`", Expected: "1"},
-				{Condition: "`echo 100`", Expected: "100"},
+				{Condition: "1", Expected: "1"},
+				{Condition: "100", Expected: "100"},
 			},
 		},
 		{
 			name: "MultipleCondOneMet",
 			conditions: []*core.Condition{
-				{Condition: "`echo 1`", Expected: "1"},
-				{Condition: "`echo 100`", Expected: "1"},
+				{Condition: "1", Expected: "1"},
+				{Condition: "100", Expected: "1"},
 			},
 			wantErr:             true,
 			wantConditionNotMet: true,
@@ -84,7 +84,7 @@ func TestEvalConditions(t *testing.T) {
 		{
 			name: "NegateMatchingCondition",
 			conditions: []*core.Condition{
-				{Condition: "`echo success`", Expected: "success", Negate: true},
+				{Condition: "success", Expected: "success", Negate: true},
 			},
 			wantErr:             true,
 			wantConditionNotMet: true,
@@ -92,7 +92,7 @@ func TestEvalConditions(t *testing.T) {
 		{
 			name: "NegateNonMatchingCondition",
 			conditions: []*core.Condition{
-				{Condition: "`echo failure`", Expected: "success", Negate: true},
+				{Condition: "failure", Expected: "success", Negate: true},
 			},
 		},
 		{
@@ -128,7 +128,7 @@ func TestEvalConditions(t *testing.T) {
 			name: "EvalStringErrorNotSwallowed",
 			conditions: []*core.Condition{
 				{
-					Condition: "`/nonexistent_binary_xyz_123_456`",
+					Condition: "$env.BAD",
 					Expected:  "anything",
 					Negate:    true,
 				},

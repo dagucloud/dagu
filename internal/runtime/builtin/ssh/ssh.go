@@ -14,9 +14,9 @@ import (
 	"sync"
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
-	"github.com/dagucloud/dagu/internal/cmn/eval"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 	"golang.org/x/crypto/ssh"
@@ -242,21 +242,21 @@ func init() {
 		MultipleCommands: true,
 		Script:           true,
 		Shell:            true,
-		GetCommandEvalOptions: func(ctx context.Context, step core.Step) []eval.Option {
+		GetCommandEvalOptions: func(ctx context.Context, step core.Step) []cmnvalue.Option {
 			if hasShellConfigured(ctx, step) {
 				// Shell is configured, shell features (expansion, pipes, etc.) are supported
-				return []eval.Option{eval.WithoutDollarEscape()}
+				return []cmnvalue.Option{cmnvalue.WithoutDollarEscape()}
 			}
 			// No shell configured - skip shell expansion for remote execution
-			return []eval.Option{eval.WithoutExpandShell()}
+			return []cmnvalue.Option{cmnvalue.WithoutExpandShell()}
 		},
-		GetScriptEvalOptions: func(ctx context.Context, step core.Step) []eval.Option {
+		GetScriptEvalOptions: func(ctx context.Context, step core.Step) []cmnvalue.Option {
 			if hasShellConfigured(ctx, step) {
 				// Shell is configured, shell features (expansion, pipes, etc.) are supported
-				return []eval.Option{eval.WithoutDollarEscape()}
+				return []cmnvalue.Option{cmnvalue.WithoutDollarEscape()}
 			}
 			// No shell configured - skip shell expansion for remote execution
-			return []eval.Option{eval.WithoutExpandShell()}
+			return []cmnvalue.Option{cmnvalue.WithoutExpandShell()}
 		},
 	}
 	executor.RegisterExecutor("ssh", NewSSHExecutor, nil, caps)

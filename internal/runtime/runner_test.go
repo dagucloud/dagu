@@ -35,10 +35,6 @@ func windowsShellTest() bool {
 	return os.PathSeparator == '\\'
 }
 
-func shellSubstitution(command string) string {
-	return "`" + command + "`"
-}
-
 func trimmedCounterReadCommand(counterFile string) string {
 	if windowsShellTest() {
 		return fmt.Sprintf(
@@ -70,25 +66,8 @@ func fileMissingCommand(path string) string {
 	return fmt.Sprintf("test ! -f %s", test.PosixQuote(path))
 }
 
-func repeatCounterValueCondition(counterFile string) string {
-	if windowsShellTest() {
-		return shellSubstitution(fmt.Sprintf(
-			"if (Test-Path %s) { [System.IO.File]::ReadAllText(%s).TrimEnd([char]13,[char]10) } else { '' }",
-			test.PowerShellQuote(counterFile),
-			test.PowerShellQuote(counterFile),
-		))
-	}
-	return shellSubstitution(trimmedCounterReadCommand(counterFile))
-}
-
 func repeatExpectedCondition(counterFile, expected string) *core.Condition {
-	if windowsShellTest() {
-		return &core.Condition{Condition: repeatCounterEqualsCommand(counterFile, expected)}
-	}
-	return &core.Condition{
-		Condition: repeatCounterValueCondition(counterFile),
-		Expected:  expected,
-	}
+	return &core.Condition{Condition: repeatCounterEqualsCommand(counterFile, expected)}
 }
 
 func repeatConditionMutationTimeout() time.Duration {
@@ -471,7 +450,7 @@ func TestRunner(t *testing.T) {
 				withDepends("1"),
 				withCommand("false"),
 				withPrecondition(&core.Condition{
-					Condition: "`echo 1`",
+					Condition: "1",
 					Expected:  "0",
 				}),
 				withContinueOn(core.ContinueOn{

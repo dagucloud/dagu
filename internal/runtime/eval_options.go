@@ -5,7 +5,7 @@ package runtime
 
 import (
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
-	"github.com/dagucloud/dagu/internal/cmn/eval"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 )
 
 // CommandEvalOptions returns eval options for shell-backed command strings.
@@ -19,15 +19,15 @@ import (
 //   - Non-Unix (PowerShell, cmd.exe): do not understand ${VAR} syntax at all,
 //     so Dagu must expand variables on their behalf (ExpandEnv stays enabled).
 //   - direct / empty: no shell is involved; Dagu expands OS variables itself.
-func CommandEvalOptions(shell []string) []eval.Option {
+func CommandEvalOptions(shell []string) []cmnvalue.Option {
 	if len(shell) == 0 || shell[0] == "direct" {
-		return []eval.Option{eval.WithOSExpansion()}
+		return []cmnvalue.Option{cmnvalue.WithOSExpansion()}
 	}
 
-	opts := []eval.Option{eval.WithoutDollarEscape()}
+	opts := []cmnvalue.Option{cmnvalue.WithoutDollarEscape()}
 
 	if cmdutil.IsUnixLikeShell(shell[0]) || cmdutil.IsNixShell(shell[0]) {
-		opts = append(opts, eval.WithoutExpandEnv())
+		opts = append(opts, cmnvalue.WithoutExpandEnv())
 	}
 
 	return opts

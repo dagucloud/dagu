@@ -18,10 +18,10 @@ import (
 	"sync"
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
-	"github.com/dagucloud/dagu/internal/cmn/eval"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
@@ -443,11 +443,11 @@ func init() {
 		MultipleCommands: true,
 		Script:           true,
 		Shell:            true,
-		GetCommandEvalOptions: func(ctx context.Context, step core.Step) []eval.Option {
+		GetCommandEvalOptions: func(ctx context.Context, step core.Step) []cmnvalue.Option {
 			env := runtime.GetEnv(ctx)
 			return commandEvalOptions(env.Shell(ctx))
 		},
-		GetScriptEvalOptions: func(ctx context.Context, step core.Step) []eval.Option {
+		GetScriptEvalOptions: func(ctx context.Context, step core.Step) []cmnvalue.Option {
 			env := runtime.GetEnv(ctx)
 			return commandEvalOptions(env.Shell(ctx))
 		},
@@ -459,6 +459,6 @@ func init() {
 
 // commandEvalOptions keeps the command executor aligned with the shape of the
 // main branch while delegating the shared policy to runtime.
-func commandEvalOptions(shell []string) []eval.Option {
+func commandEvalOptions(shell []string) []cmnvalue.Option {
 	return runtime.CommandEvalOptions(shell)
 }

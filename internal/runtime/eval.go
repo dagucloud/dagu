@@ -13,21 +13,25 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/cmn/eval"
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 )
 
 // EvalString evaluates the given string with the variables within the execution context.
-func EvalString(ctx context.Context, s string, opts ...eval.Option) (string, error) {
+func EvalString(ctx context.Context, s string, opts ...cmnvalue.Option) (string, error) {
 	return GetEnv(ctx).EvalString(ctx, s, opts...)
+}
+
+func EvalStringMode(ctx context.Context, s string, mode cmnvalue.Mode, opts ...cmnvalue.Option) (string, error) {
+	return GetEnv(ctx).EvalStringMode(ctx, s, mode, opts...)
 }
 
 // EvalStepString evaluates a step-owned string field while preserving literal
 // backticks. Step fields are treated as data or downstream program input unless
 // they are explicit condition expressions evaluated elsewhere.
-func EvalStepString(ctx context.Context, s string, opts ...eval.Option) (string, error) {
-	options := make([]eval.Option, 0, len(opts)+1)
-	options = append(options, eval.WithoutSubstitute())
+func EvalStepString(ctx context.Context, s string, opts ...cmnvalue.Option) (string, error) {
+	options := make([]cmnvalue.Option, 0, len(opts)+1)
+	options = append(options, cmnvalue.WithoutSubstitute())
 	options = append(options, opts...)
 	return EvalString(ctx, s, options...)
 }
@@ -42,21 +46,22 @@ func EvalBool(ctx context.Context, value any) (bool, error) {
 // with the variables within the execution context.
 func EvalObject[T any](ctx context.Context, obj T) (T, error) {
 	env := GetEnv(ctx)
-	ctx = eval.WithEnvScope(ctx, env.Scope)
-	return eval.Object(ctx, obj, env.UserEnvsMap(), eval.WithBindingScope(env.bindingScope()), eval.WithStepMap(env.StepMap))
+	ctx = cmnvalue.WithEnvScope(ctx, env.Scope)
+	return cmnvalue.ExpandObjectContext(ctx, obj, env.valueScope(), cmnvalue.ModeWorkflowValue, "object")
 }
 
-func (e Env) bindingScope() eval.Scope {
-	scope := eval.Scope{}
+func (e Env) valueScope() cmnvalue.Scope {
+	scope := cmnvalue.Scope{}
 	if e.DAG != nil {
-		scope = e.DAG.BindingScope()
+		scope = e.DAG.StaticValueScope()
 	}
 	if e.Scope != nil {
-		scope.Env = eval.ValuesFromStrings(e.Scope.ToMap())
+		scope.Env = cmnvalue.ValuesFromStrings(e.Scope.ToMap())
 	}
+	scope.StepMap = e.StepMap
 	if len(e.StepMap) > 0 {
 		if scope.Steps == nil {
-			scope.Steps = make(eval.StepOutputs, len(e.StepMap))
+			scope.Steps = make(cmnvalue.StepOutputs, len(e.StepMap))
 		}
 		for stepID, info := range e.StepMap {
 			if info.Outputs == nil {
@@ -66,7 +71,7 @@ func (e Env) bindingScope() eval.Scope {
 			if err := json.Unmarshal([]byte(*info.Outputs), &outputs); err != nil {
 				continue
 			}
-			scope.Steps[stepID] = eval.Values(outputs)
+			scope.Steps[stepID] = cmnvalue.Values(outputs)
 		}
 	}
 	return scope

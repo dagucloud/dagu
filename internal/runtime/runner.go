@@ -17,9 +17,9 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
-	"github.com/dagucloud/dagu/internal/cmn/eval"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"go.opentelemetry.io/otel"
@@ -811,7 +811,7 @@ func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) con
 				)
 				continue
 			}
-			env.Scope = env.Scope.WithEntry(key, evaluatedValue, eval.EnvSourceStepEnv)
+			env.Scope = env.Scope.WithEntry(key, evaluatedValue, cmnvalue.EnvSourceStepEnv)
 		}
 	}
 
@@ -845,20 +845,20 @@ func (r *Runner) setupEnvironEventHandler(
 	env.Scope = env.Scope.WithEntry(
 		exec.EnvKeyDAGRunStatus,
 		r.Status(ctx, plan).String(),
-		eval.EnvSourceStepEnv,
+		cmnvalue.EnvSourceStepEnv,
 	)
 
 	// Copy extra env vars from existing scope that aren't already set
 	if existingEnv.Scope != nil {
-		for k, v := range existingEnv.Scope.AllBySource(eval.EnvSourceStepEnv) {
+		for k, v := range existingEnv.Scope.AllBySource(cmnvalue.EnvSourceStepEnv) {
 			if _, exists := env.Scope.Get(k); !exists {
-				env.Scope = env.Scope.WithEntry(k, v, eval.EnvSourceStepEnv)
+				env.Scope = env.Scope.WithEntry(k, v, cmnvalue.EnvSourceStepEnv)
 			}
 		}
 	}
 
 	for k, v := range extraEnvs {
-		env.Scope = env.Scope.WithEntry(k, v, eval.EnvSourceStepEnv)
+		env.Scope = env.Scope.WithEntry(k, v, cmnvalue.EnvSourceStepEnv)
 	}
 
 	// Load all output variables from all nodes

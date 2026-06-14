@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
-	"github.com/dagucloud/dagu/internal/cmn/eval"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/spec/types"
 	"github.com/go-viper/mapstructure/v2"
@@ -683,12 +683,12 @@ func (s *dagBuildState) validateSpecShape() {
 }
 
 func (s *dagBuildState) prepareParamEnvStage() {
-	baseScope := eval.NewEnvScope(nil, true)
+	baseScope := cmnvalue.NewEnvScope(nil, true)
 
 	buildEnv := make(map[string]string, len(s.ctx.opts.BuildEnv))
 	maps.Copy(buildEnv, s.ctx.opts.BuildEnv)
 	if len(buildEnv) > 0 {
-		baseScope = baseScope.WithEntries(buildEnv, eval.EnvSourceDotEnv)
+		baseScope = baseScope.WithEntries(buildEnv, cmnvalue.EnvSourceDotEnv)
 	}
 
 	s.ctx.envScope = &envScopeState{
@@ -1458,7 +1458,7 @@ func buildEnvs(ctx BuildContext, d *dag) ([]string, error) {
 	// Add vars to the shared envScope state so subsequent transformers can use it.
 	// This replaces the old pattern of using os.Setenv which caused race conditions.
 	if ctx.envScope != nil && len(vars) > 0 {
-		ctx.envScope.scope = ctx.envScope.scope.WithEntries(vars, eval.EnvSourceDAGEnv)
+		ctx.envScope.scope = ctx.envScope.scope.WithEntries(vars, cmnvalue.EnvSourceDAGEnv)
 		maps.Copy(ctx.envScope.buildEnv, vars)
 	}
 
@@ -1512,7 +1512,7 @@ func buildParams(ctx BuildContext, d *dag) ([]string, error) {
 				paramVars[k] = v
 			}
 		}
-		ctx.envScope.scope = ctx.envScope.scope.WithEntries(paramVars, eval.EnvSourceParam)
+		ctx.envScope.scope = ctx.envScope.scope.WithEntries(paramVars, cmnvalue.EnvSourceParam)
 	}
 	return result.Params, nil
 }

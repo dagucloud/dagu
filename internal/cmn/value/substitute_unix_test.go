@@ -3,7 +3,7 @@
 
 //go:build !windows
 
-package eval
+package value
 
 import (
 	"context"

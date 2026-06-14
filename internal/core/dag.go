@@ -17,8 +17,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/buildenv"
-	"github.com/dagucloud/dagu/internal/cmn/eval"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/joho/godotenv"
 	"github.com/robfig/cron/v3"
 )
@@ -538,7 +538,7 @@ func (d *DAG) loadDotEnvFiles(ctx context.Context) {
 	if evalCtx == nil {
 		evalCtx = context.Background()
 	}
-	evalCtx = eval.WithEnvScope(evalCtx, scope)
+	evalCtx = cmnvalue.WithEnvScope(evalCtx, scope)
 
 	workingDir := expandDotEnvPath(d.WorkingDir, scope)
 	relativeTos := []string{workingDir}
@@ -555,22 +555,22 @@ func (d *DAG) loadDotEnvFiles(ctx context.Context) {
 }
 
 // dotenvEnvScope builds the variable scope used to resolve dotenv search paths.
-func (d *DAG) dotenvEnvScope() *eval.EnvScope {
-	scope := eval.NewEnvScope(nil, true)
+func (d *DAG) dotenvEnvScope() *cmnvalue.EnvScope {
+	scope := cmnvalue.NewEnvScope(nil, true)
 	if params := buildenv.ToMap(d.Params); len(params) > 0 {
-		scope = scope.WithEntries(params, eval.EnvSourceParam)
+		scope = scope.WithEntries(params, cmnvalue.EnvSourceParam)
 	}
 	if len(d.PresolvedBuildEnv) > 0 {
-		scope = scope.WithEntries(d.PresolvedBuildEnv, eval.EnvSourcePresolved)
+		scope = scope.WithEntries(d.PresolvedBuildEnv, cmnvalue.EnvSourcePresolved)
 	}
 	if envs := buildenv.ToMap(d.Env); len(envs) > 0 {
-		scope = scope.WithEntries(envs, eval.EnvSourceDAGEnv)
+		scope = scope.WithEntries(envs, cmnvalue.EnvSourceDAGEnv)
 	}
 	return scope
 }
 
 // expandDotEnvPath expands a dotenv-related path without mutating the DAG definition.
-func expandDotEnvPath(path string, scope *eval.EnvScope) string {
+func expandDotEnvPath(path string, scope *cmnvalue.EnvScope) string {
 	if scope == nil {
 		return os.ExpandEnv(path)
 	}
@@ -583,7 +583,7 @@ func (d *DAG) loadSingleDotEnvFile(ctx context.Context, resolver *fileutil.FileR
 		return
 	}
 
-	evaluatedPath, err := eval.String(ctx, filePath, eval.WithOSExpansion())
+	evaluatedPath, err := cmnvalue.String(ctx, filePath, cmnvalue.WithOSExpansion())
 	if err != nil {
 		d.BuildWarnings = append(d.BuildWarnings, fmt.Sprintf("failed to evaluate dotenv path %q: %v", filePath, err))
 		return
@@ -656,16 +656,16 @@ func (d *DAG) ParamsMap() map[string]string {
 	return params
 }
 
-// BindingScope returns the statically known values and contracts available to
+// StaticValueScope returns the statically known values and contracts available to
 // Dagu-owned value references.
-func (d *DAG) BindingScope() eval.Scope {
+func (d *DAG) StaticValueScope() cmnvalue.Scope {
 	if d == nil {
-		return eval.Scope{}
+		return cmnvalue.Scope{}
 	}
-	scope := eval.Scope{
-		Consts: eval.Values(d.Consts),
-		Params: eval.ValuesFromStrings(d.ParamsMap()),
-		Steps:  make(eval.StepOutputs, len(d.Steps)),
+	scope := cmnvalue.Scope{
+		Consts: cmnvalue.Values(d.Consts),
+		Params: cmnvalue.ValuesFromStrings(d.ParamsMap()),
+		Steps:  make(cmnvalue.StepOutputs, len(d.Steps)),
 	}
 	for _, step := range d.Steps {
 		if step.ID == "" {
@@ -676,7 +676,7 @@ func (d *DAG) BindingScope() eval.Scope {
 		if !ok || len(contract.Keys) == 0 {
 			continue
 		}
-		outputs := make(eval.Values, len(contract.Keys))
+		outputs := make(cmnvalue.Values, len(contract.Keys))
 		for name := range contract.Keys {
 			outputs[name] = true
 		}

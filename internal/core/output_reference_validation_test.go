@@ -4,9 +4,9 @@
 package core
 
 import (
-	"strings"
 	"testing"
 
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -145,34 +145,45 @@ func TestPublishedOutputContractValidatePath(t *testing.T) {
 	})
 }
 
-func TestCollectOutputValueReferenceStringsDescendsTypedContainers(t *testing.T) {
+func TestScanStepOutputReferencesDescendsTypedContainersViaFieldWalker(t *testing.T) {
 	t.Parallel()
 
 	type collectedReference struct {
 		field string
-		ref   outputReference
+		ref   cmnvalue.StepOutputReference
 	}
 	var refs []collectedReference
-	collectOutputValueReferenceStrings("output.payload.value", []map[string]string{
-		{"z": "${build.output.zed}"},
-		{"a": "${build.output.alpha}"},
-	}, func(field, value string) {
-		for _, ref := range extractOutputReferences(value) {
-			refs = append(refs, collectedReference{field: field, ref: ref})
+	dag := &DAG{Steps: []Step{{
+		Name: "publish",
+		StructuredOutput: map[string]StepOutputEntry{
+			"payload": {
+				HasValue: true,
+				Value: []map[string]string{
+					{"z": "${build.output.zed}"},
+					{"a": "${build.output.alpha}"},
+				},
+			},
+		},
+	}}}
+	for _, field := range ResolvableFields(dag) {
+		for _, ref := range cmnvalue.ScanStepOutputReferences(field.Value) {
+			refs = append(refs, collectedReference{field: field.Path, ref: ref})
 		}
-	})
+	}
 
 	require.Len(t, refs, 2)
-	assert.Equal(t, "output.payload.value[0].z", refs[0].field)
+	assert.Equal(t, "steps[0].output.payload.value[0].z", refs[0].field)
 	assert.Equal(t, "zed", refs[0].ref.Path[0])
-	assert.Equal(t, "output.payload.value[1].a", refs[1].field)
+	assert.Equal(t, "steps[0].output.payload.value[1].a", refs[1].field)
 	assert.Equal(t, "alpha", refs[1].ref.Path[0])
 }
 
-func TestCollectStepReferenceStringsIncludesExecutorConfig(t *testing.T) {
+func TestResolvableFieldsIncludesExecutorConfig(t *testing.T) {
 	t.Parallel()
 
-	refs := collectStepReferenceStrings(Step{
+	var refs []ResolvableField
+	dag := &DAG{Steps: []Step{{
+		Name: "consumer",
 		ExecutorConfig: ExecutorConfig{
 			Config: map[string]any{
 				"endpoint": "https://example.com/${build.output.host}",
@@ -181,13 +192,16 @@ func TestCollectStepReferenceStringsIncludesExecutorConfig(t *testing.T) {
 				},
 			},
 		},
-	}, func(value string) bool {
-		return strings.Contains(value, ".output.")
-	})
+	}}}
+	for _, field := range ResolvableFields(dag) {
+		if len(cmnvalue.ScanStepOutputReferences(field.Value)) > 0 {
+			refs = append(refs, field)
+		}
+	}
 
 	require.Len(t, refs, 2)
-	assert.Equal(t, "with.endpoint", refs[0].field)
-	assert.Equal(t, "https://example.com/${build.output.host}", refs[0].value)
-	assert.Equal(t, "with.headers.authorization", refs[1].field)
-	assert.Equal(t, "Bearer ${build.output.token}", refs[1].value)
+	assert.Equal(t, "steps[0].with.endpoint", refs[0].Path)
+	assert.Equal(t, "https://example.com/${build.output.host}", refs[0].Value)
+	assert.Equal(t, "steps[0].with.headers.authorization", refs[1].Path)
+	assert.Equal(t, "Bearer ${build.output.token}", refs[1].Value)
 }

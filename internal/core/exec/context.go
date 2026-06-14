@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/config"
-	"github.com/dagucloud/dagu/internal/cmn/eval"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/dagstate"
 )
@@ -27,7 +27,7 @@ type Context struct {
 	DAG                *core.DAG
 	DB                 Database
 	BaseEnv            *config.BaseEnv
-	EnvScope           *eval.EnvScope // Unified environment scope - THE single source for all env vars
+	EnvScope           *cmnvalue.EnvScope // Unified environment scope - THE single source for all env vars
 	CoordinatorCli     Dispatcher
 	DAGRunStore        DAGRunStore
 	QueueStore         QueueStore
@@ -399,15 +399,15 @@ func NewContext(
 	// subprocesses stay isolated from arbitrary host env inherited by parent-
 	// spawned dagu start/retry/restart commands.
 	// Precedence (highest to lowest): Secrets > DAG Env > Params > BaseEnv
-	scope := eval.NewEnvScope(nil, false)
+	scope := cmnvalue.NewEnvScope(nil, false)
 	if baseEnv := config.GetBaseEnv(ctx); baseEnv != nil {
-		scope = scope.WithEntries(stringutil.KeyValuesToMap(baseEnv.AsSlice()), eval.EnvSourceOS)
+		scope = scope.WithEntries(stringutil.KeyValuesToMap(baseEnv.AsSlice()), cmnvalue.EnvSourceOS)
 	}
-	scope = scope.WithEntries(defaultEnvs, eval.EnvSourceDAGEnv)
-	scope = scope.WithEntries(defaultSecretEnvs, eval.EnvSourceSecret)
-	scope = scope.WithEntries(envs, eval.EnvSourceDAGEnv)
+	scope = scope.WithEntries(defaultEnvs, cmnvalue.EnvSourceDAGEnv)
+	scope = scope.WithEntries(defaultSecretEnvs, cmnvalue.EnvSourceSecret)
+	scope = scope.WithEntries(envs, cmnvalue.EnvSourceDAGEnv)
 	if len(secretEnvs) > 0 {
-		scope = scope.WithEntries(secretEnvs, eval.EnvSourceSecret)
+		scope = scope.WithEntries(secretEnvs, cmnvalue.EnvSourceSecret)
 	}
 
 	return context.WithValue(ctx, dagCtxKey{}, Context{
@@ -441,11 +441,11 @@ func evaluateDAGEnvRuntime(ctx context.Context, envList []string, base map[strin
 	// DAG env is primarily evaluated during DAG loading. This runtime pass only
 	// resolves values that depend on run-scoped variables unavailable at load time.
 	result := make(map[string]string, len(envList))
-	scope := eval.NewEnvScope(nil, false)
+	scope := cmnvalue.NewEnvScope(nil, false)
 	if baseEnv := config.GetBaseEnv(ctx); baseEnv != nil {
-		scope = scope.WithEntries(stringutil.KeyValuesToMap(baseEnv.AsSlice()), eval.EnvSourceOS)
+		scope = scope.WithEntries(stringutil.KeyValuesToMap(baseEnv.AsSlice()), cmnvalue.EnvSourceOS)
 	}
-	scope = scope.WithEntries(base, eval.EnvSourceDAGEnv)
+	scope = scope.WithEntries(base, cmnvalue.EnvSourceDAGEnv)
 
 	for _, entry := range envList {
 		key, value, found := strings.Cut(entry, "=")
@@ -456,13 +456,13 @@ func evaluateDAGEnvRuntime(ctx context.Context, envList []string, base map[strin
 			continue
 		}
 
-		evalCtx := eval.WithEnvScope(ctx, scope)
-		evaluated, err := eval.String(evalCtx, value, eval.WithVariables(result), eval.WithoutSubstitute())
+		evalCtx := cmnvalue.WithEnvScope(ctx, scope)
+		evaluated, err := cmnvalue.String(evalCtx, value, cmnvalue.WithVariables(result), cmnvalue.WithoutSubstitute())
 		if err != nil {
 			evaluated = value
 		}
 		result[key] = evaluated
-		scope = scope.WithEntry(key, evaluated, eval.EnvSourceDAGEnv)
+		scope = scope.WithEntry(key, evaluated, cmnvalue.EnvSourceDAGEnv)
 	}
 
 	return result

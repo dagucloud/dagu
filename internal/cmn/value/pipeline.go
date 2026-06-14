@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package eval
+package value
 
 import (
 	"context"
@@ -47,10 +47,6 @@ func (p *pipeline) execute(ctx context.Context, input string, opts *Options) (st
 var defaultPipeline = &pipeline{
 	phases: []phase{
 		{
-			name:    "bindings",
-			execute: expandBindings,
-		},
-		{
 			name:    "quoted-refs",
 			execute: expandQuotedRefs,
 		},
@@ -76,10 +72,6 @@ var defaultPipeline = &pipeline{
 			enabled: func(opts *Options) bool { return opts.EscapeDollar },
 		},
 	},
-}
-
-func expandBindings(_ context.Context, input string, opts *Options) (string, error) {
-	return ParseTemplate(input).Resolve(opts.Bindings)
 }
 
 // expandQuotedRefs handles quoted references like "${FOO.bar}" and "${VAR}" within
@@ -131,10 +123,6 @@ func evalStringValue(ctx context.Context, value string, opts *Options) (string, 
 		ctx, value = withDollarEscapes(ctx, value)
 	}
 	var err error
-	value, err = expandBindings(ctx, value, opts)
-	if err != nil {
-		return "", err
-	}
 	value = expandVariables(ctx, value, opts)
 	if opts.Substitute {
 		value, err = substituteCommandsWithContext(ctx, value)

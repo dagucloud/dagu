@@ -23,12 +23,12 @@ import (
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/internal/cmn/collections"
-	"github.com/dagucloud/dagu/internal/cmn/eval"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/cmn/signal"
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
@@ -593,7 +593,7 @@ func (n *Node) readStructuredOutputSource(ctx context.Context, key string, entry
 		}
 		return value, nil
 	case core.StepOutputSourceFile:
-		path, err := EvalString(ctx, entry.Path, eval.WithoutExpandShell(), eval.WithoutSubstitute())
+		path, err := EvalString(ctx, entry.Path, cmnvalue.WithoutExpandShell(), cmnvalue.WithoutSubstitute())
 		if err != nil {
 			return "", fmt.Errorf("%s: failed to evaluate file path: %w", key, err)
 		}
@@ -633,7 +633,7 @@ func decodeStructuredOutputValue(ctx context.Context, key, raw, selectPath, deco
 		return decoded, nil
 	}
 
-	selected, ok := eval.ResolveDataPath(ctx, key, decoded, selectPath)
+	selected, ok := cmnvalue.ResolveDataPath(ctx, key, decoded, selectPath)
 	if !ok {
 		return nil, fmt.Errorf("%s: failed to resolve select path %q", key, selectPath)
 	}
@@ -663,7 +663,7 @@ func (n *Node) evaluateStructuredLiteral(ctx context.Context, value any) (any, e
 	case nil:
 		return nil, nil
 	case string:
-		return EvalString(ctx, v, eval.WithoutExpandShell(), eval.WithoutSubstitute())
+		return EvalString(ctx, v, cmnvalue.WithoutExpandShell(), cmnvalue.WithoutSubstitute())
 	case []any:
 		result := make([]any, len(v))
 		for i, item := range v {
@@ -794,9 +794,9 @@ func (n *Node) setupExecutor(ctx context.Context) (executor.Executor, error) {
 	if script := n.Step().Script; script != "" {
 		opts := n.Step().ScriptEvalOptions(ctx)
 		if n.Step().ExecutorConfig.IsCommand() {
-			opts = append(opts, eval.OnlyReplaceVars())
+			opts = append(opts, cmnvalue.OnlyReplaceVars())
 		}
-		script, err := EvalString(ctx, script, opts...)
+		script, err := EvalStringMode(ctx, script, cmnvalue.ModeShellCommand, opts...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to eval script: %w", err)
 		}
@@ -832,12 +832,14 @@ func (n *Node) setupExecutor(ctx context.Context) (executor.Executor, error) {
 
 func evalExecutorConfig(ctx context.Context, step core.Step) (map[string]any, error) {
 	env := GetEnv(ctx)
-	ctx = eval.WithEnvScope(ctx, env.Scope)
-	opts := append([]eval.Option{eval.WithStepMap(env.StepMap)}, step.ConfigEvalOptions(ctx)...)
+	ctx = cmnvalue.WithEnvScope(ctx, env.Scope)
+	opts := append([]cmnvalue.Option{cmnvalue.WithStepMap(env.StepMap)}, step.ConfigEvalOptions(ctx)...)
 	if step.ExecutorConfig.Type == "template" {
-		return eval.Object(ctx, step.ExecutorConfig.Config, templateConfigEvalVariables(env), opts...)
+		opts = append(opts, cmnvalue.WithVariables(templateConfigEvalVariables(env)))
+		return cmnvalue.ExpandObjectContext(ctx, step.ExecutorConfig.Config, env.valueScope(), cmnvalue.ModeWorkflowValue, "with", opts...)
 	}
-	return eval.Object(ctx, step.ExecutorConfig.Config, env.UserEnvsMap(), opts...)
+	opts = append(opts, cmnvalue.WithVariables(env.UserEnvsMap()))
+	return cmnvalue.ExpandObjectContext(ctx, step.ExecutorConfig.Config, env.valueScope(), cmnvalue.ModeWorkflowValue, "with", opts...)
 }
 
 func (n *Node) configureSubDAGExecutor(cmd executor.Executor, subRuns []SubDAGRun) error {
@@ -890,7 +892,7 @@ func (n *Node) evaluateCommandArgs(ctx context.Context) error {
 		for i, cmdEntry := range step.Commands {
 			args := make([]string, len(cmdEntry.Args))
 			for j, arg := range cmdEntry.Args {
-				value, err := EvalString(ctx, arg, evalOptions...)
+				value, err := EvalStringMode(ctx, arg, cmnvalue.ModeDirectCommand, evalOptions...)
 				if err != nil {
 					return fmt.Errorf("failed to eval command args: %w", err)
 				}
@@ -900,7 +902,7 @@ func (n *Node) evaluateCommandArgs(ctx context.Context) error {
 			// Evaluate CmdWithArgs if present
 			cmdWithArgs := cmdEntry.CmdWithArgs
 			if cmdWithArgs != "" {
-				evaluated, err := EvalString(ctx, cmdWithArgs, evalOptions...)
+				evaluated, err := EvalStringMode(ctx, cmdWithArgs, cmnvalue.ModeShellCommand, evalOptions...)
 				if err != nil {
 					return fmt.Errorf("failed to eval command with args: %w", err)
 				}
@@ -995,9 +997,9 @@ func (n *Node) SetupEnv(ctx context.Context) context.Context {
 	defer n.mu.RUnlock()
 	env := GetEnv(ctx)
 	env.Scope = env.Scope.WithEntry(
-		exec.EnvKeyDAGRunStepStdoutFile, n.GetStdout(), eval.EnvSourceStepEnv,
+		exec.EnvKeyDAGRunStepStdoutFile, n.GetStdout(), cmnvalue.EnvSourceStepEnv,
 	).WithEntry(
-		exec.EnvKeyDAGRunStepStderrFile, n.GetStderr(), eval.EnvSourceStepEnv,
+		exec.EnvKeyDAGRunStepStderrFile, n.GetStderr(), cmnvalue.EnvSourceStepEnv,
 	)
 	ctx = logger.WithValues(ctx, tag.Step(n.Name()))
 	return WithEnv(ctx, env)
@@ -1227,7 +1229,7 @@ func (n *Node) BuildSubDAGRuns(ctx context.Context, subDAG *core.SubDAG) ([]SubD
 			"ITEM": param,
 		}
 
-		dagName, err := EvalStepString(ctx, subDAG.Name, eval.WithVariables(variables))
+		dagName, err := EvalStepString(ctx, subDAG.Name, cmnvalue.WithVariables(variables))
 		if err != nil {
 			return nil, fmt.Errorf("failed to eval sub dag name: %w", err)
 		}
@@ -1236,7 +1238,7 @@ func (n *Node) BuildSubDAGRuns(ctx context.Context, subDAG *core.SubDAG) ([]SubD
 		finalParams := param
 		if subDAG.Params != "" {
 			params := subDAG.Params
-			evaluatedStepParams, err := EvalStepString(ctx, params, eval.WithVariables(variables))
+			evaluatedStepParams, err := EvalStepString(ctx, params, cmnvalue.WithVariables(variables))
 			if err != nil {
 				return nil, fmt.Errorf("failed to eval step params: %w", err)
 			}
@@ -1326,7 +1328,7 @@ func (n *Node) setupRetryPolicy(ctx context.Context) error {
 	// Evaluate the configuration if it's configured as a string
 	// e.g. environment variable or command substitution
 	if step.RetryPolicy.LimitStr != "" {
-		v, err := eval.IntString(ctx, step.RetryPolicy.LimitStr, eval.WithOSExpansion())
+		v, err := cmnvalue.IntString(ctx, step.RetryPolicy.LimitStr, cmnvalue.WithOSExpansion())
 		if err != nil {
 			return fmt.Errorf("failed to substitute retry limit %q: %w", step.RetryPolicy.LimitStr, err)
 		}
@@ -1335,7 +1337,7 @@ func (n *Node) setupRetryPolicy(ctx context.Context) error {
 	}
 
 	if step.RetryPolicy.IntervalSecStr != "" {
-		v, err := eval.IntString(ctx, step.RetryPolicy.IntervalSecStr, eval.WithOSExpansion())
+		v, err := cmnvalue.IntString(ctx, step.RetryPolicy.IntervalSecStr, cmnvalue.WithOSExpansion())
 		if err != nil {
 			return fmt.Errorf("failed to substitute retry interval %q: %w", step.RetryPolicy.IntervalSecStr, err)
 		}
@@ -1364,7 +1366,7 @@ func (n *Node) setupRepeatPolicy(ctx context.Context) error {
 	rp := step.RepeatPolicy
 
 	if rp.LimitStr != "" {
-		v, err := eval.IntString(ctx, rp.LimitStr, eval.WithOSExpansion())
+		v, err := cmnvalue.IntString(ctx, rp.LimitStr, cmnvalue.WithOSExpansion())
 		if err != nil {
 			return fmt.Errorf("failed to substitute repeat limit %q: %w", rp.LimitStr, err)
 		}
@@ -1372,7 +1374,7 @@ func (n *Node) setupRepeatPolicy(ctx context.Context) error {
 	}
 
 	if rp.IntervalStr != "" {
-		v, err := eval.IntString(ctx, rp.IntervalStr, eval.WithOSExpansion())
+		v, err := cmnvalue.IntString(ctx, rp.IntervalStr, cmnvalue.WithOSExpansion())
 		if err != nil {
 			return fmt.Errorf("failed to substitute repeat interval %q: %w", rp.IntervalStr, err)
 		}
@@ -1380,7 +1382,7 @@ func (n *Node) setupRepeatPolicy(ctx context.Context) error {
 	}
 
 	if rp.MaxIntervalStr != "" {
-		v, err := eval.IntString(ctx, rp.MaxIntervalStr, eval.WithOSExpansion())
+		v, err := cmnvalue.IntString(ctx, rp.MaxIntervalStr, cmnvalue.WithOSExpansion())
 		if err != nil {
 			return fmt.Errorf("failed to substitute repeat max_interval %q: %w", rp.MaxIntervalStr, err)
 		}

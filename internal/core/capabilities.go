@@ -7,7 +7,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/dagucloud/dagu/internal/cmn/eval"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 )
 
 // ExecutorCapabilities defines what an executor can do.
@@ -33,16 +33,16 @@ type ExecutorCapabilities struct {
 	// GetCommandEvalOptions returns eval options for command field evaluation.
 	// Step command fields disable backtick substitution by default; this hook
 	// lets executors refine the remaining evaluation behavior.
-	GetCommandEvalOptions func(ctx context.Context, step Step) []eval.Option
+	GetCommandEvalOptions func(ctx context.Context, step Step) []cmnvalue.Option
 	// GetScriptEvalOptions returns eval options for script field evaluation.
 	// Step script fields disable backtick substitution by default.
-	GetScriptEvalOptions func(ctx context.Context, step Step) []eval.Option
+	GetScriptEvalOptions func(ctx context.Context, step Step) []cmnvalue.Option
 	// GetConfigEvalOptions returns eval options for executor config evaluation.
 	// Step config fields disable backtick substitution by default.
-	GetConfigEvalOptions func(ctx context.Context, step Step) []eval.Option
+	GetConfigEvalOptions func(ctx context.Context, step Step) []cmnvalue.Option
 	// GetEvalOptions is the legacy shared hook for command/script evaluation.
 	// Deprecated: prefer the field-specific hooks above.
-	GetEvalOptions func(ctx context.Context, step Step) []eval.Option
+	GetEvalOptions func(ctx context.Context, step Step) []cmnvalue.Option
 }
 
 // executorCapabilitiesRegistry is a typed registry of executor capabilities.
@@ -136,11 +136,11 @@ func SupportsAgent(executorType string) bool {
 	return executorCapabilities.Get(executorType).Agent
 }
 
-func appendEvalOptions(base []eval.Option, extra []eval.Option) []eval.Option {
+func appendEvalOptions(base []cmnvalue.Option, extra []cmnvalue.Option) []cmnvalue.Option {
 	if len(extra) == 0 {
 		return base
 	}
-	opts := make([]eval.Option, 0, len(base)+len(extra))
+	opts := make([]cmnvalue.Option, 0, len(base)+len(extra))
 	opts = append(opts, base...)
 	opts = append(opts, extra...)
 	return opts
@@ -148,9 +148,9 @@ func appendEvalOptions(base []eval.Option, extra []eval.Option) []eval.Option {
 
 // CommandEvalOptions returns eval options for the step command field.
 // Step command fields disable backtick substitution by default.
-func (s Step) CommandEvalOptions(ctx context.Context) []eval.Option {
+func (s Step) CommandEvalOptions(ctx context.Context) []cmnvalue.Option {
 	caps := executorCapabilities.Get(s.ExecutorConfig.Type)
-	base := []eval.Option{eval.WithoutSubstitute()}
+	base := []cmnvalue.Option{cmnvalue.WithoutSubstitute()}
 	switch {
 	case caps.GetCommandEvalOptions != nil:
 		return appendEvalOptions(base, caps.GetCommandEvalOptions(ctx, s))
@@ -163,9 +163,9 @@ func (s Step) CommandEvalOptions(ctx context.Context) []eval.Option {
 
 // ScriptEvalOptions returns eval options for the step script field.
 // Step script fields disable backtick substitution by default.
-func (s Step) ScriptEvalOptions(ctx context.Context) []eval.Option {
+func (s Step) ScriptEvalOptions(ctx context.Context) []cmnvalue.Option {
 	caps := executorCapabilities.Get(s.ExecutorConfig.Type)
-	base := []eval.Option{eval.WithoutSubstitute()}
+	base := []cmnvalue.Option{cmnvalue.WithoutSubstitute()}
 	switch {
 	case caps.GetScriptEvalOptions != nil:
 		return appendEvalOptions(base, caps.GetScriptEvalOptions(ctx, s))
@@ -180,9 +180,9 @@ func (s Step) ScriptEvalOptions(ctx context.Context) []eval.Option {
 
 // ConfigEvalOptions returns eval options for the executor config fields.
 // Step config fields disable backtick substitution by default.
-func (s Step) ConfigEvalOptions(ctx context.Context) []eval.Option {
+func (s Step) ConfigEvalOptions(ctx context.Context) []cmnvalue.Option {
 	caps := executorCapabilities.Get(s.ExecutorConfig.Type)
-	base := []eval.Option{eval.WithoutSubstitute()}
+	base := []cmnvalue.Option{cmnvalue.WithoutSubstitute()}
 	if caps.GetConfigEvalOptions != nil {
 		return appendEvalOptions(base, caps.GetConfigEvalOptions(ctx, s))
 	}
@@ -191,6 +191,6 @@ func (s Step) ConfigEvalOptions(ctx context.Context) []eval.Option {
 
 // EvalOptions returns eval options for this step's executor type command field.
 // Deprecated: use CommandEvalOptions, ScriptEvalOptions, or ConfigEvalOptions.
-func (s Step) EvalOptions(ctx context.Context) []eval.Option {
+func (s Step) EvalOptions(ctx context.Context) []cmnvalue.Option {
 	return s.CommandEvalOptions(ctx)
 }
