@@ -139,6 +139,28 @@ func TestResolverCommandScriptFieldDefersScopeVarsAndExpandsStepRefs(t *testing.
 	assert.Equal(t, "echo $SCRIPT_VALUE ready", got)
 }
 
+func TestResolverPowerShellCommandFieldPreservesEnvMemberAccess(t *testing.T) {
+	ctx := context.Background()
+	scope := value.NewEnvScope(nil, false).
+		WithEntry("DEV_PCENT", "90", value.EnvSourceDAGEnv).
+		WithEntry("DEV_ALERT", "80", value.EnvSourceDAGEnv)
+	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{Env: scope})
+	command := value.CommandContext{
+		Target:          value.CommandTargetLocal,
+		Shell:           []string{"powershell"},
+		ShellConfigured: true,
+	}
+
+	got, err := resolver.String(
+		ctx,
+		"if ([int]($env:DEV_PCENT) -ge [int]($env:DEV_ALERT)) { exit 0 } else { exit 1 }",
+		value.ConditionCommandField("preconditions[0].condition", command),
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, "if ([int]($env:DEV_PCENT) -ge [int]($env:DEV_ALERT)) { exit 0 } else { exit 1 }", got)
+}
+
 func TestResolverHostConfigObjectUsesScopedEnvWithoutOSFallback(t *testing.T) {
 	type config struct {
 		Name string

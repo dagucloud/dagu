@@ -8,8 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
-	"slices"
+	"strings"
 
+	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
@@ -123,9 +124,7 @@ func evalCommand(ctx context.Context, shell []string, c *core.Condition) error {
 func runShellCommand(ctx context.Context, shell []string, commandToRun string) error {
 	args := make([]string, len(shell)-1)
 	copy(args, shell[1:])
-	if !slices.Contains(args, "-c") {
-		args = append(args, "-c")
-	}
+	args = appendShellCommandFlag(shell[0], args)
 	args = append(args, commandToRun)
 	cmd := exec.CommandContext(ctx, shell[0], args...) // nolint:gosec
 	cmd.Env = append(cmd.Env, AllEnvs(ctx)...)
@@ -134,6 +133,37 @@ func runShellCommand(ctx context.Context, shell []string, commandToRun string) e
 		return fmt.Errorf("%w: %s", ErrConditionNotMet, err)
 	}
 	return nil
+}
+
+func appendShellCommandFlag(shell string, args []string) []string {
+	if hasShellCommandFlag(shell, args) {
+		return args
+	}
+	return append(args, cmdutil.ShellCommandFlag(shell))
+}
+
+func hasShellCommandFlag(shell string, args []string) bool {
+	for _, arg := range args {
+		switch {
+		case cmdutil.IsPowerShell(shell):
+			if strings.EqualFold(arg, "-Command") || strings.EqualFold(arg, "-C") {
+				return true
+			}
+		case cmdutil.IsCmdShell(shell):
+			if strings.EqualFold(arg, "/c") {
+				return true
+			}
+		case cmdutil.IsNixShell(shell):
+			if arg == "--run" {
+				return true
+			}
+		default:
+			if arg == "-c" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func runDirectCommand(ctx context.Context, commandToRun string) error {

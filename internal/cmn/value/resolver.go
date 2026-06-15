@@ -273,7 +273,7 @@ func localCommandPolicyOptions(command CommandContext) []option {
 		return []option{withOSExpansion()}
 	}
 	opts := []option{withoutDollarEscape()}
-	if cmdutil.IsUnixLikeShell(shell[0]) || cmdutil.IsNixShell(shell[0]) {
+	if cmdutil.IsUnixLikeShell(shell[0]) || cmdutil.IsNixShell(shell[0]) || cmdutil.IsPowerShell(shell[0]) {
 		opts = append(opts, withoutExpandEnv())
 	}
 	return opts

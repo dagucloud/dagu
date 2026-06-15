@@ -206,6 +206,67 @@ func TestEvalConditions_ShellWithDuplicateCFlag(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestAppendShellCommandFlagUsesShellSpecificFlag(t *testing.T) {
+	tests := []struct {
+		name  string
+		shell string
+		args  []string
+		want  []string
+	}{
+		{
+			name:  "unix",
+			shell: "sh",
+			want:  []string{"-c"},
+		},
+		{
+			name:  "unix existing",
+			shell: "bash",
+			args:  []string{"-e", "-c"},
+			want:  []string{"-e", "-c"},
+		},
+		{
+			name:  "powershell",
+			shell: "powershell",
+			want:  []string{"-Command"},
+		},
+		{
+			name:  "powershell existing",
+			shell: "pwsh",
+			args:  []string{"-NoProfile", "-C"},
+			want:  []string{"-NoProfile", "-C"},
+		},
+		{
+			name:  "cmd",
+			shell: "cmd.exe",
+			want:  []string{"/c"},
+		},
+		{
+			name:  "cmd existing",
+			shell: "cmd",
+			args:  []string{"/d", "/C"},
+			want:  []string{"/d", "/C"},
+		},
+		{
+			name:  "nix",
+			shell: "nix-shell",
+			want:  []string{"--run"},
+		},
+		{
+			name:  "nix existing",
+			shell: "nix-shell",
+			args:  []string{"--pure", "--run"},
+			want:  []string{"--pure", "--run"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := runtime.AppendShellCommandFlag(tt.shell, tt.args)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestEvalConditions_NilShell(t *testing.T) {
 	ctx := newTestContext()
 	// With nil shell, OnlyReplaceVars should still be applied and
