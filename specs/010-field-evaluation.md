@@ -56,7 +56,7 @@ The value-resolution field list is defined by the value resolution spec. If this
 | `params[].eval` | Dynamic-evaluated | Before any step starts | Used only when the caller did not provide that parameter. Runs command substitution in forms allowed by the dynamic evaluation spec. |
 | Root `env` values | Value-resolved | DAG load or run setup | Dagu resolves Dagu references. It does not run command substitution. |
 | `dotenv` paths | Value-resolved | Before loading the dotenv file | Dagu resolves the path. It does not run command substitution. |
-| Step `run` | Value-resolved | Step start | Dagu resolves Dagu-owned references, then hands the command string to the target shell. Dagu does not resolve shell syntax such as `$NAME`, `${NAME}`, `$()`, or backticks in this field. The shell owns any later resolution or execution. |
+| Step `run` | Value-resolved | Step start | Dagu resolves Dagu-owned references, then starts the command-form or script-form `run` as defined by the step run specs. Dagu does not resolve shell syntax such as `$NAME`, `${NAME}`, `$()`, or backticks in this field. The selected shell or script interpreter owns any later resolution or execution. |
 | Step `env` values | Value-resolved | Step start | Dagu resolves Dagu references. It does not run command substitution. |
 | Executor `with` fields | Value-resolved | Step start | Dagu resolves Dagu references in nested string values. It does not run command substitution. |
 | Step object-form `output` string leaves | Value-resolved | Output publication | For string values inside step `output: {...}`, Dagu resolves Dagu references. It does not run dynamic evaluation or shell expansion. |
@@ -71,9 +71,9 @@ Dagu command substitution is intentionally narrow.
 - Outside `params[].eval`, Dagu leaves backtick text and `$()` text unchanged.
 - The presence of `$()` or backticks outside `params[].eval` is not a validation error by itself.
 
-For step `run`, this means Dagu leaves shell syntax such as `$NAME`, `${NAME}`, `$()`, and backticks in the command string. After that, the shell receives the command and owns interpretation of that syntax. That shell behavior is not Dagu field evaluation.
+For step `run`, this means Dagu leaves shell syntax such as `$NAME`, `${NAME}`, `$()`, and backticks in the resolved run text. After that, the selected shell or script interpreter owns interpretation of that syntax. That behavior is not Dagu field evaluation.
 
-The same rule applies to each command string produced by compatibility array-item normalization.
+The same rule applies to each array-form `run` entry.
 
 ## Parameter evaluation
 
@@ -105,7 +105,7 @@ If the command in `eval` succeeds, `${params.build_date}` uses the command outpu
 
 ## Step `run`
 
-Step `run` is value-resolved by Dagu and then executed by the shell.
+Step `run` is value-resolved by Dagu and then started according to the step run specs.
 
 ```yaml
 params:
@@ -127,7 +127,7 @@ steps:
     run: echo "$HOME ${HOME}"
 ```
 
-Dagu passes `echo "$HOME ${HOME}"` to the shell. The shell owns expansion of `$HOME` and `${HOME}`.
+Dagu leaves `echo "$HOME ${HOME}"` in the resolved run text. The selected shell owns expansion of `$HOME` and `${HOME}`.
 
 Dagu does not execute this command substitution:
 
@@ -137,7 +137,7 @@ steps:
     run: echo $(date)
 ```
 
-Dagu passes `echo $(date)` to the shell. The shell owns execution of `$(date)`.
+Dagu leaves `echo $(date)` in the resolved run text. The selected shell owns execution of `$(date)`.
 
 ## Step object-form `output`
 
