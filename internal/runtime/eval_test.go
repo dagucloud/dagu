@@ -77,7 +77,7 @@ func TestEvalString(t *testing.T) {
 	}
 }
 
-func TestEvalStringResolvesReservedBindings(t *testing.T) {
+func TestEvalStringResolvesConstsOnlyReservedBinding(t *testing.T) {
 	t.Parallel()
 
 	ctx := runtime.NewContext(context.Background(), &core.DAG{
@@ -99,7 +99,7 @@ func TestEvalStringResolvesReservedBindings(t *testing.T) {
 
 	got, err := runtime.EvalString(ctx, "${consts.service} ${params.environment} ${env.HOME} ${steps.build.outputs.image}")
 	require.NoError(t, err)
-	assert.Equal(t, "api prod workspace repo/api:v1", got)
+	assert.Equal(t, "api ${params.environment} ${env.HOME} ${steps.build.outputs.image}", got)
 }
 
 func TestEvalStringPreservesBacktickSubstitution(t *testing.T) {
@@ -127,7 +127,7 @@ func TestEvalStringModeDirectCommandUsesHostOnlyEnvFallback(t *testing.T) {
 	assert.Equal(t, "from-scope:from-os", got)
 }
 
-func TestEvalStringDoesNotResolveStepOutputContractAsRuntimeValue(t *testing.T) {
+func TestEvalStringPreservesStepsNamespaceAsFutureBinding(t *testing.T) {
 	t.Parallel()
 
 	ctx := runtime.NewContext(context.Background(), &core.DAG{
@@ -145,9 +145,9 @@ func TestEvalStringDoesNotResolveStepOutputContractAsRuntimeValue(t *testing.T) 
 	env := runtime.NewEnv(ctx, core.Step{Name: "test-step"})
 	ctx = runtime.WithEnv(ctx, env)
 
-	_, err := runtime.EvalString(ctx, "${steps.build.outputs.image}")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), `unknown steps binding`)
+	got, err := runtime.EvalString(ctx, "${steps.build.outputs.image}")
+	require.NoError(t, err)
+	assert.Equal(t, "${steps.build.outputs.image}", got)
 }
 
 func TestEvalBool(t *testing.T) {

@@ -6,7 +6,6 @@ package runtime
 import (
 	"context"
 	"crypto/rand"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"strconv"
@@ -54,27 +53,8 @@ func (e Env) valueScope() cmnvalue.RuntimeScope {
 	scope := cmnvalue.RuntimeScope{}
 	if e.DAG != nil {
 		scope.Consts = cmnvalue.Values(e.DAG.Consts)
-		scope.Params = cmnvalue.ValuesFromStrings(e.DAG.ParamsMap())
-	}
-	if e.Scope != nil {
-		scope.Env = cmnvalue.ValuesFromStrings(e.Scope.ToMap())
 	}
 	scope.StepMap = e.StepMap
-	if len(e.StepMap) > 0 {
-		if scope.Steps == nil {
-			scope.Steps = make(cmnvalue.StepOutputs, len(e.StepMap))
-		}
-		for stepID, info := range e.StepMap {
-			if info.Outputs == nil {
-				continue
-			}
-			var outputs map[string]any
-			if err := json.Unmarshal([]byte(*info.Outputs), &outputs); err != nil {
-				continue
-			}
-			scope.Steps[stepID] = cmnvalue.Values(outputs)
-		}
-	}
 	return scope
 }
 

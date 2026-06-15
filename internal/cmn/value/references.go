@@ -197,11 +197,15 @@ func ValidateReferences(raw string, staticScope StaticScope, mode Mode, field st
 	refs := ScanReferences(raw)
 	var errs []string
 	for _, ref := range refs {
+		if mode == ModeConstLoad && ref.Braced && runtimeBindingNamespace(ref.Namespace) {
+			errs = append(errs, fmt.Sprintf("%s is not available while loading consts", ref.Raw))
+			continue
+		}
 		switch ref.Kind {
 		case ReferenceInvalid:
 			errs = append(errs, ref.Err.Error())
 		case ReferenceStrict:
-			if err := validateStrictReference(ref, staticScope, mode); err != nil {
+			if err := validateStrictReference(ref, staticScope); err != nil {
 				errs = append(errs, err.Error())
 			}
 		}
@@ -215,19 +219,18 @@ func ValidateReferences(raw string, staticScope StaticScope, mode Mode, field st
 	return fmt.Errorf("%s", strings.Join(errs, "; "))
 }
 
-func validateStrictReference(ref Reference, scope StaticScope, mode Mode) error {
-	if mode == ModeConstLoad && ref.Namespace != "consts" {
-		return fmt.Errorf("%s is not available while loading consts", ref.Raw)
+func runtimeBindingNamespace(namespace string) bool {
+	switch namespace {
+	case "params", "env", "steps":
+		return true
+	default:
+		return false
 	}
-	switch ref.Namespace {
-	case "consts":
+}
+
+func validateStrictReference(ref Reference, scope StaticScope) error {
+	if ref.Namespace == "consts" {
 		return validateMapReference(ref, "consts", scope.Consts)
-	case "params":
-		return validateMapReference(ref, "params", scope.Params)
-	case "env":
-		return validateEnvReference(ref)
-	case "steps":
-		return validateStepReference(ref, scope)
 	}
 	return nil
 }
@@ -242,30 +245,6 @@ func validateMapReference(ref Reference, namespace string, values Values) error 
 	return nil
 }
 
-func validateEnvReference(ref Reference) error {
-	if len(ref.Segments) != 2 {
-		return validateBindingSegments(ref.Segments)
-	}
-	return nil
-}
-
-func validateStepReference(ref Reference, scope StaticScope) error {
-	if err := validateBindingSegments(ref.Segments); err != nil {
-		return err
-	}
-	if scope.Steps == nil {
-		return fmt.Errorf("unknown steps reference %s", ref.Raw)
-	}
-	outputs, ok := scope.Steps[ref.Segments[1]]
-	if !ok {
-		return fmt.Errorf("unknown step %q in %s", ref.Segments[1], ref.Raw)
-	}
-	if _, ok := outputs[ref.Segments[3]]; !ok {
-		return fmt.Errorf("unknown output %q in %s", ref.Segments[3], ref.Raw)
-	}
-	return nil
-}
-
 // ExpandString expands a value without a caller context.
 func ExpandString(raw string, runtimeScope RuntimeScope, mode Mode, field string) (string, error) {
 	return ExpandStringContext(context.Background(), raw, runtimeScope, mode, field)
@@ -275,6 +254,9 @@ func ExpandString(raw string, runtimeScope RuntimeScope, mode Mode, field string
 func ExpandStringContext(ctx context.Context, raw string, runtimeScope RuntimeScope, mode Mode, field string, opts ...Option) (string, error) {
 	if raw == "" {
 		return "", nil
+	}
+	if err := ValidateReferences(raw, StaticScope{Consts: runtimeScope.Consts}, mode, field); err != nil {
+		return "", err
 	}
 	resolved, err := resolveBindings(raw, runtimeScope)
 	if err != nil {

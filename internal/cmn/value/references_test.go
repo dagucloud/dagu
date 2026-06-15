@@ -14,18 +14,20 @@ import (
 func TestScanReferencesClassifiesReservedAndEvalRefs(t *testing.T) {
 	t.Parallel()
 
-	refs := value.ScanReferences("${consts.service} $env.FOO ${DATA.image} $DATA.tag")
+	refs := value.ScanReferences("${consts.service} $consts.service $env.FOO ${DATA.image} $DATA.tag")
 
-	require.Len(t, refs, 4)
+	require.Len(t, refs, 5)
 	assert.Equal(t, value.ReferenceStrict, refs[0].Kind)
 	assert.Equal(t, "consts", refs[0].Namespace)
 	assert.True(t, refs[0].Braced)
 	assert.Equal(t, value.ReferenceInvalid, refs[1].Kind)
 	assert.Contains(t, refs[1].Err.Error(), "invalid binding shorthand")
 	assert.Equal(t, value.ReferenceEval, refs[2].Kind)
-	assert.True(t, refs[2].Braced)
+	assert.False(t, refs[2].Braced)
 	assert.Equal(t, value.ReferenceEval, refs[3].Kind)
-	assert.False(t, refs[3].Braced)
+	assert.True(t, refs[3].Braced)
+	assert.Equal(t, value.ReferenceEval, refs[4].Kind)
+	assert.False(t, refs[4].Braced)
 }
 
 func TestModeString(t *testing.T) {
@@ -80,9 +82,6 @@ func TestValidateReferencesModeMatrix(t *testing.T) {
 
 	scope := value.StaticScope{
 		Consts: value.Values{"service": "api"},
-		Params: value.Values{"environment": "prod"},
-		Env:    value.Values{"HOME": "/workspace"},
-		Steps:  value.StepOutputContracts{"build": value.StepOutputNames{"image": {}}},
 	}
 
 	tests := []struct {
@@ -97,14 +96,14 @@ func TestValidateReferencesModeMatrix(t *testing.T) {
 			mode: value.ModeConstLoad,
 		},
 		{
-			name:    "ConstLoadRejectsParams",
+			name:    "ConstLoadRejectsRuntimeNamespace",
 			raw:     "${params.environment}",
 			mode:    value.ModeConstLoad,
 			wantErr: "not available while loading consts",
 		},
 		{
 			name:    "ReservedShorthandRejected",
-			raw:     "$env.HOME",
+			raw:     "$consts.service",
 			mode:    value.ModeWorkflowValue,
 			wantErr: "invalid binding shorthand",
 		},
@@ -115,16 +114,9 @@ func TestValidateReferencesModeMatrix(t *testing.T) {
 			wantErr: "unknown consts binding",
 		},
 		{
-			name:    "UnknownDeclaredOutputRejected",
-			raw:     "${steps.build.outputs.digest}",
-			mode:    value.ModeStaticValidation,
-			wantErr: "unknown output",
-		},
-		{
-			name:    "InvalidStepReferenceShapeRejected",
-			raw:     "${steps.build.output.image}",
-			mode:    value.ModeStaticValidation,
-			wantErr: "steps bindings must use",
+			name: "NonConstNamespacesAllowed",
+			raw:  "${steps.build.outputs.digest}",
+			mode: value.ModeStaticValidation,
 		},
 		{
 			name: "EvalRefsAllowed",
@@ -148,30 +140,29 @@ func TestValidateReferencesModeMatrix(t *testing.T) {
 	}
 }
 
-func TestValidateReferencesAcceptsDeclaredParamWithoutRuntimeValue(t *testing.T) {
+func TestValidateReferencesIgnoresNonConstNamespaces(t *testing.T) {
 	t.Parallel()
 
-	scope := value.StaticScope{
-		Params: value.Values{"environment": nil},
-	}
-
-	err := value.ValidateReferences("${params.environment}", scope, value.ModeStaticValidation, "run")
+	err := value.ValidateReferences("${params.environment} ${env.RUNTIME_ONLY} ${steps.build.outputs.image}", value.StaticScope{}, value.ModeStaticValidation, "run")
 	require.NoError(t, err)
 }
 
-func TestValidateReferencesAcceptsEnvReferenceWithoutStaticValue(t *testing.T) {
+func TestExpandStringPreservesNonConstNamespaces(t *testing.T) {
 	t.Parallel()
 
-	err := value.ValidateReferences("${env.RUNTIME_ONLY}", value.StaticScope{}, value.ModeStaticValidation, "run")
+	got, err := value.ExpandString(
+		"${consts.service}:${params.environment}:${env.HOME}:${steps.build.outputs.image}",
+		value.RuntimeScope{
+			Consts: value.Values{"service": "api"},
+			Params: value.Values{"environment": "prod"},
+			Env:    value.Values{"HOME": "/workspace"},
+			Steps:  value.StepOutputs{"build": value.Values{"image": "repo/api:v1"}},
+		},
+		value.ModeWorkflowValue,
+		"run",
+	)
 	require.NoError(t, err)
-}
-
-func TestExpandStringFailsMissingRuntimeEnvBinding(t *testing.T) {
-	t.Parallel()
-
-	_, err := value.ExpandString("${env.RUNTIME_ONLY}", value.RuntimeScope{}, value.ModeWorkflowValue, "run")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), `unknown env binding "RUNTIME_ONLY"`)
+	assert.Equal(t, "api:${params.environment}:${env.HOME}:${steps.build.outputs.image}", got)
 }
 
 func TestExpandStringWorkflowValuePreservesCommandSubstitution(t *testing.T) {
@@ -190,7 +181,7 @@ func TestExpandStringDynamicEvalRunsCommandSubstitution(t *testing.T) {
 	assert.Equal(t, "resolved", got)
 }
 
-func TestExpandStringResolvesStrictRefsAndKeepsEvalRefs(t *testing.T) {
+func TestExpandStringResolvesConstRefsAndKeepsEvalRefs(t *testing.T) {
 	t.Parallel()
 
 	got, err := value.ExpandString(
@@ -205,10 +196,10 @@ func TestExpandStringResolvesStrictRefsAndKeepsEvalRefs(t *testing.T) {
 		"run",
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "api:prod:/workspace:repo/api:v1:${DATA.image}:$DATA.tag", got)
+	assert.Equal(t, "api:${params.environment}:${env.HOME}:${steps.build.outputs.image}:${DATA.image}:$DATA.tag", got)
 }
 
-func TestExpandObjectResolvesStrictRefsAcrossNestedValues(t *testing.T) {
+func TestExpandObjectResolvesConstRefsAcrossNestedValues(t *testing.T) {
 	t.Parallel()
 
 	obj := map[string]any{
@@ -228,22 +219,22 @@ func TestExpandObjectResolvesStrictRefsAcrossNestedValues(t *testing.T) {
 	}, value.ModeWorkflowValue, "with")
 	require.NoError(t, err)
 
-	assert.Equal(t, "repo/api:v1", got["image"])
-	assert.Equal(t, []any{"secret", "sha256:abc"}, got["env"])
+	assert.Equal(t, "repo/api:${params.tag}", got["image"])
+	assert.Equal(t, []any{"${env.TOKEN}", "${steps.build.outputs.digest}"}, got["env"])
 	assert.Equal(t, "${DATA.image}", got["evalRef"])
 }
 
-func TestExpandObjectRejectsInvalidReservedShorthand(t *testing.T) {
+func TestExpandObjectRejectsInvalidConstShorthand(t *testing.T) {
 	t.Parallel()
 
 	_, err := value.ExpandObject(
-		map[string]any{"token": "$env.TOKEN"},
-		value.RuntimeScope{Env: value.Values{"TOKEN": "secret"}},
+		map[string]any{"service": "$consts.service"},
+		value.RuntimeScope{Consts: value.Values{"service": "api"}},
 		value.ModeWorkflowValue,
-		"with.token",
+		"with.service",
 	)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "with.token")
+	assert.Contains(t, err.Error(), "with.service")
 	assert.Contains(t, err.Error(), "invalid binding shorthand")
 }
 

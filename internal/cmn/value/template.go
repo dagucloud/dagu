@@ -210,19 +210,6 @@ func bindingValue(path string, scope RuntimeScope, requireValue bool) (any, erro
 	switch segments[0] {
 	case "consts":
 		return bindingMapValue("consts", segments[1], scope.Consts, requireValue)
-	case "params":
-		return bindingMapValue("params", segments[1], scope.Params, requireValue)
-	case "env":
-		return bindingMapValue("env", segments[1], scope.Env, requireValue)
-	case "steps":
-		if scope.Steps == nil && !requireValue {
-			return nil, nil
-		}
-		values, ok := scope.Steps[segments[1]]
-		if !ok {
-			return nil, fmt.Errorf("unknown steps binding ${%s}", path)
-		}
-		return bindingMapValue("steps", segments[3], values, requireValue)
 	default:
 		return nil, nil
 	}
@@ -267,12 +254,7 @@ func validateBindingSegments(segments []string) error {
 }
 
 func reservedBinding(namespace string) bool {
-	switch namespace {
-	case "consts", "params", "env", "steps":
-		return true
-	default:
-		return false
-	}
+	return namespace == "consts"
 }
 
 func malformedBinding(value string) string {

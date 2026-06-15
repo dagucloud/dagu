@@ -4,6 +4,8 @@
 
 Implemented.
 
+The implementation covers only root `consts` and `${consts.name}` bindings. Broader value-resolution behavior remains governed by the implementation status of the specs that define those namespaces and fields.
+
 ## Scope
 
 This spec defines root `consts` and `${consts.name}` references.

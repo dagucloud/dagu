@@ -101,10 +101,8 @@ func ValidateSteps(dag *DAG) error {
 
 func validateBindingReferences(dag *DAG) ErrorList {
 	var errs ErrorList
-	scope := dag.StaticValueScope()
-	graph := newValueReferenceGraph(dag)
+	scope := cmnvalue.StaticScope{Consts: cmnvalue.Values(dag.Consts)}
 	fields := ResolvableFields(dag)
-	errs = append(errs, validateEnvOrderingReferences(fields)...)
 	for _, field := range fields {
 		if !strings.Contains(field.Value, "$") {
 			continue
@@ -112,131 +110,8 @@ func validateBindingReferences(dag *DAG) ErrorList {
 		if err := cmnvalue.ValidateReferences(field.Value, scope, field.Mode, field.Path); err != nil {
 			errs = append(errs, NewValidationError(field.Path, field.Value, err))
 		}
-		for _, err := range graph.validateField(field, cmnvalue.ScanReferences(field.Value)) {
-			errs = append(errs, err)
-		}
 	}
 	return errs
-}
-
-func validateEnvOrderingReferences(fields []ResolvableField) ErrorList {
-	envLists := make(map[string]map[string]int)
-	for _, field := range fields {
-		if field.EnvIndex < 0 || field.EnvName == "" {
-			continue
-		}
-		listPath := envListPath(field.Path)
-		if listPath == "" {
-			continue
-		}
-		names := envLists[listPath]
-		if names == nil {
-			names = make(map[string]int)
-			envLists[listPath] = names
-		}
-		names[field.EnvName] = field.EnvIndex
-	}
-
-	var errs ErrorList
-	for _, field := range fields {
-		if field.EnvIndex < 0 || field.EnvName == "" || !strings.Contains(field.Value, "${env.") {
-			continue
-		}
-		names := envLists[envListPath(field.Path)]
-		if len(names) == 0 {
-			continue
-		}
-		for _, ref := range cmnvalue.ScanReferences(field.Value) {
-			if ref.Kind != cmnvalue.ReferenceStrict || ref.Namespace != "env" || len(ref.Segments) != 2 {
-				continue
-			}
-			target := ref.Segments[1]
-			targetIndex, ok := names[target]
-			if !ok {
-				continue
-			}
-			switch {
-			case targetIndex == field.EnvIndex:
-				errs = append(errs, NewValidationError(field.Path, field.Value, fmt.Errorf("env %q cannot reference itself", field.EnvName)))
-			case targetIndex > field.EnvIndex:
-				errs = append(errs, NewValidationError(field.Path, field.Value, fmt.Errorf("env %q cannot reference later env %q", field.EnvName, target)))
-			}
-		}
-	}
-	return errs
-}
-
-func envListPath(path string) string {
-	index := strings.LastIndex(path, "[")
-	if index < 0 {
-		return ""
-	}
-	return path[:index]
-}
-
-type valueReferenceGraph struct {
-	dagType       string
-	stepByID      map[string]Step
-	stepByName    map[string]Step
-	stepIndexByID map[string]int
-}
-
-func newValueReferenceGraph(dag *DAG) valueReferenceGraph {
-	graph := valueReferenceGraph{
-		dagType:       dag.Type,
-		stepByID:      make(map[string]Step, len(dag.Steps)),
-		stepByName:    make(map[string]Step, len(dag.Steps)),
-		stepIndexByID: make(map[string]int, len(dag.Steps)),
-	}
-	for i, step := range dag.Steps {
-		if step.ID != "" {
-			graph.stepByID[step.ID] = step
-			graph.stepIndexByID[step.ID] = i
-		}
-		graph.stepByName[step.Name] = step
-	}
-	return graph
-}
-
-func (g valueReferenceGraph) validateField(field ResolvableField, refs []cmnvalue.Reference) ErrorList {
-	if field.OwnerKind != ResolvableOwnerStep || field.Handler != "" {
-		return nil
-	}
-	owner, ok := g.stepByName[field.OwnerStepName]
-	if !ok {
-		return nil
-	}
-
-	var errs ErrorList
-	for _, ref := range refs {
-		if ref.Kind != cmnvalue.ReferenceStrict || ref.Namespace != "steps" || len(ref.Segments) != 4 {
-			continue
-		}
-		target, ok := g.stepByID[ref.Segments[1]]
-		if !ok {
-			continue
-		}
-		if owner.ID == target.ID {
-			errs = append(errs, NewValidationError(field.Path, field.Value, fmt.Errorf("step %q cannot reference its own output %s", owner.Name, ref.Raw)))
-			continue
-		}
-		if g.hasDependencyPath(owner, target) {
-			continue
-		}
-		if !isUpstreamDependency(g.stepByName, owner.Name, target.Name) {
-			errs = append(errs, NewValidationError(field.Path, field.Value, fmt.Errorf("step %q references output from %q without a dependency path", owner.Name, target.Name)))
-		}
-	}
-	return errs
-}
-
-func (g valueReferenceGraph) hasDependencyPath(owner, target Step) bool {
-	if g.dagType != TypeChain || owner.ID == "" || target.ID == "" {
-		return false
-	}
-	ownerIndex, ownerOK := g.stepIndexByID[owner.ID]
-	targetIndex, targetOK := g.stepIndexByID[target.ID]
-	return ownerOK && targetOK && targetIndex < ownerIndex
 }
 
 // collectNamesAndIDs collects all step names and IDs, validating uniqueness and format.

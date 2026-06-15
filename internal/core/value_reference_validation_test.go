@@ -13,18 +13,18 @@ import (
 
 var valueReferenceTestExec = core.ExecutorConfig{Type: "test-no-validator"}
 
-func TestValidateStepsStrictEnvReferencesUseRootEnvScope(t *testing.T) {
+func TestValidateStepsConstReferencesUseRootConstScope(t *testing.T) {
 	t.Parallel()
 
-	t.Run("declared root env is valid", func(t *testing.T) {
+	t.Run("declared const is valid", func(t *testing.T) {
 		t.Parallel()
 		dag := &core.DAG{
-			Env: []string{"TOKEN=secret"},
+			Consts: map[string]any{"service": "api"},
 			Steps: []core.Step{
 				{
 					Name:           "deploy",
 					ExecutorConfig: valueReferenceTestExec,
-					Script:         "echo ${env.TOKEN}",
+					Script:         "echo ${consts.service}",
 				},
 			},
 		}
@@ -32,119 +32,86 @@ func TestValidateStepsStrictEnvReferencesUseRootEnvScope(t *testing.T) {
 		require.NoError(t, core.ValidateSteps(dag))
 	})
 
-	t.Run("runtime-only env is valid statically", func(t *testing.T) {
+	t.Run("unknown const is invalid", func(t *testing.T) {
 		t.Parallel()
 		dag := &core.DAG{
-			Env: []string{"TOKEN=secret"},
+			Consts: map[string]any{"service": "api"},
 			Steps: []core.Step{
 				{
 					Name:           "deploy",
 					ExecutorConfig: valueReferenceTestExec,
-					Script:         "echo ${env.MISSING}",
-				},
-			},
-		}
-
-		require.NoError(t, core.ValidateSteps(dag))
-	})
-
-	t.Run("declared param without runtime value is valid statically", func(t *testing.T) {
-		t.Parallel()
-		dag := &core.DAG{
-			ParamDefs: []core.ParamDef{
-				{Name: "environment", Type: core.ParamDefTypeString, Required: true},
-			},
-			Steps: []core.Step{
-				{
-					Name:           "deploy",
-					ExecutorConfig: valueReferenceTestExec,
-					Script:         "echo ${params.environment}",
-				},
-			},
-		}
-
-		require.NoError(t, core.ValidateSteps(dag))
-	})
-}
-
-func TestValidateStepsStrictReferencesInHandlers(t *testing.T) {
-	t.Parallel()
-
-	t.Run("handler can reference main step outputs", func(t *testing.T) {
-		t.Parallel()
-		dag := &core.DAG{
-			Steps: []core.Step{
-				{
-					Name:           "build",
-					ID:             "build",
-					ExecutorConfig: valueReferenceTestExec,
-					StructuredOutput: map[string]core.StepOutputEntry{
-						"image": {HasValue: true, Value: "repo/api:v1"},
-					},
-				},
-			},
-			HandlerOn: core.HandlerOn{
-				Success: &core.Step{
-					Name:           "notify",
-					ExecutorConfig: valueReferenceTestExec,
-					Script:         "echo ${steps.build.outputs.image}",
-				},
-			},
-		}
-
-		require.NoError(t, core.ValidateSteps(dag))
-	})
-
-	t.Run("handler cannot reference handler outputs", func(t *testing.T) {
-		t.Parallel()
-		dag := &core.DAG{
-			Steps: []core.Step{
-				{
-					Name:           "build",
-					ID:             "build",
-					ExecutorConfig: valueReferenceTestExec,
-				},
-			},
-			HandlerOn: core.HandlerOn{
-				Success: &core.Step{
-					Name:           "notify",
-					ID:             "notify",
-					ExecutorConfig: valueReferenceTestExec,
-					Script:         "echo ${steps.notify.outputs.message}",
-					StructuredOutput: map[string]core.StepOutputEntry{
-						"message": {HasValue: true, Value: "sent"},
-					},
+					Script:         "echo ${consts.missing}",
 				},
 			},
 		}
 
 		err := core.ValidateSteps(dag)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), `unknown step "notify"`)
+		assert.Contains(t, err.Error(), "unknown consts binding")
+	})
+
+	t.Run("const shorthand is invalid", func(t *testing.T) {
+		t.Parallel()
+		dag := &core.DAG{
+			Consts: map[string]any{"service": "api"},
+			Steps: []core.Step{
+				{
+					Name:           "deploy",
+					ExecutorConfig: valueReferenceTestExec,
+					Script:         "echo $consts.service",
+				},
+			},
+		}
+
+		err := core.ValidateSteps(dag)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid binding shorthand")
 	})
 }
 
-func TestValidateStepsRejectsEnvSelfAndLaterReferences(t *testing.T) {
+func TestValidateStepsIgnoresFutureStrictNamespaces(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		env     []string
-		wantErr string
+		name string
+		dag  *core.DAG
 	}{
 		{
-			name:    "SelfReference",
-			env:     []string{"SERVICE=${env.SERVICE}"},
-			wantErr: `env "SERVICE" cannot reference itself`,
+			name: "ParamReference",
+			dag: &core.DAG{
+				Steps: []core.Step{
+					{
+						Name:           "print",
+						ExecutorConfig: valueReferenceTestExec,
+						Script:         "echo ${params.environment}",
+					},
+				},
+			},
 		},
 		{
-			name:    "LaterReference",
-			env:     []string{"API_HOST=${env.SERVICE}.internal", "SERVICE=api"},
-			wantErr: `env "API_HOST" cannot reference later env "SERVICE"`,
+			name: "EnvSelfAndLaterReferences",
+			dag: &core.DAG{
+				Env: []string{"SERVICE=${env.SERVICE}", "API_HOST=${env.LATER}", "LATER=api"},
+				Steps: []core.Step{
+					{
+						Name:           "print",
+						ExecutorConfig: valueReferenceTestExec,
+						Script:         "echo ${env.SERVICE}",
+					},
+				},
+			},
 		},
 		{
-			name: "EarlierReference",
-			env:  []string{"SERVICE=api", "API_HOST=${env.SERVICE}.internal"},
+			name: "StepOutputReference",
+			dag: &core.DAG{
+				Steps: []core.Step{
+					{
+						Name:           "print",
+						ExecutorConfig: valueReferenceTestExec,
+						Script:         "echo ${steps.missing.outputs.value}",
+					},
+				},
+			},
 		},
 	}
 
@@ -152,24 +119,7 @@ func TestValidateStepsRejectsEnvSelfAndLaterReferences(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			dag := &core.DAG{
-				Env: tt.env,
-				Steps: []core.Step{
-					{
-						Name:           "print",
-						ExecutorConfig: valueReferenceTestExec,
-						Script:         "echo ok",
-					},
-				},
-			}
-
-			err := core.ValidateSteps(dag)
-			if tt.wantErr == "" {
-				require.NoError(t, err)
-				return
-			}
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.wantErr)
+			require.NoError(t, core.ValidateSteps(tt.dag))
 		})
 	}
 }

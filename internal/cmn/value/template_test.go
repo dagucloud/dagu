@@ -11,30 +11,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestValidateAndExpandStringWithReservedBindings(t *testing.T) {
+func TestValidateAndExpandStringWithConstBinding(t *testing.T) {
 	t.Parallel()
 
 	raw := "deploy ${consts.service} ${params.environment} ${env.HOME} ${steps.build.outputs.image}"
 	staticScope := value.StaticScope{
 		Consts: value.Values{"service": "api"},
-		Params: value.Values{"environment": "prod"},
-		Env:    value.Values{"HOME": "/workspace"},
-		Steps:  value.StepOutputContracts{"build": value.StepOutputNames{"image": {}}},
 	}
 
 	require.NoError(t, value.ValidateReferences(raw, staticScope, value.ModeWorkflowValue, "run"))
 
 	got, err := value.ExpandString(raw, value.RuntimeScope{
 		Consts: value.Values{"service": "api"},
-		Params: value.Values{"environment": "prod"},
-		Env:    value.Values{"HOME": "/workspace"},
-		Steps:  value.StepOutputs{"build": value.Values{"image": "repo/api:v1"}},
 	}, value.ModeWorkflowValue, "run")
 	require.NoError(t, err)
-	assert.Equal(t, "deploy api prod /workspace repo/api:v1", got)
+	assert.Equal(t, "deploy api ${params.environment} ${env.HOME} ${steps.build.outputs.image}", got)
 }
 
-func TestValidateReferencesRejectsReservedBindingErrors(t *testing.T) {
+func TestValidateReferencesRejectsConstBindingErrors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -54,12 +48,6 @@ func TestValidateReferencesRejectsReservedBindingErrors(t *testing.T) {
 			input: "echo ${consts.missing}",
 			scope: value.StaticScope{Consts: value.Values{"service": "api"}},
 			want:  "unknown consts binding",
-		},
-		{
-			name:  "InvalidStepShape",
-			input: "echo ${steps.build.image}",
-			scope: value.StaticScope{Steps: value.StepOutputContracts{"build": value.StepOutputNames{"image": {}}}},
-			want:  "steps bindings must use",
 		},
 	}
 
@@ -95,7 +83,7 @@ func TestExpandStringLeavesEvalReferencesForEvaluator(t *testing.T) {
 	assert.Equal(t, "eval ${DATA.image} and $DATA.tag", got)
 }
 
-func TestExpandStringResolvesReservedBindingsWithScope(t *testing.T) {
+func TestExpandStringResolvesConstBindingsWithScope(t *testing.T) {
 	t.Parallel()
 
 	got, err := value.ExpandString(
@@ -110,5 +98,5 @@ func TestExpandStringResolvesReservedBindingsWithScope(t *testing.T) {
 		"run",
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "api prod /workspace repo/api:v1", got)
+	assert.Equal(t, "api ${params.environment} ${env.HOME} ${steps.build.outputs.image}", got)
 }
