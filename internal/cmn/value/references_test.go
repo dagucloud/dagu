@@ -4,6 +4,7 @@
 package value_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/dagucloud/dagu/internal/cmn/value"
@@ -34,31 +35,6 @@ func TestScanReferencesClassifiesReservedAndEvalRefs(t *testing.T) {
 	assert.False(t, refs[6].Braced)
 }
 
-func TestModeString(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		mode value.ModeForTest
-		want string
-	}{
-		{mode: value.ModeConstLoadForTest, want: "const-load"},
-		{mode: value.ModeStaticValidationForTest, want: "static-validation"},
-		{mode: value.ModeWorkflowValueForTest, want: "workflow-value"},
-		{mode: value.ModeShellCommandForTest, want: "shell-command"},
-		{mode: value.ModeDirectCommandForTest, want: "direct-command"},
-		{mode: value.ModeDynamicEvalForTest, want: "dynamic-eval"},
-		{mode: value.ModeForTest(99), want: "mode(99)"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.want, func(t *testing.T) {
-			t.Parallel()
-
-			assert.Equal(t, tt.want, tt.mode.String())
-		})
-	}
-}
-
 func TestScanReferencesMarksEvalStepOutputRefs(t *testing.T) {
 	t.Parallel()
 
@@ -81,51 +57,51 @@ func TestScanReferencesMarksEvalStepOutputRefs(t *testing.T) {
 	assert.Equal(t, "${extract.output.user.id}", outputRefs[0].Expression)
 }
 
-func TestValidateReferencesModeMatrix(t *testing.T) {
+func TestResolverValidateFieldMatrix(t *testing.T) {
 	t.Parallel()
 
-	scope := value.StaticScope{
+	resolver := value.NewResolver(value.StaticScope{
 		Consts: value.Values{"service": "api"},
-	}
+	}, value.RuntimeScope{})
 
 	tests := []struct {
 		name    string
 		raw     string
-		mode    value.ModeForTest
+		field   value.Field
 		wantErr string
 	}{
 		{
-			name: "ConstLoadAllowsConsts",
-			raw:  "${consts.service}",
-			mode: value.ModeConstLoadForTest,
+			name:  "ConstLoadAllowsConsts",
+			raw:   "${consts.service}",
+			field: value.ConstLoadField("run"),
 		},
 		{
 			name:    "ConstLoadRejectsRuntimeNamespace",
 			raw:     "${params.environment}",
-			mode:    value.ModeConstLoadForTest,
+			field:   value.ConstLoadField("run"),
 			wantErr: "not available while loading consts",
 		},
 		{
 			name:    "ReservedShorthandRejected",
 			raw:     "$consts.service",
-			mode:    value.ModeWorkflowValueForTest,
+			field:   value.WorkflowField("run"),
 			wantErr: "invalid binding shorthand",
 		},
 		{
 			name:    "UnknownConstRejected",
 			raw:     "${consts.missing}",
-			mode:    value.ModeStaticValidationForTest,
+			field:   value.StaticValidationField("run"),
 			wantErr: "unknown consts binding",
 		},
 		{
-			name: "NonConstNamespacesAllowed",
-			raw:  "${steps.build.outputs.digest}",
-			mode: value.ModeStaticValidationForTest,
+			name:  "NonConstNamespacesAllowed",
+			raw:   "${steps.build.outputs.digest}",
+			field: value.StaticValidationField("run"),
 		},
 		{
-			name: "EvalRefsAllowed",
-			raw:  "${DATA.image} $DATA.tag",
-			mode: value.ModeStaticValidationForTest,
+			name:  "EvalRefsAllowed",
+			raw:   "${DATA.image} $DATA.tag",
+			field: value.StaticValidationField("run"),
 		},
 	}
 
@@ -133,7 +109,7 @@ func TestValidateReferencesModeMatrix(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := value.ValidateReferencesForTest(tt.raw, scope, tt.mode, "run")
+			err := resolver.Validate(tt.raw, tt.field)
 			if tt.wantErr == "" {
 				require.NoError(t, err)
 				return
@@ -144,62 +120,74 @@ func TestValidateReferencesModeMatrix(t *testing.T) {
 	}
 }
 
-func TestValidateReferencesIgnoresNonConstNamespaces(t *testing.T) {
+func TestResolverValidateIgnoresNonConstNamespaces(t *testing.T) {
 	t.Parallel()
 
-	err := value.ValidateReferencesForTest("${params.environment} ${env.RUNTIME_ONLY} ${steps.build.outputs.image}", value.StaticScope{}, value.ModeStaticValidationForTest, "run")
+	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{})
+	err := resolver.Validate(
+		"${params.environment} ${env.RUNTIME_ONLY} ${steps.build.outputs.image}",
+		value.StaticValidationField("run"),
+	)
 	require.NoError(t, err)
 }
 
-func TestExpandStringPreservesNonConstNamespaces(t *testing.T) {
+func TestResolverStringPreservesNonConstNamespaces(t *testing.T) {
 	t.Parallel()
 
-	got, err := value.ExpandStringForTest(
-		"${consts.service}:${params.environment}:${env.HOME}:${steps.build.outputs.image}",
+	resolver := value.NewResolver(
+		value.StaticScope{},
 		value.RuntimeScope{
 			Consts: value.Values{"service": "api"},
 			Env:    testEnvScope(map[string]string{"HOME": "/workspace"}),
 		},
-		value.ModeWorkflowValueForTest,
-		"run",
+	)
+	got, err := resolver.String(
+		context.Background(),
+		"${consts.service}:${params.environment}:${env.HOME}:${steps.build.outputs.image}",
+		value.WorkflowField("run"),
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "api:${params.environment}:${env.HOME}:${steps.build.outputs.image}", got)
 }
 
-func TestExpandStringWorkflowValuePreservesCommandSubstitution(t *testing.T) {
+func TestResolverWorkflowFieldPreservesCommandSubstitution(t *testing.T) {
 	t.Parallel()
 
-	got, err := value.ExpandStringForTest("`echo resolved`", value.RuntimeScope{}, value.ModeWorkflowValueForTest, "env.VALUE")
+	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{})
+	got, err := resolver.String(context.Background(), "`echo resolved`", value.WorkflowField("env.VALUE"))
 	require.NoError(t, err)
 	assert.Equal(t, "`echo resolved`", got)
 }
 
-func TestExpandStringDynamicEvalRunsCommandSubstitution(t *testing.T) {
+func TestResolverDynamicParamEvalRunsCommandSubstitution(t *testing.T) {
 	t.Parallel()
 
-	got, err := value.ExpandStringForTest("`echo resolved`", value.RuntimeScope{}, value.ModeDynamicEvalForTest, "params")
+	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{})
+	got, err := resolver.String(context.Background(), "`echo resolved`", value.DynamicParamEvalField("params"))
 	require.NoError(t, err)
 	assert.Equal(t, "resolved", got)
 }
 
-func TestExpandStringResolvesConstRefsAndKeepsEvalRefs(t *testing.T) {
+func TestResolverStringResolvesConstRefsAndKeepsEvalRefs(t *testing.T) {
 	t.Parallel()
 
-	got, err := value.ExpandStringForTest(
-		"${consts.service}:${params.environment}:${env.HOME}:${steps.build.outputs.image}:${DATA.image}:$DATA.tag",
+	resolver := value.NewResolver(
+		value.StaticScope{},
 		value.RuntimeScope{
 			Consts: value.Values{"service": "api"},
 			Env:    testEnvScope(map[string]string{"HOME": "/workspace"}),
 		},
-		value.ModeWorkflowValueForTest,
-		"run",
+	)
+	got, err := resolver.String(
+		context.Background(),
+		"${consts.service}:${params.environment}:${env.HOME}:${steps.build.outputs.image}:${DATA.image}:$DATA.tag",
+		value.WorkflowField("run"),
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "api:${params.environment}:${env.HOME}:${steps.build.outputs.image}:${DATA.image}:$DATA.tag", got)
 }
 
-func TestExpandObjectResolvesConstRefsAcrossNestedValues(t *testing.T) {
+func TestResolverObjectResolvesConstRefsAcrossNestedValues(t *testing.T) {
 	t.Parallel()
 
 	obj := map[string]any{
@@ -211,97 +199,104 @@ func TestExpandObjectResolvesConstRefsAcrossNestedValues(t *testing.T) {
 		"evalRef": "${DATA.image}",
 	}
 
-	got, err := value.ExpandObjectForTest(obj, value.RuntimeScope{
-		Consts: value.Values{"repo": "repo/api"},
-		Env:    testEnvScope(map[string]string{"TOKEN": "secret"}),
-	}, value.ModeWorkflowValueForTest, "with")
+	resolver := value.NewResolver(
+		value.StaticScope{},
+		value.RuntimeScope{
+			Consts: value.Values{"repo": "repo/api"},
+			Env:    testEnvScope(map[string]string{"TOKEN": "secret"}),
+		},
+	)
+	gotAny, err := resolver.Object(context.Background(), obj, value.WorkflowObjectField("with"))
 	require.NoError(t, err)
+	got, ok := gotAny.(map[string]any)
+	require.True(t, ok)
 
 	assert.Equal(t, "repo/api:${params.tag}", got["image"])
 	assert.Equal(t, []any{"${env.TOKEN}", "${steps.build.outputs.digest}"}, got["env"])
 	assert.Equal(t, "${DATA.image}", got["evalRef"])
 }
 
-func TestExpandObjectRejectsInvalidConstShorthand(t *testing.T) {
+func TestResolverObjectRejectsInvalidConstShorthand(t *testing.T) {
 	t.Parallel()
 
-	_, err := value.ExpandObjectForTest(
-		map[string]any{"service": "$consts.service"},
+	resolver := value.NewResolver(
+		value.StaticScope{},
 		value.RuntimeScope{Consts: value.Values{"service": "api"}},
-		value.ModeWorkflowValueForTest,
-		"with.service",
+	)
+	_, err := resolver.Object(
+		context.Background(),
+		map[string]any{"service": "$consts.service"},
+		value.WorkflowObjectField("with.service"),
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "with.service")
 	assert.Contains(t, err.Error(), "invalid binding shorthand")
 }
 
-func TestExpandStringModesApplyOwnerSemantics(t *testing.T) {
+func TestResolverSemanticFieldsApplyOwnerSemantics(t *testing.T) {
 	t.Setenv("DAGU_VALUE_MODE_DIRECT", "from-os")
-	scope := value.RuntimeScope{
-		Consts: value.Values{"service": "api"},
-		Env:    testEnvScope(map[string]string{"TOKEN": "secret"}),
-	}
+	resolver := value.NewResolver(
+		value.StaticScope{},
+		value.RuntimeScope{
+			Consts: value.Values{"service": "api"},
+			Env:    testEnvScope(map[string]string{"TOKEN": "secret"}),
+		},
+	)
+	ctx := context.Background()
 
 	tests := []struct {
-		name string
-		raw  string
-		mode value.ModeForTest
-		want string
+		name  string
+		raw   string
+		field value.Field
+		want  string
 	}{
 		{
-			name: "ConstLoad",
-			raw:  "${consts.service}",
-			mode: value.ModeConstLoadForTest,
-			want: "api",
+			name:  "ConstLoad",
+			raw:   "${consts.service}",
+			field: value.ConstLoadField("run"),
+			want:  "api",
 		},
 		{
-			name: "StaticValidation",
-			raw:  "${consts.service}",
-			mode: value.ModeStaticValidationForTest,
-			want: "api",
+			name:  "StaticValidation",
+			raw:   "${consts.service}",
+			field: value.StaticValidationField("run"),
+			want:  "api",
 		},
 		{
-			name: "WorkflowValueExpandsScopedEnv",
-			raw:  "$TOKEN",
-			mode: value.ModeWorkflowValueForTest,
-			want: "secret",
+			name:  "WorkflowValueExpandsScopedEnv",
+			raw:   "$TOKEN",
+			field: value.WorkflowField("run"),
+			want:  "secret",
 		},
 		{
-			name: "ShellCommandPreservesShellEnv",
-			raw:  "$TOKEN",
-			mode: value.ModeShellCommandForTest,
-			want: "$TOKEN",
+			name:  "ShellCommandExpandsScopedEnv",
+			raw:   "$TOKEN",
+			field: value.ShellCommandField("run", value.CommandContext{}),
+			want:  "secret",
 		},
 		{
-			name: "DirectCommandExpandsScopedEnv",
-			raw:  "$TOKEN",
-			mode: value.ModeDirectCommandForTest,
-			want: "secret",
+			name:  "DirectCommandExpandsScopedEnv",
+			raw:   "$TOKEN",
+			field: value.DirectCommandField("run", value.CommandContext{}),
+			want:  "secret",
 		},
 		{
-			name: "DirectCommandUsesHostOnlyEnvFallback",
-			raw:  "$DAGU_VALUE_MODE_DIRECT",
-			mode: value.ModeDirectCommandForTest,
-			want: "from-os",
+			name:  "DirectCommandUsesHostOnlyEnvFallback",
+			raw:   "$DAGU_VALUE_MODE_DIRECT",
+			field: value.DirectCommandField("run", value.CommandContext{}),
+			want:  "from-os",
 		},
 		{
-			name: "DynamicEvalUsesDefaultExpansion",
-			raw:  "$TOKEN",
-			mode: value.ModeDynamicEvalForTest,
-			want: "secret",
-		},
-		{
-			name: "UnknownModeUsesConservativeExpansion",
-			raw:  "$TOKEN",
-			mode: value.ModeForTest(99),
-			want: "secret",
+			name:  "DynamicEvalUsesDefaultExpansion",
+			raw:   "$TOKEN",
+			field: value.DynamicParamEvalField("params"),
+			want:  "secret",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := value.ExpandStringForTest(tt.raw, scope, tt.mode, "run")
+			got, err := resolver.String(ctx, tt.raw, tt.field)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 		})

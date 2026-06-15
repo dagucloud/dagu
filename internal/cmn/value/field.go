@@ -52,8 +52,6 @@ const (
 	fieldRepeatInteger
 )
 
-const fieldKindCount = int(fieldRepeatInteger) + 1
-
 // Path returns the caller-visible field path used in validation errors.
 func (f Field) Path() string {
 	return f.path

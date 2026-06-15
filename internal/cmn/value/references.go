@@ -4,9 +4,7 @@
 package value
 
 import (
-	"context"
 	"fmt"
-	"reflect"
 	"sort"
 	"strings"
 )
@@ -22,25 +20,6 @@ const (
 	modeDirectCommand
 	modeDynamicEval
 )
-
-func (m mode) String() string {
-	switch m {
-	case modeConstLoad:
-		return "const-load"
-	case modeStaticValidation:
-		return "static-validation"
-	case modeWorkflowValue:
-		return "workflow-value"
-	case modeShellCommand:
-		return "shell-command"
-	case modeDirectCommand:
-		return "direct-command"
-	case modeDynamicEval:
-		return "dynamic-eval"
-	default:
-		return fmt.Sprintf("mode(%d)", m)
-	}
-}
 
 // referenceKind classifies a placeholder found in a value string.
 type referenceKind string
@@ -243,106 +222,4 @@ func validateMapReference(ref reference, namespace string, values Values) error 
 		return fmt.Errorf("unknown %s binding %s", namespace, ref.Raw)
 	}
 	return nil
-}
-
-// expandString expands a value without a caller context.
-func expandString(raw string, runtimeScope RuntimeScope, mode mode, field string) (string, error) {
-	return expandStringContext(context.Background(), raw, runtimeScope, mode, field)
-}
-
-// expandStringContext expands strict references, then applies eval features for non-reserved references.
-func expandStringContext(ctx context.Context, raw string, runtimeScope RuntimeScope, mode mode, field string, opts ...option) (string, error) {
-	if raw == "" {
-		return "", nil
-	}
-	if err := validateReferences(raw, StaticScope{Consts: runtimeScope.Consts}, mode, field); err != nil {
-		return "", err
-	}
-	resolved, err := resolveBindings(raw, runtimeScope)
-	if err != nil {
-		if field != "" {
-			return "", fmt.Errorf("%s: %w", field, err)
-		}
-		return "", err
-	}
-
-	options := append(fieldPolicyOptions(runtimeScope, mode), opts...)
-	return evalString(ctx, resolved, options...)
-}
-
-// expandObject recursively expands all string fields in an object without a caller context.
-func expandObject[T any](obj T, runtimeScope RuntimeScope, mode mode, field string) (T, error) {
-	return expandObjectContext(context.Background(), obj, runtimeScope, mode, field)
-}
-
-// expandObjectContext recursively expands all string fields in an object.
-func expandObjectContext[T any](ctx context.Context, obj T, runtimeScope RuntimeScope, mode mode, field string, opts ...option) (T, error) {
-	v := reflect.ValueOf(obj)
-	transform := func(ctx context.Context, s string) (string, error) {
-		return expandStringContext(ctx, s, runtimeScope, mode, field, opts...)
-	}
-	result, err := walkValue(ctx, v, transform)
-	if err != nil {
-		return obj, err
-	}
-	val, ok := result.Interface().(T)
-	if !ok {
-		return obj, fmt.Errorf("type assertion failed: expected %T, got %T", obj, result.Interface())
-	}
-	return val, nil
-}
-
-type fieldPolicy struct {
-	includeScopedEnv bool
-	options          []option
-}
-
-var fieldPolicies = map[mode]fieldPolicy{
-	modeConstLoad: {
-		includeScopedEnv: true,
-		options:          []option{withoutSubstitute()},
-	},
-	modeStaticValidation: {
-		includeScopedEnv: true,
-		options:          []option{withoutSubstitute()},
-	},
-	modeWorkflowValue: {
-		includeScopedEnv: true,
-		options:          []option{withoutSubstitute()},
-	},
-	modeShellCommand: {
-		options: []option{withoutSubstitute()},
-	},
-	modeDirectCommand: {
-		includeScopedEnv: true,
-		options:          []option{withoutSubstitute(), withOSExpansion()},
-	},
-	modeDynamicEval: {
-		includeScopedEnv: true,
-	},
-}
-
-var defaultFieldPolicy = fieldPolicy{
-	includeScopedEnv: true,
-	options:          []option{withoutSubstitute()},
-}
-
-func fieldPolicyOptions(scope RuntimeScope, mode mode) []option {
-	policy, ok := fieldPolicies[mode]
-	if !ok {
-		policy = defaultFieldPolicy
-	}
-
-	opts := make([]option, 0, len(policy.options)+2)
-	if policy.includeScopedEnv && scope.Env != nil {
-		vars := scope.Env.AllUserEnvs()
-		if len(vars) > 0 {
-			opts = append(opts, withVariables(vars))
-		}
-	}
-	if len(scope.Steps) > 0 {
-		opts = append(opts, withStepMap(scope.Steps))
-	}
-	opts = append(opts, policy.options...)
-	return opts
 }
