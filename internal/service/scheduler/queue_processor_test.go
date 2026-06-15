@@ -389,7 +389,7 @@ func TestQueueProcessor_SelectRunnableQueueItemsSkipsOutstandingReservations(t *
 
 func TestQueueProcessor_StaleOutstandingDispatchReservationsExpire(t *testing.T) {
 	f := newQueueFixture(t).withDAG("distributed-stale-select-dag", 1).
-		withProcessor(config.Queues{}, WithLeaseStaleThreshold(500*time.Millisecond)).
+		withProcessor(config.Queues{}, WithLeaseStaleThreshold(50*time.Millisecond)).
 		simulateQueue(1, false)
 
 	f.enqueueRuns(1)
@@ -409,8 +409,13 @@ func TestQueueProcessor_StaleOutstandingDispatchReservationsExpire(t *testing.T)
 	}))
 	agePendingDispatchReservationFiles(t, f.distributedDir, 2*time.Second)
 
-	count, err := f.processor.newQueueDispatcher().countOutstandingDispatchReservations(f.ctx, f.dag.Name)
-	require.NoError(t, err)
+	var count int
+	var countErr error
+	require.Eventually(t, func() bool {
+		count, countErr = f.processor.newQueueDispatcher().countOutstandingDispatchReservations(f.ctx, f.dag.Name)
+		return countErr == nil && count == 0
+	}, 500*time.Millisecond, 10*time.Millisecond)
+	require.NoError(t, countErr)
 	assert.Zero(t, count)
 
 	items, err := f.queueStore.List(f.ctx, f.dag.Name)

@@ -55,6 +55,11 @@ const defaultStaleHeartbeatThreshold = 30 * time.Second
 // distributed run's lease is considered stale.
 const defaultStaleLeaseThreshold = exec.DefaultStaleLeaseThreshold
 
+const (
+	defaultDispatchPollInitialWait = 250 * time.Millisecond
+	defaultDispatchPollMaxWait     = time.Second
+)
+
 // defaultLeaseRefreshWriteInterval is the maximum interval between persisted
 // heartbeat-driven lease refreshes for a running distributed task.
 const defaultLeaseRefreshWriteInterval = 5 * time.Second
@@ -93,6 +98,12 @@ type Handler struct {
 	waitingPollers map[string]*workerInfo    // pollerID -> worker info
 	heartbeats     map[string]*heartbeatInfo // workerID -> heartbeat info
 	owner          exec.CoordinatorEndpoint
+
+	dispatchWakeMu          sync.Mutex
+	dispatchWakeCh          chan struct{}
+	dispatchWakeGeneration  int64
+	dispatchPollInitialWait time.Duration
+	dispatchPollMaxWait     time.Duration
 
 	// Optional: for shared-nothing worker architecture
 	dagRunStore               exec.DAGRunStore               // For status persistence
@@ -205,6 +216,9 @@ func NewHandler(cfg HandlerConfig) *Handler {
 	return &Handler{
 		waitingPollers:            make(map[string]*workerInfo),
 		heartbeats:                make(map[string]*heartbeatInfo),
+		dispatchWakeCh:            make(chan struct{}),
+		dispatchPollInitialWait:   defaultDispatchPollInitialWait,
+		dispatchPollMaxWait:       defaultDispatchPollMaxWait,
 		openAttempts:              make(map[string]exec.DAGRunAttempt),
 		runMutexes:                make(map[string]*sync.Mutex),
 		owner:                     cfg.Owner,
@@ -230,6 +244,74 @@ func (h *Handler) eventContext(ctx context.Context) context.Context {
 		Service:  eventstore.SourceServiceCoordinator,
 		Instance: h.eventSourceInstance,
 	})
+}
+
+func (h *Handler) dispatchWakeSnapshot() (int64, <-chan struct{}) {
+	h.dispatchWakeMu.Lock()
+	defer h.dispatchWakeMu.Unlock()
+	if h.dispatchWakeCh == nil {
+		h.dispatchWakeCh = make(chan struct{})
+	}
+	return h.dispatchWakeGeneration, h.dispatchWakeCh
+}
+
+func (h *Handler) notifyDispatchAvailable() {
+	h.dispatchWakeMu.Lock()
+	defer h.dispatchWakeMu.Unlock()
+	if h.dispatchWakeCh == nil {
+		h.dispatchWakeCh = make(chan struct{})
+	}
+	h.dispatchWakeGeneration++
+	close(h.dispatchWakeCh)
+	h.dispatchWakeCh = make(chan struct{})
+}
+
+func (h *Handler) waitForDispatchPollRetry(ctx context.Context, pollerID string, observedGeneration int64, wait time.Duration) (bool, error) {
+	generation, wakeCh := h.dispatchWakeSnapshot()
+	if generation != observedGeneration {
+		return true, nil
+	}
+	timer := time.NewTimer(jitterDispatchPollWait(wait, pollerID, generation))
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false, ctx.Err()
+	case <-wakeCh:
+		return true, nil
+	case <-timer.C:
+		return false, nil
+	}
+}
+
+func jitterDispatchPollWait(wait time.Duration, pollerID string, generation int64) time.Duration {
+	if wait <= 0 {
+		return 0
+	}
+	spread := wait / 10
+	if spread <= 0 {
+		return wait
+	}
+	hash := int64(1469598103934665603)
+	hash ^= generation
+	for i := 0; i < len(pollerID); i++ {
+		hash ^= int64(pollerID[i])
+		hash *= 1099511628211
+	}
+	if hash < 0 {
+		hash = ^hash
+	}
+	return wait + time.Duration(hash%(spread.Nanoseconds()+1))
+}
+
+func nextDispatchPollWait(current, maxWait time.Duration) time.Duration {
+	if current <= 0 {
+		return maxWait
+	}
+	next := current * 2
+	if next <= 0 || next > maxWait {
+		return maxWait
+	}
+	return next
 }
 
 // Close cleans up all resources held by the handler.
@@ -299,10 +381,12 @@ func (h *Handler) Poll(ctx context.Context, req *coordinatorv1.PollRequest) (*co
 		}
 	}
 
-	ticker := time.NewTicker(250 * time.Millisecond)
-	defer ticker.Stop()
-
+	pollWait := h.dispatchPollInitialWait
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		observedGeneration, _ := h.dispatchWakeSnapshot()
 		claimed, err := h.dispatchTaskStore.ClaimNext(ctx, exec.DispatchTaskClaim{
 			WorkerID:     req.WorkerId,
 			PollerID:     req.PollerId,
@@ -326,11 +410,15 @@ func (h *Handler) Poll(ctx context.Context, req *coordinatorv1.PollRequest) (*co
 			return &coordinatorv1.PollResponse{Task: task}, nil
 		}
 
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-ticker.C:
+		woke, err := h.waitForDispatchPollRetry(ctx, req.PollerId, observedGeneration, pollWait)
+		if err != nil {
+			return nil, err
 		}
+		if woke {
+			pollWait = h.dispatchPollInitialWait
+			continue
+		}
+		pollWait = nextDispatchPollWait(pollWait, h.dispatchPollMaxWait)
 	}
 }
 
@@ -403,6 +491,7 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 		h.markPreparedAttemptDispatchFailed(ctx, req.Task, prepared, err)
 		return nil, status.Error(codes.Internal, "failed to enqueue task: "+err.Error())
 	}
+	h.notifyDispatchAvailable()
 	return &coordinatorv1.DispatchResponse{}, nil
 }
 
