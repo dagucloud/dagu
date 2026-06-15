@@ -18,7 +18,6 @@ import (
 	"sync"
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
-	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
@@ -468,13 +467,5 @@ func commandContextShell(ctx context.Context, step core.Step) []string {
 	if env, ok := runtime.LookupEnv(ctx); ok {
 		return env.Shell(ctx)
 	}
-	if step.Shell != "" {
-		shell := []string{step.Shell}
-		return append(shell, step.ShellArgs...)
-	}
-	shellCmd := cmdutil.GetShellCommand(config.GetConfig(ctx).Core.DefaultShell)
-	if shellCmd == "" {
-		return nil
-	}
-	return []string{shellCmd}
+	return runtime.NewEnv(ctx, step).Shell(ctx)
 }
