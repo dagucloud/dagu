@@ -171,7 +171,7 @@ func (e *EnvScope) ToMap() map[string]string {
 
 // expandWithLookup expands $VAR and ${VAR} using the provided lookup function.
 // Single-quoted variables ('$VAR' or '${VAR}') and unknown variables are preserved.
-func expandWithLookup(s string, lookup func(key string) (string, bool)) string {
+func expandWithLookup(s string, lookup func(key string) (string, bool), recognizeEscapedDollar bool) string {
 	matches := reVarSubstitution.FindAllStringSubmatchIndex(s, -1)
 	if len(matches) == 0 {
 		return s
@@ -184,7 +184,8 @@ func expandWithLookup(s string, lookup func(key string) (string, bool)) string {
 		last = loc[1]
 
 		match := s[loc[0]:loc[1]]
-		if isSingleQuotedVar(s, loc[0], loc[1]) || isEscapedDollar(s, loc[0]) {
+		if isSingleQuotedVar(s, loc[0], loc[1]) ||
+			(recognizeEscapedDollar && isEscapedDollar(s, loc[0])) {
 			b.WriteString(match)
 			continue
 		}
@@ -216,7 +217,7 @@ func (e *EnvScope) Expand(s string) string {
 	if e == nil {
 		return s
 	}
-	return expandWithLookup(s, e.Get)
+	return expandWithLookup(s, e.Get, true)
 }
 
 // Debug returns a string representation for debugging

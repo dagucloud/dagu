@@ -104,7 +104,8 @@ func (t template) resolveVariables(r *resolver) string {
 		last = loc[1]
 
 		match := t.source[loc[0]:loc[1]]
-		if isSingleQuotedVar(t.source, loc[0], loc[1]) || isEscapedDollar(t.source, loc[0]) {
+		if isSingleQuotedVar(t.source, loc[0], loc[1]) ||
+			(r.recognizeEscapedDollar && isEscapedDollar(t.source, loc[0])) {
 			b.WriteString(match)
 			continue
 		}

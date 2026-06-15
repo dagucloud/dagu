@@ -11,21 +11,23 @@ import (
 // resolver provides unified variable resolution across explicit variable maps,
 // EnvScope, and OS environment.
 type resolver struct {
-	variables      []map[string]string
-	stepMap        map[string]StepInfo
-	scope          *EnvScope
-	expandOS       bool
-	deferShellVars bool
+	variables              []map[string]string
+	stepMap                map[string]StepInfo
+	scope                  *EnvScope
+	expandOS               bool
+	deferShellVars         bool
+	recognizeEscapedDollar bool
 }
 
 // newResolver creates a resolver from the given context and options.
 func newResolver(ctx context.Context, opts *options) *resolver {
 	return &resolver{
-		variables:      opts.Variables,
-		stepMap:        opts.StepMap,
-		scope:          GetEnvScope(ctx),
-		expandOS:       opts.ExpandOS,
-		deferShellVars: opts.DeferShellVars,
+		variables:              opts.Variables,
+		stepMap:                opts.StepMap,
+		scope:                  GetEnvScope(ctx),
+		expandOS:               opts.ExpandOS,
+		deferShellVars:         opts.DeferShellVars,
+		recognizeEscapedDollar: opts.RecognizeEscapedDollar,
 	}
 }
 

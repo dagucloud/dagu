@@ -199,7 +199,15 @@ func policyForField(field Field) resolverPolicy {
 	case fieldStructuredOutputPath, fieldStructuredOutputLiteral:
 		return resolverPolicy{options: []option{withoutExpandShell(), withoutSubstitute()}}
 	case fieldStepArtifactOutput:
-		return resolverPolicy{mode: modeWorkflowValue, strict: true, options: []option{withoutSubstitute(), withoutDollarEscape()}}
+		return resolverPolicy{
+			mode:   modeWorkflowValue,
+			strict: true,
+			options: []option{
+				withoutSubstitute(),
+				withoutDollarEscape(),
+				withoutEscapedDollarRecognition(),
+			},
+		}
 	case fieldRetryInteger, fieldRepeatInteger:
 		return resolverPolicy{mode: modeWorkflowValue, strict: true, options: []option{withOSExpansion()}}
 	case fieldDAGShell, fieldStepShell, fieldShellCommand:

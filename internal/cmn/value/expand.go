@@ -18,7 +18,7 @@ import (
 func ExpandEnvContext(ctx context.Context, s string) string {
 	scope := GetEnvScope(ctx)
 	if scope == nil {
-		return expandWithLookup(s, os.LookupEnv)
+		return expandWithLookup(s, os.LookupEnv, true)
 	}
 	return scope.Expand(s)
 }
@@ -35,7 +35,7 @@ func expandEnvScopeOnly(ctx context.Context, s string) string {
 			return entry.Value, true
 		}
 		return "", false
-	})
+	}, true)
 }
 
 // shellEnviron implements expand.Environ for POSIX shell expansion.
@@ -115,7 +115,8 @@ func expandWithShellContext(ctx context.Context, input string, opts *options) (s
 		match := input[loc[0]:loc[1]]
 
 		// Single-quoted: preserve as-is.
-		if isSingleQuotedVar(input, loc[0], loc[1]) || isEscapedDollar(input, loc[0]) {
+		if isSingleQuotedVar(input, loc[0], loc[1]) ||
+			(opts.RecognizeEscapedDollar && isEscapedDollar(input, loc[0])) {
 			b.WriteString(match)
 			continue
 		}

@@ -139,6 +139,18 @@ func TestResolverCommandScriptFieldDefersScopeVarsAndExpandsStepRefs(t *testing.
 	assert.Equal(t, "echo $SCRIPT_VALUE ready", got)
 }
 
+func TestResolverStepArtifactOutputExpandsVarAfterWindowsSeparator(t *testing.T) {
+	ctx := context.Background()
+	scope := value.NewEnvScope(nil, false).
+		WithEntry("LOG_NAME", "prepared-output", value.EnvSourceStepEnv)
+	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{Env: scope})
+
+	got, err := resolver.String(ctx, `C:\tmp\${LOG_NAME}.log`, value.StepArtifactOutputField("stdout"))
+
+	require.NoError(t, err)
+	assert.Equal(t, `C:\tmp\prepared-output.log`, got)
+}
+
 func TestResolverPowerShellCommandFieldPreservesEnvMemberAccess(t *testing.T) {
 	ctx := context.Background()
 	scope := value.NewEnvScope(nil, false).

@@ -5,11 +5,12 @@ package value
 
 // options controls the behavior of string evaluation.
 type options struct {
-	ExpandEnv    bool // Enable environment variable expansion
-	ExpandShell  bool // Enable shell-based variable expansion (e.g., ${VAR:0:3})
-	ExpandOS     bool // Enable os.LookupEnv fallback and OS-sourced scope entries
-	Substitute   bool // Enable backtick command substitution
-	EscapeDollar bool // Enable \$ → $ escape before variable expansion
+	ExpandEnv              bool // Enable environment variable expansion
+	ExpandShell            bool // Enable shell-based variable expansion (e.g., ${VAR:0:3})
+	ExpandOS               bool // Enable os.LookupEnv fallback and OS-sourced scope entries
+	Substitute             bool // Enable backtick command substitution
+	EscapeDollar           bool // Enable \$ → $ escape before variable expansion
+	RecognizeEscapedDollar bool // Treat \$ as a literal-dollar marker during variable expansion
 
 	// DeferShellVars skips simple $VAR/${VAR} expansion in the variables
 	// phase, deferring to the shell at runtime. JSON path references like
@@ -31,10 +32,11 @@ type options struct {
 // Substitute enabled. ExpandOS is disabled by default.
 func newOptions() *options {
 	return &options{
-		ExpandEnv:    true,
-		ExpandShell:  true,
-		Substitute:   true,
-		EscapeDollar: true,
+		ExpandEnv:              true,
+		ExpandShell:            true,
+		Substitute:             true,
+		EscapeDollar:           true,
+		RecognizeEscapedDollar: true,
 	}
 }
 
@@ -80,6 +82,13 @@ func withoutSubstitute() option {
 func withoutDollarEscape() option {
 	return func(opts *options) {
 		opts.EscapeDollar = false
+	}
+}
+
+// withoutEscapedDollarRecognition treats backslash-dollar as ordinary text.
+func withoutEscapedDollarRecognition() option {
+	return func(opts *options) {
+		opts.RecognizeEscapedDollar = false
 	}
 }
 

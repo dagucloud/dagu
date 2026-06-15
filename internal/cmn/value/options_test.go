@@ -19,6 +19,7 @@ func TestOptions_Defaults(t *testing.T) {
 	assert.True(t, opts.ExpandShell, "ExpandShell should default to true")
 	assert.True(t, opts.Substitute, "Substitute should default to true")
 	assert.True(t, opts.EscapeDollar, "EscapeDollar should default to true")
+	assert.True(t, opts.RecognizeEscapedDollar, "RecognizeEscapedDollar should default to true")
 	assert.False(t, opts.ExpandOS, "ExpandOS should default to false")
 	assert.False(t, opts.DeferShellVars, "DeferShellVars should default to false")
 	assert.Nil(t, opts.Variables, "Variables should default to nil")
@@ -35,6 +36,7 @@ func TestOptions_OnlyReplaceVars(t *testing.T) {
 	// These should remain at their default values
 	assert.True(t, opts.ExpandShell, "onlyReplaceVars should not change ExpandShell")
 	assert.True(t, opts.EscapeDollar, "onlyReplaceVars should not change EscapeDollar")
+	assert.True(t, opts.RecognizeEscapedDollar, "onlyReplaceVars should not change RecognizeEscapedDollar")
 	assert.False(t, opts.ExpandOS, "onlyReplaceVars should not change ExpandOS")
 }
 

@@ -890,6 +890,9 @@ func TestNodePrepareResolvesRetryRepeatStringsFromRuntimeEnv(t *testing.T) {
 
 	node := runtime.NewNode(step, runtime.NodeState{})
 	require.NoError(t, node.Prepare(ctx, t.TempDir(), "run-1"))
+	t.Cleanup(func() {
+		require.NoError(t, node.Teardown())
+	})
 
 	got := node.Step()
 	assert.Equal(t, 3, got.RetryPolicy.Limit)

@@ -747,7 +747,7 @@ func TestExpandWithLookup_SingleQuoted(t *testing.T) {
 		}
 		return "", false
 	}
-	result := expandWithLookup("'$FOO' stays", lookup)
+	result := expandWithLookup("'$FOO' stays", lookup, true)
 	assert.Equal(t, "'$FOO' stays", result)
 }
 
@@ -803,7 +803,7 @@ func TestExpandWithLookup_QuoteAdjacentCases(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := expandWithLookup(tt.input, lookup)
+			got := expandWithLookup(tt.input, lookup, true)
 			assert.Equal(t, tt.want, got)
 		})
 	}

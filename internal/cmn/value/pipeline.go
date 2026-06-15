@@ -6,6 +6,7 @@ package value
 import (
 	"context"
 	"fmt"
+	"os"
 )
 
 // phase represents a single step in the evaluation pipeline.
@@ -96,9 +97,22 @@ func substitutePhase(ctx context.Context, input string, _ *options) (string, err
 // os.LookupEnv is available as a fallback; otherwise only scoped entries are used.
 func regexExpandEnv(ctx context.Context, input string, opts *options) string {
 	if opts.ExpandOS {
-		return ExpandEnvContext(ctx, input)
+		scope := GetEnvScope(ctx)
+		if scope == nil {
+			return expandWithLookup(input, os.LookupEnv, opts.RecognizeEscapedDollar)
+		}
+		return expandWithLookup(input, scope.Get, opts.RecognizeEscapedDollar)
 	}
-	return expandEnvScopeOnly(ctx, input)
+	scope := GetEnvScope(ctx)
+	if scope == nil {
+		return input
+	}
+	return expandWithLookup(input, func(key string) (string, bool) {
+		if entry, ok := scope.GetEntry(key); ok && entry.Source != EnvSourceOS {
+			return entry.Value, true
+		}
+		return "", false
+	}, opts.RecognizeEscapedDollar)
 }
 
 // shellExpandPhase performs shell-style variable expansion.
