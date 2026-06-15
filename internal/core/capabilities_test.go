@@ -113,19 +113,6 @@ func TestStepResolutionDeclarations(t *testing.T) {
 		assert.Equal(t, cmnvalue.CommandTargetSSH, step.ScriptResolution(ctx).Target)
 	})
 
-	t.Run("ConfigUsesProfileHook", func(t *testing.T) {
-		RegisterExecutorCapabilities("config-resolution-test", ExecutorCapabilities{
-			Command: true,
-			ConfigProfile: func(_ context.Context, _ Step) cmnvalue.ConfigProfile {
-				return cmnvalue.ConfigProfileTemplate
-			},
-		})
-		t.Cleanup(func() { UnregisterExecutorCapabilities("config-resolution-test") })
-
-		step := Step{ExecutorConfig: ExecutorConfig{Type: "config-resolution-test"}}
-		assert.Equal(t, cmnvalue.ConfigProfileTemplate, step.ConfigResolutionProfile(ctx))
-	})
-
 	t.Run("ScriptFallsBackToCommandContext", func(t *testing.T) {
 		RegisterExecutorCapabilities("script-command-fallback-test", ExecutorCapabilities{
 			Command: true,
@@ -144,6 +131,5 @@ func TestStepResolutionDeclarations(t *testing.T) {
 		step := Step{ExecutorConfig: ExecutorConfig{Type: "unregistered-executor"}}
 		assert.Equal(t, cmnvalue.CommandTargetLocal, step.CommandResolution(ctx).Target)
 		assert.False(t, step.CommandResolution(ctx).ShellConfigured)
-		assert.Equal(t, cmnvalue.ConfigProfileDefault, step.ConfigResolutionProfile(ctx))
 	})
 }

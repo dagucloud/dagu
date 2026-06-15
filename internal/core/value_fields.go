@@ -105,7 +105,7 @@ func (w *referenceFieldWalker) walkStep(path string, step Step) {
 		}
 	}
 
-	w.walkStringLeaves(path+".with", step.ExecutorConfig.Config, base.withField(cmnvalue.ExecutorConfigField(path+".with", cmnvalue.ConfigProfileDefault)))
+	w.walkStringLeaves(path+".with", step.ExecutorConfig.Config, base.withField(cmnvalue.ExecutorConfigField(path+".with")))
 	w.add(base.withPathValue(path+".working_dir", step.Dir).withField(cmnvalue.StepDirField(path + ".working_dir")))
 	w.walkEnvWith(path+".env", step.Env, base, cmnvalue.WorkflowField)
 	w.walkConditions(path+".preconditions", step.Preconditions, base)

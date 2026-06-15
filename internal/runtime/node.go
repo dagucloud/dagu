@@ -829,7 +829,6 @@ func (n *Node) setupExecutor(ctx context.Context) (executor.Executor, error) {
 
 func evalExecutorConfig(ctx context.Context, step core.Step) (map[string]any, error) {
 	env := GetEnv(ctx)
-	field := cmnvalue.ExecutorConfigField("with", step.ConfigResolutionProfile(ctx))
 	if step.ExecutorConfig.Type == "template" {
 		scope := env.Scope
 		if scope == nil {
@@ -842,7 +841,7 @@ func evalExecutorConfig(ctx context.Context, step core.Step) (map[string]any, er
 		}
 		return objectAsConfig(got)
 	}
-	got, err := resolveRuntimeObject(ctx, step.ExecutorConfig.Config, field)
+	got, err := resolveRuntimeObject(ctx, step.ExecutorConfig.Config, cmnvalue.ExecutorConfigField("with"))
 	if err != nil {
 		return nil, err
 	}

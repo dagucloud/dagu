@@ -14,7 +14,6 @@ import (
 
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/templatefuncs"
-	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
@@ -146,8 +145,5 @@ func buildFuncMap() template.FuncMap {
 func init() {
 	executor.RegisterExecutor("template", newTemplate, validateTemplate, core.ExecutorCapabilities{
 		Script: true,
-		ConfigProfile: func(_ context.Context, _ core.Step) cmnvalue.ConfigProfile {
-			return cmnvalue.ConfigProfileTemplate
-		},
 	})
 }

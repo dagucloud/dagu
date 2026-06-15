@@ -57,7 +57,7 @@ func (r Resolver) Object(ctx context.Context, obj any, field Field) (any, error)
 	v := reflect.ValueOf(obj)
 
 	transform := func(ctx context.Context, s string) (string, error) {
-		if policy.object == objectLegacy {
+		if policy.object == objectEvalPipeline {
 			return evalStringValue(ctx, s, buildOptions(r.optionsFor(policy)))
 		}
 		return r.resolveString(ctx, s, field)
@@ -139,8 +139,8 @@ func (r Resolver) optionsFor(policy resolverPolicy) []option {
 type objectPolicy int
 
 const (
-	objectDefault objectPolicy = iota
-	objectLegacy
+	_ objectPolicy = iota
+	objectEvalPipeline
 )
 
 type envVariablesPolicy int
@@ -160,12 +160,26 @@ type resolverPolicy struct {
 }
 
 func policyForField(field Field) resolverPolicy {
-	//nolint:exhaustive // Unlisted semantic fields use the workflow-value policy below.
 	switch field.kind {
+	case fieldWorkflow,
+		fieldStepDir,
+		fieldDAGWorkingDir,
+		fieldAgentWorkingDir,
+		fieldConditionValue,
+		fieldContainer,
+		fieldContainerEnv,
+		fieldSubDAGName,
+		fieldSubDAGParams,
+		fieldParallelItem,
+		fieldParallelItemParam,
+		fieldParallelSubDAG:
+		return workflowValuePolicy()
 	case fieldConstLoad:
 		return resolverPolicy{mode: modeConstLoad, strict: true, options: []option{withoutSubstitute()}}
 	case fieldStaticValidation:
 		return resolverPolicy{mode: modeStaticValidation, strict: true, options: []option{withoutSubstitute()}}
+	case fieldWorkflowObject:
+		return workflowValuePolicy()
 	case fieldDAGEnv:
 		return resolverPolicy{mode: modeWorkflowValue, strict: true, envVariables: envVariablesUser, options: []option{withoutSubstitute(), withOSExpansion()}}
 	case fieldRuntimeDAGEnv:
@@ -175,7 +189,7 @@ func policyForField(field Field) resolverPolicy {
 	case fieldDotenvPath:
 		return resolverPolicy{mode: modeWorkflowValue, strict: true, options: []option{withOSExpansion(), withoutSubstitute()}}
 	case fieldHostConfigObject:
-		return resolverPolicy{object: objectLegacy, envVariables: envVariablesUser, options: []option{withoutSubstitute()}}
+		return resolverPolicy{object: objectEvalPipeline, envVariables: envVariablesUser, options: []option{withoutSubstitute()}}
 	case fieldLogPath:
 		return resolverPolicy{options: []option{withOSExpansion(), withoutSubstitute()}}
 	case fieldServerBasePath, fieldCoordinatorArtifactBaseDir:
@@ -187,11 +201,11 @@ func policyForField(field Field) resolverPolicy {
 	case fieldRetryInteger, fieldRepeatInteger:
 		return resolverPolicy{options: []option{withOSExpansion()}}
 	case fieldDAGShell, fieldStepShell, fieldShellCommand:
-		return resolverPolicy{mode: modeShellCommand, strict: true, options: append([]option{withoutSubstitute()}, commandPolicyOptions(field.command, false)...)}
+		return resolverPolicy{mode: modeShellCommand, strict: true, options: append([]option{withoutSubstitute()}, commandPolicyOptions(field.command)...)}
 	case fieldDirectCommand, fieldConditionCommand:
-		return resolverPolicy{mode: modeDirectCommand, strict: true, options: append([]option{withoutSubstitute(), withOSExpansion()}, commandPolicyOptions(field.command, true)...)}
+		return resolverPolicy{mode: modeDirectCommand, strict: true, options: append([]option{withoutSubstitute(), withOSExpansion()}, commandPolicyOptions(field.command)...)}
 	case fieldCommandScript:
-		options := append([]option{withoutSubstitute()}, commandPolicyOptions(field.command, false)...)
+		options := append([]option{withoutSubstitute()}, commandPolicyOptions(field.command)...)
 		if field.command.Target == CommandTargetLocal && field.command.ShellConfigured {
 			options = append(options, onlyReplaceVars())
 		}
@@ -202,16 +216,19 @@ func policyForField(field Field) resolverPolicy {
 		return resolverPolicy{mode: modeWorkflowValue, strict: true, envVariables: envVariablesUser, options: []option{withoutSubstitute()}}
 	case fieldTemplateConfig:
 		return resolverPolicy{mode: modeWorkflowValue, strict: true, envVariables: envVariablesUser, options: []option{withoutSubstitute()}}
-	case fieldWorkflowObject:
-		return resolverPolicy{mode: modeWorkflowValue, strict: true, options: []option{withoutSubstitute()}}
-	default:
-		return resolverPolicy{mode: modeWorkflowValue, strict: true, options: []option{withoutSubstitute()}}
 	}
+
+	return workflowValuePolicy()
 }
 
-func commandPolicyOptions(command CommandContext, direct bool) []option {
-	//nolint:exhaustive // The local target uses the default branch.
+func workflowValuePolicy() resolverPolicy {
+	return resolverPolicy{mode: modeWorkflowValue, strict: true, options: []option{withoutSubstitute()}}
+}
+
+func commandPolicyOptions(command CommandContext) []option {
 	switch command.Target {
+	case CommandTargetLocal:
+		return localCommandPolicyOptions(command)
 	case CommandTargetDocker:
 		if command.ShellConfigured {
 			return []option{withoutDollarEscape()}
@@ -222,12 +239,12 @@ func commandPolicyOptions(command CommandContext, direct bool) []option {
 			return []option{withoutDollarEscape()}
 		}
 		return []option{withoutExpandShell()}
-	default:
-		return localCommandPolicyOptions(command, direct)
 	}
+
+	return nil
 }
 
-func localCommandPolicyOptions(command CommandContext, _ bool) []option {
+func localCommandPolicyOptions(command CommandContext) []option {
 	if !command.ShellConfigured {
 		return nil
 	}

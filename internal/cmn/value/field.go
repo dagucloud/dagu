@@ -8,7 +8,6 @@ type Field struct {
 	path    string
 	kind    fieldKind
 	command CommandContext
-	profile ConfigProfile
 }
 
 type fieldKind int
@@ -52,6 +51,8 @@ const (
 	fieldRetryInteger
 	fieldRepeatInteger
 )
+
+const fieldKindCount = int(fieldRepeatInteger) + 1
 
 // Path returns the caller-visible field path used in validation errors.
 func (f Field) Path() string {
@@ -173,25 +174,15 @@ func ContainerField(path string) Field { return newField(path, fieldContainer) }
 // ContainerEnvField returns the policy for container env entries.
 func ContainerEnvField(path string) Field { return newField(path, fieldContainerEnv) }
 
-// ConfigProfile identifies executor configuration resolution behavior.
-type ConfigProfile int
-
-const (
-	ConfigProfileDefault ConfigProfile = iota
-	ConfigProfileTemplate
-)
-
 // ExecutorConfigField returns the policy for executor configuration objects.
-func ExecutorConfigField(path string, profile ConfigProfile) Field {
-	return Field{path: path, kind: fieldExecutorConfig, profile: profile}
-}
+func ExecutorConfigField(path string) Field { return newField(path, fieldExecutorConfig) }
 
 // TemplateScriptField returns the policy for template executor scripts.
 func TemplateScriptField(path string) Field { return newField(path, fieldTemplateScript) }
 
 // TemplateConfigField returns the policy for template executor configuration.
 func TemplateConfigField(path string) Field {
-	return Field{path: path, kind: fieldTemplateConfig, profile: ConfigProfileTemplate}
+	return newField(path, fieldTemplateConfig)
 }
 
 // SubDAGNameField returns the policy for sub-DAG names.

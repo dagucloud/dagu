@@ -34,8 +34,6 @@ type ExecutorCapabilities struct {
 	CommandContext func(ctx context.Context, step Step) cmnvalue.CommandContext
 	// ScriptContext returns command execution facts for script field resolution.
 	ScriptContext func(ctx context.Context, step Step) cmnvalue.CommandContext
-	// ConfigProfile returns the executor configuration resolution profile.
-	ConfigProfile func(ctx context.Context, step Step) cmnvalue.ConfigProfile
 }
 
 // executorCapabilitiesRegistry is a typed registry of executor capabilities.
@@ -148,13 +146,4 @@ func (s Step) ScriptResolution(ctx context.Context) cmnvalue.CommandContext {
 		return caps.CommandContext(ctx, s)
 	}
 	return cmnvalue.CommandContext{}
-}
-
-// ConfigResolutionProfile returns the semantic profile for executor config resolution.
-func (s Step) ConfigResolutionProfile(ctx context.Context) cmnvalue.ConfigProfile {
-	caps := executorCapabilities.Get(s.ExecutorConfig.Type)
-	if caps.ConfigProfile != nil {
-		return caps.ConfigProfile(ctx, s)
-	}
-	return cmnvalue.ConfigProfileDefault
 }
