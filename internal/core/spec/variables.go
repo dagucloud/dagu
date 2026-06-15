@@ -115,7 +115,6 @@ func evaluatePairs(ctx BuildContext, pairs []pair) (map[string]string, error) {
 			}
 			valueScope := cmnvalue.RuntimeScope{
 				Consts: cmnvalue.Values(consts),
-				Params: cmnvalue.ValuesFromStrings(scope.AllBySource(cmnvalue.EnvSourceParam)),
 				Env:    cmnvalue.ValuesFromStrings(scope.AllUserEnvs()),
 			}
 			value, err = cmnvalue.ExpandStringContext(scopeCtx, value, valueScope, cmnvalue.ModeWorkflowValue, "env."+p.key, cmnvalue.WithVariables(vars), cmnvalue.WithOSExpansion())

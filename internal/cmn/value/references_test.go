@@ -14,9 +14,9 @@ import (
 func TestScanReferencesClassifiesReservedAndEvalRefs(t *testing.T) {
 	t.Parallel()
 
-	refs := value.ScanReferences("${consts.service} $consts.service $env.FOO ${DATA.image} $DATA.tag")
+	refs := value.ScanReferences("${consts.service} $consts.service $env.FOO $params.foo $steps.build ${DATA.image} $DATA.tag")
 
-	require.Len(t, refs, 5)
+	require.Len(t, refs, 7)
 	assert.Equal(t, value.ReferenceStrict, refs[0].Kind)
 	assert.Equal(t, "consts", refs[0].Namespace)
 	assert.True(t, refs[0].Braced)
@@ -25,9 +25,13 @@ func TestScanReferencesClassifiesReservedAndEvalRefs(t *testing.T) {
 	assert.Equal(t, value.ReferenceEval, refs[2].Kind)
 	assert.False(t, refs[2].Braced)
 	assert.Equal(t, value.ReferenceEval, refs[3].Kind)
-	assert.True(t, refs[3].Braced)
+	assert.False(t, refs[3].Braced)
 	assert.Equal(t, value.ReferenceEval, refs[4].Kind)
 	assert.False(t, refs[4].Braced)
+	assert.Equal(t, value.ReferenceEval, refs[5].Kind)
+	assert.True(t, refs[5].Braced)
+	assert.Equal(t, value.ReferenceEval, refs[6].Kind)
+	assert.False(t, refs[6].Braced)
 }
 
 func TestModeString(t *testing.T) {
@@ -154,9 +158,7 @@ func TestExpandStringPreservesNonConstNamespaces(t *testing.T) {
 		"${consts.service}:${params.environment}:${env.HOME}:${steps.build.outputs.image}",
 		value.RuntimeScope{
 			Consts: value.Values{"service": "api"},
-			Params: value.Values{"environment": "prod"},
 			Env:    value.Values{"HOME": "/workspace"},
-			Steps:  value.StepOutputs{"build": value.Values{"image": "repo/api:v1"}},
 		},
 		value.ModeWorkflowValue,
 		"run",
@@ -188,9 +190,7 @@ func TestExpandStringResolvesConstRefsAndKeepsEvalRefs(t *testing.T) {
 		"${consts.service}:${params.environment}:${env.HOME}:${steps.build.outputs.image}:${DATA.image}:$DATA.tag",
 		value.RuntimeScope{
 			Consts: value.Values{"service": "api"},
-			Params: value.Values{"environment": "prod"},
 			Env:    value.Values{"HOME": "/workspace"},
-			Steps:  value.StepOutputs{"build": value.Values{"image": "repo/api:v1"}},
 		},
 		value.ModeWorkflowValue,
 		"run",
@@ -213,9 +213,7 @@ func TestExpandObjectResolvesConstRefsAcrossNestedValues(t *testing.T) {
 
 	got, err := value.ExpandObject(obj, value.RuntimeScope{
 		Consts: value.Values{"repo": "repo/api"},
-		Params: value.Values{"tag": "v1"},
 		Env:    value.Values{"TOKEN": "secret"},
-		Steps:  value.StepOutputs{"build": value.Values{"digest": "sha256:abc"}},
 	}, value.ModeWorkflowValue, "with")
 	require.NoError(t, err)
 

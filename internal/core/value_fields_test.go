@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestResolvableFieldsEmitsSpec003PathSet(t *testing.T) {
+func TestReferenceFieldsEmitsValidationPathSet(t *testing.T) {
 	t.Parallel()
 
 	dag := &core.DAG{
@@ -104,7 +104,7 @@ func TestResolvableFieldsEmitsSpec003PathSet(t *testing.T) {
 		},
 	}
 
-	fields := core.ResolvableFields(dag)
+	fields := core.ReferenceFields(dag)
 	got := make([]string, 0, len(fields))
 	for _, field := range fields {
 		got = append(got, field.Path)

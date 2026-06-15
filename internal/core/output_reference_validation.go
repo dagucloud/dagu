@@ -56,7 +56,7 @@ func (d *DAG) validateOutputReferences() []error {
 
 	var errs []error
 	seen := make(map[string]struct{})
-	for _, field := range ResolvableFields(d) {
+	for _, field := range ReferenceFields(d) {
 		if !strings.Contains(field.Value, ".output.") {
 			continue
 		}

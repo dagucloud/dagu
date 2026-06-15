@@ -90,13 +90,31 @@ func TestExpandStringResolvesConstBindingsWithScope(t *testing.T) {
 		"${consts.service} ${params.environment} ${env.HOME} ${steps.build.outputs.image}",
 		value.RuntimeScope{
 			Consts: value.Values{"service": "api"},
-			Params: value.Values{"environment": "prod"},
 			Env:    value.Values{"HOME": "/workspace"},
-			Steps:  value.StepOutputs{"build": value.Values{"image": "repo/api:v1"}},
 		},
 		value.ModeWorkflowValue,
 		"run",
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "api ${params.environment} ${env.HOME} ${steps.build.outputs.image}", got)
+}
+
+func TestExpandStringDoesNotRejectFutureNamespaceShorthand(t *testing.T) {
+	t.Parallel()
+
+	tests := []string{
+		"$env.FOO",
+		"$params.foo",
+		"$steps.build.outputs.image",
+	}
+
+	for _, raw := range tests {
+		t.Run(raw, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := value.ExpandString(raw, value.RuntimeScope{}, value.ModeWorkflowValue, "run")
+			require.NoError(t, err)
+			assert.Equal(t, raw, got)
+		})
+	}
 }

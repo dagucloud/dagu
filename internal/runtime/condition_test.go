@@ -132,7 +132,7 @@ func TestEvalConditions(t *testing.T) {
 			name: "EvalStringErrorNotSwallowed",
 			conditions: []*core.Condition{
 				{
-					Condition: "$env.BAD",
+					Condition: "${consts.missing}",
 					Expected:  "anything",
 					Negate:    true,
 				},

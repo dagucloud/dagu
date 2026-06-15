@@ -165,7 +165,7 @@ func TestOutputReferencesDescendsTypedContainersViaFieldWalker(t *testing.T) {
 			},
 		},
 	}}}
-	for _, field := range ResolvableFields(dag) {
+	for _, field := range ReferenceFields(dag) {
 		for _, ref := range outputReferences(field.Value) {
 			refs = append(refs, collectedReference{field: field.Path, ref: ref})
 		}
@@ -178,10 +178,10 @@ func TestOutputReferencesDescendsTypedContainersViaFieldWalker(t *testing.T) {
 	assert.Equal(t, "alpha", refs[1].ref.Path[0])
 }
 
-func TestResolvableFieldsIncludesExecutorConfig(t *testing.T) {
+func TestReferenceFieldsIncludesExecutorConfig(t *testing.T) {
 	t.Parallel()
 
-	var refs []ResolvableField
+	var refs []ReferenceField
 	dag := &DAG{Steps: []Step{{
 		Name: "consumer",
 		ExecutorConfig: ExecutorConfig{
@@ -193,7 +193,7 @@ func TestResolvableFieldsIncludesExecutorConfig(t *testing.T) {
 			},
 		},
 	}}}
-	for _, field := range ResolvableFields(dag) {
+	for _, field := range ReferenceFields(dag) {
 		if len(outputReferences(field.Value)) > 0 {
 			refs = append(refs, field)
 		}

@@ -15,9 +15,8 @@ import (
 var (
 	reVarSubstitution       = regexp.MustCompile(`\$\{([^}]+)\}|\$([a-zA-Z0-9_][a-zA-Z0-9_]*)`)
 	bindingRefPattern       = regexp.MustCompile(`\$\{([^}]+)\}`)
-	bindingShorthandPattern = regexp.MustCompile(`\$(consts|params|env|steps)(\.[A-Za-z_][A-Za-z0-9_]*)+`)
+	bindingShorthandPattern = regexp.MustCompile(`\$consts(\.[A-Za-z_][A-Za-z0-9_]*)+`)
 	bindingNamePattern      = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
-	bindingEnvNamePattern   = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 	quotedReferencePattern  = regexp.MustCompile(`"\$\{([A-Za-z0-9_]\w*(?:\.[^}]+)?)\}"`)
 	referencePattern        = regexp.MustCompile(`\$\{([A-Za-z0-9_]\w*)(\.[^}]+)\}|\$([A-Za-z0-9_]\w*)(\.[^\s]+)`)
 )
@@ -230,25 +229,13 @@ func validateBindingSegments(segments []string) error {
 	if len(segments) == 0 {
 		return nil
 	}
-	namespace := segments[0]
-	for idx, segment := range segments {
-		pattern := bindingNamePattern
-		if namespace == "env" && idx == 1 {
-			pattern = bindingEnvNamePattern
-		}
-		if !pattern.MatchString(segment) {
+	for _, segment := range segments {
+		if !bindingNamePattern.MatchString(segment) {
 			return fmt.Errorf("binding path segment %q is invalid", segment)
 		}
 	}
-	switch namespace {
-	case "consts", "params", "env":
-		if len(segments) != 2 {
-			return fmt.Errorf("%s bindings must use ${%s.<name>}", namespace, namespace)
-		}
-	case "steps":
-		if len(segments) != 4 || segments[2] != "outputs" {
-			return fmt.Errorf("steps bindings must use ${steps.<step_id>.outputs.<name>}")
-		}
+	if segments[0] == "consts" && len(segments) != 2 {
+		return fmt.Errorf("consts bindings must use ${consts.<name>}")
 	}
 	return nil
 }
