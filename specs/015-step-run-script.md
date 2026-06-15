@@ -37,6 +37,8 @@ get predictable line preservation, shell behavior, and shebang behavior.
 
 - Dagu preserves line breaks in the resolved script text.
 
+- Leading and trailing line breaks are preserved.
+
 - Dagu must run the resolved script text as one script.
 
 - Dagu must not split script-form `run` into multiple command-form invocations.
@@ -146,6 +148,8 @@ steps:
 
 - A black-box fixture verifies `dagu run` executes a multi-line `run` script.
 - A black-box fixture verifies line breaks in script-form `run` are preserved.
+- A black-box fixture verifies a block scalar with only one command line and a trailing line break is script form.
+- A black-box fixture verifies leading blank lines are preserved before shebang evaluation.
 - A black-box fixture verifies script-form `run` is executed as one script.
 - A black-box fixture verifies script-form `run` is not split into command-form invocations.
 - A black-box fixture verifies a script-form `run` shebang selects the shebang interpreter when no step-level shell is specified.

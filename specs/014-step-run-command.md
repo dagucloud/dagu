@@ -33,7 +33,13 @@ shell-specific behavior, and sequential behavior for array-form `run`.
 
 - Command-form `run` is shell command text.
 
+- Command-form `run` must not contain line breaks.
+
 - Dagu resolves Dagu-owned references before the command starts.
+
+- Value resolution must not reclassify command form as script form.
+
+- If resolved command-form text contains a line break, the step fails before the selected shell starts.
 
 - Dagu passes the resolved command text to the selected shell as one command string.
 
@@ -48,6 +54,10 @@ shell-specific behavior, and sequential behavior for array-form `run`.
 - Array-form `run` is an ordered list of command-form entries.
 
 - Each non-empty array entry runs as one command-form invocation.
+
+- Array-form entries must not contain line breaks.
+
+- If a resolved array-form entry contains a line break, the step fails before the selected shell starts.
 
 - Entries run sequentially.
 
@@ -99,6 +109,8 @@ Runtime must fail when:
 
 - The selected shell cannot find the command path.
 
+- The resolved command text contains a line break.
+
 - The command exits with a non-zero code.
 
 - An array-form entry fails.
@@ -148,6 +160,9 @@ steps:
 - A black-box fixture verifies shell syntax in command-form `run` is interpreted by the selected shell.
 - A black-box fixture verifies command-form `run` uses `with.shell` and `with.shell_args`.
 - A black-box fixture verifies command-form `run` is not exposed as a user-authored argv list.
+- A black-box fixture verifies command-form `run` rejects line breaks in array-form entries.
+- A black-box fixture verifies command-form `run` fails before shell start when value resolution inserts a line break.
+- A black-box fixture verifies array-form `run` fails before shell start when value resolution inserts a line break.
 - A black-box fixture verifies array-form `run` executes entries sequentially.
 - A black-box fixture verifies array-form `run` stops at the first failed entry.
 - A black-box fixture verifies Unix-like shell command construction uses the expected shell command-string invocation.

@@ -2,8 +2,7 @@
 
 ## Implementation Status
 
-Not implemented. This spec describes target conformance behavior and must not be
-treated as current product behavior.
+Not implemented. This spec describes target conformance behavior.
 
 ## Scope
 
@@ -26,9 +25,9 @@ Input is a workflow YAML file accepted by the YAML schema spec and by the specs 
 
 These names are easy to confuse, so this spec uses them exactly:
 
-- Step `output` is the singular step field. Current code accepts string form and object form.
+- Step `output` is the singular step field. Its accepted forms are defined by its owning spec.
 - Step `stdout.outputs` publishes DAG or action outputs from stdout.
-- Step top-level `outputs` is a separate field owned by the step outputs spec when that spec is implemented.
+- Step top-level `outputs` is a separate field owned by the step outputs spec.
 - `dagu-action.yaml` top-level `outputs` is an action manifest schema. It is not a normal workflow root field.
 - A normal workflow root does not have a root `output` or root `outputs` field in this spec.
 

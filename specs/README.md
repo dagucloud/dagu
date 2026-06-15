@@ -2,13 +2,13 @@
 
 Specs describe data-plane behavior. They are written for implementers and for black-box conformance tests.
 
-Specs may be implemented incrementally. A change that implements part of a spec must say which behavior it covers and must add black-box coverage for that behavior. Documented behavior that is not implemented remains target conformance work, not implied current behavior.
+Specs are implemented incrementally. A change that implements part of a spec must say which behavior it covers and must add black-box coverage for that behavior. Documented behavior that is not implemented remains target conformance work, not implied product behavior.
 
 ## Implementation Status
 
-This table describes current implementation status for this branch. `Not implemented`
-means the spec documents target conformance behavior and must not be treated as
-current product behavior.
+This table describes conformance status. `Not implemented` means the spec
+documents target conformance behavior and must not be treated as product
+behavior until implementation catches up.
 
 | Spec | Status |
 | --- | --- |
@@ -39,7 +39,7 @@ current product behavior.
 - Define public inputs, outputs, errors, side effects, and lifecycle effects.
 - Include examples that can be used as test fixtures.
 - Do not require control-plane behavior.
-- Remove obsolete functionality or behavior instead of preserving compatibility.
+- Remove obsolete functionality or behavior unless an owning spec explicitly keeps it.
 - Do not add tests that verify a functionality or behavior is removed.
 
 **Each spec should document:**

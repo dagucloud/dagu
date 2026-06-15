@@ -64,6 +64,8 @@ This prevents ambiguity between:
 
 - When `run` is a string, the decoded string must contain at least one non-whitespace character.
 
+- Dagu selects command form or script form from the decoded string before trimming leading or trailing whitespace.
+
 - A string `run` without line breaks is command form.
 
 - A string `run` with one or more line breaks is script form.
@@ -81,6 +83,8 @@ This prevents ambiguity between:
 - Array-form `run` accepts single-key mapping items whose values are primitive scalars and converts them to command strings in `key: value` form.
 
 - Empty or whitespace-only string entries are ignored in array form.
+
+- Array-form `run` entries must not contain line breaks after scalar conversion.
 
 - Multi-key mapping items, nested mapping items, and nested array items must fail validation.
 
@@ -134,8 +138,6 @@ Rules:
 
 - The selected shell or script interpreter owns `$()` and backtick execution after Dagu starts the command or script.
 
-- Direct argv execution has no shell handoff, so `$()` and backticks remain literal argv text unless the invoked program interprets them.
-
 - Dagu dynamic evaluation is available only where the dynamic evaluation spec explicitly allows it, such as `params[].eval`.
 
 ### Shell Selection
@@ -153,13 +155,21 @@ Shell selection order is:
 
 - `with.shell` selects a different shell for a `run` step.
 
-- `with.shell_args` selects shell arguments for a `run` step.
+- `with.shell_args` selects shell arguments for the step shell selected by `with.shell`.
+
+- `with.shell_args` must not be specified unless `with.shell` is specified.
 
 - `with.shell_packages` selects shell packages for a `run` step when the selected shell supports packages.
 
 - Accepted `with` keys for `run` are `shell`, `shell_args`, and `shell_packages`.
 
 - A `run` step must not use any other `with` key.
+
+- The shell value `direct` is not valid for `run`; direct process execution belongs to `action: exec`.
+
+- An authored root or step shell value of `direct` is invalid for any `run` step.
+
+- If the runtime default shell resolves to `direct`, Dagu must fail before the command or script starts.
 
 #### Platform Fallback
 
@@ -199,11 +209,9 @@ Shell selection order is:
 
 - Shell variables are expanded by the selected shell or script interpreter, not by Dagu value resolution.
 
-#### Target Output File
+#### Step Outputs
 
-- Under the target top-level `outputs` model defined by the step outputs spec, Dagu sets `DAGU_OUTPUT_FILE` before starting a command or script that declares outputs requiring that file.
-
-- Under the target top-level `outputs` model, if the step does not declare outputs that require `DAGU_OUTPUT_FILE`, `DAGU_OUTPUT_FILE` must be absent from the step environment.
+- Step output declaration and `DAGU_OUTPUT_FILE` behavior are defined by [Spec 012: Step Outputs](012-step-outputs.md).
 
 #### Stream Files
 
@@ -217,11 +225,11 @@ Shell selection order is:
 
 - Captured stdout and stderr are runtime streams.
 
-#### Target Outputs
+#### Step Outputs
 
-- Under the target top-level `outputs` model, step outputs are published through the step outputs spec.
+- Step outputs are published through the step outputs spec.
 
-- Captured stdout is not automatically a step output under the target top-level `outputs` model.
+- Captured stdout and stderr are not step outputs unless published through the step outputs spec.
 
 ### Exit, Abort, And Timeout
 
@@ -259,6 +267,12 @@ Validation must fail when:
 
 - A `run` step contains a `with` key that is not accepted for `run`.
 
+- A `run` step specifies `with.shell_args` without `with.shell`.
+
+- A `run` step selects `direct` through step `with.shell` or root `shell`.
+
+- An array-form `run` entry contains a line break.
+
 Validation must not:
 
 - Execute `run`.
@@ -272,6 +286,8 @@ Validation must not:
 Runtime must fail when:
 
 - Value resolution in `run` fails.
+
+- Value resolution in the selected `working_dir` fails.
 
 - The selected shell or script interpreter cannot be started.
 
@@ -403,6 +419,7 @@ Validation:
 - A black-box fixture verifies `dagu validate` rejects unsupported `run` shapes.
 - A black-box fixture verifies `dagu validate` rejects an empty `run`.
 - A black-box fixture verifies `dagu validate` rejects array-form `run` with no non-empty command entries.
+- A black-box fixture verifies `dagu validate` rejects array-form `run` entries that contain line breaks.
 - A black-box fixture verifies `dagu validate` rejects multi-key mapping entries in array-form `run`.
 - A black-box fixture verifies `dagu validate` rejects nested mapping or nested array entries in array-form `run`.
 - A black-box fixture verifies `dagu validate` accepts `$()` text in `run` and does not execute it.
@@ -410,6 +427,9 @@ Validation:
 - A black-box fixture verifies `dagu validate` does not execute `run`.
 - A black-box fixture verifies `dagu validate` does not require the command path to exist.
 - A black-box fixture verifies `dagu validate` rejects unsupported `with` keys on `run`.
+- A black-box fixture verifies `dagu validate` rejects `with.shell_args` without `with.shell`.
+- A black-box fixture verifies `dagu validate` rejects `with.shell: direct`.
+- A black-box fixture verifies `dagu validate` rejects root `shell: direct` when the workflow contains a `run` step.
 
 Value resolution:
 
@@ -418,6 +438,7 @@ Value resolution:
 - A black-box fixture verifies `$()` remains available for shell execution.
 - A black-box fixture verifies backticks remain available for shell execution.
 - A black-box fixture verifies a value-resolution failure prevents the command or script from starting.
+- A black-box fixture verifies a value-resolution failure in `working_dir` prevents the command or script from starting.
 
 Runtime behavior:
 
@@ -431,11 +452,10 @@ Runtime behavior:
 - A black-box fixture verifies `dagu run` respects step `working_dir`.
 - A black-box fixture verifies stdout is captured.
 - A black-box fixture verifies stderr is captured.
-- A black-box fixture verifies stdout is not automatically treated as a step output under the target top-level `outputs` model.
-- A target-conformance fixture verifies `DAGU_OUTPUT_FILE` is set when the step declares target top-level `outputs` that require it.
-- A target-conformance fixture verifies `DAGU_OUTPUT_FILE` is absent when the step does not declare target top-level `outputs` that require it.
+- A black-box fixture verifies stdout is not automatically treated as a step output.
 - A black-box fixture verifies `DAG_RUN_STEP_STDOUT_FILE` and `DAG_RUN_STEP_STDERR_FILE` are exposed.
 - A black-box fixture verifies non-zero exit fails the step.
 - A black-box fixture verifies a command path that the shell or script interpreter cannot find fails the step.
 - A black-box fixture verifies abort terminates the running command or script.
 - A black-box fixture verifies timeout termination fails the running command or script.
+- A black-box fixture verifies a runtime default shell value of `direct` fails before the command or script starts.
