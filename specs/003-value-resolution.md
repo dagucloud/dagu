@@ -1,5 +1,10 @@
 # Spec: Value Resolution
 
+## Implementation Status
+
+Not implemented. This spec describes target conformance behavior and must not be
+treated as current product behavior.
+
 ## Scope
 
 Dagu value resolution resolves Dagu-owned references in workflow YAML before the field is used.

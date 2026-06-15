@@ -1,5 +1,10 @@
 # Spec: Step Outputs
 
+## Implementation Status
+
+Not implemented. This spec describes target conformance behavior and must not be
+treated as current product behavior.
+
 ## Scope
 
 This spec defines the step-level top-level `outputs` field, `DAGU_OUTPUT_FILE`, and output publication.

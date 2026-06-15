@@ -1,5 +1,9 @@
 # Spec: Value Resolution Consts
 
+## Implementation Status
+
+Implemented.
+
 ## Scope
 
 This spec defines root `consts` and `${consts.name}` references.

@@ -1,5 +1,10 @@
 # Spec: Step Reference
 
+## Implementation Status
+
+Not implemented. This spec describes target conformance behavior and must not be
+treated as current product behavior.
+
 ## Scope
 
 This spec defines step identity, dependencies, and step references used by value resolution.

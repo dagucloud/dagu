@@ -1,5 +1,10 @@
 # Spec: Field Evaluation
 
+## Implementation Status
+
+Not implemented. This spec describes target conformance behavior and must not be
+treated as current product behavior.
+
 ## Scope
 
 This spec answers one question: when Dagu sees text in a workflow field, does it leave the text alone, resolve Dagu references such as `${params.name}`, or run Dagu dynamic evaluation?

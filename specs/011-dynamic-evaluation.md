@@ -1,5 +1,10 @@
 # Spec: Dynamic Evaluation
 
+## Implementation Status
+
+Not implemented. This spec describes target conformance behavior and must not be
+treated as current product behavior.
+
 ## Scope
 
 This spec defines Dagu dynamic evaluation for fields that explicitly opt in.

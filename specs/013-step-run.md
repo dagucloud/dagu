@@ -1,5 +1,10 @@
 # Spec: Step Run
 
+## Implementation Status
+
+Not implemented. This spec describes target conformance behavior and must not be
+treated as current product behavior.
+
 ## Scope
 
 This spec defines local command execution through the step `run` field.

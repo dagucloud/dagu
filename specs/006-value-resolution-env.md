@@ -1,5 +1,10 @@
 # Spec: Value Resolution Env
 
+## Implementation Status
+
+Not implemented. This spec describes target conformance behavior and must not be
+treated as current product behavior.
+
 ## Scope
 
 This spec defines environment values used by Dagu value resolution.

@@ -1,5 +1,10 @@
 # Spec: Project
 
+## Implementation Status
+
+Not implemented. This spec describes target conformance behavior and must not be
+treated as current product behavior.
+
 ## Scope
 
 This spec defines project root detection, workflow discovery, and relative path handling for data-plane execution.
