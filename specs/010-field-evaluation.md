@@ -56,7 +56,7 @@ The value-resolution field list is defined by the value resolution spec. If this
 | `params[].eval` | Dynamic-evaluated | Before any step starts | Used only when the caller did not provide that parameter. May run backtick command substitution. Does not run `$()`. |
 | Root `env` values | Value-resolved | DAG load or run setup | Dagu resolves Dagu references. It does not run command substitution. |
 | `dotenv` paths | Value-resolved | Before loading the dotenv file | Dagu resolves the path. It does not run command substitution. |
-| Step `run` | Value-resolved | Step start | Dagu resolves Dagu references and environment references supported by value resolution, then hands the command string to the target shell. Dagu does not run `$()` or backticks in this field. The shell may run them later. |
+| Step `run` | Value-resolved | Step start | Dagu resolves Dagu-owned references, then hands the command string to the target shell. Dagu does not resolve shell syntax such as `$NAME`, `${NAME}`, `$()`, or backticks in this field. The shell may resolve or run them later. |
 | Step `env` values | Value-resolved | Step start | Dagu resolves Dagu references. It does not run command substitution. |
 | Executor `with` fields | Value-resolved | Step start | Dagu resolves Dagu references in nested string values. It does not run command substitution. |
 | Step object-form `output` string leaves | Value-resolved | Output publication | For string values inside step `output: {...}`, Dagu resolves Dagu references. It does not run dynamic evaluation or shell expansion. |
@@ -71,7 +71,7 @@ Dagu command substitution is intentionally narrow.
 - Outside `params[].eval`, Dagu leaves backtick text unchanged.
 - The presence of `$()` or backticks outside `params[].eval` is not a validation error by itself.
 
-For step `run`, this means Dagu leaves shell syntax in the command string. After that, the shell receives the command and may interpret that syntax. That shell behavior is not Dagu field evaluation.
+For step `run`, this means Dagu leaves shell syntax such as `$NAME`, `${NAME}`, `$()`, and backticks in the command string. After that, the shell receives the command and may interpret that syntax. That shell behavior is not Dagu field evaluation.
 
 ## Parameter evaluation
 
@@ -116,6 +116,16 @@ steps:
 ```
 
 Dagu resolves `${params.message}` to `hello`.
+
+Dagu leaves unqualified shell variables for the shell:
+
+```yaml
+steps:
+  - name: print
+    run: echo "$HOME ${HOME}"
+```
+
+Dagu passes `echo "$HOME ${HOME}"` to the shell. The shell may expand `$HOME` and `${HOME}`.
 
 Dagu does not execute this command substitution:
 
