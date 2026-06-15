@@ -1,0 +1,7 @@
+consts:
+  - service: api
+  - deploy_script: ./scripts/deploy.sh
+  - enabled: true
+steps:
+  - name: should-not-run
+    run: echo executed > executed.txt

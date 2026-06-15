@@ -1,0 +1,10 @@
+consts:
+  - service: api
+  - enabled: true
+  - replicas: 3
+  - ratio: 1.25
+  - endpoint: https://example.test/${consts.service}/${consts.enabled}/${consts.replicas}/${consts.ratio}
+steps:
+  - name: write
+    run: |
+      printf '%s\n' "${consts.endpoint}" > resolved.txt
