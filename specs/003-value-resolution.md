@@ -18,7 +18,7 @@ ${env.NAME}
 ${steps.step_id.outputs.name}
 ```
 
-This spec defines where Dagu-owned references may appear, how their text is parsed, and when values are resolved.
+This spec defines where Dagu-owned references are allowed, how their text is parsed, and when values are resolved.
 
 Other specs define how each namespace gets its value.
 
@@ -100,7 +100,7 @@ ${steps.step_id.outputs.name}
 | `shell`, `shell_args[]`, `working_dir` | Root shell command, shell args, and working directory. |
 | `preconditions[].condition` | Root precondition condition strings. |
 | `container` | Root container string form. In object form: `exec`, `image`, `name`, `user`, `working_dir`, `network`, `volumes[]`, `ports[]`, `env` values, `command[]`, and `shell[]`. |
-| `steps[].run` | The `run` string. |
+| `steps[].run` | The canonical `run` string and each command string produced by compatibility array-item normalization. |
 | `steps[].with` | Every nested string value under the step `with` object. This includes action inputs and run-step shell settings. |
 | `steps[].working_dir` | Step working directory. |
 | `steps[].env` | Step environment values in map form, array-of-map form, or `KEY=value` list form. |

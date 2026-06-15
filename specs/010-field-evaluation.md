@@ -53,10 +53,10 @@ The value-resolution field list is defined by the value resolution spec. If this
 | Root `consts` values | Value-resolved | Workflow load | Dagu resolves only references allowed by the consts value-resolution spec. |
 | `params[].default` | Literal | Run start, when needed | Dagu uses the default exactly as written. |
 | Runtime parameter overrides | Literal | Caller input | Values from CLI, API, or sub-DAG calls are not evaluated. |
-| `params[].eval` | Dynamic-evaluated | Before any step starts | Used only when the caller did not provide that parameter. May run backtick command substitution. Does not run `$()`. |
+| `params[].eval` | Dynamic-evaluated | Before any step starts | Used only when the caller did not provide that parameter. Runs command substitution in forms allowed by the dynamic evaluation spec. |
 | Root `env` values | Value-resolved | DAG load or run setup | Dagu resolves Dagu references. It does not run command substitution. |
 | `dotenv` paths | Value-resolved | Before loading the dotenv file | Dagu resolves the path. It does not run command substitution. |
-| Step `run` | Value-resolved | Step start | Dagu resolves Dagu-owned references, then hands the command string to the target shell. Dagu does not resolve shell syntax such as `$NAME`, `${NAME}`, `$()`, or backticks in this field. The shell may resolve or run them later. |
+| Step `run` | Value-resolved | Step start | Dagu resolves Dagu-owned references, then hands the command string to the target shell. Dagu does not resolve shell syntax such as `$NAME`, `${NAME}`, `$()`, or backticks in this field. The shell owns any later resolution or execution. |
 | Step `env` values | Value-resolved | Step start | Dagu resolves Dagu references. It does not run command substitution. |
 | Executor `with` fields | Value-resolved | Step start | Dagu resolves Dagu references in nested string values. It does not run command substitution. |
 | Step object-form `output` string leaves | Value-resolved | Output publication | For string values inside step `output: {...}`, Dagu resolves Dagu references. It does not run dynamic evaluation or shell expansion. |
@@ -66,12 +66,14 @@ The value-resolution field list is defined by the value resolution spec. If this
 
 Dagu command substitution is intentionally narrow.
 
-- The only field in this spec that may execute backtick command substitution is `params[].eval`.
-- Dagu never executes `$()` command substitution in workflow fields.
-- Outside `params[].eval`, Dagu leaves backtick text unchanged.
+- The only field in this spec authorized to execute command substitution is `params[].eval`.
+- In `params[].eval`, Dagu executes command substitutions written in backtick form or `$()` form.
+- Outside `params[].eval`, Dagu leaves backtick text and `$()` text unchanged.
 - The presence of `$()` or backticks outside `params[].eval` is not a validation error by itself.
 
-For step `run`, this means Dagu leaves shell syntax such as `$NAME`, `${NAME}`, `$()`, and backticks in the command string. After that, the shell receives the command and may interpret that syntax. That shell behavior is not Dagu field evaluation.
+For step `run`, this means Dagu leaves shell syntax such as `$NAME`, `${NAME}`, `$()`, and backticks in the command string. After that, the shell receives the command and owns interpretation of that syntax. That shell behavior is not Dagu field evaluation.
+
+The same rule applies to each command string produced by compatibility array-item normalization.
 
 ## Parameter evaluation
 
@@ -125,7 +127,7 @@ steps:
     run: echo "$HOME ${HOME}"
 ```
 
-Dagu passes `echo "$HOME ${HOME}"` to the shell. The shell may expand `$HOME` and `${HOME}`.
+Dagu passes `echo "$HOME ${HOME}"` to the shell. The shell owns expansion of `$HOME` and `${HOME}`.
 
 Dagu does not execute this command substitution:
 
@@ -135,7 +137,7 @@ steps:
     run: echo $(date)
 ```
 
-Dagu passes `echo $(date)` to the shell. The shell may execute `$(date)`.
+Dagu passes `echo $(date)` to the shell. The shell owns execution of `$(date)`.
 
 ## Step object-form `output`
 
@@ -190,7 +192,7 @@ Runtime errors:
 - A black-box fixture verifies a failed `params[].eval` uses the literal `default` value when `default` exists.
 - A black-box fixture verifies a failed `params[].eval` fails before any step starts when no `default` exists.
 - A black-box fixture verifies root `env` values resolve Dagu references without running command substitution.
-- A black-box fixture verifies `$()` in `params[].eval` is preserved by Dagu and not executed.
+- A black-box fixture verifies `$()` in `params[].eval` is executed by Dagu.
 - A black-box fixture verifies command-substitution syntax in step `run` is preserved by Dagu before the command string is handed to the shell.
 - A black-box fixture verifies command-substitution syntax in root `env` is not evaluated by Dagu.
 - A black-box fixture verifies step object-form `output` string leaves resolve Dagu references without running dynamic evaluation.
