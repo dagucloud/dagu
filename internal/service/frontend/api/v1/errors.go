@@ -4,27 +4,31 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 
 	"github.com/dagucloud/dagu/api/v1"
 )
 
+type errorResponse struct {
+	Code    api.ErrorCode `json:"code"`
+	Message string        `json:"message,omitempty"`
+}
+
 func WriteErrorResponse(w http.ResponseWriter, err error) {
+	w.Header().Set("Content-Type", "application/json")
+
+	status := http.StatusInternalServerError
+	resp := errorResponse{Code: api.ErrorCodeInternalError}
 	if apiErr, ok := err.(*Error); ok {
-		w.WriteHeader(apiErr.HTTPStatus)
-		code := apiErr.Code
-		message := apiErr.Message
-		if message != "" {
-			_, _ = fmt.Fprintf(w, `{"code": "%s", "message": "%s"}`, code, message)
-		} else {
-			_, _ = fmt.Fprintf(w, `{"code": "%s"}`, code)
-		}
-		return
+		status = apiErr.HTTPStatus
+		resp.Code = apiErr.Code
+		resp.Message = apiErr.Message
 	}
 
-	w.WriteHeader(http.StatusInternalServerError)
-	_, _ = fmt.Fprintf(w, `{"code": "internal_server_error"}`)
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // Error is an error that has an associated HTTP status code.

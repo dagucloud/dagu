@@ -157,14 +157,14 @@ func initOIDCProviderCore(ctx context.Context, params oidcProviderParams) (*oidc
 	}, nil
 }
 
-func setCookie(w http.ResponseWriter, r *http.Request, name, value string, expire int) {
+func setCookie(w http.ResponseWriter, _ *http.Request, name, value string, expire int) {
 	c := &http.Cookie{
 		Name:     name,
 		Value:    value,
 		MaxAge:   expire,
 		Path:     "/",
 		SameSite: http.SameSiteLaxMode,
-		Secure:   isSecureRequest(r),
+		Secure:   true,
 		HttpOnly: true,
 	}
 	http.SetCookie(w, c)
@@ -179,13 +179,6 @@ func clearOIDCStateCookies(w http.ResponseWriter, r *http.Request) {
 	clearCookie(w, r, cookieState)
 	clearCookie(w, r, cookieNonce)
 	clearCookie(w, r, cookieOriginalURL)
-}
-
-func isSecureRequest(r *http.Request) bool {
-	if r.TLS != nil {
-		return true
-	}
-	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
 // BuiltinOIDCConfig holds configuration for OIDC under builtin auth mode.

@@ -14,6 +14,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path"
@@ -1311,23 +1312,23 @@ func (srv *Server) proxyAgentStream(w http.ResponseWriter, r *http.Request, node
 		return
 	}
 
-	// Build remote URL: strip apiBasePath prefix, append to node's APIBaseURL.
-	remoteURL := buildAgentStreamRemoteURL(node.APIBaseURL, r.URL.Path, apiV1BasePath)
+	q := make(url.Values)
+	if token := r.URL.Query().Get("token"); token != "" {
+		q.Set("token", token)
+	}
+	remoteURL, err := buildAgentStreamRemoteURL(node.APIBaseURL, r.URL.Path, apiV1BasePath, q)
+	if err != nil {
+		http.Error(w, "failed to create proxy request", http.StatusInternalServerError)
+		return
+	}
 
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, remoteURL, nil)
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, remoteURL, nil) //nolint:gosec // remoteURL is built from a validated remote-node base URL.
 	if err != nil {
 		http.Error(w, "failed to create proxy request", http.StatusInternalServerError)
 		return
 	}
 	req.Header.Set("Accept", "text/event-stream")
 	node.ApplyAuth(req)
-
-	// Forward the token query param for auth on the remote node.
-	if token := r.URL.Query().Get("token"); token != "" {
-		q := req.URL.Query()
-		q.Set("token", token)
-		req.URL.RawQuery = q.Encode()
-	}
 
 	client := &http.Client{
 		// Timeout: 0 is safe for SSE because the request is created with
@@ -1344,7 +1345,7 @@ func (srv *Server) proxyAgentStream(w http.ResponseWriter, r *http.Request, node
 		},
 	}
 
-	resp, err := client.Do(req)
+	resp, err := doAgentStreamRequest(client, req)
 	if err != nil {
 		if r.Context().Err() != nil {
 			return // Client disconnected
@@ -1391,12 +1392,23 @@ func (srv *Server) proxyAgentStream(w http.ResponseWriter, r *http.Request, node
 }
 
 // buildAgentStreamRemoteURL constructs the SSE stream URL for a remote node.
-func buildAgentStreamRemoteURL(baseURL, requestPath, apiV1BasePath string) string {
-	parts := strings.SplitN(requestPath, apiV1BasePath, 2)
-	if len(parts) < 2 {
-		return strings.TrimSuffix(baseURL, "/") + requestPath
+func buildAgentStreamRemoteURL(baseURL, requestPath, apiV1BasePath string, query url.Values) (string, error) {
+	suffix, ok := strings.CutPrefix(requestPath, apiV1BasePath)
+	if !ok {
+		return "", fmt.Errorf("invalid URL path: %s", requestPath)
 	}
-	return strings.TrimSuffix(baseURL, "/") + parts[1]
+	u, err := remotenode.ParseAPIBaseURL(baseURL)
+	if err != nil {
+		return "", err
+	}
+	u.Path = strings.TrimRight(u.Path, "/") + "/" + strings.TrimLeft(suffix, "/")
+	u.RawPath = ""
+	u.RawQuery = query.Encode()
+	return u.String(), nil
+}
+
+func doAgentStreamRequest(client *http.Client, req *http.Request) (*http.Response, error) {
+	return client.Do(req) //nolint:gosec // request URL is constrained by buildAgentStreamRemoteURL.
 }
 
 func (srv *Server) buildAgentAuthMiddleware(_ context.Context) func(http.Handler) http.Handler {

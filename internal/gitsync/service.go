@@ -267,7 +267,10 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 			continue
 		}
 		repoFilePath := s.gitClient.GetFilePath(file)
-		dagFilePath := s.dagIDToFilePath(dagID)
+		dagFilePath, err := s.safeDAGIDToFilePath(dagID)
+		if err != nil {
+			continue
+		}
 
 		// Read repo file content
 		repoContent, err := os.ReadFile(repoFilePath) //nolint:gosec // path constructed from internal repo
@@ -292,10 +295,7 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 			}
 
 			// Local file doesn't exist, create it
-			if err := s.ensureDir(filepath.Dir(dagFilePath)); err != nil {
-				continue
-			}
-			if err := os.WriteFile(dagFilePath, repoContent, 0600); err != nil {
+			if err := s.writeDAGFile(dagID, dagFilePath, repoContent); err != nil {
 				continue
 			}
 			now := time.Now()
@@ -373,7 +373,7 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 
 		// Only update local file if remote changed (and local wasn't modified)
 		if localHash != repoHash {
-			if err := os.WriteFile(dagFilePath, repoContent, 0600); err != nil {
+			if err := s.writeDAGFile(dagID, dagFilePath, repoContent); err != nil {
 				continue
 			}
 			now := time.Now()
@@ -916,11 +916,7 @@ func (s *serviceImpl) Publish(ctx context.Context, dagID, message string, force 
 		return nil, fmt.Errorf("failed to read DAG file: %w", err)
 	}
 
-	if err := s.ensureDir(filepath.Dir(repoAbsPath)); err != nil {
-		return nil, err
-	}
-
-	if err := os.WriteFile(repoAbsPath, content, 0600); err != nil {
+	if err := safeWriteFileWithinBase(s.gitClient.repoPath, repoAbsPath, content, 0600); err != nil {
 		return nil, fmt.Errorf("failed to write to repo: %w", err)
 	}
 
@@ -999,12 +995,7 @@ func (s *serviceImpl) PublishAll(ctx context.Context, message string, dagIDs []s
 			continue
 		}
 
-		if err := s.ensureDir(filepath.Dir(repoAbsPath)); err != nil {
-			result.Errors = append(result.Errors, SyncError{DAGID: dagID, Message: err.Error()})
-			continue
-		}
-
-		if err := os.WriteFile(repoAbsPath, content, 0600); err != nil {
+		if err := safeWriteFileWithinBase(s.gitClient.repoPath, repoAbsPath, content, 0600); err != nil {
 			result.Errors = append(result.Errors, SyncError{DAGID: dagID, Message: err.Error()})
 			continue
 		}
@@ -1107,7 +1098,7 @@ func (s *serviceImpl) Discard(_ context.Context, dagID string) error {
 	}
 
 	// Write to DAGs directory
-	if err := os.WriteFile(dagFilePath, repoContent, 0600); err != nil {
+	if err := s.writeDAGFile(dagID, dagFilePath, repoContent); err != nil {
 		return fmt.Errorf("failed to write DAG file: %w", err)
 	}
 
@@ -1599,10 +1590,7 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 				return fmt.Errorf("failed to read source file: %w", err)
 			}
 			// Write to new location
-			if err := s.ensureDir(filepath.Dir(newLocalPath)); err != nil {
-				return err
-			}
-			if err := os.WriteFile(newLocalPath, content, 0600); err != nil {
+			if err := s.writeDAGFile(newID, newLocalPath, content); err != nil {
 				return fmt.Errorf("failed to write destination file: %w", err)
 			}
 			// Remove old file
@@ -1618,10 +1606,7 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 
 	// Stage changes in repo
 	newRepoAbsPath := s.gitClient.GetFilePath(newRepoPath)
-	if err := s.ensureDir(filepath.Dir(newRepoAbsPath)); err != nil {
-		return err
-	}
-	if err := os.WriteFile(newRepoAbsPath, content, 0600); err != nil {
+	if err := safeWriteFileWithinBase(s.gitClient.repoPath, newRepoAbsPath, content, 0600); err != nil {
 		return fmt.Errorf("failed to write to repo: %w", err)
 	}
 
@@ -2167,6 +2152,85 @@ func safeJoinWithinBase(baseDir, relativePath string) (string, error) {
 	}
 
 	return fullPath, nil
+}
+
+func ensurePathWithinBase(baseDir, targetPath string) error {
+	baseAbs, err := filepath.Abs(baseDir)
+	if err != nil {
+		return &InvalidDAGIDError{
+			DAGID:  targetPath,
+			Reason: "cannot resolve base directory",
+		}
+	}
+	targetAbs, err := filepath.Abs(targetPath)
+	if err != nil {
+		return &InvalidDAGIDError{
+			DAGID:  targetPath,
+			Reason: "cannot resolve path safely",
+		}
+	}
+	relToBase, err := filepath.Rel(baseAbs, targetAbs)
+	if err != nil {
+		return &InvalidDAGIDError{
+			DAGID:  targetPath,
+			Reason: "cannot resolve path safely",
+		}
+	}
+	if relToBase == ".." || strings.HasPrefix(relToBase, ".."+string(filepath.Separator)) || filepath.IsAbs(relToBase) {
+		return &InvalidDAGIDError{
+			DAGID:  targetPath,
+			Reason: "path escapes allowed base directory",
+		}
+	}
+	return nil
+}
+
+func ensureExistingPathWithinBase(baseDir, targetPath string) error {
+	resolvedBase, err := filepath.EvalSymlinks(baseDir)
+	if err != nil {
+		return err
+	}
+	resolvedTarget, err := filepath.EvalSymlinks(targetPath)
+	if err != nil {
+		return err
+	}
+	return ensurePathWithinBase(resolvedBase, resolvedTarget)
+}
+
+func safeWriteFileWithinBase(baseDir, targetPath string, content []byte, perm os.FileMode) error {
+	if err := ensurePathWithinBase(baseDir, targetPath); err != nil {
+		return err
+	}
+	parentDir := filepath.Dir(targetPath)
+	if err := ensurePathWithinBase(baseDir, parentDir); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(parentDir, 0750); err != nil {
+		return err
+	}
+	if err := ensureExistingPathWithinBase(baseDir, parentDir); err != nil {
+		return err
+	}
+	if info, err := os.Lstat(targetPath); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing to write through symlink: %s", targetPath)
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return os.WriteFile(targetPath, content, perm) //nolint:gosec // targetPath is constrained to baseDir and symlink targets are rejected.
+}
+
+func (s *serviceImpl) writeDAGFile(dagID, filePath string, content []byte) error {
+	baseDir := s.dagsDir
+	normalized, err := normalizeDAGID(dagID)
+	if err != nil {
+		return err
+	}
+	if normalized == baseConfigID && s.baseConfig != "" {
+		baseDir = filepath.Dir(s.baseConfig)
+	}
+	return safeWriteFileWithinBase(baseDir, filePath, content, 0600)
 }
 
 func (s *serviceImpl) safeDAGIDToFilePath(dagID string) (string, error) {

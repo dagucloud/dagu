@@ -741,23 +741,81 @@ func copyEditRetryWorkDir(sourceWorkDir, targetWorkDir string) error {
 		case entry.IsDir():
 			return os.MkdirAll(targetPath, mode.Perm())
 		case mode.Type()&os.ModeSymlink != 0:
-			linkTarget, err := os.Readlink(path)
-			if err != nil {
-				return err
-			}
-			if err := os.MkdirAll(filepath.Dir(targetPath), 0o750); err != nil {
-				return err
-			}
-			if err := os.Remove(targetPath); err != nil && !os.IsNotExist(err) {
-				return err
-			}
-			return os.Symlink(linkTarget, targetPath)
+			return copyEditRetrySymlink(sourceWorkDir, targetWorkDir, path, targetPath)
 		case mode.IsRegular():
 			return copyEditRetryFile(path, targetPath, mode)
 		default:
 			return nil
 		}
 	})
+}
+
+func copyEditRetrySymlink(sourceWorkDir, targetWorkDir, sourcePath, targetPath string) error {
+	linkTarget, err := os.Readlink(sourcePath)
+	if err != nil {
+		return err
+	}
+
+	resolvedSourceTarget := linkTarget
+	if !filepath.IsAbs(resolvedSourceTarget) {
+		resolvedSourceTarget = filepath.Join(filepath.Dir(sourcePath), resolvedSourceTarget)
+	}
+	resolvedSourceTarget = filepath.Clean(resolvedSourceTarget)
+	if err := ensureEditRetryPathWithin(sourceWorkDir, resolvedSourceTarget); err != nil {
+		return fmt.Errorf("unsafe symlink target %s: %w", sourcePath, err)
+	}
+	if evaluatedSourceTarget, err := filepath.EvalSymlinks(resolvedSourceTarget); err == nil {
+		if err := ensureEditRetryResolvedPathWithin(sourceWorkDir, evaluatedSourceTarget); err != nil {
+			return fmt.Errorf("unsafe symlink target %s: %w", sourcePath, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	sourceTargetRel, err := filepath.Rel(sourceWorkDir, resolvedSourceTarget)
+	if err != nil {
+		return err
+	}
+	targetLinkTarget := filepath.Join(targetWorkDir, sourceTargetRel)
+	relativeTargetLink, err := filepath.Rel(filepath.Dir(targetPath), targetLinkTarget)
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o750); err != nil {
+		return err
+	}
+	if err := os.Remove(targetPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return os.Symlink(relativeTargetLink, targetPath) //nolint:gosec // symlink target is constrained to the copied work directory.
+}
+
+func ensureEditRetryPathWithin(baseDir, targetPath string) error {
+	baseAbs, err := filepath.Abs(baseDir)
+	if err != nil {
+		return err
+	}
+	targetAbs, err := filepath.Abs(targetPath)
+	if err != nil {
+		return err
+	}
+	relToBase, err := filepath.Rel(baseAbs, targetAbs)
+	if err != nil {
+		return err
+	}
+	if relToBase == ".." || strings.HasPrefix(relToBase, ".."+string(filepath.Separator)) || filepath.IsAbs(relToBase) {
+		return fmt.Errorf("path escapes source work directory")
+	}
+	return nil
+}
+
+func ensureEditRetryResolvedPathWithin(baseDir, targetPath string) error {
+	resolvedBase, err := filepath.EvalSymlinks(baseDir)
+	if err != nil {
+		return err
+	}
+	return ensureEditRetryPathWithin(resolvedBase, targetPath)
 }
 
 func copyEditRetryFile(sourcePath, targetPath string, mode fs.FileMode) error {
