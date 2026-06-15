@@ -34,6 +34,14 @@ func coordinatorTestTimeout(timeout time.Duration) time.Duration {
 	return timeout
 }
 
+func TestDispatchBindErrorCode(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, codes.FailedPrecondition, dispatchBindErrorCode(exec.ErrDispatchAdmissionNotFound))
+	assert.Equal(t, codes.FailedPrecondition, dispatchBindErrorCode(exec.ErrDispatchAdmissionConflict))
+	assert.Equal(t, codes.Internal, dispatchBindErrorCode(errors.New("disk full")))
+}
+
 // mockDAGRunStore is a test implementation of execution.DAGRunStore
 type mockDAGRunStore struct {
 	attempts            map[string]*mockDAGRunAttempt
@@ -774,6 +782,7 @@ func TestHandler_Poll(t *testing.T) {
 
 		_, err = h.Dispatch(ctx, req)
 		require.NoError(t, err)
+		require.NoError(t, dispatchStore.DeleteClaim(ctx, claimed.ClaimToken))
 
 		claimedAgain, err := dispatchStore.ClaimNext(ctx, exec.DispatchTaskClaim{
 			WorkerID:     "worker-1",

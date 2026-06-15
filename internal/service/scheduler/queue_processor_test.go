@@ -97,6 +97,32 @@ func newSchedulerTestProcStore(procDir string, cfg *config.Config) exec.ProcStor
 	return proc.New(procDir, opts...)
 }
 
+func TestWithDispatchTaskStoreClearsAdmissionStore(t *testing.T) {
+	t.Parallel()
+
+	distributedDir := filepath.Join(t.TempDir(), "distributed")
+	admissionStore := store.NewDispatchTaskStore(file.NewCollection(distributedDir))
+	processor := &QueueProcessor{dispatchAdmissionStore: admissionStore}
+
+	WithDispatchTaskStore(&mockDispatchTaskStore{})(processor)
+
+	assert.Nil(t, processor.dispatchAdmissionStore)
+}
+
+func TestSchedulerSetDispatchTaskStoreClearsAdmissionStore(t *testing.T) {
+	t.Parallel()
+
+	distributedDir := filepath.Join(t.TempDir(), "distributed")
+	admissionStore := store.NewDispatchTaskStore(file.NewCollection(distributedDir))
+	scheduler := &Scheduler{
+		queueProcessor: &QueueProcessor{dispatchAdmissionStore: admissionStore},
+	}
+
+	scheduler.SetDispatchTaskStore(&mockDispatchTaskStore{})
+
+	assert.Nil(t, scheduler.queueProcessor.dispatchAdmissionStore)
+}
+
 func (f *queueFixture) withDAG(name string, maxActiveRuns int) *queueFixture {
 	f.dag = &core.DAG{
 		Name: name, MaxActiveRuns: maxActiveRuns,

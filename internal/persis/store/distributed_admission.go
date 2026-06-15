@@ -126,17 +126,23 @@ func (s *DispatchTaskStore) ReserveAdmission(
 	for {
 		slots, err := s.listDispatchAdmissionSlots(ctx, req.QueueName)
 		if err != nil {
-			_ = s.col.Delete(context.WithoutCancel(ctx), attemptID)
+			if cleanupErr := s.deleteAdmissionRecordIfPresent(context.WithoutCancel(ctx), attemptID); cleanupErr != nil {
+				return nil, errors.Join(err, cleanupErr)
+			}
 			return nil, err
 		}
 		legacyOccupancy, err := s.dispatchLegacyAdmissionOccupancy(ctx, req.QueueName, staleThreshold)
 		if err != nil {
-			_ = s.col.Delete(context.WithoutCancel(ctx), attemptID)
+			if cleanupErr := s.deleteAdmissionRecordIfPresent(context.WithoutCancel(ctx), attemptID); cleanupErr != nil {
+				return nil, errors.Join(err, cleanupErr)
+			}
 			return nil, err
 		}
 		occupied = req.NonAdmissionOccupancy + len(slots) + legacyOccupancy
 		if occupied >= req.MaxConcurrency {
-			_ = s.col.Delete(context.WithoutCancel(ctx), attemptID)
+			if err := s.deleteAdmissionRecordIfPresent(context.WithoutCancel(ctx), attemptID); err != nil {
+				return nil, err
+			}
 			return &exec.DispatchAdmissionDecision{Reason: exec.DispatchAdmissionRejectedNoCapacity}, nil
 		}
 
@@ -157,14 +163,18 @@ func (s *DispatchTaskStore) ReserveAdmission(
 			}
 			slotRec, err := newDispatchAdmissionRecord(slotID, slotPayload, now, now)
 			if err != nil {
-				_ = s.col.Delete(context.WithoutCancel(ctx), attemptID)
+				if cleanupErr := s.deleteAdmissionRecordIfPresent(context.WithoutCancel(ctx), attemptID); cleanupErr != nil {
+					return nil, errors.Join(err, cleanupErr)
+				}
 				return nil, err
 			}
 			if err := s.col.Create(ctx, slotRec); err != nil {
 				if errors.Is(err, persis.ErrConflict) {
 					continue
 				}
-				_ = s.col.Delete(context.WithoutCancel(ctx), attemptID)
+				if cleanupErr := s.deleteAdmissionRecordIfPresent(context.WithoutCancel(ctx), attemptID); cleanupErr != nil {
+					return nil, errors.Join(err, cleanupErr)
+				}
 				return nil, err
 			}
 
@@ -176,13 +186,17 @@ func (s *DispatchTaskStore) ReserveAdmission(
 				CreatedAt:        now.UnixMilli(),
 			}, now, now)
 			if err != nil {
-				s.deleteAdmissionReservationRecords(context.WithoutCancel(ctx), attemptPayload, attemptID)
-				_ = s.col.Delete(context.WithoutCancel(ctx), slotID)
+				attemptPayload.SlotID = slotID
+				if cleanupErr := s.deleteAdmissionReservationRecords(context.WithoutCancel(ctx), attemptPayload, attemptID); cleanupErr != nil {
+					return nil, errors.Join(err, cleanupErr)
+				}
 				return nil, err
 			}
 			if err := s.col.Create(ctx, tokenRec); err != nil {
-				s.deleteAdmissionReservationRecords(context.WithoutCancel(ctx), attemptPayload, attemptID)
-				_ = s.col.Delete(context.WithoutCancel(ctx), slotID)
+				attemptPayload.SlotID = slotID
+				if cleanupErr := s.deleteAdmissionReservationRecords(context.WithoutCancel(ctx), attemptPayload, attemptID); cleanupErr != nil {
+					return nil, errors.Join(err, cleanupErr)
+				}
 				return nil, err
 			}
 
@@ -190,11 +204,16 @@ func (s *DispatchTaskStore) ReserveAdmission(
 			attemptPayload.UpdatedAt = time.Now().UTC().UnixMilli()
 			nextAttemptRec, err := newDispatchAdmissionRecord(attemptID, attemptPayload, attemptRec.CreatedAt, time.Now().UTC())
 			if err != nil {
-				s.deleteAdmissionReservationRecords(context.WithoutCancel(ctx), attemptPayload, attemptID)
+				if cleanupErr := s.deleteAdmissionReservationRecords(context.WithoutCancel(ctx), attemptPayload, attemptID); cleanupErr != nil {
+					return nil, errors.Join(err, cleanupErr)
+				}
 				return nil, err
 			}
 			if err := s.col.CompareAndSwap(ctx, attemptID, attemptRec.Data, nextAttemptRec.Data); err != nil {
-				s.deleteAdmissionReservationRecords(context.WithoutCancel(ctx), attemptPayload, attemptID)
+				cleanupErr := s.deleteAdmissionReservationRecords(context.WithoutCancel(ctx), attemptPayload, attemptID)
+				if cleanupErr != nil {
+					return nil, errors.Join(err, cleanupErr)
+				}
 				if errors.Is(err, persis.ErrConflict) || errors.Is(err, persis.ErrNotFound) {
 					return &exec.DispatchAdmissionDecision{Reason: exec.DispatchAdmissionRejectedDuplicate}, nil
 				}
@@ -249,7 +268,9 @@ func (s *DispatchTaskStore) BindAdmission(ctx context.Context, req exec.Dispatch
 				return err
 			}
 			if !evidence {
-				s.deleteAdmissionReservationRecords(ctx, attemptPayload, attemptRec.ID)
+				if err := s.deleteAdmissionReservationRecords(ctx, attemptPayload, attemptRec.ID); err != nil {
+					return err
+				}
 				return exec.ErrDispatchAdmissionNotFound
 			}
 		}
@@ -315,8 +336,7 @@ func (s *DispatchTaskStore) ReleaseAdmissionToken(ctx context.Context, reservati
 			return exec.ErrDispatchAdmissionConflict
 		}
 	}
-	s.deleteAdmissionReservationRecords(ctx, attemptPayload, attemptRec.ID)
-	return nil
+	return s.deleteAdmissionReservationRecords(ctx, attemptPayload, attemptRec.ID)
 }
 
 func (s *DispatchTaskStore) FinalizeAdmissionAttempt(ctx context.Context, attemptKey string) error {
@@ -335,8 +355,7 @@ func (s *DispatchTaskStore) FinalizeAdmissionAttempt(ctx context.Context, attemp
 	if err != nil {
 		return err
 	}
-	s.deleteAdmissionReservationRecords(ctx, payload, attemptID)
-	return nil
+	return s.deleteAdmissionReservationRecords(ctx, payload, attemptID)
 }
 
 func (s *DispatchTaskStore) CleanupAdmissions(ctx context.Context, staleThreshold time.Duration) error {
@@ -366,7 +385,9 @@ func (s *DispatchTaskStore) CleanupAdmissions(ctx context.Context, staleThreshol
 		if evidence {
 			continue
 		}
-		s.deleteAdmissionReservationRecords(ctx, payload, rec.ID)
+		if err := s.deleteAdmissionReservationRecords(ctx, payload, rec.ID); err != nil {
+			return err
+		}
 	}
 	return s.cleanupOrphanAdmissionSlots(ctx, staleThreshold, now)
 }
@@ -599,7 +620,9 @@ func (s *DispatchTaskStore) createAdmissionPendingRecord(
 		return nil
 	}
 	if s.index != nil {
+		s.mu.Lock()
 		s.index.addPending(rec, payload)
+		s.mu.Unlock()
 	}
 	return nil
 }
@@ -734,7 +757,9 @@ func (s *DispatchTaskStore) cleanupOrphanAdmissionSlots(
 		attemptRec, err := s.col.Get(ctx, dispatchAdmissionAttemptRecordID(slot.AttemptKey))
 		if err != nil {
 			if errors.Is(err, persis.ErrNotFound) {
-				_ = s.col.Delete(ctx, rec.ID)
+				if err := s.deleteAdmissionRecordIfPresent(ctx, rec.ID); err != nil {
+					return err
+				}
 				continue
 			}
 			return err
@@ -746,7 +771,9 @@ func (s *DispatchTaskStore) cleanupOrphanAdmissionSlots(
 		if attempt.SlotID == rec.ID && attempt.ReservationToken == slot.ReservationToken {
 			continue
 		}
-		_ = s.col.Delete(ctx, rec.ID)
+		if err := s.deleteAdmissionRecordIfPresent(ctx, rec.ID); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -755,16 +782,30 @@ func (s *DispatchTaskStore) deleteAdmissionReservationRecords(
 	ctx context.Context,
 	attempt dispatchAdmissionAttemptPayload,
 	attemptRecordID string,
-) {
+) error {
 	if attempt.SlotID != "" {
-		_ = s.col.Delete(ctx, attempt.SlotID)
+		if err := s.deleteAdmissionRecordIfPresent(ctx, attempt.SlotID); err != nil {
+			return err
+		}
 	}
 	if attempt.ReservationToken != "" {
-		_ = s.col.Delete(ctx, dispatchAdmissionTokenRecordID(attempt.ReservationToken))
+		if err := s.deleteAdmissionRecordIfPresent(ctx, dispatchAdmissionTokenRecordID(attempt.ReservationToken)); err != nil {
+			return err
+		}
 	}
 	if attemptRecordID != "" {
-		_ = s.col.Delete(ctx, attemptRecordID)
+		if err := s.deleteAdmissionRecordIfPresent(ctx, attemptRecordID); err != nil {
+			return err
+		}
 	}
+	return nil
+}
+
+func (s *DispatchTaskStore) deleteAdmissionRecordIfPresent(ctx context.Context, recordID string) error {
+	if err := s.col.Delete(ctx, recordID); err != nil && !errors.Is(err, persis.ErrNotFound) {
+		return err
+	}
+	return nil
 }
 
 func dispatchAdmissionAttemptPayloadFromRecord(rec *persis.Record) (dispatchAdmissionAttemptPayload, error) {

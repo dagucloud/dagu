@@ -510,10 +510,18 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 	if err := h.enqueueOrBindDispatchTask(ctx, admissionToken, dispatchTask); err != nil {
 		h.markPreparedAttemptDispatchFailed(ctx, req.Task, prepared, err)
 		h.releaseAdmissionToken(ctx, admissionToken)
-		return nil, status.Error(codes.Internal, "failed to enqueue task: "+err.Error())
+		return nil, status.Error(dispatchBindErrorCode(err), "failed to enqueue task: "+err.Error())
 	}
 	h.notifyDispatchAvailable()
 	return &coordinatorv1.DispatchResponse{}, nil
+}
+
+func dispatchBindErrorCode(err error) codes.Code {
+	if errors.Is(err, exec.ErrDispatchAdmissionNotFound) ||
+		errors.Is(err, exec.ErrDispatchAdmissionConflict) {
+		return codes.FailedPrecondition
+	}
+	return codes.Internal
 }
 
 func (h *Handler) enqueueOrBindDispatchTask(ctx context.Context, admissionToken string, task *exec.DispatchTask) error {

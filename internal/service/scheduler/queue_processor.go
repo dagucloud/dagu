@@ -140,6 +140,7 @@ func WithDAGRunLeaseStore(store exec.DAGRunLeaseStore) QueueProcessorOption {
 func WithDispatchTaskStore(store exec.DispatchTaskStore) QueueProcessorOption {
 	return func(p *QueueProcessor) {
 		p.dispatchTaskStore = store
+		p.dispatchAdmissionStore = nil
 		if admissionStore, ok := store.(exec.DispatchAdmissionStore); ok {
 			p.dispatchAdmissionStore = admissionStore
 		}
