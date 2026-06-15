@@ -792,11 +792,10 @@ func TestDispatchTaskStore_RepeatedNoMatchDoesNotRereadPendingRecords(t *testing
 }
 
 func TestDispatchTaskStore_SlowValidationRefreshesWindowAfterFinish(t *testing.T) {
-	t.Parallel()
-
+	store.SetDispatchIndexValidationWindowForTest(t, 5*time.Millisecond)
 	ctx := context.Background()
 	col := newCountingRecordIDsCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
-	col.SetRecordIDsDelay(275 * time.Millisecond)
+	col.SetRecordIDsDelay(10 * time.Millisecond)
 	s := store.NewDispatchTaskStore(col)
 
 	for i := range 3 {
