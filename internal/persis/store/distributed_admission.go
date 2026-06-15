@@ -126,17 +126,13 @@ func (s *DispatchTaskStore) ReserveAdmission(
 	for {
 		slots, err := s.listDispatchAdmissionSlots(ctx, req.QueueName)
 		if err != nil {
-			if cleanupErr := s.deleteAdmissionRecordIfPresent(context.WithoutCancel(ctx), attemptID); cleanupErr != nil {
-				return nil, errors.Join(err, cleanupErr)
-			}
-			return nil, err
+			cleanupErr := s.deleteAdmissionRecordIfPresent(context.WithoutCancel(ctx), attemptID)
+			return nil, joinAdmissionCleanupError(err, cleanupErr)
 		}
 		legacyOccupancy, err := s.dispatchLegacyAdmissionOccupancy(ctx, req.QueueName, staleThreshold)
 		if err != nil {
-			if cleanupErr := s.deleteAdmissionRecordIfPresent(context.WithoutCancel(ctx), attemptID); cleanupErr != nil {
-				return nil, errors.Join(err, cleanupErr)
-			}
-			return nil, err
+			cleanupErr := s.deleteAdmissionRecordIfPresent(context.WithoutCancel(ctx), attemptID)
+			return nil, joinAdmissionCleanupError(err, cleanupErr)
 		}
 		occupied = req.NonAdmissionOccupancy + len(slots) + legacyOccupancy
 		if occupied >= req.MaxConcurrency {
@@ -163,20 +159,17 @@ func (s *DispatchTaskStore) ReserveAdmission(
 			}
 			slotRec, err := newDispatchAdmissionRecord(slotID, slotPayload, now, now)
 			if err != nil {
-				if cleanupErr := s.deleteAdmissionRecordIfPresent(context.WithoutCancel(ctx), attemptID); cleanupErr != nil {
-					return nil, errors.Join(err, cleanupErr)
-				}
-				return nil, err
+				cleanupErr := s.deleteAdmissionRecordIfPresent(context.WithoutCancel(ctx), attemptID)
+				return nil, joinAdmissionCleanupError(err, cleanupErr)
 			}
 			if err := s.col.Create(ctx, slotRec); err != nil {
 				if errors.Is(err, persis.ErrConflict) {
 					continue
 				}
-				if cleanupErr := s.deleteAdmissionRecordIfPresent(context.WithoutCancel(ctx), attemptID); cleanupErr != nil {
-					return nil, errors.Join(err, cleanupErr)
-				}
-				return nil, err
+				cleanupErr := s.deleteAdmissionRecordIfPresent(context.WithoutCancel(ctx), attemptID)
+				return nil, joinAdmissionCleanupError(err, cleanupErr)
 			}
+			attemptPayload.SlotID = slotID
 
 			tokenRec, err := newDispatchAdmissionRecord(dispatchAdmissionTokenRecordID(token), dispatchAdmissionTokenPayload{
 				Version:          dispatchAdmissionStoreVersion,
@@ -186,28 +179,20 @@ func (s *DispatchTaskStore) ReserveAdmission(
 				CreatedAt:        now.UnixMilli(),
 			}, now, now)
 			if err != nil {
-				attemptPayload.SlotID = slotID
-				if cleanupErr := s.deleteAdmissionReservationRecords(context.WithoutCancel(ctx), attemptPayload, attemptID); cleanupErr != nil {
-					return nil, errors.Join(err, cleanupErr)
-				}
-				return nil, err
+				cleanupErr := s.deleteAdmissionReservationRecords(context.WithoutCancel(ctx), attemptPayload, attemptID)
+				return nil, joinAdmissionCleanupError(err, cleanupErr)
 			}
 			if err := s.col.Create(ctx, tokenRec); err != nil {
-				attemptPayload.SlotID = slotID
-				if cleanupErr := s.deleteAdmissionReservationRecords(context.WithoutCancel(ctx), attemptPayload, attemptID); cleanupErr != nil {
-					return nil, errors.Join(err, cleanupErr)
-				}
-				return nil, err
+				cleanupErr := s.deleteAdmissionReservationRecords(context.WithoutCancel(ctx), attemptPayload, attemptID)
+				return nil, joinAdmissionCleanupError(err, cleanupErr)
 			}
 
-			attemptPayload.SlotID = slotID
-			attemptPayload.UpdatedAt = time.Now().UTC().UnixMilli()
-			nextAttemptRec, err := newDispatchAdmissionRecord(attemptID, attemptPayload, attemptRec.CreatedAt, time.Now().UTC())
+			updatedAt := time.Now().UTC()
+			attemptPayload.UpdatedAt = updatedAt.UnixMilli()
+			nextAttemptRec, err := newDispatchAdmissionRecord(attemptID, attemptPayload, attemptRec.CreatedAt, updatedAt)
 			if err != nil {
-				if cleanupErr := s.deleteAdmissionReservationRecords(context.WithoutCancel(ctx), attemptPayload, attemptID); cleanupErr != nil {
-					return nil, errors.Join(err, cleanupErr)
-				}
-				return nil, err
+				cleanupErr := s.deleteAdmissionReservationRecords(context.WithoutCancel(ctx), attemptPayload, attemptID)
+				return nil, joinAdmissionCleanupError(err, cleanupErr)
 			}
 			if err := s.col.CompareAndSwap(ctx, attemptID, attemptRec.Data, nextAttemptRec.Data); err != nil {
 				cleanupErr := s.deleteAdmissionReservationRecords(context.WithoutCancel(ctx), attemptPayload, attemptID)
@@ -223,7 +208,6 @@ func (s *DispatchTaskStore) ReserveAdmission(
 			return &exec.DispatchAdmissionDecision{
 				Reserved:         true,
 				ReservationToken: token,
-				PendingRecordID:  pendingID,
 			}, nil
 		}
 	}
@@ -806,6 +790,13 @@ func (s *DispatchTaskStore) deleteAdmissionRecordIfPresent(ctx context.Context, 
 		return err
 	}
 	return nil
+}
+
+func joinAdmissionCleanupError(err, cleanupErr error) error {
+	if cleanupErr != nil {
+		return errors.Join(err, cleanupErr)
+	}
+	return err
 }
 
 func dispatchAdmissionAttemptPayloadFromRecord(rec *persis.Record) (dispatchAdmissionAttemptPayload, error) {

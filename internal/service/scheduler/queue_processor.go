@@ -140,10 +140,7 @@ func WithDAGRunLeaseStore(store exec.DAGRunLeaseStore) QueueProcessorOption {
 func WithDispatchTaskStore(store exec.DispatchTaskStore) QueueProcessorOption {
 	return func(p *QueueProcessor) {
 		p.dispatchTaskStore = store
-		p.dispatchAdmissionStore = nil
-		if admissionStore, ok := store.(exec.DispatchAdmissionStore); ok {
-			p.dispatchAdmissionStore = admissionStore
-		}
+		p.dispatchAdmissionStore = dispatchAdmissionStoreFromTaskStore(store)
 	}
 }
 
@@ -151,6 +148,11 @@ func WithDispatchAdmissionStore(store exec.DispatchAdmissionStore) QueueProcesso
 	return func(p *QueueProcessor) {
 		p.dispatchAdmissionStore = store
 	}
+}
+
+func dispatchAdmissionStoreFromTaskStore(store exec.DispatchTaskStore) exec.DispatchAdmissionStore {
+	admissionStore, _ := store.(exec.DispatchAdmissionStore)
+	return admissionStore
 }
 
 // WithIsSuspended sets the suspend-flag checker used by the queue processor.

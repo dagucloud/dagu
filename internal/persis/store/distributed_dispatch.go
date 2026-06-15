@@ -79,7 +79,6 @@ type dispatchTaskIndexEntry struct {
 	hasTask        bool
 	enqueuedAt     int64
 	claimedAt      int64
-	admissionToken string
 	createdAt      time.Time
 	updatedAt      time.Time
 }
@@ -309,14 +308,13 @@ func (idx *dispatchTaskIndex) hasNoMatch(labels map[string]string) bool {
 
 func dispatchTaskIndexEntryFromRecord(rec *persis.Record, payload dispatchTaskPayload) dispatchTaskIndexEntry {
 	entry := dispatchTaskIndexEntry{
-		id:             rec.ID,
-		taskFileName:   payload.TaskFileName,
-		claimToken:     payload.ClaimToken,
-		enqueuedAt:     payload.EnqueuedAt,
-		claimedAt:      payload.ClaimedAt,
-		admissionToken: payload.AdmissionReservationToken,
-		createdAt:      rec.CreatedAt,
-		updatedAt:      rec.UpdatedAt,
+		id:           rec.ID,
+		taskFileName: payload.TaskFileName,
+		claimToken:   payload.ClaimToken,
+		enqueuedAt:   payload.EnqueuedAt,
+		claimedAt:    payload.ClaimedAt,
+		createdAt:    rec.CreatedAt,
+		updatedAt:    rec.UpdatedAt,
 	}
 	if payload.Task != nil {
 		entry.hasTask = true

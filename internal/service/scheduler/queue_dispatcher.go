@@ -61,7 +61,6 @@ type dispatchAdmissionInput struct {
 	status                *exec.DAGRunStatus
 	maxConcurrency        int
 	nonAdmissionOccupancy int
-	leaseStaleThreshold   time.Duration
 }
 
 func newQueueDispatcher(deps queueDispatchDeps) *queueDispatcher {
@@ -246,7 +245,6 @@ func (d *queueDispatcher) dispatchQueuedItem(
 			status:                status,
 			maxConcurrency:        batch.maxConcurrency,
 			nonAdmissionOccupancy: batch.nonAdmissionOccupancy,
-			leaseStaleThreshold:   d.leaseStaleThresholdOrDefault(),
 		})
 		if !reserved {
 			return false
@@ -433,7 +431,7 @@ func (d *queueDispatcher) reserveDistributedAdmission(
 		AttemptKey:            attemptKey,
 		AttemptID:             attemptID,
 		DAGRun:                runRef,
-		StaleThreshold:        input.leaseStaleThreshold,
+		StaleThreshold:        d.leaseStaleThresholdOrDefault(),
 	})
 	if err != nil {
 		logger.Error(ctx, "Failed to reserve distributed queue admission",

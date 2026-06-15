@@ -93,7 +93,6 @@ type DispatchAdmissionDecision struct {
 	Reserved         bool
 	Reason           DispatchAdmissionRejectReason
 	ReservationToken string
-	PendingRecordID  string
 }
 
 // DispatchAdmissionBindRequest describes a coordinator bind for a reservation.
