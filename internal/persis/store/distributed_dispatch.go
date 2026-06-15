@@ -408,15 +408,61 @@ func (s *DispatchTaskStore) dispatchNamespaceVersions(ctx context.Context) (disp
 }
 
 func (s *DispatchTaskStore) rebuildDispatchIndex(ctx context.Context) error {
+	idx, versions, stable, namespaceSupported, err := s.buildDispatchIndexSnapshot(ctx)
+	if err != nil {
+		return err
+	}
+	if namespaceSupported && !stable {
+		idx, versions, stable, _, err = s.buildDispatchIndexSnapshot(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	if stable {
+		idx.setNamespaceVersions(versions)
+		now := time.Now().UTC()
+		idx.validatedAt = now
+		idx.fullValidatedAt = now
+	} else if !namespaceSupported {
+		now := time.Now().UTC()
+		idx.validatedAt = now
+		idx.fullValidatedAt = now
+	}
+	s.index = idx
+	return nil
+}
+
+func (s *DispatchTaskStore) buildDispatchIndexSnapshot(ctx context.Context) (*dispatchTaskIndex, dispatchNamespaceVersions, bool, bool, error) {
+	beforeVersions, namespaceSupported, err := s.dispatchNamespaceVersions(ctx)
+	if err != nil {
+		return nil, dispatchNamespaceVersions{}, false, false, err
+	}
+
+	idx, err := s.buildDispatchIndex(ctx)
+	if err != nil {
+		return nil, dispatchNamespaceVersions{}, false, false, err
+	}
+	if !namespaceSupported {
+		return idx, dispatchNamespaceVersions{}, false, false, nil
+	}
+
+	afterVersions, _, err := s.dispatchNamespaceVersions(ctx)
+	if err != nil {
+		return nil, dispatchNamespaceVersions{}, false, false, err
+	}
+	return idx, afterVersions, beforeVersions == afterVersions, true, nil
+}
+
+func (s *DispatchTaskStore) buildDispatchIndex(ctx context.Context) (*dispatchTaskIndex, error) {
 	idx := newDispatchTaskIndex()
 	pendingRecs, err := s.listDispatchRecords(ctx, dispatchPendingPrefix)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, rec := range pendingRecs {
 		payload, err := dispatchTaskPayloadFromRecord(rec)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		idx.pending[rec.ID] = dispatchTaskIndexEntryFromRecord(rec, payload)
 	}
@@ -424,23 +470,16 @@ func (s *DispatchTaskStore) rebuildDispatchIndex(ctx context.Context) error {
 
 	claimRecs, err := s.listDispatchRecords(ctx, dispatchClaimsPrefix)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, rec := range claimRecs {
 		payload, err := dispatchTaskPayloadFromRecord(rec)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		idx.claims[rec.ID] = dispatchTaskIndexEntryFromRecord(rec, payload)
 	}
-	if versions, ok, _ := s.dispatchNamespaceVersions(ctx); ok {
-		idx.setNamespaceVersions(versions)
-	}
-	now := time.Now().UTC()
-	idx.validatedAt = now
-	idx.fullValidatedAt = now
-	s.index = idx
-	return nil
+	return idx, nil
 }
 
 func (s *DispatchTaskStore) validateDispatchIndex(ctx context.Context, validatePendingPayloadVersions bool) error {
@@ -454,23 +493,35 @@ func (s *DispatchTaskStore) validateDispatchIndex(ctx context.Context, validateP
 
 	fullValidationDue := s.index.fullValidatedAt.IsZero() ||
 		now.Sub(s.index.fullValidatedAt) >= dispatchIndexFullValidationInterval
-	namespaceSupported := false
-	if !fullValidationDue {
-		if versions, ok, _ := s.dispatchNamespaceVersions(ctx); ok {
-			namespaceSupported = true
-			if s.index.namespaceVersionsMatch(versions) {
-				if validatePendingPayloadVersions {
-					if err := s.validatePendingRecordVersions(ctx); err != nil {
-						return err
-					}
-					if err := s.validateClaimRecordVersions(ctx); err != nil {
-						return err
-					}
+
+	versions, namespaceSupported, err := s.dispatchNamespaceVersions(ctx)
+	if err != nil {
+		return err
+	}
+	if namespaceSupported {
+		if !s.index.namespaceVersionsMatch(versions) {
+			return s.rebuildDispatchIndex(ctx)
+		}
+		if !fullValidationDue {
+			if validatePendingPayloadVersions {
+				if err := s.validatePendingRecordVersions(ctx); err != nil {
+					return err
 				}
-				s.index.setNamespaceVersions(versions)
-				s.index.validatedAt = time.Now().UTC()
-				return nil
+				if err := s.validateClaimRecordVersions(ctx); err != nil {
+					return err
+				}
+				afterVersions, _, err := s.dispatchNamespaceVersions(ctx)
+				if err != nil {
+					return err
+				}
+				if versions != afterVersions {
+					return s.rebuildDispatchIndex(ctx)
+				}
+				versions = afterVersions
 			}
+			s.index.setNamespaceVersions(versions)
+			s.index.validatedAt = time.Now().UTC()
+			return nil
 		}
 	}
 
@@ -491,8 +542,15 @@ func (s *DispatchTaskStore) validateDispatchIndex(ctx context.Context, validateP
 			return err
 		}
 	}
-	if versions, ok, _ := s.dispatchNamespaceVersions(ctx); ok {
-		s.index.setNamespaceVersions(versions)
+	if namespaceSupported {
+		afterVersions, _, err := s.dispatchNamespaceVersions(ctx)
+		if err != nil {
+			return err
+		}
+		if versions != afterVersions {
+			return s.rebuildDispatchIndex(ctx)
+		}
+		s.index.setNamespaceVersions(afterVersions)
 	}
 	finishedAt := time.Now().UTC()
 	s.index.validatedAt = finishedAt

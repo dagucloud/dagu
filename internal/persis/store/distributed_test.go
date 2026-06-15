@@ -908,6 +908,78 @@ func TestDispatchTaskStore_NamespaceVersionChangeTriggersRebuild(t *testing.T) {
 	assert.Equal(t, "run-namespace-changed", claimed.Task.DAGRunID)
 }
 
+func TestDispatchTaskStore_NamespaceVersionMismatchRebuildsPayloadMetadata(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	col := newNamespaceVersionCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+	s := store.NewDispatchTaskStore(col)
+
+	require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
+		DAGRunID:       "run-selector-version",
+		Target:         "dag-selector-version",
+		AttemptID:      "attempt-selector-version",
+		AttemptKey:     "attempt-key-selector-version",
+		WorkerSelector: map[string]string{"type": "gpu"},
+	}))
+
+	claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		WorkerID: "worker-cpu",
+		PollerID: "poller-cpu",
+		Labels:   map[string]string{"type": "cpu"},
+		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
+	})
+	require.NoError(t, err)
+	require.Nil(t, claimed)
+
+	rewritePendingDispatchRecords(t, col.Collection, func(payload *dispatchTaskRecord) {
+		payload.Task.WorkerSelector = map[string]string{"type": "cpu"}
+	})
+	col.BumpNamespace("pending/")
+	waitDispatchIndexValidationWindow()
+
+	claimed, err = s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		WorkerID: "worker-cpu",
+		PollerID: "poller-cpu",
+		Labels:   map[string]string{"type": "cpu"},
+		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	assert.Equal(t, "run-selector-version", claimed.Task.DAGRunID)
+}
+
+func TestDispatchTaskStore_UnstableNamespaceVersionDoesNotHideConcurrentPendingRecord(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	col := newInsertAfterPendingIDsNamespaceVersionCollection(t, testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+	s := store.NewDispatchTaskStore(col)
+
+	claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		WorkerID: "worker-cpu",
+		PollerID: "poller-cpu",
+		Labels:   map[string]string{"type": "cpu"},
+		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
+	})
+	require.NoError(t, err)
+	if claimed != nil {
+		assert.Equal(t, "run-insert-during-index", claimed.Task.DAGRunID)
+		return
+	}
+
+	waitDispatchIndexValidationWindow()
+	claimed, err = s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		WorkerID: "worker-cpu",
+		PollerID: "poller-cpu",
+		Labels:   map[string]string{"type": "cpu"},
+		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	assert.Equal(t, "run-insert-during-index", claimed.Task.DAGRunID)
+}
+
 func TestDispatchTaskStore_UnsupportedNamespaceVersionFallsBackToRecordIDs(t *testing.T) {
 	t.Parallel()
 
@@ -2273,6 +2345,38 @@ func (c *namespaceVersionCollection) NamespaceVersionCount() int64 {
 func (c *namespaceVersionCollection) Reset() {
 	c.countingRecordIDsCollection.Reset()
 	c.namespaceVersions.Store(0)
+}
+
+type insertAfterPendingIDsNamespaceVersionCollection struct {
+	*namespaceVersionCollection
+	t        *testing.T
+	inserted atomic.Bool
+}
+
+func newInsertAfterPendingIDsNamespaceVersionCollection(t *testing.T, col persis.Collection) *insertAfterPendingIDsNamespaceVersionCollection {
+	t.Helper()
+	return &insertAfterPendingIDsNamespaceVersionCollection{
+		namespaceVersionCollection: newNamespaceVersionCollection(col),
+		t:                          t,
+	}
+}
+
+func (c *insertAfterPendingIDsNamespaceVersionCollection) RecordIDs(ctx context.Context, prefix string) ([]string, error) {
+	ids, err := c.countingRecordIDsCollection.RecordIDs(ctx, prefix)
+	if err != nil {
+		return nil, err
+	}
+	if prefix == "pending/" && c.inserted.CompareAndSwap(false, true) {
+		putPendingDispatchTaskRecord(c.t, c.Collection, "task_00000000000000000001_insert_during_index.json", &exec.DispatchTask{
+			DAGRunID:       "run-insert-during-index",
+			Target:         "dag-insert-during-index",
+			AttemptID:      "attempt-insert-during-index",
+			AttemptKey:     "attempt-key-insert-during-index",
+			WorkerSelector: map[string]string{"type": "cpu"},
+		}, time.Now().UTC())
+		c.BumpNamespace("pending/")
+	}
+	return ids, nil
 }
 
 type disappearingRecordGetCollection struct {
