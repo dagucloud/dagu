@@ -74,6 +74,13 @@ type dispatchNamespaceVersions struct {
 	claims  string
 }
 
+type dispatchIndexSnapshot struct {
+	index              *dispatchTaskIndex
+	namespaceVersions  dispatchNamespaceVersions
+	stable             bool
+	namespaceSupported bool
+}
+
 type dispatchTaskIndexEntry struct {
 	id             string
 	version        string
@@ -408,49 +415,56 @@ func (s *DispatchTaskStore) dispatchNamespaceVersions(ctx context.Context) (disp
 }
 
 func (s *DispatchTaskStore) rebuildDispatchIndex(ctx context.Context) error {
-	idx, versions, stable, namespaceSupported, err := s.buildDispatchIndexSnapshot(ctx)
+	snapshot, err := s.buildDispatchIndexSnapshot(ctx)
 	if err != nil {
 		return err
 	}
-	if namespaceSupported && !stable {
-		idx, versions, stable, _, err = s.buildDispatchIndexSnapshot(ctx)
+	if snapshot.namespaceSupported && !snapshot.stable {
+		snapshot, err = s.buildDispatchIndexSnapshot(ctx)
 		if err != nil {
 			return err
 		}
 	}
-	if stable {
-		idx.setNamespaceVersions(versions)
+	if snapshot.stable {
+		snapshot.index.setNamespaceVersions(snapshot.namespaceVersions)
 		now := time.Now().UTC()
-		idx.validatedAt = now
-		idx.fullValidatedAt = now
-	} else if !namespaceSupported {
+		snapshot.index.validatedAt = now
+		snapshot.index.fullValidatedAt = now
+	} else if !snapshot.namespaceSupported {
 		now := time.Now().UTC()
-		idx.validatedAt = now
-		idx.fullValidatedAt = now
+		snapshot.index.validatedAt = now
+		snapshot.index.fullValidatedAt = now
 	}
-	s.index = idx
+	s.index = snapshot.index
 	return nil
 }
 
-func (s *DispatchTaskStore) buildDispatchIndexSnapshot(ctx context.Context) (*dispatchTaskIndex, dispatchNamespaceVersions, bool, bool, error) {
+func (s *DispatchTaskStore) buildDispatchIndexSnapshot(ctx context.Context) (dispatchIndexSnapshot, error) {
 	beforeVersions, namespaceSupported, err := s.dispatchNamespaceVersions(ctx)
 	if err != nil {
-		return nil, dispatchNamespaceVersions{}, false, false, err
+		return dispatchIndexSnapshot{}, err
 	}
 
 	idx, err := s.buildDispatchIndex(ctx)
 	if err != nil {
-		return nil, dispatchNamespaceVersions{}, false, false, err
+		return dispatchIndexSnapshot{}, err
 	}
 	if !namespaceSupported {
-		return idx, dispatchNamespaceVersions{}, false, false, nil
+		return dispatchIndexSnapshot{
+			index: idx,
+		}, nil
 	}
 
 	afterVersions, _, err := s.dispatchNamespaceVersions(ctx)
 	if err != nil {
-		return nil, dispatchNamespaceVersions{}, false, false, err
+		return dispatchIndexSnapshot{}, err
 	}
-	return idx, afterVersions, beforeVersions == afterVersions, true, nil
+	return dispatchIndexSnapshot{
+		index:              idx,
+		namespaceVersions:  afterVersions,
+		stable:             beforeVersions == afterVersions,
+		namespaceSupported: true,
+	}, nil
 }
 
 func (s *DispatchTaskStore) buildDispatchIndex(ctx context.Context) (*dispatchTaskIndex, error) {
