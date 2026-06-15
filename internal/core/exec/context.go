@@ -489,4 +489,17 @@ func GetContext(ctx context.Context) Context {
 	return execEnv
 }
 
+// LookupContext returns the DAGContext when one is present in ctx.
+func LookupContext(ctx context.Context) (Context, bool) {
+	value := ctx.Value(dagCtxKey{})
+	if value == nil {
+		return Context{}, false
+	}
+	execEnv, ok := value.(Context)
+	if !ok {
+		return Context{}, false
+	}
+	return execEnv, true
+}
+
 type dagCtxKey struct{}

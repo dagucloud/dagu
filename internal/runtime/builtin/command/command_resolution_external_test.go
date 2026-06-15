@@ -60,3 +60,21 @@ func TestCommandResolutionWithoutRuntimeEnvPrefersStepShell(t *testing.T) {
 		assert.Equal(t, []string{"step-shell", "-c"}, command.Shell)
 	}
 }
+
+func TestCommandResolutionWithoutDAGContextUsesStepShell(t *testing.T) {
+	step := core.Step{
+		Name:           "run",
+		Shell:          "step-shell",
+		ShellArgs:      []string{"-c"},
+		ExecutorConfig: core.ExecutorConfig{Type: "command"},
+	}
+
+	for _, command := range []cmnvalue.CommandContext{
+		step.CommandResolution(context.Background()),
+		step.ScriptResolution(context.Background()),
+	} {
+		assert.Equal(t, cmnvalue.CommandTargetLocal, command.Target)
+		assert.True(t, command.ShellConfigured)
+		assert.Equal(t, []string{"step-shell", "-c"}, command.Shell)
+	}
+}
