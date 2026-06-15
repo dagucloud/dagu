@@ -8,23 +8,13 @@ import (
 	"time"
 )
 
-// SetDispatchIndexFullValidationIntervalForTest overrides full validation timing.
-func SetDispatchIndexFullValidationIntervalForTest(t testing.TB, interval time.Duration) {
+// SetDispatchIndexReconcileIntervalForTest overrides dispatch index reconciliation timing.
+func SetDispatchIndexReconcileIntervalForTest(t testing.TB, interval time.Duration) {
 	t.Helper()
-	previous := dispatchIndexFullValidationInterval
-	dispatchIndexFullValidationInterval = interval
+	previous := dispatchIndexReconcileInterval
+	dispatchIndexReconcileInterval = interval
 	t.Cleanup(func() {
-		dispatchIndexFullValidationInterval = previous
-	})
-}
-
-// SetDispatchIndexValidationWindowForTest overrides fast validation timing.
-func SetDispatchIndexValidationWindowForTest(t testing.TB, window time.Duration) {
-	t.Helper()
-	previous := dispatchIndexValidationWindow
-	dispatchIndexValidationWindow = window
-	t.Cleanup(func() {
-		dispatchIndexValidationWindow = previous
+		dispatchIndexReconcileInterval = previous
 	})
 }
 

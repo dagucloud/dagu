@@ -329,7 +329,7 @@ func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {
 
 	ctx := context.Background()
 	col := testutil.NewMemoryBackend().Collection("dispatch_tasks")
-	claimTimeout := 3 * time.Second
+	claimTimeout := 50 * time.Millisecond
 	s := store.NewDispatchTaskStore(col, store.WithDispatchReservationTTL(claimTimeout))
 
 	require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
@@ -378,7 +378,7 @@ func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {
 	require.NotNil(t, gpuClaim)
 	assert.Equal(t, "run-a", gpuClaim.Task.DAGRunID)
 
-	ageClaimedDispatchRecord(t, col, claimed.ClaimToken, 10*time.Second, 10*time.Second)
+	time.Sleep(60 * time.Millisecond)
 
 	reclaimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
 		WorkerID: "worker-2",
@@ -791,210 +791,44 @@ func TestDispatchTaskStore_RepeatedNoMatchDoesNotRereadPendingRecords(t *testing
 	assert.LessOrEqual(t, col.GetCount(), int64(1), "repeated no-match claims should use indexed metadata instead of reading every pending record")
 }
 
-func TestDispatchTaskStore_SlowValidationRefreshesWindowAfterFinish(t *testing.T) {
-	store.SetDispatchIndexValidationWindowForTest(t, 5*time.Millisecond)
+func TestDispatchTaskStore_DueIDReconciliationSkipsRecordReadsWhenIDsUnchanged(t *testing.T) {
+	store.SetDispatchIndexReconcileIntervalForTest(t, 5*time.Millisecond)
 	ctx := context.Background()
 	col := newCountingRecordIDsCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
-	col.SetRecordIDsDelay(10 * time.Millisecond)
 	s := store.NewDispatchTaskStore(col)
 
 	for i := range 3 {
 		require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
-			DAGRunID:       "run-slow-validation-" + string(rune('a'+i)),
-			Target:         "dag-slow-validation",
-			AttemptID:      "attempt-slow-validation",
-			AttemptKey:     "attempt-key-slow-validation-" + string(rune('a'+i)),
-			WorkerSelector: map[string]string{"type": "gpu"},
+			DAGRunID:   "run-reconcile-unchanged-" + string(rune('a'+i)),
+			Target:     "dag-reconcile-unchanged",
+			QueueName:  "queue-a",
+			AttemptID:  "attempt-reconcile-unchanged",
+			AttemptKey: "attempt-key-reconcile-unchanged-" + string(rune('a'+i)),
 		}))
 	}
 
-	claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
-		WorkerID: "worker-cpu",
-		PollerID: "poller-cpu",
-		Labels:   map[string]string{"type": "cpu"},
-		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
-	})
+	count, err := s.CountOutstandingByQueue(ctx, "queue-a", time.Second)
 	require.NoError(t, err)
-	require.Nil(t, claimed)
-
-	claimed, err = s.ClaimNext(ctx, exec.DispatchTaskClaim{
-		WorkerID: "worker-cpu",
-		PollerID: "poller-cpu",
-		Labels:   map[string]string{"type": "cpu"},
-		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
-	})
-	require.NoError(t, err)
-	require.Nil(t, claimed)
-
-	assert.LessOrEqual(t, col.RecordIDsCount(), int64(2), "a slow validation should refresh the throttling window after it finishes")
-}
-
-func TestDispatchTaskStore_ClaimNextUsesNamespaceVersionFastPath(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	col := newNamespaceVersionCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
-	s := store.NewDispatchTaskStore(col)
-
-	for i := range 8 {
-		require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
-			DAGRunID:       "run-namespace-no-match-" + string(rune('a'+i)),
-			Target:         "dag-namespace-no-match",
-			AttemptID:      "attempt-namespace-no-match",
-			AttemptKey:     "attempt-key-namespace-no-match-" + string(rune('a'+i)),
-			WorkerSelector: map[string]string{"type": "gpu"},
-		}))
-	}
-
-	claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
-		WorkerID: "worker-cpu",
-		PollerID: "poller-cpu",
-		Labels:   map[string]string{"type": "cpu"},
-		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
-	})
-	require.NoError(t, err)
-	require.Nil(t, claimed)
+	require.Equal(t, 3, count)
 
 	col.Reset()
-	waitDispatchIndexValidationWindow()
+	waitDispatchIndexReconcileInterval()
 
-	claimed, err = s.ClaimNext(ctx, exec.DispatchTaskClaim{
-		WorkerID: "worker-cpu",
-		PollerID: "poller-cpu",
-		Labels:   map[string]string{"type": "cpu"},
-		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
-	})
+	count, err = s.CountOutstandingByQueue(ctx, "queue-a", time.Second)
 	require.NoError(t, err)
-	require.Nil(t, claimed)
+	require.Equal(t, 3, count)
 
-	assert.Zero(t, col.RecordIDsCount(), "unchanged namespace versions should avoid pending/claim ID walks")
-	assert.GreaterOrEqual(t, col.NamespaceVersionCount(), int64(2), "validation should check pending and claim namespaces")
+	assert.GreaterOrEqual(t, col.RecordIDsCount(), int64(2), "due reconciliation should compare pending and claim IDs")
+	assert.Zero(t, col.ListCount(), "unchanged IDs should avoid a full rebuild")
+	assert.Zero(t, col.GetCount(), "unchanged IDs should avoid per-record reads")
 }
 
-func TestDispatchTaskStore_NamespaceVersionChangeTriggersRebuild(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	col := newNamespaceVersionCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
-	s := store.NewDispatchTaskStore(col)
-
-	claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
-		WorkerID: "worker-cpu",
-		PollerID: "poller-cpu",
-		Labels:   map[string]string{"type": "cpu"},
-		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
-	})
-	require.NoError(t, err)
-	require.Nil(t, claimed)
-
-	putPendingDispatchTaskRecord(t, col.Collection, "task_00000000000000000001_namespace_changed.json", &exec.DispatchTask{
-		DAGRunID:       "run-namespace-changed",
-		Target:         "dag-namespace-changed",
-		AttemptID:      "attempt-namespace-changed",
-		AttemptKey:     "attempt-key-namespace-changed",
-		WorkerSelector: map[string]string{"type": "cpu"},
-	}, time.Now().UTC())
-	col.BumpNamespace("pending/")
-	waitDispatchIndexValidationWindow()
-
-	claimed, err = s.ClaimNext(ctx, exec.DispatchTaskClaim{
-		WorkerID: "worker-cpu",
-		PollerID: "poller-cpu",
-		Labels:   map[string]string{"type": "cpu"},
-		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
-	})
-	require.NoError(t, err)
-	require.NotNil(t, claimed)
-	assert.Equal(t, "run-namespace-changed", claimed.Task.DAGRunID)
-}
-
-func TestDispatchTaskStore_NamespaceVersionMismatchRebuildsPayloadMetadata(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	col := newNamespaceVersionCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
-	s := store.NewDispatchTaskStore(col)
-
-	require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
-		DAGRunID:       "run-selector-version",
-		Target:         "dag-selector-version",
-		AttemptID:      "attempt-selector-version",
-		AttemptKey:     "attempt-key-selector-version",
-		WorkerSelector: map[string]string{"type": "gpu"},
-	}))
-
-	claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
-		WorkerID: "worker-cpu",
-		PollerID: "poller-cpu",
-		Labels:   map[string]string{"type": "cpu"},
-		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
-	})
-	require.NoError(t, err)
-	require.Nil(t, claimed)
-
-	rewritePendingDispatchRecords(t, col.Collection, func(payload *dispatchTaskRecord) {
-		payload.Task.WorkerSelector = map[string]string{"type": "cpu"}
-	})
-	col.BumpNamespace("pending/")
-	waitDispatchIndexValidationWindow()
-
-	claimed, err = s.ClaimNext(ctx, exec.DispatchTaskClaim{
-		WorkerID: "worker-cpu",
-		PollerID: "poller-cpu",
-		Labels:   map[string]string{"type": "cpu"},
-		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
-	})
-	require.NoError(t, err)
-	require.NotNil(t, claimed)
-	assert.Equal(t, "run-selector-version", claimed.Task.DAGRunID)
-}
-
-func TestDispatchTaskStore_UnstableNamespaceVersionDoesNotHideConcurrentPendingRecord(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	col := newInsertAfterPendingIDsNamespaceVersionCollection(t, testutil.NewMemoryBackend().Collection("dispatch_tasks"))
-	s := store.NewDispatchTaskStore(col)
-
-	claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
-		WorkerID: "worker-cpu",
-		PollerID: "poller-cpu",
-		Labels:   map[string]string{"type": "cpu"},
-		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
-	})
-	require.NoError(t, err)
-	if claimed != nil {
-		assert.Equal(t, "run-insert-during-index", claimed.Task.DAGRunID)
-		return
-	}
-
-	waitDispatchIndexValidationWindow()
-	claimed, err = s.ClaimNext(ctx, exec.DispatchTaskClaim{
-		WorkerID: "worker-cpu",
-		PollerID: "poller-cpu",
-		Labels:   map[string]string{"type": "cpu"},
-		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
-	})
-	require.NoError(t, err)
-	require.NotNil(t, claimed)
-	assert.Equal(t, "run-insert-during-index", claimed.Task.DAGRunID)
-}
-
-func TestDispatchTaskStore_UnsupportedNamespaceVersionFallsBackToRecordIDs(t *testing.T) {
-	t.Parallel()
-
+func TestDispatchTaskStore_ClaimNextReconcilesDueNoMatchIDs(t *testing.T) {
+	store.SetDispatchIndexReconcileIntervalForTest(t, 5*time.Millisecond)
 	ctx := context.Background()
 	col := newCountingRecordIDsCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
 	s := store.NewDispatchTaskStore(col)
 
-	require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
-		DAGRunID:       "run-namespace-unsupported",
-		Target:         "dag-namespace-unsupported",
-		AttemptID:      "attempt-namespace-unsupported",
-		AttemptKey:     "attempt-key-namespace-unsupported",
-		WorkerSelector: map[string]string{"type": "gpu"},
-	}))
-
 	claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
 		WorkerID: "worker-cpu",
 		PollerID: "poller-cpu",
@@ -1004,8 +838,13 @@ func TestDispatchTaskStore_UnsupportedNamespaceVersionFallsBackToRecordIDs(t *te
 	require.NoError(t, err)
 	require.Nil(t, claimed)
 
-	col.Reset()
-	waitDispatchIndexValidationWindow()
+	putPendingDispatchTaskRecord(t, col.Collection, "task_00000000000000000001_reconcile_no_match.json", &exec.DispatchTask{
+		DAGRunID:       "run-reconcile-no-match",
+		Target:         "dag-reconcile-no-match",
+		AttemptID:      "attempt-reconcile-no-match",
+		AttemptKey:     "attempt-key-reconcile-no-match",
+		WorkerSelector: map[string]string{"type": "cpu"},
+	}, time.Now().UTC())
 
 	claimed, err = s.ClaimNext(ctx, exec.DispatchTaskClaim{
 		WorkerID: "worker-cpu",
@@ -1014,37 +853,9 @@ func TestDispatchTaskStore_UnsupportedNamespaceVersionFallsBackToRecordIDs(t *te
 		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
 	})
 	require.NoError(t, err)
-	require.Nil(t, claimed)
-	assert.GreaterOrEqual(t, col.RecordIDsCount(), int64(2), "unsupported namespace version must fall back to ID validation")
-}
+	require.Nil(t, claimed, "external pending IDs may be hidden until reconciliation is due")
 
-func TestDispatchTaskStore_FullValidationCatchesUnchangedNamespaceVersion(t *testing.T) {
-	store.SetDispatchIndexValidationWindowForTest(t, 5*time.Millisecond)
-	store.SetDispatchIndexFullValidationIntervalForTest(t, 20*time.Millisecond)
-
-	ctx := context.Background()
-	col := newNamespaceVersionCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
-	s := store.NewDispatchTaskStore(col)
-
-	claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
-		WorkerID: "worker-cpu",
-		PollerID: "poller-cpu",
-		Labels:   map[string]string{"type": "cpu"},
-		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
-	})
-	require.NoError(t, err)
-	require.Nil(t, claimed)
-
-	putPendingDispatchTaskRecord(t, col.Collection, "task_00000000000000000001_full_validation.json", &exec.DispatchTask{
-		DAGRunID:       "run-full-validation",
-		Target:         "dag-full-validation",
-		AttemptID:      "attempt-full-validation",
-		AttemptKey:     "attempt-key-full-validation",
-		WorkerSelector: map[string]string{"type": "cpu"},
-	}, time.Now().UTC())
-
-	col.Reset()
-	time.Sleep(30 * time.Millisecond)
+	waitDispatchIndexReconcileInterval()
 
 	claimed, err = s.ClaimNext(ctx, exec.DispatchTaskClaim{
 		WorkerID: "worker-cpu",
@@ -1054,8 +865,34 @@ func TestDispatchTaskStore_FullValidationCatchesUnchangedNamespaceVersion(t *tes
 	})
 	require.NoError(t, err)
 	require.NotNil(t, claimed)
-	assert.Equal(t, "run-full-validation", claimed.Task.DAGRunID)
-	assert.GreaterOrEqual(t, col.RecordIDsCount(), int64(2), "full validation should reconcile even when namespace metadata is unchanged")
+	assert.Equal(t, "run-reconcile-no-match", claimed.Task.DAGRunID)
+}
+
+func TestDispatchTaskStore_DueIDReconciliationRebuildsWhenPendingIDsChange(t *testing.T) {
+	store.SetDispatchIndexReconcileIntervalForTest(t, 5*time.Millisecond)
+	ctx := context.Background()
+	col := newCountingRecordIDsCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+	s := store.NewDispatchTaskStore(col)
+
+	count, err := s.CountOutstandingByQueue(ctx, "queue-a", time.Second)
+	require.NoError(t, err)
+	require.Zero(t, count)
+
+	putPendingDispatchTaskRecord(t, col.Collection, "task_00000000000000000001_reconcile_changed.json", &exec.DispatchTask{
+		DAGRunID:   "run-reconcile-changed",
+		Target:     "dag-reconcile-changed",
+		QueueName:  "queue-a",
+		AttemptID:  "attempt-reconcile-changed",
+		AttemptKey: "attempt-key-reconcile-changed",
+	}, time.Now().UTC())
+
+	col.Reset()
+	waitDispatchIndexReconcileInterval()
+
+	count, err = s.CountOutstandingByQueue(ctx, "queue-a", time.Second)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+	assert.Greater(t, col.GetCount(), int64(0), "changed IDs should trigger a full rebuild")
 }
 
 func TestDispatchTaskStore_NoMatchCacheIsCapped(t *testing.T) {
@@ -1138,9 +975,8 @@ func TestDispatchTaskStore_TwoStoreInstancesClaimExactlyOnce(t *testing.T) {
 	assert.Equal(t, 1, claimedCount)
 }
 
-func TestDispatchTaskStore_CountOutstandingSeesSecondStoreEnqueueImmediately(t *testing.T) {
-	t.Parallel()
-
+func TestDispatchTaskStore_CountOutstandingSeesSecondStoreEnqueueAfterDueReconcile(t *testing.T) {
+	store.SetDispatchIndexReconcileIntervalForTest(t, 5*time.Millisecond)
 	ctx := context.Background()
 	col := newCountingRecordIDsCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
 	first := store.NewDispatchTaskStore(col)
@@ -1160,12 +996,17 @@ func TestDispatchTaskStore_CountOutstandingSeesSecondStoreEnqueueImmediately(t *
 
 	count, err = first.CountOutstandingByQueue(ctx, "queue-a", time.Second)
 	require.NoError(t, err)
+	assert.Zero(t, count, "external enqueue may be hidden until reconciliation is due")
+
+	waitDispatchIndexReconcileInterval()
+
+	count, err = first.CountOutstandingByQueue(ctx, "queue-a", time.Second)
+	require.NoError(t, err)
 	assert.Equal(t, 1, count)
 }
 
-func TestDispatchTaskStore_HasOutstandingAttemptSeesSecondStoreEnqueueImmediately(t *testing.T) {
-	t.Parallel()
-
+func TestDispatchTaskStore_HasOutstandingAttemptSeesSecondStoreEnqueueAfterDueReconcile(t *testing.T) {
+	store.SetDispatchIndexReconcileIntervalForTest(t, 5*time.Millisecond)
 	ctx := context.Background()
 	col := newCountingRecordIDsCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
 	first := store.NewDispatchTaskStore(col)
@@ -1182,6 +1023,12 @@ func TestDispatchTaskStore_HasOutstandingAttemptSeesSecondStoreEnqueueImmediatel
 		AttemptID:  "attempt-admission-attempt",
 		AttemptKey: "attempt-key-admission-attempt",
 	}))
+
+	hasOutstanding, err = first.HasOutstandingAttempt(ctx, "attempt-key-admission-attempt", time.Second)
+	require.NoError(t, err)
+	assert.False(t, hasOutstanding, "external enqueue may be hidden until reconciliation is due")
+
+	waitDispatchIndexReconcileInterval()
 
 	hasOutstanding, err = first.HasOutstandingAttempt(ctx, "attempt-key-admission-attempt", time.Second)
 	require.NoError(t, err)
@@ -1220,7 +1067,7 @@ func TestDispatchTaskStore_NoMatchCacheDistinguishesSeparatorCharacters(t *testi
 	assert.Equal(t, "run-label-collision", claimed.Task.DAGRunID)
 }
 
-func TestDispatchTaskStore_RepeatedNoMatchWithClaimsThrottlesValidation(t *testing.T) {
+func TestDispatchTaskStore_RepeatedNoMatchWithClaimsUsesIndexedMetadata(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -1258,7 +1105,7 @@ func TestDispatchTaskStore_RepeatedNoMatchWithClaimsThrottlesValidation(t *testi
 		require.Nil(t, claimed)
 	}
 
-	assert.LessOrEqual(t, col.RecordVersionCount(), int64(8), "claim validation should be throttled after index warmup")
+	assert.LessOrEqual(t, col.RecordIDsCount(), int64(2), "repeated no-match claims should avoid repeated ID reconciliation")
 }
 
 func TestDispatchTaskStore_EnqueueInvalidatesIndexedNoMatch(t *testing.T) {
@@ -1369,8 +1216,7 @@ func TestDispatchTaskStore_ClaimNextDeletesOrphanClaimAfterPendingConflict(t *te
 }
 
 func TestDispatchTaskStore_ClaimNextRebuildsAfterExternalPendingRecordAppears(t *testing.T) {
-	t.Parallel()
-
+	store.SetDispatchIndexReconcileIntervalForTest(t, 5*time.Millisecond)
 	ctx := context.Background()
 	col := testutil.NewMemoryBackend().Collection("dispatch_tasks")
 	s := store.NewDispatchTaskStore(col)
@@ -1390,7 +1236,7 @@ func TestDispatchTaskStore_ClaimNextRebuildsAfterExternalPendingRecordAppears(t 
 		AttemptKey:     "attempt-key-external",
 		WorkerSelector: map[string]string{"type": "cpu"},
 	}, time.Now().UTC())
-	waitDispatchIndexValidationWindow()
+	waitDispatchIndexReconcileInterval()
 
 	claimed, err = s.ClaimNext(ctx, exec.DispatchTaskClaim{
 		WorkerID: "worker-cpu",
@@ -1403,8 +1249,7 @@ func TestDispatchTaskStore_ClaimNextRebuildsAfterExternalPendingRecordAppears(t 
 }
 
 func TestDispatchTaskStore_ClaimNextRebuildsWhenExternalPendingRecordReplacesIndexedID(t *testing.T) {
-	t.Parallel()
-
+	store.SetDispatchIndexReconcileIntervalForTest(t, 5*time.Millisecond)
 	ctx := context.Background()
 	col := testutil.NewMemoryBackend().Collection("dispatch_tasks")
 	s := store.NewDispatchTaskStore(col)
@@ -1435,7 +1280,7 @@ func TestDispatchTaskStore_ClaimNextRebuildsWhenExternalPendingRecordReplacesInd
 		AttemptKey:     "attempt-key-replaced-new",
 		WorkerSelector: map[string]string{"type": "cpu"},
 	}, time.Now().UTC())
-	waitDispatchIndexValidationWindow()
+	waitDispatchIndexReconcileInterval()
 
 	claimed, err = s.ClaimNext(ctx, exec.DispatchTaskClaim{
 		WorkerID: "worker-cpu",
@@ -1447,9 +1292,8 @@ func TestDispatchTaskStore_ClaimNextRebuildsWhenExternalPendingRecordReplacesInd
 	assert.Equal(t, "run-replaced-new", claimed.Task.DAGRunID)
 }
 
-func TestDispatchTaskStore_OutstandingQueryRebuildsAfterExternalPendingPayloadChange(t *testing.T) {
-	t.Parallel()
-
+func TestDispatchTaskStore_OutstandingQueryRebuildsAfterExternalPendingIDReplacement(t *testing.T) {
+	store.SetDispatchIndexReconcileIntervalForTest(t, 5*time.Millisecond)
 	ctx := context.Background()
 	col := testutil.NewMemoryBackend().Collection("dispatch_tasks")
 	s := store.NewDispatchTaskStore(col)
@@ -1465,11 +1309,18 @@ func TestDispatchTaskStore_OutstandingQueryRebuildsAfterExternalPendingPayloadCh
 	require.NoError(t, err)
 	require.Equal(t, 1, count)
 
-	rewritePendingDispatchRecords(t, col, func(payload *dispatchTaskRecord) {
-		payload.Task.QueueName = "queue-b-updated"
-		payload.Task.AttemptKey = "attempt-key-versioned-updated"
-	})
-	waitDispatchIndexValidationWindow()
+	pending, err := col.List(ctx, persis.ListQuery{Prefix: "pending/"})
+	require.NoError(t, err)
+	require.Len(t, pending.Records, 1)
+	require.NoError(t, col.Delete(ctx, pending.Records[0].ID))
+	putPendingDispatchTaskRecord(t, col, "task_00000000000000000001_replaced_outstanding.json", &exec.DispatchTask{
+		DAGRunID:   "run-versioned-replaced",
+		Target:     "dag-versioned",
+		QueueName:  "queue-b-updated",
+		AttemptID:  "attempt-versioned-replaced",
+		AttemptKey: "attempt-key-versioned-updated",
+	}, time.Now().UTC())
+	waitDispatchIndexReconcileInterval()
 
 	count, err = s.CountOutstandingByQueue(ctx, "queue-a", time.Second)
 	require.NoError(t, err)
@@ -1835,7 +1686,7 @@ func TestDispatchTaskStore_StalePendingReservationsExpire(t *testing.T) {
 
 	ctx := context.Background()
 	col := testutil.NewMemoryBackend().Collection("dispatch_tasks")
-	s := store.NewDispatchTaskStore(col, store.WithDispatchReservationTTL(500*time.Millisecond))
+	s := store.NewDispatchTaskStore(col, store.WithDispatchReservationTTL(50*time.Millisecond))
 
 	require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
 		DAGRunID:   "run-stale",
@@ -1844,7 +1695,7 @@ func TestDispatchTaskStore_StalePendingReservationsExpire(t *testing.T) {
 		AttemptID:  "attempt-stale",
 		AttemptKey: "attempt-key-stale",
 	}))
-	agePendingDispatchRecords(t, col, 2*time.Second)
+	time.Sleep(60 * time.Millisecond)
 
 	count, err := s.CountOutstandingByQueue(ctx, "queue-a", time.Millisecond)
 	require.NoError(t, err)
@@ -2120,25 +1971,6 @@ func pendingRecordIDForTest(fileName string) string {
 	return "pending/" + strings.TrimSuffix(filepath.Base(fileName), ".json")
 }
 
-func ageClaimedDispatchRecord(t *testing.T, col persis.Collection, claimToken string, pendingAge, claimAge time.Duration) {
-	t.Helper()
-
-	ctx := context.Background()
-	rec, err := col.Get(ctx, "claims/claim_"+encodedKey(claimToken))
-	require.NoError(t, err)
-
-	var payload dispatchTaskRecord
-	require.NoError(t, persis.Decode(rec, &payload))
-	payload.EnqueuedAt = time.Now().Add(-pendingAge).UTC().UnixMilli()
-	payload.ClaimedAt = time.Now().Add(-claimAge).UTC().UnixMilli()
-	data, err := persis.Encode(payload)
-	require.NoError(t, err)
-
-	rec.Data = data
-	rec.UpdatedAt = time.Now().Add(-claimAge).UTC()
-	require.NoError(t, col.Put(ctx, rec))
-}
-
 func agePendingDispatchRecords(t *testing.T, col persis.Collection, age time.Duration) {
 	t.Helper()
 
@@ -2253,8 +2085,8 @@ func rewriteClaimDispatchRecord(t *testing.T, col persis.Collection, claimToken 
 	require.NoError(t, col.Put(ctx, rec))
 }
 
-func waitDispatchIndexValidationWindow() {
-	time.Sleep(350 * time.Millisecond)
+func waitDispatchIndexReconcileInterval() {
+	time.Sleep(10 * time.Millisecond)
 }
 
 func writeJSONFile(t *testing.T, path string, value any) {
@@ -2273,10 +2105,9 @@ func encodedKey(input string) string {
 
 type countingRecordIDsCollection struct {
 	persis.Collection
-	gets           atomic.Int64
-	recordIDs      atomic.Int64
-	recordIDsDelay atomic.Int64
-	recordVersions atomic.Int64
+	gets      atomic.Int64
+	lists     atomic.Int64
+	recordIDs atomic.Int64
 }
 
 func newCountingRecordIDsCollection(col persis.Collection) *countingRecordIDsCollection {
@@ -2288,17 +2119,13 @@ func (c *countingRecordIDsCollection) Get(ctx context.Context, id string) (*pers
 	return c.Collection.Get(ctx, id)
 }
 
+func (c *countingRecordIDsCollection) List(ctx context.Context, q persis.ListQuery) (*persis.Page, error) {
+	c.lists.Add(1)
+	return c.Collection.List(ctx, q)
+}
+
 func (c *countingRecordIDsCollection) RecordIDs(ctx context.Context, prefix string) ([]string, error) {
 	c.recordIDs.Add(1)
-	if delay := time.Duration(c.recordIDsDelay.Load()); delay > 0 {
-		timer := time.NewTimer(delay)
-		defer timer.Stop()
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-timer.C:
-		}
-	}
 
 	type recordIDsCollection interface {
 		RecordIDs(context.Context, string) ([]string, error)
@@ -2324,109 +2151,22 @@ func (c *countingRecordIDsCollection) RecordIDs(ctx context.Context, prefix stri
 	}
 }
 
-func (c *countingRecordIDsCollection) RecordVersion(ctx context.Context, id string) (string, error) {
-	c.recordVersions.Add(1)
-	type recordVersionCollection interface {
-		RecordVersion(context.Context, string) (string, error)
-	}
-	if versionCol, ok := c.Collection.(recordVersionCollection); ok {
-		return versionCol.RecordVersion(ctx, id)
-	}
-	rec, err := c.Collection.Get(ctx, id)
-	if err != nil {
-		return "", err
-	}
-	return rec.UpdatedAt.UTC().Format(time.RFC3339Nano) + "/" + strconv.Itoa(len(rec.Data)), nil
-}
-
 func (c *countingRecordIDsCollection) Reset() {
 	c.gets.Store(0)
+	c.lists.Store(0)
 	c.recordIDs.Store(0)
-	c.recordVersions.Store(0)
 }
 
 func (c *countingRecordIDsCollection) GetCount() int64 {
 	return c.gets.Load()
 }
 
+func (c *countingRecordIDsCollection) ListCount() int64 {
+	return c.lists.Load()
+}
+
 func (c *countingRecordIDsCollection) RecordIDsCount() int64 {
 	return c.recordIDs.Load()
-}
-
-func (c *countingRecordIDsCollection) RecordVersionCount() int64 {
-	return c.recordVersions.Load()
-}
-
-func (c *countingRecordIDsCollection) SetRecordIDsDelay(delay time.Duration) {
-	c.recordIDsDelay.Store(int64(delay))
-}
-
-type namespaceVersionCollection struct {
-	*countingRecordIDsCollection
-	mu                sync.Mutex
-	versions          map[string]int64
-	namespaceVersions atomic.Int64
-}
-
-func newNamespaceVersionCollection(col persis.Collection) *namespaceVersionCollection {
-	return &namespaceVersionCollection{
-		countingRecordIDsCollection: newCountingRecordIDsCollection(col),
-		versions:                    map[string]int64{"pending/": 1, "claims/": 1},
-	}
-}
-
-func (c *namespaceVersionCollection) RecordNamespaceVersion(_ context.Context, prefix string) (string, error) {
-	c.namespaceVersions.Add(1)
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return prefix + strconv.FormatInt(c.versions[prefix], 10), nil
-}
-
-func (c *namespaceVersionCollection) BumpNamespace(prefix string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.versions[prefix]++
-}
-
-func (c *namespaceVersionCollection) NamespaceVersionCount() int64 {
-	return c.namespaceVersions.Load()
-}
-
-func (c *namespaceVersionCollection) Reset() {
-	c.countingRecordIDsCollection.Reset()
-	c.namespaceVersions.Store(0)
-}
-
-type insertAfterPendingIDsNamespaceVersionCollection struct {
-	*namespaceVersionCollection
-	t        *testing.T
-	inserted atomic.Bool
-}
-
-func newInsertAfterPendingIDsNamespaceVersionCollection(t *testing.T, col persis.Collection) *insertAfterPendingIDsNamespaceVersionCollection {
-	t.Helper()
-	return &insertAfterPendingIDsNamespaceVersionCollection{
-		namespaceVersionCollection: newNamespaceVersionCollection(col),
-		t:                          t,
-	}
-}
-
-func (c *insertAfterPendingIDsNamespaceVersionCollection) RecordIDs(ctx context.Context, prefix string) ([]string, error) {
-	ids, err := c.countingRecordIDsCollection.RecordIDs(ctx, prefix)
-	if err != nil {
-		return nil, err
-	}
-	if prefix == "pending/" && c.inserted.CompareAndSwap(false, true) {
-		putPendingDispatchTaskRecord(c.t, c.Collection, "task_00000000000000000001_insert_during_index.json", &exec.DispatchTask{
-			DAGRunID:       "run-insert-during-index",
-			Target:         "dag-insert-during-index",
-			AttemptID:      "attempt-insert-during-index",
-			AttemptKey:     "attempt-key-insert-during-index",
-			WorkerSelector: map[string]string{"type": "cpu"},
-		}, time.Now().UTC())
-		c.BumpNamespace("pending/")
-	}
-	return ids, nil
 }
 
 type disappearingRecordGetCollection struct {

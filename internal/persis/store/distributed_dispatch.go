@@ -34,8 +34,7 @@ const (
 )
 
 var (
-	dispatchIndexValidationWindow       = 250 * time.Millisecond
-	dispatchIndexFullValidationInterval = 30 * time.Second
+	dispatchIndexReconcileInterval = 30 * time.Second
 )
 
 const dispatchNoMatchCacheLimit = 1024
@@ -60,37 +59,15 @@ type DispatchTaskStore struct {
 }
 
 type dispatchTaskIndex struct {
-	pending           map[string]dispatchTaskIndexEntry
-	pendingIDs        []string
-	claims            map[string]dispatchTaskIndexEntry
-	noMatch           map[string]struct{}
-	namespaceVersions dispatchNamespaceVersions
-	validatedAt       time.Time
-	fullValidatedAt   time.Time
-}
-
-type dispatchNamespaceVersions struct {
-	pending string
-	claims  string
-}
-
-type dispatchIndexFreshness int
-
-const (
-	dispatchIndexFreshnessPoll dispatchIndexFreshness = iota
-	dispatchIndexFreshnessAdmission
-)
-
-type dispatchIndexSnapshot struct {
-	index              *dispatchTaskIndex
-	namespaceVersions  dispatchNamespaceVersions
-	stable             bool
-	namespaceSupported bool
+	pending      map[string]dispatchTaskIndexEntry
+	pendingIDs   []string
+	claims       map[string]dispatchTaskIndexEntry
+	noMatch      map[string]struct{}
+	reconciledAt time.Time
 }
 
 type dispatchTaskIndexEntry struct {
 	id             string
-	version        string
 	taskFileName   string
 	queueName      string
 	attemptKey     string
@@ -176,8 +153,10 @@ func (idx *dispatchTaskIndex) addPending(rec *persis.Record, payload dispatchTas
 		return
 	}
 	entry := dispatchTaskIndexEntryFromRecord(rec, payload)
+	if _, ok := idx.pending[rec.ID]; !ok {
+		idx.insertPendingID(rec.ID)
+	}
 	idx.pending[rec.ID] = entry
-	idx.rebuildPendingIDs()
 	idx.invalidateDerivedState()
 }
 
@@ -189,7 +168,7 @@ func (idx *dispatchTaskIndex) removePending(id string) {
 		return
 	}
 	delete(idx.pending, id)
-	idx.rebuildPendingIDs()
+	idx.removePendingID(id)
 	idx.invalidateDerivedState()
 }
 
@@ -218,7 +197,7 @@ func (idx *dispatchTaskIndex) replacePendingWithClaim(pendingID string, claimRec
 	}
 	if _, ok := idx.pending[pendingID]; ok {
 		delete(idx.pending, pendingID)
-		idx.rebuildPendingIDs()
+		idx.removePendingID(pendingID)
 	}
 	if claimRec != nil {
 		idx.claims[claimRec.ID] = dispatchTaskIndexEntryFromRecord(claimRec, payload)
@@ -232,10 +211,31 @@ func (idx *dispatchTaskIndex) replaceClaimWithPending(claimID string, pendingRec
 	}
 	delete(idx.claims, claimID)
 	if pendingRec != nil {
+		if _, ok := idx.pending[pendingRec.ID]; !ok {
+			idx.insertPendingID(pendingRec.ID)
+		}
 		idx.pending[pendingRec.ID] = dispatchTaskIndexEntryFromRecord(pendingRec, payload)
-		idx.rebuildPendingIDs()
 	}
 	idx.invalidateDerivedState()
+}
+
+func (idx *dispatchTaskIndex) insertPendingID(id string) {
+	pos := sort.SearchStrings(idx.pendingIDs, id)
+	if pos < len(idx.pendingIDs) && idx.pendingIDs[pos] == id {
+		return
+	}
+	idx.pendingIDs = append(idx.pendingIDs, "")
+	copy(idx.pendingIDs[pos+1:], idx.pendingIDs[pos:])
+	idx.pendingIDs[pos] = id
+}
+
+func (idx *dispatchTaskIndex) removePendingID(id string) {
+	pos := sort.SearchStrings(idx.pendingIDs, id)
+	if pos >= len(idx.pendingIDs) || idx.pendingIDs[pos] != id {
+		return
+	}
+	copy(idx.pendingIDs[pos:], idx.pendingIDs[pos+1:])
+	idx.pendingIDs = idx.pendingIDs[:len(idx.pendingIDs)-1]
 }
 
 func (idx *dispatchTaskIndex) rebuildPendingIDs() {
@@ -248,7 +248,6 @@ func (idx *dispatchTaskIndex) rebuildPendingIDs() {
 
 func (idx *dispatchTaskIndex) invalidateDerivedState() {
 	clear(idx.noMatch)
-	idx.validatedAt = time.Time{}
 }
 
 func (idx *dispatchTaskIndex) candidatePendingIDs(workerLabels map[string]string) []string {
@@ -303,24 +302,9 @@ func (idx *dispatchTaskIndex) hasNoMatch(labels map[string]string) bool {
 	return ok
 }
 
-func (idx *dispatchTaskIndex) namespaceVersionsMatch(versions dispatchNamespaceVersions) bool {
-	if idx == nil || versions.pending == "" || versions.claims == "" {
-		return false
-	}
-	return idx.namespaceVersions == versions
-}
-
-func (idx *dispatchTaskIndex) setNamespaceVersions(versions dispatchNamespaceVersions) {
-	if idx == nil || versions.pending == "" || versions.claims == "" {
-		return
-	}
-	idx.namespaceVersions = versions
-}
-
 func dispatchTaskIndexEntryFromRecord(rec *persis.Record, payload dispatchTaskPayload) dispatchTaskIndexEntry {
 	entry := dispatchTaskIndexEntry{
 		id:           rec.ID,
-		version:      dispatchRecordVersionFromRecord(rec),
 		taskFileName: payload.TaskFileName,
 		claimToken:   payload.ClaimToken,
 		enqueuedAt:   payload.EnqueuedAt,
@@ -335,13 +319,6 @@ func dispatchTaskIndexEntryFromRecord(rec *persis.Record, payload dispatchTaskPa
 		entry.workerSelector = maps.Clone(payload.Task.WorkerSelector)
 	}
 	return entry
-}
-
-func dispatchRecordVersionFromRecord(rec *persis.Record) string {
-	if rec == nil {
-		return ""
-	}
-	return fmt.Sprintf("%d/%d", rec.UpdatedAt.UTC().UnixNano(), len(rec.Data))
 }
 
 func dispatchClaimLabelsKey(labels map[string]string) string {
@@ -386,87 +363,21 @@ func NewDispatchTaskStore(col persis.Collection, opts ...DispatchTaskStoreOption
 	return s
 }
 
-func (s *DispatchTaskStore) ensureDispatchIndex(ctx context.Context, freshness dispatchIndexFreshness) error {
+func (s *DispatchTaskStore) ensureDispatchIndex(ctx context.Context) error {
 	if s.index == nil {
 		return s.rebuildDispatchIndex(ctx)
 	}
-	return s.validateDispatchIndex(ctx, freshness)
-}
-
-type recordNamespaceVersionCollection interface {
-	// RecordNamespaceVersion returns a token that changes when the record ID set
-	// under prefix changes.
-	RecordNamespaceVersion(ctx context.Context, prefix string) (string, error)
-}
-
-func (s *DispatchTaskStore) dispatchNamespaceVersions(ctx context.Context) (dispatchNamespaceVersions, bool, error) {
-	versionCol, ok := s.col.(recordNamespaceVersionCollection)
-	if !ok {
-		return dispatchNamespaceVersions{}, false, nil
-	}
-
-	pendingVersion, err := versionCol.RecordNamespaceVersion(ctx, dispatchPendingPrefix)
-	if err != nil {
-		return dispatchNamespaceVersions{}, false, err
-	}
-	claimsVersion, err := versionCol.RecordNamespaceVersion(ctx, dispatchClaimsPrefix)
-	if err != nil {
-		return dispatchNamespaceVersions{}, false, err
-	}
-	return dispatchNamespaceVersions{pending: pendingVersion, claims: claimsVersion}, true, nil
-}
-
-func (s *DispatchTaskStore) rebuildDispatchIndex(ctx context.Context) error {
-	snapshot, err := s.buildDispatchIndexSnapshot(ctx)
-	if err != nil {
-		return err
-	}
-	if snapshot.namespaceSupported && !snapshot.stable {
-		snapshot, err = s.buildDispatchIndexSnapshot(ctx)
-		if err != nil {
-			return err
-		}
-	}
-	if snapshot.stable {
-		snapshot.index.setNamespaceVersions(snapshot.namespaceVersions)
-		now := time.Now().UTC()
-		snapshot.index.validatedAt = now
-		snapshot.index.fullValidatedAt = now
-	} else if !snapshot.namespaceSupported {
-		now := time.Now().UTC()
-		snapshot.index.validatedAt = now
-		snapshot.index.fullValidatedAt = now
-	}
-	s.index = snapshot.index
 	return nil
 }
 
-func (s *DispatchTaskStore) buildDispatchIndexSnapshot(ctx context.Context) (dispatchIndexSnapshot, error) {
-	beforeVersions, namespaceSupported, err := s.dispatchNamespaceVersions(ctx)
-	if err != nil {
-		return dispatchIndexSnapshot{}, err
-	}
-
+func (s *DispatchTaskStore) rebuildDispatchIndex(ctx context.Context) error {
 	idx, err := s.buildDispatchIndex(ctx)
 	if err != nil {
-		return dispatchIndexSnapshot{}, err
+		return err
 	}
-	if !namespaceSupported {
-		return dispatchIndexSnapshot{
-			index: idx,
-		}, nil
-	}
-
-	afterVersions, _, err := s.dispatchNamespaceVersions(ctx)
-	if err != nil {
-		return dispatchIndexSnapshot{}, err
-	}
-	return dispatchIndexSnapshot{
-		index:              idx,
-		namespaceVersions:  afterVersions,
-		stable:             beforeVersions == afterVersions,
-		namespaceSupported: true,
-	}, nil
+	idx.reconciledAt = time.Now().UTC()
+	s.index = idx
+	return nil
 }
 
 func (s *DispatchTaskStore) buildDispatchIndex(ctx context.Context) (*dispatchTaskIndex, error) {
@@ -498,139 +409,57 @@ func (s *DispatchTaskStore) buildDispatchIndex(ctx context.Context) (*dispatchTa
 	return idx, nil
 }
 
-func (s *DispatchTaskStore) validateDispatchIndex(ctx context.Context, freshness dispatchIndexFreshness) error {
+func (s *DispatchTaskStore) reconcileDispatchIndexIDsIfDue(ctx context.Context, now time.Time) (bool, error) {
 	if s.index == nil {
-		return s.rebuildDispatchIndex(ctx)
+		if err := s.rebuildDispatchIndex(ctx); err != nil {
+			return false, err
+		}
+		return true, nil
 	}
-	now := time.Now().UTC()
-	admissionFreshness := freshness == dispatchIndexFreshnessAdmission
-	if !admissionFreshness && !s.index.validatedAt.IsZero() && now.Sub(s.index.validatedAt) < dispatchIndexValidationWindow {
-		return nil
+	if !s.index.reconcileDue(now) {
+		return false, nil
 	}
 
-	fullValidationDue := s.index.fullValidatedAt.IsZero() ||
-		now.Sub(s.index.fullValidatedAt) >= dispatchIndexFullValidationInterval
-
-	versions, namespaceSupported, err := s.dispatchNamespaceVersions(ctx)
+	pendingIDs, err := s.listDispatchRecordIDs(ctx, dispatchPendingPrefix)
 	if err != nil {
-		return err
+		return false, err
 	}
-	if namespaceSupported {
-		if !s.index.namespaceVersionsMatch(versions) {
-			return s.rebuildDispatchIndex(ctx)
-		}
-		if !fullValidationDue {
-			if admissionFreshness {
-				if err := s.validatePendingRecordVersions(ctx); err != nil {
-					return err
-				}
-				if err := s.validateClaimRecordVersions(ctx); err != nil {
-					return err
-				}
-				afterVersions, _, err := s.dispatchNamespaceVersions(ctx)
-				if err != nil {
-					return err
-				}
-				if versions != afterVersions {
-					return s.rebuildDispatchIndex(ctx)
-				}
-				versions = afterVersions
-			}
-			s.index.setNamespaceVersions(versions)
-			s.index.validatedAt = time.Now().UTC()
-			return nil
-		}
+	claimIDs, err := s.listDispatchRecordIDs(ctx, dispatchClaimsPrefix)
+	if err != nil {
+		return false, err
 	}
 
-	if err := s.validateDispatchIndexIDs(ctx, dispatchPendingPrefix, s.index.pending); err != nil {
-		return err
-	}
-	if err := s.validateDispatchIndexIDs(ctx, dispatchClaimsPrefix, s.index.claims); err != nil {
-		return err
-	}
-	validatePayloadVersions := admissionFreshness || fullValidationDue
-	if validatePayloadVersions {
-		if err := s.validatePendingRecordVersions(ctx); err != nil {
-			return err
+	if !dispatchIndexIDsMatch(pendingIDs, s.index.pending) || !dispatchIndexIDsMatch(claimIDs, s.index.claims) {
+		if err := s.rebuildDispatchIndex(ctx); err != nil {
+			return false, err
 		}
+		return true, nil
 	}
-	if validatePayloadVersions || !namespaceSupported {
-		if err := s.validateClaimRecordVersions(ctx); err != nil {
-			return err
-		}
-	}
-	if namespaceSupported {
-		afterVersions, _, err := s.dispatchNamespaceVersions(ctx)
-		if err != nil {
-			return err
-		}
-		if versions != afterVersions {
-			return s.rebuildDispatchIndex(ctx)
-		}
-		s.index.setNamespaceVersions(afterVersions)
-	}
-	finishedAt := time.Now().UTC()
-	s.index.validatedAt = finishedAt
-	if fullValidationDue {
-		s.index.fullValidatedAt = finishedAt
-	}
-	return nil
+
+	s.index.reconciledAt = now
+	return false, nil
 }
 
-func (s *DispatchTaskStore) validateDispatchIndexIDs(ctx context.Context, prefix string, indexed map[string]dispatchTaskIndexEntry) error {
-	ids, err := s.listDispatchRecordIDs(ctx, prefix)
-	if err != nil {
-		return err
+func (idx *dispatchTaskIndex) reconcileDue(now time.Time) bool {
+	if idx == nil || idx.reconciledAt.IsZero() {
+		return true
 	}
+	if dispatchIndexReconcileInterval <= 0 {
+		return true
+	}
+	return now.Sub(idx.reconciledAt) >= dispatchIndexReconcileInterval
+}
+
+func dispatchIndexIDsMatch(ids []string, indexed map[string]dispatchTaskIndexEntry) bool {
 	if len(ids) != len(indexed) {
-		return s.rebuildDispatchIndex(ctx)
+		return false
 	}
 	for _, id := range ids {
 		if _, ok := indexed[id]; !ok {
-			return s.rebuildDispatchIndex(ctx)
+			return false
 		}
 	}
-	return nil
-}
-
-func (s *DispatchTaskStore) validateClaimRecordVersions(ctx context.Context) error {
-	if s.index == nil || len(s.index.claims) == 0 {
-		return nil
-	}
-	return s.validateRecordVersions(ctx, s.index.claims)
-}
-
-func (s *DispatchTaskStore) validatePendingRecordVersions(ctx context.Context) error {
-	if s.index == nil || len(s.index.pending) == 0 {
-		return nil
-	}
-	return s.validateRecordVersions(ctx, s.index.pending)
-}
-
-func (s *DispatchTaskStore) validateRecordVersions(ctx context.Context, indexed map[string]dispatchTaskIndexEntry) error {
-	versionCol, ok := s.col.(recordVersionCollection)
-	if !ok {
-		return nil
-	}
-	ids := make([]string, 0, len(indexed))
-	for id := range indexed {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	for _, id := range ids {
-		entry := indexed[id]
-		version, err := versionCol.RecordVersion(ctx, id)
-		if err != nil {
-			if errors.Is(err, persis.ErrNotFound) {
-				return s.rebuildDispatchIndex(ctx)
-			}
-			return err
-		}
-		if entry.version != "" && version != entry.version {
-			return s.rebuildDispatchIndex(ctx)
-		}
-	}
-	return nil
+	return true
 }
 
 func (s *DispatchTaskStore) Enqueue(ctx context.Context, task *exec.DispatchTask) error {
@@ -675,7 +504,7 @@ func (s *DispatchTaskStore) ClaimNext(ctx context.Context, claim exec.DispatchTa
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := s.ensureDispatchIndex(ctx, dispatchIndexFreshnessPoll); err != nil {
+	if err := s.ensureDispatchIndex(ctx); err != nil {
 		return nil, err
 	}
 	if _, err := s.maybeRecycleExpiredReservations(ctx); err != nil {
@@ -684,10 +513,17 @@ func (s *DispatchTaskStore) ClaimNext(ctx context.Context, claim exec.DispatchTa
 
 	for range 2 {
 		claimed, stale, err := s.claimNextPending(ctx, claim)
-		if err != nil || !stale {
+		if err != nil || claimed != nil {
 			return claimed, err
 		}
-		if err := s.rebuildDispatchIndex(ctx); err != nil {
+		if stale {
+			if err := s.rebuildDispatchIndex(ctx); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		rebuilt, err := s.reconcileDispatchIndexIDsIfDue(ctx, time.Now().UTC())
+		if err != nil || !rebuilt {
 			return nil, err
 		}
 	}
@@ -863,16 +699,18 @@ func (s *DispatchTaskStore) DeleteClaim(ctx context.Context, claimToken string) 
 }
 
 // CountOutstandingByQueue returns the number of pending+claimed dispatch
-// records matching queueName. Scheduler admission uses this count to reserve
-// queue capacity, so the dispatch index is validated before answering and must
-// not return a stale low count after visible store changes. A task transitioning
-// between pending and claim during the scan may be counted as both for a
-// sub-millisecond window, which only under-reports available capacity.
+// records matching queueName. External store changes can be invisible until the
+// lazy ID reconciliation interval elapses. A task transitioning between pending
+// and claim during the scan may be counted as both for a sub-millisecond window,
+// which only under-reports available capacity.
 func (s *DispatchTaskStore) CountOutstandingByQueue(ctx context.Context, queueName string, _ time.Duration) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := s.ensureDispatchIndex(ctx, dispatchIndexFreshnessAdmission); err != nil {
+	if err := s.ensureDispatchIndex(ctx); err != nil {
+		return 0, err
+	}
+	if _, err := s.reconcileDispatchIndexIDsIfDue(ctx, time.Now().UTC()); err != nil {
 		return 0, err
 	}
 	if err := s.recycleExpiredReservations(ctx); err != nil {
@@ -901,7 +739,7 @@ func (s *DispatchTaskStore) CountOutstandingByQueue(ctx context.Context, queueNa
 }
 
 // HasOutstandingAttempt reports whether any pending or claimed record matches
-// attemptKey. It uses the same scheduler-admission freshness contract as
+// attemptKey. It uses the same bounded-staleness contract as
 // [CountOutstandingByQueue].
 func (s *DispatchTaskStore) HasOutstandingAttempt(ctx context.Context, attemptKey string, _ time.Duration) (bool, error) {
 	if attemptKey == "" {
@@ -910,7 +748,10 @@ func (s *DispatchTaskStore) HasOutstandingAttempt(ctx context.Context, attemptKe
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := s.ensureDispatchIndex(ctx, dispatchIndexFreshnessAdmission); err != nil {
+	if err := s.ensureDispatchIndex(ctx); err != nil {
+		return false, err
+	}
+	if _, err := s.reconcileDispatchIndexIDsIfDue(ctx, time.Now().UTC()); err != nil {
 		return false, err
 	}
 	if err := s.recycleExpiredReservations(ctx); err != nil {

@@ -336,39 +336,6 @@ func TestFileCollection(t *testing.T) {
 	RunCollectionContract(t, b.Collection("test"), freshCollection)
 }
 
-func TestFileCollectionRecordNamespaceVersionTracksPrefixDirectory(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	col := file.NewCollection(t.TempDir())
-	versionCol := col.(interface {
-		RecordNamespaceVersion(context.Context, string) (string, error)
-	})
-
-	missingVersion, err := versionCol.RecordNamespaceVersion(ctx, "pending/")
-	require.NoError(t, err)
-	assert.Equal(t, "missing:pending/", missingVersion)
-
-	rec := &persis.Record{
-		ID:        "pending/task",
-		Data:      []byte(`{"v":1}`),
-		CreatedAt: time.Now().UTC(),
-		UpdatedAt: time.Now().UTC(),
-	}
-	require.NoError(t, col.Put(ctx, rec))
-	existingVersion, err := versionCol.RecordNamespaceVersion(ctx, "pending/")
-	require.NoError(t, err)
-	assert.NotEqual(t, missingVersion, existingVersion)
-
-	require.NoError(t, col.Delete(ctx, rec.ID))
-	deletedVersion, err := versionCol.RecordNamespaceVersion(ctx, "pending/")
-	require.NoError(t, err)
-	assert.Equal(t, missingVersion, deletedVersion)
-
-	_, err = versionCol.RecordNamespaceVersion(ctx, "../pending/")
-	assert.Error(t, err)
-}
-
 func TestFileCollectionWritesRawJSONBody(t *testing.T) {
 	t.Parallel()
 
