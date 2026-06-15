@@ -216,7 +216,7 @@ func TestSSHExecutor_ShellPriority(t *testing.T) {
 	}
 }
 
-func TestSSHExecutor_GetEvalOptions(t *testing.T) {
+func TestSSHExecutorCommandResolution(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -277,18 +277,9 @@ func TestSSHExecutor_GetEvalOptions(t *testing.T) {
 				ctx = WithSSHClient(ctx, &Client{Shell: tt.dagShell})
 			}
 
-			opts := tt.step.CommandEvalOptions(ctx)
-			evalOpts := cmnvalue.NewOptions()
-			for _, opt := range opts {
-				opt(evalOpts)
-			}
-			require.False(t, evalOpts.Substitute, "expected step fields to disable backtick substitution")
-
-			if tt.expectSkipShell {
-				require.False(t, evalOpts.ExpandShell, "expected WithoutExpandShell option")
-			} else {
-				require.False(t, evalOpts.EscapeDollar, "expected WithoutDollarEscape option")
-			}
+			command := tt.step.CommandResolution(ctx)
+			require.Equal(t, cmnvalue.CommandTargetSSH, command.Target)
+			require.Equal(t, !tt.expectSkipShell, command.ShellConfigured)
 		})
 	}
 }

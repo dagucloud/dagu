@@ -12,9 +12,9 @@ type StaticScope struct {
 
 // RuntimeScope contains actual values available during runtime resolution.
 type RuntimeScope struct {
-	Consts  Values
-	Env     Values
-	StepMap map[string]StepInfo
+	Consts Values
+	Env    *EnvScope
+	Steps  map[string]StepInfo
 }
 
 // ValuesFromStrings converts string variables into binding values.

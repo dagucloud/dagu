@@ -81,7 +81,7 @@ func EvalCondition(ctx context.Context, shell []string, c *core.Condition) error
 // matchCondition evaluates the condition and checks if it matches the expected value.
 // It returns an error if the condition was not met.
 func matchCondition(ctx context.Context, c *core.Condition) error {
-	evaluatedVal, err := EvalString(ctx, c.Condition, cmnvalue.WithoutSubstitute())
+	evaluatedVal, err := resolveRuntimeString(ctx, c.Condition, cmnvalue.ConditionValueField("condition"))
 	if err != nil {
 		return fmt.Errorf("failed to evaluate the value: Error=%v", err)
 	}
@@ -105,8 +105,12 @@ func matchCondition(ctx context.Context, c *core.Condition) error {
 }
 
 func evalCommand(ctx context.Context, shell []string, c *core.Condition) error {
-	opts := append([]cmnvalue.Option{cmnvalue.WithoutSubstitute()}, CommandEvalOptions(shell)...)
-	commandToRun, err := EvalString(ctx, c.Condition, opts...)
+	command := cmnvalue.CommandContext{
+		Target:          cmnvalue.CommandTargetLocal,
+		Shell:           shell,
+		ShellConfigured: true,
+	}
+	commandToRun, err := resolveRuntimeString(ctx, c.Condition, cmnvalue.ConditionCommandField("condition", command))
 	if err != nil {
 		return fmt.Errorf("failed to evaluate command: %w", err)
 	}

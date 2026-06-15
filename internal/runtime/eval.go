@@ -16,25 +16,6 @@ import (
 	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 )
 
-// EvalString evaluates the given string with the variables within the execution context.
-func EvalString(ctx context.Context, s string, opts ...cmnvalue.Option) (string, error) {
-	return GetEnv(ctx).EvalString(ctx, s, opts...)
-}
-
-func EvalStringMode(ctx context.Context, s string, mode cmnvalue.Mode, opts ...cmnvalue.Option) (string, error) {
-	return GetEnv(ctx).EvalStringMode(ctx, s, mode, opts...)
-}
-
-// EvalStepString evaluates a step-owned string field while preserving literal
-// backticks. Step fields are treated as data or downstream program input unless
-// they are explicit condition expressions evaluated elsewhere.
-func EvalStepString(ctx context.Context, s string, opts ...cmnvalue.Option) (string, error) {
-	options := make([]cmnvalue.Option, 0, len(opts)+1)
-	options = append(options, cmnvalue.WithoutSubstitute())
-	options = append(options, opts...)
-	return EvalString(ctx, s, options...)
-}
-
 // EvalBool evaluates the given value with the variables within the execution context
 // and parses it as a boolean.
 func EvalBool(ctx context.Context, value any) (bool, error) {
@@ -45,17 +26,65 @@ func EvalBool(ctx context.Context, value any) (bool, error) {
 // with the variables within the execution context.
 func EvalObject[T any](ctx context.Context, obj T) (T, error) {
 	env := GetEnv(ctx)
-	ctx = cmnvalue.WithEnvScope(ctx, env.Scope)
-	return cmnvalue.ExpandObjectContext(ctx, obj, env.valueScope(), cmnvalue.ModeWorkflowValue, "object")
+	resolver := resolverFromEnv(env)
+	got, err := resolver.Object(ctx, obj, cmnvalue.WorkflowObjectField("object"))
+	if err != nil {
+		return obj, err
+	}
+	val, ok := got.(T)
+	if !ok {
+		return obj, fmt.Errorf("type assertion failed: expected %T, got %T", obj, got)
+	}
+	return val, nil
 }
 
-func (e Env) valueScope() cmnvalue.RuntimeScope {
-	scope := cmnvalue.RuntimeScope{}
-	if e.DAG != nil {
-		scope.Consts = cmnvalue.Values(e.DAG.Consts)
+func resolverFromEnv(env Env) cmnvalue.Resolver {
+	var consts cmnvalue.Values
+	if env.DAG != nil {
+		consts = cmnvalue.Values(env.DAG.Consts)
 	}
-	scope.StepMap = e.StepMap
-	return scope
+	scope := cmnvalue.RuntimeScope{
+		Consts: consts,
+		Env:    env.Scope,
+		Steps:  env.StepMap,
+	}
+	return cmnvalue.NewResolver(cmnvalue.StaticScope{Consts: consts}, scope)
+}
+
+func resolveRuntimeString(ctx context.Context, raw string, field cmnvalue.Field) (string, error) {
+	return resolverFromEnv(GetEnv(ctx)).String(ctx, raw, field)
+}
+
+func resolveRuntimeObject(ctx context.Context, obj any, field cmnvalue.Field) (any, error) {
+	return resolverFromEnv(GetEnv(ctx)).Object(ctx, obj, field)
+}
+
+func resolveRuntimeIntWithoutEnv(ctx context.Context, raw string, field cmnvalue.Field) (int, error) {
+	resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{}, cmnvalue.RuntimeScope{})
+	return resolver.Int(ctx, raw, field)
+}
+
+func resolveWithEnvScope(ctx context.Context, env Env, scope *cmnvalue.EnvScope, raw string, field cmnvalue.Field) (string, error) {
+	copy := env
+	copy.Scope = scope
+	return resolverFromEnv(copy).String(ctx, raw, field)
+}
+
+// ValueResolver returns a semantic value resolver for the runtime environment in ctx.
+func ValueResolver(ctx context.Context) cmnvalue.Resolver {
+	return resolverFromEnv(GetEnv(ctx))
+}
+
+// ValueResolverWithScope returns a semantic value resolver using scope as the runtime env scope.
+func ValueResolverWithScope(ctx context.Context, scope *cmnvalue.EnvScope) cmnvalue.Resolver {
+	env := GetEnv(ctx)
+	env.Scope = scope
+	return resolverFromEnv(env)
+}
+
+// ResolveString resolves raw with the semantic field in the runtime environment.
+func ResolveString(ctx context.Context, raw string, field cmnvalue.Field) (string, error) {
+	return ValueResolver(ctx).String(ctx, raw, field)
 }
 
 // templateConfigEvalVariables clones the user env map and seeds omitted named DAG

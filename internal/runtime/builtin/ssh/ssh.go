@@ -242,21 +242,17 @@ func init() {
 		MultipleCommands: true,
 		Script:           true,
 		Shell:            true,
-		GetCommandEvalOptions: func(ctx context.Context, step core.Step) []cmnvalue.Option {
-			if hasShellConfigured(ctx, step) {
-				// Shell is configured, shell features (expansion, pipes, etc.) are supported
-				return []cmnvalue.Option{cmnvalue.WithoutDollarEscape()}
+		CommandContext: func(ctx context.Context, step core.Step) cmnvalue.CommandContext {
+			return cmnvalue.CommandContext{
+				Target:          cmnvalue.CommandTargetSSH,
+				ShellConfigured: hasShellConfigured(ctx, step),
 			}
-			// No shell configured - skip shell expansion for remote execution
-			return []cmnvalue.Option{cmnvalue.WithoutExpandShell()}
 		},
-		GetScriptEvalOptions: func(ctx context.Context, step core.Step) []cmnvalue.Option {
-			if hasShellConfigured(ctx, step) {
-				// Shell is configured, shell features (expansion, pipes, etc.) are supported
-				return []cmnvalue.Option{cmnvalue.WithoutDollarEscape()}
+		ScriptContext: func(ctx context.Context, step core.Step) cmnvalue.CommandContext {
+			return cmnvalue.CommandContext{
+				Target:          cmnvalue.CommandTargetSSH,
+				ShellConfigured: hasShellConfigured(ctx, step),
 			}
-			// No shell configured - skip shell expansion for remote execution
-			return []cmnvalue.Option{cmnvalue.WithoutExpandShell()}
 		},
 	}
 	executor.RegisterExecutor("ssh", NewSSHExecutor, nil, caps)

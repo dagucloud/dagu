@@ -42,12 +42,13 @@ func Generate(ctx context.Context, baseLogDir, dagLogDir, dagName, dagRunID stri
 // GenerateDir expands the configured directories, creates the DAG-run
 // directory if needed, and returns the per-run directory path.
 func GenerateDir(ctx context.Context, baseDir, dagDir, dagName, dagRunID string) (string, error) {
-	baseDir, err := cmnvalue.String(ctx, baseDir, cmnvalue.WithOSExpansion(), cmnvalue.WithoutSubstitute())
+	resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{}, cmnvalue.RuntimeScope{})
+	baseDir, err := resolver.String(ctx, baseDir, cmnvalue.LogPathField("log.base_dir"))
 	if err != nil {
 		return "", fmt.Errorf("failed to expand base directory: %w", err)
 	}
 
-	dagDir, err = cmnvalue.String(ctx, dagDir, cmnvalue.WithOSExpansion(), cmnvalue.WithoutSubstitute())
+	dagDir, err = resolver.String(ctx, dagDir, cmnvalue.LogPathField("log.dag_dir"))
 	if err != nil {
 		return "", fmt.Errorf("failed to expand DAG directory: %w", err)
 	}

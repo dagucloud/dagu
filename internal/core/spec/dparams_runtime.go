@@ -410,22 +410,12 @@ func resolveLegacyEntry(
 	if evalCtx == nil {
 		evalCtx = context.Background()
 	}
+	var runtimeScope cmnvalue.RuntimeScope
 	if *scope != nil {
-		evalCtx = cmnvalue.WithEnvScope(evalCtx, *scope)
+		runtimeScope.Env = *scope
 	}
-
-	var valueScope cmnvalue.RuntimeScope
-	if *scope != nil {
-		valueScope.Env = cmnvalue.ValuesFromStrings((*scope).ToMap())
-	}
-	value, err := cmnvalue.ExpandStringContext(
-		evalCtx,
-		base.Eval,
-		valueScope,
-		cmnvalue.ModeDynamicEval,
-		"params",
-		cmnvalue.WithOSExpansion(),
-	)
+	resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{}, runtimeScope)
+	value, err := resolver.String(evalCtx, base.Eval, cmnvalue.DynamicParamEvalField("params"))
 	if err != nil {
 		if base.HasValue {
 			entry.Value = base.Value

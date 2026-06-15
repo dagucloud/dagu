@@ -24,8 +24,8 @@ func commandSubstitutionTestContext() context.Context {
 
 func TestExpandQuotedRefs_SimpleVariable(t *testing.T) {
 	ctx := context.Background()
-	opts := NewOptions()
-	WithVariables(map[string]string{"VAR": "hello"})(opts)
+	opts := newOptions()
+	withVariables(map[string]string{"VAR": "hello"})(opts)
 
 	result, err := expandQuotedRefs(ctx, `{"key": "${VAR}"}`, opts)
 	require.NoError(t, err)
@@ -35,8 +35,8 @@ func TestExpandQuotedRefs_SimpleVariable(t *testing.T) {
 func TestExpandQuotedRefs_JSONPathRef(t *testing.T) {
 	ctx := context.Background()
 	vars := map[string]string{"DATA": `{"name":"alice"}`}
-	opts := NewOptions()
-	WithVariables(vars)(opts)
+	opts := newOptions()
+	withVariables(vars)(opts)
 
 	result, err := expandQuotedRefs(ctx, `{"val": "${DATA.name}"}`, opts)
 	require.NoError(t, err)
@@ -45,7 +45,7 @@ func TestExpandQuotedRefs_JSONPathRef(t *testing.T) {
 
 func TestExpandQuotedRefs_NotFound(t *testing.T) {
 	ctx := context.Background()
-	opts := NewOptions()
+	opts := newOptions()
 
 	result, err := expandQuotedRefs(ctx, `{"val": "${MISSING}"}`, opts)
 	require.NoError(t, err)
@@ -54,7 +54,7 @@ func TestExpandQuotedRefs_NotFound(t *testing.T) {
 
 func TestExpandQuotedRefs_JSONPathNotFound(t *testing.T) {
 	ctx := context.Background()
-	opts := NewOptions()
+	opts := newOptions()
 
 	result, err := expandQuotedRefs(ctx, `{"val": "${MISSING.path}"}`, opts)
 	require.NoError(t, err)
@@ -63,7 +63,7 @@ func TestExpandQuotedRefs_JSONPathNotFound(t *testing.T) {
 
 func TestExpandQuotedRefs_NoMatch(t *testing.T) {
 	ctx := context.Background()
-	opts := NewOptions()
+	opts := newOptions()
 
 	result, err := expandQuotedRefs(ctx, `no refs here`, opts)
 	require.NoError(t, err)
@@ -72,8 +72,8 @@ func TestExpandQuotedRefs_NoMatch(t *testing.T) {
 
 func TestExpandQuotedRefs_WithStepRef(t *testing.T) {
 	ctx := context.Background()
-	opts := NewOptions()
-	WithStepMap(map[string]StepInfo{
+	opts := newOptions()
+	withStepMap(map[string]StepInfo{
 		"step1": {Stdout: "output_val", ExitCode: "0"},
 	})(opts)
 
@@ -84,7 +84,7 @@ func TestExpandQuotedRefs_WithStepRef(t *testing.T) {
 
 func TestShellExpandPhase_FallbackOnError(t *testing.T) {
 	ctx := context.Background()
-	opts := NewOptions()
+	opts := newOptions()
 	opts.ExpandOS = true
 	t.Setenv("TESTVAR", "value123")
 
@@ -95,7 +95,7 @@ func TestShellExpandPhase_FallbackOnError(t *testing.T) {
 
 func TestShellExpandPhase_NonCommandError(t *testing.T) {
 	ctx := context.Background()
-	opts := NewOptions()
+	opts := newOptions()
 	opts.ExpandOS = true
 
 	result, err := shellExpandPhase(ctx, "${UNSET_XYZ_99:?required}", opts)
@@ -106,7 +106,7 @@ func TestShellExpandPhase_NonCommandError(t *testing.T) {
 func TestShellExpandPhase_ShellDisabledWithExpandOS(t *testing.T) {
 	t.Setenv("SHELL_TEST_VAR", "os_val")
 	ctx := context.Background()
-	opts := NewOptions()
+	opts := newOptions()
 	opts.ExpandShell = false
 	opts.ExpandOS = true
 
@@ -117,7 +117,7 @@ func TestShellExpandPhase_ShellDisabledWithExpandOS(t *testing.T) {
 
 func TestShellExpandPhase_ErrorFallbackWithoutExpandOS(t *testing.T) {
 	ctx := context.Background()
-	opts := NewOptions()
+	opts := newOptions()
 	opts.Variables = []map[string]string{{"VAR": ""}}
 
 	// :? treats empty as unset, triggering an error that falls back to expandEnvScopeOnly
@@ -130,10 +130,10 @@ func TestPipeline_DisabledPhases(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("PVAR", "pval")
 
-	result, err := String(ctx, "`echo nope` $PVAR",
-		WithoutSubstitute(),
-		WithoutExpandEnv(),
-		WithVariables(map[string]string{"X": "y"}),
+	result, err := evalString(ctx, "`echo nope` $PVAR",
+		withoutSubstitute(),
+		withoutExpandEnv(),
+		withVariables(map[string]string{"X": "y"}),
 	)
 	require.NoError(t, err)
 	assert.Contains(t, result, "`echo nope`")
@@ -144,7 +144,7 @@ func TestString_ShellExpandFallback(t *testing.T) {
 	t.Setenv("FBVAR", "fbval")
 	ctx := context.Background()
 
-	result, err := String(ctx, "$(echo x) $FBVAR", WithOSExpansion())
+	result, err := evalString(ctx, "$(echo x) $FBVAR", withOSExpansion())
 	require.NoError(t, err)
 	assert.Contains(t, result, "fbval")
 }
@@ -153,7 +153,7 @@ func TestString_WithoutDollarEscapeKeepsEscapedShellVariable(t *testing.T) {
 	t.Setenv("HOME", "/home/local")
 	ctx := context.Background()
 
-	result, err := String(ctx, `echo "\$HOME"`, WithoutDollarEscape(), WithOSExpansion())
+	result, err := evalString(ctx, `echo "\$HOME"`, withoutDollarEscape(), withOSExpansion())
 	require.NoError(t, err)
 	assert.Equal(t, `echo "\$HOME"`, result)
 }
@@ -190,7 +190,7 @@ func TestString_PreservesEnvironmentReferencesInsideSingleQuotedSpan(t *testing.
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := String(ctx, tt.input)
+			got, err := evalString(ctx, tt.input)
 			require.NoError(t, err)
 			assert.Equal(t, tt.input, got)
 		})
@@ -204,7 +204,7 @@ func TestString(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   string
-		opts    []Option
+		opts    []option
 		want    string
 		wantErr bool
 	}{
@@ -216,7 +216,7 @@ func TestString(t *testing.T) {
 		{
 			name:  "EnvVarExpansion",
 			input: "$TEST_ENV",
-			opts:  []Option{WithOSExpansion()},
+			opts:  []option{withOSExpansion()},
 			want:  "test_value",
 		},
 		{
@@ -227,37 +227,37 @@ func TestString(t *testing.T) {
 		{
 			name:  "CombinedEnvAndCommand",
 			input: "$TEST_ENV and `echo world`",
-			opts:  []Option{WithOSExpansion()},
+			opts:  []option{withOSExpansion()},
 			want:  "test_value and world",
 		},
 		{
-			name:  "WithVariables",
+			name:  "withVariables",
 			input: "${FOO} and ${BAR}",
-			opts:  []Option{WithVariables(map[string]string{"FOO": "foo", "BAR": "bar"})},
+			opts:  []option{withVariables(map[string]string{"FOO": "foo", "BAR": "bar"})},
 			want:  "foo and bar",
 		},
 		{
 			name:  "WithoutEnvExpansion",
 			input: "$TEST_ENV",
-			opts:  []Option{WithoutExpandEnv()},
+			opts:  []option{withoutExpandEnv()},
 			want:  "$TEST_ENV",
 		},
 		{
 			name:  "WithoutSubstitution",
 			input: "`echo hello`",
-			opts:  []Option{WithoutSubstitute()},
+			opts:  []option{withoutSubstitute()},
 			want:  "`echo hello`",
 		},
 		{
 			name:  "ShellSubstringExpansion",
 			input: "prefix ${UID:0:5} suffix",
-			opts:  []Option{WithVariables(map[string]string{"UID": "HBL01_22OCT2025_0536"})},
+			opts:  []option{withVariables(map[string]string{"UID": "HBL01_22OCT2025_0536"})},
 			want:  "prefix HBL01 suffix",
 		},
 		{
-			name:  "OnlyReplaceVars",
+			name:  "onlyReplaceVars",
 			input: "$TEST_ENV and `echo hello` and ${FOO}",
-			opts:  []Option{OnlyReplaceVars(), WithVariables(map[string]string{"FOO": "foo"})},
+			opts:  []option{onlyReplaceVars(), withVariables(map[string]string{"FOO": "foo"})},
 			want:  "$TEST_ENV and `echo hello` and foo",
 		},
 		{
@@ -268,76 +268,76 @@ func TestString(t *testing.T) {
 		{
 			name:  "JSONReference",
 			input: "${TEST_JSON.key}",
-			opts:  []Option{WithVariables(map[string]string{"TEST_JSON": `{"key": "value"}`})},
+			opts:  []option{withVariables(map[string]string{"TEST_JSON": `{"key": "value"}`})},
 			want:  "value",
 		},
 		{
 			name:  "MultipleVariableSets",
 			input: "${FOO} ${BAR}",
-			opts: []Option{
-				WithVariables(map[string]string{"FOO": "first"}),
-				WithVariables(map[string]string{"BAR": "second"}),
+			opts: []option{
+				withVariables(map[string]string{"FOO": "first"}),
+				withVariables(map[string]string{"BAR": "second"}),
 			},
 			want: "first second",
 		},
 		{
 			name:  "QuotedJSONVariableEscaping",
 			input: `params: aJson="${ITEM}"`,
-			opts:  []Option{WithVariables(map[string]string{"ITEM": `{"file": "file1.txt", "config": "prod"}`})},
+			opts:  []option{withVariables(map[string]string{"ITEM": `{"file": "file1.txt", "config": "prod"}`})},
 			want:  `params: aJson=` + strconv.Quote(`{"file": "file1.txt", "config": "prod"}`),
 		},
 		{
 			name:  "QuotedFilePathWithSpaces",
 			input: `path: "FILE=\"${ITEM}\""`,
-			opts:  []Option{WithVariables(map[string]string{"ITEM": "/path/to/my file.txt"})},
+			opts:  []option{withVariables(map[string]string{"ITEM": "/path/to/my file.txt"})},
 			want:  `path: "FILE=\"/path/to/my file.txt\""`,
 		},
 		{
 			name:  "QuotedStringWithInternalQuotes",
 			input: `value: "VAR=\"${ITEM}\""`,
-			opts:  []Option{WithVariables(map[string]string{"ITEM": `say "hello"`})},
+			opts:  []option{withVariables(map[string]string{"ITEM": `say "hello"`})},
 			want:  `value: "VAR=\"say "hello"\""`,
 		},
 		{
 			name:  "MixedQuotedAndUnquotedVariables",
 			input: `unquoted ${ITEM} and quoted "value=\"${ITEM}\""`,
-			opts:  []Option{WithVariables(map[string]string{"ITEM": `{"test": "value"}`})},
+			opts:  []option{withVariables(map[string]string{"ITEM": `{"test": "value"}`})},
 			want:  `unquoted {"test": "value"} and quoted "value=\"{"test": "value"}\""`,
 		},
 		{
 			name:  "QuotedEmptyString",
 			input: `empty: "VAL=\"${EMPTY}\""`,
-			opts:  []Option{WithVariables(map[string]string{"EMPTY": ""})},
+			opts:  []option{withVariables(map[string]string{"EMPTY": ""})},
 			want:  `empty: "VAL=\"\""`,
 		},
 		{
 			name:  "QuotedJSONPathReference",
 			input: `config: "file=\"${CONFIG.file}\""`,
-			opts:  []Option{WithVariables(map[string]string{"CONFIG": `{"file": "/path/to/config.json", "env": "prod"}`})},
+			opts:  []option{withVariables(map[string]string{"CONFIG": `{"file": "/path/to/config.json", "env": "prod"}`})},
 			want:  `config: "file=\"/path/to/config.json\""`,
 		},
 		{
 			name:  "QuotedJSONPathWithSpaces",
 			input: `path: "value=\"${DATA.path}\""`,
-			opts:  []Option{WithVariables(map[string]string{"DATA": `{"path": "/my dir/file name.txt"}`})},
+			opts:  []option{withVariables(map[string]string{"DATA": `{"path": "/my dir/file name.txt"}`})},
 			want:  `path: "value=\"/my dir/file name.txt\""`,
 		},
 		{
 			name:  "QuotedNestedJSONPath",
 			input: `nested: "result=\"${OBJ.nested.deep}\""`,
-			opts:  []Option{WithVariables(map[string]string{"OBJ": `{"nested": {"deep": "found it"}}`})},
+			opts:  []option{withVariables(map[string]string{"OBJ": `{"nested": {"deep": "found it"}}`})},
 			want:  `nested: "result=\"found it\""`,
 		},
 		{
 			name:  "QuotedJSONPathWithQuotesInValue",
 			input: `msg: "text=\"${MSG.content}\""`,
-			opts:  []Option{WithVariables(map[string]string{"MSG": `{"content": "He said \"hello\""}`})},
+			opts:  []option{withVariables(map[string]string{"MSG": `{"content": "He said \"hello\""}`})},
 			want:  `msg: "text=\"He said "hello"\""`,
 		},
 		{
 			name:  "MixedQuotedJSONPathAndSimpleVariable",
 			input: `params: "${SIMPLE}" and config="file=\"${CONFIG.file}\""`,
-			opts: []Option{WithVariables(map[string]string{
+			opts: []option{withVariables(map[string]string{
 				"SIMPLE": "value",
 				"CONFIG": `{"file": "app.conf"}`,
 			})},
@@ -346,7 +346,7 @@ func TestString(t *testing.T) {
 		{
 			name:  "QuotedNonExistentJSONPath",
 			input: `missing: "val=\"${CONFIG.missing}\""`,
-			opts:  []Option{WithVariables(map[string]string{"CONFIG": `{"file": "app.conf"}`})},
+			opts:  []option{withVariables(map[string]string{"CONFIG": `{"file": "app.conf"}`})},
 			want:  `missing: "val=\"<nil>\""`,
 		},
 	}
@@ -354,7 +354,7 @@ func TestString(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := commandSubstitutionTestContext()
-			got, err := String(ctx, tt.input, tt.opts...)
+			got, err := evalString(ctx, tt.input, tt.opts...)
 			if tt.wantErr {
 				require.Error(t, err)
 				return
@@ -371,7 +371,7 @@ func TestIntString(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   string
-		opts    []Option
+		opts    []option
 		want    int
 		wantErr bool
 	}{
@@ -383,7 +383,7 @@ func TestIntString(t *testing.T) {
 		{
 			name:  "EnvVarInteger",
 			input: "$TEST_INT",
-			opts:  []Option{WithOSExpansion()},
+			opts:  []option{withOSExpansion()},
 			want:  42,
 		},
 		{
@@ -392,9 +392,9 @@ func TestIntString(t *testing.T) {
 			want:  100,
 		},
 		{
-			name:  "WithVariables",
+			name:  "withVariables",
 			input: "${NUM}",
-			opts:  []Option{WithVariables(map[string]string{"NUM": "999"})},
+			opts:  []option{withVariables(map[string]string{"NUM": "999"})},
 			want:  999,
 		},
 		{
@@ -410,7 +410,7 @@ func TestIntString(t *testing.T) {
 		{
 			name:  "WithoutSubstitute_SkipsCommandSubstitution",
 			input: "123",
-			opts:  []Option{WithoutSubstitute()},
+			opts:  []option{withoutSubstitute()},
 			want:  123,
 		},
 	}
@@ -418,7 +418,7 @@ func TestIntString(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := commandSubstitutionTestContext()
-			got, err := IntString(ctx, tt.input, tt.opts...)
+			got, err := intString(ctx, tt.input, tt.opts...)
 			if tt.wantErr {
 				require.Error(t, err)
 				return
@@ -433,14 +433,14 @@ func TestString_WithStepMap(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
-		opts  []Option
+		opts  []option
 		want  string
 	}{
 		{
 			name:  "StepReferenceWithNoVariables",
 			input: "Output: ${step1.stdout}",
-			opts: []Option{
-				WithStepMap(map[string]StepInfo{
+			opts: []option{
+				withStepMap(map[string]StepInfo{
 					"step1": {Stdout: "/tmp/output.txt"},
 				}),
 			},
@@ -449,9 +449,9 @@ func TestString_WithStepMap(t *testing.T) {
 		{
 			name:  "StepReferenceWithVariables",
 			input: "Var: ${VAR}, Step: ${step1.exit_code}",
-			opts: []Option{
-				WithVariables(map[string]string{"VAR": "value"}),
-				WithStepMap(map[string]StepInfo{
+			opts: []option{
+				withVariables(map[string]string{"VAR": "value"}),
+				withStepMap(map[string]StepInfo{
 					"step1": {ExitCode: "0"},
 				}),
 			},
@@ -460,8 +460,8 @@ func TestString_WithStepMap(t *testing.T) {
 		{
 			name:  "StepStdoutSlice",
 			input: "Slice: ${step1.stdout:0:3}",
-			opts: []Option{
-				WithStepMap(map[string]StepInfo{
+			opts: []option{
+				withStepMap(map[string]StepInfo{
 					"step1": {Stdout: "HBL01_22OCT2025_0536"},
 				}),
 			},
@@ -472,7 +472,7 @@ func TestString_WithStepMap(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			got, err := String(ctx, tt.input, tt.opts...)
+			got, err := evalString(ctx, tt.input, tt.opts...)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 		})
@@ -483,14 +483,14 @@ func TestIntString_WithStepMap(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
-		opts  []Option
+		opts  []option
 		want  int
 	}{
 		{
 			name:  "StepExitCodeAsInteger",
 			input: "${step1.exit_code}",
-			opts: []Option{
-				WithStepMap(map[string]StepInfo{
+			opts: []option{
+				withStepMap(map[string]StepInfo{
 					"step1": {ExitCode: "42"},
 				}),
 			},
@@ -501,7 +501,7 @@ func TestIntString_WithStepMap(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			got, err := IntString(ctx, tt.input, tt.opts...)
+			got, err := intString(ctx, tt.input, tt.opts...)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 		})
@@ -548,7 +548,7 @@ func TestStringWithSteps(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := String(ctx, tt.input, WithStepMap(stepMap))
+			got, err := evalString(ctx, tt.input, withStepMap(stepMap))
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 		})
@@ -562,7 +562,7 @@ func TestString_OSExpansion(t *testing.T) {
 		name  string
 		env   map[string]string
 		input string
-		opts  []Option
+		opts  []option
 		want  string
 	}{
 		{
@@ -572,29 +572,29 @@ func TestString_OSExpansion(t *testing.T) {
 			want:  "${HOME}",
 		},
 		{
-			name:  "WithOSExpansion",
+			name:  "withOSExpansion",
 			env:   map[string]string{"TEST_OS_VAR": "resolved_value"},
 			input: "${TEST_OS_VAR}",
-			opts:  []Option{WithOSExpansion()},
+			opts:  []option{withOSExpansion()},
 			want:  "resolved_value",
 		},
 		{
 			name:  "ExplicitVarsWorkWithoutOS",
 			input: "${MY_VAR}",
-			opts:  []Option{WithVariables(map[string]string{"MY_VAR": "hello"})},
+			opts:  []option{withVariables(map[string]string{"MY_VAR": "hello"})},
 			want:  "hello",
 		},
 		{
 			name:  "OSEnvUsedWithOSExpansion",
 			env:   map[string]string{"REAL_OS_VAR": "real_os_value"},
 			input: "${REAL_OS_VAR}",
-			opts:  []Option{WithOSExpansion()},
+			opts:  []option{withOSExpansion()},
 			want:  "real_os_value",
 		},
 		{
 			name:  "POSIXDefaultExpanded",
 			input: "${UNDEFINED:-default}",
-			opts:  []Option{WithOSExpansion()},
+			opts:  []option{withOSExpansion()},
 			want:  "default",
 		},
 	}
@@ -604,7 +604,7 @@ func TestString_OSExpansion(t *testing.T) {
 			for k, v := range tt.env {
 				t.Setenv(k, v)
 			}
-			result, err := String(context.Background(), tt.input, tt.opts...)
+			result, err := evalString(context.Background(), tt.input, tt.opts...)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, result)
 		})
@@ -616,7 +616,7 @@ func TestString_ScopeNonOSEntriesWorkWithoutOSExpansion(t *testing.T) {
 		WithEntry("SCOPE_VAR", "scope_value", EnvSourceDAGEnv)
 	ctx := WithEnvScope(context.Background(), scope)
 
-	result, err := String(ctx, "${SCOPE_VAR}")
+	result, err := evalString(ctx, "${SCOPE_VAR}")
 	require.NoError(t, err)
 	assert.Equal(t, "scope_value", result)
 }
@@ -626,7 +626,7 @@ func TestString_ScopeOSEntriesSkippedWithoutOSExpansion(t *testing.T) {
 		WithEntry("OS_VAR", "os_value", EnvSourceOS)
 	ctx := WithEnvScope(context.Background(), scope)
 
-	result, err := String(ctx, "${OS_VAR}")
+	result, err := evalString(ctx, "${OS_VAR}")
 	require.NoError(t, err)
 	assert.Equal(t, "${OS_VAR}", result)
 }
@@ -646,7 +646,7 @@ func TestString_POSIXSyntaxPreserved(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := String(context.Background(), tt.input)
+			result, err := evalString(context.Background(), tt.input)
 			require.NoError(t, err)
 			assert.Equal(t, tt.input, result)
 		})
@@ -707,11 +707,11 @@ func TestString_POSIXWithUserVariables(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var opts []Option
+			var opts []option
 			if tt.vars != nil {
-				opts = append(opts, WithVariables(tt.vars))
+				opts = append(opts, withVariables(tt.vars))
 			}
-			result, err := String(context.Background(), tt.input, opts...)
+			result, err := evalString(context.Background(), tt.input, opts...)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, result)
 		})
@@ -723,7 +723,7 @@ func TestString_POSIXWithScope(t *testing.T) {
 		WithEntry("SCOPE_VAR", "HelloWorld", EnvSourceDAGEnv)
 	ctx := WithEnvScope(context.Background(), scope)
 
-	result, err := String(ctx, "${SCOPE_VAR:0:5}")
+	result, err := evalString(ctx, "${SCOPE_VAR:0:5}")
 	require.NoError(t, err)
 	assert.Equal(t, "Hello", result)
 }
@@ -735,7 +735,7 @@ func TestStringFields_DefaultNoOSExpansion(t *testing.T) {
 		Field string
 	}
 	ctx := context.Background()
-	result, err := StringFields(ctx, S{Field: "${SF_VAR}"})
+	result, err := stringFields(ctx, S{Field: "${SF_VAR}"})
 	require.NoError(t, err)
 	assert.Equal(t, "${SF_VAR}", result.Field)
 }
@@ -747,7 +747,7 @@ func TestObject_NoOSExpansion(t *testing.T) {
 		Field string
 	}
 	ctx := context.Background()
-	result, err := Object(ctx, S{Field: "$OBJ_VAR"}, map[string]string{})
+	result, err := object(ctx, S{Field: "$OBJ_VAR"}, map[string]string{})
 	require.NoError(t, err)
 	assert.Equal(t, "$OBJ_VAR", result.Field, "OS vars should be preserved, not expanded")
 }
@@ -757,7 +757,7 @@ func TestObject_ExplicitVarsStillWork(t *testing.T) {
 		Field string
 	}
 	ctx := context.Background()
-	result, err := Object(ctx, S{Field: "$MY_VAR"}, map[string]string{"MY_VAR": "hello"})
+	result, err := object(ctx, S{Field: "$MY_VAR"}, map[string]string{"MY_VAR": "hello"})
 	require.NoError(t, err)
 	assert.Equal(t, "hello", result.Field, "Explicit vars map should still expand")
 }
@@ -770,7 +770,7 @@ func TestObject_ScopeVarsStillWork(t *testing.T) {
 		WithEntry("SCOPE_VAR", "scope_value", EnvSourceDAGEnv)
 	ctx := WithEnvScope(context.Background(), scope)
 
-	result, err := Object(ctx, S{Field: "${SCOPE_VAR}"}, map[string]string{})
+	result, err := object(ctx, S{Field: "${SCOPE_VAR}"}, map[string]string{})
 	require.NoError(t, err)
 	assert.Equal(t, "scope_value", result.Field, "Non-OS scope entries should still expand")
 }
@@ -783,7 +783,7 @@ func TestObject_OSScopeEntriesSkipped(t *testing.T) {
 		WithEntry("OS_VAR", "os_value", EnvSourceOS)
 	ctx := WithEnvScope(context.Background(), scope)
 
-	result, err := Object(ctx, S{Field: "${OS_VAR}"}, map[string]string{})
+	result, err := object(ctx, S{Field: "${OS_VAR}"}, map[string]string{})
 	require.NoError(t, err)
 	assert.Equal(t, "${OS_VAR}", result.Field, "OS-sourced scope entries should be skipped")
 }
@@ -809,7 +809,7 @@ func TestObject_SSHExecutorNoOSExpansion(t *testing.T) {
 		Command: "tar czf $HOME/backup.tar.gz /data",
 	}
 
-	result, err := Object(context.Background(), cfg, vars)
+	result, err := object(context.Background(), cfg, vars)
 	require.NoError(t, err)
 	assert.Equal(t, "remotehost.example.com", result.Host, "DAG var should be expanded")
 	assert.Equal(t, "tar czf $HOME/backup.tar.gz /data", result.Command, "$HOME should be preserved for remote shell")
@@ -832,7 +832,7 @@ func TestObject_DockerExecutorNoOSExpansion(t *testing.T) {
 		Env:   []string{"WORKDIR=$HOME/app", "TAG=${REGISTRY}/latest"},
 	}
 
-	result, err := Object(context.Background(), cfg, vars)
+	result, err := object(context.Background(), cfg, vars)
 	require.NoError(t, err)
 	assert.Equal(t, "myregistry.com/app", result.Image, "DAG var should be expanded in image")
 	assert.Equal(t, "WORKDIR=$HOME/app", result.Env[0], "$HOME should be preserved for container env")
@@ -840,7 +840,7 @@ func TestObject_DockerExecutorNoOSExpansion(t *testing.T) {
 }
 
 // TestObject_ExplicitOSImportStillWorks verifies that when an OS variable like HOME
-// is explicitly imported into the DAG env scope, it gets expanded even through Object().
+// is explicitly imported into the DAG env scope, it gets expanded even through object().
 func TestObject_ExplicitOSImportStillWorks(t *testing.T) {
 	t.Setenv("HOME", "/home/testuser")
 
@@ -849,14 +849,14 @@ func TestObject_ExplicitOSImportStillWorks(t *testing.T) {
 	}
 
 	// Simulate a DAG that explicitly imports HOME via env: block.
-	// At DAG load time, HOME="${HOME}" would have been expanded with WithOSExpansion(),
+	// At DAG load time, HOME="${HOME}" would have been expanded with withOSExpansion(),
 	// resulting in the vars map containing the resolved value.
 	vars := map[string]string{"HOME": "/home/testuser"}
 	cfg := SSHConfig{
 		Command: "echo ${HOME}",
 	}
 
-	result, err := Object(context.Background(), cfg, vars)
+	result, err := object(context.Background(), cfg, vars)
 	require.NoError(t, err)
 	assert.Equal(t, "echo /home/testuser", result.Command, "Explicitly imported OS var should be expanded")
 }
@@ -901,7 +901,7 @@ func TestString_CommandLikeStringWithSingleQuoteAfterVar(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := String(ctx, tt.input, WithoutExpandEnv(), WithoutDollarEscape())
+			got, err := evalString(ctx, tt.input, withoutExpandEnv(), withoutDollarEscape())
 			require.NoError(t, err)
 			require.Equal(t, tt.want, got)
 		})
@@ -916,23 +916,23 @@ func TestString_OnlyReplaceVars_DefersScopeVars(t *testing.T) {
 		WithEntry("TOPIC", "my-topic", EnvSourceDAGEnv)
 	ctx := WithEnvScope(context.Background(), scope)
 
-	result, err := String(ctx, "echo $TOPIC", OnlyReplaceVars())
+	result, err := evalString(ctx, "echo $TOPIC", onlyReplaceVars())
 	require.NoError(t, err)
 	assert.Equal(t, "echo $TOPIC", result, "scope var should be deferred")
 }
 
 func TestString_OnlyReplaceVars_ExpandsExplicitVars(t *testing.T) {
-	result, err := String(context.Background(), "echo ${FOO}",
-		OnlyReplaceVars(),
-		WithVariables(map[string]string{"FOO": "bar"}),
+	result, err := evalString(context.Background(), "echo ${FOO}",
+		onlyReplaceVars(),
+		withVariables(map[string]string{"FOO": "bar"}),
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "echo bar", result, "explicit WithVariables should be expanded")
+	assert.Equal(t, "echo bar", result, "explicit withVariables should be expanded")
 }
 
 func TestString_OnlyReplaceVars_BackticksNotExecuted(t *testing.T) {
-	result, err := String(context.Background(), "`echo injected`",
-		OnlyReplaceVars(),
+	result, err := evalString(context.Background(), "`echo injected`",
+		onlyReplaceVars(),
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "`echo injected`", result, "backtick substitution should be disabled")
@@ -944,15 +944,15 @@ func TestString_OnlyReplaceVars_ScopeVarWithBackticksDeferred(t *testing.T) {
 		WithEntry("MSG", "say `hello`", EnvSourceDAGEnv)
 	ctx := WithEnvScope(context.Background(), scope)
 
-	result, err := String(ctx, "echo $MSG", OnlyReplaceVars())
+	result, err := evalString(ctx, "echo $MSG", onlyReplaceVars())
 	require.NoError(t, err)
 	assert.Equal(t, "echo $MSG", result, "scope var with backticks should be deferred")
 }
 
 func TestString_OnlyReplaceVars_StepRefsStillExpanded(t *testing.T) {
-	result, err := String(context.Background(), "cat ${step1.stdout}",
-		OnlyReplaceVars(),
-		WithStepMap(map[string]StepInfo{
+	result, err := evalString(context.Background(), "cat ${step1.stdout}",
+		onlyReplaceVars(),
+		withStepMap(map[string]StepInfo{
 			"step1": {Stdout: "/tmp/out.txt"},
 		}),
 	)
@@ -961,9 +961,9 @@ func TestString_OnlyReplaceVars_StepRefsStillExpanded(t *testing.T) {
 }
 
 func TestString_OnlyReplaceVars_JSONPathStillExpanded(t *testing.T) {
-	result, err := String(context.Background(), "val: ${DATA.key}",
-		OnlyReplaceVars(),
-		WithVariables(map[string]string{"DATA": `{"key":"resolved"}`}),
+	result, err := evalString(context.Background(), "val: ${DATA.key}",
+		onlyReplaceVars(),
+		withVariables(map[string]string{"DATA": `{"key":"resolved"}`}),
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "val: resolved", result, "JSON path refs should still be expanded")
@@ -974,10 +974,10 @@ func TestString_OnlyReplaceVars_MixedDeferredAndExpanded(t *testing.T) {
 		WithEntry("PARAM", "param_val", EnvSourceDAGEnv)
 	ctx := WithEnvScope(context.Background(), scope)
 
-	result, err := String(ctx, "${EXPLICIT} and $PARAM and ${step1.stdout}",
-		OnlyReplaceVars(),
-		WithVariables(map[string]string{"EXPLICIT": "explicit_val"}),
-		WithStepMap(map[string]StepInfo{
+	result, err := evalString(ctx, "${EXPLICIT} and $PARAM and ${step1.stdout}",
+		onlyReplaceVars(),
+		withVariables(map[string]string{"EXPLICIT": "explicit_val"}),
+		withStepMap(map[string]StepInfo{
 			"step1": {Stdout: "/tmp/out"},
 		}),
 	)
@@ -987,7 +987,7 @@ func TestString_OnlyReplaceVars_MixedDeferredAndExpanded(t *testing.T) {
 
 func TestString_OnlyReplaceVars_OSEnvNotExpanded(t *testing.T) {
 	t.Setenv("HOME", "/home/user")
-	result, err := String(context.Background(), "echo $HOME", OnlyReplaceVars())
+	result, err := evalString(context.Background(), "echo $HOME", onlyReplaceVars())
 	require.NoError(t, err)
 	assert.Equal(t, "echo $HOME", result, "OS env should not be expanded")
 }
@@ -997,10 +997,10 @@ func TestString_OnlyReplaceVars_MultipleStepSources(t *testing.T) {
 		WithEntry("DEFERRED", "should-defer", EnvSourceStepEnv)
 	ctx := WithEnvScope(context.Background(), scope)
 
-	result, err := String(ctx, "${step1.exit_code} $DEFERRED ${EXPLICIT}",
-		OnlyReplaceVars(),
-		WithVariables(map[string]string{"EXPLICIT": "yes"}),
-		WithStepMap(map[string]StepInfo{
+	result, err := evalString(ctx, "${step1.exit_code} $DEFERRED ${EXPLICIT}",
+		onlyReplaceVars(),
+		withVariables(map[string]string{"EXPLICIT": "yes"}),
+		withStepMap(map[string]StepInfo{
 			"step1": {ExitCode: "0"},
 		}),
 	)
@@ -1034,13 +1034,13 @@ func TestString_MultipleVariablesWithStepMapOnLast(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var opts []Option
+			var opts []option
 			for _, vars := range tt.varSets {
-				opts = append(opts, WithVariables(vars))
+				opts = append(opts, withVariables(vars))
 			}
-			opts = append(opts, WithStepMap(stepMap))
+			opts = append(opts, withStepMap(stepMap))
 
-			result, err := String(ctx, tt.input, opts...)
+			result, err := evalString(ctx, tt.input, opts...)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expected, result)
 		})

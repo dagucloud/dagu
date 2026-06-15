@@ -648,7 +648,8 @@ func validateDAGFileNameFromRequest(request any) error {
 
 func (a *API) evaluateBasePath(ctx context.Context) string {
 	basePath := a.config.Server.BasePath
-	if evaluated, err := cmnvalue.String(ctx, basePath, cmnvalue.WithOSExpansion()); err != nil {
+	resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{}, cmnvalue.RuntimeScope{})
+	if evaluated, err := resolver.String(ctx, basePath, cmnvalue.ServerBasePathField("server.base_path")); err != nil {
 		logger.Warn(ctx, "Failed to evaluate server base path",
 			tag.Path(basePath),
 			tag.Error(err))

@@ -17,7 +17,7 @@ type ReferenceField struct {
 	Path          string
 	Value         string
 	OwnerStepName string
-	Mode          cmnvalue.Mode
+	Field         cmnvalue.Field
 }
 
 type referenceFieldWalker struct {
@@ -41,16 +41,18 @@ func (w *referenceFieldWalker) walkDAG(dag *DAG) {
 	if dag == nil {
 		return
 	}
-	root := ReferenceField{Mode: cmnvalue.ModeWorkflowValue}
-	w.walkEnv("env", dag.Env, root)
+	root := ReferenceField{Field: cmnvalue.WorkflowField("")}
+	w.walkEnvWith("env", dag.Env, root, cmnvalue.DAGEnvField)
 	for i, dotenv := range dag.Dotenv {
-		w.add(root.withPathValue(fmt.Sprintf("dotenv[%d]", i), dotenv))
+		path := fmt.Sprintf("dotenv[%d]", i)
+		w.add(root.withPathValue(path, dotenv).withField(cmnvalue.DotenvPathField(path)))
 	}
-	w.add(root.withPathValue("shell", dag.Shell).withMode(cmnvalue.ModeShellCommand))
+	w.add(root.withPathValue("shell", dag.Shell).withField(cmnvalue.DAGShellField("shell")))
 	for i, arg := range dag.ShellArgs {
-		w.add(root.withPathValue(fmt.Sprintf("shell_args[%d]", i), arg).withMode(cmnvalue.ModeShellCommand))
+		path := fmt.Sprintf("shell_args[%d]", i)
+		w.add(root.withPathValue(path, arg).withField(cmnvalue.DAGShellField(path)))
 	}
-	w.add(root.withPathValue("working_dir", dag.WorkingDir))
+	w.add(root.withPathValue("working_dir", dag.WorkingDir).withField(cmnvalue.DAGWorkingDirField("working_dir")))
 	w.walkConditions("preconditions", dag.Preconditions, root)
 	w.walkContainer("container", dag.Container, root)
 
@@ -75,43 +77,49 @@ func (w *referenceFieldWalker) walkHandlerStep(path string, step *Step) {
 func (w *referenceFieldWalker) walkStep(path string, step Step) {
 	base := ReferenceField{
 		OwnerStepName: step.Name,
-		Mode:          cmnvalue.ModeWorkflowValue,
+		Field:         cmnvalue.WorkflowField(""),
 	}
 
-	w.add(base.withPathValue(path+".run", step.Script).withMode(cmnvalue.ModeShellCommand))
-	w.add(base.withPathValue(path+".command", step.Command).withMode(cmnvalue.ModeDirectCommand))
-	w.add(base.withPathValue(path+".cmd_with_args", step.CmdWithArgs).withMode(cmnvalue.ModeShellCommand))
-	w.add(base.withPathValue(path+".cmd_args_sys", step.CmdArgsSys).withMode(cmnvalue.ModeDirectCommand))
-	w.add(base.withPathValue(path+".shell_cmd_args", step.ShellCmdArgs).withMode(cmnvalue.ModeShellCommand))
-	w.add(base.withPathValue(path+".shell", step.Shell).withMode(cmnvalue.ModeShellCommand))
+	w.add(base.withPathValue(path+".run", step.Script).withField(cmnvalue.CommandScriptField(path+".run", cmnvalue.CommandContext{})))
+	w.add(base.withPathValue(path+".command", step.Command).withField(cmnvalue.DirectCommandField(path+".command", cmnvalue.CommandContext{})))
+	w.add(base.withPathValue(path+".cmd_with_args", step.CmdWithArgs).withField(cmnvalue.ShellCommandField(path+".cmd_with_args", cmnvalue.CommandContext{})))
+	w.add(base.withPathValue(path+".cmd_args_sys", step.CmdArgsSys).withField(cmnvalue.DirectCommandField(path+".cmd_args_sys", cmnvalue.CommandContext{})))
+	w.add(base.withPathValue(path+".shell_cmd_args", step.ShellCmdArgs).withField(cmnvalue.ShellCommandField(path+".shell_cmd_args", cmnvalue.CommandContext{})))
+	w.add(base.withPathValue(path+".shell", step.Shell).withField(cmnvalue.StepShellField(path + ".shell")))
 	for i, arg := range step.Args {
-		w.add(base.withPathValue(fmt.Sprintf("%s.args[%d]", path, i), arg).withMode(cmnvalue.ModeDirectCommand))
+		fieldPath := fmt.Sprintf("%s.args[%d]", path, i)
+		w.add(base.withPathValue(fieldPath, arg).withField(cmnvalue.DirectCommandField(fieldPath, cmnvalue.CommandContext{})))
 	}
 	for i, arg := range step.ShellArgs {
-		w.add(base.withPathValue(fmt.Sprintf("%s.shell_args[%d]", path, i), arg).withMode(cmnvalue.ModeShellCommand))
+		fieldPath := fmt.Sprintf("%s.shell_args[%d]", path, i)
+		w.add(base.withPathValue(fieldPath, arg).withField(cmnvalue.StepShellField(fieldPath)))
 	}
 	for i, cmd := range step.Commands {
-		w.add(base.withPathValue(fmt.Sprintf("%s.run[%d].command", path, i), cmd.Command).withMode(cmnvalue.ModeDirectCommand))
-		w.add(base.withPathValue(fmt.Sprintf("%s.run[%d].cmd_with_args", path, i), cmd.CmdWithArgs).withMode(cmnvalue.ModeShellCommand))
+		commandPath := fmt.Sprintf("%s.run[%d].command", path, i)
+		w.add(base.withPathValue(commandPath, cmd.Command).withField(cmnvalue.DirectCommandField(commandPath, cmnvalue.CommandContext{})))
+		cmdWithArgsPath := fmt.Sprintf("%s.run[%d].cmd_with_args", path, i)
+		w.add(base.withPathValue(cmdWithArgsPath, cmd.CmdWithArgs).withField(cmnvalue.ShellCommandField(cmdWithArgsPath, cmnvalue.CommandContext{})))
 		for j, arg := range cmd.Args {
-			w.add(base.withPathValue(fmt.Sprintf("%s.run[%d].args[%d]", path, i, j), arg).withMode(cmnvalue.ModeDirectCommand))
+			argPath := fmt.Sprintf("%s.run[%d].args[%d]", path, i, j)
+			w.add(base.withPathValue(argPath, arg).withField(cmnvalue.DirectCommandField(argPath, cmnvalue.CommandContext{})))
 		}
 	}
 
-	w.walkStringLeaves(path+".with", step.ExecutorConfig.Config, base)
-	w.add(base.withPathValue(path+".working_dir", step.Dir))
-	w.walkEnv(path+".env", step.Env, base)
+	w.walkStringLeaves(path+".with", step.ExecutorConfig.Config, base.withField(cmnvalue.ExecutorConfigField(path+".with", cmnvalue.ConfigProfileDefault)))
+	w.add(base.withPathValue(path+".working_dir", step.Dir).withField(cmnvalue.StepDirField(path + ".working_dir")))
+	w.walkEnvWith(path+".env", step.Env, base, cmnvalue.WorkflowField)
 	w.walkConditions(path+".preconditions", step.Preconditions, base)
 	if step.RepeatPolicy.Condition != nil {
-		w.add(base.withPathValue(path+".repeat_policy.condition", step.RepeatPolicy.Condition.Condition))
+		fieldPath := path + ".repeat_policy.condition"
+		w.add(base.withPathValue(fieldPath, step.RepeatPolicy.Condition.Condition).withField(cmnvalue.ConditionValueField(fieldPath)))
 	}
 	if step.Parallel != nil {
 		w.walkParallel(path+".parallel", step.Parallel, base)
 	}
-	w.add(base.withPathValue(path+".stdout", step.Stdout))
-	w.add(base.withPathValue(path+".stdout.artifact", step.StdoutArtifact))
-	w.add(base.withPathValue(path+".stderr", step.Stderr))
-	w.add(base.withPathValue(path+".stderr.artifact", step.StderrArtifact))
+	w.add(base.withPathValue(path+".stdout", step.Stdout).withField(cmnvalue.StepArtifactOutputField(path + ".stdout")))
+	w.add(base.withPathValue(path+".stdout.artifact", step.StdoutArtifact).withField(cmnvalue.StepArtifactOutputField(path + ".stdout.artifact")))
+	w.add(base.withPathValue(path+".stderr", step.Stderr).withField(cmnvalue.StepArtifactOutputField(path + ".stderr")))
+	w.add(base.withPathValue(path+".stderr.artifact", step.StderrArtifact).withField(cmnvalue.StepArtifactOutputField(path + ".stderr.artifact")))
 	if step.StdoutOutputs != nil {
 		w.walkStdoutOutputs(path+".stdout.outputs", step.StdoutOutputs, base)
 	}
@@ -124,27 +132,30 @@ func (w *referenceFieldWalker) walkConditions(path string, conditions []*Conditi
 		if condition == nil {
 			continue
 		}
-		w.add(base.withPathValue(fmt.Sprintf("%s[%d].condition", path, i), condition.Condition))
+		fieldPath := fmt.Sprintf("%s[%d].condition", path, i)
+		w.add(base.withPathValue(fieldPath, condition.Condition).withField(cmnvalue.ConditionValueField(fieldPath)))
 	}
 }
 
-func (w *referenceFieldWalker) walkEnv(path string, env []string, base ReferenceField) {
+func (w *referenceFieldWalker) walkEnvWith(path string, env []string, base ReferenceField, fieldForPath func(string) cmnvalue.Field) {
 	for i, entry := range env {
 		_, value, ok := strings.Cut(entry, "=")
 		if !ok {
 			value = entry
 		}
-		w.add(base.withPathValue(fmt.Sprintf("%s[%d]", path, i), value))
+		fieldPath := fmt.Sprintf("%s[%d]", path, i)
+		w.add(base.withPathValue(fieldPath, value).withField(fieldForPath(fieldPath)))
 	}
 }
 
 func (w *referenceFieldWalker) walkParallel(path string, parallel *ParallelConfig, base ReferenceField) {
-	w.add(base.withPathValue(path+".variable", parallel.Variable))
+	w.add(base.withPathValue(path+".variable", parallel.Variable).withField(cmnvalue.ParallelItemField(path + ".variable")))
 	for i, item := range parallel.Items {
 		itemPath := fmt.Sprintf("%s.items[%d]", path, i)
-		w.add(base.withPathValue(itemPath+".value", item.Value))
+		w.add(base.withPathValue(itemPath+".value", item.Value).withField(cmnvalue.ParallelItemField(itemPath + ".value")))
 		for _, key := range sortedStringKeys(item.Params) {
-			w.add(base.withPathValue(itemPath+".params."+key, item.Params[key]))
+			fieldPath := itemPath + ".params." + key
+			w.add(base.withPathValue(fieldPath, item.Params[key]).withField(cmnvalue.ParallelItemParamField(fieldPath)))
 		}
 	}
 }
@@ -153,9 +164,11 @@ func (w *referenceFieldWalker) walkStdoutOutputs(path string, outputs *StepOutpu
 	for _, key := range sortedStringKeys(outputs.Fields) {
 		entry := outputs.Fields[key]
 		if entry.HasValue {
-			w.walkStringLeaves(path+".fields."+key+".value", entry.Value, base)
+			fieldPath := path + ".fields." + key + ".value"
+			w.walkStringLeaves(fieldPath, entry.Value, base.withField(cmnvalue.StructuredOutputLiteralField(fieldPath)))
 		}
-		w.add(base.withPathValue(path+".fields."+key+".path", entry.Path))
+		fieldPath := path + ".fields." + key + ".path"
+		w.add(base.withPathValue(fieldPath, entry.Path).withField(cmnvalue.StructuredOutputPathField(fieldPath)))
 	}
 }
 
@@ -163,9 +176,11 @@ func (w *referenceFieldWalker) walkStructuredOutput(path string, output map[stri
 	for _, key := range sortedStringKeys(output) {
 		entry := output[key]
 		if entry.HasValue {
-			w.walkStringLeaves(path+"."+key+".value", entry.Value, base)
+			fieldPath := path + "." + key + ".value"
+			w.walkStringLeaves(fieldPath, entry.Value, base.withField(cmnvalue.StructuredOutputLiteralField(fieldPath)))
 		}
-		w.add(base.withPathValue(path+"."+key+".path", entry.Path))
+		fieldPath := path + "." + key + ".path"
+		w.add(base.withPathValue(fieldPath, entry.Path).withField(cmnvalue.StructuredOutputPathField(fieldPath)))
 	}
 }
 
@@ -173,24 +188,28 @@ func (w *referenceFieldWalker) walkContainer(path string, container *Container, 
 	if container == nil {
 		return
 	}
-	w.add(base.withPathValue(path+".exec", container.Exec))
-	w.add(base.withPathValue(path+".image", container.Image))
-	w.add(base.withPathValue(path+".name", container.Name))
-	w.add(base.withPathValue(path+".user", container.User))
-	w.add(base.withPathValue(path+".working_dir", container.WorkingDir))
-	w.add(base.withPathValue(path+".network", container.Network))
+	w.add(base.withPathValue(path+".exec", container.Exec).withField(cmnvalue.ContainerField(path + ".exec")))
+	w.add(base.withPathValue(path+".image", container.Image).withField(cmnvalue.ContainerField(path + ".image")))
+	w.add(base.withPathValue(path+".name", container.Name).withField(cmnvalue.ContainerField(path + ".name")))
+	w.add(base.withPathValue(path+".user", container.User).withField(cmnvalue.ContainerField(path + ".user")))
+	w.add(base.withPathValue(path+".working_dir", container.WorkingDir).withField(cmnvalue.ContainerField(path + ".working_dir")))
+	w.add(base.withPathValue(path+".network", container.Network).withField(cmnvalue.ContainerField(path + ".network")))
 	for i, value := range container.Volumes {
-		w.add(base.withPathValue(fmt.Sprintf("%s.volumes[%d]", path, i), value))
+		fieldPath := fmt.Sprintf("%s.volumes[%d]", path, i)
+		w.add(base.withPathValue(fieldPath, value).withField(cmnvalue.ContainerField(fieldPath)))
 	}
 	for i, value := range container.Ports {
-		w.add(base.withPathValue(fmt.Sprintf("%s.ports[%d]", path, i), value))
+		fieldPath := fmt.Sprintf("%s.ports[%d]", path, i)
+		w.add(base.withPathValue(fieldPath, value).withField(cmnvalue.ContainerField(fieldPath)))
 	}
-	w.walkEnv(path+".env", container.Env, base)
+	w.walkEnvWith(path+".env", container.Env, base, cmnvalue.ContainerEnvField)
 	for i, value := range container.Command {
-		w.add(base.withPathValue(fmt.Sprintf("%s.command[%d]", path, i), value).withMode(cmnvalue.ModeDirectCommand))
+		fieldPath := fmt.Sprintf("%s.command[%d]", path, i)
+		w.add(base.withPathValue(fieldPath, value).withField(cmnvalue.DirectCommandField(fieldPath, cmnvalue.CommandContext{Target: cmnvalue.CommandTargetDocker})))
 	}
 	for i, value := range container.Shell {
-		w.add(base.withPathValue(fmt.Sprintf("%s.shell[%d]", path, i), value).withMode(cmnvalue.ModeShellCommand))
+		fieldPath := fmt.Sprintf("%s.shell[%d]", path, i)
+		w.add(base.withPathValue(fieldPath, value).withField(cmnvalue.ShellCommandField(fieldPath, cmnvalue.CommandContext{Target: cmnvalue.CommandTargetDocker, ShellConfigured: true})))
 	}
 }
 
@@ -226,6 +245,7 @@ func (w *referenceFieldWalker) walkReflectStringLeaves(path string, raw any, bas
 	if !rv.IsValid() {
 		return
 	}
+	//nolint:exhaustive // Only collections can contain string leaves.
 	switch rv.Kind() {
 	case reflect.Slice, reflect.Array:
 		for i := range rv.Len() {
@@ -254,10 +274,13 @@ func sortedStringKeys[M ~map[string]V, V any](m M) []string {
 func (f ReferenceField) withPathValue(path, value string) ReferenceField {
 	f.Path = path
 	f.Value = value
+	if f.Field.Path() == "" {
+		f.Field = cmnvalue.WorkflowField(path)
+	}
 	return f
 }
 
-func (f ReferenceField) withMode(mode cmnvalue.Mode) ReferenceField {
-	f.Mode = mode
+func (f ReferenceField) withField(field cmnvalue.Field) ReferenceField {
+	f.Field = field
 	return f
 }

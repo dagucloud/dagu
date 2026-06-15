@@ -14,7 +14,7 @@ import (
 )
 
 func TestOptions_Defaults(t *testing.T) {
-	opts := NewOptions()
+	opts := newOptions()
 	assert.True(t, opts.ExpandEnv, "ExpandEnv should default to true")
 	assert.True(t, opts.ExpandShell, "ExpandShell should default to true")
 	assert.True(t, opts.Substitute, "Substitute should default to true")
@@ -26,22 +26,22 @@ func TestOptions_Defaults(t *testing.T) {
 }
 
 func TestOptions_OnlyReplaceVars(t *testing.T) {
-	opts := NewOptions()
-	OnlyReplaceVars()(opts)
+	opts := newOptions()
+	onlyReplaceVars()(opts)
 
-	assert.False(t, opts.ExpandEnv, "OnlyReplaceVars should disable ExpandEnv")
-	assert.False(t, opts.Substitute, "OnlyReplaceVars should disable Substitute")
-	assert.True(t, opts.DeferShellVars, "OnlyReplaceVars should enable DeferShellVars")
+	assert.False(t, opts.ExpandEnv, "onlyReplaceVars should disable ExpandEnv")
+	assert.False(t, opts.Substitute, "onlyReplaceVars should disable Substitute")
+	assert.True(t, opts.DeferShellVars, "onlyReplaceVars should enable DeferShellVars")
 	// These should remain at their default values
-	assert.True(t, opts.ExpandShell, "OnlyReplaceVars should not change ExpandShell")
-	assert.True(t, opts.EscapeDollar, "OnlyReplaceVars should not change EscapeDollar")
-	assert.False(t, opts.ExpandOS, "OnlyReplaceVars should not change ExpandOS")
+	assert.True(t, opts.ExpandShell, "onlyReplaceVars should not change ExpandShell")
+	assert.True(t, opts.EscapeDollar, "onlyReplaceVars should not change EscapeDollar")
+	assert.False(t, opts.ExpandOS, "onlyReplaceVars should not change ExpandOS")
 }
 
 func TestOptions_WithOSExpansion(t *testing.T) {
-	opts := NewOptions()
+	opts := newOptions()
 	assert.False(t, opts.ExpandOS)
-	WithOSExpansion()(opts)
+	withOSExpansion()(opts)
 	assert.True(t, opts.ExpandOS)
 }
 
@@ -57,50 +57,50 @@ func TestWithoutExpandShell(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
-		opts  []Option
+		opts  []option
 		want  string
 	}{
 		{
 			name:  "ShellExpansionEnabled",
 			input: "${VAR:0:3}",
-			opts:  []Option{WithVariables(map[string]string{"VAR": "HelloWorld"})},
+			opts:  []option{withVariables(map[string]string{"VAR": "HelloWorld"})},
 			want:  "Hel",
 		},
 		{
 			name:  "ShellExpansionDisabledPreservesSubstring",
 			input: "${VAR:0:3}",
-			opts:  []Option{WithVariables(map[string]string{"VAR": "HelloWorld"}), WithoutExpandShell()},
+			opts:  []option{withVariables(map[string]string{"VAR": "HelloWorld"}), withoutExpandShell()},
 			want:  "${VAR:0:3}",
 		},
 		{
 			name:  "SimpleVarStillWorks",
 			input: "${VAR}",
-			opts:  []Option{WithVariables(map[string]string{"VAR": "value"}), WithoutExpandShell()},
+			opts:  []option{withVariables(map[string]string{"VAR": "value"}), withoutExpandShell()},
 			want:  "value",
 		},
 		{
 			name:  "EnvVarStillExpandsWithoutShellExpansion",
 			input: "$TEST_VAR",
-			opts:  []Option{WithoutExpandShell(), WithOSExpansion()},
+			opts:  []option{withoutExpandShell(), withOSExpansion()},
 			want:  "test_value_for_shell",
 		},
 		{
 			name:  "CommandSubstitutionStillWorks",
 			input: "`echo hello`",
-			opts:  []Option{WithoutExpandShell()},
+			opts:  []option{withoutExpandShell()},
 			want:  "hello",
 		},
 		{
 			name:  "MixedContentWithShellDisabled",
 			input: "prefix ${VAR} suffix",
-			opts:  []Option{WithVariables(map[string]string{"VAR": "middle"}), WithoutExpandShell()},
+			opts:  []option{withVariables(map[string]string{"VAR": "middle"}), withoutExpandShell()},
 			want:  "prefix middle suffix",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := String(ctx, tt.input, tt.opts...)
+			got, err := evalString(ctx, tt.input, tt.opts...)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 		})
@@ -114,34 +114,34 @@ func TestOptions_Combinations(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
-		opts  []Option
+		opts  []option
 		want  string
 	}{
 		{
 			name:  "AllFeaturesDisabled",
 			input: "$TEST_ENV `echo hello` ${VAR}",
-			opts: []Option{
-				WithoutExpandEnv(),
-				WithoutSubstitute(),
+			opts: []option{
+				withoutExpandEnv(),
+				withoutSubstitute(),
 			},
 			want: "$TEST_ENV `echo hello` ${VAR}",
 		},
 		{
 			name:  "OnlyVariablesEnabled",
 			input: "$TEST_ENV `echo hello` ${VAR}",
-			opts: []Option{
-				OnlyReplaceVars(),
-				WithVariables(map[string]string{"VAR": "value"}),
+			opts: []option{
+				onlyReplaceVars(),
+				withVariables(map[string]string{"VAR": "value"}),
 			},
 			want: "$TEST_ENV `echo hello` value",
 		},
 		{
 			name:  "MultipleVariableSetsWithStepMap",
 			input: "${VAR1} ${VAR2} ${step1.exit_code}",
-			opts: []Option{
-				WithVariables(map[string]string{"VAR1": "first"}),
-				WithVariables(map[string]string{"VAR2": "second"}),
-				WithStepMap(map[string]StepInfo{
+			opts: []option{
+				withVariables(map[string]string{"VAR1": "first"}),
+				withVariables(map[string]string{"VAR2": "second"}),
+				withStepMap(map[string]StepInfo{
 					"step1": {ExitCode: "0"},
 				}),
 			},
@@ -151,7 +151,7 @@ func TestOptions_Combinations(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := String(ctx, tt.input, tt.opts...)
+			got, err := evalString(ctx, tt.input, tt.opts...)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 		})

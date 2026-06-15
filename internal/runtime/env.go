@@ -117,17 +117,21 @@ func resolveWorkingDir(ctx context.Context, step core.Step, rCtx Context) string
 	return fallbackWorkingDir(ctx, step.Name)
 }
 
-func expandRuntimeConsts(raw string, dag *core.DAG, mode cmnvalue.Mode) (string, error) {
-	runtimeScope := cmnvalue.RuntimeScope{}
+func expandRuntimeConsts(raw string, dag *core.DAG, field cmnvalue.Field) (string, error) {
+	var consts cmnvalue.Values
 	if dag != nil {
-		runtimeScope.Consts = cmnvalue.Values(dag.Consts)
+		consts = cmnvalue.Values(dag.Consts)
 	}
-	return cmnvalue.ExpandStringContext(context.Background(), raw, runtimeScope, mode, "", cmnvalue.WithoutExpandEnv(), cmnvalue.WithoutSubstitute())
+	resolver := cmnvalue.NewResolver(
+		cmnvalue.StaticScope{Consts: consts},
+		cmnvalue.RuntimeScope{Consts: consts},
+	)
+	return resolver.String(context.Background(), raw, field)
 }
 
 // expandStepDir expands value references and environment variables in step.Dir.
 func expandStepDir(ctx context.Context, dir string, dag *core.DAG) string {
-	expanded, err := expandRuntimeConsts(dir, dag, cmnvalue.ModeWorkflowValue)
+	expanded, err := expandRuntimeConsts(dir, dag, cmnvalue.StepDirField("working_dir"))
 	if err != nil {
 		logger.Warn(ctx, "Failed to evaluate step working directory",
 			tag.Dir(dir),
@@ -202,7 +206,7 @@ func dagRunWorkDir(rCtx Context) string {
 }
 
 func expandDAGWorkingDir(ctx context.Context, workingDir string, rCtx Context) string {
-	wd, err := expandRuntimeConsts(workingDir, rCtx.DAG, cmnvalue.ModeWorkflowValue)
+	wd, err := expandRuntimeConsts(workingDir, rCtx.DAG, cmnvalue.DAGWorkingDirField("working_dir"))
 	if err != nil {
 		logger.Warn(ctx, "Failed to evaluate working directory",
 			tag.Dir(workingDir),
@@ -255,7 +259,7 @@ func fallbackWorkingDir(ctx context.Context, stepName string) string {
 func (e Env) Shell(ctx context.Context) []string {
 	// Shell precedence: Step shell -> DAG shell -> Global default
 	if e.Step.Shell != "" {
-		shell, err := evalShellWithScope(ctx, e.DAG, e.Scope, e.Step.Shell, e.Step.ShellArgs)
+		shell, err := evalShellWithScope(ctx, e.DAG, e.Scope, e.Step.Shell, e.Step.ShellArgs, cmnvalue.StepShellField)
 		if err != nil {
 			logger.Error(ctx, "Failed to evaluate step shell",
 				tag.String("shell", e.Step.Shell),
@@ -267,7 +271,7 @@ func (e Env) Shell(ctx context.Context) []string {
 	}
 
 	if e.DAG != nil && e.DAG.Shell != "" {
-		shell, err := evalShellWithScope(ctx, e.DAG, e.Scope, e.DAG.Shell, e.DAG.ShellArgs)
+		shell, err := evalShellWithScope(ctx, e.DAG, e.Scope, e.DAG.Shell, e.DAG.ShellArgs, cmnvalue.DAGShellField)
 		if err != nil {
 			logger.Error(ctx, "Failed to evaluate DAG shell",
 				tag.String("shell", e.DAG.Shell),
@@ -297,7 +301,7 @@ func DAGShell(ctx context.Context) []string {
 		scope = cmnvalue.NewEnvScope(nil, true) // Fallback: OS layer only
 	}
 
-	shell, err := evalShellWithScope(ctx, dag, scope, dag.Shell, dag.ShellArgs)
+	shell, err := evalShellWithScope(ctx, dag, scope, dag.Shell, dag.ShellArgs, cmnvalue.DAGShellField)
 	if err != nil {
 		logger.Error(ctx, "Failed to evaluate DAG shell",
 			tag.String("shell", dag.Shell),
@@ -309,29 +313,23 @@ func DAGShell(ctx context.Context) []string {
 }
 
 // evalShellWithScope evaluates shell command and arguments using the given scope.
-func evalShellWithScope(ctx context.Context, dag *core.DAG, scope *cmnvalue.EnvScope, shell string, shellArgs []string) ([]string, error) {
-	shellCmd, err := expandRuntimeConsts(shell, dag, cmnvalue.ModeShellCommand)
-	if err != nil {
-		return nil, fmt.Errorf("failed to evaluate shell: %w", err)
+func evalShellWithScope(ctx context.Context, dag *core.DAG, scope *cmnvalue.EnvScope, shell string, shellArgs []string, fieldForPath func(string) cmnvalue.Field) ([]string, error) {
+	var consts cmnvalue.Values
+	if dag != nil {
+		consts = cmnvalue.Values(dag.Consts)
 	}
-	ctx = cmnvalue.WithEnvScope(ctx, scope)
-	shellCmd, err = cmnvalue.String(ctx, shellCmd, cmnvalue.WithoutSubstitute())
+	resolver := cmnvalue.NewResolver(
+		cmnvalue.StaticScope{Consts: consts},
+		cmnvalue.RuntimeScope{Consts: consts, Env: scope},
+	)
+	shellCmd, err := resolver.String(ctx, shell, fieldForPath("shell"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate shell: %w", err)
 	}
 
 	result := []string{shellCmd}
-	for _, arg := range shellArgs {
-		evaluated, err := expandRuntimeConsts(arg, dag, cmnvalue.ModeShellCommand)
-		if err != nil {
-			logger.Error(ctx, "Failed to evaluate shell argument",
-				tag.String("arg", arg),
-				tag.Error(err),
-			)
-			// Continue with unevaluated arg rather than failing completely
-			evaluated = arg
-		}
-		evaluated, err = cmnvalue.String(ctx, evaluated, cmnvalue.WithoutSubstitute())
+	for i, arg := range shellArgs {
+		evaluated, err := resolver.String(ctx, arg, fieldForPath(fmt.Sprintf("shell_args[%d]", i)))
 		if err != nil {
 			logger.Error(ctx, "Failed to evaluate shell argument",
 				tag.String("arg", arg),
@@ -365,35 +363,28 @@ func (e Env) MailerConfig(ctx context.Context) (mailer.Config, error) {
 	if e.DAG.SMTP == nil {
 		return mailer.Config{}, nil
 	}
-	// Use Scope for variable resolution
-	ctx = cmnvalue.WithEnvScope(ctx, e.Scope)
-	return cmnvalue.StringFields(ctx, mailer.Config{
+	resolver := resolverFromEnv(e)
+	got, err := resolver.Object(ctx, mailer.Config{
 		Host:     e.DAG.SMTP.Host,
 		Port:     e.DAG.SMTP.Port,
 		Username: e.DAG.SMTP.Username,
 		Password: e.DAG.SMTP.Password,
-	}, cmnvalue.WithoutSubstitute())
-}
-
-// EvalString evaluates the given string with the variables within the execution context.
-// Uses EnvScope for $VAR and ${VAR} expansion.
-// StepMap is used separately for ${step.stdout} style references.
-func (e Env) EvalString(ctx context.Context, s string, opts ...cmnvalue.Option) (string, error) {
-	return e.EvalStringMode(ctx, s, cmnvalue.ModeWorkflowValue, opts...)
-}
-
-func (e Env) EvalStringMode(ctx context.Context, s string, mode cmnvalue.Mode, opts ...cmnvalue.Option) (string, error) {
-	// Use EnvScope for variable resolution via context
-	ctx = cmnvalue.WithEnvScope(ctx, e.Scope)
-
-	return cmnvalue.ExpandStringContext(ctx, s, e.valueScope(), mode, "", opts...)
+	}, cmnvalue.HostConfigObjectField("smtp"))
+	if err != nil {
+		return mailer.Config{}, err
+	}
+	config, ok := got.(mailer.Config)
+	if !ok {
+		return mailer.Config{}, fmt.Errorf("type assertion failed: expected mailer.Config, got %T", got)
+	}
+	return config, nil
 }
 
 // EvalBool evaluates the given value with the variables within the execution context
 func (e Env) EvalBool(ctx context.Context, value any) (bool, error) {
 	switch v := value.(type) {
 	case string:
-		s, err := e.EvalString(ctx, v)
+		s, err := resolverFromEnv(e).String(ctx, v, cmnvalue.WorkflowField("bool"))
 		if err != nil {
 			return false, err
 		}

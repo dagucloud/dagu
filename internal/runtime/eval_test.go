@@ -70,7 +70,7 @@ func TestEvalString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := runtime.EvalString(ctx, tt.input)
+			result, err := runtime.ResolveString(ctx, tt.input, cmnvalue.WorkflowField("test"))
 			require.NoError(t, err)
 			require.Equal(t, tt.expected, result)
 		})
@@ -97,7 +97,7 @@ func TestEvalStringResolvesConstsOnlyReservedBinding(t *testing.T) {
 	}
 	ctx = runtime.WithEnv(ctx, env)
 
-	got, err := runtime.EvalString(ctx, "${consts.service} ${params.environment} ${env.HOME} ${steps.build.outputs.image}")
+	got, err := runtime.ResolveString(ctx, "${consts.service} ${params.environment} ${env.HOME} ${steps.build.outputs.image}", cmnvalue.WorkflowField("test"))
 	require.NoError(t, err)
 	assert.Equal(t, "api ${params.environment} ${env.HOME} ${steps.build.outputs.image}", got)
 }
@@ -109,7 +109,7 @@ func TestEvalStringPreservesBacktickSubstitution(t *testing.T) {
 	env := runtime.NewEnv(ctx, core.Step{Name: "test-step"})
 	ctx = runtime.WithEnv(ctx, env)
 
-	got, err := runtime.EvalString(ctx, "`echo resolved`")
+	got, err := runtime.ResolveString(ctx, "`echo resolved`", cmnvalue.WorkflowField("test"))
 	require.NoError(t, err)
 	assert.Equal(t, "`echo resolved`", got)
 }
@@ -122,7 +122,7 @@ func TestEvalStringModeDirectCommandUsesHostOnlyEnvFallback(t *testing.T) {
 	env.Scope = env.Scope.WithEntry("SCOPED", "from-scope", cmnvalue.EnvSourceStepEnv)
 	ctx = runtime.WithEnv(ctx, env)
 
-	got, err := runtime.EvalStringMode(ctx, "$SCOPED:$DAGU_RUNTIME_DIRECT_HOST_ONLY", cmnvalue.ModeDirectCommand)
+	got, err := runtime.ResolveString(ctx, "$SCOPED:$DAGU_RUNTIME_DIRECT_HOST_ONLY", cmnvalue.DirectCommandField("command", cmnvalue.CommandContext{}))
 	require.NoError(t, err)
 	assert.Equal(t, "from-scope:from-os", got)
 }
@@ -145,7 +145,7 @@ func TestEvalStringPreservesStepsNamespaceAsFutureBinding(t *testing.T) {
 	env := runtime.NewEnv(ctx, core.Step{Name: "test-step"})
 	ctx = runtime.WithEnv(ctx, env)
 
-	got, err := runtime.EvalString(ctx, "${steps.build.outputs.image}")
+	got, err := runtime.ResolveString(ctx, "${steps.build.outputs.image}", cmnvalue.WorkflowField("test"))
 	require.NoError(t, err)
 	assert.Equal(t, "${steps.build.outputs.image}", got)
 }
@@ -659,7 +659,7 @@ func TestEvalStringEdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := runtime.EvalString(ctx, tt.input)
+			result, err := runtime.ResolveString(ctx, tt.input, cmnvalue.WorkflowField("test"))
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {

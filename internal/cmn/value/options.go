@@ -3,8 +3,8 @@
 
 package value
 
-// Options controls the behavior of string evaluation.
-type Options struct {
+// options controls the behavior of string evaluation.
+type options struct {
 	ExpandEnv    bool // Enable environment variable expansion
 	ExpandShell  bool // Enable shell-based variable expansion (e.g., ${VAR:0:3})
 	ExpandOS     bool // Enable os.LookupEnv fallback and OS-sourced scope entries
@@ -27,10 +27,10 @@ type Options struct {
 	StepMap   map[string]StepInfo // Step info map for step reference expansion
 }
 
-// NewOptions returns default Options with ExpandEnv, ExpandShell, and
+// newOptions returns default options with ExpandEnv, ExpandShell, and
 // Substitute enabled. ExpandOS is disabled by default.
-func NewOptions() *Options {
-	return &Options{
+func newOptions() *options {
+	return &options{
 		ExpandEnv:    true,
 		ExpandShell:  true,
 		Substitute:   true,
@@ -38,75 +38,75 @@ func NewOptions() *Options {
 	}
 }
 
-// Option is a functional option for configuring evaluation.
-type Option func(*Options)
+// option is a functional option for configuring evaluation.
+type option func(*options)
 
-// WithVariables adds a variable map for expansion.
-func WithVariables(vars map[string]string) Option {
-	return func(opts *Options) {
+// withVariables adds a variable map for expansion.
+func withVariables(vars map[string]string) option {
+	return func(opts *options) {
 		opts.Variables = append(opts.Variables, vars)
 	}
 }
 
-// WithStepMap sets the step info map for step reference expansion.
-func WithStepMap(stepMap map[string]StepInfo) Option {
-	return func(opts *Options) {
+// withStepMap sets the step info map for step reference expansion.
+func withStepMap(stepMap map[string]StepInfo) option {
+	return func(opts *options) {
 		opts.StepMap = stepMap
 	}
 }
 
-// WithoutExpandEnv disables environment variable expansion.
-func WithoutExpandEnv() Option {
-	return func(opts *Options) {
+// withoutExpandEnv disables environment variable expansion.
+func withoutExpandEnv() option {
+	return func(opts *options) {
 		opts.ExpandEnv = false
 	}
 }
 
-// WithoutExpandShell disables shell-based variable expansion.
-func WithoutExpandShell() Option {
-	return func(opts *Options) {
+// withoutExpandShell disables shell-based variable expansion.
+func withoutExpandShell() option {
+	return func(opts *options) {
 		opts.ExpandShell = false
 	}
 }
 
-// WithoutSubstitute disables backtick command substitution.
-func WithoutSubstitute() Option {
-	return func(opts *Options) {
+// withoutSubstitute disables backtick command substitution.
+func withoutSubstitute() option {
+	return func(opts *options) {
 		opts.Substitute = false
 	}
 }
 
-// WithoutDollarEscape preserves backslash-dollar sequences for downstream executors.
-func WithoutDollarEscape() Option {
-	return func(opts *Options) {
+// withoutDollarEscape preserves backslash-dollar sequences for downstream executors.
+func withoutDollarEscape() option {
+	return func(opts *options) {
 		opts.EscapeDollar = false
 	}
 }
 
-// WithOSExpansion enables OS environment variable resolution.
+// withOSExpansion enables OS environment variable resolution.
 // When set, os.LookupEnv is used as a fallback and OS-sourced scope entries
 // are included. Without this option, undefined variables are preserved as-is.
-func WithOSExpansion() Option {
-	return func(opts *Options) {
+func withOSExpansion() option {
+	return func(opts *options) {
 		opts.ExpandOS = true
 	}
 }
 
-// WithNoExpansion skips all expansion phases and returns the input unchanged.
+// withNoExpansion skips all expansion phases and returns the input unchanged.
 // Used by executors that treat the script body as a literal template.
-func WithNoExpansion() Option {
-	return func(opts *Options) {
+func withNoExpansion() option {
+	return func(opts *options) {
 		opts.NoExpansion = true
 	}
 }
 
-// OnlyReplaceVars disables env expansion, command substitution, and simple
+// onlyReplaceVars disables env expansion, command substitution, and simple
 // $VAR text substitution. JSON path references like ${step.stdout} are still
 // expanded since shells cannot handle them. Simple $VAR references are
 // deferred to the shell at runtime via env vars, preventing shell-special
 // characters (backticks, $(), etc.) in values from being interpreted.
-func OnlyReplaceVars() Option {
-	return func(opts *Options) {
+func onlyReplaceVars() option {
+	return func(opts *options) {
 		opts.ExpandEnv = false
 		opts.Substitute = false
 		opts.DeferShellVars = true

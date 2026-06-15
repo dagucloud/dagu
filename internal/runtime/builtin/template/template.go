@@ -146,8 +146,8 @@ func buildFuncMap() template.FuncMap {
 func init() {
 	executor.RegisterExecutor("template", newTemplate, validateTemplate, core.ExecutorCapabilities{
 		Script: true,
-		GetScriptEvalOptions: func(_ context.Context, _ core.Step) []cmnvalue.Option {
-			return []cmnvalue.Option{cmnvalue.WithNoExpansion()}
+		ConfigProfile: func(_ context.Context, _ core.Step) cmnvalue.ConfigProfile {
+			return cmnvalue.ConfigProfileTemplate
 		},
 	})
 }

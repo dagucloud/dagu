@@ -102,12 +102,13 @@ func ValidateSteps(dag *DAG) error {
 func validateBindingReferences(dag *DAG) ErrorList {
 	var errs ErrorList
 	scope := cmnvalue.StaticScope{Consts: cmnvalue.Values(dag.Consts)}
+	resolver := cmnvalue.NewResolver(scope, cmnvalue.RuntimeScope{Consts: cmnvalue.Values(dag.Consts)})
 	fields := ReferenceFields(dag)
 	for _, field := range fields {
 		if !strings.Contains(field.Value, "$") {
 			continue
 		}
-		if err := cmnvalue.ValidateReferences(field.Value, scope, field.Mode, field.Path); err != nil {
+		if err := resolver.Validate(field.Value, field.Field); err != nil {
 			errs = append(errs, NewValidationError(field.Path, field.Value, err))
 		}
 	}

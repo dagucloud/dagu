@@ -370,7 +370,7 @@ func TestExpandReferences_ShortSubmatch(t *testing.T) {
 	dataMap := map[string]string{
 		"DATA": `{"key":"val"}`,
 	}
-	result := ExpandReferences(ctx, "$DATA.key", dataMap)
+	result := expandReferences(ctx, "$DATA.key", dataMap)
 	require.Equal(t, "val", result)
 }
 
@@ -595,7 +595,7 @@ func TestReplaceVarsWithScope(t *testing.T) {
 	}
 }
 
-// --- ExpandReferences ---
+// --- expandReferences ---
 
 func TestExpandReferences(t *testing.T) {
 	tests := []struct {
@@ -677,7 +677,7 @@ func TestExpandReferences(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			got := ExpandReferences(ctx, tt.input, tt.dataMap)
+			got := expandReferences(ctx, tt.input, tt.dataMap)
 			require.Equal(t, tt.want, got)
 		})
 	}
@@ -784,7 +784,7 @@ func TestExpandReferencesWithSteps(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			got := ExpandReferencesWithSteps(ctx, tt.input, tt.dataMap, tt.stepMap)
+			got := expandReferencesWithSteps(ctx, tt.input, tt.dataMap, tt.stepMap)
 			require.Equal(t, tt.want, got)
 		})
 	}
@@ -946,7 +946,7 @@ func TestExpandReferencesWithSteps_Extended(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			got := ExpandReferencesWithSteps(ctx, tt.input, tt.dataMap, tt.stepMap)
+			got := expandReferencesWithSteps(ctx, tt.input, tt.dataMap, tt.stepMap)
 			require.Equal(t, tt.want, got)
 		})
 	}

@@ -91,7 +91,7 @@ func expandPOSIXExpression(expr string, env *shellEnviron) (string, error) {
 //   - When ExpandOS is false (default): undefined variables are preserved for later OS shell evaluation.
 //   - When ExpandOS is true: undefined variables follow POSIX rules (empty, defaults applied, etc.).
 //   - Single-quoted variables are preserved as-is.
-func expandWithShellContext(ctx context.Context, input string, opts *Options) (string, error) {
+func expandWithShellContext(ctx context.Context, input string, opts *options) (string, error) {
 	if !opts.ExpandShell && !opts.ExpandEnv {
 		return input, nil
 	}

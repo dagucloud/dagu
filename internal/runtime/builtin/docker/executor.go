@@ -454,24 +454,24 @@ func EvalContainerFields(ctx context.Context, ct core.Container) (core.Container
 	var err error
 
 	// Evaluate exec field (for exec-into-existing-container mode)
-	if ct.Exec, err = runtime.EvalStepString(ctx, ct.Exec); err != nil {
+	if ct.Exec, err = runtime.ResolveString(ctx, ct.Exec, cmnvalue.ContainerField("container.exec")); err != nil {
 		return ct, fmt.Errorf("failed to evaluate exec: %w", err)
 	}
 
 	// Evaluate string fields
-	if ct.Image, err = runtime.EvalStepString(ctx, ct.Image); err != nil {
+	if ct.Image, err = runtime.ResolveString(ctx, ct.Image, cmnvalue.ContainerField("container.image")); err != nil {
 		return ct, fmt.Errorf("failed to evaluate image: %w", err)
 	}
-	if ct.Name, err = runtime.EvalStepString(ctx, ct.Name); err != nil {
+	if ct.Name, err = runtime.ResolveString(ctx, ct.Name, cmnvalue.ContainerField("container.name")); err != nil {
 		return ct, fmt.Errorf("failed to evaluate name: %w", err)
 	}
-	if ct.User, err = runtime.EvalStepString(ctx, ct.User); err != nil {
+	if ct.User, err = runtime.ResolveString(ctx, ct.User, cmnvalue.ContainerField("container.user")); err != nil {
 		return ct, fmt.Errorf("failed to evaluate user: %w", err)
 	}
-	if ct.WorkingDir, err = runtime.EvalStepString(ctx, ct.WorkingDir); err != nil {
+	if ct.WorkingDir, err = runtime.ResolveString(ctx, ct.WorkingDir, cmnvalue.ContainerField("container.working_dir")); err != nil {
 		return ct, fmt.Errorf("failed to evaluate workingDir: %w", err)
 	}
-	if ct.Network, err = runtime.EvalStepString(ctx, ct.Network); err != nil {
+	if ct.Network, err = runtime.ResolveString(ctx, ct.Network, cmnvalue.ContainerField("container.network")); err != nil {
 		return ct, fmt.Errorf("failed to evaluate network: %w", err)
 	}
 
@@ -502,7 +502,7 @@ func evalStringSlice(ctx context.Context, ss []string) ([]string, error) {
 	}
 	result := make([]string, len(ss))
 	for i, s := range ss {
-		evaluated, err := runtime.EvalStepString(ctx, s)
+		evaluated, err := runtime.ResolveString(ctx, s, cmnvalue.ContainerField(fmt.Sprintf("container[%d]", i)))
 		if err != nil {
 			return nil, err
 		}
@@ -518,7 +518,11 @@ func evalEnvSequentially(ctx context.Context, envs []string) ([]string, error) {
 	if len(envs) == 0 {
 		return envs, nil
 	}
-	resolved := make(map[string]string, len(envs))
+	env := runtime.GetEnv(ctx)
+	scope := env.Scope
+	if scope == nil {
+		scope = cmnvalue.NewEnvScope(nil, false)
+	}
 	result := make([]string, 0, len(envs))
 	for _, entry := range envs {
 		key, rawVal, found := strings.Cut(entry, "=")
@@ -526,11 +530,11 @@ func evalEnvSequentially(ctx context.Context, envs []string) ([]string, error) {
 			result = append(result, entry)
 			continue
 		}
-		val, err := runtime.EvalString(ctx, rawVal, cmnvalue.WithVariables(resolved), cmnvalue.WithoutSubstitute())
+		val, err := runtime.ValueResolverWithScope(ctx, scope).String(ctx, rawVal, cmnvalue.ContainerEnvField("container.env."+key))
 		if err != nil {
 			return nil, fmt.Errorf("env %s: %w", key, err)
 		}
-		resolved[key] = val
+		scope = scope.WithEntry(key, val, cmnvalue.EnvSourceStepEnv)
 		result = append(result, key+"="+val)
 	}
 	return result, nil
@@ -541,11 +545,11 @@ func init() {
 		Command:          true,
 		MultipleCommands: true,
 		Container:        true,
-		GetCommandEvalOptions: func(ctx context.Context, step core.Step) []cmnvalue.Option {
-			if hasShellConfigured(ctx, step) {
-				return []cmnvalue.Option{cmnvalue.WithoutDollarEscape()}
+		CommandContext: func(ctx context.Context, step core.Step) cmnvalue.CommandContext {
+			return cmnvalue.CommandContext{
+				Target:          cmnvalue.CommandTargetDocker,
+				ShellConfigured: hasShellConfigured(ctx, step),
 			}
-			return nil
 		},
 		// Env vars are expanded on host before passing to container (default behavior)
 	}

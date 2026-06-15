@@ -81,15 +81,7 @@ func (d *DAG) validateOutputReferences() []error {
 }
 
 func outputReferences(raw string) []cmnvalue.StepOutputReference {
-	refs := cmnvalue.ScanReferences(raw)
-	out := make([]cmnvalue.StepOutputReference, 0)
-	for _, ref := range refs {
-		if ref.StepOutput == nil {
-			continue
-		}
-		out = append(out, *ref.StepOutput)
-	}
-	return out
+	return cmnvalue.StepOutputReferences(raw)
 }
 
 func buildPublishedOutputContract(step Step) (publishedOutputContract, bool) {

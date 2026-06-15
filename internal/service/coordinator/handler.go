@@ -1598,7 +1598,8 @@ func (h *Handler) transformArtifactPaths(
 		if baseDir == "" {
 			return fmt.Errorf("artifact directory is not configured")
 		}
-		baseDir, err = cmnvalue.String(ctx, baseDir, cmnvalue.WithOSExpansion())
+		resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{}, cmnvalue.RuntimeScope{})
+		baseDir, err = resolver.String(ctx, baseDir, cmnvalue.CoordinatorArtifactBaseDirField("artifacts.dir"))
 		if err != nil {
 			return fmt.Errorf("expand artifact directory: %w", err)
 		}

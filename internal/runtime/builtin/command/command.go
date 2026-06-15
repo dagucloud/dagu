@@ -443,22 +443,24 @@ func init() {
 		MultipleCommands: true,
 		Script:           true,
 		Shell:            true,
-		GetCommandEvalOptions: func(ctx context.Context, step core.Step) []cmnvalue.Option {
+		CommandContext: func(ctx context.Context, step core.Step) cmnvalue.CommandContext {
 			env := runtime.GetEnv(ctx)
-			return commandEvalOptions(env.Shell(ctx))
+			return cmnvalue.CommandContext{
+				Target:          cmnvalue.CommandTargetLocal,
+				Shell:           env.Shell(ctx),
+				ShellConfigured: true,
+			}
 		},
-		GetScriptEvalOptions: func(ctx context.Context, step core.Step) []cmnvalue.Option {
+		ScriptContext: func(ctx context.Context, step core.Step) cmnvalue.CommandContext {
 			env := runtime.GetEnv(ctx)
-			return commandEvalOptions(env.Shell(ctx))
+			return cmnvalue.CommandContext{
+				Target:          cmnvalue.CommandTargetLocal,
+				Shell:           env.Shell(ctx),
+				ShellConfigured: true,
+			}
 		},
 	}
 	executor.RegisterExecutor("", NewCommand, validateCommandStep, caps)
 	executor.RegisterExecutor("shell", NewCommand, validateCommandStep, caps)
 	executor.RegisterExecutor("command", NewCommand, validateCommandStep, caps)
-}
-
-// commandEvalOptions keeps the command executor aligned with the shape of the
-// main branch while delegating the shared policy to runtime.
-func commandEvalOptions(shell []string) []cmnvalue.Option {
-	return runtime.CommandEvalOptions(shell)
 }

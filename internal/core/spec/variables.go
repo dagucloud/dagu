@@ -105,19 +105,16 @@ func evaluatePairs(ctx BuildContext, pairs []pair) (map[string]string, error) {
 				continue
 			}
 
-			// Chain the new variable to scope for subsequent evaluations
-			scopeCtx := cmnvalue.WithEnvScope(evalCtx, scope)
-
 			var err error
 			var consts map[string]any
 			if ctx.envScope != nil {
 				consts = ctx.envScope.consts
 			}
-			valueScope := cmnvalue.RuntimeScope{
-				Consts: cmnvalue.Values(consts),
-				Env:    cmnvalue.ValuesFromStrings(scope.AllUserEnvs()),
-			}
-			value, err = cmnvalue.ExpandStringContext(scopeCtx, value, valueScope, cmnvalue.ModeWorkflowValue, "env."+p.key, cmnvalue.WithVariables(vars), cmnvalue.WithOSExpansion())
+			resolver := cmnvalue.NewResolver(
+				cmnvalue.StaticScope{Consts: cmnvalue.Values(consts)},
+				cmnvalue.RuntimeScope{Consts: cmnvalue.Values(consts), Env: scope},
+			)
+			value, err = resolver.String(evalCtx, value, cmnvalue.DAGEnvField("env."+p.key))
 			if err != nil {
 				return nil, core.NewValidationError("env", p.val, fmt.Errorf("%w: %s", ErrInvalidEnvValue, p.val))
 			}

@@ -16,7 +16,7 @@ import (
 
 func TestString_DollarEscape(t *testing.T) {
 	ctx := context.Background()
-	opts := []Option{WithVariables(map[string]string{
+	opts := []option{withVariables(map[string]string{
 		"HOME": "/tmp/home",
 		"REAL": "value",
 	})}
@@ -85,7 +85,7 @@ func TestString_DollarEscape(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := String(ctx, tt.input, opts...)
+			got, err := evalString(ctx, tt.input, opts...)
 			require.NoError(t, err)
 			require.Equal(t, tt.expected, got)
 		})
@@ -98,7 +98,7 @@ func TestString_DollarEscape_Backtick(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	got, err := String(ctx, "`echo \\$`")
+	got, err := evalString(ctx, "`echo \\$`")
 	require.NoError(t, err)
 	require.Equal(t, "$", got)
 }
@@ -106,7 +106,7 @@ func TestString_DollarEscape_Backtick(t *testing.T) {
 func TestString_DollarEscape_Disabled(t *testing.T) {
 	ctx := context.Background()
 
-	got, err := String(ctx, `Price: \$9.99`, WithoutDollarEscape())
+	got, err := evalString(ctx, `Price: \$9.99`, withoutDollarEscape())
 	require.NoError(t, err)
 	require.Equal(t, `Price: \$9.99`, got)
 }

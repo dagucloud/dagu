@@ -803,7 +803,7 @@ func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) con
 				logger.Error(ctx, "Invalid environment variable format", slog.String("var", v))
 				continue
 			}
-			evaluatedValue, err := env.EvalString(ctx, value)
+			evaluatedValue, err := resolverFromEnv(env).String(ctx, value, cmnvalue.WorkflowField("env."+key))
 			if err != nil {
 				logger.Error(ctx, "Failed to evaluate environment variable",
 					slog.String("var", v),

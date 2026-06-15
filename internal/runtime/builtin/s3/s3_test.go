@@ -5,6 +5,7 @@ package s3
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
@@ -496,9 +497,8 @@ func TestS3ConfigVariableEvaluation(t *testing.T) {
 			"AWS_PROFILE":           "test-profile",
 		}
 
-		// Use cmnvalue.Object to evaluate the config
 		ctx := context.Background()
-		evaluated, err := cmnvalue.Object(ctx, cfg, vars)
+		evaluated, err := evalS3TestConfig(ctx, cfg, vars)
 		require.NoError(t, err)
 
 		// Verify all variables were expanded
@@ -528,7 +528,7 @@ func TestS3ConfigVariableEvaluation(t *testing.T) {
 		}
 
 		ctx := context.Background()
-		evaluated, err := cmnvalue.Object(ctx, cfg, vars)
+		evaluated, err := evalS3TestConfig(ctx, cfg, vars)
 		require.NoError(t, err)
 
 		assert.Equal(t, "eu-west-1", evaluated.Region)
@@ -547,7 +547,7 @@ func TestS3ConfigVariableEvaluation(t *testing.T) {
 		vars := map[string]string{} // Empty vars
 
 		ctx := context.Background()
-		evaluated, err := cmnvalue.Object(ctx, cfg, vars)
+		evaluated, err := evalS3TestConfig(ctx, cfg, vars)
 		require.NoError(t, err)
 
 		// Undefined variables are preserved as-is
@@ -569,11 +569,25 @@ func TestS3ConfigVariableEvaluation(t *testing.T) {
 		}
 
 		ctx := context.Background()
-		evaluated, err := cmnvalue.Object(ctx, cfg, vars)
+		evaluated, err := evalS3TestConfig(ctx, cfg, vars)
 		require.NoError(t, err)
 
 		assert.Equal(t, "us-east-1", evaluated.Region)
 		assert.True(t, evaluated.ForcePathStyle)
 		assert.True(t, evaluated.DisableSSL)
 	})
+}
+
+func evalS3TestConfig(ctx context.Context, cfg core.S3Config, vars map[string]string) (core.S3Config, error) {
+	scope := cmnvalue.NewEnvScope(nil, false).WithEntries(vars, cmnvalue.EnvSourceStepEnv)
+	resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{}, cmnvalue.RuntimeScope{Env: scope})
+	got, err := resolver.Object(ctx, cfg, cmnvalue.HostConfigObjectField("s3"))
+	if err != nil {
+		return core.S3Config{}, err
+	}
+	value, ok := got.(core.S3Config)
+	if !ok {
+		return core.S3Config{}, fmt.Errorf("type assertion failed: expected core.S3Config, got %T", got)
+	}
+	return value, nil
 }

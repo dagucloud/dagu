@@ -19,7 +19,7 @@ type resolver struct {
 }
 
 // newResolver creates a resolver from the given context and options.
-func newResolver(ctx context.Context, opts *Options) *resolver {
+func newResolver(ctx context.Context, opts *options) *resolver {
 	return &resolver{
 		variables:      opts.Variables,
 		stepMap:        opts.StepMap,

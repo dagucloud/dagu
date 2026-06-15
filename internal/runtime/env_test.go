@@ -757,8 +757,9 @@ func TestEnv_EvalString_Precedence(t *testing.T) {
 
 			ctx := context.Background()
 			ctx, env := tt.setup(ctx)
+			ctx = runtime.WithEnv(ctx, env)
 
-			result, err := env.EvalString(ctx, tt.input)
+			result, err := runtime.ResolveString(ctx, tt.input, cmnvalue.WorkflowField("env"))
 			require.NoError(t, err)
 			assert.Equal(t, tt.expected, result)
 		})
@@ -811,7 +812,7 @@ func TestEnv_DirectCommandOSExpansionDoesNotInjectHostEnv(t *testing.T) {
 	env := runtime.NewEnv(ctx, core.Step{Name: "step1"})
 	ctx = runtime.WithEnv(ctx, env)
 
-	got, err := runtime.EvalStringMode(ctx, "$DAGU_RUNTIME_HOST_ONLY", cmnvalue.ModeDirectCommand)
+	got, err := runtime.ResolveString(ctx, "$DAGU_RUNTIME_HOST_ONLY", cmnvalue.DirectCommandField("command", cmnvalue.CommandContext{}))
 	require.NoError(t, err)
 	assert.Equal(t, "from-os", got)
 

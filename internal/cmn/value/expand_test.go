@@ -98,7 +98,7 @@ func TestExpandWithShellContext(t *testing.T) {
 	t.Run("ShellDisabledEnvEnabled", func(t *testing.T) {
 		t.Setenv("MYVAR", "myval")
 
-		opts := NewOptions()
+		opts := newOptions()
 		opts.ExpandShell = false
 		opts.ExpandEnv = true
 		opts.ExpandOS = true
@@ -109,7 +109,7 @@ func TestExpandWithShellContext(t *testing.T) {
 	})
 
 	t.Run("ShellDisabledEnvDisabled", func(t *testing.T) {
-		opts := NewOptions()
+		opts := newOptions()
 		opts.ExpandShell = false
 		opts.ExpandEnv = false
 
@@ -119,7 +119,7 @@ func TestExpandWithShellContext(t *testing.T) {
 	})
 
 	t.Run("EmptyInput", func(t *testing.T) {
-		result, err := expandWithShellContext(context.Background(), "", NewOptions())
+		result, err := expandWithShellContext(context.Background(), "", newOptions())
 		require.NoError(t, err)
 		assert.Equal(t, "", result)
 	})
@@ -127,7 +127,7 @@ func TestExpandWithShellContext(t *testing.T) {
 	t.Run("CommandSubstitutionPreserved", func(t *testing.T) {
 		t.Setenv("KEEP", "kept")
 
-		opts := NewOptions()
+		opts := newOptions()
 		opts.ExpandOS = true
 
 		// $(command) is not a variable expression, so it's preserved as literal text.
@@ -138,7 +138,7 @@ func TestExpandWithShellContext(t *testing.T) {
 	})
 
 	t.Run("MalformedInputPreserved", func(t *testing.T) {
-		opts := NewOptions()
+		opts := newOptions()
 		opts.ExpandOS = true
 
 		// Unclosed ${ doesn't match the variable regex, so it's returned as-is
@@ -148,7 +148,7 @@ func TestExpandWithShellContext(t *testing.T) {
 	})
 
 	t.Run("NonUnexpectedCommandError", func(t *testing.T) {
-		opts := NewOptions()
+		opts := newOptions()
 		opts.ExpandOS = true
 
 		// ${UNSET_VAR_ABC:?msg} triggers a non-UnexpectedCommand error from expand.Literal
@@ -157,7 +157,7 @@ func TestExpandWithShellContext(t *testing.T) {
 	})
 
 	t.Run("UndefinedSimpleVarWithExpandOS", func(t *testing.T) {
-		opts := NewOptions()
+		opts := newOptions()
 		opts.ExpandOS = true
 
 		// Undefined simple $VAR with ExpandOS=true resolves to empty string
@@ -167,7 +167,7 @@ func TestExpandWithShellContext(t *testing.T) {
 	})
 
 	t.Run("DefinedPOSIXWithoutExpandOS", func(t *testing.T) {
-		opts := NewOptions()
+		opts := newOptions()
 		opts.Variables = []map[string]string{{"VAR": "HelloWorld"}}
 
 		// Defined var with POSIX op works even without ExpandOS
@@ -177,7 +177,7 @@ func TestExpandWithShellContext(t *testing.T) {
 	})
 
 	t.Run("SingleQuotedPreserved", func(t *testing.T) {
-		opts := NewOptions()
+		opts := newOptions()
 		opts.Variables = []map[string]string{{"VAR": "value"}}
 
 		result, err := expandWithShellContext(context.Background(), "'${VAR}'", opts)
@@ -186,7 +186,7 @@ func TestExpandWithShellContext(t *testing.T) {
 	})
 
 	t.Run("VarFollowedBySingleQuote", func(t *testing.T) {
-		opts := NewOptions()
+		opts := newOptions()
 		opts.Variables = []map[string]string{{"VAR": "value"}}
 
 		result, err := expandWithShellContext(context.Background(), "${VAR}'", opts)
@@ -195,7 +195,7 @@ func TestExpandWithShellContext(t *testing.T) {
 	})
 
 	t.Run("SimpleVarFollowedBySingleQuote", func(t *testing.T) {
-		opts := NewOptions()
+		opts := newOptions()
 		opts.Variables = []map[string]string{{"VAR": "value"}}
 
 		result, err := expandWithShellContext(context.Background(), "$VAR'", opts)
@@ -204,7 +204,7 @@ func TestExpandWithShellContext(t *testing.T) {
 	})
 
 	t.Run("MissingVarFollowedBySingleQuoteWithoutExpandOS", func(t *testing.T) {
-		opts := NewOptions()
+		opts := newOptions()
 		opts.ExpandOS = false
 
 		result, err := expandWithShellContext(context.Background(), "${MISSING}'", opts)
@@ -213,7 +213,7 @@ func TestExpandWithShellContext(t *testing.T) {
 	})
 
 	t.Run("SingleQuotedSimplePreserved", func(t *testing.T) {
-		opts := NewOptions()
+		opts := newOptions()
 		opts.Variables = []map[string]string{{"VAR": "value"}}
 
 		result, err := expandWithShellContext(context.Background(), "'$VAR'", opts)

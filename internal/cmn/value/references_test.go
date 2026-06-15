@@ -14,23 +14,23 @@ import (
 func TestScanReferencesClassifiesReservedAndEvalRefs(t *testing.T) {
 	t.Parallel()
 
-	refs := value.ScanReferences("${consts.service} $consts.service $env.FOO $params.foo $steps.build ${DATA.image} $DATA.tag")
+	refs := value.ScanReferencesForTest("${consts.service} $consts.service $env.FOO $params.foo $steps.build ${DATA.image} $DATA.tag")
 
 	require.Len(t, refs, 7)
-	assert.Equal(t, value.ReferenceStrict, refs[0].Kind)
+	assert.Equal(t, value.ReferenceStrictForTest, refs[0].Kind)
 	assert.Equal(t, "consts", refs[0].Namespace)
 	assert.True(t, refs[0].Braced)
-	assert.Equal(t, value.ReferenceInvalid, refs[1].Kind)
+	assert.Equal(t, value.ReferenceInvalidForTest, refs[1].Kind)
 	assert.Contains(t, refs[1].Err.Error(), "invalid binding shorthand")
-	assert.Equal(t, value.ReferenceEval, refs[2].Kind)
+	assert.Equal(t, value.ReferenceEvalForTest, refs[2].Kind)
 	assert.False(t, refs[2].Braced)
-	assert.Equal(t, value.ReferenceEval, refs[3].Kind)
+	assert.Equal(t, value.ReferenceEvalForTest, refs[3].Kind)
 	assert.False(t, refs[3].Braced)
-	assert.Equal(t, value.ReferenceEval, refs[4].Kind)
+	assert.Equal(t, value.ReferenceEvalForTest, refs[4].Kind)
 	assert.False(t, refs[4].Braced)
-	assert.Equal(t, value.ReferenceEval, refs[5].Kind)
+	assert.Equal(t, value.ReferenceEvalForTest, refs[5].Kind)
 	assert.True(t, refs[5].Braced)
-	assert.Equal(t, value.ReferenceEval, refs[6].Kind)
+	assert.Equal(t, value.ReferenceEvalForTest, refs[6].Kind)
 	assert.False(t, refs[6].Braced)
 }
 
@@ -38,16 +38,16 @@ func TestModeString(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		mode value.Mode
+		mode value.ModeForTest
 		want string
 	}{
-		{mode: value.ModeConstLoad, want: "const-load"},
-		{mode: value.ModeStaticValidation, want: "static-validation"},
-		{mode: value.ModeWorkflowValue, want: "workflow-value"},
-		{mode: value.ModeShellCommand, want: "shell-command"},
-		{mode: value.ModeDirectCommand, want: "direct-command"},
-		{mode: value.ModeDynamicEval, want: "dynamic-eval"},
-		{mode: value.Mode(99), want: "mode(99)"},
+		{mode: value.ModeConstLoadForTest, want: "const-load"},
+		{mode: value.ModeStaticValidationForTest, want: "static-validation"},
+		{mode: value.ModeWorkflowValueForTest, want: "workflow-value"},
+		{mode: value.ModeShellCommandForTest, want: "shell-command"},
+		{mode: value.ModeDirectCommandForTest, want: "direct-command"},
+		{mode: value.ModeDynamicEvalForTest, want: "dynamic-eval"},
+		{mode: value.ModeForTest(99), want: "mode(99)"},
 	}
 
 	for _, tt := range tests {
@@ -62,7 +62,7 @@ func TestModeString(t *testing.T) {
 func TestScanReferencesMarksEvalStepOutputRefs(t *testing.T) {
 	t.Parallel()
 
-	refs := value.ScanReferences("${extract.output.user.id} $extract.output.user.id ${extract.output.bad-name}")
+	refs := value.ScanReferencesForTest("${extract.output.user.id} $extract.output.user.id ${extract.output.bad-name}")
 
 	require.Len(t, refs, 3)
 	require.NotNil(t, refs[0].StepOutput)
@@ -91,41 +91,41 @@ func TestValidateReferencesModeMatrix(t *testing.T) {
 	tests := []struct {
 		name    string
 		raw     string
-		mode    value.Mode
+		mode    value.ModeForTest
 		wantErr string
 	}{
 		{
 			name: "ConstLoadAllowsConsts",
 			raw:  "${consts.service}",
-			mode: value.ModeConstLoad,
+			mode: value.ModeConstLoadForTest,
 		},
 		{
 			name:    "ConstLoadRejectsRuntimeNamespace",
 			raw:     "${params.environment}",
-			mode:    value.ModeConstLoad,
+			mode:    value.ModeConstLoadForTest,
 			wantErr: "not available while loading consts",
 		},
 		{
 			name:    "ReservedShorthandRejected",
 			raw:     "$consts.service",
-			mode:    value.ModeWorkflowValue,
+			mode:    value.ModeWorkflowValueForTest,
 			wantErr: "invalid binding shorthand",
 		},
 		{
 			name:    "UnknownConstRejected",
 			raw:     "${consts.missing}",
-			mode:    value.ModeStaticValidation,
+			mode:    value.ModeStaticValidationForTest,
 			wantErr: "unknown consts binding",
 		},
 		{
 			name: "NonConstNamespacesAllowed",
 			raw:  "${steps.build.outputs.digest}",
-			mode: value.ModeStaticValidation,
+			mode: value.ModeStaticValidationForTest,
 		},
 		{
 			name: "EvalRefsAllowed",
 			raw:  "${DATA.image} $DATA.tag",
-			mode: value.ModeStaticValidation,
+			mode: value.ModeStaticValidationForTest,
 		},
 	}
 
@@ -133,7 +133,7 @@ func TestValidateReferencesModeMatrix(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := value.ValidateReferences(tt.raw, scope, tt.mode, "run")
+			err := value.ValidateReferencesForTest(tt.raw, scope, tt.mode, "run")
 			if tt.wantErr == "" {
 				require.NoError(t, err)
 				return
@@ -147,20 +147,20 @@ func TestValidateReferencesModeMatrix(t *testing.T) {
 func TestValidateReferencesIgnoresNonConstNamespaces(t *testing.T) {
 	t.Parallel()
 
-	err := value.ValidateReferences("${params.environment} ${env.RUNTIME_ONLY} ${steps.build.outputs.image}", value.StaticScope{}, value.ModeStaticValidation, "run")
+	err := value.ValidateReferencesForTest("${params.environment} ${env.RUNTIME_ONLY} ${steps.build.outputs.image}", value.StaticScope{}, value.ModeStaticValidationForTest, "run")
 	require.NoError(t, err)
 }
 
 func TestExpandStringPreservesNonConstNamespaces(t *testing.T) {
 	t.Parallel()
 
-	got, err := value.ExpandString(
+	got, err := value.ExpandStringForTest(
 		"${consts.service}:${params.environment}:${env.HOME}:${steps.build.outputs.image}",
 		value.RuntimeScope{
 			Consts: value.Values{"service": "api"},
-			Env:    value.Values{"HOME": "/workspace"},
+			Env:    testEnvScope(map[string]string{"HOME": "/workspace"}),
 		},
-		value.ModeWorkflowValue,
+		value.ModeWorkflowValueForTest,
 		"run",
 	)
 	require.NoError(t, err)
@@ -170,7 +170,7 @@ func TestExpandStringPreservesNonConstNamespaces(t *testing.T) {
 func TestExpandStringWorkflowValuePreservesCommandSubstitution(t *testing.T) {
 	t.Parallel()
 
-	got, err := value.ExpandString("`echo resolved`", value.RuntimeScope{}, value.ModeWorkflowValue, "env.VALUE")
+	got, err := value.ExpandStringForTest("`echo resolved`", value.RuntimeScope{}, value.ModeWorkflowValueForTest, "env.VALUE")
 	require.NoError(t, err)
 	assert.Equal(t, "`echo resolved`", got)
 }
@@ -178,7 +178,7 @@ func TestExpandStringWorkflowValuePreservesCommandSubstitution(t *testing.T) {
 func TestExpandStringDynamicEvalRunsCommandSubstitution(t *testing.T) {
 	t.Parallel()
 
-	got, err := value.ExpandString("`echo resolved`", value.RuntimeScope{}, value.ModeDynamicEval, "params")
+	got, err := value.ExpandStringForTest("`echo resolved`", value.RuntimeScope{}, value.ModeDynamicEvalForTest, "params")
 	require.NoError(t, err)
 	assert.Equal(t, "resolved", got)
 }
@@ -186,13 +186,13 @@ func TestExpandStringDynamicEvalRunsCommandSubstitution(t *testing.T) {
 func TestExpandStringResolvesConstRefsAndKeepsEvalRefs(t *testing.T) {
 	t.Parallel()
 
-	got, err := value.ExpandString(
+	got, err := value.ExpandStringForTest(
 		"${consts.service}:${params.environment}:${env.HOME}:${steps.build.outputs.image}:${DATA.image}:$DATA.tag",
 		value.RuntimeScope{
 			Consts: value.Values{"service": "api"},
-			Env:    value.Values{"HOME": "/workspace"},
+			Env:    testEnvScope(map[string]string{"HOME": "/workspace"}),
 		},
-		value.ModeWorkflowValue,
+		value.ModeWorkflowValueForTest,
 		"run",
 	)
 	require.NoError(t, err)
@@ -211,10 +211,10 @@ func TestExpandObjectResolvesConstRefsAcrossNestedValues(t *testing.T) {
 		"evalRef": "${DATA.image}",
 	}
 
-	got, err := value.ExpandObject(obj, value.RuntimeScope{
+	got, err := value.ExpandObjectForTest(obj, value.RuntimeScope{
 		Consts: value.Values{"repo": "repo/api"},
-		Env:    value.Values{"TOKEN": "secret"},
-	}, value.ModeWorkflowValue, "with")
+		Env:    testEnvScope(map[string]string{"TOKEN": "secret"}),
+	}, value.ModeWorkflowValueForTest, "with")
 	require.NoError(t, err)
 
 	assert.Equal(t, "repo/api:${params.tag}", got["image"])
@@ -225,10 +225,10 @@ func TestExpandObjectResolvesConstRefsAcrossNestedValues(t *testing.T) {
 func TestExpandObjectRejectsInvalidConstShorthand(t *testing.T) {
 	t.Parallel()
 
-	_, err := value.ExpandObject(
+	_, err := value.ExpandObjectForTest(
 		map[string]any{"service": "$consts.service"},
 		value.RuntimeScope{Consts: value.Values{"service": "api"}},
-		value.ModeWorkflowValue,
+		value.ModeWorkflowValueForTest,
 		"with.service",
 	)
 	require.Error(t, err)
@@ -240,68 +240,68 @@ func TestExpandStringModesApplyOwnerSemantics(t *testing.T) {
 	t.Setenv("DAGU_VALUE_MODE_DIRECT", "from-os")
 	scope := value.RuntimeScope{
 		Consts: value.Values{"service": "api"},
-		Env:    value.Values{"TOKEN": "secret"},
+		Env:    testEnvScope(map[string]string{"TOKEN": "secret"}),
 	}
 
 	tests := []struct {
 		name string
 		raw  string
-		mode value.Mode
+		mode value.ModeForTest
 		want string
 	}{
 		{
 			name: "ConstLoad",
 			raw:  "${consts.service}",
-			mode: value.ModeConstLoad,
+			mode: value.ModeConstLoadForTest,
 			want: "api",
 		},
 		{
 			name: "StaticValidation",
 			raw:  "${consts.service}",
-			mode: value.ModeStaticValidation,
+			mode: value.ModeStaticValidationForTest,
 			want: "api",
 		},
 		{
 			name: "WorkflowValueExpandsScopedEnv",
 			raw:  "$TOKEN",
-			mode: value.ModeWorkflowValue,
+			mode: value.ModeWorkflowValueForTest,
 			want: "secret",
 		},
 		{
 			name: "ShellCommandPreservesShellEnv",
 			raw:  "$TOKEN",
-			mode: value.ModeShellCommand,
+			mode: value.ModeShellCommandForTest,
 			want: "$TOKEN",
 		},
 		{
 			name: "DirectCommandExpandsScopedEnv",
 			raw:  "$TOKEN",
-			mode: value.ModeDirectCommand,
+			mode: value.ModeDirectCommandForTest,
 			want: "secret",
 		},
 		{
 			name: "DirectCommandUsesHostOnlyEnvFallback",
 			raw:  "$DAGU_VALUE_MODE_DIRECT",
-			mode: value.ModeDirectCommand,
+			mode: value.ModeDirectCommandForTest,
 			want: "from-os",
 		},
 		{
 			name: "DynamicEvalUsesDefaultExpansion",
 			raw:  "$TOKEN",
-			mode: value.ModeDynamicEval,
+			mode: value.ModeDynamicEvalForTest,
 			want: "secret",
 		},
 		{
 			name: "UnknownModeUsesConservativeExpansion",
 			raw:  "$TOKEN",
-			mode: value.Mode(99),
+			mode: value.ModeForTest(99),
 			want: "secret",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := value.ExpandString(tt.raw, scope, tt.mode, "run")
+			got, err := value.ExpandStringForTest(tt.raw, scope, tt.mode, "run")
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 		})

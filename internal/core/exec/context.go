@@ -456,8 +456,8 @@ func evaluateDAGEnvRuntime(ctx context.Context, envList []string, base map[strin
 			continue
 		}
 
-		evalCtx := cmnvalue.WithEnvScope(ctx, scope)
-		evaluated, err := cmnvalue.String(evalCtx, value, cmnvalue.WithVariables(result), cmnvalue.WithoutSubstitute())
+		resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{}, cmnvalue.RuntimeScope{Env: scope})
+		evaluated, err := resolver.String(ctx, value, cmnvalue.RuntimeDAGEnvField("env."+key))
 		if err != nil {
 			evaluated = value
 		}

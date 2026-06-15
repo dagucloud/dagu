@@ -36,7 +36,7 @@ func TestStringFields_PointerFields(t *testing.T) {
 		}},
 	}
 
-	result, err := StringFields(ctx, input, WithOSExpansion())
+	result, err := stringFields(ctx, input, withOSExpansion())
 	require.NoError(t, err)
 	require.NotNil(t, result.Token)
 	assert.Equal(t, "pointer_value", *result.Token)
@@ -70,7 +70,7 @@ func TestStringFields_NilPointerFields(t *testing.T) {
 		Regular:   "$NIL_TEST_VAR",
 	}
 
-	result, err := StringFields(ctx, input, WithOSExpansion())
+	result, err := stringFields(ctx, input, withOSExpansion())
 	require.NoError(t, err)
 	assert.Nil(t, result.NilString)
 	assert.Nil(t, result.NilStruct)
@@ -95,7 +95,7 @@ func TestStringFields_PointerToMap(t *testing.T) {
 		}
 		input := StructWithPtrMap{Config: &mapVal}
 
-		result, err := StringFields(ctx, input, WithOSExpansion())
+		result, err := stringFields(ctx, input, withOSExpansion())
 		require.NoError(t, err)
 		require.NotNil(t, result.Config)
 		assert.Equal(t, "map_ptr_value", (*result.Config)["key1"])
@@ -105,7 +105,7 @@ func TestStringFields_PointerToMap(t *testing.T) {
 	t.Run("PointerToNilMap", func(t *testing.T) {
 		input := StructWithPtrMap{Config: nil}
 
-		result, err := StringFields(ctx, input)
+		result, err := stringFields(ctx, input)
 		require.NoError(t, err)
 		assert.Nil(t, result.Config)
 	})
@@ -129,7 +129,7 @@ func TestStringFields_PointerToSlice(t *testing.T) {
 		items := []string{"$SLICE_PTR_VAR", "${SLICE_PTR_VAR}"}
 		input := StructWithPtrSlice{Items: &items}
 
-		result, err := StringFields(ctx, input, WithOSExpansion())
+		result, err := stringFields(ctx, input, withOSExpansion())
 		require.NoError(t, err)
 		require.NotNil(t, result.Items)
 		require.Len(t, *result.Items, 2)
@@ -144,7 +144,7 @@ func TestStringFields_PointerToSlice(t *testing.T) {
 		}
 		input := StructWithPtrSlice{Structs: &structs}
 
-		result, err := StringFields(ctx, input, WithOSExpansion())
+		result, err := stringFields(ctx, input, withOSExpansion())
 		require.NoError(t, err)
 		require.NotNil(t, result.Structs)
 		require.Len(t, *result.Structs, 2)
@@ -155,7 +155,7 @@ func TestStringFields_PointerToSlice(t *testing.T) {
 	t.Run("PointerToNilSlice", func(t *testing.T) {
 		input := StructWithPtrSlice{Items: nil}
 
-		result, err := StringFields(ctx, input)
+		result, err := stringFields(ctx, input)
 		require.NoError(t, err)
 		assert.Nil(t, result.Items)
 	})
@@ -176,7 +176,7 @@ func TestStringFields_SliceOfStrings(t *testing.T) {
 			Tags: []string{"$SLICE_STR_VAR", "${SLICE_STR_VAR}", "plain"},
 		}
 
-		result, err := StringFields(ctx, input, WithOSExpansion())
+		result, err := stringFields(ctx, input, withOSExpansion())
 		require.NoError(t, err)
 		require.Len(t, result.Tags, 3)
 		assert.Equal(t, "slice_str_value", result.Tags[0])
@@ -189,7 +189,7 @@ func TestStringFields_SliceOfStrings(t *testing.T) {
 			Tags: []string{},
 		}
 
-		result, err := StringFields(ctx, input)
+		result, err := stringFields(ctx, input)
 		require.NoError(t, err)
 		assert.Empty(t, result.Tags)
 	})
@@ -199,7 +199,7 @@ func TestStringFields_SliceOfStrings(t *testing.T) {
 			Tags: nil,
 		}
 
-		result, err := StringFields(ctx, input)
+		result, err := stringFields(ctx, input)
 		require.NoError(t, err)
 		assert.Nil(t, result.Tags)
 	})
@@ -209,7 +209,7 @@ func TestStringFields_SliceOfStrings(t *testing.T) {
 			Tags: []string{"`echo hello`", "`echo world`"},
 		}
 
-		result, err := StringFields(ctx, input, WithOSExpansion())
+		result, err := stringFields(ctx, input, withOSExpansion())
 		require.NoError(t, err)
 		require.Len(t, result.Tags, 2)
 		assert.Equal(t, "hello", result.Tags[0])
@@ -239,7 +239,7 @@ func TestStringFields_SliceOfStructs(t *testing.T) {
 			},
 		}
 
-		result, err := StringFields(ctx, input, WithOSExpansion())
+		result, err := stringFields(ctx, input, withOSExpansion())
 		require.NoError(t, err)
 		require.Len(t, result.Items, 2)
 		assert.Equal(t, "struct_slice_value", result.Items[0].Name)
@@ -253,7 +253,7 @@ func TestStringFields_SliceOfStructs(t *testing.T) {
 			Items: []Item{},
 		}
 
-		result, err := StringFields(ctx, input)
+		result, err := stringFields(ctx, input)
 		require.NoError(t, err)
 		assert.Empty(t, result.Items)
 	})
@@ -276,7 +276,7 @@ func TestStringFields_SliceOfMaps(t *testing.T) {
 			},
 		}
 
-		result, err := StringFields(ctx, input, WithOSExpansion())
+		result, err := stringFields(ctx, input, withOSExpansion())
 		require.NoError(t, err)
 		require.Len(t, result.Configs, 2)
 		assert.Equal(t, "map_slice_value", result.Configs[0]["key"])
@@ -292,7 +292,7 @@ func TestStringFields_SliceOfMaps(t *testing.T) {
 			},
 		}
 
-		result, err := StringFields(ctx, input, WithOSExpansion())
+		result, err := stringFields(ctx, input, withOSExpansion())
 		require.NoError(t, err)
 		require.Len(t, result.Configs, 3)
 		assert.Equal(t, "map_slice_value", result.Configs[0]["key"])
@@ -322,7 +322,7 @@ func TestStringFields_SliceWithNilPointers(t *testing.T) {
 			StringPtrs: []*string{&val1, nil, &val2},
 		}
 
-		result, err := StringFields(ctx, input, WithOSExpansion())
+		result, err := stringFields(ctx, input, withOSExpansion())
 		require.NoError(t, err)
 		require.Len(t, result.StringPtrs, 3)
 		require.NotNil(t, result.StringPtrs[0])
@@ -341,7 +341,7 @@ func TestStringFields_SliceWithNilPointers(t *testing.T) {
 			},
 		}
 
-		result, err := StringFields(ctx, input, WithOSExpansion())
+		result, err := stringFields(ctx, input, withOSExpansion())
 		require.NoError(t, err)
 		require.Len(t, result.StructPtrs, 3)
 		require.NotNil(t, result.StructPtrs[0])
@@ -363,7 +363,7 @@ func TestStringFields_PointerMutation(t *testing.T) {
 		original := "$MUT_VAR"
 		input := S{Token: &original}
 
-		result, err := StringFields(context.Background(), input, WithOSExpansion())
+		result, err := stringFields(context.Background(), input, withOSExpansion())
 		require.NoError(t, err)
 
 		assert.Equal(t, "expanded", *result.Token)
@@ -380,7 +380,7 @@ func TestStringFields_PointerMutation(t *testing.T) {
 		val2 := "${MUT_VAR}"
 		input := S{Items: []*string{&val1, &val2}}
 
-		result, err := StringFields(context.Background(), input, WithOSExpansion())
+		result, err := stringFields(context.Background(), input, withOSExpansion())
 		require.NoError(t, err)
 
 		require.Len(t, result.Items, 2)
@@ -404,7 +404,7 @@ func TestStringFields_PointerMutation(t *testing.T) {
 		input := S{Nested: &Nested{Value: "$MUT_VAR"}}
 		originalValue := input.Nested.Value
 
-		result, err := StringFields(context.Background(), input, WithOSExpansion())
+		result, err := stringFields(context.Background(), input, withOSExpansion())
 		require.NoError(t, err)
 
 		assert.Equal(t, "expanded", result.Nested.Value)
@@ -420,7 +420,7 @@ func TestStringFields_PointerMutation(t *testing.T) {
 		items := []string{"$MUT_VAR", "${MUT_VAR}"}
 		input := S{Items: &items}
 
-		result, err := StringFields(context.Background(), input, WithOSExpansion())
+		result, err := stringFields(context.Background(), input, withOSExpansion())
 		require.NoError(t, err)
 
 		require.NotNil(t, result.Items)
@@ -448,7 +448,7 @@ func TestStringFields_PointerFieldErrors(t *testing.T) {
 	t.Run("PointerToStringWithInvalidCommand", func(t *testing.T) {
 		input := StructWithPointerErrors{StringPtr: new("`invalid_command_xyz123`")}
 
-		_, err := StringFields(ctx, input)
+		_, err := stringFields(ctx, input)
 		assert.Error(t, err)
 	})
 
@@ -457,7 +457,7 @@ func TestStringFields_PointerFieldErrors(t *testing.T) {
 			StructPtr: &Nested{Command: "`invalid_command_xyz123`"},
 		}
 
-		_, err := StringFields(ctx, input)
+		_, err := stringFields(ctx, input)
 		assert.Error(t, err)
 	})
 
@@ -467,7 +467,7 @@ func TestStringFields_PointerFieldErrors(t *testing.T) {
 		}
 		input := StructWithPointerErrors{MapPtr: &mapVal}
 
-		_, err := StringFields(ctx, input)
+		_, err := stringFields(ctx, input)
 		assert.Error(t, err)
 	})
 }
@@ -491,7 +491,7 @@ func TestStringFields_SliceFieldErrors(t *testing.T) {
 			Strings: []string{"valid", "`invalid_command_xyz123`"},
 		}
 
-		_, err := StringFields(ctx, input)
+		_, err := stringFields(ctx, input)
 		assert.Error(t, err)
 	})
 
@@ -503,7 +503,7 @@ func TestStringFields_SliceFieldErrors(t *testing.T) {
 			},
 		}
 
-		_, err := StringFields(ctx, input)
+		_, err := stringFields(ctx, input)
 		assert.Error(t, err)
 	})
 
@@ -514,7 +514,7 @@ func TestStringFields_SliceFieldErrors(t *testing.T) {
 			StringPtrs: []*string{&valid, &invalid},
 		}
 
-		_, err := StringFields(ctx, input)
+		_, err := stringFields(ctx, input)
 		assert.Error(t, err)
 	})
 
@@ -526,7 +526,7 @@ func TestStringFields_SliceFieldErrors(t *testing.T) {
 			},
 		}
 
-		_, err := StringFields(ctx, input)
+		_, err := stringFields(ctx, input)
 		assert.Error(t, err)
 	})
 }
@@ -561,7 +561,7 @@ func TestStringFields_StructWithMapField(t *testing.T) {
 		},
 	}
 
-	got, err := StringFields(ctx, input, WithOSExpansion())
+	got, err := stringFields(ctx, input, withOSExpansion())
 	require.NoError(t, err)
 
 	assert.Equal(t, "env_value", got.Name)
@@ -581,7 +581,7 @@ func TestStringFields_MapNilValues(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	got, err := StringFields(ctx, input)
+	got, err := stringFields(ctx, input)
 	require.NoError(t, err)
 
 	assert.Equal(t, "value", got["string"])

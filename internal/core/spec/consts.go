@@ -4,6 +4,7 @@
 package spec
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -96,7 +97,11 @@ func constEntry(idx int, item any) (string, any, error) {
 func resolveConstValue(key string, value any, consts map[string]any) (any, error) {
 	switch v := value.(type) {
 	case string:
-		resolved, err := cmnvalue.ExpandString(v, cmnvalue.RuntimeScope{Consts: cmnvalue.Values(consts)}, cmnvalue.ModeConstLoad, "consts."+key)
+		resolver := cmnvalue.NewResolver(
+			cmnvalue.StaticScope{Consts: cmnvalue.Values(consts)},
+			cmnvalue.RuntimeScope{Consts: cmnvalue.Values(consts)},
+		)
+		resolved, err := resolver.String(context.Background(), v, cmnvalue.ConstLoadField("consts."+key))
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve const %q: %w", key, err)
 		}
@@ -112,6 +117,7 @@ func resolveConstValue(key string, value any, consts map[string]any) (any, error
 	}
 
 	rv := reflect.ValueOf(value)
+	//nolint:exhaustive // Consts only accept numeric reflect kinds beyond the concrete cases above.
 	switch rv.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:

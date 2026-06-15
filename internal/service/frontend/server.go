@@ -1057,7 +1057,8 @@ func (srv *Server) setupRoutes(ctx context.Context, r *chi.Mux) error {
 }
 
 func evaluateConfiguredBasePath(ctx context.Context, basePath string) string {
-	evaluated, err := cmnvalue.String(ctx, basePath, cmnvalue.WithOSExpansion())
+	resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{}, cmnvalue.RuntimeScope{})
+	evaluated, err := resolver.String(ctx, basePath, cmnvalue.ServerBasePathField("server.base_path"))
 	if err != nil {
 		logger.Warn(ctx, "Failed to evaluate server base path", tag.Path(basePath), tag.Error(err))
 		return basePath

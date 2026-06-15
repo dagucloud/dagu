@@ -570,9 +570,11 @@ func (d *DAG) dotenvEnvScope() *cmnvalue.EnvScope {
 }
 
 func (d *DAG) expandConsts(value, field string) (string, error) {
-	return cmnvalue.ExpandStringContext(context.Background(), value, cmnvalue.RuntimeScope{
-		Consts: cmnvalue.Values(d.Consts),
-	}, cmnvalue.ModeWorkflowValue, field, cmnvalue.WithoutExpandEnv(), cmnvalue.WithoutSubstitute())
+	resolver := cmnvalue.NewResolver(
+		cmnvalue.StaticScope{Consts: cmnvalue.Values(d.Consts)},
+		cmnvalue.RuntimeScope{Consts: cmnvalue.Values(d.Consts)},
+	)
+	return resolver.String(context.Background(), value, cmnvalue.StaticValidationField(field))
 }
 
 // expandDotEnvPath expands a dotenv-related path without mutating the DAG definition.
@@ -593,12 +595,11 @@ func (d *DAG) loadSingleDotEnvFile(ctx context.Context, resolver *fileutil.FileR
 		return
 	}
 
-	expandedPath, err := d.expandConsts(filePath, "dotenv")
-	if err != nil {
-		d.BuildWarnings = append(d.BuildWarnings, fmt.Sprintf("failed to evaluate dotenv path %q: %v", filePath, err))
-		return
-	}
-	evaluatedPath, err := cmnvalue.String(ctx, expandedPath, cmnvalue.WithOSExpansion(), cmnvalue.WithoutSubstitute())
+	valueResolver := cmnvalue.NewResolver(
+		cmnvalue.StaticScope{Consts: cmnvalue.Values(d.Consts)},
+		cmnvalue.RuntimeScope{Consts: cmnvalue.Values(d.Consts), Env: cmnvalue.GetEnvScope(ctx)},
+	)
+	evaluatedPath, err := valueResolver.String(ctx, filePath, cmnvalue.DotenvPathField("dotenv"))
 	if err != nil {
 		d.BuildWarnings = append(d.BuildWarnings, fmt.Sprintf("failed to evaluate dotenv path %q: %v", filePath, err))
 		return
