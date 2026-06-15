@@ -13,10 +13,13 @@ import (
 )
 
 var (
-	ErrDispatchTaskNotFound    = errors.New("dispatch task claim not found")
-	ErrDAGRunLeaseNotFound     = errors.New("dag-run lease not found")
-	ErrActiveRunNotFound       = errors.New("active distributed run not found")
-	ErrWorkerHeartbeatNotFound = errors.New("worker heartbeat not found")
+	ErrDispatchTaskNotFound                   = errors.New("dispatch task claim not found")
+	ErrDispatchAdmissionNotFound              = errors.New("dispatch admission not found")
+	ErrDispatchAdmissionConflict              = errors.New("dispatch admission conflict")
+	ErrDispatchAdmissionLivenessNotConfigured = errors.New("dispatch admission liveness not configured")
+	ErrDAGRunLeaseNotFound                    = errors.New("dag-run lease not found")
+	ErrActiveRunNotFound                      = errors.New("active distributed run not found")
+	ErrWorkerHeartbeatNotFound                = errors.New("worker heartbeat not found")
 )
 
 // CoordinatorEndpoint identifies a coordinator instance that owns a
@@ -64,6 +67,48 @@ type ClaimedDispatchTask struct {
 	WorkerID   string
 	PollerID   string
 	Owner      CoordinatorEndpoint
+}
+
+// DispatchAdmissionRequest describes a queue admission reservation request.
+type DispatchAdmissionRequest struct {
+	QueueName             string
+	MaxConcurrency        int
+	NonAdmissionOccupancy int
+	AttemptKey            string
+	AttemptID             string
+	DAGRun                DAGRunRef
+	StaleThreshold        time.Duration
+}
+
+// DispatchAdmissionRejectReason identifies why a reservation was not granted.
+type DispatchAdmissionRejectReason string
+
+const (
+	DispatchAdmissionRejectedDuplicate  DispatchAdmissionRejectReason = "duplicate"
+	DispatchAdmissionRejectedNoCapacity DispatchAdmissionRejectReason = "no_capacity"
+)
+
+// DispatchAdmissionDecision is the durable queue admission result.
+type DispatchAdmissionDecision struct {
+	Reserved         bool
+	Reason           DispatchAdmissionRejectReason
+	ReservationToken string
+	PendingRecordID  string
+}
+
+// DispatchAdmissionBindRequest describes a coordinator bind for a reservation.
+type DispatchAdmissionBindRequest struct {
+	ReservationToken string
+	Task             *DispatchTask
+}
+
+// DispatchAdmissionStore reserves queue capacity and binds reservations to tasks.
+type DispatchAdmissionStore interface {
+	ReserveAdmission(ctx context.Context, req DispatchAdmissionRequest) (*DispatchAdmissionDecision, error)
+	BindAdmission(ctx context.Context, req DispatchAdmissionBindRequest) error
+	ReleaseAdmissionToken(ctx context.Context, reservationToken string) error
+	FinalizeAdmissionAttempt(ctx context.Context, attemptKey string) error
+	CleanupAdmissions(ctx context.Context, staleThreshold time.Duration) error
 }
 
 // DispatchTaskStore manages the shared distributed dispatch queue.

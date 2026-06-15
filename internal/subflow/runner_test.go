@@ -358,8 +358,8 @@ type cancelRequest struct {
 	root *exec.DAGRunRef
 }
 
-func (m *mockDispatcher) Dispatch(_ context.Context, task *exec.DispatchTask) error {
-	m.dispatches = append(m.dispatches, task)
+func (m *mockDispatcher) Dispatch(_ context.Context, req exec.DispatchRequest) error {
+	m.dispatches = append(m.dispatches, req.Task)
 	return nil
 }
 

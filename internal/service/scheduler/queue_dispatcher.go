@@ -20,38 +20,48 @@ import (
 )
 
 type queueDispatchDeps struct {
-	queueStore          exec.QueueStore
-	dagRunStore         exec.DAGRunStore
-	procStore           exec.ProcStore
-	dagRunLeaseStore    exec.DAGRunLeaseStore
-	dispatchTaskStore   exec.DispatchTaskStore
-	dagExecutor         *DAGExecutor
-	isSuspended         IsSuspendedFunc
-	backoffConfig       BackoffConfig
-	leaseStaleThreshold time.Duration
-	isClosed            func() bool
-	wakeUp              func()
+	queueStore             exec.QueueStore
+	dagRunStore            exec.DAGRunStore
+	procStore              exec.ProcStore
+	dagRunLeaseStore       exec.DAGRunLeaseStore
+	dispatchTaskStore      exec.DispatchTaskStore
+	dispatchAdmissionStore exec.DispatchAdmissionStore
+	dagExecutor            *DAGExecutor
+	isSuspended            IsSuspendedFunc
+	backoffConfig          BackoffConfig
+	leaseStaleThreshold    time.Duration
+	isClosed               func() bool
+	wakeUp                 func()
 }
 
 // queueDispatcher owns queue-item dispatch decisions after a queue has capacity.
 type queueDispatcher struct {
-	queueStore          exec.QueueStore
-	dagRunStore         exec.DAGRunStore
-	procStore           exec.ProcStore
-	dagRunLeaseStore    exec.DAGRunLeaseStore
-	dispatchTaskStore   exec.DispatchTaskStore
-	dagExecutor         *DAGExecutor
-	isSuspended         IsSuspendedFunc
-	backoffConfig       BackoffConfig
-	leaseStaleThreshold time.Duration
-	isClosed            func() bool
-	wakeUp              func()
+	queueStore             exec.QueueStore
+	dagRunStore            exec.DAGRunStore
+	procStore              exec.ProcStore
+	dagRunLeaseStore       exec.DAGRunLeaseStore
+	dispatchTaskStore      exec.DispatchTaskStore
+	dispatchAdmissionStore exec.DispatchAdmissionStore
+	dagExecutor            *DAGExecutor
+	isSuspended            IsSuspendedFunc
+	backoffConfig          BackoffConfig
+	leaseStaleThreshold    time.Duration
+	isClosed               func() bool
+	wakeUp                 func()
 }
 
 type queueDispatchBatch struct {
-	items          []exec.QueuedItemData
-	maxConcurrency int
-	aliveCount     int
+	items                 []exec.QueuedItemData
+	maxConcurrency        int
+	aliveCount            int
+	nonAdmissionOccupancy int
+}
+
+type dispatchAdmissionInput struct {
+	status                *exec.DAGRunStatus
+	maxConcurrency        int
+	nonAdmissionOccupancy int
+	leaseStaleThreshold   time.Duration
 }
 
 func newQueueDispatcher(deps queueDispatchDeps) *queueDispatcher {
@@ -65,17 +75,18 @@ func newQueueDispatcher(deps queueDispatchDeps) *queueDispatcher {
 		deps.wakeUp = func() {}
 	}
 	return &queueDispatcher{
-		queueStore:          deps.queueStore,
-		dagRunStore:         deps.dagRunStore,
-		procStore:           deps.procStore,
-		dagRunLeaseStore:    deps.dagRunLeaseStore,
-		dispatchTaskStore:   deps.dispatchTaskStore,
-		dagExecutor:         deps.dagExecutor,
-		isSuspended:         deps.isSuspended,
-		backoffConfig:       deps.backoffConfig,
-		leaseStaleThreshold: deps.leaseStaleThreshold,
-		isClosed:            deps.isClosed,
-		wakeUp:              deps.wakeUp,
+		queueStore:             deps.queueStore,
+		dagRunStore:            deps.dagRunStore,
+		procStore:              deps.procStore,
+		dagRunLeaseStore:       deps.dagRunLeaseStore,
+		dispatchTaskStore:      deps.dispatchTaskStore,
+		dispatchAdmissionStore: deps.dispatchAdmissionStore,
+		dagExecutor:            deps.dagExecutor,
+		isSuspended:            deps.isSuspended,
+		backoffConfig:          deps.backoffConfig,
+		leaseStaleThreshold:    deps.leaseStaleThreshold,
+		isClosed:               deps.isClosed,
+		wakeUp:                 deps.wakeUp,
 	}
 }
 
@@ -97,12 +108,16 @@ func (d *queueDispatcher) selectDispatchBatch(
 		logger.Error(ctx, "Failed to count distributed leases", tag.Error(err), tag.Queue(queueName))
 		return queueDispatchBatch{}, fmt.Errorf("count distributed leases: %w", err)
 	}
-	outstandingDispatchCount, err := d.countOutstandingDispatchReservations(ctx, queueName)
-	if err != nil {
-		logger.Error(ctx, "Failed to count outstanding distributed dispatch reservations", tag.Error(err), tag.Queue(queueName))
-		return queueDispatchBatch{}, fmt.Errorf("count outstanding distributed dispatch reservations: %w", err)
-	}
 	aliveCount := localAliveCount + distributedAliveCount
+	outstandingDispatchCount := 0
+	if d.dispatchAdmissionStore == nil {
+		outstandingDispatchCount, err = d.countOutstandingDispatchReservations(ctx, queueName)
+		if err != nil {
+			logger.Error(ctx, "Failed to count outstanding distributed dispatch reservations", tag.Error(err), tag.Queue(queueName))
+			return queueDispatchBatch{}, fmt.Errorf("count outstanding distributed dispatch reservations: %w", err)
+		}
+	}
+	nonAdmissionOccupancy := localAliveCount + inflightCount
 	freeSlots := maxConcurrency - aliveCount - inflightCount - outstandingDispatchCount
 
 	logger.Debug(ctx, "Queue capacity check",
@@ -131,13 +146,21 @@ func (d *queueDispatcher) selectDispatchBatch(
 	}
 
 	return queueDispatchBatch{
-		items:          runnableItems,
-		maxConcurrency: maxConcurrency,
-		aliveCount:     aliveCount,
+		items:                 runnableItems,
+		maxConcurrency:        maxConcurrency,
+		aliveCount:            aliveCount,
+		nonAdmissionOccupancy: nonAdmissionOccupancy,
 	}, nil
 }
 
-func (d *queueDispatcher) dispatchQueuedItem(ctx context.Context, item exec.QueuedItemData, queueName string, incInflight, decInflight func()) bool {
+func (d *queueDispatcher) dispatchQueuedItem(
+	ctx context.Context,
+	item exec.QueuedItemData,
+	queueName string,
+	batch queueDispatchBatch,
+	incInflight,
+	decInflight func(),
+) bool {
 	if d.isClosed() {
 		return false
 	}
@@ -219,7 +242,16 @@ func (d *queueDispatcher) dispatchQueuedItem(ctx context.Context, item exec.Queu
 	defer decInflight()
 
 	if d.dagExecutor.IsDistributed(dag) {
-		return d.dispatchAndWaitForStartup(ctx, queueName, runRef, dag, runID, status)
+		token, reserved := d.reserveDistributedAdmission(ctx, queueName, runRef, attempt, dispatchAdmissionInput{
+			status:                status,
+			maxConcurrency:        batch.maxConcurrency,
+			nonAdmissionOccupancy: batch.nonAdmissionOccupancy,
+			leaseStaleThreshold:   d.leaseStaleThresholdOrDefault(),
+		})
+		if !reserved {
+			return false
+		}
+		return d.dispatchAndWaitForStartup(ctx, queueName, runRef, dag, runID, status, token)
 	}
 
 	execErrCh := make(chan error, 1)
@@ -309,6 +341,7 @@ func (d *queueDispatcher) dispatchAndWaitForStartup(
 	dag *core.DAG,
 	runID string,
 	dagStatus *exec.DAGRunStatus,
+	admissionReservationToken string,
 ) bool {
 	policy := backoff.NewExponentialBackoffPolicy(d.backoffConfig.InitialInterval)
 	policy.MaxInterval = d.backoffConfig.MaxInterval
@@ -325,8 +358,8 @@ func (d *queueDispatcher) dispatchAndWaitForStartup(
 		}
 
 		if !dispatched {
-			err := d.dagExecutor.ExecuteDAG(ctx, dag, exec.DispatchOperationRetry,
-				runID, dagStatus, dagStatus.TriggerType, dagStatus.ScheduleTime)
+			err := d.dagExecutor.ExecuteDAGWithAdmission(ctx, dag, exec.DispatchOperationRetry,
+				runID, dagStatus, dagStatus.TriggerType, dagStatus.ScheduleTime, admissionReservationToken)
 			if err != nil {
 				var staleErr *exec.StaleQueueDispatchError
 				if errors.As(err, &staleErr) {
@@ -350,6 +383,7 @@ func (d *queueDispatcher) dispatchAndWaitForStartup(
 	}
 
 	if err := backoff.Retry(retryCtx, operation, policy, nil); err != nil {
+		d.releaseAdmissionToken(ctx, admissionReservationToken)
 		var staleErr *exec.StaleQueueDispatchError
 		if errors.As(err, &staleErr) {
 			logger.Info(ctx, "Discarding stale distributed queue dispatch",
@@ -365,6 +399,78 @@ func (d *queueDispatcher) dispatchAndWaitForStartup(
 
 	defer d.wakeUp()
 	return started
+}
+
+func (d *queueDispatcher) reserveDistributedAdmission(
+	ctx context.Context,
+	queueName string,
+	runRef exec.DAGRunRef,
+	attempt exec.DAGRunAttempt,
+	input dispatchAdmissionInput,
+) (string, bool) {
+	if d.dispatchAdmissionStore == nil {
+		return "", true
+	}
+	if input.status == nil {
+		return "", false
+	}
+	attemptID := input.status.AttemptID
+	if attemptID == "" && attempt != nil {
+		attemptID = attempt.ID()
+	}
+	attemptKey := queueAttemptKey(runRef, attempt, input.status)
+	if attemptKey == "" || attemptID == "" {
+		logger.Warn(ctx, "Skipping distributed queue dispatch because admission identity is incomplete",
+			tag.RunID(runRef.ID),
+			tag.Queue(queueName),
+		)
+		return "", false
+	}
+	decision, err := d.dispatchAdmissionStore.ReserveAdmission(ctx, exec.DispatchAdmissionRequest{
+		QueueName:             queueName,
+		MaxConcurrency:        input.maxConcurrency,
+		NonAdmissionOccupancy: input.nonAdmissionOccupancy,
+		AttemptKey:            attemptKey,
+		AttemptID:             attemptID,
+		DAGRun:                runRef,
+		StaleThreshold:        input.leaseStaleThreshold,
+	})
+	if err != nil {
+		logger.Error(ctx, "Failed to reserve distributed queue admission",
+			tag.Error(err),
+			tag.RunID(runRef.ID),
+			tag.Queue(queueName),
+		)
+		return "", false
+	}
+	if decision == nil || !decision.Reserved {
+		reason := ""
+		if decision != nil {
+			reason = string(decision.Reason)
+		}
+		logger.Debug(ctx, "Distributed queue admission rejected",
+			tag.RunID(runRef.ID),
+			tag.Queue(queueName),
+			slog.String("reason", reason),
+		)
+		return "", false
+	}
+	return decision.ReservationToken, true
+}
+
+func (d *queueDispatcher) releaseAdmissionToken(ctx context.Context, token string) {
+	if token == "" || d.dispatchAdmissionStore == nil {
+		return
+	}
+	err := d.dispatchAdmissionStore.ReleaseAdmissionToken(context.WithoutCancel(ctx), token)
+	if err == nil ||
+		errors.Is(err, exec.ErrDispatchAdmissionConflict) ||
+		errors.Is(err, exec.ErrDispatchAdmissionNotFound) {
+		return
+	}
+	logger.Warn(ctx, "Failed to release distributed queue admission reservation",
+		tag.Error(err),
+	)
 }
 
 func (d *queueDispatcher) waitForStartup(ctx context.Context, queueName string, runRef exec.DAGRunRef, waitState startupWaitState) bool {
@@ -490,7 +596,7 @@ func (d *queueDispatcher) selectRunnableQueueItems(
 			logger.Error(ctx, "Failed to get item data while selecting runnable queue items", tag.Error(err))
 			continue
 		}
-		if d.dispatchTaskStore != nil {
+		if d.dispatchAdmissionStore == nil && d.dispatchTaskStore != nil {
 			reserved, err := d.hasOutstandingDispatchReservation(ctx, *runRef)
 			if err != nil {
 				return nil, err

@@ -344,7 +344,10 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	qs := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
 	stateStore := store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir))
 	sm := file.NewServiceRegistry(cfg)
-	dispatchTaskStore := store.NewDispatchTaskStore(file.NewCollection(distributedDir))
+	dispatchTaskStore := store.NewDispatchTaskStore(
+		file.NewCollection(distributedDir),
+		store.WithDispatchAdmissionLiveness(dagRunLeaseStore, activeDistributedRunStore),
+	)
 	workerHeartbeatStore := store.NewWorkerHeartbeatStore(file.NewCollection(filepath.Join(distributedDir, "workers")))
 	dagStore, err := cmdprocess.NewDAGStore(cfg, cmdprocess.DAGStoreConfig{})
 	if err != nil {

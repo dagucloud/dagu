@@ -436,6 +436,47 @@ func TestQueueProcessor_StaleOutstandingDispatchReservationsExpire(t *testing.T)
 	assert.Empty(t, pendingEntries)
 }
 
+func TestQueueDispatcher_DistributedDispatchReservesAdmissionToken(t *testing.T) {
+	f := newQueueFixture(t).withDAG("distributed-admission-dag", 1)
+	f.enqueueRuns(1)
+
+	activeStore := store.NewActiveDistributedRunStore(file.NewCollection(filepath.Join(f.distributedDir, "active-runs")))
+	dispatchStore := store.NewDispatchTaskStore(
+		file.NewCollection(f.distributedDir),
+		store.WithDispatchAdmissionLiveness(f.leaseStore, activeStore),
+	)
+
+	items, err := f.queueStore.List(f.ctx, f.dag.Name)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+
+	runRef := exec.NewDAGRunRef(f.dag.Name, "run-1")
+	procStore := &mockProcStore{}
+	procStore.On("IsRunAlive", mock.Anything, f.dag.Name, runRef).Return(false, nil).Once()
+	procStore.On("IsRunAlive", mock.Anything, f.dag.Name, runRef).Return(true, nil).Once()
+	dispatcher := &mockDispatcher{}
+
+	queueDispatcher := newQueueDispatcher(queueDispatchDeps{
+		queueStore:             f.queueStore,
+		dagRunStore:            f.dagRunStore,
+		procStore:              procStore,
+		dagRunLeaseStore:       f.leaseStore,
+		dispatchTaskStore:      dispatchStore,
+		dispatchAdmissionStore: dispatchStore,
+		dagExecutor:            NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, "", nil),
+		backoffConfig:          BackoffConfig{InitialInterval: 10 * time.Millisecond, MaxInterval: 50 * time.Millisecond, MaxRetries: 2, StartupGracePeriod: time.Second},
+		leaseStaleThreshold:    time.Minute,
+	})
+
+	dispatched := queueDispatcher.dispatchQueuedItem(f.ctx, items[0], f.dag.Name, queueDispatchBatch{
+		maxConcurrency:        1,
+		nonAdmissionOccupancy: 0,
+	}, func() {}, func() {})
+	require.True(t, dispatched)
+	assert.NotEmpty(t, dispatcher.LastRequest().AdmissionReservationToken)
+	procStore.AssertExpectations(t)
+}
+
 func TestQueueProcessor_SuspendedSchedulerManagedQueuedRunsAreAbortedAndDequeued(t *testing.T) {
 	triggers := []core.TriggerType{
 		core.TriggerTypeScheduler,
@@ -502,7 +543,10 @@ func TestQueueProcessor_SuspendedManualQueuedRunStillDispatches(t *testing.T) {
 		},
 	})
 
-	dispatched := queueDispatcher.dispatchQueuedItem(f.ctx, items[0], dagName, func() {}, func() {})
+	dispatched := queueDispatcher.dispatchQueuedItem(f.ctx, items[0], dagName, queueDispatchBatch{
+		maxConcurrency:        1,
+		nonAdmissionOccupancy: 0,
+	}, func() {}, func() {})
 	require.True(t, dispatched)
 	assert.Equal(t, int32(1), dispatcher.callCount.Load())
 

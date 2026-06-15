@@ -160,10 +160,10 @@ func TestDAGExecutor_DistributedRetryUsesPreviousStatusParamsList(t *testing.T) 
 		"",
 	)
 	require.NoError(t, err)
-	require.NotNil(t, dispatcher.task)
-	require.Empty(t, dispatcher.task.Params)
-	require.NotNil(t, dispatcher.task.PreviousStatus)
-	require.Equal(t, previousStatus.ParamsList, dispatcher.task.PreviousStatus.ParamsList)
+	require.NotNil(t, dispatcher.req.Task)
+	require.Empty(t, dispatcher.req.Task.Params)
+	require.NotNil(t, dispatcher.req.Task.PreviousStatus)
+	require.Equal(t, previousStatus.ParamsList, dispatcher.req.Task.PreviousStatus.ParamsList)
 }
 
 func TestDAGExecutor_DistributedRetryPassesLegacyQueuedParams(t *testing.T) {
@@ -190,17 +190,42 @@ func TestDAGExecutor_DistributedRetryPassesLegacyQueuedParams(t *testing.T) {
 		"",
 	)
 	require.NoError(t, err)
-	require.NotNil(t, dispatcher.task)
-	require.Equal(t, "content_hash=sha256:abc123", dispatcher.task.Params)
-	require.NotNil(t, dispatcher.task.PreviousStatus)
+	require.NotNil(t, dispatcher.req.Task)
+	require.Equal(t, "content_hash=sha256:abc123", dispatcher.req.Task.Params)
+	require.NotNil(t, dispatcher.req.Task.PreviousStatus)
+}
+
+func TestDAGExecutor_DistributedRetryCarriesAdmissionReservationToken(t *testing.T) {
+	dispatcher := &capturingDispatcher{}
+	dagExecutor := scheduler.NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, "", nil)
+
+	dag := &core.DAG{
+		Name:           "admitted-dag",
+		YamlData:       []byte("name: admitted-dag\n"),
+		WorkerSelector: map[string]string{"type": "test-worker"},
+	}
+
+	err := dagExecutor.ExecuteDAGWithAdmission(
+		context.Background(),
+		dag,
+		exec.DispatchOperationRetry,
+		"admitted-run",
+		&exec.DAGRunStatus{Status: core.Queued},
+		core.TriggerTypeManual,
+		"",
+		"reservation-token-a",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, dispatcher.req.Task)
+	require.Equal(t, "reservation-token-a", dispatcher.req.AdmissionReservationToken)
 }
 
 type capturingDispatcher struct {
-	task *exec.DispatchTask
+	req exec.DispatchRequest
 }
 
-func (d *capturingDispatcher) Dispatch(_ context.Context, task *exec.DispatchTask) error {
-	d.task = task
+func (d *capturingDispatcher) Dispatch(_ context.Context, req exec.DispatchRequest) error {
+	d.req = req
 	return nil
 }
 

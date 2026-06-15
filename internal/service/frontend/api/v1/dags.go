@@ -1446,7 +1446,7 @@ func (a *API) dispatchStartToCoordinator(ctx context.Context, dag *core.DAG, dag
 		taskOpts...,
 	)
 
-	if err := a.coordinatorCli.Dispatch(ctx, task); err != nil {
+	if err := a.coordinatorCli.Dispatch(ctx, exec.DispatchRequest{Task: task}); err != nil {
 		return fmt.Errorf("error dispatching to coordinator: %w", err)
 	}
 

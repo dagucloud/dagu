@@ -330,6 +330,9 @@ func (s *Scheduler) SetDispatchTaskStore(store exec.DispatchTaskStore) {
 		return
 	}
 	s.queueProcessor.dispatchTaskStore = store
+	if admissionStore, ok := store.(exec.DispatchAdmissionStore); ok {
+		s.queueProcessor.dispatchAdmissionStore = admissionStore
+	}
 }
 
 // SetRestartFunc overrides the planner's restart function for testing purposes.

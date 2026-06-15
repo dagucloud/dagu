@@ -857,7 +857,7 @@ func (a *API) dispatchEditRetry(ctx context.Context, dag *core.DAG, status *exec
 		status.DAGRunID,
 		opts...,
 	)
-	if err := a.coordinatorCli.Dispatch(ctx, task); err != nil {
+	if err := a.coordinatorCli.Dispatch(ctx, exec.DispatchRequest{Task: task}); err != nil {
 		return fmt.Errorf("error dispatching edit retry to coordinator: %w", err)
 	}
 	return nil

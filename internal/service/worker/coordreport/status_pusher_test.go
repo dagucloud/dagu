@@ -38,7 +38,7 @@ func (m *mockCoordinatorClient) ReportStatus(ctx context.Context, req *coordinat
 }
 
 // Stub methods for interface compliance - panic if called unexpectedly
-func (m *mockCoordinatorClient) Dispatch(_ context.Context, _ *exec.DispatchTask) error {
+func (m *mockCoordinatorClient) Dispatch(_ context.Context, _ exec.DispatchRequest) error {
 	panic("Dispatch not implemented in mock")
 }
 

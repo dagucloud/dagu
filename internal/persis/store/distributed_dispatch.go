@@ -40,6 +40,7 @@ var (
 const dispatchNoMatchCacheLimit = 1024
 
 var _ exec.DispatchTaskStore = (*DispatchTaskStore)(nil)
+var _ exec.DispatchAdmissionStore = (*DispatchTaskStore)(nil)
 
 // DispatchTaskStoreOption configures a DispatchTaskStore.
 type DispatchTaskStoreOption func(*DispatchTaskStore)
@@ -51,6 +52,8 @@ type DispatchTaskStoreOption func(*DispatchTaskStore)
 type DispatchTaskStore struct {
 	col                      persis.Collection
 	reservationTTL           time.Duration
+	admissionLeaseStore      exec.DAGRunLeaseStore
+	admissionActiveRunStore  exec.ActiveDistributedRunStore
 	lastReservationCleanupAt time.Time
 	index                    *dispatchTaskIndex
 	// mu serializes the in-process recycle+scan+claim sequence;
@@ -76,20 +79,22 @@ type dispatchTaskIndexEntry struct {
 	hasTask        bool
 	enqueuedAt     int64
 	claimedAt      int64
+	admissionToken string
 	createdAt      time.Time
 	updatedAt      time.Time
 }
 
 type dispatchTaskPayload struct {
-	Version      int                      `json:"version"`
-	Task         *exec.DispatchTask       `json:"task"`
-	TaskFileName string                   `json:"taskFileName"`
-	EnqueuedAt   int64                    `json:"enqueuedAt"`
-	ClaimToken   string                   `json:"claimToken,omitempty"`
-	ClaimedAt    int64                    `json:"claimedAt,omitempty"`
-	WorkerID     string                   `json:"workerId,omitempty"`
-	PollerID     string                   `json:"pollerId,omitempty"`
-	Owner        exec.CoordinatorEndpoint `json:"owner,omitzero"`
+	Version                   int                      `json:"version"`
+	Task                      *exec.DispatchTask       `json:"task"`
+	TaskFileName              string                   `json:"taskFileName"`
+	EnqueuedAt                int64                    `json:"enqueuedAt"`
+	ClaimToken                string                   `json:"claimToken,omitempty"`
+	ClaimedAt                 int64                    `json:"claimedAt,omitempty"`
+	WorkerID                  string                   `json:"workerId,omitempty"`
+	PollerID                  string                   `json:"pollerId,omitempty"`
+	Owner                     exec.CoordinatorEndpoint `json:"owner,omitzero"`
+	AdmissionReservationToken string                   `json:"admissionReservationToken,omitempty"`
 }
 
 type legacyDAGRunStatusProto struct {
@@ -304,13 +309,14 @@ func (idx *dispatchTaskIndex) hasNoMatch(labels map[string]string) bool {
 
 func dispatchTaskIndexEntryFromRecord(rec *persis.Record, payload dispatchTaskPayload) dispatchTaskIndexEntry {
 	entry := dispatchTaskIndexEntry{
-		id:           rec.ID,
-		taskFileName: payload.TaskFileName,
-		claimToken:   payload.ClaimToken,
-		enqueuedAt:   payload.EnqueuedAt,
-		claimedAt:    payload.ClaimedAt,
-		createdAt:    rec.CreatedAt,
-		updatedAt:    rec.UpdatedAt,
+		id:             rec.ID,
+		taskFileName:   payload.TaskFileName,
+		claimToken:     payload.ClaimToken,
+		enqueuedAt:     payload.EnqueuedAt,
+		claimedAt:      payload.ClaimedAt,
+		admissionToken: payload.AdmissionReservationToken,
+		createdAt:      rec.CreatedAt,
+		updatedAt:      rec.UpdatedAt,
 	}
 	if payload.Task != nil {
 		entry.hasTask = true
@@ -348,6 +354,18 @@ func dispatchClaimLabelsKey(labels map[string]string) string {
 func WithDispatchReservationTTL(ttl time.Duration) DispatchTaskStoreOption {
 	return func(store *DispatchTaskStore) {
 		store.reservationTTL = normalizeDispatchReservationTTL(ttl)
+	}
+}
+
+// WithDispatchAdmissionLiveness enables admission cleanup against shared
+// distributed liveness stores.
+func WithDispatchAdmissionLiveness(
+	leaseStore exec.DAGRunLeaseStore,
+	activeRunStore exec.ActiveDistributedRunStore,
+) DispatchTaskStoreOption {
+	return func(store *DispatchTaskStore) {
+		store.admissionLeaseStore = leaseStore
+		store.admissionActiveRunStore = activeRunStore
 	}
 }
 
