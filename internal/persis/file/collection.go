@@ -199,6 +199,25 @@ func (c *Collection) RecordVersion(_ context.Context, id string) (string, error)
 	return fmt.Sprintf("%d/%d", info.ModTime().UTC().UnixNano(), info.Size()), nil
 }
 
+// RecordNamespaceVersion returns a cheap version token for a record ID prefix.
+func (c *Collection) RecordNamespaceVersion(_ context.Context, prefix string) (string, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	path, err := c.namespacePath(prefix)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "missing:" + prefix, nil
+		}
+		return "", err
+	}
+	return fmt.Sprintf("%d/%d/%t", info.ModTime().UTC().UnixNano(), info.Size(), info.IsDir()), nil
+}
+
 // WithLock runs fn while holding a cross-process lock scoped to key.
 func (c *Collection) WithLock(ctx context.Context, key string, fn func() error) error {
 	lockDir, err := c.lockDir(key)
@@ -298,6 +317,10 @@ func (c *Collection) filePath(id string) (string, error) {
 	return pathUnderRoot(c.dir, id, "record ID")
 }
 
+func (c *Collection) namespacePath(prefix string) (string, error) {
+	return pathPrefixUnderRoot(c.dir, prefix, "record prefix")
+}
+
 func (c *Collection) lockDir(key string) (string, error) {
 	if key == "" {
 		return c.dir, nil
@@ -315,6 +338,20 @@ func pathUnderRoot(root, id, kind string) (string, error) {
 	rel, err := filepath.Rel(base, full)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("file backend: %s %q escapes collection root", kind, id)
+	}
+	return full, nil
+}
+
+func pathPrefixUnderRoot(root, prefix, kind string) (string, error) {
+	base := filepath.Clean(root)
+	trimmed := strings.Trim(prefix, "/")
+	if trimmed == "" {
+		return base, nil
+	}
+	full := filepath.Clean(filepath.Join(base, filepath.FromSlash(trimmed)))
+	rel, err := filepath.Rel(base, full)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("file backend: %s %q escapes collection root", kind, prefix)
 	}
 	return full, nil
 }

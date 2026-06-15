@@ -28,11 +28,17 @@ const (
 	defaultDispatchReservationTTL = exec.DefaultStaleLeaseThreshold
 	minDispatchCleanupInterval    = 100 * time.Millisecond
 	maxDispatchCleanupInterval    = time.Second
-	dispatchIndexValidationWindow = 250 * time.Millisecond
 
 	dispatchPendingPrefix = "pending/"
 	dispatchClaimsPrefix  = "claims/"
 )
+
+var (
+	dispatchIndexValidationWindow       = 250 * time.Millisecond
+	dispatchIndexFullValidationInterval = 30 * time.Second
+)
+
+const dispatchNoMatchCacheLimit = 1024
 
 var _ exec.DispatchTaskStore = (*DispatchTaskStore)(nil)
 
@@ -54,11 +60,13 @@ type DispatchTaskStore struct {
 }
 
 type dispatchTaskIndex struct {
-	pending     map[string]dispatchTaskIndexEntry
-	pendingIDs  []string
-	claims      map[string]dispatchTaskIndexEntry
-	noMatch     map[string]struct{}
-	validatedAt time.Time
+	pending           map[string]dispatchTaskIndexEntry
+	pendingIDs        []string
+	claims            map[string]dispatchTaskIndexEntry
+	noMatch           map[string]struct{}
+	namespaceVersions map[string]string
+	validatedAt       time.Time
+	fullValidatedAt   time.Time
 }
 
 type dispatchTaskIndexEntry struct {
@@ -138,9 +146,10 @@ var legacyDispatchTaskJSONMarkers = func() [][]byte {
 
 func newDispatchTaskIndex() *dispatchTaskIndex {
 	return &dispatchTaskIndex{
-		pending: make(map[string]dispatchTaskIndexEntry),
-		claims:  make(map[string]dispatchTaskIndexEntry),
-		noMatch: make(map[string]struct{}),
+		pending:           make(map[string]dispatchTaskIndexEntry),
+		claims:            make(map[string]dispatchTaskIndexEntry),
+		noMatch:           make(map[string]struct{}),
+		namespaceVersions: make(map[string]string, 2),
 	}
 }
 
@@ -261,7 +270,11 @@ func (idx *dispatchTaskIndex) rememberNoMatch(labels map[string]string) {
 	if idx == nil {
 		return
 	}
-	idx.noMatch[dispatchClaimLabelsKey(labels)] = struct{}{}
+	key := dispatchClaimLabelsKey(labels)
+	if _, ok := idx.noMatch[key]; !ok && len(idx.noMatch) >= dispatchNoMatchCacheLimit {
+		clear(idx.noMatch)
+	}
+	idx.noMatch[key] = struct{}{}
 }
 
 func (idx *dispatchTaskIndex) hasNoMatch(labels map[string]string) bool {
@@ -270,6 +283,28 @@ func (idx *dispatchTaskIndex) hasNoMatch(labels map[string]string) bool {
 	}
 	_, ok := idx.noMatch[dispatchClaimLabelsKey(labels)]
 	return ok
+}
+
+func (idx *dispatchTaskIndex) namespaceVersionsMatch(versions map[string]string) bool {
+	if idx == nil || len(versions) == 0 || len(idx.namespaceVersions) == 0 {
+		return false
+	}
+	for prefix, version := range versions {
+		if idx.namespaceVersions[prefix] != version {
+			return false
+		}
+	}
+	return true
+}
+
+func (idx *dispatchTaskIndex) setNamespaceVersions(versions map[string]string) {
+	if idx == nil || len(versions) == 0 {
+		return
+	}
+	clear(idx.namespaceVersions)
+	for prefix, version := range versions {
+		idx.namespaceVersions[prefix] = version
+	}
 }
 
 func dispatchTaskIndexEntryFromRecord(rec *persis.Record, payload dispatchTaskPayload) dispatchTaskIndexEntry {
@@ -355,6 +390,30 @@ func (s *DispatchTaskStore) ensureDispatchIndexForOutstandingQuery(ctx context.C
 	return s.validateDispatchIndex(ctx, true)
 }
 
+type recordNamespaceVersionCollection interface {
+	RecordNamespaceVersion(ctx context.Context, prefix string) (string, error)
+}
+
+func (s *DispatchTaskStore) dispatchNamespaceVersions(ctx context.Context) (map[string]string, bool, error) {
+	versionCol, ok := s.col.(recordNamespaceVersionCollection)
+	if !ok {
+		return nil, false, nil
+	}
+
+	pendingVersion, err := versionCol.RecordNamespaceVersion(ctx, dispatchPendingPrefix)
+	if err != nil {
+		return nil, false, err
+	}
+	claimsVersion, err := versionCol.RecordNamespaceVersion(ctx, dispatchClaimsPrefix)
+	if err != nil {
+		return nil, false, err
+	}
+	return map[string]string{
+		dispatchPendingPrefix: pendingVersion,
+		dispatchClaimsPrefix:  claimsVersion,
+	}, true, nil
+}
+
 func (s *DispatchTaskStore) rebuildDispatchIndex(ctx context.Context) error {
 	idx := newDispatchTaskIndex()
 	pendingRecs, err := s.listDispatchRecords(ctx, dispatchPendingPrefix)
@@ -381,7 +440,12 @@ func (s *DispatchTaskStore) rebuildDispatchIndex(ctx context.Context) error {
 		}
 		idx.claims[rec.ID] = dispatchTaskIndexEntryFromRecord(rec, payload)
 	}
-	idx.validatedAt = time.Now().UTC()
+	if versions, ok, _ := s.dispatchNamespaceVersions(ctx); ok {
+		idx.setNamespaceVersions(versions)
+	}
+	now := time.Now().UTC()
+	idx.validatedAt = now
+	idx.fullValidatedAt = now
 	s.index = idx
 	return nil
 }
@@ -394,21 +458,54 @@ func (s *DispatchTaskStore) validateDispatchIndex(ctx context.Context, validateP
 	if !s.index.validatedAt.IsZero() && now.Sub(s.index.validatedAt) < dispatchIndexValidationWindow {
 		return nil
 	}
+
+	fullValidationDue := s.index.fullValidatedAt.IsZero() ||
+		now.Sub(s.index.fullValidatedAt) >= dispatchIndexFullValidationInterval
+	namespaceSupported := false
+	if !fullValidationDue {
+		if versions, ok, _ := s.dispatchNamespaceVersions(ctx); ok {
+			namespaceSupported = true
+			if s.index.namespaceVersionsMatch(versions) {
+				if validatePendingPayloadVersions {
+					if err := s.validatePendingRecordVersions(ctx); err != nil {
+						return err
+					}
+					if err := s.validateClaimRecordVersions(ctx); err != nil {
+						return err
+					}
+				}
+				s.index.setNamespaceVersions(versions)
+				s.index.validatedAt = time.Now().UTC()
+				return nil
+			}
+		}
+	}
+
 	if err := s.validateDispatchIndexIDs(ctx, dispatchPendingPrefix, s.index.pending); err != nil {
 		return err
 	}
 	if err := s.validateDispatchIndexIDs(ctx, dispatchClaimsPrefix, s.index.claims); err != nil {
 		return err
 	}
-	if validatePendingPayloadVersions {
+	validatePayloadVersions := validatePendingPayloadVersions || fullValidationDue
+	if validatePayloadVersions {
 		if err := s.validatePendingRecordVersions(ctx); err != nil {
 			return err
 		}
 	}
-	if err := s.validateClaimRecordVersions(ctx); err != nil {
-		return err
+	if validatePayloadVersions || !namespaceSupported {
+		if err := s.validateClaimRecordVersions(ctx); err != nil {
+			return err
+		}
 	}
-	s.index.validatedAt = now
+	if versions, ok, _ := s.dispatchNamespaceVersions(ctx); ok {
+		s.index.setNamespaceVersions(versions)
+	}
+	finishedAt := time.Now().UTC()
+	s.index.validatedAt = finishedAt
+	if fullValidationDue {
+		s.index.fullValidatedAt = finishedAt
+	}
 	return nil
 }
 

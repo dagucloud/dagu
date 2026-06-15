@@ -791,6 +791,282 @@ func TestDispatchTaskStore_RepeatedNoMatchDoesNotRereadPendingRecords(t *testing
 	assert.LessOrEqual(t, col.GetCount(), int64(1), "repeated no-match claims should use indexed metadata instead of reading every pending record")
 }
 
+func TestDispatchTaskStore_SlowValidationRefreshesWindowAfterFinish(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	col := newCountingRecordIDsCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+	col.SetRecordIDsDelay(275 * time.Millisecond)
+	s := store.NewDispatchTaskStore(col)
+
+	for i := range 3 {
+		require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
+			DAGRunID:       "run-slow-validation-" + string(rune('a'+i)),
+			Target:         "dag-slow-validation",
+			AttemptID:      "attempt-slow-validation",
+			AttemptKey:     "attempt-key-slow-validation-" + string(rune('a'+i)),
+			WorkerSelector: map[string]string{"type": "gpu"},
+		}))
+	}
+
+	claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		WorkerID: "worker-cpu",
+		PollerID: "poller-cpu",
+		Labels:   map[string]string{"type": "cpu"},
+		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
+	})
+	require.NoError(t, err)
+	require.Nil(t, claimed)
+
+	claimed, err = s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		WorkerID: "worker-cpu",
+		PollerID: "poller-cpu",
+		Labels:   map[string]string{"type": "cpu"},
+		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
+	})
+	require.NoError(t, err)
+	require.Nil(t, claimed)
+
+	assert.LessOrEqual(t, col.RecordIDsCount(), int64(2), "a slow validation should refresh the throttling window after it finishes")
+}
+
+func TestDispatchTaskStore_ClaimNextUsesNamespaceVersionFastPath(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	col := newNamespaceVersionCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+	s := store.NewDispatchTaskStore(col)
+
+	for i := range 8 {
+		require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
+			DAGRunID:       "run-namespace-no-match-" + string(rune('a'+i)),
+			Target:         "dag-namespace-no-match",
+			AttemptID:      "attempt-namespace-no-match",
+			AttemptKey:     "attempt-key-namespace-no-match-" + string(rune('a'+i)),
+			WorkerSelector: map[string]string{"type": "gpu"},
+		}))
+	}
+
+	claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		WorkerID: "worker-cpu",
+		PollerID: "poller-cpu",
+		Labels:   map[string]string{"type": "cpu"},
+		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
+	})
+	require.NoError(t, err)
+	require.Nil(t, claimed)
+
+	col.Reset()
+	waitDispatchIndexValidationWindow()
+
+	claimed, err = s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		WorkerID: "worker-cpu",
+		PollerID: "poller-cpu",
+		Labels:   map[string]string{"type": "cpu"},
+		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
+	})
+	require.NoError(t, err)
+	require.Nil(t, claimed)
+
+	assert.Zero(t, col.RecordIDsCount(), "unchanged namespace versions should avoid pending/claim ID walks")
+	assert.GreaterOrEqual(t, col.NamespaceVersionCount(), int64(2), "validation should check pending and claim namespaces")
+}
+
+func TestDispatchTaskStore_NamespaceVersionChangeTriggersRebuild(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	col := newNamespaceVersionCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+	s := store.NewDispatchTaskStore(col)
+
+	claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		WorkerID: "worker-cpu",
+		PollerID: "poller-cpu",
+		Labels:   map[string]string{"type": "cpu"},
+		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
+	})
+	require.NoError(t, err)
+	require.Nil(t, claimed)
+
+	putPendingDispatchTaskRecord(t, col.Collection, "task_00000000000000000001_namespace_changed.json", &exec.DispatchTask{
+		DAGRunID:       "run-namespace-changed",
+		Target:         "dag-namespace-changed",
+		AttemptID:      "attempt-namespace-changed",
+		AttemptKey:     "attempt-key-namespace-changed",
+		WorkerSelector: map[string]string{"type": "cpu"},
+	}, time.Now().UTC())
+	col.BumpNamespace("pending/")
+	waitDispatchIndexValidationWindow()
+
+	claimed, err = s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		WorkerID: "worker-cpu",
+		PollerID: "poller-cpu",
+		Labels:   map[string]string{"type": "cpu"},
+		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	assert.Equal(t, "run-namespace-changed", claimed.Task.DAGRunID)
+}
+
+func TestDispatchTaskStore_UnsupportedNamespaceVersionFallsBackToRecordIDs(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	col := newCountingRecordIDsCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+	s := store.NewDispatchTaskStore(col)
+
+	require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
+		DAGRunID:       "run-namespace-unsupported",
+		Target:         "dag-namespace-unsupported",
+		AttemptID:      "attempt-namespace-unsupported",
+		AttemptKey:     "attempt-key-namespace-unsupported",
+		WorkerSelector: map[string]string{"type": "gpu"},
+	}))
+
+	claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		WorkerID: "worker-cpu",
+		PollerID: "poller-cpu",
+		Labels:   map[string]string{"type": "cpu"},
+		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
+	})
+	require.NoError(t, err)
+	require.Nil(t, claimed)
+
+	col.Reset()
+	waitDispatchIndexValidationWindow()
+
+	claimed, err = s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		WorkerID: "worker-cpu",
+		PollerID: "poller-cpu",
+		Labels:   map[string]string{"type": "cpu"},
+		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
+	})
+	require.NoError(t, err)
+	require.Nil(t, claimed)
+	assert.GreaterOrEqual(t, col.RecordIDsCount(), int64(2), "unsupported namespace version must fall back to ID validation")
+}
+
+func TestDispatchTaskStore_FullValidationCatchesUnchangedNamespaceVersion(t *testing.T) {
+	store.SetDispatchIndexValidationWindowForTest(t, 5*time.Millisecond)
+	store.SetDispatchIndexFullValidationIntervalForTest(t, 20*time.Millisecond)
+
+	ctx := context.Background()
+	col := newNamespaceVersionCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+	s := store.NewDispatchTaskStore(col)
+
+	claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		WorkerID: "worker-cpu",
+		PollerID: "poller-cpu",
+		Labels:   map[string]string{"type": "cpu"},
+		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
+	})
+	require.NoError(t, err)
+	require.Nil(t, claimed)
+
+	putPendingDispatchTaskRecord(t, col.Collection, "task_00000000000000000001_full_validation.json", &exec.DispatchTask{
+		DAGRunID:       "run-full-validation",
+		Target:         "dag-full-validation",
+		AttemptID:      "attempt-full-validation",
+		AttemptKey:     "attempt-key-full-validation",
+		WorkerSelector: map[string]string{"type": "cpu"},
+	}, time.Now().UTC())
+
+	col.Reset()
+	time.Sleep(30 * time.Millisecond)
+
+	claimed, err = s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		WorkerID: "worker-cpu",
+		PollerID: "poller-cpu",
+		Labels:   map[string]string{"type": "cpu"},
+		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	assert.Equal(t, "run-full-validation", claimed.Task.DAGRunID)
+	assert.GreaterOrEqual(t, col.RecordIDsCount(), int64(2), "full validation should reconcile even when namespace metadata is unchanged")
+}
+
+func TestDispatchTaskStore_NoMatchCacheIsCapped(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := store.NewDispatchTaskStore(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+
+	for i := range 1025 {
+		claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
+			WorkerID: "worker-cpu",
+			PollerID: "poller-cpu",
+			Labels:   map[string]string{"type": "cpu-" + strconv.Itoa(i)},
+			Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
+		})
+		require.NoError(t, err)
+		require.Nil(t, claimed)
+	}
+
+	assert.LessOrEqual(t, store.DispatchNoMatchCacheSizeForTest(s), 1024)
+
+	require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
+		DAGRunID:       "run-cache-cap",
+		Target:         "dag-cache-cap",
+		AttemptID:      "attempt-cache-cap",
+		AttemptKey:     "attempt-key-cache-cap",
+		WorkerSelector: map[string]string{"type": "cpu-1024"},
+	}))
+	claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		WorkerID: "worker-cpu",
+		PollerID: "poller-cpu",
+		Labels:   map[string]string{"type": "cpu-1024"},
+		Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	assert.Equal(t, "run-cache-cap", claimed.Task.DAGRunID)
+}
+
+func TestDispatchTaskStore_TwoStoreInstancesClaimExactlyOnce(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	col := testutil.NewMemoryBackend().Collection("dispatch_tasks")
+	first := store.NewDispatchTaskStore(col)
+	second := store.NewDispatchTaskStore(col)
+
+	require.NoError(t, first.Enqueue(ctx, &exec.DispatchTask{
+		DAGRunID:   "run-two-store",
+		Target:     "dag-two-store",
+		AttemptID:  "attempt-two-store",
+		AttemptKey: "attempt-key-two-store",
+	}))
+
+	start := make(chan struct{})
+	results := make(chan *exec.ClaimedDispatchTask, 2)
+	errs := make(chan error, 2)
+	for _, s := range []*store.DispatchTaskStore{first, second} {
+		go func(dispatchStore *store.DispatchTaskStore) {
+			<-start
+			claimed, err := dispatchStore.ClaimNext(ctx, exec.DispatchTaskClaim{
+				WorkerID: "worker-two-store",
+				PollerID: "poller-two-store",
+				Owner:    exec.CoordinatorEndpoint{ID: "coord-a"},
+			})
+			results <- claimed
+			errs <- err
+		}(s)
+	}
+	close(start)
+
+	var claimedCount int
+	for range 2 {
+		require.NoError(t, <-errs)
+		if claimed := <-results; claimed != nil {
+			claimedCount++
+			assert.Equal(t, "run-two-store", claimed.Task.DAGRunID)
+		}
+	}
+	assert.Equal(t, 1, claimedCount)
+}
+
 func TestDispatchTaskStore_NoMatchCacheDistinguishesSeparatorCharacters(t *testing.T) {
 	t.Parallel()
 
@@ -1877,6 +2153,8 @@ func encodedKey(input string) string {
 type countingRecordIDsCollection struct {
 	persis.Collection
 	gets           atomic.Int64
+	recordIDs      atomic.Int64
+	recordIDsDelay atomic.Int64
 	recordVersions atomic.Int64
 }
 
@@ -1890,6 +2168,17 @@ func (c *countingRecordIDsCollection) Get(ctx context.Context, id string) (*pers
 }
 
 func (c *countingRecordIDsCollection) RecordIDs(ctx context.Context, prefix string) ([]string, error) {
+	c.recordIDs.Add(1)
+	if delay := time.Duration(c.recordIDsDelay.Load()); delay > 0 {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+
 	type recordIDsCollection interface {
 		RecordIDs(context.Context, string) ([]string, error)
 	}
@@ -1931,6 +2220,7 @@ func (c *countingRecordIDsCollection) RecordVersion(ctx context.Context, id stri
 
 func (c *countingRecordIDsCollection) Reset() {
 	c.gets.Store(0)
+	c.recordIDs.Store(0)
 	c.recordVersions.Store(0)
 }
 
@@ -1938,8 +2228,52 @@ func (c *countingRecordIDsCollection) GetCount() int64 {
 	return c.gets.Load()
 }
 
+func (c *countingRecordIDsCollection) RecordIDsCount() int64 {
+	return c.recordIDs.Load()
+}
+
 func (c *countingRecordIDsCollection) RecordVersionCount() int64 {
 	return c.recordVersions.Load()
+}
+
+func (c *countingRecordIDsCollection) SetRecordIDsDelay(delay time.Duration) {
+	c.recordIDsDelay.Store(int64(delay))
+}
+
+type namespaceVersionCollection struct {
+	*countingRecordIDsCollection
+	mu                sync.Mutex
+	versions          map[string]int64
+	namespaceVersions atomic.Int64
+}
+
+func newNamespaceVersionCollection(col persis.Collection) *namespaceVersionCollection {
+	return &namespaceVersionCollection{
+		countingRecordIDsCollection: newCountingRecordIDsCollection(col),
+		versions:                    map[string]int64{"pending/": 1, "claims/": 1},
+	}
+}
+
+func (c *namespaceVersionCollection) RecordNamespaceVersion(_ context.Context, prefix string) (string, error) {
+	c.namespaceVersions.Add(1)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return prefix + strconv.FormatInt(c.versions[prefix], 10), nil
+}
+
+func (c *namespaceVersionCollection) BumpNamespace(prefix string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.versions[prefix]++
+}
+
+func (c *namespaceVersionCollection) NamespaceVersionCount() int64 {
+	return c.namespaceVersions.Load()
+}
+
+func (c *namespaceVersionCollection) Reset() {
+	c.countingRecordIDsCollection.Reset()
+	c.namespaceVersions.Store(0)
 }
 
 type disappearingRecordGetCollection struct {
