@@ -383,6 +383,9 @@ func (h *Handler) Poll(ctx context.Context, req *coordinatorv1.PollRequest) (*co
 
 	pollWait := h.dispatchPollInitialWait
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		observedGeneration, _ := h.dispatchWakeSnapshot()
 		claimed, err := h.dispatchTaskStore.ClaimNext(ctx, exec.DispatchTaskClaim{
 			WorkerID:     req.WorkerId,

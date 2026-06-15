@@ -513,8 +513,12 @@ func (s *DispatchTaskStore) ClaimNext(ctx context.Context, claim exec.DispatchTa
 
 	for range 2 {
 		claimed, stale, err := s.claimNextPending(ctx, claim)
-		if err != nil || claimed != nil {
-			return claimed, err
+		if err != nil {
+			return nil, err
+		}
+		if claimed != nil {
+			_, _ = s.reconcileDispatchIndexIDsIfDue(ctx, time.Now().UTC())
+			return claimed, nil
 		}
 		if stale {
 			if err := s.rebuildDispatchIndex(ctx); err != nil {
@@ -861,6 +865,7 @@ func (s *DispatchTaskStore) releaseClaimRecord(ctx context.Context, rec *persis.
 		return err
 	}
 	if err := s.col.CompareAndDelete(ctx, rec); err != nil {
+		_ = s.col.CompareAndDelete(context.WithoutCancel(ctx), pendingRec)
 		return err
 	}
 	if s.index != nil {
