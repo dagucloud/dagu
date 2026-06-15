@@ -104,3 +104,79 @@ steps:
 		})
 	}
 }
+
+func TestConstsInheritFromBaseConfig(t *testing.T) {
+	t.Parallel()
+
+	t.Run("BaseConstResolvesEnv", func(t *testing.T) {
+		t.Parallel()
+
+		dag, err := spec.LoadYAML(
+			context.Background(),
+			[]byte(`
+env:
+  - "SERVICE=${consts.service}"
+steps:
+  - name: print
+    run: echo ${consts.service}
+`),
+			spec.WithBaseConfigContent([]byte(`
+consts:
+  - service: base-api
+`)),
+		)
+		require.NoError(t, err)
+		assert.Equal(t, "SERVICE=base-api", dag.Env[0])
+		assert.Equal(t, "base-api", dag.Consts["service"])
+	})
+
+	t.Run("LocalConstOverridesBase", func(t *testing.T) {
+		t.Parallel()
+
+		dag, err := spec.LoadYAML(
+			context.Background(),
+			[]byte(`
+consts:
+  - service: local-api
+env:
+  - "SERVICE=${consts.service}"
+steps:
+  - name: print
+    run: echo ${consts.service}
+`),
+			spec.WithBaseConfigContent([]byte(`
+consts:
+  - service: base-api
+  - region: us-east-1
+`)),
+		)
+		require.NoError(t, err)
+		assert.Equal(t, "SERVICE=local-api", dag.Env[0])
+		assert.Equal(t, "local-api", dag.Consts["service"])
+		assert.Equal(t, "us-east-1", dag.Consts["region"])
+	})
+
+	t.Run("LocalConstReferencesBaseConst", func(t *testing.T) {
+		t.Parallel()
+
+		dag, err := spec.LoadYAML(
+			context.Background(),
+			[]byte(`
+consts:
+  - endpoint: https://${consts.host}/v1
+env:
+  - "ENDPOINT=${consts.endpoint}"
+steps:
+  - name: print
+    run: echo ${consts.endpoint}
+`),
+			spec.WithBaseConfigContent([]byte(`
+consts:
+  - host: api.example.test
+`)),
+		)
+		require.NoError(t, err)
+		assert.Equal(t, "ENDPOINT=https://api.example.test/v1", dag.Env[0])
+		assert.Equal(t, "https://api.example.test/v1", dag.Consts["endpoint"])
+	})
+}

@@ -690,10 +690,15 @@ func (s *dagBuildState) prepareParamEnvStage() {
 	if len(buildEnv) > 0 {
 		baseScope = baseScope.WithEntries(buildEnv, cmnvalue.EnvSourceDotEnv)
 	}
+	var consts map[string]any
+	if s.ctx.baseDAG != nil && len(s.ctx.baseDAG.Consts) > 0 {
+		consts = maps.Clone(s.ctx.baseDAG.Consts)
+	}
 
 	s.ctx.envScope = &envScopeState{
 		scope:    baseScope,
 		buildEnv: buildEnv,
+		consts:   consts,
 	}
 	s.ctx.paramsState = &paramsState{}
 }

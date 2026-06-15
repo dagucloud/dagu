@@ -106,7 +106,7 @@ func resolveWorkingDir(ctx context.Context, step core.Step, rCtx Context) string
 	dag := rCtx.DAG
 
 	if step.Dir != "" {
-		expandedDir := expandStepDir(step.Dir, dag)
+		expandedDir := expandStepDir(ctx, step.Dir, dag)
 		return resolveExpandedDir(ctx, expandedDir, step.Name, dag, rCtx)
 	}
 
@@ -117,8 +117,28 @@ func resolveWorkingDir(ctx context.Context, step core.Step, rCtx Context) string
 	return fallbackWorkingDir(ctx, step.Name)
 }
 
-// expandStepDir expands environment variables in step.Dir using DAG env vars.
-func expandStepDir(dir string, dag *core.DAG) string {
+func expandRuntimeConsts(raw string, dag *core.DAG, mode cmnvalue.Mode) (string, error) {
+	runtimeScope := cmnvalue.RuntimeScope{}
+	if dag != nil {
+		runtimeScope.Consts = cmnvalue.Values(dag.Consts)
+	}
+	return cmnvalue.ExpandStringContext(context.Background(), raw, runtimeScope, mode, "", cmnvalue.WithoutExpandEnv(), cmnvalue.WithoutSubstitute())
+}
+
+// expandStepDir expands value references and environment variables in step.Dir.
+func expandStepDir(ctx context.Context, dir string, dag *core.DAG) string {
+	expanded, err := expandRuntimeConsts(dir, dag, cmnvalue.ModeWorkflowValue)
+	if err != nil {
+		logger.Warn(ctx, "Failed to evaluate step working directory",
+			tag.Dir(dir),
+			tag.Error(err),
+		)
+		expanded = dir
+	}
+	return expandStepDirEnvOnly(expanded, dag)
+}
+
+func expandStepDirEnvOnly(dir string, dag *core.DAG) string {
 	return os.Expand(dir, func(key string) string {
 		if dag != nil {
 			for _, env := range dag.Env {
@@ -182,12 +202,15 @@ func dagRunWorkDir(rCtx Context) string {
 }
 
 func expandDAGWorkingDir(ctx context.Context, workingDir string, rCtx Context) string {
-	wd := workingDir
-	if rCtx.EnvScope != nil {
-		wd = rCtx.EnvScope.Expand(wd)
-	} else {
-		wd = os.ExpandEnv(wd)
+	wd, err := expandRuntimeConsts(workingDir, rCtx.DAG, cmnvalue.ModeWorkflowValue)
+	if err != nil {
+		logger.Warn(ctx, "Failed to evaluate working directory",
+			tag.Dir(workingDir),
+			tag.Error(err),
+		)
+		wd = workingDir
 	}
+	wd = expandDAGWorkingDirEnvOnly(wd, rCtx.EnvScope)
 	if strings.HasPrefix(wd, "~") {
 		resolved, err := fileutil.ResolvePath(wd)
 		if err != nil {
@@ -200,6 +223,13 @@ func expandDAGWorkingDir(ctx context.Context, workingDir string, rCtx Context) s
 		}
 	}
 	return wd
+}
+
+func expandDAGWorkingDirEnvOnly(workingDir string, scope *cmnvalue.EnvScope) string {
+	if scope != nil {
+		return scope.Expand(workingDir)
+	}
+	return os.ExpandEnv(workingDir)
 }
 
 // fallbackWorkingDir returns a fallback working directory when none is specified.
@@ -225,7 +255,7 @@ func fallbackWorkingDir(ctx context.Context, stepName string) string {
 func (e Env) Shell(ctx context.Context) []string {
 	// Shell precedence: Step shell -> DAG shell -> Global default
 	if e.Step.Shell != "" {
-		shell, err := evalShellWithScope(ctx, e.Scope, e.Step.Shell, e.Step.ShellArgs)
+		shell, err := evalShellWithScope(ctx, e.DAG, e.Scope, e.Step.Shell, e.Step.ShellArgs)
 		if err != nil {
 			logger.Error(ctx, "Failed to evaluate step shell",
 				tag.String("shell", e.Step.Shell),
@@ -237,7 +267,7 @@ func (e Env) Shell(ctx context.Context) []string {
 	}
 
 	if e.DAG != nil && e.DAG.Shell != "" {
-		shell, err := evalShellWithScope(ctx, e.Scope, e.DAG.Shell, e.DAG.ShellArgs)
+		shell, err := evalShellWithScope(ctx, e.DAG, e.Scope, e.DAG.Shell, e.DAG.ShellArgs)
 		if err != nil {
 			logger.Error(ctx, "Failed to evaluate DAG shell",
 				tag.String("shell", e.DAG.Shell),
@@ -267,7 +297,7 @@ func DAGShell(ctx context.Context) []string {
 		scope = cmnvalue.NewEnvScope(nil, true) // Fallback: OS layer only
 	}
 
-	shell, err := evalShellWithScope(ctx, scope, dag.Shell, dag.ShellArgs)
+	shell, err := evalShellWithScope(ctx, dag, scope, dag.Shell, dag.ShellArgs)
 	if err != nil {
 		logger.Error(ctx, "Failed to evaluate DAG shell",
 			tag.String("shell", dag.Shell),
@@ -279,17 +309,29 @@ func DAGShell(ctx context.Context) []string {
 }
 
 // evalShellWithScope evaluates shell command and arguments using the given scope.
-func evalShellWithScope(ctx context.Context, scope *cmnvalue.EnvScope, shell string, shellArgs []string) ([]string, error) {
+func evalShellWithScope(ctx context.Context, dag *core.DAG, scope *cmnvalue.EnvScope, shell string, shellArgs []string) ([]string, error) {
+	shellCmd, err := expandRuntimeConsts(shell, dag, cmnvalue.ModeShellCommand)
+	if err != nil {
+		return nil, fmt.Errorf("failed to evaluate shell: %w", err)
+	}
 	ctx = cmnvalue.WithEnvScope(ctx, scope)
-
-	shellCmd, err := cmnvalue.String(ctx, shell, cmnvalue.WithoutSubstitute())
+	shellCmd, err = cmnvalue.String(ctx, shellCmd, cmnvalue.WithoutSubstitute())
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate shell: %w", err)
 	}
 
 	result := []string{shellCmd}
 	for _, arg := range shellArgs {
-		evaluated, err := cmnvalue.String(ctx, arg, cmnvalue.WithoutSubstitute())
+		evaluated, err := expandRuntimeConsts(arg, dag, cmnvalue.ModeShellCommand)
+		if err != nil {
+			logger.Error(ctx, "Failed to evaluate shell argument",
+				tag.String("arg", arg),
+				tag.Error(err),
+			)
+			// Continue with unevaluated arg rather than failing completely
+			evaluated = arg
+		}
+		evaluated, err = cmnvalue.String(ctx, evaluated, cmnvalue.WithoutSubstitute())
 		if err != nil {
 			logger.Error(ctx, "Failed to evaluate shell argument",
 				tag.String("arg", arg),

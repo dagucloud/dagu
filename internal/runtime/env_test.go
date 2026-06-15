@@ -55,6 +55,18 @@ func TestDAGShell(t *testing.T) {
 		assert.Equal(t, []string{"/bin/bash", "-c"}, result)
 	})
 
+	t.Run("ExpandsConstRefsInShellAndArgs", func(t *testing.T) {
+		t.Parallel()
+		dag := &core.DAG{
+			Consts:    map[string]any{"shell": "/bin/bash", "arg": "-c"},
+			Shell:     "${consts.shell}",
+			ShellArgs: []string{"${consts.arg}"},
+		}
+		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
+		result := runtime.DAGShell(ctx)
+		assert.Equal(t, []string{"/bin/bash", "-c"}, result)
+	})
+
 	t.Run("UsesDAGEnvForExpansion", func(t *testing.T) {
 		t.Parallel()
 		dag := &core.DAG{
@@ -136,6 +148,22 @@ func TestEnvShell(t *testing.T) {
 		assert.Equal(t, []string{"/bin/fish"}, result)
 	})
 
+	t.Run("ExpandsStepShellWithConstRefs", func(t *testing.T) {
+		t.Parallel()
+		dag := &core.DAG{
+			Consts: map[string]any{"shell": "/bin/fish", "arg": "-c"},
+		}
+		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
+		step := core.Step{
+			Name:      "test-step",
+			Shell:     "${consts.shell}",
+			ShellArgs: []string{"${consts.arg}"},
+		}
+		env := runtime.NewEnv(ctx, step)
+		result := env.Shell(ctx)
+		assert.Equal(t, []string{"/bin/fish", "-c"}, result)
+	})
+
 	t.Run("ExpandsDAGShellWithEnvVars", func(t *testing.T) {
 		t.Parallel()
 		dag := &core.DAG{
@@ -160,6 +188,43 @@ func TestEnvShell(t *testing.T) {
 		env := runtime.NewEnv(ctx, step)
 		result := env.Shell(ctx)
 		assert.Equal(t, []string{"/bin/custom"}, result)
+	})
+}
+
+func TestConstResolutionInWorkingDirs(t *testing.T) {
+	t.Parallel()
+
+	t.Run("DAGWorkingDir", func(t *testing.T) {
+		t.Parallel()
+
+		root := t.TempDir()
+		dagDir := filepath.Join(root, "dag-root")
+		dag := &core.DAG{
+			Consts:             map[string]any{"root": dagDir},
+			WorkingDir:         "${consts.root}",
+			WorkingDirExplicit: true,
+		}
+		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
+
+		env := runtime.NewEnv(ctx, core.Step{Name: "test-step"})
+		assert.Equal(t, dagDir, env.WorkingDir)
+	})
+
+	t.Run("StepWorkingDir", func(t *testing.T) {
+		t.Parallel()
+
+		root := t.TempDir()
+		dagDir := filepath.Join(root, "dag-root")
+		stepDir := filepath.Join(root, "step-root")
+		dag := &core.DAG{
+			Consts:             map[string]any{"step_dir": stepDir},
+			WorkingDir:         dagDir,
+			WorkingDirExplicit: true,
+		}
+		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
+
+		env := runtime.NewEnv(ctx, core.Step{Name: "test-step", Dir: "${consts.step_dir}"})
+		assert.Equal(t, stepDir, env.WorkingDir)
 	})
 }
 

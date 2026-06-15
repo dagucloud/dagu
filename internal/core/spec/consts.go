@@ -6,6 +6,7 @@ package spec
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"reflect"
 	"regexp"
@@ -18,23 +19,29 @@ import (
 var constNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
 
 func buildConsts(ctx BuildContext, d *dag) (map[string]any, error) {
+	inherited := inheritedConsts(ctx)
 	if d.Consts == nil {
-		return nil, nil
+		return inherited, nil
 	}
 	items, ok := d.Consts.([]any)
 	if !ok {
 		return nil, core.NewValidationError("consts", d.Consts, fmt.Errorf("consts must use list form"))
 	}
 
-	resolved := make(map[string]any, len(items))
+	resolved := inherited
+	if resolved == nil {
+		resolved = make(map[string]any, len(items))
+	}
+	seen := make(map[string]struct{}, len(items))
 	for idx, item := range items {
 		key, value, err := constEntry(idx, item)
 		if err != nil {
 			return nil, err
 		}
-		if _, exists := resolved[key]; exists {
+		if _, exists := seen[key]; exists {
 			return nil, core.NewValidationError("consts."+key, key, fmt.Errorf("consts key %q is defined more than once", key))
 		}
+		seen[key] = struct{}{}
 		resolvedValue, err := resolveConstValue(key, value, resolved)
 		if err != nil {
 			return nil, core.NewValidationError("consts."+key, value, err)
@@ -45,6 +52,16 @@ func buildConsts(ctx BuildContext, d *dag) (map[string]any, error) {
 		ctx.envScope.consts = resolved
 	}
 	return resolved, nil
+}
+
+func inheritedConsts(ctx BuildContext) map[string]any {
+	if ctx.envScope != nil && len(ctx.envScope.consts) > 0 {
+		return maps.Clone(ctx.envScope.consts)
+	}
+	if ctx.baseDAG != nil && len(ctx.baseDAG.Consts) > 0 {
+		return maps.Clone(ctx.baseDAG.Consts)
+	}
+	return nil
 }
 
 func constEntry(idx int, item any) (string, any, error) {

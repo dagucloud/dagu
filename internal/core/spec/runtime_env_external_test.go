@@ -52,6 +52,28 @@ steps:
 	require.Equal(t, "/work/quant-signal", envMap["PROJECT_DIR"])
 }
 
+func TestResolveEnvConstDotenvPath(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".env.const"), []byte("CONST_DOTENV=ready\n"), 0o600))
+
+	dag, err := spec.LoadYAML(context.Background(), fmt.Appendf(nil, `
+consts:
+  - env_file: .env.const
+  - root: %s
+working_dir: ${consts.root}
+dotenv: ${consts.env_file}
+steps:
+  - name: print
+    run: echo ${CONST_DOTENV}
+`, root))
+	require.NoError(t, err)
+
+	dag.LoadDotEnv(context.Background())
+	require.Equal(t, "ready", runtimeEnvSliceMap(dag.Env)["CONST_DOTENV"])
+}
+
 func TestResolveEnvWithWarningsReturnsDotenvWarnings(t *testing.T) {
 	t.Parallel()
 

@@ -540,7 +540,7 @@ func (d *DAG) loadDotEnvFiles(ctx context.Context) {
 	}
 	evalCtx = cmnvalue.WithEnvScope(evalCtx, scope)
 
-	workingDir := expandDotEnvPath(d.WorkingDir, scope)
+	workingDir := d.expandDotEnvPath(d.WorkingDir, scope)
 	relativeTos := []string{workingDir}
 	if fileDir := filepath.Dir(d.Location); d.Location != "" && fileDir != workingDir {
 		relativeTos = append(relativeTos, fileDir)
@@ -569,12 +569,22 @@ func (d *DAG) dotenvEnvScope() *cmnvalue.EnvScope {
 	return scope
 }
 
+func (d *DAG) expandConsts(value, field string) (string, error) {
+	return cmnvalue.ExpandStringContext(context.Background(), value, cmnvalue.RuntimeScope{
+		Consts: cmnvalue.Values(d.Consts),
+	}, cmnvalue.ModeWorkflowValue, field, cmnvalue.WithoutExpandEnv(), cmnvalue.WithoutSubstitute())
+}
+
 // expandDotEnvPath expands a dotenv-related path without mutating the DAG definition.
-func expandDotEnvPath(path string, scope *cmnvalue.EnvScope) string {
-	if scope == nil {
-		return os.ExpandEnv(path)
+func (d *DAG) expandDotEnvPath(path string, scope *cmnvalue.EnvScope) string {
+	expanded, err := d.expandConsts(path, "dotenv")
+	if err != nil {
+		expanded = path
 	}
-	return scope.Expand(path)
+	if scope == nil {
+		return os.ExpandEnv(expanded)
+	}
+	return scope.Expand(expanded)
 }
 
 // loadSingleDotEnvFile loads a single dotenv file and appends its variables to d.Env.
@@ -583,7 +593,12 @@ func (d *DAG) loadSingleDotEnvFile(ctx context.Context, resolver *fileutil.FileR
 		return
 	}
 
-	evaluatedPath, err := cmnvalue.String(ctx, filePath, cmnvalue.WithOSExpansion(), cmnvalue.WithoutSubstitute())
+	expandedPath, err := d.expandConsts(filePath, "dotenv")
+	if err != nil {
+		d.BuildWarnings = append(d.BuildWarnings, fmt.Sprintf("failed to evaluate dotenv path %q: %v", filePath, err))
+		return
+	}
+	evaluatedPath, err := cmnvalue.String(ctx, expandedPath, cmnvalue.WithOSExpansion(), cmnvalue.WithoutSubstitute())
 	if err != nil {
 		d.BuildWarnings = append(d.BuildWarnings, fmt.Sprintf("failed to evaluate dotenv path %q: %v", filePath, err))
 		return
