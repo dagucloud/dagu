@@ -81,7 +81,7 @@ steps:
 			want: "unknown consts binding",
 		},
 		{
-			name: "KeepsLegacyReferenceCompatible",
+			name: "KeepsEvalReference",
 			yaml: `
 steps:
   - name: print

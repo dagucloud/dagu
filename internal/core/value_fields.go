@@ -163,18 +163,14 @@ func (w *resolvableFieldWalker) walkParallel(path string, parallel *ParallelConf
 	for i, item := range parallel.Items {
 		itemPath := fmt.Sprintf("%s.items[%d]", path, i)
 		w.add(base.withPathValue(itemPath+".value", item.Value))
-		keys := slices.Collect(maps.Keys(item.Params))
-		slices.Sort(keys)
-		for _, key := range keys {
+		for _, key := range sortedStringKeys(item.Params) {
 			w.add(base.withPathValue(itemPath+".params."+key, item.Params[key]))
 		}
 	}
 }
 
 func (w *resolvableFieldWalker) walkStdoutOutputs(path string, outputs *StepOutputsConfig, base ResolvableField) {
-	keys := slices.Collect(maps.Keys(outputs.Fields))
-	slices.Sort(keys)
-	for _, key := range keys {
+	for _, key := range sortedStringKeys(outputs.Fields) {
 		entry := outputs.Fields[key]
 		field := base.withOutputLeaf("stdout.outputs")
 		if entry.HasValue {
@@ -185,9 +181,7 @@ func (w *resolvableFieldWalker) walkStdoutOutputs(path string, outputs *StepOutp
 }
 
 func (w *resolvableFieldWalker) walkStructuredOutput(path string, output map[string]StepOutputEntry, base ResolvableField) {
-	keys := slices.Collect(maps.Keys(output))
-	slices.Sort(keys)
-	for _, key := range keys {
+	for _, key := range sortedStringKeys(output) {
 		entry := output[key]
 		field := base.withOutputLeaf("output")
 		if entry.HasValue {
@@ -237,15 +231,11 @@ func (w *resolvableFieldWalker) walkStringLeaves(path string, raw any, base Reso
 			w.walkStringLeaves(fmt.Sprintf("%s[%d]", path, i), item, base, outputLeaf)
 		}
 	case map[string]any:
-		keys := slices.Collect(maps.Keys(value))
-		slices.Sort(keys)
-		for _, key := range keys {
+		for _, key := range sortedStringKeys(value) {
 			w.walkStringLeaves(path+"."+key, value[key], base, outputLeaf)
 		}
 	case map[string]string:
-		keys := slices.Collect(maps.Keys(value))
-		slices.Sort(keys)
-		for _, key := range keys {
+		for _, key := range sortedStringKeys(value) {
 			w.add(base.withPathValue(path+"."+key, value[key]).withOutputLeaf(outputLeaf))
 		}
 	default:
@@ -277,6 +267,10 @@ func (w *resolvableFieldWalker) walkReflectStringLeaves(path string, raw any, ba
 			w.walkStringLeaves(path+"."+key, rv.MapIndex(reflect.ValueOf(key)).Interface(), base, outputLeaf)
 		}
 	}
+}
+
+func sortedStringKeys[M ~map[string]V, V any](m M) []string {
+	return slices.Sorted(maps.Keys(m))
 }
 
 func (f ResolvableField) withPathValue(path, value string) ResolvableField {

@@ -14,7 +14,7 @@ import (
 func TestScanReferencesClassifiesReservedAndEvalRefs(t *testing.T) {
 	t.Parallel()
 
-	refs := value.ScanReferences("${consts.service} $env.FOO ${DATA.image} $DATA.tag", value.ModeWorkflowValue)
+	refs := value.ScanReferences("${consts.service} $env.FOO ${DATA.image} $DATA.tag")
 
 	require.Len(t, refs, 4)
 	assert.Equal(t, value.ReferenceStrict, refs[0].Kind)
@@ -56,7 +56,7 @@ func TestModeString(t *testing.T) {
 func TestScanReferencesMarksEvalStepOutputRefs(t *testing.T) {
 	t.Parallel()
 
-	refs := value.ScanReferences("${extract.output.user.id} $extract.output.user.id ${extract.output.bad-name}", value.ModeStaticValidation)
+	refs := value.ScanReferences("${extract.output.user.id} $extract.output.user.id ${extract.output.bad-name}")
 
 	require.Len(t, refs, 3)
 	require.NotNil(t, refs[0].StepOutput)
@@ -119,6 +119,12 @@ func TestValidateReferencesModeMatrix(t *testing.T) {
 			raw:     "${steps.build.outputs.digest}",
 			mode:    value.ModeStaticValidation,
 			wantErr: "unknown output",
+		},
+		{
+			name:    "InvalidStepReferenceShapeRejected",
+			raw:     "${steps.build.output.image}",
+			mode:    value.ModeStaticValidation,
+			wantErr: "steps bindings must use",
 		},
 		{
 			name: "EvalRefsAllowed",

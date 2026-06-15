@@ -53,20 +53,10 @@ func resolveBindings(input string, scope RuntimeScope) (string, error) {
 
 func (t template) resolveReferences(ctx context.Context, r *resolver) string {
 	return referencePattern.ReplaceAllStringFunc(t.source, func(match string) string {
-		subMatches := referencePattern.FindStringSubmatch(match)
-		if len(subMatches) < 3 {
+		varName, path, ok := referenceParts(match)
+		if !ok {
 			return match
 		}
-
-		var varName, path string
-		if strings.HasPrefix(subMatches[0], "${") {
-			varName = subMatches[1]
-			path = subMatches[2]
-		} else {
-			varName = subMatches[3]
-			path = subMatches[4]
-		}
-
 		if value, ok := r.resolveReference(ctx, varName, path); ok {
 			return value
 		}
@@ -77,20 +67,29 @@ func (t template) resolveReferences(ctx context.Context, r *resolver) string {
 func (t template) resolveQuotedReferences(ctx context.Context, r *resolver) string {
 	return quotedReferencePattern.ReplaceAllStringFunc(t.source, func(match string) string {
 		ref := match[3 : len(match)-2]
-
-		var value string
-		var ok bool
-		if dotIdx := strings.Index(ref, "."); dotIdx >= 0 {
-			value, ok = r.resolveReference(ctx, ref[:dotIdx], ref[dotIdx:])
-		} else {
-			value, ok = r.resolve(ref)
-		}
-
-		if ok {
+		if value, ok := resolveQuotedReference(ctx, r, ref); ok {
 			return strconv.Quote(value)
 		}
 		return match
 	})
+}
+
+func referenceParts(match string) (string, string, bool) {
+	subMatches := referencePattern.FindStringSubmatch(match)
+	if len(subMatches) != 5 {
+		return "", "", false
+	}
+	if strings.HasPrefix(match, "${") {
+		return subMatches[1], subMatches[2], subMatches[1] != ""
+	}
+	return subMatches[3], subMatches[4], subMatches[3] != ""
+}
+
+func resolveQuotedReference(ctx context.Context, r *resolver, ref string) (string, bool) {
+	if name, path, ok := strings.Cut(ref, "."); ok {
+		return r.resolveReference(ctx, name, "."+path)
+	}
+	return r.resolve(ref)
 }
 
 func (t template) resolveVariables(r *resolver) string {
@@ -188,7 +187,7 @@ func walkBindings(input string, visit func(token, path string) (string, error)) 
 	last := 0
 	for _, loc := range bindingRefPattern.FindAllStringSubmatchIndex(input, -1) {
 		path := strings.TrimSpace(input[loc[2]:loc[3]])
-		if !reservedBinding(strings.Split(path, ".")[0]) {
+		if !reservedBinding(bindingNamespace(path)) {
 			continue
 		}
 		b.WriteString(input[last:loc[0]])
@@ -286,7 +285,7 @@ func malformedBinding(value string) string {
 		end := strings.IndexByte(value[start+2:], '}')
 		if end < 0 {
 			expr := strings.TrimSpace(strings.TrimPrefix(value[start:], "${"))
-			if reservedBinding(expr) || strings.Contains(expr, ".") && reservedBinding(strings.Split(expr, ".")[0]) {
+			if reservedBinding(bindingNamespace(expr)) {
 				return value[start:]
 			}
 			return ""
@@ -294,6 +293,11 @@ func malformedBinding(value string) string {
 		offset = start + 2 + end + 1
 	}
 	return ""
+}
+
+func bindingNamespace(path string) string {
+	namespace, _, _ := strings.Cut(path, ".")
+	return namespace
 }
 
 func formatBindingValue(value any) string {

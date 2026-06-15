@@ -73,7 +73,7 @@ type StepOutputReference struct {
 }
 
 // ScanReferences classifies strict references and eval refs.
-func ScanReferences(raw string, mode Mode) []Reference {
+func ScanReferences(raw string) []Reference {
 	if raw == "" {
 		return nil
 	}
@@ -194,7 +194,7 @@ func validOutputPathSegment(segment string) bool {
 
 // ValidateReferences validates strict references against a static scope.
 func ValidateReferences(raw string, staticScope StaticScope, mode Mode, field string) error {
-	refs := ScanReferences(raw, mode)
+	refs := ScanReferences(raw)
 	var errs []string
 	for _, ref := range refs {
 		switch ref.Kind {
@@ -227,19 +227,7 @@ func validateStrictReference(ref Reference, scope StaticScope, mode Mode) error 
 	case "env":
 		return validateEnvReference(ref)
 	case "steps":
-		if len(ref.Segments) != 4 {
-			return validateBindingSegments(ref.Segments)
-		}
-		if scope.Steps == nil {
-			return fmt.Errorf("unknown steps reference %s", ref.Raw)
-		}
-		outputs, ok := scope.Steps[ref.Segments[1]]
-		if !ok {
-			return fmt.Errorf("unknown step %q in %s", ref.Segments[1], ref.Raw)
-		}
-		if _, ok := outputs[ref.Segments[3]]; !ok {
-			return fmt.Errorf("unknown output %q in %s", ref.Segments[3], ref.Raw)
-		}
+		return validateStepReference(ref, scope)
 	}
 	return nil
 }
@@ -257,6 +245,23 @@ func validateMapReference(ref Reference, namespace string, values Values) error 
 func validateEnvReference(ref Reference) error {
 	if len(ref.Segments) != 2 {
 		return validateBindingSegments(ref.Segments)
+	}
+	return nil
+}
+
+func validateStepReference(ref Reference, scope StaticScope) error {
+	if err := validateBindingSegments(ref.Segments); err != nil {
+		return err
+	}
+	if scope.Steps == nil {
+		return fmt.Errorf("unknown steps reference %s", ref.Raw)
+	}
+	outputs, ok := scope.Steps[ref.Segments[1]]
+	if !ok {
+		return fmt.Errorf("unknown step %q in %s", ref.Segments[1], ref.Raw)
+	}
+	if _, ok := outputs[ref.Segments[3]]; !ok {
+		return fmt.Errorf("unknown output %q in %s", ref.Segments[3], ref.Raw)
 	}
 	return nil
 }

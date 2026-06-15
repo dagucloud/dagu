@@ -112,7 +112,7 @@ func validateBindingReferences(dag *DAG) ErrorList {
 		if err := cmnvalue.ValidateReferences(field.Value, scope, field.Mode, field.Path); err != nil {
 			errs = append(errs, NewValidationError(field.Path, field.Value, err))
 		}
-		for _, err := range graph.validateField(field, cmnvalue.ScanReferences(field.Value, field.Mode)) {
+		for _, err := range graph.validateField(field, cmnvalue.ScanReferences(field.Value)) {
 			errs = append(errs, err)
 		}
 	}
@@ -146,7 +146,7 @@ func validateEnvOrderingReferences(fields []ResolvableField) ErrorList {
 		if len(names) == 0 {
 			continue
 		}
-		for _, ref := range cmnvalue.ScanReferences(field.Value, field.Mode) {
+		for _, ref := range cmnvalue.ScanReferences(field.Value) {
 			if ref.Kind != cmnvalue.ReferenceStrict || ref.Namespace != "env" || len(ref.Segments) != 2 {
 				continue
 			}
