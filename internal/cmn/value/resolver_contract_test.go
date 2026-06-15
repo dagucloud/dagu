@@ -251,6 +251,13 @@ func TestStepOutputReferencesKeepsNarrowGrammar(t *testing.T) {
 			wantPath: []string{"image"},
 		},
 		{
+			name:     "strict plural outputs reference with output step id",
+			raw:      "${steps.output.outputs.image}",
+			wantExpr: "${steps.output.outputs.image}",
+			wantStep: "output",
+			wantPath: []string{"image"},
+		},
+		{
 			name: "plural outputs reference without steps prefix ignored",
 			raw:  "${build.outputs.image}",
 		},

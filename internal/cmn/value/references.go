@@ -126,12 +126,12 @@ func parseStepOutputReference(ref reference) (StepOutputReference, bool) {
 	var stepName string
 	var path []string
 	switch {
-	case len(ref.Segments) >= 3 && ref.Segments[1] == "output":
-		stepName = ref.Segments[0]
-		path = ref.Segments[2:]
 	case len(ref.Segments) >= 4 && ref.Segments[0] == "steps" && ref.Segments[2] == "outputs":
 		stepName = ref.Segments[1]
 		path = ref.Segments[3:]
+	case len(ref.Segments) >= 3 && ref.Segments[1] == "output":
+		stepName = ref.Segments[0]
+		path = ref.Segments[2:]
 	default:
 		return StepOutputReference{}, false
 	}
