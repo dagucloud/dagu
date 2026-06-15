@@ -18,11 +18,11 @@ import (
 //
 // strVariables may be either a map[string]any or a []any containing maps and/or
 // "key=value" strings; entries are collected in input order. For each pair, the
-// value is optionally evaluated and expanded (including command substitution and
-// references to previously defined variables) unless the BuildFlagNoEval option
-// is set on ctx. The environment is passed via context to ensure thread-safety
-// during concurrent DAG loading. The function returns a validation error if the
-// input is malformed or a value fails to evaluate.
+// value is optionally expanded with references to previously defined variables
+// unless the BuildFlagNoEval option is set on ctx. The environment is passed via
+// context to ensure thread-safety during concurrent DAG loading. The function
+// returns a validation error if the input is malformed or a value fails to
+// evaluate.
 func loadVariables(ctx BuildContext, strVariables any) (map[string]string, error) {
 	var pairs []pair
 	switch a := strVariables.(type) {
@@ -72,7 +72,7 @@ func loadVariablesFromEnvValue(ctx BuildContext, env types.EnvValue) (map[string
 }
 
 // evaluatePairs evaluates a list of key-value pairs, expanding environment
-// variables and command substitutions unless BuildFlagNoEval is set.
+// variables unless BuildFlagNoEval is set.
 func evaluatePairs(ctx BuildContext, pairs []pair) (map[string]string, error) {
 	vars := make(map[string]string, len(pairs))
 

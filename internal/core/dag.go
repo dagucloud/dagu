@@ -583,7 +583,7 @@ func (d *DAG) loadSingleDotEnvFile(ctx context.Context, resolver *fileutil.FileR
 		return
 	}
 
-	evaluatedPath, err := cmnvalue.String(ctx, filePath, cmnvalue.WithOSExpansion())
+	evaluatedPath, err := cmnvalue.String(ctx, filePath, cmnvalue.WithOSExpansion(), cmnvalue.WithoutSubstitute())
 	if err != nil {
 		d.BuildWarnings = append(d.BuildWarnings, fmt.Sprintf("failed to evaluate dotenv path %q: %v", filePath, err))
 		return

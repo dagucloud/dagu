@@ -738,3 +738,18 @@ func TestEnv_SpecialEnvVars_DAGRunWorkDir(t *testing.T) {
 	result := runtime.AllEnvsMap(ctx)
 	assert.Equal(t, workDir, result[exec.EnvKeyDAGRunWorkDir])
 }
+
+func TestEnv_DirectCommandOSExpansionDoesNotInjectHostEnv(t *testing.T) {
+	t.Setenv("DAGU_RUNTIME_HOST_ONLY", "from-os")
+
+	ctx := runtime.NewContext(context.Background(), &core.DAG{Name: "test-dag"}, "run-1", "test.log")
+	env := runtime.NewEnv(ctx, core.Step{Name: "step1"})
+	ctx = runtime.WithEnv(ctx, env)
+
+	got, err := runtime.EvalStringMode(ctx, "$DAGU_RUNTIME_HOST_ONLY", cmnvalue.ModeDirectCommand)
+	require.NoError(t, err)
+	assert.Equal(t, "from-os", got)
+
+	allEnvs := runtime.AllEnvsMap(ctx)
+	assert.NotContains(t, allEnvs, "DAGU_RUNTIME_HOST_ONLY")
+}

@@ -80,6 +80,10 @@ func TestEvalConditions(t *testing.T) {
 			name:       "RegexMatch",
 			conditions: []*core.Condition{{Condition: "test", Expected: "re:^test$"}},
 		},
+		{
+			name:       "ValueMatchPreservesBacktickSubstitution",
+			conditions: []*core.Condition{{Condition: "`printf 100`", Expected: "`printf 100`"}},
+		},
 		// Negate tests
 		{
 			name: "NegateMatchingCondition",
@@ -210,6 +214,15 @@ func TestEvalConditions_NilShell(t *testing.T) {
 		{Condition: "true"},
 	})
 	require.NoError(t, err)
+}
+
+func TestEvalConditions_DirectCommandPreservesBacktickSubstitution(t *testing.T) {
+	ctx := newTestContext()
+
+	err := runtime.EvalConditions(ctx, nil, []*core.Condition{
+		{Condition: "`printf true`"},
+	})
+	require.ErrorIs(t, err, runtime.ErrConditionNotMet)
 }
 
 func TestEvalConditions_CommandFormExpandsHomeRelativeScopeVars(t *testing.T) {

@@ -8,9 +8,10 @@ It does not define how a step runs, how outputs are produced, or how output file
 
 ## Goal
 
-Make step identity unambiguous.
+Make the currently supported step identity rules explicit.
 
-`id` is the reference name. `name` is display text. A dependency or value reference must use `id`, not `name`.
+`name` is the runtime step identity and must be unique. `id` is an optional
+stable alias used by strict `${steps.<id>.outputs.<name>}` value references.
 
 ## Input
 
@@ -24,31 +25,33 @@ dagu validate <path/to/dag_file>
 
 Rules:
 
-- When this spec is implemented, validation checks step ids, dependencies, and statically checkable step references.
+- Validation checks step ids, dependencies, and statically checkable step references.
 - Validation must not execute steps.
 
 ## Step identity
 
 | Field | Meaning | Rules |
 | --- | --- | --- |
-| `id` | Canonical reference name. | Optional. Must be unique inside one DAG document. Must match `^[a-zA-Z][a-zA-Z0-9_]*$` when present. |
-| `name` | Display text. | Optional. Not a reference name. Does not need to be unique. Does not need to be snake case. |
+| `name` | Runtime step identity and display text. | Required after loading. Must be unique inside one DAG document. |
+| `id` | Optional stable value-reference alias. | Must be unique inside one DAG document when present. Must match `^[a-zA-Z][a-zA-Z0-9_]*$` when present. |
 
 Rules:
 
-- A referenced step must have `id`.
-- A step without `id` is valid only when no field references it.
+- A step referenced by strict `${steps.<id>.outputs.<name>}` must have `id`.
+- A step without `id` may still be referenced by dependency fields through `name`.
 - Step ids are scoped to one DAG document.
 - Inline sub-DAG documents have their own independent step-id scopes.
 
 ## Dependencies
 
-`depends` names step ids.
+`depends` names runtime step names. For transition support, a dependency may
+also name a step `id`; validation rewrites that dependency to the corresponding
+step `name` before runtime planning.
 
 Rules:
 
 - `depends` may be a string or a non-empty sequence of strings.
-- Every dependency must name an existing step `id`.
+- Every dependency must resolve to an existing step `name` or `id`.
 - A step must not depend on itself.
 - Dependencies must not contain cycles.
 - DAG execution order must respect `depends`.
@@ -60,6 +63,7 @@ Example:
 ```yaml
 steps:
   - id: build
+    name: build-image
     run: ./build.sh
 
   - id: deploy
@@ -67,7 +71,7 @@ steps:
     run: ./deploy.sh
 ```
 
-This is invalid because `depends` uses display text instead of `id`:
+This is also valid because `depends` uses the runtime step name:
 
 ```yaml
 steps:
@@ -92,17 +96,18 @@ Rules:
 
 - `step_id` must be an existing step `id`.
 - The referenced step must complete before the owning step starts.
-- Output declaration and publication behavior belongs to the step outputs spec.
+- Output declaration and publication behavior belongs to the output-owning field spec.
 
 Example:
 
 ```yaml
 steps:
   - id: build
-    run: |
-      printf 'image=v1.2.3\n' >> "$DAGU_OUTPUT_FILE"
-    outputs:
-      - name: image
+    name: build-image
+    run: ./build.sh
+    output:
+      image:
+        from: stdout
 
   - id: deploy
     depends: build
@@ -120,8 +125,9 @@ Runtime step status and runtime outputs must identify a step by `id` when `id` i
 Validation or execution must fail when:
 
 - Two steps in one DAG document use the same `id`.
+- Two steps in one DAG document use the same `name`.
 - A step `id` has invalid syntax.
-- `depends` names an unknown step id.
+- `depends` names an unknown step name or id.
 - `depends` names the owning step.
 - Dependencies contain a cycle.
 - A value reference uses an unknown `steps.<step_id>`.
@@ -166,7 +172,8 @@ steps:
 - A black-box fixture verifies `dagu validate` does not execute steps.
 - A black-box fixture verifies `dagu validate` rejects duplicate step ids.
 - A black-box fixture verifies `dagu validate` rejects invalid step id syntax.
-- A black-box fixture verifies `dagu validate` rejects `depends` that references a step `name`.
+- A black-box fixture verifies `dagu validate` accepts `depends` that references a step `name`.
+- A black-box fixture verifies `dagu validate` accepts `depends` that references a step `id` and executes by the resolved step `name`.
 - A black-box fixture verifies `dagu validate` rejects an unknown `depends` reference.
 - A black-box fixture verifies `dagu validate` rejects self-dependency.
 - A black-box fixture verifies `dagu validate` rejects dependency cycles.

@@ -321,13 +321,14 @@ var fieldPolicies = map[Mode]fieldPolicy{
 	},
 	ModeWorkflowValue: {
 		includeScopedEnv: true,
+		options:          []Option{WithoutSubstitute()},
 	},
 	ModeShellCommand: {
 		options: []Option{WithoutSubstitute()},
 	},
 	ModeDirectCommand: {
 		includeScopedEnv: true,
-		options:          []Option{WithoutSubstitute()},
+		options:          []Option{WithoutSubstitute(), WithOSExpansion()},
 	},
 	ModeDynamicEval: {
 		includeScopedEnv: true,

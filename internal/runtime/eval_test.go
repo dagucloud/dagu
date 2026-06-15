@@ -102,7 +102,19 @@ func TestEvalStringResolvesReservedBindings(t *testing.T) {
 	assert.Equal(t, "api prod workspace repo/api:v1", got)
 }
 
-func TestEvalStringModeDirectCommandPreservesHostOnlyEnv(t *testing.T) {
+func TestEvalStringPreservesBacktickSubstitution(t *testing.T) {
+	t.Parallel()
+
+	ctx := runtime.NewContext(context.Background(), &core.DAG{Name: "test-dag"}, "", "")
+	env := runtime.NewEnv(ctx, core.Step{Name: "test-step"})
+	ctx = runtime.WithEnv(ctx, env)
+
+	got, err := runtime.EvalString(ctx, "`echo resolved`")
+	require.NoError(t, err)
+	assert.Equal(t, "`echo resolved`", got)
+}
+
+func TestEvalStringModeDirectCommandUsesHostOnlyEnvFallback(t *testing.T) {
 	t.Setenv("DAGU_RUNTIME_DIRECT_HOST_ONLY", "from-os")
 
 	ctx := runtime.NewContext(context.Background(), &core.DAG{Name: "test-dag"}, "", "")
@@ -112,7 +124,7 @@ func TestEvalStringModeDirectCommandPreservesHostOnlyEnv(t *testing.T) {
 
 	got, err := runtime.EvalStringMode(ctx, "$SCOPED:$DAGU_RUNTIME_DIRECT_HOST_ONLY", cmnvalue.ModeDirectCommand)
 	require.NoError(t, err)
-	assert.Equal(t, "from-scope:$DAGU_RUNTIME_DIRECT_HOST_ONLY", got)
+	assert.Equal(t, "from-scope:from-os", got)
 }
 
 func TestEvalStringDoesNotResolveStepOutputContractAsRuntimeValue(t *testing.T) {

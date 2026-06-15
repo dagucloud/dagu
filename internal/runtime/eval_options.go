@@ -8,7 +8,7 @@ import (
 	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 )
 
-// CommandEvalOptions returns eval options for shell-backed command strings.
+// CommandEvalOptions returns eval options for command strings.
 //
 // Shell classification:
 //   - Unix-like (sh, bash, zsh, ksh, ash, dash) and nix-shell: these expand
@@ -18,10 +18,10 @@ import (
 //     support and uses $VAR but not ${VAR}), so Dagu performs ${VAR} expansion.
 //   - Non-Unix (PowerShell, cmd.exe): do not understand ${VAR} syntax at all,
 //     so Dagu must expand scoped variables on their behalf (ExpandEnv stays enabled).
-//   - direct / empty: no shell is involved; Dagu expands scoped variables.
+//   - direct / empty: no shell is involved; Dagu expands OS variables itself.
 func CommandEvalOptions(shell []string) []cmnvalue.Option {
 	if len(shell) == 0 || shell[0] == "direct" {
-		return nil
+		return []cmnvalue.Option{cmnvalue.WithOSExpansion()}
 	}
 
 	opts := []cmnvalue.Option{cmnvalue.WithoutDollarEscape()}

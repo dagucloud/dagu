@@ -861,7 +861,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			ShellArgs:     a.dag.SSH.ShellArgs,
 			Timeout:       sshTimeout,
 			Bastion:       bastionCfg,
-		}, runtime.GetEnv(ctx).UserEnvsMap())
+		}, runtime.GetEnv(ctx).UserEnvsMap(), cmnvalue.WithoutSubstitute())
 		if err != nil {
 			initErr = fmt.Errorf("failed to evaluate ssh config: %w", err)
 			return initErr
@@ -1819,7 +1819,7 @@ func (a *Agent) evaluateMailConfigs(ctx context.Context) error {
 
 	// Evaluate SMTP config if defined
 	if a.dag.SMTP != nil {
-		evaluated, err := cmnvalue.Object(ctx, *a.dag.SMTP, vars)
+		evaluated, err := cmnvalue.Object(ctx, *a.dag.SMTP, vars, cmnvalue.WithoutSubstitute())
 		if err != nil {
 			return fmt.Errorf("failed to evaluate smtp config: %w", err)
 		}
@@ -1828,7 +1828,7 @@ func (a *Agent) evaluateMailConfigs(ctx context.Context) error {
 
 	// Evaluate error mail config if defined
 	if a.dag.ErrorMail != nil {
-		evaluated, err := cmnvalue.Object(ctx, *a.dag.ErrorMail, vars)
+		evaluated, err := cmnvalue.Object(ctx, *a.dag.ErrorMail, vars, cmnvalue.WithoutSubstitute())
 		if err != nil {
 			return fmt.Errorf("failed to evaluate error mail config: %w", err)
 		}
@@ -1837,7 +1837,7 @@ func (a *Agent) evaluateMailConfigs(ctx context.Context) error {
 
 	// Evaluate info mail config if defined
 	if a.dag.InfoMail != nil {
-		evaluated, err := cmnvalue.Object(ctx, *a.dag.InfoMail, vars)
+		evaluated, err := cmnvalue.Object(ctx, *a.dag.InfoMail, vars, cmnvalue.WithoutSubstitute())
 		if err != nil {
 			return fmt.Errorf("failed to evaluate info mail config: %w", err)
 		}
@@ -1846,7 +1846,7 @@ func (a *Agent) evaluateMailConfigs(ctx context.Context) error {
 
 	// Evaluate wait mail config if defined
 	if a.dag.WaitMail != nil {
-		evaluated, err := cmnvalue.Object(ctx, *a.dag.WaitMail, vars)
+		evaluated, err := cmnvalue.Object(ctx, *a.dag.WaitMail, vars, cmnvalue.WithoutSubstitute())
 		if err != nil {
 			return fmt.Errorf("failed to evaluate wait mail config: %w", err)
 		}
@@ -1868,7 +1868,7 @@ func (a *Agent) evaluateRegistryAuths(ctx context.Context) error {
 	a.evaluatedRegistryAuths = make(map[string]*core.AuthConfig)
 
 	for registry, auth := range a.dag.RegistryAuths {
-		evaluatedAuth, err := cmnvalue.Object(ctx, *auth, vars)
+		evaluatedAuth, err := cmnvalue.Object(ctx, *auth, vars, cmnvalue.WithoutSubstitute())
 		if err != nil {
 			return fmt.Errorf("failed to evaluate registry auth for %s: %w", registry, err)
 		}
@@ -1921,7 +1921,7 @@ func (a *Agent) evaluateS3Config(ctx context.Context) error {
 	}
 
 	vars := runtime.GetEnv(ctx).UserEnvsMap()
-	evaluated, err := cmnvalue.Object(ctx, *a.dag.S3, vars)
+	evaluated, err := cmnvalue.Object(ctx, *a.dag.S3, vars, cmnvalue.WithoutSubstitute())
 	if err != nil {
 		return fmt.Errorf("failed to evaluate s3 config: %w", err)
 	}

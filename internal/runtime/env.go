@@ -282,14 +282,14 @@ func DAGShell(ctx context.Context) []string {
 func evalShellWithScope(ctx context.Context, scope *cmnvalue.EnvScope, shell string, shellArgs []string) ([]string, error) {
 	ctx = cmnvalue.WithEnvScope(ctx, scope)
 
-	shellCmd, err := cmnvalue.String(ctx, shell)
+	shellCmd, err := cmnvalue.String(ctx, shell, cmnvalue.WithoutSubstitute())
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate shell: %w", err)
 	}
 
 	result := []string{shellCmd}
 	for _, arg := range shellArgs {
-		evaluated, err := cmnvalue.String(ctx, arg)
+		evaluated, err := cmnvalue.String(ctx, arg, cmnvalue.WithoutSubstitute())
 		if err != nil {
 			logger.Error(ctx, "Failed to evaluate shell argument",
 				tag.String("arg", arg),
@@ -330,7 +330,7 @@ func (e Env) MailerConfig(ctx context.Context) (mailer.Config, error) {
 		Port:     e.DAG.SMTP.Port,
 		Username: e.DAG.SMTP.Username,
 		Password: e.DAG.SMTP.Password,
-	})
+	}, cmnvalue.WithoutSubstitute())
 }
 
 // EvalString evaluates the given string with the variables within the execution context.

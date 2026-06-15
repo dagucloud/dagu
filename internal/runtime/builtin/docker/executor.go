@@ -526,7 +526,7 @@ func evalEnvSequentially(ctx context.Context, envs []string) ([]string, error) {
 			result = append(result, entry)
 			continue
 		}
-		val, err := runtime.EvalString(ctx, rawVal, cmnvalue.WithVariables(resolved))
+		val, err := runtime.EvalString(ctx, rawVal, cmnvalue.WithVariables(resolved), cmnvalue.WithoutSubstitute())
 		if err != nil {
 			return nil, fmt.Errorf("env %s: %w", key, err)
 		}

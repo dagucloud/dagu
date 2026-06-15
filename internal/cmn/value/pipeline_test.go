@@ -158,6 +158,45 @@ func TestString_WithoutDollarEscapeKeepsEscapedShellVariable(t *testing.T) {
 	assert.Equal(t, `echo "\$HOME"`, result)
 }
 
+func TestString_PreservesEnvironmentReferencesInsideSingleQuotedSpan(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	ctx = WithEnvScope(ctx, NewEnvScope(nil, false).WithEntry("HOME", "/home/scoped", EnvSourceDAGEnv))
+
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			name:  "SimpleVariable",
+			input: "'prefix $HOME suffix'",
+		},
+		{
+			name:  "BracedVariable",
+			input: "'prefix ${HOME} suffix'",
+		},
+		{
+			name:  "ShellExpression",
+			input: "'prefix ${HOME:-fallback} suffix'",
+		},
+		{
+			name:  "AdjacentQuotedSegment",
+			input: "prefix'$HOME'suffix",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := String(ctx, tt.input)
+			require.NoError(t, err)
+			assert.Equal(t, tt.input, got)
+		})
+	}
+}
+
 func TestString(t *testing.T) {
 	t.Setenv("TEST_ENV", "test_value")
 	t.Setenv("TEST_JSON", `{"key": "value"}`)

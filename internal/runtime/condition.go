@@ -11,6 +11,7 @@ import (
 	"slices"
 
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 )
 
@@ -80,7 +81,7 @@ func EvalCondition(ctx context.Context, shell []string, c *core.Condition) error
 // matchCondition evaluates the condition and checks if it matches the expected value.
 // It returns an error if the condition was not met.
 func matchCondition(ctx context.Context, c *core.Condition) error {
-	evaluatedVal, err := EvalString(ctx, c.Condition)
+	evaluatedVal, err := EvalString(ctx, c.Condition, cmnvalue.WithoutSubstitute())
 	if err != nil {
 		return fmt.Errorf("failed to evaluate the value: Error=%v", err)
 	}
@@ -104,7 +105,8 @@ func matchCondition(ctx context.Context, c *core.Condition) error {
 }
 
 func evalCommand(ctx context.Context, shell []string, c *core.Condition) error {
-	commandToRun, err := EvalString(ctx, c.Condition, CommandEvalOptions(shell)...)
+	opts := append([]cmnvalue.Option{cmnvalue.WithoutSubstitute()}, CommandEvalOptions(shell)...)
+	commandToRun, err := EvalString(ctx, c.Condition, opts...)
 	if err != nil {
 		return fmt.Errorf("failed to evaluate command: %w", err)
 	}

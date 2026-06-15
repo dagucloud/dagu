@@ -136,10 +136,51 @@ func (t template) resolveVariables(r *resolver) string {
 	return b.String()
 }
 
-// isSingleQuotedVar reports whether the matched variable token is enclosed
-// in single quotes in the original input.
+// isSingleQuotedVar reports whether the matched variable token starts inside
+// a single-quoted span in the original input.
 func isSingleQuotedVar(input string, start, end int) bool {
-	return start > 0 && end < len(input) && input[start-1] == '\'' && input[end] == '\''
+	inSingleQuote := false
+	for i := 0; i < start; i++ {
+		if input[i] != '\'' || isEscapedSingleQuote(input, i) {
+			continue
+		}
+		if inSingleQuote {
+			inSingleQuote = false
+			continue
+		}
+		if singleQuoteCanOpen(input, i) {
+			inSingleQuote = true
+		}
+	}
+	if !inSingleQuote {
+		return false
+	}
+	for i := end; i < len(input); i++ {
+		if input[i] == '\'' && !isEscapedSingleQuote(input, i) {
+			return true
+		}
+	}
+	return false
+}
+
+func singleQuoteCanOpen(input string, idx int) bool {
+	if idx == 0 {
+		return true
+	}
+	switch input[idx-1] {
+	case '$', '}':
+		return false
+	default:
+		return true
+	}
+}
+
+func isEscapedSingleQuote(input string, idx int) bool {
+	backslashes := 0
+	for i := idx - 1; i >= 0 && input[i] == '\\'; i-- {
+		backslashes++
+	}
+	return backslashes%2 == 1
 }
 
 func walkBindings(input string, visit func(token, path string) (string, error)) (string, error) {

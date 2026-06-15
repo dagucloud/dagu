@@ -90,7 +90,7 @@ ${steps.step_id.outputs.name}
 | YAML field | String values that support Dagu references |
 | --- | --- |
 | `consts` list form | String values in ordered list entries. Only earlier `${consts.*}` entries are visible. |
-| `env` | Root environment values in map form or `KEY=value` list form. |
+| `env` | Root environment values in map form, array-of-map form, or `KEY=value` list form. |
 | `dotenv[]` | Each dotenv path string. |
 | `shell`, `shell_args[]`, `working_dir` | Root shell command, shell args, and working directory. |
 | `preconditions[].condition` | Root precondition condition strings. |
@@ -98,7 +98,7 @@ ${steps.step_id.outputs.name}
 | `steps[].run` | String form and every string item in array form. |
 | `steps[].with` | Every nested string value under the step `with` object. This includes action inputs and run-step shell settings. |
 | `steps[].working_dir` | Step working directory. |
-| `steps[].env` | Step environment values in map form or `KEY=value` list form. |
+| `steps[].env` | Step environment values in map form, array-of-map form, or `KEY=value` list form. |
 | `steps[].preconditions[].condition` | Step precondition condition strings. |
 | `steps[].repeat_policy.condition` | Repeat condition strings. |
 | `steps[].parallel` | `variable`, `items[]`, `items[].value`, and `items[].params.*` string values. |

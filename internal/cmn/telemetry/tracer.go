@@ -44,7 +44,7 @@ func NewTracer(ctx context.Context, dag *core.DAG, vars map[string]string) (*Tra
 		return &Tracer{tracer: otel.Tracer(TracerName)}, nil
 	}
 
-	cfg, err := cmnvalue.Object(ctx, *dag.OTel, vars)
+	cfg, err := cmnvalue.Object(ctx, *dag.OTel, vars, cmnvalue.WithoutSubstitute())
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate OTel config: %w", err)
 	}

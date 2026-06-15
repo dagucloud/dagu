@@ -424,7 +424,7 @@
           "description": "Map format: {KEY1: value1, KEY2: value2}"
         }
       ],
-      "description": "Environment variables available to all steps in the DAG. Supports three formats: 1) Map format: env: {KEY: value}, 2) Array of maps: env: [{KEY: value}], 3) Array of Key=Value strings: env: ['KEY=value'] (Docker/docker-compose compatible). Can use shell expansions (${VAR}), references to other environment variables, or command substitutions (`cmd`). Note: These won't be stored in execution history data for security."
+      "description": "Environment variables available to all steps in the DAG. Supports three formats: 1) Map format: env: {KEY: value}, 2) Array of maps: env: [{KEY: value}], 3) Array of Key=Value strings: env: ['KEY=value'] (Docker/docker-compose compatible). Can use environment references such as ${VAR} and references to other environment variables. Note: These won't be stored in execution history data for security."
     },
     "secrets": {
       "type": "array",
@@ -732,7 +732,7 @@
           }
         }
       ],
-      "description": "Conditions that must be satisfied before the DAG can run. Can use shell expansions or command substitutions to validate external states."
+      "description": "Conditions that must be satisfied before the DAG can run. Dagu resolves value references before evaluating the condition; command-form conditions may still be interpreted by the configured shell."
     },
     "params": {
       "oneOf": [
@@ -1892,7 +1892,7 @@
             },
             "condition": {
               "type": "string",
-              "description": "Command or expression to evaluate for repeat-until. Can include shell commands, environment variables, or command substitutions."
+              "description": "Command or expression to evaluate for repeat-until. Can include shell commands and environment references."
             },
             "expected": {
               "type": "string",
@@ -1906,7 +1906,7 @@
               "description": "Exit code or list of exit codes that will stop repetition. If not specified, all non-zero exit codes will trigger repetition."
             }
           },
-          "description": "Configuration for repeatedly executing this step at fixed intervals or until a condition is met. Supports string matching, command substitution, and exit code checks."
+          "description": "Configuration for repeatedly executing this step at fixed intervals or until a condition is met. Supports string matching, shell command conditions, and exit code checks."
         },
         "mail_on_error": {
           "type": "boolean",
@@ -2085,7 +2085,7 @@
               "description": "Map format: {KEY1: value1, KEY2: value2}"
             }
           ],
-          "description": "Environment variables specific to this step. These override DAG-level environment variables with the same name. Supports three formats: 1) Map format: env: {KEY: value}, 2) Array of maps: env: [{KEY: value}], 3) Array of Key=Value strings: env: ['KEY=value'] (Docker/docker-compose compatible). Can use shell expansions (${VAR}), references to other environment variables, or command substitutions (`cmd`). When used with 'container' field, these are merged with container.env."
+          "description": "Environment variables specific to this step. These override DAG-level environment variables with the same name. Supports three formats: 1) Map format: env: {KEY: value}, 2) Array of maps: env: [{KEY: value}], 3) Array of Key=Value strings: env: ['KEY=value'] (Docker/docker-compose compatible). Can use environment references such as ${VAR} and references to other environment variables. When used with 'container' field, these are merged with container.env."
         },
         "container": {
           "$ref": "#/definitions/container",
@@ -2864,7 +2864,7 @@
       "properties": {
         "condition": {
           "type": "string",
-          "description": "Command or expression to evaluate. Can include shell commands, environment variables, or command substitutions with backticks."
+          "description": "Command or expression to evaluate. Dagu resolves value references before evaluating the condition; command-form conditions may still be interpreted by the configured shell."
         },
         "command": {
           "type": "string",

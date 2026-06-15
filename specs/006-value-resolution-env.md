@@ -26,9 +26,9 @@ Dagu must preserve environment syntax when another runtime, such as a shell or e
 
 ### Environment Declarations
 
-- `env` declarations must use list form.
+- `env` declarations may use map form, array-of-map form, or `NAME=value` list form.
 
-- Each list item must use `NAME=value` form.
+- Each `NAME=value` list item must use `NAME=value` form.
 
 - Env names must match `^[A-Za-z_][A-Za-z0-9_]*$`.
 
@@ -113,8 +113,6 @@ Direct execution without a shell:
 ### Validation
 
 - `dagu validate` must reject invalid `env` declaration shapes.
-
-- `dagu validate` must reject map-form `env` declarations.
 
 - `dagu validate` must reject invalid environment variable names in `env` declarations.
 

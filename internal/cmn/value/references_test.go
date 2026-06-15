@@ -168,10 +168,18 @@ func TestExpandStringFailsMissingRuntimeEnvBinding(t *testing.T) {
 	assert.Contains(t, err.Error(), `unknown env binding "RUNTIME_ONLY"`)
 }
 
-func TestExpandStringWorkflowValueRunsCommandSubstitution(t *testing.T) {
+func TestExpandStringWorkflowValuePreservesCommandSubstitution(t *testing.T) {
 	t.Parallel()
 
 	got, err := value.ExpandString("`echo resolved`", value.RuntimeScope{}, value.ModeWorkflowValue, "env.VALUE")
+	require.NoError(t, err)
+	assert.Equal(t, "`echo resolved`", got)
+}
+
+func TestExpandStringDynamicEvalRunsCommandSubstitution(t *testing.T) {
+	t.Parallel()
+
+	got, err := value.ExpandString("`echo resolved`", value.RuntimeScope{}, value.ModeDynamicEval, "params")
 	require.NoError(t, err)
 	assert.Equal(t, "resolved", got)
 }
@@ -277,10 +285,10 @@ func TestExpandStringModesApplyOwnerSemantics(t *testing.T) {
 			want: "secret",
 		},
 		{
-			name: "DirectCommandPreservesHostOnlyEnv",
+			name: "DirectCommandUsesHostOnlyEnvFallback",
 			raw:  "$DAGU_VALUE_MODE_DIRECT",
 			mode: value.ModeDirectCommand,
-			want: "$DAGU_VALUE_MODE_DIRECT",
+			want: "from-os",
 		},
 		{
 			name: "DynamicEvalUsesDefaultExpansion",
