@@ -558,7 +558,7 @@ func (h *AppHandler) proxyStreamToRemoteNode(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, buildRemoteEventURL(node.APIBaseURL, "/events/app", r.URL.Query()), nil)
+	req, err := newRemoteEventRequest(r.Context(), http.MethodGet, node, "/events/app", r.URL.Query(), nil)
 	if err != nil {
 		http.Error(w, "failed to create proxy request", http.StatusInternalServerError)
 		return
@@ -566,7 +566,7 @@ func (h *AppHandler) proxyStreamToRemoteNode(w http.ResponseWriter, r *http.Requ
 	req.Header.Set("Accept", "text/event-stream")
 	node.ApplyAuth(req)
 
-	resp, err := newProxyHTTPClient(node.SkipTLSVerify).Do(req)
+	resp, err := doRemoteEventRequest(newProxyHTTPClient(node.SkipTLSVerify), req)
 	if err != nil {
 		if r.Context().Err() != nil {
 			return

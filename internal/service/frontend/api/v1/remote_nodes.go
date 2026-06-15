@@ -67,6 +67,12 @@ func (a *API) CreateRemoteNode(ctx context.Context, request api.CreateRemoteNode
 			Message: "API base URL is required",
 		}, nil
 	}
+	if err := remotenode.ValidateAPIBaseURL(body.ApiBaseUrl); err != nil {
+		return api.CreateRemoteNode400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: err.Error(),
+		}, nil
+	}
 
 	// Check if name conflicts with a config-sourced node.
 	// Store-level name uniqueness is enforced atomically by the store itself.
@@ -170,6 +176,13 @@ func (a *API) UpdateRemoteNode(ctx context.Context, request api.UpdateRemoteNode
 		existing.Description = *body.Description
 	}
 	if body.ApiBaseUrl != nil && *body.ApiBaseUrl != "" {
+		if err := remotenode.ValidateAPIBaseURL(*body.ApiBaseUrl); err != nil {
+			return nil, &Error{
+				HTTPStatus: http.StatusBadRequest,
+				Code:       api.ErrorCodeBadRequest,
+				Message:    err.Error(),
+			}
+		}
 		existing.APIBaseURL = *body.ApiBaseUrl
 	}
 	if body.AuthType != nil {

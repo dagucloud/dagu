@@ -6,6 +6,8 @@ package remotenode
 import (
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -48,6 +50,38 @@ func NewRemoteNode(name, description, apiBaseURL string, authType AuthType) *Rem
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
+}
+
+// ParseAPIBaseURL validates and parses a remote node API base URL.
+func ParseAPIBaseURL(rawURL string) (*url.URL, error) {
+	trimmed := strings.TrimSpace(rawURL)
+	if trimmed == "" {
+		return nil, fmt.Errorf("api_base_url is required")
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return nil, fmt.Errorf("invalid api_base_url: %w", err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return nil, fmt.Errorf("api_base_url must use http or https")
+	}
+	if parsed.Host == "" {
+		return nil, fmt.Errorf("api_base_url must include a host")
+	}
+	if parsed.User != nil {
+		return nil, fmt.Errorf("api_base_url must not include credentials")
+	}
+	if parsed.RawQuery != "" || parsed.Fragment != "" {
+		return nil, fmt.Errorf("api_base_url must not include query parameters or fragments")
+	}
+	parsed.Path = strings.TrimRight(parsed.Path, "/")
+	return parsed, nil
+}
+
+// ValidateAPIBaseURL validates a remote node API base URL.
+func ValidateAPIBaseURL(rawURL string) error {
+	_, err := ParseAPIBaseURL(rawURL)
+	return err
 }
 
 // ApplyAuth adds authentication headers to the request based on the node's auth configuration.

@@ -13,6 +13,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -181,22 +182,16 @@ func (h *remoteNodeProxy) proxy(r *http.Request) (*http.Response, error) {
 
 // doRequest performs the actual proxying of the request to the remote node.
 func (h *remoteNodeProxy) doRequest(body any, r *http.Request) (*http.Response, error) {
-	// Copy original query parameters except remoteNode
 	q := r.URL.Query()
 	q.Del("remoteNode")
 
-	// Build the new remote URL
-	urlComponents := strings.Split(r.URL.Path, h.apiBasePath)
-	if len(urlComponents) < 2 {
+	remoteURL, err := buildRemoteNodeProxyURL(h.remoteNode.APIBaseURL, r.URL.Path, h.apiBasePath, q)
+	if err != nil {
 		return nil, &Error{
 			Code:       api.ErrorCodeBadRequest,
 			HTTPStatus: http.StatusBadRequest,
-			Message:    fmt.Sprintf("invalid URL path: %s", r.URL.Path),
+			Message:    err.Error(),
 		}
-	}
-	remoteURL := fmt.Sprintf("%s%s", strings.TrimSuffix(h.remoteNode.APIBaseURL, "/"), urlComponents[1])
-	if params := q.Encode(); params != "" {
-		remoteURL += "?" + params
 	}
 
 	method := r.Method
@@ -209,7 +204,7 @@ func (h *remoteNodeProxy) doRequest(body any, r *http.Request) (*http.Response, 
 		bodyJSON = strings.NewReader(string(data))
 	}
 
-	req, err := http.NewRequestWithContext(r.Context(), method, remoteURL, bodyJSON)
+	req, err := http.NewRequestWithContext(r.Context(), method, remoteURL, bodyJSON) //nolint:gosec // remoteURL is built from a validated remote-node base URL.
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new request: %w", err)
 	}
@@ -250,7 +245,7 @@ func (h *remoteNodeProxy) doRequest(body any, r *http.Request) (*http.Response, 
 		Timeout:   30 * time.Second, // Add a reasonable timeout
 	}
 
-	resp, err := client.Do(req)
+	resp, err := doRemoteNodeProxyRequest(client, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request to remote node: %w", err)
 	}
@@ -260,4 +255,24 @@ func (h *remoteNodeProxy) doRequest(body any, r *http.Request) (*http.Response, 
 	}
 
 	return resp, nil
+}
+
+func buildRemoteNodeProxyURL(baseURL, requestPath, apiBasePath string, query url.Values) (string, error) {
+	suffix, ok := strings.CutPrefix(requestPath, apiBasePath)
+	if !ok {
+		return "", fmt.Errorf("invalid URL path: %s", requestPath)
+	}
+
+	u, err := remotenode.ParseAPIBaseURL(baseURL)
+	if err != nil {
+		return "", err
+	}
+	u.Path = strings.TrimRight(u.Path, "/") + "/" + strings.TrimLeft(suffix, "/")
+	u.RawPath = ""
+	u.RawQuery = query.Encode()
+	return u.String(), nil
+}
+
+func doRemoteNodeProxyRequest(client *http.Client, req *http.Request) (*http.Response, error) {
+	return client.Do(req) //nolint:gosec // request URL is constrained by buildRemoteNodeProxyURL.
 }

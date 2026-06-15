@@ -921,6 +921,9 @@ func (c *Config) validateRemoteNodes() error {
 		if n.APIBaseURL == "" {
 			return fmt.Errorf("remote_nodes[%d] (%q): api_base_url is required", i, n.Name)
 		}
+		if err := validateRemoteNodeAPIBaseURL(n.APIBaseURL); err != nil {
+			return fmt.Errorf("remote_nodes[%d] (%q): %w", i, n.Name, err)
+		}
 		switch n.AuthType {
 		case "", "none", "basic", "token":
 			// valid
@@ -940,6 +943,26 @@ func (c *Config) validateRemoteNodes() error {
 		if n.Timeout < 0 {
 			return fmt.Errorf("remote_nodes[%d] (%q): timeout must not be negative", i, n.Name)
 		}
+	}
+	return nil
+}
+
+func validateRemoteNodeAPIBaseURL(rawURL string) error {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return fmt.Errorf("invalid api_base_url: %w", err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("api_base_url must use http or https")
+	}
+	if parsed.Host == "" {
+		return fmt.Errorf("api_base_url must include a host")
+	}
+	if parsed.User != nil {
+		return fmt.Errorf("api_base_url must not include credentials")
+	}
+	if parsed.RawQuery != "" || parsed.Fragment != "" {
+		return fmt.Errorf("api_base_url must not include query parameters or fragments")
 	}
 	return nil
 }
