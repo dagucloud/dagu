@@ -138,7 +138,7 @@ func (t template) resolveVariables(r *resolver) string {
 // a single-quoted span in the original input.
 func isSingleQuotedVar(input string, start, end int) bool {
 	inSingleQuote := false
-	for i := 0; i < start; i++ {
+	for i := range start {
 		if input[i] != '\'' || isEscapedSingleQuote(input, i) {
 			continue
 		}
