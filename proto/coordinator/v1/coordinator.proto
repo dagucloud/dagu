@@ -88,6 +88,7 @@ message PollResponse {
 // Request message for dispatching a task.
 message DispatchRequest {
   Task task = 1;
+  string admission_reservation_token = 2;
 }
 
 // Response message for dispatching a task.

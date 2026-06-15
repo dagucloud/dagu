@@ -238,7 +238,7 @@ func (r *Runner) dispatchStart(ctx context.Context, req executor.SubWorkflowRequ
 		slog.Any("worker-selector", task.WorkerSelector),
 	)
 
-	if err := r.dispatcher.Dispatch(ctx, task); err != nil {
+	if err := r.dispatcher.Dispatch(ctx, exec.DispatchRequest{Task: task}); err != nil {
 		return fmt.Errorf("failed to dispatch task: %w", err)
 	}
 	return nil
@@ -272,7 +272,7 @@ func (r *Runner) dispatchRetryWithStatus(
 		slog.Any("worker-selector", task.WorkerSelector),
 	)
 
-	if err := r.dispatcher.Dispatch(ctx, task); err != nil {
+	if err := r.dispatcher.Dispatch(ctx, exec.DispatchRequest{Task: task}); err != nil {
 		return fmt.Errorf("failed to dispatch retry task: %w", err)
 	}
 	return nil

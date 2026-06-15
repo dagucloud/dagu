@@ -410,13 +410,13 @@ func (m *mockCoordinatorCli) Poll(ctx context.Context, policy backoff.RetryPolic
 	return nil, nil
 }
 
-func (m *mockCoordinatorCli) Dispatch(ctx context.Context, task *exec.DispatchTask) error {
+func (m *mockCoordinatorCli) Dispatch(ctx context.Context, req exec.DispatchRequest) error {
 	m.mu.Lock()
 	dispatchFunc := m.DispatchFunc
 	m.mu.Unlock()
 
 	if dispatchFunc != nil {
-		return dispatchFunc(ctx, task)
+		return dispatchFunc(ctx, req.Task)
 	}
 	return nil
 }

@@ -322,10 +322,11 @@ func (b0 PollResponse_builder) Build() *PollResponse {
 
 // Request message for dispatching a task.
 type DispatchRequest struct {
-	state           protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Task *Task                  `protobuf:"bytes,1,opt,name=task,proto3"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state                                protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Task                      *Task                  `protobuf:"bytes,1,opt,name=task,proto3"`
+	xxx_hidden_AdmissionReservationToken string                 `protobuf:"bytes,2,opt,name=admission_reservation_token,json=admissionReservationToken,proto3"`
+	unknownFields                        protoimpl.UnknownFields
+	sizeCache                            protoimpl.SizeCache
 }
 
 func (x *DispatchRequest) Reset() {
@@ -360,8 +361,19 @@ func (x *DispatchRequest) GetTask() *Task {
 	return nil
 }
 
+func (x *DispatchRequest) GetAdmissionReservationToken() string {
+	if x != nil {
+		return x.xxx_hidden_AdmissionReservationToken
+	}
+	return ""
+}
+
 func (x *DispatchRequest) SetTask(v *Task) {
 	x.xxx_hidden_Task = v
+}
+
+func (x *DispatchRequest) SetAdmissionReservationToken(v string) {
+	x.xxx_hidden_AdmissionReservationToken = v
 }
 
 func (x *DispatchRequest) HasTask() bool {
@@ -378,7 +390,8 @@ func (x *DispatchRequest) ClearTask() {
 type DispatchRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Task *Task
+	Task                      *Task
+	AdmissionReservationToken string
 }
 
 func (b0 DispatchRequest_builder) Build() *DispatchRequest {
@@ -386,6 +399,7 @@ func (b0 DispatchRequest_builder) Build() *DispatchRequest {
 	b, x := &b0, m0
 	_, _ = b, x
 	x.xxx_hidden_Task = b.Task
+	x.xxx_hidden_AdmissionReservationToken = b.AdmissionReservationToken
 	return m0
 }
 
@@ -4795,9 +4809,10 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"8\n" +
 	"\fPollResponse\x12(\n" +
-	"\x04task\x18\x01 \x01(\v2\x14.coordinator.v1.TaskR\x04task\";\n" +
+	"\x04task\x18\x01 \x01(\v2\x14.coordinator.v1.TaskR\x04task\"{\n" +
 	"\x0fDispatchRequest\x12(\n" +
-	"\x04task\x18\x01 \x01(\v2\x14.coordinator.v1.TaskR\x04task\"\x12\n" +
+	"\x04task\x18\x01 \x01(\v2\x14.coordinator.v1.TaskR\x04task\x12>\n" +
+	"\x1badmission_reservation_token\x18\x02 \x01(\tR\x19admissionReservationToken\"\x12\n" +
 	"\x10DispatchResponse\"\xb0\v\n" +
 	"\x04Task\x127\n" +
 	"\toperation\x18\x06 \x01(\x0e2\x19.coordinator.v1.OperationR\toperation\x12)\n" +

@@ -34,6 +34,14 @@ func coordinatorTestTimeout(timeout time.Duration) time.Duration {
 	return timeout
 }
 
+func TestDispatchBindErrorCode(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, codes.FailedPrecondition, dispatchBindErrorCode(exec.ErrDispatchAdmissionNotFound))
+	assert.Equal(t, codes.FailedPrecondition, dispatchBindErrorCode(exec.ErrDispatchAdmissionConflict))
+	assert.Equal(t, codes.Internal, dispatchBindErrorCode(errors.New("disk full")))
+}
+
 // mockDAGRunStore is a test implementation of execution.DAGRunStore
 type mockDAGRunStore struct {
 	attempts            map[string]*mockDAGRunAttempt
@@ -713,6 +721,76 @@ func TestHandler_Poll(t *testing.T) {
 		count, countErr := dispatchStore.CountOutstandingByQueue(context.Background(), "test-queue", time.Second)
 		require.NoError(t, countErr)
 		assert.Zero(t, count)
+	})
+
+	t.Run("DispatchBindsAdmissionReservationIdempotently", func(t *testing.T) {
+		t.Parallel()
+		registerCommandExecutorCapsForCoordinatorTest()
+
+		ctx := context.Background()
+		baseDir := filepath.Join(t.TempDir(), "distributed")
+		dispatchStore, leaseStore, activeStore := newTestDispatchAdmissionTaskStore(baseDir)
+		heartbeatStore := newTestWorkerHeartbeatStore(baseDir)
+		require.NoError(t, heartbeatStore.Upsert(ctx, exec.WorkerHeartbeatRecord{
+			WorkerID:        "worker-1",
+			LastHeartbeatAt: time.Now().UTC().UnixMilli(),
+		}))
+
+		dagRunStore := newMockDAGRunStore()
+		h := NewHandler(HandlerConfig{
+			DAGRunStore:               dagRunStore,
+			DispatchTaskStore:         dispatchStore,
+			WorkerHeartbeatStore:      heartbeatStore,
+			DAGRunLeaseStore:          leaseStore,
+			ActiveDistributedRunStore: activeStore,
+		})
+
+		runRef := exec.NewDAGRunRef("test-dag", "run-123")
+		attemptID := "test-attempt"
+		attemptKey := exec.GenerateAttemptKey(runRef.Name, runRef.ID, runRef.Name, runRef.ID, attemptID)
+		decision, err := dispatchStore.ReserveAdmission(ctx, exec.DispatchAdmissionRequest{
+			QueueName:      "test-queue",
+			MaxConcurrency: 1,
+			AttemptKey:     attemptKey,
+			AttemptID:      attemptID,
+			DAGRun:         runRef,
+			StaleThreshold: time.Minute,
+		})
+		require.NoError(t, err)
+		require.True(t, decision.Reserved)
+
+		req := &coordinatorv1.DispatchRequest{
+			AdmissionReservationToken: decision.ReservationToken,
+			Task: &coordinatorv1.Task{
+				Operation:  coordinatorv1.Operation_OPERATION_RETRY,
+				DagRunId:   runRef.ID,
+				Target:     runRef.Name,
+				Definition: "name: test-dag\nsteps:\n  - name: step1\n    run: echo hello",
+				QueueName:  "test-queue",
+			},
+		}
+		_, err = h.Dispatch(ctx, req)
+		require.NoError(t, err)
+
+		claimed, err := dispatchStore.ClaimNext(ctx, exec.DispatchTaskClaim{
+			WorkerID:     "worker-1",
+			PollerID:     "poller-1",
+			ClaimTimeout: time.Minute,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, claimed)
+
+		_, err = h.Dispatch(ctx, req)
+		require.NoError(t, err)
+		require.NoError(t, dispatchStore.DeleteClaim(ctx, claimed.ClaimToken))
+
+		claimedAgain, err := dispatchStore.ClaimNext(ctx, exec.DispatchTaskClaim{
+			WorkerID:     "worker-1",
+			PollerID:     "poller-2",
+			ClaimTimeout: time.Minute,
+		})
+		require.NoError(t, err)
+		assert.Nil(t, claimedAgain)
 	})
 
 	t.Run("DispatchMarksNewAttemptFailedWhenEnqueueFails", func(t *testing.T) {

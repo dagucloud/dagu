@@ -410,9 +410,9 @@ func (m *mockRemoteCoordinatorClient) GetDAG(ctx context.Context, name string) (
 	return "", nil
 }
 
-func (m *mockRemoteCoordinatorClient) Dispatch(ctx context.Context, task *exec.DispatchTask) error {
+func (m *mockRemoteCoordinatorClient) Dispatch(ctx context.Context, req exec.DispatchRequest) error {
 	if m.DispatchFunc != nil {
-		return m.DispatchFunc(ctx, task)
+		return m.DispatchFunc(ctx, req.Task)
 	}
 	return nil
 }

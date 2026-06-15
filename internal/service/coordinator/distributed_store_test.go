@@ -14,6 +14,15 @@ func newTestDispatchTaskStore(baseDir string) *store.DispatchTaskStore {
 	return store.NewDispatchTaskStore(file.NewCollection(baseDir))
 }
 
+func newTestDispatchAdmissionTaskStore(baseDir string) (*store.DispatchTaskStore, *store.DAGRunLeaseStore, *store.ActiveDistributedRunStore) {
+	leaseStore := newTestDAGRunLeaseStore(baseDir)
+	activeStore := newTestActiveDistributedRunStore(baseDir)
+	return store.NewDispatchTaskStore(
+		file.NewCollection(baseDir),
+		store.WithDispatchAdmissionLiveness(leaseStore, activeStore),
+	), leaseStore, activeStore
+}
+
 func newTestWorkerHeartbeatStore(baseDir string) *store.WorkerHeartbeatStore {
 	return store.NewWorkerHeartbeatStore(file.NewCollection(filepath.Join(baseDir, "workers")))
 }

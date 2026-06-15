@@ -157,7 +157,7 @@ func (e *DAGExecutor) HandleJob(
 	}
 
 	// For all other cases (local execution or non-START operations), use ExecuteDAG
-	return e.executeDAG(ctx, dag, operation, runID, nil, triggerType, stringutil.FormatTime(scheduleTime), profileName)
+	return e.executeDAG(ctx, dag, operation, runID, nil, triggerType, stringutil.FormatTime(scheduleTime), profileName, "")
 }
 
 // ExecuteDAG executes or dispatches an already-persisted DAG.
@@ -178,7 +178,20 @@ func (e *DAGExecutor) ExecuteDAG(
 	triggerType core.TriggerType,
 	scheduleTime string,
 ) error {
-	return e.executeDAG(ctx, dag, operation, runID, previousStatus, triggerType, scheduleTime, "")
+	return e.executeDAG(ctx, dag, operation, runID, previousStatus, triggerType, scheduleTime, "", "")
+}
+
+func (e *DAGExecutor) ExecuteDAGWithAdmission(
+	ctx context.Context,
+	dag *core.DAG,
+	operation exec.DispatchOperation,
+	runID string,
+	previousStatus *exec.DAGRunStatus,
+	triggerType core.TriggerType,
+	scheduleTime string,
+	admissionReservationToken string,
+) error {
+	return e.executeDAG(ctx, dag, operation, runID, previousStatus, triggerType, scheduleTime, "", admissionReservationToken)
 }
 
 func (e *DAGExecutor) executeDAG(
@@ -190,6 +203,7 @@ func (e *DAGExecutor) executeDAG(
 	triggerType core.TriggerType,
 	scheduleTime string,
 	defaultProfileName string,
+	admissionReservationToken string,
 ) error {
 	if err := validateDispatchOperation(operation); err != nil {
 		return err
@@ -234,7 +248,10 @@ func (e *DAGExecutor) executeDAG(
 			runID,
 			taskOpts...,
 		)
-		return e.dispatchToCoordinator(ctx, task)
+		return e.dispatchToCoordinator(ctx, exec.DispatchRequest{
+			Task:                      task,
+			AdmissionReservationToken: admissionReservationToken,
+		})
 	}
 
 	// Local execution
@@ -329,13 +346,14 @@ func (e *DAGExecutor) IsDistributed(dag *core.DAG) bool {
 // 1. Select an appropriate worker based on the task's workerSelector
 // 2. Forward the task to the selected worker
 // 3. Track the execution status
-func (e *DAGExecutor) dispatchToCoordinator(ctx context.Context, task *exec.DispatchTask) error {
+func (e *DAGExecutor) dispatchToCoordinator(ctx context.Context, req exec.DispatchRequest) error {
+	task := req.Task
 	ctx = logger.WithValues(ctx,
 		tag.Target(task.Target),
 		tag.RunID(task.DAGRunID),
 	)
 
-	if err := e.coordinatorCli.Dispatch(ctx, task); err != nil {
+	if err := e.coordinatorCli.Dispatch(ctx, req); err != nil {
 		logger.Error(ctx, "Failed to dispatch task to coordinator",
 			tag.Error(err),
 			slog.String("operation", task.Operation.String()),

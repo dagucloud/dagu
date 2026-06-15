@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	osexec "os/exec"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -292,15 +293,26 @@ func TestIsPreStartExecutionFailure(t *testing.T) {
 // mockDispatcher implements exec.Dispatcher for testing dispatch behavior.
 type mockDispatcher struct {
 	callCount atomic.Int32
+	mu        sync.Mutex
+	lastReq   exec.DispatchRequest
 	errFunc   func(callNum int32) error
 }
 
-func (m *mockDispatcher) Dispatch(_ context.Context, _ *exec.DispatchTask) error {
+func (m *mockDispatcher) Dispatch(_ context.Context, req exec.DispatchRequest) error {
+	m.mu.Lock()
+	m.lastReq = req
+	m.mu.Unlock()
 	n := m.callCount.Add(1)
 	if m.errFunc != nil {
 		return m.errFunc(n)
 	}
 	return nil
+}
+
+func (m *mockDispatcher) LastRequest() exec.DispatchRequest {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastReq
 }
 
 func (m *mockDispatcher) Cleanup(_ context.Context) error { return nil }
@@ -347,7 +359,7 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_TransientRetryThenSuccess(t *
 		},
 	})
 
-	started := dispatcher.dispatchAndWaitForStartup(context.Background(), "test-queue", runRef, dag, "run-1", status)
+	started := dispatcher.dispatchAndWaitForStartup(context.Background(), "test-queue", runRef, dag, "run-1", status, "")
 	require.True(t, started)
 	require.GreaterOrEqual(t, disp.callCount.Load(), int32(3))
 	procStore.AssertExpectations(t)
@@ -382,7 +394,7 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_StaleQueueDispatchIsDiscarded
 		},
 	})
 
-	started := dispatcher.dispatchAndWaitForStartup(context.Background(), "test-queue", runRef, dag, "run-1", status)
+	started := dispatcher.dispatchAndWaitForStartup(context.Background(), "test-queue", runRef, dag, "run-1", status, "")
 	require.True(t, started)
 	require.Equal(t, int32(1), disp.callCount.Load())
 	procStore.AssertNotCalled(t, "IsRunAlive", mock.Anything, mock.Anything, mock.Anything)
@@ -415,7 +427,7 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_RawStaleQueueDispatchStopsRet
 		},
 	})
 
-	started := dispatcher.dispatchAndWaitForStartup(context.Background(), "test-queue", runRef, dag, "run-1", status)
+	started := dispatcher.dispatchAndWaitForStartup(context.Background(), "test-queue", runRef, dag, "run-1", status, "")
 	require.True(t, started)
 	require.Equal(t, int32(1), disp.callCount.Load())
 	procStore.AssertNotCalled(t, "IsRunAlive", mock.Anything, mock.Anything, mock.Anything)
@@ -449,7 +461,7 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_PermanentErrorStopsRetry(t *t
 		},
 	})
 
-	started := dispatcher.dispatchAndWaitForStartup(context.Background(), "test-queue", runRef, dag, "run-1", status)
+	started := dispatcher.dispatchAndWaitForStartup(context.Background(), "test-queue", runRef, dag, "run-1", status, "")
 	require.False(t, started)
 	// Should have been called exactly once (permanent error stops retries).
 	require.Equal(t, int32(1), disp.callCount.Load())

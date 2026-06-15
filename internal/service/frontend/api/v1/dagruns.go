@@ -2690,7 +2690,7 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 			opts...,
 		)
 
-		if err := a.coordinatorCli.Dispatch(ctx, task); err != nil {
+		if err := a.coordinatorCli.Dispatch(ctx, exec.DispatchRequest{Task: task}); err != nil {
 			return retryDAGRunResult{}, fmt.Errorf("error dispatching retry to coordinator: %w", err)
 		}
 

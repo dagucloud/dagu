@@ -112,6 +112,7 @@ type Handler struct {
 	stateStore                dagstate.Store                 // For persistent DAG state shared across DAG runs
 	workspaceBundleStore      *workspacebundle.Store         // For immutable action workspace bundles
 	dispatchTaskStore         exec.DispatchTaskStore         // Shared distributed dispatch queue
+	dispatchAdmissionStore    exec.DispatchAdmissionStore    // Shared distributed admission state
 	workerHeartbeatStore      exec.WorkerHeartbeatStore      // Shared worker presence
 	dagRunLeaseStore          exec.DAGRunLeaseStore          // Shared distributed run leases
 	activeDistributedRunStore exec.ActiveDistributedRunStore // Shared active distributed attempt index
@@ -167,6 +168,9 @@ type HandlerConfig struct {
 	// DispatchTaskStore is the shared store for distributed pending tasks.
 	DispatchTaskStore exec.DispatchTaskStore
 
+	// DispatchAdmissionStore reserves and binds distributed queue admission.
+	DispatchAdmissionStore exec.DispatchAdmissionStore
+
 	// WorkerHeartbeatStore is the shared store for worker presence.
 	WorkerHeartbeatStore exec.WorkerHeartbeatStore
 
@@ -213,6 +217,12 @@ func NewHandler(cfg HandlerConfig) *Handler {
 	if cfg.WorkspaceBundleDir != "" {
 		bundleStore = workspacebundle.NewStore(cfg.WorkspaceBundleDir, workspacebundle.DefaultLimits())
 	}
+	dispatchAdmissionStore := cfg.DispatchAdmissionStore
+	if dispatchAdmissionStore == nil {
+		if admissionStore, ok := cfg.DispatchTaskStore.(exec.DispatchAdmissionStore); ok {
+			dispatchAdmissionStore = admissionStore
+		}
+	}
 	return &Handler{
 		waitingPollers:            make(map[string]*workerInfo),
 		heartbeats:                make(map[string]*heartbeatInfo),
@@ -228,6 +238,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		stateStore:                cfg.StateStore,
 		workspaceBundleStore:      bundleStore,
 		dispatchTaskStore:         cfg.DispatchTaskStore,
+		dispatchAdmissionStore:    dispatchAdmissionStore,
 		workerHeartbeatStore:      cfg.WorkerHeartbeatStore,
 		dagRunLeaseStore:          cfg.DAGRunLeaseStore,
 		activeDistributedRunStore: cfg.ActiveDistributedRunStore,
@@ -429,6 +440,7 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 	if req.Task == nil {
 		return nil, status.Error(codes.InvalidArgument, "task is required")
 	}
+	admissionToken := strings.TrimSpace(req.AdmissionReservationToken)
 
 	// Validate task.Definition is provided - required for distributed execution
 	if req.Task.Definition == "" {
@@ -442,6 +454,9 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 	)
 
 	if h.dispatchTaskStore == nil {
+		if admissionToken != "" {
+			return nil, status.Error(codes.FailedPrecondition, "admission reservation requires dispatch task storage")
+		}
 		if err := h.ensureWaitingWorkerAvailability(req.Task.WorkerSelector); err != nil {
 			return nil, status.Error(dispatchErrorCode(err), err.Error())
 		}
@@ -466,6 +481,9 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 	if h.dagRunStore == nil {
 		return nil, status.Error(codes.FailedPrecondition, "distributed dispatch requires DAG run storage")
 	}
+	if admissionToken != "" && h.dispatchAdmissionStore == nil {
+		return nil, status.Error(codes.FailedPrecondition, "dispatch admission store is not configured")
+	}
 
 	healthyWorkers, err := h.listHealthyWorkers(ctx)
 	if err != nil {
@@ -480,19 +498,85 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 
 	prepared, err := h.prepareAttemptForDispatch(ctx, req.Task)
 	if err != nil {
+		h.releaseAdmissionToken(ctx, admissionToken)
 		return nil, status.Error(prepareAttemptErrorCode(err), "failed to prepare attempt: "+err.Error())
 	}
 	dispatchTask, err := convert.ProtoToDispatchTask(req.Task)
 	if err != nil {
 		h.markPreparedAttemptDispatchFailed(ctx, req.Task, prepared, err)
+		h.releaseAdmissionToken(ctx, admissionToken)
 		return nil, status.Error(codes.Internal, "failed to encode task: "+err.Error())
 	}
-	if err := h.dispatchTaskStore.Enqueue(ctx, dispatchTask); err != nil {
+	if err := h.enqueueOrBindDispatchTask(ctx, admissionToken, dispatchTask); err != nil {
 		h.markPreparedAttemptDispatchFailed(ctx, req.Task, prepared, err)
-		return nil, status.Error(codes.Internal, "failed to enqueue task: "+err.Error())
+		h.releaseAdmissionToken(ctx, admissionToken)
+		return nil, status.Error(dispatchBindErrorCode(err), "failed to enqueue task: "+err.Error())
 	}
 	h.notifyDispatchAvailable()
 	return &coordinatorv1.DispatchResponse{}, nil
+}
+
+func dispatchBindErrorCode(err error) codes.Code {
+	if errors.Is(err, exec.ErrDispatchAdmissionNotFound) ||
+		errors.Is(err, exec.ErrDispatchAdmissionConflict) {
+		return codes.FailedPrecondition
+	}
+	return codes.Internal
+}
+
+func (h *Handler) enqueueOrBindDispatchTask(ctx context.Context, admissionToken string, task *exec.DispatchTask) error {
+	if admissionToken == "" {
+		return h.dispatchTaskStore.Enqueue(ctx, task)
+	}
+	return h.dispatchAdmissionStore.BindAdmission(ctx, exec.DispatchAdmissionBindRequest{
+		ReservationToken: admissionToken,
+		Task:             task,
+	})
+}
+
+func (h *Handler) releaseAdmissionToken(ctx context.Context, token string) {
+	if token == "" || h.dispatchAdmissionStore == nil {
+		return
+	}
+	err := h.dispatchAdmissionStore.ReleaseAdmissionToken(context.WithoutCancel(ctx), token)
+	if err == nil ||
+		errors.Is(err, exec.ErrDispatchAdmissionConflict) ||
+		errors.Is(err, exec.ErrDispatchAdmissionNotFound) {
+		return
+	}
+	logger.Warn(ctx, "Failed to release dispatch admission reservation",
+		tag.Error(err),
+	)
+}
+
+func (h *Handler) finalizeAdmissionForStatus(ctx context.Context, status *exec.DAGRunStatus, attemptID string) {
+	if h.dispatchAdmissionStore == nil || status == nil || !isTerminalRunStatus(status.Status) {
+		return
+	}
+	attemptKey := exec.AttemptKeyForStatus(status, attemptID)
+	if attemptKey == "" {
+		return
+	}
+	if err := h.dispatchAdmissionStore.FinalizeAdmissionAttempt(context.WithoutCancel(ctx), attemptKey); err != nil {
+		logger.Warn(ctx, "Failed to finalize dispatch admission",
+			tag.AttemptKey(attemptKey),
+			tag.Error(err),
+		)
+	}
+}
+
+func (h *Handler) finalizeAdmissionForAttempt(ctx context.Context, attempt exec.DAGRunAttempt) {
+	if h.dispatchAdmissionStore == nil || attempt == nil {
+		return
+	}
+	status, err := attempt.ReadStatus(ctx)
+	if err != nil {
+		logger.Warn(ctx, "Failed to read status for dispatch admission finalization",
+			tag.Error(err),
+		)
+		return
+	}
+	h.finalizeAdmissionForStatus(ctx, status, attempt.ID())
 }
 
 func queueDispatchStatusForTask(task *coordinatorv1.Task) (*exec.DAGRunStatus, error) {
@@ -1548,6 +1632,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	// Keep distributed liveness in the dedicated lease store and active index,
 	// not in run history.
 	ownership.syncFromStatus(ctx, req.WorkerId, dagRunStatus, attempt.ID())
+	h.finalizeAdmissionForStatus(ctx, dagRunStatus, attempt.ID())
 
 	// Note: We don't close the attempt immediately on terminal status because
 	// the agent may push the same terminal status multiple times from different
@@ -2613,6 +2698,14 @@ func (h *Handler) failDistributedAttemptIfCurrent(
 		"Failed to delete stale distributed lease after failure",
 		"Failed to delete active distributed run after failure",
 	)
+	if h.dispatchAdmissionStore != nil && attemptKey != "" {
+		if err := h.dispatchAdmissionStore.FinalizeAdmissionAttempt(storeCtx, attemptKey); err != nil {
+			logger.Warn(ctx, "Failed to finalize dispatch admission after stale-run failure",
+				tag.AttemptKey(attemptKey),
+				tag.Error(err),
+			)
+		}
+	}
 
 	logger.Warn(ctx, "Marked stale distributed run as FAILED",
 		tag.DAG(dagRun.Name),
@@ -2724,6 +2817,7 @@ func (h *Handler) markRunFailed(ctx context.Context, dagName, dagRunID, reason s
 			tag.DAG(dagName), tag.RunID(dagRunID), tag.Error(err))
 		return
 	}
+	h.finalizeAdmissionForStatus(ctx, dagRunStatus, attempt.ID())
 
 	logger.Warn(ctx, "Marked zombie run as FAILED",
 		tag.DAG(dagName), tag.RunID(dagRunID), slog.String("reason", reason))
@@ -2803,6 +2897,7 @@ func (h *Handler) RequestCancel(ctx context.Context, req *coordinatorv1.RequestC
 			Error:    fmt.Sprintf("failed to finalize cancellation: %v", err),
 		}, nil
 	}
+	h.finalizeAdmissionForAttempt(ctx, attempt)
 
 	logger.Info(ctx, "DAG run cancellation requested successfully")
 	return &coordinatorv1.RequestCancelResponse{Accepted: true}, nil

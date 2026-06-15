@@ -66,22 +66,23 @@ func (s startupWaitState) executionDone() (bool, error) {
 
 // QueueProcessor is responsible for processing queued DAG runs.
 type QueueProcessor struct {
-	queueStore          exec.QueueStore
-	dagRunStore         exec.DAGRunStore
-	procStore           exec.ProcStore
-	dagRunLeaseStore    exec.DAGRunLeaseStore
-	dispatchTaskStore   exec.DispatchTaskStore
-	dagExecutor         *DAGExecutor
-	isSuspended         IsSuspendedFunc
-	queues              sync.Map // map[string]*queue
-	wakeUpCh            chan struct{}
-	quit                chan struct{}
-	wg                  sync.WaitGroup
-	stopOnce            sync.Once
-	prevTime            time.Time
-	lock                sync.Mutex
-	backoffConfig       BackoffConfig
-	leaseStaleThreshold time.Duration
+	queueStore             exec.QueueStore
+	dagRunStore            exec.DAGRunStore
+	procStore              exec.ProcStore
+	dagRunLeaseStore       exec.DAGRunLeaseStore
+	dispatchTaskStore      exec.DispatchTaskStore
+	dispatchAdmissionStore exec.DispatchAdmissionStore
+	dagExecutor            *DAGExecutor
+	isSuspended            IsSuspendedFunc
+	queues                 sync.Map // map[string]*queue
+	wakeUpCh               chan struct{}
+	quit                   chan struct{}
+	wg                     sync.WaitGroup
+	stopOnce               sync.Once
+	prevTime               time.Time
+	lock                   sync.Mutex
+	backoffConfig          BackoffConfig
+	leaseStaleThreshold    time.Duration
 }
 
 type queue struct {
@@ -139,7 +140,19 @@ func WithDAGRunLeaseStore(store exec.DAGRunLeaseStore) QueueProcessorOption {
 func WithDispatchTaskStore(store exec.DispatchTaskStore) QueueProcessorOption {
 	return func(p *QueueProcessor) {
 		p.dispatchTaskStore = store
+		p.dispatchAdmissionStore = dispatchAdmissionStoreFromTaskStore(store)
 	}
+}
+
+func WithDispatchAdmissionStore(store exec.DispatchAdmissionStore) QueueProcessorOption {
+	return func(p *QueueProcessor) {
+		p.dispatchAdmissionStore = store
+	}
+}
+
+func dispatchAdmissionStoreFromTaskStore(store exec.DispatchTaskStore) exec.DispatchAdmissionStore {
+	admissionStore, _ := store.(exec.DispatchAdmissionStore)
+	return admissionStore
 }
 
 // WithIsSuspended sets the suspend-flag checker used by the queue processor.
@@ -302,17 +315,18 @@ func (p *QueueProcessor) isClosed() bool {
 
 func (p *QueueProcessor) newQueueDispatcher() *queueDispatcher {
 	return newQueueDispatcher(queueDispatchDeps{
-		queueStore:          p.queueStore,
-		dagRunStore:         p.dagRunStore,
-		procStore:           p.procStore,
-		dagRunLeaseStore:    p.dagRunLeaseStore,
-		dispatchTaskStore:   p.dispatchTaskStore,
-		dagExecutor:         p.dagExecutor,
-		isSuspended:         p.isSuspended,
-		backoffConfig:       p.backoffConfig,
-		leaseStaleThreshold: p.leaseStaleThreshold,
-		isClosed:            p.isClosed,
-		wakeUp:              p.wakeUp,
+		queueStore:             p.queueStore,
+		dagRunStore:            p.dagRunStore,
+		procStore:              p.procStore,
+		dagRunLeaseStore:       p.dagRunLeaseStore,
+		dispatchTaskStore:      p.dispatchTaskStore,
+		dispatchAdmissionStore: p.dispatchAdmissionStore,
+		dagExecutor:            p.dagExecutor,
+		isSuspended:            p.isSuspended,
+		backoffConfig:          p.backoffConfig,
+		leaseStaleThreshold:    p.leaseStaleThreshold,
+		isClosed:               p.isClosed,
+		wakeUp:                 p.wakeUp,
 	})
 }
 
@@ -368,7 +382,7 @@ func (p *QueueProcessor) ProcessQueueItems(ctx context.Context, queueName string
 					logger.Error(ctx, "Queue item processing panicked", tag.Error(panicToError(r)))
 				}
 			}()
-			if !dispatcher.dispatchQueuedItem(ctx, queuedItem, queueName, q.incInflight, q.decInflight) {
+			if !dispatcher.dispatchQueuedItem(ctx, queuedItem, queueName, batch, q.incInflight, q.decInflight) {
 				return
 			}
 			data, err := queuedItem.Data()
