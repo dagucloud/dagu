@@ -64,9 +64,14 @@ type dispatchTaskIndex struct {
 	pendingIDs        []string
 	claims            map[string]dispatchTaskIndexEntry
 	noMatch           map[string]struct{}
-	namespaceVersions map[string]string
+	namespaceVersions dispatchNamespaceVersions
 	validatedAt       time.Time
 	fullValidatedAt   time.Time
+}
+
+type dispatchNamespaceVersions struct {
+	pending string
+	claims  string
 }
 
 type dispatchTaskIndexEntry struct {
@@ -146,10 +151,9 @@ var legacyDispatchTaskJSONMarkers = func() [][]byte {
 
 func newDispatchTaskIndex() *dispatchTaskIndex {
 	return &dispatchTaskIndex{
-		pending:           make(map[string]dispatchTaskIndexEntry),
-		claims:            make(map[string]dispatchTaskIndexEntry),
-		noMatch:           make(map[string]struct{}),
-		namespaceVersions: make(map[string]string, 2),
+		pending: make(map[string]dispatchTaskIndexEntry),
+		claims:  make(map[string]dispatchTaskIndexEntry),
+		noMatch: make(map[string]struct{}),
 	}
 }
 
@@ -285,26 +289,18 @@ func (idx *dispatchTaskIndex) hasNoMatch(labels map[string]string) bool {
 	return ok
 }
 
-func (idx *dispatchTaskIndex) namespaceVersionsMatch(versions map[string]string) bool {
-	if idx == nil || len(versions) == 0 || len(idx.namespaceVersions) == 0 {
+func (idx *dispatchTaskIndex) namespaceVersionsMatch(versions dispatchNamespaceVersions) bool {
+	if idx == nil || versions.pending == "" || versions.claims == "" {
 		return false
 	}
-	for prefix, version := range versions {
-		if idx.namespaceVersions[prefix] != version {
-			return false
-		}
-	}
-	return true
+	return idx.namespaceVersions == versions
 }
 
-func (idx *dispatchTaskIndex) setNamespaceVersions(versions map[string]string) {
-	if idx == nil || len(versions) == 0 {
+func (idx *dispatchTaskIndex) setNamespaceVersions(versions dispatchNamespaceVersions) {
+	if idx == nil || versions.pending == "" || versions.claims == "" {
 		return
 	}
-	clear(idx.namespaceVersions)
-	for prefix, version := range versions {
-		idx.namespaceVersions[prefix] = version
-	}
+	idx.namespaceVersions = versions
 }
 
 func dispatchTaskIndexEntryFromRecord(rec *persis.Record, payload dispatchTaskPayload) dispatchTaskIndexEntry {
@@ -394,24 +390,21 @@ type recordNamespaceVersionCollection interface {
 	RecordNamespaceVersion(ctx context.Context, prefix string) (string, error)
 }
 
-func (s *DispatchTaskStore) dispatchNamespaceVersions(ctx context.Context) (map[string]string, bool, error) {
+func (s *DispatchTaskStore) dispatchNamespaceVersions(ctx context.Context) (dispatchNamespaceVersions, bool, error) {
 	versionCol, ok := s.col.(recordNamespaceVersionCollection)
 	if !ok {
-		return nil, false, nil
+		return dispatchNamespaceVersions{}, false, nil
 	}
 
 	pendingVersion, err := versionCol.RecordNamespaceVersion(ctx, dispatchPendingPrefix)
 	if err != nil {
-		return nil, false, err
+		return dispatchNamespaceVersions{}, false, err
 	}
 	claimsVersion, err := versionCol.RecordNamespaceVersion(ctx, dispatchClaimsPrefix)
 	if err != nil {
-		return nil, false, err
+		return dispatchNamespaceVersions{}, false, err
 	}
-	return map[string]string{
-		dispatchPendingPrefix: pendingVersion,
-		dispatchClaimsPrefix:  claimsVersion,
-	}, true, nil
+	return dispatchNamespaceVersions{pending: pendingVersion, claims: claimsVersion}, true, nil
 }
 
 func (s *DispatchTaskStore) rebuildDispatchIndex(ctx context.Context) error {
