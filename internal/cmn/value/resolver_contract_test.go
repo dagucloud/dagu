@@ -85,6 +85,42 @@ func TestResolverDirectCommandFieldUsesDirectOSFallback(t *testing.T) {
 	assert.Equal(t, "from-os", got)
 }
 
+func TestResolverDockerDirectCommandFieldPreservesTargetEnv(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("VALUE_RESOLUTION_DOCKER_TARGET", "from-host")
+	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{})
+
+	got, err := resolver.String(
+		ctx,
+		"$VALUE_RESOLUTION_DOCKER_TARGET",
+		value.DirectCommandField("container.command[0]", value.CommandContext{Target: value.CommandTargetDocker}),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "$VALUE_RESOLUTION_DOCKER_TARGET", got)
+}
+
+func TestResolverSSHCommandFieldsPreserveRemoteEnv(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("VALUE_RESOLUTION_SSH_REMOTE", "from-host")
+	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{})
+	command := value.CommandContext{Target: value.CommandTargetSSH}
+
+	for _, tt := range []struct {
+		name  string
+		field value.Field
+	}{
+		{name: "direct command", field: value.DirectCommandField("steps[0].command", command)},
+		{name: "shell command", field: value.ShellCommandField("steps[0].run", command)},
+		{name: "command script", field: value.CommandScriptField("steps[0].run", command)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolver.String(ctx, "$VALUE_RESOLUTION_SSH_REMOTE", tt.field)
+			require.NoError(t, err)
+			assert.Equal(t, "$VALUE_RESOLUTION_SSH_REMOTE", got)
+		})
+	}
+}
+
 func TestResolverCommandScriptFieldDefersScopeVarsAndExpandsStepRefs(t *testing.T) {
 	ctx := context.Background()
 	scope := value.NewEnvScope(nil, false).WithEntry("SCRIPT_VALUE", "`echo unsafe`", value.EnvSourceDAGEnv)
@@ -135,11 +171,107 @@ func TestResolverRetryIntegerUsesOSFallback(t *testing.T) {
 	assert.Equal(t, 7, got)
 }
 
-func TestStepOutputReferencesKeepsNarrowGrammar(t *testing.T) {
-	refs := value.StepOutputReferences("${build.output.image.tag} $build.output.image ${bad.step.output.x} ${build.outputs.image} ${build.output.9bad}")
+func TestResolverDynamicParamEvalDoesNotSubstituteOSFallbackValue(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("VALUE_RESOLUTION_DYNAMIC_OS", "`printf unsafe`")
+	scope := value.NewEnvScope(nil, true)
+	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{Env: scope})
 
-	require.Len(t, refs, 1)
-	assert.Equal(t, "${build.output.image.tag}", refs[0].Expression)
-	assert.Equal(t, "build", refs[0].StepName)
-	assert.Equal(t, []string{"image", "tag"}, refs[0].Path)
+	got, err := resolver.String(ctx, "$VALUE_RESOLUTION_DYNAMIC_OS", value.DynamicParamEvalField("params"))
+	require.NoError(t, err)
+	assert.Equal(t, "`printf unsafe`", got)
+}
+
+func TestResolverEnvEntryFieldsRunCommandSubstitution(t *testing.T) {
+	ctx := context.Background()
+	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{})
+
+	stepValue, err := resolver.String(ctx, "`printf step`", value.StepEnvField("steps[0].env[0]"))
+	require.NoError(t, err)
+	assert.Equal(t, "step", stepValue)
+
+	containerValue, err := resolver.String(ctx, "`printf container`", value.ContainerEnvField("container.env.VALUE"))
+	require.NoError(t, err)
+	assert.Equal(t, "container", containerValue)
+}
+
+func TestResolverDAGEnvAndRuntimeDAGEnvHaveDistinctSubstitutionPolicy(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("VALUE_RESOLUTION_DAG_ENV_OS", "from-os")
+	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{})
+
+	dagValue, err := resolver.String(ctx, "`printf dag`", value.DAGEnvField("env.VALUE"))
+	require.NoError(t, err)
+	assert.Equal(t, "dag", dagValue)
+
+	dagOSValue, err := resolver.String(ctx, "$VALUE_RESOLUTION_DAG_ENV_OS", value.DAGEnvField("env.VALUE"))
+	require.NoError(t, err)
+	assert.Equal(t, "from-os", dagOSValue)
+
+	runtimeValue, err := resolver.String(ctx, "`printf runtime`", value.RuntimeDAGEnvField("env.VALUE"))
+	require.NoError(t, err)
+	assert.Equal(t, "`printf runtime`", runtimeValue)
+
+	runtimeOSValue, err := resolver.String(ctx, "$VALUE_RESOLUTION_DAG_ENV_OS", value.RuntimeDAGEnvField("env.VALUE"))
+	require.NoError(t, err)
+	assert.Equal(t, "$VALUE_RESOLUTION_DAG_ENV_OS", runtimeOSValue)
+}
+
+func TestStepOutputReferencesKeepsNarrowGrammar(t *testing.T) {
+	tests := []struct {
+		name     string
+		raw      string
+		wantExpr string
+		wantStep string
+		wantPath []string
+	}{
+		{
+			name:     "braced dotted output path",
+			raw:      "${build.output.image.tag}",
+			wantExpr: "${build.output.image.tag}",
+			wantStep: "build",
+			wantPath: []string{"image", "tag"},
+		},
+		{
+			name:     "hyphenated step name",
+			raw:      "${build-step.output.image}",
+			wantExpr: "${build-step.output.image}",
+			wantStep: "build-step",
+			wantPath: []string{"image"},
+		},
+		{
+			name: "unbraced output reference ignored",
+			raw:  "$build.output.image",
+		},
+		{
+			name: "plural outputs reference ignored",
+			raw:  "${build.outputs.image}",
+		},
+		{
+			name: "invalid output path segment ignored",
+			raw:  "${build.output.9bad}",
+		},
+		{
+			name: "array-like output path ignored",
+			raw:  "${build.output.items[0]}",
+		},
+		{
+			name: "extra prefix does not become step output",
+			raw:  "${bad.step.output.x}",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			refs := value.StepOutputReferences(tt.raw)
+			if tt.wantExpr == "" {
+				require.Empty(t, refs)
+				return
+			}
+			require.Len(t, refs, 1)
+			assert.Equal(t, tt.wantExpr, refs[0].Expression)
+			assert.Equal(t, tt.wantStep, refs[0].StepName)
+			assert.Equal(t, tt.wantPath, refs[0].Path)
+		})
+	}
 }

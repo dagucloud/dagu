@@ -59,9 +59,8 @@ func resolveRuntimeObject(ctx context.Context, obj any, field cmnvalue.Field) (a
 	return resolverFromEnv(GetEnv(ctx)).Object(ctx, obj, field)
 }
 
-func resolveRuntimeIntWithoutEnv(ctx context.Context, raw string, field cmnvalue.Field) (int, error) {
-	resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{}, cmnvalue.RuntimeScope{})
-	return resolver.Int(ctx, raw, field)
+func resolveRuntimeInt(ctx context.Context, raw string, field cmnvalue.Field) (int, error) {
+	return resolverFromEnv(GetEnv(ctx)).Int(ctx, raw, field)
 }
 
 func resolveWithEnvScope(ctx context.Context, env Env, scope *cmnvalue.EnvScope, raw string, field cmnvalue.Field) (string, error) {

@@ -9,7 +9,9 @@ import (
 
 	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDockerExecutorCommandResolution(t *testing.T) {
@@ -58,4 +60,25 @@ func TestDockerExecutorCommandResolution(t *testing.T) {
 			assert.Equal(t, tt.wantShellConfig, command.ShellConfigured)
 		})
 	}
+}
+
+func TestEvalContainerFieldsUsesDockerCommandSemantics(t *testing.T) {
+	t.Setenv("DOCKER_TARGET_HOME", "/host/home")
+
+	step := core.Step{
+		Name:           "docker-step",
+		ExecutorConfig: core.ExecutorConfig{Type: "docker"},
+	}
+	ctx := runtime.NewContextForTest(context.Background(), &core.DAG{Name: "test-dag"}, "run-1", "test.log")
+	env := runtime.NewEnv(ctx, step)
+	env.Scope = env.Scope.WithEntry("COMMAND_NAME", "printf", cmnvalue.EnvSourceStepEnv)
+	ctx = runtime.WithEnv(ctx, env)
+
+	got, err := EvalContainerFields(ctx, core.Container{
+		Command: []string{"$COMMAND_NAME", "$DOCKER_TARGET_HOME"},
+		Shell:   []string{"/bin/sh", "-c", "echo \\$DOCKER_TARGET_HOME"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"printf", "$DOCKER_TARGET_HOME"}, got.Command)
+	assert.Equal(t, []string{"/bin/sh", "-c", "echo \\$DOCKER_TARGET_HOME"}, got.Shell)
 }

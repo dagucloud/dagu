@@ -39,6 +39,7 @@ const (
 	fieldShellCommand
 	fieldCommandScript
 	fieldContainer
+	fieldStepEnv
 	fieldContainerEnv
 	fieldExecutorConfig
 	fieldTemplateScript
@@ -168,6 +169,9 @@ func CommandScriptField(path string, command CommandContext) Field {
 
 // ContainerField returns the policy for container scalar values.
 func ContainerField(path string) Field { return newField(path, fieldContainer) }
+
+// StepEnvField returns the policy for step env entries.
+func StepEnvField(path string) Field { return newField(path, fieldStepEnv) }
 
 // ContainerEnvField returns the policy for container env entries.
 func ContainerEnvField(path string) Field { return newField(path, fieldContainerEnv) }

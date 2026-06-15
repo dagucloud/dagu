@@ -61,8 +61,19 @@ func TestReferenceFieldsEmitsValidationPathSet(t *testing.T) {
 				Preconditions: []*core.Condition{
 					{Condition: "${env.STEP_READY}"},
 				},
+				RetryPolicy: core.RetryPolicy{
+					LimitStr:       "${consts.retry_limit}",
+					IntervalSecStr: "${consts.retry_interval}",
+				},
 				RepeatPolicy: core.RepeatPolicy{
-					Condition: &core.Condition{Condition: "${env.REPEAT}"},
+					LimitStr:       "${consts.repeat_limit}",
+					IntervalStr:    "${consts.repeat_interval}",
+					MaxIntervalStr: "${consts.repeat_max_interval}",
+					Condition:      &core.Condition{Condition: "${env.REPEAT}"},
+				},
+				SubDAG: &core.SubDAG{
+					Name:   "${consts.child_dag}",
+					Params: "${env.CHILD_PARAMS}",
 				},
 				Parallel: &core.ParallelConfig{
 					Variable: "${params.items}",
@@ -96,6 +107,25 @@ func TestReferenceFieldsEmitsValidationPathSet(t *testing.T) {
 				Container: &core.Container{
 					Image:      "${consts.step_image}",
 					WorkingDir: "${consts.step_container_dir}",
+				},
+				LLM: &core.LLMConfig{
+					Provider:   "${consts.llm_provider}",
+					Model:      "${consts.llm_model}",
+					System:     "${env.LLM_SYSTEM}",
+					BaseURL:    "${env.LLM_BASE_URL}",
+					APIKeyName: "${env.LLM_API_KEY}",
+					Models: []core.ModelEntry{
+						{
+							Provider:   "${consts.model_provider}",
+							Name:       "${consts.model_name}",
+							BaseURL:    "${env.MODEL_BASE_URL}",
+							APIKeyName: "${env.MODEL_API_KEY}",
+						},
+					},
+					Tools: []string{"${consts.llm_tool}"},
+				},
+				Messages: []core.LLMMessage{
+					{Content: "${env.MESSAGE_CONTENT}"},
 				},
 			},
 		},
@@ -137,7 +167,14 @@ func TestReferenceFieldsEmitsValidationPathSet(t *testing.T) {
 		"steps[0].working_dir",
 		"steps[0].env[0]",
 		"steps[0].preconditions[0].condition",
+		"steps[0].retry_policy.limit",
+		"steps[0].retry_policy.interval_sec",
+		"steps[0].repeat_policy.limit",
+		"steps[0].repeat_policy.interval",
+		"steps[0].repeat_policy.max_interval",
 		"steps[0].repeat_policy.condition",
+		"steps[0].child_dag.name",
+		"steps[0].child_dag.params",
 		"steps[0].parallel.variable",
 		"steps[0].parallel.items[0].value",
 		"steps[0].parallel.items[0].params.target",
@@ -151,6 +188,17 @@ func TestReferenceFieldsEmitsValidationPathSet(t *testing.T) {
 		"steps[0].output.digest.path",
 		"steps[0].container.image",
 		"steps[0].container.working_dir",
+		"steps[0].llm.provider",
+		"steps[0].llm.model",
+		"steps[0].llm.system",
+		"steps[0].llm.base_url",
+		"steps[0].llm.api_key_name",
+		"steps[0].llm.models[0].provider",
+		"steps[0].llm.models[0].name",
+		"steps[0].llm.models[0].base_url",
+		"steps[0].llm.models[0].api_key_name",
+		"steps[0].llm.tools[0]",
+		"steps[0].messages[0].content",
 		"handler_on.init.run",
 	}, got)
 	assert.NotContains(t, got, "steps[0].stdout.outputs.fields.image.select")

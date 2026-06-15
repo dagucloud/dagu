@@ -281,7 +281,9 @@ func TestEvalStringSlice(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := tt.setup(context.Background())
 
-			result, err := evalStringSlice(ctx, tt.input)
+			result, err := evalStringSlice(ctx, tt.input, "container", func(path string) cmnvalue.Field {
+				return cmnvalue.ContainerField(path)
+			})
 			require.NoError(t, err)
 			assert.Equal(t, tt.expected, result)
 		})

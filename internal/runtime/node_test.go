@@ -822,6 +822,83 @@ func TestNodeBuildSubDAGRuns(t *testing.T) {
 	}
 }
 
+func TestStepExecutorResolvesMultiCommandExecutableToken(t *testing.T) {
+	executorType := "test-command-token-resolution"
+	created := make(chan core.Step, 1)
+	runtimeexec.RegisterExecutor(executorType, func(_ context.Context, step core.Step) (runtimeexec.Executor, error) {
+		created <- step
+		return &sideChannelExecutor{}, nil
+	}, nil, core.ExecutorCapabilities{
+		Command:          true,
+		MultipleCommands: true,
+		CommandContext: func(_ context.Context, _ core.Step) cmnvalue.CommandContext {
+			return cmnvalue.CommandContext{Target: cmnvalue.CommandTargetLocal}
+		},
+	})
+	t.Cleanup(func() { runtimeexec.UnregisterExecutor(executorType) })
+
+	step := core.Step{
+		Name: "tokenized-command",
+		ExecutorConfig: core.ExecutorConfig{
+			Type: executorType,
+		},
+		Commands: []core.CommandEntry{
+			{
+				Command: "$COMMAND_NAME",
+				Args:    []string{"$COMMAND_ARG"},
+			},
+		},
+	}
+	ctx := runtime.NewContext(context.Background(), &core.DAG{Name: "test-dag"}, "run-1", "dag.log")
+	env := runtime.NewEnv(ctx, step)
+	env.Scope = env.Scope.
+		WithEntry("COMMAND_NAME", "printf", cmnvalue.EnvSourceStepEnv).
+		WithEntry("COMMAND_ARG", "hello", cmnvalue.EnvSourceStepEnv)
+	ctx = runtime.WithEnv(ctx, env)
+
+	node := runtime.NewNode(step, runtime.NodeState{})
+	require.NoError(t, runtime.NewStepExecutor().Execute(ctx, node))
+
+	got := <-created
+	require.Len(t, got.Commands, 1)
+	assert.Equal(t, "printf", got.Commands[0].Command)
+	assert.Equal(t, []string{"hello"}, got.Commands[0].Args)
+}
+
+func TestNodePrepareResolvesRetryRepeatStringsFromRuntimeEnv(t *testing.T) {
+	step := core.Step{
+		Name: "dynamic-policy",
+		RetryPolicy: core.RetryPolicy{
+			LimitStr:       "$RETRY_LIMIT",
+			IntervalSecStr: "$RETRY_INTERVAL",
+		},
+		RepeatPolicy: core.RepeatPolicy{
+			LimitStr:       "$REPEAT_LIMIT",
+			IntervalStr:    "$REPEAT_INTERVAL",
+			MaxIntervalStr: "$REPEAT_MAX_INTERVAL",
+		},
+	}
+	ctx := runtime.NewContext(context.Background(), &core.DAG{Name: "test-dag"}, "run-1", "dag.log")
+	env := runtime.NewEnv(ctx, step)
+	env.Scope = env.Scope.
+		WithEntry("RETRY_LIMIT", "3", cmnvalue.EnvSourceStepEnv).
+		WithEntry("RETRY_INTERVAL", "4", cmnvalue.EnvSourceStepEnv).
+		WithEntry("REPEAT_LIMIT", "5", cmnvalue.EnvSourceStepEnv).
+		WithEntry("REPEAT_INTERVAL", "6", cmnvalue.EnvSourceStepEnv).
+		WithEntry("REPEAT_MAX_INTERVAL", "7", cmnvalue.EnvSourceStepEnv)
+	ctx = runtime.WithEnv(ctx, env)
+
+	node := runtime.NewNode(step, runtime.NodeState{})
+	require.NoError(t, node.Prepare(ctx, t.TempDir(), "run-1"))
+
+	got := node.Step()
+	assert.Equal(t, 3, got.RetryPolicy.Limit)
+	assert.Equal(t, 4*time.Second, got.RetryPolicy.Interval)
+	assert.Equal(t, 5, got.RepeatPolicy.Limit)
+	assert.Equal(t, 6*time.Second, got.RepeatPolicy.Interval)
+	assert.Equal(t, 7*time.Second, got.RepeatPolicy.MaxInterval)
+}
+
 func TestNodeItemToParam(t *testing.T) {
 	tests := []struct {
 		name     string

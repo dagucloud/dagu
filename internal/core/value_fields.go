@@ -4,6 +4,7 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"reflect"
@@ -79,16 +80,18 @@ func (w *referenceFieldWalker) walkStep(path string, step Step) {
 		OwnerStepName: step.Name,
 		Field:         cmnvalue.WorkflowField(""),
 	}
+	command := step.CommandResolution(context.Background())
+	scriptCommand := step.ScriptResolution(context.Background())
 
-	w.add(base.withPathValue(path+".run", step.Script).withField(cmnvalue.CommandScriptField(path+".run", cmnvalue.CommandContext{})))
-	w.add(base.withPathValue(path+".command", step.Command).withField(cmnvalue.DirectCommandField(path+".command", cmnvalue.CommandContext{})))
-	w.add(base.withPathValue(path+".cmd_with_args", step.CmdWithArgs).withField(cmnvalue.ShellCommandField(path+".cmd_with_args", cmnvalue.CommandContext{})))
-	w.add(base.withPathValue(path+".cmd_args_sys", step.CmdArgsSys).withField(cmnvalue.DirectCommandField(path+".cmd_args_sys", cmnvalue.CommandContext{})))
-	w.add(base.withPathValue(path+".shell_cmd_args", step.ShellCmdArgs).withField(cmnvalue.ShellCommandField(path+".shell_cmd_args", cmnvalue.CommandContext{})))
+	w.add(base.withPathValue(path+".run", step.Script).withField(scriptReferenceField(path+".run", step, scriptCommand)))
+	w.add(base.withPathValue(path+".command", step.Command).withField(cmnvalue.DirectCommandField(path+".command", command)))
+	w.add(base.withPathValue(path+".cmd_with_args", step.CmdWithArgs).withField(cmnvalue.ShellCommandField(path+".cmd_with_args", command)))
+	w.add(base.withPathValue(path+".cmd_args_sys", step.CmdArgsSys).withField(cmnvalue.DirectCommandField(path+".cmd_args_sys", command)))
+	w.add(base.withPathValue(path+".shell_cmd_args", step.ShellCmdArgs).withField(cmnvalue.ShellCommandField(path+".shell_cmd_args", command)))
 	w.add(base.withPathValue(path+".shell", step.Shell).withField(cmnvalue.StepShellField(path + ".shell")))
 	for i, arg := range step.Args {
 		fieldPath := fmt.Sprintf("%s.args[%d]", path, i)
-		w.add(base.withPathValue(fieldPath, arg).withField(cmnvalue.DirectCommandField(fieldPath, cmnvalue.CommandContext{})))
+		w.add(base.withPathValue(fieldPath, arg).withField(cmnvalue.DirectCommandField(fieldPath, command)))
 	}
 	for i, arg := range step.ShellArgs {
 		fieldPath := fmt.Sprintf("%s.shell_args[%d]", path, i)
@@ -96,23 +99,26 @@ func (w *referenceFieldWalker) walkStep(path string, step Step) {
 	}
 	for i, cmd := range step.Commands {
 		commandPath := fmt.Sprintf("%s.run[%d].command", path, i)
-		w.add(base.withPathValue(commandPath, cmd.Command).withField(cmnvalue.DirectCommandField(commandPath, cmnvalue.CommandContext{})))
+		w.add(base.withPathValue(commandPath, cmd.Command).withField(cmnvalue.DirectCommandField(commandPath, command)))
 		cmdWithArgsPath := fmt.Sprintf("%s.run[%d].cmd_with_args", path, i)
-		w.add(base.withPathValue(cmdWithArgsPath, cmd.CmdWithArgs).withField(cmnvalue.ShellCommandField(cmdWithArgsPath, cmnvalue.CommandContext{})))
+		w.add(base.withPathValue(cmdWithArgsPath, cmd.CmdWithArgs).withField(cmnvalue.ShellCommandField(cmdWithArgsPath, command)))
 		for j, arg := range cmd.Args {
 			argPath := fmt.Sprintf("%s.run[%d].args[%d]", path, i, j)
-			w.add(base.withPathValue(argPath, arg).withField(cmnvalue.DirectCommandField(argPath, cmnvalue.CommandContext{})))
+			w.add(base.withPathValue(argPath, arg).withField(cmnvalue.DirectCommandField(argPath, command)))
 		}
 	}
 
 	w.walkStringLeaves(path+".with", step.ExecutorConfig.Config, base.withField(cmnvalue.ExecutorConfigField(path+".with")))
 	w.add(base.withPathValue(path+".working_dir", step.Dir).withField(cmnvalue.StepDirField(path + ".working_dir")))
-	w.walkEnvWith(path+".env", step.Env, base, cmnvalue.WorkflowField)
+	w.walkEnvWith(path+".env", step.Env, base, cmnvalue.StepEnvField)
 	w.walkConditions(path+".preconditions", step.Preconditions, base)
+	w.walkRetryPolicy(path+".retry_policy", step.RetryPolicy, base)
+	w.walkRepeatPolicy(path+".repeat_policy", step.RepeatPolicy, base)
 	if step.RepeatPolicy.Condition != nil {
 		fieldPath := path + ".repeat_policy.condition"
 		w.add(base.withPathValue(fieldPath, step.RepeatPolicy.Condition.Condition).withField(cmnvalue.ConditionValueField(fieldPath)))
 	}
+	w.walkSubDAG(path+".child_dag", step.SubDAG, base)
 	if step.Parallel != nil {
 		w.walkParallel(path+".parallel", step.Parallel, base)
 	}
@@ -125,6 +131,66 @@ func (w *referenceFieldWalker) walkStep(path string, step Step) {
 	}
 	w.walkStructuredOutput(path+".output", step.StructuredOutput, base)
 	w.walkContainer(path+".container", step.Container, base)
+	w.walkLLM(path+".llm", step.LLM, base)
+	w.walkMessages(path+".messages", step.Messages, base)
+}
+
+func scriptReferenceField(path string, step Step, command cmnvalue.CommandContext) cmnvalue.Field {
+	if step.ExecutorConfig.Type == "template" {
+		return cmnvalue.TemplateScriptField(path)
+	}
+	if step.ExecutorConfig.IsCommand() {
+		return cmnvalue.CommandScriptField(path, command)
+	}
+	return cmnvalue.ShellCommandField(path, command)
+}
+
+func (w *referenceFieldWalker) walkRetryPolicy(path string, policy RetryPolicy, base ReferenceField) {
+	w.add(base.withPathValue(path+".limit", policy.LimitStr).withField(cmnvalue.RetryIntegerField(path + ".limit")))
+	w.add(base.withPathValue(path+".interval_sec", policy.IntervalSecStr).withField(cmnvalue.RetryIntegerField(path + ".interval_sec")))
+}
+
+func (w *referenceFieldWalker) walkRepeatPolicy(path string, policy RepeatPolicy, base ReferenceField) {
+	w.add(base.withPathValue(path+".limit", policy.LimitStr).withField(cmnvalue.RepeatIntegerField(path + ".limit")))
+	w.add(base.withPathValue(path+".interval", policy.IntervalStr).withField(cmnvalue.RepeatIntegerField(path + ".interval")))
+	w.add(base.withPathValue(path+".max_interval", policy.MaxIntervalStr).withField(cmnvalue.RepeatIntegerField(path + ".max_interval")))
+}
+
+func (w *referenceFieldWalker) walkSubDAG(path string, subDAG *SubDAG, base ReferenceField) {
+	if subDAG == nil {
+		return
+	}
+	w.add(base.withPathValue(path+".name", subDAG.Name).withField(cmnvalue.SubDAGNameField(path + ".name")))
+	w.add(base.withPathValue(path+".params", subDAG.Params).withField(cmnvalue.SubDAGParamsField(path + ".params")))
+}
+
+func (w *referenceFieldWalker) walkLLM(path string, llm *LLMConfig, base ReferenceField) {
+	if llm == nil {
+		return
+	}
+	w.add(base.withPathValue(path+".provider", llm.Provider).withField(cmnvalue.ExecutorConfigField(path + ".provider")))
+	w.add(base.withPathValue(path+".model", llm.Model).withField(cmnvalue.ExecutorConfigField(path + ".model")))
+	w.add(base.withPathValue(path+".system", llm.System).withField(cmnvalue.WorkflowField(path + ".system")))
+	w.add(base.withPathValue(path+".base_url", llm.BaseURL).withField(cmnvalue.ExecutorConfigField(path + ".base_url")))
+	w.add(base.withPathValue(path+".api_key_name", llm.APIKeyName).withField(cmnvalue.ExecutorConfigField(path + ".api_key_name")))
+	for i, model := range llm.Models {
+		modelPath := fmt.Sprintf("%s.models[%d]", path, i)
+		w.add(base.withPathValue(modelPath+".provider", model.Provider).withField(cmnvalue.ExecutorConfigField(modelPath + ".provider")))
+		w.add(base.withPathValue(modelPath+".name", model.Name).withField(cmnvalue.ExecutorConfigField(modelPath + ".name")))
+		w.add(base.withPathValue(modelPath+".base_url", model.BaseURL).withField(cmnvalue.ExecutorConfigField(modelPath + ".base_url")))
+		w.add(base.withPathValue(modelPath+".api_key_name", model.APIKeyName).withField(cmnvalue.ExecutorConfigField(modelPath + ".api_key_name")))
+	}
+	for i, tool := range llm.Tools {
+		fieldPath := fmt.Sprintf("%s.tools[%d]", path, i)
+		w.add(base.withPathValue(fieldPath, tool).withField(cmnvalue.ExecutorConfigField(fieldPath)))
+	}
+}
+
+func (w *referenceFieldWalker) walkMessages(path string, messages []LLMMessage, base ReferenceField) {
+	for i, message := range messages {
+		fieldPath := fmt.Sprintf("%s[%d].content", path, i)
+		w.add(base.withPathValue(fieldPath, message.Content).withField(cmnvalue.WorkflowField(fieldPath)))
+	}
 }
 
 func (w *referenceFieldWalker) walkConditions(path string, conditions []*Condition, base ReferenceField) {

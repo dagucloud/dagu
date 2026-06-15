@@ -919,6 +919,16 @@ func (n *Node) evaluateCommandArgs(ctx context.Context) error {
 	if len(step.Commands) > 0 {
 		commands := make([]core.CommandEntry, len(step.Commands))
 		for i, cmdEntry := range step.Commands {
+			commandName := cmdEntry.Command
+			if commandName != "" {
+				fieldPath := fmt.Sprintf("run[%d].command", i)
+				evaluated, err := resolveRuntimeString(ctx, commandName, cmnvalue.DirectCommandField(fieldPath, command))
+				if err != nil {
+					return fmt.Errorf("failed to eval command: %w", err)
+				}
+				commandName = evaluated
+			}
+
 			args := make([]string, len(cmdEntry.Args))
 			for j, arg := range cmdEntry.Args {
 				fieldPath := fmt.Sprintf("run[%d].args[%d]", i, j)
@@ -941,7 +951,7 @@ func (n *Node) evaluateCommandArgs(ctx context.Context) error {
 			}
 
 			commands[i] = core.CommandEntry{
-				Command:     cmdEntry.Command,
+				Command:     commandName,
 				Args:        args,
 				CmdWithArgs: cmdWithArgs,
 			}
@@ -1366,7 +1376,7 @@ func (n *Node) setupRetryPolicy(ctx context.Context) error {
 	// Evaluate the configuration if it's configured as a string
 	// e.g. environment variable or command substitution
 	if step.RetryPolicy.LimitStr != "" {
-		v, err := resolveRuntimeIntWithoutEnv(ctx, step.RetryPolicy.LimitStr, cmnvalue.RetryIntegerField("retryPolicy.limit"))
+		v, err := resolveRuntimeInt(ctx, step.RetryPolicy.LimitStr, cmnvalue.RetryIntegerField("retryPolicy.limit"))
 		if err != nil {
 			return fmt.Errorf("failed to substitute retry limit %q: %w", step.RetryPolicy.LimitStr, err)
 		}
@@ -1375,7 +1385,7 @@ func (n *Node) setupRetryPolicy(ctx context.Context) error {
 	}
 
 	if step.RetryPolicy.IntervalSecStr != "" {
-		v, err := resolveRuntimeIntWithoutEnv(ctx, step.RetryPolicy.IntervalSecStr, cmnvalue.RetryIntegerField("retryPolicy.intervalSec"))
+		v, err := resolveRuntimeInt(ctx, step.RetryPolicy.IntervalSecStr, cmnvalue.RetryIntegerField("retryPolicy.intervalSec"))
 		if err != nil {
 			return fmt.Errorf("failed to substitute retry interval %q: %w", step.RetryPolicy.IntervalSecStr, err)
 		}
@@ -1404,7 +1414,7 @@ func (n *Node) setupRepeatPolicy(ctx context.Context) error {
 	rp := step.RepeatPolicy
 
 	if rp.LimitStr != "" {
-		v, err := resolveRuntimeIntWithoutEnv(ctx, rp.LimitStr, cmnvalue.RepeatIntegerField("repeatPolicy.limit"))
+		v, err := resolveRuntimeInt(ctx, rp.LimitStr, cmnvalue.RepeatIntegerField("repeatPolicy.limit"))
 		if err != nil {
 			return fmt.Errorf("failed to substitute repeat limit %q: %w", rp.LimitStr, err)
 		}
@@ -1412,7 +1422,7 @@ func (n *Node) setupRepeatPolicy(ctx context.Context) error {
 	}
 
 	if rp.IntervalStr != "" {
-		v, err := resolveRuntimeIntWithoutEnv(ctx, rp.IntervalStr, cmnvalue.RepeatIntegerField("repeatPolicy.interval"))
+		v, err := resolveRuntimeInt(ctx, rp.IntervalStr, cmnvalue.RepeatIntegerField("repeatPolicy.interval"))
 		if err != nil {
 			return fmt.Errorf("failed to substitute repeat interval %q: %w", rp.IntervalStr, err)
 		}
@@ -1420,7 +1430,7 @@ func (n *Node) setupRepeatPolicy(ctx context.Context) error {
 	}
 
 	if rp.MaxIntervalStr != "" {
-		v, err := resolveRuntimeIntWithoutEnv(ctx, rp.MaxIntervalStr, cmnvalue.RepeatIntegerField("repeatPolicy.maxInterval"))
+		v, err := resolveRuntimeInt(ctx, rp.MaxIntervalStr, cmnvalue.RepeatIntegerField("repeatPolicy.maxInterval"))
 		if err != nil {
 			return fmt.Errorf("failed to substitute repeat max_interval %q: %w", rp.MaxIntervalStr, err)
 		}

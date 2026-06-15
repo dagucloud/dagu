@@ -42,7 +42,6 @@ func TestResolverFieldPolicyMatrix(t *testing.T) {
 	strictOS := "api:scoped:from-os"
 	nonStrictNoOS := "${consts.service}:scoped:$VALUE_RESOLUTION_MATRIX_OS"
 	nonStrictOS := "${consts.service}:scoped:from-os"
-	templateScript := "api:$MATRIX_SCOPE:$VALUE_RESOLUTION_MATRIX_OS"
 
 	expected := map[string]string{
 		"Workflow":                   strictNoOS,
@@ -71,17 +70,18 @@ func TestResolverFieldPolicyMatrix(t *testing.T) {
 		"ShellCommand":               strictNoOS,
 		"CommandScript":              strictNoOS,
 		"Container":                  strictNoOS,
+		"StepEnv":                    strictNoOS,
 		"ContainerEnv":               strictNoOS,
 		"ExecutorConfig":             strictNoOS,
-		"TemplateScript":             templateScript,
+		"TemplateScript":             raw,
 		"TemplateConfig":             strictNoOS,
 		"SubDAGName":                 strictNoOS,
 		"SubDAGParams":               strictNoOS,
 		"ParallelItem":               strictNoOS,
 		"ParallelItemParam":          strictNoOS,
 		"ParallelSubDAG":             strictNoOS,
-		"RetryInteger":               nonStrictOS,
-		"RepeatInteger":              nonStrictOS,
+		"RetryInteger":               strictOS,
+		"RepeatInteger":              strictOS,
 	}
 	require.Len(t, expected, value.FieldKindCountForTest())
 
@@ -106,6 +106,10 @@ func TestResolverFieldPolicyBacktickMatrix(t *testing.T) {
 		want  string
 	}{
 		{name: "workflow", field: value.WorkflowField("field"), want: "`printf matrix`"},
+		{name: "DAG env", field: value.DAGEnvField("field"), want: "matrix"},
+		{name: "runtime DAG env", field: value.RuntimeDAGEnvField("field"), want: "`printf matrix`"},
+		{name: "step env", field: value.StepEnvField("field"), want: "matrix"},
+		{name: "container env", field: value.ContainerEnvField("field"), want: "matrix"},
 		{name: "dynamic params", field: value.DynamicParamEvalField("field"), want: "matrix"},
 		{name: "template script", field: value.TemplateScriptField("field"), want: "`printf matrix`"},
 		{name: "direct command", field: value.DirectCommandField("field", value.CommandContext{}), want: "`printf matrix`"},

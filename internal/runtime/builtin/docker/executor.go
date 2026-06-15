@@ -476,19 +476,27 @@ func EvalContainerFields(ctx context.Context, ct core.Container) (core.Container
 	}
 
 	// Evaluate slice fields
-	if ct.Volumes, err = evalStringSlice(ctx, ct.Volumes); err != nil {
+	if ct.Volumes, err = evalStringSlice(ctx, ct.Volumes, "container.volumes", func(path string) cmnvalue.Field {
+		return cmnvalue.ContainerField(path)
+	}); err != nil {
 		return ct, fmt.Errorf("failed to evaluate volumes: %w", err)
 	}
-	if ct.Ports, err = evalStringSlice(ctx, ct.Ports); err != nil {
+	if ct.Ports, err = evalStringSlice(ctx, ct.Ports, "container.ports", func(path string) cmnvalue.Field {
+		return cmnvalue.ContainerField(path)
+	}); err != nil {
 		return ct, fmt.Errorf("failed to evaluate ports: %w", err)
 	}
 	if ct.Env, err = evalEnvSequentially(ctx, ct.Env); err != nil {
 		return ct, fmt.Errorf("failed to evaluate env: %w", err)
 	}
-	if ct.Command, err = evalStringSlice(ctx, ct.Command); err != nil {
+	if ct.Command, err = evalStringSlice(ctx, ct.Command, "container.command", func(path string) cmnvalue.Field {
+		return cmnvalue.DirectCommandField(path, cmnvalue.CommandContext{Target: cmnvalue.CommandTargetDocker})
+	}); err != nil {
 		return ct, fmt.Errorf("failed to evaluate command: %w", err)
 	}
-	if ct.Shell, err = evalStringSlice(ctx, ct.Shell); err != nil {
+	if ct.Shell, err = evalStringSlice(ctx, ct.Shell, "container.shell", func(path string) cmnvalue.Field {
+		return cmnvalue.ShellCommandField(path, cmnvalue.CommandContext{Target: cmnvalue.CommandTargetDocker, ShellConfigured: true})
+	}); err != nil {
 		return ct, fmt.Errorf("failed to evaluate shell: %w", err)
 	}
 
@@ -496,13 +504,14 @@ func EvalContainerFields(ctx context.Context, ct core.Container) (core.Container
 }
 
 // evalStringSlice evaluates each string in a slice as a step-owned field.
-func evalStringSlice(ctx context.Context, ss []string) ([]string, error) {
+func evalStringSlice(ctx context.Context, ss []string, path string, fieldForPath func(string) cmnvalue.Field) ([]string, error) {
 	if len(ss) == 0 {
 		return ss, nil
 	}
 	result := make([]string, len(ss))
 	for i, s := range ss {
-		evaluated, err := runtime.ResolveString(ctx, s, cmnvalue.ContainerField(fmt.Sprintf("container[%d]", i)))
+		fieldPath := fmt.Sprintf("%s[%d]", path, i)
+		evaluated, err := runtime.ResolveString(ctx, s, fieldForPath(fieldPath))
 		if err != nil {
 			return nil, err
 		}

@@ -220,7 +220,7 @@ func TestLoadVariables(t *testing.T) {
 		assert.Equal(t, "hello", result["GREETING"])
 	})
 
-	t.Run("PreservesBacktickSubstitution", func(t *testing.T) {
+	t.Run("RunsBacktickSubstitution", func(t *testing.T) {
 		ctx := BuildContext{
 			ctx:  context.Background(),
 			opts: BuildOpts{},
@@ -229,7 +229,7 @@ func TestLoadVariables(t *testing.T) {
 		input := map[string]any{"CMD": "`echo hello`"}
 		result, err := loadVariables(ctx, input)
 		require.NoError(t, err)
-		assert.Equal(t, "`echo hello`", result["CMD"])
+		assert.Equal(t, "hello", result["CMD"])
 	})
 
 	t.Run("NoEvalFlag", func(t *testing.T) {
@@ -369,7 +369,7 @@ GREETING: hello
 		assert.Equal(t, "hello", result["GREETING"])
 	})
 
-	t.Run("PreservesBacktickSubstitution", func(t *testing.T) {
+	t.Run("RunsBacktickSubstitution", func(t *testing.T) {
 		ctx := BuildContext{
 			ctx:  context.Background(),
 			opts: BuildOpts{},
@@ -380,7 +380,7 @@ CMD: "`+"`echo hello`"+`"
 `)
 		result, err := loadVariablesFromEnvValue(ctx, env)
 		require.NoError(t, err)
-		assert.Equal(t, "`echo hello`", result["CMD"])
+		assert.Equal(t, "hello", result["CMD"])
 	})
 
 	t.Run("NoEvalFlag", func(t *testing.T) {

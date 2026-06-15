@@ -44,6 +44,7 @@ func SemanticFieldsForTest(path string) []SemanticFieldForTest {
 		{Name: "ShellCommand", Field: ShellCommandField(path, command)},
 		{Name: "CommandScript", Field: CommandScriptField(path, command)},
 		{Name: "Container", Field: ContainerField(path)},
+		{Name: "StepEnv", Field: StepEnvField(path)},
 		{Name: "ContainerEnv", Field: ContainerEnvField(path)},
 		{Name: "ExecutorConfig", Field: ExecutorConfigField(path)},
 		{Name: "TemplateScript", Field: TemplateScriptField(path)},

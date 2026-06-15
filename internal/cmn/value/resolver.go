@@ -165,9 +165,7 @@ func policyForField(field Field) resolverPolicy {
 		fieldStepDir,
 		fieldDAGWorkingDir,
 		fieldAgentWorkingDir,
-		fieldConditionValue,
 		fieldContainer,
-		fieldContainerEnv,
 		fieldSubDAGName,
 		fieldSubDAGParams,
 		fieldParallelItem,
@@ -180,12 +178,16 @@ func policyForField(field Field) resolverPolicy {
 		return resolverPolicy{mode: modeStaticValidation, strict: true, options: []option{withoutSubstitute()}}
 	case fieldWorkflowObject:
 		return workflowValuePolicy()
+	case fieldConditionValue:
+		return resolverPolicy{mode: modeWorkflowValue, strict: true}
 	case fieldDAGEnv:
-		return resolverPolicy{mode: modeWorkflowValue, strict: true, envVariables: envVariablesUser, options: []option{withoutSubstitute(), withOSExpansion()}}
+		return resolverPolicy{mode: modeWorkflowValue, strict: true, envVariables: envVariablesUser, options: []option{withOSExpansion()}}
 	case fieldRuntimeDAGEnv:
 		return resolverPolicy{mode: modeWorkflowValue, strict: true, envVariables: envVariablesUser, options: []option{withoutSubstitute()}}
+	case fieldStepEnv, fieldContainerEnv:
+		return resolverPolicy{mode: modeWorkflowValue, strict: true}
 	case fieldDynamicParamEval:
-		return resolverPolicy{mode: modeDynamicEval, strict: true, envVariables: envVariablesAll, options: []option{withOSExpansion()}}
+		return resolverPolicy{mode: modeDynamicEval, strict: true, envVariables: envVariablesUser, options: []option{withOSExpansion()}}
 	case fieldDotenvPath:
 		return resolverPolicy{mode: modeWorkflowValue, strict: true, options: []option{withOSExpansion(), withoutSubstitute()}}
 	case fieldHostConfigObject:
@@ -199,11 +201,13 @@ func policyForField(field Field) resolverPolicy {
 	case fieldStepArtifactOutput:
 		return resolverPolicy{mode: modeWorkflowValue, strict: true, options: []option{withoutSubstitute(), withoutDollarEscape()}}
 	case fieldRetryInteger, fieldRepeatInteger:
-		return resolverPolicy{options: []option{withOSExpansion()}}
+		return resolverPolicy{mode: modeWorkflowValue, strict: true, options: []option{withOSExpansion()}}
 	case fieldDAGShell, fieldStepShell, fieldShellCommand:
 		return resolverPolicy{mode: modeShellCommand, strict: true, options: append([]option{withoutSubstitute()}, commandPolicyOptions(field.command)...)}
-	case fieldDirectCommand, fieldConditionCommand:
-		return resolverPolicy{mode: modeDirectCommand, strict: true, options: append([]option{withoutSubstitute(), withOSExpansion()}, commandPolicyOptions(field.command)...)}
+	case fieldDirectCommand:
+		return resolverPolicy{mode: modeDirectCommand, strict: true, options: append(directCommandBaseOptions(field.command), commandPolicyOptions(field.command)...)}
+	case fieldConditionCommand:
+		return resolverPolicy{mode: modeDirectCommand, strict: true, options: append(conditionCommandBaseOptions(field.command), commandPolicyOptions(field.command)...)}
 	case fieldCommandScript:
 		options := append([]option{withoutSubstitute()}, commandPolicyOptions(field.command)...)
 		if field.command.Target == CommandTargetLocal && field.command.ShellConfigured {
@@ -211,7 +215,7 @@ func policyForField(field Field) resolverPolicy {
 		}
 		return resolverPolicy{mode: modeShellCommand, strict: true, options: options}
 	case fieldTemplateScript:
-		return resolverPolicy{mode: modeShellCommand, strict: true, options: []option{withNoExpansion()}}
+		return resolverPolicy{options: []option{withNoExpansion()}}
 	case fieldExecutorConfig:
 		return resolverPolicy{mode: modeWorkflowValue, strict: true, envVariables: envVariablesUser, options: []option{withoutSubstitute()}}
 	case fieldTemplateConfig:
@@ -223,6 +227,22 @@ func policyForField(field Field) resolverPolicy {
 
 func workflowValuePolicy() resolverPolicy {
 	return resolverPolicy{mode: modeWorkflowValue, strict: true, options: []option{withoutSubstitute()}}
+}
+
+func directCommandBaseOptions(command CommandContext) []option {
+	options := []option{withoutSubstitute()}
+	if command.Target == CommandTargetLocal {
+		options = append(options, withOSExpansion())
+	}
+	return options
+}
+
+func conditionCommandBaseOptions(command CommandContext) []option {
+	options := []option{withoutSubstitute()}
+	if command.Target == CommandTargetLocal {
+		options = append(options, withOSExpansion())
+	}
+	return options
 }
 
 func commandPolicyOptions(command CommandContext) []option {

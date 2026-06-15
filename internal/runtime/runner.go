@@ -796,14 +796,14 @@ func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) con
 	}
 
 	// Helper to evaluate and store environment variables
-	addEnvVars := func(envList []string) {
+	addEnvVars := func(envList []string, fieldPrefix string, fieldForKey func(string) cmnvalue.Field) {
 		for _, v := range envList {
 			key, value, found := strings.Cut(v, "=")
 			if !found {
 				logger.Error(ctx, "Invalid environment variable format", slog.String("var", v))
 				continue
 			}
-			evaluatedValue, err := resolverFromEnv(env).String(ctx, value, cmnvalue.WorkflowField("env."+key))
+			evaluatedValue, err := resolverFromEnv(env).String(ctx, value, fieldForKey(fieldPrefix+key))
 			if err != nil {
 				logger.Error(ctx, "Failed to evaluate environment variable",
 					slog.String("var", v),
@@ -816,14 +816,14 @@ func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) con
 	}
 
 	// Add step-level environment variables
-	addEnvVars(node.Step().Env)
+	addEnvVars(node.Step().Env, "env.", cmnvalue.StepEnvField)
 
 	// Add container environment variables (step-level takes precedence over DAG-level)
 	// This ensures container env vars are available when evaluating command arguments
 	if ct := node.Step().Container; ct != nil {
-		addEnvVars(ct.Env)
+		addEnvVars(ct.Env, "container.env.", cmnvalue.ContainerEnvField)
 	} else if dag := env.DAG; dag != nil && dag.Container != nil {
-		addEnvVars(dag.Container.Env)
+		addEnvVars(dag.Container.Env, "container.env.", cmnvalue.ContainerEnvField)
 	}
 
 	return WithEnv(ctx, env)
