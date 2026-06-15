@@ -23,7 +23,7 @@ func Select(ctx context.Context, varName string, raw any, path string) (any, boo
 		return nil, false
 	}
 
-	iter := query.Run(raw)
+	iter := query.RunWithContext(ctx, raw)
 	v, ok := iter.Next()
 	if !ok {
 		return nil, false

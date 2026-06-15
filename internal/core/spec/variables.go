@@ -77,7 +77,7 @@ func evaluatePairs(ctx BuildContext, pairs []pair) (map[string]string, error) {
 	vars := make(map[string]string, len(pairs))
 
 	// Build base scope once outside the loop to reduce allocations.
-	// We chain new entries immutably as we evaluate each pair.
+	// New entries are chained immutably as each pair is evaluated.
 	var scope *cmnvalue.EnvScope
 	var evalCtx context.Context
 	if !ctx.opts.Has(BuildFlagNoEval) {
@@ -93,6 +93,10 @@ func evaluatePairs(ctx BuildContext, pairs []pair) (map[string]string, error) {
 			evalCtx = context.Background()
 		}
 	}
+	var consts map[string]any
+	if ctx.envScope != nil {
+		consts = ctx.envScope.consts
+	}
 
 	for _, p := range pairs {
 		value := p.val
@@ -106,10 +110,6 @@ func evaluatePairs(ctx BuildContext, pairs []pair) (map[string]string, error) {
 			}
 
 			var err error
-			var consts map[string]any
-			if ctx.envScope != nil {
-				consts = ctx.envScope.consts
-			}
 			resolver := cmnvalue.NewResolver(
 				cmnvalue.StaticScope{Consts: cmnvalue.Values(consts)},
 				cmnvalue.RuntimeScope{Consts: cmnvalue.Values(consts), Env: scope},

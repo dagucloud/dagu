@@ -50,6 +50,21 @@ steps:
 	assert.Contains(t, err.Error(), "list")
 }
 
+func TestConstsRejectsNullValue(t *testing.T) {
+	t.Parallel()
+
+	_, err := spec.LoadYAML(context.Background(), []byte(`
+consts:
+  - service:
+steps:
+  - name: print
+    run: echo ok
+`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "consts.service")
+	assert.Contains(t, err.Error(), "literal string, number, or boolean")
+}
+
 func TestReservedBindingsValidateRunFields(t *testing.T) {
 	t.Parallel()
 

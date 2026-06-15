@@ -119,13 +119,26 @@ func classifyBracedReference(rawRef, expr string, start, end int) reference {
 }
 
 func parseStepOutputReference(ref reference) (StepOutputReference, bool) {
-	if !ref.Braced || ref.Kind != referenceEval || len(ref.Segments) < 3 || ref.Segments[1] != "output" {
+	if !ref.Braced || ref.Kind != referenceEval {
 		return StepOutputReference{}, false
 	}
-	if !validStepOutputStepName(ref.Segments[0]) {
+
+	var stepName string
+	var path []string
+	switch {
+	case len(ref.Segments) >= 3 && ref.Segments[1] == "output":
+		stepName = ref.Segments[0]
+		path = ref.Segments[2:]
+	case len(ref.Segments) >= 4 && ref.Segments[0] == "steps" && ref.Segments[2] == "outputs":
+		stepName = ref.Segments[1]
+		path = ref.Segments[3:]
+	default:
 		return StepOutputReference{}, false
 	}
-	path := ref.Segments[2:]
+
+	if !validStepOutputStepName(stepName) {
+		return StepOutputReference{}, false
+	}
 	for _, segment := range path {
 		if !validOutputPathSegment(segment) {
 			return StepOutputReference{}, false
@@ -133,7 +146,7 @@ func parseStepOutputReference(ref reference) (StepOutputReference, bool) {
 	}
 	return StepOutputReference{
 		Expression: ref.Raw,
-		StepName:   ref.Segments[0],
+		StepName:   stepName,
 		Path:       append([]string(nil), path...),
 	}, true
 }

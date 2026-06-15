@@ -108,7 +108,7 @@ func evalCommand(ctx context.Context, shell []string, c *core.Condition) error {
 	command := cmnvalue.CommandContext{
 		Target:          cmnvalue.CommandTargetLocal,
 		Shell:           shell,
-		ShellConfigured: true,
+		ShellConfigured: len(shell) > 0,
 	}
 	commandToRun, err := resolveRuntimeString(ctx, c.Condition, cmnvalue.ConditionCommandField("condition", command))
 	if err != nil {

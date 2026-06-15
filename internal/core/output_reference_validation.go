@@ -57,11 +57,12 @@ func (d *DAG) validateOutputReferences() []error {
 	var errs []error
 	seen := make(map[string]struct{})
 	for _, field := range ReferenceFields(d) {
-		if !strings.Contains(field.Value, ".output.") {
+		refs := outputReferences(field.Value)
+		if len(refs) == 0 {
 			continue
 		}
 		location := outputReferenceLocation{StepName: field.OwnerStepName, Field: field.Path}
-		for _, ref := range outputReferences(field.Value) {
+		for _, ref := range refs {
 			contract, ok := contracts[ref.StepName]
 			if !ok {
 				continue

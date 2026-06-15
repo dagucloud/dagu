@@ -205,3 +205,29 @@ func TestReferenceFieldsIncludesExecutorConfig(t *testing.T) {
 	assert.Equal(t, "steps[0].with.headers.authorization", refs[1].Path)
 	assert.Equal(t, "Bearer ${build.output.token}", refs[1].Value)
 }
+
+func TestValidateOutputReferencesChecksStrictPluralStepOutputReferences(t *testing.T) {
+	t.Parallel()
+
+	dag := &DAG{
+		Name: "test",
+		Steps: []Step{
+			{
+				ID:   "build",
+				Name: "build",
+				StructuredOutput: map[string]StepOutputEntry{
+					"image": {},
+				},
+			},
+			{
+				Name:   "deploy",
+				Script: "echo ${steps.build.outputs.digest}",
+			},
+		},
+	}
+
+	errs := dag.validateOutputReferences()
+	require.Len(t, errs, 1)
+	assert.Contains(t, errs[0].Error(), "${steps.build.outputs.digest}")
+	assert.Contains(t, errs[0].Error(), `publishes no output field "digest"`)
+}

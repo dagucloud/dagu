@@ -17,7 +17,7 @@ Step identity is defined by [Spec 009: Step Reference](009-step-reference.md).
 
 Step output declaration and publication are defined by [Spec 012: Step Outputs](012-step-outputs.md).
 
-This spec does not define dependencies, step execution, or output file parsing.
+This spec does not define dependency resolution mechanics, step execution, or output file parsing; it only defines dependency constraints for fields that reference step outputs.
 
 ## Goal
 

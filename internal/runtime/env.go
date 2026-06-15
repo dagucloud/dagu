@@ -77,7 +77,20 @@ func (e Env) UserEnvsMap() map[string]string {
 func NewEnv(ctx context.Context, step core.Step) Env {
 	rCtx := GetDAGContext(ctx)
 	workingDir := resolveWorkingDir(ctx, step, rCtx)
+	return newEnv(step, rCtx, workingDir)
+}
 
+// NewEnvWithError creates an Env and returns working directory resolution errors.
+func NewEnvWithError(ctx context.Context, step core.Step) (Env, error) {
+	rCtx := GetDAGContext(ctx)
+	workingDir, err := resolveWorkingDirStrict(ctx, step, rCtx)
+	if err != nil {
+		return Env{}, err
+	}
+	return newEnv(step, rCtx, workingDir), nil
+}
+
+func newEnv(step core.Step, rCtx Context, workingDir string) Env {
 	// Build step-specific env vars
 	stepEnvs := map[string]string{
 		exec.EnvKeyDAGRunStepName: step.Name,
@@ -117,6 +130,28 @@ func resolveWorkingDir(ctx context.Context, step core.Step, rCtx Context) string
 	return fallbackWorkingDir(ctx, step.Name)
 }
 
+func resolveWorkingDirStrict(ctx context.Context, step core.Step, rCtx Context) (string, error) {
+	dag := rCtx.DAG
+
+	if step.Dir != "" {
+		expandedDir, err := expandStepDirStrict(step.Dir, dag)
+		if err != nil {
+			return "", err
+		}
+		return resolveExpandedDirStrict(ctx, expandedDir, step.Name, dag, rCtx)
+	}
+
+	workDir, err := dagWorkingDirStrict(ctx, dag, rCtx)
+	if err != nil {
+		return "", err
+	}
+	if workDir != "" {
+		return workDir, nil
+	}
+
+	return fallbackWorkingDir(ctx, step.Name), nil
+}
+
 func expandRuntimeConsts(raw string, dag *core.DAG, field cmnvalue.Field) (string, error) {
 	var consts cmnvalue.Values
 	if dag != nil {
@@ -140,6 +175,14 @@ func expandStepDir(ctx context.Context, dir string, dag *core.DAG) string {
 		expanded = dir
 	}
 	return expandStepDirEnvOnly(expanded, dag)
+}
+
+func expandStepDirStrict(dir string, dag *core.DAG) (string, error) {
+	expanded, err := expandRuntimeConsts(dir, dag, cmnvalue.StepDirField("working_dir"))
+	if err != nil {
+		return "", fmt.Errorf("failed to evaluate step working directory %q: %w", dir, err)
+	}
+	return expandStepDirEnvOnly(expanded, dag), nil
 }
 
 func expandStepDirEnvOnly(dir string, dag *core.DAG) string {
@@ -181,6 +224,26 @@ func resolveExpandedDir(ctx context.Context, expandedDir, stepName string, dag *
 	return expandedDir
 }
 
+func resolveExpandedDirStrict(ctx context.Context, expandedDir, stepName string, dag *core.DAG, rCtx Context) (string, error) {
+	if filepath.IsAbs(expandedDir) || strings.HasPrefix(expandedDir, "~") {
+		dir, err := fileutil.ResolvePath(expandedDir)
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve working directory for step %q: %w", stepName, err)
+		}
+		return dir, nil
+	}
+
+	workDir, err := dagWorkingDirStrict(ctx, dag, rCtx)
+	if err != nil {
+		return "", err
+	}
+	if workDir != "" {
+		return filepath.Clean(filepath.Join(workDir, expandedDir)), nil
+	}
+
+	return expandedDir, nil
+}
+
 func dagWorkingDir(ctx context.Context, dag *core.DAG, rCtx Context) string {
 	if dag != nil && dag.WorkingDirExplicit && dag.WorkingDir != "" {
 		return expandDAGWorkingDir(ctx, dag.WorkingDir, rCtx)
@@ -192,6 +255,19 @@ func dagWorkingDir(ctx context.Context, dag *core.DAG, rCtx Context) string {
 		return expandDAGWorkingDir(ctx, dag.WorkingDir, rCtx)
 	}
 	return ""
+}
+
+func dagWorkingDirStrict(ctx context.Context, dag *core.DAG, rCtx Context) (string, error) {
+	if dag != nil && dag.WorkingDirExplicit && dag.WorkingDir != "" {
+		return expandDAGWorkingDirStrict(dag.WorkingDir, rCtx)
+	}
+	if workDir := dagRunWorkDir(rCtx); workDir != "" {
+		return workDir, nil
+	}
+	if dag != nil && dag.WorkingDir != "" {
+		return expandDAGWorkingDirStrict(dag.WorkingDir, rCtx)
+	}
+	return "", nil
 }
 
 func dagRunWorkDir(rCtx Context) string {
@@ -227,6 +303,22 @@ func expandDAGWorkingDir(ctx context.Context, workingDir string, rCtx Context) s
 		}
 	}
 	return wd
+}
+
+func expandDAGWorkingDirStrict(workingDir string, rCtx Context) (string, error) {
+	wd, err := expandRuntimeConsts(workingDir, rCtx.DAG, cmnvalue.DAGWorkingDirField("working_dir"))
+	if err != nil {
+		return "", fmt.Errorf("failed to evaluate working directory %q: %w", workingDir, err)
+	}
+	wd = expandDAGWorkingDirEnvOnly(wd, rCtx.EnvScope)
+	if strings.HasPrefix(wd, "~") {
+		resolved, err := fileutil.ResolvePath(wd)
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve working directory %q: %w", wd, err)
+		}
+		wd = resolved
+	}
+	return wd, nil
 }
 
 func expandDAGWorkingDirEnvOnly(workingDir string, scope *cmnvalue.EnvScope) string {

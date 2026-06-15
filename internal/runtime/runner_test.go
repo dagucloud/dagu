@@ -1094,6 +1094,34 @@ func TestRunner(t *testing.T) {
 			require.Contains(t, result.Error.Error(), "no such file or directory")
 		}
 	})
+	t.Run("InvalidWorkingDirResolutionFailsBeforeScript", func(t *testing.T) {
+		r := setupRunner(t)
+
+		sentinel := filepath.Join(t.TempDir(), "executed")
+		plan := r.newPlan(t,
+			newStep("1", withWorkingDir("${consts.missing}"),
+				withScript(createEmptyFileCommand(sentinel)),
+			),
+		)
+		dag := &core.DAG{
+			Name:       "test_dag",
+			WorkingDir: plan.workDir,
+			Consts:     map[string]any{},
+		}
+		logFilename := fmt.Sprintf("%s_%s.log", dag.Name, r.cfg.DAGRunID)
+		logFilePath := path.Join(r.cfg.LogDir, logFilename)
+		ctx := runtime.NewContext(r.Context, dag, r.cfg.DAGRunID, logFilePath)
+
+		err := r.runner.Run(ctx, plan.Plan, nil)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to evaluate step working directory")
+		require.Equal(t, core.Failed.String(), r.runner.Status(ctx, plan.Plan).String())
+
+		node := plan.GetNodeByName("1")
+		require.NotNil(t, node)
+		assert.Equal(t, core.NodeFailed, node.State().Status)
+		require.NoFileExists(t, sentinel)
+	})
 	t.Run("OutputVariables", func(t *testing.T) {
 		t.Parallel()
 		r := setupRunner(t)

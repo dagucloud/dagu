@@ -95,6 +95,10 @@ func constEntry(idx int, item any) (string, any, error) {
 }
 
 func resolveConstValue(key string, value any, consts map[string]any) (any, error) {
+	if value == nil {
+		return nil, fmt.Errorf("const %q must be a literal string, number, or boolean", key)
+	}
+
 	switch v := value.(type) {
 	case string:
 		resolver := cmnvalue.NewResolver(

@@ -228,6 +228,42 @@ func TestConstResolutionInWorkingDirs(t *testing.T) {
 	})
 }
 
+func TestNewEnvWithErrorRejectsInvalidWorkingDirResolution(t *testing.T) {
+	t.Parallel()
+
+	t.Run("DAGWorkingDir", func(t *testing.T) {
+		t.Parallel()
+
+		dag := &core.DAG{
+			Consts:             map[string]any{},
+			WorkingDir:         "${consts.missing}",
+			WorkingDirExplicit: true,
+		}
+		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
+
+		_, err := runtime.NewEnvWithError(ctx, core.Step{Name: "test-step"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to evaluate working directory")
+		assert.Contains(t, err.Error(), "unknown consts binding")
+	})
+
+	t.Run("StepWorkingDir", func(t *testing.T) {
+		t.Parallel()
+
+		dag := &core.DAG{
+			Consts:             map[string]any{},
+			WorkingDir:         t.TempDir(),
+			WorkingDirExplicit: true,
+		}
+		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
+
+		_, err := runtime.NewEnvWithError(ctx, core.Step{Name: "test-step", Dir: "${consts.missing}"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to evaluate step working directory")
+		assert.Contains(t, err.Error(), "unknown consts binding")
+	})
+}
+
 func TestEnv_AllEnvsMap(t *testing.T) {
 	t.Parallel()
 

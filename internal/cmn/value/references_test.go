@@ -5,6 +5,7 @@ package value_test
 
 import (
 	"context"
+	"runtime"
 	"testing"
 
 	"github.com/dagucloud/dagu/internal/cmn/value"
@@ -38,14 +39,17 @@ func TestScanReferencesClassifiesReservedAndEvalRefs(t *testing.T) {
 func TestScanReferencesMarksEvalStepOutputRefs(t *testing.T) {
 	t.Parallel()
 
-	refs := value.ScanReferencesForTest("${extract.output.user.id} $extract.output.user.id ${extract.output.bad-name}")
+	refs := value.ScanReferencesForTest("${extract.output.user.id} ${steps.extract.outputs.user.id} $extract.output.user.id ${extract.output.bad-name}")
 
-	require.Len(t, refs, 3)
+	require.Len(t, refs, 4)
 	require.NotNil(t, refs[0].StepOutput)
 	assert.Equal(t, "extract", refs[0].StepOutput.StepName)
 	assert.Equal(t, []string{"user", "id"}, refs[0].StepOutput.Path)
-	assert.Nil(t, refs[1].StepOutput)
+	require.NotNil(t, refs[1].StepOutput)
+	assert.Equal(t, "extract", refs[1].StepOutput.StepName)
+	assert.Equal(t, []string{"user", "id"}, refs[1].StepOutput.Path)
 	assert.Nil(t, refs[2].StepOutput)
+	assert.Nil(t, refs[3].StepOutput)
 
 	var outputRefs []value.StepOutputReference
 	for _, ref := range refs {
@@ -53,8 +57,9 @@ func TestScanReferencesMarksEvalStepOutputRefs(t *testing.T) {
 			outputRefs = append(outputRefs, *ref.StepOutput)
 		}
 	}
-	require.Len(t, outputRefs, 1)
+	require.Len(t, outputRefs, 2)
 	assert.Equal(t, "${extract.output.user.id}", outputRefs[0].Expression)
+	assert.Equal(t, "${steps.extract.outputs.user.id}", outputRefs[1].Expression)
 }
 
 func TestResolverValidateFieldMatrix(t *testing.T) {
@@ -161,6 +166,9 @@ func TestResolverWorkflowFieldPreservesCommandSubstitution(t *testing.T) {
 
 func TestResolverDynamicParamEvalRunsCommandSubstitution(t *testing.T) {
 	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping backtick command substitution test on Windows")
+	}
 
 	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{})
 	got, err := resolver.String(context.Background(), "`echo resolved`", value.DynamicParamEvalField("params"))

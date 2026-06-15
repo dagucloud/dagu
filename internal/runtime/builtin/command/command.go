@@ -444,17 +444,19 @@ func init() {
 		Script:           true,
 		Shell:            true,
 		CommandContext: func(ctx context.Context, step core.Step) cmnvalue.CommandContext {
+			shell := commandContextShell(ctx, step)
 			return cmnvalue.CommandContext{
 				Target:          cmnvalue.CommandTargetLocal,
-				Shell:           commandContextShell(ctx, step),
-				ShellConfigured: true,
+				Shell:           shell,
+				ShellConfigured: len(shell) > 0,
 			}
 		},
 		ScriptContext: func(ctx context.Context, step core.Step) cmnvalue.CommandContext {
+			shell := commandContextShell(ctx, step)
 			return cmnvalue.CommandContext{
 				Target:          cmnvalue.CommandTargetLocal,
-				Shell:           commandContextShell(ctx, step),
-				ShellConfigured: true,
+				Shell:           shell,
+				ShellConfigured: len(shell) > 0,
 			}
 		},
 	}
