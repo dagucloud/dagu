@@ -1138,6 +1138,56 @@ func TestDispatchTaskStore_TwoStoreInstancesClaimExactlyOnce(t *testing.T) {
 	assert.Equal(t, 1, claimedCount)
 }
 
+func TestDispatchTaskStore_CountOutstandingSeesSecondStoreEnqueueImmediately(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	col := newCountingRecordIDsCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+	first := store.NewDispatchTaskStore(col)
+	second := store.NewDispatchTaskStore(col)
+
+	count, err := first.CountOutstandingByQueue(ctx, "queue-a", time.Second)
+	require.NoError(t, err)
+	require.Zero(t, count)
+
+	require.NoError(t, second.Enqueue(ctx, &exec.DispatchTask{
+		DAGRunID:   "run-admission-count",
+		Target:     "dag-admission-count",
+		QueueName:  "queue-a",
+		AttemptID:  "attempt-admission-count",
+		AttemptKey: "attempt-key-admission-count",
+	}))
+
+	count, err = first.CountOutstandingByQueue(ctx, "queue-a", time.Second)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+}
+
+func TestDispatchTaskStore_HasOutstandingAttemptSeesSecondStoreEnqueueImmediately(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	col := newCountingRecordIDsCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+	first := store.NewDispatchTaskStore(col)
+	second := store.NewDispatchTaskStore(col)
+
+	hasOutstanding, err := first.HasOutstandingAttempt(ctx, "attempt-key-admission-attempt", time.Second)
+	require.NoError(t, err)
+	require.False(t, hasOutstanding)
+
+	require.NoError(t, second.Enqueue(ctx, &exec.DispatchTask{
+		DAGRunID:   "run-admission-attempt",
+		Target:     "dag-admission-attempt",
+		QueueName:  "queue-a",
+		AttemptID:  "attempt-admission-attempt",
+		AttemptKey: "attempt-key-admission-attempt",
+	}))
+
+	hasOutstanding, err = first.HasOutstandingAttempt(ctx, "attempt-key-admission-attempt", time.Second)
+	require.NoError(t, err)
+	assert.True(t, hasOutstanding)
+}
+
 func TestDispatchTaskStore_NoMatchCacheDistinguishesSeparatorCharacters(t *testing.T) {
 	t.Parallel()
 

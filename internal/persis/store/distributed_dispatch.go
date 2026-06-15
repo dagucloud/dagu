@@ -74,6 +74,13 @@ type dispatchNamespaceVersions struct {
 	claims  string
 }
 
+type dispatchIndexFreshness int
+
+const (
+	dispatchIndexFreshnessPoll dispatchIndexFreshness = iota
+	dispatchIndexFreshnessAdmission
+)
+
 type dispatchIndexSnapshot struct {
 	index              *dispatchTaskIndex
 	namespaceVersions  dispatchNamespaceVersions
@@ -379,21 +386,16 @@ func NewDispatchTaskStore(col persis.Collection, opts ...DispatchTaskStoreOption
 	return s
 }
 
-func (s *DispatchTaskStore) ensureDispatchIndex(ctx context.Context) error {
+func (s *DispatchTaskStore) ensureDispatchIndex(ctx context.Context, freshness dispatchIndexFreshness) error {
 	if s.index == nil {
 		return s.rebuildDispatchIndex(ctx)
 	}
-	return s.validateDispatchIndex(ctx, false)
-}
-
-func (s *DispatchTaskStore) ensureDispatchIndexForOutstandingQuery(ctx context.Context) error {
-	if s.index == nil {
-		return s.rebuildDispatchIndex(ctx)
-	}
-	return s.validateDispatchIndex(ctx, true)
+	return s.validateDispatchIndex(ctx, freshness)
 }
 
 type recordNamespaceVersionCollection interface {
+	// RecordNamespaceVersion returns a token that changes when the record ID set
+	// under prefix changes.
 	RecordNamespaceVersion(ctx context.Context, prefix string) (string, error)
 }
 
@@ -496,12 +498,13 @@ func (s *DispatchTaskStore) buildDispatchIndex(ctx context.Context) (*dispatchTa
 	return idx, nil
 }
 
-func (s *DispatchTaskStore) validateDispatchIndex(ctx context.Context, validatePendingPayloadVersions bool) error {
+func (s *DispatchTaskStore) validateDispatchIndex(ctx context.Context, freshness dispatchIndexFreshness) error {
 	if s.index == nil {
 		return s.rebuildDispatchIndex(ctx)
 	}
 	now := time.Now().UTC()
-	if !s.index.validatedAt.IsZero() && now.Sub(s.index.validatedAt) < dispatchIndexValidationWindow {
+	admissionFreshness := freshness == dispatchIndexFreshnessAdmission
+	if !admissionFreshness && !s.index.validatedAt.IsZero() && now.Sub(s.index.validatedAt) < dispatchIndexValidationWindow {
 		return nil
 	}
 
@@ -517,7 +520,7 @@ func (s *DispatchTaskStore) validateDispatchIndex(ctx context.Context, validateP
 			return s.rebuildDispatchIndex(ctx)
 		}
 		if !fullValidationDue {
-			if validatePendingPayloadVersions {
+			if admissionFreshness {
 				if err := s.validatePendingRecordVersions(ctx); err != nil {
 					return err
 				}
@@ -545,7 +548,7 @@ func (s *DispatchTaskStore) validateDispatchIndex(ctx context.Context, validateP
 	if err := s.validateDispatchIndexIDs(ctx, dispatchClaimsPrefix, s.index.claims); err != nil {
 		return err
 	}
-	validatePayloadVersions := validatePendingPayloadVersions || fullValidationDue
+	validatePayloadVersions := admissionFreshness || fullValidationDue
 	if validatePayloadVersions {
 		if err := s.validatePendingRecordVersions(ctx); err != nil {
 			return err
@@ -672,7 +675,7 @@ func (s *DispatchTaskStore) ClaimNext(ctx context.Context, claim exec.DispatchTa
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := s.ensureDispatchIndex(ctx); err != nil {
+	if err := s.ensureDispatchIndex(ctx, dispatchIndexFreshnessPoll); err != nil {
 		return nil, err
 	}
 	if _, err := s.maybeRecycleExpiredReservations(ctx); err != nil {
@@ -860,14 +863,16 @@ func (s *DispatchTaskStore) DeleteClaim(ctx context.Context, claimToken string) 
 }
 
 // CountOutstandingByQueue returns the number of pending+claimed dispatch
-// records matching queueName. A task transitioning between pending and
-// claim during the scan may be counted as both for a sub-millisecond
-// window — acceptable for observability.
+// records matching queueName. Scheduler admission uses this count to reserve
+// queue capacity, so the dispatch index is validated before answering and must
+// not return a stale low count after visible store changes. A task transitioning
+// between pending and claim during the scan may be counted as both for a
+// sub-millisecond window, which only under-reports available capacity.
 func (s *DispatchTaskStore) CountOutstandingByQueue(ctx context.Context, queueName string, _ time.Duration) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := s.ensureDispatchIndexForOutstandingQuery(ctx); err != nil {
+	if err := s.ensureDispatchIndex(ctx, dispatchIndexFreshnessAdmission); err != nil {
 		return 0, err
 	}
 	if err := s.recycleExpiredReservations(ctx); err != nil {
@@ -895,8 +900,8 @@ func (s *DispatchTaskStore) CountOutstandingByQueue(ctx context.Context, queueNa
 	return count, nil
 }
 
-// HasOutstandingAttempt reports whether any pending or claimed record
-// matches attemptKey. Same eventual-consistency caveat as
+// HasOutstandingAttempt reports whether any pending or claimed record matches
+// attemptKey. It uses the same scheduler-admission freshness contract as
 // [CountOutstandingByQueue].
 func (s *DispatchTaskStore) HasOutstandingAttempt(ctx context.Context, attemptKey string, _ time.Duration) (bool, error) {
 	if attemptKey == "" {
@@ -905,7 +910,7 @@ func (s *DispatchTaskStore) HasOutstandingAttempt(ctx context.Context, attemptKe
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := s.ensureDispatchIndexForOutstandingQuery(ctx); err != nil {
+	if err := s.ensureDispatchIndex(ctx, dispatchIndexFreshnessAdmission); err != nil {
 		return false, err
 	}
 	if err := s.recycleExpiredReservations(ctx); err != nil {

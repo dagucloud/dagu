@@ -200,6 +200,7 @@ func (c *Collection) RecordVersion(_ context.Context, id string) (string, error)
 }
 
 // RecordNamespaceVersion returns a cheap version token for a record ID prefix.
+// The token changes when records under the prefix are created or removed.
 func (c *Collection) RecordNamespaceVersion(_ context.Context, prefix string) (string, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
