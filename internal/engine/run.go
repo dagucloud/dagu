@@ -544,7 +544,7 @@ func (e *Engine) runDistributed(ctx context.Context, dag *core.DAG, runID string
 	if len(dag.Params) > 0 {
 		task.Params = strings.Join(dag.Params, " ")
 	}
-	if err := client.Dispatch(ctx, task); err != nil {
+	if err := client.Dispatch(ctx, coreexec.DispatchRequest{Task: task}); err != nil {
 		_ = client.Cleanup(ctx)
 		return nil, fmt.Errorf("dispatch DAG run: %w", err)
 	}

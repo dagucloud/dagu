@@ -170,7 +170,8 @@ func New(registry exec.ServiceRegistry, config *Config) Client {
 }
 
 // Dispatch sends a task to the coordinator.
-func (cli *clientImpl) Dispatch(ctx context.Context, task *exec.DispatchTask) error {
+func (cli *clientImpl) Dispatch(ctx context.Context, req exec.DispatchRequest) error {
+	task := req.Task
 	if task == nil {
 		return fmt.Errorf("dispatch task is nil")
 	}
@@ -205,14 +206,17 @@ func (cli *clientImpl) Dispatch(ctx context.Context, task *exec.DispatchTask) er
 
 		return cli.attemptCall(ctx, members, func(ctx context.Context, member exec.HostInfo, client *client) error {
 			// Create request
-			req := &coordinatorv1.DispatchRequest{Task: protoTask}
+			protoReq := &coordinatorv1.DispatchRequest{
+				Task:                      protoTask,
+				AdmissionReservationToken: req.AdmissionReservationToken,
+			}
 
 			// Apply request timeout
 			dispatchCtx, cancel := context.WithTimeout(ctx, cli.config.RequestTimeout)
 			defer cancel()
 
 			// Try to dispatch
-			if _, err := client.client.Dispatch(dispatchCtx, req); err != nil {
+			if _, err := client.client.Dispatch(dispatchCtx, protoReq); err != nil {
 				logger.Warn(ctx, "Failed to dispatch task to coordinator",
 					tag.RunID(task.DAGRunID),
 					tag.Target(task.Target),

@@ -30,8 +30,8 @@ type retryCoordinatorRecorder struct {
 
 var _ coordinator.Client = (*retryCoordinatorRecorder)(nil)
 
-func (c *retryCoordinatorRecorder) Dispatch(_ context.Context, task *exec.DispatchTask) error {
-	c.dispatched = append(c.dispatched, task)
+func (c *retryCoordinatorRecorder) Dispatch(_ context.Context, req exec.DispatchRequest) error {
+	c.dispatched = append(c.dispatched, req.Task)
 	return c.dispatchErr
 }
 

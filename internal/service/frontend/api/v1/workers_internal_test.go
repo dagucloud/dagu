@@ -25,7 +25,7 @@ type stubCoordinatorClient struct {
 	err     error
 }
 
-func (s *stubCoordinatorClient) Dispatch(context.Context, *exec.DispatchTask) error {
+func (s *stubCoordinatorClient) Dispatch(context.Context, exec.DispatchRequest) error {
 	return nil
 }
 

@@ -615,7 +615,7 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *core.DAG, dagRunID string, sc
 		taskOpts...,
 	)
 
-	if err := coordinatorCli.Dispatch(signalAwareCtx, task); err != nil {
+	if err := coordinatorCli.Dispatch(signalAwareCtx, exec.DispatchRequest{Task: task}); err != nil {
 		return fmt.Errorf("failed to dispatch task: %w", err)
 	}
 
