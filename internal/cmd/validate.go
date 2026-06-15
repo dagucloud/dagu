@@ -93,11 +93,6 @@ func runValidate(ctx *Context, args []string) error {
 		logger.Warn(ctx, warning, tag.File(args[0]))
 	}
 
-	// Success
-	logger.Info(ctx, "DAG spec is valid",
-		tag.File(args[0]),
-		tag.Name(dag.GetName()),
-	)
 	return nil
 }
 

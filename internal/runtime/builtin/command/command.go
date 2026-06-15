@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
+	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
@@ -444,18 +445,16 @@ func init() {
 		Script:           true,
 		Shell:            true,
 		CommandContext: func(ctx context.Context, step core.Step) cmnvalue.CommandContext {
-			env := runtime.GetEnv(ctx)
 			return cmnvalue.CommandContext{
 				Target:          cmnvalue.CommandTargetLocal,
-				Shell:           env.Shell(ctx),
+				Shell:           commandContextShell(ctx, step),
 				ShellConfigured: true,
 			}
 		},
 		ScriptContext: func(ctx context.Context, step core.Step) cmnvalue.CommandContext {
-			env := runtime.GetEnv(ctx)
 			return cmnvalue.CommandContext{
 				Target:          cmnvalue.CommandTargetLocal,
-				Shell:           env.Shell(ctx),
+				Shell:           commandContextShell(ctx, step),
 				ShellConfigured: true,
 			}
 		},
@@ -463,4 +462,19 @@ func init() {
 	executor.RegisterExecutor("", NewCommand, validateCommandStep, caps)
 	executor.RegisterExecutor("shell", NewCommand, validateCommandStep, caps)
 	executor.RegisterExecutor("command", NewCommand, validateCommandStep, caps)
+}
+
+func commandContextShell(ctx context.Context, step core.Step) []string {
+	if env, ok := runtime.LookupEnv(ctx); ok {
+		return env.Shell(ctx)
+	}
+	if step.Shell != "" {
+		shell := []string{step.Shell}
+		return append(shell, step.ShellArgs...)
+	}
+	shellCmd := cmdutil.GetShellCommand(config.GetConfig(ctx).Core.DefaultShell)
+	if shellCmd == "" {
+		return nil
+	}
+	return []string{shellCmd}
 }

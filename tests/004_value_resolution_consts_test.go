@@ -22,6 +22,7 @@ func Test004ValueResolutionConstsValidate(t *testing.T) {
 			result := dagu.Run("validate", file)
 			result.ExpectExitCode(0)
 			result.ExpectStdout("")
+			result.ExpectStderr("")
 			dagu.ExpectNoFile("executed.txt")
 		})
 	}
@@ -118,23 +119,26 @@ func Test004ValueResolutionConstsValidate(t *testing.T) {
 	}
 }
 
-func Test004ValueResolutionConstsDryRun(t *testing.T) {
+func Test004ValueResolutionConstsStart(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name       string
-		file       string
-		outputFile string
+		name          string
+		file          string
+		outputFile    string
+		outputContent string
 	}{
 		{
-			name:       "ordered consts build during simulation",
-			file:       "runtime_const_resolution.yaml",
-			outputFile: "resolved.txt",
+			name:          "ordered consts resolve during execution",
+			file:          "runtime_const_resolution.yaml",
+			outputFile:    "resolved.txt",
+			outputContent: "https://example.test/api/true/3/1.25\n",
 		},
 		{
-			name:       "single-quoted env references are accepted during simulation",
-			file:       "single_quoted_env_references.yaml",
-			outputFile: "single-quoted-env.txt",
+			name:          "single-quoted env references are preserved during execution",
+			file:          "single_quoted_env_references.yaml",
+			outputFile:    "single-quoted-env.txt",
+			outputContent: "$SOURCE\n${SOURCE}\n",
 		},
 	}
 	for _, tc := range cases {
@@ -143,9 +147,9 @@ func Test004ValueResolutionConstsDryRun(t *testing.T) {
 
 			dagu := newRunner(t, "004_value_resolution_consts")
 
-			result := dagu.Run("dry", tc.file)
+			result := dagu.Run("start", tc.file)
 			result.ExpectExitCode(0)
-			dagu.ExpectNoFile(tc.outputFile)
+			dagu.ExpectFileContent(tc.outputFile, tc.outputContent)
 		})
 	}
 }

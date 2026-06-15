@@ -574,8 +574,8 @@ func hasShellConfigured(ctx context.Context, step core.Step) bool {
 		return cmdutil.IsShellValueSet(step.ExecutorConfig.Config["shell"])
 	}
 
-	env := runtime.GetEnv(ctx)
-	if env.DAG != nil && env.DAG.Container != nil {
+	env, ok := runtime.LookupEnv(ctx)
+	if ok && env.DAG != nil && env.DAG.Container != nil {
 		return cmdutil.HasShellArgs(env.DAG.Container.Shell)
 	}
 

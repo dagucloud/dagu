@@ -23,27 +23,35 @@ func Test002Schema(t *testing.T) {
 			result := dagu.Run("validate", file)
 			result.ExpectExitCode(0)
 			result.ExpectStdout("")
+			result.ExpectStderr("")
 			dagu.ExpectNoFile("executed.txt")
 		})
 	}
 
 	invalidCases := []struct {
-		name         string
-		file         string
-		stderrParts  []string
-		assertNoExec bool
+		name        string
+		file        string
+		stderrParts []string
 	}{
 		{
-			name:         "entrypoint name is forbidden",
-			file:         "entrypoint_name_forbidden.yaml",
-			stderrParts:  []string{"entrypoint", "name"},
-			assertNoExec: true,
+			name:        "invalid yaml is forbidden",
+			file:        "invalid_yaml.yaml",
+			stderrParts: []string{"yaml"},
 		},
 		{
-			name:         "steps mapping is forbidden",
-			file:         "steps_mapping_forbidden.yaml",
-			stderrParts:  []string{"steps", "sequence"},
-			assertNoExec: true,
+			name:        "no non-empty document is forbidden",
+			file:        "no_non_empty_document.yaml",
+			stderrParts: []string{"empty"},
+		},
+		{
+			name:        "entrypoint name is forbidden",
+			file:        "entrypoint_name_forbidden.yaml",
+			stderrParts: []string{"entrypoint", "name"},
+		},
+		{
+			name:        "steps mapping is forbidden",
+			file:        "steps_mapping_forbidden.yaml",
+			stderrParts: []string{"steps", "sequence"},
 		},
 		{
 			name:        "missing steps is forbidden",
@@ -92,9 +100,7 @@ func Test002Schema(t *testing.T) {
 			result.ExpectStdout("")
 			result.ExpectStderrContains(tc.stderrParts...)
 			result.ExpectStderrNotContains("Usage:")
-			if tc.assertNoExec {
-				dagu.ExpectNoFile("executed.txt")
-			}
+			dagu.ExpectNoFile("executed.txt")
 		})
 	}
 }

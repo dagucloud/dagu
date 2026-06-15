@@ -1,3 +1,4 @@
+working_dir: .
 consts:
   - service: api
   - enabled: true

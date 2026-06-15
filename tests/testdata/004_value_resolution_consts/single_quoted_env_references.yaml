@@ -1,3 +1,4 @@
+working_dir: .
 env:
   - SOURCE=expanded
 steps:

@@ -417,9 +417,15 @@ func WithEnv(ctx context.Context, e Env) context.Context {
 	return context.WithValue(ctx, envCtxKey{}, e)
 }
 
+// LookupEnv returns the execution environment when one is present in ctx.
+func LookupEnv(ctx context.Context) (Env, bool) {
+	v, ok := ctx.Value(envCtxKey{}).(Env)
+	return v, ok
+}
+
 // GetEnv returns the execution context from the given context.
 func GetEnv(ctx context.Context) Env {
-	v, ok := ctx.Value(envCtxKey{}).(Env)
+	v, ok := LookupEnv(ctx)
 	if !ok {
 		return NewEnv(ctx, core.Step{})
 	}
