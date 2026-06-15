@@ -530,7 +530,7 @@ func (i *Installer) lockResource(ctx context.Context, paths tools.CacheLayout, k
 		return nil, fmt.Errorf("lock aqua %s resource: %w", kind, err)
 	}
 
-	heartbeatCtx, stopHeartbeat := context.WithCancel(context.Background())
+	heartbeatCtx, stopHeartbeat := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -541,7 +541,7 @@ func (i *Installer) lockResource(ctx context.Context, paths tools.CacheLayout, k
 			case <-heartbeatCtx.Done():
 				return
 			case <-ticker.C:
-				if err := lock.Heartbeat(context.Background()); err != nil {
+				if err := lock.Heartbeat(heartbeatCtx); err != nil {
 					i.logger.Debug("heartbeat aqua resource lock", "kind", kind, "err", err)
 				}
 			}

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -64,14 +65,18 @@ func (c *httpLineClient) postJSON(ctx context.Context, endpoint string, payload 
 	if err != nil {
 		return fmt.Errorf("marshal LINE request: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.baseURL, "/")+endpoint, bytes.NewReader(body))
+	endpointURL, err := c.endpointURL(endpoint)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpointURL, bytes.NewReader(body)) //nolint:gosec // endpointURL is built from a validated LINE API base URL.
 	if err != nil {
 		return fmt.Errorf("create LINE request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.channelAccessToken)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := doLineRequest(c.httpClient, req)
 	if err != nil {
 		return fmt.Errorf("send LINE request: %w", err)
 	}
@@ -86,6 +91,31 @@ func (c *httpLineClient) postJSON(ctx context.Context, endpoint string, payload 
 		return fmt.Errorf("LINE API returned status %d", resp.StatusCode)
 	}
 	return fmt.Errorf("LINE API returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+}
+
+func (c *httpLineClient) endpointURL(endpoint string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(c.baseURL))
+	if err != nil {
+		return "", fmt.Errorf("invalid LINE API base URL: %w", err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("LINE API base URL must use http or https")
+	}
+	if parsed.Host == "" {
+		return "", fmt.Errorf("LINE API base URL must include a host")
+	}
+	if parsed.User != nil {
+		return "", fmt.Errorf("LINE API base URL must not include credentials")
+	}
+	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/" + strings.TrimLeft(endpoint, "/")
+	parsed.RawPath = ""
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String(), nil
+}
+
+func doLineRequest(client *http.Client, req *http.Request) (*http.Response, error) {
+	return client.Do(req) //nolint:gosec // request URL is constrained by endpointURL.
 }
 
 type linePushRequest struct {

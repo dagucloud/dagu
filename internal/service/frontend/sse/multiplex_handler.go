@@ -4,6 +4,7 @@
 package sse
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -136,7 +137,7 @@ func (h *MultiplexHandler) proxyStreamToRemoteNode(w http.ResponseWriter, r *htt
 		return
 	}
 
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, buildRemoteStreamURL(node.APIBaseURL, r.URL.Query()), nil)
+	req, err := newRemoteEventRequest(r.Context(), http.MethodGet, node, "/events/stream", r.URL.Query(), nil)
 	if err != nil {
 		http.Error(w, "failed to create proxy request", http.StatusInternalServerError)
 		return
@@ -147,7 +148,7 @@ func (h *MultiplexHandler) proxyStreamToRemoteNode(w http.ResponseWriter, r *htt
 	}
 	node.ApplyAuth(req)
 
-	resp, err := newProxyHTTPClient(node.SkipTLSVerify).Do(req)
+	resp, err := doRemoteEventRequest(newProxyHTTPClient(node.SkipTLSVerify), req)
 	if err != nil {
 		if r.Context().Err() != nil {
 			return
@@ -176,7 +177,7 @@ func (h *MultiplexHandler) proxyTopicMutationToRemoteNode(w http.ResponseWriter,
 		return
 	}
 
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, buildRemoteTopicMutationURL(node.APIBaseURL, r.URL.Query()), r.Body)
+	req, err := newRemoteEventRequest(r.Context(), http.MethodPost, node, "/events/stream/topics", r.URL.Query(), r.Body)
 	if err != nil {
 		http.Error(w, "failed to create proxy request", http.StatusInternalServerError)
 		return
@@ -185,7 +186,7 @@ func (h *MultiplexHandler) proxyTopicMutationToRemoteNode(w http.ResponseWriter,
 	req.Header.Set("Content-Type", "application/json")
 	node.ApplyAuth(req)
 
-	resp, err := newProxyHTTPClient(node.SkipTLSVerify).Do(req)
+	resp, err := doRemoteEventRequest(newProxyHTTPClient(node.SkipTLSVerify), req)
 	if err != nil {
 		if r.Context().Err() != nil {
 			return
@@ -220,10 +221,33 @@ func buildRemoteTopicMutationURL(baseURL string, query url.Values) string {
 }
 
 func buildRemoteEventURL(baseURL, route string, query url.Values) string {
-	u, err := url.Parse(strings.TrimSuffix(baseURL, "/") + route)
+	u, err := buildValidatedRemoteEventURL(baseURL, route, query)
 	if err != nil {
 		return strings.TrimSuffix(baseURL, "/") + route
 	}
+	return u.String()
+}
+
+func newRemoteEventRequest(ctx context.Context, method string, node *remotenode.RemoteNode, route string, query url.Values, body io.Reader) (*http.Request, error) {
+	u, err := buildValidatedRemoteEventURL(node.APIBaseURL, route, query)
+	if err != nil {
+		return nil, err
+	}
+	return http.NewRequestWithContext(ctx, method, u.String(), body) //nolint:gosec // target URL is built from a validated remote-node base URL.
+}
+
+func buildValidatedRemoteEventURL(baseURL, route string, query url.Values) (*url.URL, error) {
+	u, err := remotenode.ParseAPIBaseURL(baseURL)
+	if err != nil {
+		return nil, err
+	}
+	u.Path = strings.TrimRight(u.Path, "/") + "/" + strings.TrimLeft(route, "/")
+	u.RawPath = ""
+	u.RawQuery = cleanRemoteEventQuery(query).Encode()
+	return u, nil
+}
+
+func cleanRemoteEventQuery(query url.Values) url.Values {
 	cloned := make(url.Values, len(query))
 	for key, values := range query {
 		copied := make([]string, len(values))
@@ -232,8 +256,11 @@ func buildRemoteEventURL(baseURL, route string, query url.Values) string {
 	}
 	cloned.Del("remoteNode")
 	cloned.Del("token")
-	u.RawQuery = cloned.Encode()
-	return u.String()
+	return cloned
+}
+
+func doRemoteEventRequest(client *http.Client, req *http.Request) (*http.Response, error) {
+	return client.Do(req) //nolint:gosec // request URL is constrained by newRemoteEventRequest.
 }
 
 func newProxyHTTPClient(skipTLSVerify bool) *http.Client {

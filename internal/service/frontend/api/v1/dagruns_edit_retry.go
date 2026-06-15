@@ -741,17 +741,7 @@ func copyEditRetryWorkDir(sourceWorkDir, targetWorkDir string) error {
 		case entry.IsDir():
 			return os.MkdirAll(targetPath, mode.Perm())
 		case mode.Type()&os.ModeSymlink != 0:
-			linkTarget, err := os.Readlink(path)
-			if err != nil {
-				return err
-			}
-			if err := os.MkdirAll(filepath.Dir(targetPath), 0o750); err != nil {
-				return err
-			}
-			if err := os.Remove(targetPath); err != nil && !os.IsNotExist(err) {
-				return err
-			}
-			return os.Symlink(linkTarget, targetPath)
+			return nil
 		case mode.IsRegular():
 			return copyEditRetryFile(path, targetPath, mode)
 		default:
