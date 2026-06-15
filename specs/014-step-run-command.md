@@ -49,6 +49,20 @@ shell-specific behavior, and sequential behavior for array-form `run`.
 
 - Command path lookup is performed by the selected shell or operating system from the step process working directory.
 
+### Shell Operators
+
+- Command-form `run` is passed to the selected shell as one command string, so shell operators inside the command text remain inside that shell invocation.
+
+- Dagu accepts shell operator text in command-form `run`, including pipes (`|`), redirects (`>`, `>>`, `<`, `2>`), command chaining (`&&`, `||`, `;`), background execution (`&`), grouping syntax, and shell-specific control syntax.
+
+- The selected shell defines which operator forms are valid. For example, `sh`, Bash, PowerShell, and `cmd` do not share one operator grammar.
+
+- Dagu must not split command-form `run` at shell operators.
+
+- Dagu must not convert shell command chaining inside one command-form entry into array-form `run` entries.
+
+- Array-form sequencing is Dagu-owned; shell operators inside an array-form entry are shell-owned for that entry.
+
 ### Array Form
 
 - Array-form `run` is an ordered list of command-form entries.
@@ -158,6 +172,7 @@ steps:
 
 - A black-box fixture verifies `dagu run` executes a single-line `run` command.
 - A black-box fixture verifies shell syntax in command-form `run` is interpreted by the selected shell.
+- A black-box fixture verifies command-form `run` is not split at shell operators.
 - A black-box fixture verifies command-form `run` uses `with.shell` and `with.shell_args`.
 - A black-box fixture verifies command-form `run` is not exposed as a user-authored argv list.
 - A black-box fixture verifies command-form `run` rejects line breaks in array-form entries.

@@ -43,6 +43,18 @@ get predictable line preservation, shell behavior, and shebang behavior.
 
 - Dagu must not split script-form `run` into multiple command-form invocations.
 
+### Shell Operators
+
+- Script-form `run` is passed to the selected shell or shebang interpreter as one script.
+
+- Dagu accepts shell operator text in script-form `run`, including pipes (`|`), redirects (`>`, `>>`, `<`, `2>`), command chaining (`&&`, `||`, `;`), background execution (`&`), grouping syntax, and shell-specific control syntax.
+
+- The selected shell or shebang interpreter defines which operator forms are valid and what they do.
+
+- Dagu must not split script-form `run` at shell operators.
+
+- Shell state and control flow remain inside the script process according to the selected shell or shebang interpreter.
+
 ### Script Preparation
 
 - Dagu must prepare the resolved script text before user script code starts.
@@ -152,6 +164,7 @@ steps:
 - A black-box fixture verifies leading blank lines are preserved before shebang evaluation.
 - A black-box fixture verifies script-form `run` is executed as one script.
 - A black-box fixture verifies script-form `run` is not split into command-form invocations.
+- A black-box fixture verifies script-form `run` is not split at shell operators.
 - A black-box fixture verifies a script-form `run` shebang selects the shebang interpreter when no step-level shell is specified.
 - A black-box fixture verifies root `shell` does not suppress direct shebang interpreter selection.
 - A black-box fixture verifies a step-level `with.shell` suppresses direct shebang interpreter selection.

@@ -140,6 +140,20 @@ Rules:
 
 - Dagu dynamic evaluation is available only where the dynamic evaluation spec explicitly allows it, such as `params[].eval`.
 
+### Shell Operators
+
+- Dagu must preserve shell operator text in `run` except where Dagu-owned value references are replaced.
+
+- Dagu must not parse, split, normalize, validate, or execute shell operators in `run`.
+
+- Shell operator text includes pipes (`|`), redirects (`>`, `>>`, `<`, `2>`), command chaining (`&&`, `||`, `;`), background execution (`&`), grouping syntax, and shell-specific control syntax.
+
+- This spec defines no cross-platform shell operator grammar.
+
+- The selected shell or script interpreter defines which shell operators are valid and what they do.
+
+- If the selected shell or script interpreter rejects shell operator syntax, the step fails according to the runtime error and exit-code rules.
+
 ### Shell Selection
 
 #### Selection Order
@@ -437,6 +451,7 @@ Value resolution:
 - A black-box fixture verifies `$NAME` remains available for shell expansion.
 - A black-box fixture verifies `$()` remains available for shell execution.
 - A black-box fixture verifies backticks remain available for shell execution.
+- A black-box fixture verifies shell operators remain available for shell execution.
 - A black-box fixture verifies a value-resolution failure prevents the command or script from starting.
 - A black-box fixture verifies a value-resolution failure in `working_dir` prevents the command or script from starting.
 
