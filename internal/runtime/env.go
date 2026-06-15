@@ -138,10 +138,10 @@ func resolveWorkingDirStrict(ctx context.Context, step core.Step, rCtx Context) 
 		if err != nil {
 			return "", err
 		}
-		return resolveExpandedDirStrict(ctx, expandedDir, step.Name, dag, rCtx)
+		return resolveExpandedDirStrict(expandedDir, step.Name, dag, rCtx)
 	}
 
-	workDir, err := dagWorkingDirStrict(ctx, dag, rCtx)
+	workDir, err := dagWorkingDirStrict(dag, rCtx)
 	if err != nil {
 		return "", err
 	}
@@ -224,7 +224,7 @@ func resolveExpandedDir(ctx context.Context, expandedDir, stepName string, dag *
 	return expandedDir
 }
 
-func resolveExpandedDirStrict(ctx context.Context, expandedDir, stepName string, dag *core.DAG, rCtx Context) (string, error) {
+func resolveExpandedDirStrict(expandedDir, stepName string, dag *core.DAG, rCtx Context) (string, error) {
 	if filepath.IsAbs(expandedDir) || strings.HasPrefix(expandedDir, "~") {
 		dir, err := fileutil.ResolvePath(expandedDir)
 		if err != nil {
@@ -233,7 +233,7 @@ func resolveExpandedDirStrict(ctx context.Context, expandedDir, stepName string,
 		return dir, nil
 	}
 
-	workDir, err := dagWorkingDirStrict(ctx, dag, rCtx)
+	workDir, err := dagWorkingDirStrict(dag, rCtx)
 	if err != nil {
 		return "", err
 	}
@@ -257,7 +257,7 @@ func dagWorkingDir(ctx context.Context, dag *core.DAG, rCtx Context) string {
 	return ""
 }
 
-func dagWorkingDirStrict(ctx context.Context, dag *core.DAG, rCtx Context) (string, error) {
+func dagWorkingDirStrict(dag *core.DAG, rCtx Context) (string, error) {
 	if dag != nil && dag.WorkingDirExplicit && dag.WorkingDir != "" {
 		return expandDAGWorkingDirStrict(dag.WorkingDir, rCtx)
 	}
