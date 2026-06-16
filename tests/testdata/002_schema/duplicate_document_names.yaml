@@ -1,13 +1,13 @@
 steps:
   - name: first
-    run: echo first
+    run: echo executed > executed.txt
 ---
 name: child
 steps:
   - name: second
-    run: echo second
+    run: echo executed > executed.txt
 ---
 name: child
 steps:
   - name: third
-    run: echo third
+    run: echo executed > executed.txt

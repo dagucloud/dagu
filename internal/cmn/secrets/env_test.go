@@ -7,7 +7,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/cmn/eval"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -224,8 +224,8 @@ func TestEnvResolver_PresolvedPrefix(t *testing.T) {
 		// If the scope has the value, it should take precedence
 		t.Setenv("_DAGU_PRESOLVED_SECRET_MY_KEY", "presolved-value")
 
-		scope := eval.NewEnvScope(nil, false).WithEntry("MY_KEY", "scope-value", eval.EnvSourceDAGEnv)
-		scopeCtx := eval.WithEnvScope(ctx, scope)
+		scope := cmnvalue.NewEnvScope(nil, false).WithEntry("MY_KEY", "scope-value", cmnvalue.EnvSourceDAGEnv)
+		scopeCtx := cmnvalue.WithEnvScope(ctx, scope)
 
 		ref := core.SecretRef{
 			Name:     "SECRET",

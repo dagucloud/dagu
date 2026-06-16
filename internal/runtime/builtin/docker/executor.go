@@ -16,9 +16,9 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
-	"github.com/dagucloud/dagu/internal/cmn/eval"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/signal"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
@@ -454,41 +454,49 @@ func EvalContainerFields(ctx context.Context, ct core.Container) (core.Container
 	var err error
 
 	// Evaluate exec field (for exec-into-existing-container mode)
-	if ct.Exec, err = runtime.EvalStepString(ctx, ct.Exec); err != nil {
+	if ct.Exec, err = runtime.ResolveString(ctx, ct.Exec, cmnvalue.ContainerField("container.exec")); err != nil {
 		return ct, fmt.Errorf("failed to evaluate exec: %w", err)
 	}
 
 	// Evaluate string fields
-	if ct.Image, err = runtime.EvalStepString(ctx, ct.Image); err != nil {
+	if ct.Image, err = runtime.ResolveString(ctx, ct.Image, cmnvalue.ContainerField("container.image")); err != nil {
 		return ct, fmt.Errorf("failed to evaluate image: %w", err)
 	}
-	if ct.Name, err = runtime.EvalStepString(ctx, ct.Name); err != nil {
+	if ct.Name, err = runtime.ResolveString(ctx, ct.Name, cmnvalue.ContainerField("container.name")); err != nil {
 		return ct, fmt.Errorf("failed to evaluate name: %w", err)
 	}
-	if ct.User, err = runtime.EvalStepString(ctx, ct.User); err != nil {
+	if ct.User, err = runtime.ResolveString(ctx, ct.User, cmnvalue.ContainerField("container.user")); err != nil {
 		return ct, fmt.Errorf("failed to evaluate user: %w", err)
 	}
-	if ct.WorkingDir, err = runtime.EvalStepString(ctx, ct.WorkingDir); err != nil {
+	if ct.WorkingDir, err = runtime.ResolveString(ctx, ct.WorkingDir, cmnvalue.ContainerField("container.working_dir")); err != nil {
 		return ct, fmt.Errorf("failed to evaluate workingDir: %w", err)
 	}
-	if ct.Network, err = runtime.EvalStepString(ctx, ct.Network); err != nil {
+	if ct.Network, err = runtime.ResolveString(ctx, ct.Network, cmnvalue.ContainerField("container.network")); err != nil {
 		return ct, fmt.Errorf("failed to evaluate network: %w", err)
 	}
 
 	// Evaluate slice fields
-	if ct.Volumes, err = evalStringSlice(ctx, ct.Volumes); err != nil {
+	if ct.Volumes, err = evalStringSlice(ctx, ct.Volumes, "container.volumes", func(path string) cmnvalue.Field {
+		return cmnvalue.ContainerField(path)
+	}); err != nil {
 		return ct, fmt.Errorf("failed to evaluate volumes: %w", err)
 	}
-	if ct.Ports, err = evalStringSlice(ctx, ct.Ports); err != nil {
+	if ct.Ports, err = evalStringSlice(ctx, ct.Ports, "container.ports", func(path string) cmnvalue.Field {
+		return cmnvalue.ContainerField(path)
+	}); err != nil {
 		return ct, fmt.Errorf("failed to evaluate ports: %w", err)
 	}
 	if ct.Env, err = evalEnvSequentially(ctx, ct.Env); err != nil {
 		return ct, fmt.Errorf("failed to evaluate env: %w", err)
 	}
-	if ct.Command, err = evalStringSlice(ctx, ct.Command); err != nil {
+	if ct.Command, err = evalStringSlice(ctx, ct.Command, "container.command", func(path string) cmnvalue.Field {
+		return cmnvalue.DirectCommandField(path, cmnvalue.CommandContext{Target: cmnvalue.CommandTargetDocker})
+	}); err != nil {
 		return ct, fmt.Errorf("failed to evaluate command: %w", err)
 	}
-	if ct.Shell, err = evalStringSlice(ctx, ct.Shell); err != nil {
+	if ct.Shell, err = evalStringSlice(ctx, ct.Shell, "container.shell", func(path string) cmnvalue.Field {
+		return cmnvalue.ShellCommandField(path, cmnvalue.CommandContext{Target: cmnvalue.CommandTargetDocker, ShellConfigured: true})
+	}); err != nil {
 		return ct, fmt.Errorf("failed to evaluate shell: %w", err)
 	}
 
@@ -496,13 +504,14 @@ func EvalContainerFields(ctx context.Context, ct core.Container) (core.Container
 }
 
 // evalStringSlice evaluates each string in a slice as a step-owned field.
-func evalStringSlice(ctx context.Context, ss []string) ([]string, error) {
+func evalStringSlice(ctx context.Context, ss []string, path string, fieldForPath func(string) cmnvalue.Field) ([]string, error) {
 	if len(ss) == 0 {
 		return ss, nil
 	}
 	result := make([]string, len(ss))
 	for i, s := range ss {
-		evaluated, err := runtime.EvalStepString(ctx, s)
+		fieldPath := fmt.Sprintf("%s[%d]", path, i)
+		evaluated, err := runtime.ResolveString(ctx, s, fieldForPath(fieldPath))
 		if err != nil {
 			return nil, err
 		}
@@ -518,7 +527,11 @@ func evalEnvSequentially(ctx context.Context, envs []string) ([]string, error) {
 	if len(envs) == 0 {
 		return envs, nil
 	}
-	resolved := make(map[string]string, len(envs))
+	env := runtime.GetEnv(ctx)
+	scope := env.Scope
+	if scope == nil {
+		scope = cmnvalue.NewEnvScope(nil, false)
+	}
 	result := make([]string, 0, len(envs))
 	for _, entry := range envs {
 		key, rawVal, found := strings.Cut(entry, "=")
@@ -526,11 +539,11 @@ func evalEnvSequentially(ctx context.Context, envs []string) ([]string, error) {
 			result = append(result, entry)
 			continue
 		}
-		val, err := runtime.EvalString(ctx, rawVal, eval.WithVariables(resolved))
+		val, err := runtime.ValueResolverWithScope(ctx, scope).String(ctx, rawVal, cmnvalue.ContainerEnvField("container.env."+key))
 		if err != nil {
 			return nil, fmt.Errorf("env %s: %w", key, err)
 		}
-		resolved[key] = val
+		scope = scope.WithEntry(key, val, cmnvalue.EnvSourceStepEnv)
 		result = append(result, key+"="+val)
 	}
 	return result, nil
@@ -541,11 +554,11 @@ func init() {
 		Command:          true,
 		MultipleCommands: true,
 		Container:        true,
-		GetCommandEvalOptions: func(ctx context.Context, step core.Step) []eval.Option {
-			if hasShellConfigured(ctx, step) {
-				return []eval.Option{eval.WithoutDollarEscape()}
+		CommandContext: func(ctx context.Context, step core.Step) cmnvalue.CommandContext {
+			return cmnvalue.CommandContext{
+				Target:          cmnvalue.CommandTargetDocker,
+				ShellConfigured: hasShellConfigured(ctx, step),
 			}
-			return nil
 		},
 		// Env vars are expanded on host before passing to container (default behavior)
 	}
@@ -561,8 +574,8 @@ func hasShellConfigured(ctx context.Context, step core.Step) bool {
 		return cmdutil.IsShellValueSet(step.ExecutorConfig.Config["shell"])
 	}
 
-	env := runtime.GetEnv(ctx)
-	if env.DAG != nil && env.DAG.Container != nil {
+	env, ok := runtime.LookupEnv(ctx)
+	if ok && env.DAG != nil && env.DAG.Container != nil {
 		return cmdutil.HasShellArgs(env.DAG.Container.Shell)
 	}
 

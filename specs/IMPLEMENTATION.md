@@ -11,7 +11,7 @@ This guide explains how to implement the specs. It is not a numbered spec and do
 - Add black-box tests for every behavior defined by a v3 spec in the ../tests directory.
 - Do not add fallback behavior for old YAML fields, old executor behavior, old value syntax, or old lifecycle behavior unless a spec requires it.
 - Unspecified behavior must fail clearly or remain unsupported.
-- Specs can land ahead of their implementation. Each implementation slice must document the spec acceptance criteria it covers and must not imply conformance to unimplemented criteria.
+- Specs can land ahead of their implementation. Each implementation slice must document the spec behavior it covers and must not imply conformance to unimplemented behavior.
 - Delete obsolete tests when they are replaced by new tests that cover the same behavior. Do not preserve old tests that verify removed behavior.
 - Delete obsolete code when specs replace its behavior. Do not preserve old code that implements removed behavior.
 
@@ -46,7 +46,7 @@ This guide explains how to implement the specs. It is not a numbered spec and do
 - Unit tests should cover nearly all implementation paths.
 - Exercise successful behavior, invalid input, runtime failure, timeout, abort, cleanup, and lifecycle effects when the relevant spec defines them.
 - Cover public behavior from the outside with black-box tests.
-- Add or update black-box tests in the same change that claims a spec acceptance criterion.
+- Add or update black-box tests in the same change that claims spec conformance.
 - Use lower-level tests for parsing details, rare branches, and failure paths that are impractical to trigger through a full run.
 - Limit untested paths to cases that are genuinely hard to trigger.
 - Name, justify, and keep small any hard-to-test exception.
@@ -62,7 +62,7 @@ This guide explains how to implement the specs. It is not a numbered spec and do
 - If implementation work finds behavior that is needed but not specified, do not silently leave it unimplemented; ask for a decision or update the relevant spec doc.
 - If behavior is intentionally unsupported, make that decision explicit in the relevant spec doc.
 - Keep examples in specs runnable as black-box test inputs.
-- Keep acceptance criteria concrete enough to prove conformance.
+- Keep specified behavior concrete enough to prove conformance.
 
 ## Robustness
 

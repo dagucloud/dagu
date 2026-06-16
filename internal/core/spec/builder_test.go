@@ -299,7 +299,7 @@ func TestBuildValidationError(t *testing.T) {
 			name: "InvalidEnv",
 			yaml: `
 env:
-  - VAR: "` + "`invalid command`" + `"`,
+  - VAR: "$consts.FOO"`,
 			expectedErr: spec.ErrInvalidEnvValue,
 		},
 		{
@@ -374,7 +374,7 @@ steps:
 			},
 		},
 		{
-			name: "ValidEnvWithSubstitution",
+			name: "ValidEnvRunsCommandSubstitution",
 			yaml: `
 env:
   - VAR: "` + "`echo 123`" + `"

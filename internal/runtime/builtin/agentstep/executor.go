@@ -17,6 +17,7 @@ import (
 	"sync"
 
 	"github.com/dagucloud/dagu/internal/agent"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/llm"
@@ -194,7 +195,7 @@ func (e *Executor) Run(ctx context.Context) error {
 	// Evaluate variable substitution in messages.
 	var userMessages []llm.Message
 	for _, msg := range e.step.Messages {
-		content, evalErr := runtime.EvalStepString(ctx, msg.Content)
+		content, evalErr := runtime.ResolveString(ctx, msg.Content, cmnvalue.WorkflowField("messages.content"))
 		if evalErr != nil {
 			return fmt.Errorf("failed to evaluate message content: %w", evalErr)
 		}

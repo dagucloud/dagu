@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/cmn/eval"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -77,86 +77,59 @@ func TestExecutorCapabilities_ConcurrentAccess(t *testing.T) {
 	assert.True(t, registry.Get("executor-63").Command)
 }
 
-func optionsFromSlice(opts []eval.Option) *eval.Options {
-	out := eval.NewOptions()
-	for _, opt := range opts {
-		opt(out)
-	}
-	return out
-}
-
-func TestStep_EvalOptions(t *testing.T) {
+func TestStepResolutionDeclarations(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	t.Run("CommandUsesFieldSpecificHook", func(t *testing.T) {
-		RegisterExecutorCapabilities("command-eval-opts-test", ExecutorCapabilities{
+	t.Run("CommandUsesCommandContextHook", func(t *testing.T) {
+		RegisterExecutorCapabilities("command-resolution-test", ExecutorCapabilities{
 			Command: true,
-			GetCommandEvalOptions: func(_ context.Context, _ Step) []eval.Option {
-				return []eval.Option{eval.WithoutExpandShell()}
+			CommandContext: func(_ context.Context, _ Step) cmnvalue.CommandContext {
+				return cmnvalue.CommandContext{Target: cmnvalue.CommandTargetSSH, ShellConfigured: true}
 			},
 		})
-		t.Cleanup(func() { UnregisterExecutorCapabilities("command-eval-opts-test") })
+		t.Cleanup(func() { UnregisterExecutorCapabilities("command-resolution-test") })
 
-		step := Step{ExecutorConfig: ExecutorConfig{Type: "command-eval-opts-test"}}
-		opts := optionsFromSlice(step.CommandEvalOptions(ctx))
-		assert.False(t, opts.Substitute)
-		assert.False(t, opts.ExpandShell)
+		step := Step{ExecutorConfig: ExecutorConfig{Type: "command-resolution-test"}}
+		command := step.CommandResolution(ctx)
+		assert.Equal(t, cmnvalue.CommandTargetSSH, command.Target)
+		assert.True(t, command.ShellConfigured)
 	})
 
-	t.Run("ScriptUsesFieldSpecificHook", func(t *testing.T) {
-		RegisterExecutorCapabilities("script-eval-opts-test", ExecutorCapabilities{
+	t.Run("ScriptUsesScriptContextHook", func(t *testing.T) {
+		RegisterExecutorCapabilities("script-resolution-test", ExecutorCapabilities{
 			Command: true,
 			Script:  true,
-			GetScriptEvalOptions: func(_ context.Context, _ Step) []eval.Option {
-				return []eval.Option{eval.WithNoExpansion()}
+			CommandContext: func(_ context.Context, _ Step) cmnvalue.CommandContext {
+				return cmnvalue.CommandContext{Target: cmnvalue.CommandTargetDocker}
+			},
+			ScriptContext: func(_ context.Context, _ Step) cmnvalue.CommandContext {
+				return cmnvalue.CommandContext{Target: cmnvalue.CommandTargetSSH}
 			},
 		})
-		t.Cleanup(func() { UnregisterExecutorCapabilities("script-eval-opts-test") })
+		t.Cleanup(func() { UnregisterExecutorCapabilities("script-resolution-test") })
 
-		step := Step{ExecutorConfig: ExecutorConfig{Type: "script-eval-opts-test"}}
-		opts := optionsFromSlice(step.ScriptEvalOptions(ctx))
-		assert.False(t, opts.Substitute)
-		assert.True(t, opts.NoExpansion)
+		step := Step{ExecutorConfig: ExecutorConfig{Type: "script-resolution-test"}}
+		assert.Equal(t, cmnvalue.CommandTargetSSH, step.ScriptResolution(ctx).Target)
 	})
 
-	t.Run("ConfigDefaultsDisableSubstitute", func(t *testing.T) {
-		RegisterExecutorCapabilities("config-eval-opts-test", ExecutorCapabilities{
-			Command: true,
-		})
-		t.Cleanup(func() { UnregisterExecutorCapabilities("config-eval-opts-test") })
-
-		step := Step{ExecutorConfig: ExecutorConfig{Type: "config-eval-opts-test"}}
-		opts := optionsFromSlice(step.ConfigEvalOptions(ctx))
-		assert.False(t, opts.Substitute)
-	})
-
-	t.Run("LegacyEvalHookFallsBackForCommandAndScript", func(t *testing.T) {
-		RegisterExecutorCapabilities("legacy-eval-opts-test", ExecutorCapabilities{
+	t.Run("ScriptFallsBackToCommandContext", func(t *testing.T) {
+		RegisterExecutorCapabilities("script-command-fallback-test", ExecutorCapabilities{
 			Command: true,
 			Script:  true,
-			GetEvalOptions: func(_ context.Context, _ Step) []eval.Option {
-				return []eval.Option{eval.WithoutExpandShell()}
+			CommandContext: func(_ context.Context, _ Step) cmnvalue.CommandContext {
+				return cmnvalue.CommandContext{Target: cmnvalue.CommandTargetDocker}
 			},
 		})
-		t.Cleanup(func() { UnregisterExecutorCapabilities("legacy-eval-opts-test") })
+		t.Cleanup(func() { UnregisterExecutorCapabilities("script-command-fallback-test") })
 
-		step := Step{ExecutorConfig: ExecutorConfig{Type: "legacy-eval-opts-test"}}
-		commandOpts := optionsFromSlice(step.CommandEvalOptions(ctx))
-		scriptOpts := optionsFromSlice(step.ScriptEvalOptions(ctx))
-		assert.False(t, commandOpts.Substitute)
-		assert.False(t, commandOpts.ExpandShell)
-		assert.False(t, scriptOpts.Substitute)
-		assert.False(t, scriptOpts.ExpandShell)
+		step := Step{ExecutorConfig: ExecutorConfig{Type: "script-command-fallback-test"}}
+		assert.Equal(t, cmnvalue.CommandTargetDocker, step.ScriptResolution(ctx).Target)
 	})
 
-	t.Run("UnregisteredExecutorStillDisablesSubstitute", func(t *testing.T) {
+	t.Run("UnregisteredExecutorUsesDefaults", func(t *testing.T) {
 		step := Step{ExecutorConfig: ExecutorConfig{Type: "unregistered-executor"}}
-		commandOpts := optionsFromSlice(step.CommandEvalOptions(ctx))
-		scriptOpts := optionsFromSlice(step.ScriptEvalOptions(ctx))
-		configOpts := optionsFromSlice(step.ConfigEvalOptions(ctx))
-		assert.False(t, commandOpts.Substitute)
-		assert.False(t, scriptOpts.Substitute)
-		assert.False(t, configOpts.Substitute)
+		assert.Equal(t, cmnvalue.CommandTargetLocal, step.CommandResolution(ctx).Target)
+		assert.False(t, step.CommandResolution(ctx).ShellConfigured)
 	})
 }

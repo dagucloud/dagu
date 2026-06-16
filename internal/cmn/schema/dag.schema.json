@@ -39,6 +39,21 @@
       "type": "string",
       "description": "Working directory for the DAG. All relative paths (including dotenv files) are resolved relative to this directory. Defaults to the directory containing the DAG file."
     },
+    "consts": {
+      "type": "array",
+      "description": "Ordered immutable values available through ${consts.name} bindings. Each entry must define exactly one key.",
+      "items": {
+        "type": "object",
+        "minProperties": 1,
+        "maxProperties": 1,
+        "propertyNames": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+        },
+        "additionalProperties": {
+          "type": ["string", "number", "boolean"]
+        }
+      }
+    },
     "schedule": {
       "oneOf": [
         {

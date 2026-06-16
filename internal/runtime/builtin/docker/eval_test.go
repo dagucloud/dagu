@@ -7,7 +7,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/cmn/eval"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/stretchr/testify/assert"
@@ -44,7 +44,7 @@ func TestEvalContainerFields(t *testing.T) {
 			name: "ImageVariable",
 			setup: func(ctx context.Context) context.Context {
 				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
-				env.Scope = env.Scope.WithEntry("IMAGE", "myimage:v1.0", eval.EnvSourceStepEnv)
+				env.Scope = env.Scope.WithEntry("IMAGE", "myimage:v1.0", cmnvalue.EnvSourceStepEnv)
 				return runtime.WithEnv(ctx, env)
 			},
 			input: core.Container{
@@ -63,7 +63,7 @@ func TestEvalContainerFields(t *testing.T) {
 					"CONTAINER_NAME": "web-server",
 					"WORK_DIR":       "/var/www",
 					"NET":            "my-network",
-				}, eval.EnvSourceStepEnv)
+				}, cmnvalue.EnvSourceStepEnv)
 				return runtime.WithEnv(ctx, env)
 			},
 			input: core.Container{
@@ -86,7 +86,7 @@ func TestEvalContainerFields(t *testing.T) {
 				env.Scope = env.Scope.WithEntries(map[string]string{
 					"HOST_PATH":      "/host/data",
 					"CONTAINER_PATH": "/container/data",
-				}, eval.EnvSourceStepEnv)
+				}, cmnvalue.EnvSourceStepEnv)
 				return runtime.WithEnv(ctx, env)
 			},
 			input: core.Container{
@@ -105,7 +105,7 @@ func TestEvalContainerFields(t *testing.T) {
 				env.Scope = env.Scope.WithEntries(map[string]string{
 					"HOST_PORT":      "8080",
 					"CONTAINER_PORT": "80",
-				}, eval.EnvSourceStepEnv)
+				}, cmnvalue.EnvSourceStepEnv)
 				return runtime.WithEnv(ctx, env)
 			},
 			input: core.Container{
@@ -124,7 +124,7 @@ func TestEvalContainerFields(t *testing.T) {
 				env.Scope = env.Scope.WithEntries(map[string]string{
 					"DB_HOST": "localhost",
 					"DB_PORT": "5432",
-				}, eval.EnvSourceStepEnv)
+				}, cmnvalue.EnvSourceStepEnv)
 				return runtime.WithEnv(ctx, env)
 			},
 			input: core.Container{
@@ -143,7 +143,7 @@ func TestEvalContainerFields(t *testing.T) {
 				env.Scope = env.Scope.WithEntries(map[string]string{
 					"SCRIPT": "run.sh",
 					"ARG1":   "value1",
-				}, eval.EnvSourceStepEnv)
+				}, cmnvalue.EnvSourceStepEnv)
 				return runtime.WithEnv(ctx, env)
 			},
 			input: core.Container{
@@ -159,7 +159,7 @@ func TestEvalContainerFields(t *testing.T) {
 			name: "UserWithVariable",
 			setup: func(ctx context.Context) context.Context {
 				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
-				env.Scope = env.Scope.WithEntry("UID", "1000", eval.EnvSourceStepEnv)
+				env.Scope = env.Scope.WithEntry("UID", "1000", cmnvalue.EnvSourceStepEnv)
 				return runtime.WithEnv(ctx, env)
 			},
 			input: core.Container{
@@ -175,7 +175,7 @@ func TestEvalContainerFields(t *testing.T) {
 			name: "NonEvaluatedFieldsRemainUnchanged",
 			setup: func(ctx context.Context) context.Context {
 				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
-				env.Scope = env.Scope.WithEntry("POLICY", "always", eval.EnvSourceStepEnv)
+				env.Scope = env.Scope.WithEntry("POLICY", "always", cmnvalue.EnvSourceStepEnv)
 				return runtime.WithEnv(ctx, env)
 			},
 			input: core.Container{
@@ -203,7 +203,7 @@ func TestEvalContainerFields(t *testing.T) {
 			name: "OutputFromPreviousStep",
 			setup: func(ctx context.Context) context.Context {
 				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
-				env.Scope = env.Scope.WithEntry("IMAGE_TAG", "v2.0.0", eval.EnvSourceOutput)
+				env.Scope = env.Scope.WithEntry("IMAGE_TAG", "v2.0.0", cmnvalue.EnvSourceOutput)
 				return runtime.WithEnv(ctx, env)
 			},
 			input: core.Container{
@@ -269,7 +269,7 @@ func TestEvalStringSlice(t *testing.T) {
 				env.Scope = env.Scope.WithEntries(map[string]string{
 					"VAR1": "value1",
 					"VAR2": "value2",
-				}, eval.EnvSourceStepEnv)
+				}, cmnvalue.EnvSourceStepEnv)
 				return runtime.WithEnv(ctx, env)
 			},
 			input:    []string{"${VAR1}", "${VAR2}", "static"},
@@ -281,7 +281,9 @@ func TestEvalStringSlice(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := tt.setup(context.Background())
 
-			result, err := evalStringSlice(ctx, tt.input)
+			result, err := evalStringSlice(ctx, tt.input, "container", func(path string) cmnvalue.Field {
+				return cmnvalue.ContainerField(path)
+			})
 			require.NoError(t, err)
 			assert.Equal(t, tt.expected, result)
 		})

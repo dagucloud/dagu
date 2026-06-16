@@ -71,7 +71,7 @@ func buildDAGParamsResult(ctx BuildContext, d *dag) (*paramsResult, error) {
 			// Eval-backed inline params may depend on mutable state or perform command
 			// execution, so reuse the execution-time resolution instead of running
 			// the same expressions again just to populate DefaultParams.
-			if legacyPlanHasEval(plan) && !ctx.opts.Has(BuildFlagNoEval) {
+			if paramPlanHasEval(plan) && !ctx.opts.Has(BuildFlagNoEval) {
 				defaultPairs = finalPairs
 				break
 			}
@@ -143,7 +143,7 @@ func shouldResolveRuntimeParams(ctx BuildContext) bool {
 	return ctx.opts.Has(BuildFlagValidateRuntimeParams) || ctx.opts.Parameters != "" || len(ctx.opts.ParametersList) > 0
 }
 
-func legacyPlanHasEval(plan *dagParamPlan) bool {
+func paramPlanHasEval(plan *dagParamPlan) bool {
 	for _, entry := range plan.entries {
 		if strings.TrimSpace(entry.Eval) != "" {
 			return true

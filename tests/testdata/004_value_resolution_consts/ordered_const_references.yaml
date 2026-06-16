@@ -1,0 +1,8 @@
+consts:
+  - service: api
+  - enabled: true
+  - replicas: 3
+  - endpoint: https://example.test/${consts.service}/${consts.enabled}/${consts.replicas}
+steps:
+  - name: should-not-run
+    run: echo ${consts.endpoint} > executed.txt

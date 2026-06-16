@@ -1,0 +1,5 @@
+consts:
+  - service: ${env.SERVICE}
+steps:
+  - name: should-not-run
+    run: echo executed > executed.txt

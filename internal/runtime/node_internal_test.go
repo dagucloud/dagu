@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/cmn/eval"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/log"
@@ -71,7 +71,7 @@ func TestEvalExecutorConfig_TemplatePreservesLiteralCodeFencesInData(t *testing.
 	env := NewEnv(ctx, core.Step{Name: "render"})
 	env.Scope = env.Scope.WithEntries(map[string]string{
 		"ISSUE_TEXT": "```yaml\nenv:\n  TEST_FILE: ~/dagu-test.txt\n\nsteps:\n  - command: touch $TEST_FILE\n```",
-	}, eval.EnvSourceStepEnv)
+	}, cmnvalue.EnvSourceStepEnv)
 	ctx = WithEnv(ctx, env)
 
 	result, err := evalExecutorConfig(ctx, core.Step{
@@ -106,7 +106,7 @@ func TestEvalExecutorConfig_DefaultPreservesLiteralCodeFencesInData(t *testing.T
 	env := NewEnv(ctx, core.Step{Name: "analyze"})
 	env.Scope = env.Scope.WithEntries(map[string]string{
 		"PROMPT_TEXT": "```yaml\nenv:\n  TEST_FILE: ~/dagu-test.txt\n\nsteps:\n  - command: touch $TEST_FILE\n```",
-	}, eval.EnvSourceStepEnv)
+	}, cmnvalue.EnvSourceStepEnv)
 	ctx = WithEnv(ctx, env)
 
 	result, err := evalExecutorConfig(ctx, core.Step{
@@ -133,7 +133,7 @@ func TestEvalExecutorConfig_ExpandsStepOutputsReferences(t *testing.T) {
 	)
 	env := NewEnv(ctx, core.Step{Name: "audit"})
 	outputs := `{"messageId":"msg-123","status":"sent"}`
-	env.StepMap["call_action"] = eval.StepInfo{Outputs: &outputs}
+	env.StepMap["call_action"] = cmnvalue.StepInfo{Outputs: &outputs}
 	ctx = WithEnv(ctx, env)
 
 	result, err := evalExecutorConfig(ctx, core.Step{
@@ -164,7 +164,7 @@ func TestSetupExecutor_LogMessageExpandsVariables(t *testing.T) {
 	env := NewEnv(ctx, step)
 	env.Scope = env.Scope.WithEntries(map[string]string{
 		"ENVIRONMENT": "production",
-	}, eval.EnvSourceStepEnv)
+	}, cmnvalue.EnvSourceStepEnv)
 	ctx = WithEnv(ctx, env)
 
 	node := NewNode(step, NodeState{})
@@ -197,7 +197,7 @@ func TestSetupExecutor_HarnessCommandPreservesLiteralCodeFences(t *testing.T) {
 	env := NewEnv(ctx, step)
 	env.Scope = env.Scope.WithEntries(map[string]string{
 		"ANALYZE_PROMPT": "```yaml\nenv:\n  TEST_FILE: ~/dagu-test.txt\n\nsteps:\n  - command: touch $TEST_FILE\n```",
-	}, eval.EnvSourceStepEnv)
+	}, cmnvalue.EnvSourceStepEnv)
 	ctx = WithEnv(ctx, env)
 
 	node := NewNode(step, NodeState{})
@@ -227,7 +227,7 @@ func TestSetupExecutor_HarnessScriptPreservesLiteralCodeFences(t *testing.T) {
 	env := NewEnv(ctx, step)
 	env.Scope = env.Scope.WithEntries(map[string]string{
 		"ANALYZE_SCRIPT": "```yaml\nenv:\n  TEST_FILE: ~/dagu-test.txt\n\nsteps:\n  - command: touch $TEST_FILE\n```",
-	}, eval.EnvSourceStepEnv)
+	}, cmnvalue.EnvSourceStepEnv)
 	ctx = WithEnv(ctx, env)
 
 	node := NewNode(step, NodeState{})

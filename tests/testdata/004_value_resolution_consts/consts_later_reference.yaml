@@ -1,0 +1,6 @@
+consts:
+  - endpoint: https://${consts.host}/v1
+  - host: api.example.test
+steps:
+  - name: should-not-run
+    run: echo executed > executed.txt

@@ -1,0 +1,5 @@
+consts:
+  - image: ${steps.build.outputs.image}
+steps:
+  - name: should-not-run
+    run: echo executed > executed.txt

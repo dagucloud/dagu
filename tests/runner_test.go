@@ -94,6 +94,18 @@ func (r *Runner) ExpectNoFile(name string) {
 	}
 }
 
+// ExpectFileContent fails the test when name does not contain content.
+func (r *Runner) ExpectFileContent(name string, content string) {
+	r.t.Helper()
+
+	path := filepath.Join(r.dir, filepath.FromSlash(name))
+	actual, err := os.ReadFile(path)
+	if err != nil {
+		r.t.Fatalf("reading %s: %v", name, err)
+	}
+	require.Equal(r.t, content, string(actual))
+}
+
 // ExpectExitCode fails the test when the command exit code differs.
 func (r *Result) ExpectExitCode(code int) {
 	r.t.Helper()
@@ -198,7 +210,9 @@ func isolatedEnv(t *testing.T) []string {
 	env = append(env,
 		"CI=1",
 		"NO_COLOR=1",
+		"DAGU_AUTH_MODE=none",
 		"DAGU_HOME="+filepath.Join(root, "dagu"),
+		"DAGU_SKIP_EXAMPLES=true",
 		"HOME="+home,
 		"XDG_CONFIG_HOME="+config,
 		"APPDATA="+filepath.Join(root, "appdata"),

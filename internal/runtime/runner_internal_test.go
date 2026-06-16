@@ -142,7 +142,8 @@ func TestSetupVariables_StepEnvEvaluatesSequentiallyWithRuntimeVars(t *testing.T
 				WithArtifactDir(artifactDir),
 			)
 
-			ctx = runner.setupVariables(ctx, plan, node)
+			ctx, err = runner.setupVariables(ctx, plan, node)
+			require.NoError(t, err)
 
 			result := AllEnvsMap(ctx)
 			assert.Equal(t, artifactDir, result["WORK_DIR"])

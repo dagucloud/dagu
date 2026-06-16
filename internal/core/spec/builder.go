@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/dagucloud/dagu/internal/cmn/eval"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/go-viper/mapstructure/v2"
 )
@@ -48,8 +48,9 @@ type BuildContext struct {
 // envScopeState holds mutable state that needs to be shared across transformers.
 // Using a pointer allows value-passed BuildContext to share state.
 type envScopeState struct {
-	scope    *eval.EnvScope
+	scope    *cmnvalue.EnvScope
 	buildEnv map[string]string // Also store as map for WithVariables
+	consts   map[string]any
 }
 
 type paramsState struct {

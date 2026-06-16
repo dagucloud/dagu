@@ -29,7 +29,6 @@ import (
 	"github.com/dagucloud/dagu/internal/agentoauth"
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/internal/cmn/config"
-	"github.com/dagucloud/dagu/internal/cmn/eval"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
@@ -40,6 +39,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/sock"
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/cmn/telemetry"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/dagstate"
@@ -849,7 +849,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			}
 		}
 
-		sshConfig, err := eval.Object(ctx, ssh.Config{
+		sshConfig, err := evalHostConfigObject(ctx, ssh.Config{
 			User:          a.dag.SSH.User,
 			Host:          a.dag.SSH.Host,
 			Port:          a.dag.SSH.Port,
@@ -861,7 +861,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			ShellArgs:     a.dag.SSH.ShellArgs,
 			Timeout:       sshTimeout,
 			Bastion:       bastionCfg,
-		}, runtime.GetEnv(ctx).UserEnvsMap())
+		}, runtime.GetEnv(ctx).UserEnvsMap(), "ssh")
 		if err != nil {
 			initErr = fmt.Errorf("failed to evaluate ssh config: %w", err)
 			return initErr
@@ -1763,7 +1763,7 @@ func (a *Agent) resolveSecrets(ctx context.Context) ([]string, error) {
 	logger.Info(ctx, "Resolving secrets", tag.Count(len(a.dag.Secrets)))
 
 	envScope := a.buildEnvScopeForSecrets()
-	secretCtx := eval.WithEnvScope(ctx, envScope)
+	secretCtx := cmnvalue.WithEnvScope(ctx, envScope)
 
 	baseDirs := a.buildSecretBaseDirs(envScope)
 	secretRegistry := secrets.NewRegistry(baseDirs...)
@@ -1788,8 +1788,8 @@ func (a *Agent) resolveSecrets(ctx context.Context) ([]string, error) {
 }
 
 // buildEnvScopeForSecrets creates an EnvScope with DAG env vars for secret resolution.
-func (a *Agent) buildEnvScopeForSecrets() *eval.EnvScope {
-	envScope := eval.NewEnvScope(nil, true)
+func (a *Agent) buildEnvScopeForSecrets() *cmnvalue.EnvScope {
+	envScope := cmnvalue.NewEnvScope(nil, true)
 	dagEnvs := make(map[string]string)
 	for _, env := range a.dag.Env {
 		if key, value, found := strings.Cut(env, "="); found {
@@ -1797,13 +1797,13 @@ func (a *Agent) buildEnvScopeForSecrets() *eval.EnvScope {
 		}
 	}
 	if len(dagEnvs) > 0 {
-		envScope = envScope.WithEntries(dagEnvs, eval.EnvSourceDAGEnv)
+		envScope = envScope.WithEntries(dagEnvs, cmnvalue.EnvSourceDAGEnv)
 	}
 	return envScope
 }
 
 // buildSecretBaseDirs returns base directories for file-based secret resolution.
-func (a *Agent) buildSecretBaseDirs(envScope *eval.EnvScope) []string {
+func (a *Agent) buildSecretBaseDirs(envScope *cmnvalue.EnvScope) []string {
 	baseDirs := []string{envScope.Expand(a.dag.WorkingDir)}
 	if a.dag.Location != "" {
 		baseDirs = append(baseDirs, filepath.Dir(a.dag.Location))
@@ -1819,7 +1819,7 @@ func (a *Agent) evaluateMailConfigs(ctx context.Context) error {
 
 	// Evaluate SMTP config if defined
 	if a.dag.SMTP != nil {
-		evaluated, err := eval.Object(ctx, *a.dag.SMTP, vars)
+		evaluated, err := evalHostConfigObject(ctx, *a.dag.SMTP, vars, "smtp")
 		if err != nil {
 			return fmt.Errorf("failed to evaluate smtp config: %w", err)
 		}
@@ -1828,7 +1828,7 @@ func (a *Agent) evaluateMailConfigs(ctx context.Context) error {
 
 	// Evaluate error mail config if defined
 	if a.dag.ErrorMail != nil {
-		evaluated, err := eval.Object(ctx, *a.dag.ErrorMail, vars)
+		evaluated, err := evalHostConfigObject(ctx, *a.dag.ErrorMail, vars, "error_mail")
 		if err != nil {
 			return fmt.Errorf("failed to evaluate error mail config: %w", err)
 		}
@@ -1837,7 +1837,7 @@ func (a *Agent) evaluateMailConfigs(ctx context.Context) error {
 
 	// Evaluate info mail config if defined
 	if a.dag.InfoMail != nil {
-		evaluated, err := eval.Object(ctx, *a.dag.InfoMail, vars)
+		evaluated, err := evalHostConfigObject(ctx, *a.dag.InfoMail, vars, "info_mail")
 		if err != nil {
 			return fmt.Errorf("failed to evaluate info mail config: %w", err)
 		}
@@ -1846,7 +1846,7 @@ func (a *Agent) evaluateMailConfigs(ctx context.Context) error {
 
 	// Evaluate wait mail config if defined
 	if a.dag.WaitMail != nil {
-		evaluated, err := eval.Object(ctx, *a.dag.WaitMail, vars)
+		evaluated, err := evalHostConfigObject(ctx, *a.dag.WaitMail, vars, "wait_mail")
 		if err != nil {
 			return fmt.Errorf("failed to evaluate wait mail config: %w", err)
 		}
@@ -1854,6 +1854,30 @@ func (a *Agent) evaluateMailConfigs(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func evalHostConfigObject[T any](ctx context.Context, obj T, vars map[string]string, path string) (T, error) {
+	scope := cmnvalue.GetEnvScope(ctx)
+	if scope == nil {
+		env := runtime.GetEnv(ctx)
+		scope = env.Scope
+	}
+	if len(vars) > 0 {
+		if scope == nil {
+			scope = cmnvalue.NewEnvScope(nil, false)
+		}
+		scope = scope.WithEntries(vars, cmnvalue.EnvSourceStepEnv)
+	}
+	resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{}, cmnvalue.RuntimeScope{Env: scope})
+	got, err := resolver.Object(ctx, obj, cmnvalue.HostConfigObjectField(path))
+	if err != nil {
+		return obj, err
+	}
+	value, ok := got.(T)
+	if !ok {
+		return obj, fmt.Errorf("type assertion failed: expected %T, got %T", obj, got)
+	}
+	return value, nil
 }
 
 // evaluateRegistryAuths evaluates registry authentication credentials with
@@ -1868,7 +1892,7 @@ func (a *Agent) evaluateRegistryAuths(ctx context.Context) error {
 	a.evaluatedRegistryAuths = make(map[string]*core.AuthConfig)
 
 	for registry, auth := range a.dag.RegistryAuths {
-		evaluatedAuth, err := eval.Object(ctx, *auth, vars)
+		evaluatedAuth, err := evalHostConfigObject(ctx, *auth, vars, "registry_auth."+registry)
 		if err != nil {
 			return fmt.Errorf("failed to evaluate registry auth for %s: %w", registry, err)
 		}
@@ -1921,7 +1945,7 @@ func (a *Agent) evaluateS3Config(ctx context.Context) error {
 	}
 
 	vars := runtime.GetEnv(ctx).UserEnvsMap()
-	evaluated, err := eval.Object(ctx, *a.dag.S3, vars)
+	evaluated, err := evalHostConfigObject(ctx, *a.dag.S3, vars, "s3")
 	if err != nil {
 		return fmt.Errorf("failed to evaluate s3 config: %w", err)
 	}

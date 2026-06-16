@@ -14,11 +14,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/cmn/eval"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
@@ -1772,7 +1772,8 @@ func (h *Handler) transformArtifactPaths(
 		if baseDir == "" {
 			return fmt.Errorf("artifact directory is not configured")
 		}
-		baseDir, err = eval.String(ctx, baseDir, eval.WithOSExpansion())
+		resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{}, cmnvalue.RuntimeScope{})
+		baseDir, err = resolver.String(ctx, baseDir, cmnvalue.CoordinatorArtifactBaseDirField("artifacts.dir"))
 		if err != nil {
 			return fmt.Errorf("expand artifact directory: %w", err)
 		}

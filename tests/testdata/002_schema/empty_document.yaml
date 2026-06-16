@@ -1,4 +1,4 @@
 steps:
   - name: first
-    run: echo first
+    run: echo executed > executed.txt
 ---

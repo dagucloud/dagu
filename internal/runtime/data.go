@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/collections"
-	"github.com/dagucloud/dagu/internal/cmn/eval"
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 )
@@ -270,7 +270,7 @@ func (d *Data) Setup(ctx context.Context, logFile string, startedAt time.Time) e
 	d.inner.State.StartedAt = startedAt
 
 	if d.inner.Step.StdoutArtifact != "" {
-		stdout, err := EvalStepString(ctx, d.inner.Step.StdoutArtifact, eval.WithoutDollarEscape())
+		stdout, err := resolveRuntimeString(ctx, d.inner.Step.StdoutArtifact, cmnvalue.StepArtifactOutputField("stdout.artifact"))
 		if err != nil {
 			return fmt.Errorf("failed to evaluate stdout artifact field: %w", err)
 		}
@@ -280,7 +280,7 @@ func (d *Data) Setup(ctx context.Context, logFile string, startedAt time.Time) e
 		}
 		d.inner.Step.Stdout = stdout
 	} else {
-		stdout, err := EvalStepString(ctx, d.inner.Step.Stdout, eval.WithoutDollarEscape())
+		stdout, err := resolveRuntimeString(ctx, d.inner.Step.Stdout, cmnvalue.StepArtifactOutputField("stdout"))
 		if err != nil {
 			return fmt.Errorf("failed to evaluate stdout field: %w", err)
 		}
@@ -288,7 +288,7 @@ func (d *Data) Setup(ctx context.Context, logFile string, startedAt time.Time) e
 	}
 
 	if d.inner.Step.StderrArtifact != "" {
-		stderr, err := EvalStepString(ctx, d.inner.Step.StderrArtifact, eval.WithoutDollarEscape())
+		stderr, err := resolveRuntimeString(ctx, d.inner.Step.StderrArtifact, cmnvalue.StepArtifactOutputField("stderr.artifact"))
 		if err != nil {
 			return fmt.Errorf("failed to evaluate stderr artifact field: %w", err)
 		}
@@ -298,7 +298,7 @@ func (d *Data) Setup(ctx context.Context, logFile string, startedAt time.Time) e
 		}
 		d.inner.Step.Stderr = stderr
 	} else {
-		stderr, err := EvalStepString(ctx, d.inner.Step.Stderr, eval.WithoutDollarEscape())
+		stderr, err := resolveRuntimeString(ctx, d.inner.Step.Stderr, cmnvalue.StepArtifactOutputField("stderr"))
 		if err != nil {
 			return fmt.Errorf("failed to evaluate stderr field: %w", err)
 		}
@@ -329,11 +329,11 @@ func (d *Data) SetStatus(s core.NodeStatus) {
 	d.inner.State.Status = s
 }
 
-func (d *Data) StepInfo() eval.StepInfo {
+func (d *Data) StepInfo() cmnvalue.StepInfo {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
-	info := eval.StepInfo{
+	info := cmnvalue.StepInfo{
 		Stdout:   d.inner.State.Stdout,
 		Stderr:   d.inner.State.Stderr,
 		ExitCode: strconv.Itoa(d.inner.State.ExitCode),

@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/cmn/masking"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	llmpkg "github.com/dagucloud/dagu/internal/llm"
@@ -341,7 +342,7 @@ func normalizeEnvVarExpr(expr string) string {
 func evalMessages(ctx context.Context, msgs []exec.LLMMessage) ([]exec.LLMMessage, error) {
 	result := make([]exec.LLMMessage, len(msgs))
 	for i, msg := range msgs {
-		content, err := runtime.EvalStepString(ctx, msg.Content)
+		content, err := runtime.ResolveString(ctx, msg.Content, cmnvalue.WorkflowField("messages.content"))
 		if err != nil {
 			return nil, fmt.Errorf("failed to evaluate message content: %w", err)
 		}
@@ -516,7 +517,7 @@ func (e *Executor) createProviderForModel(ctx context.Context, model core.ModelE
 	var apiKey string
 	if apiKeyEnvVar != "" {
 		apiKeyExpr := normalizeEnvVarExpr(apiKeyEnvVar)
-		apiKey, err = runtime.EvalStepString(ctx, apiKeyExpr)
+		apiKey, err = runtime.ResolveString(ctx, apiKeyExpr, cmnvalue.WorkflowField("api_key"))
 		if err != nil {
 			return nil, fmt.Errorf("failed to evaluate API key: %w", err)
 		}
@@ -525,7 +526,7 @@ func (e *Executor) createProviderForModel(ctx context.Context, model core.ModelE
 	// Evaluate base URL if specified
 	baseURL := cfg.BaseURL
 	if baseURL != "" {
-		baseURL, err = runtime.EvalStepString(ctx, baseURL)
+		baseURL, err = runtime.ResolveString(ctx, baseURL, cmnvalue.WorkflowField("base_url"))
 		if err != nil {
 			return nil, fmt.Errorf("failed to evaluate baseURL: %w", err)
 		}

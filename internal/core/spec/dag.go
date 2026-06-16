@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
-	"github.com/dagucloud/dagu/internal/cmn/eval"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/spec/types"
 	"github.com/go-viper/mapstructure/v2"
@@ -76,6 +76,8 @@ type dag struct {
 	// Can be "separate" (default) for separate .out and .err files,
 	// or "merged" for a single combined .log file.
 	LogOutput types.LogOutputValue `yaml:"log_output,omitempty"`
+	// Consts contains immutable values resolved while loading the DAG.
+	Consts any `yaml:"consts,omitempty"`
 	// Env is the environment variables setting.
 	Env types.EnvValue `yaml:"env,omitempty"`
 	// HandlerOn is the handler configuration.
@@ -522,6 +524,10 @@ var metadataIdentityStage = transformStage{
 	{"labels", newTransformer("Labels", buildLabels)},
 }
 
+var metadataConstsStage = transformStage{
+	{"consts", newTransformer("Consts", buildConsts)},
+}
+
 // Params must run before env so that env: values can reference ${param_name}.
 var metadataParamsEnvStage = transformStage{
 	{"params", newTransformer("Params", buildParams)},
@@ -555,6 +561,7 @@ var metadataExecutionPlacementStage = transformStage{
 
 var metadataTransformStages = []transformStage{
 	metadataIdentityStage,
+	metadataConstsStage,
 	metadataParamsEnvStage,
 	metadataScheduleStage,
 	metadataExecutionPlacementStage,
@@ -676,17 +683,22 @@ func (s *dagBuildState) validateSpecShape() {
 }
 
 func (s *dagBuildState) prepareParamEnvStage() {
-	baseScope := eval.NewEnvScope(nil, true)
+	baseScope := cmnvalue.NewEnvScope(nil, true)
 
 	buildEnv := make(map[string]string, len(s.ctx.opts.BuildEnv))
 	maps.Copy(buildEnv, s.ctx.opts.BuildEnv)
 	if len(buildEnv) > 0 {
-		baseScope = baseScope.WithEntries(buildEnv, eval.EnvSourceDotEnv)
+		baseScope = baseScope.WithEntries(buildEnv, cmnvalue.EnvSourceDotEnv)
+	}
+	var consts map[string]any
+	if s.ctx.baseDAG != nil && len(s.ctx.baseDAG.Consts) > 0 {
+		consts = maps.Clone(s.ctx.baseDAG.Consts)
 	}
 
 	s.ctx.envScope = &envScopeState{
 		scope:    baseScope,
 		buildEnv: buildEnv,
+		consts:   consts,
 	}
 	s.ctx.paramsState = &paramsState{}
 }
@@ -755,16 +767,18 @@ func (s *dagBuildState) buildActionGraph() {
 }
 
 func (s *dagBuildState) validateResult() {
-	if err := core.ValidateSteps(s.result); err != nil {
-		s.errs = append(s.errs, err)
-	}
+	if !s.ctx.opts.Has(BuildFlagOnlyMetadata) {
+		if err := core.ValidateSteps(s.result); err != nil {
+			s.errs = append(s.errs, err)
+		}
 
-	if len(s.result.WorkerSelector) > 0 && s.result.HasApprovalSteps() {
-		s.errs = append(s.errs, core.NewValidationError(
-			"worker_selector",
-			s.result.WorkerSelector,
-			fmt.Errorf("DAG with approval steps cannot be dispatched to workers"),
-		))
+		if len(s.result.WorkerSelector) > 0 && s.result.HasApprovalSteps() {
+			s.errs = append(s.errs, core.NewValidationError(
+				"worker_selector",
+				s.result.WorkerSelector,
+				fmt.Errorf("DAG with approval steps cannot be dispatched to workers"),
+			))
+		}
 	}
 
 	if s.result.Name != "" {
@@ -1451,7 +1465,7 @@ func buildEnvs(ctx BuildContext, d *dag) ([]string, error) {
 	// Add vars to the shared envScope state so subsequent transformers can use it.
 	// This replaces the old pattern of using os.Setenv which caused race conditions.
 	if ctx.envScope != nil && len(vars) > 0 {
-		ctx.envScope.scope = ctx.envScope.scope.WithEntries(vars, eval.EnvSourceDAGEnv)
+		ctx.envScope.scope = ctx.envScope.scope.WithEntries(vars, cmnvalue.EnvSourceDAGEnv)
 		maps.Copy(ctx.envScope.buildEnv, vars)
 	}
 
@@ -1505,7 +1519,7 @@ func buildParams(ctx BuildContext, d *dag) ([]string, error) {
 				paramVars[k] = v
 			}
 		}
-		ctx.envScope.scope = ctx.envScope.scope.WithEntries(paramVars, eval.EnvSourceParam)
+		ctx.envScope.scope = ctx.envScope.scope.WithEntries(paramVars, cmnvalue.EnvSourceParam)
 	}
 	return result.Params, nil
 }

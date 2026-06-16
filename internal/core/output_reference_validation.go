@@ -10,11 +10,9 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 )
-
-var outputReferencePattern = regexp.MustCompile(`\$\{([A-Za-z0-9_-]+)\.output\.([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\}`)
-
-type outputReferenceValidationStatus int
 
 const (
 	outputReferenceUnknown outputReferenceValidationStatus = iota
@@ -22,11 +20,7 @@ const (
 	outputReferenceInvalid
 )
 
-type outputReference struct {
-	Expression string
-	StepName   string
-	Path       []string
-}
+type outputReferenceValidationStatus int
 
 type outputReferenceLocation struct {
 	StepName string
@@ -62,156 +56,33 @@ func (d *DAG) validateOutputReferences() []error {
 
 	var errs []error
 	seen := make(map[string]struct{})
-	for _, step := range d.Steps {
-		location := outputReferenceLocation{StepName: step.Name}
-		for _, candidate := range collectStepOutputReferenceStrings(step) {
-			location.Field = candidate.field
-			for _, ref := range extractOutputReferences(candidate.value) {
-				contract, ok := contracts[ref.StepName]
-				if !ok {
+	for _, field := range ReferenceFields(d) {
+		refs := outputReferences(field.Value)
+		if len(refs) == 0 {
+			continue
+		}
+		location := outputReferenceLocation{StepName: field.OwnerStepName, Field: field.Path}
+		for _, ref := range refs {
+			contract, ok := contracts[ref.StepName]
+			if !ok {
+				continue
+			}
+			result := contract.validatePath(ref.Path)
+			if result == outputReferenceInvalid {
+				key := field.OwnerStepName + "\x00" + ref.Expression
+				if _, exists := seen[key]; exists {
 					continue
 				}
-				result := contract.validatePath(ref.Path)
-				if result == outputReferenceInvalid {
-					key := step.Name + "\x00" + ref.Expression
-					if _, exists := seen[key]; exists {
-						continue
-					}
-					seen[key] = struct{}{}
-					errs = append(errs, outputReferenceError(location, contract, ref))
-				}
+				seen[key] = struct{}{}
+				errs = append(errs, outputReferenceError(location, contract, ref))
 			}
 		}
 	}
 	return errs
 }
 
-type outputReferenceString struct {
-	field string
-	value string
-}
-
-func collectStepOutputReferenceStrings(step Step) []outputReferenceString {
-	var refs []outputReferenceString
-	add := func(field, value string) {
-		if strings.Contains(value, ".output.") {
-			refs = append(refs, outputReferenceString{field: field, value: value})
-		}
-	}
-	add("command", step.Command)
-	add("cmdWithArgs", step.CmdWithArgs)
-	add("cmdArgsSys", step.CmdArgsSys)
-	add("shellCmdArgs", step.ShellCmdArgs)
-	add("script", step.Script)
-	add("stdout", step.Stdout)
-	add("stderr", step.Stderr)
-	add("dir", step.Dir)
-	add("shell", step.Shell)
-	for i, arg := range step.Args {
-		add(fmt.Sprintf("args[%d]", i), arg)
-	}
-	for i, arg := range step.ShellArgs {
-		add(fmt.Sprintf("shellArgs[%d]", i), arg)
-	}
-	for i, env := range step.Env {
-		add(fmt.Sprintf("env[%d]", i), env)
-	}
-	for i, cmd := range step.Commands {
-		add(fmt.Sprintf("commands[%d].command", i), cmd.Command)
-		add(fmt.Sprintf("commands[%d].cmdWithArgs", i), cmd.CmdWithArgs)
-		for j, arg := range cmd.Args {
-			add(fmt.Sprintf("commands[%d].args[%d]", i, j), arg)
-		}
-	}
-	for name, entry := range step.StructuredOutput {
-		if entry.HasValue {
-			collectOutputValueReferenceStrings(fmt.Sprintf("output.%s.value", name), entry.Value, add)
-		}
-		add(fmt.Sprintf("output.%s.path", name), entry.Path)
-		add(fmt.Sprintf("output.%s.select", name), entry.Select)
-	}
-	collectOutputValueReferenceStrings("with", step.ExecutorConfig.Config, add)
-	collectOutputValueReferenceStrings("params", step.Params, add)
-	return refs
-}
-
-func collectOutputValueReferenceStrings(field string, value any, add func(string, string)) {
-	switch v := value.(type) {
-	case string:
-		add(field, v)
-	case []string:
-		for i, item := range v {
-			add(fmt.Sprintf("%s[%d]", field, i), item)
-		}
-	case []any:
-		for i, item := range v {
-			collectOutputValueReferenceStrings(fmt.Sprintf("%s[%d]", field, i), item, add)
-		}
-	case map[string]any:
-		keys := slices.Collect(maps.Keys(v))
-		slices.Sort(keys)
-		for _, key := range keys {
-			collectOutputValueReferenceStrings(field+"."+key, v[key], add)
-		}
-	case map[string]string:
-		keys := slices.Collect(maps.Keys(v))
-		slices.Sort(keys)
-		for _, key := range keys {
-			add(field+"."+key, v[key])
-		}
-	case Params:
-		collectOutputValueReferenceStrings(field+".simple", v.Simple, add)
-		collectOutputValueReferenceStrings(field+".rich", v.Rich, add)
-		if len(v.Raw) > 0 {
-			add(field+".raw", string(v.Raw))
-		}
-	default:
-		collectReflectOutputValueReferenceStrings(field, value, add)
-	}
-}
-
-func collectReflectOutputValueReferenceStrings(field string, value any, add func(string, string)) {
-	if value == nil {
-		return
-	}
-	rv := reflect.ValueOf(value)
-	if rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array {
-		for i := range rv.Len() {
-			collectOutputValueReferenceStrings(fmt.Sprintf("%s[%d]", field, i), rv.Index(i).Interface(), add)
-		}
-		return
-	}
-	if rv.Kind() != reflect.Map || rv.Type().Key().Kind() != reflect.String {
-		return
-	}
-	keys := make([]string, 0, rv.Len())
-	iter := rv.MapRange()
-	for iter.Next() {
-		keys = append(keys, iter.Key().String())
-	}
-	slices.Sort(keys)
-	for _, key := range keys {
-		collectOutputValueReferenceStrings(field+"."+key, rv.MapIndex(reflect.ValueOf(key)).Interface(), add)
-	}
-}
-
-func extractOutputReferences(value string) []outputReference {
-	matches := outputReferencePattern.FindAllStringSubmatch(value, -1)
-	if len(matches) == 0 {
-		return nil
-	}
-	refs := make([]outputReference, 0, len(matches))
-	for _, match := range matches {
-		if len(match) != 3 {
-			continue
-		}
-		refs = append(refs, outputReference{
-			Expression: match[0],
-			StepName:   match[1],
-			Path:       strings.Split(match[2], "."),
-		})
-	}
-	return refs
+func outputReferences(raw string) []cmnvalue.StepOutputReference {
+	return cmnvalue.StepOutputReferences(raw)
 }
 
 func buildPublishedOutputContract(step Step) (publishedOutputContract, bool) {
@@ -419,7 +290,7 @@ func schemaArray(value any) ([]any, bool) {
 	}
 }
 
-func outputReferenceError(location outputReferenceLocation, contract publishedOutputContract, ref outputReference) error {
+func outputReferenceError(location outputReferenceLocation, contract publishedOutputContract, ref cmnvalue.StepOutputReference) error {
 	known := contract.knownFields()
 	if known != "" {
 		return fmt.Errorf(

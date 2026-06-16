@@ -29,6 +29,8 @@ type (
 var (
 	// NewContext creates a new context with DAG execution metadata.
 	NewContext = exec.NewContext
+	// LookupDAGContext returns the DAG execution metadata when it is present.
+	LookupDAGContext = exec.LookupContext
 	// WithDatabase sets the database interface.
 	WithDatabase = exec.WithDatabase
 	// WithRootDAGRun sets the root DAG run reference for sub-DAG execution.

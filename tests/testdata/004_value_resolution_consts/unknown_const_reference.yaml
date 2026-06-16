@@ -1,0 +1,5 @@
+consts:
+  - service: api
+steps:
+  - name: should-not-run
+    run: echo ${consts.missing} > executed.txt

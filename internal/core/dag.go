@@ -17,8 +17,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/buildenv"
-	"github.com/dagucloud/dagu/internal/cmn/eval"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/joho/godotenv"
 	"github.com/robfig/cron/v3"
 )
@@ -119,6 +119,8 @@ type DAG struct {
 	// Note: This field is evaluated at build time and may contain secrets.
 	// It is excluded from JSON serialization to prevent secret leakage.
 	Env []string `json:"-"`
+	// Consts contains immutable values resolved while loading the DAG.
+	Consts map[string]any `json:"consts,omitempty"`
 	// EnvEvaluated reports whether Env is safe to reuse as resolved build env.
 	EnvEvaluated bool `json:"-"`
 	// PresolvedBuildEnv stores resolved DAG/base-config env entries needed to
@@ -373,6 +375,9 @@ func (d *DAG) Clone() *DAG {
 	if d.PresolvedBuildEnv != nil {
 		clone.PresolvedBuildEnv = maps.Clone(d.PresolvedBuildEnv)
 	}
+	if d.Consts != nil {
+		clone.Consts = maps.Clone(d.Consts)
+	}
 	if d.Artifacts != nil {
 		artifactsCopy := *d.Artifacts
 		clone.Artifacts = &artifactsCopy
@@ -533,9 +538,9 @@ func (d *DAG) loadDotEnvFiles(ctx context.Context) {
 	if evalCtx == nil {
 		evalCtx = context.Background()
 	}
-	evalCtx = eval.WithEnvScope(evalCtx, scope)
+	evalCtx = cmnvalue.WithEnvScope(evalCtx, scope)
 
-	workingDir := expandDotEnvPath(d.WorkingDir, scope)
+	workingDir := d.expandDotEnvPath(d.WorkingDir, scope)
 	relativeTos := []string{workingDir}
 	if fileDir := filepath.Dir(d.Location); d.Location != "" && fileDir != workingDir {
 		relativeTos = append(relativeTos, fileDir)
@@ -550,26 +555,38 @@ func (d *DAG) loadDotEnvFiles(ctx context.Context) {
 }
 
 // dotenvEnvScope builds the variable scope used to resolve dotenv search paths.
-func (d *DAG) dotenvEnvScope() *eval.EnvScope {
-	scope := eval.NewEnvScope(nil, true)
+func (d *DAG) dotenvEnvScope() *cmnvalue.EnvScope {
+	scope := cmnvalue.NewEnvScope(nil, true)
 	if params := buildenv.ToMap(d.Params); len(params) > 0 {
-		scope = scope.WithEntries(params, eval.EnvSourceParam)
+		scope = scope.WithEntries(params, cmnvalue.EnvSourceParam)
 	}
 	if len(d.PresolvedBuildEnv) > 0 {
-		scope = scope.WithEntries(d.PresolvedBuildEnv, eval.EnvSourcePresolved)
+		scope = scope.WithEntries(d.PresolvedBuildEnv, cmnvalue.EnvSourcePresolved)
 	}
 	if envs := buildenv.ToMap(d.Env); len(envs) > 0 {
-		scope = scope.WithEntries(envs, eval.EnvSourceDAGEnv)
+		scope = scope.WithEntries(envs, cmnvalue.EnvSourceDAGEnv)
 	}
 	return scope
 }
 
+func (d *DAG) expandConsts(value, field string) (string, error) {
+	resolver := cmnvalue.NewResolver(
+		cmnvalue.StaticScope{Consts: cmnvalue.Values(d.Consts)},
+		cmnvalue.RuntimeScope{Consts: cmnvalue.Values(d.Consts)},
+	)
+	return resolver.String(context.Background(), value, cmnvalue.StaticValidationField(field))
+}
+
 // expandDotEnvPath expands a dotenv-related path without mutating the DAG definition.
-func expandDotEnvPath(path string, scope *eval.EnvScope) string {
-	if scope == nil {
-		return os.ExpandEnv(path)
+func (d *DAG) expandDotEnvPath(path string, scope *cmnvalue.EnvScope) string {
+	expanded, err := d.expandConsts(path, "dotenv")
+	if err != nil {
+		expanded = path
 	}
-	return scope.Expand(path)
+	if scope == nil {
+		return os.ExpandEnv(expanded)
+	}
+	return scope.Expand(expanded)
 }
 
 // loadSingleDotEnvFile loads a single dotenv file and appends its variables to d.Env.
@@ -578,7 +595,11 @@ func (d *DAG) loadSingleDotEnvFile(ctx context.Context, resolver *fileutil.FileR
 		return
 	}
 
-	evaluatedPath, err := eval.String(ctx, filePath, eval.WithOSExpansion())
+	valueResolver := cmnvalue.NewResolver(
+		cmnvalue.StaticScope{Consts: cmnvalue.Values(d.Consts)},
+		cmnvalue.RuntimeScope{Consts: cmnvalue.Values(d.Consts), Env: cmnvalue.GetEnvScope(ctx)},
+	)
+	evaluatedPath, err := valueResolver.String(ctx, filePath, cmnvalue.DotenvPathField("dotenv"))
 	if err != nil {
 		d.BuildWarnings = append(d.BuildWarnings, fmt.Sprintf("failed to evaluate dotenv path %q: %v", filePath, err))
 		return

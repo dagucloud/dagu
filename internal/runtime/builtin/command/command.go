@@ -18,10 +18,11 @@ import (
 	"sync"
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
-	"github.com/dagucloud/dagu/internal/cmn/eval"
+	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
@@ -443,13 +444,21 @@ func init() {
 		MultipleCommands: true,
 		Script:           true,
 		Shell:            true,
-		GetCommandEvalOptions: func(ctx context.Context, step core.Step) []eval.Option {
-			env := runtime.GetEnv(ctx)
-			return commandEvalOptions(env.Shell(ctx))
+		CommandContext: func(ctx context.Context, step core.Step) cmnvalue.CommandContext {
+			shell := commandContextShell(ctx, step)
+			return cmnvalue.CommandContext{
+				Target:          cmnvalue.CommandTargetLocal,
+				Shell:           shell,
+				ShellConfigured: len(shell) > 0,
+			}
 		},
-		GetScriptEvalOptions: func(ctx context.Context, step core.Step) []eval.Option {
-			env := runtime.GetEnv(ctx)
-			return commandEvalOptions(env.Shell(ctx))
+		ScriptContext: func(ctx context.Context, step core.Step) cmnvalue.CommandContext {
+			shell := commandContextShell(ctx, step)
+			return cmnvalue.CommandContext{
+				Target:          cmnvalue.CommandTargetLocal,
+				Shell:           shell,
+				ShellConfigured: len(shell) > 0,
+			}
 		},
 	}
 	executor.RegisterExecutor("", NewCommand, validateCommandStep, caps)
@@ -457,8 +466,20 @@ func init() {
 	executor.RegisterExecutor("command", NewCommand, validateCommandStep, caps)
 }
 
-// commandEvalOptions keeps the command executor aligned with the shape of the
-// main branch while delegating the shared policy to runtime.
-func commandEvalOptions(shell []string) []eval.Option {
-	return runtime.CommandEvalOptions(shell)
+func commandContextShell(ctx context.Context, step core.Step) []string {
+	if env, ok := runtime.LookupEnv(ctx); ok {
+		return env.Shell(ctx)
+	}
+	if _, ok := runtime.LookupDAGContext(ctx); ok {
+		return runtime.NewEnv(ctx, step).Shell(ctx)
+	}
+	if step.Shell != "" {
+		shell := []string{step.Shell}
+		return append(shell, step.ShellArgs...)
+	}
+	shellCmd := cmdutil.GetShellCommand(config.GetConfig(ctx).Core.DefaultShell)
+	if shellCmd == "" {
+		return nil
+	}
+	return []string{shellCmd}
 }

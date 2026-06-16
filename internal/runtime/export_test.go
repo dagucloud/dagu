@@ -26,6 +26,11 @@ func StepSupportsChatMessages(step core.Step) bool {
 	return stepSupportsChatMessages(step)
 }
 
+// AppendShellCommandFlag exposes appendShellCommandFlag for testing.
+func AppendShellCommandFlag(shell string, args []string) []string {
+	return appendShellCommandFlag(shell, args)
+}
+
 // SetApprovalIteration sets the approval iteration count for testing.
 func (n *Node) SetApprovalIteration(iteration int) {
 	n.Data.mu.Lock()

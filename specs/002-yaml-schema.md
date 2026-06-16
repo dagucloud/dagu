@@ -1,5 +1,9 @@
 # Spec: YAML Schema
 
+## Implementation Status
+
+Implemented.
+
 ## Scope
 
 This spec defines workflow YAML stream shape and root fields accepted before execution.

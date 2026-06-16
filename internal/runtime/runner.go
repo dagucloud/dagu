@@ -17,9 +17,9 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
-	"github.com/dagucloud/dagu/internal/cmn/eval"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"go.opentelemetry.io/otel"
@@ -244,8 +244,6 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 			go func(n *Node) {
 				// Set step context for all logs in this goroutine
 				ctx := logger.WithValues(ctx, tag.Step(n.Name()))
-				// Anything evaluated during Prepare must see the node's real pre-execution env.
-				ctx = r.setupVariables(ctx, plan, n)
 
 				// Ensure node is finished and wg is decremented
 				defer r.finishNode(n, &wg)
@@ -255,6 +253,16 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 				defer func() {
 					doneCh <- n
 				}()
+
+				// Anything evaluated during Prepare must see the node's real pre-execution env.
+				var err error
+				ctx, err = r.setupVariables(ctx, plan, n)
+				if err != nil {
+					r.setLastError(err)
+					n.MarkError(err)
+					n.SetStatus(core.NodeFailed)
+					return
+				}
 
 				if err := r.prepareNode(ctx, n); err != nil {
 					r.setLastError(err)
@@ -752,8 +760,11 @@ func harnessConfigHasBuiltinProvider(cfg map[string]any) bool {
 	return false
 }
 
-func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) context.Context {
-	env := NewPlanEnv(ctx, node.Step(), plan)
+func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) (context.Context, error) {
+	env, err := NewPlanEnvWithError(ctx, node.Step(), plan)
+	if err != nil {
+		return ctx, err
+	}
 	node.SetWorkingDir(env.WorkingDir)
 
 	// Load output variables and approval inputs from predecessor nodes (dependencies)
@@ -796,14 +807,14 @@ func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) con
 	}
 
 	// Helper to evaluate and store environment variables
-	addEnvVars := func(envList []string) {
+	addEnvVars := func(envList []string, fieldPrefix string, fieldForKey func(string) cmnvalue.Field) {
 		for _, v := range envList {
 			key, value, found := strings.Cut(v, "=")
 			if !found {
 				logger.Error(ctx, "Invalid environment variable format", slog.String("var", v))
 				continue
 			}
-			evaluatedValue, err := env.EvalString(ctx, value)
+			evaluatedValue, err := resolverFromEnv(env).String(ctx, value, fieldForKey(fieldPrefix+key))
 			if err != nil {
 				logger.Error(ctx, "Failed to evaluate environment variable",
 					slog.String("var", v),
@@ -811,22 +822,22 @@ func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) con
 				)
 				continue
 			}
-			env.Scope = env.Scope.WithEntry(key, evaluatedValue, eval.EnvSourceStepEnv)
+			env.Scope = env.Scope.WithEntry(key, evaluatedValue, cmnvalue.EnvSourceStepEnv)
 		}
 	}
 
 	// Add step-level environment variables
-	addEnvVars(node.Step().Env)
+	addEnvVars(node.Step().Env, "env.", cmnvalue.StepEnvField)
 
 	// Add container environment variables (step-level takes precedence over DAG-level)
 	// This ensures container env vars are available when evaluating command arguments
 	if ct := node.Step().Container; ct != nil {
-		addEnvVars(ct.Env)
+		addEnvVars(ct.Env, "container.env.", cmnvalue.ContainerEnvField)
 	} else if dag := env.DAG; dag != nil && dag.Container != nil {
-		addEnvVars(dag.Container.Env)
+		addEnvVars(dag.Container.Env, "container.env.", cmnvalue.ContainerEnvField)
 	}
 
-	return WithEnv(ctx, env)
+	return WithEnv(ctx, env), nil
 }
 
 func (r *Runner) setupEnvironEventHandler(
@@ -834,31 +845,34 @@ func (r *Runner) setupEnvironEventHandler(
 	plan *Plan,
 	node *Node,
 	extraEnvs map[string]string,
-) context.Context {
+) (context.Context, error) {
 	// Preserve any extra env vars from the incoming context (e.g., DAG_WAITING_STEPS)
 	existingEnv := GetEnv(ctx)
 
-	env := NewPlanEnv(ctx, node.Step(), plan)
+	env, err := NewPlanEnvWithError(ctx, node.Step(), plan)
+	if err != nil {
+		return ctx, err
+	}
 	node.SetWorkingDir(env.WorkingDir)
 
 	// Add DAG_RUN_STATUS to scope
 	env.Scope = env.Scope.WithEntry(
 		exec.EnvKeyDAGRunStatus,
 		r.Status(ctx, plan).String(),
-		eval.EnvSourceStepEnv,
+		cmnvalue.EnvSourceStepEnv,
 	)
 
 	// Copy extra env vars from existing scope that aren't already set
 	if existingEnv.Scope != nil {
-		for k, v := range existingEnv.Scope.AllBySource(eval.EnvSourceStepEnv) {
+		for k, v := range existingEnv.Scope.AllBySource(cmnvalue.EnvSourceStepEnv) {
 			if _, exists := env.Scope.Get(k); !exists {
-				env.Scope = env.Scope.WithEntry(k, v, eval.EnvSourceStepEnv)
+				env.Scope = env.Scope.WithEntry(k, v, cmnvalue.EnvSourceStepEnv)
 			}
 		}
 	}
 
 	for k, v := range extraEnvs {
-		env.Scope = env.Scope.WithEntry(k, v, eval.EnvSourceStepEnv)
+		env.Scope = env.Scope.WithEntry(k, v, cmnvalue.EnvSourceStepEnv)
 	}
 
 	// Load all output variables from all nodes
@@ -872,7 +886,7 @@ func (r *Runner) setupEnvironEventHandler(
 		}
 	}
 
-	return WithEnv(ctx, env)
+	return WithEnv(ctx, env), nil
 }
 
 func (r *Runner) execNode(ctx context.Context, node *Node, progressCh chan *Node) error {
@@ -1092,7 +1106,12 @@ func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, ex
 
 	// Handler stdout/stderr paths are also evaluated during Prepare, so attach the
 	// complete handler env before preparing the node.
-	ctx = r.setupEnvironEventHandler(ctx, plan, node, extraEnvs)
+	var err error
+	ctx, err = r.setupEnvironEventHandler(ctx, plan, node, extraEnvs)
+	if err != nil {
+		node.SetStatus(core.NodeFailed)
+		return err
+	}
 
 	if err := node.Prepare(ctx, r.logDir, r.dagRunID); err != nil {
 		node.SetStatus(core.NodeFailed)
@@ -1546,10 +1565,23 @@ func (r *Runner) prepareNodeForRepeat(ctx context.Context, node *Node, progressC
 
 func NewPlanEnv(ctx context.Context, step core.Step, plan *Plan) Env {
 	env := NewEnv(ctx, step)
+	addPlanStepsToEnv(&env, plan)
+	return env
+}
+
+func NewPlanEnvWithError(ctx context.Context, step core.Step, plan *Plan) (Env, error) {
+	env, err := NewEnvWithError(ctx, step)
+	if err != nil {
+		return Env{}, err
+	}
+	addPlanStepsToEnv(&env, plan)
+	return env, nil
+}
+
+func addPlanStepsToEnv(env *Env, plan *Plan) {
 	for _, n := range plan.Nodes() {
 		if n.Step().ID != "" {
 			env.StepMap[n.Step().ID] = n.StepInfo()
 		}
 	}
-	return env
 }

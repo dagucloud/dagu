@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/internal/cmn/config"
-	"github.com/dagucloud/dagu/internal/cmn/eval"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime"
@@ -49,6 +49,18 @@ func TestDAGShell(t *testing.T) {
 			Env:       []string{"TEST_SHELL_ARG=-c"},
 			Shell:     "/bin/bash",
 			ShellArgs: []string{"$TEST_SHELL_ARG"},
+		}
+		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
+		result := runtime.DAGShell(ctx)
+		assert.Equal(t, []string{"/bin/bash", "-c"}, result)
+	})
+
+	t.Run("ExpandsConstRefsInShellAndArgs", func(t *testing.T) {
+		t.Parallel()
+		dag := &core.DAG{
+			Consts:    map[string]any{"shell": "/bin/bash", "arg": "-c"},
+			Shell:     "${consts.shell}",
+			ShellArgs: []string{"${consts.arg}"},
 		}
 		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
 		result := runtime.DAGShell(ctx)
@@ -136,6 +148,22 @@ func TestEnvShell(t *testing.T) {
 		assert.Equal(t, []string{"/bin/fish"}, result)
 	})
 
+	t.Run("ExpandsStepShellWithConstRefs", func(t *testing.T) {
+		t.Parallel()
+		dag := &core.DAG{
+			Consts: map[string]any{"shell": "/bin/fish", "arg": "-c"},
+		}
+		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
+		step := core.Step{
+			Name:      "test-step",
+			Shell:     "${consts.shell}",
+			ShellArgs: []string{"${consts.arg}"},
+		}
+		env := runtime.NewEnv(ctx, step)
+		result := env.Shell(ctx)
+		assert.Equal(t, []string{"/bin/fish", "-c"}, result)
+	})
+
 	t.Run("ExpandsDAGShellWithEnvVars", func(t *testing.T) {
 		t.Parallel()
 		dag := &core.DAG{
@@ -163,6 +191,79 @@ func TestEnvShell(t *testing.T) {
 	})
 }
 
+func TestConstResolutionInWorkingDirs(t *testing.T) {
+	t.Parallel()
+
+	t.Run("DAGWorkingDir", func(t *testing.T) {
+		t.Parallel()
+
+		root := t.TempDir()
+		dagDir := filepath.Join(root, "dag-root")
+		dag := &core.DAG{
+			Consts:             map[string]any{"root": dagDir},
+			WorkingDir:         "${consts.root}",
+			WorkingDirExplicit: true,
+		}
+		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
+
+		env := runtime.NewEnv(ctx, core.Step{Name: "test-step"})
+		assert.Equal(t, dagDir, env.WorkingDir)
+	})
+
+	t.Run("StepWorkingDir", func(t *testing.T) {
+		t.Parallel()
+
+		root := t.TempDir()
+		dagDir := filepath.Join(root, "dag-root")
+		stepDir := filepath.Join(root, "step-root")
+		dag := &core.DAG{
+			Consts:             map[string]any{"step_dir": stepDir},
+			WorkingDir:         dagDir,
+			WorkingDirExplicit: true,
+		}
+		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
+
+		env := runtime.NewEnv(ctx, core.Step{Name: "test-step", Dir: "${consts.step_dir}"})
+		assert.Equal(t, stepDir, env.WorkingDir)
+	})
+}
+
+func TestNewEnvWithErrorRejectsInvalidWorkingDirResolution(t *testing.T) {
+	t.Parallel()
+
+	t.Run("DAGWorkingDir", func(t *testing.T) {
+		t.Parallel()
+
+		dag := &core.DAG{
+			Consts:             map[string]any{},
+			WorkingDir:         "${consts.missing}",
+			WorkingDirExplicit: true,
+		}
+		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
+
+		_, err := runtime.NewEnvWithError(ctx, core.Step{Name: "test-step"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to evaluate working directory")
+		assert.Contains(t, err.Error(), "unknown consts binding")
+	})
+
+	t.Run("StepWorkingDir", func(t *testing.T) {
+		t.Parallel()
+
+		dag := &core.DAG{
+			Consts:             map[string]any{},
+			WorkingDir:         t.TempDir(),
+			WorkingDirExplicit: true,
+		}
+		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
+
+		_, err := runtime.NewEnvWithError(ctx, core.Step{Name: "test-step", Dir: "${consts.missing}"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to evaluate step working directory")
+		assert.Contains(t, err.Error(), "unknown consts binding")
+	})
+}
+
 func TestEnv_AllEnvsMap(t *testing.T) {
 	t.Parallel()
 
@@ -179,7 +280,7 @@ func TestEnv_AllEnvsMap(t *testing.T) {
 					"VAR2": "value2",
 					"ENV1": "env1",
 					"ENV2": "env2",
-				}, eval.EnvSourceStepEnv)
+				}, cmnvalue.EnvSourceStepEnv)
 				return env
 			},
 			expected: map[string]string{
@@ -527,7 +628,7 @@ func TestEnv_UserEnvsMap(t *testing.T) {
 				dag := &core.DAG{Env: []string{"DAG_VAR=dag_value"}}
 				ctx = runtime.NewContext(ctx, dag, "test-run", "test.log")
 				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
-				env.Scope = env.Scope.WithEntry("OUTPUT_VAR", "output_value", eval.EnvSourceOutput)
+				env.Scope = env.Scope.WithEntry("OUTPUT_VAR", "output_value", cmnvalue.EnvSourceOutput)
 				return ctx, env
 			},
 			expected: map[string]string{
@@ -547,7 +648,7 @@ func TestEnv_UserEnvsMap(t *testing.T) {
 				step := core.Step{Name: "test"}
 				env := runtime.NewEnv(ctx, step)
 				// Step env has highest precedence
-				env.Scope = env.Scope.WithEntry("KEY", "step", eval.EnvSourceStepEnv)
+				env.Scope = env.Scope.WithEntry("KEY", "step", cmnvalue.EnvSourceStepEnv)
 
 				envCtx := runtime.WithEnv(ctx, env)
 				return envCtx, env
@@ -611,10 +712,10 @@ func TestEnv_EvalString_Precedence(t *testing.T) {
 				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
 
 				// Set output variable
-				env.Scope = env.Scope.WithEntry("FOO", "from_output", eval.EnvSourceOutput)
+				env.Scope = env.Scope.WithEntry("FOO", "from_output", cmnvalue.EnvSourceOutput)
 
 				// Set step env (highest precedence)
-				env.Scope = env.Scope.WithEntry("FOO", "from_step", eval.EnvSourceStepEnv)
+				env.Scope = env.Scope.WithEntry("FOO", "from_step", cmnvalue.EnvSourceStepEnv)
 
 				return ctx, env
 			},
@@ -634,7 +735,7 @@ func TestEnv_EvalString_Precedence(t *testing.T) {
 				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
 
 				// Set output variable (higher precedence than DAG)
-				env.Scope = env.Scope.WithEntry("BAR", "from_output", eval.EnvSourceOutput)
+				env.Scope = env.Scope.WithEntry("BAR", "from_output", cmnvalue.EnvSourceOutput)
 
 				return ctx, env
 			},
@@ -674,10 +775,10 @@ func TestEnv_EvalString_Precedence(t *testing.T) {
 				env.Scope = env.Scope.WithEntries(map[string]string{
 					"VAR1": "output1",
 					"VAR2": "output2",
-				}, eval.EnvSourceOutput)
+				}, cmnvalue.EnvSourceOutput)
 
 				// Set step env (only for VAR1, highest precedence)
-				env.Scope = env.Scope.WithEntry("VAR1", "step1", eval.EnvSourceStepEnv)
+				env.Scope = env.Scope.WithEntry("VAR1", "step1", cmnvalue.EnvSourceStepEnv)
 
 				return ctx, env
 			},
@@ -692,8 +793,9 @@ func TestEnv_EvalString_Precedence(t *testing.T) {
 
 			ctx := context.Background()
 			ctx, env := tt.setup(ctx)
+			ctx = runtime.WithEnv(ctx, env)
 
-			result, err := env.EvalString(ctx, tt.input)
+			result, err := runtime.ResolveString(ctx, tt.input, cmnvalue.WorkflowField("env"))
 			require.NoError(t, err)
 			assert.Equal(t, tt.expected, result)
 		})
@@ -737,4 +839,19 @@ func TestEnv_SpecialEnvVars_DAGRunWorkDir(t *testing.T) {
 	ctx = runtime.WithEnv(ctx, env)
 	result := runtime.AllEnvsMap(ctx)
 	assert.Equal(t, workDir, result[exec.EnvKeyDAGRunWorkDir])
+}
+
+func TestEnv_DirectCommandOSExpansionDoesNotInjectHostEnv(t *testing.T) {
+	t.Setenv("DAGU_RUNTIME_HOST_ONLY", "from-os")
+
+	ctx := runtime.NewContext(context.Background(), &core.DAG{Name: "test-dag"}, "run-1", "test.log")
+	env := runtime.NewEnv(ctx, core.Step{Name: "step1"})
+	ctx = runtime.WithEnv(ctx, env)
+
+	got, err := runtime.ResolveString(ctx, "$DAGU_RUNTIME_HOST_ONLY", cmnvalue.DirectCommandField("command", cmnvalue.CommandContext{}))
+	require.NoError(t, err)
+	assert.Equal(t, "from-os", got)
+
+	allEnvs := runtime.AllEnvsMap(ctx)
+	assert.NotContains(t, allEnvs, "DAGU_RUNTIME_HOST_ONLY")
 }

@@ -1,0 +1,5 @@
+consts:
+  - 1service: api
+steps:
+  - name: should-not-run
+    run: echo executed > executed.txt

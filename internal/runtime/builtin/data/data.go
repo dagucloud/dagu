@@ -16,8 +16,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/dagucloud/dagu/internal/cmn/eval"
+	"github.com/dagucloud/dagu/internal/cmn/datapath"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
@@ -150,7 +151,7 @@ func (e *executorImpl) runPick(ctx context.Context) error {
 		return err
 	}
 
-	selected, ok := eval.ResolveDataPath(ctx, "data.pick", parsed, e.cfg.Select)
+	selected, ok := datapath.Select(ctx, "data.pick", parsed, e.cfg.Select)
 	if !ok {
 		return fmt.Errorf("data pick: failed to resolve select path %q", e.cfg.Select)
 	}
@@ -171,7 +172,7 @@ func (e *executorImpl) readValue(ctx context.Context) (any, error) {
 		return e.cfg.Data, nil
 	}
 
-	inputPath, err := runtime.EvalStepString(ctx, e.cfg.Input)
+	inputPath, err := runtime.ResolveString(ctx, e.cfg.Input, cmnvalue.WorkflowField("data.input"))
 	if err != nil {
 		return nil, fmt.Errorf("data: failed to evaluate input path: %w", err)
 	}

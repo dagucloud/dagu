@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dagucloud/dagu/internal/cmn/eval"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 )
 
@@ -381,14 +381,14 @@ func runtimePairsFromEntries(entries []dagParamEntry) []paramPair {
 	return pairs
 }
 
-func buildParamEvalScope(ctx BuildContext) *eval.EnvScope {
+func buildParamEvalScope(ctx BuildContext) *cmnvalue.EnvScope {
 	if ctx.envScope != nil && ctx.envScope.scope != nil {
 		return ctx.envScope.scope
 	}
 
-	scope := eval.NewEnvScope(nil, true)
+	scope := cmnvalue.NewEnvScope(nil, true)
 	if len(ctx.opts.BuildEnv) > 0 {
-		scope = scope.WithEntries(ctx.opts.BuildEnv, eval.EnvSourceDotEnv)
+		scope = scope.WithEntries(ctx.opts.BuildEnv, cmnvalue.EnvSourceDotEnv)
 	}
 	return scope
 }
@@ -398,7 +398,7 @@ func resolveLegacyEntry(
 	entry *dagParamEntry,
 	base dagParamEntry,
 	overridden bool,
-	scope **eval.EnvScope,
+	scope **cmnvalue.EnvScope,
 	index int,
 ) error {
 	if overridden || strings.TrimSpace(base.Eval) == "" || ctx.opts.Has(BuildFlagNoEval) {
@@ -410,11 +410,12 @@ func resolveLegacyEntry(
 	if evalCtx == nil {
 		evalCtx = context.Background()
 	}
+	var runtimeScope cmnvalue.RuntimeScope
 	if *scope != nil {
-		evalCtx = eval.WithEnvScope(evalCtx, *scope)
+		runtimeScope.Env = *scope
 	}
-
-	value, err := eval.String(evalCtx, base.Eval, eval.WithOSExpansion())
+	resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{}, runtimeScope)
+	value, err := resolver.String(evalCtx, base.Eval, cmnvalue.DynamicParamEvalField("params"))
 	if err != nil {
 		if base.HasValue {
 			entry.Value = base.Value
@@ -435,7 +436,7 @@ func resolveLegacyEntry(
 	return nil
 }
 
-func addEntryToParamScope(scope **eval.EnvScope, entry dagParamEntry, index int) {
+func addEntryToParamScope(scope **cmnvalue.EnvScope, entry dagParamEntry, index int) {
 	if scope == nil || *scope == nil || !entry.HasValue {
 		return
 	}
@@ -443,7 +444,7 @@ func addEntryToParamScope(scope **eval.EnvScope, entry dagParamEntry, index int)
 	if name == "" {
 		return
 	}
-	*scope = (*scope).WithEntry(name, entry.Value, eval.EnvSourceParam)
+	*scope = (*scope).WithEntry(name, entry.Value, cmnvalue.EnvSourceParam)
 }
 
 func paramScopeName(entry dagParamEntry, index int) string {

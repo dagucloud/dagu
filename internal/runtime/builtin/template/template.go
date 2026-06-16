@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"text/template"
 
-	"github.com/dagucloud/dagu/internal/cmn/eval"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/templatefuncs"
 	"github.com/dagucloud/dagu/internal/core"
@@ -146,8 +145,5 @@ func buildFuncMap() template.FuncMap {
 func init() {
 	executor.RegisterExecutor("template", newTemplate, validateTemplate, core.ExecutorCapabilities{
 		Script: true,
-		GetScriptEvalOptions: func(_ context.Context, _ core.Step) []eval.Option {
-			return []eval.Option{eval.WithNoExpansion()}
-		},
 	})
 }

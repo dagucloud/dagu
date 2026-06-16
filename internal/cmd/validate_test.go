@@ -22,8 +22,7 @@ steps:
 `)
 
 		th.RunCommand(t, cmd.Validate(), test.CmdTest{
-			Args:        []string{"validate", dag.Location},
-			ExpectedOut: []string{"DAG spec is valid"},
+			Args: []string{"validate", dag.Location},
 		})
 	})
 
@@ -54,8 +53,7 @@ steps:
 `)
 
 		th.RunCommand(t, cmd.Validate(), test.CmdTest{
-			Args:        []string{"validate", dagFile},
-			ExpectedOut: []string{"DAG spec is valid"},
+			Args: []string{"validate", dagFile},
 		})
 	})
 
@@ -68,7 +66,7 @@ steps:
 
 		th.RunCommand(t, cmd.Validate(), test.CmdTest{
 			Args:        []string{"validate", dagFile},
-			ExpectedOut: []string{"DAG spec is valid", "deprecated", "steps[0].command", "use run"},
+			ExpectedOut: []string{"deprecated", "steps[0].command", "use run"},
 		})
 	})
 
@@ -80,8 +78,7 @@ steps:
 `)
 
 		th.RunCommand(t, cmd.Validate(), test.CmdTest{
-			Args:        []string{"validate", dagFile},
-			ExpectedOut: []string{"DAG spec is valid"},
+			Args: []string{"validate", dagFile},
 		})
 		require.NotContains(t, th.LoggingOutput.String(), "deprecated")
 	})

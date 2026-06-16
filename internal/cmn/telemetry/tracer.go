@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/dagucloud/dagu/internal/cmn/eval"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -44,9 +44,21 @@ func NewTracer(ctx context.Context, dag *core.DAG, vars map[string]string) (*Tra
 		return &Tracer{tracer: otel.Tracer(TracerName)}, nil
 	}
 
-	cfg, err := eval.Object(ctx, *dag.OTel, vars)
+	scope := cmnvalue.GetEnvScope(ctx)
+	if len(vars) > 0 {
+		if scope == nil {
+			scope = cmnvalue.NewEnvScope(nil, false)
+		}
+		scope = scope.WithEntries(vars, cmnvalue.EnvSourceStepEnv)
+	}
+	resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{}, cmnvalue.RuntimeScope{Env: scope})
+	cfgAny, err := resolver.Object(ctx, *dag.OTel, cmnvalue.HostConfigObjectField("otel"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate OTel config: %w", err)
+	}
+	cfg, ok := cfgAny.(core.OTelConfig)
+	if !ok {
+		return nil, fmt.Errorf("failed to evaluate OTel config: expected core.OTelConfig, got %T", cfgAny)
 	}
 
 	exporter, err := createExporter(ctx, &cfg)

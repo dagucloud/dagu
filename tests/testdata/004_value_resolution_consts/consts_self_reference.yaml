@@ -1,0 +1,5 @@
+consts:
+  - service: ${consts.service}
+steps:
+  - name: should-not-run
+    run: echo executed > executed.txt
