@@ -228,7 +228,7 @@ func policyForField(field Field) resolverPolicy {
 		return resolverPolicy{mode: modeShellCommand, strict: true, options: append([]option{withoutSubstitute()}, commandPolicyOptions(field.command)...)}
 	case fieldShellCommand:
 		options := append([]option{withoutSubstitute()}, commandPolicyOptions(field.command)...)
-		if field.command.Target == CommandTargetLocal && field.command.ShellConfigured {
+		if commandDefersShellVars(field.command) {
 			options = append(options, onlyReplaceVars())
 		}
 		return resolverPolicy{mode: modeShellCommand, strict: true, options: options}
@@ -238,7 +238,7 @@ func policyForField(field Field) resolverPolicy {
 		return resolverPolicy{mode: modeDirectCommand, strict: true, options: append(conditionCommandBaseOptions(field.command), commandPolicyOptions(field.command)...)}
 	case fieldCommandScript:
 		options := append([]option{withoutSubstitute()}, commandPolicyOptions(field.command)...)
-		if field.command.Target == CommandTargetLocal && field.command.ShellConfigured {
+		if commandDefersShellVars(field.command) {
 			options = append(options, onlyReplaceVars())
 		}
 		return resolverPolicy{mode: modeShellCommand, strict: true, options: options}
@@ -290,6 +290,17 @@ func commandPolicyOptions(command CommandContext) []option {
 	}
 
 	return nil
+}
+
+func commandDefersShellVars(command CommandContext) bool {
+	if command.Target != CommandTargetLocal || !command.ShellConfigured {
+		return false
+	}
+	if len(command.Shell) == 0 {
+		return true
+	}
+	shell := command.Shell[0]
+	return cmdutil.IsUnixLikeShell(shell) || cmdutil.IsNixShell(shell)
 }
 
 func localCommandPolicyOptions(command CommandContext) []option {

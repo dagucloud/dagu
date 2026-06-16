@@ -281,6 +281,28 @@ func TestResolverShellCommandFieldDefersScopeVarsAndExpandsStepRefs(t *testing.T
 	assert.Equal(t, `printf '%s\n' "$ROOT_VALUE" ready`, got)
 }
 
+func TestResolverPowerShellCommandFieldExpandsDaguScopeVars(t *testing.T) {
+	ctx := context.Background()
+	scope := value.NewEnvScope(nil, false).
+		WithEntry("TEXT", "hello", value.EnvSourceDAGEnv).
+		WithEntry("DEV_PCENT", "90", value.EnvSourceDAGEnv)
+	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{Env: scope})
+	command := value.CommandContext{
+		Target:          value.CommandTargetLocal,
+		Shell:           []string{"powershell"},
+		ShellConfigured: true,
+	}
+
+	got, err := resolver.String(
+		ctx,
+		`echo "action says ${TEXT}"; if ($env:DEV_PCENT) { exit 0 }`,
+		value.ShellCommandField("steps[0].run", command),
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, `echo "action says hello"; if ($env:DEV_PCENT) { exit 0 }`, got)
+}
+
 func TestResolverDotenvPathPreservesMissingParamReference(t *testing.T) {
 	ctx := context.Background()
 	resolver := value.NewResolver(
