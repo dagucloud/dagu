@@ -82,7 +82,7 @@ func (r Resolver) resolveString(ctx context.Context, raw string, field Field) (s
 			return "", err
 		}
 		var err error
-		resolved, err = resolveBindings(raw, r.bindingScope())
+		resolved, err = resolveBindings(ctx, raw, r.bindingScope())
 		if err != nil {
 			if field.path != "" {
 				return "", fmt.Errorf("%s: %w", field.path, err)
@@ -94,15 +94,15 @@ func (r Resolver) resolveString(ctx context.Context, raw string, field Field) (s
 }
 
 func (r Resolver) staticScope() StaticScope {
-	if r.static.Consts != nil {
+	if r.static.Consts != nil || r.static.Params != nil {
 		return r.static
 	}
-	return StaticScope{Consts: r.runtime.Consts}
+	return StaticScope{Consts: r.runtime.Consts, Params: r.runtime.Params}
 }
 
 func (r Resolver) bindingScope() RuntimeScope {
-	if r.runtime.Consts != nil {
-		return RuntimeScope{Consts: r.runtime.Consts}
+	if r.runtime.Consts != nil || r.runtime.Params != nil || r.runtime.Env != nil || len(r.runtime.Steps) > 0 {
+		return r.runtime
 	}
 	return RuntimeScope{Consts: r.static.Consts}
 }
@@ -187,7 +187,7 @@ func policyForField(field Field) resolverPolicy {
 	case fieldStepEnv, fieldContainerEnv:
 		return resolverPolicy{mode: modeWorkflowValue, strict: true}
 	case fieldDynamicParamEval:
-		return resolverPolicy{mode: modeDynamicEval, strict: true, envVariables: envVariablesUser, options: []option{withOSExpansion()}}
+		return resolverPolicy{mode: modeDynamicEval, strict: true, envVariables: envVariablesUser, options: []option{withOSExpansion(), withShellCommandSubstitution()}}
 	case fieldDotenvPath:
 		return resolverPolicy{mode: modeWorkflowValue, strict: true, options: []option{withOSExpansion(), withoutSubstitute()}}
 	case fieldHostConfigObject:
@@ -197,7 +197,7 @@ func policyForField(field Field) resolverPolicy {
 	case fieldServerBasePath, fieldCoordinatorArtifactBaseDir:
 		return resolverPolicy{options: []option{withOSExpansion()}}
 	case fieldStructuredOutputPath, fieldStructuredOutputLiteral:
-		return resolverPolicy{options: []option{withoutExpandShell(), withoutSubstitute()}}
+		return resolverPolicy{mode: modeWorkflowValue, strict: true, options: []option{withoutExpandShell(), withoutSubstitute()}}
 	case fieldStepArtifactOutput:
 		return resolverPolicy{
 			mode:   modeWorkflowValue,

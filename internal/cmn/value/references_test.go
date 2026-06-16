@@ -22,8 +22,8 @@ func TestScanReferencesClassifiesReservedAndEvalRefs(t *testing.T) {
 	assert.Equal(t, value.ReferenceStrictForTest, refs[0].Kind)
 	assert.Equal(t, "consts", refs[0].Namespace)
 	assert.True(t, refs[0].Braced)
-	assert.Equal(t, value.ReferenceInvalidForTest, refs[1].Kind)
-	assert.Contains(t, refs[1].Err.Error(), "invalid binding shorthand")
+	assert.Equal(t, value.ReferenceEvalForTest, refs[1].Kind)
+	assert.False(t, refs[1].Braced)
 	assert.Equal(t, value.ReferenceEvalForTest, refs[2].Kind)
 	assert.False(t, refs[2].Braced)
 	assert.Equal(t, value.ReferenceEvalForTest, refs[3].Kind)
@@ -67,6 +67,7 @@ func TestResolverValidateFieldMatrix(t *testing.T) {
 
 	resolver := value.NewResolver(value.StaticScope{
 		Consts: value.Values{"service": "api"},
+		Params: value.Values{"environment": nil},
 	}, value.RuntimeScope{})
 
 	tests := []struct {
@@ -87,10 +88,9 @@ func TestResolverValidateFieldMatrix(t *testing.T) {
 			wantErr: "not available while loading consts",
 		},
 		{
-			name:    "ReservedShorthandRejected",
-			raw:     "$consts.service",
-			field:   value.WorkflowField("run"),
-			wantErr: "invalid binding shorthand",
+			name:  "ReservedShorthandPreserved",
+			raw:   "$consts.service",
+			field: value.WorkflowField("run"),
 		},
 		{
 			name:    "UnknownConstRejected",
@@ -99,8 +99,8 @@ func TestResolverValidateFieldMatrix(t *testing.T) {
 			wantErr: "unknown consts binding",
 		},
 		{
-			name:  "NonConstNamespacesAllowed",
-			raw:   "${steps.build.outputs.digest}",
+			name:  "DeclaredParamAccepted",
+			raw:   "${params.environment}",
 			field: value.StaticValidationField("run"),
 		},
 		{
@@ -125,7 +125,7 @@ func TestResolverValidateFieldMatrix(t *testing.T) {
 	}
 }
 
-func TestResolverValidateIgnoresNonConstNamespaces(t *testing.T) {
+func TestResolverValidateRejectsUndeclaredParamsNamespace(t *testing.T) {
 	t.Parallel()
 
 	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{})
@@ -133,17 +133,26 @@ func TestResolverValidateIgnoresNonConstNamespaces(t *testing.T) {
 		"${params.environment} ${env.RUNTIME_ONLY} ${steps.build.outputs.image}",
 		value.StaticValidationField("run"),
 	)
-	require.NoError(t, err)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "${params.environment}")
 }
 
-func TestResolverStringPreservesNonConstNamespaces(t *testing.T) {
+func TestResolverStringResolvesParamsAndPreservesOtherNamespaces(t *testing.T) {
 	t.Parallel()
 
+	outputs := `{"image":"repo/api:v1"}`
 	resolver := value.NewResolver(
-		value.StaticScope{},
+		value.StaticScope{
+			Consts: value.Values{"service": "api"},
+			Params: value.Values{"environment": nil},
+		},
 		value.RuntimeScope{
 			Consts: value.Values{"service": "api"},
+			Params: value.Values{"environment": "prod"},
 			Env:    testEnvScope(map[string]string{"HOME": "/workspace"}),
+			Steps: map[string]value.StepInfo{
+				"build": {Outputs: &outputs},
+			},
 		},
 	)
 	got, err := resolver.String(
@@ -152,7 +161,7 @@ func TestResolverStringPreservesNonConstNamespaces(t *testing.T) {
 		value.WorkflowField("run"),
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "api:${params.environment}:${env.HOME}:${steps.build.outputs.image}", got)
+	assert.Equal(t, "api:prod:${env.HOME}:repo/api:v1", got)
 }
 
 func TestResolverWorkflowFieldPreservesCommandSubstitution(t *testing.T) {
@@ -176,13 +185,45 @@ func TestResolverDynamicParamEvalRunsCommandSubstitution(t *testing.T) {
 	assert.Equal(t, "resolved", got)
 }
 
+func TestResolverDynamicParamEvalRunsShellCommandSubstitution(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping shell command substitution test on Windows")
+	}
+
+	resolver := value.NewResolver(
+		value.StaticScope{Params: value.Values{"environment": ""}},
+		value.RuntimeScope{Params: value.Values{"environment": "prod"}},
+	)
+	got, err := resolver.String(
+		context.Background(),
+		"$(printf '%s-api' ${params.environment})",
+		value.DynamicParamEvalField("params"),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "prod-api", got)
+}
+
+func TestResolverWorkflowFieldPreservesShellCommandSubstitution(t *testing.T) {
+	t.Parallel()
+
+	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{})
+	got, err := resolver.String(context.Background(), "$(echo resolved)", value.WorkflowField("run"))
+	require.NoError(t, err)
+	assert.Equal(t, "$(echo resolved)", got)
+}
+
 func TestResolverStringResolvesConstRefsAndKeepsEvalRefs(t *testing.T) {
 	t.Parallel()
 
 	resolver := value.NewResolver(
-		value.StaticScope{},
+		value.StaticScope{
+			Consts: value.Values{"service": "api"},
+			Params: value.Values{"environment": nil},
+		},
 		value.RuntimeScope{
 			Consts: value.Values{"service": "api"},
+			Params: value.Values{"environment": "prod"},
 			Env:    testEnvScope(map[string]string{"HOME": "/workspace"}),
 		},
 	)
@@ -192,7 +233,7 @@ func TestResolverStringResolvesConstRefsAndKeepsEvalRefs(t *testing.T) {
 		value.WorkflowField("run"),
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "api:${params.environment}:${env.HOME}:${steps.build.outputs.image}:${DATA.image}:$DATA.tag", got)
+	assert.Equal(t, "api:prod:${env.HOME}:${steps.build.outputs.image}:${DATA.image}:$DATA.tag", got)
 }
 
 func TestResolverObjectResolvesConstRefsAcrossNestedValues(t *testing.T) {
@@ -208,9 +249,13 @@ func TestResolverObjectResolvesConstRefsAcrossNestedValues(t *testing.T) {
 	}
 
 	resolver := value.NewResolver(
-		value.StaticScope{},
+		value.StaticScope{
+			Consts: value.Values{"repo": "repo/api"},
+			Params: value.Values{"tag": nil},
+		},
 		value.RuntimeScope{
 			Consts: value.Values{"repo": "repo/api"},
+			Params: value.Values{"tag": "v1"},
 			Env:    testEnvScope(map[string]string{"TOKEN": "secret"}),
 		},
 	)
@@ -219,26 +264,27 @@ func TestResolverObjectResolvesConstRefsAcrossNestedValues(t *testing.T) {
 	got, ok := gotAny.(map[string]any)
 	require.True(t, ok)
 
-	assert.Equal(t, "repo/api:${params.tag}", got["image"])
+	assert.Equal(t, "repo/api:v1", got["image"])
 	assert.Equal(t, []any{"${env.TOKEN}", "${steps.build.outputs.digest}"}, got["env"])
 	assert.Equal(t, "${DATA.image}", got["evalRef"])
 }
 
-func TestResolverObjectRejectsInvalidConstShorthand(t *testing.T) {
+func TestResolverObjectPreservesConstShorthand(t *testing.T) {
 	t.Parallel()
 
 	resolver := value.NewResolver(
 		value.StaticScope{},
 		value.RuntimeScope{Consts: value.Values{"service": "api"}},
 	)
-	_, err := resolver.Object(
+	gotAny, err := resolver.Object(
 		context.Background(),
 		map[string]any{"service": "$consts.service"},
 		value.WorkflowObjectField("with.service"),
 	)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "with.service")
-	assert.Contains(t, err.Error(), "invalid binding shorthand")
+	require.NoError(t, err)
+	got, ok := gotAny.(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "$consts.service", got["service"])
 }
 
 func TestResolverSemanticFieldsApplyOwnerSemantics(t *testing.T) {

@@ -8,11 +8,13 @@ type Values map[string]any
 // StaticScope contains declarations and contracts used by static validation.
 type StaticScope struct {
 	Consts Values
+	Params Values
 }
 
 // RuntimeScope contains actual values available during runtime resolution.
 type RuntimeScope struct {
 	Consts Values
+	Params Values
 	Env    *EnvScope
 	Steps  map[string]StepInfo
 }

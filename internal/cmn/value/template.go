@@ -13,36 +13,29 @@ import (
 )
 
 var (
-	reVarSubstitution       = regexp.MustCompile(`\$\{([^}]+)\}|\$([a-zA-Z0-9_][a-zA-Z0-9_]*)`)
-	bindingRefPattern       = regexp.MustCompile(`\$\{([^}]+)\}`)
-	bindingShorthandPattern = regexp.MustCompile(`\$consts(\.[A-Za-z_][A-Za-z0-9_]*)+`)
-	bindingNamePattern      = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
-	quotedReferencePattern  = regexp.MustCompile(`"\$\{([A-Za-z0-9_]\w*(?:\.[^}]+)?)\}"`)
-	referencePattern        = regexp.MustCompile(`\$\{([A-Za-z0-9_]\w*)(\.[^}]+)\}|\$([A-Za-z0-9_]\w*)(\.[^\s]+)`)
+	reVarSubstitution      = regexp.MustCompile(`\$\{([^}]+)\}|\$([a-zA-Z0-9_][a-zA-Z0-9_]*)`)
+	bindingRefPattern      = regexp.MustCompile(`\$\{([^}]+)\}`)
+	bindingNamePattern     = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
+	quotedReferencePattern = regexp.MustCompile(`"\$\{([A-Za-z0-9_]\w*(?:\.[^}]+)?)\}"`)
+	referencePattern       = regexp.MustCompile(`\$\{([A-Za-z0-9_]\w*)(\.[^}]+)\}|\$([A-Za-z0-9_]\w*)(\.[^\s]+)`)
 )
 
 type template struct{ source string }
 
-func checkBindings(input string, scope RuntimeScope) error {
-	if match := bindingShorthandPattern.FindString(input); match != "" {
-		return fmt.Errorf("invalid binding shorthand %s; use ${...}", match)
-	}
-	if malformed := malformedBinding(input); malformed != "" {
-		return fmt.Errorf("malformed binding %s", malformed)
-	}
+func checkBindings(ctx context.Context, input string, scope RuntimeScope) error {
 	_, err := walkBindings(input, func(token, path string) (string, error) {
-		_, err := bindingValue(path, scope, false)
+		_, err := bindingValue(ctx, path, scope, false)
 		return token, err
 	})
 	return err
 }
 
-func resolveBindings(input string, scope RuntimeScope) (string, error) {
-	if err := checkBindings(input, scope); err != nil {
+func resolveBindings(ctx context.Context, input string, scope RuntimeScope) (string, error) {
+	if err := checkBindings(ctx, input, scope); err != nil {
 		return "", err
 	}
 	return walkBindings(input, func(_ string, path string) (string, error) {
-		value, err := bindingValue(path, scope, true)
+		value, err := bindingValue(ctx, path, scope, true)
 		if err != nil {
 			return "", err
 		}
@@ -187,7 +180,7 @@ func walkBindings(input string, visit func(token, path string) (string, error)) 
 	last := 0
 	for _, loc := range bindingRefPattern.FindAllStringSubmatchIndex(input, -1) {
 		path := strings.TrimSpace(input[loc[2]:loc[3]])
-		if !reservedBinding(bindingNamespace(path)) {
+		if !supportedStrictBinding(strings.Split(path, ".")) {
 			continue
 		}
 		b.WriteString(input[last:loc[0]])
@@ -202,17 +195,37 @@ func walkBindings(input string, visit func(token, path string) (string, error)) 
 	return b.String(), nil
 }
 
-func bindingValue(path string, scope RuntimeScope, requireValue bool) (any, error) {
+func bindingValue(ctx context.Context, path string, scope RuntimeScope, requireValue bool) (any, error) {
 	segments := strings.Split(path, ".")
-	if err := validateBindingSegments(segments); err != nil {
-		return nil, err
+	if !supportedStrictBinding(segments) {
+		return nil, nil
 	}
 	switch segments[0] {
 	case "consts":
 		return bindingMapValue("consts", segments[1], scope.Consts, requireValue)
+	case "params":
+		return bindingMapValue("params", segments[1], scope.Params, requireValue)
+	case "steps":
+		return bindingStepOutputValue(ctx, segments, scope.Steps, requireValue)
 	default:
 		return nil, nil
 	}
+}
+
+func bindingStepOutputValue(ctx context.Context, segments []string, steps map[string]StepInfo, requireValue bool) (any, error) {
+	if len(steps) == 0 && !requireValue {
+		return nil, nil
+	}
+	stepName := segments[1]
+	path := "." + strings.Join(segments[2:], ".")
+	value, ok := resolveStepProperty(ctx, stepName, path, steps)
+	if ok {
+		return value, nil
+	}
+	if !requireValue {
+		return nil, nil
+	}
+	return nil, fmt.Errorf("unknown steps.%s.%s binding", stepName, strings.Join(segments[2:], "."))
 }
 
 func bindingMapValue(namespace, name string, values Values, requireValue bool) (any, error) {
@@ -221,9 +234,45 @@ func bindingMapValue(namespace, name string, values Values, requireValue bool) (
 	}
 	value, ok := values[name]
 	if !ok {
+		if namespace == "params" {
+			return nil, fmt.Errorf("unknown params.%s binding", name)
+		}
 		return nil, fmt.Errorf("unknown %s binding %q", namespace, name)
 	}
 	return value, nil
+}
+
+func supportedStrictBinding(segments []string) bool {
+	switch segments[0] {
+	case "consts", "params":
+		return len(segments) == 2 &&
+			bindingNamePattern.MatchString(segments[0]) &&
+			bindingNamePattern.MatchString(segments[1])
+	case "steps":
+		if len(segments) < 4 || segments[2] != "outputs" {
+			return false
+		}
+		if !validStepOutputStepName(segments[1]) {
+			return false
+		}
+		for _, segment := range segments[3:] {
+			if !validOutputPathSegment(segment) {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
+}
+
+func strictBindingNamespace(namespace string) bool {
+	switch namespace {
+	case "consts", "params":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateBindingSegments(segments []string) error {
@@ -235,14 +284,21 @@ func validateBindingSegments(segments []string) error {
 			return fmt.Errorf("binding path segment %q is invalid", segment)
 		}
 	}
-	if segments[0] == "consts" && len(segments) != 2 {
-		return fmt.Errorf("consts bindings must use ${consts.<name>}")
+	switch segments[0] {
+	case "consts":
+		if len(segments) != 2 {
+			return fmt.Errorf("consts bindings must use ${consts.<name>}")
+		}
+	case "params":
+		if len(segments) != 2 {
+			return fmt.Errorf("params bindings must use ${params.<name>}")
+		}
 	}
 	return nil
 }
 
 func reservedBinding(namespace string) bool {
-	return namespace == "consts"
+	return strictBindingNamespace(namespace)
 }
 
 func malformedBinding(value string) string {

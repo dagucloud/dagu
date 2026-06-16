@@ -101,8 +101,8 @@ func ValidateSteps(dag *DAG) error {
 
 func validateBindingReferences(dag *DAG) ErrorList {
 	var errs ErrorList
-	scope := cmnvalue.StaticScope{Consts: cmnvalue.Values(dag.Consts)}
-	resolver := cmnvalue.NewResolver(scope, cmnvalue.RuntimeScope{Consts: cmnvalue.Values(dag.Consts)})
+	scope := cmnvalue.StaticScope{Consts: cmnvalue.Values(dag.Consts), Params: dag.ParamDeclarations()}
+	resolver := cmnvalue.NewResolver(scope, cmnvalue.RuntimeScope{Consts: cmnvalue.Values(dag.Consts), Params: dag.ParamValues()})
 	fields := ReferenceFields(dag)
 	for _, field := range fields {
 		if !strings.Contains(field.Value, "$") {

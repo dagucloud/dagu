@@ -1,0 +1,9 @@
+params:
+  - name: environment
+    description: Runtime environment.
+  - name: service
+    eval: $(printf '%s-api' ${params.environment})
+working_dir: .
+steps:
+  - name: ok
+    run: "true"

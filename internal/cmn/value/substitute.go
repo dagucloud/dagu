@@ -211,3 +211,75 @@ func substituteCommandsWithContext(ctx context.Context, input string) (string, e
 
 	return result.String(), nil
 }
+
+func substituteShellCommandsWithContext(ctx context.Context, input string) (string, error) {
+	var result strings.Builder
+	runes := []rune(input)
+	for i := 0; i < len(runes); i++ {
+		if runes[i] != '$' || i+1 >= len(runes) || runes[i+1] != '(' {
+			result.WriteRune(runes[i])
+			continue
+		}
+
+		cmd, end, ok := readShellCommandSubstitution(runes, i+2)
+		if !ok {
+			result.WriteString("$(")
+			i++
+			continue
+		}
+		output, err := runCommandWithContext(ctx, unescapeDollars(ctx, cmd))
+		if err != nil {
+			return "", err
+		}
+		result.WriteString(output)
+		i = end
+	}
+	return result.String(), nil
+}
+
+func readShellCommandSubstitution(runes []rune, start int) (string, int, bool) {
+	var cmd strings.Builder
+	depth := 1
+	var singleQuoted bool
+	var doubleQuoted bool
+	var escaped bool
+
+	for i := start; i < len(runes); i++ {
+		r := runes[i]
+		if escaped {
+			cmd.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			cmd.WriteRune(r)
+			escaped = true
+			continue
+		}
+		if r == '\'' && !doubleQuoted {
+			singleQuoted = !singleQuoted
+			cmd.WriteRune(r)
+			continue
+		}
+		if r == '"' && !singleQuoted {
+			doubleQuoted = !doubleQuoted
+			cmd.WriteRune(r)
+			continue
+		}
+		if singleQuoted {
+			cmd.WriteRune(r)
+			continue
+		}
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return cmd.String(), i, true
+			}
+		}
+		cmd.WriteRune(r)
+	}
+	return "", 0, false
+}

@@ -1,0 +1,10 @@
+params:
+  - name: environment
+    description: Runtime environment.
+working_dir: .
+env:
+  ROOT_VALUE: "${params.environment}"
+steps:
+  - name: write
+    run: |
+      printf '%s\n' "$ROOT_VALUE" > root-env.txt

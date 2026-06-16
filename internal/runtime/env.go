@@ -152,21 +152,25 @@ func resolveWorkingDirStrict(ctx context.Context, step core.Step, rCtx Context) 
 	return fallbackWorkingDir(ctx, step.Name), nil
 }
 
-func expandRuntimeConsts(raw string, dag *core.DAG, field cmnvalue.Field) (string, error) {
+func expandRuntimeValue(raw string, dag *core.DAG, scope *cmnvalue.EnvScope, field cmnvalue.Field) (string, error) {
 	var consts cmnvalue.Values
+	var params cmnvalue.Values
+	var paramDeclarations cmnvalue.Values
 	if dag != nil {
 		consts = cmnvalue.Values(dag.Consts)
+		params = dag.ParamValues()
+		paramDeclarations = dag.ParamDeclarations()
 	}
 	resolver := cmnvalue.NewResolver(
-		cmnvalue.StaticScope{Consts: consts},
-		cmnvalue.RuntimeScope{Consts: consts},
+		cmnvalue.StaticScope{Consts: consts, Params: paramDeclarations},
+		cmnvalue.RuntimeScope{Consts: consts, Params: params, Env: scope},
 	)
 	return resolver.String(context.Background(), raw, field)
 }
 
 // expandStepDir expands value references and environment variables in step.Dir.
 func expandStepDir(ctx context.Context, dir string, dag *core.DAG) string {
-	expanded, err := expandRuntimeConsts(dir, dag, cmnvalue.StepDirField("working_dir"))
+	expanded, err := expandRuntimeValue(dir, dag, nil, cmnvalue.StepDirField("working_dir"))
 	if err != nil {
 		logger.Warn(ctx, "Failed to evaluate step working directory",
 			tag.Dir(dir),
@@ -178,7 +182,7 @@ func expandStepDir(ctx context.Context, dir string, dag *core.DAG) string {
 }
 
 func expandStepDirStrict(dir string, dag *core.DAG) (string, error) {
-	expanded, err := expandRuntimeConsts(dir, dag, cmnvalue.StepDirField("working_dir"))
+	expanded, err := expandRuntimeValue(dir, dag, nil, cmnvalue.StepDirField("working_dir"))
 	if err != nil {
 		return "", fmt.Errorf("failed to evaluate step working directory %q: %w", dir, err)
 	}
@@ -282,7 +286,7 @@ func dagRunWorkDir(rCtx Context) string {
 }
 
 func expandDAGWorkingDir(ctx context.Context, workingDir string, rCtx Context) string {
-	wd, err := expandRuntimeConsts(workingDir, rCtx.DAG, cmnvalue.DAGWorkingDirField("working_dir"))
+	wd, err := expandRuntimeValue(workingDir, rCtx.DAG, rCtx.EnvScope, cmnvalue.DAGWorkingDirField("working_dir"))
 	if err != nil {
 		logger.Warn(ctx, "Failed to evaluate working directory",
 			tag.Dir(workingDir),
@@ -306,7 +310,7 @@ func expandDAGWorkingDir(ctx context.Context, workingDir string, rCtx Context) s
 }
 
 func expandDAGWorkingDirStrict(workingDir string, rCtx Context) (string, error) {
-	wd, err := expandRuntimeConsts(workingDir, rCtx.DAG, cmnvalue.DAGWorkingDirField("working_dir"))
+	wd, err := expandRuntimeValue(workingDir, rCtx.DAG, rCtx.EnvScope, cmnvalue.DAGWorkingDirField("working_dir"))
 	if err != nil {
 		return "", fmt.Errorf("failed to evaluate working directory %q: %w", workingDir, err)
 	}
@@ -349,43 +353,55 @@ func fallbackWorkingDir(ctx context.Context, stepName string) string {
 
 // Shell returns the shell command to use for this execution context.
 func (e Env) Shell(ctx context.Context) []string {
+	shell, err := e.ResolveShell(ctx)
+	if err != nil {
+		logger.Error(ctx, "Failed to evaluate shell", tag.Error(err))
+		return nil
+	}
+	return shell
+}
+
+// ResolveShell returns the shell command to use for this execution context.
+func (e Env) ResolveShell(ctx context.Context) ([]string, error) {
 	// Shell precedence: Step shell -> DAG shell -> Global default
 	if e.Step.Shell != "" {
 		shell, err := evalShellWithScope(ctx, e.DAG, e.Scope, e.Step.Shell, e.Step.ShellArgs, cmnvalue.StepShellField)
 		if err != nil {
-			logger.Error(ctx, "Failed to evaluate step shell",
-				tag.String("shell", e.Step.Shell),
-				tag.Error(err),
-			)
-			return nil
+			return nil, fmt.Errorf("failed to evaluate step shell %q: %w", e.Step.Shell, err)
 		}
-		return shell
+		return shell, nil
 	}
 
 	if e.DAG != nil && e.DAG.Shell != "" {
 		shell, err := evalShellWithScope(ctx, e.DAG, e.Scope, e.DAG.Shell, e.DAG.ShellArgs, cmnvalue.DAGShellField)
 		if err != nil {
-			logger.Error(ctx, "Failed to evaluate DAG shell",
-				tag.String("shell", e.DAG.Shell),
-				tag.Error(err),
-			)
-			return nil
+			return nil, fmt.Errorf("failed to evaluate DAG shell %q: %w", e.DAG.Shell, err)
 		}
-		return shell
+		return shell, nil
 	}
 
-	return defaultShell(ctx)
+	return defaultShell(ctx), nil
 }
 
 // DAGShell returns the evaluated shell command for DAG-level operations.
 // This is used for preconditions and other operations that run before any steps.
 // Unlike Env.Shell(), this doesn't require a step context.
 func DAGShell(ctx context.Context) []string {
+	shell, err := ResolveDAGShell(ctx)
+	if err != nil {
+		logger.Error(ctx, "Failed to evaluate DAG shell", tag.Error(err))
+		return nil
+	}
+	return shell
+}
+
+// ResolveDAGShell returns the evaluated shell command for DAG-level operations.
+func ResolveDAGShell(ctx context.Context) ([]string, error) {
 	rCtx := GetDAGContext(ctx)
 	dag := rCtx.DAG
 
 	if dag == nil || dag.Shell == "" {
-		return defaultShell(ctx)
+		return defaultShell(ctx), nil
 	}
 
 	scope := rCtx.EnvScope
@@ -395,24 +411,24 @@ func DAGShell(ctx context.Context) []string {
 
 	shell, err := evalShellWithScope(ctx, dag, scope, dag.Shell, dag.ShellArgs, cmnvalue.DAGShellField)
 	if err != nil {
-		logger.Error(ctx, "Failed to evaluate DAG shell",
-			tag.String("shell", dag.Shell),
-			tag.Error(err),
-		)
-		return nil
+		return nil, fmt.Errorf("failed to evaluate DAG shell %q: %w", dag.Shell, err)
 	}
-	return shell
+	return shell, nil
 }
 
 // evalShellWithScope evaluates shell command and arguments using the given scope.
 func evalShellWithScope(ctx context.Context, dag *core.DAG, scope *cmnvalue.EnvScope, shell string, shellArgs []string, fieldForPath func(string) cmnvalue.Field) ([]string, error) {
 	var consts cmnvalue.Values
+	var params cmnvalue.Values
+	var paramDeclarations cmnvalue.Values
 	if dag != nil {
 		consts = cmnvalue.Values(dag.Consts)
+		params = dag.ParamValues()
+		paramDeclarations = dag.ParamDeclarations()
 	}
 	resolver := cmnvalue.NewResolver(
-		cmnvalue.StaticScope{Consts: consts},
-		cmnvalue.RuntimeScope{Consts: consts, Env: scope},
+		cmnvalue.StaticScope{Consts: consts, Params: paramDeclarations},
+		cmnvalue.RuntimeScope{Consts: consts, Params: params, Env: scope},
 	)
 	shellCmd, err := resolver.String(ctx, shell, fieldForPath("shell"))
 	if err != nil {
@@ -423,12 +439,7 @@ func evalShellWithScope(ctx context.Context, dag *core.DAG, scope *cmnvalue.EnvS
 	for i, arg := range shellArgs {
 		evaluated, err := resolver.String(ctx, arg, fieldForPath(fmt.Sprintf("shell_args[%d]", i)))
 		if err != nil {
-			logger.Error(ctx, "Failed to evaluate shell argument",
-				tag.String("arg", arg),
-				tag.Error(err),
-			)
-			// Continue with unevaluated arg rather than failing completely
-			evaluated = arg
+			return nil, fmt.Errorf("failed to evaluate shell argument %q: %w", arg, err)
 		}
 		result = append(result, evaluated)
 	}

@@ -114,6 +114,11 @@ Missing runtime values fail only when the run input does not provide them.
 Black-box coverage is exhaustive only when every Spec 003 value-resolution field has an explicit params case.
 The `params[].eval` dynamic-evaluation boundary also needs an explicit params case.
 
+Conformance tests for this spec must follow the Spec 002 and Spec 004 fixture pattern.
+Each workflow shape belongs in a static YAML file under `tests/testdata/005_value_resolution_params`.
+The Go test should select fixture files and assert process results.
+It must not generate DAG YAML dynamically.
+
 For each field where params are available, the conformance suite must include:
 
 - a valid declared-name case that proves `${params.name}` resolves;

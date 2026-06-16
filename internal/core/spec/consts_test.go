@@ -74,7 +74,7 @@ func TestReservedBindingsValidateRunFields(t *testing.T) {
 		want string
 	}{
 		{
-			name: "RejectsReservedShorthand",
+			name: "KeepsReservedShorthand",
 			yaml: `
 consts:
   - service: api
@@ -82,7 +82,6 @@ steps:
   - name: print
     run: echo $consts.service
 `,
-			want: "invalid binding shorthand",
 		},
 		{
 			name: "RejectsUnknownConst",

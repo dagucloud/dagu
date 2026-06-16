@@ -77,10 +77,6 @@ func scanReferences(raw string) []reference {
 			Start:     loc[0],
 			End:       loc[1],
 		}
-		if reservedBinding(namespace) {
-			ref.Kind = referenceInvalid
-			ref.Err = fmt.Errorf("invalid binding shorthand %s; use ${%s}", rawRef, expr)
-		}
 		refs = append(refs, ref)
 	}
 
@@ -101,12 +97,8 @@ func classifyBracedReference(rawRef, expr string, start, end int) reference {
 		Start:     start,
 		End:       end,
 	}
-	if reservedBinding(ref.Namespace) {
+	if supportedStrictBinding(segments) {
 		ref.Kind = referenceStrict
-		if err := validateBindingSegments(segments); err != nil {
-			ref.Kind = referenceInvalid
-			ref.Err = err
-		}
 		return ref
 	}
 	if strings.Contains(expr, ".") {
@@ -188,7 +180,7 @@ func validateReferences(raw string, staticScope StaticScope, mode mode, field st
 	refs := scanReferences(raw)
 	var errs []string
 	for _, ref := range refs {
-		if mode == modeConstLoad && ref.Braced && runtimeBindingNamespace(ref.Namespace) {
+		if mode == modeConstLoad && runtimeReferenceAvailableAfterConstLoad(ref) {
 			errs = append(errs, fmt.Sprintf("%s is not available while loading consts", ref.Raw))
 			continue
 		}
@@ -211,28 +203,47 @@ func validateReferences(raw string, staticScope StaticScope, mode mode, field st
 	return fmt.Errorf("%s", strings.Join(errs, "; "))
 }
 
-func runtimeBindingNamespace(namespace string) bool {
-	switch namespace {
-	case "params", "env", "steps":
-		return true
-	default:
-		return false
-	}
-}
-
 func validateStrictReference(ref reference, scope StaticScope) error {
-	if ref.Namespace == "consts" {
+	switch ref.Namespace {
+	case "consts":
 		return validateMapReference(ref, "consts", scope.Consts)
+	case "params":
+		return validateMapReference(ref, "params", scope.Params)
+	default:
+		return nil
 	}
-	return nil
 }
 
 func validateMapReference(ref reference, namespace string, values Values) error {
-	if len(ref.Segments) != 2 {
-		return validateBindingSegments(ref.Segments)
-	}
 	if _, ok := values[ref.Segments[1]]; !ok {
 		return fmt.Errorf("unknown %s binding %s", namespace, ref.Raw)
 	}
 	return nil
+}
+
+func runtimeReferenceAvailableAfterConstLoad(ref reference) bool {
+	if !ref.Braced {
+		return false
+	}
+	switch ref.Namespace {
+	case "params":
+		return supportedStrictBinding(ref.Segments)
+	case "env":
+		return len(ref.Segments) == 2 && bindingNamePattern.MatchString(ref.Segments[0]) && bindingNamePattern.MatchString(ref.Segments[1])
+	case "steps":
+		if len(ref.Segments) < 4 || ref.Segments[2] != "outputs" {
+			return false
+		}
+		if !validStepOutputStepName(ref.Segments[1]) {
+			return false
+		}
+		for _, segment := range ref.Segments[3:] {
+			if !validOutputPathSegment(segment) {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
 }

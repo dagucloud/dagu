@@ -129,14 +129,17 @@ func resolveLegacyEntries(ctx BuildContext, plan *dagParamPlan, rawParams string
 	}
 
 	scope := buildParamEvalScope(ctx)
+	params := make(cmnvalue.Values)
+	paramDeclarations := paramDeclarationsForPlan(plan)
 	for i := range entries {
 		if i < len(plan.entries) {
-			if err := resolveLegacyEntry(ctx, &entries[i], plan.entries[i], overridden[i], &scope, i); err != nil {
+			if err := resolveLegacyEntry(ctx, &entries[i], plan.entries[i], overridden[i], &scope, params, paramDeclarations, i); err != nil {
 				return nil, err
 			}
 			continue
 		}
 		addEntryToParamScope(&scope, entries[i], i)
+		addEntryToParamValues(params, entries[i])
 	}
 
 	if plan.schema == nil {
@@ -399,10 +402,13 @@ func resolveLegacyEntry(
 	base dagParamEntry,
 	overridden bool,
 	scope **cmnvalue.EnvScope,
+	params cmnvalue.Values,
+	paramDeclarations cmnvalue.Values,
 	index int,
 ) error {
 	if overridden || strings.TrimSpace(base.Eval) == "" || ctx.opts.Has(BuildFlagNoEval) {
 		addEntryToParamScope(scope, *entry, index)
+		addEntryToParamValues(params, *entry)
 		return nil
 	}
 
@@ -414,13 +420,15 @@ func resolveLegacyEntry(
 	if *scope != nil {
 		runtimeScope.Env = *scope
 	}
-	resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{}, runtimeScope)
+	runtimeScope.Params = params
+	resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{Params: paramDeclarations}, runtimeScope)
 	value, err := resolver.String(evalCtx, base.Eval, cmnvalue.DynamicParamEvalField("params"))
 	if err != nil {
 		if base.HasValue {
 			entry.Value = base.Value
 			entry.HasValue = true
 			addEntryToParamScope(scope, *entry, index)
+			addEntryToParamValues(params, *entry)
 			return nil
 		}
 		return core.NewValidationError(
@@ -433,6 +441,7 @@ func resolveLegacyEntry(
 	entry.Value = value
 	entry.HasValue = true
 	addEntryToParamScope(scope, *entry, index)
+	addEntryToParamValues(params, *entry)
 	return nil
 }
 
@@ -445,6 +454,17 @@ func addEntryToParamScope(scope **cmnvalue.EnvScope, entry dagParamEntry, index 
 		return
 	}
 	*scope = (*scope).WithEntry(name, entry.Value, cmnvalue.EnvSourceParam)
+}
+
+func addEntryToParamValues(params cmnvalue.Values, entry dagParamEntry) {
+	if params == nil || !entry.HasValue {
+		return
+	}
+	name := strings.TrimSpace(entry.Name)
+	if !isParamReferenceName(name) {
+		return
+	}
+	params[name] = entry.Value
 }
 
 func paramScopeName(entry dagParamEntry, index int) string {

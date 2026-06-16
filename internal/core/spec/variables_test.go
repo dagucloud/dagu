@@ -7,6 +7,7 @@ import (
 	"context"
 	"testing"
 
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core/spec/types"
 	"github.com/goccy/go-yaml"
 	"github.com/stretchr/testify/assert"
@@ -413,6 +414,24 @@ CMD: "$(echo hello)"
 		require.NoError(t, err)
 		assert.Equal(t, "/opt", result["BASE"])
 		assert.Equal(t, "/opt/bin", result["PATH_VAR"])
+	})
+
+	t.Run("ParamReference", func(t *testing.T) {
+		ctx := BuildContext{
+			ctx: context.Background(),
+			envScope: &envScopeState{
+				scope:             cmnvalue.NewEnvScope(nil, false),
+				params:            cmnvalue.Values{"environment": "prod"},
+				paramDeclarations: cmnvalue.Values{"environment": ""},
+			},
+		}
+
+		env := envValueFromYAML(t, `
+ENVIRONMENT: ${params.environment}
+`)
+		result, err := loadVariablesFromEnvValue(ctx, env)
+		require.NoError(t, err)
+		assert.Equal(t, "prod", result["ENVIRONMENT"])
 	})
 
 	t.Run("IntegerValue", func(t *testing.T) {

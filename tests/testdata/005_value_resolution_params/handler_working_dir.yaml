@@ -1,0 +1,12 @@
+params:
+  - name: environment
+    description: Runtime environment.
+working_dir: .
+handler_on:
+  success:
+    working_dir: "handler-work-${params.environment}"
+    run: |
+      printf '%s\n' prod > handler-working-dir.txt
+steps:
+  - name: ok
+    run: "true"

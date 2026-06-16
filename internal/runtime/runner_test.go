@@ -2009,6 +2009,62 @@ func TestRunner_DAGPreconditions(t *testing.T) {
 	})
 }
 
+func TestRunner_DAGPreconditionShellResolutionError(t *testing.T) {
+	r := setupRunner(t)
+	plan := r.newPlan(t, successStep("1"))
+
+	dag := &core.DAG{
+		Name:       "test_dag",
+		WorkingDir: plan.workDir,
+		Shell:      "/bin/sh",
+		ShellArgs:  []string{"${params.shell_arg}"},
+		ParamDefs: []core.ParamDef{{
+			Name: "shell_arg",
+			Type: core.ParamDefTypeString,
+		}},
+		Preconditions: []*core.Condition{{
+			Condition: "exit 0",
+		}},
+	}
+	logFilename := fmt.Sprintf("%s_%s.log", dag.Name, r.cfg.DAGRunID)
+	logFilePath := filepath.Join(r.cfg.LogDir, logFilename)
+	ctx := runtime.NewContext(plan.Context, dag, r.cfg.DAGRunID, logFilePath)
+
+	err := r.runner.Run(ctx, plan.Plan, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "params.shell_arg")
+}
+
+func TestRunner_StepPreconditionResolutionError(t *testing.T) {
+	r := setupRunner(t)
+	plan := r.newPlan(t,
+		newStep("1",
+			withPrecondition(&core.Condition{Condition: "${params.ready}", Expected: "true"}),
+			withCommand("echo should_not_run"),
+		),
+	)
+
+	dag := &core.DAG{
+		Name:       "test_dag",
+		WorkingDir: plan.workDir,
+		ParamDefs: []core.ParamDef{{
+			Name: "ready",
+			Type: core.ParamDefTypeString,
+		}},
+	}
+	logFilename := fmt.Sprintf("%s_%s.log", dag.Name, r.cfg.DAGRunID)
+	logFilePath := filepath.Join(r.cfg.LogDir, logFilename)
+	ctx := runtime.NewContext(plan.Context, dag, r.cfg.DAGRunID, logFilePath)
+
+	err := r.runner.Run(ctx, plan.Plan, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "params.ready")
+
+	node := plan.GetNodeByName("1")
+	require.NotNil(t, node)
+	assert.Equal(t, core.NodeFailed, node.State().Status)
+}
+
 func TestRunner_StatusDefersForcedStatusUntilTerminal(t *testing.T) {
 	t.Run("RunningStatusWinsBeforeForcedTerminalStatus", func(t *testing.T) {
 		r := setupRunner(t, withForcedStatus(core.Failed))

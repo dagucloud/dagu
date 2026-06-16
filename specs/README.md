@@ -42,6 +42,15 @@ behavior until implementation catches up.
 - Remove obsolete functionality or behavior unless an owning spec explicitly keeps it.
 - Do not add tests that verify a functionality or behavior is removed.
 
+**Conformance test guidelines:**
+
+- Follow the Spec 002 and Spec 004 pattern.
+- Put workflow examples in static YAML fixtures under `tests/testdata/<spec_slug>`.
+- Keep Go conformance tests as small tables over fixture filenames and expected outcomes.
+- Do not generate DAG YAML dynamically in Go test code.
+- Add a new fixture when a behavior needs a new workflow shape.
+- Keep setup helpers limited to runtime files or directories that the static fixture needs.
+
 **Each spec should document:**
 
 | Section | Purpose |

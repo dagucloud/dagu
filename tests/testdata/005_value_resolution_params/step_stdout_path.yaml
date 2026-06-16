@@ -1,0 +1,9 @@
+params:
+  - name: environment
+    description: Runtime environment.
+working_dir: .
+steps:
+  - name: write
+    run: |
+      printf '%s\n' prod
+    stdout: "stdout-${params.environment}.txt"

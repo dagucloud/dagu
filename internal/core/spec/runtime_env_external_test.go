@@ -129,6 +129,75 @@ steps:
 	require.Equal(t, "foo", runtimeEnvSliceMap(result.Env)["TARGET_TABLE"])
 }
 
+func TestResolveEnvWithWarningsLoadsDotenvWithParamsReference(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	workDir := filepath.Join(root, "zscores")
+	require.NoError(t, os.MkdirAll(workDir, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, ".env.prod"), []byte("TARGET_TABLE=prod\n"), 0o600))
+
+	yamlData := fmt.Appendf(nil, `
+name: calculate_zscores
+working_dir: %q
+params:
+  - name: ENVIRONMENT
+    type: string
+dotenv:
+  - ".env.${params.ENVIRONMENT}"
+steps:
+  - name: assert_variables_defined
+    run: echo "${TARGET_TABLE}"
+`, workDir)
+	dag, err := spec.LoadYAML(context.Background(), yamlData, spec.WithParams("ENVIRONMENT=prod"))
+	require.NoError(t, err)
+	require.Contains(t, dag.Params, "ENVIRONMENT=prod")
+	dag.LoadDotEnv(context.Background())
+	require.Empty(t, dag.BuildErrors)
+	require.Equal(t, "prod", runtimeEnvSliceMap(dag.Env)["TARGET_TABLE"])
+
+	persisted := dag.Clone()
+	persisted.Env = nil
+	persisted.Params = nil
+	result, err := spec.ResolveEnvWithWarnings(context.Background(), persisted, []string{"ENVIRONMENT=prod"}, spec.ResolveEnvOptions{})
+	require.NoError(t, err)
+	require.Equal(t, "prod", runtimeEnvSliceMap(result.Env)["TARGET_TABLE"])
+}
+
+func TestResolveEnvWithWarningsRejectsMissingDotenvParamReference(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	workDir := filepath.Join(root, "zscores")
+	require.NoError(t, os.MkdirAll(workDir, 0o750))
+
+	yamlData := fmt.Appendf(nil, `
+name: calculate_zscores
+working_dir: %q
+params:
+  - name: ENVIRONMENT
+    type: string
+dotenv:
+  - ".env.${params.ENVIRONMENT}"
+steps:
+  - name: assert_variables_defined
+    run: echo "${TARGET_TABLE}"
+`, workDir)
+	dag, err := spec.LoadYAML(context.Background(), yamlData)
+	require.NoError(t, err)
+	dag.LoadDotEnv(context.Background())
+	require.NotEmpty(t, dag.BuildErrors)
+	require.Contains(t, dag.BuildErrors[0].Error(), "params.ENVIRONMENT")
+
+	persisted, err := spec.LoadYAML(context.Background(), yamlData)
+	require.NoError(t, err)
+	persisted.Env = nil
+	persisted.EnvEvaluated = false
+	_, err = spec.ResolveEnvWithWarnings(context.Background(), persisted, nil, spec.ResolveEnvOptions{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "params.ENVIRONMENT")
+}
+
 func TestResolveEnvWithWarningsDoesNotMutateDAGBackingSlices(t *testing.T) {
 	t.Parallel()
 

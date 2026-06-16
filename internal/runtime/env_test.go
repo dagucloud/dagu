@@ -98,6 +98,44 @@ func TestDAGShell(t *testing.T) {
 	})
 }
 
+func TestResolveDAGShellResolvesParams(t *testing.T) {
+	t.Parallel()
+
+	dag := &core.DAG{
+		Shell:     "/bin/sh",
+		ShellArgs: []string{"${params.shell_arg}"},
+		ParamDefs: []core.ParamDef{{
+			Name: "shell_arg",
+			Type: core.ParamDefTypeString,
+		}},
+		Params: []string{"shell_arg=-c"},
+	}
+	ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
+
+	got, err := runtime.ResolveDAGShell(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/bin/sh", "-c"}, got)
+}
+
+func TestResolveDAGShellRejectsMissingParam(t *testing.T) {
+	t.Parallel()
+
+	dag := &core.DAG{
+		Shell:     "/bin/sh",
+		ShellArgs: []string{"${params.shell_arg}"},
+		ParamDefs: []core.ParamDef{{
+			Name: "shell_arg",
+			Type: core.ParamDefTypeString,
+		}},
+	}
+	ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
+
+	got, err := runtime.ResolveDAGShell(ctx)
+	require.Error(t, err)
+	assert.Nil(t, got)
+	assert.Contains(t, err.Error(), "params.shell_arg")
+}
+
 // TestEnvShell tests the Env.Shell method
 func TestEnvShell(t *testing.T) {
 	t.Run("StepShellTakesPrecedence", func(t *testing.T) {
@@ -189,6 +227,46 @@ func TestEnvShell(t *testing.T) {
 		result := env.Shell(ctx)
 		assert.Equal(t, []string{"/bin/custom"}, result)
 	})
+}
+
+func TestEnvResolveShellResolvesParams(t *testing.T) {
+	t.Parallel()
+
+	dag := &core.DAG{
+		Shell:     "/bin/sh",
+		ShellArgs: []string{"${params.shell_arg}"},
+		ParamDefs: []core.ParamDef{{
+			Name: "shell_arg",
+			Type: core.ParamDefTypeString,
+		}},
+		Params: []string{"shell_arg=-c"},
+	}
+	ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
+	env := runtime.NewEnv(ctx, core.Step{Name: "test-step"})
+
+	got, err := env.ResolveShell(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/bin/sh", "-c"}, got)
+}
+
+func TestEnvResolveShellRejectsMissingParam(t *testing.T) {
+	t.Parallel()
+
+	dag := &core.DAG{
+		Shell:     "/bin/sh",
+		ShellArgs: []string{"${params.shell_arg}"},
+		ParamDefs: []core.ParamDef{{
+			Name: "shell_arg",
+			Type: core.ParamDefTypeString,
+		}},
+	}
+	ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
+	env := runtime.NewEnv(ctx, core.Step{Name: "test-step"})
+
+	got, err := env.ResolveShell(ctx)
+	require.Error(t, err)
+	assert.Nil(t, got)
+	assert.Contains(t, err.Error(), "params.shell_arg")
 }
 
 func TestConstResolutionInWorkingDirs(t *testing.T) {

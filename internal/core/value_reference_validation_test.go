@@ -50,7 +50,7 @@ func TestValidateStepsConstReferencesUseRootConstScope(t *testing.T) {
 		assert.Contains(t, err.Error(), "unknown consts binding")
 	})
 
-	t.Run("const shorthand is invalid", func(t *testing.T) {
+	t.Run("const shorthand is ordinary content", func(t *testing.T) {
 		t.Parallel()
 		dag := &core.DAG{
 			Consts: map[string]any{"service": "api"},
@@ -63,13 +63,11 @@ func TestValidateStepsConstReferencesUseRootConstScope(t *testing.T) {
 			},
 		}
 
-		err := core.ValidateSteps(dag)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid binding shorthand")
+		require.NoError(t, core.ValidateSteps(dag))
 	})
 }
 
-func TestValidateStepsIgnoresFutureStrictNamespaces(t *testing.T) {
+func TestValidateStepsHandlesParamsAndFutureStrictNamespaces(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -79,6 +77,9 @@ func TestValidateStepsIgnoresFutureStrictNamespaces(t *testing.T) {
 		{
 			name: "ParamReference",
 			dag: &core.DAG{
+				ParamDefs: []core.ParamDef{
+					{Name: "environment", Type: core.ParamDefTypeString},
+				},
 				Steps: []core.Step{
 					{
 						Name:           "print",

@@ -85,6 +85,9 @@ func TestEvalStringResolvesConstsOnlyReservedBinding(t *testing.T) {
 		Consts: map[string]any{
 			"service": "api",
 		},
+		ParamDefs: []core.ParamDef{
+			{Name: "environment", Type: core.ParamDefTypeString},
+		},
 		Params: []string{"environment=prod"},
 	}, "", "")
 	env := runtime.NewEnv(ctx, core.Step{Name: "test-step"})
@@ -99,7 +102,7 @@ func TestEvalStringResolvesConstsOnlyReservedBinding(t *testing.T) {
 
 	got, err := runtime.ResolveString(ctx, "${consts.service} ${params.environment} ${env.HOME} ${steps.build.outputs.image}", cmnvalue.WorkflowField("test"))
 	require.NoError(t, err)
-	assert.Equal(t, "api ${params.environment} ${env.HOME} ${steps.build.outputs.image}", got)
+	assert.Equal(t, "api prod ${env.HOME} repo/api:v1", got)
 }
 
 func TestEvalStringPreservesBacktickSubstitution(t *testing.T) {

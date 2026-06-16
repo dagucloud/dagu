@@ -83,7 +83,9 @@ func parseScheduleTimeParam(ctx *Context) (string, error) {
 func restoreDAGFromStatus(ctx context.Context, dag *core.DAG, status *exec.DAGRunStatus) (*core.DAG, error) {
 	runtimeParams := append([]string(nil), status.ParamsList...)
 	dag.Params = runtimeParams
-	dagwarning.LoadDotEnv(ctx, dag)
+	if err := dagwarning.LoadDotEnv(ctx, dag); err != nil {
+		return nil, err
+	}
 	restored, err := rebuildDAGFromYAML(ctx, dag, spec.QuoteRuntimeParams(runtimeParams, dag.ParamDefs))
 	if err != nil {
 		return nil, err

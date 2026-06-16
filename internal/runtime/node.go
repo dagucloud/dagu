@@ -365,6 +365,7 @@ func (n *Node) captureOutput(ctx context.Context) error {
 			return fmt.Errorf("failed to evaluate structured output: %w", err)
 		}
 		n.setOutputValue(value)
+		n.setOutputsValue(value)
 	}
 
 	if step.HasOutputSchema() && !step.HasStructuredOutput() {

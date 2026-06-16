@@ -479,7 +479,9 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// Resolve secrets early so they're available for OTel config evaluation.
 	// LoadDotEnv is idempotent - safe to call even if already loaded by caller.
-	dagwarning.LoadDotEnv(ctx, a.dag)
+	if err := dagwarning.LoadDotEnv(ctx, a.dag); err != nil {
+		return fmt.Errorf("failed to load dotenv: %w", err)
+	}
 
 	secretEnvs, secretErr := a.resolveSecrets(ctx)
 	profileValues, profileErr := a.resolveProfile(ctx)

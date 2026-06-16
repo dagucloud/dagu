@@ -89,8 +89,15 @@ func expandAllVariables(ctx context.Context, input string, opts *options) (strin
 }
 
 // substitutePhase runs backtick command substitution.
-func substitutePhase(ctx context.Context, input string, _ *options) (string, error) {
-	return substituteCommandsWithContext(ctx, input)
+func substitutePhase(ctx context.Context, input string, opts *options) (string, error) {
+	value, err := substituteCommandsWithContext(ctx, input)
+	if err != nil {
+		return "", err
+	}
+	if !opts.SubstituteShellCommand {
+		return value, nil
+	}
+	return substituteShellCommandsWithContext(ctx, value)
 }
 
 // regexExpandEnv performs regex-based variable expansion. When ExpandOS is true,

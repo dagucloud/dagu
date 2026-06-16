@@ -1,0 +1,13 @@
+params:
+  - name: environment
+    description: Runtime environment.
+working_dir: .
+handler_on:
+  success:
+    env:
+      HANDLER_VALUE: "${params.environment}"
+    run: |
+      printf '%s\n' "$HANDLER_VALUE" > handler-env.txt
+steps:
+  - name: ok
+    run: "true"

@@ -150,11 +150,19 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 
 	// If one of the conditions does not met, cancel the execution.
 	rCtx := GetDAGContext(ctx)
-	// Get evaluated shell for DAG-level preconditions (no step context needed)
-	shell := DAGShell(ctx)
-	if err := EvalConditions(ctx, shell, rCtx.DAG.Preconditions); err != nil {
-		logger.Info(ctx, "Preconditions are not met", tag.Error(err))
-		r.Cancel(plan)
+	if len(rCtx.DAG.Preconditions) > 0 {
+		shell, err := ResolveDAGShell(ctx)
+		if err != nil {
+			logger.Info(ctx, "Preconditions are not met", tag.Error(err))
+			r.setLastError(err)
+			r.Cancel(plan)
+		} else if err := EvalConditions(ctx, shell, rCtx.DAG.Preconditions); err != nil {
+			logger.Info(ctx, "Preconditions are not met", tag.Error(err))
+			if !errors.Is(err, ErrConditionNotMet) {
+				r.setLastError(err)
+			}
+			r.Cancel(plan)
+		}
 	}
 
 	// Execute init handler after preconditions pass, before steps
@@ -481,7 +489,13 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 
 	// Check preconditions
 	logger.Debug(ctx, "Checking preconditions")
-	if !meetsPreconditions(ctx, node, progressCh) {
+	met, err := meetsPreconditions(ctx, node, progressCh)
+	if err != nil {
+		r.setLastError(err)
+		r.Cancel(plan)
+		return
+	}
+	if !met {
 		return
 	}
 
@@ -806,38 +820,42 @@ func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) (co
 		}
 	}
 
-	// Helper to evaluate and store environment variables
-	addEnvVars := func(envList []string, fieldPrefix string, fieldForKey func(string) cmnvalue.Field) {
-		for _, v := range envList {
-			key, value, found := strings.Cut(v, "=")
-			if !found {
-				logger.Error(ctx, "Invalid environment variable format", slog.String("var", v))
-				continue
-			}
-			evaluatedValue, err := resolverFromEnv(env).String(ctx, value, fieldForKey(fieldPrefix+key))
-			if err != nil {
-				logger.Error(ctx, "Failed to evaluate environment variable",
-					slog.String("var", v),
-					tag.Error(err),
-				)
-				continue
-			}
-			env.Scope = env.Scope.WithEntry(key, evaluatedValue, cmnvalue.EnvSourceStepEnv)
-		}
-	}
-
 	// Add step-level environment variables
-	addEnvVars(node.Step().Env, "env.", cmnvalue.StepEnvField)
+	if err := addResolvedEnvVars(ctx, &env, node.Step().Env, "env.", cmnvalue.StepEnvField); err != nil {
+		return ctx, err
+	}
 
 	// Add container environment variables (step-level takes precedence over DAG-level)
 	// This ensures container env vars are available when evaluating command arguments
 	if ct := node.Step().Container; ct != nil {
-		addEnvVars(ct.Env, "container.env.", cmnvalue.ContainerEnvField)
+		if err := addResolvedEnvVars(ctx, &env, ct.Env, "container.env.", cmnvalue.ContainerEnvField); err != nil {
+			return ctx, err
+		}
 	} else if dag := env.DAG; dag != nil && dag.Container != nil {
-		addEnvVars(dag.Container.Env, "container.env.", cmnvalue.ContainerEnvField)
+		if err := addResolvedEnvVars(ctx, &env, dag.Container.Env, "container.env.", cmnvalue.ContainerEnvField); err != nil {
+			return ctx, err
+		}
+	}
+	if _, err := env.ResolveShell(ctx); err != nil {
+		return ctx, err
 	}
 
 	return WithEnv(ctx, env), nil
+}
+
+func addResolvedEnvVars(ctx context.Context, env *Env, envList []string, fieldPrefix string, fieldForKey func(string) cmnvalue.Field) error {
+	for _, v := range envList {
+		key, value, found := strings.Cut(v, "=")
+		if !found {
+			return fmt.Errorf("invalid environment variable format %q", v)
+		}
+		evaluatedValue, err := resolverFromEnv(*env).String(ctx, value, fieldForKey(fieldPrefix+key))
+		if err != nil {
+			return fmt.Errorf("failed to evaluate environment variable %q: %w", v, err)
+		}
+		env.Scope = env.Scope.WithEntry(key, evaluatedValue, cmnvalue.EnvSourceStepEnv)
+	}
+	return nil
 }
 
 func (r *Runner) setupEnvironEventHandler(
@@ -873,6 +891,13 @@ func (r *Runner) setupEnvironEventHandler(
 
 	for k, v := range extraEnvs {
 		env.Scope = env.Scope.WithEntry(k, v, cmnvalue.EnvSourceStepEnv)
+	}
+
+	if err := addResolvedEnvVars(ctx, &env, node.Step().Env, "env.", cmnvalue.StepEnvField); err != nil {
+		return ctx, err
+	}
+	if _, err := env.ResolveShell(ctx); err != nil {
+		return ctx, err
 	}
 
 	// Load all output variables from all nodes
@@ -1115,13 +1140,17 @@ func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, ex
 
 	if err := node.Prepare(ctx, r.logDir, r.dagRunID); err != nil {
 		node.SetStatus(core.NodeFailed)
-		return nil
+		return err
 	}
 	defer func() { _ = node.Teardown() }()
 
 	if err := node.evalPreconditions(ctx); err != nil {
-		node.SetStatus(core.NodeSkipped)
-		return nil
+		if errors.Is(err, ErrConditionNotMet) {
+			node.SetStatus(core.NodeSkipped)
+			return nil
+		}
+		node.SetStatus(core.NodeFailed)
+		return err
 	}
 
 	node.SetStatus(core.NodeRunning)
@@ -1387,20 +1416,24 @@ func externalStepRetryEnabled(ctx context.Context) bool {
 }
 
 // checkPreconditions evaluates the preconditions for a node and updates its status accordingly.
-func meetsPreconditions(ctx context.Context, node *Node, progressCh chan *Node) bool {
+func meetsPreconditions(ctx context.Context, node *Node, progressCh chan *Node) (bool, error) {
 	err := node.evalPreconditions(ctx)
 	if err != nil {
-		// Precondition not met, skip the node
-		node.SetStatus(core.NodeSkipped)
-		if !errors.Is(err, ErrConditionNotMet) {
-			node.SetError(err)
+		if errors.Is(err, ErrConditionNotMet) {
+			node.SetStatus(core.NodeSkipped)
+			if progressCh != nil {
+				progressCh <- node
+			}
+			return false, nil
 		}
+		node.SetStatus(core.NodeFailed)
+		node.SetError(err)
 		if progressCh != nil {
 			progressCh <- node
 		}
-		return false
+		return false, err
 	}
-	return true
+	return true, nil
 }
 
 // handleNodeExecutionError handles the error from node execution and determines if it should be retried.

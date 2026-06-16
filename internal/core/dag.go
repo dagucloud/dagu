@@ -480,6 +480,8 @@ func (d *DAG) Validate() error {
 		}
 	}
 
+	errs = append(errs, validateBindingReferences(d)...)
+
 	for _, err := range d.validateOutputReferences() {
 		errs = append(errs, NewValidationError("output reference", nil, err))
 	}
@@ -596,12 +598,12 @@ func (d *DAG) loadSingleDotEnvFile(ctx context.Context, resolver *fileutil.FileR
 	}
 
 	valueResolver := cmnvalue.NewResolver(
-		cmnvalue.StaticScope{Consts: cmnvalue.Values(d.Consts)},
-		cmnvalue.RuntimeScope{Consts: cmnvalue.Values(d.Consts), Env: cmnvalue.GetEnvScope(ctx)},
+		cmnvalue.StaticScope{Consts: cmnvalue.Values(d.Consts), Params: d.ParamDeclarations()},
+		cmnvalue.RuntimeScope{Consts: cmnvalue.Values(d.Consts), Params: d.ParamValues(), Env: cmnvalue.GetEnvScope(ctx)},
 	)
 	evaluatedPath, err := valueResolver.String(ctx, filePath, cmnvalue.DotenvPathField("dotenv"))
 	if err != nil {
-		d.BuildWarnings = append(d.BuildWarnings, fmt.Sprintf("failed to evaluate dotenv path %q: %v", filePath, err))
+		d.BuildErrors = append(d.BuildErrors, fmt.Errorf("failed to evaluate dotenv path %q: %w", filePath, err))
 		return
 	}
 
@@ -670,6 +672,64 @@ func (d *DAG) ParamsMap() map[string]string {
 		}
 	}
 	return params
+}
+
+// ParamDeclarations returns named parameters that can be referenced through ${params.name}.
+func (d *DAG) ParamDeclarations() cmnvalue.Values {
+	if d == nil || len(d.ParamDefs) == 0 {
+		return nil
+	}
+	params := make(cmnvalue.Values, len(d.ParamDefs))
+	for _, def := range d.ParamDefs {
+		name := strings.TrimSpace(def.Name)
+		if !isNamedValueParam(name) {
+			continue
+		}
+		params[name] = nil
+	}
+	if len(params) == 0 {
+		return nil
+	}
+	return params
+}
+
+// ParamValues returns named runtime parameter values for ${params.name}.
+func (d *DAG) ParamValues() cmnvalue.Values {
+	if d == nil {
+		return nil
+	}
+	paramsMap := d.ParamsMap()
+	if len(paramsMap) == 0 {
+		return nil
+	}
+	params := make(cmnvalue.Values, len(paramsMap))
+	for name, value := range paramsMap {
+		if !isNamedValueParam(name) {
+			continue
+		}
+		params[name] = value
+	}
+	if len(params) == 0 {
+		return nil
+	}
+	return params
+}
+
+func isNamedValueParam(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i, r := range name {
+		switch {
+		case i == 0 && ((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z')):
+			continue
+		case i > 0 && ((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_'):
+			continue
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // ProcGroup returns the name of the process group for this DAG.

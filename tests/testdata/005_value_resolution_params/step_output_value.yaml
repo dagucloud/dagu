@@ -1,0 +1,14 @@
+params:
+  - name: environment
+    description: Runtime environment.
+working_dir: .
+steps:
+  - id: produce
+    run: "true"
+    output:
+      result:
+        value: "${params.environment}"
+  - name: consume
+    depends: produce
+    run: |
+      printf '%s\n' '${steps.produce.outputs.result}' > output-value.txt

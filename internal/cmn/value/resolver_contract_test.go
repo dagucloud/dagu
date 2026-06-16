@@ -28,30 +28,60 @@ func TestResolverConstLoadResolvesConstsAndRejectsRuntimeBindings(t *testing.T) 
 	assert.Contains(t, err.Error(), "not available while loading consts")
 }
 
-func TestResolverStaticValidationLeavesFutureNamespacesUnresolved(t *testing.T) {
+func TestResolverStaticValidationResolvesParamsAndLeavesOtherNamespacesUnresolved(t *testing.T) {
 	ctx := context.Background()
+	output := `{"image":"repo/app:1"}`
 	resolver := value.NewResolver(
-		value.StaticScope{Consts: value.Values{"service": "api"}},
-		value.RuntimeScope{Consts: value.Values{"service": "api"}},
+		value.StaticScope{
+			Consts: value.Values{"service": "api"},
+			Params: value.Values{"name": nil},
+		},
+		value.RuntimeScope{
+			Consts: value.Values{"service": "api"},
+			Params: value.Values{"name": "prod"},
+			Steps: map[string]value.StepInfo{
+				"build": {Outputs: &output},
+			},
+		},
 	)
 
-	for _, raw := range []string{
-		"${params.name}",
-		"${env.NAME}",
-		"${steps.build.outputs.image}",
-		"$params.name",
-		"$env.NAME",
-		"$steps.build",
-	} {
-		require.NoError(t, resolver.Validate(raw, value.StaticValidationField("field")))
-		got, err := resolver.String(ctx, raw, value.StaticValidationField("field"))
-		require.NoError(t, err)
-		assert.Equal(t, raw, got)
+	tests := []struct {
+		raw  string
+		want string
+	}{
+		{raw: "${params.name}", want: "prod"},
+		{raw: "${env.NAME}", want: "${env.NAME}"},
+		{raw: "${steps.build.outputs.image}", want: "repo/app:1"},
+		{raw: "$params.name", want: "$params.name"},
+		{raw: "$env.NAME", want: "$env.NAME"},
+		{raw: "$steps.build", want: "$steps.build"},
+		{raw: "$consts.service", want: "$consts.service"},
 	}
 
-	err := resolver.Validate("$consts.service", value.StaticValidationField("field"))
+	for _, tt := range tests {
+		require.NoError(t, resolver.Validate(tt.raw, value.StaticValidationField("field")))
+		got, err := resolver.String(ctx, tt.raw, value.StaticValidationField("field"))
+		require.NoError(t, err)
+		assert.Equal(t, tt.want, got)
+	}
+
+	err := resolver.Validate("${params.missing}", value.StaticValidationField("field"))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid binding shorthand")
+	assert.Contains(t, err.Error(), "${params.missing}")
+}
+
+func TestResolverParamDeclarationsAreNotRuntimeValues(t *testing.T) {
+	t.Parallel()
+
+	resolver := value.NewResolver(
+		value.StaticScope{Params: value.Values{"name": nil}},
+		value.RuntimeScope{},
+	)
+
+	_, err := resolver.String(context.Background(), "${params.name}", value.StepDirField("working_dir"))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown params.name binding")
 }
 
 func TestResolverWorkflowFieldUsesNonOSEnvAndStepRefsOnly(t *testing.T) {
@@ -70,9 +100,9 @@ func TestResolverWorkflowFieldUsesNonOSEnvAndStepRefsOnly(t *testing.T) {
 		},
 	)
 
-	got, err := resolver.String(ctx, "$SCOPED:$OS_SCOPED:${build.stdout}:${build.outputs.image}", value.WorkflowField("steps[0].command"))
+	got, err := resolver.String(ctx, "$SCOPED:$OS_SCOPED:${build.stdout}:${build.outputs.image}:${steps.build.outputs.image}", value.WorkflowField("steps[0].command"))
 	require.NoError(t, err)
-	assert.Equal(t, "from-scope:$OS_SCOPED:stdout.txt:repo/app:1", got)
+	assert.Equal(t, "from-scope:$OS_SCOPED:stdout.txt:repo/app:1:repo/app:1", got)
 }
 
 func TestResolverDirectCommandFieldUsesDirectOSFallback(t *testing.T) {
