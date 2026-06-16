@@ -217,7 +217,7 @@ jobs:
           case "${suite}" in
             unit)
               packages="$(
-                go list ./... | awk -v prefix="${module_path}/internal/intg" '$0 != prefix && index($0, prefix "/") != 1' | xargs
+                go list ./... | awk -v intg_prefix="${module_path}/internal/intg" -v conformance="${module_path}/tests" '$0 != conformance && $0 != intg_prefix && index($0, intg_prefix "/") != 1' | xargs
               )"
               ;;
             intg)
@@ -352,7 +352,7 @@ jobs:
           case "${suite}" in
             unit)
               packages="$(
-                go list ./... | awk -v prefix="${module_path}/internal/intg" '$0 != prefix && index($0, prefix "/") != 1' | xargs
+                go list ./... | awk -v intg_prefix="${module_path}/internal/intg" -v conformance="${module_path}/tests" '$0 != conformance && $0 != intg_prefix && index($0, intg_prefix "/") != 1' | xargs
               )"
               ;;
             intg)

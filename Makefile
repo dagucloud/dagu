@@ -3,7 +3,8 @@
 ##############################################################################
 
 VERSION=
-TEST_TARGET?=./...
+TEST_TARGET?=$(shell go list ./... | awk '$$0 !~ /\/tests$$/' | xargs)
+CONFORMANCE_TEST_TARGET?=./tests
 
 ##############################################################################
 # Variables
@@ -29,6 +30,7 @@ LDFLAGS=-X 'main.version=$(BUILD_VERSION)'
 
 # Application name
 APP_NAME=dagu
+DAGU_BIN?=${LOCAL_BIN_DIR}/${APP_NAME}
 
 # Docker image build configuration
 DOCKER_CMD := docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7,linux/arm64/v8 --builder container --build-arg LDFLAGS="$(LDFLAGS)" --push --no-cache
@@ -151,7 +153,7 @@ run-server-https: ${SERVER_CERT_FILE} ${SERVER_KEY_FILE}
 		DAGU_KEY_FILE=${SERVER_KEY_FILE} \
 		go run ./cmd start-all
 
-# test runs all tests.
+# test runs Go tests except conformance tests.
 .PHONY: test
 test: bin
 	@printf '%b\n' "${COLOR_GREEN}Running tests...${COLOR_RESET}"
@@ -159,7 +161,13 @@ test: bin
 	@go clean -testcache
 	@${LOCAL_BIN_DIR}/gotestsum ${GOTESTSUM_ARGS} -- ${GO_TEST_FLAGS} ${TEST_TARGET}
 
-# test-coverage runs all tests with coverage.
+# test-conformance runs binary-level conformance tests.
+.PHONY: test-conformance
+test-conformance: bin
+	@printf '%b\n' "${COLOR_GREEN}Running conformance tests...${COLOR_RESET}"
+	@DAGU_BIN=${DAGU_BIN} go test -count=1 ${CONFORMANCE_TEST_TARGET}
+
+# test-coverage runs Go tests except conformance tests with coverage by default.
 .PHONY: test-coverage
 test-coverage:
 	@printf '%b\n' "${COLOR_GREEN}Running tests with coverage...${COLOR_RESET}"

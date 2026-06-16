@@ -1,11 +1,11 @@
-name: Black-box Tests
+name: Test Conformance
 
 on:
   push:
     branches:
       - main
     paths:
-      - ".github/workflows/blackbox-tests.yml"
+      - ".github/workflows/test-conformance.yml"
       - "cmd/**"
       - "go.mod"
       - "go.sum"
@@ -21,7 +21,7 @@ on:
       - synchronize
       - ready_for_review
     paths:
-      - ".github/workflows/blackbox-tests.yml"
+      - ".github/workflows/test-conformance.yml"
       - "cmd/**"
       - "go.mod"
       - "go.sum"
@@ -38,8 +38,8 @@ env:
   GO_VERSION: "1.26.4"
 
 jobs:
-  blackbox:
-    name: Black-box tests
+  conformance:
+    name: Conformance tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -53,10 +53,5 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Build Dagu binary
-        run: make bin
-
-      - name: Run black-box tests
-        env:
-          DAGU_BIN: ${{ github.workspace }}/.local/bin/dagu
-        run: go test -count=1 ./tests
+      - name: Run conformance tests
+        run: make test-conformance

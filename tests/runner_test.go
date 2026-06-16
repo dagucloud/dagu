@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Runner executes Dagu commands against an isolated black-box test project.
+// Runner executes Dagu commands against an isolated conformance test project.
 type Runner struct {
 	t   *testing.T
 	dir string
@@ -150,7 +150,7 @@ func daguBinary(t *testing.T) string {
 
 	bin := os.Getenv("DAGU_BIN")
 	if bin == "" {
-		t.Skip("set DAGU_BIN to run binary-level blackbox tests")
+		t.Fatal("DAGU_BIN is required to run binary-level conformance tests")
 	}
 
 	if filepath.IsAbs(bin) {
