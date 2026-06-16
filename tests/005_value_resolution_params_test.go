@@ -68,6 +68,37 @@ func Test005ValueResolutionParamsValidateRejectsInvalidReferencesByField(t *test
 	}
 }
 
+func Test005ValueResolutionParamsValidateParamsEvalReferences(t *testing.T) {
+	t.Parallel()
+
+	t.Run("declared", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := newRunner(t, "005_value_resolution_params")
+		file := writeSpec005DAG(t, dagu, "valid_params_eval.yaml", spec005ParamsEvalDAG(`${params.environment}`))
+
+		result := dagu.Run("validate", file)
+		result.ExpectExitCode(0)
+		result.ExpectStdout("")
+		result.ExpectStderr("")
+		dagu.ExpectNoFile("executed.txt")
+	})
+
+	t.Run("undeclared", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := newRunner(t, "005_value_resolution_params")
+		file := writeSpec005DAG(t, dagu, "undeclared_params_eval.yaml", spec005ParamsEvalDAG(`${params.missing}`))
+
+		result := dagu.Run("validate", file)
+		result.ExpectExitCode(1)
+		result.ExpectStdout("")
+		result.ExpectStderrContains("params", "${params.missing}")
+		result.ExpectStderrNotContains("Usage:")
+		dagu.ExpectNoFile("executed.txt")
+	})
+}
+
 func Test005ValueResolutionParamsValidateUnsupportedLocations(t *testing.T) {
 	t.Parallel()
 
@@ -82,7 +113,7 @@ func Test005ValueResolutionParamsValidateUnsupportedLocations(t *testing.T) {
 			stderrParts: []string{"consts", "${params.environment}"},
 		},
 		{
-			name:        "params declarations do not support references",
+			name:        "params defaults do not support references",
 			file:        "params_reference_in_params_declaration.yaml",
 			stderrParts: []string{"params", "${params.environment}"},
 		},
@@ -283,6 +314,14 @@ func (tc spec005RuntimeFieldCase) runtimeParams() string {
 
 func spec005RuntimeFieldCases() []spec005RuntimeFieldCase {
 	cases := []spec005RuntimeFieldCase{
+		{
+			name:          "params_eval",
+			yaml:          spec005ParamsEvalRuntimeDAG(),
+			params:        "environment=prod",
+			outputFile:    "params-eval.txt",
+			outputContent: "prod-api\n",
+			missingParam:  "environment",
+		},
 		{
 			name: "root_env_map",
 			yaml: spec005RuntimeDAG(`
@@ -1766,6 +1805,35 @@ func spec005RuntimeDAG(body string) string {
 
 %s
 `, body)
+}
+
+func spec005ParamsEvalDAG(ref string) string {
+	return fmt.Sprintf(`params:
+  - name: environment
+    description: Runtime environment.
+  - name: service
+    eval: $(printf '%%s-api' %s)
+
+working_dir: .
+steps:
+  - name: ok
+    run: "true"
+`, ref)
+}
+
+func spec005ParamsEvalRuntimeDAG() string {
+	return `params:
+  - name: environment
+    description: Runtime environment.
+  - name: service
+    eval: $(printf '%s-api' ${params.environment})
+
+working_dir: .
+steps:
+  - name: write
+    run: |
+      printf '%s\n' '${params.service}' > params-eval.txt
+`
 }
 
 func spec005DAG(body string) string {

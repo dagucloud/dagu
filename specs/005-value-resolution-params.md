@@ -42,7 +42,12 @@ fail only when the run input does not provide them.
 
 - Positional parameters are not addressable through the `params` namespace.
 
-- `params` declarations do not support Dagu references.
+- `params[].default` and declaration metadata do not support Dagu
+  references.
+
+- `params[].eval` is dynamic-evaluated by Spec 010 and Spec 011. It is not a
+  normal value-resolution field, but Dagu references inside it use this spec's
+  reference form, declaration rules, and runtime lookup rules.
 
 ### Reference Form
 
@@ -64,11 +69,14 @@ fail only when the run input does not provide them.
 - `${params.name}` is available in every Spec 003 value-resolution field whose
   resolution timing occurs after runtime params are available.
 
+- `${params.name}` is available inside `params[].eval` according to the dynamic
+  evaluation rules in Spec 010 and Spec 011.
+
 - `${params.name}` is not available in root `consts` list-form values because
   `consts` resolution can see only earlier `consts` entries.
 
-- `${params.name}` is not available inside `params` declarations because
-  `params` declarations do not support Dagu references.
+- `${params.name}` is not available inside `params[].default` or declaration
+  metadata because those fields are literal.
 
 - The validator and runtime must use the same field availability rules.
 
@@ -113,7 +121,8 @@ fail only when the run input does not provide them.
 ## Black-Box Conformance Viewpoint
 
 Black-box coverage for this spec is exhaustive only when every Spec 003
-value-resolution field has an explicit params case.
+value-resolution field, plus the `params[].eval` dynamic-evaluation boundary,
+has an explicit params case.
 
 For each field where params are available, the conformance suite must include:
 
@@ -132,6 +141,7 @@ The exhaustive field viewpoint is:
 | Spec 003 field surface | Params conformance case |
 | --- | --- |
 | `consts` list form | Negative case: `${params.name}` is unavailable because only earlier `${consts.*}` entries are visible. |
+| `params[].eval` | Cross-spec dynamic-evaluation case: `${params.name}` references in `eval` resolve before command substitution; missing runtime values fail before the evaluated parameter is consumed. |
 | `env` | Root environment values in map form, array-of-map form, and `KEY=value` list form resolve declared params. |
 | `dotenv[]` | Each dotenv path string resolves declared params. |
 | `shell`, `shell_args[]`, `working_dir` | Root shell command, shell args, and working directory resolve declared params. |
