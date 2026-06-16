@@ -4,6 +4,7 @@
 package value
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -178,32 +179,102 @@ func validOutputPathSegment(segment string) bool {
 	return true
 }
 
-// validateReferences validates strict references against a static scope.
+// validateReferences keeps value-reference misses non-fatal.
 func validateReferences(raw string, staticScope StaticScope, mode mode, field string) error {
 	refs := scanReferences(raw)
-	var errs []string
 	for _, ref := range refs {
-		if mode == modeConstLoad && runtimeReferenceAvailableAfterConstLoad(ref) {
-			errs = append(errs, fmt.Sprintf("%s is not available while loading consts", ref.Raw))
-			continue
-		}
 		//nolint:exhaustive // Eval references are intentionally allowed and need no validation here.
 		switch ref.Kind {
 		case referenceInvalid:
-			errs = append(errs, ref.Err.Error())
+			continue
 		case referenceStrict:
-			if err := validateStrictReference(ref, staticScope); err != nil {
-				errs = append(errs, err.Error())
-			}
+			continue
 		}
 	}
-	if len(errs) == 0 {
+	_ = staticScope
+	_ = mode
+	_ = field
+	return nil
+}
+
+func referenceWarnings(raw string, staticScope StaticScope, runtimeScope RuntimeScope, mode mode, field string) []string {
+	refs := scanReferences(raw)
+	if len(refs) == 0 {
 		return nil
 	}
-	if field != "" {
-		return fmt.Errorf("%s: %s", field, strings.Join(errs, "; "))
+
+	var warnings []string
+	seen := make(map[string]struct{})
+	for _, ref := range refs {
+		if ref.Kind != referenceStrict {
+			continue
+		}
+		err := referenceMiss(ref, staticScope, runtimeScope, mode)
+		if err == nil {
+			continue
+		}
+		key := field + "\x00" + ref.Raw
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		warnings = append(warnings, referenceWarning(field, ref.Raw, err))
 	}
-	return fmt.Errorf("%s", strings.Join(errs, "; "))
+	return warnings
+}
+
+func referenceMiss(ref reference, staticScope StaticScope, runtimeScope RuntimeScope, mode mode) error {
+	if mode == modeConstLoad && runtimeReferenceAvailableAfterConstLoad(ref) {
+		return fmt.Errorf("%s is not available while loading consts", ref.Raw)
+	}
+
+	switch ref.Namespace {
+	case "consts":
+		return mapReferenceMiss(ref, "consts", staticScope.Consts)
+	case "params":
+		return paramReferenceMiss(ref, staticScope.Params, runtimeScope.Params)
+	case "env":
+		if runtimeScope.Env == nil {
+			return nil
+		}
+		if _, ok := runtimeScope.Env.Get(ref.Segments[1]); ok {
+			return nil
+		}
+		return fmt.Errorf("unknown env.%s binding", ref.Segments[1])
+	case "steps":
+		if runtimeScope.Steps == nil {
+			return nil
+		}
+		_, err := bindingStepOutputValue(context.Background(), ref.Segments, runtimeScope.Steps, true)
+		return err
+	default:
+		return nil
+	}
+}
+
+func mapReferenceMiss(ref reference, namespace string, values Values) error {
+	if _, ok := values[ref.Segments[1]]; ok {
+		return nil
+	}
+	return fmt.Errorf("unknown %s binding %s", namespace, ref.Raw)
+}
+
+func paramReferenceMiss(ref reference, declarations, values Values) error {
+	name := ref.Segments[1]
+	if _, ok := declarations[name]; !ok {
+		return fmt.Errorf("unknown params.%s binding", name)
+	}
+	if value, ok := values[name]; ok && value != nil {
+		return nil
+	}
+	return fmt.Errorf("params.%s has no runtime value", name)
+}
+
+func referenceWarning(field, token string, err error) string {
+	if field == "" {
+		return fmt.Sprintf("value reference %s could not be resolved; preserving literal text: %v", token, err)
+	}
+	return fmt.Sprintf("%s: value reference %s could not be resolved; preserving literal text: %v", field, token, err)
 }
 
 func validateStrictReference(ref reference, scope StaticScope) error {

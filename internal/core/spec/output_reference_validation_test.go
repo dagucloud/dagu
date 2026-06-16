@@ -36,11 +36,11 @@ steps:
 
 		dag, err := spec.Load(context.Background(), testDAG)
 		require.NoError(t, err)
-		err = dag.Validate()
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), `route`)
-		assert.Contains(t, err.Error(), `${classify.output.priority}`)
-		assert.Contains(t, err.Error(), `priority`)
+		require.NoError(t, dag.Validate())
+		require.NotEmpty(t, dag.BuildWarnings)
+		assert.Contains(t, dag.BuildWarnings[0], `route`)
+		assert.Contains(t, dag.BuildWarnings[0], `${classify.output.priority}`)
+		assert.Contains(t, dag.BuildWarnings[0], `priority`)
 	})
 
 	t.Run("AllowsUnknownFieldForOpenOutputSchema", func(t *testing.T) {
@@ -134,11 +134,11 @@ steps:
 
 		dag, err := spec.Load(context.Background(), testDAG)
 		require.NoError(t, err)
-		err = dag.Validate()
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), `publish`)
-		assert.Contains(t, err.Error(), `${build.output.artifact}`)
-		assert.Contains(t, err.Error(), `version`)
+		require.NoError(t, dag.Validate())
+		require.NotEmpty(t, dag.BuildWarnings)
+		assert.Contains(t, dag.BuildWarnings[0], `publish`)
+		assert.Contains(t, dag.BuildWarnings[0], `${build.output.artifact}`)
+		assert.Contains(t, dag.BuildWarnings[0], `version`)
 	})
 
 	t.Run("AllowsKnownFieldForObjectFormOutput", func(t *testing.T) {

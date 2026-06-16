@@ -235,7 +235,7 @@ steps:
       - name: image_tag
 ```
 
-Invalid undeclared output reference:
+Warning-only undeclared output reference:
 
 ```yaml
 steps:
@@ -246,7 +246,7 @@ steps:
     run: ./deploy.sh ${steps.build.outputs.image_tag}
 ```
 
-Invalid missing dependency:
+Warning-only missing dependency:
 
 ```yaml
 steps:
@@ -266,8 +266,8 @@ steps:
 - A black-box fixture verifies `dagu validate` rejects duplicate output names in one step.
 - A black-box fixture verifies `dagu validate` rejects invalid output types.
 - A black-box fixture verifies `dagu validate` rejects a step with `outputs` but no `id`.
-- A black-box fixture verifies `dagu validate` rejects an output reference to an undeclared output.
-- A black-box fixture verifies `dagu validate` rejects an output reference without a direct or transitive dependency on the producing step.
+- A black-box fixture verifies `dagu validate` warns and preserves an output reference to an undeclared output.
+- A black-box fixture verifies `dagu validate` warns and preserves an output reference without a direct or transitive dependency on the producing step.
 - A black-box fixture verifies `dagu run` resolves a string output emitted through `DAGU_OUTPUT_FILE`.
 - A black-box fixture verifies `dagu run` resolves a multi-line output emitted through `DAGU_OUTPUT_FILE`.
 - A black-box fixture verifies `dagu run` does not resolve stdout as a step output.

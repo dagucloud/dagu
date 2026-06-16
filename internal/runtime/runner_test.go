@@ -1094,7 +1094,7 @@ func TestRunner(t *testing.T) {
 			require.Contains(t, result.Error.Error(), "no such file or directory")
 		}
 	})
-	t.Run("InvalidWorkingDirResolutionFailsBeforeScript", func(t *testing.T) {
+	t.Run("InvalidWorkingDirReferencePreservesThenFailsBeforeScript", func(t *testing.T) {
 		r := setupRunner(t)
 
 		sentinel := filepath.Join(t.TempDir(), "executed")
@@ -1114,7 +1114,8 @@ func TestRunner(t *testing.T) {
 
 		err := r.runner.Run(ctx, plan.Plan, nil)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "failed to evaluate step working directory")
+		require.Contains(t, err.Error(), "failed to setup script")
+		require.Contains(t, err.Error(), "${consts.missing}")
 		require.Equal(t, core.Failed.String(), r.runner.Status(ctx, plan.Plan).String())
 
 		node := plan.GetNodeByName("1")
@@ -2009,7 +2010,7 @@ func TestRunner_DAGPreconditions(t *testing.T) {
 	})
 }
 
-func TestRunner_DAGPreconditionShellResolutionError(t *testing.T) {
+func TestRunner_DAGPreconditionShellReferencePreserved(t *testing.T) {
 	r := setupRunner(t)
 	plan := r.newPlan(t, successStep("1"))
 
@@ -2031,11 +2032,11 @@ func TestRunner_DAGPreconditionShellResolutionError(t *testing.T) {
 	ctx := runtime.NewContext(plan.Context, dag, r.cfg.DAGRunID, logFilePath)
 
 	err := r.runner.Run(ctx, plan.Plan, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "params.shell_arg")
+	require.NoError(t, err)
+	assert.Equal(t, core.Aborted, r.runner.Status(ctx, plan.Plan))
 }
 
-func TestRunner_StepPreconditionResolutionError(t *testing.T) {
+func TestRunner_StepPreconditionReferencePreserved(t *testing.T) {
 	r := setupRunner(t)
 	plan := r.newPlan(t,
 		newStep("1",
@@ -2057,12 +2058,12 @@ func TestRunner_StepPreconditionResolutionError(t *testing.T) {
 	ctx := runtime.NewContext(plan.Context, dag, r.cfg.DAGRunID, logFilePath)
 
 	err := r.runner.Run(ctx, plan.Plan, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "params.ready")
+	require.NoError(t, err)
+	assert.Equal(t, core.Succeeded, r.runner.Status(ctx, plan.Plan))
 
 	node := plan.GetNodeByName("1")
 	require.NotNil(t, node)
-	assert.Equal(t, core.NodeFailed, node.State().Status)
+	assert.Equal(t, core.NodeSkipped, node.State().Status)
 }
 
 func TestRunner_StatusDefersForcedStatusUntilTerminal(t *testing.T) {

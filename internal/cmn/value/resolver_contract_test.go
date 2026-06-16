@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestResolverConstLoadResolvesConstsAndRejectsRuntimeBindings(t *testing.T) {
+func TestResolverConstLoadResolvesConstsAndPreservesRuntimeBindings(t *testing.T) {
 	ctx := context.Background()
 	resolver := value.NewResolver(
 		value.StaticScope{Consts: value.Values{"service": "api"}},
@@ -24,8 +24,98 @@ func TestResolverConstLoadResolvesConstsAndRejectsRuntimeBindings(t *testing.T) 
 	assert.Equal(t, "api", got)
 
 	err = resolver.Validate("${params.environment}", value.ConstLoadField("consts.bad"))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not available while loading consts")
+	require.NoError(t, err)
+
+	got, err = resolver.String(ctx, "${params.environment}", value.ConstLoadField("consts.bad"))
+	require.NoError(t, err)
+	assert.Equal(t, "${params.environment}", got)
+}
+
+func TestResolverUnresolvedStrictReferencesWarnAndPreserve(t *testing.T) {
+	t.Parallel()
+
+	resolver := value.NewResolver(
+		value.StaticScope{
+			Consts: value.Values{"service": "api"},
+			Params: value.Values{"environment": nil},
+		},
+		value.RuntimeScope{
+			Consts: value.Values{"service": "api"},
+		},
+	)
+
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "unknown const", raw: "${consts.missing}", want: "${consts.missing}"},
+		{name: "missing param value", raw: "${params.environment}", want: "${params.environment}"},
+		{name: "missing env value", raw: "${env.RUNTIME_ONLY}", want: "${env.RUNTIME_ONLY}"},
+		{name: "missing step output", raw: "${steps.build.outputs.image}", want: "${steps.build.outputs.image}"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolver.String(context.Background(), tt.raw, value.WorkflowField("run"))
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestResolverWarningsReportsDedupedStrictMisses(t *testing.T) {
+	t.Parallel()
+
+	resolver := value.NewResolver(
+		value.StaticScope{
+			Consts: value.Values{"service": "api"},
+			Params: value.Values{"environment": nil},
+		},
+		value.RuntimeScope{
+			Consts: value.Values{"service": "api"},
+			Env:    value.NewEnvScope(nil, false),
+			Steps:  map[string]value.StepInfo{},
+		},
+	)
+
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "unknown const", raw: "${consts.missing} ${consts.missing}", want: "${consts.missing}"},
+		{name: "missing param value", raw: "${params.environment}", want: "${params.environment}"},
+		{name: "missing env value", raw: "${env.RUNTIME_ONLY}", want: "${env.RUNTIME_ONLY}"},
+		{name: "missing step output", raw: "${steps.build.outputs.image}", want: "${steps.build.outputs.image}"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			warnings := resolver.Warnings(tt.raw, value.WorkflowField("steps[0].run"))
+			require.Len(t, warnings, 1)
+			assert.Contains(t, warnings[0], "steps[0].run")
+			assert.Contains(t, warnings[0], tt.want)
+			assert.Contains(t, warnings[0], "preserving literal text")
+		})
+	}
+}
+
+func TestResolverWarningsTreatsUnsupportedSyntaxAsOrdinaryContent(t *testing.T) {
+	t.Parallel()
+
+	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{})
+
+	tests := []string{
+		"${params...}",
+		"$params.name",
+		"${steps.build.output.image}",
+	}
+
+	for _, raw := range tests {
+		warnings := resolver.Warnings(raw, value.WorkflowField("steps[0].run"))
+		assert.Empty(t, warnings)
+	}
 }
 
 func TestResolverStaticValidationResolvesParamsAndLeavesOtherNamespacesUnresolved(t *testing.T) {
@@ -66,8 +156,7 @@ func TestResolverStaticValidationResolvesParamsAndLeavesOtherNamespacesUnresolve
 	}
 
 	err := resolver.Validate("${params.missing}", value.StaticValidationField("field"))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "${params.missing}")
+	require.NoError(t, err)
 }
 
 func TestResolverParamDeclarationsAreNotRuntimeValues(t *testing.T) {
@@ -78,10 +167,10 @@ func TestResolverParamDeclarationsAreNotRuntimeValues(t *testing.T) {
 		value.RuntimeScope{},
 	)
 
-	_, err := resolver.String(context.Background(), "${params.name}", value.StepDirField("working_dir"))
+	got, err := resolver.String(context.Background(), "${params.name}", value.StepDirField("working_dir"))
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unknown params.name binding")
+	require.NoError(t, err)
+	assert.Equal(t, "${params.name}", got)
 }
 
 func TestResolverWorkflowFieldUsesNonOSEnvAndStepRefsOnly(t *testing.T) {
@@ -167,6 +256,44 @@ func TestResolverCommandScriptFieldDefersScopeVarsAndExpandsStepRefs(t *testing.
 	got, err := resolver.String(ctx, "echo $SCRIPT_VALUE ${prep.stdout}", value.CommandScriptField("steps[0].run", value.CommandContext{ShellConfigured: true}))
 	require.NoError(t, err)
 	assert.Equal(t, "echo $SCRIPT_VALUE ready", got)
+}
+
+func TestResolverShellCommandFieldDefersScopeVarsAndExpandsStepRefs(t *testing.T) {
+	ctx := context.Background()
+	scope := value.NewEnvScope(nil, false).WithEntry("ROOT_VALUE", "${params.environment}", value.EnvSourceDAGEnv)
+	resolver := value.NewResolver(
+		value.StaticScope{},
+		value.RuntimeScope{
+			Env: scope,
+			Steps: map[string]value.StepInfo{
+				"prep": {Stdout: "ready"},
+			},
+		},
+	)
+
+	got, err := resolver.String(ctx, `printf '%s\n' "$ROOT_VALUE" ${prep.stdout}`, value.ShellCommandField("steps[0].run", value.CommandContext{
+		Target:          value.CommandTargetLocal,
+		Shell:           []string{"/bin/sh"},
+		ShellConfigured: true,
+	}))
+
+	require.NoError(t, err)
+	assert.Equal(t, `printf '%s\n' "$ROOT_VALUE" ready`, got)
+}
+
+func TestResolverDotenvPathPreservesMissingParamReference(t *testing.T) {
+	ctx := context.Background()
+	resolver := value.NewResolver(
+		value.StaticScope{
+			Params: value.Values{"environment": ""},
+		},
+		value.RuntimeScope{},
+	)
+
+	got, err := resolver.String(ctx, ".env.${params.environment}", value.DotenvPathField("dotenv[0]"))
+
+	require.NoError(t, err)
+	assert.Equal(t, ".env.${params.environment}", got)
 }
 
 func TestResolverStepArtifactOutputExpandsVarAfterWindowsSeparator(t *testing.T) {

@@ -9,7 +9,7 @@ Covered behavior:
 - root `consts` list form;
 - ordered `${consts.name}` lookup;
 - validation for invalid const declarations;
-- rejection of unavailable runtime namespaces while loading `consts`;
+- warning and preservation for unavailable references while loading `consts`;
 - preservation of const-looking text that is not a supported reference form.
 
 ## Scope
@@ -65,9 +65,13 @@ Later value resolution can use them without runtime side effects.
 
 - String values in list-form `consts` may reference earlier `consts` entries with `${consts.name}`.
 
-- List-form `consts` values must not reference themselves or later `consts` entries.
+- List-form `consts` values cannot resolve themselves or later `consts` entries.
 
-- List-form `consts` values must not reference runtime `env`, `params`, or `steps`.
+- A self-reference or later-reference is preserved as literal text and emits a warning.
+
+- Runtime `env`, `params`, and `steps` are unavailable while loading `consts`.
+
+- A runtime namespace reference in `consts` is preserved as literal text and emits a warning.
 
 ### References
 
@@ -90,10 +94,11 @@ Later value resolution can use them without runtime side effects.
 
 - Mapping-form `consts` must fail during workflow validation.
 
-- `consts` references must fail during workflow validation if they target unavailable values.
-  Unavailable values include runtime `env`, `params`, `steps`, later `consts`, and the same `consts` entry.
+- `consts` references that target unavailable values must warn and preserve the original text.
 
-- An unknown `consts` reference in a value-resolution field must fail during workflow validation.
+- Unavailable values include runtime `env`, `params`, `steps`, later `consts`, the same `consts` entry, and unknown `consts` names.
+
+- An unknown `consts` reference in a value-resolution field must warn and preserve the original text.
 
 ## Examples
 
@@ -117,11 +122,11 @@ steps:
     run: echo ${consts.endpoint}
 ```
 
-Invalid `consts` reference:
+Unknown `consts` reference:
 
 ```yaml
 steps:
-  - name: bad
+  - name: preserved
     run: echo ${consts.missing}
 ```
 

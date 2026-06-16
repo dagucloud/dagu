@@ -117,7 +117,7 @@ func TestResolveDAGShellResolvesParams(t *testing.T) {
 	assert.Equal(t, []string{"/bin/sh", "-c"}, got)
 }
 
-func TestResolveDAGShellRejectsMissingParam(t *testing.T) {
+func TestResolveDAGShellPreservesMissingParam(t *testing.T) {
 	t.Parallel()
 
 	dag := &core.DAG{
@@ -131,9 +131,8 @@ func TestResolveDAGShellRejectsMissingParam(t *testing.T) {
 	ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
 
 	got, err := runtime.ResolveDAGShell(ctx)
-	require.Error(t, err)
-	assert.Nil(t, got)
-	assert.Contains(t, err.Error(), "params.shell_arg")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/bin/sh", "${params.shell_arg}"}, got)
 }
 
 // TestEnvShell tests the Env.Shell method
@@ -249,7 +248,7 @@ func TestEnvResolveShellResolvesParams(t *testing.T) {
 	assert.Equal(t, []string{"/bin/sh", "-c"}, got)
 }
 
-func TestEnvResolveShellRejectsMissingParam(t *testing.T) {
+func TestEnvResolveShellPreservesMissingParam(t *testing.T) {
 	t.Parallel()
 
 	dag := &core.DAG{
@@ -264,9 +263,8 @@ func TestEnvResolveShellRejectsMissingParam(t *testing.T) {
 	env := runtime.NewEnv(ctx, core.Step{Name: "test-step"})
 
 	got, err := env.ResolveShell(ctx)
-	require.Error(t, err)
-	assert.Nil(t, got)
-	assert.Contains(t, err.Error(), "params.shell_arg")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/bin/sh", "${params.shell_arg}"}, got)
 }
 
 func TestConstResolutionInWorkingDirs(t *testing.T) {
@@ -306,7 +304,7 @@ func TestConstResolutionInWorkingDirs(t *testing.T) {
 	})
 }
 
-func TestNewEnvWithErrorRejectsInvalidWorkingDirResolution(t *testing.T) {
+func TestNewEnvWithErrorPreservesInvalidWorkingDirReferences(t *testing.T) {
 	t.Parallel()
 
 	t.Run("DAGWorkingDir", func(t *testing.T) {
@@ -319,10 +317,9 @@ func TestNewEnvWithErrorRejectsInvalidWorkingDirResolution(t *testing.T) {
 		}
 		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
 
-		_, err := runtime.NewEnvWithError(ctx, core.Step{Name: "test-step"})
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to evaluate working directory")
-		assert.Contains(t, err.Error(), "unknown consts binding")
+		env, err := runtime.NewEnvWithError(ctx, core.Step{Name: "test-step"})
+		require.NoError(t, err)
+		assert.Equal(t, "${consts.missing}", env.WorkingDir)
 	})
 
 	t.Run("StepWorkingDir", func(t *testing.T) {
@@ -335,10 +332,9 @@ func TestNewEnvWithErrorRejectsInvalidWorkingDirResolution(t *testing.T) {
 		}
 		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
 
-		_, err := runtime.NewEnvWithError(ctx, core.Step{Name: "test-step", Dir: "${consts.missing}"})
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to evaluate step working directory")
-		assert.Contains(t, err.Error(), "unknown consts binding")
+		env, err := runtime.NewEnvWithError(ctx, core.Step{Name: "test-step", Dir: "${consts.missing}"})
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(dag.WorkingDir, "${consts.missing}"), env.WorkingDir)
 	})
 }
 

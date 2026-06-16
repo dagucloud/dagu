@@ -6,17 +6,17 @@ Specs are implemented incrementally. A change that implements part of a spec mus
 
 ## Implementation Status
 
-This table describes conformance status. `Not implemented` means the spec
-documents target conformance behavior and must not be treated as product
-behavior until implementation catches up.
+This table describes conformance status.
+`Not implemented` means the spec documents target conformance behavior.
+It must not be treated as product behavior until implementation catches up.
 
 | Spec | Status |
 | --- | --- |
 | [001: Project](001-project.md) | Not implemented |
 | [002: YAML Schema](002-yaml-schema.md) | Implemented |
-| [003: Value Resolution](003-value-resolution.md) | Not implemented |
+| [003: Value Resolution](003-value-resolution.md) | Partially implemented |
 | [004: Value Resolution Consts](004-value-resolution-consts.md) | Implemented |
-| [005: Value Resolution Params](005-value-resolution-params.md) | Not implemented |
+| [005: Value Resolution Params](005-value-resolution-params.md) | Partially implemented |
 | [006: Value Resolution Env](006-value-resolution-env.md) | Not implemented |
 | [007: Value Resolution Steps](007-value-resolution-steps.md) | Not implemented |
 | [009: Step Reference](009-step-reference.md) | Not implemented |

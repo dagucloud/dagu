@@ -7,9 +7,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/dagucloud/dagu/internal/cmn/logger"
 )
 
 var (
@@ -22,25 +25,37 @@ var (
 
 type template struct{ source string }
 
-func checkBindings(ctx context.Context, input string, scope RuntimeScope) error {
-	_, err := walkBindings(input, func(token, path string) (string, error) {
-		_, err := bindingValue(ctx, path, scope, false)
-		return token, err
-	})
-	return err
+func checkBindings(context.Context, string, RuntimeScope) error {
+	return nil
 }
 
-func resolveBindings(ctx context.Context, input string, scope RuntimeScope) (string, error) {
-	if err := checkBindings(ctx, input, scope); err != nil {
-		return "", err
-	}
-	return walkBindings(input, func(_ string, path string) (string, error) {
+func resolveBindings(ctx context.Context, input string, scope RuntimeScope, field string) (string, map[string]string, error) {
+	warned := make(map[string]struct{})
+	protected := make(map[string]string)
+	seed := input
+	resolved, err := walkBindings(input, func(_ string, path string) (string, error) {
 		value, err := bindingValue(ctx, path, scope, true)
 		if err != nil {
-			return "", err
+			token := "${" + path + "}"
+			warnUnresolvedBinding(ctx, field, token, err, warned)
+			placeholder := uniqueToken(seed, "__DAGU_UNRESOLVED_REF__")
+			seed += placeholder
+			protected[placeholder] = token
+			return placeholder, nil
 		}
 		return formatBindingValue(value), nil
 	})
+	return resolved, protected, err
+}
+
+func restoreProtectedReferences(input string, protected map[string]string) string {
+	if len(protected) == 0 {
+		return input
+	}
+	for placeholder, token := range protected {
+		input = strings.ReplaceAll(input, placeholder, token)
+	}
+	return input
 }
 
 func (t template) resolveReferences(ctx context.Context, r *resolver) string {
@@ -205,11 +220,30 @@ func bindingValue(ctx context.Context, path string, scope RuntimeScope, requireV
 		return bindingMapValue("consts", segments[1], scope.Consts, requireValue)
 	case "params":
 		return bindingMapValue("params", segments[1], scope.Params, requireValue)
+	case "env":
+		return bindingEnvValue(segments[1], scope.Env, requireValue)
 	case "steps":
 		return bindingStepOutputValue(ctx, segments, scope.Steps, requireValue)
 	default:
 		return nil, nil
 	}
+}
+
+func warnUnresolvedBinding(ctx context.Context, field, token string, err error, warned map[string]struct{}) {
+	key := field + "\x00" + token
+	if _, ok := warned[key]; ok {
+		return
+	}
+	warned[key] = struct{}{}
+
+	attrs := []slog.Attr{slog.String("reference", token)}
+	if field != "" {
+		attrs = append(attrs, slog.String("field", field))
+	}
+	if err != nil {
+		attrs = append(attrs, slog.String("error", err.Error()))
+	}
+	logger.Warn(ctx, "Value reference could not be resolved; preserving literal text", attrs...)
 }
 
 func bindingStepOutputValue(ctx context.Context, segments []string, steps map[string]StepInfo, requireValue bool) (any, error) {
@@ -242,9 +276,26 @@ func bindingMapValue(namespace, name string, values Values, requireValue bool) (
 	return value, nil
 }
 
+func bindingEnvValue(name string, scope *EnvScope, requireValue bool) (any, error) {
+	if scope == nil && !requireValue {
+		return nil, nil
+	}
+	if value, ok := scope.Get(name); ok {
+		return value, nil
+	}
+	if !requireValue {
+		return nil, nil
+	}
+	return nil, fmt.Errorf("unknown env.%s binding", name)
+}
+
 func supportedStrictBinding(segments []string) bool {
 	switch segments[0] {
 	case "consts", "params":
+		return len(segments) == 2 &&
+			bindingNamePattern.MatchString(segments[0]) &&
+			bindingNamePattern.MatchString(segments[1])
+	case "env":
 		return len(segments) == 2 &&
 			bindingNamePattern.MatchString(segments[0]) &&
 			bindingNamePattern.MatchString(segments[1])

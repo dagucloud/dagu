@@ -8,7 +8,7 @@ handler_on:
       - condition: |
           case '${params.environment}' in
             prod) exit 0;;
-            \${params.environment}) printf '%s\n' literal > handler-precondition-literal.txt; exit 1;;
+            \${params.environment}) printf '%s\n' literal > handler-precondition-literal.txt; exit 0;;
             *) exit 1;;
           esac
     run: |

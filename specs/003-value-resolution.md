@@ -2,7 +2,9 @@
 
 ## Implementation Status
 
-Not implemented. This spec describes target conformance behavior.
+Partially implemented.
+Supported references now warn and preserve when they cannot resolve.
+The full supported-field matrix remains target conformance work.
 
 ## Scope
 
@@ -75,8 +77,7 @@ ${steps.step_id.outputs.name}
 
 - `$consts.name`, `$params.name`, `$env.NAME`, and `$steps.step_id.outputs.name` are ordinary string content.
 
-- Dagu may report a non-fatal warning for unbraced namespace-looking text when a warning channel exists.
-  Validation and execution must not fail because of that text alone.
+- Unsupported reference-looking text is preserved silently.
 
 ### Single-Quoted Environment References
 
@@ -121,7 +122,17 @@ ${steps.step_id.outputs.name}
 
 - The validator and runtime must use the same field list.
 
-- A reference that would fail at runtime must be rejected by `dagu validate` when the failure is statically knowable.
+- A supported reference that cannot resolve must not fail validation or execution by itself.
+
+- Dagu must preserve the original reference text when a supported reference cannot resolve.
+
+- Dagu must emit a non-fatal warning for a supported reference that cannot resolve.
+
+- The warning must identify the owning field and the original reference text.
+
+- Warning-only misses include unknown consts, missing param values, unavailable env values, missing step outputs, namespaces unavailable in the current phase, and invalid step-output ordering or ownership.
+
+- A typed field may still fail later if the preserved literal is invalid for that field type.
 
 - Adding a value-resolution-capable field requires coordinated updates.
   Update this spec, the DAG JSON schema, validation traversal, runtime traversal, and black-box tests together.
@@ -150,7 +161,7 @@ ${steps.step_id.outputs.name}
 
 - Step output references resolve only after the referenced step publishes the output.
 
-- For step-owned fields, runtime resolution failures must fail before the owning step starts.
+- For step-owned fields, unresolved supported references must warn and remain literal before the owning step starts.
 
 ### String Insertion
 

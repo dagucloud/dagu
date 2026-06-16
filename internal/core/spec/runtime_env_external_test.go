@@ -164,7 +164,7 @@ steps:
 	require.Equal(t, "prod", runtimeEnvSliceMap(result.Env)["TARGET_TABLE"])
 }
 
-func TestResolveEnvWithWarningsRejectsMissingDotenvParamReference(t *testing.T) {
+func TestResolveEnvWithWarningsPreservesMissingDotenvParamReference(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -186,16 +186,16 @@ steps:
 	dag, err := spec.LoadYAML(context.Background(), yamlData)
 	require.NoError(t, err)
 	dag.LoadDotEnv(context.Background())
-	require.NotEmpty(t, dag.BuildErrors)
-	require.Contains(t, dag.BuildErrors[0].Error(), "params.ENVIRONMENT")
+	require.Empty(t, dag.BuildErrors)
+	require.Empty(t, dag.Env)
 
 	persisted, err := spec.LoadYAML(context.Background(), yamlData)
 	require.NoError(t, err)
 	persisted.Env = nil
 	persisted.EnvEvaluated = false
-	_, err = spec.ResolveEnvWithWarnings(context.Background(), persisted, nil, spec.ResolveEnvOptions{})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "params.ENVIRONMENT")
+	result, err := spec.ResolveEnvWithWarnings(context.Background(), persisted, nil, spec.ResolveEnvOptions{})
+	require.NoError(t, err)
+	require.Empty(t, result.Env)
 }
 
 func TestResolveEnvWithWarningsDoesNotMutateDAGBackingSlices(t *testing.T) {

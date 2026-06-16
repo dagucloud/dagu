@@ -4,6 +4,7 @@
 package core
 
 import (
+	"strings"
 	"testing"
 
 	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
@@ -206,7 +207,7 @@ func TestReferenceFieldsIncludesExecutorConfig(t *testing.T) {
 	assert.Equal(t, "Bearer ${build.output.token}", refs[1].Value)
 }
 
-func TestValidateOutputReferencesChecksStrictPluralStepOutputReferences(t *testing.T) {
+func TestValidateOutputReferencesWarnsForStrictPluralStepOutputReferences(t *testing.T) {
 	t.Parallel()
 
 	dag := &DAG{
@@ -220,14 +221,47 @@ func TestValidateOutputReferencesChecksStrictPluralStepOutputReferences(t *testi
 				},
 			},
 			{
-				Name:   "deploy",
-				Script: "echo ${steps.build.outputs.digest}",
+				Name:    "deploy",
+				Depends: []string{"build"},
+				Script:  "echo ${steps.build.outputs.digest}",
 			},
 		},
 	}
 
-	errs := dag.validateOutputReferences()
-	require.Len(t, errs, 1)
-	assert.Contains(t, errs[0].Error(), "${steps.build.outputs.digest}")
-	assert.Contains(t, errs[0].Error(), `publishes no output field "digest"`)
+	err := dag.Validate()
+	require.NoError(t, err)
+	require.Len(t, dag.BuildWarnings, 1)
+	assert.Contains(t, dag.BuildWarnings[0], "${steps.build.outputs.digest}")
+	assert.Contains(t, dag.BuildWarnings[0], `publishes no output field "digest"`)
+}
+
+func TestValidateOutputReferencesWarnsForGraphMisses(t *testing.T) {
+	t.Parallel()
+
+	dag := &DAG{
+		Name: "test",
+		Steps: []Step{
+			{
+				Name: "build",
+				StructuredOutput: map[string]StepOutputEntry{
+					"image": {},
+				},
+			},
+			{
+				Name: "deploy",
+				Script: strings.Join([]string{
+					"echo ${steps.missing.outputs.image}",
+					"echo ${steps.deploy.outputs.image}",
+					"echo ${steps.build.outputs.image}",
+				}, "\n"),
+			},
+		},
+	}
+
+	err := dag.Validate()
+	require.NoError(t, err)
+	require.Len(t, dag.BuildWarnings, 3)
+	assert.Contains(t, dag.BuildWarnings[0], `step "missing" does not exist`)
+	assert.Contains(t, dag.BuildWarnings[1], `references its own output`)
+	assert.Contains(t, dag.BuildWarnings[2], `step "build" is not an upstream dependency`)
 }

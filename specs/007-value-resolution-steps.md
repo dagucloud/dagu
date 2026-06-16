@@ -27,7 +27,7 @@ Later fields can reference outputs published by completed steps.
 
 Step outputs are produced during execution, so they are not available when the workflow file is loaded. A step-output reference must therefore describe both a static relationship between steps and a runtime lookup after the producing step completes.
 
-This spec keeps those rules in one place: references use step ids, require the producing step to be ordered before the consuming step, and fail before the owning step starts if the value is unavailable.
+This spec keeps those rules in one place. References use step ids. The producing step should be ordered before the consuming step. If the value is unavailable, Dagu warns and preserves the original reference text.
 
 ## Behavior
 
@@ -67,19 +67,19 @@ This spec keeps those rules in one place: references use step ids, require the p
 
 ### Validation
 
-- An unknown `steps.<step_id>` reference in a value-resolution field must fail during workflow validation.
+- An unknown `steps.<step_id>` reference in a value-resolution field must warn and preserve the original reference text.
 
-- An unknown `steps.<step_id>.outputs.<name>` reference must fail during workflow validation when the referenced step declares an output contract.
+- An unknown `steps.<step_id>.outputs.<name>` reference must warn and preserve the original reference text.
 
-- A step output reference without a direct or transitive dependency on the producing step must fail during workflow validation.
+- A step output reference without a direct or transitive dependency on the producing step must warn and preserve the original reference text.
 
-- A step output reference to the owning step must fail during workflow validation.
+- A step output reference to the owning step must warn and preserve the original reference text.
 
-- An unavailable step output value must fail before the owning field is used.
+- An unavailable step output value must warn and preserve the original reference text before the owning field is used.
 
-- For step-owned fields, runtime resolution errors must fail before the owning step starts.
+- For step-owned fields, runtime value-resolution misses must warn and preserve before the owning step starts.
 
-- An unknown `steps.<step_id>.outputs.<name>` reference must fail before the owning field is used when the referenced step does not declare an output contract that can be checked statically.
+- An unknown `steps.<step_id>.outputs.<name>` reference must warn and preserve before the owning field is used when the referenced step does not declare an output contract that can be checked statically.
 
 ## Examples
 
@@ -98,7 +98,7 @@ steps:
     run: ./deploy.sh ${steps.build.outputs.image}
 ```
 
-Invalid step reference:
+Warning-only step reference:
 
 ```yaml
 steps:

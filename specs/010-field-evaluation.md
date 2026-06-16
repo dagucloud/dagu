@@ -184,15 +184,14 @@ When field evaluation succeeds, Dagu gives the evaluated value to the field that
 
 ## Errors
 
-Validation errors:
+Validation warnings:
 
-- A malformed Dagu-owned reference in a value-resolved or dynamic-evaluated field must fail workflow validation.
-  This applies when the reference is statically checkable.
-  Braced text that does not match a supported Dagu-owned reference form remains ordinary string content under Spec 003.
+- A supported Dagu-owned reference that cannot resolve must warn and preserve the original reference text.
+- Braced text that does not match a supported Dagu-owned reference form remains ordinary string content under Spec 003.
 
 Runtime errors:
 
-- A value-resolution failure must fail before the owning field is consumed.
+- A preserved value-resolution literal may still fail if the owning typed field cannot accept that literal.
 - A dynamic-evaluation failure must fail before the owning field is consumed.
 - The exception is `params[].eval` with `default`.
   If `eval` fails and `default` exists, Dagu uses the literal `default` value.

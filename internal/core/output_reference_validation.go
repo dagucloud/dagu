@@ -27,6 +27,13 @@ type outputReferenceLocation struct {
 	Field    string
 }
 
+func (l outputReferenceLocation) displayField() string {
+	if l.StepName == "" {
+		return l.Field
+	}
+	return fmt.Sprintf("step %q %s", l.StepName, l.Field)
+}
+
 type publishedOutputContract struct {
 	StepName string
 	Source   string
@@ -34,27 +41,24 @@ type publishedOutputContract struct {
 	Keys     map[string]StepOutputEntry
 }
 
-// validateOutputReferences conservatively checks ${step.output.field} references.
-// It only reports errors when a referenced field is definitely absent from a
-// closed published-output contract. Unknown or open contracts are ignored to
-// avoid false positives.
-func (d *DAG) validateOutputReferences() []error {
+// validateOutputReferences conservatively checks step output references.
+// It reports graph and closed-contract misses as warnings.
+func (d *DAG) validateOutputReferences() []string {
 	if d == nil || len(d.Steps) == 0 {
 		return nil
 	}
 
+	stepByName := make(map[string]Step, len(d.Steps))
 	contracts := make(map[string]publishedOutputContract, len(d.Steps))
 	for _, step := range d.Steps {
+		stepByName[step.Name] = step
 		contract, ok := buildPublishedOutputContract(step)
 		if ok {
 			contracts[step.Name] = contract
 		}
 	}
-	if len(contracts) == 0 {
-		return nil
-	}
 
-	var errs []error
+	var warnings []string
 	seen := make(map[string]struct{})
 	for _, field := range ReferenceFields(d) {
 		refs := outputReferences(field.Value)
@@ -63,22 +67,48 @@ func (d *DAG) validateOutputReferences() []error {
 		}
 		location := outputReferenceLocation{StepName: field.OwnerStepName, Field: field.Path}
 		for _, ref := range refs {
+			if warning := outputReferenceGraphWarning(location, stepByName, ref); warning != "" {
+				if appendOutputReferenceWarning(&warnings, seen, field.Path, ref.Expression, warning) {
+					continue
+				}
+			}
 			contract, ok := contracts[ref.StepName]
 			if !ok {
 				continue
 			}
 			result := contract.validatePath(ref.Path)
 			if result == outputReferenceInvalid {
-				key := field.OwnerStepName + "\x00" + ref.Expression
-				if _, exists := seen[key]; exists {
-					continue
-				}
-				seen[key] = struct{}{}
-				errs = append(errs, outputReferenceError(location, contract, ref))
+				appendOutputReferenceWarning(&warnings, seen, field.Path, ref.Expression, outputReferenceError(location, contract, ref).Error())
 			}
 		}
 	}
-	return errs
+	return warnings
+}
+
+func outputReferenceGraphWarning(location outputReferenceLocation, stepByName map[string]Step, ref cmnvalue.StepOutputReference) string {
+	if _, ok := stepByName[ref.StepName]; !ok {
+		return fmt.Sprintf(`%s references %s, but step %q does not exist`, location.displayField(), ref.Expression, ref.StepName)
+	}
+	if location.StepName == "" {
+		return fmt.Sprintf(`%s references %s, but step outputs are only available to step-owned fields`, location.displayField(), ref.Expression)
+	}
+	if location.StepName == ref.StepName {
+		return fmt.Sprintf(`step %q %s references its own output %s`, location.StepName, location.Field, ref.Expression)
+	}
+	if _, ok := stepByName[location.StepName]; ok && !isUpstreamDependency(stepByName, location.StepName, ref.StepName) {
+		return fmt.Sprintf(`step %q %s references %s, but step %q is not an upstream dependency`, location.StepName, location.Field, ref.Expression, ref.StepName)
+	}
+	return ""
+}
+
+func appendOutputReferenceWarning(warnings *[]string, seen map[string]struct{}, field, expression, warning string) bool {
+	key := field + "\x00" + expression
+	if _, exists := seen[key]; exists {
+		return false
+	}
+	seen[key] = struct{}{}
+	*warnings = append(*warnings, warning)
+	return true
 }
 
 func outputReferences(raw string) []cmnvalue.StepOutputReference {

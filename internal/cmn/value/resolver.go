@@ -32,6 +32,15 @@ func (r Resolver) Validate(raw string, field Field) error {
 	return validateReferences(raw, r.staticScope(), policy.mode, field.path)
 }
 
+// Warnings returns non-fatal diagnostics for strict binding misses owned by field.
+func (r Resolver) Warnings(raw string, field Field) []string {
+	policy := policyForField(field)
+	if !policy.strict {
+		return nil
+	}
+	return referenceWarnings(raw, r.staticScope(), r.runtime, policy.mode, field.path)
+}
+
 // String resolves raw according to field.
 func (r Resolver) String(ctx context.Context, raw string, field Field) (string, error) {
 	return r.resolveString(ctx, raw, field)
@@ -77,12 +86,13 @@ func (r Resolver) resolveString(ctx context.Context, raw string, field Field) (s
 	policy := policyForField(field)
 	ctx = r.withRuntimeEnv(ctx)
 	resolved := raw
+	var protected map[string]string
 	if policy.strict {
 		if err := validateReferences(raw, r.staticScope(), policy.mode, field.path); err != nil {
 			return "", err
 		}
 		var err error
-		resolved, err = resolveBindings(ctx, raw, r.bindingScope())
+		resolved, protected, err = resolveBindings(ctx, raw, r.bindingScope(), field.path)
 		if err != nil {
 			if field.path != "" {
 				return "", fmt.Errorf("%s: %w", field.path, err)
@@ -90,7 +100,11 @@ func (r Resolver) resolveString(ctx context.Context, raw string, field Field) (s
 			return "", err
 		}
 	}
-	return evalString(ctx, resolved, r.optionsFor(policy)...)
+	evaluated, err := evalString(ctx, resolved, r.optionsFor(policy)...)
+	if err != nil {
+		return "", err
+	}
+	return restoreProtectedReferences(evaluated, protected), nil
 }
 
 func (r Resolver) staticScope() StaticScope {
@@ -210,8 +224,14 @@ func policyForField(field Field) resolverPolicy {
 		}
 	case fieldRetryInteger, fieldRepeatInteger:
 		return resolverPolicy{mode: modeWorkflowValue, strict: true, options: []option{withOSExpansion()}}
-	case fieldDAGShell, fieldStepShell, fieldShellCommand:
+	case fieldDAGShell, fieldStepShell:
 		return resolverPolicy{mode: modeShellCommand, strict: true, options: append([]option{withoutSubstitute()}, commandPolicyOptions(field.command)...)}
+	case fieldShellCommand:
+		options := append([]option{withoutSubstitute()}, commandPolicyOptions(field.command)...)
+		if field.command.Target == CommandTargetLocal && field.command.ShellConfigured {
+			options = append(options, onlyReplaceVars())
+		}
+		return resolverPolicy{mode: modeShellCommand, strict: true, options: options}
 	case fieldDirectCommand:
 		return resolverPolicy{mode: modeDirectCommand, strict: true, options: append(directCommandBaseOptions(field.command), commandPolicyOptions(field.command)...)}
 	case fieldConditionCommand:

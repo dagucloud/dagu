@@ -482,8 +482,8 @@ func (d *DAG) Validate() error {
 
 	errs = append(errs, validateBindingReferences(d)...)
 
-	for _, err := range d.validateOutputReferences() {
-		errs = append(errs, NewValidationError("output reference", nil, err))
+	for _, warning := range d.validateOutputReferences() {
+		appendBuildWarning(d, warning)
 	}
 
 	if len(errs) == 0 {
@@ -607,7 +607,7 @@ func (d *DAG) loadSingleDotEnvFile(ctx context.Context, resolver *fileutil.FileR
 		return
 	}
 
-	resolvedPath, err := resolver.ResolveFilePath(evaluatedPath)
+	resolvedPath, err := resolver.ResolveFilePathLiteral(evaluatedPath)
 	if err != nil || !fileutil.FileExists(resolvedPath) {
 		return
 	}

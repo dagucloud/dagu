@@ -102,7 +102,7 @@ func TestEvalStringResolvesConstsOnlyReservedBinding(t *testing.T) {
 
 	got, err := runtime.ResolveString(ctx, "${consts.service} ${params.environment} ${env.HOME} ${steps.build.outputs.image}", cmnvalue.WorkflowField("test"))
 	require.NoError(t, err)
-	assert.Equal(t, "api prod ${env.HOME} repo/api:v1", got)
+	assert.Equal(t, "api prod workspace repo/api:v1", got)
 }
 
 func TestEvalStringPreservesBacktickSubstitution(t *testing.T) {

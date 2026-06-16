@@ -104,11 +104,10 @@ A later phase or target runtime may still interpret them.
 
 ## Errors
 
-Validation errors:
+Validation warnings:
 
-- Malformed Dagu-owned value references in a dynamic-evaluated field must fail during workflow validation.
-  This applies when the references are statically checkable.
-  Braced text that does not match a supported Dagu-owned reference form remains ordinary string content under Spec 003.
+- A supported Dagu-owned value reference that cannot resolve must warn and preserve the original reference text.
+- Braced text that does not match a supported Dagu-owned reference form remains ordinary string content under Spec 003.
 
 Runtime errors:
 
@@ -174,7 +173,6 @@ env:
   The fixture proves Dagu preserves that text and does not execute it during dynamic evaluation.
 - A black-box fixture verifies backtick text in step `run` is not evaluated by Dagu.
 - A black-box fixture verifies backtick text in root `env` is not evaluated by Dagu.
-- A black-box fixture verifies malformed Dagu-owned value references fail validation.
-  This applies when the references are statically checkable.
+- A black-box fixture verifies unresolved supported Dagu-owned value references warn and preserve.
 - A black-box fixture verifies a non-zero command substitution fails before the owning field is consumed.
   This does not apply when that field defines a fallback.

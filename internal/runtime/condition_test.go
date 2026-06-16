@@ -129,7 +129,7 @@ func TestEvalConditions(t *testing.T) {
 		},
 		// Error handling tests
 		{
-			name: "EvalStringErrorNotSwallowed",
+			name: "UnresolvedReferencePreservedThenEvaluated",
 			conditions: []*core.Condition{
 				{
 					Condition: "${consts.missing}",
@@ -137,8 +137,6 @@ func TestEvalConditions(t *testing.T) {
 					Negate:    true,
 				},
 			},
-			wantErr:            true,
-			notConditionNotMet: true,
 		},
 		{
 			name: "CommandNotFoundInvertedToSuccess",

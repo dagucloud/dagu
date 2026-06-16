@@ -1,5 +1,7 @@
+working_dir: .
 consts:
   - service: api
 steps:
-  - name: should-not-run
-    run: echo ${consts.missing} > executed.txt
+  - name: preserve
+    run: |
+      printf '%s\n' '${consts.missing}' > unknown-const.txt

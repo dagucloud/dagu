@@ -2,9 +2,10 @@
 
 ## Implementation Status
 
-Not implemented.
-This spec describes target conformance behavior.
-It must not be treated as current product behavior.
+Partially implemented.
+Named `${params.name}` references warn and preserve when they cannot resolve.
+Invalid parameter declaration names still fail.
+The exhaustive field matrix remains target conformance work until every listed field has accepted coverage.
 
 ## Scope
 
@@ -29,8 +30,8 @@ Value resolution needs a named lookup rule.
 Supported fields can then use those values predictably.
 
 This spec separates declaration validation from runtime value availability.
-`dagu validate` can reject unknown parameter names.
-Missing runtime values fail only when the run input does not provide them.
+`dagu validate` can reject invalid parameter declarations.
+Unknown or missing parameter values warn and preserve the original reference text.
 
 ## Behavior
 
@@ -88,26 +89,27 @@ Missing runtime values fail only when the run input does not provide them.
 
 - A resolved parameter value is inserted into string fields. Spec 003 defines the insertion rules.
 
-- A declared `params` reference must have a runtime value before the owning field is used.
-  If the value is missing, the run must fail first.
+- A declared `params` reference resolves when the runtime value exists.
+
+- If the runtime value is missing, Dagu preserves the original reference text and emits a warning.
 
 ## Errors
 
 - An invalid parameter declaration name must fail during workflow validation.
 
-- An undeclared `params` reference in a value-resolution field must fail during workflow validation.
+- An undeclared `params` reference in a value-resolution field must warn and preserve the original reference text.
 
-- In workflows with only positional parameters, a `${params.name}` reference must fail during workflow validation.
-  There is no matching named declaration.
+- In workflows with only positional parameters, a `${params.name}` reference has no matching named declaration.
 
-- A `${params.name}` reference in a field where params are unavailable must fail during workflow validation.
-  This applies when the reference is statically knowable.
+- Dagu must warn and preserve the original reference text.
 
-- A declared `params` reference must have a runtime value before the owning field is used.
-  If the value is missing, the run must fail first.
+- A `${params.name}` reference in a field where params are unavailable must warn and preserve the original reference text.
 
-- Validation and runtime failures must include enough field context.
-  Black-box tests must be able to identify the invalid field.
+- A declared `params` reference with no runtime value must warn and preserve the original reference text.
+
+- Warnings must include enough field context.
+
+- Black-box tests must be able to identify the affected field.
 
 ## Black-Box Conformance Viewpoint
 
@@ -122,9 +124,9 @@ It must not generate DAG YAML dynamically.
 For each field where params are available, the conformance suite must include:
 
 - a valid declared-name case that proves `${params.name}` resolves;
-- an undeclared-name validation failure for `${params.missing}`;
+- an undeclared-name warning-preservation case for `${params.missing}`;
 - a preservation case proving `$params.name` remains ordinary string content;
-- a missing runtime value case that proves the owning field is not used after the missing value is detected.
+- a missing runtime value case that proves execution continues with the literal unresolved reference when the field type accepts it.
 
 Missing-value cases should be grouped by resolution timing class for review.
 Each listed field where params are available still needs coverage unless an exception is explicitly accepted.
@@ -133,8 +135,8 @@ The exhaustive field viewpoint is:
 
 | Spec 003 field surface | Params conformance case |
 | --- | --- |
-| `consts` list form | Negative case: `${params.name}` is unavailable because only earlier `${consts.*}` entries are visible. |
-| `params[].eval` | Cross-spec dynamic-evaluation case: `${params.name}` references in `eval` resolve before command substitution; missing runtime values fail before the evaluated parameter is consumed. |
+| `consts` list form | Warning-preservation case: `${params.name}` is unavailable because only earlier `${consts.*}` entries are visible. |
+| `params[].eval` | Cross-spec dynamic-evaluation case: `${params.name}` references in `eval` resolve before command substitution; missing runtime values warn and preserve before the evaluated parameter is consumed. |
 | `env` | Root environment values in map form, array-of-map form, and `KEY=value` list form resolve declared params. |
 | `dotenv[]` | Each dotenv path string resolves declared params. |
 | `shell`, `shell_args[]`, `working_dir` | Root shell command, shell args, and working directory resolve declared params. |
@@ -171,7 +173,7 @@ steps:
     run: ./deploy.sh ${params.environment}
 ```
 
-Invalid undeclared `params` reference:
+Undeclared `params` reference:
 
 ```yaml
 params:
@@ -179,7 +181,7 @@ params:
     type: string
     required: true
 steps:
-  - name: bad
+  - name: preserved
     run: echo ${params.region}
 ```
 

@@ -71,10 +71,9 @@ func TestResolverValidateFieldMatrix(t *testing.T) {
 	}, value.RuntimeScope{})
 
 	tests := []struct {
-		name    string
-		raw     string
-		field   value.Field
-		wantErr string
+		name  string
+		raw   string
+		field value.Field
 	}{
 		{
 			name:  "ConstLoadAllowsConsts",
@@ -82,10 +81,9 @@ func TestResolverValidateFieldMatrix(t *testing.T) {
 			field: value.ConstLoadField("run"),
 		},
 		{
-			name:    "ConstLoadRejectsRuntimeNamespace",
-			raw:     "${params.environment}",
-			field:   value.ConstLoadField("run"),
-			wantErr: "not available while loading consts",
+			name:  "ConstLoadAllowsRuntimeNamespace",
+			raw:   "${params.environment}",
+			field: value.ConstLoadField("run"),
 		},
 		{
 			name:  "ReservedShorthandPreserved",
@@ -93,10 +91,9 @@ func TestResolverValidateFieldMatrix(t *testing.T) {
 			field: value.WorkflowField("run"),
 		},
 		{
-			name:    "UnknownConstRejected",
-			raw:     "${consts.missing}",
-			field:   value.StaticValidationField("run"),
-			wantErr: "unknown consts binding",
+			name:  "UnknownConstAllowed",
+			raw:   "${consts.missing}",
+			field: value.StaticValidationField("run"),
 		},
 		{
 			name:  "DeclaredParamAccepted",
@@ -115,17 +112,12 @@ func TestResolverValidateFieldMatrix(t *testing.T) {
 			t.Parallel()
 
 			err := resolver.Validate(tt.raw, tt.field)
-			if tt.wantErr == "" {
-				require.NoError(t, err)
-				return
-			}
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.wantErr)
+			require.NoError(t, err)
 		})
 	}
 }
 
-func TestResolverValidateRejectsUndeclaredParamsNamespace(t *testing.T) {
+func TestResolverValidateAllowsUndeclaredParamsNamespace(t *testing.T) {
 	t.Parallel()
 
 	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{})
@@ -133,8 +125,7 @@ func TestResolverValidateRejectsUndeclaredParamsNamespace(t *testing.T) {
 		"${params.environment} ${env.RUNTIME_ONLY} ${steps.build.outputs.image}",
 		value.StaticValidationField("run"),
 	)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "${params.environment}")
+	require.NoError(t, err)
 }
 
 func TestResolverStringResolvesParamsAndPreservesOtherNamespaces(t *testing.T) {
@@ -161,7 +152,7 @@ func TestResolverStringResolvesParamsAndPreservesOtherNamespaces(t *testing.T) {
 		value.WorkflowField("run"),
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "api:prod:${env.HOME}:repo/api:v1", got)
+	assert.Equal(t, "api:prod:/workspace:repo/api:v1", got)
 }
 
 func TestResolverWorkflowFieldPreservesCommandSubstitution(t *testing.T) {
@@ -237,7 +228,7 @@ func TestResolverStringResolvesConstRefsAndKeepsEvalRefs(t *testing.T) {
 		value.WorkflowField("run"),
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "api:prod:${env.HOME}:repo/api:v1:${DATA.image}:$DATA.tag", got)
+	assert.Equal(t, "api:prod:/workspace:repo/api:v1:${DATA.image}:$DATA.tag", got)
 }
 
 func TestResolverObjectResolvesConstRefsAcrossNestedValues(t *testing.T) {
@@ -273,7 +264,7 @@ func TestResolverObjectResolvesConstRefsAcrossNestedValues(t *testing.T) {
 	require.True(t, ok)
 
 	assert.Equal(t, "repo/api:v1", got["image"])
-	assert.Equal(t, []any{"${env.TOKEN}", "sha256:abc"}, got["env"])
+	assert.Equal(t, []any{"secret", "sha256:abc"}, got["env"])
 	assert.Equal(t, "${DATA.image}", got["evalRef"])
 }
 
