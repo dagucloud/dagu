@@ -2,9 +2,12 @@
 
 ## Implementation Status
 
-Implemented.
+Partially implemented.
 
-The implementation covers only root `consts` and `${consts.name}` bindings. Broader value-resolution behavior remains governed by the implementation status of the specs that define those namespaces and fields.
+The implementation covers root `consts` and `${consts.name}` bindings. The
+unbraced namespace-looking text preservation behavior inherited from Spec 003 is
+target behavior. Broader value-resolution behavior remains governed by the
+implementation status of the specs that define those namespaces and fields.
 
 ## Scope
 
@@ -63,6 +66,9 @@ This spec keeps `consts` immutable and load-time resolvable so later value resol
 ### References
 
 - `${consts.name}` reads `name` from resolved root `consts`.
+
+- `$consts.name` is not Dagu-owned `consts` reference syntax and is preserved
+  as ordinary string content according to Spec 003.
 
 - A resolved `consts` value is inserted into string fields according to Spec 003 string insertion rules.
 

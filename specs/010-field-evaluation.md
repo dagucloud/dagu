@@ -175,7 +175,10 @@ When field evaluation succeeds, Dagu gives the evaluated value to the field that
 
 Validation errors:
 
-- A malformed Dagu value reference in a value-resolved or dynamic-evaluated field must fail during workflow validation when it is statically checkable.
+- A malformed Dagu-owned value reference in a value-resolved or
+  dynamic-evaluated field must fail during workflow validation when it is
+  statically checkable. Braced text that does not match a supported Dagu-owned
+  reference form remains ordinary string content under Spec 003.
 
 Runtime errors:
 

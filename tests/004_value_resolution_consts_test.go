@@ -12,6 +12,7 @@ func Test004ValueResolutionConstsValidate(t *testing.T) {
 		"canonical_list_form.yaml",
 		"ordered_const_references.yaml",
 		"future_namespaces_remain_unresolved.yaml",
+		"unbraced_consts_text_is_preserved.yaml",
 	}
 	for _, file := range validCases {
 		t.Run(file, func(t *testing.T) {
@@ -93,11 +94,6 @@ func Test004ValueResolutionConstsValidate(t *testing.T) {
 			stderrParts: []string{"steps[0].run", "unknown consts binding", "${consts.missing}"},
 		},
 		{
-			name:        "const shorthand is forbidden in supported fields",
-			file:        "consts_shorthand_reference.yaml",
-			stderrParts: []string{"invalid binding shorthand", "$consts.service"},
-		},
-		{
 			name:        "nested const path is forbidden",
 			file:        "consts_nested_path_reference.yaml",
 			stderrParts: []string{"consts bindings must use", "${consts.service.name}"},
@@ -139,6 +135,12 @@ func Test004ValueResolutionConstsStart(t *testing.T) {
 			file:          "single_quoted_env_references.yaml",
 			outputFile:    "single-quoted-env.txt",
 			outputContent: "$SOURCE\n${SOURCE}\n",
+		},
+		{
+			name:          "unbraced consts text is preserved during execution",
+			file:          "unbraced_consts_text_is_preserved.yaml",
+			outputFile:    "unbraced-consts.txt",
+			outputContent: "$consts.service\n",
 		},
 	}
 	for _, tc := range cases {

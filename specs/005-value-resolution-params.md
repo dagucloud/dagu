@@ -9,7 +9,7 @@ treated as current product behavior.
 
 This spec defines `${params.name}` references.
 
-Common reference syntax, invalid shorthand rules, supported fields, string
+Common reference syntax, unbraced text preservation, supported fields, string
 insertion, and resolution timing are defined by [Spec 003: Value Resolution](003-value-resolution.md).
 
 This spec does not define parameter declaration schema beyond the rules needed
@@ -59,8 +59,8 @@ fail only when the run input does not provide them.
 - Braced text that does not match `${params.name}` is not interpreted by the
   `params` namespace and is preserved as ordinary string content.
 
-- `$params.name` is invalid Dagu-looking shorthand and must fail validation in a
-  value-resolution field.
+- `$params.name` is not Dagu-owned params reference syntax and is preserved as
+  ordinary string content.
 
 - Other expression syntax is outside this spec.
 
@@ -99,9 +99,6 @@ fail only when the run input does not provide them.
 
 - An invalid parameter declaration name must fail during workflow validation.
 
-- `$params.name` in a value-resolution field must fail during workflow
-  validation.
-
 - An undeclared `params` reference in a value-resolution field must fail during
   workflow validation.
 
@@ -128,7 +125,7 @@ For each field where params are available, the conformance suite must include:
 
 - a valid declared-name case that proves `${params.name}` resolves;
 - an undeclared-name validation failure for `${params.missing}`;
-- an invalid shorthand validation failure for `$params.name`;
+- a preservation case proving `$params.name` remains ordinary string content;
 - a missing runtime value case that proves the owning field is not used after
   the missing value is detected.
 
@@ -191,7 +188,7 @@ steps:
     run: echo ${params.region}
 ```
 
-Invalid params shorthand:
+Unbraced params-looking text is ordinary content:
 
 ```yaml
 params:
@@ -199,8 +196,9 @@ params:
     type: string
     required: true
 steps:
-  - name: bad
-    run: echo $params.environment
+  - name: script
+    run: |
+      php -r '$params.environment = "literal"; echo $params.environment;'
 ```
 
 Invalid params reference from `consts`:

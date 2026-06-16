@@ -275,8 +275,6 @@ Validation must fail when:
 
 - `run` contains a malformed Dagu-owned value reference that is statically checkable.
 
-- `run` contains an invalid Dagu-looking shorthand reference.
-
 - `run` contains an output reference that violates the step outputs spec.
 
 - A `run` step contains a `with` key that is not accepted for `run`.

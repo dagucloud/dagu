@@ -70,11 +70,15 @@ ${steps.step_id.outputs.name}
 
 - Namespace-specific specs define validation for supported reference forms.
 
-- `$name.path` is invalid Dagu-looking shorthand when `name` is a supported namespace.
+- Unbraced namespace-looking text such as `$name.path` is not Dagu-owned
+  reference syntax.
 
-- `$consts.name`, `$params.name`, `$env.NAME`, and `$steps.step_id.outputs.name` are invalid Dagu-looking shorthand.
+- `$consts.name`, `$params.name`, `$env.NAME`, and
+  `$steps.step_id.outputs.name` are preserved as ordinary string content.
 
-- Invalid Dagu-looking shorthand in a value-resolution field must fail during workflow validation.
+- Dagu may report a non-fatal warning for unbraced namespace-looking text when a
+  warning channel exists, but validation and execution must not fail because of
+  that text alone.
 
 ### Single-Quoted Environment References
 
@@ -172,12 +176,13 @@ steps:
     run: ${consts.deploy_script} ${params.environment} ${consts.service}
 ```
 
-Invalid dotted shorthand:
+Unbraced namespace-looking text is ordinary content:
 
 ```yaml
 steps:
-  - name: bad
-    run: echo $env.SERVICE
+  - name: script
+    run: |
+      php -r '$params.name = "literal"; echo $params.name;'
 ```
 
 Step output references wait for the producing step:

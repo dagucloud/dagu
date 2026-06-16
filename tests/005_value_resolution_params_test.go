@@ -30,40 +30,41 @@ func Test005ValueResolutionParamsValidateDeclaredReferences(t *testing.T) {
 	}
 }
 
-func Test005ValueResolutionParamsValidateRejectsInvalidReferencesByField(t *testing.T) {
+func Test005ValueResolutionParamsValidateRejectsUndeclaredReferencesByField(t *testing.T) {
 	t.Parallel()
 
 	for i, tc := range spec005ValueFieldCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			t.Run("undeclared", func(t *testing.T) {
-				t.Parallel()
+			dagu := newRunner(t, "005_value_resolution_params")
+			file := writeSpec005DAG(t, dagu, fmt.Sprintf("undeclared_%03d.yaml", i), tc.yaml(`${params.missing}`))
 
-				dagu := newRunner(t, "005_value_resolution_params")
-				file := writeSpec005DAG(t, dagu, fmt.Sprintf("undeclared_%03d.yaml", i), tc.yaml(`${params.missing}`))
+			result := dagu.Run("validate", file)
+			result.ExpectExitCode(1)
+			result.ExpectStdout("")
+			result.ExpectStderrContains(tc.context, "${params.missing}")
+			result.ExpectStderrNotContains("Usage:")
+			dagu.ExpectNoFile("executed.txt")
+		})
+	}
+}
 
-				result := dagu.Run("validate", file)
-				result.ExpectExitCode(1)
-				result.ExpectStdout("")
-				result.ExpectStderrContains(tc.context, "${params.missing}")
-				result.ExpectStderrNotContains("Usage:")
-				dagu.ExpectNoFile("executed.txt")
-			})
+func Test005ValueResolutionParamsValidatePreservesUnbracedNamespaceTextByField(t *testing.T) {
+	t.Parallel()
 
-			t.Run("shorthand", func(t *testing.T) {
-				t.Parallel()
+	for i, tc := range spec005ValueFieldCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-				dagu := newRunner(t, "005_value_resolution_params")
-				file := writeSpec005DAG(t, dagu, fmt.Sprintf("shorthand_%03d.yaml", i), tc.yaml(`$params.environment`))
+			dagu := newRunner(t, "005_value_resolution_params")
+			file := writeSpec005DAG(t, dagu, fmt.Sprintf("unbraced_%03d.yaml", i), tc.yaml(`$params.environment`))
 
-				result := dagu.Run("validate", file)
-				result.ExpectExitCode(1)
-				result.ExpectStdout("")
-				result.ExpectStderrContains(tc.context, "$params.environment")
-				result.ExpectStderrNotContains("Usage:")
-				dagu.ExpectNoFile("executed.txt")
-			})
+			result := dagu.Run("validate", file)
+			result.ExpectExitCode(0)
+			result.ExpectStdout("")
+			result.ExpectStderr("")
+			dagu.ExpectNoFile("executed.txt")
 		})
 	}
 }
@@ -175,6 +176,12 @@ func Test005ValueResolutionParamsStart(t *testing.T) {
 			outputFile:    "preserved.txt",
 			outputContent: "${params...}\n",
 		},
+		{
+			name:          "unbraced params text is preserved",
+			args:          []string{"start", "unbraced_params_text_is_preserved.yaml"},
+			outputFile:    "unbraced-params.txt",
+			outputContent: "$params.environment\n",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -246,15 +253,15 @@ func Test005ValueResolutionParamsRuntimeCoverageExceptions(t *testing.T) {
 	}{
 		{
 			field:  "root container, steps[].container, and handler container fields",
-			reason: "successful and missing-value runtime checks would cross into Docker or existing-container state before producing a stable local side effect; validation covers declared, undeclared, and shorthand authoring, and runtime coverage is intentionally excepted",
+			reason: "successful and missing-value runtime checks would cross into Docker or existing-container state before producing a stable local side effect; validation covers declared and undeclared authoring, unbraced namespace-looking text is preserved as ordinary content, and runtime coverage is intentionally excepted",
 		},
 		{
 			field:  "steps[].parallel and handler parallel variable/items/items[].params",
-			reason: "successful and missing-value runtime checks require sub-DAG fan-out orchestration; validation covers declared, undeclared, and shorthand authoring, and local command runtime coverage is kept separate",
+			reason: "successful and missing-value runtime checks require sub-DAG fan-out orchestration; validation covers declared and undeclared authoring, unbraced namespace-looking text is preserved as ordinary content, and local command runtime coverage is kept separate",
 		},
 		{
 			field:  "steps[].repeat_policy.condition and handler repeat_policy.condition",
-			reason: "successful and missing-value runtime checks are coupled to repeat-count semantics after command execution; validation covers declared, undeclared, and shorthand authoring without binding this spec to repeat behavior",
+			reason: "successful and missing-value runtime checks are coupled to repeat-count semantics after command execution; validation covers declared and undeclared authoring, and unbraced namespace-looking text is preserved as ordinary content without binding this spec to repeat behavior",
 		},
 		{
 			field:  "steps[] and handler stdout/stderr artifact paths",

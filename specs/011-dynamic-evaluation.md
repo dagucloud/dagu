@@ -100,7 +100,10 @@ Backtick text and `$()` text outside `params[].eval` remain part of the evaluate
 
 Validation errors:
 
-- Malformed Dagu value references in a dynamic-evaluated field must fail during workflow validation when they are statically checkable.
+- Malformed Dagu-owned value references in a dynamic-evaluated field must fail
+  during workflow validation when they are statically checkable. Braced text
+  that does not match a supported Dagu-owned reference form remains ordinary
+  string content under Spec 003.
 
 Runtime errors:
 
@@ -163,5 +166,6 @@ env:
 - A black-box fixture verifies `$()` text outside `params[].eval` is preserved by Dagu and not executed during dynamic evaluation.
 - A black-box fixture verifies backtick text in step `run` is not evaluated by Dagu.
 - A black-box fixture verifies backtick text in root `env` is not evaluated by Dagu.
-- A black-box fixture verifies malformed value references fail validation when they are statically checkable.
+- A black-box fixture verifies malformed Dagu-owned value references fail
+  validation when they are statically checkable.
 - A black-box fixture verifies a non-zero command substitution fails before the owning field is consumed, unless that field defines a fallback.
