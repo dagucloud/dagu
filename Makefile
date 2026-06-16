@@ -163,9 +163,11 @@ test: bin
 
 # test-conformance runs binary-level conformance tests.
 .PHONY: test-conformance
+test-conformance: export DAGU_BIN := ${DAGU_BIN}
 test-conformance: bin
 	@printf '%b\n' "${COLOR_GREEN}Running conformance tests...${COLOR_RESET}"
-	@DAGU_BIN=${DAGU_BIN} go test -count=1 ${CONFORMANCE_TEST_TARGET}
+	@GOBIN=${LOCAL_BIN_DIR} go install ${PKG_gotestsum}
+	@${LOCAL_BIN_DIR}/gotestsum ${GOTESTSUM_ARGS} -- ${GO_TEST_FLAGS} -count=1 ${CONFORMANCE_TEST_TARGET}
 
 # test-coverage runs Go tests except conformance tests with coverage by default.
 .PHONY: test-coverage
