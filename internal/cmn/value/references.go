@@ -99,6 +99,9 @@ func classifyBracedReference(rawRef, expr string, start, end int) reference {
 	}
 	if supportedStrictBinding(segments) {
 		ref.Kind = referenceStrict
+		if stepOutput, ok := parseStepOutputReference(ref); ok {
+			ref.StepOutput = &stepOutput
+		}
 		return ref
 	}
 	if strings.Contains(expr, ".") {
@@ -111,7 +114,7 @@ func classifyBracedReference(rawRef, expr string, start, end int) reference {
 }
 
 func parseStepOutputReference(ref reference) (StepOutputReference, bool) {
-	if !ref.Braced || ref.Kind != referenceEval {
+	if !ref.Braced {
 		return StepOutputReference{}, false
 	}
 
