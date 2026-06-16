@@ -212,7 +212,7 @@ func spec005StartCases() []spec005StartCase {
 			outputFile:    "missing-runtime-literal.txt",
 			outputContent: "${params.environment}\n",
 			missingParam:  "environment",
-			missingOutput: ptrTo("${params.environment}\n"),
+			missingOutput: new("${params.environment}\n"),
 		},
 		{
 			name:          "params eval resolves earlier named params",
@@ -220,7 +220,7 @@ func spec005StartCases() []spec005StartCase {
 			outputFile:    "params-eval.txt",
 			outputContent: "prod-api\n",
 			missingParam:  "environment",
-			missingOutput: ptrTo("${params.environment}-api\n"),
+			missingOutput: new("${params.environment}-api\n"),
 		},
 		{
 			name:          "root env resolves named params",
@@ -228,7 +228,7 @@ func spec005StartCases() []spec005StartCase {
 			outputFile:    "root-env.txt",
 			outputContent: "prod\n",
 			missingParam:  "environment",
-			missingOutput: ptrTo("${params.environment}\n"),
+			missingOutput: new("${params.environment}\n"),
 		},
 		{
 			name:          "dotenv path resolves named params",
@@ -236,7 +236,7 @@ func spec005StartCases() []spec005StartCase {
 			outputFile:    "dotenv.txt",
 			outputContent: "prod\n",
 			missingParam:  "environment",
-			missingOutput: ptrTo("literal\n"),
+			missingOutput: new("literal\n"),
 			setup:         setupSpec005Dotenv,
 		},
 		{
@@ -253,7 +253,7 @@ func spec005StartCases() []spec005StartCase {
 			outputFile:         "root-precondition.txt",
 			outputContent:      "prod\n",
 			missingParam:       "environment",
-			missingOutput:      ptrTo("prod\n"),
+			missingOutput:      new("prod\n"),
 			successAbsentFiles: []string{"root-precondition-literal.txt"},
 		},
 		{
@@ -262,7 +262,7 @@ func spec005StartCases() []spec005StartCase {
 			outputFile:    "with-content.txt",
 			outputContent: "prod\n",
 			missingParam:  "environment",
-			missingOutput: ptrTo("${params.environment}\n"),
+			missingOutput: new("${params.environment}\n"),
 		},
 		{
 			name:          "step env resolves named params",
@@ -270,7 +270,7 @@ func spec005StartCases() []spec005StartCase {
 			outputFile:    "step-env.txt",
 			outputContent: "prod\n",
 			missingParam:  "environment",
-			missingOutput: ptrTo("${params.environment}\n"),
+			missingOutput: new("${params.environment}\n"),
 		},
 		{
 			name:               "step working dir resolves named params",
@@ -279,7 +279,7 @@ func spec005StartCases() []spec005StartCase {
 			outputContent:      "prod\n",
 			missingParam:       "environment",
 			missingOutputFile:  "step-work-${params.environment}/step-working-dir.txt",
-			missingOutput:      ptrTo("prod\n"),
+			missingOutput:      new("prod\n"),
 			setup:              setupSpec005StepWorkingDir,
 			successAbsentFiles: []string{"step-work-${params.environment}/step-working-dir.txt"},
 		},
@@ -289,7 +289,7 @@ func spec005StartCases() []spec005StartCase {
 			outputFile:         "step-precondition.txt",
 			outputContent:      "prod\n",
 			missingParam:       "environment",
-			missingOutput:      ptrTo("prod\n"),
+			missingOutput:      new("prod\n"),
 			successAbsentFiles: []string{"step-precondition-literal.txt"},
 		},
 		{
@@ -299,7 +299,7 @@ func spec005StartCases() []spec005StartCase {
 			outputContent:      "prod\n",
 			missingParam:       "environment",
 			missingOutputFile:  "stdout-${params.environment}.txt",
-			missingOutput:      ptrTo("prod\n"),
+			missingOutput:      new("prod\n"),
 			successAbsentFiles: []string{"stdout-${params.environment}.txt"},
 		},
 		{
@@ -309,7 +309,7 @@ func spec005StartCases() []spec005StartCase {
 			outputContent:      "prod\n",
 			missingParam:       "environment",
 			missingOutputFile:  "stderr-${params.environment}.txt",
-			missingOutput:      ptrTo("prod\n"),
+			missingOutput:      new("prod\n"),
 			successAbsentFiles: []string{"stderr-${params.environment}.txt"},
 		},
 		{
@@ -318,7 +318,7 @@ func spec005StartCases() []spec005StartCase {
 			outputFile:    "output-value.txt",
 			outputContent: "prod\n",
 			missingParam:  "environment",
-			missingOutput: ptrTo("${params.environment}\n"),
+			missingOutput: new("${params.environment}\n"),
 		},
 		{
 			name:          "step output path resolves named params",
@@ -326,7 +326,7 @@ func spec005StartCases() []spec005StartCase {
 			outputFile:    "output-path.txt",
 			outputContent: "prod\n",
 			missingParam:  "environment",
-			missingOutput: ptrTo("literal\n"),
+			missingOutput: new("literal\n"),
 			setup:         setupSpec005OutputPath,
 		},
 		{
@@ -335,7 +335,7 @@ func spec005StartCases() []spec005StartCase {
 			outputFile:    "handler-env.txt",
 			outputContent: "prod\n",
 			missingParam:  "environment",
-			missingOutput: ptrTo("${params.environment}\n"),
+			missingOutput: new("${params.environment}\n"),
 		},
 		{
 			name:          "handler with params resolves named params",
@@ -343,7 +343,7 @@ func spec005StartCases() []spec005StartCase {
 			outputFile:    "handler-with-params.txt",
 			outputContent: "{\"environment\":\"prod\"}\n",
 			missingParam:  "environment",
-			missingOutput: ptrTo("{\"environment\":\"${params.environment}\"}\n"),
+			missingOutput: new("{\"environment\":\"${params.environment}\"}\n"),
 		},
 		{
 			name:               "handler working dir resolves named params",
@@ -352,7 +352,7 @@ func spec005StartCases() []spec005StartCase {
 			outputContent:      "prod\n",
 			missingParam:       "environment",
 			missingOutputFile:  "handler-work-${params.environment}/handler-working-dir.txt",
-			missingOutput:      ptrTo("prod\n"),
+			missingOutput:      new("prod\n"),
 			setup:              setupSpec005HandlerWorkingDir,
 			successAbsentFiles: []string{"handler-work-${params.environment}/handler-working-dir.txt"},
 		},
@@ -362,7 +362,7 @@ func spec005StartCases() []spec005StartCase {
 			outputFile:         "handler-precondition.txt",
 			outputContent:      "prod\n",
 			missingParam:       "environment",
-			missingOutput:      ptrTo("prod\n"),
+			missingOutput:      new("prod\n"),
 			successAbsentFiles: []string{"handler-precondition-literal.txt"},
 		},
 		{
@@ -372,7 +372,7 @@ func spec005StartCases() []spec005StartCase {
 			outputContent:      "prod\n",
 			missingParam:       "environment",
 			missingOutputFile:  "handler-stdout-${params.environment}.txt",
-			missingOutput:      ptrTo("prod\n"),
+			missingOutput:      new("prod\n"),
 			successAbsentFiles: []string{"handler-stdout-${params.environment}.txt"},
 		},
 		{
@@ -382,7 +382,7 @@ func spec005StartCases() []spec005StartCase {
 			outputContent:      "prod\n",
 			missingParam:       "environment",
 			missingOutputFile:  "handler-stderr-${params.environment}.txt",
-			missingOutput:      ptrTo("prod\n"),
+			missingOutput:      new("prod\n"),
 			successAbsentFiles: []string{"handler-stderr-${params.environment}.txt"},
 		},
 	}
@@ -397,10 +397,6 @@ func spec005MissingRuntimeCases() []spec005StartCase {
 		cases = append(cases, tc)
 	}
 	return cases
-}
-
-func ptrTo(value string) *string {
-	return &value
 }
 
 func setupSpec005Dotenv(t *testing.T, dagu *harness.Runner) {

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 
@@ -122,10 +123,8 @@ func appendBuildWarning(dag *DAG, warning string) {
 	if dag == nil || warning == "" {
 		return
 	}
-	for _, existing := range dag.BuildWarnings {
-		if existing == warning {
-			return
-		}
+	if slices.Contains(dag.BuildWarnings, warning) {
+		return
 	}
 	dag.BuildWarnings = append(dag.BuildWarnings, warning)
 }
