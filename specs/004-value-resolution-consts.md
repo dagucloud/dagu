@@ -4,16 +4,27 @@
 
 Partially implemented.
 
-The implementation covers root `consts` and `${consts.name}` bindings. The
-unbraced namespace-looking text preservation behavior inherited from Spec 003 is
-target behavior. Broader value-resolution behavior remains governed by the
-implementation status of the specs that define those namespaces and fields.
+Implemented:
+
+- root `consts` list form;
+- ordered `${consts.name}` lookup;
+- validation for invalid const declarations;
+- rejection of unavailable runtime namespaces while loading `consts`.
+
+Not implemented:
+
+- ordinary-content preservation for every const-looking string that is not a supported reference form.
+
+Only `${consts.name}` is a Dagu-owned const reference.
+Text such as `$consts.name` and `${consts.service.name}` must remain ordinary content.
+The missing preservation behavior is tracked by the implementation plan.
 
 ## Scope
 
 This spec defines root `consts` and `${consts.name}` references.
 
-Common reference syntax, supported fields, and string insertion are defined by [Spec 003: Value Resolution](003-value-resolution.md).
+Common reference syntax is defined by [Spec 003: Value Resolution](003-value-resolution.md).
+Spec 003 also defines supported fields and string insertion.
 
 Resolution timing is defined by [Spec 003: Value Resolution](003-value-resolution.md).
 
@@ -25,9 +36,11 @@ Workflows can define immutable values once and reference them from supported val
 
 ## Motivation
 
-Workflow authors need a deterministic way to name reusable literal values. `consts` use list form so the order is explicit when one constant depends on an earlier constant.
+Workflow authors need a deterministic way to name reusable literal values.
+`consts` use list form so dependency order is explicit.
 
-This spec keeps `consts` immutable and load-time resolvable so later value resolution can use them without runtime side effects.
+This spec keeps `consts` immutable and load-time resolvable.
+Later value resolution can use them without runtime side effects.
 
 ## Behavior
 
@@ -67,8 +80,8 @@ This spec keeps `consts` immutable and load-time resolvable so later value resol
 
 - `${consts.name}` reads `name` from resolved root `consts`.
 
-- `$consts.name` is not Dagu-owned `consts` reference syntax and is preserved
-  as ordinary string content according to Spec 003.
+- `$consts.name` is not Dagu-owned `consts` reference syntax.
+  It is preserved as ordinary string content according to Spec 003.
 
 - A resolved `consts` value is inserted into string fields according to Spec 003 string insertion rules.
 
@@ -84,7 +97,8 @@ This spec keeps `consts` immutable and load-time resolvable so later value resol
 
 - Mapping-form `consts` must fail during workflow validation.
 
-- `consts` references to runtime `env`, `params`, `steps`, later `consts`, or themselves must fail during workflow validation.
+- `consts` references must fail during workflow validation if they target unavailable values.
+  Unavailable values include runtime `env`, `params`, `steps`, later `consts`, and the same `consts` entry.
 
 - An unknown `consts` reference in a value-resolution field must fail during workflow validation.
 

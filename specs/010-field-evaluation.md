@@ -6,13 +6,17 @@ Not implemented. This spec describes target conformance behavior.
 
 ## Scope
 
-This spec answers one question: when Dagu sees text in a workflow field, does it leave the text alone, resolve Dagu references such as `${params.name}`, or run Dagu dynamic evaluation?
+This spec answers one question.
+When Dagu sees text in a workflow field, what does it do?
+It can leave the text alone, resolve Dagu references such as `${params.name}`, or run Dagu dynamic evaluation.
 
-It does not define the shape of every field. Field shape belongs to the YAML schema spec or to the spec that owns that field.
+It does not define the shape of every field.
+Field shape belongs to the YAML schema spec or to the spec that owns that field.
 
 ## Goal
 
-Make field evaluation explicit. A workflow author should be able to tell, for each field covered here, whether Dagu will:
+Make field evaluation explicit.
+A workflow author should be able to tell, for each field covered here, whether Dagu will:
 
 - use the field exactly as written
 - resolve Dagu value references
@@ -43,7 +47,8 @@ Dagu uses three evaluation types.
 
 Field-specific behavior means this spec does not make the decision. The field or executor spec must say what happens.
 
-The value-resolution field list is defined by the value resolution spec. If this table and that spec disagree about value-resolved fields, the value resolution spec is authoritative.
+The value-resolution field list is defined by the value resolution spec.
+If this table and that spec disagree about value-resolved fields, the value resolution spec is authoritative.
 
 ## Field table
 
@@ -70,7 +75,10 @@ Dagu command substitution is intentionally narrow.
 - Outside `params[].eval`, Dagu leaves backtick text and `$()` text unchanged.
 - The presence of `$()` or backticks outside `params[].eval` is not a validation error by itself.
 
-For step `run`, this means Dagu leaves shell syntax such as `$NAME`, `${NAME}`, `$()`, and backticks in the resolved run text. After that, the selected shell or script interpreter owns interpretation of that syntax. That behavior is not Dagu field evaluation.
+For step `run`, Dagu leaves shell syntax in the resolved run text.
+Examples are `$NAME`, `${NAME}`, `$()`, and backticks.
+After that, the selected shell or script interpreter owns interpretation of that syntax.
+That behavior is not Dagu field evaluation.
 
 The same rule applies to each array-form `run` entry.
 
@@ -100,7 +108,8 @@ steps:
     run: echo ${params.build_date}
 ```
 
-If the command in `eval` succeeds, `${params.build_date}` uses the command output. If it fails, `${params.build_date}` is `unknown`.
+If the command in `eval` succeeds, `${params.build_date}` uses the command output.
+If it fails, `${params.build_date}` is `unknown`.
 
 ## Step `run`
 
@@ -149,7 +158,8 @@ steps:
       label: "release-${params.version}"
 ```
 
-The string value `"release-${params.version}"` is a string leaf. Dagu resolves `${params.version}` when publishing the step output.
+The string value `"release-${params.version}"` is a string leaf.
+Dagu resolves `${params.version}` when publishing the step output.
 
 Dagu does not run shell syntax in these string leaves:
 
@@ -163,7 +173,8 @@ steps:
 
 The published values contain the backtick text and `$()` text as ordinary text.
 
-This is different from `stdout.outputs`, `outputs.write`, and the action manifest `outputs` schema. Those surfaces publish DAG or action outputs and are defined by their owning specs.
+This is different from `stdout.outputs`, `outputs.write`, and the action manifest `outputs` schema.
+Those surfaces publish DAG or action outputs and are defined by their owning specs.
 
 ## Outputs
 
@@ -175,16 +186,16 @@ When field evaluation succeeds, Dagu gives the evaluated value to the field that
 
 Validation errors:
 
-- A malformed Dagu-owned value reference in a value-resolved or
-  dynamic-evaluated field must fail during workflow validation when it is
-  statically checkable. Braced text that does not match a supported Dagu-owned
-  reference form remains ordinary string content under Spec 003.
+- A malformed Dagu-owned reference in a value-resolved or dynamic-evaluated field must fail workflow validation.
+  This applies when the reference is statically checkable.
+  Braced text that does not match a supported Dagu-owned reference form remains ordinary string content under Spec 003.
 
 Runtime errors:
 
 - A value-resolution failure must fail before the owning field is consumed.
 - A dynamic-evaluation failure must fail before the owning field is consumed.
-- The exception is `params[].eval` with `default`: if `eval` fails and `default` exists, Dagu uses the literal `default` value.
+- The exception is `params[].eval` with `default`.
+  If `eval` fails and `default` exists, Dagu uses the literal `default` value.
 
 ## Acceptance criteria
 
@@ -195,6 +206,8 @@ Runtime errors:
 - A black-box fixture verifies a failed `params[].eval` fails before any step starts when no `default` exists.
 - A black-box fixture verifies root `env` values resolve Dagu references without running command substitution.
 - A black-box fixture verifies `$()` in `params[].eval` is executed by Dagu.
-- A black-box fixture verifies command-substitution syntax in step `run` is preserved by Dagu before the command string is handed to the shell.
+- A black-box fixture verifies command-substitution syntax in step `run`.
+  The fixture proves Dagu preserves the syntax before handing the command string to the shell.
 - A black-box fixture verifies command-substitution syntax in root `env` is not evaluated by Dagu.
-- A black-box fixture verifies step object-form `output` string leaves resolve Dagu references without running dynamic evaluation.
+- A black-box fixture verifies step object-form `output` string leaves.
+  The fixture proves those leaves resolve Dagu references without running dynamic evaluation.

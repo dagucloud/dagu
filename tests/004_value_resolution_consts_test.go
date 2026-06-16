@@ -13,6 +13,7 @@ func Test004ValueResolutionConstsValidate(t *testing.T) {
 		"ordered_const_references.yaml",
 		"future_namespaces_remain_unresolved.yaml",
 		"unbraced_consts_text_is_preserved.yaml",
+		"braced_non_reference_text_is_preserved.yaml",
 	}
 	for _, file := range validCases {
 		t.Run(file, func(t *testing.T) {
@@ -93,11 +94,6 @@ func Test004ValueResolutionConstsValidate(t *testing.T) {
 			file:        "unknown_const_reference.yaml",
 			stderrParts: []string{"steps[0].run", "unknown consts binding", "${consts.missing}"},
 		},
-		{
-			name:        "nested const path is forbidden",
-			file:        "consts_nested_path_reference.yaml",
-			stderrParts: []string{"consts bindings must use", "${consts.service.name}"},
-		},
 	}
 	for _, tc := range invalidCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -141,6 +137,12 @@ func Test004ValueResolutionConstsStart(t *testing.T) {
 			file:          "unbraced_consts_text_is_preserved.yaml",
 			outputFile:    "unbraced-consts.txt",
 			outputContent: "$consts.service\n",
+		},
+		{
+			name:          "braced non-reference text is preserved during execution",
+			file:          "braced_non_reference_text_is_preserved.yaml",
+			outputFile:    "braced-non-reference.txt",
+			outputContent: "${consts.service.name}\n",
 		},
 	}
 	for _, tc := range cases {

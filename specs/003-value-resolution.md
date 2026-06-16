@@ -59,26 +59,24 @@ ${env.NAME}
 ${steps.step_id.outputs.name}
 ```
 
-- Namespace names, `consts` keys, `params` names, step ids, `outputs`, and step output names in supported reference forms must match `^[A-Za-z][A-Za-z0-9_]*$`.
+- Names in supported reference forms must match `^[A-Za-z][A-Za-z0-9_]*$`.
+  This applies to namespace names, `consts` keys, `params` names, step ids, `outputs`, and step output names.
 
 - Environment variable names under `env` must match `^[A-Za-z_][A-Za-z0-9_]*$`.
 
 - Unqualified `${NAME}` is handled by environment expansion in fields that support it.
 
-- Braced text that does not match a supported reference form is not interpreted
-  by Dagu and is preserved as ordinary string content.
+- Braced text that does not match a supported reference form is not interpreted by Dagu.
+  It is preserved as ordinary string content.
 
 - Namespace-specific specs define validation for supported reference forms.
 
-- Unbraced namespace-looking text such as `$name.path` is not Dagu-owned
-  reference syntax.
+- Unbraced namespace-looking text such as `$name.path` is not Dagu-owned reference syntax.
 
-- `$consts.name`, `$params.name`, `$env.NAME`, and
-  `$steps.step_id.outputs.name` are preserved as ordinary string content.
+- `$consts.name`, `$params.name`, `$env.NAME`, and `$steps.step_id.outputs.name` are ordinary string content.
 
-- Dagu may report a non-fatal warning for unbraced namespace-looking text when a
-  warning channel exists, but validation and execution must not fail because of
-  that text alone.
+- Dagu may report a non-fatal warning for unbraced namespace-looking text when a warning channel exists.
+  Validation and execution must not fail because of that text alone.
 
 ### Single-Quoted Environment References
 
@@ -109,9 +107,13 @@ ${steps.step_id.outputs.name}
 | `steps[].output.*` | Literal string values and `path` strings under structured output entries. |
 | `steps[].container` | Step container string form. In object form: `exec`, `image`, `name`, `user`, `working_dir`, `network`, `volumes[]`, `ports[]`, `env` values, `command[]`, and `shell[]`. |
 
-- The `steps[]` rows also apply to handler steps under `handler_on.init`, `handler_on.success`, `handler_on.failure`, `handler_on.abort`, `handler_on.exit`, and `handler_on.wait`.
+- The `steps[]` rows also apply to handler steps.
+  The handler surfaces are `handler_on.init`, `handler_on.success`, and `handler_on.failure`.
+  They also include `handler_on.abort`, `handler_on.exit`, and `handler_on.wait`.
 
-- For `steps[].run`, unqualified `$NAME` and `${NAME}` are shell syntax and are preserved for the selected shell. Dagu-owned environment references in `run` must use `${env.NAME}`.
+- For `steps[].run`, unqualified `$NAME` and `${NAME}` are shell syntax.
+  Dagu preserves them for the selected shell.
+  Dagu-owned environment references in `run` must use `${env.NAME}`.
 
 - Defaults, custom `step_types`, and custom `actions` are checked after Dagu expands them into concrete steps.
 
@@ -121,7 +123,8 @@ ${steps.step_id.outputs.name}
 
 - A reference that would fail at runtime must be rejected by `dagu validate` when the failure is statically knowable.
 
-- Adding a value-resolution-capable field requires updating this spec, the DAG JSON schema, validation traversal, runtime traversal, and black-box tests together.
+- Adding a value-resolution-capable field requires coordinated updates.
+  Update this spec, the DAG JSON schema, validation traversal, runtime traversal, and black-box tests together.
 
 ### Resolution Timing
 
@@ -157,7 +160,8 @@ ${steps.step_id.outputs.name}
 
 - When Dagu inserts a referenced value into a string field, integers are inserted in base-10 decimal form.
 
-- When Dagu inserts a referenced value into a string field, non-integer numbers are inserted in the shortest round-trippable base-10 decimal representation.
+- When Dagu inserts a referenced value into a string field, non-integer numbers use base-10 decimal text.
+  The decimal text must be the shortest round-trippable representation.
 
 ## Examples
 

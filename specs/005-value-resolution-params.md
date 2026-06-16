@@ -2,21 +2,21 @@
 
 ## Implementation Status
 
-Not implemented. This spec describes target conformance behavior and must not be
-treated as current product behavior.
+Not implemented.
+This spec describes target conformance behavior.
+It must not be treated as current product behavior.
 
 ## Scope
 
 This spec defines `${params.name}` references.
 
-Common reference syntax, unbraced text preservation, supported fields, string
-insertion, and resolution timing are defined by [Spec 003: Value Resolution](003-value-resolution.md).
+Common reference syntax is defined by [Spec 003: Value Resolution](003-value-resolution.md).
+Spec 003 also defines unbraced text preservation, supported fields, string insertion, and resolution timing.
 
-This spec does not define parameter declaration schema beyond the rules needed
-for value resolution.
+This spec does not define parameter declaration schema beyond the rules needed for value resolution.
 
-This spec does not define positional parameter behavior except to say that
-positional parameters are not addressable through the `params` namespace.
+This spec does not define positional parameter behavior.
+It only states that positional parameters are not addressable through the `params` namespace.
 
 ## Goal
 
@@ -24,13 +24,13 @@ Supported workflow fields can reference named runtime parameters.
 
 ## Motivation
 
-Runtime parameters let a workflow caller provide values without editing the
-workflow file. Value resolution needs a named lookup rule so supported fields can
-use those values predictably.
+Runtime parameters let a workflow caller provide values without editing the workflow file.
+Value resolution needs a named lookup rule.
+Supported fields can then use those values predictably.
 
 This spec separates declaration validation from runtime value availability.
-`dagu validate` can reject unknown parameter names, while missing runtime values
-fail only when the run input does not provide them.
+`dagu validate` can reject unknown parameter names.
+Missing runtime values fail only when the run input does not provide them.
 
 ## Behavior
 
@@ -42,96 +42,87 @@ fail only when the run input does not provide them.
 
 - Positional parameters are not addressable through the `params` namespace.
 
-- `params[].default` and declaration metadata do not support Dagu
-  references.
+- `params[].default` and declaration metadata do not support Dagu references.
 
-- `params[].eval` is dynamic-evaluated by Spec 010 and Spec 011. It is not a
-  normal value-resolution field, but Dagu references inside it use this spec's
-  reference form, declaration rules, and runtime lookup rules.
+- `params[].eval` is dynamic-evaluated by Spec 010 and Spec 011.
+  It is not a normal value-resolution field.
+  Dagu references inside it use this spec's reference form, declaration rules, and runtime lookup rules.
 
 ### Reference Form
 
 - `${params.name}` reads the runtime value for the declared parameter `name`.
 
-- A braced expression is a `params` reference only when it matches
-  `${params.name}` and `name` matches the parameter name rule.
+- A braced expression is a `params` reference only when it matches `${params.name}`.
+  The `name` part must match the parameter name rule.
 
-- Braced text that does not match `${params.name}` is not interpreted by the
-  `params` namespace and is preserved as ordinary string content.
+- Braced text that does not match `${params.name}` is not interpreted by the `params` namespace.
+  It is preserved as ordinary string content.
 
-- `$params.name` is not Dagu-owned params reference syntax and is preserved as
-  ordinary string content.
+- `$params.name` is not Dagu-owned params reference syntax.
+  It is preserved as ordinary string content.
 
 - Other expression syntax is outside this spec.
 
 ### Field Availability
 
-- `${params.name}` is available in every Spec 003 value-resolution field whose
-  resolution timing occurs after runtime params are available.
+- `${params.name}` is available in Spec 003 value-resolution fields that resolve after runtime params are available.
 
-- `${params.name}` is available inside `params[].eval` according to the dynamic
-  evaluation rules in Spec 010 and Spec 011.
+- `${params.name}` is available inside `params[].eval`.
+  Spec 010 and Spec 011 define the dynamic evaluation rules for that field.
 
-- `${params.name}` is not available in root `consts` list-form values because
+- `${params.name}` is not available in root `consts` list-form values.
   `consts` resolution can see only earlier `consts` entries.
 
-- `${params.name}` is not available inside `params[].default` or declaration
-  metadata because those fields are literal.
+- `${params.name}` is not available inside `params[].default` or declaration metadata.
+  Those fields are literal.
 
 - The validator and runtime must use the same field availability rules.
 
 ### Single-Quoted Environment References
 
-- Single-quoted `$NAME` and `${NAME}` are preserved during Dagu environment
-  expansion.
+- Single-quoted `$NAME` and `${NAME}` are preserved during Dagu environment expansion.
 
 ### Runtime Values
 
 - Runtime `params` are available after Dagu builds the run input.
 
-- A resolved parameter value is inserted into string fields according to Spec 003
-  string insertion rules.
+- A resolved parameter value is inserted into string fields. Spec 003 defines the insertion rules.
 
-- A missing runtime value for a declared `params` reference must fail before the
-  owning field is used.
+- A declared `params` reference must have a runtime value before the owning field is used.
+  If the value is missing, the run must fail first.
 
 ## Errors
 
 - An invalid parameter declaration name must fail during workflow validation.
 
-- An undeclared `params` reference in a value-resolution field must fail during
-  workflow validation.
+- An undeclared `params` reference in a value-resolution field must fail during workflow validation.
 
-- In a workflow that declares only positional parameters, a `${params.name}`
-  reference must fail during workflow validation because there is no matching
-  named declaration.
+- In workflows with only positional parameters, a `${params.name}` reference must fail during workflow validation.
+  There is no matching named declaration.
 
-- A `${params.name}` reference in a field where params are unavailable must fail
-  during workflow validation when statically knowable.
+- A `${params.name}` reference in a field where params are unavailable must fail during workflow validation.
+  This applies when the reference is statically knowable.
 
-- A missing runtime value for a declared `params` reference must fail before the
-  owning field is used.
+- A declared `params` reference must have a runtime value before the owning field is used.
+  If the value is missing, the run must fail first.
 
-- Validation and runtime failures must include enough field context for black-box
-  tests to identify the invalid field.
+- Validation and runtime failures must include enough field context.
+  Black-box tests must be able to identify the invalid field.
 
 ## Black-Box Conformance Viewpoint
 
-Black-box coverage for this spec is exhaustive only when every Spec 003
-value-resolution field, plus the `params[].eval` dynamic-evaluation boundary,
-has an explicit params case.
+Black-box coverage is exhaustive only when every Spec 003 value-resolution field has an explicit params case.
+The `params[].eval` dynamic-evaluation boundary also needs an explicit params case.
 
 For each field where params are available, the conformance suite must include:
 
 - a valid declared-name case that proves `${params.name}` resolves;
 - an undeclared-name validation failure for `${params.missing}`;
 - a preservation case proving `$params.name` remains ordinary string content;
-- a missing runtime value case that proves the owning field is not used after
-  the missing value is detected.
+- a missing runtime value case that proves the owning field is not used after the missing value is detected.
 
-Missing-value cases should be grouped by resolution timing class for review, but
-each listed field where params are available needs coverage unless an exception
-is explicitly accepted.
+Missing-value cases should be grouped by resolution timing class for review.
+Each listed field where params are available still needs coverage unless an exception is explicitly accepted.
 
 The exhaustive field viewpoint is:
 
@@ -158,9 +149,8 @@ The exhaustive field viewpoint is:
 | `steps[].container` | Step container string form resolves declared params. In object form, `exec`, `image`, `name`, `user`, `working_dir`, `network`, `volumes[]`, `ports[]`, `env` values, `command[]`, and `shell[]` resolve declared params. |
 | handler steps | The same step-owned cases apply under `handler_on.init`, `handler_on.success`, `handler_on.failure`, `handler_on.abort`, `handler_on.exit`, and `handler_on.wait`. |
 
-Any hard-to-test exception must be named, justified, and kept small. A spec
-cannot be marked implemented while an unaccepted exception leaves a listed field
-without params coverage.
+Any hard-to-test exception must be named, justified, and kept small.
+A spec cannot be marked implemented while an unaccepted exception leaves a listed field without params coverage.
 
 ## Examples
 

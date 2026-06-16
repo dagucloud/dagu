@@ -230,14 +230,14 @@
     <p class="lede">
       This plan sequences the product work needed for <code>${params.name}</code>
       references to conform to Spec 005 and the shared value-resolution rules in
-      Spec 003. It stays at the observable behavior and conformance level: it names
-      required outcomes, ordering, verification, and compatibility boundaries without
-      exposing private implementation design as public contract.
+      Spec 003. It names required outcomes, implementation design, ordering,
+      verification, and compatibility boundaries while keeping the numbered specs
+      as the public behavior contract.
     </p>
     <div class="meta">
       <span class="pill must">Invariant: Spec 005 wins over current gaps</span>
       <span class="pill warn">Current status: target behavior not implemented</span>
-      <span class="pill ok">Plan level: behavior and conformance</span>
+      <span class="pill ok">Plan level: design and conformance</span>
     </div>
   </header>
 
@@ -310,6 +310,115 @@
   </section>
 
   <section>
+    <h2>Code Design</h2>
+    <p>
+      The implementation should extend the existing semantic value resolver rather
+      than adding field-specific params handling. The design boundary is: specs
+      define the contract, <code>internal/cmn/value</code> owns reference parsing and
+      resolution semantics, <code>internal/core</code> owns static DAG validation, and
+      runtime packages pass resolved run state into the resolver at the moment each
+      field is used.
+    </p>
+    <table>
+      <thead>
+      <tr>
+        <th>Layer</th>
+        <th>Design change</th>
+        <th>Review concern</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+        <td><code>internal/cmn/value</code> reference scanning</td>
+        <td>Keep Dagu-owned references limited to supported braced forms. Remove the invalid-shorthand path for <code>$consts.*</code> and do not add one for <code>$params.*</code>. A scanner result should distinguish supported braced references from ordinary text, so validation never needs a list of foreign language syntaxes.</td>
+        <td>The parser must not reject PHP, Perl, shell, or JavaScript text that happens to contain <code>$namespace.member</code>.</td>
+      </tr>
+      <tr>
+        <td><code>internal/cmn/value</code> scopes</td>
+        <td>Add params declarations to <code>StaticScope</code> and params runtime values to <code>RuntimeScope</code>. Keep <code>Params</code> separate from <code>Env</code>; bare-name compatibility can still flow through <code>EnvScope</code>, but <code>${params.name}</code> must read only the params scope.</td>
+        <td>Namespaced params resolution must not be satisfied accidentally by env vars, compatibility defaults, or positional numeric params.</td>
+      </tr>
+      <tr>
+        <td><code>internal/cmn/value</code> binding validation</td>
+        <td>Extend strict braced binding validation from <code>consts</code> to <code>params</code>. <code>${params.name}</code> is valid only when <code>name</code> is a declared named parameter. <code>${params.missing}</code> fails validation. Braced text that does not match the supported params form remains ordinary content.</td>
+        <td>Validation must catch undeclared valid references while preserving malformed-looking non-Dagu text such as <code>${params...}</code>.</td>
+      </tr>
+      <tr>
+        <td><code>internal/core/spec</code> params parsing</td>
+        <td>Use the existing params plan as the declaration source. Enforce the Spec 005 identifier rule for named params, expose only non-positional names to the static params scope, and keep <code>params[].default</code> literal. For <code>params[].eval</code>, preserve the current runtime rules: caller-provided values skip eval, runtime overrides are literal, eval runs only when no caller value exists, eval failure falls back to literal <code>default</code> when present, and no-default eval failure fails before steps start.</td>
+        <td>Inline params, external schema params, legacy params, defaults, runtime overrides, and eval-backed params must produce one consistent declaration set.</td>
+      </tr>
+      <tr>
+        <td><code>internal/core</code> validation</td>
+        <td>Build the resolver used by <code>validateBindingReferences</code> with both <code>Consts</code> and declared named params, but first reconcile the field source with Spec 003. Current <code>ReferenceFields</code> includes legacy surfaces outside Spec 003, so implementation must either split out a Spec 003-backed walker or tag/filter reference fields by spec support before enforcing params validation.</td>
+        <td>The validator and runtime must share the same Spec 003 field surface; accepting params references in broader legacy fields would over-implement the spec and make conformance drift likely.</td>
+      </tr>
+      <tr>
+        <td><code>internal/runtime</code> resolver construction</td>
+        <td>Build runtime params values from the resolved DAG run input and pass them into <code>cmnvalue.RuntimeScope</code> in <code>resolverFromEnv</code>. Resolve supported fields when they are used, through existing helpers such as <code>ResolveString</code>, <code>resolveRuntimeString</code>, and <code>resolveRuntimeObject</code>.</td>
+        <td>Runtime params must be available after run input resolution, but the implementation must not render the whole DAG up front.</td>
+      </tr>
+      <tr>
+        <td>Missing-value handling</td>
+        <td>Make <code>${params.name}</code> require a value at runtime. If a name is declared but no runtime/default/eval value exists, resolution returns a field-context error before the owning field is consumed.</td>
+        <td>Required params with no supplied value must fail before commands, env writes, output reads, paths, or handler side effects happen.</td>
+      </tr>
+      <tr>
+        <td>Compatibility cleanup</td>
+        <td>Update old unit tests that expect invalid binding shorthand for <code>$consts.*</code>. Keep ordinary env expansion behavior for <code>$NAME</code> and unqualified <code>${NAME}</code> in the field policies that already support it.</td>
+        <td>Fixing Spec 005 should not silently remove existing bare-name or environment behavior outside the namespaced params contract.</td>
+      </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Resolver Data Flow</h2>
+    <table>
+      <thead>
+      <tr>
+        <th>Phase</th>
+        <th>Inputs</th>
+        <th>Resolver scope</th>
+        <th>Outcome</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+        <td>Load consts</td>
+        <td>Root <code>consts</code> list</td>
+        <td>Earlier const values only</td>
+        <td><code>${consts.name}</code> can resolve; <code>${params.name}</code>, <code>${env.NAME}</code>, and <code>${steps.*}</code> are unavailable here.</td>
+      </tr>
+      <tr>
+        <td>Build params plan</td>
+        <td>Authored <code>params</code>, schemas, defaults, eval definitions, runtime overrides</td>
+        <td>Declared named params plus existing eval env scope</td>
+        <td>Dagu records the named declaration set, resolves available runtime values, and preserves the distinction between declared-but-missing and present empty string.</td>
+      </tr>
+      <tr>
+        <td>Static validation</td>
+        <td>Spec 003-backed reference fields, derived by splitting or filtering <code>core.ReferenceFields(dag)</code></td>
+        <td>Resolved consts plus declared named params</td>
+        <td>Declared <code>${params.name}</code> references pass; undeclared names and unsupported locations fail with field context; unbraced namespace-looking text is ignored by the Dagu reference scanner.</td>
+      </tr>
+      <tr>
+        <td>Runtime field use</td>
+        <td>The field value immediately before it is consumed</td>
+        <td>Resolved consts, resolved runtime params, env scope, and step outputs available at that point</td>
+        <td>The owning field receives the resolved value or fails before producing side effects.</td>
+      </tr>
+      <tr>
+        <td>Compatibility behavior</td>
+        <td>Bare names, <code>$NAME</code>, unqualified <code>${NAME}</code>, and legacy parameter env entries</td>
+        <td>Existing field policy and env scope rules</td>
+        <td>Compatibility stays separate from <code>${params.name}</code>; it does not satisfy missing params references.</td>
+      </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
     <h2>Current Conformance Failures</h2>
     <p>
       The conformance suite is intentionally red. The implementation work is complete
@@ -330,9 +439,9 @@
         <td>Validation currently accepts undeclared braced <code>${params.*}</code> references across the Spec 003 supported-field surface.</td>
       </tr>
       <tr>
-        <td>Spec 004 unbraced consts preservation cases</td>
-        <td>2</td>
-        <td>Validation and runtime currently reject or block <code>$consts.*</code> text even though it is ordinary content under Spec 003 and Spec 004.</td>
+        <td>Spec 004 ordinary-content preservation cases</td>
+        <td>4</td>
+        <td>Validation and runtime currently reject or block const-looking text that is not a supported reference form, such as <code>$consts.name</code> and <code>${consts.service.name}</code>.</td>
       </tr>
       <tr>
         <td><code>StartResolvesFieldSurfaces</code></td>
@@ -358,6 +467,41 @@
         <td><code>Start/named_runtime_params_resolve_in_string_fields</code></td>
         <td>1</td>
         <td>The baseline runtime params fixture writes literal <code>${params.*}</code> text instead of the supplied runtime values.</td>
+      </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Spec 004 Gap Plan</h2>
+    <p>
+      Spec 004 is partial only where ordinary text is still mistaken for a consts
+      reference. The missing behavior should be fixed before or with Spec 005,
+      because params uses the same reference boundary.
+    </p>
+    <table>
+      <thead>
+      <tr>
+        <th>Work item</th>
+        <th>Required behavior</th>
+        <th>Conformance gate</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+        <td>Reference boundary</td>
+        <td>Only <code>${consts.name}</code> is a Dagu-owned const reference. Text such as <code>$consts.name</code> and <code>${consts.service.name}</code> remains ordinary content.</td>
+        <td><code>Test004ValueResolutionConstsValidate</code> accepts the unbraced and braced preservation fixtures.</td>
+      </tr>
+      <tr>
+        <td>Runtime preservation</td>
+        <td>Field resolution preserves ordinary const-looking text instead of failing before the owning field runs.</td>
+        <td><code>Test004ValueResolutionConstsStart</code> writes literal <code>$consts.name</code> and <code>${consts.service.name}</code> output.</td>
+      </tr>
+      <tr>
+        <td>Status closure</td>
+        <td>Spec 004 can be marked implemented after the preservation fixtures pass through <code>make test-conformance</code>.</td>
+        <td>The Spec 004 conformance group is green without removing or weakening the preservation cases.</td>
       </tr>
       </tbody>
     </table>
@@ -474,7 +618,7 @@
       </tr>
       <tr>
         <td>Params eval reference</td>
-        <td>A declared <code>${params.name}</code> reference inside <code>params[].eval</code> resolves according to the dynamic-evaluation specs, and a missing runtime value fails before the evaluated parameter is consumed.</td>
+        <td>A declared <code>${params.name}</code> reference inside <code>params[].eval</code> resolves according to the dynamic-evaluation specs. Caller-provided values skip eval, literal defaults are used when eval fails and a default exists, and missing values fail before the evaluated parameter is consumed.</td>
       </tr>
       <tr>
         <td>Legacy bare-name parameter compatibility</td>
@@ -514,45 +658,115 @@
       </tr>
       <tr>
         <td>3</td>
+        <td>Reconcile the supported field surface with Spec 003.</td>
+        <td>Params validation and runtime resolution apply only to fields listed by Spec 003, while legacy value-resolution fields outside the spec remain governed by their existing behavior until a numbered spec includes them.</td>
+        <td>A field-surface unit test proves the Spec 005 validation matrix and the product's params-enabled field walker contain the same Spec 003 field paths.</td>
+      </tr>
+      <tr>
+        <td>4</td>
         <td>Validate supported params references everywhere Spec 003 allows value resolution.</td>
         <td>Declared <code>${params.name}</code> references are accepted. Undeclared <code>${params.missing}</code> references fail validation with field context. Unbraced <code>$params.name</code> text is preserved as ordinary content.</td>
         <td><code>ValidateDeclaredReferences</code> remains green, and <code>ValidateRejectsUndeclaredReferencesByField</code> plus <code>ValidatePreservesUnbracedNamespaceTextByField</code> reach zero failures.</td>
       </tr>
       <tr>
-        <td>4</td>
+        <td>5</td>
         <td>Reject params references where params are unavailable.</td>
         <td>Literal declaration fields and root <code>consts</code> list values do not gain access to runtime params. Non-Dagu braced text remains ordinary string content.</td>
         <td><code>ValidateUnsupportedLocations/params_defaults_do_not_support_references</code> passes, and preservation fixtures remain green.</td>
       </tr>
       <tr>
-        <td>5</td>
+        <td>6</td>
         <td>Resolve declared runtime params at field-use time.</td>
         <td>Every supported root, step, handler, environment, precondition, stream, output, and action-input string covered by Spec 005 sees the supplied runtime param value before the field is used.</td>
         <td><code>Start/named_runtime_params_resolve_in_string_fields</code> and <code>StartResolvesFieldSurfaces</code> reach zero failures.</td>
       </tr>
       <tr>
-        <td>6</td>
+        <td>7</td>
         <td>Fail missing runtime values before the owning field is used.</td>
         <td>A declared params reference without a runtime value produces a non-zero run result and prevents the field's side effect from happening.</td>
         <td><code>StartRejectsMissingRuntimeValues</code> reaches zero failures.</td>
       </tr>
       <tr>
-        <td>7</td>
+        <td>8</td>
         <td>Apply Spec 005 rules inside the <code>params[].eval</code> boundary.</td>
-        <td><code>params[].eval</code> may use declared <code>${params.name}</code> references according to the dynamic-evaluation specs, and undeclared or missing references fail before the evaluated parameter is consumed.</td>
-        <td><code>ValidateParamsEvalReferences</code> and the <code>params_eval</code> runtime cases pass.</td>
+        <td><code>params[].eval</code> may use declared <code>${params.name}</code> references according to the dynamic-evaluation specs. Caller-provided values skip eval, runtime overrides are literal, eval runs only when no caller value exists, eval failure falls back to literal <code>default</code> when present, and no-default eval failure fails before steps start.</td>
+        <td><code>ValidateParamsEvalReferences</code>, <code>params_eval</code> runtime cases, override-skips-eval, default-fallback, no-default failure, and eval-derived later-param cases pass.</td>
       </tr>
       <tr>
-        <td>8</td>
+        <td>9</td>
         <td>Protect compatibility behavior.</td>
         <td>Existing bare-name and environment expansion behavior remains available where specs permit it, but it does not satisfy or hide <code>${params.name}</code> references.</td>
         <td>Existing non-Spec-005 tests remain green, and conformance failures do not move into compatibility fixtures.</td>
       </tr>
       <tr>
-        <td>9</td>
+        <td>10</td>
         <td>Close the status loop.</td>
         <td>Spec 005 can be marked implemented only after validation, runtime, missing-value, and compatibility boundaries all pass through the conformance entry point.</td>
         <td><code>make test-conformance</code> and the normal non-conformance test target both pass.</td>
+      </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Code-Level Tasks</h2>
+    <table>
+      <thead>
+      <tr>
+        <th>Task</th>
+        <th>Files likely touched</th>
+        <th>Acceptance criteria</th>
+        <th>Verification</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+        <td>Parser and scope foundation</td>
+        <td><code>internal/cmn/value/references.go</code>, <code>internal/cmn/value/template.go</code>, <code>internal/cmn/value/scope.go</code>, value package tests</td>
+        <td>Supported braced namespaces are parsed centrally; unbraced namespace-looking text is ordinary content; static and runtime scopes can carry params separately from env.</td>
+        <td>Unit tests prove <code>$consts.name</code> and <code>$params.name</code> are preserved, <code>${consts.name}</code> still resolves, and <code>${params.name}</code> can be validated/resolved through a params scope.</td>
+      </tr>
+      <tr>
+        <td>Spec 003 field-surface reconciliation</td>
+        <td><code>internal/core/value_fields.go</code>, validation field matrix tests, Spec 005 conformance helper code</td>
+        <td>The product has an explicit Spec 003 params-enabled field list. Broader legacy fields currently walked by <code>ReferenceFields</code>, such as LLM message/config fields or retry/repeat numeric strings if they are outside Spec 003, are not accidentally added to Spec 005.</td>
+        <td>A unit test compares the product params-enabled field list with the conformance field matrix and fails on additions or omissions.</td>
+      </tr>
+      <tr>
+        <td>Declaration validation</td>
+        <td><code>internal/core/spec/dparams*.go</code>, <code>internal/core/validator.go</code>, <code>internal/core/value_fields.go</code> if field coverage is missing</td>
+        <td>Named param declarations match Spec 005; positional params are excluded from the <code>params</code> namespace; <code>validateBindingReferences</code> rejects undeclared <code>${params.name}</code> in every supported field.</td>
+        <td><code>ValidateRejectsUndeclaredReferencesByField</code>, invalid declaration name, positional-only, params default, and consts-unavailable cases fail/pass as specified.</td>
+      </tr>
+      <tr>
+        <td>Runtime params value source</td>
+        <td><code>internal/core/dag.go</code>, <code>internal/core/spec/dparams*.go</code>, <code>internal/core/spec/dag.go</code>, focused params tests</td>
+        <td>The resolved DAG carries enough internal run-input state to build <code>RuntimeScope.Params</code> without using env fallback. Present empty strings are distinguishable from missing values.</td>
+        <td>Unit tests cover defaults, explicit empty override, required missing value, typed schema values, JSON override, and eval-derived params.</td>
+      </tr>
+      <tr>
+        <td>Runtime resolver wiring</td>
+        <td><code>internal/runtime/eval.go</code>, runtime/node and executor call sites only where existing resolver helpers are bypassed</td>
+        <td><code>resolverFromEnv</code> passes params into the value resolver. Existing field-use helpers resolve <code>${params.name}</code> at use time for root, step, handler, env, path, output, parallel, and action-input surfaces.</td>
+        <td><code>Start/named_runtime_params_resolve_in_string_fields</code> and <code>StartResolvesFieldSurfaces</code> pass without rendering the whole DAG during load.</td>
+      </tr>
+      <tr>
+        <td>Missing-value failure</td>
+        <td><code>internal/cmn/value</code> resolver code, runtime field-use call sites that need field context</td>
+        <td>Declared <code>${params.name}</code> with no runtime value returns a field-context error before the owning field is consumed. Empty string remains a valid present value.</td>
+        <td><code>StartRejectsMissingRuntimeValues</code> proves side-effect files are absent for every runtime-verifiable field.</td>
+      </tr>
+      <tr>
+        <td><code>params[].eval</code> boundary</td>
+        <td><code>internal/core/spec/dparams_runtime.go</code>, <code>internal/cmn/value</code> dynamic eval tests</td>
+        <td>Eval fields validate declared params references, resolve available params before command substitution, skip eval when caller values are provided, treat runtime overrides as literal values, use literal defaults when eval fails and default exists, and fail before steps when eval fails with no default.</td>
+        <td><code>ValidateParamsEvalReferences</code>, <code>params_eval</code> runtime cases, override-skips-eval, default-fallback-on-eval-failure, no-default eval failure, and eval-derived later-param cases pass.</td>
+      </tr>
+      <tr>
+        <td>Compatibility and cleanup</td>
+        <td>Old value-reference unit tests, conformance fixtures, docs only if behavior text is stale</td>
+        <td>Tests no longer expect invalid shorthand errors for unbraced namespace-looking text. Bare-name and environment expansion tests remain explicit and separate from <code>${params.name}</code>.</td>
+        <td><code>make test</code> passes, <code>make test-conformance</code> passes, and Spec 005 status can be updated in the same final implementation change.</td>
       </tr>
       </tbody>
     </table>
@@ -563,6 +777,7 @@
     <ul>
       <li>Use <code>make test-conformance</code> as the only required entry point for binary-level Spec 005 verification.</li>
       <li>Keep the current exhaustive field matrix intact: declared-name validation, undeclared-name validation, unbraced-text preservation, successful runtime resolution, and missing-runtime-value failure.</li>
+      <li>Add a product unit test that compares the params-enabled field list to the Spec 005 conformance matrix so legacy fields outside Spec 003 cannot silently enter the params contract.</li>
       <li>Keep accepted runtime coverage exceptions explicit and justified; do not use them to hide fields that are easy to verify through local side effects.</li>
       <li>Assert failures by behavior class and field context. Do not couple conformance to private error formatting beyond the context needed to identify the invalid field.</li>
       <li>Verify the normal test target still excludes binary-level conformance tests so missing <code>DAGU_BIN</code> cannot create silent skips or false green runs.</li>
@@ -662,8 +877,8 @@
       <tr>
         <td>Dynamic-evaluation boundary</td>
         <td>Declaration and runtime lookup semantics are stable.</td>
-        <td><code>params[].eval</code> applies Spec 005 lookup and missing-value rules before dynamic command substitution consumes the value.</td>
-        <td>Declared, undeclared, and missing-value <code>params[].eval</code> cases pass.</td>
+        <td><code>params[].eval</code> applies Spec 005 lookup and missing-value rules before dynamic command substitution consumes the value, while preserving caller override, literal default fallback, and no-default failure behavior.</td>
+        <td>Declared, undeclared, missing-value, override-skips-eval, default-fallback, no-default failure, and eval-derived later-param cases pass.</td>
       </tr>
       <tr>
         <td>Compatibility closure</td>

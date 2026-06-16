@@ -1,0 +1,6 @@
+consts:
+  - service: api
+steps:
+  - name: preserve
+    run: |
+      printf '%s\n' '${consts.service.name}' > braced-non-reference.txt
