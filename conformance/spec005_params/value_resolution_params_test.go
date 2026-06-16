@@ -1,12 +1,12 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package tests_test
+package spec005_params_test
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
+
+	"github.com/dagucloud/dagu/conformance/harness"
 )
 
 const spec005RuntimeParams = "environment=prod"
@@ -19,12 +19,12 @@ type spec005StartCase struct {
 	outputContent      string
 	missingParam       string
 	missingOutput      *string
-	setup              func(*testing.T, *Runner)
+	setup              func(*testing.T, *harness.Runner)
 	successAbsentFiles []string
 	missingAbsentFiles []string
 }
 
-func Test005ValueResolutionParamsValidate(t *testing.T) {
+func TestValidate(t *testing.T) {
 	t.Parallel()
 
 	validCases := []string{
@@ -38,7 +38,7 @@ func Test005ValueResolutionParamsValidate(t *testing.T) {
 		t.Run(file, func(t *testing.T) {
 			t.Parallel()
 
-			dagu := newRunner(t, "005_value_resolution_params")
+			dagu := harness.NewRunner(t)
 
 			result := dagu.Run("validate", file)
 			result.ExpectExitCode(0)
@@ -88,7 +88,7 @@ func Test005ValueResolutionParamsValidate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			dagu := newRunner(t, "005_value_resolution_params")
+			dagu := harness.NewRunner(t)
 
 			result := dagu.Run("validate", tc.file)
 			result.ExpectExitCode(1)
@@ -100,14 +100,14 @@ func Test005ValueResolutionParamsValidate(t *testing.T) {
 	}
 }
 
-func Test005ValueResolutionParamsStart(t *testing.T) {
+func TestRuntime(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range spec005StartCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			dagu := newRunner(t, "005_value_resolution_params")
+			dagu := harness.NewRunner(t)
 			if tc.setup != nil {
 				tc.setup(t, dagu)
 			}
@@ -126,14 +126,14 @@ func Test005ValueResolutionParamsStart(t *testing.T) {
 	}
 }
 
-func Test005ValueResolutionParamsStartRejectsMissingRuntimeValues(t *testing.T) {
+func TestMissingRuntimeValues(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range spec005MissingRuntimeCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			dagu := newRunner(t, "005_value_resolution_params")
+			dagu := harness.NewRunner(t)
 			if tc.setup != nil {
 				tc.setup(t, dagu)
 			}
@@ -361,67 +361,34 @@ func ptrTo(value string) *string {
 	return &value
 }
 
-func setupSpec005Dotenv(t *testing.T, dagu *Runner) {
+func setupSpec005Dotenv(t *testing.T, dagu *harness.Runner) {
 	t.Helper()
-	writeSpec005ProjectFile(t, dagu, ".env.prod", "DOTENV_VALUE=prod\n")
-	writeSpec005ProjectFile(t, dagu, ".env.${params.environment}", "DOTENV_VALUE=literal\n")
+	dagu.WriteFile(".env.prod", "DOTENV_VALUE=prod\n")
+	dagu.WriteFile(".env.${params.environment}", "DOTENV_VALUE=literal\n")
 }
 
-func setupSpec005ShellArgsWrapper(t *testing.T, dagu *Runner) {
+func setupSpec005ShellArgsWrapper(t *testing.T, dagu *harness.Runner) {
 	t.Helper()
-	writeSpec005ProjectExecutable(t, dagu, "shell-args-wrapper", `#!/bin/sh
+	dagu.WriteExecutable("shell-args-wrapper", `#!/bin/sh
 printf '%s\n' "$1" > root-shell-array-args-marker.txt
 exec /bin/sh "$@"
 `)
 }
 
-func setupSpec005StepWorkingDir(t *testing.T, dagu *Runner) {
+func setupSpec005StepWorkingDir(t *testing.T, dagu *harness.Runner) {
 	t.Helper()
-	mkdirSpec005ProjectDir(t, dagu, "step-work-prod")
-	mkdirSpec005ProjectDir(t, dagu, "step-work-${params.environment}")
+	dagu.Mkdir("step-work-prod")
+	dagu.Mkdir("step-work-${params.environment}")
 }
 
-func setupSpec005HandlerWorkingDir(t *testing.T, dagu *Runner) {
+func setupSpec005HandlerWorkingDir(t *testing.T, dagu *harness.Runner) {
 	t.Helper()
-	mkdirSpec005ProjectDir(t, dagu, "handler-work-prod")
-	mkdirSpec005ProjectDir(t, dagu, "handler-work-${params.environment}")
+	dagu.Mkdir("handler-work-prod")
+	dagu.Mkdir("handler-work-${params.environment}")
 }
 
-func setupSpec005OutputPath(t *testing.T, dagu *Runner) {
+func setupSpec005OutputPath(t *testing.T, dagu *harness.Runner) {
 	t.Helper()
-	writeSpec005ProjectFile(t, dagu, "outputs/prod/report.txt", "prod")
-	writeSpec005ProjectFile(t, dagu, "outputs/${params.environment}/report.txt", "literal")
-}
-
-func mkdirSpec005ProjectDir(t *testing.T, dagu *Runner, name string) {
-	t.Helper()
-
-	path := filepath.Join(dagu.dir, filepath.FromSlash(name))
-	if err := os.MkdirAll(path, 0o755); err != nil {
-		t.Fatalf("creating %s: %v", name, err)
-	}
-}
-
-func writeSpec005ProjectExecutable(t *testing.T, dagu *Runner, name string, content string) {
-	t.Helper()
-
-	path := filepath.Join(dagu.dir, filepath.FromSlash(name))
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("creating parent for %s: %v", name, err)
-	}
-	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
-		t.Fatalf("writing %s: %v", name, err)
-	}
-}
-
-func writeSpec005ProjectFile(t *testing.T, dagu *Runner, name string, content string) {
-	t.Helper()
-
-	path := filepath.Join(dagu.dir, filepath.FromSlash(name))
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("creating parent for %s: %v", name, err)
-	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("writing %s: %v", name, err)
-	}
+	dagu.WriteFile("outputs/prod/report.txt", "prod")
+	dagu.WriteFile("outputs/${params.environment}/report.txt", "literal")
 }

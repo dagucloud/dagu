@@ -44,8 +44,8 @@ behavior until implementation catches up.
 
 **Conformance test guidelines:**
 
-- Follow the Spec 002 and Spec 004 pattern.
-- Put workflow examples in static YAML fixtures under `tests/testdata/<spec_slug>`.
+- Put each spec's black-box tests in `conformance/<spec_slug>`.
+- Put workflow examples in static YAML fixtures under `conformance/<spec_slug>/testdata`.
 - Keep Go conformance tests as small tables over fixture filenames and expected outcomes.
 - Do not generate DAG YAML dynamically in Go test code.
 - Add a new fixture when a behavior needs a new workflow shape.

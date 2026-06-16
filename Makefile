@@ -3,8 +3,9 @@
 ##############################################################################
 
 VERSION=
-TEST_TARGET?=$(shell go list ./... | awk '$$0 !~ /\/tests$$/' | xargs)
-CONFORMANCE_TEST_TARGET?=./tests
+TEST_TARGET?=$(shell go list ./... | awk '$$0 !~ /\/tests$$/ && $$0 !~ /\/conformance(\/|$$)/' | xargs)
+CONFORMANCE_TEST_TARGET?=$(shell go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./conformance/... | xargs)
+CONFORMANCE_GOTESTSUM_ARGS?=--format=testname --format-hide-empty-pkg
 
 ##############################################################################
 # Variables
@@ -161,13 +162,13 @@ test: bin
 	@go clean -testcache
 	@${LOCAL_BIN_DIR}/gotestsum ${GOTESTSUM_ARGS} -- ${GO_TEST_FLAGS} ${TEST_TARGET}
 
-# test-conformance runs binary-level conformance tests.
-.PHONY: test-conformance
-test-conformance: export DAGU_BIN := ${DAGU_BIN}
-test-conformance: bin
+# conformance runs binary-level conformance tests.
+.PHONY: conformance
+conformance: export DAGU_BIN := ${DAGU_BIN}
+conformance: bin
 	@printf '%b\n' "${COLOR_GREEN}Running conformance tests...${COLOR_RESET}"
 	@GOBIN=${LOCAL_BIN_DIR} go install ${PKG_gotestsum}
-	@${LOCAL_BIN_DIR}/gotestsum ${GOTESTSUM_ARGS} -- ${GO_TEST_FLAGS} -count=1 ${CONFORMANCE_TEST_TARGET}
+	@${LOCAL_BIN_DIR}/gotestsum ${CONFORMANCE_GOTESTSUM_ARGS} -- ${GO_TEST_FLAGS} -count=1 ${CONFORMANCE_TEST_TARGET}
 
 # test-coverage runs Go tests except conformance tests with coverage by default.
 .PHONY: test-coverage

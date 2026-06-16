@@ -1,13 +1,15 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package tests_test
+package spec002_schema_test
 
 import (
 	"testing"
+
+	"github.com/dagucloud/dagu/conformance/harness"
 )
 
-func Test002Schema(t *testing.T) {
+func TestValidate(t *testing.T) {
 	t.Parallel()
 
 	validCases := []string{
@@ -18,7 +20,7 @@ func Test002Schema(t *testing.T) {
 		t.Run(file, func(t *testing.T) {
 			t.Parallel()
 
-			dagu := newRunner(t, "002_schema")
+			dagu := harness.NewRunner(t)
 
 			result := dagu.Run("validate", file)
 			result.ExpectExitCode(0)
@@ -93,7 +95,7 @@ func Test002Schema(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			dagu := newRunner(t, "002_schema")
+			dagu := harness.NewRunner(t)
 
 			result := dagu.Run("validate", tc.file)
 			result.ExpectExitCode(1)

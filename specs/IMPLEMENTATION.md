@@ -8,7 +8,7 @@ This guide explains how to implement the specs. It is not a numbered spec and do
 
 - When existing Dagu behavior conflicts with a spec, the spec wins.
 - When existing Dagu behavior is not defined by a spec, do not preserve it for compatibility.
-- Add black-box tests for every behavior defined by a v3 spec in the ../tests directory.
+- Add black-box tests for every behavior defined by a v3 spec under `../conformance/<spec_slug>`.
 - Do not add fallback behavior for old YAML fields, old executor behavior, old value syntax, or old lifecycle behavior unless a spec requires it.
 - Unspecified behavior must fail clearly or remain unsupported.
 - Specs can land ahead of their implementation. Each implementation slice must document the spec behavior it covers and must not imply conformance to unimplemented behavior.

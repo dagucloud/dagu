@@ -1,18 +1,18 @@
-name: Test Conformance
+name: Conformance
 
 on:
   push:
     branches:
       - main
     paths:
-      - ".github/workflows/test-conformance.yml"
+      - ".github/workflows/conformance.yml"
+      - "conformance/**"
       - "cmd/**"
       - "go.mod"
       - "go.sum"
       - "internal/**"
       - "Makefile"
       - "specs/**"
-      - "tests/**"
   pull_request:
     # Keep this workflow directly rerunnable from PR-only maintenance commits.
     types:
@@ -21,14 +21,14 @@ on:
       - synchronize
       - ready_for_review
     paths:
-      - ".github/workflows/test-conformance.yml"
+      - ".github/workflows/conformance.yml"
+      - "conformance/**"
       - "cmd/**"
       - "go.mod"
       - "go.sum"
       - "internal/**"
       - "Makefile"
       - "specs/**"
-      - "tests/**"
   workflow_dispatch:
 
 permissions:
@@ -54,4 +54,4 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Run conformance tests
-        run: make test-conformance
+        run: make conformance

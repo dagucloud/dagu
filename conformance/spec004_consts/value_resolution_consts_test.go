@@ -1,11 +1,15 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package tests_test
+package spec004_consts_test
 
-import "testing"
+import (
+	"testing"
 
-func Test004ValueResolutionConstsValidate(t *testing.T) {
+	"github.com/dagucloud/dagu/conformance/harness"
+)
+
+func TestValidate(t *testing.T) {
 	t.Parallel()
 
 	validCases := []string{
@@ -19,7 +23,7 @@ func Test004ValueResolutionConstsValidate(t *testing.T) {
 		t.Run(file, func(t *testing.T) {
 			t.Parallel()
 
-			dagu := newRunner(t, "004_value_resolution_consts")
+			dagu := harness.NewRunner(t)
 
 			result := dagu.Run("validate", file)
 			result.ExpectExitCode(0)
@@ -99,7 +103,7 @@ func Test004ValueResolutionConstsValidate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			dagu := newRunner(t, "004_value_resolution_consts")
+			dagu := harness.NewRunner(t)
 
 			result := dagu.Run("validate", tc.file)
 			result.ExpectExitCode(1)
@@ -111,7 +115,7 @@ func Test004ValueResolutionConstsValidate(t *testing.T) {
 	}
 }
 
-func Test004ValueResolutionConstsStart(t *testing.T) {
+func TestRuntime(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -149,7 +153,7 @@ func Test004ValueResolutionConstsStart(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			dagu := newRunner(t, "004_value_resolution_consts")
+			dagu := harness.NewRunner(t)
 
 			result := dagu.Run("start", tc.file)
 			result.ExpectExitCode(0)
