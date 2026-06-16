@@ -2,7 +2,7 @@
 
 Specs describe data-plane behavior. They are written for implementers and for black-box conformance tests.
 
-Specs are implemented incrementally. A change that implements part of a spec must say which behavior it covers and must add black-box coverage for that behavior. Documented behavior that is not implemented remains target conformance work, not implied product behavior.
+Specs are implemented incrementally. A partial implementation must state the behavior it covers and must add black-box coverage for that behavior. Documented behavior remains normative even when product implementation has not caught up.
 
 ## Implementation Status
 
@@ -41,6 +41,7 @@ It must not be treated as product behavior until implementation catches up.
 - Do not require control-plane behavior.
 - Remove obsolete functionality or behavior unless an owning spec explicitly keeps it.
 - Do not add tests that verify a functionality or behavior is removed.
+- Spec is not implementation note. Only document normative behavior.
 
 **Conformance test guidelines:**
 
