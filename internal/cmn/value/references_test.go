@@ -216,6 +216,7 @@ func TestResolverWorkflowFieldPreservesShellCommandSubstitution(t *testing.T) {
 func TestResolverStringResolvesConstRefsAndKeepsEvalRefs(t *testing.T) {
 	t.Parallel()
 
+	output := `{"image":"repo/api:v1"}`
 	resolver := value.NewResolver(
 		value.StaticScope{
 			Consts: value.Values{"service": "api"},
@@ -225,6 +226,9 @@ func TestResolverStringResolvesConstRefsAndKeepsEvalRefs(t *testing.T) {
 			Consts: value.Values{"service": "api"},
 			Params: value.Values{"environment": "prod"},
 			Env:    testEnvScope(map[string]string{"HOME": "/workspace"}),
+			Steps: map[string]value.StepInfo{
+				"build": {Outputs: &output},
+			},
 		},
 	)
 	got, err := resolver.String(
@@ -233,12 +237,13 @@ func TestResolverStringResolvesConstRefsAndKeepsEvalRefs(t *testing.T) {
 		value.WorkflowField("run"),
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "api:prod:${env.HOME}:${steps.build.outputs.image}:${DATA.image}:$DATA.tag", got)
+	assert.Equal(t, "api:prod:${env.HOME}:repo/api:v1:${DATA.image}:$DATA.tag", got)
 }
 
 func TestResolverObjectResolvesConstRefsAcrossNestedValues(t *testing.T) {
 	t.Parallel()
 
+	output := `{"digest":"sha256:abc"}`
 	obj := map[string]any{
 		"image": "${consts.repo}:${params.tag}",
 		"env": []any{
@@ -257,6 +262,9 @@ func TestResolverObjectResolvesConstRefsAcrossNestedValues(t *testing.T) {
 			Consts: value.Values{"repo": "repo/api"},
 			Params: value.Values{"tag": "v1"},
 			Env:    testEnvScope(map[string]string{"TOKEN": "secret"}),
+			Steps: map[string]value.StepInfo{
+				"build": {Outputs: &output},
+			},
 		},
 	)
 	gotAny, err := resolver.Object(context.Background(), obj, value.WorkflowObjectField("with"))
@@ -265,7 +273,7 @@ func TestResolverObjectResolvesConstRefsAcrossNestedValues(t *testing.T) {
 	require.True(t, ok)
 
 	assert.Equal(t, "repo/api:v1", got["image"])
-	assert.Equal(t, []any{"${env.TOKEN}", "${steps.build.outputs.digest}"}, got["env"])
+	assert.Equal(t, []any{"${env.TOKEN}", "sha256:abc"}, got["env"])
 	assert.Equal(t, "${DATA.image}", got["evalRef"])
 }
 

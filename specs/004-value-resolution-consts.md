@@ -2,22 +2,15 @@
 
 ## Implementation Status
 
-Partially implemented.
+Implemented.
 
-Implemented:
+Covered behavior:
 
 - root `consts` list form;
 - ordered `${consts.name}` lookup;
 - validation for invalid const declarations;
-- rejection of unavailable runtime namespaces while loading `consts`.
-
-Not implemented:
-
-- ordinary-content preservation for every const-looking string that is not a supported reference form.
-
-Only `${consts.name}` is a Dagu-owned const reference.
-Text such as `$consts.name` and `${consts.service.name}` must remain ordinary content.
-The missing preservation behavior is tracked by the implementation plan.
+- rejection of unavailable runtime namespaces while loading `consts`;
+- preservation of const-looking text that is not a supported reference form.
 
 ## Scope
 

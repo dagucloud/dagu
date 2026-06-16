@@ -299,8 +299,8 @@ func TestBuildValidationError(t *testing.T) {
 			name: "InvalidEnv",
 			yaml: `
 env:
-  - VAR: "$consts.FOO"`,
-			expectedErr: spec.ErrInvalidEnvValue,
+  - VAR`,
+			errContains: "invalid format",
 		},
 		{
 			name: "InvalidParams",
