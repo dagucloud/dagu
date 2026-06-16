@@ -53,7 +53,7 @@ Rules:
 - Dagu executes command substitutions written in backtick form or `$()` form.
 - Dagu inserts command stdout into the evaluated value after trimming surrounding whitespace.
 - Backtick text and `$()` text in fields other than `params[].eval` are not dynamic evaluation.
-  Dagu leaves them unchanged.
+- Dagu leaves them unchanged.
 
 ## Command Substitution Syntax
 
@@ -111,10 +111,8 @@ Validation warnings:
 
 Runtime errors:
 
-- A failed command substitution must fail before the owning field is consumed.
-  This does not apply when the owning field defines a fallback.
-- A timed-out command substitution must fail before the owning field is consumed.
-  This does not apply when the owning field defines a fallback.
+- A failed command substitution must fail before the owning field is consumed unless the owning field defines a fallback.
+- A timed-out command substitution must fail before the owning field is consumed unless the owning field defines a fallback.
 
 ## Examples
 
@@ -163,16 +161,3 @@ Command substitution outside `params[].eval` stays text for Dagu:
 env:
   TODAY: $(date)
 ```
-
-## Acceptance criteria
-
-- A black-box fixture verifies `dagu run` resolves a parameter value produced by backtick substitution in `eval`.
-- A black-box fixture verifies `dagu run` resolves a parameter value produced by `$()` substitution in `eval`.
-- A black-box fixture verifies dynamic evaluation expands available variables before command substitution.
-- A black-box fixture verifies `$()` text outside `params[].eval`.
-  The fixture proves Dagu preserves that text and does not execute it during dynamic evaluation.
-- A black-box fixture verifies backtick text in step `run` is not evaluated by Dagu.
-- A black-box fixture verifies backtick text in root `env` is not evaluated by Dagu.
-- A black-box fixture verifies unresolved supported Dagu-owned value references warn and preserve.
-- A black-box fixture verifies a non-zero command substitution fails before the owning field is consumed.
-  This does not apply when that field defines a fallback.

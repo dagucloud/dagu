@@ -155,20 +155,3 @@ steps:
     with:
       shell: sh
 ```
-
-## Acceptance Criteria
-
-- A black-box fixture verifies `dagu run` executes a multi-line `run` script.
-- A black-box fixture verifies line breaks in script-form `run` are preserved.
-- A black-box fixture verifies a block scalar with only one command line and a trailing line break is script form.
-- A black-box fixture verifies leading blank lines are preserved before shebang evaluation.
-- A black-box fixture verifies script-form `run` is executed as one script.
-- A black-box fixture verifies script-form `run` is not split into command-form invocations.
-- A black-box fixture verifies script-form `run` is not split at shell operators.
-- A black-box fixture verifies a script-form `run` shebang selects the shebang interpreter when no step-level shell is specified.
-- A black-box fixture verifies root `shell` does not suppress direct shebang interpreter selection.
-- A black-box fixture verifies a step-level `with.shell` suppresses direct shebang interpreter selection.
-- A black-box fixture verifies prepared script resources are removed after successful script execution.
-- A black-box fixture verifies missing working directories can fail before user script code starts.
-- A black-box fixture verifies PowerShell script execution uses the expected non-interactive script invocation.
-- A black-box fixture verifies non-zero script exit fails the step.

@@ -258,22 +258,3 @@ steps:
   - id: deploy
     run: ./deploy.sh ${steps.build.outputs.image_tag}
 ```
-
-## Acceptance criteria
-
-- A black-box fixture verifies `dagu validate` accepts a step with a declared output.
-- A black-box fixture verifies `dagu validate` rejects invalid output names.
-- A black-box fixture verifies `dagu validate` rejects duplicate output names in one step.
-- A black-box fixture verifies `dagu validate` rejects invalid output types.
-- A black-box fixture verifies `dagu validate` rejects a step with `outputs` but no `id`.
-- A black-box fixture verifies `dagu validate` warns and preserves an output reference to an undeclared output.
-- A black-box fixture verifies `dagu validate` warns and preserves an output reference without a direct or transitive dependency on the producing step.
-- A black-box fixture verifies `dagu run` resolves a string output emitted through `DAGU_OUTPUT_FILE`.
-- A black-box fixture verifies `dagu run` resolves a multi-line output emitted through `DAGU_OUTPUT_FILE`.
-- A black-box fixture verifies `dagu run` does not resolve stdout as a step output.
-- A black-box fixture verifies `dagu run` fails when a declared output is missing.
-- A black-box fixture verifies `dagu run` fails when an undeclared output is emitted.
-- A black-box fixture verifies `dagu run` fails when an output is emitted twice.
-- A black-box fixture verifies `dagu run` resolves a valid JSON output.
-- A black-box fixture verifies `dagu run` fails when a `json` output emits invalid JSON.
-- A black-box fixture verifies retry publishes only outputs from the successful attempt.

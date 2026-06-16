@@ -49,7 +49,7 @@ This guide explains how to implement the specs. It is not a numbered spec and do
 - Add or update black-box tests in the same change that claims spec conformance.
 - Use lower-level tests for parsing details, rare branches, and failure paths that are impractical to trigger through a full run.
 - Limit untested paths to cases that are genuinely hard to trigger.
-- Name, justify, and keep small any hard-to-test exception.
+- If a behavior cannot be tested directly, document the exception, the reason, and the smallest affected surface.
 - Do not count old compatibility behavior toward coverage.
 
 ## Spec Changes

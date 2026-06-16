@@ -4,14 +4,6 @@
 
 Implemented.
 
-Covered behavior:
-
-- root `consts` list form;
-- ordered `${consts.name}` lookup;
-- validation for invalid const declarations;
-- warning and preservation for unavailable references while loading `consts`;
-- preservation of const-looking text that is not a supported reference form.
-
 ## Scope
 
 This spec defines root `consts` and `${consts.name}` references.
@@ -78,7 +70,7 @@ Later value resolution can use them without runtime side effects.
 - `${consts.name}` reads `name` from resolved root `consts`.
 
 - `$consts.name` is not Dagu-owned `consts` reference syntax.
-  It is preserved as ordinary string content according to Spec 003.
+- Dagu preserves `$consts.name` as ordinary string content according to Spec 003.
 
 - A resolved `consts` value is inserted into string fields according to Spec 003 string insertion rules.
 

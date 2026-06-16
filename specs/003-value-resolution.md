@@ -3,8 +3,6 @@
 ## Implementation Status
 
 Partially implemented.
-Supported references now warn and preserve when they cannot resolve.
-The full supported-field matrix remains target conformance work.
 
 ## Scope
 
@@ -62,14 +60,14 @@ ${steps.step_id.outputs.name}
 ```
 
 - Names in supported reference forms must match `^[A-Za-z][A-Za-z0-9_]*$`.
-  This applies to namespace names, `consts` keys, `params` names, step ids, `outputs`, and step output names.
+- This name rule applies to namespace names, `consts` keys, `params` names, step ids, `outputs`, and step output names.
 
 - Environment variable names under `env` must match `^[A-Za-z_][A-Za-z0-9_]*$`.
 
 - Unqualified `${NAME}` is handled by environment expansion in fields that support it.
 
 - Braced text that does not match a supported reference form is not interpreted by Dagu.
-  It is preserved as ordinary string content.
+- Dagu preserves unsupported braced text as ordinary string content.
 
 - Namespace-specific specs define validation for supported reference forms.
 
@@ -109,12 +107,11 @@ ${steps.step_id.outputs.name}
 | `steps[].container` | Step container string form. In object form: `exec`, `image`, `name`, `user`, `working_dir`, `network`, `volumes[]`, `ports[]`, `env` values, `command[]`, and `shell[]`. |
 
 - The `steps[]` rows also apply to handler steps.
-  The handler surfaces are `handler_on.init`, `handler_on.success`, and `handler_on.failure`.
-  They also include `handler_on.abort`, `handler_on.exit`, and `handler_on.wait`.
+- Handler step surfaces are `handler_on.init`, `handler_on.success`, `handler_on.failure`, `handler_on.abort`, `handler_on.exit`, and `handler_on.wait`.
 
 - For `steps[].run`, unqualified `$NAME` and `${NAME}` are shell syntax.
-  Dagu preserves them for the selected shell.
-  Dagu-owned environment references in `run` must use `${env.NAME}`.
+- Dagu preserves that shell syntax for the selected shell.
+- Dagu-owned environment references in `run` must use `${env.NAME}`.
 
 - Defaults, custom `step_types`, and custom `actions` are checked after Dagu expands them into concrete steps.
 
@@ -122,20 +119,27 @@ ${steps.step_id.outputs.name}
 
 - The validator and runtime must use the same field list.
 
-- A supported reference that cannot resolve must not fail validation or execution by itself.
-
-- Dagu must preserve the original reference text when a supported reference cannot resolve.
-
-- Dagu must emit a non-fatal warning for a supported reference that cannot resolve.
-
-- The warning must identify the owning field and the original reference text.
-
-- Warning-only misses include unknown consts, missing param values, unavailable env values, missing step outputs, namespaces unavailable in the current phase, and invalid step-output ordering or ownership.
-
-- A typed field may still fail later if the preserved literal is invalid for that field type.
-
 - Adding a value-resolution-capable field requires coordinated updates.
-  Update this spec, the DAG JSON schema, validation traversal, runtime traversal, and black-box tests together.
+- The coordinated update must cover this spec, the DAG JSON schema, validation traversal, runtime traversal, and black-box tests.
+
+### Unresolved Supported References
+
+A supported reference can be valid syntax but have no value when Dagu evaluates the field.
+That condition is a warning, not a validation or execution error by itself.
+Dagu must keep the original reference text in the field value.
+
+The warning must identify the owning field and the original reference text.
+
+This rule applies to these misses:
+
+- Unknown const.
+- Missing param value.
+- Unavailable env value.
+- Missing step output.
+- Namespace unavailable in the current phase.
+- Step-output reference that cannot resolve because of ordering or ownership.
+
+If a typed field later consumes the preserved text, that field may still fail because the literal text is not valid for that field type.
 
 ### Resolution Timing
 
@@ -172,7 +176,7 @@ ${steps.step_id.outputs.name}
 - When Dagu inserts a referenced value into a string field, integers are inserted in base-10 decimal form.
 
 - When Dagu inserts a referenced value into a string field, non-integer numbers use base-10 decimal text.
-  The decimal text must be the shortest round-trippable representation.
+- Non-integer decimal text must use the shortest round-trippable representation.
 
 ## Examples
 

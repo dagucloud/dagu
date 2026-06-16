@@ -167,21 +167,3 @@ steps:
       shell: bash
       shell_args: [-e, -o, pipefail]
 ```
-
-## Acceptance Criteria
-
-- A black-box fixture verifies `dagu run` executes a single-line `run` command.
-- A black-box fixture verifies shell syntax in command-form `run` is interpreted by the selected shell.
-- A black-box fixture verifies command-form `run` is not split at shell operators.
-- A black-box fixture verifies command-form `run` uses `with.shell` and `with.shell_args`.
-- A black-box fixture verifies command-form `run` is not exposed as a user-authored argv list.
-- A black-box fixture verifies command-form `run` rejects line breaks in array-form entries.
-- A black-box fixture verifies command-form `run` fails before shell start when value resolution inserts a line break.
-- A black-box fixture verifies array-form `run` fails before shell start when value resolution inserts a line break.
-- A black-box fixture verifies array-form `run` executes entries sequentially.
-- A black-box fixture verifies array-form `run` stops at the first failed entry.
-- A black-box fixture verifies Unix-like shell command construction uses the expected shell command-string invocation.
-- A black-box fixture verifies PowerShell command construction uses the expected non-interactive command invocation.
-- A black-box fixture verifies `cmd` command construction uses the expected command-string invocation.
-- A black-box fixture verifies non-zero command exit fails the step.
-- A black-box fixture verifies a command path that the shell cannot find fails the step.

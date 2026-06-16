@@ -2,8 +2,9 @@
 
 ## Implementation Status
 
-Not implemented. This spec describes target conformance behavior and must not be
-treated as current product behavior.
+Not implemented.
+This spec describes target conformance behavior.
+It must not be treated as current product behavior.
 
 ## Scope
 
@@ -43,7 +44,7 @@ Ordering rules:
 
 - An entry may reference earlier entries from the same list.
 
-- An entry must not reference itself or a later entry from the same list.
+- An entry cannot resolve itself or a later entry from the same list.
 
 Allowed references:
 
@@ -121,7 +122,7 @@ Direct execution without a shell:
 
 - `dagu validate` must reject invalid environment variable names in `env` declarations.
 
-- `dagu validate` must reject invalid `${env.NAME}` syntax.
+- Braced text that does not match a supported environment reference form is ordinary string content.
 
 - A list-form `env` entry that references itself or a later entry in the same list must warn and preserve the original reference text.
 

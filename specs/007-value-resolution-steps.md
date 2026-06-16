@@ -2,8 +2,9 @@
 
 ## Implementation Status
 
-Not implemented. This spec describes target conformance behavior and must not be
-treated as current product behavior.
+Not implemented.
+This spec describes target conformance behavior.
+It must not be treated as current product behavior.
 
 ## Scope
 
@@ -25,9 +26,13 @@ Later fields can reference outputs published by completed steps.
 
 ## Motivation
 
-Step outputs are produced during execution, so they are not available when the workflow file is loaded. A step-output reference must therefore describe both a static relationship between steps and a runtime lookup after the producing step completes.
+Step outputs are produced during execution, so they are not available when the workflow file is loaded.
+A step-output reference must therefore describe both a static relationship between steps and a runtime lookup after the producing step completes.
 
-This spec keeps those rules in one place. References use step ids. The producing step should be ordered before the consuming step. If the value is unavailable, Dagu warns and preserves the original reference text.
+This spec keeps those rules in one place.
+References use step ids.
+A reference resolves only when the producing step is ordered before the consuming step.
+If the value is unavailable, Dagu warns and preserves the original reference text.
 
 ## Behavior
 
@@ -47,11 +52,11 @@ This spec keeps those rules in one place. References use step ids. The producing
 
 - Step output references do not create dependencies.
 
-- The step containing the reference must depend directly or transitively on the producing step.
+- A step output reference can resolve only when the owning step depends directly or transitively on the producing step.
 
-- A step must not reference its own output.
+- A step output reference to the owning step cannot resolve.
 
-- A field without an owning step must not reference step outputs unless another spec explicitly allows that field to wait for step completion.
+- A field without an owning step cannot resolve step outputs unless another spec explicitly allows that field to wait for step completion.
 
 ### Single-Quoted Environment References
 

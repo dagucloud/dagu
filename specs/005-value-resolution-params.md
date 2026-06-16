@@ -3,9 +3,6 @@
 ## Implementation Status
 
 Partially implemented.
-Named `${params.name}` references warn and preserve when they cannot resolve.
-Invalid parameter declaration names still fail.
-The exhaustive field matrix remains target conformance work until every listed field has accepted coverage.
 
 ## Scope
 
@@ -46,21 +43,21 @@ Unknown or missing parameter values warn and preserve the original reference tex
 - `params[].default` and declaration metadata do not support Dagu references.
 
 - `params[].eval` is dynamic-evaluated by Spec 010 and Spec 011.
-  It is not a normal value-resolution field.
-  Dagu references inside it use this spec's reference form, declaration rules, and runtime lookup rules.
+- `params[].eval` is not a normal value-resolution field.
+- Dagu references inside `params[].eval` use this spec's reference form, declaration rules, and runtime lookup rules.
 
 ### Reference Form
 
 - `${params.name}` reads the runtime value for the declared parameter `name`.
 
 - A braced expression is a `params` reference only when it matches `${params.name}`.
-  The `name` part must match the parameter name rule.
+- The `name` part must match the parameter name rule.
 
 - Braced text that does not match `${params.name}` is not interpreted by the `params` namespace.
-  It is preserved as ordinary string content.
+- Dagu preserves unsupported braced text as ordinary string content.
 
 - `$params.name` is not Dagu-owned params reference syntax.
-  It is preserved as ordinary string content.
+- Dagu preserves `$params.name` as ordinary string content.
 
 - Other expression syntax is outside this spec.
 
@@ -69,13 +66,13 @@ Unknown or missing parameter values warn and preserve the original reference tex
 - `${params.name}` is available in Spec 003 value-resolution fields that resolve after runtime params are available.
 
 - `${params.name}` is available inside `params[].eval`.
-  Spec 010 and Spec 011 define the dynamic evaluation rules for that field.
+- Spec 010 and Spec 011 define the dynamic evaluation rules for `params[].eval`.
 
 - `${params.name}` is not available in root `consts` list-form values.
-  `consts` resolution can see only earlier `consts` entries.
+- `consts` resolution can see only earlier `consts` entries.
 
 - `${params.name}` is not available inside `params[].default` or declaration metadata.
-  Those fields are literal.
+- `params[].default` and declaration metadata are literal.
 
 - The validator and runtime must use the same field availability rules.
 
@@ -99,44 +96,22 @@ Unknown or missing parameter values warn and preserve the original reference tex
 
 - An undeclared `params` reference in a value-resolution field must warn and preserve the original reference text.
 
-- In workflows with only positional parameters, a `${params.name}` reference has no matching named declaration.
-
-- Dagu must warn and preserve the original reference text.
+- In workflows with only positional parameters, a `${params.name}` reference has no matching named declaration and must warn and preserve the original reference text.
 
 - A `${params.name}` reference in a field where params are unavailable must warn and preserve the original reference text.
 
 - A declared `params` reference with no runtime value must warn and preserve the original reference text.
 
-- Warnings must include enough field context.
+- Warnings must identify the owning field and the original reference text.
 
-- Black-box tests must be able to identify the affected field.
+## Field Matrix
 
-## Black-Box Conformance Viewpoint
+This matrix defines the required `${params.name}` behavior for value-resolution fields.
 
-Black-box coverage is exhaustive only when every Spec 003 value-resolution field has an explicit params case.
-The `params[].eval` dynamic-evaluation boundary also needs an explicit params case.
-
-Conformance tests for this spec live under `conformance/spec005_params`.
-Each workflow shape belongs in a static YAML file under `conformance/spec005_params/testdata`.
-The Go test should select fixture files and assert process results.
-It must not generate DAG YAML dynamically.
-
-For each field where params are available, the conformance suite must include:
-
-- a valid declared-name case that proves `${params.name}` resolves;
-- an undeclared-name warning-preservation case for `${params.missing}`;
-- a preservation case proving `$params.name` remains ordinary string content;
-- a missing runtime value case that proves execution continues with the literal unresolved reference when the field type accepts it.
-
-Missing-value cases should be grouped by resolution timing class for review.
-Each listed field where params are available still needs coverage unless an exception is explicitly accepted.
-
-The exhaustive field viewpoint is:
-
-| Spec 003 field surface | Params conformance case |
+| Spec 003 field surface | Params behavior |
 | --- | --- |
-| `consts` list form | Warning-preservation case: `${params.name}` is unavailable because only earlier `${consts.*}` entries are visible. |
-| `params[].eval` | Cross-spec dynamic-evaluation case: `${params.name}` references in `eval` resolve before command substitution; missing runtime values warn and preserve before the evaluated parameter is consumed. |
+| `consts` list form | `${params.name}` is unavailable because only earlier `${consts.*}` entries are visible. Dagu warns and preserves the original reference text. |
+| `params[].eval` | `${params.name}` references in `eval` resolve before command substitution. Missing runtime values warn and preserve before the evaluated parameter is consumed. |
 | `env` | Root environment values in map form, array-of-map form, and `KEY=value` list form resolve declared params. |
 | `dotenv[]` | Each dotenv path string resolves declared params. |
 | `shell`, `shell_args[]`, `working_dir` | Root shell command, shell args, and working directory resolve declared params. |
@@ -155,9 +130,6 @@ The exhaustive field viewpoint is:
 | `steps[].output.*` | Literal string values and `path` strings under structured output entries resolve declared params. |
 | `steps[].container` | Step container string form resolves declared params. In object form, `exec`, `image`, `name`, `user`, `working_dir`, `network`, `volumes[]`, `ports[]`, `env` values, `command[]`, and `shell[]` resolve declared params. |
 | handler steps | The same step-owned cases apply under `handler_on.init`, `handler_on.success`, `handler_on.failure`, `handler_on.abort`, `handler_on.exit`, and `handler_on.wait`. |
-
-Any hard-to-test exception must be named, justified, and kept small.
-A spec cannot be marked implemented while an unaccepted exception leaves a listed field without params coverage.
 
 ## Examples
 
@@ -198,7 +170,7 @@ steps:
       php -r '$params.environment = "literal"; echo $params.environment;'
 ```
 
-Invalid params reference from `consts`:
+Params reference where params are unavailable:
 
 ```yaml
 params:
