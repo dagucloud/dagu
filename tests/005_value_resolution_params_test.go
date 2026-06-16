@@ -14,12 +14,12 @@ import (
 func Test005ValueResolutionParamsValidateDeclaredReferences(t *testing.T) {
 	t.Parallel()
 
-	for _, tc := range spec005ValueFieldCases() {
+	for i, tc := range spec005ValueFieldCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			dagu := newRunner(t, "005_value_resolution_params")
-			file := writeSpec005DAG(t, dagu, "valid_"+tc.name+".yaml", tc.yaml(`${params.environment}`))
+			file := writeSpec005DAG(t, dagu, fmt.Sprintf("valid_%03d.yaml", i), tc.yaml(`${params.environment}`))
 
 			result := dagu.Run("validate", file)
 			result.ExpectExitCode(0)
@@ -33,7 +33,7 @@ func Test005ValueResolutionParamsValidateDeclaredReferences(t *testing.T) {
 func Test005ValueResolutionParamsValidateRejectsInvalidReferencesByField(t *testing.T) {
 	t.Parallel()
 
-	for _, tc := range spec005ValueFieldCases() {
+	for i, tc := range spec005ValueFieldCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -41,7 +41,7 @@ func Test005ValueResolutionParamsValidateRejectsInvalidReferencesByField(t *test
 				t.Parallel()
 
 				dagu := newRunner(t, "005_value_resolution_params")
-				file := writeSpec005DAG(t, dagu, "undeclared_"+tc.name+".yaml", tc.yaml(`${params.missing}`))
+				file := writeSpec005DAG(t, dagu, fmt.Sprintf("undeclared_%03d.yaml", i), tc.yaml(`${params.missing}`))
 
 				result := dagu.Run("validate", file)
 				result.ExpectExitCode(1)
@@ -55,7 +55,7 @@ func Test005ValueResolutionParamsValidateRejectsInvalidReferencesByField(t *test
 				t.Parallel()
 
 				dagu := newRunner(t, "005_value_resolution_params")
-				file := writeSpec005DAG(t, dagu, "shorthand_"+tc.name+".yaml", tc.yaml(`$params.environment`))
+				file := writeSpec005DAG(t, dagu, fmt.Sprintf("shorthand_%03d.yaml", i), tc.yaml(`$params.environment`))
 
 				result := dagu.Run("validate", file)
 				result.ExpectExitCode(1)
@@ -158,51 +158,97 @@ func Test005ValueResolutionParamsStart(t *testing.T) {
 	}
 }
 
-func Test005ValueResolutionParamsStartRejectsMissingRuntimeValues(t *testing.T) {
+func Test005ValueResolutionParamsStartResolvesFieldSurfaces(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		name        string
-		file        string
-		absentFile  string
-		stderrParts []string
-	}{
-		{
-			name:        "step run reference fails before step starts",
-			file:        "missing_runtime_value_step_run.yaml",
-			absentFile:  "should-not-exist-run.txt",
-			stderrParts: []string{"params.environment"},
-		},
-		{
-			name:        "root env reference fails before step starts",
-			file:        "missing_runtime_value_root_env.yaml",
-			absentFile:  "should-not-exist-root-env.txt",
-			stderrParts: []string{"params.environment"},
-		},
-		{
-			name:        "action input reference fails before action writes",
-			file:        "missing_runtime_value_with_action.yaml",
-			absentFile:  "should-not-exist-with-action.txt",
-			stderrParts: []string{"params.environment"},
-		},
-		{
-			name:        "stdout path reference fails before command starts",
-			file:        "missing_runtime_value_stdout_path.yaml",
-			absentFile:  "should-not-exist-stdout.txt",
-			stderrParts: []string{"params.environment"},
-		},
-	}
-	for _, tc := range cases {
+	for i, tc := range spec005RuntimeFieldCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			dagu := newRunner(t, "005_value_resolution_params")
+			if tc.setup != nil {
+				tc.setup(t, dagu)
+			}
+			file := writeSpec005DAG(t, dagu, fmt.Sprintf("runtime_%03d.yaml", i), tc.yaml)
 
-			result := dagu.Run("start", tc.file)
+			result := dagu.Run("start", "--params", tc.runtimeParams(), file)
+			result.ExpectExitCode(tc.exitCode)
+			dagu.ExpectFileContent(tc.outputFile, tc.outputContent)
+			for _, file := range tc.successAbsentFiles {
+				dagu.ExpectNoFile(file)
+			}
+		})
+	}
+}
+
+func Test005ValueResolutionParamsStartRejectsMissingRuntimeValues(t *testing.T) {
+	t.Parallel()
+
+	for i, tc := range spec005RuntimeFieldCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dagu := newRunner(t, "005_value_resolution_params")
+			if tc.setup != nil {
+				tc.setup(t, dagu)
+			}
+			file := writeSpec005DAG(t, dagu, fmt.Sprintf("missing_%03d.yaml", i), tc.yaml)
+
+			result := dagu.Run("start", file)
 			result.ExpectExitCode(1)
-			result.ExpectStderrContains(tc.stderrParts...)
+			result.ExpectStderrContains("params." + tc.missingParam)
 			result.ExpectStderrNotContains("Usage:")
-			dagu.ExpectNoFile(tc.absentFile)
+			dagu.ExpectNoFile(tc.outputFile)
+			for _, file := range tc.missingAbsentFiles {
+				dagu.ExpectNoFile(file)
+			}
+		})
+	}
+}
+
+func Test005ValueResolutionParamsRuntimeCoverageExceptions(t *testing.T) {
+	t.Parallel()
+
+	exceptions := []struct {
+		field  string
+		reason string
+	}{
+		{
+			field:  "root container, steps[].container, and handler container fields",
+			reason: "successful and missing-value runtime checks would cross into Docker or existing-container state before producing a stable local side effect; validation covers declared, undeclared, and shorthand authoring, and runtime coverage is intentionally excepted",
+		},
+		{
+			field:  "steps[].parallel and handler parallel variable/items/items[].params",
+			reason: "successful and missing-value runtime checks require sub-DAG fan-out orchestration; validation covers declared, undeclared, and shorthand authoring, and local command runtime coverage is kept separate",
+		},
+		{
+			field:  "steps[].repeat_policy.condition and handler repeat_policy.condition",
+			reason: "successful and missing-value runtime checks are coupled to repeat-count semantics after command execution; validation covers declared, undeclared, and shorthand authoring without binding this spec to repeat behavior",
+		},
+		{
+			field:  "steps[] and handler stdout/stderr artifact paths",
+			reason: "artifact paths resolve inside run-managed artifact storage whose concrete path includes run identity; stdout and stderr path cases cover local stream redirection, and artifact runtime coverage is intentionally excepted",
+		},
+		{
+			field:  "steps[].stdout.outputs.fields.*.path and handler stdout.outputs.fields.*.path",
+			reason: "current YAML grammar does not accept file path sources under stdout.outputs; file path output resolution is covered by steps[].output.*.path",
+		},
+		{
+			field:  "handler stdout.outputs.fields.*.value and handler output.*",
+			reason: "handler output values are terminal handler metadata with no downstream step that can consume them as a local file side effect; validation covers every handler event, and normal step output runtime cases cover observable output resolution timing",
+		},
+		{
+			field:  "handler_on.abort and handler_on.wait runtime execution",
+			reason: "abort requires external cancellation and wait requires an approval transition; validation crosses handler steps with step-owned fields, while init/success/failure/exit have runtime assertions",
+		},
+	}
+	for _, exception := range exceptions {
+		t.Run(exception.field, func(t *testing.T) {
+			t.Parallel()
+
+			if exception.reason == "" {
+				t.Fatalf("runtime coverage exception for %s must explain why it is accepted", exception.field)
+			}
 		})
 	}
 }
@@ -213,8 +259,655 @@ type spec005ValueFieldCase struct {
 	yaml    func(ref string) string
 }
 
+type spec005RuntimeFieldCase struct {
+	name               string
+	yaml               string
+	outputFile         string
+	outputContent      string
+	missingParam       string
+	params             string
+	exitCode           int
+	setup              func(*testing.T, *Runner)
+	successAbsentFiles []string
+	missingAbsentFiles []string
+}
+
+const spec005RuntimeParams = "environment=prod shell=sh shell_arg=-c"
+
+func (tc spec005RuntimeFieldCase) runtimeParams() string {
+	if tc.params != "" {
+		return tc.params
+	}
+	return spec005RuntimeParams
+}
+
+func spec005RuntimeFieldCases() []spec005RuntimeFieldCase {
+	cases := []spec005RuntimeFieldCase{
+		{
+			name: "root_env_map",
+			yaml: spec005RuntimeDAG(`
+working_dir: .
+env:
+  ROOT_VALUE: "${params.environment}"
+steps:
+  - name: write
+    run: |
+      printf '%s\n' "$ROOT_VALUE" > root-env-map.txt
+`),
+			outputFile:    "root-env-map.txt",
+			outputContent: "prod\n",
+			missingParam:  "environment",
+		},
+		{
+			name: "root_env_array_map",
+			yaml: spec005RuntimeDAG(`
+working_dir: .
+env:
+  - ROOT_VALUE: "${params.environment}"
+steps:
+  - name: write
+    run: |
+      printf '%s\n' "$ROOT_VALUE" > root-env-array-map.txt
+`),
+			outputFile:    "root-env-array-map.txt",
+			outputContent: "prod\n",
+			missingParam:  "environment",
+		},
+		{
+			name: "root_env_key_value",
+			yaml: spec005RuntimeDAG(`
+working_dir: .
+env:
+  - ROOT_VALUE=${params.environment}
+steps:
+  - name: write
+    run: |
+      printf '%s\n' "$ROOT_VALUE" > root-env-key-value.txt
+`),
+			outputFile:    "root-env-key-value.txt",
+			outputContent: "prod\n",
+			missingParam:  "environment",
+		},
+		{
+			name: "dotenv",
+			yaml: spec005RuntimeDAG(`
+working_dir: .
+dotenv:
+  - ".env.${params.environment}"
+steps:
+  - name: write
+    run: |
+      printf '%s\n' "$DOTENV_VALUE" > dotenv.txt
+`),
+			outputFile:    "dotenv.txt",
+			outputContent: "prod\n",
+			missingParam:  "environment",
+			setup: func(t *testing.T, dagu *Runner) {
+				t.Helper()
+				writeSpec005ProjectFile(t, dagu, ".env.prod", "DOTENV_VALUE=prod\n")
+				writeSpec005ProjectFile(t, dagu, ".env.${params.environment}", "DOTENV_VALUE=literal\n")
+			},
+		},
+		{
+			name: "root_shell",
+			yaml: spec005RuntimeDAG(`
+working_dir: .
+shell: "./shell-${params.environment}"
+steps:
+  - name: write
+    run: |
+      test -f root-shell-marker.txt
+      printf '%s\n' prod > root-shell.txt
+`),
+			outputFile:         "root-shell.txt",
+			outputContent:      "prod\n",
+			missingParam:       "environment",
+			successAbsentFiles: []string{"root-shell-literal-marker.txt"},
+			missingAbsentFiles: []string{"root-shell-marker.txt", "root-shell-literal-marker.txt"},
+			setup: func(t *testing.T, dagu *Runner) {
+				t.Helper()
+				writeSpec005ProjectExecutable(t, dagu, "shell-prod", `#!/bin/sh
+printf '%s\n' used > root-shell-marker.txt
+exec /bin/sh "$@"
+`)
+				writeSpec005ProjectExecutable(t, dagu, "shell-${params.environment}", `#!/bin/sh
+printf '%s\n' used > root-shell-literal-marker.txt
+exec /bin/sh "$@"
+`)
+			},
+		},
+		{
+			name: "root_shell_array_args",
+			yaml: spec005RuntimeDAG(`
+working_dir: .
+shell:
+  - ./shell-args-wrapper
+  - "${params.shell_arg}"
+steps:
+  - name: write
+    run: |
+      test "$(cat root-shell-array-args-marker.txt)" = "-c"
+      printf '%s\n' prod > root-shell-array-args.txt
+`),
+			outputFile:         "root-shell-array-args.txt",
+			outputContent:      "prod\n",
+			missingParam:       "shell_arg",
+			missingAbsentFiles: []string{"root-shell-array-args-marker.txt"},
+			setup: func(t *testing.T, dagu *Runner) {
+				t.Helper()
+				writeSpec005ProjectExecutable(t, dagu, "shell-args-wrapper", `#!/bin/sh
+printf '%s\n' "$1" > root-shell-array-args-marker.txt
+exec /bin/sh "$@"
+`)
+			},
+		},
+		{
+			name: "root_working_dir",
+			yaml: spec005RuntimeDAG(`
+working_dir: "work-${params.environment}"
+steps:
+  - name: write
+    run: |
+      printf '%s\n' prod > root-working-dir.txt
+`),
+			outputFile:         "work-prod/root-working-dir.txt",
+			outputContent:      "prod\n",
+			missingParam:       "environment",
+			successAbsentFiles: []string{"work-${params.environment}/root-working-dir.txt"},
+			missingAbsentFiles: []string{"work-${params.environment}/root-working-dir.txt"},
+			setup: func(t *testing.T, dagu *Runner) {
+				t.Helper()
+				mkdirSpec005ProjectDir(t, dagu, "work-prod")
+				mkdirSpec005ProjectDir(t, dagu, "work-${params.environment}")
+			},
+		},
+		{
+			name: "root_precondition",
+			yaml: spec005RuntimeDAG(`
+working_dir: .
+preconditions:
+  - condition: |
+      case '${params.environment}' in
+        prod) exit 0;;
+        \${params.environment}) printf '%s\n' literal > root-precondition-literal.txt; exit 1;;
+        *) exit 1;;
+      esac
+steps:
+  - name: write
+    run: |
+      printf '%s\n' prod > root-precondition.txt
+`),
+			outputFile:         "root-precondition.txt",
+			outputContent:      "prod\n",
+			missingParam:       "environment",
+			successAbsentFiles: []string{"root-precondition-literal.txt"},
+			missingAbsentFiles: []string{"root-precondition-literal.txt"},
+		},
+		{
+			name: "step_run_string",
+			yaml: spec005RuntimeDAG(`
+working_dir: .
+steps:
+  - name: write
+    run: |
+      printf '%s\n' '${params.environment}' > step-run-string.txt
+`),
+			outputFile:    "step-run-string.txt",
+			outputContent: "prod\n",
+			missingParam:  "environment",
+		},
+		{
+			name: "step_run_array",
+			yaml: spec005RuntimeDAG(`
+working_dir: .
+steps:
+  - name: write
+    run:
+      - "printf '%s\n' '${params.environment}' > step-run-array.txt"
+`),
+			outputFile:    "step-run-array.txt",
+			outputContent: "prod\n",
+			missingParam:  "environment",
+		},
+		{
+			name: "step_with_path",
+			yaml: spec005RuntimeDAG(`
+working_dir: .
+steps:
+  - name: write
+    action: file.write
+    with:
+      path: "with-${params.environment}.txt"
+      content: |
+        prod
+`),
+			outputFile:         "with-prod.txt",
+			outputContent:      "prod\n",
+			missingParam:       "environment",
+			successAbsentFiles: []string{"with-${params.environment}.txt"},
+			missingAbsentFiles: []string{"with-${params.environment}.txt"},
+		},
+		{
+			name: "step_with_content",
+			yaml: spec005RuntimeDAG(`
+working_dir: .
+steps:
+  - name: write
+    action: file.write
+    with:
+      path: with-content.txt
+      content: |
+        ${params.environment}
+`),
+			outputFile:    "with-content.txt",
+			outputContent: "prod\n",
+			missingParam:  "environment",
+		},
+		{
+			name: "step_with_nested_values",
+			yaml: spec005RuntimeDAG(`
+working_dir: .
+steps:
+  - id: publish
+    action: outputs.write
+    with:
+      values:
+        status: "${params.environment}"
+  - name: consume
+    depends: publish
+    run: |
+      printf '%s\n' '${steps.publish.outputs.status}' > with-nested-values.txt
+`),
+			outputFile:    "with-nested-values.txt",
+			outputContent: "prod\n",
+			missingParam:  "environment",
+		},
+		{
+			name: "step_working_dir",
+			yaml: spec005RuntimeDAG(`
+working_dir: .
+steps:
+  - name: write
+    working_dir: "step-work-${params.environment}"
+    run: |
+      printf '%s\n' prod > step-working-dir.txt
+`),
+			outputFile:         "step-work-prod/step-working-dir.txt",
+			outputContent:      "prod\n",
+			missingParam:       "environment",
+			successAbsentFiles: []string{"step-work-${params.environment}/step-working-dir.txt"},
+			missingAbsentFiles: []string{"step-work-${params.environment}/step-working-dir.txt"},
+			setup: func(t *testing.T, dagu *Runner) {
+				t.Helper()
+				mkdirSpec005ProjectDir(t, dagu, "step-work-prod")
+				mkdirSpec005ProjectDir(t, dagu, "step-work-${params.environment}")
+			},
+		},
+		{
+			name: "step_env_map",
+			yaml: spec005RuntimeDAG(`
+working_dir: .
+steps:
+  - name: write
+    env:
+      STEP_VALUE: "${params.environment}"
+    run: |
+      printf '%s\n' "$STEP_VALUE" > step-env-map.txt
+`),
+			outputFile:    "step-env-map.txt",
+			outputContent: "prod\n",
+			missingParam:  "environment",
+		},
+		{
+			name: "step_env_array_map",
+			yaml: spec005RuntimeDAG(`
+working_dir: .
+steps:
+  - name: write
+    env:
+      - STEP_VALUE: "${params.environment}"
+    run: |
+      printf '%s\n' "$STEP_VALUE" > step-env-array-map.txt
+`),
+			outputFile:    "step-env-array-map.txt",
+			outputContent: "prod\n",
+			missingParam:  "environment",
+		},
+		{
+			name: "step_env_key_value",
+			yaml: spec005RuntimeDAG(`
+working_dir: .
+steps:
+  - name: write
+    env:
+      - STEP_VALUE=${params.environment}
+    run: |
+      printf '%s\n' "$STEP_VALUE" > step-env-key-value.txt
+`),
+			outputFile:    "step-env-key-value.txt",
+			outputContent: "prod\n",
+			missingParam:  "environment",
+		},
+		{
+			name: "step_precondition",
+			yaml: spec005RuntimeDAG(`
+working_dir: .
+steps:
+  - name: write
+    preconditions:
+      - condition: |
+          case '${params.environment}' in
+            prod) exit 0;;
+            \${params.environment}) printf '%s\n' literal > step-precondition-literal.txt; exit 1;;
+            *) exit 1;;
+          esac
+    run: |
+      printf '%s\n' prod > step-precondition.txt
+`),
+			outputFile:         "step-precondition.txt",
+			outputContent:      "prod\n",
+			missingParam:       "environment",
+			successAbsentFiles: []string{"step-precondition-literal.txt"},
+			missingAbsentFiles: []string{"step-precondition-literal.txt"},
+		},
+		{
+			name: "step_stdout_path",
+			yaml: spec005RuntimeDAG(`
+working_dir: .
+steps:
+  - name: write
+    run: |
+      printf '%s\n' prod
+    stdout: "stdout-${params.environment}.txt"
+`),
+			outputFile:         "stdout-prod.txt",
+			outputContent:      "prod\n",
+			missingParam:       "environment",
+			successAbsentFiles: []string{"stdout-${params.environment}.txt"},
+			missingAbsentFiles: []string{"stdout-${params.environment}.txt"},
+		},
+		{
+			name: "step_stderr_path",
+			yaml: spec005RuntimeDAG(`
+working_dir: .
+steps:
+  - name: write
+    run: |
+      printf '%s\n' prod >&2
+    stderr: "stderr-${params.environment}.txt"
+`),
+			outputFile:         "stderr-prod.txt",
+			outputContent:      "prod\n",
+			missingParam:       "environment",
+			successAbsentFiles: []string{"stderr-${params.environment}.txt"},
+			missingAbsentFiles: []string{"stderr-${params.environment}.txt"},
+		},
+		{
+			name: "step_stdout_outputs_value",
+			yaml: spec005RuntimeDAG(`
+working_dir: .
+steps:
+  - id: produce
+    run: "printf 'ignored\n'"
+    stdout:
+      outputs:
+        fields:
+          status:
+            value: "${params.environment}"
+  - name: consume
+    depends: produce
+    run: |
+      printf '%s\n' '${steps.produce.outputs.status}' > stdout-outputs-value.txt
+`),
+			outputFile:    "stdout-outputs-value.txt",
+			outputContent: "prod\n",
+			missingParam:  "environment",
+		},
+		{
+			name: "step_output_value",
+			yaml: spec005RuntimeDAG(`
+working_dir: .
+steps:
+  - id: produce
+    run: "true"
+    output:
+      result:
+        value: "${params.environment}"
+  - name: consume
+    depends: produce
+    run: |
+      printf '%s\n' '${steps.produce.outputs.result}' > output-value.txt
+`),
+			outputFile:    "output-value.txt",
+			outputContent: "prod\n",
+			missingParam:  "environment",
+		},
+		{
+			name: "step_output_path",
+			yaml: spec005RuntimeDAG(`
+working_dir: .
+steps:
+  - id: produce
+    run: "true"
+    output:
+      report:
+        from: file
+        path: "outputs/${params.environment}/report.txt"
+  - name: consume
+    depends: produce
+    run: |
+      printf '%s\n' '${steps.produce.outputs.report}' > output-path.txt
+`),
+			outputFile:    "output-path.txt",
+			outputContent: "prod\n",
+			missingParam:  "environment",
+			setup: func(t *testing.T, dagu *Runner) {
+				t.Helper()
+				writeSpec005ProjectFile(t, dagu, "outputs/prod/report.txt", "prod")
+				writeSpec005ProjectFile(t, dagu, "outputs/${params.environment}/report.txt", "literal")
+			},
+		},
+	}
+
+	cases = append(cases, spec005HandlerRuntimeFieldCases()...)
+	return cases
+}
+
+func spec005HandlerRuntimeFieldCases() []spec005RuntimeFieldCase {
+	handlers := []struct {
+		name     string
+		exitCode int
+	}{
+		{name: "init"},
+		{name: "success"},
+		{name: "failure", exitCode: 1},
+		{name: "exit"},
+	}
+
+	var cases []spec005RuntimeFieldCase
+	for _, handler := range handlers {
+		handler := handler
+		prefix := "handler-" + handler.name
+		cases = append(cases,
+			spec005RuntimeFieldCase{
+				name: prefix + "_run_string",
+				yaml: spec005HandlerRuntimeDAG(handler.name, `
+run: |
+  printf '%s\n' '${params.environment}' > `+prefix+`-run-string.txt
+`),
+				outputFile:    prefix + "-run-string.txt",
+				outputContent: "prod\n",
+				missingParam:  "environment",
+				exitCode:      handler.exitCode,
+			},
+			spec005RuntimeFieldCase{
+				name: prefix + "_run_array",
+				yaml: spec005HandlerRuntimeDAG(handler.name, `
+run:
+  - "printf '%s\n' '${params.environment}' > `+prefix+`-run-array.txt"
+`),
+				outputFile:    prefix + "-run-array.txt",
+				outputContent: "prod\n",
+				missingParam:  "environment",
+				exitCode:      handler.exitCode,
+			},
+			spec005RuntimeFieldCase{
+				name: prefix + "_with_content",
+				yaml: spec005HandlerRuntimeDAG(handler.name, `
+action: file.write
+with:
+  path: "`+prefix+`-with-content.txt"
+  content: |
+    ${params.environment}
+`),
+				outputFile:    prefix + "-with-content.txt",
+				outputContent: "prod\n",
+				missingParam:  "environment",
+				exitCode:      handler.exitCode,
+			},
+			spec005RuntimeFieldCase{
+				name: prefix + "_with_args",
+				yaml: spec005HandlerRuntimeDAG(handler.name, `
+action: exec
+with:
+  command: /bin/sh
+  args:
+    - -c
+    - "printf '%s\n' '${params.environment}' > `+prefix+`-with-args.txt"
+`),
+				outputFile:    prefix + "-with-args.txt",
+				outputContent: "prod\n",
+				missingParam:  "environment",
+				exitCode:      handler.exitCode,
+			},
+			spec005RuntimeFieldCase{
+				name: prefix + "_with_params",
+				yaml: spec005HandlerRuntimeDAG(handler.name, `
+action: sqlite.query
+with:
+  dsn: ":memory:"
+  query: "SELECT :environment AS environment"
+  output_format: jsonl
+  params:
+    environment: "${params.environment}"
+stdout: "`+prefix+`-with-params.txt"
+`),
+				outputFile:    prefix + "-with-params.txt",
+				outputContent: "{\"environment\":\"prod\"}\n",
+				missingParam:  "environment",
+				exitCode:      handler.exitCode,
+			},
+			spec005RuntimeFieldCase{
+				name: prefix + "_working_dir",
+				yaml: spec005HandlerRuntimeDAG(handler.name, `
+working_dir: "`+prefix+`-work-${params.environment}"
+run: |
+  printf '%s\n' prod > `+prefix+`-working-dir.txt
+`),
+				outputFile:         prefix + "-work-prod/" + prefix + "-working-dir.txt",
+				outputContent:      "prod\n",
+				missingParam:       "environment",
+				exitCode:           handler.exitCode,
+				successAbsentFiles: []string{prefix + "-work-${params.environment}/" + prefix + "-working-dir.txt"},
+				missingAbsentFiles: []string{prefix + "-work-${params.environment}/" + prefix + "-working-dir.txt"},
+				setup: func(t *testing.T, dagu *Runner) {
+					t.Helper()
+					mkdirSpec005ProjectDir(t, dagu, prefix+"-work-prod")
+					mkdirSpec005ProjectDir(t, dagu, prefix+"-work-${params.environment}")
+				},
+			},
+			spec005RuntimeFieldCase{
+				name: prefix + "_env_map",
+				yaml: spec005HandlerRuntimeDAG(handler.name, `
+env:
+  HANDLER_VALUE: "${params.environment}"
+run: |
+  printf '%s\n' "$HANDLER_VALUE" > `+prefix+`-env-map.txt
+`),
+				outputFile:    prefix + "-env-map.txt",
+				outputContent: "prod\n",
+				missingParam:  "environment",
+				exitCode:      handler.exitCode,
+			},
+			spec005RuntimeFieldCase{
+				name: prefix + "_env_array_map",
+				yaml: spec005HandlerRuntimeDAG(handler.name, `
+env:
+  - HANDLER_VALUE: "${params.environment}"
+run: |
+  printf '%s\n' "$HANDLER_VALUE" > `+prefix+`-env-array-map.txt
+`),
+				outputFile:    prefix + "-env-array-map.txt",
+				outputContent: "prod\n",
+				missingParam:  "environment",
+				exitCode:      handler.exitCode,
+			},
+			spec005RuntimeFieldCase{
+				name: prefix + "_env_key_value",
+				yaml: spec005HandlerRuntimeDAG(handler.name, `
+env:
+  - HANDLER_VALUE=${params.environment}
+run: |
+  printf '%s\n' "$HANDLER_VALUE" > `+prefix+`-env-key-value.txt
+`),
+				outputFile:    prefix + "-env-key-value.txt",
+				outputContent: "prod\n",
+				missingParam:  "environment",
+				exitCode:      handler.exitCode,
+			},
+			spec005RuntimeFieldCase{
+				name: prefix + "_precondition",
+				yaml: spec005HandlerRuntimeDAG(handler.name, `
+preconditions:
+  - condition: |
+      case '${params.environment}' in
+        prod) exit 0;;
+        \${params.environment}) printf '%s\n' literal > `+prefix+`-precondition-literal.txt; exit 1;;
+        *) exit 1;;
+      esac
+run: |
+  printf '%s\n' prod > `+prefix+`-precondition.txt
+`),
+				outputFile:         prefix + "-precondition.txt",
+				outputContent:      "prod\n",
+				missingParam:       "environment",
+				exitCode:           handler.exitCode,
+				successAbsentFiles: []string{prefix + "-precondition-literal.txt"},
+				missingAbsentFiles: []string{prefix + "-precondition-literal.txt"},
+			},
+			spec005RuntimeFieldCase{
+				name: prefix + "_stdout_path",
+				yaml: spec005HandlerRuntimeDAG(handler.name, `
+run: |
+  printf '%s\n' prod
+stdout: "`+prefix+`-stdout-${params.environment}.txt"
+`),
+				outputFile:         prefix + "-stdout-prod.txt",
+				outputContent:      "prod\n",
+				missingParam:       "environment",
+				exitCode:           handler.exitCode,
+				missingAbsentFiles: []string{prefix + "-stdout-${params.environment}.txt"},
+			},
+			spec005RuntimeFieldCase{
+				name: prefix + "_stderr_path",
+				yaml: spec005HandlerRuntimeDAG(handler.name, `
+run: |
+  printf '%s\n' prod >&2
+stderr: "`+prefix+`-stderr-${params.environment}.txt"
+`),
+				outputFile:         prefix + "-stderr-prod.txt",
+				outputContent:      "prod\n",
+				missingParam:       "environment",
+				exitCode:           handler.exitCode,
+				missingAbsentFiles: []string{prefix + "-stderr-${params.environment}.txt"},
+			},
+		)
+	}
+	return cases
+}
+
 func spec005ValueFieldCases() []spec005ValueFieldCase {
-	return []spec005ValueFieldCase{
+	cases := []spec005ValueFieldCase{
 		{
 			name:    "root_env_map",
 			context: "env",
@@ -280,12 +973,12 @@ steps:
 			},
 		},
 		{
-			name:    "root_shell_args",
-			context: "shell_args",
+			name:    "root_shell_array_args",
+			context: "shell",
 			yaml: func(ref string) string {
 				return spec005DAG(fmt.Sprintf(`
-shell: sh
-shell_args:
+shell:
+  - sh
   - "%s"
 steps:
   - name: ok
@@ -354,33 +1047,6 @@ steps:
   - name: ok
     run: "true"
 `, ref))
-			},
-		},
-		{
-			name:    "root_container_object_fields",
-			context: "container",
-			yaml: func(ref string) string {
-				return spec005DAG(fmt.Sprintf(`
-container:
-  image: "alpine:3.20"
-  name: "dagu-%s"
-  user: "%s"
-  working_dir: "/work/%s"
-  network: "%s"
-  volumes:
-    - "/tmp/%s:/tmp/%s"
-  ports:
-    - "%s:80"
-  env:
-    ROOT_CONTAINER_VALUE: "%s"
-  command:
-    - "%s"
-  shell:
-    - "%s"
-steps:
-  - name: ok
-    run: "true"
-`, ref, ref, ref, ref, ref, ref, ref, ref, ref, ref))
 			},
 		},
 		{
@@ -617,24 +1283,6 @@ steps:
 			},
 		},
 		{
-			name:    "step_stdout_outputs_path",
-			context: "steps[0].stdout.outputs.fields.report.path",
-			yaml: func(ref string) string {
-				return spec005DAG(fmt.Sprintf(`
-steps:
-  - name: stdout-outputs-path
-    run: "echo ok"
-    stdout:
-      outputs:
-        fields:
-          report:
-            from: file
-            path: "outputs/%s/report.json"
-            decode: json
-`, ref))
-			},
-		},
-		{
 			name:    "step_output_value",
 			context: "steps[0].output.result.value",
 			yaml: func(ref string) string {
@@ -702,90 +1350,422 @@ steps:
 `, ref))
 			},
 		},
-		{
-			name:    "step_container_object_fields",
-			context: "steps[0].container",
+	}
+
+	cases = append(cases, spec005RootContainerObjectFieldCases()...)
+	cases = append(cases, spec005StepContainerObjectFieldCases()...)
+	cases = append(cases, spec005HandlerValueFieldCases()...)
+	return cases
+}
+
+type spec005ContainerObjectFieldCase struct {
+	name    string
+	context string
+	body    func(ref string) string
+}
+
+func spec005RootContainerObjectFieldCases() []spec005ValueFieldCase {
+	objectFields := spec005ContainerObjectFieldCases("ROOT_CONTAINER_VALUE")
+	cases := make([]spec005ValueFieldCase, 0, len(objectFields))
+	for _, field := range objectFields {
+		field := field
+		cases = append(cases, spec005ValueFieldCase{
+			name:    "root_container_" + field.name,
+			context: "container." + field.context,
+			yaml: func(ref string) string {
+				return spec005DAG(fmt.Sprintf(`
+container:
+%s
+steps:
+  - name: ok
+    run: "true"
+`, indentSpec005(field.body(ref), "  ")))
+			},
+		})
+	}
+	return cases
+}
+
+func spec005StepContainerObjectFieldCases() []spec005ValueFieldCase {
+	objectFields := spec005ContainerObjectFieldCases("STEP_CONTAINER_VALUE")
+	cases := make([]spec005ValueFieldCase, 0, len(objectFields))
+	for _, field := range objectFields {
+		field := field
+		cases = append(cases, spec005ValueFieldCase{
+			name:    "step_container_" + field.name,
+			context: "steps[0].container." + field.context,
 			yaml: func(ref string) string {
 				return spec005DAG(fmt.Sprintf(`
 steps:
-  - name: step-container-object-fields
+  - name: step-container-%s
     container:
-      image: "alpine:3.20"
-      name: "dagu-%s"
-      user: "%s"
-      working_dir: "/work/%s"
-      network: "%s"
-      volumes:
-        - "/tmp/%s:/tmp/%s"
-      ports:
-        - "%s:80"
-      env:
-        STEP_CONTAINER_VALUE: "%s"
-      command:
-        - "%s"
-      shell:
-        - "%s"
+%s
     run: "true"
-`, ref, ref, ref, ref, ref, ref, ref, ref, ref, ref))
+`, field.name, indentSpec005(field.body(ref), "      ")))
+			},
+		})
+	}
+	return cases
+}
+
+func spec005ContainerObjectFieldCases(envName string) []spec005ContainerObjectFieldCase {
+	return []spec005ContainerObjectFieldCase{
+		{
+			name:    "name",
+			context: "name",
+			body: func(ref string) string {
+				return fmt.Sprintf(`image: "alpine:3.20"
+name: "dagu-%s"`, ref)
 			},
 		},
 		{
-			name:    "handler_init_run",
-			context: "handler_on.init",
-			yaml: func(ref string) string {
-				return spec005HandlerDAG("init", fmt.Sprintf(`run: "echo '%s'"`, ref))
+			name:    "user",
+			context: "user",
+			body: func(ref string) string {
+				return fmt.Sprintf(`image: "alpine:3.20"
+user: "%s"`, ref)
 			},
 		},
 		{
-			name:    "handler_success_env",
-			context: "handler_on.success",
-			yaml: func(ref string) string {
-				return spec005HandlerDAG("success", fmt.Sprintf(`run: "true"
+			name:    "working_dir",
+			context: "working_dir",
+			body: func(ref string) string {
+				return fmt.Sprintf(`image: "alpine:3.20"
+working_dir: "/work/%s"`, ref)
+			},
+		},
+		{
+			name:    "network",
+			context: "network",
+			body: func(ref string) string {
+				return fmt.Sprintf(`image: "alpine:3.20"
+network: "%s"`, ref)
+			},
+		},
+		{
+			name:    "volumes",
+			context: "volumes",
+			body: func(ref string) string {
+				return fmt.Sprintf(`image: "alpine:3.20"
+volumes:
+  - "/tmp/%s:/tmp/%s"`, ref, ref)
+			},
+		},
+		{
+			name:    "ports",
+			context: "ports",
+			body: func(ref string) string {
+				return fmt.Sprintf(`image: "alpine:3.20"
+ports:
+  - "%s:80"`, ref)
+			},
+		},
+		{
+			name:    "env",
+			context: "env",
+			body: func(ref string) string {
+				return fmt.Sprintf(`image: "alpine:3.20"
 env:
-  HANDLER_VALUE: "%s"`, ref))
+  %s: "%s"`, envName, ref)
 			},
 		},
 		{
-			name:    "handler_failure_precondition",
-			context: "handler_on.failure",
-			yaml: func(ref string) string {
-				return spec005HandlerDAG("failure", fmt.Sprintf(`run: "true"
-preconditions:
-  - condition: "test '%s' = prod"`, ref))
+			name:    "command",
+			context: "command",
+			body: func(ref string) string {
+				return fmt.Sprintf(`image: "alpine:3.20"
+command:
+  - "%s"`, ref)
 			},
 		},
 		{
-			name:    "handler_abort_repeat_condition",
-			context: "handler_on.abort",
-			yaml: func(ref string) string {
-				return spec005HandlerDAG("abort", fmt.Sprintf(`run: "true"
-repeat_policy:
-  repeat: while
-  condition: "test '%s' = prod"
-  interval_sec: 1
-  limit: 1`, ref))
-			},
-		},
-		{
-			name:    "handler_exit_stdout_artifact",
-			context: "handler_on.exit",
-			yaml: func(ref string) string {
-				return spec005HandlerDAG("exit", fmt.Sprintf(`run: "true"
-stdout:
-  artifact: "handlers/%s/exit.out"`, ref))
-			},
-		},
-		{
-			name:    "handler_wait_output",
-			context: "handler_on.wait",
-			yaml: func(ref string) string {
-				return spec005HandlerDAG("wait", fmt.Sprintf(`run: "true"
-output:
-  result:
-    value: "%s"`, ref))
+			name:    "shell",
+			context: "shell",
+			body: func(ref string) string {
+				return fmt.Sprintf(`image: "alpine:3.20"
+shell:
+  - "%s"`, ref)
 			},
 		},
 	}
+}
+
+type spec005HandlerOwnedFieldCase struct {
+	name    string
+	context string
+	body    func(ref string) string
+}
+
+func spec005HandlerValueFieldCases() []spec005ValueFieldCase {
+	handlers := []string{"init", "success", "failure", "abort", "exit", "wait"}
+	ownedFields := spec005HandlerOwnedFieldCases()
+	cases := make([]spec005ValueFieldCase, 0, len(handlers)*len(ownedFields))
+	for _, handler := range handlers {
+		handler := handler
+		for _, owned := range ownedFields {
+			owned := owned
+			cases = append(cases, spec005ValueFieldCase{
+				name:    "handler_" + handler + "_" + owned.name,
+				context: "handler_on." + handler + "." + owned.context,
+				yaml: func(ref string) string {
+					return spec005HandlerDAG(handler, owned.body(ref))
+				},
+			})
+		}
+	}
+	return cases
+}
+
+func spec005HandlerOwnedFieldCases() []spec005HandlerOwnedFieldCase {
+	cases := []spec005HandlerOwnedFieldCase{
+		{
+			name:    "run_string",
+			context: "run",
+			body: func(ref string) string {
+				return fmt.Sprintf(`run: "echo '%s'"`, ref)
+			},
+		},
+		{
+			name:    "run_array",
+			context: "run",
+			body: func(ref string) string {
+				return fmt.Sprintf(`run:
+  - "echo '%s'"`, ref)
+			},
+		},
+		{
+			name:    "with_nested",
+			context: "with.headers.authorization",
+			body: func(ref string) string {
+				return fmt.Sprintf(`action: http.request
+with:
+  method: GET
+  url: "https://example.test"
+  headers:
+    authorization: "Bearer %s"`, ref)
+			},
+		},
+		{
+			name:    "working_dir",
+			context: "working_dir",
+			body: func(ref string) string {
+				return fmt.Sprintf(`working_dir: "./%s"
+run: "true"`, ref)
+			},
+		},
+		{
+			name:    "env_map",
+			context: "env",
+			body: func(ref string) string {
+				return fmt.Sprintf(`env:
+  HANDLER_VALUE: "%s"
+run: "true"`, ref)
+			},
+		},
+		{
+			name:    "env_array_map",
+			context: "env",
+			body: func(ref string) string {
+				return fmt.Sprintf(`env:
+  - HANDLER_VALUE: "%s"
+run: "true"`, ref)
+			},
+		},
+		{
+			name:    "env_key_value",
+			context: "env",
+			body: func(ref string) string {
+				return fmt.Sprintf(`env:
+  - HANDLER_VALUE=%s
+run: "true"`, ref)
+			},
+		},
+		{
+			name:    "precondition",
+			context: "preconditions",
+			body: func(ref string) string {
+				return fmt.Sprintf(`preconditions:
+  - condition: "test '%s' = prod"
+run: "true"`, ref)
+			},
+		},
+		{
+			name:    "repeat_condition",
+			context: "repeat_policy.condition",
+			body: func(ref string) string {
+				return fmt.Sprintf(`repeat_policy:
+  repeat: while
+  condition: "test '%s' = prod"
+  interval_sec: 1
+  limit: 1
+run: "true"`, ref)
+			},
+		},
+		{
+			name:    "parallel_variable",
+			context: "parallel",
+			body: func(ref string) string {
+				return fmt.Sprintf(`action: dag.run
+parallel: "%s"
+with:
+  dag: child`, ref)
+			},
+		},
+		{
+			name:    "parallel_items_value",
+			context: "parallel.items",
+			body: func(ref string) string {
+				return fmt.Sprintf(`action: dag.run
+parallel:
+  items:
+    - "%s"
+  max_concurrent: 1
+with:
+  dag: child`, ref)
+			},
+		},
+		{
+			name:    "parallel_items_params",
+			context: "parallel.items",
+			body: func(ref string) string {
+				return fmt.Sprintf(`action: dag.run
+parallel:
+  items:
+    - target: "%s"
+  max_concurrent: 1
+with:
+  dag: child`, ref)
+			},
+		},
+		{
+			name:    "stdout_path",
+			context: "stdout",
+			body: func(ref string) string {
+				return fmt.Sprintf(`run: "echo ok"
+stdout: "stdout-%s.txt"`, ref)
+			},
+		},
+		{
+			name:    "stdout_artifact",
+			context: "stdout.artifact",
+			body: func(ref string) string {
+				return fmt.Sprintf(`run: "echo ok"
+stdout:
+  artifact: "artifacts/%s/stdout.txt"`, ref)
+			},
+		},
+		{
+			name:    "stderr_path",
+			context: "stderr",
+			body: func(ref string) string {
+				return fmt.Sprintf(`run: "echo ok"
+stderr: "stderr-%s.txt"`, ref)
+			},
+		},
+		{
+			name:    "stderr_artifact",
+			context: "stderr.artifact",
+			body: func(ref string) string {
+				return fmt.Sprintf(`run: "echo ok"
+stderr:
+  artifact: "artifacts/%s/stderr.txt"`, ref)
+			},
+		},
+		{
+			name:    "stdout_outputs_value",
+			context: "stdout.outputs.fields.status.value",
+			body: func(ref string) string {
+				return fmt.Sprintf(`run: "echo ok"
+stdout:
+  outputs:
+    fields:
+      status:
+        value: "%s"`, ref)
+			},
+		},
+		{
+			name:    "output_value",
+			context: "output.result.value",
+			body: func(ref string) string {
+				return fmt.Sprintf(`run: "echo ok"
+output:
+  result:
+    value: "%s"`, ref)
+			},
+		},
+		{
+			name:    "output_path",
+			context: "output.report.path",
+			body: func(ref string) string {
+				return fmt.Sprintf(`run: "echo ok"
+output:
+  report:
+    from: file
+    path: "outputs/%s/report.json"
+    decode: json`, ref)
+			},
+		},
+		{
+			name:    "container_string",
+			context: "container",
+			body: func(ref string) string {
+				return fmt.Sprintf(`container: "%s"
+run: "true"`, ref)
+			},
+		},
+		{
+			name:    "container_exec",
+			context: "container.exec",
+			body: func(ref string) string {
+				return fmt.Sprintf(`container:
+  exec: "%s"
+run: "true"`, ref)
+			},
+		},
+		{
+			name:    "container_image",
+			context: "container.image",
+			body: func(ref string) string {
+				return fmt.Sprintf(`container:
+  image: "example/%s:latest"
+run: "true"`, ref)
+			},
+		},
+	}
+
+	cases = append(cases, spec005HandlerContainerObjectOwnedFieldCases()...)
+	return cases
+}
+
+func spec005HandlerContainerObjectOwnedFieldCases() []spec005HandlerOwnedFieldCase {
+	objectFields := spec005ContainerObjectFieldCases("HANDLER_CONTAINER_VALUE")
+	cases := make([]spec005HandlerOwnedFieldCase, 0, len(objectFields))
+	for _, field := range objectFields {
+		field := field
+		cases = append(cases, spec005HandlerOwnedFieldCase{
+			name:    "container_" + field.name,
+			context: "container." + field.context,
+			body: func(ref string) string {
+				return fmt.Sprintf(`container:
+%s
+run: "true"`, indentSpec005(field.body(ref), "  "))
+			},
+		})
+	}
+	return cases
+}
+
+func spec005RuntimeDAG(body string) string {
+	return fmt.Sprintf(`params:
+  - name: environment
+    description: Runtime environment.
+  - name: shell
+    description: Runtime shell.
+  - name: shell_arg
+    description: Runtime shell argument.
+
+%s
+`, body)
 }
 
 func spec005DAG(body string) string {
@@ -807,6 +1787,23 @@ steps:
 `, handler, indentSpec005(body, "    ")))
 }
 
+func spec005HandlerRuntimeDAG(handler string, body string) string {
+	steps := `  - name: ok
+    run: "true"`
+	if handler == "failure" {
+		steps = `  - name: fail
+    run: "false"`
+	}
+
+	return spec005RuntimeDAG(fmt.Sprintf(`working_dir: .
+handler_on:
+  %s:
+%s
+steps:
+%s
+`, handler, indentSpec005(body, "    "), steps))
+}
+
 func indentSpec005(value string, prefix string) string {
 	var out strings.Builder
 	for i, ch := range value {
@@ -819,6 +1816,39 @@ func indentSpec005(value string, prefix string) string {
 		}
 	}
 	return out.String()
+}
+
+func mkdirSpec005ProjectDir(t *testing.T, dagu *Runner, name string) {
+	t.Helper()
+
+	path := filepath.Join(dagu.dir, filepath.FromSlash(name))
+	if err := os.MkdirAll(path, 0o750); err != nil {
+		t.Fatalf("creating %s: %v", name, err)
+	}
+}
+
+func writeSpec005ProjectExecutable(t *testing.T, dagu *Runner, name string, content string) {
+	t.Helper()
+
+	path := filepath.Join(dagu.dir, filepath.FromSlash(name))
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatalf("creating parent for %s: %v", name, err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o700); err != nil {
+		t.Fatalf("writing %s: %v", name, err)
+	}
+}
+
+func writeSpec005ProjectFile(t *testing.T, dagu *Runner, name string, content string) {
+	t.Helper()
+
+	path := filepath.Join(dagu.dir, filepath.FromSlash(name))
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatalf("creating parent for %s: %v", name, err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("writing %s: %v", name, err)
+	}
 }
 
 func writeSpec005DAG(t *testing.T, dagu *Runner, name string, content string) string {
