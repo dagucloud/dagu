@@ -118,6 +118,12 @@ Rules:
 
 - Unresolved supported references in `run` warn and remain literal before the command or script starts.
 
+- Dagu does not shell-escape unresolved references in `run`.
+
+- The selected shell or script interpreter receives the preserved text.
+
+- The selected shell or script interpreter may interpret or reject the preserved text.
+
 - Dagu must not resolve shell-style `$NAME` or `${NAME}` environment variable syntax in `run`.
 
 - Dagu-owned environment references in `run` must use the namespaced `${env.NAME}` form.

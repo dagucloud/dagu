@@ -328,6 +328,29 @@ func TestNewContext_DAGEnvCanReferenceRuntimeManagedDirs(t *testing.T) {
 	assert.Equal(t, artifactDir, result[exec.EnvKeyDAGRunArtifactsDir])
 }
 
+func TestNewContext_DAGEnvUsesRuntimeParamsOption(t *testing.T) {
+	t.Parallel()
+
+	dag := &core.DAG{
+		Name:   "test-dag",
+		Params: []string{"target=stored"},
+		ParamDefs: []core.ParamDef{{
+			Name: "target",
+			Type: core.ParamDefTypeString,
+		}},
+		Env: []string{
+			"TARGET=${params.target}",
+		},
+	}
+
+	ctx := exec.NewContext(context.Background(), dag, "run-1", "test.log",
+		exec.WithParams([]string{"target=runtime"}),
+	)
+
+	result := exec.GetContext(ctx).UserEnvsMap()
+	assert.Equal(t, "runtime", result["TARGET"])
+}
+
 func TestNewContext_DefaultProfileEnvsHaveLowestUserPrecedence(t *testing.T) {
 	t.Parallel()
 

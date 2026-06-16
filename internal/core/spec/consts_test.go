@@ -111,8 +111,9 @@ steps:
 			dag, err := spec.LoadYAML(context.Background(), []byte(tt.yaml))
 			require.NoError(t, err)
 			if tt.wantWarning != "" {
-				require.NotEmpty(t, dag.BuildWarnings)
-				assert.Contains(t, dag.BuildWarnings[0], tt.wantWarning)
+				requireBuildWarningContains(t, dag.BuildWarnings, tt.wantWarning)
+			} else {
+				require.Empty(t, dag.BuildWarnings)
 			}
 		})
 	}

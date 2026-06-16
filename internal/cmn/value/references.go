@@ -180,20 +180,7 @@ func validOutputPathSegment(segment string) bool {
 }
 
 // validateReferences keeps value-reference misses non-fatal.
-func validateReferences(raw string, staticScope StaticScope, mode mode, field string) error {
-	refs := scanReferences(raw)
-	for _, ref := range refs {
-		//nolint:exhaustive // Eval references are intentionally allowed and need no validation here.
-		switch ref.Kind {
-		case referenceInvalid:
-			continue
-		case referenceStrict:
-			continue
-		}
-	}
-	_ = staticScope
-	_ = mode
-	_ = field
+func validateReferences(string, StaticScope, mode, string) error {
 	return nil
 }
 
@@ -275,24 +262,6 @@ func referenceWarning(field, token string, err error) string {
 		return fmt.Sprintf("value reference %s could not be resolved; preserving literal text: %v", token, err)
 	}
 	return fmt.Sprintf("%s: value reference %s could not be resolved; preserving literal text: %v", field, token, err)
-}
-
-func validateStrictReference(ref reference, scope StaticScope) error {
-	switch ref.Namespace {
-	case "consts":
-		return validateMapReference(ref, "consts", scope.Consts)
-	case "params":
-		return validateMapReference(ref, "params", scope.Params)
-	default:
-		return nil
-	}
-}
-
-func validateMapReference(ref reference, namespace string, values Values) error {
-	if _, ok := values[ref.Segments[1]]; !ok {
-		return fmt.Errorf("unknown %s binding %s", namespace, ref.Raw)
-	}
-	return nil
 }
 
 func runtimeReferenceAvailableAfterConstLoad(ref reference) bool {

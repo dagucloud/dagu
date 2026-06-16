@@ -86,7 +86,7 @@ func (r *Runner) Run(args ...string) *Result {
 func (r *Runner) ExpectNoFile(name string) {
 	r.t.Helper()
 
-	path := filepath.Join(r.dir, filepath.FromSlash(name))
+	path := r.projectPath(name)
 	if _, err := os.Stat(path); err == nil {
 		r.t.Fatalf("expected %s to be absent", name)
 	} else if !os.IsNotExist(err) {
@@ -98,8 +98,8 @@ func (r *Runner) ExpectNoFile(name string) {
 func (r *Runner) ExpectFileContent(name string, content string) {
 	r.t.Helper()
 
-	path := filepath.Join(r.dir, filepath.FromSlash(name))
-	actual, err := os.ReadFile(path)
+	path := r.projectPath(name)
+	actual, err := os.ReadFile(path) // #nosec G304 -- projectPath confines test fixture paths to the temp project.
 	if err != nil {
 		r.t.Fatalf("reading %s: %v", name, err)
 	}
@@ -110,8 +110,8 @@ func (r *Runner) ExpectFileContent(name string, content string) {
 func (r *Runner) Mkdir(name string) {
 	r.t.Helper()
 
-	path := filepath.Join(r.dir, filepath.FromSlash(name))
-	if err := os.MkdirAll(path, 0o755); err != nil {
+	path := r.projectPath(name)
+	if err := os.MkdirAll(path, 0o750); err != nil {
 		r.t.Fatalf("creating %s: %v", name, err)
 	}
 }
@@ -129,13 +129,23 @@ func (r *Runner) WriteExecutable(name string, content string) {
 func (r *Runner) writeFile(name string, content string, perm os.FileMode) {
 	r.t.Helper()
 
-	path := filepath.Join(r.dir, filepath.FromSlash(name))
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	path := r.projectPath(name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		r.t.Fatalf("creating parent for %s: %v", name, err)
 	}
 	if err := os.WriteFile(path, []byte(content), perm); err != nil {
 		r.t.Fatalf("writing %s: %v", name, err)
 	}
+}
+
+func (r *Runner) projectPath(name string) string {
+	r.t.Helper()
+
+	cleaned := filepath.Clean(filepath.FromSlash(name))
+	if filepath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(os.PathSeparator)) {
+		r.t.Fatalf("project path %q escapes test project", name)
+	}
+	return filepath.Join(r.dir, cleaned)
 }
 
 // ExpectExitCode fails the test when the command exit code differs.
@@ -227,7 +237,7 @@ func resolveRelativeBinary(t *testing.T, path string) string {
 
 	for {
 		candidate := filepath.Join(wd, path)
-		if _, err := os.Stat(candidate); err == nil {
+		if _, err := os.Stat(candidate); err == nil { // #nosec G703 -- DAGU_BIN is the configured test binary path.
 			return statBinary(t, candidate)
 		}
 

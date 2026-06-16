@@ -108,6 +108,8 @@ Validation warnings:
 
 - A supported Dagu-owned value reference that cannot resolve must warn and preserve the original reference text.
 - Braced text that does not match a supported Dagu-owned reference form remains ordinary string content under Spec 003.
+- Preservation means Dagu leaves the original text unchanged.
+- Dagu does not escape preserved text for a later shell or script interpreter.
 
 Runtime errors:
 

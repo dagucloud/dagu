@@ -237,6 +237,11 @@ steps:
 
 Warning-only undeclared output reference:
 
+These examples show Dagu validation behavior.
+Dagu preserves unresolved references as text.
+Dagu does not shell-escape the preserved text.
+Quote the reference when a shell-backed `run` field needs the literal text.
+
 ```yaml
 steps:
   - id: build

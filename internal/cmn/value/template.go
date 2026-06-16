@@ -25,10 +25,6 @@ var (
 
 type template struct{ source string }
 
-func checkBindings(context.Context, string, RuntimeScope) error {
-	return nil
-}
-
 func resolveBindings(ctx context.Context, input string, scope RuntimeScope, field string) (string, map[string]string, error) {
 	warned := make(map[string]struct{})
 	protected := make(map[string]string)
@@ -292,13 +288,9 @@ func bindingEnvValue(name string, scope *EnvScope, requireValue bool) (any, erro
 func supportedStrictBinding(segments []string) bool {
 	switch segments[0] {
 	case "consts", "params":
-		return len(segments) == 2 &&
-			bindingNamePattern.MatchString(segments[0]) &&
-			bindingNamePattern.MatchString(segments[1])
+		return len(segments) == 2 && bindingNamePattern.MatchString(segments[1])
 	case "env":
-		return len(segments) == 2 &&
-			bindingNamePattern.MatchString(segments[0]) &&
-			bindingNamePattern.MatchString(segments[1])
+		return len(segments) == 2 && bindingNamePattern.MatchString(segments[1])
 	case "steps":
 		if len(segments) < 4 || segments[2] != "outputs" {
 			return false
@@ -315,66 +307,6 @@ func supportedStrictBinding(segments []string) bool {
 	default:
 		return false
 	}
-}
-
-func strictBindingNamespace(namespace string) bool {
-	switch namespace {
-	case "consts", "params":
-		return true
-	default:
-		return false
-	}
-}
-
-func validateBindingSegments(segments []string) error {
-	if len(segments) == 0 {
-		return nil
-	}
-	for _, segment := range segments {
-		if !bindingNamePattern.MatchString(segment) {
-			return fmt.Errorf("binding path segment %q is invalid", segment)
-		}
-	}
-	switch segments[0] {
-	case "consts":
-		if len(segments) != 2 {
-			return fmt.Errorf("consts bindings must use ${consts.<name>}")
-		}
-	case "params":
-		if len(segments) != 2 {
-			return fmt.Errorf("params bindings must use ${params.<name>}")
-		}
-	}
-	return nil
-}
-
-func reservedBinding(namespace string) bool {
-	return strictBindingNamespace(namespace)
-}
-
-func malformedBinding(value string) string {
-	for offset := 0; offset < len(value); {
-		start := strings.Index(value[offset:], "${")
-		if start < 0 {
-			return ""
-		}
-		start += offset
-		end := strings.IndexByte(value[start+2:], '}')
-		if end < 0 {
-			expr := strings.TrimSpace(strings.TrimPrefix(value[start:], "${"))
-			if reservedBinding(bindingNamespace(expr)) {
-				return value[start:]
-			}
-			return ""
-		}
-		offset = start + 2 + end + 1
-	}
-	return ""
-}
-
-func bindingNamespace(path string) string {
-	namespace, _, _ := strings.Cut(path, ".")
-	return namespace
 }
 
 func formatBindingValue(value any) string {

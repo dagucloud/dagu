@@ -68,7 +68,7 @@ func (d *DAG) validateOutputReferences() []string {
 		location := outputReferenceLocation{StepName: field.OwnerStepName, Field: field.Path}
 		for _, ref := range refs {
 			if warning := outputReferenceGraphWarning(location, stepByName, ref); warning != "" {
-				if appendOutputReferenceWarning(&warnings, seen, field.Path, ref.Expression, warning) {
+				if appendOutputReferenceWarning(&warnings, seen, location.StepName, field.Path, ref.Expression, warning) {
 					continue
 				}
 			}
@@ -78,7 +78,7 @@ func (d *DAG) validateOutputReferences() []string {
 			}
 			result := contract.validatePath(ref.Path)
 			if result == outputReferenceInvalid {
-				appendOutputReferenceWarning(&warnings, seen, field.Path, ref.Expression, outputReferenceError(location, contract, ref).Error())
+				appendOutputReferenceWarning(&warnings, seen, location.StepName, field.Path, ref.Expression, outputReferenceError(location, contract, ref).Error())
 			}
 		}
 	}
@@ -101,8 +101,8 @@ func outputReferenceGraphWarning(location outputReferenceLocation, stepByName ma
 	return ""
 }
 
-func appendOutputReferenceWarning(warnings *[]string, seen map[string]struct{}, field, expression, warning string) bool {
-	key := field + "\x00" + expression
+func appendOutputReferenceWarning(warnings *[]string, seen map[string]struct{}, stepName, field, expression, warning string) bool {
+	key := stepName + "\x00" + field + "\x00" + expression
 	if _, exists := seen[key]; exists {
 		return false
 	}

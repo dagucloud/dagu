@@ -5,6 +5,7 @@ package spec_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/internal/core"
@@ -16,7 +17,7 @@ import (
 func TestLoadYAMLExposesOutputValueReferenceFields(t *testing.T) {
 	t.Parallel()
 
-	dag, err := spec.LoadYAML(context.Background(), []byte(`
+	dag, err := spec.LoadYAML(context.Background(), []byte(strings.TrimSpace(`
 name: output-fields
 params:
   - name: environment
@@ -35,7 +36,7 @@ steps:
       report:
         from: file
         path: "outputs/${params.environment}/report.txt"
-`), spec.WithoutEval())
+`)), spec.WithoutEval())
 	require.NoError(t, err)
 	require.Len(t, dag.Steps, 1)
 
@@ -53,7 +54,7 @@ steps:
 func TestLoadYAMLWarnsForUndeclaredOutputValueReferences(t *testing.T) {
 	t.Parallel()
 
-	dag, err := spec.LoadYAML(context.Background(), []byte(`
+	dag, err := spec.LoadYAML(context.Background(), []byte(strings.TrimSpace(`
 name: output-fields
 params:
   - name: environment
@@ -72,8 +73,7 @@ steps:
       report:
         from: file
         path: "outputs/${params.missing}/report.txt"
-`), spec.WithoutEval())
+`)), spec.WithoutEval())
 	require.NoError(t, err)
-	require.NotEmpty(t, dag.BuildWarnings)
-	assert.Contains(t, dag.BuildWarnings[0], "${params.missing}")
+	requireBuildWarningContains(t, dag.BuildWarnings, "${params.missing}")
 }

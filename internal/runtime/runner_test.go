@@ -2011,6 +2011,10 @@ func TestRunner_DAGPreconditions(t *testing.T) {
 }
 
 func TestRunner_DAGPreconditionShellReferencePreserved(t *testing.T) {
+	if windowsShellTest() {
+		t.Skip("DAG precondition shell reference test uses /bin/sh")
+	}
+
 	r := setupRunner(t)
 	plan := r.newPlan(t, successStep("1"))
 
