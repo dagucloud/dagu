@@ -6,6 +6,7 @@ package value
 import (
 	"context"
 	"os"
+	"strings"
 )
 
 // resolver provides unified variable resolution across explicit variable maps,
@@ -43,14 +44,22 @@ func (r *resolver) lookupVariable(name string) (string, bool) {
 
 // lookupScopeNonOS searches the scope for a non-OS-sourced entry.
 func (r *resolver) lookupScopeNonOS(name string) (string, bool) {
-	if r.scope == nil {
+	entry, ok := r.lookupScopeNonOSEntry(name)
+	if !ok {
 		return "", false
+	}
+	return entry.Value, true
+}
+
+func (r *resolver) lookupScopeNonOSEntry(name string) (EnvEntry, bool) {
+	if r.scope == nil {
+		return EnvEntry{}, false
 	}
 	entry, ok := r.scope.GetEntry(name)
 	if ok && entry.Source != EnvSourceOS {
-		return entry.Value, true
+		return entry, true
 	}
-	return "", false
+	return EnvEntry{}, false
 }
 
 // resolve looks up a variable from explicit variable maps and scope.
@@ -71,9 +80,29 @@ func (r *resolver) resolveForReplace(name string) (string, bool) {
 		return val, true
 	}
 	if r.deferShellVars && !isNumericVar(name) {
+		if entry, ok := r.lookupScopeNonOSEntry(name); ok && isSafeHomeRelativeShellWord(entry.Value) {
+			return entry.Value, true
+		}
 		return "", false
 	}
 	return r.lookupScopeNonOS(name)
+}
+
+func isSafeHomeRelativeShellWord(value string) bool {
+	if value != "~" && !strings.HasPrefix(value, "~/") {
+		return false
+	}
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case strings.ContainsRune("~/._-+=,:@", r):
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // isNumericVar reports whether name consists entirely of digits (e.g., "1", "2").

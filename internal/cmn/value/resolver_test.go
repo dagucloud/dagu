@@ -281,6 +281,24 @@ func TestResolverShellCommandFieldDefersScopeVarsAndExpandsStepRefs(t *testing.T
 	assert.Equal(t, `printf '%s\n' "$ROOT_VALUE" ready`, got)
 }
 
+func TestResolverShellCommandFieldInlinesSafeHomeRelativeScopeVars(t *testing.T) {
+	ctx := context.Background()
+	scope := value.NewEnvScope(nil, false).
+		WithEntry("TEST_FILE", "~/.dagu-test-file", value.EnvSourceDAGEnv).
+		WithEntry("UNSAFE_FILE", "~/$(printf unsafe)", value.EnvSourceDAGEnv)
+	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{Env: scope})
+	command := value.CommandContext{
+		Target:          value.CommandTargetLocal,
+		Shell:           []string{"/bin/sh"},
+		ShellConfigured: true,
+	}
+
+	got, err := resolver.String(ctx, "touch $TEST_FILE $UNSAFE_FILE", value.ShellCommandField("steps[0].run", command))
+
+	require.NoError(t, err)
+	assert.Equal(t, "touch ~/.dagu-test-file $UNSAFE_FILE", got)
+}
+
 func TestResolverPowerShellCommandFieldExpandsDaguScopeVars(t *testing.T) {
 	ctx := context.Background()
 	scope := value.NewEnvScope(nil, false).

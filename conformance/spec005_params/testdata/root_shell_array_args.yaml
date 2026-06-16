@@ -3,10 +3,9 @@ params:
     description: Runtime shell argument.
 working_dir: .
 shell:
-  - ./shell-args-wrapper
+  - bash
   - "${params.shell_arg}"
 steps:
   - name: write
     run: |
-      test "$(cat root-shell-array-args-marker.txt)" = "-c"
       printf '%s\n' prod > root-shell-array-args.txt

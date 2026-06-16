@@ -39,9 +39,17 @@ env:
 
 jobs:
   conformance:
-    name: Conformance tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    name: Conformance tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            go_test_flags: "-v --race"
+          - os: windows-latest
+            go_test_flags: "-v"
     steps:
       - name: Check out code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -53,5 +61,14 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
+      - name: Install GNU Make
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command make -ErrorAction SilentlyContinue)) {
+            choco install make --no-progress -y
+          }
+
       - name: Run conformance tests
-        run: make conformance
+        shell: bash
+        run: make conformance GO_TEST_FLAGS="${{ matrix.go_test_flags }}"

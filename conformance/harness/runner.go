@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -284,6 +285,11 @@ func isolatedEnv(t *testing.T) []string {
 		"APPDATA="+filepath.Join(root, "appdata"),
 		"USERPROFILE="+home,
 	)
+	if runtime.GOOS == "windows" {
+		// The conformance fixtures use POSIX shell snippets. GitHub-hosted
+		// Windows runners provide Bash through Git for Windows.
+		env = append(env, "DAGU_DEFAULT_SHELL=bash")
+	}
 
 	return env
 }

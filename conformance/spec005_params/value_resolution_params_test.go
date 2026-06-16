@@ -245,7 +245,6 @@ func spec005StartCases() []spec005StartCase {
 			file:          "root_shell_array_args.yaml",
 			outputFile:    "root-shell-array-args.txt",
 			outputContent: "prod\n",
-			setup:         setupSpec005ShellArgsWrapper,
 		},
 		{
 			name:               "root precondition resolves named params",
@@ -403,14 +402,6 @@ func setupSpec005Dotenv(t *testing.T, dagu *harness.Runner) {
 	t.Helper()
 	dagu.WriteFile(".env.prod", "DOTENV_VALUE=prod\n")
 	dagu.WriteFile(".env.${params.environment}", "DOTENV_VALUE=literal\n")
-}
-
-func setupSpec005ShellArgsWrapper(t *testing.T, dagu *harness.Runner) {
-	t.Helper()
-	dagu.WriteExecutable("shell-args-wrapper", `#!/bin/sh
-printf '%s\n' "$1" > root-shell-array-args-marker.txt
-exec /bin/sh "$@"
-`)
 }
 
 func setupSpec005StepWorkingDir(t *testing.T, dagu *harness.Runner) {

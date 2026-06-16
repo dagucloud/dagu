@@ -31,7 +31,14 @@ LDFLAGS=-X 'main.version=$(BUILD_VERSION)'
 
 # Application name
 APP_NAME=dagu
-DAGU_BIN?=${LOCAL_BIN_DIR}/${APP_NAME}
+ifeq ($(shell go env GOOS),windows)
+EXE_EXT=.exe
+else
+EXE_EXT=
+endif
+APP_BIN_NAME=${APP_NAME}${EXE_EXT}
+DAGU_BIN?=${LOCAL_BIN_DIR}/${APP_BIN_NAME}
+GOTESTSUM_BIN=${LOCAL_BIN_DIR}/gotestsum${EXE_EXT}
 
 # Docker image build configuration
 DOCKER_CMD := docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7,linux/arm64/v8 --builder container --build-arg LDFLAGS="$(LDFLAGS)" --push --no-cache
@@ -132,13 +139,13 @@ run: ${FE_BUNDLE_JS}
 .PHONY: run-server
 run-server: golangci-lint bin
 	@printf '%b\n' "${COLOR_GREEN}Starting the server...${COLOR_RESET}"
-	${LOCAL_BIN_DIR}/${APP_NAME} server
+	${LOCAL_BIN_DIR}/${APP_BIN_NAME} server
 
 # scheduler build the binary and start the scheduler.
 .PHONY: run-scheduler
 run-scheduler: golangci-lint bin
 	@printf '%b\n' "${COLOR_GREEN}Starting the scheduler...${COLOR_RESET}"
-	${LOCAL_BIN_DIR}/${APP_NAME} scheduler
+	${LOCAL_BIN_DIR}/${APP_BIN_NAME} scheduler
 
 # check if the frontend assets are built.
 ${FE_BUNDLE_JS}:
@@ -160,7 +167,7 @@ test: bin
 	@printf '%b\n' "${COLOR_GREEN}Running tests...${COLOR_RESET}"
 	@GOBIN=${LOCAL_BIN_DIR} go install ${PKG_gotestsum}
 	@go clean -testcache
-	@${LOCAL_BIN_DIR}/gotestsum ${GOTESTSUM_ARGS} -- ${GO_TEST_FLAGS} ${TEST_TARGET}
+	@${GOTESTSUM_BIN} ${GOTESTSUM_ARGS} -- ${GO_TEST_FLAGS} ${TEST_TARGET}
 
 # conformance runs binary-level conformance tests.
 .PHONY: conformance
@@ -168,14 +175,14 @@ conformance: export DAGU_BIN := ${DAGU_BIN}
 conformance: bin
 	@printf '%b\n' "${COLOR_GREEN}Running conformance tests...${COLOR_RESET}"
 	@GOBIN=${LOCAL_BIN_DIR} go install ${PKG_gotestsum}
-	@${LOCAL_BIN_DIR}/gotestsum ${CONFORMANCE_GOTESTSUM_ARGS} -- ${GO_TEST_FLAGS} -count=1 ${CONFORMANCE_TEST_TARGET}
+	@${GOTESTSUM_BIN} ${CONFORMANCE_GOTESTSUM_ARGS} -- ${GO_TEST_FLAGS} -count=1 ${CONFORMANCE_TEST_TARGET}
 
 # test-coverage runs Go tests except conformance tests with coverage by default.
 .PHONY: test-coverage
 test-coverage:
 	@printf '%b\n' "${COLOR_GREEN}Running tests with coverage...${COLOR_RESET}"
 	@GOBIN=${LOCAL_BIN_DIR} go install ${PKG_gotestsum}
-	@${LOCAL_BIN_DIR}/gotestsum ${GOTESTSUM_ARGS} -- ${GO_TEST_FLAGS} -coverpkg=./... -coverprofile="coverage.out" -covermode=atomic ${TEST_TARGET}
+	@${GOTESTSUM_BIN} ${GOTESTSUM_ARGS} -- ${GO_TEST_FLAGS} -coverpkg=./... -coverprofile="coverage.out" -covermode=atomic ${TEST_TARGET}
 	@go tool cover -html=coverage.out -o coverage.html
 
 # lint runs the linter.
@@ -328,7 +335,7 @@ cpuprof:
 bin:
 	@printf '%b\n' "${COLOR_GREEN}Building the binary...${COLOR_RESET}"
 	@mkdir -p ${BIN_DIR}
-	@go build -ldflags="$(LDFLAGS)" -o ${BIN_DIR}/${APP_NAME} ./cmd
+	@go build -ldflags="$(LDFLAGS)" -o ${BIN_DIR}/${APP_BIN_NAME} ./cmd
 
 # bin-e2e builds the go application for browser E2E tests.
 .PHONY: bin-e2e
