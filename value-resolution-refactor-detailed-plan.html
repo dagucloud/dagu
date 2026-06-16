@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dagu Value Resolution Params Conformance Plan</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --paper: #ffffff;
+      --ink: #17202a;
+      --muted: #596574;
+      --line: #d7dee8;
+      --soft: #eef2f7;
+      --blue: #175cd3;
+      --green: #067647;
+      --red: #b42318;
+      --amber: #9a6700;
+      --code: #111827;
+      --code-bg: #f3f4f6;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.56;
+    }
+
+    main {
+      width: min(1120px, calc(100% - 36px));
+      margin: 0 auto;
+      padding: 34px 0 68px;
+    }
+
+    header,
+    section {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 24px;
+      margin: 18px 0;
+    }
+
+    header {
+      padding: 30px;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    h1 {
+      font-size: clamp(30px, 4vw, 48px);
+      max-width: 900px;
+    }
+
+    h2 {
+      font-size: 24px;
+      margin-bottom: 14px;
+    }
+
+    h3 {
+      font-size: 18px;
+      margin: 18px 0 8px;
+    }
+
+    p {
+      margin: 0 0 12px;
+    }
+
+    ul,
+    ol {
+      margin: 8px 0 0;
+      padding-left: 22px;
+    }
+
+    li {
+      margin: 6px 0;
+    }
+
+    code {
+      color: var(--code);
+      background: var(--code-bg);
+      border: 1px solid #e5e7eb;
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 0.92em;
+    }
+
+    pre {
+      margin: 14px 0 0;
+      padding: 16px;
+      overflow: auto;
+      color: var(--code);
+      background: var(--code-bg);
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      margin: 12px 0 0;
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      border: 1px solid var(--line);
+      padding: 10px 12px;
+      vertical-align: top;
+      text-align: left;
+      overflow-wrap: anywhere;
+    }
+
+    th {
+      background: var(--soft);
+      font-weight: 700;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .lede {
+      max-width: 900px;
+      color: var(--muted);
+      font-size: 17px;
+      margin-top: 14px;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      padding: 4px 11px;
+      color: var(--muted);
+      background: #fbfcfe;
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .pill.ok {
+      color: var(--green);
+      background: #ecfdf3;
+      border-color: #abefc6;
+    }
+
+    .pill.warn {
+      color: var(--amber);
+      background: #fff7e6;
+      border-color: #fedf89;
+    }
+
+    .pill.must {
+      color: var(--red);
+      background: #fff1f0;
+      border-color: #f5b7b1;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 14px;
+    }
+
+    .box {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      background: #fbfcfe;
+    }
+
+    .box strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    @media (max-width: 760px) {
+      main {
+        width: min(100% - 22px, 1120px);
+        padding: 20px 0 48px;
+      }
+
+      header,
+      section {
+        padding: 18px;
+      }
+
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      table {
+        table-layout: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <p class="muted">Local planning artifact for <code>specs/005-value-resolution-params.md</code>. Revised 2026-06-16.</p>
+    <h1>Value Resolution Params Conformance Plan</h1>
+    <p class="lede">
+      This plan describes the product-level work needed for <code>${params.name}</code>
+      references to conform to Spec 005 and the shared value-resolution rules in
+      Spec 003. It intentionally avoids implementation design and file-level migration
+      instructions.
+    </p>
+    <div class="meta">
+      <span class="pill must">Invariant: Spec 005 wins over current gaps</span>
+      <span class="pill warn">Current status: target behavior not implemented</span>
+      <span class="pill ok">Plan level: observable behavior only</span>
+    </div>
+  </header>
+
+  <section>
+    <h2>End-to-End Success Condition</h2>
+    <p>
+      Workflow authors can use <code>${params.name}</code> in every supported
+      value-resolution field after declaring the named runtime parameter. Dagu rejects
+      invalid or undeclared parameter references during validation, fails missing
+      runtime values before the owning field is used, and keeps existing bare-name
+      parameter compatibility separate from the new <code>params</code> namespace.
+    </p>
+  </section>
+
+  <section>
+    <h2>Contract Sources</h2>
+    <table>
+      <thead>
+      <tr>
+        <th>Source</th>
+        <th>Plan obligation</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+        <td>Spec 003: Value Resolution</td>
+        <td>Use the shared Dagu-owned reference syntax, supported-field list, resolution timing, validation expectations, and string insertion rules.</td>
+      </tr>
+      <tr>
+        <td>Spec 005: Value Resolution Params</td>
+        <td>Define <code>${params.name}</code> as a named runtime parameter lookup with declaration validation, runtime availability, and missing-value errors.</td>
+      </tr>
+      <tr>
+        <td>Spec Implementation Guide</td>
+        <td>When current behavior conflicts with a numbered spec, the spec wins. Conformance claims require black-box coverage, and plans should not expose implementation internals as public behavior.</td>
+      </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Current Product Facts</h2>
+    <div class="grid">
+      <div class="box">
+        <strong>Runtime parameters already exist.</strong>
+        Dagu already accepts runtime parameters, supports named declarations in
+        current workflows, validates runtime input in several entry points, and
+        rejects unknown named runtime input when named declarations are present.
+      </div>
+      <div class="box">
+        <strong>Legacy bare-name behavior exists.</strong>
+        Current behavior can expose parameter values through existing bare-name or
+        environment-style expansion surfaces. That compatibility behavior is not the
+        same contract as <code>${params.name}</code>.
+      </div>
+      <div class="box">
+        <strong>The namespaced params contract is still target behavior.</strong>
+        The current product must not be described as conforming to Spec 005 until
+        declared <code>${params.name}</code> references resolve and fail according to
+        the spec.
+      </div>
+      <div class="box">
+        <strong>Some current defaults are compatibility-only.</strong>
+        Empty-string seeding for omitted named parameters and numeric handling for
+        positional parameters must not be applied to <code>${params.name}</code>.
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Target Behavior</h2>
+    <table>
+      <thead>
+      <tr>
+        <th>Area</th>
+        <th>Required outcome</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+        <td>Reference form</td>
+        <td><code>${params.name}</code> is a Dagu-owned reference. <code>name</code> must be a declared named parameter and must match <code>^[A-Za-z][A-Za-z0-9_]*$</code>.</td>
+      </tr>
+      <tr>
+        <td>Invalid shorthand</td>
+        <td><code>$params.name</code> and other supported-namespace shorthand forms are invalid Dagu-looking syntax and fail workflow validation. Ordinary environment syntax such as <code>$NAME</code> is a separate behavior.</td>
+      </tr>
+      <tr>
+        <td>Declaration boundary</td>
+        <td>Only named parameter declarations are addressable. Positional parameters are not reachable through the <code>params</code> namespace.</td>
+      </tr>
+      <tr>
+        <td>Declaration values</td>
+        <td>Parameter declarations do not support Dagu references. Declaration validation is separate from runtime value availability.</td>
+      </tr>
+      <tr>
+        <td>Supported fields</td>
+        <td><code>${params.name}</code> resolves in every Spec 003 value-resolution field whose timing occurs after runtime params are available. Root <code>consts</code> list values are covered as a negative case because they can see only earlier <code>consts</code> entries. Fields outside the Spec 003 list remain unsupported unless the spec changes.</td>
+      </tr>
+      <tr>
+        <td>Resolution timing</td>
+        <td>Runtime parameter values become available after Dagu builds the run input. Supported fields resolve only when the field is about to be used, not by rendering the whole workflow file in advance.</td>
+      </tr>
+      <tr>
+        <td>Validation</td>
+        <td>Invalid declaration names, undeclared names, invalid shorthand, unavailable-field references, and named references in positional-only workflows fail validation when statically knowable. Braced text that is not a Dagu-owned reference remains ordinary string content.</td>
+      </tr>
+      <tr>
+        <td>Missing values</td>
+        <td>A declared <code>${params.name}</code> reference with no runtime value fails before the owning field is used.</td>
+      </tr>
+      <tr>
+        <td>String insertion</td>
+        <td>Strings, booleans, integers, and non-integer numbers are inserted into string fields using the shared Spec 003 rules.</td>
+      </tr>
+      <tr>
+        <td>Environment syntax</td>
+        <td>Single-quoted <code>$NAME</code> and <code>${NAME}</code> environment references remain preserved during Dagu environment expansion.</td>
+      </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Compatibility Boundaries</h2>
+    <ul>
+      <li>Bare names, <code>$NAME</code>, and unqualified <code>${NAME}</code> continue to belong to their existing environment, shell, or legacy parameter behavior. They are not aliases for <code>${params.name}</code>.</li>
+      <li><code>$params.name</code> is not ordinary environment syntax. It is invalid Dagu-looking shorthand and must fail validation in value-resolution fields.</li>
+      <li>Root <code>consts</code> list values do not resolve <code>${params.name}</code>; they can reference only earlier <code>consts</code> entries.</li>
+      <li>Current bare-name parameter compatibility can be preserved only where it does not conflict with the numbered specs.</li>
+      <li>Template defaults, empty values for omitted named parameters, and positional numeric names do not satisfy a missing <code>${params.name}</code> reference.</li>
+      <li>Expression syntax outside supported Dagu-owned reference forms remains out of scope unless a numbered spec adds it.</li>
+      <li>The validator and runtime must agree on the same supported-field list so a reference accepted by validation is not silently ignored later.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Acceptance Scenarios</h2>
+    <table>
+      <thead>
+      <tr>
+        <th>Scenario</th>
+        <th>Expected observable result</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+        <td>Declared named parameter in a step command</td>
+        <td>A workflow with <code>environment</code> declared and <code>${params.environment}</code> in a supported step field uses the runtime value supplied for <code>environment</code>.</td>
+      </tr>
+      <tr>
+        <td>Declared named parameter in supported non-command fields</td>
+        <td>Root env, step env, dotenv paths, working directories, preconditions, container fields, parallel parameter values, sub-workflow parameters, and output-related strings resolve consistently with Spec 003 timing.</td>
+      </tr>
+      <tr>
+        <td>Undeclared parameter reference</td>
+        <td><code>dagu validate</code> fails for <code>${params.region}</code> when only <code>environment</code> is declared.</td>
+      </tr>
+      <tr>
+        <td>Invalid parameter declaration name</td>
+        <td>Validation fails for names that do not match the Spec 005 identifier rule.</td>
+      </tr>
+      <tr>
+        <td>Invalid params shorthand</td>
+        <td>Validation fails for <code>$params.environment</code> in a value-resolution field, while ordinary environment syntax remains governed by the field's existing environment or shell behavior.</td>
+      </tr>
+      <tr>
+        <td>Params reference in consts</td>
+        <td>Validation fails for <code>${params.environment}</code> in a root <code>consts</code> list value because params are unavailable while consts are resolved.</td>
+      </tr>
+      <tr>
+        <td>Positional parameter through params namespace</td>
+        <td>Validation fails because positional runtime parameters have no named declaration in the <code>params</code> namespace.</td>
+      </tr>
+      <tr>
+        <td>Missing runtime value</td>
+        <td>A declared <code>${params.name}</code> reference fails before the owning field is used when the run input does not provide a value.</td>
+      </tr>
+      <tr>
+        <td>Legacy bare-name parameter compatibility</td>
+        <td>Existing bare-name behavior remains unchanged where it is not contradicted by the spec, and it does not mask missing <code>${params.name}</code> values.</td>
+      </tr>
+      <tr>
+        <td>String insertion</td>
+        <td>String, boolean, integer, and non-integer numeric runtime values appear in string fields using the Spec 003 representation.</td>
+      </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Work Phases</h2>
+    <ol>
+      <li><strong>Baseline current behavior:</strong> document black-box facts for existing runtime parameter input, bare-name compatibility, validation, and supported fields without treating current gaps as target behavior.</li>
+      <li><strong>Define validation conformance:</strong> make validation accept valid declared <code>${params.name}</code> references and reject invalid declarations, undeclared names, unavailable-field references, shorthand, or named references in positional-only workflows.</li>
+      <li><strong>Define runtime conformance:</strong> make supported fields resolve declared runtime parameter values at field-use time and fail missing values before the field is used.</li>
+      <li><strong>Protect compatibility boundaries:</strong> preserve existing bare-name parameter behavior where allowed, while proving it does not alter the <code>${params.name}</code> contract.</li>
+      <li><strong>Close conformance:</strong> mark Spec 005 as implemented only after the behavior above has black-box coverage across validation and runtime paths.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Black-Box Test Plan</h2>
+    <ul>
+      <li>Add runnable workflow fixtures for every acceptance scenario above and for the full Spec 003 supported-field list, including the negative root <code>consts</code> case.</li>
+      <li>Cover every root, step, handler, environment, container, parallel, sub-workflow, and output-related field where Spec 005 makes params available.</li>
+      <li>For every field where params are available, cover valid declared-name resolution, undeclared-name validation, invalid shorthand validation, and missing-runtime-value failure before field use.</li>
+      <li>Name and justify any hard-to-test exception, keep it small, and do not count it as completed conformance until the exception is resolved or accepted.</li>
+      <li>Assert validation failures by failure class and field path, not by implementation-specific error text.</li>
+      <li>Assert legacy bare-name behavior separately from <code>${params.name}</code> behavior so compatibility does not obscure conformance.</li>
+      <li>Keep examples aligned with Spec 005 so they can become conformance fixtures.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Risk Register</h2>
+    <table>
+      <thead>
+      <tr>
+        <th>Risk</th>
+        <th>Mitigation</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+        <td>Current unresolved <code>${params.*}</code> behavior is accidentally preserved as the target.</td>
+        <td>Keep Spec 005 as the source of truth and require tests that prove declared names resolve.</td>
+      </tr>
+      <tr>
+        <td>Bare-name compatibility changes the new namespace semantics.</td>
+        <td>Test bare names and <code>${params.name}</code> separately, especially omitted values and positional parameters.</td>
+      </tr>
+      <tr>
+        <td>Validation and runtime support different field lists.</td>
+        <td>Use field-list conformance tests that exercise validation and execution for representative supported fields.</td>
+      </tr>
+      <tr>
+        <td>Missing runtime values fail too late.</td>
+        <td>Acceptance tests must prove the owning field is not used after a missing <code>${params.name}</code> value is detected.</td>
+      </tr>
+      <tr>
+        <td>Spec status is overstated.</td>
+        <td>Keep Spec 005 marked not implemented or partial until every required behavior has black-box coverage.</td>
+      </tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+</body>
+</html>

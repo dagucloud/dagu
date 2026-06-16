@@ -46,17 +46,9 @@ Workflows need two kinds of value syntax:
 
 ### Reference Syntax
 
-- Dagu references use this form:
+- Dagu-owned references are only the supported reference forms listed below.
 
-```text
-${path}
-```
-
-- `path` must include a namespace.
-
-- Dotted references must use `${name.path}`.
-
-- `$name.path` is invalid Dagu-looking shorthand when `name` is a supported namespace.
+- A supported reference form must use `${path}` syntax.
 
 - Supported reference forms are:
 
@@ -67,21 +59,22 @@ ${env.NAME}
 ${steps.step_id.outputs.name}
 ```
 
-- Namespace names, `consts` keys, `params` names, step ids, `outputs`, and step output names must match `^[A-Za-z][A-Za-z0-9_]*$`.
+- Namespace names, `consts` keys, `params` names, step ids, `outputs`, and step output names in supported reference forms must match `^[A-Za-z][A-Za-z0-9_]*$`.
 
 - Environment variable names under `env` must match `^[A-Za-z_][A-Za-z0-9_]*$`.
 
 - Unqualified `${NAME}` is handled by environment expansion in fields that support it.
 
+- Braced text that does not match a supported reference form is not interpreted
+  by Dagu and is preserved as ordinary string content.
+
+- Namespace-specific specs define validation for supported reference forms.
+
+- `$name.path` is invalid Dagu-looking shorthand when `name` is a supported namespace.
+
 - `$consts.name`, `$params.name`, `$env.NAME`, and `$steps.step_id.outputs.name` are invalid Dagu-looking shorthand.
 
-- Operators, filters, and inline default values are outside this spec.
-
-- Malformed Dagu reference syntax in a value-resolution field must fail during workflow validation.
-
 - Invalid Dagu-looking shorthand in a value-resolution field must fail during workflow validation.
-
-- An unknown namespace in a value-resolution field must fail during workflow validation.
 
 ### Single-Quoted Environment References
 
