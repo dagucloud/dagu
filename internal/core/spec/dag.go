@@ -767,16 +767,18 @@ func (s *dagBuildState) buildActionGraph() {
 }
 
 func (s *dagBuildState) validateResult() {
-	if err := core.ValidateSteps(s.result); err != nil {
-		s.errs = append(s.errs, err)
-	}
+	if !s.ctx.opts.Has(BuildFlagOnlyMetadata) {
+		if err := core.ValidateSteps(s.result); err != nil {
+			s.errs = append(s.errs, err)
+		}
 
-	if len(s.result.WorkerSelector) > 0 && s.result.HasApprovalSteps() {
-		s.errs = append(s.errs, core.NewValidationError(
-			"worker_selector",
-			s.result.WorkerSelector,
-			fmt.Errorf("DAG with approval steps cannot be dispatched to workers"),
-		))
+		if len(s.result.WorkerSelector) > 0 && s.result.HasApprovalSteps() {
+			s.errs = append(s.errs, core.NewValidationError(
+				"worker_selector",
+				s.result.WorkerSelector,
+				fmt.Errorf("DAG with approval steps cannot be dispatched to workers"),
+			))
+		}
 	}
 
 	if s.result.Name != "" {

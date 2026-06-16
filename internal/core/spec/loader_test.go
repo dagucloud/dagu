@@ -101,6 +101,28 @@ steps:
 		assert.Equal(t, 30, dag.HistRetentionDays, "HistRetentionDays should be default (30), not YAML value (90)")
 		assert.Equal(t, 5*time.Second, dag.MaxCleanUpTime, "MaxCleanUpTime should be default (5s), not YAML value (60s)")
 	})
+	t.Run("MetadataOnlySkipsExecutionValidation", func(t *testing.T) {
+		t.Parallel()
+
+		testDAG := createTempYAMLFile(t, `
+name: metadata-only-validation
+env:
+  - SERVICE=$consts.service
+steps:
+  - name: "1"
+    run: "true"
+`)
+		dag, err := spec.Load(
+			context.Background(),
+			testDAG,
+			spec.OnlyMetadata(),
+			spec.WithoutEval(),
+			spec.SkipSchemaValidation(),
+		)
+		require.NoError(t, err)
+		require.Equal(t, "metadata-only-validation", dag.Name)
+		require.Empty(t, dag.Steps)
+	})
 	t.Run("DefaultConfig", func(t *testing.T) {
 		t.Parallel()
 
