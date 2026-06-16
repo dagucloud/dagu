@@ -313,7 +313,14 @@ func (tc spec005RuntimeFieldCase) runtimeParams() string {
 }
 
 func spec005RuntimeFieldCases() []spec005RuntimeFieldCase {
-	cases := []spec005RuntimeFieldCase{
+	cases := spec005RootRuntimeFieldCases()
+	cases = append(cases, spec005StepRuntimeFieldCases()...)
+	cases = append(cases, spec005HandlerRuntimeFieldCases()...)
+	return cases
+}
+
+func spec005RootRuntimeFieldCases() []spec005RuntimeFieldCase {
+	return []spec005RuntimeFieldCase{
 		{
 			name:          "params_eval",
 			yaml:          spec005ParamsEvalRuntimeDAG(),
@@ -482,6 +489,11 @@ steps:
 			successAbsentFiles: []string{"root-precondition-literal.txt"},
 			missingAbsentFiles: []string{"root-precondition-literal.txt"},
 		},
+	}
+}
+
+func spec005StepRuntimeFieldCases() []spec005RuntimeFieldCase {
+	return []spec005RuntimeFieldCase{
 		{
 			name: "step_run_string",
 			yaml: spec005RuntimeDAG(`
@@ -747,9 +759,6 @@ steps:
 			},
 		},
 	}
-
-	cases = append(cases, spec005HandlerRuntimeFieldCases()...)
-	return cases
 }
 
 func spec005HandlerRuntimeFieldCases() []spec005RuntimeFieldCase {
@@ -946,7 +955,16 @@ stderr: "`+prefix+`-stderr-${params.environment}.txt"
 }
 
 func spec005ValueFieldCases() []spec005ValueFieldCase {
-	cases := []spec005ValueFieldCase{
+	cases := spec005RootValueFieldCases()
+	cases = append(cases, spec005StepValueFieldCases()...)
+	cases = append(cases, spec005RootContainerObjectFieldCases()...)
+	cases = append(cases, spec005StepContainerObjectFieldCases()...)
+	cases = append(cases, spec005HandlerValueFieldCases()...)
+	return cases
+}
+
+func spec005RootValueFieldCases() []spec005ValueFieldCase {
+	return []spec005ValueFieldCase{
 		{
 			name:    "root_env_map",
 			context: "env",
@@ -1088,6 +1106,11 @@ steps:
 `, ref))
 			},
 		},
+	}
+}
+
+func spec005StepValueFieldCases() []spec005ValueFieldCase {
+	return []spec005ValueFieldCase{
 		{
 			name:    "step_run_string",
 			context: "steps[0].run",
@@ -1390,11 +1413,6 @@ steps:
 			},
 		},
 	}
-
-	cases = append(cases, spec005RootContainerObjectFieldCases()...)
-	cases = append(cases, spec005StepContainerObjectFieldCases()...)
-	cases = append(cases, spec005HandlerValueFieldCases()...)
-	return cases
 }
 
 type spec005ContainerObjectFieldCase struct {

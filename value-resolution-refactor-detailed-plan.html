@@ -330,7 +330,7 @@
       </tr>
       <tr>
         <td>Declaration values</td>
-        <td>Parameter declarations do not support Dagu references. Declaration validation is separate from runtime value availability.</td>
+        <td><code>params[].default</code> and declaration metadata do not support Dagu references. <code>params[].eval</code> follows the dynamic-evaluation specs, and Dagu references inside it use the Spec 005 declaration and runtime lookup contract.</td>
       </tr>
       <tr>
         <td>Supported fields</td>
@@ -416,6 +416,10 @@
         <td>A declared <code>${params.name}</code> reference fails before the owning field is used when the run input does not provide a value.</td>
       </tr>
       <tr>
+        <td>Params eval reference</td>
+        <td>A declared <code>${params.name}</code> reference inside <code>params[].eval</code> resolves according to the dynamic-evaluation specs, and a missing runtime value fails before the evaluated parameter is consumed.</td>
+      </tr>
+      <tr>
         <td>Legacy bare-name parameter compatibility</td>
         <td>Existing bare-name behavior remains unchanged where it is not contradicted by the spec, and it does not mask missing <code>${params.name}</code> values.</td>
       </tr>
@@ -441,7 +445,7 @@
   <section>
     <h2>Black-Box Test Plan</h2>
     <ul>
-      <li>Add runnable workflow fixtures for every acceptance scenario above and for the full Spec 003 supported-field list, including the negative root <code>consts</code> case.</li>
+      <li>Add runnable workflow fixtures for every acceptance scenario above and for the full Spec 003 supported-field list, including the negative root <code>consts</code> case and the <code>params[].eval</code> boundary.</li>
       <li>Cover every root, step, handler, environment, container, parallel, sub-workflow, and output-related field where Spec 005 makes params available.</li>
       <li>For every field where params are available, cover valid declared-name resolution, undeclared-name validation, invalid shorthand validation, and missing-runtime-value failure before field use.</li>
       <li>Name and justify any hard-to-test exception, keep it small, and do not count it as completed conformance until the exception is resolved or accepted.</li>
