@@ -1,0 +1,8 @@
+params:
+  - name: 1environment
+    type: string
+    default: prod
+steps:
+  - name: should-not-run
+    run: |
+      printf 'ran\n' > executed.txt

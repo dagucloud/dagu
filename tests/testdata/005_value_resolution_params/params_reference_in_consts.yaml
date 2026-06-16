@@ -1,0 +1,10 @@
+params:
+  - name: environment
+    type: string
+    default: prod
+consts:
+  - target: ${params.environment}
+steps:
+  - name: should-not-run
+    run: |
+      printf 'ran\n' > executed.txt

@@ -1,0 +1,5 @@
+working_dir: .
+steps:
+  - name: preserve
+    run: |
+      printf '%s\n' '${params...}' > preserved.txt

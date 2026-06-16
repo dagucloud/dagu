@@ -1,0 +1,10 @@
+params:
+  - name: environment
+    description: Runtime environment.
+working_dir: .
+env:
+  - TARGET_ENV=${params.environment}
+steps:
+  - name: should-not-run
+    run: |
+      printf 'ran\n' > should-not-exist-root-env.txt
