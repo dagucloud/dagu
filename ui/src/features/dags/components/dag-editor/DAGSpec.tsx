@@ -13,7 +13,6 @@ import { workspaceNameFromLabels } from '@/lib/workspace';
 import BorderedBox from '@/components/ui/bordered-box';
 import {
   AlertTriangle,
-  Info,
   MousePointerClick,
   Save,
   Undo2,
@@ -22,13 +21,6 @@ import React, { useEffect } from 'react';
 import { useCookies } from 'react-cookie';
 import { components } from '../../../../api/v1/schema';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { useErrorModal } from '@/components/ui/error-modal';
 import { useSimpleToast } from '@/components/ui/simple-toast';
 import { Tab, Tabs } from '@/components/ui/tabs';
@@ -50,6 +42,7 @@ import {
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import { DAGContext } from '../../contexts/DAGContext';
 import { DAGStepTable } from '../dag-details';
+import { DiagnosticsButton } from '../diagnostics';
 import { FlowchartType, Graph } from '../visualization';
 import {
   buildAugmentedDAGSchema,
@@ -77,8 +70,6 @@ type Props = {
   editorHints?: components['schemas']['DAGEditorHints'];
 };
 
-type OperationDiagnostic = components['schemas']['Diagnostic'];
-
 /**
  * DAGSpec displays and allows editing of a DAG specification
  * including visualization, attributes, steps, and YAML definition
@@ -99,7 +90,6 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
   >(null);
   const [isSpecStepDetailsOpen, setIsSpecStepDetailsOpen] =
     React.useState(false);
-  const [isDiagnosticsOpen, setIsDiagnosticsOpen] = React.useState(false);
 
   const closeSpecStepDetails = React.useCallback(() => {
     setIsSpecStepDetailsOpen(false);
@@ -190,12 +180,6 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
   // Server spec — SWR cache stays current via live invalidations or polling fallback
   const serverSpec = data?.spec ?? null;
   const diagnostics = data?.diagnostics ?? [];
-
-  useEffect(() => {
-    if (diagnostics.length === 0) {
-      setIsDiagnosticsOpen(false);
-    }
-  }, [diagnostics.length]);
 
   // Change tracking (source-agnostic)
   const {
@@ -552,18 +536,11 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
           diagnostics.length > 0 || editable ? (
             <div className="flex items-center gap-2">
               {diagnostics.length > 0 && (
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  title="View diagnostics"
-                  onClick={() => setIsDiagnosticsOpen(true)}
-                >
-                  <Info className="h-3.5 w-3.5" />
-                  Diagnostics
-                  <span className="ml-0.5 rounded-sm bg-muted px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
-                    {diagnostics.length}
-                  </span>
-                </Button>
+                <DiagnosticsButton
+                  diagnostics={diagnostics}
+                  description="Diagnostics produced while loading this spec."
+                  label="Diagnostics"
+                />
               )}
               {editable && (
                 <>
@@ -602,11 +579,6 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                 visible={conflict.hasConflict}
                 onDiscard={() => resolveConflict('discard')}
                 onIgnore={() => resolveConflict('ignore')}
-              />
-              <DiagnosticsDialog
-                open={isDiagnosticsOpen}
-                onOpenChange={setIsDiagnosticsOpen}
-                diagnostics={diagnostics}
               />
 
               <div
@@ -694,64 +666,6 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
         );
       }}
     </DAGContext.Consumer>
-  );
-}
-
-function DiagnosticsDialog({
-  open,
-  onOpenChange,
-  diagnostics,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  diagnostics: OperationDiagnostic[];
-}) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-base">
-            <Info className="h-4 w-4 text-muted-foreground" />
-            Diagnostics
-          </DialogTitle>
-          <DialogDescription className="sr-only">
-            Diagnostics produced while loading this spec.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="max-h-[60vh] space-y-3 overflow-y-auto">
-          {diagnostics.map((diagnostic, index) => (
-            <div
-              key={`${diagnostic.kind}:${diagnostic.code}:${diagnostic.location?.fieldPath ?? ''}:${index}`}
-              className="rounded-md border border-border bg-muted/30 p-3 text-sm"
-            >
-              <p className="text-foreground">{diagnostic.message}</p>
-              <dl className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-[5rem_1fr]">
-                <dt>Code</dt>
-                <dd className="min-w-0 break-all font-mono">
-                  {diagnostic.kind}.{diagnostic.code}
-                </dd>
-                {diagnostic.location?.fieldPath && (
-                  <>
-                    <dt>Field</dt>
-                    <dd className="min-w-0 break-all font-mono">
-                      {diagnostic.location.fieldPath}
-                    </dd>
-                  </>
-                )}
-                {diagnostic.attributes?.token && (
-                  <>
-                    <dt>Reference</dt>
-                    <dd className="min-w-0 break-all font-mono">
-                      {diagnostic.attributes.token}
-                    </dd>
-                  </>
-                )}
-              </dl>
-            </div>
-          ))}
-        </div>
-      </DialogContent>
-    </Dialog>
   );
 }
 

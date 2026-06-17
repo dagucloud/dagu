@@ -28,6 +28,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/baseconfig"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/dagsettings"
+	"github.com/dagucloud/dagu/internal/diagnostic"
 	incidentmodel "github.com/dagucloud/dagu/internal/incident"
 	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/license"
@@ -93,6 +94,7 @@ type API struct {
 	docStore             agent.DocStore
 	baseConfigStore      baseconfig.Store
 	dagSettingsStore     dagsettings.Store
+	runDiagnostics       *diagnostic.RunStore
 	secretStore          secretpkg.Store
 	profileStore         profilepkg.Store
 	licenseManager       *license.Manager
@@ -421,6 +423,7 @@ func New(
 		resourceService:     rs,
 		defaultExecMode:     cfg.DefaultExecMode,
 		leaseStaleThreshold: exec.DefaultStaleLeaseThreshold,
+		runDiagnostics:      diagnostic.NewRunStore(),
 	}
 
 	for _, opt := range opts {

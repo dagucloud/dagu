@@ -22,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/internal/core"
 	exec1 "github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/diagnostic"
 )
 
 // CommandError wraps a command execution error with captured output.
@@ -423,12 +424,13 @@ func (b *SubCmdBuilder) TaskRetry(task *exec1.DispatchTask, envHints []string, d
 
 // CmdSpec describes a command to be executed with all its configuration.
 type CmdSpec struct {
-	Executable string
-	Args       []string
-	Env        []string
-	BuildEnv   []string
-	Stdout     *os.File
-	Stderr     *os.File
+	Executable     string
+	Args           []string
+	Env            []string
+	BuildEnv       []string
+	Stdout         io.Writer
+	Stderr         io.Writer
+	DiagnosticSink diagnostic.Sink
 }
 
 // StartOptions contains options for initiating a dag-run.
@@ -480,7 +482,10 @@ func Run(ctx context.Context, spec CmdSpec) error {
 	}
 	defer cleanupTransport(cleanup)
 	cmd.Stdout = io.MultiWriter(stdout, fileOrDefault(spec.Stdout, os.Stdout))
-	cmd.Stderr = io.MultiWriter(stderr, fileOrDefault(spec.Stderr, os.Stderr))
+	cmd.Stderr = newDiagnosticFilteringWriter(
+		io.MultiWriter(stderr, fileOrDefault(spec.Stderr, os.Stderr)),
+		spec.DiagnosticSink,
+	)
 
 	if err := cmd.Run(); err != nil {
 		return buildCommandError(err, stdout, stderr)
@@ -499,11 +504,11 @@ func buildCommandError(err error, stdout, stderr *cappedBuffer) error {
 }
 
 // fileOrDefault returns the file if non-nil, otherwise returns the default.
-func fileOrDefault(file, defaultFile *os.File) *os.File {
-	if file != nil {
-		return file
+func fileOrDefault(writer io.Writer, defaultWriter io.Writer) io.Writer {
+	if writer != nil {
+		return writer
 	}
-	return defaultFile
+	return defaultWriter
 }
 
 func effectiveLabels(labels, tags string) string {
@@ -576,9 +581,15 @@ func newCommand(ctx context.Context, spec CmdSpec, withContext bool) (*exec.Cmd,
 	if len(extraEnv) > 0 {
 		env = append(env, extraEnv...)
 	}
+	if spec.DiagnosticSink != nil {
+		env = append(env, diagnostic.StreamEnvName+"="+diagnostic.StreamStderrJSONL)
+	}
 	cmd.Env = env
 	cmd.Stdout = fileOrDefault(spec.Stdout, os.Stdout)
-	cmd.Stderr = fileOrDefault(spec.Stderr, os.Stderr)
+	cmd.Stderr = newDiagnosticFilteringWriter(
+		fileOrDefault(spec.Stderr, os.Stderr),
+		spec.DiagnosticSink,
+	)
 
 	return cmd, cleanup, nil
 }

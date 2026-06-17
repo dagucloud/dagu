@@ -558,6 +558,7 @@ func executeDAGRun(ctx *Context, d *core.DAG, parent exec.DAGRunRef, dagRunID st
 			ArtifactDir:                artifactDir,
 			DAGRunLogDir:               ctx.Config.Paths.LogDir,
 			DAGRunArtifactDir:          ctx.Config.Paths.ArtifactDir,
+			DiagnosticSink:             ctx.DiagnosticSink,
 		},
 	)
 

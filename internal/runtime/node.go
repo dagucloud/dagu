@@ -920,9 +920,9 @@ func (n *Node) evaluateCommandArgs(ctx context.Context) error {
 	if len(step.Commands) > 0 {
 		commands := make([]core.CommandEntry, len(step.Commands))
 		for i, cmdEntry := range step.Commands {
+			fieldPath := commandEntryFieldPath(len(step.Commands), i)
 			commandName := cmdEntry.Command
 			if commandName != "" {
-				fieldPath := fmt.Sprintf("run[%d].command", i)
 				evaluated, err := resolveRuntimeString(ctx, commandName, cmnvalue.DirectCommandField(fieldPath, command))
 				if err != nil {
 					return fmt.Errorf("failed to eval command: %w", err)
@@ -932,7 +932,6 @@ func (n *Node) evaluateCommandArgs(ctx context.Context) error {
 
 			args := make([]string, len(cmdEntry.Args))
 			for j, arg := range cmdEntry.Args {
-				fieldPath := fmt.Sprintf("run[%d].args[%d]", i, j)
 				value, err := resolveRuntimeString(ctx, arg, cmnvalue.DirectCommandField(fieldPath, command))
 				if err != nil {
 					return fmt.Errorf("failed to eval command args: %w", err)
@@ -943,7 +942,6 @@ func (n *Node) evaluateCommandArgs(ctx context.Context) error {
 			// Evaluate CmdWithArgs if present
 			cmdWithArgs := cmdEntry.CmdWithArgs
 			if cmdWithArgs != "" {
-				fieldPath := fmt.Sprintf("run[%d].cmd_with_args", i)
 				evaluated, err := resolveRuntimeString(ctx, cmdWithArgs, cmnvalue.ShellCommandField(fieldPath, command))
 				if err != nil {
 					return fmt.Errorf("failed to eval command with args: %w", err)
@@ -967,6 +965,13 @@ func (n *Node) evaluateCommandArgs(ctx context.Context) error {
 	// No commands to evaluate
 	n.cmdEvaluated.Store(true)
 	return nil
+}
+
+func commandEntryFieldPath(count, index int) string {
+	if count <= 1 {
+		return "run"
+	}
+	return fmt.Sprintf("run[%d]", index)
 }
 
 func (n *Node) Signal(ctx context.Context, sig os.Signal, allowOverride bool) {

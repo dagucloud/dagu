@@ -22,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/sock"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/diagnostic"
 	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/store"
@@ -144,6 +145,30 @@ func TestAgent_Run(t *testing.T) {
 		}
 
 		dag.AssertLatestStatus(t, core.Succeeded)
+	})
+	t.Run("CollectsRuntimeValueResolutionDiagnostics", func(t *testing.T) {
+		th := test.Setup(t)
+		var collector diagnostic.Collector
+		dag := th.DAG(t, `steps:
+  - name: optional-env
+    run: 'printf "%s\n" ''${env.Foo}'''
+`)
+		dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{
+			DiagnosticSink: &collector,
+			SocketServerFactory: fakeSocketServerFactory(
+				fmt.Errorf("%w: synthetic unsupported transport", sock.ErrUnsupported),
+			),
+		}))
+
+		dagAgent.RunSuccess(t)
+
+		diagnostics := collector.Diagnostics()
+		require.Len(t, diagnostics, 1)
+		require.Equal(t, diagnostic.SeverityNotice, diagnostics[0].Severity)
+		require.Equal(t, diagnostic.Kind("value_resolution"), diagnostics[0].Kind)
+		require.Equal(t, diagnostic.Code("value_reference_unresolved"), diagnostics[0].Code)
+		require.Equal(t, "run", diagnostics[0].Location.FieldPath)
+		require.Equal(t, "${env.Foo}", diagnostics[0].Attributes["token"])
 	})
 	t.Run("DeleteOldHistory", func(t *testing.T) {
 		th := test.Setup(t)

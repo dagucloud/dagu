@@ -5032,6 +5032,8 @@ export interface components {
             log: string;
             /** @description Status of individual steps within the DAG-run */
             nodes: components["schemas"]["Node"][];
+            /** @description Transient diagnostics produced while running this DAG-run. These diagnostics are not persisted and may be unavailable after process restart. */
+            diagnostics?: components["schemas"]["Diagnostic"][];
             onExit?: components["schemas"]["Node"];
             onSuccess?: components["schemas"]["Node"];
             onFailure?: components["schemas"]["Node"];
