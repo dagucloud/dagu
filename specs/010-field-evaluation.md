@@ -186,7 +186,8 @@ When field evaluation succeeds, Dagu gives the evaluated value to the field that
 
 Passive diagnostics:
 
-- A supported Dagu-owned reference that cannot resolve must emit a passive diagnostic and preserve the original reference text.
+- A supported Dagu-owned reference that cannot resolve must preserve the original reference text.
+- Explicit inspection surfaces must report a passive diagnostic for that preserved reference.
 - Braced text that does not match a supported Dagu-owned reference form remains ordinary string content under Spec 003.
 
 Runtime errors:

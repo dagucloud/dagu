@@ -2018,7 +2018,7 @@ func (a *API) distributedFallbackWorkerIDFromLease(
 }
 
 func (a *API) toDAGRunDetailsWithSpecSource(ctx context.Context, attempt exec.DAGRunAttempt, status exec.DAGRunStatus) api.DAGRunDetails {
-	details := a.toDAGRunDetailsWithDiagnostics(status)
+	details := ToDAGRunDetails(status)
 	specFromFile, sourceFileName := a.dagRunSourceInfo(ctx, attempt)
 	details.SpecFromFile = ptrOf(specFromFile)
 	if sourceFileName != "" {
@@ -2103,7 +2103,7 @@ func (a *API) GetSubDAGRunDetails(ctx context.Context, request api.GetSubDAGRunD
 		return nil, err
 	}
 	return &api.GetSubDAGRunDetails200JSONResponse{
-		DagRunDetails: a.toDAGRunDetailsWithDiagnostics(*dagStatus),
+		DagRunDetails: ToDAGRunDetails(*dagStatus),
 	}, nil
 }
 
@@ -2708,7 +2708,6 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 	}
 
 	spec := a.subCmdBuilder.Retry(prepared, retryDagRunID, stepName)
-	a.attachRuntimeDiagnosticSink(&spec, prepared.Name, retryDagRunID)
 	if err := launcher.Start(ctx, spec); err != nil {
 		return retryDAGRunResult{}, fmt.Errorf("error retrying DAG: %w", err)
 	}
@@ -3488,7 +3487,6 @@ func (a *API) resumeDAGRun(ctx context.Context, ref exec.DAGRunRef, dagRunID str
 	}
 
 	retrySpec := a.subCmdBuilder.Retry(prepared, dagRunID, "")
-	a.attachRuntimeDiagnosticSink(&retrySpec, prepared.Name, dagRunID)
 	return launcher.Start(ctx, retrySpec)
 }
 
@@ -3514,7 +3512,6 @@ func (a *API) resumeSubDAGRun(ctx context.Context, rootRef exec.DAGRunRef, subDA
 	}
 
 	retrySpec := a.subCmdBuilder.Retry(prepared, subDAGRunID, "")
-	a.attachRuntimeDiagnosticSink(&retrySpec, prepared.Name, subDAGRunID)
 	return launcher.Start(ctx, retrySpec)
 }
 
@@ -3844,7 +3841,7 @@ func (a *API) GetSubDAGRunDetailsData(ctx context.Context, identifier string) (a
 	}
 
 	return api.GetSubDAGRunDetails200JSONResponse{
-		DagRunDetails: a.toDAGRunDetailsWithDiagnostics(*dagStatus),
+		DagRunDetails: ToDAGRunDetails(*dagStatus),
 	}, nil
 }
 

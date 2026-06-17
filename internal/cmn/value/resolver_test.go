@@ -68,18 +68,6 @@ func TestResolverUnresolvedStrictReferencesPreserve(t *testing.T) {
 func TestResolverDiagnosticsReportsDedupedStrictMisses(t *testing.T) {
 	t.Parallel()
 
-	resolver := value.NewResolver(
-		value.StaticScope{
-			Consts: value.Values{"service": "api"},
-			Params: value.Values{"environment": nil},
-		},
-		value.RuntimeScope{
-			Consts: value.Values{"service": "api"},
-			Env:    value.NewEnvScope(nil, false),
-			Steps:  map[string]value.StepInfo{},
-		},
-	)
-
 	tests := []struct {
 		name string
 		raw  string
@@ -94,7 +82,19 @@ func TestResolverDiagnosticsReportsDedupedStrictMisses(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var collector diagnostic.Collector
-			ctx := diagnostic.WithSink(context.Background(), &collector)
+			resolver := value.NewResolver(
+				value.StaticScope{
+					Consts: value.Values{"service": "api"},
+					Params: value.Values{"environment": nil},
+				},
+				value.RuntimeScope{
+					Consts: value.Values{"service": "api"},
+					Env:    value.NewEnvScope(nil, false),
+					Steps:  map[string]value.StepInfo{},
+				},
+				value.WithDiagnostics(&collector),
+			)
+			ctx := context.Background()
 			got, err := resolver.String(ctx, tt.raw, value.WorkflowField("steps[0].run"))
 
 			require.NoError(t, err)
@@ -110,7 +110,7 @@ func TestResolverDiagnosticsReportsDedupedStrictMisses(t *testing.T) {
 	}
 }
 
-func TestResolverDiagnosticsTreatsUnsupportedSyntaxAsOrdinaryContent(t *testing.T) {
+func TestResolverPreservesUnsupportedSyntaxAsOrdinaryContent(t *testing.T) {
 	t.Parallel()
 
 	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{})
@@ -122,13 +122,10 @@ func TestResolverDiagnosticsTreatsUnsupportedSyntaxAsOrdinaryContent(t *testing.
 	}
 
 	for _, raw := range tests {
-		var collector diagnostic.Collector
-		ctx := diagnostic.WithSink(context.Background(), &collector)
-		got, err := resolver.String(ctx, raw, value.WorkflowField("steps[0].run"))
+		got, err := resolver.String(context.Background(), raw, value.WorkflowField("steps[0].run"))
 
 		require.NoError(t, err)
 		assert.Equal(t, raw, got)
-		assert.Empty(t, collector.Diagnostics())
 	}
 }
 

@@ -4,9 +4,7 @@
 package launcher_test
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,7 +22,6 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/diagnostic"
 	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	"github.com/dagucloud/dagu/internal/test"
@@ -44,46 +41,6 @@ func TestNewSubCmdBuilder(t *testing.T) {
 
 	builder := launcher.NewSubCmdBuilder(cfg)
 	require.NotNil(t, builder)
-}
-
-func TestRunCapturesDiagnosticStream(t *testing.T) {
-	if goruntime.GOOS == "windows" {
-		t.Skip("shell stderr redirection differs on windows")
-	}
-
-	var collector diagnostic.Collector
-	record := diagnostic.Diagnostic{
-		Severity: diagnostic.SeverityNotice,
-		Kind:     "value_resolution",
-		Code:     "value_reference_unresolved",
-		Message:  "${env.Foo} was left unchanged.",
-		Location: diagnostic.Location{
-			FieldPath: "steps[0].run",
-		},
-		Attributes: map[string]string{
-			"token": "${env.Foo}",
-		},
-	}
-	payload, err := json.Marshal(record)
-	require.NoError(t, err)
-
-	var stderr bytes.Buffer
-	recordLine := diagnostic.StreamLinePrefix + string(payload)
-	spec := launcher.CmdSpec{
-		Executable:     "/bin/sh",
-		Args:           []string{"-c", fmt.Sprintf("printf '%%s\\n' %s >&2; printf 'visible stderr\\n' >&2", test.PosixQuote(recordLine))},
-		Stderr:         &stderr,
-		DiagnosticSink: &collector,
-	}
-
-	err = launcher.Run(context.Background(), spec)
-	require.NoError(t, err)
-
-	diagnostics := collector.Diagnostics()
-	require.Len(t, diagnostics, 1)
-	assert.Equal(t, record.Code, diagnostics[0].Code)
-	assert.Equal(t, "${env.Foo}", diagnostics[0].Attributes["token"])
-	assert.Equal(t, "visible stderr\n", stderr.String())
 }
 
 func TestSubCmdBuilderStartInheritsParentEnv(t *testing.T) {

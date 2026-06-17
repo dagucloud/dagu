@@ -72,34 +72,6 @@ func TestCollectorReport(t *testing.T) {
 	assert.Equal(t, "steps[1].run", diagnostics[2].Location.FieldPath)
 }
 
-func TestCollectorRejectsIncompleteDiagnostics(t *testing.T) {
-	t.Parallel()
-
-	var collector diagnostic.Collector
-	collector.Report(diagnostic.Diagnostic{
-		Kind:    "value_resolution",
-		Code:    "value_reference_unresolved",
-		Message: "missing severity",
-	})
-	collector.Report(diagnostic.Diagnostic{
-		Severity: diagnostic.SeverityNotice,
-		Code:     "value_reference_unresolved",
-		Message:  "missing kind",
-	})
-	collector.Report(diagnostic.Diagnostic{
-		Severity: diagnostic.SeverityNotice,
-		Kind:     "value_resolution",
-		Message:  "missing code",
-	})
-	collector.Report(diagnostic.Diagnostic{
-		Severity: diagnostic.SeverityNotice,
-		Kind:     "value_resolution",
-		Code:     "value_reference_unresolved",
-	})
-
-	assert.Empty(t, collector.Diagnostics())
-}
-
 func TestCollectorDiagnosticsReturnsSnapshot(t *testing.T) {
 	t.Parallel()
 

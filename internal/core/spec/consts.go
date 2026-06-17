@@ -15,7 +15,6 @@ import (
 
 	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
-	"github.com/dagucloud/dagu/internal/diagnostic"
 )
 
 var constNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
@@ -105,12 +104,12 @@ func resolveConstValue(ctx BuildContext, key string, value any, consts map[strin
 		resolver := cmnvalue.NewResolver(
 			cmnvalue.StaticScope{Consts: cmnvalue.Values(consts)},
 			cmnvalue.RuntimeScope{Consts: cmnvalue.Values(consts)},
+			cmnvalue.WithDiagnostics(ctx.diagnostics),
 		)
 		resolveCtx := ctx.ctx
 		if resolveCtx == nil {
 			resolveCtx = context.Background()
 		}
-		resolveCtx = diagnostic.WithSink(resolveCtx, ctx.diagnostics)
 		resolved, err := resolver.String(resolveCtx, v, cmnvalue.ConstLoadField("consts."+key))
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve const %q: %w", key, err)

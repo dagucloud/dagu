@@ -195,7 +195,6 @@ func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *core.DAG, dagRu
 			ArtifactDir:                artifactDir,
 			DAGRunLogDir:               ctx.Config.Paths.LogDir,
 			DAGRunArtifactDir:          ctx.Config.Paths.ArtifactDir,
-			DiagnosticSink:             ctx.DiagnosticSink,
 		})
 
 	listenSignals(ctx, agentInstance)

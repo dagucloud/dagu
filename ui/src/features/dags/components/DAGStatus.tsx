@@ -36,7 +36,6 @@ import { ApprovalTab } from './approval';
 import ArtifactsTab from './artifacts/ArtifactsTab';
 import { ChatHistoryTab } from './chat-history';
 import { DAGStatusOverview, NodeStatusTable } from './dag-details';
-import { DiagnosticsButton } from './diagnostics';
 import { DAGSpecReadOnly } from './dag-editor';
 import { StepDetailsDrawer } from './step-details';
 import {
@@ -390,7 +389,6 @@ function DAGStatus({
       .length || 0;
   const hasWaitingSteps = waitingStepCount > 0;
   const hasArtifacts = artifactEnabled || !!displayDAGRun.artifactsAvailable;
-  const diagnostics = displayDAGRun.diagnostics ?? [];
 
   useEffect(() => {
     setActiveTab(initialTab);
@@ -509,12 +507,6 @@ function DAGStatus({
               </Tab>
             </Tabs>
           </div>
-          <DiagnosticsButton
-            diagnostics={diagnostics}
-            description="Diagnostics produced while running this DAG-run."
-            label="Notices"
-            className="shrink-0"
-          />
         </div>
       </div>
 

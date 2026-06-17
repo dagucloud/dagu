@@ -31,7 +31,6 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/dagstate"
-	"github.com/dagucloud/dagu/internal/diagnostic"
 	"github.com/dagucloud/dagu/internal/license"
 	"github.com/dagucloud/dagu/internal/node"
 	"github.com/dagucloud/dagu/internal/persis/file"
@@ -79,7 +78,6 @@ type Context struct {
 	CLIContext     *clicontext.Context
 	ContextName    string
 	Remote         *remoteClient
-	DiagnosticSink diagnostic.Sink
 }
 
 // WithContext returns a new Context with a different underlying context.Context.
@@ -110,7 +108,6 @@ func (c *Context) WithContext(ctx context.Context) *Context {
 		CLIContext:                c.CLIContext,
 		ContextName:               c.ContextName,
 		Remote:                    c.Remote,
-		DiagnosticSink:            c.DiagnosticSink,
 		Scope:                     c.Scope,
 	}
 }
@@ -245,8 +242,6 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		opts = append(opts, logger.WithFormat(cfg.Core.LogFormat))
 	}
 	ctx = logger.WithLogger(ctx, logger.NewLogger(opts...))
-	diagnosticSink := diagnosticSinkFromEnv()
-
 	// Log any warnings collected during configuration loading
 	for _, notice := range cfg.Notices {
 		logger.Info(ctx, notice)
@@ -292,7 +287,6 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 			CLIContext:          selectedContext,
 			ContextName:         selectedContextName,
 			Remote:              remote,
-			DiagnosticSink:      diagnosticSink,
 			Scope:               scope,
 		}, nil
 	}
@@ -314,7 +308,6 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 			ContextStore:        contextStore,
 			CLIContext:          selectedContext,
 			ContextName:         selectedContextName,
-			DiagnosticSink:      diagnosticSink,
 			Scope:               scope,
 			// All stores are nil - shared-nothing workers don't need local storage
 			// Status is pushed to coordinator, DAG definitions come from task payload
@@ -430,16 +423,8 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		ContextStore:              contextStore,
 		CLIContext:                selectedContext,
 		ContextName:               selectedContextName,
-		DiagnosticSink:            diagnosticSink,
 		Scope:                     scope,
 	}, nil
-}
-
-func diagnosticSinkFromEnv() diagnostic.Sink {
-	if os.Getenv(diagnostic.StreamEnvName) != diagnostic.StreamStderrJSONL {
-		return nil
-	}
-	return diagnostic.NewStreamSink(os.Stderr)
 }
 
 func newCLIContextStore(dataDir, contextsDir string) (*clicontext.Store, error) {

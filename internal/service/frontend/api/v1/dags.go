@@ -433,7 +433,7 @@ func (a *API) GetDAGDAGRunHistory(ctx context.Context, request api.GetDAGDAGRunH
 
 	var dagRuns []api.DAGRunDetails
 	for _, status := range recentHistory {
-		dagRuns = append(dagRuns, a.toDAGRunDetailsWithDiagnostics(status))
+		dagRuns = append(dagRuns, ToDAGRunDetails(status))
 	}
 
 	gridData := a.readHistoryData(ctx, dag, recentHistory)
@@ -506,7 +506,7 @@ func (a *API) getDAGDetailsData(ctx context.Context, fileName string) (api.GetDA
 	return api.GetDAGDetails200JSONResponse{
 		FilePath:     ptrOf(dag.Location),
 		Dag:          details,
-		LatestDAGRun: a.toDAGRunDetailsWithDiagnostics(dagStatus),
+		LatestDAGRun: ToDAGRunDetails(dagStatus),
 		Suspended:    a.dagStore.IsSuspended(ctx, fileName),
 		LocalDags:    localDAGs,
 		Errors:       extractBuildErrors(dag.BuildErrors),
@@ -1167,7 +1167,7 @@ func (a *API) ExecuteDAGSync(ctx context.Context, request api.ExecuteDAGSyncRequ
 	}
 
 	return api.ExecuteDAGSync200JSONResponse{
-		DagRun: a.toDAGRunDetailsWithDiagnostics(*dagStatus),
+		DagRun: ToDAGRunDetails(*dagStatus),
 	}, nil
 }
 
@@ -1576,8 +1576,6 @@ func (a *API) startPreparedDAGRunWithOptions(
 		Labels:       opts.labels,
 		ProfileName:  opts.profileName,
 	})
-	a.attachRuntimeDiagnosticSink(&spec, dag.Name, opts.dagRunID)
-
 	started, err := launcher.StartProcess(ctx, spec)
 	if err != nil {
 		return fmt.Errorf("error starting DAG: %w", err)
@@ -1923,7 +1921,7 @@ func (a *API) GetDAGHistoryData(ctx context.Context, fileName string) (any, erro
 
 		var dagRuns []api.DAGRunDetails
 		for _, status := range recentHistory {
-			dagRuns = append(dagRuns, a.toDAGRunDetailsWithDiagnostics(status))
+			dagRuns = append(dagRuns, ToDAGRunDetails(status))
 		}
 
 		gridData := a.readHistoryData(readCtx, dag, recentHistory)

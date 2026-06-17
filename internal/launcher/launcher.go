@@ -22,7 +22,6 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/internal/core"
 	exec1 "github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/diagnostic"
 )
 
 // CommandError wraps a command execution error with captured output.
@@ -424,13 +423,12 @@ func (b *SubCmdBuilder) TaskRetry(task *exec1.DispatchTask, envHints []string, d
 
 // CmdSpec describes a command to be executed with all its configuration.
 type CmdSpec struct {
-	Executable     string
-	Args           []string
-	Env            []string
-	BuildEnv       []string
-	Stdout         io.Writer
-	Stderr         io.Writer
-	DiagnosticSink diagnostic.Sink
+	Executable string
+	Args       []string
+	Env        []string
+	BuildEnv   []string
+	Stdout     io.Writer
+	Stderr     io.Writer
 }
 
 // StartOptions contains options for initiating a dag-run.
@@ -482,10 +480,7 @@ func Run(ctx context.Context, spec CmdSpec) error {
 	}
 	defer cleanupTransport(cleanup)
 	cmd.Stdout = io.MultiWriter(stdout, fileOrDefault(spec.Stdout, os.Stdout))
-	cmd.Stderr = newDiagnosticFilteringWriter(
-		io.MultiWriter(stderr, fileOrDefault(spec.Stderr, os.Stderr)),
-		spec.DiagnosticSink,
-	)
+	cmd.Stderr = io.MultiWriter(stderr, fileOrDefault(spec.Stderr, os.Stderr))
 
 	if err := cmd.Run(); err != nil {
 		return buildCommandError(err, stdout, stderr)
@@ -581,15 +576,9 @@ func newCommand(ctx context.Context, spec CmdSpec, withContext bool) (*exec.Cmd,
 	if len(extraEnv) > 0 {
 		env = append(env, extraEnv...)
 	}
-	if spec.DiagnosticSink != nil {
-		env = append(env, diagnostic.StreamEnvName+"="+diagnostic.StreamStderrJSONL)
-	}
 	cmd.Env = env
 	cmd.Stdout = fileOrDefault(spec.Stdout, os.Stdout)
-	cmd.Stderr = newDiagnosticFilteringWriter(
-		fileOrDefault(spec.Stderr, os.Stderr),
-		spec.DiagnosticSink,
-	)
+	cmd.Stderr = fileOrDefault(spec.Stderr, os.Stderr)
 
 	return cmd, cleanup, nil
 }

@@ -11,7 +11,6 @@ import (
 	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/spec/types"
-	"github.com/dagucloud/dagu/internal/diagnostic"
 )
 
 // loadVariables loads environment variables from strVariables and returns the
@@ -93,7 +92,6 @@ func evaluatePairs(ctx BuildContext, pairs []pair) (map[string]string, error) {
 		if evalCtx == nil {
 			evalCtx = context.Background()
 		}
-		evalCtx = diagnostic.WithSink(evalCtx, ctx.diagnostics)
 	}
 	var consts map[string]any
 	var params cmnvalue.Values
@@ -119,6 +117,7 @@ func evaluatePairs(ctx BuildContext, pairs []pair) (map[string]string, error) {
 			resolver := cmnvalue.NewResolver(
 				cmnvalue.StaticScope{Consts: cmnvalue.Values(consts), Params: paramDeclarations},
 				cmnvalue.RuntimeScope{Consts: cmnvalue.Values(consts), Params: params, Env: scope},
+				cmnvalue.WithDiagnostics(ctx.diagnostics),
 			)
 			value, err = resolver.String(evalCtx, value, cmnvalue.DAGEnvField("env."+p.key))
 			if err != nil {

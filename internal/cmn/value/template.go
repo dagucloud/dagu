@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/dagucloud/dagu/internal/diagnostic"
 )
 
 var (
@@ -22,14 +24,20 @@ var (
 
 type template struct{ source string }
 
-func resolveBindings(ctx context.Context, input string, scope RuntimeScope, field string) (string, map[string]string, error) {
+func resolveBindings(
+	ctx context.Context,
+	input string,
+	scope RuntimeScope,
+	field string,
+	diagnostics diagnostic.Sink,
+) (string, map[string]string, error) {
 	protected := make(map[string]string)
 	seed := input
 	resolved, err := walkBindings(input, func(_ string, path string) (string, error) {
 		value, err := bindingValue(ctx, path, scope, true)
 		if err != nil {
 			token := "${" + path + "}"
-			addUnresolvedReferenceDiagnostic(ctx, field, token, err)
+			addUnresolvedReferenceDiagnostic(diagnostics, field, token, err)
 			placeholder := uniqueToken(seed, "__DAGU_UNRESOLVED_REF__")
 			seed += placeholder
 			protected[placeholder] = token

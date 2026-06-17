@@ -44,7 +44,6 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/dagstate"
 	"github.com/dagucloud/dagu/internal/dagwarning"
-	"github.com/dagucloud/dagu/internal/diagnostic"
 	"github.com/dagucloud/dagu/internal/output"
 	profilepkg "github.com/dagucloud/dagu/internal/profile"
 	"github.com/dagucloud/dagu/internal/runtime"
@@ -191,9 +190,6 @@ type Agent struct {
 
 	// tracer is the OpenTelemetry tracer for the agent.
 	tracer *telemetry.Tracer
-
-	// diagnosticSink receives operation-scoped diagnostics for this run.
-	diagnosticSink diagnostic.Sink
 
 	// statusPusher is used to push status updates to a remote coordinator.
 	// When nil, status is written to local filesystem via the run-state attempt.
@@ -380,8 +376,6 @@ type Options struct {
 	// SocketServerFactory creates the local status/control transport.
 	// When nil, the default Unix socket transport is used.
 	SocketServerFactory SocketServerFactory
-	// DiagnosticSink receives operation-scoped diagnostics for this run.
-	DiagnosticSink diagnostic.Sink
 }
 
 // New creates a new Agent.
@@ -442,7 +436,6 @@ func New(
 		scheduleTime:               opts.ScheduleTime,
 		dagRunLogDir:               opts.DAGRunLogDir,
 		dagRunArtifactDir:          opts.DAGRunArtifactDir,
-		diagnosticSink:             opts.DiagnosticSink,
 		socketServerFactory:        opts.SocketServerFactory,
 		remoteDAGLoader:            opts.RemoteDAGLoader,
 	}
@@ -649,7 +642,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		contextOpts = append(contextOpts, runtime.WithLogWriterFactory(a.logWriterFactory))
 	}
 	ctx = runtime.NewContext(ctx, a.dag, a.dagRunID, a.logFile, contextOpts...)
-	ctx = diagnostic.WithSink(ctx, a.diagnosticSink)
 	ctx = runtimeexec.WithSubWorkflowRunner(ctx, subWorkflowRunner)
 
 	// Inject agent stores into context via context.Value.
@@ -2005,7 +1997,6 @@ func (a *Agent) dryRun(ctx context.Context) error {
 		contextOpts = append(contextOpts, runtime.WithDAGRunArtifactDir(a.dagRunArtifactDir))
 	}
 	dagCtx := runtime.NewContext(ctx, a.dag, a.dagRunID, a.logFile, contextOpts...)
-	dagCtx = diagnostic.WithSink(dagCtx, a.diagnosticSink)
 	lastErr := a.runner.Run(dagCtx, a.plan, progressCh)
 	a.lastErr = lastErr
 

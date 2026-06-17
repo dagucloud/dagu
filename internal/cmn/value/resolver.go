@@ -10,17 +10,33 @@ import (
 	"strconv"
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
+	"github.com/dagucloud/dagu/internal/diagnostic"
 )
 
 // Resolver resolves workflow values for semantic fields.
 type Resolver struct {
-	static  StaticScope
-	runtime RuntimeScope
+	static      StaticScope
+	runtime     RuntimeScope
+	diagnostics diagnostic.Sink
 }
 
+// ResolverOption configures a Resolver.
+type ResolverOption func(*Resolver)
+
 // NewResolver creates a resolver for the provided static and runtime scopes.
-func NewResolver(static StaticScope, runtime RuntimeScope) Resolver {
-	return Resolver{static: static, runtime: runtime}
+func NewResolver(static StaticScope, runtime RuntimeScope, opts ...ResolverOption) Resolver {
+	r := Resolver{static: static, runtime: runtime}
+	for _, opt := range opts {
+		opt(&r)
+	}
+	return r
+}
+
+// WithDiagnostics reports passive diagnostics to sink.
+func WithDiagnostics(sink diagnostic.Sink) ResolverOption {
+	return func(r *Resolver) {
+		r.diagnostics = sink
+	}
 }
 
 // Validate accepts value-reference syntax because unresolved references are non-fatal.
@@ -76,7 +92,7 @@ func (r Resolver) resolveString(ctx context.Context, raw string, field Field) (s
 	var protected map[string]string
 	if policy.strict {
 		var err error
-		resolved, protected, err = resolveBindings(ctx, raw, r.bindingScope(), field.path)
+		resolved, protected, err = resolveBindings(ctx, raw, r.bindingScope(), field.path, r.diagnostics)
 		if err != nil {
 			if field.path != "" {
 				return "", fmt.Errorf("%s: %w", field.path, err)

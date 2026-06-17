@@ -106,7 +106,6 @@ func runDry(ctx *Context, args []string) error {
 			AgentRemoteContextResolver: as.ContextResolver,
 			DAGRunLogDir:               ctx.Config.Paths.LogDir,
 			DAGRunArtifactDir:          ctx.Config.Paths.ArtifactDir,
-			DiagnosticSink:             ctx.DiagnosticSink,
 		},
 	)
 

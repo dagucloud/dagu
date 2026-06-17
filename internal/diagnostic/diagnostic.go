@@ -3,9 +3,8 @@
 
 // Package diagnostic defines operation-scoped diagnostics.
 //
-// Diagnostics are transient observations produced while loading, inspecting, or
-// running a DAG. They are not DAG model state, DAG-run status state, or a
-// persistence format.
+// Diagnostics are transient observations produced by explicit inspection operations.
+// They are not DAG model state, DAG-run status state, or a persistence format.
 package diagnostic
 
 import (

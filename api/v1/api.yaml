@@ -12960,11 +12960,6 @@ components:
               description: "Status of individual steps within the DAG-run"
               items:
                 $ref: "#/components/schemas/Node"
-            diagnostics:
-              type: array
-              description: "Transient diagnostics produced while running this DAG-run. These diagnostics are not persisted and may be unavailable after process restart."
-              items:
-                $ref: "#/components/schemas/Diagnostic"
             onExit:
               $ref: "#/components/schemas/Node"
             onSuccess:

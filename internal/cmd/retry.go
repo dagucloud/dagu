@@ -613,7 +613,6 @@ func executeRetry(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus, rootRu
 			ArtifactDir:                artifactDir,
 			DAGRunLogDir:               ctx.Config.Paths.LogDir,
 			DAGRunArtifactDir:          ctx.Config.Paths.ArtifactDir,
-			DiagnosticSink:             ctx.DiagnosticSink,
 		},
 	)
 

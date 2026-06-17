@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/spec"
+	"github.com/dagucloud/dagu/internal/diagnostic"
 	"github.com/dagucloud/dagu/internal/workspace"
 	"github.com/goccy/go-yaml/ast"
 	"github.com/goccy/go-yaml/parser"
@@ -71,11 +72,12 @@ func runValidate(ctx *Context, args []string) error {
 		loadOpts = append(loadOpts, spec.WithBaseConfig(ctx.Config.Paths.BaseConfig))
 	}
 
-	dag, err := spec.Load(ctx, args[0], loadOpts...)
+	loadResult, err := spec.LoadWithResult(ctx, args[0], loadOpts...)
 	if err != nil {
 		// Collect and return a formatted error message
 		return errors.New(formatValidationErrors(args[0], err))
 	}
+	dag := loadResult.DAG
 
 	if !validatedInput && dag.Location != "" {
 		if _, err := validateWorkflowFile(dag.Location); err != nil {
@@ -89,8 +91,24 @@ func runValidate(ctx *Context, args []string) error {
 	}
 
 	logValidationWarnings(ctx, args[0], append(dag.BuildWarnings, collectDeprecatedSyntaxWarnings(dag)...))
+	logValidationDiagnostics(ctx, args[0], loadResult.Diagnostics)
 
 	return nil
+}
+
+func logValidationDiagnostics(ctx *Context, file string, diagnostics []diagnostic.Diagnostic) {
+	seen := make(map[string]struct{}, len(diagnostics))
+	for _, diag := range diagnostics {
+		if diag.Message == "" {
+			continue
+		}
+		key := diag.Identity()
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		logger.Info(ctx, diag.Message, tag.File(file))
+	}
 }
 
 func logValidationWarnings(ctx *Context, file string, warnings []string) {

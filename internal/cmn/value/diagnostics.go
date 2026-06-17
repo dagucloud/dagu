@@ -4,7 +4,6 @@
 package value
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -17,7 +16,10 @@ const DiagnosticKindValueResolution diagnostic.Kind = "value_resolution"
 // CodeValueReferenceUnresolved identifies a supported reference left unresolved.
 const CodeValueReferenceUnresolved diagnostic.Code = "value_reference_unresolved"
 
-func addUnresolvedReferenceDiagnostic(ctx context.Context, field, token string, err error) {
+func addUnresolvedReferenceDiagnostic(sink diagnostic.Sink, field, token string, err error) {
+	if sink == nil {
+		return
+	}
 	refName := token
 	if strings.HasPrefix(token, "${") && strings.HasSuffix(token, "}") {
 		refName = token[2 : len(token)-1]
@@ -29,7 +31,7 @@ func addUnresolvedReferenceDiagnostic(ctx context.Context, field, token string, 
 	if err != nil {
 		message += " " + err.Error() + "."
 	}
-	diagnostic.Report(ctx, diagnostic.Diagnostic{
+	sink.Report(diagnostic.Diagnostic{
 		Severity: diagnostic.SeverityNotice,
 		Kind:     DiagnosticKindValueResolution,
 		Code:     CodeValueReferenceUnresolved,

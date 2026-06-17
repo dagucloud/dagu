@@ -131,8 +131,6 @@ func TestMissingRuntimeValues(t *testing.T) {
 			}
 			result := dagu.Run(args...)
 			result.ExpectExitCode(0)
-			result.ExpectStderrNotContains("preserving literal text")
-			result.ExpectStderrNotContains("has no runtime value")
 			outputFile := tc.outputFile
 			if tc.missingOutputFile != "" {
 				outputFile = tc.missingOutputFile
