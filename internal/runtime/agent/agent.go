@@ -44,7 +44,6 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/dagstate"
 	"github.com/dagucloud/dagu/internal/dagwarning"
-	"github.com/dagucloud/dagu/internal/diagnostic"
 	"github.com/dagucloud/dagu/internal/output"
 	profilepkg "github.com/dagucloud/dagu/internal/profile"
 	"github.com/dagucloud/dagu/internal/runtime"
@@ -192,8 +191,8 @@ type Agent struct {
 	// tracer is the OpenTelemetry tracer for the agent.
 	tracer *telemetry.Tracer
 
-	// diagnostics collects passive run diagnostics such as unresolved value references.
-	diagnostics diagnostic.Collector
+	// diagnostics collects passive value-resolution diagnostics for this run.
+	diagnostics cmnvalue.Collector
 
 	// statusPusher is used to push status updates to a remote coordinator.
 	// When nil, status is written to local filesystem via the run-state attempt.

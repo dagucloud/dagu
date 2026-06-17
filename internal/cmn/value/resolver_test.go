@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/internal/cmn/value"
-	"github.com/dagucloud/dagu/internal/diagnostic"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -93,7 +92,7 @@ func TestResolverDiagnosticsReportsDedupedStrictMisses(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var collector diagnostic.Collector
+			var collector value.Collector
 			ctx := value.WithDiagnosticSink(context.Background(), &collector)
 			got, err := resolver.String(ctx, tt.raw, value.WorkflowField("steps[0].run"))
 
@@ -101,8 +100,8 @@ func TestResolverDiagnosticsReportsDedupedStrictMisses(t *testing.T) {
 			assert.Contains(t, got, tt.want)
 			diagnostics := collector.Diagnostics()
 			require.Len(t, diagnostics, 1)
-			assert.Equal(t, diagnostic.LevelNotice, diagnostics[0].Level)
-			assert.Equal(t, diagnostic.CodeValueReferenceUnresolved, diagnostics[0].Code)
+			assert.Equal(t, value.LevelNotice, diagnostics[0].Level)
+			assert.Equal(t, value.CodeValueReferenceUnresolved, diagnostics[0].Code)
 			assert.Equal(t, "steps[0].run", diagnostics[0].Field)
 			assert.Equal(t, tt.want, diagnostics[0].Token)
 		})
@@ -121,7 +120,7 @@ func TestResolverDiagnosticsTreatsUnsupportedSyntaxAsOrdinaryContent(t *testing.
 	}
 
 	for _, raw := range tests {
-		var collector diagnostic.Collector
+		var collector value.Collector
 		ctx := value.WithDiagnosticSink(context.Background(), &collector)
 		got, err := resolver.String(ctx, raw, value.WorkflowField("steps[0].run"))
 
