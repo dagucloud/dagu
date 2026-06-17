@@ -106,10 +106,10 @@ func TestResolverFieldPolicyBacktickMatrix(t *testing.T) {
 		want  string
 	}{
 		{name: "workflow", field: value.WorkflowField("field"), want: "`printf matrix`"},
-		{name: "DAG env", field: value.DAGEnvField("field"), want: "matrix"},
+		{name: "DAG env", field: value.DAGEnvField("field"), want: "`printf matrix`"},
 		{name: "runtime DAG env", field: value.RuntimeDAGEnvField("field"), want: "`printf matrix`"},
-		{name: "step env", field: value.StepEnvField("field"), want: "matrix"},
-		{name: "container env", field: value.ContainerEnvField("field"), want: "matrix"},
+		{name: "step env", field: value.StepEnvField("field"), want: "`printf matrix`"},
+		{name: "container env", field: value.ContainerEnvField("field"), want: "`printf matrix`"},
 		{name: "dynamic params", field: value.DynamicParamEvalField("field"), want: "matrix"},
 		{name: "template script", field: value.TemplateScriptField("field"), want: "`printf matrix`"},
 		{name: "direct command", field: value.DirectCommandField("field", value.CommandContext{}), want: "`printf matrix`"},

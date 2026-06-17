@@ -181,11 +181,11 @@ func policyForField(field Field) resolverPolicy {
 	case fieldConditionValue:
 		return resolverPolicy{strict: true}
 	case fieldDAGEnv:
-		return resolverPolicy{strict: true, envVariables: envVariablesUser, options: []option{withOSExpansion()}}
+		return resolverPolicy{strict: true, envVariables: envVariablesUser, options: []option{withOSExpansion(), withoutSubstitute()}}
 	case fieldRuntimeDAGEnv:
 		return resolverPolicy{strict: true, envVariables: envVariablesUser, options: []option{withoutSubstitute()}}
 	case fieldStepEnv, fieldContainerEnv:
-		return resolverPolicy{strict: true}
+		return resolverPolicy{strict: true, options: []option{withoutSubstitute()}}
 	case fieldDynamicParamEval:
 		return resolverPolicy{strict: true, envVariables: envVariablesUser, options: []option{withOSExpansion(), withShellCommandSubstitution()}}
 	case fieldDotenvPath:

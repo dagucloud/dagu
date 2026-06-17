@@ -1,0 +1,5 @@
+env:
+  OUTSIDE: $(printf should-not-run)
+steps:
+  - name: write
+    run: printf '%s\n' "$OUTSIDE" > outside-dollar.txt

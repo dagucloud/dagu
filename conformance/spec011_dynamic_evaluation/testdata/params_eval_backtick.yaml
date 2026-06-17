@@ -1,0 +1,7 @@
+params:
+  - name: today
+    type: string
+    eval: "`printf 20260131`"
+steps:
+  - name: write
+    run: printf '%s\n' '${params.today}' > backtick.txt

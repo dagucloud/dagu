@@ -1,0 +1,10 @@
+params:
+  - name: environment
+    type: string
+    default: prod
+  - name: combined
+    type: string
+    eval: $(printf '%s-%s' "$SPEC011_DYNAMIC_VALUE" '${params.environment}')
+steps:
+  - name: write
+    run: printf '%s\n' '${params.combined}' > env-order.txt
