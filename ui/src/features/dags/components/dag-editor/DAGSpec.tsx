@@ -11,12 +11,7 @@ import { StepDetailsDrawer } from '@/features/dags/components/step-details';
 import { toMermaidNodeId } from '@/lib/utils';
 import { workspaceNameFromLabels } from '@/lib/workspace';
 import BorderedBox from '@/components/ui/bordered-box';
-import {
-  AlertTriangle,
-  MousePointerClick,
-  Save,
-  Undo2,
-} from 'lucide-react';
+import { AlertTriangle, MousePointerClick, Save, Undo2 } from 'lucide-react';
 import React, { useEffect } from 'react';
 import { useCookies } from 'react-cookie';
 import { components } from '../../../../api/v1/schema';
@@ -29,7 +24,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { AppBarContext } from '../../../../contexts/AppBarContext';
+import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useSchema } from '../../../../contexts/SchemaContext';
 import { useUnsavedChanges } from '../../../../contexts/UnsavedChangesContext';
 import { useClient, useQuery } from '../../../../hooks/api';
@@ -75,8 +70,7 @@ type Props = {
  * including visualization, attributes, steps, and YAML definition
  */
 function DAGSpec({ fileName, localDags, editorHints }: Props) {
-  const appBarContext = React.useContext(AppBarContext);
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
+  const remoteNode = useRemoteNode();
   const client = useClient();
   const { schema: baseSchema } = useSchema();
   const { showError } = useErrorModal();
@@ -129,7 +123,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
     [setCookie, setFlowchart]
   );
 
-  const dagSSE = useDAGSSE(fileName, !!fileName);
+  const dagSSE = useDAGSSE(fileName, !!fileName, remoteNode);
 
   // Fetch spec — SWR is the single source of truth, refreshed by live invalidations
   const {

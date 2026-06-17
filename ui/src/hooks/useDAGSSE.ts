@@ -16,8 +16,9 @@ interface DAGSSEResponse {
 
 export function useDAGSSE(
   fileName: string,
-  enabled: boolean = true
+  enabled: boolean = true,
+  remoteNode?: string
 ): SSEState<DAGSSEResponse> {
   const endpoint = `/events/dags/${encodeURIComponent(fileName)}`;
-  return useSSE<DAGSSEResponse>(endpoint, enabled);
+  return useSSE<DAGSSEResponse>(endpoint, enabled, remoteNode);
 }

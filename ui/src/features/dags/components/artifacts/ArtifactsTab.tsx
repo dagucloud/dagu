@@ -3,7 +3,7 @@
 
 import { Button } from '@/components/ui/button';
 import { DocMarkdownPreview } from '@/components/ui/doc-markdown-preview';
-import { AppBarContext } from '@/contexts/AppBarContext';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient } from '@/hooks/api';
 import { cn } from '@/lib/utils';
 import {
@@ -18,7 +18,7 @@ import {
   FolderOpen,
   RefreshCw,
 } from 'lucide-react';
-import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { components } from '../../../../api/v1/schema';
 
 type ArtifactTreeNode = components['schemas']['ArtifactTreeNode'];
@@ -153,8 +153,7 @@ export default function ArtifactsTab({
   fillHeight = false,
 }: Props) {
   const client = useClient();
-  const appBarContext = useContext(AppBarContext);
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
+  const remoteNode = useRemoteNode();
   const isSubDAGRun =
     !!dagRun.rootDAGRunId &&
     dagRun.rootDAGRunId !== dagRun.dagRunId &&
@@ -796,8 +795,8 @@ export default function ArtifactsTab({
             <div className="space-y-3">
               {previewTruncatedNotice ? (
                 <div className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-                  Inline preview is truncated. Use Copy or Download for the
-                  full file.
+                  Inline preview is truncated. Use Copy or Download for the full
+                  file.
                 </div>
               ) : null}
               {markdownViewMode === 'raw' ? (
@@ -812,8 +811,8 @@ export default function ArtifactsTab({
             <div className="space-y-3">
               {previewTruncatedNotice ? (
                 <div className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-                  Inline preview is truncated. Use Copy or Download for the
-                  full file.
+                  Inline preview is truncated. Use Copy or Download for the full
+                  file.
                 </div>
               ) : null}
               <pre className="overflow-auto rounded-md border border-border bg-muted/20 p-4 text-sm leading-6 whitespace-pre-wrap">

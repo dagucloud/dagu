@@ -10,9 +10,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ReloadButton } from '@/components/ui/reload-button';
 import { Switch } from '@/components/ui/switch';
-import { AppBarContext } from '../../../../contexts/AppBarContext';
 import { TOKEN_KEY } from '../../../../contexts/AuthContext';
 import { useConfig } from '../../../../contexts/ConfigContext';
+import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useUserPreferences } from '../../../../contexts/UserPreference';
 import { useQuery } from '../../../../hooks/api';
 import { whenEnabled } from '../../../../hooks/queryUtils';
@@ -72,7 +72,7 @@ function StepLog({
   stream = Stream.stdout,
   node,
 }: Props) {
-  const appBarContext = React.useContext(AppBarContext);
+  const remoteNode = useRemoteNode();
   const config = useConfig();
   const { preferences, updatePreference } = useUserPreferences();
   const [viewMode, setViewMode] = useState<'tail' | 'head' | 'page'>('tail');
@@ -105,14 +105,19 @@ function StepLog({
   // SSE is used for real-time updates when viewing tail of an active step (not sub-DAG runs)
   const shouldUseSSE =
     viewMode === 'tail' && isLiveMode && isActive && !isSubDAGRun;
-  const sseResult = useStepLogSSE(dagName, dagRunId, stepName, shouldUseSSE);
+  const sseResult = useStepLogSSE(
+    dagName,
+    dagRunId,
+    stepName,
+    shouldUseSSE,
+    remoteNode
+  );
   const sseIsActive =
     shouldUseSSE && sseResult.isConnected && !sseResult.shouldUseFallback;
 
   // Fall back to REST polling when SSE is not available or not connected
   const usePolling = !sseIsActive;
 
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
   const tail = viewMode === 'tail' ? pageSize : undefined;
   const head = viewMode === 'head' ? pageSize : undefined;
   const offset =

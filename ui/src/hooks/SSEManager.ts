@@ -571,19 +571,23 @@ export class SSEManager {
     conn.pendingAdd.clear();
     conn.pendingRemove.clear();
 
+    const hasTopics = conn.topics.size > 0;
+    const nextRetryCount = conn.retryCount + 1;
+    const shouldUseFallback = nextRetryCount >= FALLBACK_AFTER_RETRIES;
+
     this.updateState(conn, {
       isConnected: false,
-      isConnecting: false,
-      shouldUseFallback: conn.retryCount >= FALLBACK_AFTER_RETRIES,
+      isConnecting: hasTopics && !shouldUseFallback,
+      shouldUseFallback,
       error,
     });
 
-    if (conn.topics.size === 0) {
+    if (!hasTopics) {
       return;
     }
 
     const delay = calculateRetryDelay(conn.retryCount);
-    conn.retryCount += 1;
+    conn.retryCount = nextRetryCount;
 
     conn.retryTimeout = setTimeout(() => {
       conn.retryTimeout = null;

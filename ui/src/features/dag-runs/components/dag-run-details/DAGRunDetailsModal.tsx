@@ -1,10 +1,4 @@
-import React, {
-  useCallback,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-} from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Loader2, Maximize2, X } from 'lucide-react';
 
@@ -12,8 +6,8 @@ import { Button } from '@/components/ui/button';
 import type { StatusTab } from '@/features/dags/components/DAGStatus';
 import { cn } from '@/lib/utils';
 import { components } from '../../../../api/v1/schema';
-import { AppBarContext } from '../../../../contexts/AppBarContext';
 import { usePageContext } from '../../../../contexts/PageContext';
+import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { shouldIgnoreKeyboardShortcuts } from '../../../../lib/keyboard-shortcuts';
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import { DAGRunContext } from '../../contexts/DAGRunContext';
@@ -43,12 +37,11 @@ function DAGRunDetailsModal({
   initialTab = 'status',
 }: DAGRunDetailsModalProps): React.ReactElement | null {
   const navigate = useNavigate();
-  const appBarContext = useContext(AppBarContext);
   const { setContext } = usePageContext();
 
   const [shouldRender, setShouldRender] = useState(isOpen);
   const [isVisible, setIsVisible] = useState(false);
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
+  const remoteNode = useRemoteNode();
   const previousDataRef = useRef<PreviousData | null>(null);
   const prevRemoteNodeRef = useRef(remoteNode);
   if (prevRemoteNodeRef.current !== remoteNode) {
@@ -164,7 +157,14 @@ function DAGRunDetailsModal({
 
   const handleFullscreenClick = useCallback(
     (e?: React.MouseEvent): void => {
-      const url = `/dag-runs/${name}/${dagRunId}`;
+      const searchParams = new URLSearchParams();
+      if (remoteNode !== 'local') {
+        searchParams.set('remoteNode', remoteNode);
+      }
+      const query = searchParams.toString();
+      const url = query
+        ? `/dag-runs/${name}/${dagRunId}?${query}`
+        : `/dag-runs/${name}/${dagRunId}`;
 
       if (e?.metaKey || e?.ctrlKey) {
         window.open(url, '_blank');
@@ -172,7 +172,7 @@ function DAGRunDetailsModal({
         navigate(url);
       }
     },
-    [name, dagRunId, navigate]
+    [dagRunId, name, navigate, remoteNode]
   );
 
   useEffect(() => {

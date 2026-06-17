@@ -5,9 +5,9 @@
  */
 import { useErrorModal } from '@/components/ui/error-modal';
 import { Switch } from '@/components/ui/switch';
-import { AppBarContext } from '@/contexts/AppBarContext';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import ConfirmModal from '@/components/ui/confirm-dialog';
-import { useCallback, useContext, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { components } from '../../../../api/v1/schema';
 import { useConfig } from '../../../../contexts/ConfigContext';
 import { useClient } from '../../../../hooks/api';
@@ -36,8 +36,7 @@ function LiveSwitch({ dag, refresh, 'aria-label': ariaLabel }: Props) {
   const [checked, setChecked] = useState(!dag.suspended);
   const [showConfirm, setShowConfirm] = useState(false);
   const [pendingState, setPendingState] = useState<boolean | null>(null);
-  const appBarContext = useContext(AppBarContext);
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
+  const remoteNode = useRemoteNode();
 
   const onSubmit = useCallback(
     async (suspend: boolean) => {

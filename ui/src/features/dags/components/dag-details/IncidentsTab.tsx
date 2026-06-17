@@ -10,7 +10,7 @@ import {
   Settings,
   Shield,
 } from 'lucide-react';
-import { ReactElement, useContext, useEffect, useMemo, useState } from 'react';
+import { ReactElement, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -19,7 +19,7 @@ import { useSimpleToast } from '@/components/ui/simple-toast';
 import { useClient, useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
 import { useLicense } from '@/hooks/useLicense';
-import { AppBarContext } from '@/contexts/AppBarContext';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { IncidentPolicyScope } from '@/api/v1/schema';
 import { IncidentPolicyEditor } from '@/features/incidents/IncidentPolicyEditor';
 import {
@@ -72,8 +72,7 @@ export default function IncidentsTab({
 }: IncidentsTabProps): ReactElement {
   const license = useLicense();
   const licensed = !license.community && (license.valid || license.gracePeriod);
-  const appBarContext = useContext(AppBarContext);
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
+  const remoteNode = useRemoteNode();
   const client = useClient();
   const { showToast } = useSimpleToast();
   const [draft, setDraft] = useState<DraftIncidentPolicySet>(() =>

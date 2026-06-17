@@ -5,11 +5,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { AppBarContext } from '@/contexts/AppBarContext';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
 import { ExternalLink, Layers } from 'lucide-react';
-import React, { useContext, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { components, StatusLabel } from '../../../../api/v1/schema';
 import { STATUS_DISPLAY_LABELS, StatusDot } from '../common';
 
@@ -48,8 +48,7 @@ export function ParallelExecutionModal({
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('all');
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
-  const appBarContext = useContext(AppBarContext);
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
+  const remoteNode = useRemoteNode();
 
   // Determine if this is a nested sub-DAG
   const isNestedSubDAG = parentDagRunId && parentDagRunId !== rootDagRunId;
@@ -119,9 +118,11 @@ export function ParallelExecutionModal({
 
   // Get available filters (only show filters that have items)
   const availableFilters = useMemo(() => {
-    const filters: { value: StatusFilterValue; label: string; count: number }[] = [
-      { value: 'all', label: 'All', count: statusCounts.get('all') || 0 },
-    ];
+    const filters: {
+      value: StatusFilterValue;
+      label: string;
+      count: number;
+    }[] = [{ value: 'all', label: 'All', count: statusCounts.get('all') || 0 }];
 
     // Add filters for each status that has items, in a consistent order
     const statusOrder: StatusLabel[] = [
@@ -156,17 +157,26 @@ export function ParallelExecutionModal({
       switch (e.key) {
         case 'ArrowDown':
           e.preventDefault();
-          setSelectedIndex((prev) => prev === null ? 0 : (prev + 1) % filteredSubRuns.length);
+          setSelectedIndex((prev) =>
+            prev === null ? 0 : (prev + 1) % filteredSubRuns.length
+          );
           break;
         case 'ArrowUp':
           e.preventDefault();
-          setSelectedIndex((prev) => prev === null ? filteredSubRuns.length - 1 : (prev - 1 + filteredSubRuns.length) % filteredSubRuns.length);
+          setSelectedIndex((prev) =>
+            prev === null
+              ? filteredSubRuns.length - 1
+              : (prev - 1 + filteredSubRuns.length) % filteredSubRuns.length
+          );
           break;
         case 'Enter':
           e.preventDefault();
           if (selectedIndex !== null && filteredSubRuns[selectedIndex]) {
             const openInNewTab = e.metaKey || e.ctrlKey;
-            onSelectSubRun(filteredSubRuns[selectedIndex].originalIndex, openInNewTab);
+            onSelectSubRun(
+              filteredSubRuns[selectedIndex].originalIndex,
+              openInNewTab
+            );
             if (!openInNewTab) {
               onClose();
             }
@@ -189,12 +199,12 @@ export function ParallelExecutionModal({
     if (selectedIndex !== null && scrollContainerRef.current) {
       const container = scrollContainerRef.current;
       const selectedElement = container.children[selectedIndex] as HTMLElement;
-      
+
       if (selectedElement) {
         // Use scrollIntoView for more reliable scrolling
         selectedElement.scrollIntoView({
           block: 'nearest',
-          behavior: 'smooth'
+          behavior: 'smooth',
         });
       }
     }
@@ -228,14 +238,17 @@ export function ParallelExecutionModal({
                     onClick={() => setStatusFilter(filter.value)}
                     className={`
                       px-2 py-1 text-xs font-medium rounded transition-colors
-                      ${isActive
-                        ? 'bg-info-muted text-info'
-                        : 'bg-muted text-muted-foreground hover:bg-accent'
+                      ${
+                        isActive
+                          ? 'bg-info-muted text-info'
+                          : 'bg-muted text-muted-foreground hover:bg-accent'
                       }
                     `}
                   >
                     {filter.label}
-                    <span className={`ml-1 ${isActive ? 'text-info' : 'text-muted-foreground'}`}>
+                    <span
+                      className={`ml-1 ${isActive ? 'text-info' : 'text-muted-foreground'}`}
+                    >
                       {filter.count}
                     </span>
                   </button>
@@ -266,9 +279,10 @@ export function ParallelExecutionModal({
                     <button
                       className={`
                         flex-1 text-left transition-all duration-150 border rounded px-3 py-2 flex items-center gap-3 focus:outline-none
-                        ${selectedIndex === displayIndex
-                          ? 'border-info bg-info-muted'
-                          : 'border-transparent hover:border-border hover:bg-muted'
+                        ${
+                          selectedIndex === displayIndex
+                            ? 'border-info bg-info-muted'
+                            : 'border-transparent hover:border-border hover:bg-muted'
                         }
                       `}
                       onClick={(e) => {
@@ -284,7 +298,10 @@ export function ParallelExecutionModal({
                       </span>
                       {detail && (
                         <span className="flex-shrink-0">
-                          <StatusDot status={detail.status} statusLabel={detail.statusLabel} />
+                          <StatusDot
+                            status={detail.status}
+                            statusLabel={detail.statusLabel}
+                          />
                         </span>
                       )}
                       <div className="flex-1 min-w-0 overflow-x-auto">
@@ -314,7 +331,7 @@ export function ParallelExecutionModal({
             )}
           </div>
         </div>
-        
+
         <div className="px-4 py-2 bg-muted border-t border-border">
           <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono">
             <span>{isMac ? '⌘' : 'Ctrl'}+Click: new tab</span>

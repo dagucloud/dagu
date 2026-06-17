@@ -13,7 +13,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { AppBarContext } from '@/contexts/AppBarContext';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient, useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
 import {
@@ -148,9 +148,8 @@ function NodeStatusTableRow({
   const { dagRunId, name: dagName } = dagRun;
   const navigate = useNavigate();
   const client = useClient();
-  const appBarContext = useContext(AppBarContext);
   const dagContext = useContext(DAGContext);
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
+  const remoteNode = useRemoteNode();
   const { showError } = useErrorModal();
   // State to store the current duration for running tasks
   const [currentDuration, setCurrentDuration] = useState<string>('-');

@@ -29,7 +29,7 @@ import {
   NodeStatus,
   NodeStatusLabel,
 } from '../../../../api/v1/schema';
-import { AppBarContext } from '../../../../contexts/AppBarContext';
+import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useClient, useQuery } from '../../../../hooks/api';
 import ConfirmModal from '@/components/ui/confirm-dialog';
 import Graph, { type FlowchartType } from '../visualization/Graph';
@@ -146,7 +146,7 @@ function DAGSpecReadOnly({
   sourceFileName,
   className,
 }: DAGSpecReadOnlyProps) {
-  const appBarContext = React.useContext(AppBarContext);
+  const remoteNode = useRemoteNode();
   const client = useClient();
   const navigate = useNavigate();
   const canWrite = useCanWrite();
@@ -184,7 +184,7 @@ function DAGSpecReadOnly({
   const { data, isLoading, error } = useQuery(endpoint, {
     params: {
       query: {
-        remoteNode: appBarContext.selectedRemoteNode || 'local',
+        remoteNode,
       },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       path: pathParams as any,
@@ -240,7 +240,7 @@ function DAGSpecReadOnly({
               dagRunId,
             },
             query: {
-              remoteNode: appBarContext.selectedRemoteNode || 'local',
+              remoteNode,
             },
           },
           body: {
@@ -279,13 +279,13 @@ function DAGSpecReadOnly({
       setPreviewLoading(false);
     }
   }, [
-    appBarContext.selectedRemoteNode,
     client,
     dagName,
     dagRunId,
     editorSpec,
     hasEdits,
     previewLoading,
+    remoteNode,
     retrySubmitting,
     showError,
     sourceSaving,
@@ -312,7 +312,7 @@ function DAGSpecReadOnly({
               dagRunId,
             },
             query: {
-              remoteNode: appBarContext.selectedRemoteNode || 'local',
+              remoteNode,
             },
           },
           body: {
@@ -357,12 +357,12 @@ function DAGSpecReadOnly({
       setRetrySubmitting(false);
     }
   }, [
-    appBarContext.selectedRemoteNode,
     client,
     dagName,
     dagRunId,
     editorSpec,
     navigate,
+    remoteNode,
     retryPreview,
     retrySubmitting,
     selectedSkipSteps,
@@ -392,7 +392,7 @@ function DAGSpecReadOnly({
               fileName: sourceFileName,
             },
             query: {
-              remoteNode: appBarContext.selectedRemoteNode || 'local',
+              remoteNode,
             },
           },
         }
@@ -423,11 +423,11 @@ function DAGSpecReadOnly({
       setSourceDiffLoading(false);
     }
   }, [
-    appBarContext.selectedRemoteNode,
     canWrite,
     client,
     editorSpec,
     hasEdits,
+    remoteNode,
     showError,
     showToast,
     sourceDiffLoading,
@@ -456,7 +456,7 @@ function DAGSpecReadOnly({
               fileName: sourceFileName,
             },
             query: {
-              remoteNode: appBarContext.selectedRemoteNode || 'local',
+              remoteNode,
             },
           },
           body: {
@@ -492,10 +492,10 @@ function DAGSpecReadOnly({
       setSourceSaving(false);
     }
   }, [
-    appBarContext.selectedRemoteNode,
     canWrite,
     client,
     editorSpec,
+    remoteNode,
     showError,
     showToast,
     sourceDAGSpec,

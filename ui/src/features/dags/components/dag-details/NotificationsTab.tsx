@@ -12,7 +12,7 @@ import {
   Save,
   Settings,
 } from 'lucide-react';
-import { useContext, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
@@ -23,8 +23,8 @@ import {
   NotificationEventType,
   NotificationProviderType,
 } from '../../../../api/v1/schema';
-import { AppBarContext } from '../../../../contexts/AppBarContext';
 import { useConfig } from '../../../../contexts/ConfigContext';
+import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import {
   DAGLocalTargetsSection,
   DAGSubscriptionsSection,
@@ -177,8 +177,7 @@ function DAGNotificationHeader({
 
 function NotificationsTab({ fileName, workspaceName }: NotificationsTabProps) {
   const config = useConfig();
-  const appBarContext = useContext(AppBarContext);
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
+  const remoteNode = useRemoteNode();
   const query = useMemo(
     () => `?remoteNode=${encodeURIComponent(remoteNode)}`,
     [remoteNode]

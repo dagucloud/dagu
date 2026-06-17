@@ -2,7 +2,7 @@ import { Button } from '@/components/ui/button';
 import { Maximize2, X } from 'lucide-react';
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AppBarContext } from '../../../../contexts/AppBarContext';
+import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { shouldIgnoreKeyboardShortcuts } from '../../../../lib/keyboard-shortcuts';
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import { DAGRunContext } from '../../contexts/DAGRunContext';
@@ -24,7 +24,7 @@ function DAGRunDetailsPanel({
   onNavigate,
 }: Props): React.ReactElement {
   const navigate = useNavigate();
-  const appBarContext = React.useContext(AppBarContext);
+  const remoteNode = useRemoteNode();
 
   // Parse sub DAG-run params from URL
   const searchParams = new URLSearchParams(window.location.search);
@@ -33,7 +33,6 @@ function DAGRunDetailsPanel({
   const parentName = searchParams.get('dagRunName') || name;
   const isSubDAGRun = Boolean(subDAGRunId && parentDAGRunId && parentName);
 
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
   const detailsTarget = isSubDAGRun
     ? {
         remoteNode,
@@ -77,7 +76,14 @@ function DAGRunDetailsPanel({
 
   const handleFullscreenClick = React.useCallback(
     (e?: React.MouseEvent) => {
-      const url = `/dag-runs/${name}/${dagRunId}`;
+      const searchParams = new URLSearchParams();
+      if (remoteNode !== 'local') {
+        searchParams.set('remoteNode', remoteNode);
+      }
+      const query = searchParams.toString();
+      const url = query
+        ? `/dag-runs/${name}/${dagRunId}?${query}`
+        : `/dag-runs/${name}/${dagRunId}`;
 
       if (e && (e.metaKey || e.ctrlKey)) {
         window.open(url, '_blank');
@@ -85,7 +91,7 @@ function DAGRunDetailsPanel({
         navigate(url);
       }
     },
-    [name, dagRunId, navigate]
+    [dagRunId, name, navigate, remoteNode]
   );
 
   // Keyboard shortcuts

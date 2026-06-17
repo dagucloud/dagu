@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { ArrowUpDown, Check, Copy, Package, Search } from 'lucide-react';
 import { Status, StatusLabel } from '../../../../api/v1/schema';
 import { useQuery } from '../../../../hooks/api';
-import { AppBarContext } from '../../../../contexts/AppBarContext';
+import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import {
   Table,
   TableBody,
@@ -48,7 +48,7 @@ type SortConfig = {
 };
 
 function DAGRunOutputs({ dagName, dagRunId }: Props) {
-  const appBarContext = React.useContext(AppBarContext);
+  const remoteNode = useRemoteNode();
   const [filter, setFilter] = useState('');
   const [sortConfig, setSortConfig] = useState<SortConfig>({
     key: 'name',
@@ -60,7 +60,7 @@ function DAGRunOutputs({ dagName, dagRunId }: Props) {
     '/dag-runs/{name}/{dagRunId}/outputs',
     {
       params: {
-        query: { remoteNode: appBarContext.selectedRemoteNode || 'local' },
+        query: { remoteNode },
         path: { name: dagName, dagRunId },
       },
     },

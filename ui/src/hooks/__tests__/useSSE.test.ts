@@ -29,4 +29,39 @@ describe('sseFallbackOptions', () => {
       refreshInterval: 0,
     });
   });
+
+  it('keeps polling disabled while SSE is reconnecting below the fallback threshold', () => {
+    expect(
+      sseFallbackOptions({
+        data: null,
+        error: new Error('SSE connection lost'),
+        isConnected: false,
+        isConnecting: true,
+        shouldUseFallback: false,
+      })
+    ).toMatchObject({
+      revalidateIfStale: false,
+      revalidateOnFocus: false,
+      refreshInterval: 0,
+    });
+  });
+
+  it('enables polling only when the SSE connection asks for fallback', () => {
+    expect(
+      sseFallbackOptions(
+        {
+          data: null,
+          error: new Error('SSE connection lost'),
+          isConnected: false,
+          isConnecting: false,
+          shouldUseFallback: true,
+        },
+        5000
+      )
+    ).toMatchObject({
+      revalidateIfStale: true,
+      revalidateOnFocus: true,
+      refreshInterval: 5000,
+    });
+  });
 });

@@ -15,7 +15,7 @@ import {
   Status,
   Stream,
 } from '../../../../api/v1/schema';
-import { AppBarContext } from '../../../../contexts/AppBarContext';
+import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useClient, useQuery } from '../../../../hooks/api';
 import { useDAGHistorySSE } from '../../../../hooks/useDAGHistorySSE';
 import {
@@ -51,16 +51,16 @@ type Props = {
 function DAGExecutionHistory({
   fileName,
 }: Omit<Props, 'isInModal' | 'activeTab'>) {
-  const appBarContext = React.useContext(AppBarContext);
+  const remoteNode = useRemoteNode();
 
-  const historySSE = useDAGHistorySSE(fileName, !!fileName);
+  const historySSE = useDAGHistorySSE(fileName, !!fileName, remoteNode);
   // Fetch execution history data — SWR is the single source of truth, refreshed by live invalidations
   const { data, mutate } = useQuery(
     '/dags/{fileName}/dag-runs',
     {
       params: {
         query: {
-          remoteNode: appBarContext.selectedRemoteNode || 'local',
+          remoteNode,
         },
         path: {
           fileName: fileName,
@@ -114,7 +114,7 @@ function DAGHistoryTable({
   dagRuns,
   refreshHistory,
 }: HistoryTableProps) {
-  const appBarContext = React.useContext(AppBarContext);
+  const remoteNode = useRemoteNode();
   const dagContext = React.useContext(DAGContext);
   const client = useClient();
   const navigate = useNavigate();
@@ -285,7 +285,7 @@ function DAGHistoryTable({
             stepName: selectedStep.name,
           },
           query: {
-            remoteNode: appBarContext.selectedRemoteNode || 'local',
+            remoteNode,
           },
         },
         body: {

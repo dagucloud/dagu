@@ -11,8 +11,9 @@ interface DAGHistorySSEResponse {
 
 export function useDAGHistorySSE(
   fileName: string,
-  enabled: boolean = true
+  enabled: boolean = true,
+  remoteNode?: string
 ): SSEState<DAGHistorySSEResponse> {
   const endpoint = `/events/dags/${encodeURIComponent(fileName)}/dag-runs`;
-  return useSSE<DAGHistorySSEResponse>(endpoint, enabled);
+  return useSSE<DAGHistorySSEResponse>(endpoint, enabled, remoteNode);
 }

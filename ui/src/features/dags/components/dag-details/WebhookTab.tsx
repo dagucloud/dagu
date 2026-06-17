@@ -16,7 +16,7 @@ import {
   Webhook,
   WebhookOff,
 } from 'lucide-react';
-import { useCallback, useContext, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   components,
   WebhookAuthMode as WebhookAuthModeValue,
@@ -39,9 +39,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { AppBarContext } from '../../../../contexts/AppBarContext';
 import { TOKEN_KEY } from '../../../../contexts/AuthContext';
 import { useConfig } from '../../../../contexts/ConfigContext';
+import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useClient } from '../../../../hooks/api';
 import dayjs from '../../../../lib/dayjs';
 import ConfirmModal from '@/components/ui/confirm-dialog';
@@ -103,7 +103,7 @@ function toHMACAuthMode(mode: WebhookAuthMode): WebhookHMACAuthMode {
 
 function WebhookTab({ fileName }: WebhookTabProps) {
   const config = useConfig();
-  const appBarContext = useContext(AppBarContext);
+  const remoteNode = useRemoteNode();
   const client = useClient();
 
   // State
@@ -136,7 +136,6 @@ function WebhookTab({ fileName }: WebhookTabProps) {
     );
 
   // Construct webhook URL (include remoteNode if not local)
-  const remoteNode = appBarContext.selectedRemoteNode;
   const webhookUrl =
     remoteNode && remoteNode !== 'local'
       ? `${window.location.origin}/api/v1/webhooks/${encodeURIComponent(fileName)}?remoteNode=${encodeURIComponent(remoteNode)}`
@@ -152,8 +151,8 @@ function WebhookTab({ fileName }: WebhookTabProps) {
   }, []);
 
   const getRemoteNodeParam = useCallback(() => {
-    return appBarContext.selectedRemoteNode || 'local';
-  }, [appBarContext.selectedRemoteNode]);
+    return remoteNode || 'local';
+  }, [remoteNode]);
 
   // Fetch webhook
   const fetchWebhook = useCallback(async () => {
@@ -985,7 +984,9 @@ await fetch('${webhookUrl}', {
                 webhook.forward_headers
               </code>{' '}
               in the DAG YAML. It can also be inherited from{' '}
-              <code className="bg-accent px-1 rounded-md border">base.yaml</code>{' '}
+              <code className="bg-accent px-1 rounded-md border">
+                base.yaml
+              </code>{' '}
               to expose selected request headers as{' '}
               <code className="bg-accent px-1 rounded-md border">
                 WEBHOOK_HEADERS

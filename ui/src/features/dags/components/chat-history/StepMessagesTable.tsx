@@ -1,11 +1,11 @@
 import { ChatMessageRole } from '@/api/v1/schema';
 import { Markdown } from '@/components/ui/markdown';
-import { AppBarContext } from '@/contexts/AppBarContext';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
 import { cn } from '@/lib/utils';
 import { Check, ChevronRight, Copy, Loader2, Wrench } from 'lucide-react';
-import { useContext, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ToolDefinitionCard } from './ToolDefinitionCard';
 
 interface StepMessagesTableProps {
@@ -31,11 +31,19 @@ const roleConfig: Record<string, { label: string; borderColor: string }> = {
 
 const defaultRoleConfig = { label: 'MSG', borderColor: 'border-l-gray-500' };
 
-function getMessagePreview(msg: { content: string; toolCalls?: { name: string }[] }) {
+function getMessagePreview(msg: {
+  content: string;
+  toolCalls?: { name: string }[];
+}) {
   if (msg.content) {
     const preview = msg.content.slice(0, 80);
     const suffix = msg.content.length > 80 ? '...' : '';
-    return <>{preview}{suffix}</>;
+    return (
+      <>
+        {preview}
+        {suffix}
+      </>
+    );
   }
   if (msg.toolCalls && msg.toolCalls.length > 0) {
     return (
@@ -56,7 +64,7 @@ export function StepMessagesTable({
   rootDagName,
   rootDagRunId,
 }: StepMessagesTableProps) {
-  const appBarContext = useContext(AppBarContext);
+  const remoteNode = useRemoteNode();
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
   // Determine if this is a sub-DAG run
@@ -70,7 +78,7 @@ export function StepMessagesTable({
     whenEnabled(!isSubDAGRun, {
       params: {
         path: { name: effectiveName, dagRunId: effectiveRunId, stepName },
-        query: { remoteNode: appBarContext.selectedRemoteNode || 'local' },
+        query: { remoteNode },
       },
     }),
     {
@@ -90,7 +98,7 @@ export function StepMessagesTable({
           subDAGRunId: subDAGRunId || '',
           stepName,
         },
-        query: { remoteNode: appBarContext.selectedRemoteNode || 'local' },
+        query: { remoteNode },
       },
     }),
     {
@@ -242,18 +250,27 @@ export function StepMessagesTable({
                       <Markdown content={msg.content} />
                     ) : msg.toolCalls && msg.toolCalls.length > 0 ? (
                       <div className="space-y-1">
-                        <span className="text-xs text-purple-500 font-medium">Tool Calls:</span>
+                        <span className="text-xs text-purple-500 font-medium">
+                          Tool Calls:
+                        </span>
                         {msg.toolCalls.map((tc, idx) => (
-                          <div key={idx} className="text-xs font-mono bg-muted/50 p-2 rounded">
+                          <div
+                            key={idx}
+                            className="text-xs font-mono bg-muted/50 p-2 rounded"
+                          >
                             <span className="text-purple-500">{tc.name}</span>
                             {tc.arguments && (
-                              <span className="text-muted-foreground ml-1">({tc.arguments})</span>
+                              <span className="text-muted-foreground ml-1">
+                                ({tc.arguments})
+                              </span>
                             )}
                           </div>
                         ))}
                       </div>
                     ) : (
-                      <span className="text-xs text-muted-foreground italic">(empty message)</span>
+                      <span className="text-xs text-muted-foreground italic">
+                        (empty message)
+                      </span>
                     )}
                   </div>
                   <div className="shrink-0 flex flex-col items-end gap-1">

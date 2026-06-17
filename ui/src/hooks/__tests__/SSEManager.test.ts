@@ -59,6 +59,10 @@ function lastState(
   return states[states.length - 1];
 }
 
+function lastEventSource(): MockEventSource | undefined {
+  return MockEventSource.instances[MockEventSource.instances.length - 1];
+}
+
 describe('endpointToTopic', () => {
   it('maps every supported legacy SSE endpoint to a canonical topic', () => {
     const cases: Array<[string, string]> = [
@@ -387,6 +391,70 @@ describe('SSEManager', () => {
 
     unsubscribeSecondary();
     unsubscribePrimary();
+  });
+
+  it('enables fallback only after the retry threshold is reached', async () => {
+    const manager = new SSEManager();
+    const states: SSEConnectionState[] = [];
+
+    const unsubscribe = manager.subscribeTopic(
+      'dag:test.yaml',
+      'local',
+      '/api/v1',
+      {
+        onData: () => undefined,
+        onStateChange: (state) => states.push(snapshotState(state)),
+      }
+    );
+
+    const retryDelays = [1000, 2000, 4000, 8000];
+    for (const delay of retryDelays) {
+      const eventSource = lastEventSource();
+      if (!eventSource) {
+        throw new Error('expected EventSource instance');
+      }
+      eventSource.onerror?.();
+      expect(lastState(states)).toMatchObject({
+        isConnected: false,
+        isConnecting: true,
+        shouldUseFallback: false,
+      });
+      await vi.advanceTimersByTimeAsync(delay);
+    }
+
+    const thresholdEventSource = lastEventSource();
+    if (!thresholdEventSource) {
+      throw new Error('expected EventSource instance');
+    }
+    thresholdEventSource.onerror?.();
+    expect(lastState(states)).toMatchObject({
+      isConnected: false,
+      isConnecting: false,
+      shouldUseFallback: true,
+    });
+
+    await vi.advanceTimersByTimeAsync(16000);
+    expect(lastState(states)).toMatchObject({
+      isConnected: false,
+      isConnecting: true,
+      shouldUseFallback: true,
+    });
+
+    const recoveredEventSource = lastEventSource();
+    if (!recoveredEventSource) {
+      throw new Error('expected EventSource instance');
+    }
+    recoveredEventSource.emit('control', {
+      sessionID: 'session-recovered',
+      subscribed: ['dag:test.yaml'],
+    });
+    expect(lastState(states)).toMatchObject({
+      isConnected: true,
+      isConnecting: false,
+      shouldUseFallback: false,
+    });
+
+    unsubscribe();
   });
 
   it('does not open a builtin-auth stream when the local token is expired', () => {

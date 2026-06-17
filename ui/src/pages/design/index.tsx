@@ -119,7 +119,11 @@ function WorkflowDesignPage() {
   const config = useConfig();
   const client = useClient();
   const appBarContext = React.useContext(AppBarContext);
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
+  const [searchParams, setSearchParams] = useSearchParams();
+  const remoteNode =
+    searchParams.get('remoteNode') ||
+    appBarContext.selectedRemoteNode ||
+    'local';
   const workspaceSelection = appBarContext.workspaceSelection;
   const selectedWorkspace = workspaceNameForSelection(workspaceSelection);
   const workspaceQuery = React.useMemo(
@@ -133,7 +137,6 @@ function WorkflowDesignPage() {
   const { setHasUnsavedChanges } = useUnsavedChanges();
   const { showError } = useErrorModal();
   const { showToast } = useSimpleToast();
-  const [searchParams, setSearchParams] = useSearchParams();
   const selectedDagFile = searchParams.get('dag') || '';
   const selectedStepName = searchParams.get('step') || '';
   const {

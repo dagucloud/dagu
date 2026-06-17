@@ -12,8 +12,9 @@ export function useStepLogSSE(
   name: string,
   dagRunId: string,
   stepName: string,
-  enabled: boolean = true
+  enabled: boolean = true,
+  remoteNode?: string
 ): SSEState<StepLogSSEResponse> {
   const endpoint = `/events/dag-runs/${encodeURIComponent(name)}/${encodeURIComponent(dagRunId)}/logs/steps/${encodeURIComponent(stepName)}`;
-  return useSSE<StepLogSSEResponse>(endpoint, enabled);
+  return useSSE<StepLogSSEResponse>(endpoint, enabled, remoteNode);
 }
