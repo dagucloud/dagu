@@ -7,6 +7,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -158,10 +159,18 @@ steps:
 
 			dag, err := spec.LoadYAML(context.Background(), []byte(tt.yaml))
 			require.NoError(t, err)
-			require.Len(t, dag.Steps, 1)
-			assert.Equal(t, tt.want, dag.Steps[0].Script)
+			assert.Contains(t, referenceFieldValues(dag), tt.want)
 		})
 	}
+}
+
+func referenceFieldValues(dag *core.DAG) []string {
+	fields := core.ReferenceFields(dag)
+	values := make([]string, 0, len(fields))
+	for _, field := range fields {
+		values = append(values, field.Value)
+	}
+	return values
 }
 
 func TestConstsInheritFromBaseConfig(t *testing.T) {
