@@ -1,6 +1,6 @@
 # Spec: YAML Schema
 
-## Implementation Status
+## Status
 
 Implemented.
 

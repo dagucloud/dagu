@@ -1,6 +1,6 @@
 # Spec: Project
 
-## Implementation Status
+## Status
 
 Not implemented. This spec describes target conformance behavior and must not be
 treated as current product behavior.

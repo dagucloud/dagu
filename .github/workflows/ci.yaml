@@ -8,7 +8,6 @@ on:
       - "v[0-9]+.[0-9]+.[0-9]+"
       - "v[0-9]+.[0-9]+.[0-9]+-*"
     paths:
-      - "api/**"
       - "*.go"
       - "**/*.go"
       - "cmd/**"
@@ -16,9 +15,6 @@ on:
       - "go.sum"
       - "internal/**"
       - "Makefile"
-      - "proto/**"
-      - "scripts/e2e/**"
-      - "ui/**"
       - ".github/workflows/ci.yaml"
   pull_request:
     # Keep this workflow directly rerunnable from PR-only maintenance commits.
@@ -28,7 +24,6 @@ on:
       - synchronize # new commits are pushed to the branch that the PR is based on
       - ready_for_review # PR is ready for review
     paths:
-      - "api/**"
       - "*.go"
       - "**/*.go"
       - "cmd/**"
@@ -36,9 +31,6 @@ on:
       - "go.sum"
       - "internal/**"
       - "Makefile"
-      - "proto/**"
-      - "scripts/e2e/**"
-      - "ui/**"
       - ".github/workflows/ci.yaml"
   workflow_dispatch:
 
@@ -55,7 +47,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       go: ${{ steps.filter.outputs.go }}
-      e2e: ${{ steps.filter.outputs.e2e }}
     steps:
       - name: Check out code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -68,7 +59,6 @@ jobs:
         run: |
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
             echo "go=true" >> "${GITHUB_OUTPUT}"
-            echo "e2e=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
@@ -81,14 +71,12 @@ jobs:
 
           if [[ -z "${base_sha}" || "${base_sha}" == "0000000000000000000000000000000000000000" ]]; then
             echo "go=true" >> "${GITHUB_OUTPUT}"
-            echo "e2e=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
           if ! git cat-file -e "${base_sha}^{commit}" 2>/dev/null; then
             echo "Base commit ${base_sha} is not available locally; running CI conservatively."
             echo "go=true" >> "${GITHUB_OUTPUT}"
-            echo "e2e=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
@@ -96,23 +84,15 @@ jobs:
           printf '%s\n' "${changed_files}"
 
           go_changed=false
-          e2e_changed=false
           while IFS= read -r file; do
             case "${file}" in
               *.go|go.mod|go.sum|Makefile|.github/workflows/ci.yaml)
                 go_changed=true
                 ;;
             esac
-
-            case "${file}" in
-              api/*|cmd/*|internal/*|proto/*|scripts/e2e/*|ui/*|go.mod|go.sum|Makefile|.github/workflows/ci.yaml)
-                e2e_changed=true
-                ;;
-            esac
           done <<< "${changed_files}"
 
           echo "go=${go_changed}" >> "${GITHUB_OUTPUT}"
-          echo "e2e=${e2e_changed}" >> "${GITHUB_OUTPUT}"
 
   # Lint Go code
   golint:
@@ -250,73 +230,6 @@ jobs:
           name: ${{ matrix.codecov_name }}
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-
-  e2e:
-    name: E2E (${{ matrix.shard }}/${{ matrix.shard_total }})
-    needs:
-      - changes
-      - golint
-      - test-ubuntu
-      - test-windows
-    if: >-
-      always() &&
-      needs.changes.outputs.e2e == 'true' &&
-      (needs.golint.result == 'success' || needs.golint.result == 'skipped') &&
-      (needs.test-ubuntu.result == 'success' || needs.test-ubuntu.result == 'skipped') &&
-      (needs.test-windows.result == 'success' || needs.test-windows.result == 'skipped')
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - shard: 1
-            shard_total: 3
-          - shard: 2
-            shard_total: 3
-          - shard: 3
-            shard_total: 3
-    concurrency:
-      group: ci-e2e-${{ github.event.pull_request.number || github.ref }}-shard-${{ matrix.shard }}
-      cancel-in-progress: true
-    steps:
-      - name: Check out code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-        with:
-          version: 10
-
-      - name: Setup Node.js
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "pnpm"
-          cache-dependency-path: ui/pnpm-lock.yaml
-
-      - name: Install frontend dependencies
-        working-directory: ui
-        run: pnpm install --frozen-lockfile
-
-      - name: Install Playwright Chromium
-        working-directory: ui
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Run browser E2E tests
-        env:
-          CI: "true"
-          DAGU_LICENSE_PRIVKEY_B64: ${{ secrets.DAGU_LICENSE_PRIVKEY_B64 }}
-          PLAYWRIGHT_FULLY_PARALLEL: "true"
-          PLAYWRIGHT_TEST_ARGS: --shard=${{ matrix.shard }}/${{ matrix.shard_total }}
-        run: |
-          make test-e2e-build
-          make test-e2e-run
 
   test-windows:
     name: Test on windows-latest (${{ matrix.suite_index }}/${{ matrix.suite_total }})

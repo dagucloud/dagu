@@ -1,6 +1,6 @@
 # Spec: Step Run Script
 
-## Implementation Status
+## Status
 
 Partially implemented. This spec defines script-form `run` behavior.
 
