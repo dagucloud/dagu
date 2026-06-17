@@ -98,7 +98,9 @@ function ValueReferenceNoticesDialog({
               key={`${notice.fieldPath ?? ''}:${notice.token ?? ''}:${index}`}
               className="rounded-md border border-border bg-muted/30 p-3 text-sm"
             >
-              <p className="text-foreground">{notice.message}</p>
+              <p className="whitespace-normal break-words text-foreground">
+                {notice.message}
+              </p>
               <dl className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-[5rem_1fr]">
                 {notice.fieldPath && (
                   <>

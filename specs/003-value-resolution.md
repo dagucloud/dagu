@@ -131,7 +131,7 @@ Dagu must keep the original reference text in the field value.
 
 The notice must identify the owning field and the original reference text.
 The notice must not be shown as a normal validation warning.
-Current inspection surfaces are `dagu validate` and the Web UI spec editor.
+Current inspection surfaces are `dagu validate`, the DAG spec inspection API response, and the Web UI spec editor.
 Normal run execution must stay silent.
 Dagu must not write these notices to run logs, workflow events, status files, history files, artifacts, or DAG-run detail responses.
 Other specs that mention passive notices follow this inspection-only behavior.

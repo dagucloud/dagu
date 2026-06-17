@@ -31,10 +31,9 @@ func resolveBindings(
 ) (string, map[string]string, error) {
 	protected := make(map[string]string)
 	seed := input
-	resolved, err := walkBindings(input, func(_ string, path string) (string, error) {
+	resolved, err := walkBindings(input, func(token string, path string) (string, error) {
 		value, err := bindingValue(ctx, path, scope, true)
 		if err != nil {
-			token := "${" + path + "}"
 			addUnresolvedReferenceNotice(notices, field, token, err)
 			placeholder := uniqueToken(seed, "__DAGU_UNRESOLVED_REF__")
 			seed += placeholder

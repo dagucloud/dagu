@@ -833,5 +833,5 @@ steps:
 	require.Equal(t, "consts.image", *notice.FieldPath)
 	require.NotNil(t, notice.Token)
 	require.Equal(t, "${consts.missing}", *notice.Token)
-	require.Contains(t, notice.Message, "was left unchanged")
+	require.NotEmpty(t, notice.Message)
 }

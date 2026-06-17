@@ -439,6 +439,7 @@ function DAGStatus({
           <div className="min-w-0 flex-1 overflow-x-auto">
             <Tabs className="min-w-max whitespace-nowrap">
               <Tab
+                aria-label="Status"
                 isActive={activeTab === 'status'}
                 onClick={() => setActiveTab('status')}
                 className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
@@ -448,6 +449,7 @@ function DAGStatus({
               </Tab>
               {hasWaitingSteps && (
                 <Tab
+                  aria-label="Approval"
                   isActive={activeTab === 'approval'}
                   onClick={() => setActiveTab('approval')}
                   className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
@@ -461,6 +463,7 @@ function DAGStatus({
               )}
               {showTimeline && (
                 <Tab
+                  aria-label="Timeline"
                   isActive={activeTab === 'timeline'}
                   onClick={() => setActiveTab('timeline')}
                   className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
@@ -470,6 +473,7 @@ function DAGStatus({
                 </Tab>
               )}
               <Tab
+                aria-label="Outputs"
                 isActive={activeTab === 'outputs'}
                 onClick={() => setActiveTab('outputs')}
                 className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
@@ -479,6 +483,7 @@ function DAGStatus({
               </Tab>
               {hasArtifacts && (
                 <Tab
+                  aria-label="Artifacts"
                   isActive={activeTab === 'artifacts'}
                   onClick={() => setActiveTab('artifacts')}
                   className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
@@ -489,6 +494,7 @@ function DAGStatus({
               )}
               {hasChatSteps && (
                 <Tab
+                  aria-label="Chat"
                   isActive={activeTab === 'chat'}
                   onClick={() => setActiveTab('chat')}
                   className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
@@ -498,6 +504,7 @@ function DAGStatus({
                 </Tab>
               )}
               <Tab
+                aria-label="Spec"
                 isActive={activeTab === 'spec'}
                 onClick={() => setActiveTab('spec')}
                 className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"

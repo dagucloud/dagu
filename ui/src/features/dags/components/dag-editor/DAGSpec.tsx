@@ -156,7 +156,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
       : {
           dag: next.dag,
           errors: next.errors ?? [],
-          valueReferenceNotices: [],
+          valueReferenceNotices: data?.valueReferenceNotices ?? [],
           spec: next.spec,
         }
   );
