@@ -12923,11 +12923,6 @@ components:
               description: "List of preconditions that must be met before the DAG-run can start"
               items:
                 $ref: "#/components/schemas/Condition"
-            diagnostics:
-              type: array
-              description: "Passive diagnostics recorded during DAG-run evaluation. These diagnostics do not change the DAG-run status."
-              items:
-                $ref: "#/components/schemas/Diagnostic"
             specFromFile:
               type: boolean
               description: "Whether this DAG-run still has a usable source file on disk, so reschedule can load the current spec from that file instead of the stored historical YAML snapshot."
@@ -12939,37 +12934,6 @@ components:
             - rootDAGRunId
             - log
             - nodes
-
-    DiagnosticLevel:
-      type: string
-      description: "Severity level for a diagnostic."
-      enum:
-        - "error"
-        - "warning"
-        - "notice"
-
-    Diagnostic:
-      type: object
-      description: "A structured diagnostic recorded during validation or execution."
-      properties:
-        level:
-          $ref: "#/components/schemas/DiagnosticLevel"
-        code:
-          type: string
-          description: "Stable machine-readable diagnostic code."
-        field:
-          type: string
-          description: "DAG field path that owns the diagnostic."
-        token:
-          type: string
-          description: "Original value-reference token, when the diagnostic belongs to one token."
-        message:
-          type: string
-          description: "Human-readable diagnostic message."
-      required:
-        - level
-        - code
-        - message
 
     ArtifactNodeType:
       type: string

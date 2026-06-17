@@ -92,6 +92,7 @@ func evaluatePairs(ctx BuildContext, pairs []pair) (map[string]string, error) {
 		if evalCtx == nil {
 			evalCtx = context.Background()
 		}
+		evalCtx = cmnvalue.WithDiagnosticSink(evalCtx, ctx.diagnostics)
 	}
 	var consts map[string]any
 	var params cmnvalue.Values

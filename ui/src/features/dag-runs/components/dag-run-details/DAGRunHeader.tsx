@@ -17,7 +17,6 @@ import dayjs from '../../../../lib/dayjs';
 import StatusChip from '@/components/ui/status-chip';
 import AutoRetryBadge from '../common/AutoRetryBadge';
 import { DAGRunActions } from '../common';
-import DAGRunDiagnostics from './DAGRunDiagnostics';
 
 interface DAGRunHeaderProps {
   dagRun: components['schemas']['DAGRunDetails'];
@@ -268,8 +267,6 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({ dagRun, refreshFn }) => {
           </div>
         </div>
       )}
-
-      <DAGRunDiagnostics diagnostics={dagRun.diagnostics} />
     </div>
   );
 };

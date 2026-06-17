@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/internal/core/spec"
-	"github.com/dagucloud/dagu/internal/diagnostic"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,10 +33,9 @@ steps:
 		"replicas": uint64(3),
 		"endpoint": "https://example.test/api/true/3",
 	}, dag.Consts)
-	require.Empty(t, dag.Diagnostics)
 }
 
-func TestConstsLoadDiagnosticsForUnavailableReferences(t *testing.T) {
+func TestConstsPreservesUnavailableReferences(t *testing.T) {
 	t.Parallel()
 
 	dag, err := spec.LoadYAML(context.Background(), []byte(`
@@ -63,28 +61,9 @@ steps:
 	assert.Equal(t, "${env.VALUE_RESOLUTION_CONST_LOAD_ENV}", dag.Consts["from_env"])
 	assert.Equal(t, "${params.name}", dag.Consts["from_params"])
 	assert.Equal(t, "${steps.build.outputs.image}", dag.Consts["from_step"])
-
-	want := map[string]string{
-		"consts.self":        "${consts.self}",
-		"consts.later":       "${consts.after}",
-		"consts.unknown":     "${consts.missing}",
-		"consts.from_env":    "${env.VALUE_RESOLUTION_CONST_LOAD_ENV}",
-		"consts.from_params": "${params.name}",
-		"consts.from_step":   "${steps.build.outputs.image}",
-	}
-	require.Len(t, dag.Diagnostics, len(want))
-	for _, got := range dag.Diagnostics {
-		require.Equal(t, diagnostic.LevelNotice, got.Level)
-		require.Equal(t, diagnostic.CodeValueReferenceUnresolved, got.Code)
-		require.Equal(t, want[got.Field], got.Token)
-		assert.Contains(t, got.Message, got.Token)
-		assert.Contains(t, got.Message, got.Field)
-		delete(want, got.Field)
-	}
-	assert.Empty(t, want)
 }
 
-func TestConstsLoadDiagnosticsTreatUnsupportedSyntaxAsOrdinaryContent(t *testing.T) {
+func TestConstsTreatUnsupportedSyntaxAsOrdinaryContent(t *testing.T) {
 	t.Parallel()
 
 	dag, err := spec.LoadYAML(context.Background(), []byte(`
@@ -101,7 +80,6 @@ steps:
 	assert.Equal(t, "$consts.service", dag.Consts["shorthand"])
 	assert.Equal(t, "${params...}", dag.Consts["malformed"])
 	assert.Equal(t, "${consts.service.name}", dag.Consts["dotted"])
-	require.Empty(t, dag.Diagnostics)
 	require.Empty(t, dag.BuildWarnings)
 }
 

@@ -22,7 +22,6 @@ import (
 	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/spec/types"
-	"github.com/dagucloud/dagu/internal/diagnostic"
 	"github.com/go-viper/mapstructure/v2"
 )
 
@@ -667,7 +666,6 @@ type dagBuildState struct {
 }
 
 func newDAGBuildState(ctx BuildContext, spec *dag) *dagBuildState {
-	ctx.diagnostics = &diagnostic.Collector{}
 	result := &core.DAG{
 		Location: ctx.file,
 	}
@@ -720,13 +718,6 @@ func (s *dagBuildState) composeInheritedContext() {
 		return
 	}
 	s.result = merged
-}
-
-func (s *dagBuildState) collectDiagnostics() {
-	if s.ctx.diagnostics == nil {
-		return
-	}
-	s.result.Diagnostics = diagnostic.AppendUnique(nil, s.ctx.diagnostics.Diagnostics()...)
 }
 
 func (s *dagBuildState) collectWarnings() {
@@ -827,7 +818,6 @@ func (d *dag) build(ctx BuildContext) (*core.DAG, error) {
 	state.validateSpecShape()
 	state.prepareParamEnvStage()
 	state.runFieldStages()
-	state.collectDiagnostics()
 	state.composeInheritedContext()
 	state.markEnvEvaluated()
 	state.collectWarnings()
@@ -843,12 +833,9 @@ func composeBuildDAGContext(base, current *core.DAG, currentSpec *dag) (*core.DA
 	}
 
 	effective := base.Clone()
-	baseDiagnostics := append([]diagnostic.Diagnostic(nil), base.Diagnostics...)
-	currentDiagnostics := append([]diagnostic.Diagnostic(nil), current.Diagnostics...)
 	if err := merge(effective, current); err != nil {
 		return nil, err
 	}
-	effective.Diagnostics = diagnostic.AppendUnique(baseDiagnostics, currentDiagnostics...)
 	applyHistoryRetentionOverride(effective, currentSpec.HistRetentionDays != nil, currentSpec.HistRetentionRuns != nil)
 
 	return effective, nil

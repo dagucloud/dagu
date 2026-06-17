@@ -5012,29 +5012,10 @@ export interface components {
             onAbort?: components["schemas"]["Node"];
             /** @description List of preconditions that must be met before the DAG-run can start */
             preconditions?: components["schemas"]["Condition"][];
-            /** @description Passive diagnostics recorded during DAG-run evaluation. These diagnostics do not change the DAG-run status. */
-            diagnostics?: components["schemas"]["Diagnostic"][];
             /** @description Whether this DAG-run still has a usable source file on disk, so reschedule can load the current spec from that file instead of the stored historical YAML snapshot. */
             specFromFile?: boolean;
             /** @description File name of the source DAG definition, derived from the DAG-run's source file path. Only set when the source file still exists on disk. Can be used to navigate to the DAG definition page. */
             sourceFileName?: components["schemas"]["DAGFileName"];
-        };
-        /**
-         * @description Severity level for a diagnostic.
-         * @enum {string}
-         */
-        DiagnosticLevel: DiagnosticLevel;
-        /** @description A structured diagnostic recorded during validation or execution. */
-        Diagnostic: {
-            level: components["schemas"]["DiagnosticLevel"];
-            /** @description Stable machine-readable diagnostic code. */
-            code: string;
-            /** @description DAG field path that owns the diagnostic. */
-            field?: string;
-            /** @description Original value-reference token, when the diagnostic belongs to one token. */
-            token?: string;
-            /** @description Human-readable diagnostic message. */
-            message: string;
         };
         /**
          * @description Artifact tree node type
@@ -19577,11 +19558,6 @@ export enum ParamDefType {
     integer = "integer",
     number = "number",
     boolean = "boolean"
-}
-export enum DiagnosticLevel {
-    error = "error",
-    warning = "warning",
-    notice = "notice"
 }
 export enum ArtifactNodeType {
     directory = "directory",

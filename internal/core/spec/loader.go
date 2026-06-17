@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/spec/types"
+	"github.com/dagucloud/dagu/internal/diagnostic"
 	"github.com/dagucloud/dagu/internal/workspace"
 	"github.com/go-viper/mapstructure/v2"
 
@@ -43,6 +44,12 @@ type LoadOptions struct {
 	dagsDir                string            // Directory containing the core.DAG files.
 	defaultWorkingDir      string            // Default working directory for DAGs without explicit workingDir.
 	buildEnv               map[string]string // Pre-populated env vars for build (used for retry with dotenv).
+}
+
+// LoadResult contains a loaded DAG and transient diagnostics produced by that load operation.
+type LoadResult struct {
+	DAG         *core.DAG
+	Diagnostics []diagnostic.Diagnostic
 }
 
 // LoadOption is a function type for setting LoadOptions.
@@ -187,11 +194,31 @@ func Load(ctx context.Context, nameOrPath string, opts ...LoadOption) (*core.DAG
 	if nameOrPath == "" {
 		return nil, ErrNameOrPathRequired
 	}
+	buildContext := loadBuildContext(ctx, opts...)
+	return loadDAG(buildContext, nameOrPath)
+}
+
+// LoadWithResult loads a DAG and returns transient diagnostics produced by that load operation.
+func LoadWithResult(ctx context.Context, nameOrPath string, opts ...LoadOption) (*LoadResult, error) {
+	if nameOrPath == "" {
+		return nil, ErrNameOrPathRequired
+	}
+	var collector diagnostic.Collector
+	buildContext := loadBuildContext(ctx, opts...)
+	buildContext.diagnostics = &collector
+	dag, err := loadDAG(buildContext, nameOrPath)
+	if err != nil {
+		return nil, err
+	}
+	return &LoadResult{DAG: dag, Diagnostics: collector.Diagnostics()}, nil
+}
+
+func loadBuildContext(ctx context.Context, opts ...LoadOption) BuildContext {
 	var options LoadOptions
 	for _, opt := range opts {
 		opt(&options)
 	}
-	buildContext := BuildContext{
+	return BuildContext{
 		ctx: ctx,
 		opts: BuildOpts{
 			Base:                   options.baseConfig,
@@ -206,7 +233,6 @@ func Load(ctx context.Context, nameOrPath string, opts ...LoadOption) (*core.DAG
 			BuildEnv:               options.buildEnv,
 		},
 	}
-	return loadDAG(buildContext, nameOrPath)
 }
 
 // LoadYAML loads the core.DAG from the given YAML data with the specified options.
@@ -229,14 +255,52 @@ func LoadYAML(ctx context.Context, data []byte, opts ...LoadOption) (*core.DAG, 
 	})
 }
 
+// LoadYAMLWithResult loads a DAG from YAML and returns transient diagnostics produced by that load operation.
+func LoadYAMLWithResult(ctx context.Context, data []byte, opts ...LoadOption) (*LoadResult, error) {
+	var collector diagnostic.Collector
+	var options LoadOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+	dag, err := loadYAMLWithOptsAndDiagnostics(ctx, data, BuildOpts{
+		Base:                   options.baseConfig,
+		BaseConfigContent:      options.baseConfigContent,
+		WorkspaceBaseConfigDir: options.workspaceBaseConfigDir,
+		Parameters:             options.params,
+		ParametersList:         options.paramsList,
+		Name:                   options.name,
+		DAGsDir:                options.dagsDir,
+		DefaultWorkingDir:      options.defaultWorkingDir,
+		Flags:                  options.flags,
+		BuildEnv:               options.buildEnv,
+	}, &collector)
+	if err != nil {
+		return nil, err
+	}
+	return &LoadResult{DAG: dag, Diagnostics: collector.Diagnostics()}, nil
+}
+
 // LoadYAMLWithOpts loads the core.DAG configuration from YAML data.
 func LoadYAMLWithOpts(ctx context.Context, data []byte, opts BuildOpts) (*core.DAG, error) {
+	return loadYAMLWithOptsAndDiagnostics(ctx, data, opts, nil)
+}
+
+func loadYAMLWithOptsAndDiagnostics(
+	ctx context.Context,
+	data []byte,
+	opts BuildOpts,
+	diagnostics *diagnostic.Collector,
+) (*core.DAG, error) {
 	baseDef, baseRaw, err := loadBaseDefinition(opts)
 	if err != nil {
 		return loadYAMLFailure(opts, err)
 	}
 
-	dags, err := loadDAGsFromData(BuildContext{ctx: ctx, opts: opts}, data, "", baseDef, baseRaw)
+	buildContext := BuildContext{ctx: ctx, opts: opts}
+	if diagnostics != nil {
+		buildContext.diagnostics = diagnostics
+	}
+	dags, err := loadDAGsFromData(buildContext, data, "", baseDef, baseRaw)
 	if err != nil {
 		return loadYAMLFailure(opts, err)
 	}

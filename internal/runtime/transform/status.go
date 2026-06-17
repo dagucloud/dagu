@@ -8,7 +8,6 @@ import (
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/diagnostic"
 	"github.com/dagucloud/dagu/internal/runtime"
 )
 
@@ -217,13 +216,6 @@ func WithRuntimeProfile(name, resolvedAt string, entries []exec.RuntimeProfileEn
 		s.ProfileName = name
 		s.ProfileResolvedAt = resolvedAt
 		s.ProfileEntries = append([]exec.RuntimeProfileEntry(nil), entries...)
-	}
-}
-
-// WithDiagnostics stores passive run diagnostics.
-func WithDiagnostics(diagnostics []diagnostic.Diagnostic) StatusOption {
-	return func(s *exec.DAGRunStatus) {
-		s.Diagnostics = diagnostic.AppendUnique(nil, diagnostics...)
 	}
 }
 

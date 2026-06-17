@@ -1102,7 +1102,6 @@ func (a *Agent) Run(ctx context.Context) error {
 			logger.Error(ctx, "Failed to write outputs", tag.Error(err))
 		}
 	}
-	finishedStatus.Diagnostics = diagnostic.AppendUnique(finishedStatus.Diagnostics, a.diagnosticsSnapshot()...)
 
 	// Finalize status (after outputs are written)
 	a.writeStatus(ctx, attempt, finishedStatus)
@@ -1335,7 +1334,6 @@ func (a *Agent) Status(ctx context.Context) exec.DAGRunStatus {
 			transform.WithAutoRetryCount(a.currentAutoRetryCount()),
 			transform.WithPIDStartedAt(currentPIDStartedAt()),
 			transform.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
-			transform.WithDiagnostics(a.diagnosticsSnapshot()),
 		}
 		if source != nil {
 			statusOpts = append(statusOpts,
@@ -1382,7 +1380,6 @@ func (a *Agent) Status(ctx context.Context) exec.DAGRunStatus {
 		transform.WithAutoRetryCount(a.currentAutoRetryCount()),
 		transform.WithPIDStartedAt(currentPIDStartedAt()),
 		transform.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
-		transform.WithDiagnostics(a.diagnosticsSnapshot()),
 	}
 
 	// If the current execution is based on a persisted target, copy timing data
@@ -1411,13 +1408,6 @@ func (a *Agent) Status(ctx context.Context) exec.DAGRunStatus {
 		)
 	a.maskStatusSecrets(&status)
 	return status
-}
-
-func (a *Agent) diagnosticsSnapshot() []diagnostic.Diagnostic {
-	if a.dag == nil {
-		return a.diagnostics.Diagnostics()
-	}
-	return diagnostic.AppendUnique(a.dag.Diagnostics, a.diagnostics.Diagnostics()...)
 }
 
 func currentPIDStartedAt() int64 {

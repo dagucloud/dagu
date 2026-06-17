@@ -168,13 +168,6 @@ const (
 	CreateSecretRequestProviderTypeDaguManaged CreateSecretRequestProviderType = "dagu-managed"
 )
 
-// Defines values for DiagnosticLevel.
-const (
-	DiagnosticLevelError   DiagnosticLevel = "error"
-	DiagnosticLevelNotice  DiagnosticLevel = "notice"
-	DiagnosticLevelWarning DiagnosticLevel = "warning"
-)
-
 // Defines values for DocTreeNodeResponseType.
 const (
 	DocTreeNodeResponseTypeDirectory DocTreeNodeResponseType = "directory"
@@ -1781,9 +1774,6 @@ type DAGRunDetails struct {
 	// DagRunId Unique identifier for the DAG-run. The special value 'latest' can be used to reference the most recent DAG-run.
 	DagRunId DAGRunId `json:"dagRunId"`
 
-	// Diagnostics Passive diagnostics recorded during DAG-run evaluation. These diagnostics do not change the DAG-run status.
-	Diagnostics *[]Diagnostic `json:"diagnostics,omitempty"`
-
 	// FinishedAt RFC 3339 timestamp when the DAG-run finished
 	FinishedAt string `json:"finishedAt"`
 
@@ -2000,27 +1990,6 @@ type DAGSettings struct {
 	// UpdatedBy User ID that last updated the settings
 	UpdatedBy *string `json:"updatedBy,omitempty"`
 }
-
-// Diagnostic A structured diagnostic recorded during validation or execution.
-type Diagnostic struct {
-	// Code Stable machine-readable diagnostic code.
-	Code string `json:"code"`
-
-	// Field DAG field path that owns the diagnostic.
-	Field *string `json:"field,omitempty"`
-
-	// Level Severity level for a diagnostic.
-	Level DiagnosticLevel `json:"level"`
-
-	// Message Human-readable diagnostic message.
-	Message string `json:"message"`
-
-	// Token Original value-reference token, when the diagnostic belongs to one token.
-	Token *string `json:"token,omitempty"`
-}
-
-// DiagnosticLevel Severity level for a diagnostic.
-type DiagnosticLevel string
 
 // DocDeleteBatchFailedItem defines model for DocDeleteBatchFailedItem.
 type DocDeleteBatchFailedItem struct {
