@@ -70,9 +70,9 @@ steps:
 		})
 	})
 
-	t.Run("ValueResolutionDiagnostics", func(t *testing.T) {
+	t.Run("ValueReferenceNotices", func(t *testing.T) {
 		th.LoggingOutput.Reset()
-		dagFile := th.CreateDAGFile(t, "value_resolution_diagnostic.yaml", `
+		dagFile := th.CreateDAGFile(t, "value_resolution_notice.yaml", `
 consts:
   - image: ${consts.missing}
 steps:

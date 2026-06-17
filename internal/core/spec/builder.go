@@ -44,8 +44,8 @@ type BuildContext struct {
 	// This avoids reparsing params for Params, DefaultParams, ParamsJSON, and ParamDefs.
 	paramsState *paramsState
 
-	// diagnostics receives passive diagnostics produced while building the DAG.
-	diagnostics cmnvalue.DiagnosticSink
+	// valueReferenceNotices receives passive notices produced while building the DAG.
+	valueReferenceNotices cmnvalue.ValueReferenceNoticeSink
 }
 
 // envScopeState holds mutable state that needs to be shared across transformers.

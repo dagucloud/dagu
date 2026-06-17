@@ -480,8 +480,6 @@ func (d *DAG) Validate() error {
 		}
 	}
 
-	errs = append(errs, validateBindingReferences(d)...)
-
 	if len(errs) == 0 {
 		return nil
 	}

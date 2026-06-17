@@ -13,10 +13,10 @@ import { Info } from 'lucide-react';
 import React from 'react';
 import { components } from '../../../../api/v1/schema';
 
-type OperationDiagnostic = components['schemas']['Diagnostic'];
+type ValueReferenceNotice = components['schemas']['ValueReferenceNotice'];
 
-type DiagnosticsButtonProps = {
-  diagnostics: OperationDiagnostic[];
+type ValueReferenceNoticesButtonProps = {
+  notices: ValueReferenceNotice[];
   description: string;
   label?: string;
   size?: React.ComponentProps<typeof Button>['size'];
@@ -24,23 +24,23 @@ type DiagnosticsButtonProps = {
   className?: string;
 };
 
-export function DiagnosticsButton({
-  diagnostics,
+export function ValueReferenceNoticesButton({
+  notices,
   description,
   label = 'Notices',
   size = 'xs',
   variant = 'ghost',
   className,
-}: DiagnosticsButtonProps) {
+}: ValueReferenceNoticesButtonProps) {
   const [open, setOpen] = React.useState(false);
 
   React.useEffect(() => {
-    if (diagnostics.length === 0) {
+    if (notices.length === 0) {
       setOpen(false);
     }
-  }, [diagnostics.length]);
+  }, [notices.length]);
 
-  if (diagnostics.length === 0) {
+  if (notices.length === 0) {
     return null;
   }
 
@@ -56,28 +56,28 @@ export function DiagnosticsButton({
         <Info className="h-3.5 w-3.5" />
         {label}
         <span className="ml-0.5 rounded-sm bg-muted px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
-          {diagnostics.length}
+          {notices.length}
         </span>
       </Button>
-      <DiagnosticsDialog
+      <ValueReferenceNoticesDialog
         open={open}
         onOpenChange={setOpen}
-        diagnostics={diagnostics}
+        notices={notices}
         description={description}
       />
     </>
   );
 }
 
-function DiagnosticsDialog({
+function ValueReferenceNoticesDialog({
   open,
   onOpenChange,
-  diagnostics,
+  notices,
   description,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  diagnostics: OperationDiagnostic[];
+  notices: ValueReferenceNotice[];
   description: string;
 }) {
   return (
@@ -86,37 +86,33 @@ function DiagnosticsDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             <Info className="h-4 w-4 text-muted-foreground" />
-            Diagnostics
+            Value Reference Notices
           </DialogTitle>
           <DialogDescription className="sr-only">
             {description}
           </DialogDescription>
         </DialogHeader>
         <div className="max-h-[60vh] space-y-3 overflow-y-auto">
-          {diagnostics.map((diagnostic, index) => (
+          {notices.map((notice, index) => (
             <div
-              key={`${diagnostic.kind}:${diagnostic.code}:${diagnostic.location?.fieldPath ?? ''}:${index}`}
+              key={`${notice.fieldPath ?? ''}:${notice.token ?? ''}:${index}`}
               className="rounded-md border border-border bg-muted/30 p-3 text-sm"
             >
-              <p className="text-foreground">{diagnostic.message}</p>
+              <p className="text-foreground">{notice.message}</p>
               <dl className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-[5rem_1fr]">
-                <dt>Code</dt>
-                <dd className="min-w-0 break-all font-mono">
-                  {diagnostic.kind}.{diagnostic.code}
-                </dd>
-                {diagnostic.location?.fieldPath && (
+                {notice.fieldPath && (
                   <>
                     <dt>Field</dt>
                     <dd className="min-w-0 break-all font-mono">
-                      {diagnostic.location.fieldPath}
+                      {notice.fieldPath}
                     </dd>
                   </>
                 )}
-                {diagnostic.attributes?.token && (
+                {notice.token && (
                   <>
                     <dt>Reference</dt>
                     <dd className="min-w-0 break-all font-mono">
-                      {diagnostic.attributes.token}
+                      {notice.token}
                     </dd>
                   </>
                 )}

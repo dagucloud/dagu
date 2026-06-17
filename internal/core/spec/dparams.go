@@ -151,10 +151,7 @@ func finalizeDAGParamPlan(plan *dagParamPlan) error {
 	if plan == nil {
 		return nil
 	}
-	if err := validateParamReferenceNames(plan.paramDefs); err != nil {
-		return err
-	}
-	return validateParamEvalReferences(plan)
+	return validateParamReferenceNames(plan.paramDefs)
 }
 
 func validateParamReferenceNames(defs []core.ParamDef) error {
@@ -173,29 +170,6 @@ func validateParamReferenceNames(defs []core.ParamDef) error {
 		)
 	}
 	return nil
-}
-
-func validateParamEvalReferences(plan *dagParamPlan) error {
-	params := paramDeclarationsForPlan(plan)
-	resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{Params: params}, cmnvalue.RuntimeScope{})
-	for _, entry := range plan.entries {
-		eval := strings.TrimSpace(entry.Eval)
-		if eval == "" {
-			continue
-		}
-		if err := resolver.Validate(eval, cmnvalue.DynamicParamEvalField("params")); err != nil {
-			return core.NewValidationError("params", entry.Eval, err)
-		}
-	}
-	return nil
-}
-
-func validateNoDaguReferencesInParamLiteral(field, value string) error {
-	if !strings.Contains(value, "${") {
-		return nil
-	}
-	resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{}, cmnvalue.RuntimeScope{})
-	return resolver.Validate(value, cmnvalue.StaticValidationField(field))
 }
 
 func paramDeclarationsForPlan(plan *dagParamPlan) cmnvalue.Values {

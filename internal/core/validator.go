@@ -9,8 +9,6 @@ import (
 	"regexp"
 	"strings"
 	"sync"
-
-	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 )
 
 // Constants for validation limits.
@@ -87,7 +85,6 @@ func ValidateSteps(dag *DAG) error {
 	resolveStepDependencies(dag)
 	validateDependenciesExist(dag, stepNames, &errs)
 	validateApprovalRewindTargets(dag, stepNames, &errs)
-	errs = append(errs, validateBindingReferences(dag)...)
 
 	for _, step := range dag.Steps {
 		errs = append(errs, validateStep(step)...)
@@ -95,22 +92,6 @@ func ValidateSteps(dag *DAG) error {
 
 	if len(errs) == 0 {
 		return nil
-	}
-	return errs
-}
-
-func validateBindingReferences(dag *DAG) ErrorList {
-	var errs ErrorList
-	scope := cmnvalue.StaticScope{Consts: cmnvalue.Values(dag.Consts), Params: dag.ParamDeclarations()}
-	resolver := cmnvalue.NewResolver(scope, cmnvalue.RuntimeScope{Consts: cmnvalue.Values(dag.Consts), Params: dag.ParamValues()})
-	fields := ReferenceFields(dag)
-	for _, field := range fields {
-		if !strings.Contains(field.Value, "$") {
-			continue
-		}
-		if err := resolver.Validate(field.Value, field.Field); err != nil {
-			errs = append(errs, NewValidationError(field.Path, field.Value, err))
-		}
 	}
 	return errs
 }

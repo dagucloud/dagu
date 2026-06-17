@@ -45,8 +45,6 @@ type DAGStore interface {
 	UpdateSpec(ctx context.Context, fileName string, spec []byte) error
 	// LoadSpec loads a DAG from a YAML file and returns the DAG object
 	LoadSpec(ctx context.Context, spec []byte, opts ...spec.LoadOption) (*core.DAG, error)
-	// LoadSpecWithResult loads a DAG from a YAML file and returns transient load diagnostics
-	LoadSpecWithResult(ctx context.Context, data []byte, opts ...spec.LoadOption) (*spec.LoadResult, error)
 	// LabelList returns all unique labels across all DAGs with any errors encountered
 	LabelList(ctx context.Context) ([]string, []string, error)
 	// ToggleSuspend changes the suspension state of a DAG by ID

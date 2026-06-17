@@ -91,17 +91,17 @@ func runValidate(ctx *Context, args []string) error {
 	}
 
 	logValidationWarnings(ctx, args[0], append(dag.BuildWarnings, collectDeprecatedSyntaxWarnings(dag)...))
-	logValidationDiagnostics(ctx, args[0], loadResult.Diagnostics)
+	logValueReferenceNotices(ctx, args[0], loadResult.ValueReferenceNotices)
 
 	return nil
 }
 
-func logValidationDiagnostics(ctx *Context, file string, diagnostics []cmnvalue.Diagnostic) {
-	for _, diag := range diagnostics {
-		if diag.Message == "" {
+func logValueReferenceNotices(ctx *Context, file string, notices []cmnvalue.ValueReferenceNotice) {
+	for _, notice := range notices {
+		if notice.Message == "" {
 			continue
 		}
-		logger.Info(ctx, diag.Message, tag.File(file))
+		logger.Info(ctx, notice.Message, tag.File(file))
 	}
 }
 

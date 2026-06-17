@@ -104,7 +104,7 @@ func resolveConstValue(ctx BuildContext, key string, value any, consts map[strin
 		resolver := cmnvalue.NewResolver(
 			cmnvalue.StaticScope{Consts: cmnvalue.Values(consts)},
 			cmnvalue.RuntimeScope{Consts: cmnvalue.Values(consts)},
-			cmnvalue.WithDiagnostics(ctx.diagnostics),
+			cmnvalue.WithValueReferenceNotices(ctx.valueReferenceNotices),
 		)
 		resolveCtx := ctx.ctx
 		if resolveCtx == nil {

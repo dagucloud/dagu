@@ -42,7 +42,7 @@ import {
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import { DAGContext } from '../../contexts/DAGContext';
 import { DAGStepTable } from '../dag-details';
-import { DiagnosticsButton } from '../diagnostics';
+import { ValueReferenceNoticesButton } from '../value-reference-notices';
 import { FlowchartType, Graph } from '../visualization';
 import {
   buildAugmentedDAGSchema,
@@ -156,7 +156,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
       : {
           dag: next.dag,
           errors: next.errors ?? [],
-          diagnostics: [],
+          valueReferenceNotices: [],
           spec: next.spec,
         }
   );
@@ -179,7 +179,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
 
   // Server spec — SWR cache stays current via live invalidations or polling fallback
   const serverSpec = data?.spec ?? null;
-  const diagnostics = data?.diagnostics ?? [];
+  const valueReferenceNotices = data?.valueReferenceNotices ?? [];
 
   // Change tracking (source-agnostic)
   const {
@@ -533,13 +533,12 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
         // Update refresh callback ref directly (safe in render)
         refreshCallbackRef.current = props.refresh;
         const editorHeaderActions =
-          diagnostics.length > 0 || editable ? (
+          valueReferenceNotices.length > 0 || editable ? (
             <div className="flex items-center gap-2">
-              {diagnostics.length > 0 && (
-                <DiagnosticsButton
-                  diagnostics={diagnostics}
-                  description="Diagnostics produced while loading this spec."
-                  label="Diagnostics"
+              {valueReferenceNotices.length > 0 && (
+                <ValueReferenceNoticesButton
+                  notices={valueReferenceNotices}
+                  description="Value-reference notices produced while loading this spec."
                 />
               )}
               {editable && (

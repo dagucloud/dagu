@@ -243,10 +243,6 @@ func (s testDAGStore) LoadSpec(context.Context, []byte, ...spec.LoadOption) (*co
 	return s.dag, nil
 }
 
-func (s testDAGStore) LoadSpecWithResult(context.Context, []byte, ...spec.LoadOption) (*spec.LoadResult, error) {
-	return &spec.LoadResult{DAG: s.dag}, nil
-}
-
 func (s testDAGStore) LabelList(context.Context) ([]string, []string, error) {
 	return nil, nil, nil
 }

@@ -787,9 +787,6 @@ func (s *dagDefManageTestStore) UpdateSpec(context.Context, string, []byte) erro
 func (s *dagDefManageTestStore) LoadSpec(ctx context.Context, raw []byte, opts ...corespec.LoadOption) (*core.DAG, error) {
 	return corespec.LoadYAML(ctx, raw, opts...)
 }
-func (s *dagDefManageTestStore) LoadSpecWithResult(ctx context.Context, raw []byte, opts ...corespec.LoadOption) (*corespec.LoadResult, error) {
-	return corespec.LoadYAMLWithResult(ctx, raw, opts...)
-}
 func (s *dagDefManageTestStore) LabelList(context.Context) ([]string, []string, error) {
 	return nil, nil, nil
 }

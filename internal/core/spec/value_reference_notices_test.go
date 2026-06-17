@@ -12,11 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLoadYAMLWithResultReturnsDiagnostics(t *testing.T) {
+func TestLoadYAMLWithResultReturnsValueReferenceNotices(t *testing.T) {
 	t.Parallel()
 
 	result, err := spec.LoadYAMLWithResult(context.Background(), []byte(`
-name: diagnostics
+name: notices
 consts:
   - image: ${consts.missing}
 steps:
@@ -25,19 +25,19 @@ steps:
 
 	require.NoError(t, err)
 	require.NotNil(t, result.DAG)
-	require.Len(t, result.Diagnostics, 1)
+	require.Len(t, result.ValueReferenceNotices, 1)
 
-	got := result.Diagnostics[0]
+	got := result.ValueReferenceNotices[0]
 	assert.Equal(t, "consts.image", got.FieldPath)
 	assert.Equal(t, "${consts.missing}", got.Token)
 	assert.Contains(t, got.Message, "was left unchanged")
 }
 
-func TestLoadYAMLWithResultInspectsWorkflowFields(t *testing.T) {
+func TestLoadYAMLWithResultInspectsWorkflowFieldsForValueReferenceNotices(t *testing.T) {
 	t.Parallel()
 
 	result, err := spec.LoadYAMLWithResult(context.Background(), []byte(`
-name: diagnostics
+name: notices
 params:
   - name: environment
     required: true
@@ -47,10 +47,10 @@ steps:
 
 	require.NoError(t, err)
 	require.NotNil(t, result.DAG)
-	require.Len(t, result.Diagnostics, 1)
+	require.Len(t, result.ValueReferenceNotices, 1)
 
-	got := result.Diagnostics[0]
-	assert.Equal(t, "steps[0].run[0]", got.FieldPath)
+	got := result.ValueReferenceNotices[0]
+	assert.Equal(t, "steps[0].run", got.FieldPath)
 	assert.Equal(t, "${params.environment}", got.Token)
 	assert.Contains(t, got.Message, "was left unchanged")
 }

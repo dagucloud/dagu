@@ -34,6 +34,7 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/service/audit"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
+	"github.com/dagucloud/dagu/internal/workspace"
 )
 
 const defaultHistoryLimit = 30
@@ -232,16 +233,22 @@ func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObjec
 		return nil, err
 	}
 
-	loadResult, err := a.dagStore.LoadSpecWithResult(ctx,
-		[]byte(yamlSpec),
+	loadOpts := []spec.LoadOption{
 		spec.WithName(request.FileName),
 		spec.WithAllowBuildErrors(),
-	)
+		spec.WithoutEval(),
+		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(a.config.Paths.DAGsDir)),
+	}
+	if a.config.Paths.BaseConfig != "" {
+		loadOpts = append(loadOpts, spec.WithBaseConfig(a.config.Paths.BaseConfig))
+	}
+
+	loadResult, err := spec.LoadYAMLWithResult(ctx, []byte(yamlSpec), loadOpts...)
 	var dag *core.DAG
-	diagnostics := []api.Diagnostic{}
+	valueReferenceNotices := []api.ValueReferenceNotice{}
 	if loadResult != nil {
 		dag = loadResult.DAG
-		diagnostics = toAPIDiagnostics(loadResult.Diagnostics)
+		valueReferenceNotices = toAPIValueReferenceNotices(loadResult.ValueReferenceNotices)
 	}
 	var errs []string
 
@@ -280,31 +287,26 @@ func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObjec
 	}
 
 	return &api.GetDAGSpec200JSONResponse{
-		Dag:         details,
-		Spec:        yamlSpec,
-		Errors:      errs,
-		Diagnostics: diagnostics,
+		Dag:                   details,
+		Spec:                  yamlSpec,
+		Errors:                errs,
+		ValueReferenceNotices: valueReferenceNotices,
 	}, nil
 }
 
-func toAPIDiagnostics(diagnostics []cmnvalue.Diagnostic) []api.Diagnostic {
-	out := make([]api.Diagnostic, 0, len(diagnostics))
-	for _, d := range diagnostics {
-		apiDiagnostic := api.Diagnostic{
-			Severity: api.DiagnosticSeverityNotice,
-			Kind:     cmnvalue.DiagnosticKindValueResolution,
-			Code:     cmnvalue.CodeValueReferenceUnresolved,
-			Message:  d.Message,
+func toAPIValueReferenceNotices(notices []cmnvalue.ValueReferenceNotice) []api.ValueReferenceNotice {
+	out := make([]api.ValueReferenceNotice, 0, len(notices))
+	for _, notice := range notices {
+		apiNotice := api.ValueReferenceNotice{
+			Message: notice.Message,
 		}
-		if d.FieldPath != "" {
-			apiDiagnostic.Location = &api.DiagnosticLocation{}
-			apiDiagnostic.Location.FieldPath = ptrOf(d.FieldPath)
+		if notice.FieldPath != "" {
+			apiNotice.FieldPath = ptrOf(notice.FieldPath)
 		}
-		if d.Token != "" {
-			attrs := map[string]string{"token": d.Token}
-			apiDiagnostic.Attributes = &attrs
+		if notice.Token != "" {
+			apiNotice.Token = ptrOf(notice.Token)
 		}
-		out = append(out, apiDiagnostic)
+		out = append(out, apiNotice)
 	}
 	return out
 }

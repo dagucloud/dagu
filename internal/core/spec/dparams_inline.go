@@ -140,9 +140,6 @@ func parseInlineParamDefinition(name string, raw map[string]any) (core.ParamDef,
 		if !ok {
 			return def, entry, fmt.Errorf("parameter %q description must be a string", name)
 		}
-		if err := validateNoDaguReferencesInParamLiteral("params.description", description); err != nil {
-			return def, entry, fmt.Errorf("parameter %q description does not support Dagu references: %w", name, err)
-		}
 		def.Description = description
 	}
 
@@ -209,9 +206,6 @@ func parseInlineParamDefinition(name string, raw map[string]any) (core.ParamDef,
 		if !ok {
 			return def, entry, fmt.Errorf("parameter %q pattern must be a string", name)
 		}
-		if err := validateNoDaguReferencesInParamLiteral("params.pattern", pattern); err != nil {
-			return def, entry, fmt.Errorf("parameter %q pattern does not support Dagu references: %w", name, err)
-		}
 		def.Pattern = &pattern
 	}
 
@@ -230,11 +224,6 @@ func parseInlineParamDefinition(name string, raw map[string]any) (core.ParamDef,
 			if err != nil {
 				return def, entry, fmt.Errorf("parameter %q enum contains an invalid value: %w", name, err)
 			}
-			if s, ok := normalized.(string); ok {
-				if err := validateNoDaguReferencesInParamLiteral("params.enum", s); err != nil {
-					return def, entry, fmt.Errorf("parameter %q enum does not support Dagu references: %w", name, err)
-				}
-			}
 			def.Enum = append(def.Enum, normalized)
 		}
 	}
@@ -243,11 +232,6 @@ func parseInlineParamDefinition(name string, raw map[string]any) (core.ParamDef,
 		normalized, err := normalizeTypedParamValue(value, def.Type)
 		if err != nil {
 			return def, entry, fmt.Errorf("parameter %q default is invalid: %w", name, err)
-		}
-		if s, ok := normalized.(string); ok {
-			if err := validateNoDaguReferencesInParamLiteral("params.default", s); err != nil {
-				return def, entry, fmt.Errorf("parameter %q default does not support Dagu references: %w", name, err)
-			}
 		}
 		def.Default = normalized
 		entry.HasValue = true

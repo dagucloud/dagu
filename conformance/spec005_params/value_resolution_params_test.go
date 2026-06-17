@@ -55,33 +55,33 @@ func TestValidate(t *testing.T) {
 		})
 	}
 
-	diagnosticCases := []struct {
+	noticeCases := []struct {
 		name        string
 		file        string
 		stderrParts []string
 	}{
 		{
-			name:        "params reference in consts preserves and reports diagnostic",
+			name:        "params reference in consts preserves and reports notice",
 			file:        "params_reference_in_consts.yaml",
 			stderrParts: []string{"${params.environment}", "was left unchanged", "consts.target"},
 		},
 		{
-			name:        "positional-only params reference preserves and reports diagnostic",
+			name:        "positional-only params reference preserves and reports notice",
 			file:        "positional_only_params_reference.yaml",
 			stderrParts: []string{"${params.environment}", "was left unchanged", "steps[0].run"},
 		},
 		{
-			name:        "undeclared params reference preserves and reports diagnostic",
+			name:        "undeclared params reference preserves and reports notice",
 			file:        "undeclared_reference_in_run.yaml",
 			stderrParts: []string{"${params.missing}", "was left unchanged", "steps[0].run"},
 		},
 		{
-			name:        "missing runtime param preserves and reports diagnostic",
+			name:        "missing runtime param preserves and reports notice",
 			file:        "runtime_resolution.yaml",
 			stderrParts: []string{"${params.environment}", "was left unchanged", "steps[0].run"},
 		},
 	}
-	for _, tc := range diagnosticCases {
+	for _, tc := range noticeCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

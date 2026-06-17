@@ -117,7 +117,7 @@ Rules:
 - Value resolution for `run` follows the value resolution spec and field evaluation spec.
 
 - Unresolved supported references in `run` remain literal before the command or script starts.
-- Explicit inspection surfaces report a passive diagnostic for each preserved reference.
+- Explicit inspection surfaces report a passive notice for each preserved reference.
 
 - Dagu does not shell-escape unresolved references in `run`.
 

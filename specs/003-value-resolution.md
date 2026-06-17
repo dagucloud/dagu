@@ -125,16 +125,16 @@ ${steps.step_id.outputs.name}
 ### Unresolved Supported References
 
 A supported reference can be valid syntax but have no value when Dagu evaluates the field.
-That condition is a passive diagnostic for explicit inspection surfaces.
+That condition is a passive notice for explicit inspection surfaces.
 It is not a validation or execution error by itself.
 Dagu must keep the original reference text in the field value.
 
-The diagnostic must identify the owning field and the original reference text.
-The diagnostic must not be shown as a normal validation warning.
+The notice must identify the owning field and the original reference text.
+The notice must not be shown as a normal validation warning.
 Current inspection surfaces are `dagu validate` and the Web UI spec editor.
 Normal run execution must stay silent.
-Dagu must not write these diagnostics to run logs, workflow events, status files, history files, artifacts, or DAG-run detail responses.
-Other specs that mention passive diagnostics follow this inspection-only behavior.
+Dagu must not write these notices to run logs, workflow events, status files, history files, artifacts, or DAG-run detail responses.
+Other specs that mention passive notices follow this inspection-only behavior.
 
 This rule applies to these misses:
 

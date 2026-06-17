@@ -1374,15 +1374,15 @@ paths:
                     description: "List of errors in the spec"
                     items:
                       type: string
-                  diagnostics:
+                  valueReferenceNotices:
                     type: array
-                    description: "Transient diagnostics produced while loading this spec. These diagnostics are not persisted."
+                    description: "Passive value-reference notices produced while loading this spec. These notices are not persisted."
                     items:
-                      $ref: "#/components/schemas/Diagnostic"
+                      $ref: "#/components/schemas/ValueReferenceNotice"
                 required:
                   - spec
                   - errors
-                  - diagnostics
+                  - valueReferenceNotices
         default:
           description: "Generic error response"
           content:
@@ -12623,49 +12623,21 @@ components:
       required:
         - name
 
-    Diagnostic:
+    ValueReferenceNotice:
       type: object
-      description: "A transient diagnostic produced during an explicit operation."
+      description: "A passive notice for a supported value reference left unresolved while loading a spec."
       properties:
-        severity:
-          type: string
-          enum:
-            - notice
-            - warning
-            - error
-          description: "Display severity for the diagnostic."
-        kind:
-          type: string
-          description: "Diagnostic category."
-        code:
-          type: string
-          description: "Stable machine-readable diagnostic code."
-        location:
-          $ref: "#/components/schemas/DiagnosticLocation"
-        attributes:
-          type: object
-          additionalProperties:
-            type: string
-          description: "Diagnostic-specific attributes."
         message:
           type: string
-          description: "Human-readable explanation."
-      required:
-        - severity
-        - kind
-        - code
-        - message
-
-    DiagnosticLocation:
-      type: object
-      description: "Location where a diagnostic applies."
-      properties:
-        filePath:
-          type: string
-          description: "File path associated with the diagnostic."
+          description: "Human-readable explanation of the unresolved reference."
         fieldPath:
           type: string
-          description: "DAG field path associated with the diagnostic."
+          description: "DAG field path associated with the unresolved reference."
+        token:
+          type: string
+          description: "Original value-reference token that was preserved."
+      required:
+        - message
 
     DAGEditorHints:
       type: object

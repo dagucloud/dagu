@@ -104,14 +104,6 @@ func (m *mockDAGStore) LoadSpec(ctx context.Context, spec []byte, opts ...spec.L
 	return args.Get(0).(*core.DAG), args.Error(1)
 }
 
-func (m *mockDAGStore) LoadSpecWithResult(ctx context.Context, data []byte, opts ...spec.LoadOption) (*spec.LoadResult, error) {
-	args := m.Called(ctx, data, opts)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*spec.LoadResult), args.Error(1)
-}
-
 func (m *mockDAGStore) LabelList(ctx context.Context) ([]string, []string, error) {
 	args := m.Called(ctx)
 	return args.Get(0).([]string), args.Get(1).([]string), args.Error(2)

@@ -23,9 +23,6 @@ func TestResolverConstLoadResolvesConstsAndPreservesRuntimeBindings(t *testing.T
 	require.NoError(t, err)
 	assert.Equal(t, "api", got)
 
-	err = resolver.Validate("${params.environment}", value.ConstLoadField("consts.bad"))
-	require.NoError(t, err)
-
 	got, err = resolver.String(ctx, "${params.environment}", value.ConstLoadField("consts.bad"))
 	require.NoError(t, err)
 	assert.Equal(t, "${params.environment}", got)
@@ -64,7 +61,7 @@ func TestResolverUnresolvedStrictReferencesPreserve(t *testing.T) {
 	}
 }
 
-func TestResolverDiagnosticsReportsDedupedStrictMisses(t *testing.T) {
+func TestResolverReportsDedupedValueReferenceNotices(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -80,7 +77,7 @@ func TestResolverDiagnosticsReportsDedupedStrictMisses(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var collector value.DiagnosticCollector
+			var collector value.ValueReferenceNoticeCollector
 			resolver := value.NewResolver(
 				value.StaticScope{
 					Consts: value.Values{"service": "api"},
@@ -91,17 +88,17 @@ func TestResolverDiagnosticsReportsDedupedStrictMisses(t *testing.T) {
 					Env:    value.NewEnvScope(nil, false),
 					Steps:  map[string]value.StepInfo{},
 				},
-				value.WithDiagnostics(&collector),
+				value.WithValueReferenceNotices(&collector),
 			)
 			ctx := context.Background()
 			got, err := resolver.String(ctx, tt.raw, value.WorkflowField("steps[0].run"))
 
 			require.NoError(t, err)
 			assert.Contains(t, got, tt.want)
-			diagnostics := collector.Diagnostics()
-			require.Len(t, diagnostics, 1)
-			assert.Equal(t, "steps[0].run", diagnostics[0].FieldPath)
-			assert.Equal(t, tt.want, diagnostics[0].Token)
+			notices := collector.Notices()
+			require.Len(t, notices, 1)
+			assert.Equal(t, "steps[0].run", notices[0].FieldPath)
+			assert.Equal(t, tt.want, notices[0].Token)
 		})
 	}
 }
@@ -156,14 +153,10 @@ func TestResolverStaticValidationResolvesParamsAndLeavesOtherNamespacesUnresolve
 	}
 
 	for _, tt := range tests {
-		require.NoError(t, resolver.Validate(tt.raw, value.StaticValidationField("field")))
 		got, err := resolver.String(ctx, tt.raw, value.StaticValidationField("field"))
 		require.NoError(t, err)
 		assert.Equal(t, tt.want, got)
 	}
-
-	err := resolver.Validate("${params.missing}", value.StaticValidationField("field"))
-	require.NoError(t, err)
 }
 
 func TestResolverParamDeclarationsAreNotRuntimeValues(t *testing.T) {

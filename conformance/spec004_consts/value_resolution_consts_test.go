@@ -32,48 +32,48 @@ func TestValidate(t *testing.T) {
 		})
 	}
 
-	diagnosticCases := []struct {
+	noticeCases := []struct {
 		name        string
 		file        string
 		stderrParts []string
 	}{
 		{
-			name:        "self reference preserves and reports diagnostic",
+			name:        "self reference preserves and reports notice",
 			file:        "consts_self_reference.yaml",
 			stderrParts: []string{"${consts.service}", "was left unchanged", "consts.service"},
 		},
 		{
-			name:        "later reference preserves and reports diagnostic",
+			name:        "later reference preserves and reports notice",
 			file:        "consts_later_reference.yaml",
 			stderrParts: []string{"${consts.host}", "was left unchanged", "consts.endpoint"},
 		},
 		{
-			name:        "runtime env reference preserves and reports diagnostic",
+			name:        "runtime env reference preserves and reports notice",
 			file:        "consts_runtime_env_reference.yaml",
 			stderrParts: []string{"${env.SERVICE}", "was left unchanged", "consts.service"},
 		},
 		{
-			name:        "runtime params reference preserves and reports diagnostic",
+			name:        "runtime params reference preserves and reports notice",
 			file:        "consts_runtime_params_reference.yaml",
 			stderrParts: []string{"${params.target}", "was left unchanged", "consts.target"},
 		},
 		{
-			name:        "runtime steps reference preserves and reports diagnostic",
+			name:        "runtime steps reference preserves and reports notice",
 			file:        "consts_runtime_steps_reference.yaml",
 			stderrParts: []string{"${steps.build.outputs.image}", "was left unchanged", "consts.image"},
 		},
 		{
-			name:        "unknown const reference preserves and reports diagnostic",
+			name:        "unknown const reference preserves and reports notice",
 			file:        "unknown_const_reference.yaml",
 			stderrParts: []string{"${consts.missing}", "was left unchanged", "steps[0].run"},
 		},
 		{
-			name:        "future namespace reference preserves and reports diagnostic",
+			name:        "future namespace reference preserves and reports notice",
 			file:        "future_namespaces_remain_unresolved.yaml",
 			stderrParts: []string{"${steps.build.outputs.image}", "was left unchanged", "steps[0].run"},
 		},
 	}
-	for _, tc := range diagnosticCases {
+	for _, tc := range noticeCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

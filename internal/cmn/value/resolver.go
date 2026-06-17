@@ -14,9 +14,9 @@ import (
 
 // Resolver resolves workflow values for semantic fields.
 type Resolver struct {
-	static      StaticScope
-	runtime     RuntimeScope
-	diagnostics DiagnosticSink
+	static  StaticScope
+	runtime RuntimeScope
+	notices ValueReferenceNoticeSink
 }
 
 // ResolverOption configures a Resolver.
@@ -31,16 +31,11 @@ func NewResolver(static StaticScope, runtime RuntimeScope, opts ...ResolverOptio
 	return r
 }
 
-// WithDiagnostics reports passive diagnostics to sink.
-func WithDiagnostics(sink DiagnosticSink) ResolverOption {
+// WithValueReferenceNotices reports unresolved value references to sink.
+func WithValueReferenceNotices(sink ValueReferenceNoticeSink) ResolverOption {
 	return func(r *Resolver) {
-		r.diagnostics = sink
+		r.notices = sink
 	}
-}
-
-// Validate accepts value-reference syntax because unresolved references are non-fatal.
-func (Resolver) Validate(string, Field) error {
-	return nil
 }
 
 // String resolves raw according to field.
@@ -91,7 +86,7 @@ func (r Resolver) resolveString(ctx context.Context, raw string, field Field) (s
 	var protected map[string]string
 	if policy.strict {
 		var err error
-		resolved, protected, err = resolveBindings(ctx, raw, r.bindingScope(), field.path, r.diagnostics)
+		resolved, protected, err = resolveBindings(ctx, raw, r.bindingScope(), field.path, r.notices)
 		if err != nil {
 			if field.path != "" {
 				return "", fmt.Errorf("%s: %w", field.path, err)

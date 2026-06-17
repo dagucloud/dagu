@@ -4849,31 +4849,14 @@ export interface components {
             runConfig?: components["schemas"]["RunConfig"];
             resources?: components["schemas"]["DAGResources"];
         };
-        /** @description A transient diagnostic produced during an explicit operation. */
-        Diagnostic: {
-            /**
-             * @description Display severity for the diagnostic.
-             * @enum {string}
-             */
-            severity: DiagnosticSeverity;
-            /** @description Diagnostic category. */
-            kind: string;
-            /** @description Stable machine-readable diagnostic code. */
-            code: string;
-            location?: components["schemas"]["DiagnosticLocation"];
-            /** @description Diagnostic-specific attributes. */
-            attributes?: {
-                [key: string]: string;
-            };
-            /** @description Human-readable explanation. */
+        /** @description A passive notice for a supported value reference left unresolved while loading a spec. */
+        ValueReferenceNotice: {
+            /** @description Human-readable explanation of the unresolved reference. */
             message: string;
-        };
-        /** @description Location where a diagnostic applies. */
-        DiagnosticLocation: {
-            /** @description File path associated with the diagnostic. */
-            filePath?: string;
-            /** @description DAG field path associated with the diagnostic. */
+            /** @description DAG field path associated with the unresolved reference. */
             fieldPath?: string;
+            /** @description Original value-reference token that was preserved. */
+            token?: string;
         };
         /** @description Editor-only metadata used to synthesize per-document schema hints */
         DAGEditorHints: {
@@ -8420,8 +8403,8 @@ export interface operations {
                         spec: string;
                         /** @description List of errors in the spec */
                         errors: string[];
-                        /** @description Transient diagnostics produced while loading this spec. These diagnostics are not persisted. */
-                        diagnostics: components["schemas"]["Diagnostic"][];
+                        /** @description Passive value-reference notices produced while loading this spec. These notices are not persisted. */
+                        valueReferenceNotices: components["schemas"]["ValueReferenceNotice"][];
                     };
                 };
             };
@@ -19580,11 +19563,6 @@ export enum WorkerHealthStatus {
     healthy = "healthy",
     warning = "warning",
     unhealthy = "unhealthy"
-}
-export enum DiagnosticSeverity {
-    notice = "notice",
-    warning = "warning",
-    error = "error"
 }
 export enum ParamDefType {
     string = "string",

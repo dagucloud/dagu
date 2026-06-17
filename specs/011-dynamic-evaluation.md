@@ -104,10 +104,10 @@ A later phase or target runtime may still interpret them.
 
 ## Errors
 
-Passive diagnostics:
+Passive notices:
 
 - A supported Dagu-owned value reference that cannot resolve must preserve the original reference text.
-- Explicit inspection surfaces must report a passive diagnostic for that preserved reference.
+- Explicit inspection surfaces must report a passive notice for that preserved reference.
 - Braced text that does not match a supported Dagu-owned reference form remains ordinary string content under Spec 003.
 - Preservation means Dagu leaves the original text unchanged.
 - Dagu does not escape preserved text for a later shell or script interpreter.

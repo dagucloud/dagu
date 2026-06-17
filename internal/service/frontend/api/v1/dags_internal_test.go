@@ -49,10 +49,6 @@ func (s *loadSpecErrorDAGStore) LoadSpec(context.Context, []byte, ...spec.LoadOp
 	return nil, errLoadSpecFatal
 }
 
-func (s *loadSpecErrorDAGStore) LoadSpecWithResult(context.Context, []byte, ...spec.LoadOption) (*spec.LoadResult, error) {
-	return nil, errLoadSpecFatal
-}
-
 func (s *loadSpecErrorDAGStore) UpdateSpec(context.Context, string, []byte) error {
 	s.updateCalled = true
 	return nil
@@ -794,7 +790,7 @@ steps:
 	require.True(t, scheduledAt.Equal(*specResp.Dag.NextRun))
 }
 
-func TestGetDAGSpecIncludesDiagnostics(t *testing.T) {
+func TestGetDAGSpecIncludesValueReferenceNotices(t *testing.T) {
 	t.Parallel()
 
 	helper := test.Setup(t, test.WithStatusPersistence())
@@ -830,16 +826,12 @@ steps:
 		require.True(t, valueOK)
 		specResp = &valueResp
 	}
-	require.Len(t, specResp.Diagnostics, 1)
+	require.Len(t, specResp.ValueReferenceNotices, 1)
 
-	diagnostic := specResp.Diagnostics[0]
-	require.Equal(t, openapi.DiagnosticSeverityNotice, diagnostic.Severity)
-	require.Equal(t, "value_resolution", diagnostic.Kind)
-	require.Equal(t, "value_reference_unresolved", diagnostic.Code)
-	require.NotNil(t, diagnostic.Location)
-	require.NotNil(t, diagnostic.Location.FieldPath)
-	require.Equal(t, "consts.image", *diagnostic.Location.FieldPath)
-	require.NotNil(t, diagnostic.Attributes)
-	require.Equal(t, "${consts.missing}", (*diagnostic.Attributes)["token"])
-	require.Contains(t, diagnostic.Message, "was left unchanged")
+	notice := specResp.ValueReferenceNotices[0]
+	require.NotNil(t, notice.FieldPath)
+	require.Equal(t, "consts.image", *notice.FieldPath)
+	require.NotNil(t, notice.Token)
+	require.Equal(t, "${consts.missing}", *notice.Token)
+	require.Contains(t, notice.Message, "was left unchanged")
 }

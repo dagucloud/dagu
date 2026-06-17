@@ -46,10 +46,10 @@ type LoadOptions struct {
 	buildEnv               map[string]string // Pre-populated env vars for build (used for retry with dotenv).
 }
 
-// LoadResult contains a loaded DAG and transient diagnostics produced by that load operation.
+// LoadResult contains a loaded DAG and transient value-reference notices produced by that load operation.
 type LoadResult struct {
-	DAG         *core.DAG
-	Diagnostics []cmnvalue.Diagnostic
+	DAG                   *core.DAG
+	ValueReferenceNotices []cmnvalue.ValueReferenceNotice
 }
 
 // LoadOption is a function type for setting LoadOptions.
@@ -198,20 +198,20 @@ func Load(ctx context.Context, nameOrPath string, opts ...LoadOption) (*core.DAG
 	return loadDAG(buildContext, nameOrPath)
 }
 
-// LoadWithResult loads a DAG and returns transient diagnostics produced by that load operation.
+// LoadWithResult loads a DAG and returns transient value-reference notices produced by that load operation.
 func LoadWithResult(ctx context.Context, nameOrPath string, opts ...LoadOption) (*LoadResult, error) {
 	if nameOrPath == "" {
 		return nil, ErrNameOrPathRequired
 	}
-	var collector cmnvalue.DiagnosticCollector
+	var collector cmnvalue.ValueReferenceNoticeCollector
 	buildContext := loadBuildContext(ctx, opts...)
-	buildContext.diagnostics = &collector
+	buildContext.valueReferenceNotices = &collector
 	dag, err := loadDAG(buildContext, nameOrPath)
 	if err != nil {
 		return nil, err
 	}
-	core.ReportValueReferenceDiagnostics(dag, &collector)
-	return &LoadResult{DAG: dag, Diagnostics: collector.Diagnostics()}, nil
+	core.ReportValueReferenceNotices(dag, &collector)
+	return &LoadResult{DAG: dag, ValueReferenceNotices: collector.Notices()}, nil
 }
 
 func loadBuildContext(ctx context.Context, opts ...LoadOption) BuildContext {
@@ -226,15 +226,15 @@ func LoadYAML(ctx context.Context, data []byte, opts ...LoadOption) (*core.DAG, 
 	return LoadYAMLWithOpts(ctx, data, loadBuildOpts(loadOptions(opts...)))
 }
 
-// LoadYAMLWithResult loads a DAG from YAML and returns transient diagnostics produced by that load operation.
+// LoadYAMLWithResult loads a DAG from YAML and returns transient value-reference notices produced by that load operation.
 func LoadYAMLWithResult(ctx context.Context, data []byte, opts ...LoadOption) (*LoadResult, error) {
-	var collector cmnvalue.DiagnosticCollector
-	dag, err := loadYAMLWithOptsAndDiagnostics(ctx, data, loadBuildOpts(loadOptions(opts...)), &collector)
+	var collector cmnvalue.ValueReferenceNoticeCollector
+	dag, err := loadYAMLWithOptsAndNotices(ctx, data, loadBuildOpts(loadOptions(opts...)), &collector)
 	if err != nil {
 		return nil, err
 	}
-	core.ReportValueReferenceDiagnostics(dag, &collector)
-	return &LoadResult{DAG: dag, Diagnostics: collector.Diagnostics()}, nil
+	core.ReportValueReferenceNotices(dag, &collector)
+	return &LoadResult{DAG: dag, ValueReferenceNotices: collector.Notices()}, nil
 }
 
 func loadOptions(opts ...LoadOption) LoadOptions {
@@ -262,14 +262,14 @@ func loadBuildOpts(options LoadOptions) BuildOpts {
 
 // LoadYAMLWithOpts loads the core.DAG configuration from YAML data.
 func LoadYAMLWithOpts(ctx context.Context, data []byte, opts BuildOpts) (*core.DAG, error) {
-	return loadYAMLWithOptsAndDiagnostics(ctx, data, opts, nil)
+	return loadYAMLWithOptsAndNotices(ctx, data, opts, nil)
 }
 
-func loadYAMLWithOptsAndDiagnostics(
+func loadYAMLWithOptsAndNotices(
 	ctx context.Context,
 	data []byte,
 	opts BuildOpts,
-	diagnostics *cmnvalue.DiagnosticCollector,
+	valueReferenceNotices *cmnvalue.ValueReferenceNoticeCollector,
 ) (*core.DAG, error) {
 	baseDef, baseRaw, err := loadBaseDefinition(opts)
 	if err != nil {
@@ -277,8 +277,8 @@ func loadYAMLWithOptsAndDiagnostics(
 	}
 
 	buildContext := BuildContext{ctx: ctx, opts: opts}
-	if diagnostics != nil {
-		buildContext.diagnostics = diagnostics
+	if valueReferenceNotices != nil {
+		buildContext.valueReferenceNotices = valueReferenceNotices
 	}
 	dags, err := loadDAGsFromData(buildContext, data, "", baseDef, baseRaw)
 	if err != nil {

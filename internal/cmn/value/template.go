@@ -27,7 +27,7 @@ func resolveBindings(
 	input string,
 	scope RuntimeScope,
 	field string,
-	diagnostics DiagnosticSink,
+	notices ValueReferenceNoticeSink,
 ) (string, map[string]string, error) {
 	protected := make(map[string]string)
 	seed := input
@@ -35,7 +35,7 @@ func resolveBindings(
 		value, err := bindingValue(ctx, path, scope, true)
 		if err != nil {
 			token := "${" + path + "}"
-			addUnresolvedReferenceDiagnostic(diagnostics, field, token, err)
+			addUnresolvedReferenceNotice(notices, field, token, err)
 			placeholder := uniqueToken(seed, "__DAGU_UNRESOLVED_REF__")
 			seed += placeholder
 			protected[placeholder] = token

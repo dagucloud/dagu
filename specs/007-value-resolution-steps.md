@@ -33,7 +33,7 @@ This spec keeps those rules in one place.
 References use step ids.
 A reference resolves only when the producing step is ordered before the consuming step.
 If the value is unavailable, Dagu preserves the original reference text.
-Explicit inspection surfaces report a passive diagnostic for that preserved reference.
+Explicit inspection surfaces report a passive notice for that preserved reference.
 
 ## Behavior
 
@@ -74,16 +74,16 @@ Explicit inspection surfaces report a passive diagnostic for that preserved refe
 ### Validation
 
 - An unknown `steps.<step_id>` reference in a value-resolution field must preserve the original reference text.
-- Explicit inspection surfaces must report a passive diagnostic for that preserved reference.
+- Explicit inspection surfaces must report a passive notice for that preserved reference.
 
 - An unknown `steps.<step_id>.outputs.<name>` reference must preserve the original reference text.
-- Explicit inspection surfaces must report a passive diagnostic for that preserved reference.
+- Explicit inspection surfaces must report a passive notice for that preserved reference.
 
 - A step output reference without a direct or transitive dependency on the producing step must preserve the original reference text.
-- Explicit inspection surfaces must report a passive diagnostic for that preserved reference.
+- Explicit inspection surfaces must report a passive notice for that preserved reference.
 
 - A step output reference to the owning step must preserve the original reference text.
-- Explicit inspection surfaces must report a passive diagnostic for that preserved reference.
+- Explicit inspection surfaces must report a passive notice for that preserved reference.
 
 - An unavailable step output value must preserve the original reference text before the owning field is used.
 

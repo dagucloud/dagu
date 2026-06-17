@@ -29,7 +29,7 @@ Supported fields can then use those values predictably.
 This spec separates declaration validation from runtime value availability.
 `dagu validate` can reject invalid parameter declarations.
 Unknown or missing parameter values preserve the original reference text.
-Explicit inspection surfaces report passive diagnostics for preserved parameter references.
+Explicit inspection surfaces report passive notices for preserved parameter references.
 
 ## Behavior
 
@@ -90,25 +90,25 @@ Explicit inspection surfaces report passive diagnostics for preserved parameter 
 - A declared `params` reference resolves when the runtime value exists.
 
 - If the runtime value is missing, Dagu preserves the original reference text.
-- Explicit inspection surfaces report a passive diagnostic for that preserved reference.
+- Explicit inspection surfaces report a passive notice for that preserved reference.
 
 ## Errors
 
 - An invalid parameter declaration name must fail during workflow validation.
 
 - An undeclared `params` reference in a value-resolution field must preserve the original reference text.
-- Explicit inspection surfaces must report a passive diagnostic for that preserved reference.
+- Explicit inspection surfaces must report a passive notice for that preserved reference.
 
 - In workflows with only positional parameters, a `${params.name}` reference has no matching named declaration and must preserve the original reference text.
-- Explicit inspection surfaces must report a passive diagnostic for that preserved reference.
+- Explicit inspection surfaces must report a passive notice for that preserved reference.
 
 - A `${params.name}` reference in a field where params are unavailable must preserve the original reference text.
-- Explicit inspection surfaces must report a passive diagnostic for that preserved reference.
+- Explicit inspection surfaces must report a passive notice for that preserved reference.
 
 - A declared `params` reference with no runtime value must preserve the original reference text.
-- Explicit inspection surfaces must report a passive diagnostic for that preserved reference.
+- Explicit inspection surfaces must report a passive notice for that preserved reference.
 
-- Diagnostics must identify the owning field and the original reference text.
+- Notices must identify the owning field and the original reference text.
 
 ## Field Matrix
 
@@ -116,8 +116,8 @@ This matrix defines the required `${params.name}` behavior for value-resolution 
 
 | Spec 003 field surface | Params behavior |
 | --- | --- |
-| `consts` list form | `${params.name}` is unavailable because only earlier `${consts.*}` entries are visible. Dagu preserves the original reference text. Explicit inspection surfaces report a passive diagnostic. |
-| `params[].eval` | `${params.name}` references in `eval` resolve before command substitution. Missing runtime values preserve before the evaluated parameter is consumed. Explicit inspection surfaces report a passive diagnostic. |
+| `consts` list form | `${params.name}` is unavailable because only earlier `${consts.*}` entries are visible. Dagu preserves the original reference text. Explicit inspection surfaces report a passive notice. |
+| `params[].eval` | `${params.name}` references in `eval` resolve before command substitution. Missing runtime values preserve before the evaluated parameter is consumed. Explicit inspection surfaces report a passive notice. |
 | `env` | Root environment values in map form, array-of-map form, and `KEY=value` list form resolve declared params. |
 | `dotenv[]` | Each dotenv path string resolves declared params. |
 | `shell`, `shell_args[]`, `working_dir` | Root shell command, shell args, and working directory resolve declared params. |

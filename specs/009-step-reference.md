@@ -103,7 +103,7 @@ Rules:
 - A step output reference can resolve only when `step_id` is an existing step `id`.
 - A step output reference can resolve only after the referenced step completes.
 - Output declaration and publication behavior belongs to the output-owning field spec.
-- Missing or unavailable step output references follow the passive diagnostic preservation rules in Spec 007.
+- Missing or unavailable step output references follow the passive notice preservation rules in Spec 007.
 
 Example:
 
