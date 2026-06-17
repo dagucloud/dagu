@@ -102,7 +102,7 @@ ${steps.step_id.outputs.name}
 | `steps[].parallel` | `variable`, `items[]`, `items[].value`, and `items[].params.*` string values. |
 | `steps[].stdout`, `steps[].stdout.artifact` | Stdout file path strings and artifact path strings. |
 | `steps[].stderr`, `steps[].stderr.artifact` | Stderr file path strings and artifact path strings. |
-| `steps[].stdout.outputs.fields.*` | Literal string values and `path` strings under field entries. |
+| `steps[].stdout.outputs.fields.*` | Literal string values under field entries. |
 | `steps[].output.*` | Literal string values and `path` strings under structured output entries. |
 | `steps[].container` | Step container string form. In object form: `exec`, `image`, `name`, `user`, `working_dir`, `network`, `volumes[]`, `ports[]`, `env` values, `command[]`, and `shell[]`. |
 

@@ -1,0 +1,10 @@
+params:
+  - name: environment
+    description: Runtime environment.
+consts:
+  - target: ${params.environment}
+working_dir: .
+steps:
+  - name: write
+    run: |
+      printf '%s\n' '${consts.target}' > params-in-consts.txt

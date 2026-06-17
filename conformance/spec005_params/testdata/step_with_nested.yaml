@@ -1,0 +1,14 @@
+params:
+  - name: environment
+    description: Runtime environment.
+working_dir: .
+steps:
+  - name: write
+    action: sqlite.query
+    with:
+      dsn: ":memory:"
+      query: "SELECT :environment AS environment"
+      output_format: jsonl
+      params:
+        environment: "${params.environment}"
+    stdout: "step-with-nested.txt"

@@ -1,0 +1,12 @@
+params:
+  - name: environment
+    type: string
+    default: prod
+  - name: target
+    type: string
+    default: ${params.environment}
+working_dir: .
+steps:
+  - name: write
+    run: |
+      printf '%s\n' '${params.target}' > params-default-literal.txt

@@ -107,6 +107,48 @@ func (r *Runner) ExpectFileContent(name string, content string) {
 	require.Equal(r.t, content, string(actual))
 }
 
+// ExpectFileContains fails the test when name lacks any required text.
+func (r *Runner) ExpectFileContains(name string, parts ...string) {
+	r.t.Helper()
+
+	path := r.projectPath(name)
+	actual, err := os.ReadFile(path) // #nosec G304 -- projectPath confines test fixture paths to the temp project.
+	if err != nil {
+		r.t.Fatalf("reading %s: %v", name, err)
+	}
+	for _, part := range parts {
+		require.Contains(r.t, string(actual), part)
+	}
+}
+
+// ExpectGlobFileContent fails unless exactly one project-local file matches pattern and contains content.
+func (r *Runner) ExpectGlobFileContent(pattern string, content string) {
+	r.t.Helper()
+
+	matches, err := r.projectGlob(pattern)
+	if err != nil {
+		r.t.Fatalf("matching %s: %v", pattern, err)
+	}
+	if len(matches) != 1 {
+		relMatches := make([]string, 0, len(matches))
+		for _, match := range matches {
+			rel, relErr := filepath.Rel(r.dir, match)
+			if relErr != nil {
+				relMatches = append(relMatches, match)
+				continue
+			}
+			relMatches = append(relMatches, filepath.ToSlash(rel))
+		}
+		r.t.Fatalf("expected one match for %s, got %d: %s", pattern, len(matches), strings.Join(relMatches, ", "))
+	}
+
+	actual, err := os.ReadFile(matches[0]) // #nosec G304 -- projectGlob confines test fixture paths to the temp project.
+	if err != nil {
+		r.t.Fatalf("reading %s: %v", pattern, err)
+	}
+	require.Equal(r.t, content, string(actual))
+}
+
 // Mkdir creates a directory in the isolated project.
 func (r *Runner) Mkdir(name string) {
 	r.t.Helper()
@@ -147,6 +189,16 @@ func (r *Runner) projectPath(name string) string {
 		r.t.Fatalf("project path %q escapes test project", name)
 	}
 	return filepath.Join(r.dir, cleaned)
+}
+
+func (r *Runner) projectGlob(pattern string) ([]string, error) {
+	r.t.Helper()
+
+	cleaned := filepath.Clean(filepath.FromSlash(pattern))
+	if filepath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(os.PathSeparator)) {
+		r.t.Fatalf("project glob %q escapes test project", pattern)
+	}
+	return filepath.Glob(filepath.Join(r.dir, cleaned))
 }
 
 // ExpectExitCode fails the test when the command exit code differs.

@@ -1,0 +1,13 @@
+name: spec005-step-stdout-artifact
+params:
+  - name: environment
+    description: Runtime environment.
+artifacts:
+  dir: artifacts
+working_dir: .
+steps:
+  - name: write
+    run: |
+      printf '%s\n' prod
+    stdout:
+      artifact: "reports/${params.environment}/stdout.txt"

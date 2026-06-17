@@ -1,0 +1,13 @@
+params:
+  - name: environment
+    description: Runtime environment.
+working_dir: .
+steps:
+  - name: write
+    run: "true"
+    repeat_policy:
+      repeat: while
+      condition: |
+        printf '%s\n' '${params.environment}' > repeat-condition.txt
+        exit 1
+      interval_sec: 0

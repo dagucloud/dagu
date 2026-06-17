@@ -1,0 +1,30 @@
+params:
+  - name: items
+    description: Runtime items.
+working_dir: .
+steps:
+  - name: fanout
+    action: dag.run
+    with:
+      dag: child-parallel-variable
+      params:
+        - environment: ${ITEM}
+    parallel: ${params.items}
+    output: PARALLEL_RESULTS
+  - name: consume
+    depends: fanout
+    run: |
+      printf '%s\n' "$PARALLEL_RESULTS" > parallel-variable.txt
+
+---
+
+name: child-parallel-variable
+params:
+  - name: environment
+    description: Runtime environment.
+working_dir: .
+steps:
+  - name: write
+    run: |
+      printf '%s\n' '${params.environment}'
+    output: CHILD_VALUE

@@ -2,7 +2,7 @@
 
 ## Implementation Status
 
-Partially implemented.
+Implemented.
 
 ## Scope
 
@@ -126,7 +126,7 @@ This matrix defines the required `${params.name}` behavior for value-resolution 
 | `steps[].parallel` | `variable`, `items[]`, `items[].value`, and `items[].params.*` string values resolve declared params. |
 | `steps[].stdout`, `steps[].stdout.artifact` | Stdout file path strings and artifact path strings resolve declared params. |
 | `steps[].stderr`, `steps[].stderr.artifact` | Stderr file path strings and artifact path strings resolve declared params. |
-| `steps[].stdout.outputs.fields.*` | Literal string values and `path` strings under field entries resolve declared params. |
+| `steps[].stdout.outputs.fields.*` | Literal string values under field entries resolve declared params. |
 | `steps[].output.*` | Literal string values and `path` strings under structured output entries resolve declared params. |
 | `steps[].container` | Step container string form resolves declared params. In object form, `exec`, `image`, `name`, `user`, `working_dir`, `network`, `volumes[]`, `ports[]`, `env` values, `command[]`, and `shell[]` resolve declared params. |
 | handler steps | The same step-owned cases apply under `handler_on.init`, `handler_on.success`, `handler_on.failure`, `handler_on.abort`, `handler_on.exit`, and `handler_on.wait`. |
