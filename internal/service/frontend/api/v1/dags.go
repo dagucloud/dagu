@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -307,9 +308,7 @@ func toAPIDiagnostics(diagnostics []diagnostic.Diagnostic) []api.Diagnostic {
 		}
 		if len(d.Attributes) > 0 {
 			attrs := make(map[string]string, len(d.Attributes))
-			for key, value := range d.Attributes {
-				attrs[key] = value
-			}
+			maps.Copy(attrs, d.Attributes)
 			apiDiagnostic.Attributes = &attrs
 		}
 		out = append(out, apiDiagnostic)

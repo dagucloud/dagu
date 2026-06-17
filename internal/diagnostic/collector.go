@@ -3,7 +3,10 @@
 
 package diagnostic
 
-import "sync"
+import (
+	"maps"
+	"sync"
+)
 
 // Collector stores unique diagnostics in insertion order.
 type Collector struct {
@@ -48,9 +51,7 @@ func cloneDiagnostic(d Diagnostic) Diagnostic {
 		return d
 	}
 	attrs := make(map[string]string, len(d.Attributes))
-	for key, value := range d.Attributes {
-		attrs[key] = value
-	}
+	maps.Copy(attrs, d.Attributes)
 	d.Attributes = attrs
 	return d
 }
