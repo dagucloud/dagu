@@ -81,8 +81,8 @@ func TestEvalConditions(t *testing.T) {
 			conditions: []*core.Condition{{Condition: "test", Expected: "re:^test$"}},
 		},
 		{
-			name:       "ValueMatchEvaluatesBacktickSubstitution",
-			conditions: []*core.Condition{{Condition: "`printf 100`", Expected: "100"}},
+			name:       "ValueMatchPreservesBacktickSubstitution",
+			conditions: []*core.Condition{{Condition: "`printf 100`", Expected: "`printf 100`"}},
 		},
 		// Negate tests
 		{
