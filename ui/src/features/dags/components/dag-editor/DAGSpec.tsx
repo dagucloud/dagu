@@ -11,11 +11,24 @@ import { StepDetailsDrawer } from '@/features/dags/components/step-details';
 import { toMermaidNodeId } from '@/lib/utils';
 import { workspaceNameFromLabels } from '@/lib/workspace';
 import BorderedBox from '@/components/ui/bordered-box';
-import { AlertTriangle, MousePointerClick, Save, Undo2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  Info,
+  MousePointerClick,
+  Save,
+  Undo2,
+} from 'lucide-react';
 import React, { useEffect } from 'react';
 import { useCookies } from 'react-cookie';
 import { components } from '../../../../api/v1/schema';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useErrorModal } from '@/components/ui/error-modal';
 import { useSimpleToast } from '@/components/ui/simple-toast';
 import { Tab, Tabs } from '@/components/ui/tabs';
@@ -64,6 +77,8 @@ type Props = {
   editorHints?: components['schemas']['DAGEditorHints'];
 };
 
+type ValueResolutionNotice = components['schemas']['ValueResolutionNotice'];
+
 /**
  * DAGSpec displays and allows editing of a DAG specification
  * including visualization, attributes, steps, and YAML definition
@@ -84,6 +99,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
   >(null);
   const [isSpecStepDetailsOpen, setIsSpecStepDetailsOpen] =
     React.useState(false);
+  const [isNoticesOpen, setIsNoticesOpen] = React.useState(false);
 
   const closeSpecStepDetails = React.useCallback(() => {
     setIsSpecStepDetailsOpen(false);
@@ -150,6 +166,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
       : {
           dag: next.dag,
           errors: next.errors ?? [],
+          notices: data?.notices ?? [],
           spec: next.spec,
         }
   );
@@ -166,6 +183,13 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
 
   // Server spec — SWR cache stays current via live invalidations or polling fallback
   const serverSpec = data?.spec ?? null;
+  const notices = data?.notices ?? [];
+
+  useEffect(() => {
+    if (notices.length === 0) {
+      setIsNoticesOpen(false);
+    }
+  }, [notices.length]);
 
   // Change tracking (source-agnostic)
   const {
@@ -528,6 +552,11 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                 onDiscard={() => resolveConflict('discard')}
                 onIgnore={() => resolveConflict('ignore')}
               />
+              <ValueResolutionNoticesDialog
+                open={isNoticesOpen}
+                onOpenChange={setIsNoticesOpen}
+                notices={notices}
+              />
 
               <div
                 className="flex flex-col flex-1 min-h-0 space-y-6 mb-6"
@@ -607,32 +636,48 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                   modelUri={editorModelUri}
                   schema={editorSchema}
                   headerActions={
-                    editable ? (
-                      <>
-                        {localHasUnsavedChanges && (
-                          <Button
-                            variant="ghost"
-                            title="Discard changes"
-                            onClick={discardChanges}
-                          >
-                            <Undo2 className="h-4 w-4" />
-                            Discard
-                          </Button>
-                        )}
+                    <div className="flex items-center gap-2">
+                      {notices.length > 0 && (
                         <Button
-                          id="save-config"
-                          title="Save changes (Ctrl+S / Cmd+S)"
-                          disabled={!localHasUnsavedChanges}
-                          onClick={async () => {
-                            await handleSave();
-                            props.refresh();
-                          }}
+                          variant="ghost"
+                          size="xs"
+                          title="View value resolution notices"
+                          onClick={() => setIsNoticesOpen(true)}
                         >
-                          <Save className="h-4 w-4" />
-                          Save
+                          <Info className="h-3.5 w-3.5" />
+                          Notices
+                          <span className="ml-0.5 rounded-sm bg-muted px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
+                            {notices.length}
+                          </span>
                         </Button>
-                      </>
-                    ) : undefined
+                      )}
+                      {editable && (
+                        <>
+                          {localHasUnsavedChanges && (
+                            <Button
+                              variant="ghost"
+                              title="Discard changes"
+                              onClick={discardChanges}
+                            >
+                              <Undo2 className="h-4 w-4" />
+                              Discard
+                            </Button>
+                          )}
+                          <Button
+                            id="save-config"
+                            title="Save changes (Ctrl+S / Cmd+S)"
+                            disabled={!localHasUnsavedChanges}
+                            onClick={async () => {
+                              await handleSave();
+                              props.refresh();
+                            }}
+                          >
+                            <Save className="h-4 w-4" />
+                            Save
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   }
                 />
               </div>
@@ -641,6 +686,60 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
         );
       }}
     </DAGContext.Consumer>
+  );
+}
+
+function ValueResolutionNoticesDialog({
+  open,
+  onOpenChange,
+  notices,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  notices: ValueResolutionNotice[];
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <Info className="h-4 w-4 text-muted-foreground" />
+            Value Resolution Notices
+          </DialogTitle>
+          <DialogDescription>
+            These references were kept as literal text.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="max-h-[60vh] space-y-3 overflow-y-auto">
+          {notices.map((notice, index) => (
+            <div
+              key={`${notice.field ?? ''}:${notice.token ?? ''}:${index}`}
+              className="rounded-md border border-border bg-muted/30 p-3 text-sm"
+            >
+              <p className="text-foreground">{notice.message}</p>
+              <dl className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-[5rem_1fr]">
+                {notice.field && (
+                  <>
+                    <dt>Field</dt>
+                    <dd className="min-w-0 break-all font-mono">
+                      {notice.field}
+                    </dd>
+                  </>
+                )}
+                {notice.token && (
+                  <>
+                    <dt>Reference</dt>
+                    <dd className="min-w-0 break-all font-mono">
+                      {notice.token}
+                    </dd>
+                  </>
+                )}
+              </dl>
+            </div>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

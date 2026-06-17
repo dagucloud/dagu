@@ -25,6 +25,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/cmn/procutil"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
@@ -231,11 +232,17 @@ func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObjec
 		return nil, err
 	}
 
-	dag, err := a.dagStore.LoadSpec(ctx,
+	loadResult, err := a.dagStore.LoadSpecWithResult(ctx,
 		[]byte(yamlSpec),
 		spec.WithName(request.FileName),
 		spec.WithAllowBuildErrors(),
 	)
+	var dag *core.DAG
+	notices := []api.ValueResolutionNotice{}
+	if loadResult != nil {
+		dag = loadResult.DAG
+		notices = toValueResolutionNotices(loadResult.Diagnostics)
+	}
 	var errs []string
 
 	var loadErrs core.ErrorList
@@ -273,10 +280,30 @@ func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObjec
 	}
 
 	return &api.GetDAGSpec200JSONResponse{
-		Dag:    details,
-		Spec:   yamlSpec,
-		Errors: errs,
+		Dag:     details,
+		Spec:    yamlSpec,
+		Errors:  errs,
+		Notices: notices,
 	}, nil
+}
+
+func toValueResolutionNotices(diagnostics []cmnvalue.Diagnostic) []api.ValueResolutionNotice {
+	notices := make([]api.ValueResolutionNotice, 0, len(diagnostics))
+	for _, diagnostic := range diagnostics {
+		notice := api.ValueResolutionNotice{
+			Level:   api.ValueResolutionNoticeLevel(diagnostic.Level),
+			Code:    diagnostic.Code,
+			Message: diagnostic.Message,
+		}
+		if diagnostic.Field != "" {
+			notice.Field = ptrOf(diagnostic.Field)
+		}
+		if diagnostic.Token != "" {
+			notice.Token = ptrOf(diagnostic.Token)
+		}
+		notices = append(notices, notice)
+	}
+	return notices
 }
 
 func (a *API) UpdateDAGSpec(ctx context.Context, request api.UpdateDAGSpecRequestObject) (api.UpdateDAGSpecResponseObject, error) {

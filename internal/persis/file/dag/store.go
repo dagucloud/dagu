@@ -329,6 +329,12 @@ func (store *Storage) LoadSpec(ctx context.Context, yamlSpec []byte, opts ...spe
 	return spec.LoadYAML(ctx, yamlSpec, loadOpts...)
 }
 
+func (store *Storage) LoadSpecWithResult(ctx context.Context, yamlSpec []byte, opts ...spec.LoadOption) (*spec.LoadResult, error) {
+	loadOpts := store.defaultLoadOptions(slices.Clone(opts)...)
+	loadOpts = append(loadOpts, spec.WithoutEval())
+	return spec.LoadYAMLWithResult(ctx, yamlSpec, loadOpts...)
+}
+
 // UpdateSpec updates the specification of a DAG by its name.
 func (store *Storage) UpdateSpec(ctx context.Context, name string, yamlSpec []byte) error {
 	// Validate the spec before saving it.

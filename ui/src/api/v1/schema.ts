@@ -4849,6 +4849,22 @@ export interface components {
             runConfig?: components["schemas"]["RunConfig"];
             resources?: components["schemas"]["DAGResources"];
         };
+        /** @description A non-fatal notice produced while resolving a value reference. */
+        ValueResolutionNotice: {
+            /**
+             * @description Display severity for the notice.
+             * @enum {string}
+             */
+            level: ValueResolutionNoticeLevel;
+            /** @description Stable machine-readable notice code. */
+            code: string;
+            /** @description DAG field that owns the unresolved value reference. */
+            field?: string;
+            /** @description Original value-reference token preserved in the DAG. */
+            token?: string;
+            /** @description Human-readable explanation. */
+            message: string;
+        };
         /** @description Editor-only metadata used to synthesize per-document schema hints */
         DAGEditorHints: {
             /** @description Deprecated legacy execution definitions inherited from base config and available to the current DAG */
@@ -8394,6 +8410,8 @@ export interface operations {
                         spec: string;
                         /** @description List of errors in the spec */
                         errors: string[];
+                        /** @description Non-fatal notices produced while resolving value references for this spec load. These notices are transient and are not persisted. */
+                        notices: components["schemas"]["ValueResolutionNotice"][];
                     };
                 };
             };
@@ -19552,6 +19570,9 @@ export enum WorkerHealthStatus {
     healthy = "healthy",
     warning = "warning",
     unhealthy = "unhealthy"
+}
+export enum ValueResolutionNoticeLevel {
+    notice = "notice"
 }
 export enum ParamDefType {
     string = "string",

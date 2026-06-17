@@ -1374,9 +1374,15 @@ paths:
                     description: "List of errors in the spec"
                     items:
                       type: string
+                  notices:
+                    type: array
+                    description: "Non-fatal notices produced while resolving value references for this spec load. These notices are transient and are not persisted."
+                    items:
+                      $ref: "#/components/schemas/ValueResolutionNotice"
                 required:
                   - spec
                   - errors
+                  - notices
         default:
           description: "Generic error response"
           content:
@@ -12616,6 +12622,32 @@ components:
           $ref: "#/components/schemas/DAGResources"
       required:
         - name
+
+    ValueResolutionNotice:
+      type: object
+      description: "A non-fatal notice produced while resolving a value reference."
+      properties:
+        level:
+          type: string
+          enum:
+            - notice
+          description: "Display severity for the notice."
+        code:
+          type: string
+          description: "Stable machine-readable notice code."
+        field:
+          type: string
+          description: "DAG field that owns the unresolved value reference."
+        token:
+          type: string
+          description: "Original value-reference token preserved in the DAG."
+        message:
+          type: string
+          description: "Human-readable explanation."
+      required:
+        - level
+        - code
+        - message
 
     DAGEditorHints:
       type: object
