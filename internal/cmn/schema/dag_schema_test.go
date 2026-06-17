@@ -1932,6 +1932,36 @@ steps:
 `,
 		},
 		{
+			name: "HarnessRunWithContainer",
+			spec: `
+steps:
+  - action: harness.run
+    container:
+      image: localhost/reviewer-claude:latest
+    with:
+      prompt: Summarize the repository state
+      provider: claude
+`,
+		},
+		{
+			name: "RejectContainerRuntimeKey",
+			spec: `
+steps:
+  - action: harness.run
+    container:
+      image: localhost/reviewer-claude:latest
+      runtime: podman
+    with:
+      prompt: Summarize the repository state
+      provider: claude
+`,
+			// Runtime selection is service-level (DAGU_CONTAINER_RUNTIME), not a YAML
+			// field. The container schema sets additionalProperties:false, so a stray
+			// runtime: key must fail validation as an unknown property. This guards the
+			// contract that the removed per-step field cannot be reintroduced silently.
+			wantErr: "steps",
+		},
+		{
 			name: "RequirePromptFlagForFlagPromptMode",
 			spec: `
 harnesses:

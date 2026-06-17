@@ -799,6 +799,16 @@ func (a *Agent) Run(ctx context.Context) error {
 		if a.dag.Resources.HasLimits() && !docker.ApplyResourceLimitsToConfig(ctCfg, a.dag.Resources.Limits) {
 			logger.Warn(ctx, "Resource limits requested but cannot be applied to an existing container")
 		}
+		// Select the daemon (docker or podman) for the DAG-level container from the
+		// service-level DAGU_CONTAINER_RUNTIME setting, the same selector used by
+		// step-level container jobs and harness.run container steps. Empty
+		// (docker/unset) preserves upstream client.FromEnv behavior.
+		host, err := docker.ResolveDaemonHost(docker.ServiceRuntimeEnv())
+		if err != nil {
+			initErr = err
+			return initErr
+		}
+		ctCfg.DaemonHost = host
 		ctCli, err := docker.InitializeClient(ctx, ctCfg)
 		if err != nil {
 			initErr = fmt.Errorf("failed to initialize container client: %w", err)

@@ -85,6 +85,13 @@ func getRegistryAuth(ctx context.Context) map[string]*core.AuthConfig {
 	return nil
 }
 
+// RegistryAuthFromContext exposes the context registry auth to other executors
+// (the harness executor reuses it so containerized harness steps pull private
+// images with the same auth as the docker executor).
+func RegistryAuthFromContext(ctx context.Context) map[string]*core.AuthConfig {
+	return getRegistryAuth(ctx)
+}
+
 type docker struct {
 	step      core.Step
 	stdout    io.Writer
@@ -379,6 +386,14 @@ func newDocker(ctx context.Context, step core.Step) (executor.Executor, error) {
 		// Set ShouldStart to true for step-level containers
 		// This ensures the container is automatically created and started
 		c.ShouldStart = true
+		// Select the daemon (docker or podman) from the service-level
+		// DAGU_CONTAINER_RUNTIME setting. Empty (docker/unset) preserves upstream
+		// client.FromEnv behavior.
+		host, err := ResolveDaemonHost(ServiceRuntimeEnv())
+		if err != nil {
+			return nil, err
+		}
+		c.DaemonHost = host
 		cfg = c
 	} else if len(execCfg.Config) > 0 {
 		// Priority 2: Executor config map (legacy syntax: executor.config)
@@ -390,6 +405,11 @@ func newDocker(ctx context.Context, step core.Step) (executor.Executor, error) {
 		// This ensures the container is automatically created and started
 		// if it does not exist or is stopped.
 		c.ShouldStart = true
+		host, err := ResolveDaemonHost(ServiceRuntimeEnv())
+		if err != nil {
+			return nil, err
+		}
+		c.DaemonHost = host
 		cfg = c
 	}
 

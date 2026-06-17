@@ -18,6 +18,13 @@ import (
 
 // Config holds the configuration for creating or using a container.
 type Config struct {
+	// DaemonHost optionally overrides the Docker-compatible daemon API host the
+	// Moby SDK client connects to (e.g. "unix:///run/podman/podman.sock"). Empty
+	// preserves the upstream client.FromEnv behavior (DOCKER_HOST or the default
+	// docker socket). Set from the DAGU_CONTAINER_RUNTIME service setting for all
+	// container forms: DAG-level container, step-level container jobs, and
+	// harness.run container steps (see ResolveDaemonHost in runtime.go).
+	DaemonHost string
 	// Image is the Docker image to use for creating a new container.
 	Image string
 	// Platform is the target platform for the container (e.g., linux/amd64).
