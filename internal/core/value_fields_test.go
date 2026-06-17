@@ -7,8 +7,10 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/internal/cmn/collections"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestReferenceFieldsEmitsValidationPathSet(t *testing.T) {
@@ -203,4 +205,65 @@ func TestReferenceFieldsEmitsValidationPathSet(t *testing.T) {
 	}, got)
 	assert.NotContains(t, got, "steps[0].stdout.outputs.fields.image.select")
 	assert.NotContains(t, got, "steps[0].output.digest.select")
+}
+
+func TestReferenceFieldsDescendsOutputValueContainers(t *testing.T) {
+	t.Parallel()
+
+	type collectedReference struct {
+		field string
+		ref   cmnvalue.StepOutputReference
+	}
+	var refs []collectedReference
+	dag := &core.DAG{Steps: []core.Step{{
+		Name: "publish",
+		StructuredOutput: map[string]core.StepOutputEntry{
+			"payload": {
+				HasValue: true,
+				Value: []map[string]string{
+					{"z": "${build.output.zed}"},
+					{"a": "${build.output.alpha}"},
+				},
+			},
+		},
+	}}}
+	for _, field := range core.ReferenceFields(dag) {
+		for _, ref := range cmnvalue.StepOutputReferences(field.Value) {
+			refs = append(refs, collectedReference{field: field.Path, ref: ref})
+		}
+	}
+
+	require.Len(t, refs, 2)
+	assert.Equal(t, "steps[0].output.payload.value[0].z", refs[0].field)
+	assert.Equal(t, "zed", refs[0].ref.Path[0])
+	assert.Equal(t, "steps[0].output.payload.value[1].a", refs[1].field)
+	assert.Equal(t, "alpha", refs[1].ref.Path[0])
+}
+
+func TestReferenceFieldsIncludesExecutorConfig(t *testing.T) {
+	t.Parallel()
+
+	var refs []core.ReferenceField
+	dag := &core.DAG{Steps: []core.Step{{
+		Name: "consumer",
+		ExecutorConfig: core.ExecutorConfig{
+			Config: map[string]any{
+				"endpoint": "https://example.com/${build.output.host}",
+				"headers": map[string]any{
+					"authorization": "Bearer ${build.output.token}",
+				},
+			},
+		},
+	}}}
+	for _, field := range core.ReferenceFields(dag) {
+		if len(cmnvalue.StepOutputReferences(field.Value)) > 0 {
+			refs = append(refs, field)
+		}
+	}
+
+	require.Len(t, refs, 2)
+	assert.Equal(t, "steps[0].with.endpoint", refs[0].Path)
+	assert.Equal(t, "https://example.com/${build.output.host}", refs[0].Value)
+	assert.Equal(t, "steps[0].with.headers.authorization", refs[1].Path)
+	assert.Equal(t, "Bearer ${build.output.token}", refs[1].Value)
 }
