@@ -4849,21 +4849,31 @@ export interface components {
             runConfig?: components["schemas"]["RunConfig"];
             resources?: components["schemas"]["DAGResources"];
         };
-        /** @description A non-fatal notice produced while resolving a value reference. */
-        ValueResolutionNotice: {
+        /** @description A transient diagnostic produced during an explicit operation. */
+        Diagnostic: {
             /**
-             * @description Display severity for the notice.
+             * @description Display severity for the diagnostic.
              * @enum {string}
              */
-            level: ValueResolutionNoticeLevel;
-            /** @description Stable machine-readable notice code. */
+            severity: DiagnosticSeverity;
+            /** @description Diagnostic category. */
+            kind: string;
+            /** @description Stable machine-readable diagnostic code. */
             code: string;
-            /** @description DAG field that owns the unresolved value reference. */
-            field?: string;
-            /** @description Original value-reference token preserved in the DAG. */
-            token?: string;
+            location?: components["schemas"]["DiagnosticLocation"];
+            /** @description Diagnostic-specific attributes. */
+            attributes?: {
+                [key: string]: string;
+            };
             /** @description Human-readable explanation. */
             message: string;
+        };
+        /** @description Location where a diagnostic applies. */
+        DiagnosticLocation: {
+            /** @description File path associated with the diagnostic. */
+            filePath?: string;
+            /** @description DAG field path associated with the diagnostic. */
+            fieldPath?: string;
         };
         /** @description Editor-only metadata used to synthesize per-document schema hints */
         DAGEditorHints: {
@@ -8410,8 +8420,8 @@ export interface operations {
                         spec: string;
                         /** @description List of errors in the spec */
                         errors: string[];
-                        /** @description Non-fatal notices produced while resolving value references for this spec load. These notices are transient and are not persisted. */
-                        notices: components["schemas"]["ValueResolutionNotice"][];
+                        /** @description Transient diagnostics produced while loading this spec. These diagnostics are not persisted. */
+                        diagnostics: components["schemas"]["Diagnostic"][];
                     };
                 };
             };
@@ -19571,8 +19581,10 @@ export enum WorkerHealthStatus {
     warning = "warning",
     unhealthy = "unhealthy"
 }
-export enum ValueResolutionNoticeLevel {
-    notice = "notice"
+export enum DiagnosticSeverity {
+    notice = "notice",
+    warning = "warning",
+    error = "error"
 }
 export enum ParamDefType {
     string = "string",

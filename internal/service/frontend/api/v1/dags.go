@@ -25,10 +25,10 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/cmn/procutil"
-	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
+	"github.com/dagucloud/dagu/internal/diagnostic"
 	"github.com/dagucloud/dagu/internal/dispatch"
 	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
@@ -238,10 +238,10 @@ func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObjec
 		spec.WithAllowBuildErrors(),
 	)
 	var dag *core.DAG
-	notices := []api.ValueResolutionNotice{}
+	diagnostics := []api.Diagnostic{}
 	if loadResult != nil {
 		dag = loadResult.DAG
-		notices = toValueResolutionNotices(loadResult.Diagnostics)
+		diagnostics = toAPIDiagnostics(loadResult.Diagnostics)
 	}
 	var errs []string
 
@@ -280,30 +280,41 @@ func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObjec
 	}
 
 	return &api.GetDAGSpec200JSONResponse{
-		Dag:     details,
-		Spec:    yamlSpec,
-		Errors:  errs,
-		Notices: notices,
+		Dag:         details,
+		Spec:        yamlSpec,
+		Errors:      errs,
+		Diagnostics: diagnostics,
 	}, nil
 }
 
-func toValueResolutionNotices(diagnostics []cmnvalue.Diagnostic) []api.ValueResolutionNotice {
-	notices := make([]api.ValueResolutionNotice, 0, len(diagnostics))
-	for _, diagnostic := range diagnostics {
-		notice := api.ValueResolutionNotice{
-			Level:   api.ValueResolutionNoticeLevel(diagnostic.Level),
-			Code:    diagnostic.Code,
-			Message: diagnostic.Message,
+func toAPIDiagnostics(diagnostics []diagnostic.Diagnostic) []api.Diagnostic {
+	out := make([]api.Diagnostic, 0, len(diagnostics))
+	for _, d := range diagnostics {
+		apiDiagnostic := api.Diagnostic{
+			Severity: api.DiagnosticSeverity(d.Severity),
+			Kind:     string(d.Kind),
+			Code:     string(d.Code),
+			Message:  d.Message,
 		}
-		if diagnostic.Field != "" {
-			notice.Field = ptrOf(diagnostic.Field)
+		if d.Location.FilePath != "" || d.Location.FieldPath != "" {
+			apiDiagnostic.Location = &api.DiagnosticLocation{}
+			if d.Location.FilePath != "" {
+				apiDiagnostic.Location.FilePath = ptrOf(d.Location.FilePath)
+			}
+			if d.Location.FieldPath != "" {
+				apiDiagnostic.Location.FieldPath = ptrOf(d.Location.FieldPath)
+			}
 		}
-		if diagnostic.Token != "" {
-			notice.Token = ptrOf(diagnostic.Token)
+		if len(d.Attributes) > 0 {
+			attrs := make(map[string]string, len(d.Attributes))
+			for key, value := range d.Attributes {
+				attrs[key] = value
+			}
+			apiDiagnostic.Attributes = &attrs
 		}
-		notices = append(notices, notice)
+		out = append(out, apiDiagnostic)
 	}
-	return notices
+	return out
 }
 
 func (a *API) UpdateDAGSpec(ctx context.Context, request api.UpdateDAGSpecRequestObject) (api.UpdateDAGSpecResponseObject, error) {

@@ -794,7 +794,7 @@ steps:
 	require.True(t, scheduledAt.Equal(*specResp.Dag.NextRun))
 }
 
-func TestGetDAGSpecIncludesValueResolutionNotices(t *testing.T) {
+func TestGetDAGSpecIncludesDiagnostics(t *testing.T) {
 	t.Parallel()
 
 	helper := test.Setup(t, test.WithStatusPersistence())
@@ -831,14 +831,16 @@ steps:
 		specResp = &valueResp
 	}
 	require.Empty(t, specResp.Errors)
-	require.Len(t, specResp.Notices, 1)
+	require.Len(t, specResp.Diagnostics, 1)
 
-	notice := specResp.Notices[0]
-	require.Equal(t, openapi.ValueResolutionNoticeLevelNotice, notice.Level)
-	require.Equal(t, "value_reference_unresolved", notice.Code)
-	require.NotNil(t, notice.Field)
-	require.Equal(t, "consts.image", *notice.Field)
-	require.NotNil(t, notice.Token)
-	require.Equal(t, "${consts.missing}", *notice.Token)
-	require.Contains(t, notice.Message, "was left unchanged")
+	diagnostic := specResp.Diagnostics[0]
+	require.Equal(t, openapi.DiagnosticSeverityNotice, diagnostic.Severity)
+	require.Equal(t, "value_resolution", diagnostic.Kind)
+	require.Equal(t, "value_reference_unresolved", diagnostic.Code)
+	require.NotNil(t, diagnostic.Location)
+	require.NotNil(t, diagnostic.Location.FieldPath)
+	require.Equal(t, "consts.image", *diagnostic.Location.FieldPath)
+	require.NotNil(t, diagnostic.Attributes)
+	require.Equal(t, "${consts.missing}", (*diagnostic.Attributes)["token"])
+	require.Contains(t, diagnostic.Message, "was left unchanged")
 }

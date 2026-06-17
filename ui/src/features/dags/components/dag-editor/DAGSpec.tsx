@@ -77,7 +77,7 @@ type Props = {
   editorHints?: components['schemas']['DAGEditorHints'];
 };
 
-type ValueResolutionNotice = components['schemas']['ValueResolutionNotice'];
+type OperationDiagnostic = components['schemas']['Diagnostic'];
 
 /**
  * DAGSpec displays and allows editing of a DAG specification
@@ -99,7 +99,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
   >(null);
   const [isSpecStepDetailsOpen, setIsSpecStepDetailsOpen] =
     React.useState(false);
-  const [isNoticesOpen, setIsNoticesOpen] = React.useState(false);
+  const [isDiagnosticsOpen, setIsDiagnosticsOpen] = React.useState(false);
 
   const closeSpecStepDetails = React.useCallback(() => {
     setIsSpecStepDetailsOpen(false);
@@ -166,7 +166,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
       : {
           dag: next.dag,
           errors: next.errors ?? [],
-          notices: data?.notices ?? [],
+          diagnostics: data?.diagnostics ?? [],
           spec: next.spec,
         }
   );
@@ -183,13 +183,13 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
 
   // Server spec — SWR cache stays current via live invalidations or polling fallback
   const serverSpec = data?.spec ?? null;
-  const notices = data?.notices ?? [];
+  const diagnostics = data?.diagnostics ?? [];
 
   useEffect(() => {
-    if (notices.length === 0) {
-      setIsNoticesOpen(false);
+    if (diagnostics.length === 0) {
+      setIsDiagnosticsOpen(false);
     }
-  }, [notices.length]);
+  }, [diagnostics.length]);
 
   // Change tracking (source-agnostic)
   const {
@@ -552,10 +552,10 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                 onDiscard={() => resolveConflict('discard')}
                 onIgnore={() => resolveConflict('ignore')}
               />
-              <ValueResolutionNoticesDialog
-                open={isNoticesOpen}
-                onOpenChange={setIsNoticesOpen}
-                notices={notices}
+              <DiagnosticsDialog
+                open={isDiagnosticsOpen}
+                onOpenChange={setIsDiagnosticsOpen}
+                diagnostics={diagnostics}
               />
 
               <div
@@ -637,17 +637,17 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                   schema={editorSchema}
                   headerActions={
                     <div className="flex items-center gap-2">
-                      {notices.length > 0 && (
+                      {diagnostics.length > 0 && (
                         <Button
                           variant="ghost"
                           size="xs"
-                          title="View value resolution notices"
-                          onClick={() => setIsNoticesOpen(true)}
+                          title="View diagnostics"
+                          onClick={() => setIsDiagnosticsOpen(true)}
                         >
                           <Info className="h-3.5 w-3.5" />
-                          Notices
+                          Diagnostics
                           <span className="ml-0.5 rounded-sm bg-muted px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
-                            {notices.length}
+                            {diagnostics.length}
                           </span>
                         </Button>
                       )}
@@ -689,14 +689,14 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
   );
 }
 
-function ValueResolutionNoticesDialog({
+function DiagnosticsDialog({
   open,
   onOpenChange,
-  notices,
+  diagnostics,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  notices: ValueResolutionNotice[];
+  diagnostics: OperationDiagnostic[];
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -704,33 +704,35 @@ function ValueResolutionNoticesDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             <Info className="h-4 w-4 text-muted-foreground" />
-            Value Resolution Notices
+            Diagnostics
           </DialogTitle>
-          <DialogDescription>
-            These references were kept as literal text.
-          </DialogDescription>
+          <DialogDescription>Transient diagnostics from this spec load.</DialogDescription>
         </DialogHeader>
         <div className="max-h-[60vh] space-y-3 overflow-y-auto">
-          {notices.map((notice, index) => (
+          {diagnostics.map((diagnostic, index) => (
             <div
-              key={`${notice.field ?? ''}:${notice.token ?? ''}:${index}`}
+              key={`${diagnostic.kind}:${diagnostic.code}:${diagnostic.location?.fieldPath ?? ''}:${index}`}
               className="rounded-md border border-border bg-muted/30 p-3 text-sm"
             >
-              <p className="text-foreground">{notice.message}</p>
+              <p className="text-foreground">{diagnostic.message}</p>
               <dl className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-[5rem_1fr]">
-                {notice.field && (
+                <dt>Code</dt>
+                <dd className="min-w-0 break-all font-mono">
+                  {diagnostic.kind}.{diagnostic.code}
+                </dd>
+                {diagnostic.location?.fieldPath && (
                   <>
                     <dt>Field</dt>
                     <dd className="min-w-0 break-all font-mono">
-                      {notice.field}
+                      {diagnostic.location.fieldPath}
                     </dd>
                   </>
                 )}
-                {notice.token && (
+                {diagnostic.attributes?.token && (
                   <>
                     <dt>Reference</dt>
                     <dd className="min-w-0 break-all font-mono">
-                      {notice.token}
+                      {diagnostic.attributes.token}
                     </dd>
                   </>
                 )}

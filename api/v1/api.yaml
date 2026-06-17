@@ -1374,15 +1374,15 @@ paths:
                     description: "List of errors in the spec"
                     items:
                       type: string
-                  notices:
+                  diagnostics:
                     type: array
-                    description: "Non-fatal notices produced while resolving value references for this spec load. These notices are transient and are not persisted."
+                    description: "Transient diagnostics produced while loading this spec. These diagnostics are not persisted."
                     items:
-                      $ref: "#/components/schemas/ValueResolutionNotice"
+                      $ref: "#/components/schemas/Diagnostic"
                 required:
                   - spec
                   - errors
-                  - notices
+                  - diagnostics
         default:
           description: "Generic error response"
           content:
@@ -12623,31 +12623,49 @@ components:
       required:
         - name
 
-    ValueResolutionNotice:
+    Diagnostic:
       type: object
-      description: "A non-fatal notice produced while resolving a value reference."
+      description: "A transient diagnostic produced during an explicit operation."
       properties:
-        level:
+        severity:
           type: string
           enum:
             - notice
-          description: "Display severity for the notice."
+            - warning
+            - error
+          description: "Display severity for the diagnostic."
+        kind:
+          type: string
+          description: "Diagnostic category."
         code:
           type: string
-          description: "Stable machine-readable notice code."
-        field:
-          type: string
-          description: "DAG field that owns the unresolved value reference."
-        token:
-          type: string
-          description: "Original value-reference token preserved in the DAG."
+          description: "Stable machine-readable diagnostic code."
+        location:
+          $ref: "#/components/schemas/DiagnosticLocation"
+        attributes:
+          type: object
+          additionalProperties:
+            type: string
+          description: "Diagnostic-specific attributes."
         message:
           type: string
           description: "Human-readable explanation."
       required:
-        - level
+        - severity
+        - kind
         - code
         - message
+
+    DiagnosticLocation:
+      type: object
+      description: "Location where a diagnostic applies."
+      properties:
+        filePath:
+          type: string
+          description: "File path associated with the diagnostic."
+        fieldPath:
+          type: string
+          description: "DAG field path associated with the diagnostic."
 
     DAGEditorHints:
       type: object
