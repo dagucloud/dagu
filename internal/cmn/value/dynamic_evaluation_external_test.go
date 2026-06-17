@@ -96,6 +96,11 @@ func TestNonDynamicFieldsPreserveCommandSubstitutionText(t *testing.T) {
 		{name: "step env", field: value.StepEnvField("steps[0].env.OUTSIDE")},
 		{name: "container env", field: value.ContainerEnvField("steps[0].container.env.OUTSIDE")},
 		{name: "executor config", field: value.ExecutorConfigField("steps[0].with.value")},
+		{name: "condition value", field: value.ConditionValueField("steps[0].preconditions[0].condition")},
+		{name: "retry integer", field: value.RetryIntegerField("steps[0].retryPolicy.limit")},
+		{name: "repeat integer", field: value.RepeatIntegerField("steps[0].repeatPolicy.repeat")},
+		{name: "server base path", field: value.ServerBasePathField("config.serverBasePath")},
+		{name: "coordinator artifact base dir", field: value.CoordinatorArtifactBaseDirField("config.coordinator.artifactBaseDir")},
 	}
 
 	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{})

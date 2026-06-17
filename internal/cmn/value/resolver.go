@@ -179,7 +179,7 @@ func policyForField(field Field) resolverPolicy {
 	case fieldWorkflowObject:
 		return workflowValuePolicy()
 	case fieldConditionValue:
-		return resolverPolicy{strict: true}
+		return resolverPolicy{strict: true, options: []option{withoutSubstitute()}}
 	case fieldDAGEnv:
 		return resolverPolicy{strict: true, envVariables: envVariablesUser, options: []option{withOSExpansion(), withoutSubstitute()}}
 	case fieldRuntimeDAGEnv:
@@ -195,7 +195,7 @@ func policyForField(field Field) resolverPolicy {
 	case fieldLogPath:
 		return resolverPolicy{options: []option{withOSExpansion(), withoutSubstitute()}}
 	case fieldServerBasePath, fieldCoordinatorArtifactBaseDir:
-		return resolverPolicy{options: []option{withOSExpansion()}}
+		return resolverPolicy{options: []option{withOSExpansion(), withoutSubstitute()}}
 	case fieldStructuredOutputPath, fieldStructuredOutputLiteral:
 		return resolverPolicy{strict: true, options: []option{withoutExpandShell(), withoutSubstitute()}}
 	case fieldStepArtifactOutput:
@@ -208,7 +208,7 @@ func policyForField(field Field) resolverPolicy {
 			},
 		}
 	case fieldRetryInteger, fieldRepeatInteger:
-		return resolverPolicy{strict: true, options: []option{withOSExpansion()}}
+		return resolverPolicy{strict: true, options: []option{withOSExpansion(), withoutSubstitute()}}
 	case fieldDAGShell, fieldStepShell:
 		return resolverPolicy{strict: true, options: append([]option{withoutSubstitute()}, commandPolicyOptions(field.command)...)}
 	case fieldShellCommand:
