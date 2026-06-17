@@ -210,6 +210,7 @@ func LoadWithResult(ctx context.Context, nameOrPath string, opts ...LoadOption) 
 	if err != nil {
 		return nil, err
 	}
+	core.ReportValueReferenceDiagnostics(dag, &collector)
 	return &LoadResult{DAG: dag, Diagnostics: collector.Diagnostics()}, nil
 }
 
@@ -232,6 +233,7 @@ func LoadYAMLWithResult(ctx context.Context, data []byte, opts ...LoadOption) (*
 	if err != nil {
 		return nil, err
 	}
+	core.ReportValueReferenceDiagnostics(dag, &collector)
 	return &LoadResult{DAG: dag, Diagnostics: collector.Diagnostics()}, nil
 }
 

@@ -39,10 +39,6 @@ func TestValidate(t *testing.T) {
 		"params_eval_declared.yaml",
 		"params_eval_undeclared.yaml",
 		"params_reference_in_params_declaration.yaml",
-		"params_reference_in_consts.yaml",
-		"positional_only_params_reference.yaml",
-		"undeclared_reference_in_run.yaml",
-		"runtime_resolution.yaml",
 		"unbraced_params_text_is_preserved.yaml",
 	}
 	for _, file := range validCases {
@@ -55,6 +51,46 @@ func TestValidate(t *testing.T) {
 			result.ExpectExitCode(0)
 			result.ExpectStdout("")
 			result.ExpectStderr("")
+			dagu.ExpectNoFile("executed.txt")
+		})
+	}
+
+	diagnosticCases := []struct {
+		name        string
+		file        string
+		stderrParts []string
+	}{
+		{
+			name:        "params reference in consts preserves and reports diagnostic",
+			file:        "params_reference_in_consts.yaml",
+			stderrParts: []string{"${params.environment}", "was left unchanged", "consts.target"},
+		},
+		{
+			name:        "positional-only params reference preserves and reports diagnostic",
+			file:        "positional_only_params_reference.yaml",
+			stderrParts: []string{"${params.environment}", "was left unchanged", "steps[0].run"},
+		},
+		{
+			name:        "undeclared params reference preserves and reports diagnostic",
+			file:        "undeclared_reference_in_run.yaml",
+			stderrParts: []string{"${params.missing}", "was left unchanged", "steps[0].run"},
+		},
+		{
+			name:        "missing runtime param preserves and reports diagnostic",
+			file:        "runtime_resolution.yaml",
+			stderrParts: []string{"${params.environment}", "was left unchanged", "steps[0].run"},
+		},
+	}
+	for _, tc := range diagnosticCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dagu := harness.NewRunner(t)
+
+			result := dagu.Run("validate", tc.file)
+			result.ExpectExitCode(0)
+			result.ExpectStdout("")
+			result.ExpectStderrContains(tc.stderrParts...)
 			dagu.ExpectNoFile("executed.txt")
 		})
 	}

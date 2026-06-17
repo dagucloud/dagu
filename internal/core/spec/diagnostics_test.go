@@ -37,3 +37,28 @@ steps:
 	assert.Equal(t, "${consts.missing}", got.Attributes["token"])
 	assert.Contains(t, got.Message, "was left unchanged")
 }
+
+func TestLoadYAMLWithResultInspectsWorkflowFields(t *testing.T) {
+	t.Parallel()
+
+	result, err := spec.LoadYAMLWithResult(context.Background(), []byte(`
+name: diagnostics
+params:
+  - name: environment
+    required: true
+steps:
+  - run: echo ${params.environment}
+`))
+
+	require.NoError(t, err)
+	require.NotNil(t, result.DAG)
+	require.Len(t, result.Diagnostics, 1)
+
+	got := result.Diagnostics[0]
+	assert.Equal(t, diagnostic.SeverityNotice, got.Severity)
+	assert.Equal(t, cmnvalue.DiagnosticKindValueResolution, got.Kind)
+	assert.Equal(t, cmnvalue.CodeValueReferenceUnresolved, got.Code)
+	assert.Equal(t, "steps[0].run[0]", got.Location.FieldPath)
+	assert.Equal(t, "${params.environment}", got.Attributes["token"])
+	assert.Contains(t, got.Message, "was left unchanged")
+}
