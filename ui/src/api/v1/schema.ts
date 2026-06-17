@@ -4849,6 +4849,15 @@ export interface components {
             runConfig?: components["schemas"]["RunConfig"];
             resources?: components["schemas"]["DAGResources"];
         };
+        /** @description A passive notice for a supported value reference left unresolved while loading a spec. */
+        ValueReferenceNotice: {
+            /** @description Human-readable explanation of the unresolved reference. */
+            message: string;
+            /** @description DAG field path associated with the unresolved reference. */
+            fieldPath?: string;
+            /** @description Original value-reference token that was preserved. */
+            token?: string;
+        };
         /** @description Editor-only metadata used to synthesize per-document schema hints */
         DAGEditorHints: {
             /** @description Deprecated legacy execution definitions inherited from base config and available to the current DAG */
@@ -8394,6 +8403,8 @@ export interface operations {
                         spec: string;
                         /** @description List of errors in the spec */
                         errors: string[];
+                        /** @description Passive value-reference notices produced while loading this spec. These notices are not persisted. */
+                        valueReferenceNotices: components["schemas"]["ValueReferenceNotice"][];
                     };
                 };
             };

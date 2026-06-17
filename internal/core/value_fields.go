@@ -17,6 +17,7 @@ import (
 type ReferenceField struct {
 	Path          string
 	Value         string
+	noticePath    string
 	OwnerStepName string
 	Field         cmnvalue.Field
 }
@@ -36,6 +37,13 @@ func (w *referenceFieldWalker) add(field ReferenceField) {
 		return
 	}
 	w.fields = append(w.fields, field)
+}
+
+func (f ReferenceField) noticeFieldPath() string {
+	if f.noticePath != "" {
+		return f.noticePath
+	}
+	return f.Path
 }
 
 func (w *referenceFieldWalker) walkDAG(dag *DAG) {
@@ -98,13 +106,20 @@ func (w *referenceFieldWalker) walkStep(path string, step Step) {
 		w.add(base.withPathValue(fieldPath, arg).withField(cmnvalue.StepShellField(fieldPath)))
 	}
 	for i, cmd := range step.Commands {
+		noticePath := commandEntryNoticePath(path, i, len(step.Commands))
 		commandPath := fmt.Sprintf("%s.run[%d].command", path, i)
-		w.add(base.withPathValue(commandPath, cmd.Command).withField(cmnvalue.DirectCommandField(commandPath, command)))
+		w.add(base.withPathValue(commandPath, cmd.Command).
+			withNoticePath(noticePath).
+			withField(cmnvalue.DirectCommandField(commandPath, command)))
 		cmdWithArgsPath := fmt.Sprintf("%s.run[%d].cmd_with_args", path, i)
-		w.add(base.withPathValue(cmdWithArgsPath, cmd.CmdWithArgs).withField(cmnvalue.ShellCommandField(cmdWithArgsPath, command)))
+		w.add(base.withPathValue(cmdWithArgsPath, cmd.CmdWithArgs).
+			withNoticePath(noticePath).
+			withField(cmnvalue.ShellCommandField(cmdWithArgsPath, command)))
 		for j, arg := range cmd.Args {
 			argPath := fmt.Sprintf("%s.run[%d].args[%d]", path, i, j)
-			w.add(base.withPathValue(argPath, arg).withField(cmnvalue.DirectCommandField(argPath, command)))
+			w.add(base.withPathValue(argPath, arg).
+				withNoticePath(noticePath).
+				withField(cmnvalue.DirectCommandField(argPath, command)))
 		}
 	}
 
@@ -143,6 +158,13 @@ func scriptReferenceField(path string, step Step, command cmnvalue.CommandContex
 		return cmnvalue.CommandScriptField(path, command)
 	}
 	return cmnvalue.ShellCommandField(path, command)
+}
+
+func commandEntryNoticePath(stepPath string, index, count int) string {
+	if count == 1 {
+		return stepPath + ".run"
+	}
+	return fmt.Sprintf("%s.run[%d]", stepPath, index)
 }
 
 func (w *referenceFieldWalker) walkRetryPolicy(path string, policy RetryPolicy, base ReferenceField) {
@@ -348,5 +370,10 @@ func (f ReferenceField) withPathValue(path, value string) ReferenceField {
 
 func (f ReferenceField) withField(field cmnvalue.Field) ReferenceField {
 	f.Field = field
+	return f
+}
+
+func (f ReferenceField) withNoticePath(path string) ReferenceField {
+	f.noticePath = path
 	return f
 }

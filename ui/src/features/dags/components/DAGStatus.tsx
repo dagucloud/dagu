@@ -435,76 +435,85 @@ function DAGStatus({
           fillHeight && 'shrink-0'
         )}
       >
-        <div className="w-full min-w-0 max-w-full overflow-x-auto">
-          <Tabs className="min-w-max whitespace-nowrap">
-            <Tab
-              isActive={activeTab === 'status'}
-              onClick={() => setActiveTab('status')}
-              className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
-            >
-              <ActivitySquare className="h-4 w-4" />
-              <span className="hidden sm:inline">Status</span>
-            </Tab>
-            {hasWaitingSteps && (
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
+          <div className="min-w-0 flex-1 overflow-x-auto">
+            <Tabs className="min-w-max whitespace-nowrap">
               <Tab
-                isActive={activeTab === 'approval'}
-                onClick={() => setActiveTab('approval')}
+                aria-label="Status"
+                isActive={activeTab === 'status'}
+                onClick={() => setActiveTab('status')}
                 className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
               >
-                <ShieldCheck className="h-4 w-4" />
-                <span className="hidden sm:inline">Approval</span>
-                <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-xs font-medium text-warning">
-                  {waitingStepCount}
-                </span>
+                <ActivitySquare className="h-4 w-4" />
+                <span className="hidden sm:inline">Status</span>
               </Tab>
-            )}
-            {showTimeline && (
+              {hasWaitingSteps && (
+                <Tab
+                  aria-label="Approval"
+                  isActive={activeTab === 'approval'}
+                  onClick={() => setActiveTab('approval')}
+                  className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+                >
+                  <ShieldCheck className="h-4 w-4" />
+                  <span className="hidden sm:inline">Approval</span>
+                  <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-xs font-medium text-warning">
+                    {waitingStepCount}
+                  </span>
+                </Tab>
+              )}
+              {showTimeline && (
+                <Tab
+                  aria-label="Timeline"
+                  isActive={activeTab === 'timeline'}
+                  onClick={() => setActiveTab('timeline')}
+                  className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+                >
+                  <GanttChart className="h-4 w-4" />
+                  <span className="hidden sm:inline">Timeline</span>
+                </Tab>
+              )}
               <Tab
-                isActive={activeTab === 'timeline'}
-                onClick={() => setActiveTab('timeline')}
+                aria-label="Outputs"
+                isActive={activeTab === 'outputs'}
+                onClick={() => setActiveTab('outputs')}
                 className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
               >
-                <GanttChart className="h-4 w-4" />
-                <span className="hidden sm:inline">Timeline</span>
+                <Package className="h-4 w-4" />
+                <span className="hidden sm:inline">Outputs</span>
               </Tab>
-            )}
-            <Tab
-              isActive={activeTab === 'outputs'}
-              onClick={() => setActiveTab('outputs')}
-              className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
-            >
-              <Package className="h-4 w-4" />
-              <span className="hidden sm:inline">Outputs</span>
-            </Tab>
-            {hasArtifacts && (
+              {hasArtifacts && (
+                <Tab
+                  aria-label="Artifacts"
+                  isActive={activeTab === 'artifacts'}
+                  onClick={() => setActiveTab('artifacts')}
+                  className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+                >
+                  <Archive className="h-4 w-4" />
+                  <span className="hidden sm:inline">Artifacts</span>
+                </Tab>
+              )}
+              {hasChatSteps && (
+                <Tab
+                  aria-label="Chat"
+                  isActive={activeTab === 'chat'}
+                  onClick={() => setActiveTab('chat')}
+                  className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+                >
+                  <MessageSquare className="h-4 w-4" />
+                  <span className="hidden sm:inline">Chat</span>
+                </Tab>
+              )}
               <Tab
-                isActive={activeTab === 'artifacts'}
-                onClick={() => setActiveTab('artifacts')}
+                aria-label="Spec"
+                isActive={activeTab === 'spec'}
+                onClick={() => setActiveTab('spec')}
                 className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
               >
-                <Archive className="h-4 w-4" />
-                <span className="hidden sm:inline">Artifacts</span>
+                <FileCode className="h-4 w-4" />
+                <span className="hidden sm:inline">Spec</span>
               </Tab>
-            )}
-            {hasChatSteps && (
-              <Tab
-                isActive={activeTab === 'chat'}
-                onClick={() => setActiveTab('chat')}
-                className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
-              >
-                <MessageSquare className="h-4 w-4" />
-                <span className="hidden sm:inline">Chat</span>
-              </Tab>
-            )}
-            <Tab
-              isActive={activeTab === 'spec'}
-              onClick={() => setActiveTab('spec')}
-              className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
-            >
-              <FileCode className="h-4 w-4" />
-              <span className="hidden sm:inline">Spec</span>
-            </Tab>
-          </Tabs>
+            </Tabs>
+          </div>
         </div>
       </div>
 

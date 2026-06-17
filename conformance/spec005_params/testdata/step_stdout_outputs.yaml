@@ -1,0 +1,19 @@
+params:
+  - name: environment
+    description: Runtime environment.
+working_dir: .
+steps:
+  - id: produce
+    run: printf '{"report":"prod-from-stdout"}'
+    stdout:
+      outputs:
+        fields:
+          literal:
+            value: "${params.environment}"
+          report:
+            decode: json
+            select: .report
+  - name: consume
+    depends: produce
+    run: |
+      printf '%s\n%s\n' '${steps.produce.outputs.literal}' '${steps.produce.outputs.report}' > stdout-outputs.txt

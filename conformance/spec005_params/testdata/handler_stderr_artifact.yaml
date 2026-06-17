@@ -1,0 +1,16 @@
+name: spec005-handler-stderr-artifact
+params:
+  - name: environment
+    description: Runtime environment.
+artifacts:
+  dir: artifacts
+working_dir: .
+handler_on:
+  success:
+    run: |
+      printf '%s\n' prod >&2
+    stderr:
+      artifact: "reports/${params.environment}/stderr.txt"
+steps:
+  - name: ok
+    run: "true"

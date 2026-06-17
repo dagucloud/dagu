@@ -12,6 +12,7 @@ import (
 
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/workspace"
@@ -71,11 +72,12 @@ func runValidate(ctx *Context, args []string) error {
 		loadOpts = append(loadOpts, spec.WithBaseConfig(ctx.Config.Paths.BaseConfig))
 	}
 
-	dag, err := spec.Load(ctx, args[0], loadOpts...)
+	loadResult, err := spec.LoadWithResult(ctx, args[0], loadOpts...)
 	if err != nil {
 		// Collect and return a formatted error message
 		return errors.New(formatValidationErrors(args[0], err))
 	}
+	dag := loadResult.DAG
 
 	if !validatedInput && dag.Location != "" {
 		if _, err := validateWorkflowFile(dag.Location); err != nil {
@@ -89,8 +91,18 @@ func runValidate(ctx *Context, args []string) error {
 	}
 
 	logValidationWarnings(ctx, args[0], append(dag.BuildWarnings, collectDeprecatedSyntaxWarnings(dag)...))
+	logValueReferenceNotices(ctx, args[0], loadResult.ValueReferenceNotices)
 
 	return nil
+}
+
+func logValueReferenceNotices(ctx *Context, file string, notices []cmnvalue.ValueReferenceNotice) {
+	for _, notice := range notices {
+		if notice.Message == "" {
+			continue
+		}
+		logger.Info(ctx, notice.Message, tag.File(file))
+	}
 }
 
 func logValidationWarnings(ctx *Context, file string, warnings []string) {

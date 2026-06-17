@@ -1,0 +1,14 @@
+params:
+  - name: environment
+    description: Runtime environment.
+working_dir: .
+env:
+  - ROOT_MAP: "${params.environment}"
+  - ROOT_KEY_VALUE=${params.environment}
+steps:
+  - name: write
+    env:
+      - STEP_MAP: "${params.environment}"
+      - STEP_KEY_VALUE=${params.environment}
+    run: |
+      printf '%s\n%s\n%s\n%s\n' "$ROOT_MAP" "$ROOT_KEY_VALUE" "$STEP_MAP" "$STEP_KEY_VALUE" > env-list-forms.txt

@@ -51,7 +51,7 @@ steps:
 	assert.Equal(t, "outputs/${params.environment}/report.txt", values["steps[0].output.report.path"])
 }
 
-func TestLoadYAMLWarnsForUndeclaredOutputValueReferences(t *testing.T) {
+func TestLoadYAMLPreservesUndeclaredOutputValueReferences(t *testing.T) {
 	t.Parallel()
 
 	dag, err := spec.LoadYAML(context.Background(), []byte(strings.TrimSpace(`
@@ -75,5 +75,14 @@ steps:
         path: "outputs/${params.missing}/report.txt"
 `)), spec.WithoutEval())
 	require.NoError(t, err)
-	requireBuildWarningContains(t, dag.BuildWarnings, "${params.missing}")
+
+	fields := core.ReferenceFields(dag)
+	values := make(map[string]string, len(fields))
+	for _, field := range fields {
+		values[field.Path] = field.Value
+	}
+
+	assert.Equal(t, "${params.missing}", values["steps[0].stdout.outputs.fields.status.value"])
+	assert.Equal(t, "${params.missing}", values["steps[0].output.result.value"])
+	assert.Equal(t, "outputs/${params.missing}/report.txt", values["steps[0].output.report.path"])
 }

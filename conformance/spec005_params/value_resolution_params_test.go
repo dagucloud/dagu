@@ -15,11 +15,16 @@ type spec005StartCase struct {
 	name               string
 	file               string
 	args               []string
+	missingArgs        []string
 	outputFile         string
+	outputGlob         string
 	outputContent      string
+	outputContains     []string
 	missingParam       string
 	missingOutputFile  string
+	missingOutputGlob  string
 	missingOutput      *string
+	missingContains    []string
 	setup              func(*testing.T, *harness.Runner)
 	successAbsentFiles []string
 	missingAbsentFiles []string
@@ -50,6 +55,46 @@ func TestValidate(t *testing.T) {
 		})
 	}
 
+	noticeCases := []struct {
+		name        string
+		file        string
+		stderrParts []string
+	}{
+		{
+			name:        "params reference in consts preserves and reports notice",
+			file:        "params_reference_in_consts.yaml",
+			stderrParts: []string{"${params.environment}", "was left unchanged", "consts.target"},
+		},
+		{
+			name:        "positional-only params reference preserves and reports notice",
+			file:        "positional_only_params_reference.yaml",
+			stderrParts: []string{"${params.environment}", "was left unchanged", "steps[0].run"},
+		},
+		{
+			name:        "undeclared params reference preserves and reports notice",
+			file:        "undeclared_reference_in_run.yaml",
+			stderrParts: []string{"${params.missing}", "was left unchanged", "steps[0].run"},
+		},
+		{
+			name:        "missing runtime param preserves and reports notice",
+			file:        "runtime_resolution.yaml",
+			stderrParts: []string{"${params.environment}", "was left unchanged", "steps[0].run"},
+		},
+	}
+	for _, tc := range noticeCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dagu := harness.NewRunner(t)
+
+			result := dagu.Run("validate", tc.file)
+			result.ExpectExitCode(0)
+			result.ExpectStdout("")
+			result.ExpectStderrContains(tc.stderrParts...)
+			dagu.ExpectNoFile("executed.txt")
+		})
+	}
+
 	invalidCases := []struct {
 		name        string
 		file        string
@@ -76,45 +121,6 @@ func TestValidate(t *testing.T) {
 		})
 	}
 
-	warningCases := []struct {
-		name        string
-		file        string
-		stderrParts []string
-	}{
-		{
-			name:        "params reference unavailable from consts warns and preserves",
-			file:        "params_reference_in_consts.yaml",
-			stderrParts: []string{"${params.environment}", "preserving literal text"},
-		},
-		{
-			name:        "positional params are not addressable by name",
-			file:        "positional_only_params_reference.yaml",
-			stderrParts: []string{"${params.environment}", "preserving literal text"},
-		},
-		{
-			name:        "undeclared workflow reference warns and preserves",
-			file:        "undeclared_reference_in_run.yaml",
-			stderrParts: []string{"steps[0].run", "${params.missing}", "preserving literal text"},
-		},
-		{
-			name:        "declared runtime params warn without supplied values",
-			file:        "runtime_resolution.yaml",
-			stderrParts: []string{"${params.environment}", "has no runtime value", "preserving literal text"},
-		},
-	}
-	for _, tc := range warningCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			dagu := harness.NewRunner(t)
-
-			result := dagu.Run("validate", tc.file)
-			result.ExpectExitCode(0)
-			result.ExpectStdout("")
-			result.ExpectStderrContains(tc.stderrParts...)
-			dagu.ExpectNoFile("executed.txt")
-		})
-	}
 }
 
 func TestRuntime(t *testing.T) {
@@ -135,7 +141,7 @@ func TestRuntime(t *testing.T) {
 			}
 			result := dagu.Run(args...)
 			result.ExpectExitCode(0)
-			dagu.ExpectFileContent(tc.outputFile, tc.outputContent)
+			expectSpec005Output(t, dagu, tc.outputFile, tc.outputGlob, tc.outputContent, tc.outputContains)
 			for _, file := range tc.successAbsentFiles {
 				dagu.ExpectNoFile(file)
 			}
@@ -155,19 +161,29 @@ func TestMissingRuntimeValues(t *testing.T) {
 				tc.setup(t, dagu)
 			}
 
-			result := dagu.Run("start", tc.file)
+			args := tc.missingArgs
+			if len(args) == 0 {
+				args = []string{"start", tc.file}
+			}
+			result := dagu.Run(args...)
 			result.ExpectExitCode(0)
-			result.ExpectStderrContains("params." + tc.missingParam)
-			result.ExpectStderrContains("preserving literal text")
 			outputFile := tc.outputFile
 			if tc.missingOutputFile != "" {
 				outputFile = tc.missingOutputFile
+			}
+			outputGlob := tc.outputGlob
+			if tc.missingOutputGlob != "" {
+				outputGlob = tc.missingOutputGlob
 			}
 			outputContent := tc.outputContent
 			if tc.missingOutput != nil {
 				outputContent = *tc.missingOutput
 			}
-			dagu.ExpectFileContent(outputFile, outputContent)
+			contains := tc.outputContains
+			if len(tc.missingContains) > 0 {
+				contains = tc.missingContains
+			}
+			expectSpec005Output(t, dagu, outputFile, outputGlob, outputContent, contains)
 			for _, file := range tc.missingAbsentFiles {
 				dagu.ExpectNoFile(file)
 			}
@@ -192,6 +208,18 @@ func spec005StartCases() []spec005StartCase {
 				"enabled=true\n" +
 				"replicas=3\n" +
 				"ratio=1.25\n",
+		},
+		{
+			name:          "params reference in consts stays literal at runtime",
+			args:          []string{"start", "--params", spec005RuntimeParams, "params_reference_in_consts_runtime.yaml"},
+			outputFile:    "params-in-consts.txt",
+			outputContent: "${params.environment}\n",
+		},
+		{
+			name:          "params reference in default stays literal at runtime",
+			args:          []string{"start", "params_default_literal.yaml"},
+			outputFile:    "params-default-literal.txt",
+			outputContent: "${params.environment}\n",
 		},
 		{
 			name:          "non matching params braced text is preserved",
@@ -231,6 +259,14 @@ func spec005StartCases() []spec005StartCase {
 			missingOutput: new("${params.environment}\n"),
 		},
 		{
+			name:          "env list forms resolve named params",
+			file:          "env_list_forms.yaml",
+			outputFile:    "env-list-forms.txt",
+			outputContent: "prod\nprod\nprod\nprod\n",
+			missingParam:  "environment",
+			missingOutput: new("${params.environment}\n${params.environment}\n${params.environment}\n${params.environment}\n"),
+		},
+		{
 			name:          "dotenv path resolves named params",
 			file:          "dotenv.yaml",
 			outputFile:    "dotenv.txt",
@@ -247,6 +283,24 @@ func spec005StartCases() []spec005StartCase {
 			outputContent: "prod\n",
 		},
 		{
+			name:          "root shell string resolves named params",
+			args:          []string{"start", "--params", "shell_arg=-c", "root_shell_string.yaml"},
+			file:          "root_shell_string.yaml",
+			outputFile:    "root-shell-string.txt",
+			outputContent: "prod\n",
+		},
+		{
+			name:               "root working dir resolves named params",
+			file:               "root_working_dir.yaml",
+			outputFile:         "root-work-prod/root-working-dir.txt",
+			outputContent:      "prod\n",
+			missingParam:       "environment",
+			missingOutputFile:  "root-work-${params.environment}/root-working-dir.txt",
+			missingOutput:      new("prod\n"),
+			setup:              setupSpec005RootWorkingDir,
+			successAbsentFiles: []string{"root-work-${params.environment}/root-working-dir.txt"},
+		},
+		{
 			name:               "root precondition resolves named params",
 			file:               "root_precondition.yaml",
 			outputFile:         "root-precondition.txt",
@@ -256,12 +310,28 @@ func spec005StartCases() []spec005StartCase {
 			successAbsentFiles: []string{"root-precondition-literal.txt"},
 		},
 		{
+			name:          "step run array resolves named params",
+			file:          "step_run_array.yaml",
+			outputFile:    "step-run-array.txt",
+			outputContent: "prod\n",
+			missingParam:  "environment",
+			missingOutput: new("${params.environment}\n"),
+		},
+		{
 			name:          "step with resolves named params",
 			file:          "step_with.yaml",
 			outputFile:    "with-content.txt",
 			outputContent: "prod\n",
 			missingParam:  "environment",
 			missingOutput: new("${params.environment}\n"),
+		},
+		{
+			name:          "step with nested values resolve named params",
+			file:          "step_with_nested.yaml",
+			outputFile:    "step-with-nested.txt",
+			outputContent: "{\"environment\":\"prod\"}\n",
+			missingParam:  "environment",
+			missingOutput: new("{\"environment\":\"${params.environment}\"}\n"),
 		},
 		{
 			name:          "step env resolves named params",
@@ -292,6 +362,57 @@ func spec005StartCases() []spec005StartCase {
 			successAbsentFiles: []string{"step-precondition-literal.txt"},
 		},
 		{
+			name:          "step repeat condition resolves named params",
+			file:          "step_repeat_policy_condition.yaml",
+			outputFile:    "repeat-condition.txt",
+			outputContent: "prod\n",
+			missingParam:  "environment",
+			missingOutput: new("${params.environment}\n"),
+		},
+		{
+			name:       "parallel variable resolves named params",
+			args:       []string{"start", "--params", "items=prod", "parallel_variable.yaml"},
+			file:       "parallel_variable.yaml",
+			outputFile: "parallel-variable.txt",
+			outputContains: []string{
+				`"succeeded": 1`,
+				`"CHILD_VALUE": "prod"`,
+			},
+			missingParam: "items",
+			missingContains: []string{
+				`"succeeded": 1`,
+				`"CHILD_VALUE": "${params.items}"`,
+			},
+		},
+		{
+			name:       "parallel item value resolves named params",
+			file:       "parallel_items_value.yaml",
+			outputFile: "parallel-items-value.txt",
+			outputContains: []string{
+				`"succeeded": 1`,
+				`"CHILD_VALUE": "prod"`,
+			},
+			missingParam: "environment",
+			missingContains: []string{
+				`"succeeded": 1`,
+				`"CHILD_VALUE": "${params.environment}"`,
+			},
+		},
+		{
+			name:       "parallel item params resolve named params",
+			file:       "parallel_items_params.yaml",
+			outputFile: "parallel-items-params.txt",
+			outputContains: []string{
+				`"succeeded": 1`,
+				`"CHILD_VALUE": "prod"`,
+			},
+			missingParam: "environment",
+			missingContains: []string{
+				`"succeeded": 1`,
+				`"CHILD_VALUE": "${params.environment}"`,
+			},
+		},
+		{
 			name:               "step stdout path resolves named params",
 			file:               "step_stdout_path.yaml",
 			outputFile:         "stdout-prod.txt",
@@ -312,6 +433,36 @@ func spec005StartCases() []spec005StartCase {
 			successAbsentFiles: []string{"stderr-${params.environment}.txt"},
 		},
 		{
+			name:              "step stdout artifact resolves named params",
+			args:              []string{"start", "--run-id", "spec005_stdout_artifact", "--params", spec005RuntimeParams, "step_stdout_artifact.yaml"},
+			missingArgs:       []string{"start", "--run-id", "spec005_stdout_artifact_missing", "step_stdout_artifact.yaml"},
+			file:              "step_stdout_artifact.yaml",
+			outputGlob:        "artifacts/spec005-step-stdout-artifact/dag-run_*_spec005_stdout_artifact/reports/prod/stdout.txt",
+			outputContent:     "prod\n",
+			missingParam:      "environment",
+			missingOutputGlob: "artifacts/spec005-step-stdout-artifact/dag-run_*_spec005_stdout_artifact_missing/reports/${params.environment}/stdout.txt",
+			missingOutput:     new("prod\n"),
+		},
+		{
+			name:              "step stderr artifact resolves named params",
+			args:              []string{"start", "--run-id", "spec005_stderr_artifact", "--params", spec005RuntimeParams, "step_stderr_artifact.yaml"},
+			missingArgs:       []string{"start", "--run-id", "spec005_stderr_artifact_missing", "step_stderr_artifact.yaml"},
+			file:              "step_stderr_artifact.yaml",
+			outputGlob:        "artifacts/spec005-step-stderr-artifact/dag-run_*_spec005_stderr_artifact/reports/prod/stderr.txt",
+			outputContent:     "prod\n",
+			missingParam:      "environment",
+			missingOutputGlob: "artifacts/spec005-step-stderr-artifact/dag-run_*_spec005_stderr_artifact_missing/reports/${params.environment}/stderr.txt",
+			missingOutput:     new("prod\n"),
+		},
+		{
+			name:          "stdout outputs fields resolve named params",
+			file:          "step_stdout_outputs.yaml",
+			outputFile:    "stdout-outputs.txt",
+			outputContent: "prod\nprod-from-stdout\n",
+			missingParam:  "environment",
+			missingOutput: new("${params.environment}\nprod-from-stdout\n"),
+		},
+		{
 			name:          "step output value resolves named params",
 			file:          "step_output_value.yaml",
 			outputFile:    "output-value.txt",
@@ -327,6 +478,22 @@ func spec005StartCases() []spec005StartCase {
 			missingParam:  "environment",
 			missingOutput: new("literal\n"),
 			setup:         setupSpec005OutputPath,
+		},
+		{
+			name:          "step output nested values resolve named params",
+			file:          "step_output_nested.yaml",
+			outputFile:    "output-nested.txt",
+			outputContent: "prod\nenv-prod\n",
+			missingParam:  "environment",
+			missingOutput: new("${params.environment}\nenv-${params.environment}\n"),
+		},
+		{
+			name:          "handler run array resolves named params",
+			file:          "handler_run_array.yaml",
+			outputFile:    "handler-run-array.txt",
+			outputContent: "prod\n",
+			missingParam:  "environment",
+			missingOutput: new("${params.environment}\n"),
 		},
 		{
 			name:          "handler env resolves named params",
@@ -384,6 +551,28 @@ func spec005StartCases() []spec005StartCase {
 			missingOutput:      new("prod\n"),
 			successAbsentFiles: []string{"handler-stderr-${params.environment}.txt"},
 		},
+		{
+			name:              "handler stdout artifact resolves named params",
+			args:              []string{"start", "--run-id", "spec005_handler_stdout_artifact", "--params", spec005RuntimeParams, "handler_stdout_artifact.yaml"},
+			missingArgs:       []string{"start", "--run-id", "spec005_handler_stdout_artifact_missing", "handler_stdout_artifact.yaml"},
+			file:              "handler_stdout_artifact.yaml",
+			outputGlob:        "artifacts/spec005-handler-stdout-artifact/dag-run_*_spec005_handler_stdout_artifact/reports/prod/stdout.txt",
+			outputContent:     "prod\n",
+			missingParam:      "environment",
+			missingOutputGlob: "artifacts/spec005-handler-stdout-artifact/dag-run_*_spec005_handler_stdout_artifact_missing/reports/${params.environment}/stdout.txt",
+			missingOutput:     new("prod\n"),
+		},
+		{
+			name:              "handler stderr artifact resolves named params",
+			args:              []string{"start", "--run-id", "spec005_handler_stderr_artifact", "--params", spec005RuntimeParams, "handler_stderr_artifact.yaml"},
+			missingArgs:       []string{"start", "--run-id", "spec005_handler_stderr_artifact_missing", "handler_stderr_artifact.yaml"},
+			file:              "handler_stderr_artifact.yaml",
+			outputGlob:        "artifacts/spec005-handler-stderr-artifact/dag-run_*_spec005_handler_stderr_artifact/reports/prod/stderr.txt",
+			outputContent:     "prod\n",
+			missingParam:      "environment",
+			missingOutputGlob: "artifacts/spec005-handler-stderr-artifact/dag-run_*_spec005_handler_stderr_artifact_missing/reports/${params.environment}/stderr.txt",
+			missingOutput:     new("prod\n"),
+		},
 	}
 }
 
@@ -398,10 +587,29 @@ func spec005MissingRuntimeCases() []spec005StartCase {
 	return cases
 }
 
+func expectSpec005Output(t *testing.T, dagu *harness.Runner, file string, glob string, content string, contains []string) {
+	t.Helper()
+	if len(contains) > 0 {
+		dagu.ExpectFileContains(file, contains...)
+		return
+	}
+	if glob != "" {
+		dagu.ExpectGlobFileContent(glob, content)
+		return
+	}
+	dagu.ExpectFileContent(file, content)
+}
+
 func setupSpec005Dotenv(t *testing.T, dagu *harness.Runner) {
 	t.Helper()
 	dagu.WriteFile(".env.prod", "DOTENV_VALUE=prod\n")
 	dagu.WriteFile(".env.${params.environment}", "DOTENV_VALUE=literal\n")
+}
+
+func setupSpec005RootWorkingDir(t *testing.T, dagu *harness.Runner) {
+	t.Helper()
+	dagu.Mkdir("root-work-prod")
+	dagu.Mkdir("root-work-${params.environment}")
 }
 
 func setupSpec005StepWorkingDir(t *testing.T, dagu *harness.Runner) {

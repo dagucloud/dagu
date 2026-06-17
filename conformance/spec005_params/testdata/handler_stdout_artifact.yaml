@@ -1,0 +1,16 @@
+name: spec005-handler-stdout-artifact
+params:
+  - name: environment
+    description: Runtime environment.
+artifacts:
+  dir: artifacts
+working_dir: .
+handler_on:
+  success:
+    run: |
+      printf '%s\n' prod
+    stdout:
+      artifact: "reports/${params.environment}/stdout.txt"
+steps:
+  - name: ok
+    run: "true"

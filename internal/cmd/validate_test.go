@@ -70,6 +70,21 @@ steps:
 		})
 	})
 
+	t.Run("ValueReferenceNotices", func(t *testing.T) {
+		th.LoggingOutput.Reset()
+		dagFile := th.CreateDAGFile(t, "value_resolution_notice.yaml", `
+consts:
+  - image: ${consts.missing}
+steps:
+  - run: echo ok
+`)
+
+		th.RunCommand(t, cmd.Validate(), test.CmdTest{
+			Args:        []string{"validate", dagFile},
+			ExpectedOut: []string{"${consts.missing}", "was left unchanged", "consts.image"},
+		})
+	})
+
 	t.Run("V2SyntaxDoesNotWarn", func(t *testing.T) {
 		th.LoggingOutput.Reset()
 		dagFile := th.CreateDAGFile(t, "v2_syntax.yaml", `

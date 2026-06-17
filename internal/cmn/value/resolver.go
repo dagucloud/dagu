@@ -16,29 +16,26 @@ import (
 type Resolver struct {
 	static  StaticScope
 	runtime RuntimeScope
+	notices ValueReferenceNoticeSink
 }
+
+// ResolverOption configures a Resolver.
+type ResolverOption func(*Resolver)
 
 // NewResolver creates a resolver for the provided static and runtime scopes.
-func NewResolver(static StaticScope, runtime RuntimeScope) Resolver {
-	return Resolver{static: static, runtime: runtime}
+func NewResolver(static StaticScope, runtime RuntimeScope, opts ...ResolverOption) Resolver {
+	r := Resolver{static: static, runtime: runtime}
+	for _, opt := range opts {
+		opt(&r)
+	}
+	return r
 }
 
-// Validate validates strict bindings owned by field.
-func (r Resolver) Validate(raw string, field Field) error {
-	policy := policyForField(field)
-	if !policy.strict {
-		return nil
+// WithValueReferenceNotices reports unresolved value references to sink.
+func WithValueReferenceNotices(sink ValueReferenceNoticeSink) ResolverOption {
+	return func(r *Resolver) {
+		r.notices = sink
 	}
-	return validateReferences(raw, r.staticScope(), policy.mode, field.path)
-}
-
-// Warnings returns non-fatal diagnostics for strict binding misses owned by field.
-func (r Resolver) Warnings(raw string, field Field) []string {
-	policy := policyForField(field)
-	if !policy.strict {
-		return nil
-	}
-	return referenceWarnings(raw, r.staticScope(), r.runtime, policy.mode, field.path)
 }
 
 // String resolves raw according to field.
@@ -88,11 +85,8 @@ func (r Resolver) resolveString(ctx context.Context, raw string, field Field) (s
 	resolved := raw
 	var protected map[string]string
 	if policy.strict {
-		if err := validateReferences(raw, r.staticScope(), policy.mode, field.path); err != nil {
-			return "", err
-		}
 		var err error
-		resolved, protected, err = resolveBindings(ctx, raw, r.bindingScope(), field.path)
+		resolved, protected, err = resolveBindings(ctx, raw, r.bindingScope(), field.path, r.notices)
 		if err != nil {
 			if field.path != "" {
 				return "", fmt.Errorf("%s: %w", field.path, err)
@@ -105,13 +99,6 @@ func (r Resolver) resolveString(ctx context.Context, raw string, field Field) (s
 		return "", err
 	}
 	return restoreProtectedReferences(evaluated, protected), nil
-}
-
-func (r Resolver) staticScope() StaticScope {
-	if r.static.Consts != nil || r.static.Params != nil {
-		return r.static
-	}
-	return StaticScope{Consts: r.runtime.Consts, Params: r.runtime.Params}
 }
 
 func (r Resolver) bindingScope() RuntimeScope {
@@ -166,7 +153,6 @@ const (
 )
 
 type resolverPolicy struct {
-	mode         mode
 	strict       bool
 	object       objectPolicy
 	envVariables envVariablesPolicy
@@ -187,23 +173,23 @@ func policyForField(field Field) resolverPolicy {
 		fieldParallelSubDAG:
 		return workflowValuePolicy()
 	case fieldConstLoad:
-		return resolverPolicy{mode: modeConstLoad, strict: true, options: []option{withoutSubstitute()}}
+		return resolverPolicy{strict: true, options: []option{withoutSubstitute()}}
 	case fieldStaticValidation:
-		return resolverPolicy{mode: modeStaticValidation, strict: true, options: []option{withoutSubstitute()}}
+		return resolverPolicy{strict: true, options: []option{withoutSubstitute()}}
 	case fieldWorkflowObject:
 		return workflowValuePolicy()
 	case fieldConditionValue:
-		return resolverPolicy{mode: modeWorkflowValue, strict: true}
+		return resolverPolicy{strict: true}
 	case fieldDAGEnv:
-		return resolverPolicy{mode: modeWorkflowValue, strict: true, envVariables: envVariablesUser, options: []option{withOSExpansion()}}
+		return resolverPolicy{strict: true, envVariables: envVariablesUser, options: []option{withOSExpansion()}}
 	case fieldRuntimeDAGEnv:
-		return resolverPolicy{mode: modeWorkflowValue, strict: true, envVariables: envVariablesUser, options: []option{withoutSubstitute()}}
+		return resolverPolicy{strict: true, envVariables: envVariablesUser, options: []option{withoutSubstitute()}}
 	case fieldStepEnv, fieldContainerEnv:
-		return resolverPolicy{mode: modeWorkflowValue, strict: true}
+		return resolverPolicy{strict: true}
 	case fieldDynamicParamEval:
-		return resolverPolicy{mode: modeDynamicEval, strict: true, envVariables: envVariablesUser, options: []option{withOSExpansion(), withShellCommandSubstitution()}}
+		return resolverPolicy{strict: true, envVariables: envVariablesUser, options: []option{withOSExpansion(), withShellCommandSubstitution()}}
 	case fieldDotenvPath:
-		return resolverPolicy{mode: modeWorkflowValue, strict: true, options: []option{withOSExpansion(), withoutSubstitute()}}
+		return resolverPolicy{strict: true, options: []option{withOSExpansion(), withoutSubstitute()}}
 	case fieldHostConfigObject:
 		return resolverPolicy{object: objectEvalPipeline, envVariables: envVariablesUser, options: []option{withoutSubstitute()}}
 	case fieldLogPath:
@@ -211,10 +197,9 @@ func policyForField(field Field) resolverPolicy {
 	case fieldServerBasePath, fieldCoordinatorArtifactBaseDir:
 		return resolverPolicy{options: []option{withOSExpansion()}}
 	case fieldStructuredOutputPath, fieldStructuredOutputLiteral:
-		return resolverPolicy{mode: modeWorkflowValue, strict: true, options: []option{withoutExpandShell(), withoutSubstitute()}}
+		return resolverPolicy{strict: true, options: []option{withoutExpandShell(), withoutSubstitute()}}
 	case fieldStepArtifactOutput:
 		return resolverPolicy{
-			mode:   modeWorkflowValue,
 			strict: true,
 			options: []option{
 				withoutSubstitute(),
@@ -223,38 +208,38 @@ func policyForField(field Field) resolverPolicy {
 			},
 		}
 	case fieldRetryInteger, fieldRepeatInteger:
-		return resolverPolicy{mode: modeWorkflowValue, strict: true, options: []option{withOSExpansion()}}
+		return resolverPolicy{strict: true, options: []option{withOSExpansion()}}
 	case fieldDAGShell, fieldStepShell:
-		return resolverPolicy{mode: modeShellCommand, strict: true, options: append([]option{withoutSubstitute()}, commandPolicyOptions(field.command)...)}
+		return resolverPolicy{strict: true, options: append([]option{withoutSubstitute()}, commandPolicyOptions(field.command)...)}
 	case fieldShellCommand:
 		options := append([]option{withoutSubstitute()}, commandPolicyOptions(field.command)...)
 		if commandDefersShellVars(field.command) {
 			options = append(options, onlyReplaceVars())
 		}
-		return resolverPolicy{mode: modeShellCommand, strict: true, options: options}
+		return resolverPolicy{strict: true, options: options}
 	case fieldDirectCommand:
-		return resolverPolicy{mode: modeDirectCommand, strict: true, options: append(directCommandBaseOptions(field.command), commandPolicyOptions(field.command)...)}
+		return resolverPolicy{strict: true, options: append(directCommandBaseOptions(field.command), commandPolicyOptions(field.command)...)}
 	case fieldConditionCommand:
-		return resolverPolicy{mode: modeDirectCommand, strict: true, options: append(conditionCommandBaseOptions(field.command), commandPolicyOptions(field.command)...)}
+		return resolverPolicy{strict: true, options: append(conditionCommandBaseOptions(field.command), commandPolicyOptions(field.command)...)}
 	case fieldCommandScript:
 		options := append([]option{withoutSubstitute()}, commandPolicyOptions(field.command)...)
 		if commandDefersShellVars(field.command) {
 			options = append(options, onlyReplaceVars())
 		}
-		return resolverPolicy{mode: modeShellCommand, strict: true, options: options}
+		return resolverPolicy{strict: true, options: options}
 	case fieldTemplateScript:
 		return resolverPolicy{options: []option{withNoExpansion()}}
 	case fieldExecutorConfig:
-		return resolverPolicy{mode: modeWorkflowValue, strict: true, envVariables: envVariablesUser, options: []option{withoutSubstitute()}}
+		return resolverPolicy{strict: true, envVariables: envVariablesUser, options: []option{withoutSubstitute()}}
 	case fieldTemplateConfig:
-		return resolverPolicy{mode: modeWorkflowValue, strict: true, envVariables: envVariablesUser, options: []option{withoutSubstitute()}}
+		return resolverPolicy{strict: true, envVariables: envVariablesUser, options: []option{withoutSubstitute()}}
 	}
 
 	return workflowValuePolicy()
 }
 
 func workflowValuePolicy() resolverPolicy {
-	return resolverPolicy{mode: modeWorkflowValue, strict: true, options: []option{withoutSubstitute()}}
+	return resolverPolicy{strict: true, options: []option{withoutSubstitute()}}
 }
 
 func directCommandBaseOptions(command CommandContext) []option {

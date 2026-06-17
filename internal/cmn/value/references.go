@@ -4,22 +4,8 @@
 package value
 
 import (
-	"context"
-	"fmt"
 	"sort"
 	"strings"
-)
-
-// mode identifies the workflow phase that owns a value.
-type mode int
-
-const (
-	modeConstLoad mode = iota
-	modeStaticValidation
-	modeWorkflowValue
-	modeShellCommand
-	modeDirectCommand
-	modeDynamicEval
 )
 
 // referenceKind classifies a placeholder found in a value string.
@@ -177,116 +163,4 @@ func validOutputPathSegment(segment string) bool {
 		return false
 	}
 	return true
-}
-
-// validateReferences keeps value-reference misses non-fatal.
-func validateReferences(string, StaticScope, mode, string) error {
-	return nil
-}
-
-func referenceWarnings(raw string, staticScope StaticScope, runtimeScope RuntimeScope, mode mode, field string) []string {
-	refs := scanReferences(raw)
-	if len(refs) == 0 {
-		return nil
-	}
-
-	var warnings []string
-	seen := make(map[string]struct{})
-	for _, ref := range refs {
-		if ref.Kind != referenceStrict {
-			continue
-		}
-		err := referenceMiss(ref, staticScope, runtimeScope, mode)
-		if err == nil {
-			continue
-		}
-		key := field + "\x00" + ref.Raw
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		warnings = append(warnings, referenceWarning(field, ref.Raw, err))
-	}
-	return warnings
-}
-
-func referenceMiss(ref reference, staticScope StaticScope, runtimeScope RuntimeScope, mode mode) error {
-	if mode == modeConstLoad && runtimeReferenceAvailableAfterConstLoad(ref) {
-		return fmt.Errorf("%s is not available while loading consts", ref.Raw)
-	}
-
-	switch ref.Namespace {
-	case "consts":
-		return mapReferenceMiss(ref, "consts", staticScope.Consts)
-	case "params":
-		return paramReferenceMiss(ref, staticScope.Params, runtimeScope.Params)
-	case "env":
-		if runtimeScope.Env == nil {
-			return nil
-		}
-		if _, ok := runtimeScope.Env.Get(ref.Segments[1]); ok {
-			return nil
-		}
-		return fmt.Errorf("unknown env.%s binding", ref.Segments[1])
-	case "steps":
-		if runtimeScope.Steps == nil {
-			return nil
-		}
-		_, err := bindingStepOutputValue(context.Background(), ref.Segments, runtimeScope.Steps, true)
-		return err
-	default:
-		return nil
-	}
-}
-
-func mapReferenceMiss(ref reference, namespace string, values Values) error {
-	if _, ok := values[ref.Segments[1]]; ok {
-		return nil
-	}
-	return fmt.Errorf("unknown %s binding %s", namespace, ref.Raw)
-}
-
-func paramReferenceMiss(ref reference, declarations, values Values) error {
-	name := ref.Segments[1]
-	if _, ok := declarations[name]; !ok {
-		return fmt.Errorf("unknown params.%s binding", name)
-	}
-	if value, ok := values[name]; ok && value != nil {
-		return nil
-	}
-	return fmt.Errorf("params.%s has no runtime value", name)
-}
-
-func referenceWarning(field, token string, err error) string {
-	if field == "" {
-		return fmt.Sprintf("value reference %s could not be resolved; preserving literal text: %v", token, err)
-	}
-	return fmt.Sprintf("%s: value reference %s could not be resolved; preserving literal text: %v", field, token, err)
-}
-
-func runtimeReferenceAvailableAfterConstLoad(ref reference) bool {
-	if !ref.Braced {
-		return false
-	}
-	switch ref.Namespace {
-	case "params":
-		return supportedStrictBinding(ref.Segments)
-	case "env":
-		return len(ref.Segments) == 2 && bindingNamePattern.MatchString(ref.Segments[0]) && bindingNamePattern.MatchString(ref.Segments[1])
-	case "steps":
-		if len(ref.Segments) < 4 || ref.Segments[2] != "outputs" {
-			return false
-		}
-		if !validStepOutputStepName(ref.Segments[1]) {
-			return false
-		}
-		for _, segment := range ref.Segments[3:] {
-			if !validOutputPathSegment(segment) {
-				return false
-			}
-		}
-		return true
-	default:
-		return false
-	}
 }

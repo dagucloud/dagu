@@ -1374,9 +1374,15 @@ paths:
                     description: "List of errors in the spec"
                     items:
                       type: string
+                  valueReferenceNotices:
+                    type: array
+                    description: "Passive value-reference notices produced while loading this spec. These notices are not persisted."
+                    items:
+                      $ref: "#/components/schemas/ValueReferenceNotice"
                 required:
                   - spec
                   - errors
+                  - valueReferenceNotices
         default:
           description: "Generic error response"
           content:
@@ -12616,6 +12622,22 @@ components:
           $ref: "#/components/schemas/DAGResources"
       required:
         - name
+
+    ValueReferenceNotice:
+      type: object
+      description: "A passive notice for a supported value reference left unresolved while loading a spec."
+      properties:
+        message:
+          type: string
+          description: "Human-readable explanation of the unresolved reference."
+        fieldPath:
+          type: string
+          description: "DAG field path associated with the unresolved reference."
+        token:
+          type: string
+          description: "Original value-reference token that was preserved."
+      required:
+        - message
 
     DAGEditorHints:
       type: object

@@ -23,15 +23,12 @@ func TestResolverConstLoadResolvesConstsAndPreservesRuntimeBindings(t *testing.T
 	require.NoError(t, err)
 	assert.Equal(t, "api", got)
 
-	err = resolver.Validate("${params.environment}", value.ConstLoadField("consts.bad"))
-	require.NoError(t, err)
-
 	got, err = resolver.String(ctx, "${params.environment}", value.ConstLoadField("consts.bad"))
 	require.NoError(t, err)
 	assert.Equal(t, "${params.environment}", got)
 }
 
-func TestResolverUnresolvedStrictReferencesWarnAndPreserve(t *testing.T) {
+func TestResolverUnresolvedStrictReferencesPreserve(t *testing.T) {
 	t.Parallel()
 
 	resolver := value.NewResolver(
@@ -64,20 +61,8 @@ func TestResolverUnresolvedStrictReferencesWarnAndPreserve(t *testing.T) {
 	}
 }
 
-func TestResolverWarningsReportsDedupedStrictMisses(t *testing.T) {
+func TestResolverReportsDedupedValueReferenceNotices(t *testing.T) {
 	t.Parallel()
-
-	resolver := value.NewResolver(
-		value.StaticScope{
-			Consts: value.Values{"service": "api"},
-			Params: value.Values{"environment": nil},
-		},
-		value.RuntimeScope{
-			Consts: value.Values{"service": "api"},
-			Env:    value.NewEnvScope(nil, false),
-			Steps:  map[string]value.StepInfo{},
-		},
-	)
 
 	tests := []struct {
 		name string
@@ -92,16 +77,33 @@ func TestResolverWarningsReportsDedupedStrictMisses(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			warnings := resolver.Warnings(tt.raw, value.WorkflowField("steps[0].run"))
-			require.Len(t, warnings, 1)
-			assert.Contains(t, warnings[0], "steps[0].run")
-			assert.Contains(t, warnings[0], tt.want)
-			assert.Contains(t, warnings[0], "preserving literal text")
+			var collector value.ValueReferenceNoticeCollector
+			resolver := value.NewResolver(
+				value.StaticScope{
+					Consts: value.Values{"service": "api"},
+					Params: value.Values{"environment": nil},
+				},
+				value.RuntimeScope{
+					Consts: value.Values{"service": "api"},
+					Env:    value.NewEnvScope(nil, false),
+					Steps:  map[string]value.StepInfo{},
+				},
+				value.WithValueReferenceNotices(&collector),
+			)
+			ctx := context.Background()
+			got, err := resolver.String(ctx, tt.raw, value.WorkflowField("steps[0].run"))
+
+			require.NoError(t, err)
+			assert.Contains(t, got, tt.want)
+			notices := collector.Notices()
+			require.Len(t, notices, 1)
+			assert.Equal(t, "steps[0].run", notices[0].FieldPath)
+			assert.Equal(t, tt.want, notices[0].Token)
 		})
 	}
 }
 
-func TestResolverWarningsTreatsUnsupportedSyntaxAsOrdinaryContent(t *testing.T) {
+func TestResolverPreservesUnsupportedSyntaxAsOrdinaryContent(t *testing.T) {
 	t.Parallel()
 
 	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{})
@@ -113,8 +115,10 @@ func TestResolverWarningsTreatsUnsupportedSyntaxAsOrdinaryContent(t *testing.T) 
 	}
 
 	for _, raw := range tests {
-		warnings := resolver.Warnings(raw, value.WorkflowField("steps[0].run"))
-		assert.Empty(t, warnings)
+		got, err := resolver.String(context.Background(), raw, value.WorkflowField("steps[0].run"))
+
+		require.NoError(t, err)
+		assert.Equal(t, raw, got)
 	}
 }
 
@@ -149,14 +153,10 @@ func TestResolverStaticValidationResolvesParamsAndLeavesOtherNamespacesUnresolve
 	}
 
 	for _, tt := range tests {
-		require.NoError(t, resolver.Validate(tt.raw, value.StaticValidationField("field")))
 		got, err := resolver.String(ctx, tt.raw, value.StaticValidationField("field"))
 		require.NoError(t, err)
 		assert.Equal(t, tt.want, got)
 	}
-
-	err := resolver.Validate("${params.missing}", value.StaticValidationField("field"))
-	require.NoError(t, err)
 }
 
 func TestResolverParamDeclarationsAreNotRuntimeValues(t *testing.T) {

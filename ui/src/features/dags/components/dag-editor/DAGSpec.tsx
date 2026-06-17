@@ -11,7 +11,12 @@ import { StepDetailsDrawer } from '@/features/dags/components/step-details';
 import { toMermaidNodeId } from '@/lib/utils';
 import { workspaceNameFromLabels } from '@/lib/workspace';
 import BorderedBox from '@/components/ui/bordered-box';
-import { AlertTriangle, MousePointerClick, Save, Undo2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  MousePointerClick,
+  Save,
+  Undo2,
+} from 'lucide-react';
 import React, { useEffect } from 'react';
 import { useCookies } from 'react-cookie';
 import { components } from '../../../../api/v1/schema';
@@ -37,6 +42,7 @@ import {
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import { DAGContext } from '../../contexts/DAGContext';
 import { DAGStepTable } from '../dag-details';
+import { ValueReferenceNoticesButton } from '../value-reference-notices';
 import { FlowchartType, Graph } from '../visualization';
 import {
   buildAugmentedDAGSchema,
@@ -150,9 +156,16 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
       : {
           dag: next.dag,
           errors: next.errors ?? [],
+          valueReferenceNotices: data?.valueReferenceNotices ?? [],
           spec: next.spec,
         }
   );
+
+  useEffect(() => {
+    if (dagSSE.isConnected && dagSSE.data?.spec !== undefined) {
+      void mutateSpec();
+    }
+  }, [dagSSE.data?.spec, dagSSE.isConnected, mutateSpec]);
 
   const dagWorkspaceName = React.useMemo(
     () =>
@@ -166,6 +179,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
 
   // Server spec — SWR cache stays current via live invalidations or polling fallback
   const serverSpec = data?.spec ?? null;
+  const valueReferenceNotices = data?.valueReferenceNotices ?? [];
 
   // Change tracking (source-agnostic)
   const {
@@ -518,6 +532,43 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
       {(props) => {
         // Update refresh callback ref directly (safe in render)
         refreshCallbackRef.current = props.refresh;
+        const editorHeaderActions =
+          valueReferenceNotices.length > 0 || editable ? (
+            <div className="flex items-center gap-2">
+              {valueReferenceNotices.length > 0 && (
+                <ValueReferenceNoticesButton
+                  notices={valueReferenceNotices}
+                  description="Value-reference notices produced while loading this spec."
+                />
+              )}
+              {editable && (
+                <>
+                  {localHasUnsavedChanges && (
+                    <Button
+                      variant="ghost"
+                      title="Discard changes"
+                      onClick={discardChanges}
+                    >
+                      <Undo2 className="h-4 w-4" />
+                      Discard
+                    </Button>
+                  )}
+                  <Button
+                    id="save-config"
+                    title="Save changes (Ctrl+S / Cmd+S)"
+                    disabled={!localHasUnsavedChanges}
+                    onClick={async () => {
+                      await handleSave();
+                      props.refresh();
+                    }}
+                  >
+                    <Save className="h-4 w-4" />
+                    Save
+                  </Button>
+                </>
+              )}
+            </div>
+          ) : undefined;
 
         return (
           data?.dag && (
@@ -606,34 +657,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                   className="min-h-[400px]"
                   modelUri={editorModelUri}
                   schema={editorSchema}
-                  headerActions={
-                    editable ? (
-                      <>
-                        {localHasUnsavedChanges && (
-                          <Button
-                            variant="ghost"
-                            title="Discard changes"
-                            onClick={discardChanges}
-                          >
-                            <Undo2 className="h-4 w-4" />
-                            Discard
-                          </Button>
-                        )}
-                        <Button
-                          id="save-config"
-                          title="Save changes (Ctrl+S / Cmd+S)"
-                          disabled={!localHasUnsavedChanges}
-                          onClick={async () => {
-                            await handleSave();
-                            props.refresh();
-                          }}
-                        >
-                          <Save className="h-4 w-4" />
-                          Save
-                        </Button>
-                      </>
-                    ) : undefined
-                  }
+                  headerActions={editorHeaderActions}
                 />
               </div>
             </React.Fragment>

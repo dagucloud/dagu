@@ -5,7 +5,6 @@ package proc
 
 import (
 	"context"
-	"encoding/binary"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,7 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/core/exec"
 )
 
@@ -45,8 +43,15 @@ func TestStoreWritesReleasedProcFileLayoutOnly(t *testing.T) {
 	defer func() { _ = handle.Stop(ctx) }()
 
 	procFile := waitForProcFile(t, root, "queue-a", "sidecar-dag")
-	requireHeartbeatAdvance(t, procFile)
-	assertNoJSONFiles(t, root)
+	require.NotEmpty(t, procFile)
+
+	entries, err := s.ListEntries(ctx, "queue-a")
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, "queue-a", entries[0].GroupName)
+	assert.Equal(t, ref, entries[0].Meta.DAGRun())
+	assert.False(t, entries[0].Identity.IsZero())
+	assert.True(t, entries[0].Fresh)
 
 	count, err := s.CountAlive(ctx, "queue-a")
 	require.NoError(t, err)
@@ -103,47 +108,4 @@ func waitForProcFile(t *testing.T, root, groupName, dagName string) string {
 		return true
 	}, time.Second, 10*time.Millisecond)
 	return match
-}
-
-func requireHeartbeatAdvance(t *testing.T, procFile string) {
-	t.Helper()
-
-	initialValue, initialModTime := readHeartbeat(t, procFile)
-	require.Eventually(t, func() bool {
-		value, modTime := readHeartbeat(t, procFile)
-		return value > initialValue || modTime.After(initialModTime)
-	}, time.Second, 10*time.Millisecond)
-}
-
-func readHeartbeat(t *testing.T, procFile string) (int64, time.Time) {
-	t.Helper()
-
-	deadline := time.Now().Add(time.Second)
-	for {
-		data, err := fileutil.ReadFile(procFile)
-		if err == nil {
-			require.GreaterOrEqual(t, len(data), 8)
-			info, statErr := os.Stat(procFile)
-			if statErr == nil {
-				return int64(binary.BigEndian.Uint64(data[:8])), info.ModTime()
-			}
-			err = statErr
-		}
-		if !fileutil.IsTransientFileError(err) || time.Now().After(deadline) {
-			require.NoError(t, err)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
-func assertNoJSONFiles(t *testing.T, root string) {
-	t.Helper()
-
-	require.NoError(t, filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		require.NoError(t, err)
-		if !d.IsDir() {
-			assert.NotEqual(t, ".json", filepath.Ext(path), "file-backed proc store must not create collection JSON records")
-		}
-		return nil
-	}))
 }

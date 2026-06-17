@@ -17,6 +17,7 @@ import (
 
 	"dario.cat/mergo"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/spec/types"
 	"github.com/dagucloud/dagu/internal/workspace"
@@ -43,6 +44,12 @@ type LoadOptions struct {
 	dagsDir                string            // Directory containing the core.DAG files.
 	defaultWorkingDir      string            // Default working directory for DAGs without explicit workingDir.
 	buildEnv               map[string]string // Pre-populated env vars for build (used for retry with dotenv).
+}
+
+// LoadResult contains a loaded DAG and transient value-reference notices produced by that load operation.
+type LoadResult struct {
+	DAG                   *core.DAG
+	ValueReferenceNotices []cmnvalue.ValueReferenceNotice
 }
 
 // LoadOption is a function type for setting LoadOptions.
@@ -187,35 +194,59 @@ func Load(ctx context.Context, nameOrPath string, opts ...LoadOption) (*core.DAG
 	if nameOrPath == "" {
 		return nil, ErrNameOrPathRequired
 	}
-	var options LoadOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
-	buildContext := BuildContext{
-		ctx: ctx,
-		opts: BuildOpts{
-			Base:                   options.baseConfig,
-			BaseConfigContent:      options.baseConfigContent,
-			WorkspaceBaseConfigDir: options.workspaceBaseConfigDir,
-			Parameters:             options.params,
-			ParametersList:         options.paramsList,
-			Name:                   options.name,
-			DAGsDir:                options.dagsDir,
-			DefaultWorkingDir:      options.defaultWorkingDir,
-			Flags:                  options.flags,
-			BuildEnv:               options.buildEnv,
-		},
-	}
+	buildContext := loadBuildContext(ctx, opts...)
 	return loadDAG(buildContext, nameOrPath)
+}
+
+// LoadWithResult loads a DAG and returns transient value-reference notices produced by that load operation.
+func LoadWithResult(ctx context.Context, nameOrPath string, opts ...LoadOption) (*LoadResult, error) {
+	if nameOrPath == "" {
+		return nil, ErrNameOrPathRequired
+	}
+	var collector cmnvalue.ValueReferenceNoticeCollector
+	buildContext := loadBuildContext(ctx, opts...)
+	buildContext.valueReferenceNotices = &collector
+	dag, err := loadDAG(buildContext, nameOrPath)
+	if err != nil {
+		return nil, err
+	}
+	core.ReportValueReferenceNotices(dag, &collector)
+	return &LoadResult{DAG: dag, ValueReferenceNotices: collector.Notices()}, nil
+}
+
+func loadBuildContext(ctx context.Context, opts ...LoadOption) BuildContext {
+	return BuildContext{
+		ctx:  ctx,
+		opts: loadBuildOpts(loadOptions(opts...)),
+	}
 }
 
 // LoadYAML loads the core.DAG from the given YAML data with the specified options.
 func LoadYAML(ctx context.Context, data []byte, opts ...LoadOption) (*core.DAG, error) {
+	return LoadYAMLWithOpts(ctx, data, loadBuildOpts(loadOptions(opts...)))
+}
+
+// LoadYAMLWithResult loads a DAG from YAML and returns transient value-reference notices produced by that load operation.
+func LoadYAMLWithResult(ctx context.Context, data []byte, opts ...LoadOption) (*LoadResult, error) {
+	var collector cmnvalue.ValueReferenceNoticeCollector
+	dag, err := loadYAMLWithOptsAndNotices(ctx, data, loadBuildOpts(loadOptions(opts...)), &collector)
+	if err != nil {
+		return nil, err
+	}
+	core.ReportValueReferenceNotices(dag, &collector)
+	return &LoadResult{DAG: dag, ValueReferenceNotices: collector.Notices()}, nil
+}
+
+func loadOptions(opts ...LoadOption) LoadOptions {
 	var options LoadOptions
 	for _, opt := range opts {
 		opt(&options)
 	}
-	return LoadYAMLWithOpts(ctx, data, BuildOpts{
+	return options
+}
+
+func loadBuildOpts(options LoadOptions) BuildOpts {
+	return BuildOpts{
 		Base:                   options.baseConfig,
 		BaseConfigContent:      options.baseConfigContent,
 		WorkspaceBaseConfigDir: options.workspaceBaseConfigDir,
@@ -226,17 +257,30 @@ func LoadYAML(ctx context.Context, data []byte, opts ...LoadOption) (*core.DAG, 
 		DefaultWorkingDir:      options.defaultWorkingDir,
 		Flags:                  options.flags,
 		BuildEnv:               options.buildEnv,
-	})
+	}
 }
 
 // LoadYAMLWithOpts loads the core.DAG configuration from YAML data.
 func LoadYAMLWithOpts(ctx context.Context, data []byte, opts BuildOpts) (*core.DAG, error) {
+	return loadYAMLWithOptsAndNotices(ctx, data, opts, nil)
+}
+
+func loadYAMLWithOptsAndNotices(
+	ctx context.Context,
+	data []byte,
+	opts BuildOpts,
+	valueReferenceNotices *cmnvalue.ValueReferenceNoticeCollector,
+) (*core.DAG, error) {
 	baseDef, baseRaw, err := loadBaseDefinition(opts)
 	if err != nil {
 		return loadYAMLFailure(opts, err)
 	}
 
-	dags, err := loadDAGsFromData(BuildContext{ctx: ctx, opts: opts}, data, "", baseDef, baseRaw)
+	buildContext := BuildContext{ctx: ctx, opts: opts}
+	if valueReferenceNotices != nil {
+		buildContext.valueReferenceNotices = valueReferenceNotices
+	}
+	dags, err := loadDAGsFromData(buildContext, data, "", baseDef, baseRaw)
 	if err != nil {
 		return loadYAMLFailure(opts, err)
 	}

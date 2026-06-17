@@ -16,7 +16,7 @@ It must not be treated as product behavior until implementation catches up.
 | [002: YAML Schema](002-yaml-schema.md) | Implemented |
 | [003: Value Resolution](003-value-resolution.md) | Partially implemented |
 | [004: Value Resolution Consts](004-value-resolution-consts.md) | Implemented |
-| [005: Value Resolution Params](005-value-resolution-params.md) | Partially implemented |
+| [005: Value Resolution Params](005-value-resolution-params.md) | Implemented |
 | [006: Value Resolution Env](006-value-resolution-env.md) | Not implemented |
 | [007: Value Resolution Steps](007-value-resolution-steps.md) | Not implemented |
 | [009: Step Reference](009-step-reference.md) | Not implemented |

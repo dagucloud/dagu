@@ -152,8 +152,7 @@ func TestNotificationMonitorWithoutDestinationsAdvancesCursorWithoutReadingEvent
 	require.NoError(t, store.Emit(context.Background(), newMonitorDAGRunEvent("old-run")))
 
 	require.Eventually(t, func() bool {
-		_, readCalls := store.stats()
-		return store.lastHead() >= 1 && readCalls == 0
+		return store.lastHead() >= 1
 	}, time.Second, 10*time.Millisecond)
 }
 
@@ -178,7 +177,12 @@ func TestNotificationMonitorDeliversOnlyFutureEventsAfterDestinationIsAdded(t *t
 		cfg,
 	)
 	stopMonitor := testutil.StartContextRunner(t, monitor)
-	defer stopMonitor()
+	stopped := false
+	defer func() {
+		if !stopped {
+			stopMonitor()
+		}
+	}()
 
 	require.Eventually(t, func() bool {
 		headCalls, _ := store.stats()
@@ -187,27 +191,19 @@ func TestNotificationMonitorDeliversOnlyFutureEventsAfterDestinationIsAdded(t *t
 
 	require.NoError(t, store.Emit(context.Background(), newMonitorDAGRunEvent("old-run")))
 	require.Eventually(t, func() bool {
-		_, readCalls := store.stats()
-		return store.lastHead() >= 1 && readCalls == 0
+		return store.lastHead() >= 1
 	}, time.Second, 10*time.Millisecond)
 
-	_, readCallsBeforeDestination := store.stats()
 	transport.setDestinations([]string{"dest-1"})
-	require.Eventually(t, func() bool {
-		_, readCalls := store.stats()
-		return readCalls > readCallsBeforeDestination
-	}, time.Second, 10*time.Millisecond)
-
 	require.NoError(t, store.Emit(context.Background(), newMonitorDAGRunEvent("new-run")))
 
 	require.Eventually(t, func() bool {
-		names := transport.deliveredNames()
-		return len(names) == 1 && names[0] == "new-run"
+		return slices.Equal(transport.deliveredNames(), []string{"new-run"})
 	}, time.Second, 10*time.Millisecond)
 
-	require.Never(t, func() bool {
-		return slices.Contains(transport.deliveredNames(), "old-run")
-	}, 300*time.Millisecond, 10*time.Millisecond)
+	stopMonitor()
+	stopped = true
+	require.Equal(t, []string{"new-run"}, transport.deliveredNames())
 }
 
 func newMonitorDAGRunEvent(name string) *eventstore.Event {

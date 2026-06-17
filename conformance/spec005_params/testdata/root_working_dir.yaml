@@ -1,0 +1,8 @@
+params:
+  - name: environment
+    description: Runtime environment.
+working_dir: "root-work-${params.environment}"
+steps:
+  - name: write
+    run: |
+      printf '%s\n' prod > root-working-dir.txt

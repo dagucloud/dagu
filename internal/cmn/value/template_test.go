@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestValidateAndExpandStringWithConstBinding(t *testing.T) {
+func TestExpandStringWithConstBinding(t *testing.T) {
 	t.Parallel()
 
 	raw := "deploy ${consts.service} ${params.environment} ${env.HOME} ${steps.build.outputs.image}"
@@ -29,24 +29,9 @@ func TestValidateAndExpandStringWithConstBinding(t *testing.T) {
 		},
 	})
 
-	require.NoError(t, resolver.Validate(raw, value.WorkflowField("run")))
-
 	got, err := resolver.String(context.Background(), raw, value.WorkflowField("run"))
 	require.NoError(t, err)
 	assert.Equal(t, "deploy api prod ${env.HOME} repo/api:v1", got)
-}
-
-func TestValidateReferencesAllowsUnknownConstBinding(t *testing.T) {
-	t.Parallel()
-
-	resolver := value.NewResolver(
-		value.StaticScope{Consts: value.Values{"service": "api"}},
-		value.RuntimeScope{},
-	)
-	input := "echo ${consts.missing}"
-
-	err := resolver.Validate(input, value.WorkflowField("run"))
-	require.NoError(t, err)
 }
 
 func TestExpandStringPreservesMalformedBindingText(t *testing.T) {

@@ -25,6 +25,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/cmn/procutil"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
@@ -33,6 +34,7 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/service/audit"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
+	"github.com/dagucloud/dagu/internal/workspace"
 )
 
 const defaultHistoryLimit = 30
@@ -231,11 +233,23 @@ func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObjec
 		return nil, err
 	}
 
-	dag, err := a.dagStore.LoadSpec(ctx,
-		[]byte(yamlSpec),
+	loadOpts := []spec.LoadOption{
 		spec.WithName(request.FileName),
 		spec.WithAllowBuildErrors(),
-	)
+		spec.WithoutEval(),
+		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(a.config.Paths.DAGsDir)),
+	}
+	if a.config.Paths.BaseConfig != "" {
+		loadOpts = append(loadOpts, spec.WithBaseConfig(a.config.Paths.BaseConfig))
+	}
+
+	loadResult, err := spec.LoadYAMLWithResult(ctx, []byte(yamlSpec), loadOpts...)
+	var dag *core.DAG
+	valueReferenceNotices := []api.ValueReferenceNotice{}
+	if loadResult != nil {
+		dag = loadResult.DAG
+		valueReferenceNotices = toAPIValueReferenceNotices(loadResult.ValueReferenceNotices)
+	}
 	var errs []string
 
 	var loadErrs core.ErrorList
@@ -273,10 +287,28 @@ func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObjec
 	}
 
 	return &api.GetDAGSpec200JSONResponse{
-		Dag:    details,
-		Spec:   yamlSpec,
-		Errors: errs,
+		Dag:                   details,
+		Spec:                  yamlSpec,
+		Errors:                errs,
+		ValueReferenceNotices: valueReferenceNotices,
 	}, nil
+}
+
+func toAPIValueReferenceNotices(notices []cmnvalue.ValueReferenceNotice) []api.ValueReferenceNotice {
+	out := make([]api.ValueReferenceNotice, 0, len(notices))
+	for _, notice := range notices {
+		apiNotice := api.ValueReferenceNotice{
+			Message: notice.Message,
+		}
+		if notice.FieldPath != "" {
+			apiNotice.FieldPath = ptrOf(notice.FieldPath)
+		}
+		if notice.Token != "" {
+			apiNotice.Token = ptrOf(notice.Token)
+		}
+		out = append(out, apiNotice)
+	}
+	return out
 }
 
 func (a *API) UpdateDAGSpec(ctx context.Context, request api.UpdateDAGSpecRequestObject) (api.UpdateDAGSpecResponseObject, error) {
@@ -1539,7 +1571,6 @@ func (a *API) startPreparedDAGRunWithOptions(
 		Labels:       opts.labels,
 		ProfileName:  opts.profileName,
 	})
-
 	started, err := launcher.StartProcess(ctx, spec)
 	if err != nil {
 		return fmt.Errorf("error starting DAG: %w", err)

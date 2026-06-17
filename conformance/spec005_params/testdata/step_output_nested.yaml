@@ -1,0 +1,16 @@
+params:
+  - name: environment
+    description: Runtime environment.
+working_dir: .
+steps:
+  - id: produce
+    run: "true"
+    output:
+      result:
+        value:
+          environment: "${params.environment}"
+          label: "env-${params.environment}"
+  - name: consume
+    depends: produce
+    run: |
+      printf '%s\n%s\n' '${produce.output.result.environment}' '${produce.output.result.label}' > output-nested.txt

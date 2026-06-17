@@ -242,7 +242,6 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		opts = append(opts, logger.WithFormat(cfg.Core.LogFormat))
 	}
 	ctx = logger.WithLogger(ctx, logger.NewLogger(opts...))
-
 	// Log any warnings collected during configuration loading
 	for _, notice := range cfg.Notices {
 		logger.Info(ctx, notice)

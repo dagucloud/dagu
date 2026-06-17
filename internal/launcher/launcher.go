@@ -427,8 +427,8 @@ type CmdSpec struct {
 	Args       []string
 	Env        []string
 	BuildEnv   []string
-	Stdout     *os.File
-	Stderr     *os.File
+	Stdout     io.Writer
+	Stderr     io.Writer
 }
 
 // StartOptions contains options for initiating a dag-run.
@@ -499,11 +499,11 @@ func buildCommandError(err error, stdout, stderr *cappedBuffer) error {
 }
 
 // fileOrDefault returns the file if non-nil, otherwise returns the default.
-func fileOrDefault(file, defaultFile *os.File) *os.File {
-	if file != nil {
-		return file
+func fileOrDefault(writer io.Writer, defaultWriter io.Writer) io.Writer {
+	if writer != nil {
+		return writer
 	}
-	return defaultFile
+	return defaultWriter
 }
 
 func effectiveLabels(labels, tags string) string {

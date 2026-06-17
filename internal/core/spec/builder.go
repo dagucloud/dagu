@@ -43,6 +43,9 @@ type BuildContext struct {
 	// paramsState caches DAG-level parameter parsing/resolution during a single build.
 	// This avoids reparsing params for Params, DefaultParams, ParamsJSON, and ParamDefs.
 	paramsState *paramsState
+
+	// valueReferenceNotices receives passive notices produced while building the DAG.
+	valueReferenceNotices cmnvalue.ValueReferenceNoticeSink
 }
 
 // envScopeState holds mutable state that needs to be shared across transformers.

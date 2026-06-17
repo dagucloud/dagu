@@ -102,7 +102,7 @@ func evaluatePairs(ctx BuildContext, pairs []pair) (map[string]string, error) {
 		paramDeclarations = ctx.envScope.paramDeclarations
 	}
 
-	for _, p := range pairs {
+	for i, p := range pairs {
 		value := p.val
 
 		if !ctx.opts.Has(BuildFlagNoEval) {
@@ -117,8 +117,9 @@ func evaluatePairs(ctx BuildContext, pairs []pair) (map[string]string, error) {
 			resolver := cmnvalue.NewResolver(
 				cmnvalue.StaticScope{Consts: cmnvalue.Values(consts), Params: paramDeclarations},
 				cmnvalue.RuntimeScope{Consts: cmnvalue.Values(consts), Params: params, Env: scope},
+				cmnvalue.WithValueReferenceNotices(ctx.valueReferenceNotices),
 			)
-			value, err = resolver.String(evalCtx, value, cmnvalue.DAGEnvField("env."+p.key))
+			value, err = resolver.String(evalCtx, value, cmnvalue.DAGEnvField(fmt.Sprintf("env[%d]", i)))
 			if err != nil {
 				return nil, core.NewValidationError("env", p.val, fmt.Errorf("%w: %s", ErrInvalidEnvValue, p.val))
 			}

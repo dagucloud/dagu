@@ -7,6 +7,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,6 +34,52 @@ steps:
 		"replicas": uint64(3),
 		"endpoint": "https://example.test/api/true/3",
 	}, dag.Consts)
+}
+
+func TestConstsPreservesUnavailableReferences(t *testing.T) {
+	t.Parallel()
+
+	dag, err := spec.LoadYAML(context.Background(), []byte(`
+consts:
+  - self: ${consts.self}
+  - later: ${consts.after}
+  - after: ready
+  - unknown: ${consts.missing}
+  - from_env: ${env.VALUE_RESOLUTION_CONST_LOAD_ENV}
+  - from_params: ${params.name}
+  - from_step: ${steps.build.outputs.image}
+steps:
+  - name: build
+    run: echo ok
+`))
+	require.NoError(t, err)
+
+	assert.Equal(t, "${consts.self}", dag.Consts["self"])
+	assert.Equal(t, "${consts.after}", dag.Consts["later"])
+	assert.Equal(t, "ready", dag.Consts["after"])
+	assert.Equal(t, "${consts.missing}", dag.Consts["unknown"])
+	assert.Equal(t, "${env.VALUE_RESOLUTION_CONST_LOAD_ENV}", dag.Consts["from_env"])
+	assert.Equal(t, "${params.name}", dag.Consts["from_params"])
+	assert.Equal(t, "${steps.build.outputs.image}", dag.Consts["from_step"])
+}
+
+func TestConstsTreatUnsupportedSyntaxAsOrdinaryContent(t *testing.T) {
+	t.Parallel()
+
+	dag, err := spec.LoadYAML(context.Background(), []byte(`
+consts:
+  - shorthand: $consts.service
+  - malformed: ${params...}
+  - dotted: ${consts.service.name}
+steps:
+  - name: print
+    run: echo ok
+`))
+	require.NoError(t, err)
+
+	assert.Equal(t, "$consts.service", dag.Consts["shorthand"])
+	assert.Equal(t, "${params...}", dag.Consts["malformed"])
+	assert.Equal(t, "${consts.service.name}", dag.Consts["dotted"])
 }
 
 func TestConstsRejectsMappingForm(t *testing.T) {
@@ -69,9 +116,9 @@ func TestReservedBindingsValidateRunFields(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		yaml        string
-		wantWarning string
+		name string
+		yaml string
+		want string
 	}{
 		{
 			name: "KeepsReservedShorthand",
@@ -82,9 +129,10 @@ steps:
   - name: print
     run: echo $consts.service
 `,
+			want: "echo $consts.service",
 		},
 		{
-			name: "WarnsUnknownConst",
+			name: "PreservesUnknownConst",
 			yaml: `
 consts:
   - service: api
@@ -92,7 +140,7 @@ steps:
   - name: print
     run: echo ${consts.missing}
 `,
-			wantWarning: "unknown consts binding",
+			want: "echo ${consts.missing}",
 		},
 		{
 			name: "KeepsEvalReference",
@@ -101,6 +149,7 @@ steps:
   - name: print
     run: echo ${DATA.image}
 `,
+			want: "echo ${DATA.image}",
 		},
 	}
 
@@ -110,13 +159,18 @@ steps:
 
 			dag, err := spec.LoadYAML(context.Background(), []byte(tt.yaml))
 			require.NoError(t, err)
-			if tt.wantWarning != "" {
-				requireBuildWarningContains(t, dag.BuildWarnings, tt.wantWarning)
-			} else {
-				require.Empty(t, dag.BuildWarnings)
-			}
+			assert.Contains(t, referenceFieldValues(dag), tt.want)
 		})
 	}
+}
+
+func referenceFieldValues(dag *core.DAG) []string {
+	fields := core.ReferenceFields(dag)
+	values := make([]string, 0, len(fields))
+	for _, field := range fields {
+		values = append(values, field.Value)
+	}
+	return values
 }
 
 func TestConstsInheritFromBaseConfig(t *testing.T) {

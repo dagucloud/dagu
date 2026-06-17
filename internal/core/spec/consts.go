@@ -43,7 +43,7 @@ func buildConsts(ctx BuildContext, d *dag) (map[string]any, error) {
 			return nil, core.NewValidationError("consts."+key, key, fmt.Errorf("consts key %q is defined more than once", key))
 		}
 		seen[key] = struct{}{}
-		resolvedValue, err := resolveConstValue(key, value, resolved)
+		resolvedValue, err := resolveConstValue(ctx, key, value, resolved)
 		if err != nil {
 			return nil, core.NewValidationError("consts."+key, value, err)
 		}
@@ -94,7 +94,7 @@ func constEntry(idx int, item any) (string, any, error) {
 	return "", nil, core.NewValidationError(fmt.Sprintf("consts[%d]", idx), item, fmt.Errorf("consts entries must contain exactly one key"))
 }
 
-func resolveConstValue(key string, value any, consts map[string]any) (any, error) {
+func resolveConstValue(ctx BuildContext, key string, value any, consts map[string]any) (any, error) {
 	if value == nil {
 		return nil, fmt.Errorf("const %q must be a literal string, number, or boolean", key)
 	}
@@ -104,8 +104,13 @@ func resolveConstValue(key string, value any, consts map[string]any) (any, error
 		resolver := cmnvalue.NewResolver(
 			cmnvalue.StaticScope{Consts: cmnvalue.Values(consts)},
 			cmnvalue.RuntimeScope{Consts: cmnvalue.Values(consts)},
+			cmnvalue.WithValueReferenceNotices(ctx.valueReferenceNotices),
 		)
-		resolved, err := resolver.String(context.Background(), v, cmnvalue.ConstLoadField("consts."+key))
+		resolveCtx := ctx.ctx
+		if resolveCtx == nil {
+			resolveCtx = context.Background()
+		}
+		resolved, err := resolver.String(resolveCtx, v, cmnvalue.ConstLoadField("consts."+key))
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve const %q: %w", key, err)
 		}

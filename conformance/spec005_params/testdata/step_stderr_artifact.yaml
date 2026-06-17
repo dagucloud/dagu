@@ -1,0 +1,13 @@
+name: spec005-step-stderr-artifact
+params:
+  - name: environment
+    description: Runtime environment.
+artifacts:
+  dir: artifacts
+working_dir: .
+steps:
+  - name: write
+    run: |
+      printf '%s\n' prod >&2
+    stderr:
+      artifact: "reports/${params.environment}/stderr.txt"

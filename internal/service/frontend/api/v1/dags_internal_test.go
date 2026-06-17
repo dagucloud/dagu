@@ -789,3 +789,49 @@ steps:
 	require.NotNil(t, specResp.Dag.NextRun)
 	require.True(t, scheduledAt.Equal(*specResp.Dag.NextRun))
 }
+
+func TestGetDAGSpecIncludesValueReferenceNotices(t *testing.T) {
+	t.Parallel()
+
+	helper := test.Setup(t, test.WithStatusPersistence())
+	dag := helper.DAG(t, `
+name: spec-value-resolution-notice
+consts:
+  - image: ${consts.missing}
+steps:
+  - run: echo ok
+`)
+
+	api := localapi.New(
+		helper.DAGStore,
+		helper.DAGRunStore,
+		helper.QueueStore,
+		helper.ProcStore,
+		helper.DAGRunMgr,
+		helper.Config,
+		nil,
+		helper.ServiceRegistry,
+		nil,
+		nil,
+	)
+
+	specRespObj, err := api.GetDAGSpec(context.Background(), openapi.GetDAGSpecRequestObject{
+		FileName: dag.FileName(),
+	})
+	require.NoError(t, err)
+
+	specResp, ok := specRespObj.(*openapi.GetDAGSpec200JSONResponse)
+	if !ok {
+		valueResp, valueOK := specRespObj.(openapi.GetDAGSpec200JSONResponse)
+		require.True(t, valueOK)
+		specResp = &valueResp
+	}
+	require.Len(t, specResp.ValueReferenceNotices, 1)
+
+	notice := specResp.ValueReferenceNotices[0]
+	require.NotNil(t, notice.FieldPath)
+	require.Equal(t, "consts.image", *notice.FieldPath)
+	require.NotNil(t, notice.Token)
+	require.Equal(t, "${consts.missing}", *notice.Token)
+	require.NotEmpty(t, notice.Message)
+}

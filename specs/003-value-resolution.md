@@ -102,7 +102,7 @@ ${steps.step_id.outputs.name}
 | `steps[].parallel` | `variable`, `items[]`, `items[].value`, and `items[].params.*` string values. |
 | `steps[].stdout`, `steps[].stdout.artifact` | Stdout file path strings and artifact path strings. |
 | `steps[].stderr`, `steps[].stderr.artifact` | Stderr file path strings and artifact path strings. |
-| `steps[].stdout.outputs.fields.*` | Literal string values and `path` strings under field entries. |
+| `steps[].stdout.outputs.fields.*` | Literal string values under field entries. |
 | `steps[].output.*` | Literal string values and `path` strings under structured output entries. |
 | `steps[].container` | Step container string form. In object form: `exec`, `image`, `name`, `user`, `working_dir`, `network`, `volumes[]`, `ports[]`, `env` values, `command[]`, and `shell[]`. |
 
@@ -125,10 +125,16 @@ ${steps.step_id.outputs.name}
 ### Unresolved Supported References
 
 A supported reference can be valid syntax but have no value when Dagu evaluates the field.
-That condition is a warning, not a validation or execution error by itself.
+That condition is a passive notice for explicit inspection surfaces.
+It is not a validation or execution error by itself.
 Dagu must keep the original reference text in the field value.
 
-The warning must identify the owning field and the original reference text.
+The notice must identify the owning field and the original reference text.
+The notice must not be shown as a normal validation warning.
+Current inspection surfaces are `dagu validate`, the DAG spec inspection API response, and the Web UI spec editor.
+Normal run execution must stay silent.
+Dagu must not write these notices to run logs, workflow events, status files, history files, artifacts, or DAG-run detail responses.
+Other specs that mention passive notices follow this inspection-only behavior.
 
 This rule applies to these misses:
 
@@ -165,7 +171,7 @@ If a typed field later consumes the preserved text, that field may still fail be
 
 - Step output references resolve only after the referenced step publishes the output.
 
-- For step-owned fields, unresolved supported references must warn and remain literal before the owning step starts.
+- For step-owned fields, unresolved supported references must remain literal before the owning step starts.
 
 ### String Insertion
 
