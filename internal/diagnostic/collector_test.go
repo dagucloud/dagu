@@ -127,6 +127,7 @@ func TestCollectorDiagnosticsReturnsSnapshot(t *testing.T) {
 		Code:     "value_reference_unresolved",
 		Message:  "extra",
 	})
+	require.Len(t, diagnostics, 2)
 
 	snapshot := collector.Diagnostics()
 	require.Len(t, snapshot, 1)
