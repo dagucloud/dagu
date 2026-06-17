@@ -953,12 +953,12 @@ func TestAgent_OutputCollection(t *testing.T) {
 			expected: map[string]string{"myOutputVar": "value"},
 		},
 		{
-			name: "StructuredOutputDoesNotParticipate",
+			name: "StructuredOutputParticipates",
 			dag: `steps:
   - id: publish
     output:
       label: "value"`,
-			expected: map[string]string{},
+			expected: map[string]string{"label": "value"},
 		},
 		{
 			name: "MultipleSteps",

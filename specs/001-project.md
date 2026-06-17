@@ -95,6 +95,7 @@ Rules:
 - Subdirectories are not searched.
 - Discovered files must end in `.yaml` or `.yml`.
 - Workflow targets are paths relative to the workflow directory.
+- A workflow target selects exactly the discovered file at that relative path inside the workflow directory.
 - `dagu list` prints targets in lexicographic order.
 - Dagu must not append `.yaml` or `.yml` to an extensionless target.
 - If `<workflow_target>` does not match a discovered target, Dagu must fail. It must not try another filesystem path.
@@ -202,23 +203,3 @@ dagu run ../other.yaml
 ```
 
 If `../other.yaml` is not a discovered target, the command fails.
-
-## Acceptance criteria
-
-- A black-box fixture uses the caller's current working directory as `project_root`.
-- A black-box fixture rejects project commands when the current directory does not contain `.dagu.json`.
-- A black-box fixture verifies Dagu does not search parent directories for `.dagu.json`.
-- A black-box fixture rejects `.dagu.json` when it is not a file.
-- A black-box fixture rejects invalid `.dagu.json` syntax.
-- A black-box fixture rejects a missing workflow directory.
-- A black-box fixture rejects a workflow directory path that is not a directory.
-- A black-box fixture rejects a workflow directory that resolves outside `project_root`.
-- A black-box fixture rejects a project with no discovered workflows.
-- A black-box fixture verifies `dagu list` prints discovered workflow targets in sorted order.
-- A black-box fixture verifies `dagu validate` validates the current project.
-- A black-box fixture verifies `dagu validate <workflow_target>` validates one discovered workflow.
-- A black-box fixture verifies `dagu validate` does not execute steps.
-- A black-box fixture rejects an unknown workflow target without falling back to another filesystem path.
-- A black-box fixture verifies `dagu run deploy.yaml` runs `project_root/workflows/deploy.yaml`.
-- A black-box fixture verifies `dagu run` executes from `project_root` by default.
-- A black-box fixture resolves `./scripts/deploy.sh` from `project_root`.

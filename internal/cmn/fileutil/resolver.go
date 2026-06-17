@@ -5,6 +5,7 @@ package fileutil
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -23,26 +24,32 @@ func NewFileResolver(relativeTos []string) *FileResolver {
 
 // ResolveFilePath attempts to find a file in multiple locations in the following order:
 func (r *FileResolver) ResolveFilePath(file string) (string, error) {
-	// Check if it's an absolute path
+	return r.resolveFilePath(file, ResolvePath)
+}
+
+// ResolveFilePathLiteral resolves a path without expanding environment variables.
+func (r *FileResolver) ResolveFilePathLiteral(file string) (string, error) {
+	return r.resolveFilePath(file, resolvePathLiteral)
+}
+
+func (r *FileResolver) resolveFilePath(file string, resolvePath func(string) (string, error)) (string, error) {
 	if filepath.IsAbs(file) || strings.HasPrefix(file, "~") {
-		file, err := ResolvePath(file)
-		if err == nil && FileExists(file) {
-			return file, nil
+		resolved, err := resolvePath(file)
+		if err == nil && FileExists(resolved) {
+			return resolved, nil
 		}
 		return "", &FileNotFoundError{Path: file}
 	}
 
-	// Get search locations
 	searchPaths, err := r.getSearchPaths(file)
 	if err != nil {
 		return "", fmt.Errorf("getting search paths: %w", err)
 	}
 
-	// Try each location
 	for _, path := range searchPaths {
-		file, err := ResolvePath(path)
-		if err == nil && FileExists(file) {
-			return file, nil
+		resolved, err := resolvePath(path)
+		if err == nil && FileExists(resolved) {
+			return resolved, nil
 		}
 	}
 
@@ -50,6 +57,25 @@ func (r *FileResolver) ResolveFilePath(file string) (string, error) {
 		Path:          file,
 		SearchedPaths: searchPaths,
 	}
+}
+
+func resolvePathLiteral(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", nil
+	}
+	if strings.HasPrefix(path, "~") {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to get user home directory: %w", err)
+		}
+		path = filepath.Join(homeDir, path[1:])
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to get absolute path: %w", err)
+	}
+	return filepath.Clean(absPath), nil
 }
 
 // getSearchPaths returns a list of paths to search for the file

@@ -479,7 +479,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// Resolve secrets early so they're available for OTel config evaluation.
 	// LoadDotEnv is idempotent - safe to call even if already loaded by caller.
-	dagwarning.LoadDotEnv(ctx, a.dag)
+	dotenvErr := dagwarning.LoadDotEnv(ctx, a.dag)
 
 	secretEnvs, secretErr := a.resolveSecrets(ctx)
 	profileValues, profileErr := a.resolveProfile(ctx)
@@ -708,6 +708,27 @@ func (a *Agent) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to open execution history: %w", err)
 	}
 
+	defer func() {
+		if initErr != nil {
+			a.initFailed.Store(true)
+			logger.Error(ctx, "Failed to initialize DAG execution", tag.Error(initErr))
+			st := a.Status(ctx)
+			st.Status = core.Failed
+			if st.FinishedAt == "" {
+				st.FinishedAt = exec.FormatTime(time.Now())
+			}
+			a.writeStatus(ctx, attempt, st)
+		}
+		if err := attempt.Close(ctx); err != nil {
+			logger.Error(ctx, "Failed to close runstore store", tag.Error(err))
+		}
+	}()
+
+	if dotenvErr != nil {
+		initErr = fmt.Errorf("failed to load dotenv: %w", dotenvErr)
+		return initErr
+	}
+
 	// Evaluate SMTP and mail configs with environment variables and secrets.
 	// This must happen AFTER attempt.Open() to avoid persisting expanded secrets.
 	if err := a.evaluateMailConfigs(ctx); err != nil {
@@ -736,22 +757,6 @@ func (a *Agent) Run(ctx context.Context) error {
 	st := a.Status(ctx)
 	st.Status = core.Running
 	a.writeStatus(ctx, attempt, st)
-
-	defer func() {
-		if initErr != nil {
-			a.initFailed.Store(true)
-			logger.Error(ctx, "Failed to initialize DAG execution", tag.Error(initErr))
-			st := a.Status(ctx)
-			st.Status = core.Failed
-			if st.FinishedAt == "" {
-				st.FinishedAt = exec.FormatTime(time.Now())
-			}
-			a.writeStatus(ctx, attempt, st)
-		}
-		if err := attempt.Close(ctx); err != nil {
-			logger.Error(ctx, "Failed to close runstore store", tag.Error(err))
-		}
-	}()
 
 	// If there was an error resolving secrets, stop execution here
 	if secretErr != nil {
@@ -1187,7 +1192,7 @@ func errorString(err error) string {
 	return err.Error()
 }
 
-// collectOutputs gathers string-form step outputs into a map for the outputs.json file.
+// collectOutputs gathers published and string-form step outputs into outputs.json.
 // It iterates through nodes in execution order and collects output values.
 // Last value wins for key conflicts.
 func (a *Agent) collectOutputs(ctx context.Context) map[string]string {
@@ -1201,7 +1206,6 @@ func (a *Agent) collectOutputs(ctx context.Context) map[string]string {
 		maps.Copy(outputs, nodeData.OutputsValueStringMap())
 		step := nodeData.Step
 
-		// Only string-form output participates in outputs.json.
 		if step.Output == "" {
 			continue
 		}

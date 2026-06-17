@@ -116,7 +116,13 @@ Rules:
 
 - Value resolution for `run` follows the value resolution spec and field evaluation spec.
 
-- If value resolution fails, the command or script must not start.
+- Unresolved supported references in `run` warn and remain literal before the command or script starts.
+
+- Dagu does not shell-escape unresolved references in `run`.
+
+- The selected shell or script interpreter receives the preserved text.
+
+- The selected shell or script interpreter may interpret or reject the preserved text.
 
 - Dagu must not resolve shell-style `$NAME` or `${NAME}` environment variable syntax in `run`.
 
@@ -273,12 +279,6 @@ Validation must fail when:
 
 - array-form `run` has no non-empty command entries.
 
-- `run` contains a malformed Dagu-owned value reference that is statically checkable.
-
-- `run` contains an invalid Dagu-looking shorthand reference.
-
-- `run` contains an output reference that violates the step outputs spec.
-
 - A `run` step contains a `with` key that is not accepted for `run`.
 
 - A `run` step specifies `with.shell_args` without `with.shell`.
@@ -299,9 +299,7 @@ Validation must not:
 
 Runtime must fail when:
 
-- Value resolution in `run` fails.
-
-- Value resolution in the selected `working_dir` fails.
+- The selected `working_dir` value cannot be used as a process working directory.
 
 - The selected shell or script interpreter cannot be started.
 
@@ -420,57 +418,3 @@ steps:
     run:
       command: echo hello
 ```
-
-## Acceptance Criteria
-
-Validation:
-
-- A black-box fixture verifies `dagu validate` accepts a command-form `run` string.
-- A black-box fixture verifies `dagu validate` accepts a script-form `run` string.
-- A black-box fixture verifies `dagu validate` accepts array-form `run`.
-- A black-box fixture verifies `dagu validate` accepts primitive scalar entries in array-form `run`.
-- A black-box fixture verifies `dagu validate` accepts single-key mapping entries with primitive scalar values in array-form `run`.
-- A black-box fixture verifies `dagu validate` rejects unsupported `run` shapes.
-- A black-box fixture verifies `dagu validate` rejects an empty `run`.
-- A black-box fixture verifies `dagu validate` rejects array-form `run` with no non-empty command entries.
-- A black-box fixture verifies `dagu validate` rejects array-form `run` entries that contain line breaks.
-- A black-box fixture verifies `dagu validate` rejects multi-key mapping entries in array-form `run`.
-- A black-box fixture verifies `dagu validate` rejects nested mapping or nested array entries in array-form `run`.
-- A black-box fixture verifies `dagu validate` accepts `$()` text in `run` and does not execute it.
-- A black-box fixture verifies `dagu validate` accepts backtick text in `run` and does not execute it.
-- A black-box fixture verifies `dagu validate` does not execute `run`.
-- A black-box fixture verifies `dagu validate` does not require the command path to exist.
-- A black-box fixture verifies `dagu validate` rejects unsupported `with` keys on `run`.
-- A black-box fixture verifies `dagu validate` rejects `with.shell_args` without `with.shell`.
-- A black-box fixture verifies `dagu validate` rejects `with.shell: direct`.
-- A black-box fixture verifies `dagu validate` rejects root `shell: direct` when the workflow contains a `run` step.
-
-Value resolution:
-
-- A black-box fixture verifies `dagu run` resolves Dagu-owned references before command or script execution.
-- A black-box fixture verifies `$NAME` remains available for shell expansion.
-- A black-box fixture verifies `$()` remains available for shell execution.
-- A black-box fixture verifies backticks remain available for shell execution.
-- A black-box fixture verifies shell operators remain available for shell execution.
-- A black-box fixture verifies a value-resolution failure prevents the command or script from starting.
-- A black-box fixture verifies a value-resolution failure in `working_dir` prevents the command or script from starting.
-
-Runtime behavior:
-
-- A black-box fixture verifies `dagu run` uses `with.shell` and `with.shell_args` for the selected shell.
-- A black-box fixture verifies `dagu run` uses root `shell` when step `with.shell` is omitted.
-- A black-box fixture verifies `dagu run` uses the runtime default shell when neither step nor root shell is configured.
-- A black-box fixture verifies canonical string `run` is not exposed as a user-authored argv list.
-- A black-box fixture verifies direct argv execution is covered by `action: exec`, not `run`.
-- A black-box fixture verifies `dagu run` executes from `DAG_RUN_WORK_DIR` when neither root nor step working directory is set.
-- A black-box fixture verifies `dagu run` respects root `working_dir`.
-- A black-box fixture verifies `dagu run` respects step `working_dir`.
-- A black-box fixture verifies stdout is captured.
-- A black-box fixture verifies stderr is captured.
-- A black-box fixture verifies stdout is not automatically treated as a step output.
-- A black-box fixture verifies `DAG_RUN_STEP_STDOUT_FILE` and `DAG_RUN_STEP_STDERR_FILE` are exposed.
-- A black-box fixture verifies non-zero exit fails the step.
-- A black-box fixture verifies a command path that the shell or script interpreter cannot find fails the step.
-- A black-box fixture verifies abort terminates the running command or script.
-- A black-box fixture verifies timeout termination fails the running command or script.
-- A black-box fixture verifies a runtime default shell value of `direct` fails before the command or script starts.

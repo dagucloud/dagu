@@ -1,5 +1,0 @@
-consts:
-  - service: api
-steps:
-  - name: should-not-run
-    run: echo '${consts.service.name}' > executed.txt

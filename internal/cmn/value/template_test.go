@@ -16,69 +16,53 @@ func TestValidateAndExpandStringWithConstBinding(t *testing.T) {
 	t.Parallel()
 
 	raw := "deploy ${consts.service} ${params.environment} ${env.HOME} ${steps.build.outputs.image}"
+	output := `{"image":"repo/api:v1"}`
 	staticScope := value.StaticScope{
 		Consts: value.Values{"service": "api"},
+		Params: value.Values{"environment": nil},
 	}
 	resolver := value.NewResolver(staticScope, value.RuntimeScope{
 		Consts: value.Values{"service": "api"},
+		Params: value.Values{"environment": "prod"},
+		Steps: map[string]value.StepInfo{
+			"build": {Outputs: &output},
+		},
 	})
 
 	require.NoError(t, resolver.Validate(raw, value.WorkflowField("run")))
 
 	got, err := resolver.String(context.Background(), raw, value.WorkflowField("run"))
 	require.NoError(t, err)
-	assert.Equal(t, "deploy api ${params.environment} ${env.HOME} ${steps.build.outputs.image}", got)
+	assert.Equal(t, "deploy api prod ${env.HOME} repo/api:v1", got)
 }
 
-func TestValidateReferencesRejectsConstBindingErrors(t *testing.T) {
+func TestValidateReferencesAllowsUnknownConstBinding(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name  string
-		input string
-		scope value.StaticScope
-		want  string
-	}{
-		{
-			name:  "ReservedShorthand",
-			input: "echo $consts.service",
-			scope: value.StaticScope{Consts: value.Values{"service": "api"}},
-			want:  "invalid binding shorthand",
-		},
-		{
-			name:  "MissingConst",
-			input: "echo ${consts.missing}",
-			scope: value.StaticScope{Consts: value.Values{"service": "api"}},
-			want:  "unknown consts binding",
-		},
-	}
+	resolver := value.NewResolver(
+		value.StaticScope{Consts: value.Values{"service": "api"}},
+		value.RuntimeScope{},
+	)
+	input := "echo ${consts.missing}"
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			resolver := value.NewResolver(tt.scope, value.RuntimeScope{})
-			err := resolver.Validate(tt.input, value.WorkflowField("run"))
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.want)
-		})
-	}
+	err := resolver.Validate(input, value.WorkflowField("run"))
+	require.NoError(t, err)
 }
 
-func TestExpandStringRejectsMalformedBinding(t *testing.T) {
+func TestExpandStringPreservesMalformedBindingText(t *testing.T) {
 	t.Parallel()
 
 	resolver := value.NewResolver(
 		value.StaticScope{},
 		value.RuntimeScope{Consts: value.Values{"service": "api"}},
 	)
-	_, err := resolver.String(
+	got, err := resolver.String(
 		context.Background(),
 		"echo ${consts.service",
 		value.WorkflowField("run"),
 	)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "malformed binding")
+	require.NoError(t, err)
+	assert.Equal(t, "echo ${consts.service", got)
 }
 
 func TestExpandStringLeavesEvalReferencesForEvaluator(t *testing.T) {
@@ -93,11 +77,16 @@ func TestExpandStringLeavesEvalReferencesForEvaluator(t *testing.T) {
 func TestExpandStringResolvesConstBindingsWithScope(t *testing.T) {
 	t.Parallel()
 
+	output := `{"image":"repo/api:v1"}`
 	resolver := value.NewResolver(
 		value.StaticScope{},
 		value.RuntimeScope{
 			Consts: value.Values{"service": "api"},
+			Params: value.Values{"environment": "prod"},
 			Env:    testEnvScope(map[string]string{"HOME": "/workspace"}),
+			Steps: map[string]value.StepInfo{
+				"build": {Outputs: &output},
+			},
 		},
 	)
 	got, err := resolver.String(
@@ -106,13 +95,14 @@ func TestExpandStringResolvesConstBindingsWithScope(t *testing.T) {
 		value.WorkflowField("run"),
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "api ${params.environment} ${env.HOME} ${steps.build.outputs.image}", got)
+	assert.Equal(t, "api prod /workspace repo/api:v1", got)
 }
 
 func TestExpandStringDoesNotRejectFutureNamespaceShorthand(t *testing.T) {
 	t.Parallel()
 
 	tests := []string{
+		"$consts.service",
 		"$env.FOO",
 		"$params.foo",
 		"$steps.build.outputs.image",

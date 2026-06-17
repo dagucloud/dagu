@@ -88,12 +88,23 @@ func runValidate(ctx *Context, args []string) error {
 		return errors.New(formatValidationErrors(args[0], vErr))
 	}
 
-	deprecatedWarnings := collectDeprecatedSyntaxWarnings(dag)
-	for _, warning := range deprecatedWarnings {
-		logger.Warn(ctx, warning, tag.File(args[0]))
-	}
+	logValidationWarnings(ctx, args[0], append(dag.BuildWarnings, collectDeprecatedSyntaxWarnings(dag)...))
 
 	return nil
+}
+
+func logValidationWarnings(ctx *Context, file string, warnings []string) {
+	seen := make(map[string]struct{}, len(warnings))
+	for _, warning := range warnings {
+		if warning == "" {
+			continue
+		}
+		if _, ok := seen[warning]; ok {
+			continue
+		}
+		seen[warning] = struct{}{}
+		logger.Warn(ctx, warning, tag.File(file))
+	}
 }
 
 func validateWorkflowFile(path string) (bool, error) {

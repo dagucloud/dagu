@@ -1,0 +1,15 @@
+params:
+  - name: environment
+    description: Runtime environment.
+working_dir: .
+steps:
+  - name: write
+    preconditions:
+      - condition: |
+          case '${params.environment}' in
+            prod) exit 0;;
+            \${params.environment}) printf '%s\n' literal > step-precondition-literal.txt; exit 0;;
+            *) exit 1;;
+          esac
+    run: |
+      printf '%s\n' prod > step-precondition.txt

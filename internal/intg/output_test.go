@@ -107,7 +107,7 @@ steps:
 		},
 	},
 	{
-		name: "StructuredObjectOutputNotCollected",
+		name: "StructuredObjectOutputCollected",
 		outputsCollectionCase: outputsCollectionCase{
 			dagYAML: `
 steps:
@@ -123,7 +123,8 @@ steps:
 				require.Len(t, status.Nodes, 1)
 			},
 			validateOutputs: func(t *testing.T, outputs map[string]string) {
-				assert.Nil(t, outputs)
+				require.NotNil(t, outputs)
+				assert.Equal(t, "v1.2.3", outputs["version"])
 			},
 		},
 	},
@@ -248,8 +249,9 @@ steps:
 			},
 			validateOutputs: func(t *testing.T, outputs map[string]string) {
 				require.NotNil(t, outputs)
-				assert.Len(t, outputs, 1)
+				assert.Len(t, outputs, 2)
 				assert.Equal(t, "SIMPLE_OUT=simple_value", outputs["simpleOut"])
+				assert.Equal(t, "v1.2.3", outputs["version"])
 			},
 		},
 	},

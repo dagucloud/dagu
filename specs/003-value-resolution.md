@@ -2,7 +2,7 @@
 
 ## Implementation Status
 
-Not implemented. This spec describes target conformance behavior.
+Partially implemented.
 
 ## Scope
 
@@ -46,17 +46,9 @@ Workflows need two kinds of value syntax:
 
 ### Reference Syntax
 
-- Dagu references use this form:
+- Dagu-owned references are only the supported reference forms listed below.
 
-```text
-${path}
-```
-
-- `path` must include a namespace.
-
-- Dotted references must use `${name.path}`.
-
-- `$name.path` is invalid Dagu-looking shorthand when `name` is a supported namespace.
+- A supported reference form must use `${path}` syntax.
 
 - Supported reference forms are:
 
@@ -67,21 +59,23 @@ ${env.NAME}
 ${steps.step_id.outputs.name}
 ```
 
-- Namespace names, `consts` keys, `params` names, step ids, `outputs`, and step output names must match `^[A-Za-z][A-Za-z0-9_]*$`.
+- Names in supported reference forms must match `^[A-Za-z][A-Za-z0-9_]*$`.
+- This name rule applies to namespace names, `consts` keys, `params` names, step ids, `outputs`, and step output names.
 
 - Environment variable names under `env` must match `^[A-Za-z_][A-Za-z0-9_]*$`.
 
 - Unqualified `${NAME}` is handled by environment expansion in fields that support it.
 
-- `$consts.name`, `$params.name`, `$env.NAME`, and `$steps.step_id.outputs.name` are invalid Dagu-looking shorthand.
+- Braced text that does not match a supported reference form is not interpreted by Dagu.
+- Dagu preserves unsupported braced text as ordinary string content.
 
-- Operators, filters, and inline default values are outside this spec.
+- Namespace-specific specs define validation for supported reference forms.
 
-- Malformed Dagu reference syntax in a value-resolution field must fail during workflow validation.
+- Unbraced namespace-looking text such as `$name.path` is not Dagu-owned reference syntax.
 
-- Invalid Dagu-looking shorthand in a value-resolution field must fail during workflow validation.
+- `$consts.name`, `$params.name`, `$env.NAME`, and `$steps.step_id.outputs.name` are ordinary string content.
 
-- An unknown namespace in a value-resolution field must fail during workflow validation.
+- Unsupported reference-looking text is preserved silently.
 
 ### Single-Quoted Environment References
 
@@ -112,9 +106,12 @@ ${steps.step_id.outputs.name}
 | `steps[].output.*` | Literal string values and `path` strings under structured output entries. |
 | `steps[].container` | Step container string form. In object form: `exec`, `image`, `name`, `user`, `working_dir`, `network`, `volumes[]`, `ports[]`, `env` values, `command[]`, and `shell[]`. |
 
-- The `steps[]` rows also apply to handler steps under `handler_on.init`, `handler_on.success`, `handler_on.failure`, `handler_on.abort`, `handler_on.exit`, and `handler_on.wait`.
+- The `steps[]` rows also apply to handler steps.
+- Handler step surfaces are `handler_on.init`, `handler_on.success`, `handler_on.failure`, `handler_on.abort`, `handler_on.exit`, and `handler_on.wait`.
 
-- For `steps[].run`, unqualified `$NAME` and `${NAME}` are shell syntax and are preserved for the selected shell. Dagu-owned environment references in `run` must use `${env.NAME}`.
+- For `steps[].run`, unqualified `$NAME` and `${NAME}` are shell syntax.
+- Dagu preserves that shell syntax for the selected shell.
+- Dagu-owned environment references in `run` must use `${env.NAME}`.
 
 - Defaults, custom `step_types`, and custom `actions` are checked after Dagu expands them into concrete steps.
 
@@ -122,9 +119,27 @@ ${steps.step_id.outputs.name}
 
 - The validator and runtime must use the same field list.
 
-- A reference that would fail at runtime must be rejected by `dagu validate` when the failure is statically knowable.
+- Adding a value-resolution-capable field requires coordinated updates.
+- The coordinated update must cover this spec, the DAG JSON schema, validation traversal, runtime traversal, and black-box tests.
 
-- Adding a value-resolution-capable field requires updating this spec, the DAG JSON schema, validation traversal, runtime traversal, and black-box tests together.
+### Unresolved Supported References
+
+A supported reference can be valid syntax but have no value when Dagu evaluates the field.
+That condition is a warning, not a validation or execution error by itself.
+Dagu must keep the original reference text in the field value.
+
+The warning must identify the owning field and the original reference text.
+
+This rule applies to these misses:
+
+- Unknown const.
+- Missing param value.
+- Unavailable env value.
+- Missing step output.
+- Namespace unavailable in the current phase.
+- Step-output reference that cannot resolve because of ordering or ownership.
+
+If a typed field later consumes the preserved text, that field may still fail because the literal text is not valid for that field type.
 
 ### Resolution Timing
 
@@ -150,7 +165,7 @@ ${steps.step_id.outputs.name}
 
 - Step output references resolve only after the referenced step publishes the output.
 
-- For step-owned fields, runtime resolution failures must fail before the owning step starts.
+- For step-owned fields, unresolved supported references must warn and remain literal before the owning step starts.
 
 ### String Insertion
 
@@ -160,7 +175,8 @@ ${steps.step_id.outputs.name}
 
 - When Dagu inserts a referenced value into a string field, integers are inserted in base-10 decimal form.
 
-- When Dagu inserts a referenced value into a string field, non-integer numbers are inserted in the shortest round-trippable base-10 decimal representation.
+- When Dagu inserts a referenced value into a string field, non-integer numbers use base-10 decimal text.
+- Non-integer decimal text must use the shortest round-trippable representation.
 
 ## Examples
 
@@ -179,12 +195,13 @@ steps:
     run: ${consts.deploy_script} ${params.environment} ${consts.service}
 ```
 
-Invalid dotted shorthand:
+Unbraced namespace-looking text is ordinary content:
 
 ```yaml
 steps:
-  - name: bad
-    run: echo $env.SERVICE
+  - name: script
+    run: |
+      php -r '$params.name = "literal"; echo $params.name;'
 ```
 
 Step output references wait for the producing step:

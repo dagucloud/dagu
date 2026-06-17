@@ -189,21 +189,3 @@ steps:
   - name: deploy
     run: ./deploy.sh
 ```
-
-## Acceptance criteria
-
-- A black-box fixture verifies `dagu validate <path/to/dag_file>` accepts the minimal valid workflow.
-- A black-box fixture verifies `dagu validate <path/to/dag_file>` does not execute steps.
-- A black-box fixture rejects invalid YAML.
-- A black-box fixture rejects an empty YAML document.
-- A black-box fixture rejects a workflow with no `steps`.
-- A black-box fixture rejects a workflow with empty `steps`.
-- A black-box fixture rejects mapping-shaped `steps`.
-- A black-box fixture rejects an entrypoint document with `name`.
-- A black-box fixture rejects an unknown root field.
-- A black-box fixture rejects duplicate root keys.
-- A black-box fixture accepts an inline sub-DAG separated by `---`.
-- A black-box fixture rejects a later DAG document without `name`.
-- A black-box fixture rejects duplicate DAG document names.
-- Rejected workflows do not start any step.
-- Validation failures do not print command usage text.

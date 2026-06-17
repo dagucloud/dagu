@@ -1,0 +1,7 @@
+working_dir: .
+consts:
+  - service: api
+steps:
+  - name: preserve
+    run: |
+      printf '%s\n' '$consts.service' > unbraced-consts.txt

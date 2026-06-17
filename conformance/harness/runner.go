@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package tests_test
+package harness
 
 import (
 	"bytes"
@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Runner executes Dagu commands against an isolated black-box test project.
+// Runner executes Dagu commands against an isolated conformance test project.
 type Runner struct {
 	t   *testing.T
 	dir string
@@ -30,16 +31,16 @@ type Result struct {
 	stderr   string
 }
 
-func newRunner(t *testing.T, project string) *Runner {
+// NewRunner creates an isolated project seeded with package-local testdata.
+func NewRunner(t *testing.T) *Runner {
 	t.Helper()
 
 	r := &Runner{
 		t:   t,
 		dir: t.TempDir(),
 	}
-	src := filepath.Join("testdata", filepath.FromSlash(project))
-	if err := os.CopyFS(r.dir, os.DirFS(src)); err != nil {
-		r.t.Fatalf("copying project %s: %v", project, err)
+	if err := os.CopyFS(r.dir, os.DirFS("testdata")); err != nil {
+		r.t.Fatalf("copying testdata: %v", err)
 	}
 	return r
 }
@@ -86,7 +87,7 @@ func (r *Runner) Run(args ...string) *Result {
 func (r *Runner) ExpectNoFile(name string) {
 	r.t.Helper()
 
-	path := filepath.Join(r.dir, filepath.FromSlash(name))
+	path := r.projectPath(name)
 	if _, err := os.Stat(path); err == nil {
 		r.t.Fatalf("expected %s to be absent", name)
 	} else if !os.IsNotExist(err) {
@@ -98,12 +99,54 @@ func (r *Runner) ExpectNoFile(name string) {
 func (r *Runner) ExpectFileContent(name string, content string) {
 	r.t.Helper()
 
-	path := filepath.Join(r.dir, filepath.FromSlash(name))
-	actual, err := os.ReadFile(path)
+	path := r.projectPath(name)
+	actual, err := os.ReadFile(path) // #nosec G304 -- projectPath confines test fixture paths to the temp project.
 	if err != nil {
 		r.t.Fatalf("reading %s: %v", name, err)
 	}
 	require.Equal(r.t, content, string(actual))
+}
+
+// Mkdir creates a directory in the isolated project.
+func (r *Runner) Mkdir(name string) {
+	r.t.Helper()
+
+	path := r.projectPath(name)
+	if err := os.MkdirAll(path, 0o750); err != nil {
+		r.t.Fatalf("creating %s: %v", name, err)
+	}
+}
+
+// WriteFile writes a regular file in the isolated project.
+func (r *Runner) WriteFile(name string, content string) {
+	r.writeFile(name, content, 0o644)
+}
+
+// WriteExecutable writes an executable file in the isolated project.
+func (r *Runner) WriteExecutable(name string, content string) {
+	r.writeFile(name, content, 0o755)
+}
+
+func (r *Runner) writeFile(name string, content string, perm os.FileMode) {
+	r.t.Helper()
+
+	path := r.projectPath(name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		r.t.Fatalf("creating parent for %s: %v", name, err)
+	}
+	if err := os.WriteFile(path, []byte(content), perm); err != nil {
+		r.t.Fatalf("writing %s: %v", name, err)
+	}
+}
+
+func (r *Runner) projectPath(name string) string {
+	r.t.Helper()
+
+	cleaned := filepath.Clean(filepath.FromSlash(name))
+	if filepath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(os.PathSeparator)) {
+		r.t.Fatalf("project path %q escapes test project", name)
+	}
+	return filepath.Join(r.dir, cleaned)
 }
 
 // ExpectExitCode fails the test when the command exit code differs.
@@ -150,7 +193,7 @@ func daguBinary(t *testing.T) string {
 
 	bin := os.Getenv("DAGU_BIN")
 	if bin == "" {
-		t.Skip("set DAGU_BIN to run binary-level blackbox tests")
+		t.Fatal("DAGU_BIN is required to run binary-level conformance tests")
 	}
 
 	if filepath.IsAbs(bin) {
@@ -165,7 +208,7 @@ func daguBinary(t *testing.T) string {
 		return path
 	}
 
-	return statBinary(t, filepath.Join("..", bin))
+	return resolveRelativeBinary(t, bin)
 }
 
 func hasPathSeparator(path string) bool {
@@ -183,6 +226,30 @@ func statBinary(t *testing.T, path string) string {
 		t.Fatalf("checking DAGU_BIN %q: %v", abs, err)
 	}
 	return abs
+}
+
+func resolveRelativeBinary(t *testing.T, path string) string {
+	t.Helper()
+
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("resolving working directory: %v", err)
+	}
+
+	for {
+		candidate := filepath.Join(wd, path)
+		if _, err := os.Stat(candidate); err == nil { // #nosec G703 -- DAGU_BIN is the configured test binary path.
+			return statBinary(t, candidate)
+		}
+
+		parent := filepath.Dir(wd)
+		if parent == wd {
+			break
+		}
+		wd = parent
+	}
+
+	return statBinary(t, path)
 }
 
 func isolatedEnv(t *testing.T) []string {
@@ -218,6 +285,11 @@ func isolatedEnv(t *testing.T) []string {
 		"APPDATA="+filepath.Join(root, "appdata"),
 		"USERPROFILE="+home,
 	)
+	if runtime.GOOS == "windows" {
+		// The conformance fixtures use POSIX shell snippets. GitHub-hosted
+		// Windows runners provide Bash through Git for Windows.
+		env = append(env, "DAGU_DEFAULT_SHELL=bash")
+	}
 
 	return env
 }

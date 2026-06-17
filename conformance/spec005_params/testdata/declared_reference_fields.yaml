@@ -1,0 +1,21 @@
+params:
+  - name: environment
+    default: prod
+working_dir: .
+env:
+  ROOT_VALUE: "${params.environment}"
+steps:
+  - name: write
+    env:
+      STEP_VALUE: "${params.environment}"
+    run: |
+      printf '%s\n' '${params.environment}' > declared-reference-fields.txt
+    output:
+      result:
+        value: "${params.environment}"
+handler_on:
+  success:
+    env:
+      HANDLER_VALUE: "${params.environment}"
+    run: |
+      printf '%s\n' "$HANDLER_VALUE" > declared-reference-handler.txt

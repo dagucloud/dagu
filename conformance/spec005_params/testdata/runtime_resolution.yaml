@@ -1,0 +1,27 @@
+params:
+  - name: environment
+    type: string
+    required: true
+  - name: tag
+    type: string
+    required: true
+  - name: enabled
+    type: boolean
+    required: true
+  - name: replicas
+    type: integer
+    required: true
+  - name: ratio
+    type: number
+    required: true
+working_dir: .
+steps:
+  - name: write-resolved-values
+    run: |
+      {
+        printf 'environment=%s\n' '${params.environment}'
+        printf 'tag=%s\n' '${params.tag}'
+        printf 'enabled=%s\n' '${params.enabled}'
+        printf 'replicas=%s\n' '${params.replicas}'
+        printf 'ratio=%s\n' '${params.ratio}'
+      } > resolved.txt

@@ -84,8 +84,12 @@ func ResolveEnvWithWarnings(ctx context.Context, dag *core.DAG, params any, opts
 		cloned.Env = append([]string(nil), cloned.Env...)
 	}
 	warningStart := len(cloned.BuildWarnings)
+	errorStart := len(cloned.BuildErrors)
 	cloned.LoadDotEnv(ctx)
 	buildWarnings := append([]string{}, cloned.BuildWarnings[warningStart:]...)
+	if len(cloned.BuildErrors) > errorStart {
+		return ResolveEnvResult{}, core.ErrorList(cloned.BuildErrors[errorStart:])
+	}
 	loadedEnv := append([]string{}, cloned.Env...)
 	buildEnv := buildEnvMap(loadedEnv)
 	if len(buildEnv) > 0 {

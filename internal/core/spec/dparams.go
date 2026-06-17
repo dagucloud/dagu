@@ -8,6 +8,7 @@ import (
 	"maps"
 	"strings"
 
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/google/jsonschema-go/jsonschema"
 )
@@ -40,6 +41,9 @@ type dagParamEntry struct {
 func buildDAGParamsResult(ctx BuildContext, d *dag) (*paramsResult, error) {
 	plan, err := buildDAGParamPlan(ctx, d)
 	if err != nil {
+		return nil, err
+	}
+	if err := finalizeDAGParamPlan(plan); err != nil {
 		return nil, err
 	}
 
@@ -141,6 +145,75 @@ func buildDAGParamsResult(ctx BuildContext, d *dag) (*paramsResult, error) {
 
 func shouldResolveRuntimeParams(ctx BuildContext) bool {
 	return ctx.opts.Has(BuildFlagValidateRuntimeParams) || ctx.opts.Parameters != "" || len(ctx.opts.ParametersList) > 0
+}
+
+func finalizeDAGParamPlan(plan *dagParamPlan) error {
+	if plan == nil {
+		return nil
+	}
+	if err := validateParamReferenceNames(plan.paramDefs); err != nil {
+		return err
+	}
+	return validateParamEvalReferences(plan)
+}
+
+func validateParamReferenceNames(defs []core.ParamDef) error {
+	for _, def := range defs {
+		name := strings.TrimSpace(def.Name)
+		if name == "" || isPositionalName(name) {
+			continue
+		}
+		if isParamReferenceName(name) {
+			continue
+		}
+		return core.NewValidationError(
+			"params",
+			name,
+			fmt.Errorf("%w: parameter name %q must match ^[A-Za-z][A-Za-z0-9_]*$", ErrInvalidParamValue, name),
+		)
+	}
+	return nil
+}
+
+func validateParamEvalReferences(plan *dagParamPlan) error {
+	params := paramDeclarationsForPlan(plan)
+	resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{Params: params}, cmnvalue.RuntimeScope{})
+	for _, entry := range plan.entries {
+		eval := strings.TrimSpace(entry.Eval)
+		if eval == "" {
+			continue
+		}
+		if err := resolver.Validate(eval, cmnvalue.DynamicParamEvalField("params")); err != nil {
+			return core.NewValidationError("params", entry.Eval, err)
+		}
+	}
+	return nil
+}
+
+func validateNoDaguReferencesInParamLiteral(field, value string) error {
+	if !strings.Contains(value, "${") {
+		return nil
+	}
+	resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{}, cmnvalue.RuntimeScope{})
+	return resolver.Validate(value, cmnvalue.StaticValidationField(field))
+}
+
+func paramDeclarationsForPlan(plan *dagParamPlan) cmnvalue.Values {
+	if plan == nil || len(plan.paramDefs) == 0 {
+		return nil
+	}
+	params := make(cmnvalue.Values, len(plan.paramDefs))
+	for _, def := range plan.paramDefs {
+		name := strings.TrimSpace(def.Name)
+		if !isParamReferenceName(name) {
+			continue
+		}
+		params[name] = nil
+	}
+	if len(params) == 0 {
+		return nil
+	}
+	return params
 }
 
 func paramPlanHasEval(plan *dagParamPlan) bool {
@@ -344,6 +417,13 @@ func rememberParamName(seenNames map[string]struct{}, name string) error {
 	if name == "" {
 		return nil
 	}
+	if !isPositionalName(name) && !isParamReferenceName(name) {
+		return core.NewValidationError(
+			"params",
+			name,
+			fmt.Errorf("%w: parameter name %q must match ^[A-Za-z][A-Za-z0-9_]*$", ErrInvalidParamValue, name),
+		)
+	}
 	if _, exists := seenNames[name]; exists {
 		return core.NewValidationError(
 			"params",
@@ -353,6 +433,23 @@ func rememberParamName(seenNames map[string]struct{}, name string) error {
 	}
 	seenNames[name] = struct{}{}
 	return nil
+}
+
+func isParamReferenceName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i, r := range name {
+		switch {
+		case i == 0 && ((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z')):
+			continue
+		case i > 0 && ((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_'):
+			continue
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func validateSchemaBackedEntries(entries []dagParamEntry, schema *jsonschema.Resolved, schemaProperties map[string]*jsonschema.Schema, schemaOrder []string, metadataMode bool, allowSchemaFallbackJSON bool) ([]dagParamEntry, error) {

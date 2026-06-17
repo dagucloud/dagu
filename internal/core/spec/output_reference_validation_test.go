@@ -5,10 +5,10 @@ package spec_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/internal/core/spec"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -36,11 +36,8 @@ steps:
 
 		dag, err := spec.Load(context.Background(), testDAG)
 		require.NoError(t, err)
-		err = dag.Validate()
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), `route`)
-		assert.Contains(t, err.Error(), `${classify.output.priority}`)
-		assert.Contains(t, err.Error(), `priority`)
+		require.NoError(t, dag.Validate())
+		requireBuildWarningContains(t, dag.BuildWarnings, `route`, `${classify.output.priority}`, `priority`)
 	})
 
 	t.Run("AllowsUnknownFieldForOpenOutputSchema", func(t *testing.T) {
@@ -134,11 +131,8 @@ steps:
 
 		dag, err := spec.Load(context.Background(), testDAG)
 		require.NoError(t, err)
-		err = dag.Validate()
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), `publish`)
-		assert.Contains(t, err.Error(), `${build.output.artifact}`)
-		assert.Contains(t, err.Error(), `version`)
+		require.NoError(t, dag.Validate())
+		requireBuildWarningContains(t, dag.BuildWarnings, `publish`, `${build.output.artifact}`, `version`)
 	})
 
 	t.Run("AllowsKnownFieldForObjectFormOutput", func(t *testing.T) {
@@ -163,4 +157,23 @@ steps:
 		require.NoError(t, err)
 		require.NoError(t, dag.Validate())
 	})
+}
+
+func requireBuildWarningContains(t *testing.T, warnings []string, parts ...string) {
+	t.Helper()
+
+	for _, warning := range warnings {
+		matched := true
+		for _, part := range parts {
+			if !strings.Contains(warning, part) {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return
+		}
+	}
+
+	require.Failf(t, "missing warning", "expected one warning to contain %v\nwarnings:\n%s", parts, strings.Join(warnings, "\n"))
 }

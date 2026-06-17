@@ -62,6 +62,7 @@ Rules:
 - DAG execution order must respect `depends`.
 - A step must not start until every dependency completed successfully.
 - If a dependency fails, dependent steps must not start.
+- If a dependency fails, the DAG run fails.
 
 Example:
 
@@ -99,9 +100,10 @@ ${steps.step_id.outputs.name}
 
 Rules:
 
-- `step_id` must be an existing step `id`.
-- The referenced step must complete before the owning step starts.
+- A step output reference can resolve only when `step_id` is an existing step `id`.
+- A step output reference can resolve only after the referenced step completes.
 - Output declaration and publication behavior belongs to the output-owning field spec.
+- Missing or unavailable step output references follow the warning-preservation rules in Spec 007.
 
 Example:
 
@@ -135,8 +137,6 @@ Validation or execution must fail when:
 - `depends` names an unknown step name or id.
 - `depends` names the owning step.
 - Dependencies contain a cycle.
-- A value reference uses an unknown `steps.<step_id>`.
-- A field attempts to reference a step that has no `id`.
 
 ## Examples
 
@@ -169,20 +169,3 @@ steps:
     depends: first
     run: echo second
 ```
-
-## Acceptance criteria
-
-- A black-box fixture verifies `dagu validate` accepts a referenced step with `id`.
-- A black-box fixture verifies `dagu validate` accepts an unreferenced step without `id`.
-- A black-box fixture verifies `dagu validate` does not execute steps.
-- A black-box fixture verifies `dagu validate` rejects duplicate step ids.
-- A black-box fixture verifies `dagu validate` rejects invalid step id syntax.
-- A black-box fixture verifies `dagu validate` accepts `depends` that references a step `name`.
-- A black-box fixture verifies `dagu validate` accepts `depends` that references a step `id` and executes by the resolved step `name`.
-- A black-box fixture verifies `dagu validate` rejects an unknown `depends` reference.
-- A black-box fixture verifies `dagu validate` rejects self-dependency.
-- A black-box fixture verifies `dagu validate` rejects dependency cycles.
-- A black-box fixture verifies `dagu run` does not start `step_b` before `step_a` completes successfully when `step_b` declares `depends: step_a`.
-- A black-box fixture verifies `dagu run` exits with code `0` when every step in a dependency chain completes successfully.
-- A black-box fixture verifies `dagu run` does not start a step whose dependency failed, and exits non-zero.
-- A black-box fixture verifies `dagu run` resolves `${steps.step_id.outputs.name}` by step `id`.

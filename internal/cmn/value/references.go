@@ -4,6 +4,7 @@
 package value
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -77,10 +78,6 @@ func scanReferences(raw string) []reference {
 			Start:     loc[0],
 			End:       loc[1],
 		}
-		if reservedBinding(namespace) {
-			ref.Kind = referenceInvalid
-			ref.Err = fmt.Errorf("invalid binding shorthand %s; use ${%s}", rawRef, expr)
-		}
 		refs = append(refs, ref)
 	}
 
@@ -101,11 +98,10 @@ func classifyBracedReference(rawRef, expr string, start, end int) reference {
 		Start:     start,
 		End:       end,
 	}
-	if reservedBinding(ref.Namespace) {
+	if supportedStrictBinding(segments) {
 		ref.Kind = referenceStrict
-		if err := validateBindingSegments(segments); err != nil {
-			ref.Kind = referenceInvalid
-			ref.Err = err
+		if stepOutput, ok := parseStepOutputReference(ref); ok {
+			ref.StepOutput = &stepOutput
 		}
 		return ref
 	}
@@ -119,7 +115,7 @@ func classifyBracedReference(rawRef, expr string, start, end int) reference {
 }
 
 func parseStepOutputReference(ref reference) (StepOutputReference, bool) {
-	if !ref.Braced || ref.Kind != referenceEval {
+	if !ref.Braced {
 		return StepOutputReference{}, false
 	}
 
@@ -183,56 +179,114 @@ func validOutputPathSegment(segment string) bool {
 	return true
 }
 
-// validateReferences validates strict references against a static scope.
-func validateReferences(raw string, staticScope StaticScope, mode mode, field string) error {
-	refs := scanReferences(raw)
-	var errs []string
-	for _, ref := range refs {
-		if mode == modeConstLoad && ref.Braced && runtimeBindingNamespace(ref.Namespace) {
-			errs = append(errs, fmt.Sprintf("%s is not available while loading consts", ref.Raw))
-			continue
-		}
-		//nolint:exhaustive // Eval references are intentionally allowed and need no validation here.
-		switch ref.Kind {
-		case referenceInvalid:
-			errs = append(errs, ref.Err.Error())
-		case referenceStrict:
-			if err := validateStrictReference(ref, staticScope); err != nil {
-				errs = append(errs, err.Error())
-			}
-		}
-	}
-	if len(errs) == 0 {
-		return nil
-	}
-	if field != "" {
-		return fmt.Errorf("%s: %s", field, strings.Join(errs, "; "))
-	}
-	return fmt.Errorf("%s", strings.Join(errs, "; "))
+// validateReferences keeps value-reference misses non-fatal.
+func validateReferences(string, StaticScope, mode, string) error {
+	return nil
 }
 
-func runtimeBindingNamespace(namespace string) bool {
-	switch namespace {
-	case "params", "env", "steps":
+func referenceWarnings(raw string, staticScope StaticScope, runtimeScope RuntimeScope, mode mode, field string) []string {
+	refs := scanReferences(raw)
+	if len(refs) == 0 {
+		return nil
+	}
+
+	var warnings []string
+	seen := make(map[string]struct{})
+	for _, ref := range refs {
+		if ref.Kind != referenceStrict {
+			continue
+		}
+		err := referenceMiss(ref, staticScope, runtimeScope, mode)
+		if err == nil {
+			continue
+		}
+		key := field + "\x00" + ref.Raw
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		warnings = append(warnings, referenceWarning(field, ref.Raw, err))
+	}
+	return warnings
+}
+
+func referenceMiss(ref reference, staticScope StaticScope, runtimeScope RuntimeScope, mode mode) error {
+	if mode == modeConstLoad && runtimeReferenceAvailableAfterConstLoad(ref) {
+		return fmt.Errorf("%s is not available while loading consts", ref.Raw)
+	}
+
+	switch ref.Namespace {
+	case "consts":
+		return mapReferenceMiss(ref, "consts", staticScope.Consts)
+	case "params":
+		return paramReferenceMiss(ref, staticScope.Params, runtimeScope.Params)
+	case "env":
+		if runtimeScope.Env == nil {
+			return nil
+		}
+		if _, ok := runtimeScope.Env.Get(ref.Segments[1]); ok {
+			return nil
+		}
+		return fmt.Errorf("unknown env.%s binding", ref.Segments[1])
+	case "steps":
+		if runtimeScope.Steps == nil {
+			return nil
+		}
+		_, err := bindingStepOutputValue(context.Background(), ref.Segments, runtimeScope.Steps, true)
+		return err
+	default:
+		return nil
+	}
+}
+
+func mapReferenceMiss(ref reference, namespace string, values Values) error {
+	if _, ok := values[ref.Segments[1]]; ok {
+		return nil
+	}
+	return fmt.Errorf("unknown %s binding %s", namespace, ref.Raw)
+}
+
+func paramReferenceMiss(ref reference, declarations, values Values) error {
+	name := ref.Segments[1]
+	if _, ok := declarations[name]; !ok {
+		return fmt.Errorf("unknown params.%s binding", name)
+	}
+	if value, ok := values[name]; ok && value != nil {
+		return nil
+	}
+	return fmt.Errorf("params.%s has no runtime value", name)
+}
+
+func referenceWarning(field, token string, err error) string {
+	if field == "" {
+		return fmt.Sprintf("value reference %s could not be resolved; preserving literal text: %v", token, err)
+	}
+	return fmt.Sprintf("%s: value reference %s could not be resolved; preserving literal text: %v", field, token, err)
+}
+
+func runtimeReferenceAvailableAfterConstLoad(ref reference) bool {
+	if !ref.Braced {
+		return false
+	}
+	switch ref.Namespace {
+	case "params":
+		return supportedStrictBinding(ref.Segments)
+	case "env":
+		return len(ref.Segments) == 2 && bindingNamePattern.MatchString(ref.Segments[0]) && bindingNamePattern.MatchString(ref.Segments[1])
+	case "steps":
+		if len(ref.Segments) < 4 || ref.Segments[2] != "outputs" {
+			return false
+		}
+		if !validStepOutputStepName(ref.Segments[1]) {
+			return false
+		}
+		for _, segment := range ref.Segments[3:] {
+			if !validOutputPathSegment(segment) {
+				return false
+			}
+		}
 		return true
 	default:
 		return false
 	}
-}
-
-func validateStrictReference(ref reference, scope StaticScope) error {
-	if ref.Namespace == "consts" {
-		return validateMapReference(ref, "consts", scope.Consts)
-	}
-	return nil
-}
-
-func validateMapReference(ref reference, namespace string, values Values) error {
-	if len(ref.Segments) != 2 {
-		return validateBindingSegments(ref.Segments)
-	}
-	if _, ok := values[ref.Segments[1]]; !ok {
-		return fmt.Errorf("unknown %s binding %s", namespace, ref.Raw)
-	}
-	return nil
 }

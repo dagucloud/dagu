@@ -569,7 +569,9 @@ func (a *API) loadInlineDAG(ctx context.Context, specContent string, name *strin
 func restoreDAGRunSnapshot(ctx context.Context, dag *core.DAG, status *exec.DAGRunStatus) (*core.DAG, string, error) {
 	runtimeParams := append([]string(nil), status.ParamsList...)
 	dag.Params = runtimeParams
-	dagwarning.LoadDotEnv(ctx, dag)
+	if err := dagwarning.LoadDotEnv(ctx, dag); err != nil {
+		return nil, "", err
+	}
 
 	quotedParams := spec.QuoteRuntimeParams(runtimeParams, dag.ParamDefs)
 	restored, err := rebuildDAGRunSnapshotFromYAML(ctx, dag, quotedParams)

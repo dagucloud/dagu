@@ -1,18 +1,18 @@
-name: Black-box Tests
+name: Conformance
 
 on:
   push:
     branches:
       - main
     paths:
-      - ".github/workflows/blackbox-tests.yml"
+      - ".github/workflows/conformance.yml"
+      - "conformance/**"
       - "cmd/**"
       - "go.mod"
       - "go.sum"
       - "internal/**"
       - "Makefile"
       - "specs/**"
-      - "tests/**"
   pull_request:
     # Keep this workflow directly rerunnable from PR-only maintenance commits.
     types:
@@ -21,14 +21,14 @@ on:
       - synchronize
       - ready_for_review
     paths:
-      - ".github/workflows/blackbox-tests.yml"
+      - ".github/workflows/conformance.yml"
+      - "conformance/**"
       - "cmd/**"
       - "go.mod"
       - "go.sum"
       - "internal/**"
       - "Makefile"
       - "specs/**"
-      - "tests/**"
   workflow_dispatch:
 
 permissions:
@@ -38,10 +38,18 @@ env:
   GO_VERSION: "1.26.4"
 
 jobs:
-  blackbox:
-    name: Black-box tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+  conformance:
+    name: Conformance tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            go_test_flags: "-v --race"
+          - os: windows-latest
+            go_test_flags: "-v"
     steps:
       - name: Check out code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -53,10 +61,14 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Build Dagu binary
-        run: make bin
+      - name: Install GNU Make
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command make -ErrorAction SilentlyContinue)) {
+            choco install make --no-progress -y
+          }
 
-      - name: Run black-box tests
-        env:
-          DAGU_BIN: ${{ github.workspace }}/.local/bin/dagu
-        run: go test -count=1 ./tests
+      - name: Run conformance tests
+        shell: bash
+        run: make conformance GO_TEST_FLAGS="${{ matrix.go_test_flags }}"

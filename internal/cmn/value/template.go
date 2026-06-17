@@ -7,47 +7,51 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/dagucloud/dagu/internal/cmn/logger"
 )
 
 var (
-	reVarSubstitution       = regexp.MustCompile(`\$\{([^}]+)\}|\$([a-zA-Z0-9_][a-zA-Z0-9_]*)`)
-	bindingRefPattern       = regexp.MustCompile(`\$\{([^}]+)\}`)
-	bindingShorthandPattern = regexp.MustCompile(`\$consts(\.[A-Za-z_][A-Za-z0-9_]*)+`)
-	bindingNamePattern      = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
-	quotedReferencePattern  = regexp.MustCompile(`"\$\{([A-Za-z0-9_]\w*(?:\.[^}]+)?)\}"`)
-	referencePattern        = regexp.MustCompile(`\$\{([A-Za-z0-9_]\w*)(\.[^}]+)\}|\$([A-Za-z0-9_]\w*)(\.[^\s]+)`)
+	reVarSubstitution      = regexp.MustCompile(`\$\{([^}]+)\}|\$([a-zA-Z0-9_][a-zA-Z0-9_]*)`)
+	bindingRefPattern      = regexp.MustCompile(`\$\{([^}]+)\}`)
+	bindingNamePattern     = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
+	quotedReferencePattern = regexp.MustCompile(`"\$\{([A-Za-z0-9_]\w*(?:\.[^}]+)?)\}"`)
+	referencePattern       = regexp.MustCompile(`\$\{([A-Za-z0-9_]\w*)(\.[^}]+)\}|\$([A-Za-z0-9_]\w*)(\.[^\s]+)`)
 )
 
 type template struct{ source string }
 
-func checkBindings(input string, scope RuntimeScope) error {
-	if match := bindingShorthandPattern.FindString(input); match != "" {
-		return fmt.Errorf("invalid binding shorthand %s; use ${...}", match)
-	}
-	if malformed := malformedBinding(input); malformed != "" {
-		return fmt.Errorf("malformed binding %s", malformed)
-	}
-	_, err := walkBindings(input, func(token, path string) (string, error) {
-		_, err := bindingValue(path, scope, false)
-		return token, err
-	})
-	return err
-}
-
-func resolveBindings(input string, scope RuntimeScope) (string, error) {
-	if err := checkBindings(input, scope); err != nil {
-		return "", err
-	}
-	return walkBindings(input, func(_ string, path string) (string, error) {
-		value, err := bindingValue(path, scope, true)
+func resolveBindings(ctx context.Context, input string, scope RuntimeScope, field string) (string, map[string]string, error) {
+	warned := make(map[string]struct{})
+	protected := make(map[string]string)
+	seed := input
+	resolved, err := walkBindings(input, func(_ string, path string) (string, error) {
+		value, err := bindingValue(ctx, path, scope, true)
 		if err != nil {
-			return "", err
+			token := "${" + path + "}"
+			warnUnresolvedBinding(ctx, field, token, err, warned)
+			placeholder := uniqueToken(seed, "__DAGU_UNRESOLVED_REF__")
+			seed += placeholder
+			protected[placeholder] = token
+			return placeholder, nil
 		}
 		return formatBindingValue(value), nil
 	})
+	return resolved, protected, err
+}
+
+func restoreProtectedReferences(input string, protected map[string]string) string {
+	if len(protected) == 0 {
+		return input
+	}
+	for placeholder, token := range protected {
+		input = strings.ReplaceAll(input, placeholder, token)
+	}
+	return input
 }
 
 func (t template) resolveReferences(ctx context.Context, r *resolver) string {
@@ -187,7 +191,7 @@ func walkBindings(input string, visit func(token, path string) (string, error)) 
 	last := 0
 	for _, loc := range bindingRefPattern.FindAllStringSubmatchIndex(input, -1) {
 		path := strings.TrimSpace(input[loc[2]:loc[3]])
-		if !reservedBinding(bindingNamespace(path)) {
+		if !supportedStrictBinding(strings.Split(path, ".")) {
 			continue
 		}
 		b.WriteString(input[last:loc[0]])
@@ -202,17 +206,56 @@ func walkBindings(input string, visit func(token, path string) (string, error)) 
 	return b.String(), nil
 }
 
-func bindingValue(path string, scope RuntimeScope, requireValue bool) (any, error) {
+func bindingValue(ctx context.Context, path string, scope RuntimeScope, requireValue bool) (any, error) {
 	segments := strings.Split(path, ".")
-	if err := validateBindingSegments(segments); err != nil {
-		return nil, err
+	if !supportedStrictBinding(segments) {
+		return nil, nil
 	}
 	switch segments[0] {
 	case "consts":
 		return bindingMapValue("consts", segments[1], scope.Consts, requireValue)
+	case "params":
+		return bindingMapValue("params", segments[1], scope.Params, requireValue)
+	case "env":
+		return bindingEnvValue(segments[1], scope.Env, requireValue)
+	case "steps":
+		return bindingStepOutputValue(ctx, segments, scope.Steps, requireValue)
 	default:
 		return nil, nil
 	}
+}
+
+func warnUnresolvedBinding(ctx context.Context, field, token string, err error, warned map[string]struct{}) {
+	key := field + "\x00" + token
+	if _, ok := warned[key]; ok {
+		return
+	}
+	warned[key] = struct{}{}
+
+	attrs := []slog.Attr{slog.String("reference", token)}
+	if field != "" {
+		attrs = append(attrs, slog.String("field", field))
+	}
+	if err != nil {
+		attrs = append(attrs, slog.String("error", err.Error()))
+	}
+	logger.Warn(ctx, "Value reference could not be resolved; preserving literal text", attrs...)
+}
+
+func bindingStepOutputValue(ctx context.Context, segments []string, steps map[string]StepInfo, requireValue bool) (any, error) {
+	if len(steps) == 0 && !requireValue {
+		return nil, nil
+	}
+	stepName := segments[1]
+	path := "." + strings.Join(segments[2:], ".")
+	value, ok := resolveStepProperty(ctx, stepName, path, steps)
+	if ok {
+		return value, nil
+	}
+	if !requireValue {
+		return nil, nil
+	}
+	return nil, fmt.Errorf("unknown steps.%s.%s binding", stepName, strings.Join(segments[2:], "."))
 }
 
 func bindingMapValue(namespace, name string, values Values, requireValue bool) (any, error) {
@@ -221,53 +264,49 @@ func bindingMapValue(namespace, name string, values Values, requireValue bool) (
 	}
 	value, ok := values[name]
 	if !ok {
+		if namespace == "params" {
+			return nil, fmt.Errorf("unknown params.%s binding", name)
+		}
 		return nil, fmt.Errorf("unknown %s binding %q", namespace, name)
 	}
 	return value, nil
 }
 
-func validateBindingSegments(segments []string) error {
-	if len(segments) == 0 {
-		return nil
+func bindingEnvValue(name string, scope *EnvScope, requireValue bool) (any, error) {
+	if scope == nil && !requireValue {
+		return nil, nil
 	}
-	for _, segment := range segments {
-		if !bindingNamePattern.MatchString(segment) {
-			return fmt.Errorf("binding path segment %q is invalid", segment)
-		}
+	if value, ok := scope.Get(name); ok {
+		return value, nil
 	}
-	if segments[0] == "consts" && len(segments) != 2 {
-		return fmt.Errorf("consts bindings must use ${consts.<name>}")
+	if !requireValue {
+		return nil, nil
 	}
-	return nil
+	return nil, fmt.Errorf("unknown env.%s binding", name)
 }
 
-func reservedBinding(namespace string) bool {
-	return namespace == "consts"
-}
-
-func malformedBinding(value string) string {
-	for offset := 0; offset < len(value); {
-		start := strings.Index(value[offset:], "${")
-		if start < 0 {
-			return ""
+func supportedStrictBinding(segments []string) bool {
+	switch segments[0] {
+	case "consts", "params":
+		return len(segments) == 2 && bindingNamePattern.MatchString(segments[1])
+	case "env":
+		return len(segments) == 2 && bindingNamePattern.MatchString(segments[1])
+	case "steps":
+		if len(segments) < 4 || segments[2] != "outputs" {
+			return false
 		}
-		start += offset
-		end := strings.IndexByte(value[start+2:], '}')
-		if end < 0 {
-			expr := strings.TrimSpace(strings.TrimPrefix(value[start:], "${"))
-			if reservedBinding(bindingNamespace(expr)) {
-				return value[start:]
+		if !validStepOutputStepName(segments[1]) {
+			return false
+		}
+		for _, segment := range segments[3:] {
+			if !validOutputPathSegment(segment) {
+				return false
 			}
-			return ""
 		}
-		offset = start + 2 + end + 1
+		return true
+	default:
+		return false
 	}
-	return ""
-}
-
-func bindingNamespace(path string) string {
-	namespace, _, _ := strings.Cut(path, ".")
-	return namespace
 }
 
 func formatBindingValue(value any) string {

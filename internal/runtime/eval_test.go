@@ -85,6 +85,9 @@ func TestEvalStringResolvesConstsOnlyReservedBinding(t *testing.T) {
 		Consts: map[string]any{
 			"service": "api",
 		},
+		ParamDefs: []core.ParamDef{
+			{Name: "environment", Type: core.ParamDefTypeString},
+		},
 		Params: []string{"environment=prod"},
 	}, "", "")
 	env := runtime.NewEnv(ctx, core.Step{Name: "test-step"})
@@ -99,7 +102,7 @@ func TestEvalStringResolvesConstsOnlyReservedBinding(t *testing.T) {
 
 	got, err := runtime.ResolveString(ctx, "${consts.service} ${params.environment} ${env.HOME} ${steps.build.outputs.image}", cmnvalue.WorkflowField("test"))
 	require.NoError(t, err)
-	assert.Equal(t, "api ${params.environment} ${env.HOME} ${steps.build.outputs.image}", got)
+	assert.Equal(t, "api prod workspace repo/api:v1", got)
 }
 
 func TestEvalStringPreservesBacktickSubstitution(t *testing.T) {
@@ -127,7 +130,7 @@ func TestEvalStringModeDirectCommandUsesHostOnlyEnvFallback(t *testing.T) {
 	assert.Equal(t, "from-scope:from-os", got)
 }
 
-func TestEvalStringPreservesStepsNamespaceAsFutureBinding(t *testing.T) {
+func TestEvalStringPreservesUnsupportedStepsReferenceText(t *testing.T) {
 	t.Parallel()
 
 	ctx := runtime.NewContext(context.Background(), &core.DAG{
@@ -145,9 +148,9 @@ func TestEvalStringPreservesStepsNamespaceAsFutureBinding(t *testing.T) {
 	env := runtime.NewEnv(ctx, core.Step{Name: "test-step"})
 	ctx = runtime.WithEnv(ctx, env)
 
-	got, err := runtime.ResolveString(ctx, "${steps.build.outputs.image}", cmnvalue.WorkflowField("test"))
+	got, err := runtime.ResolveString(ctx, "${steps.build.output.image}", cmnvalue.WorkflowField("test"))
 	require.NoError(t, err)
-	assert.Equal(t, "${steps.build.outputs.image}", got)
+	assert.Equal(t, "${steps.build.output.image}", got)
 }
 
 func TestEvalBool(t *testing.T) {

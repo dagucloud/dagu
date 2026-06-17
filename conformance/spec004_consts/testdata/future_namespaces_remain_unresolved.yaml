@@ -1,0 +1,3 @@
+steps:
+  - name: should-not-run
+    run: echo ${env.SERVICE} ${steps.build.outputs.image} > executed.txt

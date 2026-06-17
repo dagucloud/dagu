@@ -10,15 +10,20 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 )
 
-// LoadDotEnv loads dotenv files and logs only warnings added by that load.
-func LoadDotEnv(ctx context.Context, dag *core.DAG) {
+// LoadDotEnv loads dotenv files, logs warnings added by that load, and returns new build errors.
+func LoadDotEnv(ctx context.Context, dag *core.DAG) error {
 	if dag == nil {
-		return
+		return nil
 	}
 
-	start := len(dag.BuildWarnings)
+	warningStart := len(dag.BuildWarnings)
+	errorStart := len(dag.BuildErrors)
 	dag.LoadDotEnv(ctx)
-	Log(ctx, dag.BuildWarnings[start:])
+	Log(ctx, dag.BuildWarnings[warningStart:])
+	if len(dag.BuildErrors) > errorStart {
+		return core.ErrorList(dag.BuildErrors[errorStart:])
+	}
+	return nil
 }
 
 // Log emits DAG build warnings through Dagu's logger.

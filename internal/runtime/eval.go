@@ -40,15 +40,20 @@ func EvalObject[T any](ctx context.Context, obj T) (T, error) {
 
 func resolverFromEnv(env Env) cmnvalue.Resolver {
 	var consts cmnvalue.Values
+	var params cmnvalue.Values
+	var paramDeclarations cmnvalue.Values
 	if env.DAG != nil {
 		consts = cmnvalue.Values(env.DAG.Consts)
+		params = env.DAG.ParamValues()
+		paramDeclarations = env.DAG.ParamDeclarations()
 	}
 	scope := cmnvalue.RuntimeScope{
 		Consts: consts,
+		Params: params,
 		Env:    env.Scope,
 		Steps:  env.StepMap,
 	}
-	return cmnvalue.NewResolver(cmnvalue.StaticScope{Consts: consts}, scope)
+	return cmnvalue.NewResolver(cmnvalue.StaticScope{Consts: consts, Params: paramDeclarations}, scope)
 }
 
 func resolveRuntimeString(ctx context.Context, raw string, field cmnvalue.Field) (string, error) {

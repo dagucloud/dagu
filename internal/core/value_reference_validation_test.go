@@ -32,7 +32,7 @@ func TestValidateStepsConstReferencesUseRootConstScope(t *testing.T) {
 		require.NoError(t, core.ValidateSteps(dag))
 	})
 
-	t.Run("unknown const is invalid", func(t *testing.T) {
+	t.Run("unknown const is warning-only", func(t *testing.T) {
 		t.Parallel()
 		dag := &core.DAG{
 			Consts: map[string]any{"service": "api"},
@@ -45,12 +45,10 @@ func TestValidateStepsConstReferencesUseRootConstScope(t *testing.T) {
 			},
 		}
 
-		err := core.ValidateSteps(dag)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "unknown consts binding")
+		require.NoError(t, core.ValidateSteps(dag))
 	})
 
-	t.Run("const shorthand is invalid", func(t *testing.T) {
+	t.Run("const shorthand is ordinary content", func(t *testing.T) {
 		t.Parallel()
 		dag := &core.DAG{
 			Consts: map[string]any{"service": "api"},
@@ -63,13 +61,11 @@ func TestValidateStepsConstReferencesUseRootConstScope(t *testing.T) {
 			},
 		}
 
-		err := core.ValidateSteps(dag)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid binding shorthand")
+		require.NoError(t, core.ValidateSteps(dag))
 	})
 }
 
-func TestValidateStepsIgnoresFutureStrictNamespaces(t *testing.T) {
+func TestValidateStepsHandlesParamsAndFutureStrictNamespaces(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -79,6 +75,9 @@ func TestValidateStepsIgnoresFutureStrictNamespaces(t *testing.T) {
 		{
 			name: "ParamReference",
 			dag: &core.DAG{
+				ParamDefs: []core.ParamDef{
+					{Name: "environment", Type: core.ParamDefTypeString},
+				},
 				Steps: []core.Step{
 					{
 						Name:           "print",
@@ -223,8 +222,7 @@ func TestValidateStepsCoversRuntimeResolvedFields(t *testing.T) {
 				Consts: map[string]any{"service": "api"},
 				Steps:  []core.Step{tt.step},
 			})
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "unknown consts binding")
+			require.NoError(t, err)
 		})
 	}
 }
@@ -260,7 +258,10 @@ func TestDAGValidateCoversRetryRepeatOutputReferences(t *testing.T) {
 	}
 
 	err := dag.Validate()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "build")
-	assert.Contains(t, err.Error(), "missing")
+	require.NoError(t, err)
+	require.Len(t, dag.BuildWarnings, 2)
+	assert.Contains(t, dag.BuildWarnings[0], "build")
+	assert.Contains(t, dag.BuildWarnings[0], "missing")
+	assert.Contains(t, dag.BuildWarnings[1], "build")
+	assert.Contains(t, dag.BuildWarnings[1], "missing")
 }

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 
@@ -101,8 +102,8 @@ func ValidateSteps(dag *DAG) error {
 
 func validateBindingReferences(dag *DAG) ErrorList {
 	var errs ErrorList
-	scope := cmnvalue.StaticScope{Consts: cmnvalue.Values(dag.Consts)}
-	resolver := cmnvalue.NewResolver(scope, cmnvalue.RuntimeScope{Consts: cmnvalue.Values(dag.Consts)})
+	scope := cmnvalue.StaticScope{Consts: cmnvalue.Values(dag.Consts), Params: dag.ParamDeclarations()}
+	resolver := cmnvalue.NewResolver(scope, cmnvalue.RuntimeScope{Consts: cmnvalue.Values(dag.Consts), Params: dag.ParamValues()})
 	fields := ReferenceFields(dag)
 	for _, field := range fields {
 		if !strings.Contains(field.Value, "$") {
@@ -111,8 +112,21 @@ func validateBindingReferences(dag *DAG) ErrorList {
 		if err := resolver.Validate(field.Value, field.Field); err != nil {
 			errs = append(errs, NewValidationError(field.Path, field.Value, err))
 		}
+		for _, warning := range resolver.Warnings(field.Value, field.Field) {
+			appendBuildWarning(dag, warning)
+		}
 	}
 	return errs
+}
+
+func appendBuildWarning(dag *DAG, warning string) {
+	if dag == nil || warning == "" {
+		return
+	}
+	if slices.Contains(dag.BuildWarnings, warning) {
+		return
+	}
+	dag.BuildWarnings = append(dag.BuildWarnings, warning)
 }
 
 // collectNamesAndIDs collects all step names and IDs, validating uniqueness and format.

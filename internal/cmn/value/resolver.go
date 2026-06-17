@@ -32,6 +32,15 @@ func (r Resolver) Validate(raw string, field Field) error {
 	return validateReferences(raw, r.staticScope(), policy.mode, field.path)
 }
 
+// Warnings returns non-fatal diagnostics for strict binding misses owned by field.
+func (r Resolver) Warnings(raw string, field Field) []string {
+	policy := policyForField(field)
+	if !policy.strict {
+		return nil
+	}
+	return referenceWarnings(raw, r.staticScope(), r.runtime, policy.mode, field.path)
+}
+
 // String resolves raw according to field.
 func (r Resolver) String(ctx context.Context, raw string, field Field) (string, error) {
 	return r.resolveString(ctx, raw, field)
@@ -77,12 +86,13 @@ func (r Resolver) resolveString(ctx context.Context, raw string, field Field) (s
 	policy := policyForField(field)
 	ctx = r.withRuntimeEnv(ctx)
 	resolved := raw
+	var protected map[string]string
 	if policy.strict {
 		if err := validateReferences(raw, r.staticScope(), policy.mode, field.path); err != nil {
 			return "", err
 		}
 		var err error
-		resolved, err = resolveBindings(raw, r.bindingScope())
+		resolved, protected, err = resolveBindings(ctx, raw, r.bindingScope(), field.path)
 		if err != nil {
 			if field.path != "" {
 				return "", fmt.Errorf("%s: %w", field.path, err)
@@ -90,19 +100,23 @@ func (r Resolver) resolveString(ctx context.Context, raw string, field Field) (s
 			return "", err
 		}
 	}
-	return evalString(ctx, resolved, r.optionsFor(policy)...)
+	evaluated, err := evalString(ctx, resolved, r.optionsFor(policy)...)
+	if err != nil {
+		return "", err
+	}
+	return restoreProtectedReferences(evaluated, protected), nil
 }
 
 func (r Resolver) staticScope() StaticScope {
-	if r.static.Consts != nil {
+	if r.static.Consts != nil || r.static.Params != nil {
 		return r.static
 	}
-	return StaticScope{Consts: r.runtime.Consts}
+	return StaticScope{Consts: r.runtime.Consts, Params: r.runtime.Params}
 }
 
 func (r Resolver) bindingScope() RuntimeScope {
-	if r.runtime.Consts != nil {
-		return RuntimeScope{Consts: r.runtime.Consts}
+	if r.runtime.Consts != nil || r.runtime.Params != nil || r.runtime.Env != nil || len(r.runtime.Steps) > 0 {
+		return r.runtime
 	}
 	return RuntimeScope{Consts: r.static.Consts}
 }
@@ -187,7 +201,7 @@ func policyForField(field Field) resolverPolicy {
 	case fieldStepEnv, fieldContainerEnv:
 		return resolverPolicy{mode: modeWorkflowValue, strict: true}
 	case fieldDynamicParamEval:
-		return resolverPolicy{mode: modeDynamicEval, strict: true, envVariables: envVariablesUser, options: []option{withOSExpansion()}}
+		return resolverPolicy{mode: modeDynamicEval, strict: true, envVariables: envVariablesUser, options: []option{withOSExpansion(), withShellCommandSubstitution()}}
 	case fieldDotenvPath:
 		return resolverPolicy{mode: modeWorkflowValue, strict: true, options: []option{withOSExpansion(), withoutSubstitute()}}
 	case fieldHostConfigObject:
@@ -197,7 +211,7 @@ func policyForField(field Field) resolverPolicy {
 	case fieldServerBasePath, fieldCoordinatorArtifactBaseDir:
 		return resolverPolicy{options: []option{withOSExpansion()}}
 	case fieldStructuredOutputPath, fieldStructuredOutputLiteral:
-		return resolverPolicy{options: []option{withoutExpandShell(), withoutSubstitute()}}
+		return resolverPolicy{mode: modeWorkflowValue, strict: true, options: []option{withoutExpandShell(), withoutSubstitute()}}
 	case fieldStepArtifactOutput:
 		return resolverPolicy{
 			mode:   modeWorkflowValue,
@@ -210,15 +224,21 @@ func policyForField(field Field) resolverPolicy {
 		}
 	case fieldRetryInteger, fieldRepeatInteger:
 		return resolverPolicy{mode: modeWorkflowValue, strict: true, options: []option{withOSExpansion()}}
-	case fieldDAGShell, fieldStepShell, fieldShellCommand:
+	case fieldDAGShell, fieldStepShell:
 		return resolverPolicy{mode: modeShellCommand, strict: true, options: append([]option{withoutSubstitute()}, commandPolicyOptions(field.command)...)}
+	case fieldShellCommand:
+		options := append([]option{withoutSubstitute()}, commandPolicyOptions(field.command)...)
+		if commandDefersShellVars(field.command) {
+			options = append(options, onlyReplaceVars())
+		}
+		return resolverPolicy{mode: modeShellCommand, strict: true, options: options}
 	case fieldDirectCommand:
 		return resolverPolicy{mode: modeDirectCommand, strict: true, options: append(directCommandBaseOptions(field.command), commandPolicyOptions(field.command)...)}
 	case fieldConditionCommand:
 		return resolverPolicy{mode: modeDirectCommand, strict: true, options: append(conditionCommandBaseOptions(field.command), commandPolicyOptions(field.command)...)}
 	case fieldCommandScript:
 		options := append([]option{withoutSubstitute()}, commandPolicyOptions(field.command)...)
-		if field.command.Target == CommandTargetLocal && field.command.ShellConfigured {
+		if commandDefersShellVars(field.command) {
 			options = append(options, onlyReplaceVars())
 		}
 		return resolverPolicy{mode: modeShellCommand, strict: true, options: options}
@@ -270,6 +290,17 @@ func commandPolicyOptions(command CommandContext) []option {
 	}
 
 	return nil
+}
+
+func commandDefersShellVars(command CommandContext) bool {
+	if command.Target != CommandTargetLocal || !command.ShellConfigured {
+		return false
+	}
+	if len(command.Shell) == 0 {
+		return true
+	}
+	shell := command.Shell[0]
+	return cmdutil.IsUnixLikeShell(shell) || cmdutil.IsNixShell(shell)
 }
 
 func localCommandPolicyOptions(command CommandContext) []option {

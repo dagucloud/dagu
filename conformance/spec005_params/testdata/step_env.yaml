@@ -1,0 +1,10 @@
+params:
+  - name: environment
+    description: Runtime environment.
+working_dir: .
+steps:
+  - name: write
+    env:
+      STEP_VALUE: "${params.environment}"
+    run: |
+      printf '%s\n' "$STEP_VALUE" > step-env.txt

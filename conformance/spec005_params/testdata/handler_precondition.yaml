@@ -1,0 +1,18 @@
+params:
+  - name: environment
+    description: Runtime environment.
+working_dir: .
+handler_on:
+  success:
+    preconditions:
+      - condition: |
+          case '${params.environment}' in
+            prod) exit 0;;
+            \${params.environment}) printf '%s\n' literal > handler-precondition-literal.txt; exit 0;;
+            *) exit 1;;
+          esac
+    run: |
+      printf '%s\n' prod > handler-precondition.txt
+steps:
+  - name: ok
+    run: "true"

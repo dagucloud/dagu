@@ -1512,16 +1512,53 @@ func buildParams(ctx BuildContext, d *dag) ([]string, error) {
 		return nil, err
 	}
 	// Add resolved params to envScope so env: can reference ${param_name}
-	if ctx.envScope != nil && len(result.Params) > 0 {
-		paramVars := make(map[string]string, len(result.Params))
-		for _, p := range result.Params {
-			if k, v, ok := strings.Cut(p, "="); ok {
-				paramVars[k] = v
+	if ctx.envScope != nil {
+		ctx.envScope.paramDeclarations = paramDeclarationsFromResult(result)
+		ctx.envScope.params = paramValuesFromResult(result)
+		if len(result.Params) > 0 {
+			paramVars := make(map[string]string, len(result.Params))
+			for _, p := range result.Params {
+				if k, v, ok := strings.Cut(p, "="); ok {
+					paramVars[k] = v
+				}
 			}
+			ctx.envScope.scope = ctx.envScope.scope.WithEntries(paramVars, cmnvalue.EnvSourceParam)
 		}
-		ctx.envScope.scope = ctx.envScope.scope.WithEntries(paramVars, cmnvalue.EnvSourceParam)
 	}
 	return result.Params, nil
+}
+
+func paramDeclarationsFromResult(result *paramsResult) cmnvalue.Values {
+	if result == nil {
+		return nil
+	}
+	declarations := make(cmnvalue.Values)
+	for _, def := range result.ParamDefs {
+		if isParamReferenceName(def.Name) {
+			declarations[def.Name] = ""
+		}
+	}
+	if len(declarations) == 0 {
+		return nil
+	}
+	return declarations
+}
+
+func paramValuesFromResult(result *paramsResult) cmnvalue.Values {
+	if result == nil || len(result.Params) == 0 {
+		return nil
+	}
+	params := make(cmnvalue.Values)
+	for _, param := range result.Params {
+		name, value, ok := strings.Cut(param, "=")
+		if ok && isParamReferenceName(name) {
+			params[name] = value
+		}
+	}
+	if len(params) == 0 {
+		return nil
+	}
+	return params
 }
 
 func buildDefaultParams(ctx BuildContext, d *dag) (string, error) {

@@ -4,13 +4,12 @@
 
 Implemented.
 
-The implementation covers only root `consts` and `${consts.name}` bindings. Broader value-resolution behavior remains governed by the implementation status of the specs that define those namespaces and fields.
-
 ## Scope
 
 This spec defines root `consts` and `${consts.name}` references.
 
-Common reference syntax, supported fields, and string insertion are defined by [Spec 003: Value Resolution](003-value-resolution.md).
+Common reference syntax is defined by [Spec 003: Value Resolution](003-value-resolution.md).
+Spec 003 also defines supported fields and string insertion.
 
 Resolution timing is defined by [Spec 003: Value Resolution](003-value-resolution.md).
 
@@ -22,9 +21,11 @@ Workflows can define immutable values once and reference them from supported val
 
 ## Motivation
 
-Workflow authors need a deterministic way to name reusable literal values. `consts` use list form so the order is explicit when one constant depends on an earlier constant.
+Workflow authors need a deterministic way to name reusable literal values.
+`consts` use list form so dependency order is explicit.
 
-This spec keeps `consts` immutable and load-time resolvable so later value resolution can use them without runtime side effects.
+This spec keeps `consts` immutable and load-time resolvable.
+Later value resolution can use them without runtime side effects.
 
 ## Behavior
 
@@ -56,13 +57,20 @@ This spec keeps `consts` immutable and load-time resolvable so later value resol
 
 - String values in list-form `consts` may reference earlier `consts` entries with `${consts.name}`.
 
-- List-form `consts` values must not reference themselves or later `consts` entries.
+- List-form `consts` values cannot resolve themselves or later `consts` entries.
 
-- List-form `consts` values must not reference runtime `env`, `params`, or `steps`.
+- A self-reference or later-reference is preserved as literal text and emits a warning.
+
+- Runtime `env`, `params`, and `steps` are unavailable while loading `consts`.
+
+- A runtime namespace reference in `consts` is preserved as literal text and emits a warning.
 
 ### References
 
 - `${consts.name}` reads `name` from resolved root `consts`.
+
+- `$consts.name` is not Dagu-owned `consts` reference syntax.
+- Dagu preserves `$consts.name` as ordinary string content according to Spec 003.
 
 - A resolved `consts` value is inserted into string fields according to Spec 003 string insertion rules.
 
@@ -78,9 +86,11 @@ This spec keeps `consts` immutable and load-time resolvable so later value resol
 
 - Mapping-form `consts` must fail during workflow validation.
 
-- `consts` references to runtime `env`, `params`, `steps`, later `consts`, or themselves must fail during workflow validation.
+- `consts` references that target unavailable values must warn and preserve the original text.
 
-- An unknown `consts` reference in a value-resolution field must fail during workflow validation.
+- Unavailable values include runtime `env`, `params`, `steps`, later `consts`, the same `consts` entry, and unknown `consts` names.
+
+- An unknown `consts` reference in a value-resolution field must warn and preserve the original text.
 
 ## Examples
 
@@ -104,11 +114,11 @@ steps:
     run: echo ${consts.endpoint}
 ```
 
-Invalid `consts` reference:
+Unknown `consts` reference:
 
 ```yaml
 steps:
-  - name: bad
+  - name: preserved
     run: echo ${consts.missing}
 ```
 

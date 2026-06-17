@@ -1,0 +1,11 @@
+params:
+  - name: environment
+    description: Runtime environment.
+working_dir: .
+steps:
+  - name: write
+    action: file.write
+    with:
+      path: "with-content.txt"
+      content: |
+        ${params.environment}

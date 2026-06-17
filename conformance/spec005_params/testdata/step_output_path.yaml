@@ -1,0 +1,15 @@
+params:
+  - name: environment
+    description: Runtime environment.
+working_dir: .
+steps:
+  - id: produce
+    run: "true"
+    output:
+      report:
+        from: file
+        path: "outputs/${params.environment}/report.txt"
+  - name: consume
+    depends: produce
+    run: |
+      printf '%s\n' '${steps.produce.outputs.report}' > output-path.txt

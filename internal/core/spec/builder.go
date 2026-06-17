@@ -48,9 +48,11 @@ type BuildContext struct {
 // envScopeState holds mutable state that needs to be shared across transformers.
 // Using a pointer allows value-passed BuildContext to share state.
 type envScopeState struct {
-	scope    *cmnvalue.EnvScope
-	buildEnv map[string]string // Also store as map for WithVariables
-	consts   map[string]any
+	scope             *cmnvalue.EnvScope
+	buildEnv          map[string]string // Also store as map for WithVariables
+	consts            map[string]any
+	params            cmnvalue.Values
+	paramDeclarations cmnvalue.Values
 }
 
 type paramsState struct {

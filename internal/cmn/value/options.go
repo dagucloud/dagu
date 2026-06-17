@@ -9,6 +9,7 @@ type options struct {
 	ExpandShell            bool // Enable shell-based variable expansion (e.g., ${VAR:0:3})
 	ExpandOS               bool // Enable os.LookupEnv fallback and OS-sourced scope entries
 	Substitute             bool // Enable backtick command substitution
+	SubstituteShellCommand bool // Enable $() command substitution
 	EscapeDollar           bool // Enable \$ → $ escape before variable expansion
 	RecognizeEscapedDollar bool // Treat \$ as a literal-dollar marker during variable expansion
 
@@ -75,6 +76,12 @@ func withoutExpandShell() option {
 func withoutSubstitute() option {
 	return func(opts *options) {
 		opts.Substitute = false
+	}
+}
+
+func withShellCommandSubstitution() option {
+	return func(opts *options) {
+		opts.SubstituteShellCommand = true
 	}
 }
 

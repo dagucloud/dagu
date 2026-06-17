@@ -1094,7 +1094,7 @@ func TestRunner(t *testing.T) {
 			require.Contains(t, result.Error.Error(), "no such file or directory")
 		}
 	})
-	t.Run("InvalidWorkingDirResolutionFailsBeforeScript", func(t *testing.T) {
+	t.Run("InvalidWorkingDirReferencePreservesThenFailsBeforeScript", func(t *testing.T) {
 		r := setupRunner(t)
 
 		sentinel := filepath.Join(t.TempDir(), "executed")
@@ -1114,7 +1114,8 @@ func TestRunner(t *testing.T) {
 
 		err := r.runner.Run(ctx, plan.Plan, nil)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "failed to evaluate step working directory")
+		require.Contains(t, err.Error(), "failed to setup script")
+		require.Contains(t, err.Error(), "${consts.missing}")
 		require.Equal(t, core.Failed.String(), r.runner.Status(ctx, plan.Plan).String())
 
 		node := plan.GetNodeByName("1")
@@ -2007,6 +2008,66 @@ func TestRunner_DAGPreconditions(t *testing.T) {
 		// Check that the runner was canceled
 		assert.Equal(t, core.Aborted, r.runner.Status(ctx, plan.Plan))
 	})
+}
+
+func TestRunner_DAGPreconditionShellReferencePreserved(t *testing.T) {
+	if windowsShellTest() {
+		t.Skip("DAG precondition shell reference test uses /bin/sh")
+	}
+
+	r := setupRunner(t)
+	plan := r.newPlan(t, successStep("1"))
+
+	dag := &core.DAG{
+		Name:       "test_dag",
+		WorkingDir: plan.workDir,
+		Shell:      "/bin/sh",
+		ShellArgs:  []string{"${params.shell_arg}"},
+		ParamDefs: []core.ParamDef{{
+			Name: "shell_arg",
+			Type: core.ParamDefTypeString,
+		}},
+		Preconditions: []*core.Condition{{
+			Condition: "exit 0",
+		}},
+	}
+	logFilename := fmt.Sprintf("%s_%s.log", dag.Name, r.cfg.DAGRunID)
+	logFilePath := filepath.Join(r.cfg.LogDir, logFilename)
+	ctx := runtime.NewContext(plan.Context, dag, r.cfg.DAGRunID, logFilePath)
+
+	err := r.runner.Run(ctx, plan.Plan, nil)
+	require.NoError(t, err)
+	assert.Equal(t, core.Aborted, r.runner.Status(ctx, plan.Plan))
+}
+
+func TestRunner_StepPreconditionReferencePreserved(t *testing.T) {
+	r := setupRunner(t)
+	plan := r.newPlan(t,
+		newStep("1",
+			withPrecondition(&core.Condition{Condition: "${params.ready}", Expected: "true"}),
+			withCommand("echo should_not_run"),
+		),
+	)
+
+	dag := &core.DAG{
+		Name:       "test_dag",
+		WorkingDir: plan.workDir,
+		ParamDefs: []core.ParamDef{{
+			Name: "ready",
+			Type: core.ParamDefTypeString,
+		}},
+	}
+	logFilename := fmt.Sprintf("%s_%s.log", dag.Name, r.cfg.DAGRunID)
+	logFilePath := filepath.Join(r.cfg.LogDir, logFilename)
+	ctx := runtime.NewContext(plan.Context, dag, r.cfg.DAGRunID, logFilePath)
+
+	err := r.runner.Run(ctx, plan.Plan, nil)
+	require.NoError(t, err)
+	assert.Equal(t, core.Succeeded, r.runner.Status(ctx, plan.Plan))
+
+	node := plan.GetNodeByName("1")
+	require.NotNil(t, node)
+	assert.Equal(t, core.NodeSkipped, node.State().Status)
 }
 
 func TestRunner_StatusDefersForcedStatusUntilTerminal(t *testing.T) {

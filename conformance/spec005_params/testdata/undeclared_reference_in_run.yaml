@@ -1,0 +1,8 @@
+params:
+  - name: environment
+    default: prod
+working_dir: .
+steps:
+  - name: write
+    run: |
+      printf '%s\n' '${params.missing}' > undeclared.txt
