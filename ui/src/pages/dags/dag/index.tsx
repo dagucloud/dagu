@@ -60,10 +60,11 @@ function DAGDetails() {
   const queriedDAGRunName = searchParams.get('dagRunName');
   const [trackedDagRunId, setTrackedDagRunId] = useState<string>();
   const previousURLDagRunId = useRef<string | null>(dagRunId);
-  const remoteNode =
-    searchParams.get('remoteNode') ||
-    appBarContext.selectedRemoteNode ||
-    'local';
+  const queryRemoteNode = searchParams.get('remoteNode')?.trim();
+  const appBarRemoteNode = appBarContext.selectedRemoteNode?.trim();
+  const remoteNode = queryRemoteNode || appBarRemoteNode || 'local';
+  const preserveRemoteNode =
+    searchParams.has('remoteNode') || remoteNode !== 'local';
   const queryWorkspace = sanitizeWorkspaceName(
     searchParams.get('workspace') ?? ''
   );
@@ -123,7 +124,7 @@ function DAGDetails() {
     (path: string) => {
       const [pathname = '', existingQuery = ''] = path.split('?');
       const nextSearchParams = new URLSearchParams(existingQuery);
-      if (remoteNode && remoteNode !== 'local') {
+      if (preserveRemoteNode) {
         nextSearchParams.set('remoteNode', remoteNode);
       }
       if (queryWorkspace) {
@@ -132,7 +133,7 @@ function DAGDetails() {
       const query = nextSearchParams.toString();
       return query ? `${pathname}?${query}` : pathname;
     },
-    [queryWorkspace, remoteNode]
+    [preserveRemoteNode, queryWorkspace, remoteNode]
   );
 
   // Handle tab changes - navigates to the appropriate URL for the given tab
@@ -283,7 +284,7 @@ function DAGDetails() {
       const nextSearchParams = new URLSearchParams();
       nextSearchParams.set('dagRunId', nextDAGRunId);
       nextSearchParams.set('dagRunName', dagData?.dag?.name || dagRunName);
-      if (remoteNode && remoteNode !== 'local') {
+      if (preserveRemoteNode) {
         nextSearchParams.set('remoteNode', remoteNode);
       }
       if (queryWorkspace) {
@@ -298,6 +299,7 @@ function DAGDetails() {
       fileName,
       mutateDag,
       navigate,
+      preserveRemoteNode,
       queryWorkspace,
       remoteNode,
     ]

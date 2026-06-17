@@ -257,9 +257,7 @@ function DAGDetailsSidePanel({
 
       const baseUrl = buildFullscreenUrl(stableFileName, activeTab);
       const searchParams = new URLSearchParams();
-      if (remoteNode !== 'local') {
-        searchParams.set('remoteNode', remoteNode);
-      }
+      searchParams.set('remoteNode', remoteNode);
       if (trackedDagRunId) {
         searchParams.set('dagRunId', trackedDagRunId);
         if (data?.dag?.name) {

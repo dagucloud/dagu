@@ -294,6 +294,7 @@ function DAGStatus({
         if (isDAGRunContext) {
           // For DAG runs, use query parameters to navigate to the DAG-run details page
           const searchParams = new URLSearchParams();
+          searchParams.set('remoteNode', remoteNode);
           searchParams.set('subDAGRunId', subDAGRun.dagRunId);
 
           // Use root DAG-run information
@@ -313,7 +314,16 @@ function DAGStatus({
           url = `/dag-runs/${rootDAGName}/${dagRunId}?${searchParams.toString()}`;
         } else {
           // For DAGs, use the existing approach with query parameters
-          url = `/dags/${fileName}?subDAGRunId=${subDAGRun.dagRunId}&dagRunId=${dagRunId}&step=${node.step.name}&dagRunName=${encodeURIComponent(displayDAGRun.rootDAGRunName || displayDAGRun.name)}`;
+          const searchParams = new URLSearchParams();
+          searchParams.set('remoteNode', remoteNode);
+          searchParams.set('subDAGRunId', subDAGRun.dagRunId);
+          searchParams.set('dagRunId', dagRunId);
+          searchParams.set('step', node.step.name);
+          searchParams.set(
+            'dagRunName',
+            displayDAGRun.rootDAGRunName || displayDAGRun.name
+          );
+          url = `/dags/${fileName}?${searchParams.toString()}`;
         }
 
         if (openInNewTab) {
@@ -323,7 +333,7 @@ function DAGStatus({
         }
       }
     },
-    [displayDAGRun, navigate, fileName]
+    [displayDAGRun, navigate, fileName, remoteNode]
   );
 
   // Handle right-click on graph node (show status update modal)

@@ -236,7 +236,9 @@ describe('DAGSpecReadOnly', () => {
         },
       })
     );
-    expect(mocks.navigate).toHaveBeenCalledWith('/dag-runs/example/run-2');
+    expect(mocks.navigate).toHaveBeenCalledWith(
+      '/dag-runs/example/run-2?remoteNode=local'
+    );
   });
 
   it('allows eligible reusable steps to run again instead', async () => {

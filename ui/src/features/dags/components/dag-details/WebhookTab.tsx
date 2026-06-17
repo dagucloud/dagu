@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 /**
  * WebhookTab component displays webhook configuration for a DAG.
  * Webhooks are managed separately from DAG configuration.
@@ -154,14 +157,18 @@ function WebhookTab({ fileName }: WebhookTabProps) {
     return remoteNode || 'local';
   }, [remoteNode]);
 
+  const getRemoteNodeQueryValue = useCallback(() => {
+    return encodeURIComponent(getRemoteNodeParam());
+  }, [getRemoteNodeParam]);
+
   // Fetch webhook
   const fetchWebhook = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
-      const remoteNode = getRemoteNodeParam();
+      const remoteNodeParam = getRemoteNodeQueryValue();
       const response = await fetch(
-        `${config.apiURL}/dags/${encodeURIComponent(fileName)}/webhook?remoteNode=${remoteNode}`,
+        `${config.apiURL}/dags/${encodeURIComponent(fileName)}/webhook?remoteNode=${remoteNodeParam}`,
         { headers: getAuthHeaders() }
       );
 
@@ -186,7 +193,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [config.apiURL, fileName, getAuthHeaders, getRemoteNodeParam]);
+  }, [config.apiURL, fileName, getAuthHeaders, getRemoteNodeQueryValue]);
 
   useEffect(() => {
     fetchWebhook();
@@ -210,9 +217,9 @@ function WebhookTab({ fileName }: WebhookTabProps) {
     try {
       setIsActioning(true);
       setError(null);
-      const remoteNode = getRemoteNodeParam();
+      const remoteNodeParam = getRemoteNodeQueryValue();
       const response = await fetch(
-        `${config.apiURL}/dags/${encodeURIComponent(fileName)}/webhook?remoteNode=${remoteNode}`,
+        `${config.apiURL}/dags/${encodeURIComponent(fileName)}/webhook?remoteNode=${remoteNodeParam}`,
         {
           method: 'POST',
           headers: getAuthHeaders(),
@@ -239,9 +246,9 @@ function WebhookTab({ fileName }: WebhookTabProps) {
     try {
       setIsActioning(true);
       setError(null);
-      const remoteNode = getRemoteNodeParam();
+      const remoteNodeParam = getRemoteNodeQueryValue();
       const response = await fetch(
-        `${config.apiURL}/dags/${encodeURIComponent(fileName)}/webhook?remoteNode=${remoteNode}`,
+        `${config.apiURL}/dags/${encodeURIComponent(fileName)}/webhook?remoteNode=${remoteNodeParam}`,
         {
           method: 'DELETE',
           headers: getAuthHeaders(),
@@ -268,9 +275,9 @@ function WebhookTab({ fileName }: WebhookTabProps) {
     try {
       setIsActioning(true);
       setError(null);
-      const remoteNode = getRemoteNodeParam();
+      const remoteNodeParam = getRemoteNodeQueryValue();
       const response = await fetch(
-        `${config.apiURL}/dags/${encodeURIComponent(fileName)}/webhook/regenerate?remoteNode=${remoteNode}`,
+        `${config.apiURL}/dags/${encodeURIComponent(fileName)}/webhook/regenerate?remoteNode=${remoteNodeParam}`,
         {
           method: 'POST',
           headers: getAuthHeaders(),
@@ -304,9 +311,9 @@ function WebhookTab({ fileName }: WebhookTabProps) {
     if (pendingToggleState === null) return;
     try {
       setError(null);
-      const remoteNode = getRemoteNodeParam();
+      const remoteNodeParam = getRemoteNodeQueryValue();
       const response = await fetch(
-        `${config.apiURL}/dags/${encodeURIComponent(fileName)}/webhook/toggle?remoteNode=${remoteNode}`,
+        `${config.apiURL}/dags/${encodeURIComponent(fileName)}/webhook/toggle?remoteNode=${remoteNodeParam}`,
         {
           method: 'POST',
           headers: getAuthHeaders(),

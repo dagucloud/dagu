@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import React, { useState, useMemo } from 'react';
 import { ArrowUpDown, Check, Copy, Package, Search } from 'lucide-react';
 import { Status, StatusLabel } from '../../../../api/v1/schema';

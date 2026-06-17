@@ -164,9 +164,7 @@ function DAGDetailsPanel({
         searchParams.set('dagRunName', data.dag.name);
       }
     }
-    if (remoteNode && remoteNode !== 'local') {
-      searchParams.set('remoteNode', remoteNode);
-    }
+    searchParams.set('remoteNode', remoteNode);
     const query = searchParams.toString();
     const url = `/dags/${fileName}${tabPath}${query ? `?${query}` : ''}`;
 

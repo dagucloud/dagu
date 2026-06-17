@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import { Button } from '@/components/ui/button';
 import { Maximize2, X } from 'lucide-react';
 import React from 'react';
@@ -77,9 +80,7 @@ function DAGRunDetailsPanel({
   const handleFullscreenClick = React.useCallback(
     (e?: React.MouseEvent) => {
       const searchParams = new URLSearchParams();
-      if (remoteNode !== 'local') {
-        searchParams.set('remoteNode', remoteNode);
-      }
+      searchParams.set('remoteNode', remoteNode);
       const query = searchParams.toString();
       const url = query
         ? `/dag-runs/${name}/${dagRunId}?${query}`

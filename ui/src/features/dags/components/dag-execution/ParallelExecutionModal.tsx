@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import {
   Dialog,
   DialogContent,
@@ -154,6 +157,18 @@ export function ParallelExecutionModal({
     if (!isOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (filteredSubRuns.length === 0) {
+        if (
+          e.key === 'ArrowDown' ||
+          e.key === 'ArrowUp' ||
+          e.key === 'Enter'
+        ) {
+          e.preventDefault();
+          setSelectedIndex(null);
+        }
+        return;
+      }
+
       switch (e.key) {
         case 'ArrowDown':
           e.preventDefault();

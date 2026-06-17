@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 /**
  * DAGRunActions component provides action buttons for DAGRun operations (stop, retry).
  *

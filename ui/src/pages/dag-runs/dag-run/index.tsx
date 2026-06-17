@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import React, { useCallback, useContext, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { AppBarContext } from '../../../contexts/AppBarContext';
@@ -59,10 +62,9 @@ function DAGRunDetailsPage() {
   const parentName = searchParams.get('dagRunName') || name;
 
   const canQuerySubDag = !!(subDAGRunId && parentDAGRunId && parentName);
-  const remoteNode =
-    searchParams.get('remoteNode') ||
-    appBarContext.selectedRemoteNode ||
-    'local';
+  const queryRemoteNode = searchParams.get('remoteNode')?.trim();
+  const appBarRemoteNode = appBarContext.selectedRemoteNode?.trim();
+  const remoteNode = queryRemoteNode || appBarRemoteNode || 'local';
   const detailsTarget = canQuerySubDag
     ? {
         remoteNode,

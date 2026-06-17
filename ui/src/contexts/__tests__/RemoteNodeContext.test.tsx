@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import { renderHook } from '@testing-library/react';
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -36,6 +39,45 @@ describe('useRemoteNode', () => {
     });
 
     expect(result.current).toBe('scoped-node');
+  });
+
+  it('trims remote node sources before returning them', () => {
+    const overrideResult = renderHook(() => useRemoteNode(' override-node '), {
+      wrapper: ({ children }) => (
+        <AppBarContext.Provider
+          value={{ ...appBarValue, selectedRemoteNode: ' app-node ' } as never}
+        >
+          <RemoteNodeProvider remoteNode=" scoped-node ">
+            {children}
+          </RemoteNodeProvider>
+        </AppBarContext.Provider>
+      ),
+    });
+    expect(overrideResult.result.current).toBe('override-node');
+
+    const scopedResult = renderHook(() => useRemoteNode(), {
+      wrapper: ({ children }) => (
+        <AppBarContext.Provider
+          value={{ ...appBarValue, selectedRemoteNode: ' app-node ' } as never}
+        >
+          <RemoteNodeProvider remoteNode=" scoped-node ">
+            {children}
+          </RemoteNodeProvider>
+        </AppBarContext.Provider>
+      ),
+    });
+    expect(scopedResult.result.current).toBe('scoped-node');
+
+    const appBarResult = renderHook(() => useRemoteNode(), {
+      wrapper: ({ children }) => (
+        <AppBarContext.Provider
+          value={{ ...appBarValue, selectedRemoteNode: ' app-node ' } as never}
+        >
+          <RemoteNodeProvider remoteNode="   ">{children}</RemoteNodeProvider>
+        </AppBarContext.Provider>
+      ),
+    });
+    expect(appBarResult.result.current).toBe('app-node');
   });
 
   it('falls back to the app-bar value and then local', () => {

@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 /**
  * NodeStatusTableRow component renders a single row in the node status table.
  *
@@ -307,6 +310,7 @@ function NodeStatusTableRow({
       if (isDAGRunContext) {
         // For dagRuns, navigate to /dag-runs/{root-dag-name}/{root-dag-run-id}?subDAGRunId=...
         const searchParams = new URLSearchParams();
+        searchParams.set('remoteNode', remoteNode);
         searchParams.set('subDAGRunId', subDAGRunId);
 
         // Determine root DAG information
@@ -339,6 +343,7 @@ function NodeStatusTableRow({
       } else {
         // For DAGs, use the existing approach with query parameters
         const searchParams = new URLSearchParams();
+        searchParams.set('remoteNode', remoteNode);
         searchParams.set('subDAGRunId', subDAGRunId);
 
         // Use root dagRun information from the dagRun prop if available

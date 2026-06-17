@@ -189,6 +189,7 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
           {dagRunToDisplay && (
             <nav className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground mb-2">
               {dagRunToDisplay.rootDAGRunId &&
+                dagRunToDisplay.rootDAGRunName &&
                 dagRunToDisplay.rootDAGRunId !== dagRunToDisplay.dagRunId && (
                   <>
                     <a
@@ -206,6 +207,8 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
 
               {dagRunToDisplay.parentDAGRunName &&
                 dagRunToDisplay.parentDAGRunId &&
+                dagRunToDisplay.rootDAGRunId &&
+                dagRunToDisplay.rootDAGRunName &&
                 dagRunToDisplay.parentDAGRunName !==
                   dagRunToDisplay.rootDAGRunName &&
                 dagRunToDisplay.parentDAGRunName !== dagRunToDisplay.name && (

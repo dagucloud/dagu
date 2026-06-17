@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import { components } from '../api/v1/schema';
 import { SSEState, useSSE } from './useSSE';
 

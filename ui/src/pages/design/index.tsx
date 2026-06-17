@@ -120,10 +120,9 @@ function WorkflowDesignPage() {
   const client = useClient();
   const appBarContext = React.useContext(AppBarContext);
   const [searchParams, setSearchParams] = useSearchParams();
-  const remoteNode =
-    searchParams.get('remoteNode') ||
-    appBarContext.selectedRemoteNode ||
-    'local';
+  const queryRemoteNode = searchParams.get('remoteNode')?.trim();
+  const appBarRemoteNode = appBarContext.selectedRemoteNode?.trim();
+  const remoteNode = queryRemoteNode || appBarRemoteNode || 'local';
   const workspaceSelection = appBarContext.workspaceSelection;
   const selectedWorkspace = workspaceNameForSelection(workspaceSelection);
   const workspaceQuery = React.useMemo(

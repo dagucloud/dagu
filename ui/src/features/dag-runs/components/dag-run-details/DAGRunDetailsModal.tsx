@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Loader2, Maximize2, X } from 'lucide-react';
@@ -158,9 +161,7 @@ function DAGRunDetailsModal({
   const handleFullscreenClick = useCallback(
     (e?: React.MouseEvent): void => {
       const searchParams = new URLSearchParams();
-      if (remoteNode !== 'local') {
-        searchParams.set('remoteNode', remoteNode);
-      }
+      searchParams.set('remoteNode', remoteNode);
       const query = searchParams.toString();
       const url = query
         ? `/dag-runs/${name}/${dagRunId}?${query}`

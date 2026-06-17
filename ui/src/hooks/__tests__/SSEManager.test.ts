@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SSEConnectionState } from '../SSEManager';
 import { endpointToTopic, SSEManager } from '../SSEManager';

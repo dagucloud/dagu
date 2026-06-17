@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 /**
  * DAGSpecReadOnly component displays a DAG-run specification snapshot.
  * Root DAG-run snapshots can be edited locally and retried as a new run.
@@ -341,10 +344,12 @@ function DAGSpecReadOnly({
       }
       setPreviewVisible(false);
       showToast(`New DAG run created: ${retryData.dagRunId}`);
+      const searchParams = new URLSearchParams();
+      searchParams.set('remoteNode', remoteNode);
       navigate(
         `/dag-runs/${encodeURIComponent(dagName)}/${encodeURIComponent(
           retryData.dagRunId
-        )}`
+        )}?${searchParams.toString()}`
       );
     } catch (err) {
       showError(

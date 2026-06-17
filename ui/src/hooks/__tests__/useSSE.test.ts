@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import { describe, expect, it } from 'vitest';
 import { sseFallbackOptions } from '../useSSECacheSync';
 import { buildSSEEndpoint } from '../useSSE';
