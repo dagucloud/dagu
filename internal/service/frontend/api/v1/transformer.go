@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/diagnostic"
 )
 
 const maxIntValue = int(^uint(0) >> 1)
@@ -314,6 +315,7 @@ func ToDAGRunDetails(s exec.DAGRunStatus) api.DAGRunDetails {
 		WorkerId:           ptrOf(s.WorkerID),
 		TriggerType:        toTriggerType(s.TriggerType),
 		Preconditions:      ptrOf(preconditions),
+		Diagnostics:        toDiagnostics(s.Diagnostics),
 		Nodes:              nodes,
 		OnSuccess:          ptrOf(toNode(s.OnSuccess)),
 		OnFailure:          ptrOf(toNode(s.OnFailure)),
@@ -322,6 +324,27 @@ func ToDAGRunDetails(s exec.DAGRunStatus) api.DAGRunDetails {
 		Labels:             &s.Labels,
 		Tags:               &s.Labels,
 	}
+}
+
+func toDiagnostics(items []diagnostic.Diagnostic) *[]api.Diagnostic {
+	if len(items) == 0 {
+		return nil
+	}
+	result := make([]api.Diagnostic, len(items))
+	for i, item := range items {
+		result[i] = api.Diagnostic{
+			Level:   api.DiagnosticLevel(item.Level),
+			Code:    item.Code,
+			Message: item.Message,
+		}
+		if item.Field != "" {
+			result[i].Field = ptrOf(item.Field)
+		}
+		if item.Token != "" {
+			result[i].Token = ptrOf(item.Token)
+		}
+	}
+	return &result
 }
 
 func hasArtifactEntries(archiveDir string) bool {

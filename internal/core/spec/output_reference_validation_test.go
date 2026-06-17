@@ -5,7 +5,6 @@ package spec_test
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/internal/core/spec"
@@ -15,7 +14,7 @@ import (
 func TestValidateOutputReferencesFromOutputSchema(t *testing.T) {
 	t.Parallel()
 
-	t.Run("RejectsUnknownFieldForClosedOutputSchema", func(t *testing.T) {
+	t.Run("AllowsUnknownFieldForClosedOutputSchema", func(t *testing.T) {
 		t.Parallel()
 
 		testDAG := createTempYAMLFile(t, `name: output-ref-closed-schema
@@ -37,7 +36,7 @@ steps:
 		dag, err := spec.Load(context.Background(), testDAG)
 		require.NoError(t, err)
 		require.NoError(t, dag.Validate())
-		requireBuildWarningContains(t, dag.BuildWarnings, `route`, `${classify.output.priority}`, `priority`)
+		require.Empty(t, dag.BuildWarnings)
 	})
 
 	t.Run("AllowsUnknownFieldForOpenOutputSchema", func(t *testing.T) {
@@ -111,7 +110,7 @@ steps:
 func TestValidateOutputReferencesFromStructuredOutputMapping(t *testing.T) {
 	t.Parallel()
 
-	t.Run("RejectsUnknownFieldForObjectFormOutput", func(t *testing.T) {
+	t.Run("AllowsUnknownFieldForObjectFormOutput", func(t *testing.T) {
 		t.Parallel()
 
 		testDAG := createTempYAMLFile(t, `name: output-ref-mapping
@@ -132,7 +131,7 @@ steps:
 		dag, err := spec.Load(context.Background(), testDAG)
 		require.NoError(t, err)
 		require.NoError(t, dag.Validate())
-		requireBuildWarningContains(t, dag.BuildWarnings, `publish`, `${build.output.artifact}`, `version`)
+		require.Empty(t, dag.BuildWarnings)
 	})
 
 	t.Run("AllowsKnownFieldForObjectFormOutput", func(t *testing.T) {
@@ -157,23 +156,4 @@ steps:
 		require.NoError(t, err)
 		require.NoError(t, dag.Validate())
 	})
-}
-
-func requireBuildWarningContains(t *testing.T, warnings []string, parts ...string) {
-	t.Helper()
-
-	for _, warning := range warnings {
-		matched := true
-		for _, part := range parts {
-			if !strings.Contains(warning, part) {
-				matched = false
-				break
-			}
-		}
-		if matched {
-			return
-		}
-	}
-
-	require.Failf(t, "missing warning", "expected one warning to contain %v\nwarnings:\n%s", parts, strings.Join(warnings, "\n"))
 }

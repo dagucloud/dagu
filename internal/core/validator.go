@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 
@@ -112,21 +111,8 @@ func validateBindingReferences(dag *DAG) ErrorList {
 		if err := resolver.Validate(field.Value, field.Field); err != nil {
 			errs = append(errs, NewValidationError(field.Path, field.Value, err))
 		}
-		for _, warning := range resolver.Warnings(field.Value, field.Field) {
-			appendBuildWarning(dag, warning)
-		}
 	}
 	return errs
-}
-
-func appendBuildWarning(dag *DAG, warning string) {
-	if dag == nil || warning == "" {
-		return
-	}
-	if slices.Contains(dag.BuildWarnings, warning) {
-		return
-	}
-	dag.BuildWarnings = append(dag.BuildWarnings, warning)
 }
 
 // collectNamesAndIDs collects all step names and IDs, validating uniqueness and format.

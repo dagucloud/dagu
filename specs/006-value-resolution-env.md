@@ -72,7 +72,7 @@ Rules:
 
 Missing values:
 
-- Missing `${env.NAME}` warns and preserves the original reference text when the field is evaluated.
+- Missing `${env.NAME}` emits a passive diagnostic and preserves the original reference text when the field is evaluated.
 
 - Missing `$NAME` or `${NAME}` is preserved when environment expansion runs.
 
@@ -124,7 +124,7 @@ Direct execution without a shell:
 
 - Braced text that does not match a supported environment reference form is ordinary string content.
 
-- A list-form `env` entry that references itself or a later entry in the same list must warn and preserve the original reference text.
+- A list-form `env` entry that references itself or a later entry in the same list must emit a passive diagnostic and preserve the original reference text.
 
 - `dagu validate` must not require runtime environment values, process environment values, dotenv values, or predecessor step outputs to exist.
 

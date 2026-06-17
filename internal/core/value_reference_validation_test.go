@@ -259,9 +259,5 @@ func TestDAGValidateCoversRetryRepeatOutputReferences(t *testing.T) {
 
 	err := dag.Validate()
 	require.NoError(t, err)
-	require.Len(t, dag.BuildWarnings, 2)
-	assert.Contains(t, dag.BuildWarnings[0], "build")
-	assert.Contains(t, dag.BuildWarnings[0], "missing")
-	assert.Contains(t, dag.BuildWarnings[1], "build")
-	assert.Contains(t, dag.BuildWarnings[1], "missing")
+	assert.Empty(t, dag.BuildWarnings)
 }

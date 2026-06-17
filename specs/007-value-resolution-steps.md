@@ -32,7 +32,7 @@ A step-output reference must therefore describe both a static relationship betwe
 This spec keeps those rules in one place.
 References use step ids.
 A reference resolves only when the producing step is ordered before the consuming step.
-If the value is unavailable, Dagu warns and preserves the original reference text.
+If the value is unavailable, Dagu emits a passive diagnostic and preserves the original reference text.
 
 ## Behavior
 
@@ -72,19 +72,19 @@ If the value is unavailable, Dagu warns and preserves the original reference tex
 
 ### Validation
 
-- An unknown `steps.<step_id>` reference in a value-resolution field must warn and preserve the original reference text.
+- An unknown `steps.<step_id>` reference in a value-resolution field must emit a passive diagnostic and preserve the original reference text.
 
-- An unknown `steps.<step_id>.outputs.<name>` reference must warn and preserve the original reference text.
+- An unknown `steps.<step_id>.outputs.<name>` reference must emit a passive diagnostic and preserve the original reference text.
 
-- A step output reference without a direct or transitive dependency on the producing step must warn and preserve the original reference text.
+- A step output reference without a direct or transitive dependency on the producing step must emit a passive diagnostic and preserve the original reference text.
 
-- A step output reference to the owning step must warn and preserve the original reference text.
+- A step output reference to the owning step must emit a passive diagnostic and preserve the original reference text.
 
-- An unavailable step output value must warn and preserve the original reference text before the owning field is used.
+- An unavailable step output value must emit a passive diagnostic and preserve the original reference text before the owning field is used.
 
-- For step-owned fields, runtime value-resolution misses must warn and preserve before the owning step starts.
+- For step-owned fields, runtime value-resolution misses must emit a passive diagnostic and preserve before the owning step starts.
 
-- An unknown `steps.<step_id>.outputs.<name>` reference must warn and preserve before the owning field is used when the referenced step does not declare an output contract that can be checked statically.
+- An unknown `steps.<step_id>.outputs.<name>` reference must emit a passive diagnostic and preserve before the owning field is used when the referenced step does not declare an output contract that can be checked statically.
 
 ## Examples
 

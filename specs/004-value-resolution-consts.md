@@ -2,7 +2,9 @@
 
 ## Implementation Status
 
-Implemented.
+Partially implemented.
+
+Load-time `consts` entries preserve unavailable references silently. Passive diagnostics for those entries are not implemented.
 
 ## Scope
 
@@ -59,11 +61,11 @@ Later value resolution can use them without runtime side effects.
 
 - List-form `consts` values cannot resolve themselves or later `consts` entries.
 
-- A self-reference or later-reference is preserved as literal text and emits a warning.
+- A self-reference or later-reference is preserved as literal text and emits a passive diagnostic.
 
 - Runtime `env`, `params`, and `steps` are unavailable while loading `consts`.
 
-- A runtime namespace reference in `consts` is preserved as literal text and emits a warning.
+- A runtime namespace reference in `consts` is preserved as literal text and emits a passive diagnostic.
 
 ### References
 
@@ -86,11 +88,11 @@ Later value resolution can use them without runtime side effects.
 
 - Mapping-form `consts` must fail during workflow validation.
 
-- `consts` references that target unavailable values must warn and preserve the original text.
+- `consts` references that target unavailable values must emit a passive diagnostic and preserve the original text.
 
 - Unavailable values include runtime `env`, `params`, `steps`, later `consts`, the same `consts` entry, and unknown `consts` names.
 
-- An unknown `consts` reference in a value-resolution field must warn and preserve the original text.
+- An unknown `consts` reference in a value-resolution field must emit a passive diagnostic and preserve the original text.
 
 ## Examples
 

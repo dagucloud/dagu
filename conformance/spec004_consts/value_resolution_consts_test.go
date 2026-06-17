@@ -17,6 +17,13 @@ func TestValidate(t *testing.T) {
 		"ordered_const_references.yaml",
 		"unbraced_consts_text_is_preserved.yaml",
 		"braced_non_reference_text_is_preserved.yaml",
+		"consts_self_reference.yaml",
+		"consts_later_reference.yaml",
+		"consts_runtime_env_reference.yaml",
+		"consts_runtime_params_reference.yaml",
+		"consts_runtime_steps_reference.yaml",
+		"unknown_const_reference.yaml",
+		"future_namespaces_remain_unresolved.yaml",
 	}
 	for _, file := range validCases {
 		t.Run(file, func(t *testing.T) {
@@ -28,61 +35,6 @@ func TestValidate(t *testing.T) {
 			result.ExpectExitCode(0)
 			result.ExpectStdout("")
 			result.ExpectStderr("")
-			dagu.ExpectNoFile("executed.txt")
-		})
-	}
-
-	warningCases := []struct {
-		name        string
-		file        string
-		stderrParts []string
-	}{
-		{
-			name:        "self reference warns and preserves",
-			file:        "consts_self_reference.yaml",
-			stderrParts: []string{"${consts.service}", "preserving literal text"},
-		},
-		{
-			name:        "later reference warns and preserves",
-			file:        "consts_later_reference.yaml",
-			stderrParts: []string{"${consts.host}", "preserving literal text"},
-		},
-		{
-			name:        "runtime env reference warns and preserves while loading consts",
-			file:        "consts_runtime_env_reference.yaml",
-			stderrParts: []string{"${env.SERVICE}", "preserving literal text"},
-		},
-		{
-			name:        "runtime params reference warns and preserves while loading consts",
-			file:        "consts_runtime_params_reference.yaml",
-			stderrParts: []string{"${params.target}", "preserving literal text"},
-		},
-		{
-			name:        "runtime steps reference warns and preserves while loading consts",
-			file:        "consts_runtime_steps_reference.yaml",
-			stderrParts: []string{"${steps.build.outputs.image}", "preserving literal text"},
-		},
-		{
-			name:        "unknown const reference warns and preserves in supported fields",
-			file:        "unknown_const_reference.yaml",
-			stderrParts: []string{"steps[0].run", "${consts.missing}", "preserving literal text"},
-		},
-		{
-			name:        "future namespace reference warns and preserves",
-			file:        "future_namespaces_remain_unresolved.yaml",
-			stderrParts: []string{"${steps.build.outputs.image}", "does not exist"},
-		},
-	}
-	for _, tc := range warningCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			dagu := harness.NewRunner(t)
-
-			result := dagu.Run("validate", tc.file)
-			result.ExpectExitCode(0)
-			result.ExpectStdout("")
-			result.ExpectStderrContains(tc.stderrParts...)
 			dagu.ExpectNoFile("executed.txt")
 		})
 	}

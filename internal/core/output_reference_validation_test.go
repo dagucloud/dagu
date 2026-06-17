@@ -207,7 +207,7 @@ func TestReferenceFieldsIncludesExecutorConfig(t *testing.T) {
 	assert.Equal(t, "Bearer ${build.output.token}", refs[1].Value)
 }
 
-func TestValidateOutputReferencesWarnsForStrictPluralStepOutputReferences(t *testing.T) {
+func TestValidateOutputReferencesDoesNotWarnForStrictPluralStepOutputReferences(t *testing.T) {
 	t.Parallel()
 
 	dag := &DAG{
@@ -230,12 +230,10 @@ func TestValidateOutputReferencesWarnsForStrictPluralStepOutputReferences(t *tes
 
 	err := dag.Validate()
 	require.NoError(t, err)
-	require.Len(t, dag.BuildWarnings, 1)
-	assert.Contains(t, dag.BuildWarnings[0], "${steps.build.outputs.digest}")
-	assert.Contains(t, dag.BuildWarnings[0], `publishes no output field "digest"`)
+	assert.Empty(t, dag.BuildWarnings)
 }
 
-func TestValidateOutputReferencesWarnsForGraphMisses(t *testing.T) {
+func TestValidateOutputReferencesDoesNotWarnForGraphMisses(t *testing.T) {
 	t.Parallel()
 
 	dag := &DAG{
@@ -260,8 +258,5 @@ func TestValidateOutputReferencesWarnsForGraphMisses(t *testing.T) {
 
 	err := dag.Validate()
 	require.NoError(t, err)
-	require.Len(t, dag.BuildWarnings, 3)
-	assert.Contains(t, dag.BuildWarnings[0], `step "missing" does not exist`)
-	assert.Contains(t, dag.BuildWarnings[1], `references its own output`)
-	assert.Contains(t, dag.BuildWarnings[2], `step "build" is not an upstream dependency`)
+	assert.Empty(t, dag.BuildWarnings)
 }

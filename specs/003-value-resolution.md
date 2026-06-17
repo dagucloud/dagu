@@ -125,10 +125,11 @@ ${steps.step_id.outputs.name}
 ### Unresolved Supported References
 
 A supported reference can be valid syntax but have no value when Dagu evaluates the field.
-That condition is a warning, not a validation or execution error by itself.
+That condition is a passive diagnostic, not a validation or execution error by itself.
 Dagu must keep the original reference text in the field value.
 
-The warning must identify the owning field and the original reference text.
+The diagnostic must identify the owning field and the original reference text.
+The diagnostic must not be shown as a normal validation warning.
 
 This rule applies to these misses:
 
@@ -165,7 +166,7 @@ If a typed field later consumes the preserved text, that field may still fail be
 
 - Step output references resolve only after the referenced step publishes the output.
 
-- For step-owned fields, unresolved supported references must warn and remain literal before the owning step starts.
+- For step-owned fields, unresolved supported references must emit a passive diagnostic and remain literal before the owning step starts.
 
 ### String Insertion
 

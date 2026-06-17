@@ -69,9 +69,8 @@ func TestReservedBindingsValidateRunFields(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		yaml        string
-		wantWarning string
+		name string
+		yaml string
 	}{
 		{
 			name: "KeepsReservedShorthand",
@@ -84,7 +83,7 @@ steps:
 `,
 		},
 		{
-			name: "WarnsUnknownConst",
+			name: "PreservesUnknownConst",
 			yaml: `
 consts:
   - service: api
@@ -92,7 +91,6 @@ steps:
   - name: print
     run: echo ${consts.missing}
 `,
-			wantWarning: "unknown consts binding",
 		},
 		{
 			name: "KeepsEvalReference",
@@ -110,11 +108,7 @@ steps:
 
 			dag, err := spec.LoadYAML(context.Background(), []byte(tt.yaml))
 			require.NoError(t, err)
-			if tt.wantWarning != "" {
-				requireBuildWarningContains(t, dag.BuildWarnings, tt.wantWarning)
-			} else {
-				require.Empty(t, dag.BuildWarnings)
-			}
+			require.Empty(t, dag.BuildWarnings)
 		})
 	}
 }

@@ -482,10 +482,6 @@ func (d *DAG) Validate() error {
 
 	errs = append(errs, validateBindingReferences(d)...)
 
-	for _, warning := range d.validateOutputReferences() {
-		appendBuildWarning(d, warning)
-	}
-
 	if len(errs) == 0 {
 		return nil
 	}

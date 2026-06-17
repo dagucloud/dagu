@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/internal/cmn/value"
+	"github.com/dagucloud/dagu/internal/diagnostic"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -31,7 +32,7 @@ func TestResolverConstLoadResolvesConstsAndPreservesRuntimeBindings(t *testing.T
 	assert.Equal(t, "${params.environment}", got)
 }
 
-func TestResolverUnresolvedStrictReferencesWarnAndPreserve(t *testing.T) {
+func TestResolverUnresolvedStrictReferencesPreserve(t *testing.T) {
 	t.Parallel()
 
 	resolver := value.NewResolver(
@@ -64,7 +65,7 @@ func TestResolverUnresolvedStrictReferencesWarnAndPreserve(t *testing.T) {
 	}
 }
 
-func TestResolverWarningsReportsDedupedStrictMisses(t *testing.T) {
+func TestResolverDiagnosticsReportsDedupedStrictMisses(t *testing.T) {
 	t.Parallel()
 
 	resolver := value.NewResolver(
@@ -92,16 +93,23 @@ func TestResolverWarningsReportsDedupedStrictMisses(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			warnings := resolver.Warnings(tt.raw, value.WorkflowField("steps[0].run"))
-			require.Len(t, warnings, 1)
-			assert.Contains(t, warnings[0], "steps[0].run")
-			assert.Contains(t, warnings[0], tt.want)
-			assert.Contains(t, warnings[0], "preserving literal text")
+			var collector diagnostic.Collector
+			ctx := value.WithDiagnosticSink(context.Background(), &collector)
+			got, err := resolver.String(ctx, tt.raw, value.WorkflowField("steps[0].run"))
+
+			require.NoError(t, err)
+			assert.Contains(t, got, tt.want)
+			diagnostics := collector.Diagnostics()
+			require.Len(t, diagnostics, 1)
+			assert.Equal(t, diagnostic.LevelNotice, diagnostics[0].Level)
+			assert.Equal(t, diagnostic.CodeValueReferenceUnresolved, diagnostics[0].Code)
+			assert.Equal(t, "steps[0].run", diagnostics[0].Field)
+			assert.Equal(t, tt.want, diagnostics[0].Token)
 		})
 	}
 }
 
-func TestResolverWarningsTreatsUnsupportedSyntaxAsOrdinaryContent(t *testing.T) {
+func TestResolverDiagnosticsTreatsUnsupportedSyntaxAsOrdinaryContent(t *testing.T) {
 	t.Parallel()
 
 	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{})
@@ -113,8 +121,13 @@ func TestResolverWarningsTreatsUnsupportedSyntaxAsOrdinaryContent(t *testing.T) 
 	}
 
 	for _, raw := range tests {
-		warnings := resolver.Warnings(raw, value.WorkflowField("steps[0].run"))
-		assert.Empty(t, warnings)
+		var collector diagnostic.Collector
+		ctx := value.WithDiagnosticSink(context.Background(), &collector)
+		got, err := resolver.String(ctx, raw, value.WorkflowField("steps[0].run"))
+
+		require.NoError(t, err)
+		assert.Equal(t, raw, got)
+		assert.Empty(t, collector.Diagnostics())
 	}
 }
 

@@ -32,13 +32,10 @@ func (r Resolver) Validate(raw string, field Field) error {
 	return validateReferences(raw, r.staticScope(), policy.mode, field.path)
 }
 
-// Warnings returns non-fatal diagnostics for strict binding misses owned by field.
+// Warnings returns validation warnings for strict binding misses owned by field.
+// Value-reference misses are reported through runtime diagnostics, so this is empty.
 func (r Resolver) Warnings(raw string, field Field) []string {
-	policy := policyForField(field)
-	if !policy.strict {
-		return nil
-	}
-	return referenceWarnings(raw, r.staticScope(), r.runtime, policy.mode, field.path)
+	return nil
 }
 
 // String resolves raw according to field.

@@ -42,7 +42,6 @@ type publishedOutputContract struct {
 }
 
 // validateOutputReferences conservatively checks step output references.
-// It reports graph and closed-contract misses as warnings.
 func (d *DAG) validateOutputReferences() []string {
 	if d == nil || len(d.Steps) == 0 {
 		return nil

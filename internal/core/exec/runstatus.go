@@ -12,6 +12,7 @@ import (
 
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/internal/diagnostic"
 )
 
 const (
@@ -103,22 +104,30 @@ type DAGRunStatus struct {
 	AutoRetryInterval time.Duration `json:"autoRetryInterval,omitempty"`
 	AutoRetryBackoff  float64       `json:"autoRetryBackoff,omitempty"`
 	// AutoRetryMaxInterval is stored as a duration snapshot for retry scanner decisions.
-	AutoRetryMaxInterval time.Duration         `json:"autoRetryMaxInterval,omitempty"`
-	ProcGroup            string                `json:"procGroup,omitempty"`
-	SuspendFlagName      string                `json:"suspendFlagName,omitempty"`
-	Log                  string                `json:"log,omitempty"`
-	WorkingDir           string                `json:"workingDir,omitempty"`
-	ArchiveDir           string                `json:"archiveDir,omitempty"`
-	Error                string                `json:"error,omitempty"`
-	Params               string                `json:"params,omitempty"`
-	ParamsList           []string              `json:"paramsList,omitempty"`
-	ProfileName          string                `json:"profileName,omitempty"`
-	ProfileResolvedAt    string                `json:"profileResolvedAt,omitempty"`
-	ProfileEntries       []RuntimeProfileEntry `json:"profileEntries,omitempty"`
-	PendingStepRetries   []PendingStepRetry    `json:"pendingStepRetries"`
-	Preconditions        []*core.Condition     `json:"preconditions,omitempty"`
-	Labels               []string              `json:"labels,omitempty"`
-	LeaseAt              int64                 `json:"leaseAt,omitempty"` // Unix millis; stamped by coordinator on observed run liveness
+	AutoRetryMaxInterval time.Duration           `json:"autoRetryMaxInterval,omitempty"`
+	ProcGroup            string                  `json:"procGroup,omitempty"`
+	SuspendFlagName      string                  `json:"suspendFlagName,omitempty"`
+	Log                  string                  `json:"log,omitempty"`
+	WorkingDir           string                  `json:"workingDir,omitempty"`
+	ArchiveDir           string                  `json:"archiveDir,omitempty"`
+	Error                string                  `json:"error,omitempty"`
+	Params               string                  `json:"params,omitempty"`
+	ParamsList           []string                `json:"paramsList,omitempty"`
+	ProfileName          string                  `json:"profileName,omitempty"`
+	ProfileResolvedAt    string                  `json:"profileResolvedAt,omitempty"`
+	ProfileEntries       []RuntimeProfileEntry   `json:"profileEntries,omitempty"`
+	PendingStepRetries   []PendingStepRetry      `json:"pendingStepRetries"`
+	Preconditions        []*core.Condition       `json:"preconditions,omitempty"`
+	Diagnostics          []diagnostic.Diagnostic `json:"diagnostics,omitempty"`
+	Labels               []string                `json:"labels,omitempty"`
+	LeaseAt              int64                   `json:"leaseAt,omitempty"` // Unix millis; stamped by coordinator on observed run liveness
+}
+
+func (st *DAGRunStatus) AddDiagnostic(d diagnostic.Diagnostic) {
+	if st == nil {
+		return
+	}
+	st.Diagnostics = diagnostic.AppendUnique(st.Diagnostics, d)
 }
 
 // Tags returns labels under their deprecated name.

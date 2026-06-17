@@ -184,9 +184,9 @@ When field evaluation succeeds, Dagu gives the evaluated value to the field that
 
 ## Errors
 
-Validation warnings:
+Passive diagnostics:
 
-- A supported Dagu-owned reference that cannot resolve must warn and preserve the original reference text.
+- A supported Dagu-owned reference that cannot resolve must emit a passive diagnostic and preserve the original reference text.
 - Braced text that does not match a supported Dagu-owned reference form remains ordinary string content under Spec 003.
 
 Runtime errors:

@@ -34,6 +34,10 @@ func TestValidate(t *testing.T) {
 		"params_eval_declared.yaml",
 		"params_eval_undeclared.yaml",
 		"params_reference_in_params_declaration.yaml",
+		"params_reference_in_consts.yaml",
+		"positional_only_params_reference.yaml",
+		"undeclared_reference_in_run.yaml",
+		"runtime_resolution.yaml",
 		"unbraced_params_text_is_preserved.yaml",
 	}
 	for _, file := range validCases {
@@ -76,45 +80,6 @@ func TestValidate(t *testing.T) {
 		})
 	}
 
-	warningCases := []struct {
-		name        string
-		file        string
-		stderrParts []string
-	}{
-		{
-			name:        "params reference unavailable from consts warns and preserves",
-			file:        "params_reference_in_consts.yaml",
-			stderrParts: []string{"${params.environment}", "preserving literal text"},
-		},
-		{
-			name:        "positional params are not addressable by name",
-			file:        "positional_only_params_reference.yaml",
-			stderrParts: []string{"${params.environment}", "preserving literal text"},
-		},
-		{
-			name:        "undeclared workflow reference warns and preserves",
-			file:        "undeclared_reference_in_run.yaml",
-			stderrParts: []string{"steps[0].run", "${params.missing}", "preserving literal text"},
-		},
-		{
-			name:        "declared runtime params warn without supplied values",
-			file:        "runtime_resolution.yaml",
-			stderrParts: []string{"${params.environment}", "has no runtime value", "preserving literal text"},
-		},
-	}
-	for _, tc := range warningCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			dagu := harness.NewRunner(t)
-
-			result := dagu.Run("validate", tc.file)
-			result.ExpectExitCode(0)
-			result.ExpectStdout("")
-			result.ExpectStderrContains(tc.stderrParts...)
-			dagu.ExpectNoFile("executed.txt")
-		})
-	}
 }
 
 func TestRuntime(t *testing.T) {
@@ -157,8 +122,8 @@ func TestMissingRuntimeValues(t *testing.T) {
 
 			result := dagu.Run("start", tc.file)
 			result.ExpectExitCode(0)
-			result.ExpectStderrContains("params." + tc.missingParam)
-			result.ExpectStderrContains("preserving literal text")
+			result.ExpectStderrNotContains("preserving literal text")
+			result.ExpectStderrNotContains("has no runtime value")
 			outputFile := tc.outputFile
 			if tc.missingOutputFile != "" {
 				outputFile = tc.missingOutputFile

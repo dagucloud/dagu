@@ -44,6 +44,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/dagstate"
 	"github.com/dagucloud/dagu/internal/dagwarning"
+	"github.com/dagucloud/dagu/internal/diagnostic"
 	"github.com/dagucloud/dagu/internal/output"
 	profilepkg "github.com/dagucloud/dagu/internal/profile"
 	"github.com/dagucloud/dagu/internal/runtime"
@@ -190,6 +191,9 @@ type Agent struct {
 
 	// tracer is the OpenTelemetry tracer for the agent.
 	tracer *telemetry.Tracer
+
+	// diagnostics collects passive run diagnostics such as unresolved value references.
+	diagnostics diagnostic.Collector
 
 	// statusPusher is used to push status updates to a remote coordinator.
 	// When nil, status is written to local filesystem via the run-state attempt.
@@ -642,6 +646,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		contextOpts = append(contextOpts, runtime.WithLogWriterFactory(a.logWriterFactory))
 	}
 	ctx = runtime.NewContext(ctx, a.dag, a.dagRunID, a.logFile, contextOpts...)
+	ctx = cmnvalue.WithDiagnosticSink(ctx, &a.diagnostics)
 	ctx = runtimeexec.WithSubWorkflowRunner(ctx, subWorkflowRunner)
 
 	// Inject agent stores into context via context.Value.
@@ -1097,6 +1102,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			logger.Error(ctx, "Failed to write outputs", tag.Error(err))
 		}
 	}
+	finishedStatus.Diagnostics = diagnostic.AppendUnique(finishedStatus.Diagnostics, a.diagnostics.Diagnostics()...)
 
 	// Finalize status (after outputs are written)
 	a.writeStatus(ctx, attempt, finishedStatus)
@@ -1329,6 +1335,7 @@ func (a *Agent) Status(ctx context.Context) exec.DAGRunStatus {
 			transform.WithAutoRetryCount(a.currentAutoRetryCount()),
 			transform.WithPIDStartedAt(currentPIDStartedAt()),
 			transform.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
+			transform.WithDiagnostics(a.diagnostics.Diagnostics()),
 		}
 		if source != nil {
 			statusOpts = append(statusOpts,
@@ -1375,6 +1382,7 @@ func (a *Agent) Status(ctx context.Context) exec.DAGRunStatus {
 		transform.WithAutoRetryCount(a.currentAutoRetryCount()),
 		transform.WithPIDStartedAt(currentPIDStartedAt()),
 		transform.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
+		transform.WithDiagnostics(a.diagnostics.Diagnostics()),
 	}
 
 	// If the current execution is based on a persisted target, copy timing data
@@ -1997,6 +2005,7 @@ func (a *Agent) dryRun(ctx context.Context) error {
 		contextOpts = append(contextOpts, runtime.WithDAGRunArtifactDir(a.dagRunArtifactDir))
 	}
 	dagCtx := runtime.NewContext(ctx, a.dag, a.dagRunID, a.logFile, contextOpts...)
+	dagCtx = cmnvalue.WithDiagnosticSink(dagCtx, &a.diagnostics)
 	lastErr := a.runner.Run(dagCtx, a.plan, progressCh)
 	a.lastErr = lastErr
 

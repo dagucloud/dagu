@@ -7,12 +7,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"regexp"
 	"strconv"
 	"strings"
-
-	"github.com/dagucloud/dagu/internal/cmn/logger"
 )
 
 var (
@@ -26,14 +23,13 @@ var (
 type template struct{ source string }
 
 func resolveBindings(ctx context.Context, input string, scope RuntimeScope, field string) (string, map[string]string, error) {
-	warned := make(map[string]struct{})
 	protected := make(map[string]string)
 	seed := input
 	resolved, err := walkBindings(input, func(_ string, path string) (string, error) {
 		value, err := bindingValue(ctx, path, scope, true)
 		if err != nil {
 			token := "${" + path + "}"
-			warnUnresolvedBinding(ctx, field, token, err, warned)
+			addUnresolvedReferenceDiagnostic(ctx, field, token, err)
 			placeholder := uniqueToken(seed, "__DAGU_UNRESOLVED_REF__")
 			seed += placeholder
 			protected[placeholder] = token
@@ -223,23 +219,6 @@ func bindingValue(ctx context.Context, path string, scope RuntimeScope, requireV
 	default:
 		return nil, nil
 	}
-}
-
-func warnUnresolvedBinding(ctx context.Context, field, token string, err error, warned map[string]struct{}) {
-	key := field + "\x00" + token
-	if _, ok := warned[key]; ok {
-		return
-	}
-	warned[key] = struct{}{}
-
-	attrs := []slog.Attr{slog.String("reference", token)}
-	if field != "" {
-		attrs = append(attrs, slog.String("field", field))
-	}
-	if err != nil {
-		attrs = append(attrs, slog.String("error", err.Error()))
-	}
-	logger.Warn(ctx, "Value reference could not be resolved; preserving literal text", attrs...)
 }
 
 func bindingStepOutputValue(ctx context.Context, segments []string, steps map[string]StepInfo, requireValue bool) (any, error) {

@@ -28,7 +28,7 @@ Supported fields can then use those values predictably.
 
 This spec separates declaration validation from runtime value availability.
 `dagu validate` can reject invalid parameter declarations.
-Unknown or missing parameter values warn and preserve the original reference text.
+Unknown or missing parameter values emit a passive diagnostic and preserve the original reference text.
 
 ## Behavior
 
@@ -88,21 +88,21 @@ Unknown or missing parameter values warn and preserve the original reference tex
 
 - A declared `params` reference resolves when the runtime value exists.
 
-- If the runtime value is missing, Dagu preserves the original reference text and emits a warning.
+- If the runtime value is missing, Dagu preserves the original reference text and emits a passive diagnostic.
 
 ## Errors
 
 - An invalid parameter declaration name must fail during workflow validation.
 
-- An undeclared `params` reference in a value-resolution field must warn and preserve the original reference text.
+- An undeclared `params` reference in a value-resolution field must emit a passive diagnostic and preserve the original reference text.
 
-- In workflows with only positional parameters, a `${params.name}` reference has no matching named declaration and must warn and preserve the original reference text.
+- In workflows with only positional parameters, a `${params.name}` reference has no matching named declaration and must emit a passive diagnostic and preserve the original reference text.
 
-- A `${params.name}` reference in a field where params are unavailable must warn and preserve the original reference text.
+- A `${params.name}` reference in a field where params are unavailable must emit a passive diagnostic and preserve the original reference text.
 
-- A declared `params` reference with no runtime value must warn and preserve the original reference text.
+- A declared `params` reference with no runtime value must emit a passive diagnostic and preserve the original reference text.
 
-- Warnings must identify the owning field and the original reference text.
+- Diagnostics must identify the owning field and the original reference text.
 
 ## Field Matrix
 
@@ -110,8 +110,8 @@ This matrix defines the required `${params.name}` behavior for value-resolution 
 
 | Spec 003 field surface | Params behavior |
 | --- | --- |
-| `consts` list form | `${params.name}` is unavailable because only earlier `${consts.*}` entries are visible. Dagu warns and preserves the original reference text. |
-| `params[].eval` | `${params.name}` references in `eval` resolve before command substitution. Missing runtime values warn and preserve before the evaluated parameter is consumed. |
+| `consts` list form | `${params.name}` is unavailable because only earlier `${consts.*}` entries are visible. Dagu emits a passive diagnostic and preserves the original reference text. |
+| `params[].eval` | `${params.name}` references in `eval` resolve before command substitution. Missing runtime values emit a passive diagnostic and preserve before the evaluated parameter is consumed. |
 | `env` | Root environment values in map form, array-of-map form, and `KEY=value` list form resolve declared params. |
 | `dotenv[]` | Each dotenv path string resolves declared params. |
 | `shell`, `shell_args[]`, `working_dir` | Root shell command, shell args, and working directory resolve declared params. |
