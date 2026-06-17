@@ -50,6 +50,7 @@ type streamSink struct {
 }
 
 func (s *streamSink) Report(d Diagnostic) {
+	// Diagnostic streaming is best-effort. Encoding or write failures must not change the run outcome.
 	payload, err := json.Marshal(d)
 	if err != nil {
 		return
