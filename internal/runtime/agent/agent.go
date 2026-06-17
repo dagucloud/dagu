@@ -1192,7 +1192,7 @@ func errorString(err error) string {
 	return err.Error()
 }
 
-// collectOutputs gathers string-form step outputs into a map for the outputs.json file.
+// collectOutputs gathers published and string-form step outputs into outputs.json.
 // It iterates through nodes in execution order and collects output values.
 // Last value wins for key conflicts.
 func (a *Agent) collectOutputs(ctx context.Context) map[string]string {
@@ -1206,7 +1206,6 @@ func (a *Agent) collectOutputs(ctx context.Context) map[string]string {
 		maps.Copy(outputs, nodeData.OutputsValueStringMap())
 		step := nodeData.Step
 
-		// Only string-form output participates in outputs.json.
 		if step.Output == "" {
 			continue
 		}
