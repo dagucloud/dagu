@@ -23,7 +23,9 @@ func TestCollectorReport(t *testing.T) {
 		Location: diagnostic.Location{
 			FieldPath: "steps[0].run",
 		},
-		Fingerprint: "value_resolution\x00value_reference_unresolved\x00steps[0].run\x00${params.name}",
+		Attributes: map[string]string{
+			"token": "${params.name}",
+		},
 	})
 	collector.Report(diagnostic.Diagnostic{
 		Severity: diagnostic.SeverityNotice,
@@ -33,7 +35,21 @@ func TestCollectorReport(t *testing.T) {
 		Location: diagnostic.Location{
 			FieldPath: "steps[0].run",
 		},
-		Fingerprint: "value_resolution\x00value_reference_unresolved\x00steps[0].run\x00${params.name}",
+		Attributes: map[string]string{
+			"token": "${params.name}",
+		},
+	})
+	collector.Report(diagnostic.Diagnostic{
+		Severity: diagnostic.SeverityNotice,
+		Kind:     "value_resolution",
+		Code:     "value_reference_unresolved",
+		Message:  "same field with another token",
+		Location: diagnostic.Location{
+			FieldPath: "steps[0].run",
+		},
+		Attributes: map[string]string{
+			"token": "${params.other}",
+		},
 	})
 	collector.Report(diagnostic.Diagnostic{
 		Severity: diagnostic.SeverityNotice,
@@ -43,14 +59,17 @@ func TestCollectorReport(t *testing.T) {
 		Location: diagnostic.Location{
 			FieldPath: "steps[1].run",
 		},
-		Fingerprint: "value_resolution\x00value_reference_unresolved\x00steps[1].run\x00${params.name}",
+		Attributes: map[string]string{
+			"token": "${params.name}",
+		},
 	})
 
 	diagnostics := collector.Diagnostics()
-	require.Len(t, diagnostics, 2)
+	require.Len(t, diagnostics, 3)
 	assert.Equal(t, "steps[0].run", diagnostics[0].Location.FieldPath)
 	assert.Equal(t, "first", diagnostics[0].Message)
-	assert.Equal(t, "steps[1].run", diagnostics[1].Location.FieldPath)
+	assert.Equal(t, "${params.other}", diagnostics[1].Attributes["token"])
+	assert.Equal(t, "steps[1].run", diagnostics[2].Location.FieldPath)
 }
 
 func TestCollectorRejectsIncompleteDiagnostics(t *testing.T) {

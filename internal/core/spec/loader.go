@@ -214,55 +214,37 @@ func LoadWithResult(ctx context.Context, nameOrPath string, opts ...LoadOption) 
 }
 
 func loadBuildContext(ctx context.Context, opts ...LoadOption) BuildContext {
-	var options LoadOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
 	return BuildContext{
-		ctx: ctx,
-		opts: BuildOpts{
-			Base:                   options.baseConfig,
-			BaseConfigContent:      options.baseConfigContent,
-			WorkspaceBaseConfigDir: options.workspaceBaseConfigDir,
-			Parameters:             options.params,
-			ParametersList:         options.paramsList,
-			Name:                   options.name,
-			DAGsDir:                options.dagsDir,
-			DefaultWorkingDir:      options.defaultWorkingDir,
-			Flags:                  options.flags,
-			BuildEnv:               options.buildEnv,
-		},
+		ctx:  ctx,
+		opts: loadBuildOpts(loadOptions(opts...)),
 	}
 }
 
 // LoadYAML loads the core.DAG from the given YAML data with the specified options.
 func LoadYAML(ctx context.Context, data []byte, opts ...LoadOption) (*core.DAG, error) {
-	var options LoadOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
-	return LoadYAMLWithOpts(ctx, data, BuildOpts{
-		Base:                   options.baseConfig,
-		BaseConfigContent:      options.baseConfigContent,
-		WorkspaceBaseConfigDir: options.workspaceBaseConfigDir,
-		Parameters:             options.params,
-		ParametersList:         options.paramsList,
-		Name:                   options.name,
-		DAGsDir:                options.dagsDir,
-		DefaultWorkingDir:      options.defaultWorkingDir,
-		Flags:                  options.flags,
-		BuildEnv:               options.buildEnv,
-	})
+	return LoadYAMLWithOpts(ctx, data, loadBuildOpts(loadOptions(opts...)))
 }
 
 // LoadYAMLWithResult loads a DAG from YAML and returns transient diagnostics produced by that load operation.
 func LoadYAMLWithResult(ctx context.Context, data []byte, opts ...LoadOption) (*LoadResult, error) {
 	var collector diagnostic.Collector
+	dag, err := loadYAMLWithOptsAndDiagnostics(ctx, data, loadBuildOpts(loadOptions(opts...)), &collector)
+	if err != nil {
+		return nil, err
+	}
+	return &LoadResult{DAG: dag, Diagnostics: collector.Diagnostics()}, nil
+}
+
+func loadOptions(opts ...LoadOption) LoadOptions {
 	var options LoadOptions
 	for _, opt := range opts {
 		opt(&options)
 	}
-	dag, err := loadYAMLWithOptsAndDiagnostics(ctx, data, BuildOpts{
+	return options
+}
+
+func loadBuildOpts(options LoadOptions) BuildOpts {
+	return BuildOpts{
 		Base:                   options.baseConfig,
 		BaseConfigContent:      options.baseConfigContent,
 		WorkspaceBaseConfigDir: options.workspaceBaseConfigDir,
@@ -273,11 +255,7 @@ func LoadYAMLWithResult(ctx context.Context, data []byte, opts ...LoadOption) (*
 		DefaultWorkingDir:      options.defaultWorkingDir,
 		Flags:                  options.flags,
 		BuildEnv:               options.buildEnv,
-	}, &collector)
-	if err != nil {
-		return nil, err
 	}
-	return &LoadResult{DAG: dag, Diagnostics: collector.Diagnostics()}, nil
 }
 
 // LoadYAMLWithOpts loads the core.DAG configuration from YAML data.

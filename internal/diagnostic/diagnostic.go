@@ -8,6 +8,12 @@
 // persistence format.
 package diagnostic
 
+import (
+	"sort"
+	"strconv"
+	"strings"
+)
+
 // Severity describes how strongly a diagnostic should be surfaced.
 type Severity string
 
@@ -31,21 +37,40 @@ type Location struct {
 
 // Diagnostic describes a transient operation diagnostic.
 type Diagnostic struct {
-	Severity    Severity
-	Kind        Kind
-	Code        Code
-	Message     string
-	Location    Location
-	Attributes  map[string]string
-	Fingerprint string
+	Severity   Severity
+	Kind       Kind
+	Code       Code
+	Message    string
+	Location   Location
+	Attributes map[string]string
 }
 
 // Identity returns the diagnostic identity used for deduplication.
 func (d Diagnostic) Identity() string {
-	if d.Fingerprint != "" {
-		return d.Fingerprint
+	var b strings.Builder
+	writeIdentitySegment(&b, string(d.Kind))
+	writeIdentitySegment(&b, string(d.Code))
+	writeIdentitySegment(&b, d.Location.FilePath)
+	writeIdentitySegment(&b, d.Location.FieldPath)
+
+	if len(d.Attributes) > 0 {
+		keys := make([]string, 0, len(d.Attributes))
+		for key := range d.Attributes {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			writeIdentitySegment(&b, key)
+			writeIdentitySegment(&b, d.Attributes[key])
+		}
 	}
-	return string(d.Kind) + "\x00" + string(d.Code) + "\x00" + d.Location.FilePath + "\x00" + d.Location.FieldPath
+	return b.String()
+}
+
+func writeIdentitySegment(b *strings.Builder, value string) {
+	b.WriteString(strconv.Itoa(len(value)))
+	b.WriteByte(':')
+	b.WriteString(value)
 }
 
 // Sink receives diagnostics.

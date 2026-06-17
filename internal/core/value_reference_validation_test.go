@@ -31,7 +31,7 @@ func TestValidateStepsConstReferencesUseRootConstScope(t *testing.T) {
 		require.NoError(t, core.ValidateSteps(dag))
 	})
 
-	t.Run("unknown const is warning-only", func(t *testing.T) {
+	t.Run("unknown const is non-fatal", func(t *testing.T) {
 		t.Parallel()
 		dag := &core.DAG{
 			Consts: map[string]any{"service": "api"},

@@ -166,10 +166,16 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
       : {
           dag: next.dag,
           errors: next.errors ?? [],
-          diagnostics: data?.diagnostics ?? [],
+          diagnostics: [],
           spec: next.spec,
         }
   );
+
+  useEffect(() => {
+    if (dagSSE.isConnected && dagSSE.data?.spec !== undefined) {
+      void mutateSpec();
+    }
+  }, [dagSSE.data?.spec, dagSSE.isConnected, mutateSpec]);
 
   const dagWorkspaceName = React.useMemo(
     () =>
@@ -542,6 +548,51 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
       {(props) => {
         // Update refresh callback ref directly (safe in render)
         refreshCallbackRef.current = props.refresh;
+        const editorHeaderActions =
+          diagnostics.length > 0 || editable ? (
+            <div className="flex items-center gap-2">
+              {diagnostics.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  title="View diagnostics"
+                  onClick={() => setIsDiagnosticsOpen(true)}
+                >
+                  <Info className="h-3.5 w-3.5" />
+                  Diagnostics
+                  <span className="ml-0.5 rounded-sm bg-muted px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
+                    {diagnostics.length}
+                  </span>
+                </Button>
+              )}
+              {editable && (
+                <>
+                  {localHasUnsavedChanges && (
+                    <Button
+                      variant="ghost"
+                      title="Discard changes"
+                      onClick={discardChanges}
+                    >
+                      <Undo2 className="h-4 w-4" />
+                      Discard
+                    </Button>
+                  )}
+                  <Button
+                    id="save-config"
+                    title="Save changes (Ctrl+S / Cmd+S)"
+                    disabled={!localHasUnsavedChanges}
+                    onClick={async () => {
+                      await handleSave();
+                      props.refresh();
+                    }}
+                  >
+                    <Save className="h-4 w-4" />
+                    Save
+                  </Button>
+                </>
+              )}
+            </div>
+          ) : undefined;
 
         return (
           data?.dag && (
@@ -635,50 +686,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                   className="min-h-[400px]"
                   modelUri={editorModelUri}
                   schema={editorSchema}
-                  headerActions={
-                    <div className="flex items-center gap-2">
-                      {diagnostics.length > 0 && (
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          title="View diagnostics"
-                          onClick={() => setIsDiagnosticsOpen(true)}
-                        >
-                          <Info className="h-3.5 w-3.5" />
-                          Diagnostics
-                          <span className="ml-0.5 rounded-sm bg-muted px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
-                            {diagnostics.length}
-                          </span>
-                        </Button>
-                      )}
-                      {editable && (
-                        <>
-                          {localHasUnsavedChanges && (
-                            <Button
-                              variant="ghost"
-                              title="Discard changes"
-                              onClick={discardChanges}
-                            >
-                              <Undo2 className="h-4 w-4" />
-                              Discard
-                            </Button>
-                          )}
-                          <Button
-                            id="save-config"
-                            title="Save changes (Ctrl+S / Cmd+S)"
-                            disabled={!localHasUnsavedChanges}
-                            onClick={async () => {
-                              await handleSave();
-                              props.refresh();
-                            }}
-                          >
-                            <Save className="h-4 w-4" />
-                            Save
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  }
+                  headerActions={editorHeaderActions}
                 />
               </div>
             </React.Fragment>
@@ -706,7 +714,9 @@ function DiagnosticsDialog({
             <Info className="h-4 w-4 text-muted-foreground" />
             Diagnostics
           </DialogTitle>
-          <DialogDescription>Transient diagnostics from this spec load.</DialogDescription>
+          <DialogDescription className="sr-only">
+            Diagnostics produced while loading this spec.
+          </DialogDescription>
         </DialogHeader>
         <div className="max-h-[60vh] space-y-3 overflow-y-auto">
           {diagnostics.map((diagnostic, index) => (

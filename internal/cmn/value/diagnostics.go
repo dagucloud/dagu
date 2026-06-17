@@ -40,10 +40,5 @@ func addUnresolvedReferenceDiagnostic(ctx context.Context, field, token string, 
 		Attributes: map[string]string{
 			"token": token,
 		},
-		Fingerprint: valueReferenceDiagnosticFingerprint(field, token),
 	})
-}
-
-func valueReferenceDiagnosticFingerprint(field, token string) string {
-	return string(DiagnosticKindValueResolution) + "\x00" + string(CodeValueReferenceUnresolved) + "\x00" + field + "\x00" + token
 }
