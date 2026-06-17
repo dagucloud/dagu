@@ -6,6 +6,7 @@ VERSION=
 TEST_TARGET?=$(shell go list ./... | awk '$$0 !~ /\/tests$$/ && $$0 !~ /\/conformance(\/|$$)/' | xargs)
 CONFORMANCE_TEST_TARGET?=$(shell go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./conformance/... | xargs)
 CONFORMANCE_GOTESTSUM_ARGS?=--format=testname --format-hide-empty-pkg
+CONFORMANCE_GO_TEST_FLAGS?=${GO_TEST_FLAGS} -parallel=4
 
 ##############################################################################
 # Variables
@@ -175,7 +176,7 @@ conformance: export DAGU_BIN := ${DAGU_BIN}
 conformance: bin
 	@printf '%b\n' "${COLOR_GREEN}Running conformance tests...${COLOR_RESET}"
 	@GOBIN=${LOCAL_BIN_DIR} go install ${PKG_gotestsum}
-	@${GOTESTSUM_BIN} ${CONFORMANCE_GOTESTSUM_ARGS} -- ${GO_TEST_FLAGS} -count=1 ${CONFORMANCE_TEST_TARGET}
+	@${GOTESTSUM_BIN} ${CONFORMANCE_GOTESTSUM_ARGS} -- ${CONFORMANCE_GO_TEST_FLAGS} -count=1 ${CONFORMANCE_TEST_TARGET}
 
 # test-coverage runs Go tests except conformance tests with coverage by default.
 .PHONY: test-coverage

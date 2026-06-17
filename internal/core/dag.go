@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
+	"github.com/dagucloud/dagu/internal/diagnostic"
 	"github.com/joho/godotenv"
 	"github.com/robfig/cron/v3"
 )
@@ -121,6 +122,8 @@ type DAG struct {
 	Env []string `json:"-"`
 	// Consts contains immutable values resolved while loading the DAG.
 	Consts map[string]any `json:"consts,omitempty"`
+	// Diagnostics contains passive diagnostics collected while building the DAG.
+	Diagnostics []diagnostic.Diagnostic `json:"-"`
 	// EnvEvaluated reports whether Env is safe to reuse as resolved build env.
 	EnvEvaluated bool `json:"-"`
 	// PresolvedBuildEnv stores resolved DAG/base-config env entries needed to
@@ -377,6 +380,9 @@ func (d *DAG) Clone() *DAG {
 	}
 	if d.Consts != nil {
 		clone.Consts = maps.Clone(d.Consts)
+	}
+	if d.Diagnostics != nil {
+		clone.Diagnostics = append([]diagnostic.Diagnostic(nil), d.Diagnostics...)
 	}
 	if d.Artifacts != nil {
 		artifactsCopy := *d.Artifacts

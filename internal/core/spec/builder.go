@@ -11,6 +11,7 @@ import (
 
 	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/internal/diagnostic"
 	"github.com/go-viper/mapstructure/v2"
 )
 
@@ -43,6 +44,9 @@ type BuildContext struct {
 	// paramsState caches DAG-level parameter parsing/resolution during a single build.
 	// This avoids reparsing params for Params, DefaultParams, ParamsJSON, and ParamDefs.
 	paramsState *paramsState
+
+	// diagnostics collects passive diagnostics produced while building the DAG.
+	diagnostics *diagnostic.Collector
 }
 
 // envScopeState holds mutable state that needs to be shared across transformers.

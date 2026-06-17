@@ -39,6 +39,9 @@ __debug_bin*
 *.local.md
 *.local.json
 
+# Local planning artifacts
+value-resolution-refactor-detailed-plan.html
+
 # Profile files
 *.prof
 

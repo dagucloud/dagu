@@ -2,9 +2,7 @@
 
 ## Implementation Status
 
-Partially implemented.
-
-Load-time `consts` entries preserve unavailable references silently. Passive diagnostics for those entries are not implemented.
+Implemented.
 
 ## Scope
 
