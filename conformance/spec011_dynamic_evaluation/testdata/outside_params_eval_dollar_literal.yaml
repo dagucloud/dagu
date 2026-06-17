@@ -1,3 +1,4 @@
+working_dir: .
 env:
   OUTSIDE: $(printf should-not-run)
 steps:

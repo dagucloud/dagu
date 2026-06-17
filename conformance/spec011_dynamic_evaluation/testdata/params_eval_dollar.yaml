@@ -1,3 +1,4 @@
+working_dir: .
 params:
   - name: today
     type: string
