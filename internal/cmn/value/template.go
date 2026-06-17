@@ -10,8 +10,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-
-	"github.com/dagucloud/dagu/internal/diagnostic"
 )
 
 var (
@@ -29,7 +27,7 @@ func resolveBindings(
 	input string,
 	scope RuntimeScope,
 	field string,
-	diagnostics diagnostic.Sink,
+	diagnostics DiagnosticSink,
 ) (string, map[string]string, error) {
 	protected := make(map[string]string)
 	seed := input

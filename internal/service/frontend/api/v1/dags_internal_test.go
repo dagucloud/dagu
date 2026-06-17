@@ -830,7 +830,6 @@ steps:
 		require.True(t, valueOK)
 		specResp = &valueResp
 	}
-	require.Empty(t, specResp.Errors)
 	require.Len(t, specResp.Diagnostics, 1)
 
 	diagnostic := specResp.Diagnostics[0]

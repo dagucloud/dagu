@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -26,10 +25,10 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/cmn/procutil"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
-	"github.com/dagucloud/dagu/internal/diagnostic"
 	"github.com/dagucloud/dagu/internal/dispatch"
 	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
@@ -288,27 +287,21 @@ func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObjec
 	}, nil
 }
 
-func toAPIDiagnostics(diagnostics []diagnostic.Diagnostic) []api.Diagnostic {
+func toAPIDiagnostics(diagnostics []cmnvalue.Diagnostic) []api.Diagnostic {
 	out := make([]api.Diagnostic, 0, len(diagnostics))
 	for _, d := range diagnostics {
 		apiDiagnostic := api.Diagnostic{
-			Severity: api.DiagnosticSeverity(d.Severity),
-			Kind:     string(d.Kind),
-			Code:     string(d.Code),
+			Severity: api.DiagnosticSeverityNotice,
+			Kind:     cmnvalue.DiagnosticKindValueResolution,
+			Code:     cmnvalue.CodeValueReferenceUnresolved,
 			Message:  d.Message,
 		}
-		if d.Location.FilePath != "" || d.Location.FieldPath != "" {
+		if d.FieldPath != "" {
 			apiDiagnostic.Location = &api.DiagnosticLocation{}
-			if d.Location.FilePath != "" {
-				apiDiagnostic.Location.FilePath = ptrOf(d.Location.FilePath)
-			}
-			if d.Location.FieldPath != "" {
-				apiDiagnostic.Location.FieldPath = ptrOf(d.Location.FieldPath)
-			}
+			apiDiagnostic.Location.FieldPath = ptrOf(d.FieldPath)
 		}
-		if len(d.Attributes) > 0 {
-			attrs := make(map[string]string, len(d.Attributes))
-			maps.Copy(attrs, d.Attributes)
+		if d.Token != "" {
+			attrs := map[string]string{"token": d.Token}
 			apiDiagnostic.Attributes = &attrs
 		}
 		out = append(out, apiDiagnostic)

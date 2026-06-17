@@ -6,17 +6,58 @@ package value
 import (
 	"fmt"
 	"strings"
-
-	"github.com/dagucloud/dagu/internal/diagnostic"
 )
 
 // DiagnosticKindValueResolution identifies diagnostics produced by value resolution.
-const DiagnosticKindValueResolution diagnostic.Kind = "value_resolution"
+const DiagnosticKindValueResolution = "value_resolution"
 
 // CodeValueReferenceUnresolved identifies a supported reference left unresolved.
-const CodeValueReferenceUnresolved diagnostic.Code = "value_reference_unresolved"
+const CodeValueReferenceUnresolved = "value_reference_unresolved"
 
-func addUnresolvedReferenceDiagnostic(sink diagnostic.Sink, field, token string, err error) {
+// Diagnostic describes a passive value-resolution diagnostic.
+type Diagnostic struct {
+	Message   string
+	FieldPath string
+	Token     string
+}
+
+// DiagnosticSink receives passive value-resolution diagnostics.
+type DiagnosticSink interface {
+	Report(Diagnostic)
+}
+
+// DiagnosticCollector stores unique diagnostics in insertion order.
+type DiagnosticCollector struct {
+	diagnostics []Diagnostic
+	seen        map[diagnosticKey]struct{}
+}
+
+type diagnosticKey struct {
+	fieldPath string
+	token     string
+}
+
+// Report records d unless the same field has already reported the same token.
+func (c *DiagnosticCollector) Report(d Diagnostic) {
+	if c.seen == nil {
+		c.seen = make(map[diagnosticKey]struct{})
+	}
+	key := diagnosticKey{fieldPath: d.FieldPath, token: d.Token}
+	if _, ok := c.seen[key]; ok {
+		return
+	}
+	c.seen[key] = struct{}{}
+	c.diagnostics = append(c.diagnostics, d)
+}
+
+// Diagnostics returns recorded diagnostics in insertion order.
+func (c *DiagnosticCollector) Diagnostics() []Diagnostic {
+	out := make([]Diagnostic, len(c.diagnostics))
+	copy(out, c.diagnostics)
+	return out
+}
+
+func addUnresolvedReferenceDiagnostic(sink DiagnosticSink, field, token string, err error) {
 	if sink == nil {
 		return
 	}
@@ -31,16 +72,9 @@ func addUnresolvedReferenceDiagnostic(sink diagnostic.Sink, field, token string,
 	if err != nil {
 		message += " " + err.Error() + "."
 	}
-	sink.Report(diagnostic.Diagnostic{
-		Severity: diagnostic.SeverityNotice,
-		Kind:     DiagnosticKindValueResolution,
-		Code:     CodeValueReferenceUnresolved,
-		Message:  message,
-		Location: diagnostic.Location{
-			FieldPath: field,
-		},
-		Attributes: map[string]string{
-			"token": token,
-		},
+	sink.Report(Diagnostic{
+		Message:   message,
+		FieldPath: field,
+		Token:     token,
 	})
 }

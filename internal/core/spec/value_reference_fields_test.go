@@ -75,5 +75,14 @@ steps:
         path: "outputs/${params.missing}/report.txt"
 `)), spec.WithoutEval())
 	require.NoError(t, err)
-	assert.Empty(t, dag.BuildWarnings)
+
+	fields := core.ReferenceFields(dag)
+	values := make(map[string]string, len(fields))
+	for _, field := range fields {
+		values[field.Path] = field.Value
+	}
+
+	assert.Equal(t, "${params.missing}", values["steps[0].stdout.outputs.fields.status.value"])
+	assert.Equal(t, "${params.missing}", values["steps[0].output.result.value"])
+	assert.Equal(t, "outputs/${params.missing}/report.txt", values["steps[0].output.report.path"])
 }

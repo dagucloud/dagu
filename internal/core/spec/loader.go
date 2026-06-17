@@ -17,9 +17,9 @@ import (
 
 	"dario.cat/mergo"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/spec/types"
-	"github.com/dagucloud/dagu/internal/diagnostic"
 	"github.com/dagucloud/dagu/internal/workspace"
 	"github.com/go-viper/mapstructure/v2"
 
@@ -49,7 +49,7 @@ type LoadOptions struct {
 // LoadResult contains a loaded DAG and transient diagnostics produced by that load operation.
 type LoadResult struct {
 	DAG         *core.DAG
-	Diagnostics []diagnostic.Diagnostic
+	Diagnostics []cmnvalue.Diagnostic
 }
 
 // LoadOption is a function type for setting LoadOptions.
@@ -203,7 +203,7 @@ func LoadWithResult(ctx context.Context, nameOrPath string, opts ...LoadOption) 
 	if nameOrPath == "" {
 		return nil, ErrNameOrPathRequired
 	}
-	var collector diagnostic.Collector
+	var collector cmnvalue.DiagnosticCollector
 	buildContext := loadBuildContext(ctx, opts...)
 	buildContext.diagnostics = &collector
 	dag, err := loadDAG(buildContext, nameOrPath)
@@ -228,7 +228,7 @@ func LoadYAML(ctx context.Context, data []byte, opts ...LoadOption) (*core.DAG, 
 
 // LoadYAMLWithResult loads a DAG from YAML and returns transient diagnostics produced by that load operation.
 func LoadYAMLWithResult(ctx context.Context, data []byte, opts ...LoadOption) (*LoadResult, error) {
-	var collector diagnostic.Collector
+	var collector cmnvalue.DiagnosticCollector
 	dag, err := loadYAMLWithOptsAndDiagnostics(ctx, data, loadBuildOpts(loadOptions(opts...)), &collector)
 	if err != nil {
 		return nil, err
@@ -269,7 +269,7 @@ func loadYAMLWithOptsAndDiagnostics(
 	ctx context.Context,
 	data []byte,
 	opts BuildOpts,
-	diagnostics *diagnostic.Collector,
+	diagnostics *cmnvalue.DiagnosticCollector,
 ) (*core.DAG, error) {
 	baseDef, baseRaw, err := loadBaseDefinition(opts)
 	if err != nil {

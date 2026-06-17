@@ -11,7 +11,6 @@ import (
 
 	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
-	"github.com/dagucloud/dagu/internal/diagnostic"
 	"github.com/go-viper/mapstructure/v2"
 )
 
@@ -46,7 +45,7 @@ type BuildContext struct {
 	paramsState *paramsState
 
 	// diagnostics receives passive diagnostics produced while building the DAG.
-	diagnostics diagnostic.Sink
+	diagnostics cmnvalue.DiagnosticSink
 }
 
 // envScopeState holds mutable state that needs to be shared across transformers.

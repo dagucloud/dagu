@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/internal/cmn/value"
-	"github.com/dagucloud/dagu/internal/diagnostic"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -81,7 +80,7 @@ func TestResolverDiagnosticsReportsDedupedStrictMisses(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var collector diagnostic.Collector
+			var collector value.DiagnosticCollector
 			resolver := value.NewResolver(
 				value.StaticScope{
 					Consts: value.Values{"service": "api"},
@@ -101,11 +100,8 @@ func TestResolverDiagnosticsReportsDedupedStrictMisses(t *testing.T) {
 			assert.Contains(t, got, tt.want)
 			diagnostics := collector.Diagnostics()
 			require.Len(t, diagnostics, 1)
-			assert.Equal(t, diagnostic.SeverityNotice, diagnostics[0].Severity)
-			assert.Equal(t, value.DiagnosticKindValueResolution, diagnostics[0].Kind)
-			assert.Equal(t, value.CodeValueReferenceUnresolved, diagnostics[0].Code)
-			assert.Equal(t, "steps[0].run", diagnostics[0].Location.FieldPath)
-			assert.Equal(t, tt.want, diagnostics[0].Attributes["token"])
+			assert.Equal(t, "steps[0].run", diagnostics[0].FieldPath)
+			assert.Equal(t, tt.want, diagnostics[0].Token)
 		})
 	}
 }

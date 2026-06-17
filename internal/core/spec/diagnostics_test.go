@@ -7,9 +7,7 @@ import (
 	"context"
 	"testing"
 
-	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core/spec"
-	"github.com/dagucloud/dagu/internal/diagnostic"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -30,11 +28,8 @@ steps:
 	require.Len(t, result.Diagnostics, 1)
 
 	got := result.Diagnostics[0]
-	assert.Equal(t, diagnostic.SeverityNotice, got.Severity)
-	assert.Equal(t, cmnvalue.DiagnosticKindValueResolution, got.Kind)
-	assert.Equal(t, cmnvalue.CodeValueReferenceUnresolved, got.Code)
-	assert.Equal(t, "consts.image", got.Location.FieldPath)
-	assert.Equal(t, "${consts.missing}", got.Attributes["token"])
+	assert.Equal(t, "consts.image", got.FieldPath)
+	assert.Equal(t, "${consts.missing}", got.Token)
 	assert.Contains(t, got.Message, "was left unchanged")
 }
 
@@ -55,10 +50,7 @@ steps:
 	require.Len(t, result.Diagnostics, 1)
 
 	got := result.Diagnostics[0]
-	assert.Equal(t, diagnostic.SeverityNotice, got.Severity)
-	assert.Equal(t, cmnvalue.DiagnosticKindValueResolution, got.Kind)
-	assert.Equal(t, cmnvalue.CodeValueReferenceUnresolved, got.Code)
-	assert.Equal(t, "steps[0].run[0]", got.Location.FieldPath)
-	assert.Equal(t, "${params.environment}", got.Attributes["token"])
+	assert.Equal(t, "steps[0].run[0]", got.FieldPath)
+	assert.Equal(t, "${params.environment}", got.Token)
 	assert.Contains(t, got.Message, "was left unchanged")
 }

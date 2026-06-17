@@ -12,9 +12,9 @@ import (
 
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/spec"
-	"github.com/dagucloud/dagu/internal/diagnostic"
 	"github.com/dagucloud/dagu/internal/workspace"
 	"github.com/goccy/go-yaml/ast"
 	"github.com/goccy/go-yaml/parser"
@@ -96,17 +96,11 @@ func runValidate(ctx *Context, args []string) error {
 	return nil
 }
 
-func logValidationDiagnostics(ctx *Context, file string, diagnostics []diagnostic.Diagnostic) {
-	seen := make(map[string]struct{}, len(diagnostics))
+func logValidationDiagnostics(ctx *Context, file string, diagnostics []cmnvalue.Diagnostic) {
 	for _, diag := range diagnostics {
 		if diag.Message == "" {
 			continue
 		}
-		key := diag.Identity()
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
 		logger.Info(ctx, diag.Message, tag.File(file))
 	}
 }

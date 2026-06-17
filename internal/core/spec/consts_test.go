@@ -52,7 +52,6 @@ steps:
     run: echo ok
 `))
 	require.NoError(t, err)
-	require.Empty(t, dag.BuildWarnings)
 
 	assert.Equal(t, "${consts.self}", dag.Consts["self"])
 	assert.Equal(t, "${consts.after}", dag.Consts["later"])
@@ -80,7 +79,6 @@ steps:
 	assert.Equal(t, "$consts.service", dag.Consts["shorthand"])
 	assert.Equal(t, "${params...}", dag.Consts["malformed"])
 	assert.Equal(t, "${consts.service.name}", dag.Consts["dotted"])
-	require.Empty(t, dag.BuildWarnings)
 }
 
 func TestConstsRejectsMappingForm(t *testing.T) {
@@ -119,6 +117,7 @@ func TestReservedBindingsValidateRunFields(t *testing.T) {
 	tests := []struct {
 		name string
 		yaml string
+		want string
 	}{
 		{
 			name: "KeepsReservedShorthand",
@@ -129,6 +128,7 @@ steps:
   - name: print
     run: echo $consts.service
 `,
+			want: "echo $consts.service",
 		},
 		{
 			name: "PreservesUnknownConst",
@@ -139,6 +139,7 @@ steps:
   - name: print
     run: echo ${consts.missing}
 `,
+			want: "echo ${consts.missing}",
 		},
 		{
 			name: "KeepsEvalReference",
@@ -147,6 +148,7 @@ steps:
   - name: print
     run: echo ${DATA.image}
 `,
+			want: "echo ${DATA.image}",
 		},
 	}
 
@@ -156,7 +158,8 @@ steps:
 
 			dag, err := spec.LoadYAML(context.Background(), []byte(tt.yaml))
 			require.NoError(t, err)
-			require.Empty(t, dag.BuildWarnings)
+			require.Len(t, dag.Steps, 1)
+			assert.Equal(t, tt.want, dag.Steps[0].Script)
 		})
 	}
 }

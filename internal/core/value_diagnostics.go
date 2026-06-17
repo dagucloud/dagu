@@ -9,13 +9,12 @@ import (
 	"strings"
 
 	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
-	"github.com/dagucloud/dagu/internal/diagnostic"
 )
 
 var generatedRunFieldPathPattern = regexp.MustCompile(`^((?:steps\[\d+\])|(?:handler_on\.[^.]+))\.run\[(\d+)\](?:\.(?:command|cmd_with_args|args\[\d+\]))?$`)
 
 // ReportValueReferenceDiagnostics reports passive diagnostics for value references in dag.
-func ReportValueReferenceDiagnostics(dag *DAG, sink diagnostic.Sink) {
+func ReportValueReferenceDiagnostics(dag *DAG, sink cmnvalue.DiagnosticSink) {
 	if dag == nil || sink == nil {
 		return
 	}
@@ -39,11 +38,11 @@ func ReportValueReferenceDiagnostics(dag *DAG, sink diagnostic.Sink) {
 }
 
 type normalizedValueDiagnosticSink struct {
-	sink diagnostic.Sink
+	sink cmnvalue.DiagnosticSink
 }
 
-func (s normalizedValueDiagnosticSink) Report(d diagnostic.Diagnostic) {
-	d.Location.FieldPath = normalizeValueDiagnosticFieldPath(d.Location.FieldPath)
+func (s normalizedValueDiagnosticSink) Report(d cmnvalue.Diagnostic) {
+	d.FieldPath = normalizeValueDiagnosticFieldPath(d.FieldPath)
 	s.sink.Report(d)
 }
 

@@ -10,14 +10,13 @@ import (
 	"strconv"
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
-	"github.com/dagucloud/dagu/internal/diagnostic"
 )
 
 // Resolver resolves workflow values for semantic fields.
 type Resolver struct {
 	static      StaticScope
 	runtime     RuntimeScope
-	diagnostics diagnostic.Sink
+	diagnostics DiagnosticSink
 }
 
 // ResolverOption configures a Resolver.
@@ -33,7 +32,7 @@ func NewResolver(static StaticScope, runtime RuntimeScope, opts ...ResolverOptio
 }
 
 // WithDiagnostics reports passive diagnostics to sink.
-func WithDiagnostics(sink diagnostic.Sink) ResolverOption {
+func WithDiagnostics(sink DiagnosticSink) ResolverOption {
 	return func(r *Resolver) {
 		r.diagnostics = sink
 	}
