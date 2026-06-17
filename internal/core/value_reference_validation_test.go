@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/internal/core"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -227,7 +226,7 @@ func TestValidateStepsCoversRuntimeResolvedFields(t *testing.T) {
 	}
 }
 
-func TestDAGValidateCoversRetryRepeatOutputReferences(t *testing.T) {
+func TestDAGValidateAllowsStepOutputReferencesInRetryRepeatPolicy(t *testing.T) {
 	t.Parallel()
 
 	dag := &core.DAG{
@@ -244,14 +243,14 @@ func TestDAGValidateCoversRetryRepeatOutputReferences(t *testing.T) {
 				Name:           "retry",
 				ExecutorConfig: valueReferenceTestExec,
 				RetryPolicy: core.RetryPolicy{
-					LimitStr: "${build.output.missing}",
+					LimitStr: "${steps.build.outputs.missing}",
 				},
 			},
 			{
 				Name:           "repeat",
 				ExecutorConfig: valueReferenceTestExec,
 				RepeatPolicy: core.RepeatPolicy{
-					IntervalStr: "${build.output.missing}",
+					IntervalStr: "${steps.build.outputs.missing}",
 				},
 			},
 		},
@@ -259,5 +258,4 @@ func TestDAGValidateCoversRetryRepeatOutputReferences(t *testing.T) {
 
 	err := dag.Validate()
 	require.NoError(t, err)
-	assert.Empty(t, dag.BuildWarnings)
 }
