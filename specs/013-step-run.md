@@ -1,6 +1,6 @@
 # Spec: Step Run
 
-## Implementation Status
+## Status
 
 Partially implemented. This spec defines the shared contract for the step
 `run` field. Command-form and script-form details are defined by the linked
@@ -49,8 +49,7 @@ This prevents ambiguity between:
 ## Related Specs
 
 - YAML schema: [Spec 002: YAML Schema](002-yaml-schema.md)
-- Value resolution: [Spec 003: Value Resolution](003-value-resolution.md)
-- Field evaluation: [Spec 010: Field Evaluation](010-field-evaluation.md)
+- Value resolution: [Spec 003: Value Resolution and Field Evaluation](003-value-resolution.md)
 - Dynamic evaluation: [Spec 011: Dynamic Evaluation](011-dynamic-evaluation.md)
 - Step outputs: [Spec 012: Step Outputs](012-step-outputs.md)
 - Step run command form: [Spec 014: Step Run Command](014-step-run-command.md)
@@ -114,7 +113,7 @@ Rules:
 
 - Dagu resolves Dagu-owned references in `run` before the command or script starts.
 
-- Value resolution for `run` follows the value resolution spec and field evaluation spec.
+- Value resolution for `run` follows the value resolution and field evaluation spec.
 
 - Unresolved supported references in `run` remain literal before the command or script starts.
 - Explicit inspection surfaces report a passive notice for each preserved reference.

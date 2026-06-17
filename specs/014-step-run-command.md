@@ -1,6 +1,6 @@
 # Spec: Step Run Command
 
-## Implementation Status
+## Status
 
 Partially implemented. This spec defines command-form `run` behavior.
 

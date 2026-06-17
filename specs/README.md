@@ -4,7 +4,7 @@ Specs describe data-plane behavior. They are written for implementers and for bl
 
 Specs are implemented incrementally. A partial implementation must state the behavior it covers and must add black-box coverage for that behavior. Documented behavior remains normative even when product implementation has not caught up.
 
-## Implementation Status
+## Status
 
 This table describes conformance status.
 `Not implemented` means the spec documents target conformance behavior.
@@ -14,13 +14,12 @@ It must not be treated as product behavior until implementation catches up.
 | --- | --- |
 | [001: Project](001-project.md) | Not implemented |
 | [002: YAML Schema](002-yaml-schema.md) | Implemented |
-| [003: Value Resolution](003-value-resolution.md) | Partially implemented |
+| [003: Value Resolution and Field Evaluation](003-value-resolution.md) | Partially implemented |
 | [004: Value Resolution Consts](004-value-resolution-consts.md) | Implemented |
 | [005: Value Resolution Params](005-value-resolution-params.md) | Implemented |
 | [006: Value Resolution Env](006-value-resolution-env.md) | Not implemented |
 | [007: Value Resolution Steps](007-value-resolution-steps.md) | Not implemented |
 | [009: Step Reference](009-step-reference.md) | Not implemented |
-| [010: Field Evaluation](010-field-evaluation.md) | Not implemented |
 | [011: Dynamic Evaluation](011-dynamic-evaluation.md) | Not implemented |
 | [012: Step Outputs](012-step-outputs.md) | Not implemented |
 | [013: Step Run](013-step-run.md) | Partially implemented |
@@ -33,7 +32,7 @@ It must not be treated as product behavior until implementation catches up.
 - Write specs as observable contracts, not explanations of implementation.
 - Keep each file focused on one topic.
 - Keep each spec scoped to one owner and explicitly say what it does not define.
-- Every numbered spec must include an `Implementation Status` section.
+- Every numbered spec must include a `Status` section.
 - Every numbered spec must include a `Scope` section.
 - Name numbered specs with numeric prefixes to show reading order, such as `001-language.md`.
 - Define observable behavior, errors, side effects, and lifecycle effects.

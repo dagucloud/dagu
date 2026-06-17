@@ -1,6 +1,6 @@
 # Spec: Value Resolution Steps
 
-## Implementation Status
+## Status
 
 Not implemented.
 This spec describes target conformance behavior.
@@ -10,9 +10,9 @@ It must not be treated as current product behavior.
 
 This spec defines `${steps.step_id.outputs.name}` references used by value resolution.
 
-Common reference syntax, supported fields, and string insertion are defined by [Spec 003: Value Resolution](003-value-resolution.md).
+Common reference syntax, supported fields, and string insertion are defined by [Spec 003: Value Resolution and Field Evaluation](003-value-resolution.md).
 
-Resolution timing is defined by [Spec 003: Value Resolution](003-value-resolution.md).
+Resolution timing is defined by [Spec 003: Value Resolution and Field Evaluation](003-value-resolution.md).
 
 Step identity is defined by [Spec 009: Step Reference](009-step-reference.md).
 

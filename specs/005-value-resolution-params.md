@@ -1,6 +1,6 @@
 # Spec: Value Resolution Params
 
-## Implementation Status
+## Status
 
 Implemented.
 
@@ -8,7 +8,7 @@ Implemented.
 
 This spec defines `${params.name}` references.
 
-Common reference syntax is defined by [Spec 003: Value Resolution](003-value-resolution.md).
+Common reference syntax is defined by [Spec 003: Value Resolution and Field Evaluation](003-value-resolution.md).
 Spec 003 also defines unbraced text preservation, supported fields, string insertion, and resolution timing.
 
 This spec does not define parameter declaration schema beyond the rules needed for value resolution.
@@ -43,7 +43,7 @@ Explicit inspection surfaces report passive notices for preserved parameter refe
 
 - `params[].default` and declaration metadata do not support Dagu references.
 
-- `params[].eval` is dynamic-evaluated by Spec 010 and Spec 011.
+- `params[].eval` is dynamic-evaluated by Spec 003 and Spec 011.
 - `params[].eval` is not a normal value-resolution field.
 - Dagu references inside `params[].eval` use this spec's reference form, declaration rules, and runtime lookup rules.
 
@@ -67,7 +67,8 @@ Explicit inspection surfaces report passive notices for preserved parameter refe
 - `${params.name}` is available in Spec 003 value-resolution fields that resolve after runtime params are available.
 
 - `${params.name}` is available inside `params[].eval`.
-- Spec 010 and Spec 011 define the dynamic evaluation rules for `params[].eval`.
+- Spec 003 defines when `params[].eval` is used.
+- Spec 011 defines how dynamic evaluation runs.
 
 - `${params.name}` is not available in root `consts` list-form values.
 - `consts` resolution can see only earlier `consts` entries.

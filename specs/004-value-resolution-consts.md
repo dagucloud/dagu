@@ -1,6 +1,6 @@
 # Spec: Value Resolution Consts
 
-## Implementation Status
+## Status
 
 Implemented.
 
@@ -8,10 +8,10 @@ Implemented.
 
 This spec defines root `consts` and `${consts.name}` references.
 
-Common reference syntax is defined by [Spec 003: Value Resolution](003-value-resolution.md).
+Common reference syntax is defined by [Spec 003: Value Resolution and Field Evaluation](003-value-resolution.md).
 Spec 003 also defines supported fields and string insertion.
 
-Resolution timing is defined by [Spec 003: Value Resolution](003-value-resolution.md).
+Resolution timing is defined by [Spec 003: Value Resolution and Field Evaluation](003-value-resolution.md).
 
 This spec does not define `params`, `env`, or `steps` references.
 

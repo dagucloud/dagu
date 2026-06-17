@@ -1,6 +1,6 @@
 # Spec: Dynamic Evaluation
 
-## Implementation Status
+## Status
 
 Not implemented.
 This spec describes target conformance behavior.
@@ -17,7 +17,7 @@ It does not make every shell syntax form part of the workflow language.
 Define what Dagu does when a field is marked dynamic-evaluated.
 
 In this spec set, dynamic evaluation is available only for `params[].eval`.
-Other fields must opt in through the field evaluation spec or their owning spec.
+Other fields must opt in through Spec 003 or their owning spec.
 
 ## Input
 
@@ -93,7 +93,7 @@ Rules:
 - A command substitution that exits with a non-zero status makes dynamic evaluation fail.
 - A command substitution that times out makes dynamic evaluation fail.
 - Each command substitution occurrence is evaluated independently.
-- The field evaluation spec defines field-specific fallbacks, such as `params[].eval` falling back to `default`.
+- Spec 003 defines field-specific fallbacks, such as `params[].eval` falling back to `default`.
 
 ## Outputs
 

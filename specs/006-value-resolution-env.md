@@ -1,6 +1,6 @@
 # Spec: Value Resolution Env
 
-## Implementation Status
+## Status
 
 Not implemented.
 This spec describes target conformance behavior.
@@ -16,7 +16,7 @@ It covers:
 - `$NAME` and `${NAME}` environment expansion
 - ordering and validation rules for `env` declarations
 
-Common value-resolution syntax, supported fields, string insertion, and timing are defined by [Spec 003: Value Resolution](003-value-resolution.md).
+Common value-resolution syntax, supported fields, string insertion, and timing are defined by [Spec 003: Value Resolution and Field Evaluation](003-value-resolution.md).
 
 ## Goal
 
