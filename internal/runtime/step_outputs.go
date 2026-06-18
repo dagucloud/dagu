@@ -75,7 +75,11 @@ func parseDeclaredStepOutputs(data []byte, declarations []core.StepOutputDeclara
 			return nil, fmt.Errorf("empty line at line %d is not a valid step output record", idx+1)
 		}
 
-		if name, delimiter, ok := strings.Cut(line, "<<"); ok {
+		equalsAt := strings.Index(line, "=")
+		heredocAt := strings.Index(line, "<<")
+		if heredocAt >= 0 && (equalsAt < 0 || heredocAt < equalsAt) {
+			name := line[:heredocAt]
+			delimiter := line[heredocAt+len("<<"):]
 			if name == "" {
 				return nil, fmt.Errorf("missing output name at line %d", idx+1)
 			}
@@ -96,10 +100,11 @@ func parseDeclaredStepOutputs(data []byte, declarations []core.StepOutputDeclara
 			continue
 		}
 
-		name, value, ok := strings.Cut(line, "=")
-		if !ok {
+		if equalsAt < 0 {
 			return nil, fmt.Errorf("invalid step output record at line %d", idx+1)
 		}
+		name := line[:equalsAt]
+		value := line[equalsAt+1:]
 		if name == "" {
 			return nil, fmt.Errorf("missing output name at line %d", idx+1)
 		}

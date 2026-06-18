@@ -14,6 +14,7 @@ func TestValidateStepOutputs(t *testing.T) {
 
 	validCases := []string{
 		"valid_string_output.yaml",
+		"valid_string_output_with_heredoc_marker.yaml",
 		"valid_json_output.yaml",
 	}
 	for _, file := range validCases {
@@ -71,6 +72,12 @@ func TestRuntimeStepOutputs(t *testing.T) {
 			file:    "valid_string_output.yaml",
 			output:  "resolved-string.txt",
 			content: "v1.2.3\n",
+		},
+		{
+			name:    "string output containing heredoc marker",
+			file:    "valid_string_output_with_heredoc_marker.yaml",
+			output:  "resolved-string-marker.txt",
+			content: "prefix<<suffix\n",
 		},
 		{
 			name:    "json output preserves emitted text",

@@ -62,6 +62,22 @@ func TestStepExecutorPublishesDeclaredStepOutputs(t *testing.T) {
 	require.JSONEq(t, *state.StepOutputsValue, *info.Outputs)
 }
 
+func TestStepExecutorAllowsStringOutputValueContainingHeredocMarker(t *testing.T) {
+	executorType := registerDeclaredOutputExecutor(t, func(ctx context.Context, _ *declaredOutputExecutor) error {
+		return os.WriteFile(outputFilePathFromContext(t, ctx), []byte("token=prefix<<suffix\n"), 0o600)
+	})
+
+	node := newDeclaredOutputNode(t, executorType, []core.StepOutputDeclaration{
+		{Name: "token", Type: core.StepDeclaredOutputTypeString},
+	})
+	ctx := runtime.NewContext(context.Background(), &core.DAG{}, "run-1", "dag.log")
+
+	require.NoError(t, runtime.NewStepExecutor().Execute(ctx, node))
+	state := node.State()
+	require.NotNil(t, state.StepOutputsValue)
+	require.JSONEq(t, `{"token":"prefix<<suffix"}`, *state.StepOutputsValue)
+}
+
 func TestStepInfoFallsBackToLegacyOutputsValue(t *testing.T) {
 	legacyOutputs := `{"messageId":"msg-123","worker":"shared-volume"}`
 	node := runtime.NewNode(core.Step{Name: "call_action", ID: "call_action"}, runtime.NodeState{
