@@ -39,7 +39,7 @@ func (e *StepExecutor) Execute(ctx context.Context, node *Node, onSetup ...func(
 		return err
 	}
 
-	cmd, err := node.setupExecutor(ctx)
+	ctx, cmd, err := node.setupExecutor(ctx)
 	if err != nil {
 		err = wrapStepSetupError(err)
 		node.SetError(err)
@@ -80,6 +80,13 @@ func (e *StepExecutor) Execute(ctx context.Context, node *Node, onSetup ...func(
 
 	if err := e.captureExecutorSideChannels(ctx, cmd, node); err != nil {
 		return err
+	}
+
+	if err == nil {
+		if err := node.captureDeclaredStepOutputs(ctx); err != nil {
+			node.SetError(err)
+			return err
+		}
 	}
 
 	if err := node.captureOutput(ctx); err != nil {

@@ -5190,6 +5190,16 @@ export interface components {
             /** @description RFC 3339 timestamp when the sub DAG-run finished */
             finishedAt?: string;
         };
+        /** @description One file-based step output declaration published through DAGU_OUTPUT_FILE */
+        StepOutputDeclaration: {
+            /** @description Published output name scoped to the declaring step */
+            name: string;
+            /**
+             * @description Output value type. JSON outputs must contain valid JSON text.
+             * @enum {string}
+             */
+            type?: StepOutputDeclarationType;
+        };
         /** @description Individual task definition that performs a specific operation in a DAG-run */
         Step: {
             /** @description Unique identifier for the step within the DAG-run */
@@ -5210,6 +5220,8 @@ export interface components {
             stderr?: string;
             /** @description Variable name to store the step's output */
             output?: string;
+            /** @description Declared file-based step outputs published through DAGU_OUTPUT_FILE for ${steps.<id>.outputs.<name>} references */
+            outputs?: components["schemas"]["StepOutputDeclaration"][];
             /** @description The name of the DAG to execute as a sub DAG-run */
             call?: string;
             /** @description Parameters to pass to the sub DAG-run in JSON format */
@@ -19579,6 +19591,10 @@ export enum ArtifactPreviewKind {
     text = "text",
     image = "image",
     binary = "binary"
+}
+export enum StepOutputDeclarationType {
+    string = "string",
+    json = "json"
 }
 export enum RepeatMode {
     While = "while",

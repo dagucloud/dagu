@@ -370,6 +370,7 @@ func decodeStep(raw map[string]any) (*step, error) {
 	if err := md.Decode(raw); err != nil {
 		return nil, core.NewValidationError("steps", raw, withSnakeCaseKeyHint(err))
 	}
+	_, st.outputsSet = raw["outputs"]
 	return &st, nil
 }
 
@@ -435,6 +436,9 @@ func buildStepFromSpec(
 	}
 
 	stCopy := *st
+	if raw != nil {
+		_, stCopy.outputsSet = raw["outputs"]
+	}
 	if forcedName != "" {
 		stCopy.Name = forcedName
 	}

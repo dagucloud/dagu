@@ -168,12 +168,12 @@ func TestSetupExecutor_LogMessageExpandsVariables(t *testing.T) {
 	ctx = WithEnv(ctx, env)
 
 	node := NewNode(step, NodeState{})
-	cmd, err := node.setupExecutor(ctx)
+	runCtx, cmd, err := node.setupExecutor(ctx)
 	require.NoError(t, err)
 
 	var stdout strings.Builder
 	cmd.SetStdout(&stdout)
-	require.NoError(t, cmd.Run(ctx))
+	require.NoError(t, cmd.Run(runCtx))
 	require.Equal(t, "Deploying production\n", stdout.String())
 }
 
@@ -201,7 +201,7 @@ func TestSetupExecutor_HarnessCommandPreservesLiteralCodeFences(t *testing.T) {
 	ctx = WithEnv(ctx, env)
 
 	node := NewNode(step, NodeState{})
-	_, err := node.setupExecutor(ctx)
+	_, _, err := node.setupExecutor(ctx)
 	require.NoError(t, err)
 	require.Equal(t, "```yaml\nenv:\n  TEST_FILE: ~/dagu-test.txt\n\nsteps:\n  - command: touch $TEST_FILE\n```", node.Step().Commands[0].CmdWithArgs)
 }
@@ -231,7 +231,7 @@ func TestSetupExecutor_HarnessScriptPreservesLiteralCodeFences(t *testing.T) {
 	ctx = WithEnv(ctx, env)
 
 	node := NewNode(step, NodeState{})
-	_, err := node.setupExecutor(ctx)
+	_, _, err := node.setupExecutor(ctx)
 	require.NoError(t, err)
 	require.Equal(t, "```yaml\nenv:\n  TEST_FILE: ~/dagu-test.txt\n\nsteps:\n  - command: touch $TEST_FILE\n```", node.Step().Script)
 }

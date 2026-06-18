@@ -70,6 +70,8 @@ type Step struct {
 	StructuredOutput map[string]StepOutputEntry `json:"structuredOutput,omitempty"`
 	// OutputSchema validates stdout JSON before publishing step-scoped output.
 	OutputSchema map[string]any `json:"outputSchema,omitzero"`
+	// Outputs declares file-based step outputs published through DAGU_OUTPUT_FILE.
+	Outputs []StepOutputDeclaration `json:"outputs,omitempty"`
 	// Depends contains the list of step names to depend on.
 	Depends []string `json:"depends,omitempty"`
 	// ExplicitlyNoDeps indicates the depends field was explicitly set to empty
@@ -128,6 +130,9 @@ const (
 	StepOutputDecodeText = "text"
 	StepOutputDecodeJSON = "json"
 	StepOutputDecodeYAML = "yaml"
+
+	StepDeclaredOutputTypeString = "string"
+	StepDeclaredOutputTypeJSON   = "json"
 )
 
 // StepOutputEntry defines one structured object-form output entry.
@@ -156,6 +161,12 @@ type StepOutputsConfig struct {
 	Select string `json:"select,omitempty"`
 	// Fields maps individual outputs fields from stdout or literal values.
 	Fields map[string]StepOutputEntry `json:"fields,omitempty"`
+}
+
+// StepOutputDeclaration defines one top-level file-based step output.
+type StepOutputDeclaration struct {
+	Name string `json:"name"`
+	Type string `json:"type,omitempty"`
 }
 
 // String returns a formatted string representation of the step
@@ -213,6 +224,11 @@ func (s Step) HasStructuredOutput() bool {
 // HasStdoutOutputs reports whether stdout should publish DAG/action outputs.
 func (s Step) HasStdoutOutputs() bool {
 	return s.StdoutOutputs != nil
+}
+
+// HasDeclaredOutputs reports whether the step declares file-based outputs.
+func (s Step) HasDeclaredOutputs() bool {
+	return len(s.Outputs) > 0
 }
 
 // HasOutputSchema reports whether the step validates stdout JSON with an output schema.

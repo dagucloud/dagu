@@ -752,7 +752,7 @@ func (n *Node) clearVariable(key string) {
 	n.ClearVariable(key)
 }
 
-func (n *Node) setupExecutor(ctx context.Context) (executor.Executor, error) {
+func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Executor, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
@@ -765,16 +765,22 @@ func (n *Node) setupExecutor(ctx context.Context) (executor.Executor, error) {
 	// Reset the done flag
 	n.done.Store(false)
 
+	var err error
+	ctx, err = n.setupStepOutputFile(ctx)
+	if err != nil {
+		return ctx, nil, err
+	}
+
 	// Evaluate the command and args if not already evaluated
 	if err := n.evaluateCommandArgs(ctx); err != nil {
-		return nil, err
+		return ctx, nil, err
 	}
 
 	// Evaluate the step configuration if set
 	execConfig := n.Step().ExecutorConfig
 	cfg, err := evalExecutorConfig(ctx, n.Step())
 	if err != nil {
-		return nil, fmt.Errorf("failed to evaluate step configuration: %w", err)
+		return ctx, nil, fmt.Errorf("failed to evaluate step configuration: %w", err)
 	}
 	execConfig.Config = cfg
 	n.SetExecutorConfig(execConfig)
@@ -785,7 +791,7 @@ func (n *Node) setupExecutor(ctx context.Context) (executor.Executor, error) {
 		if n.Step().Parallel == nil {
 			dagName, err := resolveRuntimeString(ctx, child.Name, cmnvalue.SubDAGNameField("sub_dag.name"))
 			if err != nil {
-				return nil, fmt.Errorf("failed to eval sub DAG name: %w", err)
+				return ctx, nil, fmt.Errorf("failed to eval sub DAG name: %w", err)
 			}
 			copy.Name = dagName
 		}
@@ -796,7 +802,7 @@ func (n *Node) setupExecutor(ctx context.Context) (executor.Executor, error) {
 	if script := n.Step().Script; script != "" {
 		script, err := resolveRuntimeString(ctx, script, scriptField(ctx, n.Step()))
 		if err != nil {
-			return nil, fmt.Errorf("failed to eval script: %w", err)
+			return ctx, nil, fmt.Errorf("failed to eval script: %w", err)
 		}
 		n.SetScript(script)
 	}
@@ -804,28 +810,58 @@ func (n *Node) setupExecutor(ctx context.Context) (executor.Executor, error) {
 	// Create the executor
 	cmd, err := executor.NewExecutor(ctx, n.Step())
 	if err != nil {
-		return nil, err
+		return ctx, nil, err
 	}
 	n.cmd = cmd
 
 	if err := n.outputs.setupExecutorIO(ctx, cmd, n.NodeData()); err != nil {
-		return nil, fmt.Errorf("failed to set up step output: %w", err)
+		return ctx, nil, fmt.Errorf("failed to set up step output: %w", err)
 	}
 
 	// Handle sub DAG execution
 	if subDAG := n.Step().SubDAG; subDAG != nil {
 		subRuns, err := n.BuildSubDAGRuns(ctx, subDAG)
 		if err != nil {
-			return nil, err
+			return ctx, nil, err
 		}
 		n.SetSubRuns(subRuns)
 
 		if err := n.configureSubDAGExecutor(cmd, subRuns); err != nil {
-			return nil, err
+			return ctx, nil, err
 		}
 	}
 
-	return cmd, nil
+	return ctx, cmd, nil
+}
+
+func (n *Node) setupStepOutputFile(ctx context.Context) (context.Context, error) {
+	n.clearStepOutputsValue()
+
+	logDir := filepath.Dir(n.GetStdout())
+	if logDir == "" || logDir == "." {
+		logDir = os.TempDir()
+	}
+	if err := os.MkdirAll(logDir, 0o750); err != nil {
+		return ctx, fmt.Errorf("failed to create step output directory: %w", err)
+	}
+
+	pattern := fmt.Sprintf("%s.%d.*.output",
+		fileutil.SafeName(n.Name()),
+		n.GetRetryCount(),
+	)
+	file, err := os.CreateTemp(logDir, pattern)
+	if err != nil {
+		return ctx, fmt.Errorf("failed to create step output file: %w", err)
+	}
+	path := file.Name()
+	if err := file.Close(); err != nil {
+		return ctx, fmt.Errorf("failed to close step output file: %w", err)
+	}
+	n.setStepOutputFile(path)
+
+	env := GetEnv(ctx)
+	env.Scope = env.Scope.WithEntry(exec.EnvKeyDAGUOutputFile, path, cmnvalue.EnvSourceStepEnv)
+	return WithEnv(ctx, env), nil
 }
 
 func evalExecutorConfig(ctx context.Context, step core.Step) (map[string]any, error) {

@@ -68,6 +68,8 @@ type step struct {
 	Output any `yaml:"output,omitempty"`
 	// OutputSchema validates stdout JSON against an inline JSON Schema object.
 	OutputSchema any `yaml:"output_schema,omitempty"`
+	// Outputs declares file-based outputs published through DAGU_OUTPUT_FILE.
+	Outputs any `yaml:"outputs,omitempty"`
 	// Depends is the list of steps to depend on.
 	Depends types.StringOrArray `yaml:"depends,omitempty"`
 	// ContinueOn is the condition to continue on.
@@ -141,6 +143,7 @@ type step struct {
 	parsedOutput       *outputConfig
 	parsedOutputErr    error
 	parsedOutputCached bool
+	outputsSet         bool
 }
 
 type execSpec struct {
@@ -452,6 +455,7 @@ var stepStructuredOutputStage = stepTransformStage{
 	{"output", newStepTransformer("Output", buildStepOutput)},
 	{"structured_output", newStepTransformer("StructuredOutput", buildStepStructuredOutput)},
 	{"output_schema", newStepTransformer("OutputSchema", buildStepOutputSchema)},
+	{"outputs", newStepTransformer("Outputs", buildStepDeclaredOutputs)},
 }
 
 var stepEnvConditionStage = stepTransformStage{
@@ -1139,6 +1143,104 @@ var stdoutOutputsConfigFields = map[string]struct{}{
 	"fields": {},
 }
 
+var declaredOutputNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
+
+var declaredOutputFields = map[string]struct{}{
+	"name": {},
+	"type": {},
+}
+
+func parseDeclaredOutputs(raw any) ([]core.StepOutputDeclaration, error) {
+	if raw == nil {
+		return nil, fmt.Errorf("outputs must be a non-empty sequence")
+	}
+
+	items, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("outputs must be a non-empty sequence")
+	}
+	if len(items) == 0 {
+		return nil, fmt.Errorf("outputs must be a non-empty sequence")
+	}
+
+	result := make([]core.StepOutputDeclaration, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for idx, item := range items {
+		obj, err := declaredOutputItemMap(item)
+		if err != nil {
+			return nil, fmt.Errorf("outputs[%d]: %w", idx, err)
+		}
+		for key := range obj {
+			if _, ok := declaredOutputFields[key]; !ok {
+				return nil, fmt.Errorf("outputs[%d]: unknown field %q", idx, key)
+			}
+		}
+
+		nameRaw, ok := obj["name"]
+		if !ok {
+			return nil, fmt.Errorf("outputs[%d]: name is required", idx)
+		}
+		name, ok := nameRaw.(string)
+		if !ok {
+			return nil, fmt.Errorf("outputs[%d]: name must be a string", idx)
+		}
+		name = strings.TrimSpace(name)
+		if !declaredOutputNamePattern.MatchString(name) {
+			return nil, fmt.Errorf("outputs[%d]: name must match %q", idx, declaredOutputNamePattern.String())
+		}
+		if _, ok := seen[name]; ok {
+			return nil, fmt.Errorf("outputs[%d]: duplicate output name %q", idx, name)
+		}
+		seen[name] = struct{}{}
+
+		outputType := core.StepDeclaredOutputTypeString
+		if rawType, ok := obj["type"]; ok {
+			str, ok := rawType.(string)
+			if !ok {
+				return nil, fmt.Errorf("outputs[%d]: type must be a string", idx)
+			}
+			outputType = strings.TrimSpace(str)
+			switch outputType {
+			case core.StepDeclaredOutputTypeString, core.StepDeclaredOutputTypeJSON:
+			default:
+				return nil, fmt.Errorf("outputs[%d]: type must be %q or %q",
+					idx, core.StepDeclaredOutputTypeString, core.StepDeclaredOutputTypeJSON)
+			}
+		}
+
+		result = append(result, core.StepOutputDeclaration{
+			Name: name,
+			Type: outputType,
+		})
+	}
+	return result, nil
+}
+
+func declaredOutputItemMap(raw any) (map[string]any, error) {
+	switch v := raw.(type) {
+	case map[string]any:
+		if len(v) == 0 {
+			return nil, fmt.Errorf("item must not be empty")
+		}
+		return v, nil
+	case map[any]any:
+		if len(v) == 0 {
+			return nil, fmt.Errorf("item must not be empty")
+		}
+		converted := make(map[string]any, len(v))
+		for key, value := range v {
+			keyString, ok := key.(string)
+			if !ok {
+				return nil, fmt.Errorf("item keys must be strings")
+			}
+			converted[keyString] = value
+		}
+		return converted, nil
+	default:
+		return nil, fmt.Errorf("item must be an object")
+	}
+}
+
 func parseStdoutOutputsConfig(raw any) (*core.StepOutputsConfig, error) {
 	switch v := raw.(type) {
 	case nil:
@@ -1471,6 +1573,16 @@ func buildStepOutputSchema(_ StepBuildContext, s *step) (map[string]any, error) 
 		return nil, err
 	}
 	return schemaMap, nil
+}
+
+func buildStepDeclaredOutputs(_ StepBuildContext, s *step) ([]core.StepOutputDeclaration, error) {
+	if !s.outputsSet {
+		return nil, nil
+	}
+	if strings.TrimSpace(s.ID) == "" {
+		return nil, fmt.Errorf("a step with outputs must define id")
+	}
+	return parseDeclaredOutputs(s.Outputs)
 }
 
 func buildStepEnvs(_ StepBuildContext, s *step) ([]string, error) {
