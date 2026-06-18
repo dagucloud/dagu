@@ -639,7 +639,9 @@ func (e *harnessExecutor) runSharedContainerOnce(ctx context.Context, cfg provid
 	})
 	e.exitCode = exitCode
 	if runErr != nil {
-		if exitCode == 0 {
+		if ctx.Err() != nil && (errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded)) {
+			e.exitCode = 124
+		} else if exitCode == 0 {
 			e.exitCode = exitCodeFromError(runErr)
 		}
 		stdoutTail, tailErr := readSpoolTail(stdout, failedStdoutTailLimit, env.LogEncodingCharset)

@@ -1044,11 +1044,15 @@ func wrapCommandWithPIDFile(cmd []string, pidFile string) []string {
 shift
 dir="${pidfile%/*}"
 if [ "$dir" != "$pidfile" ]; then
-  mkdir -p "$dir" 2>/dev/null || true
+  mkdir -p "$dir" || exit 125
 fi
 "$@" &
 child=$!
-printf '%s\n' "$child" > "$pidfile"
+if ! printf '%s\n' "$child" > "$pidfile"; then
+  kill "$child" 2>/dev/null || true
+  wait "$child" 2>/dev/null || true
+  exit 125
+fi
 wait "$child"
 status=$?
 rm -f "$pidfile" 2>/dev/null || true
@@ -1079,7 +1083,13 @@ func terminateExecProcess(cli *client.Client, execID string, pidFile string) err
 	if execStoppedWithin(cli, execID, 2*time.Second) {
 		return nil
 	}
-	return signalContainerPIDFileProcess(cli, inspectResp.ContainerID, pidFile, "KILL")
+	if err := signalContainerPIDFileProcess(cli, inspectResp.ContainerID, pidFile, "KILL"); err != nil {
+		return err
+	}
+	if execStoppedWithin(cli, execID, 2*time.Second) {
+		return nil
+	}
+	return fmt.Errorf("exec %s is still running after KILL", execID)
 }
 
 func signalContainerPIDFileProcess(cli *client.Client, containerID string, pidFile string, signalName string) error {
