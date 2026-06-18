@@ -10,8 +10,16 @@ export type SchemaRegistration = {
   schema?: MonacoJSONSchema;
 };
 
+export type SchemaRegistrationOwner = {
+  ownerId: string;
+  modelUri: string;
+  registration: SchemaRegistration;
+  fingerprint: string;
+};
+
 export type StoredSchemaRegistration = {
   modelUri: string;
+  owners: SchemaRegistrationOwner[];
   registration: SchemaRegistration;
   fingerprint: string;
 };
@@ -50,10 +58,11 @@ export function getDocumentSchemaUri(modelUri: string): string {
 }
 
 export function buildSchemaRegistration(
+  ownerId: string,
   modelUri: string,
   schema: JSONSchema | null | undefined,
   defaultSchemaUrl: string
-): StoredSchemaRegistration {
+): SchemaRegistrationOwner {
   const documentSchemaUri = getDocumentSchemaUri(modelUri);
   const registration: SchemaRegistration = {
     fileMatch: modelUri,
@@ -67,40 +76,80 @@ export function buildSchemaRegistration(
   };
 
   return {
+    ownerId,
     modelUri,
     registration,
     fingerprint: stableStringify(registration),
   };
 }
 
-export function upsertSchemaRegistration(
-  registrations: SchemaRegistrationStore,
-  next: StoredSchemaRegistration
-): boolean {
-  const current = registrations.get(next.modelUri);
-  if (current?.fingerprint === next.fingerprint) {
-    return false;
+function storeEntryFromOwners(
+  modelUri: string,
+  owners: SchemaRegistrationOwner[]
+): StoredSchemaRegistration {
+  const activeOwner = owners[owners.length - 1];
+  if (!activeOwner) {
+    throw new Error('schema registration owner list is empty');
   }
 
-  registrations.set(next.modelUri, next);
-  return true;
+  return {
+    modelUri,
+    owners,
+    registration: activeOwner.registration,
+    fingerprint: activeOwner.fingerprint,
+  };
+}
+
+export function upsertSchemaRegistration(
+  registrations: SchemaRegistrationStore,
+  next: SchemaRegistrationOwner
+): boolean {
+  const current = registrations.get(next.modelUri);
+  if (!current) {
+    registrations.set(
+      next.modelUri,
+      storeEntryFromOwners(next.modelUri, [next])
+    );
+    return true;
+  }
+
+  const previousFingerprint = current.fingerprint;
+  const owners = current.owners.filter(
+    (owner) => owner.ownerId !== next.ownerId
+  );
+  owners.push(next);
+  registrations.set(next.modelUri, storeEntryFromOwners(next.modelUri, owners));
+  return previousFingerprint !== next.fingerprint;
 }
 
 export function removeSchemaRegistration(
   registrations: SchemaRegistrationStore,
   modelUri: string,
+  ownerId: string,
   expectedFingerprint?: string
 ): boolean {
   const current = registrations.get(modelUri);
   if (!current) {
     return false;
   }
-  if (expectedFingerprint && current.fingerprint !== expectedFingerprint) {
+  const owner = current.owners.find((item) => item.ownerId === ownerId);
+  if (!owner) {
+    return false;
+  }
+  if (expectedFingerprint && owner.fingerprint !== expectedFingerprint) {
     return false;
   }
 
-  registrations.delete(modelUri);
-  return true;
+  const previousFingerprint = current.fingerprint;
+  const owners = current.owners.filter((item) => item.ownerId !== ownerId);
+  if (owners.length === 0) {
+    registrations.delete(modelUri);
+    return true;
+  }
+
+  const next = storeEntryFromOwners(modelUri, owners);
+  registrations.set(modelUri, next);
+  return previousFingerprint !== next.fingerprint;
 }
 
 export function toMonacoYamlSchemas(registrations: SchemaRegistrationStore) {

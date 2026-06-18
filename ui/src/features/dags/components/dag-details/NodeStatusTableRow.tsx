@@ -47,6 +47,7 @@ import {
 } from 'lucide-react';
 import { useContext, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { buildDAGPageURL } from '../../../dag-runs/lib/dagRunUrls';
 import {
   components,
   NodeStatus,
@@ -264,17 +265,15 @@ function NodeStatusTableRow({
     }
   }, [isActiveNode, node.startedAt, node.finishedAt]);
 
-  // Build URL for log viewing
-  const searchParams = new URLSearchParams();
-  searchParams.set('remoteNode', remoteNode);
-  if (node.step) {
-    searchParams.set('step', node.step.name);
-  }
-  if (dagRunId) {
-    searchParams.set('dagRunId', dagRunId);
-  }
-
-  const url = `/dags/${name}/log?${searchParams.toString()}`;
+  const url = buildDAGPageURL({
+    fileName: name,
+    remoteNode,
+    tab: 'log',
+    step: node.step.name,
+    rootDAGRunId: isSubDAGRun ? dagRun.rootDAGRunId : dagRunId,
+    rootDAGRunName: isSubDAGRun ? dagRun.rootDAGRunName : undefined,
+    subDAGRunId: isSubDAGRun ? dagRun.dagRunId : undefined,
+  });
 
   // Determine row highlight based on status
   const getRowHighlight = () => {

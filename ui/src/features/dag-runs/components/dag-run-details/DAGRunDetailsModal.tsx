@@ -16,6 +16,7 @@ import LoadingIndicator from '@/components/ui/loading-indicator';
 import { DAGRunContext } from '../../contexts/DAGRunContext';
 import { useBoundedDAGRunDetails } from '../../hooks/useBoundedDAGRunDetails';
 import { matchesRequestedDAGRunDetails } from '../../hooks/dagRunDetailsRequest';
+import { buildDAGRunPageURL } from '../../lib/dagRunUrls';
 import DAGRunDetailsContent from './DAGRunDetailsContent';
 
 type DAGRunDetailsModalProps = {
@@ -112,7 +113,8 @@ function DAGRunDetailsModal({
     : dagRunId || 'latest';
   const freshDetails = matchesRequestedDAGRunDetails(
     latestDetails,
-    expectedDagRunId
+    expectedDagRunId,
+    canQuerySubDag ? undefined : name
   )
     ? latestDetails
     : null;
@@ -160,12 +162,18 @@ function DAGRunDetailsModal({
 
   const handleFullscreenClick = useCallback(
     (e?: React.MouseEvent): void => {
-      const searchParams = new URLSearchParams();
-      searchParams.set('remoteNode', remoteNode);
-      const query = searchParams.toString();
-      const url = query
-        ? `/dag-runs/${name}/${dagRunId}?${query}`
-        : `/dag-runs/${name}/${dagRunId}`;
+      const url = canQuerySubDag
+        ? buildDAGRunPageURL({
+            rootDAGRunName: parentName,
+            rootDAGRunId: parentDAGRunId ?? '',
+            remoteNode,
+            subDAGRunId: subDAGRunId ?? '',
+          })
+        : buildDAGRunPageURL({
+            rootDAGRunName: name,
+            rootDAGRunId: dagRunId,
+            remoteNode,
+          });
 
       if (e?.metaKey || e?.ctrlKey) {
         window.open(url, '_blank');
@@ -173,7 +181,16 @@ function DAGRunDetailsModal({
         navigate(url);
       }
     },
-    [dagRunId, name, navigate, remoteNode]
+    [
+      canQuerySubDag,
+      dagRunId,
+      name,
+      navigate,
+      parentDAGRunId,
+      parentName,
+      remoteNode,
+      subDAGRunId,
+    ]
   );
 
   useEffect(() => {

@@ -58,7 +58,19 @@ const baseSchema: JSONSchema = {
 };
 
 function registrationFor(schema: JSONSchema | null | undefined) {
-  return buildSchemaRegistration(modelUri, schema, defaultSchemaUrl);
+  return buildSchemaRegistration(
+    'editor-1',
+    modelUri,
+    schema,
+    defaultSchemaUrl
+  );
+}
+
+function registrationForOwner(
+  ownerId: string,
+  schema: JSONSchema | null | undefined
+) {
+  return buildSchemaRegistration(ownerId, modelUri, schema, defaultSchemaUrl);
 }
 
 describe('schemaRegistration', () => {
@@ -103,29 +115,37 @@ describe('schemaRegistration', () => {
 
   it('updates Monaco registrations when dynamic custom action schema changes', () => {
     const registrations = new Map<string, StoredSchemaRegistration>();
-    const imageActionSchema = buildAugmentedDAGSchema(baseSchema, [], [
-      {
-        name: 'deploy.image',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            image: { type: 'string' },
+    const imageActionSchema = buildAugmentedDAGSchema(
+      baseSchema,
+      [],
+      [
+        {
+          name: 'deploy.image',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              image: { type: 'string' },
+            },
           },
         },
-      },
-    ]);
-    const taggedImageActionSchema = buildAugmentedDAGSchema(baseSchema, [], [
-      {
-        name: 'deploy.image',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            image: { type: 'string' },
-            tag: { type: 'string' },
+      ]
+    );
+    const taggedImageActionSchema = buildAugmentedDAGSchema(
+      baseSchema,
+      [],
+      [
+        {
+          name: 'deploy.image',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              image: { type: 'string' },
+              tag: { type: 'string' },
+            },
           },
         },
-      },
-    ]);
+      ]
+    );
 
     const first = registrationFor(imageActionSchema);
     const second = registrationFor(taggedImageActionSchema);
@@ -157,8 +177,45 @@ describe('schemaRegistration', () => {
     expect(upsertSchemaRegistration(registrations, first)).toBe(true);
     expect(upsertSchemaRegistration(registrations, second)).toBe(true);
     expect(
-      removeSchemaRegistration(registrations, modelUri, first.fingerprint)
+      removeSchemaRegistration(
+        registrations,
+        modelUri,
+        first.ownerId,
+        first.fingerprint
+      )
     ).toBe(false);
+    expect(toMonacoYamlSchemas(registrations)[0]?.schema).toEqual(
+      second.registration.schema
+    );
+  });
+
+  it('keeps a shared schema registered while another editor still owns it', () => {
+    const registrations = new Map<string, StoredSchemaRegistration>();
+    const first = registrationForOwner('editor-1', {
+      type: 'object',
+      properties: {
+        image: { type: 'string' },
+      },
+    });
+    const second = registrationForOwner('editor-2', {
+      properties: {
+        image: { type: 'string' },
+      },
+      type: 'object',
+    });
+
+    expect(upsertSchemaRegistration(registrations, first)).toBe(true);
+    expect(upsertSchemaRegistration(registrations, second)).toBe(false);
+    expect(
+      removeSchemaRegistration(
+        registrations,
+        modelUri,
+        first.ownerId,
+        first.fingerprint
+      )
+    ).toBe(false);
+
+    expect(toMonacoYamlSchemas(registrations)).toHaveLength(1);
     expect(toMonacoYamlSchemas(registrations)[0]?.schema).toEqual(
       second.registration.schema
     );

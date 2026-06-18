@@ -10,15 +10,14 @@ import type { JSONSchema } from '@/lib/schema-utils';
 import { cn } from '@/lib/utils';
 import MonacoEditor, { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
-import {
-  configureMonacoYaml,
-} from 'monaco-yaml';
-import { useEffect, useRef } from 'react';
+import { configureMonacoYaml } from 'monaco-yaml';
+import { useEffect, useId, useRef } from 'react';
 import {
   buildSchemaRegistration,
   removeSchemaRegistration,
   toMonacoYamlSchemas,
   upsertSchemaRegistration,
+  type SchemaRegistrationOwner,
   type StoredSchemaRegistration,
 } from './schemaRegistration';
 
@@ -94,10 +93,13 @@ function DAGEditor({
   schema,
 }: Omit<Props, 'highlightLine'>) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
-  const activeSchemaRegistrationRef =
-    useRef<StoredSchemaRegistration | null>(null);
+  const activeSchemaRegistrationRef = useRef<SchemaRegistrationOwner | null>(
+    null
+  );
   const effectiveModelUri = modelUri ?? 'inmemory://dagu/editor/default.yaml';
+  const schemaRegistrationOwnerId = useId();
   const nextSchemaRegistration = buildSchemaRegistration(
+    schemaRegistrationOwnerId,
     effectiveModelUri,
     schema,
     schemaUrl
@@ -122,6 +124,7 @@ function DAGEditor({
         removeSchemaRegistration(
           schemaRegistrations,
           previous.modelUri,
+          previous.ownerId,
           previous.fingerprint
         ) || changed;
     }
@@ -144,6 +147,7 @@ function DAGEditor({
         removeSchemaRegistration(
           schemaRegistrations,
           active.modelUri,
+          active.ownerId,
           active.fingerprint
         )
       ) {

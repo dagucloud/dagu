@@ -18,6 +18,7 @@ import {
 import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useClient, useQuery } from '../../../../hooks/api';
 import { useDAGHistorySSE } from '../../../../hooks/useDAGHistorySSE';
+import { buildDAGPageURL } from '../../../dag-runs/lib/dagRunUrls';
 import {
   sseFallbackOptions,
   useSSECacheSync,
@@ -350,15 +351,18 @@ function DAGHistoryTable({
 
       const subDAGRun = subRuns[0];
       if (subDAGRun && subDAGRun.dagRunId) {
-        // Navigate to the sub dagRun details using React Router with search params
-        // Include dagRunName parameter to avoid waiting for DAG details
-        navigate({
-          pathname: `/dags/${fileName}`,
-          search: `?dagRunId=${dagRun.rootDAGRunId}&subDAGRunId=${subDAGRun.dagRunId}&dagRunName=${encodeURIComponent(dagRun.rootDAGRunName)}`,
-        });
+        navigate(
+          buildDAGPageURL({
+            fileName,
+            remoteNode,
+            rootDAGRunId: dagRun.rootDAGRunId,
+            rootDAGRunName: dagRun.rootDAGRunName,
+            subDAGRunId: subDAGRun.dagRunId,
+          })
+        );
       }
     },
-    [reversedDAGRuns, idx, navigate]
+    [fileName, idx, navigate, remoteNode, reversedDAGRuns]
   );
 
   const onInspectStepOnGraph = React.useCallback(

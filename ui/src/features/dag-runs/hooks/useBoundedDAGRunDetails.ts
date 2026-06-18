@@ -205,12 +205,16 @@ export function useBoundedDAGRunDetails({
   }, [schedulePoll]);
 
   useEffect(() => {
+    dataRef.current = null;
+    setData(null);
+    setError(null);
+    setIsLoading(false);
+    setIsValidating(false);
+
     if (!enabled || target == null) {
       clearPollTimer();
       abortActiveRequest();
       pendingRef.current = false;
-      setIsLoading(false);
-      setIsValidating(false);
       return;
     }
 
@@ -232,7 +236,11 @@ export function useBoundedDAGRunDetails({
     if (
       !enabled ||
       liveDetails == null ||
-      !matchesRequestedDAGRunDetails(liveDetails, requestedDagRunID)
+      !matchesRequestedDAGRunDetails(
+        liveDetails,
+        requestedDagRunID,
+        target?.name
+      )
     ) {
       return;
     }

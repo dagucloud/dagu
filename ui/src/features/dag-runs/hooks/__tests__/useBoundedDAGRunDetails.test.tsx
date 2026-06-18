@@ -7,8 +7,22 @@ import { useDAGRunSSE } from '@/hooks/useDAGRunSSE';
 import { useSubDAGRunSSE } from '@/hooks/useSubDAGRunSSE';
 import { useBoundedDAGRunDetails } from '../useBoundedDAGRunDetails';
 
+type TestSSEState = {
+  current: {
+    data: { dagRunDetails: { dagRunId?: string; name?: string } } | null;
+    error: Error | null;
+    isConnected: boolean;
+    isConnecting: boolean;
+    shouldUseFallback: boolean;
+  };
+};
+
 const { fetchDAGRunDetailsMock, dagRunSSEState, subDAGRunSSEState } =
-  vi.hoisted(() => ({
+  vi.hoisted<{
+    fetchDAGRunDetailsMock: ReturnType<typeof vi.fn>;
+    dagRunSSEState: TestSSEState;
+    subDAGRunSSEState: TestSSEState;
+  }>(() => ({
     fetchDAGRunDetailsMock: vi.fn(),
     dagRunSSEState: {
       current: {
@@ -17,7 +31,7 @@ const { fetchDAGRunDetailsMock, dagRunSSEState, subDAGRunSSEState } =
         isConnected: true,
         isConnecting: false,
         shouldUseFallback: false,
-      } as any,
+      },
     },
     subDAGRunSSEState: {
       current: {
@@ -26,7 +40,7 @@ const { fetchDAGRunDetailsMock, dagRunSSEState, subDAGRunSSEState } =
         isConnected: false,
         isConnecting: false,
         shouldUseFallback: true,
-      } as any,
+      },
     },
   }));
 
@@ -200,6 +214,47 @@ describe('useBoundedDAGRunDetails', () => {
     });
 
     expect(capturedSignal?.aborted).toBe(true);
+  });
+
+  it('clears previous details when the request target changes', async () => {
+    const deferred = createDeferred<{ dagRunId: string; name: string }>();
+    fetchDAGRunDetailsMock
+      .mockResolvedValueOnce({ dagRunId: 'run-1', name: 'billing' })
+      .mockReturnValueOnce(deferred.promise);
+
+    const { result, rerender } = renderHook(
+      ({ target }) =>
+        useBoundedDAGRunDetails({
+          target,
+          pollIntervalMs: 2000,
+        }),
+      {
+        initialProps: {
+          target: createTarget(),
+        },
+      }
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.data).toMatchObject({
+      dagRunId: 'run-1',
+      name: 'billing',
+    });
+
+    rerender({
+      target: createTarget({
+        remoteNode: 'remote-b',
+        name: 'deploy',
+        dagRunId: 'latest',
+      }),
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.data).toBeNull();
   });
 
   it('passes the selected remote node to sub DAG-run SSE subscriptions', () => {

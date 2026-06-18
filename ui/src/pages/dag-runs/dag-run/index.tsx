@@ -101,7 +101,8 @@ function DAGRunDetailsPage() {
   const expectedDagRunId = subDAGRunId || dagRunId || 'latest';
   const dagRunDetails = matchesRequestedDAGRunDetails(
     latestDetails,
-    expectedDagRunId
+    expectedDagRunId,
+    subDAGRunId ? undefined : name
   )
     ? latestDetails
     : null;
