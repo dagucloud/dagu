@@ -1,0 +1,11 @@
+working_dir: .
+params:
+  - name: environment
+    type: string
+    default: prod
+  - name: service_name
+    type: string
+    eval: $(printf '%s-api' '${params.environment}')
+steps:
+  - name: write
+    run: printf '%s\n' '${params.service_name}' > reference-order.txt

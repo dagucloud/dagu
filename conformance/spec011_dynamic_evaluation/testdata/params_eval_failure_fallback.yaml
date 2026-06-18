@@ -1,0 +1,9 @@
+working_dir: .
+params:
+  - name: run_date
+    type: string
+    eval: "`command_that_does_not_exist_spec011`"
+    default: fallback-date
+steps:
+  - name: write
+    run: printf '%s\n' '${params.run_date}' > fallback.txt

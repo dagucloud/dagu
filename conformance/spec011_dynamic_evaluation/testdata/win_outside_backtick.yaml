@@ -1,0 +1,7 @@
+shell: cmd
+working_dir: .
+env:
+  OUTSIDE: "`Write-Output should-not-run`"
+steps:
+  - name: write
+    run: echo(%OUTSIDE%>windows-outside-backtick.txt
