@@ -86,10 +86,6 @@ export function useSSE<T>(
           setState((prev) => ({
             ...prev,
             data: data as T,
-            isConnected: true,
-            isConnecting: false,
-            shouldUseFallback: false,
-            error: null,
           })),
         onStateChange: (connState) =>
           setState((prev) => ({

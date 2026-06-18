@@ -124,6 +124,35 @@ describe('useBoundedDAGRunDetails', () => {
     );
   });
 
+  it('keeps polling while the DAG-run SSE topic is still connecting', async () => {
+    dagRunSSEState.current = {
+      data: null,
+      error: null,
+      isConnected: false,
+      isConnecting: true,
+      shouldUseFallback: false,
+    };
+    fetchDAGRunDetailsMock.mockResolvedValue({ dagRunId: 'run-1' });
+
+    renderHook(() =>
+      useBoundedDAGRunDetails({
+        target: createTarget(),
+        pollIntervalMs: 2000,
+      })
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(fetchDAGRunDetailsMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(fetchDAGRunDetailsMock).toHaveBeenCalledTimes(2);
+  });
+
   it('hydrates from SSE payloads and aborts the in-flight fallback request', async () => {
     const deferred = createDeferred<{ dagRunId: string }>();
     let capturedSignal: AbortSignal | undefined;

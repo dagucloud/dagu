@@ -38,10 +38,7 @@ function shouldUsePollingFallback(sseState: {
   isConnecting: boolean;
   shouldUseFallback: boolean;
 }): boolean {
-  return (
-    sseState.shouldUseFallback ||
-    (!sseState.isConnected && !sseState.isConnecting)
-  );
+  return !(sseState.isConnected && !sseState.shouldUseFallback);
 }
 
 export function useBoundedDAGRunDetails({
