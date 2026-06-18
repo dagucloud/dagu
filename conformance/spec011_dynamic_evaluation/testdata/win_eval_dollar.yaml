@@ -6,4 +6,4 @@ params:
     eval: $(Write-Output 20260131)
 steps:
   - name: write
-    run: <nul set /p dummy=${params.today} > windows-dollar.txt
+    run: echo(${params.today}>windows-dollar.txt

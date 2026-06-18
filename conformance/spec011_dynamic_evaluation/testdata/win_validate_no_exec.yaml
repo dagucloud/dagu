@@ -6,4 +6,4 @@ params:
     eval: $(Set-Content -NoNewline -Path windows-validate-executed.txt -Value bad; Write-Output ok)
 steps:
   - name: ok
-    run: echo ok
+    run: echo(ok

@@ -94,19 +94,19 @@ func TestRuntimeDynamicEvaluationWindows(t *testing.T) {
 			name:    "backtick substitution populates param",
 			file:    "win_eval_backtick.yaml",
 			output:  "windows-backtick.txt",
-			content: "20260131",
+			content: "20260131\r\n",
 		},
 		{
 			name:    "dollar paren substitution populates param",
 			file:    "win_eval_dollar.yaml",
 			output:  "windows-dollar.txt",
-			content: "20260131",
+			content: "20260131\r\n",
 		},
 		{
 			name:    "dagu refs resolve before command substitution",
 			file:    "win_eval_ref_order.yaml",
 			output:  "windows-reference-order.txt",
-			content: "prod-api",
+			content: "prod-api\r\n",
 		},
 		{
 			name:   "scoped env resolves before command substitution",
@@ -115,25 +115,25 @@ func TestRuntimeDynamicEvaluationWindows(t *testing.T) {
 			setup: func(t *testing.T) {
 				t.Setenv("SPEC011_DYNAMIC_VALUE", "scope")
 			},
-			content: "scope-prod",
+			content: "scope-prod\r\n",
 		},
 		{
 			name:    "failed eval falls back to default",
 			file:    "win_eval_fallback.yaml",
 			output:  "windows-fallback.txt",
-			content: "fallback-date",
+			content: "fallback-date\r\n",
 		},
 		{
 			name:    "dollar paren text outside params eval stays literal",
 			file:    "win_outside_dollar.yaml",
 			output:  "windows-outside-dollar.txt",
-			content: "$(Write-Output should-not-run)",
+			content: "$(Write-Output should-not-run)\r\n",
 		},
 		{
 			name:    "backtick text outside params eval stays literal",
 			file:    "win_outside_backtick.yaml",
 			output:  "windows-outside-backtick.txt",
-			content: "`Write-Output should-not-run`",
+			content: "`Write-Output should-not-run`\r\n",
 		},
 	}
 

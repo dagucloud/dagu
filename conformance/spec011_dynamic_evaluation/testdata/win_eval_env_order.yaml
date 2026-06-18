@@ -9,4 +9,4 @@ params:
     eval: $(Write-Output '${SPEC011_DYNAMIC_VALUE}-${params.environment}')
 steps:
   - name: write
-    run: <nul set /p dummy=${params.combined} > windows-env-order.txt
+    run: echo(${params.combined}>windows-env-order.txt

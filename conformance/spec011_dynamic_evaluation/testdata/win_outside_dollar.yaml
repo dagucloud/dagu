@@ -4,4 +4,4 @@ env:
   OUTSIDE: $(Write-Output should-not-run)
 steps:
   - name: write
-    run: <nul set /p dummy=%OUTSIDE% > windows-outside-dollar.txt
+    run: echo(%OUTSIDE%>windows-outside-dollar.txt

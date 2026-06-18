@@ -9,4 +9,4 @@ params:
     eval: $(Write-Output '${params.environment}-api')
 steps:
   - name: write
-    run: <nul set /p dummy=${params.service_name} > windows-reference-order.txt
+    run: echo(${params.service_name}>windows-reference-order.txt

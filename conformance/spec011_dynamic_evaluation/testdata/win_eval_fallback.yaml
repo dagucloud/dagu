@@ -3,8 +3,8 @@ working_dir: .
 params:
   - name: run_date
     type: string
-    eval: "`CommandThatDoesNotExistSpec011`"
+    eval: "`Write-Error 'spec011-fail'; exit 9`"
     default: fallback-date
 steps:
   - name: write
-    run: <nul set /p dummy=${params.run_date} > windows-fallback.txt
+    run: echo(${params.run_date}>windows-fallback.txt
