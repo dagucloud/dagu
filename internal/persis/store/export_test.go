@@ -18,6 +18,26 @@ func SetDispatchIndexReconcileIntervalForTest(t testing.TB, interval time.Durati
 	})
 }
 
+// MarkDispatchIndexReconcileDueForTest ages the store index so the next
+// reconciliation check is due.
+func MarkDispatchIndexReconcileDueForTest(t testing.TB, s *DispatchTaskStore) {
+	t.Helper()
+	if s == nil {
+		t.Fatal("nil dispatch task store")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.index == nil {
+		t.Fatal("dispatch task index is not initialized")
+	}
+	interval := dispatchIndexReconcileInterval
+	if interval <= 0 {
+		s.index.reconciledAt = time.Time{}
+		return
+	}
+	s.index.reconciledAt = time.Now().UTC().Add(-interval)
+}
+
 // DispatchNoMatchCacheSizeForTest reports the indexed no-match cache size.
 func DispatchNoMatchCacheSizeForTest(s *DispatchTaskStore) int {
 	if s == nil {
