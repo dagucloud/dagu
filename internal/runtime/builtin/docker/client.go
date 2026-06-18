@@ -985,8 +985,11 @@ func removeStoppedContainer(ctx context.Context, cli *client.Client, containerID
 	return nil
 }
 
+// removeContainerForCleanup reports whether the container no longer needs removal.
 func removeContainerForCleanup(ctx context.Context, cli *client.Client, containerID string, opts client.ContainerRemoveOptions) bool {
-	if _, err := cli.ContainerRemove(context.Background(), containerID, opts); err != nil {
+	// Cleanup should still run after the caller's context has been canceled.
+	cleanupCtx := context.Background()
+	if _, err := cli.ContainerRemove(cleanupCtx, containerID, opts); err != nil {
 		if errdefs.IsNotFound(err) {
 			return true
 		}
