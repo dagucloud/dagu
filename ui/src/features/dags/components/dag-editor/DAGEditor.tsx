@@ -12,21 +12,21 @@ import MonacoEditor, { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import {
   configureMonacoYaml,
-  type JSONSchema as MonacoJSONSchema,
 } from 'monaco-yaml';
 import { useEffect, useRef } from 'react';
+import {
+  buildSchemaRegistration,
+  removeSchemaRegistration,
+  toMonacoYamlSchemas,
+  upsertSchemaRegistration,
+  type StoredSchemaRegistration,
+} from './schemaRegistration';
 
 // Get schema URL from config (getConfig() is available at module load time)
 declare function getConfig(): { basePath: string };
 const schemaUrl = `${getConfig().basePath}/assets/dag.schema.json`;
 
-type SchemaRegistration = {
-  fileMatch: string;
-  uri: string;
-  schema?: MonacoJSONSchema;
-};
-
-const schemaRegistrations = new Map<string, SchemaRegistration>();
+const schemaRegistrations = new Map<string, StoredSchemaRegistration>();
 
 // Configure YAML language service once at module load time.
 const monacoYaml = configureMonacoYaml(monaco, {
@@ -41,25 +41,10 @@ const monacoYaml = configureMonacoYaml(monaco, {
 loader.config({ monaco });
 
 async function refreshRegisteredSchemas() {
-  const registrations = Array.from(schemaRegistrations.values()).map(
-    ({ fileMatch, ...registration }) => ({
-      ...registration,
-      fileMatch: [fileMatch],
-    })
-  );
-
   await monacoYaml.update({
     ...monacoYaml.getOptions(),
-    schemas: registrations,
+    schemas: toMonacoYamlSchemas(schemaRegistrations),
   });
-}
-
-function getDocumentSchemaUri(modelUri: string): string {
-  const stableId = modelUri
-    .replace(/^[A-Za-z][A-Za-z0-9+.-]*:\/\//, '')
-    .replace(/[^A-Za-z0-9._-]+/g, '_')
-    .replace(/^_+|_+$/g, '');
-  return `inmemory://dagu-schema/${stableId || 'document'}.schema.json`;
 }
 
 /**
@@ -109,7 +94,16 @@ function DAGEditor({
   schema,
 }: Omit<Props, 'highlightLine'>) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const activeSchemaRegistrationRef =
+    useRef<StoredSchemaRegistration | null>(null);
   const effectiveModelUri = modelUri ?? 'inmemory://dagu/editor/default.yaml';
+  const nextSchemaRegistration = buildSchemaRegistration(
+    effectiveModelUri,
+    schema,
+    schemaUrl
+  );
+  const nextSchemaRegistrationRef = useRef(nextSchemaRegistration);
+  nextSchemaRegistrationRef.current = nextSchemaRegistration;
 
   // Clean up editor on unmount
   useEffect(() => {
@@ -119,24 +113,45 @@ function DAGEditor({
   }, []);
 
   useEffect(() => {
-    const documentSchemaUri = getDocumentSchemaUri(effectiveModelUri);
-    schemaRegistrations.set(effectiveModelUri, {
-      fileMatch: effectiveModelUri,
-      uri: schema ? documentSchemaUri : schemaUrl,
-      schema: schema
-        ? ({
-            ...schema,
-            $id: documentSchemaUri,
-          } as MonacoJSONSchema)
-        : undefined,
-    });
-    void refreshRegisteredSchemas();
+    const next = nextSchemaRegistrationRef.current;
+    const previous = activeSchemaRegistrationRef.current;
+    let changed = false;
 
-    return () => {
-      schemaRegistrations.delete(effectiveModelUri);
+    if (previous && previous.modelUri !== next.modelUri) {
+      changed =
+        removeSchemaRegistration(
+          schemaRegistrations,
+          previous.modelUri,
+          previous.fingerprint
+        ) || changed;
+    }
+
+    changed = upsertSchemaRegistration(schemaRegistrations, next) || changed;
+    activeSchemaRegistrationRef.current = next;
+
+    if (changed) {
       void refreshRegisteredSchemas();
+    }
+  }, [nextSchemaRegistration.fingerprint]);
+
+  useEffect(() => {
+    return () => {
+      const active = activeSchemaRegistrationRef.current;
+      if (!active) {
+        return;
+      }
+      if (
+        removeSchemaRegistration(
+          schemaRegistrations,
+          active.modelUri,
+          active.fingerprint
+        )
+      ) {
+        void refreshRegisteredSchemas();
+      }
+      activeSchemaRegistrationRef.current = null;
     };
-  }, [effectiveModelUri, schema]);
+  }, []);
 
   // Update editor theme when dark mode changes
   useEffect(() => {

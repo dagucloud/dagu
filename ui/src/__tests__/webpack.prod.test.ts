@@ -9,6 +9,10 @@ const webpackProdConfigSource = readFileSync(
   resolve(__dirname, '../../webpack.prod.js'),
   'utf8'
 );
+const webpackCommonConfigSource = readFileSync(
+  resolve(__dirname, '../../webpack.common.js'),
+  'utf8'
+);
 
 describe('webpack production assets', () => {
   it('uses stable entry and content-hashed lazy chunk filenames', () => {
@@ -17,5 +21,11 @@ describe('webpack production assets', () => {
       "chunkFilename: '[name].[contenthash:16].bundle.js'"
     );
     expect(webpackProdConfigSource).not.toContain('bundle.js?v=0.0.0');
+  });
+
+  it('uses content-hashed Monaco worker filenames', () => {
+    expect(webpackCommonConfigSource).toContain(
+      "filename: '[name].[contenthash:16].worker.js'"
+    );
   });
 });

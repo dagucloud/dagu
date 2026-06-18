@@ -1112,6 +1112,9 @@ func (srv *Server) setupAssetRoutes(r *chi.Mux, basePath string) {
 func cacheControlForAsset(assetPath string) string {
 	base := path.Base(assetPath)
 	lowerBase := strings.ToLower(base)
+	if hasContentHashSuffix(lowerBase, ".worker.js") {
+		return "max-age=31536000, immutable"
+	}
 	if strings.HasSuffix(lowerBase, ".bundle.js") && !strings.EqualFold(base, "bundle.js") {
 		return "max-age=31536000, immutable"
 	}
@@ -1119,6 +1122,27 @@ func cacheControlForAsset(assetPath string) string {
 		return "no-cache, no-store, must-revalidate"
 	}
 	return "max-age=86400"
+}
+
+func hasContentHashSuffix(base, suffix string) bool {
+	if !strings.HasSuffix(base, suffix) {
+		return false
+	}
+	stem := strings.TrimSuffix(base, suffix)
+	hashStart := strings.LastIndex(stem, ".")
+	if hashStart < 0 {
+		return false
+	}
+	hash := stem[hashStart+1:]
+	if len(hash) != 16 {
+		return false
+	}
+	for _, char := range hash {
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func (srv *Server) setupOIDCRoutes(r *chi.Mux, basePath string) {

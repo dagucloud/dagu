@@ -35,6 +35,7 @@ module.exports = {
   },
   plugins: [
     new MonacoWebpackPlugin({
+      filename: '[name].[contenthash:16].worker.js',
       languages: ['yaml'],
       features: ['find'],
       customLanguages: [

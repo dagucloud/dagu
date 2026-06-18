@@ -42,6 +42,8 @@ import { FlowchartType, Graph } from '../visualization';
 import {
   buildAugmentedDAGSchema,
   customActionHintsEqual,
+  type EditorCustomActionHint,
+  type EditorLegacyDefinitionHint,
   extractLocalCustomDefinitionHints,
   legacyDefinitionHintsEqual,
   mergeCustomActionHints,
@@ -155,12 +157,6 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
         }
   );
 
-  useEffect(() => {
-    if (dagSSE.isConnected && dagSSE.data?.spec !== undefined) {
-      void mutateSpec();
-    }
-  }, [dagSSE.data?.spec, dagSSE.isConnected, mutateSpec]);
-
   const dagWorkspaceName = React.useMemo(
     () =>
       workspaceNameFromLabels([
@@ -198,13 +194,19 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
     () => extractLocalCustomDefinitionHints(serverSpec ?? '').actions
   );
 
-  const inheritedLegacyDefinitions = React.useMemo(
+  const parsedInheritedLegacyDefinitions = React.useMemo(
     () => toInheritedLegacyDefinitionHints(editorHints),
     [editorHints]
   );
-  const inheritedCustomActions = React.useMemo(
+  const inheritedLegacyDefinitions = useStableLegacyDefinitionHints(
+    parsedInheritedLegacyDefinitions
+  );
+  const parsedInheritedCustomActions = React.useMemo(
     () => toInheritedCustomActionHints(editorHints),
     [editorHints]
+  );
+  const inheritedCustomActions = useStableCustomActionHints(
+    parsedInheritedCustomActions
   );
 
   const parsedLocalDefinitions = React.useMemo(
@@ -686,6 +688,26 @@ function getHandlers(
     steps.push(h?.exit);
   }
   return steps;
+}
+
+function useStableLegacyDefinitionHints(
+  hints: EditorLegacyDefinitionHint[]
+): EditorLegacyDefinitionHint[] {
+  const stableRef = React.useRef(hints);
+  if (!legacyDefinitionHintsEqual(stableRef.current, hints)) {
+    stableRef.current = hints;
+  }
+  return stableRef.current;
+}
+
+function useStableCustomActionHints(
+  hints: EditorCustomActionHint[]
+): EditorCustomActionHint[] {
+  const stableRef = React.useRef(hints);
+  if (!customActionHintsEqual(stableRef.current, hints)) {
+    stableRef.current = hints;
+  }
+  return stableRef.current;
 }
 
 export default DAGSpec;
