@@ -1153,20 +1153,21 @@ func (a *Agent) nodeToModelNode(nodeData runtime.NodeData) *exec.Node {
 	}
 
 	return &exec.Node{
-		Step:            nodeData.Step,
-		Stdout:          nodeData.State.Stdout,
-		Stderr:          nodeData.State.Stderr,
-		WorkingDir:      nodeData.State.WorkingDir,
-		StartedAt:       stringutil.FormatTime(nodeData.State.StartedAt),
-		FinishedAt:      stringutil.FormatTime(nodeData.State.FinishedAt),
-		Status:          nodeData.State.Status,
-		RetriedAt:       stringutil.FormatTime(nodeData.State.RetriedAt),
-		RetryCount:      nodeData.State.RetryCount,
-		DoneCount:       nodeData.State.DoneCount,
-		Error:           errorString(nodeData.State.Error),
-		SubRuns:         subRuns,
-		OutputVariables: nodeData.State.OutputVariables,
-		OutputsValue:    nodeData.State.OutputsValue,
+		Step:             nodeData.Step,
+		Stdout:           nodeData.State.Stdout,
+		Stderr:           nodeData.State.Stderr,
+		WorkingDir:       nodeData.State.WorkingDir,
+		StartedAt:        stringutil.FormatTime(nodeData.State.StartedAt),
+		FinishedAt:       stringutil.FormatTime(nodeData.State.FinishedAt),
+		Status:           nodeData.State.Status,
+		RetriedAt:        stringutil.FormatTime(nodeData.State.RetriedAt),
+		RetryCount:       nodeData.State.RetryCount,
+		DoneCount:        nodeData.State.DoneCount,
+		Error:            errorString(nodeData.State.Error),
+		SubRuns:          subRuns,
+		OutputVariables:  nodeData.State.OutputVariables,
+		OutputsValue:     nodeData.State.OutputsValue,
+		StepOutputsValue: nodeData.State.StepOutputsValue,
 	}
 }
 

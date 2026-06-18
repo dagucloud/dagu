@@ -13244,9 +13244,30 @@ components:
         - statusLabel
         - startedAt
 
+    StepOutputDeclaration:
+      type: object
+      description: "One file-based step output declaration published through DAGU_OUTPUT_FILE"
+      additionalProperties: false
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          pattern: "^[A-Za-z][A-Za-z0-9_]*$"
+          description: "Published output name scoped to the declaring step"
+        type:
+          type: string
+          enum:
+            - string
+            - json
+          description: "Output value type. JSON outputs must contain valid JSON text."
+
     Step:
       type: object
       description: "Individual task definition that performs a specific operation in a DAG-run"
+      x-dagu-required-with:
+        outputs:
+          - id
       properties:
         name:
           type: string
@@ -13277,6 +13298,12 @@ components:
         output:
           type: string
           description: "Variable name to store the step's output"
+        outputs:
+          type: array
+          minItems: 1
+          description: "Declared file-based step outputs published through DAGU_OUTPUT_FILE for ${steps.<id>.outputs.<name>} references. Steps that declare outputs must also define id."
+          items:
+            $ref: "#/components/schemas/StepOutputDeclaration"
         call:
           type: string
           description: "The name of the DAG to execute as a sub DAG-run"

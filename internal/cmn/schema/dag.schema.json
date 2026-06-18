@@ -1770,6 +1770,14 @@
           "additionalProperties": true,
           "description": "Inline JSON Schema object used to validate stdout JSON before publishing step output."
         },
+        "outputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/stepDeclaredOutput"
+          },
+          "description": "Declared file-based step outputs published through DAGU_OUTPUT_FILE for ${steps.<id>.outputs.<name>} references."
+        },
         "depends": {
           "oneOf": [
             {
@@ -2181,6 +2189,14 @@
         }
       },
       "allOf": [
+        {
+          "if": {
+            "required": ["outputs"]
+          },
+          "then": {
+            "required": ["id"]
+          }
+        },
         {
           "not": {
             "required": ["run", "action"]
@@ -7022,6 +7038,25 @@
         }
       ],
       "description": "One stdout.outputs fields entry."
+    },
+    "stepDeclaredOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+          "description": "Published output name scoped to the declaring step."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["string", "json"],
+          "default": "string",
+          "description": "Output value type. JSON outputs must contain valid JSON text."
+        }
+      },
+      "description": "One top-level step output declaration for DAGU_OUTPUT_FILE publication."
     },
     "outputsActionConfig": {
       "type": "object",

@@ -1,0 +1,6 @@
+working_dir: .
+steps:
+  - id: build
+    run: echo ok
+    outputs:
+      - type: string

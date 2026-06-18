@@ -99,6 +99,7 @@ func mapAPIStep(step api.Step) core.Step {
 		Output:      derefString(step.Output),
 		Depends:     derefStringSlice(step.Depends),
 		MailOnError: derefBool(step.MailOnError),
+		Outputs:     mapAPIStepOutputs(step.Outputs),
 	}
 	if step.Id != nil {
 		mapped.ID = *step.Id
@@ -126,6 +127,24 @@ func mapAPIStep(step api.Step) core.Step {
 			}
 			mapped.Commands = append(mapped.Commands, entry)
 		}
+	}
+	return mapped
+}
+
+func mapAPIStepOutputs(outputs *[]api.StepOutputDeclaration) []core.StepOutputDeclaration {
+	if outputs == nil || len(*outputs) == 0 {
+		return nil
+	}
+	mapped := make([]core.StepOutputDeclaration, 0, len(*outputs))
+	for _, output := range *outputs {
+		outputType := core.StepDeclaredOutputTypeString
+		if output.Type != nil {
+			outputType = string(*output.Type)
+		}
+		mapped = append(mapped, core.StepOutputDeclaration{
+			Name: output.Name,
+			Type: outputType,
+		})
 	}
 	return mapped
 }

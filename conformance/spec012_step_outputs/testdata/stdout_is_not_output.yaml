@@ -1,0 +1,10 @@
+working_dir: .
+steps:
+  - id: build
+    run: echo image_tag=v1.2.3
+    outputs:
+      - name: image_tag
+
+  - id: should_not_run
+    depends: build
+    run: touch should-not-run.txt

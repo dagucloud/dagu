@@ -775,41 +775,14 @@ func harnessConfigHasBuiltinProvider(cfg map[string]any) bool {
 }
 
 func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) (context.Context, error) {
-	env, err := NewPlanEnvWithError(ctx, node.Step(), plan)
+	env, err := NewPlanEnvForNodeWithError(ctx, node, plan)
 	if err != nil {
 		return ctx, err
 	}
 	node.SetWorkingDir(env.WorkingDir)
 
-	// Load output variables and approval inputs from predecessor nodes (dependencies)
-	// This traverses backwards from the current node to find all nodes it depends on
-	curr := node.id
-	visited := make(map[int]struct{})
-	queue := []int{}
-
-	// Start with direct dependencies (nodes this node depends on)
-	queue = append(queue, plan.Dependencies(curr)...)
-
-	// Traverse all predecessor nodes
-	for len(queue) > 0 {
-		predID := queue[0]
-		queue = queue[1:]
-
-		if _, ok := visited[predID]; ok {
-			continue
-		}
-		visited[predID] = struct{}{}
-
-		// Add this node's dependencies to the queue
-		queue = append(queue, plan.Dependencies(predID)...)
-
-		// Load output variables from this predecessor node
-		// (includes approval inputs which are stored in OutputVariables)
-		predNode := plan.GetNode(predID)
-		if predNode == nil {
-			continue
-		}
-
+	// Load output variables and approval inputs from predecessor nodes.
+	for _, predNode := range planPredecessorNodes(plan, node) {
 		// Add predecessor outputs to scope
 		if outputs := predNode.OutputVariablesMap(); len(outputs) > 0 {
 			stepID := predNode.Step().ID
@@ -1611,10 +1584,57 @@ func NewPlanEnvWithError(ctx context.Context, step core.Step, plan *Plan) (Env, 
 	return env, nil
 }
 
+func NewPlanEnvForNode(ctx context.Context, node *Node, plan *Plan) Env {
+	env := NewEnv(ctx, node.Step())
+	addPlanPredecessorStepsToEnv(&env, plan, node)
+	return env
+}
+
+func NewPlanEnvForNodeWithError(ctx context.Context, node *Node, plan *Plan) (Env, error) {
+	env, err := NewEnvWithError(ctx, node.Step())
+	if err != nil {
+		return Env{}, err
+	}
+	addPlanPredecessorStepsToEnv(&env, plan, node)
+	return env, nil
+}
+
 func addPlanStepsToEnv(env *Env, plan *Plan) {
 	for _, n := range plan.Nodes() {
 		if n.Step().ID != "" {
 			env.StepMap[n.Step().ID] = n.StepInfo()
 		}
 	}
+}
+
+func addPlanPredecessorStepsToEnv(env *Env, plan *Plan, node *Node) {
+	for _, n := range planPredecessorNodes(plan, node) {
+		if n.Step().ID != "" {
+			env.StepMap[n.Step().ID] = n.StepInfo()
+		}
+	}
+}
+
+func planPredecessorNodes(plan *Plan, node *Node) []*Node {
+	if plan == nil || node == nil {
+		return nil
+	}
+
+	visited := make(map[int]struct{})
+	queue := append([]int(nil), plan.Dependencies(node.ID())...)
+	var nodes []*Node
+	for len(queue) > 0 {
+		predID := queue[0]
+		queue = queue[1:]
+		if _, ok := visited[predID]; ok {
+			continue
+		}
+		visited[predID] = struct{}{}
+		queue = append(queue, plan.Dependencies(predID)...)
+		predNode := plan.GetNode(predID)
+		if predNode != nil {
+			nodes = append(nodes, predNode)
+		}
+	}
+	return nodes
 }

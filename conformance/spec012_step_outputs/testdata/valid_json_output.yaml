@@ -1,0 +1,17 @@
+working_dir: .
+steps:
+  - id: inspect
+    run: |
+      cat >> "$DAGU_OUTPUT_FILE" <<'EOF'
+      metadata<<JSON
+      {"image":"api","tag":"v1.2.3"}
+      JSON
+      EOF
+    outputs:
+      - name: metadata
+        type: json
+
+  - id: print
+    depends: inspect
+    run: |
+      printf '%s\n' '${steps.inspect.outputs.metadata}' > resolved-json.txt

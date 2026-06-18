@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - id: build
+    run: echo ok
+    outputs:
+      - name: image_tag
+      - name: image_tag

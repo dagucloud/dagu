@@ -1,0 +1,12 @@
+working_dir: .
+steps:
+  - id: build
+    run: |
+      printf 'token=prefix<<suffix\n' >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: token
+
+  - id: deploy
+    depends: build
+    run: |
+      printf '%s\n' '${steps.build.outputs.token}' > resolved-string-marker.txt

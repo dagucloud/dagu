@@ -1,0 +1,9 @@
+working_dir: .
+steps:
+  - id: write
+    run: |
+      printf 'unexpected=value\n' >> "$DAGU_OUTPUT_FILE"
+
+  - id: should_not_run
+    depends: write
+    run: touch unexpected-success.txt

@@ -23,6 +23,9 @@ const (
 	// EnvKeyDAGRunStepStderrFile holds the path to the stderr log file for the current step.
 	EnvKeyDAGRunStepStderrFile = "DAG_RUN_STEP_STDERR_FILE"
 
+	// EnvKeyDAGUOutputFile holds the file path used for declared step outputs.
+	EnvKeyDAGUOutputFile = "DAGU_OUTPUT_FILE"
+
 	// EnvKeyDAGRunStatus holds the current status of the DAG run (e.g., "running", "success", "failed").
 	EnvKeyDAGRunStatus = "DAG_RUN_STATUS"
 
