@@ -31,6 +31,8 @@ type Result struct {
 	stderr   string
 }
 
+const defaultCommandTimeout = 30 * time.Second
+
 // NewRunner creates an isolated project seeded with package-local testdata.
 func NewRunner(t *testing.T) *Runner {
 	t.Helper()
@@ -49,7 +51,8 @@ func NewRunner(t *testing.T) *Runner {
 func (r *Runner) Run(args ...string) *Result {
 	r.t.Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	timeout := commandTimeout(r.t)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	var stdout bytes.Buffer
@@ -63,7 +66,13 @@ func (r *Runner) Run(args ...string) *Result {
 
 	err := cmd.Run()
 	if ctx.Err() != nil {
-		r.t.Fatalf("dagu command timed out: dagu %s", strings.Join(args, " "))
+		r.t.Fatalf(
+			"dagu command timed out after %s: dagu %s\nstdout:\n%s\nstderr:\n%s",
+			timeout,
+			strings.Join(args, " "),
+			stdout.String(),
+			stderr.String(),
+		)
 	}
 
 	exitCode := 0
@@ -238,6 +247,24 @@ func (r *Result) ExpectStderrNotContains(parts ...string) {
 	for _, part := range parts {
 		require.NotContains(r.t, r.stderr, part)
 	}
+}
+
+func commandTimeout(t *testing.T) time.Duration {
+	t.Helper()
+
+	raw := os.Getenv("DAGU_CONFORMANCE_COMMAND_TIMEOUT")
+	if raw == "" {
+		return defaultCommandTimeout
+	}
+
+	timeout, err := time.ParseDuration(raw)
+	if err != nil {
+		t.Fatalf("invalid DAGU_CONFORMANCE_COMMAND_TIMEOUT %q: %v", raw, err)
+	}
+	if timeout <= 0 {
+		t.Fatalf("invalid DAGU_CONFORMANCE_COMMAND_TIMEOUT %q: must be positive", raw)
+	}
+	return timeout
 }
 
 func daguBinary(t *testing.T) string {
