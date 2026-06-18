@@ -164,6 +164,24 @@ RATIO: 0.5
 	})
 }
 
+func TestEnvValue_MapFormPreservesSourceOrder(t *testing.T) {
+	t.Parallel()
+
+	var env types.EnvValue
+	err := yaml.Unmarshal([]byte(`
+SERVICE: api
+HOST: ${env.SERVICE}.internal
+THIRD: ${env.HOST}/v1
+`), &env)
+	require.NoError(t, err)
+
+	require.Equal(t, []types.EnvEntry{
+		{Key: "SERVICE", Value: "api"},
+		{Key: "HOST", Value: "${env.SERVICE}.internal"},
+		{Key: "THIRD", Value: "${env.HOST}/v1"},
+	}, env.Entries())
+}
+
 func TestEnvValue_InStruct(t *testing.T) {
 	t.Parallel()
 

@@ -1,0 +1,13 @@
+working_dir: .
+consts:
+  - color: blue
+params:
+  - name: target
+    description: Runtime target.
+env:
+  - COLOR=${consts.color}
+  - TARGET=${params.target}
+steps:
+  - name: write
+    run: |
+      printf 'COLOR=%s\nTARGET=%s\n' "$COLOR" "$TARGET" > root-sources.txt

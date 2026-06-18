@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/internal/cmn/collections"
 	"github.com/dagucloud/dagu/internal/cmn/signal"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/spec/types"
 	"github.com/dagucloud/dagu/internal/llm"
@@ -1477,7 +1478,14 @@ func buildStepEnvs(_ StepBuildContext, s *step) ([]string, error) {
 		return nil, nil
 	}
 	var envs []string
-	for _, entry := range s.Env.Entries() {
+	for i, entry := range s.Env.Entries() {
+		if !cmnvalue.ValidEnvName(entry.Key) {
+			return nil, core.NewValidationError(
+				"env",
+				entry.Key,
+				fmt.Errorf("%w: invalid environment variable name %q at env[%d]", ErrInvalidEnvValue, entry.Key, i),
+			)
+		}
 		envs = append(envs, fmt.Sprintf("%s=%s", entry.Key, entry.Value))
 	}
 	return envs, nil

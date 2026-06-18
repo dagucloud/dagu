@@ -1,0 +1,8 @@
+working_dir: .
+env:
+  SERVICE: api
+  HOST: ${env.SERVICE}.internal
+steps:
+  - name: write
+    run: |
+      printf '%s\n' "$SERVICE" "HOST=$HOST" | sed 's/^api$/SERVICE=api/' > env-forms.txt

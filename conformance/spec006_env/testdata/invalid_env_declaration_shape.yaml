@@ -1,0 +1,6 @@
+working_dir: .
+env: invalid-scalar
+steps:
+  - name: write
+    run: |
+      touch executed.txt

@@ -1,0 +1,25 @@
+working_dir: .
+consts:
+  - color: blue
+params:
+  - name: target
+    description: Runtime target.
+env:
+  - ROOT=api
+steps:
+  - id: produce
+    run: |
+      printf 'step-value\n'
+    output:
+      VALUE:
+        value: step-value
+  - name: consume
+    depends: produce
+    env:
+      - CONST=${consts.color}
+      - PARAM=${params.target}
+      - ROOT_COPY=${env.ROOT}
+      - EARLIER=seed
+      - PREVIOUS=${steps.produce.outputs.VALUE}
+    run: |
+      printf 'CONST=%s\nPARAM=%s\nROOT=%s\nEARLIER=%s\nPREVIOUS=%s\n' "$CONST" "$PARAM" "$ROOT_COPY" "$EARLIER" "$PREVIOUS" > step-env-sources.txt

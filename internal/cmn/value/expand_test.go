@@ -151,19 +151,19 @@ func TestExpandWithShellContext(t *testing.T) {
 		opts := newOptions()
 		opts.ExpandOS = true
 
-		// ${UNSET_VAR_ABC:?msg} triggers a non-UnexpectedCommand error from expand.Literal
-		_, err := expandWithShellContext(context.Background(), "${UNSET_VAR_ABC:?required}", opts)
-		assert.Error(t, err)
+		// Missing env references are preserved before POSIX required-value expansion runs.
+		got, err := expandWithShellContext(context.Background(), "${UNSET_VAR_ABC:?required}", opts)
+		require.NoError(t, err)
+		assert.Equal(t, "${UNSET_VAR_ABC:?required}", got)
 	})
 
 	t.Run("UndefinedSimpleVarWithExpandOS", func(t *testing.T) {
 		opts := newOptions()
 		opts.ExpandOS = true
 
-		// Undefined simple $VAR with ExpandOS=true resolves to empty string
 		result, err := expandWithShellContext(context.Background(), "prefix $UNDEF_XYZ suffix", opts)
 		require.NoError(t, err)
-		assert.Equal(t, "prefix  suffix", result)
+		assert.Equal(t, "prefix $UNDEF_XYZ suffix", result)
 	})
 
 	t.Run("DefinedPOSIXWithoutExpandOS", func(t *testing.T) {

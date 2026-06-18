@@ -72,3 +72,47 @@ func addUnresolvedReferenceNotice(sink ValueReferenceNoticeSink, field, token st
 		Token:     token,
 	})
 }
+
+// ReportUnresolvedEnvExpansionNotices reports missing simple shell-style env references in input.
+func ReportUnresolvedEnvExpansionNotices(input, field string, scope *EnvScope, sink ValueReferenceNoticeSink) {
+	if sink == nil {
+		return
+	}
+	matches := reVarSubstitution.FindAllStringSubmatchIndex(input, -1)
+	for _, loc := range matches {
+		match := input[loc[0]:loc[1]]
+		if isSingleQuotedVar(input, loc[0], loc[1]) || isEscapedDollar(input, loc[0]) {
+			continue
+		}
+
+		key, ok := simpleEnvExpansionKey(input, loc)
+		if !ok {
+			continue
+		}
+		if _, found := scope.Get(key); found {
+			continue
+		}
+		addUnresolvedReferenceNotice(sink, field, match, fmt.Errorf("unknown env.%s binding", key))
+	}
+}
+
+func simpleEnvExpansionKey(input string, loc []int) (string, bool) {
+	var key string
+	switch {
+	case loc[2] >= 0:
+		key = input[loc[2]:loc[3]]
+		if !ValidEnvName(key) {
+			return "", false
+		}
+	case loc[4] >= 0:
+		key = input[loc[4]:loc[5]]
+		if !ValidEnvName(key) {
+			return "", false
+		}
+	case loc[6] >= 0:
+		return "", false
+	default:
+		return "", false
+	}
+	return key, true
+}

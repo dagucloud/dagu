@@ -1,0 +1,11 @@
+working_dir: .
+env:
+  - SERVICE=api
+  - HOST=${env.SERVICE}.internal
+  - SELF=${env.SELF}
+  - LATER=$AFTER
+  - AFTER=done
+steps:
+  - name: write
+    run: |
+      printf 'SERVICE=%s\nHOST=%s\nSELF=%s\nLATER=%s\n' "$SERVICE" "$HOST" "$SELF" "$LATER" > env-order.txt

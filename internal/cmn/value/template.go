@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	reVarSubstitution      = regexp.MustCompile(`\$\{([^}]+)\}|\$([a-zA-Z0-9_][a-zA-Z0-9_]*)`)
+	reVarSubstitution      = regexp.MustCompile(`\$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)|\$([0-9]+)`)
 	bindingRefPattern      = regexp.MustCompile(`\$\{([^}]+)\}`)
 	bindingNamePattern     = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
 	quotedReferencePattern = regexp.MustCompile(`"\$\{([A-Za-z0-9_]\w*(?:\.[^}]+)?)\}"`)
@@ -116,16 +116,22 @@ func (t template) resolveVariables(r *resolver) string {
 		}
 
 		var key string
+		var unbracedPositional bool
 		if loc[2] >= 0 {
 			key = t.source[loc[2]:loc[3]]
 		} else if loc[4] >= 0 {
 			key = t.source[loc[4]:loc[5]]
+		} else if loc[6] >= 0 {
+			key = t.source[loc[6]:loc[7]]
+			unbracedPositional = true
 		} else {
 			b.WriteString(match)
 			continue
 		}
 
-		if strings.Contains(key, ".") {
+		if !validVariableTokenName(key) ||
+			(unbracedPositional && numericVarContinues(t.source, key, loc[1])) ||
+			strings.Contains(key, ".") {
 			b.WriteString(match)
 			continue
 		}
@@ -138,6 +144,21 @@ func (t template) resolveVariables(r *resolver) string {
 
 	b.WriteString(t.source[last:])
 	return b.String()
+}
+
+func validVariableTokenName(name string) bool {
+	return ValidEnvName(name) || isNumericVar(name)
+}
+
+func numericVarContinues(input, name string, end int) bool {
+	if !isNumericVar(name) || end >= len(input) {
+		return false
+	}
+	next := input[end]
+	return next == '_' ||
+		(next >= '0' && next <= '9') ||
+		(next >= 'A' && next <= 'Z') ||
+		(next >= 'a' && next <= 'z')
 }
 
 // isSingleQuotedVar reports whether the matched variable token starts inside
@@ -274,7 +295,7 @@ func supportedStrictBinding(segments []string) bool {
 	case "consts", "params":
 		return len(segments) == 2 && bindingNamePattern.MatchString(segments[1])
 	case "env":
-		return len(segments) == 2 && bindingNamePattern.MatchString(segments[1])
+		return len(segments) == 2 && ValidEnvName(segments[1])
 	case "steps":
 		if len(segments) < 4 || segments[2] != "outputs" {
 			return false

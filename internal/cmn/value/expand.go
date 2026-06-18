@@ -88,8 +88,7 @@ func expandPOSIXExpression(expr string, env *shellEnviron) (string, error) {
 // For each variable expression in the input:
 //   - Defined variables with POSIX operators (e.g. ${VAR:0:3}) are expanded via mvdan.cc/sh.
 //   - Defined simple variables (${VAR}, $VAR) are resolved directly.
-//   - When ExpandOS is false (default): undefined variables are preserved for later OS shell evaluation.
-//   - When ExpandOS is true: undefined variables follow POSIX rules (empty, defaults applied, etc.).
+//   - Undefined variables are preserved in their original form for the owning runtime to resolve.
 //   - Single-quoted variables are preserved as-is.
 func expandWithShellContext(ctx context.Context, input string, opts *options) (string, error) {
 	if !opts.ExpandShell && !opts.ExpandEnv {
@@ -124,18 +123,30 @@ func expandWithShellContext(ctx context.Context, input string, opts *options) (s
 		// Extract variable name and detect POSIX operators.
 		var varName string
 		var hasPOSIXOp bool
+		var unbracedPositional bool
 		if loc[2] >= 0 { // Group 1: ${...}
 			inner := input[loc[2]:loc[3]]
 			varName = extractPOSIXVarName(inner)
 			hasPOSIXOp = inner != varName
-		} else { // Group 2: $VAR
+		} else if loc[4] >= 0 { // Group 2: $VAR
 			varName = input[loc[4]:loc[5]]
+		} else if loc[6] >= 0 { // Group 3: positional $1
+			varName = input[loc[6]:loc[7]]
+			unbracedPositional = true
+		} else {
+			b.WriteString(match)
+			continue
 		}
 
+		if !validVariableTokenName(varName) ||
+			(unbracedPositional && numericVarContinues(input, varName, loc[1])) {
+			b.WriteString(match)
+			continue
+		}
 		val, defined := r.resolveForShell(varName)
 
-		// Undefined without OS expansion: preserve for later shell evaluation.
-		if !defined && !opts.ExpandOS {
+		// Undefined variables are preserved for their owning runtime.
+		if !defined {
 			b.WriteString(match)
 			continue
 		}

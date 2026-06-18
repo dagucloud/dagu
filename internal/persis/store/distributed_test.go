@@ -863,7 +863,7 @@ func TestDispatchTaskStore_DueIDReconciliationSkipsRecordReadsWhenIDsUnchanged(t
 }
 
 func TestDispatchTaskStore_ClaimNextReconcilesDueNoMatchIDs(t *testing.T) {
-	store.SetDispatchIndexReconcileIntervalForTest(t, 5*time.Millisecond)
+	store.SetDispatchIndexReconcileIntervalForTest(t, time.Hour)
 	ctx := context.Background()
 	col := newCountingRecordIDsCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
 	s := store.NewDispatchTaskStore(col)
@@ -894,7 +894,7 @@ func TestDispatchTaskStore_ClaimNextReconcilesDueNoMatchIDs(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, claimed, "external pending IDs may be hidden until reconciliation is due")
 
-	waitDispatchIndexReconcileInterval()
+	store.MarkDispatchIndexReconcileDueForTest(t, s)
 
 	claimed, err = s.ClaimNext(ctx, exec.DispatchTaskClaim{
 		WorkerID: "worker-cpu",
@@ -1060,7 +1060,7 @@ func TestDispatchTaskStore_TwoStoreInstancesClaimExactlyOnce(t *testing.T) {
 }
 
 func TestDispatchTaskStore_CountOutstandingSeesSecondStoreEnqueueAfterDueReconcile(t *testing.T) {
-	store.SetDispatchIndexReconcileIntervalForTest(t, 5*time.Millisecond)
+	store.SetDispatchIndexReconcileIntervalForTest(t, time.Hour)
 	ctx := context.Background()
 	col := newCountingRecordIDsCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
 	first := store.NewDispatchTaskStore(col)
@@ -1082,7 +1082,7 @@ func TestDispatchTaskStore_CountOutstandingSeesSecondStoreEnqueueAfterDueReconci
 	require.NoError(t, err)
 	assert.Zero(t, count, "external enqueue may be hidden until reconciliation is due")
 
-	waitDispatchIndexReconcileInterval()
+	store.MarkDispatchIndexReconcileDueForTest(t, first)
 
 	count, err = first.CountOutstandingByQueue(ctx, "queue-a", time.Second)
 	require.NoError(t, err)
@@ -1090,7 +1090,7 @@ func TestDispatchTaskStore_CountOutstandingSeesSecondStoreEnqueueAfterDueReconci
 }
 
 func TestDispatchTaskStore_HasOutstandingAttemptSeesSecondStoreEnqueueAfterDueReconcile(t *testing.T) {
-	store.SetDispatchIndexReconcileIntervalForTest(t, 5*time.Millisecond)
+	store.SetDispatchIndexReconcileIntervalForTest(t, time.Hour)
 	ctx := context.Background()
 	col := newCountingRecordIDsCollection(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
 	first := store.NewDispatchTaskStore(col)
@@ -1112,7 +1112,7 @@ func TestDispatchTaskStore_HasOutstandingAttemptSeesSecondStoreEnqueueAfterDueRe
 	require.NoError(t, err)
 	assert.False(t, hasOutstanding, "external enqueue may be hidden until reconciliation is due")
 
-	waitDispatchIndexReconcileInterval()
+	store.MarkDispatchIndexReconcileDueForTest(t, first)
 
 	hasOutstanding, err = first.HasOutstandingAttempt(ctx, "attempt-key-admission-attempt", time.Second)
 	require.NoError(t, err)

@@ -1,0 +1,12 @@
+working_dir: .
+env:
+  - SERVICE=api
+steps:
+  - name: write
+    action: file.write
+    with:
+      path: shell-style.txt
+      content: |
+        ${SERVICE:-fallback}
+        ${MISSING:-default}
+        ${MISSING:4:10}

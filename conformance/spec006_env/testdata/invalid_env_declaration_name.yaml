@@ -1,0 +1,7 @@
+working_dir: .
+env:
+  - 1INVALID=value
+steps:
+  - name: write
+    run: |
+      touch executed.txt

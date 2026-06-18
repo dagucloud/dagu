@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -349,6 +350,32 @@ func TestNewContext_DAGEnvUsesRuntimeParamsOption(t *testing.T) {
 
 	result := exec.GetContext(ctx).UserEnvsMap()
 	assert.Equal(t, "runtime", result["TARGET"])
+}
+
+func TestNewContext_DAGEnvOverridesParamsCaseInsensitiveOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows environment variables are case-insensitive")
+	}
+
+	dag := &core.DAG{
+		Name:   "test-dag",
+		Params: []string{"target=stored"},
+		ParamDefs: []core.ParamDef{{
+			Name: "target",
+			Type: core.ParamDefTypeString,
+		}},
+		Env: []string{
+			"TARGET=${params.target}",
+		},
+	}
+
+	ctx := exec.NewContext(context.Background(), dag, "run-1", "test.log",
+		exec.WithParams([]string{"target=runtime"}),
+	)
+
+	result := exec.GetContext(ctx).UserEnvsMap()
+	assert.Equal(t, "runtime", result["TARGET"])
+	assert.NotContains(t, result, "target")
 }
 
 func TestNewContext_DefaultProfileEnvsHaveLowestUserPrecedence(t *testing.T) {

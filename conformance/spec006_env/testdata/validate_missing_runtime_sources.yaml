@@ -1,0 +1,18 @@
+working_dir: .
+env:
+  - RUNTIME_ONLY=${env.RUNTIME_ONLY}
+dotenv:
+  - .env
+steps:
+  - name: previous
+    run: |
+      printf 'unused\n'
+    output:
+      VALUE:
+        value: runtime
+  - name: write
+    depends: previous
+    env:
+      - FROM_PREVIOUS=${steps.previous.outputs.VALUE}
+    run: |
+      printf '%s\n' '${env.RUNTIME_ONLY}' '${env.PROCESS_ONLY}' '${env.DOTENV_ONLY}' > validate-missing-runtime.txt

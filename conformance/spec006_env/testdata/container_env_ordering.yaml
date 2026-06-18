@@ -1,0 +1,13 @@
+working_dir: .
+container:
+  image: alpine:3.20
+  env:
+    - BASE=api
+    - HOST=${env.BASE}.internal
+    - SELF=${env.SELF}
+    - LATER=$AFTER
+    - AFTER=done
+steps:
+  - name: noop
+    run: |
+      true

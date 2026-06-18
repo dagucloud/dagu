@@ -137,6 +137,29 @@ func TestEvalContainerFields(t *testing.T) {
 			},
 		},
 		{
+			name: "EnvEntriesEvaluateSequentially",
+			setup: func(ctx context.Context) context.Context {
+				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
+				return runtime.WithEnv(ctx, env)
+			},
+			input: core.Container{
+				Image: "myapp",
+				Env: []string{
+					"SERVICE=api",
+					"HOST=${env.SERVICE}.internal",
+					"SELF=${env.SELF}",
+				},
+			},
+			expected: core.Container{
+				Image: "myapp",
+				Env: []string{
+					"SERVICE=api",
+					"HOST=api.internal",
+					"SELF=${env.SELF}",
+				},
+			},
+		},
+		{
 			name: "CommandWithVariables",
 			setup: func(ctx context.Context) context.Context {
 				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
