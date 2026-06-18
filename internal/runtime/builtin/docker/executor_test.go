@@ -22,7 +22,7 @@ func TestNewDocker_SelectsDaemonHostFromServiceEnv(t *testing.T) {
 	withEnv := func(ctx context.Context) context.Context {
 		return runtime.WithEnv(ctx, runtime.NewEnv(ctx, core.Step{Name: "test"}))
 	}
-	daemonHostOf := func(t *testing.T, e interface{}) string {
+	daemonHostOf := func(t *testing.T, e any) string {
 		t.Helper()
 		d, ok := e.(*docker)
 		require.True(t, ok, "executor is *docker")
