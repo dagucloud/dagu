@@ -1,4 +1,4 @@
-shell: powershell
+shell: cmd
 working_dir: .
 params:
   - name: run_date
@@ -7,4 +7,4 @@ params:
     default: fallback-date
 steps:
   - name: write
-    run: Set-Content -NoNewline -Path windows-fallback.txt -Value '${params.run_date}'
+    run: <nul set /p dummy=${params.run_date} > windows-fallback.txt

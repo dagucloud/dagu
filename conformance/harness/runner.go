@@ -74,7 +74,12 @@ func (r *Runner) run(extraEnv []string, args ...string) *Result {
 
 	err := cmd.Run()
 	if ctx.Err() != nil {
-		r.t.Fatalf("dagu command timed out: dagu %s", strings.Join(args, " "))
+		r.t.Fatalf(
+			"dagu command timed out: dagu %s\nstdout:\n%s\nstderr:\n%s",
+			strings.Join(args, " "),
+			stdout.String(),
+			stderr.String(),
+		)
 	}
 
 	exitCode := 0
@@ -380,8 +385,9 @@ func isolatedEnv(t *testing.T) []string {
 		"USERPROFILE="+home,
 	)
 	if runtime.GOOS == "windows" {
-		// The conformance fixtures use POSIX shell snippets. GitHub-hosted
-		// Windows runners provide Bash through Git for Windows.
+		// Most conformance fixtures use POSIX shell snippets. GitHub-hosted
+		// Windows runners provide Bash through Git for Windows; Windows-specific
+		// suites can override this default with RunWithEnv.
 		env = append(env, "DAGU_DEFAULT_SHELL=bash")
 	}
 

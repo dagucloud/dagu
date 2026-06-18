@@ -1,7 +1,7 @@
-shell: powershell
+shell: cmd
 working_dir: .
 env:
   OUTSIDE: $(Write-Output should-not-run)
 steps:
   - name: write
-    run: Set-Content -NoNewline -Path windows-outside-dollar.txt -Value $env:OUTSIDE
+    run: <nul set /p dummy=%OUTSIDE% > windows-outside-dollar.txt

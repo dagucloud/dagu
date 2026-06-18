@@ -1,4 +1,4 @@
-shell: powershell
+shell: cmd
 working_dir: .
 params:
   - name: environment
@@ -9,4 +9,4 @@ params:
     eval: $(Write-Output '${SPEC011_DYNAMIC_VALUE}-${params.environment}')
 steps:
   - name: write
-    run: Set-Content -NoNewline -Path windows-env-order.txt -Value '${params.combined}'
+    run: <nul set /p dummy=${params.combined} > windows-env-order.txt

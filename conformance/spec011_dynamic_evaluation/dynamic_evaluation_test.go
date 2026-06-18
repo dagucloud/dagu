@@ -86,7 +86,7 @@ func TestRuntimeDynamicEvaluation(t *testing.T) {
 
 func TestRuntimeDynamicEvaluationWindows(t *testing.T) {
 	if runtime.GOOS != "windows" {
-		t.Skip("fixtures use PowerShell command snippets")
+		t.Skip("fixtures use Windows command snippets")
 	}
 
 	cases := []runtimeCase{
@@ -166,7 +166,7 @@ func TestDynamicEvaluationFailureWithoutDefaultFails(t *testing.T) {
 func TestDynamicEvaluationFailureWithoutDefaultFailsWindows(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS != "windows" {
-		t.Skip("fixture uses PowerShell command snippets")
+		t.Skip("fixture uses Windows command snippets")
 	}
 
 	dagu := harness.NewRunner(t)
@@ -192,7 +192,7 @@ func TestValidateParsesButDoesNotExecuteDynamicEvaluation(t *testing.T) {
 func TestValidateParsesButDoesNotExecuteDynamicEvaluationWindows(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS != "windows" {
-		t.Skip("fixture uses PowerShell command snippets")
+		t.Skip("fixture uses Windows command snippets")
 	}
 
 	dagu := harness.NewRunner(t)

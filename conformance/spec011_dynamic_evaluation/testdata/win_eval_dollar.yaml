@@ -1,4 +1,4 @@
-shell: powershell
+shell: cmd
 working_dir: .
 params:
   - name: today
@@ -6,4 +6,4 @@ params:
     eval: $(Write-Output 20260131)
 steps:
   - name: write
-    run: Set-Content -NoNewline -Path windows-dollar.txt -Value '${params.today}'
+    run: <nul set /p dummy=${params.today} > windows-dollar.txt
