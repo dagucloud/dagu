@@ -71,6 +71,7 @@ func TestRestartCommand_BuiltExecutableRestoresExplicitEnv(t *testing.T) {
 	th := test.SetupCommand(t, test.WithBuiltExecutable())
 	t.Setenv("CMD_RESTART_EXPLICIT_ENV", "from-host")
 
+	holdTimeout := 3 * commandLogWaitTimeout()
 	release := newHoldFile(t)
 	dag := th.DAG(t, fmt.Sprintf(`name: built-restart-explicit-env
 env:
@@ -81,7 +82,7 @@ steps:
   - name: "capture"
     run: printf '%%s|%%s' "$EXPORTED_SECRET" "${CMD_RESTART_EXPLICIT_ENV:-}"
     output: RESULT
-`, holdUntilFileExistsCommand(release)))
+`, holdUntilFileExistsCommandWithin(release, holdTimeout)))
 
 	startDone := make(chan error, 1)
 	go func() {
@@ -95,7 +96,7 @@ steps:
 		return err == nil && status != nil && status.Status == core.Running
 	}, 10*time.Second, 100*time.Millisecond)
 
-	releaseDone := releaseHoldFileWhenRecentStatusCountAtLeast(t, th, dag.Name, 2, release)
+	releaseDone := releaseHoldFileWhenRecentStatusCountAtLeastWithin(t, th, dag.Name, 2, release, holdTimeout)
 	test.RunBuiltCLI(t, th.Helper, []string{"CMD_RESTART_EXPLICIT_ENV=from-host"}, "restart", dag.Name)
 	require.NoError(t, <-releaseDone)
 

@@ -50,6 +50,17 @@ func NewRunner(t *testing.T) *Runner {
 // Run executes the configured Dagu binary inside the isolated project.
 func (r *Runner) Run(args ...string) *Result {
 	r.t.Helper()
+	return r.run(nil, args...)
+}
+
+// RunWithEnv executes the configured Dagu binary with extra environment entries.
+func (r *Runner) RunWithEnv(env []string, args ...string) *Result {
+	r.t.Helper()
+	return r.run(env, args...)
+}
+
+func (r *Runner) run(extraEnv []string, args ...string) *Result {
+	r.t.Helper()
 
 	timeout := commandTimeout(r.t)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -60,7 +71,7 @@ func (r *Runner) Run(args ...string) *Result {
 	// Binary-level tests intentionally execute the configured Dagu binary.
 	cmd := exec.CommandContext(ctx, daguBinary(r.t), args...) //nolint:gosec
 	cmd.Dir = r.dir
-	cmd.Env = append(isolatedEnv(r.t), "PWD="+r.dir)
+	cmd.Env = appendEnv(append(isolatedEnv(r.t), "PWD="+r.dir), extraEnv...)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
@@ -90,6 +101,37 @@ func (r *Runner) Run(args ...string) *Result {
 		stdout:   stdout.String(),
 		stderr:   stderr.String(),
 	}
+}
+
+func appendEnv(env []string, extra ...string) []string {
+	result := append([]string(nil), env...)
+	for _, entry := range extra {
+		key, _, ok := strings.Cut(entry, "=")
+		if ok {
+			result = removeEnvKey(result, key)
+		}
+		result = append(result, entry)
+	}
+	return result
+}
+
+func removeEnvKey(env []string, key string) []string {
+	result := env[:0]
+	for _, entry := range env {
+		entryKey, _, ok := strings.Cut(entry, "=")
+		if ok && sameEnvKey(entryKey, key) {
+			continue
+		}
+		result = append(result, entry)
+	}
+	return result
+}
+
+func sameEnvKey(a, b string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 // ExpectNoFile fails the test when name exists in the isolated project.
@@ -365,8 +407,9 @@ func isolatedEnv(t *testing.T) []string {
 		"USERPROFILE="+home,
 	)
 	if runtime.GOOS == "windows" {
-		// The conformance fixtures use POSIX shell snippets. GitHub-hosted
-		// Windows runners provide Bash through Git for Windows.
+		// Most conformance fixtures use POSIX shell snippets. GitHub-hosted
+		// Windows runners provide Bash through Git for Windows; Windows-specific
+		// suites can override this default with RunWithEnv.
 		env = append(env, "DAGU_DEFAULT_SHELL=bash")
 	}
 

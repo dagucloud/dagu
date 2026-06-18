@@ -1,0 +1,8 @@
+working_dir: .
+params:
+  - name: marker
+    type: string
+    eval: $(sh -c 'printf bad > validate-executed.txt; printf ok')
+steps:
+  - name: ok
+    run: "true"
