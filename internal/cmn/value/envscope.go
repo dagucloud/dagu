@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 )
@@ -292,11 +293,12 @@ func (e *EnvScope) collectAll(include func(EnvEntry) bool) map[string]string {
 		return make(map[string]string)
 	}
 	result := make(map[string]string)
-	e.collect(result, include)
+	keys := make(map[string]string)
+	e.collect(result, keys, include)
 	return result
 }
 
-func (e *EnvScope) collect(result map[string]string, include func(EnvEntry) bool) {
+func (e *EnvScope) collect(result map[string]string, keys map[string]string, include func(EnvEntry) bool) {
 	if e == nil {
 		return
 	}
@@ -304,13 +306,29 @@ func (e *EnvScope) collect(result map[string]string, include func(EnvEntry) bool
 	defer e.mu.RUnlock()
 
 	if e.parent != nil {
-		e.parent.collect(result, include)
+		e.parent.collect(result, keys, include)
 	}
 	for k, entry := range e.entries {
 		if include(entry) {
-			result[k] = entry.Value
+			setCollectedEnv(result, keys, k, entry.Value)
 		}
 	}
+}
+
+func setCollectedEnv(result map[string]string, keys map[string]string, key string, value string) {
+	id := envScopeKeyID(key)
+	if previous, ok := keys[id]; ok && previous != key {
+		delete(result, previous)
+	}
+	keys[id] = key
+	result[key] = value
+}
+
+func envScopeKeyID(key string) string {
+	if runtime.GOOS == "windows" {
+		return strings.ToUpper(key)
+	}
+	return key
 }
 
 // Provenance returns a human-readable description of where a variable came from.
