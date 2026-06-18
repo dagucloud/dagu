@@ -284,8 +284,8 @@ describe('useBoundedDAGRunDetails', () => {
 
   it('hydrates sub DAG-run details from SSE payloads without matching the root DAG name', async () => {
     fetchDAGRunDetailsMock.mockResolvedValue({
-      dagRunId: 'sub-run',
-      name: 'child-dag',
+      dagRunId: 'fetched-run',
+      name: 'fetched-dag',
     });
     subDAGRunSSEState.current = {
       data: {
