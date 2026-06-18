@@ -9,8 +9,9 @@ export function sseFallbackOptions(
   sseResult: SSEState<unknown>,
   fallbackInterval: number = 2000
 ) {
-  const sseUsable = sseResult.isConnected && !sseResult.shouldUseFallback;
-  const shouldPoll = !sseUsable;
+  const shouldPoll =
+    sseResult.shouldUseFallback ||
+    (!sseResult.isConnected && !sseResult.isConnecting);
   return {
     revalidateOnMount: true,
     revalidateIfStale: shouldPoll,

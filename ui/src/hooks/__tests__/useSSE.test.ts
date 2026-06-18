@@ -91,7 +91,7 @@ describe('sseFallbackOptions', () => {
     });
   });
 
-  it('keeps polling enabled while SSE is connecting but not usable yet', () => {
+  it('keeps polling disabled while SSE is reconnecting before fallback', () => {
     expect(
       sseFallbackOptions({
         data: null,
@@ -101,9 +101,9 @@ describe('sseFallbackOptions', () => {
         shouldUseFallback: false,
       })
     ).toMatchObject({
-      revalidateIfStale: true,
-      revalidateOnFocus: true,
-      refreshInterval: 2000,
+      revalidateIfStale: false,
+      revalidateOnFocus: false,
+      refreshInterval: 0,
     });
   });
 
