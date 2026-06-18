@@ -6,6 +6,7 @@ package core
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -96,6 +97,14 @@ const (
 	WaitForHealthy ContainerWaitFor = "healthy"
 )
 
+// ContainerRuntime is the runtime used to launch or exec into a container.
+type ContainerRuntime string
+
+const (
+	ContainerRuntimeDocker ContainerRuntime = "docker"
+	ContainerRuntimePodman ContainerRuntime = "podman"
+)
+
 // GetWorkingDir returns the working directory inside the container
 func (ct Container) GetWorkingDir() string {
 	return ct.WorkingDir
@@ -104,6 +113,21 @@ func (ct Container) GetWorkingDir() string {
 // IsExecMode returns true if this container is configured to exec into an existing container
 func (ct Container) IsExecMode() bool {
 	return ct.Exec != ""
+}
+
+// ParseContainerRuntime parses a container runtime from a raw string.
+func ParseContainerRuntime(raw string) (ContainerRuntime, error) {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	switch value {
+	case "":
+		return "", nil
+	case string(ContainerRuntimeDocker):
+		return ContainerRuntimeDocker, nil
+	case string(ContainerRuntimePodman):
+		return ContainerRuntimePodman, nil
+	default:
+		return "", fmt.Errorf("invalid container runtime %q (supported: docker, podman)", raw)
+	}
 }
 
 // PullPolicy defines image pull policy for a container execution

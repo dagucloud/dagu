@@ -16,6 +16,7 @@ import (
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/runtime"
+	dockerexec "github.com/dagucloud/dagu/internal/runtime/builtin/docker"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -835,6 +836,303 @@ func TestHarnessExecutorRun_UsesPATHFromRuntimeEnv(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "resolved from path\n", stdout.String())
 	assert.Empty(t, stderr.String())
+}
+
+func TestBuildHarnessContainerRunConfig_PodmanImageMode(t *testing.T) {
+	ct := core.Container{
+		Image:      "localhost/reviewer:latest",
+		WorkingDir: "/work",
+		Network:    "host",
+		Volumes:    []string{"/host/src:/src:ro"},
+		Env:        []string{"HARNESS_TOKEN=secret"},
+	}
+	inherited := []string{"PATH=/bin", "HARNESS_TOKEN=old"}
+	// DAGU_CONTAINER_RUNTIME=podman selects the podman runtime for the engine.
+	envs := map[string]string{dockerexec.ContainerRuntimeEnv: "podman"}
+
+	cfg, runCmd, err := buildHarnessContainerRunConfig(
+		"/work", ct, nil, "missing-agent", []string{"hello from harness"}, inherited, envs,
+	)
+	require.NoError(t, err)
+
+	// podman runtime selects podman's Docker-compatible socket.
+	assert.Equal(t, dockerexec.PodmanDaemonHostDefault, cfg.DaemonHost)
+	assert.Equal(t, "localhost/reviewer:latest", cfg.Image)
+	assert.True(t, cfg.AutoRemove, "ephemeral by default (keep_container false)")
+	assert.True(t, cfg.ShouldStart)
+
+	require.NotNil(t, cfg.Container)
+	// The agent binary is the entrypoint (so an image ENTRYPOINT is not doubled),
+	// and the args are the command.
+	assert.Equal(t, []string{"missing-agent"}, cfg.Container.Entrypoint)
+	assert.Equal(t, []string{"hello from harness"}, runCmd)
+
+	// Env is full KEY=value on the container config (secrets never in argv);
+	// explicit container.env overrides inherited by key.
+	assert.Contains(t, cfg.Container.Env, "PATH=/bin")
+	assert.Contains(t, cfg.Container.Env, "HARNESS_TOKEN=secret")
+	assert.NotContains(t, cfg.Container.Env, "HARNESS_TOKEN=old")
+
+	// network: host maps to the SDK host network mode.
+	require.NotNil(t, cfg.Host)
+	assert.Equal(t, "host", string(cfg.Host.NetworkMode))
+}
+
+func TestBuildHarnessContainerRunConfig_DockerRuntimeUsesFromEnv(t *testing.T) {
+	// docker is the default: both an unset env and an explicit "docker" leave
+	// DaemonHost empty, preserving upstream client.FromEnv behavior.
+	for _, envs := range []map[string]string{
+		nil,
+		{dockerexec.ContainerRuntimeEnv: "docker"},
+	} {
+		ct := core.Container{Image: "localhost/reviewer:latest"}
+		cfg, _, err := buildHarnessContainerRunConfig(
+			"/work", ct, nil, "claude", []string{"-p", "hi"}, nil, envs,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, "", cfg.DaemonHost, "env %v should not override the daemon host", envs)
+	}
+}
+
+func TestBuildHarnessContainerRunConfig_PodmanHostOverride(t *testing.T) {
+	ct := core.Container{Image: "localhost/reviewer:latest"}
+	envs := map[string]string{
+		dockerexec.ContainerRuntimeEnv: "podman",
+		dockerexec.PodmanDaemonHostEnv: "unix:///custom/podman.sock",
+	}
+	cfg, _, err := buildHarnessContainerRunConfig(
+		"/work", ct, nil, "claude", []string{"-p", "hi"}, nil, envs,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "unix:///custom/podman.sock", cfg.DaemonHost)
+}
+
+func TestBuildHarnessContainerRunConfig_InvalidRuntimeRejected(t *testing.T) {
+	ct := core.Container{Image: "localhost/reviewer:latest"}
+	envs := map[string]string{dockerexec.ContainerRuntimeEnv: "containerd"}
+	_, _, err := buildHarnessContainerRunConfig(
+		"/work", ct, nil, "claude", []string{"-p", "hi"}, nil, envs,
+	)
+	require.Error(t, err)
+}
+
+func TestBuildHarnessContainerRunConfig_ExecModeUsesFullCommand(t *testing.T) {
+	ct := core.Container{Exec: "existing-container"}
+	envs := map[string]string{dockerexec.ContainerRuntimeEnv: "podman"}
+	cfg, runCmd, err := buildHarnessContainerRunConfig(
+		"/work", ct, nil, "missing-agent", []string{"hello"}, []string{"FOO=bar"}, envs,
+	)
+	require.NoError(t, err)
+
+	assert.Equal(t, "existing-container", cfg.ContainerName)
+	assert.Equal(t, dockerexec.PodmanDaemonHostDefault, cfg.DaemonHost)
+	// exec into an existing container: full [binary, args...], no image entrypoint.
+	assert.Equal(t, []string{"missing-agent", "hello"}, runCmd)
+	require.NotNil(t, cfg.ExecOptions)
+	assert.Contains(t, cfg.ExecOptions.Env, "FOO=bar")
+}
+
+func TestBuildHarnessContainerRunConfig_EmptyBinaryRejected(t *testing.T) {
+	ct := core.Container{Image: "localhost/reviewer:latest"}
+	_, _, err := buildHarnessContainerRunConfig("/work", ct, nil, "", nil, nil, nil)
+	require.Error(t, err)
+}
+
+// TestBuildHarnessContainerRunConfig_ImageModeNamedContainerRejected guards the
+// image-mode command-shape invariant: in image mode the agent binary is supplied
+// via the container Entrypoint, which the daemon applies only on container CREATE.
+// A container.name can resolve to an already-running container, where Client.Run
+// execs the args INTO it and docker exec ignores the entrypoint, dropping the
+// agent binary. So image mode must reject container.name; exec mode is the
+// supported way to run inside an existing container.
+func TestBuildHarnessContainerRunConfig_ImageModeNamedContainerRejected(t *testing.T) {
+	ct := core.Container{Image: "localhost/reviewer:latest", Name: "already-running"}
+	envs := map[string]string{dockerexec.ContainerRuntimeEnv: "podman"}
+	_, _, err := buildHarnessContainerRunConfig(
+		"/work", ct, nil, "claude", []string{"-p", "hi"}, nil, envs,
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "container.name is not supported")
+
+	// Sanity: the same image WITHOUT a name still builds fine (the proven path).
+	ctNoName := core.Container{Image: "localhost/reviewer:latest"}
+	_, _, err = buildHarnessContainerRunConfig(
+		"/work", ctNoName, nil, "claude", []string{"-p", "hi"}, nil, envs,
+	)
+	require.NoError(t, err)
+
+	// Exec mode legitimately targets an existing container and must NOT be rejected
+	// by the image-mode guard (it returns the full [binary, args...] command).
+	ctExec := core.Container{Exec: "already-running"}
+	cfg, runCmd, err := buildHarnessContainerRunConfig(
+		"/work", ctExec, nil, "claude", []string{"-p", "hi"}, nil, envs,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "already-running", cfg.ContainerName)
+	assert.Equal(t, []string{"claude", "-p", "hi"}, runCmd)
+}
+
+// TestServiceRuntimeEnv_ReadsProcessEnvOnly locks the contract that runtime/socket
+// selection is a SERVICE-LEVEL decision: dockerexec.ServiceRuntimeEnv must source
+// the two selection keys from the engine process environment (os.LookupEnv) only,
+// so a DAG- or step-level env: entry cannot override it. This harness-side test
+// proves the property end-to-end through buildHarnessContainerRunConfig (the
+// resolver's own unit tests live in the docker package).
+func TestServiceRuntimeEnv_ReadsProcessEnvOnly(t *testing.T) {
+	t.Run("ignores_dag_and_step_scope", func(t *testing.T) {
+		// Process env selects docker (default). A DAG/step env: entry that sets the
+		// selector to podman must NOT leak in, because ServiceRuntimeEnv never
+		// consults the runtime scope. Assert that buildHarnessContainerRunConfig,
+		// fed by ServiceRuntimeEnv(), keeps the docker default daemon host even
+		// though the inheritedEnv below carries a podman selector.
+		osUnsetForTest(t, dockerexec.ContainerRuntimeEnv) // process: unset -> docker default
+		osUnsetForTest(t, dockerexec.PodmanDaemonHostEnv)
+
+		got := dockerexec.ServiceRuntimeEnv()
+		_, leaked := got[dockerexec.ContainerRuntimeEnv]
+		assert.False(t, leaked, "selector must not come from anywhere but process env")
+
+		ct := core.Container{Image: "localhost/reviewer:latest"}
+		// inheritedEnv simulates a DAG/step env: trying to redirect the runtime;
+		// the resolver must ignore it because it reads ServiceRuntimeEnv() only.
+		cfg, _, err := buildHarnessContainerRunConfig(
+			"/work", ct, nil, "claude", []string{"-p", "hi"},
+			[]string{dockerexec.ContainerRuntimeEnv + "=podman"},
+			dockerexec.ServiceRuntimeEnv(),
+		)
+		require.NoError(t, err)
+		assert.Equal(t, "", cfg.DaemonHost,
+			"with process env unset, daemon host stays docker default even if a DAG/step set podman")
+	})
+}
+
+// osUnsetForTest unsets an environment variable for the duration of the test,
+// restoring any prior value on cleanup. t.Setenv cannot unset, so we manage it here.
+func osUnsetForTest(t *testing.T, key string) {
+	t.Helper()
+	prev, had := os.LookupEnv(key)
+	require.NoError(t, os.Unsetenv(key))
+	t.Cleanup(func() {
+		if had {
+			_ = os.Setenv(key, prev)
+		} else {
+			_ = os.Unsetenv(key)
+		}
+	})
+}
+
+// TestRunOnce_BuiltinProviderWithContainerRejected covers the daemon-free rejection
+// path: a builtin (in-process) provider cannot run inside a container. The error
+// must surface before any SDK client is initialized, so no Docker daemon is needed.
+func TestRunOnce_BuiltinProviderWithContainerRejected(t *testing.T) {
+	exec := &harnessExecutor{
+		step: core.Step{
+			Name:      "review",
+			Container: &core.Container{Image: "localhost/reviewer:latest"},
+		},
+	}
+	_, err := exec.runOnce(context.Background(), providerConfig{name: "builtin", builtin: true})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "builtin provider does not support container execution")
+	assert.Equal(t, 1, exec.ExitCode())
+}
+
+// TestRunContainerOnce_StdinScriptRejected covers the daemon-free rejection path:
+// containerized harness does not support stdin input, because Client.Run has no
+// stdin. The script + container combination is rejected earlier at validation
+// (see TestValidateHarnessStep_ScriptWithContainerRejected); this guards the
+// remaining stdin source — a custom provider with prompt_mode: stdin — which is
+// only knowable after provider resolution, so it must be rejected before any SDK
+// client is initialized.
+func TestRunContainerOnce_StdinScriptRejected(t *testing.T) {
+	exec := &harnessExecutor{
+		step: core.Step{
+			Name:      "review",
+			Container: &core.Container{Image: "localhost/reviewer:latest"},
+		},
+		prompt: "do the thing",
+		script: "extra stdin context",
+	}
+	cfg := providerConfig{
+		name: "stdinly",
+		definition: &core.HarnessDefinition{
+			Binary:     "stdinly",
+			PromptMode: core.HarnessPromptModeStdin,
+			FlagStyle:  core.HarnessFlagStyleGNULong,
+		},
+		flags: map[string]any{"provider": "stdinly"},
+	}
+	_, err := exec.runContainerOnce(newHarnessTestContext(t, nil, exec.step), cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not support stdin")
+	assert.Equal(t, 1, exec.ExitCode())
+}
+
+// TestValidateHarnessStep_ScriptWithContainerRejected proves the script + container
+// combination fails fast at DAG-load validation rather than at run time. The
+// containerized agent runs via Client.Run which has no stdin, so a script (piped
+// to stdin on the host path) cannot be delivered. The executor advertises both
+// Script and Container capability, so without this validation a scripted harness
+// step that adds container: would pass load and only fail mid-run.
+func TestValidateHarnessStep_ScriptWithContainerRejected(t *testing.T) {
+	step := core.Step{
+		Name:           "review",
+		Commands:       []core.CommandEntry{{Command: "do the thing"}},
+		Script:         "extra stdin context",
+		Container:      &core.Container{Image: "localhost/reviewer:latest"},
+		ExecutorConfig: core.ExecutorConfig{Config: map[string]any{"provider": "claude"}},
+	}
+	err := validateHarnessStep(step)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "script")
+	assert.Contains(t, err.Error(), "container")
+
+	// Same step WITHOUT a container is valid (script on the host path is fine).
+	stepNoContainer := step
+	stepNoContainer.Container = nil
+	require.NoError(t, validateHarnessStep(stepNoContainer))
+
+	// Same step WITHOUT a script is valid (containerized harness, no stdin needed).
+	stepNoScript := step
+	stepNoScript.Script = ""
+	require.NoError(t, validateHarnessStep(stepNoScript))
+}
+
+// TestBuildHarnessContainerRunConfig_AcceptsResourceLimits proves the harness
+// container config can carry DAG resource limits: ApplyResourceLimitsToConfig
+// (which runContainerOnce calls before InitializeClient, mirroring the docker
+// executor and DAG-level container paths) maps CPU/memory onto the container
+// HostConfig. Without that call a containerized harness.run step would run
+// unbounded by the DAG's configured limits.
+func TestBuildHarnessContainerRunConfig_AcceptsResourceLimits(t *testing.T) {
+	ct := core.Container{Image: "localhost/reviewer:latest"}
+	envs := map[string]string{dockerexec.ContainerRuntimeEnv: "podman"}
+	cfg, _, err := buildHarnessContainerRunConfig(
+		"/work", ct, nil, "claude", []string{"-p", "hi"}, nil, envs,
+	)
+	require.NoError(t, err)
+
+	limits := &core.ResourceLimits{CPUMillis: 500, MemoryBytes: 1024 * 1024 * 1024}
+	applied := dockerexec.ApplyResourceLimitsToConfig(cfg, limits)
+	require.True(t, applied, "image-mode harness config must accept resource limits")
+	require.NotNil(t, cfg.Host)
+	assert.Equal(t, int64(500)*1_000_000, cfg.Host.Resources.NanoCPUs)
+	assert.Equal(t, int64(1024*1024*1024), cfg.Host.Resources.Memory)
+}
+
+func TestMergedContainerEnv(t *testing.T) {
+	got := mergedContainerEnv(
+		[]string{"PATH=/bin", "TOKEN=old", "KEEP=1"},
+		[]string{"TOKEN=new", "EXTRA=2", "=ignored", "bad"},
+	)
+	assert.Contains(t, got, "PATH=/bin")
+	assert.Contains(t, got, "KEEP=1")
+	assert.Contains(t, got, "TOKEN=new") // explicit overrides inherited
+	assert.NotContains(t, got, "TOKEN=old")
+	assert.Contains(t, got, "EXTRA=2")
+	// Malformed entries without a key are ignored.
+	assert.NotContains(t, got, "=ignored")
+	assert.NotContains(t, got, "bad")
 }
 
 func TestHarnessExecutorRun_ResolvesRelativeBinaryFromWorkingDir(t *testing.T) {

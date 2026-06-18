@@ -24,9 +24,11 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	coreexec "github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime"
+	dockerexec "github.com/dagucloud/dagu/internal/runtime/builtin/docker"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/runtime/resourcelimit"
 	"github.com/goccy/go-yaml"
+	dockerclient "github.com/moby/moby/client"
 )
 
 var _ executor.Executor = (*harnessExecutor)(nil)
@@ -69,6 +71,10 @@ type harnessExecutor struct {
 	pushBackInputs         map[string]string
 	pushBackIteration      int
 	pushBackPreviousStdout string
+
+	// container-run state (SDK path); set under mu while a containerized step runs
+	containerClient *dockerexec.Client
+	containerCancel context.CancelFunc
 }
 
 func (e *harnessExecutor) ExitCode() int {
@@ -104,15 +110,32 @@ func (e *harnessExecutor) Stop(intent cmdutil.TerminationIntent) error {
 
 func (e *harnessExecutor) stop(req cmdutil.StopRequest) error {
 	e.mu.Lock()
-	defer e.mu.Unlock()
 	if e.process == nil {
 		if e.cancelBuiltin != nil {
 			e.builtinStopped = true
 			e.cancelBuiltin()
 			e.cancelBuiltin = nil
 		}
+		// Containerized run: cancel the run context and stop the container via
+		// the SDK so a cancelled step leaves no running orphan (Close auto-removes
+		// when AutoRemove is set, i.e. keep_container is false).
+		if e.containerClient != nil || e.containerCancel != nil {
+			cli := e.containerClient
+			cancel := e.containerCancel
+			e.containerCancel = nil
+			e.mu.Unlock()
+			if cancel != nil {
+				cancel()
+			}
+			if cli != nil {
+				return cli.Stop(req.Intent.Signal)
+			}
+			return nil
+		}
+		e.mu.Unlock()
 		return nil
 	}
+	defer e.mu.Unlock()
 	_, err := e.process.Stop(req)
 	return err
 }
@@ -195,9 +218,23 @@ func (e *harnessExecutor) Run(ctx context.Context) error {
 
 func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.File, error) {
 	if cfg.builtin {
+		if e.step.Container != nil {
+			e.exitCode = 1
+			return nil, fmt.Errorf("harness: builtin provider does not support container execution")
+		}
 		return e.runBuiltinOnce(ctx, cfg)
 	}
 
+	if e.step.Container != nil {
+		return e.runContainerOnce(ctx, cfg)
+	}
+
+	return e.runHostSubprocessOnce(ctx, cfg)
+}
+
+// runHostSubprocessOnce runs the agent CLI as a host subprocess (the
+// non-container path). Unchanged from the original runOnce behavior.
+func (e *harnessExecutor) runHostSubprocessOnce(ctx context.Context, cfg providerConfig) (*os.File, error) {
 	e.mu.Lock()
 
 	env := runtime.GetEnv(ctx)
@@ -210,16 +247,6 @@ func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.
 		return nil, err
 	}
 
-	binaryPath, err := resolveBinaryPath(cfg.binaryName(), e.workDir, runtime.AllEnvsMap(ctx))
-	if err != nil {
-		e.exitCode = exitCodeFromError(err)
-		e.mu.Unlock()
-		if errors.Is(err, exec.ErrNotFound) {
-			return nil, fmt.Errorf("harness: %q CLI not found in PATH; install it first: %w", cfg.binaryName(), err)
-		}
-		return nil, fmt.Errorf("harness: failed to resolve binary %q: %w", cfg.binaryName(), err)
-	}
-
 	stdout, err := newStdoutSpool()
 	if err != nil {
 		e.exitCode = 1
@@ -227,14 +254,14 @@ func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.
 		return nil, fmt.Errorf("harness: failed to create stdout spool: %w", err)
 	}
 
-	cmd := exec.CommandContext(ctx, binaryPath, args...)
-	if len(cmd.Args) > 0 {
-		cmd.Args[0] = cfg.binaryName()
+	cmd, err := e.invocationCommand(ctx, cfg, args, stdin, stdout, tw)
+	if err != nil {
+		e.exitCode = exitCodeFromError(err)
+		_ = cleanupStdoutSpool(stdout)
+		e.mu.Unlock()
+		return nil, err
 	}
-	cmd.Env = append(cmd.Env, runtime.AllEnvs(ctx)...)
-	cmd.Dir = e.workDir
-	cmd.Stdout = stdout
-	cmd.Stderr = tw
+
 	if cmd.Dir != "" {
 		if err := os.MkdirAll(cmd.Dir, 0o750); err != nil {
 			e.exitCode = 1
@@ -244,10 +271,300 @@ func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.
 		}
 	}
 
+	return e.startAndWaitLocked(ctx, cmd, stdout, tw, env.LogEncodingCharset)
+}
+
+func (e *harnessExecutor) invocationCommand(ctx context.Context, cfg providerConfig, args []string, stdin io.Reader, stdout *os.File, stderr io.Writer) (*exec.Cmd, error) {
+	binaryPath, err := resolveBinaryPath(cfg.binaryName(), e.workDir, runtime.AllEnvsMap(ctx))
+	if err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return nil, fmt.Errorf("harness: %q CLI not found in PATH; install it first: %w", cfg.binaryName(), err)
+		}
+		return nil, fmt.Errorf("harness: failed to resolve binary %q: %w", cfg.binaryName(), err)
+	}
+
+	cmd := exec.CommandContext(ctx, binaryPath, args...)
+	if len(cmd.Args) > 0 {
+		cmd.Args[0] = cfg.binaryName()
+	}
+	cmd.Env = append(cmd.Env, runtime.AllEnvs(ctx)...)
+	cmd.Dir = e.workDir
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	if stdin != nil {
 		cmd.Stdin = stdin
 	}
+	return cmd, nil
+}
 
+// mergedContainerEnv merges inherited engine env and explicit container.env into
+// full KEY=value entries (explicit wins by key). Used as the SDK container's
+// Config.Env, so secret values are passed as container env, never in argv.
+func mergedContainerEnv(inherited, explicit []string) []string {
+	merged := append([]string(nil), inherited...)
+	indexByKey := make(map[string]int, len(merged))
+	for i, entry := range merged {
+		key, _, ok := strings.Cut(entry, "=")
+		if ok && key != "" {
+			indexByKey[key] = i
+		}
+	}
+	for _, entry := range explicit {
+		key, _, ok := strings.Cut(entry, "=")
+		if !ok || key == "" {
+			continue
+		}
+		if idx, exists := indexByKey[key]; exists {
+			merged[idx] = entry
+			continue
+		}
+		indexByKey[key] = len(merged)
+		merged = append(merged, entry)
+	}
+	return merged
+}
+
+// buildHarnessContainerRunConfig builds the Moby SDK container config for running
+// the agent CLI inside a container, plus the command slice to hand to the client.
+// Pure (no daemon/IO) so it is unit-testable. The agent binary becomes the
+// container entrypoint (image mode) so an image ENTRYPOINT does not double it.
+func buildHarnessContainerRunConfig(
+	workDir string,
+	ct core.Container,
+	registryAuths map[string]*core.AuthConfig,
+	binaryName string,
+	args []string,
+	inheritedEnv []string,
+	envs map[string]string,
+) (*dockerexec.Config, []string, error) {
+	if strings.TrimSpace(binaryName) == "" {
+		return nil, nil, fmt.Errorf("harness: empty container command")
+	}
+
+	host, err := dockerexec.ResolveDaemonHost(envs)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	mergedEnv := mergedContainerEnv(inheritedEnv, ct.Env)
+
+	cfg, err := dockerexec.LoadConfig(workDir, ct, registryAuths)
+	if err != nil {
+		return nil, nil, fmt.Errorf("harness: failed to build container config: %w", err)
+	}
+	cfg.DaemonHost = host
+	cfg.ShouldStart = true
+
+	var runCmd []string
+	if ct.IsExecMode() {
+		// exec into an existing container: no image entrypoint to collide with,
+		// so the command is the full [binary, args...]. Env goes on ExecOptions.
+		if cfg.ExecOptions == nil {
+			cfg.ExecOptions = &dockerclient.ExecCreateOptions{}
+		}
+		cfg.ExecOptions.Env = mergedEnv
+		runCmd = append([]string{binaryName}, args...)
+		return cfg, runCmd, nil
+	}
+
+	// image mode: agent binary is the entrypoint, args are the command. Setting
+	// Entrypoint=[binary] avoids doubling an image-level ENTRYPOINT (e.g. the
+	// reviewer-claude image has ENTRYPOINT ["claude"]).
+	//
+	// That entrypoint+args shaping is correct only on the container-CREATE path.
+	// A named container (container.name) can resolve to an already-running
+	// container, in which case Client.Run execs the args INTO it; docker exec
+	// ignores the image/Config entrypoint, so the agent binary would be dropped
+	// and the wrong command run. The harness container model is a fresh ephemeral
+	// container, so reject container.name in image mode; targeting an existing
+	// container is the job of exec mode (container.exec).
+	if strings.TrimSpace(ct.Name) != "" {
+		return nil, nil, fmt.Errorf("harness: container.name is not supported for an image-mode container step (it would exec into an existing container without the agent entrypoint); use exec mode (container.exec) to run inside an existing container")
+	}
+	if cfg.Container == nil {
+		return nil, nil, fmt.Errorf("harness: container config missing for image %q", ct.Image)
+	}
+	cfg.Container.Entrypoint = []string{binaryName}
+	cfg.Container.Cmd = []string{}
+	cfg.Container.Env = mergedEnv
+	runCmd = append([]string(nil), args...)
+	return cfg, runCmd, nil
+}
+
+// runContainerOnce runs the agent CLI inside a container by driving Dagu's Moby
+// SDK Client (create + start + stream + auto-remove), against the daemon socket
+// chosen by the DAGU_CONTAINER_RUNTIME service setting. No docker/podman CLI subprocess is used.
+func (e *harnessExecutor) runContainerOnce(ctx context.Context, cfg providerConfig) (*os.File, error) {
+	e.mu.Lock()
+
+	env := runtime.GetEnv(ctx)
+	tw := executor.NewTailWriterWithEncoding(e.stderrWriter(), 0, env.LogEncodingCharset)
+	e.stderrTail = tw
+
+	args, stdin, err := cfg.buildInvocation(e.effectivePrompt(), e.script)
+	if err != nil {
+		e.exitCode = 1
+		e.mu.Unlock()
+		return nil, err
+	}
+	if stdin != nil {
+		// Client.Run has no stdin. The script + container combination is rejected
+		// earlier at validation (validateHarnessStep); this guards the remaining
+		// stdin source — a custom harness with prompt_mode: stdin — which can only
+		// be known after provider resolution. The CLI providers we containerize
+		// (claude/codex/copilot) pass the prompt as argv, not stdin.
+		e.exitCode = 1
+		e.mu.Unlock()
+		return nil, fmt.Errorf("harness: containerized harness does not support stdin input (prompt_mode: stdin); use a provider that passes the prompt as arguments")
+	}
+
+	expanded, err := dockerexec.EvalContainerFields(ctx, *e.step.Container)
+	if err != nil {
+		e.exitCode = 1
+		e.mu.Unlock()
+		return nil, fmt.Errorf("harness: failed to evaluate container config: %w", err)
+	}
+
+	// Inject only USER-declared env (DAG env, step env, outputs, secrets, params)
+	// into the container, NOT the engine's OS env. The container has its own
+	// HOME/PATH/USER from its image; injecting the engine container's os.Environ
+	// would clobber them (e.g. HOME=/home/iand.guest, which is unwritable as the
+	// image's uid and breaks the agent CLI). This mirrors the docker executor,
+	// which injects only ct.Env.
+	userEnv := env.UserEnvsMap()
+	inheritedEnv := make([]string, 0, len(userEnv))
+	for k, v := range userEnv {
+		inheritedEnv = append(inheritedEnv, k+"="+v)
+	}
+
+	dcfg, runCmd, err := buildHarnessContainerRunConfig(
+		e.workDir,
+		expanded,
+		dockerexec.RegistryAuthFromContext(ctx),
+		cfg.binaryName(),
+		args,
+		inheritedEnv,
+		// Runtime/socket selection comes from the engine PROCESS env only, so a
+		// DAG/step env: cannot override the service-level DAGU_CONTAINER_RUNTIME
+		// or DAGU_PODMAN_HOST and redirect the daemon socket.
+		dockerexec.ServiceRuntimeEnv(),
+	)
+	if err != nil {
+		e.exitCode = 1
+		e.mu.Unlock()
+		return nil, err
+	}
+
+	// Apply DAG resource limits to the harness container, mirroring the native
+	// docker executor (newDocker) and the DAG-level container path (agent.go).
+	// The host-subprocess harness path is constrained via the resourcelimit guard
+	// on the child PID, but a daemon-created container is only constrained through
+	// its HostConfig, so without this a containerized harness.run step would run
+	// unbounded by the DAG's configured CPU/memory limits.
+	if env.DAG != nil && env.DAG.Resources.HasLimits() &&
+		!dockerexec.ApplyResourceLimitsToConfig(dcfg, env.DAG.Resources.Limits) {
+		logger.Warn(ctx, "Resource limits requested but cannot be applied to the harness container")
+	}
+
+	stdout, err := newStdoutSpool()
+	if err != nil {
+		e.exitCode = 1
+		e.mu.Unlock()
+		return nil, fmt.Errorf("harness: failed to create stdout spool: %w", err)
+	}
+
+	// Publish the cancellable run context BEFORE the (potentially slow)
+	// InitializeClient and release e.mu across init. Exec-mode readiness can wait
+	// up to ~120s inside InitializeClient; Node.Stop dispatches to this executor's
+	// Stop (it does not cancel the run ctx once an executor exists), and Stop needs
+	// e.mu. Holding e.mu across init would block Stop until init returned. Mirrors
+	// the native docker executor, which sets its cancel before InitializeClient.
+	// The client itself is published only after init succeeds.
+	runCtx, cancel := context.WithCancel(ctx)
+	e.containerCancel = cancel
+	e.mu.Unlock()
+
+	cli, err := dockerexec.InitializeClient(runCtx, dcfg)
+	if err != nil {
+		e.mu.Lock()
+		e.containerCancel = nil
+		e.exitCode = 1
+		e.mu.Unlock()
+		cancel()
+		_ = cleanupStdoutSpool(stdout)
+		return nil, fmt.Errorf("harness: failed to initialize container client: %w", err)
+	}
+
+	e.mu.Lock()
+	e.containerClient = cli
+	e.mu.Unlock()
+
+	defer func() {
+		// Clear the client references under the lock BEFORE closing the client, so
+		// a concurrent Stop()/Kill() cannot observe a non-nil containerClient and
+		// then call Stop() on a client whose Close() has nil'd the underlying SDK
+		// handle.
+		e.mu.Lock()
+		e.containerClient = nil
+		e.containerCancel = nil
+		e.mu.Unlock()
+		cli.Close(ctx)
+		cancel()
+	}()
+
+	// Run the container in a goroutine and watch ctx so a cancelled step (e.g.
+	// timeout_sec, which arrives only as ctx cancellation, not as a Stop() call)
+	// stops the container instead of blocking forever in Client.Run's post-wait
+	// loop. Mirrors the host subprocess path in startAndWaitLocked.
+	type containerRunResult struct {
+		exitCode int
+		err      error
+	}
+	runDone := make(chan containerRunResult, 1)
+	go func() {
+		ec, re := cli.Run(runCtx, runCmd, stdout, tw)
+		runDone <- containerRunResult{exitCode: ec, err: re}
+	}()
+
+	var exitCode int
+	var runErr error
+	select {
+	case <-ctx.Done():
+		// Stop the container via the SDK, then wait for Run to unwind.
+		_ = e.stop(cmdutil.StopRequest{Intent: cmdutil.ForceTermination(), Reason: cmdutil.StopReasonTimeout})
+		<-runDone
+		e.exitCode = 124
+		_ = cleanupStdoutSpool(stdout)
+		return nil, ctx.Err()
+	case res := <-runDone:
+		exitCode, runErr = res.exitCode, res.err
+	}
+
+	e.exitCode = exitCode
+	if runErr != nil {
+		if exitCode == 0 {
+			e.exitCode = exitCodeFromError(runErr)
+		}
+		stdoutTail, tailErr := readSpoolTail(stdout, failedStdoutTailLimit, env.LogEncodingCharset)
+		_ = cleanupStdoutSpool(stdout)
+		if tailErr != nil {
+			return nil, fmt.Errorf("harness: failed to read stdout tail: %w", tailErr)
+		}
+		if stdoutTail != "" {
+			_, _ = fmt.Fprintf(e.stderrWriter(), "recent stdout (tail):\n%s\n", stdoutTail)
+		}
+		return nil, formatProcessFailure(runErr, tw.Tail(), stdoutTail)
+	}
+
+	if _, err := stdout.Seek(0, io.SeekStart); err != nil {
+		e.exitCode = 1
+		_ = cleanupStdoutSpool(stdout)
+		return nil, fmt.Errorf("harness: failed to rewind stdout spool: %w", err)
+	}
+	return stdout, nil
+}
+
+func (e *harnessExecutor) startAndWaitLocked(ctx context.Context, cmd *exec.Cmd, stdout *os.File, tw *executor.TailWriter, logEncoding string) (*os.File, error) {
 	process, err := cmdutil.StartManagedProcess(cmd)
 	if err != nil {
 		e.exitCode = exitCodeFromError(err)
@@ -279,7 +596,7 @@ func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.
 	case err := <-waitDone:
 		if err != nil {
 			e.exitCode = exitCodeFromError(err)
-			stdoutTail, tailErr := readSpoolTail(stdout, failedStdoutTailLimit, env.LogEncodingCharset)
+			stdoutTail, tailErr := readSpoolTail(stdout, failedStdoutTailLimit, logEncoding)
 			_ = cleanupStdoutSpool(stdout)
 			if tailErr != nil {
 				return nil, fmt.Errorf("harness: failed to read stdout tail: %w", tailErr)
@@ -673,6 +990,16 @@ func validateHarnessStep(step core.Step) error {
 	if err := validatePromptCommand(step); err != nil {
 		return err
 	}
+	// A containerized harness step runs the agent via the Moby SDK Client.Run,
+	// which has no stdin; script input is piped to stdin only on the host
+	// subprocess path. Reject the script + container combination at validation
+	// time (fail fast at DAG load) instead of letting it pass and fail at run
+	// time, since the executor advertises both Script and Container capability.
+	// Use container.exec or drop script: to run a scripted harness in a container.
+	if step.Container != nil && strings.TrimSpace(step.Script) != "" {
+		return core.NewValidationError("script", nil,
+			fmt.Errorf("action %q does not support script with a container; the containerized agent has no stdin", "harness"))
+	}
 	cfg := step.ExecutorConfig.Config
 	if cfg == nil {
 		return core.NewValidationError("with", nil, fmt.Errorf("config is required"))
@@ -991,8 +1318,9 @@ func exitCodeFromError(err error) int {
 
 func init() {
 	caps := core.ExecutorCapabilities{
-		Command: true,
-		Script:  true,
+		Command:   true,
+		Script:    true,
+		Container: true,
 	}
 	executor.RegisterExecutor("harness", newHarness, validateHarnessStep, caps)
 }
