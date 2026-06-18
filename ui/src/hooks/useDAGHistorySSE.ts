@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import { components } from '../api/v1/schema';
 import { SSEState, useSSE } from './useSSE';
 
@@ -11,8 +14,9 @@ interface DAGHistorySSEResponse {
 
 export function useDAGHistorySSE(
   fileName: string,
-  enabled: boolean = true
+  enabled: boolean = true,
+  remoteNode?: string
 ): SSEState<DAGHistorySSEResponse> {
   const endpoint = `/events/dags/${encodeURIComponent(fileName)}/dag-runs`;
-  return useSSE<DAGHistorySSEResponse>(endpoint, enabled);
+  return useSSE<DAGHistorySSEResponse>(endpoint, enabled, remoteNode);
 }

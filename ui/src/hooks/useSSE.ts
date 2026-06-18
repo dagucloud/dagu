@@ -1,6 +1,9 @@
-import { useContext, useEffect, useRef, useState } from 'react';
-import { AppBarContext } from '../contexts/AppBarContext';
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import { useConfig } from '../contexts/ConfigContext';
+import { useRemoteNode } from '../contexts/RemoteNodeContext';
+import { useEffect, useRef, useState } from 'react';
 import { sseManager } from './SSEManager';
 
 export interface SSEState<T> {
@@ -50,10 +53,8 @@ export function useSSE<T>(
   enabled: boolean = true,
   remoteNodeOverride?: string
 ): SSEState<T> {
-  const appBarContext = useContext(AppBarContext);
   const config = useConfig();
-  const remoteNode =
-    remoteNodeOverride || appBarContext.selectedRemoteNode || 'local';
+  const remoteNode = useRemoteNode(remoteNodeOverride);
 
   const [state, setState] = useState<SSEState<T>>(INITIAL_STATE as SSEState<T>);
 
@@ -85,10 +86,6 @@ export function useSSE<T>(
           setState((prev) => ({
             ...prev,
             data: data as T,
-            isConnected: true,
-            isConnecting: false,
-            shouldUseFallback: false,
-            error: null,
           })),
         onStateChange: (connState) =>
           setState((prev) => ({

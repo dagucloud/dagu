@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 /**
  * ExecutionLog component displays the execution log for a DAG run.
  *
@@ -10,9 +13,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ReloadButton } from '@/components/ui/reload-button';
 import { Switch } from '@/components/ui/switch';
-import { AppBarContext } from '../../../../contexts/AppBarContext';
 import { TOKEN_KEY } from '../../../../contexts/AuthContext';
 import { useConfig } from '../../../../contexts/ConfigContext';
+import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useUserPreferences } from '../../../../contexts/UserPreference';
 import { useQuery } from '../../../../hooks/api';
 import { whenEnabled } from '../../../../hooks/queryUtils';
@@ -58,7 +61,7 @@ const ANSI_CODES_REGEX = [
  * Fetches log data from the API and refreshes every 30 seconds
  */
 function ExecutionLog({ name, dagRunId, dagRun }: Props) {
-  const appBarContext = React.useContext(AppBarContext);
+  const remoteNode = useRemoteNode();
   const config = useConfig();
   const { preferences, updatePreference } = useUserPreferences();
   const [viewMode, setViewMode] = useState<'tail' | 'head' | 'page'>('tail');
@@ -94,14 +97,19 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
 
   // SSE is used for tail mode with live updates (not supported for sub-DAG runs)
   const useSSE = viewMode === 'tail' && isLiveMode && !isSubDAGRun;
-  const sseResult = useDAGRunLogsSSE(name, dagRunId, useSSE, pageSize);
+  const sseResult = useDAGRunLogsSSE(
+    name,
+    dagRunId,
+    useSSE,
+    pageSize,
+    remoteNode
+  );
 
   // Fall back to REST polling when SSE is unavailable or disconnected
   const usePolling =
     !useSSE || sseResult.shouldUseFallback || !sseResult.isConnected;
 
   // Build query params based on view mode
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
   const tail = viewMode === 'tail' ? pageSize : undefined;
   const head = viewMode === 'head' ? pageSize : undefined;
   const offset =

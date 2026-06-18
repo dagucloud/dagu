@@ -80,11 +80,11 @@ const useQueryMock = useQuery as unknown as {
   mockImplementation: (fn: (path: string, init?: unknown) => unknown) => void;
 };
 
-function renderPanel() {
+function renderPanel(appBarOverride?: Partial<typeof appBarValue>) {
   return render(
     <MemoryRouter>
       <PageContextProvider>
-        <AppBarContext.Provider value={appBarValue}>
+        <AppBarContext.Provider value={{ ...appBarValue, ...appBarOverride }}>
           <DAGDetailsPanel fileName="example" onClose={vi.fn()} />
         </AppBarContext.Provider>
       </PageContextProvider>
@@ -130,6 +130,45 @@ describe('DAGDetailsPanel', () => {
       screen.getByText('Previewing example-dag [status] latest')
     ).toBeInTheDocument();
     expect(screen.getByText('Inherited hints: 1')).toBeInTheDocument();
+  });
+
+  it('uses the resolved remote node for DAG detail fetches and SSE', () => {
+    const queryCalls: Array<{ path: string; init?: unknown }> = [];
+    vi.mocked(useDAGSSE).mockReturnValue(liveState);
+    vi.mocked(useDAGRunSSE).mockReturnValue(liveState);
+    useQueryMock.mockImplementation((path, init) => {
+      queryCalls.push({ path, init });
+      if (path === '/dags/{fileName}') {
+        return {
+          data: {
+            dag: { name: 'example-dag' },
+            filePath: '/tmp/example.yaml',
+            latestDAGRun: undefined,
+            localDags: [],
+          },
+          error: undefined,
+          mutate: vi.fn(),
+        } as never;
+      }
+
+      return {
+        data: undefined,
+        error: undefined,
+        mutate: vi.fn(),
+      } as never;
+    });
+
+    renderPanel({ selectedRemoteNode: 'edge-a' });
+
+    expect(useDAGSSE).toHaveBeenCalledWith('example', true, 'edge-a');
+    expect(
+      queryCalls.find((call) => call.path === '/dags/{fileName}')?.init
+    ).toMatchObject({
+      params: {
+        query: { remoteNode: 'edge-a' },
+        path: { fileName: 'example' },
+      },
+    });
   });
 
   it('tracks a just-started DAG-run and reads its exact live status', async () => {

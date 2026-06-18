@@ -13,8 +13,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import LoadingIndicator from '@/components/ui/loading-indicator';
-import { AppBarContext } from '@/contexts/AppBarContext';
 import { useCanManageProfiles, useIsAdmin } from '@/contexts/AuthContext';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient, useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
 import { AlertTriangle, Save, X } from 'lucide-react';
@@ -29,8 +29,7 @@ const NO_PROFILE_VALUE = '__none__';
 
 function DAGSettingsTab({ fileName }: Props) {
   const client = useClient();
-  const appBarContext = React.useContext(AppBarContext);
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
+  const remoteNode = useRemoteNode();
   const canManageProfiles = useCanManageProfiles();
   const canUseProtectedProfiles = useIsAdmin();
   const [selectedProfile, setSelectedProfile] = React.useState('');

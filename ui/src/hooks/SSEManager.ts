@@ -335,9 +335,10 @@ export class SSEManager {
   }
 
   private handleTopicAdded(conn: ManagedConnection, topic: string): void {
+    conn.pendingRemove.delete(topic);
+
     if (conn.sessionId && conn.state.isConnected) {
       if (!conn.serverTopics.has(topic)) {
-        conn.pendingRemove.delete(topic);
         conn.pendingAdd.add(topic);
         this.notifyTopicState(conn, topic);
         this.scheduleMutation(conn);
@@ -346,7 +347,6 @@ export class SSEManager {
     }
 
     if (conn.eventSource && conn.state.isConnecting) {
-      conn.pendingRemove.delete(topic);
       conn.pendingAdd.add(topic);
       this.notifyTopicState(conn, topic);
       return;
@@ -571,19 +571,23 @@ export class SSEManager {
     conn.pendingAdd.clear();
     conn.pendingRemove.clear();
 
+    const hasTopics = conn.topics.size > 0;
+    const nextRetryCount = conn.retryCount + 1;
+    const shouldUseFallback = nextRetryCount >= FALLBACK_AFTER_RETRIES;
+
     this.updateState(conn, {
       isConnected: false,
-      isConnecting: false,
-      shouldUseFallback: conn.retryCount >= FALLBACK_AFTER_RETRIES,
+      isConnecting: hasTopics && !shouldUseFallback,
+      shouldUseFallback,
       error,
     });
 
-    if (conn.topics.size === 0) {
+    if (!hasTopics) {
       return;
     }
 
     const delay = calculateRetryDelay(conn.retryCount);
-    conn.retryCount += 1;
+    conn.retryCount = nextRetryCount;
 
     conn.retryTimeout = setTimeout(() => {
       conn.retryTimeout = null;
@@ -618,10 +622,21 @@ export class SSEManager {
     const add = Array.from(conn.pendingAdd).filter((topic) =>
       conn.topics.has(topic)
     );
-    const remove = Array.from(conn.pendingRemove);
+    const remove: string[] = [];
+    for (const topic of conn.pendingRemove) {
+      if (conn.topics.has(topic)) {
+        conn.pendingRemove.delete(topic);
+        continue;
+      }
+      remove.push(topic);
+    }
     if (add.length === 0 && remove.length === 0) {
       return;
     }
+
+    const isStaleMutation = () =>
+      conn.sessionId !== mutationSessionId ||
+      conn.eventSource !== mutationEventSource;
 
     conn.mutationInFlight = true;
     try {
@@ -638,10 +653,6 @@ export class SSEManager {
         }
       );
       handleAuthResponse(response);
-
-      const isStaleMutation = () =>
-        conn.sessionId !== mutationSessionId ||
-        conn.eventSource !== mutationEventSource;
 
       if (isStaleMutation()) {
         return;
@@ -682,6 +693,9 @@ export class SSEManager {
       }
       for (const topic of remove) {
         conn.pendingRemove.delete(topic);
+        if (conn.topics.has(topic) && !conn.serverTopics.has(topic)) {
+          conn.pendingAdd.add(topic);
+        }
       }
 
       if ('errors' in body && body.errors && body.errors.length > 0) {
@@ -689,6 +703,16 @@ export class SSEManager {
       }
       this.notifyAllTopicStates(conn);
     } catch (error) {
+      if (isStaleMutation()) {
+        return;
+      }
+      for (const topic of remove) {
+        if (conn.topics.has(topic)) {
+          conn.pendingRemove.delete(topic);
+          conn.serverTopics.delete(topic);
+          conn.pendingAdd.add(topic);
+        }
+      }
       this.updateState(conn, {
         error:
           error instanceof Error

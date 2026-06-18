@@ -13,10 +13,12 @@ import {
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { components, Status } from '../../../../api/v1/schema';
+import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import dayjs from '../../../../lib/dayjs';
 import StatusChip from '@/components/ui/status-chip';
 import AutoRetryBadge from '../common/AutoRetryBadge';
 import { DAGRunActions } from '../common';
+import { buildDAGPageURL, buildDAGRunPageURL } from '../../lib/dagRunUrls';
 
 interface DAGRunHeaderProps {
   dagRun: components['schemas']['DAGRunDetails'];
@@ -25,6 +27,7 @@ interface DAGRunHeaderProps {
 
 const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({ dagRun, refreshFn }) => {
   const navigate = useNavigate();
+  const remoteNode = useRemoteNode();
   const [isRefreshing, setIsRefreshing] = React.useState(false);
 
   function formatDuration(startDate: string, endDate: string): string {
@@ -52,18 +55,25 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({ dagRun, refreshFn }) => {
 
   const handleRootDAGRunClick = (e: React.MouseEvent) => {
     e.preventDefault();
-    navigate(`/dag-runs/${dagRun.rootDAGRunName}/${dagRun.rootDAGRunId}`);
+    navigate(
+      buildDAGRunPageURL({
+        rootDAGRunName: dagRun.rootDAGRunName,
+        rootDAGRunId: dagRun.rootDAGRunId,
+        remoteNode,
+      })
+    );
   };
 
   const handleParentDAGRunClick = (e: React.MouseEvent) => {
     e.preventDefault();
     if (dagRun.parentDAGRunId) {
-      const searchParams = new URLSearchParams();
-      searchParams.set('subDAGRunId', dagRun.parentDAGRunId);
-      searchParams.set('dagRunId', dagRun.rootDAGRunId);
-      searchParams.set('dagRunName', dagRun.rootDAGRunName);
       navigate(
-        `/dag-runs/${dagRun.rootDAGRunName}/${dagRun.rootDAGRunId}?${searchParams.toString()}`
+        buildDAGRunPageURL({
+          rootDAGRunName: dagRun.rootDAGRunName,
+          rootDAGRunId: dagRun.rootDAGRunId,
+          remoteNode,
+          subDAGRunId: dagRun.parentDAGRunId,
+        })
       );
     }
   };
@@ -116,7 +126,11 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({ dagRun, refreshFn }) => {
             {dagRun.rootDAGRunId !== dagRun.dagRunId && (
               <>
                 <a
-                  href={`/dag-runs/${dagRun.rootDAGRunName}/${dagRun.rootDAGRunId}`}
+                  href={buildDAGRunPageURL({
+                    rootDAGRunName: dagRun.rootDAGRunName,
+                    rootDAGRunId: dagRun.rootDAGRunId,
+                    remoteNode,
+                  })}
                   onClick={handleRootDAGRunClick}
                   className="text-primary hover:text-primary hover:underline transition-colors font-medium"
                 >
@@ -132,7 +146,12 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({ dagRun, refreshFn }) => {
               dagRun.parentDAGRunName !== dagRun.name && (
                 <>
                   <a
-                    href="#"
+                    href={buildDAGRunPageURL({
+                      rootDAGRunName: dagRun.rootDAGRunName,
+                      rootDAGRunId: dagRun.rootDAGRunId,
+                      remoteNode,
+                      subDAGRunId: dagRun.parentDAGRunId,
+                    })}
                     onClick={handleParentDAGRunClick}
                     className="text-primary hover:text-primary hover:underline transition-colors font-medium"
                   >
@@ -149,11 +168,17 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({ dagRun, refreshFn }) => {
             </h1>
             {dagRun.sourceFileName && (
               <a
-                href={`/dags/${encodeURIComponent(dagRun.sourceFileName)}/`}
+                href={buildDAGPageURL({
+                  fileName: dagRun.sourceFileName,
+                  remoteNode,
+                })}
                 onClick={(e) => {
                   e.preventDefault();
                   navigate(
-                    `/dags/${encodeURIComponent(dagRun.sourceFileName!)}/`
+                    buildDAGPageURL({
+                      fileName: dagRun.sourceFileName!,
+                      remoteNode,
+                    })
                   );
                 }}
                 className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-all"

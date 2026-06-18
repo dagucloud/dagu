@@ -19,6 +19,7 @@ interface DAGHeaderProps {
   refreshFn: () => void;
   formatDuration: (startDate: string, endDate: string) => string;
   navigateToStatusTab?: () => void;
+  buildScopedUrl?: (path: string) => string;
 }
 
 const DAGHeader: React.FC<DAGHeaderProps> = ({
@@ -29,6 +30,7 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
   refreshFn,
   formatDuration,
   navigateToStatusTab,
+  buildScopedUrl,
 }) => {
   const navigate = useNavigate();
   const params = useParams<{ tab?: string }>();
@@ -36,6 +38,11 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [currentDuration, setCurrentDuration] = React.useState<string>('--');
   const [copiedPath, setCopiedPath] = React.useState(false);
+
+  const scopedUrl = useCallback(
+    (path: string) => (buildScopedUrl ? buildScopedUrl(path) : path),
+    [buildScopedUrl]
+  );
 
   const copyFilePath = useCallback(async () => {
     if (!filePath) return;
@@ -97,17 +104,30 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
   const handleRootDAGRunClick = (e: React.MouseEvent) => {
     e.preventDefault();
     if (!dagRunToDisplay) return;
-    navigate(
-      `/dags/${fileName}?dagRunId=${dagRunToDisplay.rootDAGRunId}&dagRunName=${encodeURIComponent(dagRunToDisplay.rootDAGRunName)}`
-    );
+    if (!dagRunToDisplay.rootDAGRunId || !dagRunToDisplay.rootDAGRunName) {
+      return;
+    }
+    const searchParams = new URLSearchParams();
+    searchParams.set('dagRunId', dagRunToDisplay.rootDAGRunId);
+    searchParams.set('dagRunName', dagRunToDisplay.rootDAGRunName);
+    navigate(scopedUrl(`/dags/${fileName}?${searchParams.toString()}`));
   };
 
   const handleParentDAGRunClick = (e: React.MouseEvent) => {
     e.preventDefault();
     if (!dagRunToDisplay) return;
-    navigate(
-      `/dags/${fileName}?subDAGRunId=${dagRunToDisplay.parentDAGRunId}&dagRunId=${dagRunToDisplay.rootDAGRunId}&dagRunName=${encodeURIComponent(dagRunToDisplay.rootDAGRunName)}`
-    );
+    if (
+      !dagRunToDisplay.parentDAGRunId ||
+      !dagRunToDisplay.rootDAGRunId ||
+      !dagRunToDisplay.rootDAGRunName
+    ) {
+      return;
+    }
+    const searchParams = new URLSearchParams();
+    searchParams.set('subDAGRunId', dagRunToDisplay.parentDAGRunId);
+    searchParams.set('dagRunId', dagRunToDisplay.rootDAGRunId);
+    searchParams.set('dagRunName', dagRunToDisplay.rootDAGRunName);
+    navigate(scopedUrl(`/dags/${fileName}?${searchParams.toString()}`));
   };
 
   const handleRefresh = () => {
@@ -169,10 +189,13 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
           {dagRunToDisplay && (
             <nav className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground mb-2">
               {dagRunToDisplay.rootDAGRunId &&
+                dagRunToDisplay.rootDAGRunName &&
                 dagRunToDisplay.rootDAGRunId !== dagRunToDisplay.dagRunId && (
                   <>
                     <a
-                      href={`/dags/${fileName}?dagRunId=${dagRunToDisplay.rootDAGRunId}&dagRunName=${encodeURIComponent(dagRunToDisplay.rootDAGRunName)}`}
+                      href={scopedUrl(
+                        `/dags/${fileName}?dagRunId=${encodeURIComponent(dagRunToDisplay.rootDAGRunId)}&dagRunName=${encodeURIComponent(dagRunToDisplay.rootDAGRunName)}`
+                      )}
                       onClick={handleRootDAGRunClick}
                       className="text-primary hover:text-primary hover:underline transition-colors font-medium"
                     >
@@ -184,12 +207,16 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
 
               {dagRunToDisplay.parentDAGRunName &&
                 dagRunToDisplay.parentDAGRunId &&
+                dagRunToDisplay.rootDAGRunId &&
+                dagRunToDisplay.rootDAGRunName &&
                 dagRunToDisplay.parentDAGRunName !==
                   dagRunToDisplay.rootDAGRunName &&
                 dagRunToDisplay.parentDAGRunName !== dagRunToDisplay.name && (
                   <>
                     <a
-                      href={`/dags/${fileName}?dagRunId=${dagRunToDisplay.rootDAGRunId}&subDAGRunId=${dagRunToDisplay.parentDAGRunId}&dagRunName=${encodeURIComponent(dagRunToDisplay.rootDAGRunName)}`}
+                      href={scopedUrl(
+                        `/dags/${fileName}?dagRunId=${encodeURIComponent(dagRunToDisplay.rootDAGRunId)}&subDAGRunId=${encodeURIComponent(dagRunToDisplay.parentDAGRunId)}&dagRunName=${encodeURIComponent(dagRunToDisplay.rootDAGRunName)}`
+                      )}
                       onClick={handleParentDAGRunClick}
                       className="text-primary hover:text-primary hover:underline transition-colors font-medium"
                     >

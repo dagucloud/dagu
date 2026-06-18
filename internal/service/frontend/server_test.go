@@ -242,6 +242,21 @@ func TestCacheControlForAssetCachesContentHashedJavaScriptChunks(t *testing.T) {
 	)
 }
 
+func TestCacheControlForAssetCachesContentHashedJavaScriptWorkers(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(
+		t,
+		"max-age=31536000, immutable",
+		cacheControlForAsset("/assets/yaml.a1b2c3d4e5f6a1b2.worker.js"),
+	)
+	assert.Equal(
+		t,
+		"no-cache, no-store, must-revalidate",
+		cacheControlForAsset("/assets/yaml.worker.js"),
+	)
+}
+
 func TestCacheControlForAssetCachesNonJavaScriptAssets(t *testing.T) {
 	t.Parallel()
 

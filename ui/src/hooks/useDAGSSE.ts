@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import { components } from '../api/v1/schema';
 import { SSEState, useSSE } from './useSSE';
 
@@ -16,8 +19,9 @@ interface DAGSSEResponse {
 
 export function useDAGSSE(
   fileName: string,
-  enabled: boolean = true
+  enabled: boolean = true,
+  remoteNode?: string
 ): SSEState<DAGSSEResponse> {
   const endpoint = `/events/dags/${encodeURIComponent(fileName)}`;
-  return useSSE<DAGSSEResponse>(endpoint, enabled);
+  return useSSE<DAGSSEResponse>(endpoint, enabled, remoteNode);
 }

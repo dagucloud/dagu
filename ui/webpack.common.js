@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 const MonacoWebpackPlugin = require('monaco-editor-webpack-plugin');
 const path = require('path');
 
@@ -35,6 +38,7 @@ module.exports = {
   },
   plugins: [
     new MonacoWebpackPlugin({
+      filename: '[name].[contenthash:16].worker.js',
       languages: ['yaml'],
       features: ['find'],
       customLanguages: [

@@ -11,12 +11,7 @@ import { StepDetailsDrawer } from '@/features/dags/components/step-details';
 import { toMermaidNodeId } from '@/lib/utils';
 import { workspaceNameFromLabels } from '@/lib/workspace';
 import BorderedBox from '@/components/ui/bordered-box';
-import {
-  AlertTriangle,
-  MousePointerClick,
-  Save,
-  Undo2,
-} from 'lucide-react';
+import { AlertTriangle, MousePointerClick, Save, Undo2 } from 'lucide-react';
 import React, { useEffect } from 'react';
 import { useCookies } from 'react-cookie';
 import { components } from '../../../../api/v1/schema';
@@ -29,7 +24,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { AppBarContext } from '../../../../contexts/AppBarContext';
+import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useSchema } from '../../../../contexts/SchemaContext';
 import { useUnsavedChanges } from '../../../../contexts/UnsavedChangesContext';
 import { useClient, useQuery } from '../../../../hooks/api';
@@ -47,6 +42,8 @@ import { FlowchartType, Graph } from '../visualization';
 import {
   buildAugmentedDAGSchema,
   customActionHintsEqual,
+  type EditorCustomActionHint,
+  type EditorLegacyDefinitionHint,
   extractLocalCustomDefinitionHints,
   legacyDefinitionHintsEqual,
   mergeCustomActionHints,
@@ -75,8 +72,7 @@ type Props = {
  * including visualization, attributes, steps, and YAML definition
  */
 function DAGSpec({ fileName, localDags, editorHints }: Props) {
-  const appBarContext = React.useContext(AppBarContext);
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
+  const remoteNode = useRemoteNode();
   const client = useClient();
   const { schema: baseSchema } = useSchema();
   const { showError } = useErrorModal();
@@ -129,7 +125,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
     [setCookie, setFlowchart]
   );
 
-  const dagSSE = useDAGSSE(fileName, !!fileName);
+  const dagSSE = useDAGSSE(fileName, !!fileName, remoteNode);
 
   // Fetch spec — SWR is the single source of truth, refreshed by live invalidations
   const {
@@ -160,12 +156,6 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
           spec: next.spec,
         }
   );
-
-  useEffect(() => {
-    if (dagSSE.isConnected && dagSSE.data?.spec !== undefined) {
-      void mutateSpec();
-    }
-  }, [dagSSE.data?.spec, dagSSE.isConnected, mutateSpec]);
 
   const dagWorkspaceName = React.useMemo(
     () =>
@@ -204,13 +194,19 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
     () => extractLocalCustomDefinitionHints(serverSpec ?? '').actions
   );
 
-  const inheritedLegacyDefinitions = React.useMemo(
+  const parsedInheritedLegacyDefinitions = React.useMemo(
     () => toInheritedLegacyDefinitionHints(editorHints),
     [editorHints]
   );
-  const inheritedCustomActions = React.useMemo(
+  const inheritedLegacyDefinitions = useStableLegacyDefinitionHints(
+    parsedInheritedLegacyDefinitions
+  );
+  const parsedInheritedCustomActions = React.useMemo(
     () => toInheritedCustomActionHints(editorHints),
     [editorHints]
+  );
+  const inheritedCustomActions = useStableCustomActionHints(
+    parsedInheritedCustomActions
   );
 
   const parsedLocalDefinitions = React.useMemo(
@@ -692,6 +688,26 @@ function getHandlers(
     steps.push(h?.exit);
   }
   return steps;
+}
+
+function useStableLegacyDefinitionHints(
+  hints: EditorLegacyDefinitionHint[]
+): EditorLegacyDefinitionHint[] {
+  const stableRef = React.useRef(hints);
+  if (!legacyDefinitionHintsEqual(stableRef.current, hints)) {
+    stableRef.current = hints;
+  }
+  return stableRef.current;
+}
+
+function useStableCustomActionHints(
+  hints: EditorCustomActionHint[]
+): EditorCustomActionHint[] {
+  const stableRef = React.useRef(hints);
+  if (!customActionHintsEqual(stableRef.current, hints)) {
+    stableRef.current = hints;
+  }
+  return stableRef.current;
 }
 
 export default DAGSpec;

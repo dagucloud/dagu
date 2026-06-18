@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 /**
  * DAGRunActions component provides action buttons for DAGRun operations (stop, retry).
  *
@@ -27,8 +30,8 @@ import { Ban, RefreshCw, Square, X } from 'lucide-react';
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { components, NodeStatus, Status } from '../../../../api/v1/schema';
-import { AppBarContext } from '../../../../contexts/AppBarContext';
 import { useConfig } from '../../../../contexts/ConfigContext';
+import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useClient } from '../../../../hooks/api';
 import ConfirmModal from '@/components/ui/confirm-dialog';
 import LabeledItem from '@/components/ui/labeled-item';
@@ -65,7 +68,7 @@ function DAGRunActions({
   displayMode = 'compact',
   isRootLevel = true,
 }: Props) {
-  const appBarContext = React.useContext(AppBarContext);
+  const remoteNode = useRemoteNode();
   const config = useConfig();
   const { showError } = useErrorModal();
   const { showToast } = useSimpleToast();
@@ -120,7 +123,7 @@ function DAGRunActions({
               dagRunId: dagRun.dagRunId,
             },
             query: {
-              remoteNode: appBarContext.selectedRemoteNode || 'local',
+              remoteNode,
             },
           },
         });
@@ -150,13 +153,7 @@ function DAGRunActions({
     return () => {
       cancelled = true;
     };
-  }, [
-    appBarContext.selectedRemoteNode,
-    client,
-    dagRun?.dagRunId,
-    isRetryModal,
-    name,
-  ]);
+  }, [client, dagRun?.dagRunId, isRetryModal, name, remoteNode]);
 
   const isWaiting = dagRun?.status === Status.Waiting;
   const hasNodes =
@@ -297,7 +294,7 @@ function DAGRunActions({
               {
                 params: {
                   query: {
-                    remoteNode: appBarContext.selectedRemoteNode || 'local',
+                    remoteNode,
                   },
                   path: {
                     name: name,
@@ -343,7 +340,7 @@ function DAGRunActions({
                       dagRunId: dagRun.dagRunId,
                     },
                     query: {
-                      remoteNode: appBarContext.selectedRemoteNode || 'local',
+                      remoteNode,
                     },
                   },
                   body: {
@@ -377,7 +374,7 @@ function DAGRunActions({
                       dagRunId: dagRun.dagRunId,
                     },
                     query: {
-                      remoteNode: appBarContext.selectedRemoteNode || 'local',
+                      remoteNode,
                     },
                   },
                   body: {
@@ -572,8 +569,7 @@ function DAGRunActions({
                             stepName: node.step.name,
                           },
                           query: {
-                            remoteNode:
-                              appBarContext.selectedRemoteNode || 'local',
+                            remoteNode,
                           },
                         },
                         body: { reason: rejectReason || undefined },
@@ -617,7 +613,7 @@ function DAGRunActions({
                     dagRunId: dagRun.dagRunId,
                   },
                   query: {
-                    remoteNode: appBarContext.selectedRemoteNode || 'local',
+                    remoteNode,
                   },
                 },
               }

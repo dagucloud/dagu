@@ -4,6 +4,10 @@
 
 Partially implemented.
 
+This spec includes target conformance behavior.
+Current product behavior covers only rows whose owning namespace or field spec is implemented.
+Rows owned by a spec marked `Not implemented` in the spec index are target behavior until that owning spec is implemented.
+
 ## Scope
 
 Dagu field evaluation defines what Dagu does to workflow YAML text before the owning field uses it.

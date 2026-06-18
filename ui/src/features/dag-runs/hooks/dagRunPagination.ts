@@ -317,9 +317,7 @@ export function useExactDAGRuns({
     if (
       !enabled ||
       fallbackIntervalMs <= 0 ||
-      (liveEnabled &&
-        !sseState.shouldUseFallback &&
-        (sseState.isConnected || sseState.isConnecting))
+      (liveEnabled && sseState.isConnected && !sseState.shouldUseFallback)
     ) {
       return;
     }

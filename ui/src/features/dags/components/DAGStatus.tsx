@@ -23,8 +23,8 @@ import React, { useEffect, useState } from 'react';
 import { useCookies } from 'react-cookie';
 import { useNavigate } from 'react-router-dom';
 import { components, NodeStatus, Status, Stream } from '../../../api/v1/schema';
-import { AppBarContext } from '../../../contexts/AppBarContext';
 import { useConfig } from '../../../contexts/ConfigContext';
+import { useRemoteNode } from '../../../contexts/RemoteNodeContext';
 import { useClient } from '../../../hooks/api';
 import { cn, toMermaidNodeId } from '../../../lib/utils';
 import BorderedBox from '@/components/ui/bordered-box';
@@ -78,9 +78,9 @@ function DAGStatus({
   initialTab = 'status',
   fillHeight = false,
 }: Props) {
-  const appBarContext = React.useContext(AppBarContext);
   const dagContext = React.useContext(DAGContext);
   const config = useConfig();
+  const remoteNode = useRemoteNode();
   const navigate = useNavigate();
   const { showError } = useErrorModal();
   const [modal, setModal] = useState(false);
@@ -203,7 +203,7 @@ function DAGStatus({
       params: {
         path: pathParams,
         query: {
-          remoteNode: appBarContext.selectedRemoteNode || 'local',
+          remoteNode,
         },
       },
       body: {
@@ -249,7 +249,7 @@ function DAGStatus({
         }
       }
     },
-    [displayDAGRun, navigate, fileName]
+    [displayDAGRun, navigate, fileName, remoteNode]
   );
 
   const onInspectStepOnGraph = React.useCallback(
@@ -294,6 +294,7 @@ function DAGStatus({
         if (isDAGRunContext) {
           // For DAG runs, use query parameters to navigate to the DAG-run details page
           const searchParams = new URLSearchParams();
+          searchParams.set('remoteNode', remoteNode);
           searchParams.set('subDAGRunId', subDAGRun.dagRunId);
 
           // Use root DAG-run information
@@ -313,7 +314,16 @@ function DAGStatus({
           url = `/dag-runs/${rootDAGName}/${dagRunId}?${searchParams.toString()}`;
         } else {
           // For DAGs, use the existing approach with query parameters
-          url = `/dags/${fileName}?subDAGRunId=${subDAGRun.dagRunId}&dagRunId=${dagRunId}&step=${node.step.name}&dagRunName=${encodeURIComponent(displayDAGRun.rootDAGRunName || displayDAGRun.name)}`;
+          const searchParams = new URLSearchParams();
+          searchParams.set('remoteNode', remoteNode);
+          searchParams.set('subDAGRunId', subDAGRun.dagRunId);
+          searchParams.set('dagRunId', dagRunId);
+          searchParams.set('step', node.step.name);
+          searchParams.set(
+            'dagRunName',
+            displayDAGRun.rootDAGRunName || displayDAGRun.name
+          );
+          url = `/dags/${fileName}?${searchParams.toString()}`;
         }
 
         if (openInNewTab) {
@@ -323,7 +333,7 @@ function DAGStatus({
         }
       }
     },
-    [displayDAGRun, navigate, fileName]
+    [displayDAGRun, navigate, fileName, remoteNode]
   );
 
   // Handle right-click on graph node (show status update modal)

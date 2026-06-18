@@ -1,7 +1,11 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import React, { useCallback, useContext, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { AppBarContext } from '../../../contexts/AppBarContext';
 import { usePageContext } from '../../../contexts/PageContext';
+import { RemoteNodeProvider } from '../../../contexts/RemoteNodeContext';
 import { DAGRunDetailsContent } from '../../../features/dag-runs/components/dag-run-details';
 import { DAGRunContext } from '../../../features/dag-runs/contexts/DAGRunContext';
 import { matchesRequestedDAGRunDetails } from '../../../features/dag-runs/hooks/dagRunDetailsRequest';
@@ -58,7 +62,9 @@ function DAGRunDetailsPage() {
   const parentName = searchParams.get('dagRunName') || name;
 
   const canQuerySubDag = !!(subDAGRunId && parentDAGRunId && parentName);
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
+  const queryRemoteNode = searchParams.get('remoteNode')?.trim();
+  const appBarRemoteNode = appBarContext.selectedRemoteNode?.trim();
+  const remoteNode = queryRemoteNode || appBarRemoteNode || 'local';
   const detailsTarget = canQuerySubDag
     ? {
         remoteNode,
@@ -93,10 +99,13 @@ function DAGRunDetailsPage() {
   }, [refresh]);
 
   const expectedDagRunId = subDAGRunId || dagRunId || 'latest';
-  const dagRunDetails =
-    matchesRequestedDAGRunDetails(latestDetails, expectedDagRunId)
-      ? latestDetails
-      : null;
+  const dagRunDetails = matchesRequestedDAGRunDetails(
+    latestDetails,
+    expectedDagRunId,
+    subDAGRunId ? undefined : name
+  )
+    ? latestDetails
+    : null;
   const displayDAGRunId = subDAGRunId || dagRunId || '';
 
   function getDisplayName(): string {
@@ -130,20 +139,22 @@ function DAGRunDetailsPage() {
 
   return (
     <div className="max-w-7xl px-4">
-      <DAGRunContext.Provider
-        value={{
-          refresh: refreshFn,
-          name: displayName,
-          dagRunId: displayDAGRunId || '',
-        }}
-      >
-        <DAGRunDetailsContent
-          name={displayName}
-          dagRun={dagRunDetails}
-          refreshFn={refreshFn}
-          dagRunId={displayDAGRunId}
-        />
-      </DAGRunContext.Provider>
+      <RemoteNodeProvider remoteNode={remoteNode}>
+        <DAGRunContext.Provider
+          value={{
+            refresh: refreshFn,
+            name: displayName,
+            dagRunId: displayDAGRunId || '',
+          }}
+        >
+          <DAGRunDetailsContent
+            name={displayName}
+            dagRun={dagRunDetails}
+            refreshFn={refreshFn}
+            dagRunId={displayDAGRunId}
+          />
+        </DAGRunContext.Provider>
+      </RemoteNodeProvider>
     </div>
   );
 }

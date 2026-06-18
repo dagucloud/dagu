@@ -32,9 +32,9 @@ import { AlertTriangle, Ban, Play, RefreshCw, Square, X } from 'lucide-react';
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { components, NodeStatus, Status } from '../../../../api/v1/schema';
-import { AppBarContext } from '../../../../contexts/AppBarContext';
 import { useCanManageProfiles } from '../../../../contexts/AuthContext';
 import { useConfig } from '../../../../contexts/ConfigContext';
+import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useUnsavedChanges } from '../../../../contexts/UnsavedChangesContext';
 import { useClient, useQuery } from '../../../../hooks/api';
 import { whenEnabled } from '../../../../hooks/queryUtils';
@@ -77,7 +77,6 @@ function DAGActions({
   displayMode = 'compact',
   navigateToStatusTab,
 }: Props) {
-  const appBarContext = React.useContext(AppBarContext);
   const dagContext = React.useContext(DAGContext);
   const config = useConfig();
   const { hasUnsavedChanges } = useUnsavedChanges();
@@ -110,7 +109,7 @@ function DAGActions({
     React.useState(false);
 
   const client = useClient();
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
+  const remoteNode = useRemoteNode();
   const profilesQuery = React.useMemo(
     () =>
       whenEnabled(canManageProfiles, {
@@ -157,7 +156,7 @@ function DAGActions({
               dagRunId: retryDagRunId,
             },
             query: {
-              remoteNode: appBarContext.selectedRemoteNode || 'local',
+              remoteNode,
             },
           },
         });
@@ -183,13 +182,7 @@ function DAGActions({
     return () => {
       cancelled = true;
     };
-  }, [
-    appBarContext.selectedRemoteNode,
-    client,
-    isRetryModal,
-    retryDagRunId,
-    status?.name,
-  ]);
+  }, [client, isRetryModal, remoteNode, retryDagRunId, status?.name]);
 
   // Auto-open start modal when requested (e.g., from cockpit preview)
   React.useEffect(() => {
@@ -213,7 +206,7 @@ function DAGActions({
           params: {
             path: { fileName },
             query: {
-              remoteNode: appBarContext.selectedRemoteNode || 'local',
+              remoteNode,
             },
           },
         });
@@ -247,7 +240,7 @@ function DAGActions({
     return () => {
       cancelled = true;
     };
-  }, [appBarContext.selectedRemoteNode, client, fileName, isEnqueueModal]);
+  }, [client, fileName, isEnqueueModal, remoteNode]);
 
   /**
    * Reload DAG data after an action is performed
@@ -403,8 +396,7 @@ function DAGActions({
                             fileName: fileName,
                           },
                           query: {
-                            remoteNode:
-                              appBarContext.selectedRemoteNode || 'local',
+                            remoteNode,
                           },
                         },
                       }
@@ -499,8 +491,7 @@ function DAGActions({
                             stepName: node.step.name,
                           },
                           query: {
-                            remoteNode:
-                              appBarContext.selectedRemoteNode || 'local',
+                            remoteNode,
                           },
                         },
                         body: { reason: rejectReason || undefined },
@@ -543,7 +534,7 @@ function DAGActions({
                 params: {
                   path: { fileName },
                   query: {
-                    remoteNode: appBarContext.selectedRemoteNode || 'local',
+                    remoteNode,
                   },
                 },
               });
@@ -565,7 +556,7 @@ function DAGActions({
                   {
                     params: {
                       query: {
-                        remoteNode: appBarContext.selectedRemoteNode || 'local',
+                        remoteNode,
                       },
                       path: {
                         name: status.name,
@@ -671,7 +662,7 @@ function DAGActions({
                         dagRunId: retryDagRunId,
                       },
                       query: {
-                        remoteNode: appBarContext.selectedRemoteNode || 'local',
+                        remoteNode,
                       },
                     },
                     body: {
@@ -715,7 +706,7 @@ function DAGActions({
                         dagRunId: retryDagRunId,
                       },
                       query: {
-                        remoteNode: appBarContext.selectedRemoteNode || 'local',
+                        remoteNode,
                       },
                     },
                     body: {

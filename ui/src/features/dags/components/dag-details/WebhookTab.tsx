@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 /**
  * WebhookTab component displays webhook configuration for a DAG.
  * Webhooks are managed separately from DAG configuration.
@@ -16,7 +19,7 @@ import {
   Webhook,
   WebhookOff,
 } from 'lucide-react';
-import { useCallback, useContext, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   components,
   WebhookAuthMode as WebhookAuthModeValue,
@@ -39,9 +42,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { AppBarContext } from '../../../../contexts/AppBarContext';
 import { TOKEN_KEY } from '../../../../contexts/AuthContext';
 import { useConfig } from '../../../../contexts/ConfigContext';
+import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useClient } from '../../../../hooks/api';
 import dayjs from '../../../../lib/dayjs';
 import ConfirmModal from '@/components/ui/confirm-dialog';
@@ -103,7 +106,7 @@ function toHMACAuthMode(mode: WebhookAuthMode): WebhookHMACAuthMode {
 
 function WebhookTab({ fileName }: WebhookTabProps) {
   const config = useConfig();
-  const appBarContext = useContext(AppBarContext);
+  const remoteNode = useRemoteNode();
   const client = useClient();
 
   // State
@@ -136,7 +139,6 @@ function WebhookTab({ fileName }: WebhookTabProps) {
     );
 
   // Construct webhook URL (include remoteNode if not local)
-  const remoteNode = appBarContext.selectedRemoteNode;
   const webhookUrl =
     remoteNode && remoteNode !== 'local'
       ? `${window.location.origin}/api/v1/webhooks/${encodeURIComponent(fileName)}?remoteNode=${encodeURIComponent(remoteNode)}`
@@ -152,17 +154,21 @@ function WebhookTab({ fileName }: WebhookTabProps) {
   }, []);
 
   const getRemoteNodeParam = useCallback(() => {
-    return appBarContext.selectedRemoteNode || 'local';
-  }, [appBarContext.selectedRemoteNode]);
+    return remoteNode || 'local';
+  }, [remoteNode]);
+
+  const getRemoteNodeQueryValue = useCallback(() => {
+    return encodeURIComponent(getRemoteNodeParam());
+  }, [getRemoteNodeParam]);
 
   // Fetch webhook
   const fetchWebhook = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
-      const remoteNode = getRemoteNodeParam();
+      const remoteNodeParam = getRemoteNodeQueryValue();
       const response = await fetch(
-        `${config.apiURL}/dags/${encodeURIComponent(fileName)}/webhook?remoteNode=${remoteNode}`,
+        `${config.apiURL}/dags/${encodeURIComponent(fileName)}/webhook?remoteNode=${remoteNodeParam}`,
         { headers: getAuthHeaders() }
       );
 
@@ -187,7 +193,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [config.apiURL, fileName, getAuthHeaders, getRemoteNodeParam]);
+  }, [config.apiURL, fileName, getAuthHeaders, getRemoteNodeQueryValue]);
 
   useEffect(() => {
     fetchWebhook();
@@ -211,9 +217,9 @@ function WebhookTab({ fileName }: WebhookTabProps) {
     try {
       setIsActioning(true);
       setError(null);
-      const remoteNode = getRemoteNodeParam();
+      const remoteNodeParam = getRemoteNodeQueryValue();
       const response = await fetch(
-        `${config.apiURL}/dags/${encodeURIComponent(fileName)}/webhook?remoteNode=${remoteNode}`,
+        `${config.apiURL}/dags/${encodeURIComponent(fileName)}/webhook?remoteNode=${remoteNodeParam}`,
         {
           method: 'POST',
           headers: getAuthHeaders(),
@@ -240,9 +246,9 @@ function WebhookTab({ fileName }: WebhookTabProps) {
     try {
       setIsActioning(true);
       setError(null);
-      const remoteNode = getRemoteNodeParam();
+      const remoteNodeParam = getRemoteNodeQueryValue();
       const response = await fetch(
-        `${config.apiURL}/dags/${encodeURIComponent(fileName)}/webhook?remoteNode=${remoteNode}`,
+        `${config.apiURL}/dags/${encodeURIComponent(fileName)}/webhook?remoteNode=${remoteNodeParam}`,
         {
           method: 'DELETE',
           headers: getAuthHeaders(),
@@ -269,9 +275,9 @@ function WebhookTab({ fileName }: WebhookTabProps) {
     try {
       setIsActioning(true);
       setError(null);
-      const remoteNode = getRemoteNodeParam();
+      const remoteNodeParam = getRemoteNodeQueryValue();
       const response = await fetch(
-        `${config.apiURL}/dags/${encodeURIComponent(fileName)}/webhook/regenerate?remoteNode=${remoteNode}`,
+        `${config.apiURL}/dags/${encodeURIComponent(fileName)}/webhook/regenerate?remoteNode=${remoteNodeParam}`,
         {
           method: 'POST',
           headers: getAuthHeaders(),
@@ -305,9 +311,9 @@ function WebhookTab({ fileName }: WebhookTabProps) {
     if (pendingToggleState === null) return;
     try {
       setError(null);
-      const remoteNode = getRemoteNodeParam();
+      const remoteNodeParam = getRemoteNodeQueryValue();
       const response = await fetch(
-        `${config.apiURL}/dags/${encodeURIComponent(fileName)}/webhook/toggle?remoteNode=${remoteNode}`,
+        `${config.apiURL}/dags/${encodeURIComponent(fileName)}/webhook/toggle?remoteNode=${remoteNodeParam}`,
         {
           method: 'POST',
           headers: getAuthHeaders(),
@@ -985,7 +991,9 @@ await fetch('${webhookUrl}', {
                 webhook.forward_headers
               </code>{' '}
               in the DAG YAML. It can also be inherited from{' '}
-              <code className="bg-accent px-1 rounded-md border">base.yaml</code>{' '}
+              <code className="bg-accent px-1 rounded-md border">
+                base.yaml
+              </code>{' '}
               to expose selected request headers as{' '}
               <code className="bg-accent px-1 rounded-md border">
                 WEBHOOK_HEADERS

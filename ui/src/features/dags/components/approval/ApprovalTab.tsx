@@ -1,5 +1,8 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import { Button } from '@/components/ui/button';
-import { AppBarContext } from '@/contexts/AppBarContext';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient } from '@/hooks/api';
 import { Check, RotateCcw } from 'lucide-react';
 import React, { useState } from 'react';
@@ -45,9 +48,7 @@ function ApprovalCard({
             )}
           </div>
           {prompt && (
-            <div className="text-base whitespace-pre-wrap">
-              {prompt}
-            </div>
+            <div className="text-base whitespace-pre-wrap">{prompt}</div>
           )}
         </div>
         <div className="flex shrink-0 gap-2">
@@ -78,7 +79,9 @@ function ApprovalCard({
 
       {/* Step Output */}
       <div>
-        <div className="text-xs font-medium text-muted-foreground mb-1">Step Output</div>
+        <div className="text-xs font-medium text-muted-foreground mb-1">
+          Step Output
+        </div>
         <div className="max-h-[400px] overflow-y-auto rounded border border-border">
           <InlineLogViewer
             dagName={dagName}
@@ -95,17 +98,15 @@ function ApprovalCard({
 
 export function ApprovalTab({ dagRun, dagName }: ApprovalTabProps) {
   const client = useClient();
-  const appBarContext = React.useContext(AppBarContext);
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
+  const remoteNode = useRemoteNode();
 
   const [reviewState, setReviewState] = useState<{
     node: NodeData;
     action: 'approve' | 'retry';
   } | null>(null);
 
-  const waitingNodes = dagRun.nodes?.filter(
-    (n) => n.status === NodeStatus.Waiting
-  ) || [];
+  const waitingNodes =
+    dagRun.nodes?.filter((n) => n.status === NodeStatus.Waiting) || [];
 
   const isSubRun = !!(
     dagRun.rootDAGRunId &&
@@ -126,7 +127,10 @@ export function ApprovalTab({ dagRun, dagName }: ApprovalTabProps) {
       ? '/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/approve'
       : '/dag-runs/{name}/{dagRunId}/steps/{stepName}/approve';
     const { error } = await client.POST(endpoint, {
-      params: { path: getPathParams(reviewState.node.step.name), query: { remoteNode } },
+      params: {
+        path: getPathParams(reviewState.node.step.name),
+        query: { remoteNode },
+      },
       body: { inputs: Object.keys(inputs).length > 0 ? inputs : undefined },
     });
     if (error) throw new Error(error.message || 'Failed to approve step');
@@ -138,7 +142,10 @@ export function ApprovalTab({ dagRun, dagName }: ApprovalTabProps) {
       ? '/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/push-back'
       : '/dag-runs/{name}/{dagRunId}/steps/{stepName}/push-back';
     const { error } = await client.POST(endpoint, {
-      params: { path: getPathParams(reviewState.node.step.name), query: { remoteNode } },
+      params: {
+        path: getPathParams(reviewState.node.step.name),
+        query: { remoteNode },
+      },
       body: { inputs: Object.keys(inputs).length > 0 ? inputs : undefined },
     });
     if (error) throw new Error(error.message || 'Failed to retry step');
@@ -170,8 +177,12 @@ export function ApprovalTab({ dagRun, dagName }: ApprovalTabProps) {
           dismissModal={() => setReviewState(null)}
           step={reviewState.node.step}
           pushBackHistory={reviewState.node.pushBackHistory}
-          onApprove={reviewState.action === 'approve' ? handleApprove : undefined}
-          onPushBack={reviewState.action === 'retry' ? handlePushBack : undefined}
+          onApprove={
+            reviewState.action === 'approve' ? handleApprove : undefined
+          }
+          onPushBack={
+            reviewState.action === 'retry' ? handlePushBack : undefined
+          }
         />
       )}
     </div>

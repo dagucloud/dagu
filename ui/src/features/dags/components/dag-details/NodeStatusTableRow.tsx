@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 /**
  * NodeStatusTableRow component renders a single row in the node status table.
  *
@@ -13,7 +16,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { AppBarContext } from '@/contexts/AppBarContext';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient, useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
 import {
@@ -44,6 +47,7 @@ import {
 } from 'lucide-react';
 import { useContext, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { buildDAGPageURL } from '../../../dag-runs/lib/dagRunUrls';
 import {
   components,
   NodeStatus,
@@ -148,9 +152,8 @@ function NodeStatusTableRow({
   const { dagRunId, name: dagName } = dagRun;
   const navigate = useNavigate();
   const client = useClient();
-  const appBarContext = useContext(AppBarContext);
   const dagContext = useContext(DAGContext);
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
+  const remoteNode = useRemoteNode();
   const { showError } = useErrorModal();
   // State to store the current duration for running tasks
   const [currentDuration, setCurrentDuration] = useState<string>('-');
@@ -262,17 +265,15 @@ function NodeStatusTableRow({
     }
   }, [isActiveNode, node.startedAt, node.finishedAt]);
 
-  // Build URL for log viewing
-  const searchParams = new URLSearchParams();
-  searchParams.set('remoteNode', remoteNode);
-  if (node.step) {
-    searchParams.set('step', node.step.name);
-  }
-  if (dagRunId) {
-    searchParams.set('dagRunId', dagRunId);
-  }
-
-  const url = `/dags/${name}/log?${searchParams.toString()}`;
+  const url = buildDAGPageURL({
+    fileName: name,
+    remoteNode,
+    tab: 'log',
+    step: node.step.name,
+    rootDAGRunId: isSubDAGRun ? dagRun.rootDAGRunId : dagRunId,
+    rootDAGRunName: isSubDAGRun ? dagRun.rootDAGRunName : undefined,
+    subDAGRunId: isSubDAGRun ? dagRun.dagRunId : undefined,
+  });
 
   // Determine row highlight based on status
   const getRowHighlight = () => {
@@ -308,6 +309,7 @@ function NodeStatusTableRow({
       if (isDAGRunContext) {
         // For dagRuns, navigate to /dag-runs/{root-dag-name}/{root-dag-run-id}?subDAGRunId=...
         const searchParams = new URLSearchParams();
+        searchParams.set('remoteNode', remoteNode);
         searchParams.set('subDAGRunId', subDAGRunId);
 
         // Determine root DAG information
@@ -340,6 +342,7 @@ function NodeStatusTableRow({
       } else {
         // For DAGs, use the existing approach with query parameters
         const searchParams = new URLSearchParams();
+        searchParams.set('remoteNode', remoteNode);
         searchParams.set('subDAGRunId', subDAGRunId);
 
         // Use root dagRun information from the dagRun prop if available

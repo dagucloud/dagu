@@ -21,12 +21,18 @@ type DAGRunDetailsResponse = {
 
 export function matchesRequestedDAGRunDetails(
   details: DAGRunDetails | null | undefined,
-  requestedDagRunId: string
+  requestedDagRunId: string,
+  requestedName?: string
 ): boolean {
   if (!details) {
     return false;
   }
-  return requestedDagRunId === 'latest' || details.dagRunId === requestedDagRunId;
+  if (requestedName && details.name !== requestedName) {
+    return false;
+  }
+  return (
+    requestedDagRunId === 'latest' || details.dagRunId === requestedDagRunId
+  );
 }
 
 function buildQueryString(remoteNode: string): string {

@@ -7,8 +7,22 @@ import { useDAGRunSSE } from '@/hooks/useDAGRunSSE';
 import { useSubDAGRunSSE } from '@/hooks/useSubDAGRunSSE';
 import { useBoundedDAGRunDetails } from '../useBoundedDAGRunDetails';
 
+type TestSSEState = {
+  current: {
+    data: { dagRunDetails: { dagRunId?: string; name?: string } } | null;
+    error: Error | null;
+    isConnected: boolean;
+    isConnecting: boolean;
+    shouldUseFallback: boolean;
+  };
+};
+
 const { fetchDAGRunDetailsMock, dagRunSSEState, subDAGRunSSEState } =
-  vi.hoisted(() => ({
+  vi.hoisted<{
+    fetchDAGRunDetailsMock: ReturnType<typeof vi.fn>;
+    dagRunSSEState: TestSSEState;
+    subDAGRunSSEState: TestSSEState;
+  }>(() => ({
     fetchDAGRunDetailsMock: vi.fn(),
     dagRunSSEState: {
       current: {
@@ -17,7 +31,7 @@ const { fetchDAGRunDetailsMock, dagRunSSEState, subDAGRunSSEState } =
         isConnected: true,
         isConnecting: false,
         shouldUseFallback: false,
-      } as any,
+      },
     },
     subDAGRunSSEState: {
       current: {
@@ -26,7 +40,7 @@ const { fetchDAGRunDetailsMock, dagRunSSEState, subDAGRunSSEState } =
         isConnected: false,
         isConnecting: false,
         shouldUseFallback: true,
-      } as any,
+      },
     },
   }));
 
@@ -41,10 +55,14 @@ vi.mock('@/hooks/useSubDAGRunSSE', () => ({
 vi.mock('../dagRunDetailsRequest', () => ({
   fetchDAGRunDetails: fetchDAGRunDetailsMock,
   matchesRequestedDAGRunDetails: (
-    details: { dagRunId?: string } | null | undefined,
-    requestedDagRunId: string
+    details: { dagRunId?: string; name?: string } | null | undefined,
+    requestedDagRunId: string,
+    requestedName?: string
   ) => {
     if (!details) {
+      return false;
+    }
+    if (requestedName && details.name !== requestedName) {
       return false;
     }
     return (
@@ -124,6 +142,35 @@ describe('useBoundedDAGRunDetails', () => {
     );
   });
 
+  it('keeps polling while the DAG-run SSE topic is still connecting', async () => {
+    dagRunSSEState.current = {
+      data: null,
+      error: null,
+      isConnected: false,
+      isConnecting: true,
+      shouldUseFallback: false,
+    };
+    fetchDAGRunDetailsMock.mockResolvedValue({ dagRunId: 'run-1' });
+
+    renderHook(() =>
+      useBoundedDAGRunDetails({
+        target: createTarget(),
+        pollIntervalMs: 2000,
+      })
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(fetchDAGRunDetailsMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(fetchDAGRunDetailsMock).toHaveBeenCalledTimes(2);
+  });
+
   it('hydrates from SSE payloads and aborts the in-flight fallback request', async () => {
     const deferred = createDeferred<{ dagRunId: string }>();
     let capturedSignal: AbortSignal | undefined;
@@ -173,6 +220,47 @@ describe('useBoundedDAGRunDetails', () => {
     expect(capturedSignal?.aborted).toBe(true);
   });
 
+  it('clears previous details when the request target changes', async () => {
+    const deferred = createDeferred<{ dagRunId: string; name: string }>();
+    fetchDAGRunDetailsMock
+      .mockResolvedValueOnce({ dagRunId: 'run-1', name: 'billing' })
+      .mockReturnValueOnce(deferred.promise);
+
+    const { result, rerender } = renderHook(
+      ({ target }) =>
+        useBoundedDAGRunDetails({
+          target,
+          pollIntervalMs: 2000,
+        }),
+      {
+        initialProps: {
+          target: createTarget(),
+        },
+      }
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.data).toMatchObject({
+      dagRunId: 'run-1',
+      name: 'billing',
+    });
+
+    rerender({
+      target: createTarget({
+        remoteNode: 'remote-b',
+        name: 'deploy',
+        dagRunId: 'latest',
+      }),
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.data).toBeNull();
+  });
+
   it('passes the selected remote node to sub DAG-run SSE subscriptions', () => {
     renderHook(() =>
       useBoundedDAGRunDetails({
@@ -192,5 +280,46 @@ describe('useBoundedDAGRunDetails', () => {
       true,
       'remote-a'
     );
+  });
+
+  it('hydrates sub DAG-run details from SSE payloads without matching the root DAG name', async () => {
+    fetchDAGRunDetailsMock.mockResolvedValue({
+      dagRunId: 'fetched-run',
+      name: 'fetched-dag',
+    });
+    subDAGRunSSEState.current = {
+      data: {
+        dagRunDetails: {
+          dagRunId: 'sub-run',
+          name: 'child-dag',
+        },
+      },
+      error: null,
+      isConnected: true,
+      isConnecting: false,
+      shouldUseFallback: false,
+    };
+
+    const { result } = renderHook(() =>
+      useBoundedDAGRunDetails({
+        target: createTarget({
+          name: 'root-dag',
+          dagRunId: 'root-run',
+          parentName: 'root-dag',
+          parentDAGRunId: 'root-run',
+          subDAGRunId: 'sub-run',
+        }),
+        pollIntervalMs: 2000,
+      })
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(result.current.data).toMatchObject({
+      dagRunId: 'sub-run',
+      name: 'child-dag',
+    });
   });
 });

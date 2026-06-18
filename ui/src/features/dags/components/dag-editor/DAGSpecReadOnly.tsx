@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 /**
  * DAGSpecReadOnly component displays a DAG-run specification snapshot.
  * Root DAG-run snapshots can be edited locally and retried as a new run.
@@ -29,7 +32,7 @@ import {
   NodeStatus,
   NodeStatusLabel,
 } from '../../../../api/v1/schema';
-import { AppBarContext } from '../../../../contexts/AppBarContext';
+import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useClient, useQuery } from '../../../../hooks/api';
 import ConfirmModal from '@/components/ui/confirm-dialog';
 import Graph, { type FlowchartType } from '../visualization/Graph';
@@ -146,7 +149,7 @@ function DAGSpecReadOnly({
   sourceFileName,
   className,
 }: DAGSpecReadOnlyProps) {
-  const appBarContext = React.useContext(AppBarContext);
+  const remoteNode = useRemoteNode();
   const client = useClient();
   const navigate = useNavigate();
   const canWrite = useCanWrite();
@@ -184,7 +187,7 @@ function DAGSpecReadOnly({
   const { data, isLoading, error } = useQuery(endpoint, {
     params: {
       query: {
-        remoteNode: appBarContext.selectedRemoteNode || 'local',
+        remoteNode,
       },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       path: pathParams as any,
@@ -240,7 +243,7 @@ function DAGSpecReadOnly({
               dagRunId,
             },
             query: {
-              remoteNode: appBarContext.selectedRemoteNode || 'local',
+              remoteNode,
             },
           },
           body: {
@@ -279,13 +282,13 @@ function DAGSpecReadOnly({
       setPreviewLoading(false);
     }
   }, [
-    appBarContext.selectedRemoteNode,
     client,
     dagName,
     dagRunId,
     editorSpec,
     hasEdits,
     previewLoading,
+    remoteNode,
     retrySubmitting,
     showError,
     sourceSaving,
@@ -312,7 +315,7 @@ function DAGSpecReadOnly({
               dagRunId,
             },
             query: {
-              remoteNode: appBarContext.selectedRemoteNode || 'local',
+              remoteNode,
             },
           },
           body: {
@@ -341,10 +344,12 @@ function DAGSpecReadOnly({
       }
       setPreviewVisible(false);
       showToast(`New DAG run created: ${retryData.dagRunId}`);
+      const searchParams = new URLSearchParams();
+      searchParams.set('remoteNode', remoteNode);
       navigate(
         `/dag-runs/${encodeURIComponent(dagName)}/${encodeURIComponent(
           retryData.dagRunId
-        )}`
+        )}?${searchParams.toString()}`
       );
     } catch (err) {
       showError(
@@ -357,12 +362,12 @@ function DAGSpecReadOnly({
       setRetrySubmitting(false);
     }
   }, [
-    appBarContext.selectedRemoteNode,
     client,
     dagName,
     dagRunId,
     editorSpec,
     navigate,
+    remoteNode,
     retryPreview,
     retrySubmitting,
     selectedSkipSteps,
@@ -392,7 +397,7 @@ function DAGSpecReadOnly({
               fileName: sourceFileName,
             },
             query: {
-              remoteNode: appBarContext.selectedRemoteNode || 'local',
+              remoteNode,
             },
           },
         }
@@ -423,11 +428,11 @@ function DAGSpecReadOnly({
       setSourceDiffLoading(false);
     }
   }, [
-    appBarContext.selectedRemoteNode,
     canWrite,
     client,
     editorSpec,
     hasEdits,
+    remoteNode,
     showError,
     showToast,
     sourceDiffLoading,
@@ -456,7 +461,7 @@ function DAGSpecReadOnly({
               fileName: sourceFileName,
             },
             query: {
-              remoteNode: appBarContext.selectedRemoteNode || 'local',
+              remoteNode,
             },
           },
           body: {
@@ -492,10 +497,10 @@ function DAGSpecReadOnly({
       setSourceSaving(false);
     }
   }, [
-    appBarContext.selectedRemoteNode,
     canWrite,
     client,
     editorSpec,
+    remoteNode,
     showError,
     showToast,
     sourceDAGSpec,

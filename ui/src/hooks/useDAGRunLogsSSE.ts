@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import { components } from '../api/v1/schema';
 import { SSEState, useSSE } from './useSSE';
 
@@ -29,9 +32,10 @@ export function useDAGRunLogsSSE(
   name: string,
   dagRunId: string,
   enabled: boolean = true,
-  tail?: number
+  tail?: number,
+  remoteNode?: string
 ): SSEState<DAGRunLogsSSEResponse> {
   const basePath = `/events/dag-runs/${encodeURIComponent(name)}/${encodeURIComponent(dagRunId)}/logs`;
   const endpoint = tail !== undefined ? `${basePath}?tail=${tail}` : basePath;
-  return useSSE<DAGRunLogsSSEResponse>(endpoint, enabled);
+  return useSSE<DAGRunLogsSSEResponse>(endpoint, enabled, remoteNode);
 }

@@ -15,9 +15,10 @@ import {
   Status,
   Stream,
 } from '../../../../api/v1/schema';
-import { AppBarContext } from '../../../../contexts/AppBarContext';
+import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useClient, useQuery } from '../../../../hooks/api';
 import { useDAGHistorySSE } from '../../../../hooks/useDAGHistorySSE';
+import { buildDAGPageURL } from '../../../dag-runs/lib/dagRunUrls';
 import {
   sseFallbackOptions,
   useSSECacheSync,
@@ -51,16 +52,16 @@ type Props = {
 function DAGExecutionHistory({
   fileName,
 }: Omit<Props, 'isInModal' | 'activeTab'>) {
-  const appBarContext = React.useContext(AppBarContext);
+  const remoteNode = useRemoteNode();
 
-  const historySSE = useDAGHistorySSE(fileName, !!fileName);
+  const historySSE = useDAGHistorySSE(fileName, !!fileName, remoteNode);
   // Fetch execution history data — SWR is the single source of truth, refreshed by live invalidations
   const { data, mutate } = useQuery(
     '/dags/{fileName}/dag-runs',
     {
       params: {
         query: {
-          remoteNode: appBarContext.selectedRemoteNode || 'local',
+          remoteNode,
         },
         path: {
           fileName: fileName,
@@ -114,7 +115,7 @@ function DAGHistoryTable({
   dagRuns,
   refreshHistory,
 }: HistoryTableProps) {
-  const appBarContext = React.useContext(AppBarContext);
+  const remoteNode = useRemoteNode();
   const dagContext = React.useContext(DAGContext);
   const client = useClient();
   const navigate = useNavigate();
@@ -285,7 +286,7 @@ function DAGHistoryTable({
             stepName: selectedStep.name,
           },
           query: {
-            remoteNode: appBarContext.selectedRemoteNode || 'local',
+            remoteNode,
           },
         },
         body: {
@@ -350,15 +351,18 @@ function DAGHistoryTable({
 
       const subDAGRun = subRuns[0];
       if (subDAGRun && subDAGRun.dagRunId) {
-        // Navigate to the sub dagRun details using React Router with search params
-        // Include dagRunName parameter to avoid waiting for DAG details
-        navigate({
-          pathname: `/dags/${fileName}`,
-          search: `?dagRunId=${dagRun.rootDAGRunId}&subDAGRunId=${subDAGRun.dagRunId}&dagRunName=${encodeURIComponent(dagRun.rootDAGRunName)}`,
-        });
+        navigate(
+          buildDAGPageURL({
+            fileName,
+            remoteNode,
+            rootDAGRunId: dagRun.rootDAGRunId,
+            rootDAGRunName: dagRun.rootDAGRunName,
+            subDAGRunId: subDAGRun.dagRunId,
+          })
+        );
       }
     },
-    [reversedDAGRuns, idx, navigate]
+    [fileName, idx, navigate, remoteNode, reversedDAGRuns]
   );
 
   const onInspectStepOnGraph = React.useCallback(

@@ -58,7 +58,7 @@ afterEach(() => {
 describe('DAGRunDetailsPanel', () => {
   it('enables the regular dag-run details target when no sub-dag params exist', () => {
     useBoundedDAGRunDetailsMock.mockReturnValue({
-      data: { dagRunId: 'child-run' },
+      data: { dagRunId: 'child-run', name: 'child-dag' },
       error: null,
       refresh: vi.fn(),
     });

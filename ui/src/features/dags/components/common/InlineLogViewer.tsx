@@ -1,7 +1,9 @@
-import { AppBarContext } from '@/contexts/AppBarContext';
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
-import { useContext } from 'react';
 import { components, Stream } from '../../../../api/v1/schema';
 
 /**
@@ -28,8 +30,7 @@ export function InlineLogViewer({
   stream: components['schemas']['Stream'];
   dagRun?: components['schemas']['DAGRunDetails'];
 }) {
-  const appBarContext = useContext(AppBarContext);
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
+  const remoteNode = useRemoteNode();
 
   // Determine if this is a sub DAG run - check both rootDAGRunId AND rootDAGRunName
   const isSubDAGRun =
@@ -98,7 +99,9 @@ export function InlineLogViewer({
   return (
     <div className="bg-muted rounded overflow-hidden border border-border">
       {isLoading && !data ? (
-        <div className="text-muted-foreground text-xs py-4 px-3">Loading logs...</div>
+        <div className="text-muted-foreground text-xs py-4 px-3">
+          Loading logs...
+        </div>
       ) : lines.length === 0 ? (
         <div className="text-muted-foreground text-xs py-4 px-3">
           &lt;No log output&gt;

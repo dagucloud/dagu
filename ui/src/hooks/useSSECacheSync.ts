@@ -1,28 +1,22 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import { useEffect, useRef } from 'react';
 import type { KeyedMutator } from 'swr';
 import type { SSEState } from './useSSE';
 
-/**
- * Returns SWR config that polls when SSE is inactive and stops polling when
- * SSE is connected. Unlike the previous pattern, does NOT use `isPaused`,
- * so `mutate()` always works (critical for post-save cache updates).
- */
 export function sseFallbackOptions(
   sseResult: SSEState<unknown>,
   fallbackInterval: number = 2000
 ) {
-  const sseActive = sseResult.isConnected && !sseResult.shouldUseFallback;
-  // While SSE is still connecting (handshake in progress), suppress SWR polling
-  // to avoid redundant fetches. The initial revalidateOnMount fetch provides
-  // data during this window. Once SSE connects, live invalidations come from
-  // the stream even if no events have arrived yet. If SSE fails after retries,
-  // polling resumes.
-  const sseSettling = sseResult.isConnecting && !sseResult.shouldUseFallback;
+  const shouldPoll =
+    sseResult.shouldUseFallback ||
+    (!sseResult.isConnected && !sseResult.isConnecting);
   return {
     revalidateOnMount: true,
-    revalidateIfStale: !sseActive && !sseSettling,
-    revalidateOnFocus: !sseActive,
-    refreshInterval: sseActive || sseSettling ? 0 : fallbackInterval,
+    revalidateIfStale: shouldPoll,
+    revalidateOnFocus: shouldPoll,
+    refreshInterval: shouldPoll ? fallbackInterval : 0,
   };
 }
 

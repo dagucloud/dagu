@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 /**
  * TimelineChart component visualizes the execution timeline of a DAG run.
  *
@@ -14,12 +17,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { AppBarContext } from '@/contexts/AppBarContext';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
 import dayjs from '@/lib/dayjs';
 import { isActiveNodeStatus } from '@/lib/status-utils';
-import { useContext, useEffect, useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { components, NodeStatus, Status } from '../../../../api/v1/schema';
 import {
   buildTimelineRows,
@@ -243,8 +246,7 @@ function isActiveTimelineStatus(row: TimelineRow): boolean {
  * TimelineChart component renders a horizontal bar chart showing step execution
  */
 function TimelineChart({ status }: Props) {
-  const appBarContext = useContext(AppBarContext);
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
+  const remoteNode = useRemoteNode();
   const shouldFetchSubRuns = hasTimelineSubRuns(status);
   const queryContext = getSubRunQueryContext(status);
   const eligibleSubRunIdsKey = useMemo(

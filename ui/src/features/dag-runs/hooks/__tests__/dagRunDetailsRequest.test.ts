@@ -7,9 +7,13 @@ import {
   type DAGRunDetails,
 } from '../dagRunDetailsRequest';
 
-function buildDetails(dagRunId: string): DAGRunDetails {
+function buildDetails(
+  dagRunId: string,
+  name: string = 'billing'
+): DAGRunDetails {
   return {
     dagRunId,
+    name,
   } as DAGRunDetails;
 }
 
@@ -21,14 +25,24 @@ describe('matchesRequestedDAGRunDetails', () => {
   });
 
   it('matches an exact dag-run id', () => {
-    expect(
-      matchesRequestedDAGRunDetails(buildDetails('run-1'), 'run-1')
-    ).toBe(true);
+    expect(matchesRequestedDAGRunDetails(buildDetails('run-1'), 'run-1')).toBe(
+      true
+    );
   });
 
   it('rejects a mismatched dag-run id', () => {
+    expect(matchesRequestedDAGRunDetails(buildDetails('run-1'), 'run-2')).toBe(
+      false
+    );
+  });
+
+  it('rejects latest details for a different DAG name', () => {
     expect(
-      matchesRequestedDAGRunDetails(buildDetails('run-1'), 'run-2')
+      matchesRequestedDAGRunDetails(
+        buildDetails('resolved-run-id', 'billing'),
+        'latest',
+        'deploy'
+      )
     ).toBe(false);
   });
 

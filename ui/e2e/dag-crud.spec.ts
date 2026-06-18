@@ -19,6 +19,12 @@ function dagDefinitionsEntry(page: Page, dagName: string) {
     .first();
 }
 
+function localScopedURL(baseURL: string, path: string) {
+  const url = new URL(path, baseURL);
+  url.searchParams.set('remoteNode', 'local');
+  return url.toString();
+}
+
 test.describe('DAG CRUD operations', () => {
   test.beforeEach(async ({ page }) => {
     const stack = await loadStack();
@@ -76,7 +82,9 @@ steps:
     await dialog.getByLabel('DAG Name').fill(newName);
     await dialog.getByRole('button', { name: 'Rename' }).click();
 
-    await expect(page).toHaveURL(new RegExp(`/dags/${newName}$`));
+    await expect(page).toHaveURL(
+      localScopedURL(stack.local.baseURL, `/dags/${encodeURIComponent(newName)}`)
+    );
   });
 
   test('deletes a DAG from the UI', async ({ page, request }) => {
@@ -107,7 +115,7 @@ steps:
     page.once('dialog', (d) => d.accept());
     await page.getByRole('button', { name: 'Delete', exact: true }).click();
 
-    await expect(page).toHaveURL(/\/dags$/);
+    await expect(page).toHaveURL(localScopedURL(stack.local.baseURL, '/dags'));
 
     // Verify DAG is gone via API
     const response = await request.get(

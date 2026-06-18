@@ -317,4 +317,64 @@ describe('useExactDAGRuns', () => {
     });
     expect(getMock).toHaveBeenCalledTimes(3);
   });
+
+  it('does not keep polling while the DAG-runs SSE topic is healthy', async () => {
+    vi.useFakeTimers();
+    getMock.mockResolvedValue({ data: { dagRuns: [] } });
+    useDAGRunsListSSEMock.mockReturnValue({
+      data: null,
+      error: null,
+      isConnected: true,
+      isConnecting: false,
+      shouldUseFallback: false,
+    });
+
+    renderHook(() =>
+      useExactDAGRuns({
+        query: createQuery(),
+        fallbackIntervalMs: 2000,
+      })
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(getMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6000);
+    });
+
+    expect(getMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps polling while the DAG-runs SSE topic is still connecting', async () => {
+    vi.useFakeTimers();
+    getMock.mockResolvedValue({ data: { dagRuns: [] } });
+    useDAGRunsListSSEMock.mockReturnValue({
+      data: null,
+      error: null,
+      isConnected: false,
+      isConnecting: true,
+      shouldUseFallback: false,
+    });
+
+    renderHook(() =>
+      useExactDAGRuns({
+        query: createQuery(),
+        fallbackIntervalMs: 2000,
+      })
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(getMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(getMock).toHaveBeenCalledTimes(2);
+  });
 });

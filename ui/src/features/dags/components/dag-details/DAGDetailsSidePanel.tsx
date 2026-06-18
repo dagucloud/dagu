@@ -6,7 +6,10 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Maximize2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { AppBarContext } from '@/contexts/AppBarContext';
+import {
+  RemoteNodeProvider,
+  useRemoteNode,
+} from '@/contexts/RemoteNodeContext';
 import { UnsavedChangesProvider } from '@/contexts/UnsavedChangesContext';
 import { useQuery } from '@/hooks/api';
 import { useDAGRunSSE } from '@/hooks/useDAGRunSSE';
@@ -118,8 +121,7 @@ function DAGDetailsSidePanel({
   onEnqueue,
 }: Props): React.ReactElement | null {
   const navigate = useNavigate();
-  const appBarContext = React.useContext(AppBarContext);
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
+  const remoteNode = useRemoteNode();
 
   const [shouldRender, setShouldRender] = React.useState(isOpen);
   const [isVisible, setIsVisible] = React.useState(false);
@@ -181,7 +183,11 @@ function DAGDetailsSidePanel({
   }, []);
 
   const dagDetailsEnabled = isOpen && !!stableFileName;
-  const dagDetailsSSE = useDAGSSE(stableFileName, dagDetailsEnabled);
+  const dagDetailsSSE = useDAGSSE(
+    stableFileName,
+    dagDetailsEnabled,
+    remoteNode
+  );
   const { data, error, mutate } = useQuery(
     '/dags/{fileName}',
     whenEnabled(dagDetailsEnabled, {
@@ -249,14 +255,31 @@ function DAGDetailsSidePanel({
         return;
       }
 
-      const url = buildFullscreenUrl(stableFileName, activeTab);
+      const baseUrl = buildFullscreenUrl(stableFileName, activeTab);
+      const searchParams = new URLSearchParams();
+      searchParams.set('remoteNode', remoteNode);
+      if (trackedDagRunId) {
+        searchParams.set('dagRunId', trackedDagRunId);
+        if (data?.dag?.name) {
+          searchParams.set('dagRunName', data.dag.name);
+        }
+      }
+      const query = searchParams.toString();
+      const url = query ? `${baseUrl}?${query}` : baseUrl;
       if (event?.metaKey || event?.ctrlKey) {
         window.open(url, '_blank', 'noopener,noreferrer');
       } else {
         navigate(url);
       }
     },
-    [activeTab, navigate, stableFileName]
+    [
+      activeTab,
+      data?.dag?.name,
+      navigate,
+      remoteNode,
+      stableFileName,
+      trackedDagRunId,
+    ]
   );
 
   React.useEffect(() => {
@@ -305,110 +328,112 @@ function DAGDetailsSidePanel({
       <div className={backdropClassName} onClick={onClose} />
       <div className={panelClassName}>
         <UnsavedChangesProvider>
-          <RootDAGRunContext.Provider
-            value={{
-              data: currentDAGRun,
-              setData: (dagRun: components['schemas']['DAGRunDetails']) => {
-                setCurrentDAGRun(dagRun);
-              },
-            }}
-          >
-            <div className="p-6 w-full flex flex-col h-full dag-modal-content">
-              <div className="flex justify-between items-center mb-4 gap-4">
-                <div className="min-h-5 flex items-center text-xs text-muted-foreground">
-                  {toolbarHint}
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={handleFullscreenClick}
-                    title="Open in fullscreen (F) - Cmd/Ctrl+Click to open in new tab"
-                    className="relative group"
-                  >
-                    <Maximize2 className="h-4 w-4" />
-                    <span className="absolute -bottom-1 -right-1 bg-muted text-muted-foreground text-xs font-medium px-1 rounded-sm border opacity-0 group-hover:opacity-100 transition-opacity">
-                      F
-                    </span>
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={onClose}
-                    title="Close (Esc)"
-                    className="relative group"
-                  >
-                    <X className="h-4 w-4" />
-                    <span className="absolute -bottom-1 -right-1 bg-muted text-muted-foreground text-xs font-medium px-1 rounded-sm border opacity-0 group-hover:opacity-100 transition-opacity">
-                      Esc
-                    </span>
-                  </Button>
-                </div>
-              </div>
-
-              <div className="flex-1 overflow-y-auto overflow-x-hidden pr-4">
-                {loadState.state === 'loading' && (
-                  <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
-                    <LoadingIndicator />
-                    <p>Loading DAG details...</p>
+          <RemoteNodeProvider remoteNode={remoteNode}>
+            <RootDAGRunContext.Provider
+              value={{
+                data: currentDAGRun,
+                setData: (dagRun: components['schemas']['DAGRunDetails']) => {
+                  setCurrentDAGRun(dagRun);
+                },
+              }}
+            >
+              <div className="p-6 w-full flex flex-col h-full dag-modal-content">
+                <div className="flex justify-between items-center mb-4 gap-4">
+                  <div className="min-h-5 flex items-center text-xs text-muted-foreground">
+                    {toolbarHint}
                   </div>
-                )}
-
-                {loadState.state === 'not_found' && (
-                  <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
-                    <p className="max-w-md text-sm text-muted-foreground">
-                      {loadState.message}
-                    </p>
-                    <Button variant="outline" size="sm" onClick={onClose}>
-                      Close
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={handleFullscreenClick}
+                      title="Open in fullscreen (F) - Cmd/Ctrl+Click to open in new tab"
+                      className="relative group"
+                    >
+                      <Maximize2 className="h-4 w-4" />
+                      <span className="absolute -bottom-1 -right-1 bg-muted text-muted-foreground text-xs font-medium px-1 rounded-sm border opacity-0 group-hover:opacity-100 transition-opacity">
+                        F
+                      </span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={onClose}
+                      title="Close (Esc)"
+                      className="relative group"
+                    >
+                      <X className="h-4 w-4" />
+                      <span className="absolute -bottom-1 -right-1 bg-muted text-muted-foreground text-xs font-medium px-1 rounded-sm border opacity-0 group-hover:opacity-100 transition-opacity">
+                        Esc
+                      </span>
                     </Button>
                   </div>
-                )}
+                </div>
 
-                {loadState.state === 'error' && (
-                  <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
-                    <p className="max-w-md text-sm text-muted-foreground">
-                      {loadState.message}
-                    </p>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void mutate()}
-                      >
-                        Retry
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={onClose}>
+                <div className="flex-1 overflow-y-auto overflow-x-hidden pr-4">
+                  {loadState.state === 'loading' && (
+                    <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+                      <LoadingIndicator />
+                      <p>Loading DAG details...</p>
+                    </div>
+                  )}
+
+                  {loadState.state === 'not_found' && (
+                    <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
+                      <p className="max-w-md text-sm text-muted-foreground">
+                        {loadState.message}
+                      </p>
+                      <Button variant="outline" size="sm" onClick={onClose}>
                         Close
                       </Button>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {loadState.state === 'ready' && data?.dag && (
-                  <DAGDetailsContent
-                    fileName={stableFileName}
-                    filePath={data.filePath}
-                    dag={data.dag}
-                    currentDAGRun={currentDAGRun}
-                    dagRunId={trackedDagRunId ?? 'latest'}
-                    stepName={null}
-                    refreshFn={refreshFn}
-                    formatDuration={formatDuration}
-                    activeTab={activeTab}
-                    onTabChange={setActiveTab}
-                    isModal={true}
-                    navigateToStatusTab={navigateToStatusTab}
-                    localDags={data.localDags}
-                    editorHints={data.editorHints}
-                    onEnqueue={onEnqueue ? handleEnqueue : undefined}
-                    forceEnqueue={forceEnqueue}
-                    autoOpenStartModal={false}
-                  />
-                )}
+                  {loadState.state === 'error' && (
+                    <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
+                      <p className="max-w-md text-sm text-muted-foreground">
+                        {loadState.message}
+                      </p>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void mutate()}
+                        >
+                          Retry
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={onClose}>
+                          Close
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {loadState.state === 'ready' && data?.dag && (
+                    <DAGDetailsContent
+                      fileName={stableFileName}
+                      filePath={data.filePath}
+                      dag={data.dag}
+                      currentDAGRun={currentDAGRun}
+                      dagRunId={trackedDagRunId ?? 'latest'}
+                      stepName={null}
+                      refreshFn={refreshFn}
+                      formatDuration={formatDuration}
+                      activeTab={activeTab}
+                      onTabChange={setActiveTab}
+                      isModal={true}
+                      navigateToStatusTab={navigateToStatusTab}
+                      localDags={data.localDags}
+                      editorHints={data.editorHints}
+                      onEnqueue={onEnqueue ? handleEnqueue : undefined}
+                      forceEnqueue={forceEnqueue}
+                      autoOpenStartModal={false}
+                    />
+                  )}
+                </div>
               </div>
-            </div>
-          </RootDAGRunContext.Provider>
+            </RootDAGRunContext.Provider>
+          </RemoteNodeProvider>
         </UnsavedChangesProvider>
       </div>
     </>

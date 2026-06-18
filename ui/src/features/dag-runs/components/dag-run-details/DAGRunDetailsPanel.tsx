@@ -1,13 +1,17 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import { Button } from '@/components/ui/button';
 import { Maximize2, X } from 'lucide-react';
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AppBarContext } from '../../../../contexts/AppBarContext';
+import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { shouldIgnoreKeyboardShortcuts } from '../../../../lib/keyboard-shortcuts';
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import { DAGRunContext } from '../../contexts/DAGRunContext';
 import { matchesRequestedDAGRunDetails } from '../../hooks/dagRunDetailsRequest';
 import { useBoundedDAGRunDetails } from '../../hooks/useBoundedDAGRunDetails';
+import { buildDAGRunPageURL } from '../../lib/dagRunUrls';
 import DAGRunDetailsContent from './DAGRunDetailsContent';
 
 type Props = {
@@ -24,7 +28,7 @@ function DAGRunDetailsPanel({
   onNavigate,
 }: Props): React.ReactElement {
   const navigate = useNavigate();
-  const appBarContext = React.useContext(AppBarContext);
+  const remoteNode = useRemoteNode();
 
   // Parse sub DAG-run params from URL
   const searchParams = new URLSearchParams(window.location.search);
@@ -33,7 +37,6 @@ function DAGRunDetailsPanel({
   const parentName = searchParams.get('dagRunName') || name;
   const isSubDAGRun = Boolean(subDAGRunId && parentDAGRunId && parentName);
 
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
   const detailsTarget = isSubDAGRun
     ? {
         remoteNode,
@@ -64,7 +67,11 @@ function DAGRunDetailsPanel({
   const expectedDagRunId = isSubDAGRun
     ? (subDAGRunId as string)
     : dagRunId || 'latest';
-  const data = matchesRequestedDAGRunDetails(latestDetails, expectedDagRunId)
+  const data = matchesRequestedDAGRunDetails(
+    latestDetails,
+    expectedDagRunId,
+    isSubDAGRun ? undefined : name
+  )
     ? { dagRunDetails: latestDetails }
     : null;
   const dagRunDetails = data?.dagRunDetails ?? null;
@@ -77,7 +84,18 @@ function DAGRunDetailsPanel({
 
   const handleFullscreenClick = React.useCallback(
     (e?: React.MouseEvent) => {
-      const url = `/dag-runs/${name}/${dagRunId}`;
+      const url = isSubDAGRun
+        ? buildDAGRunPageURL({
+            rootDAGRunName: parentName,
+            rootDAGRunId: parentDAGRunId as string,
+            remoteNode,
+            subDAGRunId: subDAGRunId as string,
+          })
+        : buildDAGRunPageURL({
+            rootDAGRunName: name,
+            rootDAGRunId: dagRunId,
+            remoteNode,
+          });
 
       if (e && (e.metaKey || e.ctrlKey)) {
         window.open(url, '_blank');
@@ -85,7 +103,16 @@ function DAGRunDetailsPanel({
         navigate(url);
       }
     },
-    [name, dagRunId, navigate]
+    [
+      dagRunId,
+      isSubDAGRun,
+      name,
+      navigate,
+      parentDAGRunId,
+      parentName,
+      remoteNode,
+      subDAGRunId,
+    ]
   );
 
   // Keyboard shortcuts
