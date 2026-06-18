@@ -1,0 +1,9 @@
+shell: powershell
+working_dir: .
+params:
+  - name: run_date
+    type: string
+    eval: "`CommandThatDoesNotExistSpec011`"
+steps:
+  - name: write
+    run: Set-Content -NoNewline -Path windows-should-not-run.txt -Value unexpected

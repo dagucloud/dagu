@@ -1,0 +1,10 @@
+shell: powershell
+working_dir: .
+params:
+  - name: run_date
+    type: string
+    eval: "`CommandThatDoesNotExistSpec011`"
+    default: fallback-date
+steps:
+  - name: write
+    run: Set-Content -NoNewline -Path windows-fallback.txt -Value '${params.run_date}'

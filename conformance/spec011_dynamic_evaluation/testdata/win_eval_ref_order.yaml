@@ -1,0 +1,12 @@
+shell: powershell
+working_dir: .
+params:
+  - name: environment
+    type: string
+    default: prod
+  - name: service_name
+    type: string
+    eval: $(Write-Output '${params.environment}-api')
+steps:
+  - name: write
+    run: Set-Content -NoNewline -Path windows-reference-order.txt -Value '${params.service_name}'

@@ -84,6 +84,72 @@ func TestRuntimeDynamicEvaluation(t *testing.T) {
 	}
 }
 
+func TestRuntimeDynamicEvaluationWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("fixtures use PowerShell command snippets")
+	}
+
+	cases := []runtimeCase{
+		{
+			name:    "backtick substitution populates param",
+			file:    "win_eval_backtick.yaml",
+			output:  "windows-backtick.txt",
+			content: "20260131",
+		},
+		{
+			name:    "dollar paren substitution populates param",
+			file:    "win_eval_dollar.yaml",
+			output:  "windows-dollar.txt",
+			content: "20260131",
+		},
+		{
+			name:    "dagu refs resolve before command substitution",
+			file:    "win_eval_ref_order.yaml",
+			output:  "windows-reference-order.txt",
+			content: "prod-api",
+		},
+		{
+			name:   "scoped env resolves before command substitution",
+			file:   "win_eval_env_order.yaml",
+			output: "windows-env-order.txt",
+			setup: func(t *testing.T) {
+				t.Setenv("SPEC011_DYNAMIC_VALUE", "scope")
+			},
+			content: "scope-prod",
+		},
+		{
+			name:    "failed eval falls back to default",
+			file:    "win_eval_fallback.yaml",
+			output:  "windows-fallback.txt",
+			content: "fallback-date",
+		},
+		{
+			name:    "dollar paren text outside params eval stays literal",
+			file:    "win_outside_dollar.yaml",
+			output:  "windows-outside-dollar.txt",
+			content: "$(Write-Output should-not-run)",
+		},
+		{
+			name:    "backtick text outside params eval stays literal",
+			file:    "win_outside_backtick.yaml",
+			output:  "windows-outside-backtick.txt",
+			content: "`Write-Output should-not-run`",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.setup != nil {
+				tc.setup(t)
+			}
+			dagu := harness.NewRunner(t)
+			result := dagu.RunWithEnv([]string{"DAGU_DEFAULT_SHELL=powershell"}, "start", tc.file)
+			result.ExpectExitCode(0)
+			dagu.ExpectFileContent(tc.output, tc.content)
+		})
+	}
+}
+
 func TestDynamicEvaluationFailureWithoutDefaultFails(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
@@ -97,6 +163,19 @@ func TestDynamicEvaluationFailureWithoutDefaultFails(t *testing.T) {
 	dagu.ExpectNoFile("should-not-run.txt")
 }
 
+func TestDynamicEvaluationFailureWithoutDefaultFailsWindows(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS != "windows" {
+		t.Skip("fixture uses PowerShell command snippets")
+	}
+
+	dagu := harness.NewRunner(t)
+	result := dagu.RunWithEnv([]string{"DAGU_DEFAULT_SHELL=powershell"}, "start", "win_eval_no_default.yaml")
+	result.ExpectExitCode(1)
+	result.ExpectStderrContains("params", "eval failed")
+	dagu.ExpectNoFile("windows-should-not-run.txt")
+}
+
 func TestValidateParsesButDoesNotExecuteDynamicEvaluation(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
@@ -108,4 +187,17 @@ func TestValidateParsesButDoesNotExecuteDynamicEvaluation(t *testing.T) {
 	result.ExpectExitCode(0)
 	result.ExpectStdout("")
 	dagu.ExpectNoFile("validate-executed.txt")
+}
+
+func TestValidateParsesButDoesNotExecuteDynamicEvaluationWindows(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS != "windows" {
+		t.Skip("fixture uses PowerShell command snippets")
+	}
+
+	dagu := harness.NewRunner(t)
+	result := dagu.RunWithEnv([]string{"DAGU_DEFAULT_SHELL=powershell"}, "validate", "win_validate_no_exec.yaml")
+	result.ExpectExitCode(0)
+	result.ExpectStdout("")
+	dagu.ExpectNoFile("windows-validate-executed.txt")
 }
