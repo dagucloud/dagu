@@ -999,12 +999,14 @@ func removeContainerForCleanup(ctx context.Context, cli *client.Client, containe
 	return true
 }
 
+// clearContainerState forgets ownership of a container after cleanup.
 func (c *Client) clearContainerState(containerID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.clearContainerStateLocked(containerID)
 }
 
+// clearContainerStateLocked clears the tracked container only when it still matches.
 func (c *Client) clearContainerStateLocked(containerID string) {
 	if c.containerID != containerID {
 		return
