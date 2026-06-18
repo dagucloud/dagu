@@ -24,11 +24,13 @@ func MarkDispatchIndexReconcileDueForTest(t testing.TB, s *DispatchTaskStore) {
 	t.Helper()
 	if s == nil {
 		t.Fatal("nil dispatch task store")
+		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.index == nil {
 		t.Fatal("dispatch task index is not initialized")
+		return
 	}
 	interval := dispatchIndexReconcileInterval
 	if interval <= 0 {
