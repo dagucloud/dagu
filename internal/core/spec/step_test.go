@@ -1993,6 +1993,16 @@ func TestBuildStepContainer(t *testing.T) {
 				PullPolicy: core.PullPolicyMissing,
 			},
 		},
+		{
+			name: "RuntimeDefaultsToDocker",
+			input: &container{
+				Image: "alpine:3.18",
+			},
+			expected: &core.Container{
+				Image:      "alpine:3.18",
+				PullPolicy: core.PullPolicyMissing,
+			},
+		},
 	}
 
 	for _, tt := range tests {

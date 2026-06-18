@@ -3284,6 +3284,30 @@ steps:
 		assert.Equal(t, []string{"run"}, dag.Harnesses["gemini"].PrefixArgs)
 	})
 
+	t.Run("HarnessRunAcceptsStepContainer", func(t *testing.T) {
+		yaml := `
+steps:
+  - name: review
+    action: harness.run
+    container:
+      image: localhost/reviewer-claude:latest
+      volumes:
+        - ./src:/src:ro
+    with:
+      prompt: "Review this repository"
+      provider: claude
+`
+		dag, err := spec.LoadYAML(context.Background(), []byte(yaml))
+		require.NoError(t, err)
+		require.Len(t, dag.Steps, 1)
+
+		step := dag.Steps[0]
+		assert.Equal(t, "harness", step.ExecutorConfig.Type)
+		require.NotNil(t, step.Container)
+		assert.Equal(t, "localhost/reviewer-claude:latest", step.Container.Image)
+		assert.Equal(t, []string{"./src:/src:ro"}, step.Container.Volumes)
+	})
+
 	t.Run("UnknownCustomHarnessProviderFailsBuild", func(t *testing.T) {
 		yaml := `
 steps:

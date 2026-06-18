@@ -103,6 +103,33 @@ func inspectContainer(ctx context.Context, cli *client.Client, containerID strin
 	return result.Container, nil
 }
 
+// daemonClientOpts builds the Moby client options for the given daemon host.
+//
+// Empty host is the Docker default and is exactly client.FromEnv — byte-identical
+// to upstream behavior (honoring DOCKER_HOST, DOCKER_CERT_PATH, DOCKER_API_VERSION).
+//
+// A non-empty host is the service-selected runtime (podman's Docker-compatible
+// socket via DAGU_CONTAINER_RUNTIME). It deliberately does NOT use client.FromEnv,
+// which is WithTLSClientConfigFromEnv + WithHostFromEnv + WithAPIVersionFromEnv:
+//   - WithTLSClientConfigFromEnv would couple the selected plain socket to Docker
+//     TLS env (DOCKER_CERT_PATH) — making client.New pick scheme=https, and failing
+//     client construction outright if those cert files are stale/missing.
+//   - WithHostFromEnv (DOCKER_HOST) must not override the explicit selection.
+//
+// So the selected-host client is built from only the intended pieces: the host, a
+// pinned http scheme for the plain Docker-compatible socket, and DOCKER_API_VERSION
+// negotiation.
+func daemonClientOpts(daemonHost string) []client.Opt {
+	if host := strings.TrimSpace(daemonHost); host != "" {
+		return []client.Opt{
+			client.WithHost(host),
+			client.WithScheme("http"),
+			client.WithAPIVersionFromEnv(),
+		}
+	}
+	return []client.Opt{client.FromEnv}
+}
+
 // InitializeClient creates a new container client
 func InitializeClient(ctx context.Context, cfg *Config) (*Client, error) {
 	logger.Debug(ctx, "Docker: InitializeClient started",
@@ -111,7 +138,7 @@ func InitializeClient(ctx context.Context, cfg *Config) (*Client, error) {
 		slog.Bool("autoRemove", cfg.AutoRemove),
 	)
 
-	dockerCli, err := client.New(client.FromEnv)
+	dockerCli, err := client.New(daemonClientOpts(cfg.DaemonHost)...)
 	if err != nil {
 		logger.Error(ctx, "Docker: failed to create docker client", tag.Error(err))
 		return nil, err
@@ -638,6 +665,15 @@ func (c *Client) StartBackground(ctx context.Context) error {
 func (c *Client) Stop(sig os.Signal) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// A closed client (Close set c.cli = nil) can no longer stop anything. This
+	// guards the cancel/Stop-vs-cleanup race: a captured *Client can have Stop
+	// called after a concurrent Close has nilled the underlying SDK handle (e.g.
+	// a containerized harness.run step cancelled as runContainerOnce's deferred
+	// Close runs). Without this guard the inspect below dereferences a nil client.
+	if c.cli == nil {
+		return nil
+	}
 
 	if c.containerID == "" {
 		return nil

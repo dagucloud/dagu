@@ -4,11 +4,13 @@
 package docker
 
 import (
+	"context"
 	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
+	"syscall"
 	"testing"
 
 	"github.com/dagucloud/dagu/internal/core"
@@ -1527,4 +1529,60 @@ func TestDockerClientRespectsDockerHostEnv(t *testing.T) {
 	defer cli.Close()
 
 	assert.Equal(t, "tcp://test-host:2375", cli.DaemonHost())
+}
+
+// TestDaemonClientOpts_SelectedHostIsolatedFromDockerTLSEnv guards the contract
+// that a service-selected daemon host (podman's Docker-compatible socket) is
+// isolated from Docker TLS environment. With a stale DOCKER_CERT_PATH, the Docker
+// default path (empty host -> client.FromEnv) fails client construction loading
+// certs, while the selected-host opts succeed because they do not apply
+// WithTLSClientConfigFromEnv. The selected host is also driven over plain http,
+// not https, and DOCKER_HOST does not override the explicit selection.
+func TestDaemonClientOpts_SelectedHostIsolatedFromDockerTLSEnv(t *testing.T) {
+	t.Setenv("DOCKER_CERT_PATH", filepath.Join(t.TempDir(), "missing-certs"))
+	t.Setenv("DOCKER_TLS_VERIFY", "1")
+	t.Setenv("DOCKER_HOST", "tcp://should-not-win:2375")
+
+	// Docker default path inherits the (stale) TLS env and fails to construct.
+	_, derr := client.New(daemonClientOpts("")...)
+	require.Error(t, derr, "docker default path inherits stale DOCKER_CERT_PATH and fails")
+
+	// Selected podman socket is isolated: construction succeeds, host is the
+	// selected socket (DOCKER_HOST did not win), and the scheme is plain http.
+	sockHost := "unix:///run/podman/podman.sock"
+	cli, err := client.New(daemonClientOpts(sockHost)...)
+	require.NoError(t, err, "selected host must not inherit Docker TLS env")
+	defer cli.Close()
+	assert.Equal(t, sockHost, cli.DaemonHost(), "explicit selection wins over DOCKER_HOST")
+}
+
+// TestClientStopAfterCloseIsNilSafe is a regression guard for the cancel/Stop
+// race: a captured *Client can have Stop() called after a concurrent Close()
+// has nilled the underlying SDK handle (e.g. a containerized harness.run step
+// cancelled as runContainerOnce's deferred Close runs). Close and Stop serialize
+// on c.mu, but serialization does not prevent the Close-then-Stop ordering, so
+// Stop must tolerate a nil c.cli rather than dereferencing it.
+func TestClientStopAfterCloseIsNilSafe(t *testing.T) {
+	sdkCli, err := client.New(client.FromEnv)
+	require.NoError(t, err)
+
+	c := &Client{
+		// AutoRemove false so Close() does not attempt a daemon ContainerRemove;
+		// this test must stay daemon-free. The race we reproduce is purely the
+		// nil-handle ordering, not container teardown.
+		cfg:         &Config{AutoRemove: false},
+		cli:         sdkCli,
+		containerID: "deadbeef",
+	}
+	c.started.Store(true) // simulate a started container so Stop passes its guards
+
+	// Close() nils c.cli, exactly as the runContainerOnce cleanup defer does.
+	c.Close(context.Background())
+
+	// A Stop() that captured this *Client before cleanup now runs after Close.
+	// Without the nil guard this panics dereferencing c.cli; with it, it returns nil.
+	require.NotPanics(t, func() {
+		err := c.Stop(syscall.SIGTERM)
+		assert.NoError(t, err)
+	})
 }
