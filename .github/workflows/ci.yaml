@@ -105,7 +105,7 @@ jobs:
             esac
 
             case "${file}" in
-              api/*|cmd/*|internal/*|proto/*|scripts/e2e/*|ui/*|go.mod|go.sum|Makefile|.github/workflows/ci.yaml)
+              ui/*)
                 e2e_changed=true
                 ;;
             esac
