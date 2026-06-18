@@ -5,9 +5,9 @@ steps:
   - name: write
     action: exec
     with:
-      command: /bin/sh
+      command: go
       args:
-        - -c
-        - 'printf "%s\n" "$1" > direct-exec.txt'
-        - _
+        - run
+        - ./write_arg.go
+        - direct-exec.txt
         - ${SERVICE} ${MISSING}

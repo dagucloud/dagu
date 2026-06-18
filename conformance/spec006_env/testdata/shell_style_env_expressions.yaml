@@ -3,13 +3,10 @@ env:
   - SERVICE=api
 steps:
   - name: write
-    action: exec
+    action: file.write
     with:
-      command: /bin/sh
-      args:
-        - -c
-        - 'printf "%s\n%s\n%s\n" "$1" "$2" "$3" > shell-style.txt'
-        - _
-        - ${SERVICE:-fallback}
-        - ${MISSING:-default}
-        - ${MISSING:4:10}
+      path: shell-style.txt
+      content: |
+        ${SERVICE:-fallback}
+        ${MISSING:-default}
+        ${MISSING:4:10}
