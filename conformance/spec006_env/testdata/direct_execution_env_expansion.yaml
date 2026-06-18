@@ -1,0 +1,13 @@
+working_dir: .
+env:
+  - SERVICE=api
+steps:
+  - name: write
+    action: exec
+    with:
+      command: /bin/sh
+      args:
+        - -c
+        - 'printf "%s\n" "$1" > direct-exec.txt'
+        - _
+        - ${SERVICE} ${MISSING}

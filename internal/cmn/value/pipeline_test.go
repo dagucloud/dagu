@@ -595,7 +595,7 @@ func TestString_OSExpansion(t *testing.T) {
 			name:  "POSIXDefaultExpanded",
 			input: "${UNDEFINED:-default}",
 			opts:  []option{withOSExpansion()},
-			want:  "default",
+			want:  "${UNDEFINED:-default}",
 		},
 	}
 

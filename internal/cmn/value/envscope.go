@@ -195,12 +195,18 @@ func expandWithLookup(s string, lookup func(key string) (string, bool), recogniz
 			key = s[loc[2]:loc[3]]
 		} else if loc[4] >= 0 { // Group 2: $VAR
 			key = s[loc[4]:loc[5]]
+		} else if loc[6] >= 0 { // Group 3: positional $1
+			key = s[loc[6]:loc[7]]
 		} else {
 			// Neither group captured — preserve original text.
 			b.WriteString(match)
 			continue
 		}
 
+		if !validVariableTokenName(key) || numericVarContinues(s, key, loc[1]) {
+			b.WriteString(match)
+			continue
+		}
 		if val, found := lookup(key); found {
 			b.WriteString(val)
 			continue

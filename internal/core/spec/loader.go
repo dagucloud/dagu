@@ -4,11 +4,9 @@
 package spec
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -24,6 +22,7 @@ import (
 	"github.com/go-viper/mapstructure/v2"
 
 	"github.com/goccy/go-yaml"
+	"github.com/goccy/go-yaml/parser"
 )
 
 // Errors for loading DAGs
@@ -513,16 +512,37 @@ func loadDAGsFromData(ctx BuildContext, data []byte, filePath string, baseDef *d
 
 // decodeDocuments splits a YAML stream into non-empty manifest documents.
 func decodeDocuments(data []byte) ([]dagDocument, error) {
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	docs := make([]dagDocument, 0, 1)
+	file, err := parser.ParseBytes(data, 0)
+	if err != nil {
+		return nil, err
+	}
+	if file == nil {
+		return nil, nil
+	}
 
-	for index := 0; ; index++ {
-		var doc map[string]any
-		err := decoder.Decode(&doc)
+	decoder := newManifestDecoder()
+	docs := make([]dagDocument, 0, 1)
+	if len(file.Docs) == 1 {
+		doc, err := decoder.Unmarshal(data)
 		if err != nil {
-			if errors.Is(err, io.EOF) {
-				return docs, nil
-			}
+			return nil, fmt.Errorf("failed to decode document 0: %w", err)
+		}
+		if len(doc) == 0 {
+			return docs, nil
+		}
+		return append(docs, dagDocument{index: 0, data: doc}), nil
+	}
+
+	for index, docNode := range file.Docs {
+		if docNode == nil || docNode.Body == nil {
+			continue
+		}
+		docData, err := docNode.MarshalYAML()
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal document %d: %w", index, err)
+		}
+		doc, err := decoder.Unmarshal(docData)
+		if err != nil {
 			return nil, fmt.Errorf("failed to decode document %d: %w", index, err)
 		}
 		if len(doc) == 0 {
@@ -530,6 +550,7 @@ func decodeDocuments(data []byte) ([]dagDocument, error) {
 		}
 		docs = append(docs, dagDocument{index: len(docs), data: doc})
 	}
+	return docs, nil
 }
 
 // loadBaseDefinition loads and decodes the optional base manifest.

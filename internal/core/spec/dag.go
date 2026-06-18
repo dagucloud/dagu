@@ -1457,7 +1457,7 @@ func buildMaxCleanUpTime(_ BuildContext, d *dag) (time.Duration, error) {
 }
 
 func buildEnvs(ctx BuildContext, d *dag) ([]string, error) {
-	vars, err := loadVariablesFromEnvValue(ctx, d.Env)
+	entries, vars, err := loadEnvEntriesFromEnvValue(ctx, d.Env)
 	if err != nil {
 		return nil, err
 	}
@@ -1469,9 +1469,9 @@ func buildEnvs(ctx BuildContext, d *dag) ([]string, error) {
 		maps.Copy(ctx.envScope.buildEnv, vars)
 	}
 
-	envs := make([]string, 0, len(vars))
-	for k, v := range vars {
-		envs = append(envs, fmt.Sprintf("%s=%s", k, v))
+	envs := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		envs = append(envs, entry.String())
 	}
 	return envs, nil
 }

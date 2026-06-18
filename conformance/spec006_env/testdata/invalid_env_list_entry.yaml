@@ -1,0 +1,7 @@
+working_dir: .
+env:
+  - MISSING_EQUALS
+steps:
+  - name: write
+    run: |
+      touch executed.txt

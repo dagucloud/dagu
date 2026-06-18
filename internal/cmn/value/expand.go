@@ -128,14 +128,23 @@ func expandWithShellContext(ctx context.Context, input string, opts *options) (s
 			inner := input[loc[2]:loc[3]]
 			varName = extractPOSIXVarName(inner)
 			hasPOSIXOp = inner != varName
-		} else { // Group 2: $VAR
+		} else if loc[4] >= 0 { // Group 2: $VAR
 			varName = input[loc[4]:loc[5]]
+		} else if loc[6] >= 0 { // Group 3: positional $1
+			varName = input[loc[6]:loc[7]]
+		} else {
+			b.WriteString(match)
+			continue
 		}
 
+		if !validVariableTokenName(varName) || numericVarContinues(input, varName, loc[1]) {
+			b.WriteString(match)
+			continue
+		}
 		val, defined := r.resolveForShell(varName)
 
-		// Undefined without OS expansion: preserve for later shell evaluation.
-		if !defined && !opts.ExpandOS {
+		// Undefined variables are preserved for their owning runtime.
+		if !defined {
 			b.WriteString(match)
 			continue
 		}

@@ -1,0 +1,15 @@
+working_dir: .
+env:
+  - SERVICE=api
+steps:
+  - name: write
+    action: exec
+    with:
+      command: /bin/sh
+      args:
+        - -c
+        - 'printf "%s\n%s\n%s\n" "$1" "$2" "$3" > shell-style.txt'
+        - _
+        - ${SERVICE:-fallback}
+        - ${MISSING:-default}
+        - ${MISSING:4:10}

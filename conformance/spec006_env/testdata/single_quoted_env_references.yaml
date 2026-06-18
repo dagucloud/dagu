@@ -1,0 +1,7 @@
+working_dir: .
+env:
+  - SERVICE=api
+steps:
+  - name: write
+    run: |
+      printf '%s\n' '$SERVICE' '${SERVICE}' > single-quoted.txt

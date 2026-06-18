@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/goccy/go-yaml"
+	"github.com/goccy/go-yaml/ast"
+	"github.com/goccy/go-yaml/parser"
 )
 
 // EnvValue represents environment variable configuration that can be specified as:
@@ -51,44 +53,54 @@ func (e *EnvValue) UnmarshalYAML(data []byte) error {
 	}
 	e.raw = raw
 
-	switch v := raw.(type) {
-	case map[string]any:
-		// Map of key-value pairs
-		return e.parseMap(v)
-
-	case []any:
-		// Array of maps or strings
-		return e.parseArray(v)
-
-	case nil:
+	file, err := parser.ParseBytes(data, 0)
+	if err != nil {
+		return fmt.Errorf("env parse error: %w", err)
+	}
+	if len(file.Docs) == 0 || file.Docs[0].Body == nil {
 		e.isSet = false
 		return nil
+	}
 
+	switch node := file.Docs[0].Body.(type) {
+	case *ast.MappingNode:
+		return e.parseMappingNode(node)
+	case *ast.SequenceNode:
+		return e.parseSequenceNode(node)
+	case *ast.NullNode:
+		e.isSet = false
+		return nil
 	default:
-		return fmt.Errorf("env must be map or array, got %T", v)
+		return fmt.Errorf("env must be map or array, got %T", raw)
 	}
 }
 
-func (e *EnvValue) parseMap(m map[string]any) error {
-	for key, v := range m {
-		value := stringifyValue(v)
-		e.entries = append(e.entries, EnvEntry{Key: key, Value: value})
+func (e *EnvValue) parseMappingNode(node *ast.MappingNode) error {
+	for _, value := range node.Values {
+		key, err := yamlNodeString(value.Key)
+		if err != nil {
+			return fmt.Errorf("env map key: %w", err)
+		}
+		val, err := yamlNodeString(value.Value)
+		if err != nil {
+			return fmt.Errorf("env map value: %w", err)
+		}
+		e.entries = append(e.entries, EnvEntry{Key: key, Value: val})
 	}
 	return nil
 }
 
-func (e *EnvValue) parseArray(arr []any) error {
-	for i, item := range arr {
+func (e *EnvValue) parseSequenceNode(node *ast.SequenceNode) error {
+	for i, item := range node.Values {
 		switch v := item.(type) {
-		case map[string]any:
-			for key, val := range v {
-				value := stringifyValue(val)
-				e.entries = append(e.entries, EnvEntry{Key: key, Value: value})
+		case *ast.MappingNode:
+			if err := e.parseMappingNode(v); err != nil {
+				return fmt.Errorf("env[%d]: %w", i, err)
 			}
-		case string:
-			key, val, found := strings.Cut(v, "=")
+		case *ast.StringNode:
+			key, val, found := strings.Cut(v.Value, "=")
 			if !found {
-				return fmt.Errorf("env[%d]: invalid format %q (expected KEY=value)", i, v)
+				return fmt.Errorf("env[%d]: invalid format %q (expected KEY=value)", i, v.Value)
 			}
 			e.entries = append(e.entries, EnvEntry{Key: key, Value: val})
 		default:
@@ -96,6 +108,24 @@ func (e *EnvValue) parseArray(arr []any) error {
 		}
 	}
 	return nil
+}
+
+func yamlNodeString(node ast.Node) (string, error) {
+	if node == nil {
+		return "", nil
+	}
+	if literal, ok := node.(*ast.LiteralNode); ok && literal.Value != nil {
+		return literal.Value.Value, nil
+	}
+	var raw any
+	data, err := node.MarshalYAML()
+	if err != nil {
+		return "", err
+	}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return "", err
+	}
+	return stringifyValue(raw), nil
 }
 
 func stringifyValue(v any) string {

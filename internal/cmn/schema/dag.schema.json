@@ -424,7 +424,7 @@
           "description": "Map format: {KEY1: value1, KEY2: value2}"
         }
       ],
-      "description": "Environment variables available to all steps in the DAG. Supports three formats: 1) Map format: env: {KEY: value}, 2) Array of maps: env: [{KEY: value}], 3) Array of Key=Value strings: env: ['KEY=value'] (Docker/docker-compose compatible). Can use shell expansions (${VAR}), references to other environment variables, or command substitutions (`cmd`). Note: These won't be stored in execution history data for security."
+      "description": "Environment variables available to all steps in the DAG. Supports three formats: 1) Map format: env: {KEY: value}, 2) Array of maps: env: [{KEY: value}], 3) Array of Key=Value strings: env: ['KEY=value'] (Docker/docker-compose compatible). Entries are evaluated in YAML source order, and names must match ^[A-Za-z_][A-Za-z0-9_]*$. Values can use ${env.NAME}, ${NAME}, $NAME, shell-style environment expressions, or command substitutions (`cmd`). Note: These won't be stored in execution history data for security."
     },
     "secrets": {
       "type": "array",
@@ -2085,7 +2085,7 @@
               "description": "Map format: {KEY1: value1, KEY2: value2}"
             }
           ],
-          "description": "Environment variables specific to this step. These override DAG-level environment variables with the same name. Supports three formats: 1) Map format: env: {KEY: value}, 2) Array of maps: env: [{KEY: value}], 3) Array of Key=Value strings: env: ['KEY=value'] (Docker/docker-compose compatible). Can use shell expansions (${VAR}), references to other environment variables, or command substitutions (`cmd`). When used with 'container' field, these are merged with container.env."
+          "description": "Environment variables specific to this step. These override DAG-level environment variables with the same name. Supports three formats: 1) Map format: env: {KEY: value}, 2) Array of maps: env: [{KEY: value}], 3) Array of Key=Value strings: env: ['KEY=value'] (Docker/docker-compose compatible). Entries are evaluated in YAML source order, and names must match ^[A-Za-z_][A-Za-z0-9_]*$. Values can use ${env.NAME}, ${NAME}, $NAME, shell-style environment expressions, or command substitutions (`cmd`). When used with 'container' field, these are merged with container.env."
         },
         "container": {
           "$ref": "#/definitions/container",
@@ -3052,7 +3052,7 @@
               "additionalProperties": true
             }
           ],
-          "description": "Environment variables to set in the container. Supports maps or arrays combining maps and KEY=value strings. Values can include variable expansion (e.g., 'API_KEY=${API_KEY}')."
+          "description": "Environment variables to set in the container. Supports maps or arrays combining maps and KEY=value strings. Entries are evaluated in YAML source order, and names must match ^[A-Za-z_][A-Za-z0-9_]*$. Values can include variable expansion (e.g., 'API_KEY=${API_KEY}')."
         },
         "volumes": {
           "type": "array",
