@@ -76,7 +76,9 @@ steps:
     await dialog.getByLabel('DAG Name').fill(newName);
     await dialog.getByRole('button', { name: 'Rename' }).click();
 
-    await expect(page).toHaveURL(new RegExp(`/dags/${newName}$`));
+    await expect(page).toHaveURL(
+      new RegExp(`/dags/${newName}\\?remoteNode=local$`)
+    );
   });
 
   test('deletes a DAG from the UI', async ({ page, request }) => {
@@ -107,7 +109,7 @@ steps:
     page.once('dialog', (d) => d.accept());
     await page.getByRole('button', { name: 'Delete', exact: true }).click();
 
-    await expect(page).toHaveURL(/\/dags$/);
+    await expect(page).toHaveURL(/\/dags\?remoteNode=local$/);
 
     // Verify DAG is gone via API
     const response = await request.get(
