@@ -78,6 +78,55 @@ func TestStepExecutorAllowsStringOutputValueContainingHeredocMarker(t *testing.T
 	require.JSONEq(t, `{"token":"prefix<<suffix"}`, *state.StepOutputsValue)
 }
 
+func TestStepExecutorRemovesStepOutputFileAfterSuccessfulAttempt(t *testing.T) {
+	executorType := registerDeclaredOutputExecutor(t, func(ctx context.Context, _ *declaredOutputExecutor) error {
+		return os.WriteFile(outputFilePathFromContext(t, ctx), []byte("image_tag=v1.2.3\n"), 0o600)
+	})
+
+	node := newDeclaredOutputNode(t, executorType, []core.StepOutputDeclaration{
+		{Name: "image_tag", Type: core.StepDeclaredOutputTypeString},
+	})
+	ctx := runtime.NewContext(context.Background(), &core.DAG{}, "run-1", "dag.log")
+	var outputPath string
+
+	require.NoError(t, runtime.NewStepExecutor().Execute(ctx, node, func() {
+		outputPath = node.State().StepOutputFile
+		require.NotEmpty(t, outputPath)
+		_, err := os.Stat(outputPath)
+		require.NoError(t, err)
+	}))
+
+	require.NotEmpty(t, outputPath)
+	_, err := os.Stat(outputPath)
+	require.ErrorIs(t, err, os.ErrNotExist)
+	require.Empty(t, node.State().StepOutputFile)
+	require.NotNil(t, node.State().StepOutputsValue)
+}
+
+func TestStepExecutorRemovesStepOutputFileAfterSetupFailure(t *testing.T) {
+	var outputPath string
+	executorType := "test-declared-step-output-setup-failure-" + t.Name()
+	runtimeexec.RegisterExecutor(executorType, func(ctx context.Context, _ core.Step) (runtimeexec.Executor, error) {
+		outputPath = outputFilePathFromContext(t, ctx)
+		require.NotEmpty(t, outputPath)
+		_, err := os.Stat(outputPath)
+		require.NoError(t, err)
+		return nil, errors.New("executor factory failed")
+	}, nil, core.ExecutorCapabilities{})
+	t.Cleanup(func() { runtimeexec.UnregisterExecutor(executorType) })
+
+	node := newDeclaredOutputNode(t, executorType, nil)
+	ctx := runtime.NewContext(context.Background(), &core.DAG{}, "run-1", "dag.log")
+
+	err := runtime.NewStepExecutor().Execute(ctx, node)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "executor factory failed")
+	require.NotEmpty(t, outputPath)
+	_, statErr := os.Stat(outputPath)
+	require.ErrorIs(t, statErr, os.ErrNotExist)
+	require.Empty(t, node.State().StepOutputFile)
+}
+
 func TestStepInfoFallsBackToLegacyOutputsValue(t *testing.T) {
 	legacyOutputs := `{"messageId":"msg-123","worker":"shared-volume"}`
 	node := runtime.NewNode(core.Step{Name: "call_action", ID: "call_action"}, runtime.NodeState{

@@ -5220,7 +5220,7 @@ export interface components {
             stderr?: string;
             /** @description Variable name to store the step's output */
             output?: string;
-            /** @description Declared file-based step outputs published through DAGU_OUTPUT_FILE for ${steps.<id>.outputs.<name>} references */
+            /** @description Declared file-based step outputs published through DAGU_OUTPUT_FILE for ${steps.<id>.outputs.<name>} references. Steps that declare outputs must also define id. */
             outputs?: components["schemas"]["StepOutputDeclaration"][];
             /** @description The name of the DAG to execute as a sub DAG-run */
             call?: string;

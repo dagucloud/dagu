@@ -836,6 +836,7 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 
 func (n *Node) setupStepOutputFile(ctx context.Context) (context.Context, error) {
 	n.clearStepOutputsValue()
+	n.setStepOutputFile("")
 
 	logDir := filepath.Dir(n.GetStdout())
 	if logDir == "" || logDir == "." {
@@ -854,14 +855,26 @@ func (n *Node) setupStepOutputFile(ctx context.Context) (context.Context, error)
 		return ctx, fmt.Errorf("failed to create step output file: %w", err)
 	}
 	path := file.Name()
+	n.setStepOutputFile(path)
 	if err := file.Close(); err != nil {
 		return ctx, fmt.Errorf("failed to close step output file: %w", err)
 	}
-	n.setStepOutputFile(path)
 
 	env := GetEnv(ctx)
 	env.Scope = env.Scope.WithEntry(exec.EnvKeyDAGUOutputFile, path, cmnvalue.EnvSourceStepEnv)
 	return WithEnv(ctx, env), nil
+}
+
+func (n *Node) cleanupStepOutputFile() error {
+	path := n.stepOutputFile()
+	if path == "" {
+		return nil
+	}
+	n.setStepOutputFile("")
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 func evalExecutorConfig(ctx context.Context, step core.Step) (map[string]any, error) {

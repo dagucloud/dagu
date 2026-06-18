@@ -40,6 +40,13 @@ func (e *StepExecutor) Execute(ctx context.Context, node *Node, onSetup ...func(
 	}
 
 	ctx, cmd, err := node.setupExecutor(ctx)
+	defer func() {
+		if cleanupErr := node.cleanupStepOutputFile(); cleanupErr != nil {
+			logger.Warn(ctx, "Failed to remove step output file",
+				tag.Step(node.Name()),
+				tag.Error(cleanupErr))
+		}
+	}()
 	if err != nil {
 		err = wrapStepSetupError(err)
 		node.SetError(err)

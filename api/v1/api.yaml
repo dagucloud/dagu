@@ -13265,6 +13265,9 @@ components:
     Step:
       type: object
       description: "Individual task definition that performs a specific operation in a DAG-run"
+      x-dagu-required-with:
+        outputs:
+          - id
       properties:
         name:
           type: string
@@ -13298,7 +13301,7 @@ components:
         outputs:
           type: array
           minItems: 1
-          description: "Declared file-based step outputs published through DAGU_OUTPUT_FILE for ${steps.<id>.outputs.<name>} references"
+          description: "Declared file-based step outputs published through DAGU_OUTPUT_FILE for ${steps.<id>.outputs.<name>} references. Steps that declare outputs must also define id."
           items:
             $ref: "#/components/schemas/StepOutputDeclaration"
         call:

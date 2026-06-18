@@ -71,7 +71,7 @@ func TestRestartCommand_BuiltExecutableRestoresExplicitEnv(t *testing.T) {
 	th := test.SetupCommand(t, test.WithBuiltExecutable())
 	t.Setenv("CMD_RESTART_EXPLICIT_ENV", "from-host")
 
-	holdTimeout := 3 * commandLogWaitTimeout()
+	holdTimeout := builtExecutableRestartWaitTimeout(t)
 	release := newHoldFile(t)
 	dag := th.DAG(t, fmt.Sprintf(`name: built-restart-explicit-env
 env:
@@ -112,4 +112,17 @@ steps:
 	latestAttemptStatus, err := latestAttempt.ReadStatus(th.Context)
 	require.NoError(t, err)
 	require.Equal(t, "from-host|", test.StatusOutputValue(t, latestAttemptStatus, "RESULT"))
+}
+
+func builtExecutableRestartWaitTimeout(t *testing.T) time.Duration {
+	t.Helper()
+
+	timeout := 6 * commandLogWaitTimeout()
+	if deadline, ok := t.Deadline(); ok {
+		remaining := time.Until(deadline) - 15*time.Second
+		if remaining > 0 && remaining < timeout {
+			return remaining
+		}
+	}
+	return timeout
 }

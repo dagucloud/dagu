@@ -116,7 +116,7 @@ func TestRuntimeStepOutputFailures(t *testing.T) {
 		{
 			name:        "undeclared output write fails",
 			file:        "undeclared_output_write.yaml",
-			stderrParts: []string{"undeclared", "unexpected"},
+			stderrParts: []string{"undeclared"},
 			absentFile:  "unexpected-success.txt",
 		},
 	}

@@ -781,35 +781,8 @@ func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) (co
 	}
 	node.SetWorkingDir(env.WorkingDir)
 
-	// Load output variables and approval inputs from predecessor nodes (dependencies)
-	// This traverses backwards from the current node to find all nodes it depends on
-	curr := node.id
-	visited := make(map[int]struct{})
-	queue := []int{}
-
-	// Start with direct dependencies (nodes this node depends on)
-	queue = append(queue, plan.Dependencies(curr)...)
-
-	// Traverse all predecessor nodes
-	for len(queue) > 0 {
-		predID := queue[0]
-		queue = queue[1:]
-
-		if _, ok := visited[predID]; ok {
-			continue
-		}
-		visited[predID] = struct{}{}
-
-		// Add this node's dependencies to the queue
-		queue = append(queue, plan.Dependencies(predID)...)
-
-		// Load output variables from this predecessor node
-		// (includes approval inputs which are stored in OutputVariables)
-		predNode := plan.GetNode(predID)
-		if predNode == nil {
-			continue
-		}
-
+	// Load output variables and approval inputs from predecessor nodes.
+	for _, predNode := range planPredecessorNodes(plan, node) {
 		// Add predecessor outputs to scope
 		if outputs := predNode.OutputVariablesMap(); len(outputs) > 0 {
 			stepID := predNode.Step().ID
