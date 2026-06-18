@@ -249,7 +249,7 @@ function DAGStatus({
         }
       }
     },
-    [displayDAGRun, navigate, fileName]
+    [displayDAGRun, navigate, fileName, remoteNode]
   );
 
   const onInspectStepOnGraph = React.useCallback(

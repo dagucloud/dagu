@@ -239,7 +239,7 @@ export function useBoundedDAGRunDetails({
       !matchesRequestedDAGRunDetails(
         liveDetails,
         requestedDagRunID,
-        target?.name
+        isSubDAGRunTarget ? undefined : target?.name
       )
     ) {
       return;
