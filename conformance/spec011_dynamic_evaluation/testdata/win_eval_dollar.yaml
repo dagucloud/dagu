@@ -1,0 +1,9 @@
+shell: cmd
+working_dir: .
+params:
+  - name: today
+    type: string
+    eval: $(Write-Output 20260131)
+steps:
+  - name: write
+    run: echo(${params.today}>windows-dollar.txt

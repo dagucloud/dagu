@@ -318,9 +318,14 @@ steps:
 		t.Parallel()
 
 		dataPrefix := filepath.ToSlash(filepath.Join(t.TempDir(), "dagu_test_integration"))
-		dag := th.DAG(t, fmt.Sprintf(`env:
+		dag := th.DAG(t, fmt.Sprintf(`params:
+  - name: process_date
+    type: string
+    eval: "`+"`"+`date '+%%Y%%m%%d_%%H%%M%%S'`+"`"+`"
+
+env:
   - DATA_DIR: %q
-  - PROCESS_DATE: "`+"`"+`date '+%%Y%%m%%d_%%H%%M%%S'`+"`"+`"
+  - PROCESS_DATE: "${params.process_date}"
 
 steps:
   - run: echo foo

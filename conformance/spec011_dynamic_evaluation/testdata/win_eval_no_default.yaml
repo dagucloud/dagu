@@ -1,0 +1,9 @@
+shell: cmd
+working_dir: .
+params:
+  - name: run_date
+    type: string
+    eval: "`Write-Error 'spec011-fail'; exit 9`"
+steps:
+  - name: write
+    run: echo(unexpected>windows-should-not-run.txt

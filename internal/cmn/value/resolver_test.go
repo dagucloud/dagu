@@ -413,17 +413,17 @@ func TestResolverDynamicParamEvalDoesNotSubstituteOSFallbackValue(t *testing.T) 
 	assert.Equal(t, "`printf unsafe`", got)
 }
 
-func TestResolverEnvEntryFieldsRunCommandSubstitution(t *testing.T) {
+func TestResolverEnvEntryFieldsPreserveCommandSubstitution(t *testing.T) {
 	ctx := context.Background()
 	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{})
 
 	stepValue, err := resolver.String(ctx, "`printf step`", value.StepEnvField("steps[0].env[0]"))
 	require.NoError(t, err)
-	assert.Equal(t, "step", stepValue)
+	assert.Equal(t, "`printf step`", stepValue)
 
 	containerValue, err := resolver.String(ctx, "`printf container`", value.ContainerEnvField("container.env.VALUE"))
 	require.NoError(t, err)
-	assert.Equal(t, "container", containerValue)
+	assert.Equal(t, "`printf container`", containerValue)
 }
 
 func TestResolverDAGEnvAndRuntimeDAGEnvHaveDistinctSubstitutionPolicy(t *testing.T) {
@@ -433,7 +433,7 @@ func TestResolverDAGEnvAndRuntimeDAGEnvHaveDistinctSubstitutionPolicy(t *testing
 
 	dagValue, err := resolver.String(ctx, "`printf dag`", value.DAGEnvField("env.VALUE"))
 	require.NoError(t, err)
-	assert.Equal(t, "dag", dagValue)
+	assert.Equal(t, "`printf dag`", dagValue)
 
 	dagOSValue, err := resolver.String(ctx, "$VALUE_RESOLUTION_DAG_ENV_OS", value.DAGEnvField("env.VALUE"))
 	require.NoError(t, err)

@@ -70,7 +70,11 @@ func releaseHoldFile(t *testing.T, path string) {
 }
 
 func holdUntilFileExistsCommand(path string) string {
-	iterations := int(commandLogWaitTimeout() / (50 * time.Millisecond))
+	return holdUntilFileExistsCommandWithin(path, commandLogWaitTimeout())
+}
+
+func holdUntilFileExistsCommandWithin(path string, timeout time.Duration) string {
+	iterations := int(timeout / (50 * time.Millisecond))
 	return test.ForOS(
 		fmt.Sprintf("for i in $(seq 1 %d); do [ -f %s ] && exit 0; sleep 0.05; done; exit 124", iterations, test.PosixQuote(path)),
 		fmt.Sprintf("for ($i = 0; $i -lt %d; $i++) { if (Test-Path %s) { exit 0 }; Start-Sleep -Milliseconds 50 }; exit 124", iterations, test.PowerShellQuote(path)),
@@ -84,11 +88,22 @@ func releaseHoldFileWhenRecentStatusCountAtLeast(
 	count int,
 	path string,
 ) <-chan error {
+	return releaseHoldFileWhenRecentStatusCountAtLeastWithin(t, th, dagName, count, path, commandLogWaitTimeout())
+}
+
+func releaseHoldFileWhenRecentStatusCountAtLeastWithin(
+	t *testing.T,
+	th test.Command,
+	dagName string,
+	count int,
+	path string,
+	timeout time.Duration,
+) <-chan error {
 	t.Helper()
 
 	done := make(chan error, 1)
 	go func() {
-		deadline := time.Now().Add(commandLogWaitTimeout())
+		deadline := time.Now().Add(timeout)
 		for time.Now().Before(deadline) {
 			if len(th.DAGRunMgr.ListRecentStatus(th.Context, dagName, count)) >= count {
 				done <- os.WriteFile(path, []byte("release"), 0o600)

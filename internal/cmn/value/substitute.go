@@ -221,27 +221,33 @@ func substituteShellCommandsWithContext(ctx context.Context, input string) (stri
 			continue
 		}
 
-		cmd, end, ok := readShellCommandSubstitution(runes, i+2)
-		if !ok {
+		read, err := readShellCommandSubstitution(runes, i+2)
+		if err != nil {
+			return "", err
+		}
+		if !read.ok {
 			result.WriteString("$(")
 			i++
 			continue
 		}
-		output, err := runCommandWithContext(ctx, unescapeDollars(ctx, cmd))
+		output, err := runCommandWithContext(ctx, unescapeDollars(ctx, read.cmd))
 		if err != nil {
 			return "", err
 		}
 		result.WriteString(output)
-		i = end
+		i = read.end
 	}
 	return result.String(), nil
 }
 
-func readShellCommandSubstitution(runes []rune, start int) (string, int, bool) {
+type shellCommandSubstitutionRead struct {
+	cmd string
+	end int
+	ok  bool
+}
+
+func readShellCommandSubstitution(runes []rune, start int) (shellCommandSubstitutionRead, error) {
 	var cmd strings.Builder
-	depth := 1
-	var singleQuoted bool
-	var doubleQuoted bool
 	var escaped bool
 
 	for i := start; i < len(runes); i++ {
@@ -256,30 +262,17 @@ func readShellCommandSubstitution(runes []rune, start int) (string, int, bool) {
 			escaped = true
 			continue
 		}
-		if r == '\'' && !doubleQuoted {
-			singleQuoted = !singleQuoted
-			cmd.WriteRune(r)
-			continue
-		}
-		if r == '"' && !singleQuoted {
-			doubleQuoted = !doubleQuoted
-			cmd.WriteRune(r)
-			continue
-		}
-		if singleQuoted {
-			cmd.WriteRune(r)
-			continue
-		}
 		switch r {
-		case '(':
-			depth++
+		case '`':
+			return shellCommandSubstitutionRead{}, fmt.Errorf("nested command substitution is not supported")
 		case ')':
-			depth--
-			if depth == 0 {
-				return cmd.String(), i, true
+			return shellCommandSubstitutionRead{cmd: cmd.String(), end: i, ok: true}, nil
+		case '$':
+			if i+1 < len(runes) && runes[i+1] == '(' {
+				return shellCommandSubstitutionRead{}, fmt.Errorf("nested command substitution is not supported")
 			}
 		}
 		cmd.WriteRune(r)
 	}
-	return "", 0, false
+	return shellCommandSubstitutionRead{}, nil
 }

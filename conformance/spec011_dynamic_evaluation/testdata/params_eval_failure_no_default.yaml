@@ -1,0 +1,8 @@
+working_dir: .
+params:
+  - name: run_date
+    type: string
+    eval: "`command_that_does_not_exist_spec011`"
+steps:
+  - name: write
+    run: printf 'unexpected\n' > should-not-run.txt

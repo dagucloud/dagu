@@ -475,11 +475,22 @@ func TestRepeatPolicy_MaxIntervalSecFromEnvVar(t *testing.T) {
 	assert.Equal(t, 2, dagRunStatus.Nodes[0].DoneCount)
 }
 
-func TestRepeatPolicy_LimitFromCommandSubstitution(t *testing.T) {
+func TestRepeatPolicy_LimitFromDynamicParamEval(t *testing.T) {
 	repeatPolicyParallel(t)
 	th := test.Setup(t)
 
-	dag := th.DAG(t, fmt.Sprintf("steps:\n  - %s\n    repeat_policy:\n      repeat: true\n      limit: %q\n      interval_sec: 0\n", portableDirectSuccessStepYAML(t), repeatLiteralCommandSubstitution("3")))
+	dag := th.DAG(t, fmt.Sprintf(`params:
+  - name: repeat_limit
+    type: string
+    eval: %q
+
+steps:
+  - %s
+    repeat_policy:
+      repeat: true
+      limit: ${params.repeat_limit}
+      interval_sec: 0
+`, repeatLiteralCommandSubstitution("3"), portableDirectSuccessStepYAML(t)))
 	agent := dag.Agent()
 
 	ctx, cancel := context.WithTimeout(agent.Context, repeatPolicyTimeout(10*time.Second))
