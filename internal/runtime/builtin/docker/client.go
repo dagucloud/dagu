@@ -312,10 +312,14 @@ func (c *Client) Close(ctx context.Context) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if c.cli == nil {
+		return
+	}
+
 	// If we have a running container and autoRemove is set, remove it
 	if c.cfg.AutoRemove && c.started.Load() && c.containerID != "" {
-		if _, err := c.cli.ContainerRemove(context.Background(), c.containerID, client.ContainerRemoveOptions{Force: true}); err != nil {
-			logger.Error(ctx, "Docker executor: remove container", tag.Error(err))
+		if removeContainerForCleanup(ctx, c.cli, c.containerID, client.ContainerRemoveOptions{Force: true}) {
+			c.clearContainerStateLocked(c.containerID)
 		}
 	}
 
@@ -592,17 +596,14 @@ func (c *Client) Run(ctx context.Context, cmd []string, stdout, stderr io.Writer
 	}
 	logger.Debug(ctx, "Docker: Run new container started", slog.String("containerID", ctID))
 
-	var once sync.Once
 	defer func() {
 		if !c.cfg.AutoRemove {
 			return
 		}
 
-		once.Do(func() {
-			if _, err := c.cli.ContainerRemove(context.Background(), c.containerID, client.ContainerRemoveOptions{Force: true}); err != nil {
-				logger.Error(ctx, "Docker executor: remove container", tag.Error(err))
-			}
-		})
+		if removeContainerForCleanup(ctx, c.cli, ctID, client.ContainerRemoveOptions{Force: true}) {
+			c.clearContainerState(ctID)
+		}
 	}()
 
 	logger.Debug(ctx, "Docker: Run calling attachAndWait", slog.String("containerID", ctID))
@@ -982,6 +983,36 @@ func removeStoppedContainer(ctx context.Context, cli *client.Client, containerID
 		return err
 	}
 	return nil
+}
+
+// removeContainerForCleanup reports whether the container no longer needs removal.
+func removeContainerForCleanup(ctx context.Context, cli *client.Client, containerID string, opts client.ContainerRemoveOptions) bool {
+	// Cleanup should still run after the caller's context has been canceled.
+	cleanupCtx := context.Background()
+	if _, err := cli.ContainerRemove(cleanupCtx, containerID, opts); err != nil {
+		if errdefs.IsNotFound(err) {
+			return true
+		}
+		logger.Error(ctx, "Docker executor: remove container", tag.Error(err))
+		return false
+	}
+	return true
+}
+
+// clearContainerState forgets ownership of a container after cleanup.
+func (c *Client) clearContainerState(containerID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.clearContainerStateLocked(containerID)
+}
+
+// clearContainerStateLocked clears the tracked container only when it still matches.
+func (c *Client) clearContainerStateLocked(containerID string) {
+	if c.containerID != containerID {
+		return
+	}
+	c.containerID = ""
+	c.started.Store(false)
 }
 
 func (c *Client) attachAndWait(ctx context.Context, cli *client.Client, containerID string, stdout, stderr io.Writer) (int, error) {
