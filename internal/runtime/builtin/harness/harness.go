@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
@@ -75,6 +76,9 @@ type harnessExecutor struct {
 	// container-run state (SDK path); set under mu while a containerized step runs
 	containerClient *dockerexec.Client
 	containerCancel context.CancelFunc
+
+	// shared-container exec state; set while running in the DAG-level container
+	sharedContainerCancel context.CancelFunc
 }
 
 func (e *harnessExecutor) ExitCode() int {
@@ -130,6 +134,13 @@ func (e *harnessExecutor) stop(req cmdutil.StopRequest) error {
 			if cli != nil {
 				return cli.Stop(req.Intent.Signal)
 			}
+			return nil
+		}
+		if e.sharedContainerCancel != nil {
+			cancel := e.sharedContainerCancel
+			e.sharedContainerCancel = nil
+			e.mu.Unlock()
+			cancel()
 			return nil
 		}
 		e.mu.Unlock()
@@ -217,8 +228,10 @@ func (e *harnessExecutor) Run(ctx context.Context) error {
 }
 
 func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.File, error) {
+	hasRootContainer := rootContainerConfigured(ctx)
+
 	if cfg.builtin {
-		if e.step.Container != nil {
+		if e.step.Container != nil || hasRootContainer {
 			e.exitCode = 1
 			return nil, fmt.Errorf("harness: builtin provider does not support container execution")
 		}
@@ -229,7 +242,16 @@ func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.
 		return e.runContainerOnce(ctx, cfg)
 	}
 
+	if hasRootContainer {
+		return e.runSharedContainerOnce(ctx, cfg)
+	}
+
 	return e.runHostSubprocessOnce(ctx, cfg)
+}
+
+func rootContainerConfigured(ctx context.Context) bool {
+	env, ok := runtime.LookupEnv(ctx)
+	return ok && env.DAG != nil && env.DAG.Container != nil
 }
 
 // runHostSubprocessOnce runs the agent CLI as a host subprocess (the
@@ -562,6 +584,117 @@ func (e *harnessExecutor) runContainerOnce(ctx context.Context, cfg providerConf
 		return nil, fmt.Errorf("harness: failed to rewind stdout spool: %w", err)
 	}
 	return stdout, nil
+}
+
+func (e *harnessExecutor) runSharedContainerOnce(ctx context.Context, cfg providerConfig) (*os.File, error) {
+	e.mu.Lock()
+
+	env := runtime.GetEnv(ctx)
+	tw := executor.NewTailWriterWithEncoding(e.stderrWriter(), 0, env.LogEncodingCharset)
+	e.stderrTail = tw
+
+	args, stdin, err := cfg.buildInvocation(e.effectivePrompt(), e.script)
+	if err != nil {
+		e.exitCode = 1
+		e.mu.Unlock()
+		return nil, err
+	}
+	if stdin != nil {
+		e.exitCode = 1
+		e.mu.Unlock()
+		return nil, fmt.Errorf("harness: containerized harness does not support stdin input (prompt_mode: stdin); use a provider that passes the prompt as arguments")
+	}
+
+	cli := dockerexec.GetContainerClient(ctx)
+	if cli == nil {
+		e.exitCode = 1
+		e.mu.Unlock()
+		return nil, fmt.Errorf("harness: root-level container is configured but no shared container client is available")
+	}
+
+	stdout, err := newStdoutSpool()
+	if err != nil {
+		e.exitCode = 1
+		e.mu.Unlock()
+		return nil, fmt.Errorf("harness: failed to create stdout spool: %w", err)
+	}
+
+	runCtx, cancel := context.WithCancel(ctx)
+	e.sharedContainerCancel = cancel
+	e.mu.Unlock()
+
+	defer func() {
+		e.mu.Lock()
+		e.sharedContainerCancel = nil
+		e.mu.Unlock()
+		cancel()
+	}()
+
+	runCmd := append([]string{cfg.binaryName()}, args...)
+	exitCode, runErr := cli.Exec(runCtx, runCmd, stdout, tw, dockerexec.ExecOptions{
+		Env:               sharedContainerHarnessEnv(env.UserEnvsMap()),
+		Direct:            true,
+		PIDFile:           sharedContainerHarnessPIDFile(e.step.Name),
+		TerminateOnCancel: true,
+	})
+	e.exitCode = exitCode
+	if runErr != nil {
+		if exitCode == 0 {
+			e.exitCode = exitCodeFromError(runErr)
+		}
+		stdoutTail, tailErr := readSpoolTail(stdout, failedStdoutTailLimit, env.LogEncodingCharset)
+		_ = cleanupStdoutSpool(stdout)
+		if tailErr != nil {
+			return nil, fmt.Errorf("harness: failed to read stdout tail: %w", tailErr)
+		}
+		if stdoutTail != "" {
+			_, _ = fmt.Fprintf(e.stderrWriter(), "recent stdout (tail):\n%s\n", stdoutTail)
+		}
+		return nil, formatProcessFailure(runErr, tw.Tail(), stdoutTail)
+	}
+
+	if _, err := stdout.Seek(0, io.SeekStart); err != nil {
+		e.exitCode = 1
+		_ = cleanupStdoutSpool(stdout)
+		return nil, fmt.Errorf("harness: failed to rewind stdout spool: %w", err)
+	}
+	return stdout, nil
+}
+
+var sharedContainerHostPathEnvKeys = map[string]struct{}{
+	"PWD":                                        {},
+	coreexec.EnvKeyDAGDocsDir:                    {},
+	coreexec.EnvKeyDAGRunArtifactsDir:            {},
+	coreexec.EnvKeyDAGRunLogFile:                 {},
+	coreexec.EnvKeyDAGRunStepStderrFile:          {},
+	coreexec.EnvKeyDAGRunStepStdoutFile:          {},
+	coreexec.EnvKeyDAGRunWorkDir:                 {},
+	coreexec.EnvKeyDAGPushBackPreviousStdoutFile: {},
+}
+
+func sharedContainerHarnessEnv(userEnv map[string]string) []string {
+	keys := make([]string, 0, len(userEnv))
+	for key := range userEnv {
+		if _, hostPath := sharedContainerHostPathEnvKeys[key]; hostPath {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	envs := make([]string, 0, len(keys))
+	for _, key := range keys {
+		envs = append(envs, key+"="+userEnv[key])
+	}
+	return envs
+}
+
+func sharedContainerHarnessPIDFile(stepName string) string {
+	safeStepName := fileutil.SafeName(stepName)
+	if safeStepName == "" {
+		safeStepName = "step"
+	}
+	return fmt.Sprintf("/tmp/dagu-harness-%s-%d.pid", safeStepName, time.Now().UnixNano())
 }
 
 func (e *harnessExecutor) startAndWaitLocked(ctx context.Context, cmd *exec.Cmd, stdout *os.File, tw *executor.TailWriter, logEncoding string) (*os.File, error) {

@@ -5,6 +5,8 @@ package queue_test
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	"github.com/dagucloud/dagu/internal/test"
+	"github.com/dagucloud/dagu/internal/test/intgharness"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
@@ -22,21 +25,31 @@ const (
 )
 
 func TestSchedulerProcHeartbeat_QueuedRun(t *testing.T) {
+	releaseFile := filepath.Join(t.TempDir(), "release")
 	f := newFixture(t, fmt.Sprintf(`
 name: queued-proc-heartbeat
 steps:
   - name: sleep
-    run: %s
-`, test.ShellQuote(test.Sleep(6*time.Second))), WithProcConfig(queueTestProcHeartbeatInterval, queueTestProcHeartbeatInterval, queueTestProcStaleThreshold)).
+    run: |
+%s
+`, indentQueueTestScript(intgharness.PortableCommands().WaitForFile(releaseFile), 6)), WithProcConfig(queueTestProcHeartbeatInterval, queueTestProcHeartbeatInterval, queueTestProcStaleThreshold)).
 		Enqueue(1).
-		StartScheduler(30 * time.Second)
+		StartScheduler(60 * time.Second)
 	defer f.Stop()
+	released := false
+	defer func() {
+		if !released {
+			_ = os.WriteFile(releaseFile, []byte("release"), 0o600)
+		}
+	}()
 
 	runID := f.runIDs[0]
-	f.WaitForStatus(runID, core.Running, 10*time.Second)
+	f.WaitForStatus(runID, core.Running, 30*time.Second)
 
 	f.RequireRunHeartbeatAdvance(runID, 10*time.Second)
 
+	require.NoError(t, os.WriteFile(releaseFile, []byte("release"), 0o600))
+	released = true
 	f.WaitForStatus(runID, core.Succeeded, 20*time.Second)
 }
 
