@@ -352,6 +352,14 @@ func TestEnvScope_Expand(t *testing.T) {
 		assert.Equal(t, "Hello, World!", result)
 	})
 
+	t.Run("BracedNumericBeforeIdentifier", func(t *testing.T) {
+		scope := NewEnvScope(nil, false).
+			WithEntry("1", "arg", EnvSourceDAGEnv)
+
+		result := scope.Expand("${1}a and $1a")
+		assert.Equal(t, "arga and $1a", result)
+	})
+
 	t.Run("VariableNotFoundPreserved", func(t *testing.T) {
 		scope := NewEnvScope(nil, false)
 

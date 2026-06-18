@@ -592,7 +592,7 @@ func TestString_OSExpansion(t *testing.T) {
 			want:  "real_os_value",
 		},
 		{
-			name:  "POSIXDefaultExpanded",
+			name:  "POSIXDefaultPreserved",
 			input: "${UNDEFINED:-default}",
 			opts:  []option{withOSExpansion()},
 			want:  "${UNDEFINED:-default}",
@@ -702,6 +702,18 @@ func TestString_POSIXWithUserVariables(t *testing.T) {
 			input: "${KNOWN} ${UNDEFINED:-default}",
 			vars:  map[string]string{"KNOWN": "value"},
 			want:  "value ${UNDEFINED:-default}",
+		},
+		{
+			name:  "BracedNumericBeforeIdentifier",
+			input: "${1}a",
+			vars:  map[string]string{"1": "arg"},
+			want:  "arga",
+		},
+		{
+			name:  "UnbracedNumericBeforeIdentifierPreserved",
+			input: "$1a",
+			vars:  map[string]string{"1": "arg"},
+			want:  "$1a",
 		},
 	}
 

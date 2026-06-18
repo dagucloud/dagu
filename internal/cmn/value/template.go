@@ -116,18 +116,22 @@ func (t template) resolveVariables(r *resolver) string {
 		}
 
 		var key string
+		var unbracedPositional bool
 		if loc[2] >= 0 {
 			key = t.source[loc[2]:loc[3]]
 		} else if loc[4] >= 0 {
 			key = t.source[loc[4]:loc[5]]
 		} else if loc[6] >= 0 {
 			key = t.source[loc[6]:loc[7]]
+			unbracedPositional = true
 		} else {
 			b.WriteString(match)
 			continue
 		}
 
-		if !validVariableTokenName(key) || numericVarContinues(t.source, key, loc[1]) || strings.Contains(key, ".") {
+		if !validVariableTokenName(key) ||
+			(unbracedPositional && numericVarContinues(t.source, key, loc[1])) ||
+			strings.Contains(key, ".") {
 			b.WriteString(match)
 			continue
 		}
