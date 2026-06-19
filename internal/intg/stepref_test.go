@@ -261,7 +261,6 @@ steps:
   - depends:
       - setup_step
     run: |
-      #!/bin/bash
       set -e
 
       # Access file paths
@@ -523,7 +522,6 @@ type: graph
 steps:
   - id: producer
     run: |
-      #!/bin/sh
       printf '{"artifact":{"path":"build/report.md"}}' > meta.json
       printf '{"warning":"retry required"}' >&2
     output:
