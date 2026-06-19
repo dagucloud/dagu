@@ -64,8 +64,14 @@ type Config struct {
 	Shell []string
 }
 
-// LoadConfig parses executorConfig into Container struct with registry auth
+// LoadConfigFromMap parses executorConfig into Container struct with registry auth.
 func LoadConfigFromMap(data map[string]any, registryAuths map[string]*core.AuthConfig) (*Config, error) {
+	return LoadConfigFromMapWithWorkDir("", data, registryAuths)
+}
+
+// LoadConfigFromMapWithWorkDir parses executorConfig and resolves shortcut
+// volume sources relative to workDir.
+func LoadConfigFromMapWithWorkDir(workDir string, data map[string]any, registryAuths map[string]*core.AuthConfig) (*Config, error) {
 	ret := struct {
 		Container     container.Config         `mapstructure:"container"`
 		Host          container.HostConfig     `mapstructure:"host"`
@@ -153,9 +159,14 @@ func LoadConfigFromMap(data map[string]any, registryAuths map[string]*core.AuthC
 		ret.Container.WorkingDir = ret.WorkingDir
 	}
 
-	// volumes -> host.Binds (append to existing binds)
+	// volumes -> host.Binds or host.Mounts (append to existing host config)
 	if len(ret.Volumes) > 0 {
-		ret.Host.Binds = append(ret.Host.Binds, ret.Volumes...)
+		binds, mounts, err := parseVolumes(workDir, ret.Volumes, "executor.config.volumes")
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse volumes: %w", err)
+		}
+		ret.Host.Binds = append(ret.Host.Binds, binds...)
+		ret.Host.Mounts = append(ret.Host.Mounts, mounts...)
 	}
 
 	// Set up registry authentication if provided
@@ -225,7 +236,7 @@ func LoadConfig(workDir string, ct core.Container, registryAuths map[string]*cor
 
 	// Parse volumes
 	if len(ct.Volumes) > 0 {
-		binds, mounts, err := parseVolumes(workDir, ct.Volumes)
+		binds, mounts, err := parseVolumes(workDir, ct.Volumes, "container.volumes")
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse volumes: %w", err)
 		}

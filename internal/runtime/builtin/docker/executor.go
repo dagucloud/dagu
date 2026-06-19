@@ -397,7 +397,8 @@ func newDocker(ctx context.Context, step core.Step) (executor.Executor, error) {
 		cfg = c
 	} else if len(execCfg.Config) > 0 {
 		// Priority 2: Executor config map (legacy syntax: executor.config)
-		c, err := LoadConfigFromMap(execCfg.Config, registryAuths)
+		env := runtime.GetEnv(ctx)
+		c, err := LoadConfigFromMapWithWorkDir(env.WorkingDir, execCfg.Config, registryAuths)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load container config: %w", err)
 		}
