@@ -1882,6 +1882,34 @@ func TestSetupScriptDoesNotRequireWorkDir(t *testing.T) {
 	assert.NotContains(t, scriptFile, blockingFile)
 }
 
+func TestCreateScriptTempFallbackUsesWorkDirWhenSystemTempUnavailable(t *testing.T) {
+	workDir := t.TempDir()
+	file, err := createScriptTempFallback(workDir, "dagu_script-*.sh", assert.AnError)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.Remove(file.Name()) })
+	t.Cleanup(func() { _ = file.Close() })
+
+	fallbackDir := filepath.Join(workDir, ".dagu", "tmp", "scripts")
+	require.Equal(t, filepath.Clean(fallbackDir), filepath.Clean(filepath.Dir(file.Name())))
+
+	if goruntime.GOOS != "windows" {
+		info, err := os.Stat(fallbackDir)
+		require.NoError(t, err)
+		require.Equal(t, os.FileMode(0o700), info.Mode().Perm())
+	}
+}
+
+func TestCreateScriptTempFallbackReportsSystemAndFallbackErrors(t *testing.T) {
+	blockingFile := filepath.Join(t.TempDir(), "not-a-directory")
+	require.NoError(t, os.WriteFile(blockingFile, []byte("x"), 0o600))
+
+	_, err := createScriptTempFallback(filepath.Join(blockingFile, "child"), "dagu_script-*", assert.AnError)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "system temp unavailable")
+	assert.Contains(t, err.Error(), "fallback")
+	assert.NotContains(t, err.Error(), "echo")
+}
+
 // TestShellCommandBuilder_Build_Errors tests error paths in Build
 func TestShellCommandBuilder_Build_Errors(t *testing.T) {
 	ctx := context.Background()
