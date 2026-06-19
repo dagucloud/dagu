@@ -818,23 +818,23 @@ type managerDAGRunStore struct {
 }
 
 func (s *managerDAGRunStore) CreateAttempt(context.Context, *core.DAG, time.Time, string, exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
-	return nil, nil
+	panic("unexpected call: CreateAttempt")
 }
 
 func (s *managerDAGRunStore) RecentAttempts(context.Context, string, int) []exec.DAGRunAttempt {
-	return nil
+	panic("unexpected call: RecentAttempts")
 }
 
 func (s *managerDAGRunStore) LatestAttempt(context.Context, string) (exec.DAGRunAttempt, error) {
-	return nil, exec.ErrDAGRunIDNotFound
+	panic("unexpected call: LatestAttempt")
 }
 
 func (s *managerDAGRunStore) ListStatuses(context.Context, ...exec.ListDAGRunStatusesOption) ([]*exec.DAGRunStatus, error) {
-	return nil, nil
+	panic("unexpected call: ListStatuses")
 }
 
 func (s *managerDAGRunStore) ListStatusesPage(context.Context, ...exec.ListDAGRunStatusesOption) (exec.DAGRunStatusPage, error) {
-	return exec.DAGRunStatusPage{}, nil
+	panic("unexpected call: ListStatusesPage")
 }
 
 func (s *managerDAGRunStore) CompareAndSwapLatestAttemptStatus(
@@ -845,11 +845,11 @@ func (s *managerDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	func(*exec.DAGRunStatus) error,
 	...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {
-	return nil, false, nil
+	panic("unexpected call: CompareAndSwapLatestAttemptStatus")
 }
 
 func (s *managerDAGRunStore) FindAttempt(context.Context, exec.DAGRunRef) (exec.DAGRunAttempt, error) {
-	return nil, exec.ErrDAGRunIDNotFound
+	panic("unexpected call: FindAttempt")
 }
 
 func (s *managerDAGRunStore) FindSubAttempt(context.Context, exec.DAGRunRef, string) (exec.DAGRunAttempt, error) {
@@ -860,19 +860,19 @@ func (s *managerDAGRunStore) FindSubAttempt(context.Context, exec.DAGRunRef, str
 }
 
 func (s *managerDAGRunStore) CreateSubAttempt(context.Context, exec.DAGRunRef, string) (exec.DAGRunAttempt, error) {
-	return nil, nil
+	panic("unexpected call: CreateSubAttempt")
 }
 
 func (s *managerDAGRunStore) RemoveOldDAGRuns(context.Context, string, int, ...exec.RemoveOldDAGRunsOption) ([]string, error) {
-	return nil, nil
+	panic("unexpected call: RemoveOldDAGRuns")
 }
 
 func (s *managerDAGRunStore) RenameDAGRuns(context.Context, string, string) error {
-	return nil
+	panic("unexpected call: RenameDAGRuns")
 }
 
 func (s *managerDAGRunStore) RemoveDAGRun(context.Context, exec.DAGRunRef, ...exec.RemoveDAGRunOption) error {
-	return nil
+	panic("unexpected call: RemoveDAGRun")
 }
 
 // startStatusSocketServer serves a fixed status over the DAG run socket.
