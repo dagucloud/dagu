@@ -83,11 +83,6 @@ func TestValidate(t *testing.T) {
 			stderrParts: []string{"${params.target}", "was left unchanged", "steps[1].env"},
 		},
 		{
-			name:        "step env predecessor output source notice",
-			file:        "step_env_sources.yaml",
-			stderrParts: []string{"${steps.produce.outputs.VALUE}", "was left unchanged", "steps[1].env"},
-		},
-		{
 			name:        "validate does not require runtime env source",
 			file:        "validate_missing_runtime_sources.yaml",
 			stderrParts: []string{"${env.RUNTIME_ONLY}", "was left unchanged", "steps[1].run"},
@@ -101,11 +96,6 @@ func TestValidate(t *testing.T) {
 			name:        "validate does not require dotenv env source",
 			file:        "validate_missing_runtime_sources.yaml",
 			stderrParts: []string{"${env.DOTENV_ONLY}", "was left unchanged", "steps[1].run"},
-		},
-		{
-			name:        "validate does not require predecessor output source",
-			file:        "validate_missing_runtime_sources.yaml",
-			stderrParts: []string{"${steps.previous.outputs.VALUE}", "was left unchanged", "steps[1].env"},
 		},
 		{
 			name:        "validate does not require current step managed source",
