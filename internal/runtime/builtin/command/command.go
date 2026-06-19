@@ -404,5 +404,6 @@ func commandContextShell(ctx context.Context, step core.Step) []string {
 	if shellCmd == "" {
 		return nil
 	}
-	return []string{shellCmd}
+	shell := []string{shellCmd}
+	return append(shell, step.ShellArgs...)
 }

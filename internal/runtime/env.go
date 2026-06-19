@@ -371,6 +371,22 @@ func (e Env) ResolveShell(ctx context.Context) ([]string, error) {
 		return shell, nil
 	}
 
+	if len(e.Step.ShellArgs) > 0 {
+		if e.DAG != nil && e.DAG.Shell != "" {
+			shell, err := evalShellInvocationWithScope(ctx, e.DAG, e.Scope, e.DAG.Shell, e.Step.ShellArgs, cmnvalue.DAGShellField, cmnvalue.StepShellField)
+			if err != nil {
+				return nil, fmt.Errorf("failed to evaluate inherited DAG shell with step shell args: %w", err)
+			}
+			return shell, nil
+		}
+
+		shell, err := evalShellArgsWithScope(ctx, e.DAG, e.Scope, defaultShell(ctx), e.Step.ShellArgs, cmnvalue.StepShellField)
+		if err != nil {
+			return nil, fmt.Errorf("failed to evaluate step shell arguments: %w", err)
+		}
+		return shell, nil
+	}
+
 	if e.DAG != nil && e.DAG.Shell != "" {
 		shell, err := evalShellWithScope(ctx, e.DAG, e.Scope, e.DAG.Shell, e.DAG.ShellArgs, cmnvalue.DAGShellField)
 		if err != nil {
@@ -417,6 +433,10 @@ func ResolveDAGShell(ctx context.Context) ([]string, error) {
 
 // evalShellWithScope evaluates shell command and arguments using the given scope.
 func evalShellWithScope(ctx context.Context, dag *core.DAG, scope *cmnvalue.EnvScope, shell string, shellArgs []string, fieldForPath func(string) cmnvalue.Field) ([]string, error) {
+	return evalShellInvocationWithScope(ctx, dag, scope, shell, shellArgs, fieldForPath, fieldForPath)
+}
+
+func evalShellInvocationWithScope(ctx context.Context, dag *core.DAG, scope *cmnvalue.EnvScope, shell string, shellArgs []string, shellFieldForPath func(string) cmnvalue.Field, argFieldForPath func(string) cmnvalue.Field) ([]string, error) {
 	var consts cmnvalue.Values
 	var params cmnvalue.Values
 	var paramDeclarations cmnvalue.Values
@@ -429,12 +449,35 @@ func evalShellWithScope(ctx context.Context, dag *core.DAG, scope *cmnvalue.EnvS
 		cmnvalue.StaticScope{Consts: consts, Params: paramDeclarations},
 		cmnvalue.RuntimeScope{Consts: consts, Params: params, Env: scope},
 	)
-	shellCmd, err := resolver.String(ctx, shell, fieldForPath("shell"))
+	shellCmd, err := resolver.String(ctx, shell, shellFieldForPath("shell"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate shell: %w", err)
 	}
 
-	result := []string{shellCmd}
+	return evalShellArgsWithResolver(ctx, []string{shellCmd}, shellArgs, argFieldForPath, resolver)
+}
+
+func evalShellArgsWithScope(ctx context.Context, dag *core.DAG, scope *cmnvalue.EnvScope, shell []string, shellArgs []string, fieldForPath func(string) cmnvalue.Field) ([]string, error) {
+	var consts cmnvalue.Values
+	var params cmnvalue.Values
+	var paramDeclarations cmnvalue.Values
+	if dag != nil {
+		consts = cmnvalue.Values(dag.Consts)
+		params = dag.ParamValues()
+		paramDeclarations = dag.ParamDeclarations()
+	}
+	resolver := cmnvalue.NewResolver(
+		cmnvalue.StaticScope{Consts: consts, Params: paramDeclarations},
+		cmnvalue.RuntimeScope{Consts: consts, Params: params, Env: scope},
+	)
+	return evalShellArgsWithResolver(ctx, shell, shellArgs, fieldForPath, resolver)
+}
+
+func evalShellArgsWithResolver(ctx context.Context, shell []string, shellArgs []string, fieldForPath func(string) cmnvalue.Field, resolver cmnvalue.Resolver) ([]string, error) {
+	result := append([]string(nil), shell...)
+	if len(result) == 0 {
+		return result, nil
+	}
 	for i, arg := range shellArgs {
 		evaluated, err := resolver.String(ctx, arg, fieldForPath(fmt.Sprintf("shell_args[%d]", i)))
 		if err != nil {

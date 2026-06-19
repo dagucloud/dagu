@@ -154,6 +154,40 @@ func TestEnvShell(t *testing.T) {
 		assert.Equal(t, []string{"/bin/zsh", "-e"}, result)
 	})
 
+	t.Run("StepShellArgsOverrideInheritedDAGShellArgs", func(t *testing.T) {
+		t.Parallel()
+		dag := &core.DAG{
+			Shell:     "/bin/bash",
+			ShellArgs: []string{"-c"},
+		}
+		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
+		step := core.Step{
+			Name:      "test-step",
+			ShellArgs: []string{"-e", "-c"},
+		}
+		env := runtime.NewEnv(ctx, step)
+		result := env.Shell(ctx)
+		assert.Equal(t, []string{"/bin/bash", "-e", "-c"}, result)
+	})
+
+	t.Run("StepShellArgsExtendDefaultShell", func(t *testing.T) {
+		t.Parallel()
+		ctx := config.WithConfig(context.Background(), &config.Config{
+			Core: config.Core{
+				DefaultShell: "/bin/custom",
+			},
+		})
+		dag := &core.DAG{}
+		ctx = runtime.NewContext(ctx, dag, "test-run", "test.log")
+		step := core.Step{
+			Name:      "test-step",
+			ShellArgs: []string{"-e", "-c"},
+		}
+		env := runtime.NewEnv(ctx, step)
+		result := env.Shell(ctx)
+		assert.Equal(t, []string{"/bin/custom", "-e", "-c"}, result)
+	})
+
 	t.Run("FallsBackToDAGShell", func(t *testing.T) {
 		t.Parallel()
 		dag := &core.DAG{
@@ -246,6 +280,29 @@ func TestEnvResolveShellResolvesParams(t *testing.T) {
 	got, err := env.ResolveShell(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/bin/sh", "-c"}, got)
+}
+
+func TestEnvResolveShellResolvesStepShellArgsWithInheritedDAGShell(t *testing.T) {
+	t.Parallel()
+
+	dag := &core.DAG{
+		Shell:     "/bin/sh",
+		ShellArgs: []string{"-c"},
+		ParamDefs: []core.ParamDef{{
+			Name: "shell_arg",
+			Type: core.ParamDefTypeString,
+		}},
+		Params: []string{"shell_arg=-ec"},
+	}
+	ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
+	env := runtime.NewEnv(ctx, core.Step{
+		Name:      "test-step",
+		ShellArgs: []string{"${params.shell_arg}"},
+	})
+
+	got, err := env.ResolveShell(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/bin/sh", "-ec"}, got)
 }
 
 func TestEnvResolveShellPreservesMissingParam(t *testing.T) {
