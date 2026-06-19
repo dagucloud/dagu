@@ -83,13 +83,14 @@ func TestHandlerBuiltInRunContext(t *testing.T) {
 		"status=succeeded",
 		"env_status=succeeded",
 		"run=spec017-handler",
-		"stream_paths_match=yes",
+		"stdout=${paths.step_stdout_file}",
+		"stderr=${paths.step_stderr_file}",
+		"env_stdout=UNSET",
+		"env_stderr=UNSET",
 	)
 	dagu.ExpectFileNotContains(
 		"handler-context.txt",
 		"${run.status}",
-		"${paths.step_stdout_file}",
-		"${paths.step_stderr_file}",
 	)
 }
 

@@ -219,8 +219,8 @@ Rules:
 | `paths.work_dir` | When a per-run work directory is available | Absolute path to the per-run work directory. |
 | `paths.artifacts_dir` | When artifact storage is active | Absolute path to the per-run artifacts directory or staging directory. |
 | `paths.docs_dir` | When a per-DAG docs directory is configured | Absolute path to the per-DAG docs directory. |
-| `paths.step_stdout_file` | Current executable step after stream files are assigned. Handler support is target behavior. | Absolute path to the current step stdout file. |
-| `paths.step_stderr_file` | Current executable step after stream files are assigned. Handler support is target behavior. | Absolute path to the current step stderr file. |
+| `paths.step_stdout_file` | Current executable step after stream files are assigned | Absolute path to the current step stdout file. |
+| `paths.step_stderr_file` | Current executable step after stream files are assigned | Absolute path to the current step stderr file. |
 | `paths.step_output_file` | Current step attempt after output publication is prepared | Absolute path to the current step output file used by Spec 012. |
 
 Rules:
@@ -294,8 +294,8 @@ Step and handler projection:
 | --- | --- | --- |
 | `PWD` | Current process working directory | Current step only. |
 | `DAG_RUN_STEP_NAME` | `step.name` | Current step or handler only. |
-| `DAG_RUN_STEP_STDOUT_FILE` | `paths.step_stdout_file` | Current executable step after stream files are assigned. Handler support is target behavior. |
-| `DAG_RUN_STEP_STDERR_FILE` | `paths.step_stderr_file` | Current executable step after stream files are assigned. Handler support is target behavior. |
+| `DAG_RUN_STEP_STDOUT_FILE` | `paths.step_stdout_file` | Current executable step after stream files are assigned. |
+| `DAG_RUN_STEP_STDERR_FILE` | `paths.step_stderr_file` | Current executable step after stream files are assigned. |
 | `DAGU_OUTPUT_FILE` | `paths.step_output_file` | Current step attempt after output publication is prepared. |
 
 Status and wait-handler projection:
@@ -350,7 +350,7 @@ Availability rules:
 - Step context is available only while evaluating or executing the current step
   or handler.
 - Step stream paths are available only after stdout and stderr files are
-  assigned for the current executable step. Handler support is target behavior.
+  assigned for the current executable step.
 - Step output file path is available only after step output publication is
   prepared for the current step attempt.
 - Artifact directory is available only when artifact storage is active.

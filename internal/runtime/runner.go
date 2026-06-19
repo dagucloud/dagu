@@ -1113,8 +1113,6 @@ func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, ex
 		return nil
 	}
 
-	// Handler stdout/stderr paths are also evaluated during Prepare, so attach the
-	// complete handler env before preparing the node.
 	var err error
 	ctx, err = r.setupEnvironEventHandler(ctx, plan, node, extraEnvs)
 	if err != nil {
@@ -1127,8 +1125,6 @@ func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, ex
 		return err
 	}
 	defer func() { _ = node.Teardown() }()
-
-	ctx = node.SetupEnv(ctx)
 
 	if err := node.evalPreconditions(ctx); err != nil {
 		if errors.Is(err, ErrConditionNotMet) {
