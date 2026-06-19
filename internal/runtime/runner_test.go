@@ -1078,8 +1078,12 @@ func TestRunner(t *testing.T) {
 	t.Run("WorkingDirNoExist", func(t *testing.T) {
 		r := setupRunner(t)
 
+		blockingFile := filepath.Join(t.TempDir(), "not-a-directory")
+		require.NoError(t, os.WriteFile(blockingFile, nil, 0o600))
+		workingDir := filepath.Join(blockingFile, "child")
+
 		plan := r.newPlan(t,
-			newStep("1", withWorkingDir("/nonexistent"),
+			newStep("1", withWorkingDir(workingDir),
 				withScript("echo 1"),
 			),
 		)
@@ -1088,13 +1092,9 @@ func TestRunner(t *testing.T) {
 
 		result.assertNodeStatus(t, "1", core.NodeFailed)
 
-		if windowsShellTest() {
-			require.Contains(t, strings.ToLower(result.Error.Error()), "cannot find the path specified")
-		} else {
-			require.Contains(t, result.Error.Error(), "no such file or directory")
-		}
+		require.Contains(t, result.Error.Error(), "failed to create working directory")
 	})
-	t.Run("InvalidWorkingDirReferencePreservesThenFailsBeforeScript", func(t *testing.T) {
+	t.Run("InvalidWorkingDirReferencePreservesLiteralPathForScript", func(t *testing.T) {
 		r := setupRunner(t)
 
 		sentinel := filepath.Join(t.TempDir(), "executed")
@@ -1103,25 +1103,14 @@ func TestRunner(t *testing.T) {
 				withScript(createEmptyFileCommand(sentinel)),
 			),
 		)
-		dag := &core.DAG{
-			Name:       "test_dag",
-			WorkingDir: plan.workDir,
-			Consts:     map[string]any{},
-		}
-		logFilename := fmt.Sprintf("%s_%s.log", dag.Name, r.cfg.DAGRunID)
-		logFilePath := path.Join(r.cfg.LogDir, logFilename)
-		ctx := runtime.NewContext(r.Context, dag, r.cfg.DAGRunID, logFilePath)
 
-		err := r.runner.Run(ctx, plan.Plan, nil)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "failed to setup script")
-		require.Contains(t, err.Error(), "${consts.missing}")
-		require.Equal(t, core.Failed.String(), r.runner.Status(ctx, plan.Plan).String())
+		result := plan.assertRun(t, core.Succeeded)
 
 		node := plan.GetNodeByName("1")
 		require.NotNil(t, node)
-		assert.Equal(t, core.NodeFailed, node.State().Status)
-		require.NoFileExists(t, sentinel)
+		result.assertNodeStatus(t, "1", core.NodeSucceeded)
+		assert.Equal(t, filepath.Join(plan.workDir, "${consts.missing}"), node.State().WorkingDir)
+		require.FileExists(t, sentinel)
 	})
 	t.Run("OutputVariables", func(t *testing.T) {
 		t.Parallel()

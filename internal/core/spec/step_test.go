@@ -233,7 +233,7 @@ func TestBuildStepScript(t *testing.T) {
 	}{
 		{name: "SimpleScript", input: "echo hello", expected: "echo hello"},
 		{name: "MultilineScript", input: "echo hello\necho world", expected: "echo hello\necho world"},
-		{name: "PreservesWhitespace", input: "  script  \n", expected: "  script  \n"},
+		{name: "Trimmed", input: "  script  \n", expected: "script"},
 		{name: "Empty", input: "", expected: ""},
 	}
 

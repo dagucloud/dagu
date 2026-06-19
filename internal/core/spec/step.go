@@ -658,7 +658,7 @@ func buildStepShellPackages(_ StepBuildContext, s *step) ([]string, error) {
 }
 
 func buildStepScript(_ StepBuildContext, s *step) (string, error) {
-	return s.Script, nil
+	return strings.TrimSpace(s.Script), nil
 }
 
 func buildStepStdout(_ StepBuildContext, s *step) (string, error) {
