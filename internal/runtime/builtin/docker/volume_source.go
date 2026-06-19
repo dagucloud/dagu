@@ -125,16 +125,7 @@ func resolveBindSource(workDir, source string) (string, error) {
 		}
 		source = filepath.Join(homeDir, source[1:])
 	} else if !filepath.IsAbs(source) {
-		if workDir != "" && strings.HasPrefix(source, ".") {
-			switch {
-			case source == "." || source == "./":
-				source = workDir
-			case strings.HasPrefix(source, "./"):
-				source = filepath.Join(workDir, source[2:])
-			default:
-				source = filepath.Join(workDir, source[1:])
-			}
-		} else if workDir != "" {
+		if workDir != "" {
 			source = filepath.Join(workDir, source)
 		}
 	}

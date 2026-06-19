@@ -95,6 +95,41 @@ func TestLoadConfigFromMapWithWorkDirResolvesShortcutRelativeSource(t *testing.T
 	require.Equal(t, []string{filepath.Join(workDir, ".codex") + ":/codex-home:rw"}, cfg.Host.Binds)
 }
 
+func TestLoadConfigFromMapWithWorkDirPreservesDotRelativeSourceComponents(t *testing.T) {
+	workDir := t.TempDir()
+
+	tests := []struct {
+		name     string
+		source   string
+		expected string
+	}{
+		{
+			name:     "DotPrefixedDirectory",
+			source:   ".codex",
+			expected: filepath.Join(workDir, ".codex"),
+		},
+		{
+			name:     "ParentRelativeDirectory",
+			source:   "../data",
+			expected: filepath.Clean(filepath.Join(workDir, "../data")),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("DAGU_TEST_REL_SOURCE", tt.source)
+
+			cfg, err := dockerruntime.LoadConfigFromMapWithWorkDir(workDir, map[string]any{
+				"image":   "alpine",
+				"volumes": []string{"${DAGU_TEST_REL_SOURCE}:/data"},
+			}, nil)
+
+			require.NoError(t, err)
+			require.Equal(t, []string{tt.expected + ":/data:rw"}, cfg.Host.Binds)
+		})
+	}
+}
+
 func TestLoadConfigFromMapWithWorkDirFailsClearlyForMissingShortcutVolumeEnv(t *testing.T) {
 	_, err := dockerruntime.LoadConfigFromMapWithWorkDir("", map[string]any{
 		"image":   "dagu-codex-runner:local",
