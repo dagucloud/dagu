@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/internal/core"
@@ -16,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/subflow"
+	"github.com/dagucloud/dagu/internal/test"
 )
 
 func TestLocalCancelRequestsStoredChildAttemptWhenInactive(t *testing.T) {
@@ -126,6 +128,118 @@ func TestLocalRetryReadsStoredChildAttemptStatus(t *testing.T) {
 	require.Equal(t, root, store.findRoot)
 	require.Equal(t, "child-run", store.findRunID)
 	attempt.AssertExpectations(t)
+}
+
+func TestLocalRunWithoutStatusStoreStartsFresh(t *testing.T) {
+	th := test.Setup(t)
+	child := th.DAG(t, `name: local-no-store-child
+steps:
+  - name: work
+    run: echo ok
+`)
+	root := exec.NewDAGRunRef("root", uuid.Must(uuid.NewV7()).String())
+	runner := subflow.NewLocal(th.DAGRunMgr, th.DAGStore)
+
+	result, err := runner.Run(th.Context, executor.SubWorkflowRequest{
+		DAG:          child.DAG,
+		RootDAGRun:   root,
+		ParentDAGRun: root,
+		RunID:        uuid.Must(uuid.NewV7()).String(),
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, core.Succeeded, result.Status)
+}
+
+func TestLocalRunRepairsStaleChildBeforeRetry(t *testing.T) {
+	th := test.Setup(t)
+	rootDAG := th.DAG(t, `name: local-stale-parent
+steps:
+  - name: child
+    run: echo child
+`)
+	childDAG := th.DAG(t, `name: local-stale-child
+steps:
+  - name: work
+    run: echo ok
+`)
+
+	rootRunID := uuid.Must(uuid.NewV7()).String()
+	childRunID := uuid.Must(uuid.NewV7()).String()
+	staleAt := time.Now().Add(-3 * time.Second)
+	childStatus := localRunStatus(childDAG.DAG, childRunID, core.Running, core.NodeRunning)
+	childStatus.WorkerID = "local"
+	childStatus.StartedAt = exec.FormatTime(staleAt)
+	childStatus.CreatedAt = staleAt.UnixMilli()
+	createStoredRunningChildAttempt(t, th, rootDAG.DAG, childDAG.DAG, rootRunID, childRunID, childStatus)
+
+	rootRef := exec.NewDAGRunRef(rootDAG.Name, rootRunID)
+	runner := subflow.NewLocal(th.DAGRunMgr, th.DAGStore, subflow.WithLocalDAGRunStore(th.DAGRunStore))
+
+	result, err := runner.Run(th.Context, executor.SubWorkflowRequest{
+		DAG:          childDAG.DAG,
+		RootDAGRun:   rootRef,
+		ParentDAGRun: rootRef,
+		RunID:        childRunID,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, core.Succeeded, result.Status)
+
+	persisted, err := th.DAGRunMgr.FindSubDAGRunStatus(th.Context, rootRef, childRunID)
+	require.NoError(t, err)
+	require.Equal(t, core.Succeeded, persisted.Status)
+}
+
+func localRunStatus(dag *core.DAG, dagRunID string, dagStatus core.Status, nodeStatus core.NodeStatus) exec.DAGRunStatus {
+	status := exec.InitialStatus(dag)
+	status.DAGRunID = dagRunID
+	status.Status = dagStatus
+	status.StartedAt = exec.FormatTime(time.Now())
+	status.CreatedAt = time.Now().UnixMilli()
+	for _, node := range status.Nodes {
+		node.Status = nodeStatus
+	}
+	return status
+}
+
+func createStoredRunningChildAttempt(
+	t *testing.T,
+	th test.Helper,
+	rootDAG *core.DAG,
+	childDAG *core.DAG,
+	rootRunID string,
+	childRunID string,
+	status exec.DAGRunStatus,
+) exec.DAGRunAttempt {
+	t.Helper()
+
+	ctx := th.Context
+	rootRef := exec.NewDAGRunRef(rootDAG.Name, rootRunID)
+
+	rootAttempt, err := th.DAGRunStore.CreateAttempt(ctx, rootDAG, time.Now(), rootRunID, exec.NewDAGRunAttemptOptions{})
+	require.NoError(t, err)
+	require.NoError(t, rootAttempt.Open(ctx))
+	rootStatus := localRunStatus(rootDAG, rootRunID, core.Running, core.NodeRunning)
+	rootStatus.AttemptID = rootAttempt.ID()
+	rootStatus.AttemptKey = exec.GenerateAttemptKey(rootDAG.Name, rootRunID, rootDAG.Name, rootRunID, rootStatus.AttemptID)
+	require.NoError(t, rootAttempt.Write(ctx, rootStatus))
+	require.NoError(t, rootAttempt.Close(ctx))
+
+	childAttempt, err := th.DAGRunStore.CreateSubAttempt(ctx, rootRef, childRunID)
+	require.NoError(t, err)
+	childAttempt.SetDAG(childDAG)
+	require.NoError(t, childAttempt.Open(ctx))
+	status.AttemptID = childAttempt.ID()
+	status.AttemptKey = exec.GenerateAttemptKey(rootRef.Name, rootRef.ID, childDAG.Name, childRunID, status.AttemptID)
+	status.Root = rootRef
+	status.Parent = rootRef
+	status.DAGRunID = childRunID
+	require.NoError(t, childAttempt.Write(ctx, status))
+	require.NoError(t, childAttempt.Close(ctx))
+	return childAttempt
 }
 
 type localDAGRunStore struct {
