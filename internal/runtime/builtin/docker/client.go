@@ -93,6 +93,14 @@ type Client struct {
 type ExecOptions struct {
 	// WorkingDir overrides the working directory for the exec command.
 	WorkingDir string
+	// Env adds or overrides environment variables for this exec command.
+	Env []string
+	// Direct executes cmd as argv without applying the configured shell wrapper.
+	Direct bool
+	// PIDFile records the container-local process ID for targeted cancellation.
+	PIDFile string
+	// TerminateOnCancel attempts to terminate only the exec process when ctx is canceled.
+	TerminateOnCancel bool
 }
 
 func inspectContainer(ctx context.Context, cli *client.Client, containerID string) (container.InspectResponse, error) {
@@ -879,38 +887,41 @@ func (c *Client) execInContainer(ctx context.Context, cli *client.Client, cmd []
 		return 1, fmt.Errorf("failed to inspect container %s: %w", containerID, err)
 	}
 
-	if !info.State.Running {
+	if info.State == nil || !info.State.Running {
 		return 1, fmt.Errorf("container %s is not running", containerID)
 	}
 
-	// Wrap command with shell if specified
-	cmd = wrapCommandWithShell(c.cfg.Shell, cmd)
+	cmd = execCommand(c.cfg.Shell, cmd, opts)
+
+	var cfgExec client.ExecCreateOptions
+	if c.cfg.ExecOptions != nil {
+		cfgExec = *c.cfg.ExecOptions
+	}
 
 	// Merge container env vars with exec env vars.
 	// ExecCreateOptions.Env replaces the container's environment, so we must
 	// merge the container's Config.Env (from container.env:) with any exec-level env.
-	var execEnv []string
+	var containerEnv []string
 	if info.Config != nil {
-		execEnv = append(execEnv, info.Config.Env...)
+		containerEnv = append(containerEnv, info.Config.Env...)
 	}
+	var configuredEnv []string
 	if c.cfg.Container != nil {
-		execEnv = append(execEnv, c.cfg.Container.Env...)
+		configuredEnv = append(configuredEnv, c.cfg.Container.Env...)
 	}
-	if c.cfg.ExecOptions != nil {
-		execEnv = append(execEnv, c.cfg.ExecOptions.Env...)
-	}
+	execEnv := mergeEnvByKey(containerEnv, configuredEnv, cfgExec.Env, opts.Env)
 
 	// Create exec configuration
 	execOpts := client.ExecCreateOptions{
-		User:         c.cfg.ExecOptions.User,
-		Privileged:   c.cfg.ExecOptions.Privileged,
-		TTY:          c.cfg.ExecOptions.TTY,
+		User:         cfgExec.User,
+		Privileged:   cfgExec.Privileged,
+		TTY:          cfgExec.TTY,
 		AttachStdin:  false,
 		AttachStdout: true,
 		AttachStderr: true,
 		Cmd:          cmd,
 		Env:          execEnv,
-		WorkingDir:   c.cfg.ExecOptions.WorkingDir,
+		WorkingDir:   cfgExec.WorkingDir,
 	}
 
 	// Override the working dir if specified
@@ -925,20 +936,23 @@ func (c *Client) execInContainer(ctx context.Context, cli *client.Client, cmd []
 	}
 
 	// Start exec instance
-	resp, err := cli.ExecAttach(ctx, execCreateResp.ID, client.ExecAttachOptions{TTY: c.cfg.ExecOptions.TTY})
+	resp, err := cli.ExecAttach(ctx, execCreateResp.ID, client.ExecAttachOptions{TTY: cfgExec.TTY})
 	if err != nil {
 		return 1, fmt.Errorf("failed to start exec: %w", err)
 	}
-	defer resp.Close()
 
 	// Copy output
 	var wg sync.WaitGroup
 	wg.Add(1)
-	defer wg.Wait()
+	defer func() {
+		resp.Close()
+		wg.Wait()
+	}()
 
 	go func() {
+		defer wg.Done()
 		var copyErr error
-		if c.cfg.ExecOptions.TTY {
+		if cfgExec.TTY {
 			_, copyErr = io.Copy(stdout, resp.Reader)
 		} else {
 			_, copyErr = stdcopy.StdCopy(stdout, stderr, resp.Reader)
@@ -946,7 +960,6 @@ func (c *Client) execInContainer(ctx context.Context, cli *client.Client, cmd []
 		if copyErr != nil {
 			logger.Error(ctx, "Docker executor: exec output copy", tag.Error(copyErr))
 		}
-		wg.Done()
 	}()
 
 	time.Sleep(defaultPollInterval) // Give some time for the exec to start
@@ -955,6 +968,15 @@ func (c *Client) execInContainer(ctx context.Context, cli *client.Client, cmd []
 	for {
 		inspectResp, err := cli.ExecInspect(ctx, execCreateResp.ID, client.ExecInspectOptions{})
 		if err != nil {
+			if ctx.Err() != nil {
+				if opts.TerminateOnCancel {
+					if err := terminateExecProcess(cli, execCreateResp.ID, opts.PIDFile); err != nil {
+						logger.Warn(ctx, "Docker executor: terminate exec process after cancellation", tag.Error(err))
+					}
+				}
+				resp.Close()
+				return 1, ctx.Err()
+			}
 			return 1, fmt.Errorf("failed to inspect exec: %w", err)
 		}
 
@@ -967,11 +989,172 @@ func (c *Client) execInContainer(ctx context.Context, cli *client.Client, cmd []
 
 		select {
 		case <-ctx.Done():
+			if opts.TerminateOnCancel {
+				if err := terminateExecProcess(cli, execCreateResp.ID, opts.PIDFile); err != nil {
+					logger.Warn(ctx, "Docker executor: terminate exec process after cancellation", tag.Error(err))
+				}
+			}
+			resp.Close()
 			return 1, ctx.Err()
 
 		default:
 			time.Sleep(defaultPollInterval)
 		}
+	}
+}
+
+func mergeEnvByKey(layers ...[]string) []string {
+	var merged []string
+	indexByKey := make(map[string]int)
+	for _, layer := range layers {
+		for _, entry := range layer {
+			key, _, ok := strings.Cut(entry, "=")
+			if !ok || key == "" {
+				continue
+			}
+			if idx, exists := indexByKey[key]; exists {
+				merged[idx] = entry
+				continue
+			}
+			indexByKey[key] = len(merged)
+			merged = append(merged, entry)
+		}
+	}
+	return merged
+}
+
+func execCommand(shell, cmd []string, opts ExecOptions) []string {
+	var execCmd []string
+	if opts.Direct {
+		execCmd = append([]string(nil), cmd...)
+	} else {
+		execCmd = wrapCommandWithShell(shell, cmd)
+	}
+	if opts.PIDFile != "" {
+		return wrapCommandWithPIDFile(execCmd, opts.PIDFile)
+	}
+	return execCmd
+}
+
+func wrapCommandWithPIDFile(cmd []string, pidFile string) []string {
+	if len(cmd) == 0 {
+		return cmd
+	}
+	script := `pidfile="$1"
+shift
+dir="${pidfile%/*}"
+if [ "$dir" != "$pidfile" ]; then
+  mkdir -p "$dir" || exit 125
+fi
+"$@" &
+child=$!
+if ! printf '%s\n' "$child" > "$pidfile"; then
+  kill "$child" 2>/dev/null || true
+  wait "$child" 2>/dev/null || true
+  exit 125
+fi
+wait "$child"
+status=$?
+rm -f "$pidfile" 2>/dev/null || true
+exit "$status"`
+	wrapped := []string{"sh", "-c", script, "dagu-exec-wrapper", pidFile}
+	return append(wrapped, cmd...)
+}
+
+func terminateExecProcess(cli *client.Client, execID string, pidFile string) error {
+	inspectCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	inspectResp, err := cli.ExecInspect(inspectCtx, execID, client.ExecInspectOptions{})
+	if err != nil {
+		return fmt.Errorf("inspect exec %s: %w", execID, err)
+	}
+	if !inspectResp.Running {
+		return nil
+	}
+
+	if pidFile == "" {
+		return fmt.Errorf("exec %s has no PID file for targeted cancellation", execID)
+	}
+
+	if err := signalContainerPIDFileProcess(cli, inspectResp.ContainerID, pidFile, "TERM"); err != nil {
+		return err
+	}
+	if execStoppedWithin(cli, execID, 2*time.Second) {
+		return nil
+	}
+	if err := signalContainerPIDFileProcess(cli, inspectResp.ContainerID, pidFile, "KILL"); err != nil {
+		return err
+	}
+	if execStoppedWithin(cli, execID, 2*time.Second) {
+		return nil
+	}
+	return fmt.Errorf("exec %s is still running after KILL", execID)
+}
+
+func signalContainerPIDFileProcess(cli *client.Client, containerID string, pidFile string, signalName string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	script := `sig="$1"
+pidfile="$2"
+pid="$(cat "$pidfile" 2>/dev/null || true)"
+[ -n "$pid" ] || exit 0
+kill_tree() {
+  for child in $(ps -eo pid,ppid 2>/dev/null | awk -v parent="$1" 'NR > 1 && $2 == parent { print $1 }'); do
+    kill_tree "$child"
+  done
+  kill "-$sig" "$1" 2>/dev/null || true
+}
+kill "-$sig" -- "-$pid" 2>/dev/null || true
+kill_tree "$pid"
+rm -f "$pidfile" 2>/dev/null || true`
+	resp, err := cli.ExecCreate(ctx, containerID, client.ExecCreateOptions{
+		User: "0",
+		Cmd:  []string{"sh", "-c", script, "dagu-kill-exec", signalName, pidFile},
+	})
+	if err != nil {
+		return fmt.Errorf("create %s signal exec for pid file %q: %w", signalName, pidFile, err)
+	}
+	if _, err := cli.ExecStart(ctx, resp.ID, client.ExecStartOptions{Detach: true}); err != nil {
+		return fmt.Errorf("start %s signal exec for pid file %q: %w", signalName, pidFile, err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		inspectResp, err := cli.ExecInspect(ctx, resp.ID, client.ExecInspectOptions{})
+		if err != nil {
+			return fmt.Errorf("inspect %s signal exec for pid file %q: %w", signalName, pidFile, err)
+		}
+		if !inspectResp.Running {
+			if inspectResp.ExitCode != 0 {
+				return fmt.Errorf("%s signal exec for pid file %q exited with code %d", signalName, pidFile, inspectResp.ExitCode)
+			}
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%s signal exec for pid file %q did not finish", signalName, pidFile)
+		}
+		time.Sleep(defaultPollInterval)
+	}
+}
+
+func execStoppedWithin(cli *client.Client, execID string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), defaultPollInterval)
+		inspectResp, err := cli.ExecInspect(ctx, execID, client.ExecInspectOptions{})
+		cancel()
+		if err != nil {
+			return false
+		}
+		if !inspectResp.Running {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(defaultPollInterval)
 	}
 }
 
