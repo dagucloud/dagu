@@ -176,8 +176,8 @@ func (w *referenceFieldWalker) walkRetryPolicy(path string, policy RetryPolicy, 
 
 func (w *referenceFieldWalker) walkRepeatPolicy(path string, policy RepeatPolicy, base ReferenceField) {
 	w.add(base.withPathValue(path+".limit", policy.LimitStr).withField(cmnvalue.RepeatIntegerField(path + ".limit")))
-	w.add(base.withPathValue(path+".interval", policy.IntervalStr).withField(cmnvalue.RepeatIntegerField(path + ".interval")))
-	w.add(base.withPathValue(path+".max_interval", policy.MaxIntervalStr).withField(cmnvalue.RepeatIntegerField(path + ".max_interval")))
+	w.add(base.withPathValue(path+".interval_sec", policy.IntervalStr).withField(cmnvalue.RepeatIntegerField(path + ".interval_sec")))
+	w.add(base.withPathValue(path+".max_interval_sec", policy.MaxIntervalStr).withField(cmnvalue.RepeatIntegerField(path + ".max_interval_sec")))
 }
 
 func (w *referenceFieldWalker) walkSubDAG(path string, subDAG *SubDAG, base ReferenceField) {
@@ -192,21 +192,11 @@ func (w *referenceFieldWalker) walkLLM(path string, llm *LLMConfig, base Referen
 	if llm == nil {
 		return
 	}
-	w.add(base.withPathValue(path+".provider", llm.Provider).withField(cmnvalue.ExecutorConfigField(path + ".provider")))
-	w.add(base.withPathValue(path+".model", llm.Model).withField(cmnvalue.ExecutorConfigField(path + ".model")))
 	w.add(base.withPathValue(path+".system", llm.System).withField(cmnvalue.WorkflowField(path + ".system")))
 	w.add(base.withPathValue(path+".base_url", llm.BaseURL).withField(cmnvalue.ExecutorConfigField(path + ".base_url")))
-	w.add(base.withPathValue(path+".api_key_name", llm.APIKeyName).withField(cmnvalue.ExecutorConfigField(path + ".api_key_name")))
 	for i, model := range llm.Models {
-		modelPath := fmt.Sprintf("%s.models[%d]", path, i)
-		w.add(base.withPathValue(modelPath+".provider", model.Provider).withField(cmnvalue.ExecutorConfigField(modelPath + ".provider")))
-		w.add(base.withPathValue(modelPath+".name", model.Name).withField(cmnvalue.ExecutorConfigField(modelPath + ".name")))
+		modelPath := fmt.Sprintf("%s.model[%d]", path, i)
 		w.add(base.withPathValue(modelPath+".base_url", model.BaseURL).withField(cmnvalue.ExecutorConfigField(modelPath + ".base_url")))
-		w.add(base.withPathValue(modelPath+".api_key_name", model.APIKeyName).withField(cmnvalue.ExecutorConfigField(modelPath + ".api_key_name")))
-	}
-	for i, tool := range llm.Tools {
-		fieldPath := fmt.Sprintf("%s.tools[%d]", path, i)
-		w.add(base.withPathValue(fieldPath, tool).withField(cmnvalue.ExecutorConfigField(fieldPath)))
 	}
 }
 
@@ -257,8 +247,6 @@ func (w *referenceFieldWalker) walkStdoutOutputs(path string, outputs *StepOutpu
 			fieldPath := path + ".fields." + key + ".value"
 			w.walkStringLeaves(fieldPath, entry.Value, base.withField(cmnvalue.StructuredOutputLiteralField(fieldPath)))
 		}
-		fieldPath := path + ".fields." + key + ".path"
-		w.add(base.withPathValue(fieldPath, entry.Path).withField(cmnvalue.StructuredOutputPathField(fieldPath)))
 	}
 }
 

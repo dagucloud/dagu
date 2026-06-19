@@ -65,7 +65,7 @@ A Dagu file has three layers:
 | Layer | Fields | Purpose |
 |-------|--------|---------|
 | Workflow metadata | `name`, `description`, `group`, `labels` | Identify and organize the DAG. |
-| Workflow runtime | `schedule`, `params`, `env`, `working_dir`, `queue`, `worker_selector`, `timeout_sec`, `max_active_runs`, `artifacts`, `log_output` | Configure when and where the DAG runs. |
+| Workflow runtime | `schedule`, `params`, `env`, `working_dir`, `shell`, `shell_args`, `queue`, `worker_selector`, `timeout_sec`, `max_active_runs`, `artifacts`, `log_output` | Configure when and where the DAG runs. |
 | Step graph | `steps`, `handler_on`, `defaults`, `actions` | Define executable work, shared step defaults, lifecycle handlers, and custom actions. |
 
 Most workflows only need `name`, `type`, `params`, and `steps`.

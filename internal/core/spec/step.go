@@ -866,7 +866,11 @@ func buildStepShellArgs(ctx StepBuildContext, s *step) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append(result.Args, s.ShellArgs...), nil
+	if s.ShellArgs != nil {
+		args := append([]string{}, result.Args...)
+		return append(args, s.ShellArgs...), nil
+	}
+	return result.Args, nil
 }
 
 func buildStepTimeout(_ StepBuildContext, s *step) (time.Duration, error) {

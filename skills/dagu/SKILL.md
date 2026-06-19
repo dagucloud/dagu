@@ -46,6 +46,7 @@ Load only the reference file that matches the task.
 - Remote action manifests do not support `tools`. Declare external CLI tools in the action DAG itself so local and distributed workers prepare the right binaries for that action run.
 - In remote action examples, prefer `dag: workflow.yaml` for the action DAG filename. The `dag` field accepts any safe relative file path, but `workflow.yaml` avoids confusing the executable DAG with the `dagu-action.yaml` manifest.
 - Object-form `output:` with `decode: json` or `decode: yaml` can act as lightweight runtime validation. Malformed data or an unresolved `select:` path fails the step, so normal `retry_policy` applies.
+- Use DAG-level `shell` and `shell_args` only when every inherited `run:` step should use the same shell invocation. Use step-level `with.shell` and `with.shell_args` for a single step.
 - Use `dagu schema dag` to check the full list of available fields and their shapes.
 - Use `dagu example` to see different DAG patterns and how to express them in YAML.
 
