@@ -109,21 +109,25 @@ func ReportStepOutputReferenceNotice(sink ValueReferenceNoticeSink, field, token
 	if sink == nil {
 		return
 	}
+	evaluatedField := field
+	if evaluatedField == "" {
+		evaluatedField = "the field"
+	}
 	message := fmt.Sprintf("%s was left unchanged because step output references are unavailable when %s was evaluated.", token, field)
 	if field == "" {
 		message = fmt.Sprintf("%s was left unchanged because step output references are unavailable when the field was evaluated.", token)
 	}
 	switch reason {
 	case ValueReferenceReasonUnknownStepID:
-		message = fmt.Sprintf("%s was left unchanged because the referenced step id does not exist when %s was evaluated.", token, field)
+		message = fmt.Sprintf("%s was left unchanged because the referenced step id does not exist when %s was evaluated.", token, evaluatedField)
 	case ValueReferenceReasonUnknownOutputName:
-		message = fmt.Sprintf("%s was left unchanged because the referenced output name is not declared when %s was evaluated.", token, field)
+		message = fmt.Sprintf("%s was left unchanged because the referenced output name is not declared when %s was evaluated.", token, evaluatedField)
 	case ValueReferenceReasonMissingDependency:
-		message = fmt.Sprintf("%s was left unchanged because the owning step does not depend on the producing step when %s was evaluated.", token, field)
+		message = fmt.Sprintf("%s was left unchanged because the owning step does not depend on the producing step when %s was evaluated.", token, evaluatedField)
 	case ValueReferenceReasonSelfReference:
-		message = fmt.Sprintf("%s was left unchanged because a step cannot reference its own output when %s was evaluated.", token, field)
+		message = fmt.Sprintf("%s was left unchanged because a step cannot reference its own output when %s was evaluated.", token, evaluatedField)
 	case ValueReferenceReasonNamespaceUnavailable:
-		message = fmt.Sprintf("%s was left unchanged because %s has no step-output lookup scope.", token, field)
+		message = fmt.Sprintf("%s was left unchanged because %s has no step-output lookup scope.", token, evaluatedField)
 	}
 	sink.Report(ValueReferenceNotice{
 		Message:   message,

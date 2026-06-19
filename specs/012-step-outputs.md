@@ -253,7 +253,7 @@ steps:
     run: echo ok
   - id: deploy
     depends: build
-    run: ./deploy.sh ${steps.build.outputs.image_tag}
+    run: ./deploy.sh '${steps.build.outputs.image_tag}'
 ```
 
 Warning-only missing dependency:
@@ -266,5 +266,5 @@ steps:
     outputs:
       - name: image_tag
   - id: deploy
-    run: ./deploy.sh ${steps.build.outputs.image_tag}
+    run: ./deploy.sh '${steps.build.outputs.image_tag}'
 ```
