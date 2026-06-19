@@ -931,6 +931,13 @@
       ],
       "description": "Default shell to use for all steps in this DAG. Can be specified as a string with arguments (e.g., '/bin/bash -e') which will be automatically tokenized, or as an array for explicit argument separation. If not specified, the system default shell ($SHELL or /bin/sh) is used. Can be overridden at the step level."
     },
+    "shell_args": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Additional arguments appended to the DAG-level shell for run steps. Step-level with.shell and with.shell_args override the inherited shell invocation for that step."
+    },
     "redis": {
       "allOf": [
         {

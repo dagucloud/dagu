@@ -31,6 +31,7 @@ Fields:
 
 Notes:
 
+- DAG-level `shell` and `shell_args` provide defaults for inherited `run` steps. Use `with.shell` and `with.shell_args` when one step needs a different shell invocation.
 - Dagu expands `${VAR}` before the shell runs. For large or arbitrary text, prefer `printenv VAR_NAME`, reading `${step_id.stdout}` as a file, or `action: template.render`.
 - When large command output should become an artifact, write it to stdout/stderr and attach the stream directly instead of redirecting inside shell:
 

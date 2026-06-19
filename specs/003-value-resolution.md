@@ -87,6 +87,11 @@ Dagu uses three evaluation types.
 | Value-resolved | Dagu resolves Dagu-owned references such as `${params.name}`. It does not run dynamic evaluation. |
 | Dynamic-evaluated | Dagu runs the dynamic evaluation pipeline. In this spec, only `params[].eval` uses this type. |
 
+Unqualified environment expansion is a separate field-level ownership decision.
+A value-resolved field always resolves Dagu-owned references listed in this spec.
+That same field expands `$NAME`, `${NAME}`, or shell-style `${NAME...}` expressions only when Spec 006 says Dagu owns unqualified environment expansion for that field.
+When Spec 006 says a later runtime owns unqualified environment syntax, Dagu preserves that syntax after resolving Dagu-owned references.
+
 ### Reference Syntax
 
 - Dagu-owned references are only the unescaped supported reference forms listed below.
@@ -126,11 +131,19 @@ ${steps.step_id.outputs.name}
 
 ### Escaped Dagu References
 
-- A backslash immediately before `$` disables Dagu field evaluation for that dollar token.
+- A run of backslashes immediately before `$` controls whether that dollar token is escaped for Dagu field evaluation.
 
+- If the run length is odd, the last backslash in the run is the Dagu escape marker.
 - Dagu removes that escape marker before the owning field consumes the value.
+- The dollar token is protected from Dagu field evaluation.
 
-- The escape protects the dollar token through supported-reference detection, namespace validation, passive-notice collection, environment expansion, and command-substitution handling.
+- If the run length is even, the dollar token is not escaped for Dagu field evaluation.
+- Dagu removes no backslash from an even-length run.
+
+- The escape protects the dollar token through Dagu-owned supported-reference detection, namespace validation, passive-notice collection, and command-substitution handling.
+
+- Unqualified environment expansion has field-specific ownership rules in Spec 006.
+- For unqualified `$NAME` and `${NAME}` syntax, this section does not by itself require every field to treat a preceding backslash as an environment-expansion escape marker.
 
 - Escaped Dagu-looking text must not be resolved.
 
@@ -141,7 +154,6 @@ Examples:
 ```text
 \${params.name}
 \${steps.build.outputs.image}
-\$HOME
 ```
 
 The owning field receives these literal dollar forms:
@@ -149,15 +161,28 @@ The owning field receives these literal dollar forms:
 ```text
 ${params.name}
 ${steps.build.outputs.image}
-$HOME
 ```
+
+Fields whose Spec 006 ownership rule treats backslash as an unqualified environment escape may also use that field-specific escape for `$NAME` and `${NAME}`.
 
 YAML parsing happens before Dagu value resolution.
 In a YAML double-quoted scalar, an author writes `\\${params.name}` for Dagu to receive `\${params.name}`.
 In plain scalars, single-quoted scalars, and block scalars, `\${params.name}` reaches Dagu as written.
 
+Assuming `${params.name}` resolves to `prod` in a value-resolved field:
+
+| Text received by Dagu | Owning field receives |
+| --- | --- |
+| `\${params.name}` | `${params.name}` |
+| `\\${params.name}` | `\\prod` |
+| `\\\${params.name}` | `\\${params.name}` |
+
 Unsupported braced text such as `${step.xxx.foo}` is already ordinary string content.
 Escaping unsupported braced text is allowed but not required to avoid Dagu interpretation.
+
+For shell-backed fields, Dagu escaping does not quote or escape for the shell.
+After Dagu removes its escape marker, the selected shell or script interpreter may still interpret dollar syntax.
+To pass a literal dollar form through a shell-backed field, the authored text must also protect it according to that shell or script language.
 
 ### Single-Quoted Environment References
 
@@ -179,18 +204,36 @@ Dagu-owned references are supported only in value-resolved fields and dynamic-ev
 | `preconditions[].condition` | Value-resolved | Before checking the precondition | Root precondition condition strings resolve Dagu-owned references. |
 | `container` | Value-resolved | Before root container settings are used | Root container string form resolves Dagu-owned references. In object form, `exec`, `image`, `name`, `user`, `working_dir`, `network`, `volumes[]`, `ports[]`, `env` values, `command[]`, and `shell[]` resolve Dagu-owned references. |
 | `steps[].run` | Value-resolved | Step start | The string `run` value and each array-form `run` entry resolve Dagu-owned references. Dagu leaves shell syntax for the selected shell or script interpreter. |
-| `steps[].with` | Value-resolved | Step start | Every nested string value under the step `with` object resolves Dagu-owned references. This includes action inputs and run-step shell settings. |
+| `steps[].with` | Value-resolved | Step start | Nested string values under the step `with` object resolve Dagu-owned references unless a more specific row or owning action or executor spec defines another evaluation mode. This includes action inputs and run-step shell settings. |
 | `steps[].working_dir` | Value-resolved | Step start | Step working directory resolves Dagu-owned references. |
 | `steps[].env` | Value-resolved | Step start | Step environment values in map form, array-of-map form, or `KEY=value` list form resolve Dagu-owned references. |
 | `steps[].preconditions[].condition` | Value-resolved | Before checking the step precondition | Step precondition condition strings resolve Dagu-owned references. |
+| `steps[].retry_policy.limit` and `steps[].retry_policy.interval_sec` string forms | Value-resolved | Before the retry policy uses the value | Step retry policy string numeric fields resolve Dagu-owned references. Other retry policy fields remain literal unless an owning spec opts in. |
 | `steps[].repeat_policy.condition` | Value-resolved | Before checking the repeat policy | Repeat condition strings resolve Dagu-owned references. |
+| `steps[].repeat_policy.limit`, `steps[].repeat_policy.interval_sec`, and `steps[].repeat_policy.max_interval_sec` string forms | Value-resolved | Before the repeat policy uses the value | Step repeat policy string numeric fields resolve Dagu-owned references. Other repeat policy fields remain literal unless an owning spec opts in. |
+| Sub-DAG invocation target and params | Value-resolved | Before the sub-DAG run or enqueue request is created | Canonical `dag.run` and `dag.enqueue` `with.dag` resolves Dagu-owned references. Scalar string `with.params` resolves as one value. Nested string leaves under object-form or array-form `with.params` resolve individually. Accepted legacy `call` and legacy `params` follow the same target and params rules. |
 | `steps[].parallel` | Value-resolved | Before expanding the parallel step | `variable`, `items[]`, `items[].value`, and `items[].params.*` string values resolve Dagu-owned references. |
-| `steps[].stdout`, `steps[].stdout.artifact` | Value-resolved | Step start or stdout setup | Stdout file path strings and artifact path strings resolve Dagu-owned references. |
-| `steps[].stderr`, `steps[].stderr.artifact` | Value-resolved | Step start or stderr setup | Stderr file path strings and artifact path strings resolve Dagu-owned references. |
-| `steps[].stdout.outputs.fields.*` | Value-resolved | Output publication | Literal string values under field entries resolve Dagu-owned references. |
+| `steps[].stdout`, `steps[].stdout.artifact` | Value-resolved | Step start or stdout setup | Stdout file path strings and artifact path strings resolve Dagu-owned references. For unqualified environment syntax in these path strings, backslashes remain path text unless Spec 006 assigns them escape behavior. |
+| `steps[].stderr`, `steps[].stderr.artifact` | Value-resolved | Step start or stderr setup | Stderr file path strings and artifact path strings resolve Dagu-owned references. For unqualified environment syntax in these path strings, backslashes remain path text unless Spec 006 assigns them escape behavior. |
+| `steps[].stdout.outputs.fields.*` | Value-resolved | Output publication | Literal string values under field entries resolve Dagu-owned references. Selection and decode metadata remain literal unless an owning spec opts in. |
 | `steps[].output.*` | Value-resolved | Output publication | Literal string values and `path` strings under structured step `output` entries resolve Dagu-owned references. |
 | `steps[].container` | Value-resolved | Step start | Step container string form resolves Dagu-owned references. In object form, `exec`, `image`, `name`, `user`, `working_dir`, `network`, `volumes[]`, `ports[]`, `env` values, `command[]`, and `shell[]` resolve Dagu-owned references. |
-| `secrets[].key` and `secrets[].options` | Literal | Secret resolution | Provider inputs are literal strings. |
+| `steps[].messages[].content` | Value-resolved | Step start | Message content strings resolve Dagu-owned references. |
+| LLM prompt and endpoint text fields | Value-resolved | Step start | For LLM-capable steps, `steps[].llm.system`, `steps[].llm.base_url`, and array-form `steps[].llm.model[].base_url` resolve Dagu-owned references. When a step inherits root LLM settings, inherited `llm.system`, `llm.base_url`, and array-form `llm.model[].base_url` follow the same rule. |
+| `secrets[]` | Literal | Secret resolution | Secret names, provider names, provider keys, and provider options are literal strings. |
+
+Explicitly literal or excluded field surfaces:
+
+| YAML field or surface | Rule |
+| --- | --- |
+| Root identity and metadata, such as `name` and `description` | Dagu does not resolve value references in these fields. |
+| Root run-control fields, such as `retry_policy`, `timeout_sec`, `delay_sec`, `max_active_steps`, `max_clean_up_time_sec`, and `max_output_size` | Dagu does not resolve value references in these fields unless an owning spec later opts in. |
+| Step identity, graph, and action-selection fields, such as `steps[].id`, `steps[].name`, `steps[].description`, `steps[].depends`, and `steps[].action` | Dagu does not resolve value references in these fields. A value reference cannot select a step, dependency, or action. |
+| Step output declaration contracts, such as `steps[].outputs[].name` and `steps[].outputs[].type` | Dagu does not resolve value references in declaration metadata. Published output values are separate runtime data. |
+| Step control fields not listed in the value-resolution matrix, such as `steps[].timeout_sec`, `steps[].continue_on`, `steps[].worker_selector`, `steps[].mail_on_error`, and `steps[].signal_on_stop` | Dagu does not resolve value references in these fields unless an owning spec later opts in. |
+| LLM selection and credential fields, such as provider names, model names, API key names, and tool-name lists | This spec does not opt these fields into value resolution. They remain literal unless an LLM-owning spec explicitly opts in. |
+| Template body fields owned by a template action or executor | Dagu does not resolve value references in template body text unless the template-owning spec explicitly opts in. Template data fields that are otherwise covered by `steps[].with` keep the `steps[].with` behavior. |
+| Root executor, provider, and tool configuration fields not listed in the value-resolution matrix, such as `ssh`, `kubernetes`, and `tools` | This spec does not opt these fields into value resolution. They remain literal unless an owning executor, provider, or tool spec explicitly opts in. |
 
 - The `steps[]` rows also apply to handler steps.
 - Handler step surfaces are `handler_on.init`, `handler_on.success`, `handler_on.failure`, `handler_on.abort`, `handler_on.exit`, and `handler_on.wait`.
@@ -203,6 +246,8 @@ Dagu-owned references are supported only in value-resolved fields and dynamic-ev
 - Dagu-owned environment references in `run` must use `${env.NAME}`.
 
 - Defaults, custom `step_types`, and custom `actions` are checked after Dagu expands them into concrete steps.
+
+- For parallel sub-DAG invocations, Dagu resolves parallel item values before resolving the child DAG target and params for that item.
 
 - All other canonical fields are outside this spec unless the field evaluation matrix is updated or an owning spec explicitly opts in.
 
@@ -233,12 +278,19 @@ The same rule applies to each array-form `run` entry.
 
 Rules:
 
+- Parameter declarations are processed in source order.
 - If the caller provides a parameter value, Dagu uses that value and does not evaluate `params[].eval`.
 - If the caller does not provide a value and `eval` exists, Dagu evaluates `eval`.
 - The evaluated value becomes `params.<name>` for the DAG run.
 - If `eval` fails and `default` exists, Dagu uses `default` exactly as written.
 - If `eval` fails and no `default` exists, the DAG run fails before any step starts.
 - This `default` fallback is the only dynamic-evaluation failure fallback in this spec.
+- Caller-provided parameter values are available to later `params[].eval` expressions.
+- A parameter value selected from an earlier declaration is available to later `params[].eval` expressions.
+- A `params[].eval` expression cannot resolve its own computed value.
+- A `params[].eval` expression cannot resolve a later computed or default value that has not been selected yet.
+- Dagu does not topologically sort parameter declarations and does not retry preserved parameter references after later declarations are processed.
+- If parameter declarations form a reference cycle, at least one reference in that cycle cannot resolve under the source-order rule and follows the unresolved-reference rules.
 
 ### Unresolved Supported References
 
@@ -295,6 +347,10 @@ If a typed field later consumes the preserved text, that field may still fail be
 
 ### String Insertion
 
+- Dagu performs one value-resolution pass for the field being evaluated.
+- Inserted values are data.
+- Dagu must not recursively scan an inserted value for more Dagu-owned references or dynamic evaluation syntax during the same field evaluation.
+
 - When Dagu inserts a referenced value into a string field, strings are inserted as written.
 
 - When Dagu inserts a referenced value into a string field, booleans are inserted as `true` or `false`.
@@ -304,8 +360,13 @@ If a typed field later consumes the preserved text, that field may still fail be
 - When Dagu inserts a referenced value into a string field, non-integer numbers use base-10 decimal text.
 - Non-integer decimal text must use the shortest round-trippable representation.
 
+- If a namespace can expose a non-scalar value, that namespace's owning spec must define the string insertion form for that value before it can be inserted by this spec.
+
 - Dagu does not shell-escape, JSON-escape, URL-escape, or otherwise quote inserted values.
 - The owning field and any later runtime interpret the resulting text.
+
+- In shell-backed fields, inserted whitespace, quotes, command separators, command substitutions, redirects, glob characters, and other shell-significant text remain part of the shell input.
+- Workflow authors must use the quoting, escaping, environment passing, files, or direct-argument execution surface appropriate for the later runtime when inserted data must be treated as data.
 
 ### Evaluation Outputs
 
@@ -367,7 +428,7 @@ steps:
 Dagu passes `${steps.build.outputs.image}` to the later PHP interpreter as code text.
 The PHP single-quoted string then treats it as literal text.
 
-Step output references wait for the producing step:
+Step output references require an authored dependency and wait for the producing step:
 
 ```yaml
 steps:
@@ -383,6 +444,9 @@ steps:
       IMAGE: ${steps.build.outputs.image}
     run: ./deploy.sh "$IMAGE"
 ```
+
+Dagu does not create the `depends: build` relationship from the value reference.
+Without that dependency, the reference is preserved and inspection surfaces report a passive notice.
 
 Parameter value from dynamic evaluation:
 

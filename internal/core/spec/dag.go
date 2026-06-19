@@ -54,6 +54,8 @@ type dag struct {
 	// Can be overridden at the step level.
 	// Can be a string (e.g., "bash -e") or an array (e.g., ["bash", "-e"]).
 	Shell types.ShellValue `yaml:"shell,omitempty"`
+	// ShellArgs is the list of additional arguments passed to the root shell.
+	ShellArgs []string `yaml:"shell_args,omitempty"`
 	// WorkingDir is working directory for DAG execution
 	WorkingDir string `yaml:"working_dir,omitempty"`
 	// Dotenv is the path to the dotenv file (string or []string).
@@ -1877,7 +1879,7 @@ func buildShellArgs(ctx BuildContext, d *dag) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return result.Args, nil
+	return append(result.Args, d.ShellArgs...), nil
 }
 
 func buildWorkingDir(ctx BuildContext, d *dag) (string, error) {

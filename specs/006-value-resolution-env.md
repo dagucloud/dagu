@@ -353,7 +353,7 @@ environment references.
 | Container executor configuration strings | Dagu expands values from the DAG or step environment scope. Unresolved unqualified references remain literal local configuration text. | Not allowed. |
 | General `steps[].with` nested strings for action and executor inputs | Dagu expands against the step environment scope unless a more specific row or owning action spec applies. | Not allowed. |
 | Root `container` object strings and `steps[].container` object strings other than `env` | Dagu expands against the owning root or step environment scope. | Not allowed. |
-| `steps[].stdout`, `steps[].stderr`, artifact paths, `steps[].stdout.outputs.fields.*`, and `steps[].output.*` literal or path strings | Dagu expands against the step environment scope when the owning output surface is evaluated. | Not allowed. |
+| `steps[].stdout`, `steps[].stderr`, artifact paths, `steps[].stdout.outputs.fields.*` literal strings, and `steps[].output.*` literal or path strings | Dagu expands against the step environment scope when the owning output surface is evaluated. | Not allowed. |
 | `steps[].parallel` strings, sub-DAG names, sub-DAG params, handler step fields, and nested value-resolved workflow strings not listed above | Dagu expands against the current environment scope when the owning field is evaluated. | Not allowed. |
 | Template script text or fields owned by a template executor | Dagu does not expand unqualified environment syntax unless the owning template spec explicitly opts in. | Not applicable. |
 
