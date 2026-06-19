@@ -273,6 +273,15 @@ func (r *Result) ExpectStdout(stdout string) {
 	require.Equal(r.t, stdout, r.stdout)
 }
 
+// ExpectStdoutNotContains fails the test when stdout contains forbidden text.
+func (r *Result) ExpectStdoutNotContains(parts ...string) {
+	r.t.Helper()
+
+	for _, part := range parts {
+		require.NotContains(r.t, r.stdout, part)
+	}
+}
+
 // ExpectStderr fails the test when stderr differs.
 func (r *Result) ExpectStderr(stderr string) {
 	r.t.Helper()

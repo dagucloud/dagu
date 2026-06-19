@@ -251,7 +251,7 @@ steps:
 	t.Run("StepIDInScript", func(t *testing.T) {
 		th := test.Setup(t)
 
-		yaml := `
+		yaml := fmt.Sprintf(`
 type: graph
 steps:
   - id: setup_step
@@ -261,13 +261,9 @@ steps:
   - depends:
       - setup_step
     run: |
-      #!/bin/bash
-      set -e
-
-      # Access file paths
-      echo "Setup logs available at: ${setup_step.stdout}"
+%s
     output: SCRIPT_OUTPUT
-`
+`, indentScript(test.Output("Setup logs available at: ${setup_step.stdout}"), 6))
 		testDAG := th.DAG(t, yaml)
 
 		agent := testDAG.Agent()
@@ -518,14 +514,12 @@ steps:
 		},
 		{
 			name: "StructuredOutputFromFileAndStderr",
-			yaml: `
+			yaml: fmt.Sprintf(`
 type: graph
 steps:
   - id: producer
     run: |
-      #!/bin/sh
-      printf '{"artifact":{"path":"build/report.md"}}' > meta.json
-      printf '{"warning":"retry required"}' >&2
+%s
     output:
       artifactPath:
         from: file
@@ -540,9 +534,18 @@ steps:
   - id: consumer
     depends: [producer]
     run: |
-      printf 'artifact=%s\nwarning=%s' "${producer.output.artifactPath}" "${producer.output.warning}"
+%s
     output: RESULT
-`,
+`, indentScript(test.JoinLines(
+				test.ForOS(
+					`printf '%s' '{"artifact":{"path":"build/report.md"}}' > meta.json`,
+					`Set-Content -Path meta.json -Value '{"artifact":{"path":"build/report.md"}}' -NoNewline`,
+				),
+				test.Stderr(`{"warning":"retry required"}`),
+			), 6), indentScript(test.ForOS(
+				`printf 'artifact=%s\nwarning=%s' "${producer.output.artifactPath}" "${producer.output.warning}"`,
+				`Write-Output ("artifact={0}{1}warning={2}" -f "${producer.output.artifactPath}", [Environment]::NewLine, "${producer.output.warning}")`,
+			), 6)),
 			expectedStatus: core.Succeeded,
 			expectedOutput: map[string]any{
 				"RESULT": "artifact=build/report.md\nwarning=retry required",

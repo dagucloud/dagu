@@ -1061,7 +1061,8 @@ func TestParallelExecution_ObjectItemProperties(t *testing.T) {
 	}
 
 	dagContent := fmt.Sprintf(`steps:
-  - run: |
+  - id: configs
+    run: |
       echo '%s'
     output: CONFIGS
 
@@ -1071,7 +1072,7 @@ func TestParallelExecution_ObjectItemProperties(t *testing.T) {
       params:
         - REGION: ${ITEM.region}
         - BUCKET: ${ITEM.bucket}
-    depends: cmd_1
+    depends: configs
     parallel:
       items: ${CONFIGS}
       max_concurrent: 2
@@ -1172,7 +1173,8 @@ steps:
 
 	dag := helper.DAG(t, fmt.Sprintf(`
 steps:
-  - run: %s
+  - id: files
+    run: %s
     output: FILES
 
   - action: dag.run
@@ -1180,7 +1182,7 @@ steps:
       dag: process-file
       params:
         - ITEM: ${ITEM}
-    depends: cmd_1
+    depends: files
     parallel: ${FILES}
     output: RESULTS
 `, discoverCommand))
@@ -1362,7 +1364,8 @@ steps:
 // correctly handles a single JSON item from output (should dispatch 1 job)
 func TestIssue1274_ParallelJSONSingleItem(t *testing.T) {
 	const dagContent = `steps:
-  - run: |
+  - id: json_list
+    run: |
       echo '{"file": "params.txt", "config": "env"}'
     output: jsonList
 
@@ -1371,7 +1374,7 @@ func TestIssue1274_ParallelJSONSingleItem(t *testing.T) {
       dag: issue-1274-worker
       params:
         aJson: ${ITEM}
-    depends: cmd_1
+    depends: json_list
     parallel:
       items: ${jsonList}
       max_concurrent: 1
@@ -1417,7 +1420,8 @@ func TestIssue1274_ParallelJSONMultipleItems(t *testing.T) {
 		jsonLines = jsonLines[:2]
 	}
 	dagContent := fmt.Sprintf(`steps:
-  - run: |
+  - id: json_list
+    run: |
 %s
     output: jsonList
 
@@ -1426,7 +1430,7 @@ func TestIssue1274_ParallelJSONMultipleItems(t *testing.T) {
       dag: issue-1274-worker-multi
       params:
         aJson: ${ITEM}
-    depends: script_1
+    depends: json_list
     parallel:
       items: ${jsonList}
       max_concurrent: 1
@@ -1541,7 +1545,8 @@ func TestIssue1658_ParallelCallExpandedParamsSplitting(t *testing.T) {
 		{
 			name: "positional_expands_to_multiple_params",
 			dag: fmt.Sprintf(`steps:
-  - run: |
+  - id: items
+    run: |
       echo '[{"name": "test", "extra": "A=1 B=2"}]'
     output: ITEMS
 
@@ -1549,7 +1554,7 @@ func TestIssue1658_ParallelCallExpandedParamsSplitting(t *testing.T) {
     with:
       dag: child-params-split
       params: "NAME=${ITEM.name} ${ITEM.extra}"
-    depends: cmd_1
+    depends: items
     parallel:
       items: ${ITEMS}
     output: RESULTS
@@ -1575,7 +1580,8 @@ steps:
 		{
 			name: "multiple_items_different_expansions",
 			dag: fmt.Sprintf(`steps:
-  - run: |
+  - id: items
+    run: |
       echo '[{"name":"alpha","extra":"X=10 Y=20"}, {"name":"beta","extra":"X=30 Y=40"}]'
     output: ITEMS
 
@@ -1583,7 +1589,7 @@ steps:
     with:
       dag: child-multi-expand
       params: "NAME=${ITEM.name} ${ITEM.extra}"
-    depends: cmd_1
+    depends: items
     parallel:
       items: ${ITEMS}
     output: RESULTS
@@ -1620,7 +1626,8 @@ steps:
 		{
 			name: "named_param_with_spaces_preserved",
 			dag: fmt.Sprintf(`steps:
-  - run: |
+  - id: items
+    run: |
       echo '[{"label": "hello world", "id": "1"}]'
     output: ITEMS
 
@@ -1628,7 +1635,7 @@ steps:
     with:
       dag: child-named-spaces
       params: "LABEL=${ITEM.label} ID=${ITEM.id}"
-    depends: cmd_1
+    depends: items
     parallel:
       items: ${ITEMS}
     output: RESULTS
@@ -1653,7 +1660,8 @@ steps:
 		{
 			name: "positional_single_value_no_split",
 			dag: fmt.Sprintf(`steps:
-  - run: |
+  - id: items
+    run: |
       echo '[{"tag": "simple"}]'
     output: ITEMS
 
@@ -1661,7 +1669,7 @@ steps:
     with:
       dag: child-positional-single
       params: "${ITEM.tag}"
-    depends: cmd_1
+    depends: items
     parallel:
       items: ${ITEMS}
     output: RESULTS

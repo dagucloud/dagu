@@ -7,5 +7,4 @@ shell:
   - "${params.shell_arg}"
 steps:
   - name: write
-    run: |
-      printf '%s\n' prod > root-shell-array-args.txt
+    run: printf '%s\n' prod > root-shell-array-args.txt

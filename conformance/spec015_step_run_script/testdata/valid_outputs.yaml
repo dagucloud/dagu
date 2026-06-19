@@ -1,0 +1,12 @@
+working_dir: .
+steps:
+  - id: build
+    run: |
+      printf 'declared_value=from-script\n' >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: declared_value
+
+  - id: consume
+    depends: build
+    run: |
+      printf '%s\n' '${steps.build.outputs.declared_value}' > outputs-valid.txt

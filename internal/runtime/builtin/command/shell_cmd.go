@@ -5,6 +5,7 @@ package command
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -78,7 +79,11 @@ func (s *cmdShell) Build(ctx context.Context, b *shellCommandBuilder) (*exec.Cmd
 	if b.Script != "" {
 		args := cloneArgs(b.Shell[1:])
 		args = append(args, b.Args...)
-		if !slices.Contains(args, "/c") && !slices.Contains(args, "/C") {
+		carrierIdx := indexOfCmdCarrier(args)
+		if carrierIdx >= 0 && carrierIdx != len(args)-1 {
+			return nil, fmt.Errorf("script form cannot be used with cmd carrier %q followed by authored command text", args[carrierIdx])
+		}
+		if carrierIdx < 0 {
 			args = append(args, "/c")
 		}
 		args = append(args, b.Script)
@@ -98,4 +103,13 @@ func (s *cmdShell) Build(ctx context.Context, b *shellCommandBuilder) (*exec.Cmd
 	}
 
 	return exec.CommandContext(ctx, cmd, args...), nil // nolint: gosec
+}
+
+func indexOfCmdCarrier(args []string) int {
+	for i, arg := range args {
+		if arg == "/c" || arg == "/C" {
+			return i
+		}
+	}
+	return -1
 }

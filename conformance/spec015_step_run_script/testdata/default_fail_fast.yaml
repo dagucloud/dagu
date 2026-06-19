@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - id: write
+    run: |
+      printf 'before\n' > default-fail-fast.txt
+      false
+      printf 'after\n' >> default-fail-fast.txt

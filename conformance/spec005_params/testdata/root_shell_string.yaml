@@ -5,5 +5,4 @@ working_dir: .
 shell: "bash ${params.shell_arg}"
 steps:
   - name: write
-    run: |
-      printf '%s\n' prod > root-shell-string.txt
+    run: printf '%s\n' prod > root-shell-string.txt

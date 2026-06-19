@@ -85,7 +85,7 @@ steps:
     action: harness.run
     with:
       provider: passthrough
-      prompt: |
+      prompt: |-
         hey
         you
 `)

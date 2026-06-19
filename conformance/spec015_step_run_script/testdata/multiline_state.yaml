@@ -1,0 +1,6 @@
+working_dir: .
+steps:
+  - id: write
+    run: |
+      value=prod
+      printf '%s\n' "$value" > multiline-state.txt

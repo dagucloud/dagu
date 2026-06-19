@@ -1694,27 +1694,30 @@ func buildDisplayArgsSuffix(args []string) string {
 
 // buildSingleCommand parses a single command string and populates the Step fields.
 func buildSingleCommand(val string, result *core.Step) error {
-	val = strings.TrimSpace(val)
-	if val == "" {
-		return core.NewValidationError("command", val, ErrStepCommandIsEmpty)
+	raw := val
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return core.NewValidationError("command", raw, ErrStepCommandIsEmpty)
 	}
 
 	// Harness uses command as a prompt, so preserve multiline text as a single
 	// command entry instead of reclassifying it as an inline script.
-	if strings.Contains(val, "\n") && result.ExecutorConfig.Type == "harness" {
+	if strings.Contains(raw, "\n") && result.ExecutorConfig.Type == "harness" {
 		result.Commands = []core.CommandEntry{
 			{
-				CmdWithArgs: val,
+				CmdWithArgs: raw,
 			},
 		}
 		return nil
 	}
 
 	// If the value is multi-line, treat it as a script
-	if strings.Contains(val, "\n") {
-		result.Script = val
+	if strings.Contains(raw, "\n") {
+		result.Script = raw
 		return nil
 	}
+
+	val = trimmed
 
 	// We need to split the command into command and args.
 	cmd, args, err := cmdutil.SplitCommand(val)

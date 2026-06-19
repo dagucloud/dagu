@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
@@ -15,24 +16,23 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 )
 
-// setupScript creates a temporary executable script file containing the provided
-// script after applying shell-specific preprocessing (e.g., PowerShell error-handling
-// directives). If workDir is non-empty, the file is created there; otherwise it falls
-// back to the system temp directory. The file extension is chosen based on the shell.
-// Returns the created file path or an error if file creation, writing, syncing, or
-// permission setting fails.
+// setupScript creates a temporary executable script file containing the provided script.
 func setupScript(workDir, script, command string, shell []string) (string, error) {
+	return setupScriptForExecution(workDir, script, command, shell, false)
+}
+
+func setupScriptForExecution(workDir, script, command string, shell []string, userSpecifiedShell bool) (string, error) {
 	// Determine file extension based on the actual execution path. Scripts that
-	// are passed to an explicit command or start with a shebang should preserve
-	// their original first line so the intended interpreter can handle them.
+	// are passed to an explicit command or directly to a shebang interpreter should
+	// preserve their original first line so the intended interpreter can handle them.
 	shellCmd := ""
-	if command == "" && !hasShebang(script) && len(shell) > 0 {
+	if command == "" && len(shell) > 0 && (userSpecifiedShell || !hasShebang(script)) {
 		shellCmd = shell[0]
 	}
 	ext := cmdutil.GetScriptExtension(shellCmd)
 	pattern := "dagu_script-*" + ext
 
-	file, err := os.CreateTemp(workDir, pattern)
+	file, err := createScriptTemp(workDir, pattern)
 	if err != nil {
 		return "", fmt.Errorf("failed to create script file: %w", err)
 	}
@@ -64,6 +64,37 @@ func setupScript(workDir, script, command string, shell []string) (string, error
 
 	_ = file.Close()
 	return file.Name(), nil
+}
+
+func createScriptTemp(workDir, pattern string) (*os.File, error) {
+	file, err := os.CreateTemp("", pattern)
+	if err == nil {
+		return file, nil
+	}
+	return createScriptTempFallback(workDir, pattern, err)
+}
+
+func createScriptTempFallback(workDir, pattern string, systemTempErr error) (*os.File, error) {
+	if strings.TrimSpace(workDir) == "" {
+		return nil, fmt.Errorf("system temp unavailable: %w", systemTempErr)
+	}
+
+	fallbackDir := filepath.Join(workDir, ".dagu", "tmp", "scripts")
+	if err := os.MkdirAll(fallbackDir, 0o700); err != nil {
+		return nil, fmt.Errorf(
+			"system temp unavailable: %w; fallback %q unavailable: %v",
+			systemTempErr, fallbackDir, err,
+		)
+	}
+
+	file, err := os.CreateTemp(fallbackDir, pattern)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"system temp unavailable: %w; fallback %q failed: %v",
+			systemTempErr, fallbackDir, err,
+		)
+	}
+	return file, nil
 }
 
 func hasShebang(script string) bool {

@@ -1,0 +1,9 @@
+working_dir: .
+steps:
+  - id: write
+    run: |
+      (
+        sleep 0.1
+        printf 'done\n' > background-wait.txt
+      ) &
+      wait
