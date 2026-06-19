@@ -1,0 +1,12 @@
+working_dir: .
+steps:
+  - id: build
+    run: |
+      printf 'image=v1.2.3\n' >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: image
+
+handler_on:
+  success:
+    run: |
+      printf '%s\n' '${steps.build.outputs.image}' > handler-output.txt

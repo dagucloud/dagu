@@ -844,6 +844,7 @@ func (r *Runner) setupEnvironEventHandler(
 	if err != nil {
 		return ctx, err
 	}
+	disableDeclaredStepOutputs(&env)
 	node.SetWorkingDir(env.WorkingDir)
 
 	// Add DAG_RUN_STATUS to scope
@@ -885,6 +886,16 @@ func (r *Runner) setupEnvironEventHandler(
 	}
 
 	return WithEnv(ctx, env), nil
+}
+
+func disableDeclaredStepOutputs(env *Env) {
+	if env == nil {
+		return
+	}
+	for id, info := range env.StepMap {
+		info.DeclaredOutputs = nil
+		env.StepMap[id] = info
+	}
 }
 
 func (r *Runner) execNode(ctx context.Context, node *Node, progressCh chan *Node) error {

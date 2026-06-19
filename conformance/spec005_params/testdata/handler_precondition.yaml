@@ -6,11 +6,15 @@ handler_on:
   success:
     preconditions:
       - condition: |
-          case '${params.environment}' in
-            prod) exit 0;;
-            \${params.environment}) printf '%s\n' literal > handler-precondition-literal.txt; exit 0;;
-            *) exit 1;;
-          esac
+          value='${params.environment}'
+          if [ "$value" = prod ]; then
+            exit 0
+          fi
+          if [ "$value" = '${params.environment}' ]; then
+            printf '%s\n' literal > handler-precondition-literal.txt
+            exit 0
+          fi
+          exit 1
     run: |
       printf '%s\n' prod > handler-precondition.txt
 steps:

@@ -1,0 +1,15 @@
+working_dir: .
+steps:
+  - id: build
+    run: printf '{"image":"legacy-v1"}'
+    stdout:
+      outputs:
+        fields:
+          image:
+            decode: json
+            select: .image
+
+  - id: deploy
+    depends: build
+    run: |
+      printf '%s\n' '${steps.build.outputs.image}' > legacy-not-step-output.txt

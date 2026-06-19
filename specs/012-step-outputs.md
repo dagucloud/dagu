@@ -87,7 +87,8 @@ Rules:
 - Output names are scoped to the producing step.
 - Step outputs are scoped to one DAG document.
 - Inline sub-DAG documents have independent output scopes.
-- Reference syntax, dependency requirements, and runtime lookup behavior are defined by [Spec 007: Value Resolution Steps](007-value-resolution-steps.md).
+- Reference syntax, escaping, dependency requirements, passive notices, and runtime lookup behavior are defined by [Spec 007: Value Resolution Steps](007-value-resolution-steps.md).
+- Unsupported `${...}` text outside Dagu-owned reference forms is preserved silently by [Spec 003: Value Resolution and Field Evaluation](003-value-resolution.md).
 
 ## Output file lifecycle
 
@@ -164,6 +165,9 @@ Published reference form:
 ${steps.step_id.outputs.output_name}
 ```
 
+The published reference form must be unescaped to resolve.
+Escaped `\${steps.step_id.outputs.output_name}` is literal string content under Spec 003 and Spec 007.
+
 Step outputs are not stdout, stderr, logs, artifacts, or durable result storage. This spec does not define how the published values are stored on disk.
 
 ## Errors
@@ -201,7 +205,9 @@ steps:
 
   - id: deploy
     depends: build
-    run: ./deploy.sh ${steps.build.outputs.image_tag}
+    env:
+      IMAGE_TAG: ${steps.build.outputs.image_tag}
+    run: ./deploy.sh "$IMAGE_TAG"
 ```
 
 Valid JSON output:
@@ -238,7 +244,7 @@ Warning-only undeclared output reference:
 
 These examples show Dagu validation behavior.
 Dagu preserves unresolved references as text.
-Dagu does not shell-escape the preserved text.
+Dagu does not shell-escape resolved values or preserved references.
 Quote the reference when a shell-backed `run` field needs the literal text.
 
 ```yaml
@@ -247,7 +253,7 @@ steps:
     run: echo ok
   - id: deploy
     depends: build
-    run: ./deploy.sh ${steps.build.outputs.image_tag}
+    run: ./deploy.sh '${steps.build.outputs.image_tag}'
 ```
 
 Warning-only missing dependency:
@@ -260,5 +266,5 @@ steps:
     outputs:
       - name: image_tag
   - id: deploy
-    run: ./deploy.sh ${steps.build.outputs.image_tag}
+    run: ./deploy.sh '${steps.build.outputs.image_tag}'
 ```

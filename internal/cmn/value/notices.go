@@ -13,11 +13,42 @@ type ValueReferenceNotice struct {
 	Message   string
 	FieldPath string
 	Token     string
+	Reason    ValueReferenceNoticeReason
 }
+
+// ValueReferenceNoticeReason explains why a supported reference was preserved.
+type ValueReferenceNoticeReason string
+
+const (
+	ValueReferenceReasonUnknownStepID        ValueReferenceNoticeReason = "unknown_step_id"
+	ValueReferenceReasonUnknownOutputName    ValueReferenceNoticeReason = "unknown_output_name"
+	ValueReferenceReasonMissingDependency    ValueReferenceNoticeReason = "missing_dependency"
+	ValueReferenceReasonSelfReference        ValueReferenceNoticeReason = "self_reference"
+	ValueReferenceReasonNamespaceUnavailable ValueReferenceNoticeReason = "namespace_unavailable"
+)
 
 // ValueReferenceNoticeSink receives passive value-reference notices.
 type ValueReferenceNoticeSink interface {
 	Report(ValueReferenceNotice)
+}
+
+// SuppressStepOutputReferenceNotices drops generic notices for exact Spec 007 tokens.
+func SuppressStepOutputReferenceNotices(sink ValueReferenceNoticeSink) ValueReferenceNoticeSink {
+	if sink == nil {
+		return nil
+	}
+	return stepOutputReferenceSuppressingSink{sink: sink}
+}
+
+type stepOutputReferenceSuppressingSink struct {
+	sink ValueReferenceNoticeSink
+}
+
+func (s stepOutputReferenceSuppressingSink) Report(notice ValueReferenceNotice) {
+	if IsStepOutputReferenceToken(notice.Token) {
+		return
+	}
+	s.sink.Report(notice)
 }
 
 // ValueReferenceNoticeCollector stores unique notices in insertion order.
@@ -70,6 +101,39 @@ func addUnresolvedReferenceNotice(sink ValueReferenceNoticeSink, field, token st
 		Message:   message,
 		FieldPath: field,
 		Token:     token,
+	})
+}
+
+// ReportStepOutputReferenceNotice reports a passive Spec 007 step-output notice.
+func ReportStepOutputReferenceNotice(sink ValueReferenceNoticeSink, field, token string, reason ValueReferenceNoticeReason) {
+	if sink == nil {
+		return
+	}
+	evaluatedField := field
+	if evaluatedField == "" {
+		evaluatedField = "the field"
+	}
+	message := fmt.Sprintf("%s was left unchanged because step output references are unavailable when %s was evaluated.", token, field)
+	if field == "" {
+		message = fmt.Sprintf("%s was left unchanged because step output references are unavailable when the field was evaluated.", token)
+	}
+	switch reason {
+	case ValueReferenceReasonUnknownStepID:
+		message = fmt.Sprintf("%s was left unchanged because the referenced step id does not exist when %s was evaluated.", token, evaluatedField)
+	case ValueReferenceReasonUnknownOutputName:
+		message = fmt.Sprintf("%s was left unchanged because the referenced output name is not declared when %s was evaluated.", token, evaluatedField)
+	case ValueReferenceReasonMissingDependency:
+		message = fmt.Sprintf("%s was left unchanged because the owning step does not depend on the producing step when %s was evaluated.", token, evaluatedField)
+	case ValueReferenceReasonSelfReference:
+		message = fmt.Sprintf("%s was left unchanged because a step cannot reference its own output when %s was evaluated.", token, evaluatedField)
+	case ValueReferenceReasonNamespaceUnavailable:
+		message = fmt.Sprintf("%s was left unchanged because %s has no step-output lookup scope.", token, evaluatedField)
+	}
+	sink.Report(ValueReferenceNotice{
+		Message:   message,
+		FieldPath: field,
+		Token:     token,
+		Reason:    reason,
 	})
 }
 

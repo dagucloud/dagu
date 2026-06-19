@@ -1,0 +1,16 @@
+working_dir: .
+steps:
+  - id: build
+    run: |
+      printf 'image=v1.2.3\n' >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: image
+
+  - id: inspect
+    depends: build
+    run: |
+      printf '%s\n' '\${steps.build.outputs.image}' > quiet.txt
+      printf '%s\n' '${steps.build.outputs.meta.tag}' >> quiet.txt
+      printf '%s\n' '${steps.build-step.outputs.image}' >> quiet.txt
+      printf '%s\n' '${build.output.image}' >> quiet.txt
+      printf '%s\n' '${step.xxx.foo}' >> quiet.txt

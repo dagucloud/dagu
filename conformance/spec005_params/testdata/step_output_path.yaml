@@ -12,4 +12,4 @@ steps:
   - name: consume
     depends: produce
     run: |
-      printf '%s\n' '${steps.produce.outputs.report}' > output-path.txt
+      printf '%s\n' '${produce.output.report}' > output-path.txt

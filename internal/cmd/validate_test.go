@@ -85,6 +85,24 @@ steps:
 		})
 	})
 
+	t.Run("StepOutputValueReferenceNoticeReason", func(t *testing.T) {
+		th.LoggingOutput.Reset()
+		dagFile := th.CreateDAGFile(t, "step_value_resolution_notice.yaml", `
+steps:
+  - id: build
+    run: printf 'image=v1\n' >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: image
+  - id: deploy
+    run: echo ${steps.build.outputs.image}
+`)
+
+		th.RunCommand(t, cmd.Validate(), test.CmdTest{
+			Args:        []string{"validate", dagFile},
+			ExpectedOut: []string{"${steps.build.outputs.image}", "was left unchanged", "reason=missing_dependency"},
+		})
+	})
+
 	t.Run("V2SyntaxDoesNotWarn", func(t *testing.T) {
 		th.LoggingOutput.Reset()
 		dagFile := th.CreateDAGFile(t, "v2_syntax.yaml", `

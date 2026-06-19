@@ -12636,6 +12636,15 @@ components:
         token:
           type: string
           description: "Original value-reference token that was preserved."
+        reason:
+          type: string
+          description: "Machine-readable reason why the reference was preserved."
+          enum:
+            - unknown_step_id
+            - unknown_output_name
+            - missing_dependency
+            - self_reference
+            - namespace_unavailable
       required:
         - message
 

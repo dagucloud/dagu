@@ -137,7 +137,7 @@ func evaluatePairs(ctx BuildContext, pairs []pair) ([]evaluatedEnvEntry, map[str
 			resolver := cmnvalue.NewResolver(
 				cmnvalue.StaticScope{Consts: cmnvalue.Values(consts), Params: paramDeclarations},
 				cmnvalue.RuntimeScope{Consts: cmnvalue.Values(consts), Params: params, Env: scope},
-				cmnvalue.WithValueReferenceNotices(ctx.valueReferenceNotices),
+				cmnvalue.WithValueReferenceNotices(buildNoticeSink(ctx.valueReferenceNotices)),
 			)
 			value, err = resolver.String(evalCtx, value, cmnvalue.DAGEnvField(fmt.Sprintf("env[%d]", i)))
 			if err != nil {

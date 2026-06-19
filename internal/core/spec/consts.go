@@ -101,10 +101,11 @@ func resolveConstValue(ctx BuildContext, key string, value any, consts map[strin
 
 	switch v := value.(type) {
 	case string:
+		reportNamespaceUnavailableStepOutputReferences(ctx.valueReferenceNotices, "consts."+key, v)
 		resolver := cmnvalue.NewResolver(
 			cmnvalue.StaticScope{Consts: cmnvalue.Values(consts)},
 			cmnvalue.RuntimeScope{Consts: cmnvalue.Values(consts)},
-			cmnvalue.WithValueReferenceNotices(ctx.valueReferenceNotices),
+			cmnvalue.WithValueReferenceNotices(buildNoticeSink(ctx.valueReferenceNotices)),
 		)
 		resolveCtx := ctx.ctx
 		if resolveCtx == nil {

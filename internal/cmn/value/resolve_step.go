@@ -15,11 +15,42 @@ import (
 
 // StepInfo contains metadata about a step that can be accessed via property syntax.
 type StepInfo struct {
-	Stdout   string
-	Stderr   string
-	ExitCode string
-	Output   *string // nil = no output: configured; non-nil = captured value (may be "")
-	Outputs  *string // nil = no outputs published; non-nil = compact JSON object
+	Stdout          string
+	Stderr          string
+	ExitCode        string
+	Output          *string // nil = no output: configured; non-nil = captured value (may be "")
+	Outputs         *string // nil = no outputs published; non-nil = compact JSON object
+	DeclaredOutputs *string // nil = no declared file-based outputs published; non-nil = compact JSON object
+}
+
+func resolveDeclaredStepOutput(ctx context.Context, stepName, outputName string, stepMap map[string]StepInfo) (string, bool) {
+	stepInfo, ok := stepMap[stepName]
+	if !ok {
+		logger.Debug(ctx, "Step not found in stepMap", tag.Step(stepName))
+		return "", false
+	}
+	if stepInfo.DeclaredOutputs == nil {
+		logger.Debug(ctx, "Step has no declared outputs published", tag.Step(stepName))
+		return "", false
+	}
+	raw, ok := parseJSONValue(ctx, stepName, *stepInfo.DeclaredOutputs)
+	if !ok {
+		return "", false
+	}
+	object, ok := raw.(map[string]any)
+	if !ok {
+		logger.Debug(ctx, "Step declared outputs payload is not an object", tag.Step(stepName))
+		return "", false
+	}
+	value, ok := object[outputName]
+	if !ok {
+		logger.Debug(ctx, "Step declared output is not published", tag.Step(stepName), tag.Name(outputName))
+		return "", false
+	}
+	if value == nil {
+		return "null", true
+	}
+	return stringifyResolvedValue(value), true
 }
 
 // resolveStepProperty extracts a step's property value with optional slicing.

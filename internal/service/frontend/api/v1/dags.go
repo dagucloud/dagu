@@ -300,6 +300,10 @@ func toAPIValueReferenceNotices(notices []cmnvalue.ValueReferenceNotice) []api.V
 		apiNotice := api.ValueReferenceNotice{
 			Message: notice.Message,
 		}
+		if notice.Reason != "" {
+			reason := api.ValueReferenceNoticeReason(notice.Reason)
+			apiNotice.Reason = &reason
+		}
 		if notice.FieldPath != "" {
 			apiNotice.FieldPath = ptrOf(notice.FieldPath)
 		}

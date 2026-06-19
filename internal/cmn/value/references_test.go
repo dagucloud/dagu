@@ -36,20 +36,19 @@ func TestScanReferencesClassifiesReservedAndEvalRefs(t *testing.T) {
 	assert.False(t, refs[6].Braced)
 }
 
-func TestScanReferencesMarksEvalStepOutputRefs(t *testing.T) {
+func TestScanReferencesMarksExactStepOutputRefs(t *testing.T) {
 	t.Parallel()
 
-	refs := value.ScanReferencesForTest("${extract.output.user.id} ${steps.extract.outputs.user.id} $extract.output.user.id ${extract.output.bad-name}")
+	refs := value.ScanReferencesForTest("${extract.output.user} ${steps.extract.outputs.user} ${steps.extract.outputs.user.id} $extract.output.user ${extract.output.bad-name}")
 
-	require.Len(t, refs, 4)
-	require.NotNil(t, refs[0].StepOutput)
-	assert.Equal(t, "extract", refs[0].StepOutput.StepName)
-	assert.Equal(t, []string{"user", "id"}, refs[0].StepOutput.Path)
+	require.Len(t, refs, 5)
+	assert.Nil(t, refs[0].StepOutput)
 	require.NotNil(t, refs[1].StepOutput)
 	assert.Equal(t, "extract", refs[1].StepOutput.StepName)
-	assert.Equal(t, []string{"user", "id"}, refs[1].StepOutput.Path)
+	assert.Equal(t, []string{"user"}, refs[1].StepOutput.Path)
 	assert.Nil(t, refs[2].StepOutput)
 	assert.Nil(t, refs[3].StepOutput)
+	assert.Nil(t, refs[4].StepOutput)
 
 	var outputRefs []value.StepOutputReference
 	for _, ref := range refs {
@@ -57,9 +56,8 @@ func TestScanReferencesMarksEvalStepOutputRefs(t *testing.T) {
 			outputRefs = append(outputRefs, *ref.StepOutput)
 		}
 	}
-	require.Len(t, outputRefs, 2)
-	assert.Equal(t, "${extract.output.user.id}", outputRefs[0].Expression)
-	assert.Equal(t, "${steps.extract.outputs.user.id}", outputRefs[1].Expression)
+	require.Len(t, outputRefs, 1)
+	assert.Equal(t, "${steps.extract.outputs.user}", outputRefs[0].Expression)
 }
 
 func TestResolverStringResolvesParamsAndPreservesOtherNamespaces(t *testing.T) {
@@ -76,7 +74,7 @@ func TestResolverStringResolvesParamsAndPreservesOtherNamespaces(t *testing.T) {
 			Params: value.Values{"environment": "prod"},
 			Env:    testEnvScope(map[string]string{"HOME": "/workspace"}),
 			Steps: map[string]value.StepInfo{
-				"build": {Outputs: &outputs},
+				"build": {DeclaredOutputs: &outputs},
 			},
 		},
 	)
@@ -152,7 +150,7 @@ func TestResolverStringResolvesConstRefsAndKeepsEvalRefs(t *testing.T) {
 			Params: value.Values{"environment": "prod"},
 			Env:    testEnvScope(map[string]string{"HOME": "/workspace"}),
 			Steps: map[string]value.StepInfo{
-				"build": {Outputs: &output},
+				"build": {DeclaredOutputs: &output},
 			},
 		},
 	)
@@ -188,7 +186,7 @@ func TestResolverObjectResolvesConstRefsAcrossNestedValues(t *testing.T) {
 			Params: value.Values{"tag": "v1"},
 			Env:    testEnvScope(map[string]string{"TOKEN": "secret"}),
 			Steps: map[string]value.StepInfo{
-				"build": {Outputs: &output},
+				"build": {DeclaredOutputs: &output},
 			},
 		},
 	)

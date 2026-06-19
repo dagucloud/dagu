@@ -1,0 +1,11 @@
+working_dir: .
+steps:
+  - id: build
+    run: |
+      printf 'image=v1.2.3\n' >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: image
+
+  - id: deploy
+    run: |
+      printf '%s\n' '${steps.build.outputs.image}' > missing-dependency.txt

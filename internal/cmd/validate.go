@@ -101,6 +101,10 @@ func logValueReferenceNotices(ctx *Context, file string, notices []cmnvalue.Valu
 		if notice.Message == "" {
 			continue
 		}
+		if notice.Reason != "" {
+			logger.Info(ctx, notice.Message, tag.File(file), tag.Reason(string(notice.Reason)))
+			continue
+		}
 		logger.Info(ctx, notice.Message, tag.File(file))
 	}
 }

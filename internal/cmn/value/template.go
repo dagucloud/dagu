@@ -216,6 +216,12 @@ func walkBindings(input string, visit func(token, path string) (string, error)) 
 		if !supportedStrictBinding(strings.Split(path, ".")) {
 			continue
 		}
+		if isEscapedDollar(input, loc[0]) {
+			b.WriteString(input[last : loc[0]-1])
+			b.WriteString(input[loc[0]:loc[1]])
+			last = loc[1]
+			continue
+		}
 		b.WriteString(input[last:loc[0]])
 		replacement, err := visit(input[loc[0]:loc[1]], path)
 		if err != nil {
@@ -252,15 +258,15 @@ func bindingStepOutputValue(ctx context.Context, segments []string, steps map[st
 		return nil, nil
 	}
 	stepName := segments[1]
-	path := "." + strings.Join(segments[2:], ".")
-	value, ok := resolveStepProperty(ctx, stepName, path, steps)
+	outputName := segments[3]
+	value, ok := resolveDeclaredStepOutput(ctx, stepName, outputName, steps)
 	if ok {
 		return value, nil
 	}
 	if !requireValue {
 		return nil, nil
 	}
-	return nil, fmt.Errorf("unknown steps.%s.%s binding", stepName, strings.Join(segments[2:], "."))
+	return nil, fmt.Errorf("unknown steps.%s.outputs.%s binding", stepName, outputName)
 }
 
 func bindingMapValue(namespace, name string, values Values, requireValue bool) (any, error) {
@@ -297,18 +303,13 @@ func supportedStrictBinding(segments []string) bool {
 	case "env":
 		return len(segments) == 2 && ValidEnvName(segments[1])
 	case "steps":
-		if len(segments) < 4 || segments[2] != "outputs" {
+		if len(segments) != 4 || segments[2] != "outputs" {
 			return false
 		}
 		if !validStepOutputStepName(segments[1]) {
 			return false
 		}
-		for _, segment := range segments[3:] {
-			if !validOutputPathSegment(segment) {
-				return false
-			}
-		}
-		return true
+		return validOutputPathSegment(segments[3])
 	default:
 		return false
 	}

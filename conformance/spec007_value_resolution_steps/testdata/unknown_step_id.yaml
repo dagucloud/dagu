@@ -1,0 +1,5 @@
+working_dir: .
+steps:
+  - id: deploy
+    run: |
+      printf '%s\n' '${steps.build.outputs.image}' > unknown-step-id.txt

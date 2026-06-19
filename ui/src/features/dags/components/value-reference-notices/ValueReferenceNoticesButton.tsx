@@ -118,6 +118,14 @@ function ValueReferenceNoticesDialog({
                     </dd>
                   </>
                 )}
+                {notice.reason && (
+                  <>
+                    <dt>Reason</dt>
+                    <dd className="min-w-0 break-all font-mono">
+                      {notice.reason}
+                    </dd>
+                  </>
+                )}
               </dl>
             </div>
           ))}

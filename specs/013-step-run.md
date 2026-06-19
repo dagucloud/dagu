@@ -118,7 +118,13 @@ Rules:
 - Unresolved supported references in `run` remain literal before the command or script starts.
 - Explicit inspection surfaces report a passive notice for each preserved reference.
 
-- Dagu does not shell-escape unresolved references in `run`.
+- Dagu does not shell-escape resolved values or preserved references in `run`.
+
+- A resolved value may contain text that is meaningful to the selected shell or script interpreter.
+
+- Workflow authors must quote or escape values according to the selected shell or script interpreter when interpolating them directly into `run`.
+
+- Arbitrary data is safer to pass through step `env`, files, or a direct-argv execution field when such a field is available.
 
 - The selected shell or script interpreter receives the preserved text.
 
@@ -131,6 +137,8 @@ Rules:
 - Shell variable syntax remains in the text handed to the shell or script interpreter.
 
 - Shell command-substitution syntax remains in the text handed to the shell or script interpreter.
+
+- Escaped Dagu-looking text such as `\${steps.build.outputs.image}` follows Spec 003 escape behavior.
 
 ### Command Substitution
 
@@ -356,6 +364,20 @@ steps:
     run: ./scripts/build.sh ${params.version}
 ```
 
+Use environment variables to avoid direct shell parsing of inserted data:
+
+```yaml
+params:
+  - name: version
+    type: string
+    required: true
+steps:
+  - id: build
+    env:
+      VERSION: ${params.version}
+    run: ./scripts/build.sh "$VERSION"
+```
+
 Shell variables are expanded by the shell, not by Dagu:
 
 ```yaml
@@ -371,6 +393,20 @@ steps:
   - id: today
     run: echo "Today is `date +%Y-%m-%d`"
 ```
+
+Escaped Dagu-looking text is preserved as language-owned code text:
+
+```yaml
+steps:
+  - id: script
+    run: |
+      python3 - <<'PY'
+      print('\${steps.build.outputs.image}')
+      PY
+```
+
+In this example the author wrote `\${steps.build.outputs.image}` in the workflow.
+Dagu removes its escape marker, does not resolve the reference, and gives `${steps.build.outputs.image}` to the Python script.
 
 Use `params[].eval` when Dagu should compute a value before `run`:
 

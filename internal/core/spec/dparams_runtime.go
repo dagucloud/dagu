@@ -421,8 +421,14 @@ func resolveLegacyEntry(
 		runtimeScope.Env = *scope
 	}
 	runtimeScope.Params = params
-	resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{Params: paramDeclarations}, runtimeScope)
-	value, err := resolver.String(evalCtx, base.Eval, cmnvalue.DynamicParamEvalField("params"))
+	fieldPath := fmt.Sprintf("params[%d].eval", index)
+	reportNamespaceUnavailableStepOutputReferences(ctx.valueReferenceNotices, fieldPath, base.Eval)
+	resolver := cmnvalue.NewResolver(
+		cmnvalue.StaticScope{Params: paramDeclarations},
+		runtimeScope,
+		cmnvalue.WithValueReferenceNotices(buildNoticeSink(ctx.valueReferenceNotices)),
+	)
+	value, err := resolver.String(evalCtx, base.Eval, cmnvalue.DynamicParamEvalField(fieldPath))
 	if err != nil {
 		if base.HasValue {
 			entry.Value = base.Value

@@ -134,7 +134,7 @@ func TestResolverStaticValidationResolvesParamsAndLeavesOtherNamespacesUnresolve
 			Consts: value.Values{"service": "api"},
 			Params: value.Values{"name": "prod"},
 			Steps: map[string]value.StepInfo{
-				"build": {Outputs: &output},
+				"build": {DeclaredOutputs: &output},
 			},
 		},
 	)
@@ -184,7 +184,7 @@ func TestResolverWorkflowFieldUsesNonOSEnvAndStepRefsOnly(t *testing.T) {
 		value.RuntimeScope{
 			Env: scope,
 			Steps: map[string]value.StepInfo{
-				"build": {Stdout: "stdout.txt", Outputs: &output},
+				"build": {Stdout: "stdout.txt", Outputs: &output, DeclaredOutputs: &output},
 			},
 		},
 	)
@@ -457,18 +457,12 @@ func TestStepOutputReferencesKeepsNarrowGrammar(t *testing.T) {
 		wantPath []string
 	}{
 		{
-			name:     "braced dotted output path",
-			raw:      "${build.output.image.tag}",
-			wantExpr: "${build.output.image.tag}",
-			wantStep: "build",
-			wantPath: []string{"image", "tag"},
+			name: "legacy braced dotted output path ignored",
+			raw:  "${build.output.image.tag}",
 		},
 		{
-			name:     "hyphenated step name",
-			raw:      "${build-step.output.image}",
-			wantExpr: "${build-step.output.image}",
-			wantStep: "build-step",
-			wantPath: []string{"image"},
+			name: "legacy hyphenated step name ignored",
+			raw:  "${build-step.output.image}",
 		},
 		{
 			name: "unbraced output reference ignored",
@@ -494,15 +488,19 @@ func TestStepOutputReferencesKeepsNarrowGrammar(t *testing.T) {
 		},
 		{
 			name: "invalid output path segment ignored",
-			raw:  "${build.output.9bad}",
+			raw:  "${steps.build.outputs.9bad}",
 		},
 		{
-			name: "array-like output path ignored",
-			raw:  "${build.output.items[0]}",
+			name: "nested output path ignored",
+			raw:  "${steps.build.outputs.image.tag}",
 		},
 		{
-			name: "extra prefix does not become step output",
-			raw:  "${bad.step.output.x}",
+			name: "hyphenated strict step id ignored",
+			raw:  "${steps.build-step.outputs.image}",
+		},
+		{
+			name: "escaped strict reference ignored",
+			raw:  `\${steps.build.outputs.image}`,
 		},
 	}
 
