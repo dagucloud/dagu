@@ -1,0 +1,10 @@
+working_dir: .
+env:
+  IMAGE: ${steps.build.outputs.image}
+steps:
+  - id: build
+    run: |
+      printf 'image=v1.2.3\n' >> "$DAGU_OUTPUT_FILE"
+      printf '%s\n' "$IMAGE" > namespace-root-env.txt
+    outputs:
+      - name: image

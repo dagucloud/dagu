@@ -4857,6 +4857,11 @@ export interface components {
             fieldPath?: string;
             /** @description Original value-reference token that was preserved. */
             token?: string;
+            /**
+             * @description Machine-readable reason why the reference was preserved.
+             * @enum {string}
+             */
+            reason?: ValueReferenceNoticeReason;
         };
         /** @description Editor-only metadata used to synthesize per-document schema hints */
         DAGEditorHints: {
@@ -19575,6 +19580,13 @@ export enum WorkerHealthStatus {
     healthy = "healthy",
     warning = "warning",
     unhealthy = "unhealthy"
+}
+export enum ValueReferenceNoticeReason {
+    unknown_step_id = "unknown_step_id",
+    unknown_output_name = "unknown_output_name",
+    missing_dependency = "missing_dependency",
+    self_reference = "self_reference",
+    namespace_unavailable = "namespace_unavailable"
 }
 export enum ParamDefType {
     string = "string",

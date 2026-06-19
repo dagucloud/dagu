@@ -25,7 +25,7 @@ func TestExpandStringWithConstBinding(t *testing.T) {
 		Consts: value.Values{"service": "api"},
 		Params: value.Values{"environment": "prod"},
 		Steps: map[string]value.StepInfo{
-			"build": {Outputs: &output},
+			"build": {DeclaredOutputs: &output},
 		},
 	})
 
@@ -70,7 +70,7 @@ func TestExpandStringResolvesConstBindingsWithScope(t *testing.T) {
 			Params: value.Values{"environment": "prod"},
 			Env:    testEnvScope(map[string]string{"HOME": "/workspace"}),
 			Steps: map[string]value.StepInfo{
-				"build": {Outputs: &output},
+				"build": {DeclaredOutputs: &output},
 			},
 		},
 	)

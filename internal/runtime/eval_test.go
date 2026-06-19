@@ -96,7 +96,7 @@ func TestEvalStringResolvesConstsOnlyReservedBinding(t *testing.T) {
 	}, cmnvalue.EnvSourceStepEnv)
 	outputs := `{"image":"repo/api:v1"}`
 	env.StepMap = map[string]cmnvalue.StepInfo{
-		"build": {Outputs: &outputs},
+		"build": {DeclaredOutputs: &outputs},
 	}
 	ctx = runtime.WithEnv(ctx, env)
 

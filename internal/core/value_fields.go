@@ -19,6 +19,7 @@ type ReferenceField struct {
 	Value         string
 	noticePath    string
 	OwnerStepName string
+	OwnerStepID   string
 	Field         cmnvalue.Field
 }
 
@@ -86,6 +87,7 @@ func (w *referenceFieldWalker) walkHandlerStep(path string, step *Step) {
 func (w *referenceFieldWalker) walkStep(path string, step Step) {
 	base := ReferenceField{
 		OwnerStepName: step.Name,
+		OwnerStepID:   step.ID,
 		Field:         cmnvalue.WorkflowField(""),
 	}
 	command := step.CommandResolution(context.Background())

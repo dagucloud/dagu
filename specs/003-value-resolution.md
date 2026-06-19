@@ -89,9 +89,9 @@ Dagu uses three evaluation types.
 
 ### Reference Syntax
 
-- Dagu-owned references are only the supported reference forms listed below.
+- Dagu-owned references are only the unescaped supported reference forms listed below.
 
-- A supported reference form must use `${path}` syntax.
+- An unescaped supported reference form must use `${path}` syntax.
 
 - Supported reference forms are:
 
@@ -111,6 +111,10 @@ ${steps.step_id.outputs.name}
 
 - Braced text that does not match a supported reference form is not interpreted by Dagu.
 - Dagu preserves unsupported braced text as ordinary string content.
+- Unsupported braced text does not produce a passive notice.
+
+- Escaped supported-looking text is not a Dagu-owned reference.
+- Escape behavior is defined by "Escaped Dagu References" below.
 
 - Namespace-specific specs define validation for supported reference forms.
 
@@ -119,6 +123,41 @@ ${steps.step_id.outputs.name}
 - `$consts.name`, `$params.name`, `$env.NAME`, and `$steps.step_id.outputs.name` are ordinary string content.
 
 - Unsupported reference-looking text is preserved silently.
+
+### Escaped Dagu References
+
+- A backslash immediately before `$` disables Dagu field evaluation for that dollar token.
+
+- Dagu removes that escape marker before the owning field consumes the value.
+
+- The escape protects the dollar token through supported-reference detection, namespace validation, passive-notice collection, environment expansion, and command-substitution handling.
+
+- Escaped Dagu-looking text must not be resolved.
+
+- Escaped Dagu-looking text must not produce a passive notice.
+
+Examples:
+
+```text
+\${params.name}
+\${steps.build.outputs.image}
+\$HOME
+```
+
+The owning field receives these literal dollar forms:
+
+```text
+${params.name}
+${steps.build.outputs.image}
+$HOME
+```
+
+YAML parsing happens before Dagu value resolution.
+In a YAML double-quoted scalar, an author writes `\\${params.name}` for Dagu to receive `\${params.name}`.
+In plain scalars, single-quoted scalars, and block scalars, `\${params.name}` reaches Dagu as written.
+
+Unsupported braced text such as `${step.xxx.foo}` is already ordinary string content.
+Escaping unsupported braced text is allowed but not required to avoid Dagu interpretation.
 
 ### Single-Quoted Environment References
 
@@ -207,6 +246,8 @@ A supported reference can be valid syntax but have no value when Dagu evaluates 
 That condition is a passive notice for explicit inspection surfaces.
 It is not a validation or execution error by itself.
 Dagu must keep the original reference text in the field value.
+This rule applies only to unescaped supported reference forms.
+Escaped supported-looking text and unsupported braced text must not produce passive notices.
 
 The notice must identify the owning field and the original reference text.
 The notice must not be shown as a normal validation warning.
@@ -263,6 +304,9 @@ If a typed field later consumes the preserved text, that field may still fail be
 - When Dagu inserts a referenced value into a string field, non-integer numbers use base-10 decimal text.
 - Non-integer decimal text must use the shortest round-trippable representation.
 
+- Dagu does not shell-escape, JSON-escape, URL-escape, or otherwise quote inserted values.
+- The owning field and any later runtime interpret the resulting text.
+
 ### Evaluation Outputs
 
 Field evaluation does not write workflow events, run logs, result files, or artifacts by itself.
@@ -274,6 +318,7 @@ When field evaluation succeeds, Dagu gives the evaluated value to the field that
 - A supported Dagu-owned reference that cannot resolve must preserve the original reference text.
 - Explicit inspection surfaces must report a passive notice for that preserved reference.
 - Braced text that does not match a supported Dagu-owned reference form remains ordinary string content.
+- Escaped supported-looking text remains ordinary string content and must not produce a passive notice.
 
 - A preserved value-resolution literal may still fail if the owning typed field cannot accept that literal.
 - A dynamic-evaluation failure must fail before the owning field is consumed.
@@ -306,6 +351,22 @@ steps:
       php -r '$params.name = "literal"; echo $params.name;'
 ```
 
+Escaped Dagu-looking text is ordinary content:
+
+```yaml
+steps:
+  - name: script
+    run: |
+      cat > script.php <<'PHP'
+      <?php
+      echo '\${steps.build.outputs.image}', PHP_EOL;
+      PHP
+      php script.php
+```
+
+Dagu passes `${steps.build.outputs.image}` to the later PHP interpreter as code text.
+The PHP single-quoted string then treats it as literal text.
+
 Step output references wait for the producing step:
 
 ```yaml
@@ -318,7 +379,9 @@ steps:
 
   - id: deploy
     depends: build
-    run: ./deploy.sh ${steps.build.outputs.image}
+    env:
+      IMAGE: ${steps.build.outputs.image}
+    run: ./deploy.sh "$IMAGE"
 ```
 
 Parameter value from dynamic evaluation:

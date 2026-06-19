@@ -358,6 +358,7 @@ func (d *Data) StepInfo() cmnvalue.StepInfo {
 	if d.inner.State.StepOutputsValue != nil {
 		value := *d.inner.State.StepOutputsValue
 		info.Outputs = &value
+		info.DeclaredOutputs = &value
 	}
 	if info.Outputs == nil && d.inner.State.OutputsValue != nil {
 		value := *d.inner.State.OutputsValue

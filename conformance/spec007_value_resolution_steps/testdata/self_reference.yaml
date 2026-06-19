@@ -1,0 +1,8 @@
+working_dir: .
+steps:
+  - id: build
+    run: |
+      printf 'image=v1.2.3\n' >> "$DAGU_OUTPUT_FILE"
+      printf '%s\n' '${steps.build.outputs.image}' > self-reference.txt
+    outputs:
+      - name: image
