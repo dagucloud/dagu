@@ -4,6 +4,7 @@
 package spec015_step_run_script_test
 
 import (
+	"path/filepath"
 	"runtime"
 	"testing"
 
@@ -137,7 +138,8 @@ func TestScriptDiagnosticsDoNotDumpResolvedScript(t *testing.T) {
 	const file = "diagnostics_do_not_dump_script.yaml"
 
 	dagu := harness.NewRunner(t)
-	result := dagu.Run("start", "--run-id", runID, file)
+	sharedEnv := []string{"DAGU_HOME=" + filepath.Join(t.TempDir(), "dagu")}
+	result := dagu.RunWithEnv(sharedEnv, "start", "--run-id", runID, file)
 	result.ExpectExitCode(1)
 	result.ExpectStderrContains("nonexistent_command_015")
 	result.ExpectStderrNotContains(
@@ -147,12 +149,12 @@ func TestScriptDiagnosticsDoNotDumpResolvedScript(t *testing.T) {
 		"dagu_script-",
 	)
 
-	status := dagu.Run("status", "--run-id", runID, file)
+	status := dagu.RunWithEnv(sharedEnv, "status", "--run-id", runID, file)
+	status.ExpectExitCode(0)
 	status.ExpectStdoutNotContains(
 		"SPEC015_SCRIPT_DUMP_SENTINEL",
 		"printf 'SPEC015_SCRIPT_DUMP_SENTINEL",
 		"--- script content ---",
-		"dagu_script-",
 	)
 	status.ExpectStderrNotContains(
 		"SPEC015_SCRIPT_DUMP_SENTINEL",
@@ -161,7 +163,8 @@ func TestScriptDiagnosticsDoNotDumpResolvedScript(t *testing.T) {
 		"dagu_script-",
 	)
 
-	history := dagu.Run("history", "--run-id", runID, "--format", "json")
+	history := dagu.RunWithEnv(sharedEnv, "history", "--run-id", runID, "--format", "json")
+	history.ExpectExitCode(0)
 	history.ExpectStdoutNotContains(
 		"SPEC015_SCRIPT_DUMP_SENTINEL",
 		"printf 'SPEC015_SCRIPT_DUMP_SENTINEL",

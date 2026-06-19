@@ -115,8 +115,10 @@ func resolveShebangExecutable(ctx context.Context, command string) (string, erro
 		return command, nil
 	}
 
-	if pathEnv, ok := lookupEnv(runtime.AllEnvs(ctx), "PATH"); ok {
-		resolved, err := lookPathInPATH(command, pathEnv)
+	envs := runtime.AllEnvs(ctx)
+	if pathEnv, ok := lookupEnv(envs, "PATH"); ok {
+		pathextEnv, _ := lookupEnv(envs, "PATHEXT")
+		resolved, err := lookPathInPATH(command, pathEnv, pathextEnv)
 		if err == nil {
 			return resolved, nil
 		}
@@ -152,13 +154,13 @@ func lookupEnv(env []string, key string) (string, bool) {
 	return "", false
 }
 
-func lookPathInPATH(command, pathEnv string) (string, error) {
+func lookPathInPATH(command, pathEnv, pathextEnv string) (string, error) {
 	var lastErr error
 	for _, dir := range filepath.SplitList(pathEnv) {
 		if dir == "" {
 			dir = "."
 		}
-		for _, candidate := range pathCandidates(filepath.Join(dir, command)) {
+		for _, candidate := range pathCandidates(filepath.Join(dir, command), pathextEnv) {
 			if isExecutableFile(candidate) {
 				return candidate, nil
 			}
@@ -173,12 +175,12 @@ func lookPathInPATH(command, pathEnv string) (string, error) {
 	return "", os.ErrNotExist
 }
 
-func pathCandidates(candidate string) []string {
+func pathCandidates(candidate, pathextEnv string) []string {
 	if goruntime.GOOS != "windows" || filepath.Ext(candidate) != "" {
 		return []string{candidate}
 	}
 
-	pathext := os.Getenv("PATHEXT")
+	pathext := pathextEnv
 	if pathext == "" {
 		pathext = ".COM;.EXE;.BAT;.CMD"
 	}

@@ -135,6 +135,33 @@ func TestSpec015BareShebangInterpreterResolvesFromStepPATH(t *testing.T) {
 	require.Equal(t, interpreter, got)
 }
 
+func TestSpec015BareShebangInterpreterUsesStepPATHEXT(t *testing.T) {
+	if goruntime.GOOS != "windows" {
+		t.Skip("PATHEXT executable probing is Windows-specific")
+	}
+
+	dir := t.TempDir()
+	commandName := "spec015-interp"
+	interpreter := filepath.Join(dir, commandName+".XYZ")
+	require.NoError(t, os.WriteFile(interpreter, []byte(""), 0o755))
+
+	dag := &core.DAG{
+		Name:       "spec015-test",
+		WorkingDir: t.TempDir(),
+	}
+	ctx := coreexec.NewContext(context.Background(), dag, "", "")
+	env := daguruntime.NewEnv(ctx, core.Step{Name: "script"})
+	env.Scope = env.Scope.WithEntries(map[string]string{
+		"PATH":    dir,
+		"PATHEXT": ".XYZ",
+	}, cmnvalue.EnvSourceStepEnv)
+	ctx = daguruntime.WithEnv(ctx, env)
+
+	got, err := command.ResolveShebangExecutableForTest(ctx, commandName)
+	require.NoError(t, err)
+	require.Equal(t, interpreter, got)
+}
+
 func TestSpec015ShellBuilderScriptCarrierValidation(t *testing.T) {
 	ctx := context.Background()
 
@@ -178,6 +205,14 @@ func TestSpec015ShellBuilderScriptCarrierValidation(t *testing.T) {
 			want: []string{"bash", "/tmp/script.sh"},
 		},
 		{
+			name: "fallback non-shell accepts unix-like s argument",
+			builder: command.ShellCommandBuilderForTest{
+				Shell:  []string{"python", "-s"},
+				Script: "/tmp/script.py",
+			},
+			want: []string{"python", "-s", "/tmp/script.py"},
+		},
+		{
 			name: "powershell includes defaults",
 			builder: command.ShellCommandBuilderForTest{
 				Shell:  []string{"pwsh"},
@@ -208,6 +243,30 @@ func TestSpec015ShellBuilderScriptCarrierValidation(t *testing.T) {
 				Script: "script.ps1",
 			},
 			wantErr: "-Command",
+		},
+		{
+			name: "powershell rejects command colon carrier",
+			builder: command.ShellCommandBuilderForTest{
+				Shell:  []string{"pwsh", "-Command:Write-Host ok"},
+				Script: "script.ps1",
+			},
+			wantErr: "-Command:Write-Host ok",
+		},
+		{
+			name: "powershell rejects file colon carrier",
+			builder: command.ShellCommandBuilderForTest{
+				Shell:  []string{"pwsh", "-File:author.ps1"},
+				Script: "script.ps1",
+			},
+			wantErr: "-File:author.ps1",
+		},
+		{
+			name: "powershell honors execution policy colon carrier",
+			builder: command.ShellCommandBuilderForTest{
+				Shell:  []string{"pwsh", "-ExecutionPolicy:Bypass"},
+				Script: "script.ps1",
+			},
+			want: []string{"pwsh", "-ExecutionPolicy:Bypass", "-NoProfile", "-NonInteractive", "-File", "script.ps1"},
 		},
 		{
 			name: "cmd rejects authored body after c carrier",
