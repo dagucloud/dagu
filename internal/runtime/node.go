@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -269,7 +270,7 @@ func (n *Node) runCommand(ctx context.Context, cmd executor.Executor, stepTimeou
 		step := n.Step()
 
 		// Check if this is a timeout error
-		if stepTimeout > 0 && (ctx.Err() == context.DeadlineExceeded || elapsed >= stepTimeout) {
+		if stepTimeout > 0 && (errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded || elapsed >= stepTimeout) {
 			return n.handleTimeout(ctx, step, stepTimeout, elapsed)
 		}
 

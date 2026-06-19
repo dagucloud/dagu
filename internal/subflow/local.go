@@ -214,17 +214,9 @@ func (r *Local) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest)
 		return nil, errStepNameNotSet
 	}
 
-	runStateStore := r.runStateStoreFromContext(ctx)
-	if runStateStore == nil {
-		return nil, errNoRunDatabase
-	}
-	attempt, err := runStateStore.OpenChildAttempt(ctx, req.RootDAGRun, req.RunID)
+	retryTarget, err := r.existingChildStatus(ctx, req.SubWorkflowRequest)
 	if err != nil {
-		return nil, fmt.Errorf("failed to find child workflow attempt: %w", err)
-	}
-	retryTarget, err := attempt.ReadStatus(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read child workflow status: %w", err)
+		return nil, err
 	}
 
 	dag, cleanup, err := loadInProcessDAG(ctx, req.SubWorkflowRequest)
@@ -248,15 +240,39 @@ func (r *Local) existingChildRetryTarget(
 	ctx context.Context,
 	req executor.SubWorkflowRequest,
 ) (*exec.DAGRunStatus, error) {
+	retryTarget, err := r.existingChildStatus(ctx, req)
+	if err != nil {
+		if errors.Is(err, exec.ErrDAGRunIDNotFound) || errors.Is(err, errNoRunDatabase) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return retryTarget, nil
+}
+
+func (r *Local) existingChildStatus(
+	ctx context.Context,
+	req executor.SubWorkflowRequest,
+) (*exec.DAGRunStatus, error) {
+	if req.RootDAGRun.ID != "" && req.RunID != "" {
+		status, err := r.dagRunMgr.FindSubDAGRunStatus(ctx, req.RootDAGRun, req.RunID)
+		if err == nil {
+			if status == nil {
+				return nil, fmt.Errorf("failed to read child workflow status: status data is nil")
+			}
+			return status, nil
+		}
+		if !errors.Is(err, exec.ErrNoStatusData) && !errors.Is(err, exec.ErrDAGRunIDNotFound) {
+			return nil, fmt.Errorf("failed to find child workflow attempt: %w", err)
+		}
+	}
+
 	runStateStore := r.runStateStoreFromContext(ctx)
 	if runStateStore == nil {
-		return nil, nil
+		return nil, errNoRunDatabase
 	}
 	attempt, err := runStateStore.OpenChildAttempt(ctx, req.RootDAGRun, req.RunID)
 	if err != nil {
-		if errors.Is(err, exec.ErrDAGRunIDNotFound) {
-			return nil, nil
-		}
 		return nil, fmt.Errorf("failed to find child workflow attempt: %w", err)
 	}
 	retryTarget, err := attempt.ReadStatus(ctx)

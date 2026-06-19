@@ -304,8 +304,12 @@ func (m *Manager) getPersistedOrCurrentStatus(ctx context.Context, dag *core.DAG
 }
 
 // FindSubDAGRunStatus retrieves the status of a sub dag-run by its ID.
-// It looks up the child attempt in the dag-run store and reads its status.
+// It repairs stale local child runs before returning their status.
 func (m *Manager) FindSubDAGRunStatus(ctx context.Context, rootDAGRun exec.DAGRunRef, subRunID string) (*exec.DAGRunStatus, error) {
+	if m == nil || m.dagRunStore == nil {
+		return nil, exec.ErrNoStatusData
+	}
+
 	attempt, err := m.dagRunStore.FindSubAttempt(ctx, rootDAGRun, subRunID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find sub dag-run attempt: %w", err)
@@ -314,7 +318,23 @@ func (m *Manager) FindSubDAGRunStatus(ctx context.Context, rootDAGRun exec.DAGRu
 	if err != nil {
 		return nil, fmt.Errorf("failed to read status: %w", err)
 	}
-	return status, nil
+	if status == nil {
+		return nil, exec.ErrNoStatusData
+	}
+	if status.Status != core.Running || !isLocalWorkerID(status.WorkerID) {
+		return status, nil
+	}
+
+	dag, err := attempt.ReadDAG(ctx)
+	if err != nil {
+		logger.Error(ctx, "Failed to read sub DAG for stale status check",
+			tag.RunID(subRunID),
+			tag.Error(err),
+		)
+		return status, nil
+	}
+
+	return m.resolveRunningStatus(ctx, dag, attempt, status, false), nil
 }
 
 // currentStatus retrieves the current status of a running DAG by querying its socket.
