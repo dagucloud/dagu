@@ -281,6 +281,13 @@ func (f *fixture) WaitForAllStatuses(expected core.Status, timeout time.Duration
 	return f
 }
 
+func (f *fixture) WaitForAllStatusesAndDrain(expected core.Status, statusTimeout, drainTimeout time.Duration) *fixture {
+	f.t.Helper()
+	f.WaitForAllStatuses(expected, statusTimeout)
+	f.WaitDrain(drainTimeout)
+	return f
+}
+
 func (f *fixture) WaitForAllStopped(timeout time.Duration) *fixture {
 	f.t.Helper()
 	timeout = queueTestTimeout(timeout)

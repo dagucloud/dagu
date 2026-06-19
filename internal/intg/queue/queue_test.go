@@ -32,10 +32,9 @@ steps:
   - name: echo
     run: echo hello
 `).Enqueue(3).StartScheduler(30 * time.Second)
+	defer f.Stop()
 
-	f.WaitDrain(35 * time.Second)
-	f.WaitForAllStatuses(core.Succeeded, 20*time.Second)
-	f.Stop()
+	f.WaitForAllStatusesAndDrain(core.Succeeded, 20*time.Second, 35*time.Second)
 
 	items, err := f.th.QueueStore.List(f.th.Context, f.queue)
 	require.NoError(t, err)
@@ -166,10 +165,9 @@ steps:
 		EnqueueWithPriority(exec.QueuePriorityHigh).
 		EnqueueWithPriority(exec.QueuePriorityHigh).
 		StartScheduler(30 * time.Second)
+	defer f.Stop()
 
-	f.WaitDrain(35 * time.Second)
-	f.WaitForAllStatuses(core.Succeeded, 20*time.Second)
-	f.Stop()
+	f.WaitForAllStatusesAndDrain(core.Succeeded, 20*time.Second, 35*time.Second)
 
 	times := f.collectStartTimes()
 	require.Len(t, times, 4)
