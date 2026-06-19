@@ -181,6 +181,7 @@ func TestCommandDiagnosticsDoNotDumpResolvedSecret(t *testing.T) {
 	result := dagu.RunWithEnv(sharedEnv, "start", "--run-id", runID, file)
 	result.ExpectExitCode(1)
 	result.ExpectStderrContains("-cecho")
+	result.ExpectStdoutNotContains(secret)
 	result.ExpectStderrNotContains(secret)
 
 	status := dagu.RunWithEnv(sharedEnv, "status", "--run-id", runID, file)

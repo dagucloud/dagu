@@ -130,6 +130,8 @@ func validatePowerShellCommandCarrier(args []string) error {
 		switch {
 		case containsPowerShellArg([]string{arg}, "-EncodedCommand"):
 			return fmt.Errorf("command-form run cannot use PowerShell command carrier %q", arg)
+		case containsPowerShellArg([]string{arg}, "-File"), containsPowerShellArg([]string{arg}, "-F"):
+			return fmt.Errorf("command-form run cannot use PowerShell file carrier %q", arg)
 		case containsPowerShellArg([]string{arg}, "-Command"), containsPowerShellArg([]string{arg}, "-C"):
 			if powerShellArgHasInlineValue(arg) {
 				return fmt.Errorf("command-form run requires PowerShell command carrier %s as a separate shell argument; got %q", powerShellArgName(arg), arg)

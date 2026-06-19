@@ -95,6 +95,14 @@ func TestSpec014ShellBuilderCommandCarrierValidation(t *testing.T) {
 			wantErr: "-EncodedCommand",
 		},
 		{
+			name: "powershell rejects file carrier",
+			builder: command.ShellCommandBuilderForTest{
+				Shell:            []string{"pwsh", "-File"},
+				ShellCommandArgs: "Write-Output ok",
+			},
+			wantErr: "-File",
+		},
+		{
 			name: "powershell rejects authored argument after carrier",
 			builder: command.ShellCommandBuilderForTest{
 				Shell:            []string{"pwsh", "-Command", "Write-Output old"},
