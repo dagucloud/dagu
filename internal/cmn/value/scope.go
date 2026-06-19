@@ -3,6 +3,8 @@
 
 package value
 
+import "maps"
+
 type Values map[string]any
 
 // BuiltinContext contains scalar Dagu-managed context values for strict
@@ -17,9 +19,7 @@ func NewBuiltinContext(values map[string]string) BuiltinContext {
 		return BuiltinContext{}
 	}
 	cloned := make(map[string]string, len(values))
-	for key, value := range values {
-		cloned[key] = value
-	}
+	maps.Copy(cloned, values)
 	return BuiltinContext{values: cloned}
 }
 
