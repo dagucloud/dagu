@@ -1,0 +1,5 @@
+working_dir: .
+steps:
+  - id: inspect
+    run: |
+      printf '%s\n' '${dag.name}' '${step.id}' '${step.name}' '${run.id}' '${attempt.id}' '${run.status}' '${trigger.actor}' '${profile.name}' '${pushback.iteration}' '${paths.context}' '${trigger.payload}' '${run.foo}' '${run.id.extra}' > validation-notices.txt

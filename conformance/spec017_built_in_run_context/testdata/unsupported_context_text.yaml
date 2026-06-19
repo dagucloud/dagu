@@ -1,0 +1,6 @@
+name: builtin_unsupported_context_text
+working_dir: .
+steps:
+  - id: capture
+    run: |
+      printf '%s\n' '${paths.context}' '${trigger.payload}' '${run.foo}' '${run.id.extra}' > unsupported-context.txt

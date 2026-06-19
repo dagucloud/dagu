@@ -24,6 +24,11 @@ import (
 type Context struct {
 	DAGRunID           string
 	RootDAGRun         DAGRunRef
+	AttemptID          string
+	TriggerType        core.TriggerType
+	TriggerActor       string
+	RunStartedAt       string
+	ScheduleTime       string
 	DAG                *core.DAG
 	DB                 Database
 	BaseEnv            *config.BaseEnv
@@ -214,6 +219,11 @@ type contextOptions struct {
 	profileEntries     []RuntimeProfileEntry
 	workDir            string
 	artifactDir        string
+	attemptID          string
+	triggerType        core.TriggerType
+	triggerActor       string
+	runStartedAt       string
+	scheduleTime       string
 }
 
 // ContextOption configures optional parameters for NewContext.
@@ -230,6 +240,41 @@ func WithDatabase(db Database) ContextOption {
 func WithRootDAGRun(ref DAGRunRef) ContextOption {
 	return func(o *contextOptions) {
 		o.rootDAGRun = ref
+	}
+}
+
+// WithAttemptID sets the DAG-run attempt identifier for value resolution.
+func WithAttemptID(attemptID string) ContextOption {
+	return func(o *contextOptions) {
+		o.attemptID = attemptID
+	}
+}
+
+// WithTriggerType sets the DAG-run trigger type for value resolution.
+func WithTriggerType(triggerType core.TriggerType) ContextOption {
+	return func(o *contextOptions) {
+		o.triggerType = triggerType
+	}
+}
+
+// WithTriggerActor sets the attributable trigger actor for value resolution.
+func WithTriggerActor(actor string) ContextOption {
+	return func(o *contextOptions) {
+		o.triggerActor = actor
+	}
+}
+
+// WithRunStartedAt sets the recorded DAG-run start timestamp for value resolution.
+func WithRunStartedAt(startedAt string) ContextOption {
+	return func(o *contextOptions) {
+		o.runStartedAt = startedAt
+	}
+}
+
+// WithScheduleTime sets the logical schedule time for value resolution.
+func WithScheduleTime(scheduleTime string) ContextOption {
+	return func(o *contextOptions) {
+		o.scheduleTime = scheduleTime
 	}
 }
 
@@ -383,7 +428,8 @@ func NewContext(
 	maps.Copy(baseForDAGEnv, params)
 	maps.Copy(baseForDAGEnv, managedEnvs)
 
-	evaluatedDAGEnvs := evaluateDAGEnvRuntime(ctx, dag, params, baseForDAGEnv, managedEnvs)
+	runBuiltinContext := buildDAGRunBuiltinContext(dag, dagRunID, managedEnvs, options)
+	evaluatedDAGEnvs := evaluateDAGEnvRuntime(ctx, dag, params, baseForDAGEnv, managedEnvs, runBuiltinContext)
 
 	secretEnvs := stringutil.KeyValuesToMap(options.secretEnvs)
 
@@ -412,6 +458,11 @@ func NewContext(
 
 	return context.WithValue(ctx, dagCtxKey{}, Context{
 		RootDAGRun:         options.rootDAGRun,
+		AttemptID:          options.attemptID,
+		TriggerType:        options.triggerType,
+		TriggerActor:       options.triggerActor,
+		RunStartedAt:       options.runStartedAt,
+		ScheduleTime:       options.scheduleTime,
 		DAG:                dag,
 		DB:                 options.db,
 		EnvScope:           scope,
@@ -433,7 +484,14 @@ func NewContext(
 	})
 }
 
-func evaluateDAGEnvRuntime(ctx context.Context, dag *core.DAG, runtimeParams map[string]string, base map[string]string, protected map[string]string) map[string]string {
+func evaluateDAGEnvRuntime(
+	ctx context.Context,
+	dag *core.DAG,
+	runtimeParams map[string]string,
+	base map[string]string,
+	protected map[string]string,
+	runBuiltinContext cmnvalue.BuiltinContext,
+) map[string]string {
 	var envList []string
 	var params cmnvalue.Values
 	var paramDeclarations cmnvalue.Values
@@ -472,7 +530,7 @@ func evaluateDAGEnvRuntime(ctx context.Context, dag *core.DAG, runtimeParams map
 
 		resolver := cmnvalue.NewResolver(
 			cmnvalue.StaticScope{Params: paramDeclarations},
-			cmnvalue.RuntimeScope{Params: params, Env: scope},
+			cmnvalue.RuntimeScope{Params: params, Env: scope, BuiltinContext: runBuiltinContext},
 		)
 		evaluated, err := resolver.String(ctx, value, cmnvalue.RuntimeDAGEnvField("env."+key))
 		if err != nil {
@@ -483,6 +541,52 @@ func evaluateDAGEnvRuntime(ctx context.Context, dag *core.DAG, runtimeParams map
 	}
 
 	return result
+}
+
+func buildDAGRunBuiltinContext(
+	dag *core.DAG,
+	dagRunID string,
+	managedEnvs map[string]string,
+	options *contextOptions,
+) cmnvalue.BuiltinContext {
+	values := make(map[string]string)
+	if dag != nil && dag.Name != "" {
+		values["dag.name"] = dag.Name
+	}
+	addDAGRunBuiltinValue(values, "run.id", dagRunID)
+	addDAGRunBuiltinValue(values, "run.started_at", options.runStartedAt)
+	addDAGRunBuiltinValue(values, "run.scheduled_at", options.scheduleTime)
+	if rootDAGRunContextAvailable(options.rootDAGRun, dag, dagRunID) {
+		addDAGRunBuiltinValue(values, "run.root_name", options.rootDAGRun.Name)
+		addDAGRunBuiltinValue(values, "run.root_id", options.rootDAGRun.ID)
+	}
+	addDAGRunBuiltinValue(values, "attempt.id", options.attemptID)
+	addDAGRunBuiltinValue(values, "trigger.type", options.triggerType.String())
+	addDAGRunBuiltinValue(values, "trigger.actor", options.triggerActor)
+	addDAGRunBuiltinValue(values, "paths.log_file", managedEnvs[EnvKeyDAGRunLogFile])
+	addDAGRunBuiltinValue(values, "paths.work_dir", managedEnvs[EnvKeyDAGRunWorkDir])
+	addDAGRunBuiltinValue(values, "paths.artifacts_dir", managedEnvs[EnvKeyDAGRunArtifactsDir])
+	addDAGRunBuiltinValue(values, "paths.docs_dir", managedEnvs[EnvKeyDAGDocsDir])
+	addDAGRunBuiltinValue(values, "profile.name", options.profileName)
+	addDAGRunBuiltinValue(values, "profile.resolved_at", options.profileResolvedAt)
+	return cmnvalue.NewBuiltinContext(values)
+}
+
+func rootDAGRunContextAvailable(root DAGRunRef, dag *core.DAG, dagRunID string) bool {
+	if root.Zero() {
+		return false
+	}
+	if dag != nil && root.Name == dag.Name && root.ID == dagRunID {
+		return false
+	}
+	return true
+}
+
+func addDAGRunBuiltinValue(values map[string]string, path, value string) {
+	if value == "" {
+		return
+	}
+	values[path] = value
 }
 
 // WithContext returns a new context with the given DAGContext.

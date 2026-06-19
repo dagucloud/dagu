@@ -329,6 +329,83 @@ func TestNewContext_DAGEnvCanReferenceRuntimeManagedDirs(t *testing.T) {
 	assert.Equal(t, artifactDir, result[exec.EnvKeyDAGRunArtifactsDir])
 }
 
+func TestNewContext_DAGEnvCanReferenceBuiltInRunContext(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	logFile := filepath.Join(tmpDir, "run.log")
+	workDir := filepath.Join(tmpDir, "work")
+	artifactDir := filepath.Join(tmpDir, "artifacts")
+	startedAt := "2026-03-13T10:00:01Z"
+	scheduledAt := "2026-03-13T10:00:00Z"
+	profileResolvedAt := "2026-03-13T09:59:00Z"
+
+	dag := &core.DAG{
+		Name: "daily",
+		Env: []string{
+			"DAG_REF=${dag.name}",
+			"RUN_REF=${run.id}",
+			"ATTEMPT_REF=${attempt.id}",
+			"TRIGGER_REF=${trigger.type}",
+			"STARTED_REF=${run.started_at}",
+			"SCHEDULED_REF=${run.scheduled_at}",
+			"ROOT_NAME_REF=${run.root_name}",
+			"ROOT_ID_REF=${run.root_id}",
+			"LOG_REF=${paths.log_file}",
+			"WORK_REF=${paths.work_dir}",
+			"ARTIFACT_REF=${paths.artifacts_dir}",
+			"PROFILE_REF=${profile.name}",
+			"PROFILE_AT_REF=${profile.resolved_at}",
+		},
+	}
+
+	ctx := exec.NewContext(context.Background(), dag, "run-1", logFile,
+		exec.WithAttemptID("attempt-1"),
+		exec.WithRootDAGRun(exec.NewDAGRunRef("root", "root-run-1")),
+		exec.WithTriggerType(core.TriggerTypeScheduler),
+		exec.WithRunStartedAt(startedAt),
+		exec.WithScheduleTime(scheduledAt),
+		exec.WithWorkDir(workDir),
+		exec.WithArtifactDir(artifactDir),
+		exec.WithRuntimeProfile("prod", profileResolvedAt, nil),
+	)
+
+	envs := exec.GetContext(ctx).UserEnvsMap()
+	assert.Equal(t, "daily", envs["DAG_REF"])
+	assert.Equal(t, "run-1", envs["RUN_REF"])
+	assert.Equal(t, "attempt-1", envs["ATTEMPT_REF"])
+	assert.Equal(t, "scheduler", envs["TRIGGER_REF"])
+	assert.Equal(t, startedAt, envs["STARTED_REF"])
+	assert.Equal(t, scheduledAt, envs["SCHEDULED_REF"])
+	assert.Equal(t, "root", envs["ROOT_NAME_REF"])
+	assert.Equal(t, "root-run-1", envs["ROOT_ID_REF"])
+	assert.Equal(t, logFile, envs["LOG_REF"])
+	assert.Equal(t, workDir, envs["WORK_REF"])
+	assert.Equal(t, artifactDir, envs["ARTIFACT_REF"])
+	assert.Equal(t, "prod", envs["PROFILE_REF"])
+	assert.Equal(t, profileResolvedAt, envs["PROFILE_AT_REF"])
+}
+
+func TestNewContext_DAGEnvDoesNotExposeRootFieldsForRootRun(t *testing.T) {
+	t.Parallel()
+
+	dag := &core.DAG{
+		Name: "root",
+		Env: []string{
+			"ROOT_NAME_REF=${run.root_name}",
+			"ROOT_ID_REF=${run.root_id}",
+		},
+	}
+
+	ctx := exec.NewContext(context.Background(), dag, "run-1", "dag.log",
+		exec.WithRootDAGRun(exec.NewDAGRunRef("root", "run-1")),
+	)
+
+	envs := exec.GetContext(ctx).UserEnvsMap()
+	assert.Equal(t, "${run.root_name}", envs["ROOT_NAME_REF"])
+	assert.Equal(t, "${run.root_id}", envs["ROOT_ID_REF"])
+}
+
 func TestNewContext_DAGEnvUsesRuntimeParamsOption(t *testing.T) {
 	t.Parallel()
 

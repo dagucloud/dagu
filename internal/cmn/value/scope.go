@@ -5,6 +5,33 @@ package value
 
 type Values map[string]any
 
+// BuiltinContext contains scalar Dagu-managed context values for strict
+// value references such as ${run.id} and ${paths.log_file}.
+type BuiltinContext struct {
+	values map[string]string
+}
+
+// NewBuiltinContext returns a built-in context with the provided scalar values.
+func NewBuiltinContext(values map[string]string) BuiltinContext {
+	if len(values) == 0 {
+		return BuiltinContext{}
+	}
+	cloned := make(map[string]string, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
+	return BuiltinContext{values: cloned}
+}
+
+// Value returns a scalar built-in context value.
+func (c BuiltinContext) Value(path string) (string, bool) {
+	if len(c.values) == 0 {
+		return "", false
+	}
+	value, ok := c.values[path]
+	return value, ok
+}
+
 // StaticScope contains declarations and contracts used by static validation.
 type StaticScope struct {
 	Consts Values
@@ -13,10 +40,11 @@ type StaticScope struct {
 
 // RuntimeScope contains actual values available during runtime resolution.
 type RuntimeScope struct {
-	Consts Values
-	Params Values
-	Env    *EnvScope
-	Steps  map[string]StepInfo
+	Consts         Values
+	Params         Values
+	Env            *EnvScope
+	Steps          map[string]StepInfo
+	BuiltinContext BuiltinContext
 }
 
 // ValuesFromStrings converts string variables into binding values.

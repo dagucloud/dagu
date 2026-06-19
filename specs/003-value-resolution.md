@@ -17,7 +17,8 @@ It can:
 
 Value resolution is the field evaluation mode that resolves Dagu-owned references in workflow YAML before the field is used.
 
-A Dagu-owned reference is a namespaced reference:
+A Dagu-owned reference is a namespaced reference defined by this spec or by
+another numbered spec:
 
 ```text
 ${consts.name}
@@ -84,17 +85,19 @@ Dagu uses three evaluation types.
 | Dynamic-evaluated | Dagu runs the dynamic evaluation pipeline. In this spec, only `params[].eval` uses this type. |
 
 Unqualified environment expansion is a separate field-level ownership decision.
-A value-resolved field always resolves Dagu-owned references listed in this spec.
+A value-resolved field always resolves Dagu-owned references defined by this
+spec set.
 That same field expands `$NAME`, `${NAME}`, or shell-style `${NAME...}` expressions only when Spec 006 says Dagu owns unqualified environment expansion for that field.
 When Spec 006 says a later runtime owns unqualified environment syntax, Dagu preserves that syntax after resolving Dagu-owned references.
 
 ### Reference Syntax
 
-- Dagu-owned references are only the unescaped supported reference forms listed below.
+- Dagu-owned references are only the unescaped supported reference forms
+  defined by this spec set.
 
 - An unescaped supported reference form must use `${path}` syntax.
 
-- Supported reference forms are:
+- Base supported reference forms are:
 
 ```text
 ${consts.name}
@@ -102,6 +105,10 @@ ${params.name}
 ${env.NAME}
 ${steps.step_id.outputs.name}
 ```
+
+- A later numbered spec may add a supported reference namespace. That spec must
+  define the namespace path grammar, value source, availability rules,
+  validation behavior, missing-value behavior, and examples.
 
 - Names in supported reference forms must match `^[A-Za-z][A-Za-z0-9_]*$`.
 - This name rule applies to namespace names, `consts` keys, `params` names, step ids, `outputs`, and step output names.

@@ -179,6 +179,7 @@ Execution-attempt Dagu-managed environment names include:
 Additional Dagu-managed names reserved for specialized run-control surfaces
 include:
 
+- `DAG_WAITING_STEPS`
 - `DAG_PUSHBACK`
 - `DAG_PUSHBACK_ITERATION`
 - `DAG_PUSHBACK_PREVIOUS_STDOUT_FILE`
@@ -197,6 +198,7 @@ Secret-reserved Dagu-managed environment names are:
 - `DAG_RUN_STEP_STDOUT_FILE`
 - `DAG_RUN_STEP_STDERR_FILE`
 - `DAG_RUN_STATUS`
+- `DAG_WAITING_STEPS`
 - `DAGU_PARAMS_JSON`
 - `DAG_DOCS_DIR`
 - `DAG_PARAMS_JSON`

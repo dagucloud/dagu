@@ -20,6 +20,32 @@ var (
 	referencePattern       = regexp.MustCompile(`\$\{([A-Za-z0-9_]\w*)(\.[^}]+)\}|\$([A-Za-z0-9_]\w*)(\.[^\s]+)`)
 )
 
+var supportedBuiltinContextBindings = map[string]struct{}{
+	"dag.name":                      {},
+	"run.id":                        {},
+	"run.status":                    {},
+	"run.started_at":                {},
+	"run.scheduled_at":              {},
+	"run.root_name":                 {},
+	"run.root_id":                   {},
+	"attempt.id":                    {},
+	"step.id":                       {},
+	"step.name":                     {},
+	"trigger.type":                  {},
+	"trigger.actor":                 {},
+	"paths.log_file":                {},
+	"paths.work_dir":                {},
+	"paths.artifacts_dir":           {},
+	"paths.docs_dir":                {},
+	"paths.step_stdout_file":        {},
+	"paths.step_stderr_file":        {},
+	"paths.step_output_file":        {},
+	"profile.name":                  {},
+	"profile.resolved_at":           {},
+	"pushback.iteration":            {},
+	"pushback.previous_stdout_file": {},
+}
+
 type template struct{ source string }
 
 func resolveBindings(
@@ -248,9 +274,21 @@ func bindingValue(ctx context.Context, path string, scope RuntimeScope, requireV
 		return bindingEnvValue(segments[1], scope.Env, requireValue)
 	case "steps":
 		return bindingStepOutputValue(ctx, segments, scope.Steps, requireValue)
+	case "dag", "run", "attempt", "step", "trigger", "paths", "profile", "pushback":
+		return bindingBuiltinContextValue(path, scope.BuiltinContext, requireValue)
 	default:
 		return nil, nil
 	}
+}
+
+func bindingBuiltinContextValue(path string, builtins BuiltinContext, requireValue bool) (any, error) {
+	if value, ok := builtins.Value(path); ok {
+		return value, nil
+	}
+	if !requireValue {
+		return nil, nil
+	}
+	return nil, fmt.Errorf("%s is unavailable in this context", path)
 }
 
 func bindingStepOutputValue(ctx context.Context, segments []string, steps map[string]StepInfo, requireValue bool) (any, error) {
@@ -310,6 +348,12 @@ func supportedStrictBinding(segments []string) bool {
 			return false
 		}
 		return validOutputPathSegment(segments[3])
+	case "dag", "run", "attempt", "step", "trigger", "paths", "profile", "pushback":
+		if len(segments) != 2 {
+			return false
+		}
+		_, ok := supportedBuiltinContextBindings[strings.Join(segments, ".")]
+		return ok
 	default:
 		return false
 	}

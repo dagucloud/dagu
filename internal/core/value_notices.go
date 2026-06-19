@@ -19,14 +19,16 @@ func ReportValueReferenceNotices(dag *DAG, sink cmnvalue.ValueReferenceNoticeSin
 
 	staticScope := cmnvalue.StaticScope{Consts: cmnvalue.Values(dag.Consts), Params: dag.ParamDeclarations()}
 	runtimeScope := cmnvalue.RuntimeScope{
-		Consts: cmnvalue.Values(dag.Consts),
-		Params: dag.ParamValues(),
-		Steps:  map[string]cmnvalue.StepInfo{},
+		Consts:         cmnvalue.Values(dag.Consts),
+		Params:         dag.ParamValues(),
+		Steps:          map[string]cmnvalue.StepInfo{},
+		BuiltinContext: noticeBuiltinContext(dag.Name, "", ""),
 	}
 	stepOutputNotices := newStepOutputNoticeContext(dag)
 	rootEnvScope := reportEnvValueReferenceNotices(
 		dag.Env,
 		"env",
+		dag.Name,
 		"",
 		"",
 		cmnvalue.DAGEnvField,
@@ -42,6 +44,7 @@ func ReportValueReferenceNotices(dag *DAG, sink cmnvalue.ValueReferenceNoticeSin
 		reportEnvValueReferenceNotices(
 			dag.Container.Env,
 			"container.env",
+			dag.Name,
 			"",
 			"",
 			cmnvalue.ContainerEnvField,
@@ -63,9 +66,11 @@ func ReportValueReferenceNotices(dag *DAG, sink cmnvalue.ValueReferenceNoticeSin
 			continue
 		}
 		stepOutputNotices.report(field.noticeFieldPath(), field.Value, field.OwnerStepName, field.OwnerStepID, sink)
+		fieldRuntimeScope := runtimeScope
+		fieldRuntimeScope.BuiltinContext = noticeBuiltinContext(dag.Name, field.OwnerStepName, field.OwnerStepID)
 		resolver := cmnvalue.NewResolver(
 			staticScope,
-			runtimeScope,
+			fieldRuntimeScope,
 			cmnvalue.WithValueReferenceNotices(valueReferenceNoticeFieldSink{
 				sink:                         sink,
 				fieldPath:                    field.noticeFieldPath(),
@@ -88,6 +93,7 @@ func reportStepEnvValueReferenceNotices(
 		reportSingleStepEnvValueReferenceNotices(
 			fmt.Sprintf("steps[%d]", i),
 			dag.Steps[i],
+			dag.Name,
 			staticScope,
 			runtimeScope,
 			rootEnvScope,
@@ -95,17 +101,18 @@ func reportStepEnvValueReferenceNotices(
 			sink,
 		)
 	}
-	reportHandlerStepEnvValueReferenceNotices("handler_on.init", dag.HandlerOn.Init, staticScope, runtimeScope, rootEnvScope, stepOutputNotices, sink)
-	reportHandlerStepEnvValueReferenceNotices("handler_on.success", dag.HandlerOn.Success, staticScope, runtimeScope, rootEnvScope, stepOutputNotices, sink)
-	reportHandlerStepEnvValueReferenceNotices("handler_on.failure", dag.HandlerOn.Failure, staticScope, runtimeScope, rootEnvScope, stepOutputNotices, sink)
-	reportHandlerStepEnvValueReferenceNotices("handler_on.abort", dag.HandlerOn.Abort, staticScope, runtimeScope, rootEnvScope, stepOutputNotices, sink)
-	reportHandlerStepEnvValueReferenceNotices("handler_on.exit", dag.HandlerOn.Exit, staticScope, runtimeScope, rootEnvScope, stepOutputNotices, sink)
-	reportHandlerStepEnvValueReferenceNotices("handler_on.wait", dag.HandlerOn.Wait, staticScope, runtimeScope, rootEnvScope, stepOutputNotices, sink)
+	reportHandlerStepEnvValueReferenceNotices("handler_on.init", dag.HandlerOn.Init, dag.Name, staticScope, runtimeScope, rootEnvScope, stepOutputNotices, sink)
+	reportHandlerStepEnvValueReferenceNotices("handler_on.success", dag.HandlerOn.Success, dag.Name, staticScope, runtimeScope, rootEnvScope, stepOutputNotices, sink)
+	reportHandlerStepEnvValueReferenceNotices("handler_on.failure", dag.HandlerOn.Failure, dag.Name, staticScope, runtimeScope, rootEnvScope, stepOutputNotices, sink)
+	reportHandlerStepEnvValueReferenceNotices("handler_on.abort", dag.HandlerOn.Abort, dag.Name, staticScope, runtimeScope, rootEnvScope, stepOutputNotices, sink)
+	reportHandlerStepEnvValueReferenceNotices("handler_on.exit", dag.HandlerOn.Exit, dag.Name, staticScope, runtimeScope, rootEnvScope, stepOutputNotices, sink)
+	reportHandlerStepEnvValueReferenceNotices("handler_on.wait", dag.HandlerOn.Wait, dag.Name, staticScope, runtimeScope, rootEnvScope, stepOutputNotices, sink)
 }
 
 func reportHandlerStepEnvValueReferenceNotices(
 	path string,
 	step *Step,
+	dagName string,
 	staticScope cmnvalue.StaticScope,
 	runtimeScope cmnvalue.RuntimeScope,
 	rootEnvScope *cmnvalue.EnvScope,
@@ -115,12 +122,13 @@ func reportHandlerStepEnvValueReferenceNotices(
 	if step == nil {
 		return
 	}
-	reportSingleStepEnvValueReferenceNotices(path, *step, staticScope, runtimeScope, rootEnvScope, stepOutputNotices, sink)
+	reportSingleStepEnvValueReferenceNotices(path, *step, dagName, staticScope, runtimeScope, rootEnvScope, stepOutputNotices, sink)
 }
 
 func reportSingleStepEnvValueReferenceNotices(
 	path string,
 	step Step,
+	dagName string,
 	staticScope cmnvalue.StaticScope,
 	runtimeScope cmnvalue.RuntimeScope,
 	rootEnvScope *cmnvalue.EnvScope,
@@ -130,6 +138,7 @@ func reportSingleStepEnvValueReferenceNotices(
 	stepEnvScope := reportEnvValueReferenceNotices(
 		step.Env,
 		path+".env",
+		dagName,
 		step.Name,
 		step.ID,
 		cmnvalue.StepEnvField,
@@ -145,6 +154,7 @@ func reportSingleStepEnvValueReferenceNotices(
 		reportEnvValueReferenceNotices(
 			step.Container.Env,
 			path+".container.env",
+			dagName,
 			step.Name,
 			step.ID,
 			cmnvalue.ContainerEnvField,
@@ -161,6 +171,7 @@ func reportSingleStepEnvValueReferenceNotices(
 func reportEnvValueReferenceNotices(
 	env []string,
 	path string,
+	dagName string,
 	ownerStepName string,
 	ownerStepID string,
 	fieldForPath func(string) cmnvalue.Field,
@@ -180,6 +191,7 @@ func reportEnvValueReferenceNotices(
 		stepOutputNotices.report(fieldPath, value, ownerStepName, ownerStepID, sink)
 		fieldSink := valueReferenceNoticeFieldSink{sink: sink, fieldPath: fieldPath, suppressStepOutputReferences: true}
 		runtimeScope.Env = scope
+		runtimeScope.BuiltinContext = noticeBuiltinContext(dagName, ownerStepName, ownerStepID)
 		resolver := cmnvalue.NewResolver(
 			staticScope,
 			runtimeScope,
@@ -195,6 +207,20 @@ func reportEnvValueReferenceNotices(
 		}
 	}
 	return scope
+}
+
+func noticeBuiltinContext(dagName, stepName, stepID string) cmnvalue.BuiltinContext {
+	values := make(map[string]string)
+	if dagName != "" {
+		values["dag.name"] = dagName
+	}
+	if stepName != "" {
+		values["step.name"] = stepName
+	}
+	if stepID != "" {
+		values["step.id"] = stepID
+	}
+	return cmnvalue.NewBuiltinContext(values)
 }
 
 func isEnvReferenceFieldPath(path string) bool {
