@@ -1,0 +1,8 @@
+steps:
+  - id: first
+    name: Duplicate
+    run: echo first
+
+  - id: second
+    name: Duplicate
+    run: echo second

@@ -1,0 +1,14 @@
+working_dir: .
+steps:
+  - id: build_id
+    name: build
+    run: |
+      printf 'artifact=from-id\n' >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: artifact
+
+  - id: deploy_name_ref
+    name: deploy
+    depends: build
+    run: |
+      printf '%s\n' '${steps.build.outputs.artifact}' > name-output-reference.txt

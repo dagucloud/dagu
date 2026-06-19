@@ -1,0 +1,12 @@
+working_dir: .
+steps:
+  - id: build
+    name: Build image
+    run: |
+      printf 'build\n' > name-dependency.txt
+
+  - id: deploy
+    name: Deploy image
+    depends: Build image
+    run: |
+      printf 'deploy\n' >> name-dependency.txt

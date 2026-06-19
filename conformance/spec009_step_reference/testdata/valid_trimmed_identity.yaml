@@ -1,0 +1,16 @@
+working_dir: .
+steps:
+  - id: " build "
+    name: " Build step "
+    run: |
+      printf 'producer\n' > trimmed-identity.txt
+
+  - id: after_name
+    depends: Build step
+    run: |
+      printf 'name\n' >> trimmed-identity.txt
+
+  - id: after_id
+    depends: [after_name, build]
+    run: |
+      printf 'id\n' >> trimmed-identity.txt

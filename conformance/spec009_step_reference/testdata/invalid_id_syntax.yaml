@@ -1,0 +1,4 @@
+steps:
+  - id: build-image
+    name: Build image
+    run: ./build.sh

@@ -1,0 +1,7 @@
+steps:
+  - id: build
+    name: Build image
+    run: ./build.sh
+
+  - name: build
+    run: ./other.sh

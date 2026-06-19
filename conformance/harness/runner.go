@@ -259,6 +259,13 @@ func (r *Result) ExpectExitCode(code int) {
 	require.Equal(r.t, code, r.exitCode, "stdout:\n%s\nstderr:\n%s", r.stdout, r.stderr)
 }
 
+// ExpectNonZeroExitCode fails the test when the command succeeds.
+func (r *Result) ExpectNonZeroExitCode() {
+	r.t.Helper()
+
+	require.NotEqual(r.t, 0, r.exitCode, "stdout:\n%s\nstderr:\n%s", r.stdout, r.stderr)
+}
+
 // ExpectStdout fails the test when stdout differs.
 func (r *Result) ExpectStdout(stdout string) {
 	r.t.Helper()

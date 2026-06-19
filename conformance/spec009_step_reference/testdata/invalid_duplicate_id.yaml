@@ -1,0 +1,8 @@
+steps:
+  - id: build
+    name: Build image
+    run: ./build.sh
+
+  - id: build
+    name: Build image again
+    run: ./build-again.sh

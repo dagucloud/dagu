@@ -1,0 +1,7 @@
+steps:
+  - id: say_hello
+    run: echo hello
+
+  - id: after_hello
+    depends: say_hello
+    run: echo after

@@ -1,0 +1,5 @@
+type: graph
+steps:
+  - id: independent
+    depends: []
+    run: echo independent

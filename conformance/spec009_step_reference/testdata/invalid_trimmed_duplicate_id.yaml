@@ -1,0 +1,8 @@
+steps:
+  - id: " build "
+    name: Build image
+    run: echo first
+
+  - id: build
+    name: Build image again
+    run: echo second

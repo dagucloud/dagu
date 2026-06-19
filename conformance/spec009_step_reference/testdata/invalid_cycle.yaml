@@ -1,0 +1,9 @@
+working_dir: .
+steps:
+  - id: first
+    depends: second
+    run: touch cycle-first.txt
+
+  - id: second
+    depends: first
+    run: touch cycle-second.txt

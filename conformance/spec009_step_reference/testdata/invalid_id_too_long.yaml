@@ -1,0 +1,4 @@
+steps:
+  - id: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    name: Long id
+    run: echo invalid

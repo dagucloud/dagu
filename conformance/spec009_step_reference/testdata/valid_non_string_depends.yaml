@@ -1,0 +1,8 @@
+type: graph
+steps:
+  - name: "42"
+    run: echo answer
+
+  - id: after_answer
+    depends: [42]
+    run: echo after

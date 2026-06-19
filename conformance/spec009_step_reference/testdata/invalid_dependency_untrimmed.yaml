@@ -1,0 +1,9 @@
+type: graph
+steps:
+  - id: build
+    name: Build Step
+    run: echo build
+
+  - id: deploy
+    depends: " build "
+    run: echo deploy

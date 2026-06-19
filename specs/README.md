@@ -19,7 +19,7 @@ It must not be treated as product behavior until implementation catches up.
 | [005: Value Resolution Params](005-value-resolution-params.md) | Implemented |
 | [006: Value Resolution Env](006-value-resolution-env.md) | Implemented |
 | [007: Value Resolution Steps](007-value-resolution-steps.md) | Implemented |
-| [009: Step Reference](009-step-reference.md) | Not implemented |
+| [009: Step Reference](009-step-reference.md) | Implemented |
 | [011: Dynamic Evaluation](011-dynamic-evaluation.md) | Implemented |
 | [012: Step Outputs](012-step-outputs.md) | Implemented |
 | [013: Step Run](013-step-run.md) | Partially implemented |
