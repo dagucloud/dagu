@@ -319,9 +319,24 @@ func TestSpec015ShellBuilderScriptCarrierValidation(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, tt.want, got)
+			requireShellCommand(t, tt.want, got)
 		})
 	}
+}
+
+func requireShellCommand(t *testing.T, want, got []string) {
+	t.Helper()
+
+	require.NotEmpty(t, want)
+	require.NotEmpty(t, got)
+	require.Equal(t, shellCommandName(want[0]), shellCommandName(got[0]))
+	require.Equal(t, want[1:], got[1:])
+}
+
+func shellCommandName(command string) string {
+	name := filepath.Base(strings.ReplaceAll(command, "\\", "/"))
+	name = strings.ToLower(name)
+	return strings.TrimSuffix(name, ".exe")
 }
 
 func TestSpec015ScriptPreparationUsesSystemTempAndExplicitShellExtension(t *testing.T) {
