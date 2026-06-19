@@ -9,5 +9,4 @@ container:
     - AFTER=done
 steps:
   - name: noop
-    run: |
-      true
+    run: "true"
