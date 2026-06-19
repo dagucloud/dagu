@@ -1,0 +1,31 @@
+working_dir: .
+env:
+  - DAG_RUN_ID=root-shadow
+  - ROOT_COPY=${env.DAG_RUN_ID}
+steps:
+  - name: check
+    env:
+      - ROOT_COPY=${env.ROOT_COPY}
+      - DAG_RUN_ID=step-shadow
+      - STEP_COPY=${env.DAG_RUN_ID}
+    run: |
+      case "$ROOT_COPY" in
+        root-shadow) root_status=root-env-read-workflow-shadow ;;
+        *) root_status=unexpected-root-copy ;;
+      esac
+      printf '%s\nDAG_RUN_ID=%s\nSTEP_COPY=%s\n' "$root_status" "$DAG_RUN_ID" "$STEP_COPY" > protected-shadowing.txt
+  - name: check_final_root_scope
+    env:
+      - ROOT_COPY=${env.ROOT_COPY}
+      - FINAL_COPY=${env.DAG_RUN_ID}
+    run: |
+      case "$DAG_RUN_ID" in
+        ""|root-shadow|step-shadow) final_status=bad-final-root-scope ;;
+        *) final_status=final-protected ;;
+      esac
+      if [ "$FINAL_COPY" = "$DAG_RUN_ID" ] && [ "$FINAL_COPY" != root-shadow ] && [ "$FINAL_COPY" != step-shadow ] && [ -n "$FINAL_COPY" ]; then
+        resolved_status=resolved-matches-process
+      else
+        resolved_status=bad-resolved-root-scope
+      fi
+      printf 'ROOT_COPY=%s\n%s\n%s\n' "$ROOT_COPY" "$final_status" "$resolved_status" > protected-final.txt

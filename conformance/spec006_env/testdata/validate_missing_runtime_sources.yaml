@@ -4,12 +4,11 @@ env:
 dotenv:
   - .env
 steps:
-  - name: previous
+  - id: previous
     run: |
-      printf 'unused\n'
-    output:
-      VALUE:
-        value: runtime
+      printf 'VALUE=runtime\n' >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: VALUE
   - name: write
     depends: previous
     env:

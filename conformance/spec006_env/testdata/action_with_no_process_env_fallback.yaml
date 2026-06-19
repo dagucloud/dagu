@@ -1,0 +1,9 @@
+working_dir: .
+steps:
+  - name: write
+    action: file.write
+    with:
+      path: action-with-env.txt
+      content: |
+        $ACTION_PROCESS_ONLY
+        ${ACTION_PROCESS_ONLY}

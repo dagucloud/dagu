@@ -3,5 +3,10 @@ env:
   - SERVICE=api
 steps:
   - name: write
-    run: |
-      printf '%s\n' '$SERVICE' '${SERVICE}' > single-quoted.txt
+    action: file.write
+    with:
+      path: single-quoted.txt
+      content: |
+        '$SERVICE'
+        '${SERVICE}'
+        '${env.SERVICE}'

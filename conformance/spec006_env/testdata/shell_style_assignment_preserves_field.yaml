@@ -1,0 +1,17 @@
+working_dir: .
+env:
+  - SERVICE=api
+  - EMPTY=
+steps:
+  - name: write
+    action: file.write
+    with:
+      path: shell-style-assignment.txt
+      content: |
+        $SERVICE
+        ${SERVICE}
+        ${env.SERVICE}
+        ${SERVICE:-fallback}
+        ${EMPTY:=fallback}
+        ${EMPTY:-fallback}
+        x${EMPTY}x

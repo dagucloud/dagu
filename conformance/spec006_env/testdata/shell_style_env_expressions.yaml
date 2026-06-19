@@ -1,6 +1,10 @@
 working_dir: .
 env:
   - SERVICE=api
+  - EMPTY=
+  - IMAGE=registry/team/api.tar.gz
+  - PREFIX=registry/team
+  - SUFFIX=.gz
 steps:
   - name: write
     action: file.write
@@ -8,5 +12,22 @@ steps:
       path: shell-style.txt
       content: |
         ${SERVICE:-fallback}
+        ${EMPTY:-fallback}
+        x${EMPTY-fallback}x
+        ${SERVICE:+alternate}
+        x${EMPTY:+alternate}x
+        ${SERVICE:1:2}
+        ${#SERVICE}
+        ${IMAGE#*/}
+        ${IMAGE##*/}
+        ${IMAGE%.*}
+        ${IMAGE%%/*}
+        ${EMPTY:-$SERVICE}
+        ${SERVICE:+$IMAGE}
+        ${IMAGE#$PREFIX/}
+        ${IMAGE%$SUFFIX}
+        ${SERVICE:=fallback}
+        ${SERVICE=other}
         ${MISSING:-default}
         ${MISSING:4:10}
+        ${MISSING:=default}

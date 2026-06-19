@@ -1,0 +1,64 @@
+working_dir: .
+steps:
+  - id: first
+    run: |
+      printf 'first\n'
+    output: VALUE
+  - id: second
+    run: |
+      printf 'second\n'
+    output: VALUE
+  - name: first_then_second
+    depends: [first, second]
+    action: file.write
+    with:
+      path: duplicate-output-first-second.txt
+      content: |
+        ${env.VALUE}
+  - name: second_then_first
+    depends: [second, first]
+    action: file.write
+    with:
+      path: duplicate-output-second-first.txt
+      content: |
+        ${env.VALUE}
+  - id: ancestor
+    run: |
+      printf 'ancestor\n'
+    output: VALUE
+  - id: middle
+    depends: ancestor
+    run: |
+      printf 'middle\n'
+    output: VALUE
+  - id: direct
+    run: |
+      printf 'direct\n'
+    output: VALUE
+  - name: transitive_order
+    depends: [middle, direct]
+    action: file.write
+    with:
+      path: duplicate-output-transitive.txt
+      content: |
+        ${env.VALUE}
+  - id: shared
+    run: |
+      printf 'shared\n'
+    output: VALUE
+  - id: wrapper
+    depends: shared
+    run: |
+      printf 'wrapper\n'
+    output: VALUE
+  - id: later
+    run: |
+      printf 'later\n'
+    output: VALUE
+  - name: duplicate_visit_once
+    depends: [shared, wrapper, later]
+    action: file.write
+    with:
+      path: duplicate-output-visit-once.txt
+      content: |
+        ${env.VALUE}

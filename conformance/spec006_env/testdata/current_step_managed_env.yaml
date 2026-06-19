@@ -1,0 +1,30 @@
+working_dir: .
+steps:
+  - id: managed
+    env:
+      - STEP_NAME_COPY=${env.DAG_RUN_STEP_NAME}
+      - STEP_STDOUT_COPY=${env.DAG_RUN_STEP_STDOUT_FILE}
+      - OUTPUT_FILE_COPY=${env.DAGU_OUTPUT_FILE}
+      - DAG_RUN_STEP_NAME=authored-step-name
+      - DAG_RUN_STEP_STDOUT_FILE=authored-stdout-file
+      - DAGU_OUTPUT_FILE=authored-output-file
+    run: |
+      case "$DAG_RUN_STEP_STDOUT_FILE" in
+        ""|authored-stdout-file) stdout_status=bad-stdout-file ;;
+        *) stdout_status=managed-stdout-file ;;
+      esac
+      case "$DAGU_OUTPUT_FILE" in
+        ""|authored-output-file) output_status=bad-output-file ;;
+        *) output_status=managed-output-file ;;
+      esac
+      printf 'STEP_NAME_COPY=%s\nSTEP_NAME_PROCESS=%s\nSTEP_STDOUT_COPY=%s\nOUTPUT_FILE_COPY=%s\n%s\n%s\n' "$STEP_NAME_COPY" "$DAG_RUN_STEP_NAME" "$STEP_STDOUT_COPY" "$OUTPUT_FILE_COPY" "$stdout_status" "$output_status" > current-step-managed-env.txt
+      printf 'DECLARED=published\n' >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: DECLARED
+  - name: consume
+    depends: managed
+    action: file.write
+    with:
+      path: current-step-managed-output.txt
+      content: |
+        ${steps.managed.outputs.DECLARED}

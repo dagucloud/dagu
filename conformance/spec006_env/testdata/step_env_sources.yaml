@@ -9,10 +9,9 @@ env:
 steps:
   - id: produce
     run: |
-      printf 'step-value\n'
-    output:
-      VALUE:
-        value: step-value
+      printf 'VALUE=step-value\n' >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: VALUE
   - name: consume
     depends: produce
     env:
