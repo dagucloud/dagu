@@ -1,0 +1,6 @@
+working_dir: .
+steps:
+  - id: write
+    run: |
+      #!/bin/sh
+      printf 'shebang-won\n' > runtime-default-bypass.txt

@@ -24,7 +24,7 @@ It must not be treated as product behavior until implementation catches up.
 | [012: Step Outputs](012-step-outputs.md) | Implemented |
 | [013: Step Run](013-step-run.md) | Partially implemented |
 | [014: Step Run Command](014-step-run-command.md) | Partially implemented |
-| [015: Step Run Script](015-step-run-script.md) | Partially implemented |
+| [015: Step Run Script](015-step-run-script.md) | Implemented |
 
 **Writing guidelines:**
 

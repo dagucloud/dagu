@@ -553,7 +553,7 @@ steps:
 		require.Len(t, th.Steps, 1)
 		step := th.Steps[0]
 		assert.Equal(t, "script", step.Name)
-		assert.Equal(t, "echo hello\necho world", step.Script)
+		assert.Equal(t, "echo hello\necho world\n", step.Script)
 		assert.Empty(t, step.Command)
 		assert.Empty(t, step.CmdWithArgs)
 		assert.Empty(t, step.CmdArgsSys)
@@ -1766,7 +1766,7 @@ steps:
 
 		require.Len(t, th.Steps, 6)
 		assert.Equal(t, "cmd_1", th.Steps[0].Name)
-		assert.Equal(t, "cmd_2", th.Steps[1].Name)
+		assert.Equal(t, "script_2", th.Steps[1].Name)
 		assert.Equal(t, "http_3", th.Steps[2].Name)
 		assert.Equal(t, "dag_4", th.Steps[3].Name)
 		assert.Equal(t, "docker_5", th.Steps[4].Name)

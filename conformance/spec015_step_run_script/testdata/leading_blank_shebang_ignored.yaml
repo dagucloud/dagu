@@ -1,0 +1,6 @@
+working_dir: .
+steps:
+  - id: write
+    run: |2
+       #!/bin/false
+       printf 'not-a-shebang\n' > leading-blank-shebang.txt

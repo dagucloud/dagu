@@ -1,0 +1,12 @@
+working_dir: .
+steps:
+  - id: build
+    run: |
+      printf 'undeclared_value=from-script\n' >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: declared_value
+
+  - id: consume
+    depends: build
+    run: |
+      printf 'should not run\n' > invalid-output-downstream.txt

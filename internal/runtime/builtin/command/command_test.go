@@ -551,40 +551,6 @@ func TestCommandExecutor_ExitCode(t *testing.T) {
 	}
 }
 
-func TestReadFirstLine(t *testing.T) {
-	tests := []struct {
-		name     string
-		content  string
-		expected string
-	}{
-		{"ShebangLine", "#!/bin/bash\necho hello", "#!/bin/bash"},
-		{"SingleLine", "single line", "single line"},
-		{"EmptyFile", "", ""},
-		{"MultipleLines", "first\nsecond\nthird", "first"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tmpFile, err := os.CreateTemp("", "test-*.sh")
-			require.NoError(t, err)
-			defer func() { _ = os.Remove(tmpFile.Name()) }()
-
-			_, err = tmpFile.WriteString(tt.content)
-			require.NoError(t, err)
-			_ = tmpFile.Close()
-
-			result, err := readFirstLine(tmpFile.Name())
-			require.NoError(t, err)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-
-	t.Run("NonExistentFile", func(t *testing.T) {
-		_, err := readFirstLine("/non/existent/file")
-		assert.Error(t, err)
-	})
-}
-
 // setupTestContext creates a test context with DAG and execution environment
 func setupTestContext(t *testing.T, dag *core.DAG, step core.Step) context.Context {
 	t.Helper()
@@ -1032,14 +998,12 @@ func TestCommandExecutor_ScriptErrorAnnotation(t *testing.T) {
 	assert.NotContains(t, errMsg, "--- script content ---")
 	assert.NotContains(t, errMsg, "dagu_script-")
 
-	// Full script with error marker should appear in stderr log output
+	// Dagu-generated diagnostics must not dump the full resolved script.
 	stderrOutput := stderr.String()
-	assert.Contains(t, stderrOutput, "--- script content ---")
 	assert.Contains(t, stderrOutput, "nonexistent_command_xyz_12345")
-	assert.Contains(t, stderrOutput, "echo line1")
-	assert.Contains(t, stderrOutput, "echo line4")
-	// Failing line should be marked with >>
-	assert.Contains(t, stderrOutput, " >>    3: nonexistent_command_xyz_12345")
+	assert.NotContains(t, stderrOutput, "--- script content ---")
+	assert.NotContains(t, stderrOutput, "echo line1")
+	assert.NotContains(t, stderrOutput, "echo line4")
 
 	ce := exec.(*commandExecutor)
 	assert.NotEmpty(t, ce.scriptFile)
@@ -1454,20 +1418,12 @@ func TestDetectShebang(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create temp script file
-			tmpFile, err := os.CreateTemp("", "test-*.sh")
-			require.NoError(t, err)
-			defer func() { _ = os.Remove(tmpFile.Name()) }()
-
-			_, err = tmpFile.WriteString(tt.scriptContent)
-			require.NoError(t, err)
-			_ = tmpFile.Close()
-
 			cfg := &commandConfig{
 				UserSpecifiedShell: tt.userSpecifiedShell,
+				Script:             tt.scriptContent,
 			}
 
-			shebang, _, err := cfg.detectShebang(tmpFile.Name())
+			shebang, _, err := cfg.detectShebang()
 			require.NoError(t, err)
 
 			if tt.expectedShebangEmpty {
@@ -1688,6 +1644,7 @@ func TestCommandConfig_NewCmd_AllBranches(t *testing.T) {
 			config: commandConfig{
 				Ctx:                ctx,
 				Shell:              []string{"/bin/sh"},
+				Script:             "#!/bin/bash\necho shebang",
 				UserSpecifiedShell: false,
 			},
 			scriptFile: shebangScript,
@@ -1914,13 +1871,15 @@ func TestCreateDirectCommand(t *testing.T) {
 	}
 }
 
-// TestSetupScript_Errors tests error paths in setupScript
-func TestSetupScript_Errors(t *testing.T) {
-	t.Run("invalid directory", func(t *testing.T) {
-		_, err := setupScript("/nonexistent/dir/that/does/not/exist", "echo hello", "", []string{"/bin/sh"})
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to create script file")
-	})
+func TestSetupScriptDoesNotRequireWorkDir(t *testing.T) {
+	blockingFile := filepath.Join(t.TempDir(), "not-a-directory")
+	require.NoError(t, os.WriteFile(blockingFile, []byte("x"), 0o600))
+
+	scriptFile, err := setupScript(filepath.Join(blockingFile, "child"), "echo hello", "", []string{"/bin/sh"})
+	require.NoError(t, err)
+	defer func() { _ = os.Remove(scriptFile) }()
+
+	assert.NotContains(t, scriptFile, blockingFile)
 }
 
 // TestShellCommandBuilder_Build_Errors tests error paths in Build
@@ -2080,13 +2039,13 @@ func TestCommandConfig_NewCmd_Errors(t *testing.T) {
 	})
 
 	t.Run("DetectShebangError", func(t *testing.T) {
-		// Create a config that will trigger detectShebang with non-existent file
 		config := commandConfig{
 			Ctx:                ctx,
 			Shell:              []string{"/bin/sh"},
+			Script:             "#!/bin/sh 'unterminated\n",
 			UserSpecifiedShell: false,
 		}
-		_, err := config.newCmd(ctx, "/nonexistent/script.sh")
+		_, err := config.newCmd(ctx, scriptFile)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to detect shebang")
 	})
@@ -2115,14 +2074,17 @@ func TestCommandExecutor_Run_SetupScriptError(t *testing.T) {
 	cfg, err := NewCommandConfig(ctx, step)
 	require.NoError(t, err)
 
-	// Set invalid directory to cause setupScript to fail
-	cfg.Dir = "/nonexistent/directory/that/does/not/exist"
+	blockingFile := filepath.Join(t.TempDir(), "not-a-directory")
+	require.NoError(t, os.WriteFile(blockingFile, []byte("x"), 0o600))
+	// Set invalid directory to cause working-directory creation to fail after
+	// script preparation succeeds outside the workflow directory.
+	cfg.Dir = filepath.Join(blockingFile, "child")
 
 	executor := &commandExecutor{config: cfg}
 
 	err = executor.Run(ctx)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to setup script")
+	assert.Contains(t, err.Error(), "failed to create working directory")
 }
 
 // TestCommandExecutor_Run_NewCmdError tests Run when newCmd fails
@@ -2205,29 +2167,6 @@ func TestCommandExecutor_Run_StartErrorWithStderr(t *testing.T) {
 
 	err := executor.Run(ctx)
 	assert.Error(t, err)
-}
-
-// TestDetectShebang_ReadError tests detectShebang when readFirstLine fails
-func TestDetectShebang_ReadError(t *testing.T) {
-	cfg := &commandConfig{
-		UserSpecifiedShell: false,
-	}
-
-	_, _, err := cfg.detectShebang("/nonexistent/file.sh")
-	assert.Error(t, err)
-}
-
-// TestReadFirstLine_ScannerError tests readFirstLine with a problematic file
-func TestReadFirstLine_ScannerError(t *testing.T) {
-	// Test with an empty file (should return empty string, no error)
-	tmpFile, err := os.CreateTemp("", "test-empty-*.sh")
-	require.NoError(t, err)
-	defer func() { _ = os.Remove(tmpFile.Name()) }()
-	_ = tmpFile.Close()
-
-	result, err := readFirstLine(tmpFile.Name())
-	require.NoError(t, err)
-	assert.Equal(t, "", result)
 }
 
 // TestExitCodeFromError_WithExitError tests exitCodeFromError with actual ExitError
@@ -2471,26 +2410,6 @@ func TestCommandConfig_NewCmd_ShellScriptNoShebang(t *testing.T) {
 	assert.NotNil(t, cmd)
 	// Should use /bin/sh to run the script
 	assert.Contains(t, cmd.Path, "sh")
-}
-
-// TestReadFirstLine_LongLine tests readFirstLine with extremely long content
-// This tests the scanner error path (line 219-221)
-func TestReadFirstLine_LongLine(t *testing.T) {
-	// Create a file with a very long first line (longer than 4KB buffer)
-	tmpFile, err := os.CreateTemp("", "test-long-*.sh")
-	require.NoError(t, err)
-	defer func() { _ = os.Remove(tmpFile.Name()) }()
-
-	// Write a line longer than the buffer limit (4KB) without newline
-	longLine := strings.Repeat("a", 5000)
-	_, err = tmpFile.WriteString(longLine)
-	require.NoError(t, err)
-	_ = tmpFile.Close()
-
-	// This should return an error because the line is too long for the buffer
-	_, err = readFirstLine(tmpFile.Name())
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to read file")
 }
 
 func TestMultiCommandExecutor(t *testing.T) {

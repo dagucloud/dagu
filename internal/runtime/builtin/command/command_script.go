@@ -15,24 +15,25 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 )
 
-// setupScript creates a temporary executable script file containing the provided
-// script after applying shell-specific preprocessing (e.g., PowerShell error-handling
-// directives). If workDir is non-empty, the file is created there; otherwise it falls
-// back to the system temp directory. The file extension is chosen based on the shell.
-// Returns the created file path or an error if file creation, writing, syncing, or
-// permission setting fails.
+// setupScript creates a temporary executable script file containing the provided script.
 func setupScript(workDir, script, command string, shell []string) (string, error) {
+	return setupScriptForExecution(workDir, script, command, shell, false)
+}
+
+func setupScriptForExecution(workDir, script, command string, shell []string, userSpecifiedShell bool) (string, error) {
+	_ = workDir
+
 	// Determine file extension based on the actual execution path. Scripts that
-	// are passed to an explicit command or start with a shebang should preserve
-	// their original first line so the intended interpreter can handle them.
+	// are passed to an explicit command or directly to a shebang interpreter should
+	// preserve their original first line so the intended interpreter can handle them.
 	shellCmd := ""
-	if command == "" && !hasShebang(script) && len(shell) > 0 {
+	if command == "" && len(shell) > 0 && (userSpecifiedShell || !hasShebang(script)) {
 		shellCmd = shell[0]
 	}
 	ext := cmdutil.GetScriptExtension(shellCmd)
 	pattern := "dagu_script-*" + ext
 
-	file, err := os.CreateTemp(workDir, pattern)
+	file, err := os.CreateTemp("", pattern)
 	if err != nil {
 		return "", fmt.Errorf("failed to create script file: %w", err)
 	}

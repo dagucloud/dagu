@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - id: fail
+    run: |
+      printf 'visible-before\n' >&2
+      nonexistent_command_015
+      printf 'SPEC015_SCRIPT_DUMP_SENTINEL\n' > should-not-run.txt

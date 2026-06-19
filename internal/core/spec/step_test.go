@@ -233,7 +233,7 @@ func TestBuildStepScript(t *testing.T) {
 	}{
 		{name: "SimpleScript", input: "echo hello", expected: "echo hello"},
 		{name: "MultilineScript", input: "echo hello\necho world", expected: "echo hello\necho world"},
-		{name: "Trimmed", input: "  script  ", expected: "script"},
+		{name: "PreservesWhitespace", input: "  script  \n", expected: "  script  \n"},
 		{name: "Empty", input: "", expected: ""},
 	}
 
@@ -1013,6 +1013,11 @@ func TestBuildStepCommand(t *testing.T) {
 			expectedScript: "echo hello\necho world",
 		},
 		{
+			name:           "MultilineCommandPreservesBoundaryWhitespace",
+			command:        "\n  echo hello  \n",
+			expectedScript: "\n  echo hello  \n",
+		},
+		{
 			name:    "EmptyStringCommand",
 			command: "   ",
 			wantErr: true,
@@ -1213,6 +1218,11 @@ func TestBuildSingleCommand(t *testing.T) {
 			name:           "MultilineBecomesScript",
 			command:        "echo line1\necho line2",
 			expectedScript: "echo line1\necho line2",
+		},
+		{
+			name:           "MultilinePreservesBoundaryWhitespace",
+			command:        "  echo line1\n echo line2\n",
+			expectedScript: "  echo line1\n echo line2\n",
 		},
 		{
 			name:            "CommandOnly",

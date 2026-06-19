@@ -1,0 +1,8 @@
+working_dir: .
+shell:
+  - sh
+  - -c
+steps:
+  - id: write
+    run: |
+      printf 'ran\n' > carrier-ran.txt

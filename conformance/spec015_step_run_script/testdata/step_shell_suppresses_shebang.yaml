@@ -1,0 +1,8 @@
+working_dir: .
+steps:
+  - id: write
+    run: |
+      #!/bin/false
+      printf 'step-shell-won\n' > step-shell-suppresses-shebang.txt
+    with:
+      shell: sh

@@ -482,7 +482,7 @@ steps:
 		step := dag.Steps[0]
 		assert.Equal(t, "harness", step.ExecutorConfig.Type)
 		assert.Equal(t, "passthrough", step.ExecutorConfig.Config["provider"])
-		assert.Equal(t, "summarize the current branch", step.Script)
+		assert.Equal(t, "summarize the current branch\n", step.Script)
 	})
 
 	t.Run("ChildStepCanReferenceBaseHarnessDefinition", func(t *testing.T) {
