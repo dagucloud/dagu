@@ -154,19 +154,19 @@ steps:
 
 func TestLocalRunRepairsStaleChildBeforeRetry(t *testing.T) {
 	th := test.Setup(t)
-	rootDAG := th.DAG(t, `name: local-stale-parent
+	rootDAG := th.DAG(t, `name: stale-parent
 steps:
   - name: child
     run: echo child
 `)
-	childDAG := th.DAG(t, `name: local-stale-child
+	childDAG := th.DAG(t, `name: stale-child
 steps:
   - name: work
     run: echo ok
 `)
 
-	rootRunID := uuid.Must(uuid.NewV7()).String()
-	childRunID := uuid.Must(uuid.NewV7()).String()
+	rootRunID := "root-run"
+	childRunID := "child-run"
 	staleAt := time.Now().Add(-3 * time.Second)
 	childStatus := localRunStatus(childDAG.DAG, childRunID, core.Running, core.NodeRunning)
 	childStatus.WorkerID = "local"
