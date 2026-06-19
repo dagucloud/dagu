@@ -132,7 +132,7 @@ func TestSpec015BareShebangInterpreterResolvesFromStepPATH(t *testing.T) {
 
 	got, err := command.ResolveShebangExecutableForTest(ctx, commandName)
 	require.NoError(t, err)
-	require.Equal(t, interpreter, got)
+	requirePathEqual(t, interpreter, got)
 }
 
 func TestSpec015BareShebangInterpreterUsesStepPATHEXT(t *testing.T) {
@@ -159,7 +159,7 @@ func TestSpec015BareShebangInterpreterUsesStepPATHEXT(t *testing.T) {
 
 	got, err := command.ResolveShebangExecutableForTest(ctx, commandName)
 	require.NoError(t, err)
-	require.Equal(t, interpreter, got)
+	requirePathEqual(t, interpreter, got)
 }
 
 func TestSpec015ShellBuilderScriptCarrierValidation(t *testing.T) {
@@ -337,6 +337,18 @@ func shellCommandName(command string) string {
 	name := filepath.Base(strings.ReplaceAll(command, "\\", "/"))
 	name = strings.ToLower(name)
 	return strings.TrimSuffix(name, ".exe")
+}
+
+func requirePathEqual(t *testing.T, want, got string) {
+	t.Helper()
+
+	want = filepath.Clean(want)
+	got = filepath.Clean(got)
+	if goruntime.GOOS == "windows" {
+		require.Truef(t, strings.EqualFold(want, got), "expected path %q, got %q", want, got)
+		return
+	}
+	require.Equal(t, want, got)
 }
 
 func TestSpec015ScriptPreparationUsesSystemTempAndExplicitShellExtension(t *testing.T) {
