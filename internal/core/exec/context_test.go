@@ -347,6 +347,7 @@ func TestNewContext_DAGEnvCanReferenceBuiltInRunContext(t *testing.T) {
 			"RUN_REF=${run.id}",
 			"ATTEMPT_REF=${attempt.id}",
 			"TRIGGER_REF=${trigger.type}",
+			"TRIGGER_ACTOR_REF=${trigger.actor}",
 			"STARTED_REF=${run.started_at}",
 			"SCHEDULED_REF=${run.scheduled_at}",
 			"ROOT_NAME_REF=${run.root_name}",
@@ -363,6 +364,7 @@ func TestNewContext_DAGEnvCanReferenceBuiltInRunContext(t *testing.T) {
 		exec.WithAttemptID("attempt-1"),
 		exec.WithRootDAGRun(exec.NewDAGRunRef("root", "root-run-1")),
 		exec.WithTriggerType(core.TriggerTypeScheduler),
+		exec.WithTriggerActor("alice"),
 		exec.WithRunStartedAt(startedAt),
 		exec.WithScheduleTime(scheduledAt),
 		exec.WithWorkDir(workDir),
@@ -375,6 +377,7 @@ func TestNewContext_DAGEnvCanReferenceBuiltInRunContext(t *testing.T) {
 	assert.Equal(t, "run-1", envs["RUN_REF"])
 	assert.Equal(t, "attempt-1", envs["ATTEMPT_REF"])
 	assert.Equal(t, "scheduler", envs["TRIGGER_REF"])
+	assert.Equal(t, "alice", envs["TRIGGER_ACTOR_REF"])
 	assert.Equal(t, startedAt, envs["STARTED_REF"])
 	assert.Equal(t, scheduledAt, envs["SCHEDULED_REF"])
 	assert.Equal(t, "root", envs["ROOT_NAME_REF"])

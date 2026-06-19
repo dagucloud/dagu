@@ -119,7 +119,7 @@ func resolveWorkingDir(ctx context.Context, step core.Step, rCtx Context) string
 	dag := rCtx.DAG
 
 	if step.Dir != "" {
-		expandedDir := expandStepDir(ctx, step.Dir, dag, rCtx.EnvScope, step)
+		expandedDir := expandStepDir(ctx, step.Dir, rCtx, step)
 		return resolveExpandedDir(ctx, expandedDir, step.Name, dag, rCtx)
 	}
 
@@ -134,7 +134,7 @@ func resolveWorkingDirStrict(ctx context.Context, step core.Step, rCtx Context) 
 	dag := rCtx.DAG
 
 	if step.Dir != "" {
-		expandedDir, err := expandStepDirStrict(ctx, step.Dir, dag, rCtx.EnvScope, step)
+		expandedDir, err := expandStepDirStrict(ctx, step.Dir, rCtx, step)
 		if err != nil {
 			return "", err
 		}
@@ -152,7 +152,7 @@ func resolveWorkingDirStrict(ctx context.Context, step core.Step, rCtx Context) 
 	return fallbackWorkingDir(ctx, step.Name), nil
 }
 
-func expandRuntimeValue(ctx context.Context, raw string, dag *core.DAG, scope *cmnvalue.EnvScope, step core.Step, field cmnvalue.Field) (string, error) {
+func expandRuntimeValue(ctx context.Context, raw string, rCtx Context, dag *core.DAG, scope *cmnvalue.EnvScope, step core.Step, field cmnvalue.Field) (string, error) {
 	var consts cmnvalue.Values
 	var params cmnvalue.Values
 	var paramDeclarations cmnvalue.Values
@@ -161,32 +161,25 @@ func expandRuntimeValue(ctx context.Context, raw string, dag *core.DAG, scope *c
 		params = dag.ParamValues()
 		paramDeclarations = dag.ParamDeclarations()
 	}
+	if rCtx.DAG == nil {
+		rCtx.DAG = dag
+	}
 	resolver := cmnvalue.NewResolver(
 		cmnvalue.StaticScope{Consts: consts, Params: paramDeclarations},
 		cmnvalue.RuntimeScope{
 			Consts:         consts,
 			Params:         params,
 			Env:            scope,
-			BuiltinContext: builtinContextFromDAGContext(rCtxForBuiltinContext(ctx, dag), scope, step),
+			BuiltinContext: builtinContextFromDAGContext(rCtx, scope, step),
 		},
 	)
 	return resolver.String(ctx, raw, field)
 }
 
-func rCtxForBuiltinContext(ctx context.Context, dag *core.DAG) Context {
-	rCtx, ok := LookupDAGContext(ctx)
-	if !ok {
-		return Context{DAG: dag}
-	}
-	if rCtx.DAG == nil {
-		rCtx.DAG = dag
-	}
-	return rCtx
-}
-
 // expandStepDir expands value references and environment variables in step.Dir.
-func expandStepDir(ctx context.Context, dir string, dag *core.DAG, scope *cmnvalue.EnvScope, step core.Step) string {
-	expanded, err := expandRuntimeValue(ctx, dir, dag, scope, step, cmnvalue.StepDirField("working_dir"))
+func expandStepDir(ctx context.Context, dir string, rCtx Context, step core.Step) string {
+	dag := rCtx.DAG
+	expanded, err := expandRuntimeValue(ctx, dir, rCtx, dag, rCtx.EnvScope, step, cmnvalue.StepDirField("working_dir"))
 	if err != nil {
 		logger.Warn(ctx, "Failed to evaluate step working directory",
 			tag.Dir(dir),
@@ -197,8 +190,9 @@ func expandStepDir(ctx context.Context, dir string, dag *core.DAG, scope *cmnval
 	return expandStepDirEnvOnly(expanded, dag)
 }
 
-func expandStepDirStrict(ctx context.Context, dir string, dag *core.DAG, scope *cmnvalue.EnvScope, step core.Step) (string, error) {
-	expanded, err := expandRuntimeValue(ctx, dir, dag, scope, step, cmnvalue.StepDirField("working_dir"))
+func expandStepDirStrict(ctx context.Context, dir string, rCtx Context, step core.Step) (string, error) {
+	dag := rCtx.DAG
+	expanded, err := expandRuntimeValue(ctx, dir, rCtx, dag, rCtx.EnvScope, step, cmnvalue.StepDirField("working_dir"))
 	if err != nil {
 		return "", fmt.Errorf("failed to evaluate step working directory %q: %w", dir, err)
 	}
@@ -301,7 +295,7 @@ func dagRunWorkDir(rCtx Context) string {
 }
 
 func expandDAGWorkingDir(ctx context.Context, workingDir string, rCtx Context) string {
-	wd, err := expandRuntimeValue(ctx, workingDir, rCtx.DAG, rCtx.EnvScope, core.Step{}, cmnvalue.DAGWorkingDirField("working_dir"))
+	wd, err := expandRuntimeValue(ctx, workingDir, rCtx, rCtx.DAG, rCtx.EnvScope, core.Step{}, cmnvalue.DAGWorkingDirField("working_dir"))
 	if err != nil {
 		logger.Warn(ctx, "Failed to evaluate working directory",
 			tag.Dir(workingDir),
@@ -325,7 +319,7 @@ func expandDAGWorkingDir(ctx context.Context, workingDir string, rCtx Context) s
 }
 
 func expandDAGWorkingDirStrict(ctx context.Context, workingDir string, rCtx Context) (string, error) {
-	wd, err := expandRuntimeValue(ctx, workingDir, rCtx.DAG, rCtx.EnvScope, core.Step{}, cmnvalue.DAGWorkingDirField("working_dir"))
+	wd, err := expandRuntimeValue(ctx, workingDir, rCtx, rCtx.DAG, rCtx.EnvScope, core.Step{}, cmnvalue.DAGWorkingDirField("working_dir"))
 	if err != nil {
 		return "", fmt.Errorf("failed to evaluate working directory %q: %w", workingDir, err)
 	}

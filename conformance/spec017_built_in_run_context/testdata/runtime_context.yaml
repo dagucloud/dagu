@@ -9,6 +9,10 @@ steps:
         ????-??-??T??:??:??Z) ;;
         *) printf 'bad started_at=%s\n' '${run.started_at}' >&2; exit 1 ;;
       esac
+      if [ -z '${attempt.id}' ]; then
+        printf 'attempt id missing\n' >&2
+        exit 1
+      fi
       if [ '${attempt.id}' = '${run.id}' ]; then
         printf 'attempt matched run id\n' >&2
         exit 1
