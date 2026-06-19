@@ -318,7 +318,10 @@ func (m *Manager) FindSubDAGRunStatus(ctx context.Context, rootDAGRun exec.DAGRu
 	if err != nil {
 		return nil, fmt.Errorf("failed to read status: %w", err)
 	}
-	if status == nil || status.Status != core.Running || !isLocalWorkerID(status.WorkerID) {
+	if status == nil {
+		return nil, exec.ErrNoStatusData
+	}
+	if status.Status != core.Running || !isLocalWorkerID(status.WorkerID) {
 		return status, nil
 	}
 

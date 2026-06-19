@@ -271,6 +271,19 @@ steps:
 		require.Equal(t, core.Running, persisted.Status)
 		require.Equal(t, core.NodeRunning, persisted.Nodes[0].Status)
 	})
+	t.Run("FindSubDAGRunStatusReturnsNoStatusDataForNilChildStatus", func(t *testing.T) {
+		ctx := th.Context
+		attempt := new(exec.MockDAGRunAttempt)
+		attempt.On("ReadStatus", ctx).Return(nil, nil).Once()
+		store := &managerDAGRunStore{subAttempt: attempt}
+		mgr := runtime.NewManager(store, th.ProcStore, th.Config)
+
+		status, err := mgr.FindSubDAGRunStatus(ctx, exec.NewDAGRunRef("root", "root-run"), "child-run")
+
+		require.Nil(t, status)
+		require.ErrorIs(t, err, exec.ErrNoStatusData)
+		attempt.AssertExpectations(t)
+	})
 	t.Run("InvalidUpdateStatusWithInvalidDAGRunID", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
@@ -798,6 +811,68 @@ func createRunningSubAttempt(
 	require.NoError(t, childAttempt.Write(ctx, status))
 	require.NoError(t, childAttempt.Close(ctx))
 	return childAttempt
+}
+
+type managerDAGRunStore struct {
+	subAttempt exec.DAGRunAttempt
+}
+
+func (s *managerDAGRunStore) CreateAttempt(context.Context, *core.DAG, time.Time, string, exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
+	return nil, nil
+}
+
+func (s *managerDAGRunStore) RecentAttempts(context.Context, string, int) []exec.DAGRunAttempt {
+	return nil
+}
+
+func (s *managerDAGRunStore) LatestAttempt(context.Context, string) (exec.DAGRunAttempt, error) {
+	return nil, exec.ErrDAGRunIDNotFound
+}
+
+func (s *managerDAGRunStore) ListStatuses(context.Context, ...exec.ListDAGRunStatusesOption) ([]*exec.DAGRunStatus, error) {
+	return nil, nil
+}
+
+func (s *managerDAGRunStore) ListStatusesPage(context.Context, ...exec.ListDAGRunStatusesOption) (exec.DAGRunStatusPage, error) {
+	return exec.DAGRunStatusPage{}, nil
+}
+
+func (s *managerDAGRunStore) CompareAndSwapLatestAttemptStatus(
+	context.Context,
+	exec.DAGRunRef,
+	string,
+	core.Status,
+	func(*exec.DAGRunStatus) error,
+	...exec.CompareAndSwapStatusOption,
+) (*exec.DAGRunStatus, bool, error) {
+	return nil, false, nil
+}
+
+func (s *managerDAGRunStore) FindAttempt(context.Context, exec.DAGRunRef) (exec.DAGRunAttempt, error) {
+	return nil, exec.ErrDAGRunIDNotFound
+}
+
+func (s *managerDAGRunStore) FindSubAttempt(context.Context, exec.DAGRunRef, string) (exec.DAGRunAttempt, error) {
+	if s.subAttempt == nil {
+		return nil, exec.ErrDAGRunIDNotFound
+	}
+	return s.subAttempt, nil
+}
+
+func (s *managerDAGRunStore) CreateSubAttempt(context.Context, exec.DAGRunRef, string) (exec.DAGRunAttempt, error) {
+	return nil, nil
+}
+
+func (s *managerDAGRunStore) RemoveOldDAGRuns(context.Context, string, int, ...exec.RemoveOldDAGRunsOption) ([]string, error) {
+	return nil, nil
+}
+
+func (s *managerDAGRunStore) RenameDAGRuns(context.Context, string, string) error {
+	return nil
+}
+
+func (s *managerDAGRunStore) RemoveDAGRun(context.Context, exec.DAGRunRef, ...exec.RemoveDAGRunOption) error {
+	return nil
 }
 
 // startStatusSocketServer serves a fixed status over the DAG run socket.
