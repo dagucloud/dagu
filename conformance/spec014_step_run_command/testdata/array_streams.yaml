@@ -1,0 +1,8 @@
+working_dir: .
+steps:
+  - id: streams
+    run:
+      - printf 'out1\n'; printf 'err1\n' >&2
+      - printf 'out2\n'; printf 'err2\n' >&2
+    stdout: array-stdout.txt
+    stderr: array-stderr.txt

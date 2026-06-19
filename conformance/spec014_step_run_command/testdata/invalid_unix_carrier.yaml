@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - id: invalid_carrier
+    run: printf 'unexpected\n' > invalid-carrier.txt
+    with:
+      shell: sh
+      shell_args: [-cecho]

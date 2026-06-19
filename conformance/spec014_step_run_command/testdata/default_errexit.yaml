@@ -1,0 +1,4 @@
+working_dir: .
+steps:
+  - id: fail_fast
+    run: printf 'before\n' > default-errexit.txt; false; printf 'after\n' >> default-errexit.txt

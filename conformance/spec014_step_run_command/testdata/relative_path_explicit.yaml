@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - id: setup
+    run: mkdir -p tools && printf '%s\n' '#!/bin/sh' "printf 'relative-ok\n' > relative-path.txt" > tools/relative.sh && chmod +x tools/relative.sh
+  - id: relative
+    depends: [setup]
+    run: ./tools/relative.sh

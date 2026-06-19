@@ -1,0 +1,9 @@
+working_dir: .
+steps:
+  - id: setup
+    working_dir: lookup
+    run: printf '%s\n' '#!/bin/sh' "printf 'bare-ran\n' > ../bare-lookup-ran.txt" > local-tool && chmod +x local-tool
+  - id: bare
+    working_dir: lookup
+    depends: [setup]
+    run: local-tool

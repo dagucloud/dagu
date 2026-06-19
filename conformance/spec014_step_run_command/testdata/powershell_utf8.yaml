@@ -1,0 +1,6 @@
+working_dir: .
+steps:
+  - id: pwsh_utf8
+    run: "'東京' | Set-Content -NoNewline -Path pwsh-utf8.txt"
+    with:
+      shell: pwsh

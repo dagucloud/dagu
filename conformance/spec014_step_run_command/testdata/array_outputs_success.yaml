@@ -1,0 +1,12 @@
+working_dir: .
+steps:
+  - id: produce
+    outputs:
+      - name: first
+      - name: second
+    run:
+      - printf 'first=one\n' >> "$DAGU_OUTPUT_FILE"
+      - printf 'second=two\n' >> "$DAGU_OUTPUT_FILE"
+  - id: consume
+    depends: [produce]
+    run: printf '%s:%s\n' '${steps.produce.outputs.first}' '${steps.produce.outputs.second}' > array-outputs.txt

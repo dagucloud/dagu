@@ -59,17 +59,17 @@ func (s *unixShell) Build(ctx context.Context, b *shellCommandBuilder) (*exec.Cm
 
 	// Running a command string via shell
 	args := cloneArgs(b.Shell[1:])
+	carrierIdx, err := unixCommandCarrierIndex(args, cmdutil.IsUnixLikeShell(cmd))
+	if err != nil {
+		return nil, err
+	}
 
 	// Add errexit flag for Unix-like shells (unless user specified shell)
 	if !b.UserSpecifiedShell && cmdutil.IsUnixLikeShell(cmd) && !slices.Contains(args, "-e") {
-		args = append(args, "-e")
+		args = insertShellArgsBeforeCarrier(args, carrierIdx, "-e")
 	}
 
-	// Add -c flag and the shell command string
-	// Note: We use ShellCommandArgs (the full command string) rather than Args
-	// because shell commands may contain pipes, redirections, etc. that need
-	// to be interpreted by the shell
-	if !slices.Contains(args, "-c") {
+	if carrierIdx < 0 {
 		args = append(args, "-c")
 	}
 	args = append(args, b.ShellCommandArgs)
@@ -90,6 +90,40 @@ func unixScriptCarrierConflict(args []string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func unixCommandCarrierIndex(args []string, unixLike bool) (int, error) {
+	carrierIdx := -1
+	for i, arg := range args {
+		if arg == "-c" {
+			if carrierIdx >= 0 {
+				return -1, fmt.Errorf("command-form run accepts only one -c shell argument")
+			}
+			carrierIdx = i
+			continue
+		}
+		if unixCommandCarrierConflict(arg, unixLike) {
+			return -1, fmt.Errorf("command-form run requires command-string carrier -c as a separate shell argument; got %q", arg)
+		}
+	}
+	if carrierIdx >= 0 && carrierIdx != len(args)-1 {
+		return -1, fmt.Errorf("command-form run requires shell argument -c to be final before the command payload")
+	}
+	return carrierIdx, nil
+}
+
+func unixCommandCarrierConflict(arg string, unixLike bool) bool {
+	if !strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "--") {
+		return false
+	}
+	if arg == "-c" {
+		return false
+	}
+	flags := strings.TrimLeft(arg, "-")
+	if unixLike {
+		return strings.Contains(flags, "c")
+	}
+	return strings.HasPrefix(flags, "c")
 }
 
 // cloneArgs returns a shallow copy of the provided args slice so callers can modify the result without mutating the original.

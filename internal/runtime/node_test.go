@@ -452,7 +452,7 @@ func TestNode(t *testing.T) {
 	t.Run("OutputNewlineCharacter", func(t *testing.T) {
 		t.Parallel()
 
-		node := setupNode(t, withNodeCommand(test.Output("hello\nworld")), withNodeOutput("OUTPUT"))
+		node := setupNode(t, withNodeCommand(test.OutputEscaped(`hello\nworld\n`)), withNodeOutput("OUTPUT"))
 		node.Execute(t)
 		node.AssertOutput(t, "OUTPUT", "hello\nworld")
 	})

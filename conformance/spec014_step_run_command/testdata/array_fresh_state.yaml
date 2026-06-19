@@ -1,0 +1,6 @@
+working_dir: .
+steps:
+  - id: fresh
+    run:
+      - mkdir -p subdir && cd subdir && touch marker && export SPEC014_LOCAL=changed
+      - test -f subdir/marker && test ! -f marker && test "${SPEC014_LOCAL-unset}" = unset && printf 'fresh\n' > array-fresh.txt

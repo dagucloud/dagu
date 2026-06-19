@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - id: stops
+    run:
+      - printf 'first\n' > array-stop.txt
+      - false
+      - printf 'third\n' > array-third.txt

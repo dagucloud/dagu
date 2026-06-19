@@ -1,0 +1,6 @@
+working_dir: .
+steps:
+  - id: pwsh_error
+    run: "'before' | Set-Content -NoNewline -Path pwsh-error.txt; Write-Error 'stop'; 'after' | Add-Content -Path pwsh-error.txt"
+    with:
+      shell: pwsh

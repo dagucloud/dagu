@@ -192,6 +192,10 @@ type commandConfig struct {
 }
 
 func (cfg *commandConfig) newCmd(ctx context.Context, scriptFile string) (*exec.Cmd, error) {
+	if scriptFile == "" && cfg.ShellCommandArgs != "" && strings.ContainsAny(cfg.ShellCommandArgs, "\r\n") {
+		return nil, fmt.Errorf("resolved command text contains a line break")
+	}
+
 	var cmd *exec.Cmd
 	switch {
 	case cfg.Command != "" && scriptFile != "":

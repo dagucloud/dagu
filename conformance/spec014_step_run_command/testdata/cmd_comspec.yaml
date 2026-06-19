@@ -1,0 +1,6 @@
+working_dir: .
+steps:
+  - id: cmd_comspec
+    run: echo cmd-ok>cmd-comspec.txt
+    with:
+      shell: cmd

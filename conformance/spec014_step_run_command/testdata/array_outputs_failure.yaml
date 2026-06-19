@@ -1,0 +1,12 @@
+working_dir: .
+steps:
+  - id: produce
+    continue_on: failed
+    outputs:
+      - name: leaked
+    run:
+      - printf 'leaked=value\n' >> "$DAGU_OUTPUT_FILE"
+      - false
+  - id: consume
+    depends: [produce]
+    run: printf '%s\n' '${steps.produce.outputs.leaked}' > array-output-failure.txt
