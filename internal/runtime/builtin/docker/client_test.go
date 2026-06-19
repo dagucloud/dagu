@@ -58,6 +58,14 @@ func mustAddr(s string) netip.Addr {
 func TestLoadConfigFromMap(t *testing.T) {
 	hostWorkPath := testAbsoluteVolumePath("/workhost", "C:/workhost")
 	t.Setenv("DAGU_TEST_WORKHOST", hostWorkPath)
+	absVolumeSource := func(path string) string {
+		resolved, err := filepath.Abs(path)
+		require.NoError(t, err)
+		return filepath.Clean(resolved)
+	}
+	hostPath := absVolumeSource("/host/path")
+	dataPath := absVolumeSource("/data")
+	newPath := absVolumeSource("/new")
 
 	tests := []struct {
 		name        string
@@ -658,7 +666,7 @@ func TestLoadConfigFromMap(t *testing.T) {
 				Pull:      core.PullPolicyMissing,
 				Container: &container.Config{},
 				Host: &container.HostConfig{
-					Binds: []string{"/host/path:/container/path:rw", "/data:/data:ro"},
+					Binds: []string{hostPath + ":/container/path:rw", dataPath + ":/data:ro"},
 				},
 				Network:     &network.NetworkingConfig{},
 				ExecOptions: &client.ExecCreateOptions{},
@@ -718,7 +726,7 @@ func TestLoadConfigFromMap(t *testing.T) {
 				Pull:      core.PullPolicyMissing,
 				Container: &container.Config{},
 				Host: &container.HostConfig{
-					Binds: []string{"/existing:/existing", "/new:/new:rw"},
+					Binds: []string{"/existing:/existing", newPath + ":/new:rw"},
 				},
 				Network:     &network.NetworkingConfig{},
 				ExecOptions: &client.ExecCreateOptions{},
