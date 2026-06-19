@@ -47,7 +47,13 @@ shell-specific behavior, and sequential behavior for array-form `run`.
 
 - Shell syntax in the command text is owned by the selected shell.
 
-- Command path lookup is performed by the selected shell or operating system from the step process working directory.
+- Dagu starts the selected shell with the step process working directory.
+
+- Relative paths in command text are interpreted by the selected shell or operating system from that working directory.
+
+- Bare command-name lookup is owned by the selected shell or operating system.
+
+- Dagu must not add the step process working directory to command lookup rules.
 
 ### Shell Operators
 
@@ -85,33 +91,77 @@ shell-specific behavior, and sequential behavior for array-form `run`.
 
 - Dagu constructs the shell command from the selected shell, configured shell arguments, command text, and configured shell packages.
 
+- Dagu supplies exactly one resolved command text value as the command-string operand for the selected shell.
+
+- Configured shell arguments may provide shell options.
+
+- Configured shell arguments must not provide a separate command-string operand.
+
+- If configured shell arguments include the selected shell's command-string flag, that flag must be the final configured shell argument.
+
+- If a configured command-string flag is followed by another configured shell argument, the step fails before the selected shell starts.
+
+- Command-form shell invocation order is:
+
+  1. Selected shell.
+  2. Configured shell arguments before any configured command-string flag.
+  3. Dagu-added shell options and shell package arguments.
+  4. Command-string flag.
+  5. Exactly one resolved command text operand.
+
+- If configured shell arguments include the command-string flag, Dagu must insert Dagu-added shell options and shell package arguments before that configured flag.
+
 - Shell-specific defaults are part of the command-form contract and must be covered by black-box tests before being changed.
+
+- Shell family matching uses the normalized name of the selected shell.
+
+- The normalized shell name is the selected shell executable basename after path components and an optional `.exe` suffix are removed.
+
+- Shell family matching is ASCII case-insensitive.
 
 #### Unix-Like Shells
 
-- Unix-like shell execution includes `-c`; if configured shell arguments already include `-c`, that existing flag is used.
+- For this spec, Unix-like shells have normalized names `sh`, `bash`, `zsh`, `ksh`, `ash`, or `dash`.
+
+- Unix-like shell execution includes `-c`; if configured shell arguments already include `-c`, that existing flag identifies where Dagu supplies the command-string operand.
+
+- A Unix-like configured shell argument that combines `c` with other options, such as `-lc`, is invalid and the step fails before the selected shell starts.
 
 - Unix-like shell execution includes `-e` when the selected shell is Unix-like, no step-level shell is explicitly specified, and configured shell arguments do not already include `-e`.
 
 #### PowerShell
 
+- PowerShell rules apply to normalized shell names `powershell` and `pwsh`.
+
 - PowerShell execution includes `-NoProfile` and `-NonInteractive` unless configured shell arguments already include them.
 
-- PowerShell execution includes `-Command` unless configured shell arguments already include `-Command` or `-C`.
+- PowerShell execution includes `-Command` unless configured shell arguments already include `-Command` or `-C`; an existing command flag identifies where Dagu supplies the command-string operand.
 
 #### Windows cmd
 
-- `cmd` execution includes `/c` unless configured shell arguments already include `/c` or `/C`.
+- Windows `cmd` rules apply to normalized shell name `cmd`.
+
+- `cmd` execution includes `/c` unless configured shell arguments already include `/c` or `/C`; an existing command flag identifies where Dagu supplies the command-string operand.
 
 - `cmd` resolves the configured `COMSPEC` path when the selected shell is `cmd` or `cmd.exe` and `COMSPEC` points to an existing path.
 
 #### Nix Shell
 
+- Nix shell rules apply to normalized shell name `nix-shell`.
+
 - Nix shell execution adds `-p <package>` for each configured shell package.
 
 - Nix shell execution includes `--pure` unless configured shell arguments already include `--pure` or `--impure`.
 
-- Nix shell execution includes `--run` unless configured shell arguments already include it.
+- Nix shell execution includes `--run` unless configured shell arguments already include it; an existing `--run` identifies where Dagu supplies the command-string operand.
+
+#### Other Shells
+
+- Shells not covered by Unix-like, PowerShell, Windows `cmd`, or Nix shell rules use `-c` as the command-string flag.
+
+- Dagu does not add shell-specific default options for other shells.
+
+- If another shell does not support `-c` command-string execution, the step fails according to the normal runtime error rules.
 
 ## Errors
 
