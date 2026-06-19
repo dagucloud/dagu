@@ -6,10 +6,8 @@ package docker
 import (
 	"fmt"
 	"net/netip"
-	"path/filepath"
 	"strings"
 
-	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/api/types/network"
@@ -22,51 +20,34 @@ type volumeSpec struct {
 	Mode   string // "ro", "rw", or empty (defaults to rw)
 }
 
-// parseVolumes parses volume specifications into bind mounts and volume mounts
-func parseVolumes(workDir string, volumes []string) ([]string, []mount.Mount, error) {
+// parseVolumes parses volume specifications into bind mounts and volume mounts.
+func parseVolumes(workDir string, volumes []string, fieldPrefix string) ([]string, []mount.Mount, error) {
 	var binds []string
 	var mounts []mount.Mount
 
-	for _, vol := range volumes {
+	for i, vol := range volumes {
+		fieldPath := fmt.Sprintf("%s[%d]", fieldPrefix, i)
 		spec, err := parseVolumeSpec(vol)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("%s: %w", fieldPath, err)
 		}
 
-		source := spec.Source
 		target := spec.Target
 		readOnly := false
 
 		if spec.Mode == "ro" {
 			readOnly = true
 		} else if spec.Mode != "" && spec.Mode != "rw" {
-			return nil, nil, fmt.Errorf("%w: invalid mode %s in %s", ErrInvalidVolumeFormat, spec.Mode, vol)
+			return nil, nil, fmt.Errorf("%s: %w: invalid mode %s in %s", fieldPath, ErrInvalidVolumeFormat, spec.Mode, vol)
 		}
 
-		// Determine if it's a bind mount or volume
-		if filepath.IsAbs(source) || strings.HasPrefix(source, ".") || strings.HasPrefix(source, "~") {
-			if !filepath.IsAbs(source) {
-				if workDir != "" && strings.HasPrefix(source, ".") {
-					// Handle relative paths starting with "." or "./"
-					if source == "." || source == "./" {
-						source = workDir
-					} else if strings.HasPrefix(source, "./") {
-						source = filepath.Join(workDir, source[2:])
-					} else {
-						source = filepath.Join(workDir, source[1:])
-					}
-					source = filepath.Clean(source)
-				} else {
-					p, err := fileutil.ResolvePath(source)
-					if err != nil {
-						return nil, nil, fmt.Errorf("failed to resolve path %s: %w", source, err)
-					}
-					source = p
-				}
-			}
+		source, err := resolveVolumeSource(workDir, spec.Source, fieldPath)
+		if err != nil {
+			return nil, nil, err
+		}
 
-			// It's a bind mount
-			bindStr := source + ":" + target
+		if source.isBind {
+			bindStr := source.value + ":" + target
 			if readOnly {
 				bindStr += ":ro"
 			} else {
@@ -74,10 +55,9 @@ func parseVolumes(workDir string, volumes []string) ([]string, []mount.Mount, er
 			}
 			binds = append(binds, bindStr)
 		} else {
-			// It's a named volume
 			mnt := mount.Mount{
 				Type:     mount.TypeVolume,
-				Source:   source,
+				Source:   source.value,
 				Target:   target,
 				ReadOnly: readOnly,
 			}

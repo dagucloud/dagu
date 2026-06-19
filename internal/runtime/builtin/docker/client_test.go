@@ -56,6 +56,9 @@ func mustAddr(s string) netip.Addr {
 // which cannot be triggered in practice because we always pass valid struct pointers.
 // These error checks exist as defensive programming for potential future changes.
 func TestLoadConfigFromMap(t *testing.T) {
+	hostWorkPath := testAbsoluteVolumePath("/workhost", "C:/workhost")
+	t.Setenv("DAGU_TEST_WORKHOST", hostWorkPath)
+
 	tests := []struct {
 		name        string
 		input       map[string]any
@@ -655,7 +658,7 @@ func TestLoadConfigFromMap(t *testing.T) {
 				Pull:      core.PullPolicyMissing,
 				Container: &container.Config{},
 				Host: &container.HostConfig{
-					Binds: []string{"/host/path:/container/path", "/data:/data:ro"},
+					Binds: []string{"/host/path:/container/path:rw", "/data:/data:ro"},
 				},
 				Network:     &network.NetworkingConfig{},
 				ExecOptions: &client.ExecCreateOptions{},
@@ -666,7 +669,7 @@ func TestLoadConfigFromMap(t *testing.T) {
 			input: map[string]any{
 				"image":       "golang:1.22",
 				"working_dir": "/work",
-				"volumes":     []string{"$PWD:/work"},
+				"volumes":     []string{"${DAGU_TEST_WORKHOST}:/work"},
 			},
 			expected: &Config{
 				Image: "golang:1.22",
@@ -675,7 +678,7 @@ func TestLoadConfigFromMap(t *testing.T) {
 					WorkingDir: "/work",
 				},
 				Host: &container.HostConfig{
-					Binds: []string{"$PWD:/work"},
+					Binds: []string{hostWorkPath + ":/work:rw"},
 				},
 				Network:     &network.NetworkingConfig{},
 				ExecOptions: &client.ExecCreateOptions{},
@@ -715,7 +718,7 @@ func TestLoadConfigFromMap(t *testing.T) {
 				Pull:      core.PullPolicyMissing,
 				Container: &container.Config{},
 				Host: &container.HostConfig{
-					Binds: []string{"/existing:/existing", "/new:/new"},
+					Binds: []string{"/existing:/existing", "/new:/new:rw"},
 				},
 				Network:     &network.NetworkingConfig{},
 				ExecOptions: &client.ExecCreateOptions{},
