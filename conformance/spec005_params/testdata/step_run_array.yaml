@@ -5,4 +5,4 @@ working_dir: .
 steps:
   - name: write
     run:
-      - "printf '%s\n' '${params.environment}' > step-run-array.txt"
+      - "printf '%s\\n' '${params.environment}' > step-run-array.txt"
