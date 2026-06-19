@@ -371,7 +371,7 @@ func (e Env) ResolveShell(ctx context.Context) ([]string, error) {
 		return shell, nil
 	}
 
-	if len(e.Step.ShellArgs) > 0 {
+	if e.Step.ShellArgs != nil {
 		if e.DAG != nil && e.DAG.Shell != "" {
 			shell, err := evalShellInvocationWithScope(ctx, e.DAG, e.Scope, e.DAG.Shell, e.Step.ShellArgs, cmnvalue.DAGShellField, cmnvalue.StepShellField)
 			if err != nil {

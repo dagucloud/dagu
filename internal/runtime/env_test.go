@@ -14,6 +14,7 @@ import (
 	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -170,6 +171,22 @@ func TestEnvShell(t *testing.T) {
 		assert.Equal(t, []string{"/bin/bash", "-e", "-c"}, result)
 	})
 
+	t.Run("StepShellArgsEmptyClearsInheritedDAGShellArgs", func(t *testing.T) {
+		t.Parallel()
+		dag := &core.DAG{
+			Shell:     "/bin/bash",
+			ShellArgs: []string{"-e", "-c"},
+		}
+		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
+		step := core.Step{
+			Name:      "test-step",
+			ShellArgs: []string{},
+		}
+		env := runtime.NewEnv(ctx, step)
+		result := env.Shell(ctx)
+		assert.Equal(t, []string{"/bin/bash"}, result)
+	})
+
 	t.Run("StepShellArgsExtendDefaultShell", func(t *testing.T) {
 		t.Parallel()
 		ctx := config.WithConfig(context.Background(), &config.Config{
@@ -303,6 +320,31 @@ func TestEnvResolveShellResolvesStepShellArgsWithInheritedDAGShell(t *testing.T)
 	got, err := env.ResolveShell(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/bin/sh", "-ec"}, got)
+}
+
+func TestEnvResolveShellClearsDAGShellArgsFromYAML(t *testing.T) {
+	t.Parallel()
+
+	dag, err := spec.LoadYAML(context.Background(), []byte(`
+shell: /bin/bash
+shell_args:
+  - -e
+  - -c
+steps:
+  - name: test-step
+    run: echo ok
+    with:
+      shell_args: []
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
+	env := runtime.NewEnv(ctx, dag.Steps[0])
+
+	got, err := env.ResolveShell(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/bin/bash"}, got)
 }
 
 func TestEnvResolveShellPreservesMissingParam(t *testing.T) {
