@@ -96,6 +96,7 @@ func IsCmdShell(shell string) bool {
 // IsNixShell reports whether the shell is nix-shell.
 func IsNixShell(shell string) bool {
 	name := shellBaseName(shell)
+	name = strings.TrimSuffix(name, ".exe")
 	return name == "nix-shell"
 }
 

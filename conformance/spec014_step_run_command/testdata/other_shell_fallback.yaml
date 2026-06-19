@@ -1,0 +1,6 @@
+working_dir: .
+steps:
+  - id: other_shell
+    run: printf 'other-ok\n' > other-shell.txt
+    with:
+      shell: ./other-shell-shim

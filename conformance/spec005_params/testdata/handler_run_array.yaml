@@ -5,7 +5,7 @@ working_dir: .
 handler_on:
   success:
     run:
-      - "printf '%s\n' '${params.environment}' > handler-run-array.txt"
+      - "printf '%s\\n' '${params.environment}' > handler-run-array.txt"
 steps:
   - name: ok
     run: "true"

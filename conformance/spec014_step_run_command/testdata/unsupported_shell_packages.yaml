@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - id: unsupported
+    run: printf 'unexpected\n' > unsupported-packages.txt
+    with:
+      shell: sh
+      shell_packages: [bash]

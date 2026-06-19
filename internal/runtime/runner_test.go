@@ -510,7 +510,7 @@ func TestRunner(t *testing.T) {
 	})
 	t.Run("ContinueOnOutputStderr", func(t *testing.T) {
 		r := setupRunner(t)
-		command := test.JoinLines(
+		command := test.JoinShellCommands(
 			test.Stderr("test_output"),
 			test.Output("test_output"),
 			"exit 1",
@@ -1184,9 +1184,9 @@ func TestRunner(t *testing.T) {
 	t.Run("HandlingJSONWithSpecialChars", func(t *testing.T) {
 		r := setupRunner(t)
 
-		jsonData := "{\n\t\"key\": \"value\"\n}"
+		jsonData := `{\n\t"key": "value"\n}\n`
 		plan := r.newPlan(t,
-			newStep("1", withCommand(test.Output(jsonData)), withOutput("OUT")),
+			newStep("1", withCommand(test.OutputEscaped(jsonData)), withOutput("OUT")),
 			newStep("2", withCommand(test.ExpandedOutput("${OUT.key}")), withDepends("1"), withOutput("RESULT")),
 		)
 
@@ -1650,7 +1650,7 @@ func TestRunner_StepLevelTimeout(t *testing.T) {
 		r := setupRunner(t)
 		plan := r.newPlan(t,
 			newStep("retry_timeout",
-				withCommand(test.JoinLines(
+				withCommand(test.JoinShellCommands(
 					test.Sleep(sleepDuration),
 					"exit 1",
 				)),
@@ -2278,7 +2278,7 @@ func TestRunner_TimeoutDuringRetry(t *testing.T) {
 	// Step that will keep retrying until timeout
 	plan := r.newPlan(t,
 		newStep("1",
-			withCommand(test.JoinLines(
+			withCommand(test.JoinShellCommands(
 				test.Sleep(100*time.Millisecond),
 				"exit 1",
 			)),
@@ -3063,7 +3063,7 @@ func TestRunner_EventHandlerStepIDAccess(t *testing.T) {
 			),
 			newStep("worker_step",
 				withID("worker"),
-				withCommand(test.JoinLines(
+				withCommand(test.JoinShellCommands(
 					test.Output("Worker processing done"),
 					"exit 0",
 				)),
@@ -3106,7 +3106,7 @@ func TestRunner_EventHandlerStepIDAccess(t *testing.T) {
 			),
 			newStep("failing_step",
 				withID("failing"),
-				withCommand(test.JoinLines(
+				withCommand(test.JoinShellCommands(
 					test.Stderr("Error occurred"),
 					"exit 1",
 				)),
@@ -3220,7 +3220,7 @@ func TestRunner_EventHandlerStepIDAccess(t *testing.T) {
 		plan := r.newPlan(t,
 			newStep("main",
 				withID("main"),
-				withCommand(test.JoinLines(
+				withCommand(test.JoinShellCommands(
 					test.Output("Processing"),
 					"exit 0",
 				)),

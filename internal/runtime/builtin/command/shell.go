@@ -36,7 +36,7 @@ var shellRegistry = []Shell{
 // It normalizes the executable by taking its base name and converting it to lowercase before matching.
 // If no registered shell matches (should not occur), it falls back to the unixShell implementation.
 func findShell(cmd string) Shell {
-	name := strings.ToLower(filepath.Base(cmd))
+	name := normalizedShellName(cmd)
 	for _, shell := range shellRegistry {
 		if shell.Match(name) {
 			return shell
@@ -44,4 +44,28 @@ func findShell(cmd string) Shell {
 	}
 	// Should never reach here since unixShell matches everything
 	return &unixShell{}
+}
+
+func normalizedShellName(cmd string) string {
+	name := filepath.Base(cmd)
+	if idx := strings.LastIndex(name, "\\"); idx >= 0 {
+		name = name[idx+1:]
+	}
+	name = strings.ToLower(name)
+	return strings.TrimSuffix(name, ".exe")
+}
+
+func insertShellArgsBeforeCarrier(args []string, carrierIdx int, additions ...string) []string {
+	if len(additions) == 0 {
+		return args
+	}
+	insertAt := len(args)
+	if carrierIdx >= 0 {
+		insertAt = carrierIdx
+	}
+	result := make([]string, 0, len(args)+len(additions))
+	result = append(result, args[:insertAt]...)
+	result = append(result, additions...)
+	result = append(result, args[insertAt:]...)
+	return result
 }

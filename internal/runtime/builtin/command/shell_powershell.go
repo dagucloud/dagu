@@ -77,7 +77,7 @@ func powerShellArgHasInlineValue(arg string) bool {
 
 func (s *powerShell) Match(name string) bool {
 	switch name {
-	case "powershell.exe", "powershell", "pwsh.exe", "pwsh":
+	case "powershell", "pwsh":
 		return true
 	default:
 		return false
@@ -108,20 +108,44 @@ func (s *powerShell) Build(ctx context.Context, b *shellCommandBuilder) (*exec.C
 	}
 
 	// Running a command string via PowerShell
-	args := appendPowerShellStartupArgs(cloneArgs(b.Shell[1:]))
+	configured := cloneArgs(b.Shell[1:])
+	if err := validatePowerShellCommandCarrier(configured); err != nil {
+		return nil, err
+	}
+	args := appendPowerShellStartupArgs(configured)
 
 	// PowerShell uses -Command instead of -c
 	if !containsPowerShellArg(args, "-Command") && !containsPowerShellArg(args, "-C") {
 		args = append(args, "-Command")
 	}
 
-	if scriptPath := b.normalizeScriptPath(); scriptPath != "" {
-		args = append(args, powerShellInlineCommand(scriptPath))
-	} else {
-		args = append(args, powerShellInlineCommand(""))
-	}
+	args = append(args, powerShellInlineCommand(b.ShellCommandArgs))
 
 	return exec.CommandContext(ctx, cmd, args...), nil // nolint: gosec
+}
+
+func validatePowerShellCommandCarrier(args []string) error {
+	carrierIdx := -1
+	for i, arg := range args {
+		switch {
+		case containsPowerShellArg([]string{arg}, "-EncodedCommand"):
+			return fmt.Errorf("command-form run cannot use PowerShell command carrier %q", arg)
+		case containsPowerShellArg([]string{arg}, "-File"), containsPowerShellArg([]string{arg}, "-F"):
+			return fmt.Errorf("command-form run cannot use PowerShell file carrier %q", arg)
+		case containsPowerShellArg([]string{arg}, "-Command"), containsPowerShellArg([]string{arg}, "-C"):
+			if powerShellArgHasInlineValue(arg) {
+				return fmt.Errorf("command-form run requires PowerShell command carrier %s as a separate shell argument; got %q", powerShellArgName(arg), arg)
+			}
+			if carrierIdx >= 0 {
+				return fmt.Errorf("command-form run accepts only one PowerShell command carrier")
+			}
+			carrierIdx = i
+		}
+	}
+	if carrierIdx >= 0 && carrierIdx != len(args)-1 {
+		return fmt.Errorf("command-form run requires PowerShell command carrier %q to be final before the command payload", args[carrierIdx])
+	}
+	return nil
 }
 
 func powerShellScriptArgs(configured []string, script string) ([]string, error) {

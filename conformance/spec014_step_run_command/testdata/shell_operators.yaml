@@ -1,0 +1,4 @@
+working_dir: .
+steps:
+  - id: operators
+    run: printf 'alpha\nbeta\n' | grep beta > operators.txt

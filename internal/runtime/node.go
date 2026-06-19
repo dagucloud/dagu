@@ -996,6 +996,9 @@ func (n *Node) evaluateCommandArgs(ctx context.Context) error {
 				if err != nil {
 					return fmt.Errorf("failed to eval command with args: %w", err)
 				}
+				if commandFormRunRejectsLineBreak(step) && commandTextHasLineBreak(evaluated) {
+					return fmt.Errorf("resolved command text for %s contains a line break", fieldPath)
+				}
 				cmdWithArgs = evaluated
 			}
 
@@ -1022,6 +1025,22 @@ func commandEntryFieldPath(count, index int) string {
 		return "run"
 	}
 	return fmt.Sprintf("run[%d]", index)
+}
+
+func commandTextHasLineBreak(text string) bool {
+	return strings.ContainsAny(text, "\r\n")
+}
+
+func commandFormRunRejectsLineBreak(step core.Step) bool {
+	if step.Script != "" {
+		return false
+	}
+	switch step.ExecutorConfig.Type {
+	case "", "command", "shell":
+		return true
+	default:
+		return false
+	}
 }
 
 func (n *Node) Signal(ctx context.Context, sig os.Signal, allowOverride bool) {

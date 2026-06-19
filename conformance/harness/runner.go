@@ -172,6 +172,20 @@ func (r *Runner) ExpectFileContains(name string, parts ...string) {
 	}
 }
 
+// ExpectFileNotContains fails the test when name contains any forbidden text.
+func (r *Runner) ExpectFileNotContains(name string, parts ...string) {
+	r.t.Helper()
+
+	path := r.projectPath(name)
+	actual, err := os.ReadFile(path) // #nosec G304 -- projectPath confines test fixture paths to the temp project.
+	if err != nil {
+		r.t.Fatalf("reading %s: %v", name, err)
+	}
+	for _, part := range parts {
+		require.NotContains(r.t, string(actual), part)
+	}
+}
+
 // ExpectGlobFileContent fails unless exactly one project-local file matches pattern and contains content.
 func (r *Runner) ExpectGlobFileContent(pattern string, content string) {
 	r.t.Helper()

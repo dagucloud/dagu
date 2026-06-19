@@ -33,6 +33,10 @@ func (b *shellCommandBuilder) Build(ctx context.Context) (*exec.Cmd, error) {
 	builder := *b
 	builder.Shell = cloneArgs(b.Shell)
 	builder.Shell[0] = cmdutil.ResolveExecutable(builder.Shell[0])
+	if builder.Script == "" && builder.ShellCommandArgs != "" &&
+		len(builder.ShellPackages) > 0 && !cmdutil.IsNixShell(builder.Shell[0]) {
+		return nil, fmt.Errorf("shell_packages can only be used with nix-shell for command-form run")
+	}
 
 	shell := findShell(builder.Shell[0])
 	return shell.Build(ctx, &builder)

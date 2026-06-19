@@ -30,6 +30,10 @@ func (s *nixShell) Build(ctx context.Context, b *shellCommandBuilder) (*exec.Cmd
 		if idx := indexOfNixRun(args); idx >= 0 && idx != len(args)-1 {
 			return nil, fmt.Errorf("script form cannot be used with nix-shell --run followed by authored command text")
 		}
+	} else if b.ShellCommandArgs != "" {
+		if err := validateNixCommandCarrier(args); err != nil {
+			return nil, err
+		}
 	}
 
 	args = insertNixGeneratedArgs(args, nixPackageArgs(b.ShellPackages)...)
@@ -82,6 +86,26 @@ func indexOfNixRun(args []string) int {
 		}
 	}
 	return -1
+}
+
+func validateNixCommandCarrier(args []string) error {
+	carrierIdx := -1
+	for i, arg := range args {
+		if arg == "--run" {
+			if carrierIdx >= 0 {
+				return fmt.Errorf("command-form run accepts only one nix-shell --run argument")
+			}
+			carrierIdx = i
+			continue
+		}
+		if strings.HasPrefix(arg, "--run=") {
+			return fmt.Errorf("command-form run requires nix-shell command carrier --run as a separate shell argument; got %q", arg)
+		}
+	}
+	if carrierIdx >= 0 && carrierIdx != len(args)-1 {
+		return fmt.Errorf("command-form run requires nix-shell command carrier --run to be final before the command payload")
+	}
+	return nil
 }
 
 func nixPackageArgs(packages []string) []string {

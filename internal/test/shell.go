@@ -31,6 +31,18 @@ func JoinLines(lines ...string) string {
 	return strings.Join(nonEmpty, "\n")
 }
 
+func JoinShellCommands(commands ...string) string {
+	nonEmpty := make([]string, 0, len(commands))
+	for _, command := range commands {
+		command = strings.TrimSpace(command)
+		if command == "" {
+			continue
+		}
+		nonEmpty = append(nonEmpty, command)
+	}
+	return strings.Join(nonEmpty, "; ")
+}
+
 func PosixQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }
@@ -55,6 +67,13 @@ func Output(value string) string {
 		return fmt.Sprintf("Write-Output %s", PowerShellQuote(value))
 	}
 	return fmt.Sprintf("printf '%%s\\n' %s", PosixQuote(value))
+}
+
+func OutputEscaped(value string) string {
+	if runtime.GOOS == "windows" {
+		return fmt.Sprintf("[Console]::Out.Write([Text.RegularExpressions.Regex]::Unescape(%s))", PowerShellQuote(value))
+	}
+	return fmt.Sprintf("printf '%%b' %s", PosixQuote(value))
 }
 
 func Stderr(value string) string {
