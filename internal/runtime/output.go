@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/cmn/masking"
+	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 )
@@ -350,6 +351,11 @@ func (oc *OutputCoordinator) setupWriters(ctx context.Context, data NodeData) er
 // setupRemoteWriters creates writers that stream to coordinator
 func (oc *OutputCoordinator) setupRemoteWriters(ctx context.Context, data NodeData, factory LogWriterFactory) error {
 	stepName := data.Step.Name
+
+	// Compute effective output buffering mode and pass it through context
+	dag := GetDAGContext(ctx).DAG
+	mode := core.EffectiveOutputBuffering(dag, &data.Step)
+	ctx = WithOutputBuffering(ctx, mode)
 
 	// Create streaming writers for stdout and stderr
 	oc.stdoutWriter = factory.NewStepWriter(ctx, stepName, exec.StreamTypeStdout)

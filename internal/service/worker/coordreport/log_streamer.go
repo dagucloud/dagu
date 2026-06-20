@@ -4,6 +4,7 @@
 package coordreport
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
@@ -92,12 +94,15 @@ func (s *LogStreamer) openStream(ctx context.Context) (coordinatorv1.Coordinator
 // NewStepWriter creates a writer that streams to coordinator
 // streamType should be execution.StreamTypeStdout or execution.StreamTypeStderr
 func (s *LogStreamer) NewStepWriter(ctx context.Context, stepName string, streamType int) io.WriteCloser {
+	mode := runtime.GetOutputBuffering(ctx)
 	return &stepLogWriter{
-		ctx:        ctx,
-		streamer:   s,
-		stepName:   stepName,
-		streamType: streamType,
-		buffer:     make([]byte, 0, logBufferSize),
+		ctx:          ctx,
+		streamer:     s,
+		stepName:     stepName,
+		streamType:   streamType,
+		buffer:       make([]byte, 0, logBufferSize),
+		lineBuffered: mode == core.OutputBufferingLine,
+		unbuffered:   mode == core.OutputBufferingNone,
 	}
 }
 
@@ -202,6 +207,8 @@ type stepLogWriter struct {
 	mu               sync.Mutex
 	closed           bool
 	streamInitFailed bool // Tracks permanent stream initialization failure
+	lineBuffered     bool // Flush on newline characters
+	unbuffered       bool // Flush immediately on every Write
 }
 
 // Write implements io.Writer
@@ -213,36 +220,51 @@ func (w *stepLogWriter) Write(p []byte) (int, error) {
 		return 0, io.ErrClosedPipe
 	}
 
-	w.buffer = append(w.buffer, p...)
-
-	// Flush when buffer exceeds threshold
-	if len(w.buffer) >= logBufferSize {
-		if err := w.flush(); err != nil {
-			// Log streaming is best-effort - don't fail the command
-			logger.Warn(w.ctx, "Failed to stream logs, discarding buffer",
-				tag.Error(err),
-				tag.Step(w.stepName),
-			)
-			w.buffer = w.buffer[:0] // Discard to prevent memory growth
-		}
+	if w.unbuffered {
+		// Flush every Write immediately
+		return len(p), w.sendChunk(p)
 	}
 
+	w.buffer = append(w.buffer, p...)
+
+	if w.lineBuffered {
+		// Flush complete lines, keep trailing partial data
+		for {
+			idx := bytes.IndexByte(w.buffer, '\n')
+			if idx < 0 {
+				break
+			}
+			// Advance past the line before sending, so a send failure
+			// doesn't cause the same line to be retried on the next Write.
+			line := w.buffer[:idx+1]
+			w.buffer = w.buffer[idx+1:]
+			if err := w.sendChunk(line); err != nil {
+				return len(p), err
+			}
+		}
+	} else {
+		// Buffered mode: flush at 32KB threshold
+		if len(w.buffer) >= logBufferSize {
+			if err := w.flush(); err != nil {
+				return len(p), err
+			}
+		}
+	}
 	return len(p), nil
 }
 
-// flush sends buffered data to coordinator.
-// Implements chunk splitting for large buffers to stay within gRPC message size limits.
-// Sequence numbers are only incremented after successful Send to avoid gaps.
-func (w *stepLogWriter) flush() error {
-	if len(w.buffer) == 0 {
+// sendChunk sends a single chunk of data via the gRPC stream.
+// It handles stream initialization, chunk splitting for large payloads,
+// and marks the stream as dead on send errors.
+// Caller must hold w.mu.
+func (w *stepLogWriter) sendChunk(data []byte) error {
+	if len(data) == 0 {
 		return nil
 	}
 
 	// Check for permanent stream initialization failure
 	if w.streamInitFailed {
-		// Clear buffer to prevent memory growth on permanent failure
-		w.buffer = w.buffer[:0]
-		return nil // Silently fail - already logged on first failure
+		return nil // Silently drop — already logged on first failure
 	}
 
 	// Initialize stream if needed
@@ -256,15 +278,11 @@ func (w *stepLogWriter) flush() error {
 				tag.Error(err),
 				tag.Step(w.stepName),
 			)
-			w.buffer = w.buffer[:0] // Discard to prevent memory growth
 			return err
 		}
 	}
 
-	// Split buffer into chunks if necessary to stay within gRPC limits
-	data := w.buffer
-	w.buffer = w.buffer[:0]
-
+	// Split data into chunks if necessary to stay within gRPC limits
 	for len(data) > 0 {
 		chunkSize := min(len(data), maxChunkSize)
 
@@ -290,12 +308,27 @@ func (w *stepLogWriter) flush() error {
 		}
 
 		if err := w.stream.Send(chunk); err != nil {
-			return err // Return error without incrementing sequence
+			w.stream = nil // Mark stream as dead
+			return err
 		}
 		w.sequence = nextSeq // Only increment after successful Send
 	}
 
 	return nil
+}
+
+// flush sends all buffered data to the coordinator.
+// This is used in buffered mode when the buffer exceeds the threshold.
+// Caller must hold w.mu.
+func (w *stepLogWriter) flush() error {
+	if len(w.buffer) == 0 {
+		return nil
+	}
+
+	data := w.buffer
+	w.buffer = w.buffer[:0]
+
+	return w.sendChunk(data)
 }
 
 // Close implements io.Closer
@@ -310,10 +343,13 @@ func (w *stepLogWriter) Close() error {
 
 	var firstErr error
 
-	// Flush any remaining data
-	if err := w.flush(); err != nil {
-		logger.Error(w.ctx, "Failed to flush log buffer", tag.Error(err))
-		firstErr = err
+	// Flush any remaining buffered data
+	if len(w.buffer) > 0 {
+		if err := w.sendChunk(w.buffer); err != nil {
+			logger.Error(w.ctx, "Failed to flush log buffer", tag.Error(err))
+			firstErr = err
+		}
+		w.buffer = w.buffer[:0]
 	}
 
 	// Send final marker
