@@ -5078,7 +5078,7 @@ export interface components {
             tooLarge: boolean;
             /** @description Whether inline text content was truncated for preview */
             truncated: boolean;
-            /** @description Inline preview content for markdown or text artifacts */
+            /** @description Inline preview content for markdown, HTML, or text artifacts */
             content?: string;
         };
         /** @description Collected outputs from step executions in a DAG-run, including execution metadata. Outputs are populated from string-form output, stdout.outputs, and outputs.write. If the DAG-run completed but no outputs were captured, the outputs object will be empty and metadata fields may be empty strings. */
@@ -19601,6 +19601,7 @@ export enum ArtifactNodeType {
 }
 export enum ArtifactPreviewKind {
     markdown = "markdown",
+    html = "html",
     text = "text",
     image = "image",
     binary = "binary"

@@ -57,47 +57,51 @@ describe('ArtifactsTab', () => {
   });
 
   it('lets users switch markdown artifacts between preview and raw modes', async () => {
-    getMock.mockImplementation((path: string, init?: { params?: { query?: { path?: string } } }) => {
-      if (path === '/dag-runs/{name}/{dagRunId}/artifacts') {
-        return Promise.resolve({
-          data: {
-            items: [
-              {
-                name: 'notes.md',
-                path: 'notes.md',
-                type: 'file',
-                size: 32,
-              },
-            ],
-          },
-        });
-      }
+    getMock.mockImplementation(
+      (path: string, init?: { params?: { query?: { path?: string } } }) => {
+        if (path === '/dag-runs/{name}/{dagRunId}/artifacts') {
+          return Promise.resolve({
+            data: {
+              items: [
+                {
+                  name: 'notes.md',
+                  path: 'notes.md',
+                  type: 'file',
+                  size: 32,
+                },
+              ],
+            },
+          });
+        }
 
-      if (
-        path === '/dag-runs/{name}/{dagRunId}/artifacts/preview' &&
-        init?.params?.query?.path === 'notes.md'
-      ) {
-        return Promise.resolve({
-          data: {
-            name: 'notes.md',
-            path: 'notes.md',
-            kind: 'markdown',
-            mimeType: 'text/markdown',
-            size: 32,
-            tooLarge: false,
-            truncated: false,
-            content: '# Heading\n\n**bold** text',
-          },
-        });
-      }
+        if (
+          path === '/dag-runs/{name}/{dagRunId}/artifacts/preview' &&
+          init?.params?.query?.path === 'notes.md'
+        ) {
+          return Promise.resolve({
+            data: {
+              name: 'notes.md',
+              path: 'notes.md',
+              kind: 'markdown',
+              mimeType: 'text/markdown',
+              size: 32,
+              tooLarge: false,
+              truncated: false,
+              content: '# Heading\n\n**bold** text',
+            },
+          });
+        }
 
-      throw new Error(`Unhandled request: ${path}`);
-    });
+        throw new Error(`Unhandled request: ${path}`);
+      }
+    );
 
     const user = userEvent.setup();
     renderArtifactsTab();
 
-    expect(await screen.findByRole('button', { name: 'Preview' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('button', { name: 'Preview' })
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Raw' })).toBeInTheDocument();
     expect(await screen.findByText('Heading')).toBeInTheDocument();
     expect(
@@ -124,52 +128,54 @@ describe('ArtifactsTab', () => {
       text: vi.fn().mockResolvedValue('full artifact contents'),
     } as unknown as Blob;
 
-    getMock.mockImplementation((path: string, init?: { params?: { query?: { path?: string } } }) => {
-      if (path === '/dag-runs/{name}/{dagRunId}/artifacts') {
-        return Promise.resolve({
-          data: {
-            items: [
-              {
-                name: 'output.txt',
-                path: 'output.txt',
-                type: 'file',
-                size: 4096,
-              },
-            ],
-          },
-        });
-      }
+    getMock.mockImplementation(
+      (path: string, init?: { params?: { query?: { path?: string } } }) => {
+        if (path === '/dag-runs/{name}/{dagRunId}/artifacts') {
+          return Promise.resolve({
+            data: {
+              items: [
+                {
+                  name: 'output.txt',
+                  path: 'output.txt',
+                  type: 'file',
+                  size: 4096,
+                },
+              ],
+            },
+          });
+        }
 
-      if (
-        path === '/dag-runs/{name}/{dagRunId}/artifacts/preview' &&
-        init?.params?.query?.path === 'output.txt'
-      ) {
-        return Promise.resolve({
-          data: {
-            name: 'output.txt',
-            path: 'output.txt',
-            kind: 'text',
-            mimeType: 'text/plain',
-            size: 4096,
-            tooLarge: false,
-            truncated: true,
-            content: 'partial preview',
-          },
-        });
-      }
+        if (
+          path === '/dag-runs/{name}/{dagRunId}/artifacts/preview' &&
+          init?.params?.query?.path === 'output.txt'
+        ) {
+          return Promise.resolve({
+            data: {
+              name: 'output.txt',
+              path: 'output.txt',
+              kind: 'text',
+              mimeType: 'text/plain',
+              size: 4096,
+              tooLarge: false,
+              truncated: true,
+              content: 'partial preview',
+            },
+          });
+        }
 
-      if (
-        path === '/dag-runs/{name}/{dagRunId}/artifacts/download' &&
-        init?.params?.query?.path === 'output.txt'
-      ) {
-        return Promise.resolve({
-          data: downloadedArtifact,
-          response: new Response('full artifact contents'),
-        });
-      }
+        if (
+          path === '/dag-runs/{name}/{dagRunId}/artifacts/download' &&
+          init?.params?.query?.path === 'output.txt'
+        ) {
+          return Promise.resolve({
+            data: downloadedArtifact,
+            response: new Response('full artifact contents'),
+          });
+        }
 
-      throw new Error(`Unhandled request: ${path}`);
-    });
+        throw new Error(`Unhandled request: ${path}`);
+      }
+    );
 
     renderArtifactsTab();
 
@@ -181,6 +187,132 @@ describe('ArtifactsTab', () => {
       expect(clipboardWriteTextMock).toHaveBeenCalledWith(
         'full artifact contents'
       );
+    });
+  });
+
+  it('renders html artifacts in a sandboxed iframe with raw mode', async () => {
+    const htmlContent =
+      '<section><h1>Report</h1><a href="/next">Next</a></section>';
+    getMock.mockImplementation(
+      (path: string, init?: { params?: { query?: { path?: string } } }) => {
+        if (path === '/dag-runs/{name}/{dagRunId}/artifacts') {
+          return Promise.resolve({
+            data: {
+              items: [
+                {
+                  name: 'report.html',
+                  path: 'report.html',
+                  type: 'file',
+                  size: htmlContent.length,
+                },
+              ],
+            },
+          });
+        }
+
+        if (
+          path === '/dag-runs/{name}/{dagRunId}/artifacts/preview' &&
+          init?.params?.query?.path === 'report.html'
+        ) {
+          return Promise.resolve({
+            data: {
+              name: 'report.html',
+              path: 'report.html',
+              kind: 'html',
+              mimeType: 'text/html',
+              size: htmlContent.length,
+              tooLarge: false,
+              truncated: false,
+              content: htmlContent,
+            },
+          });
+        }
+
+        throw new Error(`Unhandled request: ${path}`);
+      }
+    );
+
+    const user = userEvent.setup();
+    renderArtifactsTab();
+
+    const iframe = (await screen.findByTitle(
+      'HTML artifact preview'
+    )) as HTMLIFrameElement;
+    const srcDoc = iframe.srcdoc || iframe.getAttribute('srcdoc') || '';
+    expect(iframe).toHaveAttribute('sandbox', '');
+    expect(iframe).toHaveAttribute('referrerpolicy', 'no-referrer');
+    expect(srcDoc).toContain('<meta http-equiv="Content-Security-Policy"');
+    expect(srcDoc.indexOf('Content-Security-Policy')).toBeLessThan(
+      srcDoc.indexOf('<h1>Report</h1>')
+    );
+    expect(srcDoc).toContain('data-dagu-preview-href="/next"');
+
+    await user.click(screen.getByRole('button', { name: 'Raw' }));
+
+    expect(
+      screen.queryByTitle('HTML artifact preview')
+    ).not.toBeInTheDocument();
+    expect(
+      await screen.findByText((_, element) =>
+        Boolean(
+          element?.tagName.toLowerCase() === 'pre' &&
+            element.textContent?.includes('<h1>Report</h1>')
+        )
+      )
+    ).toBeInTheDocument();
+  });
+
+  it('copies inline html artifact contents', async () => {
+    const htmlContent = '<section><strong>Report</strong></section>';
+    getMock.mockImplementation(
+      (path: string, init?: { params?: { query?: { path?: string } } }) => {
+        if (path === '/dag-runs/{name}/{dagRunId}/artifacts') {
+          return Promise.resolve({
+            data: {
+              items: [
+                {
+                  name: 'report.html',
+                  path: 'report.html',
+                  type: 'file',
+                  size: htmlContent.length,
+                },
+              ],
+            },
+          });
+        }
+
+        if (
+          path === '/dag-runs/{name}/{dagRunId}/artifacts/preview' &&
+          init?.params?.query?.path === 'report.html'
+        ) {
+          return Promise.resolve({
+            data: {
+              name: 'report.html',
+              path: 'report.html',
+              kind: 'html',
+              mimeType: 'text/html',
+              size: htmlContent.length,
+              tooLarge: false,
+              truncated: false,
+              content: htmlContent,
+            },
+          });
+        }
+
+        throw new Error(`Unhandled request: ${path}`);
+      }
+    );
+
+    renderArtifactsTab();
+
+    expect(
+      await screen.findByTitle('HTML artifact preview')
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+
+    await waitFor(() => {
+      expect(clipboardWriteTextMock).toHaveBeenCalledWith(htmlContent);
     });
   });
 });

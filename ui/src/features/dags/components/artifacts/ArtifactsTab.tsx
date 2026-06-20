@@ -12,6 +12,7 @@ import {
   ClipboardCopy,
   Download,
   File,
+  FileCode,
   FileImage,
   FileText,
   Folder,
@@ -20,6 +21,7 @@ import {
 } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { components } from '../../../../api/v1/schema';
+import { HtmlArtifactPreview } from './HtmlArtifactPreview';
 
 type ArtifactTreeNode = components['schemas']['ArtifactTreeNode'];
 type ArtifactPreviewResponse = components['schemas']['ArtifactPreviewResponse'];
@@ -96,9 +98,11 @@ function TreeNode({
       : Folder
     : node.path.match(/\.(md|markdown|mdown|mkd)$/i)
       ? FileText
-      : node.path.match(/\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i)
-        ? FileImage
-        : File;
+      : node.path.match(/\.(html?|xhtml)$/i)
+        ? FileCode
+        : node.path.match(/\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i)
+          ? FileImage
+          : File;
 
   return (
     <div>
@@ -171,6 +175,9 @@ export default function ArtifactsTab({
   const [markdownViewMode, setMarkdownViewMode] = useState<'preview' | 'raw'>(
     'preview'
   );
+  const [htmlViewMode, setHTMLViewMode] = useState<'preview' | 'raw'>(
+    'preview'
+  );
   const [copiedContent, setCopiedContent] = useState(false);
   const [openDirs, setOpenDirs] = useState<Set<string>>(new Set());
   const treeRequestRef = useRef<{
@@ -184,11 +191,18 @@ export default function ArtifactsTab({
     [allNodes, selectedPath]
   );
   const isMarkdownPreview = preview?.kind === 'markdown';
+  const isHTMLPreview = preview?.kind === 'html';
+  const isMarkupPreview = isMarkdownPreview || isHTMLPreview;
+  const markupViewMode = isHTMLPreview ? htmlViewMode : markdownViewMode;
   const isCopyablePreview =
-    preview?.kind === 'markdown' || preview?.kind === 'text';
+    preview?.kind === 'markdown' ||
+    preview?.kind === 'html' ||
+    preview?.kind === 'text';
   const previewTruncatedNotice =
     preview?.truncated &&
-    (preview.kind === 'markdown' || preview.kind === 'text');
+    (preview.kind === 'markdown' ||
+      preview.kind === 'html' ||
+      preview.kind === 'text');
 
   const requestArtifactTree = async (signal?: AbortSignal) => {
     if (isSubDAGRun) {
@@ -702,17 +716,23 @@ export default function ArtifactsTab({
                 <span>Copy</span>
               </button>
             ) : null}
-            {isMarkdownPreview ? (
+            {isMarkupPreview ? (
               <div className="flex overflow-hidden rounded-md border border-border">
                 <button
                   type="button"
                   className={cn(
                     'px-2 py-0.5 text-xs transition-colors',
-                    markdownViewMode === 'preview'
+                    markupViewMode === 'preview'
                       ? 'bg-accent text-accent-foreground'
                       : 'text-muted-foreground hover:text-foreground'
                   )}
-                  onClick={() => setMarkdownViewMode('preview')}
+                  onClick={() => {
+                    if (isHTMLPreview) {
+                      setHTMLViewMode('preview');
+                      return;
+                    }
+                    setMarkdownViewMode('preview');
+                  }}
                 >
                   Preview
                 </button>
@@ -720,11 +740,17 @@ export default function ArtifactsTab({
                   type="button"
                   className={cn(
                     'px-2 py-0.5 text-xs transition-colors',
-                    markdownViewMode === 'raw'
+                    markupViewMode === 'raw'
                       ? 'bg-accent text-accent-foreground'
                       : 'text-muted-foreground hover:text-foreground'
                   )}
-                  onClick={() => setMarkdownViewMode('raw')}
+                  onClick={() => {
+                    if (isHTMLPreview) {
+                      setHTMLViewMode('raw');
+                      return;
+                    }
+                    setMarkdownViewMode('raw');
+                  }}
                 >
                   Raw
                 </button>
@@ -805,6 +831,28 @@ export default function ArtifactsTab({
                 </pre>
               ) : (
                 <DocMarkdownPreview content={preview.content} />
+              )}
+            </div>
+          ) : preview.kind === 'html' ? (
+            <div
+              className={cn('space-y-3', fillHeight && 'flex min-h-0 flex-col')}
+            >
+              {previewTruncatedNotice ? (
+                <div className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                  Inline preview is truncated. Use Copy or Download for the full
+                  file.
+                </div>
+              ) : null}
+              {htmlViewMode === 'raw' ? (
+                <pre className="overflow-auto rounded-md border border-border bg-muted/20 p-4 text-sm leading-6 whitespace-pre-wrap">
+                  {preview.content || ''}
+                </pre>
+              ) : (
+                <HtmlArtifactPreview
+                  content={preview.content}
+                  fillHeight={fillHeight}
+                  className={fillHeight ? 'min-h-0 flex-1' : undefined}
+                />
               )}
             </div>
           ) : preview.kind === 'text' ? (
