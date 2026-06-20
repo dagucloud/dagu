@@ -24,7 +24,7 @@ const useQueryMock = vi.mocked(useQuery) as unknown as {
 };
 
 function spec(name: string): ViewSpec {
-  return { name, type: ViewSpecType.kanban, lookbackDays: 3, pinned: false };
+  return { name, type: ViewSpecType.kanban, intervalDays: 3, pinned: false };
 }
 
 beforeEach(() => {
@@ -36,7 +36,7 @@ beforeEach(() => {
           id: 'v1',
           name: 'A',
           type: 'kanban',
-          lookbackDays: 3,
+          intervalDays: 3,
           createdAt: '',
           updatedAt: '',
         },

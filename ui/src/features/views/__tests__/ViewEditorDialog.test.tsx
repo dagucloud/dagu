@@ -26,7 +26,7 @@ beforeEach(() => {
     id: 'new',
     name: 'Prod',
     type: 'kanban',
-    lookbackDays: 3,
+    intervalDays: 3,
     createdAt: '',
     updatedAt: '',
   });
@@ -52,7 +52,7 @@ describe('ViewEditorDialog', () => {
         name: 'Prod',
         type: 'kanban',
         workspace: '',
-        lookbackDays: 3,
+        intervalDays: 1,
         pinned: false,
       })
     );
@@ -65,7 +65,7 @@ describe('ViewEditorDialog', () => {
       id: 'v1',
       name: 'Renamed',
       type: 'kanban',
-      lookbackDays: 5,
+      intervalDays: 5,
       createdAt: '',
       updatedAt: '',
     });
@@ -79,7 +79,7 @@ describe('ViewEditorDialog', () => {
           name: 'Original',
           type: 'kanban',
           workspace: 'prod',
-          lookbackDays: 5,
+          intervalDays: 5,
           createdAt: '',
           updatedAt: '',
         }}

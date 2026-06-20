@@ -27,9 +27,9 @@ const (
 	MaxDAGNameLength    = 255
 	MaxLabels           = 50
 	MaxLabelLength      = 128
-	MinLookbackDays     = 1
-	MaxLookbackDays     = 30
-	DefaultLookbackDays = 3
+	MinIntervalDays     = 1
+	MaxIntervalDays     = 30
+	DefaultIntervalDays = 1
 )
 
 // Sentinel errors returned by views and their stores.
@@ -40,7 +40,7 @@ var (
 	ErrInvalidName     = errors.New("view: name is required")
 	ErrNameTooLong     = errors.New("view: name too long")
 	ErrDAGNameTooLong  = errors.New("view: dagName too long")
-	ErrInvalidLookback = errors.New("view: lookbackDays out of range")
+	ErrInvalidInterval = errors.New("view: intervalDays out of range")
 	ErrTooManyLabels   = errors.New("view: too many labels")
 	ErrInvalidType     = errors.New("view: unknown type")
 )
@@ -55,7 +55,7 @@ type View struct {
 	Workspace    string // empty means all workspaces
 	Labels       []string
 	DAGName      string
-	LookbackDays int
+	IntervalDays int
 	Pinned       bool
 	CreatedBy    string
 	CreatedAt    time.Time
@@ -63,7 +63,7 @@ type View struct {
 }
 
 // Normalize trims string fields, drops empty or oversized labels, and applies
-// defaults for Type and LookbackDays. Call before Validate.
+// defaults for Type and IntervalDays. Call before Validate.
 func (v *View) Normalize() {
 	v.Name = strings.TrimSpace(v.Name)
 	v.Workspace = strings.TrimSpace(v.Workspace)
@@ -72,8 +72,8 @@ func (v *View) Normalize() {
 	if v.Type == "" {
 		v.Type = TypeKanban
 	}
-	if v.LookbackDays == 0 {
-		v.LookbackDays = DefaultLookbackDays
+	if v.IntervalDays == 0 {
+		v.IntervalDays = DefaultIntervalDays
 	}
 	labels := make([]string, 0, len(v.Labels))
 	for _, l := range v.Labels {
@@ -95,8 +95,8 @@ func (v *View) Validate() error {
 		return ErrNameTooLong
 	case len([]rune(v.DAGName)) > MaxDAGNameLength:
 		return ErrDAGNameTooLong
-	case v.LookbackDays < MinLookbackDays || v.LookbackDays > MaxLookbackDays:
-		return ErrInvalidLookback
+	case v.IntervalDays < MinIntervalDays || v.IntervalDays > MaxIntervalDays:
+		return ErrInvalidInterval
 	case len(v.Labels) > MaxLabels:
 		return ErrTooManyLabels
 	case !ValidType(v.Type):
@@ -123,7 +123,7 @@ type ViewForStorage struct {
 	Workspace    string    `json:"workspace,omitempty"`
 	Labels       []string  `json:"labels,omitempty"`
 	DAGName      string    `json:"dag_name,omitempty"`
-	LookbackDays int       `json:"lookback_days"`
+	IntervalDays int       `json:"interval_days"`
 	Pinned       bool      `json:"pinned,omitempty"`
 	CreatedBy    string    `json:"created_by,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
@@ -139,7 +139,7 @@ func (v *View) ToStorage() *ViewForStorage {
 		Workspace:    v.Workspace,
 		Labels:       slices.Clone(v.Labels),
 		DAGName:      v.DAGName,
-		LookbackDays: v.LookbackDays,
+		IntervalDays: v.IntervalDays,
 		Pinned:       v.Pinned,
 		CreatedBy:    v.CreatedBy,
 		CreatedAt:    v.CreatedAt,
@@ -156,7 +156,7 @@ func (s *ViewForStorage) ToView() *View {
 		Workspace:    s.Workspace,
 		Labels:       slices.Clone(s.Labels),
 		DAGName:      s.DAGName,
-		LookbackDays: s.LookbackDays,
+		IntervalDays: s.IntervalDays,
 		Pinned:       s.Pinned,
 		CreatedBy:    s.CreatedBy,
 		CreatedAt:    s.CreatedAt,

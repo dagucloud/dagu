@@ -29,7 +29,7 @@ func newView(id string, createdAt time.Time) *view.View {
 		ID:           id,
 		Name:         "view-" + id,
 		Type:         view.TypeKanban,
-		LookbackDays: 3,
+		IntervalDays: 3,
 		CreatedAt:    createdAt,
 		UpdatedAt:    createdAt,
 	}
@@ -47,7 +47,7 @@ func TestViewStore_CreateAndGet(t *testing.T) {
 	assert.Equal(t, v.ID, got.ID)
 	assert.Equal(t, v.Name, got.Name)
 	assert.Equal(t, view.TypeKanban, got.Type)
-	assert.Equal(t, 3, got.LookbackDays)
+	assert.Equal(t, 3, got.IntervalDays)
 }
 
 func TestViewStore_CreateDuplicate(t *testing.T) {
@@ -86,13 +86,13 @@ func TestViewStore_Update(t *testing.T) {
 
 	update := newView("a", time.Time{}) // caller leaves CreatedAt unset
 	update.Name = "renamed"
-	update.LookbackDays = 10
+	update.IntervalDays = 10
 	require.NoError(t, s.Update(ctx, update))
 
 	got, err := s.GetByID(ctx, "a")
 	require.NoError(t, err)
 	assert.Equal(t, "renamed", got.Name)
-	assert.Equal(t, 10, got.LookbackDays)
+	assert.Equal(t, 10, got.IntervalDays)
 	assert.Equal(t, created.Truncate(time.Millisecond), got.CreatedAt.Truncate(time.Millisecond), "CreatedAt preserved")
 	assert.True(t, got.UpdatedAt.After(created), "UpdatedAt advanced")
 }

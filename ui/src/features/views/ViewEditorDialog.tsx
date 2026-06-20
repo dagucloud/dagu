@@ -28,8 +28,8 @@ import { View, ViewSpec, useViews } from '@/hooks/useViews';
 import { withoutWorkspaceLabels } from '@/lib/workspace';
 
 const ALL_WORKSPACES = '__all__';
-const DEFAULT_LOOKBACK = 3;
-const MAX_LOOKBACK = 30;
+const DEFAULT_INTERVAL = 1;
+const MAX_INTERVAL = 30;
 
 interface Props {
   open: boolean;
@@ -56,7 +56,7 @@ export function ViewEditorDialog({
   const [workspace, setWorkspace] = useState(ALL_WORKSPACES);
   const [labels, setLabels] = useState<string[]>([]);
   const [dagName, setDagName] = useState('');
-  const [lookbackDays, setLookbackDays] = useState(DEFAULT_LOOKBACK);
+  const [intervalDays, setIntervalDays] = useState(DEFAULT_INTERVAL);
   const [pinned, setPinned] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,7 +70,7 @@ export function ViewEditorDialog({
     setWorkspace(view?.workspace ? view.workspace : ALL_WORKSPACES);
     setLabels(view?.labels ?? []);
     setDagName(view?.dagName ?? '');
-    setLookbackDays(view?.lookbackDays ?? DEFAULT_LOOKBACK);
+    setIntervalDays(view?.intervalDays ?? DEFAULT_INTERVAL);
     setPinned(view?.pinned ?? false);
     setError(null);
   }, [open, view]);
@@ -100,9 +100,9 @@ export function ViewEditorDialog({
       workspace: workspace === ALL_WORKSPACES ? '' : workspace,
       labels,
       dagName: dagName.trim(),
-      lookbackDays: Math.max(
+      intervalDays: Math.max(
         1,
-        Math.min(lookbackDays || DEFAULT_LOOKBACK, MAX_LOOKBACK)
+        Math.min(intervalDays || DEFAULT_INTERVAL, MAX_INTERVAL)
       ),
       pinned,
     };
@@ -194,15 +194,18 @@ export function ViewEditorDialog({
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-muted-foreground">
-              Lookback (days)
+              Interval (days per row)
             </label>
             <Input
               type="number"
               min={1}
-              max={MAX_LOOKBACK}
-              value={lookbackDays}
-              onChange={(e) => setLookbackDays(Number(e.target.value))}
+              max={MAX_INTERVAL}
+              value={intervalDays}
+              onChange={(e) => setIntervalDays(Number(e.target.value))}
             />
+            <p className="text-[11px] text-muted-foreground">
+              Each row groups this many days, scrolling back in time.
+            </p>
           </div>
           <label className="flex items-center gap-2 text-sm text-foreground">
             <Checkbox

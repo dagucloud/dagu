@@ -19,7 +19,7 @@ func validView() *view.View {
 		ID:           "id-1",
 		Name:         "My View",
 		Type:         view.TypeKanban,
-		LookbackDays: 3,
+		IntervalDays: 3,
 	}
 }
 
@@ -36,8 +36,8 @@ func TestView_Validate_Errors(t *testing.T) {
 		{"empty name", func(v *view.View) { v.Name = "" }, view.ErrInvalidName},
 		{"name too long", func(v *view.View) { v.Name = strings.Repeat("a", view.MaxNameLength+1) }, view.ErrNameTooLong},
 		{"dagName too long", func(v *view.View) { v.DAGName = strings.Repeat("d", view.MaxDAGNameLength+1) }, view.ErrDAGNameTooLong},
-		{"lookback zero", func(v *view.View) { v.LookbackDays = 0 }, view.ErrInvalidLookback},
-		{"lookback too large", func(v *view.View) { v.LookbackDays = view.MaxLookbackDays + 1 }, view.ErrInvalidLookback},
+		{"interval zero", func(v *view.View) { v.IntervalDays = 0 }, view.ErrInvalidInterval},
+		{"interval too large", func(v *view.View) { v.IntervalDays = view.MaxIntervalDays + 1 }, view.ErrInvalidInterval},
 		{"too many labels", func(v *view.View) { v.Labels = make([]string, view.MaxLabels+1) }, view.ErrTooManyLabels},
 		{"unknown type", func(v *view.View) { v.Type = "timeline" }, view.ErrInvalidType},
 	}
@@ -57,7 +57,7 @@ func TestView_Normalize(t *testing.T) {
 		Workspace:    "  ws  ",
 		DAGName:      "  dag  ",
 		Labels:       []string{" a ", "", "  ", "b", strings.Repeat("x", view.MaxLabelLength+1)},
-		LookbackDays: 0,
+		IntervalDays: 0,
 	}
 	v.Normalize()
 
@@ -66,7 +66,7 @@ func TestView_Normalize(t *testing.T) {
 	assert.Equal(t, "ws", v.Workspace)
 	assert.Equal(t, "dag", v.DAGName)
 	assert.Equal(t, []string{"a", "b"}, v.Labels, "empty and oversized labels are dropped")
-	assert.Equal(t, view.DefaultLookbackDays, v.LookbackDays, "zero lookback defaults")
+	assert.Equal(t, view.DefaultIntervalDays, v.IntervalDays, "zero lookback defaults")
 }
 
 func TestView_StorageRoundTrip(t *testing.T) {
@@ -78,7 +78,7 @@ func TestView_StorageRoundTrip(t *testing.T) {
 		Workspace:    "ws",
 		Labels:       []string{"a", "b=c"},
 		DAGName:      "etl",
-		LookbackDays: 7,
+		IntervalDays: 7,
 		Pinned:       true,
 		CreatedBy:    "alice",
 		CreatedAt:    now,

@@ -8,7 +8,6 @@ import { ViewPanel } from '@/features/views/ViewPanel';
 import { View, useViews } from '@/hooks/useViews';
 import { Clock3, Gauge, LayoutGrid, Pencil, Plus } from 'lucide-react';
 import React from 'react';
-import { useParams } from 'react-router-dom';
 import Dashboard from '..';
 import CockpitPage from '../cockpit';
 
@@ -17,7 +16,6 @@ export type OverviewTab = BuiltinTab | `view:${string}`;
 
 type OverviewPageProps = {
   initialTab?: BuiltinTab;
-  initialViewId?: string;
 };
 
 const OVERVIEW_ACTIVE_TAB_STORAGE_KEY = 'dagu_overview_active_tab';
@@ -56,35 +54,26 @@ function readStoredOverviewTab(): OverviewTab | null {
   }
 }
 
-function getInitialTab(
-  initialTab?: BuiltinTab,
-  initialViewId?: string
-): OverviewTab {
-  if (initialViewId) {
-    return viewTabId(initialViewId);
-  }
+function getInitialTab(initialTab?: BuiltinTab): OverviewTab {
   return initialTab ?? readStoredOverviewTab() ?? DEFAULT_OVERVIEW_TAB;
 }
 
 export default function OverviewPage({
   initialTab,
-  initialViewId,
 }: OverviewPageProps): React.ReactElement {
   const { views, isLoading: viewsLoading } = useViews();
   const canWrite = useCanWrite();
   const [activeTab, setActiveTab] = React.useState<OverviewTab>(() =>
-    getInitialTab(initialTab, initialViewId)
+    getInitialTab(initialTab)
   );
   const [editorOpen, setEditorOpen] = React.useState(false);
   const [editingView, setEditingView] = React.useState<View | null>(null);
 
   React.useEffect(() => {
-    if (initialViewId) {
-      setActiveTab(viewTabId(initialViewId));
-    } else if (initialTab) {
+    if (initialTab) {
       setActiveTab(initialTab);
     }
-  }, [initialTab, initialViewId]);
+  }, [initialTab]);
 
   React.useEffect(() => {
     try {
@@ -134,7 +123,7 @@ export default function OverviewPage({
             </button>
           )}
         </div>
-        <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <ViewPanel view={activeView} />
         </div>
       </div>
@@ -225,13 +214,4 @@ export default function OverviewPage({
       />
     </div>
   );
-}
-
-/**
- * Route wrapper for /views/:viewId that renders the Overview page with the
- * given saved view active.
- */
-export function OverviewViewRoute(): React.ReactElement {
-  const { viewId } = useParams();
-  return <OverviewPage initialViewId={viewId} />;
 }

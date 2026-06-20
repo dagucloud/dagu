@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import React, { useMemo } from 'react';
-import { LookbackKanbanList } from '@/features/cockpit/components/LookbackKanbanList';
+import { BucketKanbanList } from '@/features/cockpit/components/BucketKanbanList';
 import type { KanbanFilters } from '@/features/cockpit/hooks/useDateKanbanData';
 import type { View } from '@/hooks/useViews';
 
@@ -29,7 +29,11 @@ export function ViewPanel({ view }: Props): React.ReactElement {
     default:
       // Unknown/future types fall back to the Kanban renderer.
       return (
-        <LookbackKanbanList lookbackDays={view.lookbackDays} filters={filters} />
+        <BucketKanbanList
+          intervalDays={view.intervalDays}
+          filters={filters}
+          resetKey={view.id}
+        />
       );
   }
 }

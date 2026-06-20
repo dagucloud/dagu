@@ -77,7 +77,8 @@ import LoginPage from './pages/login';
 import NotificationChannelsPage from './pages/notification-channels';
 import NotificationRulesPage from './pages/notification-rules';
 import NotificationsPage from './pages/notifications';
-import OverviewPage, { OverviewViewRoute } from './pages/overview';
+import OverviewPage from './pages/overview';
+import ViewPage from './pages/views';
 import ProfilesPage from './pages/profiles';
 import Queues from './pages/queues';
 import QueueDetailsPage from './pages/queues/queue';
@@ -575,7 +576,7 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                         />
                                         <Route
                                           path="/views/:viewId"
-                                          element={<OverviewViewRoute />}
+                                          element={<ViewPage />}
                                         />
                                         <Route
                                           path="/home"

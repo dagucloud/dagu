@@ -116,16 +116,4 @@ describe('OverviewPage', () => {
     expect(screen.getByText('View panel: Prod board')).toBeInTheDocument();
     expect(localStorage.getItem('dagu_overview_active_tab')).toBe('view:v1');
   });
-
-  it('activates the view named by initialViewId', () => {
-    mockViews([{ id: 'v2', name: 'Failures' }]);
-
-    render(<OverviewPage initialViewId="v2" />);
-
-    expect(screen.getByRole('tab', { name: /failures/i })).toHaveAttribute(
-      'aria-selected',
-      'true'
-    );
-    expect(screen.getByText('View panel: Failures')).toBeInTheDocument();
-  });
 });

@@ -163,7 +163,7 @@ func (a *API) DeleteView(ctx context.Context, request api.DeleteViewRequestObjec
 func viewFromSpec(spec api.ViewSpec) *view.View {
 	v := &view.View{
 		Name:         spec.Name,
-		LookbackDays: spec.LookbackDays,
+		IntervalDays: spec.IntervalDays,
 		Workspace:    valueOf(spec.Workspace),
 		DAGName:      valueOf(spec.DagName),
 		Pinned:       valueOf(spec.Pinned),
@@ -182,7 +182,7 @@ func toViewResponse(v *view.View) api.View {
 		Id:           v.ID,
 		Name:         v.Name,
 		Type:         v.Type,
-		LookbackDays: v.LookbackDays,
+		IntervalDays: v.IntervalDays,
 		CreatedAt:    v.CreatedAt,
 		UpdatedAt:    v.UpdatedAt,
 	}

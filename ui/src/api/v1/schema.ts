@@ -6765,8 +6765,8 @@ export interface components {
             labels?: string[];
             /** @description DAG name substring filter. Empty matches any. */
             dagName?: string;
-            /** @description Relative date window in days: now-N days through now. */
-            lookbackDays: number;
+            /** @description Number of days each row (bucket) groups. Rows scroll back in time by this unit. */
+            intervalDays: number;
             /**
              * @description Whether the view is pinned to the left sidebar.
              * @default false
@@ -6780,7 +6780,7 @@ export interface components {
             workspace?: string;
             labels?: string[];
             dagName?: string;
-            lookbackDays: number;
+            intervalDays: number;
             pinned?: boolean;
             /** @description Username of the creator, for display only. */
             createdBy?: string;

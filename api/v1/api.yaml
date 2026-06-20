@@ -16559,7 +16559,7 @@ components:
       type: object
       required:
         - name
-        - lookbackDays
+        - intervalDays
       properties:
         name:
           type: string
@@ -16583,11 +16583,11 @@ components:
         dagName:
           type: string
           description: "DAG name substring filter. Empty matches any."
-        lookbackDays:
+        intervalDays:
           type: integer
           minimum: 1
           maximum: 30
-          description: "Relative date window in days: now-N days through now."
+          description: "Number of days each row (bucket) groups. Rows scroll back in time by this unit."
         pinned:
           type: boolean
           default: false
@@ -16599,7 +16599,7 @@ components:
         - id
         - name
         - type
-        - lookbackDays
+        - intervalDays
         - createdAt
         - updatedAt
       properties:
@@ -16617,7 +16617,7 @@ components:
             type: string
         dagName:
           type: string
-        lookbackDays:
+        intervalDays:
           type: integer
         pinned:
           type: boolean

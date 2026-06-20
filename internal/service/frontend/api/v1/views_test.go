@@ -48,7 +48,7 @@ func TestViewsAPI_CreateDefaultsAndActor(t *testing.T) {
 
 	created := mustCreateView(t, api, ctx, apigen.ViewSpec{
 		Name:         "Prod",
-		LookbackDays: 3,
+		IntervalDays: 3,
 		Labels:       &[]string{"team=platform"},
 	})
 
@@ -69,8 +69,8 @@ func TestViewsAPI_CreateValidation(t *testing.T) {
 		name string
 		spec apigen.ViewSpec
 	}{
-		{"empty name", apigen.ViewSpec{Name: "", LookbackDays: 3}},
-		{"lookback too large", apigen.ViewSpec{Name: "x", LookbackDays: 31}},
+		{"empty name", apigen.ViewSpec{Name: "", IntervalDays: 3}},
+		{"interval too large", apigen.ViewSpec{Name: "x", IntervalDays: 31}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -92,7 +92,7 @@ func TestViewsAPI_CreateMissingBody(t *testing.T) {
 func TestViewsAPI_GetAndList(t *testing.T) {
 	ctx := context.Background()
 	api := newViewsTestAPI(t)
-	created := mustCreateView(t, api, ctx, apigen.ViewSpec{Name: "V", LookbackDays: 5})
+	created := mustCreateView(t, api, ctx, apigen.ViewSpec{Name: "V", IntervalDays: 5})
 
 	getResp, err := api.GetView(ctx, apigen.GetViewRequestObject{ViewId: created.Id})
 	require.NoError(t, err)
@@ -118,18 +118,18 @@ func TestViewsAPI_GetNotFound(t *testing.T) {
 func TestViewsAPI_UpdatePreservesCreator(t *testing.T) {
 	ctx := context.Background()
 	api := newViewsTestAPI(t)
-	created := mustCreateView(t, api, ctx, apigen.ViewSpec{Name: "Before", LookbackDays: 3})
+	created := mustCreateView(t, api, ctx, apigen.ViewSpec{Name: "Before", IntervalDays: 3})
 
 	pinned := true
 	resp, err := api.UpdateView(ctx, apigen.UpdateViewRequestObject{
 		ViewId: created.Id,
-		Body:   &apigen.ViewSpec{Name: "After", LookbackDays: 10, Pinned: &pinned},
+		Body:   &apigen.ViewSpec{Name: "After", IntervalDays: 10, Pinned: &pinned},
 	})
 	require.NoError(t, err)
 	updated, ok := resp.(apigen.UpdateView200JSONResponse)
 	require.True(t, ok)
 	assert.Equal(t, "After", updated.Name)
-	assert.Equal(t, 10, updated.LookbackDays)
+	assert.Equal(t, 10, updated.IntervalDays)
 	require.NotNil(t, updated.Pinned)
 	assert.True(t, *updated.Pinned)
 	assert.Equal(t, created.CreatedAt, updated.CreatedAt, "CreatedAt preserved")
@@ -140,7 +140,7 @@ func TestViewsAPI_UpdatePreservesCreator(t *testing.T) {
 func TestViewsAPI_UpdateNotFound(t *testing.T) {
 	resp, err := newViewsTestAPI(t).UpdateView(context.Background(), apigen.UpdateViewRequestObject{
 		ViewId: "missing",
-		Body:   &apigen.ViewSpec{Name: "x", LookbackDays: 3},
+		Body:   &apigen.ViewSpec{Name: "x", IntervalDays: 3},
 	})
 	require.NoError(t, err)
 	_, ok := resp.(apigen.UpdateView404JSONResponse)
@@ -150,7 +150,7 @@ func TestViewsAPI_UpdateNotFound(t *testing.T) {
 func TestViewsAPI_Delete(t *testing.T) {
 	ctx := context.Background()
 	api := newViewsTestAPI(t)
-	created := mustCreateView(t, api, ctx, apigen.ViewSpec{Name: "V", LookbackDays: 3})
+	created := mustCreateView(t, api, ctx, apigen.ViewSpec{Name: "V", IntervalDays: 3})
 
 	resp, err := api.DeleteView(ctx, apigen.DeleteViewRequestObject{ViewId: created.Id})
 	require.NoError(t, err)
@@ -172,7 +172,7 @@ func TestViewsAPI_DeleteNotFound(t *testing.T) {
 
 func TestViewsAPI_RBAC_WriteRequiresDeveloper(t *testing.T) {
 	api := newViewsTestAPI(t, apiv1.WithAuthService(stubAuthService{}))
-	spec := apigen.ViewSpec{Name: "x", LookbackDays: 3}
+	spec := apigen.ViewSpec{Name: "x", IntervalDays: 3}
 
 	viewerCtx := auth.WithUser(context.Background(), &auth.User{Username: "v", Role: auth.RoleViewer})
 	_, err := api.CreateView(viewerCtx, apigen.CreateViewRequestObject{Body: &spec})
