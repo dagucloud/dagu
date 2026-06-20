@@ -631,16 +631,6 @@ export const mainListItems = React.forwardRef<
         </AppBarContext.Consumer>
 
         <div className="space-y-1">
-          <NavItem
-            to="/"
-            text="Overview"
-            icon={<Gauge size={18} />}
-            isOpen={isOpen}
-            onClick={onNavItemClick}
-            customColor={customColor}
-            activePaths={['/', '/dashboard', '/cockpit']}
-          />
-
           {pinnedViews.map((view) => (
             <NavItem
               key={view.id}
@@ -652,6 +642,16 @@ export const mainListItems = React.forwardRef<
               customColor={customColor}
             />
           ))}
+
+          <NavItem
+            to="/"
+            text="Overview"
+            icon={<Gauge size={18} />}
+            isOpen={isOpen}
+            onClick={onNavItemClick}
+            customColor={customColor}
+            activePaths={['/', '/dashboard', '/cockpit']}
+          />
 
           <NavGroup
             groupKey="workflows"
