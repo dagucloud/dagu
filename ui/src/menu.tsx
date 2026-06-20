@@ -27,6 +27,7 @@ import {
   Bell,
   ChevronDown,
   Gauge,
+  LayoutGrid,
   Shield,
   Globe,
   History,
@@ -630,39 +631,27 @@ export const mainListItems = React.forwardRef<
         </AppBarContext.Consumer>
 
         <div className="space-y-1">
-          {pinnedViews.length > 0 ? (
-            <NavGroup
-              groupKey="overview"
-              icon={<Gauge size={18} />}
-              label="Overview"
-              isOpen={isOpen}
-              basePath={['/', '/dashboard', '/cockpit', '/views']}
-              to="/"
-              onClick={onNavItemClick}
-              customColor={customColor}
-            >
-              {pinnedViews.map((view) => (
-                <NavItem
-                  key={view.id}
-                  to={`/views/${view.id}`}
-                  text={view.name}
-                  isOpen={isOpen}
-                  onClick={onNavItemClick}
-                  customColor={customColor}
-                />
-              ))}
-            </NavGroup>
-          ) : (
+          <NavItem
+            to="/"
+            text="Overview"
+            icon={<Gauge size={18} />}
+            isOpen={isOpen}
+            onClick={onNavItemClick}
+            customColor={customColor}
+            activePaths={['/', '/dashboard', '/cockpit']}
+          />
+
+          {pinnedViews.map((view) => (
             <NavItem
-              to="/"
-              text="Overview"
-              icon={<Gauge size={18} />}
+              key={view.id}
+              to={`/views/${view.id}`}
+              text={view.name}
+              icon={<LayoutGrid size={18} />}
               isOpen={isOpen}
               onClick={onNavItemClick}
               customColor={customColor}
-              activePaths={['/', '/dashboard', '/cockpit', '/views']}
             />
-          )}
+          ))}
 
           <NavGroup
             groupKey="workflows"

@@ -403,16 +403,22 @@ describe('sidebar menu', () => {
     );
   });
 
-  it('renders pinned views as Overview sub-items', () => {
+  it('renders pinned views as standalone sidebar links', () => {
     useViewsMock.mockReturnValue({
       views: [{ id: 'v1', name: 'Prod board', pinned: true }],
     });
 
     renderMenu('/');
 
+    // Overview stays a flat link, not an accordion.
     expect(
-      screen.getByRole('button', { name: 'Toggle Overview section' })
-    ).toBeInTheDocument();
+      screen.queryByRole('button', { name: 'Toggle Overview section' })
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Overview' })).toHaveAttribute(
+      'href',
+      '/'
+    );
+    // The pinned view is its own top-level link.
     expect(screen.getByRole('link', { name: 'Prod board' })).toHaveAttribute(
       'href',
       '/views/v1'
