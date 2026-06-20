@@ -11,7 +11,7 @@ step or handler inside that run.
 
 It covers:
 
-- structured built-in context references such as `${run.id}`
+- structured built-in context references such as `${context.run.id}`
 - environment-variable projections such as `DAG_RUN_ID`
 - availability rules for run, attempt, step, handler, trigger, path, profile,
   and push-back context values
@@ -90,138 +90,163 @@ Rules:
 
 ### Structured Reference Syntax
 
-This spec adds target Dagu-owned reference forms:
+This spec adds canonical Dagu-owned reference forms under the `context`
+namespace:
 
 ```text
-${dag.name}
-${run.id}
-${run.status}
-${run.started_at}
-${run.scheduled_at}
-${run.root_name}
-${run.root_id}
-${attempt.id}
-${step.id}
-${step.name}
-${trigger.type}
-${trigger.actor}
-${paths.log_file}
-${paths.work_dir}
-${paths.artifacts_dir}
-${paths.docs_dir}
-${paths.step_stdout_file}
-${paths.step_stderr_file}
-${paths.step_output_file}
-${profile.name}
-${profile.resolved_at}
-${pushback.iteration}
-${pushback.previous_stdout_file}
+${context.dag.name}
+${context.run.id}
+${context.run.status}
+${context.run.scheduled_at}
+${context.run.root_name}
+${context.run.root_id}
+${context.attempt.id}
+${context.attempt.started_at}
+${context.step.id}
+${context.step.name}
+${context.trigger.type}
+${context.trigger.actor}
+${context.paths.log_file}
+${context.paths.work_dir}
+${context.paths.artifacts_dir}
+${context.paths.docs_dir}
+${context.paths.step_stdout_file}
+${context.paths.step_stderr_file}
+${context.paths.step_output_file}
+${context.profile.name}
+${context.profile.resolved_at}
+${context.pushback.iteration}
+${context.pushback.previous_stdout_file}
 ```
 
 Rules:
 
 - These references are Dagu-owned references only in fields that support value
   resolution under Spec 003.
+- `context` is the canonical root namespace for Dagu-managed runtime context.
+  Workflow-authored data remains under its owning namespace, such as `params`,
+  `env`, or `steps`.
 - All structured context references in this spec resolve to scalar string
   values.
 - Object-valued context, such as webhook payload, webhook headers, profile
   entries, and push-back history, is outside this spec's structured string
   references.
-- Unsupported context-looking text is preserved silently as ordinary string
-  content under Spec 003.
+- Unknown fields under reserved context namespaces are preserved at runtime.
+  Explicit inspection surfaces must report an inspection-only passive notice
+  with reason `unknown_context_field`.
+- Unsupported reference-looking text outside reserved context namespaces is
+  preserved silently as ordinary string content under Spec 003.
 - Escaped context-looking text follows Spec 003 escape behavior.
-- `dag`, `run`, `attempt`, `step`, `trigger`, `paths`, `profile`, and
-  `pushback` are reserved context namespaces.
-- A workflow parameter named `run`, `step`, or another context namespace remains
-  addressable through `${params.run}` or `${params.step}`. It must not shadow a
-  context namespace.
+- `context`, `context.dag`, `context.run`, `context.attempt`, `context.step`,
+  `context.trigger`, `context.paths`, `context.profile`, and
+  `context.pushback` are reserved context namespaces.
+- The short top-level namespaces `dag`, `run`, `attempt`, `step`, `trigger`,
+  `paths`, `profile`, and `pushback` are frozen compatibility aliases. New
+  context fields must not be added to those alias namespaces.
+- Only the exact frozen alias forms listed in the compatibility table are
+  Dagu-owned references. Other text under those short roots, such as
+  `${step.xxx.foo}`, is unsupported ordinary string content under Spec 003.
+- A workflow parameter named `context`, `run`, `step`, or another context
+  namespace remains addressable through `${params.context}`, `${params.run}`,
+  or `${params.step}`. It must not shadow a context namespace.
+
+### Namespace Design
+
+The `context` root separates Dagu-managed runtime metadata from
+workflow-authored data. This keeps common top-level names available for future
+workflow-language specs and makes the trust boundary explicit:
+
+- `params`, `env`, and `steps` are workflow-authored or workflow-derived data.
+- `context` is Dagu-managed runtime data.
+- Environment variables are a compatibility projection of selected context
+  values, not the source of truth for structured context references.
 
 ### Namespace Fields
 
-`dag` fields:
+`context.dag` fields:
 
 | Field | Availability | Meaning |
 | --- | --- | --- |
-| `dag.name` | All run, step, and handler scopes | Name of the DAG definition being executed. |
+| `context.dag.name` | All run, step, and handler scopes | Name of the DAG definition being executed. |
 
-`run` fields:
+`context.run` fields:
 
 | Field | Availability | Meaning |
 | --- | --- | --- |
-| `run.id` | All run, step, and handler scopes | Unique identifier for the current DAG run. |
-| `run.status` | Status-aware scopes only | Canonical lowercase run status. |
-| `run.started_at` | After run start is recorded | UTC RFC3339 timestamp for the start of this DAG run attempt. |
-| `run.scheduled_at` | Scheduled, catchup, and one-off scheduled runs only | UTC RFC3339 timestamp for the logical schedule time that caused the run. |
-| `run.root_name` | Sub-DAG runs only | DAG name of the root DAG run. |
-| `run.root_id` | Sub-DAG runs only | DAG-run ID of the root DAG run. |
+| `context.run.id` | All run, step, and handler scopes | Unique identifier for the current DAG run. |
+| `context.run.status` | Status-aware scopes only | Canonical lowercase run status. |
+| `context.run.scheduled_at` | Scheduled, catchup, and one-off scheduled runs only | UTC RFC3339 timestamp for the logical schedule time that caused the run. |
+| `context.run.root_name` | Sub-DAG runs only | DAG name of the root DAG run. |
+| `context.run.root_id` | Sub-DAG runs only | DAG-run ID of the root DAG run. |
 
 Rules:
 
-- `run.id` is the durable identity for a DAG run.
-- `run.scheduled_at` is not a unique run identifier. Scheduled, catchup, and
+- `context.run.id` is the durable identity for a DAG run.
+- `context.run.scheduled_at` is not a unique run identifier. Scheduled, catchup, and
   retry behavior may create multiple runs associated with one logical schedule
-  time. Workflow authors must use `run.id` when they need identity.
-- `run.status` is available in lifecycle handlers and other explicitly
+  time. Workflow authors must use `context.run.id` when they need identity.
+- `context.run.status` is available in lifecycle handlers and other explicitly
   status-aware surfaces. It is unavailable in normal step execution unless an
   owning spec explicitly makes that surface status-aware.
-- Valid `run.status` values are `not_started`, `queued`, `running`,
+- Valid `context.run.status` values are `not_started`, `queued`, `running`,
   `succeeded`, `partially_succeeded`, `failed`, `aborted`, `waiting`,
   `rejected`, and `unknown`.
 
-`attempt` fields:
+`context.attempt` fields:
 
 | Field | Availability | Meaning |
 | --- | --- | --- |
-| `attempt.id` | Attempt-aware run, step, and handler scopes | Identifier for the current DAG-run attempt. |
+| `context.attempt.id` | Attempt-aware run, step, and handler scopes | Identifier for the current DAG-run attempt. |
+| `context.attempt.started_at` | After run-attempt start is recorded | UTC RFC3339 timestamp for the start of this DAG-run attempt. |
 
 Rules:
 
-- `attempt.id` identifies the current attempt for one DAG run.
-- `attempt.id` is not the same as `run.id`.
+- `context.attempt.id` identifies the current attempt for one DAG run.
+- `context.attempt.id` is not the same as `context.run.id`.
 - Step retry attempts are outside this namespace unless a step-retry-owning
   spec adds a separate field.
 
-`step` fields:
+`context.step` fields:
 
 | Field | Availability | Meaning |
 | --- | --- | --- |
-| `step.id` | Current executable step only, when that step has an id | Stable value-reference alias from Spec 009. |
-| `step.name` | Current step or handler only | Runtime step identity for the current step or handler. |
+| `context.step.id` | Current executable step only, when that step has an id | Stable value-reference alias from Spec 009. |
+| `context.step.name` | Current step or handler only | Runtime step identity for the current step or handler. |
 
 Rules:
 
-- `step.name` is the runtime step identity defined by Spec 009.
-- `step.id` is missing when the current executable step has no authored `id`.
-- Handler scopes have `step.name` but do not have `step.id` unless a
+- `context.step.name` is the runtime step identity defined by Spec 009.
+- `context.step.id` is missing when the current executable step has no authored `id`.
+- Handler scopes have `context.step.name` but do not have `context.step.id` unless a
   handler-owning spec defines an id for handlers.
 
-`trigger` fields:
+`context.trigger` fields:
 
 | Field | Availability | Meaning |
 | --- | --- | --- |
-| `trigger.type` | All run, step, and handler scopes when known | Canonical trigger type. |
-| `trigger.actor` | Runs started by an authenticated or attributable actor | Stable actor identifier safe to expose to the workflow. |
+| `context.trigger.type` | All run, step, and handler scopes when known | Canonical trigger type. |
+| `context.trigger.actor` | Runs started by an authenticated or attributable actor | Stable actor identifier safe to expose to the workflow. |
 
 Rules:
 
-- Valid `trigger.type` values are `unknown`, `manual`, `scheduler`,
+- Valid `context.trigger.type` values are `unknown`, `manual`, `scheduler`,
   `webhook`, `subdag`, `retry`, and `catchup`.
-- `trigger.actor` must not contain credentials, bearer tokens, session IDs, or
+- `context.trigger.actor` must not contain credentials, bearer tokens, session IDs, or
   other authenticators.
 - Webhook payload and headers are object-valued trigger context and are exposed
   through compatibility environment variables.
 
-`paths` fields:
+`context.paths` fields:
 
 | Field | Availability | Meaning |
 | --- | --- | --- |
-| `paths.log_file` | All run, step, and handler scopes | Absolute path to the aggregated DAG-run log file. |
-| `paths.work_dir` | When a per-run work directory is available | Absolute path to the per-run work directory. |
-| `paths.artifacts_dir` | When artifact storage is active | Absolute path to the per-run artifacts directory or staging directory. |
-| `paths.docs_dir` | When a per-DAG docs directory is configured | Absolute path to the per-DAG docs directory. |
-| `paths.step_stdout_file` | Current executable step after stream files are assigned | Absolute path to the current step stdout file. |
-| `paths.step_stderr_file` | Current executable step after stream files are assigned | Absolute path to the current step stderr file. |
-| `paths.step_output_file` | Current step attempt after output publication is prepared | Absolute path to the current step output file used by Spec 012. |
+| `context.paths.log_file` | All run, step, and handler scopes | Absolute path to the aggregated DAG-run log file. |
+| `context.paths.work_dir` | When a per-run work directory is available | Absolute path to the per-run work directory. |
+| `context.paths.artifacts_dir` | When artifact storage is active | Absolute path to the per-run artifacts directory or staging directory. |
+| `context.paths.docs_dir` | When a per-DAG docs directory is configured | Absolute path to the per-DAG docs directory. |
+| `context.paths.step_stdout_file` | Current executable step after stream files are assigned | Absolute path to the current step stdout file. |
+| `context.paths.step_stderr_file` | Current executable step after stream files are assigned | Absolute path to the current step stderr file. |
+| `context.paths.step_output_file` | Current step attempt after output publication is prepared | Absolute path to the current step output file used by Spec 012. |
 
 Rules:
 
@@ -231,12 +256,12 @@ Rules:
 - Workflow authors must not infer storage retention, public URL shape, or UI
   availability from a path value.
 
-`profile` fields:
+`context.profile` fields:
 
 | Field | Availability | Meaning |
 | --- | --- | --- |
-| `profile.name` | Runs started with a selected runtime profile | Runtime profile selected for the run. |
-| `profile.resolved_at` | Runs started with a selected runtime profile | UTC RFC3339 timestamp at which the selected profile was resolved. |
+| `context.profile.name` | Runs started with a selected runtime profile | Runtime profile selected for the run. |
+| `context.profile.resolved_at` | Runs started with a selected runtime profile | UTC RFC3339 timestamp at which the selected profile was resolved. |
 
 Rules:
 
@@ -244,12 +269,12 @@ Rules:
 - Profile variables and profile secrets are owned by the runtime-profile and
   secret specs, not by this spec.
 
-`pushback` fields:
+`context.pushback` fields:
 
 | Field | Availability | Meaning |
 | --- | --- | --- |
-| `pushback.iteration` | Steps re-executed after approval push-back | Current push-back iteration as a decimal string. |
-| `pushback.previous_stdout_file` | Rewound steps that had previous stdout | Absolute path to the previous stdout log for the current step. |
+| `context.pushback.iteration` | Steps re-executed after approval push-back | Current push-back iteration as a decimal string. |
+| `context.pushback.previous_stdout_file` | Rewound steps that had previous stdout | Absolute path to the previous stdout log for the current step. |
 
 Rules:
 
@@ -279,12 +304,12 @@ Run-level projection:
 
 | Environment variable | Source | Availability |
 | --- | --- | --- |
-| `DAG_NAME` | `dag.name` | All steps and handlers. |
-| `DAG_RUN_ID` | `run.id` | All steps and handlers. |
-| `DAG_RUN_LOG_FILE` | `paths.log_file` | All steps and handlers. |
-| `DAG_RUN_WORK_DIR` | `paths.work_dir` | When a per-run work directory is available. |
-| `DAG_RUN_ARTIFACTS_DIR` | `paths.artifacts_dir` | When artifact storage is active. |
-| `DAG_DOCS_DIR` | `paths.docs_dir` | When a per-DAG docs directory is configured. |
+| `DAG_NAME` | `context.dag.name` | All steps and handlers. |
+| `DAG_RUN_ID` | `context.run.id` | All steps and handlers. |
+| `DAG_RUN_LOG_FILE` | `context.paths.log_file` | All steps and handlers. |
+| `DAG_RUN_WORK_DIR` | `context.paths.work_dir` | When a per-run work directory is available. |
+| `DAG_RUN_ARTIFACTS_DIR` | `context.paths.artifacts_dir` | When artifact storage is active. |
+| `DAG_DOCS_DIR` | `context.paths.docs_dir` | When a per-DAG docs directory is configured. |
 | `DAG_PARAMS_JSON` | Parameter payload JSON | When resolved parameters exist. |
 | `DAGU_PARAMS_JSON` | Same value as `DAG_PARAMS_JSON` | Compatibility alias when resolved parameters exist. |
 
@@ -293,16 +318,16 @@ Step and handler projection:
 | Environment variable | Source | Availability |
 | --- | --- | --- |
 | `PWD` | Current process working directory | Current step only. |
-| `DAG_RUN_STEP_NAME` | `step.name` | Current step or handler only. |
-| `DAG_RUN_STEP_STDOUT_FILE` | `paths.step_stdout_file` | Current executable step after stream files are assigned. |
-| `DAG_RUN_STEP_STDERR_FILE` | `paths.step_stderr_file` | Current executable step after stream files are assigned. |
-| `DAGU_OUTPUT_FILE` | `paths.step_output_file` | Current step attempt after output publication is prepared. |
+| `DAG_RUN_STEP_NAME` | `context.step.name` | Current step or handler only. |
+| `DAG_RUN_STEP_STDOUT_FILE` | `context.paths.step_stdout_file` | Current executable step after stream files are assigned. |
+| `DAG_RUN_STEP_STDERR_FILE` | `context.paths.step_stderr_file` | Current executable step after stream files are assigned. |
+| `DAGU_OUTPUT_FILE` | `context.paths.step_output_file` | Current step attempt after output publication is prepared. |
 
 Status and wait-handler projection:
 
 | Environment variable | Source | Availability |
 | --- | --- | --- |
-| `DAG_RUN_STATUS` | `run.status` | Lifecycle handlers and status-aware surfaces only. |
+| `DAG_RUN_STATUS` | `context.run.status` | Lifecycle handlers and status-aware surfaces only. |
 | `DAG_WAITING_STEPS` | Waiting step names | Wait handler only. |
 
 Push-back projection:
@@ -310,8 +335,8 @@ Push-back projection:
 | Environment variable | Source | Availability |
 | --- | --- | --- |
 | `DAG_PUSHBACK` | Push-back metadata JSON | Steps re-executed after approval push-back only. |
-| `DAG_PUSHBACK_ITERATION` | `pushback.iteration` | Steps re-executed after approval push-back only. |
-| `DAG_PUSHBACK_PREVIOUS_STDOUT_FILE` | `pushback.previous_stdout_file` | Rewound steps that had previous stdout. |
+| `DAG_PUSHBACK_ITERATION` | `context.pushback.iteration` | Steps re-executed after approval push-back only. |
+| `DAG_PUSHBACK_PREVIOUS_STDOUT_FILE` | `context.pushback.previous_stdout_file` | Rewound steps that had previous stdout. |
 
 Webhook projection:
 
@@ -326,6 +351,9 @@ Rules:
   environment values.
 - They are not protected Dagu-managed environment names under Spec 006.
 - They follow Spec 006 runtime-param precedence after parameter resolution.
+- They are untrusted trigger input. They must not carry credentials,
+  authorization headers, cookies, or values used by Dagu itself for
+  authorization decisions.
 - When a DAG explicitly declares either name as a runtime parameter, that name
   behaves as a normal user parameter for that DAG.
 - When a webhook trigger supplies either name and the DAG does not declare it
@@ -366,6 +394,8 @@ Validation rules:
   unavailable during validation.
 - Explicit inspection surfaces must report passive notices for unresolved
   supported structured context references.
+- Explicit inspection surfaces must report passive notices with reason
+  `unknown_context_field` for unknown fields under reserved context namespaces.
 - Normal run execution must not emit passive value-reference notices as run
   logs, workflow events, status data, history data, artifacts, or DAG-run detail
   data.
@@ -385,6 +415,10 @@ Rules:
   variables explicitly owned by secret or profile specs.
 - A context reference that resolves to a string must not be shell-escaped by
   Dagu. Shell-backed fields follow the quoting rules in Spec 013.
+- Projected environment variables are not authenticators, trusted audit facts,
+  or Dagu-internal authority. Dagu internals must use structured runtime
+  context, not process environment values, for authorization, identity, status,
+  output-file routing, or audit decisions.
 
 ### Compatibility
 
@@ -395,9 +429,43 @@ Rules:
 - `DAGU_PARAMS_JSON` remains a compatibility alias with the same value whenever
   `DAG_PARAMS_JSON` is set.
 - New structured context fields must be additive.
+- New structured context fields must be added under `context.*`.
+- Short top-level aliases are frozen. They remain supported for the exact fields
+  listed below, but they are not canonical and must not receive new fields.
 - New environment projection variables should be added only when a value is
   broadly useful to shell scripts and cannot reasonably be represented as a
   structured reference or an existing compatibility variable.
+- New environment projection variables should prefer the `DAGU_` prefix unless
+  an owning spec explicitly extends an existing compatibility family such as
+  `DAG_` or `WEBHOOK_`.
+
+Frozen structured-reference aliases:
+
+| Compatibility alias | Canonical reference |
+| --- | --- |
+| `dag.name` | `context.dag.name` |
+| `run.id` | `context.run.id` |
+| `run.status` | `context.run.status` |
+| `run.started_at` | `context.attempt.started_at` |
+| `run.scheduled_at` | `context.run.scheduled_at` |
+| `run.root_name` | `context.run.root_name` |
+| `run.root_id` | `context.run.root_id` |
+| `attempt.id` | `context.attempt.id` |
+| `step.id` | `context.step.id` |
+| `step.name` | `context.step.name` |
+| `trigger.type` | `context.trigger.type` |
+| `trigger.actor` | `context.trigger.actor` |
+| `paths.log_file` | `context.paths.log_file` |
+| `paths.work_dir` | `context.paths.work_dir` |
+| `paths.artifacts_dir` | `context.paths.artifacts_dir` |
+| `paths.docs_dir` | `context.paths.docs_dir` |
+| `paths.step_stdout_file` | `context.paths.step_stdout_file` |
+| `paths.step_stderr_file` | `context.paths.step_stderr_file` |
+| `paths.step_output_file` | `context.paths.step_output_file` |
+| `profile.name` | `context.profile.name` |
+| `profile.resolved_at` | `context.profile.resolved_at` |
+| `pushback.iteration` | `context.pushback.iteration` |
+| `pushback.previous_stdout_file` | `context.pushback.previous_stdout_file` |
 
 ## Errors
 
@@ -422,6 +490,8 @@ Runtime must preserve the original reference text when:
 - a supported structured context reference is unavailable because an optional
   feature, such as artifacts, docs, profile, webhook, or push-back, is not
   active for this run.
+- a reserved context reference names an unknown field. Inspection surfaces
+  report `unknown_context_field`, but normal runtime surfaces stay silent.
 
 ## Examples
 
@@ -430,7 +500,7 @@ Use stable run identity in a notification:
 ```yaml
 steps:
   - id: notify
-    run: notify.sh '${dag.name}' '${run.id}'
+    run: notify.sh '${context.dag.name}' '${context.run.id}'
 ```
 
 Use a per-run work directory when it is available:
@@ -439,8 +509,8 @@ Use a per-run work directory when it is available:
 steps:
   - id: write_scratch
     run: |
-      mkdir -p '${paths.work_dir}'
-      printf '%s\n' '${run.id}' > '${paths.work_dir}/run-id.txt'
+      mkdir -p '${context.paths.work_dir}'
+      printf '%s\n' '${context.run.id}' > '${context.paths.work_dir}/run-id.txt'
 ```
 
 Use handler-only run status:
@@ -448,7 +518,7 @@ Use handler-only run status:
 ```yaml
 handler_on:
   exit:
-    run: notify.sh '${dag.name}' '${run.id}' '${run.status}'
+    run: notify.sh '${context.dag.name}' '${context.run.id}' '${context.run.status}'
 ```
 
 Unsupported normal-step status reference is preserved until a status-aware
@@ -457,8 +527,8 @@ surface owns it:
 ```yaml
 steps:
   - id: print_status
-    run: printf '%s\n' '${run.status}'
+    run: printf '%s\n' '${context.run.status}'
 ```
 
-In a normal step, `run.status` is unavailable. Dagu preserves the reference text
-and hands it to the selected shell according to Spec 013.
+In a normal step, `context.run.status` is unavailable. Dagu preserves the
+reference text and hands it to the selected shell according to Spec 013.

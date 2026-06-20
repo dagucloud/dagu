@@ -8,7 +8,8 @@ import "maps"
 type Values map[string]any
 
 // BuiltinContext contains scalar Dagu-managed context values for strict
-// value references such as ${run.id} and ${paths.log_file}.
+// value references such as ${context.run.id} and compatibility aliases such as
+// ${run.id}.
 type BuiltinContext struct {
 	values map[string]string
 }
@@ -28,8 +29,18 @@ func (c BuiltinContext) Value(path string) (string, bool) {
 	if len(c.values) == 0 {
 		return "", false
 	}
-	value, ok := c.values[path]
-	return value, ok
+	canonical, ok := canonicalBuiltinContextPath(path)
+	if !ok {
+		canonical = path
+	}
+	if value, ok := c.values[canonical]; ok {
+		return value, true
+	}
+	if legacy, ok := legacyBuiltinContextPath(canonical); ok {
+		value, ok := c.values[legacy]
+		return value, ok
+	}
+	return "", false
 }
 
 // StaticScope contains declarations and contracts used by static validation.

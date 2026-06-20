@@ -1,38 +1,38 @@
 name: builtin_runtime_context
 working_dir: .
 env:
-  - RUN_ENV=${run.id}
+  - RUN_ENV=${context.run.id}
 steps:
   - id: capture
     run: |
-      case '${run.started_at}' in
+      case '${context.attempt.started_at}' in
         ????-??-??T??:??:??Z) ;;
-        *) printf 'bad started_at=%s\n' '${run.started_at}' >&2; exit 1 ;;
+        *) printf 'bad started_at=%s\n' '${context.attempt.started_at}' >&2; exit 1 ;;
       esac
-      if [ -z '${attempt.id}' ]; then
+      if [ -z '${context.attempt.id}' ]; then
         printf 'attempt id missing\n' >&2
         exit 1
       fi
-      if [ '${attempt.id}' = '${run.id}' ]; then
+      if [ '${context.attempt.id}' = '${context.run.id}' ]; then
         printf 'attempt matched run id\n' >&2
         exit 1
       fi
-      test -f '${paths.log_file}'
-      test -d '${paths.work_dir}'
-      printf 'dag=%s\n' '${dag.name}' > run-context.txt
-      printf 'run=%s\n' '${run.id}' >> run-context.txt
-      printf 'root_name=%s\n' '${run.root_name}' >> run-context.txt
-      printf 'root_id=%s\n' '${run.root_id}' >> run-context.txt
+      test -f '${context.paths.log_file}'
+      test -d '${context.paths.work_dir}'
+      printf 'dag=%s\n' '${context.dag.name}' > run-context.txt
+      printf 'run=%s\n' '${context.run.id}' >> run-context.txt
+      printf 'root_name=%s\n' '${context.run.root_name}' >> run-context.txt
+      printf 'root_id=%s\n' '${context.run.root_id}' >> run-context.txt
       printf 'root_env=%s\n' "$RUN_ENV" >> run-context.txt
-      printf 'trigger=%s\n' '${trigger.type}' >> run-context.txt
-      printf 'scheduled=%s\n' '${run.scheduled_at}' >> run-context.txt
-      printf 'started=%s\n' '${run.started_at}' >> run-context.txt
-      printf 'attempt=%s\n' '${attempt.id}' >> run-context.txt
-      printf 'step_id=%s\n' '${step.id}' >> run-context.txt
-      printf 'step_name=%s\n' '${step.name}' >> run-context.txt
+      printf 'trigger=%s\n' '${context.trigger.type}' >> run-context.txt
+      printf 'scheduled=%s\n' '${context.run.scheduled_at}' >> run-context.txt
+      printf 'started=%s\n' '${context.attempt.started_at}' >> run-context.txt
+      printf 'attempt=%s\n' '${context.attempt.id}' >> run-context.txt
+      printf 'step_id=%s\n' '${context.step.id}' >> run-context.txt
+      printf 'step_name=%s\n' '${context.step.name}' >> run-context.txt
       printf 'env_run=%s\n' "$DAG_RUN_ID" >> run-context.txt
       printf 'env_step=%s\n' "$DAG_RUN_STEP_NAME" >> run-context.txt
-      printf 'stdout=%s\n' '${paths.step_stdout_file}' >> run-context.txt
-      printf 'stderr=%s\n' '${paths.step_stderr_file}' >> run-context.txt
-      printf 'output=%s\n' '${paths.step_output_file}' >> run-context.txt
+      printf 'stdout=%s\n' '${context.paths.step_stdout_file}' >> run-context.txt
+      printf 'stderr=%s\n' '${context.paths.step_stderr_file}' >> run-context.txt
+      printf 'output=%s\n' '${context.paths.step_output_file}' >> run-context.txt
       printf 'paths_ready=yes\n' >> run-context.txt

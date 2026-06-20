@@ -212,13 +212,13 @@ func reportEnvValueReferenceNotices(
 func noticeBuiltinContext(dagName, stepName, stepID string) cmnvalue.BuiltinContext {
 	values := make(map[string]string)
 	if dagName != "" {
-		values["dag.name"] = dagName
+		values["context.dag.name"] = dagName
 	}
 	if stepName != "" {
-		values["step.name"] = stepName
+		values["context.step.name"] = stepName
 	}
 	if stepID != "" {
-		values["step.id"] = stepID
+		values["context.step.id"] = stepID
 	}
 	return cmnvalue.NewBuiltinContext(values)
 }

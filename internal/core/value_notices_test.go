@@ -20,7 +20,7 @@ func TestReportValueReferenceNoticesForBuiltInRunContext(t *testing.T) {
 		Steps: []core.Step{{
 			ID:     "build-id",
 			Name:   "build",
-			Script: "printf '%s\\n' '${dag.name}' '${step.id}' '${step.name}' '${run.status}' '${paths.context}'",
+			Script: "printf '%s\\n' '${context.dag.name}' '${context.step.id}' '${context.step.name}' '${context.run.status}' '${context.paths.context}'",
 		}},
 	}
 
@@ -28,7 +28,11 @@ func TestReportValueReferenceNoticesForBuiltInRunContext(t *testing.T) {
 	core.ReportValueReferenceNotices(dag, &collector)
 
 	notices := collector.Notices()
-	require.Len(t, notices, 1)
+	require.Len(t, notices, 2)
 	assert.Equal(t, "steps[0].run", notices[0].FieldPath)
-	assert.Equal(t, "${run.status}", notices[0].Token)
+	assert.Equal(t, "${context.run.status}", notices[0].Token)
+	assert.Equal(t, cmnvalue.ValueReferenceReasonNamespaceUnavailable, notices[0].Reason)
+	assert.Equal(t, "steps[0].run", notices[1].FieldPath)
+	assert.Equal(t, "${context.paths.context}", notices[1].Token)
+	assert.Equal(t, cmnvalue.ValueReferenceReasonUnknownContextField, notices[1].Reason)
 }

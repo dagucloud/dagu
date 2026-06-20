@@ -55,7 +55,7 @@ func TestResolveStringBuiltInRunContext(t *testing.T) {
 	}, cmnvalue.EnvSourceStepEnv)
 	ctx = runtime.WithEnv(ctx, env)
 
-	got, err := runtime.ResolveString(ctx, "${dag.name}|${run.id}|${run.status}|${run.started_at}|${run.scheduled_at}|${run.root_name}|${run.root_id}|${attempt.id}|${step.id}|${step.name}|${trigger.type}|${paths.log_file}|${paths.work_dir}|${paths.artifacts_dir}|${paths.docs_dir}|${paths.step_stdout_file}|${paths.step_stderr_file}|${paths.step_output_file}|${profile.name}|${profile.resolved_at}|${pushback.iteration}|${pushback.previous_stdout_file}", cmnvalue.WorkflowField("run"))
+	got, err := runtime.ResolveString(ctx, "${context.dag.name}|${context.run.id}|${context.run.status}|${context.attempt.started_at}|${context.run.scheduled_at}|${context.run.root_name}|${context.run.root_id}|${context.attempt.id}|${context.step.id}|${context.step.name}|${context.trigger.type}|${context.paths.log_file}|${context.paths.work_dir}|${context.paths.artifacts_dir}|${context.paths.docs_dir}|${context.paths.step_stdout_file}|${context.paths.step_stderr_file}|${context.paths.step_output_file}|${context.profile.name}|${context.profile.resolved_at}|${context.pushback.iteration}|${context.pushback.previous_stdout_file}", cmnvalue.WorkflowField("run"))
 	require.NoError(t, err)
 
 	expected := "child|run-1|succeeded|" + startedAt + "|" + scheduledAt + "|root|root-run-1|attempt-1|build-id|build|scheduler|" +
@@ -74,8 +74,24 @@ func TestResolveStringUnavailableBuiltInRunContextStaysLiteral(t *testing.T) {
 	env := runtime.NewEnv(ctx, core.Step{Name: "step"})
 	ctx = runtime.WithEnv(ctx, env)
 
-	input := "${run.status} ${run.root_name} ${run.root_id} ${trigger.actor} ${profile.name} ${pushback.iteration}"
+	input := "${context.run.status} ${context.run.root_name} ${context.run.root_id} ${context.trigger.actor} ${context.profile.name} ${context.pushback.iteration}"
 	got, err := runtime.ResolveString(ctx, input, cmnvalue.WorkflowField("run"))
 	require.NoError(t, err)
 	assert.Equal(t, input, got)
+}
+
+func TestResolveStringLegacyBuiltInRunContextAliases(t *testing.T) {
+	t.Parallel()
+
+	ctx := runtime.NewContext(context.Background(), &core.DAG{Name: "test"}, "run-1", "dag.log",
+		runtime.WithAttemptID("attempt-1"),
+		runtime.WithRunStartedAt("2026-03-13T10:00:01Z"),
+		runtime.WithWorkDir(t.TempDir()),
+	)
+	env := runtime.NewEnv(ctx, core.Step{Name: "step"})
+	ctx = runtime.WithEnv(ctx, env)
+
+	got, err := runtime.ResolveString(ctx, "${dag.name}|${run.id}|${run.started_at}|${attempt.id}|${step.name}", cmnvalue.WorkflowField("run"))
+	require.NoError(t, err)
+	assert.Equal(t, "test|run-1|2026-03-13T10:00:01Z|attempt-1|step", got)
 }

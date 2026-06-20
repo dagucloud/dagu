@@ -1,0 +1,10 @@
+name: builtin_legacy_context_aliases
+working_dir: .
+steps:
+  - id: capture
+    run: |
+      printf 'dag=%s\n' '${dag.name}' > legacy-context-aliases.txt
+      printf 'run=%s\n' '${run.id}' >> legacy-context-aliases.txt
+      printf 'started=%s\n' '${run.started_at}' >> legacy-context-aliases.txt
+      printf 'attempt=%s\n' '${attempt.id}' >> legacy-context-aliases.txt
+      printf 'step=%s\n' '${step.name}' >> legacy-context-aliases.txt

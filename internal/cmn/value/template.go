@@ -21,30 +21,64 @@ var (
 )
 
 var supportedBuiltinContextBindings = map[string]struct{}{
-	"dag.name":                      {},
-	"run.id":                        {},
-	"run.status":                    {},
-	"run.started_at":                {},
-	"run.scheduled_at":              {},
-	"run.root_name":                 {},
-	"run.root_id":                   {},
-	"attempt.id":                    {},
-	"step.id":                       {},
-	"step.name":                     {},
-	"trigger.type":                  {},
-	"trigger.actor":                 {},
-	"paths.log_file":                {},
-	"paths.work_dir":                {},
-	"paths.artifacts_dir":           {},
-	"paths.docs_dir":                {},
-	"paths.step_stdout_file":        {},
-	"paths.step_stderr_file":        {},
-	"paths.step_output_file":        {},
-	"profile.name":                  {},
-	"profile.resolved_at":           {},
-	"pushback.iteration":            {},
-	"pushback.previous_stdout_file": {},
+	"context.dag.name":                      {},
+	"context.run.id":                        {},
+	"context.run.status":                    {},
+	"context.run.scheduled_at":              {},
+	"context.run.root_name":                 {},
+	"context.run.root_id":                   {},
+	"context.attempt.id":                    {},
+	"context.attempt.started_at":            {},
+	"context.step.id":                       {},
+	"context.step.name":                     {},
+	"context.trigger.type":                  {},
+	"context.trigger.actor":                 {},
+	"context.paths.log_file":                {},
+	"context.paths.work_dir":                {},
+	"context.paths.artifacts_dir":           {},
+	"context.paths.docs_dir":                {},
+	"context.paths.step_stdout_file":        {},
+	"context.paths.step_stderr_file":        {},
+	"context.paths.step_output_file":        {},
+	"context.profile.name":                  {},
+	"context.profile.resolved_at":           {},
+	"context.pushback.iteration":            {},
+	"context.pushback.previous_stdout_file": {},
 }
+
+var legacyBuiltinContextAliases = map[string]string{
+	"dag.name":                      "context.dag.name",
+	"run.id":                        "context.run.id",
+	"run.status":                    "context.run.status",
+	"run.started_at":                "context.attempt.started_at",
+	"run.scheduled_at":              "context.run.scheduled_at",
+	"run.root_name":                 "context.run.root_name",
+	"run.root_id":                   "context.run.root_id",
+	"attempt.id":                    "context.attempt.id",
+	"step.id":                       "context.step.id",
+	"step.name":                     "context.step.name",
+	"trigger.type":                  "context.trigger.type",
+	"trigger.actor":                 "context.trigger.actor",
+	"paths.log_file":                "context.paths.log_file",
+	"paths.work_dir":                "context.paths.work_dir",
+	"paths.artifacts_dir":           "context.paths.artifacts_dir",
+	"paths.docs_dir":                "context.paths.docs_dir",
+	"paths.step_stdout_file":        "context.paths.step_stdout_file",
+	"paths.step_stderr_file":        "context.paths.step_stderr_file",
+	"paths.step_output_file":        "context.paths.step_output_file",
+	"profile.name":                  "context.profile.name",
+	"profile.resolved_at":           "context.profile.resolved_at",
+	"pushback.iteration":            "context.pushback.iteration",
+	"pushback.previous_stdout_file": "context.pushback.previous_stdout_file",
+}
+
+var legacyBuiltinContextAliasesByCanonical = func() map[string]string {
+	aliases := make(map[string]string, len(legacyBuiltinContextAliases))
+	for legacy, canonical := range legacyBuiltinContextAliases {
+		aliases[canonical] = legacy
+	}
+	return aliases
+}()
 
 type template struct{ source string }
 
@@ -239,7 +273,8 @@ func walkBindings(input string, visit func(token, path string) (string, error)) 
 	last := 0
 	for _, loc := range bindingRefPattern.FindAllStringSubmatchIndex(input, -1) {
 		path := strings.TrimSpace(input[loc[2]:loc[3]])
-		if !supportedStrictBinding(strings.Split(path, ".")) {
+		segments := strings.Split(path, ".")
+		if !supportedStrictBinding(segments) && !reservedBuiltinContextReference(segments) {
 			continue
 		}
 		if isEscapedDollar(input, loc[0]) {
@@ -263,6 +298,12 @@ func walkBindings(input string, visit func(token, path string) (string, error)) 
 func bindingValue(ctx context.Context, path string, scope RuntimeScope, requireValue bool) (any, error) {
 	segments := strings.Split(path, ".")
 	if !supportedStrictBinding(segments) {
+		if reservedBuiltinContextReference(segments) {
+			return nil, newNoticeReasonError(
+				ValueReferenceReasonUnknownContextField,
+				fmt.Sprintf("unknown context field %s", path),
+			)
+		}
 		return nil, nil
 	}
 	switch segments[0] {
@@ -274,7 +315,7 @@ func bindingValue(ctx context.Context, path string, scope RuntimeScope, requireV
 		return bindingEnvValue(segments[1], scope.Env, requireValue)
 	case "steps":
 		return bindingStepOutputValue(ctx, segments, scope.Steps, requireValue)
-	case "dag", "run", "attempt", "step", "trigger", "paths", "profile", "pushback":
+	case "context", "dag", "run", "attempt", "step", "trigger", "paths", "profile", "pushback":
 		return bindingBuiltinContextValue(path, scope.BuiltinContext, requireValue)
 	default:
 		return nil, nil
@@ -288,7 +329,10 @@ func bindingBuiltinContextValue(path string, builtins BuiltinContext, requireVal
 	if !requireValue {
 		return nil, nil
 	}
-	return nil, fmt.Errorf("%s is unavailable in this context", path)
+	return nil, newNoticeReasonError(
+		ValueReferenceReasonNamespaceUnavailable,
+		fmt.Sprintf("%s is unavailable in this context", path),
+	)
 }
 
 func bindingStepOutputValue(ctx context.Context, segments []string, steps map[string]StepInfo, requireValue bool) (any, error) {
@@ -348,15 +392,53 @@ func supportedStrictBinding(segments []string) bool {
 			return false
 		}
 		return validOutputPathSegment(segments[3])
-	case "dag", "run", "attempt", "step", "trigger", "paths", "profile", "pushback":
-		if len(segments) != 2 {
+	case "context":
+		if len(segments) != 3 {
 			return false
 		}
 		_, ok := supportedBuiltinContextBindings[strings.Join(segments, ".")]
 		return ok
+	case "dag", "run", "attempt", "step", "trigger", "paths", "profile", "pushback":
+		if len(segments) != 2 {
+			return false
+		}
+		_, ok := legacyBuiltinContextAliases[strings.Join(segments, ".")]
+		return ok
 	default:
 		return false
 	}
+}
+
+func canonicalBuiltinContextPath(path string) (string, bool) {
+	if _, ok := supportedBuiltinContextBindings[path]; ok {
+		return path, true
+	}
+	canonical, ok := legacyBuiltinContextAliases[path]
+	return canonical, ok
+}
+
+func legacyBuiltinContextPath(path string) (string, bool) {
+	legacy, ok := legacyBuiltinContextAliasesByCanonical[path]
+	return legacy, ok
+}
+
+func reservedBuiltinContextReference(segments []string) bool {
+	if len(segments) < 2 || !validBuiltinContextSegments(segments) {
+		return false
+	}
+	if segments[0] == "context" {
+		return true
+	}
+	return false
+}
+
+func validBuiltinContextSegments(segments []string) bool {
+	for _, segment := range segments {
+		if !bindingNamePattern.MatchString(segment) {
+			return false
+		}
+	}
+	return true
 }
 
 func formatBindingValue(value any) string {

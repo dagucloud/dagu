@@ -19586,7 +19586,8 @@ export enum ValueReferenceNoticeReason {
     unknown_output_name = "unknown_output_name",
     missing_dependency = "missing_dependency",
     self_reference = "self_reference",
-    namespace_unavailable = "namespace_unavailable"
+    namespace_unavailable = "namespace_unavailable",
+    unknown_context_field = "unknown_context_field"
 }
 export enum ParamDefType {
     string = "string",

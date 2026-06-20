@@ -343,20 +343,20 @@ func TestNewContext_DAGEnvCanReferenceBuiltInRunContext(t *testing.T) {
 	dag := &core.DAG{
 		Name: "daily",
 		Env: []string{
-			"DAG_REF=${dag.name}",
-			"RUN_REF=${run.id}",
-			"ATTEMPT_REF=${attempt.id}",
-			"TRIGGER_REF=${trigger.type}",
-			"TRIGGER_ACTOR_REF=${trigger.actor}",
-			"STARTED_REF=${run.started_at}",
-			"SCHEDULED_REF=${run.scheduled_at}",
-			"ROOT_NAME_REF=${run.root_name}",
-			"ROOT_ID_REF=${run.root_id}",
-			"LOG_REF=${paths.log_file}",
-			"WORK_REF=${paths.work_dir}",
-			"ARTIFACT_REF=${paths.artifacts_dir}",
-			"PROFILE_REF=${profile.name}",
-			"PROFILE_AT_REF=${profile.resolved_at}",
+			"DAG_REF=${context.dag.name}",
+			"RUN_REF=${context.run.id}",
+			"ATTEMPT_REF=${context.attempt.id}",
+			"TRIGGER_REF=${context.trigger.type}",
+			"TRIGGER_ACTOR_REF=${context.trigger.actor}",
+			"STARTED_REF=${context.attempt.started_at}",
+			"SCHEDULED_REF=${context.run.scheduled_at}",
+			"ROOT_NAME_REF=${context.run.root_name}",
+			"ROOT_ID_REF=${context.run.root_id}",
+			"LOG_REF=${context.paths.log_file}",
+			"WORK_REF=${context.paths.work_dir}",
+			"ARTIFACT_REF=${context.paths.artifacts_dir}",
+			"PROFILE_REF=${context.profile.name}",
+			"PROFILE_AT_REF=${context.profile.resolved_at}",
 		},
 	}
 
@@ -395,8 +395,8 @@ func TestNewContext_DAGEnvDoesNotExposeRootFieldsForRootRun(t *testing.T) {
 	dag := &core.DAG{
 		Name: "root",
 		Env: []string{
-			"ROOT_NAME_REF=${run.root_name}",
-			"ROOT_ID_REF=${run.root_id}",
+			"ROOT_NAME_REF=${context.run.root_name}",
+			"ROOT_ID_REF=${context.run.root_id}",
 		},
 	}
 
@@ -405,8 +405,8 @@ func TestNewContext_DAGEnvDoesNotExposeRootFieldsForRootRun(t *testing.T) {
 	)
 
 	envs := exec.GetContext(ctx).UserEnvsMap()
-	assert.Equal(t, "${run.root_name}", envs["ROOT_NAME_REF"])
-	assert.Equal(t, "${run.root_id}", envs["ROOT_ID_REF"])
+	assert.Equal(t, "${context.run.root_name}", envs["ROOT_NAME_REF"])
+	assert.Equal(t, "${context.run.root_id}", envs["ROOT_ID_REF"])
 }
 
 func TestNewContext_DAGEnvUsesRuntimeParamsOption(t *testing.T) {

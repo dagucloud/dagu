@@ -551,24 +551,24 @@ func buildDAGRunBuiltinContext(
 ) cmnvalue.BuiltinContext {
 	values := make(map[string]string)
 	if dag != nil && dag.Name != "" {
-		values["dag.name"] = dag.Name
+		values["context.dag.name"] = dag.Name
 	}
-	addDAGRunBuiltinValue(values, "run.id", dagRunID)
-	addDAGRunBuiltinValue(values, "run.started_at", options.runStartedAt)
-	addDAGRunBuiltinValue(values, "run.scheduled_at", options.scheduleTime)
+	addDAGRunBuiltinValue(values, "context.run.id", dagRunID)
+	addDAGRunBuiltinValue(values, "context.attempt.started_at", options.runStartedAt)
+	addDAGRunBuiltinValue(values, "context.run.scheduled_at", options.scheduleTime)
 	if rootDAGRunContextAvailable(options.rootDAGRun, dag, dagRunID) {
-		addDAGRunBuiltinValue(values, "run.root_name", options.rootDAGRun.Name)
-		addDAGRunBuiltinValue(values, "run.root_id", options.rootDAGRun.ID)
+		addDAGRunBuiltinValue(values, "context.run.root_name", options.rootDAGRun.Name)
+		addDAGRunBuiltinValue(values, "context.run.root_id", options.rootDAGRun.ID)
 	}
-	addDAGRunBuiltinValue(values, "attempt.id", options.attemptID)
-	addDAGRunBuiltinValue(values, "trigger.type", options.triggerType.String())
-	addDAGRunBuiltinValue(values, "trigger.actor", options.triggerActor)
-	addDAGRunBuiltinValue(values, "paths.log_file", managedEnvs[EnvKeyDAGRunLogFile])
-	addDAGRunBuiltinValue(values, "paths.work_dir", managedEnvs[EnvKeyDAGRunWorkDir])
-	addDAGRunBuiltinValue(values, "paths.artifacts_dir", managedEnvs[EnvKeyDAGRunArtifactsDir])
-	addDAGRunBuiltinValue(values, "paths.docs_dir", managedEnvs[EnvKeyDAGDocsDir])
-	addDAGRunBuiltinValue(values, "profile.name", options.profileName)
-	addDAGRunBuiltinValue(values, "profile.resolved_at", options.profileResolvedAt)
+	addDAGRunBuiltinValue(values, "context.attempt.id", options.attemptID)
+	addDAGRunBuiltinValue(values, "context.trigger.type", options.triggerType.String())
+	addDAGRunBuiltinValue(values, "context.trigger.actor", options.triggerActor)
+	addDAGRunBuiltinValue(values, "context.paths.log_file", managedEnvs[EnvKeyDAGRunLogFile])
+	addDAGRunBuiltinValue(values, "context.paths.work_dir", managedEnvs[EnvKeyDAGRunWorkDir])
+	addDAGRunBuiltinValue(values, "context.paths.artifacts_dir", managedEnvs[EnvKeyDAGRunArtifactsDir])
+	addDAGRunBuiltinValue(values, "context.paths.docs_dir", managedEnvs[EnvKeyDAGDocsDir])
+	addDAGRunBuiltinValue(values, "context.profile.name", options.profileName)
+	addDAGRunBuiltinValue(values, "context.profile.resolved_at", options.profileResolvedAt)
 	return cmnvalue.NewBuiltinContext(values)
 }
 

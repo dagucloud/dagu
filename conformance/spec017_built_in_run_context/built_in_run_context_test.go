@@ -17,19 +17,22 @@ func TestValidateBuiltInRunContextNotices(t *testing.T) {
 	result.ExpectExitCode(0)
 	result.ExpectStdout("")
 	result.ExpectStderrContains(
-		"${run.id}",
-		"${attempt.id}",
-		"${run.status}",
-		"${trigger.actor}",
-		"${profile.name}",
-		"${pushback.iteration}",
+		"${context.run.id}",
+		"${context.attempt.id}",
+		"${context.run.status}",
+		"${context.trigger.actor}",
+		"${context.profile.name}",
+		"${context.pushback.iteration}",
+		"reason=namespace_unavailable",
+		"${context.paths.context}",
+		"${context.trigger.payload}",
+		"${context.run.foo}",
+		"${context.run.id.extra}",
+		"reason=unknown_context_field",
 		"was left unchanged",
 	)
 	result.ExpectStderrNotContains(
-		"${paths.context}",
-		"${trigger.payload}",
-		"${run.foo}",
-		"${run.id.extra}",
+		"${unrelated.context}",
 	)
 	dagu.ExpectNoFile("validation-notices.txt")
 }
@@ -50,8 +53,8 @@ func TestRuntimeBuiltInRunContext(t *testing.T) {
 		"run-context.txt",
 		"dag=builtin_runtime_context",
 		"run=spec017-run",
-		"root_name=${run.root_name}",
-		"root_id=${run.root_id}",
+		"root_name=${context.run.root_name}",
+		"root_id=${context.run.root_id}",
 		"root_env=spec017-run",
 		"trigger=scheduler",
 		"scheduled=2026-03-13T01:00:00Z",
@@ -64,11 +67,35 @@ func TestRuntimeBuiltInRunContext(t *testing.T) {
 	)
 	dagu.ExpectFileNotContains(
 		"run-context.txt",
-		"${attempt.id}",
+		"${context.attempt.id}",
+		"${context.attempt.started_at}",
+		"${context.paths.step_stdout_file}",
+		"${context.paths.step_stderr_file}",
+		"${context.paths.step_output_file}",
+	)
+}
+
+func TestLegacyBuiltInRunContextAliases(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.Run("start", "--run-id=spec017-legacy", "legacy_aliases.yaml")
+	result.ExpectExitCode(0)
+	dagu.ExpectFileContains(
+		"legacy-context-aliases.txt",
+		"dag=builtin_legacy_context_aliases",
+		"run=spec017-legacy",
+		"started=",
+		"attempt=",
+		"step=capture",
+	)
+	dagu.ExpectFileNotContains(
+		"legacy-context-aliases.txt",
+		"${dag.name}",
+		"${run.id}",
 		"${run.started_at}",
-		"${paths.step_stdout_file}",
-		"${paths.step_stderr_file}",
-		"${paths.step_output_file}",
+		"${attempt.id}",
+		"${step.name}",
 	)
 }
 
@@ -83,18 +110,18 @@ func TestHandlerBuiltInRunContext(t *testing.T) {
 		"status=succeeded",
 		"env_status=succeeded",
 		"run=spec017-handler",
-		"stdout=${paths.step_stdout_file}",
-		"stderr=${paths.step_stderr_file}",
+		"stdout=${context.paths.step_stdout_file}",
+		"stderr=${context.paths.step_stderr_file}",
 		"env_stdout=UNSET",
 		"env_stderr=UNSET",
 	)
 	dagu.ExpectFileNotContains(
 		"handler-context.txt",
-		"${run.status}",
+		"${context.run.status}",
 	)
 }
 
-func TestUnsupportedContextLookingTextStaysSilent(t *testing.T) {
+func TestUnknownContextFieldsStaySilentAtRuntime(t *testing.T) {
 	t.Parallel()
 
 	dagu := harness.NewRunner(t)
@@ -103,6 +130,6 @@ func TestUnsupportedContextLookingTextStaysSilent(t *testing.T) {
 	result.ExpectStderrNotContains("was left unchanged")
 	dagu.ExpectFileContent(
 		"unsupported-context.txt",
-		"${paths.context}\n${trigger.payload}\n${run.foo}\n${run.id.extra}\n",
+		"${context.paths.context}\n${context.trigger.payload}\n${context.run.foo}\n${context.run.id.extra}\n${unrelated.context}\n",
 	)
 }
