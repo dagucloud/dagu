@@ -203,12 +203,13 @@ function DAGRunDetailsPanel({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto min-h-0">
+        <div className="min-h-0 flex-1 overflow-hidden">
           <DAGRunDetailsContent
             name={name}
             dagRun={dagRunDetails}
             refreshFn={refreshFn}
             dagRunId={dagRunId}
+            fillHeight
           />
         </div>
       </div>

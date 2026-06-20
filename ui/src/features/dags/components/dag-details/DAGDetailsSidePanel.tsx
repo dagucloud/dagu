@@ -322,6 +322,12 @@ function DAGDetailsSidePanel({
     'fixed top-0 bottom-0 right-0 md:w-3/4 w-full h-screen bg-background border-l border-border z-50 overflow-y-auto transition-all duration-200 ease-out',
     isVisible ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'
   );
+  const contentClassName = cn(
+    'min-h-0 flex-1 pr-4',
+    activeTab === 'status'
+      ? 'overflow-hidden'
+      : 'overflow-y-auto overflow-x-hidden'
+  );
 
   const panel = (
     <>
@@ -370,7 +376,7 @@ function DAGDetailsSidePanel({
                   </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto overflow-x-hidden pr-4">
+                <div className={contentClassName}>
                   {loadState.state === 'loading' && (
                     <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
                       <LoadingIndicator />
@@ -428,6 +434,7 @@ function DAGDetailsSidePanel({
                       onEnqueue={onEnqueue ? handleEnqueue : undefined}
                       forceEnqueue={forceEnqueue}
                       autoOpenStartModal={false}
+                      fillHeight
                     />
                   )}
                 </div>

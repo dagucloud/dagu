@@ -339,7 +339,7 @@ function DAGDetails() {
               setData: setRootDAGRunData,
             }}
           >
-            <div className="flex w-full min-w-0 max-w-7xl flex-col">
+            <div className="flex h-full min-h-0 w-full min-w-0 max-w-7xl flex-col">
               {dagData?.dag && dagMatchesWorkspace && (
                 <>
                   <DAGHeader
@@ -352,25 +352,28 @@ function DAGDetails() {
                     navigateToStatusTab={navigateToStatusTab}
                     buildScopedUrl={buildUrl}
                   />
-                  <DAGDetailsContent
-                    fileName={fileName}
-                    filePath={dagData.filePath}
-                    dag={dagData.dag}
-                    currentDAGRun={displayDAGRun}
-                    refreshFn={refreshData}
-                    formatDuration={formatDuration}
-                    activeTab={tab}
-                    onTabChange={handleTabChange}
-                    dagRunId={currentDAGRun?.dagRunId}
-                    stepName={stepName}
-                    isModal={false}
-                    navigateToStatusTab={navigateToStatusTab}
-                    skipHeader={true}
-                    localDags={dagData?.localDags}
-                    editorHints={dagData?.editorHints}
-                    onRunStarted={handleRunStarted}
-                    buildScopedUrl={buildUrl}
-                  />
+                  <div className="min-h-0 flex-1">
+                    <DAGDetailsContent
+                      fileName={fileName}
+                      filePath={dagData.filePath}
+                      dag={dagData.dag}
+                      currentDAGRun={displayDAGRun}
+                      refreshFn={refreshData}
+                      formatDuration={formatDuration}
+                      activeTab={tab}
+                      onTabChange={handleTabChange}
+                      dagRunId={currentDAGRun?.dagRunId}
+                      stepName={stepName}
+                      isModal={false}
+                      navigateToStatusTab={navigateToStatusTab}
+                      skipHeader={true}
+                      localDags={dagData?.localDags}
+                      editorHints={dagData?.editorHints}
+                      onRunStarted={handleRunStarted}
+                      buildScopedUrl={buildUrl}
+                      fillHeight
+                    />
+                  </div>
                 </>
               )}
               {dagData?.dag && !dagMatchesWorkspace && (
