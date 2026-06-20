@@ -26,6 +26,7 @@ import { useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
 import { View, ViewSpec, useViews } from '@/hooks/useViews';
 import { withoutWorkspaceLabels } from '@/lib/workspace';
+import { workspaceRoleTarget } from '@/lib/workspaceAccess';
 
 const ALL_WORKSPACES = '__all__';
 const DEFAULT_INTERVAL = 1;
@@ -48,6 +49,9 @@ export function ViewEditorDialog({
   onDeleted,
 }: Props): React.ReactElement {
   const appBar = useContext(AppBarContext);
+  // New views default to the workspace currently selected in the AppBar (if a
+  // specific one is selected), so workspace-scoped users create writable views.
+  const selectedWorkspace = workspaceRoleTarget(appBar.workspaceSelection);
   const remoteNode = appBar.selectedRemoteNode || 'local';
   const { createView, updateView, deleteView } = useViews();
 
@@ -67,13 +71,15 @@ export function ViewEditorDialog({
       return;
     }
     setName(view?.name ?? '');
-    setWorkspace(view?.workspace ? view.workspace : ALL_WORKSPACES);
+    setWorkspace(
+      view?.workspace ? view.workspace : selectedWorkspace || ALL_WORKSPACES
+    );
     setLabels(view?.labels ?? []);
     setDagName(view?.dagName ?? '');
     setIntervalDays(view?.intervalDays ?? DEFAULT_INTERVAL);
     setPinned(view?.pinned ?? false);
     setError(null);
-  }, [open, view]);
+  }, [open, view, selectedWorkspace]);
 
   const { data: labelsData } = useQuery(
     '/dags/labels',

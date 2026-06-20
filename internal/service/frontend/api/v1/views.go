@@ -55,13 +55,11 @@ func (a *API) ListViews(ctx context.Context, _ api.ListViewsRequestObject) (api.
 	return api.ListViews200JSONResponse{Views: out}, nil
 }
 
-// CreateView creates a saved view. Requires developer role or above.
+// CreateView creates a saved view. Requires write access to the target
+// workspace (the caller's effective role for that workspace).
 func (a *API) CreateView(ctx context.Context, request api.CreateViewRequestObject) (api.CreateViewResponseObject, error) {
 	if a.viewStore == nil {
 		return nil, viewStoreUnavailable()
-	}
-	if err := a.requireDeveloperOrAbove(ctx); err != nil {
-		return nil, err
 	}
 	if request.Body == nil {
 		return api.CreateView400JSONResponse(viewBadRequest("Request body is required")), nil
@@ -77,8 +75,8 @@ func (a *API) CreateView(ctx context.Context, request api.CreateViewRequestObjec
 	if err := v.Validate(); err != nil {
 		return api.CreateView400JSONResponse(viewBadRequest(err.Error())), nil
 	}
-	if !a.canViewViewWorkspace(ctx, v.Workspace) {
-		return nil, errInsufficientPermissions
+	if err := a.requireViewWriteForWorkspace(ctx, v.Workspace); err != nil {
+		return nil, err
 	}
 
 	if err := a.viewStore.Create(ctx, v); err != nil {
@@ -111,14 +109,12 @@ func (a *API) GetView(ctx context.Context, request api.GetViewRequestObject) (ap
 	return api.GetView200JSONResponse(toViewResponse(v)), nil
 }
 
-// UpdateView replaces a view's configuration. Requires developer role or above.
-// ID, CreatedBy, and CreatedAt are preserved from the existing record.
+// UpdateView replaces a view's configuration. Requires write access to both the
+// existing and the new target workspace. ID, CreatedBy, and CreatedAt are
+// preserved from the existing record.
 func (a *API) UpdateView(ctx context.Context, request api.UpdateViewRequestObject) (api.UpdateViewResponseObject, error) {
 	if a.viewStore == nil {
 		return nil, viewStoreUnavailable()
-	}
-	if err := a.requireDeveloperOrAbove(ctx); err != nil {
-		return nil, err
 	}
 
 	existing, err := a.viewStore.GetByID(ctx, request.ViewId)
@@ -130,6 +126,9 @@ func (a *API) UpdateView(ctx context.Context, request api.UpdateViewRequestObjec
 	}
 	if !a.canViewViewWorkspace(ctx, existing.Workspace) {
 		return api.UpdateView404JSONResponse(viewNotFound()), nil
+	}
+	if err := a.requireViewWriteForWorkspace(ctx, existing.Workspace); err != nil {
+		return nil, err
 	}
 	if request.Body == nil {
 		return api.UpdateView400JSONResponse(viewBadRequest("Request body is required")), nil
@@ -143,8 +142,8 @@ func (a *API) UpdateView(ctx context.Context, request api.UpdateViewRequestObjec
 	if err := updated.Validate(); err != nil {
 		return api.UpdateView400JSONResponse(viewBadRequest(err.Error())), nil
 	}
-	if !a.canViewViewWorkspace(ctx, updated.Workspace) {
-		return nil, errInsufficientPermissions
+	if err := a.requireViewWriteForWorkspace(ctx, updated.Workspace); err != nil {
+		return nil, err
 	}
 
 	if err := a.viewStore.Update(ctx, updated); err != nil {
@@ -158,13 +157,10 @@ func (a *API) UpdateView(ctx context.Context, request api.UpdateViewRequestObjec
 	return api.UpdateView200JSONResponse(toViewResponse(updated)), nil
 }
 
-// DeleteView removes a view by ID. Requires developer role or above.
+// DeleteView removes a view by ID. Requires write access to the view's workspace.
 func (a *API) DeleteView(ctx context.Context, request api.DeleteViewRequestObject) (api.DeleteViewResponseObject, error) {
 	if a.viewStore == nil {
 		return nil, viewStoreUnavailable()
-	}
-	if err := a.requireDeveloperOrAbove(ctx); err != nil {
-		return nil, err
 	}
 
 	existing, err := a.viewStore.GetByID(ctx, request.ViewId)
@@ -176,6 +172,9 @@ func (a *API) DeleteView(ctx context.Context, request api.DeleteViewRequestObjec
 	}
 	if !a.canViewViewWorkspace(ctx, existing.Workspace) {
 		return api.DeleteView404JSONResponse(viewNotFound()), nil
+	}
+	if err := a.requireViewWriteForWorkspace(ctx, existing.Workspace); err != nil {
+		return nil, err
 	}
 
 	if err := a.viewStore.Delete(ctx, request.ViewId); err != nil {
@@ -195,6 +194,22 @@ func (a *API) DeleteView(ctx context.Context, request api.DeleteViewRequestObjec
 // can access that workspace.
 func (a *API) canViewViewWorkspace(ctx context.Context, workspace string) bool {
 	return workspace == "" || a.canAccessWorkspace(ctx, workspace)
+}
+
+// requireViewWriteForWorkspace authorizes a write to a view scoped to the given
+// workspace using the caller's effective role for that workspace, so a
+// workspace-scoped developer (a global viewer with a per-workspace write grant)
+// can manage views in workspaces they can write. All-workspace views (empty
+// workspace) are governed by the global role.
+func (a *API) requireViewWriteForWorkspace(ctx context.Context, workspace string) error {
+	role, ok, err := a.effectiveRoleForWorkspace(ctx, workspace)
+	if err != nil {
+		return err
+	}
+	if !ok || !role.CanWrite() {
+		return errInsufficientPermissions
+	}
+	return nil
 }
 
 func viewFromSpec(spec api.ViewSpec) *view.View {

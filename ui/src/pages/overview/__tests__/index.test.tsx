@@ -34,6 +34,7 @@ vi.mock('@/features/views/ViewPanel', () => ({
 
 vi.mock('@/contexts/AuthContext', () => ({
   useCanWrite: () => true,
+  useCanWriteForWorkspace: () => true,
 }));
 
 const useViewsMock = vi.mocked(useViews);

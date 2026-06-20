@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { Tab, Tabs } from '@/components/ui/tabs';
-import { useCanWrite } from '@/contexts/AuthContext';
+import { useCanWrite, useCanWriteForWorkspace } from '@/contexts/AuthContext';
 import { ViewEditorDialog } from '@/features/views/ViewEditorDialog';
 import { ViewPanel } from '@/features/views/ViewPanel';
 import { View, useViews } from '@/hooks/useViews';
@@ -87,6 +87,7 @@ export default function OverviewPage({
   const activeView = activeViewId
     ? views.find((v) => v.id === activeViewId)
     : undefined;
+  const canEditActiveView = useCanWriteForWorkspace(activeView?.workspace ?? '');
 
   // If the active view tab references a view that no longer exists once views
   // have loaded, fall back to the default tab instead of a blank panel.
@@ -113,7 +114,7 @@ export default function OverviewPage({
           <h2 className="truncate text-sm font-semibold text-foreground">
             {activeView.name}
           </h2>
-          {canWrite && (
+          {canEditActiveView && (
             <button
               type="button"
               onClick={() => openEdit(activeView)}

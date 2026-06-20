@@ -10,7 +10,10 @@ import { useViews } from '@/hooks/useViews';
 
 vi.mock('@/hooks/useViews', () => ({ useViews: vi.fn() }));
 
-vi.mock('@/contexts/AuthContext', () => ({ useCanWrite: () => true }));
+vi.mock('@/contexts/AuthContext', () => ({
+  useCanWrite: () => true,
+  useCanWriteForWorkspace: () => true,
+}));
 
 vi.mock('@/features/views/ViewEditorDialog', () => ({
   ViewEditorDialog: () => null,

@@ -3,7 +3,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useCanWrite } from '@/contexts/AuthContext';
+import { useCanWriteForWorkspace } from '@/contexts/AuthContext';
 import { ViewEditorDialog } from '@/features/views/ViewEditorDialog';
 import { ViewPanel } from '@/features/views/ViewPanel';
 import { useViews } from '@/hooks/useViews';
@@ -18,10 +18,9 @@ export default function ViewPage(): React.ReactElement | null {
   const { viewId } = useParams();
   const navigate = useNavigate();
   const { views, isLoading } = useViews();
-  const canWrite = useCanWrite();
-  const [editorOpen, setEditorOpen] = useState(false);
-
   const view = views.find((v) => v.id === viewId);
+  const canWrite = useCanWriteForWorkspace(view?.workspace ?? '');
+  const [editorOpen, setEditorOpen] = useState(false);
 
   // Once views have loaded, redirect home if the requested view is gone.
   useEffect(() => {

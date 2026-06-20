@@ -246,6 +246,50 @@ func TestViewsAPI_WorkspaceScopedVisibility(t *testing.T) {
 	assert.True(t, ok, "delete of inaccessible-workspace view must be 404")
 }
 
+func TestViewsAPI_ScopedDeveloperCanWriteOwnWorkspace(t *testing.T) {
+	api := newViewsTestAPI(t, apiv1.WithAuthService(stubAuthService{}))
+
+	// A workspace-scoped developer: global VIEWER with a developer grant on "a".
+	ctx := auth.WithUser(context.Background(), &auth.User{
+		Username: "scoped",
+		Role:     auth.RoleViewer,
+		WorkspaceAccess: &auth.WorkspaceAccess{
+			Grants: []auth.WorkspaceGrant{{Workspace: "a", Role: auth.RoleDeveloper}},
+		},
+	})
+	wsA := "a"
+	wsB := "b"
+
+	// Allowed to create in workspace "a" (the grant gives write) - previously
+	// rejected by the global-role check.
+	resp, err := api.CreateView(ctx, apigen.CreateViewRequestObject{
+		Body: &apigen.ViewSpec{Name: "A view", IntervalDays: 1, Workspace: &wsA},
+	})
+	require.NoError(t, err)
+	created, ok := resp.(apigen.CreateView201JSONResponse)
+	require.True(t, ok, "scoped developer must be allowed to write their workspace")
+
+	// Denied in workspace "b" (no grant) and for all-workspace views (governed
+	// by the global viewer role).
+	_, err = api.CreateView(ctx, apigen.CreateViewRequestObject{
+		Body: &apigen.ViewSpec{Name: "B view", IntervalDays: 1, Workspace: &wsB},
+	})
+	require.Error(t, err, "no write access to workspace b")
+	_, err = api.CreateView(ctx, apigen.CreateViewRequestObject{
+		Body: &apigen.ViewSpec{Name: "All view", IntervalDays: 1},
+	})
+	require.Error(t, err, "global viewer cannot write all-workspace views")
+
+	// Allowed to update their own workspace view.
+	updResp, err := api.UpdateView(ctx, apigen.UpdateViewRequestObject{
+		ViewId: apigen.View(created).Id,
+		Body:   &apigen.ViewSpec{Name: "A view 2", IntervalDays: 2, Workspace: &wsA},
+	})
+	require.NoError(t, err)
+	_, ok = updResp.(apigen.UpdateView200JSONResponse)
+	require.True(t, ok, "scoped developer must be allowed to update their workspace view")
+}
+
 func TestViewsAPI_StoreUnavailable(t *testing.T) {
 	// Constructed without WithViewStore: the store is nil.
 	api := apiv1.New(nil, nil, nil, nil, runtime.Manager{}, &config.Config{}, nil, nil, prometheus.NewRegistry(), nil)
