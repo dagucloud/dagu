@@ -32,7 +32,7 @@ All non-reserved `with` keys are passed directly as CLI flags:
 
 Reserved keys are `prompt`, `stdin`, `provider`, and `fallback`.
 
-`provider` may be parameterized with `${...}` and is resolved at runtime after interpolation.
+`provider` may be parameterized with scoped references such as `${params.PROVIDER}` and is resolved at runtime after interpolation.
 
 ## Custom Harness Registry
 
@@ -113,6 +113,40 @@ Merge rules:
 - Step-level `with.fallback` replaces DAG-level `fallback`
 - New DAGs should use `action: harness.run`; legacy `type: harness` inference exists only for backward compatibility.
 
+## Containerized Harness Steps
+
+Use step-level `container:` when the agent CLI should run inside a container.
+
+```yaml
+steps:
+  - id: fix_tests
+    action: harness.run
+    container:
+      image: my-codex-runner:latest
+      pull_policy: always
+      working_dir: /workspace
+      volumes:
+        - .:/workspace:rw
+    with:
+      provider: codex
+      prompt: "Fix the failing tests in this repository"
+      sandbox: workspace-write
+      skip-git-repo-check: true
+    timeout_sec: 600
+```
+
+Container rules:
+
+- The selected provider binary must exist inside the image.
+- Built-in CLI providers and custom providers with `prompt_mode: arg` or `prompt_mode: flag` can run in a container.
+- `provider: builtin` cannot run in a container because it is an in-process provider.
+- `with.stdin` is not supported in a container.
+- Custom providers with `prompt_mode: stdin` are not supported in a container.
+- In image mode, Dagu uses the provider binary as the container entrypoint and passes provider arguments as the command.
+- Do not set `container.name` for image-mode harness steps. Use `container.exec` when the step must execute inside an existing container.
+- Provider flags still belong under `with:`. For example, Codex `sandbox: workspace-write` configures Codex inside the outer container boundary.
+- Docker or Podman is selected by the Dagu service process. This is not configured in the DAG YAML.
+
 ## Pattern 1: Single Agent Step
 
 ```yaml
@@ -128,13 +162,13 @@ steps:
   - id: run_agent
     action: harness.run
     with:
-      prompt: "${PROMPT}"
+      prompt: "${params.PROMPT}"
     output: RESULT
 ```
 
 ## Pattern 2: Multi-Agent Pipeline
 
-Chain agents, passing output between steps via `output:` variables or `${step_id.stdout}` file references.
+Chain agents, passing output between steps via env-scope `output:` variables or `${step_id.stdout}` file references.
 
 ```yaml
 type: graph
@@ -146,7 +180,7 @@ steps:
   - id: research
     action: harness.run
     with:
-      prompt: "Research every approach to: ${topic}. List all approaches with pros, cons, and when to use each."
+      prompt: "Research every approach to: ${params.topic}. List all approaches with pros, cons, and when to use each."
       provider: claude
       model: sonnet
       bare: true
@@ -160,7 +194,7 @@ steps:
       stdin: |
         Review this research for completeness and gaps:
 
-        ${RESEARCH}
+        ${env.RESEARCH}
       provider: codex
       full-auto: true
       skip-git-repo-check: true
@@ -173,10 +207,10 @@ steps:
       prompt: "Refine this research incorporating the review feedback provided via stdin."
       stdin: |
         === Research ===
-        ${RESEARCH}
+        ${env.RESEARCH}
 
         === Review Feedback ===
-        ${REVIEW}
+        ${env.REVIEW}
       provider: claude
       model: sonnet
       bare: true
@@ -184,7 +218,7 @@ steps:
     output: REFINED
 ```
 
-`with.prompt` is the prompt. For built-in providers and custom `arg`/`flag` harnesses, `with.stdin` is piped to stdin as supplementary context. For custom `stdin` harnesses, stdin receives the prompt, then a blank line, then `with.stdin` when both are present.
+`with.prompt` is the prompt. For non-containerized built-in providers and custom `arg`/`flag` harnesses, `with.stdin` is piped to stdin as supplementary context. For non-containerized custom `stdin` harnesses, stdin receives the prompt, then a blank line, then `with.stdin` when both are present.
 
 ## Pattern 3: Parameterized
 
@@ -198,9 +232,9 @@ steps:
   - id: agent
     action: harness.run
     with:
-      prompt: "${PROMPT}"
-      provider: "${PROVIDER}"
-      model: "${MODEL}"
+      prompt: "${params.PROMPT}"
+      provider: "${params.PROVIDER}"
+      model: "${params.MODEL}"
     output: RESULT
 ```
 
@@ -293,6 +327,6 @@ steps:
 3. **Timeouts** — Set `timeout_sec:` (300-600s+) on agent steps. Agent CLIs can run for minutes.
 4. **Retry on transient failures** — Add `retry_policy: { limit: 3, interval_sec: 30 }` to handle rate limits and network errors.
 5. **Working directory** — Use `working_dir:` on the step. The CLI operates relative to this directory.
-6. **Output capture** — Use string-form `output: VAR_NAME` for small flat values, object-form `output:` for structured `${step_id.output.*}` access, and `stdout.artifact` / `stderr.artifact` when large agent output, reports, JSON, Markdown, or logs should be stored as DAG-run artifacts. Use `${step_id.stdout}` only when a downstream step needs the stdout log file path.
+6. **Output capture** — Use string-form `output: VAR_NAME` for small flat values, declared `outputs:` for explicit `${steps.<step_id>.outputs.<name>}` values, object-form `output:` for structured `${step_id.output.*}` access, and `stdout.artifact` / `stderr.artifact` when large agent output, reports, JSON, Markdown, or logs should be stored as DAG-run artifacts. Use `${step_id.stdout}` only when a downstream step needs the stdout log file path.
 7. **Exit codes** — 0 = success, 1 = CLI error, 124 = step timed out. Last 1KB of stderr is included in the error message on failure.
 8. **Fallback behavior** — If the primary harness config fails and the context is still active, fallback entries are tried in order. Failed-attempt stdout is discarded; stderr remains visible in logs.

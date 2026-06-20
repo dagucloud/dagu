@@ -68,7 +68,7 @@ params:
   - text
 steps:
   - id: send
-    run: ./scripts/notify.sh "${text}"
+    run: ./scripts/notify.sh "${params.text}"
     stdout:
       outputs:
         fields:
@@ -80,7 +80,7 @@ steps:
             select: .status
 ```
 
-Scalar `with:` fields are passed as runtime parameters and can be read as `${text}`. For structured input, pass an explicit JSON string and decode it in the action DAG; do not assume nested YAML/JSON input objects arrive as structured params.
+Scalar `with:` fields are passed as runtime parameters and can be read as `${params.text}`. For structured input, pass an explicit JSON string and decode it in the action DAG; do not assume nested YAML/JSON input objects arrive as structured params.
 
 ## Tools
 
@@ -95,7 +95,7 @@ Use `stdout.outputs` when a command emits the action result on stdout:
 ```yaml
 steps:
   - id: classify
-    run: ./classify.sh "${text}"
+    run: ./classify.sh "${params.text}"
     stdout:
       outputs:
         fields:
@@ -112,7 +112,7 @@ Use `outputs.write` when the result is assembled from parameters, previous step 
 ```yaml
 steps:
   - id: send
-    run: ./scripts/notify.sh "${text}"
+    run: ./scripts/notify.sh "${params.text}"
     output:
       response:
         from: stdout
@@ -136,11 +136,14 @@ Compatibility note: if an action DAG publishes no typed outputs, legacy string-f
 ## Caller Example
 
 ```yaml
+params:
+  - BUILD_ID: ""
+
 steps:
   - id: notify
     action: acme/dagu-action-notify@v1.2.0
     with:
-      text: "Build ${BUILD_ID} finished"
+      text: "Build ${params.BUILD_ID} finished"
 
   - id: audit
     depends: [notify]

@@ -14,6 +14,11 @@ steps:
       echo "step 1"
       echo "step 2"
 
+  - id: ordered
+    run:
+      - echo "first"
+      - echo "second"
+
   - id: custom_shell
     run: |
       set -euo pipefail
@@ -31,8 +36,13 @@ Fields:
 
 Notes:
 
+- Single-line `run:` values are command-form entries.
+- Array-form `run:` entries run one by one and stop on the first failing entry.
+- Multi-line `run:` values are scripts.
+- Dagu sends pipes, redirects, `&&`, and `;` to the selected shell. It does not split that shell syntax into separate Dagu commands.
 - DAG-level `shell` and `shell_args` provide defaults for inherited `run` steps. Use `with.shell` and `with.shell_args` when one step needs a different shell invocation.
-- Dagu expands `${VAR}` before the shell runs. For large or arbitrary text, prefer `printenv VAR_NAME`, reading `${step_id.stdout}` as a file, or `action: template.render`.
+- Dagu resolves `${...}` references before the shell runs. For large or arbitrary text, prefer `printenv VAR_NAME`, reading `${step_id.stdout}` as a file, or `action: template.render`.
+- Use scoped Dagu references for named values: `${consts.NAME}`, `${params.NAME}`, and `${env.NAME}`. Use shell `$NAME` only when the target shell should read the variable at execution time.
 - When large command output should become an artifact, write it to stdout/stderr and attach the stream directly instead of redirecting inside shell:
 
 ```yaml
@@ -65,6 +75,8 @@ steps:
 
 `with` fields: `image`, `container_name`, `pull`, `auto_remove`, `working_dir`, `volumes`, `network`, `platform`, `command`.
 
+Dagu can drive Docker or Podman through a Docker-compatible API. Runtime selection is service-level, not a DAG YAML field. Set `DAGU_CONTAINER_RUNTIME=podman` for Podman. Set `DAGU_PODMAN_HOST` only when the Podman socket is not the default.
+
 ## dag.run
 
 Execute another DAG as a child DAG.
@@ -81,6 +93,43 @@ steps:
 
 Sub-DAGs do not inherit parent env vars. Pass values explicitly via `with.params`.
 
+## Declared Step Outputs
+
+Declare `outputs:` when a step should publish named values for later steps as `${steps.<step_id>.outputs.<name>}`.
+
+```yaml
+steps:
+  - id: build
+    run: |
+      printf 'image_tag=v1.2.3\n' >> "$DAGU_OUTPUT_FILE"
+      {
+        printf 'metadata<<JSON\n'
+        printf '{"commit":"abc123"}\n'
+        printf 'JSON\n'
+      } >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: image_tag
+      - name: metadata
+        type: json
+
+  - id: deploy
+    depends: [build]
+    run: ./deploy.sh '${steps.build.outputs.image_tag}'
+```
+
+Rules:
+
+- The step must have an `id`.
+- `outputs:` must be a non-empty sequence.
+- Each output requires `name`.
+- `type` can be `string` or `json`. The default is `string`.
+- The step writes output records to `$DAGU_OUTPUT_FILE`.
+- Output records use `name=value` or heredoc form: `name<<DELIMITER`, value lines, matching `DELIMITER`.
+- The output file must be valid UTF-8.
+- Every declared output must be written exactly once.
+- Undeclared, duplicate, missing, or invalid JSON outputs fail the step.
+- Dagu captures declared outputs only after the command succeeds.
+
 ## outputs.write
 
 Publish DAG or remote action outputs assembled from literals, parameters, or prior step values.
@@ -88,7 +137,7 @@ Publish DAG or remote action outputs assembled from literals, parameters, or pri
 ```yaml
 steps:
   - id: send
-    run: ./scripts/notify.sh "${text}"
+    run: ./scripts/notify.sh "${params.text}"
     output:
       response:
         from: stdout
@@ -188,7 +237,7 @@ steps:
     action: dag.run
     with:
       dag: process-item
-    parallel: ${ITEMS}
+    parallel: ${params.ITEMS}
 ```
 
 Each child invocation receives the current item as `ITEM`.
@@ -232,7 +281,7 @@ steps:
       method: POST
       url: https://api.example.com/data
       headers:
-        Authorization: "Bearer ${TOKEN}"
+        Authorization: "Bearer ${env.TOKEN}"
         Content-Type: application/json
       body: '{"key": "value"}'
       json: true
@@ -292,26 +341,26 @@ steps:
   - id: ensure_output_dir
     action: file.mkdir
     with:
-      path: ${DAG_RUN_ARTIFACTS_DIR}/reports
+      path: ${context.paths.artifacts_dir}/reports
 
   - id: write_report
     action: file.write
     with:
-      path: ${DAG_RUN_ARTIFACTS_DIR}/reports/summary.txt
+      path: ${context.paths.artifacts_dir}/reports/summary.txt
       content: "status=ok\n"
       overwrite: true
 
   - id: copy_report
     action: file.copy
     with:
-      source: ${DAG_RUN_ARTIFACTS_DIR}/reports/summary.txt
-      destination: ${DAG_RUN_ARTIFACTS_DIR}/reports/latest.txt
+      source: ${context.paths.artifacts_dir}/reports/summary.txt
+      destination: ${context.paths.artifacts_dir}/reports/latest.txt
       overwrite: true
 
   - id: list_reports
     action: file.list
     with:
-      path: ${DAG_RUN_ARTIFACTS_DIR}/reports
+      path: ${context.paths.artifacts_dir}/reports
       pattern: "*.txt"
 ```
 
@@ -423,7 +472,7 @@ steps:
   - id: research
     action: agent.run
     with:
-      task: "Begin research on ${TOPIC}"
+      task: "Begin research on ${params.TOPIC}"
       model: claude-sonnet-4-20250514
       tools:
         enabled:
@@ -465,7 +514,16 @@ steps:
     output: RESULT
 ```
 
-`with.prompt` is the prompt. `with.stdin` is piped to stdin as supplementary context. `with.provider` can reference a built-in provider or a top-level `harnesses:` entry.
+`with.prompt` is the prompt. `with.provider` can reference a built-in provider or a top-level `harnesses:` entry. For non-containerized runs, `with.stdin` is piped to stdin as supplementary context.
+
+Container support:
+
+- Use step-level `container:` to run built-in CLI providers or custom `arg`/`flag` providers inside a container.
+- The selected provider binary must exist inside the image.
+- `provider: builtin` cannot run in a container.
+- `with.stdin` and custom `prompt_mode: stdin` are rejected for containerized harness steps.
+- Do not set `container.name` for image-mode harness steps. Use `container.exec` when the step must run inside an existing container.
+- Docker or Podman is selected by the Dagu service process, not by a DAG YAML field.
 
 ## router.route
 
@@ -480,7 +538,7 @@ steps:
   - id: route
     action: router.route
     with:
-      value: ${STATUS}
+      value: ${env.STATUS}
       routes:
         "200":
           - handle_ok

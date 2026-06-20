@@ -19,9 +19,11 @@ Load only the reference file that matches the task.
 - Prefer `artifact.*` actions for explicit artifact reads/writes/lists. Use `DAG_RUN_ARTIFACTS_DIR` only when a tool truly needs a filesystem path inside the step.
 - Prefer string-form `output: VAR_NAME` for capturing small stdout values into flat variables.
 - Prefer object-form `output:` when downstream steps need structured values via `${step_id.output.*}`.
+- Prefer declared step `outputs:` with `$DAGU_OUTPUT_FILE` when a step must publish explicit values for `${steps.<step_id>.outputs.<name>}`.
 - Prefer `stdout.outputs` or `action: outputs.write` when a DAG or remote action needs to return caller-visible values via `${step_id.outputs.*}`.
 - Prefer `state.*` actions for small persistent JSON state across DAG runs, such as cursors, checkpoints, and previous-value comparisons.
 - Prefer temporary files in the artifacts dir only when downstream steps need file paths; otherwise let commands write large artifact content to stdout and attach it with `stdout.artifact`.
+- Prefer scoped Dagu references for named values: `${consts.NAME}`, `${params.NAME}`, and `${env.NAME}`. Avoid unscoped braced names in examples unless the example is intentionally showing shell syntax.
 - Declare portable external CLI dependencies in top-level `tools` using aqua shorthand when the binary version affects reproducibility, for example `tools: ["jqlang/jq@jq-1.7.1"]`.
 - For remote actions, put `tools` in the referenced action DAG file, not in `dagu-action.yaml`; caller DAG tools are not inherited across the action boundary.
 - Do not add `tools` for CLIs that intentionally depend on user or worker preconfiguration, login state, local profiles, plugins, or credentials, such as `gcloud` and AI agent CLIs.
@@ -30,16 +32,22 @@ Load only the reference file that matches the task.
 ## High-Signal Rules
 
 - `output:` has two modes:
-  - string form captures trimmed stdout into a flat variable such as `${VERSION}`
+  - string form captures trimmed stdout into an env-scope variable such as `${env.VERSION}`
   - object form publishes structured step-scoped output for `${step_id.output.*}` access
+- Declared step `outputs:` publish explicit values through `${steps.<step_id>.outputs.<name>}`. Write values inside the running step to `$DAGU_OUTPUT_FILE`; Dagu captures them only after the command succeeds.
 - `stdout.artifact` / `stderr.artifact` store command stdout/stderr directly as relative artifact paths, for example `stdout: {artifact: reports/report.md}`. Artifact outputs auto-enable artifacts unless `artifacts.enabled: false` is explicitly set, which is invalid.
 - `${step_id.stdout}` is a log file path, not stdout content.
+- Use `${context.*}` for run metadata in DAG YAML, for example `${context.dag.name}`, `${context.run.id}`, or `${context.paths.artifacts_dir}`. Unavailable context values remain unresolved text instead of becoming empty strings.
+- Use `${consts.NAME}`, `${params.NAME}`, and `${env.NAME}` for Dagu-side named values. Use shell `$NAME` or `printenv NAME` only when the target shell or process should read the variable at execution time.
 - `env:` should use list-of-maps when values depend on earlier env vars.
 - `params:` values arrive as strings. The `params:` field supports JSON schema-like types and validation, check for schema to see how to specify types and validation rules.
+- Single-line `run:` values are command-form entries. Array-form `run:` entries run one by one. Multi-line `run:` values are scripts. Dagu does not split pipes, redirects, `&&`, or `;` into separate commands; those stay with the selected shell.
 - Do not assume `bash` for `run:` steps. If a script depends on a specific interpreter, add a shebang such as `#!/bin/sh` or `#!/usr/bin/env bash` only after checking that shell exists on the target host or container. Otherwise keep the script portable or set `with.shell:` explicitly.
 - `parallel:` currently requires `action: dag.run` to a child DAG.
 - Sub-DAGs do not inherit parent env vars; pass what you need via `params:`.
-- For arbitrary text inside shell steps, prefer `printenv VAR_NAME` or `action: template.render` over `${VAR}` interpolation.
+- For arbitrary text inside shell steps, prefer `printenv VAR_NAME` or `action: template.render` over Dagu interpolation such as `${env.VAR_NAME}`.
+- `harness.run` can run in a step-level `container:` for CLI providers and custom providers that pass the prompt as an argument or flag. It does not support `provider: builtin`, `with.stdin`, or custom `prompt_mode: stdin` inside a container.
+- Container runtime selection is service-level, not a DAG YAML field. Set `DAGU_CONTAINER_RUNTIME=podman` to use Podman, and set `DAGU_PODMAN_HOST` only when the Podman Docker-compatible socket is not the default.
 - DAG/action outputs are collected from string-form `output: VAR_NAME`, `stdout.outputs`, and `action: outputs.write`. Object-form `output:` stays step-scoped for `${step_id.output.*}` unless the workflow explicitly republishes values through `stdout.outputs` or `outputs.write`.
 - `state.get`, `state.set`, `state.delete`, `state.list`, and `state.diff` persist small JSON values across DAG runs. State scopes are `dag`, `root_dag`, `global`, and `custom`; use artifacts or external storage for large payloads.
 - Remote action packages define `dagu-action.yaml` with `apiVersion: v1alpha1`, `name`, `dag`, and optional `inputs`/`outputs` JSON Schemas. `inputs` validates caller `with:` before the action DAG starts; `outputs` validates the final action output object after the action DAG returns.
@@ -72,9 +80,9 @@ steps:
     action: template.render
     with:
       data:
-        name: ${name}
-        age: ${age}
-        favorite_color: ${favorite_color}
+        name: ${params.name}
+        age: ${params.age}
+        favorite_color: ${params.favorite_color}
       template: |
         Hello, {{ .name }}!
         You are {{ .age }} years old.
@@ -136,7 +144,7 @@ steps:
 ```yaml
 steps:
   - id: classify
-    run: ./classify.sh "${INPUT}"
+    run: ./classify.sh "${params.INPUT}"
     stdout:
       outputs:
         fields:
@@ -163,5 +171,5 @@ Load only the file you need:
 - `references/steptypes.md` when choosing an action or checking executor-specific caveats such as `dag.run`, `parallel`, `jq.filter`, `file.*`, `state.*`, or `template.render`
 - `references/dagu-action.md` when creating a reusable `dagu-action.yaml` package or checking action input/output schema behavior
 - `references/cli.md` when you need command flags or lookup commands such as `dagu schema`, `dagu config`, or `dagu history`
-- `references/env.md` when execution environment variables, `DAGU_*` config vars, or `params:`/`env:` resolution order matters
+- `references/context.md` when using `${context.*}` metadata references or declared step `outputs:`
 - `references/codingagent.md` only when the DAG itself runs AI coding agents as steps
