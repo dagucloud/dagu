@@ -246,6 +246,11 @@ function DAGDetailsPanel({
     );
   }
 
+  const contentClassName =
+    activeTab === 'status'
+      ? 'min-h-0 flex-1 overflow-hidden pr-4'
+      : 'min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-4';
+
   return (
     <UnsavedChangesProvider>
       <RemoteNodeProvider remoteNode={remoteNode}>
@@ -288,7 +293,7 @@ function DAGDetailsPanel({
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 pr-4">
+              <div className={contentClassName}>
                 <DAGDetailsContent
                   fileName={fileName}
                   filePath={data.filePath}
@@ -305,6 +310,7 @@ function DAGDetailsPanel({
                   localDags={data.localDags}
                   editorHints={data.editorHints}
                   onRunStarted={handleRunStarted}
+                  fillHeight
                 />
               </div>
             </div>

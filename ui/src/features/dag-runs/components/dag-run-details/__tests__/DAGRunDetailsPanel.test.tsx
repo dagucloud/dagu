@@ -14,8 +14,16 @@ vi.mock('../../../hooks/useBoundedDAGRunDetails', () => ({
 }));
 
 vi.mock('../DAGRunDetailsContent', () => ({
-  default: ({ dagRun }: { dagRun: { dagRunId: string } }) => (
-    <div>run {dagRun.dagRunId}</div>
+  default: ({
+    dagRun,
+    fillHeight,
+  }: {
+    dagRun: { dagRunId: string };
+    fillHeight?: boolean;
+  }) => (
+    <div data-fill-height={String(fillHeight)} data-testid="dag-run-content">
+      run {dagRun.dagRunId}
+    </div>
   ),
 }));
 
@@ -79,6 +87,10 @@ describe('DAGRunDetailsPanel', () => {
       })
     );
     expect(screen.getByText('run child-run')).toBeInTheDocument();
+    expect(screen.getByTestId('dag-run-content')).toHaveAttribute(
+      'data-fill-height',
+      'true'
+    );
   });
 
   it('enables the sub-dag details target when sub-dag params exist', () => {

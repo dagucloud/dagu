@@ -138,7 +138,7 @@ function DAGRunDetailsPage() {
   }
 
   return (
-    <div className="max-w-7xl px-4">
+    <div className="flex h-full min-h-0 w-full max-w-7xl flex-col px-4">
       <RemoteNodeProvider remoteNode={remoteNode}>
         <DAGRunContext.Provider
           value={{
@@ -152,6 +152,7 @@ function DAGRunDetailsPage() {
             dagRun={dagRunDetails}
             refreshFn={refreshFn}
             dagRunId={displayDAGRunId}
+            fillHeight
           />
         </DAGRunContext.Provider>
       </RemoteNodeProvider>

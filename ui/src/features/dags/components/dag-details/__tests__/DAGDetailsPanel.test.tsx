@@ -36,15 +36,17 @@ vi.mock('../DAGDetailsContent', () => ({
     dagRunId,
     editorHints,
     onRunStarted,
+    fillHeight,
   }: {
     dag: { name: string };
     activeTab: string;
     dagRunId?: string;
     editorHints?: { inheritedLegacyDefinitions?: unknown[] };
     onRunStarted?: (dagRunId: string) => void;
+    fillHeight?: boolean;
   }) => (
     <div>
-      <div>
+      <div data-fill-height={String(fillHeight)} data-testid="dag-details-content">
         Previewing {dag.name} [{activeTab}] {dagRunId || 'latest'}
       </div>
       <div>
@@ -129,6 +131,10 @@ describe('DAGDetailsPanel', () => {
     expect(
       screen.getByText('Previewing example-dag [status] latest')
     ).toBeInTheDocument();
+    expect(screen.getByTestId('dag-details-content')).toHaveAttribute(
+      'data-fill-height',
+      'true'
+    );
     expect(screen.getByText('Inherited hints: 1')).toBeInTheDocument();
   });
 

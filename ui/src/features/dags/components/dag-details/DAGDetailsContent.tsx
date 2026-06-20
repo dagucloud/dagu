@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { Tabs } from '@/components/ui/tabs';
+import { cn } from '@/lib/utils';
 import {
   AlertTriangle,
   Bell,
@@ -61,6 +62,7 @@ type DAGDetailsContentProps = {
   /** When true, automatically opens the start/enqueue modal on mount */
   autoOpenStartModal?: boolean;
   buildScopedUrl?: (path: string) => string;
+  fillHeight?: boolean;
 };
 
 type LogViewerState = {
@@ -90,6 +92,7 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
   forceEnqueue = false,
   autoOpenStartModal = false,
   buildScopedUrl,
+  fillHeight = false,
 }) => {
   const baseUrl = isModal ? '#' : `/dags/${fileName}`;
   const scopedUrl = React.useCallback(
@@ -142,7 +145,12 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
         onRunStarted,
       }}
     >
-      <div className="flex w-full min-w-0 flex-col">
+      <div
+        className={cn(
+          'flex w-full min-w-0 flex-col',
+          fillHeight && 'h-full min-h-0'
+        )}
+      >
         {/* Only render the header if skipHeader is not true */}
         {!skipHeader && (
           <DAGHeader
@@ -480,13 +488,14 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
             />
           </div>
         </div>
-        <div className="flex-1 flex flex-col min-h-0">
+        <div className="flex min-h-0 flex-1 flex-col">
           {activeTab === 'status' && currentDAGRun ? (
             <>
               <DAGStatus
                 dagRun={currentDAGRun}
                 fileName={fileName || ''}
                 artifactEnabled={!!dag.artifacts?.enabled}
+                fillHeight={fillHeight}
               />
               <div className="h-6 flex-shrink-0" />
             </>
