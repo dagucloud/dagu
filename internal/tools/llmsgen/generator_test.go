@@ -34,7 +34,7 @@ func TestGenerateBuildsLLMsTextFromBundledSkillSources(t *testing.T) {
 		"# Actions",
 		"# Remote Action Packages",
 		"# Dagu CLI Reference",
-		"# Environment Variables",
+		"# Context References, Scoped Values, And Step Outputs",
 		"# Coding Agent Integration",
 	} {
 		if !strings.Contains(output, want) {
@@ -62,7 +62,7 @@ func TestGenerateBuildsLLMsTextFromBundledSkillSources(t *testing.T) {
 		"# Actions",
 		"# Remote Action Packages",
 		"# Dagu CLI Reference",
-		"# Environment Variables",
+		"# Context References, Scoped Values, And Step Outputs",
 		"# Coding Agent Integration",
 	)
 }
@@ -71,8 +71,8 @@ func TestGenerateFailsWhenRequiredReferenceIsMissing(t *testing.T) {
 	t.Parallel()
 
 	sourceDir := writeSkillTree(t)
-	if err := os.Remove(filepath.Join(sourceDir, "references", "env.md")); err != nil {
-		t.Fatalf("remove env reference: %v", err)
+	if err := os.Remove(filepath.Join(sourceDir, "references", "context.md")); err != nil {
+		t.Fatalf("remove context reference: %v", err)
 	}
 
 	_, err := llmsgen.Generate(llmsgen.Options{
@@ -82,8 +82,8 @@ func TestGenerateFailsWhenRequiredReferenceIsMissing(t *testing.T) {
 	if err == nil {
 		t.Fatal("Generate() error = nil, want missing reference error")
 	}
-	if !strings.Contains(err.Error(), "references/env.md") {
-		t.Fatalf("Generate() error = %q, want missing env reference path", err)
+	if !strings.Contains(err.Error(), "references/context.md") {
+		t.Fatalf("Generate() error = %q, want missing context reference path", err)
 	}
 }
 
@@ -118,9 +118,9 @@ Package reusable workflows.
 
 Use dagu validate.
 `,
-		filepath.Join("references", "env.md"): `# Environment Variables
+		filepath.Join("references", "context.md"): `# Context References, Scoped Values, And Step Outputs
 
-Use DAGU_HOME.
+Use scoped references.
 `,
 		filepath.Join("references", "codingagent.md"): `# Coding Agent Integration
 

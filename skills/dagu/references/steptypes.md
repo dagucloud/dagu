@@ -488,7 +488,7 @@ Use `with.task`, `with.prompt`, or `with.messages` for the user input.
 
 ## harness.run
 
-Run coding agent CLIs such as Claude Code, Codex, Copilot, OpenCode, and Pi.
+Run coding agents through Dagu's in-process agent, predefined external CLIs, or custom harness definitions.
 
 ```yaml
 harnesses:
@@ -514,15 +514,24 @@ steps:
     output: RESULT
 ```
 
-`with.prompt` is the prompt. `with.provider` can reference a built-in provider or a top-level `harnesses:` entry. For non-containerized runs, `with.stdin` is piped to stdin as supplementary context.
+`with.prompt` is required and becomes the harness prompt. `with.provider` can be `builtin`, a Dagu CLI provider (`claude`, `codex`, `copilot`, `opencode`, `pi`), or a top-level `harnesses:` entry. For `provider: builtin`, `with.stdin` is appended to the user message after a blank line. For host subprocess runs, `with.stdin` is piped to stdin as supplementary context.
+
+Harness behavior:
+
+- `provider: builtin` runs Dagu's in-process agent and accepts builtin agent fields, not pass-through CLI flags.
+- Dagu CLI providers and custom providers pass non-reserved `with` keys as CLI flags. Dagu CLI providers normalize `snake_case` keys to kebab-case flags.
+- `fallback` is an ordered list of provider configs. Nested fallback is not supported.
+- Provider value references must resolve to a concrete provider string before execution. Unresolved `${...}` provider values fail at runtime.
 
 Container support:
 
-- Use step-level `container:` to run built-in CLI providers or custom `arg`/`flag` providers inside a container.
-- The selected provider binary must exist inside the image.
+- Use root-level `container:` to run compatible harness steps inside the shared DAG-level container.
+- Use step-level `container:` when only that step needs a container, or when it needs a different container from the root-level container.
+- Step-level `container:` takes precedence for that step.
+- The selected provider binary must exist inside the container that runs the step.
 - `provider: builtin` cannot run in a container.
 - `with.stdin` and custom `prompt_mode: stdin` are rejected for containerized harness steps.
-- Do not set `container.name` for image-mode harness steps. Use `container.exec` when the step must run inside an existing container.
+- Do not set `container.name` for step-level image-mode harness steps. Use `container.exec` when the step must run inside an existing container.
 - Docker or Podman is selected by the Dagu service process, not by a DAG YAML field.
 
 ## router.route

@@ -16,7 +16,7 @@ var sourceFiles = []string{
 	filepath.Join("references", "steptypes.md"),
 	filepath.Join("references", "dagu-action.md"),
 	filepath.Join("references", "cli.md"),
-	filepath.Join("references", "env.md"),
+	filepath.Join("references", "context.md"),
 	filepath.Join("references", "codingagent.md"),
 }
 

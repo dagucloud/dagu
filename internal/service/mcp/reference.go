@@ -42,7 +42,19 @@ DAGs are YAML workflow definitions. Use dagu_change for edits:
 2. Fix validation errors if valid=false.
 3. Call dagu_change again with mode=apply only after the user intends to write.
 
-Keep generated DAGs explicit and small. Prefer clear step names, dependencies, and command bodies over clever shell composition. Preserve existing schedules, labels, parameters, workspace labels, and lifecycle hooks unless the user asked to change them.`,
+Keep generated DAGs explicit and small. Prefer clear step names, dependencies, and command bodies over clever shell composition. Preserve existing schedules, labels, parameters, workspace labels, and lifecycle hooks unless the user asked to change them.
+
+Authoring rules:
+
+- Use scoped references for Dagu-managed values: ${consts.NAME}, ${params.NAME}, ${env.NAME}, ${context.run.id}, and ${steps.step_id.outputs.name}.
+- Use shell $NAME only when the target shell or process should read the variable at execution time.
+- Single-line run values are shell commands. Array-form run entries run one by one. Multi-line run values are scripts.
+- Dagu does not split shell syntax such as pipes, redirects, &&, or ; into separate Dagu commands.
+- Declared step outputs use a step-level outputs field and write records to DAGU_OUTPUT_FILE. Later steps read them as ${steps.step_id.outputs.name}.
+- Use context references for run metadata, such as ${context.dag.name}, ${context.run.id}, and ${context.paths.artifacts_dir}.
+- harness.run can use root-level container or step-level container. A step-level container takes precedence for that step.
+- Containerized harness runs support Dagu CLI providers and custom providers that pass the prompt as an argument or flag. They do not support provider=builtin, with.stdin, or custom prompt_mode=stdin.
+- Docker or Podman is selected by the Dagu service process through DAGU_CONTAINER_RUNTIME and optional DAGU_PODMAN_HOST, not by a DAG YAML runtime field.`,
 		},
 		{
 			topic:       "tools",
