@@ -1,7 +1,10 @@
 import React, { useMemo } from 'react';
 import { components } from '@/api/v1/schema';
 import dayjs from '@/lib/dayjs';
-import { useDateKanbanData } from '../hooks/useDateKanbanData';
+import {
+  KanbanFilters,
+  useDateKanbanData,
+} from '../hooks/useDateKanbanData';
 import { KanbanBoard } from './KanbanBoard';
 
 type DAGRunSummary = components['schemas']['DAGRunSummary'];
@@ -9,7 +12,11 @@ type DAGRunSummary = components['schemas']['DAGRunSummary'];
 interface Props {
   date: string;
   todayStr: string;
-  selectedWorkspace: string;
+  /**
+   * Explicit filters for a saved view. When omitted, the Kanban data falls
+   * back to the global AppBar workspace selection (Cockpit behavior).
+   */
+  filters?: KanbanFilters;
   onCardClick: (run: DAGRunSummary) => void;
   onArtifactsClick: (run: DAGRunSummary) => void;
 }
@@ -21,7 +28,7 @@ function formatDateHeader(date: string): string {
 export function DateKanbanSection({
   date,
   todayStr,
-  selectedWorkspace,
+  filters,
   onCardClick,
   onArtifactsClick,
 }: Props): React.ReactElement {
@@ -33,9 +40,9 @@ export function DateKanbanSection({
   const isLive = isToday || date === yesterdayStr;
   const { columns, error, isLoading, isEmpty, retry } = useDateKanbanData(
     date,
-    selectedWorkspace,
     isToday,
-    isLive
+    isLive,
+    filters
   );
 
   return (

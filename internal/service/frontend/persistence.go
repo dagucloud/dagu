@@ -22,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/internal/service/eventstore"
 	apiv1 "github.com/dagucloud/dagu/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/internal/upgrade"
+	"github.com/dagucloud/dagu/internal/view"
 	"github.com/dagucloud/dagu/internal/workspace"
 )
 
@@ -44,6 +45,7 @@ type StoreFactories struct {
 	UpgradeCheckStoreFactory         UpgradeCheckStoreFactory
 	AuditStoreFactory                AuditStoreFactory
 	EventStoreFactory                EventStoreFactory
+	ViewStoreFactory                 ViewStoreFactory
 }
 
 type BaseConfigStoreFactory func(filePath string) (baseconfig.Store, error)
@@ -77,6 +79,8 @@ type UpgradeCheckStoreFactory func(*config.Config) (upgrade.CacheStore, error)
 type AuditStoreFactory func(*config.Config) (AuditStore, error)
 
 type EventStoreFactory func(*config.Config) (eventstore.Store, error)
+
+type ViewStoreFactory func(*config.Config) (view.Store, error)
 
 type MonitorStateFileFunc func(*config.Config) string
 

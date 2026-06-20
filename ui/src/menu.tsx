@@ -41,6 +41,7 @@ import {
 import * as React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { AppBarContext } from './contexts/AppBarContext';
+import { useViews } from '@/hooks/useViews';
 import { useUserPreferences } from './contexts/UserPreference';
 import { useAgentChatContext } from './features/agent';
 import { WorkspaceSelector } from './components/workspace/WorkspaceSelector';
@@ -461,6 +462,8 @@ export const mainListItems = React.forwardRef<
   const config = useConfig();
   const isAdmin = useIsAdmin();
   const { user } = useAuth();
+  const { views } = useViews();
+  const pinnedViews = views.filter((view) => view.pinned);
   const canWrite =
     config.authMode !== 'builtin'
       ? config.permissions.writeDags
@@ -627,15 +630,39 @@ export const mainListItems = React.forwardRef<
         </AppBarContext.Consumer>
 
         <div className="space-y-1">
-          <NavItem
-            to="/"
-            text="Overview"
-            icon={<Gauge size={18} />}
-            isOpen={isOpen}
-            onClick={onNavItemClick}
-            customColor={customColor}
-            activePaths={['/', '/dashboard', '/cockpit']}
-          />
+          {pinnedViews.length > 0 ? (
+            <NavGroup
+              groupKey="overview"
+              icon={<Gauge size={18} />}
+              label="Overview"
+              isOpen={isOpen}
+              basePath={['/', '/dashboard', '/cockpit', '/views']}
+              to="/"
+              onClick={onNavItemClick}
+              customColor={customColor}
+            >
+              {pinnedViews.map((view) => (
+                <NavItem
+                  key={view.id}
+                  to={`/views/${view.id}`}
+                  text={view.name}
+                  isOpen={isOpen}
+                  onClick={onNavItemClick}
+                  customColor={customColor}
+                />
+              ))}
+            </NavGroup>
+          ) : (
+            <NavItem
+              to="/"
+              text="Overview"
+              icon={<Gauge size={18} />}
+              isOpen={isOpen}
+              onClick={onNavItemClick}
+              customColor={customColor}
+              activePaths={['/', '/dashboard', '/cockpit', '/views']}
+            />
+          )}
 
           <NavGroup
             groupKey="workflows"

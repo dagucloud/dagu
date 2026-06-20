@@ -21,6 +21,7 @@ const useCanViewAuditLogsMock = vi.fn();
 const useHasFeatureMock = vi.fn();
 const updatePreferenceMock = vi.fn();
 const toggleChatMock = vi.fn();
+const useViewsMock = vi.fn();
 
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => useAuthMock(),
@@ -55,6 +56,10 @@ vi.mock('../contexts/UserPreference', () => ({
 
 vi.mock('../features/agent', () => ({
   useAgentChatContext: () => ({ toggleChat: toggleChatMock }),
+}));
+
+vi.mock('@/hooks/useViews', () => ({
+  useViews: () => useViewsMock(),
 }));
 
 const config: Config = {
@@ -141,6 +146,7 @@ function renderMenu(
 
 beforeEach(() => {
   localStorage.clear();
+  useViewsMock.mockReturnValue({ views: [] });
   useAuthMock.mockReturnValue({
     user: { id: '1', username: 'admin', role: UserRole.admin },
   });
@@ -394,6 +400,22 @@ describe('sidebar menu', () => {
     expect(screen.getByRole('link', { name: 'Tools' })).toHaveAttribute(
       'href',
       '/agent-tools'
+    );
+  });
+
+  it('renders pinned views as Overview sub-items', () => {
+    useViewsMock.mockReturnValue({
+      views: [{ id: 'v1', name: 'Prod board', pinned: true }],
+    });
+
+    renderMenu('/');
+
+    expect(
+      screen.getByRole('button', { name: 'Toggle Overview section' })
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Prod board' })).toHaveAttribute(
+      'href',
+      '/views/v1'
     );
   });
 

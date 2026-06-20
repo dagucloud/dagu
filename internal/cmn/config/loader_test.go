@@ -273,6 +273,7 @@ func TestLoad_Env(t *testing.T) {
 			ContextsDir:        filepath.Join(testPaths, "data", "contexts"),          // Derived from DataDir
 			RemoteNodesDir:     filepath.Join(testPaths, "data", "remote-nodes"),      // Derived from DataDir
 			WorkspacesDir:      filepath.Join(testPaths, "data", "workspaces"),        // Derived from DataDir
+			ViewsDir:           filepath.Join(testPaths, "data", "views"),             // Derived from DataDir
 		},
 		Secrets: SecretsConfig{
 			Vault: VaultSecretsConfig{
@@ -740,6 +741,7 @@ scheduler:
 			ContextsDir:        resolvedTestPath(t, "/var/dagu/data/contexts"),
 			RemoteNodesDir:     resolvedTestPath(t, "/var/dagu/data/remote-nodes"),
 			WorkspacesDir:      resolvedTestPath(t, "/var/dagu/data/workspaces"),
+			ViewsDir:           resolvedTestPath(t, "/var/dagu/data/views"),
 		},
 		UI: UI{
 			LogEncodingCharset:    "iso-8859-1",

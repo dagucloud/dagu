@@ -89,7 +89,6 @@ describe('DateKanbanSection live-update flags', () => {
       <DateKanbanSection
         date="2026-03-22"
         todayStr="2026-03-22"
-        selectedWorkspace=""
         onCardClick={() => {}}
         onArtifactsClick={() => {}}
       />
@@ -97,9 +96,9 @@ describe('DateKanbanSection live-update flags', () => {
 
     expect(useDateKanbanDataMock).toHaveBeenCalledWith(
       '2026-03-22',
-      '',
       true,
-      true
+      true,
+      undefined
     );
   });
 
@@ -110,7 +109,6 @@ describe('DateKanbanSection live-update flags', () => {
       <DateKanbanSection
         date="2026-03-21"
         todayStr="2026-03-22"
-        selectedWorkspace=""
         onCardClick={() => {}}
         onArtifactsClick={() => {}}
       />
@@ -118,9 +116,9 @@ describe('DateKanbanSection live-update flags', () => {
 
     expect(useDateKanbanDataMock).toHaveBeenCalledWith(
       '2026-03-21',
-      '',
       false,
-      true
+      true,
+      undefined
     );
   });
 
@@ -131,7 +129,6 @@ describe('DateKanbanSection live-update flags', () => {
       <DateKanbanSection
         date="2026-03-20"
         todayStr="2026-03-22"
-        selectedWorkspace=""
         onCardClick={() => {}}
         onArtifactsClick={() => {}}
       />
@@ -139,9 +136,9 @@ describe('DateKanbanSection live-update flags', () => {
 
     expect(useDateKanbanDataMock).toHaveBeenCalledWith(
       '2026-03-20',
-      '',
       false,
-      false
+      false,
+      undefined
     );
   });
 });

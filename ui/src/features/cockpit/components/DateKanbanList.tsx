@@ -97,7 +97,6 @@ export function DateKanbanList({
             key={date}
             date={date}
             todayStr={todayStr}
-            selectedWorkspace={selectedWorkspace}
             onCardClick={handleCardClick}
             onArtifactsClick={handleArtifactsClick}
           />
