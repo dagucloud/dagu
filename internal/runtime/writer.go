@@ -128,7 +128,7 @@ func (lw *lineBufferedWriter) Write(p []byte) (int, error) {
 		lw.buf = append(lw.buf, b)
 		if b == '\n' {
 			if _, err := lw.w.Write(lw.buf); err != nil {
-				return 0, err
+				return len(p), err
 			}
 			lw.buf = lw.buf[:0]
 		}

@@ -1765,7 +1765,7 @@
         "output_buffering": {
           "type": "string",
           "enum": ["buffer", "line", "none"],
-          "description": "Controls how step output is buffered before being flushed to the log stream. 'buffer' uses internal buffers (default, high-throughput). 'line' flushes on every newline (best for real-time streaming). 'none' disables all buffering (maximum real-time, high overhead). Overrides the DAG-level outputBuffering setting."
+          "description": "Controls how step output is buffered before being flushed to the log stream. 'buffer' uses internal buffers (default, high-throughput). 'line' flushes on every newline (best for real-time streaming). 'none' disables all buffering (maximum real-time, high overhead). Overrides the DAG-level output_buffering setting."
         },
         "output": {
           "oneOf": [
