@@ -5,6 +5,7 @@ package runtime
 
 import (
 	"bufio"
+	"bytes"
 	"io"
 	"sync"
 )
@@ -124,13 +125,18 @@ func (lw *lineBufferedWriter) Write(p []byte) (int, error) {
 	lw.mu.Lock()
 	defer lw.mu.Unlock()
 
-	for _, b := range p {
-		lw.buf = append(lw.buf, b)
-		if b == '\n' {
-			if _, err := lw.w.Write(lw.buf); err != nil {
-				return len(p), err
-			}
-			lw.buf = lw.buf[:0]
+	lw.buf = append(lw.buf, p...)
+
+	// Flush complete lines, keep trailing partial data
+	for {
+		idx := bytes.IndexByte(lw.buf, '\n')
+		if idx < 0 {
+			break
+		}
+		line := lw.buf[:idx+1]
+		lw.buf = lw.buf[idx+1:]
+		if _, err := lw.w.Write(line); err != nil {
+			return len(p), err
 		}
 	}
 	return len(p), nil
