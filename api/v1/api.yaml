@@ -16574,20 +16574,31 @@ components:
           description: "Render type. Currently only kanban is supported."
         workspace:
           type: string
-          description: "Workspace filter. Empty string means all workspaces."
+          maxLength: 64
+          pattern: "^$|^[A-Za-z0-9_-]+$"
+          not:
+            enum:
+              - all
+              - default
+              - global
+          description: "Workspace filter. Empty string means all workspaces; otherwise use a workspace name."
         labels:
           type: array
+          maxItems: 50
           items:
             type: string
+            minLength: 1
+            maxLength: 128
           description: "Label filter (AND logic), each item key or key=value."
         dagName:
           type: string
+          maxLength: 255
           description: "DAG name substring filter. Empty matches any."
         intervalDays:
           type: integer
           minimum: 1
           maximum: 30
-          description: "Number of days each row (bucket) groups. Rows scroll back in time by this unit."
+          description: "Required number of days each row (bucket) groups. Rows scroll back in time by this unit."
         pinned:
           type: boolean
           default: false

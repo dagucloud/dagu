@@ -6759,13 +6759,13 @@ export interface components {
              * @enum {string}
              */
             type: ViewSpecType;
-            /** @description Workspace filter. Empty string means all workspaces. */
+            /** @description Workspace filter. Empty string means all workspaces; otherwise use a workspace name. */
             workspace?: string;
             /** @description Label filter (AND logic), each item key or key=value. */
             labels?: string[];
             /** @description DAG name substring filter. Empty matches any. */
             dagName?: string;
-            /** @description Number of days each row (bucket) groups. Rows scroll back in time by this unit. */
+            /** @description Required number of days each row (bucket) groups. Rows scroll back in time by this unit. */
             intervalDays: number;
             /**
              * @description Whether the view is pinned to the left sidebar.

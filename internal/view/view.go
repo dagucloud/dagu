@@ -23,13 +23,12 @@ const (
 
 // Field bounds.
 const (
-	MaxNameLength       = 100
-	MaxDAGNameLength    = 255
-	MaxLabels           = 50
-	MaxLabelLength      = 128
-	MinIntervalDays     = 1
-	MaxIntervalDays     = 30
-	DefaultIntervalDays = 1
+	MaxNameLength    = 100
+	MaxDAGNameLength = 255
+	MaxLabels        = 50
+	MaxLabelLength   = 128
+	MinIntervalDays  = 1
+	MaxIntervalDays  = 30
 )
 
 // Sentinel errors returned by views and their stores.
@@ -43,6 +42,7 @@ var (
 	ErrInvalidInterval = errors.New("view: intervalDays out of range")
 	ErrTooManyLabels   = errors.New("view: too many labels")
 	ErrInvalidType     = errors.New("view: unknown type")
+	ErrViewChanged     = errors.New("view: changed")
 )
 
 // View is a saved Overview view configuration. Views are global and shared:
@@ -63,7 +63,7 @@ type View struct {
 }
 
 // Normalize trims string fields, drops empty or oversized labels, and applies
-// defaults for Type and IntervalDays. Call before Validate.
+// the default render type. Call before Validate.
 func (v *View) Normalize() {
 	v.Name = strings.TrimSpace(v.Name)
 	v.Workspace = strings.TrimSpace(v.Workspace)
@@ -71,9 +71,6 @@ func (v *View) Normalize() {
 	v.Type = strings.TrimSpace(v.Type)
 	if v.Type == "" {
 		v.Type = TypeKanban
-	}
-	if v.IntervalDays == 0 {
-		v.IntervalDays = DefaultIntervalDays
 	}
 	labels := make([]string, 0, len(v.Labels))
 	for _, l := range v.Labels {
@@ -170,6 +167,6 @@ type Store interface {
 	Create(ctx context.Context, v *View) error
 	GetByID(ctx context.Context, id string) (*View, error)
 	List(ctx context.Context) ([]*View, error)
-	Update(ctx context.Context, v *View) error
-	Delete(ctx context.Context, id string) error
+	Update(ctx context.Context, v *View, expectedWorkspace string) error
+	Delete(ctx context.Context, id string, expectedWorkspace string) error
 }

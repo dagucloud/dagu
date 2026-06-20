@@ -32,6 +32,15 @@ const ALL_WORKSPACES = '__all__';
 const DEFAULT_INTERVAL = 1;
 const MAX_INTERVAL = 30;
 
+function formWorkspace(view: View | null | undefined, selectedWorkspace: string) {
+  if (view) {
+    return view.workspace && view.workspace.length > 0
+      ? view.workspace
+      : ALL_WORKSPACES;
+  }
+  return selectedWorkspace || ALL_WORKSPACES;
+}
+
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -71,9 +80,7 @@ export function ViewEditorDialog({
       return;
     }
     setName(view?.name ?? '');
-    setWorkspace(
-      view?.workspace ? view.workspace : selectedWorkspace || ALL_WORKSPACES
-    );
+    setWorkspace(formWorkspace(view, selectedWorkspace));
     setLabels(view?.labels ?? []);
     setDagName(view?.dagName ?? '');
     setIntervalDays(view?.intervalDays ?? DEFAULT_INTERVAL);

@@ -87,7 +87,7 @@ func (s *ViewStore) List(ctx context.Context) ([]*view.View, error) {
 	for _, rec := range recs {
 		v, err := viewFromRecord(rec)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("view store: list decode %q: %w", rec.ID, err)
 		}
 		out = append(out, v)
 	}
@@ -103,7 +103,7 @@ func (s *ViewStore) List(ctx context.Context) ([]*view.View, error) {
 // Update replaces an existing view, preserving its original CreatedAt and
 // stamping UpdatedAt with the current time. Returns [view.ErrViewNotFound]
 // if the view does not exist.
-func (s *ViewStore) Update(ctx context.Context, v *view.View) error {
+func (s *ViewStore) Update(ctx context.Context, v *view.View, expectedWorkspace string) error {
 	if v == nil || v.ID == "" {
 		return view.ErrInvalidViewID
 	}
@@ -118,6 +118,13 @@ func (s *ViewStore) Update(ctx context.Context, v *view.View) error {
 		}
 		return err
 	}
+	current, err := viewFromRecord(existing)
+	if err != nil {
+		return err
+	}
+	if current.Workspace != expectedWorkspace {
+		return view.ErrViewChanged
+	}
 
 	// Preserve the original creation time regardless of the caller's input.
 	v.CreatedAt = existing.CreatedAt
@@ -126,16 +133,17 @@ func (s *ViewStore) Update(ctx context.Context, v *view.View) error {
 	if err != nil {
 		return err
 	}
-	return s.col.Put(ctx, &persis.Record{
-		ID:        v.ID,
-		Data:      data,
-		CreatedAt: existing.CreatedAt,
-		UpdatedAt: v.UpdatedAt,
-	})
+	if err := s.col.CompareAndSwap(ctx, v.ID, existing.Data, data); err != nil {
+		if errors.Is(err, persis.ErrConflict) {
+			return view.ErrViewChanged
+		}
+		return err
+	}
+	return nil
 }
 
 // Delete removes a view by ID. Returns [view.ErrViewNotFound] if absent.
-func (s *ViewStore) Delete(ctx context.Context, id string) error {
+func (s *ViewStore) Delete(ctx context.Context, id string, expectedWorkspace string) error {
 	if id == "" {
 		return view.ErrInvalidViewID
 	}
@@ -143,13 +151,27 @@ func (s *ViewStore) Delete(ctx context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, err := s.col.Get(ctx, id); err != nil {
+	existing, err := s.col.Get(ctx, id)
+	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
 			return view.ErrViewNotFound
 		}
 		return err
 	}
-	return s.col.Delete(ctx, id)
+	current, err := viewFromRecord(existing)
+	if err != nil {
+		return err
+	}
+	if current.Workspace != expectedWorkspace {
+		return view.ErrViewChanged
+	}
+	if err := s.col.CompareAndDelete(ctx, existing); err != nil {
+		if errors.Is(err, persis.ErrConflict) {
+			return view.ErrViewChanged
+		}
+		return err
+	}
+	return nil
 }
 
 func viewFromRecord(rec *persis.Record) (*view.View, error) {

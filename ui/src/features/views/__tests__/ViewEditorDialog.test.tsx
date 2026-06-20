@@ -5,6 +5,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { AppBarContext } from '@/contexts/AppBarContext';
+import { WorkspaceKind } from '@/lib/workspace';
 import { ViewEditorDialog } from '../ViewEditorDialog';
 
 const createView = vi.fn();
@@ -95,6 +97,57 @@ describe('ViewEditorDialog', () => {
     expect(updateView).toHaveBeenCalledWith(
       'v1',
       expect.objectContaining({ name: 'Renamed', workspace: 'prod' })
+    );
+  });
+
+  it('preserves an all-workspaces scope when editing with a selected workspace', async () => {
+    const user = userEvent.setup();
+    updateView.mockResolvedValue({
+      id: 'v1',
+      name: 'Renamed',
+      type: 'kanban',
+      workspace: '',
+      intervalDays: 5,
+      createdAt: '',
+      updatedAt: '',
+    });
+
+    render(
+      <AppBarContext.Provider
+        value={
+          {
+            workspaceSelection: {
+              kind: WorkspaceKind.workspace,
+              workspace: 'prod',
+            },
+          } as never
+        }
+      >
+        <ViewEditorDialog
+          open
+          onOpenChange={vi.fn()}
+          view={{
+            id: 'v1',
+            name: 'Original',
+            type: 'kanban',
+            workspace: '',
+            intervalDays: 5,
+            createdAt: '',
+            updatedAt: '',
+          }}
+        />
+      </AppBarContext.Provider>
+    );
+
+    const nameInput = screen.getByPlaceholderText('My view');
+    await user.clear(nameInput);
+    await user.type(nameInput, 'Renamed');
+    await user.click(screen.getByRole('button', { name: /save/i }));
+
+    await waitFor(() => expect(updateView).toHaveBeenCalledTimes(1));
+    expect(updateView).toHaveBeenCalledWith(
+      'v1',
+      expect.objectContaining({ name: 'Renamed', workspace: '' })
     );
   });
 });

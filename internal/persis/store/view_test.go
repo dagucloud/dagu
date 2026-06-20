@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/internal/persis"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
 	"github.com/dagucloud/dagu/internal/view"
@@ -22,6 +23,14 @@ func newViewStore(t *testing.T) *store.ViewStore {
 	s, err := store.NewViewStore(col)
 	require.NoError(t, err)
 	return s
+}
+
+func newViewStoreWithCollection(t *testing.T) (*store.ViewStore, persis.Collection) {
+	t.Helper()
+	col := testutil.NewMemoryBackend().Collection("views")
+	s, err := store.NewViewStore(col)
+	require.NoError(t, err)
+	return s, col
 }
 
 func newView(id string, createdAt time.Time) *view.View {
@@ -78,6 +87,21 @@ func TestViewStore_ListOrderedByCreatedAt(t *testing.T) {
 	assert.Equal(t, []string{"a", "b", "c"}, []string{views[0].ID, views[1].ID, views[2].ID})
 }
 
+func TestViewStore_ListReturnsDecodeError(t *testing.T) {
+	ctx := context.Background()
+	s, col := newViewStoreWithCollection(t)
+	require.NoError(t, col.Put(ctx, &persis.Record{
+		ID:        "bad",
+		Data:      []byte("{"),
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}))
+
+	_, err := s.List(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "view store: list decode")
+}
+
 func TestViewStore_Update(t *testing.T) {
 	ctx := context.Background()
 	s := newViewStore(t)
@@ -87,7 +111,7 @@ func TestViewStore_Update(t *testing.T) {
 	update := newView("a", time.Time{}) // caller leaves CreatedAt unset
 	update.Name = "renamed"
 	update.IntervalDays = 10
-	require.NoError(t, s.Update(ctx, update))
+	require.NoError(t, s.Update(ctx, update, ""))
 
 	got, err := s.GetByID(ctx, "a")
 	require.NoError(t, err)
@@ -98,8 +122,21 @@ func TestViewStore_Update(t *testing.T) {
 }
 
 func TestViewStore_UpdateNotFound(t *testing.T) {
-	err := newViewStore(t).Update(context.Background(), newView("ghost", time.Now().UTC()))
+	err := newViewStore(t).Update(context.Background(), newView("ghost", time.Now().UTC()), "")
 	assert.ErrorIs(t, err, view.ErrViewNotFound)
+}
+
+func TestViewStore_UpdateWorkspaceChanged(t *testing.T) {
+	ctx := context.Background()
+	s := newViewStore(t)
+	v := newView("a", time.Now().UTC())
+	v.Workspace = "prod"
+	require.NoError(t, s.Create(ctx, v))
+
+	update := newView("a", time.Now().UTC())
+	update.Workspace = "prod"
+	err := s.Update(ctx, update, "dev")
+	assert.ErrorIs(t, err, view.ErrViewChanged)
 }
 
 func TestViewStore_Delete(t *testing.T) {
@@ -107,12 +144,23 @@ func TestViewStore_Delete(t *testing.T) {
 	s := newViewStore(t)
 	require.NoError(t, s.Create(ctx, newView("a", time.Now().UTC())))
 
-	require.NoError(t, s.Delete(ctx, "a"))
+	require.NoError(t, s.Delete(ctx, "a", ""))
 
 	_, err := s.GetByID(ctx, "a")
 	assert.ErrorIs(t, err, view.ErrViewNotFound)
 }
 
 func TestViewStore_DeleteNotFound(t *testing.T) {
-	assert.ErrorIs(t, newViewStore(t).Delete(context.Background(), "missing"), view.ErrViewNotFound)
+	assert.ErrorIs(t, newViewStore(t).Delete(context.Background(), "missing", ""), view.ErrViewNotFound)
+}
+
+func TestViewStore_DeleteWorkspaceChanged(t *testing.T) {
+	ctx := context.Background()
+	s := newViewStore(t)
+	v := newView("a", time.Now().UTC())
+	v.Workspace = "prod"
+	require.NoError(t, s.Create(ctx, v))
+
+	err := s.Delete(ctx, "a", "dev")
+	assert.ErrorIs(t, err, view.ErrViewChanged)
 }

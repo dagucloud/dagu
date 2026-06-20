@@ -9,6 +9,14 @@ import { useClient, useQuery } from '@/hooks/api';
 export type View = components['schemas']['View'];
 export type ViewSpec = components['schemas']['ViewSpec'];
 
+async function refreshViews(mutate: () => Promise<unknown>): Promise<void> {
+  try {
+    await mutate();
+  } catch {
+    // The write already succeeded; a later revalidation can recover the list.
+  }
+}
+
 /**
  * useViews loads the shared saved views and exposes CRUD mutations. It is
  * provider-safe: when the request fails (or no SWR provider is present) it
@@ -35,8 +43,9 @@ export function useViews() {
       if (res.error) {
         throw new Error(res.error.message || 'Failed to create view');
       }
-      await mutate();
-      return res.data as View;
+      const created = res.data as View;
+      await refreshViews(mutate);
+      return created;
     },
     [client, remoteNode, mutate]
   );
@@ -50,8 +59,9 @@ export function useViews() {
       if (res.error) {
         throw new Error(res.error.message || 'Failed to update view');
       }
-      await mutate();
-      return res.data as View;
+      const updated = res.data as View;
+      await refreshViews(mutate);
+      return updated;
     },
     [client, remoteNode, mutate]
   );
@@ -64,7 +74,7 @@ export function useViews() {
       if (res.error) {
         throw new Error(res.error.message || 'Failed to delete view');
       }
-      await mutate();
+      await refreshViews(mutate);
     },
     [client, remoteNode, mutate]
   );

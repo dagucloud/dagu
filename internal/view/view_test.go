@@ -57,7 +57,7 @@ func TestView_Normalize(t *testing.T) {
 		Workspace:    "  ws  ",
 		DAGName:      "  dag  ",
 		Labels:       []string{" a ", "", "  ", "b", strings.Repeat("x", view.MaxLabelLength+1)},
-		IntervalDays: 0,
+		IntervalDays: 5,
 	}
 	v.Normalize()
 
@@ -66,7 +66,7 @@ func TestView_Normalize(t *testing.T) {
 	assert.Equal(t, "ws", v.Workspace)
 	assert.Equal(t, "dag", v.DAGName)
 	assert.Equal(t, []string{"a", "b"}, v.Labels, "empty and oversized labels are dropped")
-	assert.Equal(t, view.DefaultIntervalDays, v.IntervalDays, "zero lookback defaults")
+	assert.Equal(t, 5, v.IntervalDays)
 }
 
 func TestView_StorageRoundTrip(t *testing.T) {

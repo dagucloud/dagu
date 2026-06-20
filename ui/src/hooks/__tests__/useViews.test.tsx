@@ -69,6 +69,15 @@ describe('useViews', () => {
     expect(mutate).toHaveBeenCalled();
   });
 
+  it('returns a created view when refresh fails after a successful write', async () => {
+    mutate.mockRejectedValueOnce(new Error('reload failed'));
+    const { result } = renderHook(() => useViews());
+    await expect(result.current.createView(spec('X'))).resolves.toEqual({
+      id: 'new',
+    });
+    expect(mutate).toHaveBeenCalled();
+  });
+
   it('updates a view by id', async () => {
     const { result } = renderHook(() => useViews());
     await act(async () => {
@@ -81,6 +90,15 @@ describe('useViews', () => {
     expect(mutate).toHaveBeenCalled();
   });
 
+  it('returns an updated view when refresh fails after a successful write', async () => {
+    mutate.mockRejectedValueOnce(new Error('reload failed'));
+    const { result } = renderHook(() => useViews());
+    await expect(result.current.updateView('v1', spec('Y'))).resolves.toEqual({
+      id: 'v1',
+    });
+    expect(mutate).toHaveBeenCalled();
+  });
+
   it('deletes a view by id', async () => {
     const { result } = renderHook(() => useViews());
     await act(async () => {
@@ -89,6 +107,13 @@ describe('useViews', () => {
     expect(del).toHaveBeenCalledWith('/views/{viewId}', {
       params: { path: { viewId: 'v1' }, query: { remoteNode: 'local' } },
     });
+    expect(mutate).toHaveBeenCalled();
+  });
+
+  it('keeps delete successful when refresh fails after deletion', async () => {
+    mutate.mockRejectedValueOnce(new Error('reload failed'));
+    const { result } = renderHook(() => useViews());
+    await expect(result.current.deleteView('v1')).resolves.toBeUndefined();
     expect(mutate).toHaveBeenCalled();
   });
 

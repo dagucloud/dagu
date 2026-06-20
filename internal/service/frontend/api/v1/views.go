@@ -34,6 +34,14 @@ func viewNotFound() api.Error {
 	return api.Error{Code: api.ErrorCodeNotFound, Message: "View not found"}
 }
 
+func viewChanged() *Error {
+	return &Error{
+		HTTPStatus: http.StatusConflict,
+		Code:       api.ErrorCodeBadRequest,
+		Message:    "View changed; reload and try again",
+	}
+}
+
 // ListViews returns the saved views visible to the caller. Workspace-scoped
 // views are returned only when the caller can access that workspace;
 // all-workspace views (empty workspace) are visible to every authenticated user.
@@ -146,9 +154,12 @@ func (a *API) UpdateView(ctx context.Context, request api.UpdateViewRequestObjec
 		return nil, err
 	}
 
-	if err := a.viewStore.Update(ctx, updated); err != nil {
+	if err := a.viewStore.Update(ctx, updated, existing.Workspace); err != nil {
 		if errors.Is(err, view.ErrViewNotFound) {
 			return api.UpdateView404JSONResponse(viewNotFound()), nil
+		}
+		if errors.Is(err, view.ErrViewChanged) {
+			return nil, viewChanged()
 		}
 		return nil, fmt.Errorf("failed to update view: %w", err)
 	}
@@ -177,9 +188,12 @@ func (a *API) DeleteView(ctx context.Context, request api.DeleteViewRequestObjec
 		return nil, err
 	}
 
-	if err := a.viewStore.Delete(ctx, request.ViewId); err != nil {
+	if err := a.viewStore.Delete(ctx, request.ViewId, existing.Workspace); err != nil {
 		if errors.Is(err, view.ErrViewNotFound) {
 			return api.DeleteView404JSONResponse(viewNotFound()), nil
+		}
+		if errors.Is(err, view.ErrViewChanged) {
+			return nil, viewChanged()
 		}
 		return nil, fmt.Errorf("failed to delete view: %w", err)
 	}
