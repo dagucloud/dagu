@@ -19,6 +19,36 @@ Use shell `$NAME` or `printenv NAME` only when the target shell or process shoul
 
 `${steps.<step_id>.outputs.<name>}` is only for declared step outputs. Other step properties keep the step-ID form that the resolver supports, such as `${step_id.stdout}`, `${step_id.output.name}`, and `${step_id.outputs.name}`.
 
+## Top-Level `consts:`
+
+Use `consts:` for static DAG values that Dagu should resolve before step execution. Constants are not process environment variables. Use `${consts.NAME}` when Dagu should substitute the value into a DAG field. Copy a constant into `env:` only when a child process needs an environment variable.
+
+```yaml
+consts:
+  - service: api
+  - region: us-east-1
+  - endpoint: https://${consts.service}.${consts.region}.example
+
+env:
+  - API_ENDPOINT=${consts.endpoint}
+
+steps:
+  - id: healthcheck
+    run: curl -fsS '${consts.endpoint}/health'
+```
+
+Rules:
+
+- `consts:` must use list form. Mapping form is invalid.
+- Each list item must be a single-key mapping, such as `- service: api`.
+- Names must start with a letter and then contain only letters, digits, or `_`.
+- Values must be literal strings, finite numbers, or booleans. `null`, arrays, and objects are invalid.
+- A const can reference inherited consts or earlier consts in the same list with `${consts.NAME}`.
+- A const cannot read runtime values while it is being defined. References such as `${params.NAME}`, `${env.NAME}`, `${steps.step_id.outputs.name}`, self-references, later const references, and unknown const references remain unresolved text inside the const value.
+- Consts from a base config are inherited. A DAG-local const with the same name overrides the inherited value.
+
+Use `consts:` for fixed workflow configuration. Use `params:` for per-run user input. Use `env:` for values that should be available to the running process environment.
+
 ## Supported Context References
 
 Run and step metadata:
