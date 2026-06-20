@@ -35,6 +35,16 @@ var (
 	WithDatabase = exec.WithDatabase
 	// WithRootDAGRun sets the root DAG run reference for sub-DAG execution.
 	WithRootDAGRun = exec.WithRootDAGRun
+	// WithAttemptID sets the DAG-run attempt identifier.
+	WithAttemptID = exec.WithAttemptID
+	// WithTriggerType sets the DAG-run trigger type.
+	WithTriggerType = exec.WithTriggerType
+	// WithTriggerActor sets the attributable trigger actor.
+	WithTriggerActor = exec.WithTriggerActor
+	// WithRunStartedAt sets the recorded DAG-run start timestamp.
+	WithRunStartedAt = exec.WithRunStartedAt
+	// WithScheduleTime sets the logical schedule time.
+	WithScheduleTime = exec.WithScheduleTime
 	// WithParams sets runtime parameters.
 	WithParams = exec.WithParams
 	// WithDefaultEnvVars sets low-precedence inherited environment variables.

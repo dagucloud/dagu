@@ -179,6 +179,7 @@ Execution-attempt Dagu-managed environment names include:
 Additional Dagu-managed names reserved for specialized run-control surfaces
 include:
 
+- `DAG_WAITING_STEPS`
 - `DAG_PUSHBACK`
 - `DAG_PUSHBACK_ITERATION`
 - `DAG_PUSHBACK_PREVIOUS_STDOUT_FILE`
@@ -188,7 +189,8 @@ include:
 These names are not part of the normal step environment scope unless their
 owning surface makes them available.
 
-Secret-reserved Dagu-managed environment names are:
+Secret-reserved Dagu-managed environment names include every name starting with
+`DAGU_` and every Dagu-managed projection name below:
 
 - `DAG_NAME`
 - `DAG_RUN_ID`
@@ -197,6 +199,7 @@ Secret-reserved Dagu-managed environment names are:
 - `DAG_RUN_STEP_STDOUT_FILE`
 - `DAG_RUN_STEP_STDERR_FILE`
 - `DAG_RUN_STATUS`
+- `DAG_WAITING_STEPS`
 - `DAGU_PARAMS_JSON`
 - `DAG_DOCS_DIR`
 - `DAG_PARAMS_JSON`
@@ -210,7 +213,10 @@ Secret-reserved Dagu-managed environment names are:
 
 Other specs that introduce Dagu-managed environment names must state whether
 those names are protected root run names, initial current-step names, or
-execution-attempt names.
+execution-attempt names. They must also state whether the names are
+secret-reserved. Future Dagu-managed projection names should prefer the
+`DAGU_` prefix unless an owning spec explicitly extends an existing
+compatibility family.
 
 ### Predecessor Output Variables
 

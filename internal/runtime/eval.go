@@ -14,6 +14,8 @@ import (
 
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
+	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/internal/core/exec"
 )
 
 // EvalBool evaluates the given value with the variables within the execution context
@@ -48,12 +50,82 @@ func resolverFromEnv(env Env) cmnvalue.Resolver {
 		paramDeclarations = env.DAG.ParamDeclarations()
 	}
 	scope := cmnvalue.RuntimeScope{
-		Consts: consts,
-		Params: params,
-		Env:    env.Scope,
-		Steps:  env.StepMap,
+		Consts:         consts,
+		Params:         params,
+		Env:            env.Scope,
+		Steps:          env.StepMap,
+		BuiltinContext: builtinContextFromEnv(env),
 	}
 	return cmnvalue.NewResolver(cmnvalue.StaticScope{Consts: consts, Params: paramDeclarations}, scope)
+}
+
+func builtinContextFromEnv(env Env) cmnvalue.BuiltinContext {
+	return builtinContextFromDAGContext(env.Context, env.Scope, env.Step)
+}
+
+func builtinContextFromDAGContext(rCtx Context, scope *cmnvalue.EnvScope, step core.Step) cmnvalue.BuiltinContext {
+	values := make(map[string]string)
+	addBuiltinContextValue(values, "context.dag.name", dagName(rCtx))
+	addBuiltinContextValue(values, "context.run.id", rCtx.DAGRunID)
+	addBuiltinContextValue(values, "context.attempt.started_at", rCtx.RunStartedAt)
+	addBuiltinContextValue(values, "context.run.scheduled_at", rCtx.ScheduleTime)
+	if rootDAGRunContextAvailable(rCtx) {
+		addBuiltinContextValue(values, "context.run.root_name", rCtx.RootDAGRun.Name)
+		addBuiltinContextValue(values, "context.run.root_id", rCtx.RootDAGRun.ID)
+	}
+	addBuiltinContextValue(values, "context.attempt.id", rCtx.AttemptID)
+	addBuiltinContextValue(values, "context.step.id", step.ID)
+	addBuiltinContextValue(values, "context.step.name", step.Name)
+	addBuiltinContextValue(values, "context.trigger.type", rCtx.TriggerType.String())
+	addBuiltinContextValue(values, "context.trigger.actor", rCtx.TriggerActor)
+	addBuiltinContextEnvValue(values, "context.run.status", scope, exec.EnvKeyDAGRunStatus)
+	addBuiltinContextEnvValue(values, "context.paths.log_file", scope, exec.EnvKeyDAGRunLogFile)
+	addBuiltinContextEnvValue(values, "context.paths.work_dir", scope, exec.EnvKeyDAGRunWorkDir)
+	addBuiltinContextEnvValue(values, "context.paths.artifacts_dir", scope, exec.EnvKeyDAGRunArtifactsDir)
+	addBuiltinContextEnvValue(values, "context.paths.docs_dir", scope, exec.EnvKeyDAGDocsDir)
+	addBuiltinContextEnvValue(values, "context.paths.step_stdout_file", scope, exec.EnvKeyDAGRunStepStdoutFile)
+	addBuiltinContextEnvValue(values, "context.paths.step_stderr_file", scope, exec.EnvKeyDAGRunStepStderrFile)
+	addBuiltinContextEnvValue(values, "context.paths.step_output_file", scope, exec.EnvKeyDAGUOutputFile)
+	addBuiltinContextValue(values, "context.profile.name", rCtx.ProfileName)
+	addBuiltinContextValue(values, "context.profile.resolved_at", rCtx.ProfileResolvedAt)
+	addBuiltinContextEnvValue(values, "context.pushback.iteration", scope, exec.EnvKeyDAGPushBackIteration)
+	addBuiltinContextEnvValue(values, "context.pushback.previous_stdout_file", scope, exec.EnvKeyDAGPushBackPreviousStdoutFile)
+	return cmnvalue.NewBuiltinContext(values)
+}
+
+func dagName(rCtx Context) string {
+	if rCtx.DAG == nil {
+		return ""
+	}
+	return rCtx.DAG.Name
+}
+
+func rootDAGRunContextAvailable(rCtx Context) bool {
+	if rCtx.RootDAGRun.Zero() {
+		return false
+	}
+	if rCtx.DAG != nil && rCtx.RootDAGRun.Name == rCtx.DAG.Name && rCtx.RootDAGRun.ID == rCtx.DAGRunID {
+		return false
+	}
+	return true
+}
+
+func addBuiltinContextValue(values map[string]string, path string, value string) {
+	if value == "" {
+		return
+	}
+	values[path] = value
+}
+
+func addBuiltinContextEnvValue(values map[string]string, path string, scope *cmnvalue.EnvScope, key string) {
+	if scope == nil {
+		return
+	}
+	value, ok := scope.Get(key)
+	if !ok {
+		return
+	}
+	addBuiltinContextValue(values, path, value)
 }
 
 func resolveRuntimeString(ctx context.Context, raw string, field cmnvalue.Field) (string, error) {

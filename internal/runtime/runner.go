@@ -354,7 +354,7 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 			)
 
 			if err := r.runEventHandler(ctx, plan, handlerNode, map[string]string{
-				"DAG_WAITING_STEPS": waitingSteps,
+				exec.EnvKeyDAGWaitingSteps: waitingSteps,
 			}); err != nil {
 				// Log error but don't fail - notification failure shouldn't block Wait status
 				logger.Error(ctx, "onWait handler failed", tag.Error(err))
@@ -1113,8 +1113,6 @@ func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, ex
 		return nil
 	}
 
-	// Handler stdout/stderr paths are also evaluated during Prepare, so attach the
-	// complete handler env before preparing the node.
 	var err error
 	ctx, err = r.setupEnvironEventHandler(ctx, plan, node, extraEnvs)
 	if err != nil {

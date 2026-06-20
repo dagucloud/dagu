@@ -4,6 +4,7 @@
 package value
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -25,7 +26,21 @@ const (
 	ValueReferenceReasonMissingDependency    ValueReferenceNoticeReason = "missing_dependency"
 	ValueReferenceReasonSelfReference        ValueReferenceNoticeReason = "self_reference"
 	ValueReferenceReasonNamespaceUnavailable ValueReferenceNoticeReason = "namespace_unavailable"
+	ValueReferenceReasonUnknownContextField  ValueReferenceNoticeReason = "unknown_context_field"
 )
+
+type noticeReasonError struct {
+	reason ValueReferenceNoticeReason
+	msg    string
+}
+
+func (e noticeReasonError) Error() string {
+	return e.msg
+}
+
+func newNoticeReasonError(reason ValueReferenceNoticeReason, msg string) error {
+	return noticeReasonError{reason: reason, msg: msg}
+}
 
 // ValueReferenceNoticeSink receives passive value-reference notices.
 type ValueReferenceNoticeSink interface {
@@ -97,10 +112,16 @@ func addUnresolvedReferenceNotice(sink ValueReferenceNoticeSink, field, token st
 	if err != nil {
 		message += " " + err.Error() + "."
 	}
+	var reasonErr noticeReasonError
+	var reason ValueReferenceNoticeReason
+	if errors.As(err, &reasonErr) {
+		reason = reasonErr.reason
+	}
 	sink.Report(ValueReferenceNotice{
 		Message:   message,
 		FieldPath: field,
 		Token:     token,
+		Reason:    reason,
 	})
 }
 
@@ -128,6 +149,8 @@ func ReportStepOutputReferenceNotice(sink ValueReferenceNoticeSink, field, token
 		message = fmt.Sprintf("%s was left unchanged because a step cannot reference its own output when %s was evaluated.", token, evaluatedField)
 	case ValueReferenceReasonNamespaceUnavailable:
 		message = fmt.Sprintf("%s was left unchanged because %s has no step-output lookup scope.", token, evaluatedField)
+	case ValueReferenceReasonUnknownContextField:
+		message = fmt.Sprintf("%s was left unchanged because the context field is not defined when %s was evaluated.", token, evaluatedField)
 	}
 	sink.Report(ValueReferenceNotice{
 		Message:   message,

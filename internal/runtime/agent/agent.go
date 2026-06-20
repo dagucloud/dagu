@@ -603,11 +603,17 @@ func (a *Agent) Run(ctx context.Context) error {
 	contextOpts := []runtime.ContextOption{
 		runtime.WithDatabase(dbClient),
 		runtime.WithRootDAGRun(a.rootDAGRun),
+		runtime.WithAttemptID(a.dagRunAttemptID),
+		runtime.WithTriggerType(a.triggerType),
+		runtime.WithRunStartedAt(contextTimeString(a.plan.StartAt())),
 		runtime.WithParams(a.dag.Params),
 		runtime.WithDefaultSecrets(profileValues.defaultSecrets),
 		runtime.WithSecrets(append(profileValues.selectedSecrets, secretEnvs...)),
 		runtime.WithDefaultExecMode(a.defaultExecMode),
 		runtime.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
+	}
+	if scheduleTime := a.contextScheduleTime(); scheduleTime != "" {
+		contextOpts = append(contextOpts, runtime.WithScheduleTime(scheduleTime))
 	}
 	if len(profileValues.defaultEnvs) > 0 {
 		contextOpts = append(contextOpts, runtime.WithDefaultEnvVars(profileValues.defaultEnvs...))
@@ -1437,6 +1443,34 @@ func (a *Agent) statusSourceTarget() *exec.DAGRunStatus {
 	return a.retryTarget
 }
 
+func (a *Agent) contextScheduleTime() string {
+	var raw string
+	if source := a.statusSourceTarget(); source != nil && source.ScheduleTime != "" {
+		raw = source.ScheduleTime
+	} else {
+		raw = a.scheduleTime
+	}
+	return contextTimeValue(raw)
+}
+
+func contextTimeValue(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	t, err := stringutil.ParseTime(raw)
+	if err != nil {
+		return raw
+	}
+	return contextTimeString(t)
+}
+
+func contextTimeString(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
 func (a *Agent) prepareWorkDir(ctx context.Context, attempt runstate.Attempt) (func(), error) {
 	if attempt == nil {
 		return nil, nil
@@ -1709,7 +1743,7 @@ func (a *Agent) resolveProfile(ctx context.Context) (resolvedProfileValues, erro
 		layers := append([]*profilepkg.Resolved{}, defaultLayers...)
 		layers = append(layers, selected)
 		effective := profilepkg.MergeResolved("effective", layers...)
-		a.profileResolvedAt = exec.FormatTime(time.Now())
+		a.profileResolvedAt = contextTimeString(time.Now())
 		a.profileEntries = profileEntries(effective)
 	}
 
@@ -1987,7 +2021,13 @@ func (a *Agent) dryRun(ctx context.Context) error {
 	contextOpts := []runtime.ContextOption{
 		runtime.WithDatabase(db),
 		runtime.WithRootDAGRun(a.rootDAGRun),
+		runtime.WithAttemptID(a.dagRunAttemptID),
+		runtime.WithTriggerType(a.triggerType),
+		runtime.WithRunStartedAt(contextTimeString(a.plan.StartAt())),
 		runtime.WithParams(a.dag.Params),
+	}
+	if scheduleTime := a.contextScheduleTime(); scheduleTime != "" {
+		contextOpts = append(contextOpts, runtime.WithScheduleTime(scheduleTime))
 	}
 	if a.artifactDir != "" {
 		contextOpts = append(contextOpts, runtime.WithArtifactDir(a.artifactDir))

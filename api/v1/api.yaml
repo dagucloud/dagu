@@ -12645,6 +12645,7 @@ components:
             - missing_dependency
             - self_reference
             - namespace_unavailable
+            - unknown_context_field
       required:
         - message
 

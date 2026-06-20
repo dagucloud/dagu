@@ -17,7 +17,8 @@ It can:
 
 Value resolution is the field evaluation mode that resolves Dagu-owned references in workflow YAML before the field is used.
 
-A Dagu-owned reference is a namespaced reference:
+A Dagu-owned reference is a namespaced reference defined by this spec or by
+another numbered spec:
 
 ```text
 ${consts.name}
@@ -84,17 +85,19 @@ Dagu uses three evaluation types.
 | Dynamic-evaluated | Dagu runs the dynamic evaluation pipeline. In this spec, only `params[].eval` uses this type. |
 
 Unqualified environment expansion is a separate field-level ownership decision.
-A value-resolved field always resolves Dagu-owned references listed in this spec.
+A value-resolved field always resolves Dagu-owned references defined by this
+spec set.
 That same field expands `$NAME`, `${NAME}`, or shell-style `${NAME...}` expressions only when Spec 006 says Dagu owns unqualified environment expansion for that field.
 When Spec 006 says a later runtime owns unqualified environment syntax, Dagu preserves that syntax after resolving Dagu-owned references.
 
 ### Reference Syntax
 
-- Dagu-owned references are only the unescaped supported reference forms listed below.
+- Dagu-owned references are only the unescaped supported reference forms
+  defined by this spec set.
 
 - An unescaped supported reference form must use `${path}` syntax.
 
-- Supported reference forms are:
+- Base supported reference forms are:
 
 ```text
 ${consts.name}
@@ -102,6 +105,12 @@ ${params.name}
 ${env.NAME}
 ${steps.step_id.outputs.name}
 ```
+
+- A later numbered spec may add a supported reference namespace. That spec must
+  define the namespace path grammar, value source, availability rules,
+  validation behavior, missing-value behavior, and examples.
+- New Dagu-managed runtime metadata must use a reserved namespace listed in the
+  namespace registry below, or the owning spec must update that registry.
 
 - Names in supported reference forms must match `^[A-Za-z][A-Za-z0-9_]*$`.
 - This name rule applies to namespace names, `consts` keys, `params` names, step ids, `outputs`, and step output names.
@@ -124,6 +133,26 @@ ${steps.step_id.outputs.name}
 - `$consts.name`, `$params.name`, `$env.NAME`, and `$steps.step_id.outputs.name` are ordinary string content.
 
 - Unsupported reference-looking text is preserved silently.
+
+### Namespace Registry
+
+The following top-level namespaces are Dagu-owned value-resolution namespaces.
+An owning spec may reserve descendants so that unknown fields preserve at
+runtime but produce inspection-only passive notices.
+
+| Namespace | Owner | Path grammar | Missing behavior | Descendants reserved |
+| --- | --- | --- | --- | --- |
+| `consts` | Spec 004 | `consts.<name>` | Preserve with passive notice. | No |
+| `params` | Spec 005 | `params.<name>` | Preserve with passive notice. | No |
+| `env` | Spec 006 | `env.<NAME>` | Preserve with passive notice. | No |
+| `steps` | Spec 007 | `steps.<step_id>.outputs.<name>` | Preserve with reason-specific passive notice. | No |
+| `context` | Spec 017 | `context.<namespace>.<field>` | Preserve with passive notice. | Yes |
+
+Spec 017 also defines frozen top-level compatibility aliases `dag`, `run`,
+`attempt`, `step`, `trigger`, `paths`, `profile`, and `pushback`. Only the
+exact aliases listed by Spec 017 are Dagu-owned references. Other text under
+those short roots stays unsupported ordinary string content, and new fields
+must not be added to those alias roots.
 
 ### Escaped Dagu References
 

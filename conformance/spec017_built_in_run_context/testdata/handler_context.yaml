@@ -1,0 +1,37 @@
+name: builtin_handler_context
+working_dir: .
+handler_on:
+  success:
+    run: |
+      case '${context.run.status}' in
+        succeeded) ;;
+        *) printf 'bad status=%s\n' '${context.run.status}' >&2; exit 1 ;;
+      esac
+      expected_stdout='$''{context.paths.step_stdout_file}'
+      expected_stderr='$''{context.paths.step_stderr_file}'
+      if [ '${context.paths.step_stdout_file}' != "$expected_stdout" ]; then
+        printf 'stdout path should be unavailable in handler\n' >&2
+        exit 1
+      fi
+      if [ '${context.paths.step_stderr_file}' != "$expected_stderr" ]; then
+        printf 'stderr path should be unavailable in handler\n' >&2
+        exit 1
+      fi
+      if [ "${DAG_RUN_STEP_STDOUT_FILE:-UNSET}" != "UNSET" ]; then
+        printf 'stdout env should be unset in handler\n' >&2
+        exit 1
+      fi
+      if [ "${DAG_RUN_STEP_STDERR_FILE:-UNSET}" != "UNSET" ]; then
+        printf 'stderr env should be unset in handler\n' >&2
+        exit 1
+      fi
+      printf 'status=%s\n' '${context.run.status}' > handler-context.txt
+      printf 'env_status=%s\n' "$DAG_RUN_STATUS" >> handler-context.txt
+      printf 'run=%s\n' '${context.run.id}' >> handler-context.txt
+      printf 'stdout=%s\n' '${context.paths.step_stdout_file}' >> handler-context.txt
+      printf 'stderr=%s\n' '${context.paths.step_stderr_file}' >> handler-context.txt
+      printf 'env_stdout=%s\n' "${DAG_RUN_STEP_STDOUT_FILE:-UNSET}" >> handler-context.txt
+      printf 'env_stderr=%s\n' "${DAG_RUN_STEP_STDERR_FILE:-UNSET}" >> handler-context.txt
+steps:
+  - id: ok
+    run: "true"

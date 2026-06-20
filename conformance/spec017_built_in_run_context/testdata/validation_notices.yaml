@@ -1,0 +1,5 @@
+working_dir: .
+steps:
+  - id: inspect
+    run: |
+      printf '%s\n' '${context.dag.name}' '${context.step.id}' '${context.step.name}' '${context.run.id}' '${context.attempt.id}' '${context.run.status}' '${context.trigger.actor}' '${context.profile.name}' '${context.pushback.iteration}' '${context.paths.context}' '${context.trigger.payload}' '${context.run.foo}' '${context.run.id.extra}' '${unrelated.context}' > validation-notices.txt
