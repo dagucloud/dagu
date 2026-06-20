@@ -47,7 +47,9 @@ func TestBuildArtifactPreviewReturnsMetadataWithoutContentForLargeHTMLFiles(t *t
 	t.Parallel()
 
 	archiveDir := t.TempDir()
-	body := strings.Repeat("<p>x</p>", int(frontendapi.ArtifactTextPreviewMaxBytesForTest/8)+1)
+	const htmlChunk = "<p>x</p>"
+	repeats := int(frontendapi.ArtifactTextPreviewMaxBytesForTest/int64(len(htmlChunk))) + 1
+	body := strings.Repeat(htmlChunk, repeats)
 	require.NoError(t, os.WriteFile(filepath.Join(archiveDir, "large.html"), []byte(body), 0o600))
 
 	preview, err := frontendapi.BuildArtifactPreviewForTest(archiveDir, "large.html")

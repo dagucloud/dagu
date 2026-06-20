@@ -1,8 +1,8 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { cn } from '@/lib/utils';
 import React, { useMemo } from 'react';
+import { cn } from '@/lib/utils';
 import { buildHTMLArtifactPreviewDocument } from './htmlPreview';
 
 type Props = {
