@@ -4205,7 +4205,9 @@ func buildArtifactPreview(archiveDir, relPath string) (api.ArtifactPreviewRespon
 		previewBytes = previewBytes[:previewLimit]
 		resp.Truncated = true
 	}
-	if kind == api.ArtifactPreviewKindMarkdown || kind == api.ArtifactPreviewKindText {
+	if kind == api.ArtifactPreviewKindMarkdown ||
+		kind == api.ArtifactPreviewKindHtml ||
+		kind == api.ArtifactPreviewKindText {
 		content := string(previewBytes)
 		resp.Content = &content
 	}
@@ -4252,9 +4254,14 @@ func artifactPreviewKind(path, mimeType string) api.ArtifactPreviewKind {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".md", ".markdown", ".mdown", ".mkd":
 		return api.ArtifactPreviewKindMarkdown
+	case ".html", ".htm":
+		return api.ArtifactPreviewKindHtml
 	}
 	if strings.HasPrefix(mimeType, "image/") {
 		return api.ArtifactPreviewKindImage
+	}
+	if mimeType == "text/html" {
+		return api.ArtifactPreviewKindHtml
 	}
 	if strings.HasPrefix(mimeType, "text/") ||
 		strings.Contains(mimeType, "json") ||
@@ -4269,7 +4276,7 @@ func artifactPreviewKind(path, mimeType string) api.ArtifactPreviewKind {
 
 func artifactPreviewLimit(kind api.ArtifactPreviewKind) int64 {
 	switch kind {
-	case api.ArtifactPreviewKindMarkdown, api.ArtifactPreviewKindText:
+	case api.ArtifactPreviewKindMarkdown, api.ArtifactPreviewKindHtml, api.ArtifactPreviewKindText:
 		return artifactTextPreviewMaxBytes
 	case api.ArtifactPreviewKindImage:
 		return artifactImagePreviewMaxBytes

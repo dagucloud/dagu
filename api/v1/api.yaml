@@ -13016,6 +13016,7 @@ components:
       description: "Preview mode for an artifact file"
       enum:
         - "markdown"
+        - "html"
         - "text"
         - "image"
         - "binary"
@@ -13047,7 +13048,7 @@ components:
           description: "Whether inline text content was truncated for preview"
         content:
           type: string
-          description: "Inline preview content for markdown or text artifacts"
+          description: "Inline preview content for markdown, HTML, or text artifacts"
       required:
         - name
         - path
