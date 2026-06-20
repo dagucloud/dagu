@@ -34,7 +34,9 @@ func viewNotFound() api.Error {
 	return api.Error{Code: api.ErrorCodeNotFound, Message: "View not found"}
 }
 
-// ListViews returns all saved views. Open to any authenticated user.
+// ListViews returns the saved views visible to the caller. Workspace-scoped
+// views are returned only when the caller can access that workspace;
+// all-workspace views (empty workspace) are visible to every authenticated user.
 func (a *API) ListViews(ctx context.Context, _ api.ListViewsRequestObject) (api.ListViewsResponseObject, error) {
 	if a.viewStore == nil {
 		return nil, viewStoreUnavailable()
@@ -45,6 +47,9 @@ func (a *API) ListViews(ctx context.Context, _ api.ListViewsRequestObject) (api.
 	}
 	out := make([]api.View, 0, len(views))
 	for _, v := range views {
+		if !a.canViewViewWorkspace(ctx, v.Workspace) {
+			continue
+		}
 		out = append(out, toViewResponse(v))
 	}
 	return api.ListViews200JSONResponse{Views: out}, nil
@@ -72,6 +77,9 @@ func (a *API) CreateView(ctx context.Context, request api.CreateViewRequestObjec
 	if err := v.Validate(); err != nil {
 		return api.CreateView400JSONResponse(viewBadRequest(err.Error())), nil
 	}
+	if !a.canViewViewWorkspace(ctx, v.Workspace) {
+		return nil, errInsufficientPermissions
+	}
 
 	if err := a.viewStore.Create(ctx, v); err != nil {
 		if errors.Is(err, view.ErrViewExists) {
@@ -84,7 +92,8 @@ func (a *API) CreateView(ctx context.Context, request api.CreateViewRequestObjec
 	return api.CreateView201JSONResponse(toViewResponse(v)), nil
 }
 
-// GetView returns a single view by ID. Open to any authenticated user.
+// GetView returns a single view by ID. It returns 404 when the view is scoped
+// to a workspace the caller cannot access, so its existence is not revealed.
 func (a *API) GetView(ctx context.Context, request api.GetViewRequestObject) (api.GetViewResponseObject, error) {
 	if a.viewStore == nil {
 		return nil, viewStoreUnavailable()
@@ -95,6 +104,9 @@ func (a *API) GetView(ctx context.Context, request api.GetViewRequestObject) (ap
 			return api.GetView404JSONResponse(viewNotFound()), nil
 		}
 		return nil, err
+	}
+	if !a.canViewViewWorkspace(ctx, v.Workspace) {
+		return api.GetView404JSONResponse(viewNotFound()), nil
 	}
 	return api.GetView200JSONResponse(toViewResponse(v)), nil
 }
@@ -116,6 +128,9 @@ func (a *API) UpdateView(ctx context.Context, request api.UpdateViewRequestObjec
 		}
 		return nil, err
 	}
+	if !a.canViewViewWorkspace(ctx, existing.Workspace) {
+		return api.UpdateView404JSONResponse(viewNotFound()), nil
+	}
 	if request.Body == nil {
 		return api.UpdateView400JSONResponse(viewBadRequest("Request body is required")), nil
 	}
@@ -127,6 +142,9 @@ func (a *API) UpdateView(ctx context.Context, request api.UpdateViewRequestObjec
 	updated.Normalize()
 	if err := updated.Validate(); err != nil {
 		return api.UpdateView400JSONResponse(viewBadRequest(err.Error())), nil
+	}
+	if !a.canViewViewWorkspace(ctx, updated.Workspace) {
+		return nil, errInsufficientPermissions
 	}
 
 	if err := a.viewStore.Update(ctx, updated); err != nil {
@@ -149,6 +167,17 @@ func (a *API) DeleteView(ctx context.Context, request api.DeleteViewRequestObjec
 		return nil, err
 	}
 
+	existing, err := a.viewStore.GetByID(ctx, request.ViewId)
+	if err != nil {
+		if errors.Is(err, view.ErrViewNotFound) {
+			return api.DeleteView404JSONResponse(viewNotFound()), nil
+		}
+		return nil, err
+	}
+	if !a.canViewViewWorkspace(ctx, existing.Workspace) {
+		return api.DeleteView404JSONResponse(viewNotFound()), nil
+	}
+
 	if err := a.viewStore.Delete(ctx, request.ViewId); err != nil {
 		if errors.Is(err, view.ErrViewNotFound) {
 			return api.DeleteView404JSONResponse(viewNotFound()), nil
@@ -158,6 +187,14 @@ func (a *API) DeleteView(ctx context.Context, request api.DeleteViewRequestObjec
 
 	a.logAudit(ctx, audit.CategorySystem, "view_delete", map[string]any{"id": request.ViewId})
 	return api.DeleteView204Response{}, nil
+}
+
+// canViewViewWorkspace reports whether the caller may see a view scoped to the
+// given workspace. All-workspace views (empty workspace) are visible to every
+// authenticated user; a workspace-scoped view is visible only to callers who
+// can access that workspace.
+func (a *API) canViewViewWorkspace(ctx context.Context, workspace string) bool {
+	return workspace == "" || a.canAccessWorkspace(ctx, workspace)
 }
 
 func viewFromSpec(spec api.ViewSpec) *view.View {

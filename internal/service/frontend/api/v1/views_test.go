@@ -185,6 +185,67 @@ func TestViewsAPI_RBAC_WriteRequiresDeveloper(t *testing.T) {
 	assert.True(t, ok, "developer is allowed to write")
 }
 
+func TestViewsAPI_WorkspaceScopedVisibility(t *testing.T) {
+	api := newViewsTestAPI(t, apiv1.WithAuthService(stubAuthService{}))
+
+	// Seed three views as a full-access admin.
+	adminCtx := auth.WithUser(context.Background(), &auth.User{
+		Username:        "admin",
+		Role:            auth.RoleAdmin,
+		WorkspaceAccess: &auth.WorkspaceAccess{All: true},
+	})
+	wsA := "a"
+	wsB := "b"
+	viewA := mustCreateView(t, api, adminCtx, apigen.ViewSpec{Name: "A", IntervalDays: 1, Workspace: &wsA})
+	viewB := mustCreateView(t, api, adminCtx, apigen.ViewSpec{Name: "B", IntervalDays: 1, Workspace: &wsB})
+	mustCreateView(t, api, adminCtx, apigen.ViewSpec{Name: "All", IntervalDays: 1}) // empty workspace
+
+	// Restricted developer with access to workspace "a" only.
+	devCtx := auth.WithUser(context.Background(), &auth.User{
+		Username: "dev",
+		Role:     auth.RoleDeveloper,
+		WorkspaceAccess: &auth.WorkspaceAccess{
+			Grants: []auth.WorkspaceGrant{{Workspace: "a", Role: auth.RoleDeveloper}},
+		},
+	})
+
+	// List shows workspace "a" + all-workspace views, hides workspace "b".
+	listResp, err := api.ListViews(devCtx, apigen.ListViewsRequestObject{})
+	require.NoError(t, err)
+	listed, ok := listResp.(apigen.ListViews200JSONResponse)
+	require.True(t, ok)
+	names := map[string]bool{}
+	for _, v := range listed.Views {
+		names[v.Name] = true
+	}
+	assert.True(t, names["A"], "accessible workspace view visible")
+	assert.True(t, names["All"], "all-workspace view visible")
+	assert.False(t, names["B"], "inaccessible workspace view must be hidden")
+
+	// GetView on the inaccessible-workspace view returns 404 (existence hidden).
+	getB, err := api.GetView(devCtx, apigen.GetViewRequestObject{ViewId: viewB.Id})
+	require.NoError(t, err)
+	_, ok = getB.(apigen.GetView404JSONResponse)
+	assert.True(t, ok, "get of inaccessible-workspace view must be 404")
+
+	getA, err := api.GetView(devCtx, apigen.GetViewRequestObject{ViewId: viewA.Id})
+	require.NoError(t, err)
+	_, ok = getA.(apigen.GetView200JSONResponse)
+	assert.True(t, ok, "get of accessible-workspace view must succeed")
+
+	// Creating a view in an inaccessible workspace is denied.
+	_, err = api.CreateView(devCtx, apigen.CreateViewRequestObject{
+		Body: &apigen.ViewSpec{Name: "X", IntervalDays: 1, Workspace: &wsB},
+	})
+	require.Error(t, err, "create in inaccessible workspace must be denied")
+
+	// Deleting the inaccessible-workspace view returns 404.
+	delB, err := api.DeleteView(devCtx, apigen.DeleteViewRequestObject{ViewId: viewB.Id})
+	require.NoError(t, err)
+	_, ok = delB.(apigen.DeleteView404JSONResponse)
+	assert.True(t, ok, "delete of inaccessible-workspace view must be 404")
+}
+
 func TestViewsAPI_StoreUnavailable(t *testing.T) {
 	// Constructed without WithViewStore: the store is nil.
 	api := apiv1.New(nil, nil, nil, nil, runtime.Manager{}, &config.Config{}, nil, nil, prometheus.NewRegistry(), nil)
