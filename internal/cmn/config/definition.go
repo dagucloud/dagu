@@ -207,6 +207,7 @@ type PathsDef struct {
 	ContextsDir        string `mapstructure:"contexts_dir"`
 	RemoteNodesDir     string `mapstructure:"remote_nodes_dir"`
 	WorkspacesDir      string `mapstructure:"workspaces_dir"`
+	ViewsDir           string `mapstructure:"views_dir"`
 }
 
 // SecretsDef configures shared defaults for secret providers.

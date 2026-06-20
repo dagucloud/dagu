@@ -78,6 +78,7 @@ import NotificationChannelsPage from './pages/notification-channels';
 import NotificationRulesPage from './pages/notification-rules';
 import NotificationsPage from './pages/notifications';
 import OverviewPage from './pages/overview';
+import ViewPage from './pages/views';
 import ProfilesPage from './pages/profiles';
 import Queues from './pages/queues';
 import QueueDetailsPage from './pages/queues/queue';
@@ -572,6 +573,10 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                           element={
                                             <OverviewPage initialTab="cockpit" />
                                           }
+                                        />
+                                        <Route
+                                          path="/views/:viewId"
+                                          element={<ViewPage />}
                                         />
                                         <Route
                                           path="/home"

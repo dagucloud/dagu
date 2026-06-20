@@ -366,6 +366,15 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		}
 	}
 
+	if stores.ViewStoreFactory != nil {
+		store, err := stores.ViewStoreFactory(cfg)
+		if err != nil {
+			logger.Warn(ctx, "Failed to create view store", tag.Error(err))
+		} else {
+			apiOpts = append(apiOpts, apiv1.WithViewStore(store))
+		}
+	}
+
 	var notificationSvc *notificationservice.Service
 	if encryptor != nil && stores.NotificationStoreFactory != nil {
 		store, err := stores.NotificationStoreFactory(cfg, encryptor)

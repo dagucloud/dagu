@@ -61,6 +61,8 @@ tags:
     description: "Workspace secret registry operations"
   - name: "profiles"
     description: "Runtime profile operations for managed environment variables and secrets"
+  - name: "views"
+    description: "Saved Overview view configurations (custom Kanban boards)"
 
 paths:
   /health:
@@ -9472,6 +9474,213 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /views:
+    get:
+      summary: "List saved views"
+      description: "Lists all saved Overview view configurations, ordered by creation time."
+      operationId: "listViews"
+      tags:
+        - "views"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "List of views"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ViewListResponse"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      summary: "Create a view"
+      description: "Creates a saved Overview view configuration. Views are global and shared across users."
+      operationId: "createView"
+      tags:
+        - "views"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ViewSpec"
+      responses:
+        "201":
+          description: "View created"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/View"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /views/{viewId}:
+    get:
+      summary: "Get a view"
+      operationId: "getView"
+      tags:
+        - "views"
+      parameters:
+        - name: viewId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "View"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/View"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      summary: "Update a view"
+      operationId: "updateView"
+      tags:
+        - "views"
+      parameters:
+        - name: viewId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ViewSpec"
+      responses:
+        "200":
+          description: "View updated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/View"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      summary: "Delete a view"
+      operationId: "deleteView"
+      tags:
+        - "views"
+      parameters:
+        - name: viewId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "204":
+          description: "View deleted"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /secrets:
     get:
       summary: "List secrets"
@@ -16345,6 +16554,103 @@ components:
             $ref: "#/components/schemas/SecretResponse"
         total:
           type: integer
+
+    ViewSpec:
+      type: object
+      required:
+        - name
+        - intervalDays
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: "Display name for the view."
+        type:
+          type: string
+          enum:
+            - kanban
+          default: kanban
+          description: "Render type. Currently only kanban is supported."
+        workspace:
+          type: string
+          maxLength: 64
+          pattern: "^$|^[A-Za-z0-9_-]+$"
+          not:
+            enum:
+              - all
+              - default
+              - global
+          description: "Workspace filter. Empty string means all workspaces; otherwise use a workspace name."
+        labels:
+          type: array
+          maxItems: 50
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+          description: "Label filter (AND logic), each item key or key=value."
+        dagName:
+          type: string
+          maxLength: 255
+          description: "DAG name substring filter. Empty matches any."
+        intervalDays:
+          type: integer
+          minimum: 1
+          maximum: 30
+          description: "Required number of days each row (bucket) groups. Rows scroll back in time by this unit."
+        pinned:
+          type: boolean
+          default: false
+          description: "Whether the view is pinned to the left sidebar."
+
+    View:
+      type: object
+      required:
+        - id
+        - name
+        - type
+        - intervalDays
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        workspace:
+          type: string
+        labels:
+          type: array
+          items:
+            type: string
+        dagName:
+          type: string
+        intervalDays:
+          type: integer
+        pinned:
+          type: boolean
+        createdBy:
+          type: string
+          description: "Username of the creator, for display only."
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ViewListResponse:
+      type: object
+      required:
+        - views
+      properties:
+        views:
+          type: array
+          items:
+            $ref: "#/components/schemas/View"
 
     CreateWorkspaceRequest:
       type: object

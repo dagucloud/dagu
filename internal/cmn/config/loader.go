@@ -399,6 +399,7 @@ func (l *ConfigLoader) loadPathsConfig(cfg *Config, def Definition) error {
 		{"ContextsDir", &cfg.Paths.ContextsDir, def.Paths.ContextsDir},
 		{"RemoteNodesDir", &cfg.Paths.RemoteNodesDir, def.Paths.RemoteNodesDir},
 		{"WorkspacesDir", &cfg.Paths.WorkspacesDir, def.Paths.WorkspacesDir},
+		{"ViewsDir", &cfg.Paths.ViewsDir, def.Paths.ViewsDir},
 	}
 
 	for _, m := range pathMappings {
@@ -1424,6 +1425,7 @@ func (l *ConfigLoader) finalizePaths(cfg *Config) {
 		{&cfg.Paths.ContextsDir, "contexts"},
 		{&cfg.Paths.RemoteNodesDir, "remote-nodes"},
 		{&cfg.Paths.WorkspacesDir, "workspaces"},
+		{&cfg.Paths.ViewsDir, "views"},
 	}
 
 	for _, dp := range derivedPaths {

@@ -27,6 +27,7 @@ import {
   Bell,
   ChevronDown,
   Gauge,
+  LayoutGrid,
   Shield,
   Globe,
   History,
@@ -41,6 +42,7 @@ import {
 import * as React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { AppBarContext } from './contexts/AppBarContext';
+import { useViews } from '@/hooks/useViews';
 import { useUserPreferences } from './contexts/UserPreference';
 import { useAgentChatContext } from './features/agent';
 import { WorkspaceSelector } from './components/workspace/WorkspaceSelector';
@@ -461,6 +463,8 @@ export const mainListItems = React.forwardRef<
   const config = useConfig();
   const isAdmin = useIsAdmin();
   const { user } = useAuth();
+  const { views } = useViews();
+  const pinnedViews = views.filter((view) => view.pinned);
   const canWrite =
     config.authMode !== 'builtin'
       ? config.permissions.writeDags
@@ -627,6 +631,18 @@ export const mainListItems = React.forwardRef<
         </AppBarContext.Consumer>
 
         <div className="space-y-1">
+          {pinnedViews.map((view) => (
+            <NavItem
+              key={view.id}
+              to={`/views/${view.id}`}
+              text={view.name}
+              icon={<LayoutGrid size={18} />}
+              isOpen={isOpen}
+              onClick={onNavItemClick}
+              customColor={customColor}
+            />
+          ))}
+
           <NavItem
             to="/"
             text="Overview"

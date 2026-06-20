@@ -25,6 +25,7 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/store"
 	authservice "github.com/dagucloud/dagu/internal/service/auth"
 	"github.com/dagucloud/dagu/internal/service/frontend"
+	"github.com/dagucloud/dagu/internal/view"
 )
 
 // NewFrontendStoreFactories returns the file-backed persistence wiring for the frontend server.
@@ -47,7 +48,12 @@ func NewFrontendStoreFactories() frontend.StoreFactories {
 		UpgradeCheckStoreFactory:         file.NewUpgradeCheckStore,
 		AuditStoreFactory:                newAuditStore,
 		EventStoreFactory:                file.NewEventStore,
+		ViewStoreFactory:                 newViewStore,
 	}
+}
+
+func newViewStore(cfg *config.Config) (view.Store, error) {
+	return store.NewViewStore(file.NewCollection(cfg.Paths.ViewsDir, file.WithIndentedJSON()))
 }
 
 func newBaseConfigStore(filePath string) (baseconfig.Store, error) {

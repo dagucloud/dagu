@@ -1,25 +1,37 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { components } from '@/api/v1/schema';
 import DAGRunDetailsModal from '@/features/dag-runs/components/dag-run-details/DAGRunDetailsModal';
-import { useInfiniteKanban } from '../hooks/useInfiniteKanban';
+import type { KanbanFilters } from '../hooks/useDateKanbanData';
+import { useInfiniteBuckets } from '../hooks/useInfiniteBuckets';
 import { ArtifactListModal } from './ArtifactListModal';
-import { DateKanbanSection } from './DateKanbanSection';
+import { BucketKanbanSection } from './BucketKanbanSection';
 
 type DAGRunSummary = components['schemas']['DAGRunSummary'];
 
 interface Props {
-  selectedWorkspace: string;
-  workspaceKey?: string;
-  suspendLoadMore?: boolean;
+  intervalDays: number;
+  filters: KanbanFilters;
+  resetKey?: string;
 }
 
-export function DateKanbanList({
-  selectedWorkspace,
-  workspaceKey = selectedWorkspace,
-  suspendLoadMore = false,
+/**
+ * Renders a saved view's Kanban as rolling N-day buckets (one board per
+ * `intervalDays`-day window), newest first, with infinite scroll back in time.
+ * Mirrors the Cockpit DateKanbanList scroll/observer behavior, stepped by the
+ * configured interval instead of a single day.
+ */
+export function BucketKanbanList({
+  intervalDays,
+  filters,
+  resetKey,
 }: Props): React.ReactElement {
-  const { loadedDates, todayStr, hasMore, loadNextDate } =
-    useInfiniteKanban(workspaceKey);
+  const { buckets, hasMore, loadNext } = useInfiniteBuckets(
+    intervalDays,
+    resetKey
+  );
   const [selectedRun, setSelectedRun] = useState<DAGRunSummary | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [artifactRun, setArtifactRun] = useState<DAGRunSummary | null>(null);
@@ -32,31 +44,23 @@ export function DateKanbanList({
     setIsDetailsOpen(true);
   }, []);
 
-  const handleCloseModal = useCallback(() => {
-    setIsDetailsOpen(false);
-  }, []);
-
   const handleArtifactsClick = useCallback((run: DAGRunSummary) => {
     setArtifactRun(run);
   }, []);
 
-  const handleCloseArtifactsModal = useCallback(() => {
-    setArtifactRun(null);
-  }, []);
-
-  const triggerLoadNextDate = useCallback(() => {
-    if (!hasMore || suspendLoadMore) {
+  const triggerLoadNext = useCallback(() => {
+    if (!hasMore) {
       return;
     }
     awaitingSentinelExitRef.current = true;
-    loadNextDate();
-  }, [hasMore, loadNextDate, suspendLoadMore]);
+    loadNext();
+  }, [hasMore, loadNext]);
 
-  const dateCount = loadedDates.length;
   useEffect(() => {
     awaitingSentinelExitRef.current = false;
-  }, [workspaceKey]);
+  }, [resetKey]);
 
+  const bucketCount = buckets.length;
   useEffect(() => {
     const root = containerRef.current;
     const el = sentinelRef.current;
@@ -64,7 +68,6 @@ export function DateKanbanList({
       !root ||
       !el ||
       !hasMore ||
-      suspendLoadMore ||
       typeof IntersectionObserver === 'undefined'
     ) {
       return;
@@ -77,14 +80,14 @@ export function DateKanbanList({
           return;
         }
         if (!awaitingSentinelExitRef.current) {
-          triggerLoadNextDate();
+          triggerLoadNext();
         }
       },
       { root, threshold: 0.1 }
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [dateCount, hasMore, suspendLoadMore, triggerLoadNextDate]);
+  }, [bucketCount, hasMore, triggerLoadNext]);
 
   return (
     <>
@@ -92,11 +95,13 @@ export function DateKanbanList({
         ref={containerRef}
         className="flex flex-col overflow-y-auto flex-1 min-h-0 gap-6 p-1"
       >
-        {loadedDates.map((date) => (
-          <DateKanbanSection
-            key={date}
-            date={date}
-            todayStr={todayStr}
+        {buckets.map((bucket) => (
+          <BucketKanbanSection
+            key={bucket.key}
+            fromStr={bucket.fromStr}
+            toStr={bucket.toStr}
+            isLive={bucket.isLive}
+            filters={filters}
             onCardClick={handleCardClick}
             onArtifactsClick={handleArtifactsClick}
           />
@@ -105,11 +110,10 @@ export function DateKanbanList({
           <div className="flex flex-col items-center gap-3 pb-3">
             <button
               type="button"
-              onClick={triggerLoadNextDate}
-              disabled={suspendLoadMore}
-              className="rounded border border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={triggerLoadNext}
+              className="rounded border border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground"
             >
-              Load older day
+              Load older
             </button>
             <div ref={sentinelRef} className="h-1 w-full shrink-0" />
           </div>
@@ -120,12 +124,12 @@ export function DateKanbanList({
         dagRunId={selectedRun?.dagRunId ?? ''}
         isOpen={isDetailsOpen && !!selectedRun}
         initialTab={selectedRun?.artifactsAvailable ? 'artifacts' : 'status'}
-        onClose={handleCloseModal}
+        onClose={() => setIsDetailsOpen(false)}
       />
       <ArtifactListModal
         run={artifactRun}
         isOpen={!!artifactRun}
-        onClose={handleCloseArtifactsModal}
+        onClose={() => setArtifactRun(null)}
       />
     </>
   );

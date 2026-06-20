@@ -1,47 +1,57 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import React, { useMemo } from 'react';
 import { components } from '@/api/v1/schema';
+import { useConfig } from '@/contexts/ConfigContext';
 import dayjs from '@/lib/dayjs';
 import {
   KanbanFilters,
-  useDateKanbanData,
+  rangeBounds,
+  useRangeKanbanData,
 } from '../hooks/useDateKanbanData';
 import { KanbanBoard } from './KanbanBoard';
 
 type DAGRunSummary = components['schemas']['DAGRunSummary'];
 
 interface Props {
-  date: string;
-  todayStr: string;
-  /**
-   * Explicit filters for a saved view. When omitted, the Kanban data falls
-   * back to the global AppBar workspace selection (Cockpit behavior).
-   */
+  fromStr: string;
+  toStr: string;
+  isLive: boolean;
   filters?: KanbanFilters;
   onCardClick: (run: DAGRunSummary) => void;
   onArtifactsClick: (run: DAGRunSummary) => void;
 }
 
-function formatDateHeader(date: string): string {
-  return `${date} ${dayjs(date).format('ddd')}`;
+function formatBucketHeader(fromStr: string, toStr: string): string {
+  if (fromStr === toStr) {
+    return `${fromStr} ${dayjs(fromStr).format('ddd')}`;
+  }
+  return `${fromStr} to ${toStr}`;
 }
 
-export function DateKanbanSection({
-  date,
-  todayStr,
+/**
+ * Renders one Kanban board aggregating all runs in the inclusive day range
+ * [fromStr, toStr] (an N-day bucket). The range analog of DateKanbanSection.
+ */
+export function BucketKanbanSection({
+  fromStr,
+  toStr,
+  isLive,
   filters,
   onCardClick,
   onArtifactsClick,
 }: Props): React.ReactElement {
-  const yesterdayStr = useMemo(
-    () => dayjs(todayStr).subtract(1, 'day').format('YYYY-MM-DD'),
-    [todayStr]
+  const { tzOffsetInSec } = useConfig();
+  const { fromDate, toDate } = useMemo(
+    () => rangeBounds(fromStr, toStr, tzOffsetInSec),
+    [fromStr, toStr, tzOffsetInSec]
   );
-  const isToday = date === todayStr;
-  const isLive = isToday || date === yesterdayStr;
-  const { columns, error, isLoading, isEmpty, retry } = useDateKanbanData(
-    date,
-    isToday,
+  const { columns, error, isLoading, isEmpty, retry } = useRangeKanbanData(
+    fromDate,
+    toDate,
     isLive,
+    isLive ? 2000 : 0,
     filters
   );
 
@@ -49,7 +59,7 @@ export function DateKanbanSection({
     <div>
       <div className="px-1 pb-2">
         <h2 className="text-sm font-semibold text-foreground">
-          {formatDateHeader(date)}
+          {formatBucketHeader(fromStr, toStr)}
         </h2>
       </div>
       {isLoading ? (

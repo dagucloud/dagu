@@ -391,6 +391,7 @@ type PathsConfig struct {
 	ContextsDir        string
 	RemoteNodesDir     string
 	WorkspacesDir      string
+	ViewsDir           string
 	ConfigFileUsed     string
 }
 

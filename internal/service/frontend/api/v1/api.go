@@ -47,6 +47,7 @@ import (
 	"github.com/dagucloud/dagu/internal/service/resource"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
 	"github.com/dagucloud/dagu/internal/tunnel"
+	"github.com/dagucloud/dagu/internal/view"
 	"github.com/dagucloud/dagu/internal/workspace"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
@@ -95,6 +96,7 @@ type API struct {
 	dagSettingsStore     dagsettings.Store
 	secretStore          secretpkg.Store
 	profileStore         profilepkg.Store
+	viewStore            view.Store
 	licenseManager       *license.Manager
 	apiKeyCreateMu       sync.Mutex
 	workspaceStore       workspace.Store
@@ -256,6 +258,13 @@ func WithSecretStore(store secretpkg.Store) APIOption {
 func WithProfileStore(store profilepkg.Store) APIOption {
 	return func(a *API) {
 		a.profileStore = store
+	}
+}
+
+// WithViewStore returns an APIOption that sets the saved view store.
+func WithViewStore(store view.Store) APIOption {
+	return func(a *API) {
+		a.viewStore = store
 	}
 }
 
