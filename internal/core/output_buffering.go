@@ -4,7 +4,9 @@
 package core
 
 // OutputBuffering controls how step output is buffered before being flushed to
-// the log stream. It applies to both local file writers and gRPC log streaming.
+// the log stream. It applies to both local file writers and gRPC log streaming
+// in distributed mode. In local mode, "line" and "none" write directly without
+// Go-level buffering.
 type OutputBuffering string
 
 const (
