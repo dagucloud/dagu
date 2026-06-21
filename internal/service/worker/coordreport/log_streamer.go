@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"sync"
 
@@ -325,10 +326,12 @@ func (w *stepLogWriter) flush() error {
 		return nil
 	}
 
-	data := w.buffer
+	if err := w.sendChunk(w.buffer); err != nil {
+		// Buffer preserved on error — Close() will log the tail.
+		return err
+	}
 	w.buffer = w.buffer[:0]
-
-	return w.sendChunk(data)
+	return nil
 }
 
 // Close implements io.Closer
@@ -348,8 +351,10 @@ func (w *stepLogWriter) Close() error {
 		if err := w.sendChunk(w.buffer); err != nil {
 			logger.Error(w.ctx, "Failed to flush log buffer", tag.Error(err))
 			firstErr = err
+			// Buffer preserved — will be handled below if stream is dead.
+		} else {
+			w.buffer = w.buffer[:0]
 		}
-		w.buffer = w.buffer[:0]
 	}
 
 	// Send final marker
@@ -385,6 +390,24 @@ func (w *stepLogWriter) Close() error {
 				firstErr = err
 			}
 		}
+	}
+
+	// If the gRPC stream died, preserve the buffered output in the error
+	// so it surfaces in the run status instead of being silently lost.
+	if w.stream == nil && len(w.buffer) > 0 {
+		tail := w.buffer
+		if len(tail) > 4096 {
+			tail = tail[len(tail)-4096:]
+		}
+		logger.Error(w.ctx, "gRPC log stream lost — buffered output discarded",
+			tag.Step(w.stepName),
+			slog.Int("buffered-bytes", len(w.buffer)),
+			slog.String("output-tail", string(tail)),
+		)
+		if firstErr == nil {
+			firstErr = fmt.Errorf("log stream connection lost: %d bytes of output not transmitted (last 4KB logged)", len(w.buffer))
+		}
+		w.buffer = w.buffer[:0]
 	}
 
 	return firstErr
@@ -471,7 +494,6 @@ func (w *schedulerLogWriter) flush() error {
 
 	// Split buffer into chunks if necessary
 	data := w.buffer
-	w.buffer = w.buffer[:0]
 
 	for len(data) > 0 {
 		chunkSize := min(len(data), maxChunkSize)
@@ -501,6 +523,7 @@ func (w *schedulerLogWriter) flush() error {
 		w.sequence = nextSeq
 	}
 
+	w.buffer = w.buffer[:0]
 	return nil
 }
 

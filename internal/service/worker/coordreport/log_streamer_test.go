@@ -405,7 +405,7 @@ func TestWrite_FlushError_Continues(t *testing.T) {
 	assert.Equal(t, len(data), n)
 }
 
-func TestWrite_FlushError_ClearsBuffer(t *testing.T) {
+func TestWrite_FlushError_PreservesBuffer(t *testing.T) {
 	t.Parallel()
 	mockStream := &mockStreamLogsClient{
 		sendErr: errors.New("send failed"),
@@ -423,9 +423,9 @@ func TestWrite_FlushError_ClearsBuffer(t *testing.T) {
 	data := make([]byte, coordreport.LogBufferSize)
 	_, _ = writer.Write(data)
 
-	// Buffer should be cleared to prevent memory growth
+	// Buffer should be preserved on error so Close() can log the tail
 	snapshot := coordreport.SnapshotStepLogWriter(stepWriter)
-	assert.Equal(t, 0, snapshot.BufferLen)
+	assert.Greater(t, snapshot.BufferLen, 0)
 }
 
 func TestFlush_EmptyBuffer(t *testing.T) {
@@ -480,7 +480,7 @@ func TestFlush_StreamInitFailure(t *testing.T) {
 
 	assert.Equal(t, initErr, result.Err)
 	assert.True(t, result.StreamFailed, "streamInitFailed should be set")
-	assert.Equal(t, 0, result.BufferLen, "buffer should be cleared")
+	assert.Greater(t, result.BufferLen, 0, "buffer should be preserved on init failure — Close() will handle it")
 }
 
 func TestFlush_AfterInitFailure(t *testing.T) {
