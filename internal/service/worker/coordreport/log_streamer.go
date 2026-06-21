@@ -243,6 +243,13 @@ func (w *stepLogWriter) Write(p []byte) (int, error) {
 				return len(p), err
 			}
 		}
+		// Guard against unbounded growth when no newlines appear
+		// (progress bars, base64 blobs, minified JSON).
+		if len(w.buffer) >= logBufferSize {
+			if err := w.flush(); err != nil {
+				return len(p), err
+			}
+		}
 	} else {
 		// Buffered mode: flush at 32KB threshold
 		if len(w.buffer) >= logBufferSize {
@@ -547,10 +554,9 @@ func (w *schedulerLogWriter) Close() error {
 	}
 	w.closed = true
 
-	// Flush any remaining buffered data (best-effort streaming)
-	if err := w.flush(); err != nil {
-		logger.Warn(w.ctx, "Scheduler log streaming failed at close", tag.Error(err))
-	}
+	// Flush any remaining buffered data (best-effort streaming).
+	// Errors are surfaced via the tail-logging block below.
+	_ = w.flush()
 
 	// Log tail if stream is dead but buffer has data — still available in local file.
 	if w.stream == nil && len(w.buffer) > 0 {

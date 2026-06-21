@@ -408,6 +408,13 @@ func TestEffectiveOutputBuffering(t *testing.T) {
 		{"step empty inherits dag none", core.OutputBufferingNone, "", core.OutputBufferingNone},
 		// Both empty → default buffer
 		{"both empty defaults to buffer", "", "", core.OutputBufferingBuffer},
+		// Step overrides DAG none
+		{"step buffer overrides dag none", core.OutputBufferingNone, core.OutputBufferingBuffer, core.OutputBufferingBuffer},
+		{"step line overrides dag none", core.OutputBufferingNone, core.OutputBufferingLine, core.OutputBufferingLine},
+		// Step empty inherits DAG buffer
+		{"step empty inherits dag buffer", core.OutputBufferingBuffer, "", core.OutputBufferingBuffer},
+		// DAG unset, step set
+		{"dag unset step line", "", core.OutputBufferingLine, core.OutputBufferingLine},
 	}
 
 	for _, tt := range tests {

@@ -234,7 +234,7 @@ func TestSchedulerLogWriter_StreamFailure(t *testing.T) {
 
 		w := streamer.NewSchedulerLogWriter(context.Background(), localFile)
 		chunk := bytes.Repeat([]byte("x"), coordreport.LogBufferSize)
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			_, err := w.Write(chunk)
 			require.NoError(t, err)
 		}
