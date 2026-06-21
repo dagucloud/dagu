@@ -389,6 +389,39 @@ func TestEffectiveLogOutput(t *testing.T) {
 	}
 }
 
+func TestEffectiveOutputBuffering(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		dagMode    core.OutputBuffering
+		stepMode   core.OutputBuffering
+		expectMode core.OutputBuffering
+	}{
+		// Step overrides DAG
+		{"step line overrides dag buffer", core.OutputBufferingBuffer, core.OutputBufferingLine, core.OutputBufferingLine},
+		{"step none overrides dag buffer", core.OutputBufferingBuffer, core.OutputBufferingNone, core.OutputBufferingNone},
+		{"step buffer overrides dag line", core.OutputBufferingLine, core.OutputBufferingBuffer, core.OutputBufferingBuffer},
+		{"step none overrides dag line", core.OutputBufferingLine, core.OutputBufferingNone, core.OutputBufferingNone},
+		// Step empty → inherits DAG
+		{"step empty inherits dag line", core.OutputBufferingLine, "", core.OutputBufferingLine},
+		{"step empty inherits dag none", core.OutputBufferingNone, "", core.OutputBufferingNone},
+		// Both empty → default buffer
+		{"both empty defaults to buffer", "", "", core.OutputBufferingBuffer},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dag := &core.DAG{OutputBuffering: tt.dagMode}
+			step := core.Step{OutputBuffering: tt.stepMode}
+			mode := core.EffectiveOutputBuffering(dag, &step)
+			assert.Equal(t, tt.expectMode, mode)
+		})
+	}
+}
+
 func TestDAG_Validate(t *testing.T) {
 	t.Parallel()
 
