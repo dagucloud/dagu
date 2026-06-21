@@ -250,7 +250,7 @@ func (tp *TickPlanner) Init(ctx context.Context, dags []*core.DAG) error {
 	}
 	stateChanged := pruned > 0
 
-	observedAt := tp.cfg.Clock()
+	observedAt := tp.cfg.Clock().In(tp.cfg.Location)
 	for _, dag := range dags {
 		current := state.DAGs[dag.Name]
 		next, changed := reconcileOneOffState(current, dag, observedAt)
@@ -485,6 +485,10 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 			hasStartCandidate bool
 		)
 
+		// All schedule evaluations use the configured Location so that
+		// cron evaluation matches the wall-clock time the user expects.
+		evalTime := now.In(tp.cfg.Location)
+
 		// Evaluate pending one-off schedules.
 		for _, schedule := range entry.dag.Schedule {
 			if !schedule.IsOneOff() {
@@ -497,7 +501,7 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 			}
 
 			oneOffState, ok := tp.pendingOneOffState(entry.dag.Name, fingerprint)
-			if !ok || oneOffState.ScheduledTime.After(now) {
+			if !ok || oneOffState.ScheduledTime.After(evalTime) {
 				continue
 			}
 
@@ -513,13 +517,11 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 		}
 
 		// Evaluate cron schedules for live start runs.
-		// Start schedules use raw `now`: the robfig/cron library applies the
-		// schedule's timezone internally, so no extra conversion is needed.
 		for _, schedule := range entry.dag.Schedule {
 			if !schedule.IsCron() {
 				continue
 			}
-			next, due := scheduleDueAt(schedule, now)
+			next, due := scheduleDueAt(schedule, evalTime)
 			if !due {
 				continue
 			}
@@ -538,10 +540,6 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 		}
 
 		// Evaluate stop schedules.
-		// Stop and restart schedules convert `now` to the configured Location so
-		// that the cron evaluation matches the wall-clock time the user expects.
-		// This preserves parity with the legacy invokeJobs implementation.
-		evalTime := now.In(tp.cfg.Location)
 		for _, schedule := range entry.dag.StopSchedule {
 			next, due := scheduleDueAt(schedule, evalTime)
 			if !due {
@@ -1225,7 +1223,7 @@ func (tp *TickPlanner) recomputeBuffer(ctx context.Context, dag *core.DAG) bool 
 	}
 	tp.mu.RUnlock()
 
-	now := tp.cfg.Clock()
+	now := tp.cfg.Clock().In(tp.cfg.Location)
 
 	replayFrom := ComputeReplayFrom(dag.CatchupWindow, lastTick, lastScheduledTime, now)
 	missed := ComputeMissedIntervals(dag.Schedule, replayFrom, now)
