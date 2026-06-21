@@ -4,6 +4,7 @@
 package coordreport_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -187,6 +188,108 @@ func TestLogStreamer_FinalChunksIncludeOwnerCoordinatorID(t *testing.T) {
 	for _, chunk := range schedulerStream.getSentChunks() {
 		assert.Equal(t, owner.ID, chunk.OwnerCoordinatorId)
 	}
+}
+
+func TestSchedulerLogWriter_StreamFailure(t *testing.T) {
+	t.Parallel()
+
+	t.Run("WriteSucceedsWhenStreamFails", func(t *testing.T) {
+		t.Parallel()
+
+		mockStream := &mockStreamLogsClient{sendErr: errors.New("connection reset")}
+		client := &logStreamerMockClient{
+			streamLogsFunc: func(context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+				return mockStream, nil
+			},
+		}
+		streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", exec.DAGRunRef{})
+		localFile, err := os.CreateTemp(t.TempDir(), "sched-*.log")
+		require.NoError(t, err)
+		defer func() { _ = localFile.Close() }()
+
+		w := streamer.NewSchedulerLogWriter(context.Background(), localFile)
+		_, err = w.Write([]byte("some output\n"))
+		require.NoError(t, err, "Write must not fail when gRPC streaming fails")
+		_ = w.Close()
+
+		_, _ = localFile.Seek(0, 0)
+		got, err := io.ReadAll(localFile)
+		require.NoError(t, err)
+		assert.Equal(t, "some output\n", string(got))
+	})
+
+	t.Run("BufferCappedOnRepeatedStreamFailures", func(t *testing.T) {
+		t.Parallel()
+
+		mockStream := &mockStreamLogsClient{sendErr: errors.New("unavailable")}
+		client := &logStreamerMockClient{
+			streamLogsFunc: func(context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+				return mockStream, nil
+			},
+		}
+		streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", exec.DAGRunRef{})
+		localFile, err := os.CreateTemp(t.TempDir(), "sched-*.log")
+		require.NoError(t, err)
+		defer func() { _ = localFile.Close() }()
+
+		w := streamer.NewSchedulerLogWriter(context.Background(), localFile)
+		chunk := bytes.Repeat([]byte("x"), coordreport.LogBufferSize)
+		for i := 0; i < 10; i++ {
+			_, err := w.Write(chunk)
+			require.NoError(t, err)
+		}
+		_ = w.Close()
+
+		fi, err := localFile.Stat()
+		require.NoError(t, err)
+		assert.Equal(t, int64(10*coordreport.LogBufferSize), fi.Size())
+	})
+
+	t.Run("NoDuplicateChunksOnStreamRecovery", func(t *testing.T) {
+		t.Parallel()
+
+		var mu sync.Mutex
+		failNext := true
+		mockStream := &mockStreamLogsClient{
+			sendFunc: func(_ int, _ *coordinatorv1.LogChunk) error {
+				mu.Lock()
+				defer mu.Unlock()
+				if failNext {
+					failNext = false
+					return errors.New("temporary failure")
+				}
+				return nil
+			},
+		}
+		openCount := atomic.Int32{}
+		client := &logStreamerMockClient{
+			streamLogsFunc: func(context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+				openCount.Add(1)
+				return mockStream, nil
+			},
+		}
+		streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", exec.DAGRunRef{})
+		localFile, err := os.CreateTemp(t.TempDir(), "sched-*.log")
+		require.NoError(t, err)
+		defer func() { _ = localFile.Close() }()
+
+		w := streamer.NewSchedulerLogWriter(context.Background(), localFile)
+		chunk := bytes.Repeat([]byte("y"), coordreport.LogBufferSize)
+		_, err = w.Write(chunk)
+		require.NoError(t, err)
+		_, err = w.Write(chunk)
+		require.NoError(t, err)
+		require.NoError(t, w.Close())
+
+		var totalReceived int
+		for _, c := range mockStream.getSentChunks() {
+			if !c.IsFinal {
+				totalReceived += len(c.Data)
+			}
+		}
+		assert.Equal(t, 2*coordreport.LogBufferSize, totalReceived,
+			"stream should receive exactly 2 chunks, no duplicates from the failed first send")
+	})
 }
 
 func TestSetAttemptID(t *testing.T) {

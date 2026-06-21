@@ -460,9 +460,14 @@ func (w *schedulerLogWriter) Write(p []byte) (int, error) {
 	// Flush to coordinator when buffer exceeds threshold
 	if len(w.buffer) >= logBufferSize {
 		if err := w.flush(); err != nil {
-			// Log streaming is best-effort - don't fail the write
-			// Avoid recursive logging by not using logger here
-			w.buffer = w.buffer[:0] // Discard to prevent memory growth
+			// Streaming is best-effort; local file is the source of truth.
+			logger.Warn(w.ctx, "Scheduler log streaming failed, will retry", tag.Error(err))
+			// Cap buffer to prevent unbounded growth if the stream never recovers.
+			if len(w.buffer) > 2*logBufferSize {
+				tail := make([]byte, logBufferSize)
+				copy(tail, w.buffer[len(w.buffer)-logBufferSize:])
+				w.buffer = tail
+			}
 		}
 	}
 
@@ -492,15 +497,15 @@ func (w *schedulerLogWriter) flush() error {
 		}
 	}
 
-	// Split buffer into chunks if necessary
-	data := w.buffer
-
-	for len(data) > 0 {
-		chunkSize := min(len(data), maxChunkSize)
+	// Use a cursor into w.buffer so that on a mid-loop Send failure we can
+	// compact the buffer to only the unsent suffix — avoiding duplicate delivery
+	// of already-sent chunks on reconnect.
+	remaining := w.buffer
+	for len(remaining) > 0 {
+		chunkSize := min(len(remaining), maxChunkSize)
 
 		chunkData := make([]byte, chunkSize)
-		copy(chunkData, data[:chunkSize])
-		data = data[chunkSize:]
+		copy(chunkData, remaining[:chunkSize])
 
 		nextSeq := w.sequence + 1
 		chunk := &coordinatorv1.LogChunk{
@@ -518,9 +523,14 @@ func (w *schedulerLogWriter) flush() error {
 		}
 
 		if err := w.stream.Send(chunk); err != nil {
+			w.stream = nil // Mark dead so next flush opens a fresh stream
+			// Compact: keep only the unsent suffix to avoid re-sending already-delivered chunks.
+			n := copy(w.buffer, remaining)
+			w.buffer = w.buffer[:n]
 			return err
 		}
 		w.sequence = nextSeq
+		remaining = remaining[chunkSize:]
 	}
 
 	w.buffer = w.buffer[:0]
@@ -537,8 +547,23 @@ func (w *schedulerLogWriter) Close() error {
 	}
 	w.closed = true
 
-	// Flush any remaining buffered data
-	_ = w.flush() // Ignore error - best effort
+	// Flush any remaining buffered data (best-effort streaming)
+	if err := w.flush(); err != nil {
+		logger.Warn(w.ctx, "Scheduler log streaming failed at close", tag.Error(err))
+	}
+
+	// Log tail if stream is dead but buffer has data — still available in local file.
+	if w.stream == nil && len(w.buffer) > 0 {
+		tail := w.buffer
+		if len(tail) > 4096 {
+			tail = tail[len(tail)-4096:]
+		}
+		logger.Warn(w.ctx, "Scheduler log stream lost — output not streamed (available in local log file)",
+			slog.Int("buffered-bytes", len(w.buffer)),
+			slog.String("output-tail", string(tail)),
+		)
+		w.buffer = w.buffer[:0]
+	}
 
 	// Send final marker if stream was initialized
 	if w.stream != nil {

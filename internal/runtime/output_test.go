@@ -924,6 +924,42 @@ func TestLineBufferedWriter(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Empty(t, buf.String())
 	})
+
+	t.Run("AutoFlushOnLargeLineWithoutNewline", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		lw := newLineBufferedWriter(&buf)
+
+		data := make([]byte, maxLineBufferSize+1)
+		for i := range data {
+			data[i] = 'x'
+		}
+
+		n, err := lw.Write(data)
+		require.NoError(t, err)
+		assert.Equal(t, len(data), n)
+		assert.Equal(t, len(data), buf.Len())
+	})
+
+	t.Run("InitialCapacityPreAllocated", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		lw := newLineBufferedWriter(&buf)
+		assert.Equal(t, 4096, cap(lw.buf), "initial capacity should be 4096")
+	})
+
+	t.Run("BackingArrayReleasedAfterFullDrain", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		lw := newLineBufferedWriter(&buf)
+
+		_, err := lw.Write([]byte("hello\n"))
+		require.NoError(t, err)
+		assert.Equal(t, 0, cap(lw.buf), "backing array should be released after full drain")
+	})
 }
 
 func TestDirectWriter(t *testing.T) {

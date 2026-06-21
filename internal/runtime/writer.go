@@ -106,9 +106,11 @@ func (d *directWriter) Flush() error {
 	return nil
 }
 
+const maxLineBufferSize = 32 * 1024 // auto-flush threshold for lines without a newline
+
 // lineBufferedWriter wraps an io.Writer and flushes on every newline character.
 // Partial lines (without a trailing newline) are kept in the buffer until either
-// a newline arrives or Flush() is called explicitly.
+// a newline arrives, the buffer exceeds maxLineBufferSize, or Flush() is called.
 type lineBufferedWriter struct {
 	mu  sync.Mutex
 	buf []byte
@@ -118,7 +120,7 @@ type lineBufferedWriter struct {
 // newLineBufferedWriter creates a writer that flushes the underlying writer
 // on every newline character.
 func newLineBufferedWriter(w io.Writer) *lineBufferedWriter {
-	return &lineBufferedWriter{w: w}
+	return &lineBufferedWriter{w: w, buf: make([]byte, 0, 4096)}
 }
 
 func (lw *lineBufferedWriter) Write(p []byte) (int, error) {
@@ -139,6 +141,19 @@ func (lw *lineBufferedWriter) Write(p []byte) (int, error) {
 			return len(p), err
 		}
 	}
+	// Release backing array when fully drained to avoid retaining large allocations.
+	if len(lw.buf) == 0 {
+		lw.buf = lw.buf[:0:0]
+	}
+
+	// Flush if buffer exceeds max size (handles newline-less output like progress bars)
+	if len(lw.buf) >= maxLineBufferSize {
+		if _, err := lw.w.Write(lw.buf); err != nil {
+			return len(p), err
+		}
+		lw.buf = lw.buf[:0:0]
+	}
+
 	return len(p), nil
 }
 
@@ -149,7 +164,7 @@ func (lw *lineBufferedWriter) Flush() error {
 	defer lw.mu.Unlock()
 	if len(lw.buf) > 0 {
 		_, err := lw.w.Write(lw.buf)
-		lw.buf = lw.buf[:0]
+		lw.buf = lw.buf[:0:0]
 		return err
 	}
 	return nil
