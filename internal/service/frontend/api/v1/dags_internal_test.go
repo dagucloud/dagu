@@ -117,6 +117,40 @@ steps:
 	require.True(t, listResp.Dags[0].NextRun.Equal(*sseResp.Dags[0].NextRun))
 }
 
+func TestNextRunProjectionUsesConfiguredLocation(t *testing.T) {
+	t.Parallel()
+
+	helper := test.Setup(t, test.WithStatusPersistence())
+	est := time.FixedZone("EST", -5*3600)
+	helper.Config.Core.Location = est
+
+	schedule, err := core.NewCronSchedule("0 15 * * *")
+	require.NoError(t, err)
+
+	dag := &core.DAG{
+		Name:     "timezone-next-run-dag",
+		Schedule: []core.Schedule{schedule},
+	}
+
+	api := localapi.New(
+		helper.DAGStore,
+		helper.DAGRunStore,
+		helper.QueueStore,
+		helper.ProcStore,
+		helper.DAGRunMgr,
+		helper.Config,
+		nil,
+		helper.ServiceRegistry,
+		nil,
+		nil,
+	)
+
+	now := time.Date(2026, 2, 7, 20, 30, 0, 0, time.UTC)
+	next := localapi.NextRunProjectionForTest(context.Background(), api)(dag, now)
+
+	require.Equal(t, time.Date(2026, 2, 8, 15, 0, 0, 0, est), next)
+}
+
 func TestGetDAGsListDataUsesConfiguredListDefaults(t *testing.T) {
 	t.Parallel()
 

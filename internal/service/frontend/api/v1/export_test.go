@@ -3,7 +3,13 @@
 
 package api
 
-// Export internal functions for testing
+import (
+	"context"
+	"time"
+
+	"github.com/dagucloud/dagu/internal/core"
+)
+
 var (
 	ExtractWebhookToken         = extractWebhookToken
 	MarshalWebhookPayload       = marshalWebhookPayload
@@ -15,3 +21,7 @@ var (
 )
 
 const ArtifactTextPreviewMaxBytesForTest = artifactTextPreviewMaxBytes
+
+func NextRunProjectionForTest(ctx context.Context, a *API) func(*core.DAG, time.Time) time.Time {
+	return a.nextRunProjection(ctx)
+}
