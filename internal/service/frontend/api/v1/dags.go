@@ -2047,6 +2047,11 @@ func (a *API) projectNextRun(ctx context.Context, dag *core.DAG) *time.Time {
 }
 
 func (a *API) nextRunProjection(ctx context.Context) func(*core.DAG, time.Time) time.Time {
+	location := time.Local
+	if a.config != nil && a.config.Core.Location != nil {
+		location = a.config.Core.Location
+	}
+
 	var schedulerState *scheduler.SchedulerState
 	if a.schedulerStateStore != nil {
 		state, loadErr := a.schedulerStateStore.Load(ctx)
@@ -2058,7 +2063,7 @@ func (a *API) nextRunProjection(ctx context.Context) func(*core.DAG, time.Time) 
 	}
 
 	return func(dag *core.DAG, now time.Time) time.Time {
-		return scheduler.NextPlannedRun(dag, now, schedulerState)
+		return scheduler.NextPlannedRun(dag, now.In(location), schedulerState)
 	}
 }
 
