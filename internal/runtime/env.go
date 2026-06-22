@@ -106,9 +106,6 @@ func newEnv(ctx context.Context, step core.Step, rCtx Context, workingDir string
 	scope := rCtx.EnvScope
 	var foreach cmnvalue.Values
 	if inherited, ok := LookupEnv(ctx); ok {
-		if inherited.Scope != nil {
-			scope = inherited.Scope
-		}
 		foreach = inherited.Foreach
 	}
 	if scope == nil {
@@ -177,9 +174,6 @@ func expandRuntimeValue(ctx context.Context, raw string, rCtx Context, dag *core
 	}
 	var foreach cmnvalue.Values
 	if inherited, ok := LookupEnv(ctx); ok {
-		if inherited.Scope != nil {
-			scope = inherited.Scope
-		}
 		foreach = inherited.Foreach
 	}
 	resolver := cmnvalue.NewResolver(
