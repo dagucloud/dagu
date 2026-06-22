@@ -293,6 +293,7 @@ func validateForeachConfig(step Step, visibleNames, visibleIDs map[string]struct
 	validateNameIDConflicts(bodyDAG, bodyNames, bodyIDs, errs)
 	validateForeachBodyCollisions(step, bodyDAG.Steps, visibleNames, visibleIDs, errs)
 	validateForeachBodyDependencies(step, bodyDAG.Steps, bodyNames, visibleNames, visibleIDs, errs)
+	validateApprovalRewindTargets(bodyDAG, bodyNames, errs)
 
 	for _, bodyStep := range bodyDAG.Steps {
 		*errs = append(*errs, validateStep(bodyStep)...)

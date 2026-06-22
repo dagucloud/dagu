@@ -183,7 +183,7 @@ func mustResolveDAGSchema(t *testing.T) *jsonschema.Resolved {
 	var schema jsonschema.Schema
 	require.NoError(t, json.Unmarshal(dagschema.DAGSchemaJSON, &schema))
 
-	resolved, err := schema.Resolve(&jsonschema.ResolveOptions{})
+	resolved, err := schema.Resolve(&jsonschema.ResolveOptions{ValidateDefaults: true})
 	require.NoError(t, err)
 	return resolved
 }

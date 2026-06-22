@@ -44,6 +44,43 @@ func TestValidateStepsSpec018ForeachBodyDependencyByID(t *testing.T) {
 	assert.Equal(t, []string{"First"}, dag.Steps[0].Foreach.Steps[1].Depends)
 }
 
+func TestValidateStepsSpec018ForeachBodyApprovalRewindByID(t *testing.T) {
+	t.Parallel()
+
+	dag := &core.DAG{
+		Steps: []core.Step{
+			{
+				ID:             "loop",
+				Name:           "loop",
+				ExecutorConfig: core.ExecutorConfig{Type: core.ExecutorTypeForeach},
+				Foreach: &core.ForeachConfig{
+					Items: []any{"one"},
+					Steps: []core.Step{
+						{
+							ID:             "prepare_id",
+							Name:           "prepare",
+							ExecutorConfig: core.ExecutorConfig{Type: "test-no-validator"},
+						},
+						{
+							ID:             "review_id",
+							Name:           "review",
+							Depends:        []string{"prepare"},
+							ExecutorConfig: core.ExecutorConfig{Type: "test-no-validator"},
+							Approval: &core.ApprovalConfig{
+								RewindTo: "prepare_id",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	require.NoError(t, core.ValidateSteps(dag))
+	require.NotNil(t, dag.Steps[0].Foreach.Steps[1].Approval)
+	assert.Equal(t, "prepare", dag.Steps[0].Foreach.Steps[1].Approval.RewindTo)
+}
+
 func TestValidateStepsSpec018ForeachRejectsVisibleIdentityCollision(t *testing.T) {
 	t.Parallel()
 
@@ -75,6 +112,42 @@ func TestValidateStepsSpec018ForeachRejectsVisibleIdentityCollision(t *testing.T
 	err := core.ValidateSteps(dag)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "collides with a visible step")
+}
+
+func TestValidateStepsSpec018ForeachRejectsVisibleApprovalRewindTarget(t *testing.T) {
+	t.Parallel()
+
+	dag := &core.DAG{
+		Steps: []core.Step{
+			{
+				ID:             "setup",
+				Name:           "setup",
+				ExecutorConfig: core.ExecutorConfig{Type: "test-no-validator"},
+			},
+			{
+				ID:             "loop",
+				Name:           "loop",
+				ExecutorConfig: core.ExecutorConfig{Type: core.ExecutorTypeForeach},
+				Foreach: &core.ForeachConfig{
+					Items: []any{"one"},
+					Steps: []core.Step{
+						{
+							ID:             "review",
+							Name:           "review",
+							ExecutorConfig: core.ExecutorConfig{Type: "test-no-validator"},
+							Approval: &core.ApprovalConfig{
+								RewindTo: "setup",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	err := core.ValidateSteps(dag)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "approval.rewind_to")
 }
 
 func TestValidateStepsSpec018ForeachRejectsTopLevelBodyDependency(t *testing.T) {

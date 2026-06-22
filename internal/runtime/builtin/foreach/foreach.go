@@ -190,10 +190,13 @@ func (e *foreachExecutor) runItems(ctx context.Context, items []expandedItem) ([
 
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, maxConcurrent)
+	var dispatchErr error
+dispatch:
 	for _, item := range items {
 		select {
 		case <-ctx.Done():
-			return results, ctx.Err()
+			dispatchErr = ctx.Err()
+			break dispatch
 		case sem <- struct{}{}:
 		}
 
@@ -205,6 +208,9 @@ func (e *foreachExecutor) runItems(ctx context.Context, items []expandedItem) ([
 		}(item)
 	}
 	wg.Wait()
+	if dispatchErr != nil {
+		return results, dispatchErr
+	}
 
 	var failed bool
 	for _, result := range results {
