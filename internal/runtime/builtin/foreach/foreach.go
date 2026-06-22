@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -262,9 +263,7 @@ func cloneSteps(steps []core.Step) []core.Step {
 		cloned[i] = step
 		if step.ExecutorConfig.Config != nil {
 			cloned[i].ExecutorConfig.Config = make(map[string]any, len(step.ExecutorConfig.Config))
-			for key, value := range step.ExecutorConfig.Config {
-				cloned[i].ExecutorConfig.Config[key] = value
-			}
+			maps.Copy(cloned[i].ExecutorConfig.Config, step.ExecutorConfig.Config)
 		}
 		cloned[i].Depends = append([]string(nil), step.Depends...)
 		cloned[i].Env = append([]string(nil), step.Env...)

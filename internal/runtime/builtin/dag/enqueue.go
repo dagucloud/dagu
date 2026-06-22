@@ -144,10 +144,7 @@ func (e *enqueueExecutor) enqueueParallel(ctx context.Context, paramsList []exec
 	}
 
 	for i, params := range paramsList {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			select {
 			case sem <- struct{}{}:
 				defer func() { <-sem }()
@@ -161,7 +158,7 @@ func (e *enqueueExecutor) enqueueParallel(ctx context.Context, paramsList []exec
 				return
 			}
 			outputs[i] = output
-		}()
+		})
 	}
 	wg.Wait()
 
