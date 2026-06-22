@@ -26,7 +26,7 @@ It must not be treated as product behavior until implementation catches up.
 | [014: Step Run Command](014-step-run-command.md) | Implemented |
 | [015: Step Run Script](015-step-run-script.md) | Implemented |
 | [017: Built-In Run Context](017-built-in-run-context.md) | Implemented |
-| [018: Parallel Fan-Out and Foreach Iteration](018-parallel-and-foreach.md) | Partially implemented |
+| [018: Parallel Fan-Out and Foreach Iteration](018-parallel-and-foreach.md) | Implemented |
 
 **Writing guidelines:**
 

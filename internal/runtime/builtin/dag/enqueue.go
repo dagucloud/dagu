@@ -80,19 +80,14 @@ func (e *enqueueExecutor) Run(ctx context.Context) error {
 		return fmt.Errorf("no sub DAG runs to enqueue")
 	}
 
-	outputs := make([]enqueueRunOutput, 0, len(paramsList))
-	subRuns := make([]exec1.SubDAGRun, 0, len(paramsList))
-	for _, params := range paramsList {
-		output, err := e.enqueueOne(ctx, params)
-		if err != nil {
-			return err
-		}
-		outputs = append(outputs, output)
-		subRuns = append(subRuns, exec1.SubDAGRun{
-			DAGRunID: output.DAGRunID,
-			Params:   output.Params,
-			DAGName:  output.Name,
-		})
+	outputs, err := e.enqueueAll(ctx, paramsList, parallel)
+	if err != nil {
+		return err
+	}
+
+	subRuns := make([]exec1.SubDAGRun, 0, len(outputs))
+	for _, output := range outputs {
+		subRuns = append(subRuns, subDAGRunFromEnqueueOutput(output))
 	}
 
 	e.lock.Lock()
@@ -100,6 +95,94 @@ func (e *enqueueExecutor) Run(ctx context.Context) error {
 	e.lock.Unlock()
 
 	return e.writeOutput(outputs, parallel)
+}
+
+func (e *enqueueExecutor) enqueueAll(ctx context.Context, paramsList []executor.RunParams, parallel bool) ([]enqueueRunOutput, error) {
+	if !parallel || len(paramsList) == 1 {
+		return e.enqueueSequential(ctx, paramsList)
+	}
+	return e.enqueueParallel(ctx, paramsList)
+}
+
+func (e *enqueueExecutor) enqueueSequential(ctx context.Context, paramsList []executor.RunParams) ([]enqueueRunOutput, error) {
+	outputs := make([]enqueueRunOutput, 0, len(paramsList))
+	for _, params := range paramsList {
+		output, err := e.enqueueOne(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		outputs = append(outputs, output)
+	}
+	return outputs, nil
+}
+
+func (e *enqueueExecutor) enqueueParallel(ctx context.Context, paramsList []executor.RunParams) ([]enqueueRunOutput, error) {
+	limit := core.DefaultMaxConcurrent
+	if e.step.Parallel != nil && e.step.Parallel.MaxConcurrent > 0 {
+		limit = e.step.Parallel.MaxConcurrent
+	}
+	if limit > len(paramsList) {
+		limit = len(paramsList)
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	outputs := make([]enqueueRunOutput, len(paramsList))
+	sem := make(chan struct{}, limit)
+	var wg sync.WaitGroup
+	var errMu sync.Mutex
+	var firstErr error
+
+	setErr := func(err error) {
+		errMu.Lock()
+		defer errMu.Unlock()
+		if firstErr == nil {
+			firstErr = err
+			cancel()
+		}
+	}
+
+	for i, params := range paramsList {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				return
+			}
+
+			output, err := e.enqueueOne(ctx, params)
+			if err != nil {
+				setErr(err)
+				return
+			}
+			outputs[i] = output
+		}()
+	}
+	wg.Wait()
+
+	errMu.Lock()
+	err := firstErr
+	errMu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	return outputs, nil
+}
+
+func subDAGRunFromEnqueueOutput(output enqueueRunOutput) exec1.SubDAGRun {
+	return exec1.SubDAGRun{
+		DAGRunID: output.DAGRunID,
+		Params:   output.Params,
+		DAGName:  output.Name,
+	}
 }
 
 func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.RunParams) (enqueueRunOutput, error) {

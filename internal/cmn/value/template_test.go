@@ -83,6 +83,53 @@ func TestExpandStringResolvesConstBindingsWithScope(t *testing.T) {
 	assert.Equal(t, "api prod /workspace repo/api:v1", got)
 }
 
+func TestExpandStringResolvesForeachBindingsWithScope(t *testing.T) {
+	t.Parallel()
+
+	resolver := value.NewResolver(
+		value.StaticScope{},
+		value.RuntimeScope{
+			Foreach: value.Values{
+				"index": "2",
+				"key":   "episode-3",
+				"episode": map[string]any{
+					"slug": "episode-3",
+					"url":  "https://example.test/episode-3",
+				},
+			},
+		},
+	)
+
+	got, err := resolver.String(
+		context.Background(),
+		"${foreach.index} ${foreach.key} ${foreach.episode.url} ${foreach.episode}",
+		value.WorkflowField("run"),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, `2 episode-3 https://example.test/episode-3 {"slug":"episode-3","url":"https://example.test/episode-3"}`, got)
+}
+
+func TestExpandStringPreservesUnavailableForeachBinding(t *testing.T) {
+	t.Parallel()
+
+	var collector value.ValueReferenceNoticeCollector
+	resolver := value.NewResolver(
+		value.StaticScope{},
+		value.RuntimeScope{},
+		value.WithValueReferenceNotices(&collector),
+	)
+
+	got, err := resolver.String(
+		context.Background(),
+		"${foreach.item}",
+		value.WorkflowField("run"),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "${foreach.item}", got)
+	require.Len(t, collector.Notices(), 1)
+	assert.Equal(t, value.ValueReferenceReasonNamespaceUnavailable, collector.Notices()[0].Reason)
+}
+
 func TestExpandStringDoesNotRejectFutureNamespaceShorthand(t *testing.T) {
 	t.Parallel()
 

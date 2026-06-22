@@ -315,6 +315,8 @@ func bindingValue(ctx context.Context, path string, scope RuntimeScope, requireV
 		return bindingEnvValue(segments[1], scope.Env, requireValue)
 	case "steps":
 		return bindingStepOutputValue(ctx, segments, scope.Steps, requireValue)
+	case "foreach":
+		return bindingForeachValue(path, segments, scope.Foreach, requireValue)
 	case "context", "dag", "run", "attempt", "step", "trigger", "paths", "profile", "pushback":
 		return bindingBuiltinContextValue(path, scope.BuiltinContext, requireValue)
 	default:
@@ -365,6 +367,71 @@ func bindingMapValue(namespace, name string, values Values, requireValue bool) (
 	return value, nil
 }
 
+func bindingForeachValue(path string, segments []string, values Values, requireValue bool) (any, error) {
+	if len(values) == 0 {
+		if !requireValue {
+			return nil, nil
+		}
+		return nil, newNoticeReasonError(
+			ValueReferenceReasonNamespaceUnavailable,
+			fmt.Sprintf("%s is unavailable in this context", path),
+		)
+	}
+
+	value, ok := values[segments[1]]
+	if !ok {
+		if !requireValue {
+			return nil, nil
+		}
+		return nil, newNoticeReasonError(
+			ValueReferenceReasonNamespaceUnavailable,
+			fmt.Sprintf("%s is unavailable in this context", path),
+		)
+	}
+
+	if len(segments) == 2 {
+		return formatForeachItemValue(value), nil
+	}
+
+	field, ok := foreachObjectField(value, segments[2])
+	if !ok {
+		if !requireValue {
+			return nil, nil
+		}
+		return nil, newNoticeReasonError(
+			ValueReferenceReasonNamespaceUnavailable,
+			fmt.Sprintf("%s is unavailable in this context", path),
+		)
+	}
+	return formatForeachItemValue(field), nil
+}
+
+func foreachObjectField(value any, field string) (any, bool) {
+	switch v := value.(type) {
+	case map[string]any:
+		got, ok := v[field]
+		return got, ok
+	case map[string]string:
+		got, ok := v[field]
+		return got, ok
+	default:
+		return nil, false
+	}
+}
+
+func formatForeachItemValue(value any) any {
+	switch value.(type) {
+	case map[string]any, map[string]string, []any, []string:
+		data, err := json.Marshal(value)
+		if err != nil {
+			return value
+		}
+		return string(data)
+	default:
+		return value
+	}
+}
+
 func bindingEnvValue(name string, scope *EnvScope, requireValue bool) (any, error) {
 	if scope == nil && !requireValue {
 		return nil, nil
@@ -392,6 +459,16 @@ func supportedStrictBinding(segments []string) bool {
 			return false
 		}
 		return validOutputPathSegment(segments[3])
+	case "foreach":
+		if len(segments) != 2 && len(segments) != 3 {
+			return false
+		}
+		for _, segment := range segments[1:] {
+			if !bindingNamePattern.MatchString(segment) {
+				return false
+			}
+		}
+		return true
 	case "context":
 		if len(segments) != 3 {
 			return false

@@ -65,7 +65,10 @@ func ReportValueReferenceNotices(dag *DAG, sink cmnvalue.ValueReferenceNoticeSin
 		if !strings.Contains(field.Value, "$") {
 			continue
 		}
-		stepOutputNotices.report(field.noticeFieldPath(), field.Value, field.OwnerStepName, field.OwnerStepID, sink)
+		foreachItemScopeField := isForeachItemScopeFieldPath(field.noticeFieldPath())
+		if !foreachItemScopeField {
+			stepOutputNotices.report(field.noticeFieldPath(), field.Value, field.OwnerStepName, field.OwnerStepID, sink)
+		}
 		fieldRuntimeScope := runtimeScope
 		fieldRuntimeScope.BuiltinContext = noticeBuiltinContext(dag.Name, field.OwnerStepName, field.OwnerStepID)
 		resolver := cmnvalue.NewResolver(
@@ -75,10 +78,17 @@ func ReportValueReferenceNotices(dag *DAG, sink cmnvalue.ValueReferenceNoticeSin
 				sink:                         sink,
 				fieldPath:                    field.noticeFieldPath(),
 				suppressStepOutputReferences: true,
+				suppressForeachReferences:    foreachItemScopeField,
 			}),
 		)
 		_, _ = resolver.String(context.Background(), field.Value, field.Field)
 	}
+}
+
+func isForeachItemScopeFieldPath(path string) bool {
+	return strings.Contains(path, ".foreach.key") ||
+		strings.Contains(path, ".foreach.steps[") ||
+		strings.Contains(path, ".foreach.collect.")
 }
 
 func reportStepEnvValueReferenceNotices(
@@ -333,10 +343,14 @@ type valueReferenceNoticeFieldSink struct {
 	sink                         cmnvalue.ValueReferenceNoticeSink
 	fieldPath                    string
 	suppressStepOutputReferences bool
+	suppressForeachReferences    bool
 }
 
 func (s valueReferenceNoticeFieldSink) Report(notice cmnvalue.ValueReferenceNotice) {
 	if s.suppressStepOutputReferences && cmnvalue.IsStepOutputReferenceToken(notice.Token) {
+		return
+	}
+	if s.suppressForeachReferences && strings.HasPrefix(notice.Token, "${foreach.") {
 		return
 	}
 	if s.fieldPath != "" {

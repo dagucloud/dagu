@@ -1,0 +1,16 @@
+steps:
+  - name: fanout
+    action: dag.run
+    with:
+      dag: child
+    parallel:
+      items:
+        - nested:
+            value: one
+
+---
+
+name: child
+steps:
+  - name: ok
+    run: "true"

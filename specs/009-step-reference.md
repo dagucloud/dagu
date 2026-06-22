@@ -139,6 +139,22 @@ steps:
     run: ./deploy.sh
 ```
 
+### Foreach Body Steps
+
+Spec 018 adds `foreach.steps` body scopes.
+
+Rules:
+
+- Body step identity is scoped to one `foreach` body.
+- Body step ids and names must be unique inside that body.
+- Body step ids and names must not collide with top-level step ids or names
+  visible to the owning `foreach` step.
+- Body step dependencies stay inside the body.
+- A body step dependency can identify another body step by name or id.
+- A body step dependency cannot identify a top-level step.
+- A top-level step dependency cannot identify a body step.
+- Dependency and strict step-output references never cross item bodies.
+
 ### Value References
 
 Strict step-output references under the `steps` namespace use step ids:

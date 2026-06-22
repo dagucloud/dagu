@@ -83,11 +83,13 @@ func ValidateSteps(dag *DAG) error {
 	stepNames, stepIDs := collectNamesAndIDs(dag, &errs)
 	validateNameIDConflicts(dag, stepNames, stepIDs, &errs)
 	resolveStepDependencies(dag)
+	resolveForeachStepDependencies(dag.Steps)
 	validateDependenciesExist(dag, stepNames, &errs)
 	validateApprovalRewindTargets(dag, stepNames, &errs)
 
 	for _, step := range dag.Steps {
 		errs = append(errs, validateStep(step)...)
+		validateForeachConfig(step, stepNames, stepIDs, &errs)
 	}
 
 	if len(errs) == 0 {
@@ -270,8 +272,8 @@ func validateParallelConfig(step Step) ErrorList {
 		errs = append(errs, NewValidationError("parallel", step.Parallel, fmt.Errorf("parallel currently requires action: dag.run or dag.enqueue")))
 	}
 
-	if step.Parallel.MaxConcurrent <= 0 {
-		errs = append(errs, NewValidationError("parallel.max_concurrent", step.Parallel.MaxConcurrent, fmt.Errorf("max_concurrent must be greater than 0")))
+	if step.Parallel.MaxConcurrent < 1 || step.Parallel.MaxConcurrent > MaxExpansionConcurrency {
+		errs = append(errs, NewValidationError("parallel.max_concurrent", step.Parallel.MaxConcurrent, fmt.Errorf("max_concurrent must be an integer from 1 through %d", MaxExpansionConcurrency)))
 	}
 
 	if len(step.Parallel.Items) == 0 && step.Parallel.Variable == "" {
@@ -279,6 +281,66 @@ func validateParallelConfig(step Step) ErrorList {
 	}
 
 	return errs
+}
+
+func validateForeachConfig(step Step, visibleNames, visibleIDs map[string]struct{}, errs *ErrorList) {
+	if step.Foreach == nil {
+		return
+	}
+
+	bodyDAG := &DAG{Steps: step.Foreach.Steps}
+	bodyNames, bodyIDs := collectNamesAndIDs(bodyDAG, errs)
+	validateNameIDConflicts(bodyDAG, bodyNames, bodyIDs, errs)
+	validateForeachBodyCollisions(step, bodyDAG.Steps, visibleNames, visibleIDs, errs)
+	validateForeachBodyDependencies(step, bodyDAG.Steps, bodyNames, visibleNames, visibleIDs, errs)
+
+	for _, bodyStep := range bodyDAG.Steps {
+		*errs = append(*errs, validateStep(bodyStep)...)
+		validateForeachConfig(bodyStep, bodyNames, bodyIDs, errs)
+	}
+}
+
+func validateForeachBodyCollisions(parent Step, bodySteps []Step, visibleNames, visibleIDs map[string]struct{}, errs *ErrorList) {
+	for _, bodyStep := range bodySteps {
+		validateForeachBodyIdentityCollision(parent, bodyStep, "name", bodyStep.Name, visibleNames, visibleIDs, errs)
+		validateForeachBodyIdentityCollision(parent, bodyStep, "id", bodyStep.ID, visibleNames, visibleIDs, errs)
+	}
+}
+
+func validateForeachBodyIdentityCollision(parent, bodyStep Step, kind, value string, visibleNames, visibleIDs map[string]struct{}, errs *ErrorList) {
+	if value == "" {
+		return
+	}
+	if _, ok := visibleNames[value]; ok {
+		*errs = append(*errs, NewValidationError("foreach.steps", value,
+			fmt.Errorf("foreach step %s body step %s %q collides with a visible step name", parent.Name, kind, value)))
+	}
+	if _, ok := visibleIDs[value]; ok {
+		*errs = append(*errs, NewValidationError("foreach.steps", value,
+			fmt.Errorf("foreach step %s body step %s %q collides with a visible step ID", parent.Name, kind, value)))
+	}
+}
+
+func validateForeachBodyDependencies(parent Step, bodySteps []Step, bodyNames, visibleNames, visibleIDs map[string]struct{}, errs *ErrorList) {
+	for _, bodyStep := range bodySteps {
+		for _, dep := range bodyStep.Depends {
+			if _, ok := bodyNames[dep]; ok {
+				continue
+			}
+			if _, ok := visibleNames[dep]; ok {
+				*errs = append(*errs, NewValidationError("foreach.steps.depends", dep,
+					fmt.Errorf("foreach step %s body step %s depends on visible top-level step %s; body dependencies must stay inside foreach.steps", parent.Name, bodyStep.Name, dep)))
+				continue
+			}
+			if _, ok := visibleIDs[dep]; ok {
+				*errs = append(*errs, NewValidationError("foreach.steps.depends", dep,
+					fmt.Errorf("foreach step %s body step %s depends on visible top-level step ID %s; body dependencies must stay inside foreach.steps", parent.Name, bodyStep.Name, dep)))
+				continue
+			}
+			*errs = append(*errs, NewValidationError("foreach.steps.depends", dep,
+				fmt.Errorf("foreach step %s body step %s depends on non-existent body step %s", parent.Name, bodyStep.Name, dep)))
+		}
+	}
 }
 
 func validateStepWithValidator(step Step) error {
@@ -330,5 +392,17 @@ func resolveStepDependencies(dag *DAG) {
 				dag.Steps[i].Approval.RewindTo = name
 			}
 		}
+	}
+}
+
+func resolveForeachStepDependencies(steps []Step) {
+	for i := range steps {
+		if steps[i].Foreach == nil {
+			continue
+		}
+		bodyDAG := &DAG{Steps: steps[i].Foreach.Steps}
+		resolveStepDependencies(bodyDAG)
+		steps[i].Foreach.Steps = bodyDAG.Steps
+		resolveForeachStepDependencies(steps[i].Foreach.Steps)
 	}
 }

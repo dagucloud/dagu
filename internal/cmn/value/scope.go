@@ -55,6 +55,7 @@ type RuntimeScope struct {
 	Params         Values
 	Env            *EnvScope
 	Steps          map[string]StepInfo
+	Foreach        Values
 	BuiltinContext BuiltinContext
 }
 

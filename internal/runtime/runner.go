@@ -1580,6 +1580,7 @@ func (r *Runner) prepareNodeForRepeat(ctx context.Context, node *Node, progressC
 
 func NewPlanEnv(ctx context.Context, step core.Step, plan *Plan) Env {
 	env := NewEnv(ctx, step)
+	addInheritedStepMap(ctx, &env)
 	addPlanStepsToEnv(&env, plan)
 	return env
 }
@@ -1589,12 +1590,14 @@ func NewPlanEnvWithError(ctx context.Context, step core.Step, plan *Plan) (Env, 
 	if err != nil {
 		return Env{}, err
 	}
+	addInheritedStepMap(ctx, &env)
 	addPlanStepsToEnv(&env, plan)
 	return env, nil
 }
 
 func NewPlanEnvForNode(ctx context.Context, node *Node, plan *Plan) Env {
 	env := NewEnv(ctx, node.Step())
+	addInheritedStepMap(ctx, &env)
 	addPlanPredecessorStepsToEnv(&env, plan, node)
 	return env
 }
@@ -1604,8 +1607,27 @@ func NewPlanEnvForNodeWithError(ctx context.Context, node *Node, plan *Plan) (En
 	if err != nil {
 		return Env{}, err
 	}
+	addInheritedStepMap(ctx, &env)
 	addPlanPredecessorStepsToEnv(&env, plan, node)
 	return env, nil
+}
+
+func addInheritedStepMap(ctx context.Context, env *Env) {
+	if env == nil {
+		return
+	}
+	inherited, ok := LookupEnv(ctx)
+	if !ok || len(inherited.StepMap) == 0 {
+		return
+	}
+	if env.StepMap == nil {
+		env.StepMap = make(map[string]cmnvalue.StepInfo, len(inherited.StepMap))
+	}
+	for id, info := range inherited.StepMap {
+		if _, exists := env.StepMap[id]; !exists {
+			env.StepMap[id] = info
+		}
+	}
 }
 
 func addPlanStepsToEnv(env *Env, plan *Plan) {

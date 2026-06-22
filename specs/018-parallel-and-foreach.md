@@ -2,31 +2,7 @@
 
 ## Status
 
-Partially implemented.
-
-Implemented `parallel` behavior covers:
-
-- `parallel` on `action: dag.run` and `action: dag.enqueue`
-- string, direct-array, and object-form item sources
-- default `max_concurrent: 10`
-- `max_concurrent` limiting active child DAG runs for `action: dag.run`
-- `${ITEM}` and top-level `${ITEM.field}` item references in child DAG target
-  and params
-- string item source compatibility parsing
-- coalescing duplicate resolved child DAG target and params into one represented
-  child run
-- aggregate JSON output for `dag.run` and `dag.enqueue`
-
-Target-only behavior in this spec includes:
-
-- the `foreach` field
-- strict `parallel` validation for unknown object fields, `max_concurrent`
-  upper bound, and strict integer handling where current product behavior is
-  looser
-- `max_concurrent` enforcement for `dag.enqueue` request creation
-
-Target-only behavior must not be treated as product behavior until
-implementation and black-box conformance tests catch up.
+Implemented.
 
 ## Scope
 
@@ -51,26 +27,12 @@ This spec does not define:
 
 - graph DAG scheduling of independent top-level steps
 - nested-array step shorthand for parallel branches
-- the legacy `call` and `params` aliases as normative syntax
+- the `call` and `params` aliases as normative syntax
 - scheduler, queue worker, coordinator, storage, API, or UI internals
 - how a child DAG or body step executes after the item-specific inputs have
   been resolved
 - action-specific behavior other than the `dag.run` and `dag.enqueue` fan-out
   surfaces named here
-
-Compatibility aliases may continue to exist, but conformance for this spec is
-measured against the canonical syntax shown in the examples.
-
-## Goal
-
-Workflow authors can express item-based fan-out without guessing whether an
-item is passed to a child DAG, to an inline body, to a shell, or to the queue.
-
-`parallel` keeps the existing child-DAG fan-out contract stable.
-
-`foreach` gives workflow authors an inline iteration construct for cases where
-creating a separate child DAG only to process one item would add avoidable
-workflow structure.
 
 ## Related Specs
 
@@ -119,19 +81,13 @@ An item run is one represented child DAG run or enqueue request created by
 
 #### Concurrency
 
-- For target conformance, `max_concurrent` limits the number of represented
-  child runs, enqueue requests, or item bodies that may be active at the same
-  time for the owning expansion construct.
+- `max_concurrent` limits the number of represented child runs, enqueue
+  requests, or item bodies that may be active at the same time for the owning
+  expansion construct.
 
 - `max_concurrent` must be an integer from `1` through `1000`.
 
 - When `max_concurrent` is omitted, Dagu uses `10`.
-
-- Current implemented `parallel` behavior enforces `max_concurrent` for active
-  `dag.run` child DAG runs.
-
-- `max_concurrent` enforcement for `foreach` and for `dag.enqueue` request
-  creation is target-only behavior.
 
 - `max_concurrent` does not limit normal top-level graph scheduling outside the
   owning expansion step.
@@ -223,7 +179,7 @@ steps:
 
 #### String Item Sources
 
-For `parallel`, a string item source supports existing compatibility forms.
+For `parallel`, a string item source supports these forms.
 
 Rules:
 
@@ -276,8 +232,8 @@ Rules:
   whole parameter payload.
 
 - If `with.params` is present, the resolved `with.params` value is the child
-  DAG parameter payload. Workflow authors must include `${ITEM}` or
-  `${ITEM.field}` there when the child needs item data.
+  DAG parameter payload. Child DAG parameter payloads include item data only
+  when `with.params` contains `${ITEM}` or `${ITEM.field}`.
 
 #### Represented Child Runs
 
@@ -290,14 +246,13 @@ Rules:
   resolved child DAG params.
 
 - If more than one item slot resolves to the same child DAG target and the same
-  child DAG params, current implemented behavior represents those item slots as
-  one child run.
+  child DAG params, Dagu represents those item slots as one child run.
 
 - Parent step child-run lists and `parallel` aggregate counts count represented
   child runs, not raw expanded item slots.
 
-- Workflow authors that need one child run per item slot must make the resolved
-  child DAG params distinct for each item slot.
+- One child run per item slot requires distinct resolved child DAG params for
+  each item slot.
 
 #### `dag.run` Semantics
 
@@ -624,8 +579,8 @@ Each `items` entry must include:
 
 Each successful `items` entry must include `outputs`.
 
-Each failed `items` entry should include an error message when an error message
-is available.
+Each failed `items` entry must include `error` when an error message is
+available.
 
 Rules:
 
@@ -636,14 +591,11 @@ Rules:
 
 - If `foreach.collect` is omitted, successful item output maps are empty.
 
-- Dagu must not include the raw item value in the aggregate output unless a
-  future spec adds an explicit field for that.
+- Dagu must not include the raw item value in the aggregate output.
 
 ## Errors
 
-The errors below define target conformance. The Status section identifies
-implemented `parallel` behavior and target-only behavior where current product
-behavior is looser.
+The errors below define conformance behavior.
 
 ### Parallel Errors
 
@@ -704,8 +656,8 @@ Rules:
 
 - Timeout and abort must not start new pending item runs or item bodies.
 
-- Active child DAG runs or item bodies must receive the same stop signal that a
-  normal running step would receive in the same lifecycle state.
+- Active child DAG runs or item bodies must receive the same stop signal as a
+  normal running step in the same lifecycle state.
 
 - A timed-out or aborted expansion step must not be reported as succeeded.
 

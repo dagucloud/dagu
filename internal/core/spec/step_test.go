@@ -1700,17 +1700,14 @@ func TestBuildStepParallel(t *testing.T) {
 				MaxConcurrent: 10,
 			},
 		},
-		{
-			name: "MaxConcurrentAsFloat64",
-			parallel: map[string]any{
-				"items":          "${ITEMS}",
-				"max_concurrent": float64(7),
+			{
+				name: "InvalidMaxConcurrentAsFloat64",
+				parallel: map[string]any{
+					"items":          "${ITEMS}",
+					"max_concurrent": float64(7),
+				},
+				wantErr: true,
 			},
-			expected: &core.ParallelConfig{
-				Variable:      "${ITEMS}",
-				MaxConcurrent: 7,
-			},
-		},
 		{
 			name:     "InvalidType",
 			parallel: 123,

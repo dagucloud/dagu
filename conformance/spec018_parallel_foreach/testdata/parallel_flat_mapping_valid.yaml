@@ -1,0 +1,18 @@
+steps:
+  - name: fanout
+    action: dag.run
+    with:
+      dag: child
+    parallel:
+      items:
+        - account: acct-1
+          count: 2
+          enabled: true
+      max_concurrent: 1
+
+---
+
+name: child
+steps:
+  - name: ok
+    run: "true"

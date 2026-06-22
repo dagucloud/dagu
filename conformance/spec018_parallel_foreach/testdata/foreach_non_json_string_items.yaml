@@ -1,0 +1,13 @@
+params:
+  - name: episodes
+    default: alpha,beta
+working_dir: .
+steps:
+  - name: each
+    foreach:
+      items: ${params.episodes}
+      steps:
+        - id: should_not_run
+          run: |
+            printf 'ran\n' > foreach-non-json-ran.txt
+    output: FOREACH_RESULTS

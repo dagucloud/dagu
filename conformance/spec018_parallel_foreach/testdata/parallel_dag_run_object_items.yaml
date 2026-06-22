@@ -1,0 +1,35 @@
+working_dir: .
+steps:
+  - name: fanout
+    action: dag.run
+    with:
+      dag: child-object-item
+      params:
+        - value: ${ITEM.account}/${ITEM.region}
+    parallel:
+      max_concurrent: 2
+      items:
+        - account: acct-1
+          region: us
+        - account: acct-1
+          region: us
+        - account: acct-2
+          region: eu
+    output: PARALLEL_RESULTS
+  - name: consume
+    depends: fanout
+    run: |
+      printf '%s\n' "$PARALLEL_RESULTS" > parallel-object-results.txt
+
+---
+
+name: child-object-item
+params:
+  - name: value
+    description: Resolved item value.
+working_dir: .
+steps:
+  - name: write
+    run: |
+      printf '%s\n' '${params.value}'
+    output: CHILD_VALUE

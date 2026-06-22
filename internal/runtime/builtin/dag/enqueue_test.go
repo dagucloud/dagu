@@ -5,8 +5,11 @@ package dag_test
 
 import (
 	"bytes"
+	"context"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core"
@@ -79,4 +82,99 @@ func TestEnqueueExecutorPersistsInheritedProfile(t *testing.T) {
 	assert.Equal(t, "prod", status.ProfileName)
 	assert.Equal(t, exec.NewDAGRunRef("child", "child-run"), status.Root)
 	assert.True(t, status.Parent.Zero())
+}
+
+func TestEnqueueExecutorParallelHonorsMaxConcurrent(t *testing.T) {
+	t.Parallel()
+
+	th := test.Setup(t, test.WithConfigMutator(func(cfg *config.Config) {
+		cfg.Queues.Enabled = true
+		cfg.Queues.Config = []config.QueueConfig{{Name: "default", MaxActiveRuns: 1}}
+	}))
+
+	parent := &core.DAG{
+		Name: "parent",
+		LocalDAGs: map[string]*core.DAG{
+			"child": {
+				Name:     "child",
+				YamlData: []byte("name: child\nsteps:\n  - name: step\n    run: echo child\n"),
+				Steps: []core.Step{
+					{Name: "step", ExecutorConfig: core.ExecutorConfig{Type: "noop"}},
+				},
+			},
+		},
+	}
+	parentRun := exec.NewDAGRunRef(parent.Name, "parent-run")
+	queueStore := &recordingQueueStore{
+		QueueStore: th.QueueStore,
+		delay:      50 * time.Millisecond,
+	}
+	ctx := runtime.NewContext(
+		th.Context,
+		parent,
+		parentRun.ID,
+		filepath.Join(th.Config.Paths.LogDir, "parent.log"),
+		runtime.WithRootDAGRun(parentRun),
+		runtime.WithDAGRunStore(th.DAGRunStore),
+		runtime.WithQueueStore(queueStore),
+		runtime.WithDAGRunLogDir(th.Config.Paths.LogDir),
+		runtime.WithDAGRunArtifactDir(th.Config.Paths.ArtifactDir),
+	)
+
+	step := core.Step{
+		Name:           "enqueue-child",
+		ExecutorConfig: core.ExecutorConfig{Type: core.ExecutorTypeDAGEnqueue},
+		SubDAG:         &core.SubDAG{Name: "child"},
+		Parallel:       &core.ParallelConfig{MaxConcurrent: 2},
+	}
+	execImpl, err := executor.NewExecutor(ctx, step)
+	require.NoError(t, err)
+
+	parallelExec, ok := execImpl.(executor.ParallelExecutor)
+	require.True(t, ok)
+	parallelExec.SetParamsList([]executor.RunParams{
+		{RunID: "child-run-1", DAGName: "child", Params: "VALUE=one"},
+		{RunID: "child-run-2", DAGName: "child", Params: "VALUE=two"},
+		{RunID: "child-run-3", DAGName: "child", Params: "VALUE=three"},
+	})
+
+	var stdout bytes.Buffer
+	execImpl.SetStdout(&stdout)
+	require.NoError(t, execImpl.Run(ctx))
+
+	assert.Equal(t, 2, queueStore.MaxActive())
+}
+
+type recordingQueueStore struct {
+	exec.QueueStore
+
+	mu        sync.Mutex
+	active    int
+	maxActive int
+	delay     time.Duration
+}
+
+func (s *recordingQueueStore) Enqueue(ctx context.Context, name string, priority exec.QueuePriority, dagRun exec.DAGRunRef) error {
+	s.mu.Lock()
+	s.active++
+	if s.active > s.maxActive {
+		s.maxActive = s.active
+	}
+	s.mu.Unlock()
+
+	time.Sleep(s.delay)
+
+	err := s.QueueStore.Enqueue(ctx, name, priority, dagRun)
+
+	s.mu.Lock()
+	s.active--
+	s.mu.Unlock()
+
+	return err
+}
+
+func (s *recordingQueueStore) MaxActive() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.maxActive
 }

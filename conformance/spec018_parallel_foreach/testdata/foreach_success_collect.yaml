@@ -1,0 +1,24 @@
+working_dir: .
+steps:
+  - name: each
+    foreach:
+      items:
+        - slug: one
+          url: https://example.com/one
+        - slug: two
+          url: https://example.com/two
+      as: episode
+      key: ${foreach.episode.slug}
+      max_concurrent: 2
+      steps:
+        - id: summarize
+          run: |
+            printf '%s\n' '${foreach.episode.url}'
+          output: BODY_RESULT
+      collect:
+        markdown: ${summarize.output}
+    output: FOREACH_RESULTS
+  - name: consume
+    depends: each
+    run: |
+      printf '%s\n' "$FOREACH_RESULTS" > foreach-success-results.txt

@@ -45,6 +45,9 @@ type Env struct {
 	// Step references are resolved separately from environment variables.
 	StepMap map[string]cmnvalue.StepInfo
 
+	// Foreach contains the current item scope for foreach body evaluation.
+	Foreach cmnvalue.Values
+
 	// Resolved absolute path for the step's working directory, determined by:
 	// 1. Step's Dir field if specified (resolved to absolute path)
 	// 2. Current working directory if Dir is not specified
@@ -77,7 +80,7 @@ func (e Env) UserEnvsMap() map[string]string {
 func NewEnv(ctx context.Context, step core.Step) Env {
 	rCtx := GetDAGContext(ctx)
 	workingDir := resolveWorkingDir(ctx, step, rCtx)
-	return newEnv(step, rCtx, workingDir)
+	return newEnv(ctx, step, rCtx, workingDir)
 }
 
 // NewEnvWithError creates an Env and returns working directory resolution errors.
@@ -87,10 +90,10 @@ func NewEnvWithError(ctx context.Context, step core.Step) (Env, error) {
 	if err != nil {
 		return Env{}, err
 	}
-	return newEnv(step, rCtx, workingDir), nil
+	return newEnv(ctx, step, rCtx, workingDir), nil
 }
 
-func newEnv(step core.Step, rCtx Context, workingDir string) Env {
+func newEnv(ctx context.Context, step core.Step, rCtx Context, workingDir string) Env {
 	// Build step-specific env vars
 	stepEnvs := map[string]string{
 		exec.EnvKeyDAGRunStepName: step.Name,
@@ -101,6 +104,13 @@ func newEnv(step core.Step, rCtx Context, workingDir string) Env {
 	// The scope chain inherits from rCtx.EnvScope (filtered BaseEnv + DAG env + secrets).
 	// and adds step-specific environment variables
 	scope := rCtx.EnvScope
+	var foreach cmnvalue.Values
+	if inherited, ok := LookupEnv(ctx); ok {
+		if inherited.Scope != nil {
+			scope = inherited.Scope
+		}
+		foreach = inherited.Foreach
+	}
 	if scope == nil {
 		scope = cmnvalue.NewEnvScope(nil, true) // Fallback: OS layer only
 	}
@@ -111,6 +121,7 @@ func newEnv(step core.Step, rCtx Context, workingDir string) Env {
 		Scope:      scope,
 		Step:       step,
 		StepMap:    make(map[string]cmnvalue.StepInfo),
+		Foreach:    foreach,
 		WorkingDir: workingDir,
 	}
 }
@@ -164,12 +175,20 @@ func expandRuntimeValue(ctx context.Context, raw string, rCtx Context, dag *core
 	if rCtx.DAG == nil {
 		rCtx.DAG = dag
 	}
+	var foreach cmnvalue.Values
+	if inherited, ok := LookupEnv(ctx); ok {
+		if inherited.Scope != nil {
+			scope = inherited.Scope
+		}
+		foreach = inherited.Foreach
+	}
 	resolver := cmnvalue.NewResolver(
 		cmnvalue.StaticScope{Consts: consts, Params: paramDeclarations},
 		cmnvalue.RuntimeScope{
 			Consts:         consts,
 			Params:         params,
 			Env:            scope,
+			Foreach:        foreach,
 			BuiltinContext: builtinContextFromDAGContext(rCtx, scope, step),
 		},
 	)

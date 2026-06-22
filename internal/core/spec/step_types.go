@@ -81,6 +81,7 @@ var builtinStepTypeNames = map[string]struct{}{
 	"dag_enqueue":   {},
 	"docker":        {},
 	"file":          {},
+	"foreach":       {},
 	"gha":           {},
 	"git":           {},
 	"github-action": {},

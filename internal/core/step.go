@@ -94,6 +94,8 @@ type Step struct {
 	WorkerSelector map[string]string `json:"workerSelector,omitempty"`
 	// Parallel contains the configuration for parallel execution.
 	Parallel *ParallelConfig `json:"parallel,omitempty"`
+	// Foreach contains the configuration for inline item-body iteration.
+	Foreach *ForeachConfig `json:"foreach,omitempty"`
 	// Env contains environment variables for the step.
 	Env []string `json:"env,omitempty"`
 	// Params contains parameters/inputs for the step.
@@ -437,6 +439,9 @@ const (
 
 	// ExecutorTypeParallel is the executor type for parallel steps.
 	ExecutorTypeParallel = "parallel"
+
+	// ExecutorTypeForeach is the executor type for foreach steps.
+	ExecutorTypeForeach = "foreach"
 
 	// ExecutorTypeRouter is the executor type for router steps.
 	ExecutorTypeRouter = "router"

@@ -139,6 +139,9 @@ func (w *referenceFieldWalker) walkStep(path string, step Step) {
 	if step.Parallel != nil {
 		w.walkParallel(path+".parallel", step.Parallel, base)
 	}
+	if step.Foreach != nil {
+		w.walkForeach(path+".foreach", step.Foreach, base)
+	}
 	w.add(base.withPathValue(path+".stdout", step.Stdout).withField(cmnvalue.StepArtifactOutputField(path + ".stdout")))
 	w.add(base.withPathValue(path+".stdout.artifact", step.StdoutArtifact).withField(cmnvalue.StepArtifactOutputField(path + ".stdout.artifact")))
 	w.add(base.withPathValue(path+".stderr", step.Stderr).withField(cmnvalue.StepArtifactOutputField(path + ".stderr")))
@@ -237,6 +240,19 @@ func (w *referenceFieldWalker) walkParallel(path string, parallel *ParallelConfi
 			fieldPath := itemPath + ".params." + key
 			w.add(base.withPathValue(fieldPath, item.Params[key]).withField(cmnvalue.ParallelItemParamField(fieldPath)))
 		}
+	}
+}
+
+func (w *referenceFieldWalker) walkForeach(path string, foreach *ForeachConfig, base ReferenceField) {
+	w.add(base.withPathValue(path+".items", foreach.ItemsExpr).withField(cmnvalue.WorkflowField(path + ".items")))
+	w.walkStringLeaves(path+".items", foreach.Items, base.withField(cmnvalue.WorkflowField(path+".items")))
+	w.add(base.withPathValue(path+".key", foreach.Key).withField(cmnvalue.WorkflowField(path + ".key")))
+	for i, step := range foreach.Steps {
+		w.walkStep(fmt.Sprintf("%s.steps[%d]", path, i), step)
+	}
+	for _, key := range sortedStringKeys(foreach.Collect) {
+		fieldPath := path + ".collect." + key
+		w.add(base.withPathValue(fieldPath, foreach.Collect[key]).withField(cmnvalue.WorkflowField(fieldPath)))
 	}
 }
 

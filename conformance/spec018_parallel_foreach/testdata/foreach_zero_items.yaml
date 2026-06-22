@@ -1,0 +1,14 @@
+working_dir: .
+steps:
+  - name: each
+    foreach:
+      items: []
+      steps:
+        - id: should_not_run
+          run: |
+            printf 'ran\n' > foreach-zero-body-ran.txt
+    output: FOREACH_RESULTS
+  - name: consume
+    depends: each
+    run: |
+      printf '%s\n' "$FOREACH_RESULTS" > foreach-zero-results.txt

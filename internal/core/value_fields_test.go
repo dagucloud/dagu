@@ -84,6 +84,22 @@ func TestReferenceFieldsEmitsValidationPathSet(t *testing.T) {
 						},
 					},
 				},
+				Foreach: &core.ForeachConfig{
+					Items: []any{
+						map[string]any{"source": "${params.foreach_source}"},
+					},
+					Key: "${foreach.item.source}",
+					Steps: []core.Step{
+						{
+							Name:   "summarize",
+							Script: "echo ${foreach.item.source}",
+							Env:    []string{"ITEM=${foreach.item.source}"},
+						},
+					},
+					Collect: map[string]string{
+						"summary": "${steps.summarize.stdout}",
+					},
+				},
 				Stdout:         "${consts.stdout}",
 				StdoutArtifact: "${consts.stdout_artifact}",
 				Stderr:         "${consts.stderr}",
@@ -178,6 +194,11 @@ func TestReferenceFieldsEmitsValidationPathSet(t *testing.T) {
 		"steps[0].parallel.variable",
 		"steps[0].parallel.items[0].value",
 		"steps[0].parallel.items[0].params.target",
+		"steps[0].foreach.items[0].source",
+		"steps[0].foreach.key",
+		"steps[0].foreach.steps[0].run",
+		"steps[0].foreach.steps[0].env[0]",
+		"steps[0].foreach.collect.summary",
 		"steps[0].stdout",
 		"steps[0].stdout.artifact",
 		"steps[0].stderr",
