@@ -302,12 +302,12 @@ func validateForeachConfig(step Step, visibleNames, visibleIDs map[string]struct
 
 func validateForeachBodyCollisions(parent Step, bodySteps []Step, visibleNames, visibleIDs map[string]struct{}, errs *ErrorList) {
 	for _, bodyStep := range bodySteps {
-		validateForeachBodyIdentityCollision(parent, bodyStep, "name", bodyStep.Name, visibleNames, visibleIDs, errs)
-		validateForeachBodyIdentityCollision(parent, bodyStep, "id", bodyStep.ID, visibleNames, visibleIDs, errs)
+		validateForeachBodyIdentityCollision(parent, "name", bodyStep.Name, visibleNames, visibleIDs, errs)
+		validateForeachBodyIdentityCollision(parent, "id", bodyStep.ID, visibleNames, visibleIDs, errs)
 	}
 }
 
-func validateForeachBodyIdentityCollision(parent, bodyStep Step, kind, value string, visibleNames, visibleIDs map[string]struct{}, errs *ErrorList) {
+func validateForeachBodyIdentityCollision(parent Step, kind, value string, visibleNames, visibleIDs map[string]struct{}, errs *ErrorList) {
 	if value == "" {
 		return
 	}
