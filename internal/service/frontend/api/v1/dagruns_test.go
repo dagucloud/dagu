@@ -697,9 +697,10 @@ steps:
         - approver
       required:
         - reason
-  - name: after-wait
-    depends: [wait-step]
-    run: %q`, "exit 0", test.EnvOutput("reason", "approver"))
+  - name: hold-step
+    run: %q
+    approval:
+      prompt: "Keep the DAG waiting"`, "exit 0", "exit 0")
 
 	_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
 		Name: "approval_inputs_dag",
@@ -716,7 +717,9 @@ steps:
 
 	// Wait for DAG to enter Wait status
 	waitForStoredDAGRunStatus(t, server, "approval_inputs_dag", startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
-		return status.Status == core.Waiting && hasNodeWithStatus(status, "wait-step", core.NodeWaiting)
+		return status.Status == core.Waiting &&
+			hasNodeWithStatus(status, "wait-step", core.NodeWaiting) &&
+			hasNodeWithStatus(status, "hold-step", core.NodeWaiting)
 	})
 
 	// Approve with inputs
@@ -731,30 +734,33 @@ steps:
 
 	var approveBody api.ApproveDAGRunStep200JSONResponse
 	approveResp.Unmarshal(t, &approveBody)
-	require.True(t, approveBody.Resumed)
+	require.False(t, approveBody.Resumed)
 
-	// Wait for DAG to complete
+	// The second waiting step keeps the DAG in a non-terminal state while the
+	// approved node's API-side mutation is persisted.
 	status := waitForStoredDAGRunStatus(t, server, "approval_inputs_dag", startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
-		return status.Status == core.Succeeded
+		return status.Status == core.Waiting &&
+			hasNodeWithStatus(status, "wait-step", core.NodeSucceeded) &&
+			hasNodeWithStatus(status, "hold-step", core.NodeWaiting)
 	})
 	require.Len(t, status.Nodes, 2)
 
-	var waitNode, afterWaitNode *exec.Node
+	var waitNode *exec.Node
 	for _, node := range status.Nodes {
-		switch node.Step.Name {
-		case "wait-step":
+		if node.Step.Name == "wait-step" {
 			waitNode = node
-		case "after-wait":
-			afterWaitNode = node
 		}
 	}
 	require.NotNil(t, waitNode)
-	require.NotNil(t, afterWaitNode)
 	require.Equal(t, inputs, waitNode.ApprovalInputs)
 
-	stdout, err := os.ReadFile(afterWaitNode.Stdout)
-	require.NoError(t, err)
-	require.Equal(t, "testing|test-user", strings.TrimSpace(string(stdout)))
+	require.NotNil(t, waitNode.OutputVariables)
+	reasonRaw, ok := waitNode.OutputVariables.Load("reason")
+	require.True(t, ok)
+	require.Equal(t, "reason=testing", reasonRaw)
+	approverRaw, ok := waitNode.OutputVariables.Load("approver")
+	require.True(t, ok)
+	require.Equal(t, "approver=test-user", approverRaw)
 }
 
 func TestApproveDAGRunStepMissingRequired(t *testing.T) {
