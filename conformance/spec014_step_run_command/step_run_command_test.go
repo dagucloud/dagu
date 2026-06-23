@@ -218,14 +218,11 @@ exit 64
 }
 
 func TestCommandFormPowerShellWhenAvailable(t *testing.T) {
-	t.Parallel()
 	if _, err := exec.LookPath("pwsh"); err != nil {
 		t.Skip("pwsh is not available")
 	}
 
 	t.Run("UTF-8 output is stable", func(t *testing.T) {
-		t.Parallel()
-
 		dagu := harness.NewRunner(t)
 		result := dagu.Run("start", "powershell_utf8.yaml")
 		result.ExpectExitCode(0)
@@ -233,8 +230,6 @@ func TestCommandFormPowerShellWhenAvailable(t *testing.T) {
 	})
 
 	t.Run("Write-Error fails command-form step", func(t *testing.T) {
-		t.Parallel()
-
 		dagu := harness.NewRunner(t)
 		result := dagu.Run("start", "powershell_error_fails.yaml")
 		result.ExpectExitCode(1)
