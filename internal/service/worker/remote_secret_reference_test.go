@@ -6,6 +6,7 @@ package worker_test
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -80,23 +81,26 @@ func TestRemoteTaskHandlerResolvesRegistrySecretsViaCoordinator(t *testing.T) {
 		RootDagRunName:       "registry-secret-dag",
 		RootDagRunId:         dagRunID,
 		DagRunId:             dagRunID,
+		AttemptId:            "attempt-1",
+		AttemptKey:           "attempt-key-1",
 		OwnerCoordinatorId:   "coord-1",
 		OwnerCoordinatorHost: "127.0.0.1",
 		OwnerCoordinatorPort: 4521,
-		Definition: `
+		Definition: fmt.Sprintf(`
 secrets:
   - name: MY_SECRET
     ref: prod/my-secret
 steps:
   - name: main
-    run: test "$MY_SECRET" = "coordinator-secret-value"
-`,
+%s
+`, secretAssertionStep()),
 	}
 
 	err = handler.Handle(ctx, task)
 	require.NoError(t, err)
 	require.Equal(t, []core.SecretRef{{Name: "MY_SECRET", Ref: "prod/my-secret"}}, client.resolvedRefs())
 	require.Equal(t, []exec.HostInfo{{ID: "coord-1", Host: "127.0.0.1", Port: 4521}}, client.resolvedOwners())
+	require.Equal(t, []coordinator.SecretReferenceRun{{WorkerID: workerID, AttemptKey: "attempt-key-1", AttemptID: "attempt-1"}}, client.resolvedRuns())
 
 	reported := client.reportedStatuses()
 	require.NotEmpty(t, reported)
@@ -105,11 +109,22 @@ steps:
 	assert.Equal(t, core.Succeeded, status.Status)
 }
 
+func secretAssertionStep() string {
+	if runtime.GOOS == "windows" {
+		return `    run: |
+      if ($env:MY_SECRET -ne 'coordinator-secret-value') { throw "unexpected secret value: $env:MY_SECRET" }
+    with:
+      shell: powershell`
+	}
+	return `    run: test "$MY_SECRET" = "coordinator-secret-value"`
+}
+
 type secretResolvingRemoteCoordinatorClient struct {
 	mu            sync.Mutex
 	reported      []*coordinatorv1.ReportStatusRequest
 	resolved      []core.SecretRef
 	owners        []exec.HostInfo
+	runs          []coordinator.SecretReferenceRun
 	resolveSecret func(context.Context, core.SecretRef, string, bool) (string, error)
 }
 
@@ -132,6 +147,12 @@ func (c *secretResolvingRemoteCoordinatorClient) resolvedOwners() []exec.HostInf
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return append([]exec.HostInfo(nil), c.owners...)
+}
+
+func (c *secretResolvingRemoteCoordinatorClient) resolvedRuns() []coordinator.SecretReferenceRun {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]coordinator.SecretReferenceRun(nil), c.runs...)
 }
 
 func (c *secretResolvingRemoteCoordinatorClient) Dispatch(context.Context, exec.DispatchRequest) error {
@@ -205,13 +226,14 @@ func (c *secretResolvingRemoteCoordinatorClient) Metrics() coordinator.Metrics {
 	return coordinator.Metrics{IsConnected: true}
 }
 
-func (c *secretResolvingRemoteCoordinatorClient) ResolveSecretReference(ctx context.Context, owner exec.HostInfo, ref core.SecretRef, workspace string, checkOnly bool) (string, error) {
+func (c *secretResolvingRemoteCoordinatorClient) ResolveSecretReference(ctx context.Context, owner exec.HostInfo, ref core.SecretRef, workspace string, checkOnly bool, run coordinator.SecretReferenceRun) (string, error) {
 	if owner == (exec.HostInfo{}) {
 		return "", fmt.Errorf("secret resolution for %q did not target the owner coordinator", ref.Ref)
 	}
 	c.mu.Lock()
 	c.resolved = append(c.resolved, ref)
 	c.owners = append(c.owners, owner)
+	c.runs = append(c.runs, run)
 	c.mu.Unlock()
 	return c.resolveSecret(ctx, ref, workspace, checkOnly)
 }

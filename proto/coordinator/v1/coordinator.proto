@@ -481,6 +481,9 @@ message ResolveSecretReferenceRequest {
   string ref = 2;       // Registry ref, for example "prod/db-password"
   string workspace = 3; // Workspace scope; empty means global
   bool check_only = 4;  // When true, verify access without returning plaintext
+  string worker_id = 5;   // Worker currently owning the dispatched attempt
+  string attempt_key = 6; // Active distributed attempt lease key
+  string attempt_id = 7;  // Attempt ID created by the coordinator
 }
 
 message ResolveSecretReferenceResponse {

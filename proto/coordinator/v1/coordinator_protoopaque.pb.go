@@ -4798,13 +4798,16 @@ func (b0 GetDAGResponse_builder) Build() *GetDAGResponse {
 
 // ResolveSecretReference resolves or checks one Dagu-managed registry ref.
 type ResolveSecretReferenceRequest struct {
-	state                protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Name      string                 `protobuf:"bytes,1,opt,name=name,proto3"`
-	xxx_hidden_Ref       string                 `protobuf:"bytes,2,opt,name=ref,proto3"`
-	xxx_hidden_Workspace string                 `protobuf:"bytes,3,opt,name=workspace,proto3"`
-	xxx_hidden_CheckOnly bool                   `protobuf:"varint,4,opt,name=check_only,json=checkOnly,proto3"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	state                 protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Name       string                 `protobuf:"bytes,1,opt,name=name,proto3"`
+	xxx_hidden_Ref        string                 `protobuf:"bytes,2,opt,name=ref,proto3"`
+	xxx_hidden_Workspace  string                 `protobuf:"bytes,3,opt,name=workspace,proto3"`
+	xxx_hidden_CheckOnly  bool                   `protobuf:"varint,4,opt,name=check_only,json=checkOnly,proto3"`
+	xxx_hidden_WorkerId   string                 `protobuf:"bytes,5,opt,name=worker_id,json=workerId,proto3"`
+	xxx_hidden_AttemptKey string                 `protobuf:"bytes,6,opt,name=attempt_key,json=attemptKey,proto3"`
+	xxx_hidden_AttemptId  string                 `protobuf:"bytes,7,opt,name=attempt_id,json=attemptId,proto3"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *ResolveSecretReferenceRequest) Reset() {
@@ -4860,6 +4863,27 @@ func (x *ResolveSecretReferenceRequest) GetCheckOnly() bool {
 	return false
 }
 
+func (x *ResolveSecretReferenceRequest) GetWorkerId() string {
+	if x != nil {
+		return x.xxx_hidden_WorkerId
+	}
+	return ""
+}
+
+func (x *ResolveSecretReferenceRequest) GetAttemptKey() string {
+	if x != nil {
+		return x.xxx_hidden_AttemptKey
+	}
+	return ""
+}
+
+func (x *ResolveSecretReferenceRequest) GetAttemptId() string {
+	if x != nil {
+		return x.xxx_hidden_AttemptId
+	}
+	return ""
+}
+
 func (x *ResolveSecretReferenceRequest) SetName(v string) {
 	x.xxx_hidden_Name = v
 }
@@ -4876,13 +4900,28 @@ func (x *ResolveSecretReferenceRequest) SetCheckOnly(v bool) {
 	x.xxx_hidden_CheckOnly = v
 }
 
+func (x *ResolveSecretReferenceRequest) SetWorkerId(v string) {
+	x.xxx_hidden_WorkerId = v
+}
+
+func (x *ResolveSecretReferenceRequest) SetAttemptKey(v string) {
+	x.xxx_hidden_AttemptKey = v
+}
+
+func (x *ResolveSecretReferenceRequest) SetAttemptId(v string) {
+	x.xxx_hidden_AttemptId = v
+}
+
 type ResolveSecretReferenceRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Name      string
-	Ref       string
-	Workspace string
-	CheckOnly bool
+	Name       string
+	Ref        string
+	Workspace  string
+	CheckOnly  bool
+	WorkerId   string
+	AttemptKey string
+	AttemptId  string
 }
 
 func (b0 ResolveSecretReferenceRequest_builder) Build() *ResolveSecretReferenceRequest {
@@ -4893,6 +4932,9 @@ func (b0 ResolveSecretReferenceRequest_builder) Build() *ResolveSecretReferenceR
 	x.xxx_hidden_Ref = b.Ref
 	x.xxx_hidden_Workspace = b.Workspace
 	x.xxx_hidden_CheckOnly = b.CheckOnly
+	x.xxx_hidden_WorkerId = b.WorkerId
+	x.xxx_hidden_AttemptKey = b.AttemptKey
+	x.xxx_hidden_AttemptId = b.AttemptId
 	return m0
 }
 
@@ -5218,13 +5260,18 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\":\n" +
 	"\x0eGetDAGResponse\x12\x12\n" +
 	"\x04spec\x18\x01 \x01(\tR\x04spec\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"\x82\x01\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\xdf\x01\n" +
 	"\x1dResolveSecretReferenceRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03ref\x18\x02 \x01(\tR\x03ref\x12\x1c\n" +
 	"\tworkspace\x18\x03 \x01(\tR\tworkspace\x12\x1d\n" +
 	"\n" +
-	"check_only\x18\x04 \x01(\bR\tcheckOnly\"6\n" +
+	"check_only\x18\x04 \x01(\bR\tcheckOnly\x12\x1b\n" +
+	"\tworker_id\x18\x05 \x01(\tR\bworkerId\x12\x1f\n" +
+	"\vattempt_key\x18\x06 \x01(\tR\n" +
+	"attemptKey\x12\x1d\n" +
+	"\n" +
+	"attempt_id\x18\a \x01(\tR\tattemptId\"6\n" +
 	"\x1eResolveSecretReferenceResponse\x12\x14\n" +
 	"\x05value\x18\x01 \x01(\tR\x05value*P\n" +
 	"\tOperation\x12\x19\n" +
