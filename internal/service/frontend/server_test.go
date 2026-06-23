@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -223,6 +225,84 @@ func TestRegisterDedicatedSSEFetchersUsesMutationInvalidationForDocTopics(t *tes
 			}, time.Second, 10*time.Millisecond)
 		})
 	}
+}
+
+func TestDAGFileChangeWakesDAGsListSSETopic(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	dagsDir := filepath.Join(rootDir, "dags")
+	require.NoError(t, os.MkdirAll(dagsDir, 0750))
+
+	srv := &Server{
+		config: &config.Config{
+			Paths: config.PathsConfig{
+				DAGsDir:         dagsDir,
+				SuspendFlagsDir: filepath.Join(rootDir, "flags"),
+				DAGRunsDir:      filepath.Join(rootDir, "dag-runs"),
+				QueueDir:        filepath.Join(rootDir, "queue"),
+				DocsDir:         filepath.Join(rootDir, "docs"),
+			},
+		},
+		apiV1:        &apiv1.API{},
+		eventService: eventstore.New(nil),
+	}
+
+	router := chi.NewMux()
+	srv.setupSSERoute(testContext(t), router, "/api/v1")
+	t.Cleanup(func() {
+		if srv.appStream != nil {
+			srv.appStream.Shutdown()
+		}
+		if srv.sseMultiplexer != nil {
+			srv.sseMultiplexer.Shutdown()
+		}
+	})
+
+	var fetches atomic.Int64
+	srv.sseMultiplexer.RegisterFetcher(sse.TopicTypeDAGsList, func(context.Context, string) (any, error) {
+		return map[string]any{
+			"fetches": fetches.Add(1),
+		}, nil
+	})
+
+	handler := sse.NewMultiplexHandler(srv.sseMultiplexer, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		req := httptest.NewRequest(
+			http.MethodGet,
+			"/api/v1/events/stream?topic="+url.QueryEscape("dagslist:page=1&perPage=100"),
+			nil,
+		).WithContext(ctx)
+		handler.HandleStream(httptest.NewRecorder(), req)
+	}()
+
+	require.Eventually(t, func() bool {
+		return fetches.Load() == 1
+	}, time.Second, 10*time.Millisecond)
+
+	require.NoError(t, os.WriteFile(filepath.Join(dagsDir, "external-edit.yaml"), []byte(`schedule: "0 8 * * 6"
+steps:
+  - run: echo ok
+`), 0600))
+
+	require.Eventually(t, func() bool {
+		return fetches.Load() >= 2
+	}, 3*time.Second, 20*time.Millisecond)
+
+	cancel()
+	require.Eventually(t, func() bool {
+		select {
+		case <-done:
+			return true
+		default:
+			return false
+		}
+	}, time.Second, 10*time.Millisecond)
 }
 
 func TestCacheControlForAssetDisablesJavaScriptCaching(t *testing.T) {

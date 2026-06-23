@@ -1196,8 +1196,15 @@ func (srv *Server) setupTerminalRoute(ctx context.Context, r *chi.Mux, apiV1Base
 }
 
 func (srv *Server) setupSSERoute(ctx context.Context, r *chi.Mux, apiV1BasePath string) {
-	srv.appStream = nil
-	logger.Info(ctx, "App SSE stream disabled; multiplexed SSE is the supported live-update transport")
+	appStream, err := sse.NewAppStreamService(sse.AppStreamConfig{
+		Paths:             srv.config.Paths,
+		HeartbeatInterval: srv.config.Server.SSE.HeartbeatInterval,
+	})
+	if err != nil {
+		logger.Warn(ctx, "Failed to start app SSE stream", tag.Error(err))
+	} else {
+		srv.appStream = appStream
+	}
 
 	var sseMetrics *sse.Metrics
 	if srv.metricsRegistry != nil {
@@ -1212,6 +1219,7 @@ func (srv *Server) setupSSERoute(ctx context.Context, r *chi.Mux, apiV1BasePath 
 		SlowClientTimeout:      srv.config.Server.SSE.SlowClientTimeout,
 	}, sseMetrics)
 	srv.registerDedicatedSSEFetchers(srv.sseMultiplexer)
+	srv.startAppStreamInvalidationBridge(ctx)
 	if srv.eventService != nil {
 		sse.StartDAGRunEventInvalidation(srv.sseMultiplexer.Context(), srv.eventService, srv.sseMultiplexer, slog.Default(), time.Second)
 	}
@@ -1233,6 +1241,74 @@ func (srv *Server) setupSSERoute(ctx context.Context, r *chi.Mux, apiV1BasePath 
 	})
 
 	logger.Info(ctx, "SSE routes configured", slog.String("basePath", apiV1BasePath))
+}
+
+func (srv *Server) startAppStreamInvalidationBridge(ctx context.Context) {
+	if srv.appStream == nil || srv.sseMultiplexer == nil {
+		return
+	}
+
+	bridgeCtx := srv.sseMultiplexer.Context()
+	events, unsubscribe := srv.appStream.Subscribe(bridgeCtx)
+	go func() {
+		defer unsubscribe()
+		for {
+			select {
+			case <-bridgeCtx.Done():
+				return
+			case event, ok := <-events:
+				if !ok {
+					return
+				}
+				srv.wakeMultiplexedTopicsForAppEvent(event)
+			}
+		}
+	}()
+	logger.Info(ctx, "App SSE stream configured for multiplexed invalidation")
+}
+
+func (srv *Server) wakeMultiplexedTopicsForAppEvent(event sse.AppEvent) {
+	if srv.sseMultiplexer == nil {
+		return
+	}
+
+	switch event.Type {
+	case sse.AppEventTypeDAGChanged:
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAG)
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGHistory)
+	case sse.AppEventTypeRunChanged:
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGRuns)
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueues)
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAG)
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGHistory)
+	case sse.AppEventTypeQueue:
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueues)
+		if event.QueueName != "" {
+			srv.sseMultiplexer.WakeTopic(sse.TopicTypeQueueItems, event.QueueName)
+		} else {
+			srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueueItems)
+		}
+	case sse.AppEventTypeDoc:
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDocTree)
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDoc)
+	case sse.AppEventTypeReset:
+		srv.wakeAllMultiplexedFileBackedTopics()
+	}
+}
+
+func (srv *Server) wakeAllMultiplexedFileBackedTopics() {
+	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGRun)
+	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeSubDAGRun)
+	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAG)
+	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGHistory)
+	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGRuns)
+	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueueItems)
+	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueues)
+	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
+	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDoc)
+	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDocTree)
 }
 
 func (srv *Server) setupMCPRoute(ctx context.Context, r *chi.Mux) {
