@@ -118,6 +118,18 @@ func (oc *OutputCoordinator) setupExecutorIO(ctx context.Context, cmd executor.E
 	oc.mu.Lock()
 	defer oc.mu.Unlock()
 
+	// Compute the effective output buffering mode and propagate it to
+	// executors that implement OutputBufferingAware (e.g., command executor).
+	// This allows the command executor to use pipe-based I/O instead of
+	// os/exec's internal 32KB io.Copy buffer for "line" and "none" modes.
+	rCtx := GetDAGContext(ctx)
+	mode := core.EffectiveOutputBuffering(rCtx.DAG, &data.Step)
+	if aware, ok := cmd.(executor.OutputBufferingAware); ok {
+		aware.SetOutputBuffering(mode)
+	}
+	// Store mode in context for downstream consumers (e.g., remote log streaming)
+	ctx = WithOutputBuffering(ctx, mode)
+
 	var stdout io.Writer = os.Stdout
 	if oc.stdoutWriter != nil {
 		stdout = oc.stdoutWriter
