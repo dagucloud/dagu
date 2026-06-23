@@ -336,7 +336,7 @@ cpuprof:
 bin:
 	@printf '%b\n' "${COLOR_GREEN}Building the binary...${COLOR_RESET}"
 	@mkdir -p ${BIN_DIR}
-	@go build -ldflags="$(LDFLAGS)" -o ${BIN_DIR}/${APP_BIN_NAME} ./cmd
+	@CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o ${BIN_DIR}/${APP_BIN_NAME} ./cmd
 
 # bin-e2e builds the go application for browser E2E tests.
 .PHONY: bin-e2e
