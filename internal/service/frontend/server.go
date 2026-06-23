@@ -1273,6 +1273,8 @@ func (srv *Server) wakeMultiplexedTopicsForAppEvent(event sse.AppEvent) {
 	}
 
 	switch event.Type {
+	case sse.AppEventTypeConnected:
+		return
 	case sse.AppEventTypeDAGChanged:
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAG)
@@ -1358,14 +1360,17 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 	registrar.RegisterFetcher(sse.TopicTypeDoc, srv.apiV1.GetDocContentData)
 	registrar.RegisterFetcher(sse.TopicTypeDocTree, srv.apiV1.GetDocTreeData)
 
-	// Document topics are invalidated by API doc mutations. They should not
-	// keep polling the docs store while an SSE connection is open.
-	registrar.SetRefreshMode(sse.TopicTypeDoc, sse.TopicRefreshModeOnDemand)
-	registrar.SetRefreshMode(sse.TopicTypeDocTree, sse.TopicRefreshModeOnDemand)
-	registrar.SetPublishOnWake(sse.TopicTypeDocTree, true)
+	appStreamAvailable := srv.appStream != nil
+	if appStreamAvailable {
+		// Document topics are invalidated by API doc mutations and file watcher
+		// events. They should not keep polling while those wakeups are available.
+		registrar.SetRefreshMode(sse.TopicTypeDoc, sse.TopicRefreshModeOnDemand)
+		registrar.SetRefreshMode(sse.TopicTypeDocTree, sse.TopicRefreshModeOnDemand)
+		registrar.SetPublishOnWake(sse.TopicTypeDocTree, true)
+	}
 
 	// Run-driven topics have an event-store invalidation path. Keeping them on
-	// demand avoids repeated full-list and history reads while browsers are
+	// demand avoids repeated history and run-list reads while browsers are
 	// connected; DAG-run event collection wakes the exact and aggregate topics.
 	if srv.eventService != nil {
 		for _, topicType := range []sse.TopicType{
@@ -1374,11 +1379,13 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 			sse.TopicTypeDAGHistory,
 			sse.TopicTypeDAGRuns,
 			sse.TopicTypeQueues,
-			sse.TopicTypeDAGsList,
 		} {
 			registrar.SetRefreshMode(topicType, sse.TopicRefreshModeOnDemand)
 		}
-		registrar.SetPublishOnWake(sse.TopicTypeDAGsList, true)
+		if appStreamAvailable {
+			registrar.SetRefreshMode(sse.TopicTypeDAGsList, sse.TopicRefreshModeOnDemand)
+			registrar.SetPublishOnWake(sse.TopicTypeDAGsList, true)
+		}
 		registrar.SetPublishOnWake(sse.TopicTypeDAGRuns, true)
 		registrar.SetPublishOnWake(sse.TopicTypeQueues, true)
 	}

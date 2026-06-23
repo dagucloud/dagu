@@ -36,6 +36,14 @@ func testContext(t *testing.T) context.Context {
 	return ctx
 }
 
+func testAppStream(t *testing.T) *sse.AppStreamService {
+	t.Helper()
+	stream, err := sse.NewAppStreamService(sse.AppStreamConfig{})
+	require.NoError(t, err)
+	t.Cleanup(stream.Shutdown)
+	return stream
+}
+
 func TestRegisterDedicatedSSEFetchersUsesEventStoreInvalidationForRunTopics(t *testing.T) {
 	t.Parallel()
 
@@ -93,6 +101,7 @@ func TestRegisterDedicatedSSEFetchersUsesEventStoreInvalidationForRunTopics(t *t
 			srv := &Server{
 				apiV1:        &apiv1.API{},
 				eventService: eventstore.New(nil),
+				appStream:    testAppStream(t),
 			}
 			srv.registerDedicatedSSEFetchers(mux)
 
@@ -144,6 +153,56 @@ func TestRegisterDedicatedSSEFetchersUsesEventStoreInvalidationForRunTopics(t *t
 	}
 }
 
+func TestRegisterDedicatedSSEFetchersKeepsDAGsListPollingWithoutAppStream(t *testing.T) {
+	t.Parallel()
+
+	mux := sse.NewMultiplexer(sse.StreamConfig{HeartbeatInterval: time.Hour}, nil)
+	t.Cleanup(mux.Shutdown)
+
+	srv := &Server{
+		apiV1:        &apiv1.API{},
+		eventService: eventstore.New(nil),
+	}
+	srv.registerDedicatedSSEFetchers(mux)
+
+	var fetches atomic.Int64
+	mux.RegisterFetcher(sse.TopicTypeDAGsList, func(_ context.Context, identifier string) (any, error) {
+		return map[string]any{
+			"id":      identifier,
+			"fetches": fetches.Add(1),
+		}, nil
+	})
+
+	handler := sse.NewMultiplexHandler(mux, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		req := httptest.NewRequest(
+			http.MethodGet,
+			"/api/v1/events/stream?topic="+url.QueryEscape("dagslist:page=1&perPage=100"),
+			nil,
+		).WithContext(ctx)
+		handler.HandleStream(httptest.NewRecorder(), req)
+	}()
+
+	require.Eventually(t, func() bool {
+		return fetches.Load() > 1
+	}, 2*time.Second, 10*time.Millisecond)
+
+	cancel()
+	require.Eventually(t, func() bool {
+		select {
+		case <-done:
+			return true
+		default:
+			return false
+		}
+	}, time.Second, 10*time.Millisecond)
+}
+
 func TestRegisterDedicatedSSEFetchersUsesMutationInvalidationForDocTopics(t *testing.T) {
 	t.Parallel()
 
@@ -175,7 +234,8 @@ func TestRegisterDedicatedSSEFetchersUsesMutationInvalidationForDocTopics(t *tes
 			t.Cleanup(mux.Shutdown)
 
 			srv := &Server{
-				apiV1: &apiv1.API{},
+				apiV1:     &apiv1.API{},
+				appStream: testAppStream(t),
 			}
 			srv.registerDedicatedSSEFetchers(mux)
 
@@ -250,6 +310,8 @@ func TestDAGFileChangeWakesDAGsListSSETopic(t *testing.T) {
 
 	router := chi.NewMux()
 	srv.setupSSERoute(testContext(t), router, "/api/v1")
+	require.NotNil(t, srv.appStream)
+	require.NotNil(t, srv.sseMultiplexer)
 	t.Cleanup(func() {
 		if srv.appStream != nil {
 			srv.appStream.Shutdown()
