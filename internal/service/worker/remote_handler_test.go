@@ -1919,7 +1919,7 @@ steps:
 	statusPusher, logStreamer, artifactUploader := handler.createRemoteHandlers("run-error", dag.Name, root)
 
 	// Call executeDAGRun directly - should fail at createAgentEnv
-	err := handler.executeDAGRun(context.Background(), dag, "run-error", "", "", root, parent, statusPusher, logStreamer, artifactUploader, false, nil, nil, nil, "")
+	err := handler.executeDAGRun(context.Background(), dag, "run-error", "", "", root, parent, exec.HostInfo{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, nil, "")
 
 	// On systems where null byte in path fails, we should get an error
 	if err != nil {
@@ -1965,7 +1965,7 @@ steps:
 
 	// Call executeDAGRun - this should succeed and log completion
 	// For top-level runs, pass empty parent and ensure root matches dagRunID
-	err := handler.executeDAGRun(th.Context, dag.DAG, dagRunID, "", "", root, exec.DAGRunRef{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, nil, "")
+	err := handler.executeDAGRun(th.Context, dag.DAG, dagRunID, "", "", root, exec.DAGRunRef{}, exec.HostInfo{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, nil, "")
 
 	// Should succeed for simple echo command
 	require.NoError(t, err, "executeDAGRun should succeed for simple echo command")
@@ -2002,7 +2002,7 @@ func TestExecuteDAGRun_FailedExecutionStillUploadsArtifacts(t *testing.T) {
 	logStreamer := coordreport.NewLogStreamer(client, "integration-test-worker", dagRunID, dag.Name, "", root)
 	artifactUploader := coordreport.NewArtifactUploader(client, "integration-test-worker", dagRunID, dag.Name, "", root)
 
-	err := handler.executeDAGRun(th.Context, dag.DAG, dagRunID, "", "", root, exec.DAGRunRef{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, nil, "")
+	err := handler.executeDAGRun(th.Context, dag.DAG, dagRunID, "", "", root, exec.DAGRunRef{}, exec.HostInfo{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, nil, "")
 	require.Error(t, err)
 
 	var sawData bool
@@ -2067,7 +2067,7 @@ func TestExecuteDAGRun_ArtifactUploadFailureMarksRunFailed(t *testing.T) {
 	logStreamer := coordreport.NewLogStreamer(client, "integration-test-worker", dagRunID, dag.Name, "", root)
 	artifactUploader := coordreport.NewArtifactUploader(client, "integration-test-worker", dagRunID, dag.Name, "", root)
 
-	err := handler.executeDAGRun(th.Context, dag.DAG, dagRunID, "", "", root, exec.DAGRunRef{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, nil, "")
+	err := handler.executeDAGRun(th.Context, dag.DAG, dagRunID, "", "", root, exec.DAGRunRef{}, exec.HostInfo{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, nil, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "upload artifacts")
 	reportedMu.Lock()
@@ -2124,7 +2124,7 @@ func TestExecuteDAGRun_FailedExecutionWithArtifactUploadFailurePreservesFailedSt
 	logStreamer := coordreport.NewLogStreamer(client, "integration-test-worker", dagRunID, dag.Name, "", root)
 	artifactUploader := coordreport.NewArtifactUploader(client, "integration-test-worker", dagRunID, dag.Name, "", root)
 
-	err := handler.executeDAGRun(th.Context, dag.DAG, dagRunID, "", "", root, exec.DAGRunRef{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, nil, "")
+	err := handler.executeDAGRun(th.Context, dag.DAG, dagRunID, "", "", root, exec.DAGRunRef{}, exec.HostInfo{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, nil, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "upload artifacts")
 	reportedMu.Lock()

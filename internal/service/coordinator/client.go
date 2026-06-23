@@ -110,8 +110,9 @@ type Metrics struct {
 }
 
 var (
-	_ Client          = (*clientImpl)(nil)
-	_ exec.Dispatcher = (*clientImpl)(nil)
+	_ Client                = (*clientImpl)(nil)
+	_ SecretReferenceClient = (*clientImpl)(nil)
+	_ exec.Dispatcher       = (*clientImpl)(nil)
 )
 
 // clientImpl is the concrete implementation
