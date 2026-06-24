@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 )
 
 // Error types for lock operations
@@ -347,18 +349,26 @@ func ForceUnlock(directory string) error {
 }
 
 func removeLockDir(lockPath string) error {
-	// The scheduler lock directory is intentionally shallow: Dagu creates only
-	// the owner token file inside it. Avoid os.RemoveAll here because recent Go
-	// releases use recursive open-at cleanup paths that are not reliable on old
-	// Windows versions such as Windows Server 2012 R2.
-	ownerPath := filepath.Join(lockPath, lockOwnerFileName)
-	if err := os.Remove(ownerPath); err != nil && !os.IsNotExist(err) {
+	releasedPath := releasedLockPath(lockPath)
+	if err := fileutil.Rename(lockPath, releasedPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
 		return err
 	}
-	if err := os.Remove(lockPath); err != nil && !os.IsNotExist(err) {
-		return err
-	}
+	// The live lock name is released after the rename. Cleanup failures should
+	// not keep other lock contenders blocked on a lock this process no longer
+	// owns.
+	_ = fileutil.RemoveAll(releasedPath)
 	return nil
+}
+
+func releasedLockPath(lockPath string) string {
+	var suffix [8]byte
+	if _, err := rand.Read(suffix[:]); err == nil {
+		return fmt.Sprintf("%s.releasing.%d.%s", lockPath, os.Getpid(), hex.EncodeToString(suffix[:]))
+	}
+	return fmt.Sprintf("%s.releasing.%d.%d", lockPath, os.Getpid(), time.Now().UnixNano())
 }
 
 // isStaleInfo checks if a lock is stale based on file info
