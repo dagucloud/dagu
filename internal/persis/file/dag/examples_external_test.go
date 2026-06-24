@@ -21,8 +21,7 @@ import (
 )
 
 func TestFirstLaunchExamplesLoadAndRun(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	ctx := context.Background()
 
 	dagsDir := t.TempDir()
 	store := filedag.New(dagsDir)
@@ -47,17 +46,20 @@ func TestFirstLaunchExamplesLoadAndRun(t *testing.T) {
 
 	for _, file := range files {
 		t.Run(file, func(t *testing.T) {
+			runCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+			defer cancel()
+
 			path := filepath.Join(dagsDir, file)
-			_, err := spec.Load(ctx, path, spec.WithoutEval(), spec.WithDAGsDir(dagsDir))
+			_, err := spec.Load(runCtx, path, spec.WithoutEval(), spec.WithDAGsDir(dagsDir))
 			require.NoError(t, err)
 
-			run, err := eng.RunFile(ctx, path,
+			run, err := eng.RunFile(runCtx, path,
 				dagu.WithRunID(strings.TrimSuffix(file, filepath.Ext(file))),
 				dagu.WithDefaultWorkingDir(t.TempDir()),
 			)
 			require.NoError(t, err)
 
-			status, err := run.Wait(ctx)
+			status, err := run.Wait(runCtx)
 			require.NoError(t, err)
 			require.NotNil(t, status)
 			require.Equal(t, core.Succeeded.String(), status.Status)

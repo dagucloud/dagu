@@ -12,18 +12,18 @@ var exampleDAGs = map[string]string{
 
 description: Execute steps one after another
 type: graph
-shell: powershell
+shell: cmd
 
 steps:
   - id: start
-    run: Write-Output "Step 1 - Starting workflow"
+    run: echo Step 1 - Starting workflow
 
   - id: process
-    run: Write-Output "Step 2 - Processing data"
+    run: echo Step 2 - Processing data
     depends: [start]
 
   - id: finish
-    run: Write-Output "Step 3 - Workflow complete"
+    run: echo Step 3 - Workflow complete
     depends: [process]
 `,
 
@@ -32,37 +32,28 @@ steps:
 
 description: Execute multiple tasks in parallel
 type: graph
-shell: powershell
+shell: cmd
 
 steps:
   - id: setup
-    run: Write-Output "Setting up environment"
+    run: echo Setting up environment
 
   # These steps run in parallel after setup
   - id: task_a
-    run: |
-      Write-Output "Task A starting"
-      Start-Sleep -Seconds 1
-      Write-Output "Task A complete"
+    run: echo Task A starting && echo Task A complete
     depends: [setup]
 
   - id: task_b
-    run: |
-      Write-Output "Task B starting"
-      Start-Sleep -Seconds 1
-      Write-Output "Task B complete"
+    run: echo Task B starting && echo Task B complete
     depends: [setup]
 
   - id: task_c
-    run: |
-      Write-Output "Task C starting"
-      Start-Sleep -Seconds 1
-      Write-Output "Task C complete"
+    run: echo Task C starting && echo Task C complete
     depends: [setup]
 
   # Wait for all parallel tasks to complete
   - id: merge_results
-    run: Write-Output "All parallel tasks completed"
+    run: echo All parallel tasks completed
     depends: [task_a, task_b, task_c]
 `,
 
@@ -71,7 +62,7 @@ steps:
 
 description: Example of a scheduled workflow
 type: graph
-shell: powershell
+shell: cmd
 
 # Uncomment to run daily at 2:00 AM
 # schedule: "0 2 * * *"
@@ -102,14 +93,14 @@ env:
 
 steps:
   - id: plan
-    run: Write-Output "Planning ${params.batch_size} records for ${params.environment}"
+    run: echo Planning ${params.batch_size} records for ${params.environment}
 
   - id: run_batch
-    run: Write-Output "Running batch with LOG_LEVEL=${env.LOG_LEVEL}"
+    run: echo Running batch with LOG_LEVEL=${env.LOG_LEVEL}
     depends: [plan]
 
   - id: cleanup
-    run: Write-Output "Scheduled workflow complete"
+    run: echo Scheduled workflow complete
     depends: [run_batch]
 `,
 
@@ -118,11 +109,11 @@ steps:
 
 description: Example of nested workflows
 type: graph
-shell: powershell
+shell: cmd
 
 steps:
   - id: prepare
-    run: Write-Output "Preparing data for child workflow"
+    run: echo Preparing data for child workflow
 
   - id: run_child
     action: dag.run
@@ -133,7 +124,7 @@ steps:
     depends: [prepare]
 
   - id: done
-    run: Write-Output "Main workflow completed"
+    run: echo Main workflow completed
     depends: [run_child]
 
 ---
@@ -141,7 +132,7 @@ steps:
 name: child-workflow
 description: Child workflow called by the main workflow
 type: graph
-shell: powershell
+shell: cmd
 params:
   - name: task_id
     type: string
@@ -150,10 +141,10 @@ params:
 
 steps:
   - id: child_start
-    run: Write-Output "Child workflow processing ${params.task_id}"
+    run: echo Child workflow processing ${params.task_id}
 
   - id: child_finish
-    run: Write-Output "Child workflow complete"
+    run: echo Child workflow complete
     depends: [child_start]
 `,
 
