@@ -11,61 +11,65 @@ var exampleDAGs = map[string]string{
 # Steps execute one after another in order
 
 description: Execute steps one after another
+type: graph
 
 steps:
-  - run: echo "Step 1 - Starting workflow"
-  - run: echo "Step 2 - Processing data"
-  - run: echo "Step 3 - Workflow complete"
+  - id: start
+    run: echo "Step 1 - Starting workflow"
+
+  - id: process
+    run: echo "Step 2 - Processing data"
+    depends: [start]
+
+  - id: finish
+    run: echo "Step 3 - Workflow complete"
+    depends: [process]
 `,
 
 	"example-02-parallel-execution.yaml": `# Parallel Execution
 # Run multiple tasks simultaneously
 
 description: Execute multiple tasks in parallel
-type: graph # Explicitly define dependency graph
+type: graph
 
 steps:
-  - name: setup
+  - id: setup
     run: echo "Setting up environment"
 
   # These steps run in parallel after setup
-  - name: task-a
+  - id: task_a
     run: |
       echo "Task A starting"
-      sleep 2
+      sleep 1
       echo "Task A complete"
-    depends:
-      - setup
+    depends: [setup]
 
-  - name: task-b
+  - id: task_b
     run: |
       echo "Task B starting"
-      sleep 2
+      sleep 1
       echo "Task B complete"
-    depends:
-      - setup
+    depends: [setup]
 
-  - name: task-c
+  - id: task_c
     run: |
       echo "Task C starting"
-      sleep 2
+      sleep 1
       echo "Task C complete"
-    depends:
-      - setup
+    depends: [setup]
 
   # Wait for all parallel tasks to complete
-  - name: merge-results
+  - id: merge_results
     run: echo "All parallel tasks completed"
-    depends:
-      - task-a
-      - task-b
-      - task-c
+    depends: [task_a, task_b, task_c]
 `,
 
 	"example-03-scheduling.yaml": `# Scheduled Workflows
-# Run workflows automatically on a schedule
+# Add a schedule to run workflows automatically
 
 description: Example of a scheduled workflow
+type: graph
+
 # Uncomment to run daily at 2:00 AM
 # schedule: "0 2 * * *"
 
@@ -77,56 +81,103 @@ description: Example of a scheduled workflow
 
 hist_retention_days: 7  # Keep 7 days of history (or use hist_retention_runs)
 
+params:
+  - name: environment
+    type: string
+    enum: [dev, staging, prod]
+    default: staging
+    description: Target environment for this run
+  - name: batch_size
+    type: integer
+    minimum: 1
+    maximum: 1000
+    default: 100
+    description: Number of records to process
+
+env:
+  - LOG_LEVEL: info
+
 steps:
-  - run: |
-      #!env sh
-      echo "Running scheduled task"
-      echo "Current time: $(date)"
-  - run: echo "Cleaning up old data"
+  - id: plan
+    run: echo "Planning ${params.batch_size} records for ${params.environment}"
+
+  - id: run_batch
+    run: echo "Running batch with LOG_LEVEL=${env.LOG_LEVEL}"
+    depends: [plan]
+
+  - id: cleanup
+    run: echo "Scheduled workflow complete"
+    depends: [run_batch]
 `,
 
 	"example-04-nested-workflows.yaml": `# Nested Workflows
 # Call other workflows as sub-workflows
 
 description: Example of nested workflows
+type: graph
 
 steps:
-  - run: echo "Preparing data for sub-workflows"
-  - action: dag.run
+  - id: prepare
+    run: echo "Preparing data for child workflow"
+
+  - id: run_child
+    action: dag.run
     with:
-      dag: sub-workflow
-      params: "TASK_ID=123"
-  - run: echo "Main workflow completed"
+      dag: child-workflow
+      params:
+        task_id: "123"
+    depends: [prepare]
+
+  - id: done
+    run: echo "Main workflow completed"
+    depends: [run_child]
 
 ---
-# Sub-workflow definition
-name: sub-workflow
-description: Sub-workflow that gets called by main
+# Child workflow definition
+name: child-workflow
+description: Child workflow called by the main workflow
+type: graph
 params:
-  - TASK_ID: "000"
+  - name: task_id
+    type: string
+    default: "000"
+    description: Task ID passed by the parent DAG
 
 steps:
-  - run: echo "Sub-workflow executing with TASK_ID=${TASK_ID}"
-  - run: echo "Sub-workflow step 2"
+  - id: child_start
+    run: echo "Child workflow processing ${params.task_id}"
+
+  - id: child_finish
+    run: echo "Child workflow complete"
+    depends: [child_start]
 `,
 
-	"example-05-container-workflow.yaml": `# Container-based Workflow
-# Using a container for all steps
+	"example-05-template-and-file.yaml": `# Template and File Actions
+# Render a small report and read it back
 
-description: Run workflow steps in a Python container
-
-container:
-  image: python:3.13
-  volumes:
-    - /tmp/data:/data
+description: Render and read a file without external tools
+type: graph
+artifacts:
+  enabled: true
 
 steps:
-  # write data to a file
-  - run: |
-    python -c "with open('/data/output.txt', 'w') as f: f.write('Hello from Dagu!')"
+  - id: render_report
+    action: template.render
+    with:
+      template: |
+        # First Launch Report
 
-  # read data from the file
-  - run: |
-    python -c "with open('/data/output.txt') as f: print(f.read())"
+        status={{ .status }}
+        source={{ .source }}
+      output: ${DAG_RUN_ARTIFACTS_DIR}/first-launch-report.md
+      data:
+        status: ok
+        source: Dagu
+
+  - id: read_report
+    action: file.read
+    with:
+      path: ${DAG_RUN_ARTIFACTS_DIR}/first-launch-report.md
+    depends: [render_report]
 `,
 }
