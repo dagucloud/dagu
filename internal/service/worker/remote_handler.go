@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/cmn/logpath"
+	"github.com/dagucloud/dagu/internal/cmn/secrets"
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -147,7 +148,7 @@ func (h *remoteTaskHandler) handleStart(ctx context.Context, task *coordinatorv1
 	}
 
 	statusPusher, logStreamer, artifactUploader := h.createRemoteHandlers(task.DagRunId, dag.Name, root, owner)
-	err = h.executeDAGRun(ctx, dag, task.DagRunId, task.AttemptId, task.ScheduleTime, root, parent, statusPusher, logStreamer, artifactUploader, queuedRun, nil, task.AgentSnapshot, taskExtraEnvs(task), task.ProfileName)
+	err = h.executeDAGRun(ctx, dag, task.DagRunId, task.AttemptId, task.AttemptKey, task.ScheduleTime, root, parent, owner, statusPusher, logStreamer, artifactUploader, queuedRun, nil, task.AgentSnapshot, taskExtraEnvs(task), task.ProfileName)
 	var initErr *taskInitError
 	if errors.As(err, &initErr) {
 		h.reportTaskInitFailure(ctx, task, root, parent, statusPusher, initErr.err, task.ProfileName)
@@ -188,7 +189,7 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 	statusPusher, logStreamer, artifactUploader := h.createRemoteHandlers(task.DagRunId, dag.Name, root, owner)
 	triggerType := exec.PreservedQueueTriggerType(status)
 
-	err = h.executeDAGRun(ctx, dag, task.DagRunId, task.AttemptId, task.ScheduleTime, root, parent, statusPusher, logStreamer, artifactUploader, false, &retryConfig{
+	err = h.executeDAGRun(ctx, dag, task.DagRunId, task.AttemptId, task.AttemptKey, task.ScheduleTime, root, parent, owner, statusPusher, logStreamer, artifactUploader, false, &retryConfig{
 		target:      status,
 		stepName:    task.Step,
 		triggerType: triggerType,
@@ -554,9 +555,11 @@ func (h *remoteTaskHandler) executeDAGRun(
 	dag *core.DAG,
 	dagRunID string,
 	attemptID string,
+	attemptKey string,
 	scheduleTime string,
 	root exec.DAGRunRef,
 	parent exec.DAGRunRef,
+	owner exec.HostInfo,
 	statusPusher runtime.StatusPusher,
 	logStreamer runtime.SchedulerLogStreamer,
 	artifactUploader runtime.ArtifactFinalizer,
@@ -663,6 +666,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		DAGRunStore:              h.dagRunStore,
 		StateStore:               h.stateStore,
 		SecretStore:              agentStores.SecretStore,
+		SecretReferenceResolver:  h.secretReferenceResolver(dag, owner, coordinator.SecretReferenceRun{WorkerID: h.workerID, AttemptKey: attemptKey, AttemptID: attemptID}),
 		ProfileStore:             agentStores.ProfileStore,
 		ProfileName:              profileName,
 		ServiceRegistry:          h.serviceRegistry,
@@ -710,6 +714,20 @@ func (h *remoteTaskHandler) executeDAGRun(
 		tag.RunID(dagRunID))
 
 	return nil
+}
+
+func (h *remoteTaskHandler) secretReferenceResolver(dag *core.DAG, owner exec.HostInfo, run coordinator.SecretReferenceRun) secrets.ReferenceResolver {
+	client, ok := h.coordinatorClient.(coordinator.SecretReferenceClient)
+	if !ok {
+		return nil
+	}
+	workspaceName := ""
+	if dag != nil {
+		if name, found := exec.WorkspaceNameFromLabels(dag.Labels); found {
+			workspaceName = name
+		}
+	}
+	return coordinator.NewSecretReferenceResolver(client, workspaceName, owner, run)
 }
 
 func (h *remoteTaskHandler) prepareDAGTools(ctx context.Context, dag *core.DAG) ([]string, error) {

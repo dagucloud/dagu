@@ -71,6 +71,10 @@ service CoordinatorService {
   // Used as a fallback when a worker's local DAG store misses a definition during
   // sub-DAG execution.
   rpc GetDAG (GetDAGRequest) returns (GetDAGResponse);
+
+  // ResolveSecretReference resolves or checks a Dagu-managed secret registry ref.
+  // Used by shared-nothing workers that cannot read the coordinator's secret store.
+  rpc ResolveSecretReference (ResolveSecretReferenceRequest) returns (ResolveSecretReferenceResponse);
 }
 
 // Request message for polling a task.
@@ -469,4 +473,19 @@ message GetDAGRequest {
 message GetDAGResponse {
   string spec = 1;  // Raw YAML content of the DAG definition (empty if not found)
   string error = 2; // Error description when the DAG cannot be retrieved
+}
+
+// ResolveSecretReference resolves or checks one Dagu-managed registry ref.
+message ResolveSecretReferenceRequest {
+  string name = 1;      // Environment variable name requested by the DAG
+  string ref = 2;       // Registry ref, for example "prod/db-password"
+  string workspace = 3; // Workspace scope; empty means global
+  bool check_only = 4;  // When true, verify access without returning plaintext
+  string worker_id = 5;   // Worker currently owning the dispatched attempt
+  string attempt_key = 6; // Active distributed attempt lease key
+  string attempt_id = 7;  // Attempt ID created by the coordinator
+}
+
+message ResolveSecretReferenceResponse {
+  string value = 1; // Plaintext secret value; empty for check_only
 }

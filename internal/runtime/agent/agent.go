@@ -237,6 +237,8 @@ type Agent struct {
 	profileResolvedAt string
 	// profileEntries records non-secret injected key metadata for status/history.
 	profileEntries []exec.RuntimeProfileEntry
+	// secretReferenceResolver resolves registry refs without requiring local store access.
+	secretReferenceResolver secrets.ReferenceResolver
 	// secretMasker redacts resolved secret values from status/history snapshots.
 	secretMasker *masking.Masker
 
@@ -331,8 +333,11 @@ type Options struct {
 	QueueStore exec.QueueStore
 	// StateStore is the persistent state store shared across DAG runs.
 	StateStore dagstate.Store
-	// SecretStore resolves workspace-local team-managed secret references.
+	// SecretStore resolves local registry refs and runtime profile secrets.
 	SecretStore secretpkg.Store
+	// SecretReferenceResolver resolves DAG-level registry refs.
+	// When nil, SecretStore supplies the local resolver.
+	SecretReferenceResolver secrets.ReferenceResolver
 	// ProfileStore resolves named runtime profiles.
 	ProfileStore profilepkg.Store
 	// ProfileName selects the runtime profile for this DAG run.
@@ -413,6 +418,7 @@ func New(
 		queueStore:                 opts.QueueStore,
 		stateStore:                 opts.StateStore,
 		secretStore:                opts.SecretStore,
+		secretReferenceResolver:    secretReferenceResolverForDAG(dag, opts),
 		profileStore:               opts.ProfileStore,
 		registry:                   opts.ServiceRegistry,
 		extraEnvs:                  append([]string{}, opts.ExtraEnvs...),
@@ -455,6 +461,27 @@ func New(
 	}
 
 	return a
+}
+
+func secretReferenceResolverForDAG(dag *core.DAG, opts Options) secrets.ReferenceResolver {
+	if opts.SecretReferenceResolver != nil {
+		return opts.SecretReferenceResolver
+	}
+	if opts.SecretStore == nil {
+		return nil
+	}
+	return secretpkg.NewReferenceResolver(opts.SecretStore, workspaceNameFromDAG(dag))
+}
+
+func workspaceNameFromDAG(dag *core.DAG) string {
+	if dag == nil {
+		return ""
+	}
+	name, ok := exec.WorkspaceNameFromLabels(dag.Labels)
+	if !ok {
+		return ""
+	}
+	return name
 }
 
 // Run setups the runner and runs the DAG.
@@ -1815,17 +1842,7 @@ func (a *Agent) resolveSecrets(ctx context.Context) ([]string, error) {
 	secretCtx := cmnvalue.WithEnvScope(ctx, envScope)
 
 	baseDirs := a.buildSecretBaseDirs(envScope)
-	secretRegistry := secrets.NewRegistry(baseDirs...)
-	if a.secretStore != nil {
-		workspaceName := ""
-		if name, ok := exec.WorkspaceNameFromLabels(a.dag.Labels); ok {
-			workspaceName = name
-		}
-		secretRegistry = secrets.NewRegistryWithReferenceResolver(
-			secretpkg.NewReferenceResolver(a.secretStore, workspaceName),
-			baseDirs...,
-		)
-	}
+	secretRegistry := secrets.NewRegistryWithReferenceResolver(a.secretReferenceResolver, baseDirs...)
 
 	resolvedSecrets, err := secretRegistry.ResolveAll(secretCtx, a.dag.Secrets)
 	if err != nil {

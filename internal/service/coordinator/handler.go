@@ -26,6 +26,7 @@ import (
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
+	secretpkg "github.com/dagucloud/dagu/internal/secret"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"github.com/google/uuid"
@@ -117,6 +118,7 @@ type Handler struct {
 	dagRunLeaseStore          exec.DAGRunLeaseStore          // Shared distributed run leases
 	activeDistributedRunStore exec.ActiveDistributedRunStore // Shared active distributed attempt index
 	dagStore                  exec.DAGStore                  // DAG definitions for the GetDAG RPC
+	secretStore               secretpkg.Store                // Secret registry for shared-nothing workers
 
 	// Open attempts cache for status persistence
 	attemptsMu   sync.RWMutex
@@ -185,6 +187,10 @@ type HandlerConfig struct {
 	// Optional - when nil, GetDAG returns Unimplemented.
 	DAGStore exec.DAGStore
 
+	// SecretStore resolves Dagu-managed secret registry refs for shared-nothing workers.
+	// Optional - when nil, ResolveSecretReference returns FailedPrecondition.
+	SecretStore secretpkg.Store
+
 	// StaleHeartbeatThreshold is the duration after which a worker's heartbeat
 	// is considered stale. Defaults to 30 seconds if not set.
 	StaleHeartbeatThreshold time.Duration
@@ -243,6 +249,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		dagRunLeaseStore:          cfg.DAGRunLeaseStore,
 		activeDistributedRunStore: cfg.ActiveDistributedRunStore,
 		dagStore:                  cfg.DAGStore,
+		secretStore:               cfg.SecretStore,
 		staleHeartbeatThreshold:   cfg.StaleHeartbeatThreshold,
 		staleLeaseThreshold:       cfg.StaleLeaseThreshold,
 		eventService:              cfg.EventService,

@@ -821,16 +821,22 @@ func TestService_SendTestUsesEffectiveWorkspaceRouteFromDAGLabels(t *testing.T) 
 
 	var globalRequests atomic.Int32
 	var workspaceRequests atomic.Int32
-	globalServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		globalRequests.Add(1)
-		w.WriteHeader(http.StatusAccepted)
-	}))
-	defer globalServer.Close()
-	workspaceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		workspaceRequests.Add(1)
-		w.WriteHeader(http.StatusAccepted)
-	}))
-	defer workspaceServer.Close()
+	httpClient := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Hostname() {
+		case "global.example.com":
+			globalRequests.Add(1)
+		case "workspace.example.com":
+			workspaceRequests.Add(1)
+		default:
+			return &http.Response{
+				StatusCode: http.StatusNotFound,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader("")),
+				Request:    req,
+			}, nil
+		}
+		return acceptedResponse(req), nil
+	})}
 
 	store := newMemoryStore()
 	for _, channel := range []*notificationmodel.Channel{
@@ -840,7 +846,7 @@ func TestService_SendTestUsesEffectiveWorkspaceRouteFromDAGLabels(t *testing.T) 
 			Type:    notificationmodel.ProviderWebhook,
 			Enabled: true,
 			Webhook: &notificationmodel.WebhookTarget{
-				URL:                 globalServer.URL,
+				URL:                 "https://global.example.com/webhook",
 				AllowInsecureHTTP:   true,
 				AllowPrivateNetwork: true,
 			},
@@ -851,7 +857,7 @@ func TestService_SendTestUsesEffectiveWorkspaceRouteFromDAGLabels(t *testing.T) 
 			Type:    notificationmodel.ProviderWebhook,
 			Enabled: true,
 			Webhook: &notificationmodel.WebhookTarget{
-				URL:                 workspaceServer.URL,
+				URL:                 "https://workspace.example.com/webhook",
 				AllowInsecureHTTP:   true,
 				AllowPrivateNetwork: true,
 			},
@@ -864,7 +870,7 @@ func TestService_SendTestUsesEffectiveWorkspaceRouteFromDAGLabels(t *testing.T) 
 	svc := New(store, testDAGStore{dag: &core.DAG{
 		Name:   "daily-report",
 		Labels: core.NewLabels([]string{"workspace=ops"}),
-	}})
+	}}, WithHTTPClient(httpClient))
 	_, err := svc.SaveRouteSet(context.Background(), &notificationmodel.RouteSet{
 		Scope:         notificationmodel.RouteScopeGlobal,
 		Enabled:       true,
