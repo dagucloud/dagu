@@ -1,0 +1,13 @@
+working_dir: .
+steps:
+  - name: each
+    foreach:
+      items:
+        - slug: duplicate
+        - slug: duplicate
+      key: ${foreach.item.slug}
+      steps:
+        - id: should_not_run
+          run: |
+            printf 'ran\n' > foreach-duplicate-body-ran.txt
+    output: FOREACH_RESULTS

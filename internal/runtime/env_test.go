@@ -756,6 +756,28 @@ func TestNewEnvForStep_BasicFields(t *testing.T) {
 	assert.Equal(t, tempDir, env.WorkingDir)
 }
 
+func TestNewEnvUsesDAGScopeWhenContextHasInheritedEnv(t *testing.T) {
+	t.Parallel()
+
+	childScope := cmnvalue.NewEnvScope(nil, false).WithEntry("VALUE", "child", cmnvalue.EnvSourceDAGEnv)
+	parentScope := cmnvalue.NewEnvScope(nil, false).WithEntry("VALUE", "parent", cmnvalue.EnvSourceStepEnv)
+	ctx := runtime.WithDAGContext(context.Background(), exec.Context{
+		DAG:      &core.DAG{Name: "child"},
+		EnvScope: childScope,
+	})
+	ctx = runtime.WithEnv(ctx, runtime.Env{
+		Scope:   parentScope,
+		Foreach: cmnvalue.Values{"item": "one"},
+	})
+
+	env := runtime.NewEnv(ctx, core.Step{Name: "child-step"})
+
+	got, ok := env.Scope.Get("VALUE")
+	require.True(t, ok)
+	assert.Equal(t, "child", got)
+	assert.Equal(t, cmnvalue.Values{"item": "one"}, env.Foreach)
+}
+
 func TestNewEnvForStep_WorkingDirectory_DAGEnvExpansion(t *testing.T) {
 	t.Parallel()
 

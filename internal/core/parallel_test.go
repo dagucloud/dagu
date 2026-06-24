@@ -157,7 +157,7 @@ steps:
       max_concurrent: 0
 `,
 			wantErr:    true,
-			wantErrMsg: "max_concurrent must be greater than 0",
+			wantErrMsg: "max_concurrent must be an integer from 1 through 1000",
 		},
 		{
 			name: "ErrorEmptyItems",

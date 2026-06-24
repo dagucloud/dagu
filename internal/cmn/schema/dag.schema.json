@@ -2003,7 +2003,13 @@
                   },
                   {
                     "type": "object",
-                    "additionalProperties": true
+                    "additionalProperties": {
+                      "oneOf": [
+                        { "type": "string" },
+                        { "type": "number" },
+                        { "type": "boolean" }
+                      ]
+                    }
                   }
                 ]
               },
@@ -2030,7 +2036,13 @@
                           },
                           {
                             "type": "object",
-                            "additionalProperties": true
+                            "additionalProperties": {
+                              "oneOf": [
+                                { "type": "string" },
+                                { "type": "number" },
+                                { "type": "boolean" }
+                              ]
+                            }
                           }
                         ]
                       },
@@ -2052,6 +2064,68 @@
             }
           ],
           "description": "Configuration for parallel execution of child DAGs. Currently only valid with action: dag.run or dag.enqueue. Allows processing multiple items concurrently using the same workflow definition."
+        },
+        "foreach": {
+          "type": "object",
+          "required": ["items", "steps"],
+          "additionalProperties": false,
+          "properties": {
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "description": "Value expression resolving to an array of items"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/stepOutputJSONValue"
+                  },
+                  "description": "Static array of JSON-compatible items"
+                }
+              ],
+              "description": "Items iterated by the foreach body"
+            },
+            "as": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+              "not": {
+                "enum": ["index", "key"]
+              },
+              "default": "item",
+              "description": "Name used for the current item in the foreach namespace"
+            },
+            "key": {
+              "type": "string",
+              "description": "Optional expression producing a stable key for each item"
+            },
+            "max_concurrent": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 10,
+              "description": "Maximum number of foreach item bodies running concurrently"
+            },
+            "steps": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/definitions/step"
+              },
+              "description": "Inline body steps executed once per item"
+            },
+            "collect": {
+              "type": "object",
+              "propertyNames": {
+                "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+              },
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Output names mapped to value expressions evaluated after each item body"
+            }
+          },
+          "description": "Inline item-body iteration. The body steps run once for each item and may publish collected outputs."
         },
         "worker_selector": {
           "oneOf": [
@@ -2207,6 +2281,25 @@
         {
           "not": {
             "required": ["run", "action"]
+          }
+        },
+        {
+          "if": {
+            "required": ["foreach"]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                { "required": ["run"] },
+                { "required": ["action"] },
+                { "required": ["command"] },
+                { "required": ["exec"] },
+                { "required": ["script"] },
+                { "required": ["call"] },
+                { "required": ["parallel"] },
+                { "required": ["type"] }
+              ]
+            }
           }
         },
         {
@@ -6134,6 +6227,7 @@
         "dag",
         "subworkflow",
         "parallel",
+        "foreach",
         "archive",
         "chat",
         "log",

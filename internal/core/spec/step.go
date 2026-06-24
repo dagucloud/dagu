@@ -97,6 +97,8 @@ type step struct {
 	// - Static array: parallel: [item1, item2]
 	// - Object configuration: parallel: {items: ${ITEMS}, max_concurrent: 5}
 	Parallel any `yaml:"parallel,omitempty"`
+	// Foreach specifies inline item-body iteration configuration.
+	Foreach any `yaml:"foreach,omitempty"`
 	// WorkerSelector specifies required worker labels for execution.
 	WorkerSelector map[string]string `yaml:"worker_selector,omitempty"`
 	// Env specifies the environment variables for the step.
@@ -499,8 +501,18 @@ type stepActionStage []stepActionBuilder
 var stepExecutionTargetStage = stepActionStage{
 	{"container", buildStepContainer, false},
 	{"parallel", buildStepParallel, false},
+	{"foreach", nil, false},
 	{"subDAG", buildStepSubDAG, false},
 	{"executor", buildStepExecutor, true},
+}
+
+func init() {
+	for idx := range stepExecutionTargetStage {
+		if stepExecutionTargetStage[idx].name == "foreach" {
+			stepExecutionTargetStage[idx].build = buildStepForeach
+			return
+		}
+	}
 }
 
 var stepInteractionActionStage = stepActionStage{
@@ -2252,17 +2264,20 @@ func buildStepParallel(_ StepBuildContext, s *step, result *core.Step) error {
 				case int:
 					result.Parallel.MaxConcurrent = mc
 				case int64:
+					if mc > math.MaxInt || mc < math.MinInt {
+						return core.NewValidationError("parallel.max_concurrent", mc, fmt.Errorf("value %d exceeds integer range", mc))
+					}
 					result.Parallel.MaxConcurrent = int(mc)
 				case uint64:
 					if mc > math.MaxInt {
 						return core.NewValidationError("parallel.max_concurrent", mc, fmt.Errorf("value %d exceeds maximum int", mc))
 					}
 					result.Parallel.MaxConcurrent = int(mc)
-				case float64:
-					result.Parallel.MaxConcurrent = int(mc)
 				default:
-					return core.NewValidationError("parallel.max_concurrent", val, fmt.Errorf("parallel.max_concurrent must be int, got %T", val))
+					return core.NewValidationError("parallel.max_concurrent", val, fmt.Errorf("parallel.max_concurrent must be an integer, got %T", val))
 				}
+			default:
+				return core.NewValidationError("parallel", v, fmt.Errorf("unknown parallel field %q", key))
 			}
 		}
 
@@ -2270,6 +2285,220 @@ func buildStepParallel(_ StepBuildContext, s *step, result *core.Step) error {
 		return core.NewValidationError("parallel", v, fmt.Errorf("parallel must be string, array, or object, got %T", v))
 	}
 
+	return nil
+}
+
+var foreachIdentifierPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
+
+// buildStepForeach parses the foreach field in the step definition.
+func buildStepForeach(ctx StepBuildContext, s *step, result *core.Step) error {
+	if s.Foreach == nil {
+		return nil
+	}
+
+	if err := validateForeachExecutionTarget(s); err != nil {
+		return err
+	}
+
+	cfg, err := parseForeachConfig(ctx, s.Foreach)
+	if err != nil {
+		return err
+	}
+
+	result.Foreach = cfg
+	result.ExecutorConfig.Type = core.ExecutorTypeForeach
+	return nil
+}
+
+func validateForeachExecutionTarget(s *step) error {
+	targets := map[string]bool{
+		"run":      s.Run != nil,
+		"action":   s.Action != "",
+		"command":  s.Command != nil,
+		"exec":     s.Exec != nil,
+		"script":   s.Script != "",
+		"call":     s.Call != "",
+		"parallel": s.Parallel != nil,
+		"type":     s.Type != "",
+	}
+	for name, present := range targets {
+		if present {
+			return core.NewValidationError("foreach", s.Foreach,
+				fmt.Errorf("foreach cannot be combined with %q on the same step", name))
+		}
+	}
+	return nil
+}
+
+func parseForeachConfig(ctx StepBuildContext, raw any) (*core.ForeachConfig, error) {
+	obj, ok := raw.(map[string]any)
+	if !ok {
+		return nil, core.NewValidationError("foreach", raw,
+			fmt.Errorf("foreach must be an object, got %T", raw))
+	}
+
+	cfg := &core.ForeachConfig{
+		As:            "item",
+		MaxConcurrent: core.DefaultMaxConcurrent,
+	}
+
+	for key, value := range obj {
+		switch key {
+		case "items":
+			if err := parseForeachItems(value, cfg); err != nil {
+				return nil, err
+			}
+		case "as":
+			alias, ok := value.(string)
+			if !ok {
+				return nil, core.NewValidationError("foreach.as", value,
+					fmt.Errorf("foreach.as must be a string, got %T", value))
+			}
+			if err := validateForeachIdentifier("foreach.as", alias); err != nil {
+				return nil, core.NewValidationError("foreach.as", alias, err)
+			}
+			if alias == "index" || alias == "key" {
+				return nil, core.NewValidationError("foreach.as", alias,
+					fmt.Errorf("foreach.as %q is reserved", alias))
+			}
+			cfg.As = alias
+		case "key":
+			keyExpr, ok := value.(string)
+			if !ok {
+				return nil, core.NewValidationError("foreach.key", value,
+					fmt.Errorf("foreach.key must be a string, got %T", value))
+			}
+			cfg.Key = keyExpr
+		case "max_concurrent":
+			maxConcurrent, err := parseForeachMaxConcurrent(value)
+			if err != nil {
+				return nil, err
+			}
+			cfg.MaxConcurrent = maxConcurrent
+		case "steps":
+			steps, err := parseForeachSteps(ctx, value)
+			if err != nil {
+				return nil, err
+			}
+			cfg.Steps = steps
+		case "collect":
+			collect, err := parseForeachCollect(value)
+			if err != nil {
+				return nil, err
+			}
+			cfg.Collect = collect
+		default:
+			return nil, core.NewValidationError("foreach", raw,
+				fmt.Errorf("unknown foreach field %q", key))
+		}
+	}
+
+	if cfg.ItemsExpr == "" && cfg.Items == nil {
+		return nil, core.NewValidationError("foreach.items", nil,
+			fmt.Errorf("foreach.items is required"))
+	}
+	if len(cfg.Steps) == 0 {
+		return nil, core.NewValidationError("foreach.steps", nil,
+			fmt.Errorf("foreach.steps must contain at least one step"))
+	}
+	return cfg, nil
+}
+
+func parseForeachItems(value any, cfg *core.ForeachConfig) error {
+	switch items := value.(type) {
+	case string:
+		cfg.ItemsExpr = items
+	case []any:
+		cfg.Items = slices.Clone(items)
+	default:
+		return core.NewValidationError("foreach.items", value,
+			fmt.Errorf("foreach.items must be string or array, got %T", value))
+	}
+	return nil
+}
+
+func parseForeachMaxConcurrent(value any) (int, error) {
+	var maxConcurrent int
+	switch mc := value.(type) {
+	case int:
+		maxConcurrent = mc
+	case int64:
+		if mc > math.MaxInt || mc < math.MinInt {
+			return 0, core.NewValidationError("foreach.max_concurrent", mc,
+				fmt.Errorf("value %d exceeds integer range", mc))
+		}
+		maxConcurrent = int(mc)
+	case uint64:
+		if mc > math.MaxInt {
+			return 0, core.NewValidationError("foreach.max_concurrent", mc,
+				fmt.Errorf("value %d exceeds maximum int", mc))
+		}
+		maxConcurrent = int(mc)
+	default:
+		return 0, core.NewValidationError("foreach.max_concurrent", value,
+			fmt.Errorf("foreach.max_concurrent must be an integer, got %T", value))
+	}
+	if maxConcurrent < 1 || maxConcurrent > core.MaxExpansionConcurrency {
+		return 0, core.NewValidationError("foreach.max_concurrent", value,
+			fmt.Errorf("max_concurrent must be an integer from 1 through %d", core.MaxExpansionConcurrency))
+	}
+	return maxConcurrent, nil
+}
+
+func parseForeachSteps(ctx StepBuildContext, value any) ([]core.Step, error) {
+	rawSteps, ok := value.([]any)
+	if !ok {
+		return nil, core.NewValidationError("foreach.steps", value,
+			fmt.Errorf("foreach.steps must be an array, got %T", value))
+	}
+	if len(rawSteps) == 0 {
+		return nil, core.NewValidationError("foreach.steps", value,
+			fmt.Errorf("foreach.steps must contain at least one step"))
+	}
+
+	steps := make([]core.Step, 0, len(rawSteps))
+	names := map[string]struct{}{}
+	for idx, rawStep := range rawSteps {
+		stepMap, ok := rawStep.(map[string]any)
+		if !ok {
+			return nil, core.NewValidationError("foreach.steps", rawStep,
+				fmt.Errorf("foreach.steps[%d] must be an object, got %T", idx, rawStep))
+		}
+		builtStep, err := buildStepFromRaw(ctx, idx, stepMap, names, nil)
+		if err != nil {
+			return nil, core.NewValidationError("foreach.steps", rawStep, err)
+		}
+		steps = append(steps, *builtStep)
+	}
+	return steps, nil
+}
+
+func parseForeachCollect(value any) (map[string]string, error) {
+	rawCollect, ok := value.(map[string]any)
+	if !ok {
+		return nil, core.NewValidationError("foreach.collect", value,
+			fmt.Errorf("foreach.collect must be an object, got %T", value))
+	}
+
+	collect := make(map[string]string, len(rawCollect))
+	for name, rawExpr := range rawCollect {
+		if err := validateForeachIdentifier("foreach.collect", name); err != nil {
+			return nil, core.NewValidationError("foreach.collect", name, err)
+		}
+		expr, ok := rawExpr.(string)
+		if !ok {
+			return nil, core.NewValidationError("foreach.collect", rawExpr,
+				fmt.Errorf("foreach.collect.%s must be a string, got %T", name, rawExpr))
+		}
+		collect[name] = expr
+	}
+	return collect, nil
+}
+
+func validateForeachIdentifier(fieldName, value string) error {
+	if !foreachIdentifierPattern.MatchString(value) {
+		return fmt.Errorf("%s must match %s", fieldName, foreachIdentifierPattern.String())
+	}
 	return nil
 }
 

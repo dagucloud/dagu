@@ -25,6 +25,7 @@ ${consts.name}
 ${params.name}
 ${env.NAME}
 ${steps.step_id.outputs.name}
+${foreach.item}
 ```
 
 This spec defines field evaluation modes, where Dagu-owned references are allowed, how their text is parsed, and when values are resolved.
@@ -61,6 +62,7 @@ Dagu must be explicit about which syntax it owns and which syntax remains owned 
 - Step identity: [Spec 009: Step Reference](009-step-reference.md)
 - Dynamic evaluation: [Spec 011: Dynamic Evaluation](011-dynamic-evaluation.md)
 - Step output publication: [Spec 012: Step Outputs](012-step-outputs.md)
+- Parallel and foreach item scopes: [Spec 018: Parallel Fan-Out and Foreach Iteration](018-parallel-and-foreach.md)
 
 ## Behavior
 
@@ -146,6 +148,7 @@ runtime but produce inspection-only passive notices.
 | `params` | Spec 005 | `params.<name>` | Preserve with passive notice. | No |
 | `env` | Spec 006 | `env.<NAME>` | Preserve with passive notice. | No |
 | `steps` | Spec 007 | `steps.<step_id>.outputs.<name>` | Preserve with reason-specific passive notice. | No |
+| `foreach` | Spec 018 | `foreach.index`, `foreach.key`, `foreach.<as>`, or `foreach.<as>.<field>` | Preserve with passive notice when item scope is unavailable or the item field is missing. | Yes |
 | `context` | Spec 017 | `context.<namespace>.<field>` | Preserve with passive notice. | Yes |
 
 Spec 017 also defines frozen top-level compatibility aliases `dag`, `run`,
@@ -238,6 +241,7 @@ Dagu-owned references are supported only in value-resolved fields and dynamic-ev
 | `steps[].repeat_policy.limit`, `steps[].repeat_policy.interval_sec`, and `steps[].repeat_policy.max_interval_sec` string forms | Value-resolved | Before the repeat policy uses the value | Step repeat policy string numeric fields resolve Dagu-owned references. Other repeat policy fields remain literal unless an owning spec opts in. |
 | Sub-DAG invocation target and params | Value-resolved | Before the sub-DAG run or enqueue request is created | Canonical `dag.run` and `dag.enqueue` `with.dag` resolves Dagu-owned references. Scalar string `with.params` resolves as one value. Nested string leaves under object-form or array-form `with.params` resolve individually. Accepted legacy `call` and legacy `params` follow the same target and params rules. |
 | `steps[].parallel` | Value-resolved | Before expanding the parallel step | `variable`, `items[]`, `items[].value`, and `items[].params.*` string values resolve Dagu-owned references. |
+| `steps[].foreach` | Value-resolved | Before and during the foreach step | `items`, `key`, value-resolved string fields inside `foreach.steps`, and `collect` values resolve Dagu-owned references. Spec 018 defines the scoped `foreach` namespace available to those fields. |
 | `steps[].stdout`, `steps[].stdout.artifact` | Value-resolved | Step start or stdout setup | Stdout file path strings and artifact path strings resolve Dagu-owned references. For unqualified environment syntax in these path strings, backslashes remain path text unless Spec 006 assigns them escape behavior. |
 | `steps[].stderr`, `steps[].stderr.artifact` | Value-resolved | Step start or stderr setup | Stderr file path strings and artifact path strings resolve Dagu-owned references. For unqualified environment syntax in these path strings, backslashes remain path text unless Spec 006 assigns them escape behavior. |
 | `steps[].stdout.outputs.fields.*` | Value-resolved | Output publication | Literal string values under field entries resolve Dagu-owned references. Selection and decode metadata remain literal unless an owning spec opts in. |
@@ -254,6 +258,7 @@ Explicitly literal or excluded field surfaces:
 | Root identity and metadata, such as `name` and `description` | Dagu does not resolve value references in these fields. |
 | Root run-control fields, such as `retry_policy`, `timeout_sec`, `delay_sec`, `max_active_steps`, `max_clean_up_time_sec`, and `max_output_size` | Dagu does not resolve value references in these fields unless an owning spec later opts in. |
 | Step identity, graph, and action-selection fields, such as `steps[].id`, `steps[].name`, `steps[].description`, `steps[].depends`, and `steps[].action` | Dagu does not resolve value references in these fields. A value reference cannot select a step, dependency, or action. |
+| `steps[].foreach.as`, `steps[].foreach.max_concurrent`, and body step identity or dependency fields | Dagu does not resolve value references in these fields. A value reference cannot select an item alias, concurrency limit, body step, or body dependency. |
 | Step output declaration contracts, such as `steps[].outputs[].name` and `steps[].outputs[].type` | Dagu does not resolve value references in declaration metadata. Published output values are separate runtime data. |
 | Step control fields not listed in the value-resolution matrix, such as `steps[].timeout_sec`, `steps[].continue_on`, `steps[].worker_selector`, `steps[].mail_on_error`, and `steps[].signal_on_stop` | Dagu does not resolve value references in these fields unless an owning spec later opts in. |
 | LLM selection and credential fields, such as provider names, model names, API key names, and tool-name lists | This spec does not opt these fields into value resolution. They remain literal unless an LLM-owning spec explicitly opts in. |

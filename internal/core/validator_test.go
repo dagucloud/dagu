@@ -394,7 +394,7 @@ func TestValidateSteps(t *testing.T) {
 		}
 		err := ValidateSteps(dag)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "max_concurrent must be greater than 0")
+		assert.Contains(t, err.Error(), "max_concurrent must be an integer from 1 through 1000")
 	})
 
 	t.Run("parallel config with negative max_concurrent fails", func(t *testing.T) {
@@ -413,7 +413,7 @@ func TestValidateSteps(t *testing.T) {
 		}
 		err := ValidateSteps(dag)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "max_concurrent must be greater than 0")
+		assert.Contains(t, err.Error(), "max_concurrent must be an integer from 1 through 1000")
 	})
 
 	t.Run("parallel config without items or variable fails", func(t *testing.T) {

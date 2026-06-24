@@ -87,6 +87,24 @@ Explicit inspection surfaces report a passive notice for that preserved referenc
 
 - Step output references do not read singular `output`, `stdout.outputs`, legacy DAG/action outputs, stdout, stderr, logs, artifacts, or nested output paths.
 
+### Foreach Body Scope
+
+Spec 018 adds `foreach.steps` body scopes.
+
+Rules:
+
+- A `foreach` body step can reference top-level step outputs when the top-level
+  producer is ordered before the owning `foreach` step.
+- A `foreach` body step can reference an earlier body step output from the same
+  item body.
+- Body step output references never cross item bodies.
+- A top-level step after a `foreach` step cannot reference body step outputs
+  directly.
+- A top-level step after a `foreach` step must consume the `foreach` aggregate
+  output when it needs values collected from body steps.
+- `foreach.collect` expressions resolve after a successful item body with item
+  scope and that item body's step-output scope available.
+
 ### Validation
 
 - An unresolved supported step-output reference in a value-resolution field must preserve the original reference text.

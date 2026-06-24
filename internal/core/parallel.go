@@ -20,8 +20,11 @@ type ParallelConfig struct {
 	MaxConcurrent int `json:"max_concurrent,omitempty"`
 }
 
-// DefaultMaxConcurrent is the default maximum concurrent executions for parallel steps
+// DefaultMaxConcurrent is the default maximum concurrent executions for parallel steps.
 const DefaultMaxConcurrent = 10
+
+// MaxExpansionConcurrency is the maximum concurrency accepted by expansion constructs.
+const MaxExpansionConcurrency = 1000
 
 // ParallelItemVariable is the special variable name that represents the current item in parallel execution
 const ParallelItemVariable = "ITEM"

@@ -1,0 +1,31 @@
+params:
+  - name: items
+    description: Runtime item list.
+    default: '["alpha","beta"]'
+working_dir: .
+steps:
+  - name: fanout
+    action: dag.run
+    with:
+      dag: child-string-item
+      params:
+        - value: ${ITEM}
+    parallel: ${params.items}
+    output: PARALLEL_RESULTS
+  - name: consume
+    depends: fanout
+    run: |
+      printf '%s\n' "$PARALLEL_RESULTS" > parallel-string-results.txt
+
+---
+
+name: child-string-item
+params:
+  - name: value
+    description: Resolved item value.
+working_dir: .
+steps:
+  - name: write
+    run: |
+      printf '%s\n' '${params.value}'
+    output: CHILD_VALUE
