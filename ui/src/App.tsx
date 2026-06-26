@@ -593,25 +593,25 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                         <Route
                                           path="/notifications"
                                           element={
-                                            <ActiveLicenseDeveloperElement>
+                                            <DeveloperElement>
                                               <NotificationsPage />
-                                            </ActiveLicenseDeveloperElement>
+                                            </DeveloperElement>
                                           }
                                         />
                                         <Route
                                           path="/notification-rules"
                                           element={
-                                            <ActiveLicenseDeveloperElement>
+                                            <DeveloperElement>
                                               <NotificationRulesPage />
-                                            </ActiveLicenseDeveloperElement>
+                                            </DeveloperElement>
                                           }
                                         />
                                         <Route
                                           path="/notification-channels"
                                           element={
-                                            <ActiveLicenseDeveloperElement>
+                                            <DeveloperElement>
                                               <NotificationChannelsPage />
-                                            </ActiveLicenseDeveloperElement>
+                                            </DeveloperElement>
                                           }
                                         />
                                         <Route
