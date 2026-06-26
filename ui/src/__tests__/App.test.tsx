@@ -206,11 +206,15 @@ describe('App license routing', () => {
     );
   });
 
-  it('allows notification management routes in community mode', async () => {
-    renderAt('/notifications');
+  it.each([
+    { path: '/notifications', heading: 'Notifications' },
+    { path: '/notification-rules', heading: 'Notification Rules' },
+    { path: '/notification-channels', heading: 'Notification Channels' },
+  ])('allows $path in community mode', async ({ path, heading }) => {
+    renderAt(path);
 
     expect(
-      await screen.findByRole('heading', { name: 'Notifications' })
+      await screen.findByRole('heading', { name: heading })
     ).toBeVisible();
     expect(
       screen.queryByRole('heading', { name: 'License Required' })
