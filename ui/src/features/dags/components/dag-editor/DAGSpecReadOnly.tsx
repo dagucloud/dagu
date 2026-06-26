@@ -23,6 +23,7 @@ import {
 import { useErrorModal } from '@/components/ui/error-modal';
 import { useSimpleToast } from '@/components/ui/simple-toast';
 import { useCanWrite } from '@/contexts/AuthContext';
+import { useConfig } from '@/contexts/ConfigContext';
 import { useUserPreferences } from '@/contexts/UserPreference';
 import { cn } from '@/lib/utils';
 import { RefreshCw, Save, X } from 'lucide-react';
@@ -153,6 +154,7 @@ function DAGSpecReadOnly({
   const client = useClient();
   const navigate = useNavigate();
   const canWrite = useCanWrite();
+  const config = useConfig();
   const { showError } = useErrorModal();
   const { showToast } = useSimpleToast();
   const [sourceSpec, setSourceSpec] = React.useState('');
@@ -219,10 +221,12 @@ function DAGSpecReadOnly({
   const editorSpec = !hasLoadedSpec && data?.spec ? data.spec : editedSpec;
   const hasEdits =
     isEditableRetry && hasLoadedSpec && editorSpec !== sourceSpec;
+  const canRetryEditedSpec = config.permissions.runDags && isEditableRetry;
   const canOpenSourceDAGDiff = hasEdits && !!sourceFileName;
 
   const previewEditedSpec = React.useCallback(async () => {
     if (
+      !canRetryEditedSpec ||
       !hasEdits ||
       !editorSpec.trim() ||
       previewLoading ||
@@ -283,6 +287,7 @@ function DAGSpecReadOnly({
     }
   }, [
     client,
+    canRetryEditedSpec,
     dagName,
     dagRunId,
     editorSpec,
@@ -296,6 +301,7 @@ function DAGSpecReadOnly({
 
   const submitEditedRetry = React.useCallback(async () => {
     if (
+      !canRetryEditedSpec ||
       !retryPreview ||
       retryPreview.errors.length > 0 ||
       !editorSpec.trim() ||
@@ -363,6 +369,7 @@ function DAGSpecReadOnly({
     }
   }, [
     client,
+    canRetryEditedSpec,
     dagName,
     dagRunId,
     editorSpec,
@@ -616,22 +623,24 @@ function DAGSpecReadOnly({
                   {sourceDiffLoading ? 'Loading diff...' : 'Save source DAG'}
                 </Button>
               )}
-              <Button
-                type="button"
-                size="xs"
-                variant="primary"
-                disabled={
-                  !hasEdits ||
-                  previewLoading ||
-                  retrySubmitting ||
-                  sourceSaving ||
-                  !editorSpec.trim()
-                }
-                onClick={() => void previewEditedSpec()}
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                {previewLoading ? 'Previewing...' : 'Retry as a new run'}
-              </Button>
+              {canRetryEditedSpec && (
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="primary"
+                  disabled={
+                    !hasEdits ||
+                    previewLoading ||
+                    retrySubmitting ||
+                    sourceSaving ||
+                    !editorSpec.trim()
+                  }
+                  onClick={() => void previewEditedSpec()}
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  {previewLoading ? 'Previewing...' : 'Retry as a new run'}
+                </Button>
+              )}
             </div>
           ) : undefined
         }

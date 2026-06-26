@@ -16,6 +16,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { useConfig } from '@/contexts/ConfigContext';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient, useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
@@ -152,6 +153,7 @@ function NodeStatusTableRow({
   const { dagRunId, name: dagName } = dagRun;
   const navigate = useNavigate();
   const client = useClient();
+  const config = useConfig();
   const dagContext = useContext(DAGContext);
   const remoteNode = useRemoteNode();
   const { showError } = useErrorModal();
@@ -189,6 +191,11 @@ function NodeStatusTableRow({
     dagRun.rootDAGRunId !== dagRun.dagRunId;
   const shouldFetchLogStepOutput =
     logMessage !== null && hasStdout && !!dagRunId;
+  const showStepActions = Boolean(dagRunId && config.permissions.runDags);
+  const canRetryStep =
+    showStepActions &&
+    node.status !== NodeStatus.Waiting &&
+    node.status !== NodeStatus.Rejected;
 
   const subDAGLogQuery = useQuery(
     '/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/log',
@@ -384,6 +391,10 @@ function NodeStatusTableRow({
   };
 
   const handleRetry = async () => {
+    if (!config.permissions.runDags) {
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
@@ -791,25 +802,23 @@ function NodeStatusTableRow({
               )}
             </div>
           </TableCell>
-          {dagRunId && (
+          {showStepActions && (
             <TableCell className="text-center">
               <div className="flex items-center justify-center gap-1">
-                {/* Retry button - hidden for Waiting and Rejected steps */}
-                {node.status !== NodeStatus.Waiting &&
-                  node.status !== NodeStatus.Rejected && (
-                    <Button
-                      size="icon-sm"
-                      variant="secondary"
-                      title="Retry from this step"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShowDialog(true);
-                      }}
-                      disabled={loading || dagRun.status === Status.Running}
-                    >
-                      <Play className="h-4 w-4 text-success" />
-                    </Button>
-                  )}
+                {canRetryStep && (
+                  <Button
+                    size="icon-sm"
+                    variant="secondary"
+                    title="Retry from this step"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowDialog(true);
+                    }}
+                    disabled={loading || dagRun.status === Status.Running}
+                  >
+                    <Play className="h-4 w-4 text-success" />
+                  </Button>
+                )}
               </div>
               <Dialog open={showDialog} onOpenChange={setShowDialog}>
                 <DialogContent>
@@ -847,7 +856,7 @@ function NodeStatusTableRow({
         {/* Inline log viewer row - spans entire table width */}
         {isLogExpanded && hasLogs && (
           <StyledTableRow className="bg-muted">
-            <TableCell colSpan={dagRunId ? 7 : 6} className="p-3">
+            <TableCell colSpan={showStepActions ? 7 : 6} className="p-3">
               <div className="w-full">
                 {/* Header with tabs and expand button */}
                 <div className="flex items-center justify-between mb-2">
@@ -1216,20 +1225,18 @@ function NodeStatusTableRow({
         </div>
       )}
 
-      {dagRunId && (
+      {showStepActions && (
         <div className="flex justify-end mt-4 gap-2">
-          {/* Retry button - hidden for Waiting and Rejected steps */}
-          {node.status !== NodeStatus.Waiting &&
-            node.status !== NodeStatus.Rejected && (
-              <button
-                className="p-2 rounded-full hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Retry from this step"
-                onClick={() => setShowDialog(true)}
-                disabled={loading || dagRun.status === Status.Running}
-              >
-                <Play className="h-6 w-6 text-success" />
-              </button>
-            )}
+          {canRetryStep && (
+            <button
+              className="p-2 rounded-full hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Retry from this step"
+              onClick={() => setShowDialog(true)}
+              disabled={loading || dagRun.status === Status.Running}
+            >
+              <Play className="h-6 w-6 text-success" />
+            </button>
+          )}
           <Dialog open={showDialog} onOpenChange={setShowDialog}>
             <DialogContent>
               <DialogHeader>

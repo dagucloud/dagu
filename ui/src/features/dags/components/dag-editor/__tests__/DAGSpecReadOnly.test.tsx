@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   showError: vi.fn(),
   showToast: vi.fn(),
   useQuery: vi.fn(),
+  runDags: true,
 }));
 
 vi.mock('@/hooks/api', () => ({
@@ -36,6 +37,14 @@ vi.mock('@/contexts/AuthContext', () => ({
 
 vi.mock('@/contexts/UserPreference', () => ({
   useUserPreferences: () => ({ preferences: { theme: 'light' } }),
+}));
+
+vi.mock('@/contexts/ConfigContext', () => ({
+  useConfig: () => ({
+    permissions: {
+      runDags: mocks.runDags,
+    },
+  }),
 }));
 
 vi.mock('@/components/ui/error-modal', () => ({
@@ -165,9 +174,29 @@ afterEach(() => {
   mocks.showError.mockReset();
   mocks.showToast.mockReset();
   mocks.useQuery.mockReset();
+  mocks.runDags = true;
 });
 
 describe('DAGSpecReadOnly', () => {
+  it('hides edited retry controls when DAG runs are disabled', async () => {
+    mocks.runDags = false;
+    mocks.useQuery.mockReturnValue({
+      data: { spec: originalSpec },
+      isLoading: false,
+      error: undefined,
+    });
+
+    renderSpec();
+
+    const editor = screen.getByLabelText('DAG spec');
+    await waitFor(() => expect(editor).toHaveValue(originalSpec));
+    fireEvent.change(editor, { target: { value: editedSpec } });
+
+    expect(
+      screen.queryByRole('button', { name: /retry as a new run/i })
+    ).not.toBeInTheDocument();
+  });
+
   it('previews and confirms before creating an edited retry run', async () => {
     mocks.useQuery.mockReturnValue({
       data: { spec: originalSpec },

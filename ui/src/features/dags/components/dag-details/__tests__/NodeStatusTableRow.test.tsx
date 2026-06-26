@@ -17,12 +17,24 @@ import { useQuery } from '@/hooks/api';
 import { DAGContext } from '../../../contexts/DAGContext';
 import NodeStatusTableRow from '../NodeStatusTableRow';
 
+const configMock = vi.hoisted(() => ({
+  runDags: true,
+}));
+
 vi.mock('@/hooks/api', () => ({
   useClient: () => ({
     PATCH: vi.fn(),
     POST: vi.fn(),
   }),
   useQuery: vi.fn(),
+}));
+
+vi.mock('@/contexts/ConfigContext', () => ({
+  useConfig: () => ({
+    permissions: {
+      runDags: configMock.runDags,
+    },
+  }),
 }));
 
 vi.mock('@/components/ui/error-modal', () => ({
@@ -58,6 +70,7 @@ const stepLogPath = '/dag-runs/{name}/{dagRunId}/steps/{stepName}/log';
 
 describe('NodeStatusTableRow', () => {
   beforeEach(() => {
+    configMock.runDags = true;
     mockedUseQuery.mockImplementation((path, init) => ({
       data:
         path === stepLogPath && init
@@ -186,5 +199,51 @@ describe('NodeStatusTableRow', () => {
       screen.getByLabelText('Log message: Deploying ${ENVIRONMENT}')
     ).toBeInTheDocument();
     expect(screen.queryByText('Loading log output...')).not.toBeInTheDocument();
+  });
+
+  it('hides step retry controls when DAG runs are disabled', () => {
+    configMock.runDags = false;
+
+    const node = {
+      step: {
+        name: 'build',
+      },
+      status: NodeStatus.Success,
+      statusLabel: NodeStatusLabel.succeeded,
+      stdout: '',
+      stderr: '',
+      startedAt: '',
+      finishedAt: '',
+      retryCount: 0,
+      doneCount: 1,
+    } as components['schemas']['Node'];
+
+    render(
+      <MemoryRouter>
+        <AppBarContext.Provider value={appBarValue}>
+          <DAGContext.Provider
+            value={{
+              refresh: vi.fn(),
+              name: 'example',
+              fileName: 'example.yaml',
+            }}
+          >
+            <table>
+              <tbody>
+                <NodeStatusTableRow
+                  rownum={1}
+                  node={node}
+                  name="example.yaml"
+                  dagRun={dagRun}
+                  view="desktop"
+                />
+              </tbody>
+            </table>
+          </DAGContext.Provider>
+        </AppBarContext.Provider>
+      </MemoryRouter>
+    );
+
+    expect(screen.queryByTitle('Retry from this step')).not.toBeInTheDocument();
   });
 });
