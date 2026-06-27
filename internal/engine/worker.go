@@ -57,7 +57,6 @@ func (e *Engine) NewWorker(opts WorkerOptions) (*Worker, error) {
 	w.SetHandler(worker.NewRemoteTaskHandler(worker.RemoteTaskHandlerConfig{
 		WorkerID:           workerID,
 		CoordinatorClient:  client,
-		DAGRunStore:        e.dagRunStore,
 		DAGStore:           e.dagStore,
 		DAGRunMgr:          e.dagRunMgr,
 		ServiceRegistry:    e.serviceRegistry,

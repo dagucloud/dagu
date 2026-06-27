@@ -239,7 +239,6 @@ func (f *testFixture) setupWorkerWithAfterAckHook(
 	handlerCfg := worker.RemoteTaskHandlerConfig{
 		WorkerID:          workerID,
 		CoordinatorClient: f.coordinatorClient,
-		DAGRunStore:       nil,
 		DAGStore:          f.coord.DAGStore,
 		DAGRunMgr:         f.coord.DAGRunMgr,
 		ServiceRegistry:   f.coord.ServiceRegistry,

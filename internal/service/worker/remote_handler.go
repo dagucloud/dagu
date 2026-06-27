@@ -46,8 +46,6 @@ type RemoteTaskHandlerConfig struct {
 	WorkerID string
 	// CoordinatorClient is the coordinator client with load balancing support
 	CoordinatorClient coordinator.Client
-	// DAGRunStore is the store for DAG run status (may be nil for fully remote mode)
-	DAGRunStore exec.DAGRunStore
 	// DAGStore is the store for DAG definitions
 	DAGStore exec.DAGStore
 	// DAGRunMgr is the manager for DAG runs
@@ -82,7 +80,6 @@ func NewRemoteTaskHandler(cfg RemoteTaskHandlerConfig) TaskHandler {
 	return &remoteTaskHandler{
 		workerID:           cfg.WorkerID,
 		coordinatorClient:  cfg.CoordinatorClient,
-		dagRunStore:        cfg.DAGRunStore,
 		dagStore:           cfg.DAGStore,
 		dagRunMgr:          cfg.DAGRunMgr,
 		stateStore:         stateStore,
@@ -96,7 +93,6 @@ func NewRemoteTaskHandler(cfg RemoteTaskHandlerConfig) TaskHandler {
 type remoteTaskHandler struct {
 	workerID           string
 	coordinatorClient  coordinator.Client
-	dagRunStore        exec.DAGRunStore
 	dagStore           exec.DAGStore
 	dagRunMgr          runtime.Manager
 	stateStore         dagstate.Store
@@ -623,7 +619,6 @@ func (h *remoteTaskHandler) executeDAGRun(
 	subWorkflowRunnerFactory := node.NewSubWorkflowRunnerFactory(node.SubWorkflowRunnerConfig{
 		DAGRunMgr:         h.dagRunMgr,
 		DAGStore:          h.dagStore,
-		DAGRunStore:       h.dagRunStore,
 		StateStore:        h.stateStore,
 		AgentStores:       agentStores,
 		ServiceRegistry:   h.serviceRegistry,
@@ -663,7 +658,6 @@ func (h *remoteTaskHandler) executeDAGRun(
 		ExtraEnvs:                extraEnvs,
 		QueuedRun:                queuedRun,
 		AttemptID:                attemptID,
-		DAGRunStore:              h.dagRunStore,
 		StateStore:               h.stateStore,
 		SecretStore:              agentStores.SecretStore,
 		SecretReferenceResolver:  h.secretReferenceResolver(dag, owner, coordinator.SecretReferenceRun{WorkerID: h.workerID, AttemptKey: attemptKey, AttemptID: attemptID}),

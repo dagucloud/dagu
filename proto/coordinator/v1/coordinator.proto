@@ -26,7 +26,6 @@ service CoordinatorService {
   rpc RunHeartbeat (RunHeartbeatRequest) returns (RunHeartbeatResponse);
 
   // ReportStatus is called by workers to push DAG run status updates.
-  // Used in shared-nothing architecture where workers don't have filesystem access.
   rpc ReportStatus (ReportStatusRequest) returns (ReportStatusResponse);
 
   // StreamLogs is called by workers to stream step logs to the coordinator.
@@ -47,12 +46,12 @@ service CoordinatorService {
   rpc GetWorkspaceBundle (GetWorkspaceBundleRequest) returns (stream WorkspaceBundleChunk);
 
   // GetDAGRunStatus retrieves the status of a DAG run from the coordinator.
-  // Used by parent DAGs to poll status of remote sub-DAGs in shared-nothing mode.
+  // Used by parent DAGs to poll status of remote sub-DAGs.
   rpc GetDAGRunStatus (GetDAGRunStatusRequest) returns (GetDAGRunStatusResponse);
 
   // RequestCancel is called to request cancellation of a DAG run.
-  // Used in shared-nothing mode for sub-DAG cancellation where the parent
-  // cannot directly access the sub-DAG's attempt.
+  // Used for sub-DAG cancellation where the parent cannot directly access the
+  // sub-DAG's attempt.
   rpc RequestCancel (RequestCancelRequest) returns (RequestCancelResponse);
 
   // GetState retrieves persistent DAG state from the coordinator-owned store.
@@ -73,7 +72,7 @@ service CoordinatorService {
   rpc GetDAG (GetDAGRequest) returns (GetDAGResponse);
 
   // ResolveSecretReference resolves or checks a Dagu-managed secret registry ref.
-  // Used by shared-nothing workers that cannot read the coordinator's secret store.
+  // Used by workers that cannot read the coordinator's secret store.
   rpc ResolveSecretReference (ResolveSecretReferenceRequest) returns (ResolveSecretReferenceResponse);
 }
 
@@ -114,7 +113,7 @@ message Task {
   map<string, string> worker_selector = 10; // Required worker labels for execution
   string definition = 11; // Optional: DAG definition (YAML) for local DAGs
   string worker_id = 12; // ID of the worker that will execute this task
-  // Previous status for OPERATION_RETRY in shared-nothing mode.
+  // Previous status for OPERATION_RETRY.
   // When set, workers can retry without needing local DAGRunStore access.
   DAGRunStatusProto previous_status = 13;
   // Attempt ID created by coordinator. Workers use this to create attempts with the same ID.
