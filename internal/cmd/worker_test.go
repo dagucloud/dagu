@@ -70,8 +70,7 @@ func TestBuildCoordinatorClientConfig(t *testing.T) {
 			},
 		}
 		result, err := cmdprocess.BuildWorkerCoordinatorClientConfig(cfg)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "worker.coordinators is required")
+		require.ErrorContains(t, err, "worker.coordinators is required")
 		assert.Nil(t, result)
 	})
 
@@ -84,8 +83,7 @@ func TestBuildCoordinatorClientConfig(t *testing.T) {
 			},
 		}
 		result, err := cmdprocess.BuildWorkerCoordinatorClientConfig(cfg)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "worker.coordinators is required")
+		require.ErrorContains(t, err, "worker.coordinators is required")
 		assert.Nil(t, result)
 	})
 
@@ -145,8 +143,7 @@ func TestBuildCoordinatorClientConfig(t *testing.T) {
 			},
 		}
 		_, err := cmdprocess.BuildWorkerCoordinatorClientConfig(cfg)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid coordinator client configuration")
+		require.ErrorContains(t, err, "invalid coordinator client configuration")
 	})
 
 	t.Run("ValidTLSConfig", func(t *testing.T) {

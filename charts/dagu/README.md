@@ -116,13 +116,17 @@ workerPools:
   general:
     replicas: 2
     labels: {}
+    dataVolume:
+      sizeLimit: "2Gi"
     resources:
       requests:
         memory: "128Mi"
         cpu: "100m"
+        ephemeral-storage: "1Gi"
       limits:
         memory: "256Mi"
         cpu: "200m"
+        ephemeral-storage: "2Gi"
     nodeSelector: {}
     tolerations: []
     affinity: {}
@@ -233,10 +237,17 @@ workerPools:
   general:
     replicas: 2
     labels: {}
+    dataVolume:
+      sizeLimit: "2Gi"
     resources:
       requests:
         memory: "128Mi"
         cpu: "100m"
+        ephemeral-storage: "1Gi"
+      limits:
+        memory: "256Mi"
+        cpu: "200m"
+        ephemeral-storage: "2Gi"
 
 ui:
   replicas: 1

@@ -52,9 +52,12 @@ spec:
           requests:
             memory: "128Mi"
             cpu: "100m"
+            ephemeral-storage: "1Gi"
           limits:
             memory: "256Mi"
             cpu: "200m"
+            ephemeral-storage: "2Gi"
       volumes:
       - name: dagu-data
-        emptyDir: {}
+        emptyDir:
+          sizeLimit: "2Gi"

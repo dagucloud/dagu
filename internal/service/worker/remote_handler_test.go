@@ -1363,7 +1363,7 @@ steps:
 
 		// The error should NOT be about missing status source
 		require.Error(t, err)
-		require.NotContains(t, err.Error(), "retry requires either previous_status")
+		require.NotContains(t, err.Error(), "retry requires previous_status in task")
 	})
 }
 
