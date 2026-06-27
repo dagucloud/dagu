@@ -668,7 +668,9 @@ func createTestWorker(t *testing.T, workerID string, maxActiveRuns int, coord *t
 	coordinatorClient := coord.GetCoordinatorClient(t)
 
 	labels := make(map[string]string)
-	return worker.NewWorker(workerID, maxActiveRuns, coordinatorClient, labels, &config.Config{})
+	w := worker.NewWorker(workerID, maxActiveRuns, coordinatorClient, labels, &config.Config{})
+	w.SetHandler(&mockHandler{})
+	return w
 }
 
 func requireWorkerRegistered(t *testing.T, coord *test.Coordinator, workerID string) {

@@ -19,7 +19,6 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime/builtin/sql"
-	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/healthcheck"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
@@ -47,7 +46,7 @@ type Worker struct {
 	stopCancel context.CancelFunc // Cancels the worker's internal context
 	stopDone   chan struct{}      // Signals when all goroutines have stopped
 
-	// For global PostgreSQL connection pool (shared-nothing mode)
+	// For global PostgreSQL connection pool
 	poolManager  *sql.GlobalPoolManager
 	healthServer *healthcheck.Server
 
@@ -60,18 +59,9 @@ type runningTaskState struct {
 	lastOwnerHeartbeatAt time.Time
 }
 
-type workerOptions struct {
-	dagRunStore exec.DAGRunStore
-}
-
-// Option configures a Worker.
-type Option func(*workerOptions)
-
-// WithDAGRunStore provides the DAG-run store used by the default task handler.
-func WithDAGRunStore(store exec.DAGRunStore) Option {
-	return func(o *workerOptions) {
-		o.dagRunStore = store
-	}
+// TaskHandler defines the interface for executing tasks.
+type TaskHandler interface {
+	Handle(ctx context.Context, task *coordinatorv1.Task) error
 }
 
 var errTaskClaimRejectedBeforeExecution = errors.New("task claim rejected before execution")
@@ -102,15 +92,7 @@ func NewWorker(
 	coordinatorClient coordinator.Client,
 	labels map[string]string,
 	cfg *config.Config,
-	opts ...Option,
 ) *Worker {
-	var options workerOptions
-	for _, opt := range opts {
-		if opt != nil {
-			opt(&options)
-		}
-	}
-
 	// Generate default worker ID if not provided
 	if workerID == "" {
 		hostname, err := os.Hostname()
@@ -125,16 +107,10 @@ func NewWorker(
 		healthPort = cfg.Worker.HealthPort
 	}
 
-	var bundleClient workspacebundle.Client
-	if client, ok := coordinatorClient.(workspacebundle.Client); ok {
-		bundleClient = client
-	}
-
 	return &Worker{
 		id:             workerID,
 		maxActiveRuns:  maxActiveRuns,
 		coordinatorCli: coordinatorClient,
-		handler:        NewTaskHandlerWithDAGRunStore(cfg, options.dagRunStore, bundleClient),
 		labels:         labels,
 		cfg:            cfg,
 		runningTasks:   make(map[string]*runningTaskState),
@@ -150,14 +126,17 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 		tag.WorkerID(w.id),
 		tag.MaxConcurrency(w.maxActiveRuns))
 
+	if w.handler == nil {
+		return fmt.Errorf("worker task handler is not configured")
+	}
+
 	// Create an internal context that can be cancelled by Stop()
 	// This context is cancelled when either the parent context is done OR Stop() is called
 	internalCtx, cancel := context.WithCancel(ctx)
 	w.stopCancel = cancel
 	w.stopDone = make(chan struct{})
 
-	// Initialize global PostgreSQL pool manager if in shared-nothing mode
-	if w.isSharedNothingMode() {
+	if w.cfg != nil {
 		w.poolManager = sql.NewGlobalPoolManager(sql.GlobalPoolConfig{
 			MaxOpenConns:    w.cfg.Worker.PostgresPool.MaxOpenConns,
 			MaxIdleConns:    w.cfg.Worker.PostgresPool.MaxIdleConns,
@@ -641,11 +620,4 @@ func (w *Worker) processCancellations(ctx context.Context, cancelledRuns []*coor
 			cancelFunc()
 		}
 	}
-}
-
-// isSharedNothingMode returns true if the worker is running in shared-nothing mode.
-// Shared-nothing mode is detected when static coordinator addresses are configured.
-// In shared-nothing mode, global PostgreSQL pool management is automatically enabled.
-func (w *Worker) isSharedNothingMode() bool {
-	return w.cfg != nil && len(w.cfg.Worker.Coordinators) > 0
 }

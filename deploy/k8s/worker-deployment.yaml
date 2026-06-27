@@ -28,6 +28,8 @@ spec:
         args:
           - dagu
           - worker
+          - --worker.coordinators
+          - dagu-server:50055
           - --worker.labels
           - environment=dev,region=local,cluster=k8s
           # Uncomment to customize worker ID and max active runs:
@@ -39,9 +41,6 @@ spec:
         - configMapRef:
             name: dagu-config
         env:
-        # Workers connect to coordinator via service DNS name
-        - name: DAGU_COORDINATOR_HOST
-          value: "dagu-server"
         - name: WORKER_ID
           valueFrom:
             fieldRef:
@@ -58,5 +57,4 @@ spec:
             cpu: "200m"
       volumes:
       - name: dagu-data
-        persistentVolumeClaim:
-          claimName: dagu-data
+        emptyDir: {}

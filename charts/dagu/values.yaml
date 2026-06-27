@@ -21,8 +21,8 @@ extraEnv: []
 
 # Pod security context applied to all Dagu pods.
 # The image entrypoint starts as root, prepares the runtime environment, then
-# drops to PUID/PGID 1000:1000 by default. fsGroup keeps the shared /data PVC
-# writable after that privilege drop. Match this to custom PUID/PGID values.
+# drops to PUID/PGID 1000:1000 by default. fsGroup keeps mounted runtime
+# volumes writable after that privilege drop. Match this to custom PUID/PGID values.
 # Clusters that support fsGroupChangePolicy can set it here explicitly.
 podSecurityContext:
   fsGroup: 1000

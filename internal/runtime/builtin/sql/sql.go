@@ -43,7 +43,7 @@ type sqlExecutor struct {
 	stderr          io.Writer
 	cancelFunc      context.CancelFunc
 	advisoryRelease func() error
-	useGlobalPool   bool // true if using global pool manager (shared-nothing mode)
+	useGlobalPool   bool // true if using global pool manager
 	closed          bool // guard against double-close
 }
 
@@ -71,13 +71,11 @@ func newSQLExecutor(ctx context.Context, step core.Step, driverName string) (exe
 		return nil, fmt.Errorf("failed to parse sql config: %w", err)
 	}
 
-	// Check for global pool manager (shared-nothing mode)
 	var connMgr *ConnectionManager
 	var poolManager *GlobalPoolManager
 	var useGlobalPool bool
 
 	if pm := GetPoolManager(ctx); pm != nil && driverName == "postgres" {
-		// Use global pool for PostgreSQL in shared-nothing mode
 		db, err := pm.GetOrCreatePool(ctx, driver, cfg)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get pool from global manager: %w", err)

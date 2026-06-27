@@ -22,6 +22,7 @@ func TestWorkerHealthServerStartsAndStops(t *testing.T) {
 	t.Parallel()
 
 	w := NewWorker("test-worker", 1, newMockRemoteCoordinatorClient(), nil, &config.Config{})
+	w.SetHandler(noopHealthTaskHandler{})
 	w.healthServer = healthcheck.NewServerWithAddr("worker", "127.0.0.1:0")
 
 	ctx := context.Background()
@@ -58,6 +59,7 @@ func TestWorkerHealthServerStaysHealthyDuringHeartbeatFailures(t *testing.T) {
 	}
 
 	w := NewWorker("test-worker", 1, client, nil, &config.Config{})
+	w.SetHandler(noopHealthTaskHandler{})
 	w.healthServer = healthcheck.NewServerWithAddr("worker", "127.0.0.1:0")
 
 	ctx := context.Background()
@@ -84,6 +86,12 @@ func TestWorkerHealthServerStaysHealthyDuringHeartbeatFailures(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("worker did not stop in time")
 	}
+}
+
+type noopHealthTaskHandler struct{}
+
+func (noopHealthTaskHandler) Handle(context.Context, *coordinatorv1.Task) error {
+	return nil
 }
 
 func requireWorkerHealthServerURL(t *testing.T, hs *healthcheck.Server) string {

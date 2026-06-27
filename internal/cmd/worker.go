@@ -34,7 +34,7 @@ Flags:
   --worker.max-active-runs int             Maximum number of active runs (default: 100)
   --worker.health-port int                 Port number for the HTTP health check server (default: 8092, 0 disables)
   --worker.labels -l string                Worker labels for capability matching (format: key1=value1,key2=value2)
-  --worker.coordinators string             Coordinator addresses for static discovery (format: host1:port1,host2:port2)
+  --worker.coordinators string             Coordinator addresses (format: host1:port1,host2:port2)
 
 TLS Configuration (uses global peer settings):
   --peer.insecure                          Use insecure connection (h2c) instead of TLS (default: true)
@@ -44,22 +44,19 @@ TLS Configuration (uses global peer settings):
   --peer.skip-tls-verify                   Skip TLS certificate verification (insecure)
 
 Example:
-  dagu worker
-  dagu worker --worker.max-active-runs=50
-  dagu worker --worker.id=worker-1 --worker.max-active-runs=200
-  dagu worker --worker.health-port=0
+  dagu worker --worker.coordinators=coordinator-1:50055
+  dagu worker --worker.coordinators=coordinator-1:50055 --worker.max-active-runs=50
+  dagu worker --worker.coordinators=coordinator-1:50055 --worker.id=worker-1 --worker.max-active-runs=200
+  dagu worker --worker.coordinators=coordinator-1:50055 --worker.health-port=0
 
   # Worker with labels for capability matching:
-  dagu worker --worker.labels gpu=true,memory=64G,region=us-east-1
-  dagu worker --worker.labels cpu-arch=amd64,instance-type=m5.xlarge
+  dagu worker --worker.coordinators=coordinator-1:50055 --worker.labels gpu=true,memory=64G,region=us-east-1
+  dagu worker --worker.coordinators=coordinator-1:50055 --worker.labels cpu-arch=amd64,instance-type=m5.xlarge
 
   # For TLS connections (when coordinator has TLS enabled):
-  dagu worker --peer.insecure=false --peer.cert-file=client.crt --peer.key-file=client.key
-  dagu worker --peer.insecure=false --peer.client-ca-file=ca.crt
-  dagu worker --peer.insecure=false --peer.skip-tls-verify  # For self-signed certificates
-
-  # Shared-nothing deployment (worker doesn't need shared filesystem):
-  dagu worker --worker.coordinators=coordinator-1:50055,coordinator-2:50055
+  dagu worker --worker.coordinators=coordinator-1:50055 --peer.insecure=false --peer.cert-file=client.crt --peer.key-file=client.key
+  dagu worker --worker.coordinators=coordinator-1:50055 --peer.insecure=false --peer.client-ca-file=ca.crt
+  dagu worker --worker.coordinators=coordinator-1:50055 --peer.insecure=false --peer.skip-tls-verify  # For self-signed certificates
 
 This process runs continuously in the foreground until terminated.
 `,
@@ -95,7 +92,7 @@ func runWorker(ctx *Context, _ []string) error {
 	maxActiveRuns := ctx.Config.Worker.MaxActiveRuns
 	labels := ctx.Config.Worker.Labels
 
-	coordinatorCli, useRemoteHandler, err := createCoordinatorClient(ctx)
+	coordinatorCli, err := createCoordinatorClient(ctx)
 	if err != nil {
 		return err
 	}
@@ -106,20 +103,17 @@ func runWorker(ctx *Context, _ []string) error {
 		coordinatorCli,
 		labels,
 		ctx.Config,
-		worker.WithDAGRunStore(ctx.DAGRunStore),
 	)
 
-	if useRemoteHandler {
-		handlerCfg := worker.RemoteTaskHandlerConfig{
-			WorkerID:           workerID,
-			CoordinatorClient:  coordinatorCli,
-			PeerConfig:         ctx.Config.Core.Peer,
-			Config:             ctx.Config,
-			AgentStoresFactory: cmdprocess.NewRuntimeAgentStores,
-		}
-		w.SetHandler(worker.NewRemoteTaskHandler(handlerCfg))
-		logger.Info(ctx, "Using remote task handler for shared-nothing mode")
+	handlerCfg := worker.RemoteTaskHandlerConfig{
+		WorkerID:           workerID,
+		CoordinatorClient:  coordinatorCli,
+		PeerConfig:         ctx.Config.Core.Peer,
+		Config:             ctx.Config,
+		AgentStoresFactory: cmdprocess.NewRuntimeAgentStores,
 	}
+	w.SetHandler(worker.NewRemoteTaskHandler(handlerCfg))
+	logger.Info(ctx, "Using remote task handler")
 
 	logger.Info(ctx, "Starting worker", tag.WorkerID(workerID), tag.MaxConcurrency(maxActiveRuns), slog.Any("labels", labels))
 
@@ -145,8 +139,7 @@ func runWorker(ctx *Context, _ []string) error {
 	return nil
 }
 
-// createCoordinatorClient creates the appropriate coordinator client based on configuration.
-// Returns the client, whether to use remote handler, and any error.
-func createCoordinatorClient(ctx *Context) (coordinator.Client, bool, error) {
-	return cmdprocess.NewWorkerCoordinatorClient(ctx.Context, ctx.Config, ctx.ServiceRegistry)
+// createCoordinatorClient creates the worker coordinator client.
+func createCoordinatorClient(ctx *Context) (coordinator.Client, error) {
+	return cmdprocess.NewWorkerCoordinatorClient(ctx.Context, ctx.Config)
 }

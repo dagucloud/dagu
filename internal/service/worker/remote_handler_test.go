@@ -1240,7 +1240,7 @@ func TestHandleRetry(t *testing.T) {
 		err := handler.handleRetry(context.Background(), task)
 
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "retry requires previous_status in task for shared-nothing mode")
+		require.Contains(t, err.Error(), "retry requires previous_status in task")
 	})
 
 	t.Run("QueuedCatchupPreservesTriggerType", func(t *testing.T) {
@@ -1331,7 +1331,7 @@ steps:
 		handler := &remoteTaskHandler{
 			workerID:          "test-worker",
 			coordinatorClient: newMockRemoteCoordinatorClient(),
-			dagRunStore:       nil, // No local store - fully shared-nothing
+			dagRunStore:       nil,
 			config: &config.Config{
 				Paths: config.PathsConfig{
 					DAGsDir: tempDir,
@@ -1357,8 +1357,8 @@ steps:
 			DagRunId:       "run-123",
 		}
 
-		// This will fail at agent creation since we don't have full dependencies,
-		// but it proves the shared-nothing path is taken
+		// This will fail at agent creation since full dependencies are not configured,
+		// but it verifies the retry path uses the embedded previous status.
 		err = handler.handleRetry(context.Background(), task)
 
 		// The error should NOT be about missing status source
@@ -1540,7 +1540,7 @@ steps:
 func TestHandle_OperationRetryWithoutStatusSource(t *testing.T) {
 	t.Parallel()
 
-	// OPERATION_RETRY requires previous_status in the task for shared-nothing mode.
+	// OPERATION_RETRY requires previous_status in the task.
 	// All retry callers embed status via WithPreviousStatus().
 	handler := &remoteTaskHandler{
 		workerID:          "test-worker",
@@ -1561,7 +1561,7 @@ func TestHandle_OperationRetryWithoutStatusSource(t *testing.T) {
 	// Without PreviousStatus, retry should fail with a clear error
 	err := handler.Handle(context.Background(), task)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "retry requires previous_status in task for shared-nothing mode")
+	require.Contains(t, err.Error(), "retry requires previous_status in task")
 }
 
 func TestHandle_OperationRetryWithStep(t *testing.T) {
@@ -1587,7 +1587,7 @@ func TestHandle_OperationRetryWithStep(t *testing.T) {
 	err := handler.Handle(context.Background(), task)
 	require.Error(t, err)
 	// Should fail with "retry requires" error from handleRetry
-	require.Contains(t, err.Error(), "retry requires previous_status in task for shared-nothing mode")
+	require.Contains(t, err.Error(), "retry requires previous_status in task")
 }
 
 func TestHandleStart_SuccessPathWithCleanup(t *testing.T) {

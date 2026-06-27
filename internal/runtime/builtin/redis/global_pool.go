@@ -25,8 +25,8 @@ type GlobalPoolConfig struct {
 }
 
 // GlobalRedisPoolManager manages Redis client pools across all DAG executions.
-// It is designed for shared-nothing worker mode where multiple DAGs run concurrently
-// in a single process and share Redis connections.
+// It is designed for workers where multiple DAGs run concurrently in a single
+// process and share Redis connections.
 type GlobalRedisPoolManager struct {
 	mu     sync.RWMutex
 	pools  map[string]*redisPoolEntry // Config hash -> pool entry

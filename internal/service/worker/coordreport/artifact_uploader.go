@@ -20,7 +20,7 @@ import (
 
 var _ runtime.ArtifactFinalizer = (*ArtifactUploader)(nil)
 
-// ArtifactUploader uploads DAG run artifacts to the coordinator in shared-nothing mode.
+// ArtifactUploader uploads DAG run artifacts from a worker to the coordinator.
 type ArtifactUploader struct {
 	client    coordinator.Client
 	workerID  string

@@ -256,8 +256,8 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	baseCtx := ctx
 	eventSourceInstance := eventstore.DefaultSourceInstance()
 	var eventSvc *eventstore.Service
-	sharedNothingWorker := isSharedNothingWorker(cmd, cfg)
-	if !sharedNothingWorker && cfg.EventStore.Enabled {
+	workerCommand := isWorkerCommand(cmd)
+	if !workerCommand && cfg.EventStore.Enabled {
 		store, eventErr := file.NewEventStore(cfg)
 		if eventErr != nil {
 			logger.Warn(ctx, "Failed to initialize event store; continuing without event persistence", tag.Error(eventErr))
@@ -291,10 +291,10 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		}, nil
 	}
 
-	// For shared-nothing workers, skip creating file-based stores
-	// as they only use temporary directories and push status to coordinator
-	if sharedNothingWorker {
-		logger.Debug(ctx, "Shared-nothing worker mode: skipping file-based stores",
+	// Workers run DAGs through the remote task handler and push runtime state
+	// to the coordinator, so they do not need local file-backed run stores.
+	if workerCommand {
+		logger.Debug(ctx, "Worker mode: skipping file-based run stores",
 			slog.Any("coordinators", cfg.Worker.Coordinators),
 		)
 		return &Context{
@@ -309,7 +309,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 			CLIContext:          selectedContext,
 			ContextName:         selectedContextName,
 			Scope:               scope,
-			// All stores are nil - shared-nothing workers don't need local storage
+			// Run stores are nil; worker execution reports runtime state to the coordinator.
 			// Status is pushed to coordinator, DAG definitions come from task payload
 		}, nil
 	}
@@ -565,13 +565,8 @@ func isAgentCommand(cmdName string) bool {
 	}
 }
 
-// isSharedNothingWorker checks if the current command is a worker with static coordinators
-// configured, indicating shared-nothing mode where no local storage is needed.
-func isSharedNothingWorker(cmd *cobra.Command, cfg *config.Config) bool {
-	if cmd.Name() != "worker" {
-		return false
-	}
-	return len(cfg.Worker.Coordinators) > 0
+func isWorkerCommand(cmd *cobra.Command) bool {
+	return cmd.Name() == "worker"
 }
 
 // NewServer creates and returns a new web UI server for this command context.

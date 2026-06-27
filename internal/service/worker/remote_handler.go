@@ -165,7 +165,7 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 	}
 
 	if task.PreviousStatus == nil {
-		return fmt.Errorf("retry requires previous_status in task for shared-nothing mode")
+		return fmt.Errorf("retry requires previous_status in task")
 	}
 
 	status, convErr := convert.ProtoToDAGRunStatus(task.PreviousStatus)
@@ -416,7 +416,7 @@ func (h *remoteTaskHandler) loadDAG(ctx context.Context, task *coordinatorv1.Tas
 	}
 
 	// Remote tasks load the DAG definition received from the coordinator.
-	// Local DAG directories are outside the shared-nothing task boundary.
+	// Local DAG directories are outside the task payload boundary.
 	loadOpts := []spec.LoadOption{
 		spec.WithName(task.Target), // Use original DAG name, not temp file path
 	}
@@ -758,4 +758,17 @@ func (h *remoteTaskHandler) dagToolsBasePath() string {
 		}
 	}
 	return os.Getenv("PATH")
+}
+
+func previousStatusParams(task *coordinatorv1.Task) ([]string, error) {
+	if task.Operation != coordinatorv1.Operation_OPERATION_RETRY || task.PreviousStatus == nil {
+		return nil, nil
+	}
+
+	status, err := convert.ProtoToDAGRunStatus(task.PreviousStatus)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode previous task status: %w", err)
+	}
+
+	return append([]string(nil), status.ParamsList...), nil
 }

@@ -137,7 +137,7 @@ func WithAgentSnapshot(snapshot []byte) TaskOption {
 	}
 }
 
-// WithWorkspaceBundle sets workspace bundle metadata for shared-nothing dispatch.
+// WithWorkspaceBundle sets workspace bundle metadata for worker dispatch.
 func WithWorkspaceBundle(desc workspacebundle.Descriptor) TaskOption {
 	return func(task *exec.DispatchTask) {
 		task.WorkspaceBundleDigest = desc.Digest
@@ -174,7 +174,7 @@ func ResolveBaseConfig(baseConfigData []byte, fallbackPath string) string {
 	return string(data)
 }
 
-// WithPreviousStatus sets the previous status for retry operations in shared-nothing mode.
+// WithPreviousStatus sets the previous status for retry operations.
 // When set, workers can retry without needing local DAGRunStore access.
 func WithPreviousStatus(status *exec.DAGRunStatus) TaskOption {
 	return func(task *exec.DispatchTask) {

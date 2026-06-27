@@ -75,7 +75,7 @@ type Options struct {
 	CoordinatorPort      int
 	ServerOptions        []frontend.ServerOption
 	UseBuiltExecutable   bool // UseBuiltExecutable builds the current ./cmd binary for subprocess-based tests
-	// Coordinator handler options for shared-nothing worker tests
+	// Coordinator handler options for worker tests
 	WithStatusPersistence   bool          // Enable status persistence via DAGRunStore
 	WithLogPersistence      bool          // Enable log persistence to filesystem
 	WithArtifactPersistence bool          // Enable artifact persistence to filesystem

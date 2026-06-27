@@ -4,7 +4,6 @@
 package distr_test
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"syscall"
@@ -505,80 +504,5 @@ steps:
 		require.NoError(t, err)
 		require.Equal(t, core.Succeeded, finalStatus.Status)
 		require.Equal(t, originalRunID, finalStatus.DAGRunID, "retry should maintain the same run ID")
-	})
-}
-
-func TestRetry_SharedFSMode(t *testing.T) {
-	t.Run("retryWorksWithSharedFSWorker", func(t *testing.T) {
-		f := newTestFixture(t, `
-name: retry-sharedfs-test
-worker_selector:
-  test: "true"
-steps:
-  - name: task1
-    run: echo "sharedfs task1"
-`, withWorkerMode(sharedFSMode))
-		defer f.cleanup()
-
-		require.NoError(t, f.enqueue())
-		f.waitForQueued()
-		f.startScheduler(30 * time.Second)
-
-		status := f.waitForStatus(core.Succeeded, 25*time.Second)
-		dagRunID := status.DAGRunID
-		f.cleanup()
-
-		ctx, cancel := context.WithTimeout(f.coord.Context, 30*time.Second)
-		defer cancel()
-
-		f.schedulerCtx = ctx
-		f.schedulerCancel = cancel
-		f.startScheduler(30 * time.Second)
-
-		require.NoError(t, f.retry(dagRunID))
-
-		require.Eventually(t, func() bool {
-			status, err := f.latestStatus()
-			if err != nil {
-				return false
-			}
-			return status.Status == core.Succeeded
-		}, 25*time.Second, 200*time.Millisecond)
-	})
-
-	t.Run("retryWorksWithSharedFSWorker_NoNameField", func(t *testing.T) {
-		f := newTestFixture(t, `
-worker_selector:
-  test: "true"
-steps:
-  - name: task1
-    run: echo "sharedfs task1"
-`, withWorkerMode(sharedFSMode))
-		defer f.cleanup()
-
-		require.NoError(t, f.enqueue())
-		f.waitForQueued()
-		f.startScheduler(30 * time.Second)
-
-		status := f.waitForStatus(core.Succeeded, 25*time.Second)
-		dagRunID := status.DAGRunID
-		f.cleanup()
-
-		ctx, cancel := context.WithTimeout(f.coord.Context, 30*time.Second)
-		defer cancel()
-
-		f.schedulerCtx = ctx
-		f.schedulerCancel = cancel
-		f.startScheduler(30 * time.Second)
-
-		require.NoError(t, f.retry(dagRunID))
-
-		require.Eventually(t, func() bool {
-			status, err := f.latestStatus()
-			if err != nil {
-				return false
-			}
-			return status.Status == core.Succeeded
-		}, 25*time.Second, 200*time.Millisecond)
 	})
 }

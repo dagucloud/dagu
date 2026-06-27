@@ -10,15 +10,13 @@ import (
 
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
-	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 )
 
 // BuildWorkerCoordinatorClientConfig creates coordinator client config from application config.
-// It returns nil config when no static coordinators are configured, so the worker can use service discovery.
-func BuildWorkerCoordinatorClientConfig(cfg *config.Config) (*coordinator.Config, bool, error) {
+func BuildWorkerCoordinatorClientConfig(cfg *config.Config) (*coordinator.Config, error) {
 	if len(cfg.Worker.Coordinators) == 0 {
-		return nil, false, nil
+		return nil, fmt.Errorf("worker.coordinators is required")
 	}
 
 	coordCliCfg := coordinator.DefaultConfig()
@@ -35,34 +33,28 @@ func BuildWorkerCoordinatorClientConfig(cfg *config.Config) (*coordinator.Config
 	}
 
 	if err := coordCliCfg.Validate(); err != nil {
-		return nil, false, fmt.Errorf("invalid coordinator client configuration: %w", err)
+		return nil, fmt.Errorf("invalid coordinator client configuration: %w", err)
 	}
 
-	return coordCliCfg, true, nil
+	return coordCliCfg, nil
 }
 
-// NewWorkerCoordinatorClient creates the worker coordinator client and reports
-// whether the worker should use the shared-nothing remote task handler.
+// NewWorkerCoordinatorClient creates the worker coordinator client.
 func NewWorkerCoordinatorClient(
 	ctx context.Context,
 	cfg *config.Config,
-	registry exec.ServiceRegistry,
-) (coordinator.Client, bool, error) {
-	coordCliCfg, useRemoteHandler, err := BuildWorkerCoordinatorClientConfig(cfg)
+) (coordinator.Client, error) {
+	coordCliCfg, err := BuildWorkerCoordinatorClientConfig(cfg)
 	if err != nil {
-		return nil, false, err
-	}
-
-	if coordCliCfg == nil {
-		return NewCoordinatorClient(ctx, cfg, registry), false, nil
+		return nil, err
 	}
 
 	staticRegistry, err := coordinator.NewStaticRegistry(cfg.Worker.Coordinators)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to create static registry: %w", err)
+		return nil, fmt.Errorf("failed to create static registry: %w", err)
 	}
 	logger.Info(ctx, "Using static coordinator discovery",
 		slog.Any("coordinators", cfg.Worker.Coordinators))
 
-	return coordinator.New(staticRegistry, coordCliCfg), useRemoteHandler, nil
+	return coordinator.New(staticRegistry, coordCliCfg), nil
 }

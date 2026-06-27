@@ -15,7 +15,7 @@ import (
 )
 
 // StaticRegistry is a simple service registry that returns a fixed list of coordinator addresses.
-// This is useful for shared-nothing worker deployments where the coordinator addresses are known
+// This is useful for worker deployments where the coordinator addresses are known
 // and specified via CLI flags or environment variables.
 type StaticRegistry struct {
 	coordinators []exec.HostInfo

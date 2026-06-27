@@ -30,8 +30,8 @@ type GlobalPoolConfig struct {
 }
 
 // GlobalPoolManager manages PostgreSQL connection pools across all DAG executions.
-// It is designed for shared-nothing worker mode where multiple DAGs run concurrently
-// in a single process and share database connections.
+// It is designed for workers where multiple DAGs run concurrently in a single
+// process and share database connections.
 type GlobalPoolManager struct {
 	mu     sync.RWMutex
 	pools  map[string]*poolEntry // DSN hash -> pool entry
@@ -65,7 +65,7 @@ func WithPoolManager(ctx context.Context, pm *GlobalPoolManager) context.Context
 }
 
 // GetPoolManager retrieves the global pool manager from context.
-// Returns nil if not in shared-nothing mode or not configured.
+// Returns nil if no pool manager is configured.
 func GetPoolManager(ctx context.Context) *GlobalPoolManager {
 	pm, _ := ctx.Value(poolManagerKey{}).(*GlobalPoolManager)
 	return pm

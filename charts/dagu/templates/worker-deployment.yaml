@@ -41,6 +41,8 @@ spec:
             - worker
             - --config
             - /etc/dagu/dagu.yaml
+            - --worker.coordinators
+            - "{{ include "dagu.fullname" $ }}-coordinator.{{ $.Release.Namespace }}.svc.cluster.local:50055"
             {{- if $pool.labels }}
             - --worker.labels
             - {{ include "dagu.workerLabels" $pool.labels | quote }}
@@ -92,8 +94,7 @@ spec:
       {{- end }}
       volumes:
         - name: data
-          persistentVolumeClaim:
-            claimName: {{ include "dagu.fullname" $ }}-data
+          emptyDir: {}
         - name: config
           configMap:
             name: {{ include "dagu.fullname" $ }}-config

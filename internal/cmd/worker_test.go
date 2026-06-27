@@ -61,7 +61,7 @@ func TestWorkerCommand(t *testing.T) {
 func TestBuildCoordinatorClientConfig(t *testing.T) {
 	t.Parallel()
 
-	t.Run("EmptyCoordinatorsReturnsNil", func(t *testing.T) {
+	t.Run("EmptyCoordinatorsReturnsError", func(t *testing.T) {
 		t.Parallel()
 
 		cfg := &config.Config{
@@ -69,13 +69,13 @@ func TestBuildCoordinatorClientConfig(t *testing.T) {
 				Coordinators: []string{},
 			},
 		}
-		result, useRemote, err := cmdprocess.BuildWorkerCoordinatorClientConfig(cfg)
-		assert.NoError(t, err)
+		result, err := cmdprocess.BuildWorkerCoordinatorClientConfig(cfg)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "worker.coordinators is required")
 		assert.Nil(t, result)
-		assert.False(t, useRemote)
 	})
 
-	t.Run("NilCoordinatorsReturnsNil", func(t *testing.T) {
+	t.Run("NilCoordinatorsReturnsError", func(t *testing.T) {
 		t.Parallel()
 
 		cfg := &config.Config{
@@ -83,10 +83,10 @@ func TestBuildCoordinatorClientConfig(t *testing.T) {
 				Coordinators: nil,
 			},
 		}
-		result, useRemote, err := cmdprocess.BuildWorkerCoordinatorClientConfig(cfg)
-		assert.NoError(t, err)
+		result, err := cmdprocess.BuildWorkerCoordinatorClientConfig(cfg)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "worker.coordinators is required")
 		assert.Nil(t, result)
-		assert.False(t, useRemote)
 	})
 
 	t.Run("StaticCoordinatorsReturnsConfig", func(t *testing.T) {
@@ -102,10 +102,9 @@ func TestBuildCoordinatorClientConfig(t *testing.T) {
 				},
 			},
 		}
-		result, useRemote, err := cmdprocess.BuildWorkerCoordinatorClientConfig(cfg)
+		result, err := cmdprocess.BuildWorkerCoordinatorClientConfig(cfg)
 		assert.NoError(t, err)
 		require.NotNil(t, result)
-		assert.True(t, useRemote)
 		assert.True(t, result.Insecure)
 	})
 
@@ -124,10 +123,9 @@ func TestBuildCoordinatorClientConfig(t *testing.T) {
 				},
 			},
 		}
-		result, useRemote, err := cmdprocess.BuildWorkerCoordinatorClientConfig(cfg)
+		result, err := cmdprocess.BuildWorkerCoordinatorClientConfig(cfg)
 		assert.NoError(t, err)
 		require.NotNil(t, result)
-		assert.True(t, useRemote)
 		assert.Equal(t, 7, result.MaxRetries)
 		assert.Equal(t, 3*time.Second, result.RetryInterval)
 	})
@@ -146,7 +144,7 @@ func TestBuildCoordinatorClientConfig(t *testing.T) {
 				},
 			},
 		}
-		_, _, err := cmdprocess.BuildWorkerCoordinatorClientConfig(cfg)
+		_, err := cmdprocess.BuildWorkerCoordinatorClientConfig(cfg)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid coordinator client configuration")
 	})
@@ -167,10 +165,9 @@ func TestBuildCoordinatorClientConfig(t *testing.T) {
 				},
 			},
 		}
-		result, useRemote, err := cmdprocess.BuildWorkerCoordinatorClientConfig(cfg)
+		result, err := cmdprocess.BuildWorkerCoordinatorClientConfig(cfg)
 		assert.NoError(t, err)
 		require.NotNil(t, result)
-		assert.True(t, useRemote)
 		assert.Equal(t, "/path/to/cert.pem", result.CertFile)
 		assert.Equal(t, "/path/to/key.pem", result.KeyFile)
 		assert.Equal(t, "/path/to/ca.pem", result.CAFile)
@@ -192,10 +189,9 @@ func TestBuildCoordinatorClientConfig(t *testing.T) {
 				},
 			},
 		}
-		result, useRemote, err := cmdprocess.BuildWorkerCoordinatorClientConfig(cfg)
+		result, err := cmdprocess.BuildWorkerCoordinatorClientConfig(cfg)
 		assert.NoError(t, err)
 		require.NotNil(t, result)
-		assert.True(t, useRemote)
 		assert.True(t, result.SkipTLSVerify)
 	})
 
@@ -212,9 +208,8 @@ func TestBuildCoordinatorClientConfig(t *testing.T) {
 				},
 			},
 		}
-		result, useRemote, err := cmdprocess.BuildWorkerCoordinatorClientConfig(cfg)
+		result, err := cmdprocess.BuildWorkerCoordinatorClientConfig(cfg)
 		assert.NoError(t, err)
 		require.NotNil(t, result)
-		assert.True(t, useRemote)
 	})
 }
