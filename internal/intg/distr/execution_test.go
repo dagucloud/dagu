@@ -47,7 +47,7 @@ func artifactExecutionStatusTimeout() time.Duration {
 	case runtime.GOOS == "windows" && raceEnabled():
 		return 60 * time.Second
 	case runtime.GOOS == "windows":
-		// Shared-nothing artifact persistence has to archive worker output and
+		// Distributed artifact persistence has to archive worker output and
 		// stream it back to the coordinator, which is materially slower on the
 		// GitHub-hosted Windows runners than ordinary distributed execution.
 		return 45 * time.Second
@@ -503,7 +503,7 @@ steps:
 }
 
 func TestExecution_QueuedCatchupHappyPath(t *testing.T) {
-	t.Run("sharedNothingPreservesCatchupMetadata", func(t *testing.T) {
+	t.Run("distributedWorkerPreservesCatchupMetadata", func(t *testing.T) {
 		scheduleTime := time.Date(2026, 3, 13, 10, 0, 0, 0, time.UTC)
 		expectedOutput := "distributed-catchup-remote"
 

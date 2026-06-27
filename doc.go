@@ -6,5 +6,5 @@
 //
 // The embedding API is experimental and may change before it is declared
 // stable. It currently supports local file-backed execution and distributed
-// distributed execution against existing Dagu coordinators.
+// execution against existing Dagu coordinators.
 package dagu

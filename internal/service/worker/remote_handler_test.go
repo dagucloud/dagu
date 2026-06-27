@@ -1073,7 +1073,7 @@ steps:
 		require.Equal(t, core.TriggerTypeCatchUp, final.TriggerType)
 	})
 
-	t.Run("SharedNothingModeWithEmbeddedStatus", func(t *testing.T) {
+	t.Run("RemoteWorkerWithEmbeddedStatus", func(t *testing.T) {
 		t.Parallel()
 
 		tempDir := t.TempDir()

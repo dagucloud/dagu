@@ -451,7 +451,7 @@ func (h *remoteTaskHandler) loadActionWorkspaceDAG(ctx context.Context, task *co
 		return nil, nil, fmt.Errorf("coordinator client does not support workspace bundles")
 	}
 
-	workDir := sharedNothingActionWorkDir(task)
+	workDir := remoteActionWorkDir(task)
 	workspace, err := materializeTaskWorkspace(ctx, task, client, actionWorkspaceDir(workDir))
 	if err != nil {
 		return nil, nil, err

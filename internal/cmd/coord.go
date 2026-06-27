@@ -42,9 +42,9 @@ func CmdCoordinator() *cobra.Command {
 
 The coordinator server provides a central point for distributed workers to:
 - Poll for tasks to execute
-- Fetch DAG definitions (To be implemented)
-- Report task execution status (To be implemented)
-- Register themselves with the system (to be implemented)
+- Fetch DAG definitions and workspace bundles
+- Report task execution status, logs, artifacts, and persistent state
+- Send heartbeats, task-claim acknowledgements, and cancellation requests
 
 This server uses gRPC for efficient communication with remote workers and
 supports authentication via signing keys and TLS encryption.

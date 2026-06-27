@@ -112,7 +112,7 @@ steps:
 	require.Equal(t, "succeeded", status.Status)
 }
 
-func TestEmbeddedDistributedSharedNothingRunYAML(t *testing.T) {
+func TestEmbeddedDistributedRunYAML(t *testing.T) {
 	coord := test.SetupCoordinator(t, test.WithStatusPersistence())
 
 	ctx, cancel := context.WithTimeout(context.Background(), embeddedTimeout(45*time.Second))
