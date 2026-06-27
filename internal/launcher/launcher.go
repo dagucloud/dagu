@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -125,19 +124,6 @@ func filteredParentEnv() []string {
 		filtered = append(filtered, entry)
 	}
 	return filtered
-}
-
-func dagNameHint(target string) string {
-	name := strings.TrimSpace(target)
-	if name == "" {
-		return ""
-	}
-	base := filepath.Base(name)
-	ext := filepath.Ext(base)
-	if ext == ".yaml" || ext == ".yml" {
-		return strings.TrimSuffix(base, ext)
-	}
-	return base
 }
 
 // Start creates a start command spec.
