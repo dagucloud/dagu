@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/config"
+	filedagrun "github.com/dagucloud/dagu/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/internal/remotenode"
 	"github.com/dagucloud/dagu/internal/service/scheduler/filenotify"
 	"github.com/fsnotify/fsnotify"
@@ -25,7 +26,7 @@ const (
 	defaultAppStreamBufferSize = 32
 	appStreamDebounceInterval  = 200 * time.Millisecond
 	dagRunStatusPollInterval   = time.Second
-	dagRunStatusFileName       = "status.jsonl"
+	dagRunStatusFileName       = filedagrun.JSONLStatusFile
 )
 
 type AppEventType string
@@ -231,15 +232,25 @@ func (w *directoryWatcher) Start(ctx context.Context) error {
 		return nil
 	}
 
-	paths, err := initialWatchPaths(w.root, w.scope)
-	if err != nil {
+	w.watcher = filenotify.New(time.Second)
+	if err := w.watcher.Add(w.root); err != nil {
+		_ = w.watcher.Close()
 		return err
 	}
-	w.watcher = filenotify.New(time.Second)
-	for _, path := range paths {
-		if err := w.watcher.Add(path); err != nil {
+	if w.scope == watchScopeOneLevel {
+		paths, err := oneLevelWatchPaths(w.root)
+		if err != nil {
 			_ = w.watcher.Close()
 			return err
+		}
+		for _, path := range paths {
+			if path == w.root {
+				continue
+			}
+			if err := w.watcher.Add(path); err != nil {
+				_ = w.watcher.Close()
+				return err
+			}
 		}
 	}
 
@@ -299,8 +310,8 @@ func (w *directoryWatcher) handleEvent(event fsnotify.Event) {
 }
 
 func (w *directoryWatcher) addCreatedChildDir(path string) error {
-	info, err := os.Stat(path)
-	if err != nil || !info.IsDir() {
+	info, err := os.Lstat(path)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return nil
 	}
 	parent := filepath.Clean(filepath.Dir(path))
@@ -442,29 +453,152 @@ func scanDAGRunStatusFiles(root string) (map[string]statusFileSnapshot, error) {
 		return files, nil
 	}
 
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || d.Name() != dagRunStatusFileName {
-			return err
-		}
-
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		relPath, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		files[filepath.ToSlash(relPath)] = statusFileSnapshot{
-			modTime: info.ModTime(),
-			size:    info.Size(),
-		}
-		return nil
-	})
-	if errors.Is(err, os.ErrNotExist) {
-		return files, nil
+	dagDirs, err := readDirIfExists(root)
+	if err != nil {
+		return nil, err
 	}
-	return files, err
+	for _, dagDir := range dagDirs {
+		if !dagDir.IsDir() {
+			continue
+		}
+		dagRunsDir := filepath.Join(root, dagDir.Name(), "dag-runs")
+		if err := scanDAGRunHistoryDir(root, dagRunsDir, files); err != nil {
+			return nil, err
+		}
+	}
+	return files, nil
+}
+
+func scanDAGRunHistoryDir(root, dagRunsDir string, files map[string]statusFileSnapshot) error {
+	years, err := readDirIfExists(dagRunsDir)
+	if err != nil {
+		return err
+	}
+	for _, year := range years {
+		if !year.IsDir() || !isFixedDigitName(year.Name(), 4) {
+			continue
+		}
+		yearDir := filepath.Join(dagRunsDir, year.Name())
+		months, err := readDirIfExists(yearDir)
+		if err != nil {
+			return err
+		}
+		for _, month := range months {
+			if !month.IsDir() || !isFixedDigitName(month.Name(), 2) {
+				continue
+			}
+			monthDir := filepath.Join(yearDir, month.Name())
+			days, err := readDirIfExists(monthDir)
+			if err != nil {
+				return err
+			}
+			for _, day := range days {
+				if !day.IsDir() || !isFixedDigitName(day.Name(), 2) {
+					continue
+				}
+				dayDir := filepath.Join(monthDir, day.Name())
+				if err := scanDAGRunDayDir(root, dayDir, files); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func scanDAGRunDayDir(root, dayDir string, files map[string]statusFileSnapshot) error {
+	runDirs, err := readDirIfExists(dayDir)
+	if err != nil {
+		return err
+	}
+	for _, runDir := range runDirs {
+		if !runDir.IsDir() || !strings.HasPrefix(runDir.Name(), filedagrun.DAGRunDirPrefix) {
+			continue
+		}
+		if err := scanDAGRunAttemptStatuses(root, filepath.Join(dayDir, runDir.Name()), files); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func scanDAGRunAttemptStatuses(root, runDir string, files map[string]statusFileSnapshot) error {
+	entries, err := readDirIfExists(runDir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !isAttemptDirName(entry.Name()) {
+			continue
+		}
+		statusPath := filepath.Join(runDir, entry.Name(), dagRunStatusFileName)
+		if err := recordDAGRunStatusFile(root, statusPath, files); err != nil {
+			return err
+		}
+	}
+
+	childrenDir := filepath.Join(runDir, filedagrun.SubDAGRunsDir)
+	children, err := readDirIfExists(childrenDir)
+	if err != nil {
+		return err
+	}
+	for _, child := range children {
+		if !child.IsDir() || !strings.HasPrefix(child.Name(), filedagrun.SubDAGRunDirPrefix) {
+			continue
+		}
+		childRunDir := filepath.Join(childrenDir, child.Name())
+		if err := scanDAGRunAttemptStatuses(root, childRunDir, files); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func recordDAGRunStatusFile(root, path string, files map[string]statusFileSnapshot) error {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return nil
+	}
+	relPath, err := filepath.Rel(root, path)
+	if err != nil {
+		return err
+	}
+	files[filepath.ToSlash(relPath)] = statusFileSnapshot{
+		modTime: info.ModTime(),
+		size:    info.Size(),
+	}
+	return nil
+}
+
+func readDirIfExists(path string) ([]os.DirEntry, error) {
+	entries, err := os.ReadDir(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	return entries, err
+}
+
+func isAttemptDirName(name string) bool {
+	return strings.HasPrefix(name, filedagrun.AttemptDirPrefix) ||
+		strings.HasPrefix(name, "."+filedagrun.AttemptDirPrefix)
+}
+
+func isFixedDigitName(name string, size int) bool {
+	if len(name) != size {
+		return false
+	}
+	for i := range len(name) {
+		if name[i] < '0' || name[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 type AppStreamService struct {
@@ -607,7 +741,7 @@ func (s *AppStreamService) handleSuspendFlagEvent(_, relPath string, op fsnotify
 }
 
 func (s *AppStreamService) handleDAGRunEvent(_, relPath string, op fsnotify.Op) {
-	if filepath.Base(relPath) != "status.jsonl" {
+	if filepath.Base(relPath) != dagRunStatusFileName {
 		return
 	}
 	s.coalescer.Enqueue(AppEvent{
